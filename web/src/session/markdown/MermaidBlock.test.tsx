@@ -9,7 +9,12 @@ const mermaid = vi.hoisted(() => ({
   render: vi.fn(),
 }))
 
-vi.mock('mermaid', () => ({ default: mermaid }))
+vi.mock('../../bridge/client', () => ({
+  getDiagramBridge: () => ({ render: async ({source, config}: {source: string; config: object}) => {
+    mermaid.initialize(config)
+    return mermaid.render('isolated-diagram', source)
+  } }),
+}))
 
 import { MermaidBlock } from './MermaidBlock'
 
@@ -24,7 +29,7 @@ it('uses SVG labels and Tide fills so nodes are not naked text on black', () => 
   const theme = mermaidThemeVariables()
   const config = mermaidInitConfig()
   expect(config.theme).toBe('base')
-  expect(config.securityLevel).toBe('antiscript')
+  expect(config.securityLevel).toBe('strict')
   expect(config.flowchart.htmlLabels).toBe(false)
   expect(config.flowchart.useMaxWidth).toBe(false)
   expect(config.flowchart.curve).toBe('linear')
@@ -33,6 +38,16 @@ it('uses SVG labels and Tide fills so nodes are not naked text on black', () => 
   expect(theme.primaryTextColor).toBe('#eaf3ff')
   expect(theme.mainBkg).toBe('#0d1118')
   expect(theme.primaryColor).not.toBe('#000')
+})
+
+it('keeps oversized source copyable without entering the diagram parser', async () => {
+  const onCopy = vi.fn()
+  const source = 'flowchart TD\n' + 'A'.repeat(20_000)
+  render(<MermaidBlock source={source} onCopy={onCopy} />)
+  expect(await screen.findByText(/图表内容过长/)).toBeInTheDocument()
+  expect(mermaid.render).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: '复制 Mermaid 源码' }))
+  expect(onCopy).toHaveBeenCalledWith(source)
 })
 
 it('mounts parsed SVG instead of innerHTML and rejects junk', () => {

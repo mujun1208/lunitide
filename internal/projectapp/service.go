@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"strconv"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/project"
@@ -34,6 +33,12 @@ type Tx interface {
 type UnitOfWork interface {
 	DoProject(context.Context, func(Tx) error) error
 }
+
+// PhaseCompletionTx performs evidence checks, freezes deliverables, completes
+// the stage and advances the project on the same project transaction.
+type PhaseCompletionTx interface {
+	CompleteProjectPhase(context.Context, string, int64, int) (project.Project, error)
+}
 type Reader interface {
 	ListProjects(context.Context, project.Filter) ([]project.Project, error)
 	GetProject(context.Context, string) (project.Project, error)
@@ -41,6 +46,7 @@ type Reader interface {
 type ArtifactChecker interface {
 	ProjectHasArtifacts(context.Context, string) (bool, error)
 }
+
 // Deleter removes a project and all its dependent records.
 type Deleter interface {
 	DeleteProject(context.Context, string) error
@@ -51,11 +57,11 @@ type systemClock struct{}
 func (systemClock) Now() time.Time { return time.Now().UTC() }
 
 type Service struct {
-	read    Reader
-	uow     UnitOfWork
-	deleter Deleter
+	read      Reader
+	uow       UnitOfWork
+	deleter   Deleter
 	artifacts ArtifactChecker
-	clock   Clock
+	clock     Clock
 }
 
 func New(read Reader, uow UnitOfWork) *Service {
@@ -64,7 +70,7 @@ func New(read Reader, uow UnitOfWork) *Service {
 func NewWithClock(read Reader, uow UnitOfWork, clock Clock) *Service {
 	return &Service{read: read, uow: uow, clock: clock}
 }
-func (s *Service) SetDeleter(d Deleter) { s.deleter = d }
+func (s *Service) SetDeleter(d Deleter)                 { s.deleter = d }
 func (s *Service) SetArtifactChecker(c ArtifactChecker) { s.artifacts = c }
 func (s *Service) Get(ctx context.Context, id string) (project.Project, error) {
 	if s == nil || s.read == nil {
@@ -141,54 +147,82 @@ func (s *Service) Create(ctx context.Context, key, actor string, request any, p 
 }
 
 type projectReplayDTO struct {
-	ID          string         `json:"id"`
-	Name        string         `json:"name"`
-	ProjectCode string         `json:"projectCode"`
-	Type        project.Type   `json:"type"`
-	Description string         `json:"description"`
-	Summary     string         `json:"summary"`
-	Objective   string         `json:"objective"`
-	Client      string         `json:"client"`
-	ContractNo  string         `json:"contractNo"`
-	Amount      float64        `json:"amount"`
-	Budget      float64        `json:"budget"`
-	PlanStart   string         `json:"planStart"`
-	PlanEnd     string         `json:"planEnd"`
-	Remark      string         `json:"remark"`
-	CloseReason string         `json:"closeReason"`
-	Status      project.Status `json:"status"`
-	CreatedAt   time.Time      `json:"createdAt"`
-	UpdatedAt   time.Time      `json:"updatedAt"`
-	Version     int64          `json:"version"`
+	ID                string         `json:"id"`
+	Name              string         `json:"name"`
+	ProjectCode       string         `json:"projectCode"`
+	Type              project.Type   `json:"type"`
+	Description       string         `json:"description"`
+	Summary           string         `json:"summary"`
+	Objective         string         `json:"objective"`
+	Client            string         `json:"client"`
+	ContractNo        string         `json:"contractNo"`
+	Amount            float64        `json:"amount"`
+	Budget            float64        `json:"budget"`
+	PlanStart         string         `json:"planStart"`
+	PlanEnd           string         `json:"planEnd"`
+	Remark            string         `json:"remark"`
+	CloseReason       string         `json:"closeReason"`
+	StatusBeforeClose project.Status `json:"statusBeforeClose"`
+	ReopenReason      string         `json:"reopenReason"`
+	OrgID             string         `json:"orgId,omitempty"`
+	SpaceID           string         `json:"spaceId,omitempty"`
+	Status            project.Status `json:"status"`
+	CreatedAt         time.Time      `json:"createdAt"`
+	UpdatedAt         time.Time      `json:"updatedAt"`
+	Version           int64          `json:"version"`
 }
 
 func projectReplayDTOFrom(p project.Project) projectReplayDTO {
-	return projectReplayDTO{ID: p.ID, Name: p.Name, ProjectCode: p.ProjectCode, Type: p.Type, Description: p.Description, Summary: p.Summary, Objective: p.Objective, Client: p.Client, ContractNo: p.ContractNo, Amount: p.Amount, Budget: p.Budget, PlanStart: p.PlanStart, PlanEnd: p.PlanEnd, Remark: p.Remark, CloseReason: p.CloseReason, Status: p.Status, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Version: p.Version}
+	return projectReplayDTO{ID: p.ID, Name: p.Name, ProjectCode: p.ProjectCode, Type: p.Type, Description: p.Description, Summary: p.Summary, Objective: p.Objective, Client: p.Client, ContractNo: p.ContractNo, Amount: p.Amount, Budget: p.Budget, PlanStart: p.PlanStart, PlanEnd: p.PlanEnd, Remark: p.Remark, CloseReason: p.CloseReason, StatusBeforeClose: p.StatusBeforeClose, ReopenReason: p.ReopenReason, OrgID: p.OrgID, SpaceID: p.SpaceID, Status: p.Status, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Version: p.Version}
 }
 
 // Mutate applies an optimistic-locking lifecycle mutation (update / publish /
 // close / reopen) inside one project unit of work with audit trail.
-func (s *Service) Mutate(ctx context.Context, key, actor, action string, id string, version int64, mutate func(*project.Project) error) (project.Project, error) {
+func (s *Service) Mutate(ctx context.Context, key, actor, action string, id string, version int64, request any, mutate func(*project.Project) error) (project.Project, error) {
 	if !providerapp.ValidIdempotencyKey(key) {
 		return project.Project{}, ErrIdempotencyKeyRequired
 	}
 	if s == nil || s.uow == nil || s.clock == nil {
 		return project.Project{}, errors.New("project unit of work is unavailable")
 	}
+	// Callers pass the decoded full payload, not just id/version. The closure
+	// is applied only after this durable request identity has been checked.
+	digest, err := mutationDigest(actor, action, id, version, request)
+	if err != nil {
+		return project.Project{}, err
+	}
 	var result project.Project
-	err := s.uow.DoProject(ctx, func(tx Tx) error {
+	err = s.uow.DoProject(ctx, func(tx Tx) error {
 		now := s.clock.Now().UTC()
 		record, found, err := tx.Idempotency(ctx, action, key, now)
 		if err != nil {
 			return err
 		}
 		if found {
-			if record.Digest != digestOf(action, id, version) {
+			if record.Digest != digest {
 				return ErrIdempotencyConflict
 			}
 			return json.Unmarshal(record.Response, &result)
 		}
-		result, err = tx.UpdateProject(ctx, id, version, mutate)
+		if action == "project.advanceStatus" {
+			var phaseRequest struct {
+				Phase int `json:"phase"`
+			}
+			raw, marshalErr := json.Marshal(request)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			if err := json.Unmarshal(raw, &phaseRequest); err != nil {
+				return err
+			}
+			phaseTx, ok := tx.(PhaseCompletionTx)
+			if !ok {
+				return ErrInvalidTransition
+			}
+			result, err = phaseTx.CompleteProjectPhase(ctx, id, version, phaseRequest.Phase)
+		} else {
+			result, err = tx.UpdateProject(ctx, id, version, mutate)
+		}
 		if err != nil {
 			return err
 		}
@@ -197,20 +231,30 @@ func (s *Service) Mutate(ctx context.Context, key, actor, action string, id stri
 			return err
 		}
 		meta, _ := json.Marshal(map[string]any{"version": result.Version, "status": result.Status})
-		eventSum := sha256.Sum256([]byte("project-audit\x00" + action + "\x00" + result.ID))
+		eventSum := sha256.Sum256([]byte("project-audit\x00" + action + "\x00" + result.ID + "\x00" + key + "\x00" + digest))
 		var eventULID ulid.ULID
 		copy(eventULID[:], eventSum[:16])
 		if err = tx.PutAudit(ctx, providerapp.Audit{ID: eventULID.String(), Action: projectAuditAction(action), AggregateID: result.ID, Actor: actor, Metadata: meta, CreatedAt: now}); err != nil {
 			return err
 		}
-		return tx.PutIdempotency(ctx, providerapp.Record{Operation: action, Key: key, Digest: digestOf(action, id, version), Response: response, CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)})
+		return tx.PutIdempotency(ctx, providerapp.Record{Operation: action, Key: key, Digest: digest, Response: response, CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)})
 	})
 	return result, err
 }
 
-func digestOf(action, id string, version int64) string {
-	sum := sha256.Sum256([]byte(action + "\x00" + id + "\x00" + strconv.FormatInt(version, 10)))
-	return hex.EncodeToString(sum[:])
+func mutationDigest(actor, action, id string, version int64, request any) (string, error) {
+	body, err := json.Marshal(struct {
+		Actor   string `json:"actor"`
+		Action  string `json:"action"`
+		ID      string `json:"id"`
+		Version int64  `json:"version"`
+		Payload any    `json:"payload"`
+	}{actor, action, id, version, request})
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // projectAuditAction maps bridge methods onto the frozen audit_events

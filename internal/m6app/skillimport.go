@@ -7,7 +7,8 @@
 // Every step runs inside the agent-runtime single-writer transaction so
 // the candidate row, its audit record and (on approval) the skill chain
 // commit atomically. Approval is the only step that writes the skill
-// tables; rejection and revocation never touch them.
+// tables. The production source path also materializes the runtime draft and
+// disables it in the same transaction when its candidate is revoked.
 package m6app
 
 import (
@@ -42,8 +43,9 @@ var (
 
 // SkillImportService implements the governed import pipeline.
 type SkillImportService struct {
-	uow   UnitOfWork
-	clock Clock
+	uow    UnitOfWork
+	clock  Clock
+	source SkillSource
 }
 
 func NewSkillImportService(uow UnitOfWork) *SkillImportService {
@@ -61,14 +63,15 @@ func (s *SkillImportService) available() error {
 
 // DiscoverInput is the discovery payload (skill.import.discover).
 type DiscoverInput struct {
-	AssetType       string
-	SourceURL       string
-	ImmutableCommit string
-	ArchiveHash     string
-	License         string
-	NoticeRef       string
-	Publisher       string
-	Signature       string
+	AssetType         string
+	SourceURL         string
+	ImmutableCommit   string
+	ArchiveHash       string
+	License           string
+	NoticeRef         string
+	Publisher         string
+	Signature         string
+	sourceAttestation string
 }
 
 // Discover records a candidate at the head of the pipeline
@@ -77,12 +80,28 @@ func (s *SkillImportService) Discover(ctx context.Context, in DiscoverInput) (m6
 	if err := s.available(); err != nil {
 		return m6supply.ImportCandidate{}, err
 	}
+	if s.source != nil {
+		if existing, found, err := s.resumeSourceDiscovery(ctx, in); err != nil {
+			return m6supply.ImportCandidate{}, err
+		} else if found {
+			return existing, nil
+		}
+		resolved, err := s.resolveDiscovery(ctx, in)
+		if err != nil {
+			return m6supply.ImportCandidate{}, err
+		}
+		in = resolved
+	}
 	if err := m6supply.ValidateImportInput(in.AssetType, in.SourceURL, in.ImmutableCommit, in.ArchiveHash, in.License, in.Publisher); err != nil {
 		return m6supply.ImportCandidate{}, err
 	}
 	var out m6supply.ImportCandidate
 	err := s.uow.TransactM6(ctx, func(tx Tx) error {
-		if _, err := tx.FindM6ImportCandidate(in.SourceURL, in.ImmutableCommit); err == nil {
+		if existing, err := tx.FindM6ImportCandidate(in.SourceURL, in.ImmutableCommit); err == nil {
+			if s.HasSource() && existing.ArchiveHash == in.ArchiveHash && existing.SourceAttestation == in.sourceAttestation && (existing.State == m6supply.ImportDiscovered || existing.State == m6supply.ImportInspected || existing.State == m6supply.ImportAwaitingApproval) {
+				out = existing
+				return nil
+			}
 			return ErrCandidateExists
 		} else if !errors.Is(err, m6supply.ErrNotFound) {
 			return err
@@ -93,7 +112,8 @@ func (s *SkillImportService) Discover(ctx context.Context, in DiscoverInput) (m6
 			SourceURL: in.SourceURL, ImmutableCommit: in.ImmutableCommit,
 			ArchiveHash: in.ArchiveHash, License: in.License,
 			NoticeRef: in.NoticeRef, Publisher: in.Publisher, Signature: in.Signature,
-			State: m6supply.ImportDiscovered, Version: 1, CreatedAt: now, UpdatedAt: now,
+			SourceAttestation: in.sourceAttestation,
+			State:             m6supply.ImportDiscovered, Version: 1, CreatedAt: now, UpdatedAt: now,
 		}
 		if err := tx.PutM6ImportCandidate(out); err != nil {
 			return err
@@ -216,6 +236,9 @@ type ApproveInput struct {
 // skill.import.approved, and — for skill assets — the materialization of
 // the skill + version + dependency chain in the same transaction.
 func (s *SkillImportService) Approve(ctx context.Context, in ApproveInput) (m6supply.ImportCandidate, error) {
+	if s.HasSource() {
+		return s.approveResolved(ctx, in)
+	}
 	if in.Approval == "" || !jsonObject(in.Approval) {
 		return m6supply.ImportCandidate{}, errors.New("m6app: approval record must be a JSON object")
 	}
@@ -250,7 +273,16 @@ func (s *SkillImportService) Approve(ctx context.Context, in ApproveInput) (m6su
 // Revoke is terminal cleanup after approval or rejection
 // (skill.import.revoked).
 func (s *SkillImportService) Revoke(ctx context.Context, id string, expectedVersion int64, evidence m6supply.ImportEvidence) (m6supply.ImportCandidate, error) {
-	return s.step(ctx, id, expectedVersion, m6supply.ImportRevoked, evidence, nil)
+	return s.step(ctx, id, expectedVersion, m6supply.ImportRevoked, evidence, func(tx Tx, cur, next m6supply.ImportCandidate) error {
+		if cur.State != m6supply.ImportApproved || !s.HasSource() {
+			return nil
+		}
+		writer, ok := tx.(importSkillWriter)
+		if !ok {
+			return ErrServiceUnavailable
+		}
+		return writer.DisableImportedSkill(cur.ID, next.UpdatedAt)
+	})
 }
 
 // materializeSkill writes the skill entity chain for an approved skill

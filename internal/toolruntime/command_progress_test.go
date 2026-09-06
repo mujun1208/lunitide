@@ -52,15 +52,20 @@ func TestExecuteStreamingFailureCarriesOutput(t *testing.T) {
 	if err = r.ConfirmFullDiskSession(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAV"); err != nil {
 		t.Fatal(err)
 	}
+	var mu sync.Mutex
 	var chunks []string
 	_, err = r.ExecuteUnconfinedStreaming(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAV", "command.run", []byte(`{"argv":["cmd","/c","echo","boom","&&","exit","2"]}`), false, func(chunk string) {
+		mu.Lock()
+		defer mu.Unlock()
 		chunks = append(chunks, chunk)
 	})
 	if err == nil {
 		t.Fatal("failing command must surface an error")
 	}
-	// On Windows cmd chains the echo runs before exit 2, so both the live
-	// feed and the failure message carry the output.
+	// Progress can be dropped when the command exits or another sink blocks;
+	// the final failure must still carry useful output.
+	mu.Lock()
+	defer mu.Unlock()
 	if len(chunks) == 0 && !strings.Contains(err.Error(), "command failed") {
 		t.Fatalf("neither progress nor error carried output: chunks=%v err=%v", chunks, err)
 	}

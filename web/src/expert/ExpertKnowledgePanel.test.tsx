@@ -32,11 +32,11 @@ it('shows the first three parse preview blocks after a ready ingest', async () =
     collectionId: '01ARZ3NDEKTSV4RRFFQ69G5FAW',
     documentCount: 1, readyCount: 1, chunkCount: 3, nodeCount: 0, memoryCount: 0, missing: false,
   })
-  const upsertDocument = vi.fn().mockResolvedValue({
-    indexState: 'ready',
-    preview: ['ATA 32 isolation', 'retract the gear', 'third block', 'ignored'],
+  const knowledgeIngest = vi.fn().mockResolvedValue({
+    documents: [{indexState: 'ready',
+    preview: ['ATA 32 isolation', 'retract the gear', 'third block', 'ignored']}],
   })
-  render(<LanguageProvider value="zh-CN"><ExpertKnowledgePanel expertId={expertId} knowledgeGet={knowledgeGet} upsertDocument={upsertDocument} /></LanguageProvider>)
+  render(<LanguageProvider value="zh-CN"><ExpertKnowledgePanel expertId={expertId} knowledgeGet={knowledgeGet} knowledgeIngest={knowledgeIngest} /></LanguageProvider>)
   await screen.findByRole('button', { name: '把文件交给此专家' })
   const file = mockLocalFile('# ATA', 'amm.md', 'text/markdown', 'E:\\manuals\\amm.md')
   const input = document.querySelector('input[type="file"]') as HTMLInputElement
@@ -53,11 +53,11 @@ it('shows a red fail reason when index_state is failed', async () => {
     collectionId: '01ARZ3NDEKTSV4RRFFQ69G5FAW',
     documentCount: 0, readyCount: 0, chunkCount: 0, nodeCount: 0, memoryCount: 0, missing: false,
   })
-  const upsertDocument = vi.fn().mockResolvedValue({
-    indexState: 'failed',
-    failReason: 'parse function not configured',
+  const knowledgeIngest = vi.fn().mockResolvedValue({
+    documents: [{indexState: 'failed',
+    failReason: 'parse function not configured'}],
   })
-  render(<LanguageProvider value="zh-CN"><ExpertKnowledgePanel expertId={expertId} knowledgeGet={knowledgeGet} upsertDocument={upsertDocument} /></LanguageProvider>)
+  render(<LanguageProvider value="zh-CN"><ExpertKnowledgePanel expertId={expertId} knowledgeGet={knowledgeGet} knowledgeIngest={knowledgeIngest} /></LanguageProvider>)
   await screen.findByRole('button', { name: '把文件交给此专家' })
   const file = mockLocalFile('%PDF', 'scan.pdf', 'application/pdf', 'E:\\manuals\\scan.pdf')
   const input = document.querySelector('input[type="file"]') as HTMLInputElement

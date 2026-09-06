@@ -7,6 +7,12 @@ import (
 // Service-level errors mapped by the Bridge handlers and the tool runtime
 // onto the M10-CC wire codes.
 var (
+	ErrCcConflict          = errors.New("ccapp: settings changed; reload before saving")
+	ErrCcPermissionChanged = errors.New("ccapp: authorization changed; request a new operation")
+	ErrCcAuditUnavailable  = errors.New("ccapp: audit unavailable; operation was not confirmed successful")
+	ErrCcOutcomeUnknown    = errors.New("ccapp: action may have occurred but receipt could not be saved; inspect the desktop before retrying")
+	ErrCcStopPending       = errors.New("ccapp: emergency latch active; an in-flight operation is still finishing")
+	ErrCcStopPersistence   = errors.New("ccapp: emergency latch active in this process but could not be persisted")
 	// ErrCcSchema: payload/arguments failed validation (M10-CC-001).
 	ErrCcSchema = errors.New("ccapp: computer-control payload invalid")
 	// ErrCcState: illegal state transition, e.g. enabling while the

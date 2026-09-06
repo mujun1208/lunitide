@@ -604,17 +604,17 @@ var catalogTemplates = []CatalogTemplate{
 	{
 		ID: "aircraft-maintenance-engineer", Name: "tpl-aircraft-maintenance-engineer", DisplayName: "机务维修专家",
 		Description: "资深飞机维修工程师人设：适航优先、手册可追溯、MEL 门闸。辅助建议，不构成放行。",
-		Category: "行业运营", Version: "1.0.0",
+		Category:    "行业运营", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
-		EntryPoint: "builtin://aircraft-maintenance-engineer", Compose: true, Source: "awesome-skills / theNeoAI MIT",
-		Manifest:   aircraftMaintenanceEngineerManifest(),
+		EntryPoint:  "builtin://aircraft-maintenance-engineer", Compose: true, Source: "awesome-skills / theNeoAI MIT",
+		Manifest: aircraftMaintenanceEngineerManifest(),
 	},
 	{
 		ID: "mro-manual-rag", Name: "tpl-mro-manual-rag", DisplayName: "机务手册检索",
 		Description: "按机尾与日期检索受控手册，强制带修订版与 ATA 引用。",
-		Category: "信息检索", Version: "1.0.0",
+		Category:    "信息检索", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
-		EntryPoint: "builtin://mro-manual-rag", Compose: true, Source: "月汐机务",
+		EntryPoint:  "builtin://mro-manual-rag", Compose: true, Source: "月汐机务",
 		Manifest: map[string]any{
 			"triggers": []string{"查手册", "AMM", "MEL", "ATA"},
 			"prompt":   "先确认机尾或机型与日期，再 kb.search。每条关键结论必须 kb.cite。无依据写未找到受控依据。文首写辅助建议，不构成放行。",
@@ -623,9 +623,9 @@ var catalogTemplates = []CatalogTemplate{
 	{
 		ID: "mro-fault-tree", Name: "tpl-mro-fault-tree", DisplayName: "排故故障树",
 		Description: "按症状→故障→原因→任务→件号组织排故，并标置信度。",
-		Category: "信息检索", Version: "1.0.0",
+		Category:    "信息检索", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
-		EntryPoint: "builtin://mro-fault-tree", Compose: true, Source: "月汐机务",
+		EntryPoint:  "builtin://mro-fault-tree", Compose: true, Source: "月汐机务",
 		Manifest: map[string]any{
 			"triggers": []string{"排故", "隔离", "故障树"},
 			"prompt":   "按症状、候选故障、原因、任务、件号输出。每步引用手册。置信度低中高。禁止无引用确定件号。",
@@ -634,9 +634,9 @@ var catalogTemplates = []CatalogTemplate{
 	{
 		ID: "mro-checklist", Name: "tpl-mro-checklist", DisplayName: "机务检查单",
 		Description: "把已引用的排故步骤收成检查单并 excel.gen 或 docx.gen。",
-		Category: "办公协作", Version: "1.0.0",
+		Category:    "办公协作", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
-		EntryPoint: "builtin://mro-checklist", Compose: true, Source: "月汐机务",
+		EntryPoint:  "builtin://mro-checklist", Compose: true, Source: "月汐机务",
 		Manifest: map[string]any{
 			"triggers": []string{"检查单", "工卡", "checklist"},
 			"prompt":   "只使用本对话已引用步骤。excel.gen 或 docx.gen。每页写辅助建议，不构成放行。不要写外部生产库。",
@@ -645,33 +645,33 @@ var catalogTemplates = []CatalogTemplate{
 	{
 		ID: "uas-airworthiness-advisor", Name: "tpl-uas-airworthiness-advisor", DisplayName: "低空适航顾问",
 		Description: "无人机/eVTOL 适航检索与履历：CCAR-92，不签发 RTS。",
-		Category: "行业运营", Version: "1.0.0",
+		Category:    "行业运营", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
-		EntryPoint: "builtin://uas-airworthiness-advisor", Compose: true, Source: "月汐机务",
+		EntryPoint:  "builtin://uas-airworthiness-advisor", Compose: true, Source: "月汐机务",
 		Manifest: uasAirworthinessAdvisorManifest(),
 	},
 	{
 		ID: "tooling-chemical-advisor", Name: "tpl-tooling-chemical-advisor", DisplayName: "工具化工品顾问",
 		Description: "工具校准、SDS、货架期与套件备妥。校准过期禁止借出。",
-		Category: "行业运营", Version: "1.0.0",
+		Category:    "行业运营", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
-		EntryPoint: "builtin://tooling-chemical-advisor", Compose: true, Source: "月汐机务",
+		EntryPoint:  "builtin://tooling-chemical-advisor", Compose: true, Source: "月汐机务",
 		Manifest: toolingChemicalAdvisorManifest(),
 	},
 	{
 		ID: "parts-supply-advisor", Name: "tpl-parts-supply-advisor", DisplayName: "航材供应顾问",
 		Description: "库存只读、替代件三重过滤、AOG/PO 模板草稿。不构成采购承诺。",
-		Category: "行业运营", Version: "1.0.0",
+		Category:    "行业运营", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
-		EntryPoint: "builtin://parts-supply-advisor", Compose: true, Source: "月汐机务",
+		EntryPoint:  "builtin://parts-supply-advisor", Compose: true, Source: "月汐机务",
 		Manifest: partsSupplyAdvisorManifest(),
 	},
 	{
 		ID: "mx-planning-advisor", Name: "tpl-mx-planning-advisor", DisplayName: "维修计划顾问",
 		Description: "到期引擎与工作包草稿。间隔数字只来自 interval_rules。",
-		Category: "行业运营", Version: "1.0.0",
+		Category:    "行业运营", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
-		EntryPoint: "builtin://mx-planning-advisor", Compose: true, Source: "月汐机务",
+		EntryPoint:  "builtin://mx-planning-advisor", Compose: true, Source: "月汐机务",
 		Manifest: mxPlanningAdvisorManifest(),
 	},
 	{
@@ -1028,7 +1028,7 @@ func (s *Service) refreshCatalogTemplate(ctx context.Context, tpl CatalogTemplat
 	if existing.ManifestJSON == want && existing.Description == tpl.Description && existing.DisplayName == tpl.DisplayName && existing.EntryPoint == tpl.EntryPoint {
 		return false, nil
 	}
-	_, err = s.UpdateFields(ctx, existing.ID, &tpl.DisplayName, &tpl.Description, &tpl.EntryPoint, &want, tpl.Permissions, existing.MinEngineVersion, 0)
+	_, err = s.UpdateFields(ctx, existing.ID, &tpl.DisplayName, &tpl.Description, &tpl.EntryPoint, &want, tpl.Permissions, existing.MinEngineVersion, existing.Rev)
 	if err != nil {
 		return false, err
 	}

@@ -10,22 +10,191 @@
   "properties": {
     "expertId": {
       "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "sourcesAfter": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "historySourceId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "historyBeforeVersion": {
+      "type": "integer",
+      "minimum": 1
     }
   },
-  "required": ["expertId"],
+  "required": [
+    "expertId"
+  ],
   "x-result": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "collectionId": { "type": "string", "maxLength": 26 },
-      "documentCount": { "type": "integer", "minimum": 0 },
-      "readyCount": { "type": "integer", "minimum": 0 },
-      "chunkCount": { "type": "integer", "minimum": 0 },
-      "nodeCount": { "type": "integer", "minimum": 0 },
-      "memoryCount": { "type": "integer", "minimum": 0 },
-      "missing": { "type": "boolean" }
+      "collectionId": {
+        "type": "string",
+        "maxLength": 26
+      },
+      "documentCount": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "readyCount": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "chunkCount": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "nodeCount": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "memoryCount": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "missing": {
+        "type": "boolean"
+      },
+      "sources": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sourceId": {
+              "type": "string",
+              "maxLength": 26
+            },
+            "collectionId": {
+              "type": "string",
+              "maxLength": 26
+            },
+            "path": {
+              "type": "string",
+              "maxLength": 512
+            },
+            "mediaType": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "sourceLocator": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "sha256": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "checkedAt": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "error": {
+              "type": "string",
+              "maxLength": 400
+            },
+            "createdAt": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "fresh",
+                "refreshing",
+                "stale",
+                "missing",
+                "failed"
+              ]
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "versions": {
+              "type": "array",
+              "maxItems": 50,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "fresh",
+                      "failed"
+                    ]
+                  },
+                  "error": {
+                    "type": "string",
+                    "maxLength": 400
+                  },
+                  "createdAt": {
+                    "type": "string",
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "version",
+                  "sha256",
+                  "state",
+                  "error",
+                  "createdAt"
+                ]
+              }
+            },
+            "nextBeforeVersion": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "sourceId",
+            "collectionId",
+            "path",
+            "mediaType",
+            "sourceLocator",
+            "sha256",
+            "checkedAt",
+            "error",
+            "createdAt",
+            "state",
+            "version",
+            "revision",
+            "versions",
+            "nextBeforeVersion"
+          ]
+        },
+        "maxItems": 4
+      },
+      "nextSourceCursor": {
+        "type": "string",
+        "maxLength": 26
+      }
     },
-    "required": ["documentCount", "readyCount", "chunkCount", "nodeCount", "memoryCount", "missing"]
+    "required": [
+      "documentCount",
+      "readyCount",
+      "chunkCount",
+      "nodeCount",
+      "memoryCount",
+      "missing",
+      "sources",
+      "nextSourceCursor"
+    ]
   },
   "x-examples": {
     "positive": [

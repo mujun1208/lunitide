@@ -1,6 +1,7 @@
 package m8app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -76,6 +77,9 @@ func (s *KBService) EnsureExpertCollection(ctx context.Context, expertID string)
 			return err
 		}
 		if ok {
+			if existing.SubjectID != s.subject {
+				return ErrPayloadInvalid
+			}
 			out = existing
 			return nil
 		}
@@ -126,7 +130,9 @@ func (s *KBService) Search(ctx context.Context, in KBSearchInput) (KBSearchResul
 			out.Explanation.Reasons = append(out.Explanation.Reasons, "no collection for expert")
 			return nil
 		}
-		_ = coll
+		if coll.SubjectID != s.subject {
+			return ErrPayloadInvalid
+		}
 		hits, err := tx.SearchKBChunkFTS(scope, q, topK*3)
 		if err != nil {
 			return err
@@ -161,6 +167,22 @@ func (s *KBService) Search(ctx context.Context, in KBSearchInput) (KBSearchResul
 	}
 	if !usedDense {
 		adoptFTSHits(&out, in, ftsHits, topK)
+	}
+	// Validate bytes immediately before exposing a result, including after the
+	// optional embedding provider returns. A stored "ready" bit is not proof
+	// that its local source still describes these chunks.
+	currentHits := out.Hits[:0]
+	ctx = withSourceCheckCache(ctx)
+	for _, hit := range out.Hits {
+		if _, err := s.Cite(ctx, hit); err == nil {
+			currentHits = append(currentHits, hit)
+		} else {
+			out.Explanation.NotAdopted = append(out.Explanation.NotAdopted, "source changed, unavailable, or superseded")
+		}
+	}
+	out.Hits = currentHits
+	if err := ctx.Err(); err != nil {
+		return out, err
 	}
 	if len(out.Hits) == 0 {
 		out.Explanation.Missing = true
@@ -227,7 +249,7 @@ func adoptOneHit(out *KBSearchResult, in KBSearchInput, hit KBSearchHit, score f
 		ExpertID: in.ExpertID,
 		DocID:    hit.Document.DocumentID,
 		Revision: rev,
-		Locator:  hit.Chunk.LocatorJSON,
+		Locator:  citationLocator(hit.Chunk),
 		Quote:    quote,
 		Score:    score,
 	})
@@ -239,29 +261,69 @@ func (s *KBService) Cite(ctx context.Context, hit KBCitedHit) (KBCitedHit, error
 	if s == nil || s.uow == nil {
 		return KBCitedHit{}, ErrServiceUnavailable
 	}
+	if _, err := ulid.ParseStrict(hit.ExpertID); err != nil {
+		return KBCitedHit{}, ErrPayloadInvalid
+	}
+	if _, err := ulid.ParseStrict(hit.DocID); err != nil {
+		return KBCitedHit{}, ErrPayloadInvalid
+	}
 	if strings.TrimSpace(hit.Locator) == "" || strings.TrimSpace(hit.Quote) == "" {
 		return KBCitedHit{}, ErrPayloadInvalid
 	}
-	var chunkID string
 	var loc map[string]any
-	if json.Unmarshal([]byte(hit.Locator), &loc) == nil {
-		chunkID, _ = loc["chunkId"].(string)
+	if json.Unmarshal([]byte(hit.Locator), &loc) != nil {
+		return KBCitedHit{}, ErrPayloadInvalid
 	}
-	if chunkID == "" {
-		return hit, nil
+	chunkID, _ := loc["chunkId"].(string)
+	if _, err := ulid.ParseStrict(chunkID); err != nil {
+		return KBCitedHit{}, ErrPayloadInvalid
 	}
+	var citedDocument m8core.KBDocument
 	err := s.uow.TransactKB(ctx, func(tx KBTx) error {
+		collection, exists, err := tx.GetKBCollectionByScope(ExpertScopeID(hit.ExpertID))
+		if err != nil {
+			return err
+		}
+		if !exists || collection.SubjectID != s.subject {
+			return ErrPayloadInvalid
+		}
 		got, err := tx.GetKBChunk(chunkID)
 		if err != nil {
 			return err
 		}
+		if got.DocumentID != hit.DocID {
+			return ErrPayloadInvalid
+		}
+		doc, exists, err := tx.GetKBLatestDocument(hit.DocID)
+		if err != nil {
+			return err
+		}
+		if !exists || doc.CollectionID != collection.CollectionID || doc.Version != got.DocumentVersion || doc.IndexState != m8core.KBIndexReady {
+			return ErrPayloadInvalid
+		}
+		canonical := citationLocator(got)
+		incoming, _ := json.Marshal(loc)
+		if !bytes.Equal(incoming, []byte(canonical)) {
+			return ErrPayloadInvalid
+		}
+		revision, _ := locatorString(got.LocatorJSON, "revision")
+		if hit.Revision != revision {
+			return ErrPayloadInvalid
+		}
 		if !strings.HasPrefix(got.Body, hit.Quote) && !strings.HasPrefix(strings.TrimSpace(got.Body), strings.TrimSpace(hit.Quote)) {
 			return ErrPayloadInvalid
 		}
+		hit.Locator = canonical
+		citedDocument = doc
 		return nil
 	})
 	if err != nil {
 		return KBCitedHit{}, err
+	}
+	if usable, err := s.sourceDocumentUsable(ctx, citedDocument); err != nil {
+		return KBCitedHit{}, err
+	} else if !usable {
+		return KBCitedHit{}, ErrKBDocumentNotReady
 	}
 	return hit, nil
 }
@@ -320,17 +382,33 @@ func locatorString(raw, key string) (string, bool) {
 
 // KnowledgeStats is the expert.knowledge.get projection.
 type KnowledgeStats struct {
-	CollectionID  string `json:"collectionId"`
-	DocumentCount int    `json:"documentCount"`
-	ReadyCount    int    `json:"readyCount"`
-	ChunkCount    int    `json:"chunkCount"`
-	NodeCount     int    `json:"nodeCount"`
-	MemoryCount   int    `json:"memoryCount"`
-	Missing       bool   `json:"missing"`
+	CollectionID     string     `json:"collectionId"`
+	DocumentCount    int        `json:"documentCount"`
+	ReadyCount       int        `json:"readyCount"`
+	ChunkCount       int        `json:"chunkCount"`
+	NodeCount        int        `json:"nodeCount"`
+	MemoryCount      int        `json:"memoryCount"`
+	Missing          bool       `json:"missing"`
+	Sources          []KBSource `json:"sources"`
+	NextSourceCursor string     `json:"nextSourceCursor"`
 }
 
 // KnowledgeGet answers collection counters for one expert.
 func (s *KBService) KnowledgeGet(ctx context.Context, expertID string) (KnowledgeStats, error) {
+	return s.KnowledgeGetPage(ctx, expertID, KBSourcePage{})
+}
+func (s *KBService) KnowledgeGetPage(ctx context.Context, expertID string, page KBSourcePage) (KnowledgeStats, error) {
+	if page.HistoryBeforeVersion < 0 {
+		return KnowledgeStats{}, ErrPayloadInvalid
+	}
+	for _, id := range []string{page.SourcesAfter, page.HistorySourceID} {
+		if id != "" {
+			if _, err := ulid.ParseStrict(id); err != nil {
+				return KnowledgeStats{}, ErrPayloadInvalid
+			}
+		}
+	}
+
 	if s == nil || s.uow == nil {
 		return KnowledgeStats{}, ErrServiceUnavailable
 	}
@@ -344,6 +422,9 @@ func (s *KBService) KnowledgeGet(ctx context.Context, expertID string) (Knowledg
 			out.Missing = true
 			return nil
 		}
+		if coll.SubjectID != s.subject {
+			return ErrPayloadInvalid
+		}
 		out.CollectionID = coll.CollectionID
 		docs, ready, chunks, err := tx.CountKBStats(coll.CollectionID)
 		if err != nil {
@@ -352,5 +433,31 @@ func (s *KBService) KnowledgeGet(ctx context.Context, expertID string) (Knowledg
 		out.DocumentCount, out.ReadyCount, out.ChunkCount = docs, ready, chunks
 		return nil
 	})
+	if err == nil && out.CollectionID != "" {
+		out.Sources, out.NextSourceCursor, err = s.sourcesForCollection(ctx, out.CollectionID, page)
+		if err == nil {
+			err = s.uow.TransactKB(ctx, func(tx KBTx) error {
+				var e error
+				out.DocumentCount, out.ReadyCount, out.ChunkCount, e = tx.CountKBStats(out.CollectionID)
+				return e
+			})
+		}
+	}
+	if out.Sources == nil {
+		out.Sources = []KBSource{}
+	}
 	return out, err
+}
+
+// citationLocator binds the locator to the stored chunk/version identity even
+// when an imported source locator omitted or supplied conflicting IDs.
+func citationLocator(chunk m8core.KBChunk) string {
+	loc := map[string]any{}
+	_ = json.Unmarshal([]byte(chunk.LocatorJSON), &loc)
+	if loc == nil {
+		loc = map[string]any{}
+	}
+	loc["chunkId"], loc["documentId"], loc["version"] = chunk.ChunkID, chunk.DocumentID, chunk.DocumentVersion
+	body, _ := json.Marshal(loc)
+	return string(body)
 }

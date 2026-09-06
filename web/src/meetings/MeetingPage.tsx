@@ -9,10 +9,13 @@ import { usePanelResize } from '../ui/usePanelResize'
 import { audioSourceLabel, captureStateNotice, decodeMeetingPcmBase64, engineLoopbackPlan, MEETING_CATCHUP_HINT, meetingAsrRuntimeLine, meetingSystemAudioMissing, mixMeetingPcmS16le, noteLoopbackEnergy, pcmFrameFromSamples, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, releaseMeetingCapture, shouldFallbackLiveCaption, startMeetingSpeech, type MeetingAsrRuntime, type MeetingCapturePlan } from './meetingAsr'
 import { localAsrStatus } from '../session/companion/localAsr'
 import type { MeetingListen } from './meetingSettings'
-import { ASR_INTERRUPTED_NOTICE, startMeetingAudioRecorder, trimLiveSegments, type MeetingAudioHandle } from './meetingAudio'
+import { ASR_INTERRUPTED_NOTICE, startMeetingAudioRecorder, verifyMeetingAudioAck, trimLiveSegments, type MeetingAudioHandle } from './meetingAudio'
 import { collapseLiveTranscriptLines } from './meetingText'
 import { watchCaptureTracksEnded } from './meetingCapture'
 import type { CompanionSpeechHandle } from '../session/companion/speech'
+import { MeetingSummarySource } from './MeetingSummarySource'
+import { MeetingTranscriptEditor, type MeetingTranscriptEditorHandle } from './MeetingTranscriptEditor'
+import { MeetingSegments } from './MeetingSegments'
 
 const SUMMARIZE_POLL_MS = 4_000
 const SYSTEM_AUDIO_RECOVER_MS = 15_000
@@ -107,6 +110,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
   const [draftSummary, setDraftSummary] = useState('')
   const [draftActions, setDraftActions] = useState('')
   const [draftTranscript, setDraftTranscript] = useState('')
+  const [editConflict, setEditConflict] = useState<MeetingDTO>()
   const [deleteTarget, setDeleteTarget] = useState<MeetingDTO>()
   const [prefs, setPrefs] = useState<MeetingSettings>(() => loadMeetingSettings())
   const [historyOpen, setHistoryOpen] = useState(() => localStorage.getItem(HISTORY_OPEN_KEY) !== '0')
@@ -143,6 +147,25 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
   const userStopRef = useRef(false)
   const appendChain = useRef(Promise.resolve())
   const currentIdRef = useRef('')
+  const mountedRef = useRef(true)
+  const selectionEpoch = useRef(0)
+  const listEpoch = useRef(0)
+  const currentRef = useRef(current)
+  currentRef.current = current
+  const editEpoch = useRef(0)
+  const draftDirty = useRef(false)
+  const draftRevision = useRef(0)
+  const transcriptEditor = useRef<MeetingTranscriptEditorHandle>(null)
+  const draftRef = useRef({ summary: draftSummary, actions: draftActions, transcript: draftTranscript })
+  draftRef.current = { summary: draftSummary, actions: draftActions, transcript: draftTranscript }
+  const edit = (field: 'summary' | 'actions' | 'transcript', value: string) => {
+    draftDirty.current = true
+    editEpoch.current++
+    draftRef.current = { ...draftRef.current, [field]: value }
+    if (field === 'summary') setDraftSummary(value)
+    else if (field === 'actions') setDraftActions(value)
+    else setDraftTranscript(value)
+  }
 
   useEffect(() => {
     const sync = () => setPrefs(loadMeetingSettings())
@@ -155,12 +178,16 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
   }, [])
 
   const refresh = useCallback(async () => {
+    const epoch = ++listEpoch.current
     const listed = await meetings.list()
-    setItems(listed.items)
+    if (mountedRef.current && epoch === listEpoch.current) setItems(listed.items)
     return listed.items
   }, [meetings])
 
-  const adopt = (next: MeetingDTO) => {
+  const adopt = (next: MeetingDTO, replaceDraft = false) => {
+    if (!mountedRef.current || (currentIdRef.current && currentIdRef.current !== next.meetingId)) return
+    if (currentRef.current?.meetingId === next.meetingId && currentRef.current.revision > next.revision) return
+    const changedMeeting = currentRef.current?.meetingId !== next.meetingId
     if (currentIdRef.current !== next.meetingId) {
       loopbackEnergyRef.current = { hits: 0, zeros: 0 }
       setSystemHeard(undefined)
@@ -171,9 +198,16 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
       ? { ...next, segments: trimLiveSegments(next.segments) }
       : next
     setCurrent(view)
-    setDraftSummary(view.summary || '')
-    setDraftActions(view.actions || '')
-    setDraftTranscript(collapseLiveTranscriptLines((view.transcript || '').split('\n')).join('\n'))
+    currentRef.current = view
+    listEpoch.current++
+    if (changedMeeting || replaceDraft || !draftDirty.current) {
+      draftDirty.current = false
+      draftRevision.current = view.revision
+      setEditConflict(undefined)
+      setDraftSummary(view.summary || '')
+      setDraftActions(view.actions || '')
+      setDraftTranscript(view.transcript || '')
+    }
     setItems(values => {
       const rest = values.filter(item => item.meetingId !== view.meetingId)
       return [view, ...rest]
@@ -262,6 +296,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
         if (!volcProviderId) throw new Error('会议听写选了火山，但没有可用的语音模型。请在供应商里配置 seed-asr。')
         if (!sawRealCaption) setNotice(VOLC_CONNECTING_NOTICE)
       }
+      if (!mountedRef.current || speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
       setAsrRuntime({
         backend: listenKind,
         providerId: volcProviderId || undefined,
@@ -276,6 +311,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
         duplex: true,
         spokenText: () => '',
         onFinal: text => {
+          if (!mountedRef.current || speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
           bumpCaption()
           sawRealCaption = true
           setNotice(prev => prev === VOLC_CONNECTING_NOTICE ? VOLC_LISTENING_NOTICE : prev)
@@ -283,6 +319,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
           const startedMs = Math.max(0, Date.now() - Date.parse(meeting.startedAt))
           appendChain.current = appendChain.current.then(() =>
             retryMeetingWrite(() => meetings.append({ meetingId: id, text, startedMs })).then(seg => {
+              if (!mountedRef.current || speechGen.current !== gen || currentIdRef.current !== id) return
               setCurrent(value => value && value.meetingId === id ? {
                 ...value,
                 segments: trimLiveSegments([...(value.segments ?? []), seg]),
@@ -297,6 +334,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
           })
         },
         onInterim: text => {
+          if (!mountedRef.current || speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
           bumpCaption()
           if (text.trim()) {
             sawRealCaption = true
@@ -388,26 +426,33 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
 
   useEffect(() => {
     let alive = true
+    mountedRef.current = true
+    const epoch = selectionEpoch.current
     refresh().then(async listed => {
-      if (!alive) return
+      if (!alive || epoch !== selectionEpoch.current) return
       const live = listed.find(item => item.status === 'recording')
       if (!live) return
       try {
         adopt(live)
         const detail = await meetings.get({ meetingId: live.meetingId }).catch(() => live)
-        if (!alive) return
+        if (!alive || epoch !== selectionEpoch.current) return
         adopt(detail)
         if (detail.status !== 'recording') return
         userStopRef.current = false
         const plan = await capturePlanForStarted(detail)
-        if (!alive) {
+        if (!alive || epoch !== selectionEpoch.current) {
           releaseMeetingCapture(plan)
           return
         }
         try {
-          audioRef.current = await startMeetingAudioRecorder({
+          const recorder = await startMeetingAudioRecorder({
+            meetingId: live.meetingId,
             extraStreams: plan.extraStreams,
-            append: pcm => retryMeetingWrite(() => meetings.audioAppend({ meetingId: live.meetingId, pcm })),
+            append: async (pcm, batch) => {
+              const ack = await retryMeetingWrite(() => meetings.audioAppend({ meetingId: live.meetingId, pcm, ...batch }))
+              verifyMeetingAudioAck(ack, batch)
+              return ack
+            },
             onFrame: frame => {
               const extra = loopbackHoldRef.current
               loopbackHoldRef.current = undefined
@@ -417,9 +462,16 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
               if (!userStopRef.current) setNotice(ASR_INTERRUPTED_NOTICE)
             },
           })
+          if (!alive || epoch !== selectionEpoch.current) {
+            void recorder.stop().catch(() => undefined)
+            releaseMeetingCapture(plan)
+            return
+          }
+          audioRef.current = recorder
         } catch {
           if (alive) setNotice('无法写入本机录音。实时转写仍会尝试，长会停止后可能无法补转写。')
         }
+        if (!alive || epoch !== selectionEpoch.current) { releaseMeetingCapture(plan); return }
         try {
           await attachSpeech(detail, plan)
         } catch (error) {
@@ -454,9 +506,9 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     const id = current.meetingId
     const pulse = () => {
       void meetings.heartbeat({ meetingId: id }).then(next => {
-        if (currentIdRef.current !== id) return
-        setCurrent(value => value && value.meetingId === id ? { ...value, durationMs: next.durationMs, updatedAt: next.updatedAt } : value)
-        setItems(values => values.map(item => item.meetingId === id ? { ...item, durationMs: next.durationMs, updatedAt: next.updatedAt } : item))
+        if (!mountedRef.current || currentIdRef.current !== id || currentRef.current?.status !== 'recording') return
+        setCurrent(value => value && value.meetingId === id && value.status === 'recording' ? { ...value, durationMs: Math.max(value.durationMs, next.durationMs) } : value)
+        setItems(values => values.map(item => item.meetingId === id && item.status === 'recording' ? { ...item, durationMs: Math.max(item.durationMs, next.durationMs) } : item))
       }).catch(() => undefined)
     }
     pulse()
@@ -473,9 +525,10 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
       return
     }
     const id = live.meetingId
+    let alive = true
     const pulse = () => {
       void meetings.loopbackPoll({ meetingId: id }).then(next => {
-        if (currentIdRef.current !== id) return
+        if (!alive || !mountedRef.current || userStopRef.current || currentIdRef.current !== id) return
         setEngineLoopbackActive(next.active)
         if (!next.active) {
           loopbackHoldRef.current = undefined
@@ -497,7 +550,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     }
     pulse()
     loopbackPollRef.current = window.setInterval(pulse, LOOPBACK_POLL_MS)
-    return () => window.clearInterval(loopbackPollRef.current)
+    return () => { alive = false; window.clearInterval(loopbackPollRef.current) }
   }, [current?.status, current?.meetingId, current?.audioSource, meetings, stopping])
 
   useEffect(() => {
@@ -509,7 +562,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     const tick = () => {
       if (planHasLiveSystemAudio(captureRef.current)) return
       void recoverMeetingSystemAudio(captureRef.current, { interactive: false }).then(recovered => {
-        if (currentIdRef.current !== live.meetingId) {
+        if (!mountedRef.current || userStopRef.current || currentIdRef.current !== live.meetingId) {
           if (recovered !== captureRef.current) releaseMeetingCapture(recovered)
           return
         }
@@ -534,7 +587,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     const id = current.meetingId
     const pulse = () => {
       void meetings.get({ meetingId: id }).then(next => {
-        if (currentIdRef.current !== id) return
+        if (!mountedRef.current || currentIdRef.current !== id) return
         if (next.status !== 'summarizing') adopt(honestNotes(next))
         else setItems(values => values.map(item => item.meetingId === id ? { ...item, status: next.status, updatedAt: next.updatedAt } : item))
       }).catch(() => undefined)
@@ -545,12 +598,14 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
   }, [current?.status, current?.meetingId, meetings])
 
   useEffect(() => () => {
+    mountedRef.current = false
+    selectionEpoch.current++
     speechGen.current += 1
     speechRef.current?.stop()
     speechRef.current = null
     pcmTapRef.current = undefined
     unwatchRef.current()
-    void audioRef.current?.stop()
+    void audioRef.current?.stop().catch(() => undefined)
     audioRef.current = null
     releaseMeetingCapture(captureRef.current)
     window.clearInterval(tickRef.current)
@@ -565,6 +620,8 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
 
   const start = async () => {
     if (busy || stopping) return
+    const epoch = ++selectionEpoch.current
+    currentIdRef.current = ''
     userStopRef.current = false
     setStopping(false)
     setBusy(true)
@@ -573,12 +630,19 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     let plan: MeetingCapturePlan | undefined
     try {
       const started = await meetings.start({ audioSource: 'microphone_and_system' })
+      if (!mountedRef.current || epoch !== selectionEpoch.current) return
       adopt(started)
       plan = await capturePlanForStarted(started)
+      if (!mountedRef.current || epoch !== selectionEpoch.current) { releaseMeetingCapture(plan); return }
       try {
-        audioRef.current = await startMeetingAudioRecorder({
+        const recorder = await startMeetingAudioRecorder({
+          meetingId: started.meetingId,
           extraStreams: plan.extraStreams,
-          append: pcm => retryMeetingWrite(() => meetings.audioAppend({ meetingId: started.meetingId, pcm })),
+          append: async (pcm, batch) => {
+              const ack = await retryMeetingWrite(() => meetings.audioAppend({ meetingId: started.meetingId, pcm, ...batch }))
+              verifyMeetingAudioAck(ack, batch)
+              return ack
+            },
           onFrame: frame => {
             const extra = loopbackHoldRef.current
             loopbackHoldRef.current = undefined
@@ -588,9 +652,17 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
             if (!userStopRef.current) setNotice(ASR_INTERRUPTED_NOTICE)
           },
         })
+        if (!mountedRef.current || epoch !== selectionEpoch.current) {
+          void recorder.stop().catch(() => undefined)
+          releaseMeetingCapture(plan)
+          return
+        }
+        audioRef.current = recorder
       } catch {
+        if (!mountedRef.current || epoch !== selectionEpoch.current) { releaseMeetingCapture(plan); return }
         setNotice('无法写入本机录音。实时转写仍会尝试，长会停止后可能无法补转写。')
       }
+      if (!mountedRef.current || epoch !== selectionEpoch.current) { releaseMeetingCapture(plan); return }
       try {
         await attachSpeech(started, plan)
       } catch (error) {
@@ -602,7 +674,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
       speechRef.current = null
       pcmTapRef.current = undefined
       unwatchRef.current()
-      void audioRef.current?.stop()
+      void audioRef.current?.stop().catch(() => undefined)
       audioRef.current = null
       releaseMeetingCapture(plan)
       captureRef.current = undefined
@@ -615,9 +687,18 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     }
   }
 
-  const finishNotes = async (meetingId: string) => {
+  const finishNotes = async (meeting: MeetingDTO, catchup = true) => {
+    const meetingId = meeting.meetingId
+    const epoch = selectionEpoch.current
+    const active = () => mountedRef.current && epoch === selectionEpoch.current && currentIdRef.current === meetingId
     setNotice('正在转写补全…')
-    const caught = await meetings.catchup({ meetingId })
+    const caught = catchup ? await meetings.catchup({ meetingId, expectedRevision: meeting.revision }) : meeting
+    if (!active()) return
+    if (caught.status === 'needs_summary' && (caught.summaryError?.startsWith('转写补全存在缺口') || caught.summaryError?.startsWith('本机补转写不可用'))) {
+      adopt(caught)
+      setNotice(caught.summaryError)
+      return
+    }
     if (caught.status === 'ready') {
       adopt(caught)
       setNotice('纪要已生成，可以导出。')
@@ -628,12 +709,15 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     try {
       const notes = honestNotes(await meetings.summarize({
         meetingId,
+        expectedRevision: caught.revision,
         ...(prefsRef.current.modelId ? { modelId: prefsRef.current.modelId } : {}),
       }))
+      if (!active()) return
       adopt(notes)
       setNotice(notes.status === 'ready' ? '纪要已生成，可以导出。' : notes.summaryError || '尚未生成摘要，逐字稿已保存。')
     } catch (error) {
       const latest = honestNotes(await meetings.get({ meetingId }))
+      if (!active()) return
       adopt(latest)
       setNotice(latest.summaryError || (error instanceof Error ? error.message : '无法生成摘要，可重试'))
     }
@@ -641,6 +725,8 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
 
   const stop = async () => {
     if (!current || current.status !== 'recording' || busy || stopping || userStopRef.current) return
+    const epoch = selectionEpoch.current
+    const active = () => mountedRef.current && epoch === selectionEpoch.current && currentIdRef.current === current.meetingId
     userStopRef.current = true
     setStopping(true)
     const startedAt = Date.parse(current.startedAt)
@@ -654,44 +740,54 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     window.clearInterval(recoverRef.current)
     setBusy(true)
     setNotice('正在结束录制…')
-    speechGen.current += 1
     const handle = speechRef.current
     speechRef.current = null
     pcmTapRef.current = undefined
+    const savingAudio = audioRef.current?.stop().then(() => undefined, error => error instanceof Error ? error : new Error(String(error)))
+    releaseMeetingCapture(captureRef.current)
+    captureRef.current = undefined
     try {
       await handle?.flush?.()
     } catch {
       /* last utterance still flushed below */
     }
+    speechGen.current += 1
     handle?.stop()
     unwatchRef.current()
-    try {
-      await audioRef.current?.flush()
-      await audioRef.current?.stop()
-    } catch {
-      /* WAV tail is best-effort; stop still persists what landed */
+    const saveError = await savingAudio
+    if (saveError) {
+      if (!active()) return
+      setNotice(saveError.message)
+      setStopping(false)
+      setBusy(false)
+      userStopRef.current = false
+      return
     }
     audioRef.current = null
-    releaseMeetingCapture(captureRef.current)
-    captureRef.current = undefined
     setInterim('')
     setAsrRuntime(undefined)
     try {
       await appendChain.current
-      const stopped = await meetings.stop({ meetingId: current.meetingId })
+      const stopped = await meetings.stop({ meetingId: current.meetingId, expectedRevision: current.revision })
+      if (!active()) return
       adopt({ ...stopped, durationMs: stopped.durationMs || frozenMs })
-      await finishNotes(current.meetingId)
+      await finishNotes(stopped)
     } catch (error) {
+      if (!active()) return
       try {
         const latest = honestNotes(await meetings.get({ meetingId: current.meetingId }))
+        if (!active()) return
         adopt(latest)
         setNotice(latest.summaryError || (error instanceof Error ? error.message : '无法结束录制'))
       } catch {
+        if (!active()) return
         setNotice(error instanceof Error ? error.message : '无法结束录制')
       }
     } finally {
-      setStopping(false)
-      setBusy(false)
+      if (active()) {
+        setStopping(false)
+        setBusy(false)
+      }
     }
   }
 
@@ -699,7 +795,11 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     if (!current || busy) return
     setBusy(true)
     try {
-      await finishNotes(current.meetingId)
+      const saved = await persistEdits() ?? current
+      // An explicit transcript edit is authoritative. Re-decoding the old
+      // recording would conflict with its journal and prevent regeneration.
+      const editedSource = saved.summaryError?.startsWith('逐字稿已修改') || saved.summaryError?.startsWith('补转写已更新逐字稿')
+      await finishNotes(saved, !editedSource)
     } catch (error) {
       try {
         const latest = honestNotes(await meetings.get({ meetingId: current.meetingId }))
@@ -714,11 +814,15 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
   }
 
   const composeNew = () => {
+    if (busy) return
     if (current?.status === 'recording' || stopping) {
       setNotice('先停止当前录制，才能开新纪要。')
       return
     }
     currentIdRef.current = ''
+    selectionEpoch.current++
+    draftDirty.current = false
+    setEditConflict(undefined)
     setCurrent(undefined)
     setDraftSummary('')
     setDraftActions('')
@@ -738,26 +842,46 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
 
   const open = async (id: string) => {
     if (busy || current?.status === 'recording' || stopping) return
+    const epoch = ++selectionEpoch.current
+    currentIdRef.current = id
     try {
-      adopt(honestNotes(await meetings.get({ meetingId: id })))
+      const next = honestNotes(await meetings.get({ meetingId: id }))
+      if (!mountedRef.current || epoch !== selectionEpoch.current) return
+      adopt(next)
       setNotice('')
     } catch (error) {
+      if (!mountedRef.current || epoch !== selectionEpoch.current) return
       setNotice(error instanceof Error ? error.message : '无法打开会议')
     }
   }
 
-  const persistEdits = async () => {
+  const persistEdits = async (revision = draftRevision.current) => {
     if (!current || current.status === 'recording') return current
-    const dirty = draftSummary !== (current.summary || '') || draftActions !== (current.actions || '') || draftTranscript !== (current.transcript || '')
-    if (!dirty) return current
-    const next = await meetings.update({
-      meetingId: current.meetingId,
-      summary: draftSummary,
-      actions: draftActions,
-      transcript: draftTranscript,
-    })
-    adopt(next)
-    return next
+    const epoch = selectionEpoch.current
+    const meetingId = current.meetingId
+    const pageSaved = await transcriptEditor.current?.save()
+    if (!mountedRef.current || epoch !== selectionEpoch.current || currentIdRef.current !== meetingId) throw new Error('会议已切换，本次保存已停止。')
+    if (pageSaved) revision = pageSaved.revision
+    const dirty = draftDirty.current
+    if (!dirty) return pageSaved ?? current
+    const edited = editEpoch.current
+    try {
+      // A paged preview is never a replacement for the complete transcript.
+      const { summary, actions, transcript } = draftRef.current
+      const next = await meetings.update({ meetingId, expectedRevision: revision, summary, actions,
+        ...(current.transcriptComplete === false ? {} : { transcript }) })
+      if (!mountedRef.current || epoch !== selectionEpoch.current || currentIdRef.current !== meetingId) return next
+      draftRevision.current = next.revision
+      setEditConflict(undefined)
+      adopt(next, edited === editEpoch.current)
+      return next
+    } catch (error) {
+      if (error instanceof BridgeClientError && error.code === 'MEETING_CHANGED') {
+        const latest = await meetings.get({ meetingId })
+        if (mountedRef.current && epoch === selectionEpoch.current && currentIdRef.current === meetingId) setEditConflict(latest)
+      }
+      throw error
+    }
   }
 
   const exportDoc = async (format: 'markdown' | 'html' | 'txt') => {
@@ -774,11 +898,19 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     }
   }
 
+  const saveEdits = async (revision?: number) => {
+    const epoch = selectionEpoch.current
+    setBusy(true)
+    try { await persistEdits(revision); if (mountedRef.current && epoch === selectionEpoch.current) setNotice('纪要已保存') }
+    catch (error) { if (mountedRef.current && epoch === selectionEpoch.current) setNotice(error instanceof Error ? error.message : '无法保存') }
+    finally { if (mountedRef.current && epoch === selectionEpoch.current) setBusy(false) }
+  }
+
   const removeMeeting = async () => {
     if (!deleteTarget || busy) return
     setBusy(true)
     try {
-      await meetings.delete({ meetingId: deleteTarget.meetingId })
+      await meetings.delete({ meetingId: deleteTarget.meetingId, expectedRevision: deleteTarget.revision })
       setItems(values => values.filter(item => item.meetingId !== deleteTarget.meetingId))
       if (current?.meetingId === deleteTarget.meetingId) {
         currentIdRef.current = ''
@@ -883,26 +1015,46 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
           {liveLines.map((line, index) => <p key={`${index}:${line.slice(0, 24)}`}>{line}</p>)}
           {interim ? <p className="meeting-interim">{interim}</p> : null}
         </div>
+        {current && <MeetingSegments meeting={current} load={meetings.segmentsList} />}
         {current && current.status !== 'recording' && (
           <article className="meeting-doc">
             <section>
               <h3>会议摘要</h3>
-              <textarea aria-label="会议摘要" value={draftSummary} onChange={e => setDraftSummary(e.target.value)} placeholder="尚未生成摘要。" />
+              <MeetingSummarySource meeting={current} load={meetings.summarySource} />
+              <textarea aria-label="会议摘要" value={draftSummary} onChange={e => edit('summary', e.target.value)} placeholder="尚未生成摘要。" />
             </section>
             <section>
               <h3>决议/待办</h3>
-              <textarea aria-label="决议/待办" value={draftActions} onChange={e => setDraftActions(e.target.value)} placeholder={current.status === 'ready' ? '这场没有抽出可执行待办。' : '尚未生成待办。摘要成功后会一起写出。'} />
+              <textarea aria-label="决议/待办" value={draftActions} onChange={e => edit('actions', e.target.value)} placeholder={current.status === 'ready' ? '这场没有抽出可执行待办。' : '尚未生成待办。摘要成功后会一起写出。'} />
             </section>
             <section>
               <h3>全文逐字稿</h3>
-              <textarea aria-label="全文逐字稿" value={draftTranscript} onChange={e => setDraftTranscript(e.target.value)} placeholder="（空）" />
+              {current.transcriptComplete === false
+                ? <MeetingTranscriptEditor key={current.meetingId} ref={transcriptEditor} meeting={current} meetings={meetings} disabled={busy}
+                    onSaved={next => {
+                      if (currentIdRef.current !== next.meetingId || (currentRef.current?.revision ?? 0) > next.revision) return
+                      draftRevision.current = next.revision
+                      adopt(next)
+                      // A page edit can shorten the document into a single
+                      // complete page while independent summary edits remain.
+                      // Their dirty flag must not preserve the old preview.
+                      draftRef.current = { ...draftRef.current, transcript: next.transcript || '' }
+                      setDraftTranscript(next.transcript || '')
+                    }} />
+                : <textarea aria-label="全文逐字稿" value={draftTranscript} onChange={e => edit('transcript', e.target.value)} placeholder="（空）" />}
             </section>
             <p className="meeting-empty">{audioSourceLabel(source)}</p>
             <div className="meeting-export">
               {current.status === 'needs_summary' || current.status === 'transcribed' || current.status === 'summarizing' ? (
                 <button type="button" disabled={busy} onClick={() => void retry()}>重试生成摘要</button>
               ) : null}
-              <button type="button" disabled={busy} onClick={() => void persistEdits().then(() => setNotice('纪要已保存')).catch(error => setNotice(error instanceof Error ? error.message : '无法保存'))}>保存编辑</button>
+              {editConflict && <div role="alert">
+                <p>会议已有新版本，你的输入仍保留。请核对最新内容后选择。</p>
+                <details><summary>查看最新内容</summary><p>摘要：{editConflict.summary}</p><p>待办：{editConflict.actions}</p><textarea aria-label="最新逐字稿" readOnly value={editConflict.transcript} /></details>
+                <button type="button" onClick={() => adopt(editConflict, true)}>采用最新内容</button>
+                <button type="button" disabled={busy} onClick={() => void saveEdits(editConflict.revision)}>保留我的编辑并再次保存</button>
+              </div>}
+              <button type="button" disabled={busy} onClick={() => void saveEdits()}>保存编辑</button>
               <button type="button" disabled={busy} onClick={() => void exportDoc('markdown')}>导出 Markdown</button>
               <button type="button" disabled={busy} onClick={() => void exportDoc('html')}>导出 HTML</button>
               <button type="button" disabled={busy} onClick={() => void exportDoc('txt')}>导出文本</button>

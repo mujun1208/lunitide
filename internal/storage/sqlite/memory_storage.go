@@ -120,24 +120,29 @@ func (s *Store) GetMemory(ctx context.Context, id string) (*memory.Memory, error
 
 // ListMemoriesByProject returns memories for a project, optionally filtered by layer.
 func (s *Store) ListMemoriesByProject(ctx context.Context, projectID string, layer string, limit int) ([]memory.Memory, error) {
+	return s.listMemoriesByProjectAt(ctx, projectID, layer, limit, nil)
+}
+func (s *Store) ListActiveMemoriesByProject(ctx context.Context, projectID, layer string, now time.Time, limit int) ([]memory.Memory, error) {
+	return s.listMemoriesByProjectAt(ctx, projectID, layer, limit, &now)
+}
+func (s *Store) listMemoriesByProjectAt(ctx context.Context, projectID, layer string, limit int, now *time.Time) ([]memory.Memory, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 100
 	}
-	var rows *sql.Rows
-	var err error
-	if layer == "" {
-		rows, err = s.db.QueryContext(ctx,
-			`SELECT id, project_id, layer, scope, key, content,
-			 embedding_id, source_id, source_type, confidence, access_count,
-			 last_accessed, expires_at, created_at, updated_at
-			 FROM memories WHERE project_id=? ORDER BY created_at DESC LIMIT ?`, projectID, limit)
-	} else {
-		rows, err = s.db.QueryContext(ctx,
-			`SELECT id, project_id, layer, scope, key, content,
-			 embedding_id, source_id, source_type, confidence, access_count,
-			 last_accessed, expires_at, created_at, updated_at
-			 FROM memories WHERE project_id=? AND layer=? ORDER BY created_at DESC LIMIT ?`, projectID, layer, limit)
+	query := `SELECT id, project_id, layer, scope, key, content, embedding_id, source_id, source_type, confidence, access_count,last_accessed, expires_at, created_at, updated_at FROM memories WHERE project_id=?`
+	args := []any{projectID}
+	if layer != "" {
+		query += " AND layer=?"
+		args = append(args, layer)
 	}
+	if now != nil {
+		query += " AND (expires_at IS NULL OR " + memoryExpiryOrderSQL("expires_at") + ">?)"
+		args = append(args, expiryCutoff(*now))
+	}
+	query += " ORDER BY created_at DESC,id DESC LIMIT ?"
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+
 	if err != nil {
 		return nil, err
 	}

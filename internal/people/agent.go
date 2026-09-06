@@ -81,11 +81,8 @@ func (s *Service) SendAs(ctx context.Context, senderID, threadID, body string) (
 		Body:      body,
 		CreatedAt: nowRFC3339(),
 	}
-	if err := s.store.InsertMessage(ctx, msg, nil); err != nil {
-		return Message{}, err
-	}
-	go s.deliverMessage(t, msg, "")
-	return msg, nil
+	result, _, err := s.enqueueMessage(ctx, t, msg, nil, SendInput{ThreadID: t.ThreadID, Kind: "text", Body: body})
+	return result, err
 }
 
 func (s *Service) SendSystem(ctx context.Context, threadID, body string) (Message, error) {

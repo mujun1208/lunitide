@@ -4,6 +4,9 @@ import {
   createMutationAttempt,
   deliverableBridge,
   releaseBridge as defaultReleaseBridge,
+  projectBridge as defaultProjectBridge,
+  type ProjectBridge,
+  type DeliverableBridge,
   type ReleaseBridge,
 } from '../bridge/client'
 import type { ProjectDTO, ReleaseGetRevisionResult } from '../generated/bridge'
@@ -13,7 +16,9 @@ import {
   crIdForProject,
   readStoredCrRevision,
   writeStoredCrRevision,
+  type CrMember,
 } from './crRevision'
+import { releasePhaseForType } from './deliverableTypes'
 
 const problem = (e: unknown) =>
   e instanceof BridgeClientError
@@ -21,21 +26,24 @@ const problem = (e: unknown) =>
     : new BridgeClientError(e instanceof Error ? e.message : '请求失败', 'CLIENT_ERROR', false, 'renderer')
 
 const CHECKS = [
-  '版本一致性：制品版本号与 CR 修订 digest 匹配',
-  '依赖完整性：manifest members 无缺失',
-  '配置隔离：dev/test/prod 环境配置分离',
-  '传输对象完整性：DB/接口/开发清单均已纳入 CR',
-  '语法检查：OpenAPI 已通过 parse 绑定',
-  '回滚预案：保留上一 revision 可回退',
+  '服务端重新读取已批准的数据库、接口和开发交付文件，计算实际大小与摘要。',
+  '构建包保存不可变的文件内容及来源清单，改变源文件后须创建新修订。',
+  '开发和测试发布写入本地制品目录，完成发布准备前再次核验文件。',
 ]
 
 export function ReleasePanel({
   project,
   bridge = defaultReleaseBridge,
+  projects = defaultProjectBridge,
+  deliverables = deliverableBridge,
+  onProjectUpdated,
   readOnly = false,
 }: {
   project?: ProjectDTO
   bridge?: ReleaseBridge
+  projects?: ProjectBridge
+  deliverables?: DeliverableBridge
+  onProjectUpdated?: (project: ProjectDTO) => void
   readOnly?: boolean
 }): React.JSX.Element {
   const crId = project ? crIdForProject(project) : ''
@@ -46,7 +54,7 @@ export function ReleasePanel({
   const [digest, setDigest] = useState(stored?.digest ?? '')
   const [packageId, setPackageId] = useState('')
   const [promotionId, setPromotionId] = useState('')
-  const [targetEnv, setTargetEnv] = useState<'dev' | 'stage' | 'prod'>('dev')
+  const [targetEnv, setTargetEnv] = useState<'dev' | 'stage'>('dev')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [note, setNote] = useState('')
@@ -59,7 +67,7 @@ export function ReleasePanel({
       setManifest(view.manifest)
       const latest = view.revisions[view.revisions.length - 1]
       if (latest && !revisionId) {
-        setRevisionId(stored?.crRevisionId ?? '')
+        setRevisionId(latest.crRevisionId ?? stored?.crRevisionId ?? '')
         setDigest(latest.digest)
       }
     } catch (e) {
@@ -69,18 +77,20 @@ export function ReleasePanel({
 
   useEffect(() => { void loadRevision() }, [loadRevision])
 
-  const [members, setMembers] = useState<{ name: string; size: number; sha256: string }[]>([])
+  const [members, setMembers] = useState<CrMember[]>([])
   useEffect(() => {
     if (!project) { setMembers([]); return }
-    void collectCrMembers(project, deliverableBridge).then(setMembers).catch(() => setMembers([]))
-  }, [project, timeline.length])
+    let cancelled = false
+    void collectCrMembers(project, deliverables).then(result => { if (!cancelled) setMembers(result) }).catch(() => { if (!cancelled) setMembers([]) })
+    return () => { cancelled = true }
+  }, [project, timeline.length, deliverables])
 
   const createRevision = async () => {
     if (readOnly || busy || !project) return
     setBusy(true)
     setError('')
     try {
-      const result = await createProjectCrRevision(project, `${project.name} 工作台发布修订`, deliverableBridge, bridge)
+      const result = await createProjectCrRevision(project, `${project.name} 工作台发布修订`, deliverables, bridge)
       setRevisionId(result.crRevisionId)
       setDigest(result.digest)
       writeStoredCrRevision(project.id, result.crRevisionId, result.digest)
@@ -124,12 +134,24 @@ export function ReleasePanel({
       }
       const result = await bridge.promote(payload, { attempt: createMutationAttempt('release.promote', payload) })
       setPromotionId(result.promotionId)
-      setNote(`晋级 ${targetEnv} · state ${result.state}`)
+      setNote(`本地${targetEnv === 'dev' ? '开发' : '测试'}制品发布 · ${result.state}`)
     } catch (e) {
       setError(problem(e).message)
     } finally {
       setBusy(false)
     }
+  }
+
+  const completePreparation = async () => {
+    if (readOnly || busy || !project) return
+    setBusy(true)
+    setError('')
+    try {
+      const payload = { id: project.id, version: project.version, phase: releasePhaseForType(project.type) }
+      const updated = await projects.advanceStatus(payload, { attempt: createMutationAttempt('project.advanceStatus', payload) })
+      onProjectUpdated?.(updated)
+      setNote('发布准备已完成，本地制品已核验。外部上线仍须现场验收。')
+    } catch (e) { setError(problem(e).message) } finally { setBusy(false) }
   }
 
   return (
@@ -144,6 +166,7 @@ export function ReleasePanel({
         <section className="release-section">
           <h4>发布检查</h4>
           <ul className="release-checks">{CHECKS.map(c => <li key={c}>{c}</li>)}</ul>
+          <p className="gate-note">当前发布生成本地制品，尚未配置外部部署环境。完成发布准备不会把项目标记为已上线。</p>
         </section>
         <section className="release-section">
           <h4>CR 修订时间线</h4>
@@ -173,16 +196,16 @@ export function ReleasePanel({
               <>
                 <p className="release-result" role="status">packageId: <code>{packageId}</code></p>
                 <label>目标环境
-                  <select value={targetEnv} disabled={busy} onChange={e => setTargetEnv(e.target.value as 'dev' | 'stage' | 'prod')}>
-                    <option value="dev">开发</option>
-                    <option value="stage">测试</option>
-                    <option value="prod">生产</option>
+                  <select value={targetEnv} disabled={busy} onChange={e => setTargetEnv(e.target.value as 'dev' | 'stage')}>
+                    <option value="dev">本地开发制品</option>
+                    <option value="stage">本地测试制品</option>
                   </select>
                 </label>
-                <button type="button" className="primary" disabled={busy} onClick={() => void promote()}>传输到 {targetEnv === 'dev' ? '开发' : targetEnv === 'stage' ? '测试' : '生产'} 环境</button>
+                <button type="button" className="primary" disabled={busy} onClick={() => void promote()}>发布本地{targetEnv === 'dev' ? '开发' : '测试'}制品</button>
               </>
             )}
             {promotionId && <p className="release-result">promotionId: <code>{promotionId}</code></p>}
+            <button type="button" disabled={busy} onClick={() => void completePreparation()}>核验制品并完成发布准备</button>
           </>
         )}
         {manifest && Object.keys(manifest).length > 0 && (

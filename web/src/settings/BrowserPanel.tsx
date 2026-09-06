@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { brBridge, type BrBridge } from '../bridge/client'
 import type { BrDataUsageResult, BrModeDetectResult, BrPermissionListResult, BrPermissionPolicyPayload, BrSessionListResult, BrSettingsGetResult, BrSettingsUpdatePayload } from '../generated/bridge'
 import { Toggle } from './settingsControls'
@@ -9,9 +9,9 @@ import { Toggle } from './settingsControls'
 type BrMode = 'builtin' | 'chrome' | 'edge' | 'extension' | 'ask'
 const BR_MODE_META: Record<BrMode, { label: string; desc: string }> = {
   builtin: { label: '内置 WebView2', desc: '应用内嵌渲染，始终可用；导航走 browser.act 通道' },
-  chrome: { label: 'Chrome', desc: '独立 profile 启动本机 Chrome 并接管 CDP 调试端口' },
-  edge: { label: 'Edge', desc: '独立 profile 启动本机 Edge 并接管 CDP 调试端口' },
-  extension: { label: '浏览器扩展', desc: '接管已装扩展桥（默认端口 9222）的外部浏览器' },
+  chrome: { label: 'Chrome', desc: '独立会话与网络隔离，单次最长 15 分钟，可重新连接' },
+  edge: { label: 'Edge', desc: '独立会话与网络隔离，单次最长 15 分钟，可重新连接' },
+  extension: { label: '浏览器扩展', desc: '通过网络隔离检查后，管理外部浏览器中新建的私有会话' },
   ask: { label: '每次询问', desc: '不固定浏览器，操作前弹出选择' },
 }
 const BR_PERM_LABELS: Record<string, string> = {
@@ -34,8 +34,12 @@ export function BrowserPanel({ bridge = brBridge }: { bridge?: BrBridge }): Reac
   const [portDraft, setPortDraft] = useState('')
   const [retentionDraft, setRetentionDraft] = useState('')
   const [allowDraft, setAllowDraft] = useState('')
+  const epoch = useRef(0)
+  const busyRef = useRef(false)
 
   const refresh = async () => {
+    const current = ++epoch.current
+    busyRef.current = true
     setBusy(true)
     try {
       const [s, sess, perms, modes] = await Promise.all([
@@ -44,6 +48,7 @@ export function BrowserPanel({ bridge = brBridge }: { bridge?: BrBridge }): Reac
         bridge.listPermissions({ state: 'pending' }),
         bridge.detectModes().catch(() => null),
       ])
+      if (current !== epoch.current) return
       setSettings(s)
       setChromePathDraft(s.chromePath)
       setEdgePathDraft(s.edgePath)
@@ -54,10 +59,10 @@ export function BrowserPanel({ bridge = brBridge }: { bridge?: BrBridge }): Reac
       if (modes) setDetect(modes)
       setStatus('')
     } catch (e) {
-      setStatus(e instanceof Error ? e.message : '浏览器设置加载失败')
-    } finally { setBusy(false) }
+      if (current === epoch.current) setStatus(e instanceof Error ? e.message : '浏览器设置加载失败')
+    } finally { if (current === epoch.current) { busyRef.current = false; setBusy(false) } }
   }
-  useEffect(() => { void refresh() }, [])
+  useEffect(() => { void refresh(); return () => { epoch.current++; busyRef.current = false } }, [bridge])
 
   const detectModes = async () => {
     setBusy(true); setStatus('')
@@ -67,13 +72,30 @@ export function BrowserPanel({ bridge = brBridge }: { bridge?: BrBridge }): Reac
       setStatus(`探测完成：内置 ${r.builtin ? '✓' : '✗'} · Chrome ${r.chrome.available ? '✓' : '✗'} · Edge ${r.edge.available ? '✓' : '✗'} · 扩展桥 ${r.extension.available ? '✓' : '✗'}（端口 ${r.extension.port}）`)
     } catch (e) { setStatus(e instanceof Error ? e.message : '模式探测失败') } finally { setBusy(false) }
   }
-  const patch = async (p: BrSettingsUpdatePayload, okMsg: string) => {
+  const patch = async (p: Omit<BrSettingsUpdatePayload, 'expectedRevision'>, okMsg: string): Promise<boolean> => {
+    if (!settings || busyRef.current) return false
+    const current = ++epoch.current
+    busyRef.current = true
     setBusy(true); setStatus('')
     try {
-      const s = await bridge.updateSettings(p)
+      const s = await bridge.updateSettings({ ...p, expectedRevision: settings.revision })
+      if (current !== epoch.current) return false
       setSettings(s)
-      setStatus(okMsg)
-    } catch (e) { setStatus(e instanceof Error ? e.message : '设置更新失败') } finally { setBusy(false) }
+      setStatus(s.applyStatus === 'applied' ? okMsg : `设置已保存，尚未生效：${s.applyError || '正在应用，请稍后刷新'}`)
+      const list = await bridge.listSessions()
+      if (current === epoch.current) setSessions(list.sessions)
+      return s.applyStatus === 'applied'
+    } catch (e) {
+      if (current !== epoch.current) return false
+      // A conflict reloads the authoritative revision while keeping path/port
+      // drafts intact. A subsequent explicit save applies the user's draft.
+      try {
+        const latest = await bridge.getSettings()
+        if (current === epoch.current) setSettings(latest)
+      } catch { /* retain the current draft and revision if offline */ }
+      if (current === epoch.current) setStatus(e instanceof Error ? e.message : '设置更新失败，请重试')
+      return false
+    } finally { if (current === epoch.current) { busyRef.current = false; setBusy(false) } }
   }
   const connect = async (mode?: BrMode) => {
     setBusy(true); setStatus('')
@@ -128,10 +150,12 @@ export function BrowserPanel({ bridge = brBridge }: { bridge?: BrBridge }): Reac
     if (!settings) return
     const entry = allowDraft.trim().replace(/\/+$/, '')
     if (!entry) return
-    if (!/^https?:\/\/[^\s/]+(:\d+)?(\/.*)?$/.test(entry)) { setStatus('白名单条目需为 http(s)://host[:port][/前缀]'); return }
+    try {
+      const parsed = new URL(entry)
+      if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash || (parsed.pathname !== '' && parsed.pathname !== '/')) throw new Error('origin')
+    } catch { setStatus('白名单条目需为 http(s)://host[:port]，不能包含路径、账号或查询参数'); return }
     if (settings.allowlist.includes(entry)) { setStatus('条目已存在'); return }
-    await patch({ allowlist: [...settings.allowlist, entry] }, `已添加 ${entry}`)
-    setAllowDraft('')
+    if (await patch({ allowlist: [...settings.allowlist, entry] }, `已添加 ${entry}`)) setAllowDraft('')
   }
   const removeAllow = async (entry: string) => {
     if (!settings) return
@@ -140,6 +164,10 @@ export function BrowserPanel({ bridge = brBridge }: { bridge?: BrBridge }): Reac
 
   return (
     <div className="setting-group">
+      {settings && settings.applyStatus !== 'applied' && <div role="alert" className="notice">
+        设置已保存，尚未生效。{settings.applyError || '正在应用设置。'}
+        <button disabled={busy} onClick={() => void patch({}, '浏览器设置已生效')}>重试应用</button>
+      </div>}
       <div className="setting-group-title">就绪检查</div>
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
         <div>
@@ -158,7 +186,8 @@ export function BrowserPanel({ bridge = brBridge }: { bridge?: BrBridge }): Reac
       </div>
       <div className="setting-group-title">浏览器多模式</div>
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-        <div className="setting-desc">五种连接模式共用一套导航白名单与私网拦截策略；切换模式会断开当前活动会话。当前 {sessions.filter(s => s.state === 'connected').length}/{sessions.length} 个会话在线。</div>
+        <div className="setting-desc">五种自动化连接模式共用一套导航白名单与私网拦截策略；切换模式会断开当前活动会话。当前 {sessions.filter(s => s.state === 'connected').length}/{sessions.length} 个会话在线。</div>
+        <div className="setting-desc">从对话打开的普通网页使用固定保护：仅允许 HTTPS 并禁止私网访问，不受此处开关影响。</div>
       </div>
 
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
@@ -258,8 +287,8 @@ export function BrowserPanel({ bridge = brBridge }: { bridge?: BrBridge }): Reac
               <div className="setting-desc">{s.connectedAt ? `连接于 ${new Date(s.connectedAt).toLocaleString()}` : '未连接'}{s.detail ? ` · ${s.detail}` : ''}</div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              {s.state === 'connected' && <button disabled={busy} onClick={() => void disconnect(s.sessionId)}>断开</button>}
-              {(s.state === 'disconnected' || s.state === 'error') && <button disabled={busy} onClick={() => void connect(s.mode as BrMode)}>重连</button>}
+              {(s.state === 'connected' || (s.state === 'error' && s.connectedAt)) && <button disabled={busy} onClick={() => void disconnect(s.sessionId)}>断开</button>}
+              {(s.state === 'disconnected' || (s.state === 'error' && !s.connectedAt)) && <button disabled={busy} onClick={() => void connect(s.mode as BrMode)}>重连</button>}
             </div>
           </div>
         ))}

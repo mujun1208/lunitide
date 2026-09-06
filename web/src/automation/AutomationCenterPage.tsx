@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   automationBridge,
+  createMutationAttempt,
+  type MutationAttempt,
   type AutomationBridge,
   type ProviderBridge,
   type SessionBridge,
@@ -39,7 +41,12 @@ const MODE_LABEL: Record<AutomationDraft['executionMode'], string> = {
 const fmtTime = (iso?: string) => {
   if (!iso) return '—'
   try {
-    return new Date(iso).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    return new Date(iso).toLocaleString('zh-CN', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
   } catch {
     return iso
   }
@@ -58,6 +65,8 @@ export function AutomationCenterPage({
   providers?: ProviderBridge
   sessions?: SessionBridge
 }): React.JSX.Element {
+  const saveAttempt = useRef<MutationAttempt<object> | undefined>(undefined)
+  const generation = useRef(0)
   const [tab, setTab] = useState<Tab>('jobs')
   const [jobs, setJobs] = useState<Job[]>([])
   const [runs, setRuns] = useState<Run[]>([])
@@ -68,10 +77,24 @@ export function AutomationCenterPage({
   const [dialogOpen, setDialogOpen] = useState(false)
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
+  const scope = useRef(0)
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => {
+    scope.current++
+    busyRef.current = false
+    setBusy(false)
+    return () => {
+      scope.current++
+      if (refreshTimer.current !== undefined) clearTimeout(refreshTimer.current)
+    }
+  }, [bridge])
   const [openRun, setOpenRun] = useState<string>()
 
   const reload = useCallback(async () => {
+    const epoch = ++generation.current
     const [j, r, s] = await Promise.all([bridge.listJobs(), bridge.listRuns({ limit: 40 }), bridge.status()])
+    if (epoch !== generation.current) return
     setJobs(j.jobs)
     setRuns(r.runs)
     setStatus(s)
@@ -81,11 +104,19 @@ export function AutomationCenterPage({
     let alive = true
     void (async () => {
       try {
-        const [{ session }, model] = await Promise.all([ensureAutomationRunner(undefined, sessions), loadDefaultModel(providers)])
+        const [{ session }, model] = await Promise.all([
+          ensureAutomationRunner(undefined, sessions),
+          loadDefaultModel(providers),
+        ])
         if (!alive) return
         setRunnerSessionId(session.id)
         setDefaults(model)
-        setDraft(d => ({ ...d, sessionId: session.id, providerId: model?.providerId ?? '', modelId: model?.modelId ?? '' }))
+        setDraft((d) => ({
+          ...d,
+          sessionId: session.id,
+          providerId: model?.providerId ?? '',
+          modelId: model?.modelId ?? '',
+        }))
       } catch {
         /* surfaced when saving */
       }
@@ -95,20 +126,32 @@ export function AutomationCenterPage({
         if (alive) setNotice(e instanceof Error ? e.message : '无法加载自动化任务')
       }
     })()
-    const timer = window.setInterval(() => void reload(), 30_000)
+    const timer = window.setInterval(() => {
+      void reload().catch((e) => {
+        if (alive) setNotice(e instanceof Error ? e.message : '自动化刷新失败')
+      })
+    }, 30_000)
     return () => {
       alive = false
+      generation.current++
       window.clearInterval(timer)
     }
   }, [providers, reload, sessions])
 
   const openManual = () => {
-    setDraft(d => ({ ...EMPTY_DRAFT(), sessionId: runnerSessionId || d.sessionId, providerId: defaults?.providerId ?? d.providerId, modelId: defaults?.modelId ?? d.modelId }))
+    saveAttempt.current = undefined
+    setDraft((d) => ({
+      ...EMPTY_DRAFT(),
+      sessionId: runnerSessionId || d.sessionId,
+      providerId: defaults?.providerId ?? d.providerId,
+      modelId: defaults?.modelId ?? d.modelId,
+    }))
     setNotice('')
     setDialogOpen(true)
   }
 
   const openTemplate = (template: AutomationTemplate) => {
+    saveAttempt.current = undefined
     setDraft(
       draftFromTemplate(template, {
         sessionId: runnerSessionId,
@@ -134,12 +177,15 @@ export function AutomationCenterPage({
       setNotice('缺少模型或会话参数，请先在设置中配置模型')
       return
     }
-    if (busy) return
+    if (busyRef.current) return
+    busyRef.current = true
+    const operationScope = scope.current
     setBusy(true)
     setNotice('')
     try {
-      await bridge.setJob({
+      const payload = {
         id: draft.id,
+        expectedRevision: draft.expectedRevision,
         name: draft.name.trim(),
         cron: draft.cron.trim(),
         prompt: draft.prompt.trim(),
@@ -151,39 +197,63 @@ export function AutomationCenterPage({
         runOnce: draft.runOnce || draft.cron.startsWith('at:'),
         webhookUrl: draft.webhookUrl.trim(),
         enabled: draft.enabled,
-      })
-      await reload()
+      }
+      if (!saveAttempt.current || JSON.stringify(saveAttempt.current.payload) !== JSON.stringify(payload))
+        saveAttempt.current = createMutationAttempt('automation.job.set', payload)
+      await bridge.setJob(payload, { attempt: saveAttempt.current as MutationAttempt<typeof payload> })
+      if (operationScope !== scope.current) return
       setDialogOpen(false)
       setTab('jobs')
       setNotice('任务已保存')
+      await reload().catch(() => {
+        if (operationScope === scope.current) setNotice('任务已保存，列表刷新失败，请重新刷新')
+      })
     } catch (e) {
+      if (operationScope !== scope.current) return
       setNotice(e instanceof Error ? e.message : '保存失败')
     } finally {
-      setBusy(false)
+      if (operationScope === scope.current) {
+        busyRef.current = false
+        setBusy(false)
+      }
     }
   }
 
   const trigger = async (job: Job) => {
-    if (busy) return
+    if (busyRef.current) return
+    busyRef.current = true
+    const operationScope = scope.current
     setBusy(true)
     setNotice('')
     try {
       await bridge.triggerJob({ id: job.id })
+      if (operationScope !== scope.current) return
       setNotice(`已触发「${job.name}」`)
-      setTimeout(() => void reload(), 800)
+      if (refreshTimer.current !== undefined) clearTimeout(refreshTimer.current)
+      refreshTimer.current = setTimeout(() => {
+        if (operationScope !== scope.current) return
+        void reload().catch((e) => { if(operationScope === scope.current) setNotice(e instanceof Error ? e.message : '自动化刷新失败') })
+      }, 800)
     } catch (e) {
+      if (operationScope !== scope.current) return
       setNotice(e instanceof Error ? e.message : '触发失败')
     } finally {
-      setBusy(false)
+      if (operationScope === scope.current) {
+        busyRef.current = false
+        setBusy(false)
+      }
     }
   }
 
   const toggle = async (job: Job) => {
-    if (busy) return
+    if (busyRef.current) return
+    busyRef.current = true
+    const operationScope = scope.current
     setBusy(true)
     try {
       await bridge.setJob({
         id: job.id,
+        expectedRevision: job.revision,
         name: job.name,
         cron: job.cron,
         prompt: job.prompt,
@@ -196,25 +266,39 @@ export function AutomationCenterPage({
         webhookUrl: job.webhookUrl ?? '',
         enabled: !job.enabled,
       })
+      if (operationScope !== scope.current) return
       await reload()
+      if (operationScope !== scope.current) return
     } catch (e) {
+      if (operationScope !== scope.current) return
       setNotice(e instanceof Error ? e.message : '更新失败')
     } finally {
-      setBusy(false)
+      if (operationScope === scope.current) {
+        busyRef.current = false
+        setBusy(false)
+      }
     }
   }
 
   const remove = async (job: Job) => {
-    if (busy) return
+    if (busyRef.current) return
+    busyRef.current = true
+    const operationScope = scope.current
     setBusy(true)
     try {
       await bridge.deleteJob({ id: job.id })
+      if (operationScope !== scope.current) return
       await reload()
+      if (operationScope !== scope.current) return
       setNotice('任务已删除')
     } catch (e) {
+      if (operationScope !== scope.current) return
       setNotice(e instanceof Error ? e.message : '删除失败')
     } finally {
-      setBusy(false)
+      if (operationScope === scope.current) {
+        busyRef.current = false
+        setBusy(false)
+      }
     }
   }
 
@@ -255,39 +339,56 @@ export function AutomationCenterPage({
           {jobs.length ? (
             <>
               {[
-                { id: 'scheduled', title: '定时任务', items: jobs.filter(j => j.sessionMode !== 'isolated' && !j.runOnce && !j.cron.startsWith('at:')) },
-                { id: 'isolated', title: '独立会话', items: jobs.filter(j => j.sessionMode === 'isolated') },
-                { id: 'once', title: '一次性', items: jobs.filter(j => j.sessionMode !== 'isolated' && (j.runOnce || j.cron.startsWith('at:'))) },
-              ].map(lane =>
+                {
+                  id: 'scheduled',
+                  title: '定时任务',
+                  items: jobs.filter((j) => j.sessionMode !== 'isolated' && !j.runOnce && !j.cron.startsWith('at:')),
+                },
+                { id: 'isolated', title: '独立会话', items: jobs.filter((j) => j.sessionMode === 'isolated') },
+                {
+                  id: 'once',
+                  title: '一次性',
+                  items: jobs.filter((j) => j.sessionMode !== 'isolated' && (j.runOnce || j.cron.startsWith('at:'))),
+                },
+              ].map((lane) =>
                 lane.items.length ? (
                   <div key={lane.id} className="automation-job-lane">
                     <h2>{lane.title}</h2>
                     <ul className="automation-jobs">
-                      {lane.items.map(job => (
-                <li key={job.id} className={`automation-job ${job.enabled ? '' : 'is-disabled'}`}>
-                  <div className="automation-job-head">
-                    <b>{job.name}</b>
-                    <code>{cronToHuman(job.cron)}</code>
-                    <span className="automation-job-mode">{MODE_LABEL[(job.executionMode as AutomationDraft['executionMode']) || 'auto-edit']}</span>
-                    {job.sessionMode === 'isolated' && <span className="automation-job-mode">独立</span>}
-                  </div>
-                  <div className="automation-job-meta">
-                    <span>下次 {fmtTime(nextFire[job.id])}</span>
-                    <span>上次 {fmtTime(job.lastRunAt)}</span>
-                    {status?.runningJobs?.includes(job.id) && <span className="automation-job-running">正在执行…</span>}
-                  </div>
-                  <div className="automation-job-actions">
-                    <button type="button" disabled={busy} onClick={() => void trigger(job)}>
-                      立即运行
-                    </button>
-                    <button type="button" disabled={busy} onClick={() => void toggle(job)}>
-                      {job.enabled ? '停用' : '启用'}
-                    </button>
-                    <button type="button" className="automation-delete" disabled={busy} onClick={() => void remove(job)}>
-                      删除
-                    </button>
-                  </div>
-                </li>
+                      {lane.items.map((job) => (
+                        <li key={job.id} className={`automation-job ${job.enabled ? '' : 'is-disabled'}`}>
+                          <div className="automation-job-head">
+                            <b>{job.name}</b>
+                            <code>{cronToHuman(job.cron)}</code>
+                            <span className="automation-job-mode">
+                              {MODE_LABEL[(job.executionMode as AutomationDraft['executionMode']) || 'auto-edit']}
+                            </span>
+                            {job.sessionMode === 'isolated' && <span className="automation-job-mode">独立</span>}
+                          </div>
+                          <div className="automation-job-meta">
+                            <span>下次 {fmtTime(nextFire[job.id])}</span>
+                            <span>上次 {fmtTime(job.lastRunAt)}</span>
+                            {status?.runningJobs?.includes(job.id) && (
+                              <span className="automation-job-running">正在执行…</span>
+                            )}
+                          </div>
+                          <div className="automation-job-actions">
+                            <button type="button" disabled={busy} onClick={() => void trigger(job)}>
+                              立即运行
+                            </button>
+                            <button type="button" disabled={busy} onClick={() => void toggle(job)}>
+                              {job.enabled ? '停用' : '启用'}
+                            </button>
+                            <button
+                              type="button"
+                              className="automation-delete"
+                              disabled={busy}
+                              onClick={() => void remove(job)}
+                            >
+                              删除
+                            </button>
+                          </div>
+                        </li>
                       ))}
                     </ul>
                   </div>
@@ -303,7 +404,7 @@ export function AutomationCenterPage({
         <section className="automation-center-runs" aria-label="执行历史">
           {runs.length ? (
             <ul className="automation-runs">
-              {runs.map(run => (
+              {runs.map((run) => (
                 <li key={run.id} className={`automation-run is-${run.state}`}>
                   <button
                     type="button"
@@ -311,7 +412,9 @@ export function AutomationCenterPage({
                     aria-expanded={openRun === run.id}
                     onClick={() => setOpenRun(openRun === run.id ? undefined : run.id)}
                   >
-                    <span className={`automation-run-state is-${run.state}`}>{STATE_LABEL[run.state] ?? run.state}</span>
+                    <span className={`automation-run-state is-${run.state}`}>
+                      {run.outcomeUnknown ? '结果待核对' : (STATE_LABEL[run.state] ?? run.state)}
+                    </span>
                     <b>{run.jobName}</b>
                     <small>
                       {run.trigger === 'manual' ? '手动' : '定时'} · {fmtTime(run.startedAt)}
@@ -320,7 +423,13 @@ export function AutomationCenterPage({
                   </button>
                   {openRun === run.id && (
                     <div className="automation-run-detail">
-                      {run.state === 'failed' ? <p role="alert">{run.error}</p> : run.summary ? <pre>{run.summary}</pre> : <p>无摘要</p>}
+                      {run.state === 'failed' ? (
+                        <p role="alert">{run.error}</p>
+                      ) : run.summary ? (
+                        <pre>{run.summary}</pre>
+                      ) : (
+                        <p>无摘要</p>
+                      )}
                     </div>
                   )}
                 </li>
@@ -333,8 +442,13 @@ export function AutomationCenterPage({
       )}
       {tab === 'templates' && (
         <section className="automation-template-grid" aria-label="任务模板">
-          {AUTOMATION_TEMPLATES.map(template => (
-            <button type="button" key={template.id} className="automation-template-card" onClick={() => openTemplate(template)}>
+          {AUTOMATION_TEMPLATES.map((template) => (
+            <button
+              type="button"
+              key={template.id}
+              className="automation-template-card"
+              onClick={() => openTemplate(template)}
+            >
               <span className="automation-template-dots" aria-hidden="true">
                 <i />
                 <i />
@@ -347,7 +461,12 @@ export function AutomationCenterPage({
           ))}
         </section>
       )}
-      {notice && <p className="automation-notice" role="status">{notice}</p>}
+      {status?.lastError && <p role="alert">{status.lastError}</p>}
+      {notice && (
+        <p className="automation-notice" role="status">
+          {notice}
+        </p>
+      )}
       <AutomationCreateDialog
         open={dialogOpen}
         draft={draft}

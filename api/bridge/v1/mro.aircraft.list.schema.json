@@ -7,23 +7,55 @@
   "x-enabled": true,
   "type": "object",
   "additionalProperties": false,
-  "properties": {},
+  "properties": {
+    "cursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    }
+  },
   "x-result": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
       "items": {
         "type": "array",
-        "maxItems": 200,
+        "maxItems": 100,
         "items": {
           "$ref": "https://lunitide.local/schema/bridge/v1/mro.aircraft.upsert.schema.json#/$defs/Aircraft"
         }
+      },
+      "nextCursor": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      },
+      "continuedFields": {
+        "type": "array",
+        "maxItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "enum": [
+            "items"
+          ]
+        }
       }
     },
-    "required": ["items"]
+    "required": [
+      "items"
+    ]
   },
   "x-examples": {
-    "positive": [{}],
-    "negative": [{"unexpected": true}]
+    "positive": [
+      {}
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      },
+      {
+        "cursor": 42
+      }
+    ]
   }
 }

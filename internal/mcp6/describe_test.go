@@ -9,7 +9,7 @@ import (
 )
 
 // Describe results must flow into ReadyToolSnapshot after a successful
-// register probe, and describe failures must never block readiness.
+// register probe, and a failed catalogue handshake must withhold readiness.
 func TestDescribeCachesIntoSnapshot(t *testing.T) {
 	describeCalls := 0
 	r := newTestRegistry(func(context.Context, *Endpoint) error { return nil }, nil)
@@ -43,11 +43,11 @@ func TestDescribeCachesIntoSnapshot(t *testing.T) {
 
 	// Degraded endpoints stay out of the snapshot entirely.
 	bad, err := r.Register(context.Background(), EndpointInput{Transport: "https", URL: "https://fail.example.com/mcp", AuthRef: "secretref:pool/a", Pin: validPin()})
-	if err != nil || bad.State != StateReady {
+	if !errors.Is(err, ErrHealthCheckFailed) || bad.State != StateDegraded {
 		t.Fatalf("register fail-describe endpoint: state=%s err=%v", bad.State, err)
 	}
-	if got := len(r.ReadyToolSnapshot()); got != 2 {
-		t.Fatalf("snapshot after second register = %d (describe failure must not demote)", got)
+	if got := len(r.ReadyToolSnapshot()); got != 1 {
+		t.Fatalf("snapshot after second register = %d (failed catalogue must be excluded)", got)
 	}
 	second := r.ReadyToolSnapshot()
 	for _, entry := range second {

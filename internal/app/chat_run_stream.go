@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/domain/message"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/messageapp"
@@ -61,7 +62,7 @@ func writeGUIFallbackResult(send func(bridge.Event) error, req *llmadapter.Reque
 // status follow-up or resume it hydrates the new turn from the persisted
 // checkpoint so an in-flight PPT/DOCX workflow continues. Extracted verbatim
 // from runStream (Q-01') to keep the stream body's complexity bounded.
-func (e *Engine) reconcileTurnCheckpointOnStart(sessionID string, turn *chatTurnCheckpoint) {
+func (e *Engine) reconcileTurnCheckpointOnStart(sessionID string, turn *chatTurnCheckpoint) error {
 	if !looksLikeStatusFollowUp(turn.Goal) && !looksLikeResume(turn.Goal) {
 		if prev := e.loadTurnCheckpoint(sessionID); prev.PptActive || prev.DocxActive {
 			prev.PptActive = false
@@ -73,7 +74,9 @@ func (e *Engine) reconcileTurnCheckpointOnStart(sessionID string, turn *chatTurn
 			if prev.Status == turnStatusRunning {
 				prev.Status = turnStatusInterrupted
 			}
-			e.saveTurnCheckpoint(sessionID, prev)
+			if err := e.saveTurnCheckpoint(sessionID, prev); err != nil {
+				return err
+			}
 		}
 	}
 	if looksLikeStatusFollowUp(turn.Goal) || looksLikeResume(turn.Goal) {
@@ -96,6 +99,7 @@ func (e *Engine) reconcileTurnCheckpointOnStart(sessionID string, turn *chatTurn
 			turn.Injected = append([]string{}, prev.Injected...)
 		}
 	}
+	return nil
 }
 
 func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p provider.Provider, req llmadapter.Request, emit EventEmitter, sessionID string, modes ...executionMode) {
@@ -103,15 +107,18 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	const maxThinkingTotalBytes = 256 * 1024
 	var seq uint64
 	var sendMu sync.Mutex
+	completedToolEvents := make(map[string]bool)
+	streamEnded := false
 	var assistantText strings.Builder
 	var thinkingText strings.Builder
 	var pendingThinking string
 	var pendingThinkingSince time.Time
 	var lastLiveDraftAt time.Time
 	var streamResult llmadapter.Response
+	var generationBudget turnGenerationBudget
 	var turnArtifacts []SessionArtifact
 	turn := chatTurnCheckpoint{Status: turnStatusRunning, StreamID: id, Goal: lastUserChatText(req.Messages)}
-	e.reconcileTurnCheckpointOnStart(sessionID, &turn)
+	checkpointErr := e.reconcileTurnCheckpointOnStart(sessionID, &turn)
 	mode := executionModeApproval
 	if len(modes) > 0 {
 		mode = modes[0]
@@ -119,6 +126,15 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	rawSend := func(event bridge.Event) error {
 		sendMu.Lock()
 		defer sendMu.Unlock()
+		if event.Type == bridge.EventToolOutput && (streamEnded || (event.Tool != nil && completedToolEvents[event.Tool.CallID])) {
+			return nil
+		}
+		if event.Type == bridge.EventToolCompleted && event.Tool != nil {
+			completedToolEvents[event.Tool.CallID] = true
+		}
+		if event.Type == bridge.EventCompleted || event.Type == bridge.EventFailed || event.Type == bridge.EventCancelled {
+			streamEnded = true
+		}
 		seq++
 		event.Version = bridge.Version
 		event.Kind = "event"
@@ -175,24 +191,43 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			e.finishTerminal(id, state)
 		}
 	}()
+	if checkpointErr != nil {
+		state.cancel()
+		_ = send(bridge.Event{Type: bridge.EventFailed, Error: &bridge.StreamError{Code: "STORAGE_UNAVAILABLE", Message: "会话恢复记录暂时不可用，请重试", Retryable: true}})
+		e.finishTerminal(id, state)
+		return
+	}
+	scoped, releaseCapability, capabilityErr := e.AcquireCapability(ctx, "llm", "session")
+	if capabilityErr != nil {
+		state.cancel()
+		_ = send(bridge.Event{Type: bridge.EventFailed, Error: &bridge.StreamError{Code: "FORBIDDEN", Message: "对话所需能力已禁用", Retryable: false}})
+		e.finishTerminal(id, state)
+		return
+	}
+	defer releaseCapability()
+	ctx = scoped
+	var err error
 	usedLocalBrain := false
 	if !state.companion && state.brain != "" && state.brain != BrainLunitide {
-		if text, note, ok := e.trySessionLocalBrain(ctx, sessionID, turn.Goal, state); ok {
+		if text, note, ok := e.trySessionLocalBrain(ctx, sessionID, turn.Goal, state); ok && ctx.Err() == nil {
 			usedLocalBrain = true
+			if len(text) > turnGenerationMaxBytes {
+				text = truncateUTF8Bytes(text, turnGenerationMaxBytes)
+				err = errTurnGenerationBudget
+			}
 			assistantText.WriteString(text)
-			e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt)
+			err = errors.Join(err, e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt))
 			_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: text}})
 		} else if note != "" {
 			assistantText.WriteString(note)
-			e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt)
+			err = e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt)
 			_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: note}})
 			if len(req.Messages) > 0 && req.Messages[0].Role == llmadapter.RoleSystem {
 				req.Messages[0].Content = localBrainFallbackLockHint(note) + req.Messages[0].Content
 			}
 		}
 	}
-	var err error
-	if !usedLocalBrain {
+	if !usedLocalBrain && err == nil {
 		rot := &leaseRotateState{}
 		deltaSent := false
 		origSend := send
@@ -219,7 +254,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			if adapterErr != nil {
 				return adapterErr
 			}
-			e.applyExpertCouncil(op, a, credential, req.Model, state.council, &req, state.companion, send)
+			e.applyExpertCouncil(op, turnBudgetAdapter{Adapter: a, budget: &generationBudget}, credential, req.Model, state.council, &req, state.companion, send)
 			state.council = nil
 			startPptWorkflow(&req, &turn, send)
 			startDocxWorkflow(&req, &turn, send)
@@ -246,15 +281,25 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				turn.Goal = prev.Goal
 				turn.Injected = append(turn.Injected, prev.Injected...)
 			}
-			e.saveTurnCheckpoint(sessionID, turn)
+			if err := e.saveTurnCheckpoint(sessionID, turn); err != nil {
+				return err
+			}
 			toolLoopLimit := maxToolLoopSteps
 			if state.companion && !companionDesktopToolLoop(e, sessionID, turn.Goal) {
 				toolLoopLimit = companionMaxToolLoopSteps
 			}
 			for step := 0; step < toolLoopLimit; step++ {
-				_ = e.applyQueuedSupplements(op, sessionID, &req, &turn, send, &assistantText)
+				if err := e.CheckCapability(op, "llm", "session"); err != nil {
+					return err
+				}
+				if _, err := e.applyQueuedSupplements(op, sessionID, &req, &turn, send, &assistantText); err != nil {
+					return err
+				}
 				stepTextStart := assistantText.Len()
-				result, streamErr = a.Stream(op, credential, req, func(d llmadapter.Delta) error {
+				result, streamErr = generationBudget.stream(op, a, credential, req, func(d llmadapter.Delta) error {
+					if err := e.CheckCapability(op, "llm", "session"); err != nil {
+						return err
+					}
 					if d.Reasoning != "" {
 						if thinkingText.Len() < maxThinkingTotalBytes && !req.DisableReasoning {
 							reasoning := truncateUTF8Bytes(d.Reasoning, maxThinkingTotalBytes-thinkingText.Len())
@@ -273,13 +318,20 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 					if d.Text != "" {
 						assistantText.WriteString(d.Text)
-						e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt)
+						if err := e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt); err != nil {
+							return err
+						}
 						if err := sendDeltaChunks(send, d.Text); err != nil {
 							return err
 						}
 					}
 					return nil
 				})
+				if len(result.Message.ToolCalls) > 0 {
+					if err := e.CheckCapability(op, "agent-loop"); err != nil {
+						return err
+					}
+				}
 				if streamErr == nil && state.companion && req.DisableReasoning && assistantText.Len() == 0 {
 					if fallback := companionSpeakFallback(result); fallback != "" {
 						assistantText.WriteString(fallback)
@@ -410,7 +462,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							return err
 						}
 					}
-					note, texts := e.pullQueuedSupplements(op, sessionID)
+					note, _, queueErr := e.pullQueuedSupplements(op, sessionID, &turn)
+					if queueErr != nil {
+						return queueErr
+					}
 					if note != "" {
 						msg := result.Message
 						if strings.TrimSpace(msg.Content) == "" && stepText != "" {
@@ -421,18 +476,21 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							req.Messages = append(req.Messages, msg)
 						}
 						req.Messages = append(req.Messages, queuedSupplementMessage(note))
-						turn.Injected = append(turn.Injected, texts...)
 						assistantText.WriteString(queueInjectNotice)
 						_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "已收到你的补充，继续当前任务，不另起炉灶。\n"}})
 						_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: queueInjectNotice}})
 						continue
 					}
 					if nudgePptWorkflow(&req, &turn, send) {
-						e.saveTurnCheckpoint(sessionID, turn)
+						if err := e.saveTurnCheckpoint(sessionID, turn); err != nil {
+							return err
+						}
 						continue
 					}
 					if nudgeDocxWorkflow(&req, &turn, send) {
-						e.saveTurnCheckpoint(sessionID, turn)
+						if err := e.saveTurnCheckpoint(sessionID, turn); err != nil {
+							return err
+						}
 						continue
 					}
 					break
@@ -769,7 +827,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 								if chunk == "" {
 									return
 								}
-								_ = send(bridge.Event{Type: bridge.EventToolOutput, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: chunk}})
+								// Progress may arrive asynchronously while the tool drains
+								// output. Only the stream loop owns pending thinking state.
+								event := bridge.Event{Type: bridge.EventToolOutput, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: chunk}}
+								sanitizeOutgoingEvent(&event)
+								_ = rawSend(event)
 							}
 							return e.executeUserToolWithCompanion(op, mode, sessionID, call.Name, call.Arguments, progress, state.companion)
 						}
@@ -979,9 +1041,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				notePptTools(&turn, turn.LastTools)
 				noteDocxTools(&turn, turn.LastTools)
 				if draft := strings.TrimSpace(assistantText.String()); draft != "" {
-					turn.PersistDraft = clipRunes(draft, 8192)
+					turn.PersistDraft = draft
 				}
-				e.saveTurnCheckpoint(sessionID, turn)
+				if err := e.saveTurnCheckpoint(sessionID, turn); err != nil {
+					return err
+				}
 			}
 			streamResult = result
 			// Step-budget exhaustion: when the last step still produced tool
@@ -1000,16 +1064,21 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					sumReq := req
 					sumReq.Tools = nil
 					sumReq.Messages = append(append([]llmadapter.Message{}, req.Messages...), result.Message, forceSummaryNudgeMessage())
-					sumRes, sumErr := a.Stream(op, credential, sumReq, func(d llmadapter.Delta) error {
+					sumRes, sumErr := generationBudget.stream(op, a, credential, sumReq, func(d llmadapter.Delta) error {
 						if d.Text != "" {
 							assistantText.WriteString(d.Text)
-							e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt)
+							if err := e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt); err != nil {
+								return err
+							}
 							if err := sendDeltaChunks(send, d.Text); err != nil {
 								return err
 							}
 						}
 						return nil
 					})
+					if errors.Is(sumErr, errTurnGenerationBudget) {
+						streamErr = sumErr
+					}
 					if sumErr == nil {
 						if assistantText.Len() == 0 && state.companion && req.DisableReasoning {
 							if fallback := companionSpeakFallback(sumRes); fallback != "" {
@@ -1059,6 +1128,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	// side effect. This is the linearization point against stream.cancel.
 	// Notices appended below are not model reply text; thinking is stored only
 	// when the turn failed with an empty model reply.
+	if errors.Is(err, errTurnGenerationBudget) {
+		assistantText.WriteString(turnGenerationBudgetNotice)
+		_ = sendDeltaChunks(send, turnGenerationBudgetNotice)
+	}
 	modelReply := strings.TrimSpace(assistantText.String())
 	var messageID string
 	finalizationClaimed := false
@@ -1106,6 +1179,14 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				persist = false
 			}
 		}
+		if cancelling && !persist {
+			// Cancellation deliberately won before finalization (or no spoken
+			// companion text remains). Do not let the live recovery draft undo
+			// that decision on the next start. Failed writes still retain drafts.
+			turn.PersistDraft = ""
+			turn.PersistUsage = messageapp.AssistantUsage{}
+			turn.PersistFailed = false
+		}
 		if persist {
 			if next, delta := applyMROAnswerGate(text, state); next != text {
 				text = next
@@ -1119,7 +1200,13 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				Model:        req.Model,
 				OutputTokens: int64(streamResult.Usage.OutputTokens),
 			}
-			msg, appendErr := e.messages.AppendAssistant(ctx, id, "engine", sessionID, text, usage)
+			turn.PersistDraft, turn.PersistUsage = text, usage
+			journalErr := e.saveTurnCheckpoint(sessionID, turn)
+			var msg message.Message
+			appendErr := journalErr
+			if appendErr == nil {
+				msg, appendErr = e.appendAssistantTurn(ctx, id, "engine", sessionID, text, usage)
+			}
 			if appendErr != nil {
 				persistErr = appendErr
 				turn.PersistDraft = text
@@ -1151,7 +1238,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			turn.Status = turnStatusInterrupted
 		}
 	}
-	e.saveTurnCheckpoint(sessionID, turn)
+	if journalErr := e.saveTurnCheckpoint(sessionID, turn); journalErr != nil {
+		persistErr = errors.Join(persistErr, journalErr)
+	}
 	if terminal.Type == bridge.EventCompleted {
 		completed := &bridge.CompletedEvent{MessageID: messageID}
 		if state != nil {
@@ -1176,6 +1265,14 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	}
 	if terminal.Type == bridge.EventFailed {
 		terminal.Error = chatStreamError(err)
+	}
+	if e.queue != nil && e.queue.Deliveries() != nil && (len(turn.QueueDeliveries) > 0 || ctx.Value(queueDeliveryStartKey{}) != nil) {
+		receiptCtx, receiptCancel := turnJournalContext()
+		receiptErr := e.queue.Deliveries().FinishQueueDeliveries(receiptCtx, sessionID, id, terminal.Type == bridge.EventCompleted && persistErr == nil)
+		receiptCancel()
+		if receiptErr != nil {
+			terminal = bridge.Event{Type: bridge.EventFailed, Error: chatStreamError(receiptErr)}
+		}
 	}
 	if send(terminal) != nil {
 		state.cancel()

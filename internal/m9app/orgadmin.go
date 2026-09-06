@@ -8,6 +8,7 @@
 package m9app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"path/filepath"
 
 	"github.com/lunitide/lunitide/internal/org"
+	"github.com/lunitide/lunitide/internal/workspace"
 )
 
 // BindingStore persists the local operator's bound organization id.
@@ -48,11 +50,18 @@ func (f *FileBindingStore) Load(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var b bindingFile
-	if err := json.Unmarshal(raw, &b); err != nil {
+	var b struct {
+		OrgID *string `json:"orgId"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&b); err != nil {
 		return "", fmt.Errorf("org binding unreadable: %w", err)
 	}
-	return b.OrgID, nil
+	if b.OrgID == nil || !json.Valid(raw) {
+		return "", errors.New("org binding missing verified scope")
+	}
+	return *b.OrgID, nil
 }
 
 func (f *FileBindingStore) Save(ctx context.Context, orgID string) error {
@@ -67,25 +76,11 @@ func (f *FileBindingStore) Save(ctx context.Context, orgID string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, "binding-*.json")
+	root, err := workspace.NewSecureRoot(dir)
 	if err != nil {
 		return err
 	}
-	name := tmp.Name()
-	if _, err := tmp.Write(raw); err != nil {
-		tmp.Close()
-		os.Remove(name)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(name)
-		return err
-	}
-	if err := os.Chmod(name, 0o600); err != nil {
-		os.Remove(name)
-		return err
-	}
-	return os.Rename(name, f.path)
+	return root.WriteAtomic(filepath.Base(f.path), raw, 0600)
 }
 
 // OrgAdminService is the org-admin mutation/read service behind the ten
@@ -137,8 +132,8 @@ type OrgListItem struct {
 // SummaryResult answers org.summary: the bound org detail plus the local
 // operator's org directory (bootstrap surface - no verified context yet).
 type SummaryResult struct {
-	BoundOrgID string       `json:"boundOrgId"`
-	Org        *OrgView     `json:"org,omitempty"`
+	BoundOrgID string        `json:"boundOrgId"`
+	Org        *OrgView      `json:"org,omitempty"`
 	Orgs       []OrgListItem `json:"orgs"`
 }
 

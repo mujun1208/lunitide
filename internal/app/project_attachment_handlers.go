@@ -76,6 +76,10 @@ func handleProjectAttachmentGet(e *Engine, ctx context.Context, r bridge.Request
 	if err != nil {
 		return projectAttachmentFailure(r, err)
 	}
+	actual := sha256.Sum256(content)
+	if hex.EncodeToString(actual[:]) != att.Digest {
+		return r.Fail("PROJECT_ATTACHMENT_INTEGRITY", "项目附件内容校验失败，请重新提供文件", false)
+	}
 	dto := newProjectAttachmentDTO(att, int64(len(content)))
 	return r.Ok(map[string]any{
 		"attachmentId":  dto.AttachmentID,

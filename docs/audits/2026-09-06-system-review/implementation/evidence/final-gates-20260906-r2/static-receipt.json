@@ -1,0 +1,56 @@
+{
+  "group": "static",
+  "startedAt": "2026-09-06T13:17:16.4413007Z",
+  "finishedAt": "2026-09-06T13:18:43.3662503Z",
+  "status": "passed",
+  "source": {
+    "commit": "09978597dc026bfa40ab8d690d64f9bcaef476f3",
+    "treeSha256": "e578444c4485345e8aa55dcc2b71e551e2abda0d07627e23cc149e62d50fef17",
+    "fileCount": 2758,
+    "manifest": "static-source.json"
+  },
+  "sourceUnchanged": true,
+  "checks": [
+    {
+      "name": "go-vet",
+      "command": "go",
+      "arguments": [
+        "vet",
+        "./..."
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-06T13:17:31.4069235Z",
+      "finishedAt": "2026-09-06T13:17:45.3888469Z",
+      "stdout": "go-vet.log",
+      "stderr": "go-vet.stderr.log"
+    },
+    {
+      "name": "go-build",
+      "command": "go",
+      "arguments": [
+        "build",
+        "./..."
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-06T13:17:45.3950567Z",
+      "finishedAt": "2026-09-06T13:18:04.4834020Z",
+      "stdout": "go-build.log",
+      "stderr": "go-build.stderr.log"
+    },
+    {
+      "name": "go-lint",
+      "command": "golangci-lint.exe",
+      "arguments": [
+        "run",
+        "./..."
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-06T13:18:04.4850653Z",
+      "finishedAt": "2026-09-06T13:18:27.7957884Z",
+      "stdout": "go-lint.log",
+      "stderr": "go-lint.stderr.log"
+    }
+  ],
+  "error": null,
+  "scope": "code-and-automated-tests; docs excluded; no physical or release acceptance"
+}

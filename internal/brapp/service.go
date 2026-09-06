@@ -10,11 +10,11 @@ package brapp
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
 	"net"
-	"net/url"
 	"strconv"
 	"sync"
 	"time"
@@ -22,6 +22,7 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/lunitide/lunitide/internal/audit"
+	"github.com/lunitide/lunitide/internal/browsernetwork"
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
 	"github.com/lunitide/lunitide/internal/m7app"
 )
@@ -40,6 +41,7 @@ var (
 	ErrBrMode = errors.New("brapp: browser mode unavailable")
 	// ErrBrRateLimited: lifecycle >11/min or navigate >30/min (M10-BR-006).
 	ErrBrRateLimited = errors.New("brapp: browser operation rate limited")
+	ErrBrConflict    = errors.New("brapp: browser settings changed; reload before updating")
 )
 
 // Frozen enum values (wire contract).
@@ -96,6 +98,9 @@ type Settings struct {
 	DataRetentionDays   int      `json:"dataRetentionDays"`
 	BlockPrivateNetwork bool     `json:"blockPrivateNetworks"`
 	UpdatedAt           string   `json:"updatedAt"`
+	Revision            int64    `json:"revision"`
+	ApplyStatus         string   `json:"applyStatus"`
+	ApplyError          string   `json:"applyError"`
 }
 
 // Session is one CDP connection tracked by the state machine.
@@ -136,6 +141,7 @@ type Permission struct {
 type Tx interface {
 	GetBrSettings() (Settings, error)
 	PutBrSettings(Settings) error
+	CompareAndSwapBrSettings(int64, Settings) (bool, error)
 	GetBrSession(id string) (Session, error)
 	PutBrSession(Session) error
 	ListBrSessions() ([]Session, error)
@@ -224,12 +230,15 @@ func defaultResolver(ctx context.Context, host string) ([]net.IPAddr, error) {
 
 // Service implements the br.* surface.
 type Service struct {
-	uow       UnitOfWork
-	clock     m7app.Clock
-	host      Host
-	resolve   HostResolver
-	lifeLimit rateWindow
-	navLimit  rateWindow
+	uow         UnitOfWork
+	clock       m7app.Clock
+	host        Host
+	resolve     HostResolver
+	lifeLimit   rateWindow
+	navLimit    rateWindow
+	lifecycleMu sync.Mutex
+	recoveryMu  sync.Mutex
+	recovered   bool
 }
 
 // New returns a Service over the given unit of work with the LocalHost.
@@ -264,7 +273,7 @@ func isNotFound(err error) bool {
 
 func clampDetail(detail string) string {
 	if len(detail) > 512 {
-		return detail[:512]
+		return string([]rune(detail)[:min(len([]rune(detail)), 170)])
 	}
 	return detail
 }
@@ -295,121 +304,11 @@ func ValidateSettings(s Settings) error {
 		if len(entry) < 1 || len(entry) > BrMaxAllowlistEntryLen {
 			return fmt.Errorf("%w: allowlist entry length", ErrBrSchema)
 		}
-		u, err := url.Parse(entry)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		if _, err := browsernetwork.Origin(entry); err != nil {
 			return fmt.Errorf("%w: allowlist entry %q must be http(s)://host[:port]", ErrBrSchema, entry)
 		}
 	}
 	return nil
-}
-
-// GetSettings answers the singleton (seeded on first read).
-func (s *Service) GetSettings(ctx context.Context) (Settings, error) {
-	if s == nil || s.uow == nil {
-		return Settings{}, ErrBrNotFound
-	}
-	var out Settings
-	err := s.uow.TransactBr(ctx, func(tx Tx) error {
-		row, err := tx.GetBrSettings()
-		out = row
-		return err
-	})
-	return out, err
-}
-
-// SettingsPatch is the optional-field update command.
-type SettingsPatch struct {
-	Mode                *string
-	ChromePath          *string
-	EdgePath            *string
-	ExtensionPort       *int
-	Allowlist           *[]string
-	DataRetentionDays   *int
-	BlockPrivateNetwork *bool
-	Actor               string
-}
-
-// UpdateSettings applies one patch; a mode change force-disconnects all
-// live sessions (audited browser.disconnected).
-func (s *Service) UpdateSettings(ctx context.Context, patch SettingsPatch) (Settings, error) {
-	if s == nil || s.uow == nil {
-		return Settings{}, ErrBrNotFound
-	}
-	now := s.clock.Now().UTC()
-	ts := now.Format(time.RFC3339)
-	var out Settings
-	err := s.uow.TransactBr(ctx, func(tx Tx) error {
-		cur, err := tx.GetBrSettings()
-		if err != nil {
-			return err
-		}
-		next := cur
-		if patch.Mode != nil {
-			next.Mode = *patch.Mode
-		}
-		if patch.ChromePath != nil {
-			next.ChromePath = *patch.ChromePath
-		}
-		if patch.EdgePath != nil {
-			next.EdgePath = *patch.EdgePath
-		}
-		if patch.ExtensionPort != nil {
-			next.ExtensionPort = *patch.ExtensionPort
-		}
-		if patch.Allowlist != nil {
-			list := make([]string, len(*patch.Allowlist))
-			copy(list, *patch.Allowlist)
-			next.Allowlist = list
-		}
-		if patch.DataRetentionDays != nil {
-			next.DataRetentionDays = *patch.DataRetentionDays
-		}
-		if patch.BlockPrivateNetwork != nil {
-			next.BlockPrivateNetwork = *patch.BlockPrivateNetwork
-		}
-		if err := ValidateSettings(next); err != nil {
-			return err
-		}
-		next.UpdatedAt = ts
-		if err := tx.PutBrSettings(next); err != nil {
-			return err
-		}
-		out = next
-		// mode switch invalidates live CDP sessions
-		if patch.Mode != nil && *patch.Mode != cur.Mode {
-			live, err := tx.ListBrSessions()
-			if err != nil {
-				return err
-			}
-			for _, sess := range live {
-				if sess.State == StateDisconnected {
-					continue
-				}
-				_ = s.host.Disconnect(ctx, sess.SessionID, sess.Mode)
-				sess.State = StateDisconnected
-				sess.WsURL = ""
-				sess.Detail = ""
-				sess.ConnectedAt = ""
-				sess.UpdatedAt = ts
-				if err := tx.PutBrSession(sess); err != nil {
-					return err
-				}
-				if _, err := tx.AppendAuditEvent(audit.Event{
-					ID: ulid.Make().String(), Action: "browser.disconnected",
-					ResourceType: "br_session", ResourceID: sess.SessionID,
-					Actor: actorOr(patch.Actor), CorrelationID: "mode-switch",
-					CreatedAt: ts,
-				}); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return Settings{}, err
-	}
-	return out, nil
 }
 
 // ── mode detection ──────────────────────────────────────────────────────────
@@ -437,9 +336,14 @@ func (s *Service) Connect(ctx context.Context, sessionID, mode, actor string) (S
 	if sessionID != "" && (len(sessionID) < 1 || len(sessionID) > 64) {
 		return Session{}, fmt.Errorf("%w: sessionId length", ErrBrSchema)
 	}
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
 	settings, err := s.GetSettings(ctx)
 	if err != nil {
 		return Session{}, err
+	}
+	if settings.ApplyStatus != ApplyApplied {
+		return Session{}, fmt.Errorf("%w: 浏览器设置尚未生效，请重试应用", ErrBrState)
 	}
 	if mode == "" {
 		mode = settings.Mode
@@ -470,9 +374,18 @@ func (s *Service) Connect(ctx context.Context, sessionID, mode, actor string) (S
 	if err == nil {
 		switch existing.State {
 		case StateConnected:
-			return existing, nil
+			if s.sessionRunning(existing) {
+				return existing, nil
+			}
+			if _, err := s.disconnectSession(ctx, existing, actor, "runtime-ended"); err != nil {
+				return Session{}, err
+			}
 		case StateConnecting:
 			return Session{}, fmt.Errorf("%w: session connecting", ErrBrState)
+		case StateError:
+			if existing.WsURL != "" || existing.ConnectedAt != "" {
+				return Session{}, fmt.Errorf("%w: 请先确认旧浏览器已停止，再重新连接", ErrBrState)
+			}
 		}
 	} else if !isNotFound(err) {
 		return Session{}, err
@@ -480,6 +393,19 @@ func (s *Service) Connect(ctx context.Context, sessionID, mode, actor string) (S
 
 	// phase 1: connecting
 	if err := s.uow.TransactBr(ctx, func(tx Tx) error {
+		live, err := tx.ListBrSessions()
+		if err != nil {
+			return err
+		}
+		active := 0
+		for _, sess := range live {
+			if sess.State != StateDisconnected && s.sessionRunning(sess) {
+				active++
+			}
+		}
+		if active >= 4 {
+			return fmt.Errorf("%w: 同时最多运行 4 个浏览器会话", ErrBrState)
+		}
 		return tx.PutBrSession(Session{
 			SessionID: sessionID, Mode: mode, State: StateConnecting, UpdatedAt: ts,
 		})
@@ -519,7 +445,10 @@ func (s *Service) Connect(ctx context.Context, sessionID, mode, actor string) (S
 		return err
 	})
 	if aerr != nil {
-		return Session{}, aerr
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), BrConnectTimeout)
+		defer cancel()
+		_, cleanupErr := s.disconnectSession(cleanupCtx, out, actor, "connect-commit-failed")
+		return Session{}, errors.Join(aerr, cleanupErr)
 	}
 	return out, nil
 }
@@ -529,12 +458,24 @@ func (s *Service) ListSessions(ctx context.Context) ([]Session, error) {
 	if s == nil || s.uow == nil {
 		return nil, ErrBrNotFound
 	}
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
 	var out []Session
 	err := s.uow.TransactBr(ctx, func(tx Tx) error {
 		list, err := tx.ListBrSessions()
 		out = list
 		return err
 	})
+	if err == nil {
+		for i, sess := range out {
+			if sess.State != StateDisconnected && !s.sessionRunning(sess) {
+				out[i], err = s.disconnectSession(ctx, sess, "engine", "runtime-ended")
+				if err != nil {
+					break
+				}
+			}
+		}
+	}
 	return out, err
 }
 
@@ -547,47 +488,24 @@ func (s *Service) Disconnect(ctx context.Context, sessionID, actor string) (Sess
 	if len(sessionID) < 1 || len(sessionID) > 64 {
 		return Session{}, fmt.Errorf("%w: sessionId length", ErrBrSchema)
 	}
-	now := s.clock.Now().UTC()
-	if !s.lifeLimit.allow(now, BrLifecycleRatePerMinute) {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	if !s.lifeLimit.allow(s.clock.Now().UTC(), BrLifecycleRatePerMinute) {
 		return Session{}, ErrBrRateLimited
 	}
-	ts := now.Format(time.RFC3339)
-	var out Session
+	var sess Session
 	err := s.uow.TransactBr(ctx, func(tx Tx) error {
-		sess, err := tx.GetBrSession(sessionID)
-		if isNotFound(err) {
-			return fmt.Errorf("%w: %s", ErrBrNotFound, sessionID)
-		}
-		if err != nil {
-			return err
-		}
-		if sess.State == StateDisconnected {
-			out = sess
-			return nil
-		}
-		_ = s.host.Disconnect(ctx, sessionID, sess.Mode)
-		sess.State = StateDisconnected
-		sess.WsURL = ""
-		sess.Detail = ""
-		sess.ConnectedAt = ""
-		sess.UpdatedAt = ts
-		if err := tx.PutBrSession(sess); err != nil {
-			return err
-		}
-		if _, err := tx.AppendAuditEvent(audit.Event{
-			ID: ulid.Make().String(), Action: "browser.disconnected",
-			ResourceType: "br_session", ResourceID: sessionID,
-			Actor: actorOr(actor), CreatedAt: ts,
-		}); err != nil {
-			return err
-		}
-		out = sess
-		return nil
+		var err error
+		sess, err = tx.GetBrSession(sessionID)
+		return err
 	})
+	if isNotFound(err) {
+		return Session{}, ErrBrNotFound
+	}
 	if err != nil {
 		return Session{}, err
 	}
-	return out, nil
+	return s.disconnectSession(ctx, sess, actor, "")
 }
 
 // ── data management ─────────────────────────────────────────────────────────
@@ -626,7 +544,18 @@ func (s *Service) DataUsage(ctx context.Context, sessionID string) ([]DataUsage,
 	}
 	out := make([]DataUsage, 0, len(targets))
 	for _, sess := range targets {
-		profile, cache, cookies := s.host.SnapshotUsage(ctx, sess.Mode)
+		var profile, cache, cookies int64
+		if checked, ok := s.host.(interface {
+			SnapshotUsageChecked(context.Context, string) (int64, int64, int64, error)
+		}); ok {
+			var err error
+			profile, cache, cookies, err = checked.SnapshotUsageChecked(ctx, sess.Mode)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			profile, cache, cookies = s.host.SnapshotUsage(ctx, sess.Mode)
+		}
 		row := DataUsage{
 			SessionID: sess.SessionID, ProfileBytes: profile, CacheBytes: cache,
 			CookiesBytes: cookies, ComputedAt: ts, UpdatedAt: ts,
@@ -692,27 +621,40 @@ func (s *Service) ClearData(ctx context.Context, sessionID, actor string) (Clear
 	for _, sess := range targets {
 		freed, cerr := s.host.ClearData(ctx, sess.Mode, cutoff)
 		if cerr != nil {
-			return ClearDataResult{}, cerr
+			return result, cerr
 		}
 		result.FreedBytes += freed
 		result.ClearedSessions = append(result.ClearedSessions, sess.SessionID)
-		_ = s.uow.TransactBr(ctx, func(tx Tx) error {
-			return tx.DeleteBrDataUsage(sess.SessionID)
-		})
+		if err := s.uow.TransactBr(ctx, func(tx Tx) error { return tx.DeleteBrDataUsage(sess.SessionID) }); err != nil {
+			return result, err
+		}
 	}
 	ts := now.Format(time.RFC3339)
 	target := sessionID
 	if target == "" {
 		target = "all"
 	}
-	_ = s.uow.TransactBr(ctx, func(tx Tx) error {
+	err = s.uow.TransactBr(ctx, func(tx Tx) error {
 		_, err := tx.AppendAuditEvent(audit.Event{
 			ID: ulid.Make().String(), Action: "browser.data.cleared",
 			ResourceType: "br_session", ResourceID: target,
-			Actor: actorOr(actor), AfterDigest: strconv.FormatInt(result.FreedBytes, 10),
+			Actor: actorOr(actor), AfterDigest: fmt.Sprintf("%x", sha256.Sum256([]byte(strconv.FormatInt(result.FreedBytes, 10)))),
 			CreatedAt: ts,
 		})
 		return err
 	})
-	return result, nil
+	return result, err
+}
+
+func (s *Service) sessionRunning(sess Session) bool {
+	if checker, ok := s.host.(interface{ IsSessionRunning(string, string) bool }); ok {
+		return checker.IsSessionRunning(sess.SessionID, sess.Mode)
+	}
+	return true
+}
+func (s *Service) Close() error {
+	if closer, ok := s.host.(interface{ Close() error }); ok {
+		return closer.Close()
+	}
+	return nil
 }

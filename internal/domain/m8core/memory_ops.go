@@ -4,13 +4,19 @@
 // rewritten from here.
 package m8core
 
-import "errors"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+)
 
 // Memory-ops sentinel errors shared by storage and service layers so the
 // service can map them onto M10-MO codes without importing sqlite.
 var (
 	// ErrFactNotFound: fact id unknown (M10-MO-001).
-	ErrFactNotFound = errors.New("memory fact not found")
+	ErrFactNotFound     = errors.New("memory fact not found")
+	ErrSettingsConflict = errors.New("memory settings version conflict")
 	// ErrGrowthNotObserving: growth entry missing or already decided (M10-MO-003).
 	ErrGrowthNotObserving = errors.New("growth entry not observing")
 )
@@ -154,4 +160,11 @@ type ExportBundle struct {
 	Growth     []GrowthEntry
 	Flags      []FactFlag
 	Settings   []MemorySettings
+}
+
+// SettingsVersion binds the complete persisted profile and its monotonic timestamp.
+func SettingsVersion(settings MemorySettings) string {
+	raw, _ := json.Marshal(settings)
+	digest := sha256.Sum256(raw)
+	return hex.EncodeToString(digest[:])
 }

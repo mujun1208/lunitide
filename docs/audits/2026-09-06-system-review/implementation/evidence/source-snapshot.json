@@ -1,0 +1,1003 @@
+{
+  "base_commit": "09978597dc026bfa40ab8d690d64f9bcaef476f3",
+  "branch": "codex/system-upgrade-20260906",
+  "captured_at": "2026-09-06T07:49:08.1235198Z",
+  "scope": "本轮变更的已跟踪和未跟踪源码；排除docs，非提交或发布产物",
+  "files": [
+    {
+      "path": ".github/workflows/quality.yml",
+      "bytes": 5831,
+      "sha256": "3c08fa7c734aeaf21ab113c9a5a2c812e67c493879e85433c3285a71d0c92c7b"
+    },
+    {
+      "path": "api/bridge/v1/meetings.audio.append.schema.json",
+      "bytes": 1785,
+      "sha256": "cd09bb295cc86215089b612d77014493e61ea9bc15b7f5753257d526e966a2df"
+    },
+    {
+      "path": "api/bridge/v1/node.create.schema.json",
+      "bytes": 1365,
+      "sha256": "62b04bfb056ab88bdbc2d3b7085cb11be5a20ed2d226e441a0b2710ee348ac8a"
+    },
+    {
+      "path": "api/bridge/v1/plan.create.schema.json",
+      "bytes": 975,
+      "sha256": "88ba4b7c9f8581c5e0a224ae0287ef42776994d84a1da50846edfaa630335a3b"
+    },
+    {
+      "path": "api/bridge/v1/public.dto.schema.json",
+      "bytes": 65002,
+      "sha256": "625acbb2bcb5996132f3698fc100d246165b41629638c6ccd292561240028f37"
+    },
+    {
+      "path": "api/bridge/v1/skill.delete.schema.json",
+      "bytes": 704,
+      "sha256": "95da065953cbb997f3039e0f0210be0519ecbf3f8590205860e2378667b658c7"
+    },
+    {
+      "path": "api/bridge/v1/skill.import.approve.schema.json",
+      "bytes": 2716,
+      "sha256": "a45c693876869aa72d82d09f85c63621a4d1596df495b74d8728c9e654c759ff"
+    },
+    {
+      "path": "api/bridge/v1/skill.import.discover.schema.json",
+      "bytes": 3911,
+      "sha256": "6dee8b54c90504ff059bb3edf656876b039e4abb087bd5d0c8b94af4c30cc37c"
+    },
+    {
+      "path": "api/bridge/v1/skill.import.inspect.schema.json",
+      "bytes": 2652,
+      "sha256": "806b4c310c19cf2e6cde46debdf6b828082efe493fe5fd82c7773dd489f0024f"
+    },
+    {
+      "path": "api/bridge/v1/skill.import.reject.schema.json",
+      "bytes": 2513,
+      "sha256": "c2ec7287983c9d1eed95ee4dcd94abba0e116f8144d3722d70a7e8b2894be059"
+    },
+    {
+      "path": "api/bridge/v1/skill.import.revoke.schema.json",
+      "bytes": 2500,
+      "sha256": "8a94edd6266636ca060d6146428b68117df481bac4afbaf6be700369cecdea62"
+    },
+    {
+      "path": "api/bridge/v1/skill.import.submit.schema.json",
+      "bytes": 3056,
+      "sha256": "a23665d384d9cda517997bf0fba9a31f1785ce583bfac3cdd8e99965d97e57b7"
+    },
+    {
+      "path": "api/bridge/v1/skill.update.schema.json",
+      "bytes": 1191,
+      "sha256": "354af37a3fa8d641535dce7834b0d6ec2d9a24a9bb339d6a2886d510652da19b"
+    },
+    {
+      "path": "cmd/engine/main.go",
+      "bytes": 6539,
+      "sha256": "b05900a5e44e7419a2059b4272b12e1edff8afaa6c5de52bc59d2d9f05438faf"
+    },
+    {
+      "path": "go.mod",
+      "bytes": 1823,
+      "sha256": "de6cef11fb57cb48f8477b42dedbf448f9352c309e12b1f50e0c9b3ed3225f23"
+    },
+    {
+      "path": "go.sum",
+      "bytes": 12136,
+      "sha256": "0d29de3d5215f1f454aa8829882645fdf0af8402d19386e9e331e6d921c67e62"
+    },
+    {
+      "path": "internal/app/asset_handlers.go",
+      "bytes": 13293,
+      "sha256": "edcc9c50ca80d3e9f3df024938f1798b2e11a39a31a2c30a429e49d5f675f1b2"
+    },
+    {
+      "path": "internal/app/asset_upgrade_test.go",
+      "bytes": 6269,
+      "sha256": "4476596628f1a16a84ee0b85b966f547c6ff43c72be73d6384947e4c08902fb8"
+    },
+    {
+      "path": "internal/app/browser_automation.go",
+      "bytes": 9670,
+      "sha256": "b0fdfa5933a1867236741af559b882c0bffda5d1df30a2801651ec096d0d2e62"
+    },
+    {
+      "path": "internal/app/chat_mcp_tools.go",
+      "bytes": 8186,
+      "sha256": "0f1715d9b8738861fd17b28e1b30a33a5742bf0f039efc9e7c64a862b8b1d49a"
+    },
+    {
+      "path": "internal/app/chat_memory.go",
+      "bytes": 27685,
+      "sha256": "ba859c6f9642dcfd878f6e34b3daf7946ca6e731217dacdc3032fdaa8cf354e5"
+    },
+    {
+      "path": "internal/app/chat_persist_parts_test.go",
+      "bytes": 3635,
+      "sha256": "c7d99e1f6eba9406c1f88a6a0d2d66797e29472d89780b3ea69883cd7a2db562"
+    },
+    {
+      "path": "internal/app/chat_persist_parts.go",
+      "bytes": 1421,
+      "sha256": "aa8063215f76c812ab1c696c45858a51a6671ab8fbbf222fc7379bd4428d010e"
+    },
+    {
+      "path": "internal/app/chat_run_stream.go",
+      "bytes": 53609,
+      "sha256": "e20764f2801776f36481f648a112db4bd26067e12d235bf688b307e75ac34d06"
+    },
+    {
+      "path": "internal/app/chat_settings_tools.go",
+      "bytes": 7295,
+      "sha256": "b0830075c7168157fbaa205a7e133c74e50758abf375ff6c95896f4ecf6f924a"
+    },
+    {
+      "path": "internal/app/chat_skill_tools.go",
+      "bytes": 16868,
+      "sha256": "010ac202ba9173dc56dc5b3e34789a9d1d732dbad4926df0ae2046d8124b858d"
+    },
+    {
+      "path": "internal/app/chat_tool_defs.go",
+      "bytes": 31173,
+      "sha256": "afe08ae10ab979b98aa62d559d8abdee1788c21c070f3108b071b05707a676ed"
+    },
+    {
+      "path": "internal/app/chat_turn_journal_test.go",
+      "bytes": 4817,
+      "sha256": "6dd3693c7de3351300daba83fec336550e61ec33c640bf1b5b0544050d5576fa"
+    },
+    {
+      "path": "internal/app/chat_turn_journal.go",
+      "bytes": 2497,
+      "sha256": "1f53d6924a8e7e57185bcd6922ede67ca6b6feb99a7f1d32511da5b9f2ed818a"
+    },
+    {
+      "path": "internal/app/chat_turn_persist.go",
+      "bytes": 3924,
+      "sha256": "79d90d54493a4726763f19fd59c4ec5439c31e2e48615357915fc4a456a8e9a3"
+    },
+    {
+      "path": "internal/app/chat_turn_review_test.go",
+      "bytes": 5557,
+      "sha256": "bf63ebb825f60fa56899cb51f7d4d4c82d4c15a1317f11d2565d3fb6232d1966"
+    },
+    {
+      "path": "internal/app/chat_turn_runtime.go",
+      "bytes": 10908,
+      "sha256": "b45b11953b3d1999e58987f72aa06a5d1d1b5302100b5153e205929e79a99aa1"
+    },
+    {
+      "path": "internal/app/chat_turn.go",
+      "bytes": 13652,
+      "sha256": "634dc5d0c0423ff621819ff80d6473d20fcf1f8b251f0bcccf249cdb0ce36758"
+    },
+    {
+      "path": "internal/app/chat.go",
+      "bytes": 58503,
+      "sha256": "36e018449b77e6a4c5e8ca55351966df13f9ac642f703d01bbf5c01da86f600c"
+    },
+    {
+      "path": "internal/app/datasource_query.go",
+      "bytes": 1759,
+      "sha256": "f4e5b20a87565b2d18224ab0401b74547e9d005d4c04ab0564b15d6de80bca59"
+    },
+    {
+      "path": "internal/app/engine.go",
+      "bytes": 57945,
+      "sha256": "f753f4de80eb515d64bc606c19d87ed70fe35722b13fc0ccd08a13de751eb840"
+    },
+    {
+      "path": "internal/app/m10_cc_handlers.go",
+      "bytes": 5520,
+      "sha256": "0dd242eb87182b9b538f44f5b264eff7da6fb08abd0d21483f214043137be18f"
+    },
+    {
+      "path": "internal/app/m10_mc_handlers.go",
+      "bytes": 10240,
+      "sha256": "251dc342d1a3cc7bc12a7146669128436181bb5447c438bb22e3f307ea0af5a5"
+    },
+    {
+      "path": "internal/app/m6_s5c_handlers.go",
+      "bytes": 16182,
+      "sha256": "bff18472ae57b807be0aa9e9224820b11e18a7a8ebe2a6cbc9b690d70917f84a"
+    },
+    {
+      "path": "internal/app/m7_mcp_handlers.go",
+      "bytes": 10125,
+      "sha256": "9217eccdd539494fe6b2554215d6e2105855edb82da62931b1a7a2c21ffd1ce1"
+    },
+    {
+      "path": "internal/app/m8_expert_handlers.go",
+      "bytes": 13127,
+      "sha256": "95423fe423db10f47eb8e96e8604d95279e88e71e7e24c8f0f466bcd9cf188f8"
+    },
+    {
+      "path": "internal/app/m9_tts_handlers.go",
+      "bytes": 16165,
+      "sha256": "62743d79c34c47bd0a7bc806836ff1bf0213030c96d95907c5c641b9633c948f"
+    },
+    {
+      "path": "internal/app/mcp_bridge.go",
+      "bytes": 3945,
+      "sha256": "a65c1919c5aa2a4fda858735f5cfc1907fd31fbeabccc0970f73c71352099a75"
+    },
+    {
+      "path": "internal/app/mcp_lifecycle_test.go",
+      "bytes": 6459,
+      "sha256": "620429df48a2cd282e08a1e2088d6c34a0a47fa9fbfc6c8e8cd6a562f1879d81"
+    },
+    {
+      "path": "internal/app/mcp_lifecycle.go",
+      "bytes": 4323,
+      "sha256": "0ad97cf471aa01870e60acfda10558e82e39859f7f26080a8c995da900e0c9c4"
+    },
+    {
+      "path": "internal/app/meeting_handlers.go",
+      "bytes": 17612,
+      "sha256": "d12b1acc00d8ab4838457480d4ee92963fe9ce053bec7799156acce853efaf8d"
+    },
+    {
+      "path": "internal/app/message_handlers.go",
+      "bytes": 7946,
+      "sha256": "d6935fe155eb560b19a3b992871cf98e54aa007781710a7bab63728d1a9d59a0"
+    },
+    {
+      "path": "internal/app/message_rewind_boundary_test.go",
+      "bytes": 579,
+      "sha256": "7a1e977f3eb22f0f7c8e4deb1bc928a324da1960496dd6d3f17c885ed09f1e13"
+    },
+    {
+      "path": "internal/app/plan_handlers.go",
+      "bytes": 12677,
+      "sha256": "9974d66492903ec579d16bef47e7fffb9a153288d039f512902b540c27d07649"
+    },
+    {
+      "path": "internal/app/plugin_execution_gate_test.go",
+      "bytes": 3320,
+      "sha256": "abe78dabb998a0704908de261698da5cb7e1cb1830376e01d67e2b4760135e51"
+    },
+    {
+      "path": "internal/app/plugin_execution_gate.go",
+      "bytes": 738,
+      "sha256": "6b7da8f684c8ba8722e5bebbee7cc5838567dfdf35a6a99ebed49d4676248114"
+    },
+    {
+      "path": "internal/app/project_bridge_integration_test.go",
+      "bytes": 10895,
+      "sha256": "4545c973f146f03eba31f836752ac1524021a16b3d0f1f1d8bef9a81ab0fce9c"
+    },
+    {
+      "path": "internal/app/project_handlers.go",
+      "bytes": 14264,
+      "sha256": "e4968671fb589a5093c484496c249b64887f672178de11c790cfa78282264203"
+    },
+    {
+      "path": "internal/app/project_upgrade_test.go",
+      "bytes": 5498,
+      "sha256": "2f9654b9e99149e7d329baa262202f4d58a297592cbe63584011da969223b98b"
+    },
+    {
+      "path": "internal/app/provider_diagnostics.go",
+      "bytes": 16501,
+      "sha256": "6f8053b98767436207cd04c7c8139d2cd72a85bc4b9c90854fe530e7b3027225"
+    },
+    {
+      "path": "internal/app/skill_handlers.go",
+      "bytes": 20353,
+      "sha256": "216d21ffdbf2f170384e3874ec54ab8461e0c87f7f2f8df7838b67d2e87493a8"
+    },
+    {
+      "path": "internal/app/skill_import_source_test.go",
+      "bytes": 14254,
+      "sha256": "17f18de282b363de8c606f325cda321d4e12f78b0b98da094a170fc524ffc104"
+    },
+    {
+      "path": "internal/app/skill_revision_test.go",
+      "bytes": 2400,
+      "sha256": "b0c84f72d6dadd2fbf3d575c0dd820f4f663c4f03727e66df5961c7c801e0c95"
+    },
+    {
+      "path": "internal/app/stage_handlers.go",
+      "bytes": 5390,
+      "sha256": "88843adb9ca766bf066ac227e45576735c26cb05cfe8b43c70a7696d895df5fc"
+    },
+    {
+      "path": "internal/app/storage_readiness_test.go",
+      "bytes": 756,
+      "sha256": "dd5eafc585706f1b8119fcbf0e0eb14387cffe79fb245479abb44f15304b272d"
+    },
+    {
+      "path": "internal/app/storage_readiness.go",
+      "bytes": 197,
+      "sha256": "c3ffafea492017858b2670125f385d19a8953ce128430ea5467181e28d1a781d"
+    },
+    {
+      "path": "internal/app/stream_engine.go",
+      "bytes": 3180,
+      "sha256": "a639823ca6394086b5f0089fdc587ea702a6e60534cafba255c2867f747fadd7"
+    },
+    {
+      "path": "internal/app/talk_handlers_test.go",
+      "bytes": 8692,
+      "sha256": "aeb5716ec92a9a9ff84289b2bb364a6053fcbde2e5e24b58136ffc5347b5fd77"
+    },
+    {
+      "path": "internal/app/talk_handlers.go",
+      "bytes": 9929,
+      "sha256": "fdfd52ef53ebf1993dc253f1192255500206cd9cc2e4be81ed32199257338c50"
+    },
+    {
+      "path": "internal/app/talk_history_test.go",
+      "bytes": 8261,
+      "sha256": "5de29dcb40332881c9a2354a8f50db84ace51c861834d44c17a266401fc2cbc0"
+    },
+    {
+      "path": "internal/app/talk_history.go",
+      "bytes": 3021,
+      "sha256": "d00daa448cf4f892fb804a5cbfdcf88cbdbf50f1c6ae2981ebb68b0fe156bfad"
+    },
+    {
+      "path": "internal/app/talk_runtime.go",
+      "bytes": 1813,
+      "sha256": "3a3c49b18076429d0e7ac083ef53805cc7c9cb56e2b38ecb33963a1d7f8c8ba2"
+    },
+    {
+      "path": "internal/app/template_staging_test.go",
+      "bytes": 6855,
+      "sha256": "b8a90a6f6970097e5a029fcbd79adfbd5e5b36bbf994f4bdb1ecea8c58d41554"
+    },
+    {
+      "path": "internal/app/template_staging.go",
+      "bytes": 6935,
+      "sha256": "8764725ebfca4e32b7a914236d227613965e0ab3e75af0f15b87180f158ed955"
+    },
+    {
+      "path": "internal/app/voice_handlers.go",
+      "bytes": 19543,
+      "sha256": "5556f660a4798569a847960d066cab223d270fdeb69876ed5db924001a391888"
+    },
+    {
+      "path": "internal/bootstrap/wire.go",
+      "bytes": 25686,
+      "sha256": "14f003984088882300e743c7d93801a4767cec510862e080d1bbfa3effd7d52e"
+    },
+    {
+      "path": "internal/bridge/protocol.go",
+      "bytes": 6717,
+      "sha256": "f34cc1eac0d0c13c52a2c729c8d4adbc1fcc035b30d915ce8edca523e6def992"
+    },
+    {
+      "path": "internal/ccapp/audit.go",
+      "bytes": 3543,
+      "sha256": "112b1975b5bdddc0f7d5de6762c07dc2b71834b1681ac4d4231c01c2f6a59a2e"
+    },
+    {
+      "path": "internal/ccapp/config.go",
+      "bytes": 4845,
+      "sha256": "94b32f215271d9b11ffdbb1b9928f45628b0576c929a9e8064491873c6afe040"
+    },
+    {
+      "path": "internal/ccapp/contract.go",
+      "bytes": 8591,
+      "sha256": "14fa3a65a03568b6052e40b4b997dee07eb221050c0becfedab1f10a2293eb1f"
+    },
+    {
+      "path": "internal/ccapp/emergency.go",
+      "bytes": 4082,
+      "sha256": "a628e77ce7dce164f36761561ff97c6350eded9987db4a8ab55fb01c5fb86be7"
+    },
+    {
+      "path": "internal/ccapp/execution_test.go",
+      "bytes": 13002,
+      "sha256": "0365b06eb46070690dbd42e9877f3a5edc4683616a06d0f13ba5127c93204a8b"
+    },
+    {
+      "path": "internal/ccapp/execution.go",
+      "bytes": 4194,
+      "sha256": "7dde61d1774a70cd79b9bb89793bbb3c42f3a8935b075f7749069b2ff3c75544"
+    },
+    {
+      "path": "internal/ccapp/guarded_host.go",
+      "bytes": 3225,
+      "sha256": "be0593cb2e0c0b37e039be4d143be18689d4c75689286fd347aa4b39c6d86a2e"
+    },
+    {
+      "path": "internal/ccapp/risk.go",
+      "bytes": 7017,
+      "sha256": "8045fa2266a94017d73b8fdf1b99d2afb95da2716230f24d1fd417ae8a976042"
+    },
+    {
+      "path": "internal/ccapp/runhost.go",
+      "bytes": 19008,
+      "sha256": "5c542f09b5ec07a80289dbd8da74663cd0a93781360f3efa5f6a1300cd92196f"
+    },
+    {
+      "path": "internal/ccapp/service.go",
+      "bytes": 33623,
+      "sha256": "93d1a6a57ef6b23cb4104a8d55fcc00cf8469cf40ee8aef3765987642770cd2f"
+    },
+    {
+      "path": "internal/contract/schema_generated_test.go",
+      "bytes": 41717,
+      "sha256": "0dee102718065c1cc0b7739658eebe18ad214564ea69d9945a412c261e838f91"
+    },
+    {
+      "path": "internal/datasourceapp/boundary_test.go",
+      "bytes": 2027,
+      "sha256": "bbde42c3f0d0de3dc8847bac7db8baf6fabe86f722196fdb3287de926af20765"
+    },
+    {
+      "path": "internal/datasourceapp/service_test.go",
+      "bytes": 16747,
+      "sha256": "c54e03bf893051919528b77a4801ba7b50da073ccadef406ccec5b1a869d1c76"
+    },
+    {
+      "path": "internal/datasourceapp/service.go",
+      "bytes": 17686,
+      "sha256": "c85c1da8f47abb27e54b6b2f5c65821b938e6a978290c95c7ccf402eb2be066e"
+    },
+    {
+      "path": "internal/datasourceapp/sqldriver.go",
+      "bytes": 11301,
+      "sha256": "4fe9dab80f444596d2f5de038d558d3b748c10f7ac42ffe5e7ee85f57887f701"
+    },
+    {
+      "path": "internal/domain/asset/template.go",
+      "bytes": 8101,
+      "sha256": "46a4b4a0d7ee14096ecdb5123b7ebe8a035f5397e140b422f2ccb0a286d76d9f"
+    },
+    {
+      "path": "internal/domain/m7flow/mcpruntime.go",
+      "bytes": 3195,
+      "sha256": "506650059900c60208832fe7f4a9a09056517b15a64d7061eb2b812eeaf0971b"
+    },
+    {
+      "path": "internal/domain/planning/plan.go",
+      "bytes": 8196,
+      "sha256": "9b545c56ae81211cee31f533f3774d7ab71d8ce78d8d09d967e0e635068af6b1"
+    },
+    {
+      "path": "internal/domain/project/phase_completion.go",
+      "bytes": 2001,
+      "sha256": "f38eba2a41549fc66c9563250fd3db181880626f600230d0708726147ae78057"
+    },
+    {
+      "path": "internal/m6app/skillimport_source.go",
+      "bytes": 13259,
+      "sha256": "5c4e1db89b8feb4ae28ed574803d9bf2ebd1a7d8fc711012478bde884e4a9491"
+    },
+    {
+      "path": "internal/m6app/skillimport.go",
+      "bytes": 17765,
+      "sha256": "f62e4b8dc39b96e44fe517e606a5fa91c20245bfd9e248f4c86ca8459fc90e00"
+    },
+    {
+      "path": "internal/m7app/mcpruntime.go",
+      "bytes": 17143,
+      "sha256": "2b3a07e343beb606dfb38a8ae4f1966608cdbf24b745609fe8fc0fa730b5f716"
+    },
+    {
+      "path": "internal/m8app/expert_consistency_test.go",
+      "bytes": 3711,
+      "sha256": "2f975d5abbfd27b24480465b0914469e4bfb411cd8a78698e01ec2ed8e85de63"
+    },
+    {
+      "path": "internal/m8app/expert_persona_store.go",
+      "bytes": 2969,
+      "sha256": "dbc681270715516904f8e8c3e23cc275669f2784efeccc1dedb9489f7d4ed22c"
+    },
+    {
+      "path": "internal/m8app/expert.go",
+      "bytes": 27277,
+      "sha256": "26f3074edbe0c8123da92735be6a830de119976428cc898dbd0c140fb6b77b62"
+    },
+    {
+      "path": "internal/m8app/kb_consistency_test.go",
+      "bytes": 5957,
+      "sha256": "3a1c8a218e477aef60cf44dd126de71ab000865ab70a78ed25c7abe303cb1dca"
+    },
+    {
+      "path": "internal/m8app/kb_search_test.go",
+      "bytes": 11320,
+      "sha256": "73d9d5269541704652b355383e61268bfee57d8893fc33a7d5b0f6f4e8d7691b"
+    },
+    {
+      "path": "internal/m8app/kb_search.go",
+      "bytes": 11292,
+      "sha256": "7d3d326cdb778e531afbe88b02db43099aec7adb06206fe589acaa5653b0c72b"
+    },
+    {
+      "path": "internal/m8app/kb.go",
+      "bytes": 14579,
+      "sha256": "194a9556f06185a6741c86ecd3be1e31550b9a51c185ea986eca0d738cdc013e"
+    },
+    {
+      "path": "internal/m8app/plugin_gate.go",
+      "bytes": 2873,
+      "sha256": "5fb4943926557c7fffc3a69d0ada295d5c3e85ab8dcdcb7a4c8788478460c8a1"
+    },
+    {
+      "path": "internal/mcapp/service.go",
+      "bytes": 22011,
+      "sha256": "c922962089a369f190c260b692f37476526804ebaa5820e08e6b06bd0000eacd"
+    },
+    {
+      "path": "internal/mcp/stdio_pool_capacity_test.go",
+      "bytes": 1905,
+      "sha256": "543097f36c696fc481bda632f5ffe1977cf340d836ebb1d80f8686758ef977b8"
+    },
+    {
+      "path": "internal/mcp/stdio_pool.go",
+      "bytes": 6408,
+      "sha256": "397d7ff508ecb637a6b42ed362f5379158d4799fe64dc73b449f288bd0f73fb6"
+    },
+    {
+      "path": "internal/mcp6/describe_test.go",
+      "bytes": 5567,
+      "sha256": "285b5c3669aa34820b6ff2ded9adc56116fc441bc8c601d6861f674451377c5e"
+    },
+    {
+      "path": "internal/mcp6/lifecycle_test.go",
+      "bytes": 2134,
+      "sha256": "f94f65da8cb3aa4eba0b7ad42015a57a6107578e441ce8d9e8c47067c0501cb7"
+    },
+    {
+      "path": "internal/mcp6/lifecycle.go",
+      "bytes": 2206,
+      "sha256": "9b708c7c649db528000715dc38d1d83b770d40c295dcd910987790aa5f3ac0e3"
+    },
+    {
+      "path": "internal/mcp6/registry.go",
+      "bytes": 21913,
+      "sha256": "64370e5525310ff5b255c4b4eb9cfb92d5dcaa53d7aa4507000536c56f365257"
+    },
+    {
+      "path": "internal/meetings/audio_batches_test.go",
+      "bytes": 4772,
+      "sha256": "5fc3423e7ab82512a4858bb6352d253e25d73642336db2e5116e5f870bcea8ba"
+    },
+    {
+      "path": "internal/meetings/audio_batches.go",
+      "bytes": 5986,
+      "sha256": "b51ff744ce48b16038d5e006a34b80d2fc818570f2f6b0de865a674169e147ce"
+    },
+    {
+      "path": "internal/meetings/audio.go",
+      "bytes": 9016,
+      "sha256": "dd2ada5318afd47bf1ce0f00bf12b40b299668e917a99739e025ff4fd51557ac"
+    },
+    {
+      "path": "internal/meetings/catchup_journal_test.go",
+      "bytes": 5604,
+      "sha256": "a1923b2f248aa74bfe6be04ce97e449c9ef6048a0b904a6db75a0104203284c8"
+    },
+    {
+      "path": "internal/meetings/catchup_journal.go",
+      "bytes": 7402,
+      "sha256": "a953d102d2a89a6903c43cdcfe88f3457e87c44e9b65479d323c1e5f570c4c34"
+    },
+    {
+      "path": "internal/meetings/catchup.go",
+      "bytes": 3503,
+      "sha256": "22bb72a313c457ce465cf25e5d9837799d3ee32e5925576932733906182125ea"
+    },
+    {
+      "path": "internal/meetings/concurrency_test.go",
+      "bytes": 3434,
+      "sha256": "5dd88d126dfc4f3b5a8c1800b9c9f6e931ddecfe960abd94aa20c4b7823b6df6"
+    },
+    {
+      "path": "internal/meetings/journal.go",
+      "bytes": 1202,
+      "sha256": "73f411e9f6cd8085855fbdeca0d26ece3b915fac2600463ac095bc35d9670916"
+    },
+    {
+      "path": "internal/meetings/service.go",
+      "bytes": 26437,
+      "sha256": "9502ab08de8bf6fba62dd3bb87513a27bd4dbdc37ef02f8ce66e43b281018c55"
+    },
+    {
+      "path": "internal/messageapp/service.go",
+      "bytes": 18343,
+      "sha256": "199ae61ec08f4b5c750ba74272e5c7b4732f5450d94a82cb3fddf1c547f6746c"
+    },
+    {
+      "path": "internal/people/p2p_boundary_test.go",
+      "bytes": 7209,
+      "sha256": "275ad5d8dbafd5f8e799555296ca44bed3b01ade80c8b776fe1132e8d1fea043"
+    },
+    {
+      "path": "internal/people/p2p.go",
+      "bytes": 25127,
+      "sha256": "3a741b36dc68458a9fb83edadf0fb7403ffdc7f2d000de76270d585c82671947"
+    },
+    {
+      "path": "internal/people/service.go",
+      "bytes": 11649,
+      "sha256": "fbc2bd25aecea595ea3615721326a9de634cb255ab4dd22ee8c7a0b8cd02d003"
+    },
+    {
+      "path": "internal/planningapp/service_test.go",
+      "bytes": 9690,
+      "sha256": "78a5c4a454409bc07b3523aa860582e4a2dfd61755be000078851523929f98ce"
+    },
+    {
+      "path": "internal/planningapp/service.go",
+      "bytes": 14421,
+      "sha256": "8070ed641e1adaf888199c873c0bea018b8dd0df2b77d0bdd6c53a814641f8a0"
+    },
+    {
+      "path": "internal/projectapp/service.go",
+      "bytes": 10581,
+      "sha256": "7e0b84e92b04b07089ea88c9d8b3d55204f6f356649a11cbdd0cb4444f3dd726"
+    },
+    {
+      "path": "internal/skillapp/catalog_test.go",
+      "bytes": 13587,
+      "sha256": "12bad967290c41ab511e6b5e71c160dad8974dfee2c9ece00eb5418acfc4d617"
+    },
+    {
+      "path": "internal/skillapp/catalog.go",
+      "bytes": 61068,
+      "sha256": "845947ee81be9fdb451e3a99ba1b6a81e70caea2ee468d97bb2553f2bb142a3e"
+    },
+    {
+      "path": "internal/skillapp/service_test.go",
+      "bytes": 18891,
+      "sha256": "201034ce59d2185e578707f2a64a775ce3f0cd17cb277fb9326a0f7245b3111a"
+    },
+    {
+      "path": "internal/skillapp/service.go",
+      "bytes": 25130,
+      "sha256": "34c6a10cfaaad453a8a2c75066c5266bbc2012f07d2f86f7c9e1a160418d6e9e"
+    },
+    {
+      "path": "internal/skillapp/versioned_delete.go",
+      "bytes": 905,
+      "sha256": "908b47d703c9ac136810c20f03fa68609ad7377f29c2cb2bd5d632142f5cd602"
+    },
+    {
+      "path": "internal/skillarchive/source_test.go",
+      "bytes": 5479,
+      "sha256": "26dda88dd2954393068f75b99cafd5590cd53dfa57ad90ccead118d938b36e80"
+    },
+    {
+      "path": "internal/skillarchive/source.go",
+      "bytes": 9209,
+      "sha256": "95f4a1d0e611a8336b21b568d94828e16a2b5f7177db807f8b4be8fdf132fac4"
+    },
+    {
+      "path": "internal/storage/sqlite/asset_creation_test.go",
+      "bytes": 3192,
+      "sha256": "b7f57e71e6de13332c908b93c992f4008fff667e629a7c5075fe01288ecbfda1"
+    },
+    {
+      "path": "internal/storage/sqlite/asset_creation.go",
+      "bytes": 3580,
+      "sha256": "02ae6407b18351c1ca587b64f7bba8ee9e84de88bde56972e4e863101500e9e6"
+    },
+    {
+      "path": "internal/storage/sqlite/assistant_turn_retention_test.go",
+      "bytes": 3303,
+      "sha256": "e29f57aadf6f1a6119a95a6e17686911c8da1fb68ff67e0a20f3362421fdfdf9"
+    },
+    {
+      "path": "internal/storage/sqlite/chat_turn_delete_test.go",
+      "bytes": 1852,
+      "sha256": "b19d1e87668a71961a15f7a3ac4e832a8267df9886a3360d781ee382f1d5a474"
+    },
+    {
+      "path": "internal/storage/sqlite/chat_turn_journal.go",
+      "bytes": 2473,
+      "sha256": "92647027fde282c0b50355cd1716f232a9db4cfb63d1b4726e3c263a006a4604"
+    },
+    {
+      "path": "internal/storage/sqlite/delete.go",
+      "bytes": 19741,
+      "sha256": "9285cd09dbaed8082733a73a11203179b0f656ba405ff0863fb572f175b4f584"
+    },
+    {
+      "path": "internal/storage/sqlite/deliverable_storage.go",
+      "bytes": 6342,
+      "sha256": "0ec997a3b6121d6b07f71a49dc1e1169cddfeae2c7fb40da835720450545ebcd"
+    },
+    {
+      "path": "internal/storage/sqlite/expert_skill_tx.go",
+      "bytes": 1584,
+      "sha256": "bae04e15a2069a972a0128fa7945903467f5551811cdcdb99c6cbb7b1be3d9ae"
+    },
+    {
+      "path": "internal/storage/sqlite/m8_kb.go",
+      "bytes": 11274,
+      "sha256": "d490d22bff7a61db0ce62b517dab051df6bf6cdafb1bedc9ac7593b87a3233ff"
+    },
+    {
+      "path": "internal/storage/sqlite/meetings.go",
+      "bytes": 8248,
+      "sha256": "7244d2ce0c40c9f3212c0c07b2f8443d1da80e27e5f021fb32c43d32c3e46ba8"
+    },
+    {
+      "path": "internal/storage/sqlite/people_thread_boundary_test.go",
+      "bytes": 1535,
+      "sha256": "e0846b9e176664260d60be50deead140d072f43ae1d84ba0c0a53c58b8d09f6d"
+    },
+    {
+      "path": "internal/storage/sqlite/people.go",
+      "bytes": 14834,
+      "sha256": "5246c97a5de1ed35265afedaa5b67a0e962e7d5d2575ab6165ae1f0d5d06a52a"
+    },
+    {
+      "path": "internal/storage/sqlite/planning_phase.go",
+      "bytes": 2984,
+      "sha256": "9fe5bf6158e40b6d5479548f16edb7803f8bbe800c0ccb430a2be78a99453ebd"
+    },
+    {
+      "path": "internal/storage/sqlite/planning_state.go",
+      "bytes": 4420,
+      "sha256": "423fb178e05c2777e27ed573b34503bcf0739a2bd3c2736ffa8e11d1d10bc95c"
+    },
+    {
+      "path": "internal/storage/sqlite/planning_upgrade_test.go",
+      "bytes": 7395,
+      "sha256": "d5b871768a4e0d0765a9f2fddce81a4b37d3ca2ec88e08a05738db199ea62b1d"
+    },
+    {
+      "path": "internal/storage/sqlite/planning.go",
+      "bytes": 8542,
+      "sha256": "c1bb94c01c99978905f79bd5a20ebea7adaf34c10c056d699f5e2948c8f86b14"
+    },
+    {
+      "path": "internal/storage/sqlite/project_phase_completion_test.go",
+      "bytes": 6045,
+      "sha256": "ff113dd0d4385cb409922e00db0c3ca432d38b4d80695529d63be89b712cb192"
+    },
+    {
+      "path": "internal/storage/sqlite/project_phase_completion.go",
+      "bytes": 5500,
+      "sha256": "ccb8d3daa15470ccd7218071ea0273b022633ac5da124bd0ab10402fdba1373c"
+    },
+    {
+      "path": "internal/storage/sqlite/readiness.go",
+      "bytes": 973,
+      "sha256": "9005dc32291a4de8194222f2742e29480b333e1587e093d0631c2f911def42c9"
+    },
+    {
+      "path": "internal/storage/sqlite/skill_import_tx.go",
+      "bytes": 1439,
+      "sha256": "6bf74249deefc41db40c1fd8d04a11bcce5ce8644091ee115ba1fce25878547a"
+    },
+    {
+      "path": "internal/storage/sqlite/skill_storage.go",
+      "bytes": 10919,
+      "sha256": "ec3128c8cce1115f2412c1e0ddf723f049ce7fffd493d6a10c7b3a270eab4050"
+    },
+    {
+      "path": "internal/storage/sqlite/skill_versioned_delete.go",
+      "bytes": 1281,
+      "sha256": "359021159f51907b51014e4606dbe8b00b1681a419122db26dadca730d950d2e"
+    },
+    {
+      "path": "internal/storage/sqlite/store.go",
+      "bytes": 310487,
+      "sha256": "08e9d1d0bd2a8fbf8e7089c86f4f839f056ac47f619702925548b1b25067e47d"
+    },
+    {
+      "path": "internal/storage/sqlite/token_ledger_migration_test.go",
+      "bytes": 14457,
+      "sha256": "f683fab1ef58610bfbfdaade70d0da0c25b3a94c941d9bba5c4d286945797af6"
+    },
+    {
+      "path": "internal/storage/sqlite/uow_recovery_test.go",
+      "bytes": 2788,
+      "sha256": "b1a10284ac7fd54e2bc109f834e319462d31e44273f17f6ac277dfe4da7964f5"
+    },
+    {
+      "path": "internal/storage/sqlite/uow.go",
+      "bytes": 32779,
+      "sha256": "8759b20be6012e059f623b8099de6fe4a196ba12bcae01620f4a35d35e24bda4"
+    },
+    {
+      "path": "internal/talk/realtime_test.go",
+      "bytes": 2812,
+      "sha256": "d509898ffb7a27dbb922764db8c6fe6fd252c97c4d7f40231d31fb273cd73d72"
+    },
+    {
+      "path": "internal/talk/realtime.go",
+      "bytes": 5050,
+      "sha256": "edc9162a9db70e032982aa5c96d57e466b79f8e0fe0225816b195e2abd107105"
+    },
+    {
+      "path": "internal/toolruntime/command_output_test.go",
+      "bytes": 5722,
+      "sha256": "55ea15409aff4ef9e85211d2be72c65a16db1cdee6f10e65bd2f9678faefb405"
+    },
+    {
+      "path": "internal/toolruntime/command_output.go",
+      "bytes": 4299,
+      "sha256": "55a435493d3aad93509b4dd49d3b30feaadd32d815701248b179cb54f595f38f"
+    },
+    {
+      "path": "internal/toolruntime/command_progress_test.go",
+      "bytes": 2600,
+      "sha256": "2aa3349b5fc37bec044ba71787239258fe4e922eb8b3b4562f7e19adeaf25be7"
+    },
+    {
+      "path": "internal/toolruntime/execution_gate.go",
+      "bytes": 640,
+      "sha256": "5866aa79fd23acac6b7901e682bc89ec140cd1e7db2038d7f21b6dd7feb2c14a"
+    },
+    {
+      "path": "internal/toolruntime/runtime.go",
+      "bytes": 31376,
+      "sha256": "ea7bbe28c7c4c7152179ac8d9e427dc27ca9c70c76aa99baabbb436a48d74ee8"
+    },
+    {
+      "path": "migrations/0124_chat_turn_journal.sql",
+      "bytes": 394,
+      "sha256": "331b462f69b0cb4836664f9176aa6e5aa2555c6fefb21557cc4883cf7100b5ff"
+    },
+    {
+      "path": "migrations/0125_asset_template_creations.sql",
+      "bytes": 497,
+      "sha256": "6fe7d09b836e4e62a40122e2d2fa5c2a1af19347f9fec05e2323c3afe7d88099"
+    },
+    {
+      "path": "web/package-lock.json",
+      "bytes": 214153,
+      "sha256": "496df65aa697ac8081c68e755e8d4071194ad9a7ee617cb73419e3697e9546db"
+    },
+    {
+      "path": "web/src/bridge/client.ts",
+      "bytes": 194752,
+      "sha256": "a22d1df655bd5589c236956fb63e39f7379c0e6f1e25387b8e6990c726d23829"
+    },
+    {
+      "path": "web/src/expert/ExpertCenterPage.tsx",
+      "bytes": 44162,
+      "sha256": "313c1424ca29833b37943b8d8954de76878b49224edb641b8f0170e8b0f00a7f"
+    },
+    {
+      "path": "web/src/generated/bridge.ts",
+      "bytes": 140281,
+      "sha256": "9372b04364fcccbb568262014e5d7fa72826372e2a4c8fae3ba892cde5f858fc"
+    },
+    {
+      "path": "web/src/meetings/meetingAudio.test.ts",
+      "bytes": 6549,
+      "sha256": "c6519a4ff3f963b81159ce7372923d412f2a4a5ae3f89c7d905d28767a0c5541"
+    },
+    {
+      "path": "web/src/meetings/meetingAudio.ts",
+      "bytes": 6946,
+      "sha256": "34b9b297db7693f1b6f2bf50039d91b3e79c007132c13155aafcaff7c831df91"
+    },
+    {
+      "path": "web/src/meetings/MeetingPage.tsx",
+      "bytes": 43859,
+      "sha256": "15d6f27c28fcb70ae9a232029a147c99228dfae5d0ec0b91ee66db67266d9d2c"
+    },
+    {
+      "path": "web/src/project/DeliverablePanel.tsx",
+      "bytes": 16656,
+      "sha256": "7b973d12963578e9b45b01a37ccbd67a14ecfd9fb8ee74331c5ced813fe4fa27"
+    },
+    {
+      "path": "web/src/project/ProjectPlanPanel.test.tsx",
+      "bytes": 3716,
+      "sha256": "0fc03a49369ad27c60930e0ef00a2fdc99e9b430e0691e66573d20a5927dc5fa"
+    },
+    {
+      "path": "web/src/project/ProjectPlanPanel.tsx",
+      "bytes": 6683,
+      "sha256": "30e4d1615227773aecb50a348da979a0866c4cb4040e2a1c845c4185f404e0ee"
+    },
+    {
+      "path": "web/src/project/ProjectWorkbenchShell.send.test.tsx",
+      "bytes": 14228,
+      "sha256": "ffa282b1ac30f2e669f2e7aa9ae432a99e67617b0a4a55f6ffa94fbf01427e06"
+    },
+    {
+      "path": "web/src/session/companion/CompanionStage.talkmutex.test.tsx",
+      "bytes": 5512,
+      "sha256": "ef1fbfea42b8bc569f3d940379b396199af8dffc4db2c4bb11764421fb98e2d0"
+    },
+    {
+      "path": "web/src/session/companion/CompanionStage.tsx",
+      "bytes": 119921,
+      "sha256": "6ff8cbf794130d94ad950ce65661b53856a281b8b1195c752d0d712512533a3b"
+    },
+    {
+      "path": "web/src/session/companion/companionTalk.test.ts",
+      "bytes": 14893,
+      "sha256": "ef0b44c6c234a67e7613d00bad46e4ca6048303463fe367b48ca12f574796d8d"
+    },
+    {
+      "path": "web/src/session/companion/companionTalk.ts",
+      "bytes": 9473,
+      "sha256": "0094ac7c5c092ec861132df999dec84db1ccbec9b4fb6f80231a38176e9f0cc3"
+    },
+    {
+      "path": "web/src/session/companion/localAsr.test.ts",
+      "bytes": 14973,
+      "sha256": "bedee2ffaadf795f64b1850eec77d7ea501e99d854fc745338c992411691663a"
+    },
+    {
+      "path": "web/src/session/companion/localAsr.ts",
+      "bytes": 15335,
+      "sha256": "56aa9077f8227b702bd2ecbc23dc27fbbc66191b838e8dffb254a49f1126c9cd"
+    },
+    {
+      "path": "web/src/session/companion/pcmQueue.test.ts",
+      "bytes": 1410,
+      "sha256": "3b526b63719c55d2aca81372f0884170ad4f18b5ced39bbad6c2c3e6eb49c2e9"
+    },
+    {
+      "path": "web/src/session/companion/pcmQueue.ts",
+      "bytes": 1365,
+      "sha256": "a3915946ff3b3f55a91a2259be1742a6273b4103bad85df9838cdb29271d7b8d"
+    },
+    {
+      "path": "web/src/session/companion/talkHandoff.test.ts",
+      "bytes": 1203,
+      "sha256": "800eae1de9def122ca17eeb19dc974ea8a04a624544685d09e463d7cd939c0df"
+    },
+    {
+      "path": "web/src/session/companion/talkHandoff.ts",
+      "bytes": 983,
+      "sha256": "3ae7104c8c38a070f08f3a26608aa881fa1941f5c6689d615f37921531cc9af9"
+    },
+    {
+      "path": "web/src/session/companion/volc/volcAsr.ts",
+      "bytes": 9289,
+      "sha256": "817a178f8e4ede21f31469ac4516b9aaa1a8aefd20acb9b072edb82ec49430f8"
+    },
+    {
+      "path": "web/src/session/markdown/MermaidBlock.test.tsx",
+      "bytes": 8566,
+      "sha256": "a49b5ed28d46e7b0abdecfcb79ce4e8d620e70b14fb6f80d45399b89db8771a4"
+    },
+    {
+      "path": "web/src/session/markdown/MermaidBlock.tsx",
+      "bytes": 3842,
+      "sha256": "d56919cb126d2f6238437bd6395fd2b4d27a7ab98b7fc36d46b1e32c2fffa886"
+    },
+    {
+      "path": "web/src/session/markdown/tideMermaid.test.ts",
+      "bytes": 6733,
+      "sha256": "c9277677faf7c88ebfc8607b38408f00125252f9dce1fcdadda6d5c8bc9dc4cb"
+    },
+    {
+      "path": "web/src/session/markdown/tideMermaid.ts",
+      "bytes": 11610,
+      "sha256": "2347b3ddc34feb7bc0a61b186b243bacd0876a3c913c0e25acabf3344d7ebe6c"
+    },
+    {
+      "path": "web/src/session/SessionPage.realtime.test.tsx",
+      "bytes": 3503,
+      "sha256": "abf246377a4f1ed42326c3a452b455ff796fb82b537b5194190f092a947a1d5a"
+    },
+    {
+      "path": "web/src/session/SessionPage.tsx",
+      "bytes": 139470,
+      "sha256": "b36cdf46e18077a8bd944f1643fdf0e635d2e61131928c716edac4498c10b6e5"
+    },
+    {
+      "path": "web/src/skill/SkillImportWizard.test.tsx",
+      "bytes": 5725,
+      "sha256": "3ceaca4fdd41fa9a24eaa8cd5ec5075f6130ee5b480022745abe978e56ca19dc"
+    },
+    {
+      "path": "web/src/skill/SkillImportWizard.tsx",
+      "bytes": 6932,
+      "sha256": "b17b2b2cd4193a75fb2aaee40b26323b5d088e715801369a2ec7a0e0b3c1762c"
+    },
+    {
+      "path": "web/src/skill/SkillPage.test.tsx",
+      "bytes": 10364,
+      "sha256": "537524c111ba2341659602a4db46d26bd38335704ffd0853cb67249875267be5"
+    },
+    {
+      "path": "web/src/skill/SkillPage.tsx",
+      "bytes": 20645,
+      "sha256": "ce6b9c3a6926f15dc07e8096129570be0e54813839d4596c22fb2036dc102d64"
+    }
+  ]
+}

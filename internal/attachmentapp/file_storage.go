@@ -10,9 +10,14 @@ package attachmentapp
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sync"
+
+	"github.com/lunitide/lunitide/internal/workspace"
 )
 
 // FileStorage abstracts controlled file I/O for attachment content.
@@ -33,12 +38,54 @@ type FileStorage interface {
 	DeleteFile(ctx context.Context, name string) error
 }
 
+// FileVisitor enumerates regular leaf files in bounded batches. Consumers
+// decide ownership and consult durable references before removing a file.
+type FileVisitor interface {
+	VisitFiles(context.Context, func(os.FileInfo) error) error
+}
+
+func (f *dirFileStorage) VisitFiles(ctx context.Context, visit func(os.FileInfo) error) error {
+	dir, err := os.Open(f.dir)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	for {
+		if err = ctx.Err(); err != nil {
+			return err
+		}
+		entries, readErr := dir.ReadDir(64)
+		for _, entry := range entries {
+			if !entry.Type().IsRegular() || !safeName(entry.Name()) {
+				continue
+			}
+			info, err := entry.Info()
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if err = visit(info); err != nil {
+				return err
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			return nil
+		}
+		if readErr != nil {
+			return readErr
+		}
+	}
+}
+
 // dirFileStorage implements FileStorage using an ordinary directory path.
 // This is used in production via datadir.SecureRoot.Path() and in tests
 // via a temp directory. The path is expected to already be created and
 // secured by the caller.
 type dirFileStorage struct {
 	dir string
+	mu  sync.RWMutex
 }
 
 // NewDirFileStorage creates a FileStorage backed by an explicit directory.
@@ -47,30 +94,65 @@ func NewDirFileStorage(dir string) FileStorage {
 	return &dirFileStorage{dir: dir}
 }
 
-func (f *dirFileStorage) WriteFile(_ context.Context, name string, content []byte) error {
+func (f *dirFileStorage) WriteFile(ctx context.Context, name string, content []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !safeName(name) {
 		return fmt.Errorf("unsafe attachment filename %q", name)
 	}
-	path := filepath.Join(f.dir, name)
-	if err := os.WriteFile(path, content, 0600); err != nil {
+	if len(content) > MaxFileSize {
+		return fmt.Errorf("attachment exceeds size limit")
+	}
+	root, err := workspace.NewSecureRoot(f.dir)
+	if err != nil {
+		return err
+	}
+	if err := root.WriteAtomic(name, content, 0600); err != nil {
 		return fmt.Errorf("write attachment file %s: %w", name, err)
 	}
 	return nil
 }
 
-func (f *dirFileStorage) ReadFile(_ context.Context, name string) ([]byte, error) {
+func (f *dirFileStorage) ReadFile(ctx context.Context, name string) ([]byte, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if !safeName(name) {
 		return nil, fmt.Errorf("unsafe attachment filename %q", name)
 	}
-	path := filepath.Join(f.dir, name)
-	data, err := os.ReadFile(path)
+	root, err := workspace.NewSecureRoot(f.dir)
+	if err != nil {
+		return nil, err
+	}
+	file, err := root.OpenSecure(name)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, MaxFileSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("read attachment file %s: %w", name, err)
+	}
+	if len(data) > MaxFileSize {
+		return nil, fmt.Errorf("attachment exceeds size limit")
+	}
+	if err = ctx.Err(); err != nil {
+		return nil, err
 	}
 	return data, nil
 }
 
-func (f *dirFileStorage) DeleteFile(_ context.Context, name string) error {
+func (f *dirFileStorage) DeleteFile(ctx context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !safeName(name) {
 		return fmt.Errorf("unsafe attachment filename %q", name)
 	}
@@ -85,6 +167,9 @@ func (f *dirFileStorage) DeleteFile(_ context.Context, name string) error {
 // path separators, drive letters, or traversal segments.
 func safeName(name string) bool {
 	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	if workspace.ValidateRelPath(name) != nil {
 		return false
 	}
 	if filepath.Base(name) != name {

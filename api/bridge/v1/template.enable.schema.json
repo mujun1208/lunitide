@@ -8,25 +8,100 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "id": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
-    "expectedVersion": { "type": "integer", "minimum": 1 }
+    "id": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "expectedVersion": {
+      "type": "integer",
+      "minimum": 1
+    }
   },
-  "required": ["id", "expectedVersion"],
+  "required": [
+    "id",
+    "expectedVersion"
+  ],
   "x-result": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "id": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
-      "templateCode": { "type": "string" },
-      "name": { "type": "string" },
-      "templateType": { "enum": ["document", "scaffold"] },
-      "status": { "enum": ["enabled"] },
-      "version": { "type": "integer", "minimum": 1 }
+      "id": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "orgId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "templateCode": {
+        "type": "string",
+        "minLength": 4,
+        "maxLength": 16
+      },
+      "name": {
+        "type": "string"
+      },
+      "templateType": {
+        "enum": [
+          "document",
+          "scaffold"
+        ]
+      },
+      "documentType": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "client": {
+        "type": "string"
+      },
+      "mimeType": {
+        "type": "string"
+      },
+      "fileName": {
+        "type": "string"
+      },
+      "filePath": {
+        "type": "string"
+      },
+      "status": {
+        "enum": [
+          "enabled"
+        ]
+      },
+      "createdAt": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "updatedAt": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "version": {
+        "type": "integer",
+        "minimum": 1
+      }
     },
-    "required": ["id", "templateCode", "name", "templateType", "status", "version"]
+    "required": [
+      "id",
+      "templateCode",
+      "name",
+      "templateType",
+      "status",
+      "createdAt",
+      "updatedAt",
+      "version"
+    ]
   },
   "x-examples": {
-    "positive": [{ "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "expectedVersion": 1 }],
-    "negative": [{ "expectedVersion": 0 }]
+    "positive": [
+      {
+        "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "expectedVersion": 1
+      }
+    ],
+    "negative": [
+      {
+        "expectedVersion": 0
+      }
+    ]
   }
 }

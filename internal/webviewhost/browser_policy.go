@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -78,4 +79,41 @@ func ValidateIsolatedBrowserProfile(browserProfile, mainProfile string) (string,
 		}
 	}
 	return browser, nil
+}
+
+// IsolatedBrowserArguments accepts only an owned numeric loopback proxy. No
+// shell or arbitrary browser arguments may cross this boundary.
+func IsolatedBrowserArguments(raw string) (string, error) {
+	if raw == "" {
+		return "", nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" || strings.ContainsAny(raw, " \t\r\n\x00") {
+		return "", errors.New("isolated browser proxy must be an owned loopback endpoint")
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil || port < 1 || port > 65535 {
+		return "", errors.New("isolated browser proxy port is invalid")
+	}
+	return "--enable-automation --proxy-server=" + raw + " --proxy-bypass-list=<-loopback> --disable-quic --force-webrtc-ip-handling-policy=disable_non_proxied_udp", nil
+}
+
+func browserArgumentsEnforced(actual []string, proxyURL string) bool {
+	expected, err := IsolatedBrowserArguments(proxyURL)
+	if err != nil || expected == "" {
+		return false
+	}
+	switches := map[string]string{}
+	for _, arg := range actual {
+		key, value, _ := strings.Cut(arg, "=")
+		switches[key] = value
+	}
+	for _, arg := range strings.Fields(expected) {
+		key, value, _ := strings.Cut(arg, "=")
+		got, ok := switches[key]
+		if !ok || got != value {
+			return false
+		}
+	}
+	return true
 }

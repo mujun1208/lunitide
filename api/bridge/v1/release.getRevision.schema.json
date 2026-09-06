@@ -33,6 +33,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "crRevisionId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
             "revisionNo": {
               "type": "integer",
               "minimum": 1

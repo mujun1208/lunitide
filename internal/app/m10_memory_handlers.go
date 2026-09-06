@@ -38,6 +38,9 @@ func handleMemoryNominate(e *Engine, ctx context.Context, r bridge.Request) brid
 	if e.m10nomination == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "记忆提名服务暂时不可用", true)
 	}
+	if p.SubjectID != e.memorySubjectID() {
+		return m8MemoryFailure(r, m8app.ErrRecallScopeDenied)
+	}
 	res, err := e.m10nomination.Nominate(ctx, m8app.NominateInput{
 		SubjectID:       p.SubjectID,
 		Doc:             p.Payload,
@@ -77,7 +80,7 @@ func handleMemoryNominationList(e *Engine, ctx context.Context, r bridge.Request
 	if e.m10nomination == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "记忆提名服务暂时不可用", true)
 	}
-	items, err := e.m10nomination.ListNominations(ctx, p.State, p.Limit)
+	items, err := e.m10nomination.ListNominationsFor(ctx, e.memorySubjectID(), p.State, p.Limit)
 	if err != nil {
 		return m10NominationFailure(r, err)
 	}
@@ -97,7 +100,7 @@ func handleMemoryNominationWithdraw(e *Engine, ctx context.Context, r bridge.Req
 	if e.m10nomination == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "记忆提名服务暂时不可用", true)
 	}
-	if err := e.m10nomination.Withdraw(ctx, p.NominationID, p.Actor); err != nil {
+	if err := e.m10nomination.WithdrawFor(ctx, e.memorySubjectID(), p.NominationID, p.Actor); err != nil {
 		return m10NominationFailure(r, err)
 	}
 	return r.Ok(struct {

@@ -8,7 +8,15 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "config": { "type": "string", "maxLength": 128 }
+    "config": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "cursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    }
   },
   "x-result": {
     "type": "object",
@@ -16,40 +24,104 @@
     "properties": {
       "items": {
         "type": "array",
-        "maxItems": 400,
+        "maxItems": 100,
         "items": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "pn": { "type": "string", "minLength": 1, "maxLength": 64 },
-            "qty": { "type": "number" },
-            "source": { "type": "string", "minLength": 1, "maxLength": 32 }
+            "pn": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "qty": {
+              "type": "number"
+            },
+            "source": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            }
           },
-          "required": ["pn", "qty", "source"]
+          "required": [
+            "pn",
+            "qty",
+            "source"
+          ]
         }
       },
       "alternates": {
         "type": "array",
-        "maxItems": 400,
+        "maxItems": 100,
         "items": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "pnFrom": { "type": "string", "minLength": 1, "maxLength": 64 },
-            "pnTo": { "type": "string", "minLength": 1, "maxLength": 64 },
-            "certOk": { "type": "boolean" },
-            "effectivity": { "type": "string", "maxLength": 128 },
-            "qty": { "type": "number" },
-            "accepted": { "type": "boolean" }
+            "pnFrom": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "pnTo": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "certOk": {
+              "type": "boolean"
+            },
+            "effectivity": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "qty": {
+              "type": "number"
+            },
+            "accepted": {
+              "type": "boolean"
+            }
           },
-          "required": ["pnFrom", "pnTo", "certOk", "accepted"]
+          "required": [
+            "pnFrom",
+            "pnTo",
+            "certOk",
+            "accepted"
+          ]
+        }
+      },
+      "nextCursor": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      },
+      "continuedFields": {
+        "type": "array",
+        "maxItems": 2,
+        "uniqueItems": true,
+        "items": {
+          "enum": [
+            "items",
+            "alternates"
+          ]
         }
       }
     },
-    "required": ["items", "alternates"]
+    "required": [
+      "items",
+      "alternates"
+    ]
   },
   "x-examples": {
-    "positive": [{}],
-    "negative": [{"unexpected": true}]
+    "positive": [
+      {}
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      },
+      {
+        "cursor": 42
+      }
+    ]
   }
 }

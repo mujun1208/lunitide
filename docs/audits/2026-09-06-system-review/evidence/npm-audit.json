@@ -1,0 +1,438 @@
+{
+  "auditReportVersion": 2,
+  "vulnerabilities": {
+    "@chevrotain/cst-dts-gen": {
+      "name": "@chevrotain/cst-dts-gen",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "@chevrotain/gast",
+        "lodash-es"
+      ],
+      "effects": [],
+      "range": "11.0.0 - 11.1.0",
+      "nodes": [
+        "node_modules/@chevrotain/cst-dts-gen"
+      ],
+      "fixAvailable": true
+    },
+    "@chevrotain/gast": {
+      "name": "@chevrotain/gast",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "lodash-es"
+      ],
+      "effects": [],
+      "range": "11.0.0 - 11.1.0",
+      "nodes": [
+        "node_modules/@chevrotain/gast"
+      ],
+      "fixAvailable": true
+    },
+    "@mermaid-js/parser": {
+      "name": "@mermaid-js/parser",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "langium"
+      ],
+      "effects": [
+        "mermaid"
+      ],
+      "range": "<=0.6.3",
+      "nodes": [
+        "node_modules/@mermaid-js/parser"
+      ],
+      "fixAvailable": true
+    },
+    "ajv": {
+      "name": "ajv",
+      "severity": "moderate",
+      "isDirect": true,
+      "via": [
+        {
+          "source": 1113715,
+          "name": "ajv",
+          "dependency": "ajv",
+          "title": "ajv has ReDoS when using `$data` option",
+          "url": "https://github.com/advisories/GHSA-2g4f-4pwh-qvx6",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-400",
+            "CWE-1333"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=7.0.0-alpha.0 <8.18.0"
+        }
+      ],
+      "effects": [],
+      "range": "7.0.0-alpha.0 - 8.17.1",
+      "nodes": [
+        "node_modules/ajv"
+      ],
+      "fixAvailable": true
+    },
+    "chevrotain": {
+      "name": "chevrotain",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "@chevrotain/cst-dts-gen",
+        "@chevrotain/gast",
+        "lodash-es"
+      ],
+      "effects": [
+        "langium"
+      ],
+      "range": "11.0.0 - 11.1.0",
+      "nodes": [
+        "node_modules/chevrotain"
+      ],
+      "fixAvailable": true
+    },
+    "fast-uri": {
+      "name": "fast-uri",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1158521,
+          "name": "fast-uri",
+          "dependency": "fast-uri",
+          "title": "fast-uri vulnerable to host confusion via skipped IDN canonicalization on scheme-relative references",
+          "url": "https://github.com/advisories/GHSA-5jgf-p345-68v8",
+          "severity": "high",
+          "cwe": [
+            "CWE-436"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N"
+          },
+          "range": ">=3.1.3 <3.1.6"
+        },
+        {
+          "source": 1158524,
+          "name": "fast-uri",
+          "dependency": "fast-uri",
+          "title": "fast-uri vulnerable to server-side request forgery via malformed IPv6 normalization",
+          "url": "https://github.com/advisories/GHSA-f65p-4m7j-42xc",
+          "severity": "high",
+          "cwe": [
+            "CWE-20",
+            "CWE-918"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N"
+          },
+          "range": ">=3.0.0 <3.1.6"
+        },
+        {
+          "source": 1158527,
+          "name": "fast-uri",
+          "dependency": "fast-uri",
+          "title": "fast-uri vulnerable to server-side request forgery via repeated hostname percent-decoding",
+          "url": "https://github.com/advisories/GHSA-fph4-wmhf-6fwf",
+          "severity": "high",
+          "cwe": [
+            "CWE-174",
+            "CWE-918"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N"
+          },
+          "range": ">=3.1.2 <3.1.6"
+        },
+        {
+          "source": 1158530,
+          "name": "fast-uri",
+          "dependency": "fast-uri",
+          "title": "fast-uri vulnerable to host confusion via percent-encoded scheme normalization",
+          "url": "https://github.com/advisories/GHSA-jqff-g426-hqxp",
+          "severity": "high",
+          "cwe": [
+            "CWE-177"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N"
+          },
+          "range": ">=3.0.0 <3.1.6"
+        }
+      ],
+      "effects": [],
+      "range": "3.0.0 - 3.1.5",
+      "nodes": [
+        "node_modules/fast-uri"
+      ],
+      "fixAvailable": true
+    },
+    "langium": {
+      "name": "langium",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "chevrotain"
+      ],
+      "effects": [
+        "@mermaid-js/parser"
+      ],
+      "range": "2.1.0 - 4.1.3",
+      "nodes": [
+        "node_modules/langium"
+      ],
+      "fixAvailable": true
+    },
+    "lodash-es": {
+      "name": "lodash-es",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1115805,
+          "name": "lodash-es",
+          "dependency": "lodash-es",
+          "title": "lodash vulnerable to Code Injection via `_.template` imports key names",
+          "url": "https://github.com/advisories/GHSA-r5fr-rjxr-66jc",
+          "severity": "high",
+          "cwe": [
+            "CWE-94"
+          ],
+          "cvss": {
+            "score": 8.1,
+            "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
+          },
+          "range": ">=4.0.0 <=4.17.23"
+        },
+        {
+          "source": 1115809,
+          "name": "lodash-es",
+          "dependency": "lodash-es",
+          "title": "lodash vulnerable to Prototype Pollution via array path bypass in `_.unset` and `_.omit`",
+          "url": "https://github.com/advisories/GHSA-f23m-r3pf-42rh",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-1321"
+          ],
+          "cvss": {
+            "score": 6.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L"
+          },
+          "range": "<=4.17.23"
+        },
+        {
+          "source": 1120368,
+          "name": "lodash-es",
+          "dependency": "lodash-es",
+          "title": "Lodash has Prototype Pollution Vulnerability in `_.unset` and `_.omit` functions",
+          "url": "https://github.com/advisories/GHSA-xxjr-mmjv-4gpg",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-1321"
+          ],
+          "cvss": {
+            "score": 6.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L"
+          },
+          "range": ">=4.0.0 <=4.17.22"
+        }
+      ],
+      "effects": [
+        "@chevrotain/cst-dts-gen",
+        "@chevrotain/gast",
+        "chevrotain"
+      ],
+      "range": "<=4.17.23",
+      "nodes": [
+        "node_modules/@chevrotain/cst-dts-gen/node_modules/lodash-es",
+        "node_modules/@chevrotain/gast/node_modules/lodash-es",
+        "node_modules/chevrotain/node_modules/lodash-es"
+      ],
+      "fixAvailable": true
+    },
+    "mermaid": {
+      "name": "mermaid",
+      "severity": "moderate",
+      "isDirect": true,
+      "via": [
+        "@mermaid-js/parser",
+        {
+          "source": 1120138,
+          "name": "mermaid",
+          "dependency": "mermaid",
+          "title": "Mermaid: Improper sanitization of `classDef` in state diagrams leads to HTML injection",
+          "url": "https://github.com/advisories/GHSA-ghcm-xqfw-q4vr",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-94"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=11.0.0-alpha.1 <=11.14.0"
+        },
+        {
+          "source": 1120140,
+          "name": "mermaid",
+          "dependency": "mermaid",
+          "title": "Mermaid: Improper sanitization of `classDefs` in diagrams leads to CSS injection",
+          "url": "https://github.com/advisories/GHSA-xcj9-5m2h-648r",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-94"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=11.0.0-alpha.1 <=11.14.0"
+        },
+        {
+          "source": 1120326,
+          "name": "mermaid",
+          "dependency": "mermaid",
+          "title": "Mermaid Gantt Charts are vulnerable to an Infinite Loop DoS",
+          "url": "https://github.com/advisories/GHSA-6m6c-36f7-fhxh",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-835"
+          ],
+          "cvss": {
+            "score": 5.3,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"
+          },
+          "range": ">=11.0.0-alpha.1 <=11.14.0"
+        },
+        {
+          "source": 1122162,
+          "name": "mermaid",
+          "dependency": "mermaid",
+          "title": "Mermaid: Improper sanitization of configuration leads to CSS injection",
+          "url": "https://github.com/advisories/GHSA-87f9-hvmw-gh4p",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-94"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=11.0.0-alpha.1 <=11.14.0"
+        },
+        {
+          "source": 1138097,
+          "name": "mermaid",
+          "dependency": "mermaid",
+          "title": "Mermaid configuration APIs allow prototype pollution",
+          "url": "https://github.com/advisories/GHSA-c4c3-pg64-4m4v",
+          "severity": "low",
+          "cwe": [
+            "CWE-1321"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=11.0.0-alpha.1 <11.16.1"
+        },
+        {
+          "source": 1138099,
+          "name": "mermaid",
+          "dependency": "mermaid",
+          "title": "Mermaid allows CSS injection applying to sibling elements of the diagram",
+          "url": "https://github.com/advisories/GHSA-6x64-9x62-f2gx",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-94"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=11.0.0-alpha.1 <11.16.1"
+        },
+        {
+          "source": 1138100,
+          "name": "mermaid",
+          "dependency": "mermaid",
+          "title": "Mermaid Architecture diagrams are vulnerable to prototype pollution",
+          "url": "https://github.com/advisories/GHSA-3rrr-jr9j-h3q3",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-1321"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=11.5.0 <11.16.1"
+        },
+        {
+          "source": 1138101,
+          "name": "mermaid",
+          "dependency": "mermaid",
+          "title": "Mermaid XY Charts are vulnerable to an infinite loop DoS",
+          "url": "https://github.com/advisories/GHSA-2v8p-3f2j-5mp7",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-835",
+            "CWE-1325"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=11.0.0-alpha.1 <11.16.1"
+        },
+        {
+          "source": 1138113,
+          "name": "mermaid",
+          "dependency": "mermaid",
+          "title": "Mermaid radar diagrams are vulnerable to DoS",
+          "url": "https://github.com/advisories/GHSA-rhh3-jpg6-66xh",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-606",
+            "CWE-1322"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=11.6.0 <11.16.1"
+        }
+      ],
+      "effects": [],
+      "range": "11.0.0-alpha.1 - 11.16.0",
+      "nodes": [
+        "node_modules/mermaid"
+      ],
+      "fixAvailable": true
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 7,
+      "high": 2,
+      "critical": 0,
+      "total": 9
+    },
+    "dependencies": {
+      "prod": 296,
+      "dev": 97,
+      "optional": 54,
+      "peer": 8,
+      "peerOptional": 0,
+      "total": 446
+    }
+  }
+}

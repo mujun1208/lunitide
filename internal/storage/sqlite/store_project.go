@@ -13,14 +13,13 @@ import (
 func (s *Store) ListProjects(ctx context.Context, filter project.Filter) ([]project.Project, error) {
 	query := `SELECT id,name,project_code,project_type,description,summary,objective,client,contract_no,amount,budget,plan_start,plan_end,remark,close_reason,status_before_close,reopen_reason,status,created_at,updated_at,version,org_id,space_id FROM projects`
 	args := []any{}
-	conditions := []string{}
-	if filter.OrgID != "" {
-		conditions = append(conditions, `(org_id=? OR org_id IS NULL)`)
-		args = append(args, filter.OrgID)
-	}
+	conditions := []string{`COALESCE(org_id,'')=?`}
+	args = append(args, filter.OrgID)
 	if filter.Status != "" {
 		conditions = append(conditions, `status=?`)
 		args = append(args, filter.Status)
+	} else {
+		conditions = append(conditions, `status!='archived'`)
 	}
 	if filter.Type != "" {
 		conditions = append(conditions, `project_type=?`)

@@ -11,15 +11,15 @@ import (
 )
 
 var (
-	ErrPlanNotFound       = errors.New("plan not found")
-	ErrNodeNotFound       = errors.New("node not found")
-	ErrInvalidTransition  = errors.New("invalid status transition")
-	ErrPlanNotActive      = errors.New("plan is not active")
-	ErrNodeNotReady       = errors.New("node is not ready for execution")
-	ErrDependencyNotMet   = errors.New("node dependencies are not satisfied")
-	ErrReviewRequired     = errors.New("review required before executing this node")
-	ErrReviewNotApproved  = errors.New("review is not approved")
-	ErrCyclicDependency   = errors.New("cyclic dependency detected in plan DAG")
+	ErrPlanNotFound      = errors.New("plan not found")
+	ErrNodeNotFound      = errors.New("node not found")
+	ErrInvalidTransition = errors.New("invalid status transition")
+	ErrPlanNotActive     = errors.New("plan is not active")
+	ErrNodeNotReady      = errors.New("node is not ready for execution")
+	ErrDependencyNotMet  = errors.New("node dependencies are not satisfied")
+	ErrReviewRequired    = errors.New("review required before executing this node")
+	ErrReviewNotApproved = errors.New("review is not approved")
+	ErrCyclicDependency  = errors.New("cyclic dependency detected in plan DAG")
 )
 
 // PlanReader reads plans and nodes from storage.
@@ -129,8 +129,8 @@ func (s *Service) CreateNode(ctx context.Context, node planning.Node) (planning.
 	if len(node.WorkerRole) < 1 || len(node.WorkerRole) > 128 {
 		return planning.Node{}, errors.New("node worker_role must be 1-128 characters")
 	}
-	if node.Sequence < 0 {
-		return planning.Node{}, errors.New("node sequence must be non-negative")
+	if node.Sequence < 1 {
+		return planning.Node{}, errors.New("node sequence must be positive")
 	}
 	if node.BudgetTokens != nil && *node.BudgetTokens < 1 {
 		return planning.Node{}, errors.New("node budget_tokens must be positive")
@@ -178,7 +178,7 @@ func (s *Service) Activate(ctx context.Context, planID string) error {
 		return ErrInvalidTransition
 	}
 	// Validate DAG has no cycles before activation.
-	nodes, err := s.read.ListNodesByPlan(ctx, planID, 100)
+	nodes, err := s.read.ListNodesByPlan(ctx, planID, -1)
 	if err != nil {
 		return err
 	}
@@ -203,7 +203,7 @@ func (s *Service) GetReadyNodes(ctx context.Context, planID string) ([]planning.
 	if plan.Status != planning.PlanStatusActive {
 		return nil, ErrPlanNotActive
 	}
-	nodes, err := s.read.ListNodesByPlan(ctx, planID, 100)
+	nodes, err := s.read.ListNodesByPlan(ctx, planID, -1)
 	if err != nil {
 		return nil, err
 	}
@@ -235,8 +235,30 @@ func (s *Service) StartNode(ctx context.Context, nodeID string) error {
 	if node == nil {
 		return ErrNodeNotFound
 	}
-	if !node.CanTransitionTo(planning.NodeStatusRunning) {
+	if !node.CanTransitionTo(planning.NodeStatusRunning) && node.Status != planning.NodeStatusPending {
 		return ErrNodeNotReady
+	}
+	plan, err := s.read.GetPlan(ctx, node.PlanID)
+	if err != nil {
+		return err
+	}
+	if plan == nil {
+		return ErrPlanNotFound
+	}
+	if plan.Status != planning.PlanStatusActive {
+		return ErrPlanNotActive
+	}
+	if node.ParentNodeID != nil {
+		parent, err := s.read.GetNode(ctx, *node.ParentNodeID)
+		if err != nil {
+			return err
+		}
+		if parent == nil || parent.PlanID != node.PlanID || parent.Status != planning.NodeStatusCompleted {
+			return ErrDependencyNotMet
+		}
+	}
+	if s.gate == nil && node.RiskLevel.RequiresReview() {
+		return ErrReviewRequired
 	}
 	// Check governance gate for high-risk nodes.
 	if s.gate != nil {
@@ -352,13 +374,13 @@ func (s *Service) CompletePlan(ctx context.Context, planID string) error {
 	if !plan.CanTransitionTo(planning.PlanStatusCompleted) {
 		return ErrInvalidTransition
 	}
-	nodes, err := s.read.ListNodesByPlan(ctx, planID, 100)
+	nodes, err := s.read.ListNodesByPlan(ctx, planID, -1)
 	if err != nil {
 		return err
 	}
 	for _, node := range nodes {
-		if !node.Status.IsTerminal() {
-			return errors.New("plan has non-terminal nodes")
+		if node.Status != planning.NodeStatusCompleted {
+			return errors.New("plan has incomplete or unsuccessful nodes")
 		}
 		if node.Status == planning.NodeStatusFailed {
 			return errors.New("plan has failed nodes")
@@ -369,18 +391,28 @@ func (s *Service) CompletePlan(ctx context.Context, planID string) error {
 
 // checkPlanCompletion checks if all nodes are completed and transitions the plan to completed.
 func (s *Service) checkPlanCompletion(ctx context.Context, planID string) error {
-	nodes, err := s.read.ListNodesByPlan(ctx, planID, 100)
+	nodes, err := s.read.ListNodesByPlan(ctx, planID, -1)
 	if err != nil {
 		return err
 	}
-	allCompleted := true
+	allCompleted := len(nodes) > 0
 	for _, node := range nodes {
-		if !node.Status.IsTerminal() {
+		if node.Status != planning.NodeStatusCompleted {
 			allCompleted = false
 			break
 		}
 	}
 	if allCompleted {
+		plan, err := s.read.GetPlan(ctx, planID)
+		if err != nil {
+			return err
+		}
+		if plan == nil {
+			return ErrPlanNotFound
+		}
+		if plan.Status != planning.PlanStatusActive {
+			return nil
+		}
 		return s.write.UpdatePlanStatus(ctx, planID, string(planning.PlanStatusCompleted))
 	}
 	return nil
@@ -421,6 +453,8 @@ func validateDAG(nodes []planning.Node) error {
 				if err := visit(*node.ParentNodeID); err != nil {
 					return err
 				}
+			} else {
+				return ErrDependencyNotMet
 			}
 		}
 		color[id] = 2

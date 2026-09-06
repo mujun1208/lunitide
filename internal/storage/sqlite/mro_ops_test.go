@@ -92,13 +92,12 @@ func TestMROOpsDueMissingAndCheckoutAndPublish(t *testing.T) {
 	if err != nil || len(pkg.Sources) != 4 {
 		t.Fatalf("wp = %+v %v", pkg, err)
 	}
-	todos, err := svc.PublishSchedule(ctx, pkg.ID)
-	if err != nil || len(todos) != 2 || todos[0].Kind != "kit_staging" || todos[1].Kind != "parts_request" {
-		t.Fatalf("publish = %+v %v", todos, err)
+	if _, err := svc.PublishSchedule(ctx, pkg.ID); !errors.Is(err, mroapp.ErrConstraints) {
+		t.Fatalf("unsafe publish=%v", err)
 	}
 	listed, err := svc.ListOpsTodos(ctx)
-	if err != nil || len(listed) != 2 {
-		t.Fatalf("todos = %+v %v", listed, err)
+	if err != nil || len(listed) != 0 {
+		t.Fatalf("refused publication left todos: %+v %v", listed, err)
 	}
 
 	if err := svc.ProposeIntervalChangeDraft(ctx, "C-CHK", "", "fleet"); !errors.Is(err, mroapp.ErrPayloadInvalid) {

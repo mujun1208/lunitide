@@ -110,16 +110,15 @@ func (e *Engine) invokeMcpInstallPreset(ctx context.Context, raw json.RawMessage
 	if err != nil {
 		return "", err
 	}
-	e.admitSettingsMcp(ctx, m7flow.McpEndpointConfig{
-		EndpointID: res.EndpointID,
-		Transport:  preset.Transport,
-		Command:    preset.Command,
-		ArgsJSON:   mustJSONArgs(args),
-		Enabled:    true,
-		State:      res.State,
-	})
+	ep, err := e.m7mcp.Toggle(ctx, res.EndpointID, true, "chat")
+	if err != nil {
+		return "", err
+	}
+	if err := e.admitSettingsMcp(ctx, ep); err != nil {
+		return "", err
+	}
 	e.rememberMcpPreset(res.EndpointID, preset.ID)
-	b, _ := json.Marshal(map[string]any{"endpointId": res.EndpointID, "state": res.State, "presetId": preset.ID})
+	b, _ := json.Marshal(map[string]any{"endpointId": res.EndpointID, "state": ep.State, "presetId": preset.ID})
 	return string(b), nil
 }
 

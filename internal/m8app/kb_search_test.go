@@ -3,6 +3,7 @@ package m8app_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,7 +78,7 @@ func TestKBSearchHitsMarkdownAndMissingEmpty(t *testing.T) {
 	}
 	if _, err := svc.UpsertDocument(ctx, m8app.KBUpsertInput{
 		CollectionID: coll.CollectionID, DocumentID: ulid.Make().String(),
-		MediaType: "text/markdown", ContentRef: path, SHA256: sha64("d"),
+		MediaType: "text/markdown", ContentRef: path, SHA256: m8app.SourceDigest([]byte(body)),
 		SourceLocator: "mro://AMM/42?ata=32&status=controlled",
 		Projector:     m8app.ParseBodyIndexer,
 	}); err != nil {
@@ -193,7 +194,7 @@ func TestGoldenNonEmptyCorpusGroundsWithMroLocators(t *testing.T) {
 	// Seed one mro:// document per non-empty golden query so FTS grounds the
 	// exact phrase. docType/revision/ata/tail all ride in the source locator and
 	// land in the chunk locator via parseSourceLocator.
-	seed := func(name, body, locator, sha string) {
+	seed := func(name, body, locator string) {
 		t.Helper()
 		path := filepath.Join(dir, name)
 		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -201,15 +202,15 @@ func TestGoldenNonEmptyCorpusGroundsWithMroLocators(t *testing.T) {
 		}
 		if _, err := svc.UpsertDocument(ctx, m8app.KBUpsertInput{
 			CollectionID: coll.CollectionID, DocumentID: ulid.Make().String(),
-			MediaType: "text/markdown", ContentRef: path, SHA256: sha64(sha),
+			MediaType: "text/markdown", ContentRef: path, SHA256: m8app.SourceDigest([]byte(body)),
 			SourceLocator: locator, Projector: m8app.ParseBodyIndexer,
 		}); err != nil {
 			t.Fatalf("seed %s: %v", name, err)
 		}
 	}
-	seed("gear.md", "ATA 32 起落架无法收上如何隔离 排故程序。", "mro://AMM/42?ata=32&status=controlled", "a")
-	seed("mel.md", "MEL 对液压失效怎么说 保留项目与限制。", "mro://MEL/7?status=controlled", "b")
-	seed("tail.md", "换机尾后原 AMM 是否仍适用 的适用性说明。", "mro://AMM/42?ata=32&tail=B-1234", "c")
+	seed("gear.md", "ATA 32 起落架无法收上如何隔离 排故程序。", "mro://AMM/42?ata=32&status=controlled")
+	seed("mel.md", "MEL 对液压失效怎么说 保留项目与限制。", "mro://MEL/7?status=controlled")
+	seed("tail.md", "换机尾后原 AMM 是否仍适用 的适用性说明。", "mro://AMM/42?ata=32&tail=B-1234")
 
 	nonEmpty := 0
 	for _, item := range items {
@@ -329,18 +330,11 @@ func TestListRecentKBAuditAfterUpsert(t *testing.T) {
 	}
 }
 
-func TestCiteReturnsHitUnchanged(t *testing.T) {
+func TestCiteRejectsUngroundedLocator(t *testing.T) {
 	store := openSliceStore(t)
 	svc := m8app.NewKBService(store.AgentRuntimeRepository(), "local-user")
-	in := m8app.KBCitedHit{
-		ExpertID: ulid.Make().String(), DocID: ulid.Make().String(),
-		Revision: "42", Locator: `{"ordinal":0}`, Quote: "Gear retraction", Score: 1,
-	}
-	got, err := svc.Cite(context.Background(), in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != in {
-		t.Fatalf("cite mutated hit: %+v", got)
+	in := m8app.KBCitedHit{ExpertID: ulid.Make().String(), DocID: ulid.Make().String(), Revision: "42", Locator: `{"ordinal":0}`, Quote: "Gear retraction", Score: 1}
+	if _, err := svc.Cite(context.Background(), in); !errors.Is(err, m8app.ErrPayloadInvalid) {
+		t.Fatalf("ungrounded quote accepted: %v", err)
 	}
 }

@@ -135,6 +135,10 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'datasource.list',
   'datasource.probe',
   'datasource.query',
+  'datasource.write.commit',
+  'datasource.write.get',
+  'datasource.write.list',
+  'datasource.write.prepare',
   'db.query',
   'delegation.create',
   'delegation.settle',
@@ -147,6 +151,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'devTask.transition',
   'diagnostics.export',
 
+  'diagram.render',
   'document.parse',  'evidence.attachScan',
   'evidence.attachTest',
   'evidence.list',
@@ -206,10 +211,12 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'mc.tombstone.check',
 
   'mcp.add',
+  'mcp.credential.set',
   'mcp.health',
   'mcp.invoke',
   'mcp.list',
   'mcp.market.search',
+  'mcp.security.review',
   'mcp.toggle',
   'mcp6.invoke',
   'mcp6.presets.list',
@@ -224,9 +231,12 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'meetings.heartbeat',
   'meetings.list',
   'meetings.loopback.poll',
+  'meetings.segments.list',
   'meetings.start',
   'meetings.stop',
   'meetings.summarize',
+  'meetings.summary.source.get',
+  'meetings.transcript.get',
   'meetings.update',
   'memory.confirmCandidate',
   'memory.create',
@@ -357,6 +367,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'plan.resume',
   'plan.run.cancel',
   'plan.run.join',
+  'plan.run.retry',
   'plan.run.spawn',
   'plan.run.start',
   'plan.run.tree',
@@ -367,6 +378,9 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'plugin.list',
   'plugin.market.detail',
   'plugin.market.search',
+  'plugin.pack.install',
+  'plugin.pack.list',
+  'plugin.pack.uninstall',
   'plugin.toggle',
   'plugin.uninstall',
   'plugin.upgrade',
@@ -451,6 +465,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'subagent.join',
   'subagent.spawn',
   'subagent.tree',  'sync.push',
+  'system.diagnostics',
   'system.health',
   'system.settings.open',
   'talk.append',
@@ -525,7 +540,7 @@ for (const method of ['stage.create', 'stage.list', 'stage.update']) assert(ulid
 assert(required(methodSchema('stage.create')).has('phase') && required(methodSchema('stage.create')).has('title') && refEndsWith(methodSchema('stage.create')['x-result'], '#/$defs/StageDTO'), 'stage.create contract drift')
 assert(required(methodSchema('stage.update')).has('id') && required(methodSchema('stage.update')).has('status') && required(methodSchema('stage.update')).has('expectedVersion') && refEndsWith(methodSchema('stage.update')['x-result'], '#/$defs/StageDTO'), 'stage.update contract drift')
 assert(required(methodSchema('stage.list')).has('projectId') && methodSchema('stage.list')['x-result']?.properties?.items?.maxItems === 9, 'stage.list contract drift')
-assert(methodSchemas.every(schema => schema['x-owner'] === (['browser.close', 'browser.open', 'conversations.root.select', 'desktop.files.pick', 'desktop.files.readChunk', 'provider.credential.reveal', 'provider.credential.submit', 'diagnostics.export', 'system.settings.open', 'ui.theme.set', 'workspace.list', 'workspace.open', 'workspace.read', 'workspace.root.clear', 'workspace.root.get', 'workspace.root.select'].includes(schema['x-method']) ? 'host' : 'engine')), 'method ownership drift')
+assert(methodSchemas.every(schema => schema['x-owner'] === (['diagram.render', 'browser.close', 'browser.open', 'conversations.root.select', 'desktop.files.pick', 'desktop.files.readChunk', 'mcp.credential.set', 'provider.credential.reveal', 'provider.credential.submit', 'diagnostics.export', 'system.settings.open', 'ui.theme.set', 'workspace.list', 'workspace.open', 'workspace.read', 'workspace.root.clear', 'workspace.root.get', 'workspace.root.select'].includes(schema['x-method']) ? 'host' : 'engine')), 'method ownership drift')
 assert(refEndsWith(props(providerList).protocol, '#/$defs/ProviderProtocol'), 'provider.list protocol must explicitly reference ProviderProtocol')
 assert(props(methodSchema('system.health')['x-result']).protocol?.const === bridgeVersion, 'system.health result protocol must be the Bridge version')
 for (const method of ['provider.create', 'provider.update']) {
@@ -557,12 +572,12 @@ const scanSensitive = (schema, location, allowCredential = false) => {
     scanSensitive(value, `${location}.${name}`)
   }
   if (schema?.items) scanSensitive(schema.items, `${location}[]`)
-  for (const branch of schema?.oneOf ?? []) scanSensitive(branch, `${location}.oneOf`)
+  for (const branch of schema?.oneOf ?? []) scanSensitive(branch, `${location}.oneOf`, allowCredential)
 }
 for (const [name, schema] of Object.entries(publicSchema?.$defs ?? {})) scanSensitive(schema, `public DTO.${name}`)
 for (const schema of methodSchemas) {
   scanSensitive(schema['x-result'], `${schema['x-method']} result`, schema === credentialReveal && schema['x-owner'] === 'host')
-  scanSensitive(schema, `${schema['x-method']} payload`, schema === credentialSubmit && schema['x-owner'] === 'host')
+  scanSensitive(schema, `${schema['x-method']} payload`, (schema === credentialSubmit || schema['x-method'] === 'mcp.credential.set') && schema['x-owner'] === 'host')
 }
 
 const json = JSON.stringify
@@ -577,7 +592,11 @@ const tsType = (schema, name = '') => {
   if ('const' in schema) return json(schema.const)
   if (name === 'method') return 'BridgeMethod'
   if (schema.enum) return schema.enum.map(json).join(' | ')
-  if (schema.oneOf) return schema.oneOf.map(item => tsType(item)).join(' | ')
+  if (schema.oneOf) {
+    const {oneOf,...base}=schema
+    const union=oneOf.map(item=>tsType(item)).join(' | ')
+    return Object.keys(props(base)).length ? `(${tsType(base)}) & (${union})` : union
+  }
   if (schema.type === 'array') return `Array<${tsType(schema.items)}>`
   if (schema.type === 'object' || schema.properties) {
     const fields = Object.entries(props(schema)).map(([key, value]) => `${json(key)}${required(schema).has(key) ? '' : '?'}: ${tsType(value, key)}`)

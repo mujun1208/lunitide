@@ -10,13 +10,15 @@ import (
 )
 
 type talkSession struct {
-	talkID    string
-	streamID  string
-	sessionID string
-	conn      talk.Conn
-	writeMu   sync.Mutex
-	cancel    context.CancelFunc
-	once      sync.Once
+	talkID           string
+	streamID         string
+	sessionID        string
+	providerProtocol string
+	modelID          string
+	conn             talk.Conn
+	writeMu          sync.Mutex
+	cancel           context.CancelFunc
+	once             sync.Once
 }
 
 func (s *talkSession) write(raw []byte) error {

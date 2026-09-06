@@ -282,30 +282,29 @@ func handleExpertMountingGet(e *Engine, ctx context.Context, r bridge.Request) b
 
 func handleExpertSkillsGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		ExpertID string `json:"expertId"`
+		ExpertID  string `json:"expertId"`
+		VersionID string `json:"versionId"`
 	}
-	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ExpertID) {
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ExpertID) || (p.VersionID != "" && !validCanonicalULID(p.VersionID)) {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "expert.skills.get 参数无效", false)
 	}
 	if e.m8expert == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
 	}
-	keys, err := e.m8expert.ListBoundSkills(ctx, p.ExpertID)
+	result, err := e.m8expert.Equipment(ctx, p.ExpertID, p.VersionID)
 	if err != nil {
 		return m8ExpertFailure(r, err)
 	}
-	if keys == nil {
-		keys = []string{}
-	}
-	return r.Ok(map[string]any{"expertId": p.ExpertID, "skillKeys": keys})
+	return r.Ok(result)
 }
 
 func handleExpertSkillsSet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		ExpertID  string   `json:"expertId"`
-		SkillKeys []string `json:"skillKeys"`
+		ExpertID          string   `json:"expertId"`
+		ExpectedVersionID string   `json:"expectedVersionId"`
+		SkillKeys         []string `json:"skillKeys"`
 	}
-	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ExpertID) || p.SkillKeys == nil || len(p.SkillKeys) > 32 {
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ExpertID) || !validCanonicalULID(p.ExpectedVersionID) || p.SkillKeys == nil || len(p.SkillKeys) > 32 {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "expert.skills.set 参数无效", false)
 	}
 	if e.m8expert == nil {
@@ -314,20 +313,19 @@ func handleExpertSkillsSet(e *Engine, ctx context.Context, r bridge.Request) bri
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
 	}
-	keys, err := e.m8expert.ReplaceBoundSkills(ctx, p.ExpertID, p.SkillKeys)
+	result, err := e.m8expert.ReplaceBoundSkillsVersioned(ctx, p.ExpertID, p.ExpectedVersionID, p.SkillKeys)
 	if err != nil {
 		return m8ExpertFailure(r, err)
 	}
-	if keys == nil {
-		keys = []string{}
-	}
-	return r.Ok(map[string]any{"expertId": p.ExpertID, "skillKeys": keys})
+	return r.Ok(result)
 }
 
 // m8ExpertFailure maps the FR-19 error family onto the M8 code matrix
 // (M8-042~048 plus the shared family).
 func m8ExpertFailure(r bridge.Request, err error) bridge.Response {
 	switch {
+	case errors.Is(err, m8app.ErrExpertBodyUnavailable):
+		return r.Fail("EXPERT_BODY_UNAVAILABLE", "专家正文缺失或损坏，请恢复对应版本后重试", false)
 	case errors.Is(err, m8app.ErrExpertSixSectionInvalid):
 		return r.Fail("M8-042", "六段式校验失败，零落库", false)
 	case errors.Is(err, m8app.ErrExpertVersionConflict):

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-09-06T14:26:05.598484+00:00",
+  "status": "engineering-delivery-complete",
+  "engineeringScore": 4.9,
+  "physicalSystemScore": null,
+  "codeTreeSha256": "e578444c4485345e8aa55dcc2b71e551e2abda0d07627e23cc149e62d50fef17",
+  "codeInputFiles": 2758,
+  "archive": {
+    "path": "Lunitide-upgrade-complete-2026-09-06.zip",
+    "bytes": 17967248,
+    "sha256": "7cae9e1247d36c9da5171e39cca7841a2996c8b84e2dcf6ac6eabc57330840a0",
+    "entries": 361,
+    "uncompressedBytes": 104866715,
+    "crcVerified": true
+  },
+  "installer": {
+    "path": "release/out/upgrade-20260906-r2/Lunitide-Setup-0.4.67-x64.exe",
+    "bytes": 24986006,
+    "sha256": "b69b0e97c2d9c03e0e08e273103ffc02c8df21776ed965e2a38cc5994db6771d"
+  },
+  "installerMode": "unsigned-development-verified-not-installed",
+  "evidenceSummary": {
+    "path": "docs/audits/2026-09-06-system-review/implementation/evidence/phase2-verification-results.json",
+    "sha256": "a17f68dc958012f57e8270d4bee09637805e8b6bf89ae788a784d27272c85363"
+  },
+  "scoreDecisionSha256": "3e55084fd048490aec2edef07ae2b643e993ee7b801432178cb421f15504bcc4",
+  "sourceArchive": {
+    "path": "2026-09-06-system-review/implementation/phase2-source-tree.zip",
+    "sha256": "de81980724b4a9f0734e494308daefba8f11c44a0b514a05ff6b622963221051",
+    "allEntriesVerified": true
+  },
+  "contentsNote": "Archive includes final PRD, scorecards, task/test records, all audit and implementation evidence, exact source snapshot and review diffs. Installer is a separate artifact. Dependency caches are not included. Historical failures are preserved. Python caches are excluded. Physical acceptance remains user-owned."
+}

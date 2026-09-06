@@ -176,11 +176,13 @@ func TestTalkStartStreamingEmitsAudioAndHandoff(t *testing.T) {
 	srv := talkWSServer(t, []map[string]any{
 		{"type": "session.created"},
 		{"type": "response.audio.delta", "delta": "AAAA"},
-		{"type": "conversation.item.input_audio_transcription.completed", "transcript": "帮我打开网易云"},
+		{"type": "conversation.item.input_audio_transcription.completed", "transcript": "帮我打开网易云", "item_id": "user_turn_1"},
 	}, &inbound)
 	defer srv.Close()
 
-	e := NewEngineWithGateway(talkProviderStub{item: item}, "test", streamTestLease{})
+	e, _, sessionID, _ := messageEngine(t)
+	e.providers = talkProviderStub{item: item}
+	e.leases = streamTestLease{}
 	e.SetTalkDialerForTest(talkDialerFor(srv.URL))
 
 	var mu sync.Mutex
@@ -188,7 +190,7 @@ func TestTalkStartStreamingEmitsAudioAndHandoff(t *testing.T) {
 	resp := e.HandleStreaming(context.Background(), validRequest("talk.start", `{
 		"providerId":"01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		"modelId":"gpt-4o-realtime-preview",
-		"sessionId":"01ARZ3NDEKTSV4RRFFQ69G5FAW"
+		"sessionId":"`+sessionID+`"
 	}`), func(event bridge.Event) error {
 		mu.Lock()
 		events = append(events, event)
@@ -221,13 +223,13 @@ func TestTalkStartStreamingEmitsAudioAndHandoff(t *testing.T) {
 		mu.Unlock()
 		if sawAudio && sawTool {
 			appendResp := e.Handle(context.Background(), validRequest("talk.append", `{
-				"sessionId":"01ARZ3NDEKTSV4RRFFQ69G5FAW","pcm":"BBBB"
+				"sessionId":"`+sessionID+`","pcm":"BBBB"
 			}`))
 			if !appendResp.OK {
 				t.Fatalf("talk.append live = %+v", appendResp)
 			}
 			cancelResp := e.Handle(context.Background(), validRequest("talk.cancel", `{
-				"sessionId":"01ARZ3NDEKTSV4RRFFQ69G5FAW","mode":"output"
+				"sessionId":"`+sessionID+`","mode":"output"
 			}`))
 			if !cancelResp.OK {
 				t.Fatalf("talk.cancel output = %+v", cancelResp)
@@ -248,24 +250,26 @@ func TestTalkCancelAllDropsSession(t *testing.T) {
 	var inbound []map[string]any
 	srv := talkWSServer(t, []map[string]any{{"type": "session.created"}}, &inbound)
 	defer srv.Close()
-	e := NewEngineWithGateway(talkProviderStub{item: item}, "test", streamTestLease{})
+	e, _, sessionID, _ := messageEngine(t)
+	e.providers = talkProviderStub{item: item}
+	e.leases = streamTestLease{}
 	e.SetTalkDialerForTest(talkDialerFor(srv.URL))
 	resp := e.HandleStreaming(context.Background(), validRequest("talk.start", `{
 		"providerId":"01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		"modelId":"gpt-4o-realtime-preview",
-		"sessionId":"01ARZ3NDEKTSV4RRFFQ69G5FAW"
+		"sessionId":"`+sessionID+`"
 	}`), func(bridge.Event) error { return nil })
 	if !resp.OK {
 		t.Fatalf("start = %+v", resp)
 	}
 	all := e.Handle(context.Background(), validRequest("talk.cancel", `{
-		"sessionId":"01ARZ3NDEKTSV4RRFFQ69G5FAW","mode":"all"
+		"sessionId":"`+sessionID+`","mode":"all"
 	}`))
 	if !all.OK {
 		t.Fatalf("cancel all = %+v", all)
 	}
 	again := e.Handle(context.Background(), validRequest("talk.append", `{
-		"sessionId":"01ARZ3NDEKTSV4RRFFQ69G5FAW","pcm":"AAAA"
+		"sessionId":"`+sessionID+`","pcm":"AAAA"
 	}`))
 	if again.OK || again.Error == nil || again.Error.Code != talkSessionMissingCode {
 		t.Fatalf("append after all = %+v", again)

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
+
 	"path/filepath"
 	"strings"
 
@@ -59,7 +59,10 @@ func handleKBCite(e *Engine, ctx context.Context, r bridge.Request) bridge.Respo
 
 func handleExpertKnowledgeGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		ExpertID string `json:"expertId"`
+		ExpertID             string `json:"expertId"`
+		SourcesAfter         string `json:"sourcesAfter"`
+		HistorySourceID      string `json:"historySourceId"`
+		HistoryBeforeVersion int64  `json:"historyBeforeVersion"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ExpertID) {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "expert.knowledge.get 参数无效", false)
@@ -67,7 +70,7 @@ func handleExpertKnowledgeGet(e *Engine, ctx context.Context, r bridge.Request) 
 	if e.m8kb == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "知识库服务暂时不可用", true)
 	}
-	res, err := e.m8kb.KnowledgeGet(ctx, p.ExpertID)
+	res, err := e.m8kb.KnowledgeGetPage(ctx, p.ExpertID, m8app.KBSourcePage{SourcesAfter: p.SourcesAfter, HistorySourceID: p.HistorySourceID, HistoryBeforeVersion: p.HistoryBeforeVersion})
 	if err != nil {
 		return m8SliceFailure(r, err)
 	}
@@ -76,10 +79,11 @@ func handleExpertKnowledgeGet(e *Engine, ctx context.Context, r bridge.Request) 
 
 func handleExpertKnowledgeIngest(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		ExpertID      string `json:"expertId"`
-		Path          string `json:"path"`
-		SourceLocator string `json:"sourceLocator"`
-		MediaType     string `json:"mediaType"`
+		ExpertID         string `json:"expertId"`
+		Path             string `json:"path"`
+		SourceLocator    string `json:"sourceLocator"`
+		MediaType        string `json:"mediaType"`
+		ExpectedRevision *int64 `json:"expectedRevision"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ExpertID) || strings.TrimSpace(p.Path) == "" {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "expert.knowledge.ingest 参数无效", false)
@@ -89,7 +93,7 @@ func handleExpertKnowledgeIngest(e *Engine, ctx context.Context, r bridge.Reques
 	}
 	ingest := &ExpertKBIngest{kb: e.m8kb}
 	res, err := ingest.Ingest(ctx, ExpertKBIngestInput{
-		ExpertID: p.ExpertID, Path: p.Path,
+		ExpertID: p.ExpertID, Path: p.Path, ExpectedRevision: p.ExpectedRevision,
 		SourceLocator: strings.TrimSpace(p.SourceLocator), MediaType: strings.TrimSpace(p.MediaType),
 	})
 	if err != nil {
@@ -106,7 +110,7 @@ func handleExpertKnowledgeIngest(e *Engine, ctx context.Context, r bridge.Reques
 		}
 		docs = append(docs, row)
 	}
-	return r.Ok(map[string]any{"collectionId": res.CollectionID, "documents": docs})
+	return r.Ok(map[string]any{"collectionId": res.CollectionID, "documents": docs, "source": res.Source})
 }
 
 func handleExpertGrowthGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -153,38 +157,23 @@ func handleExpertGrowthGet(e *Engine, ctx context.Context, r bridge.Request) bri
 	return r.Ok(out)
 }
 
-func localTextProjector(mediaType, contentRef string) m8app.KBChunkProjector {
-	mt := strings.ToLower(strings.TrimSpace(mediaType))
-	if strings.HasPrefix(mt, "application/pdf") ||
-		strings.Contains(mt, "wordprocessingml") ||
-		strings.Contains(mt, "spreadsheetml") ||
-		strings.Contains(mt, "presentationml") ||
-		strings.Contains(mt, "officedocument") {
-		return doctextProjector
-	}
-	if !filepath.IsAbs(strings.TrimSpace(contentRef)) {
-		return nil
-	}
-	if mt == "text/markdown" || mt == "text/plain" || mt == "" {
-		return m8app.ParseBodyIndexer
-	}
-	return nil
-}
-
 // doctextProjector decodes a DOCX/PPTX/XLSX/PDF content_ref to its text layer
 // then splits it into searchable chunks. A scanned or unsupported binary fails
 // closed with an honest reason so the version parks at failed rather than
 // indexing garbage bytes.
-func doctextProjector(_ context.Context, doc m8core.KBDocument) ([]m8core.KBChunk, error) {
+func doctextProjector(ctx context.Context, doc m8core.KBDocument) ([]m8core.KBChunk, error) {
 	ref := strings.TrimSpace(doc.ContentRef)
 	if ref == "" || !filepath.IsAbs(ref) {
 		return nil, fmt.Errorf("%w: content_ref must be an absolute path", m8app.ErrKBIndexFailed)
 	}
-	raw, err := os.ReadFile(ref)
+	raw, err := doctext.ReadSource(ref)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", m8app.ErrKBIndexFailed, err)
 	}
-	extracted, xerr := doctext.Extract(ref, raw, doc.MediaType)
+	if m8app.SourceDigest(raw) != doc.SHA256 {
+		return nil, fmt.Errorf("%w: source digest changed", m8app.ErrKBIndexFailed)
+	}
+	extracted, xerr := doctext.ExtractContext(ctx, ref, raw, doc.MediaType)
 	if xerr != nil {
 		return nil, fmt.Errorf("%w: %s", m8app.ErrKBIndexFailed, ingestFailReason(xerr))
 	}

@@ -104,7 +104,7 @@ func (t *agentRuntimeTx) ListKBChunkEmbeddings(scopeID string) ([]m8app.KBChunkE
 		FROM kb_chunks c
 		JOIN kb_documents d ON d.document_id=c.document_id AND d.version=c.document_version
 		JOIN kb_collections col ON col.collection_id=d.collection_id
-		WHERE col.scope_id=? AND d.index_state='ready' AND c.embedding IS NOT NULL`, scopeID)
+		WHERE col.scope_id=? AND d.index_state='ready' AND d.version=(SELECT MAX(current.version) FROM kb_documents current WHERE current.document_id=d.document_id) AND `+KBSourceCurrentPredicate+` AND c.embedding IS NOT NULL`, scopeID)
 	if err != nil {
 		return nil, t.fail(err)
 	}
@@ -187,14 +187,14 @@ func (t *agentRuntimeTx) SearchKBChunkFTS(scopeID, query string, limit int) ([]m
 		rows, err = t.tx.QueryContext(t.ctx, `SELECT `+cols+` FROM kb_chunks c
 			JOIN kb_documents d ON d.document_id=c.document_id AND d.version=c.document_version
 			JOIN kb_collections col ON col.collection_id=d.collection_id
-			WHERE col.scope_id=? AND d.index_state='ready' AND c.body LIKE '%' || ? || '%'
+			WHERE col.scope_id=? AND d.index_state='ready' AND d.version=(SELECT MAX(current.version) FROM kb_documents current WHERE current.document_id=d.document_id) AND `+KBSourceCurrentPredicate+` AND c.body LIKE '%' || ? || '%'
 			LIMIT ?`, scopeID, q, limit)
 	} else {
 		rows, err = t.tx.QueryContext(t.ctx, `SELECT `+cols+` FROM kb_chunk_fts
 			JOIN kb_chunks c ON c.chunk_id=kb_chunk_fts.chunk_id
 			JOIN kb_documents d ON d.document_id=c.document_id AND d.version=c.document_version
 			JOIN kb_collections col ON col.collection_id=d.collection_id
-			WHERE col.scope_id=? AND d.index_state='ready' AND kb_chunk_fts MATCH ?
+			WHERE col.scope_id=? AND d.index_state='ready' AND d.version=(SELECT MAX(current.version) FROM kb_documents current WHERE current.document_id=d.document_id) AND `+KBSourceCurrentPredicate+` AND kb_chunk_fts MATCH ?
 			LIMIT ?`, scopeID, q, limit)
 	}
 	if err != nil {
@@ -202,7 +202,7 @@ func (t *agentRuntimeTx) SearchKBChunkFTS(scopeID, query string, limit int) ([]m
 		rows, err = t.tx.QueryContext(t.ctx, `SELECT `+cols+` FROM kb_chunks c
 			JOIN kb_documents d ON d.document_id=c.document_id AND d.version=c.document_version
 			JOIN kb_collections col ON col.collection_id=d.collection_id
-			WHERE col.scope_id=? AND d.index_state='ready' AND c.body LIKE '%' || ? || '%'
+			WHERE col.scope_id=? AND d.index_state='ready' AND d.version=(SELECT MAX(current.version) FROM kb_documents current WHERE current.document_id=d.document_id) AND `+KBSourceCurrentPredicate+` AND c.body LIKE '%' || ? || '%'
 			LIMIT ?`, scopeID, q, limit)
 		if err != nil {
 			return nil, t.fail(err)
@@ -230,13 +230,13 @@ func (t *agentRuntimeTx) SearchKBChunkFTS(scopeID, query string, limit int) ([]m
 
 func (t *agentRuntimeTx) CountKBStats(collectionID string) (docs, ready, chunks int, err error) {
 	row := t.tx.QueryRowContext(t.ctx, `SELECT COUNT(*), COALESCE(SUM(CASE WHEN index_state='ready' THEN 1 ELSE 0 END),0)
-		FROM kb_documents WHERE collection_id=?`, collectionID)
+		FROM kb_documents d WHERE collection_id=? AND d.version=(SELECT MAX(current.version) FROM kb_documents current WHERE current.document_id=d.document_id) AND `+KBSourceCurrentPredicate+``, collectionID)
 	if err = row.Scan(&docs, &ready); err != nil {
 		return 0, 0, 0, t.fail(err)
 	}
 	row = t.tx.QueryRowContext(t.ctx, `SELECT COUNT(*) FROM kb_chunks c
 		JOIN kb_documents d ON d.document_id=c.document_id AND d.version=c.document_version
-		WHERE d.collection_id=?`, collectionID)
+		WHERE d.collection_id=? AND d.index_state='ready' AND d.version=(SELECT MAX(current.version) FROM kb_documents current WHERE current.document_id=d.document_id) AND `+KBSourceCurrentPredicate, collectionID)
 	if err = row.Scan(&chunks); err != nil {
 		return 0, 0, 0, t.fail(err)
 	}

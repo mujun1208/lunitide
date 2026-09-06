@@ -63,7 +63,10 @@
             "url": {
               "type": "string",
               "maxLength": 2048
-            }
+            },
+            "securityVersion":{"type":"integer","minimum":0},
+            "credentialConfigured":{"type":"boolean"},
+            "lockedArgs":{"type":"array","maxItems":64,"items":{"type":"string","maxLength":512}}
           },
           "required": ["endpointId", "transport", "state", "enabled"]
         }

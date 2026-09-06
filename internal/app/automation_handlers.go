@@ -7,6 +7,7 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -26,7 +27,7 @@ func automationUnavailable(r bridge.Request) bridge.Response {
 }
 
 // handleAutomationJobList answers all jobs (executionMode normalized).
-func handleAutomationJobList(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
+func handleAutomationJobList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	if e.automation == nil {
 		return automationUnavailable(r)
 	}
@@ -50,14 +51,23 @@ func handleAutomationJobList(e *Engine, _ context.Context, r bridge.Request) bri
 		LastRunAt     string `json:"lastRunAt,omitempty"`
 		CreatedAt     string `json:"createdAt"`
 		UpdatedAt     string `json:"updatedAt"`
+		Revision      string `json:"revision"`
 	}
 	out := make([]jobView, 0, len(jobs))
 	for _, j := range jobs {
+		scope, err := e.authorizeAutomationSession(ctx, j.SessionID)
+		if err != nil {
+			if dataScopeAccessError(err) {
+				continue
+			}
+			return r.Fail("DATA_SCOPE_UNAVAILABLE", "无法确认自动化任务所属范围", true)
+		}
+		scope()
 		v := jobView{ID: j.ID, Name: j.Name, Cron: j.Cron, Prompt: j.Prompt,
 			ProviderID: j.ProviderID, ModelID: j.ModelID, SessionID: j.SessionID,
 			ExecutionMode: j.ExecutionMode, SessionMode: j.SessionMode, RunOnce: j.RunOnce,
 			WebhookURL: j.WebhookURL, Enabled: j.Enabled,
-			CreatedAt: j.CreatedAt.UTC().Format(time.RFC3339), UpdatedAt: j.UpdatedAt.UTC().Format(time.RFC3339)}
+			CreatedAt: j.CreatedAt.UTC().Format(time.RFC3339), UpdatedAt: j.UpdatedAt.UTC().Format(time.RFC3339Nano), Revision: scheduler.JobRevision(j)}
 		if !j.LastRunAt.IsZero() {
 			v.LastRunAt = j.LastRunAt.UTC().Format(time.RFC3339)
 		}
@@ -67,23 +77,24 @@ func handleAutomationJobList(e *Engine, _ context.Context, r bridge.Request) bri
 }
 
 // handleAutomationJobSet creates or updates one job.
-func handleAutomationJobSet(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
+func handleAutomationJobSet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	if e.automation == nil {
 		return automationUnavailable(r)
 	}
 	var p struct {
-		ID            string `json:"id"`
-		Name          string `json:"name"`
-		Cron          string `json:"cron"`
-		Prompt        string `json:"prompt"`
-		ProviderID    string `json:"providerId"`
-		ModelID       string `json:"modelId"`
-		SessionID     string `json:"sessionId"`
-		ExecutionMode string `json:"executionMode"`
-		SessionMode   string `json:"sessionMode"`
-		RunOnce       bool   `json:"runOnce"`
-		WebhookURL    string `json:"webhookUrl"`
-		Enabled       bool   `json:"enabled"`
+		ExpectedRevision string `json:"expectedRevision"`
+		ID               string `json:"id"`
+		Name             string `json:"name"`
+		Cron             string `json:"cron"`
+		Prompt           string `json:"prompt"`
+		ProviderID       string `json:"providerId"`
+		ModelID          string `json:"modelId"`
+		SessionID        string `json:"sessionId"`
+		ExecutionMode    string `json:"executionMode"`
+		SessionMode      string `json:"sessionMode"`
+		RunOnce          bool   `json:"runOnce"`
+		WebhookURL       string `json:"webhookUrl"`
+		Enabled          bool   `json:"enabled"`
 	}
 	if decodePayload(r.Payload, &p) != nil || p.Name == "" || len([]rune(p.Name)) > 64 ||
 		p.ModelID == "" || len(p.ModelID) > 128 || len(p.ID) > 26 {
@@ -100,6 +111,11 @@ func handleAutomationJobSet(e *Engine, _ context.Context, r bridge.Request) brid
 	if err := scheduler.ValidateWebhookURL(p.WebhookURL); err != nil {
 		return r.Fail("AUTOMATION_WEBHOOK_INVALID", "webhook 地址无效（需 https 且不允许内网/IP 地址）", false)
 	}
+	scope, scopeErr := e.authorizeAutomationSession(ctx, p.SessionID)
+	if scopeErr != nil {
+		return r.Fail("DATA_SCOPE_DENIED", "当前组织无法使用该自动化会话", false)
+	}
+	defer scope()
 	now := time.Now().UTC()
 	job := scheduler.Job{
 		Name: p.Name, Cron: p.Cron, Prompt: p.Prompt,
@@ -109,6 +125,14 @@ func handleAutomationJobSet(e *Engine, _ context.Context, r bridge.Request) brid
 		CreatedAt: now, UpdatedAt: now,
 	}
 	if p.ID != "" {
+		oldScope, failure := e.authorizeAutomationJob(ctx, r, p.ID)
+		if failure != nil {
+			return *failure
+		}
+		defer oldScope()
+		if len(p.ExpectedRevision) != 64 {
+			return r.Fail("SETTINGS_VERSION_CONFLICT", "请读取最新任务版本后保存", false)
+		}
 		existing, ok, err := e.automation.Store().GetJob(p.ID)
 		if err != nil {
 			return r.Fail("AUTOMATION_STORE_FAILED", "任务读取失败", true)
@@ -120,19 +144,30 @@ func handleAutomationJobSet(e *Engine, _ context.Context, r bridge.Request) brid
 		job.CreatedAt = existing.CreatedAt
 		job.LastRunAt = existing.LastRunAt
 	} else {
-		job.ID = ulid.Make().String()
+		job.ID = r.ID
+		if r.IdempotencyKey != "" {
+			// Every valid bridge key is stable, including keys that are not ULIDs.
+			digest := sha256.Sum256([]byte("automation.job.create/v1/" + r.IdempotencyKey))
+			var stable ulid.ULID
+			copy(stable[:], digest[:16])
+			job.ID = stable.String()
+		}
 	}
-	if err := e.automation.Store().PutJob(job); err != nil {
+	saved, err := e.automation.Store().PutJobVersioned(job, p.ExpectedRevision)
+	if errors.Is(err, scheduler.ErrJobConflict) {
+		return r.Fail("SETTINGS_VERSION_CONFLICT", "任务已被修改，当前草稿已保留，请刷新后重试", false)
+	}
+	if err != nil {
 		if errors.Is(err, scheduler.ErrInvalid) {
 			return r.Fail("BRIDGE_SCHEMA_INVALID", "automation.job.set 参数无效", false)
 		}
 		return r.Fail("AUTOMATION_STORE_FAILED", "任务保存失败", true)
 	}
-	return r.Ok(map[string]any{"id": job.ID, "createdAt": job.CreatedAt.Format(time.RFC3339)})
+	return r.Ok(map[string]any{"id": saved.ID, "createdAt": saved.CreatedAt.Format(time.RFC3339Nano), "revision": scheduler.JobRevision(saved)})
 }
 
 // handleAutomationJobDelete removes one job.
-func handleAutomationJobDelete(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
+func handleAutomationJobDelete(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	if e.automation == nil {
 		return automationUnavailable(r)
 	}
@@ -142,6 +177,11 @@ func handleAutomationJobDelete(e *Engine, _ context.Context, r bridge.Request) b
 	if decodePayload(r.Payload, &p) != nil || len(p.ID) != 26 {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "automation.job.delete 参数无效", false)
 	}
+	scope, failure := e.authorizeAutomationJob(ctx, r, p.ID)
+	if failure != nil {
+		return *failure
+	}
+	defer scope()
 	if err := e.automation.Store().DeleteJob(p.ID); err != nil {
 		return r.Fail("AUTOMATION_STORE_FAILED", "任务删除失败", true)
 	}
@@ -149,7 +189,7 @@ func handleAutomationJobDelete(e *Engine, _ context.Context, r bridge.Request) b
 }
 
 // handleAutomationJobTrigger fires one job immediately (manual run-now).
-func handleAutomationJobTrigger(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
+func handleAutomationJobTrigger(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	if e.automation == nil {
 		return automationUnavailable(r)
 	}
@@ -159,7 +199,15 @@ func handleAutomationJobTrigger(e *Engine, _ context.Context, r bridge.Request) 
 	if decodePayload(r.Payload, &p) != nil || len(p.ID) != 26 {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "automation.job.trigger 参数无效", false)
 	}
+	scope, failure := e.authorizeAutomationJob(ctx, r, p.ID)
+	if failure != nil {
+		return *failure
+	}
+	defer scope()
 	if err := e.automation.TriggerNow(p.ID); err != nil {
+		if errors.Is(err, scheduler.ErrPersistence) {
+			return r.Fail("AUTOMATION_STORE_FAILED", "执行记录无法保存，任务未启动", true)
+		}
 		if strings.Contains(err.Error(), "not found") {
 			return r.Fail("AUTOMATION_JOB_NOT_FOUND", "任务不存在", false)
 		}
@@ -169,7 +217,7 @@ func handleAutomationJobTrigger(e *Engine, _ context.Context, r bridge.Request) 
 }
 
 // handleAutomationRunList answers the newest-first run history.
-func handleAutomationRunList(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
+func handleAutomationRunList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	if e.automation == nil {
 		return automationUnavailable(r)
 	}
@@ -188,22 +236,47 @@ func handleAutomationRunList(e *Engine, _ context.Context, r bridge.Request) bri
 		return r.Fail("AUTOMATION_STORE_FAILED", "运行历史读取失败", true)
 	}
 	type runView struct {
-		ID          string `json:"id"`
-		JobID       string `json:"jobId"`
-		JobName     string `json:"jobName"`
-		State       string `json:"state"`
-		Trigger     string `json:"trigger"`
-		Summary     string `json:"summary,omitempty"`
-		TotalTokens int64  `json:"totalTokens"`
-		Error       string `json:"error,omitempty"`
-		StartedAt   string `json:"startedAt"`
-		FinishedAt  string `json:"finishedAt,omitempty"`
+		ID             string `json:"id"`
+		JobID          string `json:"jobId"`
+		JobName        string `json:"jobName"`
+		State          string `json:"state"`
+		Trigger        string `json:"trigger"`
+		Summary        string `json:"summary,omitempty"`
+		TotalTokens    int64  `json:"totalTokens"`
+		Error          string `json:"error,omitempty"`
+		StartedAt      string `json:"startedAt"`
+		FinishedAt     string `json:"finishedAt,omitempty"`
+		OutcomeUnknown bool   `json:"outcomeUnknown,omitempty"`
 	}
 	out := make([]runView, 0, len(runs))
+	seen := map[string]bool{}
 	for _, run := range runs {
+		if seen[run.ID] {
+			continue
+		}
+		seen[run.ID] = true
+		if run.SessionID != "" {
+			scope, err := e.authorizeAutomationSession(ctx, run.SessionID)
+			if err != nil {
+				if dataScopeAccessError(err) {
+					continue
+				}
+				return r.Fail("DATA_SCOPE_UNAVAILABLE", "历史记录范围无法确认", true)
+			}
+			scope()
+		} else if e.dataScope.store != nil || e.m9org != nil {
+			scope, failure := e.authorizeAutomationJob(ctx, r, run.JobID)
+			if failure != nil {
+				if failure.Error.Code == "AUTOMATION_JOB_NOT_FOUND" || failure.Error.Code == "DATA_SCOPE_DENIED" {
+					continue
+				}
+				return *failure
+			}
+			scope()
+		}
 		v := runView{ID: run.ID, JobID: run.JobID, JobName: run.JobName,
 			State: run.State, Trigger: run.Trigger, Summary: run.Summary,
-			TotalTokens: run.TotalTokens, Error: run.Error,
+			TotalTokens: run.TotalTokens, Error: run.Error, OutcomeUnknown: run.OutcomeUnknown,
 			StartedAt: run.StartedAt.UTC().Format(time.RFC3339)}
 		if !run.FinishedAt.IsZero() {
 			v.FinishedAt = run.FinishedAt.UTC().Format(time.RFC3339)
@@ -214,23 +287,52 @@ func handleAutomationRunList(e *Engine, _ context.Context, r bridge.Request) bri
 }
 
 // handleAutomationStatus answers the scheduler heartbeat snapshot.
-func handleAutomationStatus(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
+func handleAutomationStatus(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	if e.automation == nil {
 		return automationUnavailable(r)
 	}
 	s := e.automation.Snapshot()
+	visible := map[string]bool{}
+	jobs, err := e.automation.Store().ListJobs()
+	if err != nil {
+		return r.Fail("AUTOMATION_STORE_FAILED", "任务状态读取失败", true)
+	}
+	for _, job := range jobs {
+		scope, err := e.authorizeAutomationSession(ctx, job.SessionID)
+		if err != nil {
+			if dataScopeAccessError(err) {
+				continue
+			}
+			return r.Fail("DATA_SCOPE_UNAVAILABLE", "组织状态无法确认", true)
+		}
+		scope()
+		visible[job.ID] = true
+	}
+	for id := range s.NextFire {
+		if !visible[id] {
+			delete(s.NextFire, id)
+		}
+	}
+	running := []string{}
+	for _, id := range s.RunningJobs {
+		if visible[id] {
+			running = append(running, id)
+		}
+	}
+	s.RunningJobs = running
 	return r.Ok(map[string]any{
 		"running":       s.Running,
 		"startedAt":     stampOrEmpty(s.StartedAt),
 		"lastHeartbeat": stampOrEmpty(s.LastHeartbeat),
 		"nextFire":      s.NextFire,
 		"runningJobs":   s.RunningJobs,
+		"lastError":     s.LastError,
 	})
 }
 
 func stampOrEmpty(t time.Time) string {
 	if t.IsZero() {
-		return time.Now().UTC().Format(time.RFC3339)
+		return ""
 	}
 	return t.UTC().Format(time.RFC3339)
 }
@@ -243,46 +345,31 @@ func (e *Engine) AutomationHeadlessExecutor() scheduler.Executor {
 	return func(ctx context.Context, job scheduler.Job) scheduler.Outcome {
 		runCtx, cancel := context.WithTimeout(ctx, time.Duration(bridge.ChatStartDeadlineMS)*time.Millisecond)
 		defer cancel()
+		scope, scopeErr := e.authorizeAutomationSession(runCtx, job.SessionID)
+		if scopeErr != nil {
+			return scheduler.Outcome{Err: scopeErr}
+		}
 		isolatedID := ""
 		if strings.TrimSpace(job.SessionMode) == "isolated" {
 			isolatedID = e.isolatedAutomationSession(runCtx, job.SessionID)
+		}
+		scope()
+		if strings.TrimSpace(job.SessionMode) == "isolated" && isolatedID == "" {
+			return scheduler.Outcome{Err: errors.New("独立自动化会话创建失败，任务未执行")}
 		}
 		payloadMap := automationChatStartPayload(job, isolatedID)
 		payload, err := json.Marshal(payloadMap)
 		if err != nil {
 			return scheduler.Outcome{Err: err}
 		}
-		var text strings.Builder
-		var tokens int64
-		var streamErr *bridge.StreamError
+
 		req := bridge.Request{
 			Version: bridge.Version, Kind: "request",
 			ID: ulid.Make().String(), TraceID: ulid.Make().String(),
 			Method: "chat.start", SentAt: time.Now().UTC(),
 			Payload: payload, DeadlineMS: bridge.ChatStartDeadlineMS,
 		}
-		resp := e.HandleStreaming(runCtx, req, func(ev bridge.Event) error {
-			switch {
-			case ev.Delta != nil:
-				text.WriteString(ev.Delta.Text)
-			case ev.Usage != nil:
-				tokens += int64(ev.Usage.TotalTokens)
-			case ev.Error != nil:
-				streamErr = ev.Error
-			}
-			return nil
-		})
-		if !resp.OK {
-			code, message := "AUTOMATION_RUN_FAILED", "无头执行失败"
-			if resp.Error != nil {
-				code, message = resp.Error.Code, resp.Error.Message
-			}
-			return scheduler.Outcome{TotalTokens: tokens, Err: errors.New(message + " (" + code + ")")}
-		}
-		if streamErr != nil {
-			return scheduler.Outcome{TotalTokens: tokens, Err: errors.New(streamErr.Message + " (" + streamErr.Code + ")")}
-		}
-		return scheduler.Outcome{Summary: text.String(), TotalTokens: tokens}
+		return e.runHeadlessStream(runCtx, req)
 	}
 }
 

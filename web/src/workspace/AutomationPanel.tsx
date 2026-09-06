@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react'
-import { automationBridge, type AutomationBridge } from '../bridge/client'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { automationBridge, createMutationAttempt, type MutationAttempt, type AutomationBridge } from '../bridge/client'
 import type { AutomationJobListResult, AutomationRunListResult, AutomationStatusResult } from '../generated/bridge'
 import { cronToHuman, delayAtCron } from '../automation/automationTemplates'
 
@@ -7,6 +7,7 @@ type Job = AutomationJobListResult['jobs'][number]
 type Run = AutomationRunListResult['runs'][number]
 type Draft = {
   id?: string
+  expectedRevision?: string
   name: string
   cron: string
   prompt: string
@@ -55,6 +56,7 @@ const STATE_LABEL: Record<string, string> = { running: '执行中', succeeded: '
 function jobPayload(draft: Draft, enabled: boolean) {
   return {
     id: draft.id,
+    expectedRevision: draft.expectedRevision,
     name: draft.name.trim(),
     cron: draft.cron.trim(),
     prompt: draft.prompt.trim(),
@@ -84,6 +86,8 @@ export function AutomationPanel({
   executionMode?: Draft['executionMode']
   mode?: 'full' | 'runs'
 }): React.JSX.Element {
+  const saveAttempt = useRef<MutationAttempt<object> | undefined>(undefined)
+  const generation = useRef(0)
   const [jobs, setJobs] = useState<Job[]>([])
   const [runs, setRuns] = useState<Run[]>([])
   const [status, setStatus] = useState<AutomationStatusResult | undefined>()
@@ -91,16 +95,31 @@ export function AutomationPanel({
   const [editing, setEditing] = useState(false)
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
+  const scope = useRef(0)
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => {
+    scope.current++
+    busyRef.current = false
+    setBusy(false)
+    return () => {
+      scope.current++
+      if (refreshTimer.current !== undefined) clearTimeout(refreshTimer.current)
+    }
+  }, [bridge, sessionId])
   const [openRun, setOpenRun] = useState<string>()
 
   const reload = useCallback(async () => {
+    const epoch = ++generation.current
     try {
       const [j, r, s] = await Promise.all([bridge.listJobs(), bridge.listRuns({ limit: 30 }), bridge.status()])
+      if (epoch !== generation.current) return
       setJobs(j.jobs)
       setRuns(r.runs)
       setStatus(s)
     } catch {
-      /* keep last snapshot */
+      if (epoch !== generation.current) return
+      setNotice('自动化状态刷新失败，显示的是上一次结果')
     }
   }, [bridge])
 
@@ -114,12 +133,13 @@ export function AutomationPanel({
     }, 30_000)
     return () => {
       active = false
+      generation.current++
       window.clearInterval(timer)
     }
   }, [reload])
 
   useEffect(() => {
-    setDraft(d => ({
+    setDraft((d) => ({
       ...d,
       sessionId,
       providerId: d.providerId || providerId,
@@ -146,47 +166,70 @@ export function AutomationPanel({
       setNotice('IM 通知地址需为 https 链接（飞书/企业微信/钉钉自定义机器人）')
       return
     }
-    if (busy) return
+    if (busyRef.current) return
+    busyRef.current = true
+    const operationScope = scope.current
     setBusy(true)
     setNotice('')
     try {
-      await bridge.setJob(jobPayload({ ...draft, webhookUrl: hook }, draft.enabled))
+      const payload = jobPayload({ ...draft, webhookUrl: hook }, draft.enabled)
+      if (!saveAttempt.current || JSON.stringify(saveAttempt.current.payload) !== JSON.stringify(payload))
+        saveAttempt.current = createMutationAttempt('automation.job.set', payload)
+      await bridge.setJob(payload, { attempt: saveAttempt.current as MutationAttempt<typeof payload> })
+      if (operationScope !== scope.current) return
       await reload()
+      if (operationScope !== scope.current) return
       setDraft({ ...EMPTY_DRAFT, sessionId, providerId, modelId, executionMode })
       setEditing(false)
       setNotice('任务已保存')
     } catch (e) {
+      if (operationScope !== scope.current) return
       setNotice(e instanceof Error ? e.message : '保存失败')
     } finally {
-      setBusy(false)
+      if (operationScope === scope.current) {
+        busyRef.current = false
+        setBusy(false)
+      }
     }
   }
 
   const trigger = async (job: Job) => {
-    if (busy) return
+    if (busyRef.current) return
+    busyRef.current = true
+    const operationScope = scope.current
     setBusy(true)
     setNotice('')
     try {
       await bridge.triggerJob({ id: job.id })
+      if (operationScope !== scope.current) return
       setNotice(`已触发「${job.name}」，完成后将弹出系统通知`)
-      setTimeout(() => {
+      if (refreshTimer.current !== undefined) clearTimeout(refreshTimer.current)
+      refreshTimer.current = setTimeout(() => {
+        if (operationScope !== scope.current) return
         void reload()
       }, 800)
     } catch (e) {
+      if (operationScope !== scope.current) return
       setNotice(e instanceof Error ? e.message : '触发失败')
     } finally {
-      setBusy(false)
+      if (operationScope === scope.current) {
+        busyRef.current = false
+        setBusy(false)
+      }
     }
   }
 
   const toggle = async (job: Job) => {
-    if (busy) return
+    if (busyRef.current) return
+    busyRef.current = true
+    const operationScope = scope.current
     setBusy(true)
     try {
       await bridge.setJob(
         jobPayload(
           {
             id: job.id,
+            expectedRevision: job.revision,
             name: job.name,
             cron: job.cron,
             prompt: job.prompt,
@@ -202,31 +245,46 @@ export function AutomationPanel({
           !job.enabled,
         ),
       )
+      if (operationScope !== scope.current) return
       await reload()
+      if (operationScope !== scope.current) return
     } catch (e) {
+      if (operationScope !== scope.current) return
       setNotice(e instanceof Error ? e.message : '更新失败')
     } finally {
-      setBusy(false)
+      if (operationScope === scope.current) {
+        busyRef.current = false
+        setBusy(false)
+      }
     }
   }
 
   const remove = async (job: Job) => {
-    if (busy) return
+    if (busyRef.current) return
+    busyRef.current = true
+    const operationScope = scope.current
     setBusy(true)
     try {
       await bridge.deleteJob({ id: job.id })
+      if (operationScope !== scope.current) return
       await reload()
+      if (operationScope !== scope.current) return
       setNotice('任务已删除')
     } catch (e) {
+      if (operationScope !== scope.current) return
       setNotice(e instanceof Error ? e.message : '删除失败')
     } finally {
-      setBusy(false)
+      if (operationScope === scope.current) {
+        busyRef.current = false
+        setBusy(false)
+      }
     }
   }
 
   const startEdit = (job: Job) => {
     setDraft({
       id: job.id,
+      expectedRevision: job.revision,
       name: job.name,
       cron: job.cron,
       prompt: job.prompt,
@@ -268,16 +326,30 @@ export function AutomationPanel({
           <div className="automation-editor-row">
             <label>
               名称
-              <input aria-label="任务名称" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} placeholder="每日站会摘要" />
+              <input
+                aria-label="任务名称"
+                value={draft.name}
+                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                placeholder="每日站会摘要"
+              />
             </label>
             <label>
               cron（分 时 日 月 周，或 at:时刻）
-              <input aria-label="cron 表达式" value={draft.cron} onChange={e => setDraft({ ...draft, cron: e.target.value })} placeholder="30 8 * * 1-5" />
+              <input
+                aria-label="cron 表达式"
+                value={draft.cron}
+                onChange={(e) => setDraft({ ...draft, cron: e.target.value })}
+                placeholder="30 8 * * 1-5"
+              />
             </label>
             <label>
               执行模式
-              <select aria-label="执行模式" value={draft.executionMode} onChange={e => setDraft({ ...draft, executionMode: e.target.value as Draft['executionMode'] })}>
-                {(Object.keys(MODE_LABEL) as Draft['executionMode'][]).map(m => (
+              <select
+                aria-label="执行模式"
+                value={draft.executionMode}
+                onChange={(e) => setDraft({ ...draft, executionMode: e.target.value as Draft['executionMode'] })}
+              >
+                {(Object.keys(MODE_LABEL) as Draft['executionMode'][]).map((m) => (
                   <option key={m} value={m}>
                     {MODE_LABEL[m]}
                   </option>
@@ -286,36 +358,57 @@ export function AutomationPanel({
             </label>
             <label>
               会话
-              <select aria-label="会话模式" value={draft.sessionMode} onChange={e => setDraft({ ...draft, sessionMode: e.target.value as Draft['sessionMode'] })}>
+              <select
+                aria-label="会话模式"
+                value={draft.sessionMode}
+                onChange={(e) => setDraft({ ...draft, sessionMode: e.target.value as Draft['sessionMode'] })}
+              >
                 <option value="bound">绑定当前会话</option>
                 <option value="isolated">独立会话</option>
               </select>
             </label>
             <label className="automation-enabled">
-              <input type="checkbox" aria-label="仅运行一次" checked={draft.runOnce || draft.cron.startsWith('at:')} onChange={e => setDraft({ ...draft, runOnce: e.target.checked })} />
+              <input
+                type="checkbox"
+                aria-label="仅运行一次"
+                checked={draft.runOnce || draft.cron.startsWith('at:')}
+                onChange={(e) => setDraft({ ...draft, runOnce: e.target.checked })}
+              />
               仅运行一次
             </label>
             <label className="automation-enabled">
-              <input type="checkbox" aria-label="启用任务" checked={draft.enabled} onChange={e => setDraft({ ...draft, enabled: e.target.checked })} />
+              <input
+                type="checkbox"
+                aria-label="启用任务"
+                checked={draft.enabled}
+                onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })}
+              />
               启用
             </label>
           </div>
           <div className="automation-editor-actions">
-            <button
-              type="button"
-              onClick={() => setDraft({ ...draft, cron: delayAtCron(20), runOnce: true })}
-            >
+            <button type="button" onClick={() => setDraft({ ...draft, cron: delayAtCron(20), runOnce: true })}>
               20 分钟后
             </button>
             <span className="automation-notice">{cronToHuman(draft.cron)}</span>
           </div>
           <label className="automation-editor-prompt">
             提示词（无头执行，发送到会话）
-            <textarea aria-label="执行提示词" value={draft.prompt} onChange={e => setDraft({ ...draft, prompt: e.target.value })} placeholder="汇总昨天会话里的待办并生成今日站会摘要" />
+            <textarea
+              aria-label="执行提示词"
+              value={draft.prompt}
+              onChange={(e) => setDraft({ ...draft, prompt: e.target.value })}
+              placeholder="汇总昨天会话里的待办并生成今日站会摘要"
+            />
           </label>
           <label className="automation-editor-webhook">
             IM 通知（可选，飞书/企业微信/钉钉自定义机器人的 https 地址，完成后推送结果）
-            <input aria-label="IM 通知 webhook 地址" value={draft.webhookUrl} onChange={e => setDraft({ ...draft, webhookUrl: e.target.value })} placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/…" />
+            <input
+              aria-label="IM 通知 webhook 地址"
+              value={draft.webhookUrl}
+              onChange={(e) => setDraft({ ...draft, webhookUrl: e.target.value })}
+              placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/…"
+            />
           </label>
           <div className="automation-editor-actions">
             <button type="button" disabled={busy} onClick={() => void save()}>
@@ -336,7 +429,7 @@ export function AutomationPanel({
       {!runsOnly &&
         (jobs.length ? (
           <ul className="automation-jobs">
-            {jobs.map(job => {
+            {jobs.map((job) => {
               const nextMap = (status?.nextFire ?? {}) as Record<string, string | undefined>
               const next = nextMap[job.id]
               return (
@@ -344,7 +437,9 @@ export function AutomationPanel({
                   <div className="automation-job-head">
                     <b>{job.name}</b>
                     <code>{job.cron}</code>
-                    <span className="automation-job-mode">{MODE_LABEL[(job.executionMode as Draft['executionMode']) || 'auto-edit']}</span>
+                    <span className="automation-job-mode">
+                      {MODE_LABEL[(job.executionMode as Draft['executionMode']) || 'auto-edit']}
+                    </span>
                     {job.sessionMode === 'isolated' && <span className="automation-job-mode">独立</span>}
                     {(job.runOnce || job.cron.startsWith('at:')) && <span className="automation-job-mode">一次</span>}
                     {job.webhookUrl && (
@@ -372,7 +467,12 @@ export function AutomationPanel({
                     <button type="button" disabled={busy} onClick={() => startEdit(job)}>
                       编辑
                     </button>
-                    <button type="button" className="automation-delete" disabled={busy} onClick={() => void remove(job)}>
+                    <button
+                      type="button"
+                      className="automation-delete"
+                      disabled={busy}
+                      onClick={() => void remove(job)}
+                    >
                       删除
                     </button>
                   </div>
@@ -381,13 +481,15 @@ export function AutomationPanel({
             })}
           </ul>
         ) : (
-          !editing && <p className="automation-empty">还没有定时任务。新建后，Lunitide 会在后台按时无头执行并发系统通知。</p>
+          !editing && (
+            <p className="automation-empty">还没有定时任务。新建后，Lunitide 会在后台按时无头执行并发系统通知。</p>
+          )
         ))}
       {runs.length > 0 ? (
         <div className="automation-runs">
           <h4>运行历史</h4>
           <ul>
-            {runs.map(run => (
+            {runs.map((run) => (
               <li key={run.id} className={`automation-run is-${run.state}`}>
                 <button
                   type="button"
@@ -395,7 +497,9 @@ export function AutomationPanel({
                   aria-expanded={openRun === run.id}
                   onClick={() => setOpenRun(openRun === run.id ? undefined : run.id)}
                 >
-                  <span className={`automation-run-state is-${run.state}`}>{STATE_LABEL[run.state] ?? run.state}</span>
+                  <span className={`automation-run-state is-${run.state}`}>
+                    {run.outcomeUnknown ? '结果待核对' : (STATE_LABEL[run.state] ?? run.state)}
+                  </span>
                   <b>{run.jobName}</b>
                   <small>
                     {run.trigger === 'manual' ? '手动' : '定时'} · {fmtTime(run.startedAt)}
@@ -404,7 +508,13 @@ export function AutomationPanel({
                 </button>
                 {openRun === run.id && (
                   <div className="automation-run-detail">
-                    {run.state === 'failed' ? <p role="alert">{run.error}</p> : run.summary ? <pre>{run.summary}</pre> : <p>无摘要</p>}
+                    {run.state === 'failed' ? (
+                      <p role="alert">{run.error}</p>
+                    ) : run.summary ? (
+                      <pre>{run.summary}</pre>
+                    ) : (
+                      <p>无摘要</p>
+                    )}
                   </div>
                 )}
               </li>

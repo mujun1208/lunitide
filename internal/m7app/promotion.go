@@ -169,11 +169,31 @@ func (LocalDeploymentAdapter) Rollback(context.Context, string, string) error { 
 // PromotionService implements release.promote / release.rollback /
 // release.getPromotion (slice 4).
 type PromotionService struct {
-	uow    PromotionUnitOfWork
-	clock  Clock
-	signer ReleaseSigner
-	mig    MigrationAdapter
-	dep    DeploymentAdapter
+	uow            PromotionUnitOfWork
+	clock          Clock
+	signer         ReleaseSigner
+	mig            MigrationAdapter
+	dep            DeploymentAdapter
+	adapterFactory func(PromotionTx) (MigrationAdapter, DeploymentAdapter)
+	localOnly      bool
+}
+
+// SetLocalPublication installs real file publication for dev/stage. It does
+// not deploy applications or run schema migrations in an external environment.
+func (s *PromotionService) SetLocalPublication(root string) {
+	s.localOnly = true
+	s.adapterFactory = func(tx PromotionTx) (MigrationAdapter, DeploymentAdapter) {
+		return localArtifactMigration{root: root}, localArtifactDeployment{root: root, tx: tx}
+	}
+}
+func (s *PromotionService) forTx(tx PromotionTx) *PromotionService {
+	if s.adapterFactory == nil {
+		return s
+	}
+	copy := *s
+	copy.mig, copy.dep = s.adapterFactory(tx)
+	copy.adapterFactory = nil
+	return &copy
 }
 
 func NewPromotionService(uow PromotionUnitOfWork) *PromotionService {
@@ -189,6 +209,8 @@ func (s *PromotionService) SetClock(c Clock) { s.clock = c }
 // runtime adapters). The adapters stay internal to the aggregate.
 func (s *PromotionService) SetAdapters(m MigrationAdapter, d DeploymentAdapter) {
 	s.mig, s.dep = m, d
+	s.localOnly = false
+	s.adapterFactory = nil
 }
 
 // PromoteInput is the release.promote command.
@@ -263,6 +285,9 @@ func (s *PromotionService) Promote(ctx context.Context, in PromoteInput) (m7flow
 	if m7flow.EnvRank(in.TargetEnv) < 1 {
 		return m7flow.Promotion{}, fmt.Errorf("%w: targetEnv invalid", ErrPolicyRejected)
 	}
+	if s.localOnly && in.TargetEnv == m7flow.EnvProd {
+		return m7flow.Promotion{}, fmt.Errorf("%w: external deployment is not configured; local artifact publication supports dev/stage", ErrPolicyRejected)
+	}
 	policy, err := decodePromotionPolicy(in.PolicyContext)
 	if err != nil {
 		return m7flow.Promotion{}, err
@@ -270,7 +295,11 @@ func (s *PromotionService) Promote(ctx context.Context, in PromoteInput) (m7flow
 	var out m7flow.Promotion
 	var sagaErr error // typed failure already recorded on a committed saga row
 	err = s.uow.TransactPromotion(ctx, func(tx PromotionTx) error {
-		prm, err := s.promoteTx(ctx, tx, in, policy)
+		active := s.forTx(tx)
+		prm, err := active.promoteTx(ctx, tx, in, policy)
+		if err == nil && s.localOnly && prm.State == m7flow.PrmSucceeded {
+			err = active.runValidation(ctx, tx, &prm)
+		}
 		out = prm
 		if err != nil && m7SagaRecorded(out, err) {
 			sagaErr = err
@@ -725,6 +754,7 @@ func (s *PromotionService) Rollback(ctx context.Context, in RollbackInput) (m7fl
 	var prm m7flow.Promotion
 	var sagaErr error // typed failure already recorded on a committed saga row
 	err := s.uow.TransactPromotion(ctx, func(tx PromotionTx) error {
+		active := s.forTx(tx)
 		var err error
 		prm, err = tx.GetPromotion(in.PromotionID)
 		if err != nil {
@@ -738,12 +768,12 @@ func (s *PromotionService) Rollback(ctx context.Context, in RollbackInput) (m7fl
 		case m7flow.PrmRolledBack:
 			return nil // idempotent
 		case m7flow.PrmRollingBack:
-		err = s.executeRollbackWith(ctx, tx, &prm, operator)
+			err = active.executeRollbackWith(ctx, tx, &prm, operator)
 		case m7flow.PrmSucceeded, m7flow.PrmFailed, m7flow.PrmOutcomeUnknown, m7flow.PrmManual:
-			if err := s.startRollback(ctx, tx, &prm, in.Reason); err != nil {
+			if err := active.startRollback(ctx, tx, &prm, in.Reason); err != nil {
 				return err
 			}
-		err = s.executeRollbackWith(ctx, tx, &prm, operator)
+			err = active.executeRollbackWith(ctx, tx, &prm, operator)
 		default:
 			return fmt.Errorf("%w: state %s", ErrRollbackNotAllowed, prm.State)
 		}
@@ -892,11 +922,11 @@ type TimelineStep struct {
 
 // PromotionView is the release.getPromotion projection (canonical 15-state).
 type PromotionView struct {
-	Promotion        m7flow.Promotion         `json:"promotion"`
-	Timeline         []TimelineStep           `json:"timeline"`
+	Promotion        m7flow.Promotion            `json:"promotion"`
+	Timeline         []TimelineStep              `json:"timeline"`
 	Migrations       []m7flow.MigrationExecution `json:"migrations"`
-	Deployments      []m7flow.Deployment      `json:"deployments"`
-	RollbackAttempts []m7flow.RollbackAttempt `json:"rollbackAttempts"`
+	Deployments      []m7flow.Deployment         `json:"deployments"`
+	RollbackAttempts []m7flow.RollbackAttempt    `json:"rollbackAttempts"`
 }
 
 // GetPromotion renders the release.getPromotion projection.
@@ -911,6 +941,11 @@ func (s *PromotionService) GetPromotion(ctx context.Context, promotionID string)
 			return ErrPromotionNotFound
 		}
 		view.Promotion = prm
+		if s.localOnly && prm.State == m7flow.PrmSucceeded {
+			if err := s.forTx(tx).runValidation(ctx, tx, &prm); err != nil {
+				return err
+			}
+		}
 		rfc := func(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
 		nullable := func(t *time.Time) string {
 			if t == nil {

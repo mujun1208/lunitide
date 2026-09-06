@@ -1,0 +1,49 @@
+package app
+
+import (
+ "context"
+ "encoding/json"
+ "fmt"
+ "io"
+ "path/filepath"
+ "strings"
+ "testing"
+ "github.com/lunitide/lunitide/internal/ipc"
+ "github.com/lunitide/lunitide/internal/mroapp"
+ storage "github.com/lunitide/lunitide/internal/storage/sqlite"
+ "github.com/oklog/ulid/v2"
+)
+
+// This historical probe proves the defect; PASS does not mean a fixed gate.
+func TestAuditMROPublicListsExceedFrame(t *testing.T) {
+ ctx:=context.Background()
+ store,err:=storage.OpenTemplated(ctx,filepath.Join(t.TempDir(),"mro-frame.db"))
+ if err!=nil {t.Fatal(err)}
+ t.Cleanup(func(){ _=store.Close() })
+ e:=NewEngine(nil,"test")
+ e.SetMROService(mroapp.New(store))
+ // The same long field values are accepted through the actual write handler.
+ sample:=map[string]any{"toolNo":strings.Repeat("&",64),"sn":strings.Repeat("&",64),"location":strings.Repeat("&",64),"calibDue":"2099-01-01"}
+ payload,_:=json.Marshal(sample)
+ if r:=e.Handle(ctx,mroMutationRequest("mro.tool.upsert",string(payload),"long-tool")); !r.OK {t.Fatalf("valid tool rejected: %+v",r)}
+ stockPayload,_:=json.Marshal(map[string]any{"pn":strings.Repeat("&",64),"qty":1,"source":strings.Repeat("&",32)})
+ if r:=e.Handle(ctx,mroMutationRequest("mro.parts.stock.upsert",string(stockPayload),"long-stock")); !r.OK {t.Fatalf("valid stock rejected: %+v",r)}
+ err=store.TransactMRO(ctx,func(txCtx context.Context)error{
+  for i:=0;i<9999;i++ {
+   label:=fmt.Sprintf("%05d",i)+strings.Repeat("&",59)
+   if err:=store.UpsertTool(txCtx,mroapp.Tool{ID:ulid.Make().String(),ToolNo:label,SN:strings.Repeat("&",64),Location:strings.Repeat("&",64),CalibDue:"2099-01-01",Status:"ready",UpdatedAt:"2026-09-06T00:00:00Z"});err!=nil{return err}
+   if err:=store.UpsertPartsStock(txCtx,mroapp.PartsStock{PN:label,Qty:1,Source:strings.Repeat("&",32)});err!=nil{return err}
+  }
+  return nil
+ })
+ if err!=nil {t.Fatal(err)}
+ for _,method:=range []string{"mro.tool.list","mro.parts.stock.list"} {
+  response:=e.Handle(ctx,mroMutationRequest(method,`{}`,""))
+  if !response.OK {t.Fatalf("list unexpectedly refused: %+v",response)}
+  raw,err:=json.Marshal(response)
+  if err!=nil {t.Fatal(err)}
+  frameErr:=ipc.WriteFrame(io.Discard,raw)
+  t.Logf("method=%s rows=10000 serializedBytes=%d maxFrame=%d ratio=%.3f writeFrameError=%v",method,len(raw),ipc.MaxFrameSize,float64(len(raw))/float64(ipc.MaxFrameSize),frameErr)
+  if len(raw)<=ipc.MaxFrameSize || frameErr==nil {t.Fatal("expected oversized pre-fix response was not reproduced")}
+ }
+}

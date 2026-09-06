@@ -44,7 +44,7 @@ func (s *Service) CurrentBeacon() (Beacon, bool) {
 }
 
 func (s *Service) List(ctx context.Context) ([]Contact, error) {
-	if err := s.ready(); err != nil {
+	if err := s.readyUnlocked(); err != nil {
 		return nil, err
 	}
 	items, err := s.store.ListContacts(ctx)
@@ -134,7 +134,7 @@ func (s *Service) Pair(ctx context.Context, in PairInput) (Contact, error) {
 }
 
 func (s *Service) IngestBeacon(ctx context.Context, b Beacon, host string) error {
-	if err := s.ready(); err != nil {
+	if err := s.readyUnlocked(); err != nil {
 		return err
 	}
 	if b.V != 1 || b.Kind != "lunitide-people" || b.SubjectID == "" || b.SubjectID == s.identity.SubjectID() {

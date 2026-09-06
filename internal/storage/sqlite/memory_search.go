@@ -13,6 +13,9 @@ import (
 // trigram index, ordered by confidence descending. Short CJK terms fall back
 // to LIKE (same MATCH-then-LIKE strategy as message/memory_fact search).
 func (s *Store) SearchMemoriesFTS(ctx context.Context, projectID string, query string, limit int) ([]memory.Memory, error) {
+	return s.SearchActiveMemoriesFTS(ctx, projectID, query, time.Now().UTC(), limit)
+}
+func (s *Store) SearchActiveMemoriesFTS(ctx context.Context, projectID, query string, now time.Time, limit int) ([]memory.Memory, error) {
 	if s == nil || s.db == nil || strings.TrimSpace(query) == "" {
 		return nil, nil
 	}
@@ -27,9 +30,9 @@ func (s *Store) SearchMemoriesFTS(ctx context.Context, projectID string, query s
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := queryMemoriesFTS(ctx, tx, projectID, query, limit, true)
+	rows, err := queryMemoriesFTS(ctx, tx, projectID, query, now, limit, true)
 	if err != nil || len(rows) == 0 {
-		fallback, likeErr := queryMemoriesFTS(ctx, tx, projectID, query, limit, false)
+		fallback, likeErr := queryMemoriesFTS(ctx, tx, projectID, query, now, limit, false)
 		if likeErr == nil {
 			rows, err = fallback, nil
 		} else if err != nil {
@@ -42,7 +45,7 @@ func (s *Store) SearchMemoriesFTS(ctx context.Context, projectID string, query s
 	return rows, nil
 }
 
-func queryMemoriesFTS(ctx context.Context, tx *sql.Tx, projectID, query string, limit int, useMatch bool) ([]memory.Memory, error) {
+func queryMemoriesFTS(ctx context.Context, tx *sql.Tx, projectID, query string, now time.Time, limit int, useMatch bool) ([]memory.Memory, error) {
 	long, short := partitionSearchTerms(query)
 	terms := append(append([]string{}, long...), short...)
 	if len(terms) == 0 {
@@ -68,7 +71,7 @@ func queryMemoriesFTS(ctx context.Context, tx *sql.Tx, projectID, query string, 
 			args = append(args, likeContainsArg(term), likeContainsArg(term))
 		}
 	}
-	args = append(args, projectID, limit)
+	args = append(args, projectID, expiryCutoff(now), limit)
 	sqlRows, err := tx.QueryContext(ctx, `
 SELECT m.id, m.project_id, m.layer, m.scope, m.key, m.content,
        m.embedding_id, m.source_id, m.source_type, m.confidence, m.access_count,
@@ -77,6 +80,7 @@ FROM memory_fts f
 JOIN memories m ON m.id = f.memory_id
 WHERE (`+strings.Join(ors, " OR ")+`)
   AND m.project_id = ?
+  AND (m.expires_at IS NULL OR `+memoryExpiryOrderSQL("m.expires_at")+`>?)
 ORDER BY m.confidence DESC
 LIMIT ?`, args...)
 	if err != nil {

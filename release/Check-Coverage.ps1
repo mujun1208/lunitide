@@ -16,9 +16,8 @@
 #>
 [CmdletBinding()]
 param(
-    # Minimum acceptable total statement coverage, in percent. Baseline at
-    # introduction was 49.9%; the floor sits just below it.
-    [double]$Floor = 49.0,
+    # PRD engineering acceptance preserves the audited 51% baseline.
+    [ValidateRange(51,100)][double]$Floor = 51.0,
     [string]$Timeout = '25m'
 )
 
@@ -42,6 +41,6 @@ $total = [double]$Matches[1]
 
 Write-Host ("Total statement coverage: {0}% (floor {1}%)" -f $total, $Floor)
 if ($total -lt $Floor) {
-    throw ("Coverage {0}% is below the floor of {1}%. Add tests, or — if this is a deliberate baseline change — lower -Floor in the workflow on purpose." -f $total, $Floor)
+    throw ("Coverage {0}% is below the floor of {1}%. Add meaningful coverage for the changed behavior before accepting this candidate." -f $total, $Floor)
 }
 Write-Host "Coverage floor satisfied."

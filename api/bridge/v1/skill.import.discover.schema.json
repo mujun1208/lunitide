@@ -9,7 +9,11 @@
   "additionalProperties": false,
   "properties": {
     "assetType": {
-      "enum": ["skill", "profile", "prompt_bundle"]
+      "enum": [
+        "skill",
+        "profile",
+        "prompt_bundle"
+      ]
     },
     "sourceUrl": {
       "type": "string",
@@ -46,7 +50,11 @@
       "maxLength": 8192
     }
   },
-  "required": ["assetType", "sourceUrl", "immutableCommit", "archiveHash", "license", "publisher"],
+  "required": [
+    "assetType",
+    "sourceUrl",
+    "immutableCommit"
+  ],
   "x-result": {
     "type": "object",
     "additionalProperties": false,
@@ -55,14 +63,61 @@
         "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
       },
       "state": {
-        "enum": ["discovered", "pinned", "inspected", "scanned", "evaluated", "awaiting_approval", "approved", "rejected", "revoked"]
+        "enum": [
+          "discovered",
+          "pinned",
+          "inspected",
+          "scanned",
+          "evaluated",
+          "awaiting_approval",
+          "approved",
+          "rejected",
+          "revoked"
+        ]
       },
       "version": {
         "type": "integer",
         "minimum": 1
+      },
+      "summary": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "license": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "archiveHash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "skippedFiles": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "license",
+          "archiveHash",
+          "skippedFiles"
+        ]
       }
     },
-    "required": ["candidateId", "state", "version"]
+    "required": [
+      "candidateId",
+      "state",
+      "version"
+    ]
   },
   "x-examples": {
     "positive": [
@@ -73,6 +128,11 @@
         "archiveHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "license": "MIT",
         "publisher": "acme"
+      },
+      {
+        "assetType": "skill",
+        "sourceUrl": "https://github.com/acme/tool",
+        "immutableCommit": "0123456789abcdef0123456789abcdef01234567"
       }
     ],
     "negative": [

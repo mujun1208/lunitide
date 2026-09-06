@@ -1,0 +1,2 @@
+ok  	github.com/lunitide/lunitide/internal/app	42.874s
+ok  	github.com/lunitide/lunitide/internal/storage/sqlite	59.150s

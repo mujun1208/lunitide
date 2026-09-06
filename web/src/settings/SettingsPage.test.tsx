@@ -29,8 +29,8 @@ function bridges() {
     submitCredential: vi.fn(), syncModels: vi.fn(), test: vi.fn(), backupAdd: vi.fn(), backupRemove: vi.fn(),
   } as unknown as ProviderBridge
   const roles = {
-    get: vi.fn().mockResolvedValue({ roles: emptyRoles }),
-    set: vi.fn().mockResolvedValue({ roles: emptyRoles }),
+    get: vi.fn().mockResolvedValue({ roles: emptyRoles, revision: 'a'.repeat(64), appliedRevision: 'a'.repeat(64), state: 'applied' }),
+    set: vi.fn().mockResolvedValue({ roles: emptyRoles, revision: 'a'.repeat(64), appliedRevision: 'a'.repeat(64), state: 'applied' }),
   } as unknown as CapabilityRolesBridge
   return { providers, roles }
 }

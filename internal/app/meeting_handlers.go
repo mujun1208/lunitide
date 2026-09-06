@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
@@ -72,8 +73,13 @@ func handleMeetingsAppend(e *Engine, ctx context.Context, r bridge.Request) brid
 
 func handleMeetingsAudioAppend(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		MeetingID string `json:"meetingId"`
-		PCM       string `json:"pcm"`
+		MeetingID        string  `json:"meetingId"`
+		PCM              string  `json:"pcm"`
+		CaptureSessionID *string `json:"captureSessionId"`
+		ChunkSeq         *int64  `json:"chunkSeq"`
+		SampleStart      *int64  `json:"sampleStart"`
+		SampleCount      *int64  `json:"sampleCount"`
+		Digest           *string `json:"digest"`
 	}
 	if decodePayload(r.Payload, &p) != nil || p.MeetingID == "" || p.PCM == "" {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.audio.append 参数无效", false)
@@ -84,6 +90,16 @@ func handleMeetingsAudioAppend(e *Engine, ctx context.Context, r bridge.Request)
 	pcm, err := base64.StdEncoding.DecodeString(p.PCM)
 	if err != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.audio.append 音频编码无效", false)
+	}
+	if p.CaptureSessionID != nil || p.ChunkSeq != nil || p.SampleStart != nil || p.SampleCount != nil || p.Digest != nil {
+		if p.CaptureSessionID == nil || p.ChunkSeq == nil || p.SampleStart == nil || p.SampleCount == nil || p.Digest == nil {
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "会议音频批次标识不完整", false)
+		}
+		ack, err := e.meetings.AppendAudioBatch(ctx, p.MeetingID, pcm, meetings.AudioBatchIdentity{CaptureSessionID: *p.CaptureSessionID, ChunkSeq: *p.ChunkSeq, SampleStart: *p.SampleStart, SampleCount: *p.SampleCount, Digest: *p.Digest})
+		if err != nil {
+			return meetingsFailure(r, err)
+		}
+		return r.Ok(map[string]any{"meetingId": p.MeetingID, "audioMs": ack.AudioMS, "captureSessionId": ack.CaptureSessionID, "chunkSeq": ack.ChunkSeq, "sampleStart": ack.SampleStart, "sampleCount": ack.SampleCount, "digest": ack.Digest})
 	}
 	audioMS, err := e.meetings.AppendAudio(ctx, p.MeetingID, pcm)
 	if err != nil {
@@ -114,8 +130,15 @@ func handleMeetingsLoopbackPoll(e *Engine, ctx context.Context, r bridge.Request
 }
 
 func handleMeetingsCatchup(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	scoped, release, err := e.AcquireCapability(ctx, "stt")
+	if err != nil {
+		return r.Fail("FORBIDDEN", "会议处理所需能力已禁用", false)
+	}
+	defer release()
+	ctx = scoped
 	var p struct {
-		MeetingID string `json:"meetingId"`
+		MeetingID        string `json:"meetingId"`
+		ExpectedRevision int64  `json:"expectedRevision"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.catchup 参数无效", false)
@@ -123,7 +146,10 @@ func handleMeetingsCatchup(e *Engine, ctx context.Context, r bridge.Request) bri
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
 	}
-	m, err := e.meetings.CatchUp(ctx, p.MeetingID)
+	if p.ExpectedRevision < 1 {
+		return r.Fail("MEETING_REVISION_REQUIRED", "请刷新会议后重试；旧客户端不能覆盖当前版本", false)
+	}
+	m, err := e.meetings.CatchUp(ctx, p.MeetingID, p.ExpectedRevision)
 	if err != nil {
 		return meetingsFailure(r, err)
 	}
@@ -132,7 +158,8 @@ func handleMeetingsCatchup(e *Engine, ctx context.Context, r bridge.Request) bri
 
 func handleMeetingsStop(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		MeetingID string `json:"meetingId"`
+		MeetingID        string `json:"meetingId"`
+		ExpectedRevision int64  `json:"expectedRevision"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.stop 参数无效", false)
@@ -140,7 +167,10 @@ func handleMeetingsStop(e *Engine, ctx context.Context, r bridge.Request) bridge
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
 	}
-	m, err := e.meetings.Stop(ctx, p.MeetingID)
+	if p.ExpectedRevision < 1 {
+		return r.Fail("MEETING_REVISION_REQUIRED", "请刷新会议后重试；旧客户端不能覆盖当前版本", false)
+	}
+	m, err := e.meetings.Stop(ctx, p.MeetingID, p.ExpectedRevision)
 	if err != nil {
 		return meetingsFailure(r, err)
 	}
@@ -174,17 +204,43 @@ func handleMeetingsGet(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
 	}
-	m, err := e.meetings.Get(ctx, p.MeetingID)
+	m, err := e.meetings.Detail(ctx, p.MeetingID)
 	if err != nil {
 		return meetingsFailure(r, err)
 	}
 	return r.Ok(publicMeeting(m, true))
 }
 
-func handleMeetingsSummarize(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+func handleMeetingsSummarySourceGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		MeetingID string `json:"meetingId"`
-		ModelID   string `json:"modelId"`
+		MeetingID    string `json:"meetingId"`
+		SourceDigest string `json:"sourceDigest"`
+		Offset       int    `json:"offset"`
+	}
+	if decodePayload(r.Payload, &p) != nil {
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "摘要来源请求无效", false)
+	}
+	if e.meetings == nil {
+		return meetingsUnavailable(r)
+	}
+	page, err := e.meetings.SummarySource(ctx, p.MeetingID, p.SourceDigest, p.Offset)
+	if err != nil {
+		return meetingsFailure(r, err)
+	}
+	return r.Ok(page)
+}
+
+func handleMeetingsSummarize(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	scoped, release, err := e.AcquireCapability(ctx, "llm")
+	if err != nil {
+		return r.Fail("FORBIDDEN", "会议处理所需能力已禁用", false)
+	}
+	defer release()
+	ctx = scoped
+	var p struct {
+		MeetingID        string `json:"meetingId"`
+		ModelID          string `json:"modelId"`
+		ExpectedRevision int64  `json:"expectedRevision"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.summarize 参数无效", false)
@@ -192,9 +248,12 @@ func handleMeetingsSummarize(e *Engine, ctx context.Context, r bridge.Request) b
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
 	}
+	if p.ExpectedRevision < 1 {
+		return r.Fail("MEETING_REVISION_REQUIRED", "请刷新会议后重试；旧客户端不能覆盖当前版本", false)
+	}
 	e.meetingNotesModel.Store(strings.TrimSpace(p.ModelID))
 	defer e.meetingNotesModel.Store("")
-	m, err := e.meetings.Summarize(ctx, p.MeetingID)
+	m, err := e.meetings.Summarize(ctx, p.MeetingID, p.ExpectedRevision)
 	if err != nil {
 		return meetingsFailure(r, err)
 	}
@@ -203,11 +262,13 @@ func handleMeetingsSummarize(e *Engine, ctx context.Context, r bridge.Request) b
 
 func handleMeetingsUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		MeetingID  string  `json:"meetingId"`
-		Title      *string `json:"title"`
-		Summary    *string `json:"summary"`
-		Actions    *string `json:"actions"`
-		Transcript *string `json:"transcript"`
+		MeetingID        string                   `json:"meetingId"`
+		Title            *string                  `json:"title"`
+		Summary          *string                  `json:"summary"`
+		Actions          *string                  `json:"actions"`
+		Transcript       *string                  `json:"transcript"`
+		ExpectedRevision int64                    `json:"expectedRevision"`
+		TranscriptEdit   *meetings.TranscriptEdit `json:"transcriptEdit"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.update 参数无效", false)
@@ -215,8 +276,22 @@ func handleMeetingsUpdate(e *Engine, ctx context.Context, r bridge.Request) brid
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
 	}
+	if p.ExpectedRevision < 1 {
+		return r.Fail("MEETING_REVISION_REQUIRED", "请刷新会议后重试；旧客户端不能覆盖当前版本", false)
+	}
+	if p.Transcript != nil {
+		current, err := e.meetings.Metadata(ctx, p.MeetingID)
+		if err != nil {
+			return meetingsFailure(r, err)
+		}
+		if utf8.RuneCountInString(current.Transcript) > meetings.TranscriptPageRunes || utf8.RuneCountInString(*p.Transcript) > meetings.TranscriptPageRunes {
+			return r.Fail("MEETING_TRANSCRIPT_PAGE_REQUIRED", "长会议原稿请按完整版本分段编辑，不能用预览覆盖全文", false)
+		}
+	}
 	m, err := e.meetings.Update(ctx, p.MeetingID, meetings.MeetingPatch{
-		Title: p.Title, Summary: p.Summary, Actions: p.Actions, Transcript: p.Transcript,
+		ExpectedRevision: p.ExpectedRevision,
+		TranscriptEdit:   p.TranscriptEdit,
+		Title:            p.Title, Summary: p.Summary, Actions: p.Actions, Transcript: p.Transcript,
 	})
 	if err != nil {
 		return meetingsFailure(r, err)
@@ -226,7 +301,8 @@ func handleMeetingsUpdate(e *Engine, ctx context.Context, r bridge.Request) brid
 
 func handleMeetingsDelete(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		MeetingID string `json:"meetingId"`
+		MeetingID        string `json:"meetingId"`
+		ExpectedRevision int64  `json:"expectedRevision"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "meetings.delete 参数无效", false)
@@ -234,7 +310,10 @@ func handleMeetingsDelete(e *Engine, ctx context.Context, r bridge.Request) brid
 	if e.meetings == nil {
 		return meetingsUnavailable(r)
 	}
-	if err := e.meetings.Delete(ctx, p.MeetingID); err != nil {
+	if p.ExpectedRevision < 1 {
+		return r.Fail("MEETING_REVISION_REQUIRED", "请刷新会议后重试；旧客户端不能覆盖当前版本", false)
+	}
+	if err := e.meetings.Delete(ctx, p.MeetingID, p.ExpectedRevision); err != nil {
 		return meetingsFailure(r, err)
 	}
 	return r.Ok(map[string]any{"meetingId": p.MeetingID})
@@ -264,12 +343,16 @@ func meetingsUnavailable(r bridge.Request) bridge.Response {
 
 func meetingsFailure(r bridge.Request, err error) bridge.Response {
 	switch {
+	case errors.Is(err, meetings.ErrCapacity):
+		return r.Fail("MEETING_CAPACITY_LIMIT", meetings.CapacityNotice, false)
 	case errors.Is(err, meetings.ErrNotFound):
 		return r.Fail("MEETING_NOT_FOUND", "会议不存在", false)
 	case errors.Is(err, meetings.ErrInvalid):
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "会议请求无效", false)
 	case errors.Is(err, meetings.ErrBusy):
-		return r.Fail("MEETING_BUSY", "已有一场会议正在录制", false)
+		return r.Fail("MEETING_BUSY", "会议正在录制或处理，请稍后重试", false)
+	case errors.Is(err, meetings.ErrConflict):
+		return r.Fail("MEETING_CHANGED", "会议内容已变化，请刷新后重试；已保存的内容不会被覆盖", false)
 	case errors.Is(err, meetings.ErrNotRecording):
 		return r.Fail("MEETING_NOT_RECORDING", "当前会议未在录制", false)
 	case errors.Is(err, meetings.ErrCanceled):
@@ -286,30 +369,34 @@ func meetingsFailure(r bridge.Request, err error) bridge.Response {
 func publicMeeting(m meetings.Meeting, detail bool) map[string]any {
 	out := map[string]any{
 		"meetingId": m.MeetingID, "title": m.Title, "status": string(m.Status), "audioSource": m.AudioSource,
+		"revision": m.Revision, "transcriptRevision": m.TranscriptRevision,
+		"summarySourceRevision": m.SummarySourceRevision, "summaryEdited": m.SummaryEdited,
 		"startedAt": m.StartedAt, "endedAt": m.EndedAt, "durationMs": m.DurationMS,
-		"summary": m.Summary, "actions": m.Actions, "transcript": m.Transcript,
+		"summary": "", "actions": "", "transcript": "",
 		"createdAt": m.CreatedAt, "updatedAt": m.UpdatedAt,
 	}
 	if m.SummaryError != "" {
 		out["summaryError"] = m.SummaryError
 	}
+	if m.SummarySourceDigest != "" {
+		out["summarySourceDigest"] = m.SummarySourceDigest
+		out["summarySourceTitle"] = m.SummarySourceTitle
+	}
 	if detail {
+		text := []rune(m.Transcript)
+		out["summary"], out["actions"] = m.Summary, m.Actions
+		out["transcript"] = string(text[:min(len(text), meetings.TranscriptPageRunes)])
+		out["transcriptTotalRunes"] = len(text)
+		out["transcriptComplete"] = len(text) <= meetings.TranscriptPageRunes
 		segs := m.Segments
-		if len(segs) > 4000 {
-			segs = segs[len(segs)-4000:]
+		if len(segs) > meetings.SegmentPageSize {
+			segs = segs[:meetings.SegmentPageSize]
 		}
 		outSegs := make([]map[string]any, 0, len(segs))
 		for _, seg := range segs {
 			outSegs = append(outSegs, publicSegment(seg))
 		}
-		docs := make([]map[string]any, 0, len(m.Docs))
-		for _, doc := range m.Docs {
-			docs = append(docs, map[string]any{
-				"docId": doc.DocID, "meetingId": doc.MeetingID, "kind": doc.Kind, "body": doc.Body, "createdAt": doc.CreatedAt,
-			})
-		}
 		out["segments"] = outSegs
-		out["docs"] = docs
 	}
 	return out
 }

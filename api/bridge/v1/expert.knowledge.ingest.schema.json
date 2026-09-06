@@ -11,16 +11,36 @@
     "expertId": {
       "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
     },
-    "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
-    "sourceLocator": { "type": "string", "maxLength": 4096 },
-    "mediaType": { "type": "string", "maxLength": 128 }
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "sourceLocator": {
+      "type": "string",
+      "maxLength": 1024
+    },
+    "mediaType": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "expectedRevision": {
+      "type": "integer",
+      "minimum": 1
+    }
   },
-  "required": ["expertId", "path"],
+  "required": [
+    "expertId",
+    "path"
+  ],
   "x-result": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "collectionId": { "type": "string", "maxLength": 26 },
+      "collectionId": {
+        "type": "string",
+        "maxLength": 26
+      },
       "documents": {
         "type": "array",
         "maxItems": 256,
@@ -28,21 +48,164 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "documentId": { "type": "string", "maxLength": 26 },
-            "version": { "type": "integer", "minimum": 0 },
-            "indexState": { "type": "string", "maxLength": 32 },
+            "documentId": {
+              "type": "string",
+              "maxLength": 26
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "indexState": {
+              "type": "string",
+              "maxLength": 32
+            },
             "preview": {
               "type": "array",
               "maxItems": 3,
-              "items": { "type": "string", "maxLength": 400 }
+              "items": {
+                "type": "string",
+                "maxLength": 400
+              }
             },
-            "failReason": { "type": "string", "maxLength": 400 }
+            "failReason": {
+              "type": "string",
+              "maxLength": 400
+            }
           },
-          "required": ["documentId", "version", "indexState"]
+          "required": [
+            "documentId",
+            "version",
+            "indexState"
+          ]
         }
+      },
+      "source": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "maxLength": 26
+          },
+          "collectionId": {
+            "type": "string",
+            "maxLength": 26
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "mediaType": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "sourceLocator": {
+            "type": "string",
+            "maxLength": 1024
+          },
+          "sha256": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "checkedAt": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "error": {
+            "type": "string",
+            "maxLength": 400
+          },
+          "createdAt": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "fresh",
+              "refreshing",
+              "stale",
+              "missing",
+              "failed"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "versions": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "version": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "sha256": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "fresh",
+                    "failed"
+                  ]
+                },
+                "error": {
+                  "type": "string",
+                  "maxLength": 400
+                },
+                "createdAt": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              },
+              "required": [
+                "version",
+                "sha256",
+                "state",
+                "error",
+                "createdAt"
+              ]
+            }
+          },
+          "nextBeforeVersion": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "sourceId",
+          "collectionId",
+          "path",
+          "mediaType",
+          "sourceLocator",
+          "sha256",
+          "checkedAt",
+          "error",
+          "createdAt",
+          "state",
+          "version",
+          "revision",
+          "versions",
+          "nextBeforeVersion"
+        ]
       }
     },
-    "required": ["collectionId", "documents"]
+    "required": [
+      "collectionId",
+      "documents",
+      "source"
+    ]
   },
   "x-examples": {
     "positive": [

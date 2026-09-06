@@ -92,14 +92,14 @@ it('retries meetings.append after a retryable timeout', async () => {
 it('gives meetings.summarize a 10-minute deadline so hour-scale notes can finish', async () => {
   const ready = { ...segment, meetingId: U, title: '长会', status: 'ready', summary: '背景：测试。', actions: '- 跟进', transcript: '逐字稿', audioSource: 'microphone', startedAt: segment.createdAt, endedAt: segment.createdAt, durationMs: 3_600_000, createdAt: segment.createdAt, updatedAt: segment.createdAt }
   const { sent, bridge } = meetingsHarness(() => ready)
-  await bridge.summarize({ meetingId: U })
+  await bridge.summarize({ meetingId: U, expectedRevision: 1 })
   expect(sent[0]?.deadlineMs).toBe(MEETING_SUMMARIZE_DEADLINE_MS)
 })
 
 it('gives meetings.catchup the same hour-scale deadline as summarize', async () => {
   const ready = { ...segment, meetingId: U, title: '长会', status: 'transcribed', summary: '', actions: '', transcript: '补转写', audioSource: 'microphone', startedAt: segment.createdAt, endedAt: segment.createdAt, durationMs: 3_600_000, createdAt: segment.createdAt, updatedAt: segment.createdAt }
   const { sent, bridge } = meetingsHarness(() => ready)
-  await bridge.catchup({ meetingId: U })
+  await bridge.catchup({ meetingId: U, expectedRevision: 1 })
   expect(sent[0]?.method).toBe('meetings.catchup')
   expect(sent[0]?.deadlineMs).toBe(MEETING_SUMMARIZE_DEADLINE_MS)
 })
@@ -168,7 +168,7 @@ it('retries meetings.stop after a retryable timeout', async () => {
         })
       },
     }
-    const pending = createMeetingsBridge(transport).stop({ meetingId: U })
+    const pending = createMeetingsBridge(transport).stop({ meetingId: U, expectedRevision: 1 })
     await vi.advanceTimersByTimeAsync(400)
     await expect(pending).resolves.toMatchObject({ status: 'transcribed' })
     expect(sent).toHaveLength(2)

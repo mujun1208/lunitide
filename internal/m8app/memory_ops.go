@@ -259,3 +259,23 @@ func (s *MemoryOpsService) Purge(ctx context.Context) (m8core.MemoryOpsCounts, e
 	}
 	return s.store.PurgeAllMemoryData(ctx)
 }
+
+// SettingsUpdateVersioned requires the revision actually loaded by the caller.
+func (s *MemoryOpsService) SettingsUpdateVersioned(ctx context.Context, settings m8core.MemorySettings, expected string) (m8core.MemorySettings, error) {
+	if s == nil || s.store == nil {
+		return m8core.MemorySettings{}, ErrServiceUnavailable
+	}
+	if !m8core.SettingsValidate(settings) {
+		return m8core.MemorySettings{}, ErrOpsSettingsInvalid
+	}
+	if len(expected) != 64 {
+		return m8core.MemorySettings{}, m8core.ErrSettingsConflict
+	}
+	writer, ok := s.store.(interface {
+		CompareAndSwapMemorySettings(context.Context, m8core.MemorySettings, string) (m8core.MemorySettings, error)
+	})
+	if !ok {
+		return m8core.MemorySettings{}, ErrServiceUnavailable
+	}
+	return writer.CompareAndSwapMemorySettings(ctx, settings, expected)
+}

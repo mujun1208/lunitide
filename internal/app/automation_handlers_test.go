@@ -12,6 +12,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/session"
 	"github.com/lunitide/lunitide/internal/scheduler"
+	"github.com/oklog/ulid/v2"
 )
 
 func newAutomationEngine(t *testing.T) (*Engine, *scheduler.Scheduler, *sync.Map) {
@@ -27,11 +28,12 @@ func newAutomationEngine(t *testing.T) (*Engine, *scheduler.Scheduler, *sync.Map
 		return scheduler.Outcome{Summary: "done", TotalTokens: 7}
 	}, nil)
 	e.SetAutomationScheduler(s)
+	t.Cleanup(s.Close)
 	return e, s, &calls
 }
 
 func automationRequest(method, payload string) bridge.Request {
-	return bridge.Request{Version: bridge.Version, Kind: "request", ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", TraceID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Method: method, SentAt: time.Now().UTC(), Payload: json.RawMessage(payload), DeadlineMS: 3000}
+	return bridge.Request{Version: bridge.Version, Kind: "request", ID: ulid.Make().String(), TraceID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Method: method, SentAt: time.Now().UTC(), Payload: json.RawMessage(payload), DeadlineMS: 3000}
 }
 
 const automationJobPayload = `{"name":"每日站会摘要","cron":"30 8 * * 1-5","prompt":"汇总昨天待办","providerId":"01ARZ3NDEKTSV4RRFFQ69G5FAE","modelId":"gpt-test","sessionId":"01ARZ3NDEKTSV4RRFFQ69G5FAF","executionMode":"auto-edit","enabled":true}`
@@ -61,8 +63,9 @@ func TestAutomationJobLifecycleThroughBridge(t *testing.T) {
 		t.Fatalf("list missing job: %+v", listed.Payload)
 	}
 	// update flips name and stays one row
+	original, _, _ := s.Store().GetJob(createdPayload.ID)
 	updated := strings.Replace(automationJobPayload, "每日站会摘要", "周报生成", 1)
-	_ = e.Handle(ctx, automationRequest("automation.job.set", `{"id":"`+createdPayload.ID+`",`+updated[1:]))
+	_ = e.Handle(ctx, automationRequest("automation.job.set", `{"id":"`+createdPayload.ID+`","expectedRevision":"`+scheduler.JobRevision(original)+`",`+updated[1:]))
 	listed2 := e.Handle(ctx, automationRequest("automation.job.list", "{}"))
 	raw := string(mustJSON(listed2.Payload))
 	if strings.Contains(raw, "每日站会摘要") || !strings.Contains(raw, "周报生成") {

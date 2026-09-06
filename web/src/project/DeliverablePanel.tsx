@@ -10,6 +10,7 @@ import{fetchIntegrationGateReady}from'./checklistStore'
 import{createProjectCrRevision,writeStoredCrRevision}from'./crRevision'
 import{ProjectPlanPanel}from'./ProjectPlanPanel'
 import{normalizeStatus,statusLabel}from'./projectStatus'
+import{listTemplatePages}from'../assets/templatePages'
 
 type DeliverableItem=DeliverableListResult['items'][number]
 type TemplateItem=TemplateListResult['items'][number]
@@ -38,7 +39,7 @@ const confirmPhrase=(phase:number)=>phase===1?'确认需求架构规范':phase==
 // but kept as the single extension point so future evidence-free docs stay explicit.
 const DELIVERABLE_EVIDENCE_FREE=new Set<string>([])
 
-export function DeliverablePanel({project,phase,bridge,deliverableBridge=defaultDeliverableBridge,projectAttachments=defaultProjectAttachmentBridge,templates=defaultTemplateBridge,stages,stageItems,readOnly=false,onProjectUpdated,onStagesUpdated,onDeliverablesChanged}:{project:ProjectDTO;phase:number;bridge:ProjectBridge;deliverableBridge?:DeliverableBridge;projectAttachments?:ProjectAttachmentBridge;templates?:TemplateBridge;stages?:StageBridge;stageItems?:StageDTO[];readOnly?:boolean;onProjectUpdated?:(project:ProjectDTO)=>void;onStagesUpdated?:(items:StageDTO[])=>void;onDeliverablesChanged?:()=>void}):React.JSX.Element|null{
+export function DeliverablePanel({project,phase,bridge,deliverableBridge=defaultDeliverableBridge,projectAttachments=defaultProjectAttachmentBridge,templates=defaultTemplateBridge,stages,readOnly=false,onProjectUpdated,onStagesUpdated,onDeliverablesChanged}:{project:ProjectDTO;phase:number;bridge:ProjectBridge;deliverableBridge?:DeliverableBridge;projectAttachments?:ProjectAttachmentBridge;templates?:TemplateBridge;stages?:StageBridge;stageItems?:StageDTO[];readOnly?:boolean;onProjectUpdated?:(project:ProjectDTO)=>void;onStagesUpdated?:(items:StageDTO[])=>void;onDeliverablesChanged?:()=>void}):React.JSX.Element|null{
  const docs=deliverablesForPhase(phase,project.type)
  const checklistDocs=useMemo(()=>docs.filter(d=>isChecklistDocument(d.key)),[docs])
  const fileDocs=useMemo(()=>docs.filter(d=>!isChecklistDocument(d.key)),[docs])
@@ -58,7 +59,6 @@ export function DeliverablePanel({project,phase,bridge,deliverableBridge=default
  const readyCount=useMemo(()=>docs.filter(d=>isDeliverableReady(byType.get(d.key)?.status)).length,[docs,byType])
  const allReady=docs.length>0&&readyCount===docs.length
  const phrase=confirmPhrase(phase)
- const stage=stageItems?.find(s=>s.phase===phase)
  const devPhase=devPhaseForType(project.type)
  const testPhase=project.type==='operations'?5:6
  const showPlanPanel=phase===devPhase||phase===testPhase
@@ -66,7 +66,7 @@ export function DeliverablePanel({project,phase,bridge,deliverableBridge=default
 
  useEffect(()=>{if(phase!==7){setIntegrationGate({ready:true,blockers:[]});return}let cancelled=false;void fetchIntegrationGateReady(project).then(v=>{if(!cancelled)setIntegrationGate(v)}).catch(()=>{if(!cancelled)setIntegrationGate({ready:false,blockers:['集成门禁检查失败']})});return()=>{cancelled=true}},[phase,project,items])
 
- const load=useCallback(async()=>{setLoadError('');try{const [result,att,tpl]=await Promise.all([deliverableBridge.list({projectId:project.id,phase}),projectAttachments.list({projectId:project.id,phase}),templates.list({status:'enabled',templateType:'document'})]);setItems(result.items);setAttachments(att.items);setTemplateItems(tpl.items)}catch(e){setLoadError(problem(e).message)}},[deliverableBridge,projectAttachments,templates,project.id,phase])
+ const load=useCallback(async()=>{setLoadError('');try{const [result,att,tpl]=await Promise.all([deliverableBridge.list({projectId:project.id,phase}),projectAttachments.list({projectId:project.id,phase}),listTemplatePages(templates,{status:'enabled',templateType:'document'})]);setItems(result.items);setAttachments(att.items);setTemplateItems(tpl.items)}catch(e){setLoadError(problem(e).message)}},[deliverableBridge,projectAttachments,templates,project.id,phase])
  useEffect(()=>{void load()},[load])
 
  const bindUpload=async(file:File,def:{key:string;title:string})=>{if(readOnly||busy||file.size>10*1024*1024){setError(file.size>10*1024*1024?'文件超过 10 MiB 限制':'无法上传');return}setBusy(true);setError('');try{const contentBase64=await fileToBase64(file),mime=file.type||'application/octet-stream',ingested=await projectAttachments.ingest({projectId:project.id,phase,category:'phase_doc',fileName:file.name,mimeType:mime,contentBase64}),payload={projectId:project.id,phase,documentType:def.key,title:def.title,attachmentId:ingested.attachmentId,status:'review' as const},result=await deliverableBridge.upsert(payload,{attempt:createMutationAttempt('deliverable.upsert',payload)});setItems(values=>{const next=values.filter(v=>v.documentType!==def.key);return [...next,{...result,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}]});setAttachments(values=>[ingested,...values.filter(v=>v.attachmentId!==ingested.attachmentId)])}catch(e){setError(problem(e).message)}finally{setBusy(false)}}
@@ -86,16 +86,10 @@ export function DeliverablePanel({project,phase,bridge,deliverableBridge=default
 
  const bindTemplate=async(def:{key:string;title:string},templateId:string)=>{if(readOnly||busy||!templateId)return;setBusy(true);setError('');try{const existing=byType.get(def.key),payload={projectId:project.id,phase,documentType:def.key,title:def.title,templateId,status:(existing?.status==='approved'||existing?.status==='immutable'?'approved':'review') as 'review'|'approved'},result=await deliverableBridge.upsert(payload,{attempt:createMutationAttempt('deliverable.upsert',payload)});setItems(values=>{const next=values.filter(v=>v.documentType!==def.key);return [...next,{...result,createdAt:existing?.createdAt??new Date().toISOString(),updatedAt:new Date().toISOString()}]})}catch(e){setError(problem(e).message)}finally{setBusy(false)}}
 
- const lockDeliverable=async(current:DeliverableItem)=>{let working:DeliverableItem=current;while(working.status!=='immutable'&&working.gateConfirmations<3){const payload={projectId:project.id,id:working.id,expectedVersion:working.version},attempt=createMutationAttempt('deliverable.confirmGate',payload);const saved=await deliverableBridge.confirmGate(payload,{attempt});working={...working,...saved}}
- return working}
-
  const closeGate=()=>{if(busy)return;setGateStep(0);setConfirmText('');setError('')}
  const finalize=async()=>{if(busy||readOnly||confirmText.trim()!==phrase)return;setBusy(true);setError('');try{
-  const locked=new Map<string,DeliverableItem>()
-  for(const doc of docs){const current=byType.get(doc.key);if(!current?.id)continue;locked.set(doc.key,await lockDeliverable(current))}
-  setItems(values=>values.map(v=>locked.get(v.documentType)??v))
   const advancePayload={id:project.id,version:project.version,phase},advanceAttempt=createMutationAttempt('project.advanceStatus',advancePayload);const savedProject=await bridge.advanceStatus(advancePayload,{attempt:advanceAttempt});onProjectUpdated?.(savedProject)
-  if(stages&&stage){const stagePayload={projectId:project.id,id:stage.id,status:'completed' as const,expectedVersion:stage.version},stageAttempt=createMutationAttempt('stage.update',stagePayload);const savedStage=await stages.update(stagePayload,{attempt:stageAttempt});onStagesUpdated?.((stageItems??[]).map(s=>s.id===savedStage.id?savedStage:s))}
+  if(stages){const refreshed=await stages.list({projectId:project.id});onStagesUpdated?.(refreshed.items)}
   closeGate();void load()
  }catch(e){setError(problem(e).message)}finally{setBusy(false)}}
 

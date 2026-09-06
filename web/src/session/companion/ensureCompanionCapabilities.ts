@@ -35,6 +35,7 @@ export async function ensureCompanionCapabilities(): Promise<CompanionCapability
     ccEnabled = Boolean(cfg.enabled)
     if (ccEnabled && cfg.maxActionsPerMinute === LEGACY_RATE_CAP) {
       await ccBridge.updateConfig({
+        expectedRevision: cfg.revision,
         maxActionsPerMinute: DEFAULT_RATE_CAP,
         actor: 'companion',
       })

@@ -9,6 +9,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
 	"github.com/lunitide/lunitide/internal/m7app"
+	"github.com/lunitide/lunitide/internal/mcp"
 	"github.com/lunitide/lunitide/internal/mcp6"
 )
 
@@ -62,15 +63,7 @@ func handleMcpAdd(e *Engine, ctx context.Context, r bridge.Request) bridge.Respo
 	if err != nil {
 		return m7McpFailure(r, err, "mcp.add")
 	}
-	e.admitSettingsMcp(ctx, m7flow.McpEndpointConfig{
-		EndpointID: res.EndpointID,
-		Transport:  p.Transport,
-		Command:    p.Command,
-		URL:        p.URL,
-		ArgsJSON:   mustJSONArgs(p.Args),
-		Enabled:    true,
-		State:      res.State,
-	})
+
 	if id := presetIDFromCommandArgs(p.Command, p.Args); id != "" {
 		e.rememberMcpPreset(res.EndpointID, id)
 	}
@@ -100,16 +93,19 @@ func handleMcpList(e *Engine, ctx context.Context, r bridge.Request) bridge.Resp
 	for _, ep := range eps {
 		args := parseMcpArgsJSON(ep.ArgsJSON)
 		items = append(items, m7McpEndpointDTO{
-			EndpointID:   ep.EndpointID,
-			Transport:    ep.Transport,
-			State:        ep.State,
-			Enabled:      ep.Enabled,
-			Origin:       ep.Origin,
-			LastHealthAt: ep.LastHealthAt,
-			DisplayName:  mcpEndpointDisplayName(ep, args),
-			Command:      ep.Command,
-			Args:         args,
-			URL:          ep.URL,
+			EndpointID:           ep.EndpointID,
+			Transport:            ep.Transport,
+			State:                ep.State,
+			Enabled:              ep.Enabled,
+			Origin:               ep.Origin,
+			LastHealthAt:         ep.LastHealthAt,
+			DisplayName:          mcpEndpointDisplayName(ep, args),
+			Command:              ep.Command,
+			Args:                 args,
+			URL:                  ep.URL,
+			SecurityVersion:      ep.Security.Version,
+			CredentialConfigured: ep.Security.AuthRef != "" || (ep.Security.EnvRefsJSON != "" && ep.Security.EnvRefsJSON != "{}"),
+			LockedArgs:           parseMcpArgsJSON(ep.Security.LaunchArgsJSON),
 		})
 	}
 	return r.Ok(struct {
@@ -119,20 +115,30 @@ func handleMcpList(e *Engine, ctx context.Context, r bridge.Request) bridge.Resp
 
 // m7McpEndpointDTO is one row of the mcp.list projection.
 type m7McpEndpointDTO struct {
-	EndpointID   string   `json:"endpointId"`
-	Transport    string   `json:"transport"`
-	State        string   `json:"state"`
-	Enabled      bool     `json:"enabled"`
-	Origin       string   `json:"origin,omitempty"`
-	LastHealthAt string   `json:"lastHealthAt,omitempty"`
-	DisplayName  string   `json:"displayName,omitempty"`
-	Command      string   `json:"command,omitempty"`
-	Args         []string `json:"args,omitempty"`
-	URL          string   `json:"url,omitempty"`
+	EndpointID           string   `json:"endpointId"`
+	Transport            string   `json:"transport"`
+	State                string   `json:"state"`
+	Enabled              bool     `json:"enabled"`
+	Origin               string   `json:"origin,omitempty"`
+	LastHealthAt         string   `json:"lastHealthAt,omitempty"`
+	DisplayName          string   `json:"displayName,omitempty"`
+	Command              string   `json:"command,omitempty"`
+	Args                 []string `json:"args,omitempty"`
+	URL                  string   `json:"url,omitempty"`
+	SecurityVersion      int64    `json:"securityVersion"`
+	CredentialConfigured bool     `json:"credentialConfigured"`
+	LockedArgs           []string `json:"lockedArgs,omitempty"`
 }
 
 func parseMcpArgsJSON(raw string) []string {
 	if raw == "" {
+		return nil
+	}
+	if strings.HasPrefix(raw, "{") {
+		var lock mcp.LaunchLock
+		if json.Unmarshal([]byte(raw), &lock) == nil {
+			return lock.Args
+		}
 		return nil
 	}
 	var args []string
@@ -199,7 +205,9 @@ func handleMcpToggle(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		return m7McpFailure(r, err, "mcp.toggle")
 	}
 	if ep.Enabled {
-		e.admitSettingsMcp(ctx, ep)
+		if err := e.admitSettingsMcp(ctx, ep); err != nil {
+			return m7McpFailure(r, mcpAdmissionError(err), "mcp.toggle")
+		}
 	} else {
 		e.dropSettingsMcp(ep.EndpointID)
 	}
@@ -281,6 +289,12 @@ type m7McpMarketItemDTO struct {
 // m7McpFailure maps m7app slice-8 errors onto the M7 wire family.
 func m7McpFailure(r bridge.Request, err error, method string) bridge.Response {
 	switch {
+	case errors.Is(err, mcp6.ErrCredentialRevoked):
+		return r.Fail("MCP_AUTH_REVOKED", "MCP 凭据失效或服务拒绝认证，请更新凭据后重新连接", false)
+	case errors.Is(err, m7app.ErrMcpSecurityConflict):
+		return r.Fail("MCP_SECURITY_CONFLICT", "MCP 配置或授权版本已变化，请刷新后重试", false)
+	case errors.Is(err, mcp6.ErrCapabilityDrift):
+		return r.Fail("M7-MCP-003", "服务身份、工具目录或启动文件已变化，请复核后重新连接", false)
 	case errors.Is(err, m7app.ErrMcpSchema):
 		return r.Fail("M7-MCP-001", "mcpServers 配置未过 schema 校验", false)
 	case errors.Is(err, m7app.ErrMcpSource):

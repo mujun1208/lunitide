@@ -1,0 +1,21 @@
+package app
+
+import (
+    "context"
+    "encoding/json"
+    "testing"
+    "github.com/lunitide/lunitide/internal/datasourceapp"
+)
+
+func TestAuditDatasourceWriteHonorsApprovalMode(t *testing.T) {
+    e, svc := datasourceEngine(t)
+    ctx := context.Background()
+    c,err:=svc.Create(ctx,datasourceapp.CreateInput{Name:"audit-only",Kind:"postgres",DSN:"postgres://audit:readonly@127.0.0.1/audit",Actor:"audit"})
+    if err!=nil { t.Fatal(err) }
+    if err=svc.Probe(ctx,c.ID); err!=nil { t.Fatal(err) }
+    writes:=0
+    svc.SetWriteQuerier(func(context.Context,string,string,string,[]any,int)([]string,[][]any,bool,error){ writes++; return []string{"rows_affected"},[][]any{{1}},false,nil })
+    args,_:=json.Marshal(map[string]any{"connectionId":c.ID,"sql":"UPDATE audit_fixture SET n=1"})
+    _,err=e.executeUserTool(ctx,executionModeApproval,"01ARZ3NDEKTSV4RRFFQ69G5FAV","datasource.query",args)
+    if writes!=0 { t.Fatalf("manual approval mode executed database write without approval, writes=%d err=%v",writes,err) }
+}

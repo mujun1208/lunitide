@@ -41,6 +41,7 @@ func TestOpenNormalizesBeforeReplacingAndUsesSeparateProfiles(t *testing.T) {
 		hosts = append(hosts, h)
 		return h, nil
 	})
+	t.Cleanup(func() { _ = m.Shutdown(context.Background()) })
 	got, err := m.Open(context.Background(), "https://EXAMPLE.com:443/path")
 	if err != nil || got != "https://example.com/path" {
 		t.Fatalf("open=(%q,%v)", got, err)

@@ -7,6 +7,7 @@ package people
 import (
 	"context"
 	"net"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -18,27 +19,37 @@ import (
 )
 
 type Service struct {
-	store      Store
-	identity   Identity
-	receiveDir string
-	stagingDir string
-	lan        *LAN
-	mu         sync.Mutex
-	bind       string
-	tcpLn      net.Listener
-	tcpPort    int
-	typing     map[string]map[string]time.Time
-	progress   map[string]int
-	uploads    map[string]*fileUpload
-	incoming   map[string]*incomingFile
+	store           Store
+	identity        Identity
+	receiveDir      string
+	stagingDir      string
+	lan             *LAN
+	mu              sync.Mutex
+	bind            string
+	tcpLn           net.Listener
+	tcpPort         int
+	closed          bool
+	connections     map[net.Conn]struct{}
+	typing          map[string]map[string]time.Time
+	progress        map[string]int
+	uploads         map[string]*fileUpload
+	incoming        map[string]*incomingFile
+	deliveryCtx     context.Context
+	deliveryCancel  context.CancelFunc
+	deliveryWake    chan struct{}
+	deliveryDone    chan struct{}
+	deliveryStarted bool
 }
 
 func New(store Store, ident Identity, receiveDir, stagingDir string) *Service {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Service{
+		deliveryCtx: ctx, deliveryCancel: cancel, deliveryWake: make(chan struct{}, 1), deliveryDone: make(chan struct{}),
 		store: store, identity: ident, receiveDir: receiveDir, stagingDir: stagingDir, lan: NewLAN(),
 		bind: ":" + strconv.Itoa(defaultTCP), tcpPort: defaultTCP,
 		typing: map[string]map[string]time.Time{}, progress: map[string]int{},
 		uploads: map[string]*fileUpload{}, incoming: map[string]*incomingFile{},
+		connections: map[net.Conn]struct{}{},
 	}
 }
 
@@ -46,7 +57,29 @@ func (s *Service) Close() {
 	if s == nil {
 		return
 	}
+	s.mu.Lock()
+	s.closed = true
+	started := s.deliveryStarted
+	if s.deliveryCancel != nil {
+		s.deliveryCancel()
+	}
+	connections := make([]net.Conn, 0, len(s.connections))
+	for conn := range s.connections {
+		connections = append(connections, conn)
+	}
+	for id, in := range s.incoming {
+		_ = in.file.Close()
+		_ = os.Remove(in.path)
+		delete(s.incoming, id)
+	}
+	s.mu.Unlock()
 	s.stopTCP()
+	for _, conn := range connections {
+		_ = conn.Close()
+	}
+	if started {
+		<-s.deliveryDone
+	}
 	if s.lan != nil {
 		s.lan.Stop()
 	}
@@ -99,7 +132,7 @@ func collapseListedDirects(items []Thread) []Thread {
 }
 
 func (s *Service) ListThreads(ctx context.Context) ([]Thread, error) {
-	if err := s.ready(); err != nil {
+	if err := s.readyUnlocked(); err != nil {
 		return nil, err
 	}
 	items, err := s.store.ListThreads(ctx, s.identity.SubjectID())
@@ -154,7 +187,7 @@ func (s *Service) OpenDirect(ctx context.Context, peerSubjectID string) (Thread,
 }
 
 func (s *Service) OpenThread(ctx context.Context, threadID string) (Thread, []Message, error) {
-	if err := s.ready(); err != nil {
+	if err := s.readyUnlocked(); err != nil {
 		return Thread{}, nil, err
 	}
 	t, err := s.store.GetThread(ctx, threadID)
@@ -165,7 +198,7 @@ func (s *Service) OpenThread(ctx context.Context, threadID string) (Thread, []Me
 }
 
 func (s *Service) ListMessages(ctx context.Context, threadID string, limit int) ([]Message, error) {
-	if err := s.ready(); err != nil {
+	if err := s.readyUnlocked(); err != nil {
 		return nil, err
 	}
 	if limit <= 0 {
@@ -174,23 +207,40 @@ func (s *Service) ListMessages(ctx context.Context, threadID string, limit int) 
 	if limit > maxMessages {
 		limit = maxMessages
 	}
-	return s.store.ListPeopleMessages(ctx, threadID, limit)
+	if _, err := s.PeekThread(ctx, threadID); err != nil {
+		return nil, err
+	}
+	items, err := s.store.ListPeopleMessages(ctx, threadID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return boundHistory(items)
 }
 
 func (s *Service) PeekThread(ctx context.Context, threadID string) (Thread, error) {
-	if err := s.ready(); err != nil {
+	if err := s.readyUnlocked(); err != nil {
 		return Thread{}, err
 	}
 	t, err := s.store.GetThread(ctx, threadID)
 	if err != nil {
 		return Thread{}, err
 	}
+	if !threadHasMember(t, s.identity.SubjectID()) {
+		return Thread{}, ErrNotTrusted
+	}
 	s.stampThreadMembers(&t)
 	return t, nil
 }
 
 func (s *Service) openExisting(ctx context.Context, t Thread) (Thread, []Message, error) {
+	if !threadHasMember(t, s.identity.SubjectID()) {
+		return Thread{}, nil, ErrNotTrusted
+	}
 	msgs, err := s.store.ListPeopleMessages(ctx, t.ThreadID, maxMessages)
+	if err != nil {
+		return Thread{}, nil, err
+	}
+	msgs, err = boundHistory(msgs)
 	if err != nil {
 		return Thread{}, nil, err
 	}
@@ -269,6 +319,15 @@ func (s *Service) Send(ctx context.Context, in SendInput) (Message, *FileOffer, 
 	if err := s.readyUnlocked(); err != nil {
 		return Message{}, nil, err
 	}
+	if len(in.RequestKey) > 128 {
+		return Message{}, nil, ErrInvalid
+	}
+	if store, ok := s.store.(DeliveryStore); ok && in.RequestKey != "" {
+		msg, offer, found, err := store.ReplayPeopleSend(ctx, in.RequestKey, sendDigest(in))
+		if err != nil || found {
+			return msg, offer, err
+		}
+	}
 	t, err := s.store.GetThread(ctx, in.ThreadID)
 	if err != nil {
 		return Message{}, nil, ErrNotFound
@@ -283,6 +342,9 @@ func (s *Service) Send(ctx context.Context, in SendInput) (Message, *FileOffer, 
 		return Message{}, nil, ErrInvalid
 	}
 	self := s.identity.SubjectID()
+	if !threadHasMember(t, self) {
+		return Message{}, nil, ErrNotTrusted
+	}
 	now := nowRFC3339()
 	msg := Message{
 		MessageID: ulid.Make().String(),
@@ -298,15 +360,24 @@ func (s *Service) Send(ctx context.Context, in SendInput) (Message, *FileOffer, 
 		if strings.TrimSpace(in.Body) == "" || utf8.RuneCountInString(in.Body) > maxText {
 			return Message{}, nil, ErrInvalid
 		}
-		if err := s.store.InsertMessage(ctx, msg, nil); err != nil {
-			return Message{}, nil, err
-		}
-		go s.deliverMessage(t, msg, "")
-		return msg, nil, nil
+		return s.enqueueMessage(ctx, t, msg, nil, in)
 	}
 	stagePath, size, sumHex, err := s.materializeFile(in)
 	if err != nil {
 		return Message{}, nil, err
+	}
+	// A durable outbox must never point at an unflushed outgoing payload.
+	f, err := os.OpenFile(stagePath, os.O_RDWR, 0)
+	if err != nil {
+		return Message{}, nil, err
+	}
+	syncErr := f.Sync()
+	closeErr := f.Close()
+	if syncErr != nil {
+		return Message{}, nil, syncErr
+	}
+	if closeErr != nil {
+		return Message{}, nil, closeErr
 	}
 	msg.FileSize = size
 	msg.FileSHA256 = sumHex
@@ -340,18 +411,24 @@ func (s *Service) Send(ctx context.Context, in SendInput) (Message, *FileOffer, 
 		StagingPath: stagePath,
 		CreatedAt:   now,
 	}
-	if err := s.store.InsertMessage(ctx, msg, &offer); err != nil {
-		return Message{}, nil, err
-	}
 	msg.OfferID = offer.OfferID
 	msg.OfferStatus = "pending"
 	msg.DestPath = stagePath
-	go s.deliverMessage(t, msg, stagePath)
-	return msg, &offer, nil
+	saved, savedOffer, err := s.enqueueMessage(ctx, t, msg, &offer, in)
+	if err == nil && saved.Replayed && savedOffer != nil && savedOffer.StagingPath != stagePath {
+		_ = os.Remove(stagePath)
+	}
+	return saved, savedOffer, err
 }
 
 func (s *Service) ready() error {
 	if s == nil || s.store == nil || s.identity == nil {
+		return ErrUnavailable
+	}
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+	if closed {
 		return ErrUnavailable
 	}
 	return nil
@@ -399,7 +476,13 @@ func (s *Service) LocalAddr() string {
 	return s.tcpLn.Addr().String()
 }
 
-func (s *Service) StartTCP() error { return s.ensureTCP() }
+func (s *Service) StartTCP() error {
+	if err := s.ensureTCP(); err != nil {
+		return err
+	}
+	s.StartDelivery()
+	return nil
+}
 
 func (s *Service) NoteTyping(ctx context.Context, threadID string) error {
 	if err := s.readyUnlocked(); err != nil {

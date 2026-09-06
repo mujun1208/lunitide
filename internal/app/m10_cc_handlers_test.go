@@ -6,6 +6,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"github.com/lunitide/lunitide/internal/bridge"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -105,13 +106,13 @@ func TestCcConfigLifecycleThroughBridge(t *testing.T) {
 	}
 
 	// Out-of-range patch answers M10-CC-001.
-	bad := e.Handle(ctx, nominationRequest("cc.updateConfig", `{"maxActionsPerMinute":0}`))
+	bad := e.Handle(ctx, ccConfigRequest(t, e, `{"maxActionsPerMinute":0}`))
 	if bad.OK || bad.Error.Code != "M10-CC-001" {
 		t.Fatalf("bad update = %+v, want M10-CC-001", bad.Error)
 	}
 
 	// The three-step enable flow lands on enabled.
-	enabled := e.Handle(ctx, nominationRequest("cc.updateConfig", `{"enabled":true,"securityLevel":"standard"}`))
+	enabled := e.Handle(ctx, ccConfigRequest(t, e, `{"enabled":true,"securityLevel":"standard"}`))
 	if !enabled.OK {
 		t.Fatalf("enable failed: %+v", enabled.Error)
 	}
@@ -133,13 +134,13 @@ func TestCcConfigLifecycleThroughBridge(t *testing.T) {
 	}
 
 	// Any non-enable patch while latched answers M10-CC-002.
-	latched := e.Handle(ctx, nominationRequest("cc.updateConfig", `{"maxActionsPerMinute":60}`))
+	latched := e.Handle(ctx, ccConfigRequest(t, e, `{"maxActionsPerMinute":60}`))
 	if latched.OK || latched.Error.Code != "M10-CC-002" {
 		t.Fatalf("latched update = %+v, want M10-CC-002", latched.Error)
 	}
 
 	// Re-running the enable flow clears the latch.
-	reenabled := e.Handle(ctx, nominationRequest("cc.updateConfig", `{"enabled":true}`))
+	reenabled := e.Handle(ctx, ccConfigRequest(t, e, `{"enabled":true}`))
 	if !reenabled.OK {
 		t.Fatalf("re-enable failed: %+v", reenabled.Error)
 	}
@@ -159,7 +160,7 @@ func TestCcExecuteToolAuditedThroughBridge(t *testing.T) {
 	e, ccSvc := newCcEngine(t)
 	ccSvc.SetHost(&fakeCcHost{title: "Notes", process: "notepad.exe"})
 	ctx := context.Background()
-	if res := e.Handle(ctx, nominationRequest("cc.updateConfig", `{"enabled":true}`)); !res.OK {
+	if res := e.Handle(ctx, ccConfigRequest(t, e, `{"enabled":true}`)); !res.OK {
 		t.Fatalf("enable failed: %+v", res.Error)
 	}
 
@@ -190,7 +191,7 @@ func TestCcExecuteToolAuditedThroughBridge(t *testing.T) {
 	}
 
 	// Blocked foreground process answers M10-CC-009 end to end.
-	e.Handle(ctx, nominationRequest("cc.updateConfig", `{"processBlocklist":["notepad.exe"]}`))
+	e.Handle(ctx, ccConfigRequest(t, e, `{"processBlocklist":["notepad.exe"]}`))
 	_, err = tools.Execute(ctx, toolruntime.FullAccess, session, "cc.mouse_move", json.RawMessage(`{"x":100,"y":100}`), true)
 	if err == nil || !strings.Contains(err.Error(), "M10-CC-009") {
 		t.Fatalf("expected M10-CC-009 process block, got %v", err)
@@ -206,7 +207,7 @@ func TestCcToolDefinitionsOpenClawParity(t *testing.T) {
 	if defs := e.ccToolDefinitions(); len(defs) != 0 {
 		t.Fatalf("D-N1 cc tools must stay hidden while disabled, got %d", len(defs))
 	}
-	if res := e.Handle(context.Background(), nominationRequest("cc.updateConfig", `{"enabled":true}`)); !res.OK {
+	if res := e.Handle(context.Background(), ccConfigRequest(t, e, `{"enabled":true}`)); !res.OK {
 		t.Fatalf("enable failed: %+v", res.Error)
 	}
 	defs := e.ccToolDefinitions()
@@ -221,7 +222,7 @@ func TestCcToolDefinitionsOpenClawParity(t *testing.T) {
 func TestCcArmMinutesSetsArmedUntil(t *testing.T) {
 	e, _ := newCcEngine(t)
 	ctx := context.Background()
-	enabled := e.Handle(ctx, nominationRequest("cc.updateConfig", `{"enabled":true,"armMinutes":30}`))
+	enabled := e.Handle(ctx, ccConfigRequest(t, e, `{"enabled":true,"armMinutes":30}`))
 	if !enabled.OK {
 		t.Fatalf("enable failed: %+v", enabled.Error)
 	}
@@ -244,7 +245,7 @@ func TestCcArmMinutesSetsArmedUntil(t *testing.T) {
 	if delta < 29*time.Minute || delta > 31*time.Minute {
 		t.Fatalf("armedUntil delta %s", delta)
 	}
-	permanent := e.Handle(ctx, nominationRequest("cc.updateConfig", `{"enabled":true,"armMinutes":0}`))
+	permanent := e.Handle(ctx, ccConfigRequest(t, e, `{"enabled":true,"armMinutes":0}`))
 	if !permanent.OK {
 		t.Fatalf("permanent enable failed: %+v", permanent.Error)
 	}
@@ -258,4 +259,22 @@ func TestCcArmMinutesSetsArmedUntil(t *testing.T) {
 	if cfg.ArmedUntil != "" {
 		t.Fatalf("armMinutes 0 must be permanent, got %q", cfg.ArmedUntil)
 	}
+}
+
+func ccConfigRequest(t *testing.T, e *Engine, payload string) bridge.Request {
+	t.Helper()
+	cfg, err := e.ccctrl.GetConfig(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p map[string]any
+	if err = json.Unmarshal([]byte(payload), &p); err != nil {
+		t.Fatal(err)
+	}
+	p["expectedRevision"] = cfg.Revision
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return nominationRequest("cc.updateConfig", string(raw))
 }

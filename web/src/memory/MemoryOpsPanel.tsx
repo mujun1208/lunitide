@@ -62,6 +62,10 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
   const [growthStatus, setGrowthStatus] = useState<'' | 'observing' | 'promoted' | 'dropped'>('observing')
   const [settings, setSettings] = useState<SettingsState>({ memoryEnabled: true, autoNominate: false, growthDays: 14 })
   const [error, setError] = useState<string>()
+  const [settingsVersion, setSettingsVersion] = useState<string>()
+  const [settingsError, setSettingsError] = useState<string>()
+  const [settingsConflict, setSettingsConflict] = useState(false)
+  const [settingsLatest, setSettingsLatest] = useState<SettingsState>()
   const [busy, setBusy] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -108,12 +112,27 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
   }, [identity, subjectId])
 
   const loadSettings = useCallback(async () => {
+    setSettingsVersion(undefined); setSettingsError(undefined); setSettingsLatest(undefined); setSettingsConflict(false)
     if (!resolvedSubject) return
     try {
       const r = await ops.getSettings({ subjectId: resolvedSubject })
+      if (!r.version) throw new Error('设置版本不可用，请重新加载')
       setSettings({ memoryEnabled: r.memoryEnabled, autoNominate: r.autoNominate, growthDays: r.growthDays })
-    } catch { /* 缺省即默认档 */ }
+      setSettingsVersion(r.version)
+    } catch (e) { setSettingsError(e instanceof Error ? e.message : '设置加载失败') }
   }, [ops, resolvedSubject])
+
+  const reviewLatestSettings = async () => {
+    if (busy || !resolvedSubject) return
+    setBusy('settings-review')
+    try {
+      const latest = await ops.getSettings({ subjectId: resolvedSubject })
+      if (!latest.version) throw new Error('设置版本不可用')
+      setSettingsLatest(latest); setSettingsVersion(latest.version); setSettingsConflict(false)
+      setSettingsError('已读取最新设置；当前编辑草稿保留，请核对后再保存')
+    } catch (e) { setSettingsError(e instanceof Error ? e.message : '最新设置读取失败') }
+    finally { setBusy('') }
+  }
 
   useEffect(() => { void loadStats() }, [loadStats])
   useEffect(() => { void loadFacts() }, [loadFacts])
@@ -143,14 +162,17 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
   }
 
   const saveSettings = async () => {
-    if (busy) return
-    setBusy('settings'); setError(undefined); setNotice('')
+    if (busy || !settingsVersion || settingsConflict || !resolvedSubject) return
+    setBusy('settings'); setSettingsError(undefined); setNotice('')
     try {
-      if (!resolvedSubject) return
-      await ops.updateSettings({ subjectId: resolvedSubject, ...settings })
+      const result = await ops.updateSettings({ subjectId: resolvedSubject, ...settings, expectedVersion: settingsVersion })
+      setSettings({ memoryEnabled: result.memoryEnabled, autoNominate: result.autoNominate, growthDays: result.growthDays })
+      setSettingsVersion(result.version); setSettingsLatest(undefined)
       setNotice('记忆设置已保存')
-    } catch (e) { setError(e instanceof Error ? e.message : '设置保存失败') }
-    finally { setBusy('') }
+    } catch (e) {
+      setSettingsError(e instanceof Error ? e.message : '设置保存失败，草稿已保留')
+      if (e && typeof e === 'object' && 'code' in e && e.code === 'MEMORY_SETTINGS_CONFLICT') setSettingsConflict(true)
+    } finally { setBusy('') }
   }
 
   const doExport = async () => {
@@ -302,6 +324,11 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
 
       <section aria-label="记忆设置与数据" style={panelStyle}>
         <h2 style={{ margin: '0 0 12px', fontSize: '16px' }}>记忆设置与数据</h2>
+        {settingsError && <p role="alert">{settingsError}</p>}
+        {settingsConflict && <button style={btnStyle} disabled={busy !== ''} onClick={() => void reviewLatestSettings()}>读取最新版本并保留草稿</button>}
+        {!settingsVersion && <button style={btnStyle} disabled={busy !== ''} onClick={() => void loadSettings()}>重新加载设置</button>}
+        {settingsLatest && <p>当前已保存：记忆沉淀{settingsLatest.memoryEnabled ? '开启' : '关闭'}；自动提名{settingsLatest.autoNominate ? '开启' : '关闭'}；观察期 {settingsLatest.growthDays} 天。下方保留您的草稿。</p>}
+
         <div style={{ display: 'grid', gap: '12px', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
           <label style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '13px', cursor: 'pointer' }}>
             <input type="checkbox" checked={settings.memoryEnabled} onChange={e => setSettings(s => ({ ...s, memoryEnabled: e.target.checked }))} />
@@ -318,7 +345,7 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
         </div>
         <p style={{ margin: '12px 0 0', color: 'var(--muted)', fontSize: '12px' }}>关闭「启用记忆沉淀」后，对话不再自动召回项目记忆，也不会自动提名；你已确认的偏好仍会写入系统指令。「自动提名候选」只把普通回合要点放进确认台。你说「记住 / 以后 / 默认用」这类声明式偏好时，即使关掉自动提名也会进确认台，不会自动升格为事实。</p>
         <div style={{ marginTop: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <button style={primaryBtnStyle} disabled={busy !== ''} onClick={() => void saveSettings()}>{busy === 'settings' ? '保存中…' : '保存设置'}</button>
+          <button style={primaryBtnStyle} disabled={busy !== '' || !settingsVersion || settingsConflict} onClick={() => void saveSettings()}>{busy === 'settings' ? '保存中…' : '保存设置'}</button>
           <button style={btnStyle} disabled={busy !== ''} onClick={() => void doExport()}>{busy === 'export' ? '导出中…' : '导出记忆数据'}</button>
           <button style={dangerBtnStyle} disabled={busy !== ''} onClick={() => void doPurge()}>{busy === 'purge' ? '清除中…' : '一键清除全部记忆'}</button>
         </div>

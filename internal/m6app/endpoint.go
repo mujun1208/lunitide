@@ -32,10 +32,16 @@ func (s *EndpointService) PersistRegister(ctx context.Context, e *mcp6.Endpoint)
 	if err != nil {
 		return err
 	}
+	// The legacy projection requires a non-empty auth_ref. Encode absence
+	// explicitly; this marker is never passed to the credential lease resolver.
+	authRef := e.AuthRef
+	if authRef == "" {
+		authRef = "none:"
+	}
 	now := s.clock.Now().UTC()
 	return s.uow.TransactM6(ctx, func(tx Tx) error {
 		if err := tx.PutM6Endpoint(m6supply.Endpoint{
-			ID: e.ID, Transport: e.Transport, URL: e.URL, AuthRef: e.AuthRef,
+			ID: e.ID, Transport: e.Transport, URL: e.URL, AuthRef: authRef,
 			CapabilityPinJSON: string(pinJSON), State: e.State, Version: e.Version,
 			CreatedAt: now, UpdatedAt: now,
 		}); err != nil {
@@ -83,6 +89,11 @@ func (s *EndpointService) LoadEndpoints(ctx context.Context) ([]m6supply.Endpoin
 		out = rows
 		return err
 	})
+	for i := range out {
+		if out[i].AuthRef == "none:" {
+			out[i].AuthRef = ""
+		}
+	}
 	return out, err
 }
 

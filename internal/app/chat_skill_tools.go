@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/lunitide/lunitide/internal/capabilitypack"
 	"github.com/lunitide/lunitide/internal/domain/m8core"
 	"github.com/lunitide/lunitide/internal/domain/skill"
-	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/jsonutil"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/skillapp"
 	"github.com/lunitide/lunitide/internal/toolruntime"
@@ -41,6 +42,9 @@ func (e *Engine) skillToolDefinitions() []llmadapter.ToolDefinition {
 // parking the stream in an approval flow the caller may not be able to
 // answer (voice companion).
 func (e *Engine) invokeSkillTool(ctx context.Context, mode executionMode, session string, args json.RawMessage) (toolruntime.Result, error) {
+	if err := e.CheckCapability(ctx, "skills"); err != nil {
+		return toolruntime.Result{}, err
+	}
 	var a struct {
 		SkillID string `json:"skillId"`
 		Input   string `json:"input"`
@@ -72,6 +76,9 @@ func (e *Engine) invokeSkillTool(ctx context.Context, mode executionMode, sessio
 }
 
 func (e *Engine) invokeSkillCreateTool(ctx context.Context, args json.RawMessage) (toolruntime.Result, error) {
+	if err := e.CheckCapability(ctx, "skills"); err != nil {
+		return toolruntime.Result{}, err
+	}
 	if !skillServiceAvailable(e.skills) {
 		return toolruntime.Result{}, errors.New("skill service unavailable")
 	}
@@ -126,6 +133,9 @@ func (e *Engine) invokeSkillCreateTool(ctx context.Context, args json.RawMessage
 const skillViewMaxRunes = 8000
 
 func (e *Engine) invokeSkillViewTool(ctx context.Context, args json.RawMessage) (toolruntime.Result, error) {
+	if err := e.CheckCapability(ctx, "skills"); err != nil {
+		return toolruntime.Result{}, err
+	}
 	if !skillServiceAvailable(e.skills) {
 		return toolruntime.Result{}, errors.New("skill service unavailable")
 	}
@@ -376,6 +386,22 @@ func (e *Engine) invokePluginCreateTool(ctx context.Context, session string, arg
 			manifest["description"] = a.Description
 		}
 	}
+	label := strings.TrimSpace(a.Name)
+	if label == "" {
+		label = pluginID
+	}
+	spec := packSpecFromManifest(manifest)
+	if len(spec.Skills)+len(spec.McpPresetIDs)+len(spec.ToolGates) > 0 {
+		if e.capabilityPacks == nil {
+			return toolruntime.Result{}, capabilitypack.ErrUnavailable
+		}
+		record, err := e.capabilityPacks.Install(ctx, capabilitypack.Spec{ID: pluginID, Name: label, Description: a.Description, Skills: spec.Skills, McpPresetIDs: spec.McpPresetIDs, ToolGates: spec.ToolGates}, true)
+		if err != nil {
+			return toolruntime.Result{}, err
+		}
+		raw, _ := json.Marshal(record)
+		return toolruntime.Result{Output: string(raw)}, nil
+	}
 	entry := packEntrypointOrDefault(a.Entrypoint)
 	workspace := session
 	if workspace == "" {
@@ -387,13 +413,5 @@ func (e *Engine) invokePluginCreateTool(ctx context.Context, session string, arg
 	if err != nil {
 		return toolruntime.Result{}, fmt.Errorf("%s", jsonutil.RetryMessage("plugin.create", err.Error()))
 	}
-	label := strings.TrimSpace(a.Name)
-	if label == "" {
-		label = pluginID
-	}
-	notes, failed := e.applyCapabilityPack(ctx, packSpecFromManifest(manifest))
-	if failed != "" && res.State != "quarantined" {
-		res.State = "quarantined"
-	}
-	return toolruntime.Result{Output: formatPackInstallResult(label, pluginID, res.State, notes, failed)}, nil
+	return toolruntime.Result{Output: formatPackInstallResult(label, pluginID, res.State, nil, "")}, nil
 }

@@ -1,11 +1,15 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, expect, it, vi } from 'vitest'
-import { BridgeClientError, type MessageBridge, type SessionBridge } from '../bridge/client'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { BridgeClientError, runQueueBridge, type MessageBridge, type SessionBridge } from '../bridge/client'
 import type { MessageDTO, ProjectDTO, SessionDTO } from '../generated/bridge'
 import { SessionPage } from './SessionPage'
 
-afterEach(cleanup)
+beforeEach(() => {
+  vi.spyOn(runQueueBridge, 'list').mockResolvedValue({ items: [] })
+  vi.spyOn(runQueueBridge, 'consume').mockResolvedValue({ count: 0, items: [] })
+})
+afterEach(() => { cleanup(); vi.mocked(runQueueBridge.list).mockRestore(); vi.mocked(runQueueBridge.consume).mockRestore() })
 const P = '01ARZ3NDEKTSV4RRFFQ69G5FAV', S1 = '01ARZ3NDEKTSV4RRFFQ69G5FAA', S2 = '01ARZ3NDEKTSV4RRFFQ69G5FAB', NOW = '2025-01-01T00:00:00Z'
 const project: ProjectDTO = { id: P, name: 'Messages', projectCode: 'ITM00001', type: 'implementation', status: 'active', createdAt: NOW, updatedAt: NOW, version: 1 }
 const sessions: SessionDTO[] = [S1, S2].map((id, i) => ({ id, projectId: P, title: `Session ${i + 1}`, pinned: false, status: 'active', createdAt: `2025-01-01T00:00:0${i}Z`, updatedAt: `2025-01-01T00:00:0${i}Z`, version: 1 }))
@@ -23,7 +27,8 @@ it('Message Renderer merges backward pages into ascending UI order without dupli
   await waitFor(() => expect(list).toHaveBeenCalledTimes(2))
   expect(list.mock.calls[0][0]).toEqual({ sessionId: S1, direction: 'backward', limit: 64, byteBudget: 131072 })
   expect(list.mock.calls[1][0]).toEqual({ sessionId: S1, direction: 'backward', cursor: 'older', limit: 64, byteBudget: 131072 })
-  expect(within(screen.getByRole('list')).getAllByRole('listitem').map(x => x.textContent?.match(/message-\d/)?.[0])).toEqual(['message-1', 'message-2', 'message-3'])
+  const history = screen.getByText('message-1').closest('ol')!
+  expect(within(history).getAllByRole('listitem').map(x => x.textContent?.match(/message-\d/)?.[0])).toEqual(['message-1', 'message-2', 'message-3'])
 })
 
 it('Message Renderer refreshes the latest first page after append succeeds', async () => {

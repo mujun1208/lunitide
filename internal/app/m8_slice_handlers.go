@@ -41,7 +41,7 @@ func handleKBUpsertDocument(e *Engine, ctx context.Context, r bridge.Request) br
 		ExpectedVersion: p.ExpectedVersion, MediaType: p.MediaType,
 		ContentRef: p.ContentRef, SHA256: p.SHA256,
 		SourceLocator: p.SourceLocator, RequestID: p.RequestID, Actor: p.Actor,
-		Projector: localTextProjector(p.MediaType, p.ContentRef),
+		Projector: doctextProjector,
 	})
 	if err != nil {
 		return m8SliceFailure(r, err)
@@ -177,6 +177,8 @@ func m8SliceFailure(r bridge.Request, err error) bridge.Response {
 		return r.Fail("M8-022", "Bundle 权限拒绝，零派发", false)
 	case errors.Is(err, m8app.ErrAutomationConfirmationRequired):
 		return r.Fail("M8-023", "高风险动作需即时确认", false)
+	case errors.Is(err, m8app.ErrAutomationIdempotencyConflict):
+		return r.Fail("IDEMPOTENCY_KEY_CONFLICT", "请求标识已用于其他输入，请核对后发起新请求", false)
 	case errors.Is(err, m8app.ErrAutomationBudgetExceeded):
 		return r.Fail("M8-024", "预算超限", false)
 	case errors.Is(err, m8app.ErrRunQuarantined):

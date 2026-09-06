@@ -91,6 +91,14 @@ func TestSessionAndOutputBounds(t *testing.T) {
 	if string(ev.Data) != "1234" || s.output != 4 {
 		t.Fatalf("output was not bounded: %q (%d)", ev.Data, s.output)
 	}
+	notice := <-r.Events()
+	if notice.Type != EventOutput || !strings.Contains(string(notice.Data), "output limit reached") {
+		t.Fatalf("missing limit notice: %#v", notice)
+	}
+	failure := <-r.Events()
+	if failure.Type != EventError || !errors.Is(failure.Err, ErrLimit) {
+		t.Fatalf("missing terminal failure: %#v", failure)
+	}
 	r.output(s, []byte("more"))
 	select {
 	case ev := <-r.Events():

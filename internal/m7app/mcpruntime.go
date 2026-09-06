@@ -19,7 +19,9 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/lunitide/lunitide/internal/audit"
+	"github.com/lunitide/lunitide/internal/capabilitypack"
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
+	"github.com/lunitide/lunitide/internal/mcp6"
 )
 
 var (
@@ -89,11 +91,12 @@ func (LocalMcpProber) Probe(_ context.Context, ep m7flow.McpEndpointConfig) (str
 
 // McpRuntimeService implements the five settings-plane methods.
 type McpRuntimeService struct {
-	uow      McpUnitOfWork
-	clock    Clock
-	prober   McpProber
-	verifier func(item m7flow.McpMarketItem) bool
-	registry func(ctx context.Context) ([]m7flow.McpMarketItem, error)
+	uow        McpUnitOfWork
+	clock      Clock
+	prober     McpProber
+	verifier   func(item m7flow.McpMarketItem) bool
+	registry   func(ctx context.Context) ([]m7flow.McpMarketItem, error)
+	invalidate func(string)
 }
 
 func NewMcpRuntimeService(uow McpUnitOfWork) *McpRuntimeService {
@@ -107,6 +110,9 @@ func NewMcpRuntimeService(uow McpUnitOfWork) *McpRuntimeService {
 }
 
 func (s *McpRuntimeService) SetClock(c Clock) { s.clock = c }
+
+// SetInvalidator cancels runtime grants after committed disable operations.
+func (s *McpRuntimeService) SetInvalidator(fn func(string)) { s.invalidate = fn }
 
 // SetProber substitutes the transport prober (tests).
 func (s *McpRuntimeService) SetProber(p McpProber) { s.prober = p }
@@ -123,6 +129,7 @@ func (s *McpRuntimeService) SetRegistry(fn func(context.Context) ([]m7flow.McpMa
 
 // McpAddInput is the mcp.add command.
 type McpAddInput struct {
+	EndpointID     string // private orchestration identity; never decoded from mcp.add
 	Origin         string
 	Transport      string
 	Command        string
@@ -183,10 +190,8 @@ func (s *McpRuntimeService) Add(ctx context.Context, in McpAddInput) (McpAddResu
 	default:
 		return McpAddResult{}, fmt.Errorf("%w: transport %q", ErrMcpSchema, transport)
 	}
-	for k, v := range in.EnvSecretRefs {
-		if k == "" || v == "" || strings.Contains(strings.ToLower(k), "key") && strings.Contains(v, "sk-") {
-			return McpAddResult{}, fmt.Errorf("%w: env carries plaintext credential", ErrMcpSchema)
-		}
+	if err := ValidateMcpSecretRefs("", in.EnvSecretRefs); err != nil {
+		return McpAddResult{}, err
 	}
 	// source trust (M7-MCP-002)
 	trust := m7flow.McpTrustUnknown
@@ -239,11 +244,27 @@ func (s *McpRuntimeService) Add(ctx context.Context, in McpAddInput) (McpAddResu
 			State:       m7flow.McpStateProbe,
 			CreatedAt:   now.Format(time.RFC3339),
 		}
+		if in.EndpointID != "" {
+			if _, err := ulid.ParseStrict(strings.TrimPrefix(in.EndpointID, "mcp-")); err != nil {
+				return ErrMcpSchema
+			}
+			ep.EndpointID = in.EndpointID
+		}
 		if trust == m7flow.McpTrustUnknown {
 			ep.State = m7flow.McpStateQuarantined
 		}
 		if err := tx.PutMcpEndpoint(ep); err != nil {
 			return err
+		}
+		if len(in.EnvSecretRefs) > 0 {
+			secure, ok := tx.(mcpSecurityTx)
+			if !ok {
+				return ErrServiceUnavailable
+			}
+			refs, _ := json.Marshal(in.EnvSecretRefs)
+			if err := secure.PutMcpSecurity(ep.EndpointID, 0, m7flow.McpEndpointSecurity{EnvRefsJSON: string(refs), UpdatedAt: ep.CreatedAt}); err != nil {
+				return err
+			}
 		}
 		if _, err := tx.AppendAuditEvent(audit.Event{
 			ID: ulid.Make().String(), Action: "mcp.add", ResourceType: "mcp_endpoint",
@@ -262,7 +283,7 @@ func (s *McpRuntimeService) Add(ctx context.Context, in McpAddInput) (McpAddResu
 	if out.State == m7flow.McpStateProbe {
 		hm, herr := s.Health(ctx, out.EndpointID)
 		if herr != nil {
-			return McpAddResult{EndpointID: out.EndpointID, State: m7flow.McpStateProbe}, nil
+			return McpAddResult{EndpointID: out.EndpointID, State: m7flow.McpStateProbe}, herr
 		}
 		out.State = hm.State
 		out.CapabilityDigest = hm.CapabilityDigest
@@ -289,6 +310,7 @@ func (s *McpRuntimeService) List(ctx context.Context, transport string) ([]m7flo
 // Toggle flips enabled; repeated toggles are last-write-wins, all audited.
 func (s *McpRuntimeService) Toggle(ctx context.Context, endpointID string, enabled bool, actor string) (m7flow.McpEndpointConfig, error) {
 	var out m7flow.McpEndpointConfig
+	changed := false
 	err := s.uow.TransactMcp(ctx, func(tx McpTx) error {
 		ep, err := tx.GetMcpEndpoint(endpointID)
 		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, m7flow.ErrNotFound) {
@@ -300,9 +322,18 @@ func (s *McpRuntimeService) Toggle(ctx context.Context, endpointID string, enabl
 		if ep.State == m7flow.McpStateRevoked {
 			return fmt.Errorf("%w: revoked", ErrMcpNotFound)
 		}
+		allowed, err := capabilitypack.GuardMutation(ctx, tx, "mcp", endpointID)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			out = ep
+			return nil
+		}
 		if err := tx.SetMcpEndpointEnabled(endpointID, enabled); err != nil {
 			return err
 		}
+		changed = true
 		ep.Enabled = enabled
 		if _, err := tx.AppendAuditEvent(audit.Event{
 			ID: ulid.Make().String(), Action: "mcp.toggle", ResourceType: "mcp_endpoint",
@@ -317,6 +348,9 @@ func (s *McpRuntimeService) Toggle(ctx context.Context, endpointID string, enabl
 	})
 	if err != nil {
 		return m7flow.McpEndpointConfig{}, err
+	}
+	if !enabled && changed && s.invalidate != nil {
+		s.invalidate(endpointID)
 	}
 	return out, nil
 }
@@ -348,7 +382,7 @@ func (s *McpRuntimeService) Health(ctx context.Context, endpointID string) (Heal
 	if err != nil {
 		return HealthResult{}, err
 	}
-	if ep.State == m7flow.McpStateRevoked {
+	if ep.State == m7flow.McpStateRevoked || ep.State == m7flow.McpStateQuarantined {
 		return HealthResult{}, fmt.Errorf("%w: revoked", ErrMcpNotFound)
 	}
 	start := s.clock.Now().UTC()
@@ -356,18 +390,43 @@ func (s *McpRuntimeService) Health(ctx context.Context, endpointID string) (Heal
 	latency := s.clock.Now().UTC().Sub(start).Milliseconds()
 	now := s.clock.Now().UTC()
 	result := HealthResult{LatencyMS: latency, CheckedAt: now.Format(time.RFC3339), CapabilityDigest: digest}
+	if errors.Is(perr, mcp6.ErrCapabilityDrift) || errors.Is(perr, mcp6.ErrCredentialRevoked) {
+		result.DriftDetected = errors.Is(perr, mcp6.ErrCapabilityDrift)
+		result.State = m7flow.McpStateDegraded
+		if result.DriftDetected {
+			result.State = m7flow.McpStateQuarantined
+		}
+		if err = s.SecurityFailure(ctx, ep.EndpointID, ep.Security.Version, result.DriftDetected); err != nil {
+			return result, err
+		}
+		return result, perr
+	}
 	if perr != nil {
 		result.State = m7flow.McpStateDegraded
-		_ = s.uow.TransactMcp(ctx, func(tx McpTx) error {
+		err = s.uow.TransactMcp(ctx, func(tx McpTx) error {
+			current, readErr := tx.GetMcpEndpoint(ep.EndpointID)
+			if readErr != nil {
+				return readErr
+			}
+			if current.State != ep.State || canonicalMcpTarget(current) != canonicalMcpTarget(ep) {
+				return ErrIllegalTransition
+			}
 			return tx.UpdateMcpEndpointState(ep.EndpointID, ep.State, m7flow.McpStateDegraded, nil, now)
 		})
-		return result, nil
+		return result, err
 	}
 	// drift: pinned digest recorded at first ready; mismatch quarantines
 	if ep.PinnedDigest != "" && ep.PinnedDigest != digest {
 		result.State = m7flow.McpStateQuarantined
 		result.DriftDetected = true
-		_ = s.uow.TransactMcp(ctx, func(tx McpTx) error {
+		err = s.uow.TransactMcp(ctx, func(tx McpTx) error {
+			current, readErr := tx.GetMcpEndpoint(ep.EndpointID)
+			if readErr != nil {
+				return readErr
+			}
+			if current.State != ep.State || canonicalMcpTarget(current) != canonicalMcpTarget(ep) {
+				return ErrIllegalTransition
+			}
 			if err := tx.UpdateMcpEndpointState(ep.EndpointID, ep.State, m7flow.McpStateQuarantined, &digest, now); err != nil {
 				return err
 			}
@@ -379,17 +438,24 @@ func (s *McpRuntimeService) Health(ctx context.Context, endpointID string) (Heal
 			})
 			return aerr
 		})
-		return result, nil
+		return result, err
 	}
 	result.State = m7flow.McpStateReady
 	pin := digest
 	if ep.PinnedDigest != "" {
 		pin = ep.PinnedDigest
 	}
-	_ = s.uow.TransactMcp(ctx, func(tx McpTx) error {
+	err = s.uow.TransactMcp(ctx, func(tx McpTx) error {
+		current, readErr := tx.GetMcpEndpoint(ep.EndpointID)
+		if readErr != nil {
+			return readErr
+		}
+		if current.State != ep.State || canonicalMcpTarget(current) != canonicalMcpTarget(ep) {
+			return ErrIllegalTransition
+		}
 		return tx.UpdateMcpEndpointState(ep.EndpointID, ep.State, m7flow.McpStateReady, &pin, now)
 	})
-	return result, nil
+	return result, err
 }
 
 // ── mcp.market.search ───────────────────────────────────────────────────────

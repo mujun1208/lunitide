@@ -1,5 +1,20 @@
 /** Tide Mermaid theme + layout helpers (palette tokens; not a vendored diagram product). */
 
+export const MERMAID_MAX_SOURCE_CHARS = 16_384
+export const MERMAID_MAX_EDGES = 200
+
+export function mermaidBudgetError(source: string): string {
+  if (source.length > MERMAID_MAX_SOURCE_CHARS) return '图表内容过长，请拆成多个图表'
+  if (source.split('\n').length > 300) return '图表行数过多，请拆成多个图表'
+  let depth = 0
+  for (const line of source.split('\n')) {
+    if (/^\s*subgraph\b/.test(line)) depth++
+    if (/^\s*end\s*$/.test(line)) depth--
+    if (depth > 16) return '图表嵌套过深，请简化层级'
+  }
+  return ''
+}
+
 export type TidePalette = {
   bg: string
   bg2: string
@@ -186,7 +201,9 @@ export function tideMermaidConfig(palette: TidePalette) {
     theme: 'base' as const,
     look: 'classic' as const,
     darkMode: palette.dark,
-    securityLevel: 'antiscript' as const,
+    securityLevel: 'strict' as const,
+    maxTextSize: MERMAID_MAX_SOURCE_CHARS,
+    maxEdges: MERMAID_MAX_EDGES,
     suppressErrorRendering: true,
     fontFamily: 'Inter, "Noto Sans SC", "Segoe UI", "Microsoft YaHei UI", ui-sans-serif, system-ui, sans-serif',
     fontSize: 16,

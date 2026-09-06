@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/meetings.transcript.get.schema.json",
+  "title": "meetings.transcript.get payload",
+  "x-method": "meetings.transcript.get",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "meetingId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "transcriptRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "meetingId",
+    "transcriptRevision",
+    "offset"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "meetingId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "transcriptRevision": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "text": {
+        "type": "string",
+        "maxLength": 16384
+      },
+      "offset": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "nextOffset": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "totalRunes": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      }
+    },
+    "required": [
+      "meetingId",
+      "transcriptRevision",
+      "text",
+      "offset",
+      "nextOffset",
+      "totalRunes"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "meetingId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "transcriptRevision": 1,
+        "offset": 0
+      }
+    ],
+    "negative": [
+      {},
+      {
+        "extra": true
+      }
+    ]
+  }
+}

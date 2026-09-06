@@ -22,7 +22,14 @@
           "properties": {
             "role": {
               "type": "string",
-              "enum": ["chat", "flash", "vision", "embed", "judge", "gui"]
+              "enum": [
+                "chat",
+                "flash",
+                "vision",
+                "embed",
+                "judge",
+                "gui"
+              ]
             },
             "providerId": {
               "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
@@ -36,11 +43,33 @@
               "type": "boolean"
             }
           },
-          "required": ["role", "allowJudgeEqChat"]
+          "required": [
+            "role",
+            "allowJudgeEqChat"
+          ]
         }
+      },
+      "revision": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "appliedRevision": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "state": {
+        "type": "string",
+        "enum": [
+          "applied"
+        ]
       }
     },
-    "required": ["roles"]
+    "required": [
+      "roles",
+      "revision",
+      "appliedRevision",
+      "state"
+    ]
   },
   "x-examples": {
     "positive": [

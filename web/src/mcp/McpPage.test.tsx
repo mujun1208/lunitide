@@ -221,3 +221,11 @@ it('parses both mcpServers maps and single command entries', () => {
     { name: 'manual', transport: 'https', command: undefined, args: undefined, url: 'https://example.test/mcp' },
   ])
 })
+
+it('reports connection failure after registration and refreshes the actual endpoint',async()=>{
+ const bridge=api({toggle:vi.fn().mockRejectedValue(new Error('凭据失效，请更新'))})
+ render(<McpPage bridge={bridge}/>);fireEvent.click(await screen.findByRole('button',{name:'安装 Everything'}))
+ expect(await screen.findByRole('alert')).toHaveTextContent('凭据失效，请更新')
+ expect(screen.queryByRole('status')).not.toBeInTheDocument()
+ expect(bridge.list).toHaveBeenCalledTimes(2)
+})

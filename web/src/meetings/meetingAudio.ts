@@ -1,4 +1,4 @@
-import { int16ToBase64 } from '../session/companion/pcmFrames'
+import { MeetingAudioQueue } from './meetingAudioQueue'
 import { startPcmCapture, type PcmCaptureHandle } from '../session/companion/pcmCapture'
 
 /** 1.2s of 16 kHz PCM, under the 65536-char base64 ceiling. */
@@ -12,6 +12,20 @@ export function trimLiveSegments<T>(items: T[], max = LIVE_CAPTION_MAX_LINES): T
   return items.length <= max ? items : items.slice(-max)
 }
 
+export type MeetingAudioBatch = {
+  captureSessionId: string
+  chunkSeq: number
+  sampleStart: number
+  sampleCount: number
+  digest: string
+}
+
+export function verifyMeetingAudioAck(ack: unknown, batch: MeetingAudioBatch): void {
+  if (!ack || typeof ack !== 'object' || Object.entries(batch).some(([key, value]) => (ack as Record<string, unknown>)[key] !== value)) {
+    throw new Error('音频保存确认不匹配，正在保留原批次重试')
+  }
+}
+
 export type MeetingPcmFrame = { base64: string; samples: Int16Array; peak: number }
 
 export type MeetingAudioHandle = {
@@ -21,101 +35,116 @@ export type MeetingAudioHandle = {
 }
 
 export async function startMeetingAudioRecorder(options: {
+  meetingId: string
   extraStreams?: MediaStream[]
-  append: (pcm: string) => Promise<unknown>
+  append: (pcm: string, batch: MeetingAudioBatch) => Promise<unknown>
   onFrame?: (frame: MeetingPcmFrame) => void
   onError?: (error: Error) => void
   onExtraEnded?: () => void
 }): Promise<MeetingAudioHandle> {
+  const queue = await MeetingAudioQueue.open()
   let closed = false
+  let stopPromise: Promise<void> | undefined
   let recycling = false
-  let inFlight = false
-  let pending: Int16Array[] = []
-  let pendingSamples = 0
+  let inFlight: Promise<void> | undefined
+  let writing: Promise<void> | undefined
+  let retryAt = 0
+  let retryTimer: number | undefined
+  let writeTimer: number | undefined
+  let empty = false
+  let drained = false
+  let durableVersion = 0
+  const captureSessionId = crypto.randomUUID()
+  const unsaved: Int16Array[] = []
   const extras = [...(options.extraStreams ?? [])]
-  const frameSamples = 1600
-  const batchSamples = frameSamples * MEETING_AUDIO_BATCH_FRAMES
+  let capture: PcmCaptureHandle | undefined
+  const report = (error: unknown) => options.onError?.(error instanceof Error ? error : new Error(String(error)))
 
-  const takeBatch = (all: boolean): string | undefined => {
-    if (pending.length === 0) return undefined
-    const takeSamples = all ? Math.min(pendingSamples, batchSamples) : batchSamples
-    if (pendingSamples < takeSamples) return undefined
-    const merged = new Int16Array(takeSamples)
-    let at = 0
-    while (at < takeSamples && pending.length > 0) {
-      const chunk = pending[0]
-      const room = takeSamples - at
-      if (chunk.length <= room) {
-        merged.set(chunk, at)
-        at += chunk.length
-        pending.shift()
-      } else {
-        merged.set(chunk.subarray(0, room), at)
-        pending[0] = chunk.subarray(room)
-        at += room
+  const pump = (all = false): Promise<void> => {
+    if (inFlight) return inFlight
+    if (Date.now() < retryAt) return Promise.resolve()
+    const version = durableVersion
+    inFlight = (async () => {
+      const batch = await queue.next(options.meetingId, captureSessionId, all)
+      empty = !batch && version === durableVersion
+      drained = all && empty
+      if (!batch) return
+      const ack = await options.append(batch.pcm, batch.identity)
+      await queue.acknowledge(batch, ack)
+      retryAt = 0
+    })().catch(error => {
+      empty = false
+      report(error)
+      retryAt = Date.now() + 500
+    }).finally(() => {
+      inFlight = undefined
+      if (!closed && !empty) {
+        window.clearTimeout(retryTimer)
+        retryTimer = window.setTimeout(() => { void pump() }, Math.max(0, retryAt - Date.now()))
       }
-    }
-    pendingSamples -= at
-    return int16ToBase64(merged.subarray(0, at))
+    })
+    return inFlight
   }
 
-  const pump = (): Promise<void> => {
-    if (closed || inFlight) return Promise.resolve()
-    const pcm = takeBatch(false)
-    if (!pcm) return Promise.resolve()
-    inFlight = true
-    void options.append(pcm).catch(error => {
-      options.onError?.(error instanceof Error ? error : new Error(String(error)))
+  const saveFrames = (): Promise<void> => {
+    if (writing) return writing
+    writing = (async () => {
+      while (unsaved.length) {
+        await queue.enqueue(options.meetingId, captureSessionId, unsaved[0])
+        unsaved.shift()
+        durableVersion++
+        drained = false
+        empty = false
+        void pump()
+      }
+    })().catch(error => {
+      // Stop collecting on local storage failure. Keep the failed frame in
+      // memory for retry, and keep all committed PCM across renderer restarts.
+      closed = true
+      const owned = capture; capture = undefined
+      void owned?.stop()
+      report(new Error(`无法保存本机录音，已停止采集；请释放磁盘空间后重试停止。${String(error)}`))
     }).finally(() => {
-      inFlight = false
-      void pump()
+      writing = undefined
+      if (unsaved.length) writeTimer = window.setTimeout(() => { void saveFrames() }, 500)
     })
-    return Promise.resolve()
+    return writing
   }
 
   const drain = async () => {
     const until = Date.now() + 120_000
     while (Date.now() < until) {
-      if (!inFlight && pending.length === 0) return
-      if (!inFlight) {
-        const pcm = takeBatch(true)
-        if (!pcm) return
-        inFlight = true
-        try {
-          await options.append(pcm)
-        } catch (error) {
-          options.onError?.(error instanceof Error ? error : new Error(String(error)))
-        } finally {
-          inFlight = false
-        }
-        continue
+      if (!writing && unsaved.length) void saveFrames()
+      if (!writing && unsaved.length === 0) {
+        if (!inFlight && drained) return
+        void pump(true)
       }
       await new Promise<void>(resolve => { window.setTimeout(resolve, 20) })
     }
+    throw new Error('录音已停止，仍有音频未确认保存。本机队列会在重新打开会议后继续恢复，也可再次点击停止重试。')
   }
 
-  let capture: PcmCaptureHandle | undefined
-
   const boot = async () => {
-    capture = await startPcmCapture({
+    const opened = await startPcmCapture({
       extraStreams: extras,
       onFrame: frame => {
         if (closed) return
+        // Copy before the device reuses its buffer. Persist even short tails.
+        unsaved.push(frame.samples.slice())
+        empty = false
+        drained = false
+        void saveFrames()
         options.onFrame?.(frame)
-        pending.push(frame.samples)
-        pendingSamples += frame.samples.length
-        void pump()
       },
       onError: error => {
         if (closed) return
-        options.onError?.(error)
+        report(error)
         void recycle()
       },
-      onExtraEnded: () => {
-        if (closed) return
-        options.onExtraEnded?.()
-      },
+      onExtraEnded: () => { if (!closed) options.onExtraEnded?.() },
     })
+    if (closed) await opened.stop()
+    else capture = opened
   }
 
   const recycle = async () => {
@@ -124,19 +153,17 @@ export async function startMeetingAudioRecorder(options: {
     try {
       await capture?.stop()
       capture = undefined
-      if (closed) return
-      await boot()
+      if (!closed) await boot()
     } catch (error) {
-      options.onError?.(error instanceof Error ? error : new Error(String(error)))
-      if (!closed) {
-        window.setTimeout(() => { void recycle() }, 1_200)
-      }
-    } finally {
-      recycling = false
-    }
+      report(error)
+      if (!closed) window.setTimeout(() => { void recycle() }, 1200)
+    } finally { recycling = false }
   }
 
-  await boot()
+  // Replays old capture identities before newly captured frames; a missing
+  // ACK after backend commit therefore cannot duplicate the audio on restart.
+  void pump(true)
+  try { await boot() } catch (error) { closed = true; queue.close(); throw error }
 
   return {
     attachExtraStream: stream => {
@@ -144,19 +171,23 @@ export async function startMeetingAudioRecorder(options: {
       if (!extras.includes(stream)) extras.push(stream)
       capture?.attachExtraStream(stream)
     },
-    flush: async () => {
+    flush: async () => { capture?.flush(); drained = false; await drain() },
+    stop: () => {
+      if (stopPromise) return stopPromise
       capture?.flush()
-      await drain()
-    },
-    stop: async () => {
-      if (closed) return
-      capture?.flush()
-      await drain()
       closed = true
-      pending = []
-      pendingSamples = 0
-      await capture?.stop()
+      drained = false
+      window.clearTimeout(retryTimer)
+      const ownedCapture = capture
       capture = undefined
+      const release = ownedCapture?.stop()
+      stopPromise = (async () => {
+        await release
+        await drain()
+        window.clearTimeout(writeTimer)
+        queue.close()
+      })().catch(error => { stopPromise = undefined; throw error })
+      return stopPromise
     },
   }
 }

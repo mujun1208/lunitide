@@ -17,8 +17,9 @@ describe('ensureCompanionCapabilities', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
   it('does not call updateConfig when emergency stop is latched', async () => {
-    vi.mocked(toolsPolicyBridge.getCommandPolicy).mockResolvedValue({ commands: [], fullAccess: true })
+    vi.mocked(toolsPolicyBridge.getCommandPolicy).mockResolvedValue({ revision: "a".repeat(64),appliedRevision:"a".repeat(64),state:"applied",commands: [], fullAccess: true })
     vi.mocked(ccBridge.getConfig).mockResolvedValue({
+      revision: 1,
       enabled: true,
       emergencyStopped: true,
       emergencyStoppedAt: '2026-08-26T00:00:00Z',
@@ -35,8 +36,9 @@ describe('ensureCompanionCapabilities', () => {
   })
 
   it('does not silently enable computer control when it is idle', async () => {
-    vi.mocked(toolsPolicyBridge.getCommandPolicy).mockResolvedValue({ commands: [], fullAccess: true })
+    vi.mocked(toolsPolicyBridge.getCommandPolicy).mockResolvedValue({ revision: "a".repeat(64),appliedRevision:"a".repeat(64),state:"applied",commands: [], fullAccess: true })
     vi.mocked(ccBridge.getConfig).mockResolvedValue({
+      revision: 1,
       enabled: false,
       emergencyStopped: false,
       securityLevel: 'standard',
@@ -52,8 +54,9 @@ describe('ensureCompanionCapabilities', () => {
   })
 
   it('bumps a legacy 30/min cap when computer control is already on', async () => {
-    vi.mocked(toolsPolicyBridge.getCommandPolicy).mockResolvedValue({ commands: [], fullAccess: true })
+    vi.mocked(toolsPolicyBridge.getCommandPolicy).mockResolvedValue({ revision: "a".repeat(64),appliedRevision:"a".repeat(64),state:"applied",commands: [], fullAccess: true })
     vi.mocked(ccBridge.getConfig).mockResolvedValue({
+      revision: 1,
       enabled: true,
       emergencyStopped: false,
       securityLevel: 'standard',
@@ -64,6 +67,7 @@ describe('ensureCompanionCapabilities', () => {
       updatedAt: '2026-08-26T00:00:00Z',
     })
     vi.mocked(ccBridge.updateConfig).mockResolvedValue({
+      revision: 2,
       enabled: true,
       emergencyStopped: false,
       securityLevel: 'standard',
@@ -74,13 +78,14 @@ describe('ensureCompanionCapabilities', () => {
       updatedAt: '2026-08-26T00:00:01Z',
     })
     const out = await ensureCompanionCapabilities()
-    expect(ccBridge.updateConfig).toHaveBeenCalledWith({ maxActionsPerMinute: 60, actor: 'companion' })
+    expect(ccBridge.updateConfig).toHaveBeenCalledWith({ expectedRevision: 1, maxActionsPerMinute: 60, actor: 'companion' })
     expect(out).toEqual({ fullAccess: true, ccEnabled: true })
   })
 
   it('does not silently enable full-disk command policy', async () => {
-    vi.mocked(toolsPolicyBridge.getCommandPolicy).mockResolvedValue({ commands: [], fullAccess: false })
+    vi.mocked(toolsPolicyBridge.getCommandPolicy).mockResolvedValue({ revision: "a".repeat(64),appliedRevision:"a".repeat(64),state:"applied",commands: [], fullAccess: false })
     vi.mocked(ccBridge.getConfig).mockResolvedValue({
+      revision: 1,
       enabled: true,
       emergencyStopped: false,
       securityLevel: 'standard',

@@ -74,7 +74,7 @@ func (s *Store) VerifyAuditChain(ctx context.Context) error {
 		return err
 	}
 	defer rows.Close()
-	var events []audit.Event
+	var previous *audit.Event
 	for rows.Next() {
 		var e audit.Event
 		var meta string
@@ -83,10 +83,13 @@ func (s *Store) VerifyAuditChain(ctx context.Context) error {
 			return err
 		}
 		e.AfterDigest = auditMetaDigest(meta)
-		events = append(events, e)
+		if err := audit.VerifyNext(previous, e); err != nil {
+			return err
+		}
+		previous = &e
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	return audit.VerifyChain(events)
+	return nil
 }

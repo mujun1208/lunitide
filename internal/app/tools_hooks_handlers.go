@@ -9,6 +9,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/toolruntime"
@@ -18,7 +19,7 @@ func handleToolsHooksPolicyGet(e *Engine, _ context.Context, r bridge.Request) b
 	if e.tools == nil {
 		return r.Fail("FEATURE_DISABLED", "工具运行时未初始化", false)
 	}
-	raw, err := e.tools.HooksPolicyJSON()
+	raw, err := e.tools.PolicySnapshot("hooks")
 	if err != nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "Hooks 策略读取失败", true)
 	}
@@ -30,7 +31,8 @@ func handleToolsHooksPolicySet(e *Engine, _ context.Context, r bridge.Request) b
 		return r.Fail("FEATURE_DISABLED", "工具运行时未初始化", false)
 	}
 	var doc struct {
-		Hooks []struct {
+		ExpectedRevision string `json:"expectedRevision"`
+		Hooks            []struct {
 			ID       string   `json:"id"`
 			Events   []string `json:"events"`
 			Tools    []string `json:"tools"`
@@ -41,12 +43,17 @@ func handleToolsHooksPolicySet(e *Engine, _ context.Context, r bridge.Request) b
 	if decodePayload(r.Payload, &doc) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "tools.hooksPolicy.set 参数无效", false)
 	}
-	if err := e.tools.SetHooksPolicyJSON(r.Payload); err != nil {
+	status, err := e.tools.SetPolicyVersioned("hooks", r.Payload, doc.ExpectedRevision)
+	if err != nil {
+		if errors.Is(err, toolruntime.ErrPolicyRevisionConflict) {
+			return r.Fail("SETTINGS_VERSION_CONFLICT", err.Error(), false)
+		}
 		return r.Fail("HOOKS_POLICY_INVALID", err.Error(), false)
 	}
 	return r.Ok(struct {
 		Applied int `json:"applied"`
-	}{len(doc.Hooks)})
+		toolruntime.PolicyStatus
+	}{len(doc.Hooks), status})
 }
 
 func handleToolsHooksEventsList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {

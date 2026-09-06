@@ -1,16 +1,19 @@
 package mroapp
 
 import (
+	"sort"
 	"strings"
 	"time"
 )
 
 type WorkPackage struct {
-	ID        string
-	Title     string
-	Sources   []string
-	Hours     float64
-	CreatedAt string
+	SourceRefs    []string
+	EvidenceState string
+	ID            string
+	Title         string
+	Sources       []string
+	Hours         float64
+	CreatedAt     string
 }
 
 type IntervalRule struct {
@@ -80,8 +83,11 @@ type ScheduleInput struct {
 // CheckScheduleConstraints lists C1–C7 violations. It does not solve or auto-shift.
 func CheckScheduleConstraints(in ScheduleInput) []ConstraintViolation {
 	var out []ConstraintViolation
+	if len(in.Assignments) == 0 {
+		out = append(out, ConstraintViolation{Code: "C0", Detail: "未录入排程窗口"})
+	}
 	for _, due := range in.Dues {
-		if due.State == DueStateOverdue {
+		if due.State == DueStateOverdue || due.State == DueStateMissing {
 			out = append(out, ConstraintViolation{Code: "C1", Detail: "窗口晚于已超限到期项"})
 			break
 		}
@@ -94,9 +100,16 @@ func CheckScheduleConstraints(in ScheduleInput) []ConstraintViolation {
 	for _, s := range in.Slots {
 		cap[s.Skill] += s.Hours
 	}
-	for skill, hours := range used {
-		if cap[skill] > 0 && hours > cap[skill] {
+	skills := make([]string, 0, len(used))
+	for skill := range used {
+		skills = append(skills, skill)
+	}
+	sort.Strings(skills)
+	for _, skill := range skills {
+		hours := used[skill]
+		if hours > cap[skill] {
 			out = append(out, ConstraintViolation{Code: "C2", Detail: "技能组工时超出 " + skill})
+			break
 		}
 	}
 	aog := map[string]bool{}
@@ -109,22 +122,27 @@ func CheckScheduleConstraints(in ScheduleInput) []ConstraintViolation {
 			break
 		}
 	}
-	type win struct{ start, end, tail string }
-	var wins []win
-	for _, a := range in.Assignments {
-		if a.Start == "" || a.End == "" {
-			continue
+	// Sorting keeps overlap checks bounded for the supported 10,000 records.
+	wins := append([]ScheduleAssignment(nil), in.Assignments...)
+	sort.Slice(wins, func(i, j int) bool {
+		if wins[i].TailNo != wins[j].TailNo {
+			return wins[i].TailNo < wins[j].TailNo
 		}
-		wins = append(wins, win{start: a.Start, end: a.End, tail: a.TailNo})
-	}
-	for i := 0; i < len(wins); i++ {
-		for j := i + 1; j < len(wins); j++ {
-			if wins[i].tail == wins[j].tail && wins[i].start < wins[j].end && wins[j].start < wins[i].end {
-				out = append(out, ConstraintViolation{Code: "C4", Detail: "同一机尾窗口重叠"})
-				i = len(wins)
-				break
-			}
+		return wins[i].Start < wins[j].Start
+	})
+	latestEnd := map[string]string{}
+	for _, a := range wins {
+		start, errStart := time.Parse("2006-01-02", a.Start)
+		end, errEnd := time.Parse("2006-01-02", a.End)
+		if errStart != nil || errEnd != nil || !end.After(start) || a.Hours <= 0 || strings.TrimSpace(a.Skill) == "" || (!in.Today.IsZero() && start.Before(in.Today.UTC().Truncate(24*time.Hour))) {
+			out = append(out, ConstraintViolation{Code: "C4", Detail: "窗口日期、工时或技能不完整，或窗口已经过期"})
+			break
 		}
+		if a.Start < latestEnd[a.TailNo] {
+			out = append(out, ConstraintViolation{Code: "C4", Detail: "同一机尾窗口重叠"})
+			break
+		}
+		latestEnd[a.TailNo] = a.End
 	}
 	if len(in.KitMissing) > 0 {
 		out = append(out, ConstraintViolation{Code: "C5", Detail: "套件缺件"})

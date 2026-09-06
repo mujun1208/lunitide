@@ -6,10 +6,14 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/planning"
+	"github.com/lunitide/lunitide/internal/planningapp"
 )
 
 // CreatePlan inserts a new plan.
 func (s *Store) CreatePlan(ctx context.Context, plan planning.Plan) (planning.Plan, error) {
+	if plan.StageID != nil {
+		return s.ensurePhasePlan(ctx, plan)
+	}
 	if plan.ID == "" {
 		var err error
 		plan.ID, err = s.newULID(time.Now())
@@ -115,10 +119,7 @@ func (s *Store) UpdatePlanStatus(ctx context.Context, id, status string) error {
 	err := s.execWithAudit(ctx, "plan.status_updated", id, "engine",
 		map[string]any{"status": status},
 		func(tx *sql.Tx) error {
-			_, err := tx.ExecContext(ctx,
-				`UPDATE plans SET status=?, updated_at=? WHERE id=?`,
-				status, formatTime(time.Now().UTC()), id)
-			return err
+			return s.transitionPlanTx(ctx, tx, id, planning.PlanStatus(status))
 		})
 	return mapWriteError(err)
 }
@@ -152,6 +153,22 @@ func (s *Store) CreateNode(ctx context.Context, node planning.Node) (planning.No
 	err := s.execWithAudit(ctx, "node.created", node.ID, "engine",
 		map[string]any{"planId": node.PlanID, "sequence": node.Sequence},
 		func(tx *sql.Tx) error {
+			var planStatus planning.PlanStatus
+			if err := tx.QueryRowContext(ctx, `SELECT status FROM plans WHERE id=?`, node.PlanID).Scan(&planStatus); err != nil {
+				return err
+			}
+			if planStatus.IsTerminal() {
+				return planningapp.ErrInvalidTransition
+			}
+			if node.ParentNodeID != nil {
+				var parentPlan string
+				if err := tx.QueryRowContext(ctx, `SELECT plan_id FROM plan_nodes WHERE id=?`, *node.ParentNodeID).Scan(&parentPlan); err != nil {
+					return err
+				}
+				if parentPlan != node.PlanID {
+					return planningapp.ErrDependencyNotMet
+				}
+			}
 			_, err := tx.ExecContext(ctx,
 				`INSERT INTO plan_nodes(id, plan_id, parent_node_id, name, description, status, risk_level,
 				 budget_tokens, estimate_tokens, worker_role, sequence, created_at, updated_at)
@@ -204,7 +221,7 @@ func (s *Store) GetNode(ctx context.Context, id string) (*planning.Node, error) 
 
 // ListNodesByPlan returns nodes for a plan ordered by sequence.
 func (s *Store) ListNodesByPlan(ctx context.Context, planID string, limit int) ([]planning.Node, error) {
-	if limit <= 0 || limit > 100 {
+	if limit != -1 && (limit <= 0 || limit > 100) {
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx,
@@ -253,10 +270,7 @@ func (s *Store) UpdateNodeStatus(ctx context.Context, id, status string) error {
 	err := s.execWithAudit(ctx, "node.status_updated", id, "engine",
 		map[string]any{"status": status},
 		func(tx *sql.Tx) error {
-			_, err := tx.ExecContext(ctx,
-				`UPDATE plan_nodes SET status=?, updated_at=? WHERE id=?`,
-				status, formatTime(time.Now().UTC()), id)
-			return err
+			return s.transitionNodeTx(ctx, tx, id, planning.NodeStatus(status))
 		})
 	return mapWriteError(err)
 }

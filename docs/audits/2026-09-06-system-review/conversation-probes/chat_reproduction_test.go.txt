@@ -1,0 +1,45 @@
+// Overlay-only audit test; PASS means the observed defect remains present.
+package app
+
+import (
+ "context"
+ "errors"
+ "strings"
+ "testing"
+ "github.com/lunitide/lunitide/internal/bridge"
+ "github.com/lunitide/lunitide/internal/domain/message"
+ "github.com/lunitide/lunitide/internal/domain/provider"
+ "github.com/lunitide/lunitide/internal/llmadapter"
+ "github.com/lunitide/lunitide/internal/messageapp"
+ "github.com/lunitide/lunitide/internal/toolruntime"
+)
+
+type auditFailingWriter struct { appendAssistantSpy }
+func (*auditFailingWriter) AppendAssistant(context.Context,string,string,string,string,messageapp.AssistantUsage)(message.Message,error){return message.Message{}, errors.New("audit disk full")}
+
+func TestAuditReproduceNewTurnOverwritesUnpersistedPreviousDraft(t *testing.T){
+ runtime,err:=toolruntime.Open(t.TempDir())
+ if err!=nil {t.Fatal(err)}
+ defer runtime.Close()
+ e:=NewEngineWithGateway(nil,"audit",streamTestLease{})
+ e.SetToolRuntime(runtime)
+ e.messages=&auditFailingWriter{}
+ e.SetAdapterFactoryForTest(func(context.Context,provider.Provider)(llmadapter.Adapter,error){return assistantUsageAdapter{},nil})
+ const session="01ARZ3NDEKTSV4RRFFQ69G5FAV"
+ const prior="上一轮唯一的未落库完整回答"
+ e.saveTurnCheckpoint(session,chatTurnCheckpoint{Status:turnStatusCompleted,StreamID:"01ARZ3NDEKTSV4RRFFQ69G5FAX",PersistFailed:true,PersistDraft:prior})
+ // handleChatStart uses exactly this ignored retry result before starting the next stream.
+ _,_=e.retrySessionPersistDraft(context.Background(),session)
+ if got:=e.loadTurnCheckpoint(session);got.PersistDraft!=prior {t.Fatal("setup lost old draft too early")}
+ _,cancel:=context.WithCancel(context.Background())
+ defer cancel()
+ state:=&streamState{cancel:cancel,state:streamRunning}
+ e.runStream(context.Background(),"01ARZ3NDEKTSV4RRFFQ69G5FAY",state,
+  provider.Provider{ID:session,Protocol:provider.ProtocolOpenAICompatible,BaseURL:"https://example.com",CredentialRef:"credential-ref"},
+  llmadapter.Request{Model:"audit",Messages:[]llmadapter.Message{{Role:llmadapter.RoleUser,Content:"第二轮新问题"}}},
+  func(bridge.Event)error{return nil},session)
+ got:=e.loadTurnCheckpoint(session)
+ if got.PersistDraft==prior || strings.Contains(got.PersistDraft,prior){t.Fatalf("defect no longer reproduces: %#v",got)}
+ if !got.PersistFailed || !strings.Contains(got.PersistDraft,"answer"){t.Fatalf("unexpected next checkpoint: %#v",got)}
+ t.Log("REPRODUCED: retry failed, new turn replaced the only checkpoint copy of previous answer")
+}

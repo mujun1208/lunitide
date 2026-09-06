@@ -61,13 +61,13 @@ const (
 	// EventEquip announces the specialists/skills auto-equipped for this turn
 	// (intent-matched, not @-mentioned) plus any preferred MCP that is not yet
 	// connected. Purely additive UI signal; unknown consumers ignore it.
-	EventEquip EventType = "equip"
-	EventTtsChunk         EventType = "tts_chunk"
-	EventTalkAudio        EventType = "talk_audio"
-	EventTalkTranscript   EventType = "talk_transcript"
-	EventTalkTool         EventType = "talk_tool"
-	EventTalkError        EventType = "talk_error"
-	EventTalkEnded        EventType = "talk_ended"
+	EventEquip          EventType = "equip"
+	EventTtsChunk       EventType = "tts_chunk"
+	EventTalkAudio      EventType = "talk_audio"
+	EventTalkTranscript EventType = "talk_transcript"
+	EventTalkTool       EventType = "talk_tool"
+	EventTalkError      EventType = "talk_error"
+	EventTalkEnded      EventType = "talk_ended"
 )
 
 type Event struct {
@@ -101,6 +101,8 @@ type EquipEvent struct {
 // TalkEvent is one talk.* stream frame. Contract names talk.audio /
 // talk.transcript / talk.tool / talk.error / talk.ended map to talk_*.
 type TalkEvent struct {
+	MessageID   string `json:"messageId,omitempty"`
+	Final       bool   `json:"final,omitempty"`
 	AudioBase64 string `json:"audioBase64,omitempty"`
 	Mime        string `json:"mime,omitempty"`
 	Text        string `json:"text,omitempty"`

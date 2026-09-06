@@ -8,12 +8,12 @@ import (
 )
 
 type goldenItem struct {
-	Q               string `json:"q"`
-	ExpectDocType   string `json:"expectDocType"`
-	ExpectContains  string `json:"expectContains"`
-	ExpectEmpty     bool   `json:"expectEmpty"`
+	Q                string `json:"q"`
+	ExpectDocType    string `json:"expectDocType"`
+	ExpectContains   string `json:"expectContains"`
+	ExpectEmpty      bool   `json:"expectEmpty"`
 	ExpectNotAdopted string `json:"expectNotAdopted"`
-	ForbidBarePN    bool   `json:"forbidBarePN"`
+	ForbidBarePN     bool   `json:"forbidBarePN"`
 }
 
 func loadGoldenP0(t *testing.T) []goldenItem {

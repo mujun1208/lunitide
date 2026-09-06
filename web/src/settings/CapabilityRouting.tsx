@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { BridgeClientError, createMutationAttempt, getCapabilityRolesBridge, getProviderBridge, type CapabilityRoleName, type CapabilityRoleRow, type CapabilityRolesBridge, type ProviderBridge } from '../bridge/client'
 import type { ProviderDTO } from '../generated/bridge'
 import { modelKind } from '../provider/modelKind'
@@ -39,48 +39,60 @@ export function CapabilityRouting({ providers, roles }: { providers?: ProviderBr
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
+  const [revision, setRevision] = useState('')
+  const saving = useRef(false)
+  const generation = useRef(0)
 
   const load = async () => {
+    const epoch = ++generation.current
     try {
       const [listed, got] = await Promise.all([providerApi.list(), roleApi.get()])
+      if (epoch !== generation.current) return
+      setRevision(got.revision)
       setItems(listed.items)
       setRows(got.roles)
       setError('')
     } catch (e) {
-      setError(e instanceof BridgeClientError ? e.message : '能力路由载入失败')
+      if (epoch === generation.current) setError(e instanceof BridgeClientError ? e.message : '能力路由载入失败')
     }
   }
 
-  useEffect(() => { void load() }, [])
+  useEffect(() => { void load(); return () => { generation.current++ } }, [providerApi, roleApi])
 
   const patch = (role: CapabilityRoleName, next: Partial<CapabilityRoleRow>) => {
     setRows(current => current.map(row => row.role === role ? { ...row, ...next } : row))
   }
 
   const save = async () => {
+    if (saving.current || !revision) return
+    saving.current = true
+    const epoch = generation.current
     setBusy(true)
     setNotice('')
     setError('')
     try {
-      const payload = { roles: rows.map(row => ({
+      const payload = { expectedRevision: revision, roles: rows.map(row => ({
         role: row.role,
         ...(row.providerId && row.modelId ? { providerId: row.providerId, modelId: row.modelId } : {}),
         allowJudgeEqChat: row.allowJudgeEqChat,
       })) }
       const saved = await roleApi.set(payload, { attempt: createMutationAttempt('capability.roles.set', payload) })
+      if (epoch !== generation.current) return
+      setRevision(saved.revision)
       setRows(saved.roles)
       setNotice('能力路由已保存')
     } catch (e) {
-      setError(e instanceof BridgeClientError ? e.message : '能力路由保存失败')
+      if (epoch === generation.current) setError(e instanceof BridgeClientError ? e.message : '能力路由保存失败')
     } finally {
-      setBusy(false)
+      saving.current = false
+      if (epoch === generation.current) setBusy(false)
     }
   }
 
   return (
     <section className="capability-routing" aria-label="能力路由">
       <h3>能力路由</h3>
-      <p className="setting-desc">六个角色空着就是自动。不新增设置页，只挂在模型与供应商上面。</p>
+      <p className="setting-desc">分别选择六类任务使用的模型；留空时使用自动选择。保存后从下一次任务开始生效。</p>
       {rows.map(row => {
         const opts = optionsFor(row.role, items)
         const value = row.providerId && row.modelId ? `${row.providerId}\u0000${row.modelId}` : ''
@@ -115,9 +127,9 @@ export function CapabilityRouting({ providers, roles }: { providers?: ProviderBr
           </label>
         )
       })}
-      {error && <p role="alert">{error}</p>}
+      {error && <><p role="alert">{error}</p><button type="button" disabled={busy} onClick={() => void load()}>载入最新配置并替换草稿</button></>}
       {notice && <p role="status">{notice}</p>}
-      <button type="button" className="primary" disabled={busy || rows.length !== 6} onClick={() => void save()}>保存能力路由</button>
+      <button type="button" className="primary" disabled={busy || !revision || rows.length !== 6} onClick={() => void save()}>保存能力路由</button>
     </section>
   )
 }

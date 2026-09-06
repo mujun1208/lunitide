@@ -26,13 +26,13 @@ func TestValidateWebhookURLAcceptsVendorHosts(t *testing.T) {
 
 func TestValidateWebhookURLRejectsSSRFShapes(t *testing.T) {
 	for _, bad := range []string{
-		"http://open.feishu.cn/hook",            // plain http
-		"https://127.0.0.1/hook",                // loopback literal
-		"https://10.1.2.3/hook",                 // private literal
-		"https://[::1]/hook",                    // v6 literal
-		"https://localhost/hook",                // localhost name
-		"https://intranet.internal/hook",        // internal suffix
-		"https://user:pass@open.feishu.cn/hook", // userinfo
+		"http://open.feishu.cn/hook",               // plain http
+		"https://127.0.0.1/hook",                   // loopback literal
+		"https://10.1.2.3/hook",                    // private literal
+		"https://[::1]/hook",                       // v6 literal
+		"https://localhost/hook",                   // localhost name
+		"https://intranet.internal/hook",           // internal suffix
+		"https://user:pass@open.feishu.cn/hook",    // userinfo
 		"https://a.cn/" + strings.Repeat("x", 600), // over rune budget
 	} {
 		if err := ValidateWebhookURL(bad); err == nil {

@@ -23,6 +23,7 @@ func TestUpgradeV26RemovesLegacyTokenLedgerUniqueConstraint(t *testing.T) {
 	// Every table added after 0026 must be dropped here, including 0092
 	// local_identity / people_*, or Open re-applies CREATE TABLE and fails.
 	db := openRaw(t, path)
+	defer db.Close()
 	if _, err = db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
 		t.Fatal(err)
 	}
@@ -215,12 +216,18 @@ DROP TABLE IF EXISTS mro_life_events;
 DROP TABLE IF EXISTS mro_components;
 DROP TABLE IF EXISTS mro_utilization_events;
 DROP TABLE IF EXISTS mro_due_items;
+DROP TABLE IF EXISTS mro_request_receipts;
+DROP TABLE IF EXISTS mro_publications;
+DROP TABLE IF EXISTS mro_operation_audit;
 DROP TABLE IF EXISTS mro_manual_docs;
 DROP TABLE IF EXISTS mro_defect_drafts;
 DROP TABLE IF EXISTS mro_manuals;
 DROP TABLE IF EXISTS mro_aircraft;
 DROP TABLE kb_collections;
 DROP TABLE kb_documents;
+DROP TABLE kb_source_documents;
+DROP TABLE kb_source_versions;
+DROP TABLE kb_sources;
 DROP TABLE kb_chunks;
 DROP TABLE ontology_snapshots;
 DROP TABLE graph_nodes;
@@ -243,12 +250,15 @@ DROP TABLE plugin_bundles;
 DROP TABLE plugin_installs;
 DROP TABLE plugin_capability_bindings;
 DROP TABLE expert_catalog;
+DROP TABLE expert_version_equipment;
 DROP TABLE expert_versions;
 DROP TABLE project_phase_expert_mounting;
 DROP TABLE expert_scenario_cards;
 DROP TABLE expert_skill_bindings;
 DROP TABLE expert_task_claims;
 DROP TABLE sk_category_map;
+DROP TABLE queue_delivery_items;
+DROP TABLE queue_deliveries;
 DROP TABLE queued_user_messages;
 DROP TABLE memory_settings;
 DROP TABLE memory_fact_flags;
@@ -264,7 +274,18 @@ DROP TABLE session_expert_mounts;
 DROP TABLE project_deliverables;
 DROP TABLE project_attachments;
 DROP TABLE asset_templates;
+DROP TABLE chat_turn_checkpoint_parts;
+DROP TABLE chat_turn_journal;
+DROP TABLE datasource_write_operations;
+DROP TABLE mcp_endpoint_security;
+DROP TABLE capability_pack_references;
+DROP TABLE capability_pack_resources;
+DROP TABLE capability_pack_operations;
+DROP TABLE plan_run_executions;
+DROP TABLE asset_template_creations;
 DROP TABLE people_file_offers;
+DROP TABLE people_send_requests;
+DROP TABLE people_delivery_outbox;
 DROP TABLE people_messages;
 DROP TABLE people_thread_members;
 DROP TABLE people_thread_session;

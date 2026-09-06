@@ -26,9 +26,9 @@ func newNominationService(t *testing.T) (*m8app.NominationService, *fakeClock) {
 func TestNominateCreatesWrappedCandidate(t *testing.T) {
 	svc, _ := newNominationService(t)
 	res, err := svc.Nominate(context.Background(), m8app.NominateInput{
-		SubjectID: "user-1",
-		Doc:       leafDoc("scope-1", "prefer concise answers", ""),
-		Reason:    "repeated preference across three sessions",
+		SubjectID:       "local-user",
+		Doc:             leafDoc("scope-1", "prefer concise answers", ""),
+		Reason:          "repeated preference across three sessions",
 		SourceSessionID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 	})
 	if err != nil {
@@ -62,7 +62,7 @@ func TestNominateCreatesWrappedCandidate(t *testing.T) {
 func TestNominateRejectsBlankReason(t *testing.T) {
 	svc, _ := newNominationService(t)
 	_, err := svc.Nominate(context.Background(), m8app.NominateInput{
-		SubjectID: "user-1",
+		SubjectID: "local-user",
 		Doc:       leafDoc("scope-1", "x", ""),
 		Reason:    "",
 	})
@@ -74,7 +74,7 @@ func TestNominateRejectsBlankReason(t *testing.T) {
 func TestWithdrawThenTerminal(t *testing.T) {
 	svc, _ := newNominationService(t)
 	res, err := svc.Nominate(context.Background(), m8app.NominateInput{
-		SubjectID: "user-1",
+		SubjectID: "local-user",
 		Doc:       leafDoc("scope-1", "likes dark mode", ""),
 		Reason:    "stated twice",
 	})
@@ -101,7 +101,7 @@ func TestWithdrawUnknownNomination(t *testing.T) {
 func TestMarkDecidedSettlesAndIgnoresMissing(t *testing.T) {
 	svc, _ := newNominationService(t)
 	res, err := svc.Nominate(context.Background(), m8app.NominateInput{
-		SubjectID: "user-1",
+		SubjectID: "local-user",
 		Doc:       leafDoc("scope-1", "prefers Go examples", ""),
 		Reason:    "asked for Go three times",
 	})

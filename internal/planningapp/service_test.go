@@ -41,11 +41,12 @@ func (m *mockReader) ListNodesByPlan(_ context.Context, _ string, _ int) ([]plan
 }
 
 type mockWriter struct {
-	planStatus  string
-	nodeStatus  string
-	err         error
-	reader      *mockReader
+	planStatus string
+	nodeStatus string
+	err        error
+	reader     *mockReader
 }
+
 func (m *mockWriter) CreatePlan(_ context.Context, plan planning.Plan) (planning.Plan, error) {
 	if m.err != nil {
 		return plan, m.err
@@ -88,6 +89,7 @@ type mockGate struct {
 	approved bool
 	err      error
 }
+
 func (m *mockGate) RequiresReview(_ context.Context, _ planning.Node) (bool, error) {
 	return m.requires, m.err
 }
@@ -183,12 +185,12 @@ func TestStartNodeProceedsWhenReviewApproved(t *testing.T) {
 	}
 }
 
-func TestStartNodeRejectsNonReadyNode(t *testing.T) {
+func TestStartNodePreparesPendingNodeWhenDependenciesAreMet(t *testing.T) {
 	node := newNode("01ARZ3NDEKTSV4RRFFQ69G5FAA", planning.NodeStatusPending, planning.RiskLow, nil)
 	r := &mockReader{plan: newPlan(planning.PlanStatusActive), nodes: []planning.Node{node}}
 	s := New(r, &mockWriter{}, &mockGate{})
-	if err := s.StartNode(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAA"); err != ErrNodeNotReady {
-		t.Fatalf("expected ErrNodeNotReady, got %v", err)
+	if err := s.StartNode(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAA"); err != nil {
+		t.Fatalf("pending node should enter running through readiness checks: %v", err)
 	}
 }
 

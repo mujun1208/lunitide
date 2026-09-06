@@ -11,6 +11,7 @@
 package m8app
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -41,7 +42,8 @@ var (
 	// (M8-024).
 	ErrAutomationBudgetExceeded = errors.New("m8app: automation budget exceeded")
 	// ErrRunQuarantined: run or bundle quarantined (M8-026).
-	ErrRunQuarantined = errors.New("m8app: run quarantined")
+	ErrAutomationIdempotencyConflict = errors.New("m8app: automation request key belongs to different input")
+	ErrRunQuarantined                = errors.New("m8app: run quarantined")
 )
 
 // AutomationTx is the slice-4 single-writer transaction.
@@ -98,7 +100,7 @@ func (s *AutomationService) RegisterBundle(ctx context.Context, in RegisterBundl
 		return tx.PutBundle(m8core.WorkflowBundle{
 			ID: in.BundleID, Version: in.Version, Checksum: in.Checksum,
 			Permissions: string(perms), RollbackRef: in.RollbackRef,
-			State: m8core.BundleVerified,
+			State:     m8core.BundleVerified,
 			CreatedAt: s.clock.Now().UTC().Format(time.RFC3339),
 		})
 	})
@@ -116,13 +118,14 @@ type DispatchInput struct {
 
 // DispatchResult is the automation.dispatch outcome.
 type DispatchResult struct {
-	RunID string `json:"runId"`
-	State string `json:"state"`
+	ExecutionStarted bool   `json:"executionStarted"`
+	RunID            string `json:"runId"`
+	State            string `json:"state"`
 }
 
 // budgetDoc is the decoded budget payload.
 type budgetDoc struct {
-	MaxTokens int64 `json:"maxTokens"`
+	MaxTokens *int64 `json:"maxTokens"`
 }
 
 // triggerDoc is the decoded trigger payload.
@@ -139,26 +142,56 @@ func (s *AutomationService) Dispatch(ctx context.Context, in DispatchInput) (Dis
 		return DispatchResult{}, ErrServiceUnavailable
 	}
 	if len(in.BundleID) != 26 || in.BundleVersion < 1 ||
-		len(in.Trigger) < 2 || len(in.Budget) < 2 ||
+		len(in.Trigger) < 2 || len(in.Trigger) > 64<<10 || len(in.Budget) < 2 || len(in.Budget) > 1024 ||
 		len(in.RequestID) < 1 || len(in.RequestID) > m8core.MaxIdempotencyKey {
 		return DispatchResult{}, fmt.Errorf("%w: dispatch fields invalid", ErrPayloadInvalid)
 	}
 	var trig triggerDoc
-	if err := json.Unmarshal(in.Trigger, &trig); err != nil {
+	if err := decodeAutomationObject(in.Trigger, &trig); err != nil {
 		return DispatchResult{}, fmt.Errorf("%w: trigger invalid", ErrPayloadInvalid)
 	}
 	var bud budgetDoc
-	if err := json.Unmarshal(in.Budget, &bud); err != nil {
+	if err := decodeAutomationObject(in.Budget, &bud); err != nil {
 		return DispatchResult{}, fmt.Errorf("%w: budget invalid", ErrPayloadInvalid)
 	}
+	if trig.Type == "" || len(trig.Type) > 64 || len(trig.Actions) > 100 || bud.MaxTokens == nil || *bud.MaxTokens < 0 {
+		return DispatchResult{}, ErrPayloadInvalid
+	}
+	for _, action := range trig.Actions {
+		if action == "" || len(action) > 256 {
+			return DispatchResult{}, ErrPayloadInvalid
+		}
+	}
 	now := s.clock.Now().UTC().Format(time.RFC3339)
-	inputDigest := m8core.CanonicalTriggerDigest(string(in.Trigger), string(in.Budget))
+	canonical, _ := json.Marshal(struct {
+		BundleID string
+		Version  int64
+		Trigger  triggerDoc
+		Budget   budgetDoc
+		Actor    string
+	}{in.BundleID, in.BundleVersion, trig, bud, actorOr(in.Actor)})
+	inputDigest := m8core.DigestOf(string(canonical))
+	var refusal error
 	var out DispatchResult
 	err := s.uow.TransactAutomation(ctx, func(tx AutomationTx) error {
 		if prior, has, err := tx.GetRunByIdempotencyKey(in.RequestID); err != nil {
 			return err
 		} else if has {
+			if prior.BundleID != in.BundleID || prior.InputDigest != inputDigest {
+				return ErrAutomationIdempotencyConflict
+			}
 			out = DispatchResult{RunID: prior.ID, State: dispatchView(prior.State)}
+			if prior.State == m8core.RunQuarantined {
+				var saved struct {
+					Code   string `json:"code"`
+					Reason string `json:"reason"`
+				}
+				if json.Unmarshal([]byte(prior.CheckpointJSON), &saved) != nil {
+					refusal = ErrRunQuarantined
+				} else {
+					refusal = dispatchBlockedError(saved.Code, saved.Reason)
+				}
+			}
 			return nil
 		}
 		b, err := tx.GetBundle(in.BundleID)
@@ -182,7 +215,7 @@ func (s *AutomationService) Dispatch(ctx context.Context, in DispatchInput) (Dis
 		oc := m8core.Precheck(m8core.PrecheckInput{
 			BundleID: b.ID, BundleVersion: b.Version, BundleState: b.State,
 			Checksum: b.Checksum, Permissions: perms,
-			TriggerActions: trig.Actions, BudgetTokens: bud.MaxTokens,
+			TriggerActions: trig.Actions, BudgetTokens: *bud.MaxTokens,
 			HighRiskHit: func(action string) bool { return highRisk[action] },
 		})
 		switch oc.Decision {
@@ -196,6 +229,11 @@ func (s *AutomationService) Dispatch(ctx context.Context, in DispatchInput) (Dis
 				IdempotencyKey: in.RequestID,
 				InputDigest:    inputDigest, CreatedAt: now,
 			}
+			decision, _ := json.Marshal(struct {
+				Code   string `json:"code"`
+				Reason string `json:"reason"`
+			}{oc.Code, oc.Reason})
+			run.CheckpointJSON = string(decision)
 			if err := tx.PutAutomationRun(run); err != nil {
 				return err
 			}
@@ -208,7 +246,8 @@ func (s *AutomationService) Dispatch(ctx context.Context, in DispatchInput) (Dis
 				return err
 			}
 			out = DispatchResult{RunID: run.ID, State: "blocked"}
-			return dispatchBlockedError(oc.Code, oc.Reason)
+			refusal = dispatchBlockedError(oc.Code, oc.Reason)
+			return nil
 		case "waiting_confirmation":
 			run := m8core.AutomationRun{
 				ID: ulid.Make().String(), BundleID: b.ID,
@@ -257,7 +296,7 @@ func (s *AutomationService) Dispatch(ctx context.Context, in DispatchInput) (Dis
 	if err != nil {
 		return out, err
 	}
-	return out, nil
+	return out, refusal
 }
 
 // dispatchView maps the stored run state onto the wire state enum.
@@ -284,4 +323,13 @@ func dispatchBlockedError(code, reason string) error {
 		return fmt.Errorf("%w: %s", ErrRunQuarantined, reason)
 	}
 	return fmt.Errorf("m8app: dispatch blocked: %s", reason)
+}
+
+func decodeAutomationObject(raw []byte, dst any) error {
+	if !json.Valid(raw) || len(bytes.TrimSpace(raw)) < 2 || bytes.TrimSpace(raw)[0] != '{' {
+		return ErrPayloadInvalid
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(dst)
 }

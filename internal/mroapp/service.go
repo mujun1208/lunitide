@@ -104,6 +104,7 @@ type OpsStore interface {
 	ListKitItems(ctx context.Context) ([]KitItem, error)
 	UpsertKit(ctx context.Context, row Kit) error
 	UpsertKitItem(ctx context.Context, row KitItem) error
+	DeleteKitItems(ctx context.Context, kitID string) error
 	ListPartsStock(ctx context.Context) ([]PartsStock, error)
 	ListAlternates(ctx context.Context) ([]Alternate, error)
 	UpsertPartsStock(ctx context.Context, row PartsStock) error
@@ -156,99 +157,120 @@ type Service struct {
 func New(store Store) *Service { return &Service{store: store, clock: systemClock{}} }
 
 func (s *Service) UpsertAircraft(ctx context.Context, in AircraftInput) (Aircraft, error) {
-	if s == nil || s.store == nil {
-		return Aircraft{}, ErrServiceUnavailable
-	}
-	tail := strings.TrimSpace(in.TailNo)
-	model := strings.TrimSpace(in.Model)
-	if tail == "" || len(tail) > 32 || model == "" || len(model) > 64 {
-		return Aircraft{}, ErrPayloadInvalid
-	}
-	msn := strings.TrimSpace(in.MSN)
-	if len(msn) > 32 {
-		return Aircraft{}, ErrPayloadInvalid
-	}
-	config := strings.TrimSpace(in.Config)
-	if len(config) > 128 {
-		return Aircraft{}, ErrPayloadInvalid
-	}
-	id := strings.TrimSpace(in.AircraftID)
-	if id == "" {
-		id = ulid.Make().String()
-	}
-	if len(id) != 26 {
-		return Aircraft{}, ErrPayloadInvalid
-	}
-	row := Aircraft{
-		AircraftID: id, TailNo: tail, MSN: msn, Model: model, Config: config,
-		CreatedAt: s.clock.Now().UTC().Format(time.RFC3339Nano),
-	}
-	if err := s.store.UpsertAircraft(ctx, row); err != nil {
-		return Aircraft{}, err
-	}
-	return row, nil
+	return atomicValue(s, ctx, func(ctx context.Context) (Aircraft, error) {
+		if s == nil || s.store == nil {
+			return Aircraft{}, ErrServiceUnavailable
+		}
+		tail := strings.TrimSpace(in.TailNo)
+		model := strings.TrimSpace(in.Model)
+		if tail == "" || len(tail) > 32 || model == "" || len(model) > 64 {
+			return Aircraft{}, ErrPayloadInvalid
+		}
+		msn := strings.TrimSpace(in.MSN)
+		if len(msn) > 32 {
+			return Aircraft{}, ErrPayloadInvalid
+		}
+		config := strings.TrimSpace(in.Config)
+		if len(config) > 128 {
+			return Aircraft{}, ErrPayloadInvalid
+		}
+		id := strings.TrimSpace(in.AircraftID)
+		if id == "" {
+			id = ulid.Make().String()
+		}
+		if len(id) != 26 {
+			return Aircraft{}, ErrPayloadInvalid
+		}
+		row := Aircraft{
+			AircraftID: id, TailNo: tail, MSN: msn, Model: model, Config: config,
+			CreatedAt: s.clock.Now().UTC().Format(time.RFC3339Nano),
+		}
+		if err := s.store.UpsertAircraft(ctx, row); err != nil {
+			return Aircraft{}, err
+		}
+		return row, nil
+
+	})
 }
 
 func (s *Service) ListAircraft(ctx context.Context) ([]Aircraft, error) {
-	if s == nil || s.store == nil {
-		return nil, ErrServiceUnavailable
-	}
-	return s.store.ListAircraft(ctx)
+	return atomicValue(s, ctx, func(ctx context.Context) ([]Aircraft, error) {
+		if s == nil || s.store == nil {
+			return nil, ErrServiceUnavailable
+		}
+		return s.store.ListAircraft(ctx)
+
+	})
 }
 
 func (s *Service) RegisterManual(ctx context.Context, in ManualInput) (Manual, error) {
-	if s == nil || s.store == nil {
-		return Manual{}, ErrServiceUnavailable
+	ids := make([]string, 0, len(in.Documents))
+	for _, doc := range in.Documents {
+		ids = append(ids, doc.DocumentID)
 	}
-	docType := strings.TrimSpace(in.DocType)
-	rev := strings.TrimSpace(in.Revision)
-	status := strings.TrimSpace(in.Status)
-	if _, ok := legalDocTypes[docType]; !ok {
-		return Manual{}, ErrPayloadInvalid
-	}
-	if _, ok := legalManualStatus[status]; !ok {
-		return Manual{}, ErrPayloadInvalid
-	}
-	if rev == "" || len(rev) > 64 {
-		return Manual{}, ErrPayloadInvalid
-	}
-	title := strings.TrimSpace(in.Title)
-	if len(title) > 256 {
-		return Manual{}, ErrPayloadInvalid
-	}
-	ata := strings.TrimSpace(in.ATA)
-	if len(ata) > 16 {
-		return Manual{}, ErrPayloadInvalid
-	}
-	if len(in.Documents) == 0 {
-		return Manual{}, ErrPayloadInvalid
-	}
-	for _, d := range in.Documents {
-		if len(strings.TrimSpace(d.DocumentID)) != 26 || d.PartNo < 1 {
-			return Manual{}, ErrPayloadInvalid
-		}
-	}
-	id := strings.TrimSpace(in.ManualID)
-	if id == "" {
-		id = ulid.Make().String()
-	}
-	if len(id) != 26 {
-		return Manual{}, ErrPayloadInvalid
-	}
-	row := Manual{
-		ManualID: id, Title: title, DocType: docType, Revision: rev,
-		Status: status, ATA: ata, SectionCount: len(in.Documents),
-		CreatedAt: s.clock.Now().UTC().Format(time.RFC3339Nano),
-	}
-	if err := s.store.RegisterManual(ctx, row, in.Documents); err != nil {
+	var err error
+	ctx, err = s.PrepareEvidence(ctx, ids)
+	if err != nil {
 		return Manual{}, err
 	}
-	return row, nil
+	return atomicValue(s, ctx, func(ctx context.Context) (Manual, error) {
+		if s == nil || s.store == nil {
+			return Manual{}, ErrServiceUnavailable
+		}
+		docType := strings.TrimSpace(in.DocType)
+		rev := strings.TrimSpace(in.Revision)
+		status := strings.TrimSpace(in.Status)
+		if _, ok := legalDocTypes[docType]; !ok {
+			return Manual{}, ErrPayloadInvalid
+		}
+		if _, ok := legalManualStatus[status]; !ok {
+			return Manual{}, ErrPayloadInvalid
+		}
+		if rev == "" || len(rev) > 64 {
+			return Manual{}, ErrPayloadInvalid
+		}
+		title := strings.TrimSpace(in.Title)
+		if len(title) > 256 {
+			return Manual{}, ErrPayloadInvalid
+		}
+		ata := strings.TrimSpace(in.ATA)
+		if len(ata) > 16 {
+			return Manual{}, ErrPayloadInvalid
+		}
+		if len(in.Documents) == 0 {
+			return Manual{}, ErrPayloadInvalid
+		}
+		for _, d := range in.Documents {
+			if len(strings.TrimSpace(d.DocumentID)) != 26 || d.PartNo < 1 {
+				return Manual{}, ErrPayloadInvalid
+			}
+		}
+		id := strings.TrimSpace(in.ManualID)
+		if id == "" {
+			id = ulid.Make().String()
+		}
+		if len(id) != 26 {
+			return Manual{}, ErrPayloadInvalid
+		}
+		row := Manual{
+			ManualID: id, Title: title, DocType: docType, Revision: rev,
+			Status: status, ATA: ata, SectionCount: len(in.Documents),
+			CreatedAt: s.clock.Now().UTC().Format(time.RFC3339Nano),
+		}
+		if err := s.store.RegisterManual(ctx, row, in.Documents); err != nil {
+			return Manual{}, err
+		}
+		return row, nil
+
+	})
 }
 
 func (s *Service) ListManuals(ctx context.Context) ([]Manual, error) {
-	if s == nil || s.store == nil {
-		return nil, ErrServiceUnavailable
-	}
-	return s.store.ListManuals(ctx)
+	return atomicValue(s, ctx, func(ctx context.Context) ([]Manual, error) {
+		if s == nil || s.store == nil {
+			return nil, ErrServiceUnavailable
+		}
+		return s.store.ListManuals(ctx)
+
+	})
 }

@@ -43,7 +43,7 @@ func handleMemoryConfirmCandidate(e *Engine, ctx context.Context, r bridge.Reque
 	if p.EditedDoc != nil {
 		edited = p.EditedDoc
 	}
-	res, err := e.m8memory.ConfirmCandidate(ctx, m8app.ConfirmInput{
+	res, err := e.m8memory.ConfirmCandidateFor(ctx, e.memorySubjectID(), m8app.ConfirmInput{
 		CandidateID: p.CandidateID,
 		Token:       p.Token,
 		Action:      p.Action,

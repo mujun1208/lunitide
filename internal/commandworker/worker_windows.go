@@ -32,6 +32,11 @@ var (
 	procResumeThread             = kernel32.NewProc("ResumeThread")
 )
 
+var assignProcessToJob = func(job, process windows.Handle) (bool, error) {
+	result, _, err := procAssignProcessToJobObject.Call(uintptr(job), uintptr(process))
+	return result != 0, err
+}
+
 const (
 	jobObjectExtendedLimitInformation = 9
 
@@ -180,6 +185,9 @@ func run(ctx context.Context, spec Spec, guard StartGuard, sink *cappedSink) (Ou
 	limits.BasicLimitInformation.LimitFlags = limitKillOnJobClose | limitActiveProcess | limitJobMemory | limitDieOnUnhandledException
 	limits.BasicLimitInformation.ActiveProcessLimit = maxJobProcesses
 	limits.JobMemoryLimit = jobMemoryCapBytes
+	if spec.MaxMemoryBytes > 0 {
+		limits.JobMemoryLimit = uintptr(spec.MaxMemoryBytes)
+	}
 	r, _, e = procSetInformationJobObject.Call(uintptr(job), jobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), unsafe.Sizeof(limits))
 	if r == 0 {
 		return Outcome{}, e
@@ -218,9 +226,16 @@ func run(ctx context.Context, spec Spec, guard StartGuard, sink *cappedSink) (Ou
 			windows.CloseHandle(pi.Thread)
 		}
 	}()
-	r, _, e = procAssignProcessToJobObject.Call(uintptr(job), uintptr(pi.Process))
-	if r == 0 {
-		return Outcome{}, e
+	assigned, assignErr := assignProcessToJob(job, pi.Process)
+	if !assigned {
+		// Assignment failed before ResumeThread. The process is still suspended
+		// and is not owned by the job, so closing the job alone cannot reap it.
+		_ = windows.TerminateProcess(pi.Process, 1)
+		_, _ = windows.WaitForSingleObject(pi.Process, 5000)
+		return Outcome{}, assignErr
+	}
+	if err := ctx.Err(); err != nil {
+		return Outcome{}, err
 	}
 	r, _, e = procResumeThread.Call(uintptr(pi.Thread))
 	if r == 0xffffffff {
@@ -238,6 +253,10 @@ func run(ctx context.Context, spec Spec, guard StartGuard, sink *cappedSink) (Ou
 	inWrite = 0
 
 	output := os.NewFile(uintptr(outRead), "command-job-output")
+	// Transfer handle ownership to os.File. A raw CloseHandle plus a later
+	// File finalizer can close a recycled runtime handle and crash the engine.
+	outRead = 0
+	defer output.Close()
 	readDone := make(chan struct{})
 	go func() {
 		defer close(readDone)
@@ -269,8 +288,10 @@ func run(ctx context.Context, spec Spec, guard StartGuard, sink *cappedSink) (Ou
 	timer := time.NewTimer(spec.Timeout)
 	defer timer.Stop()
 	var outcome Outcome
+	waited := false
 	select {
 	case res := <-waitDone:
+		waited = true
 		if res.err != nil {
 			procTerminateJobObject.Call(uintptr(job), 1)
 			<-readDone
@@ -289,6 +310,9 @@ func run(ctx context.Context, spec Spec, guard StartGuard, sink *cappedSink) (Ou
 	// Every exit path kills the remaining tree before the job handle
 	// closes, so grandchildren never outlive the job.
 	procTerminateJobObject.Call(uintptr(job), 1)
+	if !waited {
+		<-waitDone
+	}
 	<-readDone
 	return outcome, nil
 }

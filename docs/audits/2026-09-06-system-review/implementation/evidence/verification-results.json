@@ -1,0 +1,185 @@
+{
+  "base_commit": "09978597dc026bfa40ab8d690d64f9bcaef476f3",
+  "branch": "codex/system-upgrade-20260906",
+  "date": "2026-09-06",
+  "scope": "本轮实现与隔离集成，非完整发布验收",
+  "go": {
+    "log": "go-test-release-check.jsonl",
+    "pass_packages": 137,
+    "packages_with_test_events": 117,
+    "passed_tests_including_subtests": 3506,
+    "passed_top_level_tests": 2759,
+    "failed": 0,
+    "skipped_tests": [
+      {
+        "Package": "github.com/lunitide/lunitide/internal/datasourceapp",
+        "Test": "TestLiveMySQLDriver"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/datasourceapp",
+        "Test": "TestLiveMySQLServiceEndToEnd"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/datadir",
+        "Test": "TestPrepareForTestRejectsRelativePathAndReparsePoint"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/ccapp/accuracy",
+        "Test": "TestLiveNotepadTypesVisibleText"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/ccapp/accuracy",
+        "Test": "TestLiveCalculatorNamedClick"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/ccapp/accuracy",
+        "Test": "TestLiveExplorerNamedObserve"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/ccapp/accuracy",
+        "Test": "TestLiveOptionalWPFAndElectron"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/ccapp",
+        "Test": "TestWindowListAndFocusRoundTrip"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/tts",
+        "Test": "TestEdgeSynthesisLatency"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/tts",
+        "Test": "TestEdgeLiveSynthesis"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/tts",
+        "Test": "TestEdgePythonSynthLive"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/voice",
+        "Test": "TestE2ELocalRecognitionHearsRealSpeech"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/voice",
+        "Test": "TestE2EMandarinClipsAreRecognized"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/voice",
+        "Test": "TestE2ERefinerIsInstallableFromTheCatalogueAsWritten"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/voice",
+        "Test": "TestE2ERefinedTextIsWhatTheTurnReturns"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/voice",
+        "Test": "TestNetworkRuntimeDownloadsAndExtracts"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/voice",
+        "Test": "TestNetworkSmallModelDownloads"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/tts",
+        "Test": "TestOneCoreVoicesRenderDistinctAudio"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/voice/volcsauc",
+        "Test": "TestLiveAgentPlanHandshake"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/worker",
+        "Test": "TestSandboxEscapeSymlink"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/tts",
+        "Test": "TestOnnxSynthesizeReal"
+      },
+      {
+        "Package": "github.com/lunitide/lunitide/internal/workspaceapp",
+        "Test": "TestSafePathRejectsSymlinkOrReparse"
+      }
+    ],
+    "coverage_percent": 52.0,
+    "ci_floor_percent": 49
+  },
+  "renderer": {
+    "log": "web-test-verified.json",
+    "files": 207,
+    "passed": 1583,
+    "failed": 0,
+    "skipped": 0,
+    "success": true
+  },
+  "checks": {
+    "golangci": "pass: 0 issues",
+    "go_vet": "pass",
+    "go_build_cgo0": "pass",
+    "bridge_verify": "pass",
+    "renderer_typecheck": "pass",
+    "renderer_build": "pass; existing large-chunk warnings remain",
+    "npm_audit": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "govulncheck_reachable": 0,
+    "govulncheck_module_only": [
+      {
+        "osv": "GO-2026-5932",
+        "fixed_version": null,
+        "trace": [
+          {
+            "module": "golang.org/x/crypto",
+            "version": "v0.56.0"
+          }
+        ]
+      }
+    ]
+  },
+  "selected_race": [
+    {
+      "file": "root-race-final.jsonl",
+      "passed": 65,
+      "failed": 0,
+      "skipped": 2,
+      "packages": [
+        "github.com/lunitide/lunitide/internal/people",
+        "github.com/lunitide/lunitide/internal/messageapp",
+        "github.com/lunitide/lunitide/internal/datasourceapp"
+      ]
+    },
+    {
+      "file": "recovery-race-final.jsonl",
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0,
+      "packages": [
+        "github.com/lunitide/lunitide/internal/storage/sqlite",
+        "github.com/lunitide/lunitide/internal/app"
+      ]
+    }
+  ],
+  "race_scope_note": "选择性race，不是全库；上述root日志在末次x/crypto及相关Go模块升级前。末次依赖集已重跑全量普通测试、coverage、lint、vet、CGO=0构建及govulncheck。其余专项race见各progress文件。",
+  "scores": {
+    "baseline": 2.733142857142857,
+    "current_provisional": 3.5594285714285707,
+    "display_current": 3.6,
+    "target": 4.9,
+    "release_acceptance": false
+  },
+  "unverified": [
+    "真实三语音链/音频设备",
+    "真实外部模型、MCP、MySQL/PostgreSQL",
+    "真实键鼠/UIA与多机同事",
+    "完整安装/更新/签名",
+    "全库race",
+    "备份恢复与故障演练",
+    "72h连续运行",
+    "14天候选观察",
+    "PRD明确未完成的执行/权限/状态闭环"
+  ]
+}

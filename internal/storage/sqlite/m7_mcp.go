@@ -27,14 +27,21 @@ func (r *AgentRuntimeRepository) TransactMcp(ctx context.Context, fn func(m7app.
 	})
 }
 
-const mcpEndpointColumns = `endpoint_id,transport,command,args_json,url,origin,source_trust,enabled,state,capability_digest,pinned_digest,last_health_at,created_at`
+const mcpEndpointColumns = `endpoint_id,transport,command,args_json,url,origin,source_trust,enabled,state,capability_digest,pinned_digest,last_health_at,created_at,
+COALESCE((SELECT auth_ref FROM mcp_endpoint_security s WHERE s.endpoint_id=mcp_endpoint_settings.endpoint_id),''),
+COALESCE((SELECT env_refs_json FROM mcp_endpoint_security s WHERE s.endpoint_id=mcp_endpoint_settings.endpoint_id),'{}'),
+COALESCE((SELECT pin_json FROM mcp_endpoint_security s WHERE s.endpoint_id=mcp_endpoint_settings.endpoint_id),''),
+COALESCE((SELECT launch_args_json FROM mcp_endpoint_security s WHERE s.endpoint_id=mcp_endpoint_settings.endpoint_id),''),
+COALESCE((SELECT version FROM mcp_endpoint_security s WHERE s.endpoint_id=mcp_endpoint_settings.endpoint_id),0),
+COALESCE((SELECT updated_at FROM mcp_endpoint_security s WHERE s.endpoint_id=mcp_endpoint_settings.endpoint_id),'')`
 
 func scanMcpEndpoint(s interface{ Scan(...any) error }) (m7flow.McpEndpointConfig, error) {
 	var e m7flow.McpEndpointConfig
 	var command, argsJSON, urlRef, capability, pinned, lastHealth *string
 	var enabled int
 	if err := s.Scan(&e.EndpointID, &e.Transport, &command, &argsJSON, &urlRef, &e.Origin,
-		&e.SourceTrust, &enabled, &e.State, &capability, &pinned, &lastHealth, &e.CreatedAt); err != nil {
+		&e.SourceTrust, &enabled, &e.State, &capability, &pinned, &lastHealth, &e.CreatedAt,
+		&e.Security.AuthRef, &e.Security.EnvRefsJSON, &e.Security.PinJSON, &e.Security.LaunchArgsJSON, &e.Security.Version, &e.Security.UpdatedAt); err != nil {
 		return e, err
 	}
 	e.Enabled = enabled == 1

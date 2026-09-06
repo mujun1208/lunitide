@@ -5,7 +5,7 @@ import type{AutomationJobListResult,AutomationRunListResult,AutomationStatusResu
 import{AutomationPanel}from'./AutomationPanel'
 const P='01ARZ3NDEKTSV4RRFFQ69G5FAV'
 afterEach(cleanup)
-const job=(over:Partial<AutomationJobListResult['jobs'][number]>={}):AutomationJobListResult['jobs'][number]=>({id:'01ARZ3NDEKTSV4RRFFQ69G5FAX',name:'日报',cron:'30 8 * * 1-5',prompt:'生成日报',providerId:P,modelId:'gpt-test',sessionId:P,executionMode:'auto-edit',enabled:true,createdAt:'2026-08-16T00:00:00Z',updatedAt:'2026-08-16T00:00:00Z',...over})
+const job=(over:Partial<AutomationJobListResult['jobs'][number]>={}):AutomationJobListResult['jobs'][number]=>({revision:'a'.repeat(64),id:'01ARZ3NDEKTSV4RRFFQ69G5FAX',name:'日报',cron:'30 8 * * 1-5',prompt:'生成日报',providerId:P,modelId:'gpt-test',sessionId:P,executionMode:'auto-edit',enabled:true,createdAt:'2026-08-16T00:00:00Z',updatedAt:'2026-08-16T00:00:00Z',...over})
 const run=(over:Partial<AutomationRunListResult['runs'][number]>={}):AutomationRunListResult['runs'][number]=>({id:'run-1',jobId:'01ARZ3NDEKTSV4RRFFQ69G5FAX',jobName:'日报',state:'succeeded',trigger:'cron',summary:'日报完成',totalTokens:42,startedAt:'2026-08-16T00:30:00Z',...over})
 const status=(over:Partial<AutomationStatusResult>={}):AutomationStatusResult=>({running:true,lastHeartbeat:'2026-08-16T00:00:00Z',nextFire:{},runningJobs:[],...over})
 type Cfg={jobs?:AutomationJobListResult['jobs'];runs?:AutomationRunListResult['runs'];status?:AutomationStatusResult}
@@ -22,7 +22,7 @@ it('validates the create form then saves through setJob',async()=>{const{b,setJo
 fireEvent.click(screen.getByRole('button',{name:'新建任务'}))
 fireEvent.click(screen.getByRole('button',{name:'保存'}));expect(screen.getByText('请填写任务名称')).toBeInTheDocument();expect(setJob).not.toHaveBeenCalled()
 fireEvent.change(screen.getByLabelText('任务名称'),{target:{value:'站会摘要'}});fireEvent.change(screen.getByLabelText('执行提示词'),{target:{value:'汇总昨日待办'}});fireEvent.click(screen.getByRole('button',{name:'保存'}))
-await waitFor(()=>expect(setJob).toHaveBeenCalledWith(expect.objectContaining({name:'站会摘要',cron:'30 8 * * *',prompt:'汇总昨日待办',providerId:P,modelId:'gpt-test',sessionId:P,executionMode:'auto-edit',sessionMode:'bound',runOnce:false,enabled:true})));expect(await screen.findByText('任务已保存')).toBeInTheDocument()})
+await waitFor(()=>expect(setJob).toHaveBeenCalledWith(expect.objectContaining({name:'站会摘要',cron:'30 8 * * *',prompt:'汇总昨日待办',providerId:P,modelId:'gpt-test',sessionId:P,executionMode:'auto-edit',sessionMode:'bound',runOnce:false,enabled:true}),expect.objectContaining({attempt:expect.any(Object)})));expect(await screen.findByText('任务已保存')).toBeInTheDocument()})
 it('saves an isolated one-shot 20-minute job',async()=>{const{b,setJob}=bridge();render(<AutomationPanel sessionId={P} providerId={P} modelId="gpt-test" bridge={b}/>)
 fireEvent.click(screen.getByRole('button',{name:'新建任务'}))
 fireEvent.change(screen.getByLabelText('任务名称'),{target:{value:'稍后提醒'}})
@@ -30,7 +30,7 @@ fireEvent.change(screen.getByLabelText('执行提示词'),{target:{value:'提醒
 fireEvent.change(screen.getByLabelText('会话模式'),{target:{value:'isolated'}})
 fireEvent.click(screen.getByRole('button',{name:'20 分钟后'}))
 fireEvent.click(screen.getByRole('button',{name:'保存'}))
-await waitFor(()=>expect(setJob).toHaveBeenCalledWith(expect.objectContaining({name:'稍后提醒',sessionMode:'isolated',runOnce:true})))
+await waitFor(()=>expect(setJob).toHaveBeenCalledWith(expect.objectContaining({name:'稍后提醒',sessionMode:'isolated',runOnce:true}),expect.objectContaining({attempt:expect.any(Object)})))
 const payload=setJob.mock.calls[0][0] as {cron:string}
 expect(payload.cron.startsWith('at:')).toBe(true)})
 it('renders run history with expandable succeeded summary and failed error',async()=>{const{b}=bridge({runs:[run(),run({id:'run-2',state:'failed',trigger:'manual',summary:undefined,error:'无头执行失败 (AUTOMATION_RUN_FAILED)'})]});render(<AutomationPanel sessionId={P} providerId={P} modelId="gpt-test" bridge={b}/>)
@@ -38,3 +38,16 @@ const rows=await screen.findAllByRole('button',{name:/日报|失败|成功/});fi
 fireEvent.click(rows[1]);expect(await screen.findByRole('alert')).toHaveTextContent('AUTOMATION_RUN_FAILED');expect(screen.getByText(/手动/)).toBeInTheDocument()})
 it('runs mode shows history without the job editor',async()=>{const{b}=bridge({runs:[run()]});render(<AutomationPanel mode="runs" bridge={b}/>)
 expect(await screen.findByText('运行中心')).toBeInTheDocument();expect(screen.queryByRole('button',{name:'新建任务'})).toBeNull();expect(screen.getByText('日报')).toBeInTheDocument();expect(screen.getByText('成功')).toBeInTheDocument()})
+
+it('retries a lost create acknowledgement with the same operation key',async()=>{
+ const {b,setJob}=bridge();setJob.mockRejectedValueOnce(new Error('连接中断')).mockResolvedValueOnce({id:P,createdAt:'2026-09-06T00:00:00Z',revision:'a'.repeat(64)})
+ render(<AutomationPanel sessionId={P} providerId={P} modelId="gpt-test" bridge={b}/>);
+ fireEvent.click(screen.getByRole('button',{name:'新建任务'}));fireEvent.change(screen.getByLabelText('任务名称'),{target:{value:'幂等任务'}});fireEvent.change(screen.getByLabelText('执行提示词'),{target:{value:'生成摘要'}});
+ fireEvent.click(screen.getByRole('button',{name:'保存'}));await screen.findByText('连接中断');fireEvent.click(screen.getByRole('button',{name:'保存'}));await screen.findByText('任务已保存');
+ expect(setJob).toHaveBeenCalledTimes(2);expect(setJob.mock.calls[0][1].attempt.idempotencyKey).toBe(setJob.mock.calls[1][1].attempt.idempotencyKey)
+});
+it('ignores old list replies after replacing the active bridge',async()=>{
+ const old=bridge();let resolveOld!:(value:AutomationJobListResult)=>void;old.b.listJobs=vi.fn(()=>new Promise<AutomationJobListResult>(resolve=>{resolveOld=resolve}));const current=bridge({jobs:[job({name:'当前任务'})]});
+ const ui=render(<AutomationPanel bridge={old.b}/>);ui.rerender(<AutomationPanel bridge={current.b}/>);await screen.findByText('当前任务');resolveOld({jobs:[job({name:'旧任务'})]});await new Promise(resolve=>setTimeout(resolve,0));
+ expect(screen.queryByText('旧任务')).toBeNull();expect(screen.getByText('当前任务')).toBeInTheDocument();
+});

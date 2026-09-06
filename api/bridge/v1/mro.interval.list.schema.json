@@ -7,21 +7,56 @@
   "x-enabled": true,
   "type": "object",
   "additionalProperties": false,
-  "properties": {},
+  "properties": {
+    "cursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    }
+  },
   "x-result": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
       "items": {
         "type": "array",
-        "maxItems": 1000,
-        "items": { "type": "object", "additionalProperties": true }
+        "maxItems": 100,
+        "items": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "nextCursor": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      },
+      "continuedFields": {
+        "type": "array",
+        "maxItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "enum": [
+            "items"
+          ]
+        }
       }
     },
-    "required": ["items"]
+    "required": [
+      "items"
+    ]
   },
   "x-examples": {
-    "positive": [{}],
-    "negative": [{ "unexpected": true }]
+    "positive": [
+      {}
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      },
+      {
+        "cursor": 42
+      }
+    ]
   }
 }

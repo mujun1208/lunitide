@@ -1,8 +1,11 @@
 param([Parameter(Mandatory)][string]$Stage,[string]$Version,[switch]$VerifyManifest,[switch]$Installed,[string]$ExpectedSignerThumbprint)
 $ErrorActionPreference='Stop'; $Stage=(Resolve-Path $Stage).Path
-$required=@('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe','WebView2Loader.dll','stop-install-processes.ps1','verify-install-directory.ps1','lunitide-icon.ico','web\dist\index.html','licenses\Microsoft.Web.WebView2-LICENSE.txt','licenses\Microsoft.Web.WebView2-NOTICE.txt')
+. (Join-Path $PSScriptRoot 'Release-Safety.ps1')
+. (Join-Path $PSScriptRoot 'Resolve-SignTool.ps1')
+Assert-NoReleaseReparsePoint $Stage -Tree
+$required=@('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe','lunitide-maintenance.exe','SOURCE-CANDIDATE.json','Release-Safety.ps1','WebView2Loader.dll','stop-install-processes.ps1','verify-install-directory.ps1','lunitide-icon.ico','web\dist\index.html','licenses\Microsoft.Web.WebView2-LICENSE.txt','licenses\Microsoft.Web.WebView2-NOTICE.txt')
 foreach($f in $required){if(-not(Test-Path (Join-Path $Stage $f)-PathType Leaf)){throw "Missing staged file: $f"}}
-$allowedRootFiles=@('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe','WebView2Loader.dll','stop-install-processes.ps1','verify-install-directory.ps1','lunitide-icon.ico','SHA256SUMS.txt')
+$allowedRootFiles=@('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe','lunitide-maintenance.exe','SOURCE-CANDIDATE.json','Release-Safety.ps1','WebView2Loader.dll','stop-install-processes.ps1','verify-install-directory.ps1','lunitide-icon.ico','SHA256SUMS.txt')
 if($Installed){$allowedRootFiles += @('Uninstall.exe','.lunitide-install-owner')}
 $files=Get-ChildItem $Stage -File -Recurse
 foreach($item in $files){
@@ -28,6 +31,7 @@ foreach($item in $files){
 & (Join-Path $PSScriptRoot 'Verify-PE.ps1') (Join-Path $Stage 'Lunitide.exe') -RequireWindowsGUI
 & (Join-Path $PSScriptRoot 'Verify-PE.ps1') (Join-Path $Stage 'lunitide-engine.exe')
 & (Join-Path $PSScriptRoot 'Verify-PE.ps1') (Join-Path $Stage 'purge-user-data.exe')
+& (Join-Path $PSScriptRoot 'Verify-PE.ps1') (Join-Path $Stage 'lunitide-maintenance.exe')
 if($VerifyManifest){
   $manifest=Join-Path $Stage 'SHA256SUMS.txt'; if(-not(Test-Path $manifest -PathType Leaf)){throw 'Missing SHA256SUMS.txt'}
   $entries=@{}; foreach($line in Get-Content $manifest){
@@ -41,8 +45,19 @@ if($VerifyManifest){
 }
 if($ExpectedSignerThumbprint){
   if($ExpectedSignerThumbprint -notmatch '\A[0-9A-Fa-f]{40}\z'){throw 'Expected signer thumbprint must be exactly 40 hexadecimal characters'}
-  foreach($binary in @('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe')){$sig=Get-AuthenticodeSignature (Join-Path $Stage $binary); if($sig.Status -ne 'Valid' -or -not $sig.SignerCertificate -or $sig.SignerCertificate.Thumbprint -cne $ExpectedSignerThumbprint.ToUpperInvariant() -or -not $sig.TimeStamperCertificate){throw "Installed publisher signature is invalid: $binary"}}
+  foreach($binary in @('Lunitide.exe','lunitide-engine.exe','lunitide-maintenance.exe','purge-user-data.exe')){
+    $artifact=Join-Path $Stage $binary
+    $sig=Get-AuthenticodeSignature $artifact
+    if($sig.Status -ne 'Valid' -or -not $sig.SignerCertificate -or $sig.SignerCertificate.Thumbprint -cne $ExpectedSignerThumbprint.ToUpperInvariant() -or -not $sig.TimeStamperCertificate){throw "Installed publisher signature is invalid: $binary"}
+    & (Resolve-SignTool) verify /pa /all /v $artifact
+    if($LASTEXITCODE){throw "Windows policy rejected the publisher signature or timestamp chain: $binary"}
+  }
 }
+$candidate=Get-Content -LiteralPath (Join-Path $Stage 'SOURCE-CANDIDATE.json') -Raw | ConvertFrom-Json
+Assert-ReleaseCandidate $candidate
+if($Version -and $candidate.version -cne $Version){throw 'Candidate source evidence version does not match'}
+if($ExpectedSignerThumbprint -and $candidate.releaseMode -cne 'publisher-signed'){throw 'A development candidate cannot satisfy publisher release acceptance'}
+if(@($candidate.tools).Count -ne 4 -or @('Lunitide.exe','lunitide-engine.exe','lunitide-maintenance.exe','purge-user-data.exe' | Where-Object {$_ -notin $candidate.tools}).Count){throw 'Candidate executable inventory is incomplete'}
 if($Version){
   if($Version -notmatch '^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$'){throw 'Invalid acceptance version'}
   foreach($binary in @('Lunitide.exe','lunitide-engine.exe')){$actual=(& (Join-Path $Stage $binary) --version | Out-String).Trim(); if($LASTEXITCODE -ne 0 -or $actual -cne $Version){throw "$binary version '$actual' does not exactly match VERSION '$Version'"}}

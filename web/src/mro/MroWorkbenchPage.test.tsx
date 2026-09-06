@@ -1,9 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { LanguageProvider } from '../i18n/language'
-import { MroWorkbenchPage, manualMediaType } from './MroWorkbenchPage'
+import { MroWorkbenchPage, manualMediaType, type MroOpsTodo } from './MroWorkbenchPage'
 
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 it('maps manual filenames to the ingest media hint', () => {
   expect(manualMediaType('amm.pdf')).toBe('application/pdf')
@@ -369,7 +369,7 @@ it('persists kit shortage as a parts todo through the write path', async () => {
   )
   fireEvent.click(await screen.findByRole('tab', { name: '套件' }))
   fireEvent.click(screen.getByRole('button', { name: '转航材待办' }))
-  await waitFor(() => expect(onAddPartsTodo).toHaveBeenCalledWith({ kitId: 'kit1', detail: 'SEAL-1' }))
+  await waitFor(() => expect(onAddPartsTodo).toHaveBeenCalledWith({ kitId: 'kit1' }))
   fireEvent.click(screen.getByRole('button', { name: '航材' }))
   expect(await screen.findByText(/航材待办/)).toBeInTheDocument()
 })
@@ -506,7 +506,7 @@ it('lists interval rules and adds a new one from the plan rail', async () => {
         enabled
         initialRail="plan"
         aircraftList={async () => ({ items: [] })}
-        manualList={async () => ({ items: [] })}
+        manualList={async () => ({ items: [{ manualId: 'm1', title: 'AMM', docType: 'AMM', revision: '42', status: 'controlled', ata: '', sectionCount: 1 }] })}
         intervalListFn={intervalListFn}
         onAddInterval={onAddInterval}
       />
@@ -518,8 +518,10 @@ it('lists interval rules and adds a new one from the plan rail', async () => {
   fireEvent.click(screen.getByRole('button', { name: '登记间隔' }))
   fireEvent.change(await screen.findByLabelText('任务号'), { target: { value: 'NLG-INSP' } })
   fireEvent.change(screen.getByLabelText('间隔值'), { target: { value: '750' } })
+  expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
+  fireEvent.change(screen.getByLabelText('受控手册来源'), { target: { value: 'manual:m1' } })
   fireEvent.click(screen.getByRole('button', { name: '保存' }))
-  await waitFor(() => expect(onAddInterval).toHaveBeenCalledWith(expect.objectContaining({ taskKey: 'NLG-INSP', intervalValue: 750, unit: 'FH' })))
+  await waitFor(() => expect(onAddInterval).toHaveBeenCalledWith({ taskKey: 'NLG-INSP', intervalValue: 750, unit: 'FH', sourceCite: 'manual:m1' }))
 })
 
 it('resolves component genealogy and registers a new component', async () => {
@@ -567,7 +569,7 @@ it('badges every C1–C7 constraint and flags the violated ones', async () => {
   expect(screen.getAllByText('C2').length).toBeGreaterThanOrEqual(2)
 })
 
-it('filters calendar dues by the as-of date and badges expired lots', async () => {
+it('keeps current due risks visible when filtering old records and badges expired lots', async () => {
   render(
     <LanguageProvider value="zh-CN">
       <MroWorkbenchPage
@@ -585,9 +587,50 @@ it('filters calendar dues by the as-of date and badges expired lots', async () =
   )
   fireEvent.change(await screen.findByLabelText('日期'), { target: { value: '2026-09-04' } })
   expect(await screen.findByText('2026-09-01')).toBeInTheDocument()
-  expect(screen.queryByText('2026-12-01')).not.toBeInTheDocument()
+  expect(screen.getByText('2026-12-01')).toBeInTheDocument()
+  expect(screen.getByText(/日期只筛选记录，不还原历史/)).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '工具化工品' }))
   fireEvent.click(await screen.findByRole('tab', { name: '批次' }))
   expect(await screen.findByText(/2026-01-01/)).toBeInTheDocument()
   expect(screen.getByText(/过期/)).toBeInTheDocument()
+})
+
+
+it('keeps existing todos, disables repeated publication and refreshes current evidence', async () => {
+  let finish!: (value: { todos: MroOpsTodo[] }) => void
+  const onPublishSchedule = vi.fn(() => new Promise<{ todos: MroOpsTodo[] }>(resolve => { finish = resolve }))
+  const planList = vi.fn().mockResolvedValue({ items: [{ id: 'wp1', title: 'C检', sources: ['标准卡'], evidenceState: 'current' }] })
+  vi.spyOn(window, 'confirm').mockReturnValue(true)
+  render(<LanguageProvider value="zh-CN"><MroWorkbenchPage enabled initialRail="plan" workPackages={[{ id: 'wp1', title: 'C检', sources: ['标准卡'], evidenceState: 'draft' }]} opsTodos={[{ id: 'existing', kind: 'parts_request', ref: 'other-kit', status: 'open', detail: '先前待办' }]} planList={planList} onPublishSchedule={onPublishSchedule} /></LanguageProvider>)
+  fireEvent.click(screen.getByRole('button', { name: '发布' }))
+  expect(screen.getByRole('button', { name: '核验中…' })).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: '核验中…' }))
+  expect(onPublishSchedule).toHaveBeenCalledTimes(1)
+  await act(async () => { finish({ todos: [{ id: 'new', kind: 'parts_request', ref: 'wp1', status: 'open', detail: '新增待办' }] }) })
+  expect(screen.getByText('当前证据已核验')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '航材' }))
+  expect(screen.getByText(/航材待办.*other-kit/)).toBeInTheDocument()
+  expect(screen.getByText(/航材待办.*wp1/)).toBeInTheDocument()
+  expect(planList).toHaveBeenCalledTimes(1)
+})
+
+it('shows failed publication and stale evidence without dropping previous todos', async () => {
+  vi.spyOn(window, 'confirm').mockReturnValue(true)
+  const onPublishSchedule = vi.fn().mockRejectedValue(new Error('来源手册已过期'))
+  const planList = vi.fn().mockResolvedValue({ items: [{ id: 'wp1', title: 'C检', sources: ['标准卡'], evidenceState: 'blocked' }] })
+  render(<LanguageProvider value="zh-CN"><MroWorkbenchPage enabled initialRail="plan" workPackages={[{ id: 'wp1', title: 'C检', sources: ['标准卡'] }]} opsTodos={[{ id: 'existing', kind: 'parts_request', ref: 'other-kit', status: 'open', detail: '保留待办' }]} planList={planList} onPublishSchedule={onPublishSchedule} /></LanguageProvider>)
+  fireEvent.click(screen.getByRole('button', { name: '发布' }))
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('来源手册已过期'))
+  await waitFor(() => expect(screen.getByRole('button', { name: '发布' })).toBeDisabled())
+  expect(screen.getByText('当前约束未满足，请复查后重新组装')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '航材' }))
+  expect(screen.getByText(/航材待办.*other-kit/)).toBeInTheDocument()
+})
+
+it('reports failed data loading and never shows an unchecked schedule as passed', async () => {
+  render(<LanguageProvider value="zh-CN"><MroWorkbenchPage enabled initialRail="plan" constraintList={async () => { throw new Error('记录超过容量，请归档后重试') }} /></LanguageProvider>)
+  fireEvent.click(screen.getByRole('tab', { name: '窗口与约束' }))
+  expect(screen.getByText('尚未完成约束检查，请运行检查。')).toBeInTheDocument()
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('记录超过容量'))
+  expect(screen.queryByText('当前约束检查通过；发布时仍会重新检查。')).not.toBeInTheDocument()
 })

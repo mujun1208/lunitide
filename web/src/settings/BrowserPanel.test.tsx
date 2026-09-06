@@ -10,7 +10,7 @@ const now = '2026-01-01T00:00:00Z'
 const settingsResult = {
   mode: 'builtin' as const, chromePath: '', edgePath: '', extensionPort: 9222,
   allowlist: ['https://docs.example.com'], dataRetentionDays: 30,
-  blockPrivateNetworks: true, updatedAt: now,
+  blockPrivateNetworks: true, updatedAt: now, revision: 1, applyStatus: 'applied' as const, applyError: '',
 }
 
 const brApi = (o: Partial<BrBridge> = {}): BrBridge => ({
@@ -54,7 +54,7 @@ it('switches the connection mode through a card', async () => {
   render(<BrowserPanel bridge={brApi({ updateSettings })} />)
   await screen.findByRole('radiogroup', { name: '浏览器连接模式' })
   fireEvent.click(screen.getByRole('radio', { name: /Edge/ }))
-  await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({ mode: 'edge' }))
+  await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({ mode: 'edge', expectedRevision: 1 }))
 })
 
 it('surfaces mode detection availability', async () => {
@@ -74,9 +74,9 @@ it('adds and removes allowlist entries', async () => {
   expect(await screen.findByText('https://docs.example.com')).toBeInTheDocument()
   fireEvent.change(screen.getByLabelText('白名单新条目'), { target: { value: 'https://api.example.com' } })
   fireEvent.click(screen.getByRole('button', { name: '添加' }))
-  await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({ allowlist: ['https://docs.example.com', 'https://api.example.com'] }))
+  await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({ allowlist: ['https://docs.example.com', 'https://api.example.com'], expectedRevision: 1 }))
   fireEvent.click(screen.getByRole('button', { name: '移除' }))
-  await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({ allowlist: [] }))
+  await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({ allowlist: [], expectedRevision: 1 }))
 })
 
 it('rejects malformed allowlist entries client-side', async () => {
@@ -120,4 +120,57 @@ it('sets an always-allow policy from the approval queue', async () => {
   expect(await screen.findByText(/摄像头/)).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '始终允许' }))
   await waitFor(() => expect(setPermissionPolicy).toHaveBeenCalledWith({ origin: 'https://meet.example.com', permission: 'camera', policy: 'allow' }))
+})
+
+it('shows saved but unapplied settings and retries the current revision', async () => {
+  const updateSettings = vi.fn()
+    .mockResolvedValueOnce({ ...settingsResult, mode: 'edge', revision: 2, applyStatus: 'failed', applyError: '旧浏览器停止失败' })
+    .mockResolvedValueOnce({ ...settingsResult, mode: 'edge', revision: 3 })
+  render(<BrowserPanel bridge={brApi({ updateSettings })} />)
+  await waitFor(() => expect(screen.getByRole('radio', { name: /内置 WebView2/ })).toHaveAttribute('aria-checked', 'true'))
+  fireEvent.click(screen.getByRole('radio', { name: /Edge/ }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('旧浏览器停止失败')
+  await waitFor(() => expect(screen.getByRole('button', { name: '重试应用' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: '重试应用' }))
+  await waitFor(() => expect(updateSettings).toHaveBeenLastCalledWith({ expectedRevision: 2 }))
+  await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+  expect(await screen.findByText('浏览器设置已生效')).toBeInTheDocument()
+})
+
+it('keeps edited path after a conflict and uses the authoritative revision on explicit retry', async () => {
+  const getSettings = vi.fn().mockResolvedValueOnce({ ...settingsResult }).mockResolvedValue({ ...settingsResult, revision: 4, chromePath: 'C:/other.exe' })
+  const updateSettings = vi.fn().mockRejectedValueOnce(new Error('设置已变化，请重试')).mockResolvedValue({ ...settingsResult, revision: 5, chromePath: 'C:/mine.exe' })
+  render(<BrowserPanel bridge={brApi({ getSettings, updateSettings })} />)
+  await waitFor(() => expect(screen.getByRole('radio', { name: /内置 WebView2/ })).toHaveAttribute('aria-checked', 'true'))
+  const input = screen.getByLabelText('Chrome 可执行路径')
+  fireEvent.change(input, { target: { value: 'C:/mine.exe' } })
+  const save = input.parentElement!.querySelector('button')!
+  fireEvent.click(save)
+  expect(await screen.findByText('设置已变化，请重试')).toBeInTheDocument()
+  expect(input).toHaveValue('C:/mine.exe')
+  fireEvent.click(save)
+  await waitFor(() => expect(updateSettings).toHaveBeenLastCalledWith({ chromePath: 'C:/mine.exe', expectedRevision: 4 }))
+})
+
+it('ignores the old panel bridge load after switching its data source', async () => {
+  let resolveOld!: (value: typeof settingsResult) => void
+  const old = brApi({ getSettings: vi.fn(() => new Promise<typeof settingsResult>(resolve => { resolveOld = resolve })) })
+  const fresh = brApi({ getSettings: vi.fn().mockResolvedValue({ ...settingsResult, revision: 9, mode: 'edge' }) })
+  const view = render(<BrowserPanel bridge={old} />)
+  view.rerender(<BrowserPanel bridge={fresh} />)
+  await waitFor(() => expect(screen.getByRole('radio', { name: /Edge/ })).toHaveAttribute('aria-checked', 'true'))
+  resolveOld({ ...settingsResult })
+  await waitFor(() => expect(screen.getByRole('radio', { name: /Edge/ })).toHaveAttribute('aria-checked', 'true'))
+})
+
+it('rejects path-shaped allowlist entries and keeps rejected input', async () => {
+  const updateSettings = vi.fn()
+  render(<BrowserPanel bridge={brApi({ updateSettings })} />)
+  await screen.findByText('https://docs.example.com')
+  const input = screen.getByLabelText('白名单新条目')
+  fireEvent.change(input, { target: { value: 'https://docs.example.com/path' } })
+  fireEvent.click(screen.getByRole('button', { name: '添加' }))
+  expect(await screen.findByText(/不能包含路径/)).toBeInTheDocument()
+  expect(input).toHaveValue('https://docs.example.com/path')
+  expect(updateSettings).not.toHaveBeenCalled()
 })

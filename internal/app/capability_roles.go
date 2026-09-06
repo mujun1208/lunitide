@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
-	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
@@ -21,7 +20,7 @@ var errRoleKindMismatch = errors.New("capability role kind mismatch")
 
 type CapabilityRoleStore interface {
 	ListCapabilityRoles(context.Context) ([]sqlite.CapabilityRoleBinding, error)
-	ReplaceCapabilityRoles(context.Context, []sqlite.CapabilityRoleBinding) error
+	CompareAndReplaceCapabilityRoles(context.Context, []sqlite.CapabilityRoleBinding, string) ([]sqlite.CapabilityRoleBinding, error)
 }
 
 type capabilityRoleDTO struct {
@@ -63,20 +62,21 @@ func handleCapabilityRolesGet(e *Engine, ctx context.Context, request bridge.Req
 		}
 	}
 	if e.capabilityRoles == nil {
-		return request.Ok(map[string]any{"roles": emptyCapabilityRoles()})
+		return request.Fail("STORAGE_UNAVAILABLE", "能力路由暂时不可用", true)
 	}
 	rows, err := e.capabilityRoles.ListCapabilityRoles(ctx)
 	if err != nil {
 		return request.Fail("STORAGE_UNAVAILABLE", "能力路由暂时不可用", true)
 	}
-	return request.Ok(map[string]any{"roles": mergeCapabilityRoles(rows)})
+	return request.Ok(capabilitySettingsResult(rows))
 }
 
 func handleCapabilityRolesSet(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
 	var payload struct {
-		Roles []capabilityRoleDTO `json:"roles"`
+		Roles            []capabilityRoleDTO `json:"roles"`
+		ExpectedRevision string              `json:"expectedRevision"`
 	}
-	if decodePayload(request.Payload, &payload) != nil || len(payload.Roles) != 6 {
+	if decodePayload(request.Payload, &payload) != nil || len(payload.Roles) != 6 || len(payload.ExpectedRevision) != 64 {
 		return request.Fail("BRIDGE_SCHEMA_INVALID", "capability.roles.set 参数无效", false)
 	}
 	if failure := requireIdempotency(request); failure != nil {
@@ -110,18 +110,21 @@ func handleCapabilityRolesSet(e *Engine, ctx context.Context, request bridge.Req
 	if e.capabilityRoles == nil {
 		return request.Fail("STORAGE_UNAVAILABLE", "能力路由暂时不可用", true)
 	}
-	now := time.Now().UTC()
 	rows := make([]sqlite.CapabilityRoleBinding, 0, 6)
 	for _, row := range payload.Roles {
 		rows = append(rows, sqlite.CapabilityRoleBinding{
 			Role: row.Role, ProviderID: row.ProviderID, ModelID: row.ModelID,
-			AllowJudgeEqChat: row.AllowJudgeEqChat, UpdatedAt: now,
+			AllowJudgeEqChat: row.AllowJudgeEqChat,
 		})
 	}
-	if err := e.capabilityRoles.ReplaceCapabilityRoles(ctx, rows); err != nil {
+	rows, err = e.capabilityRoles.CompareAndReplaceCapabilityRoles(ctx, rows, payload.ExpectedRevision)
+	if errors.Is(err, sqlite.ErrCapabilityRevisionConflict) {
+		return request.Fail("SETTINGS_VERSION_CONFLICT", "能力路由已被修改，当前草稿已保留，请查看最新版本", false)
+	}
+	if err != nil {
 		return request.Fail("STORAGE_UNAVAILABLE", "能力路由写入失败", true)
 	}
-	return request.Ok(map[string]any{"roles": mergeCapabilityRoles(rows)})
+	return request.Ok(capabilitySettingsResult(rows))
 }
 
 func validateCapabilityRoleSet(roles []capabilityRoleDTO, items []provider.Provider) error {
@@ -289,4 +292,10 @@ func (e *Engine) tryFlashClassify(ctx context.Context, goal string) (TaskRoute, 
 	}
 	route, allow := classifyTaskRouteWithFlash(goal, raw)
 	return route, allow, true
+}
+
+func capabilitySettingsResult(rows []sqlite.CapabilityRoleBinding) map[string]any {
+	revision := sqlite.CapabilityRolesRevision(rows)
+	// Routes are resolved from the committed store for each new operation.
+	return map[string]any{"roles": mergeCapabilityRoles(rows), "revision": revision, "appliedRevision": revision, "state": "applied"}
 }

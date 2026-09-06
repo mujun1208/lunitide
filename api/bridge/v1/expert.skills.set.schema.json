@@ -19,9 +19,16 @@
         "minLength": 1,
         "maxLength": 64
       }
+    },
+    "expectedVersionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
     }
   },
-  "required": ["expertId", "skillKeys"],
+  "required": [
+    "expertId",
+    "skillKeys",
+    "expectedVersionId"
+  ],
   "x-result": {
     "type": "object",
     "additionalProperties": false,
@@ -37,15 +44,30 @@
           "minLength": 1,
           "maxLength": 64
         }
+      },
+      "versionId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "known": {
+        "type": "boolean"
       }
     },
-    "required": ["expertId", "skillKeys"]
+    "required": [
+      "expertId",
+      "skillKeys",
+      "versionId",
+      "known"
+    ]
   },
   "x-examples": {
     "positive": [
       {
         "expertId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-        "skillKeys": ["slide-builder", "web-researcher"]
+        "skillKeys": [
+          "slide-builder",
+          "web-researcher"
+        ],
+        "expectedVersionId": "01ARZ3NDEKTSV4RRFFQ69G5FAW"
       }
     ],
     "negative": [

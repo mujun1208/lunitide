@@ -53,6 +53,8 @@ func handleOrgSwitch(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 	if e.m9org == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
 	}
+	release := e.beginScopeSwitch()
+	defer release()
 	res, err := e.m9org.Switch(ctx, p.OrgID)
 	if err != nil {
 		return m9OrgFailure(r, err)
@@ -68,6 +70,8 @@ func handleOrgActivate(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if e.m9org == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
 	}
+	release := e.beginScopeSwitch()
+	defer release()
 	res, err := e.m9org.Activate(ctx)
 	if err != nil {
 		return m9OrgFailure(r, err)
@@ -83,6 +87,8 @@ func handleOrgSuspend(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	if e.m9org == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
 	}
+	release := e.beginScopeSwitch()
+	defer release()
 	res, err := e.m9org.Suspend(ctx)
 	if err != nil {
 		return m9OrgFailure(r, err)

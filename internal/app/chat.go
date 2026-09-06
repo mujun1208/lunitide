@@ -130,12 +130,13 @@ const (
 
 func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
 	var p struct {
-		ProviderID    string            `json:"providerId"`
-		ModelID       string            `json:"modelId"`
-		SessionID     string            `json:"sessionId"`
-		Messages      []llmadapter.Message `json:"messages"`
-		ExecutionMode executionMode     `json:"executionMode"`
-		ContextRefs   []struct {
+		ProviderID      string               `json:"providerId"`
+		ModelID         string               `json:"modelId"`
+		SessionID       string               `json:"sessionId"`
+		QueueDeliveryID string               `json:"queueDeliveryId"`
+		Messages        []llmadapter.Message `json:"messages"`
+		ExecutionMode   executionMode        `json:"executionMode"`
+		ContextRefs     []struct {
 			Type string `json:"type"`
 			ID   string `json:"id"`
 		} `json:"contextRefs"`
@@ -161,15 +162,36 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 	ident := e.conversationIdentityForSession(ctx, p.SessionID, p.Companion)
 	boundSessionID := ident.sessionKey(p.SessionID)
+	if !e.reserveChatSession(boundSessionID) {
+		return request.Fail("STREAM_LIMIT_REACHED", "当前会话仍在处理上一轮，请等待结束或停止后重试", true)
+	}
+	transferredSession := false
+	defer func() {
+		if !transferredSession {
+			e.releaseChatSession(boundSessionID)
+		}
+	}()
+	if p.QueueDeliveryID != "" {
+		if !hasSession || boundSessionID != p.SessionID || hasMessages || p.Companion {
+			return request.Fail("BRIDGE_SCHEMA_INVALID", "排队交付必须使用已保存的当前会话消息", false)
+		}
+		if err := e.validateQueueChatStart(ctx, boundSessionID, p.QueueDeliveryID); err != nil {
+			return queueFailure(request, err)
+		}
+	}
 	if isPersistRetryTurn(p.Messages) {
 		emit, ok := ctx.Value(eventEmitterKey{}).(EventEmitter)
 		if !ok {
 			return request.Fail("STREAM_UNAVAILABLE", "流事件通道不可用", true)
 		}
-		return e.handlePersistRetryStart(ctx, request, boundSessionID, emit)
+		response := e.handlePersistRetryStart(ctx, request, boundSessionID, emit)
+		transferredSession = response.OK
+		return response
 	}
 	if hasSession {
-		_, _ = e.retrySessionPersistDraft(ctx, boundSessionID)
+		if _, err := e.retrySessionPersistDraft(ctx, boundSessionID); err != nil {
+			return internalBridgeFailure(request, "STORAGE_UNAVAILABLE", "上一轮回复尚未保存，请重试保存后再发送新消息", true, err)
+		}
 	}
 	for _, ref := range p.ContextRefs {
 		if !validCanonicalULID(ref.ID) || (ref.Type != "attachment" && ref.Type != "skillResult" && ref.Type != "message") {
@@ -709,6 +731,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	streamCtx, cancel := context.WithCancel(parent)
 	equip := e.turnEquipmentFor(ctx, boundSessionID, intent.Text, intent.Companion)
 	state := &streamState{cancel: cancel, companion: p.Companion, subagentPolicy: subagentPolicy, council: councilCfg, mcpRestrict: equip.RestrictMCP(), mcpAllowed: equip.McpIDs, brain: equip.Brain, memorySummary: formatChatMemorySummary(memPack), kbCites: append([]CitationBlock(nil), memPack.KBCites...), kbDiscarded: memPack.KBDiscarded, mroTurn: memPack.MROTurn || turnHasMROName(equip.Names)}
+	state.sessionID = boundSessionID
 	e.streams[streamID] = state
 	e.streamsMu.Unlock()
 	if text, ok := e.maybeDescribeImages(ctx, modelByID(item, p.ModelID), images, lastUserContent(messages)); ok {
@@ -761,6 +784,17 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			state.taskRoute = route
 		}
 	}
+	if p.QueueDeliveryID != "" {
+		if err := e.queue.Deliveries().StartQueueDelivery(ctx, boundSessionID, p.QueueDeliveryID, streamID); err != nil {
+			cancel()
+			e.streamsMu.Lock()
+			delete(e.streams, streamID)
+			e.streamsMu.Unlock()
+			return queueFailure(request, err)
+		}
+		streamCtx = context.WithValue(streamCtx, queueDeliveryStartKey{}, p.QueueDeliveryID)
+	}
+	transferredSession = true
 	go e.runStream(streamCtx, streamID, state, item, req, emit, boundSessionID, mode)
 	return request.Ok(map[string]any{"streamId": streamID})
 }
@@ -1421,6 +1455,9 @@ func truncateUTF8Bytes(text string, limit int) string {
 func chatStreamError(err error) *bridge.StreamError {
 	streamError := func(code, message string, retryable bool) *bridge.StreamError {
 		return &bridge.StreamError{Code: code, Message: message, Retryable: retryable}
+	}
+	if errors.Is(err, errTurnGenerationBudget) {
+		return streamError("TURN_GENERATION_BUDGET_EXCEEDED", "本轮生成已达到总预算，已保留收到的内容。发送“继续”可以接着完成。", false)
 	}
 	if errors.Is(err, messageapp.ErrAssistantResponseTooLarge) {
 		return streamError("ASSISTANT_RESPONSE_TOO_LARGE", "assistant 响应超过 16384 code points", false)

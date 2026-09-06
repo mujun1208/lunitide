@@ -7,8 +7,8 @@ afterEach(cleanup)
 
 function api(overrides: Partial<ToolsPolicyBridge> = {}): ToolsPolicyBridge {
   return {
-    getCommandPolicy: vi.fn().mockResolvedValue({ commands: [{ prefix: ['node', '--version'], maxArgs: 2, timeoutMs: 15000 }] }),
-    setCommandPolicy: vi.fn().mockResolvedValue({ applied: 1 }),
+    getCommandPolicy: vi.fn().mockResolvedValue({ revision:"a".repeat(64),appliedRevision:"a".repeat(64),state:"applied", commands: [{ prefix: ['node', '--version'], maxArgs: 2, timeoutMs: 15000 }] }),
+    setCommandPolicy: vi.fn().mockResolvedValue({ applied:1,revision:"b".repeat(64),appliedRevision:"b".repeat(64),state:"applied" }),
     ...overrides,
   }
 }
@@ -24,7 +24,7 @@ it('loads the persisted whitelist and renders entries as editable rows', async (
 })
 
 it('normalizes whitespace prefixes and posts the exact fail-closed document', async () => {
-  const bridge = api({ getCommandPolicy: vi.fn().mockResolvedValue({ commands: [] }) })
+  const bridge = api({ getCommandPolicy: vi.fn().mockResolvedValue({ revision:"a".repeat(64),appliedRevision:"a".repeat(64),state:"applied", commands: [] }) })
   render(<CommandPolicyPanel bridge={bridge} />)
   await screen.findByText('共 0 条用户规则（不含内置 git/go 只读集）')
   fireEvent.click(screen.getByRole('button', { name: '添加规则' }))
@@ -34,13 +34,14 @@ it('normalizes whitespace prefixes and posts the exact fail-closed document', as
   fireEvent.click(screen.getByRole('button', { name: '保存并热生效' }))
   await waitFor(() => expect(bridge.setCommandPolicy).toHaveBeenCalledOnce())
   expect(vi.mocked(bridge.setCommandPolicy).mock.calls[0][0]).toEqual({
+ expectedRevision:"a".repeat(64),fullAccess:false,
     commands: [{ prefix: ['python', '--version'], maxArgs: 3, timeoutMs: 20000 }],
   })
   expect(await screen.findByRole('status')).toHaveTextContent('已保存并热生效：1 条用户规则')
 })
 
 it('drops blank rows instead of sending empty prefixes', async () => {
-  const bridge = api({ getCommandPolicy: vi.fn().mockResolvedValue({ commands: [] }) })
+  const bridge = api({ getCommandPolicy: vi.fn().mockResolvedValue({ revision:"a".repeat(64),appliedRevision:"a".repeat(64),state:"applied", commands: [] }) })
   render(<CommandPolicyPanel bridge={bridge} />)
   await screen.findByText('共 0 条用户规则（不含内置 git/go 只读集）')
   fireEvent.click(screen.getByRole('button', { name: '添加规则' }))
@@ -49,6 +50,7 @@ it('drops blank rows instead of sending empty prefixes', async () => {
   fireEvent.click(screen.getByRole('button', { name: '保存并热生效' }))
   await waitFor(() => expect(bridge.setCommandPolicy).toHaveBeenCalledOnce())
   expect(vi.mocked(bridge.setCommandPolicy).mock.calls[0][0]).toEqual({
+ expectedRevision:"a".repeat(64),fullAccess:false,
     commands: [{ prefix: ['node', '--version'], timeoutMs: 10000 }],
   })
 })

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -26,6 +27,7 @@ var (
 	ErrNotRecording = errors.New("meeting is not recording")
 	ErrCanceled     = errors.New("meeting picker canceled")
 	ErrUnsupported  = errors.New("meeting save dialog unsupported")
+	ErrConflict     = errors.New("meeting changed during operation")
 )
 
 const (
@@ -36,7 +38,7 @@ const (
 const (
 	maxTitle      = 200
 	maxSegment    = 16384
-	maxTranscript = 1 << 20
+	maxTranscript = MaxTranscriptRunes
 	maxSummary    = 65536
 	maxActions    = 32768
 	maxList       = 200
@@ -56,21 +58,28 @@ const (
 )
 
 type Meeting struct {
-	MeetingID    string    `json:"meetingId"`
-	Title        string    `json:"title"`
-	Status       Status    `json:"status"`
-	AudioSource  string    `json:"audioSource"`
-	StartedAt    string    `json:"startedAt"`
-	EndedAt      string    `json:"endedAt"`
-	DurationMS   int64     `json:"durationMs"`
-	Summary      string    `json:"summary"`
-	Actions      string    `json:"actions"`
-	Transcript   string    `json:"transcript"`
-	SummaryError string    `json:"summaryError,omitempty"`
-	CreatedAt    string    `json:"createdAt"`
-	UpdatedAt    string    `json:"updatedAt"`
-	Segments     []Segment `json:"segments,omitempty"`
-	Docs         []Doc     `json:"docs,omitempty"`
+	MeetingID               string    `json:"meetingId"`
+	Revision                int64     `json:"revision"`
+	TranscriptRevision      int64     `json:"transcriptRevision"`
+	SummarySourceRevision   int64     `json:"summarySourceRevision"`
+	SummarySourceDigest     string    `json:"summarySourceDigest,omitempty"`
+	SummarySourceTitle      string    `json:"summarySourceTitle,omitempty"`
+	SummarySourceTranscript string    `json:"summarySourceTranscript,omitempty"`
+	SummaryEdited           bool      `json:"summaryEdited"`
+	Title                   string    `json:"title"`
+	Status                  Status    `json:"status"`
+	AudioSource             string    `json:"audioSource"`
+	StartedAt               string    `json:"startedAt"`
+	EndedAt                 string    `json:"endedAt"`
+	DurationMS              int64     `json:"durationMs"`
+	Summary                 string    `json:"summary"`
+	Actions                 string    `json:"actions"`
+	Transcript              string    `json:"transcript"`
+	SummaryError            string    `json:"summaryError,omitempty"`
+	CreatedAt               string    `json:"createdAt"`
+	UpdatedAt               string    `json:"updatedAt"`
+	Segments                []Segment `json:"segments,omitempty"`
+	Docs                    []Doc     `json:"docs,omitempty"`
 }
 
 type Segment struct {
@@ -98,9 +107,34 @@ type Notes struct {
 
 type Completer func(ctx context.Context, title, transcript string) (Notes, error)
 
+var meetingClock atomic.Int64
+
+// A revision token must change even when the wall clock stalls or moves back.
+func nextMeetingTime(previous string) string {
+	floor := int64(0)
+	if parsed, err := time.Parse(time.RFC3339Nano, previous); err == nil {
+		floor = parsed.UnixNano()
+	}
+	for {
+		last := meetingClock.Load()
+		next := time.Now().UnixNano()
+		if next <= floor {
+			next = floor + 1
+		}
+		if next <= last {
+			next = last + 1
+		}
+		if meetingClock.CompareAndSwap(last, next) {
+			return time.Unix(0, next).UTC().Format(time.RFC3339Nano)
+		}
+	}
+}
+
 type Store interface {
 	InsertMeeting(ctx context.Context, m Meeting) error
 	UpdateMeeting(ctx context.Context, m Meeting) error
+	CompareAndSwapMeeting(ctx context.Context, previousUpdatedAt string, m Meeting) (bool, error)
+	TouchRecording(ctx context.Context, meetingID string, durationMS int64, updatedAt string) error
 	GetMeeting(ctx context.Context, id string) (Meeting, error)
 	ListMeetings(ctx context.Context, limit int) ([]Meeting, error)
 	InsertSegment(ctx context.Context, seg Segment) error
@@ -112,23 +146,38 @@ type Store interface {
 	ListDocs(ctx context.Context, meetingID string) ([]Doc, error)
 	HasRecording(ctx context.Context) (bool, error)
 	DeleteMeeting(ctx context.Context, id string) error
+	DeleteMeetingVersion(ctx context.Context, id string, revision int64) error
 }
 
 type Service struct {
-	store       Store
-	complete    Completer
-	transcribe  AudioTranscriber
-	audioRoot   string
-	mu          sync.Mutex
-	audioMu     sync.Mutex
-	recording   string
-	summarizing map[string]bool
-	sinks       map[string]*audioSink
-	loopback    *loopbackSession
+	executionScope func(context.Context, string) (context.Context, func(), error)
+	store          Store
+	complete       Completer
+	transcribe     AudioTranscriber
+	audioRoot      string
+	mu             sync.Mutex
+	mutationMu     sync.Mutex // Short recording/edit mutations; never held during model I/O.
+	audioMu        sync.Mutex
+	recording      string
+	summarizing    map[string]bool
+	catchingUp     map[string]bool
+	sinks          map[string]*audioSink
+	loopback       *loopbackSession
 }
 
 func New(store Store) *Service {
-	return &Service{store: store, summarizing: map[string]bool{}, sinks: map[string]*audioSink{}}
+	return &Service{store: store, summarizing: map[string]bool{}, catchingUp: map[string]bool{}, sinks: map[string]*audioSink{}}
+}
+
+func (s *Service) SetExecutionScope(scope func(context.Context, string) (context.Context, func(), error)) {
+	s.executionScope = scope
+}
+func (s *Service) jobScope(ctx context.Context, capability string) (context.Context, func(), error) {
+	parent := context.WithoutCancel(ctx)
+	if s.executionScope != nil {
+		return s.executionScope(parent, capability)
+	}
+	return parent, func() {}, nil
 }
 
 func (s *Service) SetCompleter(fn Completer) { s.complete = fn }
@@ -152,11 +201,18 @@ func (s *Service) List(ctx context.Context) ([]Meeting, error) {
 		if m.Status != StatusSummarizing {
 			continue
 		}
+		// List projections omit the potentially large source snapshot. A
+		// recovery CAS must load the complete row before preserving it.
+		m, err = s.store.GetMeeting(ctx, m.MeetingID)
+		if err != nil {
+			return nil, err
+		}
 		next, changed, reclaimErr := s.maybeReclaimSummarizing(m)
 		if reclaimErr == nil && changed {
 			items[i] = next
 			items[i].Segments = nil
 			items[i].Docs = nil
+			items[i].Summary, items[i].Actions, items[i].Transcript, items[i].SummarySourceTranscript = "", "", "", ""
 		}
 	}
 	return items, nil
@@ -176,7 +232,7 @@ func (s *Service) Get(ctx context.Context, id string) (Meeting, error) {
 	if next, changed, reclaimErr := s.maybeReclaimSummarizing(m); reclaimErr == nil && changed {
 		m = next
 	}
-	segs, err := s.store.ListSegments(ctx, id)
+	segs, err := s.boundedSegments(ctx, id)
 	if err != nil {
 		return Meeting{}, err
 	}
@@ -193,6 +249,8 @@ func (s *Service) Start(ctx context.Context, title, audioSource string) (Meeting
 	if err := s.ready(); err != nil {
 		return Meeting{}, err
 	}
+	s.mutationMu.Lock()
+	defer s.mutationMu.Unlock()
 	busy, err := s.store.HasRecording(ctx)
 	if err != nil {
 		return Meeting{}, err
@@ -213,6 +271,7 @@ func (s *Service) Start(ctx context.Context, title, audioSource string) (Meeting
 	}
 	m := Meeting{
 		MeetingID:   ulid.Make().String(),
+		Revision:    1,
 		Title:       title,
 		Status:      StatusRecording,
 		AudioSource: AudioMicrophone,
@@ -230,6 +289,7 @@ func (s *Service) Start(ctx context.Context, title, audioSource string) (Meeting
 			s.stopLoopback(m.MeetingID)
 			return Meeting{}, err
 		}
+		m.Revision++
 	}
 	s.mu.Lock()
 	s.recording = m.MeetingID
@@ -262,6 +322,8 @@ func (s *Service) Append(ctx context.Context, meetingID, text string, startedMS 
 	if err := s.ready(); err != nil {
 		return Segment{}, err
 	}
+	s.mutationMu.Lock()
+	defer s.mutationMu.Unlock()
 	if _, err := ulid.ParseStrict(meetingID); err != nil {
 		return Segment{}, ErrInvalid
 	}
@@ -285,9 +347,6 @@ func (s *Service) Append(ctx context.Context, meetingID, text string, startedMS 
 	if err != nil {
 		return Segment{}, err
 	}
-	if n >= MaxSegments {
-		return Segment{}, ErrInvalid
-	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	seg := Segment{
 		SegmentID: ulid.Make().String(),
@@ -297,11 +356,23 @@ func (s *Service) Append(ctx context.Context, meetingID, text string, startedMS 
 		Text:      text,
 		CreatedAt: now,
 	}
-	if err := s.store.InsertSegment(ctx, seg); err != nil {
+	if store, ok := s.store.(boundedSegmentStore); ok {
+		seg, err = store.AppendMeetingSegmentBounded(ctx, seg)
+	} else {
+		var existing []Segment
+		existing, err = s.boundedSegments(ctx, meetingID)
+		if err == nil {
+			_, err = assembleTranscript(append(existing, seg))
+		}
+		if err == nil {
+			err = s.store.InsertSegment(ctx, seg)
+		}
+	}
+	if err != nil {
 		return Segment{}, err
 	}
-	m.UpdatedAt = now
-	_ = s.store.UpdateMeeting(ctx, m)
+	// A caption append must never write an old recording snapshot over Stop.
+	_ = s.store.TouchRecording(ctx, meetingID, m.DurationMS, nextMeetingTime(m.UpdatedAt))
 	return seg, nil
 }
 
@@ -321,17 +392,19 @@ func (s *Service) Heartbeat(ctx context.Context, meetingID string) (Meeting, err
 	}
 	now := time.Now().UTC()
 	m.DurationMS = recordingDurationMS(m.StartedAt, now, s.audioDurationMS(meetingID))
-	m.UpdatedAt = now.Format(time.RFC3339Nano)
-	if err := s.store.UpdateMeeting(ctx, m); err != nil {
+	m.UpdatedAt = nextMeetingTime(m.UpdatedAt)
+	if err := s.store.TouchRecording(ctx, meetingID, m.DurationMS, m.UpdatedAt); err != nil {
 		return Meeting{}, err
 	}
 	return m, nil
 }
 
-func (s *Service) Stop(ctx context.Context, meetingID string) (Meeting, error) {
+func (s *Service) Stop(ctx context.Context, meetingID string, expectedRevision ...int64) (Meeting, error) {
 	if err := s.ready(); err != nil {
 		return Meeting{}, err
 	}
+	s.mutationMu.Lock()
+	defer s.mutationMu.Unlock()
 	if _, err := ulid.ParseStrict(meetingID); err != nil {
 		return Meeting{}, ErrInvalid
 	}
@@ -342,12 +415,16 @@ func (s *Service) Stop(ctx context.Context, meetingID string) (Meeting, error) {
 	if m.Status != StatusRecording {
 		return m, nil
 	}
+	if len(expectedRevision) > 0 && (expectedRevision[0] < 1 || m.Revision != expectedRevision[0]) {
+		return Meeting{}, ErrConflict
+	}
 	// Stop is the only path that ends a meeting. WAV rotate, ASR death,
 	// and display-track recycle must never call this.
-	segs, err := s.store.ListSegments(ctx, meetingID)
-	if err != nil {
+	segs, err := s.boundedSegments(ctx, meetingID)
+	if err != nil && !errors.Is(err, ErrCapacity) {
 		return Meeting{}, err
 	}
+	capacity := errors.Is(err, ErrCapacity) || capacityMarked(m)
 	s.stopLoopback(meetingID)
 	s.closeSink(meetingID)
 	ended := time.Now().UTC()
@@ -355,18 +432,47 @@ func (s *Service) Stop(ctx context.Context, meetingID string) (Meeting, error) {
 	m.Status = StatusTranscribed
 	m.EndedAt = now
 	m.DurationMS = recordingDurationMS(m.StartedAt, ended, s.audioDurationMS(meetingID))
-	m.Transcript = assembleTranscript(segs)
-	m.UpdatedAt = now
-	if err := s.store.UpdateMeeting(ctx, m); err != nil {
+	transcript := m.Transcript
+	if !capacity {
+		transcript, err = assembleTranscript(segs)
+		capacity = errors.Is(err, ErrCapacity)
+	}
+	if capacity {
+		m.Status = StatusNeedsSummary
+		m.SummaryError = CapacityNotice
+		transcript = m.Transcript
+	}
+	if transcript != m.Transcript {
+		m.TranscriptRevision++
+	}
+	m.Transcript = transcript
+	previousUpdatedAt := m.UpdatedAt
+	m.UpdatedAt = nextMeetingTime(m.UpdatedAt)
+	if changed, err := s.store.CompareAndSwapMeeting(ctx, previousUpdatedAt, m); err != nil {
 		return Meeting{}, err
+	} else if !changed {
+		current, err := s.store.GetMeeting(ctx, meetingID)
+		if err == nil && current.Status != StatusRecording {
+			return current, nil
+		}
+		return Meeting{}, ErrConflict
 	}
 	s.mu.Lock()
 	if s.recording == meetingID {
 		s.recording = ""
 	}
 	s.mu.Unlock()
-	m.Segments = segs
-	return m, nil
+	// A concurrent heartbeat can advance duration while the content revision
+	// remains valid. Return the actual committed row, including source version.
+	committed, err := s.store.GetMeeting(ctx, meetingID)
+	if err != nil {
+		return Meeting{}, err
+	}
+	committed.Segments = segs
+	if capacity {
+		return committed, ErrCapacity
+	}
+	return committed, nil
 }
 
 func recordingDurationMS(startedAt string, now time.Time, audioMS int64) int64 {
@@ -387,6 +493,8 @@ func (s *Service) AppendAudio(ctx context.Context, meetingID string, pcm []byte)
 	if err := s.ready(); err != nil {
 		return 0, err
 	}
+	s.mutationMu.Lock()
+	defer s.mutationMu.Unlock()
 	if _, err := ulid.ParseStrict(meetingID); err != nil {
 		return 0, ErrInvalid
 	}
@@ -404,6 +512,30 @@ func (s *Service) AppendAudio(ctx context.Context, meetingID string, pcm []byte)
 	if mixed := s.takeMixPCM(meetingID, len(pcm)); len(mixed) > 0 {
 		pcm = mixS16le(pcm, mixed)
 	}
+	// Old callers retain their unkeyed behavior. Once keyed recording begins,
+	// keep its ordered immutable read view instead of extending an earlier WAV.
+	sink.mu.Lock()
+	if err := sink.loadBatchesLocked(); err != nil {
+		sink.mu.Unlock()
+		return 0, err
+	}
+	if len(sink.batches) > 0 {
+		defer sink.mu.Unlock()
+		pcm = pcm[:len(pcm)/2*2]
+		id := AudioBatchIdentity{CaptureSessionID: ulid.Make().String()}
+		for len(pcm) > 0 {
+			n := min(len(pcm), 24576*2)
+			id.SampleCount, id.Digest = int64(n/2), pcmDigest(pcm[:n])
+			if _, err := sink.appendBatchLocked(meetingID, pcm[:n], id); err != nil {
+				return pcmDurationMS(sink.totalBytes), err
+			}
+			pcm = pcm[n:]
+			id.ChunkSeq++
+			id.SampleStart += id.SampleCount
+		}
+		return pcmDurationMS(sink.totalBytes), nil
+	}
+	sink.mu.Unlock()
 	audioMS, err := sink.appendPCM(pcm)
 	if err != nil {
 		return audioMS, err
@@ -426,24 +558,47 @@ func SetPersistTimeoutForTest(d time.Duration) func() {
 	return func() { persistTimeout = prev }
 }
 
-func (s *Service) Summarize(ctx context.Context, meetingID string) (Meeting, error) {
+func (s *Service) Summarize(ctx context.Context, meetingID string, expectedRevision ...int64) (Meeting, error) {
 	if err := s.ready(); err != nil {
 		return Meeting{}, err
 	}
 	if _, err := ulid.ParseStrict(meetingID); err != nil {
 		return Meeting{}, ErrInvalid
 	}
-	m, err := s.Get(ctx, meetingID)
+	m, err := s.Metadata(ctx, meetingID)
 	if err != nil {
 		return Meeting{}, err
 	}
-	if strings.TrimSpace(m.Transcript) == "" && len(m.Segments) > 0 {
-		m.Transcript = assembleTranscript(m.Segments)
+	if len(expectedRevision) > 0 && (expectedRevision[0] < 1 || m.Revision != expectedRevision[0]) {
+		return Meeting{}, ErrConflict
 	}
 	if m.Status == StatusRecording {
 		return Meeting{}, ErrNotRecording
 	}
+	if capacityMarked(m) {
+		return Meeting{}, ErrCapacity
+	}
+	if strings.TrimSpace(m.Transcript) == "" {
+		segs, readErr := s.boundedSegments(ctx, meetingID)
+		if readErr != nil {
+			if errors.Is(readErr, ErrCapacity) {
+				return s.finishCapacity(m)
+			}
+			return Meeting{}, readErr
+		}
+		m.Transcript, err = assembleTranscript(segs)
+		if err != nil {
+			return s.finishCapacity(m)
+		}
+	}
+	if m.Status == StatusNeedsSummary && strings.HasPrefix(m.SummaryError, "转写补全存在缺口") {
+		return m, nil
+	}
 	s.mu.Lock()
+	if s.catchingUp[meetingID] {
+		s.mu.Unlock()
+		return Meeting{}, ErrBusy
+	}
 	if s.summarizing[meetingID] {
 		s.mu.Unlock()
 		return m, nil
@@ -458,28 +613,33 @@ func (s *Service) Summarize(ctx context.Context, meetingID string) (Meeting, err
 		delete(s.summarizing, meetingID)
 		s.mu.Unlock()
 	}()
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	previousUpdatedAt := m.UpdatedAt
 	m.Status = StatusSummarizing
-	m.UpdatedAt = now
-	if err := s.persistMeeting(m); err != nil {
+	m.UpdatedAt = nextMeetingTime(previousUpdatedAt)
+	if err := s.persistMeetingVersion(m, previousUpdatedAt); err != nil {
 		return Meeting{}, err
 	}
+	m.Revision++
 	if strings.TrimSpace(m.Transcript) == "" {
-		m.Status = StatusNeedsSummary
-		m.SummaryError = "没有可用的逐字稿，无法生成摘要"
-		m.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-		_ = s.persistMeeting(m)
-		return s.readMeeting(m.MeetingID)
+		return s.finishNeedsSummary(m, "没有可用的逐字稿，无法生成摘要")
 	}
 	if s.complete == nil {
 		return s.finishNeedsSummary(m, "尚未配置可用模型，逐字稿已保存。配置模型后可重试生成摘要。")
 	}
 	// Keep the job off the Bridge request ctx: WebView timeouts and page
 	// unmount must not leave the meeting stuck in 生成纪要中.
-	_ = ctx
-	workCtx, workCancel := context.WithTimeout(context.Background(), summarizeJobDeadline)
+	lifetime, release, scopeErr := s.jobScope(ctx, "llm")
+	if scopeErr != nil {
+		return s.finishNeedsSummary(m, summarizeErrMessage(scopeErr))
+	}
+	defer release()
+	workCtx, workCancel := context.WithTimeout(lifetime, summarizeJobDeadline)
 	defer workCancel()
-	notes, err := SummarizeLong(workCtx, s.complete, m.Title, CleanTranscript(m.Transcript))
+	sourceTitle, sourceTranscript := m.Title, CleanTranscript(m.Transcript)
+	notes, err := SummarizeLong(workCtx, s.complete, sourceTitle, sourceTranscript)
+	if workCtx.Err() != nil {
+		err = workCtx.Err()
+	}
 	if err != nil {
 		return s.finishNeedsSummary(m, summarizeErrMessage(err))
 	}
@@ -494,28 +654,48 @@ func (s *Service) Summarize(ctx context.Context, meetingID string) (Meeting, err
 	}
 	m.SummaryError = ""
 	m.Status = StatusReady
-	m.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	if err := s.persistMeeting(m); err != nil {
+	m.bindSummarySource(sourceTitle, sourceTranscript)
+	previousUpdatedAt = m.UpdatedAt
+	m.UpdatedAt = nextMeetingTime(previousUpdatedAt)
+	s.mutationMu.Lock()
+	err = s.persistMeetingVersionContext(workCtx, m, previousUpdatedAt)
+	if err != nil {
+		s.mutationMu.Unlock()
+		if errors.Is(err, ErrConflict) {
+			return s.finishNeedsSummary(m, "会议内容已修改，已保留人工修订。请基于最新内容重新生成纪要。")
+		}
 		return Meeting{}, err
 	}
+	defer s.mutationMu.Unlock()
 	persist, persistCancel := persistCtx()
 	defer persistCancel()
 	if err := s.persistDocs(persist, m); err != nil {
 		return Meeting{}, err
 	}
-	return s.Get(persist, meetingID)
+	result, err := s.Detail(persist, meetingID)
+	if err != nil {
+		return Meeting{}, err
+	}
+	// Keep the internal service result compatible without loading every raw
+	// segment. Public bridge replies omit these derived document copies.
+	result.Docs, err = s.store.ListDocs(persist, meetingID)
+	return result, err
 }
 
-func (s *Service) persistMeeting(m Meeting) error {
-	persist, cancel := persistCtx()
+func (s *Service) persistMeetingVersion(m Meeting, previousUpdatedAt string) error {
+	ctx, cancel := persistCtx()
 	defer cancel()
-	return s.store.UpdateMeeting(persist, m)
+	return s.persistMeetingVersionContext(ctx, m, previousUpdatedAt)
 }
-
-func (s *Service) readMeeting(id string) (Meeting, error) {
-	persist, cancel := persistCtx()
-	defer cancel()
-	return s.Get(persist, id)
+func (s *Service) persistMeetingVersionContext(ctx context.Context, m Meeting, previousUpdatedAt string) error {
+	updated, err := s.store.CompareAndSwapMeeting(ctx, previousUpdatedAt, m)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return ErrConflict
+	}
+	return nil
 }
 
 func summarizeErrMessage(err error) string {
@@ -556,27 +736,43 @@ func (s *Service) maybeReclaimSummarizing(m Meeting) (Meeting, bool, error) {
 	}
 	persist, cancel := persistCtx()
 	defer cancel()
+	previousUpdatedAt := m.UpdatedAt
 	m.Status = StatusNeedsSummary
 	m.SummaryError = clipRunes("摘要生成中断，逐字稿已保存。可重试生成摘要。", 1024)
-	m.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	if err := s.store.UpdateMeeting(persist, m); err != nil {
+	m.UpdatedAt = nextMeetingTime(previousUpdatedAt)
+	if updated, err := s.store.CompareAndSwapMeeting(persist, previousUpdatedAt, m); err != nil {
 		return Meeting{}, false, err
+	} else if !updated {
+		current, readErr := s.store.GetMeeting(persist, m.MeetingID)
+		return current, readErr == nil, readErr
 	}
 	_ = s.persistDocs(persist, m)
+	m.Revision++
 	return m, true, nil
 }
 
 func (s *Service) finishNeedsSummary(m Meeting, msg string) (Meeting, error) {
 	persist, cancel := persistCtx()
 	defer cancel()
-	m.Status = StatusNeedsSummary
-	m.SummaryError = clipRunes(msg, 1024)
-	m.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	if err := s.store.UpdateMeeting(persist, m); err != nil {
+	s.mutationMu.Lock()
+	defer s.mutationMu.Unlock()
+	// Failure recovery must also preserve edits made while the model ran.
+	current, err := s.store.GetMeeting(persist, m.MeetingID)
+	if err != nil {
 		return Meeting{}, err
 	}
+	previousUpdatedAt := current.UpdatedAt
+	m = current
+	m.Status = StatusNeedsSummary
+	m.SummaryError = clipRunes(msg, 1024)
+	m.UpdatedAt = nextMeetingTime(previousUpdatedAt)
+	if updated, err := s.store.CompareAndSwapMeeting(persist, previousUpdatedAt, m); err != nil {
+		return Meeting{}, err
+	} else if !updated {
+		return Meeting{}, ErrConflict
+	}
 	_ = s.persistDocs(persist, m)
-	return s.Get(persist, meetingIDOf(m))
+	return s.Detail(persist, meetingIDOf(m))
 }
 
 func meetingIDOf(m Meeting) string { return m.MeetingID }
@@ -585,35 +781,59 @@ func (s *Service) persistDocs(ctx context.Context, m Meeting) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	md := RenderMarkdown(m)
 	htmlBody := RenderHTML(m)
-	return s.store.ReplaceDocs(ctx, m.MeetingID, []Doc{
+	docs := []Doc{
 		{DocID: ulid.Make().String(), MeetingID: m.MeetingID, Kind: "markdown", Body: md, CreatedAt: now},
-		{DocID: ulid.Make().String(), MeetingID: m.MeetingID, Kind: "html", Body: htmlBody, CreatedAt: now},
-	})
+	}
+	// This table is a derived cache with a 2 Mi-rune row limit. HTML escaping
+	// can exceed it for a valid transcript; export always renders the complete
+	// authoritative row, so omit that cache entry instead of truncating it.
+	if utf8.RuneCountInString(htmlBody) <= 2<<20 {
+		docs = append(docs, Doc{DocID: ulid.Make().String(), MeetingID: m.MeetingID, Kind: "html", Body: htmlBody, CreatedAt: now})
+	}
+	return s.store.ReplaceDocs(ctx, m.MeetingID, docs)
 }
 
 type MeetingPatch struct {
-	Title      *string
-	Summary    *string
-	Actions    *string
-	Transcript *string
+	ExpectedRevision int64
+	TranscriptEdit   *TranscriptEdit
+	Title            *string
+	Summary          *string
+	Actions          *string
+	Transcript       *string
 }
 
 func (s *Service) Update(ctx context.Context, meetingID string, patch MeetingPatch) (Meeting, error) {
 	if err := s.ready(); err != nil {
 		return Meeting{}, err
 	}
+	s.mutationMu.Lock()
+	defer s.mutationMu.Unlock()
 	if _, err := ulid.ParseStrict(meetingID); err != nil {
 		return Meeting{}, ErrInvalid
 	}
-	if patch.Title == nil && patch.Summary == nil && patch.Actions == nil && patch.Transcript == nil {
+	if patch.Title == nil && patch.Summary == nil && patch.Actions == nil && patch.Transcript == nil && patch.TranscriptEdit == nil {
 		return Meeting{}, ErrInvalid
 	}
-	m, err := s.Get(ctx, meetingID)
+	m, err := s.Metadata(ctx, meetingID)
 	if err != nil {
 		return Meeting{}, err
 	}
 	if m.Status == StatusRecording {
 		return Meeting{}, ErrNotRecording
+	}
+	if patch.ExpectedRevision < 1 || m.Revision != patch.ExpectedRevision {
+		return Meeting{}, ErrConflict
+	}
+	previousUpdatedAt := m.UpdatedAt
+	if patch.TranscriptEdit != nil {
+		if patch.Transcript != nil {
+			return Meeting{}, ErrInvalid
+		}
+		next, editErr := applyTranscriptEdit(m, *patch.TranscriptEdit)
+		if editErr != nil {
+			return Meeting{}, editErr
+		}
+		patch.Transcript = &next
 	}
 	if patch.Title != nil {
 		title := strings.TrimSpace(*patch.Title)
@@ -623,27 +843,53 @@ func (s *Service) Update(ctx context.Context, meetingID string, patch MeetingPat
 		m.Title = title
 	}
 	if patch.Summary != nil {
-		m.Summary = clipRunes(strings.TrimSpace(*patch.Summary), maxSummary)
+		next := clipRunes(strings.TrimSpace(*patch.Summary), maxSummary)
+		m.SummaryEdited = m.SummaryEdited || next != m.Summary
+		m.Summary = next
 	}
 	if patch.Actions != nil {
-		m.Actions = clipRunes(strings.TrimSpace(*patch.Actions), maxActions)
+		next := clipRunes(strings.TrimSpace(*patch.Actions), maxActions)
+		m.SummaryEdited = m.SummaryEdited || next != m.Actions
+		m.Actions = next
 	}
 	if patch.Transcript != nil {
-		m.Transcript = clipRunes(strings.TrimSpace(*patch.Transcript), maxTranscript)
+		next := strings.TrimSpace(*patch.Transcript)
+		if patch.TranscriptEdit != nil {
+			next = *patch.Transcript
+		}
+		if !utf8.ValidString(next) || utf8.RuneCountInString(next) > maxTranscript {
+			return Meeting{}, ErrCapacity
+		}
+		if next != m.Transcript {
+			m.TranscriptRevision++
+			m.Status = StatusNeedsSummary
+			m.SummaryError = "逐字稿已修改，旧摘要已保留；请基于当前原稿重新生成。"
+		}
+		m.Transcript = next
 	}
-	m.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	if err := s.store.UpdateMeeting(ctx, m); err != nil {
+	m.UpdatedAt = nextMeetingTime(previousUpdatedAt)
+	if updated, err := s.store.CompareAndSwapMeeting(ctx, previousUpdatedAt, m); err != nil {
 		return Meeting{}, err
+	} else if !updated {
+		return Meeting{}, ErrConflict
 	}
 	if err := s.persistDocs(ctx, m); err != nil {
 		return Meeting{}, err
 	}
-	return s.Get(ctx, meetingID)
+	return s.Detail(ctx, meetingID)
 }
 
-func (s *Service) Delete(ctx context.Context, meetingID string) error {
+func (s *Service) Delete(ctx context.Context, meetingID string, expectedRevision ...int64) error {
 	if err := s.ready(); err != nil {
 		return err
+	}
+	s.mutationMu.Lock()
+	defer s.mutationMu.Unlock()
+	s.mu.Lock()
+	busy := s.catchingUp[meetingID] || s.summarizing[meetingID]
+	s.mu.Unlock()
+	if busy {
+		return ErrBusy
 	}
 	if _, err := ulid.ParseStrict(meetingID); err != nil {
 		return ErrInvalid
@@ -655,7 +901,10 @@ func (s *Service) Delete(ctx context.Context, meetingID string) error {
 	if m.Status == StatusRecording {
 		return ErrBusy
 	}
-	if err := s.store.DeleteMeeting(ctx, meetingID); err != nil {
+	if len(expectedRevision) != 1 || expectedRevision[0] < 1 || m.Revision != expectedRevision[0] {
+		return ErrConflict
+	}
+	if err := s.store.DeleteMeetingVersion(ctx, meetingID, expectedRevision[0]); err != nil {
 		return err
 	}
 	s.stopLoopback(meetingID)
@@ -672,7 +921,7 @@ func (s *Service) Export(ctx context.Context, meetingID, format, destPath string
 	if err := s.ready(); err != nil {
 		return "", "", err
 	}
-	m, err := s.Get(ctx, meetingID)
+	m, err := s.Metadata(ctx, meetingID)
 	if err != nil {
 		return "", "", err
 	}
@@ -742,7 +991,8 @@ func RenderMarkdown(m Meeting) string {
 		fmt.Fprintf(&b, "- 结束：%s\n", m.EndedAt)
 	}
 	fmt.Fprintf(&b, "- 时长：%s\n", formatDuration(m.DurationMS))
-	fmt.Fprintf(&b, "- 音频：%s\n\n", audioSourceLabel(m.AudioSource))
+	fmt.Fprintf(&b, "- 音频：%s\n", audioSourceLabel(m.AudioSource))
+	fmt.Fprintf(&b, "- 摘要来源：%s\n\n", summarySourceDescription(m))
 	b.WriteString("## 会议摘要\n\n")
 	b.WriteString(summary)
 	b.WriteString("\n\n## 决议/待办\n\n")

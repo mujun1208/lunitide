@@ -18,13 +18,14 @@ const provider: ProviderDTO = {
   createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), version: 1,
 }
 
+const status = { revision: 'a'.repeat(64), appliedRevision: 'a'.repeat(64), state: 'applied' as const }
 const emptyRoles = ['chat', 'flash', 'vision', 'embed', 'judge', 'gui'].map(role => ({ role, allowJudgeEqChat: false })) as Awaited<ReturnType<CapabilityRolesBridge['get']>>['roles']
 
 function api(setImpl?: CapabilityRolesBridge['set']) {
   const providers = { list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge
   const roles = {
-    get: vi.fn().mockResolvedValue({ roles: emptyRoles }),
-    set: setImpl ?? vi.fn().mockResolvedValue({ roles: emptyRoles }),
+    get: vi.fn().mockResolvedValue({ roles: emptyRoles, ...status }),
+    set: setImpl ?? vi.fn().mockResolvedValue({ roles: emptyRoles, ...status }),
   } as unknown as CapabilityRolesBridge
   return { providers, roles }
 }
@@ -38,7 +39,7 @@ it('renders six auto rows without a new settings category', async () => {
 })
 
 it('clears a binding back to auto', async () => {
-  const set = vi.fn().mockResolvedValue({ roles: emptyRoles })
+  const set = vi.fn().mockResolvedValue({ roles: emptyRoles, ...status })
   const { providers, roles } = api(set)
   const user = userEvent.setup()
   render(<CapabilityRouting providers={providers} roles={roles} />)
@@ -74,10 +75,10 @@ it('saves judge=chat after the allow checkbox and reloads the binding', async ()
     store = payload.roles.map((row: { role: string; providerId?: string; modelId?: string; allowJudgeEqChat?: boolean }) => ({
       role: row.role, providerId: row.providerId, modelId: row.modelId, allowJudgeEqChat: !!row.allowJudgeEqChat,
     }))
-    return { roles: store }
+    return { roles: store, ...status }
   })
   const providers = { list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge
-  const roles = { get: vi.fn().mockImplementation(async () => ({ roles: store })), set } as unknown as CapabilityRolesBridge
+  const roles = { get: vi.fn().mockImplementation(async () => ({ roles: store, ...status })), set } as unknown as CapabilityRolesBridge
   const user = userEvent.setup()
   const view = render(<CapabilityRouting providers={providers} roles={roles} />)
   await screen.findByRole('heading', { name: '能力路由' })
@@ -108,7 +109,7 @@ it('lists only matching kinds on each role', async () => {
     ],
   }
   const providers = { list: vi.fn().mockResolvedValue({ items: [mixed] }) } as unknown as ProviderBridge
-  const roles = { get: vi.fn().mockResolvedValue({ roles: emptyRoles }), set: vi.fn() } as unknown as CapabilityRolesBridge
+  const roles = { get: vi.fn().mockResolvedValue({ roles: emptyRoles, ...status }), set: vi.fn() } as unknown as CapabilityRolesBridge
   render(<CapabilityRouting providers={providers} roles={roles} />)
   await screen.findByRole('heading', { name: '能力路由' })
   const labels = (select: HTMLElement) => [...select.querySelectorAll('option')].map(o => o.textContent)

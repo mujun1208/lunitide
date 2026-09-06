@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { ConfirmDialog, Dialog } from '../ui/Dialog'
 import { useZh } from '../i18n/language'
 import { composeDatasourceDsn, datasourceStatus, FIXED_DATABASE, type DatasourceKind } from './datasourceDsn'
+import { DataSourceWriteDialog, type DatasourceWriteAPI } from './DataSourceWriteDialog'
 
 export type DatasourceRow = {
   id: string
@@ -15,6 +16,7 @@ export type DatasourceRow = {
 export type BrowseItem = { name: string; schema?: string }
 
 export type DatasourcePanelApi = {
+  writes?: DatasourceWriteAPI
   list: () => Promise<{ items: DatasourceRow[] }>
   create: (input: { name: string; kind: DatasourceKind; dsn: string }) => Promise<DatasourceRow>
   probe: (id: string) => Promise<{ id: string; readonlyVerified: boolean }>
@@ -33,15 +35,23 @@ export function DataSourcePanel({ api }: { api?: DatasourcePanelApi }): React.JS
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [disableId, setDisableId] = useState('')
+  const [writeTarget, setWriteTarget] = useState<DatasourceRow|null>(null)
+  const browseEpoch = useRef(0)
+  const listEpoch = useRef(0)
   const [browse, setBrowse] = useState<{ id: string; schemas: BrowseItem[]; tables: BrowseItem[]; columns: BrowseItem[] } | null>(null)
 
   const reload = async () => {
     if (!api) return
-    const got = await api.list().catch(() => ({ items: [] as DatasourceRow[] }))
-    setItems(got.items)
+    const epoch = ++listEpoch.current
+    try {
+      const got = await api.list()
+      if(epoch===listEpoch.current) setItems(got.items)
+    } catch(e) {
+      if(epoch===listEpoch.current) setError(e instanceof Error ? e.message : (zh?'连接列表加载失败':'Could not load connections'))
+    }
   }
 
-  useEffect(() => { void reload() }, [])
+  useEffect(() => { void reload(); return ()=>{listEpoch.current++;browseEpoch.current++} }, [])
 
   const submit = async () => {
     if (!api || !kind) return
@@ -80,25 +90,32 @@ export function DataSourcePanel({ api }: { api?: DatasourcePanelApi }): React.JS
 
   const runBrowse = async (id: string) => {
     if (!api) return
+    const epoch = ++browseEpoch.current
     setError('')
     try {
       const schemas = await api.browse({ id, scope: 'schema' })
-      setBrowse({ id, schemas: schemas.items, tables: [], columns: [] })
+      if(epoch===browseEpoch.current) setBrowse({ id, schemas: schemas.items, tables: [], columns: [] })
     } catch (e) {
-      setError(e instanceof Error ? e.message : (zh ? '浏览失败' : 'Browse failed'))
+      if(epoch===browseEpoch.current) setError(e instanceof Error ? e.message : (zh ? '浏览失败' : 'Browse failed'))
     }
   }
 
   const openTables = async (schema: string) => {
     if (!api || !browse) return
-    const tables = await api.browse({ id: browse.id, scope: 'table', schema })
-    setBrowse({ ...browse, tables: tables.items, columns: [] })
+    const epoch=++browseEpoch.current
+    try {
+      const tables = await api.browse({ id: browse.id, scope: 'table', schema })
+      if(epoch===browseEpoch.current) setBrowse({ ...browse, tables: tables.items, columns: [] })
+    } catch(e) { if(epoch===browseEpoch.current) setError(e instanceof Error?e.message:'Browse failed') }
   }
 
   const openColumns = async (schema: string, table: string) => {
     if (!api || !browse) return
-    const columns = await api.browse({ id: browse.id, scope: 'column', schema, table })
-    setBrowse({ ...browse, columns: columns.items })
+    const epoch=++browseEpoch.current
+    try {
+      const columns = await api.browse({ id: browse.id, scope: 'column', schema, table })
+      if(epoch===browseEpoch.current) setBrowse({ ...browse, columns: columns.items })
+    } catch(e) { if(epoch===browseEpoch.current) setError(e instanceof Error?e.message:'Browse failed') }
   }
 
   const confirmDisable = async () => {
@@ -123,8 +140,8 @@ export function DataSourcePanel({ api }: { api?: DatasourcePanelApi }): React.JS
     <div className="ds-panel">
       <p className="setting-desc">
         {zh
-          ? '月汐自己的库仍是本机 SQLite。这里连接外部 PostgreSQL / MySQL；本机连接可读写，远程连接只读。'
-          : 'Lunitide itself stays on local SQLite. This connects external PostgreSQL / MySQL; local connections are read-write, remote connections read-only.'}
+          ? '月汐自己的库仍是本机 SQLite。这里连接外部 PostgreSQL / MySQL；查询保持只读，本机写入需单独检查并确认，远程连接只读。'
+          : 'Lunitide itself stays on local SQLite. Queries are read-only; local writes require separate review and confirmation. Remote connections remain read-only.'}
       </p>
       <p className="setting-desc">{zh ? `本机连接只填账号密码即可：库名固定为 ${FIXED_DATABASE}，不存在会自动创建（需可建库账号，如 root）。远程连接建议只读账号。` : `For a local connection just enter account + password: the database is fixed to ${FIXED_DATABASE} and auto-created if missing (needs an account that can create databases, e.g. root). Prefer a read-only account for remote.`}</p>
       <div className="ds-add-row">
@@ -153,6 +170,7 @@ export function DataSourcePanel({ api }: { api?: DatasourcePanelApi }): React.JS
                 {row.readonlyVerified && row.state === 'active' && (
                   <button type="button" onClick={() => void runBrowse(row.id)}>{zh ? '浏览' : 'Browse'}</button>
                 )}
+                {api?.writes && row.readonlyVerified && row.state==='active' && <button type="button" onClick={()=>setWriteTarget(row)}>{zh?'写入与记录':'Writes and history'}</button>}
                 {row.state === 'active' && (
                   <button type="button" onClick={() => setDisableId(row.id)}>{zh ? '禁用' : 'Disable'}</button>
                 )}
@@ -163,6 +181,7 @@ export function DataSourcePanel({ api }: { api?: DatasourcePanelApi }): React.JS
       </table>
       {saved && <p role="status">{zh ? '已保存 · 不回显' : 'Saved · not echoed'}</p>}
       {error && <p role="alert">{error}</p>}
+      {writeTarget && api?.writes && <DataSourceWriteDialog key={writeTarget.id} connectionId={writeTarget.id} name={writeTarget.name} api={api.writes} onClose={()=>setWriteTarget(null)} />}
       {browse && (
         <div className="ds-browse">
           <p>{zh ? '只显示 schema / 表 / 列名' : 'Schema / table / column names only'}</p>

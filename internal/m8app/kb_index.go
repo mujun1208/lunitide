@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
+	"github.com/lunitide/lunitide/internal/doctext"
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
@@ -19,7 +19,6 @@ const parseChunkRunes = 1200
 // ParseBodyIndexer reads a local file and splits it into chunks with body.
 // Markdown/plain split on ATX headings or every 1200 runes. Empty files fail.
 func ParseBodyIndexer(ctx context.Context, doc m8core.KBDocument) ([]m8core.KBChunk, error) {
-	_ = ctx
 	ref := strings.TrimSpace(doc.ContentRef)
 	if ref == "" || !filepath.IsAbs(ref) {
 		return nil, fmt.Errorf("content_ref must be an absolute path")
@@ -31,11 +30,18 @@ func ParseBodyIndexer(ctx context.Context, doc m8core.KBDocument) ([]m8core.KBCh
 		strings.Contains(mt, "officedocument") {
 		return nil, fmt.Errorf("%w: parse function not configured", ErrKBIndexFailed)
 	}
-	raw, err := os.ReadFile(ref)
+	raw, err := doctext.ReadSource(ref)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrKBIndexFailed, err)
 	}
-	text := strings.TrimSpace(string(raw))
+	if SourceDigest(raw) != doc.SHA256 {
+		return nil, fmt.Errorf("%w: source digest changed", ErrKBIndexFailed)
+	}
+	extracted, err := doctext.ExtractContext(ctx, ref, raw, doc.MediaType)
+	if err != nil {
+		return nil, err
+	}
+	text := strings.TrimSpace(extracted.Text)
 	if text == "" {
 		return nil, fmt.Errorf("%w: empty body", ErrKBIndexFailed)
 	}
@@ -67,7 +73,7 @@ func splitMarkdownHeadings(text string) []string {
 	flush := func() {
 		s := strings.TrimSpace(strings.Join(buf, "\n"))
 		if s != "" {
-			parts = append(parts, s)
+			parts = append(parts, splitByRunes(s, parseChunkRunes)...)
 		}
 		buf = buf[:0]
 	}
@@ -86,7 +92,9 @@ func ChunksFromParts(doc m8core.KBDocument, parts []string) ([]m8core.KBChunk, e
 	base := parseSourceLocator(doc.SourceLocator)
 	out := make([]m8core.KBChunk, 0, len(parts))
 	for i, part := range parts {
-		part = capChunkBody(part)
+		if len(part) > m8core.MaxKBChunkBody {
+			return nil, fmt.Errorf("%w: chunk body exceeds budget", ErrKBIndexFailed)
+		}
 		if strings.TrimSpace(part) == "" {
 			continue
 		}
@@ -116,17 +124,6 @@ func ChunksFromParts(doc m8core.KBDocument, parts []string) ([]m8core.KBChunk, e
 		return nil, fmt.Errorf("%w: no non-empty chunks", ErrKBIndexFailed)
 	}
 	return out, nil
-}
-
-func capChunkBody(s string) string {
-	if len(s) <= m8core.MaxKBChunkBody {
-		return s
-	}
-	s = s[:m8core.MaxKBChunkBody]
-	for len(s) > 0 && !utf8.ValidString(s) {
-		s = s[:len(s)-1]
-	}
-	return s
 }
 
 func splitByRunes(text string, n int) []string {

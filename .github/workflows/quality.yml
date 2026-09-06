@@ -17,10 +17,12 @@ jobs:
           cache: true
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm --prefix web ci
+      - name: Scan renderer dependencies
+        run: npm --prefix web audit --audit-level=moderate
       - name: Verify generated Bridge and RPC contracts
         run: npm --prefix web run verify:bridge
       - name: Reject MiniCPM-o / Comni in Setup layout
@@ -35,7 +37,7 @@ jobs:
         # machine — most of its tests open a fresh database and replay every
         # migration — and a hosted runner is several times slower. An explicit
         # budget keeps a slow runner from being reported as a hang.
-        run: ./release/Check-Coverage.ps1 -Floor 49 -Timeout 25m
+        run: ./release/Check-Coverage.ps1 -Floor 51 -Timeout 25m
       - name: Vet Go
         run: go vet ./...
       - name: Build Go without CGO
@@ -113,4 +115,4 @@ jobs:
         # linker, and lunitide.syso's .rsrc IMAGE_REL_AMD64_ADDR32 relocations
         # overflow in the race-inflated PE ("relocation truncated to fit").
         # Non-race Quality still builds and tests ./cmd/desktop.
-        run: go test -race -timeout 90m ./...
+        run: go test -race -count=1 -p=4 -timeout 90m ./...

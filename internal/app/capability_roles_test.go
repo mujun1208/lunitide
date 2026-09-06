@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/llmadapter"
@@ -32,6 +33,19 @@ func (s *memoryRoleStore) ReplaceCapabilityRoles(_ context.Context, rows []sqlit
 	return nil
 }
 
+func (s *memoryRoleStore) CompareAndReplaceCapabilityRoles(_ context.Context, rows []sqlite.CapabilityRoleBinding, expected string) ([]sqlite.CapabilityRoleBinding, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sqlite.CapabilityRolesRevision(s.rows) != expected {
+		return nil, sqlite.ErrCapabilityRevisionConflict
+	}
+	s.rows = append([]sqlite.CapabilityRoleBinding{}, rows...)
+	for i := range s.rows {
+		s.rows[i].UpdatedAt = time.Now().UTC()
+	}
+	return append([]sqlite.CapabilityRoleBinding{}, s.rows...), nil
+}
+
 type roleCatalog struct{ providerRepositoryStub }
 
 func (roleCatalog) List(context.Context, provider.Filter) ([]provider.Provider, error) {
@@ -52,7 +66,7 @@ func emptyRolePayload() string {
 		{"role": "chat"}, {"role": "flash"}, {"role": "vision"},
 		{"role": "embed"}, {"role": "judge"}, {"role": "gui"},
 	}
-	raw, _ := json.Marshal(map[string]any{"roles": roles})
+	raw, _ := json.Marshal(map[string]any{"expectedRevision": sqlite.CapabilityRolesRevision(nil), "roles": roles})
 	return string(raw)
 }
 
@@ -81,7 +95,7 @@ func TestCapabilityRolesGetEmptyReturnsSixAutos(t *testing.T) {
 func TestCapabilityRolesSetRejectsJudgeEqChat(t *testing.T) {
 	e := NewEngine(roleCatalog{}, "test")
 	e.SetCapabilityRoleStore(&memoryRoleStore{})
-	payload := map[string]any{"roles": []map[string]any{
+	payload := map[string]any{"expectedRevision": sqlite.CapabilityRolesRevision(nil), "roles": []map[string]any{
 		{"role": "chat", "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "modelId": "chat-l"},
 		{"role": "flash"}, {"role": "vision"}, {"role": "embed"},
 		{"role": "judge", "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "modelId": "chat-l"},
@@ -99,7 +113,7 @@ func TestCapabilityRolesSetRejectsJudgeEqChat(t *testing.T) {
 func TestCapabilityRolesSetRejectsKindMismatch(t *testing.T) {
 	e := NewEngine(roleCatalog{}, "test")
 	e.SetCapabilityRoleStore(&memoryRoleStore{})
-	payload := map[string]any{"roles": []map[string]any{
+	payload := map[string]any{"expectedRevision": sqlite.CapabilityRolesRevision(nil), "roles": []map[string]any{
 		{"role": "chat"}, {"role": "flash"}, {"role": "vision"}, {"role": "embed"}, {"role": "judge"},
 		{"role": "gui", "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "modelId": "chat-l"},
 	}}

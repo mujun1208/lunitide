@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/datasource.write.list.schema.json",
+  "title": "datasource.write.list payload",
+  "x-method": "datasource.write.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "connectionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    }
+  },
+  "required": [
+    "connectionId"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 100,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+            },
+            "connectionId": {
+              "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+            },
+            "connectionName": {
+              "type": "string"
+            },
+            "sql": {
+              "type": "string",
+              "maxLength": 16384
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "prepared",
+                "executing",
+                "completed",
+                "unknown"
+              ]
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "expiresAt": {
+              "type": "string"
+            },
+            "result": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "columns": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "rows": {
+                  "type": "array"
+                },
+                "rowCount": {
+                  "type": "integer"
+                },
+                "truncated": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "columns",
+                "rows",
+                "rowCount",
+                "truncated"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "connectionId",
+            "connectionName",
+            "sql",
+            "digest",
+            "state",
+            "createdAt",
+            "expiresAt"
+          ]
+        }
+      }
+    },
+    "required": [
+      "items"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "connectionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ],
+    "negative": [
+      {}
+    ]
+  }
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"github.com/oklog/ulid/v2"
 	"os"
 	"path/filepath"
 	"testing"
@@ -40,7 +41,7 @@ func peopleCall(t *testing.T, e *Engine, method string, payload any) bridge.Resp
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := bridge.Request{ID: "01AAAAAAAAAAAAAAAAAAAAAAAA", TraceID: "01BBBBBBBBBBBBBBBBBBBBBBB", Method: method, Payload: raw}
+	r := bridge.Request{ID: ulid.Make().String(), TraceID: ulid.Make().String(), Method: method, Payload: raw}
 	handler, ok := RuntimeHandlers[bridge.Method(method)]
 	if !ok || handler == nil {
 		t.Fatalf("method %s missing from RuntimeHandlers", method)

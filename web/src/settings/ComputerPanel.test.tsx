@@ -9,6 +9,7 @@ afterEach(cleanup)
 
 const now = '2026-01-01T00:00:00Z'
 const cfg = (partial: Partial<CcGetConfigResult> = {}): CcGetConfigResult => ({
+  revision: 1,
   enabled: false, securityLevel: 'standard', allowCritical: false, processBlocklist: ['cmd.exe'],
   maxActionsPerMinute: 60, confirmTimeoutSeconds: 60, emergencyStopped: false, updatedAt: now, ...partial,
 })
@@ -35,7 +36,7 @@ it('walks the enable wizard and writes the new config', async () => {
   await user.click(screen.getByRole('radio', { name: /严格/ }))
   await user.click(screen.getByRole('button', { name: '确认启用' }))
   await waitFor(() => expect(updateConfig).toHaveBeenCalledWith({
-    enabled: true, securityLevel: 'strict', allowCritical: false, armMinutes: 30,
+    expectedRevision: 1, enabled: true, securityLevel: 'strict', allowCritical: false, armMinutes: 30,
   }))
   expect(await screen.findByText('电脑控制已启用')).toBeInTheDocument()
   expect(screen.getByText('已启用')).toBeInTheDocument()
@@ -49,7 +50,7 @@ it('adds a process blocklist entry and shows the updated chip', async () => {
   expect(await screen.findByText('cmd.exe')).toBeInTheDocument()
   await user.type(screen.getByLabelText('黑名单新条目'), 'taskmgr.exe')
   await user.click(screen.getByRole('button', { name: '添加' }))
-  await waitFor(() => expect(updateConfig).toHaveBeenCalledWith({ processBlocklist: ['cmd.exe', 'taskmgr.exe'] }))
+  await waitFor(() => expect(updateConfig).toHaveBeenCalledWith({ expectedRevision: 1, processBlocklist: ['cmd.exe', 'taskmgr.exe'] }))
   expect(await screen.findByText('taskmgr.exe')).toBeInTheDocument()
   expect(screen.getByText(/已添加 taskmgr.exe/)).toBeInTheDocument()
 })
@@ -64,4 +65,19 @@ it('rejects a blocklist path and keeps the previous list', async () => {
   await user.click(screen.getByRole('button', { name: '添加' }))
   expect(screen.getByText(/不能含路径分隔符/)).toBeInTheDocument()
   expect(updateConfig).not.toHaveBeenCalled()
+})
+
+it('reloads authoritative settings after a stale save without replaying the patch', async () => {
+ const user = userEvent.setup()
+ const getConfig = vi.fn().mockResolvedValueOnce(cfg({ enabled: true })).mockResolvedValue(cfg({ revision: 2, enabled: true, processBlocklist: ['cmd.exe', 'regedit.exe'] }))
+ const updateConfig = vi.fn().mockRejectedValue(new Error('CC_CONFIG_CONFLICT: 电脑控制配置已变更'))
+ render(<ComputerPanel bridge={api({ getConfig, updateConfig })} />)
+ await screen.findByText('cmd.exe')
+ await user.type(screen.getByLabelText('黑名单新条目'), 'taskmgr.exe')
+ await user.click(screen.getByRole('button', { name: '添加' }))
+ await waitFor(() => expect(screen.getByText('配置已在其他位置变更，已载入最新配置，请重新确认后保存')).toBeInTheDocument())
+ expect(screen.getByText('regedit.exe')).toBeInTheDocument()
+ expect(screen.queryByText('taskmgr.exe')).not.toBeInTheDocument()
+ expect(updateConfig).toHaveBeenCalledTimes(1)
+ expect(updateConfig).toHaveBeenCalledWith({ expectedRevision: 1, processBlocklist: ['cmd.exe', 'taskmgr.exe'] })
 })

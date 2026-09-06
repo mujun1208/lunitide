@@ -70,6 +70,8 @@ type SearchResult struct {
 type Tx interface {
 	AppendMessage(context.Context, message.Message) (message.Message, error)
 	Message(context.Context, string) (message.Message, error)
+	// A zero lookup time reads retained records without expiring them. Assistant
+	// turn identities live until their messages are explicitly removed.
 	Idempotency(context.Context, string, string, time.Time) (providerapp.Record, bool, error)
 	PutIdempotency(context.Context, providerapp.Record) error
 	PutAudit(context.Context, providerapp.Audit) error
@@ -333,7 +335,12 @@ func (s *Service) Append(ctx context.Context, key, actor string, request any, va
 	var result message.Message
 	err = s.uow.DoMessage(ctx, func(tx Tx) error {
 		now := s.now().UTC()
-		record, found, e := tx.Idempotency(ctx, "message.append", key, now)
+		lookupAt, expiresAt := now, now.Add(24*time.Hour)
+		if (actor == "talk" && strings.HasPrefix(key, "talk-final:")) || (actor == "queue" && strings.HasPrefix(key, "queue:")) {
+			lookupAt = time.Time{}
+			expiresAt = time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
+		}
+		record, found, e := tx.Idempotency(ctx, "message.append", key, lookupAt)
 		if e != nil {
 			return e
 		}
@@ -365,7 +372,7 @@ func (s *Service) Append(ctx context.Context, key, actor string, request any, va
 		if e = tx.PutAudit(ctx, providerapp.Audit{ID: event.String(), Action: "message.appended", AggregateID: result.ID, Actor: actor, Metadata: meta, CreatedAt: now}); e != nil {
 			return e
 		}
-		return tx.PutIdempotency(ctx, providerapp.Record{Operation: "message.append", Key: key, Digest: digest, Response: response, CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)})
+		return tx.PutIdempotency(ctx, providerapp.Record{Operation: "message.append", Key: key, Digest: digest, Response: response, CreatedAt: now, ExpiresAt: expiresAt})
 	})
 	return result, err
 }
@@ -410,9 +417,10 @@ func (s *Service) Rewind(ctx context.Context, key, actor, sessionID, messageID s
 
 // AssistantUsage carries provider-reported token usage for an assistant message.
 type AssistantUsage struct {
-	Provider     string `json:"provider"`
-	Model        string `json:"model"`
-	OutputTokens int64  `json:"outputTokens"`
+	TranscriptDigest string `json:"transcriptDigest,omitempty"`
+	Provider         string `json:"provider"`
+	Model            string `json:"model"`
+	OutputTokens     int64  `json:"outputTokens"`
 }
 
 // assistantRequest is the idempotency digest input for AppendAssistant.
@@ -450,7 +458,9 @@ func (s *Service) AppendAssistant(ctx context.Context, streamID, actor, sessionI
 	var result message.Message
 	err = s.uow.DoMessage(ctx, func(tx Tx) error {
 		now := s.now().UTC()
-		record, found, e := tx.Idempotency(ctx, "message.append-assistant", streamID, now)
+		// A recovery journal may be replayed months after a lost commit ACK.
+		// Expiring its identity would create a second message and token ledger.
+		record, found, e := tx.Idempotency(ctx, "message.append-assistant", streamID, time.Time{})
 		if e != nil {
 			return e
 		}
@@ -533,7 +543,7 @@ func (s *Service) AppendAssistant(ctx context.Context, streamID, actor, sessionI
 		if e = tx.PutAudit(ctx, providerapp.Audit{ID: event.String(), Action: "message.assistant.appended", AggregateID: result.ID, Actor: actor, Metadata: meta, CreatedAt: now}); e != nil {
 			return e
 		}
-		return tx.PutIdempotency(ctx, providerapp.Record{Operation: "message.append-assistant", Key: streamID, Digest: digest, Response: response, CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)})
+		return tx.PutIdempotency(ctx, providerapp.Record{Operation: "message.append-assistant", Key: streamID, Digest: digest, Response: response, CreatedAt: now, ExpiresAt: time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)})
 	})
 	return result, err
 }

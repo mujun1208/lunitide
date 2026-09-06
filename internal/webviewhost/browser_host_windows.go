@@ -4,6 +4,7 @@ package webviewhost
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"runtime"
@@ -23,21 +24,30 @@ type BrowserHostOptions struct {
 	UserDataFolder     string
 	MainUserDataFolder string
 	Title              string
+	ProxyURL           string
 }
 
 // BrowserHost owns a browser-only WebView2 environment, profile, controller,
 // window, and dedicated STA thread. It intentionally has no bridge or renderer
 // access and never posts messages to the main Host.
 type BrowserHost struct {
-	initialURL string
-	profile    string
-	title      string
+	// Private hooks are used only by the bounded, bridge-free diagram worker.
+	hidden                    bool
+	beforeNavigate            func(*BrowserHost) error
+	cleanupWorker             func()
+	allowNavigation           func(string) bool
+	afterEnvironmentRequested func()
+	proxyURL                  string
+	initialURL                string
+	profile                   string
+	title                     string
 
-	mu      sync.Mutex
-	running bool
-	closed  bool
-	hwnd    win32.HWND
-	runErr  error
+	mu        sync.Mutex
+	running   bool
+	closed    bool
+	staClosed bool
+	hwnd      win32.HWND
+	runErr    error
 
 	environment *wv2.ICoreWebView2Environment
 	controller  *wv2.ICoreWebView2Controller
@@ -45,23 +55,30 @@ type BrowserHost struct {
 	core4       *wv2.ICoreWebView2_4
 	loader      *syscall.DLL
 
-	environmentHandler *wv2.ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler
-	controllerHandler  *wv2.ICoreWebView2CreateCoreWebView2ControllerCompletedHandler
-	navigationHandler  *wv2.ICoreWebView2NavigationStartingEventHandler
-	newWindowHandler   *wv2.ICoreWebView2NewWindowRequestedEventHandler
-	permissionHandler  *wv2.ICoreWebView2PermissionRequestedEventHandler
-	downloadHandler    *wv2.ICoreWebView2DownloadStartingEventHandler
-	navigationToken    wv2.EventRegistrationToken
-	newWindowToken     wv2.EventRegistrationToken
-	permissionToken    wv2.EventRegistrationToken
-	downloadToken      wv2.EventRegistrationToken
-	lastBounds         clientBounds
-	hasBounds          bool
+	environmentHandler  *wv2.ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler
+	controllerHandler   *wv2.ICoreWebView2CreateCoreWebView2ControllerCompletedHandler
+	navigationHandler   *wv2.ICoreWebView2NavigationStartingEventHandler
+	newWindowHandler    *wv2.ICoreWebView2NewWindowRequestedEventHandler
+	permissionHandler   *wv2.ICoreWebView2PermissionRequestedEventHandler
+	networkGuardHandler *wv2.ICoreWebView2CallDevToolsProtocolMethodCompletedHandler
+	downloadHandler     *wv2.ICoreWebView2DownloadStartingEventHandler
+	navigationToken     wv2.EventRegistrationToken
+	newWindowToken      wv2.EventRegistrationToken
+	permissionToken     wv2.EventRegistrationToken
+	downloadToken       wv2.EventRegistrationToken
+	lastBounds          clientBounds
+	hasBounds           bool
+	environmentPending  bool
+	controllerPending   bool
 }
 
 var isolatedBrowserHosts sync.Map
+var isolatedBrowserWindowProcedure = syscall.NewCallback(isolatedBrowserWindowProc)
 
 func NewBrowserHost(options BrowserHostOptions) (*BrowserHost, error) {
+	if _, err := IsolatedBrowserArguments(options.ProxyURL); err != nil {
+		return nil, err
+	}
 	initial, err := NormalizeBrowserURL(options.InitialURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid initial browser URL: %w", err)
@@ -74,7 +91,7 @@ func NewBrowserHost(options BrowserHostOptions) (*BrowserHost, error) {
 	if title == "" {
 		title = "Lunitide Browser"
 	}
-	return &BrowserHost{initialURL: initial, profile: profile, title: title}, nil
+	return &BrowserHost{initialURL: initial, profile: profile, title: title, proxyURL: options.ProxyURL}, nil
 }
 
 // Run starts and waits for the host's private STA. The caller's thread is never
@@ -89,6 +106,11 @@ func (h *BrowserHost) Run(ctx context.Context) error {
 	if h.closed {
 		h.mu.Unlock()
 		return errors.New("isolated browser host is closed")
+	}
+	if ctx.Err() != nil {
+		h.closed = true
+		h.mu.Unlock()
+		return nil
 	}
 	h.running = true
 	h.mu.Unlock()
@@ -135,7 +157,7 @@ func (h *BrowserHost) runSTA(ctx context.Context) error {
 	defer h.closeSTA()
 
 	instance, _ := win32.GetModuleHandle(nil)
-	wc := win32.WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(win32.WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(isolatedBrowserWindowProc), HInstance: instance, HbrBackground: win32.HBRUSH(win32.COLOR_WINDOW + 1), LpszClassName: win32.StrToPwstr(isolatedBrowserWindowClass)}
+	wc := win32.WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(win32.WNDCLASSEX{})), LpfnWndProc: isolatedBrowserWindowProcedure, HInstance: instance, HbrBackground: win32.HBRUSH(win32.COLOR_WINDOW + 1), LpszClassName: win32.StrToPwstr(isolatedBrowserWindowClass)}
 	wc.HCursor, _ = win32.LoadCursor(0, win32.IDC_ARROW)
 	if atom, registerErr := win32.RegisterClassEx(&wc); atom == 0 && registerErr != win32.ERROR_CLASS_ALREADY_EXISTS {
 		return fmt.Errorf("isolated browser RegisterClassEx failed: %v", registerErr)
@@ -152,7 +174,9 @@ func (h *BrowserHost) runSTA(ctx context.Context) error {
 	if alreadyClosed {
 		win32.DestroyWindow(hwnd)
 	} else {
-		win32.ShowWindow(hwnd, win32.SW_SHOW)
+		if !h.hidden {
+			win32.ShowWindow(hwnd, win32.SW_SHOW)
+		}
 		win32.UpdateWindow(hwnd)
 		if err := h.createWebView(); err != nil {
 			return err
@@ -197,6 +221,11 @@ func (h *BrowserHost) createWebView() error {
 		return fmt.Errorf("WebView2 Evergreen Runtime is unavailable: 0x%x", uint32(result))
 	}
 	h.environmentHandler = wv2.NewICoreWebView2CreateCoreWebView2EnvironmentCompletedHandlerByFunc(func(code com.Error, env *wv2.ICoreWebView2Environment) com.Error {
+		h.environmentPending = false
+		if h.isClosing() {
+			h.closeSTA()
+			return com.Error(win32.S_OK)
+		}
 		if failed(win32.HRESULT(code)) || env == nil {
 			h.fail(fmt.Errorf("isolated browser environment creation failed: 0x%x", uint32(code)))
 			return code
@@ -204,25 +233,46 @@ func (h *BrowserHost) createWebView() error {
 		h.environment = env
 		env.AddRef()
 		h.controllerHandler = wv2.NewICoreWebView2CreateCoreWebView2ControllerCompletedHandlerByFunc(h.controllerCreated, false)
+		h.controllerPending = true
 		if result := env.CreateCoreWebView2Controller(h.hwnd, h.controllerHandler); failed(win32.HRESULT(result)) {
+			h.controllerPending = false
 			h.fail(fmt.Errorf("isolated browser controller request failed: 0x%x", uint32(result)))
 		}
 		return com.Error(win32.S_OK)
 	}, false)
-	if hr := wv2.CreateCoreWebView2EnvironmentWithOptions("", h.profile, nil, h.environmentHandler); failed(hr) {
+	var options *wv2.ICoreWebView2EnvironmentOptions
+	if h.proxyURL != "" {
+		args, _ := IsolatedBrowserArguments(h.proxyURL)
+		options = newBrowserEnvironmentOptions(args, version)
+		defer options.Release()
+	}
+	h.environmentPending = true
+	if hr := wv2.CreateCoreWebView2EnvironmentWithOptions("", h.profile, options, h.environmentHandler); failed(hr) {
+		h.environmentPending = false
 		return fmt.Errorf("isolated CreateCoreWebView2EnvironmentWithOptions failed: 0x%x", uint32(hr))
+	}
+	if h.afterEnvironmentRequested != nil {
+		h.afterEnvironmentRequested()
 	}
 	return nil
 }
 
 func (h *BrowserHost) controllerCreated(code com.Error, controller *wv2.ICoreWebView2Controller) com.Error {
+	h.controllerPending = false
+	if h.isClosing() {
+		if controller != nil {
+			controller.Close()
+		}
+		h.closeSTA()
+		return com.Error(win32.S_OK)
+	}
 	if failed(win32.HRESULT(code)) || controller == nil {
 		h.fail(fmt.Errorf("isolated browser controller creation failed: 0x%x", uint32(code)))
 		return code
 	}
 	h.controller = controller
 	controller.AddRef()
-	if result := controller.GetCoreWebView2(&h.core); failed(win32.HRESULT(result)) || h.core == nil {
+	if result := getBrowserCoreOwned(controller, &h.core); failed(win32.HRESULT(result)) || h.core == nil {
 		h.fail(errors.New("isolated browser ICoreWebView2 unavailable"))
 		return com.Error(win32.E_FAIL)
 	}
@@ -238,7 +288,40 @@ func (h *BrowserHost) controllerCreated(code com.Error, controller *wv2.ICoreWeb
 		h.fail(err)
 		return com.Error(win32.E_FAIL)
 	}
+	if h.beforeNavigate != nil {
+		if err := h.beforeNavigate(h); err != nil {
+			h.fail(err)
+			return com.Error(win32.E_FAIL)
+		}
+	}
 	h.resize()
+	if h.proxyURL != "" {
+		// Read the actual process arguments before the first untrusted document.
+		// Enterprise/environment overrides must never silently bypass our proxy.
+		h.networkGuardHandler = wv2.NewICoreWebView2CallDevToolsProtocolMethodCompletedHandlerByFunc(func(code com.Error, raw string) com.Error {
+			if h.isClosing() {
+				return com.Error(win32.S_OK)
+			}
+			var reply struct {
+				Arguments []string `json:"arguments"`
+			}
+			if failed(win32.HRESULT(code)) || json.Unmarshal([]byte(raw), &reply) != nil || !browserArgumentsEnforced(reply.Arguments, h.proxyURL) {
+				h.fail(errors.New("isolated browser network policy could not be verified"))
+				return com.Error(win32.E_FAIL)
+			}
+			if h.core != nil {
+				if result := h.core.Navigate(h.initialURL); failed(win32.HRESULT(result)) {
+					h.fail(errors.New("isolated browser initial navigation failed"))
+				}
+			}
+			return com.Error(win32.S_OK)
+		}, false)
+		result := h.core.CallDevToolsProtocolMethod("Browser.getBrowserCommandLine", "{}", h.networkGuardHandler)
+		if failed(win32.HRESULT(result)) {
+			h.fail(errors.New("isolated browser network verification could not start"))
+		}
+		return result
+	}
 	if result := h.core.Navigate(h.initialURL); failed(win32.HRESULT(result)) {
 		h.fail(fmt.Errorf("isolated browser initial navigation failed: 0x%x", uint32(result)))
 		return result
@@ -248,7 +331,7 @@ func (h *BrowserHost) controllerCreated(code com.Error, controller *wv2.ICoreWeb
 
 func hardenBrowserSettings(core *wv2.ICoreWebView2) error {
 	var base *wv2.ICoreWebView2Settings
-	if result := core.GetSettings(&base); failed(win32.HRESULT(result)) || base == nil {
+	if result := getBrowserSettingsOwned(core, &base); failed(win32.HRESULT(result)) || base == nil {
 		return errors.New("isolated browser WebView2 settings unavailable")
 	}
 	defer base.Release()
@@ -281,7 +364,7 @@ func hardenBrowserSettings(core *wv2.ICoreWebView2) error {
 func (h *BrowserHost) registerEvents() error {
 	h.navigationHandler = wv2.NewICoreWebView2NavigationStartingEventHandlerByFunc(func(_ *wv2.ICoreWebView2, args *wv2.ICoreWebView2NavigationStartingEventArgs) com.Error {
 		raw, err := argumentString(args.GetUri)
-		if err != nil || !BrowserNavigationAllowed(raw) {
+		if err != nil || !BrowserNavigationAllowed(raw) || (h.allowNavigation != nil && !h.allowNavigation(raw)) {
 			args.SetCancel(win32.TRUE)
 		}
 		return com.Error(win32.S_OK)
@@ -348,45 +431,89 @@ func (h *BrowserHost) resize() {
 }
 
 func (h *BrowserHost) closeSTA() {
+	h.mu.Lock()
+	if h.staClosed {
+		h.mu.Unlock()
+		return
+	}
+	h.closed = true
+	// Creation has no cancellation API. Keep the STA alive until its borrowed
+	// callback result can be released; otherwise a new browser can be orphaned
+	// after the caller was told shutdown succeeded. Manager bounds close waits
+	// to five seconds and retains this single owned host on timeout.
+	if h.environmentPending || h.controllerPending {
+		hwnd := h.hwnd
+		h.mu.Unlock()
+		if hwnd != 0 {
+			win32.ShowWindow(hwnd, win32.SW_HIDE)
+		}
+		return
+	}
+	h.staClosed = true
+	h.mu.Unlock()
+	if h.cleanupWorker != nil {
+		cleanup := h.cleanupWorker
+		h.cleanupWorker = nil
+		cleanup()
+	}
 	if h.core4 != nil && h.downloadHandler != nil {
 		h.core4.Remove_DownloadStarting(h.downloadToken)
 		h.downloadHandler.Release()
+		h.downloadHandler = nil
 	}
 	if h.core != nil {
 		if h.permissionHandler != nil {
 			h.core.Remove_PermissionRequested(h.permissionToken)
 			h.permissionHandler.Release()
+			h.permissionHandler = nil
 		}
 		if h.newWindowHandler != nil {
 			h.core.Remove_NewWindowRequested(h.newWindowToken)
 			h.newWindowHandler.Release()
+			h.newWindowHandler = nil
 		}
 		if h.navigationHandler != nil {
 			h.core.Remove_NavigationStarting(h.navigationToken)
 			h.navigationHandler.Release()
+			h.navigationHandler = nil
 		}
+	}
+	// Close the controller while its parent HWND and owned interfaces still
+	// exist. WM_CLOSE must not destroy the parent before this cleanup begins.
+	if h.controller != nil {
+		h.controller.Close()
 	}
 	if h.core4 != nil {
 		h.core4.Release()
+		h.core4 = nil
 	}
 	if h.core != nil {
 		h.core.Release()
+		h.core = nil
 	}
 	if h.controller != nil {
-		h.controller.Close()
 		h.controller.Release()
+		h.controller = nil
 	}
 	if h.environment != nil {
 		h.environment.Release()
+		h.environment = nil
 	}
 	if h.controllerHandler != nil {
 		h.controllerHandler.Release()
+		h.controllerHandler = nil
+	}
+	if h.networkGuardHandler != nil {
+		h.networkGuardHandler.Release()
+		h.networkGuardHandler = nil
 	}
 	if h.environmentHandler != nil {
 		h.environmentHandler.Release()
+		h.environmentHandler = nil
 	}
 	if h.loader != nil {
 		_ = h.loader.Release()
+		h.loader = nil
 	}
 	h.mu.Lock()
 	hwnd := h.hwnd
@@ -402,12 +529,24 @@ func isolatedBrowserWindowProc(hwnd win32.HWND, message uint32, wParam win32.WPA
 	value, _ := isolatedBrowserHosts.Load(hwnd)
 	h, _ := value.(*BrowserHost)
 	switch message {
+	case win32.WM_CLOSE:
+		if h != nil {
+			h.closeSTA()
+			return 0
+		}
+		return win32.DefWindowProc(hwnd, message, wParam, lParam)
 	case win32.WM_SIZE:
 		if h != nil {
 			h.resize()
 		}
 		return 0
 	case win32.WM_DESTROY:
+		if h != nil {
+			h.mu.Lock()
+			h.hwnd = 0
+			h.mu.Unlock()
+			h.closeSTA()
+		}
 		isolatedBrowserHosts.Delete(hwnd)
 		// This message queue belongs exclusively to BrowserHost.runSTA.
 		win32.PostQuitMessage(0)
@@ -416,3 +555,5 @@ func isolatedBrowserWindowProc(hwnd win32.HWND, message uint32, wParam win32.WPA
 		return win32.DefWindowProc(hwnd, message, wParam, lParam)
 	}
 }
+
+func (h *BrowserHost) isClosing() bool { h.mu.Lock(); defer h.mu.Unlock(); return h.closed }

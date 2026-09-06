@@ -60,7 +60,7 @@ func builtinCommandRules() []commandRule {
 // (<root>/command-policy.json). A present-but-invalid file fails closed so
 // the operator notices instead of running with a half-applied policy.
 func (r *Runtime) loadUserCommandPolicy() error {
-	raw, err := os.ReadFile(r.userRulesPath)
+	raw, err := r.CommandPolicyJSON()
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Missing file: fail closed. Full-disk is an explicit Settings
@@ -86,6 +86,7 @@ func (r *Runtime) loadUserCommandPolicy() error {
 	r.commandRules = rules
 	r.fullDisk = doc.FullAccess
 	r.rulesMu.Unlock()
+	r.rememberAppliedPolicy("commands", raw)
 	return nil
 }
 
@@ -146,54 +147,15 @@ func buildUserRules(raw []byte) ([]commandRule, error) {
 // CommandPolicyJSON answers the persisted user whitelist document
 // ({"commands":[]} when the file does not exist yet).
 func (r *Runtime) CommandPolicyJSON() ([]byte, error) {
-	raw, err := os.ReadFile(r.userRulesPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []byte(`{"commands":[]}`), nil
-		}
-		return nil, err
-	}
-	if !json.Valid(raw) {
-		return nil, errors.New("command-policy.json: stored document is not valid JSON")
-	}
-	return raw, nil
+	return readPolicyDocument(r.userRulesPath, []byte(`{"commands":[]}`))
 }
 
 // SetCommandPolicyJSON validates, atomically persists and hot-applies a
 // new user whitelist. An invalid document is refused without touching the
 // file or the live rules.
 func (r *Runtime) SetCommandPolicyJSON(raw []byte) error {
-	if len(raw) > 64<<10 {
-		return errors.New("command-policy.json: document exceeds 64 KiB")
-	}
-	if !json.Valid(raw) {
-		return errors.New("command-policy.json: document is not valid JSON")
-	}
-	userRules, err := buildUserRules(raw)
-	if err != nil {
-		return err
-	}
-	var doc userPolicyDoc
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		return err
-	}
-	tmp := r.userRulesPath + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0600); err != nil {
-		return err
-	}
-	// os.Rename on Windows refuses to replace an existing destination.
-	_ = os.Remove(r.userRulesPath)
-	if err := os.Rename(tmp, r.userRulesPath); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	rules := builtinCommandRules()
-	rules = append(rules, userRules...)
-	r.rulesMu.Lock()
-	r.commandRules = rules
-	r.fullDisk = doc.FullAccess
-	r.rulesMu.Unlock()
-	return nil
+	_, err := r.commitPolicy("commands", raw, nil)
+	return err
 }
 
 // FullDiskEnabled answers whether the user opted into full-disk full-access

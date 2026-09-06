@@ -8,19 +8,17 @@
 package scheduler
 
 import (
-	"bufio"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/binary"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
 
 	"github.com/oklog/ulid/v2"
 
@@ -45,6 +43,9 @@ const (
 )
 
 var ErrInvalid = errors.New("scheduler: invalid job")
+var ErrBusy = errors.New("scheduler: job already running")
+var ErrPersistence = errors.New("scheduler: durable execution record unavailable")
+var ErrClosed = errors.New("scheduler: closed")
 
 // Job is one cron scheduled automation bound to an existing session.
 type Job struct {
@@ -67,16 +68,18 @@ type Job struct {
 
 // Run is one execution record (append-only).
 type Run struct {
-	ID          string    `json:"id"`
-	JobID       string    `json:"jobId"`
-	JobName     string    `json:"jobName"`
-	State       string    `json:"state"`
-	Trigger     string    `json:"trigger"` // "cron" | "manual"
-	Summary     string    `json:"summary,omitempty"`
-	TotalTokens int64     `json:"totalTokens"`
-	Error       string    `json:"error,omitempty"`
-	StartedAt   time.Time `json:"startedAt"`
-	FinishedAt  time.Time `json:"finishedAt,omitempty"`
+	ID             string    `json:"id"`
+	JobID          string    `json:"jobId"`
+	JobName        string    `json:"jobName"`
+	SessionID      string    `json:"sessionId,omitempty"`
+	State          string    `json:"state"`
+	Trigger        string    `json:"trigger"` // "cron" | "manual"
+	Summary        string    `json:"summary,omitempty"`
+	TotalTokens    int64     `json:"totalTokens"`
+	Error          string    `json:"error,omitempty"`
+	StartedAt      time.Time `json:"startedAt"`
+	FinishedAt     time.Time `json:"finishedAt,omitempty"`
+	OutcomeUnknown bool      `json:"outcomeUnknown,omitempty"`
 }
 
 // Outcome is what the headless executor answers for one fired job.
@@ -128,291 +131,22 @@ $texts.Item(0).AppendChild($template.CreateTextNode('Lunitide')) | Out-Null
 $texts.Item(1).AppendChild($template.CreateTextNode(%s)) | Out-Null
 $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Lunitide').Show($toast)`, psQuote(body))
-	encoded := base64.StdEncoding.EncodeToString([]byte(script))
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded)
-	return cmd.Start()
+	units := utf16.Encode([]rune(script))
+	raw := make([]byte, len(units)*2)
+	for i, v := range units {
+		binary.LittleEndian.PutUint16(raw[i*2:], v)
+	}
+	encoded := base64.StdEncoding.EncodeToString(raw)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", encoded)
+	hideNotificationWindow(cmd)
+	return cmd.Run()
 }
 
 // psQuote wraps s in single quotes doubling embedded ones.
 func psQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
-}
-
-// Store persists jobs and runs.
-type Store struct {
-	dir  string
-	mu   sync.Mutex
-	jobs string
-	runs string
-}
-
-// NewStore opens (or lazily creates) the store under <root>/automation.
-func NewStore(root string) (*Store, error) {
-	if !filepath.IsAbs(root) {
-		return nil, ErrInvalid
-	}
-	dir := filepath.Join(root, "automation")
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return nil, err
-	}
-	return &Store{dir: dir, jobs: filepath.Join(dir, "jobs.json"), runs: filepath.Join(dir, "runs.jsonl")}, nil
-}
-
-// ValidateJob enforces the frozen field contract.
-func ValidateJob(j Job) error {
-	if j.Name == "" || len([]rune(j.Name)) > maxNameRunes || strings.ContainsRune(j.Name, 0) {
-		return fmt.Errorf("%w: name", ErrInvalid)
-	}
-	if _, err := nextFireTime(j.Cron, time.Now().UTC()); err != nil {
-		return fmt.Errorf("%w: cron", ErrInvalid)
-	}
-	if _, err := normalizeSessionMode(j.SessionMode); err != nil {
-		return err
-	}
-	if j.Prompt == "" || len([]rune(j.Prompt)) > maxPromptRunes || strings.ContainsRune(j.Prompt, 0) {
-		return fmt.Errorf("%w: prompt", ErrInvalid)
-	}
-	if len(j.ProviderID) != 26 || j.ModelID == "" || len(j.ModelID) > 128 || len(j.SessionID) != 26 {
-		return fmt.Errorf("%w: provider/model/session", ErrInvalid)
-	}
-	if err := ValidateWebhookURL(j.WebhookURL); err != nil {
-		return fmt.Errorf("%w: webhook", ErrInvalid)
-	}
-	return nil
-}
-
-// PutJob inserts or updates (matching ID) one job atomically.
-func (s *Store) PutJob(j Job) error {
-	if err := ValidateJob(j); err != nil {
-		return err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	jobs, err := s.loadJobs()
-	if err != nil {
-		return err
-	}
-	for i := range jobs {
-		if jobs[i].ID == j.ID {
-			jobs[i] = j
-			return s.saveJobs(jobs)
-		}
-	}
-	if len(jobs) >= MaxJobs {
-		return fmt.Errorf("%w: job quota", ErrInvalid)
-	}
-	jobs = append(jobs, j)
-	return s.saveJobs(jobs)
-}
-
-// DeleteJob removes one job; its run history stays.
-func (s *Store) DeleteJob(id string) error {
-	if len(id) != 26 {
-		return fmt.Errorf("%w: id", ErrInvalid)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	jobs, err := s.loadJobs()
-	if err != nil {
-		return err
-	}
-	out := jobs[:0]
-	for _, j := range jobs {
-		if j.ID != id {
-			out = append(out, j)
-		}
-	}
-	return s.saveJobs(out)
-}
-
-// ListJobs answers all jobs.
-func (s *Store) ListJobs() ([]Job, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.loadJobs()
-}
-
-// GetJob answers one job by id.
-func (s *Store) GetJob(id string) (Job, bool, error) {
-	jobs, err := s.ListJobs()
-	if err != nil {
-		return Job{}, false, err
-	}
-	for _, j := range jobs {
-		if j.ID == id {
-			return j, true, nil
-		}
-	}
-	return Job{}, false, nil
-}
-
-// TouchLastRun persists the new last-run stamp for one job.
-func (s *Store) TouchLastRun(id string, at time.Time) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	jobs, err := s.loadJobs()
-	if err != nil {
-		return err
-	}
-	for i := range jobs {
-		if jobs[i].ID == id {
-			jobs[i].LastRunAt = at.UTC()
-			return s.saveJobs(jobs)
-		}
-	}
-	return fmt.Errorf("%w: job missing", ErrInvalid)
-}
-
-// AppendRun appends one run record (bounded per job).
-func (s *Store) AppendRun(r Run) error {
-	if len(r.JobID) != 26 || (r.State != RunRunning && r.State != RunSucceeded && r.State != RunFailed) {
-		return fmt.Errorf("%w: run", ErrInvalid)
-	}
-	if len([]rune(r.Summary)) > maxSummaryRunes {
-		r.Summary = string([]rune(r.Summary)[:maxSummaryRunes]) + "…"
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	f, err := os.OpenFile(s.runs, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-	if err != nil {
-		return err
-	}
-	enc := json.NewEncoder(f)
-	err = enc.Encode(r)
-	// Close before trim: Windows refuses to rename onto a file still held
-	// open by this process.
-	closeErr := f.Close()
-	if err != nil {
-		return err
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	return s.trimRunsLocked(r.JobID)
-}
-
-// trimRuns keeps only the newest MaxRunsPerJob rows of the job (rewrite via
-// temp + rename; runs of other jobs are preserved verbatim).
-func (s *Store) trimRunsLocked(jobID string) error {
-	runs, err := s.loadRunsLocked()
-	if err != nil {
-		return err
-	}
-	var kept []Run
-	counts := map[string]int{}
-	for i := len(runs) - 1; i >= 0; i-- {
-		r := runs[i]
-		if r.JobID != jobID {
-			kept = append([]Run{r}, kept...)
-			continue
-		}
-		if counts[jobID] < MaxRunsPerJob {
-			kept = append([]Run{r}, kept...)
-			counts[jobID]++
-		}
-	}
-	if len(kept) == len(runs) {
-		return nil
-	}
-	return s.saveRuns(kept)
-}
-
-// ListRuns answers the newest-first runs (all jobs when jobID is empty).
-func (s *Store) ListRuns(jobID string, limit int) ([]Run, error) {
-	if limit < 1 || limit > 500 {
-		limit = 50
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	runs, err := s.loadRunsLocked()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]Run, 0, limit)
-	for i := len(runs) - 1; i >= 0 && len(out) < limit; i-- {
-		if jobID == "" || runs[i].JobID == jobID {
-			out = append(out, runs[i])
-		}
-	}
-	return out, nil
-}
-
-func (s *Store) loadJobs() ([]Job, error) {
-	b, err := os.ReadFile(s.jobs)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var jobs []Job
-	if err := json.Unmarshal(b, &jobs); err != nil {
-		return nil, err
-	}
-	return jobs, nil
-}
-
-func (s *Store) saveJobs(jobs []Job) error {
-	b, err := json.MarshalIndent(jobs, "", " ")
-	if err != nil {
-		return err
-	}
-	tmp := s.jobs + ".tmp"
-	if err := os.WriteFile(tmp, b, 0600); err != nil {
-		return err
-	}
-	_ = os.Remove(s.jobs)
-	return os.Rename(tmp, s.jobs)
-}
-
-func (s *Store) loadRunsLocked() ([]Run, error) {
-	f, err := os.Open(s.runs)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	var runs []Run
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
-	for sc.Scan() {
-		var r Run
-		if err := json.Unmarshal(sc.Bytes(), &r); err != nil {
-			return nil, err
-		}
-		runs = append(runs, r)
-	}
-	return runs, sc.Err()
-}
-
-func (s *Store) saveRuns(runs []Run) error {
-	f, err := os.Create(s.runs + ".tmp")
-	if err != nil {
-		return err
-	}
-	w := bufio.NewWriter(f)
-	for _, r := range runs {
-		b, err := json.Marshal(r)
-		if err != nil {
-			f.Close()
-			return err
-		}
-		// bufio records the first write error and returns it from Flush below,
-		// so the intermediate writes are intentionally unchecked.
-		_, _ = w.Write(b)
-		_ = w.WriteByte('\n')
-	}
-	if err := w.Flush(); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	_ = os.Remove(s.runs)
-	return os.Rename(s.runs+".tmp", s.runs)
 }
 
 // Status is the scheduler heartbeat snapshot the UI polls.
@@ -422,21 +156,30 @@ type Status struct {
 	LastHeartbeat time.Time         `json:"lastHeartbeat"`
 	NextFire      map[string]string `json:"nextFire"` // jobID -> RFC3339
 	RunningJobs   []string          `json:"runningJobs"`
+	LastError     string            `json:"lastError,omitempty"`
 }
 
 // Scheduler owns timing, single-flight firing, persistence, and notify.
 type Scheduler struct {
-	store  *Store
-	exec   Executor
-	notify Notifier
+	schedules map[string]string
+	store     *Store
+	exec      Executor
+	notify    Notifier
 
-	mu        sync.Mutex
-	nextFire  map[string]time.Time
-	running   map[string]bool
-	status    Status
-	exprs     map[string]*cronexpr.Expression
-	exprMu    sync.Mutex
-	fireHooks []func(jobID, trigger string, outcome Outcome) // tests
+	mu         sync.Mutex
+	ctx        context.Context
+	cancel     context.CancelFunc
+	closed     bool
+	started    bool
+	wg         sync.WaitGroup
+	notifyGate chan struct{}
+	nextFire   map[string]time.Time
+	running    map[string]bool
+	blocked    map[string]time.Time
+	status     Status
+	exprs      map[string]*cronexpr.Expression
+	exprMu     sync.Mutex
+	fireHooks  []func(jobID, trigger string, outcome Outcome) // tests
 }
 
 // New wires the scheduler; a nil notifier falls back to the platform one.
@@ -444,8 +187,9 @@ func New(store *Store, exec Executor, notifier Notifier) *Scheduler {
 	if notifier == nil {
 		notifier = NewPlatformNotifier()
 	}
-	return &Scheduler{store: store, exec: exec, notify: notifier,
-		nextFire: map[string]time.Time{}, running: map[string]bool{},
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Scheduler{store: store, exec: exec, notify: notifier, ctx: ctx, cancel: cancel, notifyGate: make(chan struct{}, 1),
+		schedules: map[string]string{}, nextFire: map[string]time.Time{}, running: map[string]bool{}, blocked: map[string]time.Time{},
 		status: Status{NextFire: map[string]string{}, RunningJobs: []string{}}}
 }
 
@@ -461,20 +205,28 @@ func (s *Scheduler) Store() *Store { return s.store }
 // entries are seeded from now (a restart never replays missed runs - the
 // desktop product prefers quiet catch-up over burst execution).
 func (s *Scheduler) Start(ctx context.Context) {
-	go func() {
-		s.mu.Lock()
-		s.status.Running = true
-		s.status.StartedAt = time.Now().UTC()
+	s.mu.Lock()
+	if s.closed || s.started {
 		s.mu.Unlock()
+		return
+	}
+	s.started = true
+	s.status.Running = true
+	s.status.StartedAt = time.Now().UTC()
+	s.status.LastHeartbeat = s.status.StartedAt
+	s.wg.Add(1)
+	s.mu.Unlock()
+	go func() {
+		defer s.wg.Done()
+		stop := context.AfterFunc(ctx, s.cancel)
+		defer stop()
 		s.replan(time.Now().UTC())
 		tick := time.NewTicker(defaultTickEvery)
 		defer tick.Stop()
+		defer func() { s.mu.Lock(); s.status.Running = false; s.mu.Unlock() }()
 		for {
 			select {
-			case <-ctx.Done():
-				s.mu.Lock()
-				s.status.Running = false
-				s.mu.Unlock()
+			case <-s.ctx.Done():
 				return
 			case now := <-tick.C:
 				s.mu.Lock()
@@ -484,6 +236,20 @@ func (s *Scheduler) Start(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// Close cancels the loop and all owned executions before their database closes.
+func (s *Scheduler) Close() {
+	s.mu.Lock()
+	s.closed = true
+	s.cancel()
+	s.mu.Unlock()
+	s.wg.Wait()
+}
+func (s *Scheduler) recordFailure(message string) {
+	s.mu.Lock()
+	s.status.LastError = message
+	s.mu.Unlock()
 }
 
 // replan recomputes next-fire for every enabled job.
@@ -504,6 +270,7 @@ func (s *Scheduler) replan(now time.Time) {
 			continue
 		}
 		next[j.ID] = t
+		s.schedules[j.ID] = j.Cron + "/" + j.UpdatedAt.Format(time.RFC3339Nano)
 	}
 	s.nextFire = next
 	s.publishNextFireLocked()
@@ -521,6 +288,9 @@ func (s *Scheduler) exprFor(cron string) *cronexpr.Expression {
 	e, err := cronexpr.Parse(cron)
 	if err != nil {
 		return nil
+	}
+	if len(s.exprs) >= MaxJobs {
+		s.exprs = map[string]*cronexpr.Expression{}
 	}
 	s.exprs[cron] = e
 	return e
@@ -542,7 +312,7 @@ func (s *Scheduler) publishNextFireLocked() {
 func (s *Scheduler) fireDue(now time.Time) {
 	due := s.dueJobs(now)
 	for _, j := range due {
-		s.launch(j, "cron", now)
+		_ = s.launch(j, "cron", now)
 	}
 }
 
@@ -555,11 +325,13 @@ func (s *Scheduler) dueJobs(now time.Time) []Job {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, j := range jobs {
-		if !j.Enabled || s.running[j.ID] {
+		blockedAt, blocked := s.blocked[j.ID]
+		if !j.Enabled || s.running[j.ID] || (blocked && blockedAt.Equal(j.UpdatedAt)) {
 			continue
 		}
 		t, ok := s.nextFire[j.ID]
-		if !ok {
+		if !ok || s.schedules[j.ID] != j.Cron+"/"+j.UpdatedAt.Format(time.RFC3339Nano) {
+			s.schedules[j.ID] = j.Cron + "/" + j.UpdatedAt.Format(time.RFC3339Nano)
 			stamp, err := nextFireTime(j.Cron, now)
 			if err != nil {
 				continue
@@ -582,100 +354,156 @@ func (s *Scheduler) dueJobs(now time.Time) []Job {
 // an error when the job is unknown or already running.
 func (s *Scheduler) TriggerNow(jobID string) error {
 	j, ok, err := s.store.GetJob(jobID)
-	if err != nil || !ok {
+	if err != nil {
+		return errors.Join(ErrPersistence, err)
+	}
+	if !ok {
 		return fmt.Errorf("scheduler: job not found")
 	}
-	s.mu.Lock()
-	if s.running[j.ID] {
-		s.mu.Unlock()
-		return fmt.Errorf("scheduler: job already running")
-	}
-	s.mu.Unlock()
-	s.launch(j, "manual", time.Now().UTC())
-	return nil
+	return s.launch(j, "manual", time.Now().UTC())
 }
 
 // launch marks running, persists the run row, executes detached, then
 // finalizes + notifies + replans.
-func (s *Scheduler) launch(j Job, trigger string, now time.Time) {
+func (s *Scheduler) launch(j Job, trigger string, now time.Time) error {
 	s.mu.Lock()
+	if s.closed || s.ctx.Err() != nil {
+		s.mu.Unlock()
+		return ErrClosed
+	}
 	if s.running[j.ID] {
 		s.mu.Unlock()
-		return
+		return ErrBusy
+	}
+	if s.exec == nil {
+		s.mu.Unlock()
+		return errors.New("scheduler: executor unavailable")
 	}
 	s.running[j.ID] = true
 	s.status.RunningJobs = append(s.status.RunningJobs, j.ID)
+	s.wg.Add(1)
 	s.mu.Unlock()
-
-	run := Run{ID: ulid.Make().String(), JobID: j.ID, JobName: j.Name,
-		State: RunRunning, Trigger: trigger, StartedAt: now}
-	_ = s.store.AppendRun(run)
-	_ = s.store.TouchLastRun(j.ID, now)
-	go func() {
-		defer func() {
-			s.mu.Lock()
-			delete(s.running, j.ID)
-			for i, id := range s.status.RunningJobs {
-				if id == j.ID {
-					s.status.RunningJobs = append(s.status.RunningJobs[:i], s.status.RunningJobs[i+1:]...)
-					break
-				}
+	release := func() {
+		s.mu.Lock()
+		delete(s.running, j.ID)
+		for i, id := range s.status.RunningJobs {
+			if id == j.ID {
+				s.status.RunningJobs = append(s.status.RunningJobs[:i], s.status.RunningJobs[i+1:]...)
+				break
 			}
-			s.mu.Unlock()
+		}
+		s.mu.Unlock()
+		s.wg.Done()
+	}
+	run := Run{ID: ulid.Make().String(), JobID: j.ID, JobName: j.Name, SessionID: j.SessionID, State: RunRunning, Trigger: trigger, StartedAt: now}
+	if err := s.store.AppendRun(run); err != nil {
+		release()
+		s.recordFailure("启动记录写入失败，任务未执行")
+		return errors.Join(ErrPersistence, err)
+	}
+	if err := s.store.TouchLastRun(j.ID, now); err != nil {
+		run.State = RunFailed
+		run.Error = "任务启动时间保存失败，未开始执行"
+		run.FinishedAt = time.Now().UTC()
+		_ = s.store.AppendRun(run)
+		release()
+		s.recordFailure(run.Error)
+		return errors.Join(ErrPersistence, err)
+	}
+	go func() {
+		defer release()
+		ctx, cancel := context.WithTimeout(s.ctx, 20*time.Minute)
+		defer cancel()
+		out := func() (out Outcome) {
+			defer func() {
+				if recover() != nil {
+					out = Outcome{Err: errors.New("自动化执行发生内部异常，请核对可能产生的结果")}
+				}
+			}()
+			return s.exec(ctx, j)
 		}()
-		out := s.exec(context.Background(), j)
+		if ctx.Err() != nil && out.Err == nil {
+			out.Err = ctx.Err()
+		}
 		finished := time.Now().UTC()
 		run.FinishedAt, run.TotalTokens, run.Summary = finished, out.TotalTokens, out.Summary
 		if out.Err != nil {
 			run.State = RunFailed
 			run.Error = out.Err.Error()
+			run.OutcomeUnknown = true
 		} else {
 			run.State = RunSucceeded
 		}
-		_ = s.store.AppendRun(run)
-		for _, h := range s.fireHooks {
-			h(j.ID, trigger, out)
-		}
-		if run.State == RunSucceeded {
-			_ = s.notify.Notify("Lunitide", fmt.Sprintf("自动化任务「%s」已完成：%s", j.Name, firstLine(run.Summary)))
-		} else {
-			_ = s.notify.Notify("Lunitide", fmt.Sprintf("自动化任务「%s」失败：%s", j.Name, firstLine(run.Error)))
-		}
-		// P3-1 IM fan-out: the job's webhook (if any) gets the same result
-		// as a second, independent channel. Failures are swallowed (the
-		// toast above already surfaced the outcome to the local user).
-		if j.WebhookURL != "" {
-			if wn, err := NewWebhookNotifier(j.WebhookURL); err == nil {
-				title := "Lunitide 自动化"
-				body := fmt.Sprintf("任务「%s」已完成：%s", j.Name, firstLine(run.Summary))
-				if run.State != RunSucceeded {
-					body = fmt.Sprintf("任务「%s」失败：%s", j.Name, firstLine(run.Error))
-				}
-				_ = wn.Notify(title, body)
+		mustDisable := run.OutcomeUnknown || j.RunOnce || IsAtSchedule(j.Cron)
+		if mustDisable {
+			// Persist the stop before finalizing the receipt. If this fails, the
+			// durable running intent survives for startup reconciliation; writing
+			// success first would allow the same one-shot to run after restart.
+			if err := s.store.DisableIfUnchanged(j); err != nil {
+				s.recordFailure("任务停用状态保存失败，执行结果待核对；已阻止该版本继续自动运行")
+				s.blockAutomaticRun(j)
+				return
 			}
 		}
-		// Reschedule from the finish instant.
-		if j.RunOnce || IsAtSchedule(j.Cron) {
-			if run.State == RunSucceeded || IsAtSchedule(j.Cron) {
-				if existing, ok, err := s.store.GetJob(j.ID); err == nil && ok {
-					existing.Enabled = false
-					existing.UpdatedAt = finished
-					_ = s.store.PutJob(existing)
-				}
-			}
-			s.mu.Lock()
-			delete(s.nextFire, j.ID)
-			s.publishNextFireLocked()
-			s.mu.Unlock()
+		if err := s.store.AppendRun(run); err != nil {
+			s.recordFailure("执行回执保存失败，结果待核对；本实例已阻止该任务继续自动运行")
+			// Keep a durable running intent for startup recovery. Do not report success.
+			_ = s.store.DisableIfUnchanged(j)
+			s.blockAutomaticRun(j)
+			return
+		}
+		if mustDisable {
+			s.blockAutomaticRun(j)
 		} else {
 			s.mu.Lock()
-			if e := s.exprFor(j.Cron); e != nil {
-				s.nextFire[j.ID] = e.Next(time.Now().UTC())
+			if expr := s.exprFor(j.Cron); expr != nil {
+				s.nextFire[j.ID] = expr.Next(finished)
 				s.publishNextFireLocked()
 			}
 			s.mu.Unlock()
 		}
+		for _, h := range s.fireHooks {
+			h(j.ID, trigger, out)
+		}
+		s.notifyOutcome(j, run)
 	}()
+	return nil
+}
+
+func (s *Scheduler) blockAutomaticRun(j Job) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.blocked[j.ID] = j.UpdatedAt
+	delete(s.nextFire, j.ID)
+	s.publishNextFireLocked()
+}
+
+// A broken notifier can occupy only one slot and never hold a task or shutdown.
+func (s *Scheduler) notifyOutcome(j Job, run Run) {
+	select {
+	case s.notifyGate <- struct{}{}:
+	default:
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		defer func() { _ = recover(); <-s.notifyGate; close(done) }()
+		body := fmt.Sprintf("自动化任务「%s」已完成：%s", j.Name, firstLine(run.Summary))
+		if run.State != RunSucceeded {
+			body = fmt.Sprintf("自动化任务「%s」失败：%s", j.Name, firstLine(run.Error))
+		}
+		_ = s.notify.Notify("Lunitide", body)
+		if j.WebhookURL != "" {
+			if notifier, err := NewWebhookNotifier(j.WebhookURL); err == nil {
+				_ = notifier.Notify("Lunitide 自动化", body)
+			}
+		}
+	}()
+	select {
+	case <-done:
+	case <-s.ctx.Done():
+	case <-time.After(100 * time.Millisecond):
+	}
 }
 
 func firstLine(s string) string {

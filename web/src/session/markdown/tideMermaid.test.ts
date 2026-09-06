@@ -20,7 +20,7 @@ afterEach(() => {
 it('maps --tide tokens into mermaid theme so nodes and edges are not near-black', () => {
   const cfg = tideMermaidConfig(TIDE_PALETTE_FALLBACK)
   expect(cfg.theme).toBe('base')
-  expect(cfg.securityLevel).toBe('antiscript')
+  expect(cfg.securityLevel).toBe('strict')
   expect(cfg.flowchart.useMaxWidth).toBe(false)
   expect(cfg.flowchart.htmlLabels).toBe(false)
   expect(cfg.flowchart.curve).toBe('linear')

@@ -12,14 +12,15 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/identity"
 )
@@ -36,12 +37,15 @@ type fileUpload struct {
 }
 
 type incomingFile struct {
-	file   *os.File
-	path   string
-	size   int64
-	got    int64
-	msg    Message
-	thread wireThread
+	file    *os.File
+	path    string
+	size    int64
+	got     int64
+	msg     Message
+	thread  wireThread
+	owner   string
+	seq     int
+	updated time.Time
 }
 
 type p2pFrame struct {
@@ -97,6 +101,10 @@ func (s *Service) ensureTCP() error {
 		return ErrUnavailable
 	}
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return ErrUnavailable
+	}
 	if s.tcpLn != nil {
 		s.mu.Unlock()
 		return nil
@@ -141,9 +149,16 @@ func (s *Service) acceptLoop(ln net.Listener) {
 
 func (s *Service) serveConn(conn net.Conn, inbound bool) {
 	defer conn.Close()
+	if !s.trackConnection(conn) {
+		return
+	}
+	defer s.untrackConnection(conn)
 	_ = conn.SetDeadline(time.Now().Add(20 * time.Second))
 	peer, aead, err := s.handshake(conn, inbound)
 	if err != nil {
+		return
+	}
+	if s.ready() != nil {
 		return
 	}
 	host, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
@@ -152,7 +167,9 @@ func (s *Service) serveConn(conn net.Conn, inbound bool) {
 	if err != nil || contact.Blocked {
 		return
 	}
-	seq := uint64(0)
+	// The same AEAD key protects both directions. Reserve the high half of
+	// nonce counters for receiver replies so ACKs never reuse sender nonces.
+	seq := uint64(1) << 63
 	for {
 		_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
 		frame, err := readEncFrame(conn, aead)
@@ -311,6 +328,10 @@ func (s *Service) dialHello(addr string) (p2pFrame, error) {
 		return p2pFrame{}, ErrUnreachable
 	}
 	defer conn.Close()
+	if !s.trackConnection(conn) {
+		return p2pFrame{}, ErrUnavailable
+	}
+	defer s.untrackConnection(conn)
 	_ = conn.SetDeadline(time.Now().Add(8 * time.Second))
 	peer, _, err := s.handshake(conn, false)
 	if err != nil {
@@ -336,7 +357,7 @@ func (s *Service) deliverMessage(t Thread, msg Message, filePath string) {
 				outMsg.Body = ""
 			}
 		}
-		_ = s.push(member.HostAddr, func(conn net.Conn, aead cipher.AEAD, seq *uint64) error {
+		_ = s.pushTo(member, func(conn net.Conn, aead cipher.AEAD, seq *uint64) error {
 			frame := p2pFrame{Typ: "msg", V: 1, Thread: wireOf(t), Message: &outMsg,
 				BodyEnc: frameEnc, BodyCipher: cipherB64, BodyNonce: nonceB64}
 			if err := writeEncFrame(conn, aead, seq, frame); err != nil {
@@ -355,7 +376,7 @@ func (s *Service) deliverThread(t Thread) {
 		if member.SubjectID == s.identity.SubjectID() || member.Blocked || strings.TrimSpace(member.HostAddr) == "" {
 			continue
 		}
-		_ = s.push(member.HostAddr, func(conn net.Conn, aead cipher.AEAD, seq *uint64) error {
+		_ = s.pushTo(member, func(conn net.Conn, aead cipher.AEAD, seq *uint64) error {
 			return writeEncFrame(conn, aead, seq, p2pFrame{Typ: "thread", V: 1, Thread: wireOf(t)})
 		})
 	}
@@ -366,8 +387,8 @@ func (s *Service) deliverTyping(t Thread) {
 		if member.SubjectID == s.identity.SubjectID() || member.Blocked || strings.TrimSpace(member.HostAddr) == "" {
 			continue
 		}
-		_ = s.push(member.HostAddr, func(conn net.Conn, aead cipher.AEAD, seq *uint64) error {
-			return writeEncFrame(conn, aead, seq, p2pFrame{Typ: "typing", V: 1, ThreadID: t.ThreadID, SubjectID: s.identity.SubjectID()})
+		_ = s.pushTo(member, func(conn net.Conn, aead cipher.AEAD, seq *uint64) error {
+			return writeEncFrame(conn, aead, seq, p2pFrame{Typ: "typing", V: 1, ThreadID: t.ThreadID, Thread: wireOf(t), SubjectID: s.identity.SubjectID()})
 		})
 	}
 }
@@ -377,30 +398,63 @@ func (s *Service) deliverRead(t Thread, at string) {
 		if member.SubjectID == s.identity.SubjectID() || member.Blocked || strings.TrimSpace(member.HostAddr) == "" {
 			continue
 		}
-		_ = s.push(member.HostAddr, func(conn net.Conn, aead cipher.AEAD, seq *uint64) error {
-			return writeEncFrame(conn, aead, seq, p2pFrame{Typ: "read", V: 1, ThreadID: t.ThreadID, SubjectID: s.identity.SubjectID(), At: at})
+		_ = s.pushTo(member, func(conn net.Conn, aead cipher.AEAD, seq *uint64) error {
+			return writeEncFrame(conn, aead, seq, p2pFrame{Typ: "read", V: 1, ThreadID: t.ThreadID, Thread: wireOf(t), SubjectID: s.identity.SubjectID(), At: at})
 		})
 	}
 }
 
-func (s *Service) push(addr string, fn func(net.Conn, cipher.AEAD, *uint64) error) error {
+func (s *Service) pushExpected(addr, subjectID, publicKey string, fn func(net.Conn, cipher.AEAD, *uint64) error) error {
+	if err := s.readyUnlocked(); err != nil {
+		return err
+	}
 	addr, err := parsePeerAddr(addr)
 	if err != nil {
 		return err
 	}
-	_ = s.ensureTCP()
-	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+	if err := s.ensureTCP(); err != nil {
+		return err
+	}
+	ctx := s.deliveryCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	dialer := net.Dialer{Timeout: 2 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return ErrUnreachable
 	}
 	defer conn.Close()
+	if !s.trackConnection(conn) {
+		return ErrUnavailable
+	}
+	defer s.untrackConnection(conn)
 	_ = conn.SetDeadline(time.Now().Add(25 * time.Second))
-	_, aead, err := s.handshake(conn, false)
+	peer, aead, err := s.handshake(conn, false)
 	if err != nil {
 		return err
 	}
+	if subjectID != "" && (peer.SubjectID != subjectID || peer.PublicKey != publicKey) {
+		return ErrNotTrusted
+	}
+	if subjectID != "" {
+		current, err := s.store.GetContact(ctx, subjectID)
+		if err != nil || current.Blocked || current.TrustState != "trusted" || current.PublicKey != publicKey {
+			return ErrNotTrusted
+		}
+	}
 	seq := uint64(0)
-	return fn(conn, aead, &seq)
+	guarded := peerGrantConn{Conn: conn, check: func() error {
+		if err := s.readyUnlocked(); err != nil {
+			return err
+		}
+		current, err := s.store.GetContact(ctx, subjectID)
+		if err != nil || current.Blocked || current.TrustState != "trusted" || current.PublicKey != publicKey {
+			return ErrNotTrusted
+		}
+		return nil
+	}}
+	return fn(guarded, aead, &seq)
 }
 
 func (s *Service) pushFile(conn net.Conn, aead cipher.AEAD, seq *uint64, t Thread, msg Message, path string) error {
@@ -445,7 +499,17 @@ func (s *Service) pushFile(conn net.Conn, aead cipher.AEAD, seq *uint64, t Threa
 }
 
 func (s *Service) handleFrame(conn net.Conn, aead cipher.AEAD, seq *uint64, from Contact, frame p2pFrame) {
+	if s.readyUnlocked() != nil {
+		return
+	}
 	ctx := context.Background()
+	// The authenticated subject stays fixed for this connection, but its grant
+	// can be revoked while the socket remains open. Never trust a stale snapshot.
+	current, err := s.store.GetContact(ctx, from.SubjectID)
+	if err != nil || current.Blocked || current.TrustState != "trusted" || current.SubjectID == s.identity.SubjectID() || current.PublicKey != from.PublicKey {
+		return
+	}
+	from = current
 	switch frame.Typ {
 	case "msg":
 		if from.TrustState != "trusted" && from.TrustState != "self" {
@@ -454,7 +518,9 @@ func (s *Service) handleFrame(conn net.Conn, aead cipher.AEAD, seq *uint64, from
 		if frame.Message == nil {
 			return
 		}
-		s.receiveMessage(ctx, from, frame)
+		if s.receiveMessage(ctx, from, frame) {
+			s.acknowledgeIncoming(ctx, conn, aead, seq, from, frame.Message.MessageID, "")
+		}
 	case "thread":
 		if from.TrustState != "trusted" && from.TrustState != "self" {
 			return
@@ -468,26 +534,33 @@ func (s *Service) handleFrame(conn net.Conn, aead cipher.AEAD, seq *uint64, from
 		}
 		s.beginIncoming(from, frame)
 	case "file-chunk":
-		s.writeIncoming(frame)
+		s.writeIncoming(from, frame)
 	case "file-end":
 		s.finishIncoming(ctx, from, frame)
+		if _, ok := s.store.(DeliveryStore); ok {
+			if offer, err := s.store.GetOffer(ctx, frame.OfferID); err == nil && offer.FromID == from.SubjectID && offer.FileSHA256 == frame.SHA256 && frame.Last {
+				s.acknowledgeIncoming(ctx, conn, aead, seq, from, offer.MessageID, frame.OfferID)
+			}
+		}
 	case "typing":
-		if from.TrustState != "trusted" {
+		threadID, ok := s.remoteEventThread(ctx, frame, from)
+		if !ok {
 			return
 		}
-		s.noteRemoteTyping(frame.ThreadID, from.SubjectID)
+		s.noteRemoteTyping(threadID, from.SubjectID)
 	case "read":
-		if from.TrustState != "trusted" || frame.ThreadID == "" {
+		threadID, ok := s.remoteEventThread(ctx, frame, from)
+		if !ok {
 			return
 		}
-		_ = s.store.MarkThreadRead(ctx, frame.ThreadID, from.SubjectID, nonempty(frame.At, nowRFC3339()))
+		_ = s.store.MarkThreadRead(ctx, threadID, from.SubjectID, nonempty(frame.At, nowRFC3339()))
 	}
 }
 
-func (s *Service) receiveMessage(ctx context.Context, from Contact, frame p2pFrame) {
+func (s *Service) receiveMessage(ctx context.Context, from Contact, frame p2pFrame) bool {
 	msg := *frame.Message
-	if msg.Kind == "file" || msg.Kind == "image" {
-		return
+	if msg.SenderID != from.SubjectID || msg.MessageID == "" || (msg.Kind != "text" && msg.Kind != "emoji") || (frame.Thread != nil && frame.Thread.ThreadID != msg.ThreadID) {
+		return false
 	}
 	// F-08: if the body was E2E-sealed, decrypt with the shared key derived
 	// from the sender's Ed25519 public key. Auth failure => discard (tamper
@@ -495,87 +568,150 @@ func (s *Service) receiveMessage(ctx context.Context, from Contact, frame p2pFra
 	if frame.BodyEnc == bodyEncV {
 		plain, ok := s.openBody(from.PublicKey, frame.BodyCipher, frame.BodyNonce)
 		if !ok {
-			return
+			return false
 		}
 		msg.Body = plain
 	}
-	ok, err := s.store.HasPeopleMessage(ctx, msg.MessageID)
-	if err != nil || ok {
-		return
+	if !utf8.ValidString(msg.Body) || len(msg.Body) > 4*maxWireText || utf8.RuneCountInString(msg.Body) > maxWireText {
+		return false
 	}
 	thread, err := s.ensureRemoteThread(ctx, derefThread(frame.Thread, msg.ThreadID), from)
 	if err != nil {
-		return
+		return false
 	}
 	msg.ThreadID = thread.ThreadID
-	_ = s.store.InsertMessage(ctx, msg, nil)
+	if store, ok := s.store.(DeliveryStore); ok {
+		if saved, err := store.GetPeopleMessage(ctx, msg.MessageID); err == nil {
+			return saved.SenderID == msg.SenderID && saved.ThreadID == msg.ThreadID && saved.Kind == msg.Kind && saved.Body == msg.Body
+		} else if !errors.Is(err, ErrNotFound) {
+			return false
+		}
+	} else if exists, err := s.store.HasPeopleMessage(ctx, msg.MessageID); err != nil || exists {
+		return false
+	}
+	return s.store.InsertMessage(ctx, msg, nil) == nil
 }
 
 func (s *Service) beginIncoming(from Contact, frame p2pFrame) {
-	if frame.OfferID == "" || frame.Size <= 0 || frame.Size > maxFileBytes {
+	if frame.OfferID == "" || len(frame.OfferID) > 128 || frame.Size < 0 || frame.Size > maxFileBytes || frame.Message == nil {
+		return
+	}
+	msg := *frame.Message
+	if msg.SenderID != from.SubjectID || msg.MessageID == "" || msg.OfferID != frame.OfferID || msg.FileSize != frame.Size || msg.FileSHA256 != frame.SHA256 || (msg.Kind != "file" && msg.Kind != "image") {
+		return
+	}
+	if digest, err := hex.DecodeString(frame.SHA256); err != nil || len(digest) != sha256.Size {
+		return
+	}
+	th := derefThread(frame.Thread, msg.ThreadID)
+	if th.ThreadID != msg.ThreadID {
+		return
+	}
+	if _, err := s.ensureRemoteThread(context.Background(), th, from); err != nil {
+		return
+	}
+	if exists, err := s.store.HasPeopleMessage(context.Background(), msg.MessageID); err != nil || exists {
 		return
 	}
 	if s.stagingDir == "" {
 		return
 	}
-	_ = os.MkdirAll(s.stagingDir, 0o700)
-	path := filepath.Join(s.stagingDir, frame.OfferID)
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	for id, in := range s.incoming {
+		if time.Since(in.updated) > 30*time.Second {
+			_ = in.file.Close()
+			_ = os.Remove(in.path)
+			delete(s.incoming, id)
+		}
+	}
+	if s.incoming[frame.OfferID] != nil || len(s.incoming) >= 8 {
+		return
+	}
+	if err := os.MkdirAll(s.stagingDir, 0o700); err != nil {
+		return
+	}
+	// The sender's offer ID is metadata, never a filesystem path.
+	f, err := os.CreateTemp(s.stagingDir, "incoming-*")
 	if err != nil {
 		return
 	}
-	msg := Message{OfferID: frame.OfferID, Kind: "file", FileName: frame.FileName, FileMIME: frame.FileMIME, FileSize: frame.Size, FileSHA256: frame.SHA256}
-	if frame.Message != nil {
-		msg = *frame.Message
-	}
-	th := wireThread{}
-	if frame.Thread != nil {
-		th = *frame.Thread
-	} else if frame.Message != nil {
-		th.ThreadID = frame.Message.ThreadID
-	}
+	s.incoming[frame.OfferID] = &incomingFile{file: f, path: f.Name(), size: frame.Size, msg: msg, thread: th, owner: from.SubjectID, updated: time.Now()}
+}
+
+func (s *Service) trackConnection(conn net.Conn) bool {
 	s.mu.Lock()
-	s.incoming[frame.OfferID] = &incomingFile{file: f, path: path, size: frame.Size, msg: msg, thread: th}
+	defer s.mu.Unlock()
+	if s.closed {
+		return false
+	}
+	if s.connections == nil {
+		s.connections = make(map[net.Conn]struct{})
+	}
+	s.connections[conn] = struct{}{}
+	return true
+}
+
+func (s *Service) untrackConnection(conn net.Conn) {
+	s.mu.Lock()
+	delete(s.connections, conn)
 	s.mu.Unlock()
 }
 
-func (s *Service) writeIncoming(frame p2pFrame) {
+func (s *Service) writeIncoming(from Contact, frame p2pFrame) {
 	raw, err := base64.StdEncoding.DecodeString(frame.Data)
-	if err != nil {
+	if err != nil || len(raw) == 0 || len(raw) > chunkSize {
 		return
 	}
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	in := s.incoming[frame.OfferID]
-	s.mu.Unlock()
-	if in == nil || in.file == nil {
+	if in == nil || in.file == nil || in.owner != from.SubjectID || frame.Seq != in.seq+1 {
 		return
 	}
-	if in.got+int64(len(raw)) > maxFileBytes {
+	if in.got+int64(len(raw)) > in.size {
 		return
 	}
 	if _, err := in.file.Write(raw); err != nil {
 		return
 	}
 	in.got += int64(len(raw))
+	in.seq = frame.Seq
+	in.updated = time.Now()
 	if in.size > 0 {
-		s.setProgress(frame.OfferID, int(in.got*100/in.size))
+		s.progress[frame.OfferID] = int(in.got * 100 / in.size)
 	}
 }
 
 func (s *Service) finishIncoming(ctx context.Context, from Contact, frame p2pFrame) {
 	s.mu.Lock()
 	in := s.incoming[frame.OfferID]
-	delete(s.incoming, frame.OfferID)
-	s.mu.Unlock()
-	if in == nil {
+	if in == nil || in.owner != from.SubjectID {
+		s.mu.Unlock()
 		return
 	}
+	delete(s.incoming, frame.OfferID)
+	s.mu.Unlock()
+	retained := false
+	defer func() {
+		if !retained {
+			_ = os.Remove(in.path)
+		}
+	}()
 	if in.file != nil {
-		_ = in.file.Close()
+		if err := in.file.Sync(); err != nil {
+			_ = in.file.Close()
+			return
+		}
+		if err := in.file.Close(); err != nil {
+			return
+		}
 	}
 	sum, size, err := hashFile(in.path)
-	if err != nil || (in.msg.FileSHA256 != "" && sum != in.msg.FileSHA256) {
-		_ = os.Remove(in.path)
+	if err != nil || size != in.size || in.got != in.size || sum != in.msg.FileSHA256 || frame.SHA256 != sum || !frame.Last {
 		return
 	}
 	if in.msg.FileSize == 0 {
@@ -598,37 +734,45 @@ func (s *Service) finishIncoming(ctx context.Context, from Contact, frame p2pFra
 		FileSHA256: sum, StagingPath: in.path, CreatedAt: nonempty(in.msg.CreatedAt, nowRFC3339()),
 	}
 	in.msg.OfferID = offer.OfferID
-	_ = s.store.InsertMessage(ctx, in.msg, &offer)
+	if err := s.store.InsertMessage(ctx, in.msg, &offer); err != nil {
+		return
+	}
+	retained = true
 	s.setProgress(offer.OfferID, 100)
 }
 
 func (s *Service) ensureRemoteThread(ctx context.Context, spec wireThread, from Contact) (Thread, error) {
 	self := s.identity.SubjectID()
-	if spec.Kind != "group" {
+	kind := nonempty(spec.Kind, "direct")
+	if spec.ThreadID == "" || (kind != "direct" && kind != "group") {
+		return Thread{}, ErrInvalid
+	}
+	// Resolve the supplied identity before choosing a direct/group path. A
+	// peer cannot relabel an existing group as a direct thread to join it.
+	if existing, err := s.store.GetThread(ctx, spec.ThreadID); err == nil {
+		if existing.Kind != kind || !threadHasMember(existing, self) || !threadHasMember(existing, from.SubjectID) {
+			return Thread{}, ErrNotTrusted
+		}
+		return existing, nil
+	} else if !errors.Is(err, ErrNotFound) {
+		return Thread{}, err
+	}
+	if kind == "direct" {
 		if t, ok, err := s.store.FindDirectThread(ctx, self, from.SubjectID); err != nil {
 			return Thread{}, err
 		} else if ok {
+			if t.Kind != "direct" || !threadHasMember(t, self) || !threadHasMember(t, from.SubjectID) {
+				return Thread{}, ErrNotTrusted
+			}
 			return t, nil
 		}
-	} else if spec.ThreadID != "" {
-		if t, err := s.store.GetThread(ctx, spec.ThreadID); err == nil {
-			return t, nil
-		}
-	}
-	if spec.ThreadID == "" {
-		return Thread{}, ErrInvalid
-	}
-	kind := spec.Kind
-	if kind == "" {
-		kind = "direct"
 	}
 	now := nowRFC3339()
 	ids := spec.MemberIDs
-	if len(ids) == 0 {
+	if kind == "direct" {
 		ids = []string{self, from.SubjectID}
-	}
-	if !containsID(ids, self) {
-		ids = append(ids, self)
+	} else if kind != "group" || spec.OwnerID != from.SubjectID || !containsID(ids, self) || !containsID(ids, from.SubjectID) || len(ids) > maxMembers {
+		return Thread{}, ErrNotTrusted
 	}
 	for _, id := range ids {
 		if _, err := s.store.GetContact(ctx, id); err != nil {
@@ -645,9 +789,39 @@ func (s *Service) ensureRemoteThread(ctx context.Context, spec wireThread, from 
 	owner := nonempty(spec.OwnerID, from.SubjectID)
 	t := Thread{ThreadID: spec.ThreadID, Kind: kind, Title: spec.Title, OwnerID: owner, CreatedAt: now, UpdatedAt: now}
 	if err := s.store.InsertThread(ctx, t, ids, owner); err != nil {
+		// A thread announcement and its first typing/message frame can race.
+		// Accept only the already committed, identically scoped identity.
+		existing, readErr := s.store.GetThread(ctx, t.ThreadID)
+		if readErr != nil || existing.Kind != kind || existing.OwnerID != owner || !threadHasMember(existing, self) || !threadHasMember(existing, from.SubjectID) {
+			return Thread{}, err
+		}
+		return existing, nil
+	}
+	created, err := s.store.GetThread(ctx, t.ThreadID)
+	if err != nil {
 		return Thread{}, err
 	}
-	return s.store.GetThread(ctx, t.ThreadID)
+	if created.Kind != kind || !threadHasMember(created, self) || !threadHasMember(created, from.SubjectID) {
+		return Thread{}, ErrNotTrusted
+	}
+	return created, nil
+}
+
+func (s *Service) remoteEventThread(ctx context.Context, frame p2pFrame, from Contact) (string, bool) {
+	if frame.ThreadID == "" || (frame.SubjectID != "" && frame.SubjectID != from.SubjectID) {
+		return "", false
+	}
+	var thread Thread
+	var err error
+	if frame.Thread != nil {
+		if frame.Thread.ThreadID != frame.ThreadID {
+			return "", false
+		}
+		thread, err = s.ensureRemoteThread(ctx, *frame.Thread, from)
+	} else {
+		thread, err = s.store.GetThread(ctx, frame.ThreadID)
+	}
+	return thread.ThreadID, err == nil && threadHasMember(thread, from.SubjectID) && threadHasMember(thread, s.identity.SubjectID())
 }
 
 func (s *Service) noteRemoteTyping(threadID, subjectID string) {

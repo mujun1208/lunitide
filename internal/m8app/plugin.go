@@ -20,11 +20,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/oklog/ulid/v2"
 
 	"github.com/lunitide/lunitide/internal/audit"
+	"github.com/lunitide/lunitide/internal/capabilitypack"
 	"github.com/lunitide/lunitide/internal/domain/m8core"
 )
 
@@ -127,13 +129,17 @@ type PluginUnitOfWork interface {
 
 // PluginService implements the FR-18 use cases.
 type PluginService struct {
-	uow      PluginUnitOfWork
-	clock    Clock
-	subject  string
-	resolve  SourceResolver
-	probe    Prober
-	register Registrar
-	revoke   Revoker
+	uow           PluginUnitOfWork
+	clock         Clock
+	subject       string
+	resolve       SourceResolver
+	probe         Prober
+	register      Registrar
+	revoke        Revoker
+	grantMu       sync.Mutex
+	lifecycleMu   sync.Mutex
+	grantSequence uint64
+	grants        map[string]*pluginGrantState
 }
 
 // NewPluginService wires the FR-18 service.
@@ -261,6 +267,8 @@ func (s *PluginService) Install(ctx context.Context, in InstallInput) (InstallRe
 	if s == nil || s.uow == nil {
 		return InstallResult{}, ErrServiceUnavailable
 	}
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
 	if in.Origin != "market" && in.Origin != "local" && in.Origin != "dev" {
 		return InstallResult{}, ErrPayloadInvalid
 	}
@@ -275,6 +283,7 @@ func (s *PluginService) Install(ctx context.Context, in InstallInput) (InstallRe
 	}
 	now := s.clock.Now().UTC().Format(time.RFC3339)
 	var out InstallResult
+	var affectedPlugin string
 	err := s.uow.TransactPlugin(ctx, func(tx PluginTx) error {
 		pkg, err := s.resolveSource(ctx, tx, in.Origin, in.Source)
 		if errors.Is(err, m8core.ErrNotFound) || errors.Is(err, ErrBundleNotFound) {
@@ -283,6 +292,7 @@ func (s *PluginService) Install(ctx context.Context, in InstallInput) (InstallRe
 		if err != nil {
 			return err
 		}
+		affectedPlugin = pkg.PluginID
 		installID := ulid.Make().String()
 		install := m8core.PluginInstall{
 			InstallID: installID, PluginID: pkg.PluginID, SubjectID: s.subject,
@@ -353,6 +363,7 @@ func (s *PluginService) Install(ctx context.Context, in InstallInput) (InstallRe
 	if err != nil {
 		return out, err
 	}
+	s.invalidateCapability(affectedPlugin)
 	// The committed quarantine verdict answers M8-035 to the caller.
 	if out.State == m8core.InstallQuarantined {
 		return out, ErrPluginSignatureInvalid
@@ -456,9 +467,9 @@ type ToggleBindingView struct {
 
 // ToggleResult is the plugin.toggle outcome.
 type ToggleResult struct {
-	InstallID string               `json:"installId"`
-	State     string               `json:"state"`
-	Bindings  []ToggleBindingView  `json:"bindings"`
+	InstallID string              `json:"installId"`
+	State     string              `json:"state"`
+	Bindings  []ToggleBindingView `json:"bindings"`
 }
 
 // Toggle enacts enabled<->disabled: disabling revokes every binding
@@ -468,11 +479,14 @@ func (s *PluginService) Toggle(ctx context.Context, in ToggleInput) (ToggleResul
 	if s == nil || s.uow == nil {
 		return ToggleResult{}, ErrServiceUnavailable
 	}
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
 	if len(in.InstallID) != 26 {
 		return ToggleResult{}, ErrPayloadInvalid
 	}
 	now := s.clock.Now().UTC().Format(time.RFC3339)
 	var out ToggleResult
+	var affectedPlugin string
 	err := s.uow.TransactPlugin(ctx, func(tx PluginTx) error {
 		inst, err := tx.GetInstall(in.InstallID)
 		if errors.Is(err, m8core.ErrNotFound) {
@@ -481,6 +495,19 @@ func (s *PluginService) Toggle(ctx context.Context, in ToggleInput) (ToggleResul
 		if err != nil {
 			return err
 		}
+		allowed, err := capabilitypack.GuardMutation(ctx, tx, "gate", inst.InstallID)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			out.InstallID, out.State = inst.InstallID, inst.State
+			return nil
+		}
+		if _, packOperation := capabilitypack.CurrentOperation(ctx); packOperation && ((in.Enabled && inst.State == m8core.InstallEnabled) || (!in.Enabled && inst.State == m8core.InstallDisabled)) {
+			out.InstallID, out.State = inst.InstallID, inst.State
+			return nil
+		}
+		affectedPlugin = inst.PluginID
 		target := m8core.InstallDisabled
 		if in.Enabled {
 			target = m8core.InstallEnabled
@@ -541,6 +568,9 @@ func (s *PluginService) Toggle(ctx context.Context, in ToggleInput) (ToggleResul
 		})
 		return err
 	})
+	if err == nil {
+		s.invalidateCapability(affectedPlugin)
+	}
 	return out, err
 }
 
@@ -554,11 +584,11 @@ type UpgradeInput struct {
 
 // UpgradeResult is the plugin.upgrade outcome.
 type UpgradeResult struct {
-	InstallID          string `json:"installId"`
-	FromSemver         string `json:"fromSemver"`
-	ToSemver           string `json:"toSemver"`
-	State              string `json:"state"`
-	PermissionExpansion bool  `json:"permissionExpansion"`
+	InstallID           string `json:"installId"`
+	FromSemver          string `json:"fromSemver"`
+	ToSemver            string `json:"toSemver"`
+	State               string `json:"state"`
+	PermissionExpansion bool   `json:"permissionExpansion"`
 }
 
 // Upgrade enacts the versioned replacement: the new bundle re-runs the
@@ -569,6 +599,8 @@ func (s *PluginService) Upgrade(ctx context.Context, in UpgradeInput) (UpgradeRe
 	if s == nil || s.uow == nil {
 		return UpgradeResult{}, ErrServiceUnavailable
 	}
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
 	if len(in.InstallID) != 26 || (in.TargetSemver != "" && len(in.TargetSemver) > 32) {
 		return UpgradeResult{}, ErrPayloadInvalid
 	}
@@ -580,6 +612,7 @@ func (s *PluginService) Upgrade(ctx context.Context, in UpgradeInput) (UpgradeRe
 	}
 	now := s.clock.Now().UTC().Format(time.RFC3339)
 	var out UpgradeResult
+	var affectedPlugin string
 	err := s.uow.TransactPlugin(ctx, func(tx PluginTx) error {
 		inst, err := tx.GetInstall(in.InstallID)
 		if errors.Is(err, m8core.ErrNotFound) {
@@ -588,6 +621,7 @@ func (s *PluginService) Upgrade(ctx context.Context, in UpgradeInput) (UpgradeRe
 		if err != nil {
 			return err
 		}
+		affectedPlugin = inst.PluginID
 		if inst.State != m8core.InstallEnabled && inst.State != m8core.InstallDisabled {
 			return ErrInstallStateInvalid
 		}
@@ -671,6 +705,7 @@ func (s *PluginService) Upgrade(ctx context.Context, in UpgradeInput) (UpgradeRe
 	if err != nil {
 		return out, err
 	}
+	s.invalidateCapability(affectedPlugin)
 	// Committed quarantine verdicts answer their chain codes to the caller.
 	switch {
 	case out.State == m8core.InstallQuarantined && out.PermissionExpansion:
@@ -704,11 +739,14 @@ func (s *PluginService) Uninstall(ctx context.Context, in UninstallInput) (Unins
 	if s == nil || s.uow == nil {
 		return UninstallResult{}, ErrServiceUnavailable
 	}
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
 	if len(in.InstallID) != 26 || !m8core.ValidHexDigest(in.ConfirmToken) {
 		return UninstallResult{}, ErrPayloadInvalid
 	}
 	now := s.clock.Now().UTC()
 	var out UninstallResult
+	var affectedPlugin string
 	err := s.uow.TransactPlugin(ctx, func(tx PluginTx) error {
 		inst, err := tx.GetInstall(in.InstallID)
 		if errors.Is(err, m8core.ErrNotFound) {
@@ -717,6 +755,7 @@ func (s *PluginService) Uninstall(ctx context.Context, in UninstallInput) (Unins
 		if err != nil {
 			return err
 		}
+		affectedPlugin = inst.PluginID
 		if inst.State == m8core.InstallUninstalled {
 			// Idempotent replay answers the standing terminal state.
 			bindings, err := tx.ListBindings(inst.InstallID)
@@ -764,8 +803,8 @@ func (s *PluginService) Uninstall(ctx context.Context, in UninstallInput) (Unins
 			ID:            ulid.Make().String(),
 			RootRef:       "install:" + inst.InstallID,
 			CascadeCursor: "{}", AckSet: "[]",
-			State:         m8core.TombPropagating,
-			CreatedAt:     now.Format(time.RFC3339),
+			State:     m8core.TombPropagating,
+			CreatedAt: now.Format(time.RFC3339),
 		}
 		if err := tx.PutTombstone(tomb); err != nil {
 			return fmt.Errorf("%w: tombstone: %v", ErrPluginUninstallConflict, err)
@@ -784,6 +823,9 @@ func (s *PluginService) Uninstall(ctx context.Context, in UninstallInput) (Unins
 		}
 		return nil
 	})
+	if err == nil {
+		s.invalidateCapability(affectedPlugin)
+	}
 	return out, err
 }
 
@@ -853,8 +895,8 @@ func (s *PluginService) DevCreate(ctx context.Context, in DevCreateInput) (DevCr
 		PluginID: m.ID, Semver: semver, Publisher: m.Publisher, Kind: m.Kind,
 		ManifestRef: manifestRef, Entrypoint: in.Entrypoint,
 		Capabilities: string(m.Capabilities), Permissions: string(m.Permissions),
-		Requires: string(m.Requires),
-		PackageHash: m8core.DigestOf(string(raw) + "|" + in.Entrypoint),
+		Requires:        string(m.Requires),
+		PackageHash:     m8core.DigestOf(string(raw) + "|" + in.Entrypoint),
 		SignatureStatus: m8core.SignatureUnverified,
 	}
 	var out DevCreateResult

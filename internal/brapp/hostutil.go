@@ -4,6 +4,7 @@ package brapp
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -29,10 +30,8 @@ func firstExisting(configured string, candidates []string) string {
 	return ""
 }
 
-func removeFile(path string) error { return os.Remove(path) }
-
 // DefaultHTTPClient bounds every host HTTP exchange.
-var DefaultHTTPClient = &http.Client{Timeout: 4 * time.Second}
+var DefaultHTTPClient = &http.Client{Timeout: 4 * time.Second, Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("CDP redirects are not allowed") }}
 
 // NewHTTPRequestContext builds one request with the shared client's
 // deadline semantics.

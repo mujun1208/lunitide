@@ -298,6 +298,15 @@ type ConfirmResult struct {
 // any re-presentation after a terminal state answers ErrConfirmTokenInvalid
 // (replay) or ErrCandidateExpired.
 func (s *MemoryService) ConfirmCandidate(ctx context.Context, in ConfirmInput) (ConfirmResult, error) {
+	if s == nil {
+		return ConfirmResult{}, ErrServiceUnavailable
+	}
+	return s.ConfirmCandidateFor(ctx, s.subject, in)
+}
+
+// ConfirmCandidateFor takes the authenticated subject from the engine, never
+// from the renderer payload. The candidate, token and owner are checked in one transaction.
+func (s *MemoryService) ConfirmCandidateFor(ctx context.Context, subject string, in ConfirmInput) (ConfirmResult, error) {
 	if s == nil || s.uow == nil {
 		return ConfirmResult{}, ErrServiceUnavailable
 	}
@@ -308,6 +317,7 @@ func (s *MemoryService) ConfirmCandidate(ctx context.Context, in ConfirmInput) (
 		return ConfirmResult{}, fmt.Errorf("%w: action %q", ErrPayloadInvalid, in.Action)
 	}
 	var out ConfirmResult
+	var outcomeErr error
 	err := s.uow.TransactMemory(ctx, func(tx MemoryTx) error {
 		cand, err := tx.GetCandidate(in.CandidateID)
 		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, m8core.ErrNotFound) {
@@ -315,6 +325,9 @@ func (s *MemoryService) ConfirmCandidate(ctx context.Context, in ConfirmInput) (
 		}
 		if err != nil {
 			return err
+		}
+		if subject == "" || cand.SubjectID != subject {
+			return ErrCandidateNotFound
 		}
 		// M8-005: the token binds the payload digest as issued; a drifted
 		// row means the candidate was mutated after issuance.
@@ -334,7 +347,7 @@ func (s *MemoryService) ConfirmCandidate(ctx context.Context, in ConfirmInput) (
 		if perr != nil {
 			return fmt.Errorf("%w: expiry %q", ErrConfirmTokenInvalid, cand.ExpiresAt)
 		}
-		if now.After(expiresAt) {
+		if !expiresAt.After(now) {
 			if err := tx.TransitionCandidate(cand.CandidateID, m8core.CandPending, m8core.CandExpired, ""); err != nil {
 				return err
 			}
@@ -347,7 +360,8 @@ func (s *MemoryService) ConfirmCandidate(ctx context.Context, in ConfirmInput) (
 			if err != nil {
 				return err
 			}
-			return fmt.Errorf("%w: %s", ErrCandidateExpired, cand.CandidateID)
+			outcomeErr = fmt.Errorf("%w: %s", ErrCandidateExpired, cand.CandidateID)
+			return nil // commit expiration/audit before reporting the terminal error
 		}
 		var doc m8core.PayloadDoc
 		if err := json.Unmarshal([]byte(cand.Payload), &doc); err != nil {
@@ -385,6 +399,8 @@ func (s *MemoryService) ConfirmCandidate(ctx context.Context, in ConfirmInput) (
 			}
 			if edited.ScopeID == "" {
 				edited.ScopeID = doc.ScopeID
+			} else if edited.ScopeID != doc.ScopeID {
+				return ErrPayloadDigestMismatch
 			}
 			if edited.Leaves == nil {
 				edited.Leaves = doc.Leaves
@@ -457,7 +473,7 @@ func (s *MemoryService) ConfirmCandidate(ctx context.Context, in ConfirmInput) (
 	if err != nil {
 		return ConfirmResult{}, err
 	}
-	return out, nil
+	return out, outcomeErr
 }
 
 // AutoPromote is the explicit refusal path required by FR-11: frequency,

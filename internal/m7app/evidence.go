@@ -155,6 +155,16 @@ type EdgePage struct {
 // Query walks the trace graph up or down from a root for at most depth hops
 // (1..10), breadth-first with cursor pagination.
 func (s *TraceService) Query(ctx context.Context, rootType, rootID, direction string, depth int, cursor string) (EdgePage, error) {
+	return s.query(ctx, rootType, rootID, direction, depth, cursor, nil)
+}
+
+// QueryScoped checks every traversed edge inside the read transaction before
+// it can enter the frontier or the page cursor, including legacy mixed edges.
+func (s *TraceService) QueryScoped(ctx context.Context, rootType, rootID, direction string, depth int, cursor, scope string) (EdgePage, error) {
+	return s.query(ctx, rootType, rootID, direction, depth, cursor, &scope)
+}
+
+func (s *TraceService) query(ctx context.Context, rootType, rootID, direction string, depth int, cursor string, scope *string) (EdgePage, error) {
 	if s == nil || s.uow == nil {
 		return EdgePage{}, ErrEvidenceServiceUnavailable
 	}
@@ -170,6 +180,19 @@ func (s *TraceService) Query(ctx context.Context, rootType, rootID, direction st
 	frontier := []struct{ typ, id string }{{rootType, rootID}}
 	var walkErr error
 	err := s.uow.TransactEvidence(ctx, func(tx EvidenceTx) error {
+		var authorize func(string, string) error
+		if scope != nil {
+			guard, ok := tx.(interface {
+				AuthorizeDataResource(context.Context, string, string, string) error
+			})
+			if !ok {
+				return ErrEvidenceServiceUnavailable
+			}
+			authorize = func(kind, id string) error { return guard.AuthorizeDataResource(ctx, "trace:"+kind, id, *scope) }
+			if err := authorize(rootType, rootID); err != nil {
+				return err
+			}
+		}
 		for hop := 0; hop < depth && len(frontier) > 0; hop++ {
 			var next []struct{ typ, id string }
 			for _, node := range frontier {
@@ -179,6 +202,11 @@ func (s *TraceService) Query(ctx context.Context, rootType, rootID, direction st
 					return nil
 				}
 				for _, e := range edges {
+					if authorize != nil {
+						if err := authorize("trace_edge", e.ID); err != nil {
+							return err
+						}
+					}
 					if cursor != "" && e.ID <= cursor {
 						continue
 					}
@@ -535,7 +563,7 @@ func (s *ReviewService) SubmitReview(ctx context.Context, rev m7flow.Review, aut
 			return err
 		}
 		edge := m7flow.TraceEdge{
-			ID: ulid.Make().String(),
+			ID:       ulid.Make().String(),
 			FromType: "review", FromID: rev.ID,
 			FromDigest: m7flow.Digest256(map[string]any{
 				"verdict": rev.Verdict, "subjectType": rev.SubjectType,
@@ -543,7 +571,7 @@ func (s *ReviewService) SubmitReview(ctx context.Context, rev m7flow.Review, aut
 			}),
 			Relation: m7flow.RelReviews,
 			ToType:   rev.SubjectType, ToID: rev.SubjectID,
-			ToDigest: m7flow.Digest256(map[string]any{"id": rev.SubjectID, "version": rev.SubjectVersion}),
+			ToDigest:  m7flow.Digest256(map[string]any{"id": rev.SubjectID, "version": rev.SubjectVersion}),
 			CreatedAt: rev.CreatedAt,
 		}
 		if err := tx.PutEdge(edge); err != nil {

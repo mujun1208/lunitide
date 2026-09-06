@@ -128,6 +128,9 @@ func handlePlanCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	if !planningServiceAvailable(e.planning) {
 		return r.Fail("STORAGE_UNAVAILABLE", "计划数据暂时不可用", true)
 	}
+	if failure := rejectIfProjectReadOnly(e, ctx, r, p.ProjectID); failure != nil {
+		return *failure
+	}
 	plan, err := e.planning.CreatePlan(ctx, planning.Plan{
 		ProjectID:   p.ProjectID,
 		StageID:     p.StageID,

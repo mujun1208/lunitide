@@ -33,8 +33,8 @@ func TestMROAircraftUniqueTailAndManualParts(t *testing.T) {
 		Status: "controlled", ATA: "32", CreatedAt: now,
 	}
 	if err := store.RegisterManual(ctx, manual, []mroapp.ManualDocInput{
-		{DocumentID: ulid.Make().String(), PartNo: 1},
-		{DocumentID: ulid.Make().String(), PartNo: 2},
+		{DocumentID: mroReadyDocument(t, store), PartNo: 1},
+		{DocumentID: mroReadyDocument(t, store), PartNo: 2},
 	}); err != nil {
 		t.Fatal(err)
 	}

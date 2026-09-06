@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/meetings.segments.list.schema.json",
+  "title": "meetings.segments.list payload",
+  "x-method": "meetings.segments.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "meetingId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "expectedRevision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "afterSeq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "throughSeq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "meetingId",
+    "expectedRevision",
+    "afterSeq"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 10,
+        "items": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/MeetingSegmentDTO"
+        }
+      },
+      "nextSeq": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "hasMore": {
+        "type": "boolean"
+      },
+      "throughSeq": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "revision": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 9007199254740991
+      }
+    },
+    "required": [
+      "items",
+      "nextSeq",
+      "hasMore",
+      "throughSeq",
+      "revision"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "meetingId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "expectedRevision": 1,
+        "afterSeq": 0
+      }
+    ],
+    "negative": [
+      {},
+      {
+        "extra": true
+      }
+    ]
+  }
+}

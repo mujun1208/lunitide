@@ -218,7 +218,9 @@ func (s *Service) BindRole(ctx context.Context, principalID, spaceID, role, expi
 // new version is the revocation watermark - every ticket stamped with an
 // older version is rejected from this instant (ADR-012).
 func (s *Service) RevokePrincipal(ctx context.Context, principalID string) error {
-	if _, err := s.liveOrg(ctx); err != nil {
+	// Suspension/closure cannot prevent reducing an existing authorization.
+	// The verified binding and scoped principal lookup still apply.
+	if _, err := s.boundOrg(ctx); err != nil {
 		return err
 	}
 	scope, _ := s.gate.Scope(ctx)
@@ -235,7 +237,7 @@ func (s *Service) RevokePrincipal(ctx context.Context, principalID string) error
 
 // RevokeBinding revokes one role binding inside the verified org.
 func (s *Service) RevokeBinding(ctx context.Context, bindingID string) error {
-	if _, err := s.liveOrg(ctx); err != nil {
+	if _, err := s.boundOrg(ctx); err != nil {
 		return err
 	}
 	scope, _ := s.gate.Scope(ctx)

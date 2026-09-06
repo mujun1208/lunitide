@@ -8,21 +8,93 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "meetingId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
-    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
-    "summary": { "type": "string", "maxLength": 65536 },
-    "actions": { "type": "string", "maxLength": 32768 },
-    "transcript": { "type": "string", "maxLength": 1048576 }
+    "meetingId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "summary": {
+      "type": "string",
+      "maxLength": 65536
+    },
+    "actions": {
+      "type": "string",
+      "maxLength": 32768
+    },
+    "transcript": {
+      "type": "string",
+      "maxLength": 16384
+    },
+    "expectedRevision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "transcriptEdit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "transcriptRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "deleteRunes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16384
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 16384
+        }
+      },
+      "required": [
+        "transcriptRevision",
+        "offset",
+        "deleteRunes",
+        "text"
+      ]
+    }
   },
-  "required": ["meetingId"],
+  "required": [
+    "meetingId",
+    "expectedRevision"
+  ],
   "x-result": {
     "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/MeetingDTO"
   },
   "x-examples": {
     "positive": [
-      { "meetingId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "summary": "背景：评审。讨论要点：安装包。结论：下周发布。" },
-      { "meetingId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "actions": "- 导出纪要", "transcript": "大家好" }
+      {
+        "meetingId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "summary": "背景：评审。讨论要点：安装包。结论：下周发布。",
+        "expectedRevision": 1
+      },
+      {
+        "meetingId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "actions": "- 导出纪要",
+        "transcript": "大家好",
+        "expectedRevision": 1
+      }
     ],
-    "negative": [{}, { "summary": "only" }, { "meetingId": "not-a-ulid", "summary": "x" }]
+    "negative": [
+      {},
+      {
+        "summary": "only"
+      },
+      {
+        "meetingId": "not-a-ulid",
+        "summary": "x"
+      }
+    ]
   }
 }

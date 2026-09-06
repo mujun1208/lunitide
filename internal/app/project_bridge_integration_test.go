@@ -202,6 +202,7 @@ func TestProjectBridgeUpdatePublishCloseReopen(t *testing.T) {
 	}
 
 	advance := validRequest("project.advanceStatus", fmt.Sprintf(`{"id":%q,"version":%d,"phase":1}`, dto.ID, dto.Version))
+	seedProjectPhaseEvidence(t, store, dto.ID, 1)
 	advance.IdempotencyKey = "lifecycle-advance"
 	advanced := e.Handle(context.Background(), advance)
 	if !advanced.OK {

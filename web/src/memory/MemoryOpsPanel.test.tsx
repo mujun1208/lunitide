@@ -19,8 +19,8 @@ const opsApi = (o: Partial<MemoryOpsBridge> = {}): MemoryOpsBridge => ({
   listTraces: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 }),
   listGrowth: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 }),
   decideGrowth: vi.fn().mockResolvedValue({ factId: F, decision: 'promoted' }),
-  getSettings: vi.fn().mockResolvedValue({ subjectId: SID, memoryEnabled: true, autoNominate: false, growthDays: 14, updatedAt: now }),
-  updateSettings: vi.fn().mockResolvedValue({ subjectId: SID, memoryEnabled: true, autoNominate: false, growthDays: 14, updatedAt: now }),
+  getSettings: vi.fn().mockResolvedValue({ subjectId: SID, memoryEnabled: true, autoNominate: false, growthDays: 14, updatedAt: now, version: "a".repeat(64) }),
+  updateSettings: vi.fn().mockResolvedValue({ subjectId: SID, memoryEnabled: true, autoNominate: false, growthDays: 14, updatedAt: now, version: "a".repeat(64) }),
   export: vi.fn().mockResolvedValue({ facts: [], leaves: [], candidates: [], traces: [], growth: [], flags: [], settings: [] }),
   purge: vi.fn().mockResolvedValue({ factsTombstoned: 3, candidates: 1, growthRows: 2, flags: 1, traces: 5, memories: 4 }),
   ...o,
@@ -127,9 +127,9 @@ it('renders recall traces with hits and reasons', async () => {
 })
 
 it('saves memory settings via memory.settings.update', async () => {
-  const updateSettings = vi.fn().mockResolvedValue({ subjectId: SID, memoryEnabled: false, autoNominate: true, growthDays: 30, updatedAt: now })
+  const updateSettings = vi.fn().mockResolvedValue({ subjectId: SID, memoryEnabled: false, autoNominate: true, growthDays: 30, updatedAt: now, version: "a".repeat(64) })
   render(<MemoryOpsPanel subjectId={SID} ops={opsApi({ updateSettings })} />)
-  await waitFor(() => expect(screen.getByLabelText('启用记忆沉淀')).toBeChecked())
+  await waitFor(() => expect(screen.getByRole('button', { name: '保存设置' })).toBeEnabled())
   fireEvent.click(screen.getByLabelText('启用记忆沉淀'))
   fireEvent.click(screen.getByLabelText('自动提名候选'))
   fireEvent.change(screen.getByLabelText(/成长观察期/), { target: { value: '30' } })
@@ -140,7 +140,7 @@ it('saves memory settings via memory.settings.update', async () => {
 })
 
 it('resolves settings subject from identity.get, not local-user', async () => {
-  const getSettings = vi.fn().mockResolvedValue({ subjectId: SID, memoryEnabled: true, autoNominate: false, growthDays: 14, updatedAt: now })
+  const getSettings = vi.fn().mockResolvedValue({ subjectId: SID, memoryEnabled: true, autoNominate: false, growthDays: 14, updatedAt: now, version: "a".repeat(64) })
   const identity = {
     get: vi.fn().mockResolvedValue({
       subjectId: SID, nickname: 'mu', avatar: '', status: 'online', department: '', title: '', orgName: '',
@@ -198,4 +198,32 @@ it('pages the facts list with the pager controls', async () => {
   await screen.findByText(/事实：共 25 条/)
   fireEvent.click(screen.getAllByRole('button', { name: '下一页' })[0]!)
   await waitFor(() => expect(listFacts).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 20 })))
+})
+
+it('keeps edited settings on conflict until the user reviews the latest version', async () => {
+  const getSettings = vi.fn().mockResolvedValueOnce({ subjectId: SID, memoryEnabled: true, autoNominate: false, growthDays: 14, updatedAt: now, version: 'a'.repeat(64) })
+    .mockResolvedValueOnce({ subjectId: SID, memoryEnabled: false, autoNominate: true, growthDays: 7, updatedAt: now, version: 'b'.repeat(64) })
+  const updateSettings = vi.fn().mockRejectedValueOnce(Object.assign(new Error('设置冲突，草稿保留'), { code: 'MEMORY_SETTINGS_CONFLICT' }))
+    .mockResolvedValueOnce({ subjectId: SID, memoryEnabled: true, autoNominate: false, growthDays: 30, updatedAt: now, version: 'c'.repeat(64) })
+  render(<MemoryOpsPanel subjectId={SID} ops={opsApi({ getSettings, updateSettings })} />)
+  await waitFor(() => expect(screen.getByRole('button', { name: '保存设置' })).toBeEnabled())
+  fireEvent.change(screen.getByLabelText(/成长观察期/), { target: { value: '30' } })
+  fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('设置冲突')
+  expect(screen.getByLabelText(/成长观察期/)).toHaveValue(30)
+  expect(screen.getByRole('button', { name: '保存设置' })).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: '读取最新版本并保留草稿' }))
+  await screen.findByText(/当前已保存：记忆沉淀关闭/)
+  expect(screen.getByLabelText(/成长观察期/)).toHaveValue(30)
+  fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
+  await waitFor(() => expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({ growthDays: 30, expectedVersion: 'b'.repeat(64) })))
+  await screen.findByText('记忆设置已保存')
+})
+
+it('never saves defaults when settings cannot be loaded', async () => {
+  const updateSettings = vi.fn()
+  render(<MemoryOpsPanel subjectId={SID} ops={opsApi({ getSettings: vi.fn().mockRejectedValue(new Error('read failed')), updateSettings })} />)
+  expect(await screen.findByText('read failed')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '保存设置' })).toBeDisabled()
+  expect(updateSettings).not.toHaveBeenCalled()
 })

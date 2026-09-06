@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "candidate": {
+    "version": "0.4.67",
+    "commit": "09978597dc026bfa40ab8d690d64f9bcaef476f3",
+    "sourceTreeSha256": "e1e3db16e6cd4e8e7abd1623f70840a92b0e67da39f7864a5f008ad8375a1e22",
+    "installerSha256": "b69b0e97c2d9c03e0e08e273103ffc02c8df21776ed965e2a38cc5994db6771d",
+    "stageManifestSha256": "50779b3525a98a591c29beaf6d3b3e8ed4ef163abd6485d69b4d82a16fb079a8",
+    "signatureStatus": "unsigned-development-candidate-verified",
+    "publisherThumbprint": ""
+  },
+  "environment": {
+    "osBuild": "",
+    "webview2Version": "",
+    "cpuMemory": "",
+    "audioInputOutput": "",
+    "providerAndModel": "",
+    "tester": ""
+  },
+  "instructions": "Bind every record to the same candidate. Record actual output, failure/recovery behavior, and evidence paths. Do not include tokens, passwords or private conversation content. Pending cases are not passed.",
+  "cases": [
+    {
+      "id": "Q04-INSTALL",
+      "name": "Clean install, upgrade rollback, default retained data, explicit purge in disposable profile",
+      "status": "pending",
+      "actual": "",
+      "evidence": []
+    },
+    {
+      "id": "Q04-SIGNATURE",
+      "name": "Pinned publisher, trusted timestamp chain, all four owned executables and installer",
+      "status": "pending",
+      "actual": "",
+      "evidence": []
+    },
+    {
+      "id": "C01-TYPED",
+      "name": "Typed stream, tool approval/cancel, restart recovery, interrupted provider",
+      "status": "pending",
+      "actual": "",
+      "evidence": []
+    },
+    {
+      "id": "C02-CLOUD",
+      "name": "Cloud default voice: record/cloud ASR/selected LLM/cloud TTS, input-device change, cancellation and permission revocation",
+      "status": "pending",
+      "actual": "",
+      "evidence": []
+    },
+    {
+      "id": "C02-LOCAL",
+      "name": "Local default voice: local ASR/refiner/selected LLM/local TTS, resource availability, device change and interruption",
+      "status": "pending",
+      "actual": "",
+      "evidence": []
+    },
+    {
+      "id": "C02-VOLC",
+      "name": "Volc default voice: Seed ASR/selected LLM/Volc TTS, companion handoff, microphone/playback and resource cleanup",
+      "status": "pending",
+      "actual": "",
+      "evidence": []
+    },
+    {
+      "id": "C03-REALTIME-OPTIONAL",
+      "name": "Optional realtime subroute: realtime WebSocket turns, interruption, reconnect, tool handoff, revoke during active stream; separate from three default routes",
+      "status": "pending",
+      "actual": "",
+      "evidence": []
+    },
+    {
+      "id": "C04-MEETING",
+      "name": "Meeting microphone/loopback, heartbeat, long transcript, stop/restart and minutes",
+      "status": "pending",
+      "actual": "",
+      "evidence": []
+    },
+    {
+      "id": "D01-COMPUTER",
+      "name": "Desktop permission, correct target window, emergency stop and active revocation",
+      "status": "pending",
+      "actual": "",
+      "evidence": []
+    },
+    {
+      "id": "P01-PROJECT",
+      "name": "Project plans, task retry/resume, artifact review/publish/rollback",
+      "status": "pending",
+      "actual": "",
+      "evidence": []
+    },
+    {
+      "id": "E01-EXTENSIONS",
+      "name": "Skills import/approve/publish, packs shared dependencies, expert historical equipment",
+      "status": "pending",
+      "actual": "",
+      "evidence": []
+    },
+    {
+      "id": "E02-MCP",
+      "name": "Actual supported MCP server credentials, rotation/401, schema drift, re-review, restart restoration",
+      "status": "pending",
+      "actual": "",
+      "evidence": []
+    },
+    {
+      "id": "E07-KNOWLEDGE",
+      "name": "Knowledge source refresh/invalidity, scoped citation, parsing budget and worker cleanup",
+      "status": "pending",
+      "actual": "",
+      "evidence": []
+    },
+    {
+      "id": "S04-RESTORE",
+      "name": "Offline backup/verify/restore of disposable profile, interrupted recovery, preserved credentials usability",
+      "status": "pending",
+      "actual": "",
+      "evidence": []
+    },
+    {
+      "id": "Q04-SOAK",
+      "name": "72-hour mixed workload, 14-day controlled observation and at least 3000 valid core operations; record process identities, resource growth, failures/recovery and final shutdown cleanup",
+      "status": "pending",
+      "actual": "",
+      "evidence": [],
+      "criteriaReference": "PRD-system-upgrade.md sections 10 and 11; user-acceptance-handoff.md"
+    }
+  ],
+  "overallAcceptance": "pending",
+  "score": null
+}

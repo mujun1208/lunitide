@@ -65,7 +65,7 @@ func TestRecallForInjectIsolatesSubject(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := confirm(t, svc, m8app.ConfirmInput{
+		if _, err := svc.ConfirmCandidateFor(ctx, subject, m8app.ConfirmInput{
 			CandidateID: prop.Candidate.CandidateID, Token: prop.ConfirmToken,
 			Action: "confirm", RequestID: "req-inject-" + prop.Candidate.CandidateID,
 		}); err != nil {
@@ -106,7 +106,7 @@ func TestConfirmedByIDIsolatesSubject(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := confirm(t, svc, m8app.ConfirmInput{
+		if _, err := svc.ConfirmCandidateFor(ctx, subject, m8app.ConfirmInput{
 			CandidateID: prop.Candidate.CandidateID, Token: prop.ConfirmToken,
 			Action: "confirm", RequestID: "req-get-" + prop.Candidate.CandidateID,
 		}); err != nil {

@@ -44,10 +44,15 @@
     "fullAccess": {
       "type": "boolean",
       "description": "Opt-in full-disk full-access: when true, full-access conversations may run any command and use absolute paths on any drive; the whitelist keeps governing approval and auto-edit modes."
+    },
+    "expectedRevision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
     }
   },
   "required": [
-    "commands"
+    "commands",
+    "expectedRevision"
   ],
   "x-result": {
     "type": "object",
@@ -57,20 +62,39 @@
         "type": "integer",
         "minimum": 0,
         "maximum": 128
+      },
+      "revision": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "appliedRevision": {
+        "type": "string"
+      },
+      "state": {
+        "type": "string",
+        "enum": [
+          "applied",
+          "pending"
+        ]
       }
     },
     "required": [
-      "applied"
+      "applied",
+      "revision",
+      "appliedRevision",
+      "state"
     ]
   },
   "x-examples": {
     "positive": [
       {
-        "commands": []
+        "commands": [],
+        "expectedRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       },
       {
         "commands": [],
-        "fullAccess": true
+        "fullAccess": true,
+        "expectedRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       },
       {
         "commands": [
@@ -82,7 +106,8 @@
             "maxArgs": 2,
             "timeoutMs": 15000
           }
-        ]
+        ],
+        "expectedRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       }
     ],
     "negative": [

@@ -163,3 +163,13 @@ test('done-flush does not enqueue cascade TTS while talk is live', async () => {
   expect(spoken).not.toContain('今天多云')
   expect(spoken).not.toContain('二十六度')
 })
+
+test('tool handoff forwards the acknowledged user message to the parent sender', async () => {
+  const onSend = vi.fn().mockResolvedValue(true)
+  render(<CompanionStage {...baseProps} onSend={onSend} />)
+  await flush(800)
+  const callbacks = talk.start.mock.calls[0][0]
+  await act(async () => { callbacks.onToolHandoff('打开网页', sessionId) })
+  await flush(0)
+  expect(onSend).toHaveBeenCalledWith('打开网页', sessionId)
+})

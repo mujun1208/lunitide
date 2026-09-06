@@ -10,12 +10,15 @@
   "properties": {
     "status": { "enum": ["draft", "enabled", "disabled", "void"] },
     "templateType": { "enum": ["document", "scaffold"] },
-    "documentType": { "type": "string", "maxLength": 128 }
+    "documentType": { "type": "string", "maxLength": 128 },
+    "cursor": { "type": "string", "maxLength": 1024 },
+    "query": { "type": "string", "maxLength": 200 }
   },
   "x-result": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
+      "nextCursor": { "type": "string", "maxLength": 1024 },
       "items": {
         "type": "array",
         "maxItems": 100,
@@ -24,6 +27,7 @@
           "additionalProperties": false,
           "properties": {
             "id": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+            "orgId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
             "templateCode": { "type": "string", "minLength": 4, "maxLength": 16 },
             "name": { "type": "string" },
             "templateType": { "enum": ["document", "scaffold"] },

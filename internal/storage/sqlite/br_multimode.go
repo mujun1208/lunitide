@@ -31,14 +31,14 @@ func (r *AgentRuntimeRepository) TransactBr(ctx context.Context, fn func(brapp.T
 // ── settings singleton ──────────────────────────────────────────────────────
 
 const brSettingsColumns = `mode,chrome_path,edge_path,extension_port,allowlist_json,
-	data_retention_days,block_private_networks,updated_at`
+	data_retention_days,block_private_networks,updated_at,revision,apply_status,apply_error`
 
 func scanBrSettings(s interface{ Scan(...any) error }) (brapp.Settings, error) {
 	var out brapp.Settings
 	var allowlist string
 	var block int
 	if err := s.Scan(&out.Mode, &out.ChromePath, &out.EdgePath, &out.ExtensionPort,
-		&allowlist, &out.DataRetentionDays, &block, &out.UpdatedAt); err != nil {
+		&allowlist, &out.DataRetentionDays, &block, &out.UpdatedAt, &out.Revision, &out.ApplyStatus, &out.ApplyError); err != nil {
 		return out, err
 	}
 	out.BlockPrivateNetwork = block == 1
@@ -57,7 +57,7 @@ func (t *agentRuntimeTx) GetBrSettings() (brapp.Settings, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		seed := brapp.Settings{
 			Mode: brapp.ModeBuiltin, ExtensionPort: 9222, Allowlist: []string{},
-			DataRetentionDays: 30, BlockPrivateNetwork: true,
+			DataRetentionDays: 30, BlockPrivateNetwork: true, Revision: 1, ApplyStatus: brapp.ApplyApplied,
 			UpdatedAt: time.Now().UTC().Format(time.RFC3339),
 		}
 		if err := t.PutBrSettings(seed); err != nil {
@@ -70,6 +70,12 @@ func (t *agentRuntimeTx) GetBrSettings() (brapp.Settings, error) {
 
 // PutBrSettings upserts the singleton row.
 func (t *agentRuntimeTx) PutBrSettings(s brapp.Settings) error {
+	if s.Revision < 1 {
+		s.Revision = 1
+	}
+	if s.ApplyStatus == "" {
+		s.ApplyStatus = brapp.ApplyApplied
+	}
 	allowlist, err := json.Marshal(s.Allowlist)
 	if err != nil {
 		return t.fail(err)
@@ -79,16 +85,34 @@ func (t *agentRuntimeTx) PutBrSettings(s brapp.Settings) error {
 		block = 1
 	}
 	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO br_settings
-		(id,mode,chrome_path,edge_path,extension_port,allowlist_json,data_retention_days,block_private_networks,updated_at)
-		VALUES(1,?,?,?,?,?,?,?,?)
+		(id,mode,chrome_path,edge_path,extension_port,allowlist_json,data_retention_days,block_private_networks,updated_at,revision,apply_status,apply_error)
+		VALUES(1,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
 			mode=excluded.mode, chrome_path=excluded.chrome_path, edge_path=excluded.edge_path,
 			extension_port=excluded.extension_port, allowlist_json=excluded.allowlist_json,
 			data_retention_days=excluded.data_retention_days,
-			block_private_networks=excluded.block_private_networks, updated_at=excluded.updated_at`,
+			block_private_networks=excluded.block_private_networks, updated_at=excluded.updated_at,
+			revision=excluded.revision, apply_status=excluded.apply_status, apply_error=excluded.apply_error`,
 		s.Mode, s.ChromePath, s.EdgePath, s.ExtensionPort, string(allowlist),
-		s.DataRetentionDays, block, s.UpdatedAt)
+		s.DataRetentionDays, block, s.UpdatedAt, s.Revision, s.ApplyStatus, s.ApplyError)
 	return t.fail(err)
+}
+
+// CompareAndSwapBrSettings preserves edits from newer clients. Apply receipts
+// retain the intent revision; the next user edit always advances it.
+func (t *agentRuntimeTx) CompareAndSwapBrSettings(expected int64, s brapp.Settings) (bool, error) {
+	allowlist, err := json.Marshal(s.Allowlist)
+	if err != nil {
+		return false, t.fail(err)
+	}
+	result, err := t.tx.ExecContext(t.ctx, `UPDATE br_settings SET
+ mode=?,chrome_path=?,edge_path=?,extension_port=?,allowlist_json=?,data_retention_days=?,block_private_networks=?,updated_at=?,revision=?,apply_status=?,apply_error=? WHERE id=1 AND revision=?`,
+		s.Mode, s.ChromePath, s.EdgePath, s.ExtensionPort, string(allowlist), s.DataRetentionDays, s.BlockPrivateNetwork, s.UpdatedAt, s.Revision, s.ApplyStatus, s.ApplyError, expected)
+	if err != nil {
+		return false, t.fail(err)
+	}
+	n, err := result.RowsAffected()
+	return n == 1, t.fail(err)
 }
 
 // ── sessions ────────────────────────────────────────────────────────────────

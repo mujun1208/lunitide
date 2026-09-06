@@ -25,10 +25,15 @@ var (
 // GetMemorySettings returns the subject profile, or the implicit defaults
 // when no row exists (settings are lazily materialized on first update).
 func (s *Store) GetMemorySettings(ctx context.Context, subjectID string) (m8core.MemorySettings, error) {
-	var enabled, auto int
-	var growthDays int
+	return getMemorySettings(ctx, s.db, subjectID)
+}
+
+func getMemorySettings(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, subjectID string) (m8core.MemorySettings, error) {
+	var enabled, auto, growthDays int
 	var created, updated string
-	err := s.db.QueryRowContext(ctx,
+	err := q.QueryRowContext(ctx,
 		`SELECT memory_enabled, auto_nominate, growth_days, created_at, updated_at FROM memory_settings WHERE subject_id=?`,
 		subjectID).Scan(&enabled, &auto, &growthDays, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -42,21 +47,59 @@ func (s *Store) GetMemorySettings(ctx context.Context, subjectID string) (m8core
 
 // UpsertMemorySettings inserts or refreshes the subject profile.
 func (s *Store) UpsertMemorySettings(ctx context.Context, settings m8core.MemorySettings) error {
-	now := formatTime(time.Now().UTC())
-	created := now
-	if existing, err := s.GetMemorySettings(ctx, settings.SubjectID); err == nil && existing.CreatedAt != "" {
-		created = existing.CreatedAt
+	existing, err := s.GetMemorySettings(ctx, settings.SubjectID)
+	if err != nil {
+		return err
 	}
-	return s.execWithAudit(ctx, "memory.settings.update", settings.SubjectID, "renderer",
+	_, err = s.CompareAndSwapMemorySettings(ctx, settings, m8core.SettingsVersion(existing))
+	return err
+}
+
+// CompareAndSwapMemorySettings checks the actual row and writes its next version
+// under the same SQLite writer transaction as the audit event.
+func (s *Store) CompareAndSwapMemorySettings(ctx context.Context, settings m8core.MemorySettings, expected string) (m8core.MemorySettings, error) {
+	if !m8core.SettingsValidate(settings) {
+		return m8core.MemorySettings{}, errors.New("invalid memory settings")
+	}
+	var out m8core.MemorySettings
+	err := s.execWithAudit(ctx, "memory.settings.update", settings.SubjectID, "renderer",
 		map[string]any{"memoryEnabled": settings.MemoryEnabled, "autoNominate": settings.AutoNominate, "growthDays": settings.GrowthDays},
 		func(tx *sql.Tx) error {
-			_, err := tx.ExecContext(ctx,
-				`INSERT INTO memory_settings(subject_id, memory_enabled, auto_nominate, growth_days, created_at, updated_at)
-				 VALUES(?,?,?,?,?,?)
-				 ON CONFLICT(subject_id) DO UPDATE SET memory_enabled=excluded.memory_enabled, auto_nominate=excluded.auto_nominate, growth_days=excluded.growth_days, updated_at=excluded.updated_at`,
-				settings.SubjectID, boolInt(settings.MemoryEnabled), boolInt(settings.AutoNominate), settings.GrowthDays, created, now)
+			existing, err := getMemorySettings(ctx, tx, settings.SubjectID)
+			if err != nil {
+				return err
+			}
+			if expected == "" || expected != m8core.SettingsVersion(existing) {
+				return m8core.ErrSettingsConflict
+			}
+			now := time.Now().UTC()
+			if existing.UpdatedAt != "" {
+				prior, err := time.Parse(time.RFC3339Nano, existing.UpdatedAt)
+				if err != nil {
+					return err
+				}
+				if !now.After(prior) {
+					now = prior.Add(time.Nanosecond)
+				}
+			}
+			settings.CreatedAt = existing.CreatedAt
+			settings.UpdatedAt = formatTime(now)
+			if settings.CreatedAt == "" {
+				settings.CreatedAt = settings.UpdatedAt
+			}
+			_, err = tx.ExecContext(ctx,
+				`INSERT INTO memory_settings(subject_id,memory_enabled,auto_nominate,growth_days,created_at,updated_at) VALUES(?,?,?,?,?,?)
+     ON CONFLICT(subject_id) DO UPDATE SET memory_enabled=excluded.memory_enabled,auto_nominate=excluded.auto_nominate,growth_days=excluded.growth_days,updated_at=excluded.updated_at`,
+				settings.SubjectID, boolInt(settings.MemoryEnabled), boolInt(settings.AutoNominate), settings.GrowthDays, settings.CreatedAt, settings.UpdatedAt)
+			if err == nil {
+				out = settings
+			}
 			return err
 		})
+	if err != nil {
+		return m8core.MemorySettings{}, err
+	}
+	return out, nil
 }
 
 func boolInt(v bool) int {

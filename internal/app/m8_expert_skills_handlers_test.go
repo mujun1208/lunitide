@@ -32,7 +32,8 @@ func TestExpertSkillsGetSetThroughBridge(t *testing.T) {
 		t.Fatalf("expert.create: %+v", created.Error)
 	}
 	var createdPayload struct {
-		ExpertID string `json:"expertId"`
+		ExpertID  string `json:"expertId"`
+		VersionID string `json:"versionId"`
 	}
 	if err := json.Unmarshal(mustJSON(created.Payload), &createdPayload); err != nil {
 		t.Fatal(err)
@@ -44,7 +45,7 @@ func TestExpertSkillsGetSetThroughBridge(t *testing.T) {
 	if string(mustJSON(got.Payload)) == "" || !jsonHasSkillKey(mustJSON(got.Payload), "web-researcher") {
 		t.Fatalf("skills.get payload = %s", mustJSON(got.Payload))
 	}
-	setReq := nominationRequest("expert.skills.set", `{"expertId":"`+createdPayload.ExpertID+`","skillKeys":["slide-builder"]}`)
+	setReq := nominationRequest("expert.skills.set", `{"expertId":"`+createdPayload.ExpertID+`","expectedVersionId":"`+createdPayload.VersionID+`","skillKeys":["slide-builder"]}`)
 	setReq.IdempotencyKey = "expert-skills-set-1"
 	set := e.Handle(ctx, setReq)
 	if !set.OK {

@@ -26,6 +26,15 @@ func testMeetings(t *testing.T) *meetings.Service {
 	return meetings.New(store)
 }
 
+func meetingRevision(t *testing.T, svc *meetings.Service, id string) int64 {
+	t.Helper()
+	m, err := svc.Get(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m.Revision
+}
+
 func TestStartAppendStopSummarizeAndExport(t *testing.T) {
 	svc := testMeetings(t)
 	svc.SetCompleter(func(ctx context.Context, title, transcript string) (meetings.Notes, error) {
@@ -194,7 +203,8 @@ func TestUpdateAndDeleteMeeting(t *testing.T) {
 	actions := "- 新待办"
 	transcript := "改过的稿"
 	updated, err := svc.Update(ctx, started.MeetingID, meetings.MeetingPatch{
-		Summary: &summary, Actions: &actions, Transcript: &transcript,
+		ExpectedRevision: meetingRevision(t, svc, started.MeetingID),
+		Summary:          &summary, Actions: &actions, Transcript: &transcript,
 	})
 	if err != nil || updated.Summary != summary || updated.Actions != actions || updated.Transcript != transcript {
 		t.Fatalf("update = %#v %v", updated, err)
@@ -207,7 +217,7 @@ func TestUpdateAndDeleteMeeting(t *testing.T) {
 	if err != nil || !strings.Contains(string(body), "改过的摘要") || !strings.Contains(string(body), "新待办") {
 		t.Fatalf("export = %s %v", body, err)
 	}
-	if err := svc.Delete(ctx, started.MeetingID); err != nil {
+	if err := svc.Delete(ctx, started.MeetingID, meetingRevision(t, svc, started.MeetingID)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.Get(ctx, started.MeetingID); err != meetings.ErrNotFound {
@@ -569,7 +579,7 @@ func TestManyAppendsAndDeleteRemovesAudio(t *testing.T) {
 	if files, _ := filepath.Glob(filepath.Join(dir, "chunk_*.wav")); len(files) == 0 {
 		t.Fatal("audio missing before delete")
 	}
-	if err := svc.Delete(ctx, started.MeetingID); err != nil {
+	if err := svc.Delete(ctx, started.MeetingID, meetingRevision(t, svc, started.MeetingID)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {

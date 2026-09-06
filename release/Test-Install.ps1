@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][string]$Installer,[Parameter(Mandatory)][string]$ExpectedVersion,[Parameter(Mandatory)][string]$ExpectedInstallerHash,[string]$TestRoot,[string]$InstallDirectory,[string]$ExpectedSignerThumbprint,[switch]$AllowUnsignedDevelopment)
 $ErrorActionPreference='Stop'; . (Join-Path $PSScriptRoot 'Resolve-SignTool.ps1'); $Installer=(Resolve-Path $Installer).Path
+. (Join-Path $PSScriptRoot 'Release-Safety.ps1')
 if($ExpectedInstallerHash -notmatch '\A[0-9A-Fa-f]{64}\z'){throw 'Expected installer SHA-256 must be exactly 64 hexadecimal characters'}
 if(-not $AllowUnsignedDevelopment){
   if($ExpectedSignerThumbprint -notmatch '\A[0-9A-Fa-f]{40}\z'){throw 'Signed acceptance requires an exact publisher thumbprint'}
@@ -13,7 +14,9 @@ function Wait-Until([scriptblock]$Condition,[string]$Failure,[int]$TimeoutSecond
   do { if(& $Condition){return}; Start-Sleep -Milliseconds 250 } while([DateTime]::UtcNow -lt $deadline)
   throw $Failure
 }
-if(-not $TestRoot){$TestRoot=Join-Path ([IO.Path]::GetTempPath()) ('lunitide-install-test-'+[guid]::NewGuid().ToString('N'))}
+if(-not $TestRoot){$TestRoot=[IO.Path]::GetTempPath()}
+$testParent=[IO.Path]::GetFullPath($TestRoot)
+$TestRoot=Assert-ReleaseChildPath (Join-Path $testParent ('lunitide-install-test-'+[guid]::NewGuid().ToString('N'))) $testParent
 $appid='Lunitide.Desktop.7A565D82-936E-4E06-962D-83B5DD24E53C'
 $uninstallKey="HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$appid"
 if(Test-Path $uninstallKey){throw 'Refusing to overwrite an existing Lunitide uninstall registration; use a disposable Windows account'}
@@ -24,6 +27,8 @@ if(Test-Path $data){throw 'Refusing to touch existing Lunitide user data; run ac
 $install=if($InstallDirectory){[IO.Path]::GetFullPath($InstallDirectory).TrimEnd('\')}else{Join-Path $profileLocalAppData 'Programs\Lunitide'}
 if(-not [IO.Path]::IsPathRooted($install) -or $install -notmatch '^[A-Za-z]:\\' -or (New-Object IO.DriveInfo ([IO.Path]::GetPathRoot($install))).DriveType -ne [IO.DriveType]::Fixed){throw 'InstallDirectory must be an absolute path on a local fixed drive'}
 if(Test-Path $install){throw 'Refusing to overwrite an existing Lunitide installation; use a disposable Windows account'}
+Assert-NoReleaseReparsePoint $install
+Assert-NoReleaseReparsePoint $data
 $ownsData=$false; $ownsInstall=$false
 try {
   New-Item $TestRoot -ItemType Directory -Force|Out-Null
@@ -32,8 +37,8 @@ try {
 	# The interactive directory picker commonly creates the selected folder.
 	# An existing empty target must be accepted as a fresh installation.
 	New-Item $install -ItemType Directory -Force|Out-Null; $ownsInstall=$true
-	Assert-InstallerHash; $p=Start-Process $Installer -ArgumentList @('/S',"/D=$install") -Wait -PassThru; if($p.ExitCode){throw "empty-directory install failed: $($p.ExitCode); see $profileLocalAppData\LunitideInstaller\Logs\install-latest.log"}; $p.Dispose()
-	$p=Start-Process (Join-Path $install 'Uninstall.exe') -ArgumentList '/S' -Wait -PassThru; if($p.ExitCode){throw "empty-directory setup cleanup failed: $($p.ExitCode)"}; $p.Dispose()
+	Assert-InstallerHash; $p=Start-Process -WindowStyle Hidden $Installer -ArgumentList @('/S',"/D=$install") -Wait -PassThru; if($p.ExitCode){throw "empty-directory install failed: $($p.ExitCode); see $profileLocalAppData\LunitideInstaller\Logs\install-latest.log"}; $p.Dispose()
+	$p=Start-Process -WindowStyle Hidden (Join-Path $install 'Uninstall.exe') -ArgumentList '/S' -Wait -PassThru; if($p.ExitCode){throw "empty-directory setup cleanup failed: $($p.ExitCode)"}; $p.Dispose()
 	Wait-Until { -not(Test-Path $install) } 'empty-directory setup cleanup did not finish within the timeout'
 	New-Item $install -ItemType Directory -Force|Out-Null; $ownsInstall=$true; Set-Content $marker 'retain'
   # Seed an owned legacy layout with a stale canary and no modern ownership file.
@@ -41,13 +46,14 @@ try {
   New-Item $uninstallKey -Force|Out-Null
   Set-ItemProperty $uninstallKey InstallLocation $install
   Set-ItemProperty $uninstallKey DisplayVersion '0.0.1'
-  Assert-InstallerHash; $p=Start-Process $Installer -ArgumentList @('/S',"/D=$install") -Wait -PassThru; if($p.ExitCode){throw "install failed: $($p.ExitCode); see $profileLocalAppData\LunitideInstaller\Logs\install-latest.log"}; $p.Dispose()
+  Assert-InstallerHash; $p=Start-Process -WindowStyle Hidden $Installer -ArgumentList @('/S',"/D=$install") -Wait -PassThru; if($p.ExitCode){throw "install failed: $($p.ExitCode); see $profileLocalAppData\LunitideInstaller\Logs\install-latest.log"}; $p.Dispose()
   if(Test-Path (Join-Path $install 'stale-electron-canary.dll')){throw 'upgrade retained a stale old-release file'}
   $installParent=Split-Path $install -Parent
   if(Get-ChildItem $installParent -Directory -Filter 'Lunitide.backup.*' -ErrorAction SilentlyContinue){throw 'upgrade retained a backup release directory'}
   if(Get-ChildItem $installParent -Directory -Filter 'Lunitide.installing.*' -ErrorAction SilentlyContinue){throw 'upgrade retained a staging directory'}
   if(-not(Test-Path (Join-Path $install 'Lunitide.exe'))){throw 'installed desktop missing'}
   if(-not(Test-Path (Join-Path $install 'purge-user-data.exe'))){throw 'installed purge helper missing'}
+  if(-not(Test-Path (Join-Path $install 'lunitide-maintenance.exe'))){throw 'installed maintenance helper missing'}
   if((Get-Content $owner -Raw) -cne $appid){throw 'installation ownership marker is missing or invalid'}
   if((Get-ItemProperty $uninstallKey).DisplayVersion -cne $ExpectedVersion){throw 'installed DisplayVersion does not match the expected release version'}
   & (Join-Path $PSScriptRoot 'Verify-Layout.ps1') -Stage $install -Version $ExpectedVersion -VerifyManifest -Installed -ExpectedSignerThumbprint $ExpectedSignerThumbprint
@@ -61,21 +67,21 @@ try {
   if((Get-ItemProperty $uninstallKey).UninstallString -ne ('"'+(Join-Path $install 'Uninstall.exe')+'"')){throw 'uninstall registration does not match the selected directory'}
   if(-not(Test-Path (Join-Path $profileAppData 'Microsoft\Windows\Start Menu\Programs\Lunitide\Lunitide.lnk'))){throw 'Start Menu shortcut missing'}
   Set-Content $owner 'not-the-appid' -NoNewline
-  $p=Start-Process (Join-Path $install 'Uninstall.exe') -ArgumentList '/S' -Wait -PassThru
+  $p=Start-Process -WindowStyle Hidden (Join-Path $install 'Uninstall.exe') -ArgumentList '/S' -Wait -PassThru
   $p.Dispose()
   $uninstallLog=Join-Path $profileLocalAppData 'LunitideInstaller\Logs\uninstall-latest.log'
   if(-not(Test-Path $uninstallLog) -or (Get-Content $uninstallLog -Raw) -notmatch 'code=U110 phase=ownership'){throw 'invalid-owner uninstall did not record the expected U110 refusal'}
   if(-not(Test-Path (Join-Path $install 'Lunitide.exe'))){throw 'uninstaller deleted files despite an invalid ownership marker'}
   Set-Content $owner $appid -NoNewline
-  $p=Start-Process (Join-Path $install 'Uninstall.exe') -ArgumentList '/S' -Wait -PassThru; if($p.ExitCode){throw "retain uninstall failed: $($p.ExitCode)"}; $p.Dispose()
+  $p=Start-Process -WindowStyle Hidden (Join-Path $install 'Uninstall.exe') -ArgumentList '/S' -Wait -PassThru; if($p.ExitCode){throw "retain uninstall failed: $($p.ExitCode)"}; $p.Dispose()
   Wait-Until { -not(Test-Path $install) } 'retain uninstall did not finish within the timeout'
   if(-not(Test-Path $marker)){throw 'default uninstall did not retain data'}
   if(Test-Path $uninstallKey){throw 'uninstall registry key survived'}
   if(Test-Path $install){throw 'default uninstall retained installation files'}
   if(Test-Path (Join-Path $profileAppData 'Microsoft\Windows\Start Menu\Programs\Lunitide')){throw 'default uninstall retained Start Menu shortcuts'}
   [GC]::Collect(); [GC]::WaitForPendingFinalizers()
-  Assert-InstallerHash; $p=Start-Process $Installer -ArgumentList @('/S',"/D=$install") -Wait -PassThru; if($p.ExitCode){throw "reinstall failed: $($p.ExitCode)"}; $p.Dispose()
-  $p=Start-Process (Join-Path $install 'Uninstall.exe') -ArgumentList '/S /PURGE' -Wait -PassThru; if($p.ExitCode){throw "purge uninstall failed: $($p.ExitCode)"}; $p.Dispose()
+  Assert-InstallerHash; $p=Start-Process -WindowStyle Hidden $Installer -ArgumentList @('/S',"/D=$install") -Wait -PassThru; if($p.ExitCode){throw "reinstall failed: $($p.ExitCode)"}; $p.Dispose()
+  $p=Start-Process -WindowStyle Hidden (Join-Path $install 'Uninstall.exe') -ArgumentList '/S /PURGE' -Wait -PassThru; if($p.ExitCode){throw "purge uninstall failed: $($p.ExitCode)"}; $p.Dispose()
   Wait-Until { -not(Test-Path $install) -and -not(Test-Path $marker) } 'purge uninstall did not finish within the timeout'
   if(Test-Path $marker){throw 'explicit purge retained data'}
   if(Test-Path $install){throw 'purge uninstall retained installation files'}
@@ -90,9 +96,10 @@ try {
     $ownedMarker=Join-Path $install '.lunitide-install-owner'
     $legacyOwned=(Test-Path $uninstallKey) -and ((Get-ItemProperty $uninstallKey -ErrorAction SilentlyContinue).InstallLocation -eq $install)
     $modernOwned=(Test-Path $ownedMarker) -and ((Get-Content $ownedMarker -Raw).Trim() -ceq $appid)
-    if($legacyOwned -or $modernOwned){Remove-Item $install -Recurse -Force -ErrorAction SilentlyContinue}
+    if($legacyOwned -or $modernOwned){Assert-NoReleaseReparsePoint $install -Tree; Remove-Item -LiteralPath $install -Recurse -Force -ErrorAction SilentlyContinue}
   }
   Remove-Item $uninstallKey -Recurse -Force -ErrorAction SilentlyContinue
-  if($ownsData){Remove-Item $data -Recurse -Force -ErrorAction SilentlyContinue}
-  Remove-Item $TestRoot -Recurse -Force -ErrorAction SilentlyContinue
+  if($ownsData){Assert-NoReleaseReparsePoint $data -Tree; Remove-Item -LiteralPath $data -Recurse -Force -ErrorAction SilentlyContinue}
+  $null=Assert-ReleaseChildPath $TestRoot $testParent
+  Remove-Item -LiteralPath $TestRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

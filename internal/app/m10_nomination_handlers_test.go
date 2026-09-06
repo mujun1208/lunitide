@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/domain/m8core"
 	"github.com/lunitide/lunitide/internal/m8app"
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
 )
@@ -35,7 +36,7 @@ func nominationRequest(method, payload string) bridge.Request {
 	return bridge.Request{Version: bridge.Version, Kind: "request", ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", TraceID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Method: method, SentAt: time.Now().UTC(), Payload: json.RawMessage(payload), DeadlineMS: 3000}
 }
 
-const nominatePayload = `{"subjectId":"user-1","payload":{"content":"prefer Go examples","scopeId":"scope-1","sensitivity":"private","leaves":[{"jsonPointer":"/content","evidenceRef":"artifact://run-1/evidence-a","digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]},"reason":"asked for Go three times","sourceSessionId":"01ARZ3NDEKTSV4RRFFQ69G5FAV"}`
+const nominatePayload = `{"subjectId":"local-user","payload":{"content":"prefer Go examples","scopeId":"scope-1","sensitivity":"private","leaves":[{"jsonPointer":"/content","evidenceRef":"artifact://run-1/evidence-a","digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]},"reason":"asked for Go three times","sourceSessionId":"01ARZ3NDEKTSV4RRFFQ69G5FAV"}`
 
 func TestNominationLifecycleThroughBridge(t *testing.T) {
 	e := newNominationEngine(t)
@@ -142,5 +143,37 @@ func TestNominationServiceUnavailable(t *testing.T) {
 		if resp.OK || resp.Error.Code != "STORAGE_UNAVAILABLE" {
 			t.Fatalf("%s unwired = %+v, want STORAGE_UNAVAILABLE", method, resp.Error)
 		}
+	}
+}
+
+func TestNominationBridgeEnforcesOwner(t *testing.T) {
+	e := newNominationEngine(t)
+	ctx := context.Background()
+	foreign := strings.Replace(nominatePayload, "local-user", "foreign", 1)
+	denied := e.Handle(ctx, nominationRequest("memory.nominate", foreign))
+	if denied.OK || denied.Error.Code != "M8-009" {
+		t.Fatalf("foreign nomination: %+v", denied)
+	}
+	var input struct {
+		Payload m8core.PayloadDoc `json:"payload"`
+	}
+	if err := json.Unmarshal([]byte(nominatePayload), &input); err != nil {
+		t.Fatal(err)
+	}
+	seeded, err := e.m10nomination.Nominate(ctx, m8app.NominateInput{SubjectID: "foreign", Doc: input.Payload, Reason: "foreign secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := e.Handle(ctx, nominationRequest("memory.nomination.list", `{"state":"nominated","limit":1}`))
+	if !listed.OK || strings.Contains(string(mustJSON(listed.Payload)), "foreign secret") {
+		t.Fatalf("foreign list: %+v", listed)
+	}
+	confirm := e.Handle(ctx, nominationRequest("memory.confirmCandidate", `{"candidateId":"`+seeded.CandidateID+`","confirmationToken":"`+seeded.ConfirmToken+`","action":"confirm","requestId":"owner"}`))
+	if confirm.OK || confirm.Error.Code != "M8-001" {
+		t.Fatalf("foreign confirm: %+v", confirm)
+	}
+	withdrawn := e.Handle(ctx, nominationRequest("memory.nomination.withdraw", `{"nominationId":"`+seeded.Nomination.NominationID+`"}`))
+	if withdrawn.OK || withdrawn.Error.Code != "M10-ME-001" {
+		t.Fatalf("foreign withdraw: %+v", withdrawn)
 	}
 }

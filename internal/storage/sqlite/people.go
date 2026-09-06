@@ -135,7 +135,9 @@ func (s *Store) InsertThread(ctx context.Context, t people.Thread, memberIDs []s
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO people_threads(thread_id, kind, title, owner_subject_id, created_at, updated_at) VALUES(?,?,?,?,?,?)`, t.ThreadID, t.Kind, t.Title, t.OwnerID, t.CreatedAt, t.UpdatedAt); err != nil {
+	// Conflicting identities must never turn thread creation into a membership
+	// update. A racing duplicate can retry after reading the authoritative row.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO people_threads(thread_id, kind, title, owner_subject_id, created_at, updated_at) VALUES(?,?,?,?,?,?)`, t.ThreadID, t.Kind, t.Title, t.OwnerID, t.CreatedAt, t.UpdatedAt); err != nil {
 		return err
 	}
 	for _, id := range memberIDs {
@@ -151,20 +153,18 @@ func (s *Store) InsertThread(ctx context.Context, t people.Thread, memberIDs []s
 }
 
 func (s *Store) ListPeopleMessages(ctx context.Context, threadID string, limit int) ([]people.Message, error) {
-	if limit < 1 {
+	if limit < 1 || limit > 1000 {
 		limit = 200
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT m.message_id, m.thread_id, m.sender_subject_id, m.kind, m.body, m.file_name, m.file_mime, m.file_size, m.file_sha256, m.created_at, COALESCE(o.offer_id,''), COALESCE(o.status,''), COALESCE(NULLIF(o.dest_path,''), COALESCE(o.staging_path,''))
-		FROM people_messages m LEFT JOIN people_file_offers o ON o.message_id=m.message_id
-		WHERE m.thread_id=? ORDER BY m.created_at ASC, m.message_id ASC LIMIT ?`, threadID, limit)
+	rows, err := s.db.QueryContext(ctx, peopleMessageSelect+` WHERE m.message_id IN (SELECT message_id FROM people_messages WHERE thread_id=? ORDER BY created_at DESC,message_id DESC LIMIT ?) ORDER BY m.created_at,m.message_id`, threadID, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var items []people.Message
 	for rows.Next() {
-		var m people.Message
-		if err := rows.Scan(&m.MessageID, &m.ThreadID, &m.SenderID, &m.Kind, &m.Body, &m.FileName, &m.FileMIME, &m.FileSize, &m.FileSHA256, &m.CreatedAt, &m.OfferID, &m.OfferStatus, &m.DestPath); err != nil {
+		m, err := scanPeopleMessage(rows)
+		if err != nil {
 			return nil, err
 		}
 		items = append(items, m)
@@ -179,29 +179,34 @@ func (s *Store) HasPeopleMessage(ctx context.Context, messageID string) (bool, e
 }
 
 func (s *Store) InsertMessage(ctx context.Context, m people.Message, offer *people.FileOffer) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	res, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO people_messages(message_id, thread_id, sender_subject_id, kind, body, file_name, file_mime, file_size, file_sha256, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+	return s.do(ctx, func(t *txAdapter) error { return t.insertPeopleMessage(ctx, m, offer) })
+}
+func (t *txAdapter) insertPeopleMessage(ctx context.Context, m people.Message, offer *people.FileOffer) error {
+	res, err := t.q.ExecContext(ctx, `INSERT INTO people_messages(message_id, thread_id, sender_subject_id, kind, body, file_name, file_mime, file_size, file_sha256, created_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(message_id) DO NOTHING`,
 		m.MessageID, m.ThreadID, m.SenderID, m.Kind, m.Body, m.FileName, m.FileMIME, m.FileSize, m.FileSHA256, m.CreatedAt)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return tx.Commit()
+		saved, err := scanPeopleMessage(t.q.QueryRowContext(ctx, peopleMessageSelect+` WHERE m.message_id=?`, m.MessageID))
+		if err != nil {
+			return err
+		}
+		if saved.ThreadID != m.ThreadID || saved.SenderID != m.SenderID || saved.Kind != m.Kind || saved.Body != m.Body || saved.FileSHA256 != m.FileSHA256 || saved.FileSize != m.FileSize || saved.FileName != m.FileName || saved.FileMIME != m.FileMIME || saved.CreatedAt != m.CreatedAt {
+			return people.ErrInvalid
+		}
+		return nil
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE people_threads SET updated_at=? WHERE thread_id=?`, m.CreatedAt, m.ThreadID); err != nil {
+	if _, err := t.q.ExecContext(ctx, `UPDATE people_threads SET updated_at=MAX(updated_at,?) WHERE thread_id=?`, m.CreatedAt, m.ThreadID); err != nil {
 		return err
 	}
 	if offer != nil {
-		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO people_file_offers(offer_id, message_id, thread_id, from_subject_id, to_subject_id, status, file_name, file_mime, file_size, file_sha256, staging_path, dest_path, created_at, decided_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		if _, err := t.q.ExecContext(ctx, `INSERT INTO people_file_offers(offer_id, message_id, thread_id, from_subject_id, to_subject_id, status, file_name, file_mime, file_size, file_sha256, staging_path, dest_path, created_at, decided_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			offer.OfferID, offer.MessageID, offer.ThreadID, offer.FromID, offer.ToID, offer.Status, offer.FileName, offer.FileMIME, offer.FileSize, offer.FileSHA256, offer.StagingPath, "", offer.CreatedAt, ""); err != nil {
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (s *Store) GetOffer(ctx context.Context, offerID string) (people.FileOffer, error) {
@@ -263,12 +268,8 @@ func scanContact(row rowScanner) (people.Contact, error) {
 }
 
 func (s *Store) lastMessage(ctx context.Context, threadID string) (*people.Message, error) {
-	var m people.Message
-	err := s.db.QueryRowContext(ctx, `SELECT m.message_id, m.thread_id, m.sender_subject_id, m.kind, m.body, m.file_name, m.file_mime, m.file_size, m.file_sha256, m.created_at, COALESCE(o.offer_id,''), COALESCE(o.status,''), COALESCE(NULLIF(o.dest_path,''), COALESCE(o.staging_path,''))
-		FROM people_messages m LEFT JOIN people_file_offers o ON o.message_id=m.message_id
-		WHERE m.thread_id=? ORDER BY m.created_at DESC, m.message_id DESC LIMIT 1`, threadID).Scan(
-		&m.MessageID, &m.ThreadID, &m.SenderID, &m.Kind, &m.Body, &m.FileName, &m.FileMIME, &m.FileSize, &m.FileSHA256, &m.CreatedAt, &m.OfferID, &m.OfferStatus, &m.DestPath)
-	if errors.Is(err, sql.ErrNoRows) {
+	m, err := scanPeopleMessage(s.db.QueryRowContext(ctx, peopleMessageSelect+` WHERE m.thread_id=? ORDER BY m.created_at DESC,m.message_id DESC LIMIT 1`, threadID))
+	if errors.Is(err, people.ErrNotFound) {
 		return nil, nil
 	}
 	if err != nil {

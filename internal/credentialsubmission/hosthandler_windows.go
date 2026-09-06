@@ -23,12 +23,15 @@ type EngineCaller interface {
 	Call(context.Context, bridge.Request) (bridge.Response, error)
 }
 type HostHandler struct {
-	Coordinator *Coordinator
-	Engine      EngineCaller
-	Secrets     secret.Service
-	Confirmer   RevealConfirmer
-	cleanupOnce sync.Once
-	cleanupWake chan struct{}
+	Coordinator      *Coordinator
+	Engine           EngineCaller
+	Secrets          secret.Service
+	Confirmer        RevealConfirmer
+	cleanupOnce      sync.Once
+	cleanupWake      chan struct{}
+	mcpMu            sync.Mutex
+	mcpCleanupCursor string
+	McpConfirm       func(context.Context, RevealTarget, string, bool) (bool, error)
 }
 
 type submitPayload struct {
@@ -43,6 +46,9 @@ type submitPayload struct {
 }
 
 func (h *HostHandler) HandleHost(ctx context.Context, r bridge.Request) bridge.Response {
+	if r.Method == "mcp.credential.set" {
+		return h.setMcpCredential(ctx, r)
+	}
 	if h.Coordinator == nil {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_METHOD_NOT_ALLOWED", "请求的方法不在白名单中", false)
 	}
@@ -228,6 +234,9 @@ func (h *HostHandler) StartCleanupWorker(ctx context.Context) {
 				drainCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 				err := h.Coordinator.CleanupExpired(drainCtx)
 				if cleanupErr := h.DrainCleanup(drainCtx); err == nil {
+					err = cleanupErr
+				}
+				if cleanupErr := h.ReconcileMcpCredentials(drainCtx); err == nil {
 					err = cleanupErr
 				}
 				cancel()

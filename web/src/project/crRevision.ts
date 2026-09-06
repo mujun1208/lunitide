@@ -10,7 +10,7 @@ export function crIdForProject(project: ProjectDTO): string {
   return `CR-${project.projectCode}`
 }
 
-export type CrMember = { name: string; size: number; sha256: string }
+export type CrMember = { name: string; sha256: string }
 
 export async function collectCrMembers(
   project: ProjectDTO,
@@ -27,8 +27,10 @@ export async function collectCrMembers(
     for (const type of entry.types) {
       const item = list.items.find(i => i.documentType === type)
       if (!item) continue
-      const digest = (item.digest || '').padEnd(64, '0').slice(0, 64)
-      members.push({ name: `${type}.json`, size: 1024, sha256: /^[0-9a-f]{64}$/.test(digest) ? digest : '0'.repeat(64) })
+      if (!['approved', 'immutable'].includes(item.status) || !/^[0-9a-f]{64}$/.test(item.digest || '')) continue
+      // Size is derived when the server reads the approved source for the
+      // immutable revision. This view only previews the recorded digest.
+      members.push({ name: `${type}.json`, sha256: item.digest! })
     }
   }
   return members
@@ -40,7 +42,10 @@ export async function createProjectCrRevision(
   deliverables: DeliverableBridge,
   release: ReleaseBridge = releaseBridge,
 ): Promise<{ crRevisionId: string; revisionNo: number; digest: string }> {
+  // Read readiness for a useful local error. Source bytes, sizes, hashes and
+  // inventory are always reconstructed by the server inside its transaction.
   const members = await collectCrMembers(project, deliverables)
+  if (members.length !== 3) throw new Error('请先批准数据库、接口和开发清单的真实交付文件')
   const payload = {
     crId: crIdForProject(project),
     manifest: {
@@ -48,7 +53,6 @@ export async function createProjectCrRevision(
       summary,
       projectId: project.id,
       projectCode: project.projectCode,
-      members: members.length ? members : [{ name: 'manifest.stub', size: 1, sha256: '0'.repeat(64) }],
     },
     requestId: `cr-${project.id}-${Date.now()}`,
   }

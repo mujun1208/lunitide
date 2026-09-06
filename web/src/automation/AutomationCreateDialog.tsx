@@ -4,6 +4,7 @@ import { scheduleToCron, delayAtCron, datetimeLocalToAtCron, atCronToDatetimeLoc
 
 export type AutomationDraft = {
   id?: string
+  expectedRevision?: string
   name: string
   cron: string
   prompt: string

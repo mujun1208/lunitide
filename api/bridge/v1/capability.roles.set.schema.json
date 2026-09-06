@@ -18,7 +18,14 @@
         "properties": {
           "role": {
             "type": "string",
-            "enum": ["chat", "flash", "vision", "embed", "judge", "gui"]
+            "enum": [
+              "chat",
+              "flash",
+              "vision",
+              "embed",
+              "judge",
+              "gui"
+            ]
           },
           "providerId": {
             "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
@@ -32,11 +39,20 @@
             "type": "boolean"
           }
         },
-        "required": ["role"]
+        "required": [
+          "role"
+        ]
       }
+    },
+    "expectedRevision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
     }
   },
-  "required": ["roles"],
+  "required": [
+    "roles",
+    "expectedRevision"
+  ],
   "x-result": {
     "type": "object",
     "additionalProperties": false,
@@ -51,7 +67,14 @@
           "properties": {
             "role": {
               "type": "string",
-              "enum": ["chat", "flash", "vision", "embed", "judge", "gui"]
+              "enum": [
+                "chat",
+                "flash",
+                "vision",
+                "embed",
+                "judge",
+                "gui"
+              ]
             },
             "providerId": {
               "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
@@ -65,23 +88,58 @@
               "type": "boolean"
             }
           },
-          "required": ["role", "allowJudgeEqChat"]
+          "required": [
+            "role",
+            "allowJudgeEqChat"
+          ]
         }
+      },
+      "revision": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "appliedRevision": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "state": {
+        "type": "string",
+        "enum": [
+          "applied"
+        ]
       }
     },
-    "required": ["roles"]
+    "required": [
+      "roles",
+      "revision",
+      "appliedRevision",
+      "state"
+    ]
   },
   "x-examples": {
     "positive": [
       {
         "roles": [
-          {"role": "chat"},
-          {"role": "flash"},
-          {"role": "vision"},
-          {"role": "embed"},
-          {"role": "judge"},
-          {"role": "gui"}
-        ]
+          {
+            "role": "chat"
+          },
+          {
+            "role": "flash"
+          },
+          {
+            "role": "vision"
+          },
+          {
+            "role": "embed"
+          },
+          {
+            "role": "judge"
+          },
+          {
+            "role": "gui"
+          }
+        ],
+        "expectedRevision": "0000000000000000000000000000000000000000000000000000000000000000"
       }
     ],
     "negative": [

@@ -1,0 +1,3 @@
+ok  	github.com/lunitide/lunitide/internal/meetings	9.855s
+ok  	github.com/lunitide/lunitide/internal/app	3.783s
+ok  	github.com/lunitide/lunitide/internal/storage/sqlite	3.443s

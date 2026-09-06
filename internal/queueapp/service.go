@@ -1,37 +1,32 @@
-// Package queueapp implements the M10 queued-input service (wave 2):
-// capacity/rate/idempotency gates around the durable 0074 queue. The
-// service never touches the chat pipeline — the renderer consumes the
-// queue after a stream settles and replays it as the next message.
+// Package queueapp implements admission and durable delivery of queued input.
+// The engine uses DeliveryStore receipts to prepare messages, start a turn,
+// and reconcile its outcome without losing input when a response is lost.
 package queueapp
 
 import (
 	"context"
 	"errors"
-	"time"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/domain/queueinput"
-	"github.com/lunitide/lunitide/internal/storage/sqlite"
 )
 
 // Service-level errors mapped by the Bridge handlers onto M10-QI codes.
 var (
 	ErrPayloadInvalid  = errors.New("queue payload invalid")
 	ErrSessionNotFound = errors.New("session not found")
-	ErrQueueFull       = errors.New("queue capacity reached")
-	ErrRateLimited     = errors.New("queue rate limited")
-	ErrNotFound        = errors.New("queued message not found")
-	ErrTerminalState   = errors.New("queued message already settled")
-	ErrRequestReused   = errors.New("request id already settled")
+	ErrQueueFull       = queueinput.ErrCapacity
+	ErrRateLimited     = queueinput.ErrRateLimited
+	ErrNotFound        = queueinput.ErrNotFound
+	ErrTerminalState   = queueinput.ErrSettled
+	ErrRequestReused   = queueinput.ErrRequestReused
 )
 
 // Store is the persistence surface the service needs (backed by *sqlite.Store).
 type Store interface {
 	SessionExists(ctx context.Context, sessionID string) (bool, error)
 	EnqueueQueuedMessage(ctx context.Context, sessionID, runID, payload, mark, requestID string) (queueinput.Message, error)
-	GetQueuedByRequest(ctx context.Context, sessionID, requestID string) (queueinput.Message, error)
-	CountQueued(ctx context.Context, sessionID string) (int, error)
-	CountQueuedSince(ctx context.Context, sessionID string, since time.Time) (int, error)
 	ListQueued(ctx context.Context, sessionID string) ([]queueinput.Message, error)
 	WithdrawQueuedMessage(ctx context.Context, sessionID, id string) (queueinput.Message, error)
 	ConsumeQueuedMessages(ctx context.Context, sessionID string) ([]queueinput.Message, error)
@@ -52,7 +47,7 @@ func (s *Service) Enqueue(ctx context.Context, sessionID, runID, payload, mark, 
 	if s == nil || s.store == nil {
 		return queueinput.Message{}, ErrSessionNotFound
 	}
-	if n := utf8.RuneCountInString(payload); n < 1 || n > queueinput.MaxPayloadChars {
+	if n := utf8.RuneCountInString(payload); n < 1 || n > queueinput.MaxPayloadChars || !utf8.ValidString(payload) || strings.ContainsRune(payload, 0) {
 		return queueinput.Message{}, ErrPayloadInvalid
 	}
 	if mark == "" {
@@ -68,24 +63,8 @@ func (s *Service) Enqueue(ctx context.Context, sessionID, runID, payload, mark, 
 	if !ok {
 		return queueinput.Message{}, ErrSessionNotFound
 	}
-	if existing, err := s.store.GetQueuedByRequest(ctx, sessionID, requestID); err != nil {
-		return queueinput.Message{}, err
-	} else if existing.ID != "" {
-		if existing.Status == queueinput.StatusQueued {
-			return existing, nil // idempotent replay
-		}
-		return queueinput.Message{}, ErrRequestReused
-	}
-	if n, err := s.store.CountQueued(ctx, sessionID); err != nil {
-		return queueinput.Message{}, err
-	} else if n >= queueinput.MaxQueuedPerSession {
-		return queueinput.Message{}, ErrQueueFull
-	}
-	if n, err := s.store.CountQueuedSince(ctx, sessionID, time.Now().UTC().Add(-time.Minute)); err != nil {
-		return queueinput.Message{}, err
-	} else if n >= queueinput.MaxPerMinute {
-		return queueinput.Message{}, ErrRateLimited
-	}
+	// Admission, complete-payload idempotency and quotas share the writer
+	// transaction; separate reads allow concurrent requests to bypass the limits.
 	return s.store.EnqueueQueuedMessage(ctx, sessionID, runID, payload, mark, requestID)
 }
 
@@ -102,14 +81,7 @@ func (s *Service) Withdraw(ctx context.Context, sessionID, id string) (queueinpu
 	if s == nil || s.store == nil {
 		return queueinput.Message{}, ErrSessionNotFound
 	}
-	m, err := s.store.WithdrawQueuedMessage(ctx, sessionID, id)
-	if errors.Is(err, sqlite.ErrQueuedMessageNotFound) {
-		return queueinput.Message{}, ErrNotFound
-	}
-	if errors.Is(err, sqlite.ErrQueuedMessageSettled) {
-		return queueinput.Message{}, ErrTerminalState
-	}
-	return m, err
+	return s.store.WithdrawQueuedMessage(ctx, sessionID, id)
 }
 
 // Consume settles every queued row as injected and returns them in seq

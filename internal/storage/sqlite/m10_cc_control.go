@@ -30,7 +30,7 @@ func (r *AgentRuntimeRepository) TransactCc(ctx context.Context, fn func(ccapp.T
 // ── settings singleton ──────────────────────────────────────────────────────
 
 const ccSettingsColumns = `enabled,security_level,allow_critical,process_blocklist_json,
-	max_actions_per_minute,confirm_timeout_seconds,emergency_stopped,emergency_stopped_at,armed_until,updated_at`
+	max_actions_per_minute,confirm_timeout_seconds,emergency_stopped,emergency_stopped_at,armed_until,updated_at,revision`
 
 // getCcSettings decodes one singleton row (scan + flag decode).
 func getCcSettings(s interface{ Scan(...any) error }) (ccapp.Settings, error) {
@@ -40,7 +40,7 @@ func getCcSettings(s interface{ Scan(...any) error }) (ccapp.Settings, error) {
 	var stoppedAt, armedUntil sql.NullString
 	if err := s.Scan(&enabled, &out.SecurityLevel, &allowCritical, &blocklist,
 		&out.MaxActionsPerMinute, &out.ConfirmTimeoutSecond, &emergency,
-		&stoppedAt, &armedUntil, &out.UpdatedAt); err != nil {
+		&stoppedAt, &armedUntil, &out.UpdatedAt, &out.Revision); err != nil {
 		return out, err
 	}
 	out.Enabled = enabled == 1
@@ -62,6 +62,7 @@ func (t *agentRuntimeTx) GetCcSettings() (ccapp.Settings, error) {
 		`SELECT `+ccSettingsColumns+` FROM cc_security_config WHERE id=1`))
 	if errors.Is(err, sql.ErrNoRows) {
 		seed := ccapp.Settings{
+			Revision:             1,
 			SecurityLevel:        ccapp.LevelStandard,
 			AllowCritical:        false,
 			ProcessBlocklist:     append([]string(nil), ccapp.DefaultProcessBlocklist...),
@@ -100,10 +101,10 @@ func (t *agentRuntimeTx) PutCcSettings(v ccapp.Settings) error {
 	if v.ArmedUntil != "" {
 		armedUntil = v.ArmedUntil
 	}
-	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO cc_security_config
+	result, err := t.tx.ExecContext(t.ctx, `INSERT INTO cc_security_config
 		(id,enabled,security_level,allow_critical,process_blocklist_json,
-		 max_actions_per_minute,confirm_timeout_seconds,emergency_stopped,emergency_stopped_at,armed_until,updated_at)
-		VALUES(1,?,?,?,?,?,?,?,?,?,?)
+		 max_actions_per_minute,confirm_timeout_seconds,emergency_stopped,emergency_stopped_at,armed_until,updated_at,revision)
+		VALUES(1,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
 			enabled=excluded.enabled, security_level=excluded.security_level,
 			allow_critical=excluded.allow_critical, process_blocklist_json=excluded.process_blocklist_json,
@@ -111,10 +112,21 @@ func (t *agentRuntimeTx) PutCcSettings(v ccapp.Settings) error {
 			confirm_timeout_seconds=excluded.confirm_timeout_seconds,
 			emergency_stopped=excluded.emergency_stopped,
 			emergency_stopped_at=excluded.emergency_stopped_at,
-			armed_until=excluded.armed_until, updated_at=excluded.updated_at`,
+			armed_until=excluded.armed_until, updated_at=excluded.updated_at, revision=excluded.revision
+		WHERE cc_security_config.revision=excluded.revision-1`,
 		enabled, v.SecurityLevel, allowCritical, string(blocklist),
-		v.MaxActionsPerMinute, v.ConfirmTimeoutSecond, emergency, stoppedAt, armedUntil, v.UpdatedAt)
-	return t.fail(err)
+		v.MaxActionsPerMinute, v.ConfirmTimeoutSecond, emergency, stoppedAt, armedUntil, v.UpdatedAt, v.Revision)
+	if err != nil {
+		return t.fail(err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return t.fail(err)
+	}
+	if n != 1 {
+		return t.fail(ccapp.ErrCcConflict)
+	}
+	return nil
 }
 
 // ── append-only audit ledger ────────────────────────────────────────────────
@@ -128,6 +140,26 @@ func (t *agentRuntimeTx) AppendCcAudit(e ccapp.AuditEntry) error {
 		e.EntryID, e.SessionID, e.Tool, e.Action, e.RiskLevel, e.Status,
 		e.Layer, e.Detail, e.CreatedAt)
 	return t.fail(err)
+}
+
+func (t *agentRuntimeTx) PendingCcIntents(limit int) ([]ccapp.PendingIntent, error) {
+	if limit < 1 || limit > 200 {
+		limit = 200
+	}
+	rows, err := t.tx.QueryContext(t.ctx, `SELECT json_extract(a.metadata_json,'$.operationId'),a.aggregate_id,json_extract(a.metadata_json,'$.tool'),json_extract(a.metadata_json,'$.risk') FROM audit_events a WHERE a.action='cc.operation.confirmed' AND json_valid(a.metadata_json) AND json_extract(a.metadata_json,'$.phase')='prepared' AND json_extract(a.metadata_json,'$.operationId') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM cc_audit_log l WHERE json_valid(l.detail_json) AND json_extract(l.detail_json,'$.operationId')=json_extract(a.metadata_json,'$.operationId') AND json_extract(l.detail_json,'$.phase')='receipt') ORDER BY a.created_at,a.id LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ccapp.PendingIntent
+	for rows.Next() {
+		var v ccapp.PendingIntent
+		if err = rows.Scan(&v.OperationID, &v.SessionID, &v.Tool, &v.Risk); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
 }
 
 // ListCcAudit answers the newest entries with optional status/session

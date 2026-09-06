@@ -27,15 +27,17 @@ import (
 // MaxExtractRunes caps any single extraction so a pathological file cannot
 // exhaust memory before the KB chunker applies its own per-version caps.
 const MaxExtractRunes = 2_000_000
+const MaxInputBytes = 32 << 20
 
 // maxBuildBytes bounds the transient builder while decoding: extractors stop
-// appending well before capRunes trims the result, so a huge (or malicious)
+// appending at the configured limit, so a huge (or malicious)
 // office/PDF file cannot balloon memory during extraction.
 const maxBuildBytes = MaxExtractRunes * 4
 
 var (
 	// ErrUnsupportedFormat is returned for a binary input doctext cannot turn
 	// into text (an image, an archive, an unknown proprietary container).
+	ErrBudgetExceeded    = errors.New("doctext: parsing budget exceeded")
 	ErrUnsupportedFormat = errors.New("doctext: unsupported binary format")
 	// ErrNoTextLayer is returned when a recognised container held no
 	// extractable text — most often a scanned / image-only PDF.
@@ -44,7 +46,7 @@ var (
 
 // Result is one extraction outcome.
 type Result struct {
-	Text  string // extracted plain text (trimmed, rune-capped)
+	Text  string // complete extracted plain text (trimmed, budget-checked)
 	Media string // media type to drive KB splitting: text/markdown or text/plain
 	Kind  string // detected source kind: markdown|plain|docx|pptx|xlsx|pdf
 }
@@ -53,6 +55,14 @@ type Result struct {
 // declared media hint is only a tie-breaker: extension and magic bytes win so
 // a mislabelled upload still routes to the right parser.
 func Extract(path string, raw []byte, declaredMedia string) (Result, error) {
+	if len(raw) > MaxInputBytes {
+		return Result{}, ErrBudgetExceeded
+	}
+	if bytes.HasPrefix(raw, []byte("PK")) {
+		if err := validateArchive(raw); err != nil {
+			return Result{}, err
+		}
+	}
 	switch classify(path, declaredMedia, raw) {
 	case "markdown":
 		return textResult(string(raw), "text/markdown", "markdown")
@@ -72,7 +82,13 @@ func Extract(path string, raw []byte, declaredMedia string) (Result, error) {
 }
 
 func textResult(text, media, kind string) (Result, error) {
-	text = capRunes(strings.TrimSpace(text), MaxExtractRunes)
+	text = strings.TrimSpace(text)
+	if !utf8.ValidString(text) {
+		return Result{}, ErrUnsupportedFormat
+	}
+	if utf8.RuneCountInString(text) > MaxExtractRunes {
+		return Result{}, ErrBudgetExceeded
+	}
 	if text == "" {
 		return Result{}, ErrNoTextLayer
 	}
@@ -176,7 +192,7 @@ func docxText(raw []byte) (string, error) {
 		}
 		b.WriteByte('\n')
 		if b.Len() >= maxBuildBytes {
-			break
+			return "", ErrBudgetExceeded
 		}
 	}
 	return b.String(), nil
@@ -205,7 +221,7 @@ func pptxText(raw []byte) (string, error) {
 			b.WriteByte('\n')
 		}
 		if b.Len() >= maxBuildBytes {
-			break
+			return "", ErrBudgetExceeded
 		}
 	}
 	return b.String(), nil
@@ -221,7 +237,7 @@ func xlsxText(raw []byte) (string, error) {
 	for _, sheet := range f.GetSheetList() {
 		rows, err := f.GetRows(sheet)
 		if err != nil {
-			continue
+			return "", err
 		}
 		for _, row := range rows {
 			line := strings.TrimSpace(strings.Join(row, "\t"))
@@ -231,7 +247,7 @@ func xlsxText(raw []byte) (string, error) {
 			b.WriteString(line)
 			b.WriteByte('\n')
 			if b.Len() >= maxBuildBytes {
-				return b.String(), nil
+				return "", ErrBudgetExceeded
 			}
 		}
 	}
@@ -245,20 +261,34 @@ func pdfText(raw []byte) (text string, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			text = ""
-			err = fmt.Errorf("%w: %v", ErrNoTextLayer, r)
+			err = ErrNoTextLayer
 		}
 	}()
 	reader, err := pdf.NewReader(bytes.NewReader(raw), int64(len(raw)))
 	if err != nil {
 		return "", fmt.Errorf("doctext: pdf: %w", err)
 	}
-	plain, err := reader.GetPlainText()
-	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrNoTextLayer, err)
+	if reader.NumPage() > 500 {
+		return "", ErrBudgetExceeded
 	}
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, io.LimitReader(plain, int64(MaxExtractRunes)*4)); err != nil {
-		return "", fmt.Errorf("doctext: pdf read: %w", err)
+	var buf strings.Builder
+	for i := 1; i <= reader.NumPage(); i++ {
+		page := reader.Page(i)
+		fonts := map[string]*pdf.Font{} // resource names can refer to different fonts on each page
+		for _, name := range page.Fonts() {
+			if _, ok := fonts[name]; !ok {
+				font := page.Font(name)
+				fonts[name] = &font
+			}
+		}
+		text, err := page.GetPlainText(fonts)
+		if err != nil {
+			return "", fmt.Errorf("%w: %v", ErrNoTextLayer, err)
+		}
+		if buf.Len()+len(text) > maxBuildBytes {
+			return "", ErrBudgetExceeded
+		}
+		buf.WriteString(text)
 	}
 	return buf.String(), nil
 }
@@ -277,9 +307,12 @@ func zipPart(raw []byte, name string, max int64) (string, error) {
 			return "", err
 		}
 		defer rc.Close()
-		data, err := io.ReadAll(io.LimitReader(rc, max))
+		data, err := io.ReadAll(io.LimitReader(rc, max+1))
 		if err != nil {
 			return "", err
+		}
+		if int64(len(data)) > max {
+			return "", ErrBudgetExceeded
 		}
 		return string(data), nil
 	}
@@ -305,16 +338,23 @@ func slideNum(name string) int {
 	return n
 }
 
-func capRunes(s string, n int) string {
-	if n < 1 || utf8.RuneCountInString(s) <= n {
-		return s
+func validateArchive(raw []byte) error {
+	archive, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+	if err != nil {
+		return err
 	}
-	count := 0
-	for i := range s {
-		if count == n {
-			return s[:i]
+	if len(archive.File) > 2048 {
+		return ErrBudgetExceeded
+	}
+	var total uint64
+	for _, part := range archive.File {
+		if part.UncompressedSize64 > 16<<20 {
+			return ErrBudgetExceeded
 		}
-		count++
+		total += part.UncompressedSize64
+		if total > 64<<20 {
+			return ErrBudgetExceeded
+		}
 	}
-	return s
+	return nil
 }

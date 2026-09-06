@@ -191,118 +191,160 @@ func (s *KBService) UpsertDocument(ctx context.Context, in KBUpsertInput) (KBUps
 	if in.ExpectedVersion < 0 {
 		return KBUpsertResult{}, fmt.Errorf("%w: expectedVersion negative", ErrPayloadInvalid)
 	}
-	now := s.clock.Now().UTC().Format(time.RFC3339)
+	if replay, e := s.replayLocalSource(ctx, in); e != nil {
+		return KBUpsertResult{}, e
+	} else if replay != nil {
+		return *replay, nil
+	}
+	doc, replay, err := s.prepareDocument(ctx, in)
+	if err != nil {
+		return KBUpsertResult{}, err
+	}
+	if replay != nil {
+		if usable, e := s.sourceDocumentUsable(ctx, m8core.KBDocument{DocumentID: replay.DocumentID, Version: replay.Version, ContentRef: in.ContentRef, SHA256: in.SHA256}); e != nil {
+			return KBUpsertResult{}, e
+		} else if !usable {
+			return KBUpsertResult{}, ErrKBDocumentNotReady
+		}
+		return *replay, nil
+	}
+	// Parsing and external reads happen before the writer transaction. The second
+	// transaction validates the observed version again before publishing chunks.
+	chunks, indexErr := s.projectDocument(ctx, in, doc)
 	var out KBUpsertResult
-	var pendingEmbed []m8core.KBChunk
-	err := s.uow.TransactKB(ctx, func(tx KBTx) error {
+	commitCtx := ctx
+	if ctx.Err() != nil {
+		var cancel context.CancelFunc
+		commitCtx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if indexErr == nil {
+			indexErr = ctx.Err()
+		}
+	}
+	err = s.uow.TransactKB(commitCtx, func(tx KBTx) error {
 		latest, has, err := tx.GetKBLatestDocument(in.DocumentID)
 		if err != nil {
 			return err
 		}
-		if has && latest.CollectionID != in.CollectionID {
-			return fmt.Errorf("%w: document collection mismatch", ErrKBVersionConflict)
+		if (has && (latest.CollectionID != doc.CollectionID || latest.Version+1 != doc.Version)) || (!has && doc.Version != 1) {
+			return ErrKBVersionConflict
 		}
-		next := int64(1)
-		if has {
-			idem, gerr := m8core.KBVersionGuard(latest.Version, in.ExpectedVersion, has, in.SHA256, latest.SHA256)
-			if gerr != nil {
-				return fmt.Errorf("%w: %v", ErrKBVersionConflict, gerr)
-			}
-			if idem {
-				// Same sha256 resubmission answers the original version.
-				out = KBUpsertResult{DocumentID: latest.DocumentID, Version: latest.Version, IndexState: latest.IndexState}
-				return nil
-			}
-			next = latest.Version + 1
-		}
-		doc := m8core.KBDocument{
-			DocumentID:    in.DocumentID,
-			CollectionID:  in.CollectionID,
-			Version:       next,
-			MediaType:     in.MediaType,
-			ContentRef:    in.ContentRef,
-			SHA256:        in.SHA256,
-			SourceLocator: in.SourceLocator,
-			IndexState:    m8core.KBIndexPending,
-			CreatedAt:     now,
+		if indexErr != nil {
+			doc.IndexState = m8core.KBIndexFailed
+		} else {
+			doc.IndexState = m8core.KBIndexReady
 		}
 		if err := tx.PutKBDocument(doc); err != nil {
 			return err
 		}
-		// Synchronous index projection: any failure parks the version at
-		// failed with zero chunks (M8-012) and answers the error.
-		var ierr error
-		var preview []string
-		projector := s.projector
-		if in.Projector != nil {
-			projector = in.Projector
+		if err := registerDocumentSource(tx, doc, clipReason(indexErr)); err != nil {
+			return err
 		}
-		if projector != nil {
-			chunks, perr := projector(ctx, doc)
-			if perr != nil {
-				ierr = perr
-			} else {
-				proj, perr := m8core.BuildChunkProjectionFromChunks(doc, chunks)
-				if perr != nil {
-					ierr = perr
-				} else if err := tx.PutKBChunks(proj.Chunks); err != nil {
-					ierr = err
-				} else {
-					preview = previewBodies(proj.Chunks)
-					pendingEmbed = append([]m8core.KBChunk(nil), proj.Chunks...)
-				}
+		action := "kb.document.upsert"
+		if indexErr == nil {
+			if err := tx.PutKBChunks(chunks); err != nil {
+				return err
 			}
 		} else {
-			ids, jerr := s.indexer(ctx, doc)
-			if jerr != nil {
-				ierr = jerr
-			} else {
-				proj, perr := m8core.BuildChunkProjection(doc, ids)
-				if perr != nil {
-					ierr = perr
-				} else if err := tx.PutKBChunks(proj.Chunks); err != nil {
-					ierr = err
-				}
-			}
+			action = "kb.document.index_failed"
 		}
-		if ierr != nil {
-			failed := doc
-			failed.IndexState = m8core.KBIndexFailed
-			if err := tx.PutKBDocument(failed); err != nil {
-				return err
-			}
-			if _, err := tx.AppendAuditEvent(audit.Event{
-				ID: ulid.Make().String(), Action: "kb.document.index_failed",
-				ResourceType: "kb_document", ResourceID: in.DocumentID,
-				Actor: actorOr(in.Actor), AfterDigest: in.SHA256,
-				CorrelationID: in.RequestID, CreatedAt: now,
-			}); err != nil {
-				return err
-			}
-			out = KBUpsertResult{DocumentID: in.DocumentID, Version: next, IndexState: m8core.KBIndexFailed, FailReason: clipReason(ierr)}
-			return fmt.Errorf("%w: %v", ErrKBIndexFailed, ierr)
-		}
-		ready := doc
-		ready.IndexState = m8core.KBIndexReady
-		if err := tx.PutKBDocument(ready); err != nil {
+		if _, err := tx.AppendAuditEvent(audit.Event{ID: ulid.Make().String(), Action: action, ResourceType: "kb_document", ResourceID: in.DocumentID, Actor: actorOr(in.Actor), AfterDigest: in.SHA256, CorrelationID: in.RequestID, CreatedAt: doc.CreatedAt}); err != nil {
 			return err
 		}
-		if _, err := tx.AppendAuditEvent(audit.Event{
-			ID: ulid.Make().String(), Action: "kb.document.upsert",
-			ResourceType: "kb_document", ResourceID: in.DocumentID,
-			Actor: actorOr(in.Actor), AfterDigest: in.SHA256,
-			CorrelationID: in.RequestID, CreatedAt: now,
-		}); err != nil {
-			return err
+		out = KBUpsertResult{DocumentID: doc.DocumentID, Version: doc.Version, IndexState: doc.IndexState}
+		if indexErr != nil {
+			out.FailReason = clipReason(indexErr)
+		} else {
+			out.Preview = previewBodies(chunks)
 		}
-		out = KBUpsertResult{DocumentID: in.DocumentID, Version: next, IndexState: m8core.KBIndexReady, Preview: preview}
 		return nil
 	})
 	if err != nil {
 		return out, err
 	}
-	s.embedChunksAfterCommit(ctx, pendingEmbed)
+	if indexErr != nil {
+		return out, fmt.Errorf("%w: %v", ErrKBIndexFailed, indexErr)
+	}
+	s.embedChunksAfterCommit(ctx, chunks)
 	return out, nil
+}
+
+func (s *KBService) prepareDocument(ctx context.Context, in KBUpsertInput) (m8core.KBDocument, *KBUpsertResult, error) {
+	var doc m8core.KBDocument
+	var replay *KBUpsertResult
+	err := s.uow.TransactKB(ctx, func(tx KBTx) error {
+		if owner, ok := tx.(interface {
+			KBCollectionOwned(string, string) (bool, error)
+		}); ok {
+			owned, e := owner.KBCollectionOwned(in.CollectionID, s.subject)
+			if e != nil {
+				return e
+			}
+			if !owned {
+				return ErrKBCollectionNotFound
+			}
+		}
+		latest, has, err := tx.GetKBLatestDocument(in.DocumentID)
+		if err != nil {
+			return err
+		}
+		next := int64(1)
+		if has {
+			if latest.CollectionID != in.CollectionID {
+				return ErrKBVersionConflict
+			}
+			idem, err := m8core.KBVersionGuard(latest.Version, in.ExpectedVersion, true, in.SHA256, latest.SHA256)
+			if err != nil {
+				return ErrKBVersionConflict
+			}
+			if idem && latest.IndexState == m8core.KBIndexFailed {
+				if in.ExpectedVersion != latest.Version {
+					return ErrKBVersionConflict
+				}
+				idem = false
+			}
+			if idem {
+				replay = &KBUpsertResult{DocumentID: latest.DocumentID, Version: latest.Version, IndexState: latest.IndexState}
+				return nil
+			}
+			next = latest.Version + 1
+		} else if in.ExpectedVersion != 0 {
+			return ErrKBVersionConflict
+		}
+		doc = m8core.KBDocument{DocumentID: in.DocumentID, CollectionID: in.CollectionID, Version: next, MediaType: in.MediaType, ContentRef: in.ContentRef, SHA256: in.SHA256, SourceLocator: in.SourceLocator, IndexState: m8core.KBIndexPending, CreatedAt: s.clock.Now().UTC().Format(time.RFC3339)}
+		return nil
+	})
+	return doc, replay, err
+}
+
+func (s *KBService) projectDocument(ctx context.Context, in KBUpsertInput, doc m8core.KBDocument) (chunks []m8core.KBChunk, err error) {
+	defer func() {
+		if recover() != nil {
+			chunks = nil
+			err = fmt.Errorf("%w: parser terminated unexpectedly", ErrKBIndexFailed)
+		}
+	}()
+	projector := s.projector
+	if in.Projector != nil {
+		projector = in.Projector
+	}
+	if projector != nil {
+		raw, err := projector(ctx, doc)
+		if err != nil {
+			return nil, err
+		}
+		projection, err := m8core.BuildChunkProjectionFromChunks(doc, raw)
+		return projection.Chunks, err
+	}
+	if s.indexer == nil {
+		return nil, ErrKBIndexFailed
+	}
+	ids, err := s.indexer(ctx, doc)
+	if err != nil {
+		return nil, err
+	}
+	projection, err := m8core.BuildChunkProjection(doc, ids)
+	return projection.Chunks, err
 }
 
 // DocumentsReady verifies every id resolves to a ready (searchable) kb
@@ -312,7 +354,8 @@ func (s *KBService) DocumentsReady(ctx context.Context, ids []string) error {
 	if s == nil || s.uow == nil {
 		return ErrServiceUnavailable
 	}
-	return s.uow.TransactKB(ctx, func(tx KBTx) error {
+	var documents []m8core.KBDocument
+	err := s.uow.TransactKB(ctx, func(tx KBTx) error {
 		for _, raw := range ids {
 			id := strings.TrimSpace(raw)
 			if len(id) != 26 {
@@ -325,9 +368,23 @@ func (s *KBService) DocumentsReady(ctx context.Context, ids []string) error {
 			if !ok || doc.IndexState != m8core.KBIndexReady {
 				return fmt.Errorf("%w: %s", ErrKBDocumentNotReady, id)
 			}
+			documents = append(documents, doc)
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	for _, doc := range documents {
+		usable, e := s.sourceDocumentUsable(ctx, doc)
+		if e != nil {
+			return e
+		}
+		if !usable {
+			return ErrKBDocumentNotReady
+		}
+	}
+	return nil
 }
 
 func previewBodies(chunks []m8core.KBChunk) []string {

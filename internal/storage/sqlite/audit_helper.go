@@ -15,12 +15,12 @@ import (
 // UoW, or execWithAudit — or they do not land at all.
 
 // appendAuditTx writes the audit row on the caller's transaction.
-func (s *Store) appendAuditTx(ctx context.Context, tx *sql.Tx, action, aggregateID, actor string, metadata map[string]any) error {
+func (s *Store) appendAuditTx(ctx context.Context, tx auditExecutor, action, aggregateID, actor string, metadata map[string]any) error {
 	var metaJSON string
 	if metadata != nil {
 		b, err := json.Marshal(metadata)
 		if err != nil {
-			metaJSON = "{}"
+			return err
 		} else {
 			metaJSON = string(b)
 		}
@@ -42,6 +42,7 @@ func (s *Store) execWithAudit(ctx context.Context, action, aggregateID, actor st
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback() // also unwind panics and release the pooled connection
 	if err := write(tx); err != nil {
 		_ = tx.Rollback()
 		return err

@@ -11,31 +11,95 @@
     "id": {
       "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
     },
-    "name": { "type": "string", "minLength": 1, "maxLength": 64 },
-    "cron": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^((at:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:[0-9]{2}))|([0-9*,-/]+( [0-9*,-/]+){4}))$" },
-    "prompt": { "type": "string", "minLength": 1, "maxLength": 8000 },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "cron": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^((at:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:[0-9]{2}))|([0-9*,-/]+( [0-9*,-/]+){4}))$"
+    },
+    "prompt": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8000
+    },
     "providerId": {
       "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
     },
-    "modelId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "modelId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
     "sessionId": {
       "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
     },
-    "executionMode": { "enum": ["approval", "auto-edit", "plan", "full-access"] },
-    "sessionMode": { "enum": ["bound", "isolated"], "description": "isolated fires without the bound session history." },
-    "runOnce": { "type": "boolean", "description": "Disable the job after a successful run (OpenClaw --at)." },
-    "webhookUrl": { "type": "string", "maxLength": 512, "pattern": "^https://[a-zA-Z0-9.-]+\\..*$" },
-    "enabled": { "type": "boolean" }
+    "executionMode": {
+      "enum": [
+        "approval",
+        "auto-edit",
+        "plan",
+        "full-access"
+      ]
+    },
+    "sessionMode": {
+      "enum": [
+        "bound",
+        "isolated"
+      ],
+      "description": "isolated fires without the bound session history."
+    },
+    "runOnce": {
+      "type": "boolean",
+      "description": "Disable the job after a successful run (OpenClaw --at)."
+    },
+    "webhookUrl": {
+      "type": "string",
+      "maxLength": 512,
+      "pattern": "^https://[a-zA-Z0-9.-]+\\..*$"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "expectedRevision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
   },
-  "required": ["name", "cron", "prompt", "providerId", "modelId", "sessionId", "enabled"],
+  "required": [
+    "name",
+    "cron",
+    "prompt",
+    "providerId",
+    "modelId",
+    "sessionId",
+    "enabled"
+  ],
   "x-result": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "id": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
-      "createdAt": { "type": "string", "format": "date-time" }
+      "id": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "createdAt": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "revision": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      }
     },
-    "required": ["id", "createdAt"]
+    "required": [
+      "id",
+      "createdAt",
+      "revision"
+    ]
   },
   "x-examples": {
     "positive": [
@@ -51,7 +115,15 @@
       }
     ],
     "negative": [
-      { "name": "bad", "cron": "每天", "prompt": "x", "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAE", "modelId": "m", "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAF", "enabled": true }
+      {
+        "name": "bad",
+        "cron": "每天",
+        "prompt": "x",
+        "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAE",
+        "modelId": "m",
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAF",
+        "enabled": true
+      }
     ]
   }
 }
