@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -16,6 +17,21 @@ import (
 	"github.com/lunitide/lunitide/migrations"
 	_ "modernc.org/sqlite"
 )
+
+func TestAllEmbeddedMigrationsAreLF(t *testing.T) {
+	// GitHub Actions checks migrations out as LF via .gitattributes. A
+	// Windows working tree with CRLF makes go:embed hash a different
+	// byte stream than CI, so the manifest checksum only matches one side.
+	for _, m := range manifest {
+		body, err := migrations.Files.ReadFile(m.name)
+		if err != nil {
+			t.Fatalf("%s: %v", m.name, err)
+		}
+		if bytes.Contains(body, []byte{'\r'}) {
+			t.Fatalf("%s must be LF; CRLF changes the checksum", m.name)
+		}
+	}
+}
 
 func TestOpenMigratesAndListsEmptyProviders(t *testing.T) {
 	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
