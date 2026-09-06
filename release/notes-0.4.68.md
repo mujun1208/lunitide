@@ -23,7 +23,7 @@
 
 ## 验证
 
-- Go：`go vet ./...` 干净；`go build ./...`（CGO=0）干净；`golangci-lint run ./...` **0 issues**；`govulncheck ./...` 受影响漏洞 **0**；`go test ./...` **全绿**（总覆盖率 **53.3% ≥ 51%** 闸）。
+- Go：`go vet ./...` 干净；`go build ./...`（CGO=0）干净；`golangci-lint run ./...` **0 issues**；`govulncheck ./...` 受影响漏洞 **0**；`go test ./...` **全绿**（总覆盖率 **53.3% ≥ 51%** 闸）。`0136_br_settings_apply.sql` 按仓库 `eol=lf` 对齐 checksum，避免 Windows 工作树 CRLF 让 CI 的 embed 校验失败。
 - 前端：`npm audit` **0**；`tsc --noEmit` 通过；`verify:bridge` 无漂移；`vitest run` **219 files / 1668 tests** 全绿。
 - `./release/Test-OmniExcluded.ps1` 通过。
 - 本机未跑 CI 的 90 分钟 `go test -race`（`windows-cgo-race`）；推送后由 Quality 工作流补跑。

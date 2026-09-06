@@ -286,7 +286,7 @@ var manifest = []struct{ name, checksum string }{
 	{"0133_asset_template_scope.sql", "0a43e78fae22001c01115441c143b0301bc049f8855e479c0c87bd0dd18cc3d9"},
 	{"0134_capability_pack_operations.sql", "2c82925c1497c5ee3e94643be2de6a7beafe80ec5340e9e0950e8c6d7b3150ae"},
 	{"0135_expert_equipment_snapshots.sql", "9992ae3b6115d60b5304c4c5010da16680311d5955e9fc47e5de845d4b1cab85"},
-	{"0136_br_settings_apply.sql", "fd6e19533ef0bd42b05318595025b9d5a00e53dbf07327f0acbd2b3d19610136"},
+	{"0136_br_settings_apply.sql", "ae95747e539b9b5fd36ecce7078a7ce0a4baad025217330ab42cbd8dc736a5e2"},
 	{"0137_cc_config_revision.sql", "791c0f76a0da1fe68c5a1c62378046ff5de49edc52d6f4ba27afa9d47c792f9b"},
 	{"0138_kb_sources.sql", "586ba1dc5d7eaa2d5538f35b1e3254d6f0bfdcaafb59153caf92b308569d2084"},
 	{"0139_mro_scope_receipts.sql", "1244e6e7b3a85e618275709295f2d81d2f16663121a55205d6e202463dacaa90"},
