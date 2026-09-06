@@ -11,9 +11,13 @@ type BrowserHostOptions struct {
 	UserDataFolder     string
 	MainUserDataFolder string
 	Title              string
+	ProxyURL           string
 }
 
 func NewBrowserHost(options BrowserHostOptions) (*BrowserHost, error) {
+	if _, err := IsolatedBrowserArguments(options.ProxyURL); err != nil {
+		return nil, err
+	}
 	if _, err := NormalizeBrowserURL(options.InitialURL); err != nil {
 		return nil, err
 	}

@@ -1,3 +1,4 @@
+import {SystemDiagnostics} from './SystemDiagnostics'
 import React, { useEffect, useRef, useState } from 'react'
 import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getProviderBridge,getSystemHealthBridge,getTtsBridge,projectBridge,systemSettingsBridge,toolsPolicyBridge,conversationsBridge,type CapabilityRolesBridge,type McpBridge,type ProviderBridge,type ToolsPolicyBridge,type TtsVoice,type TtsRefMeta}from'../bridge/client'
 import type{Mcp6PresetsListResult,ProjectDTO}from'../generated/bridge'
@@ -173,6 +174,7 @@ export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabe
           {category === 'meetings' && <MeetingNotesPanel onSaved={() => setSaved(true)} recordingLock={recordingLock} />}
           {category === 'personal' && <PersonalIntelligencePage onNavigateExpert={onNavigateExpert} />}
           {category === 'datasources' && <DataSourcePanel api={{
+            writes: datasourceBridge,
             list: () => datasourceBridge.list({}),
             create: input => datasourceBridge.create(input),
             probe: id => datasourceBridge.probe({ id }),
@@ -690,25 +692,34 @@ export function CommandPolicyPanel({ bridge = toolsPolicyBridge }: { bridge?: To
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const [revision,setRevision]=useState('')
+  const saving=useRef(false)
+  const [reload,setReload]=useState(0)
 
   const parsePrefix = (raw: string): string[] => raw.trim().split(/\s+/).filter(Boolean)
   const formatPrefix = (prefix: string[]): string => prefix.join(' ')
 
   useEffect(() => {
+    let alive=true
     const load = async () => {
-      setBusy(true)
+      setBusy(true);setLoaded(false);setStatus('')
       try {
         const r = await bridge.getCommandPolicy()
+        if(!alive)return
         setEntries(r.commands.map(c => ({ prefix: formatPrefix(c.prefix), maxArgs: c.maxArgs ?? 0, timeoutMs: c.timeoutMs ?? 10_000 })))
         setFullAccess(r.fullAccess ?? false)
+        setRevision(r.revision)
+        if(r.state!=='applied')setStatus('配置已保存，当前运行规则尚未应用；请重新保存或重启。')
         setLoaded(true)
-      } catch (e) { setStatus(e instanceof Error ? e.message : '命令白名单读取失败') } finally { setBusy(false) }
+      } catch (e) { if(alive)setStatus(e instanceof Error ? e.message : '命令白名单读取失败') } finally { if(alive)setBusy(false) }
     }
     void load()
-  }, [])
+    return()=>{alive=false}
+  }, [bridge,reload])
 
   const toggleFullAccess = async (on: boolean) => {
-    setFullAccess(on); setStatus('')
+    if(saving.current||!loaded)return
+    saving.current=true;setBusy(true);setStatus('')
     try {
       const commands = entries.map(e => {
         const prefix = parsePrefix(e.prefix)
@@ -717,15 +728,17 @@ export function CommandPolicyPanel({ bridge = toolsPolicyBridge }: { bridge?: To
         if (e.timeoutMs > 0) doc.timeoutMs = e.timeoutMs
         return doc
       }).filter(c => c.prefix.length > 0)
-      await bridge.setCommandPolicy({ commands, fullAccess: on })
+      const result=await bridge.setCommandPolicy({ commands, fullAccess: on,expectedRevision:revision })
+      setRevision(result.revision);setFullAccess(on)
       setStatus(on ? '全盘完全访问已开启并热生效。' : '全盘完全访问已关闭并热生效。')
     } catch (e) {
-      setFullAccess(!on)
       setStatus(e instanceof Error ? e.message : '全盘访问开关保存失败（现运行规则不变）')
-    }
+    } finally {saving.current=false;setBusy(false)}
   }
 
   const save = async () => {
+    if(saving.current||!loaded)return
+    saving.current=true
     setBusy(true); setStatus('')
     try {
       const commands = entries.map(e => {
@@ -735,10 +748,11 @@ export function CommandPolicyPanel({ bridge = toolsPolicyBridge }: { bridge?: To
         if (e.timeoutMs > 0) doc.timeoutMs = e.timeoutMs
         return doc
       }).filter(c => c.prefix.length > 0)
-      const r = await bridge.setCommandPolicy(fullAccess ? { commands, fullAccess: true } : { commands })
+      const r = await bridge.setCommandPolicy({ commands,fullAccess,expectedRevision:revision })
+      setRevision(r.revision)
       setStatus(`已保存并热生效：${r.applied} 条用户规则（叠加内置 git/go 只读集）。`)
       setEntries(commands.map(c => ({ prefix: formatPrefix(c.prefix), maxArgs: c.maxArgs ?? 0, timeoutMs: c.timeoutMs ?? 10_000 })))
-    } catch (e) { setStatus(e instanceof Error ? e.message : '命令白名单保存失败（文档被整体拒绝，现运行规则不变）') } finally { setBusy(false) }
+    } catch (e) { setStatus(e instanceof Error ? e.message : '命令白名单保存失败（文档被整体拒绝，现运行规则不变）') } finally { saving.current=false;setBusy(false) }
   }
 
   return (
@@ -754,7 +768,7 @@ export function CommandPolicyPanel({ bridge = toolsPolicyBridge }: { bridge?: To
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
         <div className="setting-desc">聊天中 command.run 仅允许白名单内的只读命令（完全访问 + 上方开关开启时除外）。内置 git/go 只读集恒生效；下方为用户附加规则，保存即校验并热生效，非法文档整体拒绝（fail-closed）。超时范围 1s–300s，argv 总长上限 16。</div>
       </div>
-      {entries.map((entry, i) => (
+      <fieldset disabled={busy} style={{border:0,padding:0}}>{entries.map((entry, i) => (
         <div className="setting-row" key={i} style={{ gridTemplateColumns: '1fr auto' }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <input className="setting-input" style={{ width: 260 }} placeholder="命令前缀（如 node --version）" value={entry.prefix} maxLength={128} onChange={e => setEntries(entries.map((x, j) => j === i ? { ...x, prefix: e.target.value } : x))} aria-label={`规则 ${i + 1} 命令前缀`} />
@@ -763,11 +777,12 @@ export function CommandPolicyPanel({ bridge = toolsPolicyBridge }: { bridge?: To
           </div>
           <button disabled={busy} onClick={() => setEntries(entries.filter((_, j) => j !== i))} aria-label={`删除规则 ${i + 1}`}>删除</button>
         </div>
-      ))}
+      ))}</fieldset>
       <div className="setting-row">
         <div className="setting-desc">{loaded ? `共 ${entries.length} 条用户规则（不含内置 git/go 只读集）` : '正在读取当前白名单…'}</div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button disabled={busy} onClick={() => setEntries([...entries, { prefix: '', maxArgs: 0, timeoutMs: 10_000 }])}>添加规则</button>
+          <button disabled={busy} onClick={()=>setReload(v=>v+1)}>载入最新配置并替换草稿</button>
           <button className="primary" disabled={busy || !loaded} onClick={() => void save()}>保存并热生效</button>
         </div>
       </div>
@@ -819,6 +834,7 @@ function DiagnosticsPanel(): React.JSX.Element {
   return (
     <div className="setting-group">
       <div className="setting-group-title">诊断与更新</div>
+      <SystemDiagnostics />
       <SelectRow label="更新通道" desc="stable 稳定通道；beta 抢先体验（含未完成特性）" value={channel} options={[{ value: 'stable', label: 'stable（稳定）' }, { value: 'beta', label: 'beta（抢先）' }]} onChange={v => { setChannel(v as 'stable' | 'beta'); setUpdate(undefined) }} />
       <div className="setting-row">
         <div>

@@ -8,24 +8,53 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "threadId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
-    "peerSubjectId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
+    "threadId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "peerSubjectId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "beforeMessageId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
   },
   "x-result": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "thread": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/PeopleThreadDTO" },
+      "thread": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/PeopleThreadDTO"
+      },
       "messages": {
         "type": "array",
         "maxItems": 200,
-        "items": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/PeopleMessageDTO" }
+        "items": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/PeopleMessageDTO"
+        }
+      },
+      "nextCursor": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
       }
     },
-    "required": ["thread", "messages"]
+    "required": [
+      "thread",
+      "messages"
+    ]
   },
   "x-examples": {
-    "positive": [{ "peerSubjectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }],
-    "negative": [{ "threadId": "nope" }]
+    "positive": [
+      {
+        "peerSubjectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ],
+    "negative": [
+      {
+        "threadId": "nope"
+      }
+    ]
   }
 }

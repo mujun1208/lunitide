@@ -1,0 +1,77 @@
+{
+  "group": "web",
+  "startedAt": "2026-09-06T13:17:16.1371132Z",
+  "finishedAt": "2026-09-06T13:20:09.7782161Z",
+  "status": "passed",
+  "source": {
+    "commit": "09978597dc026bfa40ab8d690d64f9bcaef476f3",
+    "treeSha256": "e578444c4485345e8aa55dcc2b71e551e2abda0d07627e23cc149e62d50fef17",
+    "fileCount": 2758,
+    "manifest": "web-source.json"
+  },
+  "sourceUnchanged": true,
+  "checks": [
+    {
+      "name": "bridge",
+      "command": "npm.cmd",
+      "arguments": [
+        "--prefix",
+        "web",
+        "run",
+        "verify:bridge"
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-06T13:17:31.0914680Z",
+      "finishedAt": "2026-09-06T13:17:32.5692137Z",
+      "stdout": "bridge.log",
+      "stderr": "bridge.stderr.log"
+    },
+    {
+      "name": "typecheck",
+      "command": "npm.cmd",
+      "arguments": [
+        "--prefix",
+        "web",
+        "run",
+        "typecheck"
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-06T13:17:32.5739931Z",
+      "finishedAt": "2026-09-06T13:17:46.2578287Z",
+      "stdout": "typecheck.log",
+      "stderr": "typecheck.stderr.log"
+    },
+    {
+      "name": "web-tests",
+      "command": "npx.cmd",
+      "arguments": [
+        "--no-install",
+        "vitest",
+        "run",
+        "--reporter=json",
+        "--outputFile=E:\\Trae-Work-Projects\\lunitide\\docs\\audits\\2026-09-06-system-review\\implementation\\evidence\\final-gates-20260906-r2\\web-tests.json"
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-06T13:17:46.2638845Z",
+      "finishedAt": "2026-09-06T13:19:44.6097747Z",
+      "stdout": "web-tests.log",
+      "stderr": "web-tests.stderr.log"
+    },
+    {
+      "name": "web-build",
+      "command": "npx.cmd",
+      "arguments": [
+        "--no-install",
+        "vite",
+        "build"
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-06T13:19:44.6111398Z",
+      "finishedAt": "2026-09-06T13:19:59.4301147Z",
+      "stdout": "web-build.log",
+      "stderr": "web-build.stderr.log"
+    }
+  ],
+  "error": null,
+  "scope": "code-and-automated-tests; docs excluded; no physical or release acceptance"
+}

@@ -176,6 +176,9 @@ func (e *Engine) resolvePublishedSkillID(ctx context.Context, raw string) (strin
 }
 
 func (e *Engine) invokeSkillManageTool(ctx context.Context, args json.RawMessage) (toolruntime.Result, error) {
+	if err := e.CheckCapability(ctx, "skills"); err != nil {
+		return toolruntime.Result{}, err
+	}
 	if !skillServiceAvailable(e.skills) {
 		return toolruntime.Result{}, errors.New("skill service unavailable")
 	}
@@ -225,7 +228,11 @@ func (e *Engine) invokeSkillManageTool(ctx context.Context, args json.RawMessage
 		for _, p := range a.Permissions {
 			perms = append(perms, skill.PermissionLevel(p))
 		}
-		updated, err := e.skills.UpdateFields(ctx, id, display, desc, entry, manifest, perms, nil, 0)
+		current, err := e.skills.Get(ctx, id)
+		if err != nil {
+			return toolruntime.Result{}, err
+		}
+		updated, err := e.skills.UpdateFields(ctx, id, display, desc, entry, manifest, perms, nil, current.Rev)
 		if err != nil {
 			return toolruntime.Result{}, err
 		}

@@ -91,8 +91,21 @@ func handleTraceQuery(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	if e.m7trace == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "追踪服务暂时不可用", true)
 	}
-	page, err := e.m7trace.Query(ctx, p.RootType, p.RootID, p.Direction, p.Depth, p.NextCursor)
+	var page m7app.EdgePage
+	var err error
+	if e.dataScope.store != nil {
+		var scope string
+		scope, err = e.boundOrgID(ctx)
+		if err == nil {
+			page, err = e.m7trace.QueryScoped(ctx, p.RootType, p.RootID, p.Direction, p.Depth, p.NextCursor, scope)
+		}
+	} else {
+		page, err = e.m7trace.Query(ctx, p.RootType, p.RootID, p.Direction, p.Depth, p.NextCursor)
+	}
 	if err != nil {
+		if dataScopeAccessError(err) {
+			return r.Fail("DATA_SCOPE_DENIED", "当前组织无法访问该记录", false)
+		}
 		return m7EvidenceFailure(r, err, "trace.query")
 	}
 	type edgeDTO struct {

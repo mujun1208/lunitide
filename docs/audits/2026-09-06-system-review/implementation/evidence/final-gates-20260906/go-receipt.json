@@ -1,0 +1,35 @@
+{
+  "group": "go",
+  "startedAt": "2026-09-06T13:04:23.5532259Z",
+  "finishedAt": "2026-09-06T13:09:40.2399069Z",
+  "status": "failed",
+  "source": {
+    "commit": "09978597dc026bfa40ab8d690d64f9bcaef476f3",
+    "treeSha256": "d62b1c8e0490eb7b075b24c5fb50d2951a9e388e234cc20bf1ce859764b4d90e",
+    "fileCount": 2758,
+    "manifest": "go-source.json"
+  },
+  "sourceUnchanged": false,
+  "checks": [
+    {
+      "name": "go-tests",
+      "command": "go",
+      "arguments": [
+        "test",
+        "-json",
+        "-count=1",
+        "-p=4",
+        "-timeout=25m",
+        "-coverprofile=E:\\Trae-Work-Projects\\lunitide\\docs\\audits\\2026-09-06-system-review\\implementation\\evidence\\final-gates-20260906\\coverage.out",
+        "./..."
+      ],
+      "exitCode": 1,
+      "startedAt": "2026-09-06T13:04:41.3067179Z",
+      "finishedAt": "2026-09-06T13:09:40.2285740Z",
+      "stdout": "go-tests.jsonl",
+      "stderr": "go-tests.stderr.log"
+    }
+  ],
+  "error": "go-tests failed (exit 1); inspect its recorded output",
+  "scope": "code-and-automated-tests; docs excluded; no physical or release acceptance"
+}

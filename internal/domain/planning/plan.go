@@ -28,14 +28,14 @@ func (s PlanStatus) IsTerminal() bool {
 type NodeStatus string
 
 const (
-	NodeStatusPending    NodeStatus = "pending"
-	NodeStatusReady      NodeStatus = "ready"
-	NodeStatusRunning    NodeStatus = "running"
-	NodeStatusPaused     NodeStatus = "paused"
-	NodeStatusCompleted  NodeStatus = "completed"
-	NodeStatusFailed     NodeStatus = "failed"
-	NodeStatusCancelled  NodeStatus = "cancelled"
-	NodeStatusBlocked    NodeStatus = "blocked"
+	NodeStatusPending   NodeStatus = "pending"
+	NodeStatusReady     NodeStatus = "ready"
+	NodeStatusRunning   NodeStatus = "running"
+	NodeStatusPaused    NodeStatus = "paused"
+	NodeStatusCompleted NodeStatus = "completed"
+	NodeStatusFailed    NodeStatus = "failed"
+	NodeStatusCancelled NodeStatus = "cancelled"
+	NodeStatusBlocked   NodeStatus = "blocked"
 )
 
 // IsTerminal returns true if the node is in a terminal state.
@@ -119,7 +119,7 @@ func (p Plan) CanTransitionTo(target PlanStatus) bool {
 	case PlanStatusActive:
 		return target == PlanStatusPaused || target == PlanStatusCompleted || target == PlanStatusFailed || target == PlanStatusCancelled
 	case PlanStatusPaused:
-		return target == PlanStatusActive || target == PlanStatusCancelled
+		return target == PlanStatusActive || target == PlanStatusCancelled || target == PlanStatusFailed
 	case PlanStatusFailed:
 		return target == PlanStatusActive
 	case PlanStatusCompleted, PlanStatusCancelled:
@@ -142,19 +142,19 @@ func (p Plan) TransitionTo(target PlanStatus) (Plan, error) {
 
 // Node is a single task in a plan DAG with dependencies, budget, and risk policy.
 type Node struct {
-	ID            string     `json:"id"`
-	PlanID        string     `json:"planId"`
-	ParentNodeID  *string    `json:"parentNodeId,omitempty"`
-	Name          string     `json:"name"`
-	Description   string     `json:"description"`
-	Status        NodeStatus `json:"status"`
-	RiskLevel     RiskLevel  `json:"riskLevel"`
-	BudgetTokens  *int64     `json:"budgetTokens,omitempty"`
-	EstimateTokens *int64    `json:"estimateTokens,omitempty"`
-	WorkerRole    string     `json:"workerRole"`
-	Sequence      int64      `json:"sequence"`
-	CreatedAt     time.Time  `json:"createdAt"`
-	UpdatedAt     time.Time  `json:"updatedAt"`
+	ID             string     `json:"id"`
+	PlanID         string     `json:"planId"`
+	ParentNodeID   *string    `json:"parentNodeId,omitempty"`
+	Name           string     `json:"name"`
+	Description    string     `json:"description"`
+	Status         NodeStatus `json:"status"`
+	RiskLevel      RiskLevel  `json:"riskLevel"`
+	BudgetTokens   *int64     `json:"budgetTokens,omitempty"`
+	EstimateTokens *int64     `json:"estimateTokens,omitempty"`
+	WorkerRole     string     `json:"workerRole"`
+	Sequence       int64      `json:"sequence"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
 }
 
 // Validate checks invariants for a plan node.

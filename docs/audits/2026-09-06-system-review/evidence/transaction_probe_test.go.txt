@@ -1,0 +1,22 @@
+package sqlite
+
+import (
+    "context"
+    "path/filepath"
+    "testing"
+)
+
+// Audit-only overlay: creates a disposable database, never opens user data.
+func TestAuditTransactionPanicRecovery(t *testing.T) {
+    ctx := context.Background()
+    s, err := Open(ctx, filepath.Join(t.TempDir(), "audit.db"))
+    if err != nil { t.Fatal(err) }
+    defer s.Close()
+    func() {
+        defer func() { if recover() == nil { t.Error("injected panic did not occur") } }()
+        _ = s.do(ctx, func(*txAdapter) error { panic("audit injected transaction failure") })
+    }()
+    if err := s.do(ctx, func(*txAdapter) error { return nil }); err != nil {
+        t.Fatalf("connection remains unusable after recovered transaction panic: %v", err)
+    }
+}

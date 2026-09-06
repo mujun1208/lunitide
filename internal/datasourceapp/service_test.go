@@ -424,7 +424,7 @@ func TestProbeProvisionFailureSkipsPingAndVerify(t *testing.T) {
 	}
 }
 
-func TestQueryAllowsWriteOnLocalConnection(t *testing.T) {
+func TestQueryKeepsLocalConnectionReadOnly(t *testing.T) {
 	svc, store, _ := newTestService()
 	conn, err := svc.Create(context.Background(), CreateInput{Name: "local", Kind: "mysql", DSN: "root:pw@tcp(127.0.0.1:3306)/lunitide"})
 	if err != nil {
@@ -432,23 +432,26 @@ func TestQueryAllowsWriteOnLocalConnection(t *testing.T) {
 	}
 	_ = store.SetConnectionVerified(context.Background(), conn.ID, "2026-09-03T00:00:00Z")
 	svc.SetQuerier(func(context.Context, string, string, string, []any, int) ([]string, [][]any, bool, error) {
-		t.Fatal("read-only querier must not run for a local connection")
-		return nil, nil, false, nil
+		return []string{"n"}, [][]any{{1}}, false, nil
 	})
 	gotSQL := ""
 	svc.SetWriteQuerier(func(_ context.Context, _, _, statement string, _ []any, _ int) ([]string, [][]any, bool, error) {
 		gotSQL = statement
 		return []string{"rows_affected"}, [][]any{{int64(1)}}, false, nil
 	})
-	res, err := svc.Query(context.Background(), QueryInput{ConnectionID: conn.ID, SQL: "CREATE TABLE stock(id INT)"})
-	if err != nil {
-		t.Fatal(err)
+	_, err = svc.Query(context.Background(), QueryInput{ConnectionID: conn.ID, SQL: "CREATE TABLE stock(id INT)"})
+	if !errors.Is(err, ErrStatementDenied) {
+		t.Fatalf("local write must be denied: %v", err)
 	}
-	if gotSQL != "CREATE TABLE stock(id INT)" {
+	res, err := svc.Query(context.Background(), QueryInput{ConnectionID: conn.ID, SQL: "SELECT 1"})
+	if err != nil {
+		t.Fatalf("local read failed: %v", err)
+	}
+	if gotSQL != "" {
 		t.Fatalf("write querier saw %q", gotSQL)
 	}
-	if res.RowCount != 1 || len(res.Columns) != 1 || res.Columns[0] != "rows_affected" {
-		t.Fatalf("write result = %+v", res)
+	if res.RowCount != 1 || len(res.Columns) != 1 || res.Columns[0] != "n" {
+		t.Fatalf("read result = %+v", res)
 	}
 }
 

@@ -276,6 +276,16 @@ func (s *Store) UpdateSkillStatus(ctx context.Context, id, status string, expect
 	err := s.execWithAudit(ctx, "skill.status_updated", id, "engine",
 		map[string]any{"status": status},
 		func(tx *sql.Tx) error {
+			if status == string(skill.SkillStatusPublished) {
+				var state string
+				err := tx.QueryRowContext(ctx, `SELECT state FROM m6_import_candidate WHERE id=?`, id).Scan(&state)
+				if err != nil && err != sql.ErrNoRows {
+					return err
+				}
+				if err == nil && state != "approved" {
+					return skillapp.ErrSkillDisabled
+				}
+			}
 			res, err := tx.ExecContext(ctx,
 				`UPDATE skills SET status=?, updated_at=?, rev=rev+1 WHERE id=? AND rev=?`,
 				status, formatTime(time.Now().UTC()), id, expectedRev)

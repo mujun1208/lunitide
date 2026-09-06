@@ -1,0 +1,13 @@
+{
+  "checked_at": "2026-09-06T14:12:38.2409412+08:00",
+  "tasks": 40,
+  "modules": 24,
+  "test_families": 56,
+  "weights": 35,
+  "weighted_score": 2.7331428571428567,
+  "dependency_graph": "acyclic; all IDs resolve",
+  "default_go_packages": 138,
+  "audit_packages_in_default_suite": 0,
+  "tracked_product_diff": "none",
+  "required_files": "all present"
+}

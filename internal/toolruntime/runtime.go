@@ -1,8 +1,6 @@
 package toolruntime
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -21,6 +19,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/canonpath"
 	"github.com/lunitide/lunitide/internal/ccapp"
+	"github.com/lunitide/lunitide/internal/commandworker"
 	"github.com/lunitide/lunitide/internal/htmlapp"
 	"github.com/lunitide/lunitide/internal/jsonutil"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
@@ -43,9 +42,12 @@ const maxFile = 1 << 20
 var ErrApprovalRequired = errors.New("approval required")
 
 type Runtime struct {
-	root string
-	db   *sql.DB
-	now  func() time.Time
+	gateMu         sync.RWMutex
+	executionGate  ExecutionGate
+	executionScope ExecutionScope
+	root           string
+	db             *sql.DB
+	now            func() time.Time
 	// fetchWeb is the SSRF-pinned web transport injected by the host
 	// (cmd/engine). nil keeps web.* tools unavailable (tests, offline).
 	fetchWeb func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error)
@@ -66,6 +68,8 @@ type Runtime struct {
 	// on any drive for file tools and runs commands without the allowlist.
 	fullDisk      bool
 	userRulesPath string
+	policyMu      sync.Mutex
+	policyApplied map[string]string
 	// hooksMu guards hookRules for hot reload (SetHooksPolicyJSON).
 	hooksMu        sync.RWMutex
 	hookRules      []hookRule
@@ -120,6 +124,8 @@ func New(root string) (*Runtime, error) {
 	r.commandRules = builtinCommandRules()
 	r.userRulesPath = filepath.Join(r.root, "command-policy.json")
 	r.hooksRulesPath = filepath.Join(r.root, "hooks-policy.json")
+	r.rememberAppliedPolicy("commands", []byte(`{"commands":[]}`))
+	r.rememberAppliedPolicy("hooks", []byte(`{"hooks":[]}`))
 	return r, nil
 }
 
@@ -183,8 +189,10 @@ func (r *Runtime) Execute(ctx context.Context, mode Mode, session, name string, 
 // ExecuteStreaming runs one tool with an optional progress sink receiving
 // bounded incremental output chunks while the tool runs (P1-2). Only
 // command.run emits progress today; other tools simply complete as usual.
-// progress may be called from background goroutines but is serialized by
-// the runtime, so a non-concurrent-safe sink is fine.
+// Progress is best effort and runs on a background worker. Calls are serialized
+// process-wide; congestion and tool completion discard pending chunks. An
+// already-entered callback may outlive execution, so callers must synchronize
+// shared state and must not rely on callbacks being joined before return.
 func (r *Runtime) ExecuteStreaming(ctx context.Context, mode Mode, session, name string, args json.RawMessage, approved bool, progress func(chunk string)) (out Result, err error) {
 	return r.execute(ctx, mode, session, name, args, approved, false, progress)
 }
@@ -226,6 +234,25 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		}
 		name = "command.run"
 		args = argv
+	}
+	ctx, release, err := r.beginExecutionScope(ctx, name, args)
+	if err != nil {
+		return Result{}, err
+	}
+	defer release()
+	defer func() {
+		if cause := context.Cause(ctx); cause != nil {
+			out = Result{}
+			err = cause
+		}
+	}()
+	if progress != nil {
+		sink := progress
+		progress = func(chunk string) {
+			if ctx.Err() == nil {
+				sink(chunk)
+			}
+		}
 	}
 	// P3-B hooks: evaluate beforeToolCall rules first (block > gate >
 	// grant priority, fail-closed). A block refuses before anything else;
@@ -501,99 +528,33 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			return Result{}, commandFailure(wrapErr.Error())
 		}
 		defer cleanup()
-		cctx, cancel := context.WithTimeout(ctx, deadline)
-		defer cancel()
-		cmd := exec.CommandContext(cctx, argv[0], argv[1:]...)
-		cmd.Dir = root
-		// S-02: do NOT inherit the engine's full environment — it may hold
-		// provider API keys, tokens and other secrets. commandEnv passes only
-		// the allowlisted system/toolchain variables plus these explicit
-		// overrides, so nothing sensitive crosses into the child process.
-		cmd.Env = commandEnv(os.Environ(), "GIT_PAGER=cat", "PAGER=cat", "TERM=dumb", "GIT_OPTIONAL_LOCKS=0", "PYTHONIOENCODING=utf-8", "PYTHONUTF8=1")
-		// P1-2: with a progress sink the pipes are read live so long
-		// running commands stream bounded stdout/stderr chunks to the
-		// caller instead of black-boxing until exit. The final result
-		// keeps the legacy combined-output shape (64 KiB cap, error text
-		// carried in the failure message); line scanning only normalizes
-		// CRLF tails away.
-		if progress != nil {
-			stdoutPipe, e := cmd.StdoutPipe()
-			if e != nil {
-				return Result{}, commandFailure(e.Error())
-			}
-			stderrPipe, e := cmd.StderrPipe()
-			if e != nil {
-				return Result{}, commandFailure(e.Error())
-			}
-			if e = cmd.Start(); e != nil {
-				return Result{}, commandFailure(e.Error())
-			}
-			// S-03: pin the child (and any grandchildren) to a Job Object with
-			// KILL_ON_JOB_CLOSE so the deadline reaps the whole tree, not just
-			// the direct child. No-op on non-Windows and on Job Object failure.
-			closeJob := superviseProcessTree(cmd)
-			defer closeJob()
-			var mu sync.Mutex
-			var combined []byte
-			emitted := 0
-			scan := func(r io.Reader, done chan<- struct{}) {
-				sc := bufio.NewScanner(r)
-				sc.Buffer(make([]byte, 0, 64*1024), 256*1024)
-				for sc.Scan() {
-					line := decodeCommandOutput(sc.Bytes())
-					mu.Lock()
-					if len(combined) < 64<<10 {
-						combined = append(combined, line...)
-						combined = append(combined, '\n')
-					}
-					emit := emitted < toolProgressMaxChunks
-					if emit {
-						emitted++
-						// Hold the lock across progress so stdout/stderr
-						// scanners cannot interleave send() and race the
-						// chat stream sequence cursor.
-						progress(truncateRunes(line, 400))
-					}
-					mu.Unlock()
-				}
-				done <- struct{}{}
-			}
-			doneOut, doneErr := make(chan struct{}), make(chan struct{})
-			go scan(stdoutPipe, doneOut)
-			go scan(stderrPipe, doneErr)
-			<-doneOut
-			<-doneErr
-			waitErr := cmd.Wait()
-			out := combined
-			if len(out) > 64<<10 {
-				out = out[:64<<10]
-			}
-			text := decodeCommandOutput(out)
-			if waitErr != nil {
-				return Result{}, commandFailure(text)
-			}
-			return result(formatCommandOutput(true, text)), nil
+		exe, resolveErr := exec.LookPath(argv[0])
+		if resolveErr != nil {
+			return Result{}, commandFailure(resolveErr.Error())
 		}
-		// S-03: run Start/Wait explicitly (instead of CombinedOutput) so the
-		// child and its grandchildren can be pinned to a KILL_ON_JOB_CLOSE Job
-		// Object between Start and Wait, ensuring the deadline reaps the whole
-		// process tree. Output is still captured combined into one buffer.
-		var buf bytes.Buffer
-		cmd.Stdout = &buf
-		cmd.Stderr = &buf
-		if e := cmd.Start(); e != nil {
-			return Result{}, commandFailure(e.Error())
+		exe, resolveErr = filepath.Abs(exe)
+		if resolveErr != nil {
+			return Result{}, commandFailure(resolveErr.Error())
 		}
-		closeJob := superviseProcessTree(cmd)
-		defer closeJob()
-		e = cmd.Wait()
-		out := buf.Bytes()
-		if len(out) > 64<<10 {
-			out = out[:64<<10]
+		output := &commandOutput{progress: progress}
+		defer output.closeProgress()
+		outcome, runErr := commandworker.Run(ctx, commandworker.Spec{
+			Exe: exe, Args: argv[1:], Dir: root, Timeout: deadline, MaxOutputBytes: commandworker.OutputHardCap, MaxArgBytes: 16 << 10,
+			Env: commandEnv(os.Environ(), "GIT_PAGER=cat", "PAGER=cat", "TERM=dumb", "GIT_OPTIONAL_LOCKS=0", "PYTHONIOENCODING=utf-8", "PYTHONUTF8=1"),
+		}, nil, func(b []byte) { _, _ = output.Write(b) })
+		text := output.text()
+		if outcome.Truncated {
+			text += "\n[worker output delivery limit reached]"
 		}
-		text := decodeCommandOutput(out)
-		if e != nil {
-			return Result{}, commandFailure(text)
+		if runErr != nil || outcome.TimedOut || outcome.ExitCode != 0 {
+			if runErr != nil {
+				text += "\n" + runErr.Error()
+			} else if outcome.TimedOut {
+				text += "\ncommand deadline exceeded; process tree stopped"
+			} else if strings.TrimSpace(text) == "" {
+				text = fmt.Sprintf("exit status %d", outcome.ExitCode)
+			}
+			return Result{}, commandFailure(strings.TrimSpace(text))
 		}
 		return result(formatCommandOutput(true, text)), nil
 	case "web.fetch":

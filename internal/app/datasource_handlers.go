@@ -168,6 +168,10 @@ func handleDatasourceQuery(e *Engine, ctx context.Context, r bridge.Request) bri
 func datasourceFailure(r bridge.Request, err error) bridge.Response {
 	msg := datasourceapp.RedactError(err)
 	switch {
+	case errors.Is(err, datasourceapp.ErrWriteConflict):
+		return r.Fail("CONFLICT", "写入确认已过期或内容已变化，请重新检查", false)
+	case errors.Is(err, datasourceapp.ErrWriteUnknown):
+		return r.Fail("CONFLICT", "写入结果未确认；请核查数据库和操作记录，不要重复提交新操作", false)
 	case errors.Is(err, datasourceapp.ErrPayloadInvalid):
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "数据源参数无效", false)
 	case errors.Is(err, datasourceapp.ErrDuplicateName):

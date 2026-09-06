@@ -11,7 +11,7 @@ if($layout -notmatch 'Omni/Comni/MiniCPM-o runtime must not ship in Setup'){ thr
 $stage=Join-Path ([IO.Path]::GetTempPath()) ('lunitide-omni-exclude-'+[guid]::NewGuid().ToString('N'))
 New-Item $stage,(Join-Path $stage 'web\dist'),(Join-Path $stage 'licenses'),(Join-Path $stage 'omni') -ItemType Directory -Force | Out-Null
 try {
-  foreach($f in @('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe','WebView2Loader.dll','stop-install-processes.ps1','verify-install-directory.ps1','lunitide-icon.ico')){
+  foreach($f in @('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe','lunitide-maintenance.exe','SOURCE-CANDIDATE.json','Release-Safety.ps1','WebView2Loader.dll','stop-install-processes.ps1','verify-install-directory.ps1','lunitide-icon.ico')){
     Set-Content (Join-Path $stage $f) 'x' -Encoding ascii
   }
   Set-Content (Join-Path $stage 'web\dist\index.html') '<html></html>' -Encoding ascii

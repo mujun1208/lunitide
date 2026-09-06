@@ -103,6 +103,7 @@ type skillDTO struct {
 	DisplayName      string                  `json:"displayName"`
 	Description      string                  `json:"description"`
 	Version          string                  `json:"version"`
+	Rev              int64                   `json:"rev"`
 	Status           skill.SkillStatus       `json:"status"`
 	Permissions      []skill.PermissionLevel `json:"permissions"`
 	EntryPoint       string                  `json:"entryPoint"`
@@ -130,6 +131,7 @@ func newSkillDTO(s skill.Skill, cat skillapp.CategoryResolution) skillDTO {
 		DisplayName:      s.DisplayName,
 		Description:      s.Description,
 		Version:          s.Version,
+		Rev:              s.Rev,
 		Status:           s.Status,
 		Permissions:      s.Permissions,
 		EntryPoint:       s.EntryPoint,
@@ -220,15 +222,15 @@ func handleSkillUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		EntryPoint       *string                 `json:"entryPoint,omitempty"`
 		ManifestJSON     *string                 `json:"manifestJson,omitempty"`
 		MinEngineVersion *string                 `json:"minEngineVersion,omitempty"`
-		ExpectedVersion  int64                   `json:"expectedVersion"`
+		ExpectedVersion  *int64                  `json:"expectedVersion"`
 	}
-	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) || p.ExpectedVersion < 1 {
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) || (p.ExpectedVersion == nil || *p.ExpectedVersion < 0) {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.update 参数无效", false)
 	}
 	if !skillServiceAvailable(e.skills) {
 		return r.Fail("STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
 	}
-	s, err := e.skills.UpdateFields(ctx, p.ID, p.DisplayName, p.Description, p.EntryPoint, p.ManifestJSON, p.Permissions, p.MinEngineVersion, p.ExpectedVersion)
+	s, err := e.skills.UpdateFields(ctx, p.ID, p.DisplayName, p.Description, p.EntryPoint, p.ManifestJSON, p.Permissions, p.MinEngineVersion, *p.ExpectedVersion)
 	if err != nil {
 		return skillFailure(r, err)
 	}
@@ -238,15 +240,21 @@ func handleSkillUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.
 func handleSkillDelete(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		ID              string `json:"id"`
-		ExpectedVersion int64  `json:"expectedVersion"`
+		ExpectedVersion *int64 `json:"expectedVersion"`
 	}
-	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) || p.ExpectedVersion < 1 {
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) || (p.ExpectedVersion == nil || *p.ExpectedVersion < 0) {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.delete 参数无效", false)
 	}
 	if !skillServiceAvailable(e.skills) {
 		return r.Fail("STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
 	}
-	if err := e.skills.Delete(ctx, p.ID); err != nil {
+	versioned, ok := e.skills.(interface {
+		DeleteVersion(context.Context, string, int64) error
+	})
+	if !ok {
+		return r.Fail("STORAGE_UNAVAILABLE", "技能版本删除服务暂时不可用", true)
+	}
+	if err := versioned.DeleteVersion(ctx, p.ID, *p.ExpectedVersion); err != nil {
 		return skillFailure(r, err)
 	}
 	return r.Ok(map[string]any{"deleted": true})

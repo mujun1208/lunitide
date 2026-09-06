@@ -70,13 +70,23 @@ func TestPlanRunHandlersRejectNonStrictPayloads(t *testing.T) {
 	}
 }
 
-func TestPlanRunHandlersCoordinateWithoutExternalExecution(t *testing.T) {
+func TestPlanRunHandlersRequireExecutorBeforeStarting(t *testing.T) {
 	e := planRunEngine(t)
 	created := requireNoExecution(t, e.Handle(context.Background(), planRunRequest(bridge.MethodPlanTodoCreate, `{"planId":"`+planRunPlanID+`","nodeId":"`+planRunNodeID+`","role":"planner","title":"root","description":""}`)))
 	if created["run"].(map[string]any)["status"] != "queued" {
 		t.Fatalf("created=%#v", created)
 	}
-	requireNoExecution(t, e.Handle(context.Background(), planRunRequest(bridge.MethodPlanRunStart, `{"runId":"`+planRunRootID+`"}`)))
+	start := e.Handle(context.Background(), planRunRequest(bridge.MethodPlanRunStart, `{"runId":"`+planRunRootID+`"}`))
+	if start.OK || start.Error == nil || start.Error.Code != "STORAGE_UNAVAILABLE" {
+		t.Fatalf("missing executor=%+v", start)
+	}
+	unchanged, err := e.coordinator.Get(context.Background(), planRunRootID)
+	if err != nil || unchanged.Status != agentorchestration.StatusQueued {
+		t.Fatalf("unexecuted task changed: %+v %v", unchanged, err)
+	}
+	if _, err = e.coordinator.Start(context.Background(), planRunRootID); err != nil {
+		t.Fatal(err)
+	}
 	spawned := requireNoExecution(t, e.Handle(context.Background(), planRunRequest(bridge.MethodPlanRunSpawn, `{"parentRunId":"`+planRunRootID+`","nodeId":"`+planRunNodeID+`","role":"worker","title":"child","description":""}`)))
 	child := spawned["run"].(map[string]any)
 	if child["parentRunId"] != planRunRootID || child["depth"] != float64(1) {

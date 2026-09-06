@@ -8,7 +8,15 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "lotId": { "type": "string", "maxLength": 64 }
+    "lotId": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "cursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    }
   },
   "x-result": {
     "type": "object",
@@ -16,30 +24,79 @@
     "properties": {
       "items": {
         "type": "array",
-        "maxItems": 200,
+        "maxItems": 100,
         "items": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "id": { "type": "string", "minLength": 1, "maxLength": 26 },
-            "lotNo": { "type": "string", "minLength": 1, "maxLength": 64 },
-            "parentLotId": { "type": "string", "maxLength": 26 },
-            "qty": { "type": "number" },
-            "expires": { "type": "string", "maxLength": 32 },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 26
+            },
+            "lotNo": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "parentLotId": {
+              "type": "string",
+              "maxLength": 26
+            },
+            "qty": {
+              "type": "number"
+            },
+            "expires": {
+              "type": "string",
+              "maxLength": 32
+            },
             "tails": {
               "type": "array",
-              "maxItems": 64,
-              "items": { "type": "string", "maxLength": 32 }
+              "maxItems": 100,
+              "items": {
+                "type": "string",
+                "maxLength": 32
+              }
             }
           },
-          "required": ["id", "lotNo", "tails"]
+          "required": [
+            "id",
+            "lotNo",
+            "tails"
+          ]
+        }
+      },
+      "nextCursor": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      },
+      "continuedFields": {
+        "type": "array",
+        "maxItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "enum": [
+            "items"
+          ]
         }
       }
     },
-    "required": ["items"]
+    "required": [
+      "items"
+    ]
   },
   "x-examples": {
-    "positive": [{}],
-    "negative": [{"unexpected": true}]
+    "positive": [
+      {}
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      },
+      {
+        "cursor": 42
+      }
+    ]
   }
 }

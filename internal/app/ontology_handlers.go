@@ -252,6 +252,20 @@ func handleOntologyEdgeList(e *Engine, ctx context.Context, r bridge.Request) br
 		return ontologyFailure(r, err)
 	}
 	dtos := make([]ontologyEdgeDTO, len(items))
+	if e.dataScope.store != nil {
+		scope, err := e.boundOrgID(ctx)
+		if err != nil {
+			return r.Fail("DATA_SCOPE_UNAVAILABLE", "组织状态无法确认，请重试", true)
+		}
+		for _, edge := range items {
+			if err := e.dataScope.store.AuthorizeDataResource(ctx, "ontology-edge", edge.ID, scope); err != nil {
+				if dataScopeAccessError(err) {
+					return r.Fail("DATA_SCOPE_DENIED", "当前组织无法访问该记录", false)
+				}
+				return r.Fail("DATA_SCOPE_UNAVAILABLE", "组织状态无法确认，请重试", true)
+			}
+		}
+	}
 	for i := range items {
 		dtos[i] = newOntologyEdgeDTO(items[i])
 	}

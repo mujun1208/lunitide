@@ -1,0 +1,35 @@
+{
+  "group": "race",
+  "startedAt": "2026-09-06T13:17:15.8652175Z",
+  "finishedAt": "2026-09-06T14:13:34.1330174Z",
+  "status": "passed",
+  "source": {
+    "commit": "09978597dc026bfa40ab8d690d64f9bcaef476f3",
+    "treeSha256": "e578444c4485345e8aa55dcc2b71e551e2abda0d07627e23cc149e62d50fef17",
+    "fileCount": 2758,
+    "manifest": "race-source.json"
+  },
+  "sourceUnchanged": true,
+  "checks": [
+    {
+      "name": "go-race",
+      "command": "go",
+      "arguments": [
+        "test",
+        "-race",
+        "-json",
+        "-count=1",
+        "-p=4",
+        "-timeout=90m",
+        "./..."
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-06T13:17:30.7512271Z",
+      "finishedAt": "2026-09-06T14:13:27.5825771Z",
+      "stdout": "go-race.jsonl",
+      "stderr": "go-race.stderr.log"
+    }
+  ],
+  "error": null,
+  "scope": "code-and-automated-tests; docs excluded; no physical or release acceptance"
+}

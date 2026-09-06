@@ -20,8 +20,10 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/lunitide/lunitide/internal/audit"
+	"github.com/lunitide/lunitide/internal/capabilitypack"
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
 	"github.com/lunitide/lunitide/internal/m7app"
+	"github.com/lunitide/lunitide/internal/mcp6"
 )
 
 // Service-level errors mapped by the Bridge handlers onto M10-MC codes.
@@ -66,6 +68,7 @@ type Tx interface {
 	ListMcpEndpoints(transport string) ([]m7flow.McpEndpointConfig, error)
 	CountMcpEndpoints() (int, error)
 	PutMcpEndpoint(m7flow.McpEndpointConfig) error
+	PutMcpSecurity(string, int64, m7flow.McpEndpointSecurity) error
 	UpdateMcpEndpointTarget(id, urlRef, argsJSON string) error
 	SetMcpEndpointEnabled(id string, enabled bool) error
 	UpdateMcpEndpointState(id, from, to string, capabilityDigest *string, checkedAt time.Time) error
@@ -130,12 +133,13 @@ func (w *rateWindow) allow(now time.Time) bool {
 
 // Service implements the mc.* market surface.
 type Service struct {
-	uow      UnitOfWork
-	clock    m7app.Clock
-	prober   m7app.McpProber
-	verifier func(m7flow.McpMarketItem) bool
-	registry func(ctx context.Context) ([]m7flow.McpMarketItem, error)
-	limiter  rateWindow
+	uow        UnitOfWork
+	clock      m7app.Clock
+	prober     m7app.McpProber
+	verifier   func(m7flow.McpMarketItem) bool
+	registry   func(ctx context.Context) ([]m7flow.McpMarketItem, error)
+	limiter    rateWindow
+	invalidate func(string)
 }
 
 // New returns a Service over the given unit of work.
@@ -154,6 +158,9 @@ func (s *Service) SetClock(c m7app.Clock) { s.clock = c }
 
 // SetProber substitutes the transport prober (tests).
 func (s *Service) SetProber(p m7app.McpProber) { s.prober = p }
+
+// SetInvalidator retires runtime grants after committed target changes/uninstall.
+func (s *Service) SetInvalidator(fn func(string)) { s.invalidate = fn }
 
 // SetVerifier substitutes the catalog signature verifier (tests).
 func (s *Service) SetVerifier(fn func(m7flow.McpMarketItem) bool) { s.verifier = fn }
@@ -375,6 +382,12 @@ func (s *Service) Install(ctx context.Context, in InstallInput) (InstallResult, 
 		if err := tx.PutMcpEndpoint(ep); err != nil {
 			return err
 		}
+		if len(cfg.EnvSecretRefs) > 0 {
+			refs, _ := json.Marshal(cfg.EnvSecretRefs)
+			if err := tx.PutMcpSecurity(ep.EndpointID, 0, m7flow.McpEndpointSecurity{EnvRefsJSON: string(refs), UpdatedAt: ts}); err != nil {
+				return err
+			}
+		}
 		if err := tx.UpsertEndpointUsage(ep.EndpointID, UsageDelta{Installs: 1}, now); err != nil {
 			return err
 		}
@@ -392,16 +405,17 @@ func (s *Service) Install(ctx context.Context, in InstallInput) (InstallResult, 
 	if err != nil {
 		return InstallResult{}, res, err
 	}
-	// probe outside the write tx: failure parks the endpoint in probe
-	// state for mcp.health to retry (M7-MCP-004 semantics).
+	// Report the committed configuration plus the real admission outcome.
 	if out.State == m7flow.McpStateProbe {
-		s.reprobe(ctx, out.EndpointID, m7flow.McpStateProbe)
-		ep, err := s.getEndpoint(ctx, out.EndpointID)
-		if err == nil {
-			out.State = ep.State
-			out.CapabilityDigest = ep.CapabilityDigest
+		ep, err := s.reprobe(ctx, out.EndpointID)
+		if ep.EndpointID != "" {
+			out.State, out.CapabilityDigest = ep.State, ep.CapabilityDigest
+		}
+		if err != nil {
+			return out, res, err
 		}
 	}
+
 	return out, res, nil
 }
 
@@ -450,6 +464,9 @@ func (s *Service) Uninstall(ctx context.Context, endpointID, confirmToken, actor
 	})
 	if err != nil {
 		return "", err
+	}
+	if s.invalidate != nil {
+		s.invalidate(endpointID)
 	}
 	return m7flow.McpStateRevoked, nil
 }
@@ -522,13 +539,28 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (InstallResult, Va
 		if err := s.consumeConfirm(tx, ConfirmMethodUpdate, in.EndpointID, in.ConfirmToken, now); err != nil {
 			return err
 		}
+		current, err := tx.GetMcpEndpoint(in.EndpointID)
+		if err != nil {
+			return err
+		}
+		if current.State == m7flow.McpStateRevoked || current.URL != ep.URL || current.ArgsJSON != ep.ArgsJSON || current.Security.Version != ep.Security.Version {
+			return m7app.ErrMcpSecurityConflict
+		}
+		if _, err = capabilitypack.GuardMutation(ctx, tx, "mcp", in.EndpointID); err != nil {
+			return err
+		}
 		if err := tx.UpdateMcpEndpointTarget(in.EndpointID, targetURL, targetArgs); err != nil {
+			return err
+		}
+		security := current.Security
+		security.UpdatedAt = ts
+		if err := tx.PutMcpSecurity(in.EndpointID, security.Version, security); err != nil {
 			return err
 		}
 		if err := tx.UpsertEndpointUsage(in.EndpointID, UsageDelta{Updates: 1}, now); err != nil {
 			return err
 		}
-		_, err := tx.AppendAuditEvent(audit.Event{
+		_, err = tx.AppendAuditEvent(audit.Event{
 			ID: ulid.Make().String(), Action: "mc.connector.updated",
 			ResourceType: "mcp_endpoint", ResourceID: in.EndpointID,
 			Actor:        actorOr(in.Actor),
@@ -541,11 +573,12 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (InstallResult, Va
 	if err != nil {
 		return InstallResult{}, res, err
 	}
-	// re-probe: drive to ready/degraded from the current state
-	s.reprobe(ctx, in.EndpointID, ep.State)
-	updated, gerr := s.getEndpoint(ctx, in.EndpointID)
+	if s.invalidate != nil {
+		s.invalidate(in.EndpointID)
+	}
+	updated, gerr := s.reprobe(ctx, in.EndpointID)
 	if gerr != nil {
-		return InstallResult{EndpointID: in.EndpointID, State: ep.State}, res, nil
+		return InstallResult{EndpointID: in.EndpointID, State: updated.State}, res, gerr
 	}
 	return InstallResult{EndpointID: in.EndpointID, State: updated.State, CapabilityDigest: updated.CapabilityDigest}, res, nil
 }
@@ -557,27 +590,57 @@ func pickNonEmpty(a, b string) string {
 	return b
 }
 
-// reprobe runs one probe and drives the state machine like m7 Health.
-func (s *Service) reprobe(ctx context.Context, endpointID, fromState string) {
+// reprobe persists an actual outcome and never overwrites a security failure
+// already committed by the shared authenticated settings prober.
+func (s *Service) reprobe(ctx context.Context, endpointID string) (m7flow.McpEndpointConfig, error) {
 	ep, err := s.getEndpoint(ctx, endpointID)
 	if err != nil {
-		return
+		return ep, err
 	}
-	digest, perr := s.prober.Probe(ctx, ep)
-	now := s.clock.Now().UTC()
-	if perr != nil {
-		_ = s.uow.TransactMc(ctx, func(tx Tx) error {
-			return tx.UpdateMcpEndpointState(endpointID, ep.State, m7flow.McpStateDegraded, nil, now)
-		})
-		return
+	digest, probeErr := s.prober.Probe(ctx, ep)
+	if probeErr != nil {
+		probeErr = errors.Join(m7app.ErrMcpProbe, probeErr)
 	}
-	pin := ep.PinnedDigest
-	if pin == "" {
-		pin = digest
-	}
-	_ = s.uow.TransactMc(ctx, func(tx Tx) error {
-		return tx.UpdateMcpEndpointState(endpointID, ep.State, m7flow.McpStateReady, &pin, now)
+	finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	var out m7flow.McpEndpointConfig
+	persistErr := s.uow.TransactMc(finish, func(tx Tx) error {
+		current, err := tx.GetMcpEndpoint(endpointID)
+		if err != nil {
+			return err
+		}
+		out = current
+		if current.URL != ep.URL || current.ArgsJSON != ep.ArgsJSON || current.Command != ep.Command {
+			return m7app.ErrMcpSecurityConflict
+		}
+		if current.State == m7flow.McpStateQuarantined {
+			return mcp6.ErrCapabilityDrift
+		}
+		if current.State == m7flow.McpStateRevoked {
+			return mcp6.ErrEndpointRevoked
+		}
+		target := m7flow.McpStateReady
+		if probeErr != nil {
+			target = m7flow.McpStateDegraded
+			if errors.Is(probeErr, mcp6.ErrCapabilityDrift) || errors.Is(probeErr, m7app.ErrMcpDrift) {
+				target = m7flow.McpStateQuarantined
+			}
+		}
+		pin := current.PinnedDigest
+		if pin == "" {
+			pin = digest
+		}
+		var pinned *string
+		if probeErr == nil {
+			pinned = &pin
+		}
+		if err = tx.UpdateMcpEndpointState(endpointID, current.State, target, pinned, s.clock.Now().UTC()); err != nil {
+			return err
+		}
+		out, err = tx.GetMcpEndpoint(endpointID)
+		return err
 	})
+	return out, errors.Join(probeErr, persistErr)
 }
 
 func (s *Service) getEndpoint(ctx context.Context, endpointID string) (m7flow.McpEndpointConfig, error) {

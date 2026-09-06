@@ -147,24 +147,32 @@ func TestMROChecklistBuildDropsUncitedSteps(t *testing.T) {
 	}
 }
 
-func TestMROAuditListEmptyWhenKBMissing(t *testing.T) {
+func TestMROAuditListFailsWhenStorageMissing(t *testing.T) {
 	e := NewEngine(nil, "test")
 	resp := e.Handle(context.Background(), nominationRequest("mro.audit.list", `{}`))
-	if !resp.OK {
-		t.Fatalf("audit.list = %+v", resp.Error)
+	if resp.OK || resp.Error.Code != "STORAGE_UNAVAILABLE" {
+		t.Fatalf("audit missing storage=%+v", resp)
 	}
 }
-
-func TestMROAuditListReturnsKBEvents(t *testing.T) {
-	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "mro-audit.db"))
-	if err != nil {
+func TestMROAuditListReturnsTransactionalMROEvents(t *testing.T) {
+	e, _ := newMROEngineWithKB(t)
+	ctx := context.Background()
+	created := e.Handle(ctx, mroMutationRequest("mro.aircraft.upsert", `{"tailNo":"B-TEST","model":"test"}`, "mro-audit-1"))
+	if !created.OK {
+		t.Fatalf("create=%+v", created.Error)
+	}
+	resp := e.Handle(ctx, nominationRequest("mro.audit.list", `{"limit":10}`))
+	if !resp.OK {
+		t.Fatalf("audit=%+v", resp.Error)
+	}
+	raw, _ := json.Marshal(resp.Payload)
+	var body struct {
+		Items []mroapp.AuditRow `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
-	e := NewEngine(nil, "test")
-	e.SetM8SliceServices(m8app.NewKBService(store.AgentRuntimeRepository(), "local-user"), nil, nil)
-	resp := e.Handle(context.Background(), nominationRequest("mro.audit.list", `{"limit":10}`))
-	if !resp.OK {
-		t.Fatalf("audit.list = %+v", resp.Error)
+	if len(body.Items) != 1 || body.Items[0].Action != "mro.aircraft.upsert" {
+		t.Fatalf("audit=%s", raw)
 	}
 }

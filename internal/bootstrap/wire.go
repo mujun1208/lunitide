@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/agentorchestration"
 	"github.com/lunitide/lunitide/internal/agentrunapp"
@@ -47,6 +48,7 @@ import (
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/sessionapp"
 	"github.com/lunitide/lunitide/internal/skillapp"
+	"github.com/lunitide/lunitide/internal/skillarchive"
 	"github.com/lunitide/lunitide/internal/stageapp"
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
 	"github.com/lunitide/lunitide/internal/terminalruntime"
@@ -126,6 +128,8 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	skillService.SetCategoryStore(store, store)
 	skillService.SetInvocationStore(store)
 	engine := app.NewEngineWithP3P4(providerService, projectService, sessionService, messageService, stageService, planningService, governanceService, memoryService, ontologyService, skillService, store.ContextReader(), store, buildinfo.Version, leaseClient)
+	engine.SetChatTurnJournal(store)
+	engine.SetStorageReadiness(store)
 	coordinator, err := agentorchestration.New(store.AgentOrchestrationRepository(), agentorchestration.Limits{MaxDepth: 8, MaxConcurrency: 64}, nil)
 	if err != nil {
 		return fail(err)
@@ -159,11 +163,21 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	)
 
 	// M7 slice 3: CR revisions and immutable release packages.
-	engine.SetM7ReleaseServices(m7app.NewReleaseService(store.AgentRuntimeRepository()))
+	releaseService := m7app.NewReleaseService(store.AgentRuntimeRepository())
+	releaseService.SetProjectContent(store)
+	engine.SetM7ReleaseServices(releaseService)
 
 	// M7 slice 4: the promotion saga (migration/deployment adapters stay
 	// internal to the Promotion aggregate - M7-MIG-001).
-	engine.SetM7PromotionServices(m7app.NewPromotionService(store.AgentRuntimeRepository()))
+	publicationRoot, err := dataRoot.PrepareSubdirectory("release-publications")
+	if err != nil {
+		return fail(err)
+	}
+	closers = append(closers, func() { _ = publicationRoot.Close() })
+	promotionService := m7app.NewPromotionService(store.AgentRuntimeRepository())
+	promotionService.SetLocalPublication(publicationRoot.Path())
+	store.SetProjectPublicationRoot(publicationRoot.Path())
+	engine.SetM7PromotionServices(promotionService)
 	engine.SetM7UpdateServices(m7app.NewUpdateService(store.AgentRuntimeRepository()))
 	// W3: the general audit_events chain shares the M7-DR-001 promotion freeze.
 	engine.SetAuditChainVerifier(store)
@@ -177,16 +191,18 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	)
 	// M6 MCP endpoint registry: production transport adapters live in
 	// mcpgateway.go (frozen M5 GET client, self-host allowlist; stdio via
-	// the 5B-isolated spawn engine). Extension supply / endpoint
-	// persistence services stay unwired until their storage slices are
-	// enabled; the handlers nil-guard them.
+	// the 5B-isolated spawn engine). Both mcp.add and legacy mcp6.register
+	// use the M7 durable endpoint/security store and the same startup hydrate.
+	// The separate M6 endpoint projection and extension supply stay unwired.
 	engine.SetM6Services(nil, deps.Mcp6Registry, nil)
 	// M6 S5C: skill-import + complexity routing share the agent-runtime
 	// single-writer transaction. Extension/catalog/delegation/merge stay
 	// unwired until their storage slices are enabled; those handlers
 	// nil-guard to STORAGE_UNAVAILABLE.
+	skillImports := m6app.NewSkillImportService(store.AgentRuntimeRepository())
+	skillImports.SetSource(skillarchive.Loader{})
 	engine.SetM6GovernanceServices(
-		m6app.NewSkillImportService(store.AgentRuntimeRepository()),
+		skillImports,
 		m6app.NewRoutingService(store.AgentRuntimeRepository()),
 	)
 	// P1-1: persistent stdio MCP sessions. The idle reaper runs until
@@ -217,9 +233,20 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	if err != nil {
 		return fail(fmt.Errorf("prepare browser profile directory failed; engine not ready: %w", err))
 	}
-	engine.SetBrMultiModeService(brapp.New(store.AgentRuntimeRepository(), browserProfiles.Path()))
+	browserMulti := brapp.New(store.AgentRuntimeRepository(), browserProfiles.Path())
+	engine.SetBrMultiModeService(browserMulti)
+	closers = append(closers, func() {
+		if err := browserMulti.Close(); err != nil {
+			log.Printf("browser shutdown: %v", err)
+		}
+	})
 	// M10 wave-4: computer control (cc.*) over the shared single-writer tx.
 	ccSvc := ccapp.New(store.AgentRuntimeRepository())
+	if count, err := ccSvc.ReconcilePendingIntents(ctx); err != nil {
+		return fail(fmt.Errorf("computer-control intent recovery failed; engine not ready: %w", err))
+	} else if count > 0 {
+		log.Printf("computer-control recovery: %d unknown operation(s); control disabled pending operator review", count)
+	}
 	engine.SetCcControlService(ccSvc)
 	// M10: memory operations (stats/facts/traces/growth/settings/export/purge).
 	engine.SetMemoryOpsService(m8app.NewMemoryOpsService(store))
@@ -235,6 +262,9 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	engine.SetExpertGrowthService(growthSvc)
 	engine.SetMROService(mroapp.New(store))
 	ds := datasourceapp.New(store)
+	if err := store.RecoverDatasourceWrites(ctx); err != nil {
+		return fail(fmt.Errorf("recover datasource write receipts: %w", err))
+	}
 	secretPath, err := dataRoot.FilePath("datasource-secrets.json")
 	if err != nil {
 		return fail(err)
@@ -255,6 +285,7 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	// into the existing registries through the verification chain.
 	pluginSvc := m8app.NewPluginService(store.AgentRuntimeRepository(), "local-user")
 	engine.SetM8PluginService(pluginSvc)
+	engine.SetCapabilityPackStore(store.AgentRuntimeRepository())
 	if err := m8app.EnsureBuiltinPlugins(ctx, pluginSvc); err != nil {
 		log.Printf("builtin plugin seed: %v", err)
 	}
@@ -269,6 +300,7 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 		m8app.NewFilePersonaStore(personaRoot.Path()),
 	)
 	expertSvc.SetSkillStore(store)
+	closers = append(closers, expertSvc.StartPersonaMaintenance(ctx))
 	engine.SetM8ExpertService(expertSvc)
 	engine.SetSessionExpertStore(store)
 	engine.SetExpertClaimStore(store)
@@ -350,6 +382,7 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 		return fail(fmt.Errorf("prepare people staging failed; engine not ready: %w", err))
 	}
 	peopleSvc := people.New(store, ident, peopleRecv.Path(), peopleStage.Path())
+	peopleSvc.StartDelivery()
 	engine.SetIdentityPeopleServices(ident, peopleSvc)
 	if err := engine.RegisterExpertAgentContacts(ctx); err != nil {
 		log.Printf("expert agent roster: %v", err)
@@ -382,6 +415,9 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 		return fail(fmt.Errorf("durable run recovery failed; engine not ready: %w", err))
 	} else if recovered.Runs+recovered.Steps+recovered.ToolCalls+recovered.Effects > 0 {
 		log.Printf("durable run recovery: runs=%d steps=%d tools=%d effects=%d", recovered.Runs, recovered.Steps, recovered.ToolCalls, recovered.Effects)
+	}
+	if err := agentRuns.RecoverPlanExecutions(ctx); err != nil {
+		return fail(fmt.Errorf("plan execution recovery failed; engine not ready: %w", err))
 	}
 	engine.SetupCompactionServices(store, store.CompactionMessageReader())
 	engine.SetupHandoffService(store)
@@ -477,19 +513,36 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	}
 	engine.SetArtifactReviewStore(reviews)
 	engine.SetAssetStorage(store)
+	engine.SetDataScopeStore(store)
 	engine.SetDeliverableStorage(store)
 	projectAttachmentRoot, err := dataRoot.PrepareSubdirectory("project-attachments")
 	if err != nil {
 		return fail(err)
 	}
 	closers = append(closers, func() { _ = projectAttachmentRoot.Close() })
-	engine.SetProjectAttachmentStorage(store, attachmentapp.NewDirFileStorage(projectAttachmentRoot.Path()))
+	projectEvidenceFiles := attachmentapp.NewDirFileStorage(projectAttachmentRoot.Path())
+	engine.SetProjectAttachmentStorage(store, projectEvidenceFiles)
 	templateRoot, err := dataRoot.PrepareSubdirectory("asset-templates")
 	if err != nil {
 		return fail(err)
 	}
 	closers = append(closers, func() { _ = templateRoot.Close() })
-	engine.SetTemplateFileStorage(attachmentapp.NewDirFileStorage(templateRoot.Path()))
+	templateEvidenceFiles := attachmentapp.NewDirFileStorage(templateRoot.Path())
+	engine.SetTemplateFileStorage(templateEvidenceFiles)
+	store.SetProjectEvidenceFiles(projectEvidenceFiles, templateEvidenceFiles)
+	templateStageRoot, err := dataRoot.PrepareSubdirectory("asset-staging")
+	if err != nil {
+		return fail(err)
+	}
+	closers = append(closers, func() { _ = templateStageRoot.Close() })
+	engine.SetTemplateStageDirectory(templateStageRoot.Path())
+	templateCleanupCtx, cancelTemplateCleanup := context.WithTimeout(ctx, 20*time.Second)
+	templateCleanupErr := engine.ReconcileTemplateFiles(templateCleanupCtx, time.Now())
+	cancelTemplateCleanup()
+	if templateCleanupErr != nil {
+		return fail(fmt.Errorf("template file reconciliation failed: %w", templateCleanupErr))
+	}
+	closers = append(closers, engine.StartTemplateMaintenance(ctx))
 	// P2-3 resident automation: cron scheduler beside the tool workspaces.
 	// The headless executor is attached after the engine is fully wired so
 	// scheduled runs reuse the single durable chat kernel.
@@ -497,10 +550,13 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	if err != nil {
 		return fail(err)
 	}
+	if err := automationStore.RecoverInterrupted(); err != nil {
+		return fail(fmt.Errorf("automation recovery failed: %w", err))
+	}
 	automationSched := scheduler.New(automationStore, nil, scheduler.NewPlatformNotifier())
+	closers = append(closers, automationSched.Close)
 	automationSched.SetExecutor(engine.AutomationHeadlessExecutor())
 	engine.SetAutomationScheduler(automationSched)
-	automationSched.Start(ctx)
 	terminalRoot, err := toolRoot.PrepareSubdirectory("terminals")
 	if err != nil {
 		return fail(err)
@@ -538,5 +594,10 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 		return fail(fmt.Errorf("compaction restart recovery failed; engine not ready: %w", err))
 	}
 
+	// Start only after all dependencies and recovery are ready. Shutdown joins
+	// automation before closing terminal, attachment, tool, and database owners.
+	closers = append(closers, automationSched.Close)
+	automationSched.Start(ctx)
+	closers = append(closers, engine.StopPlanExecutions)
 	return engine, cleanup, nil
 }

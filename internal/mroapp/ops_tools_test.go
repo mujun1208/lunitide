@@ -42,3 +42,15 @@ func TestKitShortageListsMissingPN(t *testing.T) {
 		t.Fatalf("shortage = %#v", got)
 	}
 }
+
+func TestTraceLotLegacyCycleTerminatesAndDeduplicates(t *testing.T) {
+	got := TraceLot([]ChemLot{{ID: "a", ParentLotID: "b"}, {ID: "b", ParentLotID: "a"}}, []ChemUse{{LotID: "b", TailNo: "B-1"}, {LotID: "a", TailNo: "B-1"}}, "a")
+	if len(got.Children) != 1 || got.Children[0] != "b" || len(got.Tails) != 1 {
+		t.Fatalf("cycle trace=%+v", got)
+	}
+}
+func TestMROTextClippingPreservesChinese(t *testing.T) {
+	if got := clip("维保记录中文", 4); got != "维保记录" {
+		t.Fatalf("clipped=%q", got)
+	}
+}

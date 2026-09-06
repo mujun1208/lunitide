@@ -84,6 +84,42 @@ describe('PeoplePage', () => {
     localStorage.removeItem('lunitide:people-composer-height')
     vi.mocked(captureThisPcFrame).mockReset()
   })
+  test('pages older messages and returns to the latest page', async () => {
+    const { identity, people } = bridges()
+    const latest = { ...fileMsg, kind: 'text' as const, body: '最新正文', fileName: undefined }
+    const older = { ...latest, messageId: '01ARZ3NDEKTSV4RRFFQ69G5FAA', body: '历史正文' }
+    vi.mocked(people.threadOpen).mockImplementation(async input => input.beforeMessageId
+      ? { thread, messages: [older] }
+      : { thread, messages: [latest], nextCursor: latest.messageId })
+    const user = userEvent.setup()
+    render(<PeoplePage identity={identity} people={people} initialPeerSubjectId={peer.subjectId} />)
+    expect(await screen.findByText('最新正文')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '查看更早消息' }))
+    expect(people.threadOpen).toHaveBeenCalledWith({ threadId: thread.threadId, beforeMessageId: latest.messageId })
+    expect(await screen.findByText('历史正文')).toBeInTheDocument()
+    expect(screen.queryByText('最新正文')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '回到最新消息' }))
+    expect(await screen.findByText('最新正文')).toBeInTheDocument()
+    expect(screen.queryByText('历史正文')).not.toBeInTheDocument()
+  })
+
+  test('a late history response cannot replace a new identity connection', async () => {
+    const first = bridges(), second = bridges()
+    let finish!: (page: Awaited<ReturnType<PeopleBridge['threadOpen']>>) => void
+    vi.mocked(first.people.threadOpen).mockImplementation(input => input.beforeMessageId
+      ? new Promise(resolve => { finish = resolve })
+      : Promise.resolve({ thread, messages: [fileMsg], nextCursor: fileMsg.messageId }))
+    vi.mocked(second.people.threadList).mockResolvedValue({ items: [] })
+    vi.mocked(second.people.list).mockResolvedValue({ items: [selfContact] })
+    const user = userEvent.setup()
+    const view = render(<PeoplePage identity={first.identity} people={first.people} initialPeerSubjectId={peer.subjectId} />)
+    await user.click(await screen.findByRole('button', { name: '查看更早消息' }))
+    view.rerender(<PeoplePage identity={second.identity} people={second.people} />)
+    await act(async () => { finish({ thread, messages: [{ ...fileMsg, kind: 'text', body: '上一身份的私密历史' }] }) })
+    expect(screen.queryByText('上一身份的私密历史')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '回到最新消息' })).not.toBeInTheDocument()
+  })
+
   test('opens a colleague DM when given an initial peer subject', async () => {
     const { identity, people } = bridges()
     render(<PeoplePage identity={identity} people={people} initialPeerSubjectId={peer.subjectId} />)
@@ -237,7 +273,7 @@ describe('PeoplePage', () => {
     expect(captureThisPcFrame).toHaveBeenCalled()
     await invokeLastNativeCapture()
     expect(people.screenCapture).toHaveBeenCalledWith({ region: true })
-    await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({ kind: 'image', fileName: 'screenshot.jpg' })))
+    await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({ kind: 'image', fileName: 'screenshot.jpg' }),expect.objectContaining({attempt:expect.objectContaining({method:"people.thread.send",idempotencyKey:expect.any(String)})})))
   })
 
   test('region snip and Alt+A start a WeChat-style capture', async () => {
@@ -266,7 +302,7 @@ describe('PeoplePage', () => {
     expect(captureThisPcFrame).toHaveBeenCalled()
     await invokeLastNativeCapture()
     expect(people.screenCapture).toHaveBeenCalledWith({ region: true })
-    await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({ kind: 'image', fileName: 'screenshot.jpg' })))
+    await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({ kind: 'image', fileName: 'screenshot.jpg' }),expect.objectContaining({attempt:expect.objectContaining({method:"people.thread.send",idempotencyKey:expect.any(String)})})))
     expect(screen.queryByRole('dialog', { name: '框选截图' })).not.toBeInTheDocument()
 
     vi.mocked(captureThisPcFrame).mockClear()
@@ -352,7 +388,7 @@ describe('PeoplePage', () => {
     expect(people.filePick).toHaveBeenCalledWith({ folder: true })
     await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'file', localPath: 'C:/docs', fileName: 'docs.zip',
-    })))
+    }),expect.objectContaining({attempt:expect.objectContaining({method:"people.thread.send",idempotencyKey:expect.any(String)})})))
   })
 
   test('paperclip sends a native this-PC file without auto-accepting inbound offers', async () => {
@@ -368,7 +404,7 @@ describe('PeoplePage', () => {
     expect(people.filePick).toHaveBeenCalledWith({ folder: false })
     await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'file', localPath: 'C:/docs/spec.pdf', fileName: 'spec.pdf',
-    })))
+    }),expect.objectContaining({attempt:expect.objectContaining({method:"people.thread.send",idempotencyKey:expect.any(String)})})))
   })
 
   test('pastes a clipboard screenshot into the composer and sends it', async () => {
@@ -388,7 +424,7 @@ describe('PeoplePage', () => {
       items: [{ kind: 'file', type: 'image/png', getAsFile: () => file }],
       types: ['Files'],
     } as unknown as DataTransfer)
-    await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({ kind: 'image' })))
+    await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({ kind: 'image' }),expect.objectContaining({attempt:expect.objectContaining({method:"people.thread.send",idempotencyKey:expect.any(String)})})))
     const payload = vi.mocked(people.threadSend).mock.calls[0][0]
     expect(payload.localPath || payload.contentBase64).toBeTruthy()
   })
@@ -419,7 +455,7 @@ describe('PeoplePage', () => {
     await vi.waitFor(() => expect(people.fileStage).toHaveBeenCalled())
     await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'image', fileName: '飞算AI.png', localPath: 'C:/stage/up-feisuan.png',
-    })))
+    }),expect.objectContaining({attempt:expect.objectContaining({method:"people.thread.send",idempotencyKey:expect.any(String)})})))
     expect(screen.getByRole('status').textContent).toMatch(/已发出文件/)
   })
 

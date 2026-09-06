@@ -1,0 +1,10 @@
+{
+ "$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://lunitide.local/schema/bridge/v1/mcp.security.review.schema.json",
+ "title":"mcp.security.review payload","x-method":"mcp.security.review","x-owner":"engine","x-enabled":true,
+ "type":"object","additionalProperties":false,
+ "properties":{"endpointId":{"type":"string","minLength":1,"maxLength":128},"expectedVersion":{"type":"integer","minimum":0},"action":{"type":"string","enum":["inspect","accept"]},"observedDigest":{"type":"string","pattern":"^[a-f0-9]{64}$"},"confirmed":{"type":"boolean"}},
+ "required":["endpointId","expectedVersion","action"],
+ "oneOf":[{"properties":{"action":{"const":"inspect"}}},{"properties":{"action":{"const":"accept"},"observedDigest":{},"confirmed":{"const":true}},"required":["observedDigest","confirmed"]}],
+ "x-result":{"type":"object","additionalProperties":false,"properties":{"observedDigest":{"type":"string","pattern":"^[a-f0-9]{64}$"},"identityDigest":{"type":"string","pattern":"^[a-f0-9]{64}$"},"tools":{"type":"array","maxItems":512,"items":{"type":"string","maxLength":256}},"lockedArgs":{"type":"array","maxItems":64,"items":{"type":"string","maxLength":512}},"securityVersion":{"type":"integer","minimum":0},"accepted":{"type":"boolean"}},"required":["observedDigest","identityDigest","tools","lockedArgs","securityVersion","accepted"]},
+ "x-examples":{"positive":[{"endpointId":"mcp-fixture","expectedVersion":1,"action":"inspect"}],"negative":[{"endpointId":"mcp-fixture","expectedVersion":1,"action":"accept"}]}
+}

@@ -3,8 +3,11 @@ package datasourceapp
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
-	"net/url"
+	"io"
+	"net"
 	"regexp"
 	"strings"
 	"time"
@@ -13,7 +16,9 @@ import (
 	// cleanly under CGO_ENABLED=0 (the Lunitide production default). Do not swap
 	// in a CGO driver without updating the dialect checklist.
 	mysqldriver "github.com/go-sql-driver/mysql"
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgproto3"
+	"github.com/jackc/pgx/v5/stdlib"
 )
 
 // driverName maps a connection kind to its registered database/sql driver.
@@ -30,14 +35,83 @@ func driverName(kind string) (string, error) {
 
 // openDB opens a short-lived pooled handle. Open is lazy (no socket yet); the
 // caller drives the connection under the service's QueryTimeout.
-func openDB(kind, dsn string) (*sql.DB, error) {
-	name, err := driverName(kind)
-	if err != nil {
+const (
+	MaxResultBytes     = 512 << 10
+	MaxResultCellBytes = 256 << 10
+	MaxResultColumns   = 128
+	maxSQLWireBytes    = 8 << 20
+)
+
+var ErrResultBudget = errors.New("database result exceeds safety budget; narrow selected columns or rows")
+
+// SQL handles are short lived. The socket budget bounds driver input as well as
+// the JSON output; MySQL's fixed 24-bit packet length bounds its one-packet buffer.
+type sqlBudgetConn struct {
+	net.Conn
+	remaining int64
+}
+
+func (c *sqlBudgetConn) Read(p []byte) (int, error) {
+	if c.remaining <= 0 {
+		return 0, ErrResultBudget
+	}
+	if int64(len(p)) > c.remaining {
+		p = p[:c.remaining]
+	}
+	n, err := c.Conn.Read(p)
+	c.remaining -= int64(n)
+	return n, err
+}
+func sqlDial(local bool) func(context.Context, string, string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		var conn net.Conn
+		var err error
+		if local {
+			conn, err = dialLoopback(ctx, network, addr)
+		} else {
+			conn, err = (&net.Dialer{}).DialContext(ctx, network, addr)
+		}
+		if err != nil {
+			return nil, err
+		}
+		return &sqlBudgetConn{Conn: conn, remaining: maxSQLWireBytes}, nil
+	}
+}
+func openDB(kind, dsn string) (*sql.DB, error) { return openSQLDB(kind, dsn, false) }
+func openSQLDB(kind, dsn string, local bool) (*sql.DB, error) {
+	if _, err := driverName(kind); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open(name, dsn)
-	if err != nil {
-		return nil, err
+	var db *sql.DB
+	if kind == "postgres" {
+		cfg, err := pgx.ParseConfig(dsn)
+		if err != nil {
+			return nil, err
+		}
+		if local && !localPostgresConfig(cfg) {
+			return nil, ErrStatementDenied
+		}
+		cfg.DialFunc = sqlDial(local)
+		cfg.BuildFrontend = func(r io.Reader, w io.Writer) *pgproto3.Frontend {
+			frontend := pgproto3.NewFrontend(r, w)
+			frontend.SetMaxBodyLen(1 << 20)
+			return frontend
+		}
+		db = stdlib.OpenDB(*cfg)
+	} else {
+		cfg, err := mysqldriver.ParseDSN(dsn)
+		if err != nil {
+			return nil, err
+		}
+		if local && !localMySQLConfig(cfg) {
+			return nil, ErrStatementDenied
+		}
+		cfg.DialFunc = sqlDial(local)
+		connector, err := mysqldriver.NewConnector(cfg)
+		if err != nil {
+			return nil, err
+		}
+		db = sql.OpenDB(connector)
 	}
 	db.SetMaxOpenConns(2)
 	db.SetMaxIdleConns(1)
@@ -96,6 +170,15 @@ func scanRows(rows *sql.Rows, maxRows int) ([]string, [][]any, bool, error) {
 	if err != nil {
 		return nil, nil, false, err
 	}
+	if len(cols) > MaxResultColumns {
+		return nil, nil, false, ErrResultBudget
+	}
+	maxRows = min(max(maxRows, 1), 1000)
+	names, err := json.Marshal(cols)
+	if err != nil || len(names) > MaxResultBytes/4 {
+		return nil, nil, false, ErrResultBudget
+	}
+	used := len(names) + 32
 	out := make([][]any, 0, maxRows)
 	truncated := false
 	for rows.Next() {
@@ -111,7 +194,37 @@ func scanRows(rows *sql.Rows, maxRows int) ([]string, [][]any, bool, error) {
 		if err := rows.Scan(ptrs...); err != nil {
 			return nil, nil, false, err
 		}
-		out = append(out, normalizeRow(scan))
+		rawBytes := 0
+		over := false
+		for _, value := range scan {
+			size := 32
+			switch v := value.(type) {
+			case []byte:
+				size = len(v)
+			case string:
+				size = len(v)
+			}
+			rawBytes += size
+			if size > MaxResultCellBytes || rawBytes > MaxResultBytes {
+				over = true
+				break
+			}
+		}
+		if over {
+			truncated = true
+			break
+		}
+		normalized := normalizeRow(scan)
+		encoded, err := json.Marshal(normalized)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		if used+len(encoded)+1 > MaxResultBytes {
+			truncated = true
+			break
+		}
+		used += len(encoded) + 1
+		out = append(out, normalized)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, nil, false, err
@@ -143,7 +256,7 @@ var reSafeIdent = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,62}$`)
 // creates databases on a remote customer host.
 func isLocalHost(host string) bool {
 	switch strings.ToLower(strings.Trim(strings.TrimSpace(host), "[]")) {
-	case "localhost", "127.0.0.1", "::1", "0.0.0.0":
+	case "localhost", "127.0.0.1", "::1":
 		return true
 	}
 	return false
@@ -171,11 +284,7 @@ func provisionMySQL(ctx context.Context, dsn string) error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrProvisionFailed, err)
 	}
-	host := cfg.Addr
-	if i := strings.LastIndex(host, ":"); i >= 0 {
-		host = host[:i]
-	}
-	if cfg.Net != "tcp" || !isLocalHost(host) {
+	if !localMySQLConfig(cfg) {
 		return nil
 	}
 	target := strings.TrimSpace(cfg.DBName)
@@ -186,10 +295,12 @@ func provisionMySQL(ctx context.Context, dsn string) error {
 		return fmt.Errorf("%w: unsafe database name", ErrProvisionFailed)
 	}
 	cfg.DBName = ""
-	db, err := sql.Open("mysql", cfg.FormatDSN())
+	cfg.DialFunc = dialLoopback
+	connector, err := mysqldriver.NewConnector(cfg)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrProvisionFailed, err)
 	}
+	db := sql.OpenDB(connector)
 	defer db.Close()
 	if _, err := db.ExecContext(ctx, "CREATE DATABASE IF NOT EXISTS `"+target+"`"); err != nil {
 		return fmt.Errorf("%w: %v", ErrProvisionFailed, err)
@@ -198,26 +309,25 @@ func provisionMySQL(ctx context.Context, dsn string) error {
 }
 
 func provisionPostgres(ctx context.Context, dsn string) error {
-	u, err := url.Parse(dsn)
-	if err != nil || u.Scheme == "" {
+	cfg, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return fmt.Errorf("%w: invalid PostgreSQL configuration", ErrProvisionFailed)
+	}
+	if !localPostgresConfig(cfg) {
 		return nil
 	}
-	if !isLocalHost(u.Hostname()) {
-		return nil
-	}
-	target := strings.TrimPrefix(u.Path, "/")
+	target := cfg.Database
 	if target == "" || strings.EqualFold(target, "postgres") {
 		return nil
 	}
 	if !reSafeIdent.MatchString(target) {
 		return fmt.Errorf("%w: unsafe database name", ErrProvisionFailed)
 	}
-	maint := *u
-	maint.Path = "/postgres"
-	db, err := sql.Open("pgx", maint.String())
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrProvisionFailed, err)
-	}
+	// Execute the exact configuration that passed validation, including URI
+	// query overrides, keyword DSNs, environment settings, and fallback hosts.
+	cfg.Database = "postgres"
+	cfg.DialFunc = dialLoopback
+	db := stdlib.OpenDB(*cfg)
 	defer db.Close()
 	var exists bool
 	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname=$1)", target).Scan(&exists); err != nil {
@@ -244,21 +354,53 @@ func IsLocalDSN(kind, dsn string) bool {
 		if err != nil {
 			return false
 		}
-		host := cfg.Addr
-		if i := strings.LastIndex(host, ":"); i >= 0 {
-			host = host[:i]
-		}
-		return cfg.Net == "tcp" && isLocalHost(host)
+		return localMySQLConfig(cfg)
 	case "postgres":
-		u, err := url.Parse(dsn)
+		cfg, err := pgx.ParseConfig(dsn)
 		if err != nil {
 			return false
 		}
-		return isLocalHost(u.Hostname())
+		return localPostgresConfig(cfg)
 	default:
 		return false
 	}
 }
+
+func localMySQLConfig(cfg *mysqldriver.Config) bool {
+	host, _, err := net.SplitHostPort(cfg.Addr)
+	return err == nil && cfg.Net == "tcp" && isLocalHost(host)
+}
+
+func localPostgresConfig(cfg *pgx.ConnConfig) bool {
+	if !isLocalHost(cfg.Host) {
+		return false
+	}
+	for _, fallback := range cfg.Fallbacks {
+		if !isLocalHost(fallback.Host) {
+			return false
+		}
+	}
+	return true
+}
+
+// Recheck the actual socket destination: a local-looking hostname or driver
+// fallback must never turn into a remote privileged connection after parsing.
+func dialLoopback(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil || network != "tcp" {
+		return nil, ErrStatementDenied
+	}
+	if strings.EqualFold(host, "localhost") {
+		host = "127.0.0.1"
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return nil, ErrStatementDenied
+	}
+	return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort(host, port))
+}
+
+func openLocalWriteDB(kind, dsn string) (*sql.DB, error) { return openSQLDB(kind, dsn, true) }
 
 // isRowReturning reports whether a statement yields a result set and so must run
 // via Query rather than Exec on the read-write path. Conservative: anything not
@@ -281,7 +423,7 @@ func isRowReturning(statement string) bool {
 // statements stream up to maxRows; any other statement runs via Exec and reports
 // rows_affected. Unlike the read-only SQLQuerier it commits the transaction.
 func SQLWriteQuerier(ctx context.Context, kind, dsn, statement string, args []any, maxRows int) ([]string, [][]any, bool, error) {
-	db, err := openDB(kind, dsn)
+	db, err := openLocalWriteDB(kind, dsn)
 	if err != nil {
 		return nil, nil, false, err
 	}

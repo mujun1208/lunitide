@@ -24,6 +24,7 @@ import (
 
 // Settings is the single-row security configuration.
 type Settings struct {
+	Revision             int64    `json:"revision"`
 	Enabled              bool     `json:"enabled"`
 	SecurityLevel        string   `json:"securityLevel"`
 	AllowCritical        bool     `json:"allowCritical"`
@@ -51,6 +52,7 @@ type AuditEntry struct {
 
 // SettingsPatch carries optional updateConfig fields.
 type SettingsPatch struct {
+	ExpectedRevision     int64
 	Enabled              *bool
 	SecurityLevel        *string
 	AllowCritical        *bool
@@ -154,6 +156,7 @@ func (w *rateWindow) allow(now time.Time, cap int) bool {
 
 // Service implements the cc.* surface.
 type Service struct {
+	execution                            executionFence
 	uow                                  UnitOfWork
 	clock                                Clock
 	host                                 Host
@@ -378,7 +381,9 @@ func (s *Service) verifyAfter(summary string) (string, []byte, error) {
 	unchanged := prev != [32]byte{} && prev == sum
 	if unchanged {
 		if wait := s.mutateSettleWait(); wait > 0 {
-			time.Sleep(wait)
+			if err := s.waitExecution(wait); err != nil {
+				return summary, nil, err
+			}
 			if recap, recapErr := s.verifyCapture(); recapErr == nil {
 				png = recap
 				sum = sha256.Sum256(png)
@@ -429,6 +434,17 @@ func (s *Service) ExecuteTool(ctx context.Context, session, tool string, args js
 	if len(session) < 1 || len(session) > 64 {
 		return Outcome{}, fmt.Errorf("%w: sessionId", ErrCcSchema)
 	}
+	op, err := s.beginExecution(ctx)
+	if err != nil {
+		if errors.Is(err, ErrCcEmergency) {
+			auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+			defer cancel()
+			err = errors.Join(err, s.recordAudit(auditCtx, session, tool, classifyRisk(tool, nil), StatusStopped, "", map[string]any{"reason": "emergency-stop"}, s.clock.Now().UTC().Format(time.RFC3339)))
+		}
+		return Outcome{}, err
+	}
+	defer s.endExecution(op)
+	ctx = op.ctx
 	var settings Settings
 	var emergency bool
 	if err := s.uow.TransactCc(ctx, func(tx Tx) error {
@@ -443,6 +459,9 @@ func (s *Service) ExecuteTool(ctx context.Context, session, tool string, args js
 		return Outcome{}, err
 	}
 	emergency = settings.EmergencyStopped
+	s.execution.mu.Lock()
+	op.settings = settings
+	s.execution.mu.Unlock()
 
 	now := s.clock.Now().UTC()
 	ts := now.Format(time.RFC3339)
@@ -462,28 +481,23 @@ func (s *Service) ExecuteTool(ctx context.Context, session, tool string, args js
 
 	// Gate 0: enabled / emergency latch.
 	if !settings.Enabled {
-		s.recordAudit(ctx, session, auditTool, classifyRisk(execTool, nil), StatusDenied, "", map[string]any{"reason": "disabled"}, ts)
-		return Outcome{}, ErrCcDisabled
+		return Outcome{}, errors.Join(ErrCcDisabled, s.recordAudit(ctx, session, auditTool, classifyRisk(execTool, nil), StatusDenied, "", map[string]any{"reason": "disabled"}, ts))
 	}
 	if emergency {
-		s.recordAudit(ctx, session, auditTool, classifyRisk(execTool, nil), StatusStopped, "", map[string]any{"reason": "emergency-stop"}, ts)
-		return Outcome{}, ErrCcEmergency
+		return Outcome{}, errors.Join(ErrCcEmergency, s.recordAudit(ctx, session, auditTool, classifyRisk(execTool, nil), StatusStopped, "", map[string]any{"reason": "emergency-stop"}, ts))
 	}
 	// Rate limit: every attempted action consumes one slot.
 	if !s.limit.allow(now, settings.MaxActionsPerMinute) {
-		s.recordAudit(ctx, session, auditTool, classifyRisk(execTool, nil), StatusDenied, "", map[string]any{"reason": "rate-limited", "cap": settings.MaxActionsPerMinute}, ts)
-		return Outcome{}, ErrCcRateLimited
+		return Outcome{}, errors.Join(ErrCcRateLimited, s.recordAudit(ctx, session, auditTool, classifyRisk(execTool, nil), StatusDenied, "", map[string]any{"reason": "rate-limited", "cap": settings.MaxActionsPerMinute}, ts))
 	}
 	if s.host == nil || !s.host.Available() {
-		s.recordAudit(ctx, session, auditTool, RiskMedium, StatusFailed, "", map[string]any{"reason": "engine-unavailable"}, ts)
-		return Outcome{}, ErrCcEngineUnavailable
+		return Outcome{}, errors.Join(ErrCcEngineUnavailable, s.recordAudit(ctx, session, auditTool, RiskMedium, StatusFailed, "", map[string]any{"reason": "engine-unavailable"}, ts))
 	}
 
 	// Layer 2: input filtering (also parses the tool arguments).
 	shortcut, err := s.filterInput(execTool, execArgs)
 	if err != nil {
-		s.recordAudit(ctx, session, auditTool, classifyRisk(execTool, nil), StatusBlocked, LayerInput, map[string]any{"reason": err.Error()}, ts)
-		return Outcome{}, err
+		return Outcome{}, errors.Join(err, s.recordAudit(ctx, session, auditTool, classifyRisk(execTool, nil), StatusBlocked, LayerInput, map[string]any{"reason": err.Error()}, ts))
 	}
 
 	// Layer 1: intent / risk classification and the confirmation gate.
@@ -491,21 +505,17 @@ func (s *Service) ExecuteTool(ctx context.Context, session, tool string, args js
 	switch risk {
 	case RiskCritical:
 		if !settings.AllowCritical {
-			s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerIntent, map[string]any{"reason": "critical not allowed"}, ts)
-			return Outcome{}, ErrCcRiskBlocked
+			return Outcome{}, errors.Join(ErrCcRiskBlocked, s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerIntent, map[string]any{"reason": "critical not allowed"}, ts))
 		}
 		if !approved {
-			s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerIntent, map[string]any{"reason": "confirmation required"}, ts)
-			return Outcome{}, ErrCcConfirmRequired
+			return Outcome{}, errors.Join(ErrCcConfirmRequired, s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerIntent, map[string]any{"reason": "confirmation required"}, ts))
 		}
 	case RiskHigh:
 		if settings.SecurityLevel == LevelStrict {
-			s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerIntent, map[string]any{"reason": "strict level"}, ts)
-			return Outcome{}, ErrCcRiskBlocked
+			return Outcome{}, errors.Join(ErrCcRiskBlocked, s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerIntent, map[string]any{"reason": "strict level"}, ts))
 		}
 		if !approved {
-			s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerIntent, map[string]any{"reason": "confirmation required"}, ts)
-			return Outcome{}, ErrCcConfirmRequired
+			return Outcome{}, errors.Join(ErrCcConfirmRequired, s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerIntent, map[string]any{"reason": "confirmation required"}, ts))
 		}
 	}
 
@@ -513,38 +523,75 @@ func (s *Service) ExecuteTool(ctx context.Context, session, tool string, args js
 	// for window close / app quit (the victim may not be in the foreground).
 	if screenAffecting(execTool) {
 		title, process, err := s.host.ActiveWindow()
-		if err == nil {
+		if err != nil || strings.TrimSpace(process) == "" {
+			return Outcome{}, errors.Join(ErrCcProcessBlocked, s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerProcess, map[string]any{"reason": "foreground unavailable"}, ts))
+		} else {
 			s.noteForeground(title, process)
 			if blocklistHit(settings.ProcessBlocklist, process) {
-				s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerProcess, map[string]any{"process": process}, ts)
-				return Outcome{}, ErrCcProcessBlocked
+				return Outcome{}, errors.Join(ErrCcProcessBlocked, s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerProcess, map[string]any{"process": process}, ts))
 			}
 		}
 	}
 	if err := s.rejectTargetProcess(settings, execTool, execArgs); err != nil {
-		s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerProcess, map[string]any{"reason": err.Error()}, ts)
-		return Outcome{}, err
+		return Outcome{}, errors.Join(err, s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerProcess, map[string]any{"reason": err.Error()}, ts))
 	}
 
-	summary, capture, execErr := s.runHost(execTool, execArgs, shortcut)
-	if execErr != nil {
-		if errors.Is(execErr, ErrCcRiskBlocked) {
-			s.recordAudit(ctx, session, auditTool, risk, StatusBlocked, LayerIntent, map[string]any{"reason": execErr.Error()}, ts)
-			return Outcome{}, execErr
-		}
-		s.recordAudit(ctx, session, auditTool, risk, StatusFailed, "", map[string]any{"reason": execErr.Error()}, ts)
-		return Outcome{}, fmt.Errorf("%w: %v", ErrCcExecFailed, execErr)
+	if err := s.checkExecution(); err != nil {
+		return Outcome{}, err
+	}
+	operationID, err := s.prepareAudit(ctx, session, auditTool, execTool, risk, execArgs, approved)
+	if err != nil {
+		return Outcome{}, fmt.Errorf("%w: %v", ErrCcAuditUnavailable, err)
+	}
+	var summary string
+	var capture []byte
+	execErr := s.checkExecution()
+	if execErr == nil {
+		summary, capture, execErr = s.runHost(execTool, execArgs, shortcut)
+	}
+	if fenceErr := s.checkExecution(); fenceErr != nil {
+		execErr = fenceErr
 	}
 	action := "cc.operation.executed"
 	if approved && (risk == RiskHigh || risk == RiskCritical) {
 		action = "cc.operation.confirmed"
 	}
-	detail := map[string]any{"summary": clampReason(summary)}
+	detail := map[string]any{"summary": clampReason(summary), "operationId": operationID, "phase": "receipt", "dispatched": op.dispatched}
 	if tool == ToolComputerAct {
 		detail["via"] = ToolComputerAct
 		detail["mapped"] = execTool
 	}
-	s.writeAudit(ctx, session, auditTool, risk, StatusExecuted, "", action, detail, ts)
+	status, layer := StatusExecuted, ""
+	if execErr != nil {
+		detail["reason"] = clampReason(execErr.Error())
+		status = StatusFailed
+		if executionFenceError(execErr) {
+			status, action = StatusStopped, "cc.tool.denied"
+		}
+		if errors.Is(execErr, ErrCcRiskBlocked) {
+			status, layer, action = StatusBlocked, LayerIntent, "cc.operation.blocked"
+		}
+		if errors.Is(execErr, ErrCcProcessBlocked) {
+			status, layer, action = StatusBlocked, LayerProcess, "cc.operation.blocked"
+		}
+	}
+	detail["outcome"] = status
+	// A cancelled caller must not erase the terminal receipt of a prepared action.
+	receiptCtx, cancelReceipt := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancelReceipt()
+	if auditErr := s.writeAudit(receiptCtx, session, auditTool, risk, status, layer, action, detail, s.clock.Now().UTC().Format(time.RFC3339)); auditErr != nil {
+		kind := ErrCcAuditUnavailable
+		if op.dispatched {
+			kind = ErrCcOutcomeUnknown
+		}
+		return Outcome{}, fmt.Errorf("%w (operation %s): %w", kind, operationID, errors.Join(execErr, auditErr))
+	}
+	if execErr != nil {
+		if executionFenceError(execErr) || errors.Is(execErr, ErrCcRiskBlocked) {
+			return Outcome{}, execErr
+		}
+		return Outcome{}, fmt.Errorf("%w: %w", ErrCcExecFailed, execErr)
+	}
 	out := Outcome{Tool: tool, Summary: summary, CapturePNG: capture}
 	return out, nil
 }
@@ -587,7 +634,7 @@ func (s *Service) noteForeground(title, process string) {
 func (s *Service) focusIfNamed(window string) error {
 	window = strings.TrimSpace(window)
 	if window != "" {
-		info, err := s.host.FocusWindow(window)
+		info, err := s.controlHost().FocusWindow(window)
 		if err != nil {
 			return err
 		}
@@ -605,7 +652,7 @@ func (s *Service) restoreNonCompanionForeground() error {
 	if err == nil {
 		s.noteForeground(title, process)
 		if !isCompanionProcess(process) {
-			return s.host.EnsureForeground()
+			return s.controlHost().EnsureForeground()
 		}
 	}
 	s.lastMu.Lock()
@@ -615,7 +662,7 @@ func (s *Service) restoreNonCompanionForeground() error {
 	}
 	s.lastMu.Unlock()
 	if q != "" {
-		info, err := s.host.FocusWindow(q)
+		info, err := s.controlHost().FocusWindow(q)
 		if err == nil {
 			s.noteForeground(info.Title, info.Process)
 			return nil
@@ -630,7 +677,7 @@ func (s *Service) restoreNonCompanionForeground() error {
 			if query == "" {
 				query = w.Title
 			}
-			info, err := s.host.FocusWindow(query)
+			info, err := s.controlHost().FocusWindow(query)
 			if err == nil {
 				s.noteForeground(info.Title, info.Process)
 				return nil
@@ -925,16 +972,18 @@ func (s *Service) verifyClickHit(want string, sx, sy int) error {
 
 func (s *Service) clickNamedLadder(invokeName string, sx, sy int, hit string) error {
 	if !unnamedUIName(invokeName) {
-		if err := s.host.InvokeUI(invokeName); err == nil {
+		if err := s.controlHost().InvokeUI(invokeName); err == nil {
 			return s.verifyClickHit(hit, sx, sy)
-		} else if wrapped := wrapHostIntegrityError(err); errors.Is(wrapped, ErrCcRiskBlocked) {
+		} else if wrapped := wrapHostIntegrityError(err); errors.Is(wrapped, ErrCcRiskBlocked) || executionFenceError(wrapped) {
 			return wrapped
 		}
 	}
 	if !unnamedUIName(invokeName) {
 		if win, ok := s.host.(win32Clicker); ok {
-			if err := win.Win32Click(invokeName); err == nil {
+			if err := s.dispatch(true, func() error { return win.Win32Click(invokeName) }); err == nil {
 				return s.verifyClickHit(hit, sx, sy)
+			} else if executionFenceError(err) || errors.Is(err, ErrCcRiskBlocked) {
+				return err
 			}
 		}
 	}
@@ -945,10 +994,10 @@ func (s *Service) clickNamedLadder(invokeName string, sx, sy int, hit string) er
 			if err := s.refuseSelfWindowPixels(); err != nil {
 				return err
 			}
-			if err := s.host.MouseMove(sx, sy); err != nil {
+			if err := s.controlHost().MouseMove(sx, sy); err != nil {
 				return err
 			}
-			if err := s.host.MouseClick("left", 1); err != nil {
+			if err := s.controlHost().MouseClick("left", 1); err != nil {
 				return err
 			}
 			return s.verifyClickHit(hit, sx, sy)

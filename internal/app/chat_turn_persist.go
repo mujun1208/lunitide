@@ -39,24 +39,49 @@ func (e *Engine) retrySessionPersistDraft(ctx context.Context, sessionID string)
 	if e == nil || e.messages == nil || strings.TrimSpace(sessionID) == "" {
 		return "", nil
 	}
-	cp := e.loadTurnCheckpoint(sessionID)
-	draft := strings.TrimSpace(cp.PersistDraft)
-	if draft == "" {
-		return "", nil
+	var lastID string
+	for {
+		pending, err := e.pendingTurnCheckpoints(ctx, sessionID)
+		if err != nil {
+			return lastID, err
+		}
+		if len(pending) == 0 {
+			return lastID, nil
+		}
+		for _, cp := range pending {
+			draft := strings.TrimSpace(cp.PersistDraft)
+			if draft == "" {
+				// Legacy files can contain whitespace-only drafts. Leaving their
+				// pending flag set would make recovery loop forever on the same row.
+				cp.PersistDraft, cp.PersistFailed = "", false
+				cp.PersistUsage = messageapp.AssistantUsage{}
+				if err := e.saveTurnCheckpoint(sessionID, cp); err != nil {
+					return lastID, err
+				}
+				continue
+			}
+			if !ulidValid(cp.StreamID) {
+				cp.StreamID = ulid.Make().String()
+				if err := e.saveTurnCheckpoint(sessionID, cp); err != nil {
+					return lastID, err
+				}
+			}
+			msg, err := e.appendAssistantTurn(ctx, cp.StreamID, "engine", sessionID, draft, cp.PersistUsage)
+			if err != nil {
+				return lastID, err
+			}
+			cp.PersistDraft = ""
+			cp.PersistFailed = false
+			if err := e.saveTurnCheckpoint(sessionID, cp); err != nil {
+				return lastID, err
+			}
+			lastID = msg.ID
+			e.pushInboundReply(sessionID, draft)
+		}
+		if e.turnJournal == nil {
+			return lastID, nil
+		}
 	}
-	streamID := strings.TrimSpace(cp.StreamID)
-	if streamID == "" || !ulidValid(streamID) {
-		streamID = ulid.Make().String()
-	}
-	msg, err := e.messages.AppendAssistant(ctx, streamID, "engine", sessionID, draft, messageapp.AssistantUsage{})
-	if err != nil {
-		return "", err
-	}
-	cp.PersistDraft = ""
-	cp.PersistFailed = false
-	e.saveTurnCheckpoint(sessionID, cp)
-	e.pushInboundReply(sessionID, draft)
-	return msg.ID, nil
 }
 
 func (e *Engine) handlePersistRetryStart(ctx context.Context, request bridge.Request, sessionID string, emit EventEmitter) bridge.Response {
@@ -74,7 +99,7 @@ func (e *Engine) handlePersistRetryStart(ctx context.Context, request bridge.Req
 		parent = ctx
 	}
 	streamCtx, cancel := context.WithCancel(parent)
-	state := &streamState{cancel: cancel}
+	state := &streamState{cancel: cancel, sessionID: sessionID}
 	e.streams[streamID] = state
 	e.streamsMu.Unlock()
 	go func() {

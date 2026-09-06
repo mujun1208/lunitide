@@ -5,7 +5,9 @@ import (
 	"errors"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/m7app"
 	"github.com/lunitide/lunitide/internal/mcapp"
+	"github.com/lunitide/lunitide/internal/mcp6"
 )
 
 // M10 wave-3 MCP-market handlers: mc.market.list/detail,
@@ -174,6 +176,7 @@ func handleMcConnectorUninstall(e *Engine, ctx context.Context, r bridge.Request
 	if err != nil {
 		return mcFailure(r, err)
 	}
+	e.dropSettingsMcp(p.EndpointID)
 	return r.Ok(struct {
 		EndpointID string `json:"endpointId"`
 		State      string `json:"state"`
@@ -200,6 +203,10 @@ func handleMcConnectorUpdate(e *Engine, ctx context.Context, r bridge.Request) b
 	})
 	if err != nil {
 		return mcFailure(r, err)
+	}
+	e.dropSettingsMcp(p.EndpointID)
+	if err := e.syncSettingsMcp(ctx, p.EndpointID); err != nil {
+		return m7McpFailure(r, mcpAdmissionError(err), "mc.connector.update")
 	}
 	return r.Ok(struct {
 		EndpointID       string                 `json:"endpointId"`
@@ -252,6 +259,8 @@ func handleMcTombstoneCheck(e *Engine, ctx context.Context, r bridge.Request) br
 // mcFailure maps mcapp errors onto M10-MC-001~007.
 func mcFailure(r bridge.Request, err error) bridge.Response {
 	switch {
+	case errors.Is(err, mcp6.ErrCapabilityDrift), errors.Is(err, mcp6.ErrCredentialRevoked), errors.Is(err, m7app.ErrMcpDrift), errors.Is(err, m7app.ErrMcpSecurityConflict), errors.Is(err, m7app.ErrMcpProbe):
+		return m7McpFailure(r, err, "connector probe")
 	case errors.Is(err, mcapp.ErrMcSchema):
 		return r.Fail("M10-MC-001", "连接器配置未通过校验链（MC-VR-01~08）", false)
 	case errors.Is(err, mcapp.ErrMcConfirm):

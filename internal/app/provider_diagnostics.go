@@ -236,6 +236,11 @@ func (e *Engine) withProviderLease(ctx context.Context, p provider.Provider, ope
 }
 
 func (e *Engine) withProviderLeaseRef(ctx context.Context, p provider.Provider, ref string, operation secretlease.Operation, fn func(context.Context, []byte) error) error {
+	if operation == secretlease.OperationChat {
+		if err := e.CheckCapability(ctx, "llm"); err != nil {
+			return err
+		}
+	}
 	if e.leases == nil {
 		return errors.New("secret lease unavailable")
 	}

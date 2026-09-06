@@ -47,6 +47,20 @@ func meetingsCall(t *testing.T, e *Engine, method string, payload any) bridge.Re
 
 func meetingsOK[Out any](t *testing.T, e *Engine, method string, payload any) Out {
 	t.Helper()
+	// These sequential fixtures model a client reading its write revision.
+	// Conflict/missing-revision cases use meetingsCall directly below.
+	switch method {
+	case "meetings.update", "meetings.delete", "meetings.stop", "meetings.summarize", "meetings.catchup":
+		if p, ok := payload.(map[string]any); ok {
+			if _, exists := p["expectedRevision"]; !exists {
+				m, err := e.meetings.Get(context.Background(), p["meetingId"].(string))
+				if err != nil {
+					t.Fatal(err)
+				}
+				p["expectedRevision"] = m.Revision
+			}
+		}
+	}
 	resp := meetingsCall(t, e, method, payload)
 	if !resp.OK {
 		t.Fatalf("%s failed: %+v", method, resp.Error)

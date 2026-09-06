@@ -21,15 +21,17 @@ import (
 	"github.com/lunitide/lunitide/internal/conversationsapp"
 	"github.com/lunitide/lunitide/internal/credentialsubmission"
 	"github.com/lunitide/lunitide/internal/datadir"
+	"github.com/lunitide/lunitide/internal/desktopfiles"
 	"github.com/lunitide/lunitide/internal/diagnosticapp"
+	"github.com/lunitide/lunitide/internal/diagramrender"
 	"github.com/lunitide/lunitide/internal/engineclient"
 	"github.com/lunitide/lunitide/internal/hostbridge"
 	"github.com/lunitide/lunitide/internal/ipc"
+	"github.com/lunitide/lunitide/internal/maintenance"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/systemsettings"
 	"github.com/lunitide/lunitide/internal/uitheme"
 	"github.com/lunitide/lunitide/internal/webviewhost"
-	"github.com/lunitide/lunitide/internal/desktopfiles"
 	"github.com/lunitide/lunitide/internal/workspaceapp"
 	"github.com/oklog/ulid/v2"
 )
@@ -42,6 +44,7 @@ func main() {
 }
 
 func run() error {
+	diagramWorker := flag.String("diagram-worker", "", "private isolated diagram worker job")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	enginePath := flag.String("engine", "", "engine executable")
 	pipe := flag.String("pipe", "", "development-only named pipe override")
@@ -50,6 +53,9 @@ func run() error {
 	quitEngine := flag.Bool("quit", false, "stop the running engine (same as tray Exit) and exit")
 	takeover := flag.Bool("takeover", false, "D11: wait for the previous desktop instance to exit, then become the gateway")
 	flag.Parse()
+	if *diagramWorker != "" {
+		return webviewhost.RunDiagramWorker(*diagramWorker)
+	}
 	if *showVersion {
 		fmt.Println(buildinfo.Version)
 		return nil
@@ -92,6 +98,11 @@ func run() error {
 		return err
 	}
 	defer dataRoot.Close()
+	dataLock, err := maintenance.OpenRuntime(context.Background(), dataRoot)
+	if err != nil {
+		return err
+	}
+	defer dataLock.Close()
 	noncePath, err := dataRoot.FilePath(ipc.GatewayNonceFile)
 	if err != nil {
 		return err
@@ -325,26 +336,28 @@ func run() error {
 	conversationsHandler := conversationsapp.NewHostHandler()
 	desktopFilesHandler := desktopfiles.New()
 	gateway, err := hostbridge.New(webviewhost.TrustedOrigin, client, map[bridge.Method]hostbridge.Handler{
-		bridge.MethodBrowserOpen:              browserManager,
-		bridge.MethodBrowserClose:             browserManager,
-		bridge.MethodProviderCredentialReveal: credentialHandler,
-		bridge.MethodProviderCredentialSubmit: credentialHandler,
-		bridge.MethodProviderCreate:                      credentialHandler,
-		bridge.MethodProviderUpdate:                      credentialHandler,
-		bridge.MethodProviderCredentialBackupAdd:         credentialHandler,
-		bridge.MethodProviderDelete:                      credentialHandler,
-		bridge.MethodDiagnosticsExport:        &diagnosticapp.HostHandler{},
-		bridge.MethodSystemSettingsOpen:       &systemsettings.Handler{OpenMicrophone: webviewhost.OpenMicrophonePrivacySettings},
-		bridge.MethodUiThemeSet:               themeHandler,
-		bridge.MethodConversationsRootSelect:  conversationsHandler,
-		bridge.MethodDesktopFilesPick:         desktopFilesHandler,
-		bridge.MethodDesktopFilesReadChunk:    desktopFilesHandler,
-		bridge.MethodWorkspaceRootSelect:      workspaceHandler,
-		bridge.MethodWorkspaceRootClear:       workspaceHandler,
-		bridge.MethodWorkspaceRootGet:         workspaceHandler,
-		bridge.MethodWorkspaceList:            workspaceHandler,
-		bridge.MethodWorkspaceRead:            workspaceHandler,
-		bridge.MethodWorkspaceOpen:            workspaceHandler,
+		bridge.MethodBrowserOpen:                 browserManager,
+		bridge.Method("diagram.render"):          diagramrender.New(rendererDir),
+		bridge.MethodBrowserClose:                browserManager,
+		bridge.MethodProviderCredentialReveal:    credentialHandler,
+		bridge.MethodProviderCredentialSubmit:    credentialHandler,
+		bridge.Method("mcp.credential.set"):      credentialHandler,
+		bridge.MethodProviderCreate:              credentialHandler,
+		bridge.MethodProviderUpdate:              credentialHandler,
+		bridge.MethodProviderCredentialBackupAdd: credentialHandler,
+		bridge.MethodProviderDelete:              credentialHandler,
+		bridge.MethodDiagnosticsExport:           &diagnosticapp.HostHandler{},
+		bridge.MethodSystemSettingsOpen:          &systemsettings.Handler{OpenMicrophone: webviewhost.OpenMicrophonePrivacySettings},
+		bridge.MethodUiThemeSet:                  themeHandler,
+		bridge.MethodConversationsRootSelect:     conversationsHandler,
+		bridge.MethodDesktopFilesPick:            desktopFilesHandler,
+		bridge.MethodDesktopFilesReadChunk:       desktopFilesHandler,
+		bridge.MethodWorkspaceRootSelect:         workspaceHandler,
+		bridge.MethodWorkspaceRootClear:          workspaceHandler,
+		bridge.MethodWorkspaceRootGet:            workspaceHandler,
+		bridge.MethodWorkspaceList:               workspaceHandler,
+		bridge.MethodWorkspaceRead:               workspaceHandler,
+		bridge.MethodWorkspaceOpen:               workspaceHandler,
 	})
 	if err != nil {
 		return err
@@ -395,6 +408,11 @@ func runRPCHealth(pipe string) error {
 		return err
 	}
 	defer dataRoot.Close()
+	dataLock, err := maintenance.OpenRuntime(context.Background(), dataRoot)
+	if err != nil {
+		return err
+	}
+	defer dataLock.Close()
 	noncePath, err := dataRoot.FilePath(ipc.GatewayNonceFile)
 	if err != nil {
 		return err
@@ -438,6 +456,11 @@ func runQuitEngine(pipe string) error {
 		return err
 	}
 	defer dataRoot.Close()
+	dataLock, err := maintenance.OpenRuntime(context.Background(), dataRoot)
+	if err != nil {
+		return err
+	}
+	defer dataLock.Close()
 	var enginePID int
 	if path, pathErr := dataRoot.FilePath(ipc.GatewayEnginePIDFile); pathErr == nil {
 		if pid, loadErr := ipc.LoadEnginePID(path); loadErr == nil {

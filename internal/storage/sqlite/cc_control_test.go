@@ -303,7 +303,7 @@ func newCcService(t *testing.T) (*ccapp.Service, *fakeCcHost, string) {
 func enableCc(t *testing.T, svc *ccapp.Service, mutate func(*ccapp.SettingsPatch)) ccapp.Settings {
 	t.Helper()
 	ctx := context.Background()
-	patch := ccapp.SettingsPatch{}
+	patch := ccapp.SettingsPatch{ExpectedRevision: currentCcRevision(t, svc)}
 	enable := true
 	patch.Enabled = &enable
 	if mutate != nil {
@@ -375,15 +375,15 @@ func TestCcSchemaErrors(t *testing.T) {
 		t.Fatalf("expected ErrCcSchema for bad args, got %v", err)
 	}
 	badLevel := "yolo"
-	if _, err := svc.UpdateConfig(ctx, ccapp.SettingsPatch{SecurityLevel: &badLevel}); !errors.Is(err, ccapp.ErrCcSchema) {
+	if _, err := svc.UpdateConfig(ctx, ccapp.SettingsPatch{ExpectedRevision: currentCcRevision(t, svc), SecurityLevel: &badLevel}); !errors.Is(err, ccapp.ErrCcSchema) {
 		t.Fatalf("expected ErrCcSchema for bad level, got %v", err)
 	}
 	badCap := 999
-	if _, err := svc.UpdateConfig(ctx, ccapp.SettingsPatch{MaxActionsPerMinute: &badCap}); !errors.Is(err, ccapp.ErrCcSchema) {
+	if _, err := svc.UpdateConfig(ctx, ccapp.SettingsPatch{ExpectedRevision: currentCcRevision(t, svc), MaxActionsPerMinute: &badCap}); !errors.Is(err, ccapp.ErrCcSchema) {
 		t.Fatalf("expected ErrCcSchema for bad cap, got %v", err)
 	}
 	badList := []string{"a/b"}
-	if _, err := svc.UpdateConfig(ctx, ccapp.SettingsPatch{ProcessBlocklist: &badList}); !errors.Is(err, ccapp.ErrCcSchema) {
+	if _, err := svc.UpdateConfig(ctx, ccapp.SettingsPatch{ExpectedRevision: currentCcRevision(t, svc), ProcessBlocklist: &badList}); !errors.Is(err, ccapp.ErrCcSchema) {
 		t.Fatalf("expected ErrCcSchema for bad blocklist, got %v", err)
 	}
 	if _, err := svc.GetAuditLog(ctx, 10, "bogus", ""); !errors.Is(err, ccapp.ErrCcSchema) {
@@ -411,7 +411,7 @@ func TestCcEmergencyStop(t *testing.T) {
 	}
 	// non-enable patch with the latch armed is refused (M10-CC-002)
 	level := ccapp.LevelStrict
-	if _, err := svc.UpdateConfig(ctx, ccapp.SettingsPatch{SecurityLevel: &level}); !errors.Is(err, ccapp.ErrCcState) {
+	if _, err := svc.UpdateConfig(ctx, ccapp.SettingsPatch{ExpectedRevision: currentCcRevision(t, svc), SecurityLevel: &level}); !errors.Is(err, ccapp.ErrCcState) {
 		t.Fatalf("expected ErrCcState, got %v", err)
 	}
 	// stopped entries use status=stopped
@@ -447,7 +447,7 @@ func TestCcRiskAndConfirmation(t *testing.T) {
 
 	// strict level blocks high risk outright (M10-CC-004)
 	strict := ccapp.LevelStrict
-	if _, err := svc.UpdateConfig(ctx, ccapp.SettingsPatch{SecurityLevel: &strict}); err != nil {
+	if _, err := svc.UpdateConfig(ctx, ccapp.SettingsPatch{ExpectedRevision: currentCcRevision(t, svc), SecurityLevel: &strict}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolKeyboardShortcut,
@@ -457,7 +457,7 @@ func TestCcRiskAndConfirmation(t *testing.T) {
 
 	// critical combos need allow_critical plus approval
 	standard := ccapp.LevelStandard
-	if _, err := svc.UpdateConfig(ctx, ccapp.SettingsPatch{SecurityLevel: &standard}); err != nil {
+	if _, err := svc.UpdateConfig(ctx, ccapp.SettingsPatch{ExpectedRevision: currentCcRevision(t, svc), SecurityLevel: &standard}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolKeyboardShortcut,
@@ -465,7 +465,7 @@ func TestCcRiskAndConfirmation(t *testing.T) {
 		t.Fatalf("expected ErrCcRiskBlocked for critical without allow, got %v", err)
 	}
 	allow := true
-	if _, err := svc.UpdateConfig(ctx, ccapp.SettingsPatch{AllowCritical: &allow}); err != nil {
+	if _, err := svc.UpdateConfig(ctx, ccapp.SettingsPatch{ExpectedRevision: currentCcRevision(t, svc), AllowCritical: &allow}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolKeyboardShortcut,
@@ -1660,4 +1660,13 @@ func TestCcVerifyAfterCaptureError(t *testing.T) {
 	if err == nil || !errors.Is(err, ccapp.ErrCcExecFailed) || !strings.Contains(err.Error(), "verify capture failed") {
 		t.Fatalf("verify fail must be ErrCcExecFailed, got %v", err)
 	}
+}
+
+func currentCcRevision(t *testing.T, svc *ccapp.Service) int64 {
+	t.Helper()
+	cfg, err := svc.GetConfig(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg.Revision
 }

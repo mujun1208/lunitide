@@ -11,6 +11,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/m6supply"
 	"github.com/lunitide/lunitide/internal/m6app"
 	"github.com/lunitide/lunitide/internal/openapi"
+	"github.com/lunitide/lunitide/internal/skillarchive"
 )
 
 // M6 S5C governance handlers (0053): openapi.parse, complexity.decide and
@@ -125,10 +126,10 @@ func handleSkillImportDiscover(e *Engine, ctx context.Context, r bridge.Request)
 		(p.AssetType != m6supply.AssetSkill && p.AssetType != m6supply.AssetProfile && p.AssetType != m6supply.AssetPromptBundle) ||
 		len(p.SourceURL) < 1 || len(p.SourceURL) > 2048 ||
 		len(p.ImmutableCommit) < 1 || len(p.ImmutableCommit) > 256 ||
-		!validLowerHexDigest(p.ArchiveHash) ||
-		len(p.License) < 1 || len(p.License) > 128 ||
+		(p.ArchiveHash != "" && !validLowerHexDigest(p.ArchiveHash)) ||
+		len(p.License) > 128 ||
 		len(p.NoticeRef) > 512 ||
-		len(p.Publisher) < 1 || len(p.Publisher) > 256 ||
+		len(p.Publisher) > 256 ||
 		len(p.Signature) > 8192 {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.import.discover 参数无效", false)
 	}
@@ -156,6 +157,13 @@ func handleSkillImportInspect(e *Engine, ctx context.Context, r bridge.Request) 
 	}
 	if e.m6skills == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "技能导入服务暂时不可用", true)
+	}
+	if e.m6skills.HasSource() {
+		c, err := e.m6skills.InspectSource(ctx, p.CandidateID, p.ExpectedVersion)
+		if err != nil {
+			return skillImportFailure(r, err)
+		}
+		return skillCandidateSuccess(r, c)
 	}
 	c, err := e.m6skills.Pin(ctx, p.CandidateID, p.ExpectedVersion, m6supply.ImportEvidence{})
 	if err != nil {
@@ -188,12 +196,22 @@ type skillImportStepPayload struct {
 func handleSkillImportSubmit(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p skillImportStepPayload
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.CandidateID) || p.ExpectedVersion < 1 ||
-		!jsonArrayString(p.ScanRefs, 16384) || !jsonObjectString(p.InjectionScan, 16384) ||
-		len(p.EvaluationID) < 1 || len(p.EvaluationID) > 256 {
+		(p.ScanRefs != "" && !jsonArrayString(p.ScanRefs, 16384)) || (p.InjectionScan != "" && !jsonObjectString(p.InjectionScan, 16384)) ||
+		len(p.EvaluationID) > 256 {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.import.submit 参数无效", false)
 	}
 	if e.m6skills == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "技能导入服务暂时不可用", true)
+	}
+	if e.m6skills.HasSource() {
+		c, err := e.m6skills.SubmitSource(ctx, p.CandidateID, p.ExpectedVersion)
+		if err != nil {
+			return skillImportFailure(r, err)
+		}
+		return skillCandidateSuccess(r, c)
+	}
+	if p.ScanRefs == "" || p.InjectionScan == "" || p.EvaluationID == "" {
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.import.submit 缺少扫描证据", false)
 	}
 	c, err := e.m6skills.Scan(ctx, p.CandidateID, p.ExpectedVersion, m6supply.ImportEvidence{
 		ScanRefs: p.ScanRefs, InjectionScan: p.InjectionScan,
@@ -281,16 +299,41 @@ func skillImportTerminalStep(e *Engine, ctx context.Context, r bridge.Request, o
 }
 
 func skillCandidateSuccess(r bridge.Request, c m6supply.ImportCandidate) bridge.Response {
+	type summary struct {
+		Name         string `json:"name"`
+		Description  string `json:"description"`
+		License      string `json:"license"`
+		ArchiveHash  string `json:"archiveHash"`
+		SkippedFiles int    `json:"skippedFiles"`
+	}
+	var report *summary
+	if c.SourceAttestation != "" {
+		var decoded summary
+		if json.Unmarshal([]byte(c.SourceAttestation), &decoded) == nil && decoded.Name != "" {
+			report = &decoded
+		}
+	}
 	return r.Ok(struct {
-		CandidateID string `json:"candidateId"`
-		State       string `json:"state"`
-		Version     int64  `json:"version"`
-	}{c.ID, c.State, c.Version})
+		CandidateID string   `json:"candidateId"`
+		State       string   `json:"state"`
+		Version     int64    `json:"version"`
+		Summary     *summary `json:"summary,omitempty"`
+	}{c.ID, c.State, c.Version, report})
 }
 
 // skillImportFailure maps pipeline errors onto the wire.
 func skillImportFailure(r bridge.Request, err error) bridge.Response {
 	switch {
+	case errors.Is(err, skillarchive.ErrInvalid):
+		return r.Fail("SKILL_IMPORT_SOURCE_INVALID", err.Error(), false)
+	case errors.Is(err, skillarchive.ErrFetch):
+		return r.Fail("SKILL_IMPORT_FETCH_FAILED", "无法读取固定提交的技能归档，请检查网络、仓库地址和提交 SHA", true)
+	case errors.Is(err, m6app.ErrImportChanged):
+		return r.Fail("SKILL_IMPORT_CHANGED", "源文件或扫描证据与已固定的归档不一致，已停止导入", false)
+	case errors.Is(err, m6app.ErrImportRuntimeMissing):
+		return r.Fail("SKILL_IMPORT_RESULT_MISSING", "此导入已批准，但技能记录已被删除，请在技能中心核对；系统未重新创建技能", false)
+	case errors.Is(err, m6app.ErrImportScan):
+		return r.Fail("SKILL_IMPORT_SCAN_REJECTED", err.Error(), false)
 	case errors.Is(err, m6app.ErrCandidateNotFound):
 		return r.Fail("SKILL_CANDIDATE_NOT_FOUND", "导入候选不存在", false)
 	case errors.Is(err, m6app.ErrCandidateExists):

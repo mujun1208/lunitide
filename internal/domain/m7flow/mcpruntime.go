@@ -28,7 +28,14 @@ var mcpTransitions = map[string]map[string]bool{
 }
 
 // McpTransitionAllowed reports whether from -> to is legal.
-func McpTransitionAllowed(from, to string) bool { return mcpTransitions[from][to] }
+func McpTransitionAllowed(from, to string) bool {
+	// Repeated health observations update timestamps/digests without changing
+	// state. Revocation remains terminal and cannot be refreshed into a grant.
+	if from == to && (from == McpStateProbe || from == McpStateReady || from == McpStateDegraded || from == McpStateQuarantined) {
+		return true
+	}
+	return mcpTransitions[from][to]
+}
 
 // McpTransports.
 const (
@@ -78,6 +85,18 @@ type McpEndpointConfig struct {
 	PinnedDigest     string
 	LastHealthAt     string
 	CreatedAt        string
+	Security         McpEndpointSecurity
+}
+
+// McpEndpointSecurity contains references and immutable observed metadata;
+// credential bytes belong exclusively to the Host secret store.
+type McpEndpointSecurity struct {
+	AuthRef        string
+	EnvRefsJSON    string
+	PinJSON        string
+	LaunchArgsJSON string
+	Version        int64
+	UpdatedAt      string
 }
 
 // McpMarketItem is one read-only catalog cache row.

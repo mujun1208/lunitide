@@ -232,8 +232,13 @@ it('pauses PM chat follow on wheel-up and does not scrollTo conversation or docu
       </RootErrorBoundary>,
     )
     expect(await screen.findByLabelText('项目阶段导航')).toBeInTheDocument()
-    expect(await screen.findByText('列出分歧')).toBeInTheDocument()
-    expect(await screen.findByText(/主要分歧/)).toBeInTheDocument()
+    // Provider/session initialization can re-render the Markdown table after
+    // findBy* resolves but before its async wrapper returns the old DOM node.
+    // Query and assert together against the current tree before tracking scroll.
+    await waitFor(() => {
+      expect(screen.getByText('列出分歧')).toBeInTheDocument()
+      expect(screen.getByRole('columnheader', { name: '主要分歧' })).toBeInTheDocument()
+    })
     expect(document.querySelector('.project-chat-panel')).toBeTruthy()
     const box = document.querySelector('.conversation-scroll') as HTMLDivElement
     const scrollTo = vi.fn()
@@ -292,6 +297,8 @@ it('pauses PM chat follow on wheel-up and does not scrollTo conversation or docu
     expect(windowScrollTo).not.toHaveBeenCalled()
     expect(htmlScrollTo).not.toHaveBeenCalled()
     expect(bodyScrollTo).not.toHaveBeenCalled()
+    expect(screen.getByText('列出分歧')).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: '主要分歧' })).toBeInTheDocument()
   } finally {
     Object.defineProperty(window, 'scrollTo', { configurable: true, value: prevWindow })
     if (htmlDesc) Object.defineProperty(document.documentElement, 'scrollTo', htmlDesc)

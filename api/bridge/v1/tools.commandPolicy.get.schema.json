@@ -48,10 +48,27 @@
       "fullAccess": {
         "type": "boolean",
         "description": "Echo of the persisted full-disk opt-in flag."
+      },
+      "revision": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "appliedRevision": {
+        "type": "string"
+      },
+      "state": {
+        "type": "string",
+        "enum": [
+          "applied",
+          "pending"
+        ]
       }
     },
     "required": [
-      "commands"
+      "commands",
+      "revision",
+      "appliedRevision",
+      "state"
     ]
   },
   "x-examples": {

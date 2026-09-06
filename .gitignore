@@ -31,6 +31,13 @@ smoke-*/
 coverage/
 coverage.out
 .coverage
+# Local audit dumps: keep markdown/CSV, drop zips and raw gate logs.
+docs/audits/**/*.zip
+docs/audits/**/*.jsonl
+docs/audits/**/*.out
+docs/audits/**/*.patch
+docs/audits/**/go-coverage
+docs/audits/**/go-coverage.out
 htmlcov/
 .vitest/
 # Transient lint/analysis reports written during local gate runs.

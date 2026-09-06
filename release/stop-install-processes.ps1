@@ -6,6 +6,11 @@ function Write-InstallLog([string]$Message) {
 }
 $root = [IO.Path]::GetFullPath($Path).TrimEnd('\') + '\'
 $names = @('Lunitide.exe', 'lunitide-engine.exe')
+$maintenance=@(Get-CimInstance Win32_Process | Where-Object {
+  $_.Name -eq 'lunitide-maintenance.exe' -and $_.ExecutablePath -and
+  [IO.Path]::GetFullPath($_.ExecutablePath).StartsWith($root,[StringComparison]::OrdinalIgnoreCase)
+})
+if($maintenance.Count){Write-InstallLog 'result=refused reason=maintenance-active';throw 'An offline backup or restore is active; finish maintenance before installing or uninstalling'}
 
 for($attempt=0; $attempt -lt 20; $attempt++) {
   $matching = @(Get-CimInstance Win32_Process | Where-Object {

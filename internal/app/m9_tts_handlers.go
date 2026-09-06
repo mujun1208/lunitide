@@ -59,6 +59,9 @@ func handleTtsVoices(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 }
 
 func handleTtsSynthesize(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	if err := e.CheckCapability(ctx, "tts"); err != nil {
+		return r.Fail("FORBIDDEN", "语音合成已禁用", false)
+	}
 	var p struct {
 		Text          string `json:"text"`
 		VoiceID       string `json:"voiceId"`

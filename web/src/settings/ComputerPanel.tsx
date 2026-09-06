@@ -57,30 +57,45 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
   }
   useEffect(() => { void refresh() }, [])
 
-  const patch = async (p: CcUpdateConfigPayload, okMsg: string) => {
+  const showSaveError = async (error: unknown, fallback: string) => {
+    const message = error instanceof Error ? error.message : fallback
+    if (message.includes('CC_CONFIG_CONFLICT') || message.includes('配置已变更')) {
+      try {
+        const current = await bridge.getConfig()
+        setSettings(current)
+        setRateDraft(String(current.maxActionsPerMinute))
+        setTimeoutDraft(String(current.confirmTimeoutSeconds))
+        setWizard(null)
+        setStatus('配置已在其他位置变更，已载入最新配置，请重新确认后保存')
+      } catch { setStatus('配置发生冲突且刷新失败，请点击刷新后重新确认') }
+    } else setStatus(message)
+  }
+
+  const patch = async (p: Omit<CcUpdateConfigPayload, 'expectedRevision'>, okMsg: string) => {
+    if (!settings || busy) return
     setBusy(true); setStatus('')
     try {
-      const cfg = await bridge.updateConfig(p)
+      const cfg = await bridge.updateConfig({ ...p, expectedRevision: settings.revision })
       setSettings(cfg)
       notifyCcConfigChanged()
       setStatus(okMsg)
-    } catch (e) { setStatus(e instanceof Error ? e.message : '设置更新失败') } finally { setBusy(false) }
+    } catch (e) { await showSaveError(e, '设置更新失败') } finally { setBusy(false) }
   }
 
   const confirmEnable = async () => {
-    if (!wizard) return
+    if (!wizard || !settings || busy) return
     setBusy(true); setStatus('')
     try {
-      const cfg = await bridge.updateConfig({ enabled: true, securityLevel: wizard.level, allowCritical: wizard.allowCritical, armMinutes: wizard.timedArm ? 30 : 0 })
+      const cfg = await bridge.updateConfig({ expectedRevision: settings.revision, enabled: true, securityLevel: wizard.level, allowCritical: wizard.allowCritical, armMinutes: wizard.timedArm ? 30 : 0 })
       setSettings(cfg)
       notifyCcConfigChanged()
       setWizard(null)
       setStatus('电脑控制已启用')
-    } catch (e) { setStatus(e instanceof Error ? e.message : '启用失败') } finally { setBusy(false) }
+    } catch (e) { await showSaveError(e, '启用失败') } finally { setBusy(false) }
   }
 
   const emergencyStop = async () => {
-    if (!window.confirm('确认紧急停止？所有电脑控制操作将立即失效，直到重新走启用流程。')) return
+    if (!window.confirm('确认锁存紧急停止？后续动作将被阻止；已提交的系统动作仍需核对。')) return
     setBusy(true); setStatus('')
     try {
       const cfg = await bridge.emergencyStop({ actor: 'renderer', reason: '设置页手动急停' })

@@ -1,9 +1,9 @@
+import { getDiagramBridge } from '../../bridge/client'
 import React, { useEffect, useId, useRef, useState } from 'react'
-import { loadMermaidEngine, mountMermaidSvg, prepareMermaidSource, recoverMermaidSource } from './tideMermaid'
+import { mermaidInitConfig, mermaidBudgetError, mountMermaidSvg, prepareMermaidSource, recoverMermaidSource } from './tideMermaid'
 
 export { mermaidInitConfig, mermaidThemeVariables, mountMermaidSvg } from './tideMermaid'
 
-let renderSeq = 0
 let mermaidQueue: Promise<unknown> = Promise.resolve()
 
 function withMermaidLock<T>(work: () => Promise<T>): Promise<T> {
@@ -40,14 +40,19 @@ export function MermaidBlock({
     let cancelled = false
     const run = async () => {
       setError('')
+      const budgetError = mermaidBudgetError(source)
+      if (budgetError) {
+        setError(budgetError)
+        return
+      }
       const prepared = prepareMermaidSource(source)
       if (!prepared) {
         setError('空图表')
         return
       }
       const mount = async (src: string) => {
-        const mermaid = await loadMermaidEngine()
-        const { svg } = await mermaid.render(`mmd-${id}-${++renderSeq}`, src)
+        if (cancelled) return
+        const { svg } = await getDiagramBridge().render({source: src, config: mermaidInitConfig()})
         if (cancelled || !hostRef.current) return
         mountMermaidSvg(hostRef.current, svg)
         onLayoutRef.current?.()

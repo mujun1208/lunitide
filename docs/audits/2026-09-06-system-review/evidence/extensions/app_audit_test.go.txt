@@ -1,0 +1,46 @@
+package app
+import(
+ "context";"encoding/json";"path/filepath";"strings";"testing"
+ "github.com/lunitide/lunitide/internal/bridge"
+ "github.com/lunitide/lunitide/internal/m7app"
+ "github.com/lunitide/lunitide/internal/m8app"
+ "github.com/lunitide/lunitide/internal/mcapp"
+ "github.com/lunitide/lunitide/internal/mcp6"
+ storage "github.com/lunitide/lunitide/internal/storage/sqlite"
+ "github.com/lunitide/lunitide/internal/toolruntime"
+)
+type auditNoSecretLease struct{}
+func(auditNoSecretLease) WithLease(_ context.Context,_ string,fn func([]byte)error)error{return fn(nil)}
+func TestAuditReviewMCPUninstallDoesNotRevokeChat(t *testing.T){
+ ctx:=context.Background();store,err:=storage.OpenTemplated(ctx,filepath.Join(t.TempDir(),"audit.db"));if err!=nil{t.Fatal(err)};defer store.Close()
+ repo:=store.AgentRuntimeRepository();e:=NewEngine(nil,"audit");e.m7mcp=m7app.NewMcpRuntimeService(repo);e.mcmarket=mcapp.New(repo)
+ e.mcp6Registry=mcp6.NewRegistry(func(context.Context,*mcp6.Endpoint)error{return nil},func(context.Context,*mcp6.Endpoint,string,map[string]any,[]byte)(map[string]any,error){return map[string]any{"ok":true},nil},auditNoSecretLease{})
+ e.mcp6Registry.SetDescribeFunc(func(context.Context,*mcp6.Endpoint)(map[string]mcp6.ToolSchema,error){return map[string]mcp6.ToolSchema{"audit_tool":{InputSchema:json.RawMessage(`{"type":"object"}`)}},nil})
+ ep,err:=e.m7mcp.Add(ctx,m7app.McpAddInput{Origin:"manual",Transport:"stdio",Command:"npx",Args:[]string{"audit-no-execution"},RiskConfirmed:true});if err!=nil{t.Fatal(err)}
+ payload,_:=json.Marshal(map[string]any{"endpointId":ep.EndpointID,"enabled":true})
+ if res:=handleMcpToggle(e,ctx,bridge.Request{Payload:payload});!res.OK{t.Fatalf("toggle: %+v",res.Error)}
+ token,_,err:=e.mcmarket.IssueConfirmToken(ctx,mcapp.ConfirmMethodUninstall,ep.EndpointID,"");if err!=nil{t.Fatal(err)}
+ payload,_=json.Marshal(map[string]any{"endpointId":ep.EndpointID,"confirmToken":token})
+ if res:=handleMcConnectorUninstall(e,ctx,bridge.Request{Payload:payload});!res.OK{t.Fatalf("uninstall: %+v",res.Error)}
+ listed,err:=e.m7mcp.List(ctx,"");if err!=nil||len(listed)!=1||listed[0].State!="revoked"{t.Fatalf("settings: %+v %v",listed,err)}
+ _,err=e.mcp6Registry.Invoke(ctx,chatMcpEndpointID(ep.EndpointID),"audit_tool",nil);if err!=nil{t.Fatalf("bug not reproduced: %v",err)}
+ t.Log("REPRODUCED: UI uninstall revoked SQLite endpoint; chat registry still dispatches its tool")
+}
+func TestAuditReviewDisabledPluginStillExecutesWorkspace(t *testing.T){
+ ctx:=context.Background();store,err:=storage.OpenTemplated(ctx,filepath.Join(t.TempDir(),"audit.db"));if err!=nil{t.Fatal(err)};defer store.Close()
+ e:=NewEngine(nil,"audit");e.m8plugin=m8app.NewPluginService(store.AgentRuntimeRepository(),"local-user");if err=m8app.EnsureBuiltinPlugins(ctx,e.m8plugin);err!=nil{t.Fatal(err)}
+ list,err:=e.m8plugin.List(ctx,"","");if err!=nil{t.Fatal(err)};installID:="";for _,p:=range list.Plugins{if p.PluginID=="workspace"{installID=p.InstallID}}
+ if installID==""{t.Fatal("missing workspace plugin")}
+ payload,_:=json.Marshal(map[string]any{"installId":installID,"enabled":false});if res:=handlePluginToggle(e,ctx,bridge.Request{Payload:payload});!res.OK{t.Fatalf("toggle: %+v",res.Error)}
+ runtime,err:=toolruntime.New(t.TempDir());if err!=nil{t.Fatal(err)};defer runtime.Close();e.SetToolRuntime(runtime)
+ out,err:=e.executeUserTool(ctx,executionModeFullAccess,"01ARZ3NDEKTSV4RRFFQ69G5FAV","workspace.write",json.RawMessage(`{"path":"audit-proof.txt","content":"audit local fixture"}`));if err!=nil{t.Fatalf("bug not reproduced: %v",err)}
+ t.Logf("REPRODUCED: disabled workspace gate still executes workspace.write: %s",out.Output)
+}
+func TestAuditReviewSkillWizardScanPayloadRejected(t *testing.T){
+ payload,_:=json.Marshal(map[string]any{"candidateId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","expectedVersion":3,"scanRefs":"mock-scan-ref","injectionScan":"clean","evaluationId":"mock-eval"})
+ res:=handleSkillImportSubmit(NewEngine(nil,"audit"),context.Background(),bridge.Request{Payload:payload})
+ if res.OK||res.Error==nil||res.Error.Code!="BRIDGE_SCHEMA_INVALID"{t.Fatalf("bug not reproduced: %+v",res)}
+ t.Log("REPRODUCED: exact SkillImportWizard submit payload rejected as BRIDGE_SCHEMA_INVALID")
+ _=strings.TrimSpace
+}
+

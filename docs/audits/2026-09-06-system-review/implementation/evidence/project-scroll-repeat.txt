@@ -1,0 +1,120 @@
+run=1 exit=0
+
+> @lunitide/renderer@0.1.0 test
+> vitest run src/project/ProjectWorkbenchShell.send.test.tsx --reporter=dot
+
+
+ RUN  v3.2.7 E:/Trae-Work-Projects/lunitide/web
+
+···
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  15:28:34
+   Duration  2.39s (transform 573ms, setup 66ms, collect 1.09s, tests 767ms, environment 275ms, prepare 54ms)
+
+run=2 exit=0
+
+> @lunitide/renderer@0.1.0 test
+> vitest run src/project/ProjectWorkbenchShell.send.test.tsx --reporter=dot
+
+
+ RUN  v3.2.7 E:/Trae-Work-Projects/lunitide/web
+
+···
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  15:28:37
+   Duration  2.40s (transform 583ms, setup 61ms, collect 1.11s, tests 781ms, environment 272ms, prepare 52ms)
+
+run=3 exit=0
+
+> @lunitide/renderer@0.1.0 test
+> vitest run src/project/ProjectWorkbenchShell.send.test.tsx --reporter=dot
+
+
+ RUN  v3.2.7 E:/Trae-Work-Projects/lunitide/web
+
+···
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  15:28:40
+   Duration  2.36s (transform 580ms, setup 62ms, collect 1.09s, tests 749ms, environment 270ms, prepare 50ms)
+
+run=4 exit=0
+
+> @lunitide/renderer@0.1.0 test
+> vitest run src/project/ProjectWorkbenchShell.send.test.tsx --reporter=dot
+
+
+ RUN  v3.2.7 E:/Trae-Work-Projects/lunitide/web
+
+···
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  15:28:43
+   Duration  2.39s (transform 595ms, setup 64ms, collect 1.10s, tests 762ms, environment 271ms, prepare 48ms)
+
+run=5 exit=0
+
+> @lunitide/renderer@0.1.0 test
+> vitest run src/project/ProjectWorkbenchShell.send.test.tsx --reporter=dot
+
+
+ RUN  v3.2.7 E:/Trae-Work-Projects/lunitide/web
+
+···
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  15:28:46
+   Duration  2.48s (transform 627ms, setup 67ms, collect 1.17s, tests 784ms, environment 268ms, prepare 48ms)
+
+run=6 exit=0
+
+> @lunitide/renderer@0.1.0 test
+> vitest run src/project/ProjectWorkbenchShell.send.test.tsx --reporter=dot
+
+
+ RUN  v3.2.7 E:/Trae-Work-Projects/lunitide/web
+
+···
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  15:28:50
+   Duration  2.65s (transform 645ms, setup 61ms, collect 1.22s, tests 810ms, environment 328ms, prepare 71ms)
+
+run=7 exit=0
+
+> @lunitide/renderer@0.1.0 test
+> vitest run src/project/ProjectWorkbenchShell.send.test.tsx --reporter=dot
+
+
+ RUN  v3.2.7 E:/Trae-Work-Projects/lunitide/web
+
+···
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  15:28:53
+   Duration  2.53s (transform 638ms, setup 67ms, collect 1.18s, tests 786ms, environment 292ms, prepare 61ms)
+
+run=8 exit=0
+
+> @lunitide/renderer@0.1.0 test
+> vitest run src/project/ProjectWorkbenchShell.send.test.tsx --reporter=dot
+
+
+ RUN  v3.2.7 E:/Trae-Work-Projects/lunitide/web
+
+···
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  15:28:56
+   Duration  2.53s (transform 635ms, setup 65ms, collect 1.18s, tests 780ms, environment 301ms, prepare 61ms)
+

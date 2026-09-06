@@ -10,9 +10,14 @@
   "properties": {
     "expertId": {
       "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "versionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
     }
   },
-  "required": ["expertId"],
+  "required": [
+    "expertId"
+  ],
   "x-result": {
     "type": "object",
     "additionalProperties": false,
@@ -28,9 +33,20 @@
           "minLength": 1,
           "maxLength": 64
         }
+      },
+      "versionId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "known": {
+        "type": "boolean"
       }
     },
-    "required": ["expertId", "skillKeys"]
+    "required": [
+      "expertId",
+      "skillKeys",
+      "versionId",
+      "known"
+    ]
   },
   "x-examples": {
     "positive": [

@@ -1,0 +1,46 @@
+{
+  "group": "security",
+  "startedAt": "2026-09-06T13:17:16.7564559Z",
+  "finishedAt": "2026-09-06T13:18:12.1661742Z",
+  "status": "passed",
+  "source": {
+    "commit": "09978597dc026bfa40ab8d690d64f9bcaef476f3",
+    "treeSha256": "e578444c4485345e8aa55dcc2b71e551e2abda0d07627e23cc149e62d50fef17",
+    "fileCount": 2758,
+    "manifest": "security-source.json"
+  },
+  "sourceUnchanged": true,
+  "checks": [
+    {
+      "name": "govulncheck",
+      "command": "govulncheck.exe",
+      "arguments": [
+        "-json",
+        "./..."
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-06T13:17:31.5615909Z",
+      "finishedAt": "2026-09-06T13:17:51.8334582Z",
+      "stdout": "govulncheck.jsonl",
+      "stderr": "govulncheck.stderr.log"
+    },
+    {
+      "name": "npm-audit",
+      "command": "npm.cmd",
+      "arguments": [
+        "--prefix",
+        "web",
+        "audit",
+        "--json",
+        "--audit-level=moderate"
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-06T13:17:51.8410886Z",
+      "finishedAt": "2026-09-06T13:17:54.6396589Z",
+      "stdout": "npm-audit.json",
+      "stderr": "npm-audit.stderr.log"
+    }
+  ],
+  "error": null,
+  "scope": "code-and-automated-tests; docs excluded; no physical or release acceptance"
+}

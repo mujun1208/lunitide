@@ -106,6 +106,10 @@ func handleMessageRewind(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if !ok {
 		return r.Fail("STORAGE_UNAVAILABLE", "消息回退暂时不可用", true)
 	}
+	if !e.reserveChatSession(p.SessionID) {
+		return r.Fail("STREAM_LIMIT_REACHED", "当前会话仍在处理，请停止并等待结束后再回退", true)
+	}
+	defer e.releaseChatSession(p.SessionID)
 	result, err := rewinder.Rewind(ctx, r.IdempotencyKey, sessionMutationActor, p.SessionID, p.MessageID)
 	if err != nil {
 		return messageFailure(r, err)

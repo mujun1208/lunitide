@@ -1,0 +1,128 @@
+{
+  "go_pass_packages": 136,
+  "go_skip_packages": 2,
+  "go_failed_packages": 0,
+  "go_pass_tests_including_subtests": 3357,
+  "go_pass_top_level_tests": 2648,
+  "go_skipped_tests": [
+    {
+      "Package": "github.com/lunitide/lunitide/internal/datasourceapp",
+      "Test": "TestLiveMySQLDriver"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/datasourceapp",
+      "Test": "TestLiveMySQLServiceEndToEnd"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/datadir",
+      "Test": "TestPrepareForTestRejectsRelativePathAndReparsePoint"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/ccapp/accuracy",
+      "Test": "TestLiveNotepadTypesVisibleText"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/ccapp/accuracy",
+      "Test": "TestLiveCalculatorNamedClick"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/ccapp/accuracy",
+      "Test": "TestLiveExplorerNamedObserve"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/ccapp/accuracy",
+      "Test": "TestLiveOptionalWPFAndElectron"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/ccapp",
+      "Test": "TestSetCursorPosAndWindowList"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/worker",
+      "Test": "TestSandboxEscapeSymlink"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/tts",
+      "Test": "TestEdgeSynthesisLatency"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/tts",
+      "Test": "TestEdgeLiveSynthesis"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/tts",
+      "Test": "TestEdgePythonSynthLive"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/voice/volcsauc",
+      "Test": "TestLiveAgentPlanHandshake"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/voice",
+      "Test": "TestE2ELocalRecognitionHearsRealSpeech"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/voice",
+      "Test": "TestE2EMandarinClipsAreRecognized"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/voice",
+      "Test": "TestE2ERefinerIsInstallableFromTheCatalogueAsWritten"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/voice",
+      "Test": "TestE2ERefinedTextIsWhatTheTurnReturns"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/voice",
+      "Test": "TestNetworkRuntimeDownloadsAndExtracts"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/voice",
+      "Test": "TestNetworkSmallModelDownloads"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/tts",
+      "Test": "TestOneCoreVoicesRenderDistinctAudio"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/workspaceapp",
+      "Test": "TestSafePathRejectsSymlinkOrReparse"
+    },
+    {
+      "Package": "github.com/lunitide/lunitide/internal/tts",
+      "Test": "TestOnnxSynthesizeReal"
+    }
+  ],
+  "race_pass_packages": 8,
+  "race_pass_tests_including_subtests": 315,
+  "race_failed_packages": 0,
+  "race_skipped_tests": 7,
+  "go_coverage": "total:\t\t\t\t\t\t\t\t\t\t\t\t(statements)\t\t\t\t51.0%",
+  "raw_final_log_counts": {
+    "pass_tests_including_subtests": 3361,
+    "pass_packages": 137,
+    "pass_top_level_tests": 2652
+  },
+  "excluded_audit_package": {
+    "pass_tests": 4,
+    "reason": "Audit reproductions assert defects exist; excluded from product baseline. Subsequently isolated behind auditprobe build tag.",
+    "package": "github.com/lunitide/lunitide/docs/audits/2026-09-06-system-review/conversation-probes"
+  },
+  "web": {
+    "passed_tests": 1553,
+    "skipped_tests": 0,
+    "test_files": 202,
+    "failed_tests": 0
+  },
+  "commands": {
+    "golangci_lint": "pass",
+    "web_build": "pass_with_chunk_size_warning",
+    "go_vet": "pass",
+    "bridge": "pass",
+    "govulncheck": "exit_0_no_reachable_symbols_reported",
+    "typecheck": "pass",
+    "npm_audit": "exit_1_9_affected_packages_2_high_7_moderate",
+    "go_build": "pass"
+  }
+}

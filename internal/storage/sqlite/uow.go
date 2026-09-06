@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -53,9 +54,21 @@ func (s *Store) do(ctx context.Context, fn func(*txAdapter) error) (resultErr er
 	if _, err = conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
 		return mapWriteError(err)
 	}
+	committed := false
 	defer func() {
-		if resultErr != nil {
-			_, _ = conn.ExecContext(context.Background(), `ROLLBACK`)
+		if committed {
+			return
+		}
+		// A panic does not assign resultErr. Always unwind an uncommitted
+		// transaction, including when the caller's context has been cancelled.
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, rollbackErr := conn.ExecContext(cleanupCtx, `ROLLBACK`); rollbackErr != nil {
+			// Never put an uncertain transaction back in the pool. Closing the
+			// store also prevents replacement connections without initialize's
+			// connection-local PRAGMAs. Recovery requires reopening the store.
+			closeErr := s.db.Close()
+			resultErr = errors.Join(resultErr, fmt.Errorf("rollback failed; storage closed: %w", rollbackErr), closeErr)
 		}
 	}()
 	if err = fn(&txAdapter{s: s, q: conn}); err != nil {
@@ -64,6 +77,7 @@ func (s *Store) do(ctx context.Context, fn func(*txAdapter) error) (resultErr er
 	if _, err = conn.ExecContext(ctx, `COMMIT`); err != nil {
 		return mapWriteError(err)
 	}
+	committed = true
 	return nil
 }
 
@@ -122,7 +136,7 @@ func (t *txAdapter) nextProjectCode(ctx context.Context) (string, error) {
 
 func (t *txAdapter) CreateProject(ctx context.Context, p project.Project) (project.Project, error) {
 	var count int
-	if err := t.q.QueryRowContext(ctx, `SELECT count(*) FROM projects`).Scan(&count); err != nil {
+	if err := t.q.QueryRowContext(ctx, `SELECT count(*) FROM projects WHERE status!='archived' AND COALESCE(org_id,'')=?`, p.OrgID).Scan(&count); err != nil {
 		return p, err
 	}
 	if count >= 100 {
@@ -339,6 +353,19 @@ func (t *txAdapter) UpdateStage(ctx context.Context, input stageapp.UpdateInput)
 	if v.Version != input.ExpectedVersion {
 		return v, stageapp.ErrStageVersionConflict
 	}
+	if input.Status == stage.StatusCompleted {
+		p, err := t.getProject(ctx, input.ProjectID)
+		if err != nil {
+			return v, err
+		}
+		if _, err = t.CompleteProjectPhase(ctx, p.ID, p.Version, v.Phase); err != nil {
+			return v, err
+		}
+		return t.getStage(ctx, input.ProjectID, input.ID)
+	}
+	if v.Status == stage.StatusCompleted {
+		return v, projectapp.ErrInvalidTransition
+	}
 	v.Status = input.Status
 	if err = v.Validate(); err != nil {
 		return v, err
@@ -519,7 +546,15 @@ func (t *txAdapter) RewindMessages(ctx context.Context, sessionID, messageID str
 	if _, err := t.q.ExecContext(ctx, `DELETE FROM compaction_checkpoints WHERE session_id=?`, sessionID); err != nil {
 		return r, err
 	}
-	if _, err := t.q.ExecContext(ctx, `DELETE FROM idempotency_records WHERE operation IN('message.append','message.append-assistant') AND json_extract(response_json,'$.sessionId')=? AND json_extract(response_json,'$.sequence')>=?`, sessionID, seq); err != nil {
+	// Rewinding explicitly abandons unfinished replies. Keep the journal rows
+	// so legacy file checkpoints cannot be imported again after the rewind.
+	if _, err := t.q.ExecContext(ctx, `DELETE FROM chat_turn_checkpoint_parts WHERE turn_id IN (SELECT turn_id FROM chat_turn_journal WHERE session_id=?)`, sessionID); err != nil {
+		return r, err
+	}
+	if _, err := t.q.ExecContext(ctx, `UPDATE chat_turn_journal SET pending=0,checkpoint_json=json_set(json_remove(checkpoint_json,'$.persistDraft','$.persistUsage','$._checkpointParts'),'$.persistFailed',json('false'),'$.status','cancelled'),updated_at=? WHERE session_id=?`, formatTime(time.Now().UTC()), sessionID); err != nil {
+		return r, err
+	}
+	if _, err := t.q.ExecContext(ctx, `DELETE FROM idempotency_records WHERE operation IN('message.append','message.append-assistant') AND NOT(operation='message.append' AND idempotency_key LIKE 'queue:%') AND json_extract(response_json,'$.sessionId')=? AND json_extract(response_json,'$.sequence')>=?`, sessionID, seq); err != nil {
 		return r, err
 	}
 	deleted, err := t.q.ExecContext(ctx, `DELETE FROM messages WHERE session_id=? AND sequence>=?`, sessionID, seq)
@@ -687,8 +722,10 @@ func (t *txAdapter) Delete(ctx context.Context, id string, v int64) error {
 func (t *txAdapter) Idempotency(ctx context.Context, op, key string, now time.Time) (providerapp.Record, bool, error) {
 	// Reclaim expiry while holding the same BEGIN IMMEDIATE lock. This makes
 	// cleanup an optimization rather than a correctness dependency.
-	if _, err := t.q.ExecContext(ctx, `DELETE FROM idempotency_records WHERE operation=? AND idempotency_key=? AND expires_at<=?`, op, key, formatTime(now)); err != nil {
-		return providerapp.Record{}, false, err
+	if !now.IsZero() {
+		if _, err := t.q.ExecContext(ctx, `DELETE FROM idempotency_records WHERE operation=? AND idempotency_key=? AND expires_at<=?`, op, key, formatTime(now)); err != nil {
+			return providerapp.Record{}, false, err
+		}
 	}
 	var r providerapp.Record
 	var response, created, expires string

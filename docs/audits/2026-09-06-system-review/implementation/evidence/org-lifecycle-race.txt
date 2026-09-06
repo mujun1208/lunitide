@@ -1,0 +1,8 @@
+ok  	github.com/lunitide/lunitide/internal/app	69.411s
+--- FAIL: TestDataScopeEvidenceRejectsLegacyCyclesAndMixedParents (56.72s)
+    data_scope_evidence_test.go:20: context deadline exceeded
+FAIL
+FAIL	github.com/lunitide/lunitide/internal/storage/sqlite	181.551s
+ok  	github.com/lunitide/lunitide/internal/org	1.173s
+ok  	github.com/lunitide/lunitide/internal/m9app	1.323s [no tests to run]
+FAIL

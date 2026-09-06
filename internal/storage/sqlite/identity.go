@@ -197,8 +197,23 @@ func rebindMemorySettings(ctx context.Context, tx *sql.Tx, from, to, now string)
 	if err != nil {
 		return err
 	}
-	if fromUpdated >= toUpdated {
-		if _, err = tx.ExecContext(ctx, `UPDATE memory_settings SET memory_enabled=?, auto_nominate=?, growth_days=?, updated_at=? WHERE subject_id=?`, fromEnabled, fromAuto, fromDays, now, to); err != nil {
+	fromTime, err := time.Parse(time.RFC3339Nano, fromUpdated)
+	if err != nil {
+		return err
+	}
+	toTime, err := time.Parse(time.RFC3339Nano, toUpdated)
+	if err != nil {
+		return err
+	}
+	if !fromTime.Before(toTime) {
+		stamp, err := time.Parse(time.RFC3339Nano, now)
+		if err != nil {
+			return err
+		}
+		if !stamp.After(toTime) {
+			stamp = toTime.Add(time.Nanosecond)
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE memory_settings SET memory_enabled=?, auto_nominate=?, growth_days=?, updated_at=? WHERE subject_id=?`, fromEnabled, fromAuto, fromDays, formatTime(stamp), to); err != nil {
 			return err
 		}
 	}

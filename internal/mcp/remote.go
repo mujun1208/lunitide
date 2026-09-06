@@ -94,6 +94,9 @@ func ValidateBaseURL(raw string) error {
 	if u.Host == "" {
 		return fmt.Errorf("%w: empty host", ErrNotHttps)
 	}
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("%w: endpoint credentials, query and fragment are not allowed", ErrNotHttps)
+	}
 	return nil
 }
 
@@ -217,6 +220,10 @@ type InvokeResult struct {
 // once (MCP-003); policy answers — non-2xx status, blocked encoding, size
 // cap, redirect — are definitive and never retried.
 func (c *Client) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, error) {
+	return c.InvokeAuthenticated(ctx, in, nil)
+}
+
+func (c *Client) InvokeAuthenticated(ctx context.Context, in InvokeInput, bearer []byte) (InvokeResult, error) {
 	if in.Tool == "" {
 		return InvokeResult{}, fmt.Errorf("%w: empty tool name", ErrMethodNotAllowed)
 	}
@@ -228,7 +235,7 @@ func (c *Client) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, erro
 	}
 	var lastErr error
 	for attempt := 0; attempt <= MaxRetries; attempt++ {
-		data, err := c.attempt(ctx, target)
+		data, err := c.attemptAuthenticated(ctx, target, bearer)
 		if err == nil {
 			return InvokeResult{Tool: in.Tool, Data: data}, nil
 		}
@@ -254,12 +261,16 @@ type ToolInfo struct {
 // cap, no redirects, single retry on transport failure). The response is
 // either a JSON array of tool advertisements or an error.
 func (c *Client) ListTools(ctx context.Context) ([]ToolInfo, error) {
+	return c.ListToolsAuthenticated(ctx, nil)
+}
+
+func (c *Client) ListToolsAuthenticated(ctx context.Context, bearer []byte) ([]ToolInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.TotalTimeout)
 	defer cancel()
 	target := c.BaseURL + "/tools"
 	var lastErr error
 	for attempt := 0; attempt <= MaxRetries; attempt++ {
-		data, err := c.attempt(ctx, target)
+		data, err := c.attemptAuthenticated(ctx, target, bearer)
 		if err == nil {
 			var tools []ToolInfo
 			if err := json.Unmarshal(data, &tools); err != nil {
@@ -275,13 +286,24 @@ func (c *Client) ListTools(ctx context.Context) ([]ToolInfo, error) {
 	return nil, fmt.Errorf("mcp: tools catalogue fetch failed after %d attempts: %v", MaxRetries+1, lastErr)
 }
 
-// attempt executes one GET and applies the MCP-002 response policy in
-// order: status, encoding, size cap. Reading stops at MaxResponseBytes+1
-// so an oversized body is detected without ever buffering it fully.
-func (c *Client) attempt(ctx context.Context, target string) ([]byte, error) {
+type HTTPStatusError struct{ StatusCode int }
+
+func (e *HTTPStatusError) Error() string { return fmt.Sprintf("%s: %d", ErrHttpStatus, e.StatusCode) }
+func (e *HTTPStatusError) Unwrap() error { return ErrHttpStatus }
+
+// attemptAuthenticated executes one GET under the status, encoding and bounded
+// response policy. A nil bearer is the ordinary unauthenticated request path.
+func (c *Client) attemptAuthenticated(ctx context.Context, target string, bearer []byte) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return nil, err
+	}
+	if len(bearer) > 0 {
+		if len(bearer) > 16384 || strings.ContainsAny(string(bearer), "\r\n\x00") {
+			return nil, fmt.Errorf("mcp: invalid bearer credential")
+		}
+		req.Header.Set("Authorization", "Bearer "+string(bearer))
+		defer req.Header.Del("Authorization")
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -292,7 +314,7 @@ func (c *Client) attempt(ctx context.Context, target string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, fmt.Errorf("%w: %s", ErrHttpStatus, resp.Status)
+		return nil, &HTTPStatusError{StatusCode: resp.StatusCode}
 	}
 	if enc := resp.Header.Get("Content-Encoding"); enc != "" && !strings.EqualFold(enc, "identity") {
 		return nil, fmt.Errorf("%w: %q", ErrEncodingBlocked, enc)

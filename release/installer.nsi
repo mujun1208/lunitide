@@ -228,6 +228,7 @@ ownership_ok:
   SetOutPath "$PLUGINSDIR"
   File /oname=stop-install-processes.ps1 "${STAGE}\stop-install-processes.ps1"
   File /oname=verify-install-directory.ps1 "${STAGE}\verify-install-directory.ps1"
+  File /oname=Release-Safety.ps1 "${STAGE}\Release-Safety.ps1"
   ${GetFileName} "$PLUGINSDIR" $1
   StrCpy $InstallStage "$InstallParent\$InstallLeaf.installing.$1"
   StrCpy $InstallBackup "$InstallParent\$InstallLeaf.backup.$1"
@@ -271,6 +272,7 @@ stop_ok:
 	IfErrors stage_failed
 	IfFileExists "$InstallStage\Lunitide.exe" 0 stage_failed
 	IfFileExists "$InstallStage\lunitide-engine.exe" 0 stage_failed
+	IfFileExists "$InstallStage\lunitide-maintenance.exe" 0 stage_failed
 	IfFileExists "$InstallStage\SHA256SUMS.txt" 0 stage_failed
 	FileOpen $0 "$InstallStage\${OWNERFILE}" w
 	IfErrors stage_failed

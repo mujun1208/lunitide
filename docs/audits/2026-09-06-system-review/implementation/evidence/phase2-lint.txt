@@ -1,0 +1,18 @@
+internal\mcp6\credential_lease.go:22:2: QF1003: could use tagged switch on e.Transport (staticcheck)
+	if e.Transport == "https" {
+	^
+internal\storage\sqlite\project_release_phase_test.go:81:5: S1038: should use t.Fatalf(...) instead of t.Fatal(fmt.Sprintf(...)) (staticcheck)
+				t.Fatal(fmt.Sprintf("unsupported phase9 accepted for %s", typ))
+				^
+internal\webviewhost\browser_environment_windows.go:37:21: QF1008: could remove embedded field "IUnknownComObj" from selector (staticcheck)
+			IUnknownVtbl: *o.IUnknownComObj.BuildVtbl(false),
+			                 ^
+internal\mcp\remote.go:292:18: func (*Client).attempt is unused (unused)
+func (c *Client) attempt(ctx context.Context, target string) ([]byte, error) {
+                 ^
+internal\mroapp\ops_tools.go:103:6: func containsStr is unused (unused)
+func containsStr(xs []string, want string) bool {
+     ^
+5 issues:
+* staticcheck: 3
+* unused: 2

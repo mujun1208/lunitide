@@ -33,6 +33,8 @@ const (
 	createUnicodeEnvironment          = 0x00000400
 	jobObjectExtendedLimitInformation = 9
 	jobObjectLimitKillOnJobClose      = 0x00002000
+	jobObjectLimitActiveProcess       = 0x00000008
+	jobObjectLimitJobMemory           = 0x00000200
 )
 
 type coord struct{ X, Y int16 }
@@ -119,7 +121,9 @@ func startPlatform(root string, cols, rows uint16, onOutput func([]byte), onExit
 		}
 	}()
 	limits := jobExtendedLimit{}
-	limits.BasicLimitInformation.LimitFlags = jobObjectLimitKillOnJobClose
+	limits.BasicLimitInformation.LimitFlags = jobObjectLimitKillOnJobClose | jobObjectLimitActiveProcess | jobObjectLimitJobMemory
+	limits.BasicLimitInformation.ActiveProcessLimit = 64
+	limits.JobMemoryLimit = 2 << 30
 	r, _, e = procSetInformationJobObject.Call(uintptr(job), jobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), unsafe.Sizeof(limits))
 	if r == 0 {
 		return nil, e
@@ -172,9 +176,11 @@ func startPlatform(root string, cols, rows uint16, onOutput func([]byte), onExit
 			windows.CloseHandle(pi.Process)
 		}
 	}()
-	r, _, e = procAssignProcessToJobObject.Call(uintptr(job), uintptr(pi.Process))
-	if r == 0 {
-		return nil, e
+	assigned, assignErr := assignTerminalProcess(job, pi.Process)
+	if !assigned {
+		_ = windows.TerminateProcess(pi.Process, 1)
+		_, _ = windows.WaitForSingleObject(pi.Process, 5000)
+		return nil, assignErr
 	}
 	r, _, e = procResumeThread.Call(uintptr(pi.Thread))
 	if r == 0xffffffff {
@@ -231,12 +237,16 @@ func (s *winSession) waitLoop(cb func(uint32, error)) {
 }
 func (s *winSession) write(b []byte) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	in := s.input
+	closed := s.closed
+	s.mu.Unlock()
+	if closed || in == nil {
 		return ErrClosed
 	}
-	_, e := s.input.Write(b)
-	return e
+	// Do not hold the lifecycle mutex over a potentially blocked pipe write.
+	// close() first kills the job and closes ConPTY, unblocking the writer.
+	_, err := in.Write(b)
+	return err
 }
 func (s *winSession) resize(c, r uint16) error {
 	s.mu.Lock()
@@ -264,9 +274,6 @@ func (s *winSession) close() error {
 	s.pseudo = 0
 	s.job = 0
 	s.mu.Unlock()
-	if in != nil {
-		_ = in.Close()
-	}
 	if job != 0 {
 		_ = windows.CloseHandle(job)
 	}
@@ -276,5 +283,15 @@ func (s *winSession) close() error {
 	if out != nil {
 		_ = out.Close()
 	}
+	if in != nil {
+		_ = in.Close()
+	}
 	return nil
+}
+
+// Fail-closed injection point; tests confirm an unassigned suspended process
+// is terminated without ever being resumed.
+var assignTerminalProcess = func(job, process windows.Handle) (bool, error) {
+	r, _, err := procAssignProcessToJobObject.Call(uintptr(job), uintptr(process))
+	return r != 0, err
 }

@@ -16,6 +16,7 @@ const holdKeyAutoRelease = 8 * time.Second
 // EmergencyStop arms the latch: every later tool call fails closed with
 // M10-CC-005 until the operator re-runs the enable flow.
 func (s *Service) EmergencyStop(ctx context.Context, actor, reason string) (Settings, error) {
+	s.revokeExecution(ErrCcEmergency, true)
 	var out Settings
 	err := s.uow.TransactCc(ctx, func(tx Tx) error {
 		cur, err := tx.GetCcSettings()
@@ -28,10 +29,11 @@ func (s *Service) EmergencyStop(ctx context.Context, actor, reason string) (Sett
 		cur.EmergencyStoppedAt = ts
 		cur.ArmedUntil = ""
 		cur.UpdatedAt = ts
+		cur.Revision++
 		if err := tx.PutCcSettings(cur); err != nil {
 			return err
 		}
-		meta, _ := json.Marshal(map[string]any{"reason": clampReason(reason)})
+		meta, _ := json.Marshal(map[string]any{"reason": clampReason(reason), "phase": "latched"})
 		if err := tx.PutAudit(providerapp.Audit{
 			ID: ulid.Make().String(), Action: "cc.emergency.stopped",
 			AggregateID: "cc-security-config", Actor: actorOr(actor),
@@ -42,7 +44,31 @@ func (s *Service) EmergencyStop(ctx context.Context, actor, reason string) (Sett
 		out = cur
 		return nil
 	})
-	s.releaseHeldKeys()
+	// Do not wait behind an OS call. The active operation owns its key
+	// cleanup and receipt; a pending response does not claim it has ended.
+	s.execution.mu.Lock()
+	pending := s.execution.active != nil || s.execution.cleaning
+	if !pending {
+		s.holdMu.Lock()
+		pending = len(s.heldKeys) > 0
+		s.holdMu.Unlock()
+		if pending {
+			s.execution.cleaning = true
+			go func() {
+				s.releaseHeldKeys()
+				s.execution.mu.Lock()
+				s.execution.cleaning = false
+				s.execution.mu.Unlock()
+			}()
+		}
+	}
+	s.execution.mu.Unlock()
+	if err != nil {
+		return out, fmt.Errorf("%w: %v", ErrCcStopPersistence, err)
+	}
+	if pending {
+		return out, ErrCcStopPending
+	}
 	return out, err
 }
 
@@ -87,11 +113,11 @@ func (s *Service) withModifiers(mods []string, fn func() error) error {
 	var held []string
 	defer func() {
 		for i := len(held) - 1; i >= 0; i-- {
-			_ = s.host.HoldKey(held[i], false)
+			_ = s.controlHost().HoldKey(held[i], false)
 		}
 	}()
 	for _, m := range mods {
-		if err := s.host.HoldKey(m, true); err != nil {
+		if err := s.controlHost().HoldKey(m, true); err != nil {
 			return err
 		}
 		held = append(held, m)

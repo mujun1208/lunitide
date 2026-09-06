@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/lunitide/lunitide/internal/mcp"
 	"net"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
 	"github.com/lunitide/lunitide/internal/m7app"
@@ -73,7 +75,7 @@ func (s *Service) ValidateConfig(ctx context.Context, cfg ConfigInput) (Validati
 }
 
 // validateRules runs the pure rules R1-R7.
-func (s *Service) validateRules(_ context.Context, cfg ConfigInput) ValidationResult {
+func (s *Service) validateRules(ctx context.Context, cfg ConfigInput) ValidationResult {
 	res := ValidationResult{Valid: true, Checks: make([]ValidationCheck, 0, 8)}
 	fail := func(rule, format string, args ...any) {
 		res.Checks = append(res.Checks, ValidationCheck{Rule: rule, Passed: false, Reason: fmt.Sprintf(format, args...)})
@@ -135,38 +137,23 @@ func (s *Service) validateRules(_ context.Context, cfg ConfigInput) ValidationRe
 	if transport == m7flow.McpTransportHTTPS || (transport == "" && cfg.URL != "") {
 		if !strings.HasPrefix(cfg.URL, "https://") || len(cfg.URL) > 2048 {
 			fail(RuleHTTPSURL, "https url required (max 2048 chars)")
-		} else if _, err := url.Parse(cfg.URL); err != nil {
+		} else if err := mcp.ValidateBaseURL(cfg.URL); err != nil {
 			fail(RuleHTTPSURL, "url unparseable: %v", err)
 		} else {
 			pass(RuleHTTPSURL)
 		}
-		if ok, reason := ssrfCheck(cfg.URL); !ok {
+		if ok, reason := ssrfCheck(ctx, cfg.URL); !ok {
 			fail(RuleSSRF, "%s", reason)
 		} else {
 			pass(RuleSSRF)
 		}
 	}
 
-	// R6 env secret refs.
-	envOK := true
-	if len(cfg.EnvSecretRefs) > McMaxEnv {
-		fail(RuleEnvSecrets, "too many env refs (%d > %d)", len(cfg.EnvSecretRefs), McMaxEnv)
-		envOK = false
+	// Match the credential lease policy of mcp.add; loaders and plaintext
+	// values are not accepted as environment credential references.
+	if err := m7app.ValidateMcpSecretRefs("", cfg.EnvSecretRefs); err != nil {
+		fail(RuleEnvSecrets, "environment values must be scoped Secret Lease references with safe names")
 	} else {
-		for k, v := range cfg.EnvSecretRefs {
-			if k == "" || v == "" {
-				fail(RuleEnvSecrets, "env ref %q empty", k)
-				envOK = false
-				break
-			}
-			if strings.Contains(strings.ToLower(k), "key") && strings.Contains(v, "sk-") {
-				fail(RuleEnvSecrets, "env ref %q carries a plaintext credential", k)
-				envOK = false
-				break
-			}
-		}
-	}
-	if envOK {
 		pass(RuleEnvSecrets)
 	}
 
@@ -227,7 +214,7 @@ func (s *Service) checkQuota(ctx context.Context, cfg ConfigInput, selfID string
 // ssrfCheck enforces the egress policy on one https url: allowed port,
 // and every resolved address outside loopback/private/link-local/CGNAT
 // ranges (hostname resolution failures fail closed).
-func ssrfCheck(rawURL string) (bool, string) {
+func ssrfCheck(ctx context.Context, rawURL string) (bool, string) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return false, "url unparseable"
@@ -257,7 +244,9 @@ func ssrfCheck(rawURL string) (bool, string) {
 	// IPv6 literals keep their brackets out of Hostname(); resolve the name
 	// and require every address to pass the IP policy.
 	resolver := net.DefaultResolver
-	addrs, err := resolver.LookupIPAddr(context.Background(), host)
+	lookup, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	addrs, err := resolver.LookupIPAddr(lookup, host)
 	if err != nil || len(addrs) == 0 {
 		return false, "host " + host + " does not resolve"
 	}

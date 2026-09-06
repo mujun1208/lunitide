@@ -7,35 +7,96 @@
   "x-enabled": true,
   "type": "object",
   "additionalProperties": false,
-  "properties": {},
+  "properties": {
+    "cursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    }
+  },
   "x-result": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
       "items": {
         "type": "array",
-        "maxItems": 200,
+        "maxItems": 100,
         "items": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "id": { "type": "string", "minLength": 1, "maxLength": 26 },
-            "toolNo": { "type": "string", "minLength": 1, "maxLength": 64 },
-            "sn": { "type": "string", "maxLength": 64 },
-            "location": { "type": "string", "maxLength": 64 },
-            "holder": { "type": "string", "maxLength": 64 },
-            "calibDue": { "type": "string", "maxLength": 32 },
-            "status": { "type": "string", "maxLength": 32 },
-            "checkoutBlocked": { "type": "string", "maxLength": 64 }
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 26
+            },
+            "toolNo": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "sn": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "location": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "holder": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "calibDue": {
+              "type": "string",
+              "maxLength": 32
+            },
+            "status": {
+              "type": "string",
+              "maxLength": 32
+            },
+            "checkoutBlocked": {
+              "type": "string",
+              "maxLength": 64
+            }
           },
-          "required": ["id", "toolNo"]
+          "required": [
+            "id",
+            "toolNo"
+          ]
+        }
+      },
+      "nextCursor": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      },
+      "continuedFields": {
+        "type": "array",
+        "maxItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "enum": [
+            "items"
+          ]
         }
       }
     },
-    "required": ["items"]
+    "required": [
+      "items"
+    ]
   },
   "x-examples": {
-    "positive": [{}],
-    "negative": [{"unexpected": true}]
+    "positive": [
+      {}
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      },
+      {
+        "cursor": 42
+      }
+    ]
   }
 }

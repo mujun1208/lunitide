@@ -30,7 +30,7 @@ func (e *Engine) ensureCompanionRuntimeCapabilities(ctx context.Context) {
 		return
 	}
 	cap := ccapp.CcDefaultMaxActionsPerMinute
-	_, _ = e.ccctrl.UpdateConfig(ctx, ccapp.SettingsPatch{Actor: "companion", MaxActionsPerMinute: &cap})
+	_, _ = e.ccctrl.UpdateConfig(ctx, ccapp.SettingsPatch{ExpectedRevision: cfg.Revision, Actor: "companion", MaxActionsPerMinute: &cap})
 }
 
 // companionCcEnabled reports whether the operator has computer control turned

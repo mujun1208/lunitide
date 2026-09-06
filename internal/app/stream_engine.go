@@ -14,9 +14,32 @@ import (
 // promoted methods forward here. No field or method here touches any other
 // Engine state, so the subsystem is self-contained and lock ownership is single.
 type streamEngine struct {
-	streamsMu  sync.Mutex
-	streams    map[string]*streamState
-	maxStreams int
+	streamsMu    sync.Mutex
+	streams      map[string]*streamState
+	maxStreams   int
+	chatSessions map[string]bool
+}
+
+func (e *streamEngine) reserveChatSession(sessionID string) bool {
+	if sessionID == "" {
+		return true
+	}
+	e.streamsMu.Lock()
+	defer e.streamsMu.Unlock()
+	if e.chatSessions[sessionID] {
+		return false
+	}
+	if e.chatSessions == nil {
+		e.chatSessions = map[string]bool{}
+	}
+	e.chatSessions[sessionID] = true
+	return true
+}
+
+func (e *streamEngine) releaseChatSession(sessionID string) {
+	e.streamsMu.Lock()
+	defer e.streamsMu.Unlock()
+	delete(e.chatSessions, sessionID)
 }
 
 // CancelAllStreams terminates every stream owned by this authenticated session.
@@ -92,5 +115,6 @@ func (e *streamEngine) finishTerminal(id string, state *streamState) {
 	defer e.streamsMu.Unlock()
 	if current, ok := e.streams[id]; ok && current == state {
 		delete(e.streams, id)
+		delete(e.chatSessions, state.sessionID)
 	}
 }

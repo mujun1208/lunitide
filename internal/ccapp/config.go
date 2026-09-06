@@ -18,6 +18,8 @@ func (s *Service) expireArm(tx Tx, cur Settings) (Settings, error) {
 	cur.Enabled = false
 	cur.ArmedUntil = ""
 	cur.UpdatedAt = s.clock.Now().UTC().Format(time.RFC3339)
+	cur.Revision++
+	s.revokeExecution(ErrCcDisabled, false)
 	if err := tx.PutCcSettings(cur); err != nil {
 		return cur, err
 	}
@@ -35,6 +37,11 @@ func (s *Service) GetConfig(ctx context.Context) (Settings, error) {
 		out, e = s.expireArm(tx, cur)
 		return e
 	})
+	s.execution.mu.Lock()
+	if s.execution.stopped {
+		out.EmergencyStopped = true
+	}
+	s.execution.mu.Unlock()
 	return out, err
 }
 
@@ -69,10 +76,17 @@ func ValidateSettings(v Settings) error {
 // latch armed is refused so the stop stays visible until acknowledged.
 func (s *Service) UpdateConfig(ctx context.Context, patch SettingsPatch) (Settings, error) {
 	var out Settings
+	var epoch uint64
+	s.execution.mu.Lock()
+	stopEpoch := s.execution.stopEpoch
+	s.execution.mu.Unlock()
 	err := s.uow.TransactCc(ctx, func(tx Tx) error {
 		cur, err := tx.GetCcSettings()
 		if err != nil {
 			return err
+		}
+		if patch.ExpectedRevision < 1 || patch.ExpectedRevision != cur.Revision {
+			return ErrCcConflict
 		}
 		next := cur
 		if patch.Enabled != nil {
@@ -100,6 +114,12 @@ func (s *Service) UpdateConfig(ctx context.Context, patch SettingsPatch) (Settin
 		if err := ValidateSettings(next); err != nil {
 			return err
 		}
+		s.execution.mu.Lock()
+		stopChanged := s.execution.stopEpoch != stopEpoch
+		s.execution.mu.Unlock()
+		if stopChanged {
+			return ErrCcEmergency
+		}
 		if cur.EmergencyStopped {
 			if patch.Enabled == nil || !*patch.Enabled {
 				return fmt.Errorf("%w: 紧急停止已激活，需重新走启用流程", ErrCcState)
@@ -113,6 +133,10 @@ func (s *Service) UpdateConfig(ctx context.Context, patch SettingsPatch) (Settin
 		}
 		ts := s.clock.Now().UTC().Format(time.RFC3339)
 		next.UpdatedAt = ts
+		next.Revision++
+		// Invalidate before persistence, so an already running tool cannot
+		// keep using its old policy while the new policy commits.
+		epoch = s.revokeExecution(ErrCcPermissionChanged, false)
 		if err := tx.PutCcSettings(next); err != nil {
 			return err
 		}
@@ -130,5 +154,12 @@ func (s *Service) UpdateConfig(ctx context.Context, patch SettingsPatch) (Settin
 		out = next
 		return nil
 	})
+	if err == nil && patch.Enabled != nil && *patch.Enabled {
+		s.execution.mu.Lock()
+		if s.execution.epoch == epoch && s.execution.stopEpoch == stopEpoch {
+			s.execution.stopped = false
+		}
+		s.execution.mu.Unlock()
+	}
 	return out, err
 }

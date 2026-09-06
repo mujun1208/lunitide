@@ -17,24 +17,24 @@ import (
 )
 
 var (
-	ErrSkillNotFound      = errors.New("skill not found")
-	ErrSkillAlreadyExists = errors.New("skill with same name and version already exists")
+	ErrSkillNotFound        = errors.New("skill not found")
+	ErrSkillAlreadyExists   = errors.New("skill with same name and version already exists")
 	ErrSkillVersionConflict = errors.New("skill changed since read; optimistic concurrency conflict")
-	ErrInvalidStatus      = errors.New("invalid skill status")
-	ErrInvalidTransition  = errors.New("invalid skill status transition")
-	ErrPermissionDenied   = errors.New("permission denied by skill policy")
-	ErrSkillNotPublished  = errors.New("skill is not published")
-	ErrSkillDeprecated    = errors.New("skill is deprecated")
-	ErrSkillDisabled      = errors.New("skill is disabled")
-	ErrNoMatchingSkill    = errors.New("no matching skill found")
-	ErrInvalidPermission  = errors.New("invalid permission level")
-	ErrInvocationNotFound = errors.New("skill invocation not found")
-	ErrInvocationConsumed = errors.New("skill invocation already consumed")
-	ErrInvocationExpired  = errors.New("skill invocation expired")
-	ErrInvocationChanged  = errors.New("skill changed after invocation")
-	ErrApprovalRequired   = errors.New("skill invocation approval required")
-	ErrExecutionForbidden = errors.New("skill execution forbidden by mode")
-	ErrUnknownEntryPoint  = errors.New("skill entry point is not allowlisted")
+	ErrInvalidStatus        = errors.New("invalid skill status")
+	ErrInvalidTransition    = errors.New("invalid skill status transition")
+	ErrPermissionDenied     = errors.New("permission denied by skill policy")
+	ErrSkillNotPublished    = errors.New("skill is not published")
+	ErrSkillDeprecated      = errors.New("skill is deprecated")
+	ErrSkillDisabled        = errors.New("skill is disabled")
+	ErrNoMatchingSkill      = errors.New("no matching skill found")
+	ErrInvalidPermission    = errors.New("invalid permission level")
+	ErrInvocationNotFound   = errors.New("skill invocation not found")
+	ErrInvocationConsumed   = errors.New("skill invocation already consumed")
+	ErrInvocationExpired    = errors.New("skill invocation expired")
+	ErrInvocationChanged    = errors.New("skill changed after invocation")
+	ErrApprovalRequired     = errors.New("skill invocation approval required")
+	ErrExecutionForbidden   = errors.New("skill execution forbidden by mode")
+	ErrUnknownEntryPoint    = errors.New("skill entry point is not allowlisted")
 )
 
 // SkillReader reads skills from storage.
@@ -74,14 +74,14 @@ func (systemClock) Now() time.Time { return time.Now().UTC() }
 
 // Service coordinates skill lifecycle, invocation gating, and matching.
 type Service struct {
-	read        SkillReader
-	write       SkillWriter
-	catRead     CategoryReader
-	catWrite    CategoryWriter
-	clock       Clock
-	invMu       sync.Mutex
-	invCache    *invocationLRU
-	invStore    InvocationStore
+	read     SkillReader
+	write    SkillWriter
+	catRead  CategoryReader
+	catWrite CategoryWriter
+	clock    Clock
+	invMu    sync.Mutex
+	invCache *invocationLRU
+	invStore InvocationStore
 }
 
 type Invocation struct {
@@ -394,15 +394,12 @@ func (s *Service) UpdateFields(ctx context.Context, id string, displayName, desc
 	if sk == nil {
 		return nil, ErrSkillNotFound
 	}
-	// Optimistic concurrency is anchored on the numeric rev column we just
-	// read: the UPDATE matches WHERE id=? AND rev=? and bumps rev=rev+1, so a
-	// concurrent write that changed the row between our read and write leaves
-	// RowsAffected==0 and surfaces ErrSkillVersionConflict. This detects a
-	// same-semver lost update that the old string CAS on version could not.
-	// The numeric expectedVersion still gates callers (handler requires >=1)
-	// but the atomic guarantee is the rev CAS below.
-	_ = expectedVersion
-	casRev := sk.Rev
+	// The caller's revision represents the document they edited. Reading the
+	// latest row must never silently upgrade that grant to overwrite it.
+	if expectedVersion < 0 || sk.Rev != expectedVersion {
+		return nil, ErrSkillVersionConflict
+	}
+	casRev := expectedVersion
 	resolvedDisplay := sk.DisplayName
 	if displayName != nil {
 		if len(*displayName) < 1 || len(*displayName) > 200 {

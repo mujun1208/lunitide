@@ -4,6 +4,7 @@ param(
   [string]$LogPath
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Release-Safety.ps1')
 function Write-InstallLog([string]$Message) {
   if (-not $LogPath) { return }
   try {
@@ -17,6 +18,9 @@ try {
   $fullPath = [IO.Path]::GetFullPath($Path).TrimEnd('\')
   $root = [IO.Path]::GetPathRoot($fullPath).TrimEnd('\')
   if ($fullPath -ieq $root) { Write-InstallLog 'exit=37 reason=drive-root'; exit 37 }
+  $userData=Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) 'Lunitide'
+  $targetPrefix=$fullPath+'\'; $dataPrefix=[IO.Path]::GetFullPath($userData).TrimEnd('\')+'\'
+  if($targetPrefix.StartsWith($dataPrefix,[StringComparison]::OrdinalIgnoreCase) -or $dataPrefix.StartsWith($targetPrefix,[StringComparison]::OrdinalIgnoreCase)) { Write-InstallLog 'exit=40 reason=overlaps-user-data'; exit 40 }
   $drive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($fullPath))
   if (-not $drive.IsReady -or $drive.DriveType -ne [IO.DriveType]::Fixed) { Write-InstallLog 'exit=38 reason=drive-not-fixed'; exit 38 }
   $parent = Split-Path -Parent $fullPath
@@ -32,10 +36,11 @@ try {
     Write-InstallLog 'exit=0 result=safe-nonexistent'
     exit 0
   }
-  if (-not $MustExist) { Write-InstallLog 'exit=33 reason=path-already-exists'; exit 33 }
   $item = Get-Item -LiteralPath $fullPath -Force
   if (-not $item.PSIsContainer) { Write-InstallLog 'exit=34 reason=not-directory'; exit 34 }
   if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { Write-InstallLog 'exit=35 reason=target-reparse-point'; exit 35 }
+  Assert-NoReleaseReparsePoint $fullPath -Tree
+  if (-not $MustExist) { Write-InstallLog 'exit=33 reason=path-already-exists'; exit 33 }
   Write-InstallLog 'exit=0 result=safe-existing'
   exit 0
 } catch {

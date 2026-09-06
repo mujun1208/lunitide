@@ -55,6 +55,38 @@ const airOnly: ProviderDTO = {
   models: [{ modelId: 'glm-4-air', displayName: 'Air', isDefault: true, kind: 'llm' }],
 }
 
+test.each(['ended', 'error'] as const)('releases realtime capture exactly once when the server sends %s', async type => {
+  let event!: (event: TalkStreamEvent) => void
+  let frame!: (frame: { base64: string; samples: Int16Array; peak: number }) => void
+  const stop = vi.fn().mockResolvedValue(undefined)
+  const cancel = vi.fn().mockResolvedValue(undefined)
+  const append = vi.fn().mockResolvedValue(true)
+  const onEnded = vi.fn()
+  const handle = await startCompanionTalk({
+    sessionId, onAudio: vi.fn(), onUserTranscript: vi.fn(), onAssistantTranscript: vi.fn(),
+    onBarge: vi.fn(), onToolHandoff: vi.fn(), onError: vi.fn(), onEnded,
+  }, {
+    listProviders: async () => ({ items: [realtime] }),
+    capture: async options => {
+      frame = options.onFrame
+      return { stop, setMuted: vi.fn(), contextSampleRate: () => 16000, flush: vi.fn(), attachExtraStream: vi.fn() }
+    },
+    talk: { start: async (_payload, callback) => {
+      event = callback
+      return { talkId: 'audit', streamId: 'audit', sessionId, done: Promise.resolve(), append, cancel }
+    } },
+  })
+  event(type === 'ended' ? { type } : { type, code: 'TALK_SESSION_FAILED', message: 'remote failure' })
+  event({ type: 'ended' })
+  expect(stop).toHaveBeenCalledTimes(1)
+  frame({ base64: 'AAAA', samples: new Int16Array(1600), peak: 0 })
+  await vi.waitFor(() => expect(onEnded).toHaveBeenCalledTimes(1))
+  expect(append).not.toHaveBeenCalled()
+  expect(cancel).toHaveBeenCalledTimes(1)
+  await handle?.stop()
+  expect(stop).toHaveBeenCalledTimes(1)
+})
+
 describe('companionTalk helpers', () => {
   test('offers talk only on volc with a listed model, a session, and the opt-in on', () => {
     // Talk-realtime is opt-in: default (no opt-in) always stays on cascade.
@@ -132,6 +164,7 @@ describe('startCompanionTalk', () => {
   test('keeps the session after first audio and hands off a complete tool line', async () => {
     const events: Array<(event: TalkStreamEvent) => void> = []
     const handed: string[] = []
+    const messageIds: Array<string | undefined> = []
     const handle = await startCompanionTalk(
       {
         sessionId,
@@ -139,7 +172,7 @@ describe('startCompanionTalk', () => {
         onUserTranscript: () => {},
         onAssistantTranscript: () => {},
         onBarge: () => {},
-        onToolHandoff: text => handed.push(text),
+        onToolHandoff: (text, messageId) => { handed.push(text); messageIds.push(messageId) },
         onError: () => {},
         onEnded: () => {},
       },
@@ -170,8 +203,9 @@ describe('startCompanionTalk', () => {
       },
     )
     expect(handle).toBeDefined()
-    events[0]?.({ type: 'tool', name: 'handoff', text: '打开网页' })
+    events[0]?.({ type: 'tool', name: 'handoff', text: '打开网页', messageId: sessionId })
     expect(handed).toEqual(['打开网页'])
+    expect(messageIds).toEqual([sessionId])
     events[0]?.({ type: 'tool', name: 'handoff', text: '帮我' })
     expect(handed).toEqual(['打开网页'])
     await handle?.stop()

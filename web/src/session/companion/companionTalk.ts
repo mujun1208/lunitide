@@ -91,7 +91,7 @@ export type CompanionTalkCallbacks = {
   onUserTranscript: (text: string) => void
   onAssistantTranscript: (text: string) => void
   onBarge: () => void
-  onToolHandoff: (text: string) => void
+  onToolHandoff: (text: string, messageId?: string) => void
   onError: (error: BridgeClientError) => void
   onEnded: () => void
 }
@@ -126,6 +126,7 @@ export async function startCompanionTalk(
   let stream: TalkStreamHandle | undefined
   let capture: PcmCaptureHandle | undefined
   let stopped = false
+  let ended = false
   // Bounded uplink queue: base64 frames awaiting append, one in flight.
   const sendQueue: string[] = []
   let sendInFlight = false
@@ -153,6 +154,13 @@ export async function startCompanionTalk(
     capture = undefined
     await stream?.cancel('all').catch(() => undefined)
   }
+  const end = () => {
+    if (ended) return
+    ended = true
+    // This session owns the capture, even when the page discards its handle
+    // in onEnded. Release it before announcing the terminal state.
+    void stop().finally(() => callbacks.onEnded())
+  }
 
   try {
     const talk = deps.talk ?? getTalkBridge()
@@ -171,8 +179,13 @@ export async function startCompanionTalk(
           return
         }
         if (event.type === 'tool' && event.name === 'handoff' && event.text && !looksIncompleteUtterance(event.text)) {
+          if (!event.messageId) {
+            callbacks.onError(new BridgeClientError('通话指令尚未确认保存，请重新发起', 'TALK_HANDOFF_UNCONFIRMED', false, stream?.streamId ?? 'talk'))
+            end()
+            return
+          }
           void stream?.cancel('output')
-          callbacks.onToolHandoff(event.text)
+          callbacks.onToolHandoff(event.text, event.messageId)
           return
         }
         if (event.type === 'error' && event.code === 'TALK_BARGE') {
@@ -182,17 +195,21 @@ export async function startCompanionTalk(
         if (event.type === 'error') {
           markFirst(false)
           callbacks.onError(new BridgeClientError(event.message, event.code, true, stream?.streamId ?? 'talk'))
+          end()
           return
         }
         if (event.type === 'ended') {
-          markFirst(false)
-          callbacks.onEnded()
+          end()
         }
       },
     )
   } catch (error) {
     await stop()
     if (error instanceof BridgeClientError) callbacks.onError(error)
+    return undefined
+  }
+  if (stopped) {
+    await stream.cancel('all').catch(() => undefined)
     return undefined
   }
 
@@ -219,6 +236,11 @@ export async function startCompanionTalk(
   } catch (error) {
     await stop()
     if (error instanceof BridgeClientError) callbacks.onError(error)
+    return undefined
+  }
+  if (stopped) {
+    await capture.stop().catch(() => undefined)
+    capture = undefined
     return undefined
   }
 

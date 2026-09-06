@@ -16,7 +16,8 @@
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "deleted": { "type": "boolean" }
+      "deleted": { "type": "boolean" },
+      "cleanupPending": { "type": "boolean" }
     },
     "required": ["deleted"]
   },

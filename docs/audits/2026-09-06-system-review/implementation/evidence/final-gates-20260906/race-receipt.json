@@ -1,0 +1,35 @@
+{
+  "group": "race",
+  "startedAt": "2026-09-06T13:04:23.7667757Z",
+  "finishedAt": "2026-09-06T13:12:36.4138745Z",
+  "status": "failed",
+  "source": {
+    "commit": "09978597dc026bfa40ab8d690d64f9bcaef476f3",
+    "treeSha256": "d62b1c8e0490eb7b075b24c5fb50d2951a9e388e234cc20bf1ce859764b4d90e",
+    "fileCount": 2758,
+    "manifest": "race-source.json"
+  },
+  "sourceUnchanged": false,
+  "checks": [
+    {
+      "name": "go-race",
+      "command": "go",
+      "arguments": [
+        "test",
+        "-race",
+        "-json",
+        "-count=1",
+        "-p=4",
+        "-timeout=90m",
+        "./..."
+      ],
+      "exitCode": 1,
+      "startedAt": "2026-09-06T13:04:41.8362752Z",
+      "finishedAt": "2026-09-06T13:12:36.3990818Z",
+      "stdout": "go-race.jsonl",
+      "stderr": "go-race.stderr.log"
+    }
+  ],
+  "error": "go-race failed (exit 1); inspect its recorded output",
+  "scope": "code-and-automated-tests; docs excluded; no physical or release acceptance"
+}

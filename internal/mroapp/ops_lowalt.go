@@ -1,8 +1,8 @@
 package mroapp
 
 import (
-	"strings"
 	"sort"
+	"strings"
 )
 
 // Component is a serialized/traceable part instance (low-altitude airworthiness).

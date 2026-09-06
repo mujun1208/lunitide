@@ -12,9 +12,10 @@ import (
 )
 
 var (
-	ErrMemoryNotFound = errors.New("memory not found")
-	ErrInvalidLayer   = errors.New("invalid memory layer")
-	ErrInvalidScope   = errors.New("invalid memory scope")
+	ErrMemoryNotFound  = errors.New("memory not found")
+	ErrInvalidLayer    = errors.New("invalid memory layer")
+	ErrInvalidScope    = errors.New("invalid memory scope")
+	ErrPurgeIncomplete = errors.New("memory cleanup incomplete: storage does not support batched expiry cleanup")
 )
 
 // MemoryReader reads memories from storage.
@@ -50,6 +51,12 @@ func New(r MemoryReader, w MemoryWriter) *Service {
 	return &Service{read: r, write: w, clock: systemClock{}}
 }
 
+func (s *Service) SetClock(c Clock) {
+	if s != nil && c != nil {
+		s.clock = c
+	}
+}
+
 // Get retrieves a memory by ID and increments its access count.
 func (s *Service) Get(ctx context.Context, id string) (*memory.Memory, error) {
 	if s == nil || s.read == nil {
@@ -63,9 +70,13 @@ func (s *Service) Get(ctx context.Context, id string) (*memory.Memory, error) {
 		return nil, ErrMemoryNotFound
 	}
 	// Check expiration.
-	if m.ExpiresAt != nil && s.clock.Now().After(*m.ExpiresAt) {
+	if expiredAt(*m, s.clock.Now()) {
 		// Best-effort delete of expired memory.
-		_ = s.write.DeleteMemory(ctx, id)
+		if s.write != nil {
+			if err := s.write.DeleteMemory(ctx, id); err != nil {
+				return nil, errors.Join(ErrMemoryNotFound, err)
+			}
+		}
 		return nil, ErrMemoryNotFound
 	}
 	// Increment access count (best-effort, don't fail the read).
@@ -122,7 +133,26 @@ func (s *Service) ListByProject(ctx context.Context, projectID string, layer mem
 	if layer != "" {
 		layerStr = string(layer)
 	}
-	return s.read.ListMemoriesByProject(ctx, projectID, layerStr, 100)
+	now := s.clock.Now()
+	var rows []memory.Memory
+	var err error
+	if active, ok := s.read.(interface {
+		ListActiveMemoriesByProject(context.Context, string, string, time.Time, int) ([]memory.Memory, error)
+	}); ok {
+		rows, err = active.ListActiveMemoriesByProject(ctx, projectID, layerStr, now, 100)
+	} else {
+		rows, err = s.read.ListMemoriesByProject(ctx, projectID, layerStr, 100)
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := rows[:0]
+	for _, m := range rows {
+		if !expiredAt(m, now) {
+			out = append(out, m)
+		}
+	}
+	return out, nil
 }
 
 // DefaultSearchLimit and MaxSearchLimit bound the number of memories returned
@@ -142,15 +172,23 @@ func (s *Service) Search(ctx context.Context, projectID string, query string) ([
 	if strings.TrimSpace(query) == "" {
 		return nil, nil
 	}
-	results, err := s.read.SearchMemoriesFTS(ctx, projectID, query, DefaultSearchLimit)
+	now := s.clock.Now()
+	var results []memory.Memory
+	var err error
+	if active, ok := s.read.(interface {
+		SearchActiveMemoriesFTS(context.Context, string, string, time.Time, int) ([]memory.Memory, error)
+	}); ok {
+		results, err = active.SearchActiveMemoriesFTS(ctx, projectID, query, now, DefaultSearchLimit)
+	} else {
+		results, err = s.read.SearchMemoriesFTS(ctx, projectID, query, DefaultSearchLimit)
+	}
 	if err != nil {
 		return nil, err
 	}
-	now := s.clock.Now()
 	out := results[:0]
 	for _, m := range results {
 		// Skip expired memories.
-		if m.ExpiresAt != nil && now.After(*m.ExpiresAt) {
+		if expiredAt(m, now) {
 			continue
 		}
 		out = append(out, m)
@@ -160,7 +198,7 @@ func (s *Service) Search(ctx context.Context, projectID string, query string) ([
 
 // UpdateContent updates the content of a memory.
 func (s *Service) UpdateContent(ctx context.Context, id, content string) error {
-	if s == nil || s.write == nil {
+	if s == nil || s.write == nil || s.read == nil {
 		return errors.New("memory writer unavailable")
 	}
 	if len(content) < 1 || len(content) > 65536 {
@@ -170,7 +208,7 @@ func (s *Service) UpdateContent(ctx context.Context, id, content string) error {
 	if err != nil {
 		return err
 	}
-	if m == nil {
+	if m == nil || expiredAt(*m, s.clock.Now()) {
 		return ErrMemoryNotFound
 	}
 	return s.write.UpdateMemory(ctx, id, content)
@@ -178,7 +216,7 @@ func (s *Service) UpdateContent(ctx context.Context, id, content string) error {
 
 // Delete removes a memory.
 func (s *Service) Delete(ctx context.Context, id string) error {
-	if s == nil || s.write == nil {
+	if s == nil || s.write == nil || s.read == nil {
 		return errors.New("memory writer unavailable")
 	}
 	m, err := s.read.GetMemory(ctx, id)
@@ -191,27 +229,52 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return s.write.DeleteMemory(ctx, id)
 }
 
-// PurgeExpired deletes all expired memories for a project (best-effort cleanup).
+// PurgeExpired processes every expired row in bounded SQLite batches. It
+// returns the committed count plus any failure; a partial scan is never success.
 func (s *Service) PurgeExpired(ctx context.Context, projectID string) (int, error) {
-	if s == nil || s.read == nil {
+	if s == nil || s.write == nil {
+		return 0, errors.New("memory writer unavailable")
+	}
+	now := s.clock.Now()
+	count := 0
+	if purge, ok := s.write.(interface {
+		PurgeExpiredMemories(context.Context, string, time.Time, int) (int, error)
+	}); ok {
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		for {
+			n, err := purge.PurgeExpiredMemories(ctx, projectID, now, 256)
+			count += n
+			if err != nil {
+				return count, err
+			}
+			if n < 256 {
+				return count, nil
+			}
+		}
+	}
+	if s.read == nil {
 		return 0, errors.New("memory reader unavailable")
 	}
 	all, err := s.read.ListMemoriesByProject(ctx, projectID, "", 100)
 	if err != nil {
 		return 0, err
 	}
-	now := s.clock.Now()
-	count := 0
 	for _, m := range all {
-		if m.ExpiresAt != nil && now.After(*m.ExpiresAt) {
-			if s.write != nil {
-				if err := s.write.DeleteMemory(ctx, m.ID); err == nil {
-					count++
-				}
+		if expiredAt(m, now) {
+			if err = s.write.DeleteMemory(ctx, m.ID); err != nil {
+				return count, err
 			}
+			count++
 		}
 	}
+	if len(all) >= 100 {
+		return count, ErrPurgeIncomplete
+	}
 	return count, nil
+}
+func expiredAt(m memory.Memory, now time.Time) bool {
+	return m.ExpiresAt != nil && !m.ExpiresAt.After(now)
 }
 
 func canonicalULID(v string) bool {

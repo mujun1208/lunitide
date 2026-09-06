@@ -1,0 +1,8 @@
+{
+  "Replace": {
+    "E:\\Trae-Work-Projects\\lunitide\\internal\\mcp\\audit_review_repro_test.go": "E:\\Trae-Work-Projects\\lunitide\\docs\\audits\\2026-09-06-system-review\\evidence\\extensions\\pool_audit_test.go.txt",
+    "E:\\Trae-Work-Projects\\lunitide\\internal\\app\\audit_review_repro_test.go": "E:\\Trae-Work-Projects\\lunitide\\docs\\audits\\2026-09-06-system-review\\evidence\\extensions\\app_audit_test.go.txt",
+    "E:\\Trae-Work-Projects\\lunitide\\internal\\m8app\\audit_review_repro_test.go": "E:\\Trae-Work-Projects\\lunitide\\docs\\audits\\2026-09-06-system-review\\evidence\\extensions\\m8_audit_test.go.txt",
+    "E:\\Trae-Work-Projects\\lunitide\\internal\\mcp6\\audit_review_repro_test.go": "E:\\Trae-Work-Projects\\lunitide\\docs\\audits\\2026-09-06-system-review\\evidence\\extensions\\mcp_audit_test.go.txt"
+  }
+}

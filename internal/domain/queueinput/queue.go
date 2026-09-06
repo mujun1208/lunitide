@@ -4,6 +4,16 @@
 // withdrawn); seq is monotonic per session and never recycled.
 package queueinput
 
+import "errors"
+
+var (
+	ErrNotFound      = errors.New("queued message not found")
+	ErrSettled       = errors.New("queued message already settled")
+	ErrRequestReused = errors.New("queue request already settled or payload changed")
+	ErrCapacity      = errors.New("queue capacity reached")
+	ErrRateLimited   = errors.New("queue rate limited")
+)
+
 // Message is one queued user supplement row.
 type Message struct {
 	ID         string

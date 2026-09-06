@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { getFeedbackBridge, getIdentityBridge, getMemoryBridge, getPeopleBridge, type FeedbackBridge, type IdentityBridge, type MemoryBridge, type PeopleBridge } from '../bridge/client'
+import { createMutationAttempt, getFeedbackBridge, getIdentityBridge, getMemoryBridge, getPeopleBridge, type FeedbackBridge, type IdentityBridge, type MemoryBridge, type PeopleBridge, type MutationAttempt } from '../bridge/client'
 import type { IdentityDTO, PeopleContactDTO, PeopleMessageDTO, PeopleThreadDTO } from '../generated/bridge'
 import { clipboardImages, normalizePastedImages } from '../session/attachments'
 import { PendingMemoryBanner } from '../session/PendingMemoryBanner'
@@ -45,6 +45,12 @@ export function PeoplePage({
   const [thread, setThread] = useState<PeopleThreadDTO>()
   const [card, setCard] = useState<PeopleContactDTO>()
   const [messages, setMessages] = useState<PeopleMessageDTO[]>([])
+  const [historyCursor, setHistoryCursor] = useState<string>()
+  const [viewingHistory, setViewingHistory] = useState(false)
+  const [historyBusy, setHistoryBusy] = useState(false)
+  const historyBusyRef = useRef(false)
+  const historyViewRef = useRef(false)
+  historyViewRef.current = viewingHistory
   const [draft, setDraft] = useState('')
   const [query, setQuery] = useState('')
   const [rosterQuery, setRosterQuery] = useState('')
@@ -92,6 +98,8 @@ export function PeoplePage({
   const lastStickIdRef = useRef('')
   const messagesRef = useRef<PeopleMessageDTO[]>([])
   const openedPeerRef = useRef('')
+  const openEpoch = useRef(0)
+  const sendAttempt = useRef<MutationAttempt<Parameters<PeopleBridge['threadSend']>[0]>|null>(null)
   threadIdRef.current = thread?.threadId
   cropOpenRef.current = Boolean(cropFile)
   messagesRef.current = messages
@@ -102,22 +110,43 @@ export function PeoplePage({
   }
 
   const refresh = async () => {
+    const epoch = openEpoch.current
     const [profile, list, threadList] = await Promise.all([identity.get(), people.list(), people.threadList()])
+    if(epoch !== openEpoch.current) return
     setMe(profile)
     setContacts(list.items)
     setThreads(threadList.items)
   }
 
   useEffect(() => { setRail(initialRail) }, [initialRail])
+  useEffect(() => {
+    ++openEpoch.current
+    openedPeerRef.current = ''
+    historyBusyRef.current = false
+    sending.current = false
+    sendAttempt.current = null
+    setHistoryBusy(false)
+    setHistoryCursor(undefined)
+    setViewingHistory(false)
+    setThread(undefined)
+    setCard(undefined)
+    setMessages([])
+    setDraft('')
+    setMe(undefined)
+    setContacts([])
+    setThreads([])
+    return () => { ++openEpoch.current }
+  }, [identity, people])
   useEffect(() => { void refresh().catch(e => showNotice(e instanceof Error ? e.message : '通讯录加载失败', true)) }, [identity, people])
   useEffect(() => {
     const raw = initialPeerSubjectId?.trim()
     if (!raw || openedPeerRef.current === raw) return
     let alive = true
+    const initialEpoch = ++openEpoch.current
     void (async () => {
       try {
         const list = await people.list()
-        if (!alive) return
+        if (!alive || initialEpoch !== openEpoch.current) return
         setContacts(list.items)
         const resolved = resolveColleaguePeerId(list.items, raw, initialPeerName)
         const peerId = resolved || raw
@@ -130,17 +159,19 @@ export function PeoplePage({
         setBusy(true)
         showNotice('')
         const opened = await people.threadOpen({ peerSubjectId: peerId })
-        if (!alive) return
+        if (!alive || initialEpoch !== openEpoch.current) return
         openedPeerRef.current = raw
         stickToBottomRef.current = true
         setThread(opened.thread)
         setMessages(opened.messages)
+        setHistoryCursor(opened.nextCursor)
+        setViewingHistory(false)
         setCard(threadPeer(opened.thread.members, me?.subjectId) ?? opened.thread.members.find(m => !m.self))
         await refresh()
       } catch (e) {
-        if (alive) showNotice(e instanceof Error ? e.message : '无法打开专家会话', true)
+        if (alive && initialEpoch === openEpoch.current) showNotice(e instanceof Error ? e.message : '无法打开专家会话', true)
       } finally {
-        if (alive) setBusy(false)
+        if (alive && initialEpoch === openEpoch.current) setBusy(false)
       }
     })()
     return () => { alive = false }
@@ -157,26 +188,29 @@ export function PeoplePage({
     let alive = true
     const tick = async () => {
       if (typeof document !== 'undefined' && document.hidden) return
+      const epoch=openEpoch.current
       const listed = await people.threadList()
-      if (!alive) return
+      if (!alive || epoch!==openEpoch.current) return
       setThreads(listed.items)
       const id = threadIdRef.current
-      if (id && rail !== 'me') {
+      if (id && rail !== 'me' && !historyViewRef.current) {
         const item = listed.items.find(row => row.threadId === id)
         if (item) setThread(current => current && current.threadId === id ? { ...current, ...item } : current)
-        if (shouldReloadOpenThread({
+        if (messagesRef.current.some(message=>message.deliveryState==='pending') || shouldReloadOpenThread({
           stickToBottom: stickToBottomRef.current,
           listedLastId: item?.lastMessage?.messageId,
           localLastId: messagesRef.current.at(-1)?.messageId,
         })) {
           const opened = await people.threadOpen({ threadId: id })
-          if (!alive) return
+          if (!alive || epoch!==openEpoch.current || id!==threadIdRef.current) return
           setThread(opened.thread)
           setMessages(opened.messages)
+        setHistoryCursor(opened.nextCursor)
+        setViewingHistory(false)
         }
       }
       const list = await people.list()
-      if (!alive) return
+      if (!alive || epoch !== openEpoch.current) return
       setContacts(list.items)
     }
     const timer = window.setInterval(() => { void tick().catch(() => {}) }, 1500)
@@ -252,40 +286,81 @@ export function PeoplePage({
   const openPeer = async (peer: PeopleContactDTO) => {
     setCard(peer)
     if (peer.self) return
+    const epoch=++openEpoch.current
+    historyBusyRef.current = false
+    setHistoryBusy(false)
     setBusy(true)
     showNotice('')
     try {
       const opened = await people.threadOpen({ peerSubjectId: peer.subjectId })
+      if(epoch!==openEpoch.current)return
       stickToBottomRef.current = true
       setThread(opened.thread)
       setMessages(opened.messages)
+        setHistoryCursor(opened.nextCursor)
+        setViewingHistory(false)
       await refresh()
     } catch (e) {
-      showNotice(e instanceof Error ? e.message : '无法打开会话', true)
+      if(epoch===openEpoch.current) showNotice(e instanceof Error ? e.message : '无法打开会话', true)
     } finally {
-      setBusy(false)
+      if(epoch===openEpoch.current) setBusy(false)
     }
   }
 
   const openThread = async (item: PeopleThreadDTO) => {
+    const epoch=++openEpoch.current
+    historyBusyRef.current = false
+    setHistoryBusy(false)
     setBusy(true)
     try {
       const opened = await people.threadOpen({ threadId: item.threadId })
+      if(epoch!==openEpoch.current)return
       stickToBottomRef.current = true
       setThread(opened.thread)
       setMessages(opened.messages)
+        setHistoryCursor(opened.nextCursor)
+        setViewingHistory(false)
       setCard(threadPeer(opened.thread.members, me?.subjectId))
       setMembersOpen(false)
       await refresh()
     } catch (e) {
-      showNotice(e instanceof Error ? e.message : '无法打开会话', true)
+      if(epoch===openEpoch.current) showNotice(e instanceof Error ? e.message : '无法打开会话', true)
     } finally {
-      setBusy(false)
+      if(epoch===openEpoch.current) setBusy(false)
+    }
+  }
+
+  const loadOlder = async () => {
+    const id = threadIdRef.current, cursor = historyCursor
+    if (!id || !cursor || historyBusyRef.current) return
+    const epoch = ++openEpoch.current
+    historyBusyRef.current = true
+    historyViewRef.current = true
+    setViewingHistory(true)
+    setHistoryBusy(true)
+    try {
+      const page = await people.threadOpen({ threadId: id, beforeMessageId: cursor })
+      if (epoch !== openEpoch.current || id !== threadIdRef.current) return
+      setHistoryCursor(page.nextCursor)
+      if (page.messages.length) {
+        setViewingHistory(true)
+        stickToBottomRef.current = false
+        setMessages(page.messages)
+        if (scroller.current) scroller.current.scrollTop = 0
+      } else showNotice('已到达最早的消息')
+    } catch (e) {
+      if (epoch === openEpoch.current) showNotice(e instanceof Error ? e.message : '历史消息加载失败', true)
+    } finally {
+      if (epoch === openEpoch.current) {
+        historyBusyRef.current = false
+        setHistoryBusy(false)
+      }
     }
   }
 
   const send = async (kind: 'text' | 'emoji' | 'image' | 'file', body = draft, file?: File, localPath?: string, fileName?: string, fileMime?: string) => {
     const threadId = threadIdRef.current
+    const epoch=openEpoch.current
     if (!threadId) {
       showNotice('请先打开会话', true)
       return
@@ -320,11 +395,20 @@ export function PeoplePage({
           }
         }
       }
-      const result = await people.threadSend(payload)
+      if(!sendAttempt.current || JSON.stringify(sendAttempt.current.payload)!==JSON.stringify(payload)) sendAttempt.current=createMutationAttempt('people.thread.send',payload)
+      const result = await people.threadSend(payload,{attempt:sendAttempt.current})
+      sendAttempt.current=null
+      if(epoch!==openEpoch.current || threadId!==threadIdRef.current){await refresh();return}
       stickToBottomRef.current = true
-      setMessages(items => [...items, result.message])
-      setDraft('')
+      setDraft(current=>current===body?'':current)
       setEmojiOpen(false)
+      if (historyViewRef.current) {
+        const latest = await people.threadOpen({ threadId })
+        if(epoch !== openEpoch.current || threadId !== threadIdRef.current) return
+        setMessages(latest.messages)
+        setHistoryCursor(latest.nextCursor)
+        setViewingHistory(false)
+      } else setMessages(items => items.some(item=>item.messageId===result.message.messageId)?items:[...items, result.message])
       await refresh()
       if (result.offer?.status === 'pending') showNotice(`已发出文件「${result.offer.fileName}」，对方必须确认后才会保存。`)
     } catch (e) {
@@ -591,6 +675,11 @@ export function PeoplePage({
               if (!el) return
               stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_PX
             }}>
+              {(historyCursor || viewingHistory) && <div className="people-history-controls">
+                {viewingHistory && <span>历史消息</span>}
+                {historyCursor && <button type="button" disabled={historyBusy} onClick={() => void loadOlder()}>{historyBusy ? '正在加载…' : '查看更早消息'}</button>}
+                {viewingHistory && <button type="button" onClick={() => void openThread(thread)}>回到最新消息</button>}
+              </div>}
               {visible.map(item => {
                 if (item.kind === 'system') {
                   return (
@@ -609,6 +698,7 @@ export function PeoplePage({
                     <small>{sender ? displayName(sender) : item.senderSubjectId}</small>
                     {acceptedImage ? <img src={`file://${item.destPath}`} alt={item.fileName} /> : null}
                     {item.kind === 'emoji' || item.kind === 'text' ? <p>{item.body}</p> : null}
+                    {mine && item.deliveryState && <small>{item.deliveryState==='delivered'?'已送达':`等待送达确认 ${item.deliveredCount??0}/${item.recipientCount??0}`}</small>}
                     {(item.kind === 'file' || item.kind === 'image') && (
                       <div className="people-file">
                         <b>{item.fileName || '文件'}</b>

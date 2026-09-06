@@ -12,19 +12,64 @@
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "running": { "type": "boolean" },
-      "startedAt": { "type": "string", "format": "date-time" },
-      "lastHeartbeat": { "type": "string", "format": "date-time" },
+      "running": {
+        "type": "boolean"
+      },
+      "startedAt": {
+        "anyOf": [
+          {
+            "type": "string",
+            "format": "date-time"
+          },
+          {
+            "const": ""
+          }
+        ]
+      },
+      "lastHeartbeat": {
+        "anyOf": [
+          {
+            "type": "string",
+            "format": "date-time"
+          },
+          {
+            "const": ""
+          }
+        ]
+      },
       "nextFire": {
         "type": "object",
-        "additionalProperties": { "type": "string", "format": "date-time" }
+        "additionalProperties": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "runningJobs": { "type": "array", "items": { "type": "string" } }
+      "runningJobs": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "lastError": {
+        "type": "string",
+        "maxLength": 256
+      }
     },
-    "required": ["running", "lastHeartbeat", "nextFire", "runningJobs"]
+    "required": [
+      "running",
+      "lastHeartbeat",
+      "nextFire",
+      "runningJobs"
+    ]
   },
   "x-examples": {
-    "positive": [{}],
-    "negative": [{ "unexpected": true }]
+    "positive": [
+      {}
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
   }
 }

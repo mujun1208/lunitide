@@ -21,9 +21,9 @@ func TestMatchCommandRuleBuiltinSet(t *testing.T) {
 		{"git", "--no-pager", "diff", "--stat"},
 		{"git", "--no-pager", "show", "HEAD"},
 		{"git", "--no-pager", "branch"},
-		{"git", "--no-pager", "add", "-A"},                    // E2 reversible write
-		{"git", "--no-pager", "commit", "-m", "msg"},          // E2 reversible write
-		{"git", "--no-pager", "stash"},                        // E2 reversible write
+		{"git", "--no-pager", "add", "-A"},           // E2 reversible write
+		{"git", "--no-pager", "commit", "-m", "msg"}, // E2 reversible write
+		{"git", "--no-pager", "stash"},               // E2 reversible write
 	}
 	for _, argv := range allow {
 		if _, ok := matchCommandRule(rules, argv); !ok {
@@ -32,14 +32,14 @@ func TestMatchCommandRuleBuiltinSet(t *testing.T) {
 	}
 	deny := [][]string{
 		{"cmd", "/c", "del", "x"},
-		{"git", "status"},                     // pager path not allowed
-		{"git", "--no-pager", "push"},         // network / remote mutation
-		{"git", "--no-pager", "checkout", "."}, // destructive: discards uncommitted work
-		{"git", "--no-pager", "reset", "--hard"}, // destructive
-		{"git", "--no-pager", "clean", "-fdx"},   // destructive
-		{"git", "--no-pager", "restore", "."},    // destructive
+		{"git", "status"},                                                           // pager path not allowed
+		{"git", "--no-pager", "push"},                                               // network / remote mutation
+		{"git", "--no-pager", "checkout", "."},                                      // destructive: discards uncommitted work
+		{"git", "--no-pager", "reset", "--hard"},                                    // destructive
+		{"git", "--no-pager", "clean", "-fdx"},                                      // destructive
+		{"git", "--no-pager", "restore", "."},                                       // destructive
 		{"git", "--no-pager", "log", "-n", "1", "-p", "-a", "-b", "-c", "-d", "-e"}, // over maxArgs
-		{"go", "build", "./..."}, // not in builtin set
+		{"go", "build", "./..."},                                                    // not in builtin set
 		{},
 	}
 	for _, argv := range deny {
@@ -308,10 +308,20 @@ func TestCommandPolicyJSONRoundTripAndHotApply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(string(raw)) != doc {
+	var savedPolicy map[string]json.RawMessage
+	if err = json.Unmarshal(raw, &savedPolicy); err != nil || len(savedPolicy["revisionToken"]) < 3 {
+		t.Fatalf("persisted revision: %s %v", raw, err)
+	}
+	delete(savedPolicy, "revisionToken")
+	normalized, _ := json.Marshal(savedPolicy)
+	var expectedPolicy map[string]json.RawMessage
+	_ = json.Unmarshal([]byte(doc), &expectedPolicy)
+	expectedJSON, _ := json.Marshal(expectedPolicy)
+	if string(normalized) != string(expectedJSON) {
 		t.Fatalf("persisted policy = %q", raw)
 	}
 
+	savedBytes := string(raw)
 	// Invalid documents are refused whole: live rules and the stored file
 	// keep the last accepted state.
 	for _, bad := range []string{`not json`, `{"commands":[{"prefix":[]}]}`, `{"commands":[{"prefix":["../escape"]}]}`} {
@@ -326,7 +336,7 @@ func TestCommandPolicyJSONRoundTripAndHotApply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(string(raw)) != doc {
+	if string(raw) != savedBytes {
 		t.Fatal("stored file changed after refused update")
 	}
 

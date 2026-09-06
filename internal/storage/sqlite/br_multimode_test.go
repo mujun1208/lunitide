@@ -15,12 +15,14 @@ import (
 // fakeBrHost records host calls without touching the real browser
 // landscape.
 type fakeBrHost struct {
-	connects    []string
-	disconnects []string
-	navigates   []string
-	clears      []int
-	usage       [3]int64
-	connectErr  error
+	connects      []string
+	disconnects   []string
+	navigates     []string
+	clears        []int
+	usage         [3]int64
+	connectErr    error
+	disconnectErr error
+	onDisconnect  func()
 }
 
 func (f *fakeBrHost) Detect(_ context.Context, _ brapp.Settings) (brapp.DetectReport, error) {
@@ -37,7 +39,10 @@ func (f *fakeBrHost) Connect(_ context.Context, sessionID, _ string, _ brapp.Set
 
 func (f *fakeBrHost) Disconnect(_ context.Context, sessionID, _ string) error {
 	f.disconnects = append(f.disconnects, sessionID)
-	return nil
+	if f.onDisconnect != nil {
+		f.onDisconnect()
+	}
+	return f.disconnectErr
 }
 
 func (f *fakeBrHost) Navigate(_ context.Context, _ brapp.Session, rawURL string) error {
@@ -87,7 +92,7 @@ func TestBrSettingsSeedAndUpdate(t *testing.T) {
 	}
 
 	retention := 14
-	updated, err := svc.UpdateSettings(ctx, brapp.SettingsPatch{DataRetentionDays: &retention})
+	updated, err := svc.UpdateSettings(ctx, brapp.SettingsPatch{ExpectedRevision: settings.Revision, DataRetentionDays: &retention})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +102,7 @@ func TestBrSettingsSeedAndUpdate(t *testing.T) {
 
 	// invalid mode rejected, nothing changed
 	bad := "firefox"
-	if _, err := svc.UpdateSettings(ctx, brapp.SettingsPatch{Mode: &bad}); !errors.Is(err, brapp.ErrBrSchema) {
+	if _, err := svc.UpdateSettings(ctx, brapp.SettingsPatch{ExpectedRevision: updated.Revision, Mode: &bad}); !errors.Is(err, brapp.ErrBrSchema) {
 		t.Fatalf("expected ErrBrSchema, got %v", err)
 	}
 }
@@ -125,7 +130,7 @@ func TestBrConnectStateMachineAndModeSwitch(t *testing.T) {
 
 	// mode switch force-disconnects the live session
 	edge := brapp.ModeEdge
-	if _, err := svc.UpdateSettings(ctx, brapp.SettingsPatch{Mode: &edge}); err != nil {
+	if _, err := svc.UpdateSettings(ctx, brapp.SettingsPatch{ExpectedRevision: 1, Mode: &edge}); err != nil {
 		t.Fatal(err)
 	}
 	sessions, err := svc.ListSessions(ctx)
@@ -208,7 +213,10 @@ func TestBrNavigateURLPolicy(t *testing.T) {
 
 	// allowlist gate: only listed origin prefixes pass
 	allow := []string{"https://docs.example.com"}
-	if _, err := svc.UpdateSettings(ctx, brapp.SettingsPatch{Allowlist: &allow}); err != nil {
+	if _, err := svc.UpdateSettings(ctx, brapp.SettingsPatch{ExpectedRevision: 1, Allowlist: &allow}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Connect(ctx, "br-nav-1", brapp.ModeBuiltin, "tester"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.Navigate(ctx, "br-nav-1", "https://docs.example.com/guide", "tester"); err != nil {
@@ -340,7 +348,7 @@ func TestBrRateLimitLifecycle(t *testing.T) {
 	ctx := context.Background()
 	svc, _ := newBrService(t)
 	for i := 0; i < brapp.BrLifecycleRatePerMinute; i++ {
-		id := "br-rl-" + string(rune('a'+i))
+		id := "br-rl-idempotent" // repeat lifecycle requests without exceeding the separate live-session cap
 		if _, err := svc.Connect(ctx, id, brapp.ModeBuiltin, "tester"); err != nil {
 			t.Fatalf("connect %d failed: %v", i, err)
 		}

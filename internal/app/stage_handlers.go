@@ -8,6 +8,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/stage"
+	"github.com/lunitide/lunitide/internal/projectapp"
 	"github.com/lunitide/lunitide/internal/stageapp"
 )
 
@@ -128,6 +129,8 @@ func handleStageUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.
 
 func stageFailure(r bridge.Request, err error) bridge.Response {
 	switch {
+	case errors.Is(err, projectapp.ErrInvalidTransition):
+		return r.Fail("PROJECT_INVALID_TRANSITION", "阶段推进条件未满足，请完成前序阶段、审批和有效交付物后再试", false)
 	case errors.Is(err, stageapp.ErrIdempotencyKeyRequired):
 		return r.Fail("IDEMPOTENCY_KEY_REQUIRED", "写操作需要幂等键", false)
 	case errors.Is(err, stageapp.ErrIdempotencyConflict):

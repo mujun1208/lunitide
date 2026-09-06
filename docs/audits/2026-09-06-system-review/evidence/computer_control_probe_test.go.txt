@@ -1,0 +1,49 @@
+package ccapp
+
+import (
+ "context"
+ "errors"
+ "testing"
+ "github.com/lunitide/lunitide/internal/providerapp"
+)
+
+type auditCcTx struct { Tx; settings Settings; failAudit bool; audits int }
+func(t *auditCcTx)GetCcSettings()(Settings,error){return t.settings,nil}
+func(t *auditCcTx)PutCcSettings(s Settings)error{t.settings=s;return nil}
+func(t *auditCcTx)AppendCcAudit(AuditEntry)error{if t.failAudit{return errors.New("injected disk full")};t.audits++;return nil}
+func(t *auditCcTx)PutAudit(providerapp.Audit)error{return nil}
+type auditCcUow struct{tx *auditCcTx}
+func(u auditCcUow)TransactCc(ctx context.Context,fn func(Tx)error)error{if err:=ctx.Err();err!=nil{return err};return fn(u.tx)}
+type auditCcHost struct{Host; before func(); writes int}
+func(h *auditCcHost)Available()bool{if h.before!=nil{h.before()};return true}
+func(h *auditCcHost)ClipboardSet(string)error{h.writes++;return nil}
+func auditCc(t *testing.T)(*Service,*auditCcTx,*auditCcHost){
+ t.Helper();tx:=&auditCcTx{settings:Settings{Enabled:true,SecurityLevel:LevelStandard,MaxActionsPerMinute:60}}
+ h:=&auditCcHost{};s:=New(auditCcUow{tx});s.SetHost(h);return s,tx,h
+}
+func TestAuditCcCancelledBeforeHostWrite(t *testing.T){
+ s,_,h:=auditCc(t);ctx,cancel:=context.WithCancel(context.Background());defer cancel();h.before=cancel
+ _,err:=s.ExecuteTool(ctx,"audit",ToolClipboard,[]byte(`{"op":"set","text":"test"}`),true)
+ if h.writes!=0||err==nil{t.Fatalf("cancelled before host action but writes=%d error=%v",h.writes,err)}
+}
+func TestAuditCcEmergencyBeforeHostWrite(t *testing.T){
+ s,tx,h:=auditCc(t);h.before=func(){if _,err:=s.EmergencyStop(context.Background(),"audit","probe");err!=nil{t.Fatal(err)}}
+ _,err:=s.ExecuteTool(context.Background(),"audit",ToolClipboard,[]byte(`{"op":"set","text":"test"}`),true)
+ if h.writes!=0||err==nil{t.Fatalf("emergency already committed=%v but writes=%d error=%v",tx.settings.EmergencyStopped,h.writes,err)}
+}
+func TestAuditCcWriteSuccessDespiteAuditFailure(t *testing.T){
+ s,tx,h:=auditCc(t);tx.failAudit=true
+ _,err:=s.ExecuteTool(context.Background(),"audit",ToolClipboard,[]byte(`{"op":"set","text":"test"}`),true)
+ if err==nil{t.Fatalf("write returned success while audit persistence failed; writes=%d audits=%d",h.writes,tx.audits)}
+}
+type auditFocusHost struct{auditCcHost; activeError bool; focused string}
+func(h *auditFocusHost)ActiveWindow()(string,string,error){if h.activeError{return "","",errors.New("probe access denied")};return "Notes","notepad.exe",nil}
+func(h *auditFocusHost)FocusWindow(query string)(WindowInfo,error){h.focused="powershell.exe";return WindowInfo{Title:query,Process:h.focused},nil}
+func(h *auditFocusHost)KeyboardType(string)error{h.writes++;return nil}
+func(h *auditFocusHost)WindowCapture(string)([]byte,int,int,error){return nil,0,0,errors.New("probe skips capture")}
+func(h *auditFocusHost)ScreenCapture()([]byte,error){return nil,errors.New("probe skips capture")}
+func TestAuditCcNamedBlockedWindow(t *testing.T){
+ s,tx,_:=auditCc(t);tx.settings.ProcessBlocklist=[]string{"powershell.exe"};h:=&auditFocusHost{};s.SetHost(h)
+ _,err:=s.ExecuteTool(context.Background(),"audit",ToolKeyboardType,[]byte(`{"text":"x","window":"PowerShell"}`),true)
+ if h.writes!=0{t.Fatalf("typed into blocked named window %s after initial safe foreground; writes=%d eventual-error=%v",h.focused,h.writes,err)}
+}

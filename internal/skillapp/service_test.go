@@ -10,11 +10,11 @@ import (
 )
 
 type mockSkillReader struct {
-	skill       *skill.Skill
-	skills      []skill.Skill
-	byNameVer   *skill.Skill
-	err         error
-	nameVerErr  error
+	skill      *skill.Skill
+	skills     []skill.Skill
+	byNameVer  *skill.Skill
+	err        error
+	nameVerErr error
 }
 
 func (m *mockSkillReader) GetSkill(_ context.Context, _ string) (*skill.Skill, error) {
@@ -467,10 +467,8 @@ func TestUpdateFieldsRevCASConflict(t *testing.T) {
 	}
 }
 
-// TestUpdateFieldsSerialSecondUpdateSeesCurrentVersion documents that the
-// service-level UpdateFields reads the row first and anchors the CAS on the
-// freshly read version, so ordinary serial edits keep succeeding and the
-// version string semantics are preserved (semver is not auto-bumped).
+// Serial edits succeed when each caller supplies the revision returned by its
+// preceding read/write. The independent semver string is not auto-bumped.
 func TestUpdateFieldsSerialSucceedsAndPreservesVersion(t *testing.T) {
 	store := newMemSkillStore()
 	s := New(store, store)
@@ -483,7 +481,7 @@ func TestUpdateFieldsSerialSucceedsAndPreservesVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	d1 := "First"
-	if _, err := s.UpdateFields(context.Background(), created.ID, &d1, nil, nil, nil, nil, nil, 1); err != nil {
+	if _, err := s.UpdateFields(context.Background(), created.ID, &d1, nil, nil, nil, nil, nil, created.Rev); err != nil {
 		t.Fatalf("first update: %v", err)
 	}
 	d2 := "Second"

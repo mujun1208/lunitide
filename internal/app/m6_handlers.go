@@ -13,6 +13,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/m6supply"
 	"github.com/lunitide/lunitide/internal/extension"
 	"github.com/lunitide/lunitide/internal/m6app"
+	"github.com/lunitide/lunitide/internal/m7app"
 	"github.com/lunitide/lunitide/internal/mcp6"
 	"github.com/lunitide/lunitide/internal/merge"
 )
@@ -165,7 +166,7 @@ func handleMcp6Register(e *Engine, ctx context.Context, r bridge.Request) bridge
 	if e.mcp6Registry == nil {
 		return r.Fail("FEATURE_DISABLED", "MCP 网关尚未启用", false)
 	}
-	endpoint, err := e.mcp6Registry.Register(ctx, mcp6.EndpointInput{
+	input := mcp6.EndpointInput{
 		Transport: p.Endpoint.Transport,
 		URL:       p.Endpoint.URL,
 		AuthRef:   p.Endpoint.AuthRef,
@@ -173,18 +174,27 @@ func handleMcp6Register(e *Engine, ctx context.Context, r bridge.Request) bridge
 		Args:      p.Endpoint.Args,
 		Pin: mcp6.CapabilityPin{ServerIdentityDigest: p.CapabilityPin.ServerIdentityDigest,
 			ToolSchemaDigests: p.CapabilityPin.ToolSchemaDigests},
-	})
+	}
+	if e.m7mcp != nil {
+		return e.registerLegacyMcpDurably(ctx, r, input)
+	}
+	endpoint, err := e.mcp6Registry.Register(ctx, input)
 	if err != nil {
 		resp := m6McpFailure(r, err)
 		// A degraded registration is still a durable registration: persist
 		// it before surfacing M6-MCP-001.
 		if errors.Is(err, mcp6.ErrHealthCheckFailed) && endpoint != nil && e.mcp6Endpoints != nil {
-			_ = e.mcp6Endpoints.PersistRegister(ctx, endpoint)
+			if err := e.mcp6Endpoints.PersistRegister(ctx, endpoint); err != nil {
+				_, _ = e.mcp6Registry.Revoke(endpoint.ID, mcp6.ReasonPolicy)
+				return r.Fail("STORAGE_UNAVAILABLE", "端点持久化失败", true)
+			}
 		}
 		return resp
 	}
 	if e.mcp6Endpoints != nil {
 		if err := e.mcp6Endpoints.PersistRegister(ctx, endpoint); err != nil {
+			// A failed durable admission must not leave an invokable in-memory ghost.
+			_, _ = e.mcp6Registry.Revoke(endpoint.ID, mcp6.ReasonPolicy)
 			return r.Fail("STORAGE_UNAVAILABLE", "端点持久化失败", true)
 		}
 	}
@@ -244,6 +254,17 @@ func handleMcp6Revoke(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	}
 	if e.mcp6Registry == nil {
 		return r.Fail("FEATURE_DISABLED", "MCP 网关尚未启用", false)
+	}
+	if e.m7mcp != nil {
+		if err := e.m7mcp.RevokeGatewayEndpoint(ctx, "mcp-"+p.EndpointID); err == nil {
+			return r.Ok(struct {
+				EndpointID   string `json:"endpointId"`
+				State        string `json:"state"`
+				PoolsCleared bool   `json:"poolsCleared"`
+			}{p.EndpointID, mcp6.StateRevoked, true})
+		} else if !errors.Is(err, m7app.ErrMcpNotFound) {
+			return r.Fail("STORAGE_UNAVAILABLE", "端点撤权持久化失败", true)
+		}
 	}
 	endpoint, err := e.mcp6Registry.Revoke(p.EndpointID, p.Reason)
 	if err != nil {

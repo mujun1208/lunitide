@@ -11,6 +11,7 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/lunitide/lunitide/internal/audit"
+	"github.com/lunitide/lunitide/internal/browsernetwork"
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
 )
 
@@ -39,9 +40,14 @@ func (s *Service) Navigate(ctx context.Context, sessionID, rawURL, actor string)
 	if !s.navLimit.allow(now, BrNavigateRatePerMinute) {
 		return NavigateResult{}, ErrBrRateLimited
 	}
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
 	settings, err := s.GetSettings(ctx)
 	if err != nil {
 		return NavigateResult{}, err
+	}
+	if settings.ApplyStatus != ApplyApplied {
+		return NavigateResult{}, fmt.Errorf("%w: 浏览器设置尚未生效，请重试应用", ErrBrState)
 	}
 	if reason := s.checkNavigateURL(ctx, rawURL, settings); reason != "" {
 		return NavigateResult{}, fmt.Errorf("%w: %s", ErrBrURLPolicy, reason)
@@ -97,7 +103,7 @@ func checkNavigateURL(ctx context.Context, rawURL string, s Settings, resolve Ho
 	if err != nil {
 		return "url unparseable"
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
+	if u.User != nil || u.Opaque != "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return "scheme must be http/https"
 	}
 	host := u.Hostname()
@@ -117,11 +123,11 @@ func checkNavigateURL(ctx context.Context, rawURL string, s Settings, resolve Ho
 		}
 	}
 	if len(s.Allowlist) > 0 {
-		origin := u.Scheme + "://" + u.Host
+		origin, _ := browsernetwork.Origin(u.Scheme + "://" + u.Host)
 		matched := false
 		for _, entry := range s.Allowlist {
-			e := strings.TrimSuffix(entry, "/")
-			if origin == e || strings.HasPrefix(origin, e+"/") || strings.HasPrefix(origin+"/", e) {
+			e, err := browsernetwork.Origin(entry)
+			if err == nil && origin == e {
 				matched = true
 				break
 			}

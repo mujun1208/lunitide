@@ -23,10 +23,10 @@ func PublishScheduleTodos(pkg WorkPackage) []OpsTodo {
 }
 
 type BulletinChain struct {
-	LotID   string
-	Tails   []string
-	Note    string
-	Freeze  bool
+	LotID        string
+	Tails        []string
+	Note         string
+	Freeze       bool
 	RecomputeDue bool
 }
 

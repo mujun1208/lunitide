@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/session"
@@ -58,7 +59,7 @@ func handleTerminalStart(e *Engine, ctx context.Context, r bridge.Request) bridg
 	return r.Ok(map[string]string{"terminalId": id})
 }
 
-func handleTerminalInput(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
+func handleTerminalInput(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		TerminalID string `json:"terminalId"`
 		Data       string `json:"data"`
@@ -69,7 +70,7 @@ func handleTerminalInput(e *Engine, _ context.Context, r bridge.Request) bridge.
 	if !e.ownsTerminal(p.TerminalID) {
 		return r.Fail("TERMINAL_NOT_OWNED", "终端不属于当前会话", false)
 	}
-	if err := e.terminals.Write(p.TerminalID, []byte(p.Data)); err != nil {
+	if err := e.terminals.WriteContext(ctx, p.TerminalID, []byte(p.Data)); err != nil {
 		return terminalFailure(r, err)
 	}
 	return r.Ok(map[string]bool{"accepted": true})
@@ -116,38 +117,81 @@ func (e *Engine) ownsTerminal(id string) bool {
 	_, ok := e.terminalOwners[id]
 	return ok
 }
+
+// A bridge callback may block without a cancellation contract. Keep a process
+// bound on abandoned callbacks and never hold terminal ownership locks in it.
+var terminalEmitSlots = make(chan struct{}, 8)
+
+func emitTerminalBounded(emit EventEmitter, event bridge.Event) error {
+	select {
+	case terminalEmitSlots <- struct{}{}:
+	default:
+		return errors.New("terminal event delivery budget exhausted")
+	}
+	done := make(chan error, 1)
+	go func() {
+		defer func() {
+			<-terminalEmitSlots
+			if recover() != nil {
+				done <- errors.New("terminal event emitter panic")
+			}
+		}()
+		done <- emit(event)
+	}()
+	timer := time.NewTimer(250 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return err
+	case <-timer.C:
+		return errors.New("terminal event delivery timed out")
+	}
+}
+
 func (e *Engine) forwardTerminalEvents(events <-chan terminalruntime.Event) {
 	for ev := range events {
 		if ev.Type == terminalruntime.EventStarted {
 			continue
 		}
-		e.terminalsMu.Lock()
-		o := e.terminalOwners[ev.SessionID]
-		if o == nil {
-			e.terminalsMu.Unlock()
-			continue
-		}
-		if ev.Type == terminalruntime.EventOutput {
-			for len(ev.Data) > 0 {
-				n := len(ev.Data)
-				if n > 16*1024 {
-					n = 16 * 1024
-				}
-				o.sequence++
-				_ = o.emit(bridge.Event{Version: bridge.Version, Kind: "event", ID: ulid.Make().String(), StreamID: ev.SessionID, Sequence: o.sequence, Type: bridge.EventTerminalOutput, Terminal: &bridge.TerminalEvent{Data: string(ev.Data[:n])}})
+		for {
+			e.terminalsMu.Lock()
+			owner := e.terminalOwners[ev.SessionID]
+			if owner == nil {
+				e.terminalsMu.Unlock()
+				break
+			}
+			owner.sequence++
+			event := bridge.Event{Version: bridge.Version, Kind: "event", ID: ulid.Make().String(), StreamID: ev.SessionID, Sequence: owner.sequence}
+			if ev.Type == terminalruntime.EventOutput {
+				n := min(len(ev.Data), 16*1024)
+				event.Type = bridge.EventTerminalOutput
+				event.Terminal = &bridge.TerminalEvent{Data: string(ev.Data[:n])}
 				ev.Data = ev.Data[n:]
+			} else {
+				event.Type = bridge.EventTerminalExit
+				code := ev.ExitCode
+				if ev.Type == terminalruntime.EventError {
+					code = 1
+				}
+				event.Terminal = &bridge.TerminalEvent{ExitCode: code}
+				delete(e.terminalOwners, ev.SessionID)
 			}
 			e.terminalsMu.Unlock()
-			continue
+			if err := emitTerminalBounded(owner.emit, event); err != nil {
+				e.terminalsMu.Lock()
+				if e.terminalOwners[ev.SessionID] == owner {
+					delete(e.terminalOwners, ev.SessionID)
+				}
+				e.terminalsMu.Unlock()
+				if e.terminals != nil {
+					_ = e.terminals.Close(ev.SessionID)
+				}
+				break
+			}
+			if ev.Type != terminalruntime.EventOutput || len(ev.Data) == 0 {
+				break
+			}
 		}
-		o.sequence++
-		code := ev.ExitCode
-		if ev.Type == terminalruntime.EventError {
-			code = 1
-		}
-		_ = o.emit(bridge.Event{Version: bridge.Version, Kind: "event", ID: ulid.Make().String(), StreamID: ev.SessionID, Sequence: o.sequence, Type: bridge.EventTerminalExit, Terminal: &bridge.TerminalEvent{ExitCode: code}})
-		delete(e.terminalOwners, ev.SessionID)
-		e.terminalsMu.Unlock()
 	}
 }
 func terminalFailure(r bridge.Request, err error) bridge.Response {

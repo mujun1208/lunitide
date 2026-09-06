@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BridgeClientError, createMutationAttempt, templateBridge, type TemplateBridge } from '../bridge/client'
 import type { TemplateCreatePayload, TemplateListResult } from '../generated/bridge'
 import { ConfirmDialog, Dialog } from '../ui/Dialog'
@@ -54,6 +54,7 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
   const [typeFilter, setTypeFilter] = useState<'all' | TemplateDTO['templateType']>('all')
   const [statusFilter, setStatusFilter] = useState<'all' | TemplateDTO['status']>('all')
   const [loading, setLoading] = useState(true)
+  const [nextCursor, setNextCursor] = useState('')
   const [busy, setBusy] = useState(false)
   const [loadError, setLoadError] = useState<BridgeClientError>()
   const [actionError, setActionError] = useState<BridgeClientError>()
@@ -66,13 +67,19 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
   const mounted = useRef(true)
   const loadToken = useRef(0)
 
-  const load = async () => {
+  const load = useCallback(async (cursor?: string) => {
     const token = ++loadToken.current
     setLoading(true)
     try {
-      const result = await templates.list()
+      const result = await templates.list({
+        ...(cursor ? { cursor } : {}),
+        ...(query.trim() ? { query: query.trim() } : {}),
+        ...(typeFilter === 'all' ? {} : { templateType: typeFilter }),
+        ...(statusFilter === 'all' ? {} : { status: statusFilter }),
+      })
       if (mounted.current && token === loadToken.current) {
-        setItems(ordered(result.items))
+        setItems(current => cursor ? [...current, ...result.items.filter(item => !current.some(old => old.id === item.id))] : result.items)
+        setNextCursor(result.nextCursor ?? '')
         setLoadError(undefined)
       }
     } catch (e) {
@@ -80,13 +87,13 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
     } finally {
       if (mounted.current && token === loadToken.current) setLoading(false)
     }
-  }
+  }, [templates, query, typeFilter, statusFilter])
 
   useEffect(() => {
     mounted.current = true
     void load()
     return () => { mounted.current = false; loadToken.current++ }
-  }, [])
+  }, [load])
 
   useEffect(() => {
     if (notice) {
@@ -175,10 +182,10 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
         setNotice(`模版 ${saved.templateCode} 已恢复为创建`)
       } else {
         const attempt = createMutationAttempt('template.delete', { id: item.id, expectedVersion: item.version })
-        await templates.delete(attempt.payload, { attempt })
+        const deleted = await templates.delete(attempt.payload, { attempt })
         if (mounted.current) {
           setItems(current => current.filter(row => row.id !== item.id))
-          setNotice(`模版 ${item.templateCode} 已彻底删除`)
+          setNotice(deleted.cleanupPending ? `模版 ${item.templateCode} 已移除，文件清理等待重试` : `模版 ${item.templateCode} 已彻底删除`)
         }
       }
       setConfirm(undefined)
@@ -205,7 +212,7 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
       <section className="pm-body">
         <div className="pm-toolbar">
           <h2>模版清单</h2>
-          <label className="pm-search"><span aria-hidden="true">⌕</span><input aria-label="搜索模版" placeholder="搜索名称、编号、文件类型或客户…" value={query} onChange={e => setQuery(e.target.value)} /></label>
+          <label className="pm-search"><span aria-hidden="true">⌕</span><input aria-label="搜索模版" placeholder="搜索名称、编号、文件类型或客户…" maxLength={200} value={query} onChange={e => setQuery(e.target.value)} /></label>
           <label className="pm-filter">类型<select aria-label="筛选模版类型" value={typeFilter} onChange={e => setTypeFilter(e.target.value as typeof typeFilter)}><option value="all">全部</option><option value="document">文档模版</option><option value="scaffold">脚手架模版</option></select></label>
           <label className="pm-filter">状态<select aria-label="筛选模版状态" value={statusFilter} onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}><option value="all">全部</option><option value="draft">创建</option><option value="enabled">可用</option><option value="void">作废</option></select></label>
           <button aria-label="刷新模版" disabled={busy || loading} onClick={() => void load()}>↻</button>
@@ -239,6 +246,8 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
             ))}
           </ul>
         )}
+        {loadError && items.length > 0 && <p className="error" role="alert">{loadError.message}</p>}
+        {nextCursor && <button disabled={loading || busy} onClick={() => void load(nextCursor)}>{loading ? '正在载入…' : '加载更多模版'}</button>}
       </section>
 
       <Dialog open={uploadOpen} wide title="上传资产模版" onClose={() => { if (!busy) setUploadOpen(false) }}>

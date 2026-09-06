@@ -52,10 +52,11 @@ const (
 // StdioSession is one live isolated MCP stdio server. Not safe for
 // concurrent use: the registry serialises calls per endpoint.
 type StdioSession struct {
-	proc   *stdioworker.IsolatedProc
-	stdin  *bufio.Writer
-	stdout *bufio.Scanner
-	nextID atomic.Int64
+	proc     *stdioworker.IsolatedProc
+	stdin    *bufio.Writer
+	stdout   *bufio.Scanner
+	nextID   atomic.Int64
+	identity string
 }
 
 // stdioResolveCommand maps a whitelisted bare command onto a spawnable
@@ -164,19 +165,48 @@ func (s *StdioSession) initialize(ctx context.Context) error {
 	}, &answer); err != nil {
 		return err
 	}
+	if answer.ProtocolVersion != StdioProtocolVersion || strings.TrimSpace(answer.ServerInfo.Name) == "" || strings.TrimSpace(answer.ServerInfo.Version) == "" || len(answer.ServerInfo.Name) > 512 || len(answer.ServerInfo.Version) > 128 {
+		return fmt.Errorf("%w: unsupported protocol or missing server identity", ErrStdioProtocol)
+	}
+	identity, _ := json.Marshal(answer)
+	s.identity = string(identity)
 	// notifications/initialized carries no id and expects no answer.
 	return s.notify("notifications/initialized")
 }
 
+func (s *StdioSession) Identity() string { return s.identity }
+
 // ListTools fetches the tool catalogue (tools/list).
 func (s *StdioSession) ListTools(ctx context.Context) ([]ToolInfo, error) {
-	var answer struct {
-		Tools []ToolInfo `json:"tools"`
+	var out []ToolInfo
+	cursor := ""
+	seen := map[string]bool{}
+	for page := 0; page < 16; page++ {
+		var answer struct {
+			Tools      []ToolInfo `json:"tools"`
+			NextCursor string     `json:"nextCursor"`
+		}
+		params := map[string]any{}
+		if cursor != "" {
+			params["cursor"] = cursor
+		}
+		if err := s.roundtrip(ctx, "tools/list", params, &answer); err != nil {
+			return nil, err
+		}
+		out = append(out, answer.Tools...)
+		if len(out) > 512 {
+			return nil, ErrResponseTooLarge
+		}
+		if answer.NextCursor == "" {
+			return out, nil
+		}
+		if len(answer.NextCursor) > 4096 || seen[answer.NextCursor] {
+			return nil, ErrStdioProtocol
+		}
+		seen[answer.NextCursor] = true
+		cursor = answer.NextCursor
 	}
-	if err := s.roundtrip(ctx, "tools/list", map[string]any{}, &answer); err != nil {
-		return nil, err
-	}
-	return answer.Tools, nil
+	return nil, ErrResponseTooLarge
 }
 
 // StdioCallResult is one tools/call outcome. Content items are flattened

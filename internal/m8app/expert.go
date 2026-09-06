@@ -56,7 +56,8 @@ var (
 	// is allowed).
 	ErrExpertBuiltinProtected = errors.New("m8app: builtin expert archive forbidden")
 	// ErrExpertDuplicate: the UNIQUE(subject_id, name) row already exists.
-	ErrExpertDuplicate = errors.New("m8app: expert name already exists")
+	ErrExpertDuplicate       = errors.New("m8app: expert name already exists")
+	ErrExpertBodyUnavailable = errors.New("m8app: expert body missing or invalid")
 )
 
 // ExpertTx is the FR-19 single-writer transaction: expert tables plus the
@@ -75,6 +76,11 @@ type ExpertTx interface {
 	ListMountingsByExpert(expertID string) ([]m8core.ExpertMounting, error)
 	ListMountingsByProjectPhase(projectID, phaseKey string) ([]ExpertMountingView, error)
 	CountMountedInPhase(projectID, phaseKey string) (int, error)
+	ReplaceExpertSkillKeys(expertID string, keys []string) error
+	ListExpertSkillKeys(expertID string) ([]string, error)
+	PutExpertEquipmentSnapshot(versionID string, keys []string) error
+	GetExpertEquipmentSnapshot(versionID string) ([]string, bool, error)
+	PersonaReferenced(ref string) (bool, error)
 	AppendAuditEvent(audit.Event) (audit.Event, error)
 }
 
@@ -101,8 +107,8 @@ type ExpertService struct {
 	skills  ExpertSkillStore
 }
 
-// NewExpertService wires the FR-19 service. A nil persona store keeps
-// create/update working but detail answers the digest projection only.
+// NewExpertService wires the FR-19 service. Publishing a version requires a
+// working persona store so metadata cannot point at a missing body.
 func NewExpertService(uow ExpertUnitOfWork, localSubject string, persona PersonaBodyStore) *ExpertService {
 	return &ExpertService{uow: uow, clock: systemClock{}, subject: localSubject, persona: persona}
 }
@@ -117,21 +123,25 @@ func (s *ExpertService) SetPersonaStore(p PersonaBodyStore) { s.persona = p }
 // SetSkillStore wires the optional expert skill binder.
 func (s *ExpertService) SetSkillStore(store ExpertSkillStore) { s.skills = store }
 
-func (s *ExpertService) storeBody(ref string, body []byte) {
-	if s.persona != nil {
-		_ = s.persona.Put(ref, body)
+func (s *ExpertService) storeBody(ref string, body []byte) error {
+	if s.persona == nil {
+		return ErrServiceUnavailable
 	}
+	return s.persona.Put(ref, body)
 }
 
-func (s *ExpertService) loadBody(ref string) ([]byte, bool) {
+func (s *ExpertService) loadBody(ref, digest string) ([]byte, error) {
 	if s.persona == nil {
-		return nil, false
+		return nil, ErrServiceUnavailable
 	}
 	b, ok, err := s.persona.Get(ref)
 	if err != nil {
-		return nil, false
+		return nil, fmt.Errorf("%w: %v", ErrExpertBodyUnavailable, err)
 	}
-	return b, ok
+	if !ok || !json.Valid(b) || m8core.DigestOf(string(b)) != digest {
+		return nil, ErrExpertBodyUnavailable
+	}
+	return b, nil
 }
 
 // CreateInput is the expert.create command.
@@ -185,6 +195,11 @@ func (s *ExpertService) Create(ctx context.Context, in CreateInput) (CreateResul
 		} else if has {
 			return ErrExpertDuplicate
 		}
+		// Publish the immutable body before any metadata can commit. If the
+		// database subsequently rolls back, only an unreferenced body remains.
+		if err := s.storeBody(personaRef, []byte(in.SixSection.CanonicalJSON())); err != nil {
+			return err
+		}
 		e := m8core.ExpertCatalog{
 			ExpertID: expertID, SubjectID: s.subject, Name: in.Frontmatter.Name,
 			Division: in.Frontmatter.Division, Source: in.Source,
@@ -203,6 +218,14 @@ func (s *ExpertService) Create(ctx context.Context, in CreateInput) (CreateResul
 		if err := tx.PutVersion(v); err != nil {
 			return err
 		}
+		if len(in.SkillKeys) > 0 {
+			if err := tx.ReplaceExpertSkillKeys(expertID, in.SkillKeys); err != nil {
+				return mapSkillBindError(err)
+			}
+		}
+		if err := tx.PutExpertEquipmentSnapshot(versionID, in.SkillKeys); err != nil {
+			return err
+		}
 		if _, err := tx.AppendAuditEvent(audit.Event{
 			ID: ulid.Make().String(), Action: "expert.create",
 			ResourceType: "expert", ResourceID: expertID,
@@ -216,15 +239,6 @@ func (s *ExpertService) Create(ctx context.Context, in CreateInput) (CreateResul
 	})
 	if err != nil {
 		return out, err
-	}
-	s.storeBody(personaRef, []byte(in.SixSection.CanonicalJSON()))
-	if len(in.SkillKeys) > 0 {
-		if s.skills == nil {
-			return out, ErrServiceUnavailable
-		}
-		if err := s.skills.ReplaceExpertSkillKeys(ctx, out.ExpertID, in.SkillKeys); err != nil {
-			return out, mapSkillBindError(err)
-		}
 	}
 	return out, nil
 }
@@ -353,6 +367,9 @@ func (s *ExpertService) Detail(ctx context.Context, in DetailInput) (DetailResul
 		if err != nil {
 			return err
 		}
+		if v.ExpertID != e.ExpertID {
+			return ErrExpertNotFound
+		}
 		cur, err := tx.GetVersion(e.CurrentVersionID)
 		if err != nil {
 			return err
@@ -377,10 +394,16 @@ func (s *ExpertService) Detail(ctx context.Context, in DetailInput) (DetailResul
 		if e.CatalogItemID != "" {
 			out.Expert["catalogItemId"] = e.CatalogItemID
 		}
-		out.SixSection = json.RawMessage(`{}`)
-		if body, ok := s.loadBody(v.PersonaRef); ok {
-			out.SixSection = json.RawMessage(body)
+		keys, known, err := tx.GetExpertEquipmentSnapshot(v.VersionID)
+		if err != nil {
+			return err
 		}
+		out.Expert["boundSkills"], out.Expert["boundSkillsKnown"], out.Expert["equipmentVersionId"] = keys, known, v.VersionID
+		body, err := s.loadBody(v.PersonaRef, v.SixSectionDigest)
+		if err != nil {
+			return err
+		}
+		out.SixSection = json.RawMessage(body)
 		out.Versions = make([]ExpertVersionView, 0, len(versions))
 		for _, ver := range versions {
 			out.Versions = append(out.Versions, ExpertVersionView{
@@ -399,21 +422,7 @@ func (s *ExpertService) Detail(ctx context.Context, in DetailInput) (DetailResul
 	if err != nil {
 		return out, err
 	}
-	catalogID, _ := out.Expert["catalogItemId"].(string)
-	out.Expert["boundSkills"] = s.boundOrPreferred(ctx, in.ExpertID, fmt.Sprint(out.Expert["name"]), catalogID)
 	return out, nil
-}
-
-func (s *ExpertService) boundOrPreferred(ctx context.Context, expertID, name, catalogItemID string) []string {
-	if s != nil && s.skills != nil && expertID != "" {
-		if keys, err := s.skills.ListExpertSkillKeys(ctx, expertID); err == nil {
-			return keys
-		}
-	}
-	if item, ok := ResolveConversationExpert(name, catalogItemID); ok {
-		return append([]string{}, item.PreferredSkills...)
-	}
-	return []string{}
 }
 
 func (s *ExpertService) applySkillFloor(ctx context.Context, expertID string, keys []string) []string {
@@ -483,20 +492,12 @@ func (s *ExpertService) ListBoundSkills(ctx context.Context, expertID string) ([
 
 // ReplaceBoundSkills replaces the expert's skill bindings.
 func (s *ExpertService) ReplaceBoundSkills(ctx context.Context, expertID string, keys []string) ([]string, error) {
-	if s == nil || s.skills == nil {
-		return nil, ErrServiceUnavailable
+	current, err := s.Equipment(ctx, expertID, "")
+	if err != nil {
+		return nil, err
 	}
-	if len(expertID) != 26 {
-		return nil, ErrPayloadInvalid
-	}
-	if keys == nil {
-		keys = []string{}
-	}
-	keys = s.applySkillFloor(ctx, expertID, keys)
-	if err := s.skills.ReplaceExpertSkillKeys(ctx, expertID, keys); err != nil {
-		return nil, mapSkillBindError(err)
-	}
-	return s.skills.ListExpertSkillKeys(ctx, expertID)
+	result, err := s.ReplaceBoundSkillsVersioned(ctx, expertID, current.VersionID, keys)
+	return result.SkillKeys, err
 }
 
 // ComposeSkillsForNames unions stored bindings when present, otherwise the
@@ -638,6 +639,9 @@ func (s *ExpertService) Update(ctx context.Context, in UpdateInput) (UpdateResul
 		personaRef = m8core.Frontmatter{}.PersonaRef(six)
 		digest := six.SixSectionDigest()
 		body = six.CanonicalJSON()
+		if err := s.storeBody(personaRef, []byte(body)); err != nil {
+			return err
+		}
 		cur, err := tx.GetVersion(e.CurrentVersionID)
 		if err != nil {
 			return err
@@ -661,6 +665,13 @@ func (s *ExpertService) Update(ctx context.Context, in UpdateInput) (UpdateResul
 		if err := tx.PutVersion(v); err != nil {
 			return err
 		}
+		keys, err := tx.ListExpertSkillKeys(e.ExpertID)
+		if err != nil {
+			return err
+		}
+		if err = tx.PutExpertEquipmentSnapshot(versionID, keys); err != nil {
+			return err
+		}
 		e.CurrentVersionID, e.UpdatedAt = versionID, now
 		if err := tx.PutExpert(e); err != nil {
 			return err
@@ -678,7 +689,6 @@ func (s *ExpertService) Update(ctx context.Context, in UpdateInput) (UpdateResul
 	if err != nil {
 		return out, err
 	}
-	s.storeBody(personaRef, []byte(body))
 	return out, nil
 }
 

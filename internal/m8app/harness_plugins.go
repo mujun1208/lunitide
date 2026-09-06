@@ -157,18 +157,22 @@ func (s *PluginService) seedHarnessPlugin(ctx context.Context, spec HarnessPlugi
 	if s == nil || s.uow == nil {
 		return ErrServiceUnavailable
 	}
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
 	pkg := spec.packageSource()
 	if err := s.verifyChain(ctx, pkg, m8core.PermissionDoc{}); err != nil {
 		return err
 	}
 	now := s.clock.Now().UTC().Format(time.RFC3339)
 	enabled := spec.enabledOn(runtime.GOOS)
-	return s.uow.TransactPlugin(ctx, func(tx PluginTx) error {
+	changed := false
+	err := s.uow.TransactPlugin(ctx, func(tx PluginTx) error {
 		if _, has, err := tx.GetInstallBySubjectPlugin(s.subject, spec.ID); err != nil {
 			return err
 		} else if has {
 			return nil
 		}
+		changed = true
 		bundleID, err := s.ensureBundle(tx, pkg, now)
 		if err != nil {
 			return err
@@ -209,6 +213,10 @@ func (s *PluginService) seedHarnessPlugin(ctx context.Context, spec HarnessPlugi
 		})
 		return err
 	})
+	if err == nil && changed {
+		s.invalidateCapability(spec.ID)
+	}
+	return err
 }
 
 // CreateAndMount stages a chat-created plugin and enables it immediately so
@@ -281,21 +289,65 @@ func (s *PluginService) CreateAndMount(ctx context.Context, in DevCreateInput) (
 	if err := s.verifyChain(ctx, pkg, m8core.PermissionDoc{}); err != nil {
 		return InstallResult{}, err
 	}
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	changed := false
 	now := s.clock.Now().UTC().Format(time.RFC3339)
 	var out InstallResult
 	err = s.uow.TransactPlugin(ctx, func(tx PluginTx) error {
 		if existing, has, err := tx.GetInstallBySubjectPlugin(s.subject, pluginID); err != nil {
 			return err
 		} else if has {
-			if existing.State != m8core.InstallEnabled && existing.State != m8core.InstallUninstalled {
-				existing.State, existing.UpdatedAt = m8core.InstallEnabled, now
-				if err := tx.PutInstall(existing); err != nil {
+			bundle, err := tx.GetPluginBundle(existing.BundleID)
+			if err != nil {
+				return err
+			}
+			// Aliases/defaulted display fields may serialize differently. Compare
+			// the persisted executable descriptor, which remains immutable.
+			if bundle.PluginID != pkg.PluginID || bundle.Semver != pkg.Semver || bundle.Publisher != pkg.Publisher || bundle.Kind != pkg.Kind || bundle.Entrypoint != pkg.Entrypoint || bundle.CapabilitiesJSON != pkg.Capabilities || bundle.PermissionsJSON != pkg.Permissions || bundle.RequiresJSON != pkg.Requires {
+				return ErrPluginManifestInvalid
+			}
+			if existing.State == m8core.InstallQuarantined {
+				return ErrInstallStateInvalid
+			}
+			bindings, err := tx.ListBindings(existing.InstallID)
+			if err != nil {
+				return err
+			}
+			active := false
+			for _, b := range bindings {
+				if b.State == m8core.BindingActive {
+					active = true
+				}
+			}
+			if existing.State == m8core.InstallEnabled && active {
+				out = InstallResult{InstallID: existing.InstallID, State: existing.State}
+				return nil
+			}
+			if _, err = tx.RevokeBindings(existing.InstallID, now); err != nil {
+				return err
+			}
+			specs, err := s.hotRegister(ctx, pkg)
+			if err != nil {
+				return err
+			}
+			for _, spec := range specs {
+				if err = tx.PutBinding(m8core.PluginCapabilityBinding{BindingID: ulid.Make().String(), InstallID: existing.InstallID, TargetType: spec.TargetType, TargetID: spec.TargetID, CapabilityDigest: spec.CapabilityDigest, State: m8core.BindingActive, CreatedAt: now}); err != nil {
 					return err
 				}
+			}
+			changed = true
+			existing.State, existing.UpdatedAt = m8core.InstallEnabled, now
+			if err = tx.PutInstall(existing); err != nil {
+				return err
+			}
+			if _, err = tx.AppendAuditEvent(audit.Event{ID: ulid.Make().String(), Action: "plugin.create.mount", ResourceType: "plugin_install", ResourceID: existing.InstallID, Actor: s.subject, AfterDigest: pkg.PackageHash, CreatedAt: now}); err != nil {
+				return err
 			}
 			out = InstallResult{InstallID: existing.InstallID, State: existing.State}
 			return nil
 		}
+		changed = true
 		bundleID, err := s.ensureBundle(tx, pkg, now)
 		if err != nil {
 			return err
@@ -335,5 +387,8 @@ func (s *PluginService) CreateAndMount(ctx context.Context, in DevCreateInput) (
 		out = InstallResult{InstallID: installID, State: m8core.InstallEnabled, Bindings: views}
 		return nil
 	})
+	if err == nil && changed {
+		s.invalidateCapability(pluginID)
+	}
 	return out, err
 }

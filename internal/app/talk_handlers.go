@@ -18,6 +18,9 @@ import (
 var errTalkClosed = errors.New("talk session closed")
 
 func handleTalkStart(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	if err := e.CheckCapability(ctx, "llm", "stt", "tts", "session"); err != nil {
+		return r.Fail("FORBIDDEN", "通话所需能力已禁用", false)
+	}
 	var p struct {
 		ProviderID string `json:"providerId"`
 		ModelID    string `json:"modelId"`
@@ -46,6 +49,16 @@ func handleTalkStart(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 	if e.leases == nil {
 		return r.Fail(talkAdapterUnreadyCode, "通话核密钥不可用，这轮用语模型", true)
 	}
+	if !messageServiceAvailable(e.messages) {
+		return r.Fail("STORAGE_UNAVAILABLE", "通话历史存储不可用", true)
+	}
+	if projectID, available, err := projectIDForSession(e, ctx, p.SessionID); err != nil {
+		return messageFailure(r, err)
+	} else if !available {
+		return r.Fail("STORAGE_UNAVAILABLE", "通话会话不可验证", true)
+	} else if failure := rejectIfProjectReadOnly(e, ctx, r, projectID); failure != nil {
+		return *failure
+	}
 	wsURL, err := talk.RealtimeWebSocketURL(item.BaseURL, p.ModelID)
 	if err != nil {
 		return r.Fail(talkAdapterUnreadyCode, "通话核地址无效，这轮用语模型", true)
@@ -61,17 +74,23 @@ func handleTalkStart(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 	if parent == nil {
 		parent = ctx
 	}
-	streamCtx, cancel := context.WithCancel(parent)
+	scoped, releaseCapability, capabilityErr := e.AcquireCapability(parent, "llm", "stt", "tts", "session")
+	if capabilityErr != nil {
+		e.streamsMu.Unlock()
+		return r.Fail("FORBIDDEN", "通话所需能力已禁用", false)
+	}
+	streamCtx, cancel := context.WithCancel(scoped)
 	state := &streamState{cancel: cancel, talk: true}
 	e.streams[streamID] = state
 	e.streamsMu.Unlock()
 
-	session := &talkSession{talkID: talkID, streamID: streamID, sessionID: p.SessionID, cancel: cancel}
+	session := &talkSession{talkID: talkID, streamID: streamID, sessionID: p.SessionID, providerProtocol: string(item.Protocol), modelID: p.ModelID, cancel: cancel}
 	var connected bool
 	defer func() {
 		if connected {
 			return
 		}
+		releaseCapability()
 		cancel()
 		e.finishTerminal(streamID, state)
 	}()
@@ -102,7 +121,7 @@ func handleTalkStart(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 	}
 	e.putTalk(session)
 	connected = true
-	go e.runTalkStream(streamCtx, session, state, emit)
+	go func() { defer releaseCapability(); e.runTalkStream(streamCtx, session, state, emit) }()
 	return r.Ok(map[string]any{"talkId": talkID, "streamId": streamID})
 }
 
@@ -183,10 +202,15 @@ func (e *Engine) runTalkStream(ctx context.Context, session *talkSession, state 
 		event.Sequence = seq
 		return emit(event)
 	}
+	var streamErr error
 	defer func() {
+		terminalErr := ctx.Err()
+		if terminalErr == nil {
+			terminalErr = streamErr
+		}
+		term := e.selectTerminal(session.streamID, state, terminalErr)
 		e.dropTalk(session.sessionID, session.talkID)
 		_ = send(bridge.Event{Type: bridge.EventTalkEnded})
-		term := e.selectTerminal(session.streamID, state, ctx.Err())
 		if term == bridge.EventFailed {
 			_ = send(bridge.Event{Type: term, Error: &bridge.StreamError{Code: "TALK_SESSION_FAILED", Message: "通话核结束", Retryable: true}})
 		} else {
@@ -195,7 +219,7 @@ func (e *Engine) runTalkStream(ctx context.Context, session *talkSession, state 
 		e.finishTerminal(session.streamID, state)
 	}()
 
-	var lastHandoff string
+	finals := map[string]string{}
 	for {
 		if ctx.Err() != nil {
 			return
@@ -208,9 +232,16 @@ func (e *Engine) runTalkStream(ctx context.Context, session *talkSession, state 
 		}
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
+			streamErr = err
 			return
 		}
 		ev := talk.ParseServerEvent(raw)
+		if ctx.Err() != nil && !ev.Final {
+			return
+		}
+		if e.CheckCapability(context.WithoutCancel(ctx), "llm", "stt", "tts", "session") != nil {
+			return
+		}
 		switch ev.Kind {
 		case "audio":
 			if ev.Audio == "" {
@@ -225,16 +256,40 @@ func (e *Engine) runTalkStream(ctx context.Context, session *talkSession, state 
 			if role != "user" && role != "assistant" {
 				role = "assistant"
 			}
-			if role == "user" && companionWantsTools(ev.Transcript) && ev.Transcript != lastHandoff {
-				lastHandoff = ev.Transcript
-				_ = session.write(talk.CancelOutputMessage())
-				_ = send(bridge.Event{Type: bridge.EventTalkTool, Talk: &bridge.TalkEvent{Name: "handoff", Text: ev.Transcript, Role: "user"}})
+			messageID := ""
+			if ev.Final {
+				ev.Transcript = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(ev.Transcript, "\r\n", "\n"), "\r", "\n"))
+				key, keyErr := talkTranscriptKey(session, ev)
+				if keyErr != nil {
+					streamErr = keyErr
+					_ = send(bridge.Event{Type: bridge.EventTalkError, Talk: &bridge.TalkEvent{Code: "TALK_TRANSCRIPT_INVALID", Message: "通话最终逐字稿缺少可核验标识，已停止通话"}})
+					return
+				}
+				if text, seen := finals[key]; seen && text == ev.Transcript {
+					continue
+				}
+				saved, persistErr := e.persistTalkTranscript(session, ev, context.WithoutCancel(ctx))
+				if persistErr != nil {
+					streamErr = persistErr
+					_ = send(bridge.Event{Type: bridge.EventTalkError, Talk: &bridge.TalkEvent{Code: "TALK_HISTORY_SAVE_FAILED", Message: "通话逐字稿未能保存，已停止通话。已确认的历史仍保留。"}})
+					return
+				}
+				if ctx.Err() != nil {
+					return
+				}
+				messageID = saved.ID
+				finals[key] = ev.Transcript
 			}
-			_ = send(bridge.Event{Type: bridge.EventTalkTranscript, Talk: &bridge.TalkEvent{Text: ev.Transcript, Role: role}})
+			if role == "user" && ev.Final && companionWantsTools(ev.Transcript) {
+				_ = session.write(talk.CancelOutputMessage())
+				_ = send(bridge.Event{Type: bridge.EventTalkTool, Talk: &bridge.TalkEvent{Name: "handoff", Text: ev.Transcript, Role: "user", MessageID: messageID, Final: true}})
+			}
+			_ = send(bridge.Event{Type: bridge.EventTalkTranscript, Talk: &bridge.TalkEvent{Text: ev.Transcript, Role: role, MessageID: messageID, Final: ev.Final}})
 		case "barge":
 			_ = session.write(talk.CancelOutputMessage())
 			_ = send(bridge.Event{Type: bridge.EventTalkError, Talk: &bridge.TalkEvent{Code: "TALK_BARGE", Message: "对着麦打断"}})
 		case "error":
+			streamErr = errors.New("realtime provider failed")
 			_ = send(bridge.Event{Type: bridge.EventTalkError, Talk: &bridge.TalkEvent{Code: ev.Code, Message: ev.Message}})
 			return
 		}

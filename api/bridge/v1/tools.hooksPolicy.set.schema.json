@@ -15,80 +15,175 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9._-]+$" },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9._-]+$"
+          },
           "events": {
             "type": "array",
             "minItems": 1,
             "maxItems": 2,
-            "items": { "enum": ["beforeToolCall", "afterToolCall"] }
+            "items": {
+              "enum": [
+                "beforeToolCall",
+                "afterToolCall"
+              ]
+            }
           },
           "tools": {
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 16,
-              "items": {
-                "enum": [
-                  "workspace.list",
-                  "workspace.read",
-                  "workspace.write",
-                  "workspace.search",
-                  "workspace.edit",
-                  "todo.write",
-                  "command.run",
-                  "web.fetch",
-                  "web.search",
-                  "excel.gen",
-                  "excel.parse",
-                  "docx.gen",
-                  "pptx.gen",
-                  "pdf.gen",
-                  "html.gen",
-                  "desktop.open"
-                ]
-              }
-            },
-          "decision": { "enum": ["block", "requireApproval", "allow"] },
-          "message": { "type": "string", "maxLength": 256 }
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 16,
+            "items": {
+              "enum": [
+                "workspace.list",
+                "workspace.read",
+                "workspace.write",
+                "workspace.search",
+                "workspace.edit",
+                "todo.write",
+                "command.run",
+                "web.fetch",
+                "web.search",
+                "excel.gen",
+                "excel.parse",
+                "docx.gen",
+                "pptx.gen",
+                "pdf.gen",
+                "html.gen",
+                "desktop.open"
+              ]
+            }
+          },
+          "decision": {
+            "enum": [
+              "block",
+              "requireApproval",
+              "allow"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 256
+          }
         },
         "allOf": [
           {
-            "if": { "properties": { "decision": { "const": "block" } }, "required": ["decision"] },
-            "then": { "properties": { "message": true }, "required": ["message"] }
+            "if": {
+              "properties": {
+                "decision": {
+                  "const": "block"
+                }
+              },
+              "required": [
+                "decision"
+              ]
+            },
+            "then": {
+              "properties": {
+                "message": true
+              },
+              "required": [
+                "message"
+              ]
+            }
           },
           {
             "if": {
-              "properties": { "decision": { "not": { "const": "block" } } },
-              "required": ["decision"]
+              "properties": {
+                "decision": {
+                  "not": {
+                    "const": "block"
+                  }
+                }
+              },
+              "required": [
+                "decision"
+              ]
             },
-            "then": { "properties": { "message": true }, "not": { "required": ["message"] } }
+            "then": {
+              "properties": {
+                "message": true
+              },
+              "not": {
+                "required": [
+                  "message"
+                ]
+              }
+            }
           }
         ],
-        "required": ["id", "events", "tools", "decision"]
+        "required": [
+          "id",
+          "events",
+          "tools",
+          "decision"
+        ]
       }
+    },
+    "expectedRevision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
     }
   },
-  "required": ["hooks"],
+  "required": [
+    "hooks",
+    "expectedRevision"
+  ],
   "x-result": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "applied": { "type": "integer", "minimum": 0, "maximum": 64 }
+      "applied": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 64
+      },
+      "revision": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "appliedRevision": {
+        "type": "string"
+      },
+      "state": {
+        "type": "string",
+        "enum": [
+          "applied",
+          "pending"
+        ]
+      }
     },
-    "required": ["applied"]
+    "required": [
+      "applied",
+      "revision",
+      "appliedRevision",
+      "state"
+    ]
   },
   "x-examples": {
     "positive": [
-      { "hooks": [] },
+      {
+        "hooks": [],
+        "expectedRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
       {
         "hooks": [
           {
             "id": "no-docx",
-            "events": ["beforeToolCall"],
-            "tools": ["docx.gen"],
+            "events": [
+              "beforeToolCall"
+            ],
+            "tools": [
+              "docx.gen"
+            ],
             "decision": "block",
             "message": "禁止生成 Word 文档"
           }
-        ]
+        ],
+        "expectedRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       }
     ],
     "negative": [
@@ -97,8 +192,12 @@
         "hooks": [
           {
             "id": "x",
-            "events": ["beforeToolCall"],
-            "tools": ["rm -rf"],
+            "events": [
+              "beforeToolCall"
+            ],
+            "tools": [
+              "rm -rf"
+            ],
             "decision": "block",
             "message": "m"
           }
@@ -108,8 +207,12 @@
         "hooks": [
           {
             "id": "x",
-            "events": ["beforeToolCall"],
-            "tools": ["workspace.write"],
+            "events": [
+              "beforeToolCall"
+            ],
+            "tools": [
+              "workspace.write"
+            ],
             "decision": "block"
           }
         ]

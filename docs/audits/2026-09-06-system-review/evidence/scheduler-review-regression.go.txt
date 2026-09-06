@@ -1,0 +1,74 @@
+package scheduler
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/oklog/ulid/v2"
+)
+
+// These assert the required behavior. A failure is evidence of an unresolved
+// defect, never a passing regression for the broken behavior.
+func TestReviewValidJobsNeverCorruptReadBudget(t *testing.T) {
+	store := newTestStore(t)
+	for i := range MaxJobs {
+		job := validJob("escaped prompt", "* * * * *")
+		job.ID = ulid.Make().String()
+		job.Prompt = strings.Repeat("&", maxPromptRunes)
+		_, writeErr := store.PutJobVersioned(job, "")
+		_, readErr := store.ListJobs()
+		if readErr != nil {
+			info, _ := os.Stat(store.jobs)
+			t.Fatalf("valid write %d left unreadable store: write=%v read=%v bytes=%d", i+1, writeErr, readErr, info.Size())
+		}
+		if writeErr != nil {
+			return // refusing a larger document without damaging persisted data is valid
+		}
+	}
+}
+
+func TestReviewRunOnceDisableFailureNeverSchedulesAgain(t *testing.T) {
+	store := newTestStore(t)
+	job, err := store.PutJobVersioned(validJob("once", "at:2025-01-01T00:00:00Z"), "")
+	if err != nil { t.Fatal(err) }
+	badPath := filepath.Join(t.TempDir(), "jobs-is-directory")
+	if err := os.Mkdir(badPath, 0700); err != nil { t.Fatal(err) }
+	original := store.jobs
+	s := New(store, func(context.Context, Job) Outcome {
+		// Start intent and TouchLastRun have committed; only final job disabling
+		// now fails, while the separate run receipt still persists successfully.
+		store.mu.Lock()
+		store.jobs = badPath
+		store.mu.Unlock()
+		return Outcome{Summary: "isolated side effect completed"}
+	}, noopNotifier{})
+	defer s.Close()
+	if err := s.TriggerNow(job.ID); err != nil { t.Fatal(err) }
+	s.wg.Wait()
+	store.mu.Lock()
+	store.jobs = original
+	store.mu.Unlock()
+	if s.Snapshot().LastError == "" { t.Fatal("fixture did not reach failed disable") }
+	runs, err := store.ListRuns(job.ID, 10)
+	if err != nil || len(runs) != 1 || runs[0].State != RunRunning {
+		t.Fatalf("failed disable must retain durable unresolved intent, not a success receipt: %+v %v", runs, err)
+	}
+	if due := s.dueJobs(time.Now().UTC()); len(due) != 0 {
+		t.Fatalf("completed one-shot became due again after failed disable: %+v", due)
+	}
+	reopened, err := NewStore(filepath.Dir(store.dir))
+	if err != nil { t.Fatal(err) }
+	if err := reopened.RecoverInterrupted(); err != nil { t.Fatal(err) }
+	recovered, exists, err := reopened.GetJob(job.ID)
+	if err != nil || !exists || recovered.Enabled {
+		t.Fatalf("restart did not disable unresolved job: %+v %v", recovered, err)
+	}
+	runs, err = reopened.ListRuns(job.ID, 10)
+	if err != nil || len(runs) != 2 || runs[0].State != RunFailed || !runs[0].OutcomeUnknown {
+		t.Fatalf("restart must preserve an explicit uncertain result: %+v %v", runs, err)
+	}
+}

@@ -5,6 +5,7 @@ package talk
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"net/url"
 	"strings"
 )
@@ -98,12 +99,17 @@ func ResponseCreateMessage() []byte {
 
 // ServerEvent is one OpenAI-shaped realtime frame, mapped onto talk.* events.
 type ServerEvent struct {
-	Kind       string
-	Audio      string
-	Transcript string
-	Role       string
-	Code       string
-	Message    string
+	Kind         string
+	Audio        string
+	Transcript   string
+	Role         string
+	Code         string
+	Message      string
+	Final        bool
+	ItemID       string
+	ResponseID   string
+	EventID      string
+	ContentIndex int
 }
 
 func ParseServerEvent(raw []byte) ServerEvent {
@@ -112,16 +118,32 @@ func ParseServerEvent(raw []byte) ServerEvent {
 		return ServerEvent{Kind: "error", Code: "TALK_SESSION_FAILED", Message: "通话核事件无法解析"}
 	}
 	typ, _ := payload["type"].(string)
+	transcript := func(text, role string, final bool) ServerEvent {
+		itemID, _ := payload["item_id"].(string)
+		responseID, _ := payload["response_id"].(string)
+		eventID, _ := payload["event_id"].(string)
+		contentIndex, _ := payload["content_index"].(float64)
+		if supplied, exists := payload["content_index"]; exists {
+			_, numeric := supplied.(float64)
+			if !numeric || contentIndex < 0 || contentIndex > 1024 || math.Trunc(contentIndex) != contentIndex {
+				return ServerEvent{Kind: "error", Code: "TALK_TRANSCRIPT_INVALID", Message: "通话文本分段标识无效"}
+			}
+		}
+		return ServerEvent{Kind: "transcript", Transcript: text, Role: role, Final: final, ItemID: itemID, ResponseID: responseID, EventID: eventID, ContentIndex: int(contentIndex)}
+	}
 	switch typ {
 	case "response.audio.delta", "response.output_audio.delta":
 		delta, _ := payload["delta"].(string)
 		return ServerEvent{Kind: "audio", Audio: delta}
 	case "response.audio_transcript.delta", "response.output_audio_transcript.delta":
 		delta, _ := payload["delta"].(string)
-		return ServerEvent{Kind: "transcript", Transcript: delta, Role: "assistant"}
+		return transcript(delta, "assistant", false)
+	case "response.audio_transcript.done", "response.output_audio_transcript.done":
+		text, _ := payload["transcript"].(string)
+		return transcript(text, "assistant", true)
 	case "conversation.item.input_audio_transcription.completed":
 		text, _ := payload["transcript"].(string)
-		return ServerEvent{Kind: "transcript", Transcript: text, Role: "user"}
+		return transcript(text, "user", true)
 	case "input_audio_buffer.speech_started":
 		return ServerEvent{Kind: "barge"}
 	case "error":

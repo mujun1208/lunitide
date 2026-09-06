@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/plan.run.retry.schema.json",
+  "title": "plan.run.retry payload",
+  "x-method": "plan.run.retry",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "runId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "expectedVersion": { "type": "integer", "minimum": 1 },
+    "acknowledgeUncertain": { "type": "boolean" }
+  },
+  "required": ["runId", "expectedVersion", "acknowledgeUncertain"],
+  "x-result": {
+    "type": "object", "additionalProperties": false,
+    "properties": {
+      "run": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/PlanRunDTO" },
+      "executionStarted": { "type": "boolean" }
+    },
+    "required": ["run", "executionStarted"]
+  },
+  "x-examples": {
+    "positive": [{ "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "expectedVersion": 2, "acknowledgeUncertain": false }],
+    "negative": [{ "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "expectedVersion": 0 }]
+  }
+}

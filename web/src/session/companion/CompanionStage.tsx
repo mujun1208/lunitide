@@ -96,7 +96,7 @@ export interface CompanionStageProps {
   seedPrompt?: string
   userAsk?: UserAskPack
   onUserAsk?: (followUp: string) => void
-  onSend: (text: string) => void | boolean | 'error' | Promise<void | boolean | 'error'>
+  onSend: (text: string, persistedMessageId?: string) => void | boolean | 'error' | Promise<void | boolean | 'error'>
   /** Cancel the in-flight LLM stream. Spoken prefix is what the stage already read aloud. */
   onCancel?: (spokenText?: string) => void
   onExit: () => void
@@ -1326,9 +1326,11 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     }
   }, [error, localError, machine, syncSpeechModes])
 
+  const pendingPersistedMessageRef = useRef<{text: string; id: string} | undefined>(undefined)
   const beginUserTurn = useCallback(
-    (transcript: string) => {
+    (transcript: string, persistedMessageId?: string) => {
       const text = clipCompanionPrompt(cleanUserTranscript(transcript))
+      pendingPersistedMessageRef.current = persistedMessageId ? {text, id: persistedMessageId} : undefined
       const skinTurn = consumeCompanionSkinCommand(text, settingsRef.current.visualSkin === 'particle' ? 'particle' : 'classic')
       if (skinTurn) {
         const stored = loadCompanionSettings()
@@ -1406,7 +1408,8 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       startVoiceTurn(settingsRef.current.voicePath)
       markVoiceTiming('endpoint')
       void unlockTtsAudio()
-      const sent = onSendRef.current(text)
+      const persistedID = pendingPersistedMessageRef.current?.text === text ? pendingPersistedMessageRef.current.id : undefined
+      const sent = persistedID ? onSendRef.current(text, persistedID) : onSendRef.current(text)
       speakCompanionPad()
       syncSpeechModes()
       void Promise.resolve(sent).then(ok => {
@@ -1460,7 +1463,8 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       if (stateRef.current === 'thinking' || stateRef.current === 'speaking') return
       const text = pendingSendRef.current
       pendingSendRef.current = null
-      const sent = onSendRef.current(text)
+      const persistedID = pendingPersistedMessageRef.current?.text === text ? pendingPersistedMessageRef.current.id : undefined
+      const sent = persistedID ? onSendRef.current(text, persistedID) : onSendRef.current(text)
       void Promise.resolve(sent).then(ok => {
         if (cancelled) return
         if (ok === false) {
@@ -1825,12 +1829,12 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
                 applyEvent({ type: 'MIC_CLICK_WHILE_SPEAKING' })
               }
             },
-            onToolHandoff: text => {
+            onToolHandoff: (text, messageId) => {
               if (exitedRef.current || !stageAliveRef.current) return
               talkSuppressPlayRef.current = true
               talkHandoffRef.current = true
               void talkHandleRef.current?.cancelOutput()
-              beginUserTurn(text)
+              beginUserTurn(text, messageId)
               talkHandoffRef.current = false
             },
             onError: issue => {

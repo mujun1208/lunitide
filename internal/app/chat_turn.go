@@ -3,16 +3,20 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/queueinput"
 	"github.com/lunitide/lunitide/internal/llmadapter"
+	"github.com/lunitide/lunitide/internal/messageapp"
+	"github.com/lunitide/lunitide/internal/queueapp"
+	"github.com/oklog/ulid/v2"
 )
 
 const (
@@ -25,27 +29,29 @@ const (
 )
 
 type chatTurnCheckpoint struct {
-	Status        string   `json:"status"`
-	Goal          string   `json:"goal"`
-	StreamID      string   `json:"streamId"`
-	Injected      []string `json:"injected,omitempty"`
-	LastTools     []string `json:"lastTools,omitempty"`
-	ToolFailed    bool     `json:"toolFailed,omitempty"`
-	PptActive     bool     `json:"pptActive,omitempty"`
-	PptStage      string   `json:"pptStage,omitempty"`
-	PptTools      []string `json:"pptTools,omitempty"`
-	PptNudges     int      `json:"pptNudges,omitempty"`
-	PptGenerated  bool     `json:"pptGenerated,omitempty"`
-	DocxActive    bool     `json:"docxActive,omitempty"`
-	DocxKind      string   `json:"docxKind,omitempty"`
-	DocxStage     string   `json:"docxStage,omitempty"`
-	DocxTools     []string `json:"docxTools,omitempty"`
-	DocxNudges    int      `json:"docxNudges,omitempty"`
-	DocxGenerated bool     `json:"docxGenerated,omitempty"`
-	DocxChars     int      `json:"docxChars,omitempty"`
-	PersistDraft  string   `json:"persistDraft,omitempty"`
-	PersistFailed bool     `json:"persistFailed,omitempty"`
-	UpdatedAt     string   `json:"updatedAt"`
+	Status          string                    `json:"status"`
+	Goal            string                    `json:"goal"`
+	StreamID        string                    `json:"streamId"`
+	Injected        []string                  `json:"injected,omitempty"`
+	QueueDeliveries []string                  `json:"queueDeliveries,omitempty"`
+	LastTools       []string                  `json:"lastTools,omitempty"`
+	ToolFailed      bool                      `json:"toolFailed,omitempty"`
+	PptActive       bool                      `json:"pptActive,omitempty"`
+	PptStage        string                    `json:"pptStage,omitempty"`
+	PptTools        []string                  `json:"pptTools,omitempty"`
+	PptNudges       int                       `json:"pptNudges,omitempty"`
+	PptGenerated    bool                      `json:"pptGenerated,omitempty"`
+	DocxActive      bool                      `json:"docxActive,omitempty"`
+	DocxKind        string                    `json:"docxKind,omitempty"`
+	DocxStage       string                    `json:"docxStage,omitempty"`
+	DocxTools       []string                  `json:"docxTools,omitempty"`
+	DocxNudges      int                       `json:"docxNudges,omitempty"`
+	DocxGenerated   bool                      `json:"docxGenerated,omitempty"`
+	DocxChars       int                       `json:"docxChars,omitempty"`
+	PersistDraft    string                    `json:"persistDraft,omitempty"`
+	PersistFailed   bool                      `json:"persistFailed,omitempty"`
+	PersistUsage    messageapp.AssistantUsage `json:"persistUsage,omitempty"`
+	UpdatedAt       string                    `json:"updatedAt"`
 }
 
 func looksLikeResume(text string) bool {
@@ -67,6 +73,36 @@ func (e *Engine) turnCheckpointPath(sessionID string) string {
 }
 
 func (e *Engine) loadTurnCheckpoint(sessionID string) chatTurnCheckpoint {
+	ownerCtx, ownerCancel := turnJournalContext()
+	defer ownerCancel()
+	if exists, err := e.turnCheckpointSessionExists(ownerCtx, sessionID); err != nil || !exists {
+		return chatTurnCheckpoint{}
+	}
+	if e != nil && e.turnJournal != nil {
+		ctx, cancel := turnJournalContext()
+		defer cancel()
+		raw, err := e.turnJournal.LatestChatTurn(ctx, sessionID)
+		if err != nil {
+			log.Printf("chat turn journal read failed: %v", err)
+			return chatTurnCheckpoint{}
+		}
+		if len(raw) > 0 {
+			var cp chatTurnCheckpoint
+			if json.Unmarshal(raw, &cp) == nil {
+				return cp
+			}
+			return chatTurnCheckpoint{}
+		}
+	}
+	return e.loadLegacyTurnCheckpoint(sessionID)
+}
+
+func (e *Engine) loadLegacyTurnCheckpoint(sessionID string) chatTurnCheckpoint {
+	ownerCtx, ownerCancel := turnJournalContext()
+	defer ownerCancel()
+	if exists, err := e.turnCheckpointSessionExists(ownerCtx, sessionID); err != nil || !exists {
+		return chatTurnCheckpoint{}
+	}
 	path := e.turnCheckpointPath(sessionID)
 	if path == "" {
 		return chatTurnCheckpoint{}
@@ -82,27 +118,45 @@ func (e *Engine) loadTurnCheckpoint(sessionID string) chatTurnCheckpoint {
 	return cp
 }
 
-func (e *Engine) saveTurnCheckpoint(sessionID string, cp chatTurnCheckpoint) {
-	path := e.turnCheckpointPath(sessionID)
-	if path == "" {
-		return
+func (e *Engine) saveTurnCheckpoint(sessionID string, cp chatTurnCheckpoint) error {
+	if sessionID == "" {
+		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return
+	ctx, cancel := turnJournalContext()
+	defer cancel()
+	payload, _ := json.Marshal(map[string]string{"sessionId": sessionID})
+	release, scopeErr := e.authorizeDataRequest(ctx, "chat.checkpoint", payload)
+	if scopeErr != nil {
+		return scopeErr
 	}
-	cp.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	defer release()
+	cp.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	if cp.StreamID == "" {
+		cp.StreamID = ulid.Make().String()
+	}
 	raw, err := json.Marshal(cp)
 	if err != nil {
-		return
+		return err
+	}
+	if e.turnJournal != nil {
+		return e.turnJournal.PutChatTurn(ctx, sessionID, cp.StreamID, raw, cp.PersistDraft != "")
+	}
+	path := e.turnCheckpointPath(sessionID)
+	if path == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
 	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, raw, 0600); err != nil {
-		return
+		return err
 	}
-	_ = os.Remove(path)
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
+		return err
 	}
+	return nil
 }
 
 func (e *Engine) todoSummary(sessionID string) string {
@@ -226,28 +280,37 @@ func closedLoopTurnInjection(userText string) string {
 	return "\n\n[本轮范围] 只执行用户这一条最新消息。上一轮无论成功还是失败都已闭环，禁止重做，禁止和本轮绑在一起。用户没有说「继续」时，不要去完成聊天记录里更早的任务，也不要打开与本轮无关的文件。"
 }
 
-func (e *Engine) noteLiveTurnDraft(sessionID string, turn *chatTurnCheckpoint, text string, last *time.Time) {
+func (e *Engine) noteLiveTurnDraft(sessionID string, turn *chatTurnCheckpoint, text string, last *time.Time) error {
 	text = strings.TrimSpace(text)
 	if e == nil || turn == nil || sessionID == "" || text == "" {
-		return
+		return nil
 	}
-	if last != nil && !last.IsZero() && time.Since(*last) < 750*time.Millisecond && utf8.RuneCountInString(text) < 80 {
-		return
+	// Bound full-checkpoint writes by time or newly accumulated bytes; using
+	// total text length made every delta after 80 characters hit SQLite.
+	if last != nil && !last.IsZero() && time.Since(*last) < 750*time.Millisecond && len(text)-len(turn.PersistDraft) < 4096 {
+		return nil
+	}
+	turn.PersistDraft = text
+	if err := e.saveTurnCheckpoint(sessionID, *turn); err != nil {
+		return err
 	}
 	if last != nil {
 		*last = time.Now()
 	}
-	turn.PersistDraft = clipRunes(text, 8192)
-	e.saveTurnCheckpoint(sessionID, *turn)
+	return nil
 }
 
 func handleChatTurnGet(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
-	_ = ctx
 	var p struct {
 		SessionID string `json:"sessionId"`
 	}
 	if decodePayload(request.Payload, &p) != nil || !ulidValid(p.SessionID) {
 		return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.turn.get 参数无效", false)
+	}
+	if exists, err := e.turnCheckpointSessionExists(ctx, p.SessionID); err != nil {
+		return messageFailure(request, err)
+	} else if !exists {
+		return request.Fail("SESSION_NOT_FOUND", "会话不存在", false)
 	}
 	cp := e.loadTurnCheckpoint(p.SessionID)
 	draft := clipRunes(strings.TrimSpace(cp.PersistDraft), 8192)
@@ -300,22 +363,46 @@ func (e *Engine) unfinishedTurnInjection(sessionID, userText string) string {
 	return b.String()
 }
 
-func (e *Engine) pullQueuedSupplements(ctx context.Context, sessionID string) (string, []string) {
+func (e *Engine) pullQueuedSupplements(ctx context.Context, sessionID string, cp *chatTurnCheckpoint) (string, []string, error) {
 	if e == nil || e.queue == nil || sessionID == "" {
-		return "", nil
+		return "", nil, nil
 	}
 	pending, err := e.queue.List(ctx, sessionID)
-	if err != nil || len(pending) == 0 {
-		return "", nil
+	if err != nil {
+		return "", nil, err
 	}
 	for _, m := range pending {
 		if looksLikeTaskChange(m.Payload) {
-			return "", nil
+			return "", nil, nil
 		}
 	}
-	items, err := e.queue.Consume(ctx, sessionID)
+	var items []queueinput.Message
+	var delivery queueapp.Delivery
+	if store := e.queue.Deliveries(); store != nil {
+		if cp == nil || cp.StreamID == "" || e.turnJournal == nil {
+			return "", nil, queueapp.ErrDeliveryUnavailable
+		}
+		delivery, err = store.ClaimQueueDelivery(ctx, sessionID, cp.StreamID)
+		if errors.Is(err, queueapp.ErrDeliveryBusy) {
+			return "", nil, nil
+		}
+		if err == nil {
+			for _, item := range delivery.Items {
+				if looksLikeTaskChange(item.Payload) {
+					_, handoffErr := store.RecoverQueueDelivery(ctx, sessionID, delivery.ID, "handoff")
+					return "", nil, handoffErr
+				}
+			}
+		}
+		if err == nil {
+			delivery, err = e.prepareQueueDelivery(ctx, delivery)
+		}
+		items = delivery.Items
+	} else {
+		items, err = e.queue.Consume(ctx, sessionID)
+	}
 	if err != nil || len(items) == 0 {
-		return "", nil
+		return "", nil, err
 	}
 	texts := make([]string, 0, len(items))
 	var b strings.Builder
@@ -343,25 +430,49 @@ func (e *Engine) pullQueuedSupplements(ctx context.Context, sessionID string) (s
 		fmt.Fprintf(&b, "- %s\n", text)
 	}
 	if len(texts) == 0 {
-		return "", nil
+		return "", nil, nil
 	}
-	return b.String(), texts
+	if cp != nil {
+		already := false
+		for _, id := range cp.QueueDeliveries {
+			if id == delivery.ID && id != "" {
+				already = true
+			}
+		}
+		if !already {
+			cp.Injected = append(cp.Injected, texts...)
+			if delivery.ID != "" {
+				cp.QueueDeliveries = append(cp.QueueDeliveries, delivery.ID)
+			}
+		}
+		if err := e.saveTurnCheckpoint(sessionID, *cp); err != nil {
+			return "", nil, err
+		}
+	}
+	if delivery.ID != "" {
+		if err := e.queue.Deliveries().StartQueueDelivery(ctx, sessionID, delivery.ID, cp.StreamID); err != nil {
+			return "", nil, err
+		}
+	}
+	return b.String(), texts, nil
 }
 
-func (e *Engine) applyQueuedSupplements(ctx context.Context, sessionID string, req *llmadapter.Request, cp *chatTurnCheckpoint, send func(bridge.Event) error, assistantText *strings.Builder) bool {
+func (e *Engine) applyQueuedSupplements(ctx context.Context, sessionID string, req *llmadapter.Request, cp *chatTurnCheckpoint, send func(bridge.Event) error, assistantText *strings.Builder) (bool, error) {
 	if req.DisableReasoning || cp == nil {
-		return false
+		return false, nil
 	}
-	note, texts := e.pullQueuedSupplements(ctx, sessionID)
+	note, _, err := e.pullQueuedSupplements(ctx, sessionID, cp)
+	if err != nil {
+		return false, err
+	}
 	if note == "" {
-		return false
+		return false, nil
 	}
 	req.Messages = append(req.Messages, queuedSupplementMessage(note))
-	cp.Injected = append(cp.Injected, texts...)
 	assistantText.WriteString(queueInjectNotice)
 	_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "已收到你的补充，继续当前任务，不另起炉灶。\n"}})
 	_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: queueInjectNotice}})
-	return true
+	return true, nil
 }
 
 func queuedSupplementMessage(note string) llmadapter.Message {

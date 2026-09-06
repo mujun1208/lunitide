@@ -1,0 +1,33 @@
+package people
+
+import (
+    "context"
+    "testing"
+)
+
+type auditPeerStore struct { Store; thread Thread; inserted []Message }
+func (s *auditPeerStore) HasPeopleMessage(context.Context, string) (bool,error) { return false,nil }
+func (s *auditPeerStore) FindDirectThread(context.Context,string,string) (Thread,bool,error) { return s.thread,true,nil }
+func (s *auditPeerStore) GetThread(context.Context,string) (Thread,error) { return s.thread,nil }
+func (s *auditPeerStore) InsertMessage(_ context.Context,m Message,_ *FileOffer) error { s.inserted=append(s.inserted,m); return nil }
+type auditPeerIdentity struct { Identity }
+func (*auditPeerIdentity) SubjectID() string { return "self" }
+
+// No network, no real contacts: test the authenticated frame boundary directly.
+func TestAuditPeopleAuthenticatedSenderBinding(t *testing.T) {
+    st:= &auditPeerStore{thread:Thread{ThreadID:"direct",Kind:"direct",Members:[]Contact{{SubjectID:"self"},{SubjectID:"trusted-peer"}}}}
+    s:=New(st,&auditPeerIdentity{},t.TempDir(),t.TempDir())
+    from:=Contact{SubjectID:"trusted-peer",TrustState:"trusted"}
+    frame:=p2pFrame{Typ:"msg",Message:&Message{MessageID:"forged",ThreadID:"direct",SenderID:"self",Kind:"text",Body:"audit synthetic message"}}
+    s.handleFrame(nil,nil,nil,from,frame)
+    if len(st.inserted)>0 && st.inserted[0].SenderID=="self" { t.Fatal("trusted peer frame persisted with forged local sender identity") }
+}
+
+func TestAuditPeopleExistingGroupMembership(t *testing.T) {
+    st:= &auditPeerStore{thread:Thread{ThreadID:"private-group",Kind:"group",Members:[]Contact{{SubjectID:"self"},{SubjectID:"other-member"}}}}
+    s:=New(st,&auditPeerIdentity{},t.TempDir(),t.TempDir())
+    from:=Contact{SubjectID:"trusted-outsider",TrustState:"trusted"}
+    frame:=p2pFrame{Typ:"msg",Thread:&wireThread{ThreadID:"private-group",Kind:"group"},Message:&Message{MessageID:"injected",ThreadID:"private-group",SenderID:from.SubjectID,Kind:"text",Body:"audit synthetic message"}}
+    s.handleFrame(nil,nil,nil,from,frame)
+    if len(st.inserted)>0 { t.Fatal("trusted non-member frame persisted into an existing private group") }
+}

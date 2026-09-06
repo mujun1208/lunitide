@@ -13,7 +13,6 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -152,13 +151,13 @@ func (s *VoiceService) currentModelID() string {
 // Both, not just the refiner. Loading the streaming model is what a session
 // blocks on, so leaving it until the microphone is activated puts the whole
 // load between the user pressing the button and anything being recorded.
-func (s *VoiceService) warmEngines() {
+func (s *VoiceService) warmEngines(parent context.Context) {
 	// Its own context for each: the bridge request that triggered this is
 	// answered in milliseconds and would cancel the load long before a
 	// model finishes.
 	if streaming, ok := s.backend.(*voice.SherpaBackend); ok {
 		s.warmingStream.run(func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 			defer cancel()
 			if err := streaming.Warm(ctx); err != nil {
 				log.Printf("voice: warm recognizer: %v", err)
@@ -170,7 +169,7 @@ func (s *VoiceService) warmEngines() {
 	}
 	refiner := s.refiner
 	s.warmingRefiner.run(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 		defer cancel()
 		if err := refiner.Warm(ctx); err != nil {
 			log.Printf("voice: warm refiner: %v", err)
@@ -387,6 +386,9 @@ func (s *VoiceService) snapshot() map[string]any {
 }
 
 func handleVoiceStart(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	if err := e.CheckCapability(ctx, "stt"); err != nil {
+		return r.Fail("FORBIDDEN", "语音识别已禁用", false)
+	}
 	if e.voice == nil {
 		return r.Fail("VOICE-002", "本地识别不可用", true)
 	}
@@ -403,7 +405,9 @@ func handleVoiceStart(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 		return startVolcVoice(e, ctx, r, p.Language, p.ProviderID, p.EndWindowMS)
 	}
 
-	session, err := e.voice.backend.Start(ctx, voice.SessionOptions{Language: p.Language})
+	id, err := e.startScopedVoice(ctx, func(op context.Context) (voice.Session, error) {
+		return e.voice.backend.Start(op, voice.SessionOptions{Language: p.Language})
+	})
 	if err != nil {
 		if errors.Is(err, voice.ErrModelMissing) {
 			return r.Fail("VOICE-003", "本地识别模型尚未下载", true)
@@ -414,12 +418,12 @@ func handleVoiceStart(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	// Load the refiner's model while the user is still talking. It is not
 	// waited on: a session that opens must open now, and a refiner that is
 	// not ready by the time they stop simply does not refine that turn.
-	e.voice.warmEngines()
+	if opened, ok := e.voiceSession(id); ok {
+		if scoped, ok := opened.(*scopedVoiceSession); ok {
+			e.voice.warmEngines(scoped.scope)
+		}
+	}
 
-	id := fmt.Sprintf("v%d", e.voice.counter.Add(1))
-	e.voice.mu.Lock()
-	e.voice.sessions[id] = session
-	e.voice.mu.Unlock()
 	return r.Ok(map[string]any{"sessionId": id})
 }
 
@@ -441,17 +445,20 @@ func startVolcVoice(e *Engine, ctx context.Context, r bridge.Request, language, 
 	if modelID == "" {
 		return r.Fail("VOICE-004", "没有可用的火山听写模型", false)
 	}
-	var session voice.Session
-	err = e.withProviderLease(ctx, p, secretlease.OperationProviderTest, func(opCtx context.Context, secret []byte) error {
-		cfg := volcsauc.ConfigFromSecret(p.BaseURL, modelID, string(secret))
-		cfg.EndWindowMS = endWindowMS
-		backend := volcsauc.New(cfg)
-		opened, startErr := backend.Start(opCtx, voice.SessionOptions{Language: language})
-		if startErr != nil {
-			return startErr
-		}
-		session = opened
-		return nil
+	id, err := e.startScopedVoice(ctx, func(startCtx context.Context) (voice.Session, error) {
+		var session voice.Session
+		err := e.withProviderLease(startCtx, p, secretlease.OperationProviderTest, func(opCtx context.Context, secret []byte) error {
+			cfg := volcsauc.ConfigFromSecret(p.BaseURL, modelID, string(secret))
+			cfg.EndWindowMS = endWindowMS
+			backend := volcsauc.New(cfg)
+			opened, startErr := backend.Start(opCtx, voice.SessionOptions{Language: language})
+			if startErr != nil {
+				return startErr
+			}
+			session = opened
+			return nil
+		})
+		return session, err
 	})
 	if err != nil {
 		msg := volcsauc.SanitizeProbeError(err)
@@ -460,14 +467,13 @@ func startVolcVoice(e *Engine, ctx context.Context, r bridge.Request, language, 
 		}
 		return r.Fail("VOICE-004", msg, true)
 	}
-	id := fmt.Sprintf("v%d", e.voice.counter.Add(1))
-	e.voice.mu.Lock()
-	e.voice.sessions[id] = session
-	e.voice.mu.Unlock()
 	return r.Ok(map[string]any{"sessionId": id})
 }
 
 func handleVoiceAppend(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	if err := e.CheckCapability(ctx, "stt"); err != nil {
+		return r.Fail("FORBIDDEN", "语音识别已禁用", false)
+	}
 	var p struct {
 		SessionID string `json:"sessionId"`
 		PCM       string `json:"pcm"`

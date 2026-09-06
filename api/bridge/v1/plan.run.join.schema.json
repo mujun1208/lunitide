@@ -30,7 +30,7 @@
         "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/PlanRunDTO"
       },
       "executionStarted": {
-        "const": false
+        "type": "boolean"
       }
     },
     "required": [

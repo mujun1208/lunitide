@@ -2,17 +2,23 @@ package brapp
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/lunitide/lunitide/internal/browsernetwork"
+	"github.com/lunitide/lunitide/internal/commandworker"
 )
 
 // ── local host ──────────────────────────────────────────────────────────────
@@ -24,13 +30,20 @@ import (
 // (always available, no CDP navigation channel).
 type LocalHost struct {
 	mu          sync.Mutex
-	procs       map[string]*exec.Cmd
+	procs       map[string]*managedBrowser
 	profileRoot string
+}
+
+type managedBrowser struct {
+	cancel  context.CancelFunc
+	done    chan struct{}
+	proxy   *browsernetwork.Proxy
+	context *cdpContext
 }
 
 // NewLocalHost returns the default host rooted at profileRoot.
 func NewLocalHost(profileRoot string) *LocalHost {
-	return &LocalHost{procs: make(map[string]*exec.Cmd), profileRoot: profileRoot}
+	return &LocalHost{procs: make(map[string]*managedBrowser), profileRoot: profileRoot}
 }
 
 func chromeCandidates() []string {
@@ -92,7 +105,26 @@ func (h *LocalHost) Connect(ctx context.Context, sessionID, mode string, s Setti
 	case ModeBuiltin:
 		return "", nil
 	case ModeExtension:
-		return cdpVersionWS(ctx, "127.0.0.1", s.ExtensionPort)
+		endpoint, err := cdpVersionWS(ctx, "127.0.0.1", s.ExtensionPort)
+		if err != nil {
+			return "", err
+		}
+		if err := verifyExternalBrowserNetworkFlags(ctx, endpoint); err != nil {
+			return "", err
+		}
+		proxy, err := browsernetwork.Start(browsernetwork.Policy{AllowHTTP: true, AllowPrivate: !s.BlockPrivateNetwork, AllowedOrigins: s.Allowlist})
+		if err != nil {
+			return "", err
+		}
+		owned, err := createCDPContext(ctx, endpoint, proxy.URL())
+		if err != nil {
+			_ = proxy.Close()
+			return "", fmt.Errorf("%w: 无法创建受策略约束的私有浏览器上下文: %v", ErrBrMode, err)
+		}
+		h.mu.Lock()
+		h.procs[sessionID] = &managedBrowser{proxy: proxy, context: owned}
+		h.mu.Unlock()
+		return endpoint, nil
 	case ModeChrome, ModeEdge:
 		path := ""
 		if mode == ModeChrome {
@@ -107,22 +139,53 @@ func (h *LocalHost) Connect(ctx context.Context, sessionID, mode string, s Setti
 		if err != nil {
 			return "", err
 		}
-		profileDir := filepath.Join(h.profileRoot, mode+"-profile")
-		cmd := exec.Command(path,
-			"--remote-debugging-port="+strconv.Itoa(port),
-			"--user-data-dir="+profileDir,
-			"--no-first-run", "--no-default-browser-check",
-			"--headless=new", "about:blank")
-		if err := cmd.Start(); err != nil {
-			return "", fmt.Errorf("%w: launch failed: %v", ErrBrMode, err)
+		profileBase, err := filepath.Abs(filepath.Join(h.profileRoot, mode+"-profile"))
+		if err != nil {
+			return "", err
+		}
+		digest := sha256.Sum256([]byte(sessionID))
+		profileDir := filepath.Join(profileBase, fmt.Sprintf("%x", digest[:16]))
+		if err := os.MkdirAll(profileDir, 0700); err != nil {
+			return "", err
+		}
+		guard, err := commandworker.PinWorkingDirectory(h.profileRoot, profileDir)
+		if err != nil {
+			return "", err
+		}
+		proxy, err := browsernetwork.Start(browsernetwork.Policy{AllowHTTP: true, AllowPrivate: !s.BlockPrivateNetwork, AllowedOrigins: s.Allowlist})
+		if err != nil {
+			_ = guard.Close()
+			return "", err
+		}
+		workerCtx, cancel := context.WithCancel(context.Background())
+		managed := &managedBrowser{cancel: cancel, done: make(chan struct{}), proxy: proxy}
+		exe, err := filepath.Abs(path)
+		if err != nil {
+			cancel()
+			_ = proxy.Close()
+			_ = guard.Close()
+			return "", err
 		}
 		h.mu.Lock()
-		h.procs[sessionID] = cmd
+		h.procs[sessionID] = managed
 		h.mu.Unlock()
+		go func() {
+			defer close(managed.done)
+			defer proxy.Close()
+			_, _ = commandworker.Run(workerCtx, commandworker.Spec{Exe: exe, Dir: profileDir, Env: browserEnvironment(), Timeout: commandworker.TimeoutHardCap, MaxOutputBytes: 4096, Args: []string{
+				"--remote-debugging-port=" + strconv.Itoa(port), "--user-data-dir=" + profileDir, "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "--headless=new",
+				"--disable-quic", "--force-webrtc-ip-handling-policy=disable_non_proxied_udp", "--proxy-server=" + proxy.URL(), "--proxy-bypass-list=<-loopback>", "about:blank",
+			}}, guard, nil)
+		}()
 		ws, werr := cdpPollVersionWS(ctx, "127.0.0.1", port, BrConnectTimeout)
+		if werr == nil {
+			managed.context, werr = createCDPContext(ctx, ws, proxy.URL())
+		}
 		if werr != nil {
-			h.killProc(sessionID)
-			return "", fmt.Errorf("%w: CDP handshake failed: %v", ErrBrMode, werr)
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), BrConnectTimeout)
+			defer cleanupCancel()
+			cleanupErr := h.killProc(cleanupCtx, sessionID)
+			return "", fmt.Errorf("%w: CDP handshake failed: %v", ErrBrMode, errors.Join(werr, cleanupErr))
 		}
 		return ws, nil
 	case ModeAsk:
@@ -133,108 +196,181 @@ func (h *LocalHost) Connect(ctx context.Context, sessionID, mode string, s Setti
 }
 
 // Disconnect terminates a spawned browser process (chrome/edge).
-func (h *LocalHost) Disconnect(_ context.Context, sessionID, mode string) error {
-	if mode == ModeChrome || mode == ModeEdge {
-		h.killProc(sessionID)
-	}
-	return nil
+func (h *LocalHost) Disconnect(ctx context.Context, sessionID, mode string) error {
+	return h.killProc(ctx, sessionID)
 }
 
-// Navigate opens one URL through the DevTools HTTP new-tab endpoint.
 func (h *LocalHost) Navigate(ctx context.Context, sess Session, rawURL string) error {
 	if sess.Mode == ModeBuiltin {
 		return fmt.Errorf("%w: builtin 会话不支持 CDP 导航（使用 browser.act）", ErrBrMode)
 	}
-	host, port, err := wsHostPort(sess.WsURL)
-	if err != nil {
-		return fmt.Errorf("%w: session ws url missing", ErrBrMode)
+	h.mu.Lock()
+	managed := h.procs[sess.SessionID]
+	h.mu.Unlock()
+	if managed == nil || managed.context == nil {
+		return fmt.Errorf("%w: 浏览器上下文已结束，请重新连接", ErrBrMode)
 	}
-	endpoint := "http://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/json/new?" + url.QueryEscape(rawURL)
-	req, err := NewHTTPRequestContext(ctx, "PUT", endpoint, nil)
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrBrMode, err)
+	if managed.done != nil {
+		select {
+		case <-managed.done:
+			return fmt.Errorf("%w: 浏览器会话已到期，请重新连接", ErrBrMode)
+		default:
+		}
 	}
-	resp, err := DefaultHTTPClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("%w: navigate failed: %v", ErrBrMode, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("%w: navigate status %d", ErrBrMode, resp.StatusCode)
-	}
-	return nil
+	return managed.context.Navigate(ctx, rawURL)
 }
 
-// SnapshotUsage walks the mode profile directory (chrome/edge).
-func (h *LocalHost) SnapshotUsage(_ context.Context, mode string) (int64, int64, int64) {
+// walkProfile validates the managed boundary and refuses links/junctions. The
+// walk is bounded in time and entries; callers receive partial-work errors.
+func (h *LocalHost) walkProfile(ctx context.Context, mode string, visit func(string, string, os.FileInfo) error) error {
 	if mode != ModeChrome && mode != ModeEdge {
-		return 0, 0, 0
-	}
-	root := filepath.Join(h.profileRoot, mode+"-profile")
-	var profile, cache, cookies int64
-	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info == nil || info.IsDir() {
-			return nil
-		}
-		size := info.Size()
-		profile += size
-		rel, rerr := filepath.Rel(root, path)
-		if rerr != nil {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
-		if isCachePath(rel) {
-			cache += size
-		}
-		if isCookiesPath(rel) {
-			cookies += size
-		}
 		return nil
+	}
+	root, err := filepath.Abs(filepath.Join(h.profileRoot, mode+"-profile"))
+	if err != nil {
+		return err
+	}
+	if _, err := os.Lstat(root); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	guard, err := commandworker.PinWorkingDirectory(h.profileRoot, root)
+	if err != nil {
+		return err
+	}
+	defer guard.Close()
+	deadline, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	visited := 0
+	return filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+		if err := deadline.Err(); err != nil {
+			return err
+		}
+		visited++
+		if visited > 100000 {
+			return errors.New("browser profile scan entry budget exceeded")
+		}
+		if walkErr != nil {
+			return walkErr
+		}
+		if info == nil {
+			return errors.New("browser profile entry unavailable")
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("browser profile contains a link or junction")
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return errors.New("browser profile boundary invalid")
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return errors.New("browser profile contains a non-regular entry")
+		}
+		// Profiles are per-session; usage classification starts after that directory.
+		rel = filepath.ToSlash(rel)
+		if head, tail, ok := strings.Cut(rel, "/"); ok && len(head) == 32 {
+			rel = tail
+		}
+		return visit(path, rel, info)
 	})
+}
+
+func (h *LocalHost) SnapshotUsage(ctx context.Context, mode string) (int64, int64, int64) {
+	profile, cache, cookies, _ := h.SnapshotUsageChecked(ctx, mode)
 	return profile, cache, cookies
 }
-
-// ClearData removes cache/cookie artifacts older than the cutoff.
-func (h *LocalHost) ClearData(_ context.Context, mode string, olderThan time.Time) (int64, error) {
-	if mode != ModeChrome && mode != ModeEdge {
-		return 0, nil
-	}
-	root := filepath.Join(h.profileRoot, mode+"-profile")
-	var freed int64
-	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info == nil || info.IsDir() {
-			return nil
+func (h *LocalHost) SnapshotUsageChecked(ctx context.Context, mode string) (profile, cache, cookies int64, err error) {
+	err = h.walkProfile(ctx, mode, func(_ string, rel string, info os.FileInfo) error {
+		profile += info.Size()
+		if isCachePath(rel) {
+			cache += info.Size()
 		}
-		rel, rerr := filepath.Rel(root, path)
-		if rerr != nil {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
-		if !isCachePath(rel) && !isCookiesPath(rel) {
-			return nil
-		}
-		if !info.ModTime().Before(olderThan) {
-			return nil
-		}
-		if rmErr := removeFile(path); rmErr == nil {
-			freed += info.Size()
+		if isCookiesPath(rel) {
+			cookies += info.Size()
 		}
 		return nil
 	})
-	return freed, nil
+	return
+}
+func (h *LocalHost) ClearData(ctx context.Context, mode string, olderThan time.Time) (int64, error) {
+	var freed int64
+	err := h.walkProfile(ctx, mode, func(path, rel string, info os.FileInfo) error {
+		if (!isCachePath(rel) && !isCookiesPath(rel)) || !info.ModTime().Before(olderThan) {
+			return nil
+		}
+		guard, err := commandworker.PinWorkingDirectory(h.profileRoot, filepath.Dir(path))
+		if err != nil {
+			return err
+		}
+		defer guard.Close()
+		root, err := os.OpenRoot(h.profileRoot)
+		if err != nil {
+			return err
+		}
+		defer root.Close()
+		relative, err := filepath.Rel(h.profileRoot, path)
+		if err != nil {
+			return err
+		}
+		if err := root.Remove(relative); err != nil {
+			return err
+		}
+		freed += info.Size()
+		return nil
+	})
+	return freed, err
 }
 
-func (h *LocalHost) killProc(sessionID string) {
+func (h *LocalHost) killProc(ctx context.Context, sessionID string) error {
 	h.mu.Lock()
-	cmd, ok := h.procs[sessionID]
-	if ok {
-		delete(h.procs, sessionID)
-	}
+	managed := h.procs[sessionID]
 	h.mu.Unlock()
-	if ok {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
+	if managed == nil {
+		return nil
 	}
+	// Cut all owned network connections immediately even if CDP teardown fails.
+	if managed.proxy != nil {
+		_ = managed.proxy.Close()
+	}
+	var err error
+	if managed.cancel != nil {
+		managed.cancel()
+		select {
+		case <-managed.done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		if managed.context != nil {
+			managed.context.closeConnection()
+		}
+	} else if managed.context != nil {
+		err = managed.context.Close(ctx)
+	}
+	if err == nil {
+		h.mu.Lock()
+		if h.procs[sessionID] == managed {
+			delete(h.procs, sessionID)
+		}
+		h.mu.Unlock()
+	}
+	return err
+}
+
+// Only browser/system environment crosses into the managed process.
+func browserEnvironment() []string {
+	allowed := map[string]bool{"SYSTEMROOT": true, "WINDIR": true, "PATH": true, "TEMP": true, "TMP": true, "LOCALAPPDATA": true, "APPDATA": true, "PROGRAMFILES": true, "PROGRAMFILES(X86)": true, "HOME": true, "DISPLAY": true, "XAUTHORITY": true, "LANG": true}
+	var env []string
+	for _, pair := range os.Environ() {
+		key, _, ok := strings.Cut(pair, "=")
+		if ok && allowed[strings.ToUpper(key)] {
+			env = append(env, pair)
+		}
+	}
+	return env
 }
 
 func isCachePath(rel string) bool {
@@ -265,11 +401,15 @@ func cdpVersionWS(ctx context.Context, host string, port int) (string, error) {
 	var doc struct {
 		WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
 	}
-	dec := json.NewDecoder(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("%w: CDP version status %d", ErrBrMode, resp.StatusCode)
+	}
+	dec := json.NewDecoder(io.LimitReader(resp.Body, 64<<10))
 	if derr := dec.Decode(&doc); derr != nil || doc.WebSocketDebuggerURL == "" {
 		return "", fmt.Errorf("%w: bridge port %d not a CDP endpoint", ErrBrMode, port)
 	}
-	if !strings.HasPrefix(doc.WebSocketDebuggerURL, "ws://") {
+	wsHost, wsPort, wsErr := wsHostPort(doc.WebSocketDebuggerURL)
+	if wsErr != nil || wsHost != host || wsPort != port {
 		return "", fmt.Errorf("%w: unexpected ws url", ErrBrMode)
 	}
 	return doc.WebSocketDebuggerURL, nil
@@ -297,7 +437,7 @@ func cdpPollVersionWS(ctx context.Context, host string, port int, timeout time.D
 // wsHostPort extracts host/port from a ws:// debugger url.
 func wsHostPort(wsURL string) (string, int, error) {
 	u, err := url.Parse(wsURL)
-	if err != nil || u.Host == "" {
+	if err != nil || u.Scheme != "ws" || u.User != nil || u.Hostname() != "127.0.0.1" || u.RawQuery != "" || u.Fragment != "" {
 		return "", 0, fmt.Errorf("ws url invalid")
 	}
 	port := 80
@@ -317,4 +457,39 @@ func freePort() (int, error) {
 	}
 	defer l.Close()
 	return l.Addr().(*net.TCPAddr).Port, nil
+}
+
+func (h *LocalHost) IsSessionRunning(sessionID, mode string) bool {
+	if mode == ModeBuiltin {
+		return true
+	}
+	h.mu.Lock()
+	managed := h.procs[sessionID]
+	h.mu.Unlock()
+	if managed == nil {
+		return false
+	}
+	if managed.done != nil {
+		select {
+		case <-managed.done:
+			return false
+		default:
+		}
+	}
+	return managed.context != nil
+}
+func (h *LocalHost) Close() error {
+	h.mu.Lock()
+	ids := make([]string, 0, len(h.procs))
+	for id := range h.procs {
+		ids = append(ids, id)
+	}
+	h.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	var all error
+	for _, id := range ids {
+		all = errors.Join(all, h.killProc(ctx, id))
+	}
+	return all
 }

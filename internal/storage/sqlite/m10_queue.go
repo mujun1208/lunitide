@@ -15,8 +15,8 @@ import (
 // ErrQueuedMessageNotFound / ErrQueuedMessageSettled are matched by the
 // queueapp service via errors.Is to map M10-QI failure codes.
 var (
-	ErrQueuedMessageNotFound = errors.New("queued message not found")
-	ErrQueuedMessageSettled  = errors.New("queued message already settled")
+	ErrQueuedMessageNotFound = queueinput.ErrNotFound
+	ErrQueuedMessageSettled  = queueinput.ErrSettled
 )
 
 // SessionExists reports whether the sessions row is present (queue writes
@@ -33,32 +33,64 @@ func (s *Store) SessionExists(ctx context.Context, sessionID string) (bool, erro
 	return true, nil
 }
 
-// EnqueueQueuedMessage inserts one queued row; the service layer owns the
-// idempotency check, capacity and rate limits.
+// EnqueueQueuedMessage atomically admits, deduplicates and audits one supplement.
 func (s *Store) EnqueueQueuedMessage(ctx context.Context, sessionID, runID, payload, mark, requestID string) (queueinput.Message, error) {
-	now := time.Now().UTC()
-	id, err := s.newULID(now)
+	var out queueinput.Message
+	err := s.do(ctx, func(tx *txAdapter) error {
+		now := time.Now().UTC()
+		existing, err := scanQueued(tx.q.QueryRowContext(ctx, `SELECT `+queueColumns+` FROM queued_user_messages WHERE session_id=? AND request_id=?`, sessionID, requestID))
+		if err == nil {
+			if existing.Payload != payload || existing.Mark != mark || existing.RunID != runID || existing.Status != queueinput.StatusQueued {
+				return queueinput.ErrRequestReused
+			}
+			out = existing
+			return nil
+		}
+		if !errors.Is(err, ErrQueuedMessageNotFound) {
+			return err
+		}
+		var active, recent int
+		if err := tx.q.QueryRowContext(ctx, `SELECT COUNT(*) FROM queued_user_messages WHERE session_id=? AND status='queued'`, sessionID).Scan(&active); err != nil {
+			return err
+		}
+		if active >= queueinput.MaxQueuedPerSession {
+			return queueinput.ErrCapacity
+		}
+		if err := tx.q.QueryRowContext(ctx, `SELECT COUNT(*) FROM queued_user_messages WHERE session_id=? AND created_at>=?`, sessionID, formatTime(now.Add(-time.Minute))).Scan(&recent); err != nil {
+			return err
+		}
+		if recent >= queueinput.MaxPerMinute {
+			return queueinput.ErrRateLimited
+		}
+		id, err := s.newULID(now)
+		if err != nil {
+			return err
+		}
+		var seq int64
+		if err := tx.q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0)+1 FROM queued_user_messages WHERE session_id=?`, sessionID).Scan(&seq); err != nil {
+			return err
+		}
+		if _, err := tx.q.ExecContext(ctx, `INSERT INTO queued_user_messages(id,session_id,run_id,seq,payload,status,mark,request_id,created_at,updated_at) VALUES(?,?,?,?,?,'queued',?,?,?,?)`, id, sessionID, nullableULID(runID), seq, payload, mark, requestID, formatTime(now), formatTime(now)); err != nil {
+			return err
+		}
+		out = queueinput.Message{ID: id, SessionID: sessionID, RunID: runID, Seq: seq, Payload: payload, Status: queueinput.StatusQueued, Mark: mark, RequestID: requestID, CreatedAt: formatTime(now), UpdatedAt: formatTime(now)}
+		return s.appendAuditTx(ctx, tx.q, "queue.input", sessionID, "renderer", map[string]any{"mark": mark, "bytes": len(payload)})
+	})
 	if err != nil {
 		return queueinput.Message{}, err
 	}
-	err = s.execWithAudit(ctx, "queue.input", sessionID, "renderer",
-		map[string]any{"mark": mark, "bytes": len(payload)},
-		func(tx *sql.Tx) error {
-			var seq int64
-			if err := tx.QueryRowContext(ctx,
-				`SELECT COALESCE(MAX(seq),0)+1 FROM queued_user_messages WHERE session_id=?`, sessionID).Scan(&seq); err != nil {
-				return err
-			}
-			_, err := tx.ExecContext(ctx,
-				`INSERT INTO queued_user_messages(id, session_id, run_id, seq, payload, status, mark, request_id, created_at, updated_at)
-				 VALUES(?,?,?,?,?,'queued',?,?,?,?)`,
-				id, sessionID, nullableULID(runID), seq, payload, mark, requestID, formatTime(now), formatTime(now))
-			return err
-		})
-	if err != nil {
-		return queueinput.Message{}, mapWriteError(err)
+	return out, nil
+}
+
+const queueColumns = `id,session_id,COALESCE(run_id,''),seq,payload,status,mark,request_id,COALESCE(consumed_at,''),created_at,updated_at`
+
+func scanQueued(row interface{ Scan(...any) error }) (queueinput.Message, error) {
+	var m queueinput.Message
+	err := row.Scan(&m.ID, &m.SessionID, &m.RunID, &m.Seq, &m.Payload, &m.Status, &m.Mark, &m.RequestID, &m.ConsumedAt, &m.CreatedAt, &m.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = ErrQueuedMessageNotFound
 	}
-	return s.GetQueuedByID(ctx, sessionID, id)
+	return m, err
 }
 
 // GetQueuedByRequest returns the row for one idempotency key or nil.
@@ -99,7 +131,7 @@ func (s *Store) CountQueuedSince(ctx context.Context, sessionID string, since ti
 func (s *Store) ListQueued(ctx context.Context, sessionID string) ([]queueinput.Message, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, session_id, COALESCE(run_id,''), seq, payload, status, mark, request_id, COALESCE(consumed_at,''), created_at, updated_at
-		 FROM queued_user_messages WHERE session_id=? AND status='queued' ORDER BY seq`, sessionID)
+		 FROM queued_user_messages WHERE session_id=? AND status='queued' AND NOT EXISTS(SELECT 1 FROM queue_delivery_items WHERE queued_id=queued_user_messages.id) ORDER BY seq LIMIT ?`, sessionID, queueinput.MaxQueuedPerSession)
 	if err != nil {
 		return nil, err
 	}
@@ -115,79 +147,77 @@ func (s *Store) ListQueued(ctx context.Context, sessionID string) ([]queueinput.
 	return items, rows.Err()
 }
 
-// WithdrawQueuedMessage settles one queued row as withdrawn.
+// WithdrawQueuedMessage returns the exact row settled in its audit transaction.
 func (s *Store) WithdrawQueuedMessage(ctx context.Context, sessionID, id string) (queueinput.Message, error) {
-	now := time.Now().UTC()
-	err := s.execWithAudit(ctx, "queue.withdraw", id, "renderer",
-		map[string]any{"sessionId": sessionID},
-		func(tx *sql.Tx) error {
-			return transitionQueueRow(ctx, tx, sessionID, id, queueinput.StatusWithdrawn, now)
-		})
+	var out queueinput.Message
+	err := s.do(ctx, func(tx *txAdapter) error {
+		row, err := scanQueued(tx.q.QueryRowContext(ctx, `SELECT `+queueColumns+` FROM queued_user_messages WHERE session_id=? AND id=?`, sessionID, id))
+		if err != nil {
+			return err
+		}
+		if !queueinput.ValidStatusTransition(row.Status, queueinput.StatusWithdrawn) {
+			return ErrQueuedMessageSettled
+		}
+		var claimed bool
+		if err := tx.q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM queue_delivery_items WHERE queued_id=?)`, id).Scan(&claimed); err != nil {
+			return err
+		}
+		if claimed {
+			return queueinput.ErrSettled
+		}
+		row.Status = queueinput.StatusWithdrawn
+		row.UpdatedAt = formatTime(time.Now().UTC())
+		if _, err := tx.q.ExecContext(ctx, `UPDATE queued_user_messages SET status=?,updated_at=? WHERE session_id=? AND id=?`, row.Status, row.UpdatedAt, sessionID, id); err != nil {
+			return err
+		}
+		out = row
+		return s.appendAuditTx(ctx, tx.q, "queue.withdraw", id, "renderer", map[string]any{"sessionId": sessionID})
+	})
 	if err != nil {
-		return queueinput.Message{}, mapWriteError(err)
+		return queueinput.Message{}, err
 	}
-	return s.GetQueuedByID(ctx, sessionID, id)
+	return out, nil
 }
 
-// ConsumeQueuedMessages settles every queued row of the session as
-// injected and returns them in seq order (empty slice when idle).
+// ConsumeQueuedMessages captures exactly the rows transitioned by this call.
+// Looking them up after commit by wall-clock timestamp can replay another batch.
 func (s *Store) ConsumeQueuedMessages(ctx context.Context, sessionID string) ([]queueinput.Message, error) {
-	now := time.Now().UTC()
-	err := s.execWithAudit(ctx, "queue.consume", sessionID, "renderer",
-		map[string]any{"sessionId": sessionID},
-		func(tx *sql.Tx) error {
-			res, err := tx.ExecContext(ctx,
-				`UPDATE queued_user_messages SET status='injected', consumed_at=?, updated_at=?
-				 WHERE session_id=? AND status='queued'`, formatTime(now), formatTime(now), sessionID)
+	var out []queueinput.Message
+	err := s.do(ctx, func(tx *txAdapter) error {
+		rows, err := tx.q.QueryContext(ctx, `SELECT `+queueColumns+` FROM queued_user_messages WHERE session_id=? AND status='queued' AND NOT EXISTS(SELECT 1 FROM queue_delivery_items WHERE queued_id=queued_user_messages.id) ORDER BY seq`, sessionID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		at := formatTime(time.Now().UTC())
+		for rows.Next() {
+			row, err := scanQueued(rows)
 			if err != nil {
 				return err
 			}
-			if n, _ := res.RowsAffected(); n == 0 {
-				return nil
-			}
+			row.Status = queueinput.StatusInjected
+			row.ConsumedAt = at
+			row.UpdatedAt = at
+			out = append(out, row)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		if len(out) == 0 {
 			return nil
-		})
-	if err != nil {
-		return nil, mapWriteError(err)
-	}
-	return s.listInjectedAt(ctx, sessionID, formatTime(now))
-}
-
-func (s *Store) listInjectedAt(ctx context.Context, sessionID, consumedAt string) ([]queueinput.Message, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, session_id, COALESCE(run_id,''), seq, payload, status, mark, request_id, COALESCE(consumed_at,''), created_at, updated_at
-		 FROM queued_user_messages WHERE session_id=? AND status='injected' AND consumed_at=? ORDER BY seq`, sessionID, consumedAt)
+		}
+		if _, err := tx.q.ExecContext(ctx, `UPDATE queued_user_messages SET status='injected',consumed_at=?,updated_at=? WHERE session_id=? AND status='queued' AND NOT EXISTS(SELECT 1 FROM queue_delivery_items WHERE queued_id=queued_user_messages.id)`, at, at, sessionID); err != nil {
+			return err
+		}
+		return s.appendAuditTx(ctx, tx.q, "queue.consume", sessionID, "renderer", map[string]any{"sessionId": sessionID, "count": len(out)})
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var items []queueinput.Message
-	for rows.Next() {
-		var m queueinput.Message
-		if err := rows.Scan(&m.ID, &m.SessionID, &m.RunID, &m.Seq, &m.Payload, &m.Status, &m.Mark, &m.RequestID, &m.ConsumedAt, &m.CreatedAt, &m.UpdatedAt); err != nil {
-			return nil, err
-		}
-		items = append(items, m)
-	}
-	return items, rows.Err()
-}
-
-func transitionQueueRow(ctx context.Context, tx *sql.Tx, sessionID, id, to string, now time.Time) error {
-	var from string
-	if err := tx.QueryRowContext(ctx,
-		`SELECT status FROM queued_user_messages WHERE session_id=? AND id=?`, sessionID, id).Scan(&from); err != nil {
-		if err == sql.ErrNoRows {
-			return ErrQueuedMessageNotFound
-		}
-		return err
-	}
-	if !queueinput.ValidStatusTransition(from, to) {
-		return ErrQueuedMessageSettled
-	}
-	_, err := tx.ExecContext(ctx,
-		`UPDATE queued_user_messages SET status=?, updated_at=? WHERE session_id=? AND id=? AND status=?`,
-		to, formatTime(now), sessionID, id, from)
-	return err
+	return out, nil
 }
 
 func (s *Store) queryQueueOne(ctx context.Context, query string, args ...any) (queueinput.Message, error) {

@@ -91,6 +91,19 @@ describe('installLocalAsr', () => {
 })
 
 describe('startLocalAsr', () => {
+  it('splits cold-start backlog into legal frames without losing samples', async () => {
+    let open!: (value: { sessionId: string }) => void
+    bridge.start.mockReturnValueOnce(new Promise(resolve => { open = resolve }))
+    const starting = startLocalAsr()
+    await settle()
+    for (let i = 0; i < 15; i++) emitFrame(frame())
+    open({ sessionId: 'v1' })
+    const handle = await starting
+    await vi.waitFor(() => expect(bridge.append).toHaveBeenCalledTimes(2))
+    const sizes = bridge.append.mock.calls.map(([payload]) => atob(payload.pcm).length)
+    expect(sizes).toEqual([32000, 16000])
+    handle.cancel()
+  })
   it('streams frames and surfaces partials as they arrive', async () => {
     const onTranscript = vi.fn()
     bridge.append.mockResolvedValueOnce({ text: '今天', final: false })

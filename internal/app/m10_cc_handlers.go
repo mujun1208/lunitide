@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/ccapp"
@@ -29,6 +30,7 @@ func handleCcGetConfig(e *Engine, ctx context.Context, r bridge.Request) bridge.
 
 func handleCcUpdateConfig(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
+		ExpectedRevision     int64     `json:"expectedRevision"`
 		Enabled              *bool     `json:"enabled"`
 		SecurityLevel        *string   `json:"securityLevel"`
 		AllowCritical        *bool     `json:"allowCritical"`
@@ -45,7 +47,8 @@ func handleCcUpdateConfig(e *Engine, ctx context.Context, r bridge.Request) brid
 		return r.Fail("STORAGE_UNAVAILABLE", "电脑控制服务暂时不可用", true)
 	}
 	settings, err := e.ccctrl.UpdateConfig(ctx, ccapp.SettingsPatch{
-		Enabled: p.Enabled, SecurityLevel: p.SecurityLevel, AllowCritical: p.AllowCritical,
+		ExpectedRevision: p.ExpectedRevision,
+		Enabled:          p.Enabled, SecurityLevel: p.SecurityLevel, AllowCritical: p.AllowCritical,
 		ProcessBlocklist: p.ProcessBlocklist, MaxActionsPerMinute: p.MaxActionsPerMinute,
 		ConfirmTimeoutSecond: p.ConfirmTimeoutSecond, ArmMinutes: p.ArmMinutes, Actor: p.Actor,
 	})
@@ -94,6 +97,24 @@ func handleCcEmergencyStop(e *Engine, ctx context.Context, r bridge.Request) bri
 
 // ccFailure maps ccapp errors onto M10-CC-001~012.
 func ccFailure(r bridge.Request, err error) bridge.Response {
+	if errors.Is(err, ccapp.ErrCcConflict) {
+		return r.Fail("CC_CONFIG_CONFLICT", "电脑控制配置已变更，请刷新后重新确认设置", false)
+	}
+	if errors.Is(err, ccapp.ErrCcStopPersistence) {
+		return r.Fail("M10-CC-005", "当前进程已锁存急停，但停止状态保存失败；已提交的动作仍需核对，重启前请修复存储", false)
+	}
+	if errors.Is(err, ccapp.ErrCcStopPending) {
+		return r.Fail("M10-CC-005", "急停已锁存，已阻止后续动作；已提交的系统动作仍在结束中，请核对桌面结果", false)
+	}
+	if errors.Is(err, ccapp.ErrCcOutcomeUnknown) {
+		return r.Fail("M10-CC-011", "系统动作可能已发生，但审计回执保存失败；请先核对桌面结果，勿直接重试", false)
+	}
+	if errors.Is(err, ccapp.ErrCcAuditUnavailable) {
+		return r.Fail("M10-CC-011", "审计记录不可用，操作未确认成功；请检查存储后核对结果", false)
+	}
+	if errors.Is(err, ccapp.ErrCcPermissionChanged) {
+		return r.Fail("M10-CC-002", "电脑控制授权已变更，本次操作已中止；请重新发起操作", false)
+	}
 	switch ccapp.Code(err) {
 	case "M10-CC-001":
 		return r.Fail("M10-CC-001", "电脑控制参数或配置无效", false)

@@ -74,6 +74,9 @@ func (s *Store) ListProjectDeliverables(ctx context.Context, filter deliverable.
 
 // UpsertProjectDeliverable creates or updates a deliverable keyed by project+phase+document_type.
 func (s *Store) UpsertProjectDeliverable(ctx context.Context, d deliverable.ProjectDeliverable) (deliverable.ProjectDeliverable, error) {
+	if d.Status == deliverable.StatusImmutable {
+		return d, deliverable.ErrGateLocked
+	}
 	if d.ID == "" {
 		var err error
 		d.ID, err = s.newULID(time.Now())
@@ -102,6 +105,28 @@ func (s *Store) UpsertProjectDeliverable(ctx context.Context, d deliverable.Proj
 	err := s.execWithAudit(ctx, "project_deliverable.upserted", d.ID, "engine",
 		map[string]any{"projectId": d.ProjectID, "phase": d.Phase, "documentType": d.DocumentType},
 		func(tx *sql.Tx) error {
+			if d.Status == deliverable.StatusApproved {
+				current, err := scanProjectDeliverable(tx.QueryRowContext(ctx, deliverableSelect+` WHERE project_id=? AND phase=? AND document_type=?`, d.ProjectID, d.Phase, d.DocumentType))
+				if err != nil && err != sql.ErrNoRows {
+					return err
+				}
+				if err == nil {
+					if current.Status == deliverable.StatusImmutable {
+						return deliverable.ErrGateLocked
+					}
+					if d.AttachmentID == "" {
+						d.AttachmentID = current.AttachmentID
+					}
+					if d.TemplateID == "" {
+						d.TemplateID = current.TemplateID
+					}
+				}
+				receipt, err := s.verifyProjectEvidence(ctx, tx, d, false)
+				if err != nil {
+					return err
+				}
+				d.Digest = receipt["digest"].(string)
+			}
 			_, err := tx.ExecContext(ctx,
 				`INSERT INTO project_deliverables(
 					id, project_id, phase, document_type, title, template_id, attachment_id,
@@ -109,10 +134,11 @@ func (s *Store) UpsertProjectDeliverable(ctx context.Context, d deliverable.Proj
 				 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
 				 ON CONFLICT(project_id, phase, document_type) DO UPDATE SET
 					title=excluded.title,
-					template_id=excluded.template_id,
-					attachment_id=excluded.attachment_id,
+					template_id=COALESCE(excluded.template_id,project_deliverables.template_id),
+					attachment_id=COALESCE(excluded.attachment_id,project_deliverables.attachment_id),
 					status=CASE WHEN project_deliverables.status='immutable' THEN project_deliverables.status ELSE excluded.status END,
-					digest=excluded.digest,
+					digest=CASE WHEN excluded.digest='' THEN project_deliverables.digest ELSE excluded.digest END,
+					gate_confirmations=0,
 					updated_at=excluded.updated_at,
 					version=project_deliverables.version+1
 				 WHERE project_deliverables.status!='immutable'`,
@@ -141,7 +167,7 @@ func (s *Store) ConfirmDeliverableGate(ctx context.Context, projectID, id string
 	if cur.Version != expectedVersion {
 		return deliverable.ProjectDeliverable{}, deliverable.ErrVersionConflict
 	}
-	if !deliverable.CanConfirmGate(cur) {
+	if !deliverable.CanConfirmGate(cur) || cur.Status != deliverable.StatusApproved {
 		return deliverable.ProjectDeliverable{}, deliverable.ErrGateLocked
 	}
 	now := time.Now().UTC()
@@ -153,6 +179,9 @@ func (s *Store) ConfirmDeliverableGate(ctx context.Context, projectID, id string
 	err = s.execWithAudit(ctx, "project_deliverable.gate_confirmed", id, "engine",
 		map[string]any{"gateConfirmations": nextConfirmations, "status": nextStatus},
 		func(tx *sql.Tx) error {
+			if _, err := s.verifyProjectEvidence(ctx, tx, cur, true); err != nil {
+				return err
+			}
 			res, err := tx.ExecContext(ctx,
 				`UPDATE project_deliverables
 				 SET gate_confirmations=?, status=?, updated_at=?, version=version+1

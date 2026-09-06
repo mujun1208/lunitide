@@ -13,8 +13,8 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/memory"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/session"
-	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/identity"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/memoryapp"
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
@@ -54,7 +54,7 @@ func confirmPrefOn(t *testing.T, svc *m8app.MemoryService, subject, content stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.ConfirmCandidate(context.Background(), m8app.ConfirmInput{
+	if _, err := svc.ConfirmCandidateFor(context.Background(), subject, m8app.ConfirmInput{
 		CandidateID: prop.Candidate.CandidateID, Token: prop.ConfirmToken, Action: "confirm", RequestID: "pref-" + prop.Candidate.CandidateID,
 	}); err != nil {
 		t.Fatal(err)
@@ -827,7 +827,7 @@ func TestMemoryGetIsolatesIdentitySubject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := mem.ConfirmCandidate(ctx, m8app.ConfirmInput{
+	if _, err := mem.ConfirmCandidateFor(ctx, other, m8app.ConfirmInput{
 		CandidateID: prop.Candidate.CandidateID, Token: prop.ConfirmToken, Action: "confirm", RequestID: "get-other",
 	}); err != nil {
 		t.Fatal(err)

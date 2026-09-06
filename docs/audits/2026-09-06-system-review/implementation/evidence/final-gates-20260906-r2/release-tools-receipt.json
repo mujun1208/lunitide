@@ -1,0 +1,66 @@
+{
+  "group": "release-tools",
+  "startedAt": "2026-09-06T13:17:17.1174177Z",
+  "finishedAt": "2026-09-06T13:18:05.7945407Z",
+  "status": "passed",
+  "source": {
+    "commit": "09978597dc026bfa40ab8d690d64f9bcaef476f3",
+    "treeSha256": "e578444c4485345e8aa55dcc2b71e551e2abda0d07627e23cc149e62d50fef17",
+    "fileCount": 2758,
+    "manifest": "release-tools-source.json"
+  },
+  "sourceUnchanged": true,
+  "checks": [
+    {
+      "name": "release-tools-ps5",
+      "command": "powershell.exe",
+      "arguments": [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "E:\\Trae-Work-Projects\\lunitide\\release\\Test-ReleaseTools.ps1"
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-06T13:17:31.7370357Z",
+      "finishedAt": "2026-09-06T13:17:38.4595077Z",
+      "stdout": "release-tools-ps5.log",
+      "stderr": "release-tools-ps5.stderr.log"
+    },
+    {
+      "name": "release-tools-ps7",
+      "command": "pwsh.exe",
+      "arguments": [
+        "-NoProfile",
+        "-NonInteractive",
+        "-File",
+        "E:\\Trae-Work-Projects\\lunitide\\release\\Test-ReleaseTools.ps1"
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-06T13:17:38.4647954Z",
+      "finishedAt": "2026-09-06T13:17:45.9283969Z",
+      "stdout": "release-tools-ps7.log",
+      "stderr": "release-tools-ps7.stderr.log"
+    },
+    {
+      "name": "release-exclusions",
+      "command": "powershell.exe",
+      "arguments": [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "E:\\Trae-Work-Projects\\lunitide\\release\\Test-OmniExcluded.ps1"
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-06T13:17:45.9300972Z",
+      "finishedAt": "2026-09-06T13:17:46.8928153Z",
+      "stdout": "release-exclusions.log",
+      "stderr": "release-exclusions.stderr.log"
+    }
+  ],
+  "error": null,
+  "scope": "code-and-automated-tests; docs excluded; no physical or release acceptance"
+}

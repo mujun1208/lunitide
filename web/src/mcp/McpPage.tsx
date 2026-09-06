@@ -3,6 +3,8 @@ import{mcBridge,mcpBridge,type McpBridge}from'../bridge/client'
 import type{Mcp6PresetsListResult,McpListResult}from'../generated/bridge'
 import{leftoverArchivedMcp,leftoverArchivedNames}from'../settings/leftoverMcp'
 import{Dialog}from'../ui/Dialog'
+import{McpCredentialDialog}from'./McpCredentialDialog'
+import{McpSecurityReviewDialog}from'./McpSecurityReviewDialog'
 
 type Preset=Mcp6PresetsListResult['items'][number]
 type Endpoint=McpListResult['endpoints'][number]
@@ -35,6 +37,7 @@ function parseManualJson(raw:string):ParsedServer[]{
  const parsed=JSON.parse(raw)as Record<string,unknown>
  if(parsed.mcpServers&&typeof parsed.mcpServers==='object'&&!Array.isArray(parsed.mcpServers)){
   return Object.entries(parsed.mcpServers as Record<string,Record<string,unknown>>).map(([name,cfg])=>{
+   if(cfg.env||cfg.headers||cfg.auth)throw new Error(`${name}：请先保存服务器，再通过“凭据”按钮配置；不要在 JSON 中填写凭据`)
    const url=typeof cfg.url==='string'?cfg.url:typeof cfg.serverUrl==='string'?cfg.serverUrl:''
    const command=typeof cfg.command==='string'?cfg.command:undefined
    const args=Array.isArray(cfg.args)?cfg.args.map(String):undefined
@@ -43,6 +46,7 @@ function parseManualJson(raw:string):ParsedServer[]{
   })
  }
  const url=typeof parsed.url==='string'?parsed.url:''
+ if(parsed.env||parsed.headers||parsed.auth)throw new Error('请先保存服务器，再通过“凭据”按钮配置；不要在 JSON 中填写凭据')
  const command=typeof parsed.command==='string'?parsed.command:undefined
  const args=Array.isArray(parsed.args)?parsed.args.map(String):undefined
  const transport=url.startsWith('https://')?'https' as const:(parsed.transport==='https'?'https' as const:'stdio' as const)
@@ -63,6 +67,8 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
  const[riskConfirmed,setRiskConfirmed]=useState(false)
  const[argDraft,setArgDraft]=useState<{id:string;value:string}|null>(null)
  const[removeTarget,setRemoveTarget]=useState<Endpoint|null>(null)
+ const[credentialTarget,setCredentialTarget]=useState<Endpoint|null>(null)
+ const[reviewTarget,setReviewTarget]=useState<Endpoint|null>(null)
  const leftoverRedirected=useRef(false)
 
  const load=useCallback(async()=>{
@@ -92,9 +98,9 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
   setBusy(preset.id);setError('');setNotice('')
   try{
    const added=await bridge.add({origin:'manual',transport:'stdio',command:preset.command,args:resolveArgs(preset,resolved),riskConfirmed:true,requestId:crypto.randomUUID()})
-   try{await bridge.toggle({endpointId:added.endpointId,enabled:true})}catch{/* still registered */}
+   await bridge.toggle({endpointId:added.endpointId,enabled:true})
    setArgDraft(null);setNotice(`已安装「${preset.name}」`);await load();setView('installed')
-  }catch(e){setError(e instanceof Error?e.message:`${preset.name} 安装失败`)}finally{setBusy('')}
+  }catch(e){await load();setError(e instanceof Error?e.message:`${preset.name} 安装失败`)}finally{setBusy('')}
  }
  const reconnect=async(item:Endpoint)=>{
   setBusy(item.endpointId);setError('');setNotice('')
@@ -123,15 +129,15 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
     if(server.transport==='https'){
      if(!server.url?.startsWith('https://'))throw new Error(`${server.name} 需要 https:// URL`)
      const added=await bridge.add({origin:'manual',transport:'https',url:server.url,riskConfirmed:true,requestId:crypto.randomUUID()})
-     try{await bridge.toggle({endpointId:added.endpointId,enabled:true})}catch{/* still registered */}
+     await bridge.toggle({endpointId:added.endpointId,enabled:true})
     }else{
      if(!server.command||!server.args?.length)throw new Error(`${server.name} 需要 command 和 args`)
      const added=await bridge.add({origin:'manual',transport:'stdio',command:server.command,args:server.args,riskConfirmed:true,requestId:crypto.randomUUID()})
-     try{await bridge.toggle({endpointId:added.endpointId,enabled:true})}catch{/* still registered */}
+     await bridge.toggle({endpointId:added.endpointId,enabled:true})
     }
    }
    setCreateOpen(false);setRiskConfirmed(false);setNotice(`已保存 ${servers.length} 个 MCP`);await load();setView('installed')
-  }catch(e){setError(e instanceof Error?e.message:'保存失败：请使用 mcpServers 或 command/args JSON')}finally{setBusy('')}
+  }catch(e){await load();setError(e instanceof Error?e.message:'保存失败：请使用 mcpServers 或 command/args JSON')}finally{setBusy('')}
  }
 
  return <main className="skill-center mcp-page">
@@ -177,9 +183,12 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
      <b>{item.displayName||packageName(item.args)||item.endpointId}</b>
      {leftover.length>0&&<small>已下架 · {leftover.join('、')}</small>}
      <small>{item.transport==='https'?'远程 HTTPS':'本地 stdio'} · {presetId?`策展预置 ${presetId}`:(item.origin==='market'?'市场':'手动')} · {item.command?`${item.command} ${item.args?.join(' ')??''}`:item.url}</small>
+     {item.lockedArgs?.length? <small>已锁定：{item.lockedArgs.join(' ')}</small>:null}
     </div>
     <i className={`skill-status status-${status.id==='ready'?'published':status.id==='off'||status.id==='degraded'?'disabled':status.id==='quarantined'?'deprecated':'draft'}`}>{status.label}</i>
     <div className="expert-card-actions">
+     {bridge.credentialSet&&<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>setCredentialTarget(item)}>凭据</button>}
+     {item.state==='quarantined'&&bridge.securityReview&&<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>setReviewTarget(item)}>复核变更</button>}
      <button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>void reconnect(item)}>重新连接</button>
      <button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>setRemoveTarget(item)}>删除</button>
     </div>
@@ -188,11 +197,14 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
   <Dialog open={createOpen} wide title="创建 MCP" description="粘贴 Cursor / Claude 风格的 mcpServers JSON，或单条 command/args。保存后进入已安装清单。" onClose={()=>{if(!busy)setCreateOpen(false)}}>
    <form className="editor-dialog" onSubmit={e=>{e.preventDefault();void saveManual()}}>
     <label>配置文件 JSON<textarea className="skill-manifest-editor" rows={14} value={json} onChange={e=>setJson(e.target.value)} aria-label="MCP JSON"/></label>
+    <p>本地包支持 npx 包名（可带 -y）和 uvx 包名，首次连接后锁定精确版本；远程 HTTPS 当前使用工具清单 GET 协议。需认证时先保存，再使用“凭据”配置。</p>
     <label className="mcp-trust"><input type="checkbox" checked={riskConfirmed} onChange={e=>setRiskConfirmed(e.target.checked)}/> 我确认信任此服务器来源，理解其工具将在本机运行</label>
     {error&&<p className="skill-center-error" role="alert">{error}</p>}
     <div className="dialog-actions"><button type="button" disabled={Boolean(busy)} onClick={()=>setCreateOpen(false)}>取消</button><button className="primary" disabled={Boolean(busy)||!json.trim()||!riskConfirmed}>{busy==='manual'?'保存中…':'保存'}</button></div>
    </form>
   </Dialog>
+  {credentialTarget&&bridge.credentialSet&&<McpCredentialDialog endpoint={credentialTarget} save={bridge.credentialSet} onClose={()=>setCredentialTarget(null)} onSaved={()=>{setNotice('凭据已更新，请重新连接以验证');void load()}}/>}
+  {reviewTarget&&bridge.securityReview&&<McpSecurityReviewDialog endpoint={reviewTarget} review={bridge.securityReview} onClose={()=>setReviewTarget(null)} onSaved={()=>{setNotice('变更已确认，请重新连接');void load()}}/>}
   <Dialog open={!!removeTarget} title={`删除「${removeTarget?.displayName||removeTarget?.endpointId||''}」`} description="删除后需重新从市场或 JSON 安装才能再用。" onClose={()=>{if(!busy)setRemoveTarget(null)}}>
    <div className="dialog-actions"><button type="button" disabled={Boolean(busy)} onClick={()=>setRemoveTarget(null)}>取消</button><button className="danger" disabled={Boolean(busy)} onClick={()=>void remove()}>{busy===removeTarget?.endpointId?'删除中…':'确认删除'}</button></div>
   </Dialog>

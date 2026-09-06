@@ -2,6 +2,8 @@ param(
   [Parameter(Mandatory)][string]$Installer,
   [Parameter(Mandatory)][string]$ExpectedVersion,
   [Parameter(Mandatory)][string]$ExpectedInstallerHash,
+  [Parameter(Mandatory)][string]$SourceCandidate,
+  [Parameter(Mandatory)][string]$ExpectedSourceTreeSha256,
   [string]$ExpectedSignerThumbprint,
   [string]$EvidenceOut,
   [string]$InstallDirectory,
@@ -21,7 +23,12 @@ param(
 # (delegated to Test-Install.ps1), so cells stay mutually exclusive.
 $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'Resolve-SignTool.ps1')
+. (Join-Path $PSScriptRoot 'Release-Safety.ps1')
 $Installer=(Resolve-Path $Installer).Path
+$source=Get-Content -LiteralPath $SourceCandidate -Raw | ConvertFrom-Json
+Assert-ReleaseCandidate $source
+if($ExpectedSourceTreeSha256 -notmatch '^[0-9A-Fa-f]{64}$' -or $source.treeSha256 -ine $ExpectedSourceTreeSha256 -or $source.version -cne $ExpectedVersion){throw 'Source candidate differs from the accepted version or digest'}
+if($Commit -and $Commit -cne $source.commit){throw 'Supplied commit differs from the artifact source record'}
 function Get-WebView2RuntimeVersion {
   $client='{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
   foreach($view in @('Registry32','Registry64')){
@@ -46,13 +53,14 @@ $cell=[ordered]@{
   timestampUtc=[DateTime]::UtcNow.ToString('o')
 }
 if(-not $cell.webview2Runtime){$cell.webview2Runtime='absent'}
-$commit=$Commit
-if(-not $commit){try { $commit=(& git -C (Join-Path $PSScriptRoot '..') rev-parse HEAD 2>$null) } catch {}}
+$commit=$source.commit
 $sig=Get-AuthenticodeSignature $Installer
 $evidence=[ordered]@{
   schemaVersion=1
   cell=$cell
   commit=$commit
+  sourceTreeSha256=$source.treeSha256
+  acceptanceKind=$(if($AllowUnsignedDevelopment){'development-rehearsal'}else{'publisher-signed'})
   installer=[ordered]@{
     path=$Installer
     sha256=(Get-FileHash $Installer -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -87,10 +95,12 @@ function Assert-AbsentCell {
   if(Test-Path $data){throw 'Refusing to run: existing Lunitide data root; use a disposable account'}
   $install=if($InstallDirectory){[IO.Path]::GetFullPath($InstallDirectory).TrimEnd('\')}else{Join-Path $profileLocalAppData 'Programs\Lunitide'}
   if(Test-Path $install){throw 'Refusing to run: existing installation directory; use a disposable account'}
+  Assert-NoReleaseReparsePoint $install
+  Assert-NoReleaseReparsePoint $data
   if((Get-FileHash $Installer -Algorithm SHA256).Hash -cne $ExpectedInstallerHash.ToUpperInvariant()){throw 'Installer SHA-256 mismatch'}
   $ownsInstall=$false
   try {
-    $p=Start-Process $Installer -ArgumentList @('/S',"/D=$install") -Wait -PassThru
+    $p=Start-Process -WindowStyle Hidden $Installer -ArgumentList @('/S',"/D=$install") -Wait -PassThru
     if($p.ExitCode){throw "silent install failed on a runtime-absent machine: $($p.ExitCode)"}
     $ownsInstall=$true
     $installLog=Join-Path $profileLocalAppData 'LunitideInstaller\Logs\install-latest.log'
@@ -112,7 +122,7 @@ function Assert-AbsentCell {
     if($desktop.ExitCode -eq 0){throw 'desktop exited 0 on a runtime-absent machine; fail-closed violated'}
     Start-Sleep -Milliseconds 1000
     if(Get-CimInstance Win32_Process -Filter "Name='lunitide-engine.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*$install*" }){throw 'engine process survived the controlled failure'}
-    $u=Start-Process (Join-Path $install 'Uninstall.exe') -ArgumentList '/S','/PURGE' -Wait -PassThru
+    $u=Start-Process -WindowStyle Hidden (Join-Path $install 'Uninstall.exe') -ArgumentList '/S','/PURGE' -Wait -PassThru
     if($u.ExitCode){throw "purge uninstall failed: $($u.ExitCode)"}
     $waitUntil=[DateTime]::UtcNow.AddSeconds(20)
     while((Test-Path $install) -and [DateTime]::UtcNow -lt $waitUntil){Start-Sleep -Milliseconds 250}
@@ -122,7 +132,8 @@ function Assert-AbsentCell {
   } finally {
     if($ownsInstall -and (Test-Path $install)){
       try { & (Join-Path $install 'Uninstall.exe') /S /PURGE | Out-Null } catch {}
-      Remove-Item $install -Recurse -Force -ErrorAction SilentlyContinue
+      Assert-NoReleaseReparsePoint $install -Tree
+      Remove-Item -LiteralPath $install -Recurse -Force -ErrorAction SilentlyContinue
     }
     Remove-Item $uninstallKey -Recurse -Force -ErrorAction SilentlyContinue
   }
@@ -153,6 +164,8 @@ try {
 }
 if(-not $EvidenceOut){$EvidenceOut=Join-Path $PSScriptRoot ('matrix-evidence-{0}-wv2-{1}-{2}.json' -f $cell.osBuild,$(if($cell.webview2Runtime -eq 'absent'){'absent'}else{'present'}),[DateTime]::UtcNow.ToString('yyyyMMddHHmmss'))}
 $EvidenceOut=[IO.Path]::GetFullPath($EvidenceOut)
+Assert-NoReleaseReparsePoint $EvidenceOut
+if(Test-Path -LiteralPath $EvidenceOut){throw 'EvidenceOut already exists; previous evidence will not be overwritten'}
 [IO.File]::WriteAllText($EvidenceOut,($evidence | ConvertTo-Json -Depth 6),(New-Object Text.UTF8Encoding $false))
 Write-Host "Evidence: $EvidenceOut ($($evidence.lifecycle))"
 if($evidence.lifecycle -ne 'pass'){exit 1}

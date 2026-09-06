@@ -80,7 +80,13 @@ func TestReturnToolClearsHolder(t *testing.T) {
 }
 
 func TestCapacityAndIntervalConstraints(t *testing.T) {
-	ctx, _, svc := newOpsService(t)
+	ctx, store, svc := newOpsService(t)
+	orgID := ulid.Make().String()
+	const now = "2026-09-06T00:00:00Z"
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO organizations(org_id,name,state,created_at,updated_at) VALUES(?,?,'active',?,?)`, orgID, "interval-test", now, now); err != nil {
+		t.Fatal(err)
+	}
+	ctx = mroapp.WithScope(ctx, orgID)
 	if err := svc.UpsertScheduleAssignment(ctx, mroapp.ScheduleAssignment{TailNo: "B-1", CheckName: "A-CHK", Hours: 10, Skill: "SM"}); err != nil {
 		t.Fatal(err)
 	}
@@ -94,24 +100,47 @@ func TestCapacityAndIntervalConstraints(t *testing.T) {
 	if !hasCode(violations, "C2") {
 		t.Fatalf("expected C2, got %+v", violations)
 	}
-	// Interval rule without a source cite trips C7; adding a cite clears it.
+	// C7 requires a current controlled manual, not an arbitrary citation label.
 	if err := svc.UpsertIntervalRule(ctx, mroapp.IntervalRule{TaskKey: "C-CHK", IntervalValue: 500, Unit: "FH"}); err != nil {
 		t.Fatal(err)
 	}
-	violations, _ = svc.CheckConstraints(ctx)
+	violations, err = svc.CheckConstraints(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !hasCode(violations, "C7") {
 		t.Fatalf("expected C7 without cite, got %+v", violations)
 	}
 	if err := svc.UpsertIntervalRule(ctx, mroapp.IntervalRule{TaskKey: "C-CHK", IntervalValue: 500, Unit: "FH", SourceCite: "MPD 05-10"}); err != nil {
 		t.Fatal(err)
 	}
+	violations, err = svc.CheckConstraints(ctx)
+	if err != nil || !hasCode(violations, "C7") {
+		t.Fatalf("unverified citation should retain C7: %+v %v", violations, err)
+	}
+	docID := mroReadyDocument(t, store)
+	manual, err := svc.RegisterManual(ctx, mroapp.ManualInput{Title: "AMM", DocType: "AMM", Revision: "42", Status: "controlled", Documents: []mroapp.ManualDocInput{{DocumentID: docID, PartNo: 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = svc.UpsertIntervalRule(ctx, mroapp.IntervalRule{TaskKey: "C-CHK", IntervalValue: 500, Unit: "FH", SourceCite: "manual:" + manual.ManualID}); err != nil {
+		t.Fatal(err)
+	}
 	rules, err := svc.ListIntervalRules(ctx)
 	if err != nil || len(rules) != 1 {
 		t.Fatalf("interval replace = %+v %v", rules, err)
 	}
-	violations, _ = svc.CheckConstraints(ctx)
+	violations, err = svc.CheckConstraints(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if hasCode(violations, "C7") {
-		t.Fatalf("C7 should clear with cite, got %+v", violations)
+		t.Fatalf("C7 should clear with current controlled source, got %+v", violations)
+	}
+	for _, code := range []string{"C2", "C4", "C8"} {
+		if !hasCode(violations, code) {
+			t.Fatalf("valid source must not clear unrelated %s: %+v", code, violations)
+		}
 	}
 }
 

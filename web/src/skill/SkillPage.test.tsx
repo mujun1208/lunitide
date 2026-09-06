@@ -9,7 +9,7 @@ afterEach(cleanup)
 const now = '2025-01-01T00:00:00Z'
 const skill: SkillDTO = {
   id: '01ARZ3NDEKTSV4RRFFQ69G5FAA', name: 'code-review', displayName: '代码审查', description: '审查代码',
-  version: '1.0.0', status: 'draft', permissions: ['read_only'], entryPoint: 'skills/cr/index.js',
+  version: '1.0.0', rev: 7, status: 'draft', permissions: ['read_only'], entryPoint: 'skills/cr/index.js',
   manifestJson: '{}', category: 'development', categorySource: 'keyword', createdAt: now, updatedAt: now,
 }
 const api = (o: Partial<SkillBridge> = {}): SkillBridge => ({
@@ -78,7 +78,36 @@ it('deletes a skill from the list', async () => {
   vi.spyOn(window,'confirm').mockReturnValue(true)
   fireEvent.click(screen.getByRole('button', { name: '删除' }))
   await waitFor(() => expect(del).toHaveBeenCalledOnce())
-  expect(del.mock.calls[0][0]).toEqual({ id: skill.id, expectedVersion: 1 })
+  expect(del.mock.calls[0][0]).toEqual({ id: skill.id, expectedVersion: 7 })
+})
+
+it('keeps the revision seen when editing even if the list refreshes', async () => {
+  const list = vi.fn().mockResolvedValueOnce({ items: [skill] }).mockResolvedValue({ items: [{ ...skill, rev: 8 }] })
+  const update = vi.fn().mockRejectedValue(new Error('技能已被并发修改，请基于最新版本重试'))
+  render(<SkillPage bridge={api({ list, update })} />)
+  fireEvent.click(screen.getByRole('tab', { name: '技能库' }))
+  await screen.findAllByText('代码审查')
+  fireEvent.click(screen.getByRole('button', { name: '编辑技能' }))
+  fireEvent.change(screen.getByLabelText('显示名称'), { target: { value: '保留我的编辑' } })
+  window.dispatchEvent(new CustomEvent(ENGINE_RECOVERED_EVENT))
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(2))
+  fireEvent.click(screen.getByRole('button', { name: '保存修改' }))
+  await waitFor(() => expect(update).toHaveBeenCalledWith(expect.objectContaining({ expectedVersion: 7 })))
+  expect(await screen.findByText(/技能已被并发修改/)).toBeInTheDocument()
+  expect(screen.getByLabelText('显示名称')).toHaveValue('保留我的编辑')
+})
+
+it('keeps legacy DTOs without a revision read only', async () => {
+  const legacy = { ...skill, rev: undefined } as unknown as SkillDTO
+  const update = vi.fn(), remove = vi.fn()
+  render(<SkillPage bridge={api({ list: vi.fn().mockResolvedValue({ items: [legacy] }), update, delete: remove })} />)
+  fireEvent.click(screen.getByRole('tab', { name: '技能库' }))
+  await screen.findAllByText('代码审查')
+  fireEvent.click(screen.getByRole('button', { name: '编辑技能' }))
+  fireEvent.click(screen.getByRole('button', { name: '删除' }))
+  expect(await screen.findByText('技能版本信息缺失，请刷新后重试')).toBeInTheDocument()
+  expect(update).not.toHaveBeenCalled()
+  expect(remove).not.toHaveBeenCalled()
 })
 
 it('states the market is a bundled catalog not an online store', async () => {

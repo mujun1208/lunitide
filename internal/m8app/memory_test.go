@@ -223,8 +223,52 @@ func TestRecallScopeDeniedAndPolicyFailClosed(t *testing.T) {
 	if _, err := svc.Recall(context.Background(), m8app.RecallInput{ScopeID: "project:p1", Query: "x"}); !errors.Is(err, m8app.ErrRecallScopeDenied) {
 		t.Fatalf("err = %v, want ErrRecallScopeDenied", err)
 	}
-	svc.SetPolicyProbe(func(ctx context.Context, subject, scope string) (bool, error) { return false, errors.New("engine down") })
+	svc.SetPolicyProbe(func(ctx context.Context, subject, scope string) (bool, error) {
+		return false, errors.New("engine down")
+	})
 	if _, err := svc.Recall(context.Background(), m8app.RecallInput{ScopeID: "project:p1", Query: "x"}); !errors.Is(err, m8app.ErrPolicyUnavailable) {
 		t.Fatalf("err = %v, want ErrPolicyUnavailable", err)
+	}
+}
+
+func TestConfirmOwnerScopeAndExactExpiryCommit(t *testing.T) {
+	ctx := context.Background()
+	store := openSliceStore(t)
+	clock := &fakeClock{now: time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)}
+	svc := m8app.NewMemoryService(store.AgentRuntimeRepository(), "local-user")
+	svc.SetClock(clock)
+	prop := propose(t, svc, leafDoc("local", "owned", ""), false)
+	in := m8app.ConfirmInput{CandidateID: prop.Candidate.CandidateID, Token: prop.ConfirmToken, Action: "confirm", RequestID: "boundary"}
+	if _, err := svc.ConfirmCandidateFor(ctx, "other", in); !errors.Is(err, m8app.ErrCandidateNotFound) {
+		t.Fatalf("foreign: %v", err)
+	}
+	edited := leafDoc("other-scope", "owned", "")
+	in.EditedDoc = &edited
+	if _, err := svc.ConfirmCandidate(ctx, in); !errors.Is(err, m8app.ErrPayloadDigestMismatch) {
+		t.Fatalf("scope mutation: %v", err)
+	}
+	in.EditedDoc = nil
+	expiry, err := time.Parse(time.RFC3339, prop.Candidate.ExpiresAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock.now = expiry
+	for range 2 {
+		if _, err := svc.ConfirmCandidate(ctx, in); !errors.Is(err, m8app.ErrCandidateExpired) {
+			t.Fatalf("exact expiry: %v", err)
+		}
+	}
+	err = store.AgentRuntimeRepository().TransactMemory(ctx, func(tx m8app.MemoryTx) error {
+		c, err := tx.GetCandidate(prop.Candidate.CandidateID)
+		if err != nil {
+			return err
+		}
+		if c.State != m8core.CandExpired {
+			t.Fatalf("expiry rolled back: %s", c.State)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

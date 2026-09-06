@@ -96,24 +96,31 @@ func Link(prev *Event, e Event) Event {
 // recomputed event hash. Any inconsistency answers ErrChainBroken wrapped
 // with the offending seq. An empty chain is intact.
 func VerifyChain(events []Event) error {
-	var prev *Event
+	var previous *Event
 	for i := range events {
-		e := &events[i]
-		wantSeq := int64(i + 1)
-		if e.Seq != wantSeq {
-			return fmt.Errorf("%w: seq %d, want %d", ErrChainBroken, e.Seq, wantSeq)
+		if err := VerifyNext(previous, events[i]); err != nil {
+			return err
 		}
-		if i == 0 {
-			if e.PrevHash != GenesisPrev {
-				return fmt.Errorf("%w: seq 1 prev_hash is not genesis", ErrChainBroken)
-			}
-		} else if e.PrevHash != prev.EventHash {
-			return fmt.Errorf("%w: seq %d prev_hash mismatch", ErrChainBroken, e.Seq)
-		}
-		if got := ComputeHash(*e); got != e.EventHash {
-			return fmt.Errorf("%w: seq %d event_hash mismatch", ErrChainBroken, e.Seq)
-		}
-		prev = e
+		previous = &events[i]
+	}
+	return nil
+}
+
+// VerifyNext shares the hashing kernel with streaming storage verification.
+// The caller retains only the last verified event, regardless of ledger size.
+func VerifyNext(previous *Event, event Event) error {
+	sequence, hash := int64(1), GenesisPrev
+	if previous != nil {
+		sequence, hash = previous.Seq+1, previous.EventHash
+	}
+	if event.Seq != sequence {
+		return fmt.Errorf("%w: seq %d, want %d", ErrChainBroken, event.Seq, sequence)
+	}
+	if event.PrevHash != hash {
+		return fmt.Errorf("%w: seq %d prev_hash mismatch", ErrChainBroken, event.Seq)
+	}
+	if ComputeHash(event) != event.EventHash {
+		return fmt.Errorf("%w: seq %d event_hash mismatch", ErrChainBroken, event.Seq)
 	}
 	return nil
 }

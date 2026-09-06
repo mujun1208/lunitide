@@ -18,30 +18,88 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "id": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
-            "name": { "type": "string" },
-            "cron": { "type": "string" },
-            "prompt": { "type": "string" },
-            "providerId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
-            "modelId": { "type": "string" },
-            "sessionId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
-            "executionMode": { "type": "string" },
-            "sessionMode": { "type": "string" },
-            "runOnce": { "type": "boolean" },
-            "webhookUrl": { "type": "string", "maxLength": 512 },
-            "enabled": { "type": "boolean" },
-            "lastRunAt": { "type": "string", "format": "date-time" },
-            "createdAt": { "type": "string", "format": "date-time" },
-            "updatedAt": { "type": "string", "format": "date-time" }
+            "id": {
+              "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+            },
+            "name": {
+              "type": "string"
+            },
+            "cron": {
+              "type": "string"
+            },
+            "prompt": {
+              "type": "string"
+            },
+            "providerId": {
+              "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+            },
+            "modelId": {
+              "type": "string"
+            },
+            "sessionId": {
+              "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+            },
+            "executionMode": {
+              "type": "string"
+            },
+            "sessionMode": {
+              "type": "string"
+            },
+            "runOnce": {
+              "type": "boolean"
+            },
+            "webhookUrl": {
+              "type": "string",
+              "maxLength": 512
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "lastRunAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "revision": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
           },
-          "required": ["id", "name", "cron", "prompt", "providerId", "modelId", "sessionId", "enabled", "createdAt", "updatedAt"]
+          "required": [
+            "id",
+            "name",
+            "cron",
+            "prompt",
+            "providerId",
+            "modelId",
+            "sessionId",
+            "enabled",
+            "createdAt",
+            "updatedAt",
+            "revision"
+          ]
         }
       }
     },
-    "required": ["jobs"]
+    "required": [
+      "jobs"
+    ]
   },
   "x-examples": {
-    "positive": [{}],
-    "negative": [{ "unexpected": true }]
+    "positive": [
+      {}
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
   }
 }

@@ -9,8 +9,9 @@
 // the rate speech arrives without a separate event channel to order against.
 
 import { getVoiceBridge, type VoiceStatusResult } from '../../bridge/client'
-import { int16ToBase64, TARGET_SAMPLE_RATE } from './pcmFrames'
+import { TARGET_SAMPLE_RATE } from './pcmFrames'
 import { startPcmCapture, type PcmCaptureHandle } from './pcmCapture'
+import { takePcmBatch } from './pcmQueue'
 
 /** Ceiling on audio waiting to be sent, in samples. Two seconds at 16 kHz. */
 const MAX_PENDING_SAMPLES = TARGET_SAMPLE_RATE * 2
@@ -216,35 +217,16 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
   let pending: { base64: string; samples: Int16Array }[] = []
   let pendingSamples = 0
 
-  /** Joins everything queued into one payload, reusing the frame when alone. */
-  const takePending = (): string | undefined => {
-    if (pending.length === 0) return undefined
-    if (pending.length === 1) {
-      const only = pending[0]!
-      pending = []
-      pendingSamples = 0
-      return only.base64
-    }
-    const merged = new Int16Array(pendingSamples)
-    let at = 0
-    for (const frame of pending) {
-      merged.set(frame.samples, at)
-      at += frame.samples.length
-    }
-    pending = []
-    pendingSamples = 0
-    return int16ToBase64(merged)
-  }
-
   const pump = () => {
     if (closed || swapping || inFlight || !sessionId) return
-    const n = pendingSamples
-    const pcm = takePending()
-    if (!pcm) return
+    const batch = takePcmBatch(pending)
+    if (!batch) return
+    pendingSamples -= batch.sampleCount
+    const pcm = batch.base64
     const owner = sessionId
     inFlight = true
     fed = true
-    sessionSamples += n
+    sessionSamples += batch.sampleCount
     bridge
       .append({ sessionId: owner, pcm })
       .then(async result => {

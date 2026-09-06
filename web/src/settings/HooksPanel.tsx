@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { hooksPolicyBridge, type HooksPolicyBridge } from '../bridge/client'
 import type { ToolsHooksPolicySetPayload } from '../generated/bridge'
 
@@ -19,34 +19,45 @@ export function HooksPanel({ bridge = hooksPolicyBridge }: { bridge?: HooksPolic
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const [revision,setRevision]=useState('')
+  const [reload,setReload]=useState(0)
+  const saving=useRef(false)
 
   useEffect(() => {
+    let alive=true
     const load = async () => {
-      setBusy(true)
+      setBusy(true);setLoaded(false);setStatus('')
       try {
         const [policy, recent] = await Promise.all([bridge.getHooksPolicy(), bridge.listHookEvents({ limit: 20 })])
+        if(!alive)return
         setEntries(policy.hooks.map(h => ({ id: h.id, events: [...h.events], tools: [...h.tools], decision: h.decision, message: h.message ?? '' })))
         setEvents(recent.events)
+        setRevision(policy.revision)
+        if(policy.state!=='applied')setStatus('配置已保存，当前运行规则尚未应用；请重新保存或重启。')
         setLoaded(true)
-      } catch (e) { setStatus(e instanceof Error ? e.message : 'Hooks 规则读取失败') } finally { setBusy(false) }
+      } catch (e) { if(alive)setStatus(e instanceof Error ? e.message : 'Hooks 规则读取失败') } finally { if(alive)setBusy(false) }
     }
     void load()
-  }, [])
+    return()=>{alive=false}
+  }, [bridge,reload])
 
   const refreshEvents = async () => {
     try { const r = await bridge.listHookEvents({ limit: 20 }); setEvents(r.events) } catch { /* 保持现状 */ }
   }
 
   const save = async () => {
+    if(saving.current||!loaded)return
+    saving.current=true
     setBusy(true); setStatus('')
     try {
       const hooks = entries
         .map(e => ({ ...e, id: e.id.trim(), tools: e.tools.filter(Boolean) }))
         .filter(e => e.id && e.tools.length > 0)
-      const r = await bridge.setHooksPolicy({ hooks: hooks as ToolsHooksPolicySetPayload['hooks'] })
+      const r = await bridge.setHooksPolicy({ hooks: hooks as ToolsHooksPolicySetPayload['hooks'],expectedRevision:revision })
+      setRevision(r.revision)
       setStatus(`已保存并热生效：${r.applied} 条 Hook 规则。`)
       setEntries(hooks)
-    } catch (e) { setStatus(e instanceof Error ? e.message : 'Hooks 规则保存失败（文档被整体拒绝，现运行规则不变）') } finally { setBusy(false) }
+    } catch (e) { setStatus(e instanceof Error ? e.message : 'Hooks 规则保存失败（文档被整体拒绝，现运行规则不变）') } finally { saving.current=false;setBusy(false) }
   }
 
   const toggleIn = (list: string[], value: string): string[] => list.includes(value) ? list.filter(x => x !== value) : [...list, value]
@@ -58,7 +69,7 @@ export function HooksPanel({ bridge = hooksPolicyBridge }: { bridge?: HooksPolic
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
         <div className="setting-desc">在工具执行前拦截：拦截=拒绝并回显原因；强制审批=即使自动编辑/完全访问也走审批；免审批=跳过审批往返（命令白名单仍生效）。多条规则命中时按 拦截 &gt; 强制审批 &gt; 免审批 取最严。保存即校验并热生效，非法文档整体拒绝（fail-closed）。</div>
       </div>
-      {entries.map((entry, i) => (
+      <fieldset disabled={busy} style={{border:0,padding:0}}>{entries.map((entry, i) => (
         <div className="setting-row" key={i} style={{ gridTemplateColumns: '1fr auto' }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <input className="setting-input" style={{ width: 150 }} placeholder="规则 ID（如 no-docx）" value={entry.id} maxLength={64} onChange={e => update(i, { id: e.target.value })} aria-label={`规则 ${i + 1} ID`} />
@@ -81,11 +92,12 @@ export function HooksPanel({ bridge = hooksPolicyBridge }: { bridge?: HooksPolic
             <button disabled={busy} onClick={() => setEntries(entries.filter((_, j) => j !== i))} aria-label={`删除规则 ${i + 1}`}>删除</button>
           </div>
         </div>
-      ))}
+      ))}</fieldset>
       <div className="setting-row">
         <div className="setting-desc">{loaded ? `共 ${entries.length} 条规则` : '正在读取当前 Hooks 规则…'}</div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button disabled={busy} onClick={() => setEntries([...entries, { id: '', events: ['beforeToolCall'], tools: [], decision: 'block', message: '' }])}>添加规则</button>
+          <button disabled={busy} onClick={()=>setReload(v=>v+1)}>载入最新配置并替换草稿</button>
           <button className="primary" disabled={busy || !loaded} onClick={() => void save()}>保存并热生效</button>
         </div>
       </div>

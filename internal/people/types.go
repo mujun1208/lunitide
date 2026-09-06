@@ -27,6 +27,7 @@ var (
 
 const (
 	maxText         = 16384
+	maxWireText     = maxText + 96 // includes the authenticated host expert attribution prefix
 	maxFileBytes    = 32 << 20
 	maxMembers      = 32
 	maxList         = 200
@@ -73,6 +74,10 @@ type Thread struct {
 }
 
 type Message struct {
+	DeliveryState   string `json:"deliveryState,omitempty"`
+	DeliveredCount  int    `json:"deliveredCount,omitempty"`
+	RecipientCount  int    `json:"recipientCount,omitempty"`
+	Replayed        bool   `json:"-"`
 	MessageID       string `json:"messageId"`
 	ThreadID        string `json:"threadId"`
 	SenderID        string `json:"senderSubjectId"`
@@ -132,6 +137,7 @@ type PairInput struct {
 }
 
 type SendInput struct {
+	RequestKey    string
 	ThreadID      string
 	Kind          string
 	Body          string

@@ -122,10 +122,20 @@ func (s localMACSigner) Verify(doc, signature string) bool {
 // ReleaseService implements release.createRevision / buildPackage /
 // getRevision / getPackage (slice 3).
 type ReleaseService struct {
-	uow    ReleaseUnitOfWork
-	clock  Clock
-	signer ReleaseSigner
+	uow     ReleaseUnitOfWork
+	clock   Clock
+	signer  ReleaseSigner
+	content ProjectReleaseContent
 }
+
+// ProjectReleaseContent derives and verifies project members from approved
+// source files in the same transaction as the immutable release manifest.
+type ProjectReleaseContent interface {
+	BindReleaseContent(context.Context, ReleaseTx, string, map[string]any) error
+	CaptureReleaseContent(context.Context, ReleaseTx, string, map[string]any) error
+}
+
+func (s *ReleaseService) SetProjectContent(v ProjectReleaseContent) { s.content = v }
 
 func NewReleaseService(uow ReleaseUnitOfWork) *ReleaseService {
 	return &ReleaseService{uow: uow, clock: systemClock{}, signer: NewLocalMACSigner()}
@@ -146,10 +156,11 @@ type RevisionView struct {
 
 // RevisionSummary is one row of the revision list.
 type RevisionSummary struct {
-	RevisionNo int64  `json:"revisionNo"`
-	Status     string `json:"status"`
-	Digest     string `json:"digest"`
-	CreatedAt  string `json:"createdAt"`
+	CRRevisionID string `json:"crRevisionId"`
+	RevisionNo   int64  `json:"revisionNo"`
+	Status       string `json:"status"`
+	Digest       string `json:"digest"`
+	CreatedAt    string `json:"createdAt"`
 }
 
 // PackageView is the release.getPackage projection (verified=true only when
@@ -187,9 +198,33 @@ func (s *ReleaseService) CreateRevision(ctx context.Context, crID string, manife
 	if err != nil {
 		return m7flow.CRRevision{}, err
 	}
-	digest := m7flow.SHA256Hex(canonical)
+	// Work on a detached JSON object; the verifier never mutates a caller's
+	// reusable request or idempotency attempt.
+	var bound map[string]any
+	if err = json.Unmarshal(canonical, &bound); err != nil {
+		return m7flow.CRRevision{}, err
+	}
 	var out m7flow.CRRevision
 	err = s.uow.TransactRelease(ctx, func(tx ReleaseTx) error {
+		if s.content != nil {
+			if err := s.content.BindReleaseContent(ctx, tx, crID, bound); err != nil {
+				return err
+			}
+		}
+		canonical, err := json.Marshal(bound)
+		if err != nil {
+			return err
+		}
+		// Normalize verifier structs to ordinary JSON maps before freezing;
+		// reads rehydrate maps, so key ordering must be identical on both sides.
+		if err = json.Unmarshal(canonical, &bound); err != nil {
+			return err
+		}
+		canonical, err = json.Marshal(bound)
+		if err != nil {
+			return err
+		}
+		digest := m7flow.SHA256Hex(canonical)
 		next, err := tx.MaxCRRevisionNo(crID)
 		if err != nil {
 			return err
@@ -230,14 +265,27 @@ func (s *ReleaseService) BuildPackage(ctx context.Context, crRevisionID, expecte
 		if err != nil {
 			return ErrRevisionNotFound
 		}
+		if expectedDigest != rev.Digest {
+			return fmt.Errorf("%w: revision digest changed", ErrDigestMismatch)
+		}
 		if existing, err := tx.FindPackageByRevision(crRevisionID); err == nil {
+			if s.content != nil {
+				blob, err := tx.GetReleaseBlob(existing.BlobDigest)
+				if err != nil || m7flow.SHA256Hex([]byte(blob)) != existing.BlobDigest || !s.signer.Verify(blob, existing.Signature) {
+					return ErrDigestMismatch
+				}
+				var doc m7flow.SealedPackageDoc
+				if err = json.Unmarshal([]byte(blob), &doc); err != nil {
+					return err
+				}
+				if err = VerifyReleaseContent(tx, doc); err != nil {
+					return err
+				}
+			}
 			out = existing
 			return nil
 		} else if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, m7flow.ErrNotFound) {
 			return err
-		}
-		if expectedDigest != rev.Digest {
-			return fmt.Errorf("%w: revision digest changed", ErrDigestMismatch)
 		}
 		if rev.Status != m7flow.CRRevSubmitted && rev.Status != m7flow.CRRevApproved {
 			return fmt.Errorf("%w: status %s", ErrRevisionFrozen, rev.Status)
@@ -245,6 +293,11 @@ func (s *ReleaseService) BuildPackage(ctx context.Context, crRevisionID, expecte
 		var manifest map[string]any
 		if err := json.Unmarshal([]byte(rev.ManifestJSON), &manifest); err != nil {
 			return err
+		}
+		if s.content != nil {
+			if err := s.content.CaptureReleaseContent(ctx, tx, rev.CRID, manifest); err != nil {
+				return err
+			}
 		}
 		members, err := parseMembers(manifest["members"])
 		if err != nil {
@@ -347,7 +400,8 @@ func (s *ReleaseService) GetRevision(ctx context.Context, crID string, revisionN
 		var selected m7flow.CRRevision
 		for _, r := range revs {
 			view.Revisions = append(view.Revisions, RevisionSummary{
-				RevisionNo: r.RevisionNo, Status: r.Status, Digest: r.Digest,
+				CRRevisionID: r.ID,
+				RevisionNo:   r.RevisionNo, Status: r.Status, Digest: r.Digest,
 				CreatedAt: r.CreatedAt.UTC().Format(time.RFC3339Nano),
 			})
 			if revisionNo == 0 || r.RevisionNo == revisionNo {
@@ -409,6 +463,11 @@ func (s *ReleaseService) GetPackage(ctx context.Context, packageID string) (Pack
 		}
 		if rev.Digest != doc.RevisionDigest || m7flow.Digest256(doc.Manifest) != rev.Digest {
 			return fmt.Errorf("%w: revision binding", ErrDigestMismatch)
+		}
+		if s.content != nil {
+			if err := VerifyReleaseContent(tx, doc); err != nil {
+				return err
+			}
 		}
 		sealedAt := ""
 		if pkg.SealedAt != nil {

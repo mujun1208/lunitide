@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -358,12 +359,7 @@ func (e *Engine) SeedPlaywrightMcp(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	e.admitSettingsMcp(ctx, m7flow.McpEndpointConfig{
-		EndpointID: ep.EndpointID,
-		Transport:  p.Transport,
-		Command:    p.Command,
-		ArgsJSON:   mustJSONArgs(p.Args),
-		Enabled:    true,
-		State:      ep.State,
-	})
+	if err := e.admitSettingsMcp(ctx, ep); err != nil {
+		log.Printf("Playwright MCP admission failed: %v", err)
+	}
 }

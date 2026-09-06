@@ -8,19 +8,43 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "meetingId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
+    "meetingId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "expectedRevision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    }
   },
-  "required": ["meetingId"],
+  "required": [
+    "meetingId",
+    "expectedRevision"
+  ],
   "x-result": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "meetingId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
+      "meetingId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      }
     },
-    "required": ["meetingId"]
+    "required": [
+      "meetingId"
+    ]
   },
   "x-examples": {
-    "positive": [{ "meetingId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }],
-    "negative": [{}, { "extra": true }]
+    "positive": [
+      {
+        "meetingId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "expectedRevision": 1
+      }
+    ],
+    "negative": [
+      {},
+      {
+        "extra": true
+      }
+    ]
   }
 }

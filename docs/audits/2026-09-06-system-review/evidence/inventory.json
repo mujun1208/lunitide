@@ -1,0 +1,71 @@
+{
+  "head": "09978597dc026bfa40ab8d690d64f9bcaef476f3",
+  "version": "0.4.67",
+  "go_files": 1255,
+  "go_test_files": 500,
+  "web_test_files": 202,
+  "bridge_schemas": 467,
+  "migrations": 123,
+  "largest_source_files": [
+    {
+      "path": "web/src/session/companion/CompanionStage.tsx",
+      "lines": 2731
+    },
+    {
+      "path": "internal/storage/sqlite/store.go",
+      "lines": 1926
+    },
+    {
+      "path": "web/src/bridge/client.ts",
+      "lines": 1787
+    },
+    {
+      "path": "internal/app/chat.go",
+      "lines": 1460
+    },
+    {
+      "path": "web/src/mro/MroWorkbenchPage.tsx",
+      "lines": 1428
+    },
+    {
+      "path": "web/src/session/companion/speech.ts",
+      "lines": 1327
+    },
+    {
+      "path": "internal/webviewhost/host_windows.go",
+      "lines": 1250
+    },
+    {
+      "path": "internal/app/chat_run_stream.go",
+      "lines": 1184
+    },
+    {
+      "path": "internal/app/engine.go",
+      "lines": 1308
+    },
+    {
+      "path": "web/src/session/companion/ttsPlayer.ts",
+      "lines": 1169
+    },
+    {
+      "path": "internal/storage/sqlite/agent_runtime.go",
+      "lines": 1180
+    },
+    {
+      "path": "internal/agentrunapp/changeset.go",
+      "lines": 1101
+    },
+    {
+      "path": "internal/skillapp/catalog.go",
+      "lines": 1063
+    },
+    {
+      "path": "internal/m8app/memory.go",
+      "lines": 998
+    },
+    {
+      "path": "internal/toolruntime/runtime.go",
+      "lines": 958
+    }
+  ]
+}

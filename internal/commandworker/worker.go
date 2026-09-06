@@ -54,12 +54,18 @@ type Spec struct {
 	Env  []string // complete KEY=VALUE environment (replaces the parent env)
 
 	Timeout        time.Duration
+	MaxMemoryBytes int64 // optional stricter Windows Job memory budget
 	MaxOutputBytes int
+	// MaxArgBytes is an explicit trusted override for shell scripts (hard cap 16 KiB).
+	MaxArgBytes int
 }
 
 // Validate enforces worker invariants and normalizes the resource limits to
 // their defaults. Limits above the hard caps are rejected fail-closed.
 func (s *Spec) Validate() error {
+	if s.MaxMemoryBytes != 0 && (s.MaxMemoryBytes < 32<<20 || s.MaxMemoryBytes > 4<<30) {
+		return fmt.Errorf("%w: memory budget", ErrInvalidSpec)
+	}
 	if !filepath.IsAbs(s.Exe) {
 		return fmt.Errorf("%w: exe must be an absolute path", ErrInvalidSpec)
 	}
@@ -69,8 +75,15 @@ func (s *Spec) Validate() error {
 	if len(s.Args) > maxArgs {
 		return fmt.Errorf("%w: argv exceeds %d entries", ErrInvalidSpec, maxArgs)
 	}
+	argLimit := s.MaxArgBytes
+	if argLimit == 0 {
+		argLimit = maxArgLen
+	}
+	if argLimit < 1 || argLimit > 16<<10 {
+		return fmt.Errorf("%w: argument byte budget", ErrInvalidSpec)
+	}
 	for _, arg := range s.Args {
-		if len(arg) > maxArgLen || strings.ContainsRune(arg, 0) {
+		if len(arg) > argLimit || strings.ContainsRune(arg, 0) {
 			return fmt.Errorf("%w: argv entry malformed", ErrInvalidSpec)
 		}
 	}
@@ -117,6 +130,12 @@ type StartGuard interface{ Close() error }
 // returns the context error. The tree is terminated on every exit path, so
 // no orphaned grandchildren survive (PRD M4 门禁: 取消后无孤儿进程).
 func Run(ctx context.Context, spec Spec, guard StartGuard, onOutput func([]byte)) (Outcome, error) {
+	if err := ctx.Err(); err != nil {
+		if guard != nil {
+			_ = guard.Close()
+		}
+		return Outcome{}, err
+	}
 	if err := spec.Validate(); err != nil {
 		if guard != nil {
 			_ = guard.Close()
@@ -126,13 +145,27 @@ func Run(ctx context.Context, spec Spec, guard StartGuard, onOutput func([]byte)
 	if guard == nil {
 		guard = noopStartGuard{}
 	}
-	if onOutput == nil {
-		onOutput = func([]byte) {}
+	var finish func() error
+	callback := onOutput
+	if callback == nil {
+		callback = func([]byte) {}
+		finish = func() error { return nil }
+	} else {
+		delivery, deliveryErr := newOutputDelivery(callback)
+		if deliveryErr != nil {
+			_ = guard.Close()
+			return Outcome{}, deliveryErr
+		}
+		callback, finish = delivery.write, delivery.finish
 	}
-	sink := &cappedSink{limit: spec.MaxOutputBytes, cb: onOutput}
+	sink := &cappedSink{limit: spec.MaxOutputBytes, cb: callback}
 	outcome, err := run(ctx, spec, guard, sink)
 	outcome.OutputBytes = sink.delivered
 	outcome.Truncated = sink.truncated
+	if deliveryErr := finish(); deliveryErr != nil {
+		outcome.Truncated = true
+		err = errors.Join(err, deliveryErr)
+	}
 	return outcome, err
 }
 

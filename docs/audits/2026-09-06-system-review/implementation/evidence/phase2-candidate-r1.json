@@ -1,0 +1,56 @@
+{
+  "capturedAt": "2026-09-06T13:05:49.868465+00:00",
+  "status": "verified-development-candidate",
+  "version": "0.4.67",
+  "buildExitCode": 0,
+  "mode": "unsigned-development",
+  "signingCommand": "explicitly disabled for this candidate",
+  "sourceCommit": "09978597dc026bfa40ab8d690d64f9bcaef476f3",
+  "sourceTreeSha256": "8d33c1097c696ec8558fdf4805d39282e648618e6b2b712e1c17b1e36eb4c1f2",
+  "codeTreeSha256": "d62b1c8e0490eb7b075b24c5fb50d2951a9e388e234cc20bf1ce859764b4d90e",
+  "codeFileCount": 2758,
+  "codeMatchesFinalGates": true,
+  "sourceNote": "Build snapshot includes documentation at build time; final gate fingerprint excludes later documentation and evidence only. Every code input matches.",
+  "outputRoot": "E:/Trae-Work-Projects/lunitide/release/out-final",
+  "installer": {
+    "path": "release/out-final/Lunitide-Setup-0.4.67-x64.exe",
+    "bytes": 24988863,
+    "sha256": "699903a646d36bb42d6515bd695c60158553acc7a86d0191c40d0fe4d87a8268"
+  },
+  "stageManifest": {
+    "path": "release/out-final/Lunitide-0.4.67-x64/SHA256SUMS.txt",
+    "bytes": 8716,
+    "sha256": "3693bf71516c58d4194a63327c881baab7968d2de89adde429aec47386deb094"
+  },
+  "binaries": [
+    {
+      "path": "release/out-final/Lunitide-0.4.67-x64/Lunitide.exe",
+      "bytes": 19117056,
+      "sha256": "c5718e358bf799cedf760a5473970c47cdf191ee54a2bbfda4bfdaa1c2ef96db"
+    },
+    {
+      "path": "release/out-final/Lunitide-0.4.67-x64/lunitide-engine.exe",
+      "bytes": 46938112,
+      "sha256": "f67070d7dc1b9579fc90d7b2c45984ded465d1f11179dc2dc1d759955134779c"
+    },
+    {
+      "path": "release/out-final/Lunitide-0.4.67-x64/lunitide-maintenance.exe",
+      "bytes": 16609280,
+      "sha256": "cc461c858698ee5d282ac0be152a0c683102189118fa9dea4195a7d1cb6d9a85"
+    },
+    {
+      "path": "release/out-final/Lunitide-0.4.67-x64/purge-user-data.exe",
+      "bytes": 2016256,
+      "sha256": "97381cec99f85bfe9d3a1130f1360f73d8363f86fc4a286864df771e1ee4e831"
+    }
+  ],
+  "toolchains": {
+    "go": "go version go1.26.6 windows/amd64",
+    "node": "v24.16.0"
+  },
+  "installed": false,
+  "physicalAcceptance": "pending-user",
+  "verificationExitCode": 0,
+  "verifiedAt": "2026-09-06T13:09:38.261600+00:00",
+  "verificationLog": "phase2-candidate-verify.log"
+}

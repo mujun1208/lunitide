@@ -17,7 +17,9 @@ import (
 	"github.com/lunitide/lunitide/internal/bootstrap"
 	"github.com/lunitide/lunitide/internal/buildinfo"
 	"github.com/lunitide/lunitide/internal/datadir"
+	"github.com/lunitide/lunitide/internal/doctext"
 	"github.com/lunitide/lunitide/internal/ipc"
+	"github.com/lunitide/lunitide/internal/maintenance"
 	"github.com/lunitide/lunitide/internal/mcp6"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/secret"
@@ -27,9 +29,16 @@ import (
 
 func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
+	parseJob := flag.String("doctext-worker", "", "parse one staged document and exit")
 	pipe := flag.String("pipe", "", "per-launch named pipe path (required)")
 	hostPID := flag.Int("host-pid", 0, "expected Host process ID")
 	flag.Parse()
+	if *parseJob != "" {
+		if err := doctext.RunWorker(*parseJob); err != nil {
+			log.Fatal("document parser failed")
+		}
+		return
+	}
 	if *showVersion {
 		fmt.Println(buildinfo.Version)
 		return
@@ -51,6 +60,23 @@ func main() {
 		log.Fatal(err)
 	}
 	defer dataRoot.Close()
+	dataLock, err := maintenance.OpenRuntime(context.Background(), dataRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer dataLock.Close()
+	parserRoot, err := dataRoot.PrepareSubdirectory("document-parser")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer parserRoot.Close()
+	executable, err := os.Executable()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := doctext.ConfigureWorker(executable, parserRoot.Path()); err != nil {
+		log.Fatal(err)
+	}
 	if pidPath, pidErr := dataRoot.FilePath(ipc.GatewayEnginePIDFile); pidErr == nil {
 		if err := ipc.SaveEnginePID(pidPath, os.Getpid()); err != nil {
 			log.Printf("write engine.pid: %v", err)
@@ -88,8 +114,11 @@ func main() {
 	// mcpgateway.go (package main, transport/platform-local; frozen M5 GET
 	// client, self-host allowlist; stdio via the 5B-isolated spawn engine).
 	// The registry is built here and injected into the composition root.
-	mcp6Registry := mcp6.NewRegistry(mcpGatewayProbe, mcpGatewayInvoke, mcpEmptyLease{})
-	mcp6Registry.SetDescribeFunc(mcpGatewayDescribe)
+	mcp6Registry := mcp6.NewRegistry(nil, nil, nil)
+	mcp6Registry.SetSecurityAdapters(mcp6.SecretCredentialLease(secretService), mcpSecureDescribe, mcpSecureInvoke)
+	mcp6Registry.SetLaunchResolver(mcpResolveLaunch)
+	mcp6Registry.SetLaunchVerifier(mcpVerifyLaunch)
+	mcp6Registry.SetRevokeHook(func(id string) { mcpStdioPool.Evict("stdio:" + id) })
 	// Composition root: store -> service -> engine wiring plus all the
 	// startup reconciliation. WireEngine returns a cleanup closure that
 	// releases every resource it opened in reverse order, preserving the

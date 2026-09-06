@@ -22,7 +22,7 @@ func TestParseBodyIndexerSplitsMarkdownAndRejectsEmpty(t *testing.T) {
 	doc := m8core.KBDocument{
 		DocumentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Version: 1,
 		MediaType: "text/markdown", ContentRef: path,
-		SHA256: strings.Repeat("ab", 32), SourceLocator: path,
+		SHA256: m8app.SourceDigest([]byte(body)), SourceLocator: path,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 	chunks, err := m8app.ParseBodyIndexer(context.Background(), doc)
@@ -46,7 +46,7 @@ func TestParseBodyIndexerEmptyFileFails(t *testing.T) {
 	doc := m8core.KBDocument{
 		DocumentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Version: 1,
 		MediaType: "text/markdown", ContentRef: path,
-		SHA256: strings.Repeat("cd", 32), SourceLocator: path,
+		SHA256: m8app.SourceDigest([]byte("   ")), SourceLocator: path,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 	if _, err := m8app.ParseBodyIndexer(context.Background(), doc); err == nil {

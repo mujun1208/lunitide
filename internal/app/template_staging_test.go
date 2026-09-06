@@ -12,7 +12,39 @@ import (
 )
 
 type mockTemplateStore struct {
-	created asset.AssetTemplate
+	created   asset.AssetTemplate
+	creations map[string]struct {
+		digest   string
+		template asset.AssetTemplate
+	}
+}
+
+func (m *mockTemplateStore) ReplayAssetTemplateCreation(_ context.Context, key, digest string) (asset.AssetTemplate, bool, error) {
+	r, ok := m.creations[key]
+	if ok && r.digest != digest {
+		return asset.AssetTemplate{}, true, asset.ErrIdempotencyConflict
+	}
+	return r.template, ok, nil
+}
+func (m *mockTemplateStore) CreateAssetTemplateIdempotent(ctx context.Context, key, digest string, tpl asset.AssetTemplate) (asset.AssetTemplate, error) {
+	if prior, found, err := m.ReplayAssetTemplateCreation(ctx, key, digest); found || err != nil {
+		return prior, err
+	}
+	created, err := m.CreateAssetTemplate(ctx, tpl)
+	if err != nil {
+		return created, err
+	}
+	if m.creations == nil {
+		m.creations = map[string]struct {
+			digest   string
+			template asset.AssetTemplate
+		}{}
+	}
+	m.creations[key] = struct {
+		digest   string
+		template asset.AssetTemplate
+	}{digest, created}
+	return created, nil
 }
 
 func (m *mockTemplateStore) CreateAssetTemplate(_ context.Context, tpl asset.AssetTemplate) (asset.AssetTemplate, error) {
@@ -73,7 +105,8 @@ func TestHandleTemplateFileStageAndCreate(t *testing.T) {
 		t.Fatalf("stage failed: %+v", stageResp.Error)
 	}
 	createReq := bridge.Request{
-		ID: ulid.Make().String(), TraceID: ulid.Make().String(),
+		IdempotencyKey: "stage-create",
+		ID:             ulid.Make().String(), TraceID: ulid.Make().String(),
 		Method: string(bridge.MethodTemplateCreate),
 		Payload: mustJSON(map[string]any{
 			"name": "蓝图文档模板", "templateType": "document", "documentType": "业务蓝图文档",
@@ -157,7 +190,8 @@ func TestHandleTemplateFileStageLastChunkRetryKeepsBytes(t *testing.T) {
 		t.Fatalf("staged = %q / %q", firstRead, retryRead)
 	}
 	createResp := handleTemplateCreate(engine, context.Background(), bridge.Request{
-		ID: ulid.Make().String(), TraceID: ulid.Make().String(),
+		IdempotencyKey: "stage-retry-create",
+		ID:             ulid.Make().String(), TraceID: ulid.Make().String(),
 		Method: string(bridge.MethodTemplateCreate),
 		Payload: mustJSON(map[string]any{
 			"name": "蓝图文档模板", "templateType": "document", "documentType": "业务蓝图文档",

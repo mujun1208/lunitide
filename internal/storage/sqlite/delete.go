@@ -212,6 +212,9 @@ func (s *Store) deleteSession(ctx context.Context, id, actor string) error {
 		return fmt.Errorf("delete session_expert_mounts: %w", err)
 	}
 	// 8. session
+	if _, err := tx.ExecContext(ctx, `DELETE FROM chat_turn_journal WHERE session_id=?`, id); err != nil {
+		return fmt.Errorf("delete chat turn journal: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE id=?`, id); err != nil {
 		return fmt.Errorf("delete session: %w", err)
 	}
@@ -329,6 +332,9 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 	}
 
 	// Delete all sessions (dependencies already deleted in the loop).
+	if _, err := tx.ExecContext(ctx, `DELETE FROM chat_turn_journal WHERE session_id `+inProject, id); err != nil {
+		return fmt.Errorf("delete chat turn journal: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE project_id=?`, id); err != nil {
 		return fmt.Errorf("delete sessions: %w", err)
 	}

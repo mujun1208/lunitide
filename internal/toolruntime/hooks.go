@@ -138,7 +138,7 @@ func buildHookRules(raw []byte) ([]hookRule, error) {
 // loadUserHooksPolicy merges the optional hooks document at startup. A
 // present-but-invalid file fails closed (Open reports the error).
 func (r *Runtime) loadUserHooksPolicy() error {
-	raw, err := os.ReadFile(r.hooksRulesPath)
+	raw, err := r.HooksPolicyJSON()
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -152,53 +152,22 @@ func (r *Runtime) loadUserHooksPolicy() error {
 	r.hooksMu.Lock()
 	r.hookRules = rules
 	r.hooksMu.Unlock()
+	r.rememberAppliedPolicy("hooks", raw)
 	return nil
 }
 
 // HooksPolicyJSON answers the persisted document ({"hooks":[]} when the
 // file does not exist yet).
 func (r *Runtime) HooksPolicyJSON() ([]byte, error) {
-	raw, err := os.ReadFile(r.hooksRulesPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []byte(`{"hooks":[]}`), nil
-		}
-		return nil, err
-	}
-	if !json.Valid(raw) {
-		return nil, errors.New("hooks-policy.json: stored document is not valid JSON")
-	}
-	return raw, nil
+	return readPolicyDocument(r.hooksRulesPath, []byte(`{"hooks":[]}`))
 }
 
 // SetHooksPolicyJSON validates, atomically persists and hot-applies a
 // new hooks document. An invalid document is refused without touching
 // the file or the live rules.
 func (r *Runtime) SetHooksPolicyJSON(raw []byte) error {
-	if len(raw) > 64<<10 {
-		return errors.New("hooks-policy.json: document exceeds 64 KiB")
-	}
-	if !json.Valid(raw) {
-		return errors.New("hooks-policy.json: document is not valid JSON")
-	}
-	rules, err := buildHookRules(raw)
-	if err != nil {
-		return err
-	}
-	tmp := r.hooksRulesPath + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0600); err != nil {
-		return err
-	}
-	// os.Rename on Windows refuses to replace an existing destination.
-	_ = os.Remove(r.hooksRulesPath)
-	if err := os.Rename(tmp, r.hooksRulesPath); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	r.hooksMu.Lock()
-	r.hookRules = rules
-	r.hooksMu.Unlock()
-	return nil
+	_, err := r.commitPolicy("hooks", raw, nil)
+	return err
 }
 
 // hookDecision is the aggregated outcome of every beforeToolCall rule

@@ -121,13 +121,16 @@ import {
   type SessionDeletePayload, type SessionDeleteResult,
   type PlanDTO, type PlanNodeDTO, type ReviewDTO, type MemoryDTO, type OntologyNodeDTO, type OntologyEdgeDTO, type SkillDTO, type SkillMatchDTO,
   type PlanStatus, type NodeStatus, type RiskLevel, type ReviewStatus, type MemoryLayer, type MemoryScope,
-	 type PlanTodoCreatePayload,type PlanTodoCreateResult,type PlanRunStartPayload,type PlanRunStartResult,type PlanRunTreePayload,type PlanRunTreeResult,type PlanRunSpawnPayload,type PlanRunSpawnResult,type PlanRunJoinPayload,type PlanRunJoinResult,type PlanRunCancelPayload,type PlanRunCancelResult,
+	 type PlanTodoCreatePayload,type PlanTodoCreateResult,type PlanRunStartPayload,type PlanRunStartResult,type PlanRunRetryPayload,type PlanRunRetryResult,type PlanRunTreePayload,type PlanRunTreeResult,type PlanRunSpawnPayload,type PlanRunSpawnResult,type PlanRunJoinPayload,type PlanRunJoinResult,type PlanRunCancelPayload,type PlanRunCancelResult,
   type AgentRunStartPayload,type AgentRunStartResult,type AgentRunGetPayload,type AgentRunGetResult,type AgentRunCancelPayload,type AgentRunCancelResult,type AgentRunResumePayload,type AgentRunResumeResult,type AgentRunReconcilePayload,type AgentRunReconcileResult,
   type CapabilityListResult,type WorkspaceRegisterPayload,type WorkspaceRegisterResult,type WorkspaceGrantPayload,type WorkspaceGrantResult,type WorkspaceLeasePayload,type WorkspaceLeaseResult,
   type ReviewDecidePayload,type ReviewDecideResult,type ChangesetPreviewPayload,type ChangesetPreviewResult,type ChangesetApplyPayload,type ChangesetApplyResult,type ChangesetRevertPayload,type ChangesetRevertResult,
   type CommandReviewRequestPayload,type CommandReviewRequestResult,type CommandStartPayload,type CommandStartResult,type CommandGetPayload,type CommandGetResult,type CommandCancelPayload,type CommandCancelResult,type WebFetchPayload,type WebFetchResult,type WebSearchPayload,type WebSearchResult,type RunPlanPutPayload,type RunPlanPutResult,type EvidenceListPayload,type EvidenceListResult,
   type OntologyNodeType, type OntologyEdgeType, type SkillStatus, type SkillPermission,
   type McpListPayload,type McpListResult,type McpAddPayload,type McpAddResult,type McpTogglePayload,type McpToggleResult,type McpHealthPayload,type McpHealthResult,type McpMarketSearchPayload,type McpMarketSearchResult,type Mcp6PresetsListPayload,type Mcp6PresetsListResult,
+  type McpCredentialSetPayload,type McpCredentialSetResult,
+  type McpSecurityReviewPayload,type McpSecurityReviewResult,
+  type PluginPackListResult,type PluginPackInstallPayload,type PluginPackInstallResult,type PluginPackUninstallPayload,type PluginPackUninstallResult,
   type PluginListPayload,type PluginListResult,type PluginInstallPayload,type PluginInstallResult,type PluginTogglePayload,type PluginToggleResult,type PluginUninstallPayload,type PluginUninstallResult,type PluginConfirmTokenPayload,type PluginConfirmTokenResult,type PluginUpgradePayload,type PluginUpgradeResult,type PluginMarketSearchPayload,type PluginMarketSearchResult,type PluginMarketDetailPayload,type PluginMarketDetailResult,type PluginDevCreatePayload,type PluginDevCreateResult,
   type ExpertListPayload,type ExpertListResult,type ExpertDetailPayload,type ExpertDetailResult,type ExpertCreatePayload,type ExpertCreateResult,type ExpertUpdatePayload,type ExpertUpdateResult,type ExpertTogglePayload,type ExpertToggleResult,type ExpertArchivePayload,type ExpertArchiveResult,type ExpertMountPayload,type ExpertMountResult,type ExpertMountingGetPayload,type ExpertMountingGetResult,type ExpertScenarioCreatePayload,type ExpertScenarioCreateResult,type ExpertScenarioListPayload,type ExpertScenarioListResult,type ExpertScenarioDeletePayload,type ExpertScenarioDeleteResult,type ExpertCatalogListPayload,type ExpertCatalogListResult,type ExpertInstallPayload,type ExpertInstallResult,
   type OrgSummaryPayload,type OrgSummaryResult,type OrgCreatePayload,type OrgCreateResult,type OrgSwitchPayload,type OrgSwitchResult,type OrgActivatePayload,type OrgActivateResult,type OrgSuspendPayload,type OrgSuspendResult,type OrgSpaceListPayload,type OrgSpaceListResult,type OrgSpaceCreatePayload,type OrgSpaceCreateResult,type OrgMemberListPayload,type OrgMemberListResult,type OrgMemberInvitePayload,type OrgMemberInviteResult,type OrgMemberRevokePayload,type OrgMemberRevokeResult,
@@ -143,10 +146,11 @@ import {
   type MeetingsListResult, type MeetingsStartPayload, type MeetingsStartResult,
   type MeetingsAppendPayload, type MeetingsAppendResult, type MeetingsStopPayload, type MeetingsStopResult,
   type MeetingsGetPayload, type MeetingsGetResult, type MeetingsSummarizePayload, type MeetingsSummarizeResult,
+  type MeetingsTranscriptGetPayload, type MeetingsTranscriptGetResult, type MeetingsSegmentsListPayload, type MeetingsSegmentsListResult,
   type MeetingsHeartbeatPayload, type MeetingsHeartbeatResult,
   type MeetingsAudioAppendPayload, type MeetingsAudioAppendResult, type MeetingsCatchupPayload, type MeetingsCatchupResult,
   type MeetingsLoopbackPollPayload, type MeetingsLoopbackPollResult,
-  type MeetingsExportPayload, type MeetingsExportResult, type MeetingsUpdatePayload, type MeetingsDeletePayload, type MeetingsDeleteResult, type MeetingDTO, type MeetingSegmentDTO,
+  type MeetingsSummarySourceGetPayload, type MeetingsSummarySourceGetResult, type MeetingsExportPayload, type MeetingsExportResult, type MeetingsUpdatePayload, type MeetingsDeletePayload, type MeetingsDeleteResult, type MeetingDTO, type MeetingSegmentDTO,
   type AppUpdateCheckPayload,type AppUpdateCheckResult,type AppUpdateInstallPayload,type AppUpdateInstallResult,
   type TtsVoicesResult,type TtsVoicesPayload,type TtsCancelResult,type TtsSynthesizePayload,type TtsSynthesizeResult,type TtsStreamPayload,type TtsStreamResult,type TtsRefAudiosPayload,type TtsRefAudiosResult,type TtsEnsureRefEnginePayload,type TtsEnsureRefEngineResult,type TtsInstallRefEnginePayload,type TtsInstallRefEngineResult,type TtsInstallOnnxEnginePayload,type TtsInstallOnnxEngineResult,
   type TalkStartPayload,type TalkStartResult,type TalkAppendPayload,type TalkAppendResult,type TalkCancelPayload,type TalkCancelResult,
@@ -156,7 +160,7 @@ import {
   type ConversationsRootGetResult,type ConversationsRootSelectResult,type ConversationsRootSetPayload,type ConversationsRootSetResult,
   type SessionFolderGetPayload,type SessionFolderGetResult,type SessionFolderListPayload,type SessionFolderListResult,type SessionFolderOpenPayload,type SessionFolderOpenResult,
   type CollabGateStatusPayload,type CollabGateStatusResult,type CollabGateEvaluatePayload,type CollabGateEvaluateResult,type CollabGateConfirmPayload,type CollabGateConfirmResult,
-  type DiagnosticsExportPayload,type DiagnosticsExportResult,type SystemHealthResult,
+  type DiagnosticsExportPayload,type DiagnosticsExportResult,type SystemHealthResult,type SystemDiagnosticsResult,
   type ToolsCommandPolicyGetResult,type ToolsCommandPolicySetPayload,type ToolsCommandPolicySetResult,
   type ToolsHooksPolicyGetResult,type ToolsHooksPolicySetPayload,type ToolsHooksPolicySetResult,type ToolsHooksEventsListPayload,type ToolsHooksEventsListResult,
   type WorkspaceArtifactReviewListPayload,type WorkspaceArtifactReviewListResult,type WorkspaceArtifactReviewAppendPayload,type WorkspaceArtifactReviewAppendResult,type WorkspaceArtifactPreviewPayload,type WorkspaceArtifactPreviewResult,type WorkspaceArtifactExportPayload,type WorkspaceArtifactExportResult,
@@ -183,7 +187,7 @@ export type TerminalEvent={type:'output';data:string}|{type:'exit';exitCode:numb
 export interface TerminalSession{terminalId:string;input(data:string):Promise<boolean>;resize(cols:number,rows:number):Promise<boolean>;close():Promise<boolean>;dispose():void}
 export interface TerminalBridge{start(payload:TerminalStartPayload,onEvent:(event:TerminalEvent)=>void):Promise<TerminalSession>;dispose():void}
 
-export type MutationMethod = 'project.create'|'project.delete'|'project.update'|'project.publish'|'project.close'|'project.reopen'|'project.advanceStatus'|'session.create'|'session.update'|'session.delete'|'session.metadata.set'|'session.experts.set'|'mro.aircraft.upsert'|'mro.manual.register'|'mro.tool.checkout'|'mro.plan.publish'|'mro.tool.upsert'|'mro.tool.return'|'mro.due.upsert'|'mro.util.record'|'mro.lot.upsert'|'mro.lot.use'|'mro.kit.upsert'|'mro.parts.stock.upsert'|'mro.alternate.upsert'|'mro.workpackage.build'|'mro.interval.upsert'|'mro.interval.propose'|'mro.schedule.upsert'|'mro.capacity.upsert'|'mro.component.upsert'|'mro.life.event'|'mro.pirep.draft'|'mro.pirep.confirm'|'mro.aog.intake'|'mro.aog.confirm'|'mro.po.draft'|'mro.po.confirm'|'mro.chem.issue'|'mro.ops.todo.add'|'datasource.create'|'datasource.probe'|'datasource.bind'|'datasource.disable'|'message.append'|'message.rewind'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'|'provider.credential.backup.add'|'provider.credential.backup.remove'|'capability.roles.set'|'stage.create'|'stage.update'|'deliverable.upsert'|'deliverable.confirmGate'|'template.create'|'template.delete'|'template.enable'|'template.restore'|'template.void'|'release.buildPackage'|'release.createRevision'|'release.promote'|'release.rollback'|'skill.import.discover'|'skill.import.inspect'|'skill.import.submit'|'skill.import.approve'|'skill.import.reject'|'skill.import.revoke'|'plan.create'|'node.create'|'memory.create'|'memory.confirmCandidate'|'ontology.node.create'|'ontology.node.update'|'ontology.node.delete'|'ontology.edge.create'|'ontology.edge.update'|'ontology.edge.delete'|'skill.create'|'skill.update'|'skill.delete'|'skill.category.set'|'attachment.ingest'|'attachment.delete'|'agent.run.start'|'agent.run.cancel'|'agent.run.resume'|'agent.run.reconcile'|'workspace.register'|'workspace.grant'|'workspace.lease'|'review.decide'|'changeset.preview'|'changeset.apply'|'changeset.revert'|'command.review.request'|'command.start'|'command.cancel'|'web.fetch'|'web.search'|'run.plan.put'|'mcp.add'|'mcp.toggle'|'plugin.install'|'plugin.toggle'|'plugin.uninstall'|'plugin.upgrade'|'plugin.dev.create'|'expert.create'|'expert.update'|'expert.toggle'|'expert.archive'|'expert.mount'|'expert.scenario.create'|'expert.scenario.delete'|'expert.skills.set'|'appUpdate.install'|'subagent.spawn'|'org.create'|'org.switch'|'org.activate'|'org.suspend'|'org.space.create'|'org.member.invite'|'org.member.revoke'|'mc.confirm.token'|'mc.connector.install'|'mc.connector.uninstall'|'mc.connector.update'|'im.inbound.deliver'
+export type MutationMethod = 'automation.job.set'|'project.create'|'project.delete'|'project.update'|'project.publish'|'project.close'|'project.reopen'|'project.advanceStatus'|'session.create'|'session.update'|'session.delete'|'session.metadata.set'|'session.experts.set'|'mro.aircraft.upsert'|'mro.manual.register'|'mro.tool.checkout'|'mro.plan.publish'|'mro.tool.upsert'|'mro.tool.return'|'mro.due.upsert'|'mro.util.record'|'mro.lot.upsert'|'mro.lot.use'|'mro.kit.upsert'|'mro.parts.stock.upsert'|'mro.alternate.upsert'|'mro.workpackage.build'|'mro.interval.upsert'|'mro.interval.propose'|'mro.schedule.upsert'|'mro.capacity.upsert'|'mro.component.upsert'|'mro.life.event'|'mro.pirep.draft'|'mro.pirep.confirm'|'mro.aog.intake'|'mro.aog.confirm'|'mro.po.draft'|'mro.po.confirm'|'mro.chem.issue'|'mro.ops.todo.add'|'datasource.create'|'datasource.probe'|'datasource.bind'|'datasource.disable'|'people.thread.send'|'datasource.write.prepare'|'datasource.write.commit'|'message.append'|'message.rewind'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'|'provider.credential.backup.add'|'provider.credential.backup.remove'|'capability.roles.set'|'stage.create'|'stage.update'|'deliverable.upsert'|'deliverable.confirmGate'|'template.create'|'template.delete'|'template.enable'|'template.restore'|'template.void'|'release.buildPackage'|'release.createRevision'|'release.promote'|'release.rollback'|'skill.import.discover'|'skill.import.inspect'|'skill.import.submit'|'skill.import.approve'|'skill.import.reject'|'skill.import.revoke'|'plan.create'|'node.create'|'memory.create'|'memory.confirmCandidate'|'ontology.node.create'|'ontology.node.update'|'ontology.node.delete'|'ontology.edge.create'|'ontology.edge.update'|'ontology.edge.delete'|'skill.create'|'skill.update'|'skill.delete'|'skill.category.set'|'attachment.ingest'|'attachment.delete'|'agent.run.start'|'agent.run.cancel'|'agent.run.resume'|'agent.run.reconcile'|'workspace.register'|'workspace.grant'|'workspace.lease'|'review.decide'|'changeset.preview'|'changeset.apply'|'changeset.revert'|'command.review.request'|'command.start'|'command.cancel'|'web.fetch'|'web.search'|'run.plan.put'|'mcp.add'|'mcp.toggle'|'plugin.install'|'plugin.toggle'|'plugin.uninstall'|'plugin.upgrade'|'plugin.dev.create'|'expert.create'|'expert.update'|'expert.toggle'|'expert.archive'|'expert.mount'|'expert.scenario.create'|'expert.scenario.delete'|'expert.skills.set'|'appUpdate.install'|'subagent.spawn'|'org.create'|'org.switch'|'org.activate'|'org.suspend'|'org.space.create'|'org.member.invite'|'org.member.revoke'|'mc.confirm.token'|'mc.connector.install'|'mc.connector.uninstall'|'mc.connector.update'|'im.inbound.deliver'
 export type MutationOptions<T extends object> = { attempt?: MutationAttempt<T> }
 export interface MutationAttempt<T extends object> { readonly method: MutationMethod; readonly payload: Readonly<T>; readonly idempotencyKey: string; readonly fingerprint: string }
 const stable = (value: unknown): string => value === null || typeof value !== 'object' ? JSON.stringify(value) : Array.isArray(value) ? `[${value.map(stable).join(',')}]` : `{${Object.keys(value as object).sort().map(k=>`${JSON.stringify(k)}:${stable((value as Record<string,unknown>)[k])}`).join(',')}}`
@@ -227,7 +231,7 @@ export interface MessageBridge { list(payload:MessageListPayload):Promise<Messag
 export interface UIThemeBridge { set(payload:UiThemeSetPayload):Promise<UiThemeSetResult> }
 export interface SystemSettingsBridge { open(payload:SystemSettingsOpenPayload):Promise<SystemSettingsOpenResult> }
 export interface BrowserBridge { open(payload:BrowserOpenPayload):Promise<BrowserOpenResult>; close():Promise<BrowserCloseResult> }
-const mutationMethods = new Set<BridgeMethod>(['project.create','project.delete','project.update','project.publish','project.close','project.reopen','project.advanceStatus' as BridgeMethod,'session.create','session.update','session.delete','session.metadata.set' as BridgeMethod,'session.experts.set','mro.aircraft.upsert' as BridgeMethod,'mro.manual.register' as BridgeMethod,'mro.tool.checkout' as BridgeMethod,'mro.plan.publish' as BridgeMethod,'mro.tool.upsert' as BridgeMethod,'mro.tool.return' as BridgeMethod,'mro.due.upsert' as BridgeMethod,'mro.util.record' as BridgeMethod,'mro.lot.upsert' as BridgeMethod,'mro.lot.use' as BridgeMethod,'mro.kit.upsert' as BridgeMethod,'mro.parts.stock.upsert' as BridgeMethod,'mro.alternate.upsert' as BridgeMethod,'mro.workpackage.build' as BridgeMethod,'mro.interval.upsert' as BridgeMethod,'mro.interval.propose' as BridgeMethod,'mro.schedule.upsert' as BridgeMethod,'mro.capacity.upsert' as BridgeMethod,'mro.component.upsert' as BridgeMethod,'mro.life.event' as BridgeMethod,'mro.pirep.draft' as BridgeMethod,'mro.pirep.confirm' as BridgeMethod,'mro.aog.intake' as BridgeMethod,'mro.aog.confirm' as BridgeMethod,'mro.po.draft' as BridgeMethod,'mro.po.confirm' as BridgeMethod,'mro.chem.issue' as BridgeMethod,'mro.ops.todo.add' as BridgeMethod,'datasource.create' as BridgeMethod,'datasource.probe' as BridgeMethod,'datasource.bind' as BridgeMethod,'datasource.disable' as BridgeMethod,'message.append','message.rewind','provider.create','provider.update','provider.delete','provider.model.sync','stage.create','stage.update' as BridgeMethod,'deliverable.upsert','deliverable.confirmGate','template.create','template.delete','template.enable','template.restore','template.void','release.buildPackage','release.createRevision','release.promote','release.rollback','skill.import.discover','skill.import.inspect','skill.import.submit','skill.import.approve','skill.import.reject','skill.import.revoke','plan.create','node.create','memory.create','memory.confirmCandidate','ontology.node.create','ontology.node.update','ontology.node.delete','ontology.edge.create','ontology.edge.update','ontology.edge.delete','skill.create','skill.update','skill.delete','skill.category.set','attachment.ingest','attachment.delete','agent.run.start','agent.run.cancel','agent.run.resume','agent.run.reconcile','workspace.register','workspace.grant','workspace.lease','review.decide','changeset.preview','changeset.apply','changeset.revert','command.review.request','command.start','command.cancel','web.fetch','web.search','run.plan.put','mcp.add','mcp.toggle','plugin.install','plugin.toggle','plugin.uninstall','plugin.upgrade','plugin.dev.create','expert.create','expert.update','expert.toggle','expert.archive','expert.mount','expert.scenario.create','expert.scenario.delete','expert.skills.set','appUpdate.install','subagent.spawn','org.create','org.switch','org.activate','org.suspend','org.space.create','org.member.invite','org.member.revoke','mc.confirm.token','mc.connector.install','mc.connector.uninstall','mc.connector.update','im.inbound.deliver','provider.credential.backup.add' as BridgeMethod,'provider.credential.backup.remove' as BridgeMethod,'capability.roles.set' as BridgeMethod])
+const mutationMethods = new Set<BridgeMethod>(['automation.job.set','project.create','project.delete','project.update','project.publish','project.close','project.reopen','project.advanceStatus' as BridgeMethod,'session.create','session.update','session.delete','session.metadata.set' as BridgeMethod,'session.experts.set','mro.aircraft.upsert' as BridgeMethod,'mro.manual.register' as BridgeMethod,'mro.tool.checkout' as BridgeMethod,'mro.plan.publish' as BridgeMethod,'mro.tool.upsert' as BridgeMethod,'mro.tool.return' as BridgeMethod,'mro.due.upsert' as BridgeMethod,'mro.util.record' as BridgeMethod,'mro.lot.upsert' as BridgeMethod,'mro.lot.use' as BridgeMethod,'mro.kit.upsert' as BridgeMethod,'mro.parts.stock.upsert' as BridgeMethod,'mro.alternate.upsert' as BridgeMethod,'mro.workpackage.build' as BridgeMethod,'mro.interval.upsert' as BridgeMethod,'mro.interval.propose' as BridgeMethod,'mro.schedule.upsert' as BridgeMethod,'mro.capacity.upsert' as BridgeMethod,'mro.component.upsert' as BridgeMethod,'mro.life.event' as BridgeMethod,'mro.pirep.draft' as BridgeMethod,'mro.pirep.confirm' as BridgeMethod,'mro.aog.intake' as BridgeMethod,'mro.aog.confirm' as BridgeMethod,'mro.po.draft' as BridgeMethod,'mro.po.confirm' as BridgeMethod,'mro.chem.issue' as BridgeMethod,'mro.ops.todo.add' as BridgeMethod,'datasource.create' as BridgeMethod,'datasource.probe' as BridgeMethod,'datasource.bind' as BridgeMethod,'datasource.disable' as BridgeMethod,'datasource.write.prepare','datasource.write.commit','people.thread.send','message.append','message.rewind','provider.create','provider.update','provider.delete','provider.model.sync','stage.create','stage.update' as BridgeMethod,'deliverable.upsert','deliverable.confirmGate','template.create','template.delete','template.enable','template.restore','template.void','release.buildPackage','release.createRevision','release.promote','release.rollback','skill.import.discover','skill.import.inspect','skill.import.submit','skill.import.approve','skill.import.reject','skill.import.revoke','plan.create','node.create','memory.create','memory.confirmCandidate','ontology.node.create','ontology.node.update','ontology.node.delete','ontology.edge.create','ontology.edge.update','ontology.edge.delete','skill.create','skill.update','skill.delete','skill.category.set','attachment.ingest','attachment.delete','agent.run.start','agent.run.cancel','agent.run.resume','agent.run.reconcile','workspace.register','workspace.grant','workspace.lease','review.decide','changeset.preview','changeset.apply','changeset.revert','command.review.request','command.start','command.cancel','web.fetch','web.search','run.plan.put','mcp.add','mcp.toggle','plugin.install','plugin.toggle','plugin.uninstall','plugin.upgrade','plugin.dev.create','expert.create','expert.update','expert.toggle','expert.archive','expert.mount','expert.scenario.create','expert.scenario.delete','expert.skills.set','appUpdate.install','subagent.spawn','org.create','org.switch','org.activate','org.suspend','org.space.create','org.member.invite','org.member.revoke','mc.confirm.token','mc.connector.install','mc.connector.uninstall','mc.connector.update','im.inbound.deliver','provider.credential.backup.add' as BridgeMethod,'provider.credential.backup.remove' as BridgeMethod,'capability.roles.set' as BridgeMethod])
 function ulid(): string { const a='0123456789ABCDEFGHJKMNPQRSTVWXYZ',b=crypto.getRandomValues(new Uint8Array(10));let v=(BigInt(Date.now())<<80n)|b.reduce((n,x)=>(n<<8n)|BigInt(x),0n),r='';for(let i=0;i<26;i++){r=a[Number(v&31n)]+r;v>>=5n}return r }
 const isObj=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const exact=(v:Record<string,unknown>,required:string[],optional:string[]=[])=>required.every(k=>k in v)&&Object.keys(v).every(k=>required.includes(k)||optional.includes(k))
@@ -291,6 +295,13 @@ export function createSystemSettingsBridge(transport:WebViewTransport,defaultDea
 let systemSettingsSingleton:SystemSettingsBridge|undefined
 export function getSystemSettingsBridge():SystemSettingsBridge{return systemSettingsSingleton??=createSystemSettingsBridge(webview())}
 export const systemSettingsBridge:SystemSettingsBridge={open:p=>{try{return getSystemSettingsBridge().open(p)}catch(error){return Promise.reject(error)}}}
+export type DiagramBridge = { render(payload: {source: string; config: object}): Promise<{svg: string}> }
+export function createDiagramBridge(transport: WebViewTransport = webview()): DiagramBridge {
+ const core = createSimpleBridge(transport, {}, 10_000)
+ return {render: payload => core.request<{svg: string}>('diagram.render' as BridgeMethod, payload)}
+}
+let diagramSingleton: DiagramBridge | undefined
+export function getDiagramBridge(): DiagramBridge { return diagramSingleton ??= createDiagramBridge() }
 export function createBrowserBridge(transport:WebViewTransport,defaultDeadlineMs=8_000):BrowserBridge{const core=createSimpleBridge(transport,{},defaultDeadlineMs);return{open:p=>core.request('browser.open',p),close:()=>core.request('browser.close',{})}}
 let browserSingleton:BrowserBridge|undefined
 export function getBrowserBridge():BrowserBridge{return browserSingleton??=createBrowserBridge(webview())}
@@ -412,14 +423,14 @@ let diagnosticsSingleton:DiagnosticsBridge|undefined
 export function getDiagnosticsBridge():DiagnosticsBridge{return diagnosticsSingleton??=createDiagnosticsBridge()}
 export const diagnosticsBridge:DiagnosticsBridge={exportDiagnostics:p=>{try{return getDiagnosticsBridge().exportDiagnostics(p)}catch(error){return Promise.reject(error)}}}
 
-export interface SystemHealthBridge{health():Promise<SystemHealthResult>}
+export interface SystemHealthBridge{health():Promise<SystemHealthResult>;diagnostics():Promise<SystemDiagnosticsResult>}
 export function createSystemHealthBridge(transport:WebViewTransport=webview()):SystemHealthBridge{
   const core=createSimpleBridge(transport,{},8_000)
-  return{health:()=>core.request('system.health',{})}
+  return{health:()=>core.request('system.health',{}),diagnostics:()=>core.request('system.diagnostics',{},10_000)}
 }
 let systemHealthSingleton:SystemHealthBridge|undefined
 export function getSystemHealthBridge():SystemHealthBridge{return systemHealthSingleton??=createSystemHealthBridge()}
-export const systemHealthBridge:SystemHealthBridge={health:()=>{try{return getSystemHealthBridge().health()}catch(error){return Promise.reject(error)}}}
+export const systemHealthBridge:SystemHealthBridge={diagnostics:()=>getSystemHealthBridge().diagnostics(),health:()=>{try{return getSystemHealthBridge().health()}catch(error){return Promise.reject(error)}}}
 
 // Tools command policy bridge — user-editable read-only command whitelist
 // (tools.commandPolicy.get/set, settings → security panel).
@@ -469,7 +480,7 @@ export const artifactReviewBridge:ArtifactReviewBridge={list:p=>{try{return getA
 // Automation bridge — P2-3 resident cron automation (automation.*).
 export interface AutomationBridge{
   listJobs():Promise<AutomationJobListResult>
-  setJob(payload:AutomationJobSetPayload):Promise<AutomationJobSetResult>
+  setJob(payload:AutomationJobSetPayload,options?:MutationOptions<AutomationJobSetPayload>):Promise<AutomationJobSetResult>
   deleteJob(payload:AutomationJobDeletePayload):Promise<AutomationJobDeleteResult>
   triggerJob(payload:AutomationJobTriggerPayload):Promise<AutomationJobTriggerResult>
   listRuns(payload:AutomationRunListPayload):Promise<AutomationRunListResult>
@@ -477,11 +488,11 @@ export interface AutomationBridge{
 }
 export function createAutomationBridge(transport:WebViewTransport=webview()):AutomationBridge{
   const core=createSimpleBridge(transport,{},15_000)
-  return{listJobs:()=>core.request('automation.job.list',{}),setJob:p=>core.request('automation.job.set',p),deleteJob:p=>core.request('automation.job.delete',p),triggerJob:p=>core.request('automation.job.trigger',p),listRuns:p=>core.request('automation.run.list',p),status:()=>core.request('automation.status',{})}
+  return{listJobs:()=>core.request('automation.job.list',{}),setJob:(p,o)=>core.request('automation.job.set',p,10_000,o?.attempt??createMutationAttempt('automation.job.set',p)),deleteJob:p=>core.request('automation.job.delete',p),triggerJob:p=>core.request('automation.job.trigger',p),listRuns:p=>core.request('automation.run.list',p),status:()=>core.request('automation.status',{})}
 }
 let automationSingleton:AutomationBridge|undefined
 export function getAutomationBridge():AutomationBridge{return automationSingleton??=createAutomationBridge()}
-export const automationBridge:AutomationBridge={listJobs:()=>{try{return getAutomationBridge().listJobs()}catch(error){return Promise.reject(error)}},setJob:p=>{try{return getAutomationBridge().setJob(p)}catch(error){return Promise.reject(error)}},deleteJob:p=>{try{return getAutomationBridge().deleteJob(p)}catch(error){return Promise.reject(error)}},triggerJob:p=>{try{return getAutomationBridge().triggerJob(p)}catch(error){return Promise.reject(error)}},listRuns:p=>{try{return getAutomationBridge().listRuns(p)}catch(error){return Promise.reject(error)}},status:()=>{try{return getAutomationBridge().status()}catch(error){return Promise.reject(error)}}}
+export const automationBridge:AutomationBridge={listJobs:()=>{try{return getAutomationBridge().listJobs()}catch(error){return Promise.reject(error)}},setJob:(p,o)=>{try{return getAutomationBridge().setJob(p,o)}catch(error){return Promise.reject(error)}},deleteJob:p=>{try{return getAutomationBridge().deleteJob(p)}catch(error){return Promise.reject(error)}},triggerJob:p=>{try{return getAutomationBridge().triggerJob(p)}catch(error){return Promise.reject(error)}},listRuns:p=>{try{return getAutomationBridge().listRuns(p)}catch(error){return Promise.reject(error)}},status:()=>{try{return getAutomationBridge().status()}catch(error){return Promise.reject(error)}}}
 
 // This-PC meeting notes — microphone transcript, then 摘要/待办/逐字稿. Never mixes into session.* or people P2P.
 export const BRIDGE_DEADLINE_CAP_MS = 30_000
@@ -523,6 +534,9 @@ export interface MeetingsBridge{
   loopbackPoll(payload:MeetingsLoopbackPollPayload):Promise<MeetingsLoopbackPollResult>
   stop(payload:MeetingsStopPayload):Promise<MeetingDTO>
   get(payload:MeetingsGetPayload):Promise<MeetingDTO>
+  summarySource(payload:MeetingsSummarySourceGetPayload):Promise<MeetingsSummarySourceGetResult>
+  transcriptGet(payload:MeetingsTranscriptGetPayload):Promise<MeetingsTranscriptGetResult>
+  segmentsList(payload:MeetingsSegmentsListPayload):Promise<MeetingsSegmentsListResult>
   heartbeat(payload:MeetingsHeartbeatPayload):Promise<MeetingDTO>
   catchup(payload:MeetingsCatchupPayload):Promise<MeetingsCatchupResult>
   summarize(payload:MeetingsSummarizePayload):Promise<MeetingDTO>
@@ -540,6 +554,9 @@ export function createMeetingsBridge(transport:WebViewTransport=webview()):Meeti
     loopbackPoll:p=>core.request('meetings.loopback.poll',p),
     stop:p=>retryBridgeRequest(()=>core.request('meetings.stop',p,MEETING_STOP_DEADLINE_MS)),
     get:p=>core.request('meetings.get',p,MEETING_HEARTBEAT_DEADLINE_MS),
+    summarySource:p=>core.request('meetings.summary.source.get',p),
+    transcriptGet:p=>core.request('meetings.transcript.get',p),
+    segmentsList:p=>core.request('meetings.segments.list',p),
     heartbeat:p=>retryBridgeRequest(()=>core.request('meetings.heartbeat',p,MEETING_HEARTBEAT_DEADLINE_MS)),
     catchup:p=>core.request('meetings.catchup',p,MEETING_SUMMARIZE_DEADLINE_MS),
     summarize:p=>core.request('meetings.summarize',p,MEETING_SUMMARIZE_DEADLINE_MS),
@@ -550,14 +567,16 @@ export function createMeetingsBridge(transport:WebViewTransport=webview()):Meeti
 }
 let meetingsSingleton:MeetingsBridge|undefined
 export function getMeetingsBridge():MeetingsBridge{return meetingsSingleton??=createMeetingsBridge()}
-export const meetingsBridge:MeetingsBridge={list:()=>{try{return getMeetingsBridge().list()}catch(error){return Promise.reject(error)}},start:p=>{try{return getMeetingsBridge().start(p)}catch(error){return Promise.reject(error)}},append:p=>{try{return getMeetingsBridge().append(p)}catch(error){return Promise.reject(error)}},audioAppend:p=>{try{return getMeetingsBridge().audioAppend(p)}catch(error){return Promise.reject(error)}},loopbackPoll:p=>{try{return getMeetingsBridge().loopbackPoll(p)}catch(error){return Promise.reject(error)}},stop:p=>{try{return getMeetingsBridge().stop(p)}catch(error){return Promise.reject(error)}},get:p=>{try{return getMeetingsBridge().get(p)}catch(error){return Promise.reject(error)}},heartbeat:p=>{try{return getMeetingsBridge().heartbeat(p)}catch(error){return Promise.reject(error)}},catchup:p=>{try{return getMeetingsBridge().catchup(p)}catch(error){return Promise.reject(error)}},summarize:p=>{try{return getMeetingsBridge().summarize(p)}catch(error){return Promise.reject(error)}},exportMeeting:p=>{try{return getMeetingsBridge().exportMeeting(p)}catch(error){return Promise.reject(error)}},update:p=>{try{return getMeetingsBridge().update(p)}catch(error){return Promise.reject(error)}},delete:p=>{try{return getMeetingsBridge().delete(p)}catch(error){return Promise.reject(error)}}}
+export const meetingsBridge:MeetingsBridge={list:()=>{try{return getMeetingsBridge().list()}catch(error){return Promise.reject(error)}},start:p=>{try{return getMeetingsBridge().start(p)}catch(error){return Promise.reject(error)}},append:p=>{try{return getMeetingsBridge().append(p)}catch(error){return Promise.reject(error)}},audioAppend:p=>{try{return getMeetingsBridge().audioAppend(p)}catch(error){return Promise.reject(error)}},loopbackPoll:p=>{try{return getMeetingsBridge().loopbackPoll(p)}catch(error){return Promise.reject(error)}},stop:p=>{try{return getMeetingsBridge().stop(p)}catch(error){return Promise.reject(error)}},get:p=>{try{return getMeetingsBridge().get(p)}catch(error){return Promise.reject(error)}},summarySource:p=>{try{return getMeetingsBridge().summarySource(p)}catch(error){return Promise.reject(error)}},transcriptGet:p=>{try{return getMeetingsBridge().transcriptGet(p)}catch(error){return Promise.reject(error)}},segmentsList:p=>{try{return getMeetingsBridge().segmentsList(p)}catch(error){return Promise.reject(error)}},heartbeat:p=>{try{return getMeetingsBridge().heartbeat(p)}catch(error){return Promise.reject(error)}},catchup:p=>{try{return getMeetingsBridge().catchup(p)}catch(error){return Promise.reject(error)}},summarize:p=>{try{return getMeetingsBridge().summarize(p)}catch(error){return Promise.reject(error)}},exportMeeting:p=>{try{return getMeetingsBridge().exportMeeting(p)}catch(error){return Promise.reject(error)}},update:p=>{try{return getMeetingsBridge().update(p)}catch(error){return Promise.reject(error)}},delete:p=>{try{return getMeetingsBridge().delete(p)}catch(error){return Promise.reject(error)}}}
 
 // P3/P4 Bridge — 简化模式：envelope 校验 + 基本 request/response
 export type CapabilityRoleName = 'chat'|'flash'|'vision'|'embed'|'judge'|'gui'
 export type CapabilityRoleRow = { role: CapabilityRoleName; providerId?: string; modelId?: string; allowJudgeEqChat: boolean }
+export type CapabilityRolesSnapshot = {roles: CapabilityRoleRow[]; revision: string; appliedRevision: string; state: 'applied'}
+export type CapabilityRolesUpdate = {expectedRevision: string; roles: Array<{role: CapabilityRoleName; providerId?: string; modelId?: string; allowJudgeEqChat?: boolean}>}
 export interface CapabilityRolesBridge {
-  get(): Promise<{roles: CapabilityRoleRow[]}>
-  set(payload: {roles: Array<{role: CapabilityRoleName; providerId?: string; modelId?: string; allowJudgeEqChat?: boolean}>}, options?: MutationOptions<{roles: Array<{role: CapabilityRoleName; providerId?: string; modelId?: string; allowJudgeEqChat?: boolean}>}>): Promise<{roles: CapabilityRoleRow[]}>
+  get(): Promise<CapabilityRolesSnapshot>
+  set(payload: CapabilityRolesUpdate, options?: MutationOptions<CapabilityRolesUpdate>): Promise<CapabilityRolesSnapshot>
 }
 export function createCapabilityRolesBridge(transport: WebViewTransport = webview(), deadlineMs = 8_000): CapabilityRolesBridge {
   const core = createSimpleBridge(transport, {}, deadlineMs)
@@ -593,11 +612,12 @@ function createSimpleBridge<TMethods extends Record<string, BridgeMethod>>(
   const request = <T>(method: BridgeMethod, payload: object, deadlineMs = defaultDeadlineMs, attempt?: MutationAttempt<object>): Promise<T> => {
     const id = ulid(), traceId = ulid()
     const mutation = mutationMethods.has(method) ? checkedAttempt(method as MutationMethod, payload, attempt) : undefined
-    const message: BridgeRequest<object> = { v: BRIDGE_VERSION, kind: 'request', id, traceId, method, sentAt: new Date().toISOString(), payload: mutation?.payload ?? clone(payload), deadlineMs: capBridgeDeadlineMs(method, deadlineMs), ...(mutation ? { idempotencyKey: mutation.key } : {}) }
+    const secretSubmission=method==='mcp.credential.set'
+    const message: BridgeRequest<object> = { v: BRIDGE_VERSION, kind: 'request', id, traceId, method, sentAt: new Date().toISOString(), payload: mutation?.payload ?? (secretSubmission?payload:clone(payload)), deadlineMs: capBridgeDeadlineMs(method, deadlineMs), ...(mutation ? { idempotencyKey: mutation.key } : {}) }
     return new Promise((resolve, reject) => {
       const timer = window.setTimeout(() => { pending.delete(id); reject(new BridgeClientError('Bridge 请求超时', 'REQUEST_DEADLINE_EXCEEDED', true, traceId)) }, message.deadlineMs + 250)
       pending.set(id, { method, resolve, reject, timer })
-      try { transport.postMessage(message) } catch { clearTimeout(timer); pending.delete(id); reject(new BridgeClientError('WebView2 Bridge 当前不可用', 'BRIDGE_UNAVAILABLE', true, traceId)) }
+      try { transport.postMessage(message) } catch { clearTimeout(timer); pending.delete(id); reject(new BridgeClientError('WebView2 Bridge 当前不可用', 'BRIDGE_UNAVAILABLE', true, traceId)) } finally {if(secretSubmission&&isObj(message.payload)&&typeof message.payload.credential==='string')message.payload.credential=''}
     })
   }
   return { request }
@@ -618,6 +638,7 @@ export interface PlanBridge {
   failNode(payload: NodeFailPayload): Promise<NodeFailResult>
   createTodo(payload: PlanTodoCreatePayload): Promise<PlanTodoCreateResult>
   startRun(payload: PlanRunStartPayload): Promise<PlanRunStartResult>
+  retryRun(payload: PlanRunRetryPayload): Promise<PlanRunRetryResult>
   runTree(payload: PlanRunTreePayload): Promise<PlanRunTreeResult>
   spawnRun(payload: PlanRunSpawnPayload): Promise<PlanRunSpawnResult>
   joinRun(payload: PlanRunJoinPayload): Promise<PlanRunJoinResult>
@@ -640,6 +661,7 @@ export function createPlanBridge(transport: WebViewTransport, defaultDeadlineMs 
     failNode: p => core.request('node.fail', p),
     createTodo: p => core.request('plan.todo.create', p),
     startRun: p => core.request('plan.run.start', p),
+    retryRun: p => core.request('plan.run.retry', p),
     runTree: p => core.request('plan.run.tree', p),
     spawnRun: p => core.request('plan.run.spawn', p),
     joinRun: p => core.request('plan.run.join', p),
@@ -648,7 +670,7 @@ export function createPlanBridge(transport: WebViewTransport, defaultDeadlineMs 
 }
 let planSingleton: PlanBridge | undefined
 export function getPlanBridge(): PlanBridge { return planSingleton ??= createPlanBridge(webview()) }
-export const planBridge: PlanBridge = { get: p => getPlanBridge().get(p), list: p => getPlanBridge().list(p), create: (p, o) => getPlanBridge().create(p, o), activate: p => getPlanBridge().activate(p), complete: p => getPlanBridge().complete(p), pause: p => getPlanBridge().pause(p), resume: p => getPlanBridge().resume(p), listNodes: p => getPlanBridge().listNodes(p), createNode: (p, o) => getPlanBridge().createNode(p, o), startNode: p => getPlanBridge().startNode(p), completeNode: p => getPlanBridge().completeNode(p), failNode: p => getPlanBridge().failNode(p), createTodo: p => getPlanBridge().createTodo(p), startRun: p => getPlanBridge().startRun(p), runTree: p => getPlanBridge().runTree(p), spawnRun: p => getPlanBridge().spawnRun(p), joinRun: p => getPlanBridge().joinRun(p), cancelRun: p => getPlanBridge().cancelRun(p) }
+export const planBridge: PlanBridge = { get: p => getPlanBridge().get(p), list: p => getPlanBridge().list(p), create: (p, o) => getPlanBridge().create(p, o), activate: p => getPlanBridge().activate(p), complete: p => getPlanBridge().complete(p), pause: p => getPlanBridge().pause(p), resume: p => getPlanBridge().resume(p), listNodes: p => getPlanBridge().listNodes(p), createNode: (p, o) => getPlanBridge().createNode(p, o), startNode: p => getPlanBridge().startNode(p), completeNode: p => getPlanBridge().completeNode(p), failNode: p => getPlanBridge().failNode(p), createTodo: p => getPlanBridge().createTodo(p), startRun: p => getPlanBridge().startRun(p), retryRun: p => getPlanBridge().retryRun(p), runTree: p => getPlanBridge().runTree(p), spawnRun: p => getPlanBridge().spawnRun(p), joinRun: p => getPlanBridge().joinRun(p), cancelRun: p => getPlanBridge().cancelRun(p) }
 
 export interface AgentRuntimeBridge{
  capabilities():Promise<CapabilityListResult>;start(p:AgentRunStartPayload):Promise<AgentRunStartResult>;get(p:AgentRunGetPayload):Promise<AgentRunGetResult>;cancel(p:AgentRunCancelPayload):Promise<AgentRunCancelResult>;resume(p:AgentRunResumePayload):Promise<AgentRunResumeResult>;reconcile(p:AgentRunReconcilePayload):Promise<AgentRunReconcileResult>;registerWorkspace(p:WorkspaceRegisterPayload):Promise<WorkspaceRegisterResult>;grantWorkspace(p:WorkspaceGrantPayload):Promise<WorkspaceGrantResult>;leaseWorkspace(p:WorkspaceLeasePayload):Promise<WorkspaceLeaseResult>;decide(p:ReviewDecidePayload):Promise<ReviewDecideResult>;previewChanges(p:ChangesetPreviewPayload):Promise<ChangesetPreviewResult>;applyChanges(p:ChangesetApplyPayload):Promise<ChangesetApplyResult>;revertChanges(p:ChangesetRevertPayload):Promise<ChangesetRevertResult>;requestCommandReview(p:CommandReviewRequestPayload):Promise<CommandReviewRequestResult>;startCommand(p:CommandStartPayload):Promise<CommandStartResult>;getCommand(p:CommandGetPayload):Promise<CommandGetResult>;cancelCommand(p:CommandCancelPayload):Promise<CommandCancelResult>;fetchWeb(p:WebFetchPayload):Promise<WebFetchResult>;searchWeb(p:WebSearchPayload):Promise<WebSearchResult>;putPlan(p:RunPlanPutPayload):Promise<RunPlanPutResult>;evidence(p:EvidenceListPayload):Promise<EvidenceListResult>
@@ -1311,8 +1333,8 @@ export function getTtsBridge():TtsBridge{return ttsSingleton??=createTtsBridge()
 export type{TalkStartPayload,TalkStartResult,TalkAppendPayload,TalkAppendResult,TalkCancelPayload,TalkCancelResult}
 export type TalkStreamEvent=
   |{type:'audio';audioBase64:string;mime:string}
-  |{type:'transcript';text:string;role:'user'|'assistant'}
-  |{type:'tool';name:string;text:string}
+  |{type:'transcript';text:string;role:'user'|'assistant';messageId?:string;final?:boolean}
+  |{type:'tool';name:string;text:string;messageId?:string}
   |{type:'error';code:string;message:string}
   |{type:'ended'}
 export interface TalkStreamHandle{
@@ -1346,11 +1368,11 @@ function startTalkStream(transport:WebViewTransport,payload:TalkStartPayload,onE
         return
       }
       if(value.type==='talk_transcript'&&talk&&typeof talk.text==='string'&&talk.text.length>0){
-        onEvent({type:'transcript',text:talk.text,role:talk.role==='user'?'user':'assistant'})
+        onEvent({type:'transcript',text:talk.text,role:talk.role==='user'?'user':'assistant',...(typeof talk.messageId==='string'&&isULID(talk.messageId)?{messageId:talk.messageId}:{}),...(talk.final===true?{final:true}:{})})
         return
       }
       if(value.type==='talk_tool'&&talk&&typeof talk.name==='string'){
-        onEvent({type:'tool',name:talk.name,text:typeof talk.text==='string'?talk.text:''})
+        onEvent({type:'tool',name:talk.name,text:typeof talk.text==='string'?talk.text:'',...(typeof talk.messageId==='string'&&isULID(talk.messageId)?{messageId:talk.messageId}:{})})
         return
       }
       if(value.type==='talk_error'&&talk){
@@ -1436,6 +1458,8 @@ export function getOmniBridge():OmniBridge{return omniSingleton??=createOmniBrid
 // market.search (T-7.8.5 settings page data source) + mcp6.presets.list
 // (c3-mcp 免费官方预置目录).
 export interface McpBridge{
+  securityReview?(payload:McpSecurityReviewPayload):Promise<McpSecurityReviewResult>
+  credentialSet?(payload:McpCredentialSetPayload):Promise<McpCredentialSetResult>
   list(payload?:McpListPayload):Promise<McpListResult>
   add(payload:McpAddPayload,options?:MutationOptions<McpAddPayload>):Promise<McpAddResult>
   toggle(payload:McpTogglePayload,options?:MutationOptions<McpTogglePayload>):Promise<McpToggleResult>
@@ -1445,15 +1469,18 @@ export interface McpBridge{
 }
 export function createMcpBridge(transport:WebViewTransport=webview(),deadlineMs=10_000):McpBridge{
   const core=createSimpleBridge(transport,{},deadlineMs)
-  return{list:p=>core.request('mcp.list',p??{}),add:(p,o)=>core.request('mcp.add',p,20_000,o?.attempt),toggle:(p,o)=>core.request('mcp.toggle',p,deadlineMs,o?.attempt),health:p=>core.request('mcp.health',p,15_000),marketSearch:p=>core.request('mcp.market.search',p,15_000),presets:p=>core.request('mcp6.presets.list',p??{})}
+  return{securityReview:p=>core.request('mcp.security.review',p,30_000),credentialSet:p=>core.request('mcp.credential.set',p,30_000),list:p=>core.request('mcp.list',p??{}),add:(p,o)=>core.request('mcp.add',p,20_000,o?.attempt),toggle:(p,o)=>core.request('mcp.toggle',p,deadlineMs,o?.attempt),health:p=>core.request('mcp.health',p,15_000),marketSearch:p=>core.request('mcp.market.search',p,15_000),presets:p=>core.request('mcp6.presets.list',p??{})}
 }
 let mcpSingleton:McpBridge|undefined
 export function getMcpBridge():McpBridge{return mcpSingleton??=createMcpBridge()}
-export const mcpBridge:McpBridge={list:p=>getMcpBridge().list(p),add:(p,o)=>getMcpBridge().add(p,o),toggle:(p,o)=>getMcpBridge().toggle(p,o),health:p=>getMcpBridge().health(p),marketSearch:p=>getMcpBridge().marketSearch(p),presets:p=>getMcpBridge().presets(p)}
+export const mcpBridge:McpBridge={securityReview:p=>getMcpBridge().securityReview!(p),credentialSet:p=>getMcpBridge().credentialSet!(p),list:p=>getMcpBridge().list(p),add:(p,o)=>getMcpBridge().add(p,o),toggle:(p,o)=>getMcpBridge().toggle(p,o),health:p=>getMcpBridge().health(p),marketSearch:p=>getMcpBridge().marketSearch(p),presets:p=>getMcpBridge().presets(p)}
 
 // M8 plugin system bridge — install / list / toggle / uninstall / upgrade +
 // market browse + dev bundles (T-8.9.7 settings page data source).
 export interface PluginBridge{
+  packList?():Promise<PluginPackListResult>
+  packInstall?(payload:PluginPackInstallPayload):Promise<PluginPackInstallResult>
+  packUninstall?(payload:PluginPackUninstallPayload):Promise<PluginPackUninstallResult>
   list(payload?:PluginListPayload):Promise<PluginListResult>
   install(payload:PluginInstallPayload,options?:MutationOptions<PluginInstallPayload>):Promise<PluginInstallResult>
   toggle(payload:PluginTogglePayload,options?:MutationOptions<PluginTogglePayload>):Promise<PluginToggleResult>
@@ -1466,11 +1493,11 @@ export interface PluginBridge{
 }
 export function createPluginBridge(transport:WebViewTransport=webview(),deadlineMs=12_000):PluginBridge{
   const core=createSimpleBridge(transport,{},deadlineMs)
-  return{list:p=>core.request('plugin.list',p??{}),install:(p,o)=>core.request('plugin.install',p,30_000,o?.attempt),toggle:(p,o)=>core.request('plugin.toggle',p,deadlineMs,o?.attempt),uninstall:(p,o)=>core.request('plugin.uninstall',p,deadlineMs,o?.attempt),confirmToken:(p,o)=>core.request('plugin.confirmToken',p,deadlineMs,o?.attempt),upgrade:(p,o)=>core.request('plugin.upgrade',p,30_000,o?.attempt),marketSearch:p=>core.request('plugin.market.search',p,15_000),marketDetail:p=>core.request('plugin.market.detail',p,15_000),devCreate:(p,o)=>core.request('plugin.dev.create',p,30_000,o?.attempt)}
+  return{packList:()=>core.request('plugin.pack.list',{}),packInstall:p=>core.request('plugin.pack.install',p,120_000),packUninstall:p=>core.request('plugin.pack.uninstall',p,60_000),list:p=>core.request('plugin.list',p??{}),install:(p,o)=>core.request('plugin.install',p,30_000,o?.attempt),toggle:(p,o)=>core.request('plugin.toggle',p,deadlineMs,o?.attempt),uninstall:(p,o)=>core.request('plugin.uninstall',p,deadlineMs,o?.attempt),confirmToken:(p,o)=>core.request('plugin.confirmToken',p,deadlineMs,o?.attempt),upgrade:(p,o)=>core.request('plugin.upgrade',p,30_000,o?.attempt),marketSearch:p=>core.request('plugin.market.search',p,15_000),marketDetail:p=>core.request('plugin.market.detail',p,15_000),devCreate:(p,o)=>core.request('plugin.dev.create',p,30_000,o?.attempt)}
 }
 let pluginSingleton:PluginBridge|undefined
 export function getPluginBridge():PluginBridge{return pluginSingleton??=createPluginBridge()}
-export const pluginBridge:PluginBridge={list:p=>getPluginBridge().list(p),install:(p,o)=>getPluginBridge().install(p,o),toggle:(p,o)=>getPluginBridge().toggle(p,o),uninstall:(p,o)=>getPluginBridge().uninstall(p,o),confirmToken:(p,o)=>getPluginBridge().confirmToken(p,o),upgrade:(p,o)=>getPluginBridge().upgrade(p,o),marketSearch:p=>getPluginBridge().marketSearch(p),marketDetail:p=>getPluginBridge().marketDetail(p),devCreate:(p,o)=>getPluginBridge().devCreate(p,o)}
+export const pluginBridge:PluginBridge={packList:()=>getPluginBridge().packList!(),packInstall:p=>getPluginBridge().packInstall!(p),packUninstall:p=>getPluginBridge().packUninstall!(p),list:p=>getPluginBridge().list(p),install:(p,o)=>getPluginBridge().install(p,o),toggle:(p,o)=>getPluginBridge().toggle(p,o),uninstall:(p,o)=>getPluginBridge().uninstall(p,o),confirmToken:(p,o)=>getPluginBridge().confirmToken(p,o),upgrade:(p,o)=>getPluginBridge().upgrade(p,o),marketSearch:p=>getPluginBridge().marketSearch(p),marketDetail:p=>getPluginBridge().marketDetail(p),devCreate:(p,o)=>getPluginBridge().devCreate(p,o)}
 
 // M8 expert center bridge — six-section catalog CRUD + nine-phase mounting
 // (T-8.11.5 expert center data source).
@@ -1490,8 +1517,8 @@ export interface ExpertBridge{
   install?(payload:ExpertInstallPayload):Promise<ExpertInstallResult>
   skillsGet?(payload:{expertId:string}):Promise<{expertId:string;skillKeys:string[]}>
   skillsSet?(payload:{expertId:string;skillKeys:string[]},options?:MutationOptions<{expertId:string;skillKeys:string[]}>):Promise<{expertId:string;skillKeys:string[]}>
-  knowledgeGet?(payload:{expertId:string}):Promise<{collectionId?:string;documentCount:number;readyCount:number;chunkCount:number;nodeCount:number;memoryCount:number;missing:boolean}>
-  knowledgeIngest?(payload:{expertId:string;path:string;sourceLocator?:string;mediaType?:string}):Promise<{collectionId:string;documents:Array<{documentId:string;version:number;indexState:string;preview?:string[];failReason?:string}>}>
+  knowledgeGet?(payload:import('../expert/knowledgeTypes').KnowledgeGetPayload):Promise<{collectionId?:string;documentCount:number;readyCount:number;chunkCount:number;nodeCount:number;memoryCount:number;missing:boolean;sources?:import('../expert/knowledgeTypes').KnowledgeSource[];nextSourceCursor?:string}>
+  knowledgeIngest?(payload:{expertId:string;path:string;sourceLocator?:string;mediaType?:string;expectedRevision?:number}):Promise<{collectionId:string;documents:Array<{documentId:string;version:number;indexState:string;preview?:string[];failReason?:string}>}>
   growthGet?(payload:{expertId:string}):Promise<{missionSnapshot:string;ladder:Array<{name:string;state:'have'|'learning'|'next'}>;coverage:{docTypes:string[];gaps:string[]};scenarios:Array<{title:string;phaseKey:string}>}>
   kbSearch?(payload:{expertId:string;query:string;topK?:number;tailNo?:string;asOf?:string;docType?:string}):Promise<{traceId:string;hits:Array<{expertId:string;docId:string;revision?:string;locator:string;quote:string;score:number}>;explanation:{reasons:string[];redactions:string[];notAdopted:string[];missing:boolean};indexVersion:string}>
   kbCite?(payload:{expertId:string;docId:string;revision?:string;locator:string;quote:string;score?:number}):Promise<{expertId:string;docId:string;revision?:string;locator:string;quote:string;score:number}>
@@ -1543,7 +1570,7 @@ export interface PeopleBridge{
   discoverySet(payload:PeopleDiscoverySetPayload):Promise<PeopleDiscoveryGetResult>
   threadList():Promise<PeopleThreadListResult>
   threadOpen(payload:PeopleThreadOpenPayload):Promise<PeopleThreadOpenResult>
-  threadSend(payload:PeopleThreadSendPayload):Promise<PeopleThreadSendResult>
+  threadSend(payload:PeopleThreadSendPayload,options?:MutationOptions<PeopleThreadSendPayload>):Promise<PeopleThreadSendResult>
   threadTyping(payload:PeopleThreadTypingPayload):Promise<{ok:boolean}>
   groupCreate(payload:PeopleGroupCreatePayload):Promise<PeopleThreadDTO>
   fileDecide(payload:PeopleFileDecidePayload):Promise<PeopleFileOfferDTO>
@@ -1560,7 +1587,7 @@ export function createIdentityBridge(transport:WebViewTransport=webview()):Ident
 }
 export function createPeopleBridge(transport:WebViewTransport=webview()):PeopleBridge{
   const core=createSimpleBridge(transport,{},12_000)
-  return{list:()=>core.request('people.list',{}),pair:p=>core.request('people.pair',p),discoveryGet:()=>core.request('people.discovery.get',{}),discoverySet:p=>core.request('people.discovery.set',p),threadList:()=>core.request('people.thread.list',{}),threadOpen:p=>core.request('people.thread.open',p),threadSend:p=>retryBridgeRequest(()=>core.request('people.thread.send',p,PEOPLE_FILE_DEADLINE_MS)),threadTyping:p=>core.request('people.thread.typing',p),groupCreate:p=>core.request('people.group.create',p),fileDecide:p=>core.request('people.file.decide',p),fileOpen:p=>core.request('people.file.open',p),fileStage:p=>retryBridgeRequest(()=>core.request('people.file.stage',p,PEOPLE_FILE_DEADLINE_MS)),filePick:p=>retryBridgeRequest(()=>core.request('people.file.pick',p??{},PEOPLE_FILE_DEADLINE_MS)),screenCapture:p=>core.request('people.screen.capture',p??{},PEOPLE_CAPTURE_DEADLINE_MS),peerAdd:p=>core.request('people.peer.add',p,8_000),contactUpdate:p=>core.request('people.contact.update',p)}
+  return{list:()=>core.request('people.list',{}),pair:p=>core.request('people.pair',p),discoveryGet:()=>core.request('people.discovery.get',{}),discoverySet:p=>core.request('people.discovery.set',p),threadList:()=>core.request('people.thread.list',{}),threadOpen:p=>core.request('people.thread.open',p),threadSend:(p,o)=>{const attempt=o?.attempt??createMutationAttempt('people.thread.send',p);return retryBridgeRequest(()=>core.request('people.thread.send',p,PEOPLE_FILE_DEADLINE_MS,attempt))},threadTyping:p=>core.request('people.thread.typing',p),groupCreate:p=>core.request('people.group.create',p),fileDecide:p=>core.request('people.file.decide',p),fileOpen:p=>core.request('people.file.open',p),fileStage:p=>retryBridgeRequest(()=>core.request('people.file.stage',p,PEOPLE_FILE_DEADLINE_MS)),filePick:p=>retryBridgeRequest(()=>core.request('people.file.pick',p??{},PEOPLE_FILE_DEADLINE_MS)),screenCapture:p=>core.request('people.screen.capture',p??{},PEOPLE_CAPTURE_DEADLINE_MS),peerAdd:p=>core.request('people.peer.add',p,8_000),contactUpdate:p=>core.request('people.contact.update',p)}
 }
 let identitySingleton:IdentityBridge|undefined
 let peopleSingleton:PeopleBridge|undefined
@@ -1598,28 +1625,30 @@ export type MroAogRow={id:string;tailNo:string;pn?:string;qty?:string;note?:stri
 export type MroPoRow={id:string;pn:string;qty?:string;price?:string;state:string}
 export type MroTriggerRow={scopeId:string;kind:string;state:string;action:string;category?:string}
 export type MroIntervalRow={taskKey:string;intervalValue:number;unit:string;sourceCite?:string}
+export type MroPageRequest = {cursor?:string}
+export type MroPageMeta = {nextCursor?:string;continuedFields?:string[]}
 export interface MroBridge {
-  aircraftList(payload?:object):Promise<{items:MroAircraft[]}>
+  aircraftList(payload?:MroPageRequest):Promise<MroPageMeta&{items:MroAircraft[]}>
   aircraftUpsert(payload:{aircraftId?:string;tailNo:string;msn?:string;model:string;config?:string},options?:MutationOptions<{aircraftId?:string;tailNo:string;msn?:string;model:string;config?:string}>):Promise<MroAircraft>
   auditList(payload?:{limit?:number}):Promise<{items:MroAuditRow[]}>
   checklistBuild(payload:{steps:string[];cites?:MroChecklistCite[]}):Promise<MroChecklist>
-  dueList(payload?:object):Promise<{items:MroDueRow[]}>
-  kitStaging(payload?:object):Promise<{items:MroKitRow[]}>
-  lotTrace(payload?:{lotId?:string}):Promise<{items:MroLotRow[]}>
-  manualList(payload?:object):Promise<{items:MroManual[]}>
+  dueList(payload?:MroPageRequest):Promise<MroPageMeta&{items:MroDueRow[]}>
+  kitStaging(payload?:MroPageRequest):Promise<MroPageMeta&{items:MroKitRow[]}>
+  lotTrace(payload?:MroPageRequest&{lotId?:string}):Promise<MroPageMeta&{items:MroLotRow[]}>
+  manualList(payload?:MroPageRequest):Promise<MroPageMeta&{items:MroManual[]}>
   manualRegister(payload:{title?:string;docType:string;revision:string;status:string;ata?:string;documents:Array<{documentId:string;partNo:number}>},options?:MutationOptions<object>):Promise<MroManual>
-  opsTodoList(payload?:object):Promise<{items:MroOpsTodoRow[]}>
-  partsStockList(payload?:{config?:string}):Promise<{items:MroStockRow[];alternates:MroAlternateRow[]}>
-  planConstraintCheck(payload?:object):Promise<{violations:Array<{code:string;detail:string}>}>
-  planList(payload?:object):Promise<{items:MroWorkPackageRow[]}>
+  opsTodoList(payload?:MroPageRequest):Promise<MroPageMeta&{items:MroOpsTodoRow[]}>
+  partsStockList(payload?:MroPageRequest&{config?:string}):Promise<MroPageMeta&{items:MroStockRow[];alternates:MroAlternateRow[]}>
+  planConstraintCheck(payload?:MroPageRequest):Promise<MroPageMeta&{violations:Array<{code:string;detail:string}>}>
+  planList(payload?:MroPageRequest):Promise<MroPageMeta&{items:MroWorkPackageRow[]}>
   planPublish(payload:{packageId:string},options?:MutationOptions<{packageId:string}>):Promise<{todos:MroOpsTodoRow[]}>
   toolCheckout(payload:{toolId:string;holder:string},options?:MutationOptions<{toolId:string;holder:string}>):Promise<{ok:boolean;reason?:string}>
-  toolList(payload?:object):Promise<{items:MroToolRow[]}>
+  toolList(payload?:MroPageRequest):Promise<MroPageMeta&{items:MroToolRow[]}>
   toolUpsert(payload:{toolNo:string;sn?:string;location?:string;calibDue?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
   toolReturn(payload:{toolId:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
   dueUpsert(payload:{id?:string;scopeId:string;kind:string;limitValue?:number;dueAt?:string;source?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
-  utilRecord(payload:{scopeId:string;hours?:number;cycles?:number;batteryCycles?:number},options?:MutationOptions<object>):Promise<{items:MroDueRow[]}>
-  dueRecompute(payload?:object):Promise<{items:MroDueRow[]}>
+  utilRecord(payload:{scopeId:string;hours?:number;cycles?:number;batteryCycles?:number},options?:MutationOptions<object>):Promise<MroPageMeta&{items:MroDueRow[]}>
+  dueRecompute(payload?:Record<string,never>):Promise<MroPageMeta&{items:MroDueRow[]}>
   lotUpsert(payload:{lotNo:string;parentLotId?:string;qty?:number;expires?:string;sdsDoc?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
   lotUse(payload:{lotId:string;tailNo?:string;wo?:string;tech?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
   kitUpsert(payload:{name:string;items?:Array<{pn:string;required?:number;onHand?:number}>},options?:MutationOptions<object>):Promise<{ok:boolean}>
@@ -1627,20 +1656,20 @@ export interface MroBridge {
   alternateUpsert(payload:{pnFrom:string;pnTo:string;certOk:boolean;effectivity?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
   workpackageBuild(payload:{title?:string;cards?:string[];ads?:string[];mels?:string[];open?:string[]},options?:MutationOptions<object>):Promise<{ok:boolean}>
   intervalUpsert(payload:{taskKey:string;intervalValue:number;unit:string;sourceCite?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
-  intervalList(payload?:object):Promise<{items:MroIntervalRow[]}>
+  intervalList(payload?:MroPageRequest):Promise<MroPageMeta&{items:MroIntervalRow[]}>
   intervalPropose(payload:{taskKey:string;mpdCite:string;fleetCite:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
   scheduleUpsert(payload:{tailNo:string;checkName:string;startOn?:string;endOn?:string;hours?:number;skill?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
   capacityUpsert(payload:{skill:string;hours:number},options?:MutationOptions<object>):Promise<{ok:boolean}>
   componentUpsert(payload:{sn:string;pn:string;life?:number},options?:MutationOptions<object>):Promise<{ok:boolean}>
-  componentList(payload?:object):Promise<{items:MroComponentRow[]}>
+  componentList(payload?:MroPageRequest):Promise<MroPageMeta&{items:MroComponentRow[]}>
   lifeEvent(payload:{componentId:string;kind:string;occurredAt:string;note?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
   pirepDraft(payload:{tailNo:string;body:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
-  pirepList(payload?:object):Promise<{items:MroPirepRow[]}>
+  pirepList(payload?:MroPageRequest):Promise<MroPageMeta&{items:MroPirepRow[]}>
   aogIntake(payload:{text:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
-  aogList(payload?:object):Promise<{items:MroAogRow[]}>
+  aogList(payload?:MroPageRequest):Promise<MroPageMeta&{items:MroAogRow[]}>
   poDraft(payload:{pn:string;qty?:string;price?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
-  poList(payload?:object):Promise<{items:MroPoRow[]}>
-  triggerList(payload?:object):Promise<{items:MroTriggerRow[]}>
+  poList(payload?:MroPageRequest):Promise<MroPageMeta&{items:MroPoRow[]}>
+  triggerList(payload?:MroPageRequest):Promise<MroPageMeta&{items:MroTriggerRow[]}>
   chemIssue(payload:{lotId:string;qty:number;tailNo?:string;wo?:string;tech?:string},options?:MutationOptions<object>):Promise<{ok:boolean}>
   opsTodoAdd(payload:{kitId:string;detail?:string},options?:MutationOptions<object>):Promise<{ok:boolean;id?:string}>
   pirepConfirm(payload:{id:string;state:'confirmed'|'rejected'},options?:MutationOptions<object>):Promise<{ok:boolean}>
@@ -1753,7 +1782,16 @@ export const mroBridge:MroBridge={
 export type DatasourceRow={id:string;name:string;kind:'postgres'|'mysql';state:'active'|'disabled';readonlyVerified:boolean;createdAt:string}
 export type DatasourceBinding={bindingId:string;ownerType:string;ownerId:string;connectionId:string;purpose:string;tableMapJson:string;createdAt:string}
 export type DatasourceBrowseItem={name:string;schema?:string}
+export type DatasourceWriteOperation = {
+  id:string; connectionId:string; connectionName:string; sql:string; digest:string
+  state:'prepared'|'executing'|'completed'|'unknown'; createdAt:string; expiresAt:string
+  result?:{columns:string[];rows:unknown[][];rowCount:number;truncated:boolean}
+}
 export interface DatasourceBridge {
+  writePrepare(payload:{connectionId:string;sql:string},options?:MutationOptions<{connectionId:string;sql:string}>):Promise<DatasourceWriteOperation>
+  writeCommit(payload:{id:string;digest:string},options?:MutationOptions<{id:string;digest:string}>):Promise<DatasourceWriteOperation>
+  writeGet(payload:{id:string}):Promise<DatasourceWriteOperation>
+  writeList(payload:{connectionId:string}):Promise<{items:DatasourceWriteOperation[]}>
   list(payload?:object):Promise<{items:DatasourceRow[]}>
   create(payload:{name:string;kind:'postgres'|'mysql';dsn:string},options?:MutationOptions<{name:string;kind:'postgres'|'mysql';dsn:string}>):Promise<DatasourceRow>
   probe(payload:{id:string},options?:MutationOptions<{id:string}>):Promise<{id:string;readonlyVerified:boolean}>
@@ -1765,6 +1803,10 @@ export interface DatasourceBridge {
 export function createDatasourceBridge(transport:WebViewTransport=webview(),deadlineMs=8_000):DatasourceBridge{
   const core=createSimpleBridge(transport,{},deadlineMs)
   return{
+    writePrepare:(p,o)=>core.request('datasource.write.prepare',p,deadlineMs,o?.attempt),
+    writeCommit:(p,o)=>core.request('datasource.write.commit',p,deadlineMs,o?.attempt),
+    writeGet:p=>core.request('datasource.write.get',p),
+    writeList:p=>core.request('datasource.write.list',p),
     list:p=>core.request('datasource.list',p??{}),
     create:(p,o)=>core.request('datasource.create',p,deadlineMs,o?.attempt),
     probe:(p,o)=>core.request('datasource.probe',p,deadlineMs,o?.attempt),
@@ -1777,6 +1819,10 @@ export function createDatasourceBridge(transport:WebViewTransport=webview(),dead
 let datasourceSingleton:DatasourceBridge|undefined
 export function getDatasourceBridge():DatasourceBridge{return datasourceSingleton??=createDatasourceBridge()}
 export const datasourceBridge:DatasourceBridge={
+  writePrepare:(p,o)=>{try{return getDatasourceBridge().writePrepare(p,o)}catch(error){return Promise.reject(error)}},
+  writeCommit:(p,o)=>{try{return getDatasourceBridge().writeCommit(p,o)}catch(error){return Promise.reject(error)}},
+  writeGet:p=>{try{return getDatasourceBridge().writeGet(p)}catch(error){return Promise.reject(error)}},
+  writeList:p=>{try{return getDatasourceBridge().writeList(p)}catch(error){return Promise.reject(error)}},
   list:p=>{try{return getDatasourceBridge().list(p)}catch(error){return Promise.reject(error)}},
   create:(p,o)=>{try{return getDatasourceBridge().create(p,o)}catch(error){return Promise.reject(error)}},
   probe:(p,o)=>{try{return getDatasourceBridge().probe(p,o)}catch(error){return Promise.reject(error)}},

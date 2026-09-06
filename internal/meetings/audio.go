@@ -33,6 +33,8 @@ type audioSink struct {
 	chunkBytes int64
 	totalBytes int64
 	closed     bool
+	batches    map[string]audioBatchRecord
+	captures   map[string]audioBatchRecord
 }
 
 func audioDir(root, meetingID string) string {
@@ -73,6 +75,18 @@ func dirAudioDurationMS(dir string) int64 {
 }
 
 func dirAudioBytes(dir string) int64 {
+	total := legacyAudioBytes(dir)
+	records, err := readAudioBatches(dir)
+	if err != nil {
+		return total
+	}
+	for _, r := range records {
+		total += r.SampleCount * 2
+	}
+	return total
+}
+
+func legacyAudioBytes(dir string) int64 {
 	matches, err := filepath.Glob(filepath.Join(dir, "chunk_*.wav"))
 	if err != nil {
 		return 0
@@ -304,6 +318,40 @@ func walkAudioSpans(dir string, fromMS int64, fn func(audioSpan) error) error {
 		if err := yieldAudioSpans(audioSpan{startedMS: started, pcm: pcm}, fn); err != nil {
 			return err
 		}
+	}
+	records, err := readAudioBatches(dir)
+	if err != nil {
+		return err
+	}
+	var buffered []byte
+	var bufferStart int64
+	for _, record := range records {
+		var r audioBatchRecord
+		if _, err := readMeetingJSON(filepath.Join(dir, batchName(record.AudioBatchIdentity)), &r); err != nil {
+			return err
+		}
+		start := r.GlobalSampleStart * 2
+		if start+int64(len(r.PCM)) <= fromByte {
+			continue
+		}
+		if start < fromByte {
+			r.PCM = r.PCM[fromByte-start:]
+			start = fromByte
+		}
+		if len(buffered) == 0 {
+			bufferStart = start
+		}
+		buffered = append(buffered, r.PCM...)
+		for len(buffered) >= catchupSpanBytes {
+			if err := fn(audioSpan{startedMS: pcmDurationMS(bufferStart), pcm: buffered[:catchupSpanBytes]}); err != nil {
+				return err
+			}
+			buffered = buffered[catchupSpanBytes:]
+			bufferStart += catchupSpanBytes
+		}
+	}
+	if len(buffered) > 0 {
+		return fn(audioSpan{startedMS: pcmDurationMS(bufferStart), pcm: buffered})
 	}
 	return nil
 }

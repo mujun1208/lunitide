@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -47,6 +48,7 @@ var tableMapKeys = map[string]struct{}{
 var redactURI = regexp.MustCompile(`(?i)[a-z][a-z0-9+.-]*://[^\s]+`)
 var redactUserinfo = regexp.MustCompile(`\b[\w.-]+:[^@\s/]+@[\w.-]+`)
 var redactIPv4 = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b`)
+var redactPassword = regexp.MustCompile(`(?i)\b(password|passwd|pwd)\s*=\s*('(?:\\.|[^'])*'|"(?:\\.|[^"])*"|[^\s]+)`)
 
 type Connection struct {
 	ID                 string
@@ -134,14 +136,15 @@ type Pinger func(ctx context.Context, kind, dsn string) error
 type Querier func(ctx context.Context, kind, dsn, statement string, args []any, maxRows int) (columns []string, rows [][]any, truncated bool, err error)
 
 type Service struct {
-	store     Store
-	clock     Clock
-	secretPut   func(ref, dsn string) error
-	secretGet   func(ref string) (string, error)
+	store        Store
+	clock        Clock
+	secretPut    func(ref, dsn string) error
+	secretGet    func(ref string) (string, error)
 	pinger       Pinger
 	provisioner  Pinger
 	querier      Querier
 	writeQuerier Querier
+	writeMu      sync.Mutex
 }
 
 func New(store Store) *Service {
@@ -162,10 +165,8 @@ func (s *Service) SetProvisioner(p Pinger) { s.provisioner = p }
 
 func (s *Service) SetQuerier(q Querier) { s.querier = q }
 
-// SetWriteQuerier installs the read-WRITE execution path. It is used only for
-// local connections (IsLocalDSN); remote connections always run through the
-// read-only querier behind ValidateReadOnlySQL. A nil write querier keeps every
-// connection strictly read-only.
+// SetWriteQuerier reserves a driver for explicitly authorized mutations.
+// Query never uses it, regardless of the connection's address.
 func (s *Service) SetWriteQuerier(q Querier) { s.writeQuerier = q }
 
 func (s *Service) Create(ctx context.Context, in CreateInput) (ConnectionPublic, error) {
@@ -220,6 +221,11 @@ func (s *Service) List(ctx context.Context) ([]ConnectionPublic, error) {
 func (s *Service) Disable(ctx context.Context, id string) error {
 	if s == nil || s.store == nil {
 		return ErrServiceUnavailable
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	id = strings.TrimSpace(id)
 	if len(id) != 26 {
@@ -343,14 +349,10 @@ func (s *Service) Query(ctx context.Context, in QueryInput) (QueryResult, error)
 	if err != nil {
 		return QueryResult{}, err
 	}
-	// A local connection may run read-write statements (the user opted in: fixed
-	// local DB, auto-created). Remote connections stay strictly read-only so a
-	// customer database can never be mutated through the panel or the AI tool.
-	writable := s.writeQuerier != nil && IsLocalDSN(row.Kind, dsn)
-	if !writable {
-		if err := m7flow.ValidateReadOnlySQL(in.SQL); err != nil {
-			return QueryResult{}, ErrStatementDenied
-		}
+	// Locality is not authorization. Every query uses the read-only driver;
+	// privileged mutations require a separate, explicitly approved operation.
+	if err := m7flow.ValidateReadOnlySQL(in.SQL); err != nil {
+		return QueryResult{}, ErrStatementDenied
 	}
 	maxRows := in.MaxRows
 	if maxRows < 1 {
@@ -359,11 +361,7 @@ func (s *Service) Query(ctx context.Context, in QueryInput) (QueryResult, error)
 	if maxRows > MaxQueryRows {
 		maxRows = MaxQueryRows
 	}
-	exec := s.query
-	if writable {
-		exec = s.writeQuery
-	}
-	cols, rows, truncated, err := exec(ctx, row.Kind, dsn, in.SQL, nil, maxRows)
+	cols, rows, truncated, err := s.query(ctx, row.Kind, dsn, in.SQL, nil, maxRows)
 	if err != nil {
 		return QueryResult{}, err
 	}
@@ -426,11 +424,6 @@ func (s *Service) requireVerified(ctx context.Context, id string) (Connection, s
 
 func (s *Service) query(ctx context.Context, kind, dsn, sqlText string, args []any, maxRows int) ([]string, [][]any, bool, error) {
 	return s.runQuerier(ctx, s.querier, kind, dsn, sqlText, args, maxRows)
-}
-
-// writeQuery drives the read-write path (local connections only); see Query.
-func (s *Service) writeQuery(ctx context.Context, kind, dsn, sqlText string, args []any, maxRows int) ([]string, [][]any, bool, error) {
-	return s.runQuerier(ctx, s.writeQuerier, kind, dsn, sqlText, args, maxRows)
 }
 
 func (s *Service) runQuerier(ctx context.Context, q Querier, kind, dsn, sqlText string, args []any, maxRows int) ([]string, [][]any, bool, error) {
@@ -581,6 +574,7 @@ func RedactError(err error) string {
 	s = redactURI.ReplaceAllString(s, "[redacted]")
 	s = redactUserinfo.ReplaceAllString(s, "[redacted]")
 	s = redactIPv4.ReplaceAllString(s, "[redacted]")
+	s = redactPassword.ReplaceAllString(s, "$1=[redacted]")
 	return s
 }
 
@@ -589,5 +583,17 @@ func fmtRedacted(wrap, err error) error {
 	if wrap == nil {
 		return errors.New(msg)
 	}
+	if wrap == err {
+		return redactedError{cause: err, message: msg}
+	}
 	return fmt.Errorf("%w: %s", wrap, msg)
 }
+
+// Keep errors.Is/As usable without formatting the secret-bearing cause again.
+type redactedError struct {
+	cause   error
+	message string
+}
+
+func (e redactedError) Error() string { return e.message }
+func (e redactedError) Unwrap() error { return e.cause }

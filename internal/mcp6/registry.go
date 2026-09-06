@@ -168,12 +168,15 @@ type Endpoint struct {
 	URL       string
 	// Command/Args carry the stdio launch vector (transport == "stdio");
 	// URL then holds the display/fingerprint form "stdio://<command>".
-	Command string
-	Args    []string
-	AuthRef string
-	Pin     CapabilityPin
-	State   string
-	Version int64
+	Command         string
+	Args            []string
+	AuthRef         string
+	EnvSecretRefs   map[string]string
+	SecurityVersion int64
+	LaunchDigest    string
+	Pin             CapabilityPin
+	State           string
+	Version         int64
 
 	consecFails  int
 	breakerUntil time.Time
@@ -182,6 +185,8 @@ type Endpoint struct {
 	// stay the drift authority, so a poisoned or stale cache can never
 	// broaden what Invoke admits.
 	toolSchemas map[string]ToolSchema
+	lifetime    context.Context
+	cancel      context.CancelFunc
 }
 
 // ToolSchema is one tool's advertised description and JSON Schema body.
@@ -219,13 +224,22 @@ type SecretLease interface {
 // m6_mcp_endpoint rows is wired by the storage adapter slice; the registry
 // owns lifecycle, pinning and breaker semantics.
 type Registry struct {
-	mu       sync.Mutex
-	endpoint map[string]*Endpoint
-	probe    ProbeFunc
-	invoke   InvokeFunc
-	lease    SecretLease
-	describe DescribeFunc
-	now      func() time.Time
+	mu                  sync.Mutex
+	endpoint            map[string]*Endpoint
+	probe               ProbeFunc
+	invoke              InvokeFunc
+	lease               SecretLease
+	describe            DescribeFunc
+	now                 func() time.Time
+	invokeGate          func(context.Context, *Endpoint) error
+	invokeScope         func(context.Context, *Endpoint) (context.Context, func(), error)
+	revokeHook          func(string)
+	credentialLease     CredentialLease
+	catalogue           CatalogueFunc
+	verifiedInvoke      VerifiedInvokeFunc
+	securityFailureHook func(context.Context, *Endpoint, bool) error
+	launchResolver      func(context.Context, string, []string) ([]string, error)
+	launchVerifier      func(context.Context, EndpointInput) (string, error)
 }
 
 // DescribeFunc fetches the endpoint's live tool catalogue (name,
@@ -255,39 +269,48 @@ func (r *Registry) SetDescribeFunc(fn DescribeFunc) { r.mu.Lock(); r.describe = 
 
 // refreshToolbox re-reads the endpoint's tool catalogue into the schema
 // cache. A describe failure keeps the previous cache; the snapshot callers
-// fall back to the pin names, so describe is strictly best-effort.
-func (r *Registry) refreshToolbox(ctx context.Context, e *Endpoint) {
+// fall back to the pin names when no describe adapter is configured. A configured
+// adapter must succeed before the endpoint is published as ready.
+func (r *Registry) refreshToolbox(ctx context.Context, e *Endpoint) error {
 	r.mu.Lock()
 	describe := r.describe
+	snapshot := cloneEndpoint(e)
 	r.mu.Unlock()
 	if describe == nil {
-		return
+		return nil
 	}
-	schemas, err := describe(ctx, e)
+	schemas, err := describe(ctx, snapshot)
 	if err != nil {
-		return
+		return err
 	}
 	r.mu.Lock()
-	e.toolSchemas = schemas
+	defer r.mu.Unlock()
+	if r.endpoint[e.ID] != e || e.State == StateRevoked {
+		return ErrEndpointRevoked
+	}
+	e.toolSchemas = cloneSchemas(schemas)
 	if isBootstrapPin(e.Pin) {
 		if promoted := pinDigestsFromSchemas(schemas); len(promoted) > 0 {
 			e.Pin.ToolSchemaDigests = promoted
 		}
 	}
-	r.mu.Unlock()
+	return nil
 }
 
 // EndpointInput is the wire-shaped registration request shared by both
 // transports. ID is optional: settings-plane mcp.add reuses the same ULID
 // so chat tools stay addressable after a restart.
 type EndpointInput struct {
-	ID        string
-	Transport string
-	URL       string
-	AuthRef   string
-	Command   string
-	Args      []string
-	Pin       CapabilityPin
+	ID              string
+	Transport       string
+	URL             string
+	AuthRef         string
+	EnvSecretRefs   map[string]string
+	SecurityVersion int64
+	LaunchDigest    string
+	Command         string
+	Args            []string
+	Pin             CapabilityPin
 }
 
 // Register validates and admits one endpoint, then immediately probes it.
@@ -295,12 +318,32 @@ type EndpointInput struct {
 // ErrHealthCheckFailed so callers can surface M6-MCP-001 while keeping the
 // endpoint registered for later probes.
 func (r *Registry) Register(ctx context.Context, in EndpointInput) (*Endpoint, error) {
+	r.mu.Lock()
+	resolver := r.launchResolver
+	scope := r.invokeScope
+	r.mu.Unlock()
+	if scope != nil {
+		var release func()
+		var err error
+		ctx, release, err = scope(ctx, &Endpoint{ID: in.ID, Transport: in.Transport, URL: in.URL, Command: in.Command, Args: append([]string(nil), in.Args...)})
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+	}
+	if in.Transport == "stdio" && resolver != nil {
+		resolved, err := resolver(ctx, in.Command, in.Args)
+		if err != nil {
+			return nil, err
+		}
+		in.Args = resolved
+	}
 	switch in.Transport {
 	case "https":
 		if err := mcp.ValidateBaseURL(in.URL); err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrHealthCheckFailed, err)
 		}
-		if !authRefPattern.MatchString(in.AuthRef) {
+		if in.AuthRef != "" && !authRefPattern.MatchString(in.AuthRef) {
 			return nil, fmt.Errorf("mcp6: authRef must be a secretref: handle, credentials are never accepted inline")
 		}
 	case "stdio":
@@ -316,7 +359,6 @@ func (r *Registry) Register(ctx context.Context, in EndpointInput) (*Endpoint, e
 			return nil, fmt.Errorf("%w: args contain metacharacters", ErrStdioDisabled)
 		}
 		in.URL = "stdio://" + in.Command
-		in.AuthRef = "secretref:stdio/" + in.Command
 	default:
 		return nil, fmt.Errorf("%w: transport %q", ErrStdioDisabled, in.Transport)
 	}
@@ -325,51 +367,39 @@ func (r *Registry) Register(ctx context.Context, in EndpointInput) (*Endpoint, e
 	}
 
 	id := strings.TrimSpace(in.ID)
-	if id != "" {
-		r.mu.Lock()
-		if existing, ok := r.endpoint[id]; ok {
-			if existing.State != StateRevoked {
-				clone := *existing
-				r.mu.Unlock()
-				return &clone, nil
-			}
-			delete(r.endpoint, id)
+	if id == "" {
+		id = ulid.Make().String()
+	}
+	in.ID = id
+	r.mu.Lock()
+	verifier := r.launchVerifier
+	r.mu.Unlock()
+	if in.Transport == "stdio" && verifier != nil {
+		digest, err := verifier(ctx, in)
+		if err != nil {
+			return nil, err
 		}
-		r.mu.Unlock()
-	}
-
-	e := &Endpoint{
-		ID:        id,
-		Transport: in.Transport,
-		URL:       in.URL,
-		Command:   in.Command,
-		Args:      append([]string(nil), in.Args...),
-		AuthRef:   in.AuthRef,
-		Pin:       in.Pin,
-		State:     StateRegistered,
-		Version:   1,
-	}
-	if e.ID == "" {
-		e.ID = ulid.Make().String()
+		in.LaunchDigest = digest
 	}
 	r.mu.Lock()
-	r.endpoint[e.ID] = e
-	probe := r.probe
+	if existing := r.endpoint[id]; existing != nil && existing.State != StateRevoked {
+		if existing.Transport != in.Transport || existing.URL != in.URL || existing.Command != in.Command || !sameArgs(existing.Args, in.Args) || existing.AuthRef != in.AuthRef || existing.SecurityVersion != in.SecurityVersion {
+			r.mu.Unlock()
+			return nil, fmt.Errorf("mcp6: endpoint configuration changed; revoke before replacement")
+		}
+		r.mu.Unlock()
+		return r.Probe(ctx, id)
+	}
+	lifetime, cancel := context.WithCancel(context.Background())
+	e := &Endpoint{ID: id, Transport: in.Transport, URL: in.URL, Command: in.Command,
+		Args: append([]string(nil), in.Args...), AuthRef: in.AuthRef, EnvSecretRefs: cloneStringMap(in.EnvSecretRefs), SecurityVersion: in.SecurityVersion, LaunchDigest: in.LaunchDigest, Pin: clonePin(in.Pin),
+		State: StateProbe, Version: 1, lifetime: lifetime, cancel: cancel}
+	if previous := r.endpoint[id]; previous != nil {
+		e.Version = previous.Version + 1
+	}
+	r.endpoint[id] = e
 	r.mu.Unlock()
-
-	e.State = StateProbe
-	if probe == nil {
-		e.State = StateReady
-		r.refreshToolbox(ctx, e)
-		return e, nil
-	}
-	if err := probe(ctx, e); err != nil {
-		e.State = StateDegraded
-		return e, fmt.Errorf("%w: %v", ErrHealthCheckFailed, err)
-	}
-	e.State = StateReady
-	r.refreshToolbox(ctx, e)
-	return e, nil
+	return r.Probe(ctx, id)
 }
 
 // Get returns a snapshot of one endpoint.
@@ -380,8 +410,7 @@ func (r *Registry) Get(endpointID string) (*Endpoint, error) {
 	if !ok {
 		return nil, ErrEndpointNotFound
 	}
-	clone := *e
-	return &clone, nil
+	return cloneEndpoint(e), nil
 }
 
 // ReadyTool is one pinned, callable tool on a ready endpoint. Description
@@ -435,32 +464,54 @@ func (r *Registry) ReadyToolSnapshot() []ReadyTool {
 func (r *Registry) Probe(ctx context.Context, endpointID string) (*Endpoint, error) {
 	r.mu.Lock()
 	e, ok := r.endpoint[endpointID]
-	probe := r.probe
-	if ok && e.State == StateRevoked {
+	if !ok {
+		r.mu.Unlock()
+		return nil, ErrEndpointNotFound
+	}
+	if e.State == StateRevoked {
 		r.mu.Unlock()
 		return nil, ErrEndpointRevoked
 	}
+	snapshot, probe := cloneEndpoint(e), r.probe
+	credentialLease, catalogue := r.credentialLease, r.catalogue
+	scope := r.invokeScope
 	r.mu.Unlock()
-	if !ok {
-		return nil, ErrEndpointNotFound
-	}
-	if probe == nil || probe(ctx, e) != nil {
-		r.mu.Lock()
-		if e.State != StateRevoked {
-			e.State = StateDegraded
+	ctx, cancel := endpointContext(ctx, e.lifetime)
+	defer cancel()
+	if scope != nil {
+		var release func()
+		var err error
+		ctx, release, err = scope(ctx, snapshot)
+		if err != nil {
+			return nil, err
 		}
-		degraded := *e
-		r.mu.Unlock()
-		return &degraded, ErrHealthCheckFailed
+		defer release()
+	}
+	var probeErr error
+	if catalogue != nil {
+		probeErr = r.secureRefresh(ctx, e, credentialLease, catalogue)
+	} else if probe != nil {
+		probeErr = probe(ctx, snapshot)
+	}
+	if probeErr == nil && catalogue == nil {
+		probeErr = r.refreshToolbox(ctx, e)
+	}
+	if securityFailure(probeErr) {
+		return snapshot, r.accountFailure(e, r.recordSecurityFailure(ctx, snapshot, probeErr))
 	}
 	r.mu.Lock()
-	if e.State != StateRevoked {
-		e.State = StateReady
+	defer r.mu.Unlock()
+	if r.endpoint[endpointID] != e || e.State == StateRevoked {
+		return nil, ErrEndpointRevoked
 	}
-	ready := *e
-	r.mu.Unlock()
-	r.refreshToolbox(ctx, e)
-	return &ready, nil
+	if probeErr != nil || ctx.Err() != nil {
+		e.State = StateDegraded
+		return cloneEndpoint(e), ErrHealthCheckFailed
+	}
+	e.State = StateReady
+	e.consecFails = 0
+	e.breakerUntil = time.Time{}
+	return cloneEndpoint(e), nil
 }
 
 // InvokeResult carries the mcp6.invoke wire payload.
@@ -482,7 +533,12 @@ func (r *Registry) Invoke(ctx context.Context, endpointID, tool string, args map
 	invoke := r.invoke
 	lease := r.lease
 	now := r.now
+	gate := r.invokeGate
+	scope := r.invokeScope
+	credentialLease, verifiedInvoke := r.credentialLease, r.verifiedInvoke
+	var snapshot *Endpoint
 	if ok {
+		snapshot = cloneEndpoint(e)
 		if e.State == StateRevoked {
 			r.mu.Unlock()
 			return nil, ErrEndpointRevoked
@@ -509,23 +565,76 @@ func (r *Registry) Invoke(ctx context.Context, endpointID, tool string, args map
 		return nil, ErrEndpointNotFound
 	}
 
+	ctx, cancel := endpointContext(ctx, e.lifetime)
+	defer cancel()
+	if scope != nil {
+		var release func()
+		var err error
+		ctx, release, err = scope(ctx, snapshot)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+	}
+	if gate != nil {
+		if err := gate(ctx, snapshot); err != nil {
+			return nil, err
+		}
+	}
+	if verifiedInvoke == nil && (invoke == nil || lease == nil) {
+		return nil, ErrNotReady
+	}
 	var result map[string]any
 	var authSeen []byte
+	var gateErr error
 	start := now()
-	leaseErr := lease.WithLease(ctx, e.AuthRef, func(auth []byte) error {
-		authSeen = auth
-		out, err := invoke(ctx, e, tool, args, auth)
-		if err != nil {
-			return err
-		}
-		result = out
-		return nil
-	})
+	var leaseErr error
+	if verifiedInvoke != nil {
+		result, leaseErr = r.runSecure(ctx, snapshot, tool, args, credentialLease, verifiedInvoke)
+	} else {
+		leaseErr = lease.WithLease(ctx, e.AuthRef, func(auth []byte) error {
+			authSeen = auth
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if gate != nil {
+				if err := gate(ctx, snapshot); err != nil {
+					gateErr = err
+					return err
+				}
+			}
+			out, err := invoke(ctx, snapshot, tool, args, auth)
+			if err != nil {
+				return err
+			}
+			result = out
+			return nil
+		})
+	}
 	duration := now().Sub(start).Milliseconds()
+	if cause := context.Cause(ctx); cause != nil {
+		if e.lifetime.Err() != nil {
+			return nil, ErrEndpointRevoked
+		}
+		return nil, cause
+	}
 	if leaseErr != nil {
-		return nil, r.accountFailure(e, redactError(leaseErr, authSeen))
+		if gateErr != nil {
+			return nil, gateErr
+		}
+		if e.lifetime.Err() != nil {
+			return nil, ErrEndpointRevoked
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, r.accountFailure(e, r.recordSecurityFailure(ctx, snapshot, redactError(leaseErr, authSeen)))
 	}
 	r.mu.Lock()
+	if r.endpoint[endpointID] != e || e.State == StateRevoked {
+		r.mu.Unlock()
+		return nil, ErrEndpointRevoked
+	}
 	e.consecFails = 0
 	r.mu.Unlock()
 	return &InvokeResult{Result: result, Bytes: approxJSONBytes(result), DurationMS: duration, TraceID: ulid.Make().String()}, nil
@@ -536,15 +645,38 @@ func (r *Registry) Invoke(ctx context.Context, endpointID, tool string, args map
 // lifecycle sentinels are matched before breaker accounting.
 func (r *Registry) accountFailure(e *Endpoint, err error) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	var teardown func()
+	defer func() {
+		r.mu.Unlock()
+		if teardown != nil {
+			teardown()
+		}
+	}()
+	if r.endpoint[e.ID] != e || e.State == StateRevoked {
+		return ErrEndpointRevoked
+	}
 	switch {
 	case errors.Is(err, ErrCredentialRevoked):
+		if e.cancel != nil {
+			e.cancel()
+		}
+		if r.revokeHook != nil {
+			hook, id := r.revokeHook, e.ID
+			teardown = func() { hook(id) }
+		}
 		e.State = StateRevoked
 		e.consecFails = 0
 		e.breakerUntil = time.Time{}
 		return fmt.Errorf("%w: endpoint revoked and connection pools cleared", ErrCredentialRevoked)
 	case errors.Is(err, ErrCapabilityDrift):
-		e.State = StateDegraded
+		if e.cancel != nil {
+			e.cancel()
+		}
+		if r.revokeHook != nil {
+			hook, id := r.revokeHook, e.ID
+			teardown = func() { hook(id) }
+		}
+		e.State = StateRevoked
 		return fmt.Errorf("%w: grant invalidated, re-pin required", ErrCapabilityDrift)
 	}
 	e.consecFails++
@@ -565,17 +697,29 @@ func (r *Registry) Revoke(endpointID, reason string) (*Endpoint, error) {
 		return nil, fmt.Errorf("mcp6: reason must be credential, drift, policy or manual")
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	var teardown func()
+	defer func() {
+		r.mu.Unlock()
+		if teardown != nil {
+			teardown()
+		}
+	}()
 	e, ok := r.endpoint[endpointID]
 	if !ok {
 		return nil, ErrEndpointNotFound
 	}
 	e.State = StateRevoked
+	if e.cancel != nil {
+		e.cancel()
+	}
+	if r.revokeHook != nil {
+		hook, id := r.revokeHook, e.ID
+		teardown = func() { hook(id) }
+	}
 	e.consecFails = 0
 	e.breakerUntil = time.Time{}
 	e.Version++
-	clone := *e
-	return &clone, nil
+	return cloneEndpoint(e), nil
 }
 
 // redactedError keeps the sentinel chain (Unwrap) while presenting a

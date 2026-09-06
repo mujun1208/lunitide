@@ -1,14 +1,18 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, expect, it, vi } from 'vitest'
-import { BridgeClientError, type AttachmentBridge, type ChatBridge, type ChatStream, type ContextBridge, type MessageBridge, type ProviderBridge, type SessionBridge, type SkillBridge, type StreamEvent } from '../bridge/client'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { BridgeClientError, runQueueBridge, type AttachmentBridge, type ChatBridge, type ChatStream, type ContextBridge, type MessageBridge, type ProviderBridge, type SessionBridge, type SkillBridge, type StreamEvent } from '../bridge/client'
 import type { MessageDTO, ProjectDTO, ProviderDTO, SessionDTO } from '../generated/bridge'
 import { ATTACHMENT_FILE_MAX, SessionPage, persistedExecutionMode, generalDefaultExecutionMode, TURN_RESUME_PROMPT, turnFailureNotice } from './SessionPage'
 import { rememberAttachmentPreview } from './attachments'
 import { resetLiveChatForTests } from './liveChat'
 import { RootErrorBoundary } from '../RootErrorBoundary'
 
-afterEach(()=>{cleanup();resetLiveChatForTests();localStorage.removeItem('lunitide:microphone-device-id');localStorage.removeItem('lunitide:active-turn:01ARZ3NDEKTSV4RRFFQ69G5FAA');localStorage.removeItem('lunitide:persist-failed:01ARZ3NDEKTSV4RRFFQ69G5FAA');localStorage.removeItem('lunitide:session-experts:01ARZ3NDEKTSV4RRFFQ69G5FAA')})
+beforeEach(() => {
+ vi.spyOn(runQueueBridge, 'list').mockResolvedValue({ items: [] })
+ vi.spyOn(runQueueBridge, 'consume').mockResolvedValue({ count: 0, items: [] })
+})
+afterEach(()=>{cleanup();resetLiveChatForTests();vi.mocked(runQueueBridge.list).mockRestore();vi.mocked(runQueueBridge.consume).mockRestore();localStorage.removeItem('lunitide:microphone-device-id');localStorage.removeItem('lunitide:active-turn:01ARZ3NDEKTSV4RRFFQ69G5FAA');localStorage.removeItem('lunitide:persist-failed:01ARZ3NDEKTSV4RRFFQ69G5FAA');localStorage.removeItem('lunitide:session-experts:01ARZ3NDEKTSV4RRFFQ69G5FAA')})
 const P='01ARZ3NDEKTSV4RRFFQ69G5FAV',S='01ARZ3NDEKTSV4RRFFQ69G5FAA',NOW='2025-01-01T00:00:00Z'
 const project:ProjectDTO={id:P,name:'Runtime',projectCode:'ITM00001',type:'implementation',status:'active',createdAt:NOW,updatedAt:NOW,version:1}
 const session:SessionDTO={id:S,projectId:P,title:'Session',pinned:false,status:'active',createdAt:NOW,updatedAt:NOW,version:1}

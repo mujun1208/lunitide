@@ -1,6 +1,7 @@
 package mroapp
 
 import (
+	"sort"
 	"strings"
 	"time"
 )
@@ -17,14 +18,20 @@ type Tool struct {
 }
 
 type ToolLoan struct {
-	ID        string
-	ToolID    string
-	Holder    string
-	OutAt     string
-	InAt      string
+	ID     string
+	ToolID string
+	Holder string
+	OutAt  string
+	InAt   string
 }
 
 func CanCheckoutTool(tool Tool, today time.Time) (ok bool, reason string) {
+	if tool.Holder != "" || tool.Status == "out" {
+		return false, "工具已借出"
+	}
+	if tool.Status != "" && tool.Status != "ready" {
+		return false, "工具当前不可借用"
+	}
 	due := strings.TrimSpace(tool.CalibDue)
 	if due == "" {
 		return false, "校准到期未录入"
@@ -63,48 +70,51 @@ type LotTrace struct {
 	Tails    []string
 }
 
+func lotIndexes(lots []ChemLot, uses []ChemUse) (map[string][]string, map[string][]ChemUse) {
+	children := map[string][]string{}
+	for _, lot := range lots {
+		children[lot.ParentLotID] = append(children[lot.ParentLotID], lot.ID)
+	}
+	byLot := map[string][]ChemUse{}
+	for _, use := range uses {
+		byLot[use.LotID] = append(byLot[use.LotID], use)
+	}
+	return children, byLot
+}
 func TraceLot(lots []ChemLot, uses []ChemUse, lotID string) LotTrace {
+	children, byLot := lotIndexes(lots, uses)
+	return traceLotIndexed(children, byLot, lotID)
+}
+func traceLotIndexed(children map[string][]string, byLot map[string][]ChemUse, lotID string) LotTrace {
 	out := LotTrace{LotID: lotID}
-	seenTail := map[string]bool{}
-	var walk func(id string)
-	walk = func(id string) {
-		for _, lot := range lots {
-			if lot.ParentLotID == id {
-				out.Children = append(out.Children, lot.ID)
-				walk(lot.ID)
-			}
-		}
-		for _, use := range uses {
-			if use.LotID != id && !containsStr(out.Children, use.LotID) {
+
+	seen := map[string]bool{lotID: true}
+	queue := []string{lotID}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		for _, child := range children[id] {
+			if seen[child] {
 				continue
 			}
-			if use.LotID == id || containsStr(out.Children, use.LotID) {
-				if tail := strings.TrimSpace(use.TailNo); tail != "" && !seenTail[tail] {
-					seenTail[tail] = true
-					out.Tails = append(out.Tails, tail)
-				}
-			}
+			seen[child] = true
+			out.Children = append(out.Children, child)
+			queue = append(queue, child)
 		}
 	}
-	walk(lotID)
-	for _, use := range uses {
-		if use.LotID == lotID {
-			if tail := strings.TrimSpace(use.TailNo); tail != "" && !seenTail[tail] {
-				seenTail[tail] = true
+	tails := map[string]bool{}
+	for id := range seen {
+		for _, use := range byLot[id] {
+			tail := strings.TrimSpace(use.TailNo)
+			if tail != "" && !tails[tail] {
+				tails[tail] = true
 				out.Tails = append(out.Tails, tail)
 			}
 		}
 	}
-	return out
-}
+	sort.Strings(out.Tails)
 
-func containsStr(xs []string, want string) bool {
-	for _, x := range xs {
-		if x == want {
-			return true
-		}
-	}
-	return false
+	return out
 }
 
 type Kit struct {

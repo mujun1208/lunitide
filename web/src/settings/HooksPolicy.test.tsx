@@ -11,8 +11,8 @@ const sampleEvents = [
 
 function api(overrides: Partial<HooksPolicyBridge> = {}): HooksPolicyBridge {
   return {
-    getHooksPolicy: vi.fn().mockResolvedValue({ hooks: [{ id: 'no-docx', events: ['beforeToolCall'], tools: ['docx.gen'], decision: 'block', message: '禁止生成 Word 文档' }] }),
-    setHooksPolicy: vi.fn().mockResolvedValue({ applied: 1 }),
+    getHooksPolicy: vi.fn().mockResolvedValue({ revision:"a".repeat(64),appliedRevision:"a".repeat(64),state:"applied", hooks: [{ id: 'no-docx', events: ['beforeToolCall'], tools: ['docx.gen'], decision: 'block', message: '禁止生成 Word 文档' }] }),
+    setHooksPolicy: vi.fn().mockResolvedValue({ applied:1,revision:"b".repeat(64),appliedRevision:"b".repeat(64),state:"applied" }),
     listHookEvents: vi.fn().mockResolvedValue({ events: sampleEvents }),
     ...overrides,
   }
@@ -30,7 +30,7 @@ it('loads persisted rules and recent hook matches', async () => {
 })
 
 it('adds a rule, selects tools and posts the fail-closed document', async () => {
-  const bridge = api({ getHooksPolicy: vi.fn().mockResolvedValue({ hooks: [] }), listHookEvents: vi.fn().mockResolvedValue({ events: [] }) })
+  const bridge = api({ getHooksPolicy: vi.fn().mockResolvedValue({ revision:"a".repeat(64),appliedRevision:"a".repeat(64),state:"applied", hooks: [] }), listHookEvents: vi.fn().mockResolvedValue({ events: [] }) })
   render(<HooksPanel bridge={bridge} />)
   await screen.findByText('共 0 条规则')
   fireEvent.click(screen.getByRole('button', { name: '添加规则' }))
@@ -40,13 +40,14 @@ it('adds a rule, selects tools and posts the fail-closed document', async () => 
   fireEvent.click(screen.getByRole('button', { name: '保存并热生效' }))
   await waitFor(() => expect(bridge.setHooksPolicy).toHaveBeenCalledOnce())
   expect(vi.mocked(bridge.setHooksPolicy).mock.calls[0][0]).toEqual({
+ expectedRevision:"a".repeat(64),
     hooks: [{ id: 'gate-pdf', events: ['beforeToolCall'], tools: ['pdf.gen'], decision: 'requireApproval', message: '' }],
   })
   expect(await screen.findByRole('status')).toHaveTextContent('已保存并热生效：1 条 Hook 规则')
 })
 
 it('drops rows without id or tools instead of sending them', async () => {
-  const bridge = api({ getHooksPolicy: vi.fn().mockResolvedValue({ hooks: [] }), listHookEvents: vi.fn().mockResolvedValue({ events: [] }) })
+  const bridge = api({ getHooksPolicy: vi.fn().mockResolvedValue({ revision:"a".repeat(64),appliedRevision:"a".repeat(64),state:"applied", hooks: [] }), listHookEvents: vi.fn().mockResolvedValue({ events: [] }) })
   render(<HooksPanel bridge={bridge} />)
   await screen.findByText('共 0 条规则')
   fireEvent.click(screen.getByRole('button', { name: '添加规则' }))
@@ -54,7 +55,7 @@ it('drops rows without id or tools instead of sending them', async () => {
   fireEvent.click(screen.getByRole('button', { name: '添加规则' }))
   fireEvent.click(screen.getByRole('button', { name: '保存并热生效' }))
   await waitFor(() => expect(bridge.setHooksPolicy).toHaveBeenCalledOnce())
-  expect(vi.mocked(bridge.setHooksPolicy).mock.calls[0][0]).toEqual({ hooks: [] })
+  expect(vi.mocked(bridge.setHooksPolicy).mock.calls[0][0]).toEqual({ hooks: [],expectedRevision:"a".repeat(64) })
 })
 
 it('surfaces the rejection reason and keeps rules editable', async () => {

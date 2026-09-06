@@ -1,0 +1,101 @@
+package app
+
+import (
+ "context"
+ "encoding/base64"
+ "encoding/json"
+ "fmt"
+ "path/filepath"
+ "testing"
+
+ "github.com/lunitide/lunitide/internal/bridge"
+ "github.com/lunitide/lunitide/internal/domain/project"
+ "github.com/lunitide/lunitide/internal/domain/planning"
+ "github.com/lunitide/lunitide/internal/planningapp"
+ "github.com/lunitide/lunitide/internal/projectapp"
+ "github.com/lunitide/lunitide/internal/providerapp"
+ storage "github.com/lunitide/lunitide/internal/storage/sqlite"
+ "github.com/oklog/ulid/v2"
+)
+
+func auditProjectEngine(t *testing.T) (*Engine,*projectapp.Service,project.Project) {
+ t.Helper()
+ s,err:=storage.OpenTemplated(context.Background(),filepath.Join(t.TempDir(),"audit.db"));if err!=nil{t.Fatal(err)};t.Cleanup(func(){s.Close()})
+ svc:=projectapp.New(s,s);e:=NewEngineWithProjects(providerapp.New(s,s),svc,"audit",nil)
+ p,err:=svc.Create(context.Background(),"audit-create","audit",map[string]string{"name":"Audit"},project.Project{Name:"Audit"});if err!=nil{t.Fatal(err)}
+ return e,svc,p
+}
+func TestAuditProjectSecondUpdate(t *testing.T) {
+ _,svc,p:=auditProjectEngine(t)
+ p,err:=svc.Mutate(context.Background(),"update-one","audit","project.update",p.ID,p.Version,func(p *project.Project)error{p.Summary="first";return nil});if err!=nil{t.Fatal(err)}
+ _,err=svc.Mutate(context.Background(),"update-two","audit","project.update",p.ID,p.Version,func(p *project.Project)error{p.Summary="second";return nil})
+ persisted,_:=svc.Get(context.Background(),p.ID)
+ if err!=nil{t.Fatalf("second independent update failed: %v; persisted summary=%q version=%d",err,persisted.Summary,persisted.Version)}
+}
+func TestAuditProjectChangedPayloadSameKey(t *testing.T) {
+ _,svc,p:=auditProjectEngine(t)
+ _,err:=svc.Mutate(context.Background(),"same-key","audit","project.update",p.ID,p.Version,func(p *project.Project)error{p.Summary="first";return nil});if err!=nil{t.Fatal(err)}
+ replay,err:=svc.Mutate(context.Background(),"same-key","audit","project.update",p.ID,p.Version,func(p *project.Project)error{p.Summary="different";return nil})
+ if err==nil{t.Fatalf("changed payload replayed as success: summary=%q version=%d",replay.Summary,replay.Version)}
+}
+func TestAuditProjectAdvanceWithoutGates(t *testing.T) {
+ e,_,p:=auditProjectEngine(t)
+ r:=validRequest("project.advanceStatus",fmt.Sprintf(`{"id":%q,"version":%d,"phase":8}`,p.ID,p.Version));r.IdempotencyKey="skip-gates"
+ out:=e.Handle(context.Background(),r)
+ if out.OK{t.Fatalf("created project advanced directly to live without publication/stage/gate: %#v",out.Payload)}
+}
+func auditStage(t *testing.T,e *Engine,id string,index int,last bool,data string) bridge.Response {
+ t.Helper()
+ return handleTemplateFileStage(e,context.Background(),bridge.Request{ID:ulid.Make().String(),TraceID:ulid.Make().String(),Method:"template.file.stage",Payload:mustJSON(map[string]any{"uploadId":id,"fileName":"audit.dot","index":index,"last":last,"contentBase64":base64.StdEncoding.EncodeToString([]byte(data))})})
+}
+func TestAuditTemplateNonLastRetry(t *testing.T) {
+ t.Setenv("TEMP",t.TempDir());t.Setenv("TMP",t.TempDir())
+ e:=&Engine{};id:=ulid.Make().String();t.Cleanup(func(){e.finishTemplateStage(id)})
+ for _,x:=range []struct{i int;last bool;s string}{{0,false,"FIRST-"},{0,false,"FIRST-"},{1,true,"LAST"}}{if r:=auditStage(t,e,id,x.i,x.last,x.s);!r.OK{t.Fatal(r.Error)}}
+ b,err:=e.consumeTemplateStage(id);if err!=nil{t.Fatal(err)}
+ if string(b)!="FIRST-LAST"{t.Fatalf("retried chunk changed content: %q",b)}
+}
+func TestAuditTemplateIncompleteConsume(t *testing.T) {
+ t.Setenv("TEMP",t.TempDir());t.Setenv("TMP",t.TempDir())
+ e:=&Engine{};id:=ulid.Make().String()
+ t.Cleanup(func(){auditStage(t,e,id,1,true,"cleanup");e.finishTemplateStage(id)})
+ if r:=auditStage(t,e,id,0,false,"PARTIAL");!r.OK{t.Fatal(r.Error)}
+ b,err:=e.consumeTemplateStage(id);if err==nil{t.Fatalf("incomplete upload consumable before last=true: %q",b)}
+}
+func TestAuditTemplateCreateRetrySameKey(t *testing.T) {
+ e:=&Engine{assets:&mockTemplateStore{},templateFiles:&memTemplateFiles{files:map[string][]byte{}}}
+ p:=map[string]any{"name":"Audit","templateType":"document","documentType":"业务蓝图文档","description":"Audit template","fileName":"audit.dot","contentBase64":base64.StdEncoding.EncodeToString([]byte("TEST"))}
+ raw,_:=json.Marshal(p);r:=bridge.Request{ID:ulid.Make().String(),TraceID:ulid.Make().String(),Method:"template.create",IdempotencyKey:"same-create",Payload:raw}
+ first:=handleTemplateCreate(e,context.Background(),r);second:=handleTemplateCreate(e,context.Background(),r)
+ if !first.OK||!second.OK{t.Fatalf("first=%+v second=%+v",first,second)}
+ if n:=len(e.templateFiles.(*memTemplateFiles).files);n!=1{t.Fatalf("same create retry produced %d stored files; first=%+v second=%+v",n,first.Payload,second.Payload)}
+}
+func auditPlanning(t *testing.T)(*planningapp.Service,*storage.Store,planning.Plan){
+ t.Helper();ctx:=context.Background();store,err:=storage.OpenTemplated(ctx,filepath.Join(t.TempDir(),"planning.db"));if err!=nil{t.Fatal(err)};t.Cleanup(func(){store.Close()})
+ projects:=projectapp.New(store,store);p,err:=projects.Create(ctx,"planning-project","audit",map[string]string{"name":"Audit"},project.Project{Name:"Audit"});if err!=nil{t.Fatal(err)}
+ svc:=planningapp.New(store,store,nil);plan,err:=svc.CreatePlan(ctx,planning.Plan{ProjectID:p.ID,Name:"Audit plan"});if err!=nil{t.Fatal(err)}
+ return svc,store,plan
+}
+func TestAuditPlanningUIRootSequence(t *testing.T){
+ svc,_,plan:=auditPlanning(t)
+ _,err:=svc.CreateNode(context.Background(),planning.Node{PlanID:plan.ID,Name:"Root",RiskLevel:planning.RiskLow,WorkerRole:"planner",Sequence:0})
+ if err!=nil{t.Fatalf("ProjectPlanPanel root payload sequence=0 is rejected by real storage: %v",err)}
+}
+func TestAuditPlanningStartWhilePaused(t *testing.T){
+ svc,store,plan:=auditPlanning(t);ctx:=context.Background()
+ n,err:=svc.CreateNode(ctx,planning.Node{PlanID:plan.ID,Name:"Task",RiskLevel:planning.RiskLow,WorkerRole:"planner",Sequence:1});if err!=nil{t.Fatal(err)}
+ if err=svc.Activate(ctx,plan.ID);err!=nil{t.Fatal(err)};if err=store.UpdateNodeStatus(ctx,n.ID,string(planning.NodeStatusReady));err!=nil{t.Fatal(err)}
+ if err=svc.PausePlan(ctx,plan.ID);err!=nil{t.Fatal(err)}
+ err=svc.StartNode(ctx,n.ID);saved,_:=store.GetNode(ctx,n.ID)
+ if err==nil{t.Fatalf("paused plan starts node: status=%s",saved.Status)}
+}
+func TestAuditPlanningFailedThenCompleted(t *testing.T){
+ svc,store,plan:=auditPlanning(t);ctx:=context.Background()
+ nodes:=[]planning.Node{}
+ for i:=1;i<=2;i++{n,err:=svc.CreateNode(ctx,planning.Node{PlanID:plan.ID,Name:fmt.Sprintf("Task %d",i),RiskLevel:planning.RiskLow,WorkerRole:"planner",Sequence:int64(i)});if err!=nil{t.Fatal(err)};nodes=append(nodes,n);if err=store.UpdateNodeStatus(ctx,n.ID,string(planning.NodeStatusRunning));err!=nil{t.Fatal(err)}}
+ if err:=svc.Activate(ctx,plan.ID);err!=nil{t.Fatal(err)}
+ if err:=svc.FailNode(ctx,nodes[0].ID);err!=nil{t.Fatal(err)}
+ if err:=svc.CompleteNode(ctx,nodes[1].ID);err!=nil{t.Fatal(err)}
+ saved,_:=svc.Get(ctx,plan.ID)
+ if saved.Status!=planning.PlanStatusFailed{t.Fatalf("failed node remains but plan overwritten as %s",saved.Status)}
+}

@@ -37,46 +37,27 @@ func mustJSONArgs(args []string) string {
 // admitSettingsMcp copies one settings-plane endpoint into the chat
 // gateway. Failures stay logged: mcp.add itself already succeeded, and a
 // later health probe / restart hydrate can recover.
-func (e *Engine) admitSettingsMcp(ctx context.Context, ep m7flow.McpEndpointConfig) {
+func (e *Engine) admitSettingsMcp(ctx context.Context, ep m7flow.McpEndpointConfig) error {
 	if e == nil || e.mcp6Registry == nil || ep.EndpointID == "" {
-		return
+		return nil
 	}
-	var args []string
-	if ep.ArgsJSON != "" {
-		_ = json.Unmarshal([]byte(ep.ArgsJSON), &args)
+	if !ep.Enabled || ep.State == m7flow.McpStateRevoked || ep.State == m7flow.McpStateQuarantined {
+		e.dropSettingsMcp(ep.EndpointID)
+		return nil
 	}
-	id := chatMcpEndpointID(ep.EndpointID)
-	switch ep.Transport {
-	case m7flow.McpTransportStdio:
-		if ep.Command == "" || len(args) == 0 {
-			return
-		}
-		seed := ep.Command + " " + strings.Join(args, " ")
-		_, err := e.mcp6Registry.Register(ctx, mcp6.EndpointInput{
-			ID:        id,
-			Transport: "stdio",
-			Command:   ep.Command,
-			Args:      args,
-			Pin:       mcp6.BootstrapPin(seed),
-		})
-		if err != nil {
-			log.Printf("mcp gateway admit %s: %v", ep.EndpointID, err)
-		}
-	case m7flow.McpTransportHTTPS:
-		if ep.URL == "" {
-			return
-		}
-		_, err := e.mcp6Registry.Register(ctx, mcp6.EndpointInput{
-			ID:        id,
-			Transport: "https",
-			URL:       ep.URL,
-			AuthRef:   "secretref:settings/" + id,
-			Pin:       mcp6.BootstrapPin(ep.URL),
-		})
-		if err != nil {
-			log.Printf("mcp gateway admit %s: %v", ep.EndpointID, err)
-		}
+	input, err := settingsMcpInput(ep)
+	if err != nil {
+		return err
 	}
+	if err := e.checkMcpPlugin(ctx, input.Command, input.Args); err != nil {
+		return err
+	}
+	if e.m7mcp != nil && e.mcp6Registry.SecurityEnabled() {
+		_, err = (settingsGatewayProber{e}).Probe(ctx, ep)
+		return err
+	}
+	_, err = e.mcp6Registry.Register(ctx, input)
+	return err
 }
 
 func (e *Engine) dropSettingsMcp(endpointID string) {
@@ -104,7 +85,9 @@ func (e *Engine) HydrateMcpGatewayFromSettings(ctx context.Context) {
 		if !ep.Enabled || ep.State == m7flow.McpStateRevoked || ep.State == m7flow.McpStateQuarantined {
 			continue
 		}
-		e.admitSettingsMcp(ctx, ep)
+		if _, err := e.m7mcp.Health(ctx, ep.EndpointID); err != nil {
+			log.Printf("mcp gateway hydrate %s: %v", ep.EndpointID, err)
+		}
 	}
 }
 

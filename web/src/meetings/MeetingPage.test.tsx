@@ -1,5 +1,6 @@
+import { startMeetingAudioRecorder } from './meetingAudio'
 import { BridgeClientError } from '../bridge/client'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { MeetingsBridge } from '../bridge/client'
@@ -11,7 +12,7 @@ const now = '2026-08-27T03:00:00.000Z'
 const meetingId = '01ARZ3NDEKTSV4RRFFQ69G5FAV'
 
 const base: MeetingDTO = {
-  meetingId, title: '周会', status: 'transcribed', audioSource: 'microphone',
+  meetingId, revision: 1, title: '周会', status: 'transcribed', audioSource: 'microphone',
   startedAt: now, endedAt: now, durationMs: 90000, summary: '', actions: '', transcript: '', 
   createdAt: now, updatedAt: now, segments: [], docs: [],
 }
@@ -102,6 +103,9 @@ function bridge(overrides: Partial<MeetingsBridge> = {}): MeetingsBridge {
     loopbackPoll: vi.fn().mockResolvedValue({ meetingId, active: false, pcm: '' }),
     stop: vi.fn(),
     get: vi.fn(),
+    summarySource: vi.fn(),
+    transcriptGet: vi.fn(),
+    segmentsList: vi.fn(),
     heartbeat: vi.fn().mockResolvedValue({ ...base, status: 'recording' as const }),
     catchup: vi.fn().mockImplementation(async ({ meetingId: id }: { meetingId: string }) => ({
       ...base, meetingId: id, status: 'transcribed' as const, transcript: '逐字稿',
@@ -124,6 +128,174 @@ describe('MeetingPage', () => {
     speech.onFinal = undefined
     speech.onInterim = undefined
     speech.onError = undefined
+  })
+
+  test('capture startup resolved after page exit is immediately released', async () => {
+    let release!: (value: Awaited<ReturnType<typeof startMeetingAudioRecorder>>) => void
+    const pending = new Promise<Awaited<ReturnType<typeof startMeetingAudioRecorder>>>(resolve => { release = resolve })
+    vi.mocked(startMeetingAudioRecorder).mockReturnValueOnce(pending)
+    const meetings = bridge({ start: vi.fn().mockResolvedValue({ ...base, status: 'recording' }) })
+    const rendered = render(<MeetingPage meetings={meetings} />)
+    await userEvent.setup().click(await screen.findByRole('button', { name: '开始录制' }))
+    await waitFor(() => expect(startMeetingAudioRecorder).toHaveBeenCalled())
+    rendered.unmount()
+    const stop = vi.fn().mockResolvedValue(undefined)
+    release({ stop, flush: vi.fn(), attachExtraStream: vi.fn() })
+    await waitFor(() => expect(stop).toHaveBeenCalledOnce())
+    expect(speech.start).not.toHaveBeenCalled()
+  })
+
+  test('late meeting open response cannot replace the newer selection', async () => {
+    const other = { ...base, meetingId: '01ARZ3NDEKTSV4RRFFQ69G5FAW', title: '第二场', summary: '第二场摘要', status: 'ready' as const }
+    let resolveFirst!: (value: MeetingDTO) => void
+    const first = new Promise<MeetingDTO>(resolve => { resolveFirst = resolve })
+    const meetings = bridge({ list: vi.fn().mockResolvedValue({ items: [base, other] }), get: vi.fn().mockImplementation(({ meetingId: id }) => id === base.meetingId ? first : Promise.resolve(other)) })
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={meetings} />)
+    await user.click(await screen.findByText('周会'))
+    await user.click(screen.getByText('第二场'))
+    expect(await screen.findByDisplayValue('第二场摘要')).toBeInTheDocument()
+    resolveFirst({ ...base, summary: '迟到的第一场摘要', status: 'ready' })
+    await waitFor(() => expect(screen.getByRole('textbox', { name: '会议摘要' })).toHaveValue('第二场摘要'))
+  })
+
+  test('stop failure after page exit does not fetch recovery data into an abandoned view', async () => {
+    let rejectStop!: (error: Error) => void
+    const pending = new Promise<MeetingDTO>((_resolve, reject) => { rejectStop = reject })
+    speech.start.mockResolvedValue(speech.handle())
+    const meetings = bridge({ start: vi.fn().mockResolvedValue({ ...base, status: 'recording' }), stop: vi.fn().mockReturnValue(pending) })
+    const view = render(<MeetingPage meetings={meetings} />)
+    await userEvent.click(await screen.findByRole('button', { name: '开始录制' }))
+    await userEvent.click(await screen.findByRole('button', { name: '停止' }))
+    await waitFor(() => expect(meetings.stop).toHaveBeenCalledOnce())
+    view.unmount()
+    rejectStop(new BridgeClientError('逐字稿容量已达上限', 'MEETING_CAPACITY_LIMIT', false, 'test'))
+    await pending.catch(() => undefined)
+    await Promise.resolve()
+    expect(meetings.get).not.toHaveBeenCalled()
+    expect(meetings.catchup).not.toHaveBeenCalled()
+    expect(meetings.summarize).not.toHaveBeenCalled()
+  })
+
+  test('stop capacity error adopts the committed stopped row and preserves its transcript', async () => {
+    speech.start.mockResolvedValue(speech.handle())
+    const stopped = { ...base, revision: 2, status: 'needs_summary' as const, transcript: '已保存的完整原稿', summaryError: '逐字稿容量已达上限；录音已停止，原稿和音频已保留。' }
+    const meetings = bridge({ start: vi.fn().mockResolvedValue({ ...base, status: 'recording' }),
+      stop: vi.fn().mockRejectedValue(new BridgeClientError('逐字稿容量已达上限', 'MEETING_CAPACITY_LIMIT', false, 'test')),
+      get: vi.fn().mockResolvedValue(stopped) })
+    render(<MeetingPage meetings={meetings} />)
+    await userEvent.click(await screen.findByRole('button', { name: '开始录制' }))
+    await userEvent.click(await screen.findByRole('button', { name: '停止' }))
+    expect(await screen.findByDisplayValue(stopped.transcript)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '停止' })).not.toBeInTheDocument()
+    expect(screen.getAllByText(stopped.summaryError).length).toBeGreaterThan(0)
+    expect(meetings.catchup).not.toHaveBeenCalled()
+    expect(meetings.summarize).not.toHaveBeenCalled()
+  })
+
+  test('revision conflict preserves local edits and explicitly retries against reviewed version', async () => {
+    const saved = { ...base, status: 'ready' as const, summary: '原始摘要', transcript: '原稿' }
+    const latest = { ...saved, revision: 2, summary: '其他编辑者内容' }
+    const update = vi.fn().mockRejectedValueOnce(new BridgeClientError('会议已变化', 'MEETING_CHANGED', false, 'test')).mockResolvedValueOnce({ ...latest, revision: 3, summary: '我的修订' })
+    const meetings = bridge({ list: vi.fn().mockResolvedValue({ items: [saved] }), get: vi.fn().mockResolvedValueOnce(saved).mockResolvedValueOnce(latest), update })
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={meetings} />)
+    await user.click(await screen.findByText('周会'))
+    const text = await screen.findByRole('textbox', { name: '会议摘要' })
+    await user.clear(text); await user.type(text, '我的修订')
+    await user.click(screen.getByRole('button', { name: '保存编辑' }))
+    await screen.findByText('会议已有新版本，你的输入仍保留。请核对最新内容后选择。')
+    expect(text).toHaveValue('我的修订')
+    expect(update.mock.calls[0][0].expectedRevision).toBe(1)
+    await user.click(screen.getByRole('button', { name: '保留我的编辑并再次保存' }))
+    await screen.findByText('纪要已保存')
+    expect(update.mock.calls[1][0]).toEqual(expect.objectContaining({ expectedRevision: 2, summary: '我的修订' }))
+  })
+
+  test('typing while a save is pending keeps the newer draft and advances its base revision', async () => {
+    const saved = { ...base, status: 'ready' as const, summary: '原文' }
+    let resolveSave!: (value: MeetingDTO) => void
+    const pending = new Promise<MeetingDTO>(resolve => { resolveSave = resolve })
+    const update = vi.fn().mockReturnValueOnce(pending).mockResolvedValueOnce({ ...saved, revision: 3, summary: '已提交继续编辑' })
+    const meetings = bridge({ list: vi.fn().mockResolvedValue({ items: [saved] }), get: vi.fn().mockResolvedValue(saved), update })
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={meetings} />)
+    await user.click(await screen.findByText('周会'))
+    const text = await screen.findByRole('textbox', { name: '会议摘要' })
+    await user.clear(text); await user.type(text, '已提交')
+    await user.click(screen.getByRole('button', { name: '保存编辑' }))
+    await user.type(text, '继续编辑')
+    resolveSave({ ...saved, revision: 2, summary: '已提交' })
+    await waitFor(() => expect(screen.getByRole('button', { name: '保存编辑' })).toBeEnabled())
+    expect(text).toHaveValue('已提交继续编辑')
+    await user.click(screen.getByRole('button', { name: '保存编辑' }))
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(2))
+    expect(update.mock.calls[1][0]).toEqual(expect.objectContaining({ expectedRevision: 2, summary: '已提交继续编辑' }))
+  })
+
+  test('saving only the summary of a long meeting never submits the transcript preview', async () => {
+    const long = { ...base, status: 'ready' as const, summary: '原摘要', transcript: '只是预览', transcriptComplete: false, transcriptTotalRunes: 40_000, transcriptRevision: 2 }
+    const meetings = bridge({ list: vi.fn().mockResolvedValue({ items: [long] }), get: vi.fn().mockResolvedValue(long),
+      transcriptGet: vi.fn().mockResolvedValue({ meetingId, transcriptRevision: 2, text: '第一完整页', offset: 0, nextOffset: 16_384, totalRunes: 40_000 }),
+      update: vi.fn().mockResolvedValue({ ...long, revision: 2, summary: '新摘要' }) })
+    render(<MeetingPage meetings={meetings} />)
+    await userEvent.click(await screen.findByText('周会'))
+    await screen.findByLabelText('本页逐字稿')
+    expect(screen.queryByLabelText('全文逐字稿')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('会议摘要'), { target: { value: '新摘要' } })
+    await userEvent.click(screen.getByRole('button', { name: '保存编辑' }))
+    await waitFor(() => expect(meetings.update).toHaveBeenCalledWith({ meetingId, expectedRevision: 1, summary: '新摘要', actions: '' }))
+  })
+
+  test('export waits for the dirty transcript page ACK and saves remaining summary edits against its new revision', async () => {
+    const long = { ...base, summary: '原摘要', transcript: '只是预览', transcriptComplete: false, transcriptTotalRunes: 40_000, transcriptRevision: 2 }
+    const pageSaved = { ...long, revision: 2, transcriptRevision: 3, status: 'needs_summary' as const }
+    let acknowledge!: (value: MeetingDTO) => void
+    const update = vi.fn().mockImplementationOnce(() => new Promise<MeetingDTO>(resolve => { acknowledge = resolve })).mockResolvedValueOnce({ ...pageSaved, revision: 3, summary: '新摘要' })
+    const meetings = bridge({ list: vi.fn().mockResolvedValue({ items: [long] }), get: vi.fn().mockResolvedValue(long),
+      transcriptGet: vi.fn().mockResolvedValueOnce({ meetingId, transcriptRevision: 2, text: '原始页', offset: 0, nextOffset: 16_384, totalRunes: 40_000 }).mockResolvedValueOnce({ meetingId, transcriptRevision: 3, text: '新的页', offset: 0, nextOffset: 16_384, totalRunes: 40_000 }),
+      update, exportMeeting: vi.fn().mockResolvedValue({ path: 'C:/full.md', format: 'markdown' }) })
+    render(<MeetingPage meetings={meetings} />)
+    await userEvent.click(await screen.findByText('周会'))
+    fireEvent.change(await screen.findByLabelText('本页逐字稿'), { target: { value: '新的页' } })
+    fireEvent.change(screen.getByLabelText('会议摘要'), { target: { value: '新摘要' } })
+    await userEvent.click(screen.getByRole('button', { name: '导出 Markdown' }))
+    expect(update).toHaveBeenCalledWith({ meetingId, expectedRevision: 1, transcriptEdit: { transcriptRevision: 2, offset: 0, deleteRunes: 3, text: '新的页' } })
+    expect(meetings.exportMeeting).not.toHaveBeenCalled()
+    acknowledge(pageSaved)
+    await waitFor(() => expect(meetings.exportMeeting).toHaveBeenCalled())
+    expect(update).toHaveBeenLastCalledWith({ meetingId, expectedRevision: 2, summary: '新摘要', actions: '' })
+  })
+
+  test('regeneration after a saved transcript edit uses that version without replaying the old catch-up journal', async () => {
+    const edited = { ...base, revision: 4, transcriptRevision: 2, summarySourceRevision: 1, summarySourceDigest: 'a'.repeat(64), summary: '保留的旧摘要', transcript: '人工修订原稿', status: 'needs_summary' as const,
+      summaryError: '逐字稿已修改，旧摘要已保留；请基于当前原稿重新生成。' }
+    const meetings = bridge({ list: vi.fn().mockResolvedValue({ items: [edited] }), get: vi.fn().mockResolvedValue(edited),
+      summarize: vi.fn().mockResolvedValue({ ...edited, revision: 6, summarySourceRevision: 2, status: 'ready' as const, summary: '根据修订原稿生成', summaryError: '' }) })
+    render(<MeetingPage meetings={meetings} />)
+    await userEvent.click(await screen.findByText('周会'))
+    await userEvent.click(await screen.findByRole('button', { name: '重试生成摘要' }))
+    await waitFor(() => expect(meetings.summarize).toHaveBeenCalledWith(expect.objectContaining({ meetingId, expectedRevision: 4 })))
+    expect(meetings.catchup).not.toHaveBeenCalled()
+    expect(await screen.findByDisplayValue('根据修订原稿生成')).toBeInTheDocument()
+  })
+
+  test('shrinking a paged transcript to one page cannot restore the old preview when summary edits are still dirty', async () => {
+    const long = { ...base, summary: '原摘要', transcript: '旧预览不可恢复', transcriptComplete: false, transcriptTotalRunes: 16_385, transcriptRevision: 2 }
+    const short = { ...long, revision: 2, transcriptRevision: 3, transcript: '新的完整原稿', transcriptComplete: true, transcriptTotalRunes: 7 }
+    const update = vi.fn().mockResolvedValueOnce(short).mockResolvedValueOnce({ ...short, revision: 3, summary: '同时修订摘要' })
+    const meetings = bridge({ list: vi.fn().mockResolvedValue({ items: [long] }), get: vi.fn().mockResolvedValue(long), update,
+      transcriptGet: vi.fn().mockResolvedValueOnce({ meetingId, transcriptRevision: 2, text: '原始页', offset: 0, nextOffset: 16_384, totalRunes: 16_385 }).mockResolvedValueOnce({ meetingId, transcriptRevision: 3, text: short.transcript, offset: 0, nextOffset: 0, totalRunes: 7 }) })
+    render(<MeetingPage meetings={meetings} />)
+    await userEvent.click(await screen.findByText('周会'))
+    fireEvent.change(await screen.findByLabelText('本页逐字稿'), { target: { value: '新的完整原稿' } })
+    fireEvent.change(screen.getByLabelText('会议摘要'), { target: { value: '同时修订摘要' } })
+    await userEvent.click(screen.getByRole('button', { name: '保存本页原稿' }))
+    expect(await screen.findByLabelText('全文逐字稿')).toHaveValue(short.transcript)
+    expect(screen.getByLabelText('会议摘要')).toHaveValue('同时修订摘要')
+    await userEvent.click(screen.getByRole('button', { name: '保存编辑' }))
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(2))
+    expect(update).toHaveBeenLastCalledWith({ meetingId, expectedRevision: 2, transcript: short.transcript, summary: '同时修订摘要', actions: '' })
   })
 
   test('lists past meetings and keeps the workspace independent of 对话', async () => {
@@ -245,7 +417,7 @@ describe('MeetingPage', () => {
     expect(await screen.findByText('先对齐范围')).toBeInTheDocument()
     expect(meetings.append).toHaveBeenCalledWith(expect.objectContaining({ meetingId, text: '先对齐范围' }))
     await user.click(screen.getByRole('button', { name: '停止' }))
-    expect(meetings.catchup).toHaveBeenCalledWith({ meetingId })
+    expect(meetings.catchup).toHaveBeenCalledWith({ meetingId, expectedRevision: stopped.revision })
     expect(meetings.summarize).toHaveBeenCalledWith(expect.objectContaining({ meetingId }))
     expect(await screen.findByRole('heading', { name: '会议摘要' })).toBeInTheDocument()
     expect(screen.getByDisplayValue('已对齐范围。')).toBeInTheDocument()
@@ -533,7 +705,7 @@ describe('MeetingPage', () => {
     await user.click(screen.getByRole('button', { name: '删除 评审会' }))
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '确认删除' }))
-    await vi.waitFor(() => expect(meetings.delete).toHaveBeenCalledWith({ meetingId: past.meetingId }))
+    await vi.waitFor(() => expect(meetings.delete).toHaveBeenCalledWith({ meetingId: past.meetingId, expectedRevision: past.revision }))
   })
 
   test('keeps recording when live ASR cannot start', async () => {

@@ -58,7 +58,26 @@ func (e *Engine) executeUserTool(ctx context.Context, mode executionMode, sessio
 // progress sink (P1-2): command.run pushes bounded output chunks to the
 // stream between tool_started and tool_completed so long-running commands
 // stop black-boxing.
-func (e *Engine) executeUserToolStreaming(ctx context.Context, mode executionMode, session, name string, args json.RawMessage, progress func(chunk string)) (toolruntime.Result, error) {
+func (e *Engine) executeUserToolStreaming(ctx context.Context, mode executionMode, session, name string, args json.RawMessage, progress func(chunk string)) (out toolruntime.Result, err error) {
+	ctx, release, err := e.acquireToolCapability(ctx, name, args)
+	if err != nil {
+		return toolruntime.Result{}, err
+	}
+	defer release()
+	defer func() {
+		if cause := context.Cause(ctx); cause != nil {
+			out = toolruntime.Result{}
+			err = cause
+		}
+	}()
+	if progress != nil {
+		sink := progress
+		progress = func(chunk string) {
+			if ctx.Err() == nil {
+				sink(chunk)
+			}
+		}
+	}
 	if e != nil && e.toolExecHook != nil {
 		return e.toolExecHook(ctx, mode, session, name, args)
 	}

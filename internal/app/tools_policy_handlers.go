@@ -7,15 +7,17 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
 func handleToolsCommandPolicyGet(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
 	if e.tools == nil {
 		return r.Fail("FEATURE_DISABLED", "工具运行时未初始化", false)
 	}
-	raw, err := e.tools.CommandPolicyJSON()
+	raw, err := e.tools.PolicySnapshot("commands")
 	if err != nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "命令白名单读取失败", true)
 	}
@@ -27,7 +29,8 @@ func handleToolsCommandPolicySet(e *Engine, _ context.Context, r bridge.Request)
 		return r.Fail("FEATURE_DISABLED", "工具运行时未初始化", false)
 	}
 	var doc struct {
-		Commands []struct {
+		ExpectedRevision string `json:"expectedRevision"`
+		Commands         []struct {
 			Prefix    []string `json:"prefix"`
 			MaxArgs   int      `json:"maxArgs,omitempty"`
 			TimeoutMS int64    `json:"timeoutMs,omitempty"`
@@ -37,10 +40,15 @@ func handleToolsCommandPolicySet(e *Engine, _ context.Context, r bridge.Request)
 	if decodePayload(r.Payload, &doc) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "tools.commandPolicy.set 参数无效", false)
 	}
-	if err := e.tools.SetCommandPolicyJSON(r.Payload); err != nil {
+	status, err := e.tools.SetPolicyVersioned("commands", r.Payload, doc.ExpectedRevision)
+	if err != nil {
+		if errors.Is(err, toolruntime.ErrPolicyRevisionConflict) {
+			return r.Fail("SETTINGS_VERSION_CONFLICT", err.Error(), false)
+		}
 		return r.Fail("COMMAND_POLICY_INVALID", err.Error(), false)
 	}
 	return r.Ok(struct {
 		Applied int `json:"applied"`
-	}{len(doc.Commands)})
+		toolruntime.PolicyStatus
+	}{len(doc.Commands), status})
 }

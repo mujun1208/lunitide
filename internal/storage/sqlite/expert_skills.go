@@ -2,7 +2,10 @@ package sqlite
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/lunitide/lunitide/internal/domain/m8core"
+	"github.com/lunitide/lunitide/internal/m8app"
 	"strings"
 	"time"
 
@@ -52,88 +55,48 @@ func (s *Store) ListExpertSkillKeys(ctx context.Context, expertID string) ([]str
 }
 
 func (s *Store) ReplaceExpertSkillKeys(ctx context.Context, expertID string, keys []string) error {
-	if !validExpertSkillULID(expertID) {
-		return fmt.Errorf("expert skill id invalid")
-	}
-	if len(keys) > expertSkillBindCap {
-		return fmt.Errorf("expert skill capacity reached")
-	}
-	seen := map[string]bool{}
-	for _, key := range keys {
-		if !validExpertSkillKey(key) || seen[key] {
-			return fmt.Errorf("expert skill key invalid")
-		}
-		seen[key] = true
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin expert skill bindings: %w", err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM expert_skill_bindings WHERE expert_id=?`, expertID); err != nil {
-		return fmt.Errorf("clear expert skill bindings: %w", err)
-	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-	for i, key := range keys {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO expert_skill_bindings(expert_id, skill_key, ordinal, created_at) VALUES(?,?,?,?)`, expertID, key, i, now); err != nil {
-			return fmt.Errorf("insert expert skill binding: %w", err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit expert skill bindings: %w", err)
-	}
-	return nil
+	return s.changeExpertSkillKeys(ctx, expertID, keys, "replace")
 }
-
 func (s *Store) SeedExpertSkillsIfEmpty(ctx context.Context, expertID string, keys []string) error {
-	if !validExpertSkillULID(expertID) {
-		return fmt.Errorf("expert skill id invalid")
-	}
-	var n int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM expert_skill_bindings WHERE expert_id=?`, expertID).Scan(&n); err != nil {
-		return fmt.Errorf("count expert skill bindings: %w", err)
-	}
-	if n > 0 {
-		return nil
-	}
-	return s.ReplaceExpertSkillKeys(ctx, expertID, keys)
+	return s.changeExpertSkillKeys(ctx, expertID, keys, "seed")
 }
-
-// MergeExpertSkillKeys appends missing keys onto an existing binding list so a
-// newly shipped factory skill lands on already-installed specialists. Empty
-// bindings fall through to a full replace (same as SeedExpertSkillsIfEmpty).
 func (s *Store) MergeExpertSkillKeys(ctx context.Context, expertID string, keys []string) error {
-	existing, err := s.ListExpertSkillKeys(ctx, expertID)
-	if err != nil {
+	return s.changeExpertSkillKeys(ctx, expertID, keys, "merge")
+}
+func (s *Store) changeExpertSkillKeys(ctx context.Context, id string, keys []string, mode string) error {
+	return s.AgentRuntimeRepository().TransactExpert(ctx, func(tx m8app.ExpertTx) error {
+		current, err := tx.ListExpertSkillKeys(id)
+		if err != nil {
+			return err
+		}
+		if mode == "seed" && len(current) > 0 {
+			return nil
+		}
+		if mode == "merge" {
+			out := append([]string{}, current...)
+			seen := map[string]bool{}
+			for _, key := range current {
+				seen[key] = true
+			}
+			for _, key := range keys {
+				key = strings.TrimSpace(key)
+				if key != "" && !seen[key] {
+					seen[key] = true
+					out = append(out, key)
+				}
+			}
+			keys = out
+		}
+		_, err = tx.GetExpert(id)
+		// Legacy bindings may be seeded before their catalog record exists. A
+		// later expert Create snapshots its own committed bindings.
+		if errors.Is(err, m8core.ErrNotFound) {
+			return tx.ReplaceExpertSkillKeys(id, keys)
+		}
+		if err != nil {
+			return err
+		}
+		_, err = m8app.UpdateExpertEquipmentTx(tx, id, "", keys, time.Now().UTC().Format(time.RFC3339Nano))
 		return err
-	}
-	if len(existing) == 0 {
-		return s.ReplaceExpertSkillKeys(ctx, expertID, keys)
-	}
-	seen := map[string]bool{}
-	out := make([]string, 0, len(existing)+len(keys))
-	for _, key := range existing {
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, key)
-	}
-	added := false
-	for _, key := range keys {
-		key = strings.TrimSpace(key)
-		if key == "" || seen[key] {
-			continue
-		}
-		if !validExpertSkillKey(key) {
-			return fmt.Errorf("expert skill key invalid")
-		}
-		seen[key] = true
-		out = append(out, key)
-		added = true
-	}
-	if !added {
-		return nil
-	}
-	return s.ReplaceExpertSkillKeys(ctx, expertID, out)
+	})
 }

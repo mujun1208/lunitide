@@ -9,14 +9,33 @@ param(
 )
 $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'Resolve-SignTool.ps1')
+. (Join-Path $PSScriptRoot 'Release-Safety.ps1')
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $version=(Get-Content (Join-Path $root 'VERSION') -Raw).Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$') { throw 'VERSION is invalid' }
 if (-not $SkipInstaller -and -not $AllowUnsignedDevelopment) { $RequireSignature=$true }
-$out=Join-Path $root $OutputRoot; $stage=Join-Path $out "Lunitide-$version-x64"; $cache=Join-Path $root '.release-cache'
+$out=Assert-ReleaseChildPath (Join-Path $root $OutputRoot) (Join-Path $root 'release')
+$stage=Assert-ReleaseChildPath (Join-Path $out "Lunitide-$version-x64") $out
+$cache=Assert-ReleaseChildPath (Join-Path $root '.release-cache') $root
+if((Test-Path -LiteralPath $out) -and @(Get-ChildItem -LiteralPath $out -Force).Count){throw 'OutputRoot must be empty for a single immutable candidate'}
+$sourceBefore=Get-ReleaseSourceSnapshot $root $out
+if($RequireSignature){
+  $dirty=(& git -C $root status --porcelain --untracked-files=normal | Out-String).Trim()
+  if($LASTEXITCODE -or $dirty){throw 'Signed releases require a clean committed checkout'}
+}
 function Invoke-ArtifactSigning([string]$Artifact) {
-  if ($SignCommand) { & powershell -NoProfile -Command ($SignCommand.Replace('{artifact}',$Artifact)); if ($LASTEXITCODE) { throw "signature command failed for $Artifact" } }
+  if ($SignCommand) {
+    if(-not $SignCommand.Contains('{artifact}')){throw 'Signing command must contain the {artifact} placeholder'}
+    $oldArtifact=$env:LUNITIDE_SIGN_ARTIFACT
+    try{
+      # The path is data in an environment variable, never interpolated into code.
+      $env:LUNITIDE_SIGN_ARTIFACT=$Artifact
+      $command=$SignCommand.Replace('"{artifact}"','$env:LUNITIDE_SIGN_ARTIFACT').Replace("'{artifact}'",'$env:LUNITIDE_SIGN_ARTIFACT').Replace('{artifact}','$env:LUNITIDE_SIGN_ARTIFACT')
+      & powershell -NoProfile -NonInteractive -Command $command
+      if ($LASTEXITCODE) { throw "signature command failed for $Artifact" }
+    }finally{$env:LUNITIDE_SIGN_ARTIFACT=$oldArtifact}
+  }
   elseif ($RequireSignature) { throw 'Production signing is required; set LUNITIDE_SIGN_COMMAND with an {artifact} token, or use -AllowUnsignedDevelopment only for a non-publishable test candidate' }
 }
 function Assert-PublisherSignature([string]$Artifact) {
@@ -31,7 +50,7 @@ function Assert-PublisherSignature([string]$Artifact) {
   & (Resolve-SignTool) verify /pa /all /v $Artifact
   if ($LASTEXITCODE) { throw "Windows Authenticode policy rejected the signature or timestamp chain: $Artifact" }
 }
-Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+if(Test-Path -LiteralPath $stage){throw 'Candidate stage already exists; choose a new OutputRoot to preserve earlier evidence'}
 New-Item $stage,$cache,(Join-Path $stage 'web\dist'),(Join-Path $stage 'licenses') -ItemType Directory -Force | Out-Null
 $oldCgo=$env:CGO_ENABLED; $oldOs=$env:GOOS; $oldArch=$env:GOARCH
 Push-Location $root
@@ -44,13 +63,23 @@ try {
   # Tray mode is the same PE: Lunitide.exe --tray. cmd/tray is a local launcher only.
   & go build -trimpath -buildvcs=false -ldflags $ld -o (Join-Path $stage 'lunitide-engine.exe') ./cmd/engine
   if ($LASTEXITCODE) { throw 'engine build failed' }
+  & go build -trimpath -buildvcs=false -ldflags $ld -o (Join-Path $stage 'lunitide-maintenance.exe') ./cmd/maintenance
+  if ($LASTEXITCODE) { throw 'maintenance build failed' }
   & go build -trimpath -buildvcs=false -ldflags '-s -w' -o (Join-Path $stage 'purge-user-data.exe') ./cmd/purge-user-data
   if ($LASTEXITCODE) { throw 'purge helper build failed' }
 } finally { $env:CGO_ENABLED=$oldCgo; $env:GOOS=$oldOs; $env:GOARCH=$oldArch; Pop-Location }
 # Route npm through cmd so its stderr warnings stay plain text; under Windows
 # PowerShell 5.1 a native stderr write would otherwise become a terminating
 # error with $ErrorActionPreference='Stop' even when the build succeeds.
-& cmd.exe /c 'npm --prefix web run build 2>&1'; if ($LASTEXITCODE) { throw 'renderer build failed' }
+Push-Location $root
+try {
+  & cmd.exe /c 'npm --prefix web run verify:bridge 2>&1'; if ($LASTEXITCODE) { throw 'generated Bridge contracts are stale' }
+  & cmd.exe /c 'npm --prefix web run typecheck 2>&1'; if ($LASTEXITCODE) { throw 'renderer typecheck failed' }
+  Push-Location (Join-Path $root 'web')
+  try { & cmd.exe /c 'npm exec -- vite build 2>&1'; if ($LASTEXITCODE) { throw 'renderer build failed' } }
+  finally { Pop-Location }
+}
+finally { Pop-Location }
 Copy-Item (Join-Path $root 'web\dist\*') (Join-Path $stage 'web\dist') -Recurse -Force
 Copy-Item (Join-Path $root 'resources\lunitide-icon.ico') $stage -Force
 # The PE-embedded icon (cmd/desktop/lunitide.syso) is committed to the repo and
@@ -86,7 +115,8 @@ if (-not $signatureVerified) {
   if ($RequireSignature) { throw 'A trustworthy nuget/dotnet package signature verifier is required for -RequireSignature builds' }
   Write-Warning 'No NuGet signature verifier is available; continuing only because this is a non-RequireSignature build. Pinned package and loader hashes remain enforced.'
 }
-$wvExtract=Join-Path $cache "webview2-$wvVersion"; Remove-Item $wvExtract -Recurse -Force -ErrorAction SilentlyContinue
+$wvExtract=Assert-ReleaseChildPath (Join-Path $cache "webview2-$wvVersion") $cache
+Remove-Item -LiteralPath $wvExtract -Recurse -Force -ErrorAction SilentlyContinue
 [IO.Compression.ZipFile]::ExtractToDirectory($wv,$wvExtract)
 $loader=Join-Path $wvExtract 'build\native\x64\WebView2Loader.dll'
 if ((Get-FileHash $loader -Algorithm SHA256).Hash.ToLowerInvariant() -ne $wvLoaderX64Hash) { throw 'Pinned x64 WebView2Loader.dll SHA-256 mismatch' }
@@ -96,12 +126,20 @@ Copy-Item (Join-Path $wvExtract 'NOTICE.txt') (Join-Path $stage 'licenses\Micros
 # Do not stage large ML runtimes or omni/Comni/GGUF payloads. Verify-Layout rejects them.
 Copy-Item (Join-Path $PSScriptRoot 'stop-install-processes.ps1') $stage
 Copy-Item (Join-Path $PSScriptRoot 'verify-install-directory.ps1') $stage
+Copy-Item (Join-Path $PSScriptRoot 'Release-Safety.ps1') $stage
 & (Join-Path $PSScriptRoot 'Verify-PE.ps1') (Join-Path $stage 'WebView2Loader.dll') -RequiredExports @('CreateCoreWebView2EnvironmentWithOptions','GetAvailableCoreWebView2BrowserVersionString','CompareBrowserVersions')
-foreach($binary in @('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe')){
+foreach($binary in @('Lunitide.exe','lunitide-engine.exe','lunitide-maintenance.exe','purge-user-data.exe')){
   $artifact=Join-Path $stage $binary
   Invoke-ArtifactSigning $artifact
   Assert-PublisherSignature $artifact
 }
+$sourceAfter=Get-ReleaseSourceSnapshot $root $out
+Assert-ReleaseSourceUnchanged $sourceBefore $sourceAfter
+$sourceBefore.version=$version
+$sourceBefore.builtAtUtc=[DateTime]::UtcNow.ToString('o')
+$sourceBefore.releaseMode=if($RequireSignature){'publisher-signed'}else{'development-rehearsal'}
+$sourceBefore.tools=@('Lunitide.exe','lunitide-engine.exe','lunitide-maintenance.exe','purge-user-data.exe')
+[IO.File]::WriteAllText((Join-Path $stage 'SOURCE-CANDIDATE.json'),($sourceBefore | ConvertTo-Json -Depth 6),(New-Object Text.UTF8Encoding $false))
 & (Join-Path $PSScriptRoot 'Verify-Layout.ps1') -Stage $stage -Version $version
 
 $manifest=Join-Path $stage 'SHA256SUMS.txt'
@@ -125,7 +163,8 @@ if (-not $SkipInstaller) {
   }
   $nsis=Join-Path $cache ("nsis-build-"+[guid]::NewGuid().ToString('N'))
   try {
-    Remove-Item $nsis -Recurse -Force -ErrorAction SilentlyContinue
+    $null=Assert-ReleaseChildPath $nsis $cache
+    Remove-Item -LiteralPath $nsis -Recurse -Force -ErrorAction SilentlyContinue
     New-Item $nsis -ItemType Directory | Out-Null
     if ((Get-Item $nsis -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "NSIS extraction root is a reparse point: $nsis" }
     [IO.Compression.ZipFile]::ExtractToDirectory($nsisZip,$nsis)
@@ -140,7 +179,8 @@ if (-not $SkipInstaller) {
     & $makeNsis /WX "/DVERSION=$version" "/DSTAGE=$stage" "/DOUTFILE=$installer" $installerScript
     if ($LASTEXITCODE) { throw 'NSIS compilation failed' }
   } finally {
-    Remove-Item $nsis -Recurse -Force -ErrorAction SilentlyContinue
+    $null=Assert-ReleaseChildPath $nsis $cache
+    Remove-Item -LiteralPath $nsis -Recurse -Force -ErrorAction SilentlyContinue
   }
   Invoke-ArtifactSigning $installer
   Assert-PublisherSignature $installer
@@ -152,4 +192,5 @@ if (-not $SkipInstaller) {
     "{0}  {1}" -f (Get-FileHash $manifest -Algorithm SHA256).Hash.ToLowerInvariant(),$stageManifestName
   ) | Set-Content $releaseManifest -Encoding ascii
 }
+Assert-ReleaseSourceUnchanged $sourceBefore (Get-ReleaseSourceSnapshot $root $out)
 Write-Host "Release stage: $stage"; if (-not $SkipInstaller) { Write-Host "Installer: $installer" }

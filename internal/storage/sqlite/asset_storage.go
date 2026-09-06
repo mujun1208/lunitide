@@ -16,13 +16,15 @@ func scanAssetTemplate(row interface {
 }) (asset.AssetTemplate, error) {
 	var t asset.AssetTemplate
 	var created, updated string
+	var orgID sql.NullString
 	if err := row.Scan(
 		&t.ID, &t.TemplateCode, &t.Name, &t.TemplateType, &t.DocumentType,
 		&t.Description, &t.Client, &t.MimeType, &t.FileName, &t.FilePath,
-		&t.Status, &created, &updated, &t.Version,
+		&t.Status, &created, &updated, &t.Version, &orgID,
 	); err != nil {
 		return t, err
 	}
+	t.OrgID = orgID.String
 	var err error
 	t.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
 	if err != nil {
@@ -36,7 +38,7 @@ func scanAssetTemplate(row interface {
 }
 
 const assetTemplateSelect = `SELECT id, template_code, name, template_type, document_type,
-	description, client, mime_type, file_name, file_path, status, created_at, updated_at, version
+	description, client, mime_type, file_name, file_path, status, created_at, updated_at, version,org_id
 	FROM asset_templates`
 
 // NextAssetTemplateCode allocates the next TPL##### code inside a transaction.
@@ -95,11 +97,11 @@ func (s *Store) CreateAssetTemplate(ctx context.Context, tpl asset.AssetTemplate
 			_, err = tx.ExecContext(ctx,
 				`INSERT INTO asset_templates(
 					id, template_code, name, template_type, document_type, description, client,
-					mime_type, file_name, file_path, status, created_at, updated_at, version)
-				 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+					mime_type, file_name, file_path, status, created_at, updated_at, version,org_id)
+				 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 				tpl.ID, tpl.TemplateCode, tpl.Name, tpl.TemplateType, string(tpl.DocumentType),
 				tpl.Description, tpl.Client, tpl.MimeType, tpl.FileName, tpl.FilePath,
-				tpl.Status, formatTime(tpl.CreatedAt), formatTime(tpl.UpdatedAt), tpl.Version)
+				tpl.Status, formatTime(tpl.CreatedAt), formatTime(tpl.UpdatedAt), tpl.Version, nullableProjectID(tpl.OrgID))
 			return err
 		})
 	return tpl, mapWriteError(err)
@@ -119,6 +121,10 @@ func (s *Store) GetAssetTemplate(ctx context.Context, id string) (asset.AssetTem
 func (s *Store) ListAssetTemplates(ctx context.Context, filter asset.Filter) ([]asset.AssetTemplate, error) {
 	query := assetTemplateSelect + ` WHERE 1=1`
 	args := make([]any, 0, 3)
+	if filter.Scoped {
+		query += ` AND COALESCE(org_id,'')=?`
+		args = append(args, filter.OrgID)
+	}
 	if filter.Status != "" {
 		query += ` AND status=?`
 		args = append(args, filter.Status)
@@ -131,7 +137,20 @@ func (s *Store) ListAssetTemplates(ctx context.Context, filter asset.Filter) ([]
 		query += ` AND document_type=?`
 		args = append(args, filter.DocumentType)
 	}
-	query += ` ORDER BY updated_at DESC LIMIT 100`
+	if filter.Query != "" {
+		query += ` AND instr(lower(name||' '||template_code||' '||document_type||' '||client),lower(?))>0`
+		args = append(args, filter.Query)
+	}
+	if filter.BeforeCreatedAt != "" {
+		query += ` AND (created_at<? OR (created_at=? AND id<?))`
+		args = append(args, filter.BeforeCreatedAt, filter.BeforeCreatedAt, filter.BeforeID)
+	}
+	limit := filter.Limit
+	if limit < 1 || limit > 101 {
+		limit = 100
+	}
+	query += ` ORDER BY created_at DESC,id DESC LIMIT ?`
+	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err

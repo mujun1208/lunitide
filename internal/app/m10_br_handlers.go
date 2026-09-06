@@ -31,6 +31,7 @@ func handleBrSettingsGet(e *Engine, ctx context.Context, r bridge.Request) bridg
 
 func handleBrSettingsUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
+		ExpectedRevision    int64     `json:"expectedRevision"`
 		Mode                *string   `json:"mode"`
 		ChromePath          *string   `json:"chromePath"`
 		EdgePath            *string   `json:"edgePath"`
@@ -50,7 +51,7 @@ func handleBrSettingsUpdate(e *Engine, ctx context.Context, r bridge.Request) br
 		Mode: p.Mode, ChromePath: p.ChromePath, EdgePath: p.EdgePath,
 		ExtensionPort: p.ExtensionPort, Allowlist: p.Allowlist,
 		DataRetentionDays: p.DataRetentionDays, BlockPrivateNetwork: p.BlockPrivateNetwork,
-		Actor: p.Actor,
+		Actor: p.Actor, ExpectedRevision: p.ExpectedRevision,
 	})
 	if err != nil {
 		return brFailure(r, err)
@@ -274,6 +275,8 @@ func handleBrPermissionPolicy(e *Engine, ctx context.Context, r bridge.Request) 
 // brFailure maps brapp errors onto M10-BR-001~006.
 func brFailure(r bridge.Request, err error) bridge.Response {
 	switch {
+	case errors.Is(err, brapp.ErrBrConflict):
+		return r.Fail("BR_SETTINGS_CHANGED", "浏览器设置已变化，请加载最新设置后重试", false)
 	case errors.Is(err, brapp.ErrBrSchema):
 		return r.Fail("M10-BR-001", "浏览器参数或配置无效", false)
 	case errors.Is(err, brapp.ErrBrState):

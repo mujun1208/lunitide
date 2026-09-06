@@ -178,6 +178,9 @@ func handleMemorySettingsGet(e *Engine, ctx context.Context, r bridge.Request) b
 	if e.memoryOps == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
 	}
+	if p.SubjectID != e.memorySubjectID() {
+		return m8MemoryFailure(r, m8app.ErrRecallScopeDenied)
+	}
 	st, err := e.memoryOps.SettingsGet(ctx, p.SubjectID)
 	if err != nil {
 		return memoryOpsFailure(r, err)
@@ -187,24 +190,25 @@ func handleMemorySettingsGet(e *Engine, ctx context.Context, r bridge.Request) b
 
 func handleMemorySettingsUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		SubjectID     string `json:"subjectId"`
-		MemoryEnabled bool   `json:"memoryEnabled"`
-		AutoNominate  bool   `json:"autoNominate"`
-		GrowthDays    int    `json:"growthDays"`
+		SubjectID       string `json:"subjectId"`
+		ExpectedVersion string `json:"expectedVersion"`
+		MemoryEnabled   bool   `json:"memoryEnabled"`
+		AutoNominate    bool   `json:"autoNominate"`
+		GrowthDays      int    `json:"growthDays"`
 	}
-	if decodePayload(r.Payload, &p) != nil || len(p.SubjectID) < 1 || len(p.SubjectID) > m8core.MaxSubjectID {
+	if decodePayload(r.Payload, &p) != nil || len(p.SubjectID) < 1 || len(p.SubjectID) > m8core.MaxSubjectID || !m8core.ValidHexDigest(p.ExpectedVersion) {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.settings.update 参数无效", false)
 	}
 	if e.memoryOps == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
 	}
-	if err := e.memoryOps.SettingsUpdate(ctx, m8core.MemorySettings{
+	if p.SubjectID != e.memorySubjectID() {
+		return m8MemoryFailure(r, m8app.ErrRecallScopeDenied)
+	}
+	st, err := e.memoryOps.SettingsUpdateVersioned(ctx, m8core.MemorySettings{
 		SubjectID: p.SubjectID, MemoryEnabled: p.MemoryEnabled,
 		AutoNominate: p.AutoNominate, GrowthDays: p.GrowthDays,
-	}); err != nil {
-		return memoryOpsFailure(r, err)
-	}
-	st, err := e.memoryOps.SettingsGet(ctx, p.SubjectID)
+	}, p.ExpectedVersion)
 	if err != nil {
 		return memoryOpsFailure(r, err)
 	}
@@ -348,20 +352,21 @@ type growthDTO struct {
 	CreatedAt        string `json:"createdAt"`
 }
 
-func settingsDTO(st m8core.MemorySettings) struct {
+type memorySettingsDTO struct {
 	SubjectID     string `json:"subjectId"`
 	MemoryEnabled bool   `json:"memoryEnabled"`
 	AutoNominate  bool   `json:"autoNominate"`
 	GrowthDays    int    `json:"growthDays"`
 	UpdatedAt     string `json:"updatedAt"`
-} {
-	return struct {
-		SubjectID     string `json:"subjectId"`
-		MemoryEnabled bool   `json:"memoryEnabled"`
-		AutoNominate  bool   `json:"autoNominate"`
-		GrowthDays    int    `json:"growthDays"`
-		UpdatedAt     string `json:"updatedAt"`
-	}{SubjectID: st.SubjectID, MemoryEnabled: st.MemoryEnabled, AutoNominate: st.AutoNominate, GrowthDays: st.GrowthDays, UpdatedAt: st.UpdatedAt}
+	Version       string `json:"version"`
+}
+
+func settingsDTO(st m8core.MemorySettings) memorySettingsDTO {
+	updated := st.UpdatedAt
+	if updated == "" {
+		updated = "1970-01-01T00:00:00Z"
+	}
+	return memorySettingsDTO{st.SubjectID, st.MemoryEnabled, st.AutoNominate, st.GrowthDays, updated, m8core.SettingsVersion(st)}
 }
 
 func statsDTO(stats m8app.MemoryOpsStats) struct {
@@ -392,6 +397,8 @@ func statsDTO(stats m8app.MemoryOpsStats) struct {
 // memoryOpsFailure maps m8app memory-ops errors onto M10-MO-001~005.
 func memoryOpsFailure(r bridge.Request, err error) bridge.Response {
 	switch {
+	case errors.Is(err, m8core.ErrSettingsConflict):
+		return r.Fail("MEMORY_SETTINGS_CONFLICT", "设置已被其他操作更新，草稿已保留，请重新加载后核对", false)
 	case errors.Is(err, m8app.ErrOpsFactNotFound):
 		return r.Fail("M10-MO-001", "记忆事实不存在", false)
 	case errors.Is(err, m8app.ErrOpsFlagInvalid):

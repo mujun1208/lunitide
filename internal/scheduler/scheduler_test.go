@@ -45,7 +45,7 @@ func TestStoreJobCRUDAndValidation(t *testing.T) {
 	}
 	// invalid fields refused
 	for _, bad := range []Job{
-		validJob("", "* * * * *"), validJob("n", "bad cron"), validJob("n", "* * * * *", ),
+		validJob("", "* * * * *"), validJob("n", "bad cron"), validJob("n", "* * * * *"),
 	} {
 		bad.Prompt = ""
 		if err := s.PutJob(bad); err == nil {
@@ -164,11 +164,13 @@ func TestSchedulerFiresDueJobSingleFlightNotifiesAndPersists(t *testing.T) {
 	}
 	notify := newCaptureNotifier()
 	s := New(store, executor, notify)
+	t.Cleanup(s.Close)
 
 	// Seed nextFire so the job is due right now.
 	now := time.Now().UTC().Truncate(time.Minute)
 	s.mu.Lock()
 	s.nextFire[job.ID] = now.Add(-time.Minute)
+	s.schedules[job.ID] = job.Cron + "/" + job.UpdatedAt.Format(time.RFC3339Nano)
 	s.mu.Unlock()
 
 	s.fireDue(now)
@@ -176,7 +178,11 @@ func TestSchedulerFiresDueJobSingleFlightNotifiesAndPersists(t *testing.T) {
 	// executor signals exactly once below.
 	s.fireDue(now.Add(time.Second))
 
-	<-ready
+	select {
+	case <-ready:
+	case <-time.After(2 * time.Second):
+		t.Fatal("due execution did not start")
+	}
 	// Wait for the async finalize (run row + notify + reschedule).
 	notify.waitFor(t, 1)
 	if got, ok := calls.Load(job.ID); !ok || got.(int) != 1 {
@@ -224,9 +230,11 @@ func TestSchedulerFailureRunNotifiesFailure(t *testing.T) {
 	s := New(store, func(context.Context, Job) Outcome {
 		return Outcome{Err: errors.New("模型网关超时")}
 	}, notify)
+	t.Cleanup(s.Close)
 	now := time.Now().UTC().Truncate(time.Minute)
 	s.mu.Lock()
 	s.nextFire[job.ID] = now.Add(-time.Minute)
+	s.schedules[job.ID] = job.Cron + "/" + job.UpdatedAt.Format(time.RFC3339Nano)
 	s.mu.Unlock()
 	s.fireDue(now)
 	// The run appends its row before it notifies, so this one wait covers
@@ -248,11 +256,15 @@ func TestTriggerNowRejectsUnknownAndConcurrent(t *testing.T) {
 	_ = store.PutJob(job)
 	block := make(chan struct{})
 	started := make(chan struct{})
-	s := New(store, func(context.Context, Job) Outcome {
+	s := New(store, func(ctx context.Context, _ Job) Outcome {
 		close(started)
-		<-block
+		select {
+		case <-block:
+		case <-ctx.Done():
+		}
 		return Outcome{}
 	}, &captureNotifier{})
+	t.Cleanup(s.Close)
 	if err := s.TriggerNow("01ARZ3NDEKTSV4RRFFQ69G5FAQQ"); err == nil {
 		t.Fatal("unknown job triggered")
 	}
@@ -273,9 +285,11 @@ func TestDisabledJobNeverFires(t *testing.T) {
 	_ = store.PutJob(job)
 	called := 0
 	s := New(store, func(context.Context, Job) Outcome { called++; return Outcome{} }, &captureNotifier{})
+	t.Cleanup(s.Close)
 	now := time.Now().UTC().Truncate(time.Minute)
 	s.mu.Lock()
 	s.nextFire[job.ID] = now.Add(-time.Minute)
+	s.schedules[job.ID] = job.Cron + "/" + job.UpdatedAt.Format(time.RFC3339Nano)
 	s.mu.Unlock()
 	s.fireDue(now)
 	if called != 0 {

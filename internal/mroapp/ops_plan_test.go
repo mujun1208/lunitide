@@ -43,7 +43,7 @@ func TestCheckScheduleConstraintsC1ToC7(t *testing.T) {
 			t.Fatalf("missing %s in %+v", code, v)
 		}
 	}
-	if n := CheckScheduleConstraints(ScheduleInput{HasCite: true}); len(n) != 0 {
+	if n := CheckScheduleConstraints(ScheduleInput{HasCite: true, Assignments: []ScheduleAssignment{{TailNo: "B-1", Start: "2099-01-01", End: "2099-01-02", Hours: 1, Skill: "test"}}, Slots: []CapacitySlot{{Skill: "test", Hours: 1}}}); len(n) != 0 {
 		t.Fatalf("clean schedule = %+v", n)
 	}
 }

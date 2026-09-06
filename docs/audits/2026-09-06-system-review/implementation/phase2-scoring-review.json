@@ -1,0 +1,60 @@
+{
+  "reviewedAt": "2026-09-06T14:25:19.342857+00:00",
+  "status": "engineering-delivery-complete",
+  "engineeringScore": 4.9,
+  "physicalSystemScore": null,
+  "scaleMaximum": 5,
+  "basis": "Explicit user-agreed engineering delivery criterion; module-by-module implementation and exceptional-path review, formal regression, six matching-source gate groups, verified complete development candidate; no known unclosed permission/data/core-flow code blocker. This is a review grade, not a measured success rate or a score derived from test counts.",
+  "modules": 24,
+  "dimensionsPerModule": 5,
+  "totalModuleWeight": 35,
+  "codeSource": {
+    "commit": "09978597dc026bfa40ab8d690d64f9bcaef476f3",
+    "treeSha256": "e578444c4485345e8aa55dcc2b71e551e2abda0d07627e23cc149e62d50fef17",
+    "fileCount": 2758,
+    "manifest": "go-source.json"
+  },
+  "evidence": [
+    {
+      "path": "scorecard-phase2-final.csv",
+      "sha256": "5e86d97f427066daf78666b994ef37c29a92132b94edcd16e21e415668bfd666"
+    },
+    {
+      "path": "phase2-final-score.md",
+      "sha256": "2cf9ae0e890c502e31ec1f14f39fa490f556879cedb0be37a866ca3646d64f21"
+    },
+    {
+      "path": "phase2-independent-final-review.md",
+      "sha256": "e82f81635eb8fb1353153ccb52f4e2dc7b3f10f25602ec558e0965a4c6ccf5e0"
+    },
+    {
+      "path": "evidence/phase2-verification-results.json",
+      "sha256": "a17f68dc958012f57e8270d4bee09637805e8b6bf89ae788a784d27272c85363"
+    },
+    {
+      "path": "evidence/phase2-candidate.json",
+      "sha256": "e74704cd8ea6e77c4739ff554099924c99ae5c27f90a97e02476122ce1c66d6f"
+    },
+    {
+      "path": "user-acceptance.json",
+      "sha256": "b0e67a517589300d24b88e475f38b875bf48ffd79f209d49a765ea4afef226d4"
+    }
+  ],
+  "physicalAcceptance": "pending-user",
+  "outstandingEngineeringBlockers": [],
+  "remainingCodeDeliveryPercent": 0,
+  "pendingUserAcceptance": [
+    "real microphone/loopback and three voice providers",
+    "real external model/MCP/database and multi-device colleague connections",
+    "real Win32/UIA/ConPTY and Windows device matrix",
+    "publisher signing and clean install/update/uninstall matrix",
+    "72-hour mixed workload, 14-day observation and business-quality samples"
+  ],
+  "limitations": [
+    "No promise of zero future defects or unconditional reliability.",
+    "Go and race each have 28 explicitly skipped tests; 8 desktop tests use existing !race build constraints and only passed the ordinary suite.",
+    "Go vulnerability scan has one module-only advisory and zero reachable findings; frontend build retains a bundle-size warning.",
+    "Unsigned development candidate only; signing, installation and external release were not performed.",
+    "The reusable 8-hour resource observation default is a short diagnostic; the candidate-bound user record requires 72-hour mixed workload and 14 days with at least 3000 valid core operations."
+  ]
+}

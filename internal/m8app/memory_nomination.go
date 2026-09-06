@@ -52,9 +52,9 @@ type NominationUnitOfWork interface {
 
 // NominationService implements the M10 nomination use cases.
 type NominationService struct {
-	uow     NominationUnitOfWork
-	memory  *MemoryService
-	clock   Clock
+	uow    NominationUnitOfWork
+	memory *MemoryService
+	clock  Clock
 }
 
 // NewNominationService wires the nomination service over the slice-1
@@ -78,9 +78,9 @@ type NominateInput struct {
 
 // NominateResult answers the created nomination and its candidate token.
 type NominateResult struct {
-	Nomination       m8core.Nomination
-	CandidateID      string
-	ConfirmToken     string
+	Nomination   m8core.Nomination
+	CandidateID  string
+	ConfirmToken string
 }
 
 // Nominate proposes the candidate (0061 path) then wraps it with the
@@ -155,6 +155,10 @@ type NominationView struct {
 // ListNominations answers nominations of one state (newest first) joined
 // with the candidate content for the memory-hub confirmation journey.
 func (s *NominationService) ListNominations(ctx context.Context, state string, limit int) ([]NominationView, error) {
+	return s.ListNominationsFor(ctx, "", state, limit)
+}
+
+func (s *NominationService) ListNominationsFor(ctx context.Context, subject, state string, limit int) ([]NominationView, error) {
 	if s == nil || s.uow == nil {
 		return nil, ErrServiceUnavailable
 	}
@@ -166,21 +170,33 @@ func (s *NominationService) ListNominations(ctx context.Context, state string, l
 	}
 	var views []NominationView
 	err := s.uow.TransactNomination(ctx, func(tx NominationTx) error {
-		noms, cands, err := tx.ListNominationsWithCandidates(state, limit)
+		var noms []m8core.Nomination
+		var cands []m8core.MemoryCandidate
+		var err error
+		if scoped, ok := tx.(interface {
+			ListNominationsWithCandidatesFor(string, string, int) ([]m8core.Nomination, []m8core.MemoryCandidate, error)
+		}); ok && subject != "" {
+			noms, cands, err = scoped.ListNominationsWithCandidatesFor(subject, state, limit)
+		} else {
+			noms, cands, err = tx.ListNominationsWithCandidates(state, limit)
+		}
 		if err != nil {
 			return err
 		}
 		views = make([]NominationView, 0, len(noms))
 		for i := range noms {
+			if subject != "" && (i >= len(cands) || cands[i].SubjectID != subject) {
+				continue
+			}
 			v := NominationView{
-				NominationID:      noms[i].NominationID,
-				CandidateID:       noms[i].CandidateID,
-				Nominator:         noms[i].Nominator,
-				Reason:            noms[i].Reason,
-				SourceSessionID:   noms[i].SourceSessionID,
-				State:             noms[i].State,
-				CreatedAt:         noms[i].CreatedAt,
-				DecidedAt:         noms[i].DecidedAt,
+				NominationID:    noms[i].NominationID,
+				CandidateID:     noms[i].CandidateID,
+				Nominator:       noms[i].Nominator,
+				Reason:          noms[i].Reason,
+				SourceSessionID: noms[i].SourceSessionID,
+				State:           noms[i].State,
+				CreatedAt:       noms[i].CreatedAt,
+				DecidedAt:       noms[i].DecidedAt,
 			}
 			if i < len(cands) {
 				var doc m8core.PayloadDoc
@@ -202,6 +218,13 @@ func (s *NominationService) ListNominations(ctx context.Context, state string, l
 
 // Withdraw marks a nominated nomination withdrawn (M10-ME-002 on terminal).
 func (s *NominationService) Withdraw(ctx context.Context, nominationID, actor string) error {
+	if s == nil || s.memory == nil {
+		return ErrServiceUnavailable
+	}
+	return s.WithdrawFor(ctx, s.memory.subject, nominationID, actor)
+}
+
+func (s *NominationService) WithdrawFor(ctx context.Context, subject, nominationID, actor string) error {
 	if s == nil || s.uow == nil {
 		return ErrServiceUnavailable
 	}
@@ -213,6 +236,16 @@ func (s *NominationService) Withdraw(ctx context.Context, nominationID, actor st
 		}
 		if err != nil {
 			return err
+		}
+		cand, err := tx.GetCandidate(nom.CandidateID)
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, m8core.ErrNotFound) {
+			return ErrNominationNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if subject == "" || cand.SubjectID != subject {
+			return ErrNominationNotFound
 		}
 		if m8core.NomTerminal(nom.State) {
 			return fmt.Errorf("%w: %s", ErrNominationTerminal, nom.State)

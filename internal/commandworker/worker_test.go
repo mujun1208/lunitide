@@ -118,6 +118,8 @@ func TestSpecValidate(t *testing.T) {
 		{"relative dir", func(s *Spec) { s.Dir = "tmp" }},
 		{"timeout above cap", func(s *Spec) { s.Timeout = TimeoutHardCap + time.Second }},
 		{"output above cap", func(s *Spec) { s.MaxOutputBytes = OutputHardCap + 1 }},
+		{"memory below minimum", func(s *Spec) { s.MaxMemoryBytes = (32 << 20) - 1 }},
+		{"memory above cap", func(s *Spec) { s.MaxMemoryBytes = (4 << 30) + 1 }},
 		{"arg with NUL", func(s *Spec) { s.Args = []string{"a\x00b"} }},
 		{"env without key", func(s *Spec) { s.Env = []string{"=value"} }},
 		{"env with newline", func(s *Spec) { s.Env = []string{"A=B\nC"} }},

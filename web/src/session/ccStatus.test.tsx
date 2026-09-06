@@ -25,6 +25,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks() })
 const bridge = () => vi.mocked(ccBridge)
 
 const config = (overrides: Partial<CcGetConfigResult> = {}) => ({
+  revision: 1,
   enabled: true, securityLevel: 'standard' as const, allowCritical: false,
   processBlocklist: ['cmd.exe'], maxActionsPerMinute: 60, confirmTimeoutSeconds: 120,
   emergencyStopped: false, updatedAt: '2026-08-17T00:00:00Z', ...overrides,

@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
-	"github.com/lunitide/lunitide/internal/browser"
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/browser"
+	"github.com/lunitide/lunitide/internal/browsernetwork"
 	"github.com/lunitide/lunitide/internal/webviewhost"
 )
 
@@ -22,6 +24,7 @@ type BrowserHost interface {
 type Factory func(webviewhost.BrowserHostOptions) (BrowserHost, error)
 
 type managedHost struct {
+	proxy  *browsernetwork.Proxy
 	host   BrowserHost
 	cancel context.CancelFunc
 	done   chan error
@@ -99,18 +102,26 @@ func (m *Manager) Open(ctx context.Context, rawURL string) (string, error) {
 	if m.shutdown {
 		return "", errors.New("browser manager is shut down")
 	}
-	next, err := m.factory(webviewhost.BrowserHostOptions{InitialURL: url, UserDataFolder: m.browserProfile, MainUserDataFolder: m.mainProfile})
+	proxy, err := browsernetwork.Start(browsernetwork.Policy{})
 	if err != nil {
 		return "", err
 	}
+	next, err := m.factory(webviewhost.BrowserHostOptions{InitialURL: url, ProxyURL: proxy.URL(), UserDataFolder: m.browserProfile, MainUserDataFolder: m.mainProfile})
+	if err != nil {
+		_ = proxy.Close()
+		return "", err
+	}
 	if err = m.drainLocked(ctx); err != nil {
+		_ = next.Close()
+		_ = proxy.Close()
 		return "", err
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
-	entry := &managedHost{host: next, cancel: cancel, done: make(chan error, 1)}
+	entry := &managedHost{proxy: proxy, host: next, cancel: cancel, done: make(chan error, 1)}
 	m.current = entry
 	go func() {
 		err := next.Run(runCtx)
+		_ = proxy.Close()
 		entry.done <- err
 		close(entry.done)
 		m.mu.Lock()
@@ -146,20 +157,23 @@ func (m *Manager) drainLocked(ctx context.Context) error {
 	if old == nil {
 		return nil
 	}
-	m.current = nil
+	closeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	old.cancel()
+	_ = old.proxy.Close()
 	closeErr := old.host.Close()
 	select {
 	case runErr := <-old.done:
+		m.current = nil
 		if runErr != nil && !errors.Is(runErr, context.Canceled) {
 			return fmt.Errorf("browser host stopped: %w", runErr)
 		}
 		return nil
-	case <-ctx.Done():
+	case <-closeCtx.Done():
 		if closeErr != nil {
-			return fmt.Errorf("%w (close request: %v)", ctx.Err(), closeErr)
+			return fmt.Errorf("%w (close request: %v)", closeCtx.Err(), closeErr)
 		}
-		return ctx.Err()
+		return closeCtx.Err()
 	}
 }
 

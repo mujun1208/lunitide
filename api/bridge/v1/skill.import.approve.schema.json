@@ -19,7 +19,10 @@
       "type": "object",
       "minProperties": 1,
       "maxProperties": 32,
-      "additionalProperties": { "type": "string", "maxLength": 2048 }
+      "additionalProperties": {
+        "type": "string",
+        "maxLength": 2048
+      }
     },
     "manifest": {
       "type": "string",
@@ -27,7 +30,11 @@
       "maxLength": 262144
     }
   },
-  "required": ["candidateId", "expectedVersion", "approval"],
+  "required": [
+    "candidateId",
+    "expectedVersion",
+    "approval"
+  ],
   "x-result": {
     "type": "object",
     "additionalProperties": false,
@@ -36,21 +43,62 @@
         "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
       },
       "state": {
-        "enum": ["approved"]
+        "enum": [
+          "approved"
+        ]
       },
       "version": {
         "type": "integer",
         "minimum": 1
+      },
+      "summary": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "license": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "archiveHash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "skippedFiles": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "license",
+          "archiveHash",
+          "skippedFiles"
+        ]
       }
     },
-    "required": ["candidateId", "state", "version"]
+    "required": [
+      "candidateId",
+      "state",
+      "version"
+    ]
   },
   "x-examples": {
     "positive": [
       {
         "candidateId": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
         "expectedVersion": 7,
-        "approval": { "approver": "product-owner" }
+        "approval": {
+          "approver": "product-owner"
+        }
       }
     ],
     "negative": [

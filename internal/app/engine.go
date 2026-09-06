@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/brapp"
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/capabilitypack"
 	"github.com/lunitide/lunitide/internal/ccapp"
 	"github.com/lunitide/lunitide/internal/compactionapp"
 	"github.com/lunitide/lunitide/internal/config"
@@ -32,10 +34,10 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/session"
 	"github.com/lunitide/lunitide/internal/domain/stage"
 	"github.com/lunitide/lunitide/internal/domain/token"
-	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/handoffapp"
 	"github.com/lunitide/lunitide/internal/identity"
 	"github.com/lunitide/lunitide/internal/imapp"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/m6app"
 	"github.com/lunitide/lunitide/internal/m7app"
 	"github.com/lunitide/lunitide/internal/m8app"
@@ -46,6 +48,7 @@ import (
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/mroapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
+	"github.com/lunitide/lunitide/internal/org"
 	"github.com/lunitide/lunitide/internal/people"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/queueapp"
@@ -73,7 +76,7 @@ type ProjectService interface {
 	Get(context.Context, string) (project.Project, error)
 	HasArtifacts(context.Context, string) (bool, error)
 	Delete(context.Context, string) error
-	Mutate(context.Context, string, string, string, string, int64, func(*project.Project) error) (project.Project, error)
+	Mutate(context.Context, string, string, string, string, int64, any, func(*project.Project) error) (project.Project, error)
 }
 type SessionService interface {
 	Create(context.Context, string, string, any, session.Session) (session.Session, error)
@@ -152,12 +155,17 @@ type Engine struct {
 	preferredChat      atomic.Value
 	streamEngine
 	tools              *toolruntime.Runtime
+	turnJournal        ChatTurnJournal
+	storageReadiness   StorageReadiness
+	diagnosticsRunning atomic.Bool
 	conversations      *conversationsapp.Store
 	terminals          *terminalruntime.Runtime
 	terminalsMu        sync.Mutex
 	terminalOwners     map[string]*terminalOwner
 	coordinator        *agentorchestration.Coordinator
 	agentRuns          *agentrunapp.Service
+	planExecutions     planExecutionEngine
+	dataScope          engineDataScope
 
 	// M6 slice-1: extension supply chain + MCP endpoint llmadapter.
 	m6ext         *m6app.ExtensionService
@@ -228,7 +236,8 @@ type Engine struct {
 	// M8 slice-4: workflow bundle dispatch projection.
 	m8automation *m8app.AutomationService
 	// M8 FR-18: unified plugin bundle runtime.
-	m8plugin *m8app.PluginService
+	m8plugin        *m8app.PluginService
+	capabilityPacks *capabilitypack.Service
 	// W6: process-local single-use nonce store for the plugin.uninstall
 	// confirm handshake (plugin.confirmToken issues, plugin.uninstall consumes).
 	pluginConfirm pluginConfirmVault
@@ -304,6 +313,9 @@ type Engine struct {
 	projectAttachmentFiles attachmentapp.FileStorage
 	templateFiles          attachmentapp.FileStorage
 	templateStageState     *templateStageState
+	templateStageOnce      sync.Once
+	templateStageDirectory string
+	templateCreateMu       sync.Mutex
 }
 type terminalOwner struct {
 	emit     EventEmitter
@@ -311,6 +323,7 @@ type terminalOwner struct {
 }
 
 type streamState struct {
+	sessionID      string
 	cancel         context.CancelFunc
 	state          streamLifecycle
 	companion      bool
@@ -409,7 +422,7 @@ func NewEngineWithP3P4(providers ProviderService, projects ProjectService, sessi
 	return e
 }
 
-func (e *Engine) SetToolRuntime(r *toolruntime.Runtime) { e.tools = r }
+func (e *Engine) SetToolRuntime(r *toolruntime.Runtime) { e.tools = r; e.wirePluginExecutionGate() }
 
 func (e *Engine) SetConversationsStore(s *conversationsapp.Store) { e.conversations = s }
 
@@ -960,6 +973,7 @@ func (e *Engine) SetAgentRunService(s *agentrunapp.Service) { e.agentRuns = s }
 // the in-memory MCP endpoint registry and its durable mirror.
 func (e *Engine) SetM6Services(ext *m6app.ExtensionService, reg *mcp6.Registry, endpoints *m6app.EndpointService) {
 	e.m6ext, e.mcp6Registry, e.mcp6Endpoints = ext, reg, endpoints
+	e.wireMcpLifecycle()
 }
 
 // SetM6ExecutionServices wires the M6 slice-2 services: the connector
@@ -1033,6 +1047,7 @@ func (e *Engine) SetM7RuntimeServices(subagentSvc *m7app.SubagentService, toolga
 	e.m7subagent = subagentSvc
 	e.m7toolgap = toolgapSvc
 	e.m7mcp = mcpSvc
+	e.wireMcpLifecycle()
 }
 
 // SetM8MemoryServices wires the M8 slice-1 governed long-term memory core.
@@ -1073,6 +1088,7 @@ func (e *Engine) SetQueueService(queueSvc *queueapp.Service) {
 // SetMcMarketService wires the M10 wave-3 MCP-market service.
 func (e *Engine) SetMcMarketService(mcSvc *mcapp.Service) {
 	e.mcmarket = mcSvc
+	e.wireMcpLifecycle()
 }
 
 // SetBrMultiModeService wires the M10 wave-3 browser multi-mode service.
@@ -1110,6 +1126,7 @@ func (e *Engine) SetCapabilityRoleStore(store CapabilityRoleStore) { e.capabilit
 // SetM8PluginService wires the M8 FR-18 unified plugin runtime.
 func (e *Engine) SetM8PluginService(pluginSvc *m8app.PluginService) {
 	e.m8plugin = pluginSvc
+	e.wirePluginExecutionGate()
 }
 
 // SetM8ExpertService wires the M8 FR-19 expert center.
@@ -1164,6 +1181,9 @@ func (e *Engine) SetMeetingsService(svc *meetings.Service) {
 	e.meetings = svc
 	if svc != nil {
 		svc.SetCompleter(e.completeMeeting)
+		svc.SetExecutionScope(func(ctx context.Context, capability string) (context.Context, func(), error) {
+			return e.AcquireCapability(ctx, capability)
+		})
 		svc.SetAudioTranscriber(e.transcribeMeetingPCM)
 	}
 }
@@ -1230,13 +1250,44 @@ func (e *Engine) Handle(ctx context.Context, request bridge.Request) bridge.Resp
 				resp = request.Fail("ENGINE_HANDLER_PANIC", "内部处理错误，请重试", true)
 			}
 		}()
-		return handler(e, ctx, request)
+		scopeRelease, scopeErr := e.authorizeDataRequest(ctx, request.Method, request.Payload)
+		if scopeErr != nil {
+			if org.Code(scopeErr) == "M9-002" {
+				return m9OrgFailure(request, scopeErr)
+			}
+			if dataScopeAccessError(scopeErr) {
+				return request.Fail("DATA_SCOPE_DENIED", "当前组织无法访问该记录", false)
+			}
+			return request.Fail("DATA_SCOPE_UNAVAILABLE", "组织状态无法确认，请重试", true)
+		}
+		defer scopeRelease()
+		opCtx, release, err := e.acquireToolCapability(ctx, request.Method, request.Payload)
+		if err != nil {
+			return request.Fail("M8-040", "该能力已停用或授权不可用，请检查插件中心", false)
+		}
+		defer release()
+		defer func() {
+			if errors.Is(context.Cause(opCtx), m8app.ErrBindingInactive) {
+				resp = request.Fail("M8-040", "执行期间能力已撤权，操作已取消", false)
+			}
+		}()
+		if strings.HasPrefix(request.Method, "mro.") {
+			return e.handleScopedMRO(opCtx, request, handler)
+		}
+		return handler(e, opCtx, request)
 	}()
 }
 
-func handleSystemHealth(e *Engine, _ context.Context, request bridge.Request) bridge.Response {
+func handleSystemHealth(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
 	if !emptyObject(request.Payload) {
 		return request.Fail("BRIDGE_SCHEMA_INVALID", "system.health 参数无效", false)
+	}
+	if e.storageReadiness != nil {
+		checkCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		defer cancel()
+		if err := e.storageReadiness.CheckReadiness(checkCtx); err != nil {
+			return request.Fail("STORAGE_UNAVAILABLE", "数据库连接暂时不可用，请重试；持续失败时重启应用恢复连接", true)
+		}
 	}
 	return request.Ok(map[string]any{"engine": "ready", "version": e.version, "protocol": bridge.Version})
 }

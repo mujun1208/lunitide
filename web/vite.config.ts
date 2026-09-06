@@ -8,7 +8,7 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     rollupOptions: {
-      input: 'index.html',
+      input: { main: 'index.html', diagram: 'diagram-worker.html' },
     },
     // Assets under the inline limit become data: URLs, which is a saving for
     // an icon and a defect for an AudioWorklet: the renderer's CSP allows

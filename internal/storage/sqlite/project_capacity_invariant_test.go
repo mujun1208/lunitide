@@ -110,3 +110,48 @@ func TestOpenRejectsCorruptProjectRows(t *testing.T) {
 		})
 	}
 }
+
+func TestProjectCapacityArchivedHistoryFreesSlotAndSurvivesReopen(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "history.db")
+	store, err := OpenTemplated(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := projectapp.New(store, store)
+	for i := 0; i < 120; i++ {
+		key := fmt.Sprintf("create-%d", i)
+		p, err := service.Create(ctx, key, "test", map[string]int{"n": i}, project.Project{Name: "Archived project"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = service.Mutate(ctx, fmt.Sprintf("archive-%d", i), "test", "project.delete", p.ID, p.Version, map[string]string{"id": p.ID}, func(p *project.Project) error { p.Status = project.StatusArchived; return nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 100; i++ {
+		if _, err = service.Create(ctx, fmt.Sprintf("live-%d", i), "test", map[string]int{"n": i}, project.Project{Name: "Current project"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = service.Create(ctx, "too-many", "test", map[string]string{"name": "Full"}, project.Project{Name: "Full"}); !errors.Is(err, projectapp.ErrProjectCapacityReached) {
+		t.Fatal("capacity boundary", err)
+	}
+	if err = store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal("archive history prevented restart", err)
+	}
+	defer store.Close()
+	items, err := store.ListProjects(ctx, project.Filter{})
+	if err != nil || len(items) != 100 {
+		t.Fatalf("active list %d %v", len(items), err)
+	}
+	var archived int
+	if err = store.db.QueryRow(`SELECT COUNT(*) FROM projects WHERE status='archived'`).Scan(&archived); err != nil || archived != 120 {
+		t.Fatalf("lost history %d %v", archived, err)
+	}
+}

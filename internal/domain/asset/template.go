@@ -20,39 +20,39 @@ const (
 type TemplateType string
 
 const (
-	TemplateTypeDocument  TemplateType = "document"
-	TemplateTypeScaffold  TemplateType = "scaffold"
+	TemplateTypeDocument TemplateType = "document"
+	TemplateTypeScaffold TemplateType = "scaffold"
 )
 
 // DocumentType is one of the 25 controlled deliverable labels from the M7 PRD.
 type DocumentType string
 
 const (
-	DocumentTypeBRD              DocumentType = "业务需求分析报告"
-	DocumentTypeImplementation   DocumentType = "系统实现评估报告"
-	DocumentTypeRequirementTasks DocumentType = "需求任务清单"
-	DocumentTypeArchitecture     DocumentType = "系统架构设计文档"
-	DocumentTypeHardware         DocumentType = "系统硬件配置文档"
-	DocumentTypeBusinessSpec     DocumentType = "系统业务规范"
-	DocumentTypeDevSpec          DocumentType = "系统开发规范"
-	DocumentTypeTechSpec         DocumentType = "系统技术规范"
-	DocumentTypeProjectStructure DocumentType = "项目结构规范"
-	DocumentTypeBusinessFlow     DocumentType = "业务流程图"
-	DocumentTypeBusinessFlowList DocumentType = "业务流程清单"
+	DocumentTypeBRD               DocumentType = "业务需求分析报告"
+	DocumentTypeImplementation    DocumentType = "系统实现评估报告"
+	DocumentTypeRequirementTasks  DocumentType = "需求任务清单"
+	DocumentTypeArchitecture      DocumentType = "系统架构设计文档"
+	DocumentTypeHardware          DocumentType = "系统硬件配置文档"
+	DocumentTypeBusinessSpec      DocumentType = "系统业务规范"
+	DocumentTypeDevSpec           DocumentType = "系统开发规范"
+	DocumentTypeTechSpec          DocumentType = "系统技术规范"
+	DocumentTypeProjectStructure  DocumentType = "项目结构规范"
+	DocumentTypeBusinessFlow      DocumentType = "业务流程图"
+	DocumentTypeBusinessFlowList  DocumentType = "业务流程清单"
 	DocumentTypeBusinessBlueprint DocumentType = "业务蓝图文档"
-	DocumentTypeInterfaceList    DocumentType = "接口清单"
-	DocumentTypeFeatureDevList   DocumentType = "功能开发清单"
-	DocumentTypeFeatureDesign    DocumentType = "功能详细设计文档"
-	DocumentTypeInterfaceDesign  DocumentType = "接口详细设计文档"
-	DocumentTypeDatabaseDesign   DocumentType = "数据库详细设计文档"
-	DocumentTypeUIDesign         DocumentType = "UI界面详细设计"
-	DocumentTypeUnitTest         DocumentType = "单元测试报告"
-	DocumentTypeOpsChecklist     DocumentType = "系统运维清单"
-	DocumentTypeIntegrationCases DocumentType = "集成测试场景清单"
-	DocumentTypeIntegrationTest  DocumentType = "集成测试报告"
-	DocumentTypeGoLiveStrategy   DocumentType = "上线策略和风险评估报告"
-	DocumentTypeEmergencyPlan    DocumentType = "应急预案报告"
-	DocumentTypeGoLiveIssues     DocumentType = "上线问题清单"
+	DocumentTypeInterfaceList     DocumentType = "接口清单"
+	DocumentTypeFeatureDevList    DocumentType = "功能开发清单"
+	DocumentTypeFeatureDesign     DocumentType = "功能详细设计文档"
+	DocumentTypeInterfaceDesign   DocumentType = "接口详细设计文档"
+	DocumentTypeDatabaseDesign    DocumentType = "数据库详细设计文档"
+	DocumentTypeUIDesign          DocumentType = "UI界面详细设计"
+	DocumentTypeUnitTest          DocumentType = "单元测试报告"
+	DocumentTypeOpsChecklist      DocumentType = "系统运维清单"
+	DocumentTypeIntegrationCases  DocumentType = "集成测试场景清单"
+	DocumentTypeIntegrationTest   DocumentType = "集成测试报告"
+	DocumentTypeGoLiveStrategy    DocumentType = "上线策略和风险评估报告"
+	DocumentTypeEmergencyPlan     DocumentType = "应急预案报告"
+	DocumentTypeGoLiveIssues      DocumentType = "上线问题清单"
 )
 
 // AllDocumentTypes is the canonical 25-item controlled list.
@@ -85,13 +85,16 @@ var AllDocumentTypes = []DocumentType{
 }
 
 var (
-	ErrNotFound           = errors.New("asset template not found")
-	ErrInvalidTransition  = errors.New("asset template transition is invalid")
-	ErrTemplateReferenced = errors.New("asset template is referenced")
-	ErrVersionConflict    = errors.New("asset template version conflict")
+	ErrIdempotencyConflict = errors.New("template idempotency key reused with different request")
+	ErrCreationExpired     = errors.New("template creation replay expired; refresh assets and explicitly start a new request")
+	ErrNotFound            = errors.New("asset template not found")
+	ErrInvalidTransition   = errors.New("asset template transition is invalid")
+	ErrTemplateReferenced  = errors.New("asset template is referenced")
+	ErrVersionConflict     = errors.New("asset template version conflict")
 )
 
 type AssetTemplate struct {
+	OrgID        string       `json:"orgId,omitempty"`
 	ID           string       `json:"id"`
 	TemplateCode string       `json:"templateCode"`
 	Name         string       `json:"name"`
@@ -109,9 +112,15 @@ type AssetTemplate struct {
 }
 
 type Filter struct {
-	Status       Status
-	TemplateType TemplateType
-	DocumentType DocumentType
+	Status          Status
+	TemplateType    TemplateType
+	DocumentType    DocumentType
+	OrgID           string
+	Scoped          bool
+	Query           string
+	BeforeCreatedAt string
+	BeforeID        string
+	Limit           int
 }
 
 func ValidStatus(s Status) bool {

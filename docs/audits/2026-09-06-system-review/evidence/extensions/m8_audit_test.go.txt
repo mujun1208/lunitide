@@ -1,0 +1,48 @@
+package m8app_test
+import (
+ "context"
+ "errors"
+ "testing"
+ "github.com/oklog/ulid/v2"
+ "github.com/lunitide/lunitide/internal/domain/m8core"
+ "github.com/lunitide/lunitide/internal/m8app"
+)
+type auditBrokenPersona struct{}
+func (auditBrokenPersona) Put(string, []byte) error { return errors.New("audit simulated disk full") }
+func (auditBrokenPersona) Get(string) ([]byte,bool,error) { return nil,false,nil }
+func TestAuditReviewExpertBodyFailureReportsSuccess(t *testing.T) {
+ store:=openSliceStore(t); svc:=m8app.NewExpertService(store.AgentRuntimeRepository(),"local-user",auditBrokenPersona{})
+ res,err:=svc.Create(context.Background(),m8app.CreateInput{Source:m8core.ExpertSourceLocal,Frontmatter:fm("audit-expert"),SixSection:sixBody("audit"),RequestID:"audit"})
+ if err!=nil { t.Fatalf("expected reproduce swallowed storage error: %v",err) }
+ detail,err:=svc.Detail(context.Background(),m8app.DetailInput{ExpertID:res.ExpertID});if err!=nil {t.Fatal(err)}
+ if string(detail.SixSection)!="{}" { t.Fatalf("expected missing body: %s",detail.SixSection) }
+ t.Log("REPRODUCED: Create reports success with disk-full persona store; persisted expert body is {}")
+}
+func TestAuditReviewKBHistoricalVersionsRemainSearchable(t *testing.T) {
+ store:=openSliceStore(t);svc:=m8app.NewKBService(store.AgentRuntimeRepository(),"local-user");ctx:=context.Background(); expertID:=ulid.Make().String()
+ coll,err:=svc.EnsureExpertCollection(ctx,expertID);if err!=nil {t.Fatal(err)}
+ docID:=ulid.Make().String()
+ for i,body:=range []string{"auditneedle obsolete instruction","current replacement only"} {
+  b:=body
+  _,err=svc.UpsertDocument(ctx,m8app.KBUpsertInput{CollectionID:coll.CollectionID,DocumentID:docID,ExpectedVersion:int64(i),MediaType:"text/plain",ContentRef:"blob://audit",SHA256:sha64([]string{"a","b"}[i]),SourceLocator:"audit",Projector:func(_ context.Context,d m8core.KBDocument)([]m8core.KBChunk,error){return m8app.ChunksFromParts(d,[]string{b})}})
+  if err!=nil {t.Fatal(err)}
+ }
+ out,err:=svc.Search(ctx,m8app.KBSearchInput{ExpertID:expertID,Query:"auditneedle"});if err!=nil {t.Fatal(err)}
+ if len(out.Hits)==0 {t.Fatal("historical document unexpectedly hidden; bug not reproduced")}
+ t.Logf("REPRODUCED: superseded version remains searchable, quote=%q",out.Hits[0].Quote)
+}
+func TestAuditReviewKBFailedIngestRecordRollsBack(t *testing.T) {
+ store:=openSliceStore(t);svc:=m8app.NewKBService(store.AgentRuntimeRepository(),"local-user");ctx:=context.Background();expertID:=ulid.Make().String()
+ coll,err:=svc.EnsureExpertCollection(ctx,expertID);if err!=nil {t.Fatal(err)}
+ out,err:=svc.UpsertDocument(ctx,m8app.KBUpsertInput{CollectionID:coll.CollectionID,DocumentID:ulid.Make().String(),MediaType:"text/plain",ContentRef:"blob://audit",SHA256:sha64("a"),SourceLocator:"audit",Projector:func(context.Context,m8core.KBDocument)([]m8core.KBChunk,error){return nil,errors.New("audit parse failure")}})
+ if !errors.Is(err,m8app.ErrKBIndexFailed)||out.IndexState!="failed" {t.Fatalf("unexpected failure: %+v %v",out,err)}
+ stats,err:=svc.KnowledgeGet(ctx,expertID);if err!=nil {t.Fatal(err)}
+ if stats.DocumentCount!=0 {t.Fatalf("bug not reproduced: failed doc persisted %+v",stats)}
+ t.Log("REPRODUCED: failed result returned but failed document and audit transaction rolled back; document count 0")
+}
+func TestAuditReviewKBCiteAcceptsUnverifiableText(t *testing.T) {
+ store:=openSliceStore(t);svc:=m8app.NewKBService(store.AgentRuntimeRepository(),"local-user")
+ _,err:=svc.Cite(context.Background(),m8app.KBCitedHit{ExpertID:ulid.Make().String(),DocID:ulid.Make().String(),Locator:"{}",Quote:"audit fabricated quotation"})
+ if err!=nil {t.Fatalf("bug not reproduced: %v",err)}
+ t.Log("REPRODUCED: unknown expert/document and missing chunk accepted as valid citation")
+}

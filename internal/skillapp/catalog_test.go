@@ -344,7 +344,7 @@ func TestEnsureComposeSkillsRefreshesStaleManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 	stale := `{"prompt":"旧正文","triggers":["找 bug"]}`
-	if _, err := svc.UpdateFields(context.Background(), sk.ID, nil, nil, nil, &stale, nil, nil, 0); err != nil {
+	if _, err := svc.UpdateFields(context.Background(), sk.ID, nil, nil, nil, &stale, nil, nil, sk.Rev); err != nil {
 		t.Fatal(err)
 	}
 	n, err := svc.EnsureComposeSkills(context.Background())
@@ -391,11 +391,11 @@ func TestCatalogBuiltinEntryPointReturnsWorkingAgreement(t *testing.T) {
 
 func TestComposeSkillPromptsCarryRecipes(t *testing.T) {
 	want := map[string][]string{
-		"slide-builder":       {"九步", "演讲备注", "文类"},
-		"find-bug":            {"七类探针", "已验证正确项", "状态机"},
-		"anti-ai-prose":       {"质量体检", "赋能"},
-		"fiction-continuity":  {"账本", "晋升", "kind=novel"},
-		"hardware-bom":        {"Mandatory", "KV", "ERP"},
+		"slide-builder":      {"九步", "演讲备注", "文类"},
+		"find-bug":           {"七类探针", "已验证正确项", "状态机"},
+		"anti-ai-prose":      {"质量体检", "赋能"},
+		"fiction-continuity": {"账本", "晋升", "kind=novel"},
+		"hardware-bom":       {"Mandatory", "KV", "ERP"},
 	}
 	for _, tpl := range Catalog() {
 		needles, ok := want[tpl.ID]

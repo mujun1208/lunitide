@@ -1,0 +1,14 @@
+package mcp
+import("context";"testing";"time")
+type auditPoolConn struct{}
+func(auditPoolConn)CallTool(context.Context,string,[]byte)(StdioCallResult,error){return StdioCallResult{},nil}
+func(auditPoolConn)Close(){}
+func TestAuditReviewPoolExceedsCapacityWhenBusy(t *testing.T){
+ p:=NewStdioPool(1,time.Minute);defer p.Close();release:=make(chan struct{});started:=make(chan struct{});done:=make(chan struct{})
+ go func(){defer close(done);_,_=p.Invoke(context.Background(),"first",func(context.Context)(StdioConn,error){return auditPoolConn{},nil},func(StdioConn)(StdioCallResult,error){close(started);<-release;return StdioCallResult{},nil})}()
+ <-started
+ _,err:=p.Invoke(context.Background(),"second",func(context.Context)(StdioConn,error){return auditPoolConn{},nil},func(StdioConn)(StdioCallResult,error){return StdioCallResult{},nil})
+ count:=p.Len();close(release);<-done
+ if err!=nil||count!=2{t.Fatalf("bug not reproduced count=%d err=%v",count,err)}
+ t.Log("REPRODUCED: max=1 pool admits second connection while first busy; live entries=2")
+}

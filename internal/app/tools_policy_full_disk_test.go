@@ -11,8 +11,31 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
+
+func observedPolicyRequest(t *testing.T, e *Engine, method, raw string) bridge.Request {
+	t.Helper()
+	status := e.Handle(context.Background(), validRequest("tools.commandPolicy.get", `{}`))
+	if !status.OK {
+		t.Fatalf("policy read: %+v", status.Error)
+	}
+	encoded, _ := json.Marshal(status.Payload)
+	var current struct {
+		Revision string `json:"revision"`
+	}
+	if err := json.Unmarshal(encoded, &current); err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		t.Fatal(err)
+	}
+	payload["expectedRevision"] = current.Revision
+	body, _ := json.Marshal(payload)
+	return validRequest(method, string(body))
+}
 
 func TestCommandPolicySetFullAccessE2E(t *testing.T) {
 	tools, err := toolruntime.Open(t.TempDir())
@@ -23,7 +46,7 @@ func TestCommandPolicySetFullAccessE2E(t *testing.T) {
 	e := NewEngine(providerRepositoryStub{}, "test")
 	e.SetToolRuntime(tools)
 
-	resp := e.Handle(context.Background(), validRequest("tools.commandPolicy.set", `{"commands":[],"fullAccess":true}`))
+	resp := e.Handle(context.Background(), observedPolicyRequest(t, e, "tools.commandPolicy.set", `{"commands":[],"fullAccess":true}`))
 	if !resp.OK {
 		t.Fatalf("set with fullAccess rejected: %+v", resp.Error)
 	}
@@ -36,7 +59,7 @@ func TestCommandPolicySetFullAccessE2E(t *testing.T) {
 		t.Fatalf("get failed: %+v", get.Error)
 	}
 
-	off := e.Handle(context.Background(), validRequest("tools.commandPolicy.set", `{"commands":[],"fullAccess":false}`))
+	off := e.Handle(context.Background(), observedPolicyRequest(t, e, "tools.commandPolicy.set", `{"commands":[],"fullAccess":false}`))
 	if !off.OK {
 		t.Fatalf("set fullAccess=false rejected: %+v", off.Error)
 	}
@@ -64,7 +87,7 @@ func TestFullDiskChatWritesAbsolutePaths(t *testing.T) {
 		t.Fatal("missing command-policy.json must not allow absolute writes")
 	}
 
-	resp := e.Handle(context.Background(), validRequest("tools.commandPolicy.set", `{"commands":[],"fullAccess":true}`))
+	resp := e.Handle(context.Background(), observedPolicyRequest(t, e, "tools.commandPolicy.set", `{"commands":[],"fullAccess":true}`))
 	if !resp.OK {
 		t.Fatalf("set fullAccess=true rejected: %+v", resp.Error)
 	}
@@ -83,7 +106,7 @@ func TestFullDiskChatWritesAbsolutePaths(t *testing.T) {
 		t.Fatalf("desktop write content = %q err=%v", string(b), rerr)
 	}
 
-	off := e.Handle(context.Background(), validRequest("tools.commandPolicy.set", `{"commands":[],"fullAccess":false}`))
+	off := e.Handle(context.Background(), observedPolicyRequest(t, e, "tools.commandPolicy.set", `{"commands":[],"fullAccess":false}`))
 	if !off.OK {
 		t.Fatalf("set fullAccess=false rejected: %+v", off.Error)
 	}

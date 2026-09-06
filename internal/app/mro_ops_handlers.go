@@ -11,6 +11,10 @@ import (
 
 // auditMRO best-effort records an ops write onto the workbench audit ledger.
 func (e *Engine) auditMRO(ctx context.Context, action, resourceType, resourceID string) {
+	if mroapp.InTransaction(ctx) {
+		return
+	} // The enclosing request stores its audit in the same SQL transaction.
+
 	if e == nil || e.m8kb == nil {
 		return
 	}
@@ -38,7 +42,7 @@ func mroDuePayload(items []mroapp.DueView) []map[string]any {
 }
 
 func handleMRODueList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	if decodePayload(r.Payload, &struct{}{}) != nil {
+	if decodeMROPagePayload(r.Payload, &struct{}{}) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "mro.due.list 参数无效", false)
 	}
 	if e.mro == nil {
@@ -48,11 +52,11 @@ func handleMRODueList(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	if err != nil {
 		return mroFailure(r, err)
 	}
-	return r.Ok(map[string]any{"items": mroDuePayload(items)})
+	return mroPageResponse(ctx, r, map[string]any{"items": mroDuePayload(items)})
 }
 
 func handleMROToolList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	if decodePayload(r.Payload, &struct{}{}) != nil {
+	if decodeMROPagePayload(r.Payload, &struct{}{}) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "mro.tool.list 参数无效", false)
 	}
 	if e.mro == nil {
@@ -73,7 +77,7 @@ func handleMROToolList(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		}
 		out = append(out, row)
 	}
-	return r.Ok(map[string]any{"items": out})
+	return mroPageResponse(ctx, r, map[string]any{"items": out})
 }
 
 func handleMROToolCheckout(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -100,7 +104,7 @@ func handleMROLotTrace(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	var p struct {
 		LotID string `json:"lotId"`
 	}
-	if decodePayload(r.Payload, &p) != nil {
+	if decodeMROPagePayload(r.Payload, &p) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "mro.lot.trace 参数无效", false)
 	}
 	if e.mro == nil {
@@ -125,11 +129,11 @@ func handleMROLotTrace(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		}
 		out = append(out, row)
 	}
-	return r.Ok(map[string]any{"items": out})
+	return mroPageResponse(ctx, r, map[string]any{"items": out})
 }
 
 func handleMROKitStaging(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	if decodePayload(r.Payload, &struct{}{}) != nil {
+	if decodeMROPagePayload(r.Payload, &struct{}{}) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "mro.kit.staging 参数无效", false)
 	}
 	if e.mro == nil {
@@ -147,14 +151,14 @@ func handleMROKitStaging(e *Engine, ctx context.Context, r bridge.Request) bridg
 		}
 		out = append(out, map[string]any{"id": item.ID, "name": item.Name, "missing": missing})
 	}
-	return r.Ok(map[string]any{"items": out})
+	return mroPageResponse(ctx, r, map[string]any{"items": out})
 }
 
 func handleMROPartsStockList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		Config string `json:"config"`
 	}
-	if decodePayload(r.Payload, &p) != nil {
+	if decodeMROPagePayload(r.Payload, &p) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "mro.parts.stock.list 参数无效", false)
 	}
 	if e.mro == nil {
@@ -175,11 +179,11 @@ func handleMROPartsStockList(e *Engine, ctx context.Context, r bridge.Request) b
 			"effectivity": row.Effectivity, "qty": row.Qty, "accepted": row.Accepted,
 		})
 	}
-	return r.Ok(map[string]any{"items": items, "alternates": altOut})
+	return mroPageResponse(ctx, r, map[string]any{"items": items, "alternates": altOut})
 }
 
 func handleMROPlanList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	if decodePayload(r.Payload, &struct{}{}) != nil {
+	if decodeMROPagePayload(r.Payload, &struct{}{}) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "mro.plan.list 参数无效", false)
 	}
 	if e.mro == nil {
@@ -195,13 +199,13 @@ func handleMROPlanList(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		if sources == nil {
 			sources = []string{}
 		}
-		out = append(out, map[string]any{"id": item.ID, "title": item.Title, "sources": sources, "hours": item.Hours})
+		out = append(out, map[string]any{"id": item.ID, "title": item.Title, "sources": sources, "hours": item.Hours, "evidenceState": item.EvidenceState})
 	}
-	return r.Ok(map[string]any{"items": out})
+	return mroPageResponse(ctx, r, map[string]any{"items": out})
 }
 
 func handleMROPlanConstraintCheck(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	if decodePayload(r.Payload, &struct{}{}) != nil {
+	if decodeMROPagePayload(r.Payload, &struct{}{}) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "mro.plan.constraint.check 参数无效", false)
 	}
 	if e.mro == nil {
@@ -215,7 +219,7 @@ func handleMROPlanConstraintCheck(e *Engine, ctx context.Context, r bridge.Reque
 	for _, item := range items {
 		out = append(out, map[string]any{"code": item.Code, "detail": item.Detail})
 	}
-	return r.Ok(map[string]any{"violations": out})
+	return mroPageResponse(ctx, r, map[string]any{"violations": out})
 }
 
 func handleMROPlanPublish(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -243,7 +247,7 @@ func handleMROPlanPublish(e *Engine, ctx context.Context, r bridge.Request) brid
 }
 
 func handleMROOpsTodoList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	if decodePayload(r.Payload, &struct{}{}) != nil {
+	if decodeMROPagePayload(r.Payload, &struct{}{}) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "mro.ops.todo.list 参数无效", false)
 	}
 	if e.mro == nil {
@@ -257,7 +261,7 @@ func handleMROOpsTodoList(e *Engine, ctx context.Context, r bridge.Request) brid
 	for _, item := range items {
 		out = append(out, map[string]any{"id": item.ID, "kind": item.Kind, "ref": item.Ref, "status": item.Status, "detail": item.Detail})
 	}
-	return r.Ok(map[string]any{"items": out})
+	return mroPageResponse(ctx, r, map[string]any{"items": out})
 }
 
 // --- P1 write handlers ------------------------------------------------------
@@ -347,12 +351,12 @@ func handleMROUtilRecord(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if failure := requireIdempotency(r); failure != nil {
 		return *failure
 	}
-	items, err := e.mro.RecordUtilization(ctx, p.ScopeID, p.Hours, p.Cycles, p.BatteryCycles)
+	_, err := e.mro.RecordUtilization(ctx, p.ScopeID, p.Hours, p.Cycles, p.BatteryCycles)
 	if err != nil {
 		return mroFailure(r, err)
 	}
 	e.auditMRO(ctx, "mro.util.record", "mro_due", p.ScopeID)
-	return r.Ok(map[string]any{"items": mroDuePayload(items)})
+	return mroDueWriteResponse(e, ctx, r)
 }
 
 func handleMRODueRecompute(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -362,11 +366,11 @@ func handleMRODueRecompute(e *Engine, ctx context.Context, r bridge.Request) bri
 	if e.mro == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "机务工作台暂时不可用", true)
 	}
-	items, err := e.mro.RecomputeDue(ctx)
+	_, err := e.mro.RecomputeDue(ctx)
 	if err != nil {
 		return mroFailure(r, err)
 	}
-	return r.Ok(map[string]any{"items": mroDuePayload(items)})
+	return mroDueWriteResponse(e, ctx, r)
 }
 
 func handleMROLotUpsert(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -634,7 +638,7 @@ func handleMROComponentUpsert(e *Engine, ctx context.Context, r bridge.Request) 
 }
 
 func handleMROComponentList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	if decodePayload(r.Payload, &struct{}{}) != nil {
+	if decodeMROPagePayload(r.Payload, &struct{}{}) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "mro.component.list 参数无效", false)
 	}
 	if e.mro == nil {
@@ -652,7 +656,7 @@ func handleMROComponentList(e *Engine, ctx context.Context, r bridge.Request) br
 		}
 		out = append(out, map[string]any{"id": v.ID, "sn": v.SN, "pn": v.PN, "lifeCount": v.LifeCount, "installed": v.Installed, "tailNo": v.TailNo, "events": events})
 	}
-	return r.Ok(map[string]any{"items": out})
+	return mroPageResponse(ctx, r, map[string]any{"items": out})
 }
 
 func handleMROLifeEvent(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -701,7 +705,7 @@ func handleMROPirepDraft(e *Engine, ctx context.Context, r bridge.Request) bridg
 }
 
 func handleMROPirepList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	if decodePayload(r.Payload, &struct{}{}) != nil {
+	if decodeMROPagePayload(r.Payload, &struct{}{}) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "mro.pirep.list 参数无效", false)
 	}
 	if e.mro == nil {
@@ -715,7 +719,7 @@ func handleMROPirepList(e *Engine, ctx context.Context, r bridge.Request) bridge
 	for _, item := range items {
 		out = append(out, map[string]any{"id": item.ID, "tailNo": item.TailNo, "body": item.BodyJSON, "state": item.State, "createdAt": item.CreatedAt})
 	}
-	return r.Ok(map[string]any{"items": out})
+	return mroPageResponse(ctx, r, map[string]any{"items": out})
 }
 
 func handleMROAogIntake(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -740,7 +744,7 @@ func handleMROAogIntake(e *Engine, ctx context.Context, r bridge.Request) bridge
 }
 
 func handleMROAogList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	if decodePayload(r.Payload, &struct{}{}) != nil {
+	if decodeMROPagePayload(r.Payload, &struct{}{}) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "mro.aog.list 参数无效", false)
 	}
 	if e.mro == nil {
@@ -754,7 +758,7 @@ func handleMROAogList(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	for _, item := range items {
 		out = append(out, map[string]any{"id": item.ID, "tailNo": item.TailNo, "pn": item.PN, "qty": item.Qty, "note": item.Note, "state": item.State})
 	}
-	return r.Ok(map[string]any{"items": out})
+	return mroPageResponse(ctx, r, map[string]any{"items": out})
 }
 
 func handleMROPoDraft(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -780,7 +784,7 @@ func handleMROPoDraft(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 }
 
 func handleMROPoList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	if decodePayload(r.Payload, &struct{}{}) != nil {
+	if decodeMROPagePayload(r.Payload, &struct{}{}) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "mro.po.list 参数无效", false)
 	}
 	if e.mro == nil {
@@ -794,11 +798,11 @@ func handleMROPoList(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 	for _, item := range items {
 		out = append(out, map[string]any{"id": item.ID, "pn": item.PN, "qty": item.Qty, "price": item.Price, "state": item.State})
 	}
-	return r.Ok(map[string]any{"items": out})
+	return mroPageResponse(ctx, r, map[string]any{"items": out})
 }
 
 func handleMROTriggerList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	if decodePayload(r.Payload, &struct{}{}) != nil {
+	if decodeMROPagePayload(r.Payload, &struct{}{}) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "mro.trigger.list 参数无效", false)
 	}
 	if e.mro == nil {
@@ -812,11 +816,11 @@ func handleMROTriggerList(e *Engine, ctx context.Context, r bridge.Request) brid
 	for _, item := range items {
 		out = append(out, map[string]any{"scopeId": item.ScopeID, "kind": item.Kind, "state": item.State, "action": item.Action, "category": item.Category})
 	}
-	return r.Ok(map[string]any{"items": out})
+	return mroPageResponse(ctx, r, map[string]any{"items": out})
 }
 
 func handleMROIntervalList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	if decodePayload(r.Payload, &struct{}{}) != nil {
+	if decodeMROPagePayload(r.Payload, &struct{}{}) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "mro.interval.list 参数无效", false)
 	}
 	if e.mro == nil {
@@ -830,7 +834,7 @@ func handleMROIntervalList(e *Engine, ctx context.Context, r bridge.Request) bri
 	for _, item := range items {
 		out = append(out, map[string]any{"taskKey": item.TaskKey, "intervalValue": item.IntervalValue, "unit": item.Unit, "version": item.Version, "sourceCite": item.SourceCite})
 	}
-	return r.Ok(map[string]any{"items": out})
+	return mroPageResponse(ctx, r, map[string]any{"items": out})
 }
 
 func handleMROChemIssue(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {

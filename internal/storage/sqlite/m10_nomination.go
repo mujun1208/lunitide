@@ -97,11 +97,22 @@ func (t *agentRuntimeTx) ListNominationsByState(state string, limit int) ([]m8co
 // ListNominationsWithCandidates joins each nomination with its candidate
 // (UNIQUE(candidate_id) keeps the two slices index-aligned, newest first).
 func (t *agentRuntimeTx) ListNominationsWithCandidates(state string, limit int) ([]m8core.Nomination, []m8core.MemoryCandidate, error) {
+	return t.ListNominationsWithCandidatesFor("", state, limit)
+}
+
+func (t *agentRuntimeTx) ListNominationsWithCandidatesFor(subject, state string, limit int) ([]m8core.Nomination, []m8core.MemoryCandidate, error) {
+	filter := ""
+	args := []any{state}
+	if subject != "" {
+		filter = " AND c.subject_id=?"
+		args = append(args, subject)
+	}
+	args = append(args, limit)
 	rows, err := t.tx.QueryContext(t.ctx,
 		`SELECT `+joinNomCols(`n`)+`, `+joinCandCols(`c`)+`
 		FROM memory_nominations n JOIN memory_candidates c ON c.candidate_id = n.candidate_id
-		WHERE n.state=? ORDER BY n.created_at DESC, n.nomination_id DESC LIMIT ?`,
-		state, limit)
+		WHERE n.state=?`+filter+` ORDER BY n.created_at DESC, n.nomination_id DESC LIMIT ?`,
+		args...)
 	if err != nil {
 		return nil, nil, t.fail(err)
 	}

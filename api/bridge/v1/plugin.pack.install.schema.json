@@ -1,0 +1,268 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/plugin.pack.install.schema.json",
+  "title": "plugin.pack.install payload",
+  "x-method": "plugin.pack.install",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "skills": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+          }
+        },
+        "mcpPresetIds": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+          }
+        },
+        "toolGates": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "skills",
+        "mcpPresetIds",
+        "toolGates"
+      ]
+    },
+    "repair": {
+      "type": "boolean"
+    },
+    "confirmed": {
+      "const": true
+    }
+  },
+  "required": [
+    "spec",
+    "confirmed"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "spec": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "skills": {
+            "type": "array",
+            "maxItems": 32,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+            }
+          },
+          "mcpPresetIds": {
+            "type": "array",
+            "maxItems": 32,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+            }
+          },
+          "toolGates": {
+            "type": "array",
+            "maxItems": 32,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "skills",
+          "mcpPresetIds",
+          "toolGates"
+        ]
+      },
+      "digest": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "state": {
+        "type": "string",
+        "enum": [
+          "installing",
+          "installed",
+          "uninstalling",
+          "uninstalled",
+          "failed"
+        ]
+      },
+      "desired": {
+        "type": "string",
+        "enum": [
+          "installed",
+          "uninstalled"
+        ]
+      },
+      "version": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "error": {
+        "type": "string",
+        "maxLength": 4096
+      },
+      "createdAt": {
+        "type": "string"
+      },
+      "updatedAt": {
+        "type": "string"
+      },
+      "components": {
+        "type": "array",
+        "maxItems": 96,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "gate",
+                "skill",
+                "mcp"
+              ]
+            },
+            "key": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+            },
+            "targetId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "managed": {
+              "type": "boolean"
+            },
+            "ordinal": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "planned",
+                "ready",
+                "released"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "key",
+            "targetId",
+            "managed",
+            "ordinal",
+            "state"
+          ]
+        }
+      }
+    },
+    "required": [
+      "spec",
+      "digest",
+      "state",
+      "desired",
+      "version",
+      "error",
+      "createdAt",
+      "updatedAt",
+      "components"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "spec": {
+          "id": "pack-docs",
+          "name": "Docs",
+          "description": "",
+          "skills": [
+            "docx-writer"
+          ],
+          "mcpPresetIds": [],
+          "toolGates": [
+            "workspace"
+          ]
+        },
+        "confirmed": true
+      }
+    ],
+    "negative": [
+      {
+        "spec": {
+          "id": "pack-docs",
+          "name": "Docs",
+          "description": "",
+          "skills": [
+            "docx-writer"
+          ],
+          "mcpPresetIds": [],
+          "toolGates": [
+            "workspace"
+          ]
+        },
+        "confirmed": false
+      }
+    ]
+  }
+}

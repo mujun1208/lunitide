@@ -1,0 +1,787 @@
+{
+  "captured_at": "2026-09-06T14:16:12.939994+00:00",
+  "scope": "code-and-automated-delivery; physical and signed-release acceptance remain user-owned",
+  "evidence_directory": "docs/audits/2026-09-06-system-review/implementation/evidence/final-gates-20260906-r2",
+  "source": {
+    "commit": "09978597dc026bfa40ab8d690d64f9bcaef476f3",
+    "treeSha256": "e578444c4485345e8aa55dcc2b71e551e2abda0d07627e23cc149e62d50fef17",
+    "fileCount": 2758,
+    "manifest": "go-source.json"
+  },
+  "go": {
+    "log": "go-tests.jsonl",
+    "passed_packages": 143,
+    "packages_with_test_events": 123,
+    "passed_tests_including_subtests": 4766,
+    "passed_top_level_tests": 2970,
+    "failed": 0,
+    "skipped_tests": [
+      {
+        "package": "github.com/lunitide/lunitide/internal/brapp",
+        "test": "TestNativeManagedBrowserConfirmsProcessTreeStop"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/browsernetwork",
+        "test": "TestNativeBrowserProxyCoversRedirectsAndSubresources"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/ccapp/accuracy",
+        "test": "TestLiveNotepadTypesVisibleText"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/ccapp/accuracy",
+        "test": "TestLiveCalculatorNamedClick"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/ccapp/accuracy",
+        "test": "TestLiveExplorerNamedObserve"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/ccapp/accuracy",
+        "test": "TestLiveOptionalWPFAndElectron"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/ccapp",
+        "test": "TestWindowListAndFocusRoundTrip"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/datadir",
+        "test": "TestPrepareForTestRejectsRelativePathAndReparsePoint"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/datasourceapp",
+        "test": "TestLiveMySQLDriver"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/datasourceapp",
+        "test": "TestLiveMySQLServiceEndToEnd"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/diagramrender",
+        "test": "TestNativeIsolatedDiagramRenderingAndCPULoopDeadline"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/tts",
+        "test": "TestEdgeSynthesisLatency"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/tts",
+        "test": "TestEdgeLiveSynthesis"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/tts",
+        "test": "TestEdgePythonSynthLive"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/tts",
+        "test": "TestOneCoreVoicesRenderDistinctAudio"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/tts",
+        "test": "TestOnnxSynthesizeReal"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/voice",
+        "test": "TestE2ELocalRecognitionHearsRealSpeech"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/voice",
+        "test": "TestE2EMandarinClipsAreRecognized"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/voice",
+        "test": "TestE2ERefinerIsInstallableFromTheCatalogueAsWritten"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/voice",
+        "test": "TestE2ERefinedTextIsWhatTheTurnReturns"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/voice",
+        "test": "TestNetworkRuntimeDownloadsAndExtracts"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/voice",
+        "test": "TestNetworkSmallModelDownloads"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/voice/volcsauc",
+        "test": "TestLiveAgentPlanHandshake"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/webviewhost",
+        "test": "TestBrowserProxyNativeWebViewEnforcesActualFlags"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/webviewhost",
+        "test": "TestBrowserNativeCanceledBeforeEnvironmentDoesNotCreateWebView"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/webviewhost",
+        "test": "TestBrowserNativeCancelDuringCreationWaitsForCallback"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/worker",
+        "test": "TestSandboxEscapeSymlink"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/workspaceapp",
+        "test": "TestSafePathRejectsSymlinkOrReparse"
+      }
+    ],
+    "skipped_packages": [
+      "github.com/lunitide/lunitide/internal/buildinfo",
+      "github.com/lunitide/lunitide/migrations"
+    ],
+    "coverage_percent": 53.2,
+    "coverage_floor_percent": 51.0
+  },
+  "full_library_race": {
+    "log": "go-race.jsonl",
+    "passed_packages": 122,
+    "packages_with_test_events": 122,
+    "passed_tests_including_subtests": 4758,
+    "passed_top_level_tests": 2962,
+    "failed": 0,
+    "skipped_tests": [
+      {
+        "package": "github.com/lunitide/lunitide/internal/brapp",
+        "test": "TestNativeManagedBrowserConfirmsProcessTreeStop"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/browsernetwork",
+        "test": "TestNativeBrowserProxyCoversRedirectsAndSubresources"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/ccapp/accuracy",
+        "test": "TestLiveNotepadTypesVisibleText"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/ccapp/accuracy",
+        "test": "TestLiveCalculatorNamedClick"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/ccapp/accuracy",
+        "test": "TestLiveExplorerNamedObserve"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/ccapp/accuracy",
+        "test": "TestLiveOptionalWPFAndElectron"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/ccapp",
+        "test": "TestWindowListAndFocusRoundTrip"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/datadir",
+        "test": "TestPrepareForTestRejectsRelativePathAndReparsePoint"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/datasourceapp",
+        "test": "TestLiveMySQLDriver"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/datasourceapp",
+        "test": "TestLiveMySQLServiceEndToEnd"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/diagramrender",
+        "test": "TestNativeIsolatedDiagramRenderingAndCPULoopDeadline"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/tts",
+        "test": "TestEdgeSynthesisLatency"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/tts",
+        "test": "TestEdgeLiveSynthesis"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/tts",
+        "test": "TestEdgePythonSynthLive"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/tts",
+        "test": "TestOneCoreVoicesRenderDistinctAudio"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/tts",
+        "test": "TestOnnxSynthesizeReal"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/voice",
+        "test": "TestE2ELocalRecognitionHearsRealSpeech"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/voice",
+        "test": "TestE2EMandarinClipsAreRecognized"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/voice",
+        "test": "TestE2ERefinerIsInstallableFromTheCatalogueAsWritten"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/voice",
+        "test": "TestE2ERefinedTextIsWhatTheTurnReturns"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/voice",
+        "test": "TestNetworkRuntimeDownloadsAndExtracts"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/voice",
+        "test": "TestNetworkSmallModelDownloads"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/voice/volcsauc",
+        "test": "TestLiveAgentPlanHandshake"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/webviewhost",
+        "test": "TestBrowserProxyNativeWebViewEnforcesActualFlags"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/webviewhost",
+        "test": "TestBrowserNativeCanceledBeforeEnvironmentDoesNotCreateWebView"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/webviewhost",
+        "test": "TestBrowserNativeCancelDuringCreationWaitsForCallback"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/worker",
+        "test": "TestSandboxEscapeSymlink"
+      },
+      {
+        "package": "github.com/lunitide/lunitide/internal/workspaceapp",
+        "test": "TestSafePathRejectsSymlinkOrReparse"
+      }
+    ],
+    "skipped_packages": [
+      "github.com/lunitide/lunitide/cmd/desktop",
+      "github.com/lunitide/lunitide/cmd/maintenance",
+      "github.com/lunitide/lunitide/cmd/stdio-poc",
+      "github.com/lunitide/lunitide/cmd/stdio-worker",
+      "github.com/lunitide/lunitide/cmd/tray",
+      "github.com/lunitide/lunitide/internal/buildinfo",
+      "github.com/lunitide/lunitide/internal/capabilitypack",
+      "github.com/lunitide/lunitide/internal/complexity",
+      "github.com/lunitide/lunitide/internal/conversationsapp",
+      "github.com/lunitide/lunitide/internal/diagnosticapp",
+      "github.com/lunitide/lunitide/internal/domain/attachment",
+      "github.com/lunitide/lunitide/internal/domain/deliverable",
+      "github.com/lunitide/lunitide/internal/domain/m5workspace",
+      "github.com/lunitide/lunitide/internal/domain/m6supply",
+      "github.com/lunitide/lunitide/internal/domain/projectattachment",
+      "github.com/lunitide/lunitide/internal/domain/queueinput",
+      "github.com/lunitide/lunitide/internal/m6app",
+      "github.com/lunitide/lunitide/internal/m7app",
+      "github.com/lunitide/lunitide/internal/mcapp",
+      "github.com/lunitide/lunitide/internal/providerapp",
+      "github.com/lunitide/lunitide/internal/queueapp",
+      "github.com/lunitide/lunitide/migrations",
+      "github.com/lunitide/lunitide/tools/errcov"
+    ]
+  },
+  "renderer": {
+    "files": 219,
+    "passed": 1668,
+    "failed": 0,
+    "skipped": 0
+  },
+  "checks": {
+    "go": [
+      {
+        "name": "go-tests",
+        "command": "go",
+        "arguments": [
+          "test",
+          "-json",
+          "-count=1",
+          "-p=4",
+          "-timeout=25m",
+          "-coverprofile=E:\\Trae-Work-Projects\\lunitide\\docs\\audits\\2026-09-06-system-review\\implementation\\evidence\\final-gates-20260906-r2\\coverage.out",
+          "./..."
+        ],
+        "exitCode": 0,
+        "startedAt": "2026-09-06T13:17:30.4718893Z",
+        "finishedAt": "2026-09-06T13:21:54.2926591Z",
+        "stdout": "go-tests.jsonl",
+        "stderr": "go-tests.stderr.log"
+      },
+      {
+        "name": "coverage",
+        "command": "go",
+        "arguments": [
+          "tool",
+          "cover",
+          "-func=E:\\Trae-Work-Projects\\lunitide\\docs\\audits\\2026-09-06-system-review\\implementation\\evidence\\final-gates-20260906-r2\\coverage.out"
+        ],
+        "exitCode": 0,
+        "startedAt": "2026-09-06T13:21:54.2973174Z",
+        "finishedAt": "2026-09-06T13:21:55.7475420Z",
+        "stdout": "coverage.txt",
+        "stderr": "coverage.stderr.log"
+      }
+    ],
+    "race": [
+      {
+        "name": "go-race",
+        "command": "go",
+        "arguments": [
+          "test",
+          "-race",
+          "-json",
+          "-count=1",
+          "-p=4",
+          "-timeout=90m",
+          "./..."
+        ],
+        "exitCode": 0,
+        "startedAt": "2026-09-06T13:17:30.7512271Z",
+        "finishedAt": "2026-09-06T14:13:27.5825771Z",
+        "stdout": "go-race.jsonl",
+        "stderr": "go-race.stderr.log"
+      }
+    ],
+    "web": [
+      {
+        "name": "bridge",
+        "command": "npm.cmd",
+        "arguments": [
+          "--prefix",
+          "web",
+          "run",
+          "verify:bridge"
+        ],
+        "exitCode": 0,
+        "startedAt": "2026-09-06T13:17:31.0914680Z",
+        "finishedAt": "2026-09-06T13:17:32.5692137Z",
+        "stdout": "bridge.log",
+        "stderr": "bridge.stderr.log"
+      },
+      {
+        "name": "typecheck",
+        "command": "npm.cmd",
+        "arguments": [
+          "--prefix",
+          "web",
+          "run",
+          "typecheck"
+        ],
+        "exitCode": 0,
+        "startedAt": "2026-09-06T13:17:32.5739931Z",
+        "finishedAt": "2026-09-06T13:17:46.2578287Z",
+        "stdout": "typecheck.log",
+        "stderr": "typecheck.stderr.log"
+      },
+      {
+        "name": "web-tests",
+        "command": "npx.cmd",
+        "arguments": [
+          "--no-install",
+          "vitest",
+          "run",
+          "--reporter=json",
+          "--outputFile=E:\\Trae-Work-Projects\\lunitide\\docs\\audits\\2026-09-06-system-review\\implementation\\evidence\\final-gates-20260906-r2\\web-tests.json"
+        ],
+        "exitCode": 0,
+        "startedAt": "2026-09-06T13:17:46.2638845Z",
+        "finishedAt": "2026-09-06T13:19:44.6097747Z",
+        "stdout": "web-tests.log",
+        "stderr": "web-tests.stderr.log"
+      },
+      {
+        "name": "web-build",
+        "command": "npx.cmd",
+        "arguments": [
+          "--no-install",
+          "vite",
+          "build"
+        ],
+        "exitCode": 0,
+        "startedAt": "2026-09-06T13:19:44.6111398Z",
+        "finishedAt": "2026-09-06T13:19:59.4301147Z",
+        "stdout": "web-build.log",
+        "stderr": "web-build.stderr.log"
+      }
+    ],
+    "static": [
+      {
+        "name": "go-vet",
+        "command": "go",
+        "arguments": [
+          "vet",
+          "./..."
+        ],
+        "exitCode": 0,
+        "startedAt": "2026-09-06T13:17:31.4069235Z",
+        "finishedAt": "2026-09-06T13:17:45.3888469Z",
+        "stdout": "go-vet.log",
+        "stderr": "go-vet.stderr.log"
+      },
+      {
+        "name": "go-build",
+        "command": "go",
+        "arguments": [
+          "build",
+          "./..."
+        ],
+        "exitCode": 0,
+        "startedAt": "2026-09-06T13:17:45.3950567Z",
+        "finishedAt": "2026-09-06T13:18:04.4834020Z",
+        "stdout": "go-build.log",
+        "stderr": "go-build.stderr.log"
+      },
+      {
+        "name": "go-lint",
+        "command": "golangci-lint.exe",
+        "arguments": [
+          "run",
+          "./..."
+        ],
+        "exitCode": 0,
+        "startedAt": "2026-09-06T13:18:04.4850653Z",
+        "finishedAt": "2026-09-06T13:18:27.7957884Z",
+        "stdout": "go-lint.log",
+        "stderr": "go-lint.stderr.log"
+      }
+    ],
+    "security": [
+      {
+        "name": "govulncheck",
+        "command": "govulncheck.exe",
+        "arguments": [
+          "-json",
+          "./..."
+        ],
+        "exitCode": 0,
+        "startedAt": "2026-09-06T13:17:31.5615909Z",
+        "finishedAt": "2026-09-06T13:17:51.8334582Z",
+        "stdout": "govulncheck.jsonl",
+        "stderr": "govulncheck.stderr.log"
+      },
+      {
+        "name": "npm-audit",
+        "command": "npm.cmd",
+        "arguments": [
+          "--prefix",
+          "web",
+          "audit",
+          "--json",
+          "--audit-level=moderate"
+        ],
+        "exitCode": 0,
+        "startedAt": "2026-09-06T13:17:51.8410886Z",
+        "finishedAt": "2026-09-06T13:17:54.6396589Z",
+        "stdout": "npm-audit.json",
+        "stderr": "npm-audit.stderr.log"
+      }
+    ],
+    "release-tools": [
+      {
+        "name": "release-tools-ps5",
+        "command": "powershell.exe",
+        "arguments": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "E:\\Trae-Work-Projects\\lunitide\\release\\Test-ReleaseTools.ps1"
+        ],
+        "exitCode": 0,
+        "startedAt": "2026-09-06T13:17:31.7370357Z",
+        "finishedAt": "2026-09-06T13:17:38.4595077Z",
+        "stdout": "release-tools-ps5.log",
+        "stderr": "release-tools-ps5.stderr.log"
+      },
+      {
+        "name": "release-tools-ps7",
+        "command": "pwsh.exe",
+        "arguments": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-File",
+          "E:\\Trae-Work-Projects\\lunitide\\release\\Test-ReleaseTools.ps1"
+        ],
+        "exitCode": 0,
+        "startedAt": "2026-09-06T13:17:38.4647954Z",
+        "finishedAt": "2026-09-06T13:17:45.9283969Z",
+        "stdout": "release-tools-ps7.log",
+        "stderr": "release-tools-ps7.stderr.log"
+      },
+      {
+        "name": "release-exclusions",
+        "command": "powershell.exe",
+        "arguments": [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "E:\\Trae-Work-Projects\\lunitide\\release\\Test-OmniExcluded.ps1"
+        ],
+        "exitCode": 0,
+        "startedAt": "2026-09-06T13:17:45.9300972Z",
+        "finishedAt": "2026-09-06T13:17:46.8928153Z",
+        "stdout": "release-exclusions.log",
+        "stderr": "release-exclusions.stderr.log"
+      }
+    ]
+  },
+  "npm_audit": {
+    "info": 0,
+    "low": 0,
+    "moderate": 0,
+    "high": 0,
+    "critical": 0,
+    "total": 0
+  },
+  "govulncheck": {
+    "reachable": 0,
+    "module_or_package_only": [
+      {
+        "osv": "GO-2026-5932",
+        "trace": [
+          {
+            "module": "golang.org/x/crypto",
+            "version": "v0.56.0"
+          }
+        ]
+      }
+    ]
+  },
+  "engineering_score": null,
+  "physical_system_score": null,
+  "score_note": "Scores require the separate module-by-module review; this script does not award them.",
+  "pending_user_acceptance": [
+    "real microphone/loopback and three voice providers",
+    "real external model/MCP/database and multi-device colleague connections",
+    "real Win32/UIA/ConPTY and Windows device matrix",
+    "publisher signing and clean install/update/uninstall matrix",
+    "72-hour mixed workload, 14-day observation and business-quality samples"
+  ],
+  "evidence_files": [
+    {
+      "path": "bridge.log",
+      "bytes": 86,
+      "sha256": "667ba7b340eaf1823a6a593b8e02286c32fe215511a0e1dc379e4b1170edbe26"
+    },
+    {
+      "path": "bridge.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "coverage.out",
+      "bytes": 4822368,
+      "sha256": "8fe714c47dbe10c313d6001ba236248cabff75f8c4f3a52e4432ca0fb210e0ee"
+    },
+    {
+      "path": "coverage.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "coverage.txt",
+      "bytes": 688746,
+      "sha256": "4befc1a9ee234fc9294d2d716d4e9b15412f488435c5f4f5db4f6cf16d2b2148"
+    },
+    {
+      "path": "go-build.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "go-build.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "go-lint.log",
+      "bytes": 10,
+      "sha256": "e92606b0bf483111dff0a120c315ea165821348f31365020e2468a0059095c47"
+    },
+    {
+      "path": "go-lint.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "go-race.jsonl",
+      "bytes": 4517539,
+      "sha256": "6ed1e54ab33e5fa77f4fbc57ab602f8c1aa759272bcc6d5fd92a775509ecbf50"
+    },
+    {
+      "path": "go-race.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "go-receipt.json",
+      "bytes": 1641,
+      "sha256": "aa6c4900cf9578ef9778552cc81ed58bfffc36517f78a509ee80e42aedfa957d"
+    },
+    {
+      "path": "go-source.json",
+      "bytes": 426917,
+      "sha256": "7fcdd99aaf8befaddb7e035ef2432b34d0b0b98a12f54d952e281525b121504d"
+    },
+    {
+      "path": "go-tests.jsonl",
+      "bytes": 4548131,
+      "sha256": "b907516a08b399a60240b73c144c495c2951ee6d3d793a740ee0bf10cfa28446"
+    },
+    {
+      "path": "go-tests.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "go-vet.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "go-vet.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "govulncheck.jsonl",
+      "bytes": 612556,
+      "sha256": "c8b899e541381133d494b9b77b7152321cb81063fdb4ebd6907551a1dc789a62"
+    },
+    {
+      "path": "govulncheck.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "npm-audit.json",
+      "bytes": 364,
+      "sha256": "00cdf6a9f6c05615150c147d1886644522ec28f53dea8f31104e6d8f25d3133e"
+    },
+    {
+      "path": "npm-audit.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "race-receipt.json",
+      "bytes": 955,
+      "sha256": "b9840bcb5b9e2359d017b6e148e255e0af5c65f209b9793e78f2aba2e2496602"
+    },
+    {
+      "path": "race-source.json",
+      "bytes": 426917,
+      "sha256": "7fcdd99aaf8befaddb7e035ef2432b34d0b0b98a12f54d952e281525b121504d"
+    },
+    {
+      "path": "release-exclusions.log",
+      "bytes": 105,
+      "sha256": "8153c9dc75f3bd0e7559e88fed717b6c5cef05788e36f83ce6ef42b8192a20f9"
+    },
+    {
+      "path": "release-exclusions.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "release-tools-ps5.log",
+      "bytes": 249,
+      "sha256": "27abef7732ceb9e4ab4e4e8946ee4c94465da7a906315b70e6c18d1b87d0ba6f"
+    },
+    {
+      "path": "release-tools-ps5.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "release-tools-ps7.log",
+      "bytes": 251,
+      "sha256": "bb3ea3a40ea4cd6f1264f5badbed8e8a04f816072c8a84c738d80b04c81850b0"
+    },
+    {
+      "path": "release-tools-ps7.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "release-tools-receipt.json",
+      "bytes": 2080,
+      "sha256": "858d514ec7034f98aa418c13f974a8a2ceb6c090250f8280dd4079a5e1bfa0f8"
+    },
+    {
+      "path": "release-tools-source.json",
+      "bytes": 426917,
+      "sha256": "7fcdd99aaf8befaddb7e035ef2432b34d0b0b98a12f54d952e281525b121504d"
+    },
+    {
+      "path": "security-receipt.json",
+      "bytes": 1304,
+      "sha256": "c70e1183a7f5ed14a502b7accc4634a39d84c2f1a1dcb1e6ba7defb758b91f52"
+    },
+    {
+      "path": "security-source.json",
+      "bytes": 426917,
+      "sha256": "7fcdd99aaf8befaddb7e035ef2432b34d0b0b98a12f54d952e281525b121504d"
+    },
+    {
+      "path": "static-receipt.json",
+      "bytes": 1528,
+      "sha256": "f93bf66245ede87156dc4257f695e15c7cd7c77b702e0add347b3105ca56f6ac"
+    },
+    {
+      "path": "static-source.json",
+      "bytes": 426917,
+      "sha256": "7fcdd99aaf8befaddb7e035ef2432b34d0b0b98a12f54d952e281525b121504d"
+    },
+    {
+      "path": "typecheck.log",
+      "bytes": 54,
+      "sha256": "ebc361ac5e7dcee7564276699a3d7b1f5705eac56ba5348fe71db5b59f270014"
+    },
+    {
+      "path": "typecheck.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "web-build.log",
+      "bytes": 5823,
+      "sha256": "17504fc04aa8c0932270b21f0e68dff62867d9b6dc2446352dc637858f4353a1"
+    },
+    {
+      "path": "web-build.stderr.log",
+      "bytes": 337,
+      "sha256": "62ade33055e7dc869f080097f2fa3bae7ff29b46cc203fcdd0bcaebab3e2cba0"
+    },
+    {
+      "path": "web-receipt.json",
+      "bytes": 2198,
+      "sha256": "20d6ea6f66b1293cd721e7a228b351e89e51af60c68aa0aad118d3fa2de79695"
+    },
+    {
+      "path": "web-source.json",
+      "bytes": 426917,
+      "sha256": "7fcdd99aaf8befaddb7e035ef2432b34d0b0b98a12f54d952e281525b121504d"
+    },
+    {
+      "path": "web-tests.json",
+      "bytes": 488070,
+      "sha256": "6540b49d01afda204571abf067929ab50a2c18ea422a20e19b1ef1ec460cc494"
+    },
+    {
+      "path": "web-tests.log",
+      "bytes": 154,
+      "sha256": "26f583b3cffb5d5795be30d7fabb7c02fee891b73459db3a0edcbc4577206dc7"
+    },
+    {
+      "path": "web-tests.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

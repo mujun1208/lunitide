@@ -8,17 +8,11 @@
 import { getVoiceBridge } from '../../../bridge/client'
 import { int16ToBase64, TARGET_SAMPLE_RATE } from '../pcmFrames'
 import { startPcmCapture, type PcmCaptureHandle } from '../pcmCapture'
+import { takePcmBatch } from '../pcmQueue'
 import type { LocalAsrCallbacks, LocalAsrHandle } from '../localAsr'
 
 /** Ceiling on audio waiting to be sent, in samples. Two seconds at 16 kHz. */
 const MAX_PENDING_SAMPLES = TARGET_SAMPLE_RATE * 2
-
-/**
- * voice.ValidFrame rejects payloads larger than ten 100 ms frames (1 s /
- * 32 000 bytes). Handshake backlog and a slow append must be split, not
- * merged into one illegal voice.append.
- */
-const MAX_APPEND_SAMPLES = TARGET_SAMPLE_RATE
 
 const DRAIN_ROUNDS = 40
 
@@ -116,40 +110,10 @@ export async function startVolcAsr(providerId: string, callbacks: VolcAsrCallbac
   let pendingSamples = 0
 
   const takePending = (): string | undefined => {
-    if (pending.length === 0) return undefined
-    const first = pending[0]!
-    if (pending.length === 1 && first.samples.length <= MAX_APPEND_SAMPLES) {
-      pending = []
-      pendingSamples = 0
-      return first.base64
-    }
-    let take = 0
-    let samples = 0
-    while (take < pending.length && samples + pending[take]!.samples.length <= MAX_APPEND_SAMPLES) {
-      samples += pending[take]!.samples.length
-      take++
-    }
-    if (take === 0) {
-      const head = first.samples.subarray(0, MAX_APPEND_SAMPLES)
-      const rest = first.samples.subarray(MAX_APPEND_SAMPLES)
-      pending[0] = { base64: int16ToBase64(rest), samples: rest }
-      pendingSamples -= head.length
-      return int16ToBase64(head)
-    }
-    if (take === pending.length && samples === pendingSamples && take === 1) {
-      pending = []
-      pendingSamples = 0
-      return first.base64
-    }
-    const merged = new Int16Array(samples)
-    let at = 0
-    for (let i = 0; i < take; i++) {
-      merged.set(pending[i]!.samples, at)
-      at += pending[i]!.samples.length
-    }
-    pending = pending.slice(take)
-    pendingSamples -= samples
-    return int16ToBase64(merged)
+    const batch = takePcmBatch(pending)
+    if (!batch) return undefined
+    pendingSamples -= batch.sampleCount
+    return batch.base64
   }
 
   const suppressRepeat = (text: string) => {

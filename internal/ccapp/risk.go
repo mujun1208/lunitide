@@ -165,7 +165,7 @@ func (s *Service) rejectTargetProcess(settings Settings, tool string, args json.
 	}
 	wins, err := s.host.ListWindows()
 	if err != nil || len(wins) == 0 {
-		return nil
+		return fmt.Errorf("%w: target windows unavailable", ErrCcProcessBlocked)
 	}
 	var targets []WindowInfo
 	if tool == ToolAppQuit {
@@ -173,9 +173,15 @@ func (s *Service) rejectTargetProcess(settings Settings, tool string, args json.
 	} else if info, ok := MatchWindow(wins, query); ok {
 		targets = []WindowInfo{info}
 	}
+	if len(targets) == 0 {
+		return fmt.Errorf("%w: target window not found", ErrCcProcessBlocked)
+	}
 	op := strings.ToLower(strings.TrimSpace(a.Op))
 	checkProtected := tool == ToolAppQuit || destructiveWindowOp(op)
 	for _, w := range targets {
+		if strings.TrimSpace(w.Process) == "" {
+			return fmt.Errorf("%w: target process unavailable", ErrCcProcessBlocked)
+		}
 		if blocklistHit(settings.ProcessBlocklist, w.Process) {
 			return ErrCcProcessBlocked
 		}
@@ -190,4 +196,22 @@ func (s *Service) rejectTargetProcess(settings Settings, tool string, args json.
 		}
 	}
 	return nil
+}
+
+func (s *Service) checkTargetNow(tool, query, op string) error {
+	if err := s.checkExecution(); err != nil {
+		return err
+	}
+	s.execution.mu.Lock()
+	active := s.execution.active
+	var settings Settings
+	if active != nil {
+		settings = active.settings
+	}
+	s.execution.mu.Unlock()
+	if active == nil {
+		return nil
+	}
+	args, _ := json.Marshal(map[string]string{"title": query, "op": op})
+	return s.rejectTargetProcess(settings, tool, args)
 }

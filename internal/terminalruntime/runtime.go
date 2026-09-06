@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,28 +59,34 @@ type Runtime struct {
 }
 
 type session struct {
-	id           string
-	p            platformSession
-	output       int64
-	outputDigest hashState
+	id             string
+	p              platformSession
+	output         int64
+	outputExceeded bool
+	writeGate      chan struct{}
+	outputDigest   hashState
 }
 
 type hashState struct {
 	mu   sync.Mutex
-	data []byte
+	data hash.Hash
 }
 
 func (h *hashState) add(p []byte) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	x := sha256.Sum256(p)
-	h.data = append(h.data, x[:]...)
+	if h.data == nil {
+		h.data = sha256.New()
+	}
+	_, _ = h.data.Write(p)
 }
 func (h *hashState) digest() string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	x := sha256.Sum256(h.data)
-	return hex.EncodeToString(x[:])
+	if h.data == nil {
+		h.data = sha256.New()
+	}
+	return hex.EncodeToString(h.data.Sum(nil))
 }
 
 type platformSession interface {
@@ -184,20 +191,50 @@ func (r *Runtime) Start(ctx context.Context, id string, cols, rows int) error {
 }
 
 func (r *Runtime) Write(id string, data []byte) error {
+	return r.WriteContext(context.Background(), id, data)
+}
+func (r *Runtime) WriteContext(ctx context.Context, id string, data []byte) error {
 	if len(data) == 0 || len(data) > r.cfg.MaxInputBytes {
 		return ErrInvalid
 	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
 	r.mu.Lock()
 	s := r.sessions[id]
 	var p platformSession
+	var gate chan struct{}
 	if s != nil {
 		p = s.p
+		if s.writeGate == nil {
+			s.writeGate = make(chan struct{}, 1)
+		}
+		gate = s.writeGate
 	}
 	r.mu.Unlock()
 	if p == nil {
 		return ErrNotFound
 	}
-	err := p.write(data)
+	select {
+	case gate <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
+		<-gate
+		return err
+	}
+	done := make(chan error, 1)
+	copied := append([]byte(nil), data...)
+	go func() { defer func() { <-gate }(); done <- p.write(copied) }()
+	var err error
+	select {
+	case err = <-done:
+	case <-ctx.Done():
+		err = ctx.Err()
+		// Stop a shell that no longer consumes input. Closing ConPTY also releases
+		// the single per-session writer, without pinning an engine/organization lock.
+		go func() { _ = r.closeSession(s) }()
+	}
 	r.audit("write", id, data, err)
 	return err
 }
@@ -222,15 +259,26 @@ func (r *Runtime) Resize(id string, cols, rows int) error {
 func (r *Runtime) Close(id string) error {
 	r.mu.Lock()
 	s := r.sessions[id]
-	if s != nil {
-		delete(r.sessions, id)
-	}
 	r.mu.Unlock()
 	if s == nil {
 		return ErrNotFound
 	}
-	err := s.p.close()
-	r.audit("close", id, []byte(s.outputDigest.digest()), err)
+	return r.closeSession(s)
+}
+func (r *Runtime) closeSession(s *session) error {
+	r.mu.Lock()
+	if r.sessions[s.id] != s {
+		r.mu.Unlock()
+		return ErrNotFound
+	}
+	delete(r.sessions, s.id)
+	p := s.p
+	r.mu.Unlock()
+	var err error
+	if p != nil {
+		err = p.close()
+	}
+	r.audit("close", s.id, []byte(s.outputDigest.digest()), err)
 	return err
 }
 func (r *Runtime) Shutdown() error {
@@ -248,8 +296,10 @@ func (r *Runtime) Shutdown() error {
 	r.mu.Unlock()
 	var first error
 	for _, s := range all {
-		if e := s.p.close(); e != nil && first == nil {
-			first = e
+		if s.p != nil {
+			if e := s.p.close(); e != nil && first == nil {
+				first = e
+			}
 		}
 		r.audit("shutdown_close", s.id, []byte(s.outputDigest.digest()), nil)
 	}
@@ -259,30 +309,53 @@ func (r *Runtime) Shutdown() error {
 func (r *Runtime) output(s *session, b []byte) {
 	r.mu.Lock()
 	cur, ok := r.sessions[s.id]
-	if !ok || cur != s {
+	if !ok || cur != s || s.outputExceeded {
 		r.mu.Unlock()
 		return
 	}
 	remain := r.cfg.MaxOutputBytes - s.output
 	if remain <= 0 {
+		s.outputExceeded = true
 		r.mu.Unlock()
+		r.outputLimit(s)
 		return
 	}
-	if int64(len(b)) > remain {
+	exceeded := int64(len(b)) > remain
+	if exceeded {
 		b = b[:remain]
+		s.outputExceeded = true
 	}
 	s.output += int64(len(b))
 	r.mu.Unlock()
 	b = append([]byte(nil), b...)
 	s.outputDigest.add(b)
 	r.emit(Event{Type: EventOutput, SessionID: s.id, Data: b})
+	if exceeded {
+		r.outputLimit(s)
+	}
 }
+func (r *Runtime) outputLimit(s *session) {
+	r.emit(Event{Type: EventOutput, SessionID: s.id, Data: []byte("\r\n[terminal output limit reached; process tree stopped]\r\n")})
+	r.emit(Event{Type: EventError, SessionID: s.id, Err: ErrLimit})
+	// ConPTY close must run outside its output reader so the reader can keep
+	// draining the console shutdown handshake.
+	go func() { _ = r.closeSession(s) }()
+}
+
 func (r *Runtime) exited(s *session, code uint32, err error) {
 	r.mu.Lock()
-	if r.sessions[s.id] == s {
-		delete(r.sessions, s.id)
+	if r.sessions[s.id] != s {
+		r.mu.Unlock()
+		return
 	}
+	delete(r.sessions, s.id)
+	p := s.p
 	r.mu.Unlock()
+	// A successful shell exit still owns a Job and ConPTY; reclaim surviving
+	// descendants and handles before publishing the terminal exit.
+	if p != nil {
+		err = errors.Join(err, p.close())
+	}
 	typ := EventExit
 	if err != nil {
 		typ = EventError
@@ -290,6 +363,7 @@ func (r *Runtime) exited(s *session, code uint32, err error) {
 	r.emit(Event{Type: typ, SessionID: s.id, ExitCode: code, Err: err})
 	r.audit("exit", s.id, []byte(s.outputDigest.digest()), err)
 }
+
 func (r *Runtime) emit(e Event) {
 	defer func() { _ = recover() }()
 	select {

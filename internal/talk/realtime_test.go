@@ -35,6 +35,21 @@ func TestParseServerEvent(t *testing.T) {
 	if asst.Kind != "transcript" || asst.Role != "assistant" {
 		t.Fatalf("asst = %+v", asst)
 	}
+	if asst.Final {
+		t.Fatal("delta must remain transient")
+	}
+	for _, kind := range []string{"response.audio_transcript.done", "response.output_audio_transcript.done"} {
+		final := ParseServerEvent([]byte(`{"type":"` + kind + `","item_id":"assistant-1","response_id":"response-1","content_index":2,"transcript":"最终全文"}`))
+		if !final.Final || final.Transcript != "最终全文" || final.ItemID != "assistant-1" || final.ContentIndex != 2 {
+			t.Fatalf("final: %#v", final)
+		}
+	}
+	if !user.Final {
+		t.Fatal("completed user transcript must be final")
+	}
+	if ParseServerEvent([]byte(`{"type":"response.audio_transcript.done","content_index":0.5,"transcript":"x"}`)).Kind != "error" {
+		t.Fatal("fractional content index accepted")
+	}
 	if ParseServerEvent([]byte(`{"type":"input_audio_buffer.speech_started"}`)).Kind != "barge" {
 		t.Fatal("barge")
 	}

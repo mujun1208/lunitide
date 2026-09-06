@@ -14,7 +14,7 @@ func TestEnsureCompanionDoesNotClearEmergencyStop(t *testing.T) {
 	e, ccSvc := newCcEngine(t)
 	ctx := context.Background()
 	enabled := true
-	if _, err := ccSvc.UpdateConfig(ctx, ccapp.SettingsPatch{Enabled: &enabled}); err != nil {
+	if _, err := ccSvc.UpdateConfig(ctx, ccapp.SettingsPatch{ExpectedRevision: 1, Enabled: &enabled}); err != nil {
 		t.Fatal(err)
 	}
 	stopped, err := ccSvc.EmergencyStop(ctx, "operator", "companion must not clear")
@@ -100,7 +100,7 @@ func TestEnsureCompanionBumpsLegacyRateCap(t *testing.T) {
 	ctx := context.Background()
 	enabled := true
 	legacy := ccapp.CcLegacyDefaultMaxActionsPerMinute
-	if _, err := ccSvc.UpdateConfig(ctx, ccapp.SettingsPatch{Enabled: &enabled, MaxActionsPerMinute: &legacy}); err != nil {
+	if _, err := ccSvc.UpdateConfig(ctx, ccapp.SettingsPatch{ExpectedRevision: 1, Enabled: &enabled, MaxActionsPerMinute: &legacy}); err != nil {
 		t.Fatal(err)
 	}
 	e.ensureCompanionRuntimeCapabilities(ctx)

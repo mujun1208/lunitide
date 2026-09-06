@@ -31,7 +31,10 @@
       "maxLength": 16384
     }
   },
-  "required": ["candidateId", "expectedVersion"],
+  "required": [
+    "candidateId",
+    "expectedVersion"
+  ],
   "x-result": {
     "type": "object",
     "additionalProperties": false,
@@ -40,14 +43,53 @@
         "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
       },
       "state": {
-        "enum": ["inspected"]
+        "enum": [
+          "inspected"
+        ]
       },
       "version": {
         "type": "integer",
         "minimum": 1
+      },
+      "summary": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "license": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "archiveHash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "skippedFiles": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "license",
+          "archiveHash",
+          "skippedFiles"
+        ]
       }
     },
-    "required": ["candidateId", "state", "version"]
+    "required": [
+      "candidateId",
+      "state",
+      "version"
+    ]
   },
   "x-examples": {
     "positive": [

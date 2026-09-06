@@ -7,35 +7,93 @@
   "x-enabled": true,
   "type": "object",
   "additionalProperties": false,
-  "properties": {},
+  "properties": {
+    "cursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    }
+  },
   "x-result": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
       "items": {
         "type": "array",
-        "maxItems": 200,
+        "maxItems": 100,
         "items": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "id": { "type": "string", "minLength": 1, "maxLength": 26 },
-            "title": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 26
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
             "sources": {
               "type": "array",
-              "maxItems": 8,
-              "items": { "type": "string", "maxLength": 32 }
+              "maxItems": 100,
+              "items": {
+                "type": "string",
+                "maxLength": 32
+              }
             },
-            "hours": { "type": "number" }
+            "hours": {
+              "type": "number"
+            },
+            "evidenceState": {
+              "type": "string",
+              "enum": [
+                "draft",
+                "current",
+                "stale",
+                "blocked"
+              ]
+            }
           },
-          "required": ["id", "title", "sources"]
+          "required": [
+            "id",
+            "title",
+            "sources"
+          ]
+        }
+      },
+      "nextCursor": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      },
+      "continuedFields": {
+        "type": "array",
+        "maxItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "enum": [
+            "items"
+          ]
         }
       }
     },
-    "required": ["items"]
+    "required": [
+      "items"
+    ]
   },
   "x-examples": {
-    "positive": [{}],
-    "negative": [{"unexpected": true}]
+    "positive": [
+      {}
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      },
+      {
+        "cursor": 42
+      }
+    ]
   }
 }

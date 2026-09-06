@@ -32,7 +32,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		}
 		_ = json.Unmarshal(args, &a)
 		sx, sy := s.toScreen(a.X, a.Y)
-		if err := s.host.MouseMove(sx, sy); err != nil {
+		if err := s.controlHost().MouseMove(sx, sy); err != nil {
 			return "", nil, err
 		}
 		return fmt.Sprintf("moved cursor to screen (%d,%d)", sx, sy), nil, nil
@@ -56,7 +56,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			a.Clicks = 1
 		}
 		mods, _ := normalizeModifiers(a.Modifiers)
-		click := func() error { return s.host.MouseClick(a.Button, a.Clicks) }
+		click := func() error { return s.controlHost().MouseClick(a.Button, a.Clicks) }
 		if name := strings.TrimSpace(a.Name); name != "" || strings.TrimSpace(a.ID) != "" {
 			query := strings.TrimSpace(a.ID)
 			if query == "" {
@@ -79,17 +79,19 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 				return "", nil, err
 			}
 			sx, sy := s.toScreen(*a.X, *a.Y)
-			if err := s.host.MouseMove(sx, sy); err != nil {
+			if err := s.controlHost().MouseMove(sx, sy); err != nil {
 				return "", nil, err
 			}
-			time.Sleep(25 * time.Millisecond)
+			if err := s.waitExecution(25 * time.Millisecond); err != nil {
+				return "", nil, err
+			}
 		}
 		if a.Scroll != 0 {
 			var err error
 			if a.ScrollAxis == "horizontal" {
-				err = s.host.MouseScrollH(a.Scroll)
+				err = s.controlHost().MouseScrollH(a.Scroll)
 			} else {
-				err = s.host.MouseScroll(a.Scroll)
+				err = s.controlHost().MouseScroll(a.Scroll)
 			}
 			if err != nil {
 				return "", nil, err
@@ -130,7 +132,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		if err != nil {
 			return "", nil, err
 		}
-		if err := s.host.MouseDrag(sx1, sy1, sx2, sy2); err != nil {
+		if err := s.controlHost().MouseDrag(sx1, sy1, sx2, sy2); err != nil {
 			return "", nil, wrapHostIntegrityError(err)
 		}
 		return s.verifyAfter(fmt.Sprintf("dragged from (%d,%d) to (%d,%d)", sx1, sy1, sx2, sy2))
@@ -143,12 +145,14 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		if err := s.focusIfNamed(a.Window); err != nil {
 			return "", nil, err
 		}
-		time.Sleep(40 * time.Millisecond)
+		if err := s.waitExecution(40 * time.Millisecond); err != nil {
+			return "", nil, err
+		}
 		if PreferPasteText(a.Text) {
 			raw, _ := json.Marshal(map[string]any{"text": a.Text, "window": a.Window})
 			return s.runHost(ToolPaste, raw, nil)
 		}
-		if err := s.host.KeyboardType(a.Text); err != nil {
+		if err := s.controlHost().KeyboardType(a.Text); err != nil {
 			return "", nil, err
 		}
 		return s.verifyAfter(fmt.Sprintf("typed %d character(s)", len([]rune(a.Text))))
@@ -160,8 +164,10 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		if err := s.focusIfNamed(a.Window); err != nil {
 			return "", nil, err
 		}
-		time.Sleep(40 * time.Millisecond)
-		if err := s.host.KeyboardShortcut(shortcut); err != nil {
+		if err := s.waitExecution(40 * time.Millisecond); err != nil {
+			return "", nil, err
+		}
+		if err := s.controlHost().KeyboardShortcut(shortcut); err != nil {
 			return "", nil, err
 		}
 		return s.verifyAfter("pressed " + strings.Join(shortcut, "+"))
@@ -250,7 +256,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			Process string `json:"process"`
 		}
 		_ = json.Unmarshal(args, &a)
-		info, err := s.host.FocusWindow(windowFocusQuery(a.Title, a.Process))
+		info, err := s.controlHost().FocusWindow(windowFocusQuery(a.Title, a.Process))
 		if err != nil {
 			return "", nil, err
 		}
@@ -262,7 +268,9 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		}
 		_ = json.Unmarshal(args, &a)
 		if a.WaitMs > 0 {
-			time.Sleep(time.Duration(a.WaitMs) * time.Millisecond)
+			if err := s.waitExecution(time.Duration(a.WaitMs) * time.Millisecond); err != nil {
+				return "", nil, err
+			}
 		}
 		snaps, err := s.host.ObserveDialogs()
 		if err != nil {
@@ -294,7 +302,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			Button string `json:"button"`
 		}
 		_ = json.Unmarshal(args, &a)
-		snap, err := s.host.ConfirmDialog(strings.TrimSpace(a.Button))
+		snap, err := s.controlHost().ConfirmDialog(strings.TrimSpace(a.Button))
 		if err != nil {
 			if errors.Is(err, ErrCcRiskBlocked) && strings.Contains(err.Error(), "file open/save dialog") {
 				return "", nil, fmt.Errorf("%w: %s", err, FilePickerUserPrompt)
@@ -391,7 +399,9 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 				if remain < slice {
 					slice = remain
 				}
-				time.Sleep(slice)
+				if err := s.waitExecution(slice); err != nil {
+					return "", nil, err
+				}
 				cur, err := s.host.ScreenCapture()
 				if err != nil {
 					continue
@@ -403,7 +413,9 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 				}
 			}
 		}
-		time.Sleep(time.Duration(ms) * time.Millisecond)
+		if err := s.waitExecution(time.Duration(ms) * time.Millisecond); err != nil {
+			return "", nil, err
+		}
 		return fmt.Sprintf("waited %dms", ms), nil, nil
 	case ToolClipboard:
 		var a struct {
@@ -423,7 +435,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			}
 			return string(raw), nil, nil
 		}
-		if err := s.host.ClipboardSet(a.Text); err != nil {
+		if err := s.controlHost().ClipboardSet(a.Text); err != nil {
 			return "", nil, err
 		}
 		return fmt.Sprintf("clipboard set (%d character(s))", utf8.RuneCountInString(a.Text)), nil, nil
@@ -441,7 +453,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		if query == "" {
 			query = "foreground"
 		}
-		info, err := s.host.WindowAction(query, strings.ToLower(strings.TrimSpace(a.Op)), a.X, a.Y, a.W, a.H)
+		info, err := s.controlHost().WindowAction(query, strings.ToLower(strings.TrimSpace(a.Op)), a.X, a.Y, a.W, a.H)
 		if err != nil {
 			return "", nil, err
 		}
@@ -493,7 +505,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		if query == "" {
 			query = strings.TrimSpace(a.Name)
 		}
-		closed, info, err := s.host.QuitApp(query)
+		closed, info, err := s.controlHost().QuitApp(query)
 		if err != nil {
 			return "", nil, err
 		}
@@ -508,11 +520,11 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			return "", nil, err
 		}
 		if strings.TrimSpace(a.Text) != "" {
-			if err := s.host.ClipboardSet(a.Text); err != nil {
+			if err := s.controlHost().ClipboardSet(a.Text); err != nil {
 				return "", nil, err
 			}
 		}
-		if err := s.host.KeyboardShortcut([]string{"ctrl", "v"}); err != nil {
+		if err := s.controlHost().KeyboardShortcut([]string{"ctrl", "v"}); err != nil {
 			return "", nil, err
 		}
 		n := utf8.RuneCountInString(a.Text)
@@ -540,7 +552,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		}
 		hold := strings.ToLower(strings.TrimSpace(a.Hold))
 		if hold == "down" || hold == "up" {
-			if err := s.host.HoldKey(key, hold == "down"); err != nil {
+			if err := s.controlHost().HoldKey(key, hold == "down"); err != nil {
 				return "", nil, err
 			}
 			if hold == "down" {
@@ -551,11 +563,13 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			return s.verifyAfter(fmt.Sprintf("released %s", key))
 		}
 		for i := 0; i < a.Count; i++ {
-			if err := s.host.KeyboardShortcut([]string{key}); err != nil {
+			if err := s.controlHost().KeyboardShortcut([]string{key}); err != nil {
 				return "", nil, err
 			}
 			if i+1 < a.Count {
-				time.Sleep(30 * time.Millisecond)
+				if err := s.waitExecution(30 * time.Millisecond); err != nil {
+					return "", nil, err
+				}
 			}
 		}
 		return s.verifyAfter(fmt.Sprintf("pressed %s x%d", key, a.Count))
@@ -568,7 +582,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		if err := s.focusIfNamed(a.Window); err != nil {
 			return "", nil, err
 		}
-		if err := s.host.MenuClick(strings.TrimSpace(a.Path)); err != nil {
+		if err := s.controlHost().MenuClick(strings.TrimSpace(a.Path)); err != nil {
 			return "", nil, err
 		}
 		return s.verifyAfter(fmt.Sprintf("clicked menu %q", strings.TrimSpace(a.Path)))
@@ -586,7 +600,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		if hit, ok := s.lookupHit(target); ok && hit.Name != "" {
 			target = hit.Name
 		}
-		if err := s.host.SetValue(target, a.Value); err != nil {
+		if err := s.controlHost().SetValue(target, a.Value); err != nil {
 			return "", nil, err
 		}
 		return s.verifyAfter(fmt.Sprintf("set value on %q (%d character(s))", target, utf8.RuneCountInString(a.Value)))

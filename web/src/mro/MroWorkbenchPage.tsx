@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { type ExpertBridge, type ProjectBridge, type SessionBridge } from '../bridge/client'
 import { ConfirmDialog, Dialog } from '../ui/Dialog'
 import { useZh } from '../i18n/language'
@@ -8,6 +8,7 @@ import { MroAskButton, openMroChat, type MroChatOpened } from './MroAskButton'
 import { parseMroContext, type MroSessionContext } from './mroContext'
 import { parseAogPaste } from './aogPaste'
 import { QuickForm, type QuickFormSpec } from './MroForms'
+import {bindMroPage, useMroPagination, type MroPageRequest, type MroPageMeta} from './pagination'
 
 export type MroAircraft = { aircraftId: string; tailNo: string; msn: string; model: string; config: string }
 export type MroManual = {
@@ -33,7 +34,7 @@ export type MroLotRow = { id: string; lotNo: string; parentLotId?: string; qty?:
 export type MroKitRow = { id: string; name: string; missing: string[] }
 export type MroStockRow = { pn: string; qty: number; source: string }
 export type MroAlternateRow = { pnFrom: string; pnTo: string; certOk: boolean; effectivity?: string; qty?: number; accepted: boolean }
-export type MroWorkPackageRow = { id: string; title: string; sources: string[]; hours?: number }
+export type MroWorkPackageRow = { id: string; title: string; sources: string[]; hours?: number; evidenceState?: 'draft' | 'current' | 'stale' | 'blocked' }
 export type MroOpsTodo = { id: string; kind: string; ref: string; status: string; detail?: string }
 export type MroComponentRow = { id: string; sn: string; pn: string; lifeCount: number; installed: boolean; tailNo?: string; events: Array<{ kind: string; occurredAt: string; note?: string }> }
 export type MroPirepRow = { id: string; tailNo: string; body: string; state: string; createdAt: string }
@@ -83,6 +84,8 @@ function dueBadgeClass(state: string): string {
 // legend renders every code as a pass/fail badge; codes present in the current
 // violations flip to is-err. The engine never solves or auto-shifts.
 const CONSTRAINT_CODES: Array<{ code: string; zh: string; en: string }> = [
+  { code: 'C0', zh: '排程窗口已登记', en: 'Recorded schedule windows' },
+  { code: 'C8', zh: '机尾属于当前组织', en: 'Tail belongs to current organization' },
   { code: 'C1', zh: '窗口晚于超限到期', en: 'Window after overdue due' },
   { code: 'C2', zh: '技能组工时超载', en: 'Skill capacity overload' },
   { code: 'C3', zh: '机尾已停场/AOG', en: 'Tail grounded / AOG' },
@@ -151,7 +154,7 @@ export function manualMediaType(name: string): string | undefined {
 }
 
 export function MroWorkbenchPage({
-  enabled, mroExpertId, opsExpertIds, initialRail = 'manuals',
+  enabled, scopeKey = '', mroExpertId, opsExpertIds, initialRail = 'manuals',
   aircraftList, manualList, onUpsertAircraft, onAskOpened, openChat,
   verifiedConnections, existingStock, onBindStock,
   lastCites, onBuildChecklist, onRegisterManual, onIngestManual, auditList,
@@ -165,11 +168,12 @@ export function MroWorkbenchPage({
   onIssueChem, onAddPartsTodo, onConfirmPirep, onConfirmAog, onConfirmPo,
 }: {
   enabled: boolean
+  scopeKey?: string
   mroExpertId?: string
   opsExpertIds?: Record<string, string>
   initialRail?: string
-  aircraftList?: () => Promise<{ items: MroAircraft[] }>
-  manualList?: () => Promise<{ items: MroManual[] }>
+  aircraftList?: (input?: MroPageRequest) => Promise<MroPageMeta & { items: MroAircraft[] }>
+  manualList?: (input?: MroPageRequest) => Promise<MroPageMeta & { items: MroManual[] }>
   onUpsertAircraft?: (input: { tailNo: string; msn: string; model: string; config: string }) => Promise<MroAircraft>
   onAskOpened?: (opened: MroChatOpened) => void
   openChat?: typeof openMroChat
@@ -189,27 +193,27 @@ export function MroWorkbenchPage({
   alternates?: MroAlternateRow[]
   workPackages?: MroWorkPackageRow[]
   opsTodos?: MroOpsTodo[]
-  dueList?: () => Promise<{ items: MroDueRow[] }>
-  toolList?: () => Promise<{ items: MroToolRow[] }>
-  lotList?: () => Promise<{ items: MroLotRow[] }>
-  kitList?: () => Promise<{ items: MroKitRow[] }>
-  partsList?: () => Promise<{ items: MroStockRow[]; alternates?: MroAlternateRow[] }>
-  planList?: () => Promise<{ items: MroWorkPackageRow[] }>
-  todoList?: () => Promise<{ items: MroOpsTodo[] }>
-  constraintList?: () => Promise<{ violations: Array<{ code: string; detail: string }> }>
+  dueList?: (input?: MroPageRequest) => Promise<MroPageMeta & { items: MroDueRow[] }>
+  toolList?: (input?: MroPageRequest) => Promise<MroPageMeta & { items: MroToolRow[] }>
+  lotList?: (input?: MroPageRequest) => Promise<MroPageMeta & { items: MroLotRow[] }>
+  kitList?: (input?: MroPageRequest) => Promise<MroPageMeta & { items: MroKitRow[] }>
+  partsList?: (input?: MroPageRequest) => Promise<MroPageMeta & { items: MroStockRow[]; alternates?: MroAlternateRow[] }>
+  planList?: (input?: MroPageRequest) => Promise<MroPageMeta & { items: MroWorkPackageRow[] }>
+  todoList?: (input?: MroPageRequest) => Promise<MroPageMeta & { items: MroOpsTodo[] }>
+  constraintList?: (input?: MroPageRequest) => Promise<MroPageMeta & { violations: Array<{ code: string; detail: string }> }>
   onCheckoutTool?: (id: string) => Promise<{ ok: boolean; reason?: string }>
   onPublishSchedule?: (id: string) => Promise<{ todos: MroOpsTodo[] }>
   onBulletinChain?: (lotId: string) => Promise<{ tails: string[]; note: string }>
-  componentListFn?: () => Promise<{ items: MroComponentRow[] }>
-  pirepListFn?: () => Promise<{ items: MroPirepRow[] }>
-  aogListFn?: () => Promise<{ items: MroAogRow[] }>
-  poListFn?: () => Promise<{ items: MroPoRow[] }>
-  triggerListFn?: () => Promise<{ items: MroTriggerRow[] }>
-  intervalListFn?: () => Promise<{ items: MroIntervalRow[] }>
+  componentListFn?: (input?: MroPageRequest) => Promise<MroPageMeta & { items: MroComponentRow[] }>
+  pirepListFn?: (input?: MroPageRequest) => Promise<MroPageMeta & { items: MroPirepRow[] }>
+  aogListFn?: (input?: MroPageRequest) => Promise<MroPageMeta & { items: MroAogRow[] }>
+  poListFn?: (input?: MroPageRequest) => Promise<MroPageMeta & { items: MroPoRow[] }>
+  triggerListFn?: (input?: MroPageRequest) => Promise<MroPageMeta & { items: MroTriggerRow[] }>
+  intervalListFn?: (input?: MroPageRequest) => Promise<MroPageMeta & { items: MroIntervalRow[] }>
   onAddTool?: (input: { toolNo: string; sn?: string; location?: string; calibDue?: string }) => Promise<{ ok: boolean }>
   onReturnTool?: (id: string) => Promise<{ ok: boolean }>
   onAddDue?: (input: { scopeId: string; kind: string; limitValue?: number; dueAt?: string; source?: string }) => Promise<{ ok: boolean }>
-  onRecordUtil?: (input: { scopeId: string; hours?: number; cycles?: number; batteryCycles?: number }) => Promise<{ items: MroDueRow[] }>
+  onRecordUtil?: (input: { scopeId: string; hours?: number; cycles?: number; batteryCycles?: number }) => Promise<MroPageMeta & { items: MroDueRow[] }>
   onAddLot?: (input: { lotNo: string; parentLotId?: string; qty?: number; expires?: string; sdsDoc?: string }) => Promise<{ ok: boolean }>
   onRecordUse?: (input: { lotId: string; tailNo?: string; wo?: string; tech?: string }) => Promise<{ ok: boolean }>
   onDefineKit?: (input: { name: string; items?: Array<{ pn: string; required?: number; onHand?: number }> }) => Promise<{ ok: boolean }>
@@ -239,8 +243,12 @@ export function MroWorkbenchPage({
   const [toolTab, setToolTab] = useState<ToolTab>('tools')
   const [partTab, setPartTab] = useState<PartTab>(initial.part)
   const [planTab, setPlanTab] = useState<PlanTab>('wp')
-  const [aircraft, setAircraft] = useState<MroAircraft[]>([])
-  const [manuals, setManuals] = useState<MroManual[]>([])
+  const [aircraftPageRows, setAircraft] = useState<MroAircraft[]>([])
+  const [recentAircraft, setRecentAircraft] = useState<MroAircraft>()
+  const aircraft = recentAircraft && !aircraftPageRows.some(row => row.aircraftId === recentAircraft.aircraftId) ? [...aircraftPageRows, recentAircraft] : aircraftPageRows
+  const [manualPageRows, setManuals] = useState<MroManual[]>([])
+  const [recentManual, setRecentManual] = useState<MroManual>()
+  const manuals = recentManual && !manualPageRows.some(row => row.manualId === recentManual.manualId) ? [...manualPageRows, recentManual] : manualPageRows
   const [tailNo, setTailNo] = useState('')
   const [asOf, setAsOf] = useState(() => new Date().toISOString().slice(0, 10))
   const [manualId, setManualId] = useState('')
@@ -265,6 +273,9 @@ export function MroWorkbenchPage({
   const [stockRows, setStockRows] = useState<MroStockRow[]>(partsStock ?? [])
   const [altRows, setAltRows] = useState<MroAlternateRow[]>(alternates ?? [])
   const [planRows, setPlanRows] = useState<MroWorkPackageRow[]>(workPackages ?? [])
+  const [publishing, setPublishing] = useState('')
+  const publishPending = useRef(false)
+  const [constraintChecked, setConstraintChecked] = useState(false)
   const [todoRows, setTodoRows] = useState<MroOpsTodo[]>(opsTodos ?? [])
   const [violations, setViolations] = useState<Array<{ code: string; detail: string }>>([])
   const [componentRows, setComponentRows] = useState<MroComponentRow[]>([])
@@ -276,18 +287,37 @@ export function MroWorkbenchPage({
   const [formKind, setFormKind] = useState<FormKind | null>(null)
   const [loading, setLoading] = useState(false)
 
+  const pagination = useMroPagination({
+    aircraft: bindMroPage(aircraftList, r => { setAircraft(r.items); if (r.items[0]) setTailNo(current => current || r.items[0].tailNo) }),
+    manuals: bindMroPage(manualList, r => { setManuals(r.items); if (r.items[0]) setManualId(current => current || r.items[0].manualId) }),
+    due: bindMroPage(dueList, r => setDueRows(r.items)),
+    tools: bindMroPage(toolList, r => setToolRows(r.items)),
+    lots: bindMroPage(lotList, r => setLotRows(r.items)),
+    kits: bindMroPage(kitList, r => setKitRows(r.items)),
+    parts: bindMroPage(partsList, r => { setStockRows(r.items); setAltRows(r.alternates ?? []) }),
+    plan: bindMroPage(planList, r => setPlanRows(r.items)),
+    todos: bindMroPage(todoList, r => setTodoRows(r.items)),
+    constraints: bindMroPage(constraintList, r => { setViolations(r.violations); setConstraintChecked(!r.nextCursor) }, () => setConstraintChecked(false)),
+    components: bindMroPage(componentListFn, r => setComponentRows(r.items)),
+    pireps: bindMroPage(pirepListFn, r => setPirepRows(r.items)),
+    aog: bindMroPage(aogListFn, r => setAogRows(r.items)),
+    po: bindMroPage(poListFn, r => setPoRows(r.items)),
+    triggers: bindMroPage(triggerListFn, r => setTriggerRows(r.items)),
+    intervals: bindMroPage(intervalListFn, r => setIntervalRows(r.items)),
+  }, scopeKey)
+  const listLabels: Record<string, string> = zh ? {
+    aircraft:'机队', manuals:'手册', due:'到期', tools:'工具', lots:'批次', kits:'套件', parts:'库存与替代件', plan:'工作包', todos:'待办', constraints:'排程检查', components:'部件履历', pireps:'故障报告', aog:'AOG', po:'采购单', triggers:'触发器', intervals:'间隔',
+  } : {
+    aircraft:'Fleet', manuals:'Manuals', due:'Due', tools:'Tools', lots:'Lots', kits:'Kits', parts:'Stock and alternates', plan:'Work packages', todos:'Todos', constraints:'Schedule checks', components:'Component history', pireps:'Pireps', aog:'AOG', po:'Purchase orders', triggers:'Triggers', intervals:'Intervals',
+  }
+
   useEffect(() => {
     let alive = true
-    void Promise.all([
-      aircraftList?.().catch(() => ({ items: [] as MroAircraft[] })) ?? Promise.resolve({ items: [] as MroAircraft[] }),
-      manualList?.().catch(() => ({ items: [] as MroManual[] })) ?? Promise.resolve({ items: [] as MroManual[] }),
-    ]).then(([a, m]) => {
-      if (!alive) return
-      setAircraft(a.items)
-      setManuals(m.items)
-      if (a.items[0]) setTailNo(current => current || a.items[0].tailNo)
-      if (m.items[0]) setManualId(current => current || m.items[0].manualId)
-    })
+    setAircraft([]); setManuals([]); setRecentAircraft(undefined); setRecentManual(undefined); setTailNo(''); setManualId('')
+    setDueRows(dueItems ?? []); setToolRows(tools ?? []); setLotRows(lots ?? []); setKitRows(kits ?? [])
+    setStockRows(partsStock ?? []); setAltRows(alternates ?? []); setPlanRows(workPackages ?? []); setTodoRows(opsTodos ?? [])
+    setComponentRows([]); setPirepRows([]); setAogRows([]); setPoRows([]); setTriggerRows([]); setIntervalRows([])
+    setConstraintChecked(false); setViolations([]); setError(''); setAuditItems([])
     void Promise.all([
       verifiedConnections?.().catch(() => [] as Array<{ id: string; name: string; kind: string }>) ?? Promise.resolve([] as Array<{ id: string; name: string; kind: string }>),
       existingStock?.().catch(() => null) ?? Promise.resolve(null),
@@ -309,32 +339,19 @@ export function MroWorkbenchPage({
         setStock(v => ({ ...v, connectionId: conns[0].id }))
       }
     })
-    void (auditList?.().catch(() => ({ items: [] as AuditRow[] })) ?? Promise.resolve({ items: [] as AuditRow[] })).then(result => {
+    void (auditList?.().catch(e => { if (alive) setError(e instanceof Error ? e.message : (zh ? '审计加载失败' : 'Audit load failed')); return { items: [] as AuditRow[] } }) ?? Promise.resolve({ items: [] as AuditRow[] })).then(result => {
       if (alive) setAuditItems(result.items)
     })
-    const jobs: Array<Promise<unknown>> = []
-    if (!dueItems && dueList) jobs.push(dueList().then(r => { if (alive) setDueRows(r.items) }).catch(() => undefined))
-    if (!tools && toolList) jobs.push(toolList().then(r => { if (alive) setToolRows(r.items) }).catch(() => undefined))
-    if (!lots && lotList) jobs.push(lotList().then(r => { if (alive) setLotRows(r.items) }).catch(() => undefined))
-    if (!kits && kitList) jobs.push(kitList().then(r => { if (alive) setKitRows(r.items) }).catch(() => undefined))
-    if (!partsStock && partsList) jobs.push(partsList().then(r => { if (alive) { setStockRows(r.items); if (r.alternates) setAltRows(r.alternates) } }).catch(() => undefined))
-    if (!workPackages && planList) jobs.push(planList().then(r => { if (alive) setPlanRows(r.items) }).catch(() => undefined))
-    if (!opsTodos && todoList) jobs.push(todoList().then(r => { if (alive) setTodoRows(r.items) }).catch(() => undefined))
-    if (constraintList) jobs.push(constraintList().then(r => { if (alive) setViolations(r.violations) }).catch(() => undefined))
-    if (componentListFn) jobs.push(componentListFn().then(r => { if (alive) setComponentRows(r.items) }).catch(() => undefined))
-    if (pirepListFn) jobs.push(pirepListFn().then(r => { if (alive) setPirepRows(r.items) }).catch(() => undefined))
-    if (aogListFn) jobs.push(aogListFn().then(r => { if (alive) setAogRows(r.items) }).catch(() => undefined))
-    if (poListFn) jobs.push(poListFn().then(r => { if (alive) setPoRows(r.items) }).catch(() => undefined))
-    if (triggerListFn) jobs.push(triggerListFn().then(r => { if (alive) setTriggerRows(r.items) }).catch(() => undefined))
-    if (intervalListFn) jobs.push(intervalListFn().then(r => { if (alive) setIntervalRows(r.items) }).catch(() => undefined))
-    if (jobs.length) {
-      setLoading(true)
-      void Promise.all(jobs).then(() => { if (alive) setLoading(false) })
+    const keys = ['aircraft', 'manuals', 'constraints', 'components', 'pireps', 'aog', 'po', 'triggers', 'intervals']
+    for (const [key, supplied] of [['due',dueItems],['tools',tools],['lots',lots],['kits',kits],['parts',partsStock],['plan',workPackages],['todos',opsTodos]] as const) {
+      if (!supplied) keys.push(key)
     }
+    setLoading(true)
+    void Promise.all(keys.map(key => pagination.refresh(key).catch(() => {}))).then(() => { if (alive) setLoading(false) })
     return () => { alive = false }
     // Load once on mount; later upserts update local state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [scopeKey])
 
   const scenario = askScenario(rail)
   const currentModel = aircraft.find(item => item.tailNo === tailNo)?.model
@@ -351,7 +368,7 @@ export function MroWorkbenchPage({
   const kitTodos = todoRows.filter(t => t.kind === 'kit_staging')
   const partsTodos = todoRows.filter(t => t.kind === 'parts_request')
   const matchTail = (scope?: string) => !tailNo || !scope || scope === tailNo || scope.includes(tailNo)
-  const visibleDue = dueRows.filter(item => matchTail(item.scope) && onOrBefore(item.dueAt, asOf))
+  const visibleDue = dueRows.filter(item => matchTail(item.scope))
   const visibleLots = lotRows.filter(lot => !tailNo || lot.tails.length === 0 || lot.tails.includes(tailNo))
   const visibleComponents = componentRows
     .filter(c => matchTail(c.tailNo) || c.events.some(e => e.note?.includes(tailNo)))
@@ -393,7 +410,8 @@ export function MroWorkbenchPage({
         ata: manualDraft.ata,
         documents: docs,
       })
-      setManuals(values => [...values.filter(item => item.manualId !== row.manualId), row])
+      setRecentManual(row)
+      if (manualList) await pagination.refresh('manuals').catch(() => {})
       setManualId(row.manualId)
       setImportPreview(ingested.documents.find(d => d.preview && d.preview.length)?.preview ?? [])
       setImportOpen(false)
@@ -440,7 +458,8 @@ export function MroWorkbenchPage({
     setError('')
     try {
       const row = await onUpsertAircraft(draft)
-      setAircraft(values => [...values.filter(item => item.aircraftId !== row.aircraftId), row])
+      setRecentAircraft(row)
+      if (aircraftList) await pagination.refresh('aircraft').catch(() => {})
       setTailNo(row.tailNo)
       setRegisterOpen(false)
       setDraft({ tailNo: '', msn: '', model: '', config: '' })
@@ -465,22 +484,21 @@ export function MroWorkbenchPage({
         prompt: `质量通报串查 批次 ${lot.lotNo}${chain.tails?.length ? ` 机尾 ${chain.tails.join(',')}` : ''}`,
       })
       onAskOpened?.(opened)
-    })()
+    })().catch(e => setError(e instanceof Error ? e.message : String(e)))
   }
 
   const addKitTodo = (kit: MroKitRow) => {
     const detail = kit.missing.join(',')
     if (onAddPartsTodo) {
-      void onAddPartsTodo({ kitId: kit.id, detail }).then(async result => {
+      void onAddPartsTodo({ kitId: kit.id }).then(async result => {
         if (todoList) {
-          const listed = await todoList()
-          setTodoRows(listed.items)
+          await pagination.refresh('todos')
           return
         }
         setTodoRows(rows => rows.some(t => t.kind === 'parts_request' && t.ref === kit.id)
           ? rows
           : [...rows, { id: result.id || `kit-${kit.id}`, kind: 'parts_request', ref: kit.id, status: 'open', detail }])
-      })
+      }).catch(e => setError(e instanceof Error ? e.message : String(e)))
       return
     }
     setTodoRows(rows => rows.some(t => t.kind === 'parts_request' && t.ref === kit.id)
@@ -489,19 +507,35 @@ export function MroWorkbenchPage({
   }
 
   // Refetch helpers keep a domain list fresh after an inline write.
-  const refetchDue = async () => { if (dueList) { const r = await dueList(); setDueRows(r.items) } }
-  const refetchTools = async () => { if (toolList) { const r = await toolList(); setToolRows(r.items) } }
-  const refetchLots = async () => { if (lotList) { const r = await lotList(); setLotRows(r.items) } }
-  const refetchKits = async () => { if (kitList) { const r = await kitList(); setKitRows(r.items) } }
-  const refetchParts = async () => { if (partsList) { const r = await partsList(); setStockRows(r.items); if (r.alternates) setAltRows(r.alternates) } }
-  const refetchPlan = async () => { if (planList) { const r = await planList(); setPlanRows(r.items) } }
-  const refetchConstraints = async () => { if (constraintList) { const r = await constraintList(); setViolations(r.violations) } }
-  const refetchComponents = async () => { if (componentListFn) { const r = await componentListFn(); setComponentRows(r.items) } }
-  const refetchPireps = async () => { if (pirepListFn) { const r = await pirepListFn(); setPirepRows(r.items) } }
-  const refetchAog = async () => { if (aogListFn) { const r = await aogListFn(); setAogRows(r.items) } }
-  const refetchPo = async () => { if (poListFn) { const r = await poListFn(); setPoRows(r.items) } }
-  const refetchTriggers = async () => { if (triggerListFn) { const r = await triggerListFn(); setTriggerRows(r.items) } }
-  const refetchIntervals = async () => { if (intervalListFn) { const r = await intervalListFn(); setIntervalRows(r.items) } }
+  const refetchDue = () => pagination.refresh('due')
+  const refetchTools = () => pagination.refresh('tools')
+  const refetchLots = () => pagination.refresh('lots')
+  const refetchKits = () => pagination.refresh('kits')
+  const refetchParts = () => pagination.refresh('parts')
+  const publishPackage = async (id: string) => {
+    if (!onPublishSchedule || publishPending.current) return
+    if (!window.confirm(zh ? '确认检查当前证据并生成此工作包的套件和航材待办？' : 'Check current evidence and create kit and parts todos for this package?')) return
+    publishPending.current = true
+    setPublishing(id); setError('')
+    try {
+      const result = await onPublishSchedule(id)
+      if (result.todos) setTodoRows(rows => [...new Map([...rows, ...result.todos!].map(row => [row.id, row])).values()])
+      await refetchPlan()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : (zh ? '发布失败，请复查当前约束与来源' : 'Publish failed. Review the current constraints and sources.'))
+      try { await refetchPlan() } catch { /* Keep the publication error and previous rows visible. */ }
+    } finally {
+      publishPending.current = false; setPublishing('')
+    }
+  }
+  const refetchPlan = () => pagination.refresh('plan')
+  const refetchConstraints = () => pagination.refresh('constraints')
+  const refetchComponents = () => pagination.refresh('components')
+  const refetchPireps = () => pagination.refresh('pireps')
+  const refetchAog = () => pagination.refresh('aog')
+  const refetchPo = () => pagination.refresh('po')
+  const refetchTriggers = () => pagination.refresh('triggers')
+  const refetchIntervals = () => pagination.refresh('intervals')
 
   const num = (v?: string): number | undefined => { const n = Number(v); return v && Number.isFinite(n) ? n : undefined }
   const csv = (s: string): string[] => s.split(/[\n,]/).map(x => x.trim()).filter(Boolean)
@@ -602,11 +636,11 @@ export function MroWorkbenchPage({
               if (!scope) continue
               last = await onRecordUtil({ scopeId: scope, hours: num(h), cycles: num(c), batteryCycles: num(b) })
             }
-            if (last?.items) setDueRows(last.items)
+            if (last?.items) { if (dueList) await refetchDue(); else setDueRows(last.items) }
           } else {
             if (!v.scopeId.trim()) throw new Error(zh ? '请填写范围 ID 或 CSV' : 'Scope ID or CSV required')
             const r = await onRecordUtil({ scopeId: v.scopeId.trim(), hours: num(v.hours), cycles: num(v.cycles), batteryCycles: num(v.batteryCycles) })
-            if (r?.items) setDueRows(r.items)
+            if (r?.items) { if (dueList) await refetchDue(); else setDueRows(r.items) }
           }
           await refetchTriggers()
         },
@@ -708,7 +742,7 @@ export function MroWorkbenchPage({
           { name: 'taskKey', label: zh ? '任务号' : 'Task key', required: true },
           { name: 'intervalValue', label: zh ? '间隔值' : 'Interval', kind: 'number', required: true },
           { name: 'unit', label: zh ? '单位' : 'Unit', kind: 'select', required: true, options: ['FH', 'FC', 'DY', 'MO'].map(u => ({ value: u, label: u })) },
-          { name: 'sourceCite', label: zh ? '来源引用' : 'Source cite' },
+          { name: 'sourceCite', label: zh ? '受控手册来源' : 'Controlled manual source', kind: 'select', required: true, options: [{ value: '', label: zh ? '请选择已登记的受控手册' : 'Select a registered controlled manual' }, ...manuals.filter(m => m.status === 'controlled').map(m => ({ value: `manual:${m.manualId}`, label: `${m.title || m.docType} · ${m.revision}` }))], hint: zh ? '发布时会重新检查手册的最新索引和来源状态。' : 'Publication rechecks the latest manual index and source status.' },
         ],
         submit: async v => { if (onAddInterval) { await onAddInterval({ taskKey: v.taskKey.trim(), intervalValue: num(v.intervalValue) ?? 0, unit: v.unit, sourceCite: v.sourceCite.trim() || undefined }); await refetchIntervals() } },
       }
@@ -808,7 +842,7 @@ export function MroWorkbenchPage({
         </label>
         <label>
           <span>{zh ? '日期' : 'Date'}</span>
-          <input type="date" value={asOf} onChange={e => setAsOf(e.target.value)} aria-label={zh ? '日期' : 'Date'} />
+          <input type="date" title={zh ? '日期只筛选已有记录；库存、工具和发布约束始终使用当前状态。' : 'Date filters recorded entries; stock, tools, and publication constraints always use current state.'} value={asOf} onChange={e => setAsOf(e.target.value)} aria-label={zh ? '日期' : 'Date'} />
         </label>
         <label>
           <span>{zh ? '手册' : 'Manual'}</span>
@@ -825,6 +859,16 @@ export function MroWorkbenchPage({
           openChat={openChat}
         />
       </div>
+      <p className="mro-filter-note">{zh ? '日期只筛选记录，不还原历史库存、工具状态或放行结论；到期与发布检查始终基于当前数据。' : 'Date filters records. It does not reconstruct historical stock, tool states, or release decisions; due and publication checks use current data.'}</p>
+      {Object.values(pagination.states).some(state => state.data?.nextCursor || state.error) && <section aria-label={zh ? '列表分页' : 'List pages'}>
+        <p>{zh ? '以下列表尚未完整加载；筛选仅作用于已加载记录。继续读取可查看剩余记录及完整履历，数据变化时请刷新。' : 'These lists are incomplete; filters apply to loaded records. Continue to read remaining records and history, or refresh when data changes.'}</p>
+        {Object.entries(pagination.states).filter(([, state]) => state.data?.nextCursor || state.error).map(([key, state]) => <div key={key}>
+          <span>{listLabels[key]}</span>
+          {state.error && <p role="alert">{state.error}</p>}
+          <button type="button" disabled={state.busy || !!state.error || !state.data?.nextCursor} onClick={() => void pagination.next(key).catch(() => {})}>{zh ? `继续读取${listLabels[key]}` : `Load more ${listLabels[key]}`}</button>
+          <button type="button" disabled={state.busy} onClick={() => void pagination.refresh(key).catch(() => {})}>{zh ? `刷新${listLabels[key]}` : `Refresh ${listLabels[key]}`}</button>
+        </div>)}
+      </section>}
       <div className="mro-body">
         <nav className="mro-rail" aria-label={zh ? '机务分区' : 'MRO sections'}>
           {MRO_RAIL_GROUPS.map(group => {
@@ -1041,7 +1085,7 @@ export function MroWorkbenchPage({
                             <td>{item.location || '—'}</td>
                             <td>{item.holder || '—'}</td>
                             <td>{item.calibDue}</td>
-                            <td><Badge tone={toolBadgeClass(item.status, item.checkoutBlocked, item.calibDue, asOf)}>{item.status}</Badge></td>
+                            <td><Badge tone={toolBadgeClass(item.status, item.checkoutBlocked, item.calibDue, new Date().toISOString().slice(0, 10))}>{item.status}</Badge></td>
                             <td>
                               <button
                                 type="button"
@@ -1071,8 +1115,8 @@ export function MroWorkbenchPage({
                           <span>
                             {lot.lotNo}{lot.parentLotId ? ` ← ${lot.parentLotId}` : ''} · {zh ? '机尾' : 'tails'} {lot.tails.join(', ') || '—'}
                             {lot.expires ? (
-                              <Badge tone={lot.expires < asOf ? 'is-err' : lot.expires === asOf ? 'is-warn' : 'is-ok'}>
-                                {lot.expires}{lot.expires < asOf ? (zh ? ' 过期' : ' expired') : ''}
+                              <Badge tone={lot.expires < new Date().toISOString().slice(0, 10) ? 'is-err' : lot.expires === new Date().toISOString().slice(0, 10) ? 'is-warn' : 'is-ok'}>
+                                {lot.expires}{lot.expires < new Date().toISOString().slice(0, 10) ? (zh ? ' 过期' : ' expired') : ''}
                               </Badge>
                             ) : null}
                           </span>
@@ -1254,7 +1298,7 @@ export function MroWorkbenchPage({
                   {planTab === 'intervals' && onProposeInterval && addBtn('interval-propose', zh ? '复审草案' : 'Propose')}
                   {planTab === 'schedule' && onAddSchedule && addBtn('schedule', zh ? '登记窗口' : 'Add window')}
                   {planTab === 'schedule' && onSetCapacity && addBtn('capacity', zh ? '设置工时' : 'Set capacity')}
-                  {planTab === 'schedule' && constraintList && <button type="button" onClick={() => void refetchConstraints()}>{zh ? '运行检查' : 'Run check'}</button>}
+                  {planTab === 'schedule' && constraintList && <button type="button" onClick={() => void refetchConstraints().catch(e => { setConstraintChecked(false); setError(e instanceof Error ? e.message : (zh ? '检查失败' : 'Check failed')) })}>{zh ? '运行检查' : 'Run check'}</button>}
                 </div>
               </div>
               {subTabs<PlanTab>([
@@ -1275,7 +1319,8 @@ export function MroWorkbenchPage({
                       {planRows.map(pkg => (
                         <li key={pkg.id}>
                           <span>{pkg.title} · {pkg.sources.join(' + ')}</span>
-                          {onPublishSchedule && <button type="button" onClick={() => { if (window.confirm(zh ? '确认发布此工作包？只生成待办，不写生产库。' : 'Publish this package? This only writes todos, not the production MRO.')) void onPublishSchedule(pkg.id).then(result => { if (result.todos) setTodoRows(result.todos) }) }}>{zh ? '发布' : 'Publish'}</button>}
+                          {pkg.evidenceState && <span>{({ draft: zh ? '草稿' : 'Draft', current: zh ? '当前证据已核验' : 'Current evidence verified', stale: zh ? '证据已变化，请重新组装工作包' : 'Evidence changed; rebuild the work package', blocked: zh ? '当前约束未满足，请复查后重新组装' : 'Current constraints failed; review and rebuild' })[pkg.evidenceState]}</span>}
+                          {onPublishSchedule && <button type="button" disabled={!!publishing || pkg.evidenceState === 'stale' || pkg.evidenceState === 'blocked'} onClick={() => void publishPackage(pkg.id)}>{publishing === pkg.id ? (zh ? '核验中…' : 'Verifying…') : (zh ? '发布' : 'Publish')}</button>}
                         </li>
                       ))}
                     </ul>
@@ -1296,7 +1341,7 @@ export function MroWorkbenchPage({
                         const failed = violations.some(v => v.code === item.code)
                         return (
                           <li key={item.code}>
-                            <Badge tone={failed ? 'is-err' : 'is-ok'}>{item.code}</Badge>
+                            <Badge tone={failed ? 'is-err' : constraintChecked ? 'is-ok' : 'is-warn'}>{item.code}</Badge>
                             <span>{zh ? item.zh : item.en}</span>
                           </li>
                         )
@@ -1304,10 +1349,10 @@ export function MroWorkbenchPage({
                     </ul>
                     {violations.length > 0 ? (
                       <ul className="mro-violations" aria-label={zh ? '约束违反' : 'Constraint violations'}>
-                        {violations.map(item => <li key={item.code}><Badge tone="is-err">{item.code}</Badge> {item.detail}</li>)}
+                        {violations.map((item, i) => <li key={`${item.code}-${i}`}><Badge tone="is-err">{item.code}</Badge> {item.detail}</li>)}
                       </ul>
                     ) : (
-                      <p className="mro-constraint-ok" role="status">{zh ? 'C1–C7 全部通过或暂无数据。录入机位工时与窗口后自动校验。' : 'All C1–C7 pass or no data yet. Record capacity and windows to auto-check.'}</p>
+                      <p className="mro-constraint-ok" role="status">{constraintChecked ? (zh ? '当前约束检查通过；发布时仍会重新检查。' : 'Current constraints passed; publication checks again.') : (zh ? '尚未完成约束检查，请运行检查。' : 'Constraints have not been checked. Run a check.')}</p>
                     )}
                   </div>
                 ) : null}

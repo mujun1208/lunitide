@@ -178,7 +178,7 @@ func TestConfirmedSnapshotForIsolatesSubject(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := svc.ConfirmCandidate(ctx, m8app.ConfirmInput{
+		if _, err := svc.ConfirmCandidateFor(ctx, subject, m8app.ConfirmInput{
 			CandidateID: prop.Candidate.CandidateID, Token: prop.ConfirmToken, Action: "confirm", RequestID: "pref-" + prop.Candidate.CandidateID,
 		}); err != nil {
 			t.Fatal(err)

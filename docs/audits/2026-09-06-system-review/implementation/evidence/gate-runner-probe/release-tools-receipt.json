@@ -1,0 +1,65 @@
+{
+  "group": "release-tools",
+  "startedAt": "2026-09-06T11:50:32.3955820Z",
+  "finishedAt": "2026-09-06T11:50:56.0680794Z",
+  "status": "passed",
+  "source": {
+    "commit": "09978597dc026bfa40ab8d690d64f9bcaef476f3",
+    "treeSha256": "d79a5be61d52646b71c8f6637473959b7b0099119b6b0189414020f3b04e5686",
+    "fileCount": 2723
+  },
+  "sourceUnchanged": true,
+  "checks": [
+    {
+      "name": "release-tools-ps5",
+      "command": "powershell.exe",
+      "arguments": [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "E:\\Trae-Work-Projects\\lunitide\\release\\Test-ReleaseTools.ps1"
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-06T11:50:41.6921380Z",
+      "finishedAt": "2026-09-06T11:50:46.1490133Z",
+      "stdout": "release-tools-ps5.log",
+      "stderr": "release-tools-ps5.stderr.log"
+    },
+    {
+      "name": "release-tools-ps7",
+      "command": "pwsh.exe",
+      "arguments": [
+        "-NoProfile",
+        "-NonInteractive",
+        "-File",
+        "E:\\Trae-Work-Projects\\lunitide\\release\\Test-ReleaseTools.ps1"
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-06T11:50:46.1521287Z",
+      "finishedAt": "2026-09-06T11:50:50.0571010Z",
+      "stdout": "release-tools-ps7.log",
+      "stderr": "release-tools-ps7.stderr.log"
+    },
+    {
+      "name": "release-exclusions",
+      "command": "powershell.exe",
+      "arguments": [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "E:\\Trae-Work-Projects\\lunitide\\release\\Test-OmniExcluded.ps1"
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-06T11:50:50.0583828Z",
+      "finishedAt": "2026-09-06T11:50:50.3974130Z",
+      "stdout": "release-exclusions.log",
+      "stderr": "release-exclusions.stderr.log"
+    }
+  ],
+  "error": null,
+  "scope": "code-and-automated-tests; docs excluded; no physical or release acceptance"
+}

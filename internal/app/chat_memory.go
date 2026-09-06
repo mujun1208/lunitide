@@ -80,6 +80,10 @@ func (e *Engine) prepareChatMemory(ctx context.Context, req chatMemoryRequest) (
 		return pack
 	}
 	defer e.appendExpertKBEvidence(ctx, req, &pack)
+	if err := e.CheckCapability(ctx, "memory"); err != nil {
+		pack.Enabled = false
+		return pack
+	}
 	settings := e.chatMemorySettings(ctx)
 	pack.Enabled = settings.MemoryEnabled
 
@@ -462,6 +466,9 @@ func clipRunes(s string, max int) string {
 }
 
 func (e *Engine) invokeMemorySearch(ctx context.Context, raw json.RawMessage) (toolruntime.Result, error) {
+	if err := e.CheckCapability(ctx, "memory"); err != nil {
+		return toolruntime.Result{}, err
+	}
 	if e == nil || e.m8memory == nil {
 		return toolruntime.Result{}, errors.New("confirmed memory is not available")
 	}

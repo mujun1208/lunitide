@@ -185,8 +185,9 @@ func handlePeopleThreadList(e *Engine, ctx context.Context, r bridge.Request) br
 
 func handlePeopleThreadOpen(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		ThreadID      string `json:"threadId"`
-		PeerSubjectID string `json:"peerSubjectId"`
+		BeforeMessageID string `json:"beforeMessageId"`
+		ThreadID        string `json:"threadId"`
+		PeerSubjectID   string `json:"peerSubjectId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "people.thread.open 参数无效", false)
@@ -200,6 +201,11 @@ func handlePeopleThreadOpen(e *Engine, ctx context.Context, r bridge.Request) br
 		err  error
 	)
 	switch {
+	case p.BeforeMessageID != "":
+		if p.ThreadID == "" || p.PeerSubjectID != "" || len(p.BeforeMessageID) > 128 {
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "历史游标需要明确会话", false)
+		}
+		t, msgs, err = e.people.History(ctx, p.ThreadID, p.BeforeMessageID)
 	case p.ThreadID != "":
 		t, msgs, err = e.people.OpenThread(ctx, p.ThreadID)
 	case p.PeerSubjectID != "":
@@ -210,13 +216,17 @@ func handlePeopleThreadOpen(e *Engine, ctx context.Context, r bridge.Request) br
 	if err != nil {
 		return peopleFailure(r, err)
 	}
-	if hint, ok := peopleThreadAgentHint(t); ok {
+	if hint, ok := peopleThreadAgentHint(t); ok && p.BeforeMessageID == "" {
 		if _, bindErr := e.ensurePeopleBoundSession(ctx, t.ThreadID, hint); bindErr != nil {
 			log.Printf("people thread open bound session: %v", bindErr)
 			msgs = e.noticePeopleBoundSessionFailure(ctx, t.ThreadID, msgs)
 		}
 	}
-	return r.Ok(map[string]any{"thread": publicThread(t), "messages": publicMessages(msgs)})
+	result := map[string]any{"thread": publicThread(t), "messages": publicMessages(msgs)}
+	if len(msgs) > 0 {
+		result["nextCursor"] = msgs[0].MessageID
+	}
+	return r.Ok(result)
 }
 
 func handlePeopleThreadSend(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -236,7 +246,8 @@ func handlePeopleThreadSend(e *Engine, ctx context.Context, r bridge.Request) br
 		return peopleUnavailable(r)
 	}
 	msg, offer, err := e.people.Send(ctx, people.SendInput{
-		ThreadID: p.ThreadID, Kind: p.Kind, Body: p.Body,
+		RequestKey: nonemptyPeopleRequestKey(r),
+		ThreadID:   p.ThreadID, Kind: p.Kind, Body: p.Body,
 		FileName: p.FileName, FileMIME: p.FileMIME, ContentBase64: p.ContentBase64, LocalPath: p.LocalPath,
 	})
 	if err != nil {
@@ -246,7 +257,7 @@ func handlePeopleThreadSend(e *Engine, ctx context.Context, r bridge.Request) br
 	if offer != nil {
 		out["offer"] = publicOffer(*offer)
 	}
-	if offer == nil && msg.Kind == "text" {
+	if offer == nil && msg.Kind == "text" && !msg.Replayed {
 		go e.maybePeopleAgentReply(context.Background(), p.ThreadID, msg)
 	}
 	return r.Ok(out)
@@ -535,6 +546,11 @@ func publicMessage(m people.Message) map[string]any {
 	out := map[string]any{
 		"messageId": m.MessageID, "threadId": m.ThreadID, "senderSubjectId": m.SenderID,
 		"kind": m.Kind, "body": m.Body, "createdAt": m.CreatedAt,
+	}
+	if m.DeliveryState != "" {
+		out["deliveryState"] = m.DeliveryState
+		out["deliveredCount"] = m.DeliveredCount
+		out["recipientCount"] = m.RecipientCount
 	}
 	if m.FileName != "" {
 		out["fileName"] = m.FileName

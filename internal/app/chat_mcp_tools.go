@@ -117,6 +117,9 @@ func (e *Engine) invokeMcpTool(ctx context.Context, endpointID, tool string, raw
 }
 
 func (e *Engine) invokeBrowserAct(ctx context.Context, mode executionMode, session string, raw json.RawMessage) (toolruntime.Result, error) {
+	if err := e.CheckCapability(ctx, "browser"); err != nil {
+		return toolruntime.Result{}, err
+	}
 	var a browserActCall
 	if json.Unmarshal(raw, &a) != nil || strings.TrimSpace(a.Op) == "" {
 		return toolruntime.Result{}, errors.New("browser.act needs op")

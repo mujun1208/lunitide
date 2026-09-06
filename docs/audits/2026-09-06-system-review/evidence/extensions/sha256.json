@@ -1,0 +1,26 @@
+[
+  {
+    "Hash": "656F3908D942AFB73EB56C01FF3975FB1A6BC7983B6AC7E1FA6CF1DDF9ED3BE2",
+    "Path": "E:\\Trae-Work-Projects\\lunitide\\docs\\audits\\2026-09-06-system-review\\evidence\\extensions\\app_audit_test.go.txt"
+  },
+  {
+    "Hash": "307E8C7400F6F93A39C1EDC4812F033D190EE3661885C0D57A3A209B3D84FB8D",
+    "Path": "E:\\Trae-Work-Projects\\lunitide\\docs\\audits\\2026-09-06-system-review\\evidence\\extensions\\m8_audit_test.go.txt"
+  },
+  {
+    "Hash": "7852E4470C34E3F27845D6BE0AD33355A357969500DBD9B840883985DDC54A26",
+    "Path": "E:\\Trae-Work-Projects\\lunitide\\docs\\audits\\2026-09-06-system-review\\evidence\\extensions\\mcp_audit_test.go.txt"
+  },
+  {
+    "Hash": "50251CA90CF6A45192E9B92A9D24A4DA3C7BEEC152757956EE26B5E7E1DD0650",
+    "Path": "E:\\Trae-Work-Projects\\lunitide\\docs\\audits\\2026-09-06-system-review\\evidence\\extensions\\overlay.json"
+  },
+  {
+    "Hash": "DA3793C3954AE0BBC2366F7976C1DAFA8677AC3462FCEA5CA07E399FEE3585F6",
+    "Path": "E:\\Trae-Work-Projects\\lunitide\\docs\\audits\\2026-09-06-system-review\\evidence\\extensions\\pool_audit_test.go.txt"
+  },
+  {
+    "Hash": "64883202F8E5343031101EB4F20F0C51C891C574D079E95DD7F65535E0CE962E",
+    "Path": "E:\\Trae-Work-Projects\\lunitide\\docs\\audits\\2026-09-06-system-review\\evidence\\extensions\\reproduction.log"
+  }
+]

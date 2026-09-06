@@ -7,29 +7,72 @@
   "x-enabled": true,
   "type": "object",
   "additionalProperties": false,
-  "properties": {},
+  "properties": {
+    "cursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    }
+  },
   "x-result": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
       "violations": {
         "type": "array",
-        "maxItems": 64,
+        "maxItems": 100,
         "items": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "code": { "type": "string", "minLength": 1, "maxLength": 8 },
-            "detail": { "type": "string", "minLength": 1, "maxLength": 256 }
+            "code": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8
+            },
+            "detail": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
           },
-          "required": ["code", "detail"]
+          "required": [
+            "code",
+            "detail"
+          ]
+        }
+      },
+      "nextCursor": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      },
+      "continuedFields": {
+        "type": "array",
+        "maxItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "enum": [
+            "violations"
+          ]
         }
       }
     },
-    "required": ["violations"]
+    "required": [
+      "violations"
+    ]
   },
   "x-examples": {
-    "positive": [{}],
-    "negative": [{"unexpected": true}]
+    "positive": [
+      {}
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      },
+      {
+        "cursor": 42
+      }
+    ]
   }
 }

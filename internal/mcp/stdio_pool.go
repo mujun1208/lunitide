@@ -40,14 +40,17 @@ type pooledConn struct {
 	mu       sync.Mutex // serializes calls on this endpoint (StdioSession contract)
 	conn     StdioConn  // nil after a failure; redialed on next Invoke
 	lastUsed time.Time
+	retired  bool // guarded by pool.mu
 }
 
 type StdioPool struct {
-	mu    sync.Mutex
-	conns map[string]*pooledConn
-	max   int
-	idle  time.Duration
-	now   func() time.Time
+	mu      sync.Mutex
+	conns   map[string]*pooledConn
+	max     int
+	idle    time.Duration
+	now     func() time.Time
+	changed chan struct{}
+	start   sync.Once
 }
 
 func NewStdioPool(max int, idle time.Duration) *StdioPool {
@@ -57,7 +60,7 @@ func NewStdioPool(max int, idle time.Duration) *StdioPool {
 	if idle <= 0 {
 		idle = StdioPoolDefaultIdle
 	}
-	return &StdioPool{conns: make(map[string]*pooledConn), max: max, idle: idle, now: time.Now}
+	return &StdioPool{conns: make(map[string]*pooledConn), max: max, idle: idle, now: time.Now, changed: make(chan struct{})}
 }
 
 // Invoke runs one tool call on the pooled session for key, dialing on
@@ -67,55 +70,73 @@ func NewStdioPool(max int, idle time.Duration) *StdioPool {
 // redials. Dial and call errors are returned verbatim so the registry's
 // breaker accounting keeps working unchanged.
 func (p *StdioPool) Invoke(ctx context.Context, key string, dial StdioDialFunc, call func(StdioConn) (StdioCallResult, error)) (StdioCallResult, error) {
-	p.mu.Lock()
-	entry, ok := p.conns[key]
-	if ok {
-		// Serialize against other callers on the same endpoint before
-		// releasing the pool lock; dial-under-lock keeps the first caller
-		// the only dialer.
-		entry.mu.Lock()
-		p.mu.Unlock()
-	} else {
-		// Capacity: evict the oldest idle entry. Candidates are entries
-		// whose mutex TryLocks (busy ones are skipped untouched); all
-		// losers are unlocked again, the oldest winner is closed.
-		if len(p.conns) >= p.max {
-			type candidate struct {
-				key      string
-				entry    *pooledConn
-				lastUsed time.Time
-			}
-			var candidates []candidate
-			for k, e := range p.conns {
-				if e.mu.TryLock() {
-					candidates = append(candidates, candidate{key: k, entry: e, lastUsed: e.lastUsed})
-				}
-			}
-			if len(candidates) > 0 {
-				oldest := candidates[0]
-				for _, c := range candidates[1:] {
-					if c.lastUsed.Before(oldest.lastUsed) {
-						oldest = c
+	var entry *pooledConn
+	for {
+		if err := ctx.Err(); err != nil {
+			return StdioCallResult{}, err
+		}
+		p.mu.Lock()
+		entry = p.conns[key]
+		if entry != nil && !entry.retired && entry.mu.TryLock() {
+			p.mu.Unlock()
+			break
+		}
+		if entry == nil {
+			if len(p.conns) >= p.max {
+				var oldest *pooledConn
+				var oldestKey string
+				for k, candidate := range p.conns {
+					if candidate.mu.TryLock() {
+						if oldest == nil || candidate.lastUsed.Before(oldest.lastUsed) {
+							if oldest != nil {
+								oldest.mu.Unlock()
+							}
+							oldest, oldestKey = candidate, k
+						} else {
+							candidate.mu.Unlock()
+						}
 					}
 				}
-				for _, c := range candidates {
-					if c.key != oldest.key {
-						c.entry.mu.Unlock()
+				if oldest != nil {
+					if oldest.conn != nil {
+						oldest.conn.Close()
 					}
+					delete(p.conns, oldestKey)
+					oldest.mu.Unlock()
 				}
-				if oldest.entry.conn != nil {
-					oldest.entry.conn.Close()
-				}
-				delete(p.conns, oldest.key)
-				oldest.entry.mu.Unlock()
+			}
+			if len(p.conns) < p.max {
+				entry = &pooledConn{}
+				entry.mu.Lock()
+				p.conns[key] = entry
+				p.mu.Unlock()
+				break
 			}
 		}
-		entry = &pooledConn{}
-		entry.mu.Lock()
-		p.conns[key] = entry
+		changed := p.changed
 		p.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return StdioCallResult{}, ctx.Err()
+		case <-changed:
+		}
 	}
-	defer entry.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		if entry.retired {
+			if entry.conn != nil {
+				entry.conn.Close()
+				entry.conn = nil
+			}
+			delete(p.conns, key)
+		}
+		entry.mu.Unlock()
+		p.signalLocked()
+		p.mu.Unlock()
+	}()
+	if err := ctx.Err(); err != nil {
+		return StdioCallResult{}, err
+	}
 
 	if entry.conn == nil {
 		conn, err := dial(ctx)
@@ -138,18 +159,20 @@ func (p *StdioPool) Invoke(ctx context.Context, key string, dial StdioDialFunc, 
 // Start launches the idle reaper until ctx is cancelled. Safe to call
 // once per pool; subsequent calls are no-ops.
 func (p *StdioPool) Start(ctx context.Context) {
-	go func() {
-		ticker := time.NewTicker(StdioPoolReapInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				p.reapIdle()
+	p.start.Do(func() {
+		go func() {
+			ticker := time.NewTicker(StdioPoolReapInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					p.reapIdle()
+				}
 			}
-		}
-	}()
+		}()
+	})
 }
 
 // reapIdle closes sessions idle beyond the pool idle timeout. Busy
@@ -158,40 +181,38 @@ func (p *StdioPool) reapIdle() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for key, entry := range p.conns {
-		if entry.conn == nil {
-			continue
-		}
-		if p.now().Sub(entry.lastUsed) < p.idle {
-			continue
-		}
 		if !entry.mu.TryLock() {
 			continue
 		}
-		if entry.conn != nil && p.now().Sub(entry.lastUsed) >= p.idle {
-			entry.conn.Close()
-			entry.conn = nil
+		if entry.conn == nil || p.now().Sub(entry.lastUsed) >= p.idle {
+			if entry.conn != nil {
+				entry.conn.Close()
+				entry.conn = nil
+			}
+			delete(p.conns, key)
+			p.signalLocked()
 		}
 		entry.mu.Unlock()
-		if entry.conn == nil {
-			delete(p.conns, key)
-		}
 	}
 }
 
-// Close tears down every live session. In-flight calls finish first
-// (their own mutexes are held); later Invokes redial.
+// Close retires every session. Idle sessions close immediately; in-flight
+// sessions close on completion and continue occupying capacity until then.
 func (p *StdioPool) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for key, entry := range p.conns {
-		entry.mu.Lock()
-		if entry.conn != nil {
-			entry.conn.Close()
-			entry.conn = nil
+		entry.retired = true
+		if entry.mu.TryLock() {
+			if entry.conn != nil {
+				entry.conn.Close()
+				entry.conn = nil
+			}
+			delete(p.conns, key)
+			entry.mu.Unlock()
 		}
-		entry.mu.Unlock()
-		delete(p.conns, key)
 	}
+	p.signalLocked()
 }
 
 // Len reports the number of pooled entries (diagnostics/tests).
@@ -199,4 +220,28 @@ func (p *StdioPool) Len() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return len(p.conns)
+}
+
+// Evict invalidates an endpoint session immediately. Busy sessions close when
+// their canceled call returns, and continue occupying capacity until then.
+func (p *StdioPool) Evict(key string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if entry := p.conns[key]; entry != nil {
+		entry.retired = true
+		if entry.mu.TryLock() {
+			if entry.conn != nil {
+				entry.conn.Close()
+				entry.conn = nil
+			}
+			delete(p.conns, key)
+			entry.mu.Unlock()
+		}
+	}
+	p.signalLocked()
+}
+
+func (p *StdioPool) signalLocked() {
+	close(p.changed)
+	p.changed = make(chan struct{})
 }
