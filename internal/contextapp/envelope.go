@@ -166,7 +166,38 @@ type ContextEnvelope struct {
 
 	// SafetyMargin is additional headroom for token estimation drift.
 	SafetyMargin int64
+
+	// MaxHistoryTurns caps how many recent user turns of verbatim history
+	// (priority 5) are projected into the assembled context. A "turn" is
+	// counted by user message: the newest MaxHistoryTurns user messages and
+	// everything at or after the oldest kept user message's durable sequence
+	// are eligible for selection; older messages are excluded free of budget
+	// (reject reason "beyond_max_history_turns"). The latest user turn
+	// (priority 6) is always retained regardless of this cap.
+	//
+	// Zero means no turn cap — every fetched message participates in budget
+	// selection as before. Companion (instant voice) mode sets this to a
+	// small value (default 3) so the model does not proactively reference
+	// history outside the recent window (UX-06 / ADR-005 §3).
+	MaxHistoryTurns int
+
+	// ContextMode selects the history-depth policy for this assembly.
+	// "deep" (typing chat) keeps the full recent window; "instant" (voice
+	// companion) favors a shallow window and pairs with MaxHistoryTurns.
+	// Empty is treated as "deep". This field is advisory metadata for
+	// callers/diagnostics; the effective cap is driven by MaxHistoryTurns.
+	ContextMode ContextMode
 }
+
+// ContextMode enumerates the history-depth policy applied during assembly.
+type ContextMode string
+
+const (
+	// ContextModeDeep retains the full recent window (typing chat).
+	ContextModeDeep ContextMode = "deep"
+	// ContextModeInstant favors a shallow recent window (voice companion).
+	ContextModeInstant ContextMode = "instant"
+)
 
 // SelectionTraceEntry records the selection decision for a single candidate
 // source during assembly. It is used for diagnostics without leaking

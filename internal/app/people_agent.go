@@ -11,7 +11,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/skill"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/people"
 	"github.com/lunitide/lunitide/internal/secretlease"
@@ -304,8 +304,8 @@ func peopleAgentAllowedTool(name string) bool {
 	return specialistToolAllow[name]
 }
 
-func peopleAgentToolDefinitions(all []gateway.ToolDefinition) []gateway.ToolDefinition {
-	var out []gateway.ToolDefinition
+func peopleAgentToolDefinitions(all []llmadapter.ToolDefinition) []llmadapter.ToolDefinition {
+	var out []llmadapter.ToolDefinition
 	for _, d := range all {
 		if peopleAgentAllowedTool(d.Name) {
 			out = append(out, d)
@@ -358,12 +358,12 @@ func classifyPeopleAgentFailure(catalogOK bool, err error, text string) (peopleA
 	return peopleFailEmpty, peopleAgentEmptyReplyUserError()
 }
 
-func peopleAgentHistoryMessages(msgs []people.Message, agentID, currentBody string, limit int) []gateway.Message {
+func peopleAgentHistoryMessages(msgs []people.Message, agentID, currentBody string, limit int) []llmadapter.Message {
 	if limit <= 0 {
 		limit = 8
 	}
 	type turn struct {
-		role gateway.Role
+		role llmadapter.Role
 		body string
 	}
 	var kept []turn
@@ -377,9 +377,9 @@ func peopleAgentHistoryMessages(msgs []people.Message, agentID, currentBody stri
 			skippedCurrent = true
 			continue
 		}
-		role := gateway.RoleUser
+		role := llmadapter.RoleUser
 		if m.SenderID == agentID {
-			role = gateway.RoleAssistant
+			role = llmadapter.RoleAssistant
 		}
 		kept = append(kept, turn{role: role, body: strings.TrimSpace(m.Body)})
 		if len(kept) >= limit {
@@ -389,7 +389,7 @@ func peopleAgentHistoryMessages(msgs []people.Message, agentID, currentBody stri
 	for i, j := 0, len(kept)-1; i < j; i, j = i+1, j-1 {
 		kept[i], kept[j] = kept[j], kept[i]
 	}
-	var out []gateway.Message
+	var out []llmadapter.Message
 	runes := 0
 	start := 0
 	for i := len(kept) - 1; i >= 0; i-- {
@@ -400,7 +400,7 @@ func peopleAgentHistoryMessages(msgs []people.Message, agentID, currentBody stri
 		}
 	}
 	for _, item := range kept[start:] {
-		out = append(out, gateway.Message{Role: item.role, Content: item.body})
+		out = append(out, llmadapter.Message{Role: item.role, Content: item.body})
 	}
 	return out
 }
@@ -541,15 +541,15 @@ func (e *Engine) peopleAgentTurnPrompt(ctx context.Context, agent people.Contact
 	return b.String()
 }
 
-func (e *Engine) peopleAgentRequestMessages(ctx context.Context, agent people.Contact, threadID, sessionID, userText string) []gateway.Message {
+func (e *Engine) peopleAgentRequestMessages(ctx context.Context, agent people.Contact, threadID, sessionID, userText string) []llmadapter.Message {
 	system := e.peopleAgentTurnPrompt(ctx, agent, sessionID, userText)
-	out := []gateway.Message{{Role: gateway.RoleSystem, Content: system}}
+	out := []llmadapter.Message{{Role: llmadapter.RoleSystem, Content: system}}
 	if e.people != nil && threadID != "" {
 		if msgs, err := e.people.ListMessages(ctx, threadID, 200); err == nil {
 			out = append(out, peopleAgentHistoryMessages(msgs, agent.SubjectID, userText, 8)...)
 		}
 	}
-	return append(out, gateway.Message{Role: gateway.RoleUser, Content: userText})
+	return append(out, llmadapter.Message{Role: llmadapter.RoleUser, Content: userText})
 }
 
 func (e *Engine) completePeopleAgentWithTools(ctx context.Context, agent people.Contact, threadID, sessionID, userText string) (string, error) {
@@ -572,7 +572,7 @@ func (e *Engine) completePeopleAgentWithTools(ctx context.Context, agent people.
 		if aErr != nil {
 			return aErr
 		}
-		req := gateway.Request{
+		req := llmadapter.Request{
 			Model: entry.Model.ModelID, MaxTokens: peopleAgentMaxTokens, MaxAttempts: 1,
 			Messages: e.peopleAgentRequestMessages(op, agent, threadID, sessionID, userText),
 			Tools:    tools,
@@ -590,8 +590,8 @@ func (e *Engine) completePeopleAgentWithTools(ctx context.Context, agent people.
 			req.Messages = append(req.Messages, resp.Message)
 			for _, call := range resp.Message.ToolCalls {
 				if !allowed[call.Name] {
-					req.Messages = append(req.Messages, gateway.Message{
-						Role: gateway.RoleTool, ToolCallID: call.ID, Content: "ok:false\n同事聊天不能用这个工具。",
+					req.Messages = append(req.Messages, llmadapter.Message{
+						Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: "ok:false\n同事聊天不能用这个工具。",
 					})
 					continue
 				}
@@ -600,15 +600,15 @@ func (e *Engine) completePeopleAgentWithTools(ctx context.Context, agent people.
 					summary = summary[:4096]
 				}
 				paths = append(paths, extractDeliverablePaths(summary)...)
-				req.Messages = append(req.Messages, gateway.Message{
-					Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary,
+				req.Messages = append(req.Messages, llmadapter.Message{
+					Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary,
 				})
 			}
 		}
 		if strings.TrimSpace(text) == "" {
 			req.Tools = nil
-			req.Messages = append(req.Messages, gateway.Message{
-				Role: gateway.RoleUser, Content: "步数用尽。用中文告诉同事你做成了什么、文件在哪、还缺什么。不要再调用工具。",
+			req.Messages = append(req.Messages, llmadapter.Message{
+				Role: llmadapter.RoleUser, Content: "步数用尽。用中文告诉同事你做成了什么、文件在哪、还缺什么。不要再调用工具。",
 			})
 			resp, cErr := a.Complete(op, secret, req)
 			if cErr != nil {
@@ -644,7 +644,7 @@ func (e *Engine) completePeopleAgentWithTools(ctx context.Context, agent people.
 	return text, leaseErr
 }
 
-func (e *Engine) peopleAgentToolList(ctx context.Context, agent people.Contact) []gateway.ToolDefinition {
+func (e *Engine) peopleAgentToolList(ctx context.Context, agent people.Contact) []llmadapter.ToolDefinition {
 	tools := peopleAgentToolDefinitions(e.engineToolDefinitionsFor(peopleAgentExecutionMode()))
 	tools = append(tools, peopleAgentToolDefinitions(e.skillToolDefinitions())...)
 	eq := e.equipmentForNames(ctx, []string{agent.Nickname})
@@ -652,7 +652,7 @@ func (e *Engine) peopleAgentToolList(ctx context.Context, agent people.Contact) 
 	return tools
 }
 
-func (e *Engine) runPeopleAgentTool(ctx context.Context, sessionID string, agent people.Contact, call gateway.ToolCall) string {
+func (e *Engine) runPeopleAgentTool(ctx context.Context, sessionID string, agent people.Contact, call llmadapter.ToolCall) string {
 	if !peopleAgentAllowedTool(call.Name) {
 		return "ok:false\n同事聊天不能用这个工具。"
 	}
@@ -760,7 +760,7 @@ func (e *Engine) completePeopleAgentText(ctx context.Context, agent people.Conta
 		if aErr != nil {
 			return aErr
 		}
-		resp, cErr := a.Complete(op, secret, gateway.Request{
+		resp, cErr := a.Complete(op, secret, llmadapter.Request{
 			Model: entry.Model.ModelID, MaxTokens: 800, MaxAttempts: 1,
 			Messages: e.peopleAgentRequestMessages(op, agent, threadID, sessionID, userText),
 		})

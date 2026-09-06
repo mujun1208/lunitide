@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 type toolProfile string
@@ -112,7 +112,7 @@ func toolProfileAllow(profile toolProfile) map[string]bool {
 	}
 }
 
-func applyToolProfile(defs []gateway.ToolDefinition, profile toolProfile) []gateway.ToolDefinition {
+func applyToolProfile(defs []llmadapter.ToolDefinition, profile toolProfile) []llmadapter.ToolDefinition {
 	allow := toolProfileAllow(profile)
 	if allow == nil {
 		return defs
@@ -136,8 +136,8 @@ func companionDefaultDeniedTool(name string) bool {
 	}
 }
 
-func filterCompanionDefaultTools(defs []gateway.ToolDefinition) []gateway.ToolDefinition {
-	out := make([]gateway.ToolDefinition, 0, len(defs))
+func filterCompanionDefaultTools(defs []llmadapter.ToolDefinition) []llmadapter.ToolDefinition {
+	out := make([]llmadapter.ToolDefinition, 0, len(defs))
 	for _, d := range defs {
 		if companionDefaultDeniedTool(d.Name) {
 			continue

@@ -108,7 +108,7 @@ func (r *Runtime) Prepare(ctx context.Context, runID, session, callID, name stri
 	if digest == "" {
 		return Pending{}, errors.New("invalid tool arguments")
 	}
-	if _, err = r.Execute(ctx, mode, session, name, canonical, false); !errors.Is(err, ErrApprovalRequired) {
+	if _, err = r.execute(ctx, mode, session, name, canonical, false, mode == FullAccess && r.FullDiskEnabled(), nil); !errors.Is(err, ErrApprovalRequired) {
 		if err == nil {
 			return Pending{}, errors.New("tool does not require approval")
 		}
@@ -245,7 +245,14 @@ func (r *Runtime) decide(ctx context.Context, session, callID, digest string, ap
 	if current != wd {
 		return r.finishDecision(ctx, session, callID, digest, Result{}, ErrWorkspaceChanged)
 	}
-	out, e := r.Execute(ctx, Mode(mode), session, name, json.RawMessage(raw), true)
+	// S-05: a full-disk approval is the one-time per-session confirmation. Mark
+	// it (and audit it) before the unconfined re-run so the rest of the session
+	// runs without prompting again; the mark is in-memory and restart-scoped.
+	unconfined := Mode(mode) == FullAccess && r.FullDiskEnabled()
+	if unconfined {
+		_ = r.ConfirmFullDiskSession(ctx, session)
+	}
+	out, e := r.execute(ctx, Mode(mode), session, name, json.RawMessage(raw), true, unconfined, nil)
 	return r.finishDecision(ctx, session, callID, digest, out, e)
 }
 func (r *Runtime) finishDecision(ctx context.Context, session, callID, digest string, out Result, runErr error) (Result, error) {

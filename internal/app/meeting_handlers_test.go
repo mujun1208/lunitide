@@ -12,7 +12,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/meetings"
 	sqlitestore "github.com/lunitide/lunitide/internal/storage/sqlite"
 )
@@ -322,25 +322,25 @@ type notesStreamAdapter struct {
 	streamed    string
 }
 
-func (a notesStreamAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
+func (a notesStreamAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
 	if a.completeErr != nil {
-		return gateway.Response{}, a.completeErr
+		return llmadapter.Response{}, a.completeErr
 	}
-	return gateway.Response{}, nil
+	return llmadapter.Response{}, nil
 }
-func (a notesStreamAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+func (a notesStreamAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	if emit != nil {
-		_ = emit(gateway.Delta{Text: a.streamed})
+		_ = emit(llmadapter.Delta{Text: a.streamed})
 	}
-	return gateway.Response{Message: gateway.Message{Content: a.streamed}}, nil
+	return llmadapter.Response{Message: llmadapter.Message{Content: a.streamed}}, nil
 }
-func (notesStreamAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, nil
+func (notesStreamAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, nil
 }
 
 func TestCompleteMeetingFallsBackToStream(t *testing.T) {
 	e := NewEngineWithGateway(meetingNotesProvider{}, "test", streamTestLease{})
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return notesStreamAdapter{
 			completeErr: errors.New("stream required"),
 			streamed:    `{"title":"评审","summary":"对齐范围","actions":["写纪要"]}`,
@@ -357,7 +357,7 @@ func TestCompleteMeetingFallsBackToStream(t *testing.T) {
 
 func TestCompleteMeetingStreamsWhenCompleteIsEmpty(t *testing.T) {
 	e := NewEngineWithGateway(meetingNotesProvider{}, "test", streamTestLease{})
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return notesStreamAdapter{streamed: `{"title":"评审","summary":"结论","actions":["跟进"]}`}, nil
 	})
 	notes, err := e.completeMeeting(context.Background(), "周会", "先对齐范围")

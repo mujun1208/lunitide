@@ -66,6 +66,7 @@ export async function startVolcCompanionSpeech(
   let text = ''
   let sealed = ''
   let sessionCommitted = ''
+  let lastFinal = ''
   let lastTextAt = 0
   let textSince = 0
   let lastVoiceAt = 0
@@ -82,12 +83,16 @@ export async function startVolcCompanionSpeech(
   let pendingEvaluate = false
   let ticker = 0
 
-  const resetUtterance = () => {
+  const resetUtterance = (clearSession = false) => {
     text = ''
     sealed = ''
     lastTextAt = 0
     textSince = 0
     announcedSpeech = false
+    if (clearSession) {
+      sessionCommitted = ''
+      lastFinal = ''
+    }
   }
 
   const teardown = () => {
@@ -133,9 +138,17 @@ export async function startVolcCompanionSpeech(
       if (emit === 'final') {
         resetUtterance()
         const raw = holdUtterance ? pickMeetingFinalText(carried, settled) : (settled || carried)
-        const final = holdUtterance ? raw : isolateCurrentUtterance(sessionCommitted, raw)
+        let final = holdUtterance ? raw : isolateCurrentUtterance(sessionCommitted, raw)
+        // Defensive guard: even if isolation drifts, never re-emit the exact
+        // previous final glued in front of this turn.
+        if (!holdUtterance && final && lastFinal && final !== lastFinal && final.startsWith(lastFinal)) {
+          final = final.slice(lastFinal.length).replace(/^[，,、。.!！？?\s]+/u, '').trim()
+        }
         if (!final) return
-        if (!holdUtterance) sessionCommitted = sessionCommitted ? `${sessionCommitted}${final}` : final
+        if (!holdUtterance) {
+          sessionCommitted = sessionCommitted ? `${sessionCommitted}${final}` : final
+          lastFinal = final
+        }
         options.onFinal(final)
         return
       }
@@ -288,6 +301,9 @@ export async function startVolcCompanionSpeech(
 
   return {
     stop: teardown,
+    resetSession: () => {
+      resetUtterance(true)
+    },
     setCommitPaused: paused => {
       commitPaused = paused
     },

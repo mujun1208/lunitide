@@ -1,7 +1,7 @@
-import { attachmentToken } from './composerParser'
+import { attachmentToken, messageToken } from './composerParser'
 import { insertMention } from '../people/peopleMentions'
 
-export type ComposerAtKind = 'attachment' | 'expert' | 'member'
+export type ComposerAtKind = 'attachment' | 'expert' | 'member' | 'message'
 
 export type ComposerAtItem = {
   kind: ComposerAtKind
@@ -12,12 +12,16 @@ export type ComposerAtItem = {
 export function atMenuPlaceholder(kind: ComposerAtKind): string {
   if (kind === 'attachment') return '附件'
   if (kind === 'expert') return '已挂载专家'
+  if (kind === 'message') return '对话消息'
   return '同事'
 }
 
 export function insertComposerAtPick(draft: string, item: ComposerAtItem): string {
   if (item.kind === 'attachment') {
     return draft.replace(/@[^\s]*$/, attachmentToken(item.id, item.label) + ' ')
+  }
+  if (item.kind === 'message') {
+    return draft.replace(/@[^\s]*$/, messageToken(item.id, item.label) + ' ')
   }
   if (item.kind === 'expert') {
     return draft.replace(/@[^\s]*$/, `[引用专家 ${item.label}|${item.id}] `)

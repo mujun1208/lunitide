@@ -132,6 +132,21 @@ export function isTalkRealtimeModelId(modelId: string, displayName = ''): boolea
   return blob !== '' && COMPANION_REALTIME_RE.test(blob)
 }
 
+/**
+ * UX-04 主动门控：推断模型是否支持 OpenAI 风格的 function/tool calling。
+ * 采用保守的「拒绝名单」——默认视为支持，仅对已知只出思维链、会 400 拒绝 tools 的
+ * 推理模型（deepseek-reasoner / deepseek-r1 等）返回 false。返回 false 时，发送端应
+ * 跳过工具定义注入，改由纯文本前缀描述可用技能（见 composeChatPrompt）。
+ */
+const NO_FUNCTION_CALLING_RE = /deepseek[-_\s]?r(?:easoner|1)\b/i
+
+export function modelSupportsFunctionCalling(model?: { modelId?: string; displayName?: string } | null): boolean {
+  const id = model?.modelId?.trim()
+  if (!id) return true
+  const blob = `${id} ${model?.displayName ?? ''}`
+  return !NO_FUNCTION_CALLING_RE.test(blob)
+}
+
 /** First listed openai_compatible realtime/live model. Does not invent ids. */
 export function pickTalkRealtimeModel(items: readonly ProviderDTO[]): { providerId: string; modelId: string } | undefined {
   for (const provider of items) {

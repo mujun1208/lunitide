@@ -140,7 +140,24 @@ export function isolateCurrentUtterance(committed: string, incoming: string, las
     const cut = next.indexOf(prev) + prev.length
     return finishIsolated(prevC, collapseTandemRepeats(next.slice(cut).replace(/^[，,、。.!！？?\s]+/u, '').trim()))
   }
+  // No clean prefix / overlap / substring match against the committed text.
+  // A large shared compact prefix means the server re-decoded the running
+  // `result_type=full` dump and the tail characters drifted — strip the
+  // committed portion so a prior turn does not glue onto this one. A small or
+  // zero shared prefix is a genuinely fresh clause, which we return whole.
+  const shared = compactCommonPrefixLen(prevC, nextC)
+  if (shared >= 4 && shared >= Math.floor(prevC.length * 0.6)) {
+    return finishIsolated(prevC, collapseTandemRepeats(sliceAfterCompactPrefix(next, prevC.slice(0, shared))))
+  }
   return collapseTandemRepeats(next)
+}
+
+/** Length of the shared leading run of two compacted (punctuation-free) strings. */
+function compactCommonPrefixLen(a: string, b: string): number {
+  const n = Math.min(a.length, b.length)
+  let i = 0
+  while (i < n && a[i] === b[i]) i += 1
+  return i
 }
 
 /** After peeling committed text, a tandem leftover of the same unit is not a new clause. */

@@ -10,7 +10,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/secretlease"
 )
 
@@ -39,35 +39,35 @@ type rotateStreamAdapter struct {
 	emitThen bool
 }
 
-func (a *rotateStreamAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (a *rotateStreamAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (a *rotateStreamAdapter) TestConnection(context.Context, []byte, gateway.Request) error {
+func (a *rotateStreamAdapter) TestConnection(context.Context, []byte, llmadapter.Request) error {
 	return errors.New("not used")
 }
-func (a *rotateStreamAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (a *rotateStreamAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (a *rotateStreamAdapter) Stream(_ context.Context, secret []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+func (a *rotateStreamAdapter) Stream(_ context.Context, secret []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	a.mu.Lock()
 	a.secrets = append(a.secrets, string(secret))
 	a.mu.Unlock()
 	if a.fail401 {
-		return gateway.Response{}, &gateway.Error{Code: "HTTP_401", HTTPStatus: 401, Message: "unauthorized"}
+		return llmadapter.Response{}, &llmadapter.Error{Code: "HTTP_401", HTTPStatus: 401, Message: "unauthorized"}
 	}
 	if a.emitThen {
-		if err := emit(gateway.Delta{Text: "partial"}); err != nil {
-			return gateway.Response{}, err
+		if err := emit(llmadapter.Delta{Text: "partial"}); err != nil {
+			return llmadapter.Response{}, err
 		}
-		return gateway.Response{}, &gateway.Error{Code: "HTTP_429", HTTPStatus: 429, Message: "insufficient_quota"}
+		return llmadapter.Response{}, &llmadapter.Error{Code: "HTTP_429", HTTPStatus: 429, Message: "insufficient_quota"}
 	}
 	if string(secret) == "primary-ref" {
-		return gateway.Response{}, &gateway.Error{Code: "HTTP_429", HTTPStatus: 429, Message: "insufficient_quota"}
+		return llmadapter.Response{}, &llmadapter.Error{Code: "HTTP_429", HTTPStatus: 429, Message: "insufficient_quota"}
 	}
-	if err := emit(gateway.Delta{Text: "ok-from-backup"}); err != nil {
-		return gateway.Response{}, err
+	if err := emit(llmadapter.Delta{Text: "ok-from-backup"}); err != nil {
+		return llmadapter.Response{}, err
 	}
-	return gateway.Response{Message: gateway.Message{Content: "ok-from-backup"}}, nil
+	return llmadapter.Response{Message: llmadapter.Message{Content: "ok-from-backup"}}, nil
 }
 
 func backupProvider() provider.Provider {
@@ -82,7 +82,7 @@ func backupProvider() provider.Provider {
 func runBackupStream(t *testing.T, adapter *rotateStreamAdapter, lease *recordingLease) []bridge.Event {
 	t.Helper()
 	e := NewEngineWithGateway(nil, "test", lease)
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return adapter, nil
 	})
 	_, cancel := context.WithCancel(context.Background())
@@ -90,7 +90,7 @@ func runBackupStream(t *testing.T, adapter *rotateStreamAdapter, lease *recordin
 	id := "stream-backup"
 	e.streams[id] = state
 	var events []bridge.Event
-	e.runStream(context.Background(), id, state, backupProvider(), gateway.Request{Model: "m"}, func(event bridge.Event) error {
+	e.runStream(context.Background(), id, state, backupProvider(), llmadapter.Request{Model: "m"}, func(event bridge.Event) error {
 		events = append(events, event)
 		return nil
 	}, "")
@@ -165,11 +165,11 @@ func TestSharedLeaseRotateStateAcrossComplete(t *testing.T) {
 	rot := &leaseRotateState{swaps: 1}
 	adapter := &rotateCompleteAdapter{}
 	e := NewEngineWithGateway(nil, "test", &recordingLease{})
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return adapter, nil
 	})
 	ctx := withLeaseRotate(context.Background(), p, rot, func() bool { return false })
-	resp, err := e.completeMaybeRotate(ctx, adapter, []byte("backup-ref"), gateway.Request{Model: "m"})
+	resp, err := e.completeMaybeRotate(ctx, adapter, []byte("backup-ref"), llmadapter.Request{Model: "m"})
 	if err != nil {
 		t.Fatalf("shared rotate: %v", err)
 	}
@@ -182,28 +182,28 @@ type rotateCompleteAdapter struct {
 	secrets []string
 }
 
-func (a *rotateCompleteAdapter) Complete(_ context.Context, secret []byte, _ gateway.Request) (gateway.Response, error) {
+func (a *rotateCompleteAdapter) Complete(_ context.Context, secret []byte, _ llmadapter.Request) (llmadapter.Response, error) {
 	a.secrets = append(a.secrets, string(secret))
 	if string(secret) == "backup-2" {
-		return gateway.Response{Message: gateway.Message{Content: "from-backup-2"}}, nil
+		return llmadapter.Response{Message: llmadapter.Message{Content: "from-backup-2"}}, nil
 	}
-	return gateway.Response{}, &gateway.Error{Code: "HTTP_429", HTTPStatus: 429, Message: "insufficient_quota"}
+	return llmadapter.Response{}, &llmadapter.Error{Code: "HTTP_429", HTTPStatus: 429, Message: "insufficient_quota"}
 }
-func (a *rotateCompleteAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, nil
+func (a *rotateCompleteAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, nil
 }
-func (a *rotateCompleteAdapter) Stream(context.Context, []byte, gateway.Request, func(gateway.Delta) error) (gateway.Response, error) {
-	return gateway.Response{}, nil
+func (a *rotateCompleteAdapter) Stream(context.Context, []byte, llmadapter.Request, func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	return llmadapter.Response{}, nil
 }
 
 func TestIsQuotaRotateError(t *testing.T) {
-	if !isQuotaRotateError(&gateway.Error{HTTPStatus: 429, Message: "slow down"}) {
+	if !isQuotaRotateError(&llmadapter.Error{HTTPStatus: 429, Message: "slow down"}) {
 		t.Fatal("429 must rotate")
 	}
 	if !isQuotaRotateError(errors.New("insufficient_quota")) {
 		t.Fatal("insufficient_quota must rotate")
 	}
-	if isQuotaRotateError(&gateway.Error{HTTPStatus: 401, Message: "unauthorized"}) {
+	if isQuotaRotateError(&llmadapter.Error{HTTPStatus: 401, Message: "unauthorized"}) {
 		t.Fatal("401 must not rotate")
 	}
 }

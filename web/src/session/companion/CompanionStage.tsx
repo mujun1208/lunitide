@@ -25,7 +25,7 @@ import {
   saveCompanionSettings,
   voiceIdForEngineSwitch,
 } from './companionSettings'
-import { alreadySpokenCloseout, cleanForSpeech, cleanUserTranscript, clipAssistantToSpoken, clipCompanionPrompt, clipCompanionSpokenTurn, compactSpeech, companionCannotExecuteSpeech, companionCaptionFromStream, companionExecutingSpeech, companionHasFreshAssistantText, companionPadSpeech, companionReplyStallMs, companionTaskCompleteSpeech, companionToolCloseoutSpeech, companionToolsExecuting, FIRST_SPEAK_STALL_MS, handsFreeRetryDelayMs, isCompanionLeadInOnly, looksLikeBargeInSpeech, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, shouldQueueBusyUserTranscript, stripTaskDonePhrases, takeSpeakableChunk } from './companionText'
+import { alreadySpokenCloseout, cleanForSpeech, cleanUserTranscript, clipAssistantToSpoken, clipCompanionPrompt, clipCompanionSpokenTurn, compactSpeech, companionCannotExecuteSpeech, companionCaptionFromStream, companionExecutingSpeech, companionHasFreshAssistantText, companionPadSpeech, companionReplyStallMs, companionTaskCompleteSpeech, companionToolCloseoutSpeech, companionToolPhaseCaption, COMPANION_TOOL_PROGRESS_MS, companionToolProgressSpeech, companionToolsExecuting, FIRST_SPEAK_STALL_MS, handsFreeRetryDelayMs, isCompanionLeadInOnly, looksLikeBargeInSpeech, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, shouldQueueBusyUserTranscript, stripTaskDonePhrases, takeSpeakableChunk, type CompanionToolPhase } from './companionText'
 import { companionAsrPathLabel, companionListenFailover, companionListenKind, companionListenLightLabel, companionVolcDeafGiveUp, withDeadline, type AsrRoute } from './asrPath'
 import { isCompanionInfraBusy } from './companionBusy'
 import { localAsrStatus, LOCAL_ASR_DECISION_MS, readyWithin } from './localAsr'
@@ -189,6 +189,8 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   const [levels, setLevels] = useState<number[]>(idleLevels)
   const [rounds, setRounds] = useState<SubtitleRound[]>([])
   const [interimText, setInterimText] = useState('')
+  // UX-05 #2: terminal-resolving tool subtitle (执行中 → 执行完成 / 执行失败).
+  const [toolPhase, setToolPhase] = useState<CompanionToolPhase | undefined>(undefined)
   const [captionFading, setCaptionFading] = useState(false)
   const fadeTimersRef = useRef<{ fade: number; clear: number } | null>(null)
   const pendingCaptionFadeRef = useRef(false)
@@ -750,6 +752,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       const reply = stripTaskDonePhrases(assistantText.trim())
       const leadInOnly = isCompanionLeadInOnly(assistantText.trim())
       const toolsRan = toolsRanThisTurnRef.current
+      if (toolsRan) setToolPhase('succeeded')
       const activityLine = activityStatus?.trim() || ''
       const activityResult = /中[….…]+$/.test(activityLine) ? '' : stripTaskDonePhrases(activityLine)
       const completionLine = (!leadInOnly ? reply : '') || activityResult
@@ -877,6 +880,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     }
     if (chatStatus === 'failed' || chatStatus === 'cancelled') {
       const issue = error ?? localError
+      if (toolsRanThisTurnRef.current) setToolPhase('failed')
       const infraBusy = isCompanionInfraBusy(issue?.code ?? '')
       // Admission/retry noise is not a task failure. Drop back to listening
       // instead of reading 「桌面主机正忙」 as if the model refused the turn.
@@ -985,6 +989,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   useEffect(() => {
     if (!companionToolsExecuting(chatStatus, activityStatus)) return
     toolsRanThisTurnRef.current = true
+    setToolPhase('running')
     if (userInterruptedRef.current) return
     const line = activityStatus?.trim()
     if (!line) return
@@ -1029,9 +1034,13 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     const timer = window.setTimeout(() => {
       if (userInterruptedRef.current) return
       if (!companionToolsExecuting(chatStatusRef.current, activityStatusRef.current)) return
-      const spoken = companionExecutingSpeech(activityStatusRef.current)
+      // UX-05 #3: the tool has run past the progress threshold with no result.
+      // Push a mid-run "still working" line (audible + caption) so a long
+      // multi-round loop never sits silent on 「说完稍等」.
+      const spoken = companionToolProgressSpeech(activityStatusRef.current)
       if (!spoken || cascadeSpeechBlocked()) return
       lastActivitySpokenRef.current = spoken
+      setRounds(current => withCurrentAssistant(current, { role: 'assistant', text: spoken }))
       if (ttsAvailable === false || !settings.autoSpeak) return
       const player = ensurePlayer()
       const voiceId = activeVoiceId()
@@ -1049,7 +1058,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
           syncSpeechModesRef.current()
         },
       })
-    }, 20_000)
+    }, COMPANION_TOOL_PROGRESS_MS)
     return () => window.clearTimeout(timer)
   }, [activityStatus, chatStatus, ttsAvailable, settings.autoSpeak, settings.rate, settings.volume, handleEngineFallback, ensurePlayer, activeVoiceId])
 
@@ -1377,6 +1386,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       streamCaptionRef.current = ''
       lastActivitySpokenRef.current = ''
       toolsRanThisTurnRef.current = false
+      setToolPhase(undefined)
       setStreamTick(0)
       setInterimText('')
       setLocalError(undefined)
@@ -2607,6 +2617,11 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
           utterance is heard so the strip always matches this turn. */}
       <div className={`companion-subtitles${captionFading ? ' retiring' : ''}`} aria-label="对话记录">
         <div className="companion-subtitle-list" aria-live="polite" role="log" ref={subtitleListRef}>
+          {toolPhase && (
+            <p className={`companion-tool-phase phase-${toolPhase}`} aria-live="polite">
+              {companionToolPhaseCaption(toolPhase, activityStatus)}
+            </p>
+          )}
           {rounds.map((round, index) => (
             <SubtitleRow
               key={round.role}

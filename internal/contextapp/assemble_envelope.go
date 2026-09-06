@@ -99,16 +99,16 @@ func AssembleEnvelope(ctx context.Context, reader Reader, sessionID string, env 
 	// Compute reserved token costs for preambles (priorities 3, 4, handoff, attachments).
 	var priorSummaryTokens, pinnedFactsTokens, handoffCapsuleTokens, attachmentExcerptTokens int64
 	if env.AcceptedCheckpoint != nil && env.AcceptedCheckpoint.Content != "" {
-		priorSummaryTokens = token.EstimateTokens(renderUntrustedUserContext("Prior Summary", env.AcceptedCheckpoint.Content))
+		priorSummaryTokens = token.CountTokensForModel(env.Provider.Model, renderUntrustedUserContext("Prior Summary", env.AcceptedCheckpoint.Content))
 	}
 	for i := range env.PinnedFacts {
-		pinnedFactsTokens += token.EstimateTokens(renderPinnedFacts(env.PinnedFacts[i].Content))
+		pinnedFactsTokens += token.CountTokensForModel(env.Provider.Model, renderPinnedFacts(env.PinnedFacts[i].Content))
 	}
 	for i := range env.HandoffCapsules {
-		handoffCapsuleTokens += token.EstimateTokens(renderUntrustedUserContext("Handoff", env.HandoffCapsules[i].Content))
+		handoffCapsuleTokens += token.CountTokensForModel(env.Provider.Model, renderUntrustedUserContext("Handoff", env.HandoffCapsules[i].Content))
 	}
 	for i := range env.AttachmentExcerpts {
-		attachmentExcerptTokens += token.EstimateTokens(renderUntrustedUserContext("Attachment", env.AttachmentExcerpts[i].Content))
+		attachmentExcerptTokens += token.CountTokensForModel(env.Provider.Model, renderUntrustedUserContext("Attachment", env.AttachmentExcerpts[i].Content))
 	}
 
 	var taskStateTokens int64
@@ -116,13 +116,13 @@ func AssembleEnvelope(ctx context.Context, reader Reader, sessionID string, env 
 		if env.TaskState[i].Content == "" {
 			continue
 		}
-		taskStateTokens += token.EstimateTokens(renderTaskState(env.TaskState[i].Content))
+		taskStateTokens += token.CountTokensForModel(env.Provider.Model, renderTaskState(env.TaskState[i].Content))
 	}
 	for i := range env.WorkspaceState {
 		if env.WorkspaceState[i].Content == "" {
 			continue
 		}
-		taskStateTokens += token.EstimateTokens(renderTaskState(env.TaskState[i].Content))
+		taskStateTokens += token.CountTokensForModel(env.Provider.Model, renderTaskState(env.TaskState[i].Content))
 	}
 
 	trace.ReservedTokens = ReservedTokenBreakdown{
@@ -172,7 +172,7 @@ func AssembleEnvelope(ctx context.Context, reader Reader, sessionID string, env 
 	// Calculate token counts for each message.
 	for i := range allMessages {
 		if allMessages[i].TokenCount <= 0 {
-			allMessages[i].TokenCount = token.EstimateTokens(allMessages[i].Content)
+			allMessages[i].TokenCount = token.CountTokensForModel(env.Provider.Model, allMessages[i].Content)
 		}
 	}
 
@@ -218,7 +218,7 @@ func AssembleEnvelope(ctx context.Context, reader Reader, sessionID string, env 
 		result = injectPreambles(result, env)
 		// Finalize from provider-visible content rather than independently
 		// rounded source estimates.
-		finalizeMessageAccounting(result, budget)
+		finalizeMessageAccounting(result, budget, env.Provider.Model)
 		if err := ValidateProviderSequence(result.Messages); err != nil {
 			return nil, fmt.Errorf("validate assembled provider sequence: %w", err)
 		}
@@ -248,11 +248,45 @@ func AssembleEnvelope(ctx context.Context, reader Reader, sessionID string, env 
 		checkpointCoverageEnd = env.AcceptedCheckpoint.CoverageEndSequence
 	}
 
+	// UX-06: history-depth cap. When MaxHistoryTurns > 0 (companion/instant
+	// mode), only the newest N user turns of verbatim history participate in
+	// selection. historyCutoffSequence is the durable sequence of the oldest
+	// kept user turn; messages strictly older are excluded free of budget so
+	// the model does not proactively reference conversation beyond the recent
+	// window. The latest user turn keeps its priority-6 protection regardless.
+	var historyCutoffSequence int64
+	if env.MaxHistoryTurns > 0 {
+		userTurns := 0
+		for i := range allMessages {
+			if allMessages[i].Role != "user" {
+				continue
+			}
+			userTurns++
+			if userTurns >= env.MaxHistoryTurns {
+				historyCutoffSequence = allMessages[i].Sequence
+				break
+			}
+		}
+	}
+
 	for i := 0; i < len(allMessages); i++ {
 		if selectedSet[i] {
 			continue
 		}
 		msg := allMessages[i]
+		if historyCutoffSequence > 0 && msg.Sequence > 0 && msg.Sequence < historyCutoffSequence && i != latestUserIdx {
+			selectedSet[i] = true
+			trace.Entries = append(trace.Entries, SelectionTraceEntry{
+				SourceType:   SourceRecentMessage,
+				SourceID:     msg.ID,
+				Authority:    AuthorityRecent,
+				TokenCost:    msg.TokenCount,
+				Selected:     false,
+				RejectReason: "beyond_max_history_turns",
+				Provenance:   fmt.Sprintf("session:%s:message:%s", sessionID, msg.ID),
+			})
+			continue
+		}
 		if checkpointCoverageEnd > 0 && msg.Sequence > 0 && msg.Sequence <= checkpointCoverageEnd && i != latestUserIdx {
 			selectedSet[i] = true
 			trace.Entries = append(trace.Entries, SelectionTraceEntry{
@@ -388,7 +422,7 @@ func AssembleEnvelope(ctx context.Context, reader Reader, sessionID string, env 
 	// Inject trusted preambles and append untrusted handoff/attachment data to
 	// the latest user turn.
 	result = injectPreambles(result, env)
-	finalizeMessageAccounting(result, budget)
+	finalizeMessageAccounting(result, budget, env.Provider.Model)
 
 	// Append retrieved evidence (priority 7) to the latest user turn if its
 	// complete, safely quoted rendering fits. Retrieved evidence is derived,
@@ -396,7 +430,7 @@ func AssembleEnvelope(ctx context.Context, reader Reader, sessionID string, env 
 	for i := range env.RelatedEvidence {
 		ev := env.RelatedEvidence[i]
 		rendered := renderUntrustedUserContext("Related Evidence", ev.Content)
-		evCost := token.EstimateTokens(rendered)
+		evCost := token.CountTokensForModel(env.Provider.Model, rendered)
 		messageIndex := -1
 		for candidate := len(result.Messages) - 1; candidate >= 0; candidate-- {
 			if result.Messages[candidate].Role == "user" {
@@ -408,7 +442,7 @@ func AssembleEnvelope(ctx context.Context, reader Reader, sessionID string, env 
 			return nil, errors.New("cannot append related evidence without a user message")
 		}
 		projectedContent := result.Messages[messageIndex].Content + rendered
-		projectedCost := token.EstimateTokens(projectedContent)
+		projectedCost := token.CountTokensForModel(env.Provider.Model, projectedContent)
 		projectedUsed := result.Trace.UsedTokens - result.Messages[messageIndex].TokenCount + projectedCost
 		if projectedUsed <= budget {
 			result.Messages[messageIndex].Content = projectedContent
@@ -437,7 +471,7 @@ func AssembleEnvelope(ctx context.Context, reader Reader, sessionID string, env 
 
 	// Re-estimate every final provider-visible message after every synthetic
 	// block has been concatenated. Trace entry costs remain selection details.
-	finalizeMessageAccounting(result, budget)
+	finalizeMessageAccounting(result, budget, env.Provider.Model)
 	if err := ValidateProviderSequence(result.Messages); err != nil {
 		return nil, fmt.Errorf("validate assembled provider sequence: %w", err)
 	}
@@ -460,7 +494,7 @@ func injectPreambles(result *AssembleResult, env ContextEnvelope) *AssembleResul
 			continue
 		}
 		rendered := renderTaskState(state.Content)
-		renderedCost := token.EstimateTokens(rendered)
+		renderedCost := token.CountTokensForModel(env.Provider.Model, rendered)
 		preambles = append(preambles, Message{Role: "system", Content: rendered, TokenCount: renderedCost})
 		result.Trace.Entries = append(result.Trace.Entries, SelectionTraceEntry{
 			SourceType: SourceWorkspaceState,
@@ -477,7 +511,7 @@ func injectPreambles(result *AssembleResult, env ContextEnvelope) *AssembleResul
 			continue
 		}
 		rendered := renderTaskState(state.Content)
-		renderedCost := token.EstimateTokens(rendered)
+		renderedCost := token.CountTokensForModel(env.Provider.Model, rendered)
 		preambles = append(preambles, Message{Role: "system", Content: rendered, TokenCount: renderedCost})
 		result.Trace.Entries = append(result.Trace.Entries, SelectionTraceEntry{
 			SourceType: SourceTaskState,
@@ -494,7 +528,7 @@ func injectPreambles(result *AssembleResult, env ContextEnvelope) *AssembleResul
 	if env.AcceptedCheckpoint != nil && env.AcceptedCheckpoint.Content != "" {
 		src := env.AcceptedCheckpoint
 		rendered := renderUntrustedUserContext("Prior Summary", src.Content)
-		renderedCost := token.EstimateTokens(rendered)
+		renderedCost := token.CountTokensForModel(env.Provider.Model, rendered)
 		untrustedUserData += rendered
 		result.Trace.Entries = append(result.Trace.Entries, SelectionTraceEntry{
 			SourceType: SourceCompactionSummary,
@@ -511,7 +545,7 @@ func injectPreambles(result *AssembleResult, env ContextEnvelope) *AssembleResul
 	for i := range env.HandoffCapsules {
 		capsule := env.HandoffCapsules[i]
 		rendered := renderUntrustedUserContext("Handoff", capsule.Content)
-		renderedCost := token.EstimateTokens(rendered)
+		renderedCost := token.CountTokensForModel(env.Provider.Model, rendered)
 		untrustedUserData += rendered
 		result.Trace.Entries = append(result.Trace.Entries, SelectionTraceEntry{
 			SourceType: SourceHandoffCapsule,
@@ -529,7 +563,7 @@ func injectPreambles(result *AssembleResult, env ContextEnvelope) *AssembleResul
 	for i := range env.AttachmentExcerpts {
 		excerpt := env.AttachmentExcerpts[i]
 		rendered := renderUntrustedUserContext("Attachment", excerpt.Content)
-		renderedCost := token.EstimateTokens(rendered)
+		renderedCost := token.CountTokensForModel(env.Provider.Model, rendered)
 		untrustedUserData += rendered
 		result.Trace.Entries = append(result.Trace.Entries, SelectionTraceEntry{
 			SourceType: SourceAttachmentExcerpt,
@@ -544,7 +578,7 @@ func injectPreambles(result *AssembleResult, env ContextEnvelope) *AssembleResul
 		for i := len(result.Messages) - 1; i >= 0; i-- {
 			if result.Messages[i].Role == "user" {
 				result.Messages[i].Content += untrustedUserData
-				result.Messages[i].TokenCount = token.EstimateTokens(result.Messages[i].Content)
+				result.Messages[i].TokenCount = token.CountTokensForModel(env.Provider.Model, result.Messages[i].Content)
 				break
 			}
 		}
@@ -554,7 +588,7 @@ func injectPreambles(result *AssembleResult, env ContextEnvelope) *AssembleResul
 	for i := range env.PinnedFacts {
 		facts := env.PinnedFacts[i]
 		rendered := renderPinnedFacts(facts.Content)
-		renderedCost := token.EstimateTokens(rendered)
+		renderedCost := token.CountTokensForModel(env.Provider.Model, rendered)
 		preambles = append(preambles, Message{
 			Role:       "system",
 			Content:    rendered,
@@ -580,10 +614,10 @@ func injectPreambles(result *AssembleResult, env ContextEnvelope) *AssembleResul
 // finalizeMessageAccounting establishes the canonical accounting invariant:
 // UsedTokens is exactly the sum of estimates of final provider-visible message
 // contents. Non-message reservations remain separate in Trace.ReservedTokens.
-func finalizeMessageAccounting(result *AssembleResult, budget int64) {
+func finalizeMessageAccounting(result *AssembleResult, budget int64, model string) {
 	var used int64
 	for i := range result.Messages {
-		result.Messages[i].TokenCount = token.EstimateTokens(result.Messages[i].Content)
+		result.Messages[i].TokenCount = token.CountTokensForModel(model, result.Messages[i].Content)
 		used += result.Messages[i].TokenCount
 	}
 	result.Trace.UsedTokens = used

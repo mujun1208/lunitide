@@ -11,7 +11,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/attachment"
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 const visionCatalogProviderID = "01ARZ3NDEKTSV4RRFFQ69G5FBA"
@@ -41,29 +41,29 @@ func (visionCatalogProvider) List(context.Context, provider.Filter) ([]provider.
 
 type visionFallbackAdapter struct {
 	id            string
-	requests      chan gateway.Request
+	requests      chan llmadapter.Request
 	completeCalls *int
-	completeImgs  *[]gateway.Image
+	completeImgs  *[]llmadapter.Image
 }
 
-func (a visionFallbackAdapter) Complete(_ context.Context, _ []byte, req gateway.Request) (gateway.Response, error) {
+func (a visionFallbackAdapter) Complete(_ context.Context, _ []byte, req llmadapter.Request) (llmadapter.Response, error) {
 	if a.completeCalls != nil {
 		*a.completeCalls++
 	}
 	if a.completeImgs != nil {
-		*a.completeImgs = append([]gateway.Image(nil), req.Images...)
+		*a.completeImgs = append([]llmadapter.Image(nil), req.Images...)
 	}
-	return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, Content: "OCR LINE from catalog"}}, nil
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "OCR LINE from catalog"}}, nil
 }
-func (a visionFallbackAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, nil
+func (a visionFallbackAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, nil
 }
-func (a visionFallbackAdapter) Stream(_ context.Context, _ []byte, req gateway.Request, _ func(gateway.Delta) error) (gateway.Response, error) {
+func (a visionFallbackAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Request, _ func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	a.requests <- req
-	return gateway.Response{}, nil
+	return llmadapter.Response{}, nil
 }
 
-func startVisionFallbackChat(t *testing.T, supportsVision bool) (bridge.Response, gateway.Request, int, []gateway.Image) {
+func startVisionFallbackChat(t *testing.T, supportsVision bool) (bridge.Response, llmadapter.Request, int, []llmadapter.Image) {
 	t.Helper()
 	data := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1}
 	digest := sha256.Sum256(data)
@@ -73,12 +73,12 @@ func startVisionFallbackChat(t *testing.T, supportsVision bool) (bridge.Response
 		SHA256: hex.EncodeToString(digest[:]), ParseStatus: attachment.StatusFailed,
 	}
 	store := &chatAttachmentStore{byID: map[string]*attachment.Attachment{image.ID: &image}}
-	requests := make(chan gateway.Request, 1)
+	requests := make(chan llmadapter.Request, 1)
 	completeCalls := 0
-	var completeImgs []gateway.Image
+	var completeImgs []llmadapter.Image
 	e := NewEngineWithContextReader(visionCatalogProvider{supportsVision: supportsVision}, nil, nil, nil, chatAttachmentReader{}, nil, "test", streamTestLease{})
 	e.SetAttachmentService(attachmentapp.NewService(store, chatAttachmentFiles{image.FileRef: data}))
-	e.SetAdapterFactoryForTest(func(_ context.Context, p provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(_ context.Context, p provider.Provider) (llmadapter.Adapter, error) {
 		return visionFallbackAdapter{id: p.ID, requests: requests, completeCalls: &completeCalls, completeImgs: &completeImgs}, nil
 	})
 	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","sessionId":"` + chatAttachmentSessionID + `","messages":[{"role":"user","content":"current question"}],"contextRefs":[{"type":"attachment","id":"` + image.ID + `"}]}`
@@ -116,10 +116,10 @@ func TestChatStartStripsImagesWhenVisionDescribeFails(t *testing.T) {
 		SHA256: hex.EncodeToString(digest[:]), ParseStatus: attachment.StatusFailed,
 	}
 	store := &chatAttachmentStore{byID: map[string]*attachment.Attachment{image.ID: &image}}
-	requests := make(chan gateway.Request, 1)
+	requests := make(chan llmadapter.Request, 1)
 	e := NewEngineWithContextReader(visionCatalogProvider{}, nil, nil, nil, chatAttachmentReader{}, nil, "test", streamTestLease{})
 	e.SetAttachmentService(attachmentapp.NewService(store, chatAttachmentFiles{image.FileRef: data}))
-	e.SetAdapterFactoryForTest(func(_ context.Context, p provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(_ context.Context, p provider.Provider) (llmadapter.Adapter, error) {
 		if p.ID == visionCatalogProviderID {
 			return failingVisionAdapter{}, nil
 		}
@@ -145,14 +145,14 @@ func TestChatStartStripsImagesWhenVisionDescribeFails(t *testing.T) {
 
 type failingVisionAdapter struct{}
 
-func (failingVisionAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, &gateway.Error{Code: "BAD_REQUEST", Message: `"url" field must be a base64 encoded image`, HTTPStatus: 400}
+func (failingVisionAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, &llmadapter.Error{Code: "BAD_REQUEST", Message: `"url" field must be a base64 encoded image`, HTTPStatus: 400}
 }
-func (failingVisionAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, nil
+func (failingVisionAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, nil
 }
-func (failingVisionAdapter) Stream(context.Context, []byte, gateway.Request, func(gateway.Delta) error) (gateway.Response, error) {
-	return gateway.Response{}, nil
+func (failingVisionAdapter) Stream(context.Context, []byte, llmadapter.Request, func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	return llmadapter.Response{}, nil
 }
 
 func TestImageUnsupportedReason(t *testing.T) {

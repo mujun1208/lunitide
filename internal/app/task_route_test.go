@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 func TestClassifyTaskRoute(t *testing.T) {
@@ -198,10 +198,10 @@ func TestClassifyTaskRouteDoesNotEnableCC(t *testing.T) {
 func TestApplyTaskRoute(t *testing.T) {
 	t.Parallel()
 	all := append(engineToolDefinitions(),
-		gateway.ToolDefinition{Name: "computer.act"},
-		gateway.ToolDefinition{Name: "kb.search"},
-		gateway.ToolDefinition{Name: "kb.cite"},
-		gateway.ToolDefinition{Name: "plan.run"},
+		llmadapter.ToolDefinition{Name: "computer.act"},
+		llmadapter.ToolDefinition{Name: "kb.search"},
+		llmadapter.ToolDefinition{Name: "kb.cite"},
+		llmadapter.ToolDefinition{Name: "plan.run"},
 	)
 	route, allow := classifyTaskRoute("北京明天天气", false, true)
 	got := applyTaskRoute(all, route, allow)
@@ -261,7 +261,7 @@ func TestApplyTaskRouteR0MatchesMinimal(t *testing.T) {
 
 func TestAssembleRoutedToolsCompanionWeather(t *testing.T) {
 	t.Parallel()
-	all := append(engineToolDefinitions(), gateway.ToolDefinition{Name: "computer.act"}, gateway.ToolDefinition{Name: "kb.search"})
+	all := append(engineToolDefinitions(), llmadapter.ToolDefinition{Name: "computer.act"}, llmadapter.ToolDefinition{Name: "kb.search"})
 	got := assembleRoutedTools(all, "北京明天天气", true, true)
 	seen := map[string]bool{}
 	for _, d := range got {

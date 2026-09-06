@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/secretlease"
 )
 
@@ -41,7 +41,7 @@ func (e *Engine) embedKBTexts(ctx context.Context, texts []string) ([][]float32,
 			if adapterErr != nil {
 				return adapterErr
 			}
-			emb, ok := a.(gateway.Embedder)
+			emb, ok := a.(llmadapter.Embedder)
 			if !ok {
 				return errKBEmbedUnavailable
 			}

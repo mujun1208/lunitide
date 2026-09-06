@@ -12,6 +12,8 @@ require (
 	github.com/jung-kurt/gofpdf v1.16.2
 	github.com/ledongthuc/pdf v0.0.0-20260902151811-0378b83ae5e4
 	github.com/oklog/ulid/v2 v2.1.1
+	github.com/pkoukk/tiktoken-go v0.1.8
+	github.com/pkoukk/tiktoken-go-loader v0.0.2
 	github.com/xuri/excelize/v2 v2.11.0
 	github.com/zzl/go-com v1.5.0
 	github.com/zzl/go-webview2 v0.0.0-20230129130204-9df4a7d166d5
@@ -24,6 +26,7 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
+	github.com/dlclark/regexp2 v1.10.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect

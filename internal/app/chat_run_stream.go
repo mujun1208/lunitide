@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/toolruntime"
@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-func writeGUIFallbackResult(send func(bridge.Event) error, req *gateway.Request, completedDigests map[string]string, turn *chatTurnCheckpoint, usedTools, usedDesktopTools *bool, fb toolruntime.Result, fbArgs json.RawMessage) error {
+func writeGUIFallbackResult(send func(bridge.Event) error, req *llmadapter.Request, completedDigests map[string]string, turn *chatTurnCheckpoint, usedTools, usedDesktopTools *bool, fb toolruntime.Result, fbArgs json.RawMessage) error {
 	summary := strings.TrimSpace(fb.Output)
 	if summary == "" {
 		summary = guiFallbackFailResult("屏幕读号失败").Output
@@ -39,8 +39,8 @@ func writeGUIFallbackResult(send func(bridge.Event) error, req *gateway.Request,
 		return err
 	}
 	req.Messages = append(req.Messages,
-		gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{{ID: callID, Name: name, Arguments: fbArgs}}},
-		gateway.Message{Role: gateway.RoleTool, ToolCallID: callID, Content: summary},
+		llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: callID, Name: name, Arguments: fbArgs}}},
+		llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: callID, Content: summary},
 	)
 	if len(fb.VisionData) > 0 {
 		req.Images = appendCaptureVision(req.Images, fb.VisionMIME, fb.VisionData)
@@ -55,19 +55,13 @@ func writeGUIFallbackResult(send func(bridge.Event) error, req *gateway.Request,
 	return nil
 }
 
-func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p provider.Provider, req gateway.Request, emit EventEmitter, sessionID string, modes ...executionMode) {
-	const maxThinkingChunkBytes = 16 * 1024
-	const maxThinkingTotalBytes = 256 * 1024
-	var seq uint64
-	var sendMu sync.Mutex
-	var assistantText strings.Builder
-	var thinkingText strings.Builder
-	var pendingThinking string
-	var pendingThinkingSince time.Time
-	var lastLiveDraftAt time.Time
-	var streamResult gateway.Response
-	var turnArtifacts []SessionArtifact
-	turn := chatTurnCheckpoint{Status: turnStatusRunning, StreamID: id, Goal: lastUserChatText(req.Messages)}
+// reconcileTurnCheckpointOnStart resolves prior-turn workflow state at the
+// start of a new stream. For a fresh (non status/resume) goal it clears any
+// dangling PPT/DOCX workflow flags from an interrupted prior turn; for a
+// status follow-up or resume it hydrates the new turn from the persisted
+// checkpoint so an in-flight PPT/DOCX workflow continues. Extracted verbatim
+// from runStream (Q-01') to keep the stream body's complexity bounded.
+func (e *Engine) reconcileTurnCheckpointOnStart(sessionID string, turn *chatTurnCheckpoint) {
 	if !looksLikeStatusFollowUp(turn.Goal) && !looksLikeResume(turn.Goal) {
 		if prev := e.loadTurnCheckpoint(sessionID); prev.PptActive || prev.DocxActive {
 			prev.PptActive = false
@@ -102,6 +96,22 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			turn.Injected = append([]string{}, prev.Injected...)
 		}
 	}
+}
+
+func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p provider.Provider, req llmadapter.Request, emit EventEmitter, sessionID string, modes ...executionMode) {
+	const maxThinkingChunkBytes = 16 * 1024
+	const maxThinkingTotalBytes = 256 * 1024
+	var seq uint64
+	var sendMu sync.Mutex
+	var assistantText strings.Builder
+	var thinkingText strings.Builder
+	var pendingThinking string
+	var pendingThinkingSince time.Time
+	var lastLiveDraftAt time.Time
+	var streamResult llmadapter.Response
+	var turnArtifacts []SessionArtifact
+	turn := chatTurnCheckpoint{Status: turnStatusRunning, StreamID: id, Goal: lastUserChatText(req.Messages)}
+	e.reconcileTurnCheckpointOnStart(sessionID, &turn)
 	mode := executionModeApproval
 	if len(modes) > 0 {
 		mode = modes[0]
@@ -176,7 +186,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			assistantText.WriteString(note)
 			e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt)
 			_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: note}})
-			if len(req.Messages) > 0 && req.Messages[0].Role == gateway.RoleSystem {
+			if len(req.Messages) > 0 && req.Messages[0].Role == llmadapter.RoleSystem {
 				req.Messages[0].Content = localBrainFallbackLockHint(note) + req.Messages[0].Content
 			}
 		}
@@ -217,7 +227,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			emitInjectedGuidance(send, req)
 			seen := map[string]bool{}
 			completedDigests := map[string]string{}
-			var result gateway.Response
+			var result llmadapter.Response
 			var streamErr error
 			toolsFallbackUsed := false
 			guiFallbackUsed := false
@@ -244,7 +254,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			for step := 0; step < toolLoopLimit; step++ {
 				_ = e.applyQueuedSupplements(op, sessionID, &req, &turn, send, &assistantText)
 				stepTextStart := assistantText.Len()
-				result, streamErr = a.Stream(op, credential, req, func(d gateway.Delta) error {
+				result, streamErr = a.Stream(op, credential, req, func(d llmadapter.Delta) error {
 					if d.Reasoning != "" {
 						if thinkingText.Len() < maxThinkingTotalBytes && !req.DisableReasoning {
 							reasoning := truncateUTF8Bytes(d.Reasoning, maxThinkingTotalBytes-thinkingText.Len())
@@ -278,7 +288,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						}
 					}
 				}
-				var gatewayErr *gateway.Error
+				var gatewayErr *llmadapter.Error
 				if streamErr != nil && !imagesFallbackUsed && assistantText.Len() == 0 && thinkingText.Len() == 0 && len(req.Images) > 0 && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 && imageUnsupportedReason(gatewayErr.Message) {
 					req.Images = nil
 					imagesFallbackUsed = true
@@ -323,7 +333,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				if state.companion && len(result.Message.ToolCalls) == 0 {
 					if !autoMediaPlayDone && companionTurnWantsMusicPlay(turn.Goal) {
 						if playArgs, ok := e.companionAutoMediaPlayArgs(sessionID, turn.Goal); ok {
-							result.Message.ToolCalls = []gateway.ToolCall{{
+							result.Message.ToolCalls = []llmadapter.ToolCall{{
 								ID:        "auto-" + ulid.Make().String(),
 								Name:      "media.play",
 								Arguments: playArgs,
@@ -333,7 +343,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 					if !autoDesktopTypeDone && looksLikeTypeAfterLabelTurn(turn.Goal) {
 						if typeArgs, ok := e.companionAutoDesktopTypeArgs(sessionID, turn.Goal); ok {
-							result.Message.ToolCalls = []gateway.ToolCall{{
+							result.Message.ToolCalls = []llmadapter.ToolCall{{
 								ID:        "auto-" + ulid.Make().String(),
 								Name:      "desktop.type",
 								Arguments: typeArgs,
@@ -354,7 +364,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						skillDraftOffered = true
 						msg := result.Message
 						if strings.TrimSpace(msg.Content) == "" {
-							msg.Role = gateway.RoleAssistant
+							msg.Role = llmadapter.RoleAssistant
 							msg.Content = stepText
 						}
 						if msg.Role != "" {
@@ -367,19 +377,19 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						nudges++
 						msg := result.Message
 						if strings.TrimSpace(msg.Content) == "" {
-							msg.Role = gateway.RoleAssistant
+							msg.Role = llmadapter.RoleAssistant
 							msg.Content = stepText
 						}
 						nudge := continueNudgeMessage()
 						switch continueKind {
 						case "leadin":
-							nudge = gateway.Message{Role: gateway.RoleSystem, Content: "工具已经跑完。用一两句口语把结果说给用户听（天气说出气温和阴晴；打开/写入说出已打开或已写入），不要只说等一下，不要沉默。"}
+							nudge = llmadapter.Message{Role: llmadapter.RoleSystem, Content: "工具已经跑完。用一两句口语把结果说给用户听（天气说出气温和阴晴；打开/写入说出已打开或已写入），不要只说等一下，不要沉默。"}
 						case "desktop":
 							nudge = desktopContinueNudgeMessage()
 						case "incomplete":
 							nudge = incompleteContinueNudgeMessage()
 						case "wait":
-							nudge = gateway.Message{Role: gateway.RoleSystem, Content: "立刻调用本轮已装备的工具执行。不要再承诺稍等。下一句必须是结果或无法执行。"}
+							nudge = llmadapter.Message{Role: llmadapter.RoleSystem, Content: "立刻调用本轮已装备的工具执行。不要再承诺稍等。下一句必须是结果或无法执行。"}
 						}
 						req.Messages = append(req.Messages, msg, nudge)
 						continue
@@ -404,7 +414,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if note != "" {
 						msg := result.Message
 						if strings.TrimSpace(msg.Content) == "" && stepText != "" {
-							msg.Role = gateway.RoleAssistant
+							msg.Role = llmadapter.RoleAssistant
 							msg.Content = stepText
 						}
 						if msg.Role != "" {
@@ -511,11 +521,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
 							return err
 						}
-						req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
 						continue
 					}
 					if skipSummary, skip := companionRedundantMediaSkip(state.companion, turn.LastTools, call.Name); skip {
-						req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: skipSummary})
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: skipSummary})
 						continue
 					}
 					if skipSummary, skip := companionRedundantWebSkip(state.companion, turn.LastTools, call.Name, turn.Goal, webSearchSeen); skip {
@@ -533,7 +543,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							}
 							delete(subagentFutures, call.ID)
 						}
-						req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: skipSummary})
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: skipSummary})
 						continue
 					}
 					if call.Name == "web.search" {
@@ -560,7 +570,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: skipSummary}}); err != nil {
 							return err
 						}
-						req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: skipSummary})
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: skipSummary})
 						continue
 					}
 					if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: clipToolSummary(toolStartedSummary(call.Name, call.Arguments))}}); err != nil {
@@ -573,7 +583,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
 							return err
 						}
-						req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
 						continue
 					}
 					if call.Name == "mcp.presets" || call.Name == "mcp.install" || call.Name == "plugin.search" || call.Name == "plugin.install" {
@@ -585,7 +595,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
 							return err
 						}
-						req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
 						continue
 					}
 					if call.Name == "mcp.search" {
@@ -594,7 +604,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
 								return err
 							}
-							req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+							req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
 							continue
 						}
 						summary, invokeErr := e.searchMcpToolsFiltered(call.Arguments, state.mcpAllowed, state.mcpRestrict)
@@ -605,7 +615,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
 							return err
 						}
-						req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
 						continue
 					}
 					if call.Name == "mcp.call" {
@@ -614,7 +624,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
 								return err
 							}
-							req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+							req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
 							continue
 						}
 						summary, invokeErr := e.callMcpToolByNameGuarded(op, call.Arguments, state.mcpAllowed, state.mcpRestrict)
@@ -625,7 +635,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
 							return err
 						}
-						req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
 						continue
 					}
 					if endpointID, mcpTool, isMcp := parseMcpToolName(call.Name); isMcp {
@@ -634,7 +644,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
 								return err
 							}
-							req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+							req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
 							continue
 						}
 						var summary string
@@ -658,7 +668,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
 							return err
 						}
-						req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
 						continue
 					}
 					if subagentToolNames[call.Name] {
@@ -678,7 +688,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
 							return err
 						}
-						req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
 						continue
 					}
 					if planToolNames[call.Name] {
@@ -690,7 +700,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
 							return err
 						}
-						req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
 						continue
 					}
 					r, toolErr := func() (toolruntime.Result, error) {
@@ -832,7 +842,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: toolEvent}); err != nil {
 						return err
 					}
-					req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+					req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
 					if len(r.VisionData) > 0 {
 						req.Images = appendCaptureVision(req.Images, r.VisionMIME, r.VisionData)
 					}
@@ -913,8 +923,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 									return err
 								}
 								req.Messages = append(req.Messages,
-									gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{{ID: callID, Name: name, Arguments: playArgs}}},
-									gateway.Message{Role: gateway.RoleTool, ToolCallID: callID, Content: summary},
+									llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: callID, Name: name, Arguments: playArgs}}},
+									llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: callID, Content: summary},
 								)
 								turn.LastTools = append(turn.LastTools, name)
 							}
@@ -955,8 +965,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 									return err
 								}
 								req.Messages = append(req.Messages,
-									gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{{ID: callID, Name: name, Arguments: typeArgs}}},
-									gateway.Message{Role: gateway.RoleTool, ToolCallID: callID, Content: summary},
+									llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: callID, Name: name, Arguments: typeArgs}}},
+									llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: callID, Content: summary},
 								)
 								turn.LastTools = append(turn.LastTools, name)
 							}
@@ -980,6 +990,42 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			// Surface a Chinese notice in both the live stream and the
 			// persisted assistant text (same pattern as the 400 fallback).
 			if streamErr == nil {
+				// UX-05 #3: forced end-of-turn summary. A multi-tool / multi-round
+				// loop that exhausts its step budget with tool calls still pending
+				// and no final text used to finish silently (or with a canned
+				// notice). Run one more pass WITHOUT tools so the model must wrap
+				// up in natural language; fall through to the static notice only
+				// if that pass also yields nothing.
+				if assistantText.Len() == 0 && len(result.Message.ToolCalls) > 0 {
+					sumReq := req
+					sumReq.Tools = nil
+					sumReq.Messages = append(append([]llmadapter.Message{}, req.Messages...), result.Message, forceSummaryNudgeMessage())
+					sumRes, sumErr := a.Stream(op, credential, sumReq, func(d llmadapter.Delta) error {
+						if d.Text != "" {
+							assistantText.WriteString(d.Text)
+							e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt)
+							if err := sendDeltaChunks(send, d.Text); err != nil {
+								return err
+							}
+						}
+						return nil
+					})
+					if sumErr == nil {
+						if assistantText.Len() == 0 && state.companion && req.DisableReasoning {
+							if fallback := companionSpeakFallback(sumRes); fallback != "" {
+								assistantText.WriteString(fallback)
+								if err := sendDeltaChunks(send, fallback); err != nil {
+									return err
+								}
+							}
+						}
+						if sumRes.Usage.TotalTokens > 0 {
+							result.Usage.InputTokens += sumRes.Usage.InputTokens
+							result.Usage.OutputTokens += sumRes.Usage.OutputTokens
+							result.Usage.TotalTokens += sumRes.Usage.TotalTokens
+						}
+					}
+				}
 				notice := createTurnClosingNotice(turn.LastTools, assistantText.String())
 				if turn.ToolFailed {
 					if failNotice := createTurnFailureNotice(turn.LastTools, assistantText.String()); failNotice != "" {

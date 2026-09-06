@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 func TestSubagentCannotOutrankTheTurnThatSpawnedIt(t *testing.T) {
@@ -21,7 +21,7 @@ func TestSubagentCannotOutrankTheTurnThatSpawnedIt(t *testing.T) {
 	// The profile allows the write here, so the inherited mode is the only
 	// thing left that can stop it.
 	allowed := map[string]bool{"workspace.write": true}
-	calls := []gateway.ToolCall{
+	calls := []llmadapter.ToolCall{
 		{ID: "w", Name: "workspace.write", Arguments: json.RawMessage(`{"path":"escalated.txt","content":"x"}`)},
 	}
 
@@ -53,7 +53,7 @@ func TestSubagentUnsetParentModeFailsClosed(t *testing.T) {
 		t.Fatal("explore profile missing")
 	}
 	allowed := map[string]bool{"workspace.write": true}
-	calls := []gateway.ToolCall{
+	calls := []llmadapter.ToolCall{
 		{ID: "w", Name: "workspace.write", Arguments: json.RawMessage(`{"path":"unset.txt","content":"x"}`)},
 	}
 	msgs := e.runSubagentToolCalls(context.Background(), subTestSession, profile, allowed, calls, executionMode(""))

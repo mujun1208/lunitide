@@ -408,6 +408,8 @@ func skillFailure(r bridge.Request, err error) bridge.Response {
 		return r.Fail("SKILL_ENTRY_POINT_DENIED", "技能入口不在 Engine builtin allowlist", false)
 	case errors.Is(err, skillapp.ErrSkillNotFound):
 		return r.Fail("SKILL_NOT_FOUND", "技能不存在", false)
+	case errors.Is(err, skillapp.ErrSkillVersionConflict):
+		return r.Fail("SKILL_VERSION_CONFLICT", "技能已被并发修改，请基于最新版本重试", false)
 	case errors.Is(err, skillapp.ErrInvalidTransition):
 		return r.Fail("SKILL_INVALID_TRANSITION", "技能状态转换无效", false)
 	default:

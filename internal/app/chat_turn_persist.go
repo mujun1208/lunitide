@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/bridge"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/oklog/ulid/v2"
 )
@@ -14,7 +14,7 @@ import (
 // assistant write. The renderer never appends it to history.
 const persistRetrySentinel = "\u2063persist-retry"
 
-func isPersistRetryTurn(messages []gateway.Message) bool {
+func isPersistRetryTurn(messages []llmadapter.Message) bool {
 	return lastUserChatText(messages) == persistRetrySentinel
 }
 

@@ -58,7 +58,9 @@ type SubmitInput struct {
 	// Request is the canonical Host request representation. The coordinator hashes it;
 	// callers cannot provide an authorization hash.
 	Request []byte
-	// RequestHash is retained for internal legacy tests. New Host code must set Request.
+	// RequestHash is deprecated and MUST be empty. Submit rejects any non-empty
+	// value (S-04): the authorization digest is always recomputed server-side
+	// from Request, so a client can no longer supply a forged digest.
 	RequestHash string
 	Credential  []byte
 	TTL         time.Duration
@@ -206,11 +208,14 @@ func (c *Coordinator) Submit(ctx context.Context, in SubmitInput) (Submission, e
 	if len(in.Credential) == 0 || len(in.Credential) > MaxCredentialSize {
 		return Submission{}, errors.New("invalid credential size")
 	}
-	digest, err := requestDigest(in.Request)
-	if len(in.Request) == 0 && validDigest(in.RequestHash) {
-		digest = strings.ToLower(in.RequestHash)
-		err = nil
+	// S-04: the authorization digest is always recomputed from the canonical
+	// request. The legacy branch that accepted a client-supplied RequestHash
+	// when Request was empty is removed — it let a client forge an arbitrary
+	// authorization digest. RequestHash is deprecated; reject any non-empty value.
+	if in.RequestHash != "" {
+		return Submission{}, errors.New("RequestHash is no longer accepted; provide the canonical Request")
 	}
+	digest, err := requestDigest(in.Request)
 	if err != nil {
 		return Submission{}, err
 	}

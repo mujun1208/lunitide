@@ -198,4 +198,7 @@ type Identity interface {
 	Snapshot() identity.Record
 	Sign(message []byte) ([]byte, error)
 	SetDiscovery(ctx context.Context, enabled bool) (identity.Public, error)
+	// X25519Shared derives the NaCl box shared key between this identity and
+	// a peer's Ed25519 public key (hex). Used for F-08 message-body E2E.
+	X25519Shared(peerEd25519PubHex string) (*[32]byte, error)
 }

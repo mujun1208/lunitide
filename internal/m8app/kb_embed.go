@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/domain/m8core"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 func (s *KBService) embedChunksAfterCommit(ctx context.Context, chunks []m8core.KBChunk) {
@@ -30,7 +30,7 @@ func (s *KBService) embedChunksAfterCommit(ctx context.Context, chunks []m8core.
 	}
 	_ = s.uow.TransactKB(ctx, func(tx KBTx) error {
 		for i, id := range ids {
-			blob := gateway.EncodeEmbeddingBLOB(vecs[i])
+			blob := llmadapter.EncodeEmbeddingBLOB(vecs[i])
 			if len(blob) == 0 {
 				continue
 			}

@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -100,20 +99,33 @@ func hash(label string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func draftInput(t *testing.T, requestHash string, credential []byte) SubmitInput {
+// draftRequest is the canonical draft-create request that draftInput submits.
+// S-04 removed the client-supplied RequestHash path, so tests now provide the
+// real canonical Request; its SHA-256 (draftDigest) is the authorization digest
+// callers must present to Reserve/Adopt/Consume.
+func draftRequest() []byte {
+	return []byte(`{"protocol":"openai_compatible","baseUrl":"https://api.example.test"}`)
+}
+
+func draftDigest() string {
+	sum := sha256.Sum256(draftRequest())
+	return hex.EncodeToString(sum[:])
+}
+
+func draftInput(t *testing.T, credential []byte) SubmitInput {
 	t.Helper()
 	origin := "https://api.example.test"
 	fingerprint, err := provider.OriginFingerprint(provider.ProtocolOpenAICompatible, origin)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return SubmitInput{Scope: Draft(fingerprint), Protocol: provider.ProtocolOpenAICompatible, Origin: origin, RequestHash: requestHash, Credential: credential}
+	return SubmitInput{Scope: Draft(fingerprint), Protocol: provider.ProtocolOpenAICompatible, Origin: origin, Request: draftRequest(), Credential: credential}
 }
 
 func TestReserveConcurrentSingleLogicalWinnerAndReplay(t *testing.T) {
 	c, _, _ := testCoordinator(t)
-	ownerHash := hash("owner")
-	sub, err := c.Submit(context.Background(), draftInput(t, ownerHash, []byte("credential")))
+	ownerHash := draftDigest()
+	sub, err := c.Submit(context.Background(), draftInput(t, []byte("credential")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,23 +183,23 @@ func TestReserveConcurrentSingleLogicalWinnerAndReplay(t *testing.T) {
 
 func TestRecoveryDeletesUncommittedButNeverConsumed(t *testing.T) {
 	c, store, root := testCoordinator(t)
-	h1, h2 := hash("orphan"), hash("adopted")
-	orphan, err := c.Submit(context.Background(), draftInput(t, h1, []byte("orphan-secret")))
+	dg := draftDigest()
+	orphan, err := c.Submit(context.Background(), draftInput(t, []byte("orphan-secret")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	adopted, err := c.Submit(context.Background(), draftInput(t, h2, []byte("adopted-secret")))
+	adopted, err := c.Submit(context.Background(), draftInput(t, []byte("adopted-secret")))
 	if err != nil {
 		t.Fatal(err)
 	}
 	orphanRef := c.entries[orphan.SubmissionID].Ref
-	if _, err = c.Reserve(context.Background(), adopted.SubmissionID, h2); err != nil {
+	if _, err = c.Reserve(context.Background(), adopted.SubmissionID, dg); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = c.Adopt(context.Background(), adopted.SubmissionID, h2); err != nil {
+	if _, err = c.Adopt(context.Background(), adopted.SubmissionID, dg); err != nil {
 		t.Fatal(err)
 	}
-	consumed, err := c.Consume(context.Background(), adopted.SubmissionID, h2)
+	consumed, err := c.Consume(context.Background(), adopted.SubmissionID, dg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +218,7 @@ func TestRecoveryDeletesUncommittedButNeverConsumed(t *testing.T) {
 	if !store.has(consumed.Ref) {
 		t.Fatal("recovery deleted consumed credential")
 	}
-	if _, err = recovered.Consume(context.Background(), adopted.SubmissionID, h2); err != nil {
+	if _, err = recovered.Consume(context.Background(), adopted.SubmissionID, dg); err != nil {
 		t.Fatalf("uncertain consume replay failed: %v", err)
 	}
 }
@@ -215,8 +227,8 @@ func TestCompletedReplayExpiresAndRecoveryCompactsWithoutDeletingSecret(t *testi
 	c, store, root := testCoordinator(t)
 	now := time.Now().UTC().Add(-2 * time.Minute)
 	c.now = func() time.Time { return now }
-	h := hash("bounded-replay")
-	input := draftInput(t, h, []byte("adopted-secret"))
+	h := draftDigest()
+	input := draftInput(t, []byte("adopted-secret"))
 	input.TTL = time.Minute
 	sub, err := c.Submit(context.Background(), input)
 	if err != nil {
@@ -288,8 +300,8 @@ func TestCompletedJournalStressBeyondEntryLimit(t *testing.T) {
 
 	const submissions = maxJournalEntries + 1
 	for i := 0; i < submissions; i++ {
-		h := hash(fmt.Sprintf("stress-%d", i))
-		input := draftInput(t, h, []byte("secret"))
+		h := draftDigest()
+		input := draftInput(t, []byte("secret"))
 		input.TTL = time.Second
 		sub, err := c.Submit(context.Background(), input)
 		if err != nil {
@@ -325,7 +337,7 @@ func TestOutstandingLimitRejectsBeforeSecretPut(t *testing.T) {
 		c.entries[id] = journalEntry{SubmissionID: id, State: StateReady}
 	}
 	c.mu.Unlock()
-	input := draftInput(t, hash("bounded"), []byte("must-not-be-stored"))
+	input := draftInput(t, []byte("must-not-be-stored"))
 	if _, err := c.Submit(context.Background(), input); !errors.Is(err, ErrBusy) {
 		t.Fatalf("full coordinator submit error=%v want ErrBusy", err)
 	}
@@ -337,14 +349,14 @@ func TestOutstandingLimitRejectsBeforeSecretPut(t *testing.T) {
 func TestReplacementAlwaysAllocatesNewReference(t *testing.T) {
 	c, _, _ := testCoordinator(t)
 	providerID := ulid.Make().String()
-	input := draftInput(t, hash("one"), []byte("first"))
+	input := draftInput(t, []byte("first"))
 	input.Scope = Draft(input.Scope.DraftFingerprint)
 	first, err := c.Submit(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	firstRef := c.entries[first.SubmissionID].Ref
-	input = draftInput(t, hash("two"), []byte("second"))
+	input = draftInput(t, []byte("second"))
 	input.Scope = Draft(input.Scope.DraftFingerprint)
 	second, err := c.Submit(context.Background(), input)
 	if err != nil {
@@ -361,8 +373,8 @@ func TestExpiryDeletesUnconsumedAndRejectsLateConsume(t *testing.T) {
 	c, store, _ := testCoordinator(t)
 	now := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
 	c.now = func() time.Time { return now }
-	h := hash("expiry")
-	input := draftInput(t, h, []byte("short-lived"))
+	h := draftDigest()
+	input := draftInput(t, []byte("short-lived"))
 	input.TTL = time.Minute
 	sub, err := c.Submit(context.Background(), input)
 	if err != nil {
@@ -382,7 +394,7 @@ func TestExpiryDeletesUnconsumedAndRejectsLateConsume(t *testing.T) {
 	if store.has(reserved.Ref) || store.count() != 0 {
 		t.Fatal("expired credential was not deleted")
 	}
-	tooLong := draftInput(t, hash("long"), []byte("x"))
+	tooLong := draftInput(t, []byte("x"))
 	tooLong.TTL = MaxTTL + time.Nanosecond
 	if _, err = c.Submit(context.Background(), tooLong); err == nil {
 		t.Fatal("accepted TTL over five minutes")
@@ -395,7 +407,7 @@ func TestExpiryDeletesUnconsumedAndRejectsLateConsume(t *testing.T) {
 func TestJournalContainsMetadataOnlyAndInputIsZeroed(t *testing.T) {
 	c, _, root := testCoordinator(t)
 	canary := []byte("PLAINTEXT-CREDENTIAL-CANARY")
-	input := draftInput(t, hash("journal"), canary)
+	input := draftInput(t, canary)
 	sub, err := c.Submit(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
@@ -438,18 +450,18 @@ func TestJournalContainsMetadataOnlyAndInputIsZeroed(t *testing.T) {
 func TestValidationAndMaximumCredentialSize(t *testing.T) {
 	c, _, _ := testCoordinator(t)
 	oversize := make([]byte, MaxCredentialSize+1)
-	if _, err := c.Submit(context.Background(), draftInput(t, hash("large"), oversize)); err == nil {
+	if _, err := c.Submit(context.Background(), draftInput(t, oversize)); err == nil {
 		t.Fatal("accepted oversized credential")
 	}
 	if !bytes.Equal(oversize, make([]byte, len(oversize))) {
 		t.Fatal("oversized credential was not zeroed")
 	}
-	bad := draftInput(t, hash("bad-origin"), []byte("x"))
+	bad := draftInput(t, []byte("x"))
 	bad.Origin = "HTTPS://API.EXAMPLE.TEST/"
 	if _, err := c.Submit(context.Background(), bad); err == nil {
 		t.Fatal("accepted non-normalized origin")
 	}
-	bad = draftInput(t, hash("bad-fingerprint"), []byte("x"))
+	bad = draftInput(t, []byte("x"))
 	bad.Scope = Draft(hash("different"))
 	if _, err := c.Submit(context.Background(), bad); err == nil {
 		t.Fatal("accepted mismatched draft fingerprint")

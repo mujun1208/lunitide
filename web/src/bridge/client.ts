@@ -300,9 +300,8 @@ export function getProviderBridge():ProviderBridge{return singleton??=createProv
 export const providerBridge:ProviderBridge={get:p=>getProviderBridge().get(p),list:p=>getProviderBridge().list(p),create:(p,o)=>getProviderBridge().create(p,o),update:(p,o)=>getProviderBridge().update(p,o),delete:(p,o)=>getProviderBridge().delete(p,o),revealCredential:p=>getProviderBridge().revealCredential(p),submitCredential:p=>getProviderBridge().submitCredential(p),syncModels:(p,o)=>getProviderBridge().syncModels(p,o),test:p=>getProviderBridge().test(p),backupAdd:(p,o)=>getProviderBridge().backupAdd(p,o),backupRemove:(p,o)=>getProviderBridge().backupRemove(p,o)}
 
 export function createProjectBridge(transport:WebViewTransport,defaultDeadlineMs=8_000):ProjectBridge{
- const pending=new Map<string,{method:BridgeMethod;resolve(v:unknown):void;reject(e:Error):void;timer:number}>()
- transport.addEventListener('message',event=>{const raw:unknown=event.data;if(!isObj(raw)||typeof raw.requestId!=='string'||!pending.has(raw.requestId))return;const requestId=raw.requestId,waiting=pending.get(requestId)!;clearTimeout(waiting.timer);pending.delete(requestId);if(!validEnvelope(raw)){waiting.reject(new BridgeClientError('Bridge 响应格式无效','INVALID_BRIDGE_RESPONSE',false,requestId));return}if(!raw.ok){waiting.reject(new BridgeClientError(raw.error.message,raw.error.code,raw.error.retryable,raw.error.correlationId));return}const guard=(guards as Partial<Record<string,(v:unknown)=>boolean>>)[waiting.method];if(!guard?.(raw.payload)){waiting.reject(new BridgeClientError('Bridge 方法结果格式无效','INVALID_BRIDGE_RESULT',false,raw.id));return}waiting.resolve(raw.payload)})
- const request=<T>(method:'project.create'|'project.list'|'project.delete'|'project.update'|'project.publish'|'project.close'|'project.reopen'|'project.advanceStatus',payload:object,attempt?:MutationAttempt<object>):Promise<T>=>{const id=ulid(),mutation=method!=='project.list'?checkedAttempt(method,payload,attempt):undefined,traceId=ulid(),deadlineMs=Math.min(30_000,Math.max(1,defaultDeadlineMs)),message:BridgeRequest<object>={v:BRIDGE_VERSION,kind:'request',id,traceId,method:method as BridgeMethod,sentAt:new Date().toISOString(),payload:mutation?.payload??clone(payload),deadlineMs,...(mutation?{idempotencyKey:mutation.key}:{})};return new Promise((resolve,reject)=>{const timer=window.setTimeout(()=>{pending.delete(id);reject(new BridgeClientError('Bridge 请求超时','REQUEST_DEADLINE_EXCEEDED',true,traceId))},deadlineMs+250);pending.set(id,{method:method as BridgeMethod,resolve,reject,timer});try{transport.postMessage(message)}catch{clearTimeout(timer);pending.delete(id);reject(new BridgeClientError('WebView2 Bridge 当前不可用','BRIDGE_UNAVAILABLE',true,traceId))}})}
+ const core=createSimpleBridge(transport,{},defaultDeadlineMs,(method,payload)=>!!(guards as Partial<Record<string,(v:unknown)=>boolean>>)[method]?.(payload))
+ const request=<T>(method:'project.create'|'project.list'|'project.delete'|'project.update'|'project.publish'|'project.close'|'project.reopen'|'project.advanceStatus',payload:object,attempt?:MutationAttempt<object>):Promise<T>=>core.request<T>(method as BridgeMethod,payload,defaultDeadlineMs,attempt)
  return{list:(p={})=>request('project.list',p),create:(p,o)=>request('project.create',p,o?.attempt),update:(p,o)=>request('project.update',p,o?.attempt),publish:(p,o)=>request('project.publish',p,o?.attempt),close:(p,o)=>request('project.close',p,o?.attempt),reopen:(p,o)=>request('project.reopen',p,o?.attempt),advanceStatus:(p,o)=>request('project.advanceStatus',p,o?.attempt),delete:(p,o)=>request('project.delete',p,o?.attempt)}
 }
 let projectSingleton:ProjectBridge|undefined
@@ -573,9 +572,10 @@ export function getCapabilityRolesBridge(): CapabilityRolesBridge { return capab
 function createSimpleBridge<TMethods extends Record<string, BridgeMethod>>(
   transport: WebViewTransport,
   methods: TMethods,
-  defaultDeadlineMs = 8_000
+  defaultDeadlineMs = 8_000,
+  guard?: (method: BridgeMethod, payload: unknown) => boolean
 ) {
-  const pending = new Map<string, { resolve(v: unknown): void; reject(e: Error): void; timer: number }>()
+  const pending = new Map<string, { method: BridgeMethod; resolve(v: unknown): void; reject(e: Error): void; timer: number }>()
   transport.addEventListener('message', event => {
     const raw: unknown = event.data
     if (!isObj(raw) || typeof raw.requestId !== 'string' || !pending.has(raw.requestId)) return
@@ -584,7 +584,10 @@ function createSimpleBridge<TMethods extends Record<string, BridgeMethod>>(
     clearTimeout(waiting.timer)
     pending.delete(requestId)
     if (!validEnvelope(raw)) { waiting.reject(new BridgeClientError('Bridge 响应格式无效', 'INVALID_BRIDGE_RESPONSE', false, requestId)); return }
-    if (raw.ok) waiting.resolve(raw.payload)
+    if (raw.ok) {
+      if (guard && !guard(waiting.method, raw.payload)) { waiting.reject(new BridgeClientError('Bridge 方法结果格式无效', 'INVALID_BRIDGE_RESULT', false, raw.id)); return }
+      waiting.resolve(raw.payload)
+    }
     else waiting.reject(new BridgeClientError(raw.error.message, raw.error.code, raw.error.retryable, raw.error.correlationId))
   })
   const request = <T>(method: BridgeMethod, payload: object, deadlineMs = defaultDeadlineMs, attempt?: MutationAttempt<object>): Promise<T> => {
@@ -593,7 +596,7 @@ function createSimpleBridge<TMethods extends Record<string, BridgeMethod>>(
     const message: BridgeRequest<object> = { v: BRIDGE_VERSION, kind: 'request', id, traceId, method, sentAt: new Date().toISOString(), payload: mutation?.payload ?? clone(payload), deadlineMs: capBridgeDeadlineMs(method, deadlineMs), ...(mutation ? { idempotencyKey: mutation.key } : {}) }
     return new Promise((resolve, reject) => {
       const timer = window.setTimeout(() => { pending.delete(id); reject(new BridgeClientError('Bridge 请求超时', 'REQUEST_DEADLINE_EXCEEDED', true, traceId)) }, message.deadlineMs + 250)
-      pending.set(id, { resolve, reject, timer })
+      pending.set(id, { method, resolve, reject, timer })
       try { transport.postMessage(message) } catch { clearTimeout(timer); pending.delete(id); reject(new BridgeClientError('WebView2 Bridge 当前不可用', 'BRIDGE_UNAVAILABLE', true, traceId)) }
     })
   }

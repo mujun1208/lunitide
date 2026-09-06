@@ -3,15 +3,15 @@ package app
 import (
 	"testing"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 func TestSection8ManualContracts(t *testing.T) {
 	t.Parallel()
 	defs := append(engineToolDefinitions(),
-		gateway.ToolDefinition{Name: "computer.act"},
-		gateway.ToolDefinition{Name: "browser.act"},
-		gateway.ToolDefinition{Name: "kb.search"},
+		llmadapter.ToolDefinition{Name: "computer.act"},
+		llmadapter.ToolDefinition{Name: "browser.act"},
+		llmadapter.ToolDefinition{Name: "kb.search"},
 	)
 
 	t.Run("1-weather-web-search-only", func(t *testing.T) {

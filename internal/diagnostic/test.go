@@ -6,27 +6,27 @@ import (
 	"errors"
 	"time"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
-func Test(ctx context.Context, a gateway.Adapter, secret []byte, model string) gateway.TestResult {
+func Test(ctx context.Context, a llmadapter.Adapter, secret []byte, model string) llmadapter.TestResult {
 	start := time.Now()
-	_, err := a.Complete(ctx, secret, gateway.Request{Model: model, Messages: []gateway.Message{{Role: gateway.RoleUser, Content: "Hi"}}, MaxTokens: 1, MaxAttempts: 1})
+	_, err := a.Complete(ctx, secret, llmadapter.Request{Model: model, Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "Hi"}}, MaxTokens: 1, MaxAttempts: 1})
 	latency := time.Since(start)
 	if err == nil {
-		return gateway.TestResult{OK: true, Stage: gateway.StageHTTP, HTTPStatus: 200, Latency: latency, SanitizedMessage: "Connection successful"}
+		return llmadapter.TestResult{OK: true, Stage: llmadapter.StageHTTP, HTTPStatus: 200, Latency: latency, SanitizedMessage: "Connection successful"}
 	}
-	var ge *gateway.Error
+	var ge *llmadapter.Error
 	if !errors.As(err, &ge) {
-		ge = &gateway.Error{Code: "GATEWAY_ERROR", Stage: gateway.StageDecode, Message: "Gateway test failed"}
+		ge = &llmadapter.Error{Code: "GATEWAY_ERROR", Stage: llmadapter.StageDecode, Message: "Gateway test failed"}
 	}
 	// Never trust Error.Message from an adapter implementation.
-	safe := &gateway.Error{Code: ge.Code, Stage: ge.Stage, HTTPStatus: ge.HTTPStatus, Message: diagnosticMessage(ge.Code, ge.Stage)}
-	return gateway.TestResult{OK: false, Stage: safe.Stage, HTTPStatus: safe.HTTPStatus, Latency: latency, Error: safe, SanitizedMessage: safe.Message}
+	safe := &llmadapter.Error{Code: ge.Code, Stage: ge.Stage, HTTPStatus: ge.HTTPStatus, Message: diagnosticMessage(ge.Code, ge.Stage)}
+	return llmadapter.TestResult{OK: false, Stage: safe.Stage, HTTPStatus: safe.HTTPStatus, Latency: latency, Error: safe, SanitizedMessage: safe.Message}
 }
 
-func diagnosticMessage(code string, stage gateway.Stage) string {
-	if stage == gateway.StageHTTP {
+func diagnosticMessage(code string, stage llmadapter.Stage) string {
+	if stage == llmadapter.StageHTTP {
 		switch code {
 		case "HTTP_401", "HTTP_403":
 			return "Authentication failed"
@@ -36,7 +36,7 @@ func diagnosticMessage(code string, stage gateway.Stage) string {
 			return "Provider rate limit reached"
 		}
 	}
-	if stage == gateway.StageConnect {
+	if stage == llmadapter.StageConnect {
 		switch code {
 		case "TIMEOUT":
 			return "Provider connection timed out"
@@ -50,7 +50,7 @@ func diagnosticMessage(code string, stage gateway.Stage) string {
 			return "Provider outcome is unknown"
 		}
 	}
-	if stage == gateway.StageDecode && code == "MALFORMED_RESPONSE" {
+	if stage == llmadapter.StageDecode && code == "MALFORMED_RESPONSE" {
 		return "Provider returned an invalid response"
 	}
 	return "Provider connection test failed"

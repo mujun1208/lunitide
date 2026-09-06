@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/bridge"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
@@ -58,7 +58,7 @@ func looksLikePptTask(text string) bool {
 	return false
 }
 
-func pptTaskFromRequest(req gateway.Request, goal string) bool {
+func pptTaskFromRequest(req llmadapter.Request, goal string) bool {
 	if looksLikePptTask(goal) {
 		return true
 	}
@@ -232,13 +232,13 @@ func pptThinkingBanner(stage string) string {
 	}
 }
 
-func pptStageNudge(stage string) gateway.Message {
-	return gateway.Message{Role: gateway.RoleSystem, Content: "继续 PPT 九步流水线的下一步（" + stage + "）。" +
+func pptStageNudge(stage string) llmadapter.Message {
+	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: "继续 PPT 九步流水线的下一步（" + stage + "）。" +
 		"还没有合格 pptx.gen 之前不要结束本轮。需要网上素材就调用 web.search / web.fetch。" +
 		"禁止写只有深色底没有文字的幻灯片。"}
 }
 
-func startPptWorkflow(req *gateway.Request, turn *chatTurnCheckpoint, send func(bridge.Event) error) {
+func startPptWorkflow(req *llmadapter.Request, turn *chatTurnCheckpoint, send func(bridge.Event) error) {
 	if req == nil || turn == nil || req.DisableReasoning {
 		return
 	}
@@ -257,7 +257,7 @@ func startPptWorkflow(req *gateway.Request, turn *chatTurnCheckpoint, send func(
 	injectPptPipelineOnce(req)
 }
 
-func injectPptPipelineOnce(req *gateway.Request) {
+func injectPptPipelineOnce(req *llmadapter.Request) {
 	if req == nil {
 		return
 	}
@@ -266,10 +266,10 @@ func injectPptPipelineOnce(req *gateway.Request) {
 			return
 		}
 	}
-	req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleSystem, Content: pptPipelineInstruction})
+	req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: pptPipelineInstruction})
 }
 
-func nudgePptWorkflow(req *gateway.Request, turn *chatTurnCheckpoint, send func(bridge.Event) error) bool {
+func nudgePptWorkflow(req *llmadapter.Request, turn *chatTurnCheckpoint, send func(bridge.Event) error) bool {
 	if !shouldContinuePptTurn(turn, req != nil && req.DisableReasoning) {
 		return false
 	}

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 // planFakeAdapter answers the plan/execute/verify Complete calls in order.
@@ -15,25 +15,25 @@ type planFakeAdapter struct {
 	calls int
 }
 
-func (a *planFakeAdapter) Complete(_ context.Context, _ []byte, req gateway.Request) (gateway.Response, error) {
+func (a *planFakeAdapter) Complete(_ context.Context, _ []byte, req llmadapter.Request) (llmadapter.Response, error) {
 	a.calls++
 	switch {
 	case strings.Contains(req.Messages[0].Content, "planning coordinator"):
-		return gateway.Response{Message: gateway.Message{Content: `{"steps":[{"action":"read","detail":"inspect the file"},{"action":"report","detail":"summarize findings"}]}`}}, nil
+		return llmadapter.Response{Message: llmadapter.Message{Content: `{"steps":[{"action":"read","detail":"inspect the file"},{"action":"report","detail":"summarize findings"}]}`}}, nil
 	case strings.Contains(req.Messages[0].Content, "execution agent"):
-		return gateway.Response{Message: gateway.Message{Content: "step outcome: done"}}, nil
+		return llmadapter.Response{Message: llmadapter.Message{Content: "step outcome: done"}}, nil
 	case strings.Contains(req.Messages[0].Content, "verifier"):
-		return gateway.Response{Message: gateway.Message{Content: `{"verified":true,"gaps":""}`}}, nil
+		return llmadapter.Response{Message: llmadapter.Message{Content: `{"verified":true,"gaps":""}`}}, nil
 	}
-	return gateway.Response{Message: gateway.Message{Content: "unexpected"}}, nil
+	return llmadapter.Response{Message: llmadapter.Message{Content: "unexpected"}}, nil
 }
 
-func (a *planFakeAdapter) Stream(context.Context, []byte, gateway.Request, func(gateway.Delta) error) (gateway.Response, error) {
-	return gateway.Response{}, context.Canceled
+func (a *planFakeAdapter) Stream(context.Context, []byte, llmadapter.Request, func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	return llmadapter.Response{}, context.Canceled
 }
 
-func (a *planFakeAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, nil
+func (a *planFakeAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, nil
 }
 
 func TestPlanRunCyclePlanExecuteVerify(t *testing.T) {
@@ -129,7 +129,7 @@ type planJudgeAdapter struct {
 	calls       int
 }
 
-func (a *planJudgeAdapter) Complete(_ context.Context, _ []byte, req gateway.Request) (gateway.Response, error) {
+func (a *planJudgeAdapter) Complete(_ context.Context, _ []byte, req llmadapter.Request) (llmadapter.Response, error) {
 	a.calls++
 	sys := ""
 	if len(req.Messages) > 0 {
@@ -137,9 +137,9 @@ func (a *planJudgeAdapter) Complete(_ context.Context, _ []byte, req gateway.Req
 	}
 	switch {
 	case strings.Contains(sys, "planning coordinator"):
-		return gateway.Response{Message: gateway.Message{Content: `{"steps":[{"action":"open","detail":"open app"}]}`}}, nil
+		return llmadapter.Response{Message: llmadapter.Message{Content: `{"steps":[{"action":"open","detail":"open app"}]}`}}, nil
 	case strings.Contains(sys, "execution agent"):
-		return gateway.Response{Message: gateway.Message{Content: "opened\n{\"l0\":{\"kind\":\"foreground\",\"passed\":false,\"uncertain\":true}}"}}, nil
+		return llmadapter.Response{Message: llmadapter.Message{Content: "opened\n{\"l0\":{\"kind\":\"foreground\",\"passed\":false,\"uncertain\":true}}"}}, nil
 	case strings.Contains(sys, "verifier"):
 		a.verifyModel = req.Model
 		user := ""
@@ -147,19 +147,19 @@ func (a *planJudgeAdapter) Complete(_ context.Context, _ []byte, req gateway.Req
 			user = req.Messages[n-1].Content
 		}
 		if !strings.Contains(user, "L0:") {
-			return gateway.Response{Message: gateway.Message{Content: `{"verified":false,"gaps":"missing l0"}`}}, nil
+			return llmadapter.Response{Message: llmadapter.Message{Content: `{"verified":false,"gaps":"missing l0"}`}}, nil
 		}
-		return gateway.Response{Message: gateway.Message{Content: `{"verified":false,"gaps":"l0 incomplete"}`}}, nil
+		return llmadapter.Response{Message: llmadapter.Message{Content: `{"verified":false,"gaps":"l0 incomplete"}`}}, nil
 	}
-	return gateway.Response{Message: gateway.Message{Content: "unexpected"}}, nil
+	return llmadapter.Response{Message: llmadapter.Message{Content: "unexpected"}}, nil
 }
 
-func (a *planJudgeAdapter) Stream(context.Context, []byte, gateway.Request, func(gateway.Delta) error) (gateway.Response, error) {
-	return gateway.Response{}, context.Canceled
+func (a *planJudgeAdapter) Stream(context.Context, []byte, llmadapter.Request, func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	return llmadapter.Response{}, context.Canceled
 }
 
-func (a *planJudgeAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, nil
+func (a *planJudgeAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, nil
 }
 
 func TestPlanVerifyUsesFlashWhenVendorHasPlusAndFlash(t *testing.T) {
@@ -221,14 +221,14 @@ func TestPlanToolDefinitionsTiers(t *testing.T) {
 
 func TestComplexityTierHintWiring(t *testing.T) {
 	// Simple conversation: no hint.
-	simple := []gateway.Message{{Role: gateway.RoleSystem, Content: "sys"}, {Role: gateway.RoleUser, Content: "hi"}}
+	simple := []llmadapter.Message{{Role: llmadapter.RoleSystem, Content: "sys"}, {Role: llmadapter.RoleUser, Content: "hi"}}
 	if got := complexityTierHint(simple); got != "" {
 		t.Fatalf("simple conversation hinted: %q", got)
 	}
 	// Moderate: deep turn history plus tool traffic lands in the 8-16 band.
-	many := []gateway.Message{{Role: gateway.RoleSystem, Content: "sys"}}
+	many := []llmadapter.Message{{Role: llmadapter.RoleSystem, Content: "sys"}}
 	for i := 0; i < 10; i++ {
-		many = append(many, gateway.Message{Role: gateway.RoleUser, Content: "question"}, gateway.Message{Role: gateway.RoleTool, Content: "tool output"}, gateway.Message{Role: gateway.RoleAssistant, Content: "answer"})
+		many = append(many, llmadapter.Message{Role: llmadapter.RoleUser, Content: "question"}, llmadapter.Message{Role: llmadapter.RoleTool, Content: "tool output"}, llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "answer"})
 	}
 	hint := complexityTierHint(many)
 	if !strings.Contains(hint, "moderate") || !strings.Contains(hint, "plan.run") {

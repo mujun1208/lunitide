@@ -13,7 +13,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/message"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/token"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/messageapp"
 )
 
@@ -32,17 +32,17 @@ func (s *assistantUsageSpy) List(context.Context, messageapp.PageRequest) (messa
 
 type assistantUsageAdapter struct{}
 
-func (assistantUsageAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (assistantUsageAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (assistantUsageAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (assistantUsageAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (assistantUsageAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
-	if err := emit(gateway.Delta{Text: "answer"}); err != nil {
-		return gateway.Response{}, err
+func (assistantUsageAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	if err := emit(llmadapter.Delta{Text: "answer"}); err != nil {
+		return llmadapter.Response{}, err
 	}
-	return gateway.Response{Usage: gateway.Usage{InputTokens: 90, OutputTokens: 10, TotalTokens: 100}}, nil
+	return llmadapter.Response{Usage: llmadapter.Usage{InputTokens: 90, OutputTokens: 10, TotalTokens: 100}}, nil
 }
 
 type finalizationGateAdapter struct {
@@ -50,19 +50,19 @@ type finalizationGateAdapter struct {
 	release       chan struct{}
 }
 
-func (a finalizationGateAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (a finalizationGateAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (a finalizationGateAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (a finalizationGateAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (a finalizationGateAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
-	if err := emit(gateway.Delta{Text: "durable answer"}); err != nil {
-		return gateway.Response{}, err
+func (a finalizationGateAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	if err := emit(llmadapter.Delta{Text: "durable answer"}); err != nil {
+		return llmadapter.Response{}, err
 	}
 	close(a.upstreamReady)
 	<-a.release
-	return gateway.Response{Usage: gateway.Usage{OutputTokens: 3, TotalTokens: 3}}, nil
+	return llmadapter.Response{Usage: llmadapter.Usage{OutputTokens: 3, TotalTokens: 3}}, nil
 }
 
 type blockingAssistantWriter struct {
@@ -96,11 +96,11 @@ func (w *blockingAssistantWriter) callCount() int {
 	return w.calls
 }
 
-func runFinalizationTestStream(t *testing.T, writer MessageService, adapter gateway.Adapter) (*Engine, string, <-chan bridge.Event) {
+func runFinalizationTestStream(t *testing.T, writer MessageService, adapter llmadapter.Adapter) (*Engine, string, <-chan bridge.Event) {
 	t.Helper()
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
 	e.messages = writer
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) { return adapter, nil })
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	state := &streamState{cancel: cancel, state: streamRunning}
 	id := "stream"
@@ -109,7 +109,7 @@ func runFinalizationTestStream(t *testing.T, writer MessageService, adapter gate
 	go e.runStream(ctx, id, state, provider.Provider{
 		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible,
 		BaseURL: "https://api.example.com", CredentialRef: "credential-ref",
-	}, gateway.Request{Model: "model"}, func(event bridge.Event) error { events <- event; return nil }, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	}, llmadapter.Request{Model: "model"}, func(event bridge.Event) error { events <- event; return nil }, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
 	return e, id, events
 }
 
@@ -208,15 +208,15 @@ func TestCombineDurableProviderMessagesOrdersAndValidatesFinalSequence(t *testin
 		{Role: "user", Content: "old question", TokenCount: 3},
 		{Role: "assistant", Content: "old answer", TokenCount: 3},
 	}
-	explicit := []gateway.Message{
-		{Role: gateway.RoleSystem, Content: "authoritative rules"},
-		{Role: gateway.RoleUser, Content: "current request"},
+	explicit := []llmadapter.Message{
+		{Role: llmadapter.RoleSystem, Content: "authoritative rules"},
+		{Role: llmadapter.RoleUser, Content: "current request"},
 	}
 	got, err := combineDurableProviderMessages(history, explicit, contextapp.ProviderInfo{ContextWindow: 100, SafetyCeiling: 100})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []gateway.Role{gateway.RoleSystem, gateway.RoleUser, gateway.RoleAssistant, gateway.RoleUser}
+	want := []llmadapter.Role{llmadapter.RoleSystem, llmadapter.RoleUser, llmadapter.RoleAssistant, llmadapter.RoleUser}
 	if len(got) != len(want) {
 		t.Fatalf("messages=%#v", got)
 	}
@@ -231,7 +231,7 @@ func TestCombineDurableProviderMessagesOrdersAndValidatesFinalSequence(t *testin
 
 	_, err = combineDurableProviderMessages(
 		[]contextapp.Message{{Role: "user", Content: "history", TokenCount: 1}, {Role: "assistant", Content: "restored answer", TokenCount: 1}},
-		[]gateway.Message{{Role: gateway.RoleAssistant, Content: "invalid current assistant"}},
+		[]llmadapter.Message{{Role: llmadapter.RoleAssistant, Content: "invalid current assistant"}},
 		contextapp.ProviderInfo{ContextWindow: 100},
 	)
 	if err == nil {
@@ -250,13 +250,13 @@ func TestCombineDurableProviderMessagesFoldsHistoricalToolResults(t *testing.T) 
 		{Role: "tool", Content: "[tool-result callId=abc argsDigest=d1 resultDigest=d2]\nok:true 记事本已打开", TokenCount: 3},
 		{Role: "assistant", Content: "已打开记事本。", TokenCount: 2},
 	}
-	explicit := []gateway.Message{{Role: gateway.RoleUser, Content: "再帮我写一行字"}}
+	explicit := []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "再帮我写一行字"}}
 	got, err := combineDurableProviderMessages(history, explicit, contextapp.ProviderInfo{ContextWindow: 1000, SafetyCeiling: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i, m := range got {
-		if m.Role == gateway.RoleTool {
+		if m.Role == llmadapter.RoleTool {
 			t.Fatalf("orphan tool message survived at %d: %#v", i, got)
 		}
 		if m.ToolCallID != "" {
@@ -293,7 +293,7 @@ func TestFoldHistoricalToolResultStripsHeaderAndNeverEmpty(t *testing.T) {
 func TestCombineDurableProviderMessagesBudgetsCurrentRequest(t *testing.T) {
 	_, err := combineDurableProviderMessages(
 		[]contextapp.Message{{Role: "user", Content: "12345678901234567890123456789012", TokenCount: 1}}, // exact 8; stale count must not be trusted
-		[]gateway.Message{{Role: gateway.RoleUser, Content: "123456789012"}},                             // 3 tokens
+		[]llmadapter.Message{{Role: llmadapter.RoleUser, Content: "123456789012"}},                             // 3 tokens
 		contextapp.ProviderInfo{ContextWindow: 10, SafetyCeiling: 10},
 	)
 	if !errors.Is(err, errCombinedContextOverBudget) {
@@ -307,7 +307,7 @@ func TestCombineDurableProviderMessagesReestimatesNormalizedFinalContent(t *test
 	exact := token.EstimateTokens(history) + token.EstimateTokens(explicit)
 	_, err := combineDurableProviderMessages(
 		[]contextapp.Message{{Role: "user", Content: history, TokenCount: 1}},
-		[]gateway.Message{{Role: gateway.RoleUser, Content: explicit}},
+		[]llmadapter.Message{{Role: llmadapter.RoleUser, Content: explicit}},
 		contextapp.ProviderInfo{ContextWindow: exact - 1, SafetyCeiling: exact - 1},
 	)
 	if !errors.Is(err, errCombinedContextOverBudget) {
@@ -319,7 +319,7 @@ func TestRunStreamAttributesOnlyOutputTokensToAssistant(t *testing.T) {
 	spy := &assistantUsageSpy{}
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
 	e.messages = spy
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return assistantUsageAdapter{}, nil
 	})
 	_, cancel := context.WithCancel(context.Background())
@@ -328,7 +328,7 @@ func TestRunStreamAttributesOnlyOutputTokensToAssistant(t *testing.T) {
 	e.runStream(context.Background(), "stream", state, provider.Provider{
 		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible,
 		BaseURL: "https://api.example.com", CredentialRef: "credential-ref",
-	}, gateway.Request{Model: "model"}, func(bridge.Event) error { return nil }, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	}, llmadapter.Request{Model: "model"}, func(bridge.Event) error { return nil }, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
 	if spy.usage.OutputTokens != 10 {
 		t.Fatalf("assistant usage=%+v, want outputTokens=10 (not request total 100)", spy.usage)
 	}

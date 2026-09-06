@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,7 +32,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/session"
 	"github.com/lunitide/lunitide/internal/domain/stage"
 	"github.com/lunitide/lunitide/internal/domain/token"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/handoffapp"
 	"github.com/lunitide/lunitide/internal/identity"
 	"github.com/lunitide/lunitide/internal/imapp"
@@ -142,18 +141,16 @@ type Engine struct {
 	version            string
 	leases             LeaseClient
 	network            networkpolicy.Options
-	gateway            gateway.Options
-	adapterFactory     func(context.Context, provider.Provider) (gateway.Adapter, error)
+	gateway            llmadapter.Options
+	adapterFactory     func(context.Context, provider.Provider) (llmadapter.Adapter, error)
 	adapterCacheMu     sync.Mutex
-	adapterCache       map[string]gateway.Adapter
+	adapterCache       map[string]llmadapter.Adapter
 	browserLastURL     sync.Map
 	lastBrowserSnap    atomic.Value
 	browserMutated     atomic.Bool
 	meetingNotesModel  atomic.Value
 	preferredChat      atomic.Value
-	streamsMu          sync.Mutex
-	streams            map[string]*streamState
-	maxStreams         int
+	streamEngine
 	tools              *toolruntime.Runtime
 	conversations      *conversationsapp.Store
 	terminals          *terminalruntime.Runtime
@@ -162,7 +159,7 @@ type Engine struct {
 	coordinator        *agentorchestration.Coordinator
 	agentRuns          *agentrunapp.Service
 
-	// M6 slice-1: extension supply chain + MCP endpoint gateway.
+	// M6 slice-1: extension supply chain + MCP endpoint llmadapter.
 	m6ext         *m6app.ExtensionService
 	mcp6Registry  *mcp6.Registry
 	mcp6Endpoints *m6app.EndpointService
@@ -216,7 +213,7 @@ type Engine struct {
 	// M10 wave-4: computer-control surface (cc.* handlers + agent tools).
 	ccctrl *ccapp.Service
 	// Test-only hooks. Production stays nil.
-	guiFallbackHook func(ctx context.Context, mode executionMode, sessionID, goal, chatModel string, state *streamState, images []gateway.Image, alreadyUsed, desktopTypeL0Passed, observedThisTurn bool) (toolruntime.Result, json.RawMessage, bool)
+	guiFallbackHook func(ctx context.Context, mode executionMode, sessionID, goal, chatModel string, state *streamState, images []llmadapter.Image, alreadyUsed, desktopTypeL0Passed, observedThisTurn bool) (toolruntime.Result, json.RawMessage, bool)
 	toolExecHook    func(ctx context.Context, mode executionMode, session, name string, args json.RawMessage) (toolruntime.Result, error)
 	// M8 slice-2: versioned knowledge-base documents.
 	m8kb *m8app.KBService
@@ -362,7 +359,7 @@ type providerDTO struct {
 }
 
 func NewEngine(providers ProviderService, version string) *Engine {
-	return &Engine{providers: providers, version: version, streams: make(map[string]*streamState), maxStreams: 32, adapterCache: make(map[string]gateway.Adapter)}
+	return &Engine{providers: providers, version: version, streamEngine: streamEngine{streams: make(map[string]*streamState), maxStreams: 32}, adapterCache: make(map[string]llmadapter.Adapter)}
 }
 
 func NewEngineWithProjects(providers ProviderService, projects ProjectService, version string, leases LeaseClient) *Engine {
@@ -934,89 +931,17 @@ func (e *Engine) ListReadableAttachmentsBySession(ctx context.Context, sessionID
 // NewEngineWithGateway wires the existing policy connector and one-shot secret
 // broker into provider diagnostics. Public requests never carry either.
 func NewEngineWithGateway(providers ProviderService, version string, leases LeaseClient) *Engine {
-	return &Engine{providers: providers, version: version, leases: leases, streams: make(map[string]*streamState), maxStreams: 32, adapterCache: make(map[string]gateway.Adapter),
+	return &Engine{providers: providers, version: version, leases: leases, streamEngine: streamEngine{streams: make(map[string]*streamState), maxStreams: 32}, adapterCache: make(map[string]llmadapter.Adapter),
 		network: networkpolicy.Options{ConnectTimeout: 10 * time.Second, ResponseHeaderTimeout: 60 * time.Second, DisableOverallTimeout: true, IdleReadTimeout: 90 * time.Second, MaxResponseBytes: 1 << 20},
-		gateway: gateway.Options{MaxModels: 50, MaxAttempts: 1, MaxRequestBytes: 5 << 20}}
+		gateway: llmadapter.Options{MaxModels: 50, MaxAttempts: 1, MaxRequestBytes: 5 << 20}}
 }
 
-// CancelAllStreams terminates every stream owned by this authenticated session.
-func (e *Engine) CancelAllStreams() {
-	e.streamsMu.Lock()
-	defer e.streamsMu.Unlock()
-	for _, stream := range e.streams {
-		if stream.state == streamRunning {
-			stream.state = streamCancelling
-			stream.cancel()
-		}
-	}
-}
-
-func (e *Engine) cancelTtsStreams() {
-	e.streamsMu.Lock()
-	defer e.streamsMu.Unlock()
-	for _, stream := range e.streams {
-		if stream.tts && stream.state == streamRunning {
-			stream.state = streamCancelling
-			stream.cancel()
-		}
-	}
-}
-
-func (e *Engine) cancelStream(id string) bool {
-	return e.cancelStreamSpoken(id, "")
-}
-
-func (e *Engine) cancelStreamSpoken(id, spoken string) bool {
-	e.streamsMu.Lock()
-	defer e.streamsMu.Unlock()
-	stream, ok := e.streams[id]
-	if !ok || stream.state != streamRunning {
-		return false
-	}
-	if spoken = strings.TrimSpace(spoken); spoken != "" {
-		stream.spokenPersist = spoken
-	}
-	stream.state = streamCancelling
-	stream.cancel()
-	return true
-}
-
-// claimStreamFinalization linearizes successful upstream completion against
-// cancellation. A false result means cancellation already won, so the caller
-// must skip durable persistence.
-func (e *Engine) claimStreamFinalization(state *streamState) bool {
-	e.streamsMu.Lock()
-	defer e.streamsMu.Unlock()
-	if state.state != streamRunning {
-		return false
-	}
-	state.state = streamFinalizing
-	return true
-}
-
-func (e *Engine) selectTerminal(_ string, state *streamState, err error) bridge.EventType {
-	e.streamsMu.Lock()
-	defer e.streamsMu.Unlock()
-	t := bridge.EventCompleted
-	if state.state == streamCancelling {
-		t = bridge.EventCancelled
-	} else if err != nil {
-		t = bridge.EventFailed
-	}
-	state.state = streamTerminal
-	return t
-}
-
-func (e *Engine) finishTerminal(id string, state *streamState) {
-	e.streamsMu.Lock()
-	defer e.streamsMu.Unlock()
-	if current, ok := e.streams[id]; ok && current == state {
-		delete(e.streams, id)
-	}
-}
+// Stream lifecycle methods (CancelAllStreams / cancelStream / selectTerminal /
+// finishTerminal etc.) now live on the embedded streamEngine subsystem
+// (stream_engine.go, F-06 A-01.1) and are promoted onto *Engine unchanged.
 
 // SetAdapterFactoryForTest injects an adapter at the production Engine.Handle boundary.
-func (e *Engine) SetAdapterFactoryForTest(factory func(context.Context, provider.Provider) (gateway.Adapter, error)) {
+func (e *Engine) SetAdapterFactoryForTest(factory func(context.Context, provider.Provider) (llmadapter.Adapter, error)) {
 	e.adapterFactory = factory
 }
 
@@ -1038,7 +963,7 @@ func (e *Engine) SetM6Services(ext *m6app.ExtensionService, reg *mcp6.Registry, 
 }
 
 // SetM6ExecutionServices wires the M6 slice-2 services: the connector
-// metadata catalog and the worker dispatch gateway.
+// metadata catalog and the worker dispatch llmadapter.
 func (e *Engine) SetM6ExecutionServices(catalog *m6app.CatalogService, dispatch *m6app.DispatchService) {
 	e.m6catalog, e.m6dispatch = catalog, dispatch
 }

@@ -12,7 +12,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/queueinput"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 const (
@@ -348,7 +348,7 @@ func (e *Engine) pullQueuedSupplements(ctx context.Context, sessionID string) (s
 	return b.String(), texts
 }
 
-func (e *Engine) applyQueuedSupplements(ctx context.Context, sessionID string, req *gateway.Request, cp *chatTurnCheckpoint, send func(bridge.Event) error, assistantText *strings.Builder) bool {
+func (e *Engine) applyQueuedSupplements(ctx context.Context, sessionID string, req *llmadapter.Request, cp *chatTurnCheckpoint, send func(bridge.Event) error, assistantText *strings.Builder) bool {
 	if req.DisableReasoning || cp == nil {
 		return false
 	}
@@ -364,6 +364,6 @@ func (e *Engine) applyQueuedSupplements(ctx context.Context, sessionID string, r
 	return true
 }
 
-func queuedSupplementMessage(note string) gateway.Message {
-	return gateway.Message{Role: gateway.RoleUser, Content: note}
+func queuedSupplementMessage(note string) llmadapter.Message {
+	return llmadapter.Message{Role: llmadapter.RoleUser, Content: note}
 }

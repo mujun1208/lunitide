@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/m8app"
 )
 
@@ -39,12 +39,13 @@ func companionPersonaToolsInstruction() string {
 		"- 桌面手只选一把：打开未运行的应用或桌面文件用 desktop.open；已聚焦窗口打字用 desktop.type；播歌用 media.play；网页用 browser.act；看屏/点控件/截图用 computer.act。同一轮不要 desktop.open 和 computer.act 各试一遍「打开」\n" +
 		"- 操作电脑：电脑控制开启时只用 computer.act。先 action=screenshot（默认当前窗口）或 observe 看清界面，记下 frameId，再 click/type/key。坐标必须来自你看到的那张图。点按钮优先 name= 或 id=，不要盲点像素。禁止点 UAC。遇到打开/保存文件对话框时停下来，runtime 会请用户去点。用户没说关闭时禁止 window_action close。启动未打开的应用用 desktop.open。多步做到完成再停。月伴不要跑命令行、不要发 IM\n" +
 		"- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install\n" +
-		"- 对话里贴了抖音/B站/腾讯视频/YouTube 链接：必须 video.understand，不要 browser.act，不要 media.play 代播。没有字幕就按页面简介说，禁止说我看完了"
+		"- 对话里贴了抖音/B站/腾讯视频/YouTube 链接：必须 video.understand，不要 browser.act，不要 media.play 代播。没有字幕就按页面简介说，禁止说我看完了\n" +
+		"- 多次调用工具或经过多轮执行后，最后一句必须用自然语言把这次做完的结果讲清楚收尾（例如做了什么、结果如何），禁止在中途工具反馈后就沉默停住，也禁止只说「好的」「稍等」而不给最终结果"
 }
 
 // companionSpeakFallback returns a short speakable line when the model
 // produced no user-facing content. Voice mode never promotes reasoning text.
-func companionSpeakFallback(result gateway.Response) string {
+func companionSpeakFallback(result llmadapter.Response) string {
 	if t := strings.TrimSpace(result.Message.Content); t != "" {
 		return t
 	}

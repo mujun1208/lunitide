@@ -106,6 +106,26 @@ describe('isolateCurrentUtterance', () => {
     expect(isolateCurrentUtterance('', wall)).toBe(unit)
     expect(isolateCurrentUtterance(unit, wall)).toBe('')
   })
+
+  test('does not glue the whole committed history when the prefix drifts on re-decode', () => {
+    // Accumulated dump: committed = turn1+turn2. Server re-decoded turn2 and
+    // dropped one char, so no exact prefix/substring match. The new turn3 tail
+    // must not carry the full committed history back to the AI.
+    const committed = '今天合肥的天气怎么样'
+    const incoming = '今天合肥的天气怎样算了放首歌' // '么' dropped mid-word by re-decode
+    const got = isolateCurrentUtterance(committed, incoming)
+    expect(got).toContain('算了放首歌')
+    expect(got).not.toContain('今天合肥的天气')
+  })
+
+  test('keeps a genuinely fresh clause whole when it shares no prefix', () => {
+    expect(isolateCurrentUtterance('今天天气怎么样', '帮我放周杰伦')).toBe('帮我放周杰伦')
+    expect(isolateCurrentUtterance('打开桌面文件', '现在几点了')).toBe('现在几点了')
+  })
+
+  test('empty incoming keeps the last current caption', () => {
+    expect(isolateCurrentUtterance('已提交内容', '', '当前进行中')).toBe('当前进行中')
+  })
 })
 
 describe('meetingLineDelta', () => {

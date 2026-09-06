@@ -16,7 +16,7 @@ import (
 	"github.com/lunitide/lunitide/internal/complexity"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/token"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
@@ -32,11 +32,11 @@ const planVerifyPrompt = "You are a verifier. Compare the objective with the exe
 
 // planToolDefinitions exposes plan.run except in plan mode (planning about
 // planning is refused fail-closed).
-func planToolDefinitions(mode executionMode) []gateway.ToolDefinition {
+func planToolDefinitions(mode executionMode) []llmadapter.ToolDefinition {
 	if mode == executionModePlan {
 		return nil
 	}
-	return []gateway.ToolDefinition{
+	return []llmadapter.ToolDefinition{
 		{
 			Name:        "plan.run",
 			Description: "Run one plan-execute-verify cycle for a multi-step objective: an LLM-authored plan is executed step by step with the session tools, then verified against the objective. Returns the plan, per-step outcomes and the verification verdict. Prefer this over ad-hoc tool chains for objectives with 3+ dependent steps.",
@@ -48,7 +48,7 @@ func planToolDefinitions(mode executionMode) []gateway.ToolDefinition {
 // invokePlanRunTool executes the plan-execute-verify cycle inside the
 // provider lease. Execution inherits the parent execution mode's tool
 // authority (approval gating still applies through toolruntime).
-func (e *Engine) invokePlanRunTool(ctx context.Context, a gateway.Adapter, credential []byte, model, sessionID string, mode executionMode, rawArgs json.RawMessage) (string, error) {
+func (e *Engine) invokePlanRunTool(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID string, mode executionMode, rawArgs json.RawMessage) (string, error) {
 	var p struct {
 		Objective string `json:"objective"`
 	}
@@ -56,11 +56,11 @@ func (e *Engine) invokePlanRunTool(ctx context.Context, a gateway.Adapter, crede
 		return "", errors.New("plan.run requires objective of 1-2000 characters")
 	}
 	// Phase 1: plan.
-	planReq := gateway.Request{
+	planReq := llmadapter.Request{
 		Model: model, MaxTokens: 1024, MaxAttempts: 1,
-		Messages: []gateway.Message{
-			{Role: gateway.RoleSystem, Content: planSystemPrompt},
-			{Role: gateway.RoleUser, Content: p.Objective},
+		Messages: []llmadapter.Message{
+			{Role: llmadapter.RoleSystem, Content: planSystemPrompt},
+			{Role: llmadapter.RoleUser, Content: p.Objective},
 		},
 	}
 	planResp, err := a.Complete(ctx, credential, planReq)
@@ -72,18 +72,18 @@ func (e *Engine) invokePlanRunTool(ctx context.Context, a gateway.Adapter, crede
 
 // invokePlanRunToolRouted is invokePlanRunTool with the parent turn's route
 // so plan steps cannot widen R1 into computer.act.
-func (e *Engine) invokePlanRunToolRouted(ctx context.Context, a gateway.Adapter, credential []byte, model, sessionID string, mode executionMode, rawArgs json.RawMessage, route TaskRoute) (string, error) {
+func (e *Engine) invokePlanRunToolRouted(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID string, mode executionMode, rawArgs json.RawMessage, route TaskRoute) (string, error) {
 	var p struct {
 		Objective string `json:"objective"`
 	}
 	if err := json.Unmarshal(rawArgs, &p); err != nil || len(p.Objective) < 1 || len(p.Objective) > planMaxObjectiv {
 		return "", errors.New("plan.run requires objective of 1-2000 characters")
 	}
-	planReq := gateway.Request{
+	planReq := llmadapter.Request{
 		Model: model, MaxTokens: 1024, MaxAttempts: 1,
-		Messages: []gateway.Message{
-			{Role: gateway.RoleSystem, Content: planSystemPrompt},
-			{Role: gateway.RoleUser, Content: p.Objective},
+		Messages: []llmadapter.Message{
+			{Role: llmadapter.RoleSystem, Content: planSystemPrompt},
+			{Role: llmadapter.RoleUser, Content: p.Objective},
 		},
 	}
 	planResp, err := a.Complete(ctx, credential, planReq)
@@ -95,7 +95,7 @@ func (e *Engine) invokePlanRunToolRouted(ctx context.Context, a gateway.Adapter,
 
 // invokePlanRunToolWithPlanner runs the cycle with a fixed planner answer
 // (tests: malformed plan degradation).
-func (e *Engine) invokePlanRunToolWithPlanner(ctx context.Context, a gateway.Adapter, credential []byte, model, sessionID string, mode executionMode, objective, plannerAnswer string) (string, error) {
+func (e *Engine) invokePlanRunToolWithPlanner(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID string, mode executionMode, objective, plannerAnswer string) (string, error) {
 	return e.runPlanCycle(ctx, a, credential, model, sessionID, mode, objective, plannerAnswer, RouteUnspecified)
 }
 
@@ -183,7 +183,7 @@ func (e *Engine) judgeModelID(ctx context.Context, chatModel string) string {
 	return pickJudgeModelID(chatModel, cands)
 }
 
-func (e *Engine) completeJudge(ctx context.Context, a gateway.Adapter, credential []byte, chatModel string, req gateway.Request) (gateway.Response, error) {
+func (e *Engine) completeJudge(ctx context.Context, a llmadapter.Adapter, credential []byte, chatModel string, req llmadapter.Request) (llmadapter.Response, error) {
 	providerID, modelID := "", ""
 	if e != nil {
 		if row, ok := e.resolveRoleRow(ctx, "judge"); ok && !(row.ModelID == chatModel && !row.AllowJudgeEqChat) {
@@ -205,7 +205,7 @@ func (e *Engine) completeJudge(ctx context.Context, a gateway.Adapter, credentia
 	if err != nil || item.CredentialRef == "" {
 		return e.completeMaybeRotate(ctx, a, credential, req)
 	}
-	var out gateway.Response
+	var out llmadapter.Response
 	leaseErr := e.withProviderLease(ctx, item, secretlease.OperationChat, func(op context.Context, secret []byte) error {
 		ja, adapterErr := e.adapter(op, item)
 		if adapterErr != nil {
@@ -219,7 +219,7 @@ func (e *Engine) completeJudge(ctx context.Context, a gateway.Adapter, credentia
 }
 
 // runPlanCycle executes phases 2-3 against a prepared plan document.
-func (e *Engine) runPlanCycle(ctx context.Context, a gateway.Adapter, credential []byte, model, sessionID string, mode executionMode, objective, planDocument string, route TaskRoute) (string, error) {
+func (e *Engine) runPlanCycle(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID string, mode executionMode, objective, planDocument string, route TaskRoute) (string, error) {
 	steps := parsePlanSteps(planDocument)
 	var log strings.Builder
 	var l0s []l0Observation
@@ -233,11 +233,11 @@ func (e *Engine) runPlanCycle(ctx context.Context, a gateway.Adapter, credential
 	skip, verified, gaps := decidePlanVerify(l0s)
 	if !skip {
 		l0raw, _ := json.Marshal(l0s)
-		verifyReq := gateway.Request{
+		verifyReq := llmadapter.Request{
 			MaxTokens: 512, MaxAttempts: 1,
-			Messages: []gateway.Message{
-				{Role: gateway.RoleSystem, Content: planVerifyPrompt},
-				{Role: gateway.RoleUser, Content: "Objective: " + objective + "\n\nExecution log:\n" + log.String() + "\n\nL0:\n" + string(l0raw)},
+			Messages: []llmadapter.Message{
+				{Role: llmadapter.RoleSystem, Content: planVerifyPrompt},
+				{Role: llmadapter.RoleUser, Content: "Objective: " + objective + "\n\nExecution log:\n" + log.String() + "\n\nL0:\n" + string(l0raw)},
 			},
 		}
 		verifyResp, err := e.completeJudge(ctx, a, credential, model, verifyReq)
@@ -310,12 +310,12 @@ func truncatePlanText(s string, n int) string {
 // executePlanStep runs one planned step: the model receives the objective,
 // the plan and the step under execution, and may use the session toolset
 // (bounded to one tool round; approval gating still applies).
-func (e *Engine) executePlanStep(ctx context.Context, a gateway.Adapter, credential []byte, model, sessionID string, mode executionMode, objective string, step planStep, index, total int, route TaskRoute) string {
-	req := gateway.Request{
+func (e *Engine) executePlanStep(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID string, mode executionMode, objective string, step planStep, index, total int, route TaskRoute) string {
+	req := llmadapter.Request{
 		Model: model, MaxTokens: 2048, MaxAttempts: 1,
-		Messages: []gateway.Message{
-			{Role: gateway.RoleSystem, Content: "You are an execution agent. Execute exactly the assigned step using the available tools when needed, then answer with a concise outcome report (max 500 characters). Do not perform work belonging to other steps."},
-			{Role: gateway.RoleUser, Content: fmt.Sprintf("Objective: %s\nAssigned step %d/%d: %s — %s", objective, index, total, step.Action, step.Detail)},
+		Messages: []llmadapter.Message{
+			{Role: llmadapter.RoleSystem, Content: "You are an execution agent. Execute exactly the assigned step using the available tools when needed, then answer with a concise outcome report (max 500 characters). Do not perform work belonging to other steps."},
+			{Role: llmadapter.RoleUser, Content: fmt.Sprintf("Objective: %s\nAssigned step %d/%d: %s — %s", objective, index, total, step.Action, step.Detail)},
 		},
 		Tools: planStepTools(e, route),
 	}
@@ -347,7 +347,7 @@ func (e *Engine) executePlanStep(ctx context.Context, a gateway.Adapter, credent
 			summary = summary[:2048]
 		}
 		summaries = append(summaries, summary)
-		req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary})
+		req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
 	}
 	final, err := a.Complete(ctx, credential, req)
 	if err != nil {
@@ -372,7 +372,7 @@ func attachPlanStepL0(coda string, summaries []string) string {
 	return out
 }
 
-func planStepTools(e *Engine, route TaskRoute) []gateway.ToolDefinition {
+func planStepTools(e *Engine, route TaskRoute) []llmadapter.ToolDefinition {
 	defs := engineToolDefinitions()
 	if route == RouteUnspecified {
 		return defs
@@ -391,13 +391,13 @@ var planToolNames = map[string]bool{"plan.run": true}
 // complexity router and returns the system-message nudge for moderate and
 // above ("" for simple). This is the chat-side complexity.decide wiring:
 // the same message list always yields the same tier and reason codes.
-func complexityTierHint(messages []gateway.Message) string {
+func complexityTierHint(messages []llmadapter.Message) string {
 	signals := complexity.ConversationSignals{MessageCount: len(messages)}
 	for _, m := range messages {
 		switch m.Role {
-		case gateway.RoleUser:
+		case llmadapter.RoleUser:
 			signals.TurnCount++
-		case gateway.RoleTool:
+		case llmadapter.RoleTool:
 			signals.ToolCallCount++
 		}
 		signals.EstTokens += int(token.EstimateTokens(m.Content))

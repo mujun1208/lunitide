@@ -3,7 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
@@ -19,7 +19,7 @@ func (e *Engine) fullDiskChat(mode executionMode) bool {
 // full-disk opt-in so the model knows absolute paths and arbitrary commands
 // are accepted in this conversation. Subagent read-only definitions keep
 // the sandbox wording (they stay confined at the runtime level).
-func (e *Engine) engineToolDefinitionsFor(mode executionMode) []gateway.ToolDefinition {
+func (e *Engine) engineToolDefinitionsFor(mode executionMode) []llmadapter.ToolDefinition {
 	defs := engineToolDefinitions()
 	if e.datasource != nil {
 		defs = append(defs, datasourceToolDefinitions()...)
@@ -70,13 +70,19 @@ func (e *Engine) executeUserToolStreaming(ctx context.Context, mode executionMod
 	}
 	approved := mode == executionModeFullAccess && name != "user.ask"
 	if e.fullDiskChat(mode) {
+		// S-05: unconfined disk access auto-approves only after this session
+		// confirmed the one-time full-disk unlock. Before that, mutating tools
+		// gate (ErrApprovalRequired) so the stream emits one approval card; the
+		// grant marks the session confirmed and the rest of the turn runs
+		// without prompting. Restart drops the confirmation.
+		approved = name != "user.ask" && e.tools.FullDiskSessionConfirmed(session)
 		return e.tools.ExecuteUnconfinedStreaming(ctx, session, name, args, approved, progress)
 	}
 	return e.tools.ExecuteStreaming(ctx, toolruntime.Mode(mode), session, name, args, approved, progress)
 }
 
-func engineToolDefinitions() []gateway.ToolDefinition {
-	return []gateway.ToolDefinition{
+func engineToolDefinitions() []llmadapter.ToolDefinition {
+	return []llmadapter.ToolDefinition{
 		{Name: "workspace.list", Description: "List a controlled session workspace directory", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"}},"additionalProperties":false}`)},
 		{Name: "workspace.read", Description: "Read a controlled session workspace file", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`)},
 		{Name: "workspace.write", Description: "Atomically write a controlled session workspace file", Schema: []byte(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}`)},
@@ -111,20 +117,20 @@ func engineToolDefinitions() []gateway.ToolDefinition {
 // expertToolDefinitions exposes the expert.create tool when the expert
 // service is wired. The model can create a six-section expert profile
 // directly from the conversation.
-func (e *Engine) expertToolDefinitions() []gateway.ToolDefinition {
+func (e *Engine) expertToolDefinitions() []llmadapter.ToolDefinition {
 	if e.m8expert == nil {
 		return nil
 	}
-	return []gateway.ToolDefinition{
+	return []llmadapter.ToolDefinition{
 		{Name: "expert.create", Description: "Create a six-section expert profile (name, division, description, and six-section body: identity, mission, rules, workflow, deliverableTemplate, successMetrics). Optionally bind published skill catalog keys with skillKeys — skills hang on the expert, not the chat composer. After success, tell the user to confirm skills in Expert Center.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":128,"description":"Expert display name"},"division":{"type":"string","enum":["engineering","design","product","project-management","testing","security","operations","data"],"description":"Expert domain"},"description":{"type":"string","minLength":1,"maxLength":2000,"description":"Short description of the expert"},"semver":{"type":"string","description":"Semantic version like 1.0.0"},"identity":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert identity prompt section"},"mission":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert mission prompt section"},"rules":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert rules prompt section"},"workflow":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert workflow prompt section"},"deliverableTemplate":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert deliverable template prompt section"},"successMetrics":{"type":"string","minLength":1,"maxLength":65536,"description":"Expert success metrics prompt section"},"skillKeys":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":64},"description":"Optional published skill catalog keys bound to this expert"}},"required":["name","division","description","semver","identity","mission","rules","workflow","deliverableTemplate","successMetrics"],"additionalProperties":false}`)},
 	}
 }
 
-func (e *Engine) pluginToolDefinitions() []gateway.ToolDefinition {
+func (e *Engine) pluginToolDefinitions() []llmadapter.ToolDefinition {
 	if e.m8plugin == nil {
 		return nil
 	}
-	return []gateway.ToolDefinition{
+	return []llmadapter.ToolDefinition{
 		{Name: "plugin.create", Description: "Create one capability pack: a manifest of skills[] + mcpPresetIds[] + toolGates[]. This installs those catalog items; it does not execute Cordis/TypeScript. kind=mcp or agent-pack is refused. After success, tell the user in Chinese to open 能力包.", Schema: []byte(`{"type":"object","properties":{"pluginId":{"type":"string","minLength":1,"maxLength":128},"name":{"type":"string","minLength":1,"maxLength":128},"kind":{"type":"string","enum":["skill","workflow","template","tool"]},"description":{"type":"string","maxLength":2000},"entrypoint":{"type":"string","maxLength":512},"semver":{"type":"string","maxLength":32},"publisher":{"type":"string","maxLength":128},"manifest":{"type":"object","description":"include skills, mcpPresetIds, toolGates arrays"}},"required":["pluginId","name","kind"],"additionalProperties":false}`)},
 	}
 }
@@ -135,14 +141,14 @@ func (e *Engine) pluginToolDefinitions() []gateway.ToolDefinition {
 // the armed emergency latch hides them too). Subagents never see them:
 // readOnlyEngineToolDefinitions stays file-read-only and runs sub-sessions
 // in FullAccess, which would bypass the confirmation gate.
-func (e *Engine) ccToolDefinitions() []gateway.ToolDefinition {
+func (e *Engine) ccToolDefinitions() []llmadapter.ToolDefinition {
 	if e.ccctrl == nil {
 		return nil
 	}
 	if !e.computerControlEnabled() {
 		return nil
 	}
-	return []gateway.ToolDefinition{
+	return []llmadapter.ToolDefinition{
 		{Name: "computer.act", Description: "Unified desktop action (OpenClaw-shaped). action=screenshot|click|double_click|right_click|move|drag|type|key|press|hold_key|key_up|scroll|wait|observe|observe_dialog|confirm|focus|list|paste|menu|set_value|clipboard|window_action. Click may pass modifiers=[ctrl|shift|alt|win] (held only around that click). hold_key holds a key; key_up releases it (auto-release after 8s). Default screenshot is the foreground window (target=foreground); target=desktop captures the virtual desktop. Pixel actions must echo frameId from the latest screenshot (id binds screenIndex + display topology; reconnect/DPI fails closed). Expands onto governed cc.* (audit, rate limit, emergency stop) — do not call cc.* yourself. Prefer name=/id= over raw x,y. Never click UAC or file Open/Save — the runtime will ask the user.", Schema: []byte(`{"type":"object","properties":{"action":{"type":"string","minLength":1,"maxLength":40},"frameId":{"type":"string","maxLength":40},"x":{"type":"integer","minimum":0,"maximum":65535},"y":{"type":"integer","minimum":0,"maximum":65535},"x1":{"type":"integer","minimum":0,"maximum":65535},"y1":{"type":"integer","minimum":0,"maximum":65535},"x2":{"type":"integer","minimum":0,"maximum":65535},"y2":{"type":"integer","minimum":0,"maximum":65535},"button":{"type":"string"},"clicks":{"type":"integer","minimum":1,"maximum":3},"modifiers":{"type":"array","maxItems":3,"items":{"type":"string","enum":["ctrl","shift","alt","win"]}},"scroll":{"type":"integer","minimum":-12,"maximum":12},"scrollAxis":{"type":"string","enum":["vertical","horizontal"]},"name":{"type":"string","maxLength":80},"id":{"type":"string","maxLength":8},"id2":{"type":"string","maxLength":8},"text":{"type":"string","maxLength":8192},"keys":{"type":"array","maxItems":4,"items":{"type":"string"}},"key":{"type":"string","maxLength":24},"count":{"type":"integer","minimum":1,"maximum":8},"window":{"type":"string","maxLength":200},"title":{"type":"string","maxLength":200},"process":{"type":"string","maxLength":200},"target":{"type":"string"},"ms":{"type":"integer","minimum":0,"maximum":8000},"until":{"type":"string","enum":["timeout","change"]},"maxNodes":{"type":"integer","minimum":0,"maximum":120},"path":{"type":"string","maxLength":240},"op":{"type":"string"},"value":{"type":"string","maxLength":4096},"w":{"type":"integer","minimum":1,"maximum":65535},"h":{"type":"integer","minimum":1,"maximum":65535}},"required":["action"],"additionalProperties":false}`)},
 	}
 }
@@ -160,14 +166,14 @@ func (e *Engine) computerControlEnabled() bool {
 
 const maxCaptureVisionImages = 4
 
-func appendCaptureVision(images []gateway.Image, mime string, data []byte) []gateway.Image {
+func appendCaptureVision(images []llmadapter.Image, mime string, data []byte) []llmadapter.Image {
 	if len(data) == 0 {
 		return images
 	}
 	if mime == "" {
 		mime = "image/png"
 	}
-	images = append(images, gateway.Image{MIME: mime, Data: data})
+	images = append(images, llmadapter.Image{MIME: mime, Data: data})
 	if len(images) > maxCaptureVisionImages {
 		images = images[len(images)-maxCaptureVisionImages:]
 	}

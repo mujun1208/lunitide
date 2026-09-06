@@ -146,6 +146,9 @@ func TestCommandRunCreatesCJKDirectoryExactName(t *testing.T) {
 	}
 	target := filepath.Join(root, "测试", "小宝")
 	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	if err = r.ConfirmFullDiskSession(context.Background(), session); err != nil {
+		t.Fatal(err)
+	}
 	args, err := json.Marshal(map[string]any{"argv": []string{"mkdir", target}})
 	if err != nil {
 		t.Fatal(err)
@@ -183,6 +186,9 @@ func TestCommandRunFailureIsOkFalse(t *testing.T) {
 	}
 	defer r.Close()
 	if err = r.SetCommandPolicyJSON([]byte(`{"commands":[],"fullAccess":true}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err = r.ConfirmFullDiskSession(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAV"); err != nil {
 		t.Fatal(err)
 	}
 	_, err = r.ExecuteUnconfined(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAV", "command.run", []byte(`{"argv":["cmd","/c","echo","boom","&&","exit","2"]}`), false)

@@ -25,7 +25,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
@@ -72,7 +72,7 @@ type parallelToolFuture struct {
 // lookups overlap instead of queueing. Results flow through buffered
 // channels consumed by the main loop in original call order; ineligible
 // calls and calls beyond the bound fall back to inline execution.
-func startParallelToolFutures(op context.Context, e *Engine, mode executionMode, sessionID string, calls []gateway.ToolCall) map[string]chan parallelToolFuture {
+func startParallelToolFutures(op context.Context, e *Engine, mode executionMode, sessionID string, calls []llmadapter.ToolCall) map[string]chan parallelToolFuture {
 	futures := make(map[string]chan parallelToolFuture)
 	started := 0
 	for _, call := range calls {
@@ -82,7 +82,7 @@ func startParallelToolFutures(op context.Context, e *Engine, mode executionMode,
 		started++
 		ch := make(chan parallelToolFuture, 1)
 		futures[call.ID] = ch
-		go func(call gateway.ToolCall) {
+		go func(call llmadapter.ToolCall) {
 			// Same panic discipline as startSubagentFutures: a panicking
 			// tool must degrade to an error result, never kill the Engine
 			// process (which would sever the event pipe for every session).

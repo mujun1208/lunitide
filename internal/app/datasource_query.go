@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 
 	"github.com/lunitide/lunitide/internal/datasourceapp"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
-func datasourceToolDefinitions() []gateway.ToolDefinition {
-	return []gateway.ToolDefinition{
+func datasourceToolDefinitions() []llmadapter.ToolDefinition {
+	return []llmadapter.ToolDefinition{
 		{Name: "datasource.query", Description: "Run one SQL statement against a probed PostgreSQL/MySQL binding. Remote connections are read-only (SELECT only); a local connection also allows writes (INSERT/UPDATE/DDL). Prefer bindingId from the workbench stock map. Never invent a DSN. Unprobed connections return 连接未探测.", Schema: []byte(`{"type":"object","properties":{"connectionId":{"type":"string"},"bindingId":{"type":"string"},"sql":{"type":"string","minLength":1,"maxLength":16384},"maxRows":{"type":"integer","minimum":1,"maximum":1000}},"required":["sql"],"additionalProperties":false}`)},
 	}
 }

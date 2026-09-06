@@ -10,7 +10,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
@@ -20,34 +20,34 @@ type guiStreamAdapter struct {
 	failTwice bool
 }
 
-func (a *guiStreamAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, nil
+func (a *guiStreamAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, nil
 }
-func (a *guiStreamAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, nil
+func (a *guiStreamAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, nil
 }
-func (a *guiStreamAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+func (a *guiStreamAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	a.mu.Lock()
 	a.round++
 	round := a.round
 	a.mu.Unlock()
 	if round == 1 || (a.failTwice && round == 2) {
-		return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{
 			{ID: "c-act", Name: "computer.act", Arguments: json.RawMessage(`{"action":"click","id":"B1"}`)},
 			{ID: "c-web", Name: "web.search", Arguments: json.RawMessage(`{"query":"x"}`)},
 		}}}, nil
 	}
-	if err := emit(gateway.Delta{Text: "done"}); err != nil {
-		return gateway.Response{}, err
+	if err := emit(llmadapter.Delta{Text: "done"}); err != nil {
+		return llmadapter.Response{}, err
 	}
-	return gateway.Response{Message: gateway.Message{Content: "done"}}, nil
+	return llmadapter.Response{Message: llmadapter.Message{Content: "done"}}, nil
 }
 
 func runGUIStream(t *testing.T, route TaskRoute, failTwice bool, hookResult toolruntime.Result) (hookCalls int, events []bridge.Event) {
 	t.Helper()
 	adapter := &guiStreamAdapter{failTwice: failTwice}
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return adapter, nil
 	})
 	e.toolExecHook = func(_ context.Context, _ executionMode, _, name string, _ json.RawMessage) (toolruntime.Result, error) {
@@ -57,7 +57,7 @@ func runGUIStream(t *testing.T, route TaskRoute, failTwice bool, hookResult tool
 		return toolruntime.Result{Output: "ok:true\nsearch"}, nil
 	}
 	var hookMu sync.Mutex
-	e.guiFallbackHook = func(context.Context, executionMode, string, string, string, *streamState, []gateway.Image, bool, bool, bool) (toolruntime.Result, json.RawMessage, bool) {
+	e.guiFallbackHook = func(context.Context, executionMode, string, string, string, *streamState, []llmadapter.Image, bool, bool, bool) (toolruntime.Result, json.RawMessage, bool) {
 		hookMu.Lock()
 		hookCalls++
 		hookMu.Unlock()
@@ -74,7 +74,7 @@ func runGUIStream(t *testing.T, route TaskRoute, failTwice bool, hookResult tool
 		e.runStream(ctx, id, state, provider.Provider{
 			ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible,
 			BaseURL: "https://api.example.com", CredentialRef: "credential-ref",
-		}, gateway.Request{Model: "m"}, func(event bridge.Event) error {
+		}, llmadapter.Request{Model: "m"}, func(event bridge.Event) error {
 			mu.Lock()
 			events = append(events, event)
 			mu.Unlock()

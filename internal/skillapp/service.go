@@ -19,6 +19,7 @@ import (
 var (
 	ErrSkillNotFound      = errors.New("skill not found")
 	ErrSkillAlreadyExists = errors.New("skill with same name and version already exists")
+	ErrSkillVersionConflict = errors.New("skill changed since read; optimistic concurrency conflict")
 	ErrInvalidStatus      = errors.New("invalid skill status")
 	ErrInvalidTransition  = errors.New("invalid skill status transition")
 	ErrPermissionDenied   = errors.New("permission denied by skill policy")
@@ -47,9 +48,22 @@ type SkillReader interface {
 type SkillWriter interface {
 	CreateSkill(ctx context.Context, sk skill.Skill) (skill.Skill, error)
 	UpdateSkill(ctx context.Context, id, displayName, description string) error
-	UpdateSkillFields(ctx context.Context, id, displayName, description, entryPoint, manifestJSON, permissionsJSON string, minEngineVersion *string) error
-	UpdateSkillStatus(ctx context.Context, id, status string) error
+	UpdateSkillFields(ctx context.Context, id, displayName, description, entryPoint, manifestJSON, permissionsJSON string, minEngineVersion *string, expectedRev int64) error
+	UpdateSkillStatus(ctx context.Context, id, status string, expectedRev int64) error
 	DeleteSkill(ctx context.Context, id string) error
+}
+
+// InvocationStore is the durable, authoritative home for pending skill
+// invocations. The Service keeps a bounded LRU in front of it as a hot-path
+// cache, but a process restart must not lose an in-flight proposal, so every
+// state transition is anchored here.
+type InvocationStore interface {
+	InsertSkillInvocation(ctx context.Context, inv Invocation) error
+	GetSkillInvocation(ctx context.Context, id string) (*Invocation, error)
+	// MarkSkillInvocationConsumed flips consumed 0->1 atomically; the bool
+	// reports whether this caller won the CAS (RowsAffected==1).
+	MarkSkillInvocationConsumed(ctx context.Context, id string) (bool, error)
+	DeleteExpiredSkillInvocations(ctx context.Context, now time.Time) (int64, error)
 }
 
 // Clock provides the current time.
@@ -66,7 +80,8 @@ type Service struct {
 	catWrite    CategoryWriter
 	clock       Clock
 	invMu       sync.Mutex
-	invocations map[string]*Invocation
+	invCache    *invocationLRU
+	invStore    InvocationStore
 }
 
 type Invocation struct {
@@ -77,9 +92,20 @@ type Invocation struct {
 
 type Execution struct{ InvocationID, AuditID, Output string }
 
+// invocationCacheCap bounds the in-memory LRU that fronts the durable store.
+const invocationCacheCap = 1000
+
 // New creates a skill service with the given dependencies.
 func New(r SkillReader, w SkillWriter) *Service {
-	return &Service{read: r, write: w, clock: systemClock{}, invocations: make(map[string]*Invocation)}
+	return &Service{read: r, write: w, clock: systemClock{}, invCache: newInvocationLRU(invocationCacheCap)}
+}
+
+// SetInvocationStore wires the durable invocation store. When unset the
+// Service degrades to cache-only behaviour (pre-persistence semantics).
+func (s *Service) SetInvocationStore(store InvocationStore) {
+	if s != nil {
+		s.invStore = store
+	}
 }
 
 func digest(value string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(value))) }
@@ -132,42 +158,74 @@ func (s *Service) Invoke(ctx context.Context, skillID, sessionID, input, mode st
 	requires := mode == "approval" || risk != "low"
 	now := s.clock.Now()
 	inv := Invocation{ID: newULID(now), SkillID: sk.ID, SkillVersion: sk.Version, SessionID: sessionID, Input: input, InputDigest: digest(input), ManifestDigest: manifestDigest(*sk), Risk: risk, Mode: mode, RequiresApproval: requires, ExpiresAt: now.Add(5 * time.Minute)}
+	// Authoritative write first: a proposal that is not durable must not be
+	// handed back, otherwise a restart would strand the caller with an id the
+	// store has never heard of.
+	if s.invStore != nil {
+		if err := s.invStore.InsertSkillInvocation(ctx, inv); err != nil {
+			return Invocation{}, err
+		}
+	}
 	s.invMu.Lock()
-	s.invocations[inv.ID] = &inv
+	cp := inv
+	s.invCache.put(inv.ID, &cp)
 	s.invMu.Unlock()
 	return inv, nil
 }
 
 // Execute atomically consumes one invocation after revalidating its frozen skill.
 func (s *Service) Execute(ctx context.Context, invocationID, sessionID string, approved bool) (Execution, error) {
-	s.invMu.Lock()
-	inv := s.invocations[invocationID]
+	// Resolve the invocation: LRU hit first, else the durable store. The store
+	// is authoritative, so a cache miss (eviction / restart) still succeeds.
+	inv, err := s.lookupInvocation(ctx, invocationID)
+	if err != nil {
+		return Execution{}, err
+	}
 	if inv == nil {
-		s.invMu.Unlock()
+		return Execution{}, ErrInvocationNotFound
+	}
+	if inv.SessionID != sessionID {
 		return Execution{}, ErrInvocationNotFound
 	}
 	if inv.Consumed {
-		s.invMu.Unlock()
 		return Execution{}, ErrInvocationConsumed
 	}
-	if inv.SessionID != sessionID {
-		s.invMu.Unlock()
-		return Execution{}, ErrInvocationNotFound
-	}
 	if !s.clock.Now().Before(inv.ExpiresAt) {
-		s.invMu.Unlock()
+		// Lazily purge the expired proposal so it cannot accumulate.
+		s.dropInvocation(ctx, invocationID)
 		return Execution{}, ErrInvocationExpired
 	}
 	if inv.Mode == "plan" {
-		s.invMu.Unlock()
 		return Execution{}, ErrExecutionForbidden
 	}
 	if inv.RequiresApproval && !approved {
-		s.invMu.Unlock()
 		return Execution{}, ErrApprovalRequired
 	}
-	inv.Consumed = true // CAS winner; failures remain consumed fail-closed.
-	s.invMu.Unlock()
+	// Consume via durable CAS: the winner sees RowsAffected==1; a racing caller
+	// gets false and fails closed with ErrInvocationConsumed.
+	if s.invStore != nil {
+		won, cErr := s.invStore.MarkSkillInvocationConsumed(ctx, invocationID)
+		if cErr != nil {
+			return Execution{}, cErr
+		}
+		if !won {
+			s.markCacheConsumed(invocationID)
+			return Execution{}, ErrInvocationConsumed
+		}
+	} else {
+		// Cache-only fallback: guard the flip under the mutex.
+		s.invMu.Lock()
+		cached, ok := s.invCache.get(invocationID)
+		if ok && cached.Consumed {
+			s.invMu.Unlock()
+			return Execution{}, ErrInvocationConsumed
+		}
+		if ok {
+			cached.Consumed = true
+		}
+		s.invMu.Unlock()
+	}
+	s.markCacheConsumed(invocationID)
 	sk, err := s.Get(ctx, inv.SkillID)
 	if err != nil {
 		return Execution{}, err
@@ -195,6 +253,62 @@ func (s *Service) Execute(ctx context.Context, invocationID, sessionID string, a
 		return Execution{}, ErrUnknownEntryPoint
 	}
 	return Execution{InvocationID: inv.ID, AuditID: newULID(s.clock.Now()), Output: output}, nil
+}
+
+// lookupInvocation returns the invocation from the LRU cache, falling back to
+// the durable store on a miss and repopulating the cache.
+func (s *Service) lookupInvocation(ctx context.Context, id string) (*Invocation, error) {
+	s.invMu.Lock()
+	if cached, ok := s.invCache.get(id); ok {
+		cp := *cached
+		s.invMu.Unlock()
+		return &cp, nil
+	}
+	s.invMu.Unlock()
+	if s.invStore == nil {
+		return nil, nil
+	}
+	inv, err := s.invStore.GetSkillInvocation(ctx, id)
+	if err != nil || inv == nil {
+		return inv, err
+	}
+	s.invMu.Lock()
+	cp := *inv
+	s.invCache.put(id, &cp)
+	s.invMu.Unlock()
+	out := *inv
+	return &out, nil
+}
+
+// markCacheConsumed reflects a successful consume in the LRU so a subsequent
+// hot-path lookup sees the terminal state without another store round-trip.
+func (s *Service) markCacheConsumed(id string) {
+	s.invMu.Lock()
+	if cached, ok := s.invCache.get(id); ok {
+		cached.Consumed = true
+	}
+	s.invMu.Unlock()
+}
+
+// dropInvocation removes an invocation from the cache and, when durable,
+// leaves the store cleanup to PurgeExpiredInvocations (best-effort here).
+func (s *Service) dropInvocation(ctx context.Context, id string) {
+	s.invMu.Lock()
+	s.invCache.remove(id)
+	s.invMu.Unlock()
+	if s.invStore != nil {
+		_, _ = s.invStore.DeleteExpiredSkillInvocations(ctx, s.clock.Now())
+	}
+}
+
+// PurgeExpiredInvocations deletes every invocation whose TTL has elapsed. It is
+// safe to call opportunistically (e.g. from a maintenance tick); the LRU is a
+// cache so no in-memory bookkeeping is required beyond the durable delete.
+func (s *Service) PurgeExpiredInvocations(ctx context.Context) (int64, error) {
+	if s == nil || s.invStore == nil {
+		return 0, nil
+	}
+	return s.invStore.DeleteExpiredSkillInvocations(ctx, s.clock.Now())
 }
 
 func newULID(t time.Time) string {
@@ -280,7 +394,15 @@ func (s *Service) UpdateFields(ctx context.Context, id string, displayName, desc
 	if sk == nil {
 		return nil, ErrSkillNotFound
 	}
-	_ = expectedVersion // accepted for API contract; skill uses semantic version string, not numeric OCC
+	// Optimistic concurrency is anchored on the numeric rev column we just
+	// read: the UPDATE matches WHERE id=? AND rev=? and bumps rev=rev+1, so a
+	// concurrent write that changed the row between our read and write leaves
+	// RowsAffected==0 and surfaces ErrSkillVersionConflict. This detects a
+	// same-semver lost update that the old string CAS on version could not.
+	// The numeric expectedVersion still gates callers (handler requires >=1)
+	// but the atomic guarantee is the rev CAS below.
+	_ = expectedVersion
+	casRev := sk.Rev
 	resolvedDisplay := sk.DisplayName
 	if displayName != nil {
 		if len(*displayName) < 1 || len(*displayName) > 200 {
@@ -335,7 +457,7 @@ func (s *Service) UpdateFields(ctx context.Context, id string, displayName, desc
 	if err != nil {
 		return nil, err
 	}
-	if err := s.write.UpdateSkillFields(ctx, id, resolvedDisplay, resolvedDesc, resolvedEntry, resolvedManifest, string(permJSON), resolvedMinEV); err != nil {
+	if err := s.write.UpdateSkillFields(ctx, id, resolvedDisplay, resolvedDesc, resolvedEntry, resolvedManifest, string(permJSON), resolvedMinEV, casRev); err != nil {
 		return nil, err
 	}
 	updated, err := s.read.GetSkill(ctx, id)
@@ -416,7 +538,7 @@ func (s *Service) Publish(ctx context.Context, id string) error {
 	if !canTransitionTo(sk.Status, skill.SkillStatusPublished) {
 		return ErrInvalidTransition
 	}
-	return s.write.UpdateSkillStatus(ctx, id, string(skill.SkillStatusPublished))
+	return s.write.UpdateSkillStatus(ctx, id, string(skill.SkillStatusPublished), sk.Rev)
 }
 
 // Deprecate transitions a published skill to deprecated.
@@ -434,7 +556,7 @@ func (s *Service) Deprecate(ctx context.Context, id string) error {
 	if !canTransitionTo(sk.Status, skill.SkillStatusDeprecated) {
 		return ErrInvalidTransition
 	}
-	return s.write.UpdateSkillStatus(ctx, id, string(skill.SkillStatusDeprecated))
+	return s.write.UpdateSkillStatus(ctx, id, string(skill.SkillStatusDeprecated), sk.Rev)
 }
 
 // Disable transitions any active skill to disabled.
@@ -452,7 +574,7 @@ func (s *Service) Disable(ctx context.Context, id string) error {
 	if !canTransitionTo(sk.Status, skill.SkillStatusDisabled) {
 		return ErrInvalidTransition
 	}
-	return s.write.UpdateSkillStatus(ctx, id, string(skill.SkillStatusDisabled))
+	return s.write.UpdateSkillStatus(ctx, id, string(skill.SkillStatusDisabled), sk.Rev)
 }
 
 // Delete removes a skill. Only draft or disabled skills can be deleted.

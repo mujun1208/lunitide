@@ -101,6 +101,8 @@ export interface CompanionSpeechOptions extends CompanionSpeechCallbacks {
 export interface CompanionSpeechHandle {
   /** Stop recognition and release the microphone immediately. */
   stop: () => void
+  /** Clear accumulated cross-turn ASR state (e.g. Volc sessionCommitted) on a new session / model switch. */
+  resetSession?: () => void
   /** Assistant TTS active — mute the mic, keep recognition warm, ignore output. */
   setAssistantPlayback: (active: boolean, echoGuardMs?: number) => void
   /** Pause silence-based commit while thinking/speaking. */

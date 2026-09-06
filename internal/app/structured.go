@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/jsonutil"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
@@ -16,8 +16,8 @@ const (
 	toolStructuredOutput = "structured.output"
 )
 
-func structuredOutputDefinition() gateway.ToolDefinition {
-	return gateway.ToolDefinition{
+func structuredOutputDefinition() llmadapter.ToolDefinition {
+	return llmadapter.ToolDefinition{
 		Name: toolStructuredOutput,
 		Description: "Emit validated JSON for the user. Use when they want structured data (calendar event, form fields, key-value summary) instead of prose. " +
 			"template=event → data {title, start, end?, location?, attendees?}; " +
@@ -149,7 +149,7 @@ func resultFromOutput(s string) toolruntime.Result {
 	return toolruntime.Result{Output: s, Digest: toolruntime.Digest(toolStructuredOutput, json.RawMessage(s))}
 }
 
-func toolSchemaByName(defs []gateway.ToolDefinition, name string) json.RawMessage {
+func toolSchemaByName(defs []llmadapter.ToolDefinition, name string) json.RawMessage {
 	for _, d := range defs {
 		if d.Name == name {
 			return d.Schema

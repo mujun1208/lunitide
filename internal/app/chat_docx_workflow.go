@@ -6,7 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/bridge"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/identity"
 	"github.com/lunitide/lunitide/internal/officetools"
 	"github.com/lunitide/lunitide/internal/toolruntime"
@@ -86,7 +86,7 @@ func looksLikeNovelTask(text string) bool {
 	return false
 }
 
-func expertMountedIn(req gateway.Request, needles ...string) bool {
+func expertMountedIn(req llmadapter.Request, needles ...string) bool {
 	for _, m := range req.Messages {
 		for _, n := range needles {
 			if strings.Contains(m.Content, n) {
@@ -97,7 +97,7 @@ func expertMountedIn(req gateway.Request, needles ...string) bool {
 	return false
 }
 
-func reportTaskFromRequest(req gateway.Request, goal string) bool {
+func reportTaskFromRequest(req llmadapter.Request, goal string) bool {
 	if looksLikeReportTask(goal) {
 		return true
 	}
@@ -116,7 +116,7 @@ func reportTaskFromRequest(req gateway.Request, goal string) bool {
 	return false
 }
 
-func novelTaskFromRequest(req gateway.Request, goal string) bool {
+func novelTaskFromRequest(req llmadapter.Request, goal string) bool {
 	if looksLikeNovelTask(goal) {
 		return true
 	}
@@ -135,7 +135,7 @@ func novelTaskFromRequest(req gateway.Request, goal string) bool {
 	return false
 }
 
-func docxKindFromRequest(req gateway.Request, goal string) string {
+func docxKindFromRequest(req llmadapter.Request, goal string) string {
 	if looksLikePptTask(goal) {
 		return ""
 	}
@@ -373,12 +373,12 @@ func docxThinkingBanner(kind, stage string) string {
 	}
 }
 
-func docxStageNudge(kind, stage string) gateway.Message {
+func docxStageNudge(kind, stage string) llmadapter.Message {
 	if kind == docxKindNovel {
-		return gateway.Message{Role: gateway.RoleSystem, Content: "继续小说流水线的下一步（" + stage + "）。" +
+		return llmadapter.Message{Role: llmadapter.RoleSystem, Content: "继续小说流水线的下一步（" + stage + "）。" +
 			"还没有合格 docx.gen 之前不要结束本轮。先有大纲和分章正文，禁止把提纲当小说。"}
 	}
-	return gateway.Message{Role: gateway.RoleSystem, Content: "继续报告流水线的下一步（" + stage + "）。" +
+	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: "继续报告流水线的下一步（" + stage + "）。" +
 		"还没有合格 docx.gen 之前不要结束本轮。需要网上论据就调用 web.search / web.fetch。" +
 		"禁止交无标题样式或特别简单的空稿。"}
 }
@@ -415,7 +415,7 @@ func enrichDocxGenArgs(e *Engine, goal string, args json.RawMessage) json.RawMes
 	return raw
 }
 
-func startDocxWorkflow(req *gateway.Request, turn *chatTurnCheckpoint, send func(bridge.Event) error) {
+func startDocxWorkflow(req *llmadapter.Request, turn *chatTurnCheckpoint, send func(bridge.Event) error) {
 	if req == nil || turn == nil || req.DisableReasoning || turn.PptActive || turn.DocxActive {
 		return
 	}
@@ -431,10 +431,10 @@ func startDocxWorkflow(req *gateway.Request, turn *chatTurnCheckpoint, send func
 	if kind == docxKindNovel {
 		instr = novelPipelineInstruction
 	}
-	req.Messages = append(req.Messages, gateway.Message{Role: gateway.RoleSystem, Content: instr})
+	req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: instr})
 }
 
-func nudgeDocxWorkflow(req *gateway.Request, turn *chatTurnCheckpoint, send func(bridge.Event) error) bool {
+func nudgeDocxWorkflow(req *llmadapter.Request, turn *chatTurnCheckpoint, send func(bridge.Event) error) bool {
 	if !shouldContinueDocxTurn(turn, req != nil && req.DisableReasoning) {
 		return false
 	}

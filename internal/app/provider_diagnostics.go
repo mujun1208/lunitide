@@ -11,7 +11,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/voice/volcsauc"
@@ -96,15 +96,15 @@ func handleProviderTest(e *Engine, ctx context.Context, request bridge.Request) 
 			return adapterErr
 		}
 		if modelByID(p, modelID).EffectiveKind() == provider.KindEmbedding {
-			emb, ok := adapter.(gateway.Embedder)
+			emb, ok := adapter.(llmadapter.Embedder)
 			if !ok {
 				return errors.New("adapter does not support embeddings")
 			}
 			_, adapterErr = emb.Embed(opCtx, secret, modelID, []string{"ping"})
 			return adapterErr
 		}
-		testRequest := gateway.Request{Model: modelID, Messages: []gateway.Message{{Role: gateway.RoleUser, Content: "ping"}}, MaxTokens: 1, MaxAttempts: 1}
-		if tester, ok := adapter.(gateway.ConnectionTester); ok {
+		testRequest := llmadapter.Request{Model: modelID, Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "ping"}}, MaxTokens: 1, MaxAttempts: 1}
+		if tester, ok := adapter.(llmadapter.ConnectionTester); ok {
 			return tester.TestConnection(opCtx, secret, testRequest)
 		}
 		_, adapterErr = adapter.Complete(opCtx, secret, testRequest)
@@ -138,7 +138,7 @@ func handleProviderModelSync(e *Engine, ctx context.Context, request bridge.Requ
 		if p.Protocol == provider.ProtocolAnthropic || p.Protocol == provider.ProtocolVolcSpeech {
 			return append([]provider.Model(nil), p.Models...), "MODEL_DISCOVERY_UNSUPPORTED", nil
 		}
-		var discovery gateway.Discovery
+		var discovery llmadapter.Discovery
 		discoveryErr := e.withProviderLease(ctx, p, secretlease.OperationModelDiscover, func(opCtx context.Context, secret []byte) error {
 			adapter, adapterErr := e.adapter(opCtx, p)
 			if adapterErr == nil {
@@ -152,7 +152,7 @@ func handleProviderModelSync(e *Engine, ctx context.Context, request bridge.Requ
 			// 404. That is not a connection failure — chat/completions works
 			// fine — so keep the provider's existing models and surface a
 			// friendly warning instead of hard-failing the whole sync.
-			var ge *gateway.Error
+			var ge *llmadapter.Error
 			if errors.As(discoveryErr, &ge) && ge.HTTPStatus == http.StatusNotFound {
 				return append([]provider.Model(nil), p.Models...), "MODEL_LIST_UNSUPPORTED", nil
 			}
@@ -173,7 +173,7 @@ func handleProviderModelSync(e *Engine, ctx context.Context, request bridge.Requ
 		case errors.Is(err, errModelDiscoveryEmpty):
 			return request.Fail("MODEL_DISCOVERY_EMPTY", "未发现可用模型", false)
 		}
-		var gatewayErr *gateway.Error
+		var gatewayErr *llmadapter.Error
 		if errors.As(err, &gatewayErr) || networkpolicy.ErrorCode(err) != "" || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			d := diagnosticResult(err, 0, time.Now().UTC())
 			return request.Fail(d.ErrorCode, d.SanitizedMessage, d.Retryable)
@@ -187,14 +187,14 @@ func handleProviderModelSync(e *Engine, ctx context.Context, request bridge.Requ
 	return request.Ok(map[string]any{"models": updated.Models, "warnings": warnings, "version": updated.Version})
 }
 
-func (e *Engine) adapter(ctx context.Context, p provider.Provider) (gateway.Adapter, error) {
+func (e *Engine) adapter(ctx context.Context, p provider.Provider) (llmadapter.Adapter, error) {
 	if e.adapterFactory != nil {
 		return e.adapterFactory(ctx, p)
 	}
 	key := p.ID + "\x00" + p.BaseURL + "\x00" + string(p.Protocol)
 	e.adapterCacheMu.Lock()
 	if e.adapterCache == nil {
-		e.adapterCache = make(map[string]gateway.Adapter)
+		e.adapterCache = make(map[string]llmadapter.Adapter)
 	}
 	if cached, ok := e.adapterCache[key]; ok {
 		e.adapterCacheMu.Unlock()
@@ -215,7 +215,7 @@ func (e *Engine) adapter(ctx context.Context, p provider.Provider) (gateway.Adap
 	return created, nil
 }
 
-func (e *Engine) newProductionAdapter(ctx context.Context, p provider.Provider) (gateway.Adapter, error) {
+func (e *Engine) newProductionAdapter(ctx context.Context, p provider.Provider) (llmadapter.Adapter, error) {
 	// Provider connections are user-configured endpoints. Allow HTTP and
 	// localhost so that local model servers (LM Studio, Ollama, etc.) are
 	// reachable. The SSRF policy still applies to web fetch/search paths.
@@ -223,9 +223,9 @@ func (e *Engine) newProductionAdapter(ctx context.Context, p provider.Provider) 
 	network.Policy = networkpolicy.Policy{AllowHTTP: true, AllowLocalhost: true}
 	switch p.Protocol {
 	case provider.ProtocolOpenAICompatible:
-		return gateway.OpenAIEndpoint(ctx, p.BaseURL, network, e.gateway)
+		return llmadapter.OpenAIEndpoint(ctx, p.BaseURL, network, e.gateway)
 	case provider.ProtocolAnthropic:
-		return gateway.AnthropicEndpoint(ctx, p.BaseURL, network, e.gateway)
+		return llmadapter.AnthropicEndpoint(ctx, p.BaseURL, network, e.gateway)
 	default:
 		return nil, errors.New("invalid stored protocol")
 	}
@@ -272,7 +272,7 @@ func isQuotaRotateError(err error) bool {
 	if err == nil {
 		return false
 	}
-	var gatewayErr *gateway.Error
+	var gatewayErr *llmadapter.Error
 	if errors.As(err, &gatewayErr) && gatewayErr.HTTPStatus == 429 {
 		return true
 	}
@@ -328,7 +328,7 @@ func withLeaseRotate(ctx context.Context, p provider.Provider, rot *leaseRotateS
 	return context.WithValue(ctx, leaseRotateKey{}, leaseRotateCtx{provider: p, rot: rot, emitted: emitted})
 }
 
-func (e *Engine) completeMaybeRotate(ctx context.Context, a gateway.Adapter, credential []byte, req gateway.Request) (gateway.Response, error) {
+func (e *Engine) completeMaybeRotate(ctx context.Context, a llmadapter.Adapter, credential []byte, req llmadapter.Request) (llmadapter.Response, error) {
 	resp, err := a.Complete(ctx, credential, req)
 	if err == nil || e == nil {
 		return resp, err
@@ -346,7 +346,7 @@ func (e *Engine) completeMaybeRotate(ctx context.Context, a gateway.Adapter, cre
 	refs := shared.provider.CredentialRefChain()
 	for shared.rot.swaps+1 < len(refs) && shared.rot.swaps < 3 {
 		shared.rot.swaps++
-		var out gateway.Response
+		var out llmadapter.Response
 		last := e.withProviderLeaseRef(ctx, shared.provider, refs[shared.rot.swaps], secretlease.OperationChat, func(op context.Context, secret []byte) error {
 			inner, completeErr := a.Complete(op, secret, req)
 			out = inner
@@ -379,7 +379,7 @@ func providerReadyFailure(request bridge.Request, p provider.Provider) *bridge.R
 	return nil
 }
 
-func discoveredModels(current provider.Provider, d gateway.Discovery) ([]provider.Model, string, bool) {
+func discoveredModels(current provider.Provider, d llmadapter.Discovery) ([]provider.Model, string, bool) {
 	if d.Unsupported {
 		return append([]provider.Model(nil), current.Models...), "MODEL_DISCOVERY_UNSUPPORTED", len(current.Models) > 0
 	}
@@ -446,19 +446,19 @@ func diagnosticResult(err error, latency time.Duration, testedAt time.Time) diag
 		return d
 	}
 	d.Status, d.ErrorCode, d.SanitizedMessage = "failed", "UPSTREAM_UNAVAILABLE", "供应商连接测试失败"
-	var ge *gateway.Error
+	var ge *llmadapter.Error
 	if errors.As(err, &ge) {
 		d.ErrorCode = ge.Code
 		d.HTTPStatus = ge.HTTPStatus
 		switch ge.Stage {
-		case gateway.StageConnect:
+		case llmadapter.StageConnect:
 			d.Stage = "connect"
-		case gateway.StageHTTP:
+		case llmadapter.StageHTTP:
 			d.Stage = "request"
 			if ge.HTTPStatus == 401 || ge.HTTPStatus == 403 {
 				d.Stage = "authenticate"
 			}
-		case gateway.StageDecode:
+		case llmadapter.StageDecode:
 			d.Stage = "response"
 		}
 		d.Retryable = ge.HTTPStatus == 429 || ge.HTTPStatus >= 500

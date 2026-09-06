@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/bridge"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
@@ -141,13 +141,13 @@ func TestInvokeExpertCreateInvalidJSONRetry(t *testing.T) {
 }
 
 func TestInjectedGuidanceDigestHashesSystem(t *testing.T) {
-	req := gateway.Request{
-		Messages: []gateway.Message{
-			{Role: gateway.RoleSystem, Content: "alpha"},
-			{Role: gateway.RoleUser, Content: "ignored"},
-			{Role: gateway.RoleSystem, Content: "beta"},
+	req := llmadapter.Request{
+		Messages: []llmadapter.Message{
+			{Role: llmadapter.RoleSystem, Content: "alpha"},
+			{Role: llmadapter.RoleUser, Content: "ignored"},
+			{Role: llmadapter.RoleSystem, Content: "beta"},
 		},
-		Tools: []gateway.ToolDefinition{{Name: "workspace.read"}},
+		Tools: []llmadapter.ToolDefinition{{Name: "workspace.read"}},
 	}
 	n, digest, tools := injectedGuidanceDigest(req)
 	if n != len("alpha")+len("beta") {
