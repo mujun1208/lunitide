@@ -7,14 +7,14 @@ import (
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/domain/skill"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/mcp6"
 	"github.com/lunitide/lunitide/internal/people"
 	"github.com/lunitide/lunitide/internal/skillapp"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
-func (e *Engine) mcpToolDefinitionsRestricted(allowed []string, restrict bool) []gateway.ToolDefinition {
+func (e *Engine) mcpToolDefinitionsRestricted(allowed []string, restrict bool) []llmadapter.ToolDefinition {
 	if e == nil || e.mcp6Registry == nil {
 		return nil
 	}
@@ -34,7 +34,7 @@ func (e *Engine) mcpToolDefinitionsRestricted(allowed []string, restrict bool) [
 	if len(snapshot) > mcpDirectToolCap {
 		return mcpGatewayToolDefinitions(len(snapshot))
 	}
-	defs := make([]gateway.ToolDefinition, 0, len(snapshot))
+	defs := make([]llmadapter.ToolDefinition, 0, len(snapshot))
 	for _, t := range snapshot {
 		name, ok := mcpToolName(t.EndpointID, t.Tool)
 		if !ok {
@@ -48,7 +48,7 @@ func (e *Engine) mcpToolDefinitionsRestricted(allowed []string, restrict bool) [
 		if len(t.Schema) > 0 && json.Valid(t.Schema) && t.Schema[0] == '{' {
 			schema = t.Schema
 		}
-		defs = append(defs, gateway.ToolDefinition{Name: name, Description: description, Schema: schema})
+		defs = append(defs, llmadapter.ToolDefinition{Name: name, Description: description, Schema: schema})
 	}
 	return defs
 }

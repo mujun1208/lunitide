@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/storage/sqlite"
 	"github.com/oklog/ulid/v2"
 )
@@ -130,25 +130,25 @@ type flashClassifyAdapter struct {
 	models []string
 }
 
-func (a *flashClassifyAdapter) Complete(_ context.Context, _ []byte, req gateway.Request) (gateway.Response, error) {
+func (a *flashClassifyAdapter) Complete(_ context.Context, _ []byte, req llmadapter.Request) (llmadapter.Response, error) {
 	a.models = append(a.models, req.Model)
-	return gateway.Response{Message: gateway.Message{Content: `{"route":"R1","allow":{"video.understand":true}}`}}, nil
+	return llmadapter.Response{Message: llmadapter.Message{Content: `{"route":"R1","allow":{"video.understand":true}}`}}, nil
 }
-func (flashClassifyAdapter) TestConnection(context.Context, []byte, gateway.Request) error {
+func (flashClassifyAdapter) TestConnection(context.Context, []byte, llmadapter.Request) error {
 	return nil
 }
-func (flashClassifyAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, nil
+func (flashClassifyAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, nil
 }
-func (flashClassifyAdapter) Stream(context.Context, []byte, gateway.Request, func(gateway.Delta) error) (gateway.Response, error) {
-	return gateway.Response{}, nil
+func (flashClassifyAdapter) Stream(context.Context, []byte, llmadapter.Request, func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	return llmadapter.Response{}, nil
 }
 
 func TestFlashClassifySkippedWhenRoleEmpty(t *testing.T) {
 	adapter := &flashClassifyAdapter{}
 	e := NewEngineWithGateway(roleCatalog{}, "test", streamTestLease{})
 	e.SetCapabilityRoleStore(&memoryRoleStore{})
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return adapter, nil
 	})
 	_, _, used := e.tryFlashClassify(context.Background(), "随便问问")
@@ -164,7 +164,7 @@ func TestFlashClassifyUsesBoundModel(t *testing.T) {
 	}}
 	e := NewEngineWithGateway(roleCatalog{}, "test", streamTestLease{})
 	e.SetCapabilityRoleStore(store)
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return adapter, nil
 	})
 	route, allow, used := e.tryFlashClassify(context.Background(), "解读这段视频")
@@ -192,11 +192,11 @@ func TestCompleteJudgeUsesBoundModel(t *testing.T) {
 	e.SetCapabilityRoleStore(&memoryRoleStore{rows: []sqlite.CapabilityRoleBinding{
 		{Role: "judge", ProviderID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", ModelID: "flash-l"},
 	}})
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return adapter, nil
 	})
-	resp, err := e.completeJudge(context.Background(), adapter, []byte("k"), "chat-l", gateway.Request{
-		Messages: []gateway.Message{{Role: gateway.RoleUser, Content: "verify"}},
+	resp, err := e.completeJudge(context.Background(), adapter, []byte("k"), "chat-l", llmadapter.Request{
+		Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "verify"}},
 	})
 	if err != nil || resp.Message.Content == "" {
 		t.Fatalf("completeJudge err=%v resp=%+v", err, resp)

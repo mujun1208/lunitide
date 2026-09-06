@@ -284,6 +284,8 @@ ALTER TABLE provider_models DROP COLUMN kind_default;
 ALTER TABLE sessions DROP COLUMN pinned;
 ALTER TABLE sessions DROP COLUMN revision;
 ALTER TABLE sessions DROP COLUMN metadata_json;
+DROP TABLE IF EXISTS skill_invocations;
+ALTER TABLE skills DROP COLUMN rev;
 DELETE FROM schema_migrations WHERE version >= '0027_token_ledger_remove_legacy_unique.sql';
 INSERT INTO projects(id,name,project_code,created_at,updated_at) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA0','project','ITM00001','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');
 INSERT INTO sessions(id,project_id,title,created_at,updated_at) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA1','01ARZ3NDEKTSV4RRFFQ69G5FA0','session','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');

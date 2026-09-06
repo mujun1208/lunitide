@@ -9,7 +9,7 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/lunitide/lunitide/internal/domain/m8core"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/m8app"
 )
 
@@ -188,7 +188,7 @@ func TestKBEmbedHappensAfterCommit(t *testing.T) {
 			return err
 		}
 		for _, row := range rows {
-			if _, ok := gateway.DecodeEmbeddingBLOB(row.Chunk.Embedding); ok {
+			if _, ok := llmadapter.DecodeEmbeddingBLOB(row.Chunk.Embedding); ok {
 				blobs++
 			}
 		}

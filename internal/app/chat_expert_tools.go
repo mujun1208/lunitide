@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 // specialistRuntimeInstruction is injected on 选专家 / Expert Center / council
@@ -38,11 +38,11 @@ var specialistToolAllow = map[string]bool{
 	"datasource.query": true,
 }
 
-func specialistToolDefinitions(all []gateway.ToolDefinition) []gateway.ToolDefinition {
+func specialistToolDefinitions(all []llmadapter.ToolDefinition) []llmadapter.ToolDefinition {
 	return filterToolDefs(all, specialistToolAllow)
 }
 
-func specialistToolNames(defs []gateway.ToolDefinition) []string {
+func specialistToolNames(defs []llmadapter.ToolDefinition) []string {
 	out := make([]string, 0, len(defs))
 	for _, d := range defs {
 		out = append(out, d.Name)
@@ -50,7 +50,7 @@ func specialistToolNames(defs []gateway.ToolDefinition) []string {
 	return out
 }
 
-func hasSpecialistOfficeAndWeb(defs []gateway.ToolDefinition) bool {
+func hasSpecialistOfficeAndWeb(defs []llmadapter.ToolDefinition) bool {
 	need := []string{"web.search", "web.fetch", "excel.gen", "docx.gen", "pptx.gen", "html.gen", "skill.invoke"}
 	have := toolNameSet(defs)
 	for _, name := range need {

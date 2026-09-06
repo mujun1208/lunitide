@@ -4,7 +4,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 const (
@@ -26,7 +26,7 @@ type hybridCandidate struct {
 }
 
 func decodeChunkVector(blob []byte) ([]float32, bool) {
-	return gateway.DecodeEmbeddingBLOB(blob)
+	return llmadapter.DecodeEmbeddingBLOB(blob)
 }
 
 func cosine(a, b []float32) float64 {

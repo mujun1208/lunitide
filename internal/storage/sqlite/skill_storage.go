@@ -8,6 +8,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/skill"
+	"github.com/lunitide/lunitide/internal/skillapp"
 )
 
 // CreateSkill inserts a new skill. If sk.ID is empty a ULID is generated.
@@ -71,11 +72,11 @@ func (s *Store) GetSkill(ctx context.Context, id string) (*skill.Skill, error) {
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, name, display_name, description, version, status,
 		 permissions_json, entry_point, manifest_json, signature, publisher_id,
-		 min_engine_version, created_at, updated_at
+		 min_engine_version, created_at, updated_at, rev
 		 FROM skills WHERE id=?`, id).Scan(
 		&sk.ID, &sk.Name, &sk.DisplayName, &sk.Description, &sk.Version, &sk.Status,
 		&permissionsJSON, &sk.EntryPoint, &sk.ManifestJSON, &signature, &publisherID,
-		&minEngineVersion, &created, &updated)
+		&minEngineVersion, &created, &updated, &sk.Rev)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -114,11 +115,11 @@ func (s *Store) GetSkillByNameVersion(ctx context.Context, name, version string)
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, name, display_name, description, version, status,
 		 permissions_json, entry_point, manifest_json, signature, publisher_id,
-		 min_engine_version, created_at, updated_at
+		 min_engine_version, created_at, updated_at, rev
 		 FROM skills WHERE name=? AND version=?`, name, version).Scan(
 		&sk.ID, &sk.Name, &sk.DisplayName, &sk.Description, &sk.Version, &sk.Status,
 		&permissionsJSON, &sk.EntryPoint, &sk.ManifestJSON, &signature, &publisherID,
-		&minEngineVersion, &created, &updated)
+		&minEngineVersion, &created, &updated, &sk.Rev)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -155,7 +156,7 @@ func (s *Store) ListSkills(ctx context.Context, status string, limit int) ([]ski
 	}
 	query := `SELECT id, name, display_name, description, version, status,
 	 permissions_json, entry_point, manifest_json, signature, publisher_id,
-	 min_engine_version, created_at, updated_at
+	 min_engine_version, created_at, updated_at, rev
 	 FROM skills`
 	args := []any{}
 	if status != "" {
@@ -178,7 +179,7 @@ func (s *Store) ListSkills(ctx context.Context, status string, limit int) ([]ski
 		if err = rows.Scan(
 			&sk.ID, &sk.Name, &sk.DisplayName, &sk.Description, &sk.Version, &sk.Status,
 			&permissionsJSON, &sk.EntryPoint, &sk.ManifestJSON, &signature, &publisherID,
-			&minEngineVersion, &created, &updated); err != nil {
+			&minEngineVersion, &created, &updated, &sk.Rev); err != nil {
 			return nil, err
 		}
 		sk.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
@@ -227,7 +228,13 @@ func (s *Store) UpdateSkill(ctx context.Context, id, displayName, description st
 
 // UpdateSkillFields updates the mutable body of a skill. Semver stays put so
 // catalog refresh can rewrite manifests without breaking name+version lookup.
-func (s *Store) UpdateSkillFields(ctx context.Context, id, displayName, description, entryPoint, manifestJSON, permissionsJSON string, minEngineVersion *string) error {
+// The write is a numeric optimistic-concurrency CAS: it matches
+// WHERE id=? AND rev=? and bumps rev=rev+1, so a concurrent modification that
+// occurred after the caller read the row leaves RowsAffected==0 and yields
+// ErrSkillVersionConflict (distinguished from a genuine not-found via a
+// follow-up point read). This closes the same-semver lost-update window the
+// old string CAS on version could not detect.
+func (s *Store) UpdateSkillFields(ctx context.Context, id, displayName, description, entryPoint, manifestJSON, permissionsJSON string, minEngineVersion *string, expectedRev int64) error {
 	var minEV any
 	if minEngineVersion != nil {
 		minEV = *minEngineVersion
@@ -236,28 +243,57 @@ func (s *Store) UpdateSkillFields(ctx context.Context, id, displayName, descript
 		map[string]any{"id": id},
 		func(tx *sql.Tx) error {
 			res, err := tx.ExecContext(ctx,
-				`UPDATE skills SET display_name=?, description=?, entry_point=?, manifest_json=?, permissions_json=?, min_engine_version=?, updated_at=? WHERE id=?`,
-				displayName, description, entryPoint, manifestJSON, permissionsJSON, minEV, formatTime(time.Now().UTC()), id)
+				`UPDATE skills SET display_name=?, description=?, entry_point=?, manifest_json=?, permissions_json=?, min_engine_version=?, updated_at=?, rev=rev+1 WHERE id=? AND rev=?`,
+				displayName, description, entryPoint, manifestJSON, permissionsJSON, minEV, formatTime(time.Now().UTC()), id, expectedRev)
 			if err != nil {
 				return err
 			}
 			if n, raErr := res.RowsAffected(); raErr == nil && n == 0 {
-				return provider.ErrNotFound
+				// Zero rows: either the id is gone (not-found) or rev moved
+				// under us (conflict). Disambiguate with a point read.
+				var exists int
+				qErr := tx.QueryRowContext(ctx, `SELECT 1 FROM skills WHERE id=?`, id).Scan(&exists)
+				if qErr == sql.ErrNoRows {
+					return provider.ErrNotFound
+				}
+				if qErr != nil {
+					return qErr
+				}
+				return skillapp.ErrSkillVersionConflict
 			}
 			return nil
 		})
 	return mapWriteError(err)
 }
 
-// UpdateSkillStatus updates the status of a skill.
-func (s *Store) UpdateSkillStatus(ctx context.Context, id, status string) error {
+// UpdateSkillStatus updates the status of a skill under the same numeric
+// optimistic-concurrency CAS as UpdateSkillFields: it matches
+// WHERE id=? AND rev=? and bumps rev=rev+1. A stale expectedRev (a concurrent
+// write landed after the caller read the row) leaves RowsAffected==0 and
+// yields ErrSkillVersionConflict, distinguished from a genuine not-found via a
+// follow-up point read.
+func (s *Store) UpdateSkillStatus(ctx context.Context, id, status string, expectedRev int64) error {
 	err := s.execWithAudit(ctx, "skill.status_updated", id, "engine",
 		map[string]any{"status": status},
 		func(tx *sql.Tx) error {
-			_, err := tx.ExecContext(ctx,
-				`UPDATE skills SET status=?, updated_at=? WHERE id=?`,
-				status, formatTime(time.Now().UTC()), id)
-			return err
+			res, err := tx.ExecContext(ctx,
+				`UPDATE skills SET status=?, updated_at=?, rev=rev+1 WHERE id=? AND rev=?`,
+				status, formatTime(time.Now().UTC()), id, expectedRev)
+			if err != nil {
+				return err
+			}
+			if n, raErr := res.RowsAffected(); raErr == nil && n == 0 {
+				var exists int
+				qErr := tx.QueryRowContext(ctx, `SELECT 1 FROM skills WHERE id=?`, id).Scan(&exists)
+				if qErr == sql.ErrNoRows {
+					return provider.ErrNotFound
+				}
+				if qErr != nil {
+					return qErr
+				}
+				return skillapp.ErrSkillVersionConflict
+			}
+			return nil
 		})
 	return mapWriteError(err)
 }

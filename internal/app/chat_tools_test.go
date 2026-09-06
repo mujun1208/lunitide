@@ -9,7 +9,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/mcp6"
 )
 
@@ -17,27 +17,27 @@ import (
 // (function definitions unsupported) and answers plain text afterwards.
 type toolsFallbackAdapter struct{ attempts int }
 
-func (a *toolsFallbackAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (a *toolsFallbackAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (a *toolsFallbackAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (a *toolsFallbackAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (a *toolsFallbackAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+func (a *toolsFallbackAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	a.attempts++
 	if a.attempts == 1 {
-		return gateway.Response{}, &gateway.Error{Code: "HTTP_400", Stage: gateway.StageHTTP, HTTPStatus: 400, Message: "tools unsupported"}
+		return llmadapter.Response{}, &llmadapter.Error{Code: "HTTP_400", Stage: llmadapter.StageHTTP, HTTPStatus: 400, Message: "tools unsupported"}
 	}
-	if err := emit(gateway.Delta{Text: "plain answer"}); err != nil {
-		return gateway.Response{}, err
+	if err := emit(llmadapter.Delta{Text: "plain answer"}); err != nil {
+		return llmadapter.Response{}, err
 	}
-	return gateway.Response{Usage: gateway.Usage{OutputTokens: 2, TotalTokens: 2}}, nil
+	return llmadapter.Response{Usage: llmadapter.Usage{OutputTokens: 2, TotalTokens: 2}}, nil
 }
 
 func TestToolsFallbackEmitsExplicitNotice(t *testing.T) {
 	adapter := &toolsFallbackAdapter{}
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) { return adapter, nil })
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	state := &streamState{cancel: cancel, state: streamRunning}
@@ -57,7 +57,7 @@ func TestToolsFallbackEmitsExplicitNotice(t *testing.T) {
 			}
 		}
 	}()
-	req := gateway.Request{Model: "m", Tools: engineToolDefinitions()}
+	req := llmadapter.Request{Model: "m", Tools: engineToolDefinitions()}
 	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, req, func(event bridge.Event) error { events <- event; return nil }, "")
 	// runStream returns after emitting the terminal event; give the consumer
 	// goroutine a moment then close the loop check.
@@ -112,23 +112,23 @@ type mcpDispatchAdapter struct {
 	toolCalls   int
 }
 
-func (a *mcpDispatchAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (a *mcpDispatchAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (a *mcpDispatchAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (a *mcpDispatchAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (a *mcpDispatchAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+func (a *mcpDispatchAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	if a.toolCalls == 0 {
 		a.toolCalls++
-		return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{
 			{ID: "call-1", Name: a.mcpToolName, Arguments: []byte(`{"city":"Shanghai"}`)},
 		}}}, nil
 	}
-	if err := emit(gateway.Delta{Text: "weather done"}); err != nil {
-		return gateway.Response{}, err
+	if err := emit(llmadapter.Delta{Text: "weather done"}); err != nil {
+		return llmadapter.Response{}, err
 	}
-	return gateway.Response{Usage: gateway.Usage{OutputTokens: 3, TotalTokens: 3}}, nil
+	return llmadapter.Response{Usage: llmadapter.Usage{OutputTokens: 3, TotalTokens: 3}}, nil
 }
 
 func TestMcpToolsMergedAndDispatched(t *testing.T) {
@@ -159,7 +159,7 @@ func TestMcpToolsMergedAndDispatched(t *testing.T) {
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
 	e.SetM6Services(nil, registry, nil)
 	merged := e.mcpToolDefinitions()
-	var weatherDef *gateway.ToolDefinition
+	var weatherDef *llmadapter.ToolDefinition
 	for i := range merged {
 		if strings.Contains(merged[i].Name, "get_weather") {
 			weatherDef = &merged[i]
@@ -176,7 +176,7 @@ func TestMcpToolsMergedAndDispatched(t *testing.T) {
 	}
 
 	adapter := &mcpDispatchAdapter{mcpToolName: "mcp_" + endpoint.ID + "_get_weather"}
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) { return adapter, nil })
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	state := &streamState{cancel: cancel, state: streamRunning}
@@ -196,7 +196,7 @@ func TestMcpToolsMergedAndDispatched(t *testing.T) {
 			}
 		}
 	}()
-	req := gateway.Request{Model: "m", Tools: merged}
+	req := llmadapter.Request{Model: "m", Tools: merged}
 	// MCP dispatch is now gated in approval mode (the ungated-tool guard), so
 	// this plumbing test runs full-access where dispatch is allowed; the
 	// approval-mode refusal is covered in ungated_tools_test.go.
@@ -493,7 +493,7 @@ func TestMcpToolDefinitionsSwitchToSearchWhenCatalogIsLarge(t *testing.T) {
 }
 
 func TestAppendCaptureVisionKeepsLastFour(t *testing.T) {
-	var images []gateway.Image
+	var images []llmadapter.Image
 	images = appendCaptureVision(images, "image/png", []byte("one"))
 	images = appendCaptureVision(images, "image/jpeg", []byte("two"))
 	images = appendCaptureVision(images, "image/png", []byte("three"))

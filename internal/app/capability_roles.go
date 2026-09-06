@@ -9,7 +9,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/storage/sqlite"
 )
@@ -271,11 +271,11 @@ func (e *Engine) tryFlashClassify(ctx context.Context, goal string) (TaskRoute, 
 		if adapterErr != nil {
 			return adapterErr
 		}
-		resp, completeErr := a.Complete(op, secret, gateway.Request{
+		resp, completeErr := a.Complete(op, secret, llmadapter.Request{
 			Model: modelID, MaxTokens: 128, MaxAttempts: 1,
-			Messages: []gateway.Message{
-				{Role: gateway.RoleSystem, Content: `Classify the user goal into one JSON object {"route":"R0|R1|R2|R3|R4","allow":{}}. No prose.`},
-				{Role: gateway.RoleUser, Content: goal},
+			Messages: []llmadapter.Message{
+				{Role: llmadapter.RoleSystem, Content: `Classify the user goal into one JSON object {"route":"R0|R1|R2|R3|R4","allow":{}}. No prose.`},
+				{Role: llmadapter.RoleUser, Content: goal},
 			},
 		})
 		if completeErr != nil {

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 func TestProviderTestUsesEmbedForEmbeddingKind(t *testing.T) {
@@ -41,12 +41,12 @@ func (anthropicEmbedCatalog) List(context.Context, provider.Filter) ([]provider.
 
 func TestDiscoveredModelsPreservesDefaultDeduplicatesAndBounds(t *testing.T) {
 	current := provider.Provider{Models: []provider.Model{{ModelID: "m25", DisplayName: "old", IsDefault: true}}}
-	input := gateway.Discovery{}
+	input := llmadapter.Discovery{}
 	for i := 59; i >= 0; i-- {
 		id := "m" + twoDigits(i)
-		input.Models = append(input.Models, gateway.Model{ID: id})
+		input.Models = append(input.Models, llmadapter.Model{ID: id})
 	}
-	input.Models = append(input.Models, gateway.Model{ID: "m25"}, gateway.Model{ID: " bad "}, gateway.Model{ID: ""})
+	input.Models = append(input.Models, llmadapter.Model{ID: "m25"}, llmadapter.Model{ID: " bad "}, llmadapter.Model{ID: ""})
 	models, warning, ok := discoveredModels(current, input)
 	if !ok || warning != "" || len(models) != 50 {
 		t.Fatalf("models=%d warning=%q ok=%v", len(models), warning, ok)
@@ -67,11 +67,11 @@ func TestDiscoveredModelsPreservesDefaultDeduplicatesAndBounds(t *testing.T) {
 
 func TestDiscoveredModelsSelectsDeterministicDefaultAndAnthropicPreserves(t *testing.T) {
 	current := provider.Provider{Models: []provider.Model{{ModelID: "old", DisplayName: "Old", IsDefault: true}}}
-	models, _, ok := discoveredModels(current, gateway.Discovery{Models: []gateway.Model{{ID: "z"}, {ID: "a"}}})
+	models, _, ok := discoveredModels(current, llmadapter.Discovery{Models: []llmadapter.Model{{ID: "z"}, {ID: "a"}}})
 	if !ok || !models[0].IsDefault || models[0].ModelID != "a" {
 		t.Fatalf("models=%#v", models)
 	}
-	models, warning, ok := discoveredModels(current, gateway.Discovery{Unsupported: true, Warning: "upstream free text must not cross"})
+	models, warning, ok := discoveredModels(current, llmadapter.Discovery{Unsupported: true, Warning: "upstream free text must not cross"})
 	if !ok || warning != "MODEL_DISCOVERY_UNSUPPORTED" || len(models) != 1 || !models[0].IsDefault {
 		t.Fatalf("unsupported result=%#v %q", models, warning)
 	}
@@ -79,7 +79,7 @@ func TestDiscoveredModelsSelectsDeterministicDefaultAndAnthropicPreserves(t *tes
 
 func TestDiagnosticResultIsStableAndContainsNoUpstreamText(t *testing.T) {
 	canary := "SECRET-CANARY upstream says no"
-	d := diagnosticResult(&gateway.Error{Code: "HTTP_401", Stage: gateway.StageHTTP, HTTPStatus: 401, Message: canary}, time.Millisecond, time.Unix(1, 0).UTC())
+	d := diagnosticResult(&llmadapter.Error{Code: "HTTP_401", Stage: llmadapter.StageHTTP, HTTPStatus: 401, Message: canary}, time.Millisecond, time.Unix(1, 0).UTC())
 	if d.Status != "failed" || d.Stage != "authenticate" || d.HTTPStatus != 401 || d.ErrorCode != "HTTP_401" || d.SanitizedMessage == canary || d.Retryable {
 		t.Fatalf("unsafe diagnostic: %#v", d)
 	}

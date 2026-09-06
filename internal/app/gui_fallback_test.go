@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
@@ -165,12 +165,12 @@ func TestRunGUIFallbackOnceAndGates(t *testing.T) {
 		Nodes:   2,
 		VisW:    100,
 		VisH:    100,
-		Images:  []gateway.Image{{MIME: "image/png", Data: []byte("png")}},
-		Observe: func() (string, int, int, int, []gateway.Image, error) {
+		Images:  []llmadapter.Image{{MIME: "image/png", Data: []byte("png")}},
+		Observe: func() (string, int, int, int, []llmadapter.Image, error) {
 			observes++
-			return "frm_1", 2, 100, 100, []gateway.Image{{MIME: "image/png", Data: []byte("png")}}, nil
+			return "frm_1", 2, 100, 100, []llmadapter.Image{{MIME: "image/png", Data: []byte("png")}}, nil
 		},
-		Complete: func(exec guiExecutor, _ []gateway.Image, prompt string) (string, error) {
+		Complete: func(exec guiExecutor, _ []llmadapter.Image, prompt string) (string, error) {
 			completes++
 			if exec != guiExecGUI {
 				t.Fatalf("want gui executor, got %s", exec)
@@ -227,10 +227,10 @@ func TestRunGUIFallbackEmptyTreePixels(t *testing.T) {
 	rt := guiFallbackRuntime{
 		Goal:   "点那个按钮",
 		Images: nil,
-		Observe: func() (string, int, int, int, []gateway.Image, error) {
-			return "frm_empty", 0, 200, 100, []gateway.Image{{MIME: "image/png", Data: []byte("png")}}, nil
+		Observe: func() (string, int, int, int, []llmadapter.Image, error) {
+			return "frm_empty", 0, 200, 100, []llmadapter.Image{{MIME: "image/png", Data: []byte("png")}}, nil
 		},
-		Complete: func(exec guiExecutor, imgs []gateway.Image, _ string) (string, error) {
+		Complete: func(exec guiExecutor, imgs []llmadapter.Image, _ string) (string, error) {
 			if exec != guiExecGUI || len(imgs) == 0 {
 				t.Fatalf("empty-tree complete exec=%s imgs=%d", exec, len(imgs))
 			}
@@ -261,8 +261,8 @@ func TestRunGUIFallbackSomFailWritesOkFalse(t *testing.T) {
 		Goal:    "点保存",
 		FrameID: "frm_1",
 		Nodes:   2,
-		Images:  []gateway.Image{{MIME: "image/png", Data: []byte("png")}},
-		Complete: func(guiExecutor, []gateway.Image, string) (string, error) {
+		Images:  []llmadapter.Image{{MIME: "image/png", Data: []byte("png")}},
+		Complete: func(guiExecutor, []llmadapter.Image, string) (string, error) {
 			return "click the save button", nil
 		},
 		HasHit: func(string) bool { return false },
@@ -277,11 +277,11 @@ func TestRunGUIFallbackObserveFailIsNone(t *testing.T) {
 	t.Parallel()
 	var completes int
 	rt := guiFallbackRuntime{
-		Complete: func(guiExecutor, []gateway.Image, string) (string, error) {
+		Complete: func(guiExecutor, []llmadapter.Image, string) (string, error) {
 			completes++
 			return "", nil
 		},
-		Observe: func() (string, int, int, int, []gateway.Image, error) {
+		Observe: func() (string, int, int, int, []llmadapter.Image, error) {
 			return "", 0, 0, 0, nil, errSentinel("observe failed")
 		},
 	}

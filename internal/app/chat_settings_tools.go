@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/m7app"
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/mcp6"
@@ -18,18 +18,18 @@ import (
 // install as chat-callable tools (ordinary chat and 月伴 alike). These
 // wrap the existing settings-plane services — they do not unfreeze the
 // M5 mcp.invoke stub.
-func (e *Engine) settingsPlaneToolDefinitions() []gateway.ToolDefinition {
-	var defs []gateway.ToolDefinition
+func (e *Engine) settingsPlaneToolDefinitions() []llmadapter.ToolDefinition {
+	var defs []llmadapter.ToolDefinition
 	if e.m7mcp != nil {
 		defs = append(defs,
-			gateway.ToolDefinition{Name: "mcp.presets", Description: "List curated MCP server presets that can be installed with mcp.install (id, name, description, whether an extra path argument is required)", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
-			gateway.ToolDefinition{Name: "mcp.install", Description: "Install one curated MCP preset from mcp.presets; pass arg when the preset needs a directory or repo path", Schema: []byte(`{"type":"object","properties":{"presetId":{"type":"string","minLength":1,"maxLength":64},"arg":{"type":"string","maxLength":512,"description":"placeholder value when the preset needsArgs"}},"required":["presetId"],"additionalProperties":false}`)},
+			llmadapter.ToolDefinition{Name: "mcp.presets", Description: "List curated MCP server presets that can be installed with mcp.install (id, name, description, whether an extra path argument is required)", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
+			llmadapter.ToolDefinition{Name: "mcp.install", Description: "Install one curated MCP preset from mcp.presets; pass arg when the preset needs a directory or repo path", Schema: []byte(`{"type":"object","properties":{"presetId":{"type":"string","minLength":1,"maxLength":64},"arg":{"type":"string","maxLength":512,"description":"placeholder value when the preset needsArgs"}},"required":["presetId"],"additionalProperties":false}`)},
 		)
 	}
 	if e.m8plugin != nil {
 		defs = append(defs,
-			gateway.ToolDefinition{Name: "plugin.search", Description: "Search locally known plugins (market source degrades to the installed catalogue)", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":200},"kind":{"type":"string"}},"required":["query"],"additionalProperties":false}`)},
-			gateway.ToolDefinition{Name: "plugin.install", Description: "Toggle a named harness roster card (web-search, git, clipboard, …). This does not download Cordis/TypeScript packages and does not add Git or Python. origin is market, local, or dev; source is the roster id.", Schema: []byte(`{"type":"object","properties":{"origin":{"type":"string","enum":["market","local","dev"]},"source":{"type":"string","minLength":1,"maxLength":512}},"required":["origin","source"],"additionalProperties":false}`)},
+			llmadapter.ToolDefinition{Name: "plugin.search", Description: "Search locally known plugins (market source degrades to the installed catalogue)", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":200},"kind":{"type":"string"}},"required":["query"],"additionalProperties":false}`)},
+			llmadapter.ToolDefinition{Name: "plugin.install", Description: "Toggle a named harness roster card (web-search, git, clipboard, …). This does not download Cordis/TypeScript packages and does not add Git or Python. origin is market, local, or dev; source is the roster id.", Schema: []byte(`{"type":"object","properties":{"origin":{"type":"string","enum":["market","local","dev"]},"source":{"type":"string","minLength":1,"maxLength":512}},"required":["origin","source"],"additionalProperties":false}`)},
 		)
 	}
 	return defs

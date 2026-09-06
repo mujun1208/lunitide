@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
@@ -23,15 +23,15 @@ func modelByID(p provider.Provider, id string) provider.Model {
 	return provider.Model{}
 }
 
-func injectVisionDescription(messages []gateway.Message, text string) []gateway.Message {
+func injectVisionDescription(messages []llmadapter.Message, text string) []llmadapter.Message {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return messages
 	}
 	block := "[视觉模型识别]\n" + text
-	out := append([]gateway.Message(nil), messages...)
+	out := append([]llmadapter.Message(nil), messages...)
 	for i := len(out) - 1; i >= 0; i-- {
-		if out[i].Role == gateway.RoleUser {
+		if out[i].Role == llmadapter.RoleUser {
 			if strings.TrimSpace(out[i].Content) == "" {
 				out[i].Content = block
 			} else {
@@ -40,19 +40,19 @@ func injectVisionDescription(messages []gateway.Message, text string) []gateway.
 			return out
 		}
 	}
-	return append(out, gateway.Message{Role: gateway.RoleUser, Content: block})
+	return append(out, llmadapter.Message{Role: llmadapter.RoleUser, Content: block})
 }
 
-func lastUserContent(messages []gateway.Message) string {
+func lastUserContent(messages []llmadapter.Message) string {
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == gateway.RoleUser {
+		if messages[i].Role == llmadapter.RoleUser {
 			return strings.TrimSpace(messages[i].Content)
 		}
 	}
 	return ""
 }
 
-func (e *Engine) maybeDescribeImages(ctx context.Context, llm provider.Model, images []gateway.Image, userText string) (string, bool) {
+func (e *Engine) maybeDescribeImages(ctx context.Context, llm provider.Model, images []llmadapter.Image, userText string) (string, bool) {
 	if len(images) == 0 || llm.SupportsVision || e.providers == nil {
 		return "", false
 	}
@@ -68,8 +68,8 @@ func (e *Engine) maybeDescribeImages(ctx context.Context, llm provider.Model, im
 	if hint := strings.TrimSpace(userText); hint != "" {
 		prompt += "\n\nUser message:\n" + hint
 	}
-	req := gateway.Request{
-		Messages:    []gateway.Message{{Role: gateway.RoleUser, Content: prompt}},
+	req := llmadapter.Request{
+		Messages:    []llmadapter.Message{{Role: llmadapter.RoleUser, Content: prompt}},
 		Images:      images,
 		MaxTokens:   2048,
 		MaxAttempts: 1,
@@ -132,7 +132,7 @@ func (e *Engine) invokeMediaGenerate(ctx context.Context, name string, args json
 			}
 			prompt := strings.TrimSpace(a.Prompt)
 			if kind == provider.KindVideo {
-				gen, ok := aAdapter.(gateway.VideoGenerator)
+				gen, ok := aAdapter.(llmadapter.VideoGenerator)
 				if !ok {
 					return fmt.Errorf("%s %s does not support video generation", entry.Provider.Name, entry.Model.ModelID)
 				}
@@ -143,7 +143,7 @@ func (e *Engine) invokeMediaGenerate(ctx context.Context, name string, args json
 				summary = formatMediaResult(kind, entry, out)
 				return nil
 			}
-			gen, ok := aAdapter.(gateway.ImageGenerator)
+			gen, ok := aAdapter.(llmadapter.ImageGenerator)
 			if !ok {
 				return fmt.Errorf("%s %s does not support image generation", entry.Provider.Name, entry.Model.ModelID)
 			}
@@ -177,7 +177,7 @@ func mediaKindLabel(kind provider.Kind) string {
 	}
 }
 
-func formatMediaResult(kind provider.Kind, entry provider.CatalogEntry, out gateway.MediaResult) string {
+func formatMediaResult(kind provider.Kind, entry provider.CatalogEntry, out llmadapter.MediaResult) string {
 	label := mediaKindLabel(kind)
 	var b strings.Builder
 	fmt.Fprintf(&b, "已用%s %s / %s 生成。", label, entry.Provider.Name, entry.Model.ModelID)

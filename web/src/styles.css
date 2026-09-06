@@ -1586,6 +1586,10 @@ html[data-theme="light"] .companion-preview-hint{color:rgba(20,36,59,.5)}
 .companion-subtitle-list{min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:rgba(143,170,216,.4) transparent;padding:2px 6px 2px 0}
 .companion-subtitle-hint{margin:1px 0;color:var(--muted);font-size:11.5px;text-align:center;white-space:nowrap}
 .companion-subtitle-hint.warn{color:#a8dcff;white-space:normal}
+.companion-tool-phase{margin:1px 0 3px;font-size:11.5px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);letter-spacing:.02em}
+.companion-tool-phase.phase-running{color:#a8dcff}
+.companion-tool-phase.phase-succeeded{color:#8fe0b0}
+.companion-tool-phase.phase-failed{color:#f0a3a3}
 .companion-line{margin:2px 0;font-size:13.5px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
 /* 流式字幕：新字符像风吹沙一样淡淡飘入（虚化→清晰、轻位移→归位） */
 .stream-chars .sand{display:inline;opacity:0;animation:companionSandIn .08s ease-out forwards}

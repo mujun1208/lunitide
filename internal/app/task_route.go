@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/videounderstand"
 )
 
@@ -149,7 +149,7 @@ func routeAllow(route TaskRoute, ccEnabled bool) map[string]bool {
 // applyTaskRoute shrinks defs to allow. nil allow leaves defs unchanged.
 // user.ask is always kept. kb.search / kb.cite / graph.expand already on
 // defs stay (expert mount); they are never added by the allow map.
-func applyTaskRoute(defs []gateway.ToolDefinition, route TaskRoute, allow map[string]bool) []gateway.ToolDefinition {
+func applyTaskRoute(defs []llmadapter.ToolDefinition, route TaskRoute, allow map[string]bool) []llmadapter.ToolDefinition {
 	_ = route
 	if allow == nil {
 		return defs
@@ -168,7 +168,7 @@ func applyTaskRoute(defs []gateway.ToolDefinition, route TaskRoute, allow map[st
 }
 
 // assembleRoutedTools mirrors chat.start: profile → companion deny → route.
-func assembleRoutedTools(defs []gateway.ToolDefinition, goal string, companion, ccEnabled bool) []gateway.ToolDefinition {
+func assembleRoutedTools(defs []llmadapter.ToolDefinition, goal string, companion, ccEnabled bool) []llmadapter.ToolDefinition {
 	profile := toolProfileDefault
 	if !companion {
 		profile = autoToolProfile(goal)

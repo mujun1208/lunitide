@@ -98,7 +98,7 @@ func TestCleanupWorkerReclaimsExpiredSubmissionsDuringLongRun(t *testing.T) {
 	c, store, _ := testCoordinator(t)
 	now := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
 	c.now = func() time.Time { return now }
-	input := draftInput(t, hash("worker-expiry"), []byte("short-lived"))
+	input := draftInput(t, []byte("short-lived"))
 	input.TTL = time.Second
 	if _, err := c.Submit(context.Background(), input); err != nil {
 		t.Fatal(err)

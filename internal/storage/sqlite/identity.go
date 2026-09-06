@@ -4,10 +4,100 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/identity"
+	"github.com/lunitide/lunitide/internal/secret"
 )
+
+// privateKeySentinel is what the local_identity.private_key column holds once
+// the real Ed25519 private key lives in the DPAPI credential store instead of
+// the database. It is deliberately a valid 128-char lowercase-hex string so it
+// passes the column CHECK constraint (unlike a NUL-prefixed marker), yet it is
+// not a real key: it is a fixed, recognizable pattern ("5ea1ed01" x16, i.e.
+// "sealed01") that cannot be produced by crypto/rand key generation with any
+// meaningful probability.
+const privateKeySentinel = "5ea1ed01" + "5ea1ed01" + "5ea1ed01" + "5ea1ed01" +
+	"5ea1ed01" + "5ea1ed01" + "5ea1ed01" + "5ea1ed01" +
+	"5ea1ed01" + "5ea1ed01" + "5ea1ed01" + "5ea1ed01" +
+	"5ea1ed01" + "5ea1ed01" + "5ea1ed01" + "5ea1ed01"
+
+// identitySecretRef keys the local identity private key in the DPAPI store.
+// The Origin must parse as a base URL because secret.Ref.Validate normalizes
+// it, hence the https sentinel host.
+func identitySecretRef() secret.Ref {
+	return secret.Ref{
+		CredentialRef: "local-identity-privkey",
+		ProviderID:    "local-identity-privkey",
+		Origin:        "https://identity.local.lunitide.local",
+		Protocol:      "identity-privkey",
+	}
+}
+
+// sealPrivateKey moves a plaintext private key hex into DPAPI and returns the
+// sentinel to persist in the column. When no secret store is wired it returns
+// the plaintext unchanged so isolated/non-Windows tests keep working.
+func (s *Store) sealPrivateKey(ctx context.Context, privateKeyHex string) (string, error) {
+	if s.identitySecrets == nil {
+		return privateKeyHex, nil
+	}
+	plain := strings.TrimSpace(privateKeyHex)
+	if plain == "" || plain == privateKeySentinel {
+		return plain, nil
+	}
+	if err := s.identitySecrets.Put(ctx, identitySecretRef(), []byte(plain)); err != nil {
+		return "", errors.New("sqlite: 保存身份私钥失败")
+	}
+	return privateKeySentinel, nil
+}
+
+// resolvePrivateKey fills rec.PrivateKey with the real plaintext hex. Three
+// cases mirror the imapp inbound-secret seam:
+//   - no secret store wired: leave the column value as-is (tests / legacy).
+//   - sentinel present: read the plaintext back out of DPAPI.
+//   - a real key still in the column (row written before this change):
+//     migrate it into DPAPI now and rewrite the column to the sentinel, so the
+//     plaintext copy in the database is gone after the first load.
+func (s *Store) resolvePrivateKey(ctx context.Context, rec identity.Record) (identity.Record, error) {
+	if s.identitySecrets == nil {
+		return rec, nil
+	}
+	stored := strings.TrimSpace(rec.PrivateKey)
+	if stored == "" {
+		return rec, nil
+	}
+	if stored == privateKeySentinel {
+		plain, err := s.readPrivateKey(ctx)
+		if err != nil {
+			return rec, err
+		}
+		rec.PrivateKey = plain
+		return rec, nil
+	}
+	// Legacy plaintext row: seal it into DPAPI, then overwrite the column with
+	// the sentinel so the plaintext no longer survives in the database.
+	if err := s.identitySecrets.Put(ctx, identitySecretRef(), []byte(stored)); err != nil {
+		return rec, errors.New("sqlite: 迁移身份私钥失败")
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE local_identity SET private_key=? WHERE singleton=1`, privateKeySentinel); err != nil {
+		return rec, err
+	}
+	rec.PrivateKey = stored
+	return rec, nil
+}
+
+func (s *Store) readPrivateKey(ctx context.Context) (string, error) {
+	var out string
+	err := s.identitySecrets.WithSecret(ctx, identitySecretRef(), func(plain []byte) error {
+		out = string(plain)
+		return nil
+	})
+	if err != nil {
+		return "", errors.New("sqlite: 读取身份私钥失败")
+	}
+	return out, nil
+}
 
 func (s *Store) LoadIdentity(ctx context.Context) (identity.Record, bool, error) {
 	var rec identity.Record
@@ -22,12 +112,20 @@ func (s *Store) LoadIdentity(ctx context.Context) (identity.Record, bool, error)
 		return identity.Record{}, false, err
 	}
 	rec.DiscoveryEnabled = discovery == 1
+	rec, err = s.resolvePrivateKey(ctx, rec)
+	if err != nil {
+		return identity.Record{}, false, err
+	}
 	return rec, true, nil
 }
 
 func (s *Store) InsertIdentity(ctx context.Context, rec identity.Record) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO local_identity(singleton, subject_id, public_key, private_key, nickname, avatar, status, department, title, org_name, bio, password_hash, pairing_code, discovery_enabled, created_at, updated_at) VALUES(1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		rec.SubjectID, rec.PublicKey, rec.PrivateKey, rec.Nickname, rec.Avatar, string(rec.Status), rec.Department, rec.Title, rec.OrgName, rec.Bio, rec.PasswordHash, rec.PairingCode, boolInt(rec.DiscoveryEnabled), rec.CreatedAt, rec.UpdatedAt)
+	storedKey, err := s.sealPrivateKey(ctx, rec.PrivateKey)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO local_identity(singleton, subject_id, public_key, private_key, nickname, avatar, status, department, title, org_name, bio, password_hash, pairing_code, discovery_enabled, created_at, updated_at) VALUES(1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		rec.SubjectID, rec.PublicKey, storedKey, rec.Nickname, rec.Avatar, string(rec.Status), rec.Department, rec.Title, rec.OrgName, rec.Bio, rec.PasswordHash, rec.PairingCode, boolInt(rec.DiscoveryEnabled), rec.CreatedAt, rec.UpdatedAt)
 	return err
 }
 

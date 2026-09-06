@@ -10,7 +10,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/skill"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/skillapp"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
@@ -66,12 +66,12 @@ func catalogTestSkill(name, description, manifest string) skill.Skill {
 	}
 }
 
-func startSkillCatalogChat(t *testing.T, skills SkillService, executionMode string) (bridge.Response, <-chan gateway.Request) {
+func startSkillCatalogChat(t *testing.T, skills SkillService, executionMode string) (bridge.Response, <-chan llmadapter.Request) {
 	t.Helper()
-	requests := make(chan gateway.Request, 1)
+	requests := make(chan llmadapter.Request, 1)
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
 	e.skills = skills
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return chatAttachmentAdapter{requests: requests}, nil
 	})
 	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","executionMode":"` + executionMode + `","messages":[{"role":"user","content":"hi"}]}`
@@ -79,10 +79,10 @@ func startSkillCatalogChat(t *testing.T, skills SkillService, executionMode stri
 	return response, requests
 }
 
-func capturedSkillChatSystem(t *testing.T, requests <-chan gateway.Request) string {
+func capturedSkillChatSystem(t *testing.T, requests <-chan llmadapter.Request) string {
 	t.Helper()
 	req := capturedChatRequest(t, requests)
-	if len(req.Messages) == 0 || req.Messages[0].Role != gateway.RoleSystem {
+	if len(req.Messages) == 0 || req.Messages[0].Role != llmadapter.RoleSystem {
 		t.Fatalf("first message is not system: %#v", req.Messages)
 	}
 	return req.Messages[0].Content
@@ -203,10 +203,10 @@ func TestChatStartRanksMatchingSkillsFirst(t *testing.T) {
 		catalogTestSkill("report-writer", "生成合规检查报告。", `{"triggers":["生成报告"]}`),
 		catalogTestSkill("manual-parser", "解析 AMM 手册章节。", `{"triggers":["手册解析","工卡抽取"]}`),
 	}}
-	requests := make(chan gateway.Request, 1)
+	requests := make(chan llmadapter.Request, 1)
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
 	e.skills = stub
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return chatAttachmentAdapter{requests: requests}, nil
 	})
 	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","executionMode":"approval","messages":[{"role":"user","content":"帮我做手册解析"}]}`
@@ -223,7 +223,7 @@ func TestChatStartRanksMatchingSkillsFirst(t *testing.T) {
 }
 
 func TestCompanionInjectsCatalogWhenQueryHitsSkill(t *testing.T) {
-	requests := make(chan gateway.Request, 1)
+	requests := make(chan llmadapter.Request, 1)
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
 	tools, err := toolruntime.New(t.TempDir())
 	if err != nil {
@@ -234,7 +234,7 @@ func TestCompanionInjectsCatalogWhenQueryHitsSkill(t *testing.T) {
 	e.skills = &skillCatalogStub{items: []skill.Skill{
 		catalogTestSkill("manual-parser", "解析 AMM 手册章节。", `{"triggers":["手册解析"]}`),
 	}}
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return chatAttachmentAdapter{requests: requests}, nil
 	})
 	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","companion":true,"messages":[{"role":"user","content":"帮我做手册解析"}]}`

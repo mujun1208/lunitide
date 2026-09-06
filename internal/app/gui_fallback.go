@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
@@ -48,9 +48,9 @@ type guiFallbackRuntime struct {
 	Nodes    int
 	VisW     int
 	VisH     int
-	Images   []gateway.Image
-	Observe  func() (frameID string, nodes, visW, visH int, images []gateway.Image, err error)
-	Complete func(exec guiExecutor, images []gateway.Image, prompt string) (string, error)
+	Images   []llmadapter.Image
+	Observe  func() (frameID string, nodes, visW, visH int, images []llmadapter.Image, err error)
+	Complete func(exec guiExecutor, images []llmadapter.Image, prompt string) (string, error)
 	HasHit   func(id string) bool
 	Click    func(args json.RawMessage, allowPixels bool) (toolruntime.Result, error)
 }
@@ -375,7 +375,7 @@ func (e *Engine) guiFallbackCatalogFlags(ctx context.Context, skipModel string) 
 		len(e.preferBoundCatalog(ctx, "vision", provider.VisionDescribeCatalog(items, skipModel))) > 0
 }
 
-func (e *Engine) completeSOMPick(ctx context.Context, exec guiExecutor, images []gateway.Image, prompt, skipModel string) (string, error) {
+func (e *Engine) completeSOMPick(ctx context.Context, exec guiExecutor, images []llmadapter.Image, prompt, skipModel string) (string, error) {
 	if e == nil || e.providers == nil {
 		return "", fmt.Errorf("no providers")
 	}
@@ -398,8 +398,8 @@ func (e *Engine) completeSOMPick(ctx context.Context, exec guiExecutor, images [
 	if len(catalog) == 0 {
 		return "", fmt.Errorf("empty som catalog")
 	}
-	req := gateway.Request{
-		Messages:    []gateway.Message{{Role: gateway.RoleUser, Content: prompt}},
+	req := llmadapter.Request{
+		Messages:    []llmadapter.Message{{Role: llmadapter.RoleUser, Content: prompt}},
 		Images:      images,
 		MaxTokens:   128,
 		MaxAttempts: 1,
@@ -434,7 +434,7 @@ func (e *Engine) completeSOMPick(ctx context.Context, exec guiExecutor, images [
 	return "", last
 }
 
-func (e *Engine) tryGUIFallback(ctx context.Context, mode executionMode, sessionID, goal, chatModel string, state *streamState, images []gateway.Image, alreadyUsed, desktopTypeL0Passed, observedThisTurn bool) (toolruntime.Result, json.RawMessage, bool) {
+func (e *Engine) tryGUIFallback(ctx context.Context, mode executionMode, sessionID, goal, chatModel string, state *streamState, images []llmadapter.Image, alreadyUsed, desktopTypeL0Passed, observedThisTurn bool) (toolruntime.Result, json.RawMessage, bool) {
 	if e == nil || state == nil {
 		return toolruntime.Result{}, nil, false
 	}
@@ -462,7 +462,7 @@ func (e *Engine) tryGUIFallback(ctx context.Context, mode executionMode, session
 	rt := guiFallbackRuntime{
 		Goal:   goal,
 		Images: images,
-		Observe: func() (string, int, int, int, []gateway.Image, error) {
+		Observe: func() (string, int, int, int, []llmadapter.Image, error) {
 			res, err := e.executeUserToolWithCompanion(ctx, mode, sessionID, "computer.act", json.RawMessage(`{"action":"observe"}`), nil, state.companion)
 			if err != nil {
 				return "", 0, 0, 0, images, err
@@ -480,7 +480,7 @@ func (e *Engine) tryGUIFallback(ctx context.Context, mode executionMode, session
 			}
 			return frameID, nodes, visW, visH, images, nil
 		},
-		Complete: func(exec guiExecutor, imgs []gateway.Image, prompt string) (string, error) {
+		Complete: func(exec guiExecutor, imgs []llmadapter.Image, prompt string) (string, error) {
 			return e.completeSOMPick(ctx, exec, imgs, prompt, chatModel)
 		},
 		HasHit: func(id string) bool {

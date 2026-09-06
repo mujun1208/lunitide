@@ -10,7 +10,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/secretlease"
 )
 
@@ -29,63 +29,63 @@ type fragmentedReasoningAdapter struct {
 	delay     time.Duration
 }
 
-func (reasoningStreamAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (reasoningStreamAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (reasoningStreamAdapter) TestConnection(context.Context, []byte, gateway.Request) error {
+func (reasoningStreamAdapter) TestConnection(context.Context, []byte, llmadapter.Request) error {
 	return errors.New("not used")
 }
-func (reasoningStreamAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (reasoningStreamAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (reasoningStreamAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
-	if err := emit(gateway.Delta{Reasoning: strings.Repeat("思", 10000)}); err != nil {
-		return gateway.Response{}, err
+func (reasoningStreamAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	if err := emit(llmadapter.Delta{Reasoning: strings.Repeat("思", 10000)}); err != nil {
+		return llmadapter.Response{}, err
 	}
-	if err := emit(gateway.Delta{Text: "answer"}); err != nil {
-		return gateway.Response{}, err
+	if err := emit(llmadapter.Delta{Text: "answer"}); err != nil {
+		return llmadapter.Response{}, err
 	}
-	return gateway.Response{}, nil
+	return llmadapter.Response{}, nil
 }
 
-func (fragmentedReasoningAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (fragmentedReasoningAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (fragmentedReasoningAdapter) TestConnection(context.Context, []byte, gateway.Request) error {
+func (fragmentedReasoningAdapter) TestConnection(context.Context, []byte, llmadapter.Request) error {
 	return errors.New("not used")
 }
-func (fragmentedReasoningAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (fragmentedReasoningAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (a fragmentedReasoningAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+func (a fragmentedReasoningAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	for i := 0; i < a.fragments; i++ {
 		if a.delay > 0 && i == 1 {
 			time.Sleep(a.delay)
 		}
-		if err := emit(gateway.Delta{Reasoning: "x"}); err != nil {
-			return gateway.Response{}, err
+		if err := emit(llmadapter.Delta{Reasoning: "x"}); err != nil {
+			return llmadapter.Response{}, err
 		}
 	}
-	if err := emit(gateway.Delta{Text: "answer"}); err != nil {
-		return gateway.Response{}, err
+	if err := emit(llmadapter.Delta{Text: "answer"}); err != nil {
+		return llmadapter.Response{}, err
 	}
-	return gateway.Response{}, nil
+	return llmadapter.Response{}, nil
 }
 
-func (a streamTestAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (a streamTestAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (a streamTestAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (a streamTestAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (a streamTestAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
-	usage := gateway.Usage{InputTokens: 2, OutputTokens: 3, TotalTokens: 5}
+func (a streamTestAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	usage := llmadapter.Usage{InputTokens: 2, OutputTokens: 3, TotalTokens: 5}
 	for range a.usageCallbacks {
-		if err := emit(gateway.Delta{Usage: &usage}); err != nil {
-			return gateway.Response{}, err
+		if err := emit(llmadapter.Delta{Usage: &usage}); err != nil {
+			return llmadapter.Response{}, err
 		}
 	}
-	return gateway.Response{Usage: usage}, nil
+	return llmadapter.Response{Usage: usage}, nil
 }
 
 func TestCancelStreamSpokenStoresPrefix(t *testing.T) {
@@ -177,7 +177,7 @@ func TestFailedTerminalEmissionReleasesStreamState(t *testing.T) {
 func TestRunStreamEmitsUsageExactlyOnce(t *testing.T) {
 	for _, usageCallbacks := range []int{0, 1, 2} {
 		e := NewEngineWithGateway(nil, "test", streamTestLease{})
-		e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+		e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 			return streamTestAdapter{usageCallbacks: usageCallbacks}, nil
 		})
 		_, cancel := context.WithCancel(context.Background())
@@ -188,7 +188,7 @@ func TestRunStreamEmitsUsageExactlyOnce(t *testing.T) {
 		e.runStream(context.Background(), id, state, provider.Provider{
 			ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible,
 			BaseURL: "https://api.example.com", CredentialRef: "credential-ref",
-		}, gateway.Request{}, func(event bridge.Event) error {
+		}, llmadapter.Request{}, func(event bridge.Event) error {
 			events = append(events, event)
 			return nil
 		}, "")
@@ -209,14 +209,14 @@ func TestRunStreamEmitsUsageExactlyOnce(t *testing.T) {
 
 func TestRunStreamEmitsBoundedThinkingWithoutMixingAnswer(t *testing.T) {
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return reasoningStreamAdapter{}, nil
 	})
 	_, cancel := context.WithCancel(context.Background())
 	state := &streamState{cancel: cancel, state: streamRunning}
 	e.streams["stream"] = state
 	var events []bridge.Event
-	e.runStream(context.Background(), "stream", state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, gateway.Request{}, func(event bridge.Event) error { events = append(events, event); return nil }, "")
+	e.runStream(context.Background(), "stream", state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, llmadapter.Request{}, func(event bridge.Event) error { events = append(events, event); return nil }, "")
 	var thought, answer string
 	for _, event := range events {
 		if event.Type == bridge.EventThinking {
@@ -236,14 +236,14 @@ func TestRunStreamEmitsBoundedThinkingWithoutMixingAnswer(t *testing.T) {
 
 func TestRunStreamAggregatesFragmentedThinkingAndPreservesOrder(t *testing.T) {
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return fragmentedReasoningAdapter{fragments: 5000}, nil
 	})
 	_, cancel := context.WithCancel(context.Background())
 	state := &streamState{cancel: cancel, state: streamRunning}
 	e.streams["stream"] = state
 	var events []bridge.Event
-	e.runStream(context.Background(), "stream", state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, gateway.Request{}, func(event bridge.Event) error {
+	e.runStream(context.Background(), "stream", state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, llmadapter.Request{}, func(event bridge.Event) error {
 		events = append(events, event)
 		return nil
 	}, "")
@@ -277,14 +277,14 @@ func TestRunStreamAggregatesFragmentedThinkingAndPreservesOrder(t *testing.T) {
 
 func TestRunStreamFlushesSlowFragmentedThinkingPromptly(t *testing.T) {
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return fragmentedReasoningAdapter{fragments: 2, delay: 60 * time.Millisecond}, nil
 	})
 	_, cancel := context.WithCancel(context.Background())
 	state := &streamState{cancel: cancel, state: streamRunning}
 	e.streams["stream"] = state
 	var events []bridge.Event
-	e.runStream(context.Background(), "stream", state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, gateway.Request{}, func(event bridge.Event) error {
+	e.runStream(context.Background(), "stream", state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, llmadapter.Request{}, func(event bridge.Event) error {
 		events = append(events, event)
 		return nil
 	}, "")
@@ -295,22 +295,22 @@ func TestRunStreamFlushesSlowFragmentedThinkingPromptly(t *testing.T) {
 
 type oversizedDeltaAdapter struct{}
 
-func (oversizedDeltaAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (oversizedDeltaAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (oversizedDeltaAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (oversizedDeltaAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (oversizedDeltaAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
-	if err := emit(gateway.Delta{Text: strings.Repeat("a", streamDeltaMaxBytes+1024)}); err != nil {
-		return gateway.Response{}, err
+func (oversizedDeltaAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	if err := emit(llmadapter.Delta{Text: strings.Repeat("a", streamDeltaMaxBytes+1024)}); err != nil {
+		return llmadapter.Response{}, err
 	}
-	return gateway.Response{Usage: gateway.Usage{InputTokens: 10, OutputTokens: 4, TotalTokens: 22}}, nil
+	return llmadapter.Response{Usage: llmadapter.Usage{InputTokens: 10, OutputTokens: 4, TotalTokens: 22}}, nil
 }
 
 func TestRunStreamSplitsOversizedDeltaAndKeepsProviderUsageTotals(t *testing.T) {
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return oversizedDeltaAdapter{}, nil
 	})
 	_, cancel := context.WithCancel(context.Background())
@@ -320,7 +320,7 @@ func TestRunStreamSplitsOversizedDeltaAndKeepsProviderUsageTotals(t *testing.T) 
 	e.runStream(context.Background(), "stream", state, provider.Provider{
 		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible,
 		BaseURL: "https://api.example.com", CredentialRef: "credential-ref",
-	}, gateway.Request{}, func(event bridge.Event) error {
+	}, llmadapter.Request{}, func(event bridge.Event) error {
 		events = append(events, event)
 		return nil
 	}, "")

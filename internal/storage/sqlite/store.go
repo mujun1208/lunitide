@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -21,13 +20,9 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/session"
 	"github.com/lunitide/lunitide/internal/domain/stage"
-	"github.com/lunitide/lunitide/internal/messageapp"
-	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/secret"
-	"github.com/lunitide/lunitide/internal/sessionapp"
 	"github.com/lunitide/lunitide/migrations"
 	"github.com/oklog/ulid/v2"
-	modernsqlite "modernc.org/sqlite"
 )
 
 // SecureRoot is the capability required to open production storage. The root
@@ -43,6 +38,21 @@ type Store struct {
 	root      SecureRoot
 	names     []string
 	idEntropy io.Reader
+	// identitySecrets, when wired, moves the local identity Ed25519 private
+	// key out of the database column and into the DPAPI credential store. Nil
+	// keeps the legacy in-column plaintext behavior for non-Windows/isolated
+	// tests, so the seam is opt-in rather than a hard dependency.
+	identitySecrets secret.Service
+}
+
+// WithIdentitySecrets wires the DPAPI credential store so the local identity
+// private key stops living in the database as plaintext hex. Call once at
+// bootstrap, before Ensure runs. Returns the receiver for chaining.
+func (s *Store) WithIdentitySecrets(store secret.Service) *Store {
+	if s != nil {
+		s.identitySecrets = store
+	}
+	return s
 }
 
 // OpenSecure is the only production open API. A caller cannot supply a DSN.
@@ -258,6 +268,10 @@ var manifest = []struct{ name, checksum string }{
 	{"0117_datasource_bindings.sql", "2e95d434f0d27dfc240594c2c3bd8a5f1c509e864a2edf864c50551086e15133"},
 	{"0118_mro_ops_ledgers.sql", "e0c1d3d1d63f94344359a4ed2f8d6f0bbca3012951b7ca3995e201e6edc24e29"},
 	{"0119_capability_roles_and_key_backups.sql", "f57bab0f6e0c8dfc9de77f5b1d2cc8624377d06c9fbaf0f1b2e58ef0429c5ca2"},
+	{"0120_audit_actions_secret_credential.sql", "718e77f350448e788bd33e0214ba4bf3da32ff777985b521bed5342a6a01130f"},
+	{"0121_memory_fts.sql", "586716f699ae68a0f95374a29253a798942ca244390ed0a3f7f706f5398efccf"},
+	{"0122_skill_invocations.sql", "c164fcb16a2636d2e19b8da204693b7ba73eef6a2e496bd47f7498dbc7a59d5a"},
+	{"0123_skill_rev.sql", "16b554acb2acfb4448b5fdf0fc581121b14ab07bacf1c1fd02bc17c57104431c"},
 }
 
 const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"
@@ -888,7 +902,8 @@ func validateJournal(ctx context.Context, q sqlRunner, _ []string) error {
 func skipMessageFTSSchema(name string) bool {
 	return name == "message_fts" || strings.HasPrefix(name, "message_fts_") || strings.HasPrefix(name, "trg_message_fts") ||
 		name == "memory_fact_fts" || strings.HasPrefix(name, "memory_fact_fts_") || strings.HasPrefix(name, "trg_memory_fact_fts") ||
-		name == "kb_chunk_fts" || strings.HasPrefix(name, "kb_chunk_fts_") || strings.HasPrefix(name, "trg_kb_chunk_fts")
+		name == "kb_chunk_fts" || strings.HasPrefix(name, "kb_chunk_fts_") || strings.HasPrefix(name, "trg_kb_chunk_fts") ||
+		name == "memory_fts" || strings.HasPrefix(name, "memory_fts_") || strings.HasPrefix(name, "trg_memory_fts")
 }
 
 var expectedSchemaSQL = map[string]string{
@@ -1114,7 +1129,7 @@ var expectedSchemaSQL = map[string]string{
 	"table:artifact_versions":                         "CREATE TABLE artifact_versions (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    artifact_id TEXT NOT NULL CHECK (length(artifact_id) BETWEEN 1 AND 256),\n    version_no INTEGER NOT NULL CHECK (version_no >= 1),\n    kind TEXT NOT NULL CHECK (kind IN ('document','patch','test_report','scan_report','package','sbom','other')),\n    scope_type TEXT NOT NULL CHECK (scope_type IN ('project','stage_run','dev_task','release','m6_root')),\n    scope_id TEXT NOT NULL CHECK (length(scope_id) BETWEEN 1 AND 256),\n    content_ref TEXT NOT NULL CHECK (length(content_ref) BETWEEN 1 AND 1024),\n    sha256 TEXT NOT NULL CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),\n    size INTEGER NOT NULL CHECK (size >= 0),\n    media_type TEXT NOT NULL CHECK (length(media_type) BETWEEN 3 AND 256),\n    state TEXT NOT NULL CHECK (state IN ('active','superseded')),\n    created_by TEXT NOT NULL CHECK (length(created_by) BETWEEN 1 AND 128),\n    created_at TEXT NOT NULL,\n    UNIQUE (artifact_id, version_no)\n)",
 	"table:asset_templates":                           "CREATE TABLE asset_templates (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]'),\n    template_code TEXT NOT NULL UNIQUE CHECK (length(template_code) BETWEEN 4 AND 16 AND template_code GLOB 'TPL[0-9]*'),\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 200),\n    template_type TEXT NOT NULL CHECK (template_type IN ('document', 'scaffold')),\n    document_type TEXT NOT NULL DEFAULT '' CHECK (length(document_type) <= 128),\n    description TEXT NOT NULL DEFAULT '' CHECK (length(description) <= 2000),\n    client TEXT NOT NULL DEFAULT '' CHECK (length(client) <= 200),\n    mime_type TEXT NOT NULL DEFAULT '' CHECK (length(mime_type) <= 128),\n    file_name TEXT NOT NULL DEFAULT '' CHECK (length(file_name) <= 260),\n    file_path TEXT NOT NULL DEFAULT '' CHECK (length(file_path) <= 512),\n    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'enabled', 'disabled', 'void')),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0)\n)",
 	"table:attachments":                               "CREATE TABLE attachments (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,\n    session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,\n    file_ref TEXT NOT NULL CHECK (length(file_ref) BETWEEN 1 AND 512),\n    original_name TEXT NOT NULL CHECK (length(original_name) BETWEEN 1 AND 256),\n    mime TEXT NOT NULL DEFAULT 'application/octet-stream' CHECK (length(mime) BETWEEN 1 AND 128),\n    size INTEGER NOT NULL CHECK (size BETWEEN 0 AND 10485760),\n    sha256 TEXT NOT NULL CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),\n    parse_status TEXT NOT NULL DEFAULT 'pending' CHECK (parse_status IN ('pending', 'parsing', 'succeeded', 'failed')),\n    parse_error_code TEXT NOT NULL DEFAULT '' CHECK (length(parse_error_code) <= 64),\n    parsed_text TEXT NOT NULL DEFAULT '' CHECK (length(parsed_text) <= 1048576),\n    parsed_text_bytes INTEGER NOT NULL DEFAULT 0 CHECK (parsed_text_bytes BETWEEN 0 AND 1048576),\n    created_at TEXT NOT NULL,\n    deleted_at TEXT\n)",
-	"table:audit_events":                              "CREATE TABLE audit_events (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    action TEXT NOT NULL CHECK (action IN ('provider.created', 'provider.updated', 'provider.models.synced', 'provider.deleted', 'project.created', 'project.updated', 'project.published', 'project.closed', 'project.reopened', 'project.advanced', 'project.deleted', 'session.created', 'session.updated', 'session.deleted', 'message.appended', 'message.rewound', 'stage.created', 'stage.updated', 'message.assistant.appended', 'memory.created', 'memory.updated', 'memory.deleted', 'agent.run.started', 'agent.run.resumed', 'agent.run.cancelled', 'agent.run.reconciled', 'review.created', 'review.status_updated', 'review.decided', 'workspace.registered', 'workspace.granted', 'workspace.leased', 'changeset.previewed', 'changeset.applied', 'changeset.reverted', 'changeset.conflicted', 'command.started', 'command.completed', 'command.failed', 'command.cancelled', 'command.reconciled', 'command.review.requested', 'web.fetched', 'web.searched', 'run.plan.updated', 'run.message.sent', 'browser.acted', 'mcp.invoked', 'plan.created', 'plan.status_updated', 'node.created', 'node.status_updated', 'ontology.node.created', 'ontology.node.updated', 'ontology.node.deleted', 'ontology.edge.created', 'ontology.edge.updated', 'ontology.edge.deleted', 'skill.created', 'skill.status_updated', 'skill.deleted', 'workspace.conversion.previewed', 'workspace.conversion.committed', 'm5.workspace.registered', 'extension.installed', 'extension.enabled', 'extension.disabled', 'extension.paused', 'extension.upgraded', 'extension.rolled_back', 'extension.uninstalled', 'mcp6.endpoint.registered', 'mcp6.endpoint.degraded', 'mcp6.endpoint.revoked', 'delegation.created', 'delegation.settled', 'barrier.created', 'barrier.arrived', 'merge.submitted', 'merge.merged', 'merge.stale', 'final.testing', 'final.completed', 'final.failed', 'stdio.worker.launched', 'stdio.worker.completed', 'stdio.worker.revoked', 'stdio.worker.expired', 'stdio.worker.recovered', 'workspace.conversion.published', 'openapi.parsed', 'integration.state.changed', 'credential.revoked', 'mapping.published', 'complexity.decided', 'synthesis.recorded', 'cloudrunner.registered', 'cloud.dispatched', 'cloud.reconciled', 'skill.import.discovered', 'skill.import.pinned', 'skill.import.inspected', 'skill.import.scanned', 'skill.import.evaluated', 'skill.import.approved', 'skill.import.rejected', 'skill.import.revoked', 'policy.created', 'policy.updated', 'policy.deactivated', 'skill.updated', 'memory.settings.update', 'memory.fact.flag', 'memory.fact.unflag', 'memory.growth.enroll', 'memory.growth.decide', 'memory.purge', 'queue.input', 'queue.withdraw', 'queue.consume', 'skill.category_set', 'skill.category_seeded', 'browser.connected', 'browser.disconnected', 'browser.navigated', 'browser.data.cleared', 'browser.permission.granted', 'browser.permission.denied', 'cc.config.updated', 'cc.emergency.stopped', 'cc.operation.executed', 'cc.operation.blocked', 'cc.operation.confirmed', 'cc.tool.denied', 'asset_template.created', 'asset_template.status', 'asset_template.deleted', 'project_deliverable.upserted', 'project_deliverable.gate_confirmed', 'project_attachment.created')),\n    aggregate_id TEXT NOT NULL CHECK (length(aggregate_id) BETWEEN 1 AND 64),\n    actor TEXT NOT NULL CHECK (length(actor) BETWEEN 1 AND 128),\n    metadata_json TEXT NOT NULL CHECK (length(metadata_json) BETWEEN 2 AND 16384),\n    created_at TEXT NOT NULL,\n    seq INTEGER CHECK (seq IS NULL OR seq >= 1),\n    prev_hash TEXT CHECK (prev_hash IS NULL OR (length(prev_hash) = 64 AND prev_hash NOT GLOB '*[^0-9a-f]*')),\n    event_hash TEXT CHECK (event_hash IS NULL OR (length(event_hash) = 64 AND event_hash NOT GLOB '*[^0-9a-f]*'))\n)",
+	"table:audit_events":                              "CREATE TABLE audit_events (\n    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),\n    action TEXT NOT NULL CHECK (action IN ('provider.created', 'provider.updated', 'provider.models.synced', 'provider.deleted', 'project.created', 'project.updated', 'project.published', 'project.closed', 'project.reopened', 'project.advanced', 'project.deleted', 'session.created', 'session.updated', 'session.deleted', 'message.appended', 'message.rewound', 'stage.created', 'stage.updated', 'message.assistant.appended', 'memory.created', 'memory.updated', 'memory.deleted', 'agent.run.started', 'agent.run.resumed', 'agent.run.cancelled', 'agent.run.reconciled', 'review.created', 'review.status_updated', 'review.decided', 'workspace.registered', 'workspace.granted', 'workspace.leased', 'changeset.previewed', 'changeset.applied', 'changeset.reverted', 'changeset.conflicted', 'command.started', 'command.completed', 'command.failed', 'command.cancelled', 'command.reconciled', 'command.review.requested', 'web.fetched', 'web.searched', 'run.plan.updated', 'run.message.sent', 'browser.acted', 'mcp.invoked', 'plan.created', 'plan.status_updated', 'node.created', 'node.status_updated', 'ontology.node.created', 'ontology.node.updated', 'ontology.node.deleted', 'ontology.edge.created', 'ontology.edge.updated', 'ontology.edge.deleted', 'skill.created', 'skill.status_updated', 'skill.deleted', 'workspace.conversion.previewed', 'workspace.conversion.committed', 'm5.workspace.registered', 'extension.installed', 'extension.enabled', 'extension.disabled', 'extension.paused', 'extension.upgraded', 'extension.rolled_back', 'extension.uninstalled', 'mcp6.endpoint.registered', 'mcp6.endpoint.degraded', 'mcp6.endpoint.revoked', 'delegation.created', 'delegation.settled', 'barrier.created', 'barrier.arrived', 'merge.submitted', 'merge.merged', 'merge.stale', 'final.testing', 'final.completed', 'final.failed', 'stdio.worker.launched', 'stdio.worker.completed', 'stdio.worker.revoked', 'stdio.worker.expired', 'stdio.worker.recovered', 'workspace.conversion.published', 'openapi.parsed', 'integration.state.changed', 'credential.revoked', 'mapping.published', 'complexity.decided', 'synthesis.recorded', 'cloudrunner.registered', 'cloud.dispatched', 'cloud.reconciled', 'skill.import.discovered', 'skill.import.pinned', 'skill.import.inspected', 'skill.import.scanned', 'skill.import.evaluated', 'skill.import.approved', 'skill.import.rejected', 'skill.import.revoked', 'policy.created', 'policy.updated', 'policy.deactivated', 'skill.updated', 'memory.settings.update', 'memory.fact.flag', 'memory.fact.unflag', 'memory.growth.enroll', 'memory.growth.decide', 'memory.purge', 'queue.input', 'queue.withdraw', 'queue.consume', 'skill.category_set', 'skill.category_seeded', 'browser.connected', 'browser.disconnected', 'browser.navigated', 'browser.data.cleared', 'browser.permission.granted', 'browser.permission.denied', 'cc.config.updated', 'cc.emergency.stopped', 'cc.operation.executed', 'cc.operation.blocked', 'cc.operation.confirmed', 'cc.tool.denied', 'asset_template.created', 'asset_template.status', 'asset_template.deleted', 'project_deliverable.upserted', 'project_deliverable.gate_confirmed', 'project_attachment.created', 'secret.put', 'credential.submitted', 'audit.export')),\n    aggregate_id TEXT NOT NULL CHECK (length(aggregate_id) BETWEEN 1 AND 64),\n    actor TEXT NOT NULL CHECK (length(actor) BETWEEN 1 AND 128),\n    metadata_json TEXT NOT NULL CHECK (length(metadata_json) BETWEEN 2 AND 16384),\n    created_at TEXT NOT NULL,\n    seq INTEGER CHECK (seq IS NULL OR seq >= 1),\n    prev_hash TEXT CHECK (prev_hash IS NULL OR (length(prev_hash) = 64 AND prev_hash NOT GLOB '*[^0-9a-f]*')),\n    event_hash TEXT CHECK (event_hash IS NULL OR (length(event_hash) = 64 AND event_hash NOT GLOB '*[^0-9a-f]*'))\n)",
 	"table:change_set":                                "CREATE TABLE change_set (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    run_id TEXT NOT NULL REFERENCES agent_run(id) ON DELETE CASCADE,\n    base_digest TEXT NOT NULL CHECK (length(base_digest) = 64 AND base_digest NOT GLOB '*[^0-9a-f]*'),\n    approval_digest TEXT NOT NULL CHECK (length(approval_digest) = 64 AND approval_digest NOT GLOB '*[^0-9a-f]*'),\n    status TEXT NOT NULL CHECK (status IN ('draft','previewed','approved','applied','reverted','conflicted')),\n    version INTEGER NOT NULL CHECK (version > 0),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL CHECK (updated_at >= created_at)\n)",
 	"table:change_set_operation":                      "CREATE TABLE change_set_operation (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    change_set_id TEXT NOT NULL REFERENCES change_set(id) ON DELETE CASCADE,\n    ordinal INTEGER NOT NULL CHECK (ordinal > 0),\n    op TEXT NOT NULL CHECK (op IN ('create','update','delete')),\n    path TEXT NOT NULL CHECK (length(path) BETWEEN 1 AND 512),\n    content TEXT,\n    content_digest TEXT CHECK (content_digest IS NULL OR (length(content_digest) = 64 AND content_digest NOT GLOB '*[^0-9a-f]*')),\n    original_content TEXT,\n    original_digest TEXT CHECK (original_digest IS NULL OR (length(original_digest) = 64 AND original_digest NOT GLOB '*[^0-9a-f]*')),\n    applied_digest TEXT CHECK (applied_digest IS NULL OR (length(applied_digest) = 64 AND applied_digest NOT GLOB '*[^0-9a-f]*')),\n    UNIQUE (change_set_id, ordinal)\n)",
 	"table:checkpoints":                               "CREATE TABLE checkpoints (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    stage_run_id TEXT NOT NULL REFERENCES stage_runs(id),\n    snapshot_digest TEXT NOT NULL CHECK (length(snapshot_digest) = 64 AND snapshot_digest NOT GLOB '*[^0-9a-f]*'),\n    trace_root TEXT NOT NULL CHECK (length(trace_root) BETWEEN 1 AND 64),\n    sequence INTEGER NOT NULL CHECK (sequence >= 1),\n    created_at TEXT NOT NULL,\n    UNIQUE (stage_run_id, sequence)\n)",
@@ -1248,7 +1263,10 @@ var expectedSchemaSQL = map[string]string{
 	"table:expert_skill_bindings":                     "CREATE TABLE expert_skill_bindings (\n    expert_id TEXT NOT NULL CHECK (length(expert_id) = 26 AND substr(expert_id, 1, 1) GLOB '[0-7]' AND expert_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    skill_key TEXT NOT NULL CHECK (length(skill_key) BETWEEN 1 AND 64),\n    ordinal INTEGER NOT NULL CHECK (ordinal BETWEEN 0 AND 31),\n    created_at TEXT NOT NULL,\n    PRIMARY KEY (expert_id, skill_key)\n)",
 	"table:expert_task_claims":                        "CREATE TABLE expert_task_claims (\n    thread_id TEXT NOT NULL CHECK (length(thread_id) = 26 AND substr(thread_id, 1, 1) GLOB '[0-7]' AND thread_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    task_key TEXT NOT NULL CHECK (length(task_key) BETWEEN 1 AND 128),\n    expert_id TEXT NOT NULL CHECK (length(expert_id) = 26 AND substr(expert_id, 1, 1) GLOB '[0-7]' AND expert_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    claimed_at TEXT NOT NULL,\n    PRIMARY KEY (thread_id, task_key)\n)",
 	"table:session_expert_mounts":                     "CREATE TABLE session_expert_mounts (\n    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,\n    expert_id TEXT NOT NULL CHECK (length(expert_id) = 26 AND substr(expert_id, 1, 1) GLOB '[0-7]' AND expert_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    ordinal INTEGER NOT NULL CHECK (ordinal BETWEEN 0 AND 7),\n    created_at TEXT NOT NULL,\n    PRIMARY KEY (session_id, expert_id)\n)",
-	"table:skills":                                    "CREATE TABLE skills (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 128),\n    display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 200),\n    description TEXT NOT NULL DEFAULT '' CHECK (length(description) <= 4096),\n    version TEXT NOT NULL CHECK (length(version) BETWEEN 1 AND 32),\n    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'deprecated', 'disabled')),\n    permissions_json TEXT NOT NULL CHECK (length(permissions_json) BETWEEN 2 AND 2048),\n    entry_point TEXT NOT NULL CHECK (length(entry_point) BETWEEN 1 AND 512),\n    manifest_json TEXT NOT NULL CHECK (length(manifest_json) BETWEEN 2 AND 65536),\n    signature TEXT CHECK (signature IS NULL OR length(signature) <= 1024),\n    publisher_id TEXT,\n    min_engine_version TEXT CHECK (min_engine_version IS NULL OR length(min_engine_version) <= 32),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n)",
+	"table:skills":                                    "CREATE TABLE skills (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 128),\n    display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 200),\n    description TEXT NOT NULL DEFAULT '' CHECK (length(description) <= 4096),\n    version TEXT NOT NULL CHECK (length(version) BETWEEN 1 AND 32),\n    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'deprecated', 'disabled')),\n    permissions_json TEXT NOT NULL CHECK (length(permissions_json) BETWEEN 2 AND 2048),\n    entry_point TEXT NOT NULL CHECK (length(entry_point) BETWEEN 1 AND 512),\n    manifest_json TEXT NOT NULL CHECK (length(manifest_json) BETWEEN 2 AND 65536),\n    signature TEXT CHECK (signature IS NULL OR length(signature) <= 1024),\n    publisher_id TEXT,\n    min_engine_version TEXT CHECK (min_engine_version IS NULL OR length(min_engine_version) <= 32),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n, rev INTEGER NOT NULL DEFAULT 0)",
+	"index:ix_skill_invocations_session":              "CREATE INDEX ix_skill_invocations_session ON skill_invocations(session_id)",
+	"index:ix_skill_invocations_expires":              "CREATE INDEX ix_skill_invocations_expires ON skill_invocations(expires_at)",
+	"table:skill_invocations":                         "CREATE TABLE skill_invocations (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    skill_id TEXT NOT NULL CHECK (length(skill_id) = 26 AND substr(skill_id, 1, 1) GLOB '[0-7]' AND skill_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    skill_version TEXT NOT NULL CHECK (length(skill_version) BETWEEN 1 AND 32),\n    session_id TEXT NOT NULL CHECK (length(session_id) BETWEEN 1 AND 128),\n    input TEXT NOT NULL CHECK (length(input) <= 65536),\n    input_digest TEXT NOT NULL CHECK (length(input_digest) = 64 AND input_digest NOT GLOB '*[^0-9a-f]*'),\n    manifest_digest TEXT NOT NULL CHECK (length(manifest_digest) = 64 AND manifest_digest NOT GLOB '*[^0-9a-f]*'),\n    risk TEXT NOT NULL CHECK (length(risk) BETWEEN 1 AND 32),\n    mode TEXT NOT NULL DEFAULT '' CHECK (length(mode) <= 32),\n    requires_approval INTEGER NOT NULL DEFAULT 0 CHECK (requires_approval IN (0, 1)),\n    consumed INTEGER NOT NULL DEFAULT 0 CHECK (consumed IN (0, 1)),\n    expires_at TEXT NOT NULL,\n    created_at TEXT NOT NULL\n)",
 	"table:stage_definitions":                         "CREATE TABLE stage_definitions (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    workflow_version_id TEXT NOT NULL REFERENCES workflow_versions(id) ON DELETE CASCADE,\n    stage_key TEXT NOT NULL CHECK (stage_key IN ('INITIATION_BOUNDARY','RESEARCH_EVIDENCE','REQUIREMENT_DEFINITION',\n                                                  'SOLUTION_EXPERIENCE','ARCHITECTURE_PLAN','DEVELOPMENT_CHANGE',\n                                                  'VERIFICATION_ACCEPTANCE','RELEASE_DELIVERY','OPERATIONS_RETROSPECTIVE')),\n    ordinal INTEGER NOT NULL CHECK (ordinal BETWEEN 1 AND 9),\n    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 128),\n    dependency_keys TEXT NOT NULL CHECK (json_valid(dependency_keys)),\n    gate_policy TEXT NOT NULL CHECK (json_valid(gate_policy)),\n    UNIQUE (workflow_version_id, stage_key),\n    UNIQUE (workflow_version_id, ordinal)\n)",
 	"table:stage_input_snapshots":                     "CREATE TABLE stage_input_snapshots (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    stage_run_id TEXT NOT NULL REFERENCES stage_runs(id) ON DELETE CASCADE,\n    inputs_json TEXT NOT NULL CHECK (json_valid(inputs_json) AND length(inputs_json) BETWEEN 2 AND 1048576),\n    digest TEXT NOT NULL CHECK (length(digest) = 64 AND digest NOT GLOB '*[^0-9a-f]*'),\n    captured_at TEXT NOT NULL\n)",
 	"table:stage_runs":                                "CREATE TABLE stage_runs (\n    id TEXT PRIMARY KEY CHECK (length(id) = 26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    project_workflow_instance_id TEXT NOT NULL REFERENCES workflow_instances(id) ON DELETE CASCADE,\n    stage_definition_id TEXT NOT NULL REFERENCES stage_definitions(id),\n    attempt_no INTEGER NOT NULL CHECK (attempt_no >= 1),\n    state TEXT NOT NULL CHECK (state IN ('draft','ready','running','waiting_review','approved','completed',\n                                          'blocked','paused','cancelled')),\n    lock_version INTEGER NOT NULL DEFAULT 1 CHECK (lock_version > 0),\n    started_at TEXT,\n    completed_at TEXT,\n    created_at TEXT NOT NULL,\n    UNIQUE (project_workflow_instance_id, stage_definition_id, attempt_no)\n)",
@@ -1435,7 +1453,8 @@ var expectedColumns = map[string][]columnSpec{
 	"memories":                    {{"id", "TEXT", "", 0, 1, 0}, {"project_id", "TEXT", "", 1, 0, 0}, {"layer", "TEXT", "", 1, 0, 0}, {"scope", "TEXT", "", 1, 0, 0}, {"key", "TEXT", "", 1, 0, 0}, {"content", "TEXT", "", 1, 0, 0}, {"embedding_id", "TEXT", "", 0, 0, 0}, {"source_id", "TEXT", "", 0, 0, 0}, {"source_type", "TEXT", "", 0, 0, 0}, {"confidence", "REAL", "1.0", 1, 0, 0}, {"access_count", "INTEGER", "0", 1, 0, 0}, {"last_accessed", "TEXT", "", 0, 0, 0}, {"expires_at", "TEXT", "", 0, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}},
 	"ontology_nodes":              {{"id", "TEXT", "", 0, 1, 0}, {"project_id", "TEXT", "", 1, 0, 0}, {"type", "TEXT", "", 1, 0, 0}, {"name", "TEXT", "", 1, 0, 0}, {"full_path", "TEXT", "''", 1, 0, 0}, {"description", "TEXT", "''", 1, 0, 0}, {"metadata_json", "TEXT", "'{}'", 1, 0, 0}, {"version", "INTEGER", "", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}},
 	"ontology_edges":              {{"id", "TEXT", "", 0, 1, 0}, {"source_node_id", "TEXT", "", 1, 0, 0}, {"target_node_id", "TEXT", "", 1, 0, 0}, {"type", "TEXT", "", 1, 0, 0}, {"label", "TEXT", "''", 1, 0, 0}, {"properties_json", "TEXT", "'{}'", 1, 0, 0}, {"weight", "REAL", "1.0", 1, 0, 0}, {"version", "INTEGER", "", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}},
-	"skills":                      {{"id", "TEXT", "", 0, 1, 0}, {"name", "TEXT", "", 1, 0, 0}, {"display_name", "TEXT", "", 1, 0, 0}, {"description", "TEXT", "''", 1, 0, 0}, {"version", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'draft'", 1, 0, 0}, {"permissions_json", "TEXT", "", 1, 0, 0}, {"entry_point", "TEXT", "", 1, 0, 0}, {"manifest_json", "TEXT", "", 1, 0, 0}, {"signature", "TEXT", "", 0, 0, 0}, {"publisher_id", "TEXT", "", 0, 0, 0}, {"min_engine_version", "TEXT", "", 0, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}},
+	"skills":                      {{"id", "TEXT", "", 0, 1, 0}, {"name", "TEXT", "", 1, 0, 0}, {"display_name", "TEXT", "", 1, 0, 0}, {"description", "TEXT", "''", 1, 0, 0}, {"version", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'draft'", 1, 0, 0}, {"permissions_json", "TEXT", "", 1, 0, 0}, {"entry_point", "TEXT", "", 1, 0, 0}, {"manifest_json", "TEXT", "", 1, 0, 0}, {"signature", "TEXT", "", 0, 0, 0}, {"publisher_id", "TEXT", "", 0, 0, 0}, {"min_engine_version", "TEXT", "", 0, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}, {"rev", "INTEGER", "0", 1, 0, 0}},
+	"skill_invocations":           {{"id", "TEXT", "", 0, 1, 0}, {"skill_id", "TEXT", "", 1, 0, 0}, {"skill_version", "TEXT", "", 1, 0, 0}, {"session_id", "TEXT", "", 1, 0, 0}, {"input", "TEXT", "", 1, 0, 0}, {"input_digest", "TEXT", "", 1, 0, 0}, {"manifest_digest", "TEXT", "", 1, 0, 0}, {"risk", "TEXT", "", 1, 0, 0}, {"mode", "TEXT", "''", 1, 0, 0}, {"requires_approval", "INTEGER", "0", 1, 0, 0}, {"consumed", "INTEGER", "0", 1, 0, 0}, {"expires_at", "TEXT", "", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}},
 	"stages":                      {{"id", "TEXT", "", 0, 1, 0}, {"project_id", "TEXT", "", 1, 0, 0}, {"phase", "INTEGER", "", 1, 0, 0}, {"title", "TEXT", "", 1, 0, 0}, {"status", "TEXT", "'not_started'", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}, {"updated_at", "TEXT", "", 1, 0, 0}, {"version", "INTEGER", "1", 1, 0, 0}},
 	"plan_versions":               {{"id", "TEXT", "", 0, 1, 0}, {"plan_id", "TEXT", "", 1, 0, 0}, {"version_no", "INTEGER", "", 1, 0, 0}, {"graph_hash", "TEXT", "", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}},
 	"plan_edges":                  {{"id", "TEXT", "", 0, 1, 0}, {"plan_version_id", "TEXT", "", 1, 0, 0}, {"from_node_id", "TEXT", "", 1, 0, 0}, {"to_node_id", "TEXT", "", 1, 0, 0}, {"condition_json", "TEXT", "'{}'", 1, 0, 0}, {"created_at", "TEXT", "", 1, 0, 0}},
@@ -1512,7 +1531,7 @@ func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
 	if len(seen) != len(expectedSchemaSQL) {
 		return 0, "", fmt.Errorf("schema definition object set incomplete")
 	}
-	for _, table := range []string{"providers", "provider_models", "capability_role_bindings", "projects", "sessions", "session_expert_mounts", "messages", "message_parts", "token_ledger", "compaction_checkpoints", "compaction_activations", "compaction_activation_bases", "handoff_capsules", "schema_migrations", "provider_tests", "idempotency_records", "idempotency_claims", "outbox_events", "audit_events", "credential_adoptions", "plans", "plan_nodes", "governance_reviews", "governance_policies", "memories", "ontology_nodes", "ontology_edges", "skills", "stages", "plan_versions", "plan_edges", "node_runs", "node_run_checkpoints", "tool_calls", "approval_decisions", "memory_sources", "memory_revisions", "recall_events", "deletion_tombstones"} {
+	for _, table := range []string{"providers", "provider_models", "capability_role_bindings", "projects", "sessions", "session_expert_mounts", "messages", "message_parts", "token_ledger", "compaction_checkpoints", "compaction_activations", "compaction_activation_bases", "handoff_capsules", "schema_migrations", "provider_tests", "idempotency_records", "idempotency_claims", "outbox_events", "audit_events", "credential_adoptions", "plans", "plan_nodes", "governance_reviews", "governance_policies", "memories", "ontology_nodes", "ontology_edges", "skills", "skill_invocations", "stages", "plan_versions", "plan_edges", "node_runs", "node_run_checkpoints", "tool_calls", "approval_decisions", "memory_sources", "memory_revisions", "recall_events", "deletion_tombstones"} {
 		r, e := q.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_xinfo('%s')`, table))
 		if e != nil {
 			return 0, "", e
@@ -1904,597 +1923,4 @@ func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
 	}
 	sum := sha256.Sum256([]byte(strings.Join(canonical, "\n")))
 	return version, hex.EncodeToString(sum[:]), nil
-}
-
-func (s *Store) ListProjects(ctx context.Context, filter project.Filter) ([]project.Project, error) {
-	query := `SELECT id,name,project_code,project_type,description,summary,objective,client,contract_no,amount,budget,plan_start,plan_end,remark,close_reason,status_before_close,reopen_reason,status,created_at,updated_at,version,org_id,space_id FROM projects`
-	args := []any{}
-	conditions := []string{}
-	if filter.OrgID != "" {
-		conditions = append(conditions, `(org_id=? OR org_id IS NULL)`)
-		args = append(args, filter.OrgID)
-	}
-	if filter.Status != "" {
-		conditions = append(conditions, `status=?`)
-		args = append(args, filter.Status)
-	}
-	if filter.Type != "" {
-		conditions = append(conditions, `project_type=?`)
-		args = append(args, filter.Type)
-	}
-	if len(conditions) > 0 {
-		query += ` WHERE ` + strings.Join(conditions, ` AND `)
-	}
-	query += ` ORDER BY created_at,id LIMIT 101`
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []project.Project{}
-	for rows.Next() {
-		p, err := scanProject(rows)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, p)
-	}
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-	if len(items) > 100 {
-		return nil, errors.New("project data invariant violation: list exceeds capacity")
-	}
-	return items, nil
-}
-
-func (s *Store) GetProject(ctx context.Context, id string) (project.Project, error) {
-	var p project.Project
-	var created, updated string
-	var orgID, spaceID sql.NullString
-	row := s.db.QueryRowContext(ctx, `SELECT id,name,project_code,project_type,description,summary,objective,client,contract_no,amount,budget,plan_start,plan_end,remark,close_reason,status_before_close,reopen_reason,status,created_at,updated_at,version,org_id,space_id FROM projects WHERE id=?`, id)
-	if err := row.Scan(&p.ID, &p.Name, &p.ProjectCode, &p.Type, &p.Description, &p.Summary, &p.Objective, &p.Client, &p.ContractNo, &p.Amount, &p.Budget, &p.PlanStart, &p.PlanEnd, &p.Remark, &p.CloseReason, &p.StatusBeforeClose, &p.ReopenReason, &p.Status, &created, &updated, &p.Version, &orgID, &spaceID); err != nil {
-		if err == sql.ErrNoRows {
-			return p, project.ErrNotFound
-		}
-		return p, err
-	}
-	var err error
-	if p.CreatedAt, err = time.Parse(time.RFC3339Nano, created); err != nil {
-		return p, err
-	}
-	if p.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated); err != nil {
-		return p, err
-	}
-	p.OrgID = optionalProjectID(orgID)
-	p.SpaceID = optionalProjectID(spaceID)
-	p.Status = project.NormalizeStatus(p.Status)
-	return p, p.Validate()
-}
-
-func (s *Store) ProjectHasArtifacts(ctx context.Context, projectID string) (bool, error) {
-	var messageCount int
-	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM messages m INNER JOIN sessions s ON s.id=m.session_id WHERE s.project_id=?`, projectID).Scan(&messageCount)
-	if err != nil {
-		return false, err
-	}
-	if messageCount > 0 {
-		return true, nil
-	}
-	var deliverableCount int
-	err = s.db.QueryRowContext(ctx, `SELECT count(*) FROM project_deliverables WHERE project_id=?`, projectID).Scan(&deliverableCount)
-	if err != nil {
-		if strings.Contains(err.Error(), "no such table") {
-			return false, nil
-		}
-		return false, err
-	}
-	if deliverableCount > 0 {
-		return true, nil
-	}
-	var attachmentCount int
-	err = s.db.QueryRowContext(ctx, `SELECT count(*) FROM project_attachments WHERE project_id=?`, projectID).Scan(&attachmentCount)
-	if err != nil {
-		if strings.Contains(err.Error(), "no such table") {
-			return false, nil
-		}
-		return false, err
-	}
-	return attachmentCount > 0, nil
-}
-
-func scanProject(rows *sql.Rows) (project.Project, error) {
-	var p project.Project
-	var created, updated string
-	var orgID, spaceID sql.NullString
-	if err := rows.Scan(&p.ID, &p.Name, &p.ProjectCode, &p.Type, &p.Description, &p.Summary, &p.Objective, &p.Client, &p.ContractNo, &p.Amount, &p.Budget, &p.PlanStart, &p.PlanEnd, &p.Remark, &p.CloseReason, &p.StatusBeforeClose, &p.ReopenReason, &p.Status, &created, &updated, &p.Version, &orgID, &spaceID); err != nil {
-		return p, err
-	}
-	var err error
-	if p.CreatedAt, err = time.Parse(time.RFC3339Nano, created); err != nil {
-		return p, err
-	}
-	if p.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated); err != nil {
-		return p, err
-	}
-	p.OrgID = optionalProjectID(orgID)
-	p.SpaceID = optionalProjectID(spaceID)
-	p.Status = project.NormalizeStatus(p.Status)
-	return p, p.Validate()
-}
-
-func (s *Store) ListSessions(ctx context.Context, filter session.Filter) ([]session.Session, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,project_id,title,pinned,status,created_at,updated_at,revision FROM sessions WHERE project_id=? ORDER BY pinned DESC,created_at,id LIMIT 101`, filter.ProjectID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []session.Session{}
-	for rows.Next() {
-		var v session.Session
-		var created, updated string
-		if err = rows.Scan(&v.ID, &v.ProjectID, &v.Title, &v.Pinned, &v.Status, &created, &updated, &v.Version); err != nil {
-			return nil, err
-		}
-		v.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
-		if err != nil {
-			return nil, err
-		}
-		v.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated)
-		if err != nil {
-			return nil, err
-		}
-		if err = v.Validate(); err != nil {
-			return nil, err
-		}
-		items = append(items, v)
-	}
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-	if len(items) > 100 {
-		return nil, errors.New("session data invariant violation: list exceeds capacity")
-	}
-	return items, nil
-}
-
-func (s *Store) GetSession(ctx context.Context, id string) (session.Session, error) {
-	var v session.Session
-	var created, updated string
-	err := s.db.QueryRowContext(ctx, `SELECT id,project_id,title,pinned,status,created_at,updated_at,revision FROM sessions WHERE id=?`, id).
-		Scan(&v.ID, &v.ProjectID, &v.Title, &v.Pinned, &v.Status, &created, &updated, &v.Version)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return session.Session{}, sessionapp.ErrSessionNotFound
-		}
-		return session.Session{}, err
-	}
-	if v.CreatedAt, err = time.Parse(time.RFC3339Nano, created); err != nil {
-		return session.Session{}, err
-	}
-	if v.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated); err != nil {
-		return session.Session{}, err
-	}
-	if err = v.Validate(); err != nil {
-		return session.Session{}, err
-	}
-	return v, nil
-}
-
-func (s *Store) ListMessages(ctx context.Context, q messageapp.PageQuery) ([]message.Message, int64, bool, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return nil, 0, false, err
-	}
-	defer tx.Rollback()
-	var snapshot int64
-	if err := tx.QueryRowContext(ctx, `SELECT last_sequence FROM message_session_state WHERE session_id=?`, q.SessionID).Scan(&snapshot); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, 0, false, messageapp.ErrSessionNotFound
-		}
-		return nil, 0, false, err
-	}
-	if q.Snapshot != 0 {
-		snapshot = q.Snapshot
-	}
-	boundary := q.Boundary
-	if boundary == 0 && q.Direction == messageapp.Backward {
-		boundary = snapshot + 1
-	}
-	op, order := ">", "ASC"
-	if q.Direction == messageapp.Backward {
-		op, order = "<", "DESC"
-	}
-	statement := fmt.Sprintf(`SELECT m.id,m.session_id,m.role,m.status,m.sequence,MAX(CASE WHEN p.ordinal=1 AND p.type='text' THEN p.text END),m.created_at,count(p.message_id),count(CASE WHEN p.ordinal=1 AND p.type='text' THEN 1 END) FROM messages m LEFT JOIN message_parts p ON p.message_id=m.id WHERE m.session_id=? AND m.sequence<=? AND m.sequence %s ? GROUP BY m.id ORDER BY m.sequence %s LIMIT ?`, op, order)
-	rows, err := tx.QueryContext(ctx, statement, q.SessionID, snapshot, boundary, q.Limit+1)
-	if err != nil {
-		return nil, 0, false, err
-	}
-	defer rows.Close()
-	items := make([]message.Message, 0, q.Limit+1)
-	for rows.Next() {
-		var v message.Message
-		var created string
-		var text sql.NullString
-		var parts, validParts int
-		if err = rows.Scan(&v.ID, &v.SessionID, &v.Role, &v.Status, &v.Sequence, &text, &created, &parts, &validParts); err != nil {
-			return nil, 0, false, err
-		}
-		if parts != 1 || validParts != 1 || !text.Valid {
-			return nil, 0, false, messageapp.ErrDataInvariantViolation
-		}
-		v.Text = text.String
-		v.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
-		expected := boundary + int64(len(items)) + 1
-		if q.Direction == messageapp.Backward {
-			expected = boundary - int64(len(items)) - 1
-		}
-		if err != nil || v.Validate() != nil || v.Sequence != expected {
-			return nil, 0, false, messageapp.ErrDataInvariantViolation
-		}
-		items = append(items, v)
-	}
-	if err = rows.Err(); err != nil {
-		return nil, 0, false, err
-	}
-	more := len(items) > q.Limit
-	if more {
-		items = items[:q.Limit]
-	}
-	if !more && snapshot > 0 {
-		if q.Direction == messageapp.Forward && (len(items) == 0 || items[len(items)-1].Sequence != snapshot) {
-			return nil, 0, false, messageapp.ErrDataInvariantViolation
-		}
-		if q.Direction == messageapp.Backward && (len(items) == 0 || items[len(items)-1].Sequence != 1) {
-			return nil, 0, false, messageapp.ErrDataInvariantViolation
-		}
-	}
-	if err = rows.Close(); err != nil {
-		return nil, 0, false, err
-	}
-	if err = tx.Commit(); err != nil {
-		return nil, 0, false, err
-	}
-	return items, snapshot, more, nil
-}
-
-func (s *Store) List(ctx context.Context, filter provider.Filter) ([]provider.Provider, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-	result, err := listProvidersWith(ctx, tx, filter)
-	if err != nil {
-		return nil, err
-	}
-	if err = tx.Commit(); err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
-func listProvidersWith(ctx context.Context, q sqlRunner, filter provider.Filter) ([]provider.Provider, error) {
-	query := `SELECT id, COALESCE(legacy_id,''), name, protocol, base_url, COALESCE(credential_ref,''), credential_state, status, created_at, updated_at, version, COALESCE(credential_ref_backups,'[]') FROM providers WHERE deleted_at IS NULL`
-	args := []any{}
-	if filter.Protocol != "" {
-		query += ` AND protocol = ?`
-		args = append(args, filter.Protocol)
-	}
-	query += ` ORDER BY created_at, id`
-	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list providers: %w", err)
-	}
-	defer rows.Close()
-	result := []provider.Provider{}
-	for rows.Next() {
-		var item provider.Provider
-		var created, updated string
-		var backups string
-		if err := rows.Scan(&item.ID, &item.LegacyID, &item.Name, &item.Protocol, &item.BaseURL, &item.CredentialRef, &item.CredentialState, &item.Status, &created, &updated, &item.Version, &backups); err != nil {
-			return nil, err
-		}
-		item.CredentialRefBackups, err = decodeCredentialBackups(backups)
-		if err != nil {
-			return nil, err
-		}
-		item.CredentialBackupCount = len(item.CredentialRefBackups)
-		item.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
-		if err != nil {
-			return nil, err
-		}
-		item.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, item)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	for i := range result {
-		result[i].Models, err = listModelsWith(ctx, q, result[i].ID)
-		if err != nil {
-			return nil, err
-		}
-		if err = result[i].Validate(); err != nil {
-			return nil, err
-		}
-	}
-	return result, rows.Err()
-}
-
-func (s *Store) Create(ctx context.Context, item provider.Provider) (provider.Provider, error) {
-	origin, err := provider.NormalizeBaseURL(item.BaseURL)
-	if err != nil {
-		return provider.Provider{}, err
-	}
-	item.BaseURL = origin
-	if item.ID == "" {
-		item.ID, err = s.newULID(time.Now())
-		if err != nil {
-			return provider.Provider{}, err
-		}
-	} else if parsed, parseErr := ulid.ParseStrict(item.ID); parseErr != nil || parsed.String() != item.ID {
-		return provider.Provider{}, fmt.Errorf("provider ID must be an uppercase canonical ULID")
-	}
-	if item.Status == "" {
-		item.Status = provider.StatusEnabled
-	}
-	now := time.Now().UTC()
-	item.CreatedAt, item.UpdatedAt, item.Version = now, now, 1
-	if err := item.Validate(); err != nil {
-		return provider.Provider{}, err
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return provider.Provider{}, err
-	}
-	defer tx.Rollback()
-	fingerprint, err := provider.OriginFingerprint(item.Protocol, item.BaseURL)
-	if err != nil {
-		return provider.Provider{}, err
-	}
-	backups, err := encodeCredentialBackups(item.CredentialRefBackups)
-	if err != nil {
-		return provider.Provider{}, err
-	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO providers(id,legacy_id,name,protocol,base_url,credential_ref,credential_state,status,created_at,updated_at,version,origin_fingerprint,credential_ref_backups) VALUES(?,?,?,?,?,NULLIF(?,''),?,?,?,?,?,?,?)`, item.ID, nullString(item.LegacyID), item.Name, item.Protocol, item.BaseURL, item.CredentialRef, item.CredentialState, item.Status, formatTime(item.CreatedAt), formatTime(item.UpdatedAt), item.Version, fingerprint, backups)
-	if err != nil {
-		return provider.Provider{}, fmt.Errorf("create provider: %w", err)
-	}
-	if err = replaceModels(ctx, tx, item.ID, item.Models); err != nil {
-		return provider.Provider{}, err
-	}
-	if err = tx.Commit(); err != nil {
-		return provider.Provider{}, err
-	}
-	return item, nil
-}
-
-func (s *Store) Get(ctx context.Context, id string) (provider.Provider, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return provider.Provider{}, err
-	}
-	defer tx.Rollback()
-	item, err := getProvider(ctx, tx, id)
-	if err != nil {
-		return provider.Provider{}, err
-	}
-	if err = tx.Commit(); err != nil {
-		return provider.Provider{}, err
-	}
-	return item, nil
-}
-
-func (s *Store) Update(ctx context.Context, item provider.Provider, expectedVersion int64) (provider.Provider, error) {
-	origin, err := provider.NormalizeBaseURL(item.BaseURL)
-	if err != nil {
-		return provider.Provider{}, err
-	}
-	item.BaseURL = origin
-	conn, err := s.db.Conn(ctx)
-	if err != nil {
-		return provider.Provider{}, mapWriteError(err)
-	}
-	defer conn.Close()
-	if _, err = conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
-		return provider.Provider{}, mapWriteError(err)
-	}
-	defer conn.ExecContext(context.Background(), `ROLLBACK`)
-	old, err := getProvider(ctx, conn, item.ID)
-	if err != nil {
-		return provider.Provider{}, err
-	}
-	if old.Version != expectedVersion {
-		return provider.Provider{}, provider.ErrConflict
-	}
-	var oldFingerprint string
-	if err = conn.QueryRowContext(ctx, `SELECT origin_fingerprint FROM providers WHERE id=?`, item.ID).Scan(&oldFingerprint); err != nil {
-		return provider.Provider{}, err
-	}
-	wantOld, _ := provider.OriginFingerprint(old.Protocol, old.BaseURL)
-	if oldFingerprint != wantOld {
-		return provider.Provider{}, fmt.Errorf("provider origin fingerprint mismatch")
-	}
-	newFingerprint, _ := provider.OriginFingerprint(item.Protocol, item.BaseURL)
-	if oldFingerprint != newFingerprint {
-		if item.CredentialRef == old.CredentialRef && old.CredentialRef != "" {
-			return provider.Provider{}, provider.ErrCredentialReentryRequired
-		}
-		if item.CredentialRef == "" && item.CredentialState != provider.CredentialRequiresReentry {
-			return provider.Provider{}, provider.ErrCredentialReentryRequired
-		}
-	}
-	item.CreatedAt = old.CreatedAt
-	item.UpdatedAt = time.Now().UTC()
-	item.Version = expectedVersion + 1
-	if err = item.Validate(); err != nil {
-		return provider.Provider{}, err
-	}
-	backups, err := encodeCredentialBackups(item.CredentialRefBackups)
-	if err != nil {
-		return provider.Provider{}, err
-	}
-	r, err := conn.ExecContext(ctx, `UPDATE providers SET legacy_id=?,name=?,protocol=?,base_url=?,credential_ref=NULLIF(?,''),credential_state=?,status=?,updated_at=?,version=?,origin_fingerprint=?,credential_ref_backups=? WHERE id=? AND version=? AND deleted_at IS NULL`, nullString(item.LegacyID), item.Name, item.Protocol, item.BaseURL, item.CredentialRef, item.CredentialState, item.Status, formatTime(item.UpdatedAt), item.Version, newFingerprint, backups, item.ID, expectedVersion)
-	if err != nil {
-		return provider.Provider{}, mapWriteError(err)
-	}
-	n, _ := r.RowsAffected()
-	if n != 1 {
-		return provider.Provider{}, provider.ErrConflict
-	}
-	if err = replaceModels(ctx, conn, item.ID, item.Models); err != nil {
-		return provider.Provider{}, err
-	}
-	if _, err = conn.ExecContext(ctx, `COMMIT`); err != nil {
-		return provider.Provider{}, mapWriteError(err)
-	}
-	return item, nil
-}
-
-// Delete soft-deletes a live provider. ErrNotFound for an already deleted ID
-// lets the service layer deliberately choose strict or idempotent semantics.
-func (s *Store) Delete(ctx context.Context, id string, expectedVersion int64) error {
-	conn, err := s.db.Conn(ctx)
-	if err != nil {
-		return mapWriteError(err)
-	}
-	defer conn.Close()
-	if _, err = conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
-		return mapWriteError(err)
-	}
-	defer conn.ExecContext(context.Background(), `ROLLBACK`)
-	now := formatTime(time.Now().UTC())
-	r, err := conn.ExecContext(ctx, `UPDATE providers SET deleted_at=?,updated_at=?,version=version+1 WHERE id=? AND version=? AND deleted_at IS NULL`, now, now, id, expectedVersion)
-	if err != nil {
-		return mapWriteError(err)
-	}
-	n, _ := r.RowsAffected()
-	if n == 1 {
-		_, err = conn.ExecContext(ctx, `COMMIT`)
-		return mapWriteError(err)
-	}
-	var live int
-	err = conn.QueryRowContext(ctx, `SELECT count(*) FROM providers WHERE id=? AND deleted_at IS NULL`, id).Scan(&live)
-	if err != nil {
-		return err
-	}
-	if live == 1 {
-		return provider.ErrConflict
-	}
-	return provider.ErrNotFound
-}
-
-func getProvider(ctx context.Context, q sqlRunner, id string) (provider.Provider, error) {
-	var item provider.Provider
-	var created, updated string
-	var backups string
-	err := q.QueryRowContext(ctx, `SELECT id,COALESCE(legacy_id,''),name,protocol,base_url,COALESCE(credential_ref,''),credential_state,status,created_at,updated_at,version,COALESCE(credential_ref_backups,'[]') FROM providers WHERE id=? AND deleted_at IS NULL`, id).Scan(&item.ID, &item.LegacyID, &item.Name, &item.Protocol, &item.BaseURL, &item.CredentialRef, &item.CredentialState, &item.Status, &created, &updated, &item.Version, &backups)
-	if err == sql.ErrNoRows {
-		return item, provider.ErrNotFound
-	}
-	if err != nil {
-		return item, err
-	}
-	item.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
-	if err == nil {
-		item.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated)
-	}
-	if err == nil {
-		item.CredentialRefBackups, err = decodeCredentialBackups(backups)
-	}
-	if err == nil {
-		item.CredentialBackupCount = len(item.CredentialRefBackups)
-		item.Models, err = listModelsWith(ctx, q, id)
-	}
-	return item, err
-}
-
-func replaceModels(ctx context.Context, tx sqlRunner, id string, models []provider.Model) error {
-	claimed := map[provider.Kind]struct{}{}
-	for _, model := range models {
-		if model.KindDefault {
-			claimed[model.EffectiveKind()] = struct{}{}
-		}
-	}
-	for kind := range claimed {
-		if _, err := tx.ExecContext(ctx, `UPDATE provider_models SET kind_default=0 WHERE kind=? AND kind_default=1`, string(kind)); err != nil {
-			return err
-		}
-		if kind == provider.KindASR {
-			if _, err := tx.ExecContext(ctx, `UPDATE provider_models SET kind_default=0 WHERE kind=? AND kind_default=1`, string(provider.KindVoice)); err != nil {
-				return err
-			}
-		}
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM provider_models WHERE provider_id=?`, id); err != nil {
-		return err
-	}
-	for position, model := range models {
-		var cw any
-		if model.ContextWindow > 0 {
-			cw = model.ContextWindow
-		}
-		sv, kd := 0, 0
-		if model.SupportsVision {
-			sv = 1
-		}
-		if model.KindDefault {
-			kd = 1
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO provider_models(provider_id,model_id,display_name,is_default,position,context_window,kind,supports_vision,kind_default) VALUES(?,?,?,?,?,?,?,?,?)`, id, model.ModelID, model.DisplayName, model.IsDefault, position, cw, string(model.EffectiveKind()), sv, kd); err != nil {
-			return fmt.Errorf("write provider models: %w", err)
-		}
-	}
-	return nil
-}
-
-// SQLite BUSY means another Store owns the write lock; it is retryable and is
-// deliberately distinct from a Provider CAS version conflict.
-func mapWriteError(err error) error {
-	if err == nil {
-		return nil
-	}
-	var sqliteErr *modernsqlite.Error
-	if errors.As(err, &sqliteErr) && (sqliteErr.Code()&0xff == 5 || sqliteErr.Code()&0xff == 6) {
-		return fmt.Errorf("%w: sqlite writer busy", providerapp.ErrStorageBusy)
-	}
-	return err
-}
-
-func formatTime(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
-func nullString(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
-}
-
-func listModelsWith(ctx context.Context, q sqlRunner, id string) ([]provider.Model, error) {
-	rows, err := q.QueryContext(ctx, `SELECT model_id, display_name, is_default, context_window, kind, supports_vision, kind_default FROM provider_models WHERE provider_id = ? ORDER BY position, model_id`, id)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	result := []provider.Model{}
-	for rows.Next() {
-		var m provider.Model
-		var cw sql.NullInt64
-		var kind string
-		if err := rows.Scan(&m.ModelID, &m.DisplayName, &m.IsDefault, &cw, &kind, &m.SupportsVision, &m.KindDefault); err != nil {
-			return nil, err
-		}
-		if cw.Valid {
-			m.ContextWindow = cw.Int64
-		}
-		m.Kind = provider.NormalizeKind(kind)
-		if m.Kind == provider.KindLLM {
-			m.Kind = ""
-		}
-		result = append(result, m)
-	}
-	return result, rows.Err()
 }

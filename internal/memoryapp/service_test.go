@@ -3,6 +3,8 @@ package memoryapp
 import (
 	"context"
 	"errors"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +25,31 @@ func (m *mockMemReader) GetMemory(_ context.Context, _ string) (*memory.Memory, 
 }
 func (m *mockMemReader) ListMemoriesByProject(_ context.Context, _ string, _ string, _ int) ([]memory.Memory, error) {
 	return m.memList, m.err
+}
+
+// SearchMemoriesFTS mimics the store's FTS-backed search: keyword-match on
+// content/key and return matches sorted by confidence descending (the ranking
+// the real memory_fts index performs), capped at limit.
+func (m *mockMemReader) SearchMemoriesFTS(_ context.Context, _ string, query string, limit int) ([]memory.Memory, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	keywords := strings.Fields(strings.ToLower(query))
+	var out []memory.Memory
+	for _, mem := range m.memList {
+		hay := strings.ToLower(mem.Content + " " + mem.Key)
+		for _, kw := range keywords {
+			if strings.Contains(hay, kw) {
+				out = append(out, mem)
+				break
+			}
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Confidence > out[j].Confidence })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }
 
 type mockMemWriter struct {

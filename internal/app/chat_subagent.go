@@ -14,7 +14,7 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/m7app"
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/toolruntime"
@@ -45,11 +45,11 @@ func effectiveDelegationMode(policy subagentChatPolicy) delegationMode {
 	return delegationExplicit
 }
 
-func (e *Engine) subagentToolDefinitions(mode executionMode, policy subagentChatPolicy) []gateway.ToolDefinition {
+func (e *Engine) subagentToolDefinitions(mode executionMode, policy subagentChatPolicy) []llmadapter.ToolDefinition {
 	if mode == executionModePlan || effectiveDelegationMode(policy) == delegationDisabled || e.m7subagent == nil {
 		return nil
 	}
-	return []gateway.ToolDefinition{
+	return []llmadapter.ToolDefinition{
 		{
 			Name:        "subagent.spawn",
 			Description: "Spawn one read-only subagent with an independent budget and profile (explore, research, general-purpose, review, browser, shell, writer, test). Multiple spawns in one turn run in parallel (up to 3).",
@@ -67,7 +67,7 @@ const delegationProactiveHint = " Delegation: for complex, self-contained resear
 
 var subagentToolNames = map[string]bool{"subagent.spawn": true, "subagent.join": true}
 
-func (e *Engine) invokeSubagentTool(ctx context.Context, a gateway.Adapter, credential []byte, model, sessionID, tool string, rawArgs json.RawMessage, policy subagentChatPolicy) (string, error) {
+func (e *Engine) invokeSubagentTool(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID, tool string, rawArgs json.RawMessage, policy subagentChatPolicy) (string, error) {
 	switch tool {
 	case "subagent.spawn":
 		var p struct {
@@ -120,7 +120,7 @@ func (e *Engine) invokeSubagentTool(ctx context.Context, a gateway.Adapter, cred
 	return "", errors.New("unknown subagent tool " + tool)
 }
 
-func (e *Engine) subagentAdapter(ctx context.Context, parent gateway.Adapter, parentCred []byte, parentModel string, ov subagentProfileOverride) (gateway.Adapter, []byte, string) {
+func (e *Engine) subagentAdapter(ctx context.Context, parent llmadapter.Adapter, parentCred []byte, parentModel string, ov subagentProfileOverride) (llmadapter.Adapter, []byte, string) {
 	if ov.ModelID == "" {
 		return parent, parentCred, parentModel
 	}
@@ -131,7 +131,7 @@ func (e *Engine) subagentAdapter(ctx context.Context, parent gateway.Adapter, pa
 	if err != nil {
 		return parent, parentCred, ov.ModelID
 	}
-	var outAdapter gateway.Adapter
+	var outAdapter llmadapter.Adapter
 	var outCred []byte
 	leaseErr := e.withProviderLease(ctx, item, secretlease.OperationChat, func(op context.Context, cred []byte) error {
 		a, err := e.adapter(op, item)
@@ -160,7 +160,7 @@ func subagentStoredPurpose(profile subagentProfileDef, purpose string) string {
 	return tagged
 }
 
-func (e *Engine) runSubagentSession(ctx context.Context, a gateway.Adapter, credential []byte, model, sessionID, purpose string, budget int64, profile subagentProfileDef, parentMode executionMode) (string, error) {
+func (e *Engine) runSubagentSession(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID, purpose string, budget int64, profile subagentProfileDef, parentMode executionMode) (string, error) {
 	storedPurpose := subagentStoredPurpose(profile, purpose)
 	run, err := e.m7subagent.Spawn(ctx, m7app.SpawnInput{
 		RootRunID:      sessionID,
@@ -201,7 +201,7 @@ func (e *Engine) runSubagentSession(ctx context.Context, a gateway.Adapter, cred
 	return string(out), nil
 }
 
-func (e *Engine) executeSubagentLoop(ctx context.Context, a gateway.Adapter, credential []byte, model, sessionID, purpose string, budget int64, profile subagentProfileDef, parentMode executionMode) (string, int64, error) {
+func (e *Engine) executeSubagentLoop(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID, purpose string, budget int64, profile subagentProfileDef, parentMode executionMode) (string, int64, error) {
 	maxTokens := int(budget)
 	if maxTokens > 16000 {
 		maxTokens = 16000
@@ -219,11 +219,11 @@ func (e *Engine) executeSubagentLoop(ctx context.Context, a gateway.Adapter, cre
 	}
 	tools := subagentEngineToolDefinitions(profile)
 	allowed := toolNameSet(tools)
-	req := gateway.Request{
+	req := llmadapter.Request{
 		Model: model, MaxTokens: maxTokens, MaxAttempts: 1,
-		Messages: []gateway.Message{
-			{Role: gateway.RoleSystem, Content: prompt},
-			{Role: gateway.RoleUser, Content: purpose},
+		Messages: []llmadapter.Message{
+			{Role: llmadapter.RoleSystem, Content: prompt},
+			{Role: llmadapter.RoleUser, Content: purpose},
 		},
 		Tools: tools,
 	}
@@ -246,8 +246,8 @@ func (e *Engine) executeSubagentLoop(ctx context.Context, a gateway.Adapter, cre
 	// tools removed leaves the model no way to answer except in prose, so
 	// the work already done comes back as a report.
 	req.Tools = nil
-	req.Messages = append(req.Messages, gateway.Message{
-		Role:    gateway.RoleUser,
+	req.Messages = append(req.Messages, llmadapter.Message{
+		Role:    llmadapter.RoleUser,
 		Content: "Step budget reached. Report what you found so far in prose, and say plainly what is still unverified. No tool calls.",
 	})
 	resp, err := e.completeMaybeRotate(ctx, a, credential, req)
@@ -270,7 +270,7 @@ func (e *Engine) executeSubagentLoop(ctx context.Context, a gateway.Adapter, cre
 // subagent turn while the main chat loop already overlapped the same calls.
 // Eligibility reuses chat_parallel.go's verified read-only contract rather
 // than inventing a second one; anything outside it still runs inline.
-func (e *Engine) runSubagentToolCalls(ctx context.Context, sessionID string, profile subagentProfileDef, allowed map[string]bool, calls []gateway.ToolCall, parentMode executionMode) []gateway.Message {
+func (e *Engine) runSubagentToolCalls(ctx context.Context, sessionID string, profile subagentProfileDef, allowed map[string]bool, calls []llmadapter.ToolCall, parentMode executionMode) []llmadapter.Message {
 	summaries := make([]string, len(calls))
 	// Distinct indices, so the background writes below never overlap the
 	// inline ones.
@@ -289,7 +289,7 @@ func (e *Engine) runSubagentToolCalls(ctx context.Context, sessionID string, pro
 		started++
 		spawned[i] = true
 		wg.Add(1)
-		go func(i int, call gateway.ToolCall) {
+		go func(i int, call llmadapter.ToolCall) {
 			defer wg.Done()
 			summaries[i] = e.runSubagentTool(ctx, sessionID, call, parentMode)
 		}(i, call)
@@ -300,13 +300,13 @@ func (e *Engine) runSubagentToolCalls(ctx context.Context, sessionID string, pro
 		}
 	}
 	wg.Wait()
-	out := make([]gateway.Message, len(calls))
+	out := make([]llmadapter.Message, len(calls))
 	for i, call := range calls {
 		summary := summaries[i]
 		if len(summary) > 4096 {
 			summary = summary[:4096]
 		}
-		out[i] = gateway.Message{Role: gateway.RoleTool, ToolCallID: call.ID, Content: summary}
+		out[i] = llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary}
 	}
 	return out
 }
@@ -314,7 +314,7 @@ func (e *Engine) runSubagentToolCalls(ctx context.Context, sessionID string, pro
 // runSubagentTool executes one delegated call. approved stays false: nobody is
 // watching a subagent, so an approval-mode parent has to see its writes
 // refused rather than have them auto-approved on its behalf.
-func (e *Engine) runSubagentTool(ctx context.Context, sessionID string, call gateway.ToolCall, parentMode executionMode) string {
+func (e *Engine) runSubagentTool(ctx context.Context, sessionID string, call llmadapter.ToolCall, parentMode executionMode) string {
 	r, err := e.tools.Execute(ctx, toolruntime.Mode(subagentToolMode(parentMode)), sessionID, call.Name, call.Arguments, false)
 	if err != nil {
 		return err.Error()
@@ -322,7 +322,7 @@ func (e *Engine) runSubagentTool(ctx context.Context, sessionID string, call gat
 	return r.Output
 }
 
-func toolNameSet(tools []gateway.ToolDefinition) map[string]bool {
+func toolNameSet(tools []llmadapter.ToolDefinition) map[string]bool {
 	set := make(map[string]bool, len(tools))
 	for _, d := range tools {
 		set[d.Name] = true
@@ -330,7 +330,7 @@ func toolNameSet(tools []gateway.ToolDefinition) map[string]bool {
 	return set
 }
 
-func subagentEngineToolDefinitions(profile subagentProfileDef) []gateway.ToolDefinition {
+func subagentEngineToolDefinitions(profile subagentProfileDef) []llmadapter.ToolDefinition {
 	tools := readOnlyEngineToolDefinitionsForProfile(profile)
 	if len(profile.WriteTools) == 0 {
 		return tools
@@ -350,7 +350,7 @@ func subagentEngineToolDefinitions(profile subagentProfileDef) []gateway.ToolDef
 	return tools
 }
 
-func readOnlyEngineToolDefinitionsForProfile(profile subagentProfileDef) []gateway.ToolDefinition {
+func readOnlyEngineToolDefinitionsForProfile(profile subagentProfileDef) []llmadapter.ToolDefinition {
 	if capsIncludeAll(profile.ReadCaps, fullSubagentReadCaps()) {
 		return fullReadOnlySubagentTools()
 	}
@@ -368,11 +368,11 @@ func readOnlyEngineToolDefinitionsForProfile(profile subagentProfileDef) []gatew
 	return all
 }
 
-func fullReadOnlySubagentTools() []gateway.ToolDefinition {
+func fullReadOnlySubagentTools() []llmadapter.ToolDefinition {
 	return withBrowserAct(readOnlyEngineToolDefinitions())
 }
 
-func withBrowserAct(defs []gateway.ToolDefinition) []gateway.ToolDefinition {
+func withBrowserAct(defs []llmadapter.ToolDefinition) []llmadapter.ToolDefinition {
 	for _, d := range defs {
 		if d.Name == "browser.act" {
 			return defs
@@ -392,8 +392,8 @@ func workspaceReadTools() map[string]bool {
 	}
 }
 
-func filterToolDefs(all []gateway.ToolDefinition, allow map[string]bool) []gateway.ToolDefinition {
-	out := make([]gateway.ToolDefinition, 0, len(allow))
+func filterToolDefs(all []llmadapter.ToolDefinition, allow map[string]bool) []llmadapter.ToolDefinition {
+	out := make([]llmadapter.ToolDefinition, 0, len(allow))
 	for _, d := range all {
 		if allow[d.Name] {
 			out = append(out, d)
@@ -402,9 +402,9 @@ func filterToolDefs(all []gateway.ToolDefinition, allow map[string]bool) []gatew
 	return out
 }
 
-func readOnlyEngineToolDefinitions() []gateway.ToolDefinition {
+func readOnlyEngineToolDefinitions() []llmadapter.ToolDefinition {
 	all := engineToolDefinitions()
-	out := make([]gateway.ToolDefinition, 0, len(all))
+	out := make([]llmadapter.ToolDefinition, 0, len(all))
 	for _, d := range all {
 		if d.Name == "workspace.write" || d.Name == "workspace.edit" || d.Name == "html.gen" || d.Name == "desktop.open" || d.Name == "desktop.type" || d.Name == "media.play" || d.Name == "browser.act" || d.Name == "image.generate" || d.Name == "video.generate" || d.Name == "video.understand" || d.Name == "run_terminal_cmd" || d.Name == toolStructuredOutput || d.Name == "user.ask" {
 			continue
@@ -419,7 +419,7 @@ type subagentFutureResult struct {
 	err     error
 }
 
-func startSubagentFutures(ctx context.Context, e *Engine, a gateway.Adapter, credential []byte, model, sessionID string, calls []gateway.ToolCall, policy subagentChatPolicy) map[string]chan subagentFutureResult {
+func startSubagentFutures(ctx context.Context, e *Engine, a llmadapter.Adapter, credential []byte, model, sessionID string, calls []llmadapter.ToolCall, policy subagentChatPolicy) map[string]chan subagentFutureResult {
 	futures := make(map[string]chan subagentFutureResult)
 	started := 0
 	for _, call := range calls {
@@ -429,7 +429,7 @@ func startSubagentFutures(ctx context.Context, e *Engine, a gateway.Adapter, cre
 		started++
 		ch := make(chan subagentFutureResult, 1)
 		futures[call.ID] = ch
-		go func(call gateway.ToolCall) {
+		go func(call llmadapter.ToolCall) {
 			defer func() {
 				if r := recover(); r != nil {
 					ch <- subagentFutureResult{err: fmt.Errorf("subagent panicked: %v", r)}

@@ -4,6 +4,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/lunitide/lunitide/internal/domain/provider"
+	"github.com/lunitide/lunitide/internal/domain/token"
 )
 
 func TestCreateTurnFailureNotice(t *testing.T) {
@@ -229,5 +232,45 @@ func TestCollectExpertIDsPrefersMountedPack(t *testing.T) {
 	got := collectExpertIDs([]string{mounted}, "[引用专家 安全|"+extra+"]\n[引用专家 重复|"+mounted+"]")
 	if len(got) != 2 || got[0] != mounted || got[1] != extra {
 		t.Fatalf("got %#v", got)
+	}
+}
+
+func TestClipExpertBodyToTokens(t *testing.T) {
+	// A short body under budget is returned verbatim.
+	if got := clipExpertBodyToTokens("岗位说明", 100); got != "岗位说明" {
+		t.Fatalf("short body must pass through: %q", got)
+	}
+	// maxTokens<=0 means no cap.
+	long := strings.Repeat("专", 5000)
+	if got := clipExpertBodyToTokens(long, 0); got != long {
+		t.Fatalf("zero budget must not clip")
+	}
+	// A body over budget is trimmed to fit the token ceiling.
+	clipped := clipExpertBodyToTokens(long, 200)
+	if token.EstimateTokens(clipped) > 200+token.EstimateTokens("\n…（岗位说明书已按上下文预算精简）") {
+		t.Fatalf("clipped body exceeds token budget: %d", token.EstimateTokens(clipped))
+	}
+	if !strings.Contains(clipped, "按上下文预算精简") {
+		t.Fatalf("clipped body must note the trim: %q", clipped)
+	}
+}
+
+func TestExpertInjectionTokenBudget(t *testing.T) {
+	// Unknown window falls back to the default and applies the ratio.
+	p := provider.Provider{}
+	got := expertInjectionTokenBudget(p, "missing")
+	want := int64(float64(defaultExpertBudgetContextWindow) * expertInjectionCeilingRatio)
+	if got != want {
+		t.Fatalf("fallback budget = %d, want %d", got, want)
+	}
+	// A known small window still keeps the per-expert floor.
+	small := provider.Provider{Models: []provider.Model{{ModelID: "m", ContextWindow: 100}}}
+	if got := expertInjectionTokenBudget(small, "m"); got < expertPersonaMinPerExpertTokens {
+		t.Fatalf("budget must not drop below the floor: %d", got)
+	}
+	// A large window scales by the ratio.
+	big := provider.Provider{Models: []provider.Model{{ModelID: "m", ContextWindow: 200000}}}
+	if got := expertInjectionTokenBudget(big, "m"); got != int64(200000*expertInjectionCeilingRatio) {
+		t.Fatalf("large window budget = %d", got)
 	}
 }

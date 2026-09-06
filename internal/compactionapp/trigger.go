@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/compaction"
@@ -125,14 +124,20 @@ type Trigger struct {
 	checkpointStore CheckpointStore
 	messageReader   MessageReader
 	// lastTrigger tracks the last trigger time per session to enforce cooldown.
-	lastTrigger map[string]time.Time
-	// lastMu protects lastTrigger from concurrent access.
-	lastMu sync.Mutex
-	// sessionLocks provides per-session mutexes to prevent concurrent
+	// It is a bounded LRU map (Q-04): a long-running process serving an
+	// unbounded number of sessions must not accumulate cooldown timestamps
+	// forever. The structure carries its own lock, so no external mutex is
+	// used (avoiding double-locking / deadlock).
+	lastTrigger *lruTimeMap
+	// sessionLocks provides per-session serialization to prevent concurrent
 	// compaction triggers and executions on the same session (ADR-005 §5:
 	// "automatic and manual compaction must not run concurrently on the same
-	// session").
-	sessionLocks sync.Map // map[string]*sync.Mutex
+	// session"). It is a fixed-size pool of channel latches (Q-04): bounded by
+	// construction, never grows, and each latch is context-cancellation aware
+	// when awaited. Distinct sessions that hash to the same shard serialize
+	// against each other (benign over-serialization); same-session
+	// serialization is always guaranteed.
+	sessionLocks *shardedLatch
 }
 
 // NewTrigger creates a new compaction trigger.
@@ -154,18 +159,17 @@ func NewTrigger(config WatermarkConfig, tokenRepo token.Repository, checkpointSt
 		tokenRepo:       tokenRepo,
 		checkpointStore: checkpointStore,
 		messageReader:   messageReader,
-		lastTrigger:     make(map[string]time.Time),
+		lastTrigger:     newLRUTimeMap(lastTriggerMaxEntries),
+		sessionLocks:    newShardedLatch(sessionLockShards),
 	}
 }
 
-// sessionLock returns the mutex for the given session, creating it if needed.
-// This mutex serializes all compaction operations (trigger + execute) for a
-// single session, preventing TOCTOU races and concurrent checkpoint creation.
+// sessionLock returns the latch for the given session. This latch serializes
+// all compaction operations (trigger + execute) for a single session,
+// preventing TOCTOU races and concurrent checkpoint creation. The latch comes
+// from a fixed-size pool, so it is bounded and never leaks (Q-04).
 func (t *Trigger) sessionLock(sessionID string) chan struct{} {
-	candidate := make(chan struct{}, 1)
-	candidate <- struct{}{}
-	v, _ := t.sessionLocks.LoadOrStore(sessionID, candidate)
-	return v.(chan struct{})
+	return t.sessionLocks.get(sessionID)
 }
 
 // LockSession acquires the per-session compaction lock. The returned unlock
@@ -224,15 +228,12 @@ func (t *Trigger) CheckAndTrigger(ctx context.Context, sessionID, provider, mode
 	}
 
 	// Check cooldown (thread-safe).
-	t.lastMu.Lock()
-	if last, ok := t.lastTrigger[sessionID]; ok {
+	if last, ok := t.lastTrigger.Get(sessionID); ok {
 		if time.Since(last) < t.config.CheckCooldown {
-			t.lastMu.Unlock()
 			result.Reason = fmt.Sprintf("cooldown period not elapsed (last trigger: %s)", last.Format(time.RFC3339))
 			return result, nil
 		}
 	}
-	t.lastMu.Unlock()
 
 	// Check if a compaction is already in progress.
 	latest, err := t.checkpointStore.GetLatestCheckpoint(ctx, sessionID)
@@ -340,9 +341,7 @@ func (t *Trigger) CheckAndTrigger(ctx context.Context, sessionID, provider, mode
 		return result, fmt.Errorf("create checkpoint: %w", err)
 	}
 
-	t.lastMu.Lock()
-	t.lastTrigger[sessionID] = time.Now()
-	t.lastMu.Unlock()
+	t.lastTrigger.Set(sessionID, time.Now())
 
 	result.Triggered = true
 	result.CheckpointID = created.ID
@@ -353,9 +352,7 @@ func (t *Trigger) CheckAndTrigger(ctx context.Context, sessionID, provider, mode
 
 // ResetCooldown clears the cooldown for a session, allowing immediate re-trigger.
 func (t *Trigger) ResetCooldown(sessionID string) {
-	t.lastMu.Lock()
-	delete(t.lastTrigger, sessionID)
-	t.lastMu.Unlock()
+	t.lastTrigger.Delete(sessionID)
 }
 
 // GetLatestCheckpoint returns the latest checkpoint (by version) for a session,

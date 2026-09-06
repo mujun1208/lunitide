@@ -4,16 +4,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 func TestValidPublicChatMessagesRejectsPrivilegedRoles(t *testing.T) {
-	for _, role := range []gateway.Role{gateway.RoleSystem, gateway.RoleTool} {
-		if validChatMessages("model", []gateway.Message{{Role: role, Content: "renderer-controlled"}}) {
+	for _, role := range []llmadapter.Role{llmadapter.RoleSystem, llmadapter.RoleTool} {
+		if validChatMessages("model", []llmadapter.Message{{Role: role, Content: "renderer-controlled"}}) {
 			t.Fatalf("public chat.start accepted privileged role %q", role)
 		}
 	}
-	if !validChatMessages("model", []gateway.Message{{Role: gateway.RoleUser, Content: "question"}, {Role: gateway.RoleAssistant, Content: "answer"}}) {
+	if !validChatMessages("model", []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "question"}, {Role: llmadapter.RoleAssistant, Content: "answer"}}) {
 		t.Fatal("public chat.start rejected legal public roles")
 	}
 }
@@ -51,11 +51,11 @@ func TestPlanExecutionModeStrictlyForbidsExecutionAndMutationClaims(t *testing.T
 
 func TestTrustedExecutionInstructionPrecedesRawNearLimitMessage(t *testing.T) {
 	raw := strings.Repeat("x", 16*1024)
-	if !validChatMessages("m", []gateway.Message{{Role: gateway.RoleUser, Content: raw}}) {
+	if !validChatMessages("m", []llmadapter.Message{{Role: llmadapter.RoleUser, Content: raw}}) {
 		t.Fatal("near-limit public message rejected")
 	}
-	trusted := append([]gateway.Message{{Role: gateway.RoleSystem, Content: executionModeInstruction(executionModeApproval)}}, gateway.Message{Role: gateway.RoleUser, Content: raw})
-	if trusted[0].Role != gateway.RoleSystem || trusted[1].Content != raw {
+	trusted := append([]llmadapter.Message{{Role: llmadapter.RoleSystem, Content: executionModeInstruction(executionModeApproval)}}, llmadapter.Message{Role: llmadapter.RoleUser, Content: raw})
+	if trusted[0].Role != llmadapter.RoleSystem || trusted[1].Content != raw {
 		t.Fatalf("trusted assembly changed authority or raw content: %#v", trusted)
 	}
 }

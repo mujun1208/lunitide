@@ -3,15 +3,15 @@ package app
 import (
 	"testing"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 func TestCompanionParityDesktopAllow(t *testing.T) {
-	defs := []gateway.ToolDefinition{
+	defs := []llmadapter.ToolDefinition{
 		{Name: "desktop.open"}, {Name: "desktop.type"}, {Name: "computer.act"},
 		{Name: "command.run"}, {Name: "im.send"}, {Name: "user.ask"}, {Name: "web.search"},
 	}
-	has := func(list []gateway.ToolDefinition, name string) bool {
+	has := func(list []llmadapter.ToolDefinition, name string) bool {
 		for _, d := range list {
 			if d.Name == name {
 				return true

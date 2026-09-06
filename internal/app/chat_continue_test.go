@@ -10,7 +10,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/skill"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 func TestExtendToolLoopLimit(t *testing.T) {
@@ -117,17 +117,17 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	if got := pickTurnContinueKind("已经打开了。", "已经打开了。", "opened C:\\\\x\\\\汽水音乐.lnk", []string{"desktop.open"}, true, true, true, true, 0, "打开汽水", true); got != "" {
 		t.Fatalf("open-only must not return desktop, got %q", got)
 	}
-	if drop := dropCompanionFailedTail([]gateway.Message{{Role: gateway.RoleUser, Content: "打开汽水"}, {Role: gateway.RoleAssistant, Content: "无法执行。窗口没到前台"}}); len(drop) != 1 || drop[0].Role != gateway.RoleUser {
+	if drop := dropCompanionFailedTail([]llmadapter.Message{{Role: llmadapter.RoleUser, Content: "打开汽水"}, {Role: llmadapter.RoleAssistant, Content: "无法执行。窗口没到前台"}}); len(drop) != 1 || drop[0].Role != llmadapter.RoleUser {
 		t.Fatal("fresh visit must drop last 无法执行 assistant")
 	}
 	// C7-6: assembled chat.start is [system, prior user, failed assistant, new user].
-	c76 := dropCompanionFailedTail([]gateway.Message{
-		{Role: gateway.RoleSystem, Content: "月伴身份"},
-		{Role: gateway.RoleUser, Content: "打开汽水"},
-		{Role: gateway.RoleAssistant, Content: "无法执行。窗口没到前台"},
-		{Role: gateway.RoleUser, Content: "再打开一次汽水"},
+	c76 := dropCompanionFailedTail([]llmadapter.Message{
+		{Role: llmadapter.RoleSystem, Content: "月伴身份"},
+		{Role: llmadapter.RoleUser, Content: "打开汽水"},
+		{Role: llmadapter.RoleAssistant, Content: "无法执行。窗口没到前台"},
+		{Role: llmadapter.RoleUser, Content: "再打开一次汽水"},
 	})
-	if len(c76) != 3 || c76[0].Role != gateway.RoleSystem || c76[1].Content != "打开汽水" || c76[2].Content != "再打开一次汽水" {
+	if len(c76) != 3 || c76[0].Role != llmadapter.RoleSystem || c76[1].Content != "打开汽水" || c76[2].Content != "再打开一次汽水" {
 		t.Fatalf("C7-6 must drop the failed assistant sitting before the new user turn: %#v", c76)
 	}
 	for _, m := range c76 {
@@ -135,10 +135,10 @@ func TestAssistantPausedMidTask(t *testing.T) {
 			t.Fatal("C7-6 first-visit messages must not carry 无法执行")
 		}
 	}
-	keep := dropCompanionFailedTail([]gateway.Message{
-		{Role: gateway.RoleUser, Content: "今晚月色如何"},
-		{Role: gateway.RoleAssistant, Content: "今晚是满月，适合抬头。"},
-		{Role: gateway.RoleUser, Content: "再讲一句"},
+	keep := dropCompanionFailedTail([]llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "今晚月色如何"},
+		{Role: llmadapter.RoleAssistant, Content: "今晚是满月，适合抬头。"},
+		{Role: llmadapter.RoleUser, Content: "再讲一句"},
 	})
 	if len(keep) != 3 || keep[1].Content != "今晚是满月，适合抬头。" {
 		t.Fatalf("settled chat must stay: %#v", keep)
@@ -193,43 +193,43 @@ type continueAdapter struct {
 	sawNudge bool
 }
 
-func (a *continueAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (a *continueAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (a *continueAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (a *continueAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (a *continueAdapter) Stream(_ context.Context, _ []byte, req gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+func (a *continueAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	a.calls++
 	for _, m := range req.Messages {
-		if m.Role == gateway.RoleSystem && strings.Contains(m.Content, "继续执行用户的指令直到完成") {
+		if m.Role == llmadapter.RoleSystem && strings.Contains(m.Content, "继续执行用户的指令直到完成") {
 			a.sawNudge = true
 		}
 	}
 	switch a.calls {
 	case 1:
-		return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{
 			{ID: "call-search", Name: "mcp.search", Arguments: []byte(`{"query":"skills"}`)},
 		}}}, nil
 	case 2:
 		text := "找到 59 个技能目录，请确认是否继续安装。"
-		if err := emit(gateway.Delta{Text: text}); err != nil {
-			return gateway.Response{}, err
+		if err := emit(llmadapter.Delta{Text: text}); err != nil {
+			return llmadapter.Response{}, err
 		}
-		return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, Content: text}}, nil
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
 	default:
 		text := "已全部安装完成。"
-		if err := emit(gateway.Delta{Text: text}); err != nil {
-			return gateway.Response{}, err
+		if err := emit(llmadapter.Delta{Text: text}); err != nil {
+			return llmadapter.Response{}, err
 		}
-		return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, Content: text}}, nil
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
 	}
 }
 
-func runContinueStream(t *testing.T, adapter *continueAdapter, req gateway.Request) []string {
+func runContinueStream(t *testing.T, adapter *continueAdapter, req llmadapter.Request) []string {
 	t.Helper()
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) { return adapter, nil })
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	state := &streamState{cancel: cancel, state: streamRunning}
@@ -260,7 +260,7 @@ func runContinueStream(t *testing.T, adapter *continueAdapter, req gateway.Reque
 
 func TestRunStreamContinuesAfterPrematureStop(t *testing.T) {
 	adapter := &continueAdapter{}
-	deltas := runContinueStream(t, adapter, gateway.Request{Model: "m"})
+	deltas := runContinueStream(t, adapter, llmadapter.Request{Model: "m"})
 	joined := strings.Join(deltas, "")
 	if !adapter.sawNudge {
 		t.Fatal("expected a continue nudge after the model paused mid-task")
@@ -275,7 +275,7 @@ func TestRunStreamContinuesAfterPrematureStop(t *testing.T) {
 
 func TestRunStreamDoesNotNudgeCompanion(t *testing.T) {
 	adapter := &continueAdapter{}
-	_ = runContinueStream(t, adapter, gateway.Request{Model: "m", DisableReasoning: true})
+	_ = runContinueStream(t, adapter, llmadapter.Request{Model: "m", DisableReasoning: true})
 	if adapter.sawNudge {
 		t.Fatal("companion turns must not inject a continue nudge")
 	}
@@ -286,47 +286,47 @@ func TestRunStreamDoesNotNudgeCompanion(t *testing.T) {
 
 type finishAdapter struct{ calls int }
 
-func (a *finishAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (a *finishAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (a *finishAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (a *finishAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (a *finishAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+func (a *finishAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	a.calls++
 	if a.calls == 1 {
-		return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{
 			{ID: "call-search", Name: "mcp.search", Arguments: []byte(`{"query":"skills"}`)},
 		}}}, nil
 	}
 	text := "已全部安装完成，共 3 个技能。"
-	if err := emit(gateway.Delta{Text: text}); err != nil {
-		return gateway.Response{}, err
+	if err := emit(llmadapter.Delta{Text: text}); err != nil {
+		return llmadapter.Response{}, err
 	}
-	return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, Content: text}}, nil
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
 }
 
 type waitPromiseAdapter struct{ calls int }
 
-func (a *waitPromiseAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (a *waitPromiseAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (a *waitPromiseAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (a *waitPromiseAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (a *waitPromiseAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+func (a *waitPromiseAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	a.calls++
 	text := "合肥今天的天气我手头没有实时数据，没法给你准确温度。你要是不急，我可以帮你查一下，稍等。"
-	if err := emit(gateway.Delta{Text: text}); err != nil {
-		return gateway.Response{}, err
+	if err := emit(llmadapter.Delta{Text: text}); err != nil {
+		return llmadapter.Response{}, err
 	}
-	return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, Content: text}}, nil
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
 }
 
 func TestRunStreamCompanionWaitExhaustedSaysCannotExecute(t *testing.T) {
 	adapter := &waitPromiseAdapter{}
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) { return adapter, nil })
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	state := &streamState{cancel: cancel, state: streamRunning, companion: true}
@@ -334,11 +334,11 @@ func TestRunStreamCompanionWaitExhaustedSaysCannotExecute(t *testing.T) {
 	e.streams[id] = state
 	done := make(chan struct{})
 	var deltas []string
-	req := gateway.Request{
+	req := llmadapter.Request{
 		Model:             "m",
 		DisableReasoning:  true,
-		Tools:             []gateway.ToolDefinition{{Name: "web.search"}},
-		Messages:          []gateway.Message{{Role: gateway.RoleUser, Content: "今天合肥的天气怎么样"}},
+		Tools:             []llmadapter.ToolDefinition{{Name: "web.search"}},
+		Messages:          []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "今天合肥的天气怎么样"}},
 	}
 	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, req, func(event bridge.Event) error {
 		if event.Type == bridge.EventDelta && event.Delta != nil {
@@ -366,14 +366,14 @@ func TestRunStreamCompanionWaitExhaustedSaysCannotExecute(t *testing.T) {
 func TestRunStreamDoesNotNudgeWhenTaskFinished(t *testing.T) {
 	adapter := &finishAdapter{}
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) { return adapter, nil })
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	state := &streamState{cancel: cancel, state: streamRunning}
 	id := "stream-finished"
 	e.streams[id] = state
 	done := make(chan struct{})
-	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, gateway.Request{Model: "m"}, func(event bridge.Event) error {
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, llmadapter.Request{Model: "m"}, func(event bridge.Event) error {
 		if event.Type == bridge.EventCompleted || event.Type == bridge.EventFailed {
 			close(done)
 		}
@@ -391,23 +391,39 @@ func TestRunStreamDoesNotNudgeWhenTaskFinished(t *testing.T) {
 
 type skillCreateAdapter struct{ turn int }
 
-func (a *skillCreateAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+// UX-05 #3: the forced end-of-turn summary pass must run WITHOUT tools and
+// carry a system nudge that forbids further tool calls and requires a
+// natural-language wrap-up, so a budget-exhausted multi-tool loop never
+// finishes silently.
+func TestForceSummaryNudgeMessageContract(t *testing.T) {
+	msg := forceSummaryNudgeMessage()
+	if msg.Role != llmadapter.RoleSystem {
+		t.Fatalf("role = %q, want system", msg.Role)
+	}
+	for _, want := range []string{"不能再调用任何工具", "最终总结", "还有哪些没做完"} {
+		if !strings.Contains(msg.Content, want) {
+			t.Fatalf("nudge missing %q: %q", want, msg.Content)
+		}
+	}
 }
-func (a *skillCreateAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+
+func (a *skillCreateAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (a *skillCreateAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+func (a *skillCreateAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
+}
+func (a *skillCreateAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	if a.turn == 0 {
 		a.turn++
-		return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{
 			{ID: "call-create", Name: "skill.create", Arguments: []byte(`{"name":"folder-reader","displayName":"Folder Reader","description":"read folders","permissions":["read_only"],"entryPoint":"SKILL.md","manifestJson":"{\"prompt\":\"read\",\"triggers\":[\"读取\"]}"}`)},
 		}}}, nil
 	}
-	if err := emit(gateway.Delta{Text: "技能已创建"}); err != nil {
-		return gateway.Response{}, err
+	if err := emit(llmadapter.Delta{Text: "技能已创建"}); err != nil {
+		return llmadapter.Response{}, err
 	}
-	return gateway.Response{Usage: gateway.Usage{OutputTokens: 2, TotalTokens: 2}}, nil
+	return llmadapter.Response{Usage: llmadapter.Usage{OutputTokens: 2, TotalTokens: 2}}, nil
 }
 
 type skillCreateRecordingStub struct {
@@ -426,7 +442,7 @@ func TestSkillCreateToolCreatesDraft(t *testing.T) {
 	stub := &skillCreateRecordingStub{}
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
 	e.skills = stub
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return &skillCreateAdapter{}, nil
 	})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -436,7 +452,7 @@ func TestSkillCreateToolCreatesDraft(t *testing.T) {
 	e.streams[id] = state
 	done := make(chan struct{})
 	var summaries []string
-	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, gateway.Request{Model: "m"}, func(event bridge.Event) error {
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, llmadapter.Request{Model: "m"}, func(event bridge.Event) error {
 		if event.Type == bridge.EventToolCompleted && event.Tool != nil {
 			summaries = append(summaries, event.Tool.Summary)
 		}

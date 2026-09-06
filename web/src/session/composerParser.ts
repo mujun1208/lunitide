@@ -1,15 +1,22 @@
-export type ContextRef={type:'attachment'|'skillResult';id:string}
+export type ContextRef={type:'attachment'|'skillResult'|'message';id:string}
 export type AttachmentMention={id:string;label:string}
 export type ParsedComposer={text:string;contextRefs:ContextRef[]}
 const U='[0-7][0-9A-HJKMNP-TV-Z]{25}'
 const ATT=new RegExp(`\\[attachment:(${U})\\|([^\\]\\r\\n]+)\\]`,'g')
+const MSG=new RegExp(`\\[message:(${U})\\|([^\\]\\r\\n]+)\\]`,'g')
 const SKILL_REF=/^\[引用技能 ([^\]|\r\n]+)\|([0-9A-HJKMNP-TV-Z]{26})\]\r?\n?/
 const EXPERT_REF=/^\[引用专家 ([^\]|\r\n]+)\|([0-9A-HJKMNP-TV-Z]{26})\]\r?\n?/
 const cleanLabel=(label:string)=>label.replace(/[\]|\r\n]/g,' ')
 export function attachmentToken(id:string,label:string){return`[attachment:${id}|${cleanLabel(label)}]`}
+export function messageToken(id:string,label:string){return`[message:${id}|${cleanLabel(label)}]`}
 export function parseAttachmentMentions(source:string):{mentions:AttachmentMention[];text:string}{
  const mentions:AttachmentMention[]=[]
  const text=source.replace(ATT,(_,id:string,label:string)=>{mentions.push({id,label});return''}).replace(/\s{2,}/g,' ').trim()
+ return{mentions,text}
+}
+export function parseMessageMentions(source:string):{mentions:AttachmentMention[];text:string}{
+ const mentions:AttachmentMention[]=[]
+ const text=source.replace(MSG,(_,id:string,label:string)=>{mentions.push({id,label});return''}).replace(/\s{2,}/g,' ').trim()
  return{mentions,text}
 }
 export function embedPendingAttachments(prompt:string,extraIds:readonly string[]=[],labels:Record<string,string>={}):string{
@@ -39,11 +46,13 @@ export function splitSkillRefs(text:string):{names:string[];text:string}{
  return{names:split.skills,text:split.text}
 }
 export function parseComposer(source:string):ParsedComposer{
- const{mentions,text}=parseAttachmentMentions(source)
- return{text,contextRefs:mentions.map(item=>({type:'attachment' as const,id:item.id}))}
+ const att=parseAttachmentMentions(source)
+ const msg=parseMessageMentions(att.text)
+ return{text:msg.text,contextRefs:[...att.mentions.map(item=>({type:'attachment' as const,id:item.id})),...msg.mentions.map(item=>({type:'message' as const,id:item.id}))]}
 }
 export function userBubbleParts(source:string):{skills:string[];experts:string[];mentions:AttachmentMention[];text:string}{
  const refs=splitLeadingRefs(source)
  const attachments=parseAttachmentMentions(refs.text)
- return{skills:refs.skills,experts:refs.experts,mentions:attachments.mentions,text:attachments.text}
+ const messages=parseMessageMentions(attachments.text)
+ return{skills:refs.skills,experts:refs.experts,mentions:attachments.mentions,text:messages.text}
 }

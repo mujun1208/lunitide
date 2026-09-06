@@ -14,29 +14,29 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/skillapp"
 )
 
 type skillInvokeAdapter struct{ turn int }
 
-func (a *skillInvokeAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (a *skillInvokeAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (a *skillInvokeAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (a *skillInvokeAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (a *skillInvokeAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+func (a *skillInvokeAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	if a.turn == 0 {
 		a.turn++
-		return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{
 			{ID: "call-skill", Name: "skill.invoke", Arguments: []byte(`{"skillId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","input":"帮我解析手册章节"}`)},
 		}}}, nil
 	}
-	if err := emit(gateway.Delta{Text: "skill done"}); err != nil {
-		return gateway.Response{}, err
+	if err := emit(llmadapter.Delta{Text: "skill done"}); err != nil {
+		return llmadapter.Response{}, err
 	}
-	return gateway.Response{Usage: gateway.Usage{OutputTokens: 2, TotalTokens: 2}}, nil
+	return llmadapter.Response{Usage: llmadapter.Usage{OutputTokens: 2, TotalTokens: 2}}, nil
 }
 
 type skillInvokeRecordingStub struct {
@@ -62,7 +62,7 @@ func runSkillInvokeChat(t *testing.T, stub *skillInvokeRecordingStub, mode execu
 	t.Helper()
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
 	e.skills = stub
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) { return &skillInvokeAdapter{}, nil })
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return &skillInvokeAdapter{}, nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	state := &streamState{cancel: cancel, state: streamRunning}
@@ -70,7 +70,7 @@ func runSkillInvokeChat(t *testing.T, stub *skillInvokeRecordingStub, mode execu
 	e.streams[id] = state
 	var events []bridge.Event
 	terminal := make(chan struct{})
-	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, gateway.Request{Model: "m"}, func(event bridge.Event) error {
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, llmadapter.Request{Model: "m"}, func(event bridge.Event) error {
 		events = append(events, event)
 		if event.Type == bridge.EventCompleted || event.Type == bridge.EventFailed {
 			close(terminal)

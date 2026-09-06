@@ -12,7 +12,8 @@ export function loadToolProfile(): ToolProfile | '' {
   return ''
 }
 
-export function chatStartToolProfile(): { toolProfile?: ToolProfile } {
+export function chatStartToolProfile(supportsTools = true): { toolProfile?: ToolProfile } {
+  if (!supportsTools) return {}
   const profile = loadToolProfile()
   return profile ? { toolProfile: profile } : {}
 }

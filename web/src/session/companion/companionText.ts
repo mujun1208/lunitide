@@ -401,6 +401,42 @@ export function companionExecutingSpeech(activity?: string): string {
   return cleaned ? `${cleaned}。` : '正在执行。'
 }
 
+// UX-05: a long-running tool loop must never sit silent. When a tool has been
+// executing past this threshold with no result yet, the stage pushes a mid-run
+// "still working" line so the user hears progress instead of a dead channel.
+export const COMPANION_TOOL_PROGRESS_MS = 30_000
+
+/**
+ * Mid-run progress line for a tool that has not returned yet (UX-05 #3).
+ * Keeps the current activity name when known so the caption stays specific,
+ * otherwise falls back to a generic "still working" reassurance. Returns ''
+ * when the activity says the tool already failed (nothing to reassure about).
+ */
+export function companionToolProgressSpeech(activity?: string): string {
+  if (/无法执行/.test(activity ?? '')) return ''
+  const cleaned = (activity ?? '').replace(/中[….…]+$/u, '').trim()
+  return cleaned ? `${cleaned}还在继续，请稍候。` : '任务仍在执行中，请稍候。'
+}
+
+// UX-05 #2: explicit subtitle state machine for a tool turn. The caption below
+// the glass bar moves 执行中 → 执行完成 / 执行失败 so a multi-tool / multi-round
+// loop always resolves to a terminal state instead of freezing on 执行中.
+export type CompanionToolPhase = 'running' | 'succeeded' | 'failed'
+
+/**
+ * Render the subtitle status line for a tool phase (UX-05 #2). `detail` is the
+ * current activity/result text; it is appended when present so the line stays
+ * specific (e.g. "执行完成 · 已保存文件"). Pure and deterministic for tests.
+ */
+export function companionToolPhaseCaption(phase: CompanionToolPhase, detail?: string): string {
+  const label = phase === 'running' ? '执行中…' : phase === 'succeeded' ? '执行完成' : '执行失败'
+  const text = stripTaskDonePhrases(detail ?? '')
+    .replace(/中[….…]+$/u, '')
+    .trim()
+  if (phase === 'running') return label
+  return text ? `${label} · ${text}` : label
+}
+
 /** Last user + last assistant only. The glass bar is this visit's current turn. */
 export function seedCompanionCaptionRounds(items: ReadonlyArray<{ role: string; text: string }>): Array<{ role: 'user' | 'assistant'; text: string }> {
   let user = ''
