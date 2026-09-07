@@ -220,17 +220,27 @@ func handleAttachmentGet(e *Engine, ctx context.Context, r bridge.Request) bridg
 func handleAttachmentList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		ProjectID string `json:"projectId"`
+		SessionID string `json:"sessionId"`
 		Limit     int    `json:"limit"`
 	}
-	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) {
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) || (p.SessionID != "" && !validCanonicalULID(p.SessionID)) {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "attachment.list 参数无效", false)
 	}
-	atts, err := e.ListAttachmentsByProject(ctx, p.ProjectID, p.Limit)
+	var atts []attachment.Attachment
+	var err error
+	if p.SessionID != "" {
+		atts, err = e.ListAttachmentsBySession(ctx, p.SessionID, p.Limit)
+	} else {
+		atts, err = e.ListAttachmentsByProject(ctx, p.ProjectID, p.Limit)
+	}
 	if err != nil {
 		return attachmentFailure(r, err)
 	}
 	items := make([]attachmentDTO, 0, len(atts))
 	for _, a := range atts {
+		if a.ProjectID != p.ProjectID {
+			continue
+		}
 		items = append(items, newAttachmentDTO(a))
 	}
 	return r.Ok(map[string]any{"items": items})

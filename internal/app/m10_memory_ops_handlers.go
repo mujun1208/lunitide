@@ -194,6 +194,7 @@ func handleMemorySettingsUpdate(e *Engine, ctx context.Context, r bridge.Request
 		ExpectedVersion string `json:"expectedVersion"`
 		MemoryEnabled   bool   `json:"memoryEnabled"`
 		AutoNominate    bool   `json:"autoNominate"`
+		CaptureMode     string `json:"captureMode"`
 		GrowthDays      int    `json:"growthDays"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.SubjectID) < 1 || len(p.SubjectID) > m8core.MaxSubjectID || !m8core.ValidHexDigest(p.ExpectedVersion) {
@@ -207,7 +208,7 @@ func handleMemorySettingsUpdate(e *Engine, ctx context.Context, r bridge.Request
 	}
 	st, err := e.memoryOps.SettingsUpdateVersioned(ctx, m8core.MemorySettings{
 		SubjectID: p.SubjectID, MemoryEnabled: p.MemoryEnabled,
-		AutoNominate: p.AutoNominate, GrowthDays: p.GrowthDays,
+		AutoNominate: p.AutoNominate, CaptureMode: p.CaptureMode, GrowthDays: p.GrowthDays,
 	}, p.ExpectedVersion)
 	if err != nil {
 		return memoryOpsFailure(r, err)
@@ -276,7 +277,7 @@ func handleMemoryExport(e *Engine, ctx context.Context, r bridge.Request) bridge
 	for _, st := range bundle.Settings {
 		settings = append(settings, map[string]any{
 			"subjectId": st.SubjectID, "memoryEnabled": st.MemoryEnabled,
-			"autoNominate": st.AutoNominate, "growthDays": st.GrowthDays,
+			"autoNominate": st.AutoNominate, "growthDays": st.GrowthDays, "captureMode": st.CaptureMode,
 		})
 	}
 	return r.Ok(struct {
@@ -356,6 +357,7 @@ type memorySettingsDTO struct {
 	SubjectID     string `json:"subjectId"`
 	MemoryEnabled bool   `json:"memoryEnabled"`
 	AutoNominate  bool   `json:"autoNominate"`
+	CaptureMode   string `json:"captureMode"`
 	GrowthDays    int    `json:"growthDays"`
 	UpdatedAt     string `json:"updatedAt"`
 	Version       string `json:"version"`
@@ -366,7 +368,7 @@ func settingsDTO(st m8core.MemorySettings) memorySettingsDTO {
 	if updated == "" {
 		updated = "1970-01-01T00:00:00Z"
 	}
-	return memorySettingsDTO{st.SubjectID, st.MemoryEnabled, st.AutoNominate, st.GrowthDays, updated, m8core.SettingsVersion(st)}
+	return memorySettingsDTO{st.SubjectID, st.MemoryEnabled, st.AutoNominate, st.CaptureMode, st.GrowthDays, updated, m8core.SettingsVersion(st)}
 }
 
 func statsDTO(stats m8app.MemoryOpsStats) struct {

@@ -13,27 +13,28 @@ const (
 	PlatformDouyin   Platform = "douyin"
 	PlatformTencent  Platform = "tencent"
 	PlatformYouTube  Platform = "youtube"
+	PlatformDirect   Platform = "direct_video"
 )
 
 const Disclaimer = "这不是逐帧看完视频。根据公开字幕/页面简介整理。"
 
 var shareHosts = map[string]Platform{
-	"bilibili.com":       PlatformBilibili,
-	"www.bilibili.com":   PlatformBilibili,
-	"m.bilibili.com":     PlatformBilibili,
-	"b23.tv":             PlatformBilibili,
-	"douyin.com":         PlatformDouyin,
-	"www.douyin.com":     PlatformDouyin,
-	"v.douyin.com":       PlatformDouyin,
-	"iesdouyin.com":      PlatformDouyin,
-	"www.iesdouyin.com":  PlatformDouyin,
-	"v.qq.com":           PlatformTencent,
-	"video.qq.com":       PlatformTencent,
-	"m.v.qq.com":         PlatformTencent,
-	"youtube.com":        PlatformYouTube,
-	"www.youtube.com":    PlatformYouTube,
-	"m.youtube.com":      PlatformYouTube,
-	"youtu.be":           PlatformYouTube,
+	"bilibili.com":      PlatformBilibili,
+	"www.bilibili.com":  PlatformBilibili,
+	"m.bilibili.com":    PlatformBilibili,
+	"b23.tv":            PlatformBilibili,
+	"douyin.com":        PlatformDouyin,
+	"www.douyin.com":    PlatformDouyin,
+	"v.douyin.com":      PlatformDouyin,
+	"iesdouyin.com":     PlatformDouyin,
+	"www.iesdouyin.com": PlatformDouyin,
+	"v.qq.com":          PlatformTencent,
+	"video.qq.com":      PlatformTencent,
+	"m.v.qq.com":        PlatformTencent,
+	"youtube.com":       PlatformYouTube,
+	"www.youtube.com":   PlatformYouTube,
+	"m.youtube.com":     PlatformYouTube,
+	"youtu.be":          PlatformYouTube,
 }
 
 var (
@@ -44,12 +45,32 @@ var (
 // DetectShareURL finds the first allowlisted video share URL in goal.
 func DetectShareURL(goal string) (canonical string, platform Platform, ok bool) {
 	for _, raw := range findURLCandidates(goal) {
+		if canon, hit := ClassifyDirectURL(raw); hit {
+			return canon, PlatformDirect, true
+		}
 		canon, plat, hit := ClassifyShareURL(raw)
 		if hit {
 			return canon, plat, true
 		}
 	}
 	return "", "", false
+}
+
+// ClassifyDirectURL recognizes ordinary media files only. It does not discover
+// hidden streams or accept playlists; the fetch transport enforces public IPs.
+func ClassifyDirectURL(raw string) (string, bool) {
+	u, err := parseShareURL(raw)
+	if err != nil {
+		return "", false
+	}
+	path := strings.ToLower(u.Path)
+	for _, ext := range []string{".mp4", ".mov", ".webm", ".mkv"} {
+		if strings.HasSuffix(path, ext) {
+			u.Fragment, u.RawFragment = "", ""
+			return u.String(), true
+		}
+	}
+	return "", false
 }
 
 func findURLCandidates(goal string) []string {
@@ -103,7 +124,7 @@ func parseShareURL(raw string) (*url.URL, error) {
 		raw = "https://" + raw
 	}
 	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
+	if err != nil || u.Host == "" || u.User != nil {
 		return nil, errBadURL
 	}
 	scheme := strings.ToLower(u.Scheme)

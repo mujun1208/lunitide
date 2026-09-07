@@ -74,9 +74,9 @@ func (e *Engine) runHeadlessStream(ctx context.Context, request bridge.Request) 
 	response := e.HandleStreaming(withUnattended(ctx), request, collector.emit)
 	if !response.OK {
 		if response.Error != nil {
-			return scheduler.Outcome{Err: errors.New(response.Error.Message + " (" + response.Error.Code + ")")}
+			return scheduler.Outcome{Err: errors.New(response.Error.Message + " (" + response.Error.Code + ")"), NotStarted: true}
 		}
-		return scheduler.Outcome{Err: errors.New("自动化对话未能启动")}
+		return scheduler.Outcome{Err: errors.New("自动化对话未能启动"), NotStarted: true}
 	}
 	var started struct {
 		StreamID string `json:"streamId"`

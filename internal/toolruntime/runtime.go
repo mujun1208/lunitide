@@ -25,6 +25,7 @@ import (
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/officetools"
 	"github.com/lunitide/lunitide/internal/videounderstand"
+	"github.com/lunitide/lunitide/internal/weather"
 	"github.com/lunitide/lunitide/internal/webfetch"
 	_ "modernc.org/sqlite"
 )
@@ -46,11 +47,16 @@ type Runtime struct {
 	executionGate  ExecutionGate
 	executionScope ExecutionScope
 	root           string
+	desktopRoot    func() (string, error) // optional runtime-scoped resolver; tests use a private temporary directory
 	db             *sql.DB
 	now            func() time.Time
 	// fetchWeb is the SSRF-pinned web transport injected by the host
 	// (cmd/engine). nil keeps web.* tools unavailable (tests, offline).
-	fetchWeb func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error)
+	fetchWeb        func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error)
+	videoFetch      videounderstand.FetchFunc
+	videoTranscribe func(context.Context, []byte) (string, error)
+	weatherClient   *weather.Client
+	webSearchCache  webSearchCache
 	// fullAccessRoot resolves the user-selected workspace root (workspace-root.json,
 	// chosen via the host workspace picker). In full-access mode file tools
 	// read/write inside that root; every other mode stays sandboxed to
@@ -121,6 +127,12 @@ func New(root string) (*Runtime, error) {
 		return nil, err
 	}
 	r := &Runtime{root: filepath.Clean(real), now: func() time.Time { return time.Now().UTC() }}
+	r.weatherClient = weather.New(func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error) {
+		if r.fetchWeb == nil {
+			return networkpolicy.FetchResult{}, errors.New("web tools unavailable")
+		}
+		return r.fetchWeb(ctx, rawURL)
+	}, func() time.Time { return r.now() })
 	r.commandRules = builtinCommandRules()
 	r.userRulesPath = filepath.Join(r.root, "command-policy.json")
 	r.hooksRulesPath = filepath.Join(r.root, "hooks-policy.json")
@@ -132,6 +144,12 @@ func New(root string) (*Runtime, error) {
 // SetWebFetcher installs the SSRF-pinned fetch transport for web.* tools.
 func (r *Runtime) SetWebFetcher(f func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error)) {
 	r.fetchWeb = f
+}
+
+// SetWeatherFetcher adds the trusted MET-only conditional transport. Existing
+// simple web fetchers remain supported for embeddings and isolated tests.
+func (r *Runtime) SetWeatherFetcher(f func(context.Context, string, string) (networkpolicy.FetchResult, error)) {
+	r.weatherClient.FetchConditional = f
 }
 
 // SetCcExecutor installs the computer-control executor backing the cc.*
@@ -325,26 +343,11 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		sort.Strings(names)
 		return result(strings.Join(names, "\n")), nil
 	case "workspace.read":
-		var a struct {
-			Path string `json:"path"`
-		}
+		var a workspaceReadArgs
 		if strict(args, &a) != nil || a.Path == "" {
 			return Result{}, errors.New("invalid arguments")
 		}
-		p, e := r.path(mode, session, a.Path, false, unconfined)
-		if e != nil {
-			return Result{}, e
-		}
-		f, e := os.Open(p)
-		if e != nil {
-			return Result{}, e
-		}
-		defer f.Close()
-		b, e := io.ReadAll(io.LimitReader(f, maxFile+1))
-		if e != nil || len(b) > maxFile {
-			return Result{}, errors.New("file exceeds limit")
-		}
-		return result(string(b)), nil
+		return r.readWorkspace(ctx, mode, session, a, unconfined)
 	case "workspace.write":
 		var a struct {
 			Path    string `json:"path"`
@@ -431,6 +434,9 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			b, re := os.ReadFile(p)
 			if re != nil || len(b) > maxFile {
 				return Result{}, errors.New("file missing or exceeds limit")
+			}
+			if err := validateWorkspaceEditText(b); err != nil {
+				return Result{}, err
 			}
 			updated, count, ae := applyWorkspaceHunks(string(b), f.Hunks)
 			if ae != nil {
@@ -564,6 +570,20 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			return Result{}, commandFailure(strings.TrimSpace(text))
 		}
 		return result(formatCommandOutput(true, text)), nil
+	case "weather.get":
+		var request weather.Request
+		if strict(args, &request) != nil {
+			return Result{}, errors.New("invalid weather arguments")
+		}
+		forecast, err := r.weatherClient.Get(ctx, request)
+		if err != nil {
+			return Result{}, err
+		}
+		encoded, err := forecast.JSONSummary()
+		if err != nil {
+			return Result{}, err
+		}
+		return result(string(encoded)), nil
 	case "web.fetch":
 		var a struct {
 			URL string `json:"url"`
@@ -609,6 +629,9 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if strict(args, &a) != nil || a.URL == "" || len(a.URL) > 2048 {
 			return Result{}, errors.New("invalid arguments")
 		}
+		if _, direct := videounderstand.ClassifyDirectURL(a.URL); direct {
+			return r.understandDirectVideo(ctx, mode, session, a.URL, unconfined)
+		}
 		if r.fetchWeb == nil {
 			return Result{}, errors.New("web tools unavailable")
 		}
@@ -633,15 +656,17 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if max > 10 {
 			max = 10
 		}
-		results, source, pageURL, e := r.searchWeb(ctx, a.Query, max)
+		search, e := r.searchWeb(ctx, a.Query, max)
 		if e != nil {
 			return Result{}, e
 		}
+		results, source, pageURL := search.Results, search.Source, search.PageURL
 		if pageURL == "" {
 			pageURL = webfetch.BingCNSearchURL(a.Query)
 		}
 		var b strings.Builder
 		b.WriteString("query: " + a.Query + "\n")
+		fmt.Fprintf(&b, "retrievedAt: %s\ncached: %t\n", search.RetrievedAt.Format(time.RFC3339), search.Cached)
 		if source != "" && source != "none" {
 			b.WriteString("source: " + source + "\n")
 		}

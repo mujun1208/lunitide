@@ -11,6 +11,7 @@ import {
   ECHO_GUARD_MS,
   TURN_END_SILENCE_MS,
   shouldDeferCommit,
+  completeCaptionAtVoiceDeadline,
   shouldCommitHeardUtterance,
   shouldForceCommitUtterance,
   speechProfile,
@@ -19,7 +20,7 @@ import {
   type CompanionSpeechOptions,
 } from '../speech'
 import { looksIncompleteUtterance, looksLikeBargeInSpeech, looksLikePlaybackEcho } from '../companionText'
-import { absorbHeldTranscript, isolateCurrentUtterance, pickMeetingFinalText } from '../../../meetings/meetingText'
+import { pickTranscriptRevision } from '../transcriptRevision'
 
 /** Endpointing is evaluated on a timer because silence is not an event. */
 const TICK_MS = 60
@@ -64,9 +65,8 @@ export async function startVolcCompanionSpeech(
   let closed = false
   let asr: VolcAsrHandle | undefined
   let text = ''
-  let sealed = ''
-  let sessionCommitted = ''
-  let lastFinal = ''
+  let providerEnded = false
+  let timestamped = false
   let lastTextAt = 0
   let textSince = 0
   let lastVoiceAt = 0
@@ -83,16 +83,14 @@ export async function startVolcCompanionSpeech(
   let pendingEvaluate = false
   let ticker = 0
 
-  const resetUtterance = (clearSession = false) => {
+  const resetUtterance = () => {
     text = ''
-    sealed = ''
+    providerEnded = false
     lastTextAt = 0
+    lastVoiceAt = 0
+    speechActive = false
     textSince = 0
     announcedSpeech = false
-    if (clearSession) {
-      sessionCommitted = ''
-      lastFinal = ''
-    }
   }
 
   const teardown = () => {
@@ -115,13 +113,22 @@ export async function startVolcCompanionSpeech(
    * the companion's own voice coming back through the microphone, which must
    * reset the recognizer without ever reaching the stage.
    */
-  const recycle = async (emit: 'final' | false) => {
+  const recycle = async (emit: 'final' | false, readyAtVoiceDeadline = false) => {
     if (!asr || closed || recycling) return
     recycling = true
     const carried = text.trim()
     try {
       let settled = ''
       try {
+        if (readyAtVoiceDeadline) {
+          // Submit the complete streamed sentence now. Retire/flush the ASR
+          // session concurrently; a slow finish/refiner cannot delay the model.
+          const finishing = asr.commit({ useStreamed: true })
+          resetUtterance()
+          options.onFinal(carried)
+          void finishing.catch(error => { if (!closed) fail(error) })
+          return
+        }
         settled = (
           await Promise.race([
             asr.commit(),
@@ -134,21 +141,12 @@ export async function startVolcCompanionSpeech(
         fail(error)
         return
       }
+      if (closed) return
       const fresh = text.trim()
       if (emit === 'final') {
         resetUtterance()
-        const raw = holdUtterance ? pickMeetingFinalText(carried, settled) : (settled || carried)
-        let final = holdUtterance ? raw : isolateCurrentUtterance(sessionCommitted, raw)
-        // Defensive guard: even if isolation drifts, never re-emit the exact
-        // previous final glued in front of this turn.
-        if (!holdUtterance && final && lastFinal && final !== lastFinal && final.startsWith(lastFinal)) {
-          final = final.slice(lastFinal.length).replace(/^[，,、。.!！？?\s]+/u, '').trim()
-        }
+        const final = pickTranscriptRevision(pickTranscriptRevision(carried, fresh), settled)
         if (!final) return
-        if (!holdUtterance) {
-          sessionCommitted = sessionCommitted ? `${sessionCommitted}${final}` : final
-          lastFinal = final
-        }
         options.onFinal(final)
         return
       }
@@ -170,15 +168,9 @@ export async function startVolcCompanionSpeech(
     }
   }
 
-  /**
-   * The engine's endpoint is what ends a turn. This is the backstop for a
-   * recognizer that stops reporting them at all.
-   *
-   * Deliberately much longer than the engine's own window, so it stays a
-   * backstop: the previous rules here decided turns from microphone energy
-   * and how long the transcript had been unchanged, and both of those are
-   * shorter than an ordinary pause mid-sentence. They ended turns half-said.
-   */
+  /** Complete voice turns end after 1.2s of actual silence, without adding
+   * a second text/provider wait. Meetings keep the longer hold. Without an
+   * energy sample, provider finality and stable-text backstops still apply. */
   const evaluate = () => {
     if (closed || playback || commitPaused) return
     if (recycling) {
@@ -189,8 +181,19 @@ export async function startVolcCompanionSpeech(
     const trimmed = text.trim()
     if (!trimmed) return
     const now = Date.now()
+    const incomplete = looksIncompleteUtterance(trimmed)
+    const silentForMs = lastVoiceAt ? now - lastVoiceAt : undefined
+    if (completeCaptionAtVoiceDeadline({ holdUtterance, silentForMs, incomplete })) {
+      void recycle('final', true)
+      return
+    }
+    // With a real energy clock, an ordinary breath is still this sentence.
+    if (!holdUtterance && silentForMs !== undefined && !incomplete && silentForMs < TURN_END_SILENCE_MS) return
     if (shouldDeferCommit(trimmed, now - textSince)) return
     const textStableForMs = lastTextAt ? now - lastTextAt : 0
+    // A known provider segment is still being revised. A previous sentence's
+    // definite flag cannot end this one; retain a bounded stalled-ASR fallback.
+    if (timestamped && !providerEnded && textStableForMs < ENDPOINT_BACKSTOP_MS) return
     if (
       !shouldCommitHeardUtterance({
         speechActive,
@@ -211,8 +214,7 @@ export async function startVolcCompanionSpeech(
     if (!options.bargeIn?.() || !options.onBargeIn) return
     if (bargedThisPlayback) return
     if (Date.now() < playbackStartedAt + BARGE_IN_ARM_MS) return
-    const isolated = holdUtterance ? heard.trim() : isolateCurrentUtterance(sessionCommitted, heard)
-    const trimmed = isolated.trim()
+    const trimmed = heard.trim()
     if (!looksLikeBargeInSpeech(trimmed, options.spokenText?.() ?? '')) return
     bargedThisPlayback = true
     options.onBargeIn(trimmed)
@@ -228,18 +230,15 @@ export async function startVolcCompanionSpeech(
       bars.push(Math.min(1, Math.sqrt(Math.max(0, peak) / FULL_SCALE_PEAK)))
       options.onLevels?.([...bars])
       const now = Date.now()
-      const textLocked = !!text.trim() && lastTextAt > 0 && now - lastTextAt >= TURN_END_SILENCE_MS
       if (peak >= profile.voicePeak) {
-        if (!textLocked) {
-          lastVoiceAt = now
-          speechActive = true
-        }
+        lastVoiceAt = now
+        speechActive = true
         if (!playback) options.onVoiceEnergy?.()
       } else if (lastVoiceAt && now - lastVoiceAt > profile.utteranceSilenceMs) {
         speechActive = false
       }
     },
-    onTranscript: (next, final) => {
+    onTranscript: (next, final, hasPositions) => {
       if (closed) return
       const now = Date.now()
       // Audio captured during her reply is the speaker, not the user —
@@ -247,21 +246,26 @@ export async function startVolcCompanionSpeech(
       // user cutting in. Never commit() here: that would take the turn as a
       // normal final and skip the echo filter the stage already applies.
       if (playback || commitPaused) {
+        if (looksLikePlaybackEcho(next, options.spokenText?.() ?? '')) {
+          asr?.discardTranscript?.()
+          return
+        }
         if (playback) considerBargeIn(next)
         return
       }
       const trimmed = next.trim()
       if (!trimmed) return
       if (looksLikePlaybackEcho(trimmed, options.spokenText?.() ?? '')) {
+        asr?.discardTranscript?.()
         resetUtterance()
         return
       }
-      // Companion: isolate the current clause from a volc-full dump.
-      // Meetings (holdUtterance) still glue sherpa chops; startMeetingSpeech
-      // strips the session prefix before the line buffer.
-      const absorbed = holdUtterance
-        ? absorbHeldTranscript(sealed || text, next)
-        : isolateCurrentUtterance(sessionCommitted, next, text)
+      // volcAsr already owns the full-snapshot cursor. Every update here is a
+      // replacement for the current product turn, including meeting captions.
+      // Appending a revision is what multiplied whole paragraphs in recordings.
+      const absorbed = pickTranscriptRevision(text, next)
+      providerEnded = final
+      timestamped = hasPositions === true
       if (absorbed !== text.trim()) {
         text = absorbed
         lastTextAt = now
@@ -274,10 +278,6 @@ export async function startVolcCompanionSpeech(
         options.onInterim?.(text)
       }
       if (now < guardUntil) return
-      if (final && holdUtterance) {
-        sealed = text.trim()
-        return
-      }
       if (final) {
         // Engine endpoint is not the product endpoint. Incomplete phrases stay
         // open through a micro-pause; complete ones may settle on silence.
@@ -302,7 +302,7 @@ export async function startVolcCompanionSpeech(
   return {
     stop: teardown,
     resetSession: () => {
-      resetUtterance(true)
+      resetUtterance()
     },
     setCommitPaused: paused => {
       commitPaused = paused
@@ -316,6 +316,7 @@ export async function startVolcCompanionSpeech(
       listeningThrough = listenThrough
       guardUntil = Date.now() + echoGuardMs
       if (starting) {
+        asr?.discardTranscript?.()
         playbackStartedAt = Date.now()
         bargedThisPlayback = false
       }
@@ -348,6 +349,7 @@ export async function startVolcCompanionSpeech(
         return true
       }
       const now = Date.now()
+      if (timestamped && !providerEnded && now - lastTextAt < ENDPOINT_BACKSTOP_MS) return false
       if (
         !shouldForceCommitUtterance({
           speechActive,

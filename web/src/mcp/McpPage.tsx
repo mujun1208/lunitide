@@ -114,9 +114,10 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
   try{
    if(!item.enabled)await bridge.toggle({endpointId:item.endpointId,enabled:true})
    const health=await bridge.health({endpointId:item.endpointId})
-   setNotice(`${item.displayName||item.endpointId}：${STATE_LABEL[health.state]??health.state}${health.latencyMs?` · ${health.latencyMs}ms`:''}`)
+   if(health.state==='ready')setNotice(`${item.displayName||item.endpointId}：已连接${health.latencyMs?` · ${health.latencyMs}ms`:''}`)
+   else setError(`${item.displayName||item.endpointId}：${health.diagnosticMessage||'未能建立连接，请检查启动配置与所需凭据后重试。'}`)
    await load()
-  }catch(e){setError(e instanceof Error?e.message:'重新连接失败')}finally{setBusy('')}
+  }catch(e){setError(e instanceof Error?e.message:'重新连接失败')}finally{await load();setBusy('')}
  }
  const remove=async()=>{
   if(!removeTarget)return
@@ -184,18 +185,21 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
     })}</div>:<div className="empty"><b>没有匹配的 MCP</b><span>换个分类或关键字再试。</span></div>}
    </section>
   </>:<section className="expert-card-list" aria-label="已安装 MCP">
-   {visibleInstalled.length?visibleInstalled.map(item=>{const status=statusOf(item);const presetId=presetIdForEndpoint(item,presets);const leftover=leftoverArchivedMcp(item.args);return <article className="expert-card mcp-card" key={item.endpointId}>
+   {visibleInstalled.length?visibleInstalled.map(item=>{const status=statusOf(item);const presetId=presetIdForEndpoint(item,presets);const preset=presets.find(entry=>entry.id===presetId);const needsCredential=Boolean(preset?.needsCredential&&!item.credentialConfigured);const leftover=leftoverArchivedMcp(item.args);return <article className="expert-card mcp-card" key={item.endpointId}>
     <div className="expert-card-main">
      <b>{item.displayName||packageName(item.args)||item.endpointId}</b>
      {leftover.length>0&&<small>已下架 · {leftover.join('、')}</small>}
      <small>{item.transport==='https'?'远程 HTTPS':'本地 stdio'} · {presetId?`策展预置 ${presetId}`:(item.origin==='market'?'市场':'手动')} · {item.command?`${item.command} ${item.args?.join(' ')??''}`:item.url}</small>
      {item.lockedArgs?.length? <small>已锁定：{item.lockedArgs.join(' ')}</small>:null}
+     {needsCredential&&<p className="setting-desc">此服务需要凭据。{presetId==='gdrive'?'Google Drive 需要先完成 OAuth 授权，再填写 GDRIVE_CREDENTIALS_PATH；普通文件目录不能代替授权。':'请先完成服务授权，再配置凭据并重新连接。'}</p>}
+     {item.state!=='ready'&&item.diagnosticMessage&&<p className="setting-desc" role="status">{item.diagnosticMessage}</p>}
+     {preset?.setupUrl&&<a href={preset.setupUrl} target="_blank" rel="noreferrer">官方配置说明</a>}
     </div>
     <i className={`skill-status status-${status.id==='ready'?'published':status.id==='off'||status.id==='degraded'?'disabled':status.id==='quarantined'?'deprecated':'draft'}`}>{status.label}</i>
     <div className="expert-card-actions">
      {bridge.credentialSet&&<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>setCredentialTarget(item)}>凭据</button>}
      {item.state==='quarantined'&&bridge.securityReview&&<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>setReviewTarget(item)}>复核变更</button>}
-     <button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>void reconnect(item)}>重新连接</button>
+     <button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>void reconnect(item)}>{busy===item.endpointId?'连接中…':'重新连接'}</button>
      <button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>setRemoveTarget(item)}>删除</button>
     </div>
    </article>}):<div className="empty"><b>还没有安装 MCP</b><span>去「MCP 市场」点加号，或点击「创建 MCP」粘贴 JSON。</span></div>}

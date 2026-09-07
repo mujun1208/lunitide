@@ -217,7 +217,7 @@ func TestLocalBrainHintAndCompanionShareMemorySubject(t *testing.T) {
 	}
 }
 
-func TestPrepareChatMemoryKeepsPrefsWhenRecallDisabled(t *testing.T) {
+func TestPrepareChatMemoryMasterSwitchDisablesAllInject(t *testing.T) {
 	mem, ops, _ := openAppMemory(t)
 	confirmPref(t, mem, "回答默认使用中文")
 	if err := ops.SettingsUpdate(context.Background(), m8core.MemorySettings{
@@ -232,8 +232,8 @@ func TestPrepareChatMemoryKeepsPrefsWhenRecallDisabled(t *testing.T) {
 	if pack.Enabled {
 		t.Fatal("memoryEnabled=false must disable query inject")
 	}
-	if len(pack.Prefs) != 1 || pack.Prefs[0] != "回答默认使用中文" {
-		t.Fatalf("prefs = %v, confirmed preferences must still inject", pack.Prefs)
+	if len(pack.Prefs) != 0 {
+		t.Fatalf("disabled memory leaked preferences: %v", pack.Prefs)
 	}
 	if len(pack.Pinned) != 0 || len(pack.Evidence) != 0 {
 		t.Fatalf("disabled inject leaked slots: %+v", pack)
@@ -381,10 +381,35 @@ func (sessionLastCompleteAdapter) Stream(_ context.Context, _ []byte, _ llmadapt
 	return llmadapter.Response{Message: llmadapter.Message{Content: text}}, nil
 }
 
-func TestChatStartWritesSessionLastBeforeCompleted(t *testing.T) {
-	store := &layerMemoryStub{}
+type sessionLastNotifyingStore struct {
+	layerMemoryStub
+	created chan struct{}
+}
+
+func (s *sessionLastNotifyingStore) Create(ctx context.Context, item memory.Memory) (memory.Memory, error) {
+	created, err := s.layerMemoryStub.Create(ctx, item)
+	if err == nil && item.Key == sessionLastMemoryKey {
+		s.created <- struct{}{}
+	}
+	return created, err
+}
+
+func TestChatStartCompletesBeforeMemoryAndPersistsSessionLast(t *testing.T) {
+	store := &sessionLastNotifyingStore{created: make(chan struct{}, 1)}
 	spy := &appendAssistantSpy{}
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	defer e.StopChatMemoryWorkers()
+	started, release := make(chan struct{}), make(chan struct{})
+	if !e.chatMemoryWorkers.enqueue(func(ctx context.Context) {
+		close(started)
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+	}) {
+		t.Fatal("could not hold memory worker")
+	}
+	<-started
 	e.sessions = sessionGetStub{projectID: chatAttachmentProjectID}
 	e.memories = store
 	e.messages = spy
@@ -404,6 +429,26 @@ func TestChatStartWritesSessionLastBeforeCompleted(t *testing.T) {
 	if terminal.Type != bridge.EventCompleted {
 		t.Fatalf("terminal=%s", terminal.Type)
 	}
+	if len(store.items) != 0 {
+		t.Fatal("terminal must not wait for the held optional memory worker")
+	}
+	close(release)
+	select {
+	case <-store.created:
+	case <-time.After(5 * time.Second):
+		t.Fatal("completed chat did not enqueue and persist session.last")
+	}
+	// A following queue item synchronizes with the entire closeout callback,
+	// so reading the stub below cannot race with optional expert writes.
+	drained := make(chan struct{})
+	if !e.chatMemoryWorkers.enqueue(func(context.Context) { close(drained) }) {
+		t.Fatal("could not enqueue memory completion barrier")
+	}
+	select {
+	case <-drained:
+	case <-time.After(5 * time.Second):
+		t.Fatal("memory closeout did not finish")
+	}
 	if len(store.items) != 1 || store.items[0].Key != sessionLastMemoryKey {
 		t.Fatalf("session last after chat.start = %#v", store.items)
 	}
@@ -418,7 +463,7 @@ func TestChatStartWritesSessionLastBeforeCompleted(t *testing.T) {
 	}
 }
 
-func TestWriteExpertLastMemoryNominatesForConfirm(t *testing.T) {
+func TestWriteExpertLastMemoryStaysInExpertWorkingScope(t *testing.T) {
 	mem, ops, nom := openAppMemory(t)
 	store := &layerMemoryStub{}
 	e := NewEngine(nil, "test")
@@ -442,12 +487,12 @@ func TestWriteExpertLastMemoryNominatesForConfirm(t *testing.T) {
 		t.Fatalf("working last = %#v", store.items)
 	}
 	items, err := nom.ListNominations(ctx, "nominated", 50)
-	if err != nil || len(items) != 1 || items[0].Reason != expertLastNominationReason {
+	if err != nil || len(items) != 0 {
 		t.Fatalf("expert nomination = %+v err=%v", items, err)
 	}
 	e.writeExpertLastMemory(ctx, sessionID, expertID, user, asst)
 	again, err := nom.ListNominations(ctx, "nominated", 50)
-	if err != nil || len(again) != 1 {
+	if err != nil || len(again) != 0 {
 		t.Fatalf("duplicate nomination = %+v err=%v", again, err)
 	}
 	if err := ops.SettingsUpdate(ctx, m8core.MemorySettings{
@@ -459,7 +504,7 @@ func TestWriteExpertLastMemoryNominatesForConfirm(t *testing.T) {
 		t.Fatal(err)
 	}
 	deduped, err := nom.ListNominations(ctx, "nominated", 50)
-	if err != nil || len(deduped) != 1 {
+	if err != nil || len(deduped) != 0 {
 		t.Fatalf("auto-nominate must not duplicate expert gist: %+v err=%v", deduped, err)
 	}
 	if err := ops.SettingsUpdate(ctx, m8core.MemorySettings{
@@ -469,7 +514,7 @@ func TestWriteExpertLastMemoryNominatesForConfirm(t *testing.T) {
 	}
 	e.writeExpertLastMemory(ctx, sessionID, expertID, "另一条足够长的用户请求请记住要点", strings.Repeat("另一段足够长的专家回答内容。", 8))
 	disabled, err := nom.ListNominations(ctx, "nominated", 50)
-	if err != nil || len(disabled) != 1 {
+	if err != nil || len(disabled) != 0 {
 		t.Fatalf("disabled memory still nominated: %+v err=%v", disabled, err)
 	}
 }
@@ -548,94 +593,63 @@ func TestPeopleMemoryHintUsesFullSessionPack(t *testing.T) {
 	}
 }
 
-func TestMaybeAutoNominateRespectsSwitchAndConfirmationInbox(t *testing.T) {
-	mem, ops, nom := openAppMemory(t)
+func TestMaybeAutoNominateOnlyDirectStableUserMemory(t *testing.T) {
+	mem, ops, _ := openAppMemory(t)
 	e := NewEngine(nil, "test")
 	e.SetM8MemoryServices(mem)
-	e.SetM10NominationService(nom)
 	e.SetMemoryOpsService(ops)
 	ctx := context.Background()
-	if err := ops.SettingsUpdate(ctx, m8core.MemorySettings{
-		SubjectID: memoryOpsLegacySubject, MemoryEnabled: true, AutoNominate: true, GrowthDays: 14,
-	}); err != nil {
+	const sessionID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	const messageID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	// An assistant's inferred preference must not become a user statement.
+	if err := e.maybeAutoNominateTurn(ctx, sessionID, "帮我把注释规范写进项目", "以后代码注释默认使用中文", messageID, false); err != nil {
 		t.Fatal(err)
 	}
-	st, err := ops.SettingsGet(ctx, memoryOpsLegacySubject)
-	if err != nil || !st.AutoNominate || !st.MemoryEnabled {
-		t.Fatalf("settings after update = %+v err=%v", st, err)
+	prefs, _ := mem.PersonalPreferenceSnapshot(ctx, "local-user", m8app.LearningScope, 8, 4096)
+	if len(prefs) != 0 {
+		t.Fatalf("assistant inference saved: %v", prefs)
 	}
-	if e.memoryOps == nil || e.m10nomination == nil || e.m8memory == nil {
-		t.Fatal("engine memory services not wired")
-	}
-	if eng := e.chatMemorySettings(ctx); !eng.AutoNominate || !eng.MemoryEnabled {
-		t.Fatalf("engine settings %+v", eng)
-	}
-	if err := e.maybeAutoNominateTurn(ctx, "01ARZ3NDEKTSV4RRFFQ69G5FAW",
-		"帮我把注释规范写进项目",
-		"好的，后续代码注释一律使用中文，并且保持现有确认台流程不变。这是一条足够长的要点，方便自动提名为待确认候选。",
-		"01ARZ3NDEKTSV4RRFFQ69G5FAV", false); err != nil {
-		t.Fatalf("auto nominate: %v", err)
-	}
-	pendingCands, _ := mem.ListPendingCandidates(ctx, 20)
-	items, err := nom.ListNominations(ctx, "nominated", 50)
-	if err != nil || len(items) != 1 || items[0].Reason != "本轮对话自动提名" {
-		t.Fatalf("auto nominate inbox = %+v pending=%+v err=%v", items, pendingCands, err)
-	}
-	if _, err := mem.ConfirmCandidate(ctx, m8app.ConfirmInput{
-		CandidateID: items[0].CandidateID, Token: items[0].ConfirmationToken, Action: "confirm", RequestID: "auto-1",
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := ops.SettingsUpdate(ctx, m8core.MemorySettings{
-		SubjectID: memoryOpsLegacySubject, MemoryEnabled: true, AutoNominate: false, GrowthDays: 14,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	e.maybeAutoNominateTurn(ctx, "01ARZ3NDEKTSV4RRFFQ69G5FAW",
-		"再写一条不应该出现的提名",
-		"这段足够长的回答也不应该在关闭自动提名时进入确认台。",
-		"01ARZ3NDEKTSV4RRFFQ69G5FAX", false)
-	pending, err := nom.ListNominations(ctx, "nominated", 50)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range pending {
-		if strings.Contains(item.Content, "不应该出现") {
-			t.Fatal("autoNominate=false still nominated")
+	const pref = "以后回答请默认用中文，并且封面用深色"
+	for _, id := range []string{sessionID, "01ARZ3NDEKTSV4RRFFQ69G5FAX", sessionID} {
+		if err := e.maybeAutoNominateTurn(ctx, id, pref, "@PPT专家 我是你的专家", messageID, true); err != nil {
+			t.Fatal(err)
 		}
 	}
-
-	if err := e.maybeAutoNominateTurn(ctx, "01ARZ3NDEKTSV4RRFFQ69G5FAW",
-		"以后回答请默认用中文，并且封面用深色",
-		"好，记下了。",
-		"01ARZ3NDEKTSV4RRFFQ69G5FAD", false); err != nil {
-		t.Fatalf("preference nominate: %v", err)
+	prefs, err := mem.PersonalPreferenceSnapshot(ctx, "local-user", m8app.LearningScope, 8, 4096)
+	if err != nil || len(prefs) != 1 || prefs[0] != pref {
+		t.Fatalf("direct deduplicated user memory=%v err=%v", prefs, err)
 	}
-	prefItems, err := nom.ListNominations(ctx, "nominated", 50)
-	if err != nil {
+	pending, _ := mem.ListPendingCandidates(ctx, 20)
+	if len(pending) != 0 {
+		t.Fatalf("auto mode asks each turn: %v", pending)
+	}
+	if err := ops.SettingsUpdate(ctx, m8core.MemorySettings{SubjectID: "local-user", MemoryEnabled: true, CaptureMode: "manual", GrowthDays: 14}); err != nil {
 		t.Fatal(err)
 	}
-	found := false
-	for _, item := range prefItems {
-		if item.Reason == preferenceNominationReason && strings.Contains(item.Content, "默认用中文") {
-			found = true
-		}
+	if err := e.maybeAutoNominateTurn(ctx, sessionID, "我喜欢简洁的回答", "", messageID, true); err != nil {
+		t.Fatal(err)
 	}
-	if !found {
-		t.Fatalf("explicit preference must reach inbox when autoNominate is off: %+v", prefItems)
+	pending, _ = mem.ListPendingCandidates(ctx, 20)
+	if len(pending) != 1 || pending[0].SourceSessionID != sessionID {
+		t.Fatalf("manual candidate=%v", pending)
 	}
-	if !looksLikePreferenceTurn("以后回答请默认用中文") || looksLikePreferenceTurn("下次开会几点") {
-		t.Fatal("preference detector")
+	if err := ops.SettingsUpdate(ctx, m8core.MemorySettings{SubjectID: "local-user", MemoryEnabled: true, CaptureMode: "off", GrowthDays: 14}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.maybeAutoNominateTurn(ctx, sessionID, "我习惯晚上阅读", "", messageID, true); err != nil {
+		t.Fatal(err)
+	}
+	pending, _ = mem.ListPendingCandidates(ctx, 20)
+	if len(pending) != 1 {
+		t.Fatalf("off mode saved candidate: %v", pending)
 	}
 }
 
-func TestRecordPeopleTurnMemoryNominatesPreference(t *testing.T) {
-	mem, ops, nom := openAppMemory(t)
+func TestRecordPeopleTurnMemoryAutoSavesDirectPreference(t *testing.T) {
+	mem, ops, _ := openAppMemory(t)
 	store := &layerMemoryStub{}
 	e := NewEngine(nil, "test")
 	e.SetM8MemoryServices(mem)
-	e.SetM10NominationService(nom)
 	e.SetMemoryOpsService(ops)
 	e.sessions = sessionGetStub{projectID: "01ARZ3NDEKTSV4RRFFQ69G5FAY"}
 	e.memories = store
@@ -653,18 +667,9 @@ func TestRecordPeopleTurnMemoryNominatesPreference(t *testing.T) {
 	if len(store.items) != 1 || store.items[0].Key != sessionLastMemoryKey {
 		t.Fatalf("people must write session last even when expert last is short: %#v", store.items)
 	}
-	items, err := nom.ListNominations(ctx, "nominated", 50)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, item := range items {
-		if item.Reason == preferenceNominationReason && strings.Contains(item.Content, "默认用中文") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("colleague preference must reach inbox: %+v", items)
+	prefs, err := mem.PersonalPreferenceSnapshot(ctx, "local-user", m8app.LearningScope, 8, 4096)
+	if err != nil || len(prefs) != 1 || prefs[0] != user {
+		t.Fatalf("colleague preference=%v err=%v", prefs, err)
 	}
 }
 

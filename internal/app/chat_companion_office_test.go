@@ -2,13 +2,16 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/skill"
 	"github.com/lunitide/lunitide/internal/llmadapter"
+	"github.com/oklog/ulid/v2"
 )
 
 func TestCompanionTaskWorkflowInjectionPpt(t *testing.T) {
@@ -53,23 +56,94 @@ func TestChatEmitsTurnEquipEvent(t *testing.T) {
 	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return chatAttachmentAdapter{requests: requests}, nil
 	})
-	var equip *bridge.EquipEvent
+	events := make(chan bridge.Event, 128)
 	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","messages":[{"role":"user","content":"帮我做一份路演PPT"}]}`
 	resp := e.HandleStreaming(context.Background(), validRequest("chat.start", payload), func(ev bridge.Event) error {
-		if ev.Type == bridge.EventEquip && ev.Equip != nil {
-			equip = ev.Equip
-		}
+		events <- ev
 		return nil
 	})
 	if !resp.OK {
 		t.Fatalf("chat.start failed: %#v", resp)
 	}
 	_ = capturedChatRequest(t, requests)
+	var equip *bridge.EquipEvent
+	for _, ev := range collectFramedChatEvents(t, resp, events) {
+		if ev.Type == bridge.EventEquip {
+			equip = ev.Equip
+		}
+	}
 	if equip == nil {
 		t.Fatal("expected an equip event for an intent-matched PPT turn")
 	}
 	if len(equip.Experts) == 0 || equip.Experts[0] != "PPT专家" {
 		t.Fatalf("equip experts = %#v", equip.Experts)
+	}
+}
+
+// Exercise the actual chat.start producer, not only a synthetic event payload:
+// an unframed equip used to poison the host pipe before skill creation began.
+func collectFramedChatEvents(t *testing.T, response bridge.Response, events <-chan bridge.Event) []bridge.Event {
+	t.Helper()
+	encoded, _ := json.Marshal(response.Payload)
+	var start struct {
+		StreamID string `json:"streamId"`
+	}
+	if err := json.Unmarshal(encoded, &start); err != nil || start.StreamID == "" {
+		t.Fatalf("invalid start: %#v", response)
+	}
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
+	var result []bridge.Event
+	for {
+		select {
+		case ev := <-events:
+			if ev.Version != bridge.Version || ev.Kind != "event" || ev.StreamID != start.StreamID || ev.Sequence != uint64(len(result)+1) {
+				t.Fatalf("invalid stream envelope: %#v", ev)
+			}
+			if _, err := ulid.ParseStrict(ev.ID); err != nil {
+				t.Fatalf("invalid event id: %v", err)
+			}
+			result = append(result, ev)
+			if ev.Type == bridge.EventCompleted || ev.Type == bridge.EventFailed || ev.Type == bridge.EventCancelled {
+				return result
+			}
+		case <-timer.C:
+			t.Fatal("chat did not finish")
+		}
+	}
+}
+
+func TestSkillCreationChatStartAndNextTurnKeepValidEventStream(t *testing.T) {
+	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	stub := &skillCreateRecordingStub{}
+	e.skills = stub
+	adapter := &skillCreateAdapter{}
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
+	for _, text := range []string{"创建一个帮我读取文件的技能", "谢谢，继续聊一下"} {
+		events := make(chan bridge.Event, 128)
+		payload, _ := json.Marshal(map[string]any{"providerId": chatAttachmentProviderID, "modelId": "model", "executionMode": "full-access", "messages": []map[string]string{{"role": "user", "content": text}}})
+		response := e.HandleStreaming(context.Background(), validRequest("chat.start", string(payload)), func(ev bridge.Event) error { events <- ev; return nil })
+		if !response.OK {
+			t.Fatalf("chat failed: %#v", response)
+		}
+		frames := collectFramedChatEvents(t, response, events)
+		if terminal := frames[len(frames)-1]; terminal.Type != bridge.EventCompleted {
+			t.Fatalf("skill chat did not complete: %s %#v", terminal.Type, terminal.Error)
+		}
+	}
+	if stub.created.Name != "folder-reader" {
+		t.Fatalf("skill not created: %#v", stub.created)
+	}
+}
+
+func TestEquipDisplayLimitsDoNotChangeExecutionLabels(t *testing.T) {
+	labels := []string{strings.Repeat("😀", 40), "专家2", "专家3"}
+	shown := equipDisplayLabels(labels, 2, 32)
+	if len(shown) != 2 || shown[0] != strings.Repeat("😀", 15)+"…" || shown[1] != "专家2" {
+		t.Fatalf("invalid chip labels: %#v", shown)
+	}
+	if len(labels) != 3 || labels[0] != strings.Repeat("😀", 40) {
+		t.Fatal("display clipping changed execution equipment")
 	}
 }
 

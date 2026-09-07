@@ -1,5 +1,14 @@
 /* Layout corrections for the management/settings pages approved for revision.
    All colors come from the existing black/white theme. */
+.plugin-page {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.plugin-page > * {
+  flex-shrink: 0;
+  min-width: 0;
+}
 .settings-shell {
   grid-template-columns: 220px minmax(0, 1fr);
   min-height: 0;

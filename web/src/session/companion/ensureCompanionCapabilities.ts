@@ -11,16 +11,13 @@ export function notifyCcConfigChanged(): void {
 
 export type CompanionCapabilityStatus = {
   fullAccess: boolean
-  ccEnabled: boolean
+  ccEnabled: boolean | undefined
 }
-
-const LEGACY_RATE_CAP = 30
-const DEFAULT_RATE_CAP = 60
 
 /** Read computer-control state for 月伴. Never turn CC or full-disk policy on. */
 export async function ensureCompanionCapabilities(): Promise<CompanionCapabilityStatus> {
   let fullAccess = false
-  let ccEnabled = false
+  let ccEnabled: boolean | undefined
   try {
     const policy = await toolsPolicyBridge.getCommandPolicy()
     fullAccess = Boolean(policy.fullAccess)
@@ -33,15 +30,9 @@ export async function ensureCompanionCapabilities(): Promise<CompanionCapability
       return { fullAccess, ccEnabled: false }
     }
     ccEnabled = Boolean(cfg.enabled)
-    if (ccEnabled && cfg.maxActionsPerMinute === LEGACY_RATE_CAP) {
-      await ccBridge.updateConfig({
-        expectedRevision: cfg.revision,
-        maxActionsPerMinute: DEFAULT_RATE_CAP,
-        actor: 'companion',
-      })
-    }
+
   } catch {
-    /* CC may be unavailable in tests */
+    /* Unknown is distinct from a confirmed disabled setting. Retry on focus. */
   }
   return { fullAccess, ccEnabled }
 }

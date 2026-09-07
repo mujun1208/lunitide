@@ -14,14 +14,20 @@
       "maxLength": 128
     }
   },
-  "required": ["endpointId"],
+  "required": [
+    "endpointId"
+  ],
   "x-result": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
       "state": {
         "type": "string",
-        "enum": ["ready", "degraded", "quarantined"]
+        "enum": [
+          "ready",
+          "degraded",
+          "quarantined"
+        ]
       },
       "latencyMs": {
         "type": "integer",
@@ -36,9 +42,21 @@
       },
       "checkedAt": {
         "type": "string"
+      },
+      "diagnosticCode": {
+        "type": "string",
+        "maxLength": 64
+      },
+      "diagnosticMessage": {
+        "type": "string",
+        "maxLength": 512
       }
     },
-    "required": ["state", "driftDetected", "checkedAt"]
+    "required": [
+      "state",
+      "driftDetected",
+      "checkedAt"
+    ]
   },
   "x-examples": {
     "positive": [

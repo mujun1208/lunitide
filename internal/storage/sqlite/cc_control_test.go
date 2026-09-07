@@ -894,25 +894,67 @@ func TestCcNamedClickFallsBackToCenterWhenInvokeFails(t *testing.T) {
 	}
 }
 
-func TestCcNamedClickByObserveIDInvokesAccessibilityName(t *testing.T) {
-	svc, host, _ := newCcService(t)
-	ctx := context.Background()
-	enableCc(t, svc, nil)
-	host.png = encodeTestPNG(t, 320, 200)
-	host.uiNodes = []ccapp.UINode{{Role: "button", Name: "OK", X: 10, Y: 10, W: 40, H: 20}}
+type observedClickCcHost struct {
+	*fakeCcHost
+	hitName string
+	hitAt   [][2]int
+}
 
-	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolObserveUI, []byte(`{}`), false); err != nil {
-		t.Fatal(err)
-	}
-	named, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, withFrame(t, svc, `{"id":"B1"}`), true)
-	if err != nil || !strings.Contains(named.Summary, "invoked") {
-		t.Fatalf("id click: %v %s", err, named.Summary)
-	}
-	if len(host.invokes) != 1 || host.invokes[0] != "OK" {
-		t.Fatalf("id click should invoke node name, invokes=%v", host.invokes)
-	}
-	if len(host.moves) != 0 {
-		t.Fatalf("id invoke should not mouse-move, moves=%v", host.moves)
+func (h *observedClickCcHost) HitTest(x, y int) (string, error) {
+	h.hitAt = append(h.hitAt, [2]int{x, y})
+	return h.hitName, nil
+}
+
+func TestCcObservedIDClickUsesExactNodeWithVerifiedHit(t *testing.T) {
+	for _, tc := range []struct {
+		name, hit string
+		wantError bool
+	}{
+		{name: "same-name-node", hit: "OK"},
+		{name: "changed-target", hit: "Cancel", wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, base, _ := newCcService(t)
+			host := &observedClickCcHost{fakeCcHost: base, hitName: tc.hit}
+			svc.SetHost(host)
+			ctx := context.Background()
+			enableCc(t, svc, nil)
+			host.png = encodeTestPNG(t, 320, 200)
+			// Both nodes have the same accessibility name. Invoking by name
+			// could activate B1 even though the caller selected B2.
+			host.uiNodes = []ccapp.UINode{
+				{Role: "button", Name: "OK", X: 10, Y: 10, W: 40, H: 20},
+				{Role: "button", Name: "OK", X: 210, Y: 30, W: 40, H: 20},
+			}
+			if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolObserveUI, []byte(`{}`), false); err != nil {
+				t.Fatal(err)
+			}
+			out, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, withFrame(t, svc, `{"id":"B2"}`), true)
+			if len(host.invokes) != 0 {
+				t.Fatalf("ID click must preserve node identity, invokes=%v", host.invokes)
+			}
+			want := [2]int{230, 40}
+			if len(host.hitAt) == 0 {
+				t.Fatal("ID click skipped target verification")
+			}
+			for _, got := range host.hitAt {
+				if got != want {
+					t.Fatalf("hit-test targeted %v, want B2 center %v", got, want)
+				}
+			}
+			if tc.wantError {
+				if !errors.Is(err, ccapp.ErrCcExecFailed) || len(host.moves) != 0 || len(host.clicks) != 0 {
+					t.Fatalf("changed target must fail before interaction: err=%v moves=%v clicks=%v", err, host.moves, host.clicks)
+				}
+				return
+			}
+			if err != nil || !strings.Contains(out.Summary, "clicked") {
+				t.Fatalf("ID click: %v %s", err, out.Summary)
+			}
+			if len(host.moves) != 1 || host.moves[0] != want || len(host.clicks) != 1 || host.clicks[0] != "left" {
+				t.Fatalf("wrong node interaction: moves=%v clicks=%v", host.moves, host.clicks)
+			}
+		})
 	}
 }
 

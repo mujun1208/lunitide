@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { ccBridge, type CcBridge } from '../bridge/client'
 import type { CcGetAuditLogResult, CcGetConfigResult, CcUpdateConfigPayload } from '../generated/bridge'
 import { Toggle } from './settingsControls'
@@ -39,23 +39,30 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
   const [rateDraft, setRateDraft] = useState('')
   const [timeoutDraft, setTimeoutDraft] = useState('')
 
+  const refreshGeneration = useRef(0)
   const refresh = async (filter = statusFilter) => {
+    const generation = ++refreshGeneration.current
     setBusy(true)
-    try {
-      const [cfg, log] = await Promise.all([
-        bridge.getConfig(),
-        bridge.getAuditLog({ limit: 50, ...(filter ? { status: filter as CcAuditRow['status'] } : {}) }),
-      ])
+    const [configResult, auditResult] = await Promise.allSettled([
+      Promise.resolve().then(() => bridge.getConfig()),
+      Promise.resolve().then(() => bridge.getAuditLog({ limit: 50, ...(filter ? { status: filter as CcAuditRow['status'] } : {}) })),
+    ])
+    if (generation !== refreshGeneration.current) return
+    const errors: string[] = []
+    if (configResult.status === 'fulfilled') {
+      const cfg = configResult.value
       setSettings(cfg)
       setRateDraft(String(cfg.maxActionsPerMinute))
       setTimeoutDraft(String(cfg.confirmTimeoutSeconds))
-      setEntries(log.items)
-      setStatus('')
-    } catch (e) {
-      setStatus(e instanceof Error ? e.message : '电脑控制配置加载失败')
-    } finally { setBusy(false) }
+    } else {
+      errors.push('电脑控制配置加载失败，请刷新重试')
+    }
+    if (auditResult.status === 'fulfilled') setEntries(auditResult.value.items)
+    else errors.push('操作审计暂时无法读取，请刷新重试；电脑控制配置仍可使用')
+    setStatus(errors.join('；'))
+    setBusy(false)
   }
-  useEffect(() => { void refresh() }, [])
+  useEffect(() => { void refresh(); return () => { refreshGeneration.current++ } }, [])
 
   const showSaveError = async (error: unknown, fallback: string) => {
     const message = error instanceof Error ? error.message : fallback
@@ -100,6 +107,7 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
     try {
       const cfg = await bridge.emergencyStop({ actor: 'renderer', reason: '设置页手动急停' })
       setSettings(cfg)
+      notifyCcConfigChanged()
       setStatus('紧急停止已激活')
     } catch (e) { setStatus(e instanceof Error ? e.message : '紧急停止失败') } finally { setBusy(false) }
   }
@@ -139,7 +147,7 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
     <div className="setting-group">
       <div className="setting-group-title">电脑控制</div>
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
-          <div className="setting-desc">允许模型操作本机：截图 / 界面节点 / 对话框 / 窗口列表与聚焦 / 鼠标（点击、拖拽、滚轮）/ 键盘（对指定应用先聚焦再输入）/ 剪贴板（纯文本）。点击坐标与截图像素一致；点按钮优先用界面节点或对话框观察，不要盲点。所有操作经过意图识别、输入过滤、进程监控三层拦截，并写入不可篡改的审计台账。紧急停止后月伴不会自动重新打开。</div>
+          <div className="setting-desc">全局配置：启用一次，所有对话、模型和语音模式共用，重启后保留。默认持续启用，直到你手动停用。允许模型操作本机：截图 / 界面节点 / 对话框 / 窗口列表与聚焦 / 鼠标（点击、拖拽、滚轮）/ 键盘（对指定应用先聚焦再输入）/ 剪贴板（纯文本）。点击坐标与截图像素一致；点按钮优先用界面节点或对话框观察，不要盲点。所有操作经过意图识别、输入过滤、进程监控三层拦截，并写入不可篡改的审计台账。紧急停止后月伴不会自动重新打开。</div>
         {settings && (
           <div className="setting-label" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <span>当前状态：</span>
@@ -155,7 +163,8 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
           <p role="alert" className="notice" style={{ color: 'var(--red)' }}>紧急停止已激活（{settings.emergencyStoppedAt ? new Date(settings.emergencyStoppedAt).toLocaleString() : ''}）：所有电脑控制操作一律拒绝，需重新走启用流程。</p>
         )}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {settings && !settings.enabled && !wizard && <button disabled={busy} onClick={() => setWizard({ step: 1, agreed: false, level: 'standard', allowCritical: false, timedArm: true })}>三步启用…</button>}
+          {settings && !settings.enabled && !wizard && <button disabled={busy} onClick={() => setWizard({ step: 1, agreed: false, level: 'standard', allowCritical: false, timedArm: false })}>三步启用…</button>}
+          {settings?.enabled && settings.armedUntil && <button disabled={busy} onClick={() => void patch({ armMinutes: 0 }, '已改为持续启用，所有对话共用')}>改为持续启用</button>}
           {settings?.enabled && <button disabled={busy} onClick={() => void patch({ enabled: false }, '电脑控制已停用')}>停用</button>}
           {settings?.enabled && !settings.emergencyStopped && <button disabled={busy} onClick={() => void emergencyStop()} style={{ color: 'var(--red)' }}>紧急停止</button>}
         </div>
@@ -200,7 +209,7 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
               </label>
               <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
                 <input type="checkbox" checked={wizard.timedArm} onChange={ev => setWizard({ ...wizard, timedArm: ev.target.checked })} aria-label="30 分钟后自动关闭" />
-                30 分钟后自动关闭（可取消，改为一直开到手动停用）
+                30 分钟后自动关闭（可选；默认持续启用）
               </label>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button disabled={busy} onClick={() => void confirmEnable()}>确认启用</button>

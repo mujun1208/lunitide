@@ -52,3 +52,16 @@ func TestMaxDeadlineMSAllowsLongMeetings(t *testing.T) {
 		t.Fatalf("chat.start cap = %d", MaxDeadlineMS("chat.start"))
 	}
 }
+
+func TestMcpSetupDeadlineOutlastsColdStartupWithoutExtendingCalls(t *testing.T) {
+	for _, method := range []string{"mcp.add", "mcp.toggle", "mcp.health"} {
+		if MaxDeadlineMS(method) != 80000 {
+			t.Fatal(method, MaxDeadlineMS(method))
+		}
+	}
+	for _, method := range []string{"mcp.invoke", "mcp6.invoke", "mcp.list"} {
+		if MaxDeadlineMS(method) != DefaultMaxDeadlineMS {
+			t.Fatal(method, MaxDeadlineMS(method))
+		}
+	}
+}

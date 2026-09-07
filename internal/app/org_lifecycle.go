@@ -60,7 +60,7 @@ func organizationWriteAllowed(state, method string) bool {
 	case "org.space.list", "org.member.list", "org.member.revoke":
 		return true
 	case "project.list", "project.get", "session.list", "session.get", "session.experts.get", "session.metadata.get", "session.folder.get", "session.folder.list", "session.folder.open",
-		"message.list", "message.search", "plan.get", "plan.list", "plan.run.tree", "node.list", "stage.list", "deliverable.list", "template.list", "attachment.get", "attachment.list", "projectAttachment.get", "projectAttachment.list",
+		"message.list", "message.search", "message.process", "plan.get", "plan.list", "plan.run.tree", "node.list", "stage.list", "deliverable.list", "template.list", "attachment.get", "attachment.list", "projectAttachment.get", "projectAttachment.list",
 		"agent.run.get", "command.get", "evidence.list", "review.list", "release.getRevision", "release.getPackage", "release.getPromotion",
 		"context.status", "context.handoff.inspect", "context.handoff.list", "context.handoff.list-imports", "chat.turn.get",
 		"workspace.list", "workspace.read", "workspace.open", "workspace.root.get", "workspace.artifact.preview", "workspace.artifactReview.list",

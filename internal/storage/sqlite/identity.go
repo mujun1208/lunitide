@@ -180,8 +180,8 @@ func (s *Store) RebindLegacySubject(ctx context.Context, from, to string) error 
 
 func rebindMemorySettings(ctx context.Context, tx *sql.Tx, from, to, now string) error {
 	var fromEnabled, fromAuto, fromDays int
-	var fromUpdated string
-	err := tx.QueryRowContext(ctx, `SELECT memory_enabled, auto_nominate, growth_days, updated_at FROM memory_settings WHERE subject_id=?`, from).Scan(&fromEnabled, &fromAuto, &fromDays, &fromUpdated)
+	var fromUpdated, fromCaptureMode string
+	err := tx.QueryRowContext(ctx, `SELECT memory_enabled, auto_nominate, growth_days, updated_at, capture_mode FROM memory_settings WHERE subject_id=?`, from).Scan(&fromEnabled, &fromAuto, &fromDays, &fromUpdated, &fromCaptureMode)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -213,7 +213,7 @@ func rebindMemorySettings(ctx context.Context, tx *sql.Tx, from, to, now string)
 		if !stamp.After(toTime) {
 			stamp = toTime.Add(time.Nanosecond)
 		}
-		if _, err = tx.ExecContext(ctx, `UPDATE memory_settings SET memory_enabled=?, auto_nominate=?, growth_days=?, updated_at=? WHERE subject_id=?`, fromEnabled, fromAuto, fromDays, formatTime(stamp), to); err != nil {
+		if _, err = tx.ExecContext(ctx, `UPDATE memory_settings SET memory_enabled=?, auto_nominate=?, growth_days=?, updated_at=?, capture_mode=? WHERE subject_id=?`, fromEnabled, fromAuto, fromDays, formatTime(stamp), fromCaptureMode, to); err != nil {
 			return err
 		}
 	}

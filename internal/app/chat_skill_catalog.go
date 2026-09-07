@@ -28,6 +28,7 @@ func (e *Engine) skillCatalogInjection(ctx context.Context, query string, compan
 		return ""
 	}
 	ranked := pinPreferredSkills(rankSkillsForCatalog(skills, query), preferred)
+	ranked = pinExplicitSkillMentions(ranked, query)
 	maxItems := skillInjectMaxItems
 	if companion {
 		hits := catalogHitCount(ranked)
@@ -81,6 +82,33 @@ func (e *Engine) skillCatalogInjection(ctx context.Context, query string, compan
 type catalogRankedSkill struct {
 	skill skill.Skill
 	score int
+}
+
+// Composer selections carry stable IDs. Resolve those IDs before fuzzy ranking
+// so a selected skill cannot disappear behind the twelve-item catalog limit.
+func pinExplicitSkillMentions(ranked []catalogRankedSkill, query string) []catalogRankedSkill {
+	positions := map[string]int{}
+	for _, mention := range ParseTurnMentions(query) {
+		if mention.Kind == "skill" && validCanonicalULID(mention.ID) {
+			if _, seen := positions[mention.ID]; !seen {
+				positions[mention.ID] = len(positions)
+			}
+		}
+	}
+	for i := range ranked {
+		if _, selected := positions[ranked[i].skill.ID]; selected {
+			ranked[i].score = max(1, ranked[i].score)
+		}
+	}
+	sort.SliceStable(ranked, func(i, j int) bool {
+		a, aSelected := positions[ranked[i].skill.ID]
+		b, bSelected := positions[ranked[j].skill.ID]
+		if aSelected != bSelected {
+			return aSelected
+		}
+		return aSelected && a < b
+	})
+	return ranked
 }
 
 func rankSkillsForCatalog(skills []skill.Skill, query string) []catalogRankedSkill {

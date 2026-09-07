@@ -204,3 +204,40 @@ func (t *agentRuntimeTx) ListActiveFactsWithLeaves(scopeID string) ([]m8core.Mem
 	}
 	return facts, leaves, t.fail(lrows.Err())
 }
+
+// FindUserMemoryCandidate searches all retained statements, not just the last
+// inbox page, so a preference repeated weeks later does not create more facts.
+func (t *agentRuntimeTx) FindUserMemoryCandidate(subjectID, scopeID, content string) (m8core.MemoryCandidate, error) {
+	row := t.tx.QueryRowContext(t.ctx, `SELECT `+m8candColumns+` FROM memory_candidates WHERE subject_id=? AND state IN ('pending','confirmed','rejected') AND json_valid(payload) AND json_extract(payload,'$.scopeId')=? AND json_extract(payload,'$.content')=? ORDER BY created_at DESC LIMIT 1`, subjectID, scopeID, content)
+	candidate, err := scanCandidate(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return m8core.MemoryCandidate{}, nil
+	}
+	return candidate, t.fail(err)
+}
+
+// Candidate evidence remains for review after a fact is hidden or tombstoned,
+// but only evidence attached to a visible active fact can feed new chat turns.
+func (t *agentRuntimeTx) ListVisibleConfirmedCandidates(limit int) ([]m8core.MemoryCandidate, error) {
+	rows, err := t.tx.QueryContext(t.ctx, `SELECT `+m8candColumns+` FROM memory_candidates c
+ WHERE c.state='confirmed' AND json_valid(c.payload) AND EXISTS (
+ SELECT 1 FROM json_each(c.payload, '$.leaves') claim
+ JOIN memory_source_leaves l ON l.evidence_ref=json_extract(claim.value,'$.evidenceRef') AND l.digest=json_extract(claim.value,'$.digest')
+ JOIN memory_facts f ON f.fact_id=l.fact_id AND f.version=l.fact_version
+ WHERE f.state='active' AND f.scope_id=json_extract(c.payload,'$.scopeId')
+ AND NOT EXISTS (SELECT 1 FROM memory_fact_flags flags WHERE flags.fact_id=f.fact_id AND flags.flag='hidden'))
+ ORDER BY c.created_at DESC,c.candidate_id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, t.fail(err)
+	}
+	defer rows.Close()
+	out := []m8core.MemoryCandidate{}
+	for rows.Next() {
+		c, err := scanCandidate(rows)
+		if err != nil {
+			return nil, t.fail(err)
+		}
+		out = append(out, c)
+	}
+	return out, t.fail(rows.Err())
+}

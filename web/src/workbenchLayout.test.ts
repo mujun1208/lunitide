@@ -35,7 +35,9 @@ describe('project workbench native-frame stability', () => {
     expect(css).toMatch(/\.workspace-layout\{[^}]*overflow-anchor:none/)
     expect(css).toMatch(/\.message-body\{[^}]*overflow-anchor:none/)
     expect(css).toMatch(/\.thinking-panel\{[^}]*overflow-anchor:none/)
-    expect(css).toMatch(/\.thinking-panel\{[^}]*contain:strict/)
+    // Size containment collapses an auto-height expanded process to zero.
+    expect(css).toMatch(/\.thinking-panel\{[^}]*contain:layout style/)
+    expect(css).not.toMatch(/\.thinking-panel\{[^}]*(?:contain:strict|contain:[^;}]*size)/)
     expect(css).toMatch(/\.thinking-panel\{[^}]*max-height:28vh/)
     expect(css).toMatch(/\.thinking-panel\{[^}]*overflow-y:auto/)
     expect(css).toMatch(/\.thinking-live-text\{[^}]*max-height:18em/)

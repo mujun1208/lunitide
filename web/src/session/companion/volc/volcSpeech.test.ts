@@ -11,11 +11,13 @@ const asr = {
   restart: vi.fn(),
 }
 
-let onTranscript: (text: string, final: boolean) => void = () => {}
+let onTranscript: (text: string, final: boolean, timestamped?: boolean) => void = () => {}
+let onLevel: (peak: number) => void = () => {}
 
 vi.mock('./volcAsr', () => ({
   startVolcAsr: vi.fn(async (_providerId: string, callbacks: Record<string, (...args: never[]) => void>) => {
     onTranscript = callbacks.onTranscript as typeof onTranscript
+    onLevel = callbacks.onLevel as typeof onLevel
     return asr
   }),
 }))
@@ -56,6 +58,58 @@ afterEach(() => {
 })
 
 describe('startVolcCompanionSpeech', () => {
+  it('submits at 1.2s actual silence despite a late correction and a slow ASR flush', async () => {
+    const stage = harness()
+    let finish!: (value: string) => void
+    asr.commit.mockReturnValueOnce(new Promise<string>(resolve => { finish = resolve }))
+    const handle = await startVolcCompanionSpeech(stage.options, PROVIDER)
+    onLevel(0.3)
+    onTranscript('今天合肥天气怎么样？', false, true)
+    await vi.advanceTimersByTimeAsync(1140)
+    onTranscript('今天合肥市的天气怎么样？', false, true)
+    expect(stage.onFinal).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(60)
+    expect(stage.onFinal).toHaveBeenCalledExactlyOnceWith('今天合肥市的天气怎么样？')
+    expect(asr.commit).toHaveBeenCalledWith({ useStreamed: true })
+    finish('怎么样？')
+    await vi.advanceTimersByTimeAsync(100)
+    expect(stage.onFinal).toHaveBeenCalledTimes(1)
+    handle.stop()
+  })
+
+  it('uses fresh actual silence for every round and never commits while speech continues', async () => {
+    const stage = harness()
+    const handle = await startVolcCompanionSpeech(stage.options, PROVIDER)
+    for (const text of ['今天合肥天气怎么样？', '今天上海到合肥的火车。', '查一下明天的天气。']) {
+      onLevel(0.3)
+      onTranscript(text, false, true)
+      const previousCalls = stage.onFinal.mock.calls.length
+      for (let i = 0; i < 10; i++) {
+        await vi.advanceTimersByTimeAsync(240)
+        onLevel(0.3)
+      }
+      expect(stage.onFinal).toHaveBeenCalledTimes(previousCalls)
+      await vi.advanceTimersByTimeAsync(1140)
+      expect(stage.onFinal).toHaveBeenCalledTimes(previousCalls)
+      await vi.advanceTimersByTimeAsync(120)
+      expect(stage.onFinal).toHaveBeenLastCalledWith(text)
+      expect(stage.onFinal).toHaveBeenCalledTimes(previousCalls + 1)
+    }
+    handle.stop()
+  })
+
+  it('retains the longer meeting hold after actual microphone silence', async () => {
+    const stage = harness()
+    const handle = await startVolcCompanionSpeech({ ...stage.options, holdUtterance: true }, PROVIDER)
+    onLevel(0.3)
+    onTranscript('今天合肥天气怎么样？', true, true)
+    await vi.advanceTimersByTimeAsync(1260)
+    expect(stage.onFinal).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(stage.onFinal).toHaveBeenCalledExactlyOnceWith('今天合肥天气怎么样？')
+    expect(asr.commit).toHaveBeenCalledWith()
+    handle.stop()
+  })
   it('commits when seed-asr says the speaker stopped', async () => {
     const stage = harness()
     asr.commit.mockResolvedValue('今天天气很好')
@@ -131,19 +185,75 @@ describe('startVolcCompanionSpeech', () => {
     handle.stop()
   })
 
-  it('final of turn two does not include turn one after a volc-full dump', async () => {
+  it('takes already isolated turns from the ASR cursor without clipping shared words again', async () => {
     const stage = harness()
     asr.commit
       .mockResolvedValueOnce('今天天气怎么样')
-      .mockResolvedValueOnce('今天天气怎么样。算了放首歌')
+      .mockResolvedValueOnce('算了放首歌')
     await startVolcCompanionSpeech(stage.options, PROVIDER)
     onTranscript('今天天气怎么样', true)
     await vi.advanceTimersByTimeAsync(1300)
     expect(stage.onFinal).toHaveBeenLastCalledWith('今天天气怎么样')
-    onTranscript('今天天气怎么样。算了放首歌', false)
+    onTranscript('算了放首歌', false)
     expect(stage.onInterim.mock.calls.at(-1)?.[0]).toBe('算了放首歌')
-    onTranscript('今天天气怎么样。算了放首歌', true)
+    onTranscript('算了放首歌', true)
     await vi.advanceTimersByTimeAsync(1300)
     expect(stage.onFinal.mock.calls.at(-1)?.[0]).toBe('算了放首歌')
+  })
+
+  it.each([false, true])('replaces non-prefix revisions instead of accumulating whole sentences (meeting=%s)', async holdUtterance => {
+    const stage = harness()
+    const handle = await startVolcCompanionSpeech({ ...stage.options, holdUtterance }, PROVIDER)
+    for (let i = 0; i < 40; i++) {
+      const revised = `今天${i % 2 ? '合肥' : '合肥市'}的天气很好，我们一起出去散步。`
+      onTranscript(revised, false, true)
+      expect(stage.onInterim).toHaveBeenLastCalledWith(revised)
+      await vi.advanceTimersByTimeAsync(40)
+    }
+    const complete = '今天合肥的天气很好，我们一起出去散步。'
+    onTranscript(complete, true, true)
+    asr.commit.mockResolvedValue(complete)
+    await handle.flush?.()
+    expect(stage.onFinal).toHaveBeenCalledExactlyOnceWith(complete)
+    handle.stop()
+  })
+
+  it('keeps the complete user caption when finish returns only its last syllable', async () => {
+    const stage = harness()
+    const handle = await startVolcCompanionSpeech(stage.options, PROVIDER)
+    const complete = '今天合肥天气怎么样呢？'
+    onTranscript(complete, false, true)
+    onTranscript('呢？', true, true)
+    asr.commit.mockResolvedValue('呢？')
+    await handle.flush?.()
+    expect(stage.onInterim).toHaveBeenLastCalledWith(complete)
+    expect(stage.onFinal).toHaveBeenCalledExactlyOnceWith(complete)
+    handle.stop()
+  })
+
+  it('waits for the current timestamped segment to settle, then replies promptly', async () => {
+    const stage = harness()
+    const handle = await startVolcCompanionSpeech(stage.options, PROVIDER)
+    onTranscript('你好', false, true)
+    await vi.advanceTimersByTimeAsync(420)
+    expect(stage.onFinal).not.toHaveBeenCalled()
+    onTranscript('你好。', true, true)
+    asr.commit.mockResolvedValue('你好。')
+    await vi.advanceTimersByTimeAsync(300)
+    expect(stage.onFinal).toHaveBeenCalledExactlyOnceWith('你好。')
+    handle.stop()
+  })
+
+  it('does not submit a pending finish after the stage is closed', async () => {
+    const stage = harness()
+    let finish!: (text: string) => void
+    asr.commit.mockImplementation(() => new Promise<string>(resolve => { finish = resolve }))
+    const handle = await startVolcCompanionSpeech(stage.options, PROVIDER)
+    onTranscript('先不要发出去。', true, true)
+    const pending = handle.flush?.()
+    handle.stop()
+    finish('先不要发出去。')
+    await pending
+    expect(stage.onFinal).not.toHaveBeenCalled()
   })
 })

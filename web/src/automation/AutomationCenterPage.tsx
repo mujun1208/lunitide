@@ -9,10 +9,12 @@ import {
   providerBridge,
   sessionBridge,
 } from '../bridge/client'
-import type { AutomationJobListResult, AutomationRunListResult, AutomationStatusResult } from '../generated/bridge'
+import type { AutomationJobListResult, AutomationRunListResult, AutomationStatusResult, SessionDTO } from '../generated/bridge'
 import { AutomationCreateDialog, draftFromTemplate, type AutomationDraft } from './AutomationCreateDialog'
+import {AutomationStopButton,localAutomationTimezone} from './AutomationRunControls'
 import { AUTOMATION_TEMPLATES, cronToHuman, type AutomationTemplate } from './automationTemplates'
 import { ensureAutomationRunner, loadDefaultModel } from './ensureAutomationRunner'
+import { AutomationRunDetail, automationRunLabel, schedulerStatusLabel } from './automationRunPresentation'
 
 type Job = AutomationJobListResult['jobs'][number]
 type Run = AutomationRunListResult['runs'][number]
@@ -21,6 +23,7 @@ type Tab = 'jobs' | 'runs' | 'templates'
 const EMPTY_DRAFT = (): AutomationDraft => ({
   name: '',
   cron: '0 9 * * *',
+  timezone: localAutomationTimezone(),
   prompt: '',
   providerId: '',
   modelId: '',
@@ -52,15 +55,15 @@ const fmtTime = (iso?: string) => {
   }
 }
 
-const STATE_LABEL: Record<string, string> = { running: '执行中', succeeded: '成功', failed: '失败' }
-
 export function AutomationCenterPage({
   onCreateInChat,
+  onOpenSession,
   bridge = automationBridge,
   providers = providerBridge,
   sessions = sessionBridge,
 }: {
   onCreateInChat: () => void
+  onOpenSession?: (session: SessionDTO) => void | Promise<void>
   bridge?: AutomationBridge
   providers?: ProviderBridge
   sessions?: SessionBridge
@@ -98,6 +101,7 @@ export function AutomationCenterPage({
     setJobs(j.jobs)
     setRuns(r.runs)
     setStatus(s)
+    return s.runningJobs.length > 0
   }, [bridge])
 
   useEffect(() => {
@@ -120,23 +124,22 @@ export function AutomationCenterPage({
       } catch {
         /* surfaced when saving */
       }
-      try {
-        await reload()
-      } catch (e) {
-        if (alive) setNotice(e instanceof Error ? e.message : '无法加载自动化任务')
-      }
     })()
-    const timer = window.setInterval(() => {
-      void reload().catch((e) => {
-        if (alive) setNotice(e instanceof Error ? e.message : '自动化刷新失败')
-      })
-    }, 30_000)
-    return () => {
-      alive = false
-      generation.current++
-      window.clearInterval(timer)
+    return () => { alive = false }
+  }, [providers, sessions])
+
+  useEffect(() => {
+    let alive = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const poll = async () => {
+      let running = false
+      try { running = (await reload()) === true }
+      catch (e) { if (alive) setNotice(e instanceof Error ? e.message : '自动化刷新失败') }
+      if (alive) timer = setTimeout(() => void poll(), running ? 3_000 : 15_000)
     }
-  }, [providers, reload, sessions])
+    void poll()
+    return () => { alive = false; generation.current++; if (timer) clearTimeout(timer) }
+  }, [reload, status?.runningJobs.length])
 
   const openManual = () => {
     saveAttempt.current = undefined
@@ -154,6 +157,7 @@ export function AutomationCenterPage({
     saveAttempt.current = undefined
     setDraft(
       draftFromTemplate(template, {
+        timezone: localAutomationTimezone(),
         sessionId: runnerSessionId,
         providerId: defaults?.providerId ?? '',
         modelId: defaults?.modelId ?? '',
@@ -188,6 +192,7 @@ export function AutomationCenterPage({
         expectedRevision: draft.expectedRevision,
         name: draft.name.trim(),
         cron: draft.cron.trim(),
+        timezone: draft.timezone ?? 'UTC',
         prompt: draft.prompt.trim(),
         providerId: draft.providerId as never,
         modelId: draft.modelId,
@@ -229,6 +234,7 @@ export function AutomationCenterPage({
       await bridge.triggerJob({ id: job.id })
       if (operationScope !== scope.current) return
       setNotice(`已触发「${job.name}」`)
+      setTab('runs')
       if (refreshTimer.current !== undefined) clearTimeout(refreshTimer.current)
       refreshTimer.current = setTimeout(() => {
         if (operationScope !== scope.current) return
@@ -331,7 +337,7 @@ export function AutomationCenterPage({
           任务模板
         </button>
         <span className={status?.running ? 'automation-heartbeat is-live' : 'automation-heartbeat'} role="status">
-          {status?.running ? '调度器运行中' : '调度器未启动'}
+          {schedulerStatusLabel(status)}
         </span>
       </nav>
       {tab === 'jobs' && (
@@ -360,6 +366,7 @@ export function AutomationCenterPage({
                           <div className="automation-job-head">
                             <b>{job.name}</b>
                             <code>{cronToHuman(job.cron)}</code>
+                            {!job.cron.startsWith('at:')&&<small>{job.timezone||'UTC'} 时区</small>}
                             <span className="automation-job-mode">
                               {MODE_LABEL[(job.executionMode as AutomationDraft['executionMode']) || 'auto-edit']}
                             </span>
@@ -373,6 +380,7 @@ export function AutomationCenterPage({
                             )}
                           </div>
                           <div className="automation-job-actions">
+                            <AutomationStopButton run={runs.find(run=>run.jobId===job.id&&run.state==='running')} bridge={bridge} onRequested={reload}/>
                             <button type="button" disabled={busy} onClick={() => void trigger(job)}>
                               立即运行
                             </button>
@@ -413,7 +421,7 @@ export function AutomationCenterPage({
                     onClick={() => setOpenRun(openRun === run.id ? undefined : run.id)}
                   >
                     <span className={`automation-run-state is-${run.state}`}>
-                      {run.outcomeUnknown ? '结果待核对' : (STATE_LABEL[run.state] ?? run.state)}
+                      {automationRunLabel(run)}
                     </span>
                     <b>{run.jobName}</b>
                     <small>
@@ -422,15 +430,9 @@ export function AutomationCenterPage({
                     </small>
                   </button>
                   {openRun === run.id && (
-                    <div className="automation-run-detail">
-                      {run.state === 'failed' ? (
-                        <p role="alert">{run.error}</p>
-                      ) : run.summary ? (
-                        <pre>{run.summary}</pre>
-                      ) : (
-                        <p>无摘要</p>
-                      )}
-                    </div>
+                    <><AutomationStopButton run={run} bridge={bridge} onRequested={reload}/><AutomationRunDetail run={run} onOpenSession={onOpenSession ? id => {
+                      void Promise.resolve().then(() => onOpenSession(id)).catch(e => setNotice(e instanceof Error ? e.message : '执行对话打开失败'))
+                    } : undefined} /></>
                   )}
                 </li>
               ))}

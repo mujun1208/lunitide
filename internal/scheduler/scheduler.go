@@ -21,8 +21,6 @@ import (
 	"unicode/utf16"
 
 	"github.com/oklog/ulid/v2"
-
-	"github.com/lunitide/lunitide/internal/cronexpr"
 )
 
 // Run states (frozen wire enum).
@@ -46,12 +44,14 @@ var ErrInvalid = errors.New("scheduler: invalid job")
 var ErrBusy = errors.New("scheduler: job already running")
 var ErrPersistence = errors.New("scheduler: durable execution record unavailable")
 var ErrClosed = errors.New("scheduler: closed")
+var errUserCancelled = errors.New("本次执行已停止，已产生的结果请到执行对话核对")
 
 // Job is one cron scheduled automation bound to an existing session.
 type Job struct {
 	ID            string    `json:"id"`
 	Name          string    `json:"name"`
 	Cron          string    `json:"cron"`
+	Timezone      string    `json:"timezone,omitempty"` // Empty preserves legacy UTC schedules.
 	Prompt        string    `json:"prompt"`
 	ProviderID    string    `json:"providerId"`
 	ModelID       string    `json:"modelId"`
@@ -80,11 +80,14 @@ type Run struct {
 	StartedAt      time.Time `json:"startedAt"`
 	FinishedAt     time.Time `json:"finishedAt,omitempty"`
 	OutcomeUnknown bool      `json:"outcomeUnknown,omitempty"`
+	Cancelled      bool      `json:"cancelled,omitempty"`
 }
 
 // Outcome is what the headless executor answers for one fired job.
 type Outcome struct {
 	Summary     string
+	SessionID   string // Actual execution session, including isolated jobs.
+	NotStarted  bool   // Only true when the executor refused before starting work.
 	TotalTokens int64
 	Err         error
 }
@@ -175,11 +178,15 @@ type Scheduler struct {
 	notifyGate chan struct{}
 	nextFire   map[string]time.Time
 	running    map[string]bool
+	controls   map[string]runControl
 	blocked    map[string]time.Time
 	status     Status
-	exprs      map[string]*cronexpr.Expression
-	exprMu     sync.Mutex
 	fireHooks  []func(jobID, trigger string, outcome Outcome) // tests
+}
+
+type runControl struct {
+	id     string
+	cancel context.CancelCauseFunc
 }
 
 // New wires the scheduler; a nil notifier falls back to the platform one.
@@ -189,7 +196,7 @@ func New(store *Store, exec Executor, notifier Notifier) *Scheduler {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Scheduler{store: store, exec: exec, notify: notifier, ctx: ctx, cancel: cancel, notifyGate: make(chan struct{}, 1),
-		schedules: map[string]string{}, nextFire: map[string]time.Time{}, running: map[string]bool{}, blocked: map[string]time.Time{},
+		schedules: map[string]string{}, nextFire: map[string]time.Time{}, running: map[string]bool{}, controls: map[string]runControl{}, blocked: map[string]time.Time{},
 		status: Status{NextFire: map[string]string{}, RunningJobs: []string{}}}
 }
 
@@ -265,35 +272,15 @@ func (s *Scheduler) replan(now time.Time) {
 		if !j.Enabled {
 			continue
 		}
-		t, err := nextFireTime(j.Cron, now)
+		t, err := nextJobFireTime(j, now)
 		if err != nil {
 			continue
 		}
 		next[j.ID] = t
-		s.schedules[j.ID] = j.Cron + "/" + j.UpdatedAt.Format(time.RFC3339Nano)
+		s.schedules[j.ID] = scheduleKey(j)
 	}
 	s.nextFire = next
 	s.publishNextFireLocked()
-}
-
-func (s *Scheduler) exprFor(cron string) *cronexpr.Expression {
-	s.exprMu.Lock()
-	defer s.exprMu.Unlock()
-	if s.exprs == nil {
-		s.exprs = map[string]*cronexpr.Expression{}
-	}
-	if e, ok := s.exprs[cron]; ok {
-		return e
-	}
-	e, err := cronexpr.Parse(cron)
-	if err != nil {
-		return nil
-	}
-	if len(s.exprs) >= MaxJobs {
-		s.exprs = map[string]*cronexpr.Expression{}
-	}
-	s.exprs[cron] = e
-	return e
 }
 
 func (s *Scheduler) publishNextFireLocked() {
@@ -330,9 +317,9 @@ func (s *Scheduler) dueJobs(now time.Time) []Job {
 			continue
 		}
 		t, ok := s.nextFire[j.ID]
-		if !ok || s.schedules[j.ID] != j.Cron+"/"+j.UpdatedAt.Format(time.RFC3339Nano) {
-			s.schedules[j.ID] = j.Cron + "/" + j.UpdatedAt.Format(time.RFC3339Nano)
-			stamp, err := nextFireTime(j.Cron, now)
+		if !ok || s.schedules[j.ID] != scheduleKey(j) {
+			s.schedules[j.ID] = scheduleKey(j)
+			stamp, err := nextJobFireTime(j, now)
 			if err != nil {
 				continue
 			}
@@ -363,6 +350,20 @@ func (s *Scheduler) TriggerNow(jobID string) error {
 	return s.launch(j, "manual", time.Now().UTC())
 }
 
+// CancelRun stops only the displayed execution, never a newer run of the
+// same job. The executor must acknowledge cancellation before its slot is
+// released; existing partial results remain in its normal receipt/session.
+func (s *Scheduler) CancelRun(jobID, runID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	control, ok := s.controls[jobID]
+	if !ok || control.id != runID {
+		return false
+	}
+	control.cancel(errUserCancelled)
+	return true
+}
+
 // launch marks running, persists the run row, executes detached, then
 // finalizes + notifies + replans.
 func (s *Scheduler) launch(j Job, trigger string, now time.Time) error {
@@ -380,12 +381,17 @@ func (s *Scheduler) launch(j Job, trigger string, now time.Time) error {
 		return errors.New("scheduler: executor unavailable")
 	}
 	s.running[j.ID] = true
+	runID := ulid.Make().String()
+	runCtx, cancelRun := context.WithCancelCause(s.ctx)
+	s.controls[j.ID] = runControl{id: runID, cancel: cancelRun}
 	s.status.RunningJobs = append(s.status.RunningJobs, j.ID)
 	s.wg.Add(1)
 	s.mu.Unlock()
 	release := func() {
+		cancelRun(nil)
 		s.mu.Lock()
 		delete(s.running, j.ID)
+		delete(s.controls, j.ID)
 		for i, id := range s.status.RunningJobs {
 			if id == j.ID {
 				s.status.RunningJobs = append(s.status.RunningJobs[:i], s.status.RunningJobs[i+1:]...)
@@ -395,7 +401,7 @@ func (s *Scheduler) launch(j Job, trigger string, now time.Time) error {
 		s.mu.Unlock()
 		s.wg.Done()
 	}
-	run := Run{ID: ulid.Make().String(), JobID: j.ID, JobName: j.Name, SessionID: j.SessionID, State: RunRunning, Trigger: trigger, StartedAt: now}
+	run := Run{ID: runID, JobID: j.ID, JobName: j.Name, SessionID: j.SessionID, State: RunRunning, Trigger: trigger, StartedAt: now}
 	if err := s.store.AppendRun(run); err != nil {
 		release()
 		s.recordFailure("启动记录写入失败，任务未执行")
@@ -412,7 +418,7 @@ func (s *Scheduler) launch(j Job, trigger string, now time.Time) error {
 	}
 	go func() {
 		defer release()
-		ctx, cancel := context.WithTimeout(s.ctx, 20*time.Minute)
+		ctx, cancel := context.WithTimeout(runCtx, 20*time.Minute)
 		defer cancel()
 		out := func() (out Outcome) {
 			defer func() {
@@ -420,21 +426,31 @@ func (s *Scheduler) launch(j Job, trigger string, now time.Time) error {
 					out = Outcome{Err: errors.New("自动化执行发生内部异常，请核对可能产生的结果")}
 				}
 			}()
+			if ctx.Err() != nil {
+				return Outcome{Err: ctx.Err(), NotStarted: true}
+			}
 			return s.exec(ctx, j)
 		}()
 		if ctx.Err() != nil && out.Err == nil {
 			out.Err = ctx.Err()
 		}
+		run.Cancelled = errors.Is(context.Cause(runCtx), errUserCancelled)
+		if run.Cancelled {
+			out.Err = errUserCancelled
+		}
 		finished := time.Now().UTC()
 		run.FinishedAt, run.TotalTokens, run.Summary = finished, out.TotalTokens, out.Summary
+		if out.SessionID != "" {
+			run.SessionID = out.SessionID
+		}
 		if out.Err != nil {
 			run.State = RunFailed
 			run.Error = out.Err.Error()
-			run.OutcomeUnknown = true
+			run.OutcomeUnknown = !out.NotStarted
 		} else {
 			run.State = RunSucceeded
 		}
-		mustDisable := run.OutcomeUnknown || j.RunOnce || IsAtSchedule(j.Cron)
+		mustDisable := (out.Err != nil && !run.Cancelled) || j.RunOnce || IsAtSchedule(j.Cron)
 		if mustDisable {
 			// Persist the stop before finalizing the receipt. If this fails, the
 			// durable running intent survives for startup reconciliation; writing
@@ -456,8 +472,8 @@ func (s *Scheduler) launch(j Job, trigger string, now time.Time) error {
 			s.blockAutomaticRun(j)
 		} else {
 			s.mu.Lock()
-			if expr := s.exprFor(j.Cron); expr != nil {
-				s.nextFire[j.ID] = expr.Next(finished)
+			if next, err := nextJobFireTime(j, finished); err == nil {
+				s.nextFire[j.ID] = next
 				s.publishNextFireLocked()
 			}
 			s.mu.Unlock()
@@ -489,7 +505,9 @@ func (s *Scheduler) notifyOutcome(j Job, run Run) {
 	go func() {
 		defer func() { _ = recover(); <-s.notifyGate; close(done) }()
 		body := fmt.Sprintf("自动化任务「%s」已完成：%s", j.Name, firstLine(run.Summary))
-		if run.State != RunSucceeded {
+		if run.Cancelled {
+			body = fmt.Sprintf("自动化任务「%s」本次执行已停止：%s", j.Name, firstLine(run.Summary))
+		} else if run.State != RunSucceeded {
 			body = fmt.Sprintf("自动化任务「%s」失败：%s", j.Name, firstLine(run.Error))
 		}
 		_ = s.notify.Notify("Lunitide", body)

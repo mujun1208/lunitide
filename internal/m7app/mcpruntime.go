@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -92,12 +93,13 @@ func (LocalMcpProber) Probe(_ context.Context, ep m7flow.McpEndpointConfig) (str
 
 // McpRuntimeService implements the five settings-plane methods.
 type McpRuntimeService struct {
-	uow        McpUnitOfWork
-	clock      Clock
-	prober     McpProber
-	verifier   func(item m7flow.McpMarketItem) bool
-	registry   func(ctx context.Context) ([]m7flow.McpMarketItem, error)
-	invalidate func(string)
+	diagnostics sync.Map // endpoint ID -> controlled connection diagnostic (no raw errors)
+	uow         McpUnitOfWork
+	clock       Clock
+	prober      McpProber
+	verifier    func(item m7flow.McpMarketItem) bool
+	registry    func(ctx context.Context) ([]m7flow.McpMarketItem, error)
+	invalidate  func(string)
 }
 
 func NewMcpRuntimeService(uow McpUnitOfWork) *McpRuntimeService {
@@ -366,6 +368,7 @@ type HealthResult struct {
 	DriftDetected    bool
 	CapabilityDigest string
 	CheckedAt        string
+	Diagnostic       mcp.Diagnostic
 }
 
 // Health probes one endpoint and drives the state machine: success ->
@@ -389,9 +392,11 @@ func (s *McpRuntimeService) Health(ctx context.Context, endpointID string) (Heal
 	}
 	start := s.clock.Now().UTC()
 	digest, perr := s.prober.Probe(ctx, ep)
+	diagnostic := mcp.ConnectionDiagnostic(perr)
+	s.RecordDiagnostic(endpointID, perr)
 	latency := s.clock.Now().UTC().Sub(start).Milliseconds()
 	now := s.clock.Now().UTC()
-	result := HealthResult{LatencyMS: latency, CheckedAt: now.Format(time.RFC3339), CapabilityDigest: digest}
+	result := HealthResult{Diagnostic: diagnostic, LatencyMS: latency, CheckedAt: now.Format(time.RFC3339), CapabilityDigest: digest}
 	if errors.Is(perr, mcp6.ErrCapabilityDrift) || errors.Is(perr, mcp6.ErrCredentialRevoked) {
 		result.DriftDetected = errors.Is(perr, mcp6.ErrCapabilityDrift)
 		result.State = m7flow.McpStateDegraded
@@ -512,4 +517,21 @@ func canonicalMcpTarget(ep m7flow.McpEndpointConfig) string {
 		return ep.Command + "|" + ep.ArgsJSON
 	}
 	return ep.URL
+}
+
+// LastDiagnostic is refreshed by startup hydration and explicit health checks.
+// It intentionally does not retain server stderr or credential-bearing errors.
+func (s *McpRuntimeService) LastDiagnostic(endpointID string) mcp.Diagnostic {
+	if value, ok := s.diagnostics.Load(endpointID); ok {
+		return value.(mcp.Diagnostic)
+	}
+	return mcp.Diagnostic{}
+}
+
+func (s *McpRuntimeService) RecordDiagnostic(endpointID string, err error) {
+	if err != nil {
+		s.diagnostics.Store(endpointID, mcp.ConnectionDiagnostic(err))
+	} else {
+		s.diagnostics.Delete(endpointID)
+	}
 }

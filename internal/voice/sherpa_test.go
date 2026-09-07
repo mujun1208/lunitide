@@ -3,6 +3,7 @@ package voice
 import (
 	"encoding/binary"
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -90,7 +91,7 @@ func TestParseSherpaMessage(t *testing.T) {
 			if ok != tc.ok {
 				t.Fatalf("ok = %v; want %v", ok, tc.ok)
 			}
-			if ok && got != tc.want {
+			if ok && !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("transcript = %+v; want %+v", got, tc.want)
 			}
 		})

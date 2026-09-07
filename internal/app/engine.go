@@ -149,8 +149,8 @@ type Engine struct {
 	adapterCacheMu     sync.Mutex
 	adapterCache       map[string]llmadapter.Adapter
 	browserLastURL     sync.Map
+	browserEndpoint    atomic.Value
 	lastBrowserSnap    atomic.Value
-	browserMutated     atomic.Bool
 	meetingNotesModel  atomic.Value
 	preferredChat      atomic.Value
 	streamEngine
@@ -166,6 +166,7 @@ type Engine struct {
 	agentRuns          *agentrunapp.Service
 	planExecutions     planExecutionEngine
 	peopleAgentWorkers peopleAgentWorkers
+	chatMemoryWorkers  chatMemoryWorkers
 	companionArchives  companionArchiveState
 	dataScope          engineDataScope
 
@@ -326,6 +327,7 @@ type terminalOwner struct {
 }
 
 type streamState struct {
+	equipEvent     *bridge.EquipEvent
 	sessionID      string
 	cancel         context.CancelFunc
 	state          streamLifecycle

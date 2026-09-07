@@ -8,6 +8,7 @@ import { microphoneConstraints, saveMicrophoneId, selectedMicrophoneId } from '.
 import { MOON_RING_BINS } from './MoonSphere'
 import { looksIncompleteUtterance, looksLikePlaybackEcho } from './companionText'
 import { sharedTtsAudioContext, unlockTtsAudio } from './ttsPlayer'
+import { pickTranscriptRevision } from './transcriptRevision'
 
 type SpeechRecognitionHypothesis = { transcript: string; confidence?: number }
 type SpeechRecognitionResultLike = { 0: SpeechRecognitionHypothesis; length: number; isFinal: boolean } & Record<number, SpeechRecognitionHypothesis>
@@ -209,8 +210,20 @@ export const TURN_END_INCOMPLETE_SILENCE_MS = 1500
 export const MEETING_TURN_END_SILENCE_MS = 2000
 /** Unfinished meeting phrases wait a little past the 2s hold. */
 export const MEETING_TURN_END_INCOMPLETE_SILENCE_MS = 2500
-/** A turn never ends while the transcript is still growing. */
+/** Fallback text settling when there is no completed actual-silence window. */
 export const TURN_END_TEXT_SETTLE_MS = 400
+
+/** The complete caption is already available when the actual microphone has
+ * been quiet for 1.2s. Late/corrected text packets must not start another wait.
+ * Meetings deliberately retain their longer hold; incomplete commands keep
+ * the existing protection against ending in the middle of a field name. */
+export function completeCaptionAtVoiceDeadline(input: {
+  holdUtterance: boolean
+  silentForMs: number | undefined
+  incomplete: boolean
+}): boolean {
+  return !input.holdUtterance && !input.incomplete && input.silentForMs !== undefined && input.silentForMs >= TURN_END_SILENCE_MS
+}
 
 export function turnEndWindows(holdUtterance = false): { silenceMs: number; incompleteSilenceMs: number } {
   if (holdUtterance) {
@@ -699,7 +712,9 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
     // awaiting getUserMedia — so the first utterance is not a 1–3s blank listen.
     let finals = ''
     let interim = ''
+    let interimResultIndex = -1
     let lastVoiceAt = performance.now()
+    let lastCapturedVoiceAt: number | undefined
     let lastTextChangeAt = performance.now()
     let firstTextAt = 0
     let utteranceVoiceSince = 0
@@ -773,6 +788,8 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       if (clearTranscript) {
         finals = ''
         interim = ''
+        interimResultIndex = -1
+        lastCapturedVoiceAt = undefined
         utteranceVoiceSince = 0
         firstTextAt = 0
         lastTextChangeAt = performance.now()
@@ -841,9 +858,14 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       lastCommittedAt = now
       const spoken = collapseTandemRepeats(text)
       if (duplex) {
+        // Silence may commit an interim before Windows emits its final.
+        // Retire that result index now so the late final cannot open a turn.
+        consumedResultCount = Math.max(consumedResultCount, interimResultIndex + 1)
+        interimResultIndex = -1
         callbacks.onFinal(spoken)
         finals = ''
         interim = ''
+        lastCapturedVoiceAt = undefined
         utteranceVoiceSince = 0
         firstTextAt = 0
         lastTextChangeAt = performance.now()
@@ -866,8 +888,11 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
      * buffer and be delivered as the opening of whatever the user says next.
      */
     const dropWhatSheHeardOfHerself = () => {
+      consumedResultCount = Math.max(consumedResultCount, interimResultIndex + 1)
+      interimResultIndex = -1
       finals = ''
       interim = ''
+      lastCapturedVoiceAt = undefined
     }
     /**
      * Whether this is her reply reaching us after her turn is already over.
@@ -889,10 +914,16 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       if (voiceAt && now - voiceAt > profile.utteranceSilenceMs) speechActive = false
       const text = assembled().trim()
       if (!text) return
+      const incomplete = looksIncompleteUtterance(text)
+      const capturedSilenceMs = lastCapturedVoiceAt === undefined ? undefined : now - lastCapturedVoiceAt
+      if (completeCaptionAtVoiceDeadline({ holdUtterance, incomplete, silentForMs: capturedSilenceMs })) {
+        commit(text)
+        return
+      }
+      if (!holdUtterance && capturedSilenceMs !== undefined && !incomplete && capturedSilenceMs < TURN_END_SILENCE_MS) return
       const textSince = firstTextAt ? now - firstTextAt : 0
       if (shouldDeferCommit(text, textSince)) return
-      const incomplete = looksIncompleteUtterance(text)
-      const silentForMs = meterless ? undefined : voiceAt ? performance.now() - voiceAt : undefined
+      const silentForMs = meterless ? undefined : capturedSilenceMs ?? (voiceAt ? now - voiceAt : undefined)
       const textStableForMs = performance.now() - lastTextChangeAt
       if (
         shouldCommitHeardUtterance({
@@ -933,15 +964,10 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
       }
       const energy = peak / 128
       const now = performance.now()
-      const textLocked = !!assembled().trim() && now - lastTextChangeAt >= TURN_END_SILENCE_MS
       if (energy >= profile.voicePeak) {
-        // After the transcript has sat still for the 1.2s product window,
-        // room noise / speaker ring-out must not keep lastVoiceAt fresh —
-        // that is how force-commit never fired on round 3.
-        if (!textLocked) {
-          speechActive = true
-          lastVoiceAt = now
-        }
+        speechActive = true
+        lastVoiceAt = now
+        lastCapturedVoiceAt = now
         callbacks.onVoiceEnergy?.()
         if (!assembled().trim()) voiceEnergyWithoutTextSince = voiceEnergyWithoutTextSince || now
         else voiceEnergyWithoutTextSince = 0
@@ -1005,13 +1031,16 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         const before = assembled()
         const start = recognitionResultStart(consumedResultCount, event.resultIndex, event.results.length)
         for (let i = start; i < event.results.length; i++) {
-          const piece = pickRecognitionTranscript(event.results[i])
+          let piece = pickRecognitionTranscript(event.results[i])
           if (event.results[i].isFinal) {
+            if (interimResultIndex === i) piece = pickTranscriptRevision(interim, piece)
             finals = absorbRecognitionFinal(finals, piece)
             interim = ''
+            interimResultIndex = -1
             consumedResultCount = i + 1
           } else {
             interim = piece
+            interimResultIndex = i
           }
         }
         const now = performance.now()
@@ -1022,7 +1051,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
           if (!utteranceVoiceSince) utteranceVoiceSince = now
         }
         if (next !== before.trim()) {
-          lastVoiceAt = now
+          if (lastCapturedVoiceAt === undefined) lastVoiceAt = now
           speechActive = true
           lastTextChangeAt = now
           if (!firstTextAt) firstTextAt = now

@@ -12,6 +12,7 @@ const (
 	PeopleCaptureDeadlineMS = 180_000
 	TemplateFileDeadlineMS  = 120_000
 	ChatStartDeadlineMS     = 120_000
+	McpSetupDeadlineMS      = 80_000
 )
 
 // MaxDeadlineMS is the largest deadlineMs the Host/Engine accept for method.
@@ -29,6 +30,8 @@ func MaxDeadlineMS(method string) int {
 		return PeopleCaptureDeadlineMS
 	case MethodTemplateCreate, MethodTemplateFileStage:
 		return TemplateFileDeadlineMS
+	case MethodMcpAdd, MethodMcpToggle, MethodMcpHealth:
+		return McpSetupDeadlineMS
 	case MethodChatStart:
 		return ChatStartDeadlineMS
 	default:

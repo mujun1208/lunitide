@@ -131,11 +131,11 @@ it('saves memory settings via memory.settings.update', async () => {
   render(<MemoryOpsPanel subjectId={SID} ops={opsApi({ updateSettings })} />)
   await waitFor(() => expect(screen.getByRole('button', { name: '保存设置' })).toBeEnabled())
   fireEvent.click(screen.getByLabelText('启用记忆沉淀'))
-  fireEvent.click(screen.getByLabelText('自动提名候选'))
+  fireEvent.change(screen.getByLabelText('对话记忆方式'), { target: { value: 'manual' } })
   fireEvent.change(screen.getByLabelText(/成长观察期/), { target: { value: '30' } })
   fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
   await waitFor(() => expect(updateSettings).toHaveBeenCalledOnce())
-  expect(updateSettings.mock.calls[0][0]).toMatchObject({ subjectId: SID, memoryEnabled: false, autoNominate: true, growthDays: 30 })
+  expect(updateSettings.mock.calls[0][0]).toMatchObject({ subjectId: SID, memoryEnabled: false, captureMode: 'manual', growthDays: 30 })
   expect(await screen.findByText('记忆设置已保存')).toBeInTheDocument()
 })
 
@@ -226,4 +226,18 @@ it('never saves defaults when settings cannot be loaded', async () => {
   expect(await screen.findByText('read failed')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '保存设置' })).toBeDisabled()
   expect(updateSettings).not.toHaveBeenCalled()
+})
+
+
+it('loads a persisted capture choice and saves off without losing existing memory', async () => {
+  const saved = { subjectId: SID, memoryEnabled: true, autoNominate: false, captureMode: 'manual' as const, growthDays: 14, updatedAt: now, version: 'a'.repeat(64) }
+  const updateSettings = vi.fn().mockResolvedValue({ ...saved, captureMode: 'off', version: 'b'.repeat(64) })
+  const ops = opsApi({ getSettings: vi.fn().mockResolvedValue(saved), updateSettings })
+  render(<MemoryOpsPanel subjectId={SID} ops={ops} />)
+  await waitFor(() => expect(screen.getByLabelText('对话记忆方式')).toHaveValue('manual'))
+  fireEvent.change(screen.getByLabelText('对话记忆方式'), { target: { value: 'off' } })
+  fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
+  await waitFor(() => expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({ captureMode: 'off', memoryEnabled: true, expectedVersion: 'a'.repeat(64) })))
+  expect(ops.purge).not.toHaveBeenCalled()
+  expect(await screen.findByText('记忆设置已保存')).toBeInTheDocument()
 })

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/oklog/ulid/v2"
 )
 
 const (
@@ -183,7 +184,6 @@ func serveSession(ctx context.Context, conn net.Conn, expectedPID int, authentic
 		return err
 	}
 	var writeMu sync.Mutex
-	var lastWriteDeadline time.Time
 	write := func(value any) error {
 		// 10x 优化：使用 JSON 编码缓冲池替代 json.Marshal，
 		// 复用 bytes.Buffer 减少堆分配和 GC 压力。
@@ -202,18 +202,20 @@ func serveSession(ctx context.Context, conn net.Conn, expectedPID int, authentic
 		}
 		writeMu.Lock()
 		defer writeMu.Unlock()
-		// Refresh the write deadline at most once per second. Named Pipe
-		// writes are fast kernel-mode IPC; per-event SetWriteDeadline
-		// syscalls (~1-5 μs each) are wasteful for streaming sessions
-		// that may emit hundreds of delta events.
-		now := time.Now()
-		if now.After(lastWriteDeadline) {
-			if err := conn.SetWriteDeadline(now.Add(sessionWriteTimeout)); err != nil {
-				return err
-			}
-			lastWriteDeadline = now.Add(sessionWriteTimeout)
+		// Each frame gets its full write budget, including one queued near the
+		// previous frame's deadline. A stale deadline can cut a frame in half.
+		if err := conn.SetWriteDeadline(time.Now().Add(sessionWriteTimeout)); err != nil {
+			_ = conn.Close()
+			return err
 		}
-		return writeFrame(conn, raw)
+		if err := writeFrame(conn, raw); err != nil {
+			// The length prefix or a part of the body may already be written.
+			// Never append another frame to this connection after a failed write,
+			// including events sent after the start response was acknowledged.
+			_ = conn.Close()
+			return err
+		}
+		return nil
 	}
 	var requests sync.WaitGroup
 	slots := bridge.NewSlotGate(bridge.DefaultGeneralSlots, bridge.DefaultControlSlots, bridge.DefaultSlotWait)
@@ -257,6 +259,10 @@ func serveSession(ctx context.Context, conn net.Conn, expectedPID int, authentic
 			preResponseEvents := make([]bridge.Event, 0, 4)
 			var preResponseError error
 			emit := func(event bridge.Event) error {
+				if err := validateStreamEnvelope(event); err != nil {
+					log.Printf("rejected malformed stream event method=%s type=%s: %v", request.Method, event.Type, err)
+					return err
+				}
 				eventMu.Lock()
 				defer eventMu.Unlock()
 				if !responseWritten {
@@ -317,6 +323,19 @@ func serveSession(ctx context.Context, conn net.Conn, expectedPID int, authentic
 			eventMu.Unlock()
 		}(request)
 	}
+}
+
+func validateStreamEnvelope(event bridge.Event) error {
+	if event.Version != bridge.Version || event.Kind != "event" || event.Sequence < 1 {
+		return errors.New("stream event envelope is incomplete")
+	}
+	if _, err := ulid.ParseStrict(event.ID); err != nil {
+		return errors.New("stream event ID is invalid")
+	}
+	if _, err := ulid.ParseStrict(event.StreamID); err != nil {
+		return errors.New("stream event stream ID is invalid")
+	}
+	return nil
 }
 
 func decodeStrict(raw []byte, target any) error {

@@ -53,7 +53,7 @@ describe('ensureCompanionCapabilities', () => {
     expect(out).toEqual({ fullAccess: true, ccEnabled: false })
   })
 
-  it('bumps a legacy 30/min cap when computer control is already on', async () => {
+  it('reads the global setting without rewriting the user rate limit', async () => {
     vi.mocked(toolsPolicyBridge.getCommandPolicy).mockResolvedValue({ revision: "a".repeat(64),appliedRevision:"a".repeat(64),state:"applied",commands: [], fullAccess: true })
     vi.mocked(ccBridge.getConfig).mockResolvedValue({
       revision: 1,
@@ -78,7 +78,7 @@ describe('ensureCompanionCapabilities', () => {
       updatedAt: '2026-08-26T00:00:01Z',
     })
     const out = await ensureCompanionCapabilities()
-    expect(ccBridge.updateConfig).toHaveBeenCalledWith({ expectedRevision: 1, maxActionsPerMinute: 60, actor: 'companion' })
+    expect(ccBridge.updateConfig).not.toHaveBeenCalled()
     expect(out).toEqual({ fullAccess: true, ccEnabled: true })
   })
 
@@ -100,4 +100,11 @@ describe('ensureCompanionCapabilities', () => {
     expect(ccBridge.updateConfig).not.toHaveBeenCalled()
     expect(out).toEqual({ fullAccess: false, ccEnabled: true })
   })
+})
+
+it('does not turn a temporary read failure into a disabled configuration', async () => {
+ vi.mocked(ccBridge.getConfig).mockRejectedValueOnce(new Error('reconnecting'))
+ const result=await ensureCompanionCapabilities()
+ expect(result.ccEnabled).toBeUndefined()
+ expect(ccBridge.updateConfig).not.toHaveBeenCalled()
 })

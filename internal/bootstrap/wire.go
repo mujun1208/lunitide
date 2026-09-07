@@ -450,6 +450,7 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	tools.SetWebFetcher(func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error) {
 		return networkpolicy.Fetch(ctx, rawURL, networkpolicy.FetchOptions{Policy: networkpolicy.Policy{AllowHTTP: true}})
 	})
+	tools.SetWeatherFetcher(fetchWeather)
 	// Full-access file tools read/write inside the user-selected workspace
 	// root (same workspace-root.json the host picker writes). Re-resolved
 	// per call; any parse/validation failure falls back to the sandbox.

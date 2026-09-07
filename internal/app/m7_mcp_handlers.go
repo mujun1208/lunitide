@@ -94,7 +94,12 @@ func handleMcpList(e *Engine, ctx context.Context, r bridge.Request) bridge.Resp
 	items := make([]m7McpEndpointDTO, 0, len(eps))
 	for _, ep := range eps {
 		args := parseMcpArgsJSON(ep.ArgsJSON)
+		diagnostic := e.m7mcp.LastDiagnostic(ep.EndpointID)
+		if ep.State == m7flow.McpStateReady {
+			diagnostic = mcp.Diagnostic{}
+		}
 		items = append(items, m7McpEndpointDTO{
+			DiagnosticCode: diagnostic.Code, DiagnosticMessage: diagnostic.Message,
 			EndpointID:           ep.EndpointID,
 			Transport:            ep.Transport,
 			State:                ep.State,
@@ -117,6 +122,8 @@ func handleMcpList(e *Engine, ctx context.Context, r bridge.Request) bridge.Resp
 
 // m7McpEndpointDTO is one row of the mcp.list projection.
 type m7McpEndpointDTO struct {
+	DiagnosticCode       string   `json:"diagnosticCode,omitempty"`
+	DiagnosticMessage    string   `json:"diagnosticMessage,omitempty"`
 	EndpointID           string   `json:"endpointId"`
 	Transport            string   `json:"transport"`
 	State                string   `json:"state"`
@@ -240,12 +247,14 @@ func handleMcpHealth(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		return m7McpFailure(r, err, "mcp.health")
 	}
 	return r.Ok(struct {
-		State            string `json:"state"`
-		LatencyMS        int64  `json:"latencyMs"`
-		DriftDetected    bool   `json:"driftDetected"`
-		CapabilityDigest string `json:"capabilityDigest,omitempty"`
-		CheckedAt        string `json:"checkedAt"`
-	}{res.State, res.LatencyMS, res.DriftDetected, res.CapabilityDigest, res.CheckedAt})
+		State             string `json:"state"`
+		LatencyMS         int64  `json:"latencyMs"`
+		DriftDetected     bool   `json:"driftDetected"`
+		CapabilityDigest  string `json:"capabilityDigest,omitempty"`
+		CheckedAt         string `json:"checkedAt"`
+		DiagnosticCode    string `json:"diagnosticCode,omitempty"`
+		DiagnosticMessage string `json:"diagnosticMessage,omitempty"`
+	}{res.State, res.LatencyMS, res.DriftDetected, res.CapabilityDigest, res.CheckedAt, res.Diagnostic.Code, res.Diagnostic.Message})
 }
 
 func handleMcpMarketSearch(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -309,7 +318,7 @@ func m7McpFailure(r bridge.Request, err error, method string) bridge.Response {
 	case errors.Is(err, m7app.ErrMcpDrift):
 		return r.Fail("M7-MCP-003", "能力摘要漂移，端点已隔离", false)
 	case errors.Is(err, m7app.ErrMcpProbe):
-		return r.Fail("M7-MCP-004", "传输或会话建立失败", true)
+		return r.Fail("M7-MCP-004", mcp.ConnectionDiagnostic(err).Message, true)
 	case errors.Is(err, m7app.ErrMcpRegistry):
 		return r.Fail("M7-MCP-005", "市场目录不可达，已降级只读缓存", true)
 	case errors.Is(err, m7app.ErrMcpNotFound):
@@ -320,6 +329,9 @@ func m7McpFailure(r bridge.Request, err error, method string) bridge.Response {
 		return r.Fail("M7-TOOL-006", "MCP 操作超时", true)
 	case errors.Is(err, m7app.ErrServiceUnavailable):
 		return r.Fail("STORAGE_UNAVAILABLE", "MCP 服务暂时不可用", true)
+	}
+	if diagnostic := mcp.ConnectionDiagnostic(err); diagnostic.Code != "MCP_CONNECT_FAILED" {
+		return r.Fail(diagnostic.Code, diagnostic.Message, true)
 	}
 	return r.Fail("INTERNAL_ERROR", method+" 执行失败", false)
 }

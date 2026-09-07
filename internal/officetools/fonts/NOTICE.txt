@@ -1,0 +1,30 @@
+Lunitide PDF font notice
+
+The embedded Lunitide Sans SC Regular font is a modified version of
+Noto Sans SC, release Sans2.004, licensed under SIL Open Font License 1.1.
+The complete license is distributed beside this notice as NotoSansSC-OFL.txt
+(in the source tree: OFL.txt).
+
+Original copyright retained in the font:
+Copyright 2014-2021 Adobe (http://www.adobe.com/),
+with Reserved Font Name 'Source'.
+
+Official source:
+https://github.com/notofonts/noto-cjk/tree/Sans2.004
+https://github.com/notofonts/noto-cjk/blob/Sans2.004/LICENSE
+
+Modifications by the Lunitide project:
+- Fixed the weight to Regular (400).
+- Retained supported Basic Multilingual Plane glyphs for this PDF renderer.
+- Removed unused variable-font and layout data.
+- Renamed family and PostScript names to Lunitide Sans SC Regular.
+- Compressed the font for embedding; generated PDFs subset used glyphs.
+
+The modified font remains under SIL Open Font License 1.1.
+The font is bundled with the application and is not sold separately.
+No endorsement by Adobe, Google or the Noto project is implied.
+
+Source font SHA-256:
+d68bafcb48a2707749396aa12bbbd833cb70401f3a9a689fd2902c7e0d295964
+Embedded decompressed font SHA-256:
+82b7b44a0e060caaa7bfc21cf10936ddf7452aef44c0f1ecda969403ac6d8fb8

@@ -64,13 +64,26 @@ describe('startMeetingSpeech', () => {
     expect(MEETING_MERGE_GAP_MS).toBe(400)
   })
 
-  test('volc live captions isolate the current clause from a full dump', async () => {
+  test('volc live captions keep normalized turns without stripping them a second time', async () => {
     const onInterim = vi.fn()
     await startMeetingSpeech({ onFinal: vi.fn(), onInterim, onError: vi.fn(), listen: 'volc', volcProviderId: 'p1' })
     const opts = asr.volc.mock.calls[0][0]
     opts.onFinal('今天合肥天气怎么样')
-    opts.onInterim('今天合肥天气怎么样。算了放首歌')
-    expect(onInterim).toHaveBeenLastCalledWith('算了放首歌')
+    opts.onInterim('今天合肥天气怎么样')
+    expect(onInterim).toHaveBeenLastCalledWith('今天合肥天气怎么样')
+  })
+
+  test.each(['volc', 'local', 'cloud'] as const)('%s preserves separately spoken repeated meeting sentences', async listen => {
+    asr.probe.mockResolvedValue({ supported: true, ready: true })
+    const onFinal = vi.fn()
+    const handle = await startMeetingSpeech({ onFinal, onError: vi.fn(), listen, volcProviderId: 'p1' })
+    const opts = (listen === 'volc' ? asr.volc : listen === 'local' ? asr.local : asr.web).mock.calls[0][0]
+    opts.onFinal('这个问题请再确认一次。')
+    await handle.flush?.()
+    opts.onFinal('这个问题请再确认一次。')
+    await handle.flush?.()
+    expect(onFinal.mock.calls.map(call => call[0])).toEqual(['这个问题请再确认一次。', '这个问题请再确认一次。'])
+    handle.stop()
   })
 
   test('omitted listen uses system Web Speech even when sherpa is ready', async () => {

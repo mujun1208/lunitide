@@ -268,6 +268,12 @@ func (g *Gateway) HandleGeneration(ctx context.Context, generation uint64, messa
 			g.streamChanged.Broadcast()
 			g.streamsMu.Unlock()
 		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			return failureForReason(request, "REQUEST_DEADLINE_EXCEEDED", "本次请求等待超时，请核对执行状态后重试", true, err.Error()), true
+		}
+		if errors.Is(err, context.Canceled) {
+			return failureForReason(request, "REQUEST_CANCELLED", "本次请求已取消", false, err.Error()), true
+		}
 		return failureForReason(request, "ENGINE_UNAVAILABLE", "核心引擎暂时不可用", true, err.Error()), true
 	}
 	if isStart {

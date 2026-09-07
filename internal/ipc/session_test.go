@@ -29,7 +29,7 @@ func (synchronousStreamingHandler) Handle(context.Context, bridge.Request) bridg
 }
 
 func (synchronousStreamingHandler) HandleStreaming(_ context.Context, request bridge.Request, emit func(bridge.Event) error) bridge.Response {
-	_ = emit(bridge.Event{Version: bridge.Version, Kind: "event", ID: ulid.Make().String(), StreamID: request.ID, Type: bridge.EventDelta})
+	_ = emit(bridge.Event{Version: bridge.Version, Kind: "event", ID: ulid.Make().String(), StreamID: request.ID, Sequence: 1, Type: bridge.EventDelta})
 	return bridge.Success(request.ID, map[string]bool{"accepted": true})
 }
 

@@ -1,8 +1,8 @@
-import{expect,it,vi}from'vitest'
+import{afterEach,expect,it,vi}from'vitest'
 import type{AttachmentBridge}from'../bridge/client'
-import{clipboardImages,ingestAttachments,normalizePastedImages,validateAttachmentBatch}from'./attachments'
+import{clipboardImages,ingestAttachments,normalizePastedImages,validateAttachmentBatch,prepareAttachmentFiles,attachmentPreview,forgetAttachmentPreview}from'./attachments'
 
-const bytes=(values:number[],name:string,type:string)=>{const data=new Uint8Array(values),file=new File([data],name,{type});Object.defineProperty(file,'arrayBuffer',{value:async()=>data.buffer});return file}
+const bytes=(values:number[],name:string,type:string)=>{const data=new Uint8Array(values),file=new File([data],name,{type});Object.defineProperty(file,'arrayBuffer',{value:async()=>data.buffer,configurable:true});return file}
 
 it('normalizes pasted screenshots and accepts only four matching images',()=>{
  const pasted=bytes([0x89,0x50,0x4e,0x47],'image.png','image/png')
@@ -37,4 +37,45 @@ it('aborts when nextOffset does not exactly match the uploaded part and never co
  const file=bytes([1,2,3,4],'note.txt','text/plain'),commit=vi.fn(),abort=vi.fn().mockResolvedValue({aborted:true}),attachments={begin:vi.fn().mockResolvedValue({uploadId:'upload',chunkSize:2}),chunk:vi.fn().mockResolvedValue({nextOffset:1}),commit,abort} as unknown as AttachmentBridge
  const result=await ingestAttachments(attachments,'project','session',[file])
  expect(result.failed[0]?.error).toContain('偏移无效');expect(abort).toHaveBeenCalledOnce();expect(commit).not.toHaveBeenCalled()
+})
+
+afterEach(()=>{vi.useRealTimers();vi.unstubAllGlobals()})
+const uploadBridge=()=>({begin:vi.fn().mockResolvedValue({uploadId:'upload',chunkSize:32768}),chunk:vi.fn().mockImplementation(async p=>({nextOffset:p.offset+atob(p.contentBase64).length})),commit:vi.fn().mockResolvedValue({attachmentId:'uploaded'}),abort:vi.fn().mockResolvedValue({aborted:true})} as unknown as AttachmentBridge)
+it('cancels a stuck file read without beginning an upload, then accepts a subsequent file',async()=>{
+ const file=bytes([1,2,3],'stuck.txt','text/plain');Object.defineProperty(file,'arrayBuffer',{value:()=>new Promise(()=>{}),configurable:true})
+ const controller=new AbortController(),bridge=uploadBridge(),progress=vi.fn()
+ const work=ingestAttachments(bridge,'project','session',[file],progress,controller.signal)
+ controller.abort()
+ expect((await work).failed[0].error).toContain('取消');expect(bridge.begin).not.toHaveBeenCalled()
+ expect((await ingestAttachments(bridge,'project','session',[bytes([1],'next.txt','text/plain')])).uploaded).toBe(1)
+})
+it('settles cancelled in-flight chunks even if cleanup also hangs',async()=>{
+ const controller=new AbortController(),bridge=uploadBridge()
+ vi.mocked(bridge.chunk).mockImplementation(()=>{controller.abort();return new Promise(()=>{})})
+ vi.mocked(bridge.abort).mockImplementation(()=>new Promise(()=>{}))
+ const result=await ingestAttachments(bridge,'project','session',[bytes([1],'cancel.txt','text/plain')],undefined,controller.signal)
+ expect(result.failed[0].error).toContain('取消');expect(bridge.commit).not.toHaveBeenCalled();expect(bridge.abort).toHaveBeenCalledOnce()
+})
+it('cleans up a late begin response after cancellation without uploading',async()=>{
+ const controller=new AbortController(),bridge=uploadBridge();let resolveBegin!:(value:Awaited<ReturnType<AttachmentBridge['begin']>>)=>void
+ vi.mocked(bridge.begin).mockImplementation(()=>{controller.abort();return new Promise(resolve=>{resolveBegin=resolve})})
+ const result=await ingestAttachments(bridge,'project','session',[bytes([1],'late.txt','text/plain')],undefined,controller.signal)
+ expect(result.failed).toHaveLength(1);resolveBegin({uploadId:'late',chunkSize:32768,expiresAt:new Date().toISOString()});await Promise.resolve();await Promise.resolve()
+ expect(bridge.abort).toHaveBeenCalledWith({uploadId:'late',projectId:'project',sessionId:'session'});expect(bridge.chunk).not.toHaveBeenCalled()
+})
+it('times out image decoding and closes a bitmap arriving after timeout',async()=>{
+ vi.useFakeTimers();let resolveBitmap!:(bitmap:ImageBitmap)=>void
+ vi.stubGlobal('createImageBitmap',vi.fn(()=>new Promise(resolve=>{resolveBitmap=resolve})))
+ const result=prepareAttachmentFiles([new File([new Uint8Array(200*1024)],'large.png',{type:'image/png'})])
+ await vi.advanceTimersByTimeAsync(10001)
+ expect((await result).failed[0]).toContain('解码超时')
+ const close=vi.fn();resolveBitmap({close} as unknown as ImageBitmap);await Promise.resolve()
+ expect(close).toHaveBeenCalledOnce()
+})
+it('uses real data URLs permitted by product CSP instead of blocked blob previews',async()=>{
+ const bridge=uploadBridge(),file=bytes([82,73,70,70],'shot.webp','image/webp'),progress=vi.fn()
+ await ingestAttachments(bridge,'project','session',[file],progress)
+ expect(attachmentPreview('uploaded')?.url).toBe('data:image/webp;base64,UklGRg==')
+ expect(progress.mock.calls.at(-1)?.[0].previewUrl).toBe('data:image/webp;base64,UklGRg==')
+ forgetAttachmentPreview('uploaded')
 })

@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -27,6 +28,42 @@ func TestSchedulerRefusesExecutionWithoutDurableIntent(t *testing.T) {
 	}
 	if calls.Load() != 0 || len(s.Snapshot().RunningJobs) != 0 {
 		t.Fatal("unrecorded execution escaped")
+	}
+}
+
+func TestSchedulerFailurePreservesActualSessionAndPartialOutput(t *testing.T) {
+	for _, notStarted := range []bool{false, true} {
+		t.Run(fmt.Sprint(notStarted), func(t *testing.T) {
+			store := newTestStore(t)
+			job := validJob("partial", "* * * * *")
+			if err := store.PutJob(job); err != nil {
+				t.Fatal(err)
+			}
+			const actualSession = "01ARZ3NDEKTSV4RRFFQ69G5FAA"
+			s := New(store, func(context.Context, Job) Outcome {
+				return Outcome{SessionID: actualSession, Summary: "已完成前半部分", Err: context.DeadlineExceeded, NotStarted: notStarted}
+			}, noopNotifier{})
+			defer s.Close()
+			if err := s.TriggerNow(job.ID); err != nil {
+				t.Fatal(err)
+			}
+			s.wg.Wait()
+			runs, err := store.ListRuns(job.ID, 10)
+			if err != nil || len(runs) != 2 {
+				t.Fatalf("receipt: %v %+v", err, runs)
+			}
+			got := runs[0]
+			if got.State != RunFailed || got.OutcomeUnknown == notStarted || got.SessionID != actualSession || got.Summary != "已完成前半部分" || got.FinishedAt.IsZero() {
+				t.Fatalf("failure erased output or misreported state: %+v", got)
+			}
+			if len(s.Snapshot().RunningJobs) != 0 {
+				t.Fatal("failed task still marked running")
+			}
+			stored, _, err := store.GetJob(job.ID)
+			if err != nil || stored.Enabled {
+				t.Fatal("failed automation silently scheduled to repeat")
+			}
+		})
 	}
 }
 

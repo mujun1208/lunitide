@@ -69,6 +69,42 @@ afterEach(() => {
 })
 
 describe('startLocalCompanionSpeech', () => {
+  it('submits the complete local caption at actual silence without awaiting a slow refiner', async () => {
+    const stage = harness()
+    let finish!: (value: string) => void
+    asr.commit.mockReturnValueOnce(new Promise<string>(resolve => { finish = resolve }))
+    const handle = await startLocalCompanionSpeech(stage.options)
+    onLevel(0.3)
+    onTranscript('今天合肥天气怎么样？', false)
+    await vi.advanceTimersByTimeAsync(1140)
+    onTranscript('今天合肥市的天气怎么样？', false)
+    expect(stage.onFinal).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(60)
+    expect(stage.onFinal).toHaveBeenCalledExactlyOnceWith('今天合肥市的天气怎么样？')
+    expect(asr.commit).toHaveBeenCalledWith({ useStreamed: true })
+    finish('怎么样？')
+    await vi.advanceTimersByTimeAsync(60)
+    onLevel(0.3)
+    onTranscript('今天上海到合肥的火车。', false)
+    await vi.advanceTimersByTimeAsync(1260)
+    expect(stage.onFinal.mock.calls).toEqual([['今天合肥市的天气怎么样？'], ['今天上海到合肥的火车。']])
+    handle.stop()
+  })
+  it.each([false, true])('replaces corrections inside a segment and preserves later segments (meeting=%s)', async holdUtterance => {
+    const stage = harness()
+    const handle = await startLocalCompanionSpeech({ ...stage.options, holdUtterance })
+    onTranscript('今天合肥的天气还行。', false)
+    onTranscript('今天合肥市的天气不错。', false)
+    expect(stage.onInterim).toHaveBeenLastCalledWith('今天合肥市的天气不错。')
+    onTranscript('今天合肥市的天气不错。', true)
+    onTranscript('我们准备出去', false)
+    onTranscript('我们可以出去散步。', true)
+    asr.commit.mockResolvedValue('散步。')
+    await handle.flush?.()
+    expect(stage.onFinal).toHaveBeenCalledExactlyOnceWith('今天合肥市的天气不错。我们可以出去散步。')
+    handle.stop()
+  })
+
   it('commits when the recognizer says the speaker stopped', async () => {
     const stage = harness()
     asr.commit.mockResolvedValue('今天天气很好')

@@ -255,3 +255,17 @@ it('manual remote JSON saves configuration even when the server needs credential
  await waitFor(()=>expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
  expect(bridge.add).toHaveBeenCalledWith(expect.objectContaining({url:'https://fixture.invalid/mcp',configureOnly:true}));expect(bridge.toggle).not.toHaveBeenCalled()
 })
+
+it('shows the reconnect diagnostic instead of treating a degraded probe as a success notice', async()=>{
+ const bridge=api({list:vi.fn().mockResolvedValue({endpoints:[{...memoryEndpoint,state:'degraded'}]}),health:vi.fn().mockResolvedValue({state:'degraded',driftDetected:false,checkedAt:'2026-09-07T00:00:00Z',diagnosticCode:'MCP_DEPENDENCY_FAILED',diagnosticMessage:'本地 Python 或软件依赖未能准备完成，请检查运行环境。'})})
+ render(<McpPage bridge={bridge}/>);fireEvent.click(await screen.findByRole('tab',{name:'已安装（1）'}))
+ fireEvent.click(await screen.findByRole('button',{name:'重新连接'}))
+ expect(await screen.findByRole('alert')).toHaveTextContent('本地 Python 或软件依赖未能准备完成')
+ expect(screen.queryByText('Memory：连接异常')).not.toBeInTheDocument()
+})
+it('explains the OAuth requirement on a legacy Google Drive installation and links official setup',async()=>{
+ const bridge=api({presets:vi.fn().mockResolvedValue({items:[{id:'gdrive',name:'Google Drive',description:'文件检索',transport:'stdio',command:'npx',args:['-y','@modelcontextprotocol/server-gdrive'],needsArgs:false,category:'文件',needsCredential:true,credentialEnvs:['GDRIVE_CREDENTIALS_PATH'],setupUrl:'https://github.com/modelcontextprotocol/servers-archived/tree/main/src/gdrive'}]}),list:vi.fn().mockResolvedValue({endpoints:[{...memoryEndpoint,displayName:'Google Drive',args:['-y','@modelcontextprotocol/server-gdrive','C:/old/folder'],state:'degraded',credentialConfigured:false}]})})
+ render(<McpPage bridge={bridge}/>);fireEvent.click(await screen.findByRole('tab',{name:'已安装（1）'}))
+ expect(await screen.findByText(/普通文件目录不能代替授权/)).toBeInTheDocument()
+ expect(screen.getByRole('link',{name:'官方配置说明'})).toHaveAttribute('href','https://github.com/modelcontextprotocol/servers-archived/tree/main/src/gdrive')
+})

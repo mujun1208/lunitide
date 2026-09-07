@@ -33,7 +33,6 @@ import { startLocalCompanionSpeech } from './localSpeech'
 import { startVolcCompanionSpeech } from './volc/volcSpeech'
 import { VOLC_ASR_DECISION_MS } from './volc/volcAsr'
 import { pickDefaultVoice } from '../../provider/modelKind'
-import { UserAskWizard } from '../UserAskWizard'
 import type { UserAskPack } from '../userAsk'
 import { MOON_RING_BINS, MoonSphere } from './MoonSphere'
 import { CompanionSkinSwitch } from './CompanionSkinSwitch'
@@ -94,6 +93,7 @@ export interface CompanionStageProps {
   chatReady: boolean
   /** First user turn when entering from home wake (“你好月汐，查天气”). */
   seedPrompt?: string
+  /** Legacy callers may pass these; voice clarification uses normal speech. */
   userAsk?: UserAskPack
   onUserAsk?: (followUp: string) => void
   onSend: (text: string, persistedMessageId?: string) => void | boolean | 'error' | Promise<void | boolean | 'error'>
@@ -140,7 +140,7 @@ function withCurrentAssistant(current: SubtitleRound[], assistant: SubtitleRound
   return user ? [user, assistant] : [assistant]
 }
 
-export function CompanionStage({ sessionId, chatStatus, assistantText, activityStatus, toolActivities, error, chatReady, seedPrompt, userAsk, onUserAsk, onSend, onCancel, onExit, pendingApproval, onApproveTool, onRejectTool, persistFailed, onRetryPersist, resumeAvailable, onResume, memorySummary, onOpenMemory, computerControlOff, thinkProviderId, thinkModelId, onEngaged }: CompanionStageProps): React.JSX.Element {
+export function CompanionStage({ sessionId, chatStatus, assistantText, activityStatus, toolActivities, error, chatReady, seedPrompt, onSend, onCancel, onExit, pendingApproval, onApproveTool, onRejectTool, persistFailed, onRetryPersist, resumeAvailable, onResume, memorySummary, onOpenMemory, computerControlOff, thinkProviderId, thinkModelId, onEngaged }: CompanionStageProps): React.JSX.Element {
   const zh = useZh()
   const enter = useCompanionEnter()
   const machine = useCompanionMachine()
@@ -272,6 +272,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   activityStatusRef.current = activityStatus
   const toolsRanThisTurnRef = useRef(false)
   const lastDeltaAtRef = useRef(0)
+  const firstReplyTextAtRef = useRef<number | undefined>(undefined)
   const assistantTextRef = useRef(assistantText)
   assistantTextRef.current = assistantText
   const settingsRef = useRef(settings)
@@ -583,6 +584,9 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     const text = assistantText
     if (text.trim()) {
       lastDeltaAtRef.current = performance.now()
+      if (firstReplyTextAtRef.current === undefined && companionHasFreshAssistantText(text, staleReplyRef.current)) {
+        firstReplyTextAtRef.current = performance.now()
+      }
       void unlockTtsAudio()
     }
     if (holdSpokenCaptionRef.current) {
@@ -648,7 +652,9 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       const streamText = clipCompanionSpokenTurn(companionCaptionFromStream(assistantText)).spoken
       const pending = streamText.slice(spokenUpToRef.current)
       if (!pending.trim()) return
-      const stalled = performance.now() - lastDeltaAtRef.current >= FIRST_SPEAK_STALL_MS
+      const now = performance.now()
+      const firstWaitExpired = spokenUpToRef.current === 0 && firstReplyTextAtRef.current !== undefined && now - firstReplyTextAtRef.current >= FIRST_SPEAK_STALL_MS
+      const stalled = firstWaitExpired || now - lastDeltaAtRef.current >= FIRST_SPEAK_STALL_MS
       const chunk = takeSpeakableChunk(pending, spokenUpToRef.current === 0, stalled)
       if (!chunk) return
       markVoiceTiming('firstSynth')
@@ -932,7 +938,6 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   // a 5–6s cap cancelled live DeepSeek V4 turns during TTFT.
   useEffect(() => {
     if (machine.state !== 'thinking') return
-    if (userAsk) return
     if (companionToolsExecuting(chatStatus, activityStatus)) return
     const waitingForFirstToken = !companionHasFreshAssistantText(assistantText, staleReplyRef.current)
     const ms = companionReplyStallMs(chatStatus === 'streaming', !waitingForFirstToken)
@@ -945,7 +950,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       applyEvent({ type: 'REPLY_TERMINAL' })
     }, ms)
     return () => window.clearTimeout(timer)
-  }, [machine.state, chatStatus, assistantText, activityStatus, userAsk, applyEvent, onCancel])
+  }, [machine.state, chatStatus, assistantText, activityStatus, applyEvent, onCancel])
 
   // TTS drained but the stream is still open: leave “说话中” so the mic
   // hears the next utterance instead of looking frozen.
@@ -1371,6 +1376,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       staleReplyRef.current = assistantTextRef.current
       silentRestartsRef.current = 0
       spokenUpToRef.current = 0
+      firstReplyTextAtRef.current = undefined
       speakingRef.current = false
       setAssistantAloud(false)
       streamCaptionRef.current = ''
@@ -1591,6 +1597,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         }
         cancelCaptionFade()
         setInterimText(next)
+        if (next) setDeafRecognizer(false)
         setVoiceHeard(true)
         setHeardThisVisit(true)
         setEngineHint('')
@@ -1618,6 +1625,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       },
       onEngineHint: message => setEngineHint(message),
       onFinal: transcript => {
+        setDeafRecognizer(false)
         setHeardThisVisit(true)
         listenOverrideRef.current = undefined
         volcDeafRestartsRef.current = 0
@@ -2562,9 +2570,6 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       </div>
       )}
       </div>
-      {userAsk && onUserAsk && (
-        <UserAskWizard pack={userAsk} busy={chatStatus === 'streaming'} onSubmit={onUserAsk} />
-      )}
       <div className="companion-status" aria-live="polite">
         <span className={`companion-status-dot state-${surfaceState}`} aria-hidden="true" />
         {companionStatusLabel(surfaceState, executing)}
@@ -2583,9 +2588,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         )}
         {surfaceState === 'thinking' && (
           <span className="companion-status-sub">
-            {userAsk
-              ? '要你点，我不能代点是'
-              : activityStatus?.trim() ||
+            {activityStatus?.trim() ||
                 (executing
                   ? '正在执行…'
                   : assistantText.trim()

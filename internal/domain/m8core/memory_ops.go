@@ -69,6 +69,7 @@ type MemorySettings struct {
 	SubjectID     string
 	MemoryEnabled bool
 	AutoNominate  bool
+	CaptureMode   string
 	GrowthDays    int
 	CreatedAt     string
 	UpdatedAt     string
@@ -92,12 +93,15 @@ func GrowthTerminal(status string) bool {
 // DefaultMemorySettings returns the implicit profile applied when no row
 // exists yet: memory on, auto-nomination off, 14-day observation window.
 func DefaultMemorySettings(subjectID string) MemorySettings {
-	return MemorySettings{SubjectID: subjectID, MemoryEnabled: true, AutoNominate: false, GrowthDays: 14}
+	return MemorySettings{SubjectID: subjectID, MemoryEnabled: true, AutoNominate: false, CaptureMode: "auto", GrowthDays: 14}
 }
 
 // SettingsValidate checks subject/profile invariants.
 func SettingsValidate(s MemorySettings) bool {
 	if len(s.SubjectID) < 1 || len(s.SubjectID) > MaxSubjectID {
+		return false
+	}
+	if s.CaptureMode != "" && s.CaptureMode != "auto" && s.CaptureMode != "manual" && s.CaptureMode != "off" {
 		return false
 	}
 	return s.GrowthDays >= MinGrowthDays && s.GrowthDays <= MaxGrowthDays

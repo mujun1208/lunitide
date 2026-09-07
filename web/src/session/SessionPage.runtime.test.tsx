@@ -62,9 +62,9 @@ it('encodes the maximum safe attachment payload and rejects larger files',async(
  await fireEvent.change(input,{target:{files:[file]}})
  await waitFor(()=>expect(commit).toHaveBeenCalledOnce(),{timeout:20_000})
  expect(begin).toHaveBeenCalledWith(expect.objectContaining({projectId:P,sessionId:S,originalName:'safe.txt',size:ATTACHMENT_FILE_MAX,sha256:expect.stringMatching(/^[0-9a-f]{64}$/)}))
- expect(chunk).toHaveBeenCalledTimes(80)
+ expect(chunk).toHaveBeenCalledTimes(320)
  expect(chunk.mock.calls[0][0]).toMatchObject({uploadId:'01ARZ3NDEKTSV4RRFFQ69G5FAC',offset:0})
- expect(chunk.mock.calls[79][0]).toMatchObject({offset:ATTACHMENT_FILE_MAX-128*1024})
+ expect(chunk.mock.calls[319][0]).toMatchObject({offset:ATTACHMENT_FILE_MAX-32*1024})
  const oversized=new File([new Uint8Array(ATTACHMENT_FILE_MAX+1)],'too-large.txt',{type:'text/plain'})
  await fireEvent.change(input,{target:{files:[oversized]}})
  await waitFor(()=>expect(screen.getAllByRole('status').some(node=>/已跳过 1 个/.test(node.textContent??''))).toBe(true))
@@ -509,7 +509,7 @@ it('uploads multiple dropped files and a pasted screenshot from the composer',as
 it('shows the uploaded image in the user bubble instead of a raw attachment token',async()=>{
  const id='01ARZ3NDEKTSV4RRFFQ69G5FAD'
  const bytes=new Uint8Array([1,2,3]),file=new File([bytes],'shot.png',{type:'image/png'})
- rememberAttachmentPreview(id,file)
+ rememberAttachmentPreview(id,file,'data:image/png;base64,AQID')
  const userMessage:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',text:`[attachment:${id}|shot.png] 看看这个图片`,status:'completed',sequence:1,createdAt:NOW}
  render(<SessionPage project={project} bridge={sessionBridge} messages={{list:vi.fn().mockResolvedValue(page([userMessage])),append:vi.fn()} as MessageBridge} onBack={vi.fn()} personal initialSession={session}/>)
  expect(await screen.findByText('看看这个图片')).toBeInTheDocument()
@@ -700,6 +700,49 @@ it('does not open a stale historical model menu when refreshing providers fails'
  const list=vi.fn().mockResolvedValueOnce({items:[provider]}).mockRejectedValueOnce(new BridgeClientError('模型列表格式无效','INVALID_BRIDGE_RESULT',false,'test'))
  const user=await open({personal:true,initialSession:session,providers:{list} as unknown as ProviderBridge,chat:{start:vi.fn(),dispose:vi.fn()}})
  await user.click(await screen.findByRole('button',{name:'已配置模型'}));expect(screen.queryByRole('menu')).toBeNull();expect(await screen.findByText('模型列表格式无效')).toBeInTheDocument()
+})
+
+it('retires a successfully saved live response and keeps one expandable historical process',async()=>{
+ let onEvent!:(event:StreamEvent)=>void
+ const question:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',text:'核对我的文件',status:'completed',sequence:1,createdAt:NOW}
+ const answer:MessageDTO={...question,id:'01ARZ3NDEKTSV4RRFFQ69G5FAH',role:'assistant',sequence:2,text:'文件已核对完成。',hasProcess:true,artifacts:[{kind:'docx',path:'audit.docx',callId:'audit-doc',toolName:'docx.gen'}]}
+ const list=vi.fn().mockResolvedValue(page([question])),process=vi.fn().mockResolvedValue({messageId:answer.id,thinking:'先逐项核对文件。',tools:[],truncated:false})
+ const streamId='01ARZ3NDEKTSV4RRFFQ69G5FAD',start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return{streamId,cancel:vi.fn(),dispose:vi.fn()}})
+ const user=userEvent.setup();render(<SessionPage project={project} bridge={sessionBridge} personal providers={providers} initialSession={session} chat={{start,dispose:vi.fn()}} messages={{list,process,append:vi.fn().mockResolvedValue({})} as MessageBridge} onBack={vi.fn()}/>);await screen.findByText(question.text)
+ await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'继续');await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}));await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ list.mockResolvedValue(page([question,answer]))
+ await act(async()=>{
+  onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId,sequence:1,type:'thinking',thinking:{text:'先逐项核对文件。'}})
+  onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',streamId,sequence:2,type:'delta',delta:{text:answer.text}})
+  onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAG',streamId,sequence:3,type:'tool_completed',tool:{callId:'audit-doc',name:'docx.gen',argsDigest:'a'.repeat(64),summary:'文档已生成',artifact:{kind:'docx',path:'audit.docx',content:''}}})
+  onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAI',streamId,sequence:4,type:'completed',completed:{messageId:answer.id}})
+ })
+ await waitFor(()=>expect(screen.queryByLabelText('当前助手回复操作')).not.toBeInTheDocument())
+ expect(screen.getAllByText(answer.text)).toHaveLength(1)
+ expect(screen.getAllByRole('list',{name:'本次对话产物'})).toHaveLength(1)
+ expect(screen.getAllByText('任务过程')).toHaveLength(1)
+ expect(process).not.toHaveBeenCalled()
+ await user.click(screen.getByText('任务过程'))
+ await waitFor(()=>expect(process).toHaveBeenCalledWith({sessionId:S,messageId:answer.id}))
+ expect(await screen.findByText('先逐项核对文件。')).toBeInTheDocument()
+})
+
+it.each(['pending-approval','persist-failed','not-yet-listed'] as const)('keeps the live recovery state for %s',async(kind)=>{
+ let onEvent!:(event:StreamEvent)=>void
+ const question:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',text:'核对文件',status:'completed',sequence:1,createdAt:NOW}
+ const answer:MessageDTO={...question,id:'01ARZ3NDEKTSV4RRFFQ69G5FAH',role:'assistant',sequence:2,text:'仍需保留的当前回答。'}
+ const list=vi.fn().mockResolvedValue(page([question])),streamId='01ARZ3NDEKTSV4RRFFQ69G5FAD',start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return{streamId,cancel:vi.fn(),dispose:vi.fn()}})
+ const user=userEvent.setup();render(<SessionPage project={project} bridge={sessionBridge} personal providers={providers} initialSession={session} chat={{start,approve:vi.fn(),dispose:vi.fn()}} messages={{list,append:vi.fn().mockResolvedValue({})} as MessageBridge} onBack={vi.fn()}/>);await screen.findByText(question.text)
+ await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'继续');await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}));await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ if(kind!=='not-yet-listed')list.mockResolvedValue(page([question,answer]))
+ await act(async()=>{
+  onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId,sequence:1,type:'delta',delta:{text:answer.text}})
+  if(kind==='pending-approval')onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',streamId,sequence:2,type:'approval_required',tool:{callId:'pending-write',name:'workspace.write',argsDigest:'a'.repeat(64),summary:'等待确认写入'}})
+  onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAG',streamId,sequence:3,type:'completed',completed:{messageId:answer.id,persistFailed:kind==='persist-failed'}})
+ })
+ expect(screen.getByLabelText('当前助手回复操作')).toBeInTheDocument()
+ if(kind==='persist-failed')expect(screen.getByRole('button',{name:'只重试写入'})).toBeInTheDocument()
+ if(kind==='pending-approval')expect(screen.getByText('等待确认写入')).toBeInTheDocument()
 })
 
 it('keeps an icon retry action on the completed live response',async()=>{
@@ -1021,4 +1064,59 @@ it('asks before saving a finished personal chat as a skill', async () => {
   expect(confirm).toHaveBeenCalled()
   expect(onSaveAsSkill).toHaveBeenCalledWith(expect.stringContaining('整理成周报技能'))
   confirm.mockRestore()
+})
+
+it('keeps this round’s message references selectable while attachment discovery is stuck',async()=>{
+ const recent:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',text:'本轮真实问题',status:'completed',sequence:1,createdAt:NOW}
+ const reply:MessageDTO={...recent,id:'01ARZ3NDEKTSV4RRFFQ69G5FAD',role:'assistant',text:'本轮真实回答',sequence:2}
+ const list=vi.fn().mockReturnValue(new Promise(()=>{})),attachments={list} as unknown as AttachmentBridge
+ render(<SessionPage project={project} bridge={sessionBridge} messages={{list:vi.fn().mockResolvedValue(page([recent,reply])),append:vi.fn()} as MessageBridge} onBack={vi.fn()} personal initialSession={session} attachments={attachments}/>)
+ await screen.findByText('本轮真实问题')
+ const input=screen.getByLabelText('向月汐提问，或描述你想完成的任务…')
+ fireEvent.change(input,{target:{value:'@'}})
+ expect(await screen.findByRole('option',{name:/月汐：本轮真实回答/})).toBeInTheDocument()
+ fireEvent.keyDown(input,{key:'ArrowDown'});fireEvent.keyDown(input,{key:'Enter'})
+ expect(input).toHaveValue(`[message:${recent.id}|我：本轮真实问题] `)
+ expect(list).toHaveBeenCalledWith({projectId:P,sessionId:S,limit:200})
+})
+it('cancels a stuck host folder read and keeps the composer usable',async()=>{
+ const desktopFiles={pick:vi.fn().mockResolvedValue({canceled:false,items:[{path:'C:/a.txt',fileName:'a.txt',mime:'text/plain',size:3}]}),readChunk:vi.fn().mockReturnValue(new Promise(()=>{}))}
+ const user=await open({personal:true,providers,initialSession:session,desktopFiles})
+ await user.click(screen.getByRole('button',{name:'添加上下文'}));await user.click(screen.getByRole('button',{name:/上传文件夹/}))
+ await waitFor(()=>expect(desktopFiles.readChunk).toHaveBeenCalledOnce())
+ await user.click(screen.getByRole('button',{name:'取消上传'}))
+ await waitFor(()=>expect(screen.queryByRole('button',{name:'取消上传'})).toBeNull())
+ const input=screen.getByLabelText('向月汐提问，或描述你想完成的任务…');await user.type(input,'继续正常对话');expect(input).toHaveValue('继续正常对话')
+})
+
+it.each(['button','enter'])('sends a completed attachment with no typed body via %s and retains its context reference',async(method)=>{
+ const id='01ARZ3NDEKTSV4RRFFQ69G5FAD',data=new Uint8Array([1,2,3]),file=new File([data],'only.txt',{type:'text/plain'});Object.defineProperty(file,'arrayBuffer',{value:async()=>data.buffer})
+ const attachments={list:vi.fn().mockResolvedValue({items:[]}),begin:vi.fn().mockResolvedValue({uploadId:'upload',chunkSize:3}),chunk:vi.fn().mockResolvedValue({nextOffset:3}),commit:vi.fn().mockResolvedValue({attachmentId:id}),abort:vi.fn(),get:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge
+ const start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()}),append=vi.fn().mockResolvedValue({})
+ const user=await open({personal:true,providers,initialSession:session,attachments,chat:{start,dispose:vi.fn()},messages:{list:vi.fn().mockResolvedValue(page()),append} as MessageBridge})
+ fireEvent.change(document.querySelector('.message-actions input[type="file"]:not([webkitdirectory])')!,{target:{files:[file]}})
+ const send=screen.getByRole('button',{name:'↑ 发送并对话'})
+ await waitFor(()=>expect(send).toBeEnabled());if(method==='button')await user.click(send);else fireEvent.keyDown(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),{key:'Enter'})
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ expect(start.mock.calls[0][0]).toMatchObject({contextRefs:[{type:'attachment',id}]})
+ expect(append.mock.calls[0][0].text).toContain(`[attachment:${id}|only.txt]`)
+ expect(append.mock.calls[0][0].text).toContain('请查看这些附件。')
+})
+it.each(['button','enter'])('queues a follow-up via %s with the uploaded attachment token during a running answer',async(method)=>{
+ const id='01ARZ3NDEKTSV4RRFFQ69G5FAD',data=new Uint8Array([1,2,3]),file=new File([data],'follow-up.txt',{type:'text/plain'});Object.defineProperty(file,'arrayBuffer',{value:async()=>data.buffer})
+ const attachments={list:vi.fn().mockResolvedValue({items:[]}),begin:vi.fn().mockResolvedValue({uploadId:'upload',chunkSize:3}),chunk:vi.fn().mockResolvedValue({nextOffset:3}),commit:vi.fn().mockResolvedValue({attachmentId:id}),abort:vi.fn(),get:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge
+ const start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()}),append=vi.fn().mockResolvedValue({}),queued=vi.spyOn(runQueueBridge,'input').mockResolvedValue({queuedId:'01ARZ3NDEKTSV4RRFFQ69G5FAE',seq:1,mark:'turn_boundary',status:'queued'} as never)
+ try{
+  const user=await open({personal:true,providers,initialSession:session,attachments,chat:{start,dispose:vi.fn()},messages:{list:vi.fn().mockResolvedValue(page()),append} as MessageBridge})
+  const input=screen.getByLabelText('向月汐提问，或描述你想完成的任务…');await user.type(input,'分析报告');await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}));await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+  fireEvent.change(document.querySelector('.message-actions input[type="file"]:not([webkitdirectory])')!,{target:{files:[file]}})
+  await screen.findByText('等待随下一条消息发送',{exact:false})
+  await user.type(input,'补充，请结合附件继续')
+  const send=screen.getByRole('button',{name:/补充|追加|发送/});await waitFor(()=>expect(send).toBeEnabled());if(method==='button')await user.click(send);else fireEvent.keyDown(input,{key:'Enter'})
+  await waitFor(()=>expect(queued).toHaveBeenCalledOnce())
+  expect(queued.mock.calls[0][0].text).toContain(`[attachment:${id}|follow-up.txt]`)
+  expect(queued.mock.calls[0][0].text).toContain('补充，请结合附件继续')
+  expect(screen.queryByRole('button',{name:'移除附件 follow-up.txt'})).toBeNull()
+  expect(start).toHaveBeenCalledOnce()
+ }finally{queued.mockRestore()}
 })

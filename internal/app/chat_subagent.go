@@ -7,9 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/oklog/ulid/v2"
 
@@ -95,8 +95,9 @@ func (e *Engine) invokeSubagentTool(ctx context.Context, a llmadapter.Adapter, c
 		if policy.ExpertWork {
 			profile = applyExpertSpawnCaps(profile, policy.ExpertWriteTools)
 		}
-		subA, subCred, subModel := e.subagentAdapter(ctx, a, credential, model, ov)
-		return e.runSubagentSession(ctx, subA, subCred, subModel, sessionID, p.Purpose, budget, profile, subagentToolMode(policy.ParentMode))
+		return e.withSubagentAdapter(ctx, a, credential, model, ov, func(op context.Context, subA llmadapter.Adapter, subCred []byte, subModel string) (string, error) {
+			return e.runSubagentSession(op, subA, subCred, subModel, sessionID, p.Purpose, budget, profile, subagentToolMode(policy.ParentMode))
+		})
 	case "subagent.join":
 		var p struct {
 			SubagentID string `json:"subagentId"`
@@ -120,32 +121,32 @@ func (e *Engine) invokeSubagentTool(ctx context.Context, a llmadapter.Adapter, c
 	return "", errors.New("unknown subagent tool " + tool)
 }
 
-func (e *Engine) subagentAdapter(ctx context.Context, parent llmadapter.Adapter, parentCred []byte, parentModel string, ov subagentProfileOverride) (llmadapter.Adapter, []byte, string) {
+// Lease callbacks own credential lifetime. A provider override must finish
+// inside the callback; returning its slice would use an already-zeroed key.
+func (e *Engine) withSubagentAdapter(ctx context.Context, parent llmadapter.Adapter, parentCred []byte, parentModel string, ov subagentProfileOverride, run func(context.Context, llmadapter.Adapter, []byte, string) (string, error)) (string, error) {
 	if ov.ModelID == "" {
-		return parent, parentCred, parentModel
+		return run(ctx, parent, parentCred, parentModel)
 	}
-	if ov.ProviderID == "" || e.providers == nil {
-		return parent, parentCred, ov.ModelID
+	if ov.ProviderID == "" {
+		return run(ctx, parent, parentCred, ov.ModelID)
+	}
+	if e.providers == nil {
+		return "", errors.New("subagent provider settings unavailable")
 	}
 	item, err := e.providers.Get(ctx, ov.ProviderID)
 	if err != nil {
-		return parent, parentCred, ov.ModelID
+		return "", fmt.Errorf("subagent provider unavailable: %w", err)
 	}
-	var outAdapter llmadapter.Adapter
-	var outCred []byte
+	var result string
 	leaseErr := e.withProviderLease(ctx, item, secretlease.OperationChat, func(op context.Context, cred []byte) error {
 		a, err := e.adapter(op, item)
 		if err != nil {
 			return err
 		}
-		outAdapter = a
-		outCred = cred
-		return nil
+		result, err = run(op, a, cred, ov.ModelID)
+		return err
 	})
-	if leaseErr != nil || outAdapter == nil {
-		return parent, parentCred, ov.ModelID
-	}
-	return outAdapter, outCred, ov.ModelID
+	return result, leaseErr
 }
 
 func subagentStoredPurpose(profile subagentProfileDef, purpose string) string {
@@ -155,7 +156,7 @@ func subagentStoredPurpose(profile subagentProfileDef, purpose string) string {
 	}
 	tagged := fmt.Sprintf("[%s] %s", label, purpose)
 	if len(tagged) > m7flow.SubagentMaxPurpose {
-		tagged = tagged[:m7flow.SubagentMaxPurpose]
+		tagged = truncateUTF8Bytes(tagged, m7flow.SubagentMaxPurpose)
 	}
 	return tagged
 }
@@ -175,24 +176,35 @@ func (e *Engine) runSubagentSession(ctx context.Context, a llmadapter.Adapter, c
 	if err != nil {
 		return "", err
 	}
-	report, spent, execErr := e.executeSubagentLoop(ctx, a, credential, model, sessionID, purpose, budget, profile, parentMode)
-	if len(report) > subagentMaxSummaryChars {
-		report = report[:subagentMaxSummaryChars]
-	}
+	executionCtx, cancel := context.WithTimeout(ctx, time.Duration(subagentDeadlineMS)*time.Millisecond)
+	defer cancel()
+	executionCtx = withSubagentProgress(executionCtx, subagentProgress{ID: run.ID, Profile: profile.DisplayName, Purpose: purpose, Status: "running"})
+	emitSubagentProgress(executionCtx, "starting", "", "任务已开始")
+	report, spent, execErr := e.executeSubagentSafely(executionCtx, a, credential, model, sessionID, purpose, budget, profile, parentMode)
+	status := m7flow.SagCompleted
 	if execErr != nil {
+		status = m7flow.SagFailed
+		if errors.Is(execErr, context.Canceled) {
+			status = m7flow.SagCancelled
+		}
 		report = "subagent execution failed: " + execErr.Error()
-		if len(report) > subagentMaxSummaryChars {
-			report = report[:subagentMaxSummaryChars]
-		}
 	}
-	if _, completeErr := e.m7subagent.Complete(ctx, run.ID, spent, []m7app.ObservationInput{{EvidenceID: ulid.Make().String(), Summary: report}}); completeErr != nil {
-		if execErr == nil {
-			return "", completeErr
-		}
-		log.Printf("subagent complete failed after execution error (quota may leak until deadline): %v", completeErr)
+	if strings.TrimSpace(report) == "" {
+		status = m7flow.SagFailed
+		report = "子任务没有返回有效结果"
 	}
+	report = truncateUTF8Bytes(report, subagentMaxSummaryChars)
+	// A cancelled provider call must still release this run's durable quota.
+	finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	_, completeErr := e.m7subagent.Finish(finishCtx, run.ID, status, spent, []m7app.ObservationInput{{EvidenceID: ulid.Make().String(), Summary: report}})
+	finishCancel()
+	if completeErr != nil {
+		emitSubagentProgress(executionCtx, "failed", "", "任务已结束，但结果保存失败")
+		return "", completeErr
+	}
+	emitSubagentProgress(executionCtx, status, "", report)
 	out, err := json.Marshal(map[string]any{
-		"subagentId": run.ID, "status": "completed", "profile": profile.ID,
+		"subagentId": run.ID, "status": status, "profile": profile.ID,
 		"summary": report, "spentTokens": spent,
 	})
 	if err != nil {
@@ -213,6 +225,9 @@ func (e *Engine) executeSubagentLoop(ctx context.Context, a llmadapter.Adapter, 
 	if prompt == "" {
 		prompt = subagentSystemPrompt
 	}
+	if len(profile.WriteTools) > 0 {
+		prompt += " This task explicitly grants these additional tools: " + strings.Join(profile.WriteTools, ", ") + ". Use them only for the assigned purpose; all parent approval rules still apply."
+	}
 	maxSteps := profile.MaxSteps
 	if maxSteps < 1 {
 		maxSteps = subagentMaxSteps
@@ -229,6 +244,10 @@ func (e *Engine) executeSubagentLoop(ctx context.Context, a llmadapter.Adapter, 
 	}
 	var spent int64
 	for step := 0; step < maxSteps; step++ {
+		if err := ctx.Err(); err != nil {
+			return "", spent, err
+		}
+		emitSubagentProgress(ctx, "thinking", "", "正在分析任务")
 		resp, err := e.completeMaybeRotate(ctx, a, credential, req)
 		if err != nil {
 			return "", spent, err
@@ -277,8 +296,9 @@ func (e *Engine) runSubagentToolCalls(ctx context.Context, sessionID string, pro
 	spawned := make([]bool, len(calls))
 	var wg sync.WaitGroup
 	started := 0
+	profileAllowed := toolNameSet(subagentEngineToolDefinitions(profile))
 	for i, call := range calls {
-		if !allowed[call.Name] {
+		if !allowed[call.Name] || !profileAllowed[call.Name] || !subagentCallAllowed(profile, call) {
 			summaries[i] = "refused: tool not allowed for profile " + profile.ID
 			spawned[i] = true
 			continue
@@ -303,9 +323,7 @@ func (e *Engine) runSubagentToolCalls(ctx context.Context, sessionID string, pro
 	out := make([]llmadapter.Message, len(calls))
 	for i, call := range calls {
 		summary := summaries[i]
-		if len(summary) > 4096 {
-			summary = summary[:4096]
-		}
+		summary = truncateUTF8Bytes(summary, 4096)
 		out[i] = llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary}
 	}
 	return out
@@ -315,10 +333,26 @@ func (e *Engine) runSubagentToolCalls(ctx context.Context, sessionID string, pro
 // watching a subagent, so an approval-mode parent has to see its writes
 // refused rather than have them auto-approved on its behalf.
 func (e *Engine) runSubagentTool(ctx context.Context, sessionID string, call llmadapter.ToolCall, parentMode executionMode) string {
-	r, err := e.tools.Execute(ctx, toolruntime.Mode(subagentToolMode(parentMode)), sessionID, call.Name, call.Arguments, false)
+	if reason, denied := ungatedEngineToolDenied(subagentToolMode(parentMode), false, call.Name, call.Arguments); denied {
+		return reason
+	}
+	stage := "tool"
+	if call.Name == "web.search" || call.Name == "web.fetch" {
+		stage = "searching"
+	}
+	emitSubagentProgress(ctx, stage, call.Name, "正在执行")
+	var r toolruntime.Result
+	var err error
+	if call.Name == "browser.act" {
+		r, err = e.invokeBrowserAct(ctx, subagentToolMode(parentMode), sessionID, call.Arguments)
+	} else {
+		r, err = e.tools.Execute(ctx, toolruntime.Mode(subagentToolMode(parentMode)), sessionID, call.Name, call.Arguments, false)
+	}
 	if err != nil {
+		emitSubagentProgress(ctx, "tool", call.Name, "工具执行失败，正在整理结果")
 		return err.Error()
 	}
+	emitSubagentProgress(ctx, "tool", call.Name, "工具已完成")
 	return r.Output
 }
 
@@ -351,45 +385,8 @@ func subagentEngineToolDefinitions(profile subagentProfileDef) []llmadapter.Tool
 }
 
 func readOnlyEngineToolDefinitionsForProfile(profile subagentProfileDef) []llmadapter.ToolDefinition {
-	if capsIncludeAll(profile.ReadCaps, fullSubagentReadCaps()) {
-		return fullReadOnlySubagentTools()
-	}
-	all := readOnlyEngineToolDefinitions()
-	switch profile.ID {
-	case "research":
-		return filterToolDefs(all, map[string]bool{"web.search": true, "web.fetch": true})
-	case "browser":
-		return withBrowserAct(filterToolDefs(all, map[string]bool{"web.search": true, "web.fetch": true}))
-	case "shell":
-		return filterToolDefs(all, map[string]bool{"command.run": true, "workspace.list": true, "workspace.read": true, "workspace.search": true})
-	case "explore", "review", "test":
-		return filterToolDefs(all, workspaceReadTools())
-	}
-	return all
-}
-
-func fullReadOnlySubagentTools() []llmadapter.ToolDefinition {
-	return withBrowserAct(readOnlyEngineToolDefinitions())
-}
-
-func withBrowserAct(defs []llmadapter.ToolDefinition) []llmadapter.ToolDefinition {
-	for _, d := range defs {
-		if d.Name == "browser.act" {
-			return defs
-		}
-	}
-	for _, d := range engineToolDefinitions() {
-		if d.Name == "browser.act" {
-			return append(defs, d)
-		}
-	}
-	return defs
-}
-
-func workspaceReadTools() map[string]bool {
-	return map[string]bool{
-		"workspace.list": true, "workspace.read": true, "workspace.search": true, "command.run": true,
-	}
+	allow := subagentReadTools(profile.ReadCaps)
+	return filterToolDefs(engineToolDefinitions(), allow)
 }
 
 func filterToolDefs(all []llmadapter.ToolDefinition, allow map[string]bool) []llmadapter.ToolDefinition {
@@ -403,15 +400,9 @@ func filterToolDefs(all []llmadapter.ToolDefinition, allow map[string]bool) []ll
 }
 
 func readOnlyEngineToolDefinitions() []llmadapter.ToolDefinition {
-	all := engineToolDefinitions()
-	out := make([]llmadapter.ToolDefinition, 0, len(all))
-	for _, d := range all {
-		if d.Name == "workspace.write" || d.Name == "workspace.edit" || d.Name == "html.gen" || d.Name == "desktop.open" || d.Name == "desktop.type" || d.Name == "media.play" || d.Name == "browser.act" || d.Name == "image.generate" || d.Name == "video.generate" || d.Name == "video.understand" || d.Name == "run_terminal_cmd" || d.Name == toolStructuredOutput || d.Name == "user.ask" {
-			continue
-		}
-		out = append(out, d)
-	}
-	return out
+	allow := subagentReadTools(fullSubagentReadCaps())
+	delete(allow, "browser.act")
+	return filterToolDefs(engineToolDefinitions(), allow)
 }
 
 type subagentFutureResult struct {
@@ -419,25 +410,39 @@ type subagentFutureResult struct {
 	err     error
 }
 
-func startSubagentFutures(ctx context.Context, e *Engine, a llmadapter.Adapter, credential []byte, model, sessionID string, calls []llmadapter.ToolCall, policy subagentChatPolicy) map[string]chan subagentFutureResult {
+func startSubagentFutures(ctx context.Context, e *Engine, a llmadapter.Adapter, credential []byte, model, sessionID string, calls []llmadapter.ToolCall, policy subagentChatPolicy, observers ...func(callID string, progress subagentProgress)) map[string]chan subagentFutureResult {
 	futures := make(map[string]chan subagentFutureResult)
 	started := 0
 	for _, call := range calls {
-		if call.Name != "subagent.spawn" || started >= maxParallelSubagentSpawns {
+		if call.Name != "subagent.spawn" || call.ID == "" || futures[call.ID] != nil || started >= maxParallelSubagentSpawns {
 			continue
 		}
 		started++
 		ch := make(chan subagentFutureResult, 1)
 		futures[call.ID] = ch
 		go func(call llmadapter.ToolCall) {
+			defer close(ch)
+			childCtx := ctx
+			if len(observers) > 0 && observers[0] != nil {
+				childCtx = withSubagentObserver(ctx, func(update subagentProgress) { observers[0](call.ID, update) })
+			}
 			defer func() {
 				if r := recover(); r != nil {
 					ch <- subagentFutureResult{err: fmt.Errorf("subagent panicked: %v", r)}
 				}
 			}()
-			summary, err := e.invokeSubagentTool(ctx, a, credential, model, sessionID, call.Name, call.Arguments, policy)
+			summary, err := e.invokeSubagentTool(childCtx, a, credential, model, sessionID, call.Name, call.Arguments, policy)
 			ch <- subagentFutureResult{summary: summary, err: err}
 		}(call)
 	}
 	return futures
+}
+
+func (e *Engine) executeSubagentSafely(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID, purpose string, budget int64, profile subagentProfileDef, parentMode executionMode) (report string, spent int64, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("subagent execution panic: %v", recovered)
+		}
+	}()
+	return e.executeSubagentLoop(ctx, a, credential, model, sessionID, purpose, budget, profile, parentMode)
 }

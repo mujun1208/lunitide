@@ -1,0 +1,11 @@
+.subagent-activity-row{border:1px solid var(--rule);border-radius:8px;margin:6px 0;background:var(--bg2);color:var(--ink);font-size:12px}
+.subagent-activity-row>summary{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;list-style:none}
+.subagent-activity-row>summary b{flex:1;min-width:0;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;font-weight:500}
+.subagent-activity-row>summary [role=status]{color:var(--muted);flex-shrink:0}
+.subagent-activity-indicator{color:var(--tide1)}
+.subagent-activity-row.is-running .subagent-activity-indicator{animation:subagent-activity-spin 1.5s linear infinite}
+.subagent-activity-row.is-failed .subagent-activity-indicator{color:var(--err)}
+.subagent-activity-detail{padding:0 12px 10px;max-height:280px;overflow:auto}
+.subagent-activity-detail pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0;font:inherit}
+@keyframes subagent-activity-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.subagent-activity-row.is-running .subagent-activity-indicator{animation:none}}

@@ -2,8 +2,10 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -49,6 +51,9 @@ func fakeStdioMcpServer(mode string) {
 		if err := json.Unmarshal(line, &req); err != nil {
 			continue
 		}
+		if req.Method == "" {
+			continue
+		} // response to the server ping
 		if req.ID == nil {
 			continue // notification, no answer
 		}
@@ -85,8 +90,31 @@ func fakeStdioMcpServer(mode string) {
 		default:
 			result = map[string]any{}
 		}
+		if strings.HasPrefix(mode, "version:") && req.Method == "initialize" {
+			result.(map[string]any)["protocolVersion"] = strings.TrimPrefix(mode, "version:")
+		}
+		if mode == "notifications" || mode == "flood" {
+			count := 1
+			if mode == "flood" {
+				count = 258
+			}
+			for i := 0; i < count; i++ {
+				_, _ = out.WriteString(`{"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info","data":"ready"}}` + "\n")
+			}
+		}
+		if mode == "requests" {
+			_, _ = out.WriteString(`{"jsonrpc":"2.0","id":"server-ping","method":"ping"}` + "\n")
+			_, _ = out.WriteString(`{"jsonrpc":"2.0","id":"roots","method":"roots/list"}` + "\n")
+		}
 		writeJSONRPC(out, *req.ID, result)
 		out.Flush()
+		if mode == "stop-reading" && req.Method == "initialize" {
+			// Keep the pipe open but never consume initialized or tools/call bytes.
+			// The parent must kill us when its write deadline/cancellation fires.
+			for {
+				time.Sleep(time.Second)
+			}
+		}
 	}
 }
 
@@ -205,5 +233,122 @@ func TestStdioWindowsShimPathWithSpaces(t *testing.T) {
 	tools, err := s.ListTools(context.Background())
 	if err != nil || len(tools) != 1 {
 		t.Fatalf("shim protocol: %v", err)
+	}
+}
+
+func TestStdioNegotiatesInstalledServerVersionsAndInterleaving(t *testing.T) {
+	for _, mode := range []string{"notifications", "requests", "version:2024-11-05", "version:2025-06-18", "version:2025-11-25"} {
+		t.Run(mode, func(t *testing.T) {
+			s := dialFake(t, mode)
+			tools, err := s.ListTools(context.Background())
+			if err != nil || len(tools) != 1 {
+				t.Fatalf("tools after initialize: %v %v", tools, err)
+			}
+			out, err := s.CallTool(context.Background(), "echo", []byte(`{"text":"still connected"}`))
+			if err != nil || len(out.Texts) != 1 || out.Texts[0] != "echo:still connected" {
+				t.Fatalf("call after notifications: %+v %v", out, err)
+			}
+		})
+	}
+}
+func TestStdioRejectsUnknownVersionAndNotificationFlood(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"version:2099-01-01", "flood"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			s, err := StdioDial(ctx, exe, []string{"-test.run=TestMain"}, t.TempDir(), []string{"STDIO_MCP_FAKE=1", "STDIO_MCP_FAKE_MODE=" + mode})
+			if s != nil {
+				s.Close()
+			}
+			if err == nil {
+				t.Fatal("invalid server accepted")
+			}
+		})
+	}
+}
+
+func TestStdioSetupBudgetRetainsParentCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	setup := WithStdioStartupBudget(ctx)
+	if stdioHandshakeBudget(ctx) != 20*time.Second || stdioHandshakeBudget(setup) != 60*time.Second {
+		t.Fatal("startup and normal budgets changed")
+	}
+	cancel()
+	if !errors.Is(setup.Err(), context.Canceled) {
+		t.Fatal("setup escaped cancellation")
+	}
+}
+
+func TestStdioRepliesToServerRequestsWithoutGrantingRoots(t *testing.T) {
+	var written bytes.Buffer
+	s := &StdioSession{stdin: bufio.NewWriter(&written), stdout: bufio.NewScanner(strings.NewReader(`{"jsonrpc":"2.0","id":"p","method":"ping"}` + "\n" + `{"jsonrpc":"2.0","id":"r","method":"roots/list"}` + "\n" + `{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}` + "\n"))}
+	var result map[string]any
+	if err := s.readResponse(1, "tools/list", &result); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(written.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatal(written.String())
+	}
+	var ping, roots map[string]json.RawMessage
+	if json.Unmarshal([]byte(lines[0]), &ping) != nil || string(ping["id"]) != `"p"` || string(ping["result"]) != `{}` {
+		t.Fatal(lines[0])
+	}
+	if json.Unmarshal([]byte(lines[1]), &roots) != nil || string(roots["id"]) != `"r"` || !strings.Contains(string(roots["error"]), "-32601") || roots["result"] != nil {
+		t.Fatal(lines[1])
+	}
+}
+
+func TestStdioCancellationReleasesBackpressuredRequestWriter(t *testing.T) {
+	for _, explicit := range []bool{false, true} {
+		name := "deadline"
+		if explicit {
+			name = "explicit cancel"
+		}
+		t.Run(name, func(t *testing.T) {
+			s := dialFake(t, "stop-reading")
+			var ctx context.Context
+			var cancel context.CancelFunc
+			if explicit {
+				ctx, cancel = context.WithCancel(context.Background())
+				timer := time.AfterFunc(200*time.Millisecond, cancel)
+				defer timer.Stop()
+			} else {
+				ctx, cancel = context.WithTimeout(context.Background(), 200*time.Millisecond)
+			}
+			defer cancel()
+			args, _ := json.Marshal(map[string]string{"text": strings.Repeat("x", 2<<20)})
+			done := make(chan error, 1)
+			started := time.Now()
+			go func() { _, err := s.CallTool(ctx, "echo", args); done <- err }()
+			select {
+			case err := <-done:
+				expected := context.DeadlineExceeded
+				if explicit {
+					expected = context.Canceled
+				}
+				if !errors.Is(err, expected) {
+					t.Fatalf("lost cancellation: %v", err)
+				}
+			case <-time.After(3 * time.Second):
+				// Failure cleanup also releases the old implementation's blocked writer.
+				s.Close()
+				<-done
+				t.Fatal("request write ignored cancellation")
+			}
+			if time.Since(started) > 3*time.Second {
+				t.Fatal("unbounded cleanup")
+			}
+			// A canceled session retires; an independent connection is usable immediately.
+			fresh := dialFake(t, "")
+			result, err := fresh.CallTool(context.Background(), "echo", []byte(`{"text":"after cancel"}`))
+			if err != nil || len(result.Texts) != 1 || result.Texts[0] != "echo:after cancel" {
+				t.Fatalf("next session: %+v %v", result, err)
+			}
+		})
 	}
 }

@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import { BridgeClientError, runQueueBridge, type RunQueueBridge } from '../bridge/client'
 import { FOLLOW_UP_QUEUE_NOTICE } from './turnControl'
+import { ENGINE_RECOVERED_EVENT } from '../bridge/engineHealth'
 import { QueueStrip, useInputQueue } from './inputQueue'
 
 vi.mock('../bridge/client', async importOriginal => {
@@ -25,6 +26,21 @@ const queue = () => vi.mocked(runQueueBridge)
 const DELIVERY_ID = '01ARZ3NDEKTSV4RRFFQ69G5FAY', MESSAGE_ID = '01ARZ3NDEKTSV4RRFFQ69G5FAZ'
 
 const item = (seq: number, text: string) => ({ queuedId: `01ARZ3NDEKTSV4RRFFQ69G5FA${String(seq).padStart(2, '0')}`, seq, text, status: 'queued' as const, mark: 'turn_boundary' as const, createdAt: '2025-01-01T00:00:00Z' })
+
+it('reloads saved supplements and clears the read failure after engine recovery without sending', async () => {
+  queue().list.mockRejectedValueOnce(new Error('RPC closed')).mockResolvedValue({ items: [item(1, 'saved')] })
+  const { result, unmount } = renderHook(() => useInputQueue(MESSAGE_ID))
+  await waitFor(() => expect(result.current.notice).toContain('暂时无法读取'))
+  await act(async () => { window.dispatchEvent(new Event(ENGINE_RECOVERED_EVENT)) })
+  await waitFor(() => expect(result.current.items).toHaveLength(1))
+  expect(result.current.notice).toBe('')
+  expect(queue().input).not.toHaveBeenCalled()
+  expect(queue().consume).not.toHaveBeenCalled()
+  unmount()
+  const calls = queue().list.mock.calls.length
+  window.dispatchEvent(new Event(ENGINE_RECOVERED_EVENT))
+  expect(queue().list).toHaveBeenCalledTimes(calls)
+})
 
 it('loads the queued projection on mount and after enqueue', async () => {
   const bridge = queue()

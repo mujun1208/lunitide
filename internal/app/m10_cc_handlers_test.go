@@ -278,3 +278,47 @@ func ccConfigRequest(t *testing.T, e *Engine, payload string) bridge.Request {
 	}
 	return nominationRequest("cc.updateConfig", string(raw))
 }
+
+func TestCcGlobalPersistentConfigurationSurvivesEngineRecreation(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "global-control.db")
+	store, err := storage.OpenTemplated(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := ccapp.New(store.AgentRuntimeRepository())
+	cfg, err := svc.GetConfig(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	on, zero := true, 0
+	saved, err := svc.UpdateConfig(ctx, ccapp.SettingsPatch{ExpectedRevision: cfg.Revision, Enabled: &on, ArmMinutes: &zero})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := storage.OpenTemplated(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	for _, route := range []string{"typing", "local-voice", "system-voice", "volc-voice"} {
+		t.Run(route, func(t *testing.T) {
+			engine := NewEngine(nil, "test")
+			engine.SetCcControlService(ccapp.New(reopened.AgentRuntimeRepository()))
+			response := engine.Handle(ctx, nominationRequest("cc.getConfig", `{}`))
+			if !response.OK {
+				t.Fatalf("get: %+v", response)
+			}
+			var current ccapp.Settings
+			if err := json.Unmarshal(mustJSON(response.Payload), &current); err != nil {
+				t.Fatal(err)
+			}
+			if !current.Enabled || current.ArmedUntil != "" || current.Revision != saved.Revision {
+				t.Fatalf("configuration reset: %+v", current)
+			}
+		})
+	}
+}

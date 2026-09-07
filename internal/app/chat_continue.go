@@ -218,6 +218,9 @@ func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []st
 	if companion && companionGoalIsOpenOnly(userGoal) && desktopOpenSucceeded(toolOut, lastTools) && !strings.Contains(stepText+assistantAll+toolOut, "无法执行") {
 		return ""
 	}
+	if companion && companionCloseResultSettled(stepText, userGoal, toolOut) {
+		return ""
+	}
 	if companion && usedDesktop && shouldContinueDesktopTurnGoal(stepText, userGoal, nudges) {
 		return "desktop"
 	}
@@ -229,6 +232,30 @@ func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []st
 		return "leadin"
 	}
 	return ""
+}
+
+func companionCloseResultSettled(text, goal, toolOut string) bool {
+	// Closing an app is a terminal action only when that is the actual goal
+	// and its tool reported success. A caption alone cannot prove success.
+	g := strings.ToLower(strings.TrimSpace(goal))
+	if !strings.Contains(g, "关闭") && !strings.Contains(g, "关掉") && !strings.HasPrefix(g, "close ") {
+		return false
+	}
+	for _, continuation := range []string{"然后", "再打开", "并", "之后", "播放", "写入", "发送", "所有", "全部", " and "} {
+		if strings.Contains(g, continuation) {
+			return false
+		}
+	}
+	if companionToolResultFailed(toolOut) {
+		return false
+	}
+	out := strings.ToLower(toolOut)
+	if strings.Contains(out, "unverified") || strings.Contains(out, "screen unchanged") {
+		return false
+	}
+	verified := strings.Contains(out, "closed") || strings.Contains(out, "已关闭") || strings.Contains(out, "关闭成功") ||
+		((strings.HasPrefix(out, "window close ") || strings.HasPrefix(out, "quit ")) && strings.Contains(out, "screen updated"))
+	return verified && (strings.Contains(text, "关闭") || strings.Contains(text, "关掉") || strings.Contains(strings.ToLower(text), "closed"))
 }
 
 func companionWantsDesktopControl(text string) bool {

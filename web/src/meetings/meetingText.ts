@@ -100,11 +100,13 @@ export function pickMeetingFinalText(carried: string, settled: string): string {
   const s = settled.trim()
   if (!c) return s
   if (!s) return c
+  if (c !== s && c.endsWith(s)) return c
   const cLen = Array.from(c).length
   const sLen = Array.from(s).length
-  if (sLen >= cLen * 0.75 || (sLen > cLen && !c.includes(s))) return s
   if (c.includes(s) && sLen < cLen * 0.6) return c
-  return absorbHeldTranscript(c, s)
+  // A finish is a revised hypothesis, not an extra segment. Appending a
+  // shorter correction here would recreate the same repeated-paragraph bug.
+  return s
 }
 
 export type MeetingLineBuffer = {
@@ -229,11 +231,14 @@ export function collapseLiveTranscriptLines(lines: string[]): string[] {
   return out
 }
 
-export function createMeetingLineBuffer(emit: (line: string) => void): MeetingLineBuffer {
+export function createMeetingLineBuffer(emit: (line: string) => void, normalizedTurns = false): MeetingLineBuffer {
   let pending = ''
   let lastEmitted = ''
   let lastAt = 0
   let timer = 0
+  // Recognizer adapters already deduplicate by provider result identity. A
+  // person may really repeat a sentence; do not erase it by matching words.
+  const deltaFrom = (prior: string, incoming: string) => normalizedTurns ? incoming : meetingLineDelta(prior, incoming)
 
   const flush = () => {
     window.clearTimeout(timer)
@@ -242,9 +247,9 @@ export function createMeetingLineBuffer(emit: (line: string) => void): MeetingLi
     pending = ''
     lastAt = 0
     if (!line) return
-    const delta = meetingLineDelta(lastEmitted, line)
+    const delta = deltaFrom(lastEmitted, line)
     if (!delta) return
-    lastEmitted = lastEmitted && compactMeetingText(line).startsWith(compactMeetingText(lastEmitted))
+    if (!normalizedTurns) lastEmitted = lastEmitted && compactMeetingText(line).startsWith(compactMeetingText(lastEmitted))
       ? line
       : lastEmitted ? `${lastEmitted}${delta}` : delta
     emit(delta)
@@ -252,7 +257,7 @@ export function createMeetingLineBuffer(emit: (line: string) => void): MeetingLi
 
   return {
     push(raw: string) {
-      const cleaned = meetingLineDelta(lastEmitted, cleanMeetingTranscript(raw))
+      const cleaned = deltaFrom(lastEmitted, cleanMeetingTranscript(raw))
       if (!cleaned) return
       const now = Date.now()
       const gap = lastAt ? now - lastAt : Number.POSITIVE_INFINITY
@@ -262,9 +267,9 @@ export function createMeetingLineBuffer(emit: (line: string) => void): MeetingLi
         if (pending) {
           const prev = pending
           pending = ''
-          const delta = meetingLineDelta(lastEmitted, prev)
+          const delta = deltaFrom(lastEmitted, prev)
           if (delta) {
-            lastEmitted = lastEmitted && compactMeetingText(prev).startsWith(compactMeetingText(lastEmitted))
+            if (!normalizedTurns) lastEmitted = lastEmitted && compactMeetingText(prev).startsWith(compactMeetingText(lastEmitted))
               ? prev
               : lastEmitted ? `${lastEmitted}${delta}` : delta
             emit(delta)

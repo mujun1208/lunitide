@@ -29,7 +29,7 @@ func (r *Runtime) desktopWritePath(requested, fallback, requiredExt string, desk
 	if r == nil || !unconfined || !r.FullDiskEnabled() {
 		return "", errors.New("desktop=true requires full-disk full-access")
 	}
-	dir, err := userDesktopDir()
+	dir, err := r.desktopDirectory()
 	if err != nil {
 		return "", err
 	}
@@ -60,6 +60,13 @@ func desktopPreviewPath(requested string, desktop bool, fallback string) string 
 		return "desktop/" + base
 	}
 	return filepath.ToSlash(base)
+}
+
+func (r *Runtime) desktopDirectory() (string, error) {
+	if r != nil && r.desktopRoot != nil {
+		return r.desktopRoot()
+	}
+	return userDesktopDir()
 }
 
 func userDesktopDir() (string, error) {

@@ -71,7 +71,7 @@ func (s *MemoryService) RecallForInject(ctx context.Context, in RecallInput) (Re
 			}
 		}
 	}
-	rows, err := s.listCandidates(ctx, m8core.CandConfirmed, 200)
+	rows, err := s.visibleConfirmedCandidates(ctx, 200)
 	if err != nil {
 		return RecallResult{}, err
 	}
@@ -98,6 +98,10 @@ func (s *MemoryService) RecallForInject(ctx context.Context, in RecallInput) (Re
 			continue
 		}
 		content := strings.TrimSpace(doc.Content)
+		if doc.ScopeID == LearningScope {
+			content = m8core.PersonalMemoryContent(doc)
+			doc.Content = content
+		}
 		if content == "" {
 			continue
 		}

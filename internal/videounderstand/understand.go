@@ -6,25 +6,32 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 )
 
 type FetchFunc func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error)
 
+const (
+	understandTimeout = 30 * time.Second
+	maxPageBytes      = 1 << 20
+)
+
 type Result struct {
-	OK                 bool
-	Platform           Platform
-	Source             string
-	Reason             string
-	Title              string
-	Author             string
-	FinalURL           string
-	Description        string
-	Captions           string
-	CaptionsTruncated  bool
-	CoverDescribed     bool
-	Disclaimer         string
+	OK                bool
+	Platform          Platform
+	Source            string
+	Reason            string
+	Title             string
+	Author            string
+	FinalURL          string
+	Description       string
+	Captions          string
+	CaptionReason     string
+	CaptionsTruncated bool
+	CoverDescribed    bool
+	Disclaimer        string
 }
 
 func (r Result) Format() string {
@@ -42,6 +49,9 @@ func (r Result) Format() string {
 	}
 	if r.Reason != "" {
 		b.WriteString("reason: " + r.Reason + "\n")
+	}
+	if r.CaptionReason != "" {
+		b.WriteString("captionsUnavailable: " + r.CaptionReason + "\n")
 	}
 	if r.Title != "" {
 		b.WriteString("title: " + r.Title + "\n")
@@ -65,7 +75,8 @@ func (r Result) Format() string {
 	b.WriteString("disclaimer: " + disclaimer + "\n")
 	if r.Description != "" {
 		b.WriteString("\n根据标题和简介：\n" + r.Description + "\n")
-	} else if r.Source == "page_meta" || r.Source == "empty" {
+	}
+	if r.Captions == "" && r.OK {
 		b.WriteString("\n根据标题和简介整理，没有公开字幕。禁止假装看完全片。\n")
 	}
 	if r.Captions != "" {
@@ -81,6 +92,10 @@ func (r Result) Format() string {
 }
 
 func Understand(ctx context.Context, rawURL string, fetch FetchFunc) Result {
+	// One budget covers the page and its subtitle, including redirects. Do not
+	// restart a fresh timeout after a slow page fetch.
+	ctx, cancel := context.WithTimeout(ctx, understandTimeout)
+	defer cancel()
 	canon, plat, ok := ClassifyShareURL(rawURL)
 	if !ok {
 		return fail("", "unsupported_host", "")
@@ -88,35 +103,41 @@ func Understand(ctx context.Context, rawURL string, fetch FetchFunc) Result {
 	if fetch == nil {
 		return fail(plat, "fetch_failed", canon)
 	}
+	if err := ctx.Err(); err != nil {
+		return fail(plat, fetchFailureReason(err), canon)
+	}
 	page, err := fetch(ctx, canon)
 	if err != nil {
-		if networkpolicy.ErrorCode(err) == networkpolicy.CodeSSRFBlocked {
-			return fail(plat, "ssrf_blocked", canon)
-		}
-		return fail(plat, "fetch_failed", canon)
+		return fail(plat, fetchFailureReason(err), canon)
 	}
 	final := strings.TrimSpace(page.FinalURL)
 	if final == "" {
 		final = canon
 	}
-	if u, err := url.Parse(final); err != nil || u.Host == "" {
+	if _, _, shareOK := ClassifyShareURL(final); !shareOK {
 		return fail(plat, "unsupported_host", final)
-	} else if _, shareOK := SharePlatform(u.Hostname()); !shareOK {
-		return fail(plat, "unsupported_host", final)
+	}
+	if page.Status < 200 || page.Status >= 300 {
+		return fail(plat, fmt.Sprintf("http_%d", page.Status), final)
+	}
+	if len(page.Body) > maxPageBytes {
+		page.Body = page.Body[:maxPageBytes]
 	}
 	parsed := ParseHTML(string(page.Body))
 	out := Result{
-		Platform:   plat,
-		Title:      parsed.Title,
-		Author:     parsed.Author,
-		FinalURL:   final,
-		Description: parsed.Description,
-		Disclaimer: Disclaimer,
+		Platform:    plat,
+		Title:       truncateUTF8(parsed.Title, 1024),
+		Author:      truncateUTF8(parsed.Author, 512),
+		FinalURL:    final,
+		Description: truncateUTF8(parsed.Description, 16<<10),
+		Disclaimer:  Disclaimer,
 	}
 	if parsed.CaptionURL != "" {
 		if capRes, capErr := fetchCaption(ctx, parsed.CaptionURL, fetch); capErr == nil {
 			out.Captions = capRes.text
 			out.CaptionsTruncated = capRes.truncated
+		} else {
+			out.CaptionReason = capErr.Error()
 		}
 	}
 	out.Source, out.Reason, out.OK = classifySource(parsed, out.Captions)
@@ -150,23 +171,53 @@ type captionFetch struct {
 func fetchCaption(ctx context.Context, raw string, fetch FetchFunc) (captionFetch, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Host == "" {
-		return captionFetch{}, errors.New("bad caption url")
+		return captionFetch{}, errors.New("invalid_url")
 	}
 	if u.Scheme == "" {
 		u.Scheme = "https"
 	}
-	if !CaptionHostOK(u.Hostname()) {
-		return captionFetch{}, errors.New("caption host not allowed")
+	if !validCaptionURL(u) {
+		return captionFetch{}, errors.New("unsupported_host")
 	}
 	page, err := fetch(ctx, u.String())
 	if err != nil {
-		return captionFetch{}, err
+		return captionFetch{}, errors.New(fetchFailureReason(err))
+	}
+	if page.FinalURL != "" {
+		final, err := url.Parse(page.FinalURL)
+		if err != nil || !validCaptionURL(final) {
+			return captionFetch{}, errors.New("unsupported_host")
+		}
+	}
+	if page.Status < 200 || page.Status >= 300 {
+		return captionFetch{}, fmt.Errorf("http_%d", page.Status)
+	}
+	if len(page.Body) > maxPageBytes {
+		page.Body = page.Body[:maxPageBytes]
+		page.Truncated = true
 	}
 	text, trunc := ParseCaptions(page.ContentType, page.Body)
 	if text == "" {
-		return captionFetch{}, errors.New("empty captions")
+		return captionFetch{}, errors.New("no_readable_captions")
 	}
-	return captionFetch{text: text, truncated: trunc}, nil
+	return captionFetch{text: text, truncated: trunc || page.Truncated}, nil
+}
+
+func validCaptionURL(u *url.URL) bool {
+	return u != nil && (u.Scheme == "http" || u.Scheme == "https") && u.User == nil && CaptionHostOK(u.Hostname())
+}
+
+func fetchFailureReason(err error) string {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "cancelled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case networkpolicy.ErrorCode(err) == networkpolicy.CodeSSRFBlocked:
+		return "ssrf_blocked"
+	default:
+		return "fetch_failed"
+	}
 }
 
 func fail(plat Platform, reason, final string) Result {

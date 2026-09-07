@@ -16,7 +16,7 @@ func TestCreateTurnFailureNotice(t *testing.T) {
 	if got := createTurnFailureNotice([]string{"media.play"}, ""); !strings.Contains(got, "没能开始播放") {
 		t.Fatalf("media failure = %q", got)
 	}
-	if got := createTurnFailureNotice([]string{"cc.screen_capture"}, ""); !strings.Contains(got, "media.play") {
+	if got := createTurnFailureNotice([]string{"cc.screen_capture"}, ""); !strings.Contains(got, "电脑操作未能完成") || strings.Contains(got, "media.play") {
 		t.Fatalf("vision failure = %q", got)
 	}
 	if got := createTurnFailureNotice([]string{"desktop.open"}, "已完成播放。"); got != "" {

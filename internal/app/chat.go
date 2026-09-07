@@ -317,7 +317,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 				catalogQuery += " implement tdd code review 开发"
 			}
 		}
-		preferred, composeHint = e.expertComposeForTurn(ctx, boundSessionID, intent.Text)
+		preferred, composeHint = e.expertComposeForTurn(ctx, boundSessionID, intent.Text, intent.Companion)
 		if intent.Companion && composeHint == "" && !companionWantsTools(intent.Text) {
 			preferred = nil
 		}
@@ -336,6 +336,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 	instruction = renderPreferenceInstruction(instruction, memPack.Prefs)
 	if !p.Companion {
+		instruction += videoTaskInstruction(intent.Text)
 		instruction += identityAndFewShotInstruction()
 		if wf := bundledWorkflowInjection(turnText); wf != "" {
 			instruction += wf
@@ -402,12 +403,12 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		return request.Fail("STREAM_UNAVAILABLE", "流事件通道不可用", true)
 	}
 
-	// Make auto-equip visible: when intent (not @-mention) pulled in a
-	// specialist this turn, emit a structured chip signal. Council turns already
-	// narrate their own experts, so skip to avoid a duplicate.
+	// Prepare the chip here; runStream owns its envelope and sequence. Sending
+	// a bare event through the RPC emitter here disconnects every conversation.
+	var equipEvent *bridge.EquipEvent
 	if emit != nil && !intent.Companion && councilCfg == nil && composeHint != "" {
 		if experts, skills, missingMcp := e.turnEquipInfo(ctx, boundSessionID, intent.Text); len(experts) > 0 {
-			_ = emit(bridge.Event{Type: bridge.EventEquip, Equip: &bridge.EquipEvent{Experts: experts, Skills: skills, MissingMcp: missingMcp}})
+			equipEvent = &bridge.EquipEvent{Experts: equipDisplayLabels(experts, 8, 32), Skills: equipDisplayLabels(skills, 16, 64), MissingMcp: equipDisplayLabels(missingMcp, 16, 64)}
 		}
 	}
 
@@ -603,12 +604,13 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			for _, m := range history {
 				byID[m.ID] = m
 			}
+			referencedArtifacts := e.loadSessionArtifactsByMessage(boundSessionID)
 			for _, refID := range orderedMessageRefs {
 				m, ok := byID[refID]
 				if !ok {
 					return request.Fail("CONTEXT_REF_NOT_FOUND", "显式上下文引用不存在或已删除", false)
 				}
-				content := strings.TrimSpace(m.Content)
+				content := messageReferenceContent(m.Content, referencedArtifacts[m.ID])
 				if content == "" {
 					return request.Fail("CONTEXT_REF_NOT_READABLE", "引用的消息内容为空", false)
 				}
@@ -743,6 +745,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	equip := e.turnEquipmentFor(ctx, boundSessionID, intent.Text, intent.Companion)
 	state := &streamState{cancel: cancel, companion: p.Companion, subagentPolicy: subagentPolicy, council: councilCfg, mcpRestrict: equip.RestrictMCP(), mcpAllowed: equip.McpIDs, brain: equip.Brain, memorySummary: formatChatMemorySummary(memPack), kbCites: append([]CitationBlock(nil), memPack.KBCites...), kbDiscarded: memPack.KBDiscarded, mroTurn: memPack.MROTurn || turnHasMROName(equip.Names)}
 	state.sessionID = boundSessionID
+	state.equipEvent = equipEvent
 	e.streams[streamID] = state
 	e.streamsMu.Unlock()
 	if text, ok := e.maybeDescribeImages(ctx, modelByID(item, p.ModelID), images, lastUserContent(messages)); ok {

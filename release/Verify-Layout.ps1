@@ -3,7 +3,7 @@ $ErrorActionPreference='Stop'; $Stage=(Resolve-Path $Stage).Path
 . (Join-Path $PSScriptRoot 'Release-Safety.ps1')
 . (Join-Path $PSScriptRoot 'Resolve-SignTool.ps1')
 Assert-NoReleaseReparsePoint $Stage -Tree
-$required=@('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe','lunitide-maintenance.exe','SOURCE-CANDIDATE.json','Release-Safety.ps1','WebView2Loader.dll','stop-install-processes.ps1','verify-install-directory.ps1','lunitide-icon.ico','web\dist\index.html','licenses\Microsoft.Web.WebView2-LICENSE.txt','licenses\Microsoft.Web.WebView2-NOTICE.txt')
+$required=@('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe','lunitide-maintenance.exe','SOURCE-CANDIDATE.json','Release-Safety.ps1','WebView2Loader.dll','stop-install-processes.ps1','verify-install-directory.ps1','lunitide-icon.ico','web\dist\index.html','licenses\Microsoft.Web.WebView2-LICENSE.txt','licenses\Microsoft.Web.WebView2-NOTICE.txt','licenses\NotoSansSC-OFL.txt','licenses\NotoSansSC-NOTICE.txt')
 foreach($f in $required){if(-not(Test-Path (Join-Path $Stage $f)-PathType Leaf)){throw "Missing staged file: $f"}}
 $allowedRootFiles=@('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe','lunitide-maintenance.exe','SOURCE-CANDIDATE.json','Release-Safety.ps1','WebView2Loader.dll','stop-install-processes.ps1','verify-install-directory.ps1','lunitide-icon.ico','SHA256SUMS.txt')
 if($Installed){$allowedRootFiles += @('Uninstall.exe','.lunitide-install-owner')}

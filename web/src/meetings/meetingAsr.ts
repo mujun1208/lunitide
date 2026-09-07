@@ -12,7 +12,7 @@ import {
   stopMediaStream,
   type CaptureThisPcSystemAudioOptions,
 } from './meetingCapture'
-import { createMeetingLineBuffer, isolateCurrentUtterance } from './meetingText'
+import { createMeetingLineBuffer } from './meetingText'
 
 export type MeetingAudioSource = 'microphone' | 'microphone_and_system'
 
@@ -208,9 +208,7 @@ export async function startMeetingSpeech(options: MeetingSpeechOptions): Promise
   const pcmCapable = listen === 'local' || listen === 'volc'
   const usesExternalPcm = pcmCapable && options.externalPcm === true
   const extraStreams = pcmCapable && !usesExternalPcm ? options.extraStreams : undefined
-  const buffer = createMeetingLineBuffer(line => options.onFinal(line))
-  let sessionCommitted = ''
-  let lastCurrent = ''
+  const buffer = createMeetingLineBuffer(line => options.onFinal(line), true)
   const speechOptions: CompanionSpeechOptions = {
     ...options,
     extraStreams,
@@ -221,16 +219,12 @@ export async function startMeetingSpeech(options: MeetingSpeechOptions): Promise
     endWindowMs: listen === 'volc' ? MEETING_VOLC_END_WINDOW_MS : undefined,
     spokenText: () => '',
     onFinal: text => {
-      const current = isolateCurrentUtterance(sessionCommitted, text, lastCurrent)
-      lastCurrent = ''
+      const current = text.trim()
       if (!current) return
-      sessionCommitted = sessionCommitted ? `${sessionCommitted}${current}` : current
       buffer.push(current)
     },
     onInterim: text => {
-      const current = isolateCurrentUtterance(sessionCommitted, text, lastCurrent)
-      lastCurrent = current
-      options.onInterim?.(current)
+      options.onInterim?.(text.trim())
     },
   }
   const handle = listen === 'volc'

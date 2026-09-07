@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Dialog } from '../ui/Dialog'
+import {AutomationTimezoneField} from './AutomationRunControls'
 import { scheduleToCron, delayAtCron, datetimeLocalToAtCron, atCronToDatetimeLocal, type ScheduleFreq, type AutomationTemplate } from './automationTemplates'
 
 export type AutomationDraft = {
@@ -7,6 +8,7 @@ export type AutomationDraft = {
   expectedRevision?: string
   name: string
   cron: string
+  timezone?: string
   prompt: string
   providerId: string
   modelId: string
@@ -41,7 +43,9 @@ function cronParts(cron: string): { freq: ScheduleFreq; time: string } {
   const parts = cron.trim().split(/\s+/)
   if (parts.length < 5) return { freq: 'daily', time: '09:00' }
   const [min, hour, , , dow] = parts
-  const time = `${String(Number(hour) || 9).padStart(2, '0')}:${String(Number(min) || 0).padStart(2, '0')}`
+  const hourValue = Number(hour)
+  const minuteValue = Number(min)
+  const time = `${String(Number.isFinite(hourValue) ? hourValue : 9).padStart(2, '0')}:${String(Number.isFinite(minuteValue) ? minuteValue : 0).padStart(2, '0')}`
   if (dow === '1-5') return { freq: 'weekdays', time }
   if (dow === '1') return { freq: 'weekly', time }
   return { freq: 'daily', time }
@@ -150,6 +154,7 @@ export function AutomationCreateDialog({
             </label>
           )}
         </div>
+        {!draft.cron.startsWith('at:')&&<AutomationTimezoneField value={draft.timezone} onChange={timezone=>onChange({...draft,timezone})}/>}
         <label className="automation-create-prompt">
           你希望 Lunitide 做什么？
           <textarea

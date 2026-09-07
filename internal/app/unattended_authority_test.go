@@ -20,6 +20,7 @@ func TestSubagentCannotOutrankTheTurnThatSpawnedIt(t *testing.T) {
 	}
 	// The profile allows the write here, so the inherited mode is the only
 	// thing left that can stop it.
+	profile.WriteTools = []string{"workspace.write"}
 	allowed := map[string]bool{"workspace.write": true}
 	calls := []llmadapter.ToolCall{
 		{ID: "w", Name: "workspace.write", Arguments: json.RawMessage(`{"path":"escalated.txt","content":"x"}`)},
@@ -52,6 +53,7 @@ func TestSubagentUnsetParentModeFailsClosed(t *testing.T) {
 	if !ok {
 		t.Fatal("explore profile missing")
 	}
+	profile.WriteTools = []string{"workspace.write"}
 	allowed := map[string]bool{"workspace.write": true}
 	calls := []llmadapter.ToolCall{
 		{ID: "w", Name: "workspace.write", Arguments: json.RawMessage(`{"path":"unset.txt","content":"x"}`)},

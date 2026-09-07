@@ -26,6 +26,30 @@ func (c *callerStub) Call(_ context.Context, request bridge.Request) (bridge.Res
 	return bridge.Success(request.ID, map[string]string{"status": "ok"}), nil
 }
 
+func TestRequestCancellationDoesNotReportWholeEngineUnavailable(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		code string
+	}{
+		{context.DeadlineExceeded, "REQUEST_DEADLINE_EXCEEDED"},
+		{context.Canceled, "REQUEST_CANCELLED"},
+		{errors.New("broken pipe"), "ENGINE_UNAVAILABLE"},
+	} {
+		caller := &callerStub{err: tc.err}
+		gateway, _ := New("https://app.lunitide.local", caller)
+		message := Message{SourceURL: "https://app.lunitide.local/", TopFrame: true, JSON: validRequest(t, "system.health")}
+		response, handled := gateway.Handle(context.Background(), message)
+		if !handled || response.Error == nil || response.Error.Code != tc.code {
+			t.Fatalf("wrong failure: %#v", response)
+		}
+		caller.err = nil
+		message.JSON = validRequest(t, "system.health")
+		if next, handled := gateway.Handle(context.Background(), message); !handled || !next.OK {
+			t.Fatalf("next request failed: %#v", next)
+		}
+	}
+}
+
 func TestGatewayRejectsUntrustedOriginAndChildFrameBeforeRPC(t *testing.T) {
 	caller := &callerStub{}
 	gateway, err := New("https://app.lunitide.local", caller)

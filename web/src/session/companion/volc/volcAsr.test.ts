@@ -39,6 +39,62 @@ beforeEach(() => {
 })
 
 describe('startVolcAsr', () => {
+  it('retires the streamed cursor immediately while an old append is still pending', async () => {
+    const onTranscript = vi.fn()
+    const handle = await startVolcAsr(PROVIDER, { onTranscript })
+    const utterance = { text: '今天合肥天气怎么样？', startMs: 0, endMs: 1000, final: false }
+    bridge.append.mockResolvedValueOnce({ text: utterance.text, final: false, utterances: [utterance] })
+    emitFrame(frame())
+    await settle()
+    let late!: (value: unknown) => void
+    bridge.append.mockImplementationOnce(() => new Promise(resolve => { late = resolve }))
+    emitFrame(frame())
+    await expect(handle.commit({ useStreamed: true })).resolves.toBe(utterance.text)
+    onTranscript.mockClear()
+    late({ text: '呢？', final: true, utterances: [{ ...utterance, text: '呢？', endMs: 1200, final: true }] })
+    await settle()
+    expect(onTranscript).not.toHaveBeenCalled()
+    bridge.append.mockResolvedValueOnce({ text: '今天上海到合肥的火车。', final: false, utterances: [{ ...utterance, text: '今天上海到合肥的火车。', startMs: 3000, endMs: 4200 }] })
+    emitFrame(frame())
+    await settle()
+    expect(onTranscript).toHaveBeenCalledExactlyOnceWith('今天上海到合肥的火车。', false, true)
+    expect(bridge.finish).not.toHaveBeenCalled()
+    handle.cancel()
+  })
+  it('carries audio positions through the bridge, ignores historical corrections and accepts a repeated next sentence', async () => {
+    const onTranscript = vi.fn()
+    const handle = await startVolcAsr(PROVIDER, { onTranscript })
+    const part = (text: string, startMs: number) => ({ text, startMs, endMs: startMs + 1000, final: true })
+    bridge.append.mockResolvedValue({ text: '现在能听见吗？', final: true, utterances: [part('现在能听见吗？', 0)] })
+    emitFrame(frame())
+    await settle()
+    await expect(handle.commit()).resolves.toBe('现在能听见吗？')
+    await settle()
+    onTranscript.mockClear()
+    bridge.append.mockResolvedValue({ text: '吗？', final: true, utterances: [part('吗？', 0)] })
+    emitFrame(frame())
+    await settle()
+    expect(onTranscript).not.toHaveBeenCalled()
+    bridge.append.mockResolvedValue({ text: '现在能听见吗？现在能听见吗？', final: true, utterances: [part('刚才现在能听见吗？', 0), part('现在能听见吗？', 1500)] })
+    emitFrame(frame())
+    await settle()
+    expect(onTranscript).toHaveBeenLastCalledWith('现在能听见吗？', true, true)
+    await expect(handle.commit()).resolves.toBe('现在能听见吗？')
+    handle.cancel()
+  })
+
+  it('ignores an append that returns after capture is canceled', async () => {
+    const onTranscript = vi.fn()
+    let complete!: (value: { text: string; final: boolean }) => void
+    bridge.append.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+    const handle = await startVolcAsr(PROVIDER, { onTranscript })
+    emitFrame(frame())
+    handle.cancel()
+    complete({ text: '已经退出不应再发出', final: true })
+    await settle()
+    expect(onTranscript).not.toHaveBeenCalled()
+  })
+
   it('opens a volc session with the chosen provider', async () => {
     await startVolcAsr(PROVIDER)
     expect(bridge.start).toHaveBeenCalledWith({ language: 'zh-CN', backend: 'volc', providerId: PROVIDER })

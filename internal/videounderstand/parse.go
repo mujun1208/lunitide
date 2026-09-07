@@ -2,7 +2,9 @@ package videounderstand
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"html"
+	"io"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -78,10 +80,19 @@ func ParseCaptions(contentType string, body []byte) (text string, truncated bool
 	if raw == "" {
 		return "", false
 	}
+	contentType = strings.ToLower(contentType)
+	// Error JSON and HTML login/captcha pages are not transcript evidence.
+	if strings.Contains(contentType, "html") {
+		return "", false
+	}
 	if strings.Contains(contentType, "json") || looksLikeJSON(raw) {
 		text = joinCaptionJSON(raw)
-	} else {
-		text = stripMarkup(raw)
+	} else if strings.HasPrefix(raw, "<") {
+		text = joinCaptionXML(raw)
+	} else if strings.HasPrefix(raw, "WEBVTT") || strings.Contains(raw, " --> ") {
+		text = joinTimedCaptions(raw)
+	} else if strings.Contains(contentType, "text/plain") {
+		text = raw
 	}
 	text = strings.TrimSpace(text)
 	if len(text) > MaxCaptionBytes {
@@ -321,7 +332,77 @@ func joinCaptionJSON(raw string) string {
 			return strings.Join(parts, "\n")
 		}
 	}
-	return stripMarkup(raw)
+	return ""
+}
+
+// Only known subtitle XML roots are accepted; stripping an arbitrary HTML
+// document would turn a login error into supposedly spoken words.
+func joinCaptionXML(raw string) string {
+	d := xml.NewDecoder(strings.NewReader(raw))
+	root, depth, cueDepth := "", 0, 0
+	var cue strings.Builder
+	var parts []string
+	for {
+		tok, err := d.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return ""
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			depth++
+			if root == "" {
+				root = t.Name.Local
+				if root != "transcript" && root != "timedtext" && root != "tt" {
+					return ""
+				}
+			}
+			if cueDepth == 0 && (t.Name.Local == "text" || t.Name.Local == "p") {
+				cueDepth = depth
+				cue.Reset()
+			} else if cueDepth > 0 && t.Name.Local == "br" {
+				cue.WriteByte('\n')
+			}
+		case xml.CharData:
+			if cueDepth > 0 {
+				cue.Write(t)
+			}
+		case xml.EndElement:
+			if cueDepth == depth {
+				if text := strings.TrimSpace(cue.String()); text != "" {
+					parts = append(parts, text)
+				}
+				cueDepth = 0
+			}
+			depth--
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func joinTimedCaptions(raw string) string {
+	var parts []string
+	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
+	inCue := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			inCue = false
+			continue
+		}
+		if strings.Contains(line, " --> ") {
+			inCue = true
+			continue
+		}
+		if inCue {
+			if text := normalizeSpace(html.UnescapeString(stripMarkup(line))); text != "" {
+				parts = append(parts, text)
+			}
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func looksLikeJSON(raw string) bool {

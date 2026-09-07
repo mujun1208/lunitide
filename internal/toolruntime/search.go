@@ -110,7 +110,14 @@ func searchLinear(root string, re *regexp.Regexp, query string, max int) ([]stri
 
 const searchAttemptTimeout = 8 * time.Second
 
-func (r *Runtime) searchWeb(ctx context.Context, query string, max int) ([]webfetch.SearchResult, string, string, error) {
+func (r *Runtime) searchWeb(ctx context.Context, query string, max int) (webSearchResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return webSearchResponse{}, err
+	}
+	key := webSearchCacheKey{query: strings.TrimSpace(query), max: max}
+	if cached, ok := r.webSearchCache.get(key, r.now()); ok {
+		return cached, nil
+	}
 	attempts := []struct {
 		url    string
 		source string
@@ -123,11 +130,25 @@ func (r *Runtime) searchWeb(ctx context.Context, query string, max int) ([]webfe
 	var lastHits []webfetch.SearchResult
 	var lastSrc, lastURL string
 	for _, attempt := range attempts {
+		if err := ctx.Err(); err != nil {
+			return webSearchResponse{}, err
+		}
 		c, cancel := context.WithTimeout(ctx, searchAttemptTimeout)
 		page, err := r.fetchWeb(c, attempt.url)
 		cancel()
+		if err := ctx.Err(); err != nil {
+			return webSearchResponse{}, err
+		}
 		if err != nil {
 			lastErr = err
+			continue
+		}
+		if page.Status < 200 || page.Status >= 300 {
+			lastErr = fmt.Errorf("web search %s returned HTTP %d; no search results confirmed", attempt.source, page.Status)
+			continue
+		}
+		if searchChallengePage(string(page.Body)) {
+			lastErr = fmt.Errorf("web search %s requires browser verification; no search results confirmed", attempt.source)
 			continue
 		}
 		var hits []webfetch.SearchResult
@@ -142,14 +163,16 @@ func (r *Runtime) searchWeb(ctx context.Context, query string, max int) ([]webfe
 		}
 		lastHits, lastSrc, lastURL = hits, attempt.source, pageURL
 		if len(hits) > 0 {
-			return hits, attempt.source, pageURL, nil
+			response := boundedWebSearchResponse(hits, attempt.source, pageURL, r.now())
+			r.webSearchCache.put(key, response, r.now())
+			return response, nil
 		}
 	}
-	if lastSrc != "" {
-		return lastHits, lastSrc, lastURL, nil
-	}
 	if lastErr != nil {
-		return nil, "", "", lastErr
+		return webSearchResponse{}, lastErr
 	}
-	return nil, "none", webfetch.BingCNSearchURL(query), nil
+	if lastSrc != "" {
+		return boundedWebSearchResponse(lastHits, lastSrc, lastURL, r.now()), nil
+	}
+	return boundedWebSearchResponse(nil, "none", webfetch.BingCNSearchURL(query), r.now()), nil
 }

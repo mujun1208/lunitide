@@ -47,8 +47,8 @@ func ValidateJob(j Job) error {
 	if j.Name == "" || len([]rune(j.Name)) > maxNameRunes || strings.ContainsRune(j.Name, 0) {
 		return fmt.Errorf("%w: name", ErrInvalid)
 	}
-	if _, err := nextFireTime(j.Cron, time.Now().UTC()); err != nil {
-		return fmt.Errorf("%w: cron", ErrInvalid)
+	if _, err := nextJobFireTime(j, time.Now().UTC()); err != nil {
+		return err
 	}
 	if _, err := normalizeSessionMode(j.SessionMode); err != nil {
 		return err

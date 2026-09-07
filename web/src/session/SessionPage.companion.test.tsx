@@ -437,7 +437,7 @@ it('does not resume an interrupted companion turn on a fresh visit', async () =>
   expect(start).not.toHaveBeenCalled()
 })
 
-it('parks a UAC computer.act result as user.ask on the companion stage', async () => {
+it('keeps UAC clarification spoken and accepts the next voice round without a choice card', async () => {
   let onEvent: (event: StreamEvent) => void = () => {}
   const start = vi.fn().mockImplementation(async (_payload: unknown, onStreamEvent: (event: StreamEvent) => void) => {
     onEvent = onStreamEvent
@@ -483,9 +483,16 @@ it('parks a UAC computer.act result as user.ask on the companion stage', async (
       },
     })
   })
-  const wizard = await screen.findByRole('form', { name: '系统提权' })
-  expect(wizard).toHaveTextContent(/不能代点「是」/)
-  expect(screen.getByRole('radio', { name: /我已经处理完了/ })).toBeInTheDocument()
+  await act(async () => {
+    onEvent({ v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:2,type:'delta',delta:{text:'这是系统提权窗口，请你先自行确认或取消，再告诉我。'} })
+    onEvent({ v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAG',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:3,type:'completed' })
+  })
+  expect(screen.queryByRole('form', { name: '系统提权' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('radio', { name: /我已经处理完了/ })).not.toBeInTheDocument()
+  expect(chat.approve).not.toHaveBeenCalled()
+  await waitFor(() => expect(stage.getAttribute('data-state')).toBe('listening'))
+  await act(async () => { speech.callbacks!.onFinal('我已经取消系统提权了') })
+  await waitFor(() => expect(start).toHaveBeenCalledTimes(2))
 })
 
 it('keeps the pending preference banner above the companion stage', async () => {

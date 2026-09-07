@@ -17,6 +17,8 @@ try {
   Set-Content (Join-Path $stage 'web\dist\index.html') '<html></html>' -Encoding ascii
   Set-Content (Join-Path $stage 'licenses\Microsoft.Web.WebView2-LICENSE.txt') 'x' -Encoding ascii
   Set-Content (Join-Path $stage 'licenses\Microsoft.Web.WebView2-NOTICE.txt') 'x' -Encoding ascii
+  Set-Content (Join-Path $stage 'licenses\NotoSansSC-OFL.txt') 'x' -Encoding ascii
+  Set-Content (Join-Path $stage 'licenses\NotoSansSC-NOTICE.txt') 'x' -Encoding ascii
   Set-Content (Join-Path $stage 'omni\llama-omni-runtime.zip') 'not-a-zip' -Encoding ascii
   $failed=$false
   try {

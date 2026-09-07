@@ -292,6 +292,7 @@ var manifest = []struct{ name, checksum string }{
 	{"0139_mro_scope_receipts.sql", "1244e6e7b3a85e618275709295f2d81d2f16663121a55205d6e202463dacaa90"},
 	{"0140_queue_delivery_receipts.sql", "1f9744ac836ff3b535a46059648c4881d44487bcc68afea62c8219ba0742fea6"},
 	{"0141_meeting_summary_source.sql", "a4fe762eedbaa379986639679fd1050fc4ac13292a6ed94b4cdc70fc37495ffa"},
+	{"0142_memory_capture_mode.sql", "f01b20525e2de8b13ea5388d9d1be05831c227ae166e03ccac6ff067bc28955c"},
 }
 
 const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"
@@ -1525,7 +1526,7 @@ var expectedSchemaSQL = map[string]string{
 	"index:ix_quem_session":      "CREATE INDEX ix_quem_session ON queued_user_messages(session_id, status, seq)",
 	"index:ix_quem_recent":       "CREATE INDEX ix_quem_recent ON queued_user_messages(session_id, created_at)",
 	// M10 wave-2 (migration 0075).
-	"table:memory_settings":   "CREATE TABLE memory_settings (\n    subject_id TEXT PRIMARY KEY CHECK (length(subject_id) BETWEEN 1 AND 128),\n    memory_enabled INTEGER NOT NULL DEFAULT 1 CHECK (memory_enabled IN (0,1)),\n    auto_nominate INTEGER NOT NULL DEFAULT 0 CHECK (auto_nominate IN (0,1)),\n    growth_days INTEGER NOT NULL DEFAULT 14 CHECK (growth_days BETWEEN 1 AND 90),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n)",
+	"table:memory_settings":   "CREATE TABLE memory_settings (\n    subject_id TEXT PRIMARY KEY CHECK (length(subject_id) BETWEEN 1 AND 128),\n    memory_enabled INTEGER NOT NULL DEFAULT 1 CHECK (memory_enabled IN (0,1)),\n    auto_nominate INTEGER NOT NULL DEFAULT 0 CHECK (auto_nominate IN (0,1)),\n    growth_days INTEGER NOT NULL DEFAULT 14 CHECK (growth_days BETWEEN 1 AND 90),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n, capture_mode TEXT NOT NULL DEFAULT 'auto'\nCHECK (capture_mode IN ('auto', 'manual', 'off')))",
 	"table:memory_fact_flags": "CREATE TABLE memory_fact_flags (\n    fact_id TEXT NOT NULL CHECK (length(fact_id) = 26 AND substr(fact_id, 1, 1) GLOB '[0-7]' AND fact_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    flag TEXT NOT NULL CHECK (flag IN ('pinned','hidden')),\n    note TEXT NOT NULL DEFAULT '' CHECK (length(note) <= 1000),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    PRIMARY KEY (fact_id, flag)\n)",
 	"index:idx_mff_flag":      "CREATE INDEX idx_mff_flag ON memory_fact_flags(flag)",
 	"table:memory_growth_box": "CREATE TABLE memory_growth_box (\n    fact_id TEXT PRIMARY KEY CHECK (length(fact_id) = 26 AND substr(fact_id, 1, 1) GLOB '[0-7]' AND fact_id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    scope_id TEXT NOT NULL CHECK (length(scope_id) BETWEEN 1 AND 128),\n    status TEXT NOT NULL DEFAULT 'observing' CHECK (status IN ('observing','promoted','dropped')),\n    reference_count INTEGER NOT NULL DEFAULT 0 CHECK (reference_count >= 0),\n    last_referenced_at TEXT,\n    review_at TEXT NOT NULL,\n    decided_at TEXT,\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n)",

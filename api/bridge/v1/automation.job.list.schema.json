@@ -27,6 +27,10 @@
             "cron": {
               "type": "string"
             },
+            "timezone": {
+              "type": "string",
+              "maxLength": 128
+            },
             "prompt": {
               "type": "string"
             },

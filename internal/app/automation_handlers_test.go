@@ -225,6 +225,35 @@ func TestAutomationJobListFeatureDisabled(t *testing.T) {
 	}
 }
 
+func TestAutomationRunListReturnsActualIsolatedSessionForOpening(t *testing.T) {
+	e, scheduler, _ := newAutomationEngine(t)
+	actual := session.Session{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAF", ProjectID: "01ARZ3NDEKTSV4RRFFQ69G5FAE", Title: "新对话", Version: 1}
+	e.sessions = &fakeAutomationSessions{bound: actual}
+	if err := scheduler.Store().AppendRun(schedulerRunForOpen(actual.ID)); err != nil {
+		t.Fatal(err)
+	}
+	response := e.Handle(context.Background(), automationRequest("automation.run.list", `{"limit":10}`))
+	if !response.OK {
+		t.Fatalf("run list failed: %+v", response)
+	}
+	var payload struct {
+		Runs []struct {
+			SessionID string     `json:"sessionId"`
+			Session   sessionDTO `json:"session"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal(mustJSON(response.Payload), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Runs) != 1 || payload.Runs[0].SessionID != actual.ID || payload.Runs[0].Session.ID != actual.ID || payload.Runs[0].Session.ProjectID != actual.ProjectID {
+		t.Fatalf("isolated result cannot be opened independently of filtered session list: %+v", payload)
+	}
+}
+
+func schedulerRunForOpen(id string) scheduler.Run {
+	return scheduler.Run{ID: ulid.Make().String(), JobID: "01ARZ3NDEKTSV4RRFFQ69G5FAQ", SessionID: id, State: scheduler.RunSucceeded, Trigger: "manual", StartedAt: time.Now().UTC()}
+}
+
 func mustJSON(v any) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {

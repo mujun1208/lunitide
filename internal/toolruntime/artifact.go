@@ -27,6 +27,13 @@ func htmlArtifactPath(requested string, desktop bool) string {
 	if desktop {
 		return "desktop/" + base
 	}
+	clean := filepath.Clean(strings.TrimSpace(requested))
+	if len(filepath.VolumeName(clean)) == 2 && filepath.IsAbs(clean) && filepath.Base(clean) == base {
+		return filepath.ToSlash(clean) // same authorized Windows path as Office artifacts
+	}
+	if !filepath.IsAbs(clean) && filepath.VolumeName(clean) == "" && clean != ".." && !strings.HasPrefix(clean, ".."+string(filepath.Separator)) && filepath.Base(clean) == base {
+		return filepath.ToSlash(clean)
+	}
 	return base
 }
 
@@ -42,9 +49,9 @@ func (r *Runtime) ResolveSessionArtifact(sessionID, relPath string) (string, err
 	if strings.HasPrefix(clean, "desktop/") {
 		base := strings.TrimPrefix(clean, "desktop/")
 		if base == "" || base == "." {
-			return userDesktopDir()
+			return r.desktopDirectory()
 		}
-		dir, err := userDesktopDir()
+		dir, err := r.desktopDirectory()
 		if err != nil {
 			return "", err
 		}
@@ -65,7 +72,7 @@ func (r *Runtime) ResolveSessionArtifact(sessionID, relPath string) (string, err
 		if r.FullDiskEnabled() && r.FullDiskSessionConfirmed(sessionID) {
 			return r.path(FullAccess, sessionID, filepath.FromSlash(clean), false, true)
 		}
-		if desktop, err := userDesktopDir(); err == nil {
+		if desktop, err := r.desktopDirectory(); err == nil {
 			roots = append(roots, desktop)
 		}
 	}

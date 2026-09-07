@@ -281,7 +281,7 @@ func pdfText(raw []byte) (text string, err error) {
 				fonts[name] = &font
 			}
 		}
-		text, err := page.GetPlainText(fonts)
+		text, err := pdfPageText(page, fonts)
 		if err != nil {
 			return "", fmt.Errorf("%w: %v", ErrNoTextLayer, err)
 		}

@@ -45,8 +45,17 @@ func (e *Engine) playwrightEndpoint() (endpointID string, ok bool) {
 	if e == nil || e.mcp6Registry == nil {
 		return "", false
 	}
-	for _, t := range e.mcp6Registry.ReadyToolSnapshot() {
-		if strings.Contains(strings.ToLower(t.Tool), "browser") {
+	tools := e.mcp6Registry.ReadyToolSnapshot()
+	if pinned, _ := e.browserEndpoint.Load().(string); pinned != "" {
+		if _, ok := browserToolForEndpoint(tools, pinned, "navigate"); ok {
+			return pinned, true
+		}
+	}
+	for _, t := range tools {
+		if _, ok := browserToolForEndpoint(tools, t.EndpointID, "navigate"); !ok {
+			continue
+		}
+		if _, ok := browserToolForEndpoint(tools, t.EndpointID, "snapshot"); ok {
 			return t.EndpointID, true
 		}
 	}
@@ -88,29 +97,41 @@ func (e *Engine) findPlaywrightTool(op string) (endpointID, tool string, ok bool
 	if e == nil || e.mcp6Registry == nil {
 		return "", "", false
 	}
-	candidates := playwrightToolNames(op)
-	if len(candidates) == 0 {
-		return "", "", false
+	tools := e.mcp6Registry.ReadyToolSnapshot()
+	if pinned, _ := e.browserEndpoint.Load().(string); pinned != "" {
+		if entry, exists := browserToolForEndpoint(tools, pinned, op); exists {
+			return pinned, entry.Tool, true
+		}
+		if op != "navigate" {
+			return "", "", false
+		}
 	}
-	endpoint, ready := e.playwrightEndpoint()
-	if !ready {
-		return "", "", false
-	}
-	for _, t := range e.mcp6Registry.ReadyToolSnapshot() {
-		if t.EndpointID != endpoint {
+	// Require a coherent browser toolbox, not any unrelated tool containing
+	// the word browser. Prefer the endpoint with the richest supported set.
+	bestScore := 0
+	for _, entry := range tools {
+		selected, matches := browserToolForEndpoint(tools, entry.EndpointID, op)
+		if !matches {
 			continue
 		}
-		lower := strings.ToLower(t.Tool)
-		for _, name := range candidates {
-			if lower == name || strings.HasSuffix(lower, "_"+name) {
-				return endpoint, t.Tool, true
-			}
+		if _, hasSnapshot := browserToolForEndpoint(tools, entry.EndpointID, "snapshot"); !hasSnapshot {
+			continue
 		}
+		score := browserEndpointScore(tools, entry.EndpointID)
+		if score > bestScore {
+			endpointID, tool, bestScore = entry.EndpointID, selected.Tool, score
+		}
+	}
+	if endpointID != "" {
+		return endpointID, tool, true
 	}
 	return "", "", false
 }
 
 func (e *Engine) ensurePlaywrightMCP(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return false
+	}
 	if _, ok := e.playwrightEndpoint(); ok {
 		return true
 	}
@@ -120,14 +141,7 @@ func (e *Engine) ensurePlaywrightMCP(ctx context.Context) bool {
 	if _, err := e.invokeMcpInstallPreset(ctx, []byte(`{"presetId":"playwright"}`)); err != nil {
 		return false
 	}
-	deadline := time.Now().Add(45 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, ok := e.playwrightEndpoint(); ok {
-			return true
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	return false
+	return awaitBrowserReady(ctx, 45*time.Second, 500*time.Millisecond, func() bool { _, ready := e.playwrightEndpoint(); return ready })
 }
 
 func browserActMayEnsureMCP(op string) bool {
@@ -135,6 +149,9 @@ func browserActMayEnsureMCP(op string) bool {
 }
 
 func (e *Engine) invokeBrowserActViaPlaywright(ctx context.Context, call browserActCall) (toolruntime.Result, error) {
+	if err := ctx.Err(); err != nil {
+		return toolruntime.Result{}, err
+	}
 	op := strings.TrimSpace(call.Op)
 	if op == "scroll" {
 		if _, _, ok := e.findPlaywrightTool("scroll"); !ok {
@@ -148,6 +165,9 @@ func (e *Engine) invokeBrowserActViaPlaywright(ctx context.Context, call browser
 	endpointID, tool, ok := e.findPlaywrightTool(op)
 	if !ok {
 		if !browserActMayEnsureMCP(op) || !e.ensurePlaywrightMCP(ctx) {
+			if err := ctx.Err(); err != nil {
+				return toolruntime.Result{}, err
+			}
 			return toolruntime.Result{}, errBrowserMCPNotReady
 		}
 		endpointID, tool, ok = e.findPlaywrightTool(op)
@@ -155,23 +175,31 @@ func (e *Engine) invokeBrowserActViaPlaywright(ctx context.Context, call browser
 			return toolruntime.Result{}, errBrowserMCPNotReady
 		}
 	}
-	args, skip := playwrightArgs(call)
+	var schema json.RawMessage
+	for _, entry := range e.mcp6Registry.ReadyToolSnapshot() {
+		if entry.EndpointID == endpointID && entry.Tool == tool {
+			schema = entry.Schema
+			break
+		}
+	}
+	args, skip := playwrightArgsForSchema(call, schema)
 	if skip {
 		return toolruntime.Result{}, fmt.Errorf("BROWSER_ACT_INVALID: browser.act %s 参数不完整，没有执行", op)
 	}
-	if browserActUsesRef(call) && e.consumeBrowserMutation() {
-		if pre := e.playwrightSnapshotFollowup(ctx); pre != "" {
-			e.storeBrowserSnapshot(pre)
-		}
-	}
+	// Do not silently take another snapshot before a referenced action: that
+	// can invalidate the exact ref the model was just given. Each successful
+	// mutation already returns its same-endpoint follow-up snapshot.
 	raw, _ := json.Marshal(args)
 	out, err := e.invokeMcpTool(ctx, endpointID, tool, raw)
 	if err != nil {
 		return toolruntime.Result{}, err
 	}
+	if err := browserMCPResultError(out); err != nil {
+		return toolruntime.Result{}, err
+	}
+	e.browserEndpoint.Store(endpointID)
 	if browserActNeedsSnapshot(call) {
-		e.markBrowserMutated()
-		snap := e.playwrightSnapshotFollowup(ctx)
+		snap := e.playwrightSnapshotForEndpoint(ctx, endpointID)
 		e.storeBrowserSnapshot(snap)
 		return toolruntime.Result{Output: appendPostActSnapshot(op, out, snap)}, nil
 	}
@@ -181,15 +209,6 @@ func (e *Engine) invokeBrowserActViaPlaywright(ctx context.Context, call browser
 	return toolruntime.Result{Output: strings.TrimSpace(out)}, nil
 }
 
-func browserActUsesRef(call browserActCall) bool {
-	switch strings.TrimSpace(call.Op) {
-	case "click", "type", "hover", "select", "press":
-		return strings.TrimSpace(call.Selector) != ""
-	default:
-		return false
-	}
-}
-
 func (e *Engine) storeBrowserSnapshot(snap string) {
 	if e == nil {
 		return
@@ -197,46 +216,32 @@ func (e *Engine) storeBrowserSnapshot(snap string) {
 	e.lastBrowserSnap.Store(strings.TrimSpace(snap))
 }
 
-func (e *Engine) markBrowserMutated() {
-	if e == nil {
-		return
-	}
-	e.browserMutated.Store(true)
-}
-
-func (e *Engine) consumeBrowserMutation() bool {
-	if e == nil {
-		return false
-	}
-	return e.browserMutated.Swap(false)
-}
-
 func playwrightArgs(call browserActCall) (map[string]any, bool) {
 	args := map[string]any{}
 	selector := strings.TrimSpace(call.Selector)
-	text := strings.TrimSpace(call.Text)
+	text := call.Text
 	switch strings.TrimSpace(call.Op) {
 	case "click", "hover":
 		if selector == "" {
 			return nil, true
 		}
 		args["element"] = selector
-		args["selector"] = selector
+		args["ref"] = selector
 	case "type":
-		if text == "" {
+		if text == "" || selector == "" {
 			return nil, true
 		}
 		args["text"] = text
 		if selector != "" {
 			args["element"] = selector
-			args["selector"] = selector
+			args["ref"] = selector
 		}
 	case "select":
 		if selector == "" || text == "" {
 			return nil, true
 		}
 		args["element"] = selector
-		args["selector"] = selector
+		args["ref"] = selector
 		args["values"] = []string{text}
 	case "navigate":
 		if strings.TrimSpace(call.URL) == "" {
@@ -272,10 +277,9 @@ func playwrightArgs(call browserActCall) (map[string]any, bool) {
 		}
 	case "wait":
 		if call.MS > 0 {
-			args["time"] = call.MS
+			args["time"] = float64(call.MS) / 1000
 		}
 		if selector != "" {
-			args["selector"] = selector
 			args["text"] = selector
 		}
 	case "dialog":
@@ -301,18 +305,6 @@ func browserActNeedsSnapshot(call browserActCall) bool {
 	default:
 		return true
 	}
-}
-
-func (e *Engine) playwrightSnapshotFollowup(ctx context.Context) string {
-	endpointID, tool, ok := e.findPlaywrightTool("snapshot")
-	if !ok {
-		return ""
-	}
-	out, err := e.invokeMcpTool(ctx, endpointID, tool, json.RawMessage(`{}`))
-	if err != nil {
-		return ""
-	}
-	return out
 }
 
 // appendPostActSnapshot mirrors OpenClaw: after click/type/navigate the

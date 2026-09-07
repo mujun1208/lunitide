@@ -153,7 +153,7 @@ func (thinkingOnlyThenFailAdapter) Stream(_ context.Context, _ []byte, _ llmadap
 	return llmadapter.Response{}, errors.New("upstream failed")
 }
 
-func TestRunStreamFailurePersistsThinkingWhenAssistantEmpty(t *testing.T) {
+func TestRunStreamFailureKeepsThinkingOutOfMessageBody(t *testing.T) {
 	spy := &appendAssistantSpy{}
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
 	e.messages = spy
@@ -175,8 +175,8 @@ func TestRunStreamFailurePersistsThinkingWhenAssistantEmpty(t *testing.T) {
 	if len(spy.calls) != 1 {
 		t.Fatalf("durable appends=%d want 1", len(spy.calls))
 	}
-	if !strings.Contains(spy.calls[0], "【思考过程】") || !strings.Contains(spy.calls[0], "先规划十二星座结构") {
-		t.Fatalf("empty-reply failure must persist thinking: %q", spy.calls[0])
+	if strings.Contains(spy.calls[0], "【思考过程】") || strings.Contains(spy.calls[0], "先规划十二星座结构") {
+		t.Fatalf("failure reasoning leaked into model history: %q", spy.calls[0])
 	}
 	if !strings.Contains(spy.calls[0], turnErrorNotice) {
 		t.Fatalf("failure notice missing: %q", spy.calls[0])

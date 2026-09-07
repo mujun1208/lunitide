@@ -175,6 +175,14 @@ type ObservationInput struct {
 // order (Evidence + TraceEdge materialization happens upstream), the run
 // lands in completed and spent tokens are recorded.
 func (s *SubagentService) Complete(ctx context.Context, subagentRunID string, spentTokens int64, observations []ObservationInput) (m7flow.SubagentRun, error) {
+	return s.Finish(ctx, subagentRunID, m7flow.SagCompleted, spentTokens, observations)
+}
+
+// Finish records the actual terminal outcome, including cancelled or failed work.
+func (s *SubagentService) Finish(ctx context.Context, subagentRunID, status string, spentTokens int64, observations []ObservationInput) (m7flow.SubagentRun, error) {
+	if status != m7flow.SagCompleted && status != m7flow.SagFailed && status != m7flow.SagCancelled {
+		return m7flow.SubagentRun{}, ErrSubagentTransition
+	}
 	if s == nil || s.uow == nil {
 		return m7flow.SubagentRun{}, ErrServiceUnavailable
 	}
@@ -203,15 +211,15 @@ func (s *SubagentService) Complete(ctx context.Context, subagentRunID string, sp
 			}
 		}
 		completed := now
-		if err := tx.UpdateSubagentStatus(run.ID, m7flow.SagRunning, m7flow.SagCompleted, spentTokens, &completed); err != nil {
+		if err := tx.UpdateSubagentStatus(run.ID, m7flow.SagRunning, status, spentTokens, &completed); err != nil {
 			return err
 		}
-		run.Status = m7flow.SagCompleted
+		run.Status = status
 		run.SpentTokens = spentTokens
 		cs := now.Format(time.RFC3339)
 		run.CompletedAt = &cs
 		if _, err := tx.AppendAuditEvent(audit.Event{
-			ID: ulid.Make().String(), Action: "subagent.complete",
+			ID: ulid.Make().String(), Action: subagentFinishAction(status),
 			ResourceType: "subagent_run", ResourceID: run.ID, Actor: "system",
 			AfterDigest: digestOf(run.Status), CreatedAt: now.Format(time.RFC3339),
 		}); err != nil {
@@ -414,4 +422,11 @@ func actorOr(actor string) string {
 func digestOf(v string) string {
 	sum := sha256.Sum256([]byte(v))
 	return hex.EncodeToString(sum[:])
+}
+
+func subagentFinishAction(status string) string {
+	if status == m7flow.SagCompleted {
+		return "subagent.complete"
+	}
+	return "subagent." + status
 }

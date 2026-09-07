@@ -10,7 +10,6 @@ import { audioSourceLabel, captureStateNotice, decodeMeetingPcmBase64, engineLoo
 import { localAsrStatus } from '../session/companion/localAsr'
 import type { MeetingListen } from './meetingSettings'
 import { ASR_INTERRUPTED_NOTICE, startMeetingAudioRecorder, verifyMeetingAudioAck, trimLiveSegments, type MeetingAudioHandle } from './meetingAudio'
-import { collapseLiveTranscriptLines } from './meetingText'
 import { watchCaptureTracksEnded } from './meetingCapture'
 import type { CompanionSpeechHandle } from '../session/companion/speech'
 import { MeetingLoopbackQueue } from './meetingLoopbackQueue'
@@ -949,7 +948,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     systemHeard,
   })
   const segments: MeetingSegmentDTO[] = current?.segments ?? []
-  const liveLines = collapseLiveTranscriptLines(segments.map(seg => seg.text))
+  const liveLines = segments.map(seg => seg.text.trim()).filter(Boolean)
   if (current?.transcript && liveLines.length === 0) liveLines.push(...current.transcript.split('\n').filter(Boolean))
   const source = current?.audioSource ?? 'microphone_and_system'
 

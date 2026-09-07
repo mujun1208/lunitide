@@ -10,7 +10,10 @@
   "properties": {
     "transport": {
       "type": "string",
-      "enum": ["stdio", "https"]
+      "enum": [
+        "stdio",
+        "https"
+      ]
     }
   },
   "x-result": {
@@ -28,18 +31,30 @@
             },
             "transport": {
               "type": "string",
-              "enum": ["stdio", "https"]
+              "enum": [
+                "stdio",
+                "https"
+              ]
             },
             "state": {
               "type": "string",
-              "enum": ["probe", "ready", "degraded", "revoked", "quarantined"]
+              "enum": [
+                "probe",
+                "ready",
+                "degraded",
+                "revoked",
+                "quarantined"
+              ]
             },
             "enabled": {
               "type": "boolean"
             },
             "origin": {
               "type": "string",
-              "enum": ["market", "manual"]
+              "enum": [
+                "market",
+                "manual"
+              ]
             },
             "lastHealthAt": {
               "type": "string"
@@ -64,15 +79,42 @@
               "type": "string",
               "maxLength": 2048
             },
-            "securityVersion":{"type":"integer","minimum":0},
-            "credentialConfigured":{"type":"boolean"},
-            "lockedArgs":{"type":"array","maxItems":64,"items":{"type":"string","maxLength":512}}
+            "securityVersion": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "credentialConfigured": {
+              "type": "boolean"
+            },
+            "lockedArgs": {
+              "type": "array",
+              "maxItems": 64,
+              "items": {
+                "type": "string",
+                "maxLength": 512
+              }
+            },
+            "diagnosticCode": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "diagnosticMessage": {
+              "type": "string",
+              "maxLength": 512
+            }
           },
-          "required": ["endpointId", "transport", "state", "enabled"]
+          "required": [
+            "endpointId",
+            "transport",
+            "state",
+            "enabled"
+          ]
         }
       }
     },
-    "required": ["endpoints"]
+    "required": [
+      "endpoints"
+    ]
   },
   "x-examples": {
     "positive": [

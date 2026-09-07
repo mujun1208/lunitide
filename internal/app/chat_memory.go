@@ -86,9 +86,12 @@ func (e *Engine) prepareChatMemory(ctx context.Context, req chatMemoryRequest) (
 	}
 	settings := e.chatMemorySettings(ctx)
 	pack.Enabled = settings.MemoryEnabled
+	if !pack.Enabled {
+		return pack
+	}
 
 	if e.m8memory != nil {
-		if snapshot, err := e.m8memory.ConfirmedSnapshotFor(ctx, e.memorySubjectID(), m8app.LearningScope, preferenceInjectMaxItems, preferenceInjectMaxBytes); err == nil {
+		if snapshot, err := e.m8memory.PersonalPreferenceSnapshot(ctx, e.memorySubjectID(), m8app.LearningScope, preferenceInjectMaxItems, preferenceInjectMaxBytes); err == nil {
 			pack.Prefs = snapshot
 		} else {
 			log.Printf("chat memory: preference snapshot skipped: %v", err)
@@ -155,6 +158,7 @@ func (e *Engine) prepareChatMemory(ctx context.Context, req chatMemoryRequest) (
 		log.Printf("chat memory: working-layer list skipped: %v", err)
 	} else {
 		working = isolateExpertMemories(working, req.ExpertIDs)
+		working = relevantSessionSummary(working, query)
 		pack.TaskState = clipMemorySources(workingToSources(working, req.SessionID), workingInjectMaxItems, workingInjectMaxBytes)
 	}
 
@@ -274,6 +278,8 @@ func (e *Engine) chatMemorySettings(ctx context.Context) m8core.MemorySettings {
 	st, err := e.memoryOps.SettingsGet(ctx, subject)
 	if err != nil {
 		log.Printf("chat memory: settings read skipped: %v", err)
+		defaults.MemoryEnabled = false
+		defaults.CaptureMode = "off"
 		return defaults
 	}
 	return st
@@ -560,7 +566,7 @@ func renderPreferenceInstruction(instruction string, prefs []string) string {
 	}
 	var b strings.Builder
 	b.WriteString(instruction)
-	b.WriteString("\n\n[持久记忆]\n用户偏好（已显式确认，回答时必须遵守）：\n")
+	b.WriteString("\n\n[持久记忆]\n用户稳定偏好与事实（按用户记忆设置保存；仅在与本轮相关时采用）：\n")
 	for _, pref := range prefs {
 		b.WriteString("- ")
 		b.WriteString(pref)
@@ -602,112 +608,30 @@ func (e *Engine) maybeAutoNominateTurn(ctx context.Context, sessionID, userText,
 	if e == nil || sessionID == "" || messageID == "" {
 		return nil
 	}
-	userText = strings.TrimSpace(userText)
-	assistantText = strings.TrimSpace(assistantText)
-	pref := looksLikePreferenceTurn(userText)
-	if companion && !pref {
-		return nil
-	}
 	settings := e.chatMemorySettings(ctx)
-	if !settings.MemoryEnabled {
+	if !settings.MemoryEnabled || settings.CaptureMode == "off" || e.m8memory == nil {
 		return nil
 	}
-	if !settings.AutoNominate && !pref {
+	content := m8core.StableUserMemory(userText)
+	if content == "" {
 		return nil
 	}
-	if !turnLongEnoughForMemory(userText, assistantText) {
+	doc := m8core.PayloadDoc{Content: content, ScopeID: m8app.LearningScope, Sensitivity: m8core.SensPrivate, Leaves: []m8core.SourceLeafClaim{{JSONPointer: "/content", EvidenceRef: "chat-user://" + sessionID + "/" + messageID, Digest: m8core.DigestOf(content)}}}
+	if settings.CaptureMode != "manual" && m8core.ClassifyMemoryRisk(doc) != m8core.RiskLow {
 		return nil
 	}
-	gist := clipRunes("用户："+userText+"\n要点："+assistantText, autoNominateMaxContent)
-	if e.m8memory != nil {
-		pending, err := e.m8memory.ListPendingCandidatesFor(ctx, e.memorySubjectID(), 20)
-		if err == nil {
-			for _, item := range pending {
-				if item.Content == gist {
-					return nil
-				}
-			}
-		}
-	}
-	doc := m8core.PayloadDoc{
-		Content:     gist,
-		ScopeID:     m8app.LearningScope,
-		Sensitivity: m8core.SensPrivate,
-		Leaves: []m8core.SourceLeafClaim{{
-			JSONPointer: "/content",
-			EvidenceRef: clipRunes("chat://"+sessionID+"/"+messageID, m8core.MaxEvidenceRef),
-			Digest:      m8core.DigestOf(gist),
-		}},
-	}
-	if e.m10nomination != nil {
-		reason := "本轮对话自动提名"
-		if pref {
-			reason = preferenceNominationReason
-		}
-		res, err := e.m10nomination.Nominate(ctx, m8app.NominateInput{
-			SubjectID:       e.memorySubjectID(),
-			Doc:             doc,
-			Reason:          reason,
-			Nominator:       "chat.auto",
-			SourceSessionID: sessionID,
-			Actor:           "engine",
-		})
-		if err != nil {
-			log.Printf("chat memory: auto-nominate skipped: %v", err)
-			return err
-		}
-		e.maybeAutoAcceptCandidate(ctx, res.CandidateID)
-		return nil
-	}
-	if e.m8memory == nil {
-		return nil
-	}
-	prop, err := e.m8memory.ProposeCandidate(ctx, m8app.ProposeInput{
-		SubjectID: e.memorySubjectID(),
-		Doc:       doc,
-		Inferred:  true,
-		Trust:     m8core.TrustUntrusted,
-		Actor:     "engine",
-	})
+	candidate, err := e.m8memory.ProposeUserMemory(ctx, e.memorySubjectID(), doc)
 	if err != nil {
-		log.Printf("chat memory: auto-propose skipped: %v", err)
 		return err
 	}
-	e.maybeAutoAcceptCandidate(ctx, prop.Candidate.CandidateID)
-	return nil
-}
-
-// maybeAutoAcceptCandidate applies the M1 governed low-risk auto-accept
-// when its default-off switch is armed. It is a no-op when the switch is
-// off (the freeze default: every candidate stays pending for explicit
-// human confirmation). High-risk candidates are held for the human even
-// when the switch is on; ErrExplicitConfirmationRequired is the expected
-// hold signal, not an error to surface.
-func (e *Engine) maybeAutoAcceptCandidate(ctx context.Context, candidateID string) {
-	if e == nil || e.m8memory == nil || candidateID == "" {
-		return
+	if candidate.State != m8core.CandPending || settings.CaptureMode == "manual" {
+		return nil
 	}
-	if !e.governanceFlags().MemoryAutoAccept() {
-		return
+	_, err = e.m8memory.AutoAcceptCandidate(ctx, candidate.CandidateID, "chat.user-memory.auto")
+	if errors.Is(err, m8app.ErrExplicitConfirmationRequired) {
+		return nil
 	}
-	res, err := e.m8memory.AutoAcceptCandidate(ctx, candidateID, "chat.auto")
-	if err != nil {
-		if errors.Is(err, m8app.ErrExplicitConfirmationRequired) {
-			return // high-risk held for human; expected, nomination stays open
-		}
-		log.Printf("chat memory: auto-accept skipped: %v", err)
-		return
-	}
-	if res.Accepted {
-		// Settle the wrapping nomination (if any) exactly as the human
-		// confirm handler does, so an auto-accepted candidate never leaves a
-		// dangling pending nomination. Idempotent + no-op for plain
-		// (feedback-origin) candidates that never had a nomination row.
-		if e.m10nomination != nil {
-			_ = e.m10nomination.MarkDecided(ctx, candidateID)
-		}
-		log.Printf("chat memory: auto-accepted low-risk candidate %s", candidateID)
-	}
+	return err
 }
 
 func expertOwnedMemoryKey(expertID, kind string) string {
@@ -751,8 +675,8 @@ func (e *Engine) maybeWriteExpertTurnMemories(ctx context.Context, sessionID, us
 
 // writeSessionLastMemory is the cross-surface working gist: text → companion
 // continue → people “继续刚才的”. It is not a confirmed preference. Companion
-// turns skip auto-nominate (voice chitchat), but they still upsert this key
-// so the next surface can see “刚才”.
+// turns share the user-memory capture mode and retain this separate working
+// summary so explicit requests to continue can still find “刚才”.
 func (e *Engine) writeSessionLastMemory(ctx context.Context, sessionID, userText, assistantText string) {
 	if e == nil || !memoryServiceAvailable(e.memories) || sessionID == "" {
 		return
@@ -779,7 +703,7 @@ func (e *Engine) writeSessionLastMemory(ctx context.Context, sessionID, userText
 
 // recordPeopleTurnMemory is the colleague-surface closeout: working gist,
 // expert last, and a preference-shaped turn into the confirm inbox.
-// AutoNominate stays off by default; only 记住/以后/默认用… nominate.
+// The same global capture mode filters direct user statements on all surfaces.
 func (e *Engine) recordPeopleTurnMemory(ctx context.Context, sessionID, expertID, userText, assistantText, messageID string) {
 	e.writeExpertLastMemory(ctx, sessionID, expertID, userText, assistantText)
 	e.writeSessionLastMemory(ctx, sessionID, userText, assistantText)
@@ -813,68 +737,7 @@ func (e *Engine) writeExpertLastMemory(ctx context.Context, sessionID, expertID,
 		log.Printf("chat memory: expert %s write skipped: %v", expertID, err)
 		return
 	}
-	e.maybeNominateExpertLast(ctx, sessionID, expertID, content)
-}
-
-func (e *Engine) maybeNominateExpertLast(ctx context.Context, sessionID, expertID, gist string) {
-	if e == nil || sessionID == "" || strings.TrimSpace(gist) == "" {
-		return
-	}
-	settings := e.chatMemorySettings(ctx)
-	if !settings.MemoryEnabled {
-		return
-	}
-	if e.m8memory != nil {
-		pending, err := e.m8memory.ListPendingCandidatesFor(ctx, e.memorySubjectID(), 20)
-		if err == nil {
-			for _, item := range pending {
-				if item.Content == gist {
-					return
-				}
-			}
-		}
-	}
-	doc := m8core.PayloadDoc{
-		Content:     gist,
-		ScopeID:     m8app.LearningScope,
-		Sensitivity: m8core.SensPrivate,
-		Leaves: []m8core.SourceLeafClaim{{
-			JSONPointer: "/content",
-			EvidenceRef: clipRunes("expert://"+strings.TrimSpace(expertID)+"/"+sessionID, m8core.MaxEvidenceRef),
-			Digest:      m8core.DigestOf(gist),
-		}},
-	}
-	if e.m10nomination != nil {
-		res, err := e.m10nomination.Nominate(ctx, m8app.NominateInput{
-			SubjectID:       e.memorySubjectID(),
-			Doc:             doc,
-			Reason:          expertLastNominationReason,
-			Nominator:       "chat.expert",
-			SourceSessionID: sessionID,
-			Actor:           "engine",
-		})
-		if err != nil {
-			log.Printf("chat memory: expert last nomination skipped: %v", err)
-			return
-		}
-		e.maybeAutoAcceptCandidate(ctx, res.CandidateID)
-		return
-	}
-	if e.m8memory == nil {
-		return
-	}
-	prop, err := e.m8memory.ProposeCandidate(ctx, m8app.ProposeInput{
-		SubjectID: e.memorySubjectID(),
-		Doc:       doc,
-		Inferred:  true,
-		Trust:     m8core.TrustUntrusted,
-		Actor:     "engine",
-	})
-	if err != nil {
-		log.Printf("chat memory: expert last propose skipped: %v", err)
-		return
-	}
-	e.maybeAutoAcceptCandidate(ctx, prop.Candidate.CandidateID)
+	// Expert summaries remain working memory; they are never user preferences.
 }
 
 func (e *Engine) upsertWorkingMemory(ctx context.Context, projectID, key, content string, sourceID, sourceType *string) error {
@@ -901,4 +764,26 @@ func (e *Engine) upsertWorkingMemory(ctx context.Context, projectID, key, conten
 		Confidence: 0.7,
 	})
 	return err
+}
+
+// session:last is a project-wide handoff, not a stable user preference. Its
+// content is recalled across surfaces only when the user asks to continue.
+func relevantSessionSummary(items []memory.Memory, query string) []memory.Memory {
+	resume := false
+	for _, marker := range []string{"继续", "接着", "刚才", "上次", "之前聊", "continue", "resume"} {
+		if strings.Contains(strings.ToLower(query), marker) {
+			resume = true
+			break
+		}
+	}
+	if resume {
+		return items
+	}
+	out := make([]memory.Memory, 0, len(items))
+	for _, item := range items {
+		if item.Key != sessionLastMemoryKey {
+			out = append(out, item)
+		}
+	}
+	return out
 }

@@ -79,6 +79,25 @@ func TestTranscriptFromJSONUsesDefinite(t *testing.T) {
 	}
 }
 
+func TestTranscriptFromJSONFullSnapshotFinalBelongsToCurrentTail(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		text string
+	}{
+		{"history-final-current-partial", `{"result":{"text":"上一句。现在我要打开文","utterances":[{"text":"上一句。","definite":true},{"text":"现在我要打开文","definite":false}]}}`, "上一句。现在我要打开文"},
+		{"missing-aggregate-keeps-every-utterance", `{"result":{"utterances":[{"text":"上一句。","definite":true},{"text":"现在我要打开文","definite":false}]}}`, "上一句。现在我要打开文"},
+		{"array-finality-follows-selected-result", `{"result":[{"text":"上一句。","utterances":[{"text":"上一句。","definite":true}]},{"text":"当前未说完","utterances":[{"text":"当前未说完","definite":false}]}]}`, "当前未说完"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text, final, ok := TranscriptFromJSON([]byte(tc.body))
+			if !ok || text != tc.text || final {
+				t.Fatalf("snapshot = %q final=%v ok=%v", text, final, ok)
+			}
+		})
+	}
+}
+
 func TestDecodeErrorFrame(t *testing.T) {
 	// Error packets: header + code + size + gzip json.
 	payload := gzipBytes([]byte(`{"message":"forbidden"}`))

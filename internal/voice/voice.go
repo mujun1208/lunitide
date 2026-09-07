@@ -53,6 +53,18 @@ type Transcript struct {
 	// Final marks the recognizer's last word on this utterance. A session
 	// may produce several finals if the speaker pauses and continues.
 	Final bool
+	// Utterances identifies provider segments on the session audio timeline.
+	// Optional: plain Web Speech and legacy backends keep Text/Final only.
+	// A later correction at the same StartMs replaces that segment; identical
+	// words at a later StartMs are genuinely new speech, not a replay.
+	Utterances []Utterance
+}
+
+type Utterance struct {
+	Text    string `json:"text"`
+	StartMs int64  `json:"startMs"`
+	EndMs   int64  `json:"endMs"`
+	Final   bool   `json:"final"`
 }
 
 // SessionOptions configures one recognition.

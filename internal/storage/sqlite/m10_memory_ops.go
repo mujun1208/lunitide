@@ -32,17 +32,17 @@ func getMemorySettings(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, subjectID string) (m8core.MemorySettings, error) {
 	var enabled, auto, growthDays int
-	var created, updated string
+	var created, updated, captureMode string
 	err := q.QueryRowContext(ctx,
-		`SELECT memory_enabled, auto_nominate, growth_days, created_at, updated_at FROM memory_settings WHERE subject_id=?`,
-		subjectID).Scan(&enabled, &auto, &growthDays, &created, &updated)
+		`SELECT memory_enabled, auto_nominate, growth_days, created_at, updated_at, capture_mode FROM memory_settings WHERE subject_id=?`,
+		subjectID).Scan(&enabled, &auto, &growthDays, &created, &updated, &captureMode)
 	if errors.Is(err, sql.ErrNoRows) {
 		return m8core.DefaultMemorySettings(subjectID), nil
 	}
 	if err != nil {
 		return m8core.MemorySettings{}, err
 	}
-	return m8core.MemorySettings{SubjectID: subjectID, MemoryEnabled: enabled == 1, AutoNominate: auto == 1, GrowthDays: growthDays, CreatedAt: created, UpdatedAt: updated}, nil
+	return m8core.MemorySettings{SubjectID: subjectID, MemoryEnabled: enabled == 1, AutoNominate: auto == 1, GrowthDays: growthDays, CaptureMode: captureMode, CreatedAt: created, UpdatedAt: updated}, nil
 }
 
 // UpsertMemorySettings inserts or refreshes the subject profile.
@@ -58,12 +58,19 @@ func (s *Store) UpsertMemorySettings(ctx context.Context, settings m8core.Memory
 // CompareAndSwapMemorySettings checks the actual row and writes its next version
 // under the same SQLite writer transaction as the audit event.
 func (s *Store) CompareAndSwapMemorySettings(ctx context.Context, settings m8core.MemorySettings, expected string) (m8core.MemorySettings, error) {
+	if settings.CaptureMode == "" {
+		current, err := s.GetMemorySettings(ctx, settings.SubjectID)
+		if err != nil {
+			return m8core.MemorySettings{}, err
+		}
+		settings.CaptureMode = current.CaptureMode
+	}
 	if !m8core.SettingsValidate(settings) {
 		return m8core.MemorySettings{}, errors.New("invalid memory settings")
 	}
 	var out m8core.MemorySettings
 	err := s.execWithAudit(ctx, "memory.settings.update", settings.SubjectID, "renderer",
-		map[string]any{"memoryEnabled": settings.MemoryEnabled, "autoNominate": settings.AutoNominate, "growthDays": settings.GrowthDays},
+		map[string]any{"memoryEnabled": settings.MemoryEnabled, "autoNominate": settings.AutoNominate, "growthDays": settings.GrowthDays, "captureMode": settings.CaptureMode},
 		func(tx *sql.Tx) error {
 			existing, err := getMemorySettings(ctx, tx, settings.SubjectID)
 			if err != nil {
@@ -88,9 +95,9 @@ func (s *Store) CompareAndSwapMemorySettings(ctx context.Context, settings m8cor
 				settings.CreatedAt = settings.UpdatedAt
 			}
 			_, err = tx.ExecContext(ctx,
-				`INSERT INTO memory_settings(subject_id,memory_enabled,auto_nominate,growth_days,created_at,updated_at) VALUES(?,?,?,?,?,?)
-     ON CONFLICT(subject_id) DO UPDATE SET memory_enabled=excluded.memory_enabled,auto_nominate=excluded.auto_nominate,growth_days=excluded.growth_days,updated_at=excluded.updated_at`,
-				settings.SubjectID, boolInt(settings.MemoryEnabled), boolInt(settings.AutoNominate), settings.GrowthDays, settings.CreatedAt, settings.UpdatedAt)
+				`INSERT INTO memory_settings(subject_id,memory_enabled,auto_nominate,growth_days,created_at,updated_at,capture_mode) VALUES(?,?,?,?,?,?,?)
+     ON CONFLICT(subject_id) DO UPDATE SET memory_enabled=excluded.memory_enabled,auto_nominate=excluded.auto_nominate,growth_days=excluded.growth_days,updated_at=excluded.updated_at,capture_mode=excluded.capture_mode`,
+				settings.SubjectID, boolInt(settings.MemoryEnabled), boolInt(settings.AutoNominate), settings.GrowthDays, settings.CreatedAt, settings.UpdatedAt, settings.CaptureMode)
 			if err == nil {
 				out = settings
 			}
@@ -459,14 +466,14 @@ func (s *Store) ExportAllMemoryData(ctx context.Context) (m8core.ExportBundle, e
 	if bundle.Flags, err = s.ListFactFlags(ctx); err != nil {
 		return bundle, err
 	}
-	setRows, err := s.db.QueryContext(ctx, `SELECT subject_id, memory_enabled, auto_nominate, growth_days, created_at, updated_at FROM memory_settings ORDER BY subject_id`)
+	setRows, err := s.db.QueryContext(ctx, `SELECT subject_id, memory_enabled, auto_nominate, growth_days, created_at, updated_at, capture_mode FROM memory_settings ORDER BY subject_id`)
 	if err != nil {
 		return bundle, err
 	}
 	for setRows.Next() {
 		var enabled, auto int
 		var st m8core.MemorySettings
-		if err := setRows.Scan(&st.SubjectID, &enabled, &auto, &st.GrowthDays, &st.CreatedAt, &st.UpdatedAt); err != nil {
+		if err := setRows.Scan(&st.SubjectID, &enabled, &auto, &st.GrowthDays, &st.CreatedAt, &st.UpdatedAt, &st.CaptureMode); err != nil {
 			setRows.Close()
 			return bundle, err
 		}

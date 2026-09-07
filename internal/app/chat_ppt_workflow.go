@@ -44,7 +44,7 @@ const (
 
 func looksLikePptTask(text string) bool {
 	t := strings.ToLower(strings.TrimSpace(text))
-	if t == "" || looksLikeStatusFollowUp(t) || looksLikeResume(t) {
+	if t == "" || officeExpertIntroduction(text) || looksLikeStatusFollowUp(t) || looksLikeResume(t) {
 		return false
 	}
 	for _, k := range []string{
@@ -62,14 +62,7 @@ func pptTaskFromRequest(req llmadapter.Request, goal string) bool {
 	if looksLikePptTask(goal) {
 		return true
 	}
-	expertMounted := false
-	for _, m := range req.Messages {
-		if strings.Contains(m.Content, "PPT专家") || strings.Contains(m.Content, "ppt-expert") {
-			expertMounted = true
-			break
-		}
-	}
-	if !expertMounted {
+	if officeExpertIntroduction(goal) || !expertMountedIn(req, "PPT专家", "ppt-expert") {
 		return false
 	}
 	g := strings.TrimSpace(goal)
