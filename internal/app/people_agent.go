@@ -200,6 +200,9 @@ func (e *Engine) maybePeopleAgentReply(ctx context.Context, threadID string, use
 }
 
 func (e *Engine) runPeopleAgentJob(ctx context.Context, job peopleAgentJob) {
+	if ctx.Err() != nil {
+		return
+	}
 	threadID := job.threadID
 	user := people.Message{MessageID: job.messageID, ThreadID: threadID, Kind: "text", Body: job.body}
 	thread, err := e.people.PeekThread(ctx, threadID)

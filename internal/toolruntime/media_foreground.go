@@ -22,17 +22,21 @@ var activateWindow = winexec.ActivateWindowMatching
 var sendForegroundPlay = winexec.SendMediaKey
 var openLaunchPath = openWithDefaultApp
 
-// mediaInputWindow is forwarded as cc.* window= so Space/Ctrl+F land in the
-// player, not the companion overlay (OpenClaw: focus the target first).
-var mediaInputWindow string
+// Input focus belongs to the operation, not a mutable process-global window.
+// Concurrent music/document tasks must never overwrite each other's target.
+type mediaInputWindowKey struct{}
+
+func withMediaInputWindow(ctx context.Context, window string) context.Context {
+	return context.WithValue(ctx, mediaInputWindowKey{}, strings.TrimSpace(window))
+}
 
 var imageCoordRe = regexp.MustCompile(`(?i)use image coordinates (\d+)x(\d+)`)
 
-func ccFocusArgs(args map[string]any) map[string]any {
+func ccFocusArgs(ctx context.Context, args map[string]any) map[string]any {
 	if args == nil {
 		args = map[string]any{}
 	}
-	w := strings.TrimSpace(mediaInputWindow)
+	w, _ := ctx.Value(mediaInputWindowKey{}).(string)
 	if w != "" && !strings.EqualFold(w, "foreground app") {
 		args["window"] = w
 	}
@@ -40,12 +44,12 @@ func ccFocusArgs(args map[string]any) map[string]any {
 }
 
 func ccPress(ctx context.Context, invoke ccInvoker, session, key string, approved bool) error {
-	_, err := ccCall(ctx, invoke, session, ccapp.ToolPress, ccFocusArgs(map[string]any{"key": key}), approved)
+	_, err := ccCall(ctx, invoke, session, ccapp.ToolPress, ccFocusArgs(ctx, map[string]any{"key": key}), approved)
 	return err
 }
 
 func ccShortcut(ctx context.Context, invoke ccInvoker, session string, approved bool, keys ...string) error {
-	_, err := ccCall(ctx, invoke, session, ccapp.ToolKeyboardShortcut, ccFocusArgs(map[string]any{"keys": keys}), approved)
+	_, err := ccCall(ctx, invoke, session, ccapp.ToolKeyboardShortcut, ccFocusArgs(ctx, map[string]any{"keys": keys}), approved)
 	return err
 }
 
@@ -54,7 +58,7 @@ func ccType(ctx context.Context, invoke ccInvoker, session, text string, approve
 	if ccapp.PreferPasteText(text) {
 		tool = ccapp.ToolPaste
 	}
-	_, err := ccCall(ctx, invoke, session, tool, ccFocusArgs(map[string]any{"text": text}), approved)
+	_, err := ccCall(ctx, invoke, session, tool, ccFocusArgs(ctx, map[string]any{"text": text}), approved)
 	return err
 }
 
@@ -418,11 +422,7 @@ func playNamedTrackInForeground(ctx context.Context, invoke ccInvoker, session, 
 	if label == "" {
 		label = "foreground app"
 	}
-	prevWin := mediaInputWindow
-	if label != "foreground app" {
-		mediaInputWindow = label
-	}
-	defer func() { mediaInputWindow = prevWin }()
+	ctx = withMediaInputWindow(ctx, label)
 
 	generic := isGenericMediaQuery(query)
 

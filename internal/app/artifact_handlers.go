@@ -15,6 +15,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/artifactreview"
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/imagepreview"
 	"github.com/lunitide/lunitide/internal/officetools"
 )
 
@@ -79,7 +80,7 @@ func handleWorkspaceArtifactReviewList(e *Engine, _ context.Context, r bridge.Re
 // handleWorkspaceArtifactPreview answers a kind-aware text preview of one
 // session-workspace artifact: xlsx → the ParseXLSX JSON grid, docx/pptx →
 // extracted plain text, html → raw bounded content, pdf → size-only note.
-func handleWorkspaceArtifactPreview(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
+func handleWorkspaceArtifactPreview(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	if e.tools == nil {
 		return r.Fail("FEATURE_DISABLED", "工具运行时未初始化", false)
 	}
@@ -87,46 +88,61 @@ func handleWorkspaceArtifactPreview(e *Engine, _ context.Context, r bridge.Reque
 		SessionID string `json:"sessionId"`
 		Path      string `json:"path"`
 	}
-	if decodePayload(r.Payload, &p) != nil || p.Path == "" || len(p.Path) > 512 {
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SessionID) || p.Path == "" || len(p.Path) > 512 {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "workspace.artifact.preview 参数无效", false)
 	}
-	kind := strings.TrimPrefix(strings.ToLower(filepath.Ext(p.Path)), ".")
-	if !artifactKindValid(kind) || kind == "pdf" {
-		// pdf has no text extractor yet: still gated here so the schema and
-		// handler stay in sync; the renderer offers export instead.
-		return r.Fail("ARTIFACT_PREVIEW_UNSUPPORTED", "该格式暂不支持内容预览", false)
-	}
-	data, err := e.tools.ReadWorkspaceFile(p.SessionID, p.Path, 8<<20)
+	target, err := e.tools.ResolveSessionArtifact(p.SessionID, p.Path)
 	if err != nil {
+		return r.Fail("ARTIFACT_NOT_FOUND", "产物文件不存在或不在当前授权目录中", false)
+	}
+	info, err := os.Stat(target)
+	if err != nil || !info.Mode().IsRegular() {
 		return r.Fail("ARTIFACT_NOT_FOUND", "产物文件不存在或不可读", false)
 	}
-	var content string
+	kind := strings.TrimPrefix(strings.ToLower(filepath.Ext(target)), ".")
+	content, notice := "", ""
 	switch kind {
-	case "xlsx":
-		content, err = officetools.ParseXLSX(data)
-	case "docx":
-		content, err = officetools.ExtractDocxText(data)
-	case "pptx":
-		content, err = officetools.ExtractPptxText(data)
-	case "html":
-		if len(data) > 256<<10 {
-			content = string(data[:256<<10]) + "…"
-		} else {
-			content = string(data)
+	case "png", "jpg", "jpeg", "gif":
+		kind = "image"
+	case "html", "xlsx", "docx", "pptx", "pdf":
+	case "txt", "md", "json", "csv", "ts", "tsx", "js", "jsx", "go", "py", "yaml", "yml", "css", "sql", "xml", "log":
+		kind = "text"
+	default:
+		kind = "file"
+	}
+	if kind == "pdf" || kind == "file" {
+		notice = "请用本机软件打开查看完整内容"
+	} else if info.Size() > 8<<20 {
+		notice = "文件较大，请用本机软件打开查看完整内容"
+	} else {
+		data, readErr := e.tools.ReadWorkspaceFile(p.SessionID, p.Path, 8<<20)
+		if readErr != nil {
+			return r.Fail("ARTIFACT_NOT_FOUND", "产物文件不存在或不可读", false)
+		}
+		switch kind {
+		case "xlsx":
+			content, err = officetools.ParseXLSX(data)
+		case "docx":
+			content, err = officetools.ExtractDocxText(data)
+		case "pptx":
+			content, err = officetools.ExtractPptxText(data)
+		case "html", "text":
+			content = strings.ToValidUTF8(string(data), "�")
+		case "image":
+			content, err = imagepreview.Encode(ctx, data)
+		}
+		if err != nil {
+			notice = "无法生成预览，可用本机软件打开原文件"
+			content = ""
 		}
 	}
-	if err != nil {
-		if errors.Is(err, officetools.ErrLimit) {
-			return r.Fail("ARTIFACT_PREVIEW_UNSUPPORTED", "产物超出预览限制", false)
-		}
-		return r.Fail("ARTIFACT_PREVIEW_FAILED", "产物解析失败", false)
-	}
-	if len(content) > 256<<10 {
+	if kind != "image" && len(content) > 256<<10 {
 		runes := []rune(content)
 		keep := len(runes) * (256 << 10) / len(content)
 		content = string(runes[:keep]) + "…"
+		notice = "仅展示部分内容，本机打开可查看全文"
 	}
-	return r.Ok(map[string]any{"kind": kind, "path": filepath.ToSlash(p.Path), "size": len(data), "content": content})
+	return r.Ok(map[string]any{"kind": kind, "path": filepath.ToSlash(p.Path), "absolutePath": filepath.ToSlash(target), "size": info.Size(), "content": content, "notice": notice})
 }
 
 // resolveExportDir maps a user-authorized export target to an absolute

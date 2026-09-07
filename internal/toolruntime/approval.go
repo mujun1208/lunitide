@@ -3,6 +3,7 @@ package toolruntime
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -34,6 +35,8 @@ type Pending struct {
 
 var ErrPendingConsumed = errors.New("pending action already consumed")
 var ErrWorkspaceChanged = errors.New("workspace changed since approval request")
+var ErrDecisionInProgress = errors.New("approved action has no confirmed result yet")
+var ErrDecisionFailed = errors.New("approved action failed; inspect the result before retrying the task")
 
 func (r *Runtime) workspaceDigest(mode Mode, session string) (string, error) {
 	// Full-access over a user-selected root skips the tree walk: the root
@@ -114,9 +117,12 @@ func (r *Runtime) Prepare(ctx context.Context, runID, session, callID, name stri
 		}
 		return Pending{}, err
 	}
-	wd, err := r.workspaceDigest(mode, session)
-	if err != nil {
-		return Pending{}, err
+	wd := ""
+	if name != userAskTool {
+		wd, err = r.workspaceDigest(mode, session)
+		if err != nil {
+			return Pending{}, err
+		}
 	}
 	now := r.now()
 	exp := now.Add(ttl)
@@ -211,7 +217,10 @@ func (r *Runtime) decide(ctx context.Context, session, callID, digest string, ap
 	var name, raw, mode, wd, expires string
 	err = tx.QueryRowContext(ctx, `SELECT tool_name,args_json,execution_mode,workspace_digest,expires_at FROM chat_tool_calls WHERE session_id=? AND call_id=? AND args_digest=? AND status='pending'`, session, callID, digest).Scan(&name, &raw, &mode, &wd, &expires)
 	if err != nil {
-		return Result{}, ErrPendingConsumed
+		if errors.Is(err, sql.ErrNoRows) {
+			return Result{}, ErrPendingConsumed
+		}
+		return Result{}, err
 	}
 	exp, _ := time.Parse(time.RFC3339Nano, expires)
 	now := r.now()
@@ -238,13 +247,16 @@ func (r *Runtime) decide(ctx context.Context, session, callID, digest string, ap
 	if !approve {
 		return result("rejected by user"), nil
 	}
-	current, e := r.workspaceDigest(Mode(mode), session)
-	if e != nil {
-		return r.finishDecision(ctx, session, callID, digest, Result{}, e)
+	if name != userAskTool {
+		current, e := r.workspaceDigest(Mode(mode), session)
+		if e != nil {
+			return r.finishDecision(ctx, session, callID, digest, Result{}, e)
+		}
+		if current != wd {
+			return r.finishDecision(ctx, session, callID, digest, Result{}, ErrWorkspaceChanged)
+		}
 	}
-	if current != wd {
-		return r.finishDecision(ctx, session, callID, digest, Result{}, ErrWorkspaceChanged)
-	}
+
 	// S-05: a full-disk approval is the one-time per-session confirmation. Mark
 	// it (and audit it) before the unconfined re-run so the rest of the session
 	// runs without prompting again; the mark is in-memory and restart-scoped.
@@ -256,6 +268,9 @@ func (r *Runtime) decide(ctx context.Context, session, callID, digest string, ap
 	return r.finishDecision(ctx, session, callID, digest, out, e)
 }
 func (r *Runtime) finishDecision(ctx context.Context, session, callID, digest string, out Result, runErr error) (Result, error) {
+	// A lost client response must not prevent persisting an already executed action.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
 	status := "executed"
 	summary := out.Output
 	if runErr != nil {
@@ -265,9 +280,63 @@ func (r *Runtime) finishDecision(ctx context.Context, session, callID, digest st
 	if len(summary) > 4096 {
 		summary = summary[:4096]
 	}
-	_, err := r.db.ExecContext(ctx, `UPDATE chat_tool_calls SET status=?,result_digest=?,summary=?,completed_at=? WHERE session_id=? AND call_id=? AND args_digest=? AND status='approved'`, status, out.Digest, summary, r.now().Format(time.RFC3339Nano), session, callID, digest)
+	raw, err := json.Marshal(out)
 	if err != nil {
 		return Result{}, err
 	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Result{}, err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx, `UPDATE chat_tool_calls SET status=?,result_digest=?,summary=?,completed_at=? WHERE session_id=? AND call_id=? AND args_digest=? AND status='approved'`, status, out.Digest, summary, r.now().Format(time.RFC3339Nano), session, callID, digest)
+	if err != nil {
+		return Result{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO chat_tool_decision_results(session_id,call_id,args_digest,result_json) VALUES(?,?,?,?) ON CONFLICT(session_id,call_id,args_digest) DO UPDATE SET result_json=excluded.result_json`, session, callID, digest, raw); err != nil {
+		return Result{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return Result{}, err
+	}
 	return out, runErr
+}
+
+// ReplayDecision only reads a committed matching decision. It never executes a
+// tool or changes a remembered approval scope; the original CAS still runs once.
+func (r *Runtime) ReplayDecision(ctx context.Context, session, callID, digest string, approve bool) (Result, error) {
+	if err := r.ensureAudit(); err != nil {
+		return Result{}, err
+	}
+	var decision, status, summary, resultDigest string
+	var raw []byte
+	err := r.db.QueryRowContext(ctx, `SELECT c.decision,c.status,c.summary,c.result_digest,d.result_json FROM chat_tool_calls c LEFT JOIN chat_tool_decision_results d ON d.session_id=c.session_id AND d.call_id=c.call_id AND d.args_digest=c.args_digest WHERE c.session_id=? AND c.call_id=? AND c.args_digest=?`, session, callID, digest).Scan(&decision, &status, &summary, &resultDigest, &raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Result{}, ErrPendingConsumed
+	}
+	if err != nil {
+		return Result{}, err
+	}
+	if (approve && decision != "approved") || (!approve && decision != "rejected") {
+		return Result{}, ErrPendingConsumed
+	}
+	switch status {
+	case "rejected":
+		return result("rejected by user"), nil
+	case "approved":
+		return Result{}, ErrDecisionInProgress
+	case "failed":
+		return Result{}, ErrDecisionFailed
+	case "executed":
+		if len(raw) > 0 {
+			var out Result
+			if err = json.Unmarshal(raw, &out); err != nil {
+				return Result{}, err
+			}
+			return out, nil
+		}
+		return Result{Output: summary, Digest: resultDigest}, nil
+	default:
+		return Result{}, ErrPendingConsumed
+	}
 }

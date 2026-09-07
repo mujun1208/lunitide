@@ -1,0 +1,88 @@
+{
+  "recordedAt": "2026-09-06T21:10:32.829484+00:00",
+  "status": "code-checks-and-candidate-verified-with-explicit-race-exclusions",
+  "ordinaryGo": {
+    "counts": {
+      "skip": 30,
+      "pass": 4859
+    },
+    "coveragePercent": 54.0,
+    "coverageFloor": 51.0
+  },
+  "fullFrontend": {
+    "numTotalTests": 1705,
+    "numPassedTests": 1705,
+    "numFailedTests": 0,
+    "numPendingTests": 0
+  },
+  "subsequentWholeVoiceDirectory": {
+    "numTotalTests": 553,
+    "numPassedTests": 553,
+    "numFailedTests": 0,
+    "numPendingTests": 0
+  },
+  "frontendCountsOverlap": true,
+  "raceClosure": "go-race-closure.json",
+  "raceUniquePass": 4853,
+  "raceUniqueSkip": 28,
+  "raceBuildTagExclusionsPassingNormally": 6,
+  "gateReceipts": {
+    "final-go/go-receipt.json": {
+      "status": "passed",
+      "sourceUnchanged": true
+    },
+    "final-web-r3/web-receipt.json": {
+      "status": "passed",
+      "sourceUnchanged": true
+    },
+    "final-gates/static-receipt.json": {
+      "status": "passed",
+      "sourceUnchanged": true
+    },
+    "final-gates/security-receipt.json": {
+      "status": "passed",
+      "sourceUnchanged": true
+    },
+    "final-gates/release-tools-receipt.json": {
+      "status": "passed",
+      "sourceUnchanged": true
+    },
+    "voice-final-receipt.json": {
+      "status": "passed",
+      "sourceUnchanged": true
+    }
+  },
+  "sourceAlignment": "final-source-alignment.json",
+  "codeSourceSHA256": "ed4a8af7a98a92bd630de2263089a725b47ad1dd6312ef07de52d9eaf9cddb03",
+  "candidate": {
+    "version": "0.4.69",
+    "installer": "E:\\Trae-Work-Projects\\lunitide\\release\\out\\compatibility-20260907-r2\\Lunitide-Setup-0.4.69-x64.exe",
+    "bytes": 25033731,
+    "installerSHA256": "50166ee1e5d25adc373b1aa18b60040709755a5df4e7f71096b753fbebcd4aef",
+    "sourceTreeSHA256": "1904481351b23109165cec0a46f6d9d82c2492e892f681631f0a9a32b6021d29",
+    "sourceFileCount": 3135,
+    "sourceIndependentlyMatched": true,
+    "developmentUnsigned": true,
+    "installed": false,
+    "recordedAt": "2026-09-06T20:23:31.9286898Z",
+    "status": "artifact-verified",
+    "machineAcceptance": "pending",
+    "raceGate": "pending"
+  },
+  "candidateRaceGateAtClosure": "completed-as-described-in-go-race-closure.json",
+  "provisionalEngineeringScore": 4.73,
+  "certified49": false,
+  "pending": [
+    "Physical audio and voice accuracy/latency",
+    "Actual desktop applications and recipients",
+    "External accounts, databases and data providers",
+    "Native WebView2 visual inspection",
+    "Publisher signing and real installation acceptance"
+  ],
+  "limitations": [
+    "Original full race run exited 1: one corrected fixture deadline plus SQLite 90-minute timeout; applicable remaining tests passed in isolated race groups.",
+    "Six desktop tests excluded by existing !race build tag; normal suite passed them.",
+    "Browser screenshot verification was previously rejected by automatic approval; native rendering evidence is absent.",
+    "One uncalled module advisory GO-2026-5932 remains; no reachable govulncheck finding."
+  ]
+}

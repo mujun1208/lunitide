@@ -22,6 +22,9 @@ func (r *Runtime) ensureAudit() error {
 		result_digest TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
 		decided_at TEXT NOT NULL DEFAULT '', completed_at TEXT NOT NULL DEFAULT '', expires_at TEXT NOT NULL,
 		UNIQUE(session_id, call_id, args_digest));
+		CREATE TABLE IF NOT EXISTS chat_tool_decision_results(
+			session_id TEXT NOT NULL, call_id TEXT NOT NULL, args_digest TEXT NOT NULL,
+			result_json BLOB NOT NULL, PRIMARY KEY(session_id,call_id,args_digest));
 		CREATE TABLE IF NOT EXISTS chat_tool_approval_rules(
 			id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, tool_name TEXT NOT NULL,
 			args_digest TEXT NOT NULL, scope TEXT NOT NULL, created_at TEXT NOT NULL,

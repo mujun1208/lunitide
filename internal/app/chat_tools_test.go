@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -88,8 +89,8 @@ func TestMcpToolNameRoundtrip(t *testing.T) {
 	if !ok || gotEndpoint != endpoint || gotTool != "get_weather" {
 		t.Fatalf("parse = %q %q %v", gotEndpoint, gotTool, ok)
 	}
-	if _, ok := mcpToolName(endpoint, strings.Repeat("t", 64)); ok {
-		t.Fatal("over-budget name accepted")
+	if name, ok := mcpToolName(endpoint, strings.Repeat("t", 64)); !ok || len(name) > 64 {
+		t.Fatal("long tool lost its portable alias")
 	}
 	if _, ok := mcpToolName(endpoint, "bad tool"); ok {
 		t.Fatal("name with space accepted")
@@ -501,5 +502,40 @@ func TestAppendCaptureVisionKeepsLastFour(t *testing.T) {
 	images = appendCaptureVision(images, "image/png", []byte("five"))
 	if len(images) != 4 || string(images[0].Data) != "two" || string(images[3].Data) != "five" {
 		t.Fatalf("images=%#v", images)
+	}
+}
+
+func TestMcpLongToolAliasSearchSchemaAndInvocation(t *testing.T) {
+	ctx := context.Background()
+	longName := strings.Repeat("long_", 15) + "weather"
+	calls := 0
+	registry := mcp6.NewRegistry(func(context.Context, *mcp6.Endpoint) error { return nil }, func(_ context.Context, _ *mcp6.Endpoint, tool string, args map[string]any, _ []byte) (map[string]any, error) {
+		if tool != longName || args["city"] != "合肥" {
+			t.Errorf("wrong original tool/args: %s %+v", tool, args)
+		}
+		calls++
+		return map[string]any{"temperature": 26}, nil
+	}, fakeMcpLease{})
+	schema := json.RawMessage(`{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}`)
+	registry.SetDescribeFunc(func(context.Context, *mcp6.Endpoint) (map[string]mcp6.ToolSchema, error) {
+		return map[string]mcp6.ToolSchema{longName: {Description: "天气查询", InputSchema: schema}}, nil
+	})
+	_, err := registry.Register(ctx, mcp6.EndpointInput{Transport: "https", URL: "https://fixture.invalid/mcp", Pin: mcp6.BootstrapPin("fixture")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := NewEngine(nil, "test")
+	e.SetM6Services(nil, registry, nil)
+	defs := e.mcpToolDefinitions()
+	if len(defs) != 1 || len(defs[0].Name) > 64 {
+		t.Fatalf("long tool missing: %+v", defs)
+	}
+	raw, err := e.searchMcpTools([]byte(`{"query":"天气"}`))
+	if err != nil || !strings.Contains(raw, `"required":["city"]`) {
+		t.Fatalf("search omitted parameter schema: %s %v", raw, err)
+	}
+	args, _ := json.Marshal(map[string]any{"name": defs[0].Name, "arguments": map[string]string{"city": "合肥"}})
+	if _, err = e.callMcpToolByName(ctx, args); err != nil || calls != 1 {
+		t.Fatalf("alias invoke: %v calls=%d", err, calls)
 	}
 }

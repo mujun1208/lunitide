@@ -116,7 +116,14 @@ func handleProjectCreate(e *Engine, ctx context.Context, r bridge.Request) bridg
 		PlanStart: p.PlanStart, PlanEnd: p.PlanEnd, Remark: clampText(p.Remark, 2000),
 		Status: project.StatusCreated, OrgID: orgID,
 	}
-	if err := project.ValidateCreateBusinessFields(candidate); err != nil {
+	// Ordinary and companion chat share this internal storage container. Their
+	// existing renderer sends only this reserved name, not a business-project
+	// form. Keep the exception exact: a hidden-name prefix or a partially filled
+	// business form must not bypass required project fields. Scope, idempotency,
+	// storage invariants and audit still apply through the normal creation path.
+	if p == (projectCreatePayload{Name: "\u2063月汐·普通对话"}) {
+		candidate.Type = project.TypeImplementation
+	} else if err := project.ValidateCreateBusinessFields(candidate); err != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", err.Error(), false)
 	}
 	created, err := e.projects.Create(ctx, r.IdempotencyKey, projectMutationActor, struct {

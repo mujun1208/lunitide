@@ -1,0 +1,388 @@
+[
+  {
+    "package": "@agent360/browser-mcp",
+    "version": "1.28.1",
+    "executable": {
+      "browser-mcp": "bin/cli.js"
+    },
+    "repository": {
+      "url": "git+https://github.com/Agent360dk/browser-mcp.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "size": 2443
+  },
+  {
+    "package": "@amap/amap-maps-mcp-server",
+    "version": "0.0.8",
+    "executable": {
+      "mcp-amap": "build/index.js"
+    },
+    "repository": null,
+    "deprecated": null,
+    "size": 1720
+  },
+  {
+    "package": "@antv/mcp-server-chart",
+    "version": "0.9.10",
+    "executable": {
+      "mcp-server-chart": "build/index.js"
+    },
+    "repository": {
+      "url": "git+https://github.com/antvis/mcp-server-chart.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "size": 6214
+  },
+  {
+    "package": "@elastic/mcp-server-elasticsearch",
+    "version": "0.3.1",
+    "executable": {
+      "mcp-server-elasticsearch": "dist/index.js"
+    },
+    "repository": {
+      "url": "git+https://github.com/elastic/mcp-server-elasticsearch.git",
+      "type": "git"
+    },
+    "deprecated": "This package is deprecated. Please see the README at https://github.com/elastic/mcp-server-elasticsearch for details on how to run v0.4.0 or later.",
+    "size": 6401
+  },
+  {
+    "package": "@huggingface/mcp-server",
+    "error": "HTTP Error 404: Not Found"
+  },
+  {
+    "package": "@larksuiteoapi/lark-mcp",
+    "version": "0.5.1",
+    "executable": {
+      "lark-mcp": "dist/cli.js"
+    },
+    "repository": null,
+    "deprecated": null,
+    "size": 2471
+  },
+  {
+    "package": "@microsoft/markitdown-mcp",
+    "error": "HTTP Error 404: Not Found"
+  },
+  {
+    "package": "@modelcontextprotocol/server-aws-kb-retrieval",
+    "version": "0.6.2",
+    "executable": {
+      "mcp-server-aws-kb-retrieval": "dist/index.js"
+    },
+    "repository": null,
+    "deprecated": "Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.",
+    "size": 1939
+  },
+  {
+    "package": "@modelcontextprotocol/server-brave-search",
+    "version": "0.6.2",
+    "executable": {
+      "mcp-server-brave-search": "dist/index.js"
+    },
+    "repository": null,
+    "deprecated": "Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.",
+    "size": 1828
+  },
+  {
+    "package": "@modelcontextprotocol/server-everart",
+    "version": "0.6.2",
+    "executable": {
+      "mcp-server-everart": "dist/index.js"
+    },
+    "repository": null,
+    "deprecated": "Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.",
+    "size": 1849
+  },
+  {
+    "package": "@modelcontextprotocol/server-everything",
+    "version": "2026.8.31",
+    "executable": {
+      "mcp-server-everything": "dist/index.js"
+    },
+    "repository": {
+      "url": "git+https://github.com/modelcontextprotocol/servers.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "size": 2888
+  },
+  {
+    "package": "@modelcontextprotocol/server-fetch",
+    "error": "HTTP Error 404: Not Found"
+  },
+  {
+    "package": "@modelcontextprotocol/server-filesystem",
+    "version": "2026.8.31",
+    "executable": {
+      "mcp-server-filesystem": "dist/index.js"
+    },
+    "repository": {
+      "url": "git+https://github.com/modelcontextprotocol/servers.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "size": 2778
+  },
+  {
+    "package": "@modelcontextprotocol/server-gdrive",
+    "version": "2025.1.14",
+    "executable": {
+      "mcp-server-gdrive": "dist/index.js"
+    },
+    "repository": null,
+    "deprecated": "Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.",
+    "size": 1879
+  },
+  {
+    "package": "@modelcontextprotocol/server-gitlab",
+    "version": "2025.4.25",
+    "executable": {
+      "mcp-server-gitlab": "dist/index.js"
+    },
+    "repository": null,
+    "deprecated": "Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.",
+    "size": 1866
+  },
+  {
+    "package": "@modelcontextprotocol/server-google-maps",
+    "version": "0.6.2",
+    "executable": {
+      "mcp-server-google-maps": "dist/index.js"
+    },
+    "repository": null,
+    "deprecated": "Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.",
+    "size": 1845
+  },
+  {
+    "package": "@modelcontextprotocol/server-memory",
+    "version": "2026.8.31",
+    "executable": {
+      "mcp-server-memory": "dist/index.js"
+    },
+    "repository": {
+      "url": "git+https://github.com/modelcontextprotocol/servers.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "size": 2505
+  },
+  {
+    "package": "@modelcontextprotocol/server-postgres",
+    "version": "0.6.2",
+    "executable": {
+      "mcp-server-postgres": "dist/index.js"
+    },
+    "repository": null,
+    "deprecated": "Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.",
+    "size": 1824
+  },
+  {
+    "package": "@modelcontextprotocol/server-redis",
+    "version": "2025.4.25",
+    "executable": {
+      "mcp-server-redis": "dist/index.js"
+    },
+    "repository": null,
+    "deprecated": "Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.",
+    "size": 1842
+  },
+  {
+    "package": "@modelcontextprotocol/server-sentry",
+    "error": "HTTP Error 404: Not Found"
+  },
+  {
+    "package": "@modelcontextprotocol/server-sequential-thinking",
+    "version": "2026.8.31",
+    "executable": {
+      "mcp-server-sequential-thinking": "dist/index.js"
+    },
+    "repository": {
+      "url": "git+https://github.com/modelcontextprotocol/servers.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "size": 2658
+  },
+  {
+    "package": "@modelcontextprotocol/server-time",
+    "error": "HTTP Error 404: Not Found"
+  },
+  {
+    "package": "@neondatabase/mcp-server-neon",
+    "version": "0.6.5",
+    "executable": {
+      "mcp-server-neon": "dist/index.js"
+    },
+    "repository": null,
+    "deprecated": "This package is deprecated. Use the remote MCP server at mcp.neon.tech instead. See https://neon.tech/docs/ai/neon-mcp-server for more details.",
+    "size": 3973
+  },
+  {
+    "package": "@notionhq/notion-mcp-server",
+    "version": "2.5.1",
+    "executable": {
+      "notion-mcp-server": "bin/cli.mjs"
+    },
+    "repository": {
+      "url": "git+ssh://git@github.com/makenotion/notion-mcp-server.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "size": 3830
+  },
+  {
+    "package": "@playwright/mcp",
+    "version": "0.0.80",
+    "executable": {
+      "playwright-mcp": "cli.js"
+    },
+    "repository": {
+      "url": "git+https://github.com/microsoft/playwright-mcp.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "size": 3025
+  },
+  {
+    "package": "@qdrant/mcp-server",
+    "error": "HTTP Error 404: Not Found"
+  },
+  {
+    "package": "@supabase/mcp-server-supabase",
+    "version": "0.12.0",
+    "executable": {
+      "mcp-server-supabase": "dist/transports/stdio.js"
+    },
+    "repository": {
+      "url": "git+https://github.com/supabase/mcp.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "size": 3962
+  },
+  {
+    "package": "@upstash/context7-mcp",
+    "version": "4.0.5",
+    "executable": {
+      "context7-mcp": "dist/index.js"
+    },
+    "repository": {
+      "url": "git+https://github.com/upstash/context7.git",
+      "type": "git",
+      "directory": "packages/mcp"
+    },
+    "deprecated": null,
+    "size": 3421
+  },
+  {
+    "package": "chrome-devtools-mcp",
+    "version": "1.8.0",
+    "executable": {
+      "chrome-devtools": "build/src/bin/chrome-devtools.js",
+      "chrome-devtools-mcp": "build/src/bin/chrome-devtools-mcp.js"
+    },
+    "repository": {
+      "url": "git+https://github.com/ChromeDevTools/chrome-devtools-mcp.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "size": 5414
+  },
+  {
+    "package": "duckduckgo-mcp-server",
+    "version": "0.1.2",
+    "executable": {
+      "duckduckgo-mcp-server": "build/index.js"
+    },
+    "repository": {
+      "url": "git+https://github.com/zhsama/duckduckgo-mcp-server.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "size": 1986
+  },
+  {
+    "package": "excel-mcp-server",
+    "version": "1.0.0",
+    "executable": {
+      "excel-mcp-server": "bin/excel-mcp-server.js",
+      "excel-mcp-server.cmd": "bin/windows-launcher.cmd"
+    },
+    "repository": null,
+    "deprecated": null,
+    "size": 1277
+  },
+  {
+    "package": "firecrawl-mcp",
+    "version": "3.24.0",
+    "executable": {
+      "firecrawl-mcp": "dist/index.js"
+    },
+    "repository": {
+      "url": "git+https://github.com/firecrawl/firecrawl-mcp-server.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "size": 2786
+  },
+  {
+    "package": "linear-mcp-server",
+    "version": "0.1.0",
+    "executable": {
+      "linear-mcp-server": "build/index.js"
+    },
+    "repository": {
+      "url": "git+https://github.com/modelcontextprotocol/linear-server.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "size": 1863
+  },
+  {
+    "package": "markdownify-mcp",
+    "error": "HTTP Error 404: Not Found"
+  },
+  {
+    "package": "mcp-mongo-server",
+    "version": "3.0.1",
+    "executable": {
+      "mcp-mongo-server": "build/index.js"
+    },
+    "repository": {
+      "url": "git+https://github.com/kiliczsh/mcp-mongo-server.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "size": 2896
+  },
+  {
+    "package": "mcp-server-calculator",
+    "error": "HTTP Error 404: Not Found"
+  },
+  {
+    "package": "tavily-mcp",
+    "version": "0.2.22",
+    "executable": {
+      "tavily-mcp": "build/index.js"
+    },
+    "repository": {
+      "url": "git+https://github.com/tavily-ai/tavily-mcp.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "size": 2263
+  },
+  {
+    "package": "youtube-transcript-mcp",
+    "version": "0.1.5",
+    "executable": {
+      "youtube-transcript-mcp": "dist/index.js"
+    },
+    "repository": null,
+    "deprecated": null,
+    "size": 1477
+  }
+]

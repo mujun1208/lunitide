@@ -276,7 +276,6 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			nudges := 0
 			skillDraftOffered := false
 			leadInInjected := false
-			webSearchSeen := false
 			if prev := e.loadTurnCheckpoint(sessionID); looksLikeResume(turn.Goal) && strings.TrimSpace(prev.Goal) != "" {
 				turn.Goal = prev.Goal
 				turn.Injected = append(turn.Injected, prev.Injected...)
@@ -581,31 +580,6 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						}
 						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
 						continue
-					}
-					if skipSummary, skip := companionRedundantMediaSkip(state.companion, turn.LastTools, call.Name); skip {
-						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: skipSummary})
-						continue
-					}
-					if skipSummary, skip := companionRedundantWebSkip(state.companion, turn.LastTools, call.Name, turn.Goal, webSearchSeen); skip {
-						if future, ok := parallelFutures[call.ID]; ok {
-							select {
-							case <-future:
-							case <-op.Done():
-							}
-							delete(parallelFutures, call.ID)
-						}
-						if future, ok := subagentFutures[call.ID]; ok {
-							select {
-							case <-future:
-							case <-op.Done():
-							}
-							delete(subagentFutures, call.ID)
-						}
-						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: skipSummary})
-						continue
-					}
-					if call.Name == "web.search" {
-						webSearchSeen = true
 					}
 					if skipSummary, skip := duplicateToolSkipSummary(digest, completedDigests); skip {
 						if future, ok := parallelFutures[call.ID]; ok {

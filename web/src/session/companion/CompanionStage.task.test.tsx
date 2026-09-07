@@ -281,7 +281,7 @@ test('heard-you-no-glyphs restarts the recognizer instead of hanging', async () 
   expect(speech.start.mock.calls.length).toBeGreaterThan(started)
 }, 15_000)
 
-test('lead-in-only done after tools speaks process, not 完成了', async () => {
+test('lead-in-only terminal reports missing result without claiming ongoing work', async () => {
   const onSend = vi.fn()
   const { container, rerender } = await renderStage({ onSend })
   await act(async () => {
@@ -306,8 +306,8 @@ test('lead-in-only done after tools speaks process, not 完成了', async () => 
       activityStatus="输入文字中…"
     />,
   )
-  await waitFor(() => expect(tts.speakCalls.some(call => call.segments.join('').includes('还在处理'))).toBe(true))
-  expect(liveLog(container).textContent).toMatch(/还在处理/)
+  await waitFor(() => expect(tts.speakCalls.some(call => call.segments.join('').includes('没有收到可确认的结果'))).toBe(true))
+  expect(liveLog(container).textContent).toMatch(/没有收到可确认的结果/)
   expect(liveLog(container).textContent).not.toMatch(/完成了/)
 })
 
@@ -337,4 +337,21 @@ test('打断 during a task resumes listen so the next utterance is accepted', as
     speech.callbacks!.onFinal('改填身份证号')
   })
   expect(onSend).toHaveBeenLastCalledWith('改填身份证号')
+})
+
+
+test('speaks the complete task result after a lead-in without cancelling at eighty characters', async () => {
+  const onSend = vi.fn()
+  const onCancel = vi.fn()
+  const { container, rerender } = await renderStage({ onSend, onCancel })
+  await act(async () => speech.callbacks!.onFinal('查合肥天气，把结果告诉我'))
+  const lead = '好，我来查询合肥天气。'
+  rerender(<CompanionStage {...baseProps} onSend={onSend} onCancel={onCancel} chatStatus="streaming" assistantText={lead} activityStatus="查询天气中…" />)
+  await waitFor(() => expect(tts.enqueueCalls.length).toBeGreaterThan(0))
+  const result = '已经查到合肥天气。明天白天多云，晚上有阵雨。最高气温二十八度，最低气温二十一度。早晚温差比较明显，出门可以带一件薄外套。下午如果要外出，建议带一把雨伞，回程留意路面湿滑。查询结果已返回。'
+  rerender(<CompanionStage {...baseProps} onSend={onSend} onCancel={onCancel} chatStatus="streaming" assistantText={lead + result} activityStatus="天气查询已返回" />)
+  rerender(<CompanionStage {...baseProps} onSend={onSend} onCancel={onCancel} chatStatus="done" assistantText={lead + result} activityStatus="天气查询已返回" />)
+  await waitFor(() => expect(tts.enqueueCalls.flatMap(call => call.segments).join('')).toContain('查询结果已返回'))
+  expect(liveLog(container).textContent).toContain('查询结果已返回')
+  expect(onCancel).not.toHaveBeenCalled()
 })

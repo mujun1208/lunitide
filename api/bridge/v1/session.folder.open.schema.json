@@ -8,20 +8,43 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "sessionId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
-    "relativePath": { "type": "string", "maxLength": 512 }
+    "sessionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "relativePath": {
+      "type": "string",
+      "maxLength": 512
+    },
+    "reveal": {
+      "type": "boolean",
+      "description": "Reveal the containing folder instead of opening the file"
+    }
   },
-  "required": ["sessionId"],
+  "required": [
+    "sessionId"
+  ],
   "x-result": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "opened": { "type": "string" }
+      "opened": {
+        "type": "string"
+      }
     },
-    "required": ["opened"]
+    "required": [
+      "opened"
+    ]
   },
   "x-examples": {
-    "positive": [{ "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }],
-    "negative": [{ "sessionId": "" }]
+    "positive": [
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ],
+    "negative": [
+      {
+        "sessionId": ""
+      }
+    ]
   }
 }

@@ -13,6 +13,7 @@ import { ASR_INTERRUPTED_NOTICE, startMeetingAudioRecorder, verifyMeetingAudioAc
 import { collapseLiveTranscriptLines } from './meetingText'
 import { watchCaptureTracksEnded } from './meetingCapture'
 import type { CompanionSpeechHandle } from '../session/companion/speech'
+import { MeetingLoopbackQueue } from './meetingLoopbackQueue'
 import { MeetingSummarySource } from './MeetingSummarySource'
 import { MeetingTranscriptEditor, type MeetingTranscriptEditorHandle } from './MeetingTranscriptEditor'
 import { MeetingSegments } from './MeetingSegments'
@@ -132,7 +133,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
   const stallWatchRef = useRef<number>(0)
   const liveFallbackRef = useRef<number>(0)
   const loopbackPollRef = useRef<number>(0)
-  const loopbackHoldRef = useRef<Int16Array | undefined>(undefined)
+  const loopbackHoldRef = useRef(new MeetingLoopbackQueue())
   const loopbackEnergyRef = useRef({ hits: 0, zeros: 0 })
   const [systemHeard, setSystemHeard] = useState<boolean | undefined>()
   const [asrRuntime, setAsrRuntime] = useState<MeetingAsrRuntime>()
@@ -454,9 +455,8 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
               return ack
             },
             onFrame: frame => {
-              const extra = loopbackHoldRef.current
-              loopbackHoldRef.current = undefined
-              pcmTapRef.current?.(extra ? pcmFrameFromSamples(mixMeetingPcmS16le(frame.samples, extra)) : frame)
+              const extra = loopbackHoldRef.current.take(frame.samples.length)
+              pcmTapRef.current?.(extra.length ? pcmFrameFromSamples(mixMeetingPcmS16le(frame.samples, extra)) : frame)
             },
             onError: () => {
               if (!userStopRef.current) setNotice(ASR_INTERRUPTED_NOTICE)
@@ -520,18 +520,21 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     const live = current
     if (live?.status !== 'recording' || live.audioSource !== 'microphone_and_system' || !meetings.loopbackPoll || stopping) {
       window.clearInterval(loopbackPollRef.current)
-      loopbackHoldRef.current = undefined
+      loopbackHoldRef.current.clear()
       loopbackEnergyRef.current = { hits: 0, zeros: 0 }
       return
     }
     const id = live.meetingId
     let alive = true
+    let polling = false
     const pulse = () => {
+      if (polling) return
+      polling = true
       void meetings.loopbackPoll({ meetingId: id }).then(next => {
         if (!alive || !mountedRef.current || userStopRef.current || currentIdRef.current !== id) return
         setEngineLoopbackActive(next.active)
         if (!next.active) {
-          loopbackHoldRef.current = undefined
+          loopbackHoldRef.current.clear()
           return
         }
         const samples = decodeMeetingPcmBase64(next.pcm)
@@ -544,9 +547,8 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
           pcmTapRef.current(frame)
           return
         }
-        const prev = loopbackHoldRef.current
-        loopbackHoldRef.current = prev ? mixMeetingPcmS16le(prev, samples) : samples
-      }).catch(() => undefined)
+        loopbackHoldRef.current.append(samples)
+      }).catch(() => undefined).finally(() => { polling = false })
     }
     pulse()
     loopbackPollRef.current = window.setInterval(pulse, LOOPBACK_POLL_MS)
@@ -615,7 +617,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     window.clearInterval(summarizePollRef.current)
     window.clearInterval(stallWatchRef.current)
     window.clearTimeout(liveFallbackRef.current)
-    loopbackHoldRef.current = undefined
+    loopbackHoldRef.current.clear()
   }, [])
 
   const start = async () => {
@@ -644,9 +646,8 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
               return ack
             },
           onFrame: frame => {
-            const extra = loopbackHoldRef.current
-            loopbackHoldRef.current = undefined
-            pcmTapRef.current?.(extra ? pcmFrameFromSamples(mixMeetingPcmS16le(frame.samples, extra)) : frame)
+            const extra = loopbackHoldRef.current.take(frame.samples.length)
+            pcmTapRef.current?.(extra.length ? pcmFrameFromSamples(mixMeetingPcmS16le(frame.samples, extra)) : frame)
           },
           onError: () => {
             if (!userStopRef.current) setNotice(ASR_INTERRUPTED_NOTICE)
@@ -984,13 +985,17 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
       <div className="panel-resizer split-resizer" role="separator" aria-label="调整会议列表宽度" aria-orientation="vertical" onPointerDown={startListResize} />
       <section className="meeting-main" aria-label="会议工作台">
         <header className="meeting-hero">
-          <div>
-            <h2>{current?.title || '新的会议'}</h2>
+          <div className="meeting-heading">
+            <div className="meeting-eyebrow">会议纪要 <span> / </span> {recording ? '录制中' : stopping ? '正在整理' : current ? STATUS[current.status] : '准备录制'}</div>
+            <h2>{current?.title || '记录声音，留下重点'}</h2>
             <p>{current
-              ? `开始录制后写入本机录音，实时转写只作字幕。只有点停止才会结束。${MEETING_CATCHUP_HINT} 再生成摘要、待办和逐字稿。`
-              : '空白页。点开始录制这一场；听写引擎和纪要模型在设置里。'}</p>
+              ? `${formatWhen(current.startedAt)} · 本机保存`
+              : '收录会议、课程和电脑播放的声音，整理摘要、待办与逐字稿。'}</p>
           </div>
-          <div className="meeting-clock" aria-live="polite">{formatMeetingDuration(recording || stopping ? elapsed : current?.durationMs ?? 0)}</div>
+          <div className={`meeting-time ${recording ? 'is-recording' : ''}`}>
+            <span className="meeting-time-label">{recording ? '正在录制' : '录音时长'}</span>
+            <div className="meeting-clock" role="timer">{formatMeetingDuration(recording || stopping ? elapsed : current?.durationMs ?? 0)}</div>
+          </div>
         </header>
         <div className="meeting-rec">
           {recording
@@ -998,36 +1003,42 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
             : !current || stopping
               ? <button type="button" className="meeting-start" disabled={busy || stopping} onClick={() => void start()}>{busy || stopping ? '处理中…' : '开始录制'}</button>
               : <button type="button" className="meeting-new-inline" onClick={composeNew}>新纪要</button>}
-          <span>{recording ? audioSourceLabel(systemAudioMissing ? 'microphone' : current?.audioSource, true) : ((busy || stopping) && current ? '录音已停止，正在整理纪要。' : current ? '这是历史纪要。要再录一场，点新纪要。' : '开始录制后一直收录，直到你点停止。')}</span>
+          <span>{recording ? audioSourceLabel(systemAudioMissing ? 'microphone' : current?.audioSource, true) : ((busy || stopping) && current ? '录音已停止，正在整理纪要。' : current ? '可编辑、保存或导出这场纪要。' : '麦克风 + 系统声音 · 点击停止后结束录制')}</span>
           <button type="button" className="meeting-settings-link" onClick={() => setSettingsOpen(true)}>听写与纪要设置</button>
         </div>
         {systemAudioMissing && (
           <p className="meeting-warn" role="alert">
-            ⚠ 没有收录到系统内部声音，当前只在录麦克风。腾讯会议 / 飞书 / 微信语音 / 音乐视频等对方的声音不会进入这场纪要。请确认 Windows「立体声混音」或系统音频回环可用后重开一场。
+            ⚠ 系统声音暂未接入，当前只在录麦克风。腾讯会议、飞书、音乐视频等播放声音暂时未收录，请检查 Windows 输出设备与系统音频回环。
           </p>
         )}
-        {recording && asrRuntime && (
-          <p className="meeting-diag" role="note" aria-label="听写诊断">{meetingAsrRuntimeLine(asrRuntime)}</p>
-        )}
         {notice && <p className="meeting-notice" role="status">{notice}</p>}
-        <div className="meeting-transcript" aria-live="polite" aria-label="实时逐字稿">
-          {liveLines.length === 0 && !interim && !recording ? <p className="meeting-empty">还没有逐字稿。</p> : null}
-          {liveLines.map((line, index) => <p key={`${index}:${line.slice(0, 24)}`}>{line}</p>)}
-          {interim ? <p className="meeting-interim">{interim}</p> : null}
-        </div>
-        {current && <MeetingSegments meeting={current} load={meetings.segmentsList} />}
+        <details className="meeting-capture-info">
+          <summary>录音与转写说明</summary>
+          <p>开始后持续收录麦克风与电脑播放的声音，只有点击停止才结束。实时字幕可能暂时缺漏，本机录音用于停止后的补转写。</p>
+          <p>{MEETING_CATCHUP_HINT}</p>
+          {recording && asrRuntime && <p className="meeting-diag" role="note" aria-label="听写诊断">{meetingAsrRuntimeLine(asrRuntime)}</p>}
+        </details>
+        <details className={`meeting-live-section ${recording || !current ? 'is-live' : ''}`} open={recording || !current || undefined} key={recording || !current ? 'live' : current.meetingId}>
+          <summary>{recording || !current ? '实时转写' : '查看录制字幕与分段记录'}</summary>
+          <div className="meeting-transcript" aria-live="polite" aria-label="实时逐字稿">
+            {liveLines.length === 0 && !interim ? <div className="meeting-transcript-empty"><span className="meeting-sound-mark" aria-hidden="true">▂ ▅ ▃ ▇ ▃ ▅ ▂</span><p>{recording ? '正在聆听，识别到的内容会显示在这里。' : '声音从这里成为文字'}</p><small>{recording ? '录音会持续保存，无需保持讲话。' : '点击开始录制，收录麦克风与电脑里的声音。'}</small></div> : null}
+            {liveLines.map((line, index) => <p key={`${index}:${line.slice(0, 24)}`}>{line}</p>)}
+            {interim ? <p className="meeting-interim">{interim}</p> : null}
+          </div>
+          {current && <MeetingSegments meeting={current} load={meetings.segmentsList} />}
+        </details>
         {current && current.status !== 'recording' && (
           <article className="meeting-doc">
-            <section>
+            <section className="meeting-card meeting-summary-card">
               <h3>会议摘要</h3>
               <MeetingSummarySource meeting={current} load={meetings.summarySource} />
-              <textarea aria-label="会议摘要" value={draftSummary} onChange={e => edit('summary', e.target.value)} placeholder="尚未生成摘要。" />
+              <textarea aria-label="会议摘要" rows={8} value={draftSummary} onChange={e => edit('summary', e.target.value)} placeholder="尚未生成摘要。" />
             </section>
-            <section>
+            <section className="meeting-card meeting-actions-card">
               <h3>决议/待办</h3>
-              <textarea aria-label="决议/待办" value={draftActions} onChange={e => edit('actions', e.target.value)} placeholder={current.status === 'ready' ? '这场没有抽出可执行待办。' : '尚未生成待办。摘要成功后会一起写出。'} />
+              <textarea aria-label="决议/待办" rows={8} value={draftActions} onChange={e => edit('actions', e.target.value)} placeholder={current.status === 'ready' ? '这场没有抽出可执行待办。' : '尚未生成待办。摘要成功后会一起写出。'} />
             </section>
-            <section>
+            <section className="meeting-card meeting-full-transcript">
               <h3>全文逐字稿</h3>
               {current.transcriptComplete === false
                 ? <MeetingTranscriptEditor key={current.meetingId} ref={transcriptEditor} meeting={current} meetings={meetings} disabled={busy}
@@ -1041,9 +1052,9 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
                       draftRef.current = { ...draftRef.current, transcript: next.transcript || '' }
                       setDraftTranscript(next.transcript || '')
                     }} />
-                : <textarea aria-label="全文逐字稿" value={draftTranscript} onChange={e => edit('transcript', e.target.value)} placeholder="（空）" />}
+                : <textarea aria-label="全文逐字稿" rows={14} value={draftTranscript} onChange={e => edit('transcript', e.target.value)} placeholder="（空）" />}
             </section>
-            <p className="meeting-empty">{audioSourceLabel(source)}</p>
+            <p className="meeting-empty meeting-doc-source">{audioSourceLabel(source)}</p>
             <div className="meeting-export">
               {current.status === 'needs_summary' || current.status === 'transcribed' || current.status === 'summarizing' ? (
                 <button type="button" disabled={busy} onClick={() => void retry()}>重试生成摘要</button>

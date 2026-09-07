@@ -1,6 +1,6 @@
 import { startMeetingAudioRecorder } from './meetingAudio'
 import { BridgeClientError } from '../bridge/client'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { MeetingsBridge } from '../bridge/client'
@@ -305,7 +305,7 @@ describe('MeetingPage', () => {
     expect(screen.getByRole('button', { name: '历史纪要' })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText('评审会')).toBeInTheDocument()
     expect(screen.getByText(/已完成/)).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '新的会议' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '记录声音，留下重点' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '开始录制' })).toBeInTheDocument()
     expect(screen.queryByLabelText('纪要模型')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '今天想聊什么？' })).not.toBeInTheDocument()
@@ -366,7 +366,7 @@ describe('MeetingPage', () => {
     expect(await screen.findByRole('heading', { name: '评审会' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '开始录制' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '＋ 新纪要' }))
-    expect(screen.getByRole('heading', { name: '新的会议' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '记录声音，留下重点' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '开始录制' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '历史纪要' }))
     expect(screen.getByRole('button', { name: '历史纪要' })).toHaveAttribute('aria-expanded', 'false')
@@ -533,7 +533,7 @@ describe('MeetingPage', () => {
     expect(meetings.stop).not.toHaveBeenCalled()
     expect(meetings.get).toHaveBeenCalledWith({ meetingId })
     expect(speech.start).toHaveBeenCalled()
-    expect(screen.getByText(/录制中/)).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: '会议工作台' })).getByText(/录制中/)).toBeInTheDocument()
   })
 
   test('resumes leftover engine mix without browser capture', async () => {
@@ -675,7 +675,7 @@ describe('MeetingPage', () => {
     render(<MeetingPage meetings={meetings} />)
     await user.click(await screen.findByText('周会'))
     expect(await screen.findByRole('button', { name: '重试生成摘要' })).toBeInTheDocument()
-    expect(screen.getByText(/尚未生成摘要/)).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: '会议工作台' })).getByText(/尚未生成摘要/)).toBeInTheDocument()
   })
 
   test('vertical splitter, delete confirm, and in-place edit persist before export', async () => {

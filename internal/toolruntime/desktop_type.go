@@ -226,11 +226,7 @@ func executeDesktopType(ctx context.Context, invoke ccInvoker, session string, a
 
 	window := strings.TrimSpace(a.Window)
 	after := normalizeAfterLabel(a.After)
-	prevWin := mediaInputWindow
-	if window != "" {
-		mediaInputWindow = window
-	}
-	defer func() { mediaInputWindow = prevWin }()
+	ctx = withMediaInputWindow(ctx, window)
 
 	if window != "" {
 		if _, err := ccCall(ctx, invoke, session, ccapp.ToolWindowFocus, map[string]any{"title": window}, approved); err != nil {

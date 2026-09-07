@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/compaction"
@@ -312,7 +313,7 @@ func (t *Trigger) CheckAndTrigger(ctx context.Context, sessionID, provider, mode
 	// Create the checkpoint.
 	prevCheckpointID := (*string)(nil)
 	prevCheckpointDigest := (*string)(nil)
-	if latest != nil && latest.Status == compaction.StatusSucceeded {
+	if latest != nil && latest.Status == compaction.StatusSucceeded && !strings.HasPrefix(latest.TriggerReason, CompanionWeekReason) {
 		prevCheckpointID = &latest.ID
 		prevCheckpointDigest = &latest.SourceDigest
 	}
@@ -387,6 +388,10 @@ type ManualTriggerResult struct {
 // The caller is responsible for executing the checkpoint via the Executor after
 // creation. Manual compaction never deletes source messages (ADR-005 §1).
 func (t *Trigger) TriggerManual(ctx context.Context, sessionID, provider, model string, startSeq, endSeq int64) (ManualTriggerResult, error) {
+	return t.triggerRange(ctx, sessionID, provider, model, startSeq, endSeq, t.config.MinMessagesBeforeCompaction, compaction.TriggerManual, fmt.Sprintf("manual compaction requested for messages %d-%d", startSeq, endSeq))
+}
+
+func (t *Trigger) triggerRange(ctx context.Context, sessionID, provider, model string, startSeq, endSeq int64, minMessages int, trigger compaction.Trigger, reason string) (ManualTriggerResult, error) {
 	result := ManualTriggerResult{}
 
 	if startSeq < 1 || endSeq < 1 || startSeq > endSeq {
@@ -430,8 +435,8 @@ func (t *Trigger) TriggerManual(ctx context.Context, sessionID, provider, model 
 	if err != nil {
 		return result, fmt.Errorf("scan messages: %w", err)
 	}
-	if messageCount < t.config.MinMessagesBeforeCompaction {
-		result.Reason = fmt.Sprintf("insufficient messages in range (%d < %d)", messageCount, t.config.MinMessagesBeforeCompaction)
+	if messageCount < minMessages {
+		result.Reason = fmt.Sprintf("insufficient messages in range (%d < %d)", messageCount, minMessages)
 		return result, nil
 	}
 	if sourceStart.Sequence != startSeq || sourceEnd.Sequence != endSeq || int64(messageCount) != endSeq-startSeq+1 {
@@ -451,7 +456,7 @@ func (t *Trigger) TriggerManual(ctx context.Context, sessionID, provider, model 
 	// Link to the previous succeeded checkpoint for rolling compaction.
 	prevCheckpointID := (*string)(nil)
 	prevCheckpointDigest := (*string)(nil)
-	if latest != nil && latest.Status == compaction.StatusSucceeded {
+	if latest != nil && latest.Status == compaction.StatusSucceeded && !strings.HasPrefix(reason, CompanionWeekReason) && !strings.HasPrefix(latest.TriggerReason, CompanionWeekReason) {
 		prevCheckpointID = &latest.ID
 		prevCheckpointDigest = &latest.SourceDigest
 	}
@@ -467,8 +472,8 @@ func (t *Trigger) TriggerManual(ctx context.Context, sessionID, provider, model 
 		PrevCheckpointID:     prevCheckpointID,
 		PrevCheckpointDigest: prevCheckpointDigest,
 		SummarySchemaVersion: compaction.SummarySchemaVersion,
-		Trigger:              compaction.TriggerManual,
-		TriggerReason:        fmt.Sprintf("manual compaction requested for messages %d-%d", sourceStart.Sequence, sourceEnd.Sequence),
+		Trigger:              trigger,
+		TriggerReason:        reason,
 		Status:               compaction.StatusPending,
 		Provider:             provider,
 		Model:                model,

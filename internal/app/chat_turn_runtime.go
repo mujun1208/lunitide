@@ -54,27 +54,7 @@ func (e *Engine) mcpToolDefinitionsRestricted(allowed []string, restrict bool) [
 }
 
 func (e *Engine) searchMcpToolsFiltered(raw json.RawMessage, allowed []string, restrict bool) (string, error) {
-	out, err := e.searchMcpTools(raw)
-	if err != nil || !restrict {
-		return out, err
-	}
-	var payload struct {
-		Tools []struct {
-			Name        string `json:"name"`
-			Description string `json:"description"`
-		} `json:"tools"`
-	}
-	if json.Unmarshal([]byte(out), &payload) != nil {
-		return out, nil
-	}
-	kept := payload.Tools[:0]
-	for _, t := range payload.Tools {
-		if e.mcpNameAllowed(t.Name, "", allowed, true) {
-			kept = append(kept, t)
-		}
-	}
-	b, _ := json.Marshal(map[string]any{"tools": kept})
-	return string(b), nil
+	return e.searchMcpToolsScoped(raw, allowed, restrict)
 }
 
 func (e *Engine) callMcpToolByNameGuarded(ctx context.Context, raw json.RawMessage, allowed []string, restrict bool) (string, error) {

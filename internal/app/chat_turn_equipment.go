@@ -130,29 +130,49 @@ func (e *Engine) endpointPresetID(endpointID string) string {
 	if err != nil || ep == nil {
 		return heuristicPresetFromTools(e, endpointID)
 	}
-	if id := presetIDFromCommandArgs(ep.Command, ep.Args); id != "" {
+	if id := presetIDFromTarget(ep.Command, ep.Args, ep.URL); id != "" {
 		return id
 	}
 	return heuristicPresetFromTools(e, endpointID)
 }
 
 func presetIDFromCommandArgs(command string, args []string) string {
-	blob := strings.ToLower(strings.Join(append([]string{command}, args...), " "))
+	packageName := func(args []string) string {
+		for _, arg := range args {
+			if strings.HasPrefix(arg, "-") {
+				continue
+			}
+			if at := strings.LastIndex(arg, "@"); at > 0 {
+				arg = arg[:at]
+			}
+			if at := strings.Index(arg, "=="); at > 0 {
+				arg = arg[:at]
+			}
+			return arg
+		}
+		return ""
+	}
+	if command != "npx" && command != "uvx" {
+		return ""
+	}
+	target := packageName(args)
 	for _, p := range mcp6.Presets() {
-		for _, arg := range p.Args {
-			arg = strings.ToLower(strings.TrimSpace(arg))
-			if arg == "" || arg == "-y" || strings.HasPrefix(arg, "{{") {
-				continue
-			}
-			if !strings.HasPrefix(arg, "@") && !strings.Contains(arg, "mcp") && !mcp6.PresetPackageAllowed(arg) {
-				continue
-			}
-			if strings.Contains(blob, arg) {
+		if p.Command == command && packageName(p.Args) == target && target != "" {
+			return p.ID
+		}
+	}
+	return ""
+}
+
+func presetIDFromTarget(command string, args []string, url string) string {
+	if url != "" {
+		for _, p := range mcp6.Presets() {
+			if p.Transport == "https" && p.URL == url {
 				return p.ID
 			}
 		}
 	}
-	return ""
+	return presetIDFromCommandArgs(command, args)
 }
 
 func heuristicPresetFromTools(e *Engine, endpointID string) string {

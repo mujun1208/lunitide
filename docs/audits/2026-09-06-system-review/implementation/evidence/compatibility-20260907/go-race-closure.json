@@ -1,0 +1,105 @@
+{
+  "status": "completed-with-recorded-failure-and-timeout-rechecks",
+  "runs": [
+    {
+      "file": "go-race-events.jsonl",
+      "exitCode": 1,
+      "startedAt": "2026-09-07T03:21:21.3101299+08:00",
+      "lastEventAt": "2026-09-07T05:08:13.0543052+08:00",
+      "testCounts": {
+        "pass": 4832,
+        "skip": 28,
+        "fail": 1
+      },
+      "timeouts": [
+        "panic: test timed out after 1h30m0s"
+      ],
+      "failedPackages": [
+        "github.com/lunitide/lunitide/internal/app",
+        "github.com/lunitide/lunitide/internal/storage/sqlite"
+      ],
+      "logSHA256": "8747381e57e5032fc7c28d9a3ec89947f5ab45c67944e83847c80ac2058e1a63"
+    },
+    {
+      "file": "go-race-incremental.jsonl",
+      "exitCode": 0,
+      "startedAt": "2026-09-07T03:37:54.2805816+08:00",
+      "lastEventAt": "2026-09-07T03:48:16.6892295+08:00",
+      "testCounts": {
+        "pass": 9
+      },
+      "timeouts": [],
+      "failedPackages": [],
+      "logSHA256": "bf9ac80d1614d1084f1f6a8016aae6d352f7a6ea7bfb1468fe393ee268bd880c"
+    },
+    {
+      "file": "go-race-tail-1.jsonl",
+      "exitCode": 0,
+      "startedAt": "2026-09-07T04:56:37.0853645+08:00",
+      "lastEventAt": "2026-09-07T05:07:55.856613+08:00",
+      "testCounts": {
+        "pass": 19
+      },
+      "timeouts": [],
+      "failedPackages": [],
+      "logSHA256": "a11614a0cfcebb69cb816c06f664d2bded6fd525a88b196e3259ed08fd2954ad"
+    },
+    {
+      "file": "go-race-tail-2.jsonl",
+      "exitCode": 0,
+      "startedAt": "2026-09-07T04:56:37.0853645+08:00",
+      "lastEventAt": "2026-09-07T05:07:55.3243914+08:00",
+      "testCounts": {
+        "pass": 7
+      },
+      "timeouts": [],
+      "failedPackages": [],
+      "logSHA256": "54ec84a0920905249df0064704f8b44bd3f54583925f07677dbf67a1b679f46d"
+    },
+    {
+      "file": "go-race-tail-3.jsonl",
+      "exitCode": 0,
+      "startedAt": "2026-09-07T04:56:37.0853645+08:00",
+      "lastEventAt": "2026-09-07T05:07:56.6511778+08:00",
+      "testCounts": {
+        "pass": 8
+      },
+      "timeouts": [],
+      "failedPackages": [],
+      "logSHA256": "2272bc70d6ff0091ad2d690cee6ca5c08e21f450abe898612c04b231d4986850"
+    }
+  ],
+  "deduplicatedPassedTests": 4853,
+  "deduplicatedSkippedTests": 28,
+  "dataRaceWarnings": [],
+  "failedTestsWithoutPassingRecheck": [],
+  "normalTestsExcludedByRaceBuildTag": [
+    {
+      "package": "github.com/lunitide/lunitide/cmd/desktop",
+      "test": "TestDesktopTakeoverArgsWaitsForDyingHost"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/cmd/desktop",
+      "test": "TestEngineWatchPreferReconnectWhenPIDAlive"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/cmd/desktop",
+      "test": "TestEngineWatchShouldRelaunch"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/cmd/desktop",
+      "test": "TestReleaseGatewayThenRelaunchDropsMutexBeforeStart"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/cmd/desktop",
+      "test": "TestReleaseGatewayThenRelaunchRequiresSelf"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/cmd/desktop",
+      "test": "TestSelfLaunchWatchRelaunchesWhenRPCBroken"
+    }
+  ],
+  "buildTagReason": "cmd/desktop/watchdog_test.go uses !race because CGO external linking overflows PE .rsrc relocations; all six pass in the normal suite. Two singleton tests are also excluded by !race and skipped in normal tests because the user app holds the named mutex.",
+  "tailPlanAllSelectedTestsPassed": true,
+  "scope": "Full run plus unchanged-assertion isolated recovery groups and corrected app recheck; original full invocation exited 1, not 0."
+}

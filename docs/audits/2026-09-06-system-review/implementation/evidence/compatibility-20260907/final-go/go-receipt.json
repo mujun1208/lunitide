@@ -1,0 +1,51 @@
+{
+  "group": "go",
+  "startedAt": "2026-09-06T19:42:23.4875703Z",
+  "finishedAt": "2026-09-06T19:50:56.5060433Z",
+  "status": "passed",
+  "source": {
+    "commit": "25199598d306b1b463c060cb0e55a8b38ad484ba",
+    "treeSha256": "186e46f6c53f708d9e92ac02c0a84929fa753435e2d495ecae46a0682ff5e2e8",
+    "fileCount": 2820,
+    "manifest": "go-source.json"
+  },
+  "sourceUnchanged": true,
+  "checks": [
+    {
+      "name": "go-tests",
+      "command": "go",
+      "arguments": [
+        "test",
+        "-json",
+        "-count=1",
+        "-p=4",
+        "-timeout=25m",
+        "-coverprofile=E:\\Trae-Work-Projects\\lunitide\\docs\\audits\\2026-09-06-system-review\\implementation\\evidence\\compatibility-20260907\\final-go\\coverage.out",
+        "./..."
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-06T19:42:55.2782933Z",
+      "finishedAt": "2026-09-06T19:50:32.7475638Z",
+      "stdout": "go-tests.jsonl",
+      "stderr": "go-tests.stderr.log"
+    },
+    {
+      "name": "coverage",
+      "command": "go",
+      "arguments": [
+        "tool",
+        "cover",
+        "-func=E:\\Trae-Work-Projects\\lunitide\\docs\\audits\\2026-09-06-system-review\\implementation\\evidence\\compatibility-20260907\\final-go\\coverage.out"
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-06T19:50:32.7571913Z",
+      "finishedAt": "2026-09-06T19:50:35.1653277Z",
+      "stdout": "coverage.txt",
+      "stderr": "coverage.stderr.log"
+    }
+  ],
+  "error": null,
+  "scope": "code-and-automated-tests; docs excluded; no physical or release acceptance",
+  "coveragePercent": 54.0,
+  "coverageFloor": 51.0
+}

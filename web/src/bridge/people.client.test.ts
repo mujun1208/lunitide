@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest'
 import {
   capBridgeDeadlineMs,
   createPeopleBridge,
+  createMutationAttempt,
   PEOPLE_CAPTURE_DEADLINE_MS,
   PEOPLE_FILE_DEADLINE_MS,
   type WebViewTransport,
@@ -33,7 +34,7 @@ it('allows a longer deadline for region screenshots', () => {
   expect(capBridgeDeadlineMs('system.health', PEOPLE_FILE_DEADLINE_MS)).toBe(30_000)
 })
 
-it('requests people.file.stage with the extended deadline', async () => {
+it('bounds each small file chunk so a screenshot cannot lock sending for minutes', async () => {
   const { sent, bridge } = peopleHarness()
   await bridge.fileStage({
     uploadId: U,
@@ -44,7 +45,7 @@ it('requests people.file.stage with the extended deadline', async () => {
     contentBase64: 'AQID',
   })
   expect(sent[0]?.method).toBe('people.file.stage')
-  expect(sent[0]?.deadlineMs).toBe(PEOPLE_FILE_DEADLINE_MS)
+  expect(sent[0]?.deadlineMs).toBe(12_000)
 })
 
 it('requests people.file.open without stretching the deadline', async () => {
@@ -59,4 +60,21 @@ it('requests people.screen.capture with the snip deadline', async () => {
   await bridge.screenCapture({})
   expect(sent[0]?.method).toBe('people.screen.capture')
   expect(sent[0]?.deadlineMs).toBe(PEOPLE_CAPTURE_DEADLINE_MS)
+})
+
+it('releases a lost text/emoji/screenshot send receipt promptly and retries the same message identity', async () => {
+  vi.useFakeTimers()
+  try {
+    const requests: Array<{deadlineMs: number; idempotencyKey: string}> = []
+    const bridge = createPeopleBridge({addEventListener: vi.fn(), removeEventListener: vi.fn(), postMessage: request => { requests.push(request as typeof requests[number]) }})
+    for (const kind of ['text', 'emoji', 'image'] as const) {
+      const payload = {threadId: U, kind, body: kind === 'image' ? '' : '🙂'}
+      const attempt = createMutationAttempt('people.thread.send', payload)
+      const result = bridge.threadSend(payload, {attempt}).catch(error => error)
+      await vi.advanceTimersByTimeAsync(25_000)
+      expect(requests.slice(-2).map(r => r.deadlineMs)).toEqual([12_000, 12_000])
+      expect(requests.slice(-2).every(r => r.idempotencyKey === attempt.idempotencyKey)).toBe(true)
+      expect((await result).code).toBe('REQUEST_DEADLINE_EXCEEDED')
+    }
+  } finally { vi.useRealTimers() }
 })

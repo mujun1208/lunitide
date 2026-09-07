@@ -442,11 +442,11 @@ func TestMcp6PresetsList(t *testing.T) {
 	if pg := byID["postgres"]; !pg.NeedsArgs || pg.ArgDefault != "" {
 		t.Fatalf("secret/url presets must not receive a sandbox path default: %+v", pg)
 	}
-	if maps := byID["google-maps"]; !maps.NeedsArgs || maps.ArgPlaceholder != "{{key}}" || maps.ArgDefault != "" {
+	if maps := byID["google-maps"]; !maps.NeedsCredential || maps.NeedsArgs || len(maps.CredentialEnvs) != 1 || maps.CredentialEnvs[0] != "GOOGLE_MAPS_API_KEY" || maps.ArgDefault != "" {
 		t.Fatalf("API-key presets must not receive a sandbox path default: %+v", maps)
 	}
-	if drive := byID["gdrive"]; !drive.NeedsArgs || drive.ArgPlaceholder != "{{dir}}" || drive.ArgDefault == "" {
-		t.Fatalf("gdrive credential dir should use the local sandbox default: %+v", drive)
+	if drive := byID["gdrive"]; !drive.NeedsCredential || drive.NeedsArgs || drive.ArgDefault != "" || len(drive.CredentialEnvs) != 1 || drive.CredentialEnvs[0] != "GDRIVE_CREDENTIALS_PATH" {
+		t.Fatalf("gdrive must use an authorized credential file, not an empty sandbox: %+v", drive)
 	}
 
 	// End-to-end: each catalog row (placeholder resolved to a benign path)
@@ -456,8 +456,19 @@ func TestMcp6PresetsList(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		reg := h.e.Handle(context.Background(), m6Request(bridge.MethodMcp6Register,
-			`{"endpoint":{"transport":"stdio","command":"`+it.Command+`","args":`+string(argsJSON)+`},"capabilityPin":{"serverIdentityDigest":"`+sha256Hex("srv")+`","toolSchemaDigests":{"t":"`+sha256Hex("t")+`"}}}`, ""))
+		endpoint := map[string]any{"transport": it.Transport}
+		if it.Transport == "https" {
+			endpoint["url"] = it.URL
+			endpoint["authRef"] = "secretref:pool/a"
+		} else {
+			endpoint["command"] = it.Command
+			endpoint["args"] = json.RawMessage(argsJSON)
+		}
+		payload, err := json.Marshal(map[string]any{"endpoint": endpoint, "capabilityPin": map[string]any{"serverIdentityDigest": sha256Hex("srv"), "toolSchemaDigests": map[string]string{"t": sha256Hex("t")}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		reg := h.e.Handle(context.Background(), m6Request(bridge.MethodMcp6Register, string(payload), ""))
 		var regOut struct {
 			State string `json:"state"`
 		}

@@ -28,16 +28,16 @@ func companionPersonaChatInstruction() string {
 func companionPersonaToolsInstruction() string {
 	return "\n" +
 		"- 对话里出现技能目录中的场景时，先开口一句，再立刻 skill.invoke，不要等用户再说“用技能”\n" +
-		"- 搜网页/查火车/查航班/查天气：必须 web.search 一次，用摘要直接说气温和阴晴；不要第二次 web.search，不要 web.fetch，除非用户给了网址。不要只说等一下就停\n" +
+		"- 天气、车票、航班、行情：优先用已接入的专用数据工具，核对地点、日期、时区和数据时间。没有可用数据接口时说明缺失，按用户需求使用搜索；不得把网页摘要当作实时库存或成交价。需要补充或核实就继续查询，最后把实际结果说出来\n" +
 		"- 打开页面：用 browser.act，不要猜 command.run 或系统 start\n" +
 		"- 打开桌面文件/软件：必须用 desktop.open（name=用户原话里的文件名或软件名，如用户说的歌名播放器、桌面文件名）。没说具体文件时不要猜「协议」。语音常把「打开」听成「把开」：仍按打开桌面文件执行，不要等完美识别。网易云音乐会解析开始菜单、cloudmusic.exe 安装目录和已运行进程，不要猜本机路径，不要打开 music.163.com 网页版，除非用户明确说网页\n" +
-		"- 打开类目标在 desktop.open 成功后用一句结果收尾（例如「已经打开了汽水音乐。」），禁止说无法执行，禁止再截月伴或调用 computer.act\n" +
+		"- 仅要求打开时，desktop.open 成功后说明打开结果；还要求播放、编辑或发送时，继续执行后续步骤并验证。不要重复打开同一个窗口，也不要把启动成功误当成整项任务完成\n" +
 		"- 在文档或对话框里填写：有可点的输入框时用 desktop.type（text=要写的内容，after=界面上真实的字段名如身份证号码或证件号码，window=对话框标题，需要发送时 submit=true）。Word 正文没有命名输入框：先 computer.act screenshot 看清，记下 frameId，再 click 输入位置后 type，verifyAfter 确认数字已写入。找不到字段必须说无法执行。写完不要关窗口，不要 cc.window_action op=close\n" +
-		"- 发飞书/企微/钉钉/微信/QQ：月伴不发即时消息。请用户改在工作台会话里发，或去设置 → 消息通道\n" +
+		"- 发消息：使用已配置通道的 im.send；需要桌面应用时，desktop.open 后用 computer.act 识别实际联系人和输入框，核对收件人和内容后按用户指令发送。缺少联系人或内容时用 user.ask 澄清。不能把打开聊天窗口或填入草稿说成已发送\n" +
 		"- 播歌/播放：打开桌面播放器后用 media.play（target=foreground，query=歌名或歌手，如 周杰伦；没说具体歌或要随机播放时用 query=热门）。用户说打开网易云音乐并播放时，先 desktop.open name=网易云音乐，再 media.play target=foreground query=歌手或歌名。foreground 会聚焦已打开的播放器（未运行则按本机安装路径启动），在搜索框搜歌并点搜索结果，禁止点「我喜欢的音乐」「收藏」，不要只启动进程。禁止改用网页或 target=netease/qqmusic。仅当用户明确要网页版时才用 target=browser\n" +
-		"- 建文件夹/写文件：只用 workspace.write，不要猜命令行\n" +
+		"- 建文件夹/写文件：优先用 workspace 工具；需要处理代码、转换或运行程序时使用已授权的命令工具，完成后核对文件\n" +
 		"- 桌面手只选一把：打开未运行的应用或桌面文件用 desktop.open；已聚焦窗口打字用 desktop.type；播歌用 media.play；网页用 browser.act；看屏/点控件/截图用 computer.act。同一轮不要 desktop.open 和 computer.act 各试一遍「打开」\n" +
-		"- 操作电脑：电脑控制开启时只用 computer.act。先 action=screenshot（默认当前窗口）或 observe 看清界面，记下 frameId，再 click/type/key。坐标必须来自你看到的那张图。点按钮优先 name= 或 id=，不要盲点像素。禁止点 UAC。遇到打开/保存文件对话框时停下来，runtime 会请用户去点。用户没说关闭时禁止 window_action close。启动未打开的应用用 desktop.open。多步做到完成再停。月伴不要跑命令行、不要发 IM\n" +
+		"- 操作电脑：电脑控制开启时只用 computer.act。先 action=screenshot（默认当前窗口）或 observe 看清界面，记下 frameId，再 click/type/key。坐标必须来自你看到的那张图。点按钮优先 name= 或 id=，不要盲点像素。禁止点 UAC。遇到打开/保存文件对话框时停下来，runtime 会请用户去点。用户没说关闭时禁止 window_action close。启动未打开的应用用 desktop.open。多步做到完成再停。代码或终端任务可用 command.run，沿用本会话的执行权限；不要为了桌面操作猜测路径或盲跑脚本\n" +
 		"- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install\n" +
 		"- 对话里贴了抖音/B站/腾讯视频/YouTube 链接：必须 video.understand，不要 browser.act，不要 media.play 代播。没有字幕就按页面简介说，禁止说我看完了\n" +
 		"- 多次调用工具或经过多轮执行后，最后一句必须用自然语言把这次做完的结果讲清楚收尾（例如做了什么、结果如何），禁止在中途工具反馈后就沉默停住，也禁止只说「好的」「稍等」而不给最终结果"
@@ -49,7 +49,7 @@ func companionSpeakFallback(result llmadapter.Response) string {
 	if t := strings.TrimSpace(result.Message.Content); t != "" {
 		return t
 	}
-	return "我在呢，稍等我一下。"
+	return "这次没有收到完整回答，请再试一次。"
 }
 
 // companionOpeningAck is spoken immediately when a voice turn starts so the
@@ -86,53 +86,6 @@ func shouldInjectCompanionToolLeadIn(assistantAll string, alreadyInjected bool) 
 		return false
 	}
 	return text == ""
-}
-
-const companionRedundantWebSkipMsg = "ok:true\n已经有搜索摘要。不要再搜、不要打开网页，用现有结果用一两句说出气温和阴晴。"
-
-// companionRedundantWebSkip drops a second weather-style lookup. One
-// successful web.search is enough; fetch stays only when the user pasted a URL.
-func companionRedundantWebSkip(companion bool, lastTools []string, next, userText string, searchSeen bool) (string, bool) {
-	if !companion {
-		return "", false
-	}
-	if next != "web.search" && next != "web.fetch" {
-		return "", false
-	}
-	hadSearch := searchSeen
-	if !hadSearch {
-		for _, t := range lastTools {
-			if t == "web.search" {
-				hadSearch = true
-				break
-			}
-		}
-	}
-	if !hadSearch {
-		return "", false
-	}
-	if next == "web.search" {
-		return companionRedundantWebSkipMsg, true
-	}
-	lower := strings.ToLower(userText)
-	if strings.Contains(lower, "http://") || strings.Contains(lower, "https://") {
-		return "", false
-	}
-	return companionRedundantWebSkipMsg, true
-}
-
-const companionRedundantMediaSkipMsg = "ok:true\n已经处理过播放。不要再 media.play，用一两句说结果或「没播成」。"
-
-func companionRedundantMediaSkip(companion bool, lastTools []string, next string) (string, bool) {
-	if !companion || next != "media.play" {
-		return "", false
-	}
-	for _, t := range lastTools {
-		if t == "media.play" {
-			return companionRedundantMediaSkipMsg, true
-		}
-	}
-	return "", false
 }
 
 func companionToolLeadIn(toolName string) string {
@@ -288,6 +241,7 @@ func companionWantsTools(text string) bool {
 		"启动", "运行", "软件", "汽水音乐", "网易云",
 		"截图", "屏幕", "对话框", "点击", "鼠标",
 		"填写", "填一下", "填表", "输入", "写入", "打字", "随机播放",
+		"发送", "发给", "发消息", "转发", "send", "message", "回复",
 		"下一步", "再点", "接着", "帮我点", "帮我做",
 		"生图", "画一张", "画图", "生成图片", "生成视频", "生视频", "做个视频",
 		"search", "open http", "play song", "install", "generate image", "generate video",

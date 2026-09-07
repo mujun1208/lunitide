@@ -28,12 +28,21 @@ import (
 const maxFrame = 96 << 10
 
 type fileUpload struct {
-	mu   sync.Mutex
-	name string
-	mime string
-	path string
-	file *os.File
-	size int64
+	mu       sync.Mutex
+	name     string
+	mime     string
+	path     string
+	file     *os.File
+	size     int64
+	chunks   []stageChunkReceipt
+	updated  time.Time
+	complete bool
+}
+
+type stageChunkReceipt struct {
+	hash   [32]byte
+	last   bool
+	result StageResult
 }
 
 type incomingFile struct {

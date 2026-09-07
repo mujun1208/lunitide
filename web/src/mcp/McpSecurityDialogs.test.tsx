@@ -27,3 +27,18 @@ describe('MCP security dialogs',()=>{
   expect(review.mock.calls[1][0]).toEqual({endpointId:endpoint.endpointId,expectedVersion:3,action:'accept',observedDigest:observed.observedDigest,confirmed:true});expect(onSaved).not.toHaveBeenCalled()
  })
 })
+
+it('saves multiple environment credentials using the returned version and distinct operations', async()=>{
+ const save=vi.fn().mockResolvedValueOnce({configured:true,securityVersion:4}).mockResolvedValueOnce({configured:true,securityVersion:5}),onClose=vi.fn()
+ render(<McpCredentialDialog endpoint={{...endpoint,transport:'stdio'}} suggestedEnvs={['QDRANT_URL','QDRANT_API_KEY']} save={save} onClose={onClose} onSaved={()=>{}}/>)
+ expect(screen.getByLabelText('凭据环境变量')).toHaveValue('QDRANT_URL')
+ fireEvent.change(screen.getByLabelText('MCP 凭据值'),{target:{value:'https://fixture.invalid'}})
+ fireEvent.click(screen.getByText('保存并继续配置'))
+ await screen.findByText('已保存 QDRANT_URL，可以继续配置下一项')
+ expect(screen.getByLabelText('凭据环境变量')).toHaveValue('QDRANT_API_KEY');expect(onClose).not.toHaveBeenCalled()
+ fireEvent.change(screen.getByLabelText('MCP 凭据值'),{target:{value:'fixture-secret'}});fireEvent.click(screen.getByText('保存凭据'))
+ await waitFor(()=>expect(onClose).toHaveBeenCalledOnce())
+ expect(save.mock.calls[0][0]).toMatchObject({env:'QDRANT_URL',expectedVersion:3})
+ expect(save.mock.calls[1][0]).toMatchObject({env:'QDRANT_API_KEY',expectedVersion:4})
+ expect(save.mock.calls[0][0].requestId).not.toBe(save.mock.calls[1][0].requestId)
+})

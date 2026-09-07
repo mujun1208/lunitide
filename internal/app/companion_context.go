@@ -13,7 +13,7 @@ import (
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
-var errCompanionToolDenied = errors.New("月伴不能执行命令行或发送即时消息，请改在工作台会话里做")
+var errCompanionToolDenied = errors.New("请通过 computer.act 调用桌面动作")
 
 type companionActionContext struct {
 	ActiveAppName string `json:"activeAppName,omitempty"`
@@ -493,11 +493,8 @@ func (e *Engine) executeUserToolWithCompanion(ctx context.Context, mode executio
 	if name == "media.play" {
 		args = e.resolveMediaPlayArgs(session, args)
 	}
-	if companion && approvalProfileDangerous(name) && !(ccStandingApprovedTool(name) && e.companionCcEnabled(ctx)) {
-		mode = executionModeApproval
-	} else if companion && companionFullDiskWrite(name) && e.fullDiskChat(mode) {
-		mode = executionModeApproval
-	}
+	// Honor the selected execution mode on both voice and text. The shared
+	// runtime still enforces workspace grants, CC enable, and emergency stop.
 	if progress != nil {
 		return e.executeUserToolStreaming(ctx, mode, session, name, args, progress)
 	}

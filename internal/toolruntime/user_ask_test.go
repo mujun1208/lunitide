@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestUserAskRequiresApprovalThenReturnsDecision(t *testing.T) {
@@ -38,5 +41,34 @@ func TestUserAskRequiresApprovalThenReturnsDecision(t *testing.T) {
 	}
 	if err := validateUserAsk(json.RawMessage(`{"reason":"nope","questions":[{"prompt":"登录","options":[{"label":"我登好了"},{"label":"取消"}]}]}`)); err == nil {
 		t.Fatal("unknown reason must fail")
+	}
+}
+
+func TestUserAskDecisionSurvivesUnrelatedWorkspaceChange(t *testing.T) {
+	r, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	ctx := context.Background()
+	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	args := json.RawMessage(`{"questions":[{"prompt":"部署方式","options":[{"label":"容器化"},{"label":"虚拟机"}]}]}`)
+	pending, err := r.Prepare(ctx, "run", session, "ask-1", "user.ask", args, Approval, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := r.sessionPath(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(root, "new-note.txt"), []byte("unrelated edit"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := r.Decide(ctx, session, pending.CallID, pending.ArgsDigest, true)
+	if err != nil || !strings.Contains(out.Output, "用户已提交决策") {
+		t.Fatalf("decision blocked by unrelated files: %v", err)
 	}
 }

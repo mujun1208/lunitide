@@ -1,0 +1,50 @@
+{
+  "reason": "Finish remaining cold schema/recovery checks in disjoint isolated processes; original full run retained.",
+  "sourceSHA256": "ed4a8af7a98a92bd630de2263089a725b47ad1dd6312ef07de52d9eaf9cddb03",
+  "groups": [
+    {
+      "tests": [
+        "TestOpenTreatsSpecialCharactersAsFilenameNotDSN",
+        "TestMigratesRealV1BoundaryFixture",
+        "TestLegacyJournalIsValidatedThenSafelyBackfilled",
+        "TestStartupRejectsProviderInvariantCorruption",
+        "TestUnitOfWorkUnwindsEveryUncommittedExit",
+        "TestTalkUserFinalReplaySurvivesLegacyExpiryAndReopen",
+        "TestTemplatedOpenKeepsAnExistingDatabase",
+        "TestLegacyBackfillRejectsCommentAndWeakenedConstraint",
+        "TestOpenRejectsDangerousPaths",
+        "TestTemplatedOpenRejectsUnsafePaths"
+      ],
+      "ordinarySeconds": 17.58,
+      "id": 1,
+      "pattern": "^(TestOpenTreatsSpecialCharactersAsFilenameNotDSN|TestMigratesRealV1BoundaryFixture|TestLegacyJournalIsValidatedThenSafelyBackfilled|TestStartupRejectsProviderInvariantCorruption|TestUnitOfWorkUnwindsEveryUncommittedExit|TestTalkUserFinalReplaySurvivesLegacyExpiryAndReopen|TestTemplatedOpenKeepsAnExistingDatabase|TestLegacyBackfillRejectsCommentAndWeakenedConstraint|TestOpenRejectsDangerousPaths|TestTemplatedOpenRejectsUnsafePaths)$"
+    },
+    {
+      "tests": [
+        "TestOpenRejectsUnknownMigrationAndSchemaObjects",
+        "TestUpgradeCanonicalV3DatabaseToModelSyncClaimsV4",
+        "TestCreateRejectsExternalNonULIDAndReturnsEntropyError",
+        "TestProviderTransactionalCRUDCASOriginAndSoftDelete",
+        "TestReleasedV1ManifestTypoIsCorrectedOnlyAfterFullValidation",
+        "TestTokenLedgerPersistsIdentityAndSupportsRevisions",
+        "TestUnitOfWorkClosesStoreWhenRollbackCannotBeConfirmed"
+      ],
+      "ordinarySeconds": 17.59,
+      "id": 2,
+      "pattern": "^(TestOpenRejectsUnknownMigrationAndSchemaObjects|TestUpgradeCanonicalV3DatabaseToModelSyncClaimsV4|TestCreateRejectsExternalNonULIDAndReturnsEntropyError|TestProviderTransactionalCRUDCASOriginAndSoftDelete|TestReleasedV1ManifestTypoIsCorrectedOnlyAfterFullValidation|TestTokenLedgerPersistsIdentityAndSupportsRevisions|TestUnitOfWorkClosesStoreWhenRollbackCannotBeConfirmed)$"
+    },
+    {
+      "tests": [
+        "TestTwoStoresConcurrentUpdateUpdateAndUpdateDelete",
+        "TestUpgradeV26RemovesLegacyTokenLedgerUniqueConstraint",
+        "TestTemplatedOpenMatchesReplay",
+        "TestProviderCreateRollsBackInvalidGraph",
+        "TestCriticalProviderConstraintsAreEnforced",
+        "TestOpenRejectsInvalidSchemaDefinitionAndConstraints"
+      ],
+      "ordinarySeconds": 17.6,
+      "id": 3,
+      "pattern": "^(TestTwoStoresConcurrentUpdateUpdateAndUpdateDelete|TestUpgradeV26RemovesLegacyTokenLedgerUniqueConstraint|TestTemplatedOpenMatchesReplay|TestProviderCreateRollsBackInvalidGraph|TestCriticalProviderConstraintsAreEnforced|TestOpenRejectsInvalidSchemaDefinitionAndConstraints)$"
+    }
+  ]
+}

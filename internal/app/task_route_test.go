@@ -21,8 +21,8 @@ func TestClassifyTaskRoute(t *testing.T) {
 	}{
 		{
 			id: "D-A1", goal: "北京明天天气",
-			route: RouteR1,
-			must:  []string{"web.search", "web.fetch", "memory.search", "memory.get", "user.ask"},
+			route:  RouteR1,
+			must:   []string{"web.search", "web.fetch", "memory.search", "memory.get", "user.ask"},
 			forbid: []string{"desktop.open", "desktop.type", "browser.act", "computer.act", "kb.search"},
 		},
 		{
@@ -56,8 +56,8 @@ func TestClassifyTaskRoute(t *testing.T) {
 		},
 		{
 			id: "D-A5", goal: "你好",
-			route: RouteR0,
-			must:  []string{"web.search", "web.fetch", "memory.search", "memory.get", "user.ask"},
+			route:  RouteR0,
+			must:   []string{"web.search", "web.fetch", "memory.search", "memory.get", "user.ask"},
 			forbid: []string{"desktop.open", "command.run", "computer.act", "plan.run"},
 		},
 		{
@@ -72,8 +72,8 @@ func TestClassifyTaskRoute(t *testing.T) {
 		},
 		{
 			id: "site-chrome", goal: "打开 Chrome 上 12306",
-			route: RouteR3,
-			must:  []string{"browser.act", "web.fetch", "user.ask"},
+			route:  RouteR3,
+			must:   []string{"browser.act", "web.fetch", "user.ask"},
 			forbid: []string{"desktop.open", "computer.act", "web.search"},
 		},
 		{
@@ -92,45 +92,45 @@ func TestClassifyTaskRoute(t *testing.T) {
 			nilAllow: true,
 		},
 		{
-			id:    "D-V2",
-			goal:  "https://www.bilibili.com/video/BV1xx411c7mD",
-			route: RouteR1,
-			must:  []string{"video.understand", "web.fetch", "user.ask"},
+			id:     "D-V2",
+			goal:   "https://www.bilibili.com/video/BV1xx411c7mD",
+			route:  RouteR1,
+			must:   []string{"video.understand", "web.fetch", "user.ask"},
 			forbid: []string{"browser.act", "computer.act", "media.play"},
 		},
 		{
-			id:    "D-V3",
-			goal:  "6.66 复制打开抖音，看看【月食】https://v.douyin.com/ieFxxxx/",
-			route: RouteR1,
-			must:  []string{"video.understand"},
+			id:     "D-V3",
+			goal:   "6.66 复制打开抖音，看看【月食】https://v.douyin.com/ieFxxxx/",
+			route:  RouteR1,
+			must:   []string{"video.understand"},
 			forbid: []string{"browser.act", "computer.act", "media.play"},
 		},
 		{
-			id:    "D-V4",
-			goal:  "用浏览器打开 https://www.bilibili.com/video/BV1xx411c7mD",
-			route: RouteR3,
-			must:  []string{"browser.act", "web.fetch"},
+			id:     "D-V4",
+			goal:   "用浏览器打开 https://www.bilibili.com/video/BV1xx411c7mD",
+			route:  RouteR3,
+			must:   []string{"browser.act", "web.fetch"},
 			forbid: []string{"video.understand", "computer.act"},
 		},
 		{
-			id:    "D-V5",
-			goal:  "播放 https://v.douyin.com/ieFxxxx/",
-			route: RouteR1,
-			must:  []string{"video.understand"},
+			id:     "D-V5",
+			goal:   "播放 https://v.douyin.com/ieFxxxx/",
+			route:  RouteR1,
+			must:   []string{"video.understand"},
 			forbid: []string{"media.play", "desktop.open"},
 		},
 		{
-			id:    "D-V6",
-			goal:  "解读总结一下 https://v.qq.com/x/cover/mzc00200abc/n0044xyz.html",
-			route: RouteR1,
-			must:  []string{"video.understand"},
+			id:     "D-V6",
+			goal:   "解读总结一下 https://v.qq.com/x/cover/mzc00200abc/n0044xyz.html",
+			route:  RouteR1,
+			must:   []string{"video.understand"},
 			forbid: []string{"browser.act"},
 		},
 		{
-			id:    "open-bilibili-no-url",
-			goal:  "打开B站",
-			route: RouteR3,
-			must:  []string{"browser.act"},
+			id:     "open-bilibili-no-url",
+			goal:   "打开B站",
+			route:  RouteR3,
+			must:   []string{"browser.act"},
 			forbid: []string{"video.understand"},
 		},
 	}
@@ -286,4 +286,16 @@ func keysOf(m map[string]bool) []string {
 		}
 	}
 	return out
+}
+
+func TestRoutedChatRetainsConnectedDirectAndDeferredMcpTools(t *testing.T) {
+	for _, companion := range []bool{false, true} {
+		for _, goal := range []string{"合肥天气怎么样", "查明天上海到北京火车票", "查股票最新报价", "查航班然后发给微信联系人"} {
+			defs := []llmadapter.ToolDefinition{{Name: "mcp_01ARZ3NDEKTSV4RRFFQ69G5FAA_weather"}, {Name: "mcp.search"}, {Name: "mcp.call"}}
+			got := assembleRoutedTools(defs, goal, companion, true)
+			if len(got) != len(defs) {
+				t.Fatalf("connected API tools disappeared: goal=%s voice=%v defs=%+v", goal, companion, got)
+			}
+		}
+	}
 }

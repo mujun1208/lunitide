@@ -4,6 +4,8 @@ package meetings
 
 import (
 	"errors"
+	"fmt"
+	"runtime"
 	"syscall"
 	"time"
 	"unsafe"
@@ -76,6 +78,9 @@ func startWASAPILoopback() (*wasapiPump, error) {
 }
 
 func (w *wasapiPump) loop(ready chan<- error) {
+	// COM initialization, capture and release must use the same OS thread.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	defer close(w.done)
 	client, capture, format, comOwned, err := openWASAPICapture()
 	if err != nil {
@@ -119,6 +124,8 @@ func (w *wasapiPump) ReadPCM() ([]byte, error) {
 		return nil, errors.New("loopback closed")
 	case pcm := <-w.chunks:
 		return pcm, nil
+	case <-w.done:
+		return nil, errLoopbackUnavailable
 	case <-time.After(8 * time.Millisecond):
 		return nil, nil
 	}
@@ -137,7 +144,7 @@ func (w *wasapiPump) Close() error {
 func openWASAPICapture() (client, capture uintptr, format pcmFormat, comOwned bool, err error) {
 	hr, _, _ := procCoInitializeExL.Call(0, coinitMultithreaded)
 	code := uint32(hr)
-	comOwned = code == 0
+	comOwned = code == 0 || code == 1 // S_OK and S_FALSE both require CoUninitialize.
 	if failedHR(hr) && code != rpcEChangedMode {
 		return 0, 0, pcmFormat{}, false, errors.New("com init failed")
 	}
@@ -206,7 +213,10 @@ func openWASAPICapture() (client, capture uintptr, format pcmFormat, comOwned bo
 
 func captureLoopbackPacket(capture uintptr, format pcmFormat) ([]byte, error) {
 	var packet uint32
-	if hr := comCall(capture, 5, uintptr(unsafe.Pointer(&packet))); failedHR(hr) || packet == 0 {
+	if hr := comCall(capture, 5, uintptr(unsafe.Pointer(&packet))); failedHR(hr) {
+		return nil, fmt.Errorf("loopback packet unavailable: HRESULT %#x", uint32(hr))
+	}
+	if packet == 0 {
 		return nil, nil
 	}
 	var (
@@ -223,7 +233,10 @@ func captureLoopbackPacket(capture uintptr, format pcmFormat) ([]byte, error) {
 		uintptr(unsafe.Pointer(&devPos)),
 		uintptr(unsafe.Pointer(&qpcPos)),
 	)
-	if failedHR(hr) || frames == 0 {
+	if failedHR(hr) {
+		return nil, fmt.Errorf("loopback buffer unavailable: HRESULT %#x", uint32(hr))
+	}
+	if frames == 0 {
 		return nil, nil
 	}
 	n := int(frames) * format.blockAlign

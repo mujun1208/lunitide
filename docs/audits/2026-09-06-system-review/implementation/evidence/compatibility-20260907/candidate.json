@@ -1,0 +1,14 @@
+{
+  "version": "0.4.69",
+  "installer": "E:\\Trae-Work-Projects\\lunitide\\release\\out\\compatibility-20260907-r1\\Lunitide-Setup-0.4.69-x64.exe",
+  "bytes": 25042728,
+  "installerSHA256": "dd4e9b0f7bc395c55cbe1994c42a7adf39dbac84d2b588570e44bfe3719b904f",
+  "sourceTreeSHA256": "7d447cdd3d1568eee9874cd9c43ea43d6c02a3b5692afbe939c68f906b46cac7",
+  "sourceFileCount": 3127,
+  "sourceIndependentlyMatched": true,
+  "developmentUnsigned": true,
+  "installed": false,
+  "recordedAt": "2026-09-06T20:03:13.2113540Z",
+  "status": "superseded",
+  "supersededReason": "Real-time voice startup fallback required a subsequent repair; retain as intermediate evidence, do not deliver."
+}

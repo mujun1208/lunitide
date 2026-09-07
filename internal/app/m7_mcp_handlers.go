@@ -33,6 +33,7 @@ func handleMcpAdd(e *Engine, ctx context.Context, r bridge.Request) bridge.Respo
 		EnvSecretRefs map[string]string `json:"envSecretRefs"`
 		MarketItemID  string            `json:"marketItemId"`
 		RiskConfirmed bool              `json:"riskConfirmed"`
+		ConfigureOnly bool              `json:"configureOnly"`
 		RequestID     string            `json:"requestId"`
 		Actor         string            `json:"actor"`
 	}
@@ -57,6 +58,7 @@ func handleMcpAdd(e *Engine, ctx context.Context, r bridge.Request) bridge.Respo
 		EnvSecretRefs:  p.EnvSecretRefs,
 		MarketItemID:   p.MarketItemID,
 		RiskConfirmed:  p.RiskConfirmed,
+		ConfigureOnly:  p.ConfigureOnly,
 		Actor:          p.Actor,
 		IdempotencyKey: p.RequestID,
 	})
@@ -64,7 +66,7 @@ func handleMcpAdd(e *Engine, ctx context.Context, r bridge.Request) bridge.Respo
 		return m7McpFailure(r, err, "mcp.add")
 	}
 
-	if id := presetIDFromCommandArgs(p.Command, p.Args); id != "" {
+	if id := presetIDFromTarget(p.Command, p.Args, p.URL); id != "" {
 		e.rememberMcpPreset(res.EndpointID, id)
 	}
 	return r.Ok(struct {
@@ -149,8 +151,13 @@ func parseMcpArgsJSON(raw string) []string {
 }
 
 func mcpEndpointDisplayName(ep m7flow.McpEndpointConfig, args []string) string {
+	if id := presetIDFromTarget(ep.Command, args, ep.URL); id != "" {
+		if preset, ok := mcp6.PresetByID(id); ok {
+			return preset.Name
+		}
+	}
 	for _, preset := range mcp6.Presets() {
-		if preset.Command != ep.Command {
+		if preset.Transport != "stdio" || preset.Command != ep.Command {
 			continue
 		}
 		if mcpArgsMatchPreset(preset.Args, args) {

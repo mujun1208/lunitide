@@ -6,17 +6,9 @@ export type ChatArtifact = StreamArtifact & { callId: string; toolName: string }
 const OFFICE_KIND = new Set(['pptx', 'docx', 'xlsx', 'pdf'])
 const OFFICE_EXT = /\.(pptx|docx|xlsx|pdf)$/i
 
-/** Map a model/host path to the session.folder.open relative form. */
+/** Keep the actual path; the host resolves it against authorized roots. */
 export function artifactOpenRelativePath(path: string): string {
-  const trimmed = path.trim()
-  const normalized = trimmed.replace(/\\/g, '/')
-  const desk = normalized.match(/\/(?:Desktop|桌面)\/([^/]+)$/i)
-  if (desk) return `desktop/${desk[1]}`
-  if (/^[A-Za-z]:\//.test(normalized) || normalized.startsWith('//')) {
-    const base = normalized.split('/').pop()
-    if (base) return `desktop/${base}`
-  }
-  return trimmed
+  return path.trim().replace(/\\/g, '/')
 }
 
 /** User-facing deliverables only — not intermediate web.search/fetch HTML. */
@@ -42,14 +34,17 @@ export function ChatArtifactCards({
   sessionId,
   artifacts,
   onError,
+  onInspect,
 }: {
   sessionId: string
   artifacts: ChatArtifact[]
   onError?: (message: string) => void
+  onInspect?: (artifact: ChatArtifact) => void
 }): React.JSX.Element | null {
   const visible = filterChatDeliverables(artifacts)
   if (!visible.length) return null
   const open = async (artifact: ChatArtifact) => {
+    if (onInspect) { onInspect(artifact); return }
     try {
       await sessionFolderBridge.open({ sessionId, relativePath: artifactOpenRelativePath(artifact.path) })
     } catch (e) {
@@ -61,7 +56,7 @@ export function ChatArtifactCards({
       {visible.map(artifact => (
         <button
           type="button"
-          key={artifact.callId}
+          key={`${artifact.callId}:${artifact.path}`}
           className="chat-artifact-card"
           role="listitem"
           title={artifact.path}
@@ -71,8 +66,8 @@ export function ChatArtifactCards({
             {KIND_ICON[artifact.kind] ?? '▣'}
           </span>
           <span className="chat-artifact-body">
-            <b>{artifact.path.split('/').pop() ?? artifact.path}</b>
-            <small>{KIND_LABEL[artifact.kind] ?? artifact.kind} · 点击打开</small>
+            <b>{artifact.path.split(/[/\\]/).pop() ?? artifact.path}</b>
+            <small>{artifact.kind === 'image' && !artifact.toolName.startsWith('cc.') ? '图片' : KIND_LABEL[artifact.kind] ?? artifact.kind} · {onInspect ? '点击查看' : '点击打开'}</small>
           </span>
         </button>
       ))}

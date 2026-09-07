@@ -94,7 +94,7 @@ func toolProfileAllow(profile toolProfile) map[string]bool {
 			"workspace.list": true, "workspace.read": true, "workspace.write": true,
 			"workspace.search": true, "workspace.edit": true,
 			"command.run": true, "run_terminal_cmd": true,
-			"web.search":  true, "web.fetch": true,
+			"web.search": true, "web.fetch": true,
 			"memory.search": true, "memory.get": true,
 			"skill.invoke": true, "skill.view": true,
 			"todo.write": true,
@@ -117,23 +117,20 @@ func applyToolProfile(defs []llmadapter.ToolDefinition, profile toolProfile) []l
 	if allow == nil {
 		return defs
 	}
+	if profile == toolProfileMinimal || profile == toolProfileCoding {
+		for _, d := range defs {
+			if strings.HasPrefix(d.Name, mcpToolPrefix) || d.Name == "mcp.search" || d.Name == "mcp.call" {
+				allow[d.Name] = true
+			}
+		}
+	}
 	return filterToolDefs(defs, allow)
 }
 
-// companionDefaultDeniedTool is the P1-PROF high-risk set: 月伴 may open
-// desktop/media and (when CC is on) computer.act, but must not advertise
-// or run a shell / outbound IM / raw cc.* ladder.
+// Voice uses the same governed tools and execution mode as typed chat.
+// Raw desktop primitives remain internal to computer.act on both surfaces.
 func companionDefaultDeniedTool(name string) bool {
-	n := strings.TrimSpace(name)
-	if strings.HasPrefix(n, "cc.") {
-		return true
-	}
-	switch n {
-	case "command.run", "run_terminal_cmd", "im.send":
-		return true
-	default:
-		return false
-	}
+	return strings.HasPrefix(strings.TrimSpace(name), "cc.")
 }
 
 func filterCompanionDefaultTools(defs []llmadapter.ToolDefinition) []llmadapter.ToolDefinition {

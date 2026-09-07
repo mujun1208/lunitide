@@ -1,0 +1,15 @@
+{
+  "version": "0.4.69",
+  "installer": "E:\\Trae-Work-Projects\\lunitide\\release\\out\\compatibility-20260907-r2\\Lunitide-Setup-0.4.69-x64.exe",
+  "bytes": 25033731,
+  "installerSHA256": "50166ee1e5d25adc373b1aa18b60040709755a5df4e7f71096b753fbebcd4aef",
+  "sourceTreeSHA256": "1904481351b23109165cec0a46f6d9d82c2492e892f681631f0a9a32b6021d29",
+  "sourceFileCount": 3135,
+  "sourceIndependentlyMatched": true,
+  "developmentUnsigned": true,
+  "installed": false,
+  "recordedAt": "2026-09-06T20:23:31.9286898Z",
+  "status": "artifact-verified",
+  "machineAcceptance": "pending",
+  "raceGate": "pending"
+}

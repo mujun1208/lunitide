@@ -1,0 +1,155 @@
+{
+  "count": 30,
+  "tests": [
+    {
+      "package": "github.com/lunitide/lunitide/cmd/desktop",
+      "test": "TestClaimGatewayInstanceRetryWaitsForRelease",
+      "output": "=== RUN   TestClaimGatewayInstanceRetryWaitsForRelease\n    singleton_windows_test.go:15: another Lunitide holds Local\\lunitide-gateway\n--- SKIP: TestClaimGatewayInstanceRetryWaitsForRelease (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/cmd/desktop",
+      "test": "TestClaimGatewayInstanceRetryGivesUpWhileHeld",
+      "output": "=== RUN   TestClaimGatewayInstanceRetryGivesUpWhileHeld\n    singleton_windows_test.go:35: another Lunitide holds Local\\lunitide-gateway\n--- SKIP: TestClaimGatewayInstanceRetryGivesUpWhileHeld (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/brapp",
+      "test": "TestNativeManagedBrowserConfirmsProcessTreeStop",
+      "output": "=== RUN   TestNativeManagedBrowserConfirmsProcessTreeStop\n    native_host_test.go:13: set LUNITIDE_BROWSER_TEST_EXECUTABLE for hidden local browser lifecycle\n--- SKIP: TestNativeManagedBrowserConfirmsProcessTreeStop (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/browsernetwork",
+      "test": "TestNativeBrowserProxyCoversRedirectsAndSubresources",
+      "output": "=== RUN   TestNativeBrowserProxyCoversRedirectsAndSubresources\n    native_browser_test.go:26: set LUNITIDE_BROWSER_TEST_EXECUTABLE for local hidden browser integration\n--- SKIP: TestNativeBrowserProxyCoversRedirectsAndSubresources (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/ccapp/accuracy",
+      "test": "TestLiveNotepadTypesVisibleText",
+      "output": "=== RUN   TestLiveNotepadTypesVisibleText\n    accuracy_windows_test.go:179: set LUNITIDE_CC_ACCURACY=1 to run live Notepad/Calc/Explorer fixtures\n--- SKIP: TestLiveNotepadTypesVisibleText (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/ccapp/accuracy",
+      "test": "TestLiveCalculatorNamedClick",
+      "output": "=== RUN   TestLiveCalculatorNamedClick\n    accuracy_windows_test.go:236: set LUNITIDE_CC_ACCURACY=1 to run live Notepad/Calc/Explorer fixtures\n--- SKIP: TestLiveCalculatorNamedClick (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/ccapp/accuracy",
+      "test": "TestLiveExplorerNamedObserve",
+      "output": "=== RUN   TestLiveExplorerNamedObserve\n    accuracy_windows_test.go:283: set LUNITIDE_CC_ACCURACY=1 to run live Notepad/Calc/Explorer fixtures\n--- SKIP: TestLiveExplorerNamedObserve (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/ccapp/accuracy",
+      "test": "TestLiveOptionalWPFAndElectron",
+      "output": "=== RUN   TestLiveOptionalWPFAndElectron\n    accuracy_windows_test.go:311: set LUNITIDE_CC_ACCURACY=1 to run live Notepad/Calc/Explorer fixtures\n--- SKIP: TestLiveOptionalWPFAndElectron (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/datadir",
+      "test": "TestPrepareForTestRejectsRelativePathAndReparsePoint",
+      "output": "=== RUN   TestPrepareForTestRejectsRelativePathAndReparsePoint\n    datadir_windows_test.go:54: symlink unavailable: symlink C:\\Users\\mujun\\AppData\\Local\\Temp\\TestPrepareForTestRejectsRelativePathAndReparsePoint2930275799\\001\\target C:\\Users\\mujun\\AppData\\Local\\Temp\\TestPrepareForTestRejectsRelativePathAndReparsePoint2930275799\\002\\link: A required privilege is not held by the client.\n--- SKIP: TestPrepareForTestRejectsRelativePathAndReparsePoint (0.01s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/datasourceapp",
+      "test": "TestLiveMySQLDriver",
+      "output": "=== RUN   TestLiveMySQLDriver\n    sqldriver_integration_test.go:23: set LUNITIDE_MYSQL_DSN to run the live MySQL integration test\n--- SKIP: TestLiveMySQLDriver (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/datasourceapp",
+      "test": "TestLiveMySQLServiceEndToEnd",
+      "output": "=== RUN   TestLiveMySQLServiceEndToEnd\n    sqldriver_integration_test.go:76: set LUNITIDE_MYSQL_DSN to run the live MySQL service test\n--- SKIP: TestLiveMySQLServiceEndToEnd (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/diagramrender",
+      "test": "TestNativeIsolatedDiagramRenderingAndCPULoopDeadline",
+      "output": "=== RUN   TestNativeIsolatedDiagramRenderingAndCPULoopDeadline\n    native_windows_test.go:19: set isolated desktop worker and renderer asset paths\n--- SKIP: TestNativeIsolatedDiagramRenderingAndCPULoopDeadline (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/mcp",
+      "test": "TestStreamableOfficialPublicCatalogue",
+      "output": "=== RUN   TestStreamableOfficialPublicCatalogue\n    streamable_live_test.go:14: public network check is opt-in\n--- SKIP: TestStreamableOfficialPublicCatalogue (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/tts",
+      "test": "TestEdgeSynthesisLatency",
+      "output": "=== RUN   TestEdgeSynthesisLatency\n    edge_latency_probe_test.go:20: set LUNITIDE_EDGE_LIVE=1 to measure against Microsoft Edge TTS\n--- SKIP: TestEdgeSynthesisLatency (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/tts",
+      "test": "TestEdgeLiveSynthesis",
+      "output": "=== RUN   TestEdgeLiveSynthesis\n    edge_live_probe_test.go:10: set LUNITIDE_EDGE_LIVE=1 to hit Microsoft Edge TTS\n--- SKIP: TestEdgeLiveSynthesis (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/tts",
+      "test": "TestEdgePythonSynthLive",
+      "output": "=== RUN   TestEdgePythonSynthLive\n    edge_python_test.go:11: set LUNITIDE_EDGE_LIVE=1\n--- SKIP: TestEdgePythonSynthLive (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/tts",
+      "test": "TestOneCoreVoicesRenderDistinctAudio",
+      "output": "=== RUN   TestOneCoreVoicesRenderDistinctAudio\n    onecore_voice_test.go:20: machine has fewer than 2 OneCore voices\n--- SKIP: TestOneCoreVoicesRenderDistinctAudio (0.06s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/tts",
+      "test": "TestOnnxSynthesizeReal",
+      "output": "=== RUN   TestOnnxSynthesizeReal\n    onnx_test.go:257: set LUNITIDE_ONNX_TTS_RUNTIME_DIR and _MODEL_DIR to run the real synthesis\n--- SKIP: TestOnnxSynthesizeReal (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/voice",
+      "test": "TestE2ELocalRecognitionHearsRealSpeech",
+      "output": "=== RUN   TestE2ELocalRecognitionHearsRealSpeech\n    e2e_network_test.go:62: set LUNITIDE_VOICE_E2E=1 to run against the real recognizer\n--- SKIP: TestE2ELocalRecognitionHearsRealSpeech (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/voice",
+      "test": "TestE2EMandarinClipsAreRecognized",
+      "output": "=== RUN   TestE2EMandarinClipsAreRecognized\n    e2e_network_test.go:172: set LUNITIDE_VOICE_E2E=1 to run against the real recognizer\n--- SKIP: TestE2EMandarinClipsAreRecognized (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/voice",
+      "test": "TestE2ERefinerIsInstallableFromTheCatalogueAsWritten",
+      "output": "=== RUN   TestE2ERefinerIsInstallableFromTheCatalogueAsWritten\n    e2e_refiner_test.go:23: set LUNITIDE_VOICE_E2E=1 to run against the real recognizer\n--- SKIP: TestE2ERefinerIsInstallableFromTheCatalogueAsWritten (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/voice",
+      "test": "TestE2ERefinedTextIsWhatTheTurnReturns",
+      "output": "=== RUN   TestE2ERefinedTextIsWhatTheTurnReturns\n    e2e_refiner_test.go:54: set LUNITIDE_VOICE_E2E=1 to run against the real recognizer\n--- SKIP: TestE2ERefinedTextIsWhatTheTurnReturns (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/voice",
+      "test": "TestNetworkRuntimeDownloadsAndExtracts",
+      "output": "=== RUN   TestNetworkRuntimeDownloadsAndExtracts\n    install_network_test.go:32: set LUNITIDE_VOICE_NETWORK_TEST=1 to download from the real catalogue\n--- SKIP: TestNetworkRuntimeDownloadsAndExtracts (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/voice",
+      "test": "TestNetworkSmallModelDownloads",
+      "output": "=== RUN   TestNetworkSmallModelDownloads\n    install_network_test.go:66: set LUNITIDE_VOICE_NETWORK_TEST=1 to download from the real catalogue\n--- SKIP: TestNetworkSmallModelDownloads (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/voice/volcsauc",
+      "test": "TestLiveAgentPlanHandshake",
+      "output": "=== RUN   TestLiveAgentPlanHandshake\n    backend_test.go:113: set VOLC_SPEECH_LIVE=1 and VOLC_SPEECH_API_KEY to probe Agent Plan ASR\n--- SKIP: TestLiveAgentPlanHandshake (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/webviewhost",
+      "test": "TestBrowserProxyNativeWebViewEnforcesActualFlags",
+      "output": "=== RUN   TestBrowserProxyNativeWebViewEnforcesActualFlags\n    browser_native_windows_test.go:21: requires isolated test executable beside WebView2Loader.dll\n--- SKIP: TestBrowserProxyNativeWebViewEnforcesActualFlags (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/webviewhost",
+      "test": "TestBrowserNativeCanceledBeforeEnvironmentDoesNotCreateWebView",
+      "output": "=== RUN   TestBrowserNativeCanceledBeforeEnvironmentDoesNotCreateWebView\n    browser_native_windows_test.go:68: requires hidden native WebView test opt-in\n--- SKIP: TestBrowserNativeCanceledBeforeEnvironmentDoesNotCreateWebView (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/webviewhost",
+      "test": "TestBrowserNativeCancelDuringCreationWaitsForCallback",
+      "output": "=== RUN   TestBrowserNativeCancelDuringCreationWaitsForCallback\n    browser_native_windows_test.go:91: requires hidden native WebView test opt-in\n--- SKIP: TestBrowserNativeCancelDuringCreationWaitsForCallback (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/worker",
+      "test": "TestSandboxEscapeSymlink",
+      "output": "=== RUN   TestSandboxEscapeSymlink\n    sandbox_test.go:59: symlinks need privileges on windows CI\n--- SKIP: TestSandboxEscapeSymlink (0.00s)"
+    },
+    {
+      "package": "github.com/lunitide/lunitide/internal/workspaceapp",
+      "test": "TestSafePathRejectsSymlinkOrReparse",
+      "output": "=== RUN   TestSafePathRejectsSymlinkOrReparse\n    host_handler_windows_test.go:34: symlink unavailable: symlink C:\\Users\\mujun\\AppData\\Local\\Temp\\TestSafePathRejectsSymlinkOrReparse3551787531\\002 C:\\Users\\mujun\\AppData\\Local\\Temp\\TestSafePathRejectsSymlinkOrReparse3551787531\\001\\escape: A required privilege is not held by the client.\n--- SKIP: TestSafePathRejectsSymlinkOrReparse (0.00s)"
+    }
+  ]
+}

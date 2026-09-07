@@ -85,4 +85,20 @@ describe('ensureCompanionSession', () => {
     expect(localStorage.getItem(COMPANION_SESSION_ID_KEY)).toBe('new')
     expect((sessions as { create: ReturnType<typeof vi.fn> }).create).toHaveBeenCalledOnce()
   })
+
+  test('simultaneous entries share one creation and failures allow retry', async () => {
+    const created = session({ id: 'only', pinned: true })
+    const list = vi.fn().mockRejectedValueOnce(new Error('暂时断开')).mockResolvedValue({ items: [] })
+    const create = vi.fn(async () => created)
+    const sessions = { list, create, update: vi.fn(async () => created) } as never
+    await expect(ensureCompanionSession(sessions, 'P', true)).rejects.toThrow('暂时断开')
+    const [a,b,c] = await Promise.all([
+      ensureCompanionSession(sessions, 'P', true),
+      ensureCompanionSession(sessions, 'P', true),
+      ensureCompanionSession(sessions, 'P', false),
+    ])
+    expect([a.id,b.id,c.id]).toEqual(['only','only','only'])
+    expect(create).toHaveBeenCalledOnce()
+    expect(list).toHaveBeenCalledTimes(2)
+  })
 })

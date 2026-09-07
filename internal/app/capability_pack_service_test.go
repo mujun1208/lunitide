@@ -10,6 +10,7 @@ import (
 	"github.com/lunitide/lunitide/internal/capabilitypack"
 	"github.com/lunitide/lunitide/internal/m7app"
 	"github.com/lunitide/lunitide/internal/m8app"
+	"github.com/lunitide/lunitide/internal/mcp"
 	"github.com/lunitide/lunitide/internal/mcp6"
 	"github.com/lunitide/lunitide/internal/skillapp"
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
@@ -37,6 +38,20 @@ func packFixture(t *testing.T) (*Engine, *storage.Store) {
 		return mcp6.Catalogue{Identity: "fixture@1", Tools: map[string]mcp6.ToolSchema{"lookup": {InputSchema: json.RawMessage(`{"type":"object"}`)}}}, nil
 	}, func(context.Context, *mcp6.Endpoint, string, map[string]any, mcp6.Credentials) (map[string]any, error) {
 		return map[string]any{"ok": true}, nil
+	})
+	registry.SetLaunchResolver(func(ctx context.Context, command string, args []string) ([]string, error) {
+		return mcp.ResolveLaunchArgs(ctx, command, args, func(_ context.Context, target string) ([]byte, error) {
+			// Match the upstream registry response shape. The old nonexistent npm
+			// fetch/time presets must fail instead of passing a permissive fake probe.
+			switch target {
+			case "https://pypi.org/pypi/mcp-server-fetch/json":
+				return []byte(`{"info":{"name":"mcp-server-fetch","version":"2026.8.18"}}`), nil
+			case "https://pypi.org/pypi/mcp-server-time/json":
+				return []byte(`{"info":{"name":"mcp-server-time","version":"2026.8.18"}}`), nil
+			default:
+				return nil, errors.New("package not found in fixture registry")
+			}
+		})
 	})
 	e.SetM6Services(nil, registry, nil)
 	e.SetCapabilityPackStore(store.AgentRuntimeRepository())

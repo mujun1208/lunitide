@@ -3,6 +3,7 @@ import { BridgeClientError, createMutationAttempt, templateBridge, type Template
 import type { TemplateCreatePayload, TemplateListResult } from '../generated/bridge'
 import { ConfirmDialog, Dialog } from '../ui/Dialog'
 import { bytesToBase64, stageTemplateFile, TEMPLATE_INLINE_MAX } from './assetStage'
+import { readBoundedFile } from '../files/readBoundedFile'
 
 type TemplateDTO = TemplateListResult['items'][number]
 
@@ -20,7 +21,7 @@ const STATUS_LABEL: Record<TemplateDTO['status'], string> = { draft: '创建', e
 const problem = (e: unknown) => e instanceof BridgeClientError ? e : new BridgeClientError(e instanceof Error ? e.message : '请求失败', 'CLIENT_ERROR', false, 'renderer')
 const ordered = (items: TemplateDTO[]) => [...items].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id))
 
-const readFileBytes = (file: File): Promise<Uint8Array> => file.arrayBuffer().then(buf => new Uint8Array(buf))
+const readFileBytes = (file: File): Promise<Uint8Array> => readBoundedFile(file, 10 * 1024 * 1024).then(buf => new Uint8Array(buf))
 
 const detectMime = (fileName: string): string => {
   const lower = fileName.toLowerCase()
@@ -56,6 +57,7 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
   const [loading, setLoading] = useState(true)
   const [nextCursor, setNextCursor] = useState('')
   const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
   const [loadError, setLoadError] = useState<BridgeClientError>()
   const [actionError, setActionError] = useState<BridgeClientError>()
   const [notice, setNotice] = useState('')
@@ -112,22 +114,20 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
 
   const submitUpload = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (busy) return
+    if (busyRef.current) return
     if (!form.name.trim()) { setFormError('请输入模版名称'); return }
     if (!form.description.trim()) { setFormError('请输入模版描述'); return }
     if (form.templateType === 'document' && !form.documentType) { setFormError('请选择文件类型'); return }
     if (!form.file) { setFormError('请上传附件'); return }
     const uploadFile = form.file
+    busyRef.current = true
     setBusy(true)
     setFormError('')
     setUploadProgress('')
     setActionError(undefined)
     try {
       const bytes = await readFileBytes(uploadFile)
-      if (bytes.length > 10 * 1024 * 1024) {
-        setFormError('文件超过 10 MiB 限制')
-        return
-      }
+      if (!mounted.current) return
       const payload: TemplateCreatePayload = {
         name: form.name.trim(),
         templateType: form.templateType,
@@ -156,12 +156,14 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
     } catch (err) {
       if (mounted.current) setFormError(problem(err).message)
     } finally {
+      busyRef.current = false
       if (mounted.current) setBusy(false)
     }
   }
 
   const runAction = async (kind: 'enable' | 'void' | 'delete' | 'restore', item: TemplateDTO) => {
-    if (busy) return
+    if (busyRef.current) return
+    busyRef.current = true
     setBusy(true)
     setActionError(undefined)
     try {
@@ -192,6 +194,7 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
     } catch (err) {
       if (mounted.current) setActionError(problem(err))
     } finally {
+      busyRef.current = false
       if (mounted.current) setBusy(false)
     }
   }

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/domain/m7flow"
 	"github.com/lunitide/lunitide/internal/m7app"
 	"github.com/lunitide/lunitide/internal/mcapp"
 	"github.com/lunitide/lunitide/internal/mcp6"
@@ -172,5 +173,79 @@ func TestMcpLifecycleUpdateReplacesRuntimeTarget(t *testing.T) {
 	}
 	if _, err := e.mcp6Registry.Invoke(ctx, chatMcpEndpointID(id), "fixture_tool", nil); err != nil {
 		t.Fatalf("updated tool failed: %v", err)
+	}
+}
+
+// Reinstall is a new grant; the old revoked identity must never be revived.
+func TestMcpLifecycleReinstallAfterUninstall(t *testing.T) {
+	e, _, _ := newMcpLifecycleFixture(t)
+	ctx := context.Background()
+	old := addLifecycleEndpoint(t, e)
+	if _, err := e.m7mcp.Toggle(ctx, old, true, "fixture"); err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := e.mcmarket.IssueConfirmToken(ctx, mcapp.ConfirmMethodUninstall, old, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res := handleMcConnectorUninstall(e, ctx, lifecyclePayload(t, map[string]any{"endpointId": old, "confirmToken": token})); !res.OK {
+		t.Fatal(res.Error)
+	}
+	fresh := addLifecycleEndpoint(t, e)
+	if fresh == old {
+		t.Fatal("reinstall returned the revoked endpoint")
+	}
+	if again := addLifecycleEndpoint(t, e); again != fresh {
+		t.Fatal("repeated install created duplicate active endpoints")
+	}
+	if res := handleMcpToggle(e, ctx, lifecyclePayload(t, map[string]any{"endpointId": fresh, "enabled": true})); !res.OK {
+		t.Fatal(res.Error)
+	}
+	if _, err := e.mcp6Registry.Invoke(ctx, chatMcpEndpointID(fresh), "fixture_tool", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.m7mcp.Toggle(ctx, old, true, "fixture"); !errors.Is(err, m7app.ErrMcpNotFound) {
+		t.Fatalf("old grant revived: %v", err)
+	}
+	rows, err := e.m7mcp.List(ctx, "")
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("audit history not retained: %d %v", len(rows), err)
+	}
+}
+
+type configureOnlyProbe struct{ calls int }
+
+func (p *configureOnlyProbe) Probe(context.Context, m7flow.McpEndpointConfig) (string, error) {
+	p.calls++
+	return "", errors.New("fixture credential required")
+}
+func TestMcpConfigureBeforeCredentialsPersistsDisabledWithoutProbe(t *testing.T) {
+	e, _, calls := newMcpLifecycleFixture(t)
+	ctx := context.Background()
+	probe := &configureOnlyProbe{}
+	e.m7mcp.SetProber(probe)
+	input := m7app.McpAddInput{Origin: "manual", Transport: "https", URL: "https://example.test/mcp?token={{credential}}", RiskConfirmed: true, ConfigureOnly: true}
+	added, err := e.m7mcp.Add(ctx, input)
+	if err != nil || added.EndpointID == "" {
+		t.Fatalf("save: %+v %v", added, err)
+	}
+	again, err := e.m7mcp.Add(ctx, input)
+	if err != nil || again.EndpointID != added.EndpointID {
+		t.Fatal("configure retry duplicated endpoint")
+	}
+	eps, err := e.m7mcp.List(ctx, "")
+	if err != nil || len(eps) != 1 || eps[0].Enabled || eps[0].State != "probe" || probe.calls != 0 {
+		t.Fatalf("unconfigured server probed/enabled: %+v %v", eps, err)
+	}
+	if _, err := e.mcp6Registry.Invoke(ctx, added.EndpointID, "fixture_tool", nil); err == nil || calls.Load() != 0 {
+		t.Fatal("unconfigured server was callable")
+	}
+	input.URL = "https://example.test/mcp?token=plaintext"
+	if _, err := e.m7mcp.Add(ctx, input); !errors.Is(err, m7app.ErrMcpSchema) {
+		t.Fatal("plaintext credential was stored")
+	}
+	eps, _ = e.m7mcp.List(ctx, "")
+	if len(eps) != 1 {
+		t.Fatal("invalid config partially persisted")
 	}
 }

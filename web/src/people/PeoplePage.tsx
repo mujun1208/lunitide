@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { readBoundedFile } from '../files/readBoundedFile'
 import { createMutationAttempt, getFeedbackBridge, getIdentityBridge, getMemoryBridge, getPeopleBridge, type FeedbackBridge, type IdentityBridge, type MemoryBridge, type PeopleBridge, type MutationAttempt } from '../bridge/client'
 import type { IdentityDTO, PeopleContactDTO, PeopleMessageDTO, PeopleThreadDTO } from '../generated/bridge'
 import { clipboardImages, normalizePastedImages } from '../session/attachments'
 import { PendingMemoryBanner } from '../session/PendingMemoryBanner'
 import { pickLatestPending, type PendingMemoryItem } from '../session/pendingMemory'
 import { ProfilePanel } from '../settings/ProfilePanel'
+import { PeopleImage } from './PeopleImage'
 import { Dialog } from '../ui/Dialog'
 import { usePanelResize } from '../ui/usePanelResize'
 import { captureThisPcFrame } from './peopleCapture'
@@ -377,6 +379,7 @@ export function PeoplePage({
       if (localPath) {
         payload = { threadId, kind, fileName, fileMime, localPath }
       } else if (file) {
+        if (file.size > MAX_FILE) throw new Error('文件需小于 32 MiB')
         const nativePath = (file as File & { path?: string }).path
         const fileKind = kind === 'image' || file.type.startsWith('image/') ? 'image' : 'file'
         if (nativePath) {
@@ -398,7 +401,7 @@ export function PeoplePage({
       if(!sendAttempt.current || JSON.stringify(sendAttempt.current.payload)!==JSON.stringify(payload)) sendAttempt.current=createMutationAttempt('people.thread.send',payload)
       const result = await people.threadSend(payload,{attempt:sendAttempt.current})
       sendAttempt.current=null
-      if(epoch!==openEpoch.current || threadId!==threadIdRef.current){await refresh();return}
+      if(epoch!==openEpoch.current || threadId!==threadIdRef.current){void refresh().catch(() => undefined);return}
       stickToBottomRef.current = true
       setDraft(current=>current===body?'':current)
       setEmojiOpen(false)
@@ -409,7 +412,8 @@ export function PeoplePage({
         setHistoryCursor(latest.nextCursor)
         setViewingHistory(false)
       } else setMessages(items => items.some(item=>item.messageId===result.message.messageId)?items:[...items, result.message])
-      await refresh()
+      // A committed message must release the composer even if roster refresh stalls.
+      void refresh().catch(() => undefined)
       if (result.offer?.status === 'pending') showNotice(`已发出文件「${result.offer.fileName}」，对方必须确认后才会保存。`)
     } catch (e) {
       showNotice(e instanceof Error ? e.message : '发送失败', true)
@@ -690,18 +694,20 @@ export function PeoplePage({
                 }
                 const mine = item.senderSubjectId === me?.subjectId
                 const sender = thread.members.find(m => m.subjectId === item.senderSubjectId)
-                const acceptedImage = item.kind === 'image' && item.offerStatus === 'accepted' && item.destPath
+                const acceptedImage = item.kind === 'image' && (mine || item.offerStatus === 'accepted') && item.destPath
                 return (
                   <article key={item.messageId} className={`people-bubble-row ${mine ? 'mine' : 'peer'}`}>
                     {mine ? null : <PeopleFace person={sender} />}
                     <div className={`people-bubble ${mine ? 'mine' : 'peer'}`}>
                     <small>{sender ? displayName(sender) : item.senderSubjectId}</small>
-                    {acceptedImage ? <img src={`file://${item.destPath}`} alt={item.fileName} /> : null}
+                    {acceptedImage ? <PeopleImage message={item} people={people} onError={message => showNotice(message, true)} /> : null}
                     {item.kind === 'emoji' || item.kind === 'text' ? <p>{item.body}</p> : null}
                     {mine && item.deliveryState && <small>{item.deliveryState==='delivered'?'已送达':`等待送达确认 ${item.deliveredCount??0}/${item.recipientCount??0}`}</small>}
                     {(item.kind === 'file' || item.kind === 'image') && (
                       <div className="people-file">
-                        <b>{item.fileName || '文件'}</b>
+                        {item.destPath && (mine || item.offerStatus === 'accepted') && item.kind !== 'image'
+                          ? <button type="button" className="people-file-name" onClick={() => void people.fileOpen({ destPath: item.destPath!, fileName: item.fileName }).catch(err => showNotice(err instanceof Error ? err.message : '无法打开文件', true))}>{item.fileName || '文件'}</button>
+                          : <b>{item.fileName || '文件'}</b>}
                         <small>{fileCaption(item, mine)}</small>
                         {item.offerId && item.offerStatus === 'pending' && !mine && (
                           <div className="people-file-actions">
@@ -711,7 +717,7 @@ export function PeoplePage({
                         )}
                         {item.destPath && (item.offerStatus === 'accepted' || mine) && (
                           <div className="people-file-actions">
-                            <button type="button" onClick={() => void people.fileOpen({ destPath: item.destPath! }).catch(err => showNotice(err instanceof Error ? err.message : '无法打开文件', true))}>打开</button>
+                            <button type="button" onClick={() => void people.fileOpen({ destPath: item.destPath!, fileName: item.fileName }).catch(err => showNotice(err instanceof Error ? err.message : '无法打开文件', true))}>打开</button>
                           </div>
                         )}
                       </div>
@@ -963,13 +969,7 @@ function readReceipt(thread: PeopleThreadDTO | undefined, selfId: string | undef
 }
 
 function readBrowserFile(file: File): Promise<ArrayBuffer> {
-  if (typeof file.arrayBuffer === 'function') return file.arrayBuffer()
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as ArrayBuffer)
-    reader.onerror = () => reject(reader.error ?? new Error('读取文件失败'))
-    reader.readAsArrayBuffer(file)
-  })
+  return readBoundedFile(file, MAX_FILE, '读取截图或文件超时，请重新选择。你可以继续发送文字和表情。')
 }
 
 function bytesToB64(bytes: Uint8Array): string {

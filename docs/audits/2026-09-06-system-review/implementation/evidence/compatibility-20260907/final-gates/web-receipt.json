@@ -1,0 +1,47 @@
+{
+  "group": "web",
+  "startedAt": "2026-09-06T19:38:06.9285280Z",
+  "finishedAt": "2026-09-06T19:39:24.6553005Z",
+  "status": "failed",
+  "source": {
+    "commit": "25199598d306b1b463c060cb0e55a8b38ad484ba",
+    "treeSha256": "061a70753519a7f7a887f4b5a7acbe0498d1fdd79a219990ddc8095565ef5f05",
+    "fileCount": 2820,
+    "manifest": "web-source.json"
+  },
+  "sourceUnchanged": false,
+  "checks": [
+    {
+      "name": "bridge",
+      "command": "npm.cmd",
+      "arguments": [
+        "--prefix",
+        "web",
+        "run",
+        "verify:bridge"
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-06T19:38:44.1189514Z",
+      "finishedAt": "2026-09-06T19:38:47.3457989Z",
+      "stdout": "bridge.log",
+      "stderr": "bridge.stderr.log"
+    },
+    {
+      "name": "typecheck",
+      "command": "npm.cmd",
+      "arguments": [
+        "--prefix",
+        "web",
+        "run",
+        "typecheck"
+      ],
+      "exitCode": 2,
+      "startedAt": "2026-09-06T19:38:47.3570946Z",
+      "finishedAt": "2026-09-06T19:39:24.6252386Z",
+      "stdout": "typecheck.log",
+      "stderr": "typecheck.stderr.log"
+    }
+  ],
+  "error": "typecheck failed (exit 2); inspect its recorded output",
+  "scope": "code-and-automated-tests; docs excluded; no physical or release acceptance"
+}

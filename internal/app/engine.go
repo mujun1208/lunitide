@@ -165,6 +165,8 @@ type Engine struct {
 	coordinator        *agentorchestration.Coordinator
 	agentRuns          *agentrunapp.Service
 	planExecutions     planExecutionEngine
+	peopleAgentWorkers peopleAgentWorkers
+	companionArchives  companionArchiveState
 	dataScope          engineDataScope
 
 	// M6 slice-1: extension supply chain + MCP endpoint llmadapter.
@@ -301,7 +303,8 @@ type Engine struct {
 	m6routing *m6app.RoutingService
 
 	// P2-2: append-only artifact acceptance log (comment → revise → accept).
-	artifactReviews *artifactreview.Store
+	artifactReviews    *artifactreview.Store
+	sessionArtifactsMu sync.Mutex
 
 	// P2-3: resident cron automation scheduler.
 	automation *scheduler.Scheduler

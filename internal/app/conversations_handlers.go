@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/bridge"
@@ -101,6 +99,7 @@ func handleSessionFolderOpen(e *Engine, _ context.Context, r bridge.Request) bri
 	var p struct {
 		SessionID    string `json:"sessionId"`
 		RelativePath string `json:"relativePath"`
+		Reveal       bool   `json:"reveal"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SessionID) {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "session.folder.open 参数无效", false)
@@ -110,7 +109,7 @@ func handleSessionFolderOpen(e *Engine, _ context.Context, r bridge.Request) bri
 		return r.Fail("SESSION_FOLDER_DENIED", "路径无效", false)
 	}
 	selectFile := strings.TrimSpace(p.RelativePath) != ""
-	if err := openInShell(target, selectFile); err != nil {
+	if err := openArtifactTarget(target, selectFile, p.Reveal); err != nil {
 		return r.Fail("SESSION_FOLDER_OPEN_FAILED", "无法打开文件", false)
 	}
 	return r.Ok(map[string]any{"opened": target})
@@ -144,16 +143,13 @@ func (e *Engine) sessionOutputDir(sessionID string) (string, error) {
 	return "", errors.New("session folder unavailable")
 }
 
-func openInShell(target string, selectFile bool) error {
-	if runtime.GOOS != "windows" {
-		return exec.Command("xdg-open", target).Start()
+var openArtifactTarget = openArtifactInShell
+
+func openArtifactInShell(target string, file, reveal bool) error {
+	if reveal {
+		return openInShell(filepath.Dir(target), false)
 	}
-	clean := filepath.Clean(target)
-	if selectFile {
-		info, err := os.Stat(clean)
-		if err == nil && !info.IsDir() {
-			return exec.Command("cmd", "/c", "start", "", clean).Start()
-		}
-	}
-	return exec.Command("explorer.exe", clean).Start()
+	return openInShell(target, file)
 }
+
+func openInShell(target string, _ bool) error { return openLocalArtifactPath(filepath.Clean(target)) }

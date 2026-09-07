@@ -111,17 +111,22 @@ func mcpSecureDescribe(ctx context.Context, e *mcp6.Endpoint, c mcp6.Credentials
 	if err != nil {
 		return mcp6.Catalogue{}, err
 	}
-	tools, err := client.ListToolsAuthenticated(ctx, c.Bearer)
+	remote, tools, err := client.Discover(ctx, c.Bearer)
 	if err != nil {
 		return mcp6.Catalogue{}, mcpCredentialError(err)
 	}
-	// The existing HTTPS adapter is the product's legacy GET protocol. Its
-	// authenticated TLS origin/URL is the server identity; it does not claim
-	// support for JSON-RPC initialize or Streamable HTTP.
-	return mcpCatalogue("legacy-get-v1|"+e.URL, tools)
+	defer remote.Close()
+	identity := remote.Identity()
+	if remote.IsLegacy() {
+		identity = "legacy-get-v1|" + e.URL
+	}
+	return mcpCatalogue(identity, tools)
 }
 
 func mcpSecureInvoke(ctx context.Context, e *mcp6.Endpoint, tool string, args map[string]any, c mcp6.Credentials) (map[string]any, error) {
+	if args == nil {
+		args = map[string]any{}
+	}
 	argsJSON, err := json.Marshal(args)
 	if err != nil {
 		return nil, err
@@ -183,24 +188,25 @@ func mcpSecureInvoke(ctx context.Context, e *mcp6.Endpoint, tool string, args ma
 	if err != nil {
 		return nil, err
 	}
-	tools, err := client.ListToolsAuthenticated(ctx, c.Bearer)
+	remote, tools, err := client.Discover(ctx, c.Bearer)
 	if err != nil {
 		return nil, mcpCredentialError(err)
 	}
-	catalog, err := mcpCatalogue("legacy-get-v1|"+e.URL, tools)
+	defer remote.Close()
+	identity := remote.Identity()
+	if remote.IsLegacy() {
+		identity = "legacy-get-v1|" + e.URL
+	}
+	catalog, err := mcpCatalogue(identity, tools)
 	if err != nil {
 		return nil, err
 	}
 	if err = catalog.Verify(e.Pin); err != nil {
 		return nil, err
 	}
-	result, err := client.InvokeAuthenticated(ctx, mcp.InvokeInput{Tool: tool, ArgsJSON: argsJSON}, c.Bearer)
+	out, err := remote.Call(ctx, tool, argsJSON)
 	if err != nil {
 		return nil, mcpCredentialError(err)
-	}
-	var out map[string]any
-	if json.Unmarshal(result.Data, &out) != nil || out == nil {
-		out = map[string]any{"data": string(result.Data)}
 	}
 	return out, nil
 }

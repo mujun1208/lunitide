@@ -2,13 +2,16 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/toolruntime"
+	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // mcpToolPrefix namespaces merged MCP endpoint tools inside the model tool
@@ -18,25 +21,34 @@ const mcpToolPrefix = "mcp_"
 
 // mcpToolName composes the chat-facing tool name for one ready endpoint
 // tool. ok is false when the composed name exceeds the 64-char function
-// name budget common across providers or carries characters outside the
-// portable [A-Za-z0-9_-] set; such tools are skipped rather than renamed.
+// name budget common across providers or needs an opaque stable alias.
 func mcpToolName(endpointID, tool string) (string, bool) {
-	name := mcpToolPrefix + endpointID + "_" + tool
-	if len(name) > 64 {
+	if len(endpointID) != 26 || strings.TrimSpace(tool) == "" || strings.ContainsAny(tool, " \t\r\n\x00") || len(tool) > 1024 {
 		return "", false
 	}
-	for i := 0; i < len(name); i++ {
-		c := name[i]
+	name := mcpToolPrefix + endpointID + "_" + tool
+	portable := len(name) <= 64
+	for _, c := range name {
 		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' && c != '-' {
-			return "", false
+			portable = false
+			break
 		}
 	}
-	return name, true
+	if portable {
+		return name, true
+	}
+	// Keep the endpoint prefix stable for scope checks; resolve the opaque tool
+	// suffix against the current admitted catalogue before invocation.
+	digest := sha256.Sum256([]byte(tool))
+	return fmt.Sprintf("%s%s_x%x", mcpToolPrefix, endpointID, digest[:16]), true
 }
 
 // parseMcpToolName splits a chat-facing mcp_ tool name back into its
 // endpoint ID and MCP tool name.
 func parseMcpToolName(name string) (endpointID, tool string, ok bool) {
+	if !strings.HasPrefix(name, mcpToolPrefix) {
+		return "", "", false
+	}
 	rest := strings.TrimPrefix(name, mcpToolPrefix)
 	if len(name) <= len(mcpToolPrefix) || len(rest) < 28 || rest[26] != '_' {
 		return "", "", false
@@ -72,10 +84,7 @@ func (e *Engine) mcpToolDefinitions() []llmadapter.ToolDefinition {
 		if t.Description != "" {
 			description = t.Description
 		}
-		schema := []byte(`{"type":"object","additionalProperties":true}`)
-		if len(t.Schema) > 0 && json.Valid(t.Schema) && t.Schema[0] == '{' {
-			schema = t.Schema
-		}
+		schema := mcpInputSchema(t.Schema)
 		defs = append(defs, llmadapter.ToolDefinition{Name: name, Description: description, Schema: schema})
 	}
 	return defs
@@ -97,6 +106,22 @@ func (e *Engine) invokeMcpTool(ctx context.Context, endpointID, tool string, raw
 	if e.mcp6Registry == nil {
 		return "", errors.New("MCP gateway unavailable")
 	}
+	alias := mcpToolPrefix + endpointID + "_" + tool
+	original, matches := "", 0
+	for _, entry := range e.mcp6Registry.ReadyToolSnapshot() {
+		if entry.EndpointID != endpointID {
+			continue
+		}
+		name, ok := mcpToolName(entry.EndpointID, entry.Tool)
+		if ok && name == alias {
+			original = entry.Tool
+			matches++
+		}
+	}
+	if matches != 1 {
+		return "", errors.New("MCP tool is no longer available or its alias is ambiguous; search again")
+	}
+	tool = original
 	var args map[string]any
 	if len(rawArgs) > 0 {
 		if err := json.Unmarshal(rawArgs, &args); err != nil {
@@ -178,10 +203,13 @@ func (e *Engine) invokeBrowserAct(ctx context.Context, mode executionMode, sessi
 }
 
 func (e *Engine) searchMcpTools(raw json.RawMessage) (string, error) {
+	return e.searchMcpToolsScoped(raw, nil, false)
+}
+func (e *Engine) searchMcpToolsScoped(raw json.RawMessage, allowed []string, restrict bool) (string, error) {
 	var a struct {
 		Query string `json:"query"`
 	}
-	if json.Unmarshal(raw, &a) != nil || strings.TrimSpace(a.Query) == "" {
+	if json.Unmarshal(raw, &a) != nil || strings.TrimSpace(a.Query) == "" || utf8.RuneCountInString(a.Query) > 200 {
 		return "", errors.New("mcp.search needs query")
 	}
 	if e.mcp6Registry == nil {
@@ -189,23 +217,30 @@ func (e *Engine) searchMcpTools(raw json.RawMessage) (string, error) {
 	}
 	q := strings.ToLower(strings.TrimSpace(a.Query))
 	type hit struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name        string          `json:"name"`
+		Description string          `json:"description"`
+		InputSchema json.RawMessage `json:"inputSchema"`
+		score       int
 	}
-	var hits []hit
+	hits := []hit{}
 	for _, t := range e.mcp6Registry.ReadyToolSnapshot() {
+		if !e.mcpNameAllowed("", t.EndpointID, allowed, restrict) {
+			continue
+		}
 		name, ok := mcpToolName(t.EndpointID, t.Tool)
 		if !ok {
 			continue
 		}
 		blob := strings.ToLower(t.Tool + " " + t.Description + " " + name)
-		if !strings.Contains(blob, q) {
+		score := mcpSearchScore(q, blob)
+		if score == 0 {
 			continue
 		}
-		hits = append(hits, hit{Name: name, Description: t.Description})
-		if len(hits) == 12 {
-			break
-		}
+		hits = append(hits, hit{Name: name, Description: t.Description, InputSchema: mcpInputSchema(t.Schema), score: score})
+	}
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].score > hits[j].score })
+	if len(hits) > 12 {
+		hits = hits[:12]
 	}
 	b, _ := json.Marshal(map[string]any{"tools": hits})
 	return string(b), nil

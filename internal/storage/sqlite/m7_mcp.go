@@ -99,9 +99,12 @@ func (t *agentRuntimeTx) GetMcpEndpoint(id string) (m7flow.McpEndpointConfig, er
 }
 
 func (t *agentRuntimeTx) FindMcpEndpointByFingerprint(transport, command, urlRef, argsJSON string) (m7flow.McpEndpointConfig, error) {
+	// Revocation is permanent for that identity. Reinstall may deduplicate an
+	// active configuration, but must create a new grant after uninstall.
 	e, err := scanMcpEndpoint(t.tx.QueryRowContext(t.ctx,
 		`SELECT `+mcpEndpointColumns+` FROM mcp_endpoint_settings
-		 WHERE transport=? AND IFNULL(command,'')=? AND IFNULL(url,'')=? AND IFNULL(args_json,'')=?`,
+		 WHERE state <> 'revoked' AND transport=? AND IFNULL(command,'')=? AND IFNULL(url,'')=? AND IFNULL(args_json,'')=?
+		 ORDER BY created_at, endpoint_id LIMIT 1`,
 		transport, command, urlRef, argsJSON))
 	if errors.Is(err, sql.ErrNoRows) {
 		return e, m7flow.ErrNotFound
@@ -135,7 +138,7 @@ func (t *agentRuntimeTx) ListMcpEndpoints(transport string) ([]m7flow.McpEndpoin
 
 func (t *agentRuntimeTx) CountMcpEndpoints() (int, error) {
 	var n int
-	err := t.tx.QueryRowContext(t.ctx, `SELECT COUNT(*) FROM mcp_endpoint_settings`).Scan(&n)
+	err := t.tx.QueryRowContext(t.ctx, `SELECT COUNT(*) FROM mcp_endpoint_settings WHERE state <> 'revoked'`).Scan(&n)
 	return n, t.fail(err)
 }
 

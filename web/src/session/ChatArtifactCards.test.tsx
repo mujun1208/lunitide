@@ -1,10 +1,11 @@
-import { render, screen } from '@testing-library/react'
-import { expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, expect, it, vi } from 'vitest'
 import { artifactOpenRelativePath, ChatArtifactCards, filterChatDeliverables, isChatDeliverableArtifact } from './ChatArtifactCards'
 
 vi.mock('../bridge/client', () => ({
   sessionFolderBridge: { open: vi.fn() },
 }))
+afterEach(cleanup)
 
 it('labels image artifacts as screenshots the user can open', () => {
   render(<ChatArtifactCards sessionId="01ARZ3NDEKTSV4RRFFQ69G5FAV" artifacts={[{
@@ -19,7 +20,8 @@ it('hides intermediate web search and fetch HTML from deliverable cards', () => 
   expect(isChatDeliverableArtifact({ toolName: 'web.fetch', kind: 'html', path: 'fetch.html' })).toBe(false)
   expect(isChatDeliverableArtifact({ toolName: 'pptx.gen', kind: 'pptx', path: 'deck.pptx' })).toBe(true)
   expect(isChatDeliverableArtifact({ toolName: 'workspace.write', kind: 'pptx', path: 'desktop/介绍.pptx' })).toBe(true)
-  expect(artifactOpenRelativePath(String.raw`C:\Users\mujun\Desktop\介绍.pptx`)).toBe('desktop/介绍.pptx')
+  expect(artifactOpenRelativePath(String.raw`C:\Users\mujun\Desktop\介绍.pptx`)).toBe('C:/Users/mujun/Desktop/介绍.pptx')
+  expect(artifactOpenRelativePath(String.raw`E:\项目\介绍.pptx`)).toBe('E:/项目/介绍.pptx')
   const visible = filterChatDeliverables([
     { kind: 'html', path: 'search.html', content: '', callId: 's1', toolName: 'web.search' },
     { kind: 'html', path: 'fetch.html', content: '', callId: 'f1', toolName: 'web.fetch' },
@@ -33,4 +35,12 @@ it('hides intermediate web search and fetch HTML from deliverable cards', () => 
   ]} />)
   expect(screen.queryByText('search.html')).toBeNull()
   expect(screen.getByText('deck.pptx')).toBeInTheDocument()
+})
+
+it('opens the inspector with the exact historical artifact path', () => {
+  const onInspect = vi.fn()
+  const artifact = {kind:'docx' as const,path:String.raw`E:\项目\报告.docx`,content:'',callId:'persisted-1',toolName:'docx.gen'}
+  render(<ChatArtifactCards sessionId="01ARZ3NDEKTSV4RRFFQ69G5FAV" artifacts={[artifact]} onInspect={onInspect}/>)
+  fireEvent.click(screen.getByText('报告.docx'))
+  expect(onInspect).toHaveBeenCalledWith(artifact)
 })

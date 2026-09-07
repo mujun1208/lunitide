@@ -36,7 +36,28 @@ type FileBindingStore struct{ path string }
 func NewFileBindingStore(path string) *FileBindingStore { return &FileBindingStore{path: path} }
 
 type bindingFile struct {
-	OrgID string `json:"orgId"`
+	OrgID     string `json:"orgId"`
+	Selection string `json:"selection,omitempty"`
+}
+
+// Selection distinguishes an intentional personal workspace from an older
+// implicit default-org binding. It does not change any database ownership.
+func (f *FileBindingStore) Selection(ctx context.Context) (exists, chosen bool, err error) {
+	if _, err = f.Load(ctx); err != nil {
+		return false, false, err
+	}
+	raw, err := os.ReadFile(f.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	var b bindingFile
+	if err = json.Unmarshal(raw, &b); err != nil {
+		return false, false, err
+	}
+	return true, b.Selection != "", nil
 }
 
 func (f *FileBindingStore) Load(ctx context.Context) (string, error) {
@@ -51,7 +72,8 @@ func (f *FileBindingStore) Load(ctx context.Context) (string, error) {
 		return "", err
 	}
 	var b struct {
-		OrgID *string `json:"orgId"`
+		OrgID     *string `json:"orgId"`
+		Selection string  `json:"selection,omitempty"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
@@ -61,6 +83,9 @@ func (f *FileBindingStore) Load(ctx context.Context) (string, error) {
 	if b.OrgID == nil || !json.Valid(raw) {
 		return "", errors.New("org binding missing verified scope")
 	}
+	if b.Selection != "" && (b.Selection != "personal" && b.Selection != "organization" || (b.Selection == "personal") != (*b.OrgID == "")) {
+		return "", errors.New("org binding selection is invalid")
+	}
 	return *b.OrgID, nil
 }
 
@@ -68,7 +93,11 @@ func (f *FileBindingStore) Save(ctx context.Context, orgID string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	raw, err := json.Marshal(bindingFile{OrgID: orgID})
+	selection := "organization"
+	if orgID == "" {
+		selection = "personal"
+	}
+	raw, err := json.Marshal(bindingFile{OrgID: orgID, Selection: selection})
 	if err != nil {
 		return err
 	}
@@ -182,6 +211,10 @@ func (a *OrgAdminService) Switch(ctx context.Context, orgID string) (OrgView, er
 		return OrgView{}, err
 	}
 	return orgView(o), nil
+}
+
+func (a *OrgAdminService) SelectPersonal(ctx context.Context) error {
+	return a.binding.Save(ctx, "")
 }
 
 // Activate resumes/activates the bound org along the ADR-011 state machine.

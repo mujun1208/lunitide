@@ -67,7 +67,12 @@ func mroPageRequest(method, cursor string, filter map[string]any) bridge.Request
 		filter["cursor"] = cursor
 	}
 	raw, _ := json.Marshal(filter)
-	return mroMutationRequest(method, string(raw), "")
+	request := mroMutationRequest(method, string(raw), "")
+	// Match createMroBridge's actual read deadline. The mutation fixture's
+	// 3-second budget makes the 10,000-row completeness test time out under
+	// race instrumentation before the product's 8-second deadline is reached.
+	request.DeadlineMS = 8_000
+	return request
 }
 
 func TestMROPublicToolPagesPreserve10000LegalLongRows(t *testing.T) {

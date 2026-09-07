@@ -390,8 +390,8 @@ describe('companion task speech', () => {
     expect(companionCannotExecuteSpeech('BROWSER_MCP_NOT_READY: Playwright MCP 未就绪')).toBe(COMPANION_BROWSER_MCP_SPEECH)
     expect(companionTaskCompleteSpeech('已在证件号码后写入')).toBe('已在证件号码后写入。')
     expect(companionTaskCompleteSpeech('我做完了')).toBe('好。')
-    expect(companionToolCloseoutSpeech('')).toBe('还在处理。')
-    expect(companionToolCloseoutSpeech('我做完了')).toBe('还在处理。')
+    expect(companionToolCloseoutSpeech('')).toBe('这次执行已结束，但没有收到可确认的结果。')
+    expect(companionToolCloseoutSpeech('我做完了')).toBe('这次执行已结束，但没有收到可确认的结果。')
     expect(companionToolCloseoutSpeech('已经写入了 204040')).toBe('已经写入了 204040。')
     expect(companionToolCloseoutSpeech('ok:false\nBROWSER_MCP_NOT_READY')).toBe(COMPANION_BROWSER_MCP_SPEECH)
     expect(isCompanionLeadInOnly('好，我来输入。')).toBe(true)
@@ -536,16 +536,13 @@ describe('shouldQueueBusyUserTranscript', () => {
 })
 
 describe('clipCompanionSpokenTurn', () => {
-  test('keeps two sentences and flags leftover', () => {
-    const got = clipCompanionSpokenTurn('好，我来播放。已经在播了。你还想听哪一首呢再搜一下。')
-    expect(got.spoken).toBe('好，我来播放。已经在播了。')
-    expect(got.overflow).toBe(true)
+  test('retains all sentences including the final tool result', () => {
+    const text = '好，我来查询。正在核对数据。合肥明天多云，最高气温二十八度。出门可以带把伞。'
+    expect(clipCompanionSpokenTurn(text)).toEqual({ spoken: text, overflow: false })
   })
-
-  test('hard-caps at 80 characters', () => {
-    const got = clipCompanionSpokenTurn('甲'.repeat(90))
-    expect(Array.from(got.spoken)).toHaveLength(80)
-    expect(got.overflow).toBe(true)
+  test('does not cut the answer at eighty characters', () => {
+    const text = '甲'.repeat(90) + '任务结果在这里。'
+    expect(clipCompanionSpokenTurn(text)).toEqual({ spoken: text, overflow: false })
   })
 })
 

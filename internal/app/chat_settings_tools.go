@@ -52,18 +52,19 @@ func (e *Engine) invokeSettingsPlaneTool(ctx context.Context, name string, raw j
 
 func (e *Engine) invokeMcpPresets() (string, error) {
 	type row struct {
-		ID          string `json:"presetId"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		NeedsArgs   bool   `json:"needsArgs"`
-		ArgHint     string `json:"argHint,omitempty"`
-		ArgDefault  string `json:"argDefault,omitempty"`
-		Category    string `json:"category"`
+		ID              string `json:"presetId"`
+		Name            string `json:"name"`
+		Description     string `json:"description"`
+		NeedsArgs       bool   `json:"needsArgs"`
+		NeedsCredential bool   `json:"needsCredential"`
+		ArgHint         string `json:"argHint,omitempty"`
+		ArgDefault      string `json:"argDefault,omitempty"`
+		Category        string `json:"category"`
 	}
 	presets := mcp6.Presets()
 	items := make([]row, 0, len(presets))
 	for _, p := range presets {
-		items = append(items, row{ID: p.ID, Name: p.Name, Description: p.Description, NeedsArgs: p.NeedsArgs, ArgHint: p.ArgHint, ArgDefault: p.ArgDefault, Category: p.Category})
+		items = append(items, row{ID: p.ID, Name: p.Name, Description: p.Description, NeedsArgs: p.NeedsArgs, NeedsCredential: p.NeedsCredential, ArgHint: p.ArgHint, ArgDefault: p.ArgDefault, Category: p.Category})
 	}
 	b, err := json.Marshal(map[string]any{"items": items})
 	if err != nil {
@@ -102,6 +103,8 @@ func (e *Engine) invokeMcpInstallPreset(ctx context.Context, raw json.RawMessage
 		Origin:         m7flow.McpOriginManual,
 		Transport:      preset.Transport,
 		Command:        preset.Command,
+		URL:            preset.URL,
+		ConfigureOnly:  preset.NeedsCredential,
 		Args:           args,
 		RiskConfirmed:  true,
 		Actor:          "chat",
@@ -109,6 +112,10 @@ func (e *Engine) invokeMcpInstallPreset(ctx context.Context, raw json.RawMessage
 	})
 	if err != nil {
 		return "", err
+	}
+	if preset.NeedsCredential {
+		b, _ := json.Marshal(map[string]any{"endpointId": res.EndpointID, "state": "needs_configuration", "presetId": preset.ID, "message": "已保存配置。请在 MCP 已安装列表中配置凭据，再连接；不要把密钥发送到对话。"})
+		return string(b), nil
 	}
 	ep, err := e.m7mcp.Toggle(ctx, res.EndpointID, true, "chat")
 	if err != nil {
