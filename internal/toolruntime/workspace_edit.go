@@ -1,12 +1,16 @@
 package toolruntime
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
+
+	"github.com/lunitide/lunitide/internal/atomicfile"
 )
 
 // todoItem is one checklist entry persisted per session.
@@ -102,6 +106,13 @@ type workspaceEditFile struct {
 	Hunks []editHunk
 }
 
+func validateWorkspaceEditText(data []byte) error {
+	if !utf8.Valid(data) || bytes.ContainsRune(data, 0) || bytes.HasPrefix(data, []byte("PK")) || bytes.HasPrefix(data, []byte("%PDF-")) {
+		return errors.New("workspace.edit requires plain UTF-8 text; read Office/PDF content with workspace.read and use its document generator to create a revised copy")
+	}
+	return nil
+}
+
 type workspaceEditHunkJSON struct {
 	OldText    string `json:"oldText"`
 	NewText    string `json:"newText"`
@@ -173,6 +184,10 @@ func parseWorkspaceEditArgs(args json.RawMessage) ([]workspaceEditFile, error) {
 }
 
 func writeFileReplace(path, content string) error {
+	return writeFileReplaceUsing(path, content, atomicfile.Replace)
+}
+
+func writeFileReplaceUsing(path, content string, replace func(string, string) error) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".edit-*")
 	if err != nil {
 		return err
@@ -190,8 +205,7 @@ func writeFileReplace(path, content string) error {
 		err = ce
 	}
 	if err == nil {
-		_ = os.Remove(path)
-		err = os.Rename(tn, path)
+		err = replace(tn, path)
 	}
 	return err
 }

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/automation.run.cancel.schema.json",
+  "title": "automation.run.cancel payload",
+  "x-method": "automation.run.cancel",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "jobId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "runId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
+  },
+  "required": ["jobId", "runId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": { "cancellationRequested": { "type": "boolean" } },
+    "required": ["cancellationRequested"]
+  },
+  "x-examples": {
+    "positive": [{"jobId":"01ARZ3NDEKTSV4RRFFQ69G5FAE","runId":"01ARZ3NDEKTSV4RRFFQ69G5FAF"}],
+    "negative": [{"jobId":"01ARZ3NDEKTSV4RRFFQ69G5FAE"}]
+  }
+}

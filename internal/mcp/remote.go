@@ -97,6 +97,13 @@ func ValidateBaseURL(raw string) error {
 	if u.User != nil || u.Fragment != "" {
 		return fmt.Errorf("%w: URL credentials and fragments are not allowed; configure credentials separately", ErrNotHttps)
 	}
+	// Tushare's official MCP uses a path token. Keep only the public
+	// placeholder in configuration; never accept a pasted token in this path.
+	if strings.Contains(u.Path, "{{") || strings.Contains(u.Path, "/token=") {
+		if !pathCredentialURL(u) {
+			return ErrNotHttps
+		}
+	}
 	if u.RawQuery != "" {
 		// Some official services require a token query parameter. Persist only
 		// this public placeholder; the credential is leased at request time.
@@ -111,6 +118,10 @@ func ValidateBaseURL(raw string) error {
 		}
 	}
 	return nil
+}
+
+func pathCredentialURL(u *url.URL) bool {
+	return u.Path == "/mcp/token={{credential}}" && u.RawQuery == ""
 }
 
 // Client is one allowlisted remote endpoint. The timeout fields default to
@@ -195,7 +206,7 @@ func (c *Client) buildHTTPClient(tlsCfg *tls.Config) *http.Client {
 	return &http.Client{
 		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return fmt.Errorf("%w: %s", ErrRedirectBlocked, req.URL)
+			return ErrRedirectBlocked
 		},
 	}
 }

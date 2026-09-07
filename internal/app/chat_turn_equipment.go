@@ -3,11 +3,37 @@ package app
 import (
 	"context"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/mcp6"
 	"github.com/lunitide/lunitide/internal/people"
 )
+
+// The chip is bounded display data. Do not truncate the actual resolver output
+// or change which experts, skills and MCP tools participate in execution.
+func equipDisplayLabels(labels []string, maxItems, maxUnits int) []string {
+	out := make([]string, 0, min(len(labels), maxItems))
+	for _, label := range labels {
+		if len(out) == maxItems {
+			break
+		}
+		label = strings.TrimSpace(label)
+		if label == "" {
+			continue
+		}
+		units := utf16.Encode([]rune(label))
+		if len(units) > maxUnits {
+			end := maxUnits - 1
+			if end > 0 && units[end-1] >= 0xd800 && units[end-1] <= 0xdbff {
+				end--
+			}
+			label = string(utf16.Decode(units[:end])) + "…"
+		}
+		out = append(out, label)
+	}
+	return out
+}
 
 // turnEquipment is the single per-turn resolver for 同事 / 普通会话 / 月伴.
 // Opening experts, skill bindings, MCP presets and local brain come from here.
@@ -81,18 +107,16 @@ func (e *Engine) namesForTurn(ctx context.Context, sessionID string, expertIDs [
 			return names
 		}
 	}
-	for _, turnText := range turnTexts {
-		for _, name := range m8app.ConversationExpertsMatchingIntent(turnText) {
-			add(name)
-		}
-		if len(names) > 0 {
-			return names
-		}
-	}
-	if e.m8expert == nil {
-		return names
-	}
+	// A deliberately mounted expert keeps its identity and stored equipment.
+	// Automatic intent matching is the fallback for an unselected task, not a
+	// replacement for the expert the user is currently talking to.
 	for _, id := range expertIDs {
+		if e.m8expert == nil {
+			if item, ok := m8app.ConversationExpertByID(id); ok {
+				add(item.Name)
+			}
+			continue
+		}
 		detail, err := e.m8expert.Detail(ctx, m8app.DetailInput{ExpertID: id})
 		if err != nil {
 			continue
@@ -100,8 +124,16 @@ func (e *Engine) namesForTurn(ctx context.Context, sessionID string, expertIDs [
 		name, _ := detail.Expert["name"].(string)
 		add(name)
 	}
-	if len(names) == 0 && sessionID != "" && len(expertIDs) == 1 {
-		add(expertIDs[0])
+	if len(names) > 0 {
+		return names
+	}
+	for _, turnText := range turnTexts {
+		for _, name := range m8app.ConversationExpertsMatchingIntent(turnText) {
+			add(name)
+		}
+		if len(names) > 0 {
+			return names
+		}
 	}
 	return names
 }

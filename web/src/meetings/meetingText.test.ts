@@ -53,6 +53,9 @@ describe('absorbHeldTranscript', () => {
 })
 
 describe('pickMeetingFinalText', () => {
+  test('a shorter revised final replaces the hypothesis without appending it again', () => {
+    expect(pickMeetingFinalText('今天我们准备先讨论一下合肥天气怎样。', '先讨论合肥的天气。')).toBe('先讨论合肥的天气。')
+  })
   test('prefers the held caption when commit returns only the last segment', () => {
     const held = '火焰已把火烧到天亮做一个叛逆的童年我把抽屉图晃晃悠悠和我心情往前走'
     expect(pickMeetingFinalText(held, '往前走')).toBe(held)

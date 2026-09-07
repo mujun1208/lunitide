@@ -136,7 +136,7 @@ func routeAllow(route TaskRoute, ccEnabled bool) map[string]bool {
 		return copyAllow(toolProfileAllow(toolProfileMinimal))
 	case RouteR1:
 		return map[string]bool{
-			"web.search": true, "web.fetch": true, "video.understand": true,
+			"web.search": true, "web.fetch": true, "weather.get": true, "video.understand": true,
 			"memory.search": true, "memory.get": true,
 			"user.ask": true,
 		}
@@ -162,7 +162,7 @@ func routeAllow(route TaskRoute, ccEnabled bool) map[string]bool {
 			"workspace.list": true, "workspace.read": true, "workspace.write": true,
 			"workspace.search": true, "workspace.edit": true,
 			"image.generate": true, "video.generate": true,
-			"web.search": true, "web.fetch": true,
+			"web.search": true, "web.fetch": true, "weather.get": true,
 			"user.ask": true,
 		}
 	default:

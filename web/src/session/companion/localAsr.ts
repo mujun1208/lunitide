@@ -86,7 +86,7 @@ export interface LocalAsrHandle {
    * slicing. Recycling the session resets the decoder at exactly the boundary
    * the caller chose, and costs one bridge round trip.
    */
-  commit: () => Promise<string>
+  commit: (options?: { useStreamed?: boolean }) => Promise<string>
   /**
    * Stops feeding audio without releasing the device. Used while the
    * assistant is speaking: reacquiring a microphone takes long enough to
@@ -232,7 +232,7 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
       .then(async result => {
         // A reply from a session that has since been retired describes an
         // utterance the caller has already been given.
-        if (result.text && owner === sessionId) callbacks.onTranscript?.(result.text, result.final)
+        if (!closed && result.text && owner === sessionId) callbacks.onTranscript?.(result.text, result.final)
         if (sessionSamples < LOCAL_ASR_MAX_SESSION_SAMPLES || closed || swapping || owner !== sessionId) return
         swapping = true
         try {
@@ -248,7 +248,7 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
         if (retryableVoice(error)) {
           try {
             const result = await bridge.append({ sessionId: owner, pcm })
-            if (result.text && owner === sessionId) callbacks.onTranscript?.(result.text, result.final)
+            if (!closed && result.text && owner === sessionId) callbacks.onTranscript?.(result.text, result.final)
             return
           } catch {
             try {
@@ -322,8 +322,37 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
       stop()
       void bridge.stop({ sessionId }).catch(() => {})
     },
-    commit: async () => {
+    commit: async (options) => {
       if (closed || swapping) return ''
+      if (options?.useStreamed) {
+        // The product has the complete sentence. Retire its owner before any
+        // await so late append/refiner packets cannot become the next turn.
+        // Audio captured while the new decoder opens stays in the PCM queue.
+        capture?.flush()
+        swapping = true
+        const retiring = sessionId
+        sessionId = ''
+        fed = false
+        sessionSamples = 0
+        pending = []
+        pendingSamples = 0
+        if (retiring) void bridge.stop({ sessionId: retiring }).catch(() => {})
+        try {
+          const opened = await bridge.start({ language: 'zh-CN' })
+          if (closed) {
+            void bridge.stop({ sessionId: opened.sessionId }).catch(() => {})
+            return ''
+          }
+          sessionId = opened.sessionId
+          return ''
+        } catch (error) {
+          fail(error)
+          return ''
+        } finally {
+          swapping = false
+          pump()
+        }
+      }
       // The last fraction of a second of the sentence, which the accumulator
       // is holding back because it did not fill a whole frame. Nothing else
       // ever asks for it, so before this it was discarded at the end of every
@@ -348,6 +377,10 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
           bridge.finish({ sessionId: retiring }),
           bridge.start({ language: 'zh-CN' }),
         ])
+        if (closed || sessionId !== retiring) {
+          if (opened.status === 'fulfilled') void bridge.stop({ sessionId: opened.value.sessionId }).catch(() => {})
+          return ''
+        }
         if (opened.status === 'rejected') {
           // Without a session there is nothing to append to and every frame
           // after this one fails identically, so this is the one outcome

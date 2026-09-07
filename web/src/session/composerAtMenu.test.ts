@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { atMenuPlaceholder, filterComposerAtItems, insertComposerAtPick } from './composerAtMenu'
+import { sessionMessageAtItems,atMenuPlaceholder, filterComposerAtItems, insertComposerAtPick } from './composerAtMenu'
 
 describe('composerAtMenu', () => {
   it('labels each @ source', () => {
@@ -25,4 +25,10 @@ describe('composerAtMenu', () => {
     ]
     expect(filterComposerAtItems(items, 'ppt').map(item => item.label)).toEqual(['PPT专家'])
   })
+})
+it('references only this session’s real messages and their durable artifacts',()=>{
+ const messages=[{id:'one',sessionId:'here',role:'assistant',text:'本轮完整回复',artifacts:[{path:'reports/result.docx'}]},{id:'other',sessionId:'elsewhere',role:'user',text:'别人的内容'},{id:'tool',sessionId:'here',role:'tool',text:'内部结果'}] as unknown as Parameters<typeof sessionMessageAtItems>[0]
+ const items=sessionMessageAtItems(messages,'here')
+ expect(items).toEqual([{kind:'message',id:'one',label:'月汐：本轮完整回复'},{kind:'artifact',id:'one',label:'产物：reports/result.docx'}])
+ expect(insertComposerAtPick('请参考 @',items[1])).toBe('请参考 [message:one|产物：reports/result.docx] ')
 })

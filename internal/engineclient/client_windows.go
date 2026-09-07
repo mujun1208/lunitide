@@ -316,6 +316,9 @@ func (c *Client) decodeEngineEvent(raw []byte) (bridge.Event, bool, error) {
 		event.Completed = nil
 		event.Tool = nil
 		event.Terminal = nil
+		event.Guidance = nil
+		event.Equip = nil
+		event.Talk = nil
 		event.Tts = nil
 		event.Error = &bridge.StreamError{Code: "ENGINE_EVENT_INVALID", Message: "流事件无效", Retryable: true}
 		return event, false, nil
@@ -377,9 +380,8 @@ func terminalEventType(t bridge.EventType) bool {
 	return t == bridge.EventCompleted || t == bridge.EventCancelled || t == bridge.EventFailed || t == bridge.EventTerminalExit
 }
 
-// sanitizeEvent keeps a stream alive when a payload is display-only
-// incompatible with the renderer (Windows artifact paths, office kinds
-// the preview does not accept). Dropping those events after consuming
+// sanitizeEvent keeps a stream alive when a display payload needs path
+// normalization or exceeds the renderer's limits. Dropping events after consuming
 // the Engine sequence used to surface as BRIDGE_EVENT_SEQUENCE_INVALID
 // on every tool turn, not just web.search.
 func sanitizeEvent(e *bridge.Event) {
@@ -397,14 +399,6 @@ func sanitizeEvent(e *bridge.Event) {
 		return
 	}
 	normalizeArtifactPath(e.Tool.Artifact)
-	switch e.Tool.Artifact.Kind {
-	case "xlsx", "docx", "pptx", "pdf":
-		// Office paths are workspace metadata only; the renderer has no inline
-		// preview for them and forwarding the artifact breaks contiguous tool
-		// sequences on Windows path normalization tests.
-		e.Tool.Artifact = nil
-		return
-	}
 	if validRendererArtifact(e.Tool.Artifact) != nil {
 		e.Tool.Artifact = nil
 	}
@@ -478,6 +472,12 @@ func validateEvent(e bridge.Event) error {
 	if e.Type != bridge.EventThinking && e.Thinking != nil {
 		return errors.New("thinking payload on non-thinking event")
 	}
+	if e.Type != bridge.EventGuidance && e.Guidance != nil {
+		return errors.New("guidance payload on non-guidance event")
+	}
+	if e.Type != bridge.EventEquip && e.Equip != nil {
+		return errors.New("equip payload on non-equip event")
+	}
 	if e.Type != bridge.EventTtsChunk && e.Tts != nil {
 		return errors.New("tts payload on non-tts event")
 	}
@@ -489,6 +489,20 @@ func validateEvent(e bridge.Event) error {
 	}
 	const maxText = 16 * 1024
 	switch e.Type {
+	case bridge.EventGuidance, bridge.EventEquip:
+		if e.Delta != nil || e.Thinking != nil || e.Usage != nil || e.Completed != nil || e.Error != nil || e.Tool != nil || e.Terminal != nil || e.Tts != nil || e.Talk != nil {
+			return errors.New("invalid guidance/equip event payload")
+		}
+		if e.Type == bridge.EventGuidance {
+			if e.Guidance == nil || !validEventLabels(e.Guidance.Labels, 1, 8, 32) || len(e.Guidance.Digest) != 16 || strings.ToLower(e.Guidance.Digest) != e.Guidance.Digest {
+				return errors.New("invalid guidance event fields")
+			}
+			if _, err := hex.DecodeString(e.Guidance.Digest); err != nil {
+				return errors.New("invalid guidance digest")
+			}
+		} else if e.Equip == nil || !validEventLabels(e.Equip.Experts, 1, 8, 32) || !validEventLabels(e.Equip.Skills, 0, 16, 64) || !validEventLabels(e.Equip.MissingMcp, 0, 16, 64) {
+			return errors.New("invalid equip event fields")
+		}
 	case bridge.EventTerminalOutput:
 		if e.Terminal == nil || e.Terminal.Data == "" || len(e.Terminal.Data) > maxText || e.Delta != nil || e.Usage != nil || e.Error != nil {
 			return errors.New("invalid terminal output event")
@@ -606,6 +620,29 @@ func validateEvent(e bridge.Event) error {
 		return errors.New("unknown event type")
 	}
 	return nil
+}
+
+func validEventLabels(labels []string, minItems, maxItems, maxUnits int) bool {
+	if len(labels) < minItems || len(labels) > maxItems {
+		return false
+	}
+	for _, label := range labels {
+		if label == "" || !utf8.ValidString(label) {
+			return false
+		}
+		// Match JavaScript string.length in the renderer's event contract.
+		units := 0
+		for _, r := range label {
+			units++
+			if r > 0xffff {
+				units++
+			}
+		}
+		if units > maxUnits {
+			return false
+		}
+	}
+	return true
 }
 func validStreamArtifact(a *bridge.ArtifactEvent) error {
 	if a == nil {

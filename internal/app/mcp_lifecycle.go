@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
 	"github.com/lunitide/lunitide/internal/m7app"
@@ -128,10 +129,24 @@ func mcpPluginIDs(command string, args []string) []string {
 
 type settingsGatewayProber struct{ engine *Engine }
 
-func (p settingsGatewayProber) Probe(ctx context.Context, ep m7flow.McpEndpointConfig) (string, error) {
+func (p settingsGatewayProber) Probe(ctx context.Context, ep m7flow.McpEndpointConfig) (result string, probeErr error) {
+	defer func() {
+		if p.engine != nil && p.engine.m7mcp != nil {
+			p.engine.m7mcp.RecordDiagnostic(ep.EndpointID, probeErr)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(ctx, 70*time.Second)
+	defer cancel()
+	ctx = mcp.WithStdioStartupBudget(ctx)
 	input, err := settingsMcpInput(ep)
 	if err != nil {
 		return "", err
+	}
+	// Older Google Drive presets supplied a work directory as a positional
+	// argument. The upstream server ignores that and requires an OAuth token
+	// file. Do not launch it or an interactive auth browser without that binding.
+	if presetIDFromCommandArgs(input.Command, input.Args) == "gdrive" && input.EnvSecretRefs["GDRIVE_CREDENTIALS_PATH"] == "" {
+		return "", mcp.ErrCredentialRequired
 	}
 	ctx, release, err := p.engine.AcquireCapability(ctx, mcpPluginIDs(input.Command, input.Args)...)
 	if err != nil {
@@ -216,5 +231,5 @@ func mcpAdmissionError(err error) error {
 	if errors.Is(err, mcp6.ErrCapabilityDrift) {
 		return m7app.ErrMcpDrift
 	}
-	return m7app.ErrMcpProbe
+	return errors.Join(m7app.ErrMcpProbe, err)
 }

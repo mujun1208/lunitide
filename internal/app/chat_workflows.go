@@ -8,7 +8,7 @@ import (
 
 const officeGenWorkflowClause = "- 文档：必须用 pptx.gen / docx.gen / excel.gen / pdf.gen 写入工作区并汇报路径。用户要放到桌面时加 desktop=true（path 用文件名即可，例如 半年财报.xlsx），禁止填 C:\\\\Users\\\\...\\\\Desktop 绝对路径，禁止 PowerPoint/Excel/Word COM、Python 拼 OOXML、command.run 复制到桌面。" + officeGenInternalHint + "做 PPT 禁止 ZipFile 改 XML。PPT 必须走九步流水线（思考→定义结构→写内容→web.search 收集素材→再思考→再收集素材→思考创作→写完整页→最后 pptx.gen），禁止跳步生成空页或只有深色底没有文字的文件；pptx.gen 会拒绝空标题/不可读页。报告必须走流水线（思考受众→目录→两轮 web.search/fetch→再思考→完整章节→最后 docx.gen）；小说必须走流水线（类型人设→大纲起承转合→人物世界观→必要时检索→分章正文→修订文风→最后 docx.gen）。禁止跳步生成空稿、无标题样式或只有提纲的 Word；docx.gen 会拒绝空文档和单样式正文。表格用月度汇总，不要一次塞几百行。\n"
 
-const workflowResearchClause = "- 调研：必须用 web.search（不要 web.fetch Bing/Google 首页）；后台检索供你引用，只有用户明确要看/打开网页时才需要工作区浏览器。完成后只给简短来源列表并结束，不要写任务过程长文。\n"
+const workflowResearchClause = "- 调研：专用实时数据优先对应数据工具；普通资料用 web.search（不要 web.fetch Bing/Google 首页）；后台检索供你引用，只有用户明确要看/打开网页时才需要工作区浏览器。完成后只给简短来源列表并结束，不要写任务过程长文。\n"
 
 const workflowCodeClause = "- 改代码：workspace.search 定位 → workspace.read → workspace.edit 精确替换（多处用 edits[]，多文件用 files[]）→ command.run 验证。\n"
 
@@ -100,6 +100,12 @@ func selectWorkflowClauses(text string) []string {
 	}
 	var out []string
 	needDesktopHand := false
+	if looksLikeWeatherTurn(text) {
+		out = append(out, "- 天气：优先 weather.get 读取结构化免费预报；城市含糊先核实，按返回的当地日期、更新时间和采样范围回答。不要抓网页片段冒充实测温度。\n")
+	}
+	if has("火车", "高铁", "机票", "航班", "股价", "股票", "行情") {
+		out = append(out, "- 车票/航班/行情：先 mcp.search 找当前已连接的专用接口，再按真实schema调用。缺日期/地点/证券市场先核实；若没有接口，说明尚未接入，不能凭网页摘要或旧记忆报实时余票/报价。仅用户允许时使用公开网页查询，并标明来源与时间。\n")
+	}
 	if has("调研", "搜", "查", "天气", "search", "火车", "航班") {
 		out = append(out, workflowResearchClause)
 	}

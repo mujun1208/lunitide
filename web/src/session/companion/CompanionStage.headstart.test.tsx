@@ -198,6 +198,22 @@ test('speaks the first finished sentence while the model is still writing', asyn
   expect(spokenReply()).toBe('今天多云。气温二十六度。')
 })
 
+test('continuous tokens without punctuation start the first audio chunk without resetting the wait', async () => {
+  const utils = render(<CompanionStage {...baseProps} />)
+  await flush(600)
+  await act(async () => { speech.callbacks!.onFinal('合肥天气怎么样') })
+  const parts = ['今天合肥', '今天合肥晴朗', '今天合肥晴朗气温', '今天合肥晴朗气温二十', '今天合肥晴朗气温二十八度', '今天合肥晴朗气温二十八度适合出门']
+  for (const text of parts) {
+    await act(async () => { utils.rerender(<CompanionStage {...baseProps} chatStatus="streaming" assistantText={text} />) })
+    await flush(80)
+  }
+  expect(spokenReply().length).toBeGreaterThanOrEqual(8)
+  expect(parts.at(-1)!.startsWith(spokenReply())).toBe(true)
+  await act(async () => { utils.rerender(<CompanionStage {...baseProps} chatStatus="done" assistantText={parts.at(-1)!} />) })
+  await flush(0)
+  expect(spokenReply()).toBe(parts.at(-1))
+})
+
 test('an unpunctuated tail still waits for the stream to stall', async () => {
   const utils = render(<CompanionStage {...baseProps} />)
   await flush(600)
@@ -498,7 +514,7 @@ test('caption fade does not wipe an uncommitted user line', async () => {
   expect(onSend).toHaveBeenCalledTimes(1)
 })
 
-test('reply stall does not cancel while userAsk is open', async () => {
+test('voice ignores legacy choice cards and speaks the clarification as an ordinary reply', async () => {
   const onCancel = vi.fn()
   const onSend = vi.fn()
   const userAsk = {
@@ -513,11 +529,27 @@ test('reply stall does not cancel while userAsk is open', async () => {
   })
   await flush(0)
   await act(async () => {
-    utils.rerender(<CompanionStage {...props} chatStatus="streaming" assistantText="" />)
+    utils.rerender(<CompanionStage {...props} chatStatus="done" assistantText="请说出你要打开的文件名。" />)
   })
-  await flush(13_000)
+  await flush(0)
+  expect(utils.container.textContent).not.toContain('选一个')
+  expect(utils.container.textContent).not.toContain('哪一个？')
+  expect(spokenReply()).toBe('请说出你要打开的文件名。')
   expect(onCancel).not.toHaveBeenCalled()
-  expect(utils.container.textContent).not.toMatch(/没有及时回应/)
+})
+
+test('replayed identical completion captions are not spoken eight times', async () => {
+  const utils = render(<CompanionStage {...baseProps} />)
+  await flush(600)
+  await act(async () => { speech.callbacks!.onFinal('关闭汽水音乐') })
+  const result = '汽水音乐已经关闭了。'
+  for (let repeat = 1; repeat <= 8; repeat++) {
+    await act(async () => { utils.rerender(<CompanionStage {...baseProps} chatStatus="streaming" assistantText={result.repeat(repeat)} />) })
+    await flush(80)
+  }
+  await act(async () => { utils.rerender(<CompanionStage {...baseProps} chatStatus="done" assistantText={result.repeat(8)} />) })
+  await flush(0)
+  expect(spokenReply()).toBe(result)
 })
 
 test('interrupt keeps the subtitle on what was already spoken', async () => {

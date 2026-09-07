@@ -6,8 +6,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/bridge"
-	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/identity"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/officetools"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
@@ -59,7 +59,7 @@ const (
 
 func looksLikeReportTask(text string) bool {
 	t := strings.ToLower(strings.TrimSpace(text))
-	if t == "" || looksLikeStatusFollowUp(t) || looksLikeResume(t) || looksLikePptTask(text) {
+	if t == "" || officeExpertIntroduction(text) || looksLikeStatusFollowUp(t) || looksLikeResume(t) || looksLikePptTask(text) {
 		return false
 	}
 	for _, k := range []string{
@@ -75,7 +75,7 @@ func looksLikeReportTask(text string) bool {
 
 func looksLikeNovelTask(text string) bool {
 	t := strings.ToLower(strings.TrimSpace(text))
-	if t == "" || looksLikeStatusFollowUp(t) || looksLikeResume(t) || looksLikePptTask(text) {
+	if t == "" || officeExpertIntroduction(text) || looksLikeStatusFollowUp(t) || looksLikeResume(t) || looksLikePptTask(text) {
 		return false
 	}
 	for _, k := range []string{"小说", "短篇", "长篇", "连载", "写个故事", "虚构", "小说编写", "起承转合", "星座", "爱情小说"} {
@@ -86,18 +86,33 @@ func looksLikeNovelTask(text string) bool {
 	return false
 }
 
+// Only this turn's selected identity counts. Memory, prior user turns and
+// assistant answers can mention other specialists without mounting them.
 func expertMountedIn(req llmadapter.Request, needles ...string) bool {
+	selected := strings.Join(extractExpertRefNames(lastUserChatText(req.Messages)), "、")
 	for _, m := range req.Messages {
-		for _, n := range needles {
-			if strings.Contains(m.Content, n) {
-				return true
+		if m.Role != llmadapter.RoleSystem {
+			continue
+		}
+		const prefix = "[稳定身份] 你就是「"
+		if _, tail, ok := strings.Cut(m.Content, prefix); ok {
+			if names, _, found := strings.Cut(tail, "」"); found {
+				selected += "、" + names
 			}
+		}
+	}
+	for _, n := range needles {
+		if strings.Contains(selected, n) {
+			return true
 		}
 	}
 	return false
 }
 
 func reportTaskFromRequest(req llmadapter.Request, goal string) bool {
+	if officeExpertIntroduction(goal) {
+		return false
+	}
 	if looksLikeReportTask(goal) {
 		return true
 	}
@@ -117,6 +132,9 @@ func reportTaskFromRequest(req llmadapter.Request, goal string) bool {
 }
 
 func novelTaskFromRequest(req llmadapter.Request, goal string) bool {
+	if officeExpertIntroduction(goal) {
+		return false
+	}
 	if looksLikeNovelTask(goal) {
 		return true
 	}

@@ -84,7 +84,7 @@ func createTurnFailureNotice(tools []string, assistantText string) string {
 		}
 	}
 	if usedVision {
-		return "这次没能通过看屏幕完成操作。播放音乐请让我用 media.play，你可以再说「随便放一首」。\n"
+		return "这次电脑操作未能完成。\n"
 	}
 	if hasActingComputerTool(tools) {
 		return "这次操作没成功，请再说具体一点让我重试。\n"

@@ -78,9 +78,15 @@ func ParseSearchResults(html string, max int) []SearchResult {
 		}
 		title := strings.TrimSpace(unescapeEntities(stripTags(text)))
 		snippet := ""
-		if idx := strings.Index(rest, "result-snippet"); idx >= 0 {
-			if cell := strings.Index(rest[idx:], ">"); cell >= 0 {
-				raw := rest[idx+cell+1:]
+		// A result may have no snippet. Do not attach the next result's text
+		// to this URL: it changes the apparent source of search evidence.
+		snippetBlock := rest
+		if next := strings.Index(snippetBlock, "result-link"); next >= 0 {
+			snippetBlock = snippetBlock[:next]
+		}
+		if idx := strings.Index(snippetBlock, "result-snippet"); idx >= 0 {
+			if cell := strings.Index(snippetBlock[idx:], ">"); cell >= 0 {
+				raw := snippetBlock[idx+cell+1:]
 				if end := strings.Index(raw, "</td>"); end >= 0 {
 					snippet = strings.TrimSpace(unescapeEntities(stripTags(raw[:end])))
 				}

@@ -30,5 +30,5 @@ export function composerPickerFailed(kind: 'at' | 'skill' | 'expert', code = '')
 export function composerPickerEmpty(kind: 'at' | 'skill' | 'expert'): string {
   if (kind === 'skill') return '还没有已发布技能。'
   if (kind === 'expert') return '还没有已启用专家。'
-  return '这一会话还没有可引用的附件、专家或同事。'
+  return '这一会话还没有可引用的消息、附件、产物、专家或同事。'
 }

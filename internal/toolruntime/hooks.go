@@ -49,7 +49,7 @@ var ErrHookBlocked = errors.New("hook blocked")
 var hookableTools = map[string]bool{
 	"workspace.list": true, "workspace.read": true, "workspace.write": true,
 	"workspace.search": true, "workspace.edit": true, "todo.write": true,
-	"command.run": true, "web.fetch": true, "web.search": true,
+	"command.run": true, "web.fetch": true, "web.search": true, "weather.get": true,
 	"excel.gen": true, "excel.parse": true, "docx.gen": true, "pptx.gen": true, "pdf.gen": true,
 	"html.gen": true, "desktop.open": true, "desktop.type": true, "media.play": true,
 }

@@ -54,15 +54,23 @@ func (s *scopedVoiceSession) Finish(ctx context.Context) (string, error) {
 	return text, err
 }
 func (s *scopedVoiceSession) Latest() (string, bool) {
+	tr := s.LatestTranscript()
+	return tr.Text, tr.Final
+}
+func (s *scopedVoiceSession) LatestTranscript() voice.Transcript {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.scope.Err() != nil {
-		return "", false
+		return voice.Transcript{}
+	}
+	if reader, ok := s.session.(interface{ LatestTranscript() voice.Transcript }); ok {
+		return reader.LatestTranscript()
 	}
 	if reader, ok := s.session.(interface{ Latest() (string, bool) }); ok {
-		return reader.Latest()
+		text, final := reader.Latest()
+		return voice.Transcript{Text: text, Final: final}
 	}
-	return "", false
+	return voice.Transcript{}
 }
 func (s *scopedVoiceSession) Close() error {
 	s.cancel()

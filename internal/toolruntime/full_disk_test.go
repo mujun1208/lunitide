@@ -12,6 +12,12 @@ import (
 // enableFullDisk persists and hot-applies the full-disk opt-in document.
 func enableFullDisk(t *testing.T, r *Runtime) {
 	t.Helper()
+	// Full-disk tests must never resolve generated artifacts into the user's
+	// real Desktop, even when a future fixture forgets a local override.
+	if r.desktopRoot == nil {
+		desktop := t.TempDir()
+		r.desktopRoot = func() (string, error) { return desktop, nil }
+	}
 	if err := r.SetCommandPolicyJSON([]byte(`{"commands":[],"fullAccess":true}`)); err != nil {
 		t.Fatal(err)
 	}

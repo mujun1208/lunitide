@@ -74,7 +74,8 @@ func TestImplementerProfileWriteGate(t *testing.T) {
 			t.Fatalf("implementer must be read-only under %q, got %v", mode, def.WriteTools)
 		}
 	}
-	// Under a write-capable parent turn it carries exactly the file writers.
+	// A write-capable parent retains file writers and explicitly grants the
+	// existing allowlisted build/test command surface.
 	for _, mode := range []executionMode{executionModeAutoEdit, executionModeFullAccess} {
 		policy := defaultSubagentChatPolicy()
 		policy.ParentMode = mode
@@ -82,11 +83,11 @@ func TestImplementerProfileWriteGate(t *testing.T) {
 		if !ok {
 			t.Fatalf("implementer missing under %q", mode)
 		}
-		if len(def.WriteTools) != 2 {
-			t.Fatalf("implementer writers under %q = %v, want workspace.write/edit", mode, def.WriteTools)
+		if len(def.WriteTools) != 3 {
+			t.Fatalf("implementer writers under %q = %v, want workspace.write/edit and command.run", mode, def.WriteTools)
 		}
 		for _, name := range def.WriteTools {
-			if name != "workspace.write" && name != "workspace.edit" {
+			if name != "workspace.write" && name != "workspace.edit" && name != "command.run" {
 				t.Fatalf("unexpected implementer write tool %q under %q", name, mode)
 			}
 		}

@@ -125,7 +125,9 @@ func StdioDial(ctx context.Context, command string, args []string, workDir strin
 	if err != nil {
 		return nil, fmt.Errorf("%w: stderr pipe: %v", ErrStdioLaunch, err)
 	}
-	go func() { _, _ = io.Copy(io.Discard, stderrRead); _ = stderrRead.Close() }()
+	diagnostics := &stderrClassifier{}
+	stderrDone := make(chan struct{})
+	go func() { _, _ = io.Copy(diagnostics, stderrRead); _ = stderrRead.Close(); close(stderrDone) }()
 	proc, err := stdioworker.SpawnIsolatedWithStderr(exe, argv, workDir, env, stdioworker.StdioQuotas(), stderrWrite)
 	_ = stderrWrite.Close()
 	if err != nil {
@@ -138,11 +140,13 @@ func StdioDial(ctx context.Context, command string, args []string, workDir strin
 		stdout: bufio.NewScanner(proc.Stdout()),
 	}
 	s.stdout.Buffer(make([]byte, 64*1024), StdioMaxLineBytes)
-	hctx, cancel := context.WithTimeout(ctx, StdioHandshakeTimeout)
+	hctx, cancel := context.WithTimeout(ctx, stdioHandshakeBudget(ctx))
 	defer cancel()
 	if err := s.initialize(hctx); err != nil {
-		s.Close()
-		return nil, err
+		s.proc.Close()
+		<-stderrDone
+		_ = stderrRead.Close()
+		return nil, diagnostics.classify(err)
 	}
 	return s, nil
 }
@@ -177,7 +181,7 @@ func (s *StdioSession) initialize(ctx context.Context) error {
 	}, &answer); err != nil {
 		return err
 	}
-	if answer.ProtocolVersion != StdioProtocolVersion || strings.TrimSpace(answer.ServerInfo.Name) == "" || strings.TrimSpace(answer.ServerInfo.Version) == "" || len(answer.ServerInfo.Name) > 512 || len(answer.ServerInfo.Version) > 128 {
+	if !stdioProtocolSupported(answer.ProtocolVersion) || strings.TrimSpace(answer.ServerInfo.Name) == "" || strings.TrimSpace(answer.ServerInfo.Version) == "" || len(answer.ServerInfo.Name) > 512 || len(answer.ServerInfo.Version) > 128 {
 		return fmt.Errorf("%w: unsupported protocol or missing server identity", ErrStdioProtocol)
 	}
 	identity, _ := json.Marshal(answer)
@@ -273,55 +277,33 @@ func (s *StdioSession) roundtrip(ctx context.Context, method string, params any,
 	if err != nil {
 		return fmt.Errorf("%w: request marshal: %v", ErrStdioProtocol, err)
 	}
-	if _, err := s.stdin.Write(append(line, '\n')); err != nil {
-		return fmt.Errorf("%w: write %s: %v", ErrStdioProtocol, method, err)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("%w: %s canceled: %w", ErrStdioProtocol, method, err)
 	}
-	if err := s.stdin.Flush(); err != nil {
-		return fmt.Errorf("%w: flush %s: %v", ErrStdioProtocol, method, err)
-	}
-	type read struct {
-		raw []byte
-		err error
-	}
-	ch := make(chan read, 1)
+	done := make(chan error, 1)
 	go func() {
-		if s.stdout.Scan() {
-			ch <- read{raw: s.stdout.Bytes()}
+		if _, err := s.stdin.Write(append(line, '\n')); err != nil {
+			done <- fmt.Errorf("%w: write %s: %w", ErrStdioProtocol, method, err)
 			return
 		}
-		err := s.stdout.Err()
-		if err == nil {
-			err = errors.New("stream closed")
+		if err := s.stdin.Flush(); err != nil {
+			done <- fmt.Errorf("%w: flush %s: %w", ErrStdioProtocol, method, err)
+			return
 		}
-		ch <- read{err: fmt.Errorf("%w: read %s: %v", ErrStdioProtocol, method, err)}
+		done <- s.readResponse(id, method, into)
 	}()
 	select {
 	case <-ctx.Done():
-		_ = s.proc.Kill()
-		return fmt.Errorf("%w: %s deadline: %v", ErrStdioProtocol, method, ctx.Err())
-	case r := <-ch:
-		if r.err != nil {
-			return r.err
-		}
-		var env jsonrpcRequest
-		if err := json.Unmarshal(r.raw, &env); err != nil {
-			return fmt.Errorf("%w: %s answer not JSON: %v", ErrStdioProtocol, method, err)
-		}
-		if env.ID != id {
-			return fmt.Errorf("%w: %s id mismatch (%d != %d)", ErrStdioProtocol, method, env.ID, id)
-		}
-		if env.Error != nil {
-			return fmt.Errorf("%w: %s answered %d: %s", ErrStdioProtocol, method, env.Error.Code, env.Error.Message)
-		}
-		raw, err := json.Marshal(env.Result)
-		if err != nil {
-			return fmt.Errorf("%w: %s result re-marshal: %v", ErrStdioProtocol, method, err)
-		}
-		if err := json.Unmarshal(raw, into); err != nil {
-			return fmt.Errorf("%w: %s result shape: %v", ErrStdioProtocol, method, err)
-		}
-		return nil
+		// A server may stop reading stdin after its handshake. Closing the killed
+		// process pipes releases a blocked write as well as a blocked response read.
+		s.proc.Close()
+		// Never return with a worker that can touch this session's buffers later.
+		<-done
+		return fmt.Errorf("%w: %s deadline: %w", ErrStdioProtocol, method, ctx.Err())
+	case err := <-done:
+		return err
 	}
+
 }
 
 // notify sends one directionless notification (no id, no answer waited).
@@ -345,4 +327,98 @@ func (s *StdioSession) Close() {
 	if s.stderr != nil {
 		_ = s.stderr.Close()
 	}
+}
+
+// The basic stdio tools protocol is compatible across these published versions.
+// A server selects a version it implements; old installed servers may reply
+// 2024-11-05 instead of echoing our preferred version.
+func stdioProtocolSupported(version string) bool {
+	switch version {
+	case "2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25":
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *StdioSession) readResponse(id int64, method string, into any) error {
+	var ancillaryBytes int
+	for frames := 0; frames < 257; frames++ {
+		if !s.stdout.Scan() {
+			return fmt.Errorf("%w: read %s: stream closed", ErrStdioProtocol, method)
+		}
+		raw := s.stdout.Bytes()
+		var env struct {
+			JSONRPC string          `json:"jsonrpc"`
+			ID      json.RawMessage `json:"id"`
+			Method  string          `json:"method"`
+			Result  json.RawMessage `json:"result"`
+			Error   *jsonrpcError   `json:"error"`
+		}
+		if json.Unmarshal(raw, &env) != nil || env.JSONRPC != "2.0" {
+			return fmt.Errorf("%w: %s answer not JSON-RPC", ErrStdioProtocol, method)
+		}
+		if env.Method != "" {
+			ancillaryBytes += len(raw)
+			if ancillaryBytes > 8<<20 || len(env.Result) != 0 || env.Error != nil {
+				return ErrStdioProtocol
+			}
+			if len(env.ID) == 0 {
+				continue
+			} // progress, log and list-change notifications
+			if string(env.ID) == "null" {
+				return ErrStdioProtocol
+			}
+			var number int64
+			var text string
+			if json.Unmarshal(env.ID, &number) != nil && (json.Unmarshal(env.ID, &text) != nil || len(text) > 256) {
+				return ErrStdioProtocol
+			}
+			// Only ping is implemented. Roots/sampling/elicitation are not advertised
+			// and receive an explicit error, without exposing files or asking a model.
+			reply := map[string]any{"jsonrpc": "2.0", "id": env.ID}
+			if env.Method == "ping" {
+				reply["result"] = map[string]any{}
+			} else {
+				reply["error"] = jsonrpcError{Code: -32601, Message: "Method not supported by this client"}
+			}
+			data, _ := json.Marshal(reply)
+			if _, err := s.stdin.Write(append(data, '\n')); err != nil {
+				return fmt.Errorf("%w: reply write", ErrStdioProtocol)
+			}
+			if err := s.stdin.Flush(); err != nil {
+				return fmt.Errorf("%w: reply flush", ErrStdioProtocol)
+			}
+			continue
+		}
+		var responseID int64
+		if len(env.ID) == 0 || string(env.ID) == "null" || json.Unmarshal(env.ID, &responseID) != nil || responseID != id {
+			return fmt.Errorf("%w: %s id mismatch", ErrStdioProtocol, method)
+		}
+		if env.Error != nil {
+			if len(env.Result) != 0 {
+				return ErrStdioProtocol
+			}
+			return fmt.Errorf("%w: %s answered %d", ErrStdioProtocol, method, env.Error.Code)
+		}
+		if len(env.Result) == 0 || string(env.Result) == "null" || json.Unmarshal(env.Result, into) != nil {
+			return fmt.Errorf("%w: %s result shape", ErrStdioProtocol, method)
+		}
+		return nil
+	}
+	return fmt.Errorf("%w: too many interleaved notifications", ErrStdioProtocol)
+}
+
+type stdioStartupBudgetKey struct{}
+
+// WithStdioStartupBudget gives an explicit settings connection more time for
+// a cold npx/uvx dependency download. Tool invocations retain the 20s handshake.
+func WithStdioStartupBudget(ctx context.Context) context.Context {
+	return context.WithValue(ctx, stdioStartupBudgetKey{}, true)
+}
+func stdioHandshakeBudget(ctx context.Context) time.Duration {
+	if allowed, _ := ctx.Value(stdioStartupBudgetKey{}).(bool); allowed {
+		return 60 * time.Second
+	}
+	return StdioHandshakeTimeout
 }

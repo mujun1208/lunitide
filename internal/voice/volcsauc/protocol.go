@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/lunitide/lunitide/internal/voice"
 )
 
 const (
@@ -157,8 +159,10 @@ func DecodeFrame(raw []byte) (Frame, error) {
 }
 
 type utteranceBit struct {
-	Text     string `json:"text"`
-	Definite bool   `json:"definite"`
+	Text      string `json:"text"`
+	Definite  bool   `json:"definite"`
+	StartTime *int64 `json:"start_time"`
+	EndTime   *int64 `json:"end_time"`
 }
 
 type resultBit struct {
@@ -169,76 +173,97 @@ type resultBit struct {
 func pickResultText(text string, utterances []utteranceBit) (string, bool) {
 	out := strings.TrimSpace(text)
 	final := false
+	var parts []string
 	for _, u := range utterances {
-		if strings.TrimSpace(u.Text) != "" {
-			if out == "" {
-				out = strings.TrimSpace(u.Text)
-			}
-			if u.Definite {
-				final = true
-			}
+		if part := strings.TrimSpace(u.Text); part != "" {
+			parts = append(parts, part)
+			// full results include earlier finished sentences. Only the last
+			// nonempty utterance describes whether the current tail has ended.
+			final = u.Definite
 		}
+	}
+	if out == "" {
+		out = strings.Join(parts, "")
 	}
 	return out, final
 }
 
-func transcriptFromResult(result json.RawMessage) (text string, final bool, ok bool) {
-	result = bytes.TrimSpace(result)
+func resultFromJSON(raw []byte) (resultBit, bool) {
+	var wrap struct {
+		PayloadMsg json.RawMessage `json:"payload_msg"`
+		Result     json.RawMessage `json:"result"`
+	}
+	if json.Unmarshal(raw, &wrap) != nil {
+		return resultBit{}, false
+	}
+	if nested := bytes.TrimSpace(wrap.PayloadMsg); len(nested) > 0 && !bytes.Equal(nested, bytes.TrimSpace(raw)) {
+		if item, ok := resultFromJSON(nested); ok {
+			return item, true
+		}
+	}
+	result := bytes.TrimSpace(wrap.Result)
 	if len(result) == 0 || bytes.Equal(result, []byte("null")) {
-		return "", false, false
+		return resultBit{}, false
 	}
 	if result[0] == '[' {
 		var items []resultBit
 		if json.Unmarshal(result, &items) != nil {
-			return "", false, false
+			return resultBit{}, false
 		}
-		for _, item := range items {
-			t, f := pickResultText(item.Text, item.Utterances)
-			if t != "" {
-				text = t
-				if f {
-					final = true
-				}
+		for i := len(items) - 1; i >= 0; i-- {
+			if text, _ := pickResultText(items[i].Text, items[i].Utterances); text != "" {
+				return items[i], true
 			}
 		}
-		if text == "" {
-			return "", false, false
-		}
-		return text, final, true
+		return resultBit{}, false
 	}
 	var item resultBit
 	if json.Unmarshal(result, &item) != nil {
-		return "", false, false
+		return resultBit{}, false
 	}
-	text, final = pickResultText(item.Text, item.Utterances)
-	if text == "" {
-		return "", false, false
-	}
-	return text, final, true
+	text, _ := pickResultText(item.Text, item.Utterances)
+	return item, text != ""
 }
 
 // TranscriptFromJSON maps a SAUC result body onto text + endpoint.
 // Official payloads may wrap the body in payload_msg, and result may be
 // either an object or a list.
 func TranscriptFromJSON(raw []byte) (text string, final bool, ok bool) {
-	raw = bytes.TrimSpace(raw)
-	if len(raw) == 0 {
+	item, ok := resultFromJSON(raw)
+	if !ok {
 		return "", false, false
 	}
-	var wrap struct {
-		PayloadMsg json.RawMessage `json:"payload_msg"`
-		Result     json.RawMessage `json:"result"`
+	text, final = pickResultText(item.Text, item.Utterances)
+	return text, final, true
+}
+
+// Keep a bounded recent window in append replies. The renderer identifies
+// segments by audio time, so it never needs the entire meeting on every 100ms
+// audio reply. Text-only older providers retain their compatible fallback.
+func snapshotFromJSON(raw []byte) (voice.Transcript, bool) {
+	item, ok := resultFromJSON(raw)
+	if !ok {
+		return voice.Transcript{}, false
 	}
-	if json.Unmarshal(raw, &wrap) != nil {
-		return "", false, false
-	}
-	if len(bytes.TrimSpace(wrap.PayloadMsg)) > 0 && !bytes.Equal(bytes.TrimSpace(wrap.PayloadMsg), raw) {
-		if text, final, ok = TranscriptFromJSON(wrap.PayloadMsg); ok {
-			return text, final, true
+	text, final := pickResultText(item.Text, item.Utterances)
+	tr := voice.Transcript{Text: text, Final: final}
+	start := max(0, len(item.Utterances)-64)
+	for _, u := range item.Utterances[start:] {
+		if strings.TrimSpace(u.Text) == "" {
+			continue
 		}
+		if u.StartTime == nil || u.EndTime == nil || *u.StartTime < 0 || *u.EndTime < *u.StartTime {
+			tr.Utterances = nil
+			break
+		}
+		tr.Utterances = append(tr.Utterances, voice.Utterance{Text: u.Text, StartMs: *u.StartTime, EndMs: *u.EndTime, Final: u.Definite})
 	}
-	if len(wrap.Result) > 0 {
-		return transcriptFromResult(wrap.Result)
+	if len(tr.Utterances) > 0 {
+		var parts []string
+		for _, u := range tr.Utterances {
+			parts = append(parts, u.Text)
+		}
+		tr.Text = strings.Join(parts, "")
 	}
-	return "", false, false
+	return tr, true
 }

@@ -25,6 +25,12 @@ func TestMeetingSummarySourceMigrationDoesNotInventLegacyInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw := openRaw(t, path)
+	if _, err = raw.Exec(`ALTER TABLE memory_settings DROP COLUMN capture_mode`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = raw.Exec(`DELETE FROM schema_migrations WHERE version='0142_memory_capture_mode.sql'`); err != nil {
+		t.Fatal(err)
+	}
 	for _, column := range []string{"summary_edited", "summary_source_transcript", "summary_source_title", "summary_source_digest", "summary_source_revision", "transcript_revision"} {
 		if _, err = raw.Exec("ALTER TABLE meetings DROP COLUMN " + column); err != nil {
 			t.Fatal(err)

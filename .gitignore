@@ -38,6 +38,7 @@ docs/audits/**/*.out
 docs/audits/**/*.patch
 docs/audits/**/go-coverage
 docs/audits/**/go-coverage.out
+docs/audits/**/evidence/
 htmlcov/
 .vitest/
 # Transient lint/analysis reports written during local gate runs.

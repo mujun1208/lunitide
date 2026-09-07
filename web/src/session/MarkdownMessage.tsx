@@ -163,7 +163,7 @@ export function ThinkingPanel({
 }) {
   if (!text && !children) return null
   const preview = compressThinking(text)
-  return <details className="thinking-panel" open={open} onToggle={event => onToggle(event.currentTarget.open)}>
+  return <details className={`thinking-panel${streaming?' is-streaming':''}`} open={open} onToggle={event => onToggle(event.currentTarget.open)}>
     <summary>
       <span className="thinking-summary-label">任务过程</span>
       <TaskElapsedChip elapsed={elapsed} startedAt={startedAt} streaming={streaming} />

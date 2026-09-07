@@ -506,7 +506,7 @@ func (r *Registry) Probe(ctx context.Context, endpointID string) (*Endpoint, err
 	}
 	if probeErr != nil || ctx.Err() != nil {
 		e.State = StateDegraded
-		return cloneEndpoint(e), ErrHealthCheckFailed
+		return cloneEndpoint(e), errors.Join(ErrHealthCheckFailed, probeErr, ctx.Err())
 	}
 	e.State = StateReady
 	e.consecFails = 0

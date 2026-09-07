@@ -125,10 +125,8 @@ func TestOfficeGenDesktopArtifactPath(t *testing.T) {
 	if err := r.ConfirmFullDiskSession(context.Background(), officeSession); err != nil {
 		t.Fatal(err)
 	}
-	desktop, err := userDesktopDir()
-	if err != nil {
-		t.Skip("desktop folder not found:", err)
-	}
+	desktop := t.TempDir()
+	r.desktopRoot = func() (string, error) { return desktop, nil }
 	cases := []struct {
 		tool string
 		name string
@@ -151,7 +149,6 @@ func TestOfficeGenDesktopArtifactPath(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.tool, func(t *testing.T) {
 			target := filepath.Join(desktop, tc.name)
-			t.Cleanup(func() { _ = os.Remove(target) })
 			raw, _ := json.Marshal(tc.args)
 			out, err := r.ExecuteUnconfined(context.Background(), officeSession, tc.tool, raw, false)
 			if err != nil {

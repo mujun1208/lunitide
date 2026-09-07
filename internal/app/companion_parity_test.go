@@ -13,7 +13,7 @@ func TestVoiceAndTypedCompoundTaskTools(t *testing.T) {
 		goal   string
 		needed []string
 	}{
-		{"查询合肥天气并发给微信里的小王", []string{"web.search", "im.send", "desktop.open", "computer.act"}},
+		{"查询合肥天气并发给微信里的小王", []string{"weather.get", "web.search", "im.send", "desktop.open", "computer.act"}},
 		{"查一下股价写一份报告", []string{"web.search", "workspace.write", "docx.gen"}},
 		{"打开记事本然后运行测试命令", []string{"desktop.open", "command.run", "workspace.read"}},
 		{"给小王发送消息", []string{"im.send"}},
@@ -21,12 +21,30 @@ func TestVoiceAndTypedCompoundTaskTools(t *testing.T) {
 		t.Run(tc.goal, func(t *testing.T) {
 			voice := assembleRoutedTools(defs, tc.goal, true, true)
 			typed := assembleRoutedTools(defs, tc.goal, false, true)
-			if !reflect.DeepEqual(voice, typed) {
-				t.Fatal("voice lost typed task capabilities")
+			// Typed chat retains choice cards. Voice asks clarifications aloud,
+			// so user.ask is the only deliberate difference; every work tool,
+			// schema and description must remain identical.
+			var typedWorkTools []llmadapter.ToolDefinition
+			typedHasAsk := false
+			for _, tool := range typed {
+				if tool.Name == "user.ask" {
+					typedHasAsk = true
+					continue
+				}
+				typedWorkTools = append(typedWorkTools, tool)
+			}
+			if !typedHasAsk {
+				t.Fatal("typed chat lost its existing clarification card")
+			}
+			if !reflect.DeepEqual(voice, typedWorkTools) {
+				t.Fatal("voice and typed work tools differ beyond the spoken user.ask exception")
 			}
 			seen := map[string]bool{}
 			for _, tool := range voice {
 				seen[tool.Name] = true
+			}
+			if seen["user.ask"] {
+				t.Fatal("voice must clarify aloud instead of parking a choice card")
 			}
 			for _, name := range tc.needed {
 				if !seen[name] {

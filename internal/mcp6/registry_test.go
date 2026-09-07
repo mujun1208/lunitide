@@ -3,6 +3,7 @@ package mcp6
 import (
 	"context"
 	"errors"
+	"github.com/lunitide/lunitide/internal/mcp"
 	"strings"
 	"testing"
 	"time"
@@ -268,5 +269,15 @@ func TestGetUnknownEndpoint(t *testing.T) {
 	r := newTestRegistry(nil, nil)
 	if _, err := r.Get("01ARZ3NDEKTSV4RRFFQ69G5FAV"); !errors.Is(err, ErrEndpointNotFound) {
 		t.Fatalf("want ErrEndpointNotFound, got %v", err)
+	}
+}
+
+func TestProbePreservesSafeDiagnosticCause(t *testing.T) {
+	cause := &mcp.DiagnosticError{Code: "MCP_DEPENDENCY_FAILED", Cause: errors.New("private process stderr")}
+	r := NewRegistry(func(context.Context, *Endpoint) error { return cause }, nil, nil)
+	ep, err := r.Register(context.Background(), EndpointInput{Transport: "stdio", Command: "uvx", Args: []string{"fixture==1.0.0"}, Pin: BootstrapPin("fixture")})
+	var typed *mcp.DiagnosticError
+	if ep == nil || ep.State != StateDegraded || !errors.Is(err, ErrHealthCheckFailed) || !errors.As(err, &typed) || typed.Code != "MCP_DEPENDENCY_FAILED" {
+		t.Fatalf("lost cause: %+v %v", ep, err)
 	}
 }

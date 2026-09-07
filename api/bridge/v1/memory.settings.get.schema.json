@@ -44,6 +44,14 @@
       "version": {
         "type": "string",
         "pattern": "^[0-9a-f]{64}$"
+      },
+      "captureMode": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "manual",
+          "off"
+        ]
       }
     },
     "required": [

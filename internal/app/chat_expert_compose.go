@@ -21,32 +21,8 @@ func (e *Engine) sessionMountedExpertIDs(ctx context.Context, sessionID string) 
 }
 
 func (e *Engine) composeExpertNames(ctx context.Context, sessionID, turnText string) []string {
-	seen := map[string]bool{}
-	var names []string
-	add := func(name string) {
-		name = strings.TrimSpace(name)
-		if name == "" || seen[name] {
-			return
-		}
-		if item, ok := m8app.ConversationExpertByID(name); ok {
-			name = item.Name
-		}
-		seen[name] = true
-		names = append(names, name)
-	}
-	refs := extractExpertRefNames(turnText)
-	if len(refs) > 0 {
-		for _, name := range refs {
-			add(name)
-		}
-		return names
-	}
-	for _, name := range m8app.ConversationExpertsMatchingIntent(turnText) {
-		add(name)
-	}
-	if len(names) > 0 {
-		return names
-	}
+	// Use the same resolver for the model hint, visible equipment and MCP ACL.
+	// A separate keyword pass could silently swap a mounted expert's tools.
 	return e.turnEquipmentFor(ctx, sessionID, turnText, false).Names
 }
 
@@ -228,16 +204,17 @@ func expertComposeHint(names []string, published []skill.Skill, connectedMcp []s
 // specialists, their bound skills, and any preferred MCP that is not connected
 // yet (so the chip can offer a connect link). Emitted as EventEquip.
 func (e *Engine) turnEquipInfo(ctx context.Context, sessionID, turnText string) (experts, skills, missingMcp []string) {
-	names := e.composeExpertNames(ctx, sessionID, turnText)
+	eq := e.turnEquipmentFor(ctx, sessionID, turnText, false)
+	names := eq.Names
 	if len(names) == 0 {
 		return nil, nil, nil
 	}
-	boundSkills, _, mcp, _ := m8app.ComposeForExpertNames(names)
+	boundSkills, _ := m8app.SplitBoundKeys(eq.BindKeys)
 	connected := map[string]bool{}
 	for _, id := range e.connectedComposeMcpIDs() {
 		connected[strings.ToLower(strings.TrimSpace(id))] = true
 	}
-	for _, id := range filterLiveComposeMCP(mcp) {
+	for _, id := range filterLiveComposeMCP(eq.McpIDs) {
 		if !connected[id] {
 			missingMcp = append(missingMcp, id)
 		}
@@ -245,21 +222,35 @@ func (e *Engine) turnEquipInfo(ctx context.Context, sessionID, turnText string) 
 	return names, boundSkills, missingMcp
 }
 
-func (e *Engine) expertComposeForTurn(ctx context.Context, sessionID, turnText string) (preferred []string, hint string) {
-	names := e.composeExpertNames(ctx, sessionID, turnText)
+func (e *Engine) expertComposeForTurn(ctx context.Context, sessionID, turnText string, companion ...bool) (preferred []string, hint string) {
+	eq := e.turnEquipmentFor(ctx, sessionID, turnText, len(companion) > 0 && companion[0])
+	names := eq.Names
 	if len(names) == 0 {
 		return nil, ""
 	}
-	if e.m8expert != nil {
-		preferred = e.m8expert.ComposeSkillsForNames(ctx, names)
-	} else {
-		preferred, _, _, _ = m8app.ComposeForExpertNames(names)
-	}
+	preferred = eq.BindKeys
 	var published []skill.Skill
 	if skillServiceAvailable(e.skills) {
 		if items, err := e.skills.List(ctx, skill.SkillStatusPublished); err == nil {
 			published = items
 		}
 	}
-	return preferred, expertComposeHint(names, published, e.connectedComposeMcpIDs(), preferred)
+	return preferred, expertComposeHint(names, published, connectedMcpForEquipment(eq, e.connectedComposeMcpIDs()), preferred)
+}
+
+func connectedMcpForEquipment(eq turnEquipment, connected []string) []string {
+	if !eq.RestrictMCP() {
+		return connected
+	}
+	allowed := make(map[string]bool, len(eq.McpIDs))
+	for _, id := range eq.McpIDs {
+		allowed[strings.ToLower(strings.TrimSpace(id))] = true
+	}
+	var out []string
+	for _, id := range connected {
+		if allowed[strings.ToLower(strings.TrimSpace(id))] {
+			out = append(out, id)
+		}
+	}
+	return out
 }

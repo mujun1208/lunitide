@@ -20,7 +20,7 @@ func TestHTMLGenWritesPlayablePreview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Artifact == nil || out.Artifact.Kind != "html" || out.Artifact.Path != "worldcup.html" {
+	if out.Artifact == nil || out.Artifact.Kind != "html" || out.Artifact.Path != "games/worldcup.html" {
 		t.Fatalf("artifact = %+v", out.Artifact)
 	}
 	if strings.Contains(out.Artifact.Path, "file:") || strings.Contains(out.Artifact.Content, "{{TITLE}}") {
@@ -54,12 +54,9 @@ func TestHTMLGenDesktopArtifactPath(t *testing.T) {
 	if err := r.ConfirmFullDiskSession(context.Background(), officeSession); err != nil {
 		t.Fatal(err)
 	}
-	desktop, err := userDesktopDir()
-	if err != nil {
-		t.Skip("desktop folder not found:", err)
-	}
+	desktop := t.TempDir()
+	r.desktopRoot = func() (string, error) { return desktop, nil }
 	target := filepath.Join(desktop, "点球大战.html")
-	t.Cleanup(func() { _ = os.Remove(target) })
 	args, _ := json.Marshal(map[string]any{
 		"path":     "点球大战.html",
 		"title":    "世界杯点球大战",
@@ -83,10 +80,11 @@ func TestHTMLGenDesktopArtifactPath(t *testing.T) {
 	}
 }
 
-func TestWorkspaceWriteHTMLArtifactIsBasename(t *testing.T) {
+func TestWorkspaceWriteHTMLArtifactKeepsRelativeDirectory(t *testing.T) {
 	r, _ := New(t.TempDir())
+	defer r.Close()
 	html, err := r.Execute(context.Background(), AutoEdit, officeSession, "workspace.write", json.RawMessage(`{"path":"site/index.html","content":"<h1>preview</h1>"}`), false)
-	if err != nil || html.Artifact == nil || html.Artifact.Path != "index.html" || strings.Contains(html.Artifact.Path, "file:") {
+	if err != nil || html.Artifact == nil || html.Artifact.Path != "site/index.html" || strings.Contains(html.Artifact.Path, "file:") {
 		t.Fatalf("html result = %+v err=%v", html, err)
 	}
 }

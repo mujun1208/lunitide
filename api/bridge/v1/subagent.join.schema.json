@@ -32,7 +32,7 @@
     "maxSummaryBytes": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 131072
+      "maximum": 65536
     }
   },
   "required": ["subagentId", "waitMs"],
@@ -44,6 +44,8 @@
         "type": "string",
         "enum": ["running", "completed", "failed", "cancelled"]
       },
+      "summary": {"type":"string","maxLength":65536},
+      "digests": {"type":"array","items":{"type":"string","pattern":"^[0-9a-f]{64}$"}},
       "observations": {
         "type": "array",
         "items": {

@@ -223,11 +223,13 @@ type session struct {
 	writeMu sync.Mutex
 	seq     int32
 
-	mu          sync.Mutex
-	latest      string
-	latestFinal bool
-	pending     []byte
-	err         error
+	mu                sync.Mutex
+	latest            string
+	latestFinal       bool
+	latestUtterances  []voice.Utterance
+	transcriptPending bool
+	pending           []byte
+	err               error
 
 	closeOnce sync.Once
 	closed    chan struct{}
@@ -332,8 +334,8 @@ func (s *session) readLoop() {
 		}
 		frame, decErr := DecodeFrame(payload)
 		if decErr != nil {
-			if text, final, ok := TranscriptFromJSON(payload); ok {
-				s.applyTranscript(text, final)
+			if transcript, ok := snapshotFromJSON(payload); ok {
+				s.applyTranscript(transcript)
 			}
 			continue
 		}
@@ -350,32 +352,37 @@ func (s *session) applyFrame(frame Frame) {
 	if len(body) == 0 {
 		body = frame.Raw
 	}
-	text, final, ok := TranscriptFromJSON(body)
+	transcript, ok := snapshotFromJSON(body)
 	if !ok {
 		return
 	}
-	s.applyTranscript(text, final)
+	s.applyTranscript(transcript)
 }
 
-func (s *session) applyTranscript(text string, final bool) {
+func (s *session) applyTranscript(transcript voice.Transcript) {
 	s.mu.Lock()
-	s.latest, s.latestFinal = text, final
+	s.latest, s.latestFinal = transcript.Text, transcript.Final
+	s.latestUtterances = transcript.Utterances
+	s.transcriptPending = true
 	s.mu.Unlock()
 	if s.onTranscript != nil {
-		s.onTranscript(voice.Transcript{Text: text, Final: final})
+		s.onTranscript(transcript)
 	}
 }
 
 func (s *session) Latest() (string, bool) {
+	tr := s.LatestTranscript()
+	return tr.Text, tr.Final
+}
+
+func (s *session) LatestTranscript() voice.Transcript {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	text := strings.TrimSpace(s.latest)
-	final := s.latestFinal
-	if final {
-		s.latestFinal = false
-		s.latest = ""
+	if !s.transcriptPending {
+		return voice.Transcript{}
 	}
-	return text, final
+	s.transcriptPending = false
+	return voice.Transcript{Text: strings.TrimSpace(s.latest), Final: s.latestFinal, Utterances: append([]voice.Utterance(nil), s.latestUtterances...)}
 }
 
 func (s *session) best() string {

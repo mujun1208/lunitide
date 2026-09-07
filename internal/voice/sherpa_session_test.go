@@ -100,6 +100,33 @@ func dialFake(t *testing.T, server *httptest.Server, onTranscript func(Transcrip
 
 func silentFrame() []byte { return make([]byte, FrameBytes) }
 
+func TestSherpaPollingDoesNotReplayTheLastFinal(t *testing.T) {
+	fake := &fakeRecognizer{emitDuringAudio: []string{`{"text":"这一句已经说完。","segment":0,"is_final":true}`}}
+	got := make(chan Transcript, 1)
+	session := dialFake(t, fake.serve(t), func(tr Transcript) { got <- tr })
+	if err := session.Append(context.Background(), silentFrame()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-got:
+	case <-time.After(time.Second):
+		t.Fatal("no streamed final")
+	}
+	text, final := session.Latest()
+	if text != "这一句已经说完。" || !final {
+		t.Fatalf("first=%q %v", text, final)
+	}
+	for range 50 {
+		text, final = session.Latest()
+		if text != "" || final {
+			t.Fatalf("poll replayed final=%q %v", text, final)
+		}
+	}
+	if session.best() != "这一句已经说完。" {
+		t.Fatal("consuming the event must preserve the finish fallback")
+	}
+}
+
 func TestSessionStreamsAudioAndReturnsTheFinalTranscript(t *testing.T) {
 	fake := &fakeRecognizer{
 		emitDuringAudio: []string{`{"text":"今天","segment":0,"is_final":false}`},

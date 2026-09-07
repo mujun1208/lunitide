@@ -36,7 +36,7 @@ it('walks the enable wizard and writes the new config', async () => {
   await user.click(screen.getByRole('radio', { name: /严格/ }))
   await user.click(screen.getByRole('button', { name: '确认启用' }))
   await waitFor(() => expect(updateConfig).toHaveBeenCalledWith({
-    expectedRevision: 1, enabled: true, securityLevel: 'strict', allowCritical: false, armMinutes: 30,
+    expectedRevision: 1, enabled: true, securityLevel: 'strict', allowCritical: false, armMinutes: 0,
   }))
   expect(await screen.findByText('电脑控制已启用')).toBeInTheDocument()
   expect(screen.getByText('已启用')).toBeInTheDocument()
@@ -80,4 +80,25 @@ it('reloads authoritative settings after a stale save without replaying the patc
  expect(screen.queryByText('taskmgr.exe')).not.toBeInTheDocument()
  expect(updateConfig).toHaveBeenCalledTimes(1)
  expect(updateConfig).toHaveBeenCalledWith({ expectedRevision: 1, processBlocklist: ['cmd.exe', 'taskmgr.exe'] })
+})
+
+it('keeps timed activation optional and can make it global and persistent', async () => {
+ const user=userEvent.setup()
+ const updateConfig=vi.fn().mockResolvedValue(cfg({enabled:true,armedUntil:undefined}))
+ render(<ComputerPanel bridge={api({getConfig:vi.fn().mockResolvedValue(cfg({enabled:true,armedUntil:now})),updateConfig})}/>)
+ await user.click(await screen.findByRole('button',{name:'改为持续启用'}))
+ expect(updateConfig).toHaveBeenCalledWith({expectedRevision:1,armMinutes:0})
+ expect(await screen.findByText('已改为持续启用，所有对话共用')).toBeInTheDocument()
+})
+
+it('keeps authoritative configuration usable when audit loading fails without mutating on read',async()=>{
+ const user=userEvent.setup(),updateConfig=vi.fn().mockResolvedValue(cfg({enabled:false,revision:2}))
+ const bridge=api({getConfig:vi.fn().mockResolvedValue(cfg({enabled:true})),getAuditLog:vi.fn().mockRejectedValue(new Error('audit offline')),updateConfig})
+ render(<ComputerPanel bridge={bridge}/>)
+ expect(await screen.findByText('已启用')).toBeInTheDocument()
+ expect(screen.getByText(/操作审计暂时无法读取/)).toBeInTheDocument()
+ expect(updateConfig).not.toHaveBeenCalled()
+ await user.click(screen.getByRole('button',{name:'停用'}))
+ expect(updateConfig).toHaveBeenCalledWith({expectedRevision:1,enabled:false})
+ expect(await screen.findByText('已停用')).toBeInTheDocument()
 })

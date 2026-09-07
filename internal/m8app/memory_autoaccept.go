@@ -39,7 +39,8 @@ type AutoAcceptResult struct {
 // human token IFF its payload is low risk. High-risk candidates are left
 // pending and answered with ErrExplicitConfirmationRequired (M8-003), and
 // the hold is audited. Callers MUST gate this on the default-off
-// governance switch; the service does not read process flags itself.
+// governance switch OR the persisted auto capture setting for direct stable
+// user statements. The service does not read process flags/settings itself.
 func (s *MemoryService) AutoAcceptCandidate(ctx context.Context, candidateID, source string) (AutoAcceptResult, error) {
 	if s == nil || s.uow == nil {
 		return AutoAcceptResult{}, ErrServiceUnavailable

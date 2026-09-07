@@ -69,17 +69,37 @@ func handleFeedbackRecord(e *Engine, ctx context.Context, r bridge.Request) brid
 // memory-center confirmation journey.
 func handleFeedbackCandidates(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		Limit int `json:"limit"`
+		Limit     int    `json:"limit"`
+		SessionID string `json:"sessionId"`
 	}
-	if decodePayload(r.Payload, &p) != nil || p.Limit < 0 || p.Limit > 100 {
+	if decodePayload(r.Payload, &p) != nil || p.Limit < 0 || p.Limit > 100 || (p.SessionID != "" && !validCanonicalULID(p.SessionID)) {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "feedback.candidates 参数无效", false)
 	}
 	if e.m8memory == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "学习闭环服务暂时不可用", true)
 	}
-	items, err := e.m8memory.ListPendingCandidatesFor(ctx, e.memorySubjectID(), p.Limit)
+	limit := p.Limit
+	if p.SessionID != "" {
+		limit = 100
+	}
+	items, err := e.m8memory.ListPendingCandidatesFor(ctx, e.memorySubjectID(), limit)
 	if err != nil {
 		return m8MemoryFailure(r, err)
+	}
+	if p.SessionID != "" {
+		filtered := make([]m8app.PendingCandidateView, 0)
+		settings := e.chatMemorySettings(ctx)
+		if settings.MemoryEnabled && settings.CaptureMode == "manual" {
+			for _, item := range items {
+				if item.SourceSessionID == p.SessionID {
+					filtered = append(filtered, item)
+					if p.Limit > 0 && len(filtered) >= p.Limit {
+						break
+					}
+				}
+			}
+		}
+		items = filtered
 	}
 	return r.Ok(struct {
 		Items []m8app.PendingCandidateView `json:"items"`

@@ -91,6 +91,40 @@ describe('installLocalAsr', () => {
 })
 
 describe('startLocalAsr', () => {
+  it('retires a streamed turn before late replies and keeps the next round separate', async () => {
+    const onTranscript = vi.fn()
+    const handle = await startLocalAsr({ onTranscript })
+    let late!: (value: { text: string; final: boolean }) => void
+    bridge.append.mockImplementationOnce(() => new Promise(resolve => { late = resolve }))
+    emitFrame(frame())
+    bridge.start.mockResolvedValueOnce({ sessionId: 'v2' })
+    await handle.commit({ useStreamed: true })
+    expect(bridge.finish).not.toHaveBeenCalled()
+    expect(bridge.stop).toHaveBeenCalledWith({ sessionId: 'v1' })
+    late({ text: '上一轮的尾字', final: true })
+    await settle()
+    expect(onTranscript).not.toHaveBeenCalled()
+    bridge.append.mockResolvedValueOnce({ text: '今天上海到合肥的火车。', final: false })
+    emitFrame(frame())
+    await settle()
+    expect(bridge.append).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 'v2' }))
+    expect(onTranscript).toHaveBeenCalledExactlyOnceWith('今天上海到合肥的火车。', false)
+    handle.cancel()
+  })
+
+  it.each([false, true])('closes a decoder opened after cancellation during commit (streamed=%s)', async useStreamed => {
+    const handle = await startLocalAsr()
+    emitFrame(frame())
+    await settle()
+    let open!: (value: { sessionId: string }) => void
+    bridge.start.mockImplementationOnce(() => new Promise(resolve => { open = resolve }))
+    const committing = handle.commit({ useStreamed })
+    await settle()
+    handle.cancel()
+    open({ sessionId: 'v2' })
+    await committing
+    expect(bridge.stop).toHaveBeenCalledWith({ sessionId: 'v2' })
+  })
   it('splits cold-start backlog into legal frames without losing samples', async () => {
     let open!: (value: { sessionId: string }) => void
     bridge.start.mockReturnValueOnce(new Promise(resolve => { open = resolve }))

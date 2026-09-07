@@ -31,6 +31,11 @@ type FetchOptions struct {
 	// oversized responses are data, not errors.
 	MaxBodyBytes int64
 	TLSConfig    *tls.Config
+	// Optional, bounded headers for a trusted caller. They follow redirects
+	// only while the chain stays on the initial origin; after leaving it,
+	// they are permanently removed, even if a later hop returns.
+	UserAgent       string
+	IfModifiedSince string
 	// DialContext replaces the pinned dialer. It is a hermetic-test seam for
 	// loopback fixtures and MUST be nil in production; URL validation and the
 	// IP egress policy still run before any dial.
@@ -40,11 +45,13 @@ type FetchOptions struct {
 // FetchResult is the captured page. Body holds at most MaxBodyBytes bytes of
 // the decompressed response; Truncated reports clipping.
 type FetchResult struct {
-	FinalURL    string
-	Status      int
-	ContentType string
-	Body        []byte
-	Truncated   bool
+	FinalURL     string
+	Status       int
+	ContentType  string
+	Body         []byte
+	Truncated    bool
+	Expires      string
+	LastModified string
 }
 
 const (
@@ -109,6 +116,9 @@ func defaultPort(scheme string) string {
 // the IP policy before the next dial, so DNS rebinding across a redirect is
 // blocked like a direct request.
 func Fetch(ctx context.Context, rawURL string, o FetchOptions) (FetchResult, error) {
+	if err := validateFetchHeaders(o.UserAgent, o.IfModifiedSince); err != nil {
+		return FetchResult{}, err
+	}
 	if o.Resolver == nil {
 		o.Resolver = SystemResolver{}
 	}
@@ -134,10 +144,18 @@ func Fetch(ctx context.Context, rawURL string, o FetchOptions) (FetchResult, err
 	defer cancel()
 
 	current := rawURL
+	initialOrigin := ""
+	customHeaders := true
 	for hop := 0; ; hop++ {
 		u, err := validateFetchURL(current, o.Policy)
 		if err != nil {
 			return FetchResult{}, err
+		}
+		origin := u.Scheme + "://" + u.Host
+		if initialOrigin == "" {
+			initialOrigin = origin
+		} else if origin != initialOrigin {
+			customHeaders = false
 		}
 		ips, err := resolveAllowed(ctx, o.Resolver, u.Hostname(), o.Policy)
 		if err != nil {
@@ -172,6 +190,14 @@ func Fetch(ctx context.Context, rawURL string, o FetchOptions) (FetchResult, err
 		}
 		req.Host = ""
 		req.Header.Set("User-Agent", "Lunitide/0.3 (local agent evidence fetch)")
+		if customHeaders {
+			if o.UserAgent != "" {
+				req.Header.Set("User-Agent", o.UserAgent)
+			}
+			if o.IfModifiedSince != "" {
+				req.Header.Set("If-Modified-Since", o.IfModifiedSince)
+			}
+		}
 		req.Header.Set("Accept", "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5")
 		resp, err := client.Do(req)
 		if err != nil {
@@ -197,13 +223,34 @@ func Fetch(ctx context.Context, rawURL string, o FetchOptions) (FetchResult, err
 			return FetchResult{}, classifyError("read fetch body", err)
 		}
 		return FetchResult{
-			FinalURL:    u.String(),
-			Status:      resp.StatusCode,
-			ContentType: resp.Header.Get("Content-Type"),
-			Body:        body,
-			Truncated:   truncated,
+			FinalURL:     u.String(),
+			Status:       resp.StatusCode,
+			ContentType:  resp.Header.Get("Content-Type"),
+			Body:         body,
+			Truncated:    truncated,
+			Expires:      resp.Header.Get("Expires"),
+			LastModified: resp.Header.Get("Last-Modified"),
 		}, nil
 	}
+}
+
+func validateFetchHeaders(userAgent, modified string) error {
+	if len(userAgent) > 256 || len(modified) > 128 {
+		return &Error{Code: CodeSSRFBlocked, Op: "validate fetch headers"}
+	}
+	for _, value := range []string{userAgent, modified} {
+		for _, char := range []byte(value) {
+			if char < 32 || char > 126 {
+				return &Error{Code: CodeSSRFBlocked, Op: "validate fetch headers"}
+			}
+		}
+	}
+	if modified != "" {
+		if _, err := http.ParseTime(modified); err != nil {
+			return &Error{Code: CodeSSRFBlocked, Op: "validate conditional fetch time"}
+		}
+	}
+	return nil
 }
 
 func effectivePortOrDefault(u *url.URL) string {

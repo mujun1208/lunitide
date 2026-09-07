@@ -339,7 +339,10 @@ func TestValidateEventDiscriminatedUnion(t *testing.T) {
 			e.Type = bridge.EventTtsChunk
 			e.Tts = &bridge.TtsChunkEvent{AudioBase64: "SUQz", Mime: "audio/mpeg", Index: 0}
 		}, true},
-		{"tts chunk empty", func(e *bridge.Event) { e.Type = bridge.EventTtsChunk; e.Tts = &bridge.TtsChunkEvent{Mime: "audio/mpeg"} }, false},
+		{"tts chunk empty", func(e *bridge.Event) {
+			e.Type = bridge.EventTtsChunk
+			e.Tts = &bridge.TtsChunkEvent{Mime: "audio/mpeg"}
+		}, false},
 		{"talk audio", func(e *bridge.Event) {
 			e.Type = bridge.EventTalkAudio
 			e.Talk = &bridge.TalkEvent{AudioBase64: "AAAA", Mime: "audio/pcm"}
@@ -465,7 +468,7 @@ func TestValidateEventDiscriminatedUnion(t *testing.T) {
 func TestSanitizeKeepsHTMLPreviewAndDropsHTTPSArtifactPath(t *testing.T) {
 	keep := bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{
 		CallID: "call-1", Name: "web.search", ArgsDigest: strings.Repeat("a", 64),
-		Summary: "results_url: https://cn.bing.com/search?q=x",
+		Summary:  "results_url: https://cn.bing.com/search?q=x",
 		Artifact: &bridge.ArtifactEvent{Kind: "html", Path: "search.html", Content: "<h1>ok</h1>"},
 	}}
 	sanitizeEvent(&keep)
@@ -474,7 +477,7 @@ func TestSanitizeKeepsHTMLPreviewAndDropsHTTPSArtifactPath(t *testing.T) {
 	}
 	drop := bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{
 		CallID: "call-2", Name: "web.fetch", ArgsDigest: strings.Repeat("b", 64),
-		Summary: "url: https://tags.sina.com.cn/star_gutianle",
+		Summary:  "url: https://tags.sina.com.cn/star_gutianle",
 		Artifact: &bridge.ArtifactEvent{Kind: "html", Path: "https://tags.sina.com.cn/star_gutianle", Content: "<h1>stripped</h1>"},
 	}}
 	sanitizeEvent(&drop)
@@ -486,7 +489,7 @@ func TestSanitizeKeepsHTMLPreviewAndDropsHTTPSArtifactPath(t *testing.T) {
 func TestSanitizeKeepsImagePNGArtifact(t *testing.T) {
 	keep := bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{
 		CallID: "call-1", Name: "cc.screen_capture", ArgsDigest: strings.Repeat("a", 64),
-		Summary: "captured desktop 1920x1080",
+		Summary:  "captured desktop 1920x1080",
 		Artifact: &bridge.ArtifactEvent{Kind: "image", Path: `captures\screen-capture.png`},
 	}}
 	sanitizeEvent(&keep)
@@ -495,7 +498,7 @@ func TestSanitizeKeepsImagePNGArtifact(t *testing.T) {
 	}
 	drop := bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{
 		CallID: "call-2", Name: "cc.screen_capture", ArgsDigest: strings.Repeat("b", 64),
-		Summary: "captured desktop",
+		Summary:  "captured desktop",
 		Artifact: &bridge.ArtifactEvent{Kind: "image", Path: "screen-capture.jpg"},
 	}}
 	sanitizeEvent(&drop)
@@ -579,8 +582,8 @@ func TestToolCompletedWindowsPathAndOfficeArtifactsStayContiguous(t *testing.T) 
 	}
 	select {
 	case event := <-client.Events():
-		if event.Type != bridge.EventToolCompleted || event.Sequence != 3 || event.Tool == nil || event.Tool.Artifact != nil {
-			t.Fatalf("office completed should drop preview-only artifact: %#v", event.Tool)
+		if event.Type != bridge.EventToolCompleted || event.Sequence != 3 || event.Tool == nil || event.Tool.Artifact == nil || event.Tool.Artifact.Path != "report.xlsx" {
+			t.Fatalf("office completed must preserve the clickable artifact: %#v", event.Tool)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("office completed stalled")

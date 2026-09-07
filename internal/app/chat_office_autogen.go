@@ -4,17 +4,46 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/lunitide/lunitide/internal/toolruntime"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/officetools"
 	"github.com/oklog/ulid/v2"
 )
 
-var mermaidNodeRe = regexp.MustCompile(`\["([^"\]]+)"\]`)
+// Specialist labels are equipment, not an instruction to create a document.
+var officeExpertRefRE = regexp.MustCompile(`\[引用专家[^\]]+\]`)
+var officeExplicitCreationRE = regexp.MustCompile(`(?:制作|做|生成|创建|写|输出|保存|做成).{0,40}(?:ppt|word|docx|excel|xlsx|pdf|html|报告|小说|演示|表格)`)
+
+func officeExpertIntroduction(goal string) bool {
+	text := strings.ToLower(officeExpertRefRE.ReplaceAllString(goal, ""))
+	for _, part := range strings.FieldsFunc(text, func(r rune) bool { return strings.ContainsRune("，,。；;", r) }) {
+		negated := false
+		for _, word := range []string{"不要", "别做", "不用", "无需", "先不", "不需要"} {
+			if strings.Contains(part, word) {
+				negated = true
+				break
+			}
+		}
+		if !negated && officeExplicitCreationRE.MatchString(part) {
+			return false
+		}
+	}
+	for _, phrase := range []string{"介绍自己", "介绍下自己", "介绍一下自己", "介绍你的能力", "介绍下你的", "你能做什么", "你可以做什么", "你可以帮我什么", "你可以帮我做什么", "你在吗", "你是谁"} {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
+}
 
 func officeGenToolForGoal(goal string) string {
+	if officeExpertIntroduction(goal) {
+		return ""
+	}
 	if looksLikeArchitectMermaidTurn(goal) && !wantsOfficeFileOnDesktop(goal) {
 		return ""
 	}
@@ -92,9 +121,12 @@ func fallbackOfficeGenArgs(name, goal, assistant string) json.RawMessage {
 	switch name {
 	case "pptx.gen":
 		title := clipOfficeTitle(goal, "演示文稿")
-		slides := slidesFromAssistant(goal, assistant)
+		slides := officeContentSlides(goal, assistant)
+		if len(slides) == 0 {
+			return nil
+		}
 		raw, _ := json.Marshal(map[string]any{
-			"path": "介绍.pptx", "desktop": desktop || true, "title": title, "slides": slides,
+			"path": "介绍.pptx", "desktop": desktop, "title": title, "slides": slides,
 		})
 		return raw
 	case "docx.gen":
@@ -105,19 +137,13 @@ func fallbackOfficeGenArgs(name, goal, assistant string) json.RawMessage {
 		} else if looksLikeReportTask(goal) {
 			kind = docxKindReport
 		}
-		body := strings.TrimSpace(assistant)
-		if utf8Len := len([]rune(body)); utf8Len > 1200 {
-			body = string([]rune(body)[:1200])
-		}
-		if body == "" {
-			body = title
+		blocks := officeDocxBlocks(title, assistant)
+		if len(blocks) == 0 {
+			return nil
 		}
 		payload := map[string]any{
 			"path": "文档.docx", "desktop": desktop, "title": title, "kind": kind,
-			"blocks": []map[string]any{
-				{"type": "heading", "text": title},
-				{"type": "paragraph", "text": body},
-			},
+			"blocks": blocks,
 		}
 		if kind == docxKindNovel {
 			payload["author"] = officetools.DefaultNovelAuthor
@@ -125,13 +151,12 @@ func fallbackOfficeGenArgs(name, goal, assistant string) json.RawMessage {
 		raw, _ := json.Marshal(payload)
 		return raw
 	case "excel.gen":
+		sheets := officeContentSheets(assistant)
+		if len(sheets) == 0 {
+			return nil
+		}
 		raw, _ := json.Marshal(map[string]any{
-			"path": "表格.xlsx", "desktop": desktop,
-			"sheets": []map[string]any{{
-				"name":    "汇总",
-				"headers": []string{"项目", "说明"},
-				"rows":    [][]any{{titleOrGoal(goal), "由对话要点生成"}},
-			}},
+			"path": "表格.xlsx", "desktop": desktop, "sheets": sheets,
 		})
 		return raw
 	case "html.gen":
@@ -150,44 +175,6 @@ func fallbackOfficeGenArgs(name, goal, assistant string) json.RawMessage {
 	default:
 		return nil
 	}
-}
-
-func titleOrGoal(goal string) string {
-	return clipOfficeTitle(goal, "汇总")
-}
-
-func slidesFromAssistant(goal, text string) []map[string]any {
-	var slides []map[string]any
-	for _, m := range mermaidNodeRe.FindAllStringSubmatch(text, -1) {
-		raw := strings.ReplaceAll(m[1], "<br/>", "\n")
-		raw = strings.ReplaceAll(raw, "<br>", "\n")
-		parts := strings.SplitN(raw, "\n", 2)
-		title := strings.TrimSpace(parts[0])
-		if title == "" {
-			continue
-		}
-		slide := map[string]any{"title": title, "layout": "content", "bullets": []string{"详见介绍要点"}}
-		if len(slides) == 0 {
-			slide["layout"] = "title"
-		}
-		if len(parts) > 1 {
-			if sub := strings.TrimSpace(parts[1]); sub != "" {
-				slide["subtitle"] = sub
-			}
-		}
-		slides = append(slides, slide)
-		if len(slides) >= 12 {
-			break
-		}
-	}
-	if len(slides) == 0 {
-		title := clipOfficeTitle(goal, "个人介绍")
-		slides = []map[string]any{
-			{"title": title, "layout": "title", "subtitle": "个人介绍"},
-			{"title": "关于我", "layout": "content", "bullets": []string{"详见对话中的介绍要点"}},
-		}
-	}
-	return slides
 }
 
 func officeGenSuccessNotice(name string, desktop bool) string {
@@ -249,8 +236,8 @@ func friendlyOfficeGenCause(msg string) string {
 	}
 }
 
-func (e *Engine) tryFinishOfficeGen(ctx context.Context, mode executionMode, sessionID string, turn *chatTurnCheckpoint, assistant string, streamErr error, send func(bridge.Event) error) (bool, string) {
-	if e == nil || e.tools == nil || turn == nil {
+func (e *Engine) tryFinishOfficeGen(ctx context.Context, mode executionMode, sessionID string, turn *chatTurnCheckpoint, assistant string, streamErr error, send func(bridge.Event) error, companion ...bool) (bool, string) {
+	if e == nil || e.tools == nil || turn == nil || ctx.Err() != nil || errors.Is(streamErr, context.Canceled) {
 		return false, ""
 	}
 	if !shouldAutoOfficeGen(turn, streamErr) && !usedCommandRun(turn.LastTools) {
@@ -264,22 +251,43 @@ func (e *Engine) tryFinishOfficeGen(ctx context.Context, mode executionMode, ses
 		turn.PptStage = pptStageGenerate
 	}
 	args := fallbackOfficeGenArgs(name, turn.Goal, assistant)
-	if name == "docx.gen" {
+	if name == "docx.gen" && len(args) > 0 {
 		args = enrichDocxGenArgs(e, turn.Goal, args)
 	}
 	if len(args) == 0 {
 		return false, officeGenFailNotice(errOfficeGenEmpty)
 	}
 	callID := "auto-" + ulid.Make().String()
+	digest := argsDigestOrFallback(name, args)
 	if send != nil {
-		_ = send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: callID, Name: name, Summary: "正在生成文件"}})
+		_ = send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: callID, Name: name, ArgsDigest: digest, Summary: "正在生成文件"}})
 	}
 	r, err := e.executeUserTool(ctx, mode, sessionID, name, args)
+	if errors.Is(err, toolruntime.ErrApprovalRequired) {
+		preapproved := len(companion) > 0 && companion[0] && companionToolPreapproved(name, e.fullDiskChat(mode), e.companionCcEnabled(ctx))
+		if unattended(ctx) && !preapproved {
+			err = errors.New(unattendedApprovalDenial(name))
+		} else if _, prepErr := e.tools.Prepare(ctx, turn.StreamID, sessionID, callID, name, args, toolruntime.Mode(mode), 10*time.Minute); prepErr != nil {
+			err = prepErr
+		} else if preapproved {
+			r, err = e.tools.DecideScoped(ctx, sessionID, callID, digest, true, toolruntime.ApprovalScopeOnce)
+			if err == nil {
+				e.persistApprovedToolResult(ctx, sessionID, callID, digest, r)
+			}
+		} else {
+			if send != nil {
+				if sendErr := send(bridge.Event{Type: bridge.EventApprovalRequired, Tool: &bridge.ToolEvent{CallID: callID, Name: name, ArgsDigest: digest, Summary: approvalRequiredSummary(name, args)}}); sendErr != nil {
+					return false, officeGenFailNotice(sendErr)
+				}
+			}
+			return false, "请确认文件生成操作，确认后继续。"
+		}
+	}
 	summary := r.Output
 	if err != nil {
 		summary = err.Error()
 		if send != nil {
-			_ = send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: callID, Name: name, Summary: clipToolSummary(summary)}})
+			_ = send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: callID, Name: name, ArgsDigest: digest, Summary: clipToolSummary(summary)}})
 		}
 		return false, officeGenFailNotice(err)
 	}
@@ -298,7 +306,11 @@ func (e *Engine) tryFinishOfficeGen(ctx context.Context, mode executionMode, ses
 		}
 	}
 	if send != nil {
-		_ = send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: callID, Name: name, Summary: clipToolSummary(summary)}})
+		event := &bridge.ToolEvent{CallID: callID, Name: name, ArgsDigest: digest, Summary: clipToolSummary(summary)}
+		if r.Artifact != nil && artifactKindValid(r.Artifact.Kind) {
+			event.Artifact = &bridge.ArtifactEvent{Kind: r.Artifact.Kind, Path: r.Artifact.Path}
+		}
+		_ = send(bridge.Event{Type: bridge.EventToolCompleted, Tool: event})
 	}
 	return true, pathNotice
 }
@@ -307,4 +319,4 @@ func utf8RuneLen(s string) int {
 	return len([]rune(s))
 }
 
-var errOfficeGenEmpty = errors.New("没有可写入的内容")
+var errOfficeGenEmpty = errors.New("没有可完整写入的正文或表格；尚未生成文件，请继续补齐实际内容后再生成")

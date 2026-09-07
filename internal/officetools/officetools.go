@@ -19,7 +19,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jung-kurt/gofpdf"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -336,6 +335,11 @@ func GenPptx(title string, slides []SlideSpec) ([]byte, error) {
 	if err := validateSlideSpecs(title, slides); err != nil {
 		return nil, err
 	}
+	for i, slide := range slides {
+		if len(slide.Bullets) > MaxBulletsPerSld {
+			return nil, fmt.Errorf("%w: slide %d has more than %d bullets; split the slide to preserve all content", ErrLimit, i+1, MaxBulletsPerSld)
+		}
+	}
 	parts := []zipPart{
 		{"[Content_Types].xml", contentTypesPptx(len(slides), noteSlideIndexes(slides)...)},
 		{"_rels/.rels", relsPptx},
@@ -348,9 +352,6 @@ func GenPptx(title string, slides []SlideSpec) ([]byte, error) {
 		{"ppt/theme/theme1.xml", themeXML},
 	}
 	for i, s := range slides {
-		if len(s.Bullets) > MaxBulletsPerSld {
-			s.Bullets = s.Bullets[:MaxBulletsPerSld]
-		}
 		name := fmt.Sprintf("ppt/slides/slide%d.xml", i+1)
 		parts = append(parts, zipPart{name, slideXML(i, len(slides), title, s)})
 		rels := xmlDecl + `
@@ -378,35 +379,6 @@ func GenPptx(title string, slides []SlideSpec) ([]byte, error) {
 		return nil, err
 	}
 	return data, nil
-}
-
-// GenPDF renders title + body paragraphs through gofpdf (A4, built-in
-// helvetica; CJK bodies are not shaped - callers should keep PDF bodies
-// Latin or accept gofpdf substitution).
-func GenPDF(title, body string) ([]byte, error) {
-	if len([]rune(body)) > MaxPDFBodyRunes {
-		return nil, fmt.Errorf("%w: pdf body exceeds %d runes", ErrLimit, MaxPDFBodyRunes)
-	}
-	pdf := gofpdf.New("P", "mm", "A4", "")
-	pdf.SetTitle(title, true)
-	pdf.AddPage()
-	pdf.SetFont("helvetica", "B", 18)
-	pdf.MultiCell(0, 10, title, "", "L", false)
-	pdf.Ln(2)
-	pdf.SetFont("helvetica", "", 11)
-	for _, para := range strings.Split(body, "\n") {
-		if strings.TrimSpace(para) == "" {
-			pdf.Ln(3)
-			continue
-		}
-		pdf.MultiCell(0, 6, para, "", "L", false)
-		pdf.Ln(1)
-	}
-	var buf bytes.Buffer
-	if err := pdf.Output(&buf); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
 }
 
 // --- OOXML plumbing -----------------------------------------------------

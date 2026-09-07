@@ -493,6 +493,14 @@ func handleVoiceAppend(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		return r.Fail("VOICE-006", "音频写入失败："+truncate(err.Error(), 256), true)
 	}
 	// Partials ride back on the reply rather than through a second channel.
+	if reader, ok := session.(interface{ LatestTranscript() voice.Transcript }); ok {
+		tr := reader.LatestTranscript()
+		result := map[string]any{"text": tr.Text, "final": tr.Final}
+		if len(tr.Utterances) > 0 {
+			result["utterances"] = tr.Utterances
+		}
+		return r.Ok(result)
+	}
 	text, final := "", false
 	if reader, ok := session.(interface{ Latest() (string, bool) }); ok {
 		text, final = reader.Latest()

@@ -123,6 +123,8 @@ if ((Get-FileHash $loader -Algorithm SHA256).Hash.ToLowerInvariant() -ne $wvLoad
 Copy-Item $loader $stage
 Copy-Item (Join-Path $wvExtract 'LICENSE.txt') (Join-Path $stage 'licenses\Microsoft.Web.WebView2-LICENSE.txt')
 Copy-Item (Join-Path $wvExtract 'NOTICE.txt') (Join-Path $stage 'licenses\Microsoft.Web.WebView2-NOTICE.txt')
+Copy-Item (Join-Path $root 'internal\officetools\fonts\OFL.txt') (Join-Path $stage 'licenses\NotoSansSC-OFL.txt')
+Copy-Item (Join-Path $root 'internal\officetools\fonts\NOTICE.txt') (Join-Path $stage 'licenses\NotoSansSC-NOTICE.txt')
 # Do not stage large ML runtimes or omni/Comni/GGUF payloads. Verify-Layout rejects them.
 Copy-Item (Join-Path $PSScriptRoot 'stop-install-processes.ps1') $stage
 Copy-Item (Join-Path $PSScriptRoot 'verify-install-directory.ps1') $stage

@@ -107,8 +107,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	const maxThinkingTotalBytes = 256 * 1024
 	var seq uint64
 	var sendMu sync.Mutex
+	var processTrace messageProcess
 	completedToolEvents := make(map[string]bool)
 	streamEnded := false
+	waitingForApproval := false
+	waitingForSpokenInput := false
 	var assistantText strings.Builder
 	var thinkingText strings.Builder
 	var pendingThinking string
@@ -135,6 +138,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		if event.Type == bridge.EventCompleted || event.Type == bridge.EventFailed || event.Type == bridge.EventCancelled {
 			streamEnded = true
 		}
+		processTrace.capture(event)
 		seq++
 		event.Version = bridge.Version
 		event.Kind = "event"
@@ -146,11 +150,17 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	flushThinking := func(force bool) error {
 		for pendingThinking != "" && (force || len(pendingThinking) >= thinkingFlushBytes) {
 			chunk := truncateUTF8Bytes(pendingThinking, maxThinkingChunkBytes)
+			// rawSend assigns the sequence and records the process even if
+			// the renderer transport fails. Consume once; a later flush must
+			// not record/re-emit the same reasoning again.
+			pendingThinking = pendingThinking[len(chunk):]
+			pendingThinkingSince = time.Now()
+			if pendingThinking == "" {
+				pendingThinkingSince = time.Time{}
+			}
 			if err := rawSend(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: chunk}}); err != nil {
 				return err
 			}
-			pendingThinking = pendingThinking[len(chunk):]
-			pendingThinkingSince = time.Now()
 			if !force && len(pendingThinking) < thinkingFlushBytes {
 				break
 			}
@@ -161,6 +171,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		return nil
 	}
 	send := func(event bridge.Event) error {
+		if event.Type == bridge.EventApprovalRequired {
+			waitingForApproval = true
+		}
 		// Keep flushing and event emission on the stream callback goroutine: emit
 		// may be synchronous, and this preserves thinking-before-answer ordering.
 		if event.Type != bridge.EventThinking {
@@ -206,6 +219,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	}
 	defer releaseCapability()
 	ctx = scoped
+	if state.equipEvent != nil {
+		_ = send(bridge.Event{Type: bridge.EventEquip, Equip: state.equipEvent})
+	}
 	var err error
 	usedLocalBrain := false
 	if !state.companion && state.brain != "" && state.brain != BrainLunitide {
@@ -295,6 +311,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					return err
 				}
 				stepTextStart := assistantText.Len()
+				stepThinkingStart := thinkingText.Len()
 				result, streamErr = generationBudget.stream(op, a, credential, req, func(d llmadapter.Delta) error {
 					if err := e.CheckCapability(op, "llm", "session"); err != nil {
 						return err
@@ -331,7 +348,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						return err
 					}
 				}
-				if streamErr == nil && state.companion && req.DisableReasoning && assistantText.Len() == 0 {
+				if streamErr == nil && state.companion && req.DisableReasoning && assistantText.Len() == 0 && len(result.Message.ToolCalls) == 0 {
 					if fallback := companionSpeakFallback(result); fallback != "" {
 						assistantText.WriteString(fallback)
 						if err := sendDeltaChunks(send, fallback); err != nil {
@@ -340,8 +357,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 				}
 				var gatewayErr *llmadapter.Error
-				if streamErr != nil && !imagesFallbackUsed && assistantText.Len() == 0 && thinkingText.Len() == 0 && len(req.Images) > 0 && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 && imageUnsupportedReason(gatewayErr.Message) {
+				if streamErr != nil && !imagesFallbackUsed && assistantText.Len() == stepTextStart && thinkingText.Len() == stepThinkingStart && len(req.Images) > 0 && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 && imageUnsupportedReason(gatewayErr.Message) {
 					req.Images = nil
+					req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: "本轮图片已因当前模型不支持图像而移除，画面未被读取。后续只能根据已经取得的文字或音轨识别回答；不得声称看过图片、视频抽样帧或猜测其中的视觉内容。"})
 					imagesFallbackUsed = true
 					continue
 				}
@@ -381,7 +399,28 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				if streamErr != nil {
 					break
 				}
+				if state.companion {
+					for _, call := range result.Message.ToolCalls {
+						if call.Name != "user.ask" {
+							continue
+						}
+						// A spoken question ends this turn normally. Do not open an
+						// invisible approval or execute sibling tools before the answer.
+						waitingForSpokenInput = true
+						question := companionSpokenQuestion(call.Arguments)
+						if next, delta := appendAssistantNotice(assistantText.String(), question); delta != "" {
+							assistantText.Reset()
+							assistantText.WriteString(next)
+							return sendDeltaChunks(send, delta)
+						}
+						return nil
+					}
+				}
 				if state.companion && len(result.Message.ToolCalls) == 0 {
+					if companionNeedsSpokenInput(assistantText.String()[stepTextStart:]) {
+						waitingForSpokenInput = true
+						return nil
+					}
 					if !autoMediaPlayDone && companionTurnWantsMusicPlay(turn.Goal) {
 						if playArgs, ok := e.companionAutoMediaPlayArgs(sessionID, turn.Goal); ok {
 							result.Message.ToolCalls = []llmadapter.ToolCall{{
@@ -524,7 +563,18 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				// pre-started (bounded) so independent research subagents
 				// overlap; each result is consumed in original call order
 				// below, keeping the event stream deterministic.
-				subagentFutures := startSubagentFutures(op, e, a, credential, req.Model, sessionID, result.Message.ToolCalls, state.subagentPolicy)
+				// Progress may arrive from several agents while the first result is
+				// still pending. Only rawSend is goroutine-safe; send also owns
+				// the main model's pending thinking buffer.
+				subagentDigests := make(map[string]string)
+				for _, call := range result.Message.ToolCalls {
+					if call.Name == "subagent.spawn" {
+						subagentDigests[call.ID] = argsDigestOrFallback(call.Name, call.Arguments)
+					}
+				}
+				subagentFutures := startSubagentFutures(op, e, a, credential, req.Model, sessionID, result.Message.ToolCalls, state.subagentPolicy, func(callID string, progress subagentProgress) {
+					_ = rawSend(bridge.Event{Type: bridge.EventToolOutput, Tool: &bridge.ToolEvent{CallID: callID, Name: "subagent.spawn", ArgsDigest: subagentDigests[callID], Summary: progress.JSONSummary()}})
+				})
 				// P0-1 parallel tools: same-turn MCP and read-only engine calls
 				// pre-start on bounded goroutines (chat_parallel.go documents
 				// the concurrency safety contract); mutating, cc.* and gated
@@ -716,8 +766,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						if invokeErr != nil {
 							summary = invokeErr.Error()
 						}
+						displaySummary := subagentDisplaySummary(call.Name, summary)
 						summary = clipToolSummary(summary)
-						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
+						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: displaySummary}}); err != nil {
 							return err
 						}
 						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
@@ -1112,29 +1163,42 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	if err == nil {
 		finalizationClaimed = e.claimStreamFinalization(state)
 	}
-	if finished, notice := e.tryFinishOfficeGen(ctx, mode, sessionID, &turn, assistantText.String(), err, send); finished || notice != "" {
-		if finished {
-			err = nil
-			finalizationClaimed = e.claimStreamFinalization(state)
-		}
-		if next, delta := appendAssistantNotice(assistantText.String(), notice); delta != "" {
-			assistantText.Reset()
-			assistantText.WriteString(next)
-			_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: delta}})
-		}
-	} else if outcome := turnOutcomeNotice(e.isStreamCancelling(state), err, turn.Goal, turn.LastTools); outcome != "" {
-		if next, delta := appendAssistantNotice(assistantText.String(), outcome); delta != "" {
-			assistantText.Reset()
-			assistantText.WriteString(next)
-			_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: delta}})
+	if !waitingForApproval && !waitingForSpokenInput && !e.isStreamCancelling(state) {
+		if finished, notice := e.tryFinishOfficeGen(ctx, mode, sessionID, &turn, assistantText.String(), err, func(event bridge.Event) error {
+			if event.Tool != nil && event.Tool.Artifact != nil && event.Type == bridge.EventToolCompleted {
+				a := event.Tool.Artifact
+				turnArtifacts = append(turnArtifacts, sessionArtifactFromTool(event.Tool.CallID, event.Tool.Name, a.Kind, a.Path))
+			}
+			return send(event)
+		}, state.companion); finished || notice != "" {
+			if finished {
+				err = nil
+				// A normal model completion already owns finalization. Claim only
+				// when the fallback recovered an earlier upstream failure.
+				if !finalizationClaimed {
+					finalizationClaimed = e.claimStreamFinalization(state)
+				}
+			}
+			if next, delta := appendAssistantNotice(assistantText.String(), notice); delta != "" {
+				assistantText.Reset()
+				assistantText.WriteString(next)
+				_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: delta}})
+			}
+		} else if outcome := turnOutcomeNotice(e.isStreamCancelling(state), err, turn.Goal, turn.LastTools); outcome != "" {
+			if next, delta := appendAssistantNotice(assistantText.String(), outcome); delta != "" {
+				assistantText.Reset()
+				assistantText.WriteString(next)
+				_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: delta}})
+			}
 		}
 	}
+
 	cancelling := e.isStreamCancelling(state)
 	upstreamErr := err
 	var persistErr error
 	if sessionID != "" && e.messages != nil {
-		persistThinking := upstreamErr != nil && !cancelling && modelReply == ""
-		text := assistantTurnPersistText(assistantText.String(), thinkingText.String(), persistThinking)
+		// Reasoning is available through message.process, never model history.
+		text := assistantTurnPersistText(assistantText.String(), "", false)
 		if text == "" && turn.ToolFailed && len(turn.LastTools) > 0 {
 			if failNotice := createTurnFailureNotice(turn.LastTools, ""); failNotice != "" {
 				text = failNotice
@@ -1227,15 +1291,6 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		if completed.MessageID != "" || completed.PersistFailed || completed.MemorySummary != "" {
 			terminal.Completed = completed
 		}
-		if messageID != "" {
-			// Write before EventCompleted so the session banner and the
-			// next surface (companion / people) can see session:last and
-			// the confirm-inbox candidate without racing the UI fetch.
-			bg := context.Background()
-			e.maybeWriteExpertTurnMemories(bg, sessionID, turn.Goal, assistantText.String())
-			e.writeSessionLastMemory(bg, sessionID, turn.Goal, assistantText.String())
-			_ = e.maybeAutoNominateTurn(bg, sessionID, turn.Goal, assistantText.String(), messageID, state != nil && state.companion)
-		}
 	}
 	if terminal.Type == bridge.EventFailed {
 		terminal.Error = chatStreamError(err)
@@ -1248,8 +1303,21 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			terminal = bridge.Event{Type: bridge.EventFailed, Error: chatStreamError(receiptErr)}
 		}
 	}
+	if messageID != "" {
+		// Flush any final thinking and freeze a detached metadata snapshot before
+		// the terminal receipt; this is never appended to the model's history.
+		_ = flushThinking(true)
+		sendMu.Lock()
+		snapshot := processTrace
+		snapshot.Tools = append([]messageProcessTool(nil), processTrace.Tools...)
+		sendMu.Unlock()
+		e.saveMessageProcess(sessionID, messageID, snapshot)
+	}
 	if send(terminal) != nil {
 		state.cancel()
 	}
 	e.finishTerminal(id, state)
+	if terminal.Type == bridge.EventCompleted && messageID != "" && persistErr == nil {
+		e.enqueueChatMemory(sessionID, turn.Goal, assistantText.String(), messageID, state != nil && state.companion)
+	}
 }

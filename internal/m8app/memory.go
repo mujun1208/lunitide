@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -151,12 +152,13 @@ type MemoryFTS interface {
 }
 
 type MemoryService struct {
-	uow      MemoryUnitOfWork
-	clock    Clock
-	subject  string // local requesting subject (single-user engine)
-	policy   PolicyProbe
-	verifyEv EvidenceVerifier
-	fts      MemoryFTS
+	userMemoryMu sync.Mutex
+	uow          MemoryUnitOfWork
+	clock        Clock
+	subject      string // local requesting subject (single-user engine)
+	policy       PolicyProbe
+	verifyEv     EvidenceVerifier
+	fts          MemoryFTS
 }
 
 // NewMemoryService wires the slice-1 service with fail-closed defaults.
@@ -849,6 +851,7 @@ type PendingCandidateView struct {
 	ConfirmationToken string `json:"confirmationToken"`
 	CreatedAt         string `json:"createdAt"`
 	ExpiresAt         string `json:"expiresAt"`
+	SourceSessionID   string `json:"sourceSessionId,omitempty"`
 }
 
 // ListPendingCandidates answers pending candidates (newest first) for the
@@ -895,6 +898,7 @@ func (s *MemoryService) listPendingCandidates(ctx context.Context, subjectID str
 			ConfirmationToken: c.ConfirmToken,
 			CreatedAt:         c.CreatedAt,
 			ExpiresAt:         c.ExpiresAt,
+			SourceSessionID:   candidateSourceSession(c.Payload),
 		})
 		if len(out) >= limit {
 			break
@@ -989,7 +993,7 @@ func (s *MemoryService) ConfirmedByIDFor(ctx context.Context, id, subjectID stri
 	if id == "" {
 		return "", fmt.Errorf("%w: id invalid", ErrPayloadInvalid)
 	}
-	rows, err := s.listCandidates(ctx, m8core.CandConfirmed, 200)
+	rows, err := s.visibleConfirmedCandidates(ctx, 200)
 	if err != nil {
 		return "", err
 	}
@@ -1005,6 +1009,9 @@ func (s *MemoryService) ConfirmedByIDFor(ctx context.Context, id, subjectID stri
 			continue
 		}
 		content := strings.TrimSpace(doc.Content)
+		if subjectID != "" && doc.ScopeID == LearningScope {
+			content = m8core.PersonalMemoryContent(doc)
+		}
 		if content == "" {
 			continue
 		}

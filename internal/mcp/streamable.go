@@ -41,7 +41,7 @@ func (c *Client) Discover(ctx context.Context, bearer []byte) (*RemoteSession, [
 	if err != nil {
 		return nil, nil, err
 	}
-	if u.RawQuery == "" && !strings.HasSuffix(strings.TrimRight(u.Path, "/"), "/mcp") {
+	if u.RawQuery == "" && !pathCredentialURL(u) && !strings.HasSuffix(strings.TrimRight(u.Path, "/"), "/mcp") {
 		tools, legacyErr := c.ListToolsAuthenticated(ctx, bearer)
 		if legacyErr == nil {
 			s := &RemoteSession{client: c, bearer: bearer, legacy: true, identity: "legacy-get-v1|" + c.BaseURL}
@@ -56,7 +56,7 @@ func (c *Client) Discover(ctx context.Context, bearer []byte) (*RemoteSession, [
 	if err := s.initialize(ctx); err != nil {
 		s.Close()
 		var status *HTTPStatusError
-		if u.RawQuery == "" && errors.As(err, &status) && (status.StatusCode == 404 || status.StatusCode == 405) {
+		if u.RawQuery == "" && !pathCredentialURL(u) && errors.As(err, &status) && (status.StatusCode == 404 || status.StatusCode == 405) {
 			tools, legacyErr := c.ListToolsAuthenticated(ctx, bearer)
 			if legacyErr == nil {
 				return &RemoteSession{client: c, bearer: bearer, legacy: true, identity: "legacy-get-v1|" + c.BaseURL}, tools, nil
@@ -206,18 +206,35 @@ func (s *RemoteSession) request(ctx context.Context, method string, body io.Read
 		return nil, ErrRemoteProtocol
 	}
 	queryCredential := target.RawQuery != ""
-	if queryCredential {
+	pathCredential := pathCredentialURL(target)
+	urlCredential := queryCredential || pathCredential
+	if len(s.bearer) > 16384 || strings.ContainsAny(string(s.bearer), "\r\n\x00") {
+		return nil, ErrRemoteProtocol
+	}
+	if urlCredential {
 		if err := ValidateBaseURL(s.client.BaseURL); err != nil {
 			return nil, err
 		}
 		if len(s.bearer) == 0 {
 			return nil, &HTTPStatusError{StatusCode: 401}
 		}
-		q := target.Query()
-		for name := range q {
-			q.Set(name, string(s.bearer))
+		if pathCredential {
+			// The provider's tokens are opaque ASCII identifiers, not paths.
+			// Reject delimiters instead of allowing credentials to alter routing.
+			for _, b := range s.bearer {
+				if !(b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '-' || b == '_' || b == '.') {
+					return nil, ErrRemoteProtocol
+				}
+			}
+			target.Path = "/mcp/token=" + string(s.bearer)
+			target.RawPath = ""
+		} else {
+			q := target.Query()
+			for name := range q {
+				q.Set(name, string(s.bearer))
+			}
+			target.RawQuery = q.Encode()
 		}
-		target.RawQuery = q.Encode()
 	}
 	req, err := http.NewRequestWithContext(ctx, method, target.String(), body)
 	if err != nil {
@@ -232,10 +249,7 @@ func (s *RemoteSession) request(ctx context.Context, method string, body io.Read
 		req.Header.Set("Mcp-Session-Id", s.sessionID)
 	}
 	if len(s.bearer) > 0 {
-		if len(s.bearer) > 16384 || strings.ContainsAny(string(s.bearer), "\r\n\x00") {
-			return nil, ErrRemoteProtocol
-		}
-		if !queryCredential {
+		if !urlCredential {
 			req.Header.Set("Authorization", "Bearer "+string(s.bearer))
 		}
 		defer req.Header.Del("Authorization")
@@ -243,7 +257,7 @@ func (s *RemoteSession) request(ctx context.Context, method string, body io.Read
 	// Uses the same TLS, origin allowlist, redirect refusal and timeouts as
 	// the existing client. Error bodies are never copied into logs or chat.
 	resp, err := s.client.HTTP.Do(req)
-	if queryCredential && err != nil {
+	if urlCredential && err != nil {
 		var detail *url.Error
 		if errors.As(err, &detail) {
 			err = &url.Error{Op: detail.Op, URL: "[MCP endpoint]", Err: detail.Err}

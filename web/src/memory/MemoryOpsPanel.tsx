@@ -11,7 +11,7 @@ const PAGE_SIZE = 20
 type FactItem = MemoryFactsListResult['items'][number]
 type TraceItem = MemoryTracesListResult['items'][number]
 type GrowthItem = MemoryGrowthListResult['items'][number]
-type SettingsState = { memoryEnabled: boolean; autoNominate: boolean; growthDays: number }
+type SettingsState = { captureMode: 'auto' | 'manual' | 'off'; memoryEnabled: boolean; autoNominate: boolean; growthDays: number }
 
 const STATE_LABELS: Record<string, string> = { active: '生效中', superseded: '已替代', tombstoned: '已封存' }
 const SENSITIVITY_LABELS: Record<string, string> = { public: '公开', private: '私有', sensitive: '敏感' }
@@ -60,7 +60,7 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
   const [growthTotal, setGrowthTotal] = useState(0)
   const [growthPage, setGrowthPage] = useState(0)
   const [growthStatus, setGrowthStatus] = useState<'' | 'observing' | 'promoted' | 'dropped'>('observing')
-  const [settings, setSettings] = useState<SettingsState>({ memoryEnabled: true, autoNominate: false, growthDays: 14 })
+  const [settings, setSettings] = useState<SettingsState>({ captureMode: 'auto', memoryEnabled: true, autoNominate: false, growthDays: 14 })
   const [error, setError] = useState<string>()
   const [settingsVersion, setSettingsVersion] = useState<string>()
   const [settingsError, setSettingsError] = useState<string>()
@@ -117,7 +117,7 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
     try {
       const r = await ops.getSettings({ subjectId: resolvedSubject })
       if (!r.version) throw new Error('设置版本不可用，请重新加载')
-      setSettings({ memoryEnabled: r.memoryEnabled, autoNominate: r.autoNominate, growthDays: r.growthDays })
+      setSettings({ captureMode: r.captureMode ?? 'auto', memoryEnabled: r.memoryEnabled, autoNominate: r.autoNominate, growthDays: r.growthDays })
       setSettingsVersion(r.version)
     } catch (e) { setSettingsError(e instanceof Error ? e.message : '设置加载失败') }
   }, [ops, resolvedSubject])
@@ -128,7 +128,7 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
     try {
       const latest = await ops.getSettings({ subjectId: resolvedSubject })
       if (!latest.version) throw new Error('设置版本不可用')
-      setSettingsLatest(latest); setSettingsVersion(latest.version); setSettingsConflict(false)
+      setSettingsLatest({ ...latest, captureMode: latest.captureMode ?? 'auto' }); setSettingsVersion(latest.version); setSettingsConflict(false)
       setSettingsError('已读取最新设置；当前编辑草稿保留，请核对后再保存')
     } catch (e) { setSettingsError(e instanceof Error ? e.message : '最新设置读取失败') }
     finally { setBusy('') }
@@ -166,7 +166,7 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
     setBusy('settings'); setSettingsError(undefined); setNotice('')
     try {
       const result = await ops.updateSettings({ subjectId: resolvedSubject, ...settings, expectedVersion: settingsVersion })
-      setSettings({ memoryEnabled: result.memoryEnabled, autoNominate: result.autoNominate, growthDays: result.growthDays })
+      setSettings({ captureMode: result.captureMode ?? 'auto', memoryEnabled: result.memoryEnabled, autoNominate: result.autoNominate, growthDays: result.growthDays })
       setSettingsVersion(result.version); setSettingsLatest(undefined)
       setNotice('记忆设置已保存')
     } catch (e) {
@@ -324,26 +324,31 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
 
       <section aria-label="记忆设置与数据" style={panelStyle}>
         <h2 style={{ margin: '0 0 12px', fontSize: '16px' }}>记忆设置与数据</h2>
+        <label style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+          对话记忆
+          <select aria-label="对话记忆方式" value={settings.captureMode} disabled={busy !== '' || !settingsVersion} onChange={e => setSettings(s => ({ ...s, captureMode: e.target.value as SettingsState['captureMode'] }))} style={btnStyle}>
+            <option value="auto">智能自动保存</option>
+            <option value="manual">逐条确认</option>
+            <option value="off">不保存新记忆</option>
+          </select>
+        </label>
+        <p style={{ color: 'var(--muted)', fontSize: 12 }}>自动保存仅采用你明确表达的长期偏好和个人事实，跳过临时要求、引用、专家回答和敏感信息。选择保存后全局生效，文字和语音不再重复询问；已保存记忆可在事实库隐藏或清除。</p>
         {settingsError && <p role="alert">{settingsError}</p>}
         {settingsConflict && <button style={btnStyle} disabled={busy !== ''} onClick={() => void reviewLatestSettings()}>读取最新版本并保留草稿</button>}
         {!settingsVersion && <button style={btnStyle} disabled={busy !== ''} onClick={() => void loadSettings()}>重新加载设置</button>}
-        {settingsLatest && <p>当前已保存：记忆沉淀{settingsLatest.memoryEnabled ? '开启' : '关闭'}；自动提名{settingsLatest.autoNominate ? '开启' : '关闭'}；观察期 {settingsLatest.growthDays} 天。下方保留您的草稿。</p>}
+        {settingsLatest && <p>当前已保存：记忆沉淀{settingsLatest.memoryEnabled ? '开启' : '关闭'}；对话记忆方式{settingsLatest.captureMode === 'auto' ? '智能自动保存' : settingsLatest.captureMode === 'manual' ? '逐条确认' : '不保存新记忆'}；观察期 {settingsLatest.growthDays} 天。下方保留您的草稿。</p>}
 
         <div style={{ display: 'grid', gap: '12px', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
           <label style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '13px', cursor: 'pointer' }}>
             <input type="checkbox" checked={settings.memoryEnabled} onChange={e => setSettings(s => ({ ...s, memoryEnabled: e.target.checked }))} />
             启用记忆沉淀
           </label>
-          <label style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '13px', cursor: 'pointer' }}>
-            <input type="checkbox" checked={settings.autoNominate} onChange={e => setSettings(s => ({ ...s, autoNominate: e.target.checked }))} />
-            自动提名候选
-          </label>
           <label style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '13px' }}>
             成长观察期（天）
             <input type="number" min={1} max={90} value={settings.growthDays} onChange={e => setSettings(s => ({ ...s, growthDays: Math.min(90, Math.max(1, Number(e.target.value) || 1)) }))} style={{ width: '70px', padding: '4px 6px', backgroundColor: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: '4px' }} />
           </label>
         </div>
-        <p style={{ margin: '12px 0 0', color: 'var(--muted)', fontSize: '12px' }}>关闭「启用记忆沉淀」后，对话不再自动召回项目记忆，也不会自动提名；你已确认的偏好仍会写入系统指令。「自动提名候选」只把普通回合要点放进确认台。你说「记住 / 以后 / 默认用」这类声明式偏好时，即使关掉自动提名也会进确认台，不会自动升格为事实。</p>
+        <p style={{ margin: '12px 0 0', color: 'var(--muted)', fontSize: '12px' }}>关闭「启用记忆沉淀」后，对话停止自动保存和注入记忆。「不保存新记忆」只停止新增，已有记忆仍可按需调用。「逐条确认」仅提示当前会话中由你明确表达的长期偏好。历史归档和已保存数据会保留。</p>
         <div style={{ marginTop: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button style={primaryBtnStyle} disabled={busy !== '' || !settingsVersion || settingsConflict} onClick={() => void saveSettings()}>{busy === 'settings' ? '保存中…' : '保存设置'}</button>
           <button style={btnStyle} disabled={busy !== ''} onClick={() => void doExport()}>{busy === 'export' ? '导出中…' : '导出记忆数据'}</button>

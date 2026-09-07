@@ -125,7 +125,7 @@ export type ScheduleFreq = RecurringFreq | 'once' | 'in20'
 
 export function scheduleToCron(freq: RecurringFreq, time: string): string {
   const [hour = '9', min = '0'] = time.split(':')
-  const h = String(Number(hour) || 9)
+  const h = String(Number.isFinite(Number(hour)) ? Number(hour) : 9)
   const m = String(Number(min) || 0)
   if (freq === 'weekdays') return `${m} ${h} * * 1-5`
   if (freq === 'weekly') return `${m} ${h} * * 1`

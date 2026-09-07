@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { automationBridge, createMutationAttempt, type MutationAttempt, type AutomationBridge } from '../bridge/client'
 import type { AutomationJobListResult, AutomationRunListResult, AutomationStatusResult } from '../generated/bridge'
 import { cronToHuman, delayAtCron } from '../automation/automationTemplates'
+import {AutomationStopButton,AutomationTimezoneField,localAutomationTimezone} from '../automation/AutomationRunControls'
+import { AutomationRunDetail, automationRunLabel, schedulerStatusLabel } from '../automation/automationRunPresentation'
 
 type Job = AutomationJobListResult['jobs'][number]
 type Run = AutomationRunListResult['runs'][number]
@@ -10,6 +12,7 @@ type Draft = {
   expectedRevision?: string
   name: string
   cron: string
+  timezone?: string
   prompt: string
   providerId: string
   modelId: string
@@ -24,6 +27,7 @@ type Draft = {
 const EMPTY_DRAFT: Draft = {
   name: '',
   cron: '30 8 * * *',
+  timezone: localAutomationTimezone(),
   prompt: '',
   providerId: '',
   modelId: '',
@@ -51,14 +55,13 @@ const fmtTime = (iso?: string) => {
   }
 }
 
-const STATE_LABEL: Record<string, string> = { running: '执行中', succeeded: '成功', failed: '失败' }
-
 function jobPayload(draft: Draft, enabled: boolean) {
   return {
     id: draft.id,
     expectedRevision: draft.expectedRevision,
     name: draft.name.trim(),
     cron: draft.cron.trim(),
+    timezone: draft.timezone ?? 'UTC',
     prompt: draft.prompt.trim(),
     providerId: draft.providerId as never,
     modelId: draft.modelId,
@@ -117,6 +120,7 @@ export function AutomationPanel({
       setJobs(j.jobs)
       setRuns(r.runs)
       setStatus(s)
+      return s.runningJobs.length > 0
     } catch {
       if (epoch !== generation.current) return
       setNotice('自动化状态刷新失败，显示的是上一次结果')
@@ -125,18 +129,14 @@ export function AutomationPanel({
 
   useEffect(() => {
     let active = true
-    void reload().then(() => {
-      if (active) void 0
-    })
-    const timer = window.setInterval(() => {
-      void reload()
-    }, 30_000)
-    return () => {
-      active = false
-      generation.current++
-      window.clearInterval(timer)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const poll = async () => {
+      const running = await reload()
+      if (active) timer = setTimeout(() => void poll(), running ? 3_000 : 15_000)
     }
-  }, [reload])
+    void poll()
+    return () => { active = false; generation.current++; if (timer) clearTimeout(timer) }
+  }, [reload, status?.runningJobs.length])
 
   useEffect(() => {
     setDraft((d) => ({
@@ -232,6 +232,7 @@ export function AutomationPanel({
             expectedRevision: job.revision,
             name: job.name,
             cron: job.cron,
+            timezone: job.timezone || 'UTC',
             prompt: job.prompt,
             providerId: job.providerId,
             modelId: job.modelId,
@@ -287,6 +288,7 @@ export function AutomationPanel({
       expectedRevision: job.revision,
       name: job.name,
       cron: job.cron,
+      timezone: job.timezone || 'UTC',
       prompt: job.prompt,
       providerId: job.providerId,
       modelId: job.modelId,
@@ -306,7 +308,7 @@ export function AutomationPanel({
       <div className="automation-head">
         <h3>{runsOnly ? '运行中心' : '自动化任务'}</h3>
         <span className={status?.running ? 'automation-heartbeat is-live' : 'automation-heartbeat'} role="status">
-          {status?.running ? '调度器运行中' : '调度器未启动'}
+          {schedulerStatusLabel(status)}
         </span>
         {!runsOnly && (
           <button
@@ -391,6 +393,7 @@ export function AutomationPanel({
               20 分钟后
             </button>
             <span className="automation-notice">{cronToHuman(draft.cron)}</span>
+            {!draft.cron.startsWith('at:')&&<AutomationTimezoneField value={draft.timezone} onChange={timezone=>setDraft({...draft,timezone})}/>}
           </div>
           <label className="automation-editor-prompt">
             提示词（无头执行，发送到会话）
@@ -437,6 +440,7 @@ export function AutomationPanel({
                   <div className="automation-job-head">
                     <b>{job.name}</b>
                     <code>{job.cron}</code>
+                    {!job.cron.startsWith('at:')&&<small>{job.timezone||'UTC'} 时区</small>}
                     <span className="automation-job-mode">
                       {MODE_LABEL[(job.executionMode as Draft['executionMode']) || 'auto-edit']}
                     </span>
@@ -458,6 +462,7 @@ export function AutomationPanel({
                     )}
                   </div>
                   <div className="automation-job-actions">
+                    <AutomationStopButton run={runs.find(run=>run.jobId===job.id&&run.state==='running')} bridge={bridge} onRequested={reload}/>
                     <button type="button" disabled={busy} onClick={() => void trigger(job)}>
                       立即运行
                     </button>
@@ -498,7 +503,7 @@ export function AutomationPanel({
                   onClick={() => setOpenRun(openRun === run.id ? undefined : run.id)}
                 >
                   <span className={`automation-run-state is-${run.state}`}>
-                    {run.outcomeUnknown ? '结果待核对' : (STATE_LABEL[run.state] ?? run.state)}
+                    {automationRunLabel(run)}
                   </span>
                   <b>{run.jobName}</b>
                   <small>
@@ -507,15 +512,7 @@ export function AutomationPanel({
                   </small>
                 </button>
                 {openRun === run.id && (
-                  <div className="automation-run-detail">
-                    {run.state === 'failed' ? (
-                      <p role="alert">{run.error}</p>
-                    ) : run.summary ? (
-                      <pre>{run.summary}</pre>
-                    ) : (
-                      <p>无摘要</p>
-                    )}
-                  </div>
+                  <><AutomationStopButton run={run} bridge={bridge} onRequested={reload}/><AutomationRunDetail run={run} /></>
                 )}
               </li>
             ))}

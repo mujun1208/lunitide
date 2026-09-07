@@ -311,17 +311,18 @@ func builtinSubagentProfiles() map[string]subagentProfileDef {
 }
 
 // implementerWriteTools is the fixed write surface of the E3 implementer
-// profile. command.run is already in the read-only tool pack (it is gated by
-// the command allowlist + approval flow), so only file writers are listed
-// here. computer.act / desktop.* / cc.* stay out — a delegated agent never
+// profile. command.run is explicit because the parent's allowlist may include
+// build commands and reversible writes. It keeps the same inherited approval
+// flow. computer.act / desktop.* / cc.* stay out — a delegated agent never
 // drives the machine.
 func implementerWriteTools() []string {
-	return []string{"workspace.write", "workspace.edit"}
+	return []string{"workspace.write", "workspace.edit", "command.run"}
 }
 
 var implementerToolAllow = map[string]bool{
 	"workspace.write": true,
 	"workspace.edit":  true,
+	"command.run":     true,
 }
 
 // parentModeGrantsWrite reports whether the spawning turn already holds file

@@ -43,6 +43,9 @@ func mcpResolveLaunch(ctx context.Context, command string, args []string) ([]str
 		if err != nil {
 			return nil, err
 		}
+		if result.Status == 404 {
+			return nil, &mcp.DiagnosticError{Code: "MCP_PACKAGE_NOT_FOUND", Cause: mcp.ErrLaunchLock}
+		}
 		if result.Status < 200 || result.Status >= 300 || result.Truncated {
 			return nil, mcp.ErrLaunchLock
 		}

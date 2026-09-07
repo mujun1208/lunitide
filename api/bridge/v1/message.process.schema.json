@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/message.process.schema.json",
+  "title": "message.process payload",
+  "x-method": "message.process",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "messageId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    }
+  },
+  "required": [
+    "sessionId",
+    "messageId"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "messageId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "thinking": {
+        "type": "string",
+        "maxLength": 65536
+      },
+      "equipment": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "experts": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          "skills": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          "missingMcp": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "type": "string",
+              "maxLength": 128
+            }
+          }
+        },
+        "required": [
+          "experts"
+        ]
+      },
+      "tools": {
+        "type": "array",
+        "maxItems": 64,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "callId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "argsDigest": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "status": {
+              "enum": [
+                "tool_started",
+                "tool_completed",
+                "approval_required"
+              ]
+            },
+            "summary": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          "required": [
+            "callId",
+            "name",
+            "status",
+            "summary"
+          ]
+        }
+      },
+      "truncated": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "messageId",
+      "thinking",
+      "tools",
+      "truncated"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "messageId": "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+      }
+    ],
+    "negative": [
+      {},
+      {
+        "sessionId": "../",
+        "messageId": "bad"
+      }
+    ]
+  }
+}

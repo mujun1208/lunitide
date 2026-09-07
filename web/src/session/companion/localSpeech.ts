@@ -15,6 +15,7 @@ import {
   ECHO_GUARD_MS,
   TURN_END_SILENCE_MS,
   shouldDeferCommit,
+  completeCaptionAtVoiceDeadline,
   shouldCommitHeardUtterance,
   shouldForceCommitUtterance,
   speechProfile,
@@ -23,7 +24,8 @@ import {
   type CompanionSpeechOptions,
 } from './speech'
 import { looksIncompleteUtterance, looksLikeBargeInSpeech, looksLikePlaybackEcho } from './companionText'
-import { absorbHeldTranscript, pickMeetingFinalText } from '../../meetings/meetingText'
+import { joinMeetingLines, pickMeetingFinalText } from '../../meetings/meetingText'
+import { pickTranscriptRevision } from './transcriptRevision'
 
 /** Endpointing is evaluated on a timer because silence is not an event. */
 const TICK_MS = 60
@@ -66,6 +68,8 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
   let asr: LocalAsrHandle | undefined
   let text = ''
   let sealed = ''
+  let segment = ''
+  let segmentEnded = false
   let lastTextAt = 0
   let textSince = 0
   let lastVoiceAt = 0
@@ -85,7 +89,11 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
   const resetUtterance = () => {
     text = ''
     sealed = ''
+    segment = ''
+    segmentEnded = false
     lastTextAt = 0
+    lastVoiceAt = 0
+    speechActive = false
     textSince = 0
     announcedSpeech = false
   }
@@ -110,13 +118,22 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
    * the companion's own voice coming back through the microphone, which must
    * reset the recognizer without ever reaching the stage.
    */
-  const recycle = async (emit: 'final' | false) => {
+  const recycle = async (emit: 'final' | false, readyAtVoiceDeadline = false) => {
     if (!asr || closed || recycling) return
     recycling = true
     const carried = text.trim()
     try {
       let settled = ''
       try {
+        if (readyAtVoiceDeadline) {
+          // Submit the complete streamed sentence now. Retire/flush the ASR
+          // session concurrently; a slow finish/refiner cannot delay the model.
+          const finishing = asr.commit({ useStreamed: true })
+          resetUtterance()
+          options.onFinal(carried)
+          void finishing.catch(error => { if (!closed) fail(error) })
+          return
+        }
         settled = (
           await Promise.race([
             asr.commit(),
@@ -129,10 +146,11 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
         fail(error)
         return
       }
+      if (closed) return
       const fresh = text.trim()
       if (emit === 'final') {
         resetUtterance()
-        const final = holdUtterance ? pickMeetingFinalText(carried, settled) : (settled || carried)
+        const final = pickMeetingFinalText(pickTranscriptRevision(carried, fresh), settled)
         if (!final) return
         options.onFinal(final)
         return
@@ -155,15 +173,9 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
     }
   }
 
-  /**
-   * The engine's endpoint is what ends a turn. This is the backstop for a
-   * recognizer that stops reporting them at all.
-   *
-   * Deliberately much longer than the engine's own window, so it stays a
-   * backstop: the previous rules here decided turns from microphone energy
-   * and how long the transcript had been unchanged, and both of those are
-   * shorter than an ordinary pause mid-sentence. They ended turns half-said.
-   */
+  /** Complete voice turns end after 1.2s of actual silence, without adding
+   * a second text/refiner wait. Meetings keep the longer hold. Without an
+   * energy sample, the existing stable-text backstop remains available. */
   const evaluate = () => {
     if (closed || playback || commitPaused) return
     if (recycling) {
@@ -174,6 +186,14 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
     const trimmed = text.trim()
     if (!trimmed) return
     const now = Date.now()
+    const incomplete = looksIncompleteUtterance(trimmed)
+    const silentForMs = lastVoiceAt ? now - lastVoiceAt : undefined
+    if (completeCaptionAtVoiceDeadline({ holdUtterance, silentForMs, incomplete })) {
+      void recycle('final', true)
+      return
+    }
+    // With a real energy clock, an ordinary breath is still this sentence.
+    if (!holdUtterance && silentForMs !== undefined && !incomplete && silentForMs < TURN_END_SILENCE_MS) return
     if (shouldDeferCommit(trimmed, now - textSince)) return
     const textStableForMs = lastTextAt ? now - lastTextAt : 0
     if (
@@ -211,12 +231,9 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
       bars.push(Math.min(1, Math.sqrt(Math.max(0, peak) / FULL_SCALE_PEAK)))
       options.onLevels?.([...bars])
       const now = Date.now()
-      const textLocked = !!text.trim() && lastTextAt > 0 && now - lastTextAt >= TURN_END_SILENCE_MS
       if (peak >= profile.voicePeak) {
-        if (!textLocked) {
-          lastVoiceAt = now
-          speechActive = true
-        }
+        lastVoiceAt = now
+        speechActive = true
         if (!playback) options.onVoiceEnergy?.()
       } else if (lastVoiceAt && now - lastVoiceAt > profile.utteranceSilenceMs) {
         speechActive = false
@@ -239,9 +256,22 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
         resetUtterance()
         return
       }
-      // Sherpa starts a new segment after its own 1.2s endpoint. Glue segments
-      // so a caption keeps growing and a mid-clause breath is not the turn.
-      const absorbed = absorbHeldTranscript(holdUtterance ? sealed || text : text, next)
+      // Only a real segment endpoint seals text. Within that segment, ASR
+      // hypotheses replace each other, even when the recognizer corrects an
+      // early word. Gluing those revisions repeats the whole sentence.
+      if (segmentEnded) {
+        // Some sherpa endpoints are followed by a fuller revision of the same
+        // segment. Preserve that compatibility without appending every partial.
+        if (!(next.startsWith(segment) && next.length > segment.length)) {
+          sealed = joinMeetingLines(sealed, segment)
+          segment = ''
+        }
+        segmentEnded = false
+      }
+      segment = pickTranscriptRevision(segment, next)
+      // A late full final may cover previously sealed sherpa chunks as well.
+      const absorbed = sealed && segment.startsWith(sealed) ? segment : joinMeetingLines(sealed, segment)
+      segmentEnded = final
       if (absorbed !== text.trim()) {
         text = absorbed
         lastTextAt = now
@@ -255,7 +285,6 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
       }
       if (now < guardUntil) return
       if (final && holdUtterance) {
-        sealed = text.trim()
         return
       }
       if (final) {

@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "preview:companion": "vite --open /companion-preview.html",
     "preview:companion-particle": "vite --open /companion-particle-preview.html",
+    "preview:office": "vite --open /office-studio-preview.html",
     "test": "vitest run",
     "test:bounded": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-tests-bounded.ps1",
     "test:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop-test-zombies.ps1",

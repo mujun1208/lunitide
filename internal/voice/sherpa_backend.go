@@ -258,10 +258,11 @@ type sherpaSession struct {
 	// Append and Finish can be called from different goroutines.
 	writeMu sync.Mutex
 
-	mu          sync.Mutex
-	latest      string
-	latestFinal bool
-	err         error
+	mu                sync.Mutex
+	latest            string
+	latestFinal       bool
+	transcriptPending bool
+	err               error
 	// utterance keeps the audio the refiner will re-read. Held here rather
 	// than by the caller because the caller hands over one frame at a time
 	// and has no reason to know a second recognizer exists.
@@ -423,6 +424,7 @@ func (s *sherpaSession) readLoop() {
 		}
 		s.mu.Lock()
 		s.latest, s.latestFinal = transcript.Text, transcript.Final
+		s.transcriptPending = true
 		s.mu.Unlock()
 		if s.onTranscript != nil {
 			s.onTranscript(transcript)
@@ -436,6 +438,10 @@ func (s *sherpaSession) readLoop() {
 func (s *sherpaSession) Latest() (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.transcriptPending {
+		return "", false
+	}
+	s.transcriptPending = false
 	return strings.TrimSpace(s.latest), s.latestFinal
 }
 

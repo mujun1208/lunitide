@@ -5,10 +5,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BridgeClientError, runQueueBridge } from '../bridge/client'
 import { FOLLOW_UP_QUEUE_NOTICE } from './turnControl'
+import { ENGINE_RECOVERED_EVENT } from '../bridge/engineHealth'
 import type { RunQueueListResult } from '../generated/bridge'
 
 export type QueueDelivery = NonNullable<RunQueueListResult['delivery']>
 type QueueSender = (text: string, deliveryId: string) => unknown | Promise<unknown>
+const QUEUE_READ_FAILED = '补充输入状态暂时无法读取，请重试核对'
 
 export interface QueuedItem {
   queuedId: string
@@ -49,14 +51,23 @@ export function useInputQueue(sessionId: string, streaming = false): InputQueueS
     if (!id) { setItems([]); setDelivery(undefined); return }
     try {
       const r = await runQueueBridge.list({ sessionId: id })
-      if (current()) { setItems(r.items); setDelivery(r.delivery) }
-    } catch { if (current()) setNotice('补充输入状态暂时无法读取，请重试核对') }
+      if (current()) {
+        setItems(r.items); setDelivery(r.delivery)
+        setNotice(previous => previous === QUEUE_READ_FAILED ? '' : previous)
+      }
+    } catch { if (current()) setNotice(QUEUE_READ_FAILED) }
   }, [])
 
   useEffect(() => {
     setItems([]); setNotice(''); setDelivery(undefined)
     void refresh()
   }, [sessionId, refresh])
+
+  useEffect(() => {
+    const recovered = () => { void refresh() }
+    window.addEventListener(ENGINE_RECOVERED_EVENT, recovered)
+    return () => window.removeEventListener(ENGINE_RECOVERED_EVENT, recovered)
+  }, [refresh])
 
   useEffect(() => {
     if (!streaming && delivery?.state !== 'started') return

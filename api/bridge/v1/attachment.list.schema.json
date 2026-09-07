@@ -11,6 +11,9 @@
     "projectId": {
       "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
     },
+    "sessionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
     "limit": {
       "type": "integer",
       "minimum": 1,

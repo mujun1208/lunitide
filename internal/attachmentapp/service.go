@@ -198,8 +198,12 @@ func (s *Service) CommitUpload(ctx context.Context, id, projectID, sessionID str
 	if attempt := u.committing; attempt != nil {
 		attempt.waiters++
 		s.uploadMu.Unlock()
-		<-attempt.done
-		return attempt.attachment, attempt.err
+		select {
+		case <-ctx.Done():
+			return attachment.Attachment{}, ctx.Err()
+		case <-attempt.done:
+			return attempt.attachment, attempt.err
+		}
 	}
 	if u.offset != u.size {
 		s.uploadMu.Unlock()
@@ -253,7 +257,7 @@ func (s *Service) finishUploadCommit(id string, attempt *uploadCommit, a attachm
 	close(attempt.done)
 	s.uploadMu.Unlock()
 }
-func (s *Service) AbortUpload(_ context.Context, id, projectID, sessionID string) error {
+func (s *Service) AbortUpload(ctx context.Context, id, projectID, sessionID string) error {
 	for {
 		s.uploadMu.Lock()
 		s.expireUploadsLocked()
@@ -272,8 +276,12 @@ func (s *Service) AbortUpload(_ context.Context, id, projectID, sessionID string
 		}
 		if attempt := u.committing; attempt != nil {
 			s.uploadMu.Unlock()
-			<-attempt.done
-			continue
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-attempt.done:
+				continue
+			}
 		}
 		path := u.path
 		delete(s.uploads, id)

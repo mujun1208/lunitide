@@ -66,10 +66,16 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			if err != nil {
 				return "", nil, err
 			}
-			if err := s.clickNamedLadder(invokeName, sx, sy, hit); err != nil {
-				return "", nil, err
+			var clickErr error
+			if strings.TrimSpace(a.ID) != "" || a.Button != "left" || a.Clicks != 1 || len(mods) > 0 {
+				clickErr = s.clickResolvedPointer(sx, sy, hit, a.Button, a.Clicks, mods)
+			} else {
+				clickErr = s.clickNamedLadder(invokeName, sx, sy, hit)
 			}
-			return s.verifyAfter(fmt.Sprintf("invoked %q via accessibility", hit))
+			if clickErr != nil {
+				return "", nil, clickErr
+			}
+			return s.verifyAfter(fmt.Sprintf("clicked %q: %s x%d", hit, a.Button, a.Clicks))
 		}
 		if err := s.refuseSelfWindowPixels(); err != nil {
 			return "", nil, err

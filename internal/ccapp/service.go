@@ -971,9 +971,14 @@ func (s *Service) verifyClickHit(want string, sx, sy int) error {
 }
 
 func (s *Service) clickNamedLadder(invokeName string, sx, sy int, hit string) error {
+	// Hit-test before an action can dismiss or replace its target. Checking
+	// afterwards can falsely fail a successful click and trigger a second one.
+	if err := s.verifyClickHit(hit, sx, sy); err != nil {
+		return err
+	}
 	if !unnamedUIName(invokeName) {
 		if err := s.controlHost().InvokeUI(invokeName); err == nil {
-			return s.verifyClickHit(hit, sx, sy)
+			return nil
 		} else if wrapped := wrapHostIntegrityError(err); errors.Is(wrapped, ErrCcRiskBlocked) || executionFenceError(wrapped) {
 			return wrapped
 		}
@@ -981,7 +986,7 @@ func (s *Service) clickNamedLadder(invokeName string, sx, sy int, hit string) er
 	if !unnamedUIName(invokeName) {
 		if win, ok := s.host.(win32Clicker); ok {
 			if err := s.dispatch(true, func() error { return win.Win32Click(invokeName) }); err == nil {
-				return s.verifyClickHit(hit, sx, sy)
+				return nil
 			} else if executionFenceError(err) || errors.Is(err, ErrCcRiskBlocked) {
 				return err
 			}
@@ -989,19 +994,8 @@ func (s *Service) clickNamedLadder(invokeName string, sx, sy int, hit string) er
 	}
 	// Layer 4: native desktop pixels (sx/sy are SetCursorPos space, not the
 	// 1280 vision thumbnail) + hit-test. Missing hit-test host = fail closed.
-	if sx > 0 && sy > 0 {
-		if _, ok := s.host.(clickHitter); ok {
-			if err := s.refuseSelfWindowPixels(); err != nil {
-				return err
-			}
-			if err := s.controlHost().MouseMove(sx, sy); err != nil {
-				return err
-			}
-			if err := s.controlHost().MouseClick("left", 1); err != nil {
-				return err
-			}
-			return s.verifyClickHit(hit, sx, sy)
-		}
+	if _, ok := s.host.(clickHitter); ok {
+		return s.clickResolvedPointer(sx, sy, hit, "left", 1, nil)
 	}
 	return fmt.Errorf("%w: control %q is not invokable via accessibility", ErrCcExecFailed, hit)
 }

@@ -43,13 +43,15 @@ func TestApplyToolProfileKeepsDefaultAndFilters(t *testing.T) {
 		t.Fatalf("default must keep current tools: %d vs %d", len(got), len(all))
 	}
 	minimal := applyToolProfile(all, toolProfileMinimal)
-	if len(minimal) != 5 {
-		t.Fatalf("minimal=%d", len(minimal))
-	}
+	wantMinimal := map[string]bool{"web.search": true, "web.fetch": true, "weather.get": true, "memory.search": true, "memory.get": true, "user.ask": true}
 	for _, d := range minimal {
-		if d.Name == "command.run" || d.Name == "computer.act" {
-			t.Fatalf("minimal leaked %s", d.Name)
+		if !wantMinimal[d.Name] {
+			t.Fatalf("minimal exposed unexpected or duplicate tool %s", d.Name)
 		}
+		delete(wantMinimal, d.Name)
+	}
+	if len(wantMinimal) != 0 {
+		t.Fatalf("minimal lost retrieval/clarification tools: %v", wantMinimal)
 	}
 	coding := applyToolProfile(all, toolProfileCoding)
 	seen := map[string]bool{}
@@ -76,6 +78,9 @@ func TestFilterCompanionDefaultToolsKeepsGovernedTaskCapabilities(t *testing.T) 
 	}
 	if seen["cc.mouse_click"] {
 		t.Fatalf("companion exposed internal desktop primitive: %v", seen)
+	}
+	if seen["user.ask"] {
+		t.Fatal("voice clarification must not open a typed decision card")
 	}
 	if !seen["command.run"] || !seen["im.send"] || !seen["desktop.open"] || !seen["media.play"] || !seen["computer.act"] || !seen["web.search"] {
 		t.Fatalf("companion dropped desktop/media tools: %v", seen)

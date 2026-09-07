@@ -147,3 +147,10 @@ it('message bridge sends message.search and accepts hits', async () => {
   h.reply(h.sent[0], { items: [{ sessionId: SESSION, messageId: MESSAGE, role: 'user', sequence: 1, snippet: '谈到了月汐', sessionTitle: '代码讨论' }] })
   await expect(pending).resolves.toMatchObject({ items: [{ sessionId: SESSION, snippet: '谈到了月汐' }] })
 })
+
+it('accepts durable process availability without loading its contents during pagination',async()=>{
+ const h=controlled(),pending=h.bridge.list({sessionId:SESSION})
+ h.reply(h.sent[0],page([dto({role:'assistant',hasProcess:true})]))
+ expect((await pending).items[0].hasProcess).toBe(true)
+ expect(h.sent).toHaveLength(1)
+})
