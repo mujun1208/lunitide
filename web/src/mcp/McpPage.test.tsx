@@ -229,3 +229,29 @@ it('reports connection failure after registration and refreshes the actual endpo
  expect(screen.queryByRole('status')).not.toBeInTheDocument()
  expect(bridge.list).toHaveBeenCalledTimes(2)
 })
+
+it('saves an authenticated remote preset before probing and opens local credential setup',async()=>{
+ const remote={id:'juhe-query',name:'聚合日常查询',description:'官方接口',transport:'https' as const,command:'' as const,args:[],needsArgs:false,needsCredential:true,url:'https://mcp.juhe.cn/mcp?token={{credential}}',category:'网络'}
+ const saved={endpointId:'mcp-1',transport:'https' as const,url:remote.url,state:'probe' as const,enabled:false,securityVersion:0,displayName:remote.name}
+ const bridge=api({presets:vi.fn().mockResolvedValue({items:[remote]}),list:vi.fn().mockResolvedValueOnce({endpoints:[]}).mockResolvedValue({endpoints:[saved]}),credentialSet:vi.fn().mockResolvedValue({configured:true,securityVersion:1})})
+ render(<McpPage bridge={bridge}/>);fireEvent.click(await screen.findByRole('button',{name:'安装 聚合日常查询'}))
+ await screen.findByRole('dialog',{name:'MCP 凭据'})
+ expect(bridge.add).toHaveBeenCalledWith(expect.objectContaining({transport:'https',url:remote.url,configureOnly:true}))
+ expect(bridge.toggle).not.toHaveBeenCalled();expect(bridge.health).not.toHaveBeenCalled()
+ fireEvent.change(screen.getByLabelText('MCP 凭据值'),{target:{value:'fixture-token'}});fireEvent.click(screen.getByText('保存凭据'))
+ await waitFor(()=>expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+ expect(bridge.credentialSet).toHaveBeenCalledWith(expect.objectContaining({endpointId:'mcp-1',credential:'fixture-token',expectedVersion:0}))
+ fireEvent.click(screen.getByRole('button',{name:'重新连接'}))
+ await waitFor(()=>expect(bridge.toggle).toHaveBeenCalledWith({endpointId:'mcp-1',enabled:true}))
+ fireEvent.click(screen.getByRole('tab',{name:/MCP 市场/}))
+ expect(screen.getByRole('button',{name:'卸载 聚合日常查询'})).toBeInTheDocument()
+})
+
+it('manual remote JSON saves configuration even when the server needs credentials',async()=>{
+ const bridge=api({toggle:vi.fn().mockRejectedValue(new Error('401 requires credentials'))})
+ render(<McpPage bridge={bridge}/>);fireEvent.click(await screen.findByRole('button',{name:'＋ 创建 MCP'}))
+ fireEvent.change(screen.getByLabelText('MCP JSON'),{target:{value:'{"url":"https://fixture.invalid/mcp"}'}})
+ fireEvent.click(screen.getByRole('checkbox'));fireEvent.click(screen.getByRole('button',{name:'保存'}))
+ await waitFor(()=>expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+ expect(bridge.add).toHaveBeenCalledWith(expect.objectContaining({url:'https://fixture.invalid/mcp',configureOnly:true}));expect(bridge.toggle).not.toHaveBeenCalled()
+})

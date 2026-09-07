@@ -44,3 +44,5 @@ htmlcov/
 lint-report.txt
 lint-full.txt
 errcheck-*.txt
+# Isolated, disposable browser profile used for local layout verification.
+/.tmp-edge-visual/

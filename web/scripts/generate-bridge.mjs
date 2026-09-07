@@ -1,4 +1,5 @@
-import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, readdir, rename, unlink } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import { resolve, dirname, relative, sep } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import Ajv2020 from 'ajv/dist/2020.js'
@@ -337,6 +338,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'org.member.invite',
   'org.member.list',
   'org.member.revoke',
+  'org.selectPersonal',
   'org.space.create',
   'org.space.list',
   'org.summary',
@@ -348,6 +350,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'people.file.decide',
   'people.file.open',
   'people.file.pick',
+  'people.file.preview',
   'people.file.stage',
   'people.group.create',
   'people.list',
@@ -643,5 +646,24 @@ const goTestSource = `// Code generated from discovered bridge schemas. DO NOT E
 const gofmt = source => execFileSync('gofmt', [], { input: source, encoding: 'utf8' })
 const outputs = new Map([[resolve(root, 'web/src/generated/bridge.ts'), ts], [resolve(root, 'internal/bridge/schema_generated.go'), gofmt(goContractSource)], [resolve(root, 'internal/contract/schema_generated_test.go'), gofmt(goTestSource)]])
 let drift = false
-for (const [target, content] of outputs) { if (check) { let current; try { current = await readFile(target, 'utf8') } catch {}; if (current !== content) { console.error(`Generated contract is stale: ${relative(root, target).split(sep).join('/')}`); drift = true } } else { await mkdir(dirname(target), { recursive: true }); await writeFile(target, content, 'utf8') } }
+for (const [target, content] of outputs) {
+  let current
+  try { current = await readFile(target, 'utf8') } catch (error) { if (error.code !== 'ENOENT') throw error }
+  if (current === content) continue
+  if (check) {
+    console.error(`Generated contract is stale: ${relative(root, target).split(sep).join('/')}`)
+    drift = true
+    continue
+  }
+  // Publish a complete file; a failed generation must not truncate the contract
+  // currently being read by TypeScript, Vite, or the desktop file watcher.
+  await mkdir(dirname(target), { recursive: true })
+  const temporary = `${target}.${randomUUID()}.tmp`
+  try {
+    await writeFile(temporary, content, { encoding: 'utf8', flag: 'wx' })
+    await rename(temporary, target)
+  } finally {
+    await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error })
+  }
+}
 if (drift) process.exitCode = 1

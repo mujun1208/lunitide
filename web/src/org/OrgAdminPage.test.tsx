@@ -16,6 +16,7 @@ const memberA = {
 
 const api = (o: Partial<OrgBridge> = {}): OrgBridge => ({
   summary: vi.fn().mockResolvedValue({ boundOrgId: '', orgs: [] }),
+  selectPersonal: vi.fn().mockResolvedValue({ boundOrgId: '', orgs: [] }),
   create: vi.fn(), switch: vi.fn(), activate: vi.fn(), suspend: vi.fn(),
   spaceList: vi.fn().mockResolvedValue({ spaces: [] }),
   spaceCreate: vi.fn(), memberList: vi.fn().mockResolvedValue({ members: [] }), memberInvite: vi.fn(), memberRevoke: vi.fn(),

@@ -1,0 +1,104 @@
+/* Layout corrections for the management/settings pages approved for revision.
+   All colors come from the existing black/white theme. */
+.settings-shell {
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-height: 0;
+}
+.launch-content > .settings-shell {
+  height: 100%;
+  min-height: 0;
+}
+.settings-nav,
+.settings-content {
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+.settings-nav {
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.settings-body {
+  box-sizing: border-box;
+}
+.settings-body :is(.setting-row, .form-grid) > * {
+  min-width: 0;
+}
+.settings-body :is(.setting-desc, .notice, [role="alert"]) {
+  overflow-wrap: anywhere;
+}
+:is(.skill-page, .expert-center-page, .mcp-page, .plugin-page) .skill-market {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+}
+:is(.skill-page, .expert-center-page, .mcp-page, .plugin-page) :is(.skill-market-card, .view-actions, .skill-search) {
+  min-width: 0;
+}
+:is(.skill-page, .expert-center-page, .mcp-page, .plugin-page) :is(.view-actions, .skill-market-card > footer) {
+  flex-wrap: wrap;
+}
+:is(.skill-page, .expert-center-page, .mcp-page, .plugin-page) :is(.skill-market-card b, .skill-market-card small, .skill-path code) {
+  overflow-wrap: anywhere;
+}
+:is(.skill-page, .expert-center-page, .mcp-page, .plugin-page) .skill-search input {
+  max-width: 100%;
+  min-width: 0;
+}
+:is(.skill-page, .expert-center-page, .mcp-page, .plugin-page) .skill-center-error {
+  color: var(--err);
+  overflow-wrap: anywhere;
+}
+.mro-workbench-page :is(.mro-rail, .mro-body > section) {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
+}
+.mro-workbench-page :is(.mro-top, .mro-domain-head, .mro-domain-actions) {
+  flex-wrap: wrap;
+}
+.pm-shell .project-hero {
+  min-height: 160px;
+  padding: 24px 28px;
+}
+.pm-shell .project-hero h1 {
+  font-size: clamp(26px, 2.6vw, 34px);
+}
+.pm-shell .project-hero-art {
+  pointer-events: none;
+}
+html[data-theme="light"] :is(.settings-shell, .skill-page, .expert-center-page, .mcp-page, .plugin-page, .mro-workbench-page, .pm-shell) {
+  --err: #b42338;
+  --ok: #087d57;
+  --warn: #986300;
+}
+html[data-theme="light"] :is(.skill-page, .expert-center-page, .mcp-page, .plugin-page) .skill-market-remove {
+  color: var(--err);
+}
+@media (max-width: 760px) {
+  .settings-shell {
+    grid-template-columns: minmax(128px, 30%) minmax(0, 1fr);
+    margin: 8px;
+  }
+  .settings-nav {
+    padding: 12px 8px;
+  }
+  .settings-body {
+    padding: 14px;
+  }
+  .settings-body .setting-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .mro-workbench-page .mro-rail {
+    width: 132px;
+  }
+  .mro-workbench-page .mro-body > section {
+    padding-left: 12px;
+  }
+  .pm-shell .project-hero {
+    min-height: 136px;
+    padding: 20px;
+  }
+  .pm-shell .project-hero-art {
+    opacity: .2;
+  }
+}

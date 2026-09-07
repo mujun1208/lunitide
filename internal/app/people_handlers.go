@@ -258,7 +258,7 @@ func handlePeopleThreadSend(e *Engine, ctx context.Context, r bridge.Request) br
 		out["offer"] = publicOffer(*offer)
 	}
 	if offer == nil && msg.Kind == "text" && !msg.Replayed {
-		go e.maybePeopleAgentReply(context.Background(), p.ThreadID, msg)
+		e.peopleAgentWorkers.start(func(ctx context.Context) { e.maybePeopleAgentReply(ctx, p.ThreadID, msg) })
 	}
 	return r.Ok(out)
 }
@@ -303,6 +303,7 @@ func handlePeopleFileDecide(e *Engine, ctx context.Context, r bridge.Request) br
 func handlePeopleFileOpen(e *Engine, _ context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		DestPath string `json:"destPath"`
+		FileName string `json:"fileName"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "people.file.open 参数无效", false)
@@ -310,11 +311,28 @@ func handlePeopleFileOpen(e *Engine, _ context.Context, r bridge.Request) bridge
 	if e.people == nil {
 		return peopleUnavailable(r)
 	}
-	opened, err := e.people.OpenFile(p.DestPath)
+	opened, err := e.people.OpenFile(p.DestPath, p.FileName)
 	if err != nil {
 		return peopleFailure(r, err)
 	}
 	return r.Ok(map[string]any{"opened": opened})
+}
+
+func handlePeopleFilePreview(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		OfferID string `json:"offerId"`
+	}
+	if decodePayload(r.Payload, &p) != nil || len(p.OfferID) != 26 {
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "附件预览参数无效", false)
+	}
+	if e.people == nil {
+		return peopleUnavailable(r)
+	}
+	dataURL, err := e.people.PreviewFile(ctx, p.OfferID)
+	if err != nil {
+		return peopleFailure(r, err)
+	}
+	return r.Ok(map[string]any{"dataUrl": dataURL})
 }
 
 func handlePeoplePeerAdd(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {

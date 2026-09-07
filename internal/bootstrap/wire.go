@@ -104,10 +104,23 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 		return fail(err)
 	}
 	closers = append(closers, func() { _ = store.Close() })
+	// Inspect persisted ownership before any startup seeder can add rows.
+	personalData, organizationData, err := store.DesktopScopePresence(ctx)
+	if err != nil {
+		return fail(fmt.Errorf("read desktop data ownership: %w", err))
+	}
 	// Move the local identity Ed25519 private key out of the database column
 	// and into the DPAPI credential store. Must be wired before identity
 	// Ensure/Load runs below so the seal/migrate seam is active on first read.
 	store.WithIdentitySecrets(secretService)
+	// Resolve the durable identity before services or seeders bind their owner.
+	// Ensure migrates the legacy local-user alias; retaining that alias in a
+	// service afterwards makes its own existing knowledge fail ownership checks.
+	ident := identity.New(store)
+	if err := ident.Ensure(ctx); err != nil {
+		return fail(fmt.Errorf("local identity bootstrap failed; engine not ready: %w", err))
+	}
+	localSubject := ident.SubjectID()
 	providerService := providerapp.New(store, store)
 	projectService := projectapp.New(store, store)
 	sessionService := sessionapp.New(store, store)
@@ -184,6 +197,9 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	// M7 slices 6-8: read-only subagent runtime, tool-gap runtime and the
 	// MCP settings plane (invoke stays on mcp6.invoke per the wire
 	// contract). The frozen tool manifest is seeded read-only at startup.
+	if err := store.RepairLegacyMcpPresetLaunches(ctx); err != nil {
+		return fail(fmt.Errorf("repair legacy MCP presets: %w", err))
+	}
 	engine.SetM7RuntimeServices(
 		m7app.NewSubagentService(store.AgentRuntimeRepository()),
 		m7app.NewToolgapService(store.AgentRuntimeRepository()),
@@ -212,7 +228,7 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	closers = append(closers, deps.CloseStdioPool)
 	// M8 slice 1: the governed long-term memory core (candidate/fact/
 	// source-leaf/recall on the shared single-writer transaction).
-	memorySvc := m8app.NewMemoryService(store.AgentRuntimeRepository(), "local-user")
+	memorySvc := m8app.NewMemoryService(store.AgentRuntimeRepository(), localSubject)
 	memorySvc.SetFTS(store)
 	engine.SetM8MemoryServices(memorySvc)
 	// Phase-3 governance switches (M1/M2/S2), armed only by explicit env
@@ -252,11 +268,11 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	engine.SetMemoryOpsService(m8app.NewMemoryOpsService(store))
 	// M8 slices 2-5: KB documents, handoff/tombstone/device sync and the
 	// workflow bundle dispatch projection (single-writer transactions).
-	kbSvc := m8app.NewKBService(store.AgentRuntimeRepository(), "local-user")
+	kbSvc := m8app.NewKBService(store.AgentRuntimeRepository(), localSubject)
 	growthSvc := m8app.NewGrowthService(store.AgentRuntimeRepository())
 	engine.SetM8SliceServices(
 		kbSvc,
-		m8app.NewHandoffService(store.AgentRuntimeRepository(), "local-user"),
+		m8app.NewHandoffService(store.AgentRuntimeRepository(), localSubject),
 		m8app.NewAutomationService(store.AgentRuntimeRepository()),
 	)
 	engine.SetExpertGrowthService(growthSvc)
@@ -283,7 +299,7 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	engine.SetCapabilityRoleStore(store)
 	// M8 FR-18: unified plugin bundle runtime - capabilities hot-register
 	// into the existing registries through the verification chain.
-	pluginSvc := m8app.NewPluginService(store.AgentRuntimeRepository(), "local-user")
+	pluginSvc := m8app.NewPluginService(store.AgentRuntimeRepository(), localSubject)
 	engine.SetM8PluginService(pluginSvc)
 	engine.SetCapabilityPackStore(store.AgentRuntimeRepository())
 	if err := m8app.EnsureBuiltinPlugins(ctx, pluginSvc); err != nil {
@@ -296,7 +312,7 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 		return fail(fmt.Errorf("prepare persona directory failed; engine not ready: %w", err))
 	}
 	expertSvc := m8app.NewExpertService(
-		store.AgentRuntimeRepository(), "local-user",
+		store.AgentRuntimeRepository(), localSubject,
 		m8app.NewFilePersonaStore(personaRoot.Path()),
 	)
 	expertSvc.SetSkillStore(store)
@@ -364,15 +380,14 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 		m9app.NewFileBindingStore(filepath.Join(orgRoot.Path(), "binding.json")),
 	)
 	engine.SetM9OrgAdminService(orgAdmin)
+	if err := m9app.RestoreLegacyPersonalBinding(ctx, orgAdmin, personalData, organizationData); err != nil {
+		return fail(fmt.Errorf("restore legacy desktop data view: %w", err))
+	}
 	if err := m9app.EnsureDefaultOrgBinding(ctx, orgAdmin); err != nil {
 		return fail(fmt.Errorf("org auto-bootstrap failed; engine not ready: %w", err))
 	}
 	// This-PC person archive + LAN people messenger. Discovery stays off
 	// until the user turns it on; file offers are never auto-accepted.
-	ident := identity.New(store)
-	if err := ident.Ensure(ctx); err != nil {
-		return fail(fmt.Errorf("local identity bootstrap failed; engine not ready: %w", err))
-	}
 	peopleRecv, err := dataRoot.PrepareSubdirectory("people-inbox")
 	if err != nil {
 		return fail(fmt.Errorf("prepare people inbox failed; engine not ready: %w", err))
@@ -599,5 +614,8 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	closers = append(closers, automationSched.Close)
 	automationSched.Start(ctx)
 	closers = append(closers, engine.StopPlanExecutions)
+	closers = append(closers, engine.StopPeopleAgentReplies)
+	engine.SetCompanionArchiveStore(store)
+	closers = append(closers, engine.StartCompanionArchives(ctx))
 	return engine, cleanup, nil
 }

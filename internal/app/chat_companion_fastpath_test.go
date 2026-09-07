@@ -21,7 +21,7 @@ func TestCompanionSpeakFallbackUsesGenericVoiceLine(t *testing.T) {
 		Message:   llmadapter.Message{Content: ""},
 		Reasoning: "嗯，你好呀！我在呢。后面还有很长的内心独白…",
 	})
-	if out != "我在呢，稍等我一下。" {
+	if out != "这次没有收到完整回答，请再试一次。" {
 		t.Fatalf("got %q", out)
 	}
 	if companionSpeakFallback(llmadapter.Response{Message: llmadapter.Message{Content: "直接回答。"}}) != "直接回答。" {
@@ -70,7 +70,7 @@ func TestCompanionFastPathCapsTokensAndKeepsVoice(t *testing.T) {
 	if !strings.Contains(system, "不要原样复读") {
 		t.Fatalf("companion must not echo the user verbatim: %q", system)
 	}
-	if !strings.Contains(system, "不要只说等一下就停") {
+	if !strings.Contains(system, "最后把实际结果说出来") {
 		t.Fatalf("companion tools instruction missing: %q", system)
 	}
 	foundSearch := false
@@ -340,37 +340,6 @@ func TestShouldInjectCompanionToolLeadIn(t *testing.T) {
 	}
 	if shouldInjectCompanionToolLeadIn("无法执行。桌面被拦住了", false) {
 		t.Fatal("failure text must not get a lead-in")
-	}
-}
-
-func TestCompanionRedundantWebSkip(t *testing.T) {
-	msg, skip := companionRedundantWebSkip(true, []string{"web.search"}, "web.search", "今天天气怎么样", false)
-	if !skip || !strings.Contains(msg, "已经有搜索摘要") {
-		t.Fatalf("second search: %q skip=%v", msg, skip)
-	}
-	if _, skip := companionRedundantWebSkip(true, nil, "web.fetch", "今天天气怎么样", true); !skip {
-		t.Fatal("fetch after search without a URL must skip")
-	}
-	if _, skip := companionRedundantWebSkip(true, []string{"web.search"}, "web.fetch", "打开 https://example.com/weather", false); skip {
-		t.Fatal("user-supplied URL fetch must run")
-	}
-	if _, skip := companionRedundantWebSkip(true, nil, "web.search", "今天天气怎么样", false); skip {
-		t.Fatal("first search must run")
-	}
-	if _, skip := companionRedundantWebSkip(false, []string{"web.search"}, "web.fetch", "今天天气怎么样", false); skip {
-		t.Fatal("typed chat must not skip fetch")
-	}
-	if _, skip := companionRedundantWebSkip(true, []string{"web.search"}, "video.understand", "https://www.bilibili.com/video/BV1xx", true); skip {
-		t.Fatal("video.understand is not a redundant web skip")
-	}
-	if msg, skip := companionRedundantMediaSkip(true, []string{"media.play"}, "media.play"); !skip || !strings.Contains(msg, "不要再 media.play") {
-		t.Fatalf("second media.play must skip: %q %v", msg, skip)
-	}
-	if _, skip := companionRedundantMediaSkip(true, nil, "media.play"); skip {
-		t.Fatal("first media.play must run")
-	}
-	if _, skip := companionRedundantMediaSkip(false, []string{"media.play"}, "media.play"); skip {
-		t.Fatal("typed chat must not skip media.play")
 	}
 }
 

@@ -86,7 +86,7 @@ type RemoteEndpoint struct {
 func ValidateBaseURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("%w: unparseable URL %q", ErrNotHttps, raw)
+		return fmt.Errorf("%w: unparseable URL", ErrNotHttps)
 	}
 	if u.Scheme != "https" {
 		return fmt.Errorf("%w: scheme %q", ErrNotHttps, u.Scheme)
@@ -94,8 +94,21 @@ func ValidateBaseURL(raw string) error {
 	if u.Host == "" {
 		return fmt.Errorf("%w: empty host", ErrNotHttps)
 	}
-	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return fmt.Errorf("%w: endpoint credentials, query and fragment are not allowed", ErrNotHttps)
+	if u.User != nil || u.Fragment != "" {
+		return fmt.Errorf("%w: URL credentials and fragments are not allowed; configure credentials separately", ErrNotHttps)
+	}
+	if u.RawQuery != "" {
+		// Some official services require a token query parameter. Persist only
+		// this public placeholder; the credential is leased at request time.
+		q, err := url.ParseQuery(u.RawQuery)
+		if err != nil || len(q) != 1 {
+			return ErrNotHttps
+		}
+		for name, values := range q {
+			if (name != "token" && name != "key" && name != "api_key") || len(values) != 1 || values[0] != "{{credential}}" {
+				return ErrNotHttps
+			}
+		}
 	}
 	return nil
 }

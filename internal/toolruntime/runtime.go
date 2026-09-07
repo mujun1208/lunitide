@@ -211,6 +211,13 @@ func (r *Runtime) ExecuteUnconfinedStreaming(ctx context.Context, session, name 
 }
 
 func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, args json.RawMessage, approved, unconfined bool, progress func(chunk string)) (out Result, err error) {
+	if name == "desktop.open" || name == "desktop.type" || name == "media.play" || name == "computer.act" || strings.HasPrefix(name, "cc.") {
+		release, acquireErr := acquireDesktopOperation(ctx)
+		if acquireErr != nil {
+			return Result{}, acquireErr
+		}
+		defer release()
+	}
 	switch mode {
 	case Approval, AutoEdit, Plan, FullAccess:
 	default:

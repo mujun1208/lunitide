@@ -28,7 +28,7 @@ func (x enginePackExecutor) preset(key string) (mcp6.Preset, []string, error) {
 	if !ok {
 		return p, nil, fmt.Errorf("unknown MCP preset %s", key)
 	}
-	args := append([]string(nil), p.Args...)
+	args := append([]string{}, p.Args...)
 	if p.NeedsArgs {
 		arg := strings.TrimSpace(p.ArgDefault)
 		if arg == "" && p.ArgPlaceholder == "{{dir}}" {
@@ -92,7 +92,7 @@ func (x enginePackExecutor) Describe(ctx context.Context, kind, key string) (cap
 			return r, err
 		}
 		for _, ep := range listed {
-			if ep.Command == p.Command && ep.ArgsJSON == string(raw) && ep.State != "revoked" {
+			if ep.Command == p.Command && ep.URL == p.URL && ep.ArgsJSON == string(raw) && ep.State != "revoked" {
 				r.TargetID = ep.EndpointID
 				return r, nil
 			}
@@ -122,9 +122,20 @@ func (x enginePackExecutor) Ensure(ctx context.Context, r capabilitypack.Resourc
 		if err != nil {
 			return "", err
 		}
-		added, err := x.e.m7mcp.Add(ctx, m7app.McpAddInput{EndpointID: r.TargetID, Origin: "manual", Transport: p.Transport, Command: p.Command, Args: args, RiskConfirmed: true, Actor: "capability-pack", IdempotencyKey: r.TargetID})
+		added, err := x.e.m7mcp.Add(ctx, m7app.McpAddInput{EndpointID: r.TargetID, Origin: "manual", Transport: p.Transport, Command: p.Command, URL: p.URL, Args: args, ConfigureOnly: p.NeedsCredential, RiskConfirmed: true, Actor: "capability-pack", IdempotencyKey: r.TargetID})
 		if err != nil {
 			return "", err
+		}
+		if p.NeedsCredential {
+			configured, lookupErr := x.e.m7mcp.Endpoint(ctx, added.EndpointID)
+			if lookupErr != nil {
+				return "", lookupErr
+			}
+			var refs map[string]string
+			_ = json.Unmarshal([]byte(configured.Security.EnvRefsJSON), &refs)
+			if configured.Security.AuthRef == "" && len(refs) == 0 {
+				return "", fmt.Errorf("%s 已添加，请在 MCP 已安装列表中配置本机凭据，再点击能力包的继续操作", p.Name)
+			}
 		}
 		ep, err := x.e.m7mcp.Toggle(ctx, added.EndpointID, true, "capability-pack")
 		if err != nil {

@@ -6,6 +6,22 @@ import (
 	"github.com/lunitide/lunitide/internal/ccapp"
 )
 
+// Entering an attended voice conversation authorizes its enabled capabilities.
+// The grant belongs to this session, is audited, and never changes global
+// settings or clears an emergency stop. Inbound colleague messages cannot grant it.
+func (e *Engine) authorizeCompanionSession(ctx context.Context, session string) error {
+	if e == nil || e.tools == nil || session == "" || unattended(ctx) || !e.tools.FullDiskEnabled() {
+		return nil
+	}
+	if e.ccctrl != nil {
+		cfg, err := e.ccctrl.GetConfig(ctx)
+		if err != nil || cfg.EmergencyStopped {
+			return nil
+		}
+	}
+	return e.tools.ConfirmFullDiskSession(ctx, session)
+}
+
 // ensureCompanionRuntimeCapabilities may raise a legacy rate cap when the
 // operator has already enabled computer control. It never turns CC on.
 func (e *Engine) ensureCompanionRuntimeCapabilities(ctx context.Context) {

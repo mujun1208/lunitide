@@ -14,17 +14,28 @@
     "path": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 512,
-      "pattern": "^(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).*\\.(html|xlsx|docx|pptx)$"
+      "maxLength": 512
     }
   },
-  "required": ["sessionId", "path"],
+  "required": [
+    "sessionId",
+    "path"
+  ],
   "x-result": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
       "kind": {
-        "enum": ["html", "xlsx", "docx", "pptx"]
+        "enum": [
+          "html",
+          "xlsx",
+          "docx",
+          "pptx",
+          "image",
+          "pdf",
+          "text",
+          "file"
+        ]
       },
       "path": {
         "type": "string"
@@ -32,14 +43,27 @@
       "size": {
         "type": "integer",
         "minimum": 0,
-        "maximum": 8388608
+        "maximum": 9007199254740991
       },
       "content": {
         "type": "string",
-        "maxLength": 262144
+        "maxLength": 3000000
+      },
+      "absolutePath": {
+        "type": "string",
+        "maxLength": 4096
+      },
+      "notice": {
+        "type": "string",
+        "maxLength": 512
       }
     },
-    "required": ["kind", "path", "size", "content"]
+    "required": [
+      "kind",
+      "path",
+      "size",
+      "content"
+    ]
   },
   "x-examples": {
     "positive": [
@@ -50,12 +74,7 @@
     ],
     "negative": [
       {
-        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAE",
-        "path": "../escape.xlsx"
-      },
-      {
-        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAE",
-        "path": "reports/q3.pdf"
+        "sessionId": ""
       }
     ]
   }

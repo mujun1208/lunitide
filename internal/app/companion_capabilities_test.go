@@ -74,6 +74,64 @@ func TestEnsureCompanionDoesNotEnableFullDiskOnFreshRoot(t *testing.T) {
 	}
 }
 
+func TestCompanionEntryAuthorizesOnlyAttendedSessionAndEnabledPolicy(t *testing.T) {
+	e, _ := newCcEngine(t)
+	tools, err := toolruntime.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tools.Close()
+	e.SetToolRuntime(tools)
+	const session = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	if err = e.authorizeCompanionSession(context.Background(), session); err != nil {
+		t.Fatal(err)
+	}
+	if tools.FullDiskSessionConfirmed(session) {
+		t.Fatal("entry changed disabled global policy")
+	}
+	if err = tools.SetCommandPolicyJSON([]byte(`{"commands":[],"fullAccess":true}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err = e.authorizeCompanionSession(withUnattended(context.Background()), session); err != nil {
+		t.Fatal(err)
+	}
+	if tools.FullDiskSessionConfirmed(session) {
+		t.Fatal("external message granted full disk")
+	}
+	if err = e.authorizeCompanionSession(context.Background(), session); err != nil {
+		t.Fatal(err)
+	}
+	if !tools.FullDiskSessionConfirmed(session) {
+		t.Fatal("attended voice entry did not grant enabled capabilities")
+	}
+	if tools.FullDiskSessionConfirmed("01ARZ3NDEKTSV4RRFFQ69G5FAW") {
+		t.Fatal("grant leaked to another conversation")
+	}
+}
+
+func TestCompanionEntryKeepsEmergencyStoppedConversationAvailable(t *testing.T) {
+	e, cc := newCcEngine(t)
+	tools, err := toolruntime.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tools.Close()
+	e.SetToolRuntime(tools)
+	if err = tools.SetCommandPolicyJSON([]byte(`{"commands":[],"fullAccess":true}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = cc.EmergencyStop(context.Background(), "user", "stop"); err != nil {
+		t.Fatal(err)
+	}
+	const session = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	if err = e.authorizeCompanionSession(context.Background(), session); err != nil {
+		t.Fatalf("voice conversation should remain available: %v", err)
+	}
+	if tools.FullDiskSessionConfirmed(session) {
+		t.Fatal("emergency stop still granted actions")
+	}
+}
+
 func TestEnsureCompanionDoesNotEnableFullDisk(t *testing.T) {
 	e, _ := newCcEngine(t)
 	root := t.TempDir()

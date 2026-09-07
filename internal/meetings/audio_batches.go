@@ -118,10 +118,13 @@ func (s *Service) AppendAudioBatch(ctx context.Context, meetingID string, pcm []
 	if m.Status != StatusRecording || sink.closed {
 		return AudioBatchAck{}, ErrNotRecording
 	}
-	if mixed := s.takeMixPCM(meetingID, len(pcm)); len(mixed) > 0 {
-		pcm = mixS16le(pcm, mixed)
-	}
-	return sink.appendBatchLocked(meetingID, pcm, id)
+	var ack AudioBatchAck
+	err = s.commitMixedPCM(meetingID, pcm, func(mixed []byte) error {
+		var writeErr error
+		ack, writeErr = sink.appendBatchLocked(meetingID, mixed, id)
+		return writeErr
+	})
+	return ack, err
 }
 
 func (s *audioSink) loadBatchesLocked() error {

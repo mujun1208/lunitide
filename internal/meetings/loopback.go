@@ -54,6 +54,14 @@ func (s *Service) startLoopback(meetingID string) error {
 		s.loopback = sess
 		s.audioMu.Unlock()
 		prev.close()
+		if prev.meetingID == meetingID {
+			prev.mu.Lock()
+			sess.mu.Lock()
+			sess.pollBuf, sess.mixBuf = prev.pollBuf, prev.mixBuf
+			prev.pollBuf, prev.mixBuf = nil, nil
+			sess.mu.Unlock()
+			prev.mu.Unlock()
+		}
 	} else {
 		s.loopback = sess
 		s.audioMu.Unlock()
@@ -85,14 +93,65 @@ func (s *Service) PollLoopback(ctx context.Context, meetingID string) (pcm []byt
 	sess := s.loopback
 	s.audioMu.Unlock()
 	if sess == nil || sess.meetingID != meetingID {
-		return []byte{}, false, nil
+		return s.retryLoopback(ctx, meetingID)
 	}
 	select {
 	case <-ctx.Done():
 		return nil, true, ctx.Err()
 	default:
 	}
+	select {
+	case <-sess.done:
+		return s.retryLoopback(ctx, meetingID)
+	default:
+	}
 	return sess.takePoll(), true, nil
+}
+
+func (s *Service) retryLoopback(ctx context.Context, meetingID string) ([]byte, bool, error) {
+	// Handles both an initial missing device and a device lost mid-recording.
+	s.mutationMu.Lock()
+	defer s.mutationMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	m, err := s.store.GetMeeting(ctx, meetingID)
+	if err != nil {
+		return nil, false, err
+	}
+	if m.Status != StatusRecording || m.AudioSource != AudioMicrophoneAndSystem {
+		return []byte{}, false, nil
+	}
+	s.audioMu.Lock()
+	current := s.loopback
+	s.audioMu.Unlock()
+	if current != nil && current.meetingID != meetingID {
+		return []byte{}, false, nil
+	}
+	if current != nil {
+		select {
+		case <-current.done:
+		default:
+			return current.takePoll(), true, nil
+		}
+	}
+	if time.Now().Before(s.loopbackRetryAt) {
+		if current != nil {
+			return current.takePoll(), false, nil
+		}
+		return []byte{}, false, nil
+	}
+	s.loopbackRetryAt = time.Now().Add(5 * time.Second)
+	if err := s.startLoopback(meetingID); err != nil {
+		if current != nil {
+			return current.takePoll(), false, nil
+		}
+		return []byte{}, false, nil
+	}
+	s.audioMu.Lock()
+	next := s.loopback
+	s.audioMu.Unlock()
+	return next.takePoll(), true, nil
 }
 
 func (s *Service) takeMixPCM(meetingID string, want int) []byte {
@@ -103,6 +162,26 @@ func (s *Service) takeMixPCM(meetingID string, want int) []byte {
 		return nil
 	}
 	return sess.takeMix(want)
+}
+
+// Keep system audio available until the corresponding microphone batch is
+// committed. A rejected/out-of-order batch or failed disk write must not
+// consume loopback samples and leave its retry with microphone audio only.
+func (s *Service) commitMixedPCM(meetingID string, mic []byte, commit func([]byte) error) error {
+	s.audioMu.Lock()
+	sess := s.loopback
+	s.audioMu.Unlock()
+	if sess == nil || sess.meetingID != meetingID {
+		return commit(mic)
+	}
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	n := min(len(mic), len(sess.mixBuf)) &^ 1
+	if err := commit(mixS16le(mic, sess.mixBuf[:n])); err != nil {
+		return err
+	}
+	sess.mixBuf = sess.mixBuf[n:]
+	return nil
 }
 
 func (sess *loopbackSession) run() {

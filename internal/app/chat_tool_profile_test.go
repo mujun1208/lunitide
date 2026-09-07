@@ -67,20 +67,20 @@ func TestApplyToolProfileKeepsDefaultAndFilters(t *testing.T) {
 	}
 }
 
-func TestFilterCompanionDefaultToolsOmitsShellAndIM(t *testing.T) {
+func TestFilterCompanionDefaultToolsKeepsGovernedTaskCapabilities(t *testing.T) {
 	all := append(engineToolDefinitions(), llmadapter.ToolDefinition{Name: "computer.act"}, llmadapter.ToolDefinition{Name: "cc.mouse_click"})
 	got := filterCompanionDefaultTools(all)
 	seen := map[string]bool{}
 	for _, d := range got {
 		seen[d.Name] = true
 	}
-	if seen["command.run"] || seen["im.send"] || seen["cc.mouse_click"] {
-		t.Fatalf("companion leaked high-risk tools: %v", seen)
+	if seen["cc.mouse_click"] {
+		t.Fatalf("companion exposed internal desktop primitive: %v", seen)
 	}
-	if !seen["desktop.open"] || !seen["media.play"] || !seen["computer.act"] || !seen["web.search"] {
+	if !seen["command.run"] || !seen["im.send"] || !seen["desktop.open"] || !seen["media.play"] || !seen["computer.act"] || !seen["web.search"] {
 		t.Fatalf("companion dropped desktop/media tools: %v", seen)
 	}
-	if !companionDefaultDeniedTool("command.run") || !companionDefaultDeniedTool("im.send") {
-		t.Fatal("denied set incomplete")
+	if companionDefaultDeniedTool("command.run") || companionDefaultDeniedTool("im.send") {
+		t.Fatal("voice must use the shared execution policy")
 	}
 }

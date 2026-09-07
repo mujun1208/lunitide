@@ -10,11 +10,17 @@
   "properties": {
     "origin": {
       "type": "string",
-      "enum": ["market", "manual"]
+      "enum": [
+        "market",
+        "manual"
+      ]
     },
     "transport": {
       "type": "string",
-      "enum": ["stdio", "https"]
+      "enum": [
+        "stdio",
+        "https"
+      ]
     },
     "command": {
       "type": "string",
@@ -55,9 +61,16 @@
     "actor": {
       "type": "string",
       "maxLength": 128
+    },
+    "configureOnly": {
+      "type": "boolean",
+      "description": "Save a disabled configuration without starting the server, so credentials can be configured before connection."
     }
   },
-  "required": ["origin", "requestId"],
+  "required": [
+    "origin",
+    "requestId"
+  ],
   "x-result": {
     "type": "object",
     "additionalProperties": false,
@@ -69,14 +82,22 @@
       },
       "state": {
         "type": "string",
-        "enum": ["probe", "ready", "degraded", "quarantined"]
+        "enum": [
+          "probe",
+          "ready",
+          "degraded",
+          "quarantined"
+        ]
       },
       "capabilityDigest": {
         "type": "string",
         "pattern": "^[0-9a-f]{64}$"
       }
     },
-    "required": ["endpointId", "state"]
+    "required": [
+      "endpointId",
+      "state"
+    ]
   },
   "x-examples": {
     "positive": [
@@ -84,7 +105,10 @@
         "origin": "market",
         "transport": "stdio",
         "command": "npx",
-        "args": ["-y", "@example/mcp-server"],
+        "args": [
+          "-y",
+          "@example/mcp-server"
+        ],
         "marketItemId": "01J8ZGB2V8X2B4C6D8F0G2H4J6",
         "requestId": "req-1a2b3c",
         "actor": "operator-1"

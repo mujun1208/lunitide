@@ -1,0 +1,54 @@
+{
+  "recordedAt": "2026-09-06T20:24:10.473690+00:00",
+  "codeFileCount": 2820,
+  "codeTreeSHA256": "ed4a8af7a98a92bd630de2263089a725b47ad1dd6312ef07de52d9eaf9cddb03",
+  "currentCodeMatchesLatestTests": true,
+  "candidateCodeMatchesLatestTests": true,
+  "candidateFullSourceSHA256": "1904481351b23109165cec0a46f6d9d82c2492e892f681631f0a9a32b6021d29",
+  "comparisons": [
+    {
+      "manifest": "final-go/go-source.json",
+      "sourceSHA256": "186e46f6c53f708d9e92ac02c0a84929fa753435e2d495ecae46a0682ff5e2e8",
+      "changedFiles": [
+        "web/src/session/companion/CompanionStage.talkmutex.test.tsx",
+        "web/src/session/companion/CompanionStage.tsx"
+      ]
+    },
+    {
+      "manifest": "final-web-r3/web-source.json",
+      "sourceSHA256": "fc40fe4899dfffed7c4db3fb1dc849de376a5a9c5602cd72459da61139b2b6cd",
+      "changedFiles": [
+        "web/src/session/companion/CompanionStage.talkmutex.test.tsx",
+        "web/src/session/companion/CompanionStage.tsx"
+      ]
+    },
+    {
+      "manifest": "final-gates/static-source.json",
+      "sourceSHA256": "061a70753519a7f7a887f4b5a7acbe0498d1fdd79a219990ddc8095565ef5f05",
+      "changedFiles": [
+        "web/src/assets/AssetManagerPage.test.tsx",
+        "web/src/session/companion/CompanionStage.talkmutex.test.tsx",
+        "web/src/session/companion/CompanionStage.tsx"
+      ]
+    },
+    {
+      "manifest": "final-gates/security-source.json",
+      "sourceSHA256": "061a70753519a7f7a887f4b5a7acbe0498d1fdd79a219990ddc8095565ef5f05",
+      "changedFiles": [
+        "web/src/assets/AssetManagerPage.test.tsx",
+        "web/src/session/companion/CompanionStage.talkmutex.test.tsx",
+        "web/src/session/companion/CompanionStage.tsx"
+      ]
+    },
+    {
+      "manifest": "final-gates/release-tools-source.json",
+      "sourceSHA256": "061a70753519a7f7a887f4b5a7acbe0498d1fdd79a219990ddc8095565ef5f05",
+      "changedFiles": [
+        "web/src/assets/AssetManagerPage.test.tsx",
+        "web/src/session/companion/CompanionStage.talkmutex.test.tsx",
+        "web/src/session/companion/CompanionStage.tsx"
+      ]
+    }
+  ],
+  "scope": "Code inputs only; audit documentation is updated after candidate verification."
+}

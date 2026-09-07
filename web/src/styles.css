@@ -1788,7 +1788,14 @@ html[data-theme="light"] .asset-sidebar-item:hover{background:rgba(0,138,197,.08
 html[data-theme="light"] .asset-table-head,html[data-theme="light"] .asset-detail-meta,html[data-theme="light"] .asset-detail-parsed,html[data-theme="light"] .asset-precheck,html[data-theme="light"] .asset-lifecycle-card,html[data-theme="light"] .asset-lifecycle-note{background:var(--bg2)}
 html[data-theme="light"] .asset-detail,html[data-theme="light"] .asset-dialog{background:#fff;box-shadow:0 30px 90px rgba(45,92,135,.25)}
 
-.mcp-page .mcp-market{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+.mcp-page .mcp-market{grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr))}
+.mcp-page,.plugin-page{min-width:0}
+.mcp-page .skill-market-card,.plugin-page .skill-market-card{min-width:0}
+.mcp-page .skill-market-card>header,.plugin-page .skill-market-card>header{min-width:0}
+.mcp-page .skill-market-glyph,.mcp-page .skill-market-add,.plugin-page .skill-market-add{flex-shrink:0}
+.mcp-page .skill-market-card b,.mcp-page .skill-market-card footer small,.mcp-page .expert-card-main small,.mcp-page .skill-center-error,.plugin-page .skill-center-error{overflow-wrap:anywhere;min-width:0}
+.mcp-page .mcp-arg-row{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.mcp-page .mcp-arg-row input{flex:1 1 140px;min-width:0;width:100%}
 .mcp-arg-row{display:flex;gap:8px;align-items:center}
 .mcp-arg-row input{flex:1;min-width:0;padding:6px 8px;border:1px solid var(--rule);border-radius:8px;background:transparent;color:var(--ink)}
 .mcp-trust{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:13px}
@@ -2088,34 +2095,70 @@ html[data-theme="light"] .subagent-profile-row{background:#fff}
 .meeting-list .meeting-row>button small{color:var(--muted);font-size:11px}
 .meeting-list .meeting-row>button.on,.meeting-list .meeting-row>button:hover{background:color-mix(in srgb,var(--tide1) 12%,transparent);border-color:color-mix(in srgb,var(--tide1) 28%,transparent)}
 .meeting-row-delete{align-self:center;padding:6px 8px;font-size:12px;color:var(--muted)}
-.meeting-doc textarea{width:100%;min-height:64px;max-height:18vh;box-sizing:border-box;border:1px solid var(--rule);border-radius:8px;background:transparent;color:var(--ink);padding:10px 12px;font:inherit;line-height:1.55;resize:vertical;overflow:auto}
-.meeting-main{padding:20px 24px 24px;display:flex;flex-direction:column;gap:14px;align-content:start;min-height:0;overflow:hidden}
-.meeting-hero,.meeting-rec,.meeting-notice{flex:0 0 auto}
-.meeting-hero{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
-.meeting-hero h2{margin:0;font-size:22px}
-.meeting-hero p{margin:6px 0 0;color:var(--muted);font-size:13px;max-width:48ch}
-.meeting-clock{font-family:var(--mono);font-size:28px;color:var(--tide1);letter-spacing:.04em}
+/* Meeting workbench follows the application's dark/light theme tokens. */
+.meeting-main{padding:28px 32px;display:flex;flex-direction:column;gap:18px;min-width:0;min-height:0;overflow:auto;container-type:inline-size}
+.meeting-main>*{flex-shrink:0}
+.meeting-hero{display:flex;justify-content:space-between;gap:28px;align-items:center;padding:0 0 20px;border-bottom:1px solid var(--rule)}
+.meeting-heading{min-width:0;flex:1}
+.meeting-eyebrow{color:var(--muted);font-size:12px;font-weight:500;margin-bottom:10px;letter-spacing:.04em}
+.meeting-eyebrow span{padding:0 7px;opacity:.55}
+.meeting-hero h2{margin:0;font-size:clamp(20px,2.1vw,28px);line-height:1.4;font-weight:650;overflow-wrap:anywhere}
+.meeting-hero p{margin:9px 0 0;color:var(--muted);font-size:13px;line-height:1.7}
+.meeting-time{flex:none;min-width:108px;text-align:right;padding:12px 16px;background:var(--bg2);border:1px solid var(--rule);border-radius:12px}
+.meeting-time-label{display:block;margin-bottom:4px;color:var(--muted);font-size:11px}
+.meeting-time.is-recording .meeting-time-label::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:6px;background:var(--err)}
+.meeting-clock{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:28px;color:var(--ink);letter-spacing:.02em;line-height:1.15}
+.meeting-time.is-recording .meeting-clock{color:var(--tide1)}
 .meeting-rec{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.meeting-start,.meeting-stop,.meeting-new-inline,.meeting-settings-link,.meeting-export button{padding:8px 16px;border-radius:999px;border:1px solid var(--line);background:var(--bg2);color:var(--ink)}
-.meeting-settings-link,.meeting-new-inline{background:transparent;color:var(--muted);font-size:12px}
-.meeting-start{background:color-mix(in srgb,var(--tide1) 22%,transparent);border-color:color-mix(in srgb,var(--tide1) 45%,transparent);color:var(--ink)}
-.meeting-stop{background:color-mix(in srgb,var(--err) 16%,transparent);border-color:color-mix(in srgb,var(--err) 40%,transparent);color:var(--err)}
-.meeting-rec span{color:var(--muted);font-size:13px}
-.meeting-mix{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;cursor:pointer}
-.meeting-mix input{accent-color:var(--tide1)}
-.meeting-notice{margin:0;color:var(--tide3);font-size:13px}
-.meeting-diag{flex:0 0 auto;margin:0;padding:5px 10px;border:1px solid var(--rule);border-radius:8px;background:rgba(127,180,255,.06);color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums;letter-spacing:.01em}
-.meeting-warn{flex:0 0 auto;margin:0;padding:10px 14px;border-radius:10px;font-size:13px;line-height:1.5;color:#fff;background:color-mix(in srgb,#e5484d 88%,transparent);border:1px solid color-mix(in srgb,#e5484d 60%,#000)}
-.meeting-transcript{flex:1 1 22%;min-height:72px;max-height:none;overflow:auto;padding:14px;border-radius:12px;border:1px solid var(--line);background:var(--bg2);display:grid;gap:8px;align-content:start}
-.meeting-transcript p{margin:0;font-size:14px;line-height:1.55}
+.meeting-start,.meeting-stop,.meeting-new-inline,.meeting-settings-link,.meeting-export button{min-height:36px;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--ink);font:inherit;font-size:12px;cursor:pointer}
+.meeting-settings-link{margin-left:auto;background:transparent;color:var(--muted)}
+.meeting-new-inline{background:transparent}
+.meeting-start{background:color-mix(in srgb,var(--tide1) 18%,var(--bg2));border-color:color-mix(in srgb,var(--tide1) 48%,var(--line));font-weight:650}
+.meeting-stop{background:color-mix(in srgb,var(--err) 12%,var(--bg2));border-color:color-mix(in srgb,var(--err) 36%,var(--line));color:var(--err);font-weight:650}
+.meeting-rec span{color:var(--muted);font-size:12px;line-height:1.6}
+.meeting-rec button:hover:not(:disabled),.meeting-export button:hover:not(:disabled){border-color:var(--tide1);background:color-mix(in srgb,var(--tide1) 10%,var(--bg2))}
+.meeting-main button:disabled{opacity:.55;cursor:default}
+.meeting-notice{margin:0;padding:10px 14px;color:var(--tide3);font-size:13px;line-height:1.6;background:color-mix(in srgb,var(--tide3) 6%,var(--bg2));border:1px solid color-mix(in srgb,var(--tide3) 22%,var(--rule));border-radius:8px}
+.meeting-warn{margin:0;padding:12px 16px;border-radius:10px;font-size:13px;line-height:1.7;color:var(--ink);background:color-mix(in srgb,var(--err) 9%,var(--bg2));border:1px solid color-mix(in srgb,var(--err) 35%,var(--rule))}
+.meeting-capture-info{color:var(--muted);font-size:12px;line-height:1.7}
+.meeting-capture-info summary{cursor:pointer;width:fit-content}
+.meeting-capture-info p{max-width:86ch;margin:8px 0 0}
+.meeting-diag{font-size:11px;font-variant-numeric:tabular-nums}
+.meeting-live-section{border:1px solid var(--line);border-radius:12px;background:var(--bg2);overflow:hidden}
+.meeting-live-section>summary{padding:16px 20px;font-size:13px;font-weight:600;cursor:pointer;color:var(--muted)}
+.meeting-live-section.is-live>summary{color:var(--ink)}
+.meeting-live-section>div:last-child:not(.meeting-transcript){padding:0 20px 18px;font-size:13px;line-height:1.7}
+.meeting-live-section button{padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:transparent;color:var(--muted);cursor:pointer}
+.meeting-transcript{min-height:160px;max-height:55vh;overflow:auto;padding:0 20px 20px;display:grid;gap:12px;align-content:start}
+.meeting-live-section.is-live .meeting-transcript{min-height:280px}
+.meeting-transcript p{margin:0;font-size:14px;line-height:1.9;overflow-wrap:anywhere}
+.meeting-transcript-empty{min-height:240px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;color:var(--muted)}
+.meeting-transcript-empty p{color:var(--ink);font-weight:500}
+.meeting-transcript-empty small{font-size:12px;line-height:1.7}
+.meeting-sound-mark{padding:0 0 12px;font-size:27px;letter-spacing:3px;color:var(--tide1);opacity:.7}
 .meeting-interim{color:var(--muted)}
 .meeting-empty{margin:0;color:var(--muted);font-size:13px}
-.meeting-doc{flex:1 1 42%;display:grid;gap:14px;padding:14px;border-radius:12px;border:1px solid var(--line);background:var(--bg2);min-width:0;min-height:0;overflow:auto}
-.meeting-doc h3{margin:0 0 6px;font-size:14px}
-.meeting-doc p,.meeting-doc pre{margin:0;white-space:pre-wrap;font-size:13px;line-height:1.55}
-.meeting-export{display:flex;gap:8px;flex-wrap:wrap}
+.meeting-doc{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:18px;min-width:0;overflow:visible}
+.meeting-card{min-width:0;padding:20px;border-radius:12px;border:1px solid var(--line);background:var(--bg2)}
+.meeting-card h3{margin:0 0 16px;font-size:15px;line-height:1.5;font-weight:650}
+.meeting-doc p,.meeting-doc pre{margin:0;white-space:pre-wrap;font-size:13px;line-height:1.7;overflow-wrap:anywhere}
+.meeting-doc textarea{display:block;width:100%;min-height:160px;max-height:none;box-sizing:border-box;border:1px solid var(--rule);border-radius:8px;background:var(--bg);color:var(--ink);padding:14px 16px;font:inherit;font-size:14px;line-height:1.85;resize:vertical;overflow:auto;field-sizing:content}
+.meeting-doc textarea:focus{outline:2px solid color-mix(in srgb,var(--tide1) 55%,transparent);outline-offset:2px}
+.meeting-doc textarea::placeholder{color:var(--muted)}
+.meeting-summary-source{margin-bottom:12px;color:var(--muted)}
+.meeting-summary-source p{font-size:11px}
+.meeting-summary-source button,.meeting-full-transcript button{margin:7px 7px 7px 0;padding:6px 9px;border:1px solid var(--rule);border-radius:6px;background:transparent;color:var(--muted);font-size:11px;cursor:pointer}
+.meeting-summary-source section{padding:12px 0 0}
+.meeting-summary-source textarea{min-height:160px;max-height:320px}
+.meeting-full-transcript,.meeting-doc-source,.meeting-export{grid-column:1/-1}
+.meeting-full-transcript textarea{min-height:240px}
+.meeting-doc .meeting-doc-source{font-size:11px;color:var(--muted)}
+.meeting-export{position:sticky;bottom:-28px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 -1px -1px;padding:14px 0 16px;border-top:1px solid var(--rule);background:var(--bg)}
+.meeting-export>div[role='alert']{flex-basis:100%;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--bg2)}
 .meeting-notes-settings .choice-tiles{margin:12px 0}
-@media(max-width:860px){.meeting-shell{grid-template-columns:1fr}.meeting-shell>.panel-resizer{display:none}}
+@container(max-width:720px){.meeting-doc{grid-template-columns:minmax(0,1fr)}.meeting-hero{gap:14px}.meeting-settings-link{margin-left:0}.meeting-rec span{flex-basis:calc(100% - 120px)}}
+@media(max-width:860px){.meeting-shell{grid-template-columns:minmax(180px,210px) 5px minmax(0,1fr)}.meeting-main{padding:22px 20px}.meeting-export{bottom:-22px}}
+@media(max-width:600px){.meeting-shell{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}.meeting-shell>.panel-resizer{display:none}.meeting-list{max-height:190px;border-right:0;border-bottom:1px solid var(--rule);padding:12px}.meeting-new{margin-bottom:8px}.meeting-main{padding:18px 16px}.meeting-time{min-width:80px;padding:10px}.meeting-clock{font-size:24px}.meeting-hero{gap:12px}.meeting-export{bottom:-18px}}
 
 /* Root crash fallback: keeps the window usable when a render throws. */
 .root-error-shell{min-height:100vh;margin:0;background:var(--bg);color:var(--ink)}
@@ -2279,6 +2322,10 @@ html[data-theme="light"] .voice-path-card:hover,html[data-theme="light"] .voice-
 .people-bubble p{margin:4px 0 0}
 .people-bubble small{color:var(--muted);font-size:11px}
 .people-bubble img{max-width:220px;border-radius:8px;display:block;margin-top:6px}
+.people-image-preview,.people-file-name{padding:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
+.people-file-name{font-weight:700}
+.people-image-viewer{max-height:70vh;overflow:auto;text-align:center}
+.people-image-viewer img{display:block;max-width:100%;height:auto;margin:auto}
 .people-file{display:grid;gap:6px;margin-top:6px}
 .people-file-actions{display:flex;gap:8px}
 .people-file-confirm{display:grid;gap:4px;margin:0 0 12px;color:var(--ink)}

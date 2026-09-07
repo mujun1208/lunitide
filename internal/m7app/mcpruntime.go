@@ -21,6 +21,7 @@ import (
 	"github.com/lunitide/lunitide/internal/audit"
 	"github.com/lunitide/lunitide/internal/capabilitypack"
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
+	"github.com/lunitide/lunitide/internal/mcp"
 	"github.com/lunitide/lunitide/internal/mcp6"
 )
 
@@ -138,6 +139,7 @@ type McpAddInput struct {
 	EnvSecretRefs  map[string]string
 	MarketItemID   string
 	RiskConfirmed  bool
+	ConfigureOnly  bool // save disabled configuration before credentials/probe
 	Actor          string
 	IdempotencyKey string
 }
@@ -184,7 +186,7 @@ func (s *McpRuntimeService) Add(ctx context.Context, in McpAddInput) (McpAddResu
 			return McpAddResult{}, fmt.Errorf("%w: args contain metacharacters", ErrMcpSchema)
 		}
 	case m7flow.McpTransportHTTPS:
-		if in.URL == "" || !strings.HasPrefix(in.URL, "https://") {
+		if mcp.ValidateBaseURL(in.URL) != nil {
 			return McpAddResult{}, fmt.Errorf("%w: https url required", ErrMcpSchema)
 		}
 	default:
@@ -280,7 +282,7 @@ func (s *McpRuntimeService) Add(ctx context.Context, in McpAddInput) (McpAddResu
 		return McpAddResult{}, err
 	}
 	// probe outside the write tx: failure parks degraded (M7-MCP-004)
-	if out.State == m7flow.McpStateProbe {
+	if out.State == m7flow.McpStateProbe && !in.ConfigureOnly {
 		hm, herr := s.Health(ctx, out.EndpointID)
 		if herr != nil {
 			return McpAddResult{EndpointID: out.EndpointID, State: m7flow.McpStateProbe}, herr

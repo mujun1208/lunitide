@@ -62,6 +62,29 @@ func handleOrgSwitch(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 	return r.Ok(res)
 }
 
+func handleOrgSelectPersonal(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct{}
+	if decodePayload(r.Payload, &p) != nil {
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "org.selectPersonal 参数无效", false)
+	}
+	if e.m9org == nil {
+		return r.Fail("STORAGE_UNAVAILABLE", "组织管理服务暂时不可用", true)
+	}
+	if failure := requireIdempotency(r); failure != nil {
+		return *failure
+	}
+	release := e.beginScopeSwitch()
+	defer release()
+	if err := e.m9org.SelectPersonal(ctx); err != nil {
+		return m9OrgFailure(r, err)
+	}
+	res, err := e.m9org.Summary(ctx)
+	if err != nil {
+		return m9OrgFailure(r, err)
+	}
+	return r.Ok(res)
+}
+
 func handleOrgActivate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{}
 	if decodePayload(r.Payload, &p) != nil {

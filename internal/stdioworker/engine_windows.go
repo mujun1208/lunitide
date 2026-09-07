@@ -72,7 +72,15 @@ type engineProc struct {
 }
 
 // engineSpawn launches cmd under a fresh Job Object with explicit env.
-func engineSpawn(cmd string, args []string, dir string, env []string, q Quotas) (*engineProc, error) {
+func engineSpawn(cmd string, args []string, dir string, env []string, q Quotas, stderr ...*os.File) (*engineProc, error) {
+	var stderrHandle windows.Handle
+	if len(stderr) > 0 && stderr[0] != nil {
+		current := windows.CurrentProcess()
+		if err := windows.DuplicateHandle(current, windows.Handle(stderr[0].Fd()), current, &stderrHandle, 0, true, windows.DUPLICATE_SAME_ACCESS); err != nil {
+			return nil, fmt.Errorf("stdioworker: stderr handle: %w", err)
+		}
+		defer windows.CloseHandle(stderrHandle)
+	}
 	var inRead, inWrite, outRead, outWrite windows.Handle
 	noInherit := &windows.SecurityAttributes{Length: uint32(unsafe.Sizeof(windows.SecurityAttributes{}))}
 	if err := windows.CreatePipe(&inRead, &inWrite, noInherit, 0); err != nil {
@@ -138,6 +146,9 @@ func engineSpawn(cmd string, args []string, dir string, env []string, q Quotas) 
 	si.StdInput = inRead
 	si.StdOutput = outWrite
 	si.StdErr = outWrite
+	if stderrHandle != 0 {
+		si.StdErr = stderrHandle
+	}
 	var pi windows.ProcessInformation
 	if err := windows.CreateProcess(appName, cmdline, nil, nil, true,
 		swCreateSuspended|swCreateNoWindow|swCreateUnicodeEnvironment, envPtr, cwd, &si, &pi); err != nil {

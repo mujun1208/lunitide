@@ -150,19 +150,20 @@ type Store interface {
 }
 
 type Service struct {
-	executionScope func(context.Context, string) (context.Context, func(), error)
-	store          Store
-	complete       Completer
-	transcribe     AudioTranscriber
-	audioRoot      string
-	mu             sync.Mutex
-	mutationMu     sync.Mutex // Short recording/edit mutations; never held during model I/O.
-	audioMu        sync.Mutex
-	recording      string
-	summarizing    map[string]bool
-	catchingUp     map[string]bool
-	sinks          map[string]*audioSink
-	loopback       *loopbackSession
+	executionScope  func(context.Context, string) (context.Context, func(), error)
+	store           Store
+	complete        Completer
+	transcribe      AudioTranscriber
+	audioRoot       string
+	mu              sync.Mutex
+	mutationMu      sync.Mutex // Short recording/edit mutations; never held during model I/O.
+	audioMu         sync.Mutex
+	recording       string
+	summarizing     map[string]bool
+	catchingUp      map[string]bool
+	sinks           map[string]*audioSink
+	loopback        *loopbackSession
+	loopbackRetryAt time.Time // guarded by mutationMu
 }
 
 func New(store Store) *Service {

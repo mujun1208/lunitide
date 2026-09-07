@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,6 +53,7 @@ const (
 // StdioSession is one live isolated MCP stdio server. Not safe for
 // concurrent use: the registry serialises calls per endpoint.
 type StdioSession struct {
+	stderr   *os.File
 	proc     *stdioworker.IsolatedProc
 	stdin    *bufio.Writer
 	stdout   *bufio.Scanner
@@ -116,11 +118,21 @@ func StdioDial(ctx context.Context, command string, args []string, workDir strin
 	if tv := os.Getenv("TEMP"); tv != "" {
 		env = append(env, "TEMP="+tv, "TMP="+tv)
 	}
-	proc, err := stdioworker.SpawnIsolated(exe, argv, workDir, env, stdioworker.StdioQuotas())
+	// npx/uvx and MCP servers write diagnostics to stderr. Never feed those
+	// bytes into JSON-RPC, and continuously drain them without unbounded storage
+	// or logging potentially sensitive server output.
+	stderrRead, stderrWrite, err := os.Pipe()
+	if err != nil {
+		return nil, fmt.Errorf("%w: stderr pipe: %v", ErrStdioLaunch, err)
+	}
+	go func() { _, _ = io.Copy(io.Discard, stderrRead); _ = stderrRead.Close() }()
+	proc, err := stdioworker.SpawnIsolatedWithStderr(exe, argv, workDir, env, stdioworker.StdioQuotas(), stderrWrite)
+	_ = stderrWrite.Close()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrStdioLaunch, err)
 	}
 	s := &StdioSession{
+		stderr: stderrRead,
 		proc:   proc,
 		stdin:  bufio.NewWriter(proc.Stdin()),
 		stdout: bufio.NewScanner(proc.Stdout()),
@@ -330,4 +342,7 @@ func (s *StdioSession) Close() {
 		return
 	}
 	s.proc.Close()
+	if s.stderr != nil {
+		_ = s.stderr.Close()
+	}
 }

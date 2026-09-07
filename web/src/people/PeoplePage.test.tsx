@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { FeedbackBridge, IdentityBridge, MemoryBridge, PeopleBridge } from '../bridge/client'
@@ -64,6 +64,7 @@ function bridges(decide = vi.fn()) {
     groupCreate: vi.fn(),
     fileDecide: decide,
     fileOpen: vi.fn(),
+    filePreview: vi.fn().mockResolvedValue({ dataUrl: 'data:image/png;base64,AQID' }),
     fileStage: vi.fn(),
     filePick: vi.fn(),
     screenCapture: vi.fn(),
@@ -81,6 +82,7 @@ function bridges(decide = vi.fn()) {
 describe('PeoplePage', () => {
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     localStorage.removeItem('lunitide:people-composer-height')
     vi.mocked(captureThisPcFrame).mockReset()
   })
@@ -239,7 +241,45 @@ describe('PeoplePage', () => {
     render(<PeoplePage identity={identity} people={people} />)
     await user.click((await screen.findAllByRole('button', { name: /同事甲/ }))[0])
     await user.click(await screen.findByRole('button', { name: '打开' }))
-    expect(fileOpen).toHaveBeenCalledWith({ destPath: 'C:/inbox/secret.txt' })
+    expect(fileOpen).toHaveBeenCalledWith({ destPath: 'C:/inbox/secret.txt', fileName: 'secret.txt' })
+  })
+
+  test('sent screenshot appears in chat, opens a preview, and remains viewable after reopening', async () => {
+    const { identity, people } = bridges()
+    const bytes = new Uint8Array([1,2,3])
+    const file = new File([bytes], '截图.png', { type: 'image/png' })
+    Object.defineProperty(file, 'arrayBuffer', { value: async () => bytes.buffer })
+    vi.mocked(captureThisPcFrame).mockResolvedValue({ file, source: 'native' })
+    const sent: PeopleMessageDTO = { ...fileMsg, messageId: '01ARZ3NDEKTSV4RRFFQ69G5FB5', senderSubjectId: me.subjectId, kind: 'image', fileName: '截图.png', destPath: 'C:/stage/screenshot.png' }
+    people.threadSend = vi.fn().mockResolvedValue({ message: sent })
+    people.fileOpen = vi.fn().mockResolvedValue({ opened: sent.destPath })
+    const user = userEvent.setup()
+    const view = render(<PeoplePage identity={identity} people={people} initialPeerSubjectId={peer.subjectId} />)
+    await user.click(await screen.findByRole('button', { name: '框选截图' }))
+    await user.click(await screen.findByRole('button', { name: '查看图片 截图.png' }))
+    let dialog = await screen.findByRole('dialog', { name: '截图.png' })
+    expect(within(dialog).getByRole('img')).toHaveAttribute('src', 'data:image/png;base64,AQID')
+    await user.click(within(dialog).getByRole('button', { name: '打开原文件' }))
+    expect(people.fileOpen).toHaveBeenCalledWith({ destPath: sent.destPath, fileName: '截图.png' })
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    view.unmount()
+    people.threadOpen = vi.fn().mockResolvedValue({ thread, messages: [sent] })
+    render(<PeoplePage identity={identity} people={people} initialPeerSubjectId={peer.subjectId} />)
+    await user.click(await screen.findByRole('button', { name: '查看图片 截图.png' }))
+    dialog = await screen.findByRole('dialog', { name: '截图.png' })
+    expect(within(dialog).getByRole('img')).toHaveAttribute('src', 'data:image/png;base64,AQID')
+  })
+
+  test.each(['合同.pdf', '报表.xlsx', '文件夹.zip', '视频.mp4', '音频.mp3'])('sent attachment %s opens from its message name', async fileName => {
+    const { identity, people } = bridges()
+    const sent = { ...fileMsg, senderSubjectId: me.subjectId, fileName, destPath: 'C:/stage/old-id' }
+    people.threadOpen = vi.fn().mockResolvedValue({ thread, messages: [sent] })
+    people.fileOpen = vi.fn().mockResolvedValue({ opened: sent.destPath })
+    const user = userEvent.setup()
+    render(<PeoplePage identity={identity} people={people} initialPeerSubjectId={peer.subjectId} />)
+    await user.click(await screen.findByRole('button', { name: fileName }))
+    expect(people.fileOpen).toHaveBeenCalledWith({ destPath: sent.destPath, fileName })
   })
 
   test('contacts search filters the org tree', async () => {
@@ -427,6 +467,52 @@ describe('PeoplePage', () => {
     await vi.waitFor(() => expect(people.threadSend).toHaveBeenCalledWith(expect.objectContaining({ kind: 'image' }),expect.objectContaining({attempt:expect.objectContaining({method:"people.thread.send",idempotencyKey:expect.any(String)})})))
     const payload = vi.mocked(people.threadSend).mock.calls[0][0]
     expect(payload.localPath || payload.contentBase64).toBeTruthy()
+  })
+
+  test('a stalled screenshot read releases sending and a late read never sends into the next conversation', async () => {
+    const { identity, people } = bridges()
+    let finishRead!: (bytes: ArrayBuffer) => void
+    const file = new File(['screenshot'], '截图.png', { type: 'image/png' })
+    Object.defineProperty(file, 'arrayBuffer', { value: () => new Promise<ArrayBuffer>(resolve => { finishRead = resolve }) })
+    vi.mocked(captureThisPcFrame).mockResolvedValue({ source: 'native', file })
+    people.threadSend = vi.fn(async payload => ({ message: { ...fileMsg, messageId: `${fileMsg.messageId}-${payload.body}`, senderSubjectId: me.subjectId, kind: payload.kind, body: payload.body ?? '' } }))
+    const user = userEvent.setup()
+    render(<PeoplePage identity={identity} people={people} initialPeerSubjectId={peer.subjectId} />)
+    await screen.findByPlaceholderText(/粘贴图片/)
+    vi.useFakeTimers()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '框选截图' })) })
+    expect(people.threadSend).not.toHaveBeenCalled()
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_001) })
+    expect(screen.getByRole('alert')).toHaveTextContent('读取截图或文件超时')
+    vi.useRealTimers()
+    for (const body of ['截图失败后仍能说话', '🙂']) {
+      fireEvent.change(screen.getByPlaceholderText(/粘贴图片/), { target: { value: body } })
+      await user.click(screen.getByRole('button', { name: '发送' }))
+      expect(people.threadSend).toHaveBeenLastCalledWith(expect.objectContaining({ body }), expect.anything())
+    }
+    await act(async () => { finishRead(new Uint8Array([1, 2, 3]).buffer) })
+    expect(people.threadSend).toHaveBeenCalledTimes(2)
+    expect(people.fileStage).not.toHaveBeenCalled()
+  })
+
+  test('a failed screenshot chunk releases the composer for subsequent text and emoji', async () => {
+    const { identity, people } = bridges()
+    const bytes = new Uint8Array(100 * 1024)
+    const file = new File([bytes], '截图.png', { type: 'image/png' })
+    Object.defineProperty(file, 'arrayBuffer', { value: async () => bytes.buffer })
+    vi.mocked(captureThisPcFrame).mockResolvedValue({ source: 'native', file })
+    people.fileStage = vi.fn().mockRejectedValue(new Error('截图分片上传失败'))
+    people.threadSend = vi.fn(async payload => ({ message: { ...fileMsg, messageId: `${fileMsg.messageId}-${payload.body}`, senderSubjectId: me.subjectId, kind: payload.kind, body: payload.body ?? '' } }))
+    const user = userEvent.setup()
+    render(<PeoplePage identity={identity} people={people} initialPeerSubjectId={peer.subjectId} />)
+    await user.click(await screen.findByRole('button', { name: '框选截图' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('截图分片上传失败')
+    for (const body of ['继续聊天', '🙂']) {
+      fireEvent.change(screen.getByPlaceholderText(/粘贴图片/), { target: { value: body } })
+      await user.click(screen.getByRole('button', { name: '发送' }))
+      expect(people.threadSend).toHaveBeenLastCalledWith(expect.objectContaining({ body }), expect.anything())
+    }
+    expect(people.threadSend).toHaveBeenCalledTimes(2)
   })
 
   test('pastes a large clipboard image through chunked staging before send', async () => {

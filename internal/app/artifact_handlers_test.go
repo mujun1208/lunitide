@@ -110,10 +110,14 @@ func TestArtifactPreviewKindAware(t *testing.T) {
 	if !strings.Contains(previewPayload.Content, "进展") || !strings.Contains(previewPayload.Content, "&") || !strings.Contains(previewPayload.Content, "P2-2 验收闭环") {
 		t.Fatalf("docx text extraction wrong: %s", previewPayload.Content)
 	}
-	// pdf has no extractor yet → explicit unsupported failure.
+	// PDF keeps an actionable file card even without an inline extractor.
 	pdf := handleWorkspaceArtifactPreview(e, ctx, artifactRequest(`{"sessionId":"`+artifactSession+`","path":"说明.pdf"}`))
-	if pdf.OK || pdf.Error == nil || pdf.Error.Code != "ARTIFACT_PREVIEW_UNSUPPORTED" {
-		t.Fatalf("pdf preview should be unsupported: %+v", pdf)
+	if !pdf.OK {
+		t.Fatalf("PDF should retain file metadata and native open: %+v", pdf)
+	}
+	pdfMeta, _ := json.Marshal(pdf.Payload)
+	if !strings.Contains(string(pdfMeta), `"kind":"pdf"`) || !strings.Contains(string(pdfMeta), `"absolutePath":`) || !strings.Contains(string(pdfMeta), `"notice":`) {
+		t.Fatalf("PDF metadata incomplete: %s", pdfMeta)
 	}
 	// escaping or missing paths fail closed.
 	escape := handleWorkspaceArtifactPreview(e, ctx, artifactRequest(`{"sessionId":"`+artifactSession+`","path":"../x.docx"}`))

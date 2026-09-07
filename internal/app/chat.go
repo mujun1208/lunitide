@@ -140,14 +140,15 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			Type string `json:"type"`
 			ID   string `json:"id"`
 		} `json:"contextRefs"`
-		Companion          bool            `json:"companion"`
-		ReplyStyle         string          `json:"replyStyle"`
-		StructuredTemplate string          `json:"structuredTemplate"`
-		ProjectID          string          `json:"projectId"`
-		ProjectPhase       int             `json:"projectPhase"`
-		ProjectPhaseLabel  string          `json:"projectPhaseLabel"`
-		SubagentPolicy     json.RawMessage `json:"subagentPolicy"`
-		ToolProfile        string          `json:"toolProfile"`
+		Companion             bool            `json:"companion"`
+		CompanionHistoryAfter int64           `json:"companionHistoryAfter"`
+		ReplyStyle            string          `json:"replyStyle"`
+		StructuredTemplate    string          `json:"structuredTemplate"`
+		ProjectID             string          `json:"projectId"`
+		ProjectPhase          int             `json:"projectPhase"`
+		ProjectPhaseLabel     string          `json:"projectPhaseLabel"`
+		SubagentPolicy        json.RawMessage `json:"subagentPolicy"`
+		ToolProfile           string          `json:"toolProfile"`
 	}
 	if decodePayload(request.Payload, &p) != nil || !ulidValid(p.ProviderID) || len(p.ModelID) < 1 || len(p.ModelID) > 128 {
 		return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.start 参数无效", false)
@@ -206,11 +207,14 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.start executionMode 无效", false)
 	}
 
-	// Moon Companion: low-risk tools stay full-access. Dangerous names
-	// still raise approval_required (Once), never a silent session grant.
+	// Attended voice entry authorizes this session's enabled tool capabilities.
+	// Global disabled switches, emergency stops and user.ask stay effective.
 	if p.Companion {
 		mode = executionModeFullAccess
 		e.ensureCompanionRuntimeCapabilities(ctx)
+		if err := e.authorizeCompanionSession(ctx, boundSessionID); err != nil {
+			return request.Fail("COMPANION_AUTHORITY_UNAVAILABLE", "未能启用本次语音任务权限，请检查电脑控制状态后重试", true)
+		}
 	}
 
 	turnText := lastUserChatText(p.Messages)
@@ -233,6 +237,8 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	// off the hot path unless the user actually needs a lookup.
 	if p.Companion {
 		instruction += companionPersonaChatInstruction()
+	} else {
+		instruction += chatSuggestionsInstruction
 	}
 	instruction += replyStyleInstruction(p.ReplyStyle, p.Companion)
 	instruction += structuredTemplateInstruction(inferStructuredTemplate(turnText, p.StructuredTemplate))
@@ -472,6 +478,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			// recent turns. Typing chat stays "deep" (no turn cap).
 			envelope.ContextMode = contextapp.ContextModeInstant
 			envelope.MaxHistoryTurns = companionMaxHistoryTurns
+			envelope.RelatedEvidence = e.companionArchiveEvidence(ctx, boundSessionID, turnText)
 		} else {
 			envelope.ContextMode = contextapp.ContextModeDeep
 		}
@@ -621,7 +628,11 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		// Assemble the context envelope with full priority ordering and
 		// selection trace (ADR-005 §3). Companion now awaits message.append
 		// before chat.start, but the assembly fallback remains for empty sessions.
-		result, assembleErr := contextapp.AssembleEnvelope(ctx, e.messageReader, boundSessionID, envelope)
+		history := chatHistoryReader{Reader: e.messageReader}
+		if p.Companion {
+			history.afterSequence = p.CompanionHistoryAfter
+		}
+		result, assembleErr := contextapp.AssembleEnvelope(ctx, history, boundSessionID, envelope)
 		assembled := assembleErr == nil
 		// UX-04 graceful degradation: a non-companion turn whose authoritative
 		// instructions are so large that no message budget remains
@@ -642,7 +653,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			degradedInfo.SystemTokens = minimalSystemTokens
 			degradedEnvelope := envelope
 			degradedEnvelope.Provider = degradedInfo
-			if retryResult, retryErr := contextapp.AssembleEnvelope(ctx, e.messageReader, boundSessionID, degradedEnvelope); retryErr == nil {
+			if retryResult, retryErr := contextapp.AssembleEnvelope(ctx, history, boundSessionID, degradedEnvelope); retryErr == nil {
 				log.Printf("chat.start degraded to minimal system instruction after budget-too-small: %v", assembleErr)
 				result = retryResult
 				providerInfo = degradedInfo
@@ -1033,12 +1044,22 @@ func handleChatToolApprove(e *Engine, ctx context.Context, request bridge.Reques
 		return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.tool.approve scope 无效", false)
 	}
 	r, err := e.tools.DecideScoped(ctx, p.SessionID, p.CallID, p.ArgsDigest, p.Approved, p.Scope)
+	if errors.Is(err, toolruntime.ErrPendingConsumed) {
+		r, err = e.tools.ReplayDecision(ctx, p.SessionID, p.CallID, p.ArgsDigest, p.Approved)
+	}
 	if err != nil {
-		// Suppress TOOL_APPROVAL_CONSUMED from bubbling up as a hard stream error
-		// and instead just let the frontend know the approval state is invalid
-		// so it can retry silently if needed, or we just ignore it.
-		// Wait, if it's already consumed, the frontend doesn't need to crash.
-		return request.Fail("TOOL_APPROVAL_CONSUMED", err.Error(), false)
+		switch {
+		case errors.Is(err, toolruntime.ErrPendingConsumed):
+			return request.Fail("TOOL_APPROVAL_CONSUMED", "此确认不存在、已过期或已选择其他决定，请刷新任务状态", false)
+		case errors.Is(err, toolruntime.ErrDecisionInProgress):
+			return request.Fail("TOOL_APPROVAL_IN_PROGRESS", "已收到确认，操作结果尚未返回；稍后重试将查询结果", true)
+		case errors.Is(err, toolruntime.ErrWorkspaceChanged):
+			return request.Fail("TOOL_WORKSPACE_CHANGED", "待确认期间文件发生变化，请重新检查后发起操作", false)
+		case errors.Is(err, toolruntime.ErrDecisionFailed):
+			return request.Fail("TOOL_EXECUTION_FAILED", "已确认的操作执行失败，请查看任务结果后继续处理", false)
+		default:
+			return request.Fail("TOOL_APPROVAL_FAILED", "未能取得操作结果，请重试查询；已执行的操作不会重复执行", true)
+		}
 	}
 	if p.Approved {
 		e.persistApprovedToolResult(ctx, p.SessionID, p.CallID, p.ArgsDigest, r)

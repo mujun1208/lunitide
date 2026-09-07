@@ -15,13 +15,12 @@ import (
 //
 // The reason is returned as an ok:false tool result: the model reads it, keeps
 // its turn, and can tell the user which mode to switch to.
-func ungatedEngineToolDenied(mode executionMode, companion bool, name string, args json.RawMessage) (string, bool) {
+func ungatedEngineToolDenied(mode executionMode, _ bool, name string, args json.RawMessage) (string, bool) {
 	gated := mode == executionModeApproval
 	switch strings.TrimSpace(name) {
 	case "mcp.install", "plugin.install":
-		// Adds a remote endpoint or a plugin to the machine. Never something
-		// a voice turn should land either.
-		if !gated && !companion {
+		// Voice and text share the same operator-selected execution mode.
+		if !gated {
 			return "", false
 		}
 		return "ok:false\n" + name + " 会给本机装上新的服务端或插件，这条链路暂时没有审批弹窗，本轮不执行。请在设置里手动安装。", true
@@ -35,9 +34,6 @@ func ungatedEngineToolDenied(mode executionMode, companion bool, name string, ar
 	case "browser.act":
 		if !browserActActuates(args) {
 			return "", false
-		}
-		if companion {
-			return "ok:false\nbrowser.act 的点击/输入会动到已登录的浏览器，语音里没有可确认的界面，本轮不执行。请在文字对话里再说一次。", true
 		}
 		if !gated {
 			return "", false

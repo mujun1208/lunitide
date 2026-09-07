@@ -68,17 +68,16 @@ func TestReadOnlyBranchesAreNotGated(t *testing.T) {
 	}
 }
 
-func TestCompanionRefusesInstallAndBrowserActuation(t *testing.T) {
-	// A voice turn runs at full access with no screen to approve on, so the
-	// two families that add software to the machine or click inside a
-	// signed-in browser have to be refused outright rather than gated.
+func TestCompanionKeepsAuthorizedInstallAndBrowserActuation(t *testing.T) {
+	// Entering voice grants the same full-access execution mode as text.
+	// Service-specific credentials, endpoint grants and browser checks still apply.
 	for _, tc := range []struct{ name, args string }{
 		{"mcp.install", `{"presetId":"p1"}`},
 		{"plugin.install", `{"id":"x"}`},
 		{"browser.act", `{"op":"click","ref":"e12"}`},
 	} {
-		if _, deny := ungatedEngineToolDenied(executionModeFullAccess, true, tc.name, json.RawMessage(tc.args)); !deny {
-			t.Fatalf("%s must not run from a voice turn", tc.name)
+		if _, deny := ungatedEngineToolDenied(executionModeFullAccess, true, tc.name, json.RawMessage(tc.args)); deny {
+			t.Fatalf("%s must remain available to an authorized voice turn", tc.name)
 		}
 	}
 	// Reading through MCP is still how voice answers questions.

@@ -1,0 +1,13 @@
+{
+  "command": "go test ./... -p 4 -coverprofile=<evidence>/coverage.out -json -timeout 25m",
+  "exitCode": 0,
+  "startedAt": "2026-09-07T03:20:50.0166149+08:00",
+  "finishedAt": "2026-09-07T03:29:59.6602859+08:00",
+  "testPassed": 4858,
+  "testSkipped": 30,
+  "testFailed": 0,
+  "packagesPassed": 145,
+  "coveragePercent": 54.0,
+  "coverageFloor": 51.0,
+  "sourceNote": "Full run started before the subsequent artifact-corrupt-index guard; affected package regressions rerun separately. Same-build race run remains pending."
+}

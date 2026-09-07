@@ -163,6 +163,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   const hasTalkModelRef = useRef(false)
   const talkHandleRef = useRef<CompanionTalkHandle | undefined>(undefined)
   const talkPendingRef = useRef(false)
+  const talkGenerationRef = useRef(0)
   const talkRetryRef = useRef(newTalkRetryState())
   const talkHandoffRef = useRef(false)
   const talkSuppressPlayRef = useRef(false)
@@ -355,7 +356,6 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   ttsAvailableRef.current = ttsAvailable
   const pendingSendRef = useRef<string | null>(null)
   const sentThisUtteranceRef = useRef('')
-  const spokenOverflowRef = useRef(false)
   const speechSyncRef = useRef<{ commitPaused: boolean; playback: boolean; echoGuardMs: number; listenThrough: boolean } | undefined>(undefined)
   const onSendRef = useRef(onSend)
   onSendRef.current = onSend
@@ -547,6 +547,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       // (route change / conditional unmount / StrictMode remount): the mic
       // append loop and realtime socket would keep running and stream audio
       // into a disposed player. Stop it here so unmount == full teardown.
+      talkGenerationRef.current++
       const leakedTalk = talkHandleRef.current
       talkHandleRef.current = undefined
       talkPendingRef.current = false
@@ -594,10 +595,6 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     const shown = clipCompanionSpokenTurn(companionCaptionFromStream(text)).spoken
     if (!shown.trim()) return
     streamCaptionRef.current = shown
-    if (clipCompanionSpokenTurn(companionCaptionFromStream(text)).overflow && !spokenOverflowRef.current) {
-      spokenOverflowRef.current = true
-      onCancel?.(shown)
-    }
     setRounds(current => {
       const last = current[current.length - 1]
       if (last?.role === 'assistant' && last.segments === undefined && last.text === shown) return current
@@ -654,15 +651,12 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       const stalled = performance.now() - lastDeltaAtRef.current >= FIRST_SPEAK_STALL_MS
       const chunk = takeSpeakableChunk(pending, spokenUpToRef.current === 0, stalled)
       if (!chunk) return
-      spokenUpToRef.current += chunk.consumed
       markVoiceTiming('firstSynth')
       const cleaned = stripTaskDonePhrases(cleanForSpeech(chunk.text))
-      if (!cleaned) return
       if (cascadeSpeechBlocked()) return
       if (/无法执行/.test(cleaned) && companionToolsExecuting(chatStatus, activityStatus)) return
-      if (looksLikePlaybackEcho(cleaned, lastSpokenRef.current) && compactSpeech(cleaned).length <= compactSpeech(lastSpokenRef.current).length + 4) {
-        return
-      }
+      spokenUpToRef.current += chunk.consumed
+      if (!cleaned) return
       lastSpokenRef.current = `${lastSpokenRef.current}${cleaned}`.slice(-1200)
       const player = ensurePlayer()
       const voiceId = activeVoiceId()
@@ -803,9 +797,6 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       const segments = prepareSpeech(remaining).filter(seg => {
         const cleaned = stripTaskDonePhrases(seg)
         if (!cleaned.trim()) return false
-        if (looksLikePlaybackEcho(cleaned, lastSpokenRef.current) && compactSpeech(cleaned).length <= compactSpeech(lastSpokenRef.current).length + 4) {
-          return false
-        }
         return true
       }).map(seg => stripTaskDonePhrases(seg))
       if (segments.length && speakable) {
@@ -901,10 +892,8 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         }
         return
       }
-      // Read, not heard. A failure is already on screen as a banner and a
-      // caption; saying it out loud spends a second and a half of the user's
-      // time telling them something they can see, in a voice meant for
-      // conversation.
+      // A task failure also needs a spoken result when automatic speech is
+      // enabled, so the user is not left waiting after an execution promise.
       if (!handledReplyRef.current && chatStatus === 'failed') {
         handledReplyRef.current = true
         const spoken = companionCannotExecuteSpeech(issue?.message || assistantText.trim())
@@ -1382,7 +1371,6 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       staleReplyRef.current = assistantTextRef.current
       silentRestartsRef.current = 0
       spokenUpToRef.current = 0
-      spokenOverflowRef.current = false
       speakingRef.current = false
       setAssistantAloud(false)
       streamCaptionRef.current = ''
@@ -1751,11 +1739,13 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         if (stateRef.current === 'listening') applyEvent({ type: 'MIC_CANCEL' })
       }
 
+      const talkGeneration = ++talkGenerationRef.current
+      const talkAttemptCurrent = () => talkGeneration === talkGenerationRef.current && !exitedRef.current && stageAliveRef.current
+      let talkEnded = false
+      const talkCurrent = () => talkAttemptCurrent() && !talkEnded
       const adoptTalk = (handle: CompanionTalkHandle) => {
-        if (exitedRef.current || !stageAliveRef.current) {
+        if (!talkCurrent()) {
           void handle.stop()
-          openingListenRef.current = false
-          talkPendingRef.current = false
           return
         }
         talkHandleRef.current = handle
@@ -1778,7 +1768,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
           const handle = await startCompanionTalk({
             sessionId: sessionIdRef.current!,
             onAudio: (pcm, mime) => {
-              if (exitedRef.current || talkSuppressPlayRef.current) return
+              if (!talkCurrent() || talkSuppressPlayRef.current) return
               const player = ensurePlayer()
               const rate = /rate=(\d+)/.exec(mime)?.[1]
               player.enqueueTalkPcm(pcm, rate ? Number(rate) : 24_000)
@@ -1791,9 +1781,16 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
               markVoiceTiming('firstAudio')
             },
             onUserTranscript: transcript => {
-              if (exitedRef.current || !stageAliveRef.current) return
+              if (!talkCurrent()) return
               const next = cleanUserTranscript(transcript)
               if (!next) return
+              // A tool turn lends the speaker to cascade TTS. A new native
+              // turn takes it back; otherwise all later talk PCM stays muted.
+              if (talkSuppressPlayRef.current) {
+                cancelReply()
+                talkSuppressPlayRef.current = false
+                talkHandoffRef.current = false
+              }
               onEngagedRef.current?.()
               setHeardThisVisit(true)
               setVoiceHeard(true)
@@ -1807,7 +1804,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
               if (stateRef.current === 'listening' || stateRef.current === 'idle') applyEvent({ type: 'RECOGNIZED_FINAL' })
             },
             onAssistantTranscript: transcript => {
-              if (exitedRef.current || !stageAliveRef.current) return
+              if (!talkCurrent() || talkSuppressPlayRef.current) return
               const piece = transcript.trim()
               if (!piece) return
               setRounds(current => {
@@ -1818,7 +1815,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
               })
             },
             onBarge: () => {
-              if (exitedRef.current || !stageAliveRef.current) return
+              if (!talkCurrent()) return
               const spoken = clipSpokenCaption()
               onCancel?.(spoken)
               playerRef.current?.interrupt()
@@ -1830,23 +1827,26 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
               }
             },
             onToolHandoff: (text, messageId) => {
-              if (exitedRef.current || !stageAliveRef.current) return
+              if (!talkCurrent()) return
               talkSuppressPlayRef.current = true
               talkHandoffRef.current = true
+              playerRef.current?.interrupt()
               void talkHandleRef.current?.cancelOutput()
               beginUserTurn(text, messageId)
               talkHandoffRef.current = false
             },
             onError: issue => {
+              if (!talkCurrent()) return
               if (issue.code === 'TALK_BARGE') return
               setEngineHint(issue.message || TALK_FALLBACK_BANNER)
             },
             onEnded: () => {
+              if (!talkCurrent()) return
+              // Retire callbacks without retiring the startup attempt: if
+              // it has not returned a handle yet, it still owns ASR fallback.
+              talkEnded = true
               talkHandleRef.current = undefined
               talkLiveRef.current = false
-              // Unmount cleanup already stopped/cleared talk and disposed the
-              // player; skip the UI updates to avoid setState after unmount.
-              if (exitedRef.current || !stageAliveRef.current) return
               playerRef.current?.interrupt()
               setTalkLive(false)
               setEntryLights(preparedLightsRef.current)
@@ -1857,19 +1857,20 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
               })
             },
           }, { firstAudioMs: TALK_FIRST_AUDIO_MS })
-          if (exitedRef.current) {
+          if (!talkAttemptCurrent()) {
             await handle?.stop()
-            openingListenRef.current = false
-            talkPendingRef.current = false
             return
           }
-          if (handle) {
+          if (handle && !talkEnded) {
             adoptTalk(handle)
             return
           }
+          await handle?.stop()
         } catch {
           /* cascade below */
         }
+        if (!talkAttemptCurrent()) return
+        talkEnded = true // Late callbacks cannot interfere with the ASR fallback below.
         talkRetryRef.current = noteTalkFailure(talkRetryRef.current, Date.now())
         talkPendingRef.current = false
         talkLiveRef.current = false
@@ -1973,7 +1974,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       }
     }
     void begin()
-  }, [applyEvent, armListenLoop, beginUserTurn, acceptBargeIn, markAssistantAloud, setListenLoop, syncSpeechModes, transcriptAcceptance, discardEchoCaption, clipSpokenCaption, ensurePlayer, onCancel])
+  }, [applyEvent, armListenLoop, beginUserTurn, acceptBargeIn, markAssistantAloud, setListenLoop, syncSpeechModes, transcriptAcceptance, discardEchoCaption, clipSpokenCaption, ensurePlayer, onCancel, cancelReply])
 
   useEffect(() => {
     if (machine.state === 'speaking') justSpokeRef.current = true
@@ -2281,6 +2282,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     speechHandleRef.current = undefined
     captionHandleRef.current?.stop()
     captionHandleRef.current = undefined
+    talkGenerationRef.current++
     const talk = talkHandleRef.current
     talkHandleRef.current = undefined
     talkPendingRef.current = false

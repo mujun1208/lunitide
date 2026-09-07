@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/lunitide/lunitide/internal/atomicfile"
 	"github.com/lunitide/lunitide/internal/canonpath"
 )
 
@@ -53,7 +54,41 @@ func (r *Runtime) ResolveSessionArtifact(sessionID, relPath string) (string, err
 	if err != nil {
 		return "", err
 	}
+	roots := []string{dir}
+	if r.fullAccessRoot != nil {
+		if root, err := r.fullAccessRoot(); err == nil && root != "" {
+			roots = append(roots, root)
+		}
+	}
+	absolute := filepath.IsAbs(clean) || filepath.VolumeName(clean) != ""
+	if absolute {
+		if r.FullDiskEnabled() && r.FullDiskSessionConfirmed(sessionID) {
+			return r.path(FullAccess, sessionID, filepath.FromSlash(clean), false, true)
+		}
+		if desktop, err := userDesktopDir(); err == nil {
+			roots = append(roots, desktop)
+		}
+	}
+	for _, root := range roots {
+		relative := clean
+		if absolute {
+			relative, err = filepath.Rel(root, filepath.FromSlash(clean))
+			if err != nil {
+				continue
+			}
+		}
+		target, resolveErr := r.containedRead(root, relative)
+		if resolveErr == nil {
+			if _, err = os.Stat(target); err == nil {
+				return target, nil
+			}
+		}
+	}
+	if absolute {
+		return "", errors.New("artifact outside authorized roots")
+	}
 	return r.containedRead(dir, clean)
+
 }
 
 // ReadWorkspaceFile reads up to max bytes of one contained session
@@ -64,26 +99,27 @@ func (r *Runtime) ReadWorkspaceFile(session, relPath string, max int64) ([]byte,
 	if max <= 0 || max > maxGeneratedBytes {
 		max = maxGeneratedBytes
 	}
-	// Host-side previews do not know the execution mode that produced the
-	// artifact, so try the session sandbox first and fall back to the
-	// user-selected full-access root (read-only, same containment checks).
-	p, err := r.path(Approval, session, relPath, false, false)
+	p, err := r.ResolveSessionArtifact(session, relPath)
 	if err != nil {
 		return nil, err
-	}
-	if _, statErr := os.Stat(p); statErr != nil && r.fullAccessRoot != nil {
-		if root, rootErr := r.fullAccessRoot(); rootErr == nil && root != "" {
-			if alt, altErr := r.containedRead(root, relPath); altErr == nil {
-				p = alt
-			}
-		}
 	}
 	f, err := os.Open(p)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	return io.ReadAll(io.LimitReader(f, max))
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > max {
+		return nil, errors.New("file exceeds preview limit")
+	}
+	data, err := io.ReadAll(io.LimitReader(f, max+1))
+	if int64(len(data)) > max {
+		return nil, errors.New("file exceeds preview limit")
+	}
+	return data, err
 }
 
 // WorkspaceRoot answers the runtime root (host-side export surfaces).
@@ -164,8 +200,7 @@ func (r *Runtime) writeGenerated(mode Mode, session, relPath string, data []byte
 		e = ce
 	}
 	if e == nil {
-		_ = os.Remove(p)
-		e = os.Rename(tn, p)
+		e = atomicfile.Replace(tn, p)
 	}
 	if e != nil {
 		return Result{}, e

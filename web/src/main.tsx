@@ -4,6 +4,7 @@ import { App } from './App'
 import { RootErrorBoundary } from './RootErrorBoundary'
 import { installVisibilityRestore } from './visibilityRestore'
 import './styles.css'
+import './managementLayout.css'
 installVisibilityRestore()
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

@@ -39,8 +39,8 @@ var (
 		"写一份", "写个报告", "写份", "生成ppt", "生成 ppt", "生成PPT",
 		"做一份", "画一张", "做视频", "生成表格", "生成报告", "生成文档",
 	}
-	openHints = []string{"打开", "启动", "把开"}
-	playHints = []string{"播放", "暂停", "下一首", "上一首"}
+	openHints       = []string{"打开", "启动", "把开"}
+	playHints       = []string{"播放", "暂停", "下一首", "上一首"}
 	browserAppHints = []string{"chrome", "edge", "firefox", "浏览器"}
 )
 
@@ -53,7 +53,31 @@ func classifyTaskRoute(goal string, companion, ccEnabled bool) (TaskRoute, map[s
 	if route == RouteUnspecified {
 		return RouteUnspecified, nil
 	}
-	return route, routeAllow(route, ccEnabled)
+	allow := routeAllow(route, ccEnabled)
+	// A route is an optimization, not a capability boundary. Compound goals
+	// must retain the tools for every requested step (query -> write -> send).
+	lower := strings.ToLower(goal)
+	merge := func(extra map[string]bool) {
+		for name, enabled := range extra {
+			allow[name] = enabled
+		}
+	}
+	if containsAnyFold(goal, lower, infoQueryHints) {
+		merge(routeAllow(RouteR1, ccEnabled))
+	}
+	if containsAnyFold(goal, lower, genHints) {
+		merge(routeAllow(RouteR4, ccEnabled))
+	}
+	if containsAnyFold(goal, lower, []string{"发送", "发给", "发消息", "告诉", "回复", "转发", "send", "message"}) {
+		allow["im.send"] = true
+		if containsAnyFold(goal, lower, namedLocalAppHints) {
+			merge(routeAllow(RouteR2, ccEnabled))
+		}
+	}
+	if containsAnyFold(goal, lower, []string{"命令", "终端", "脚本", "编译", "测试", "shell", "terminal", "command", "script"}) {
+		merge(toolProfileAllow(toolProfileCoding))
+	}
+	return route, allow
 }
 
 func detectTaskRoute(goal string) TaskRoute {
@@ -157,6 +181,9 @@ func applyTaskRoute(defs []llmadapter.ToolDefinition, route TaskRoute, allow map
 	keep := copyAllow(allow)
 	keep["user.ask"] = true
 	for _, d := range defs {
+		if strings.HasPrefix(d.Name, mcpToolPrefix) || d.Name == "mcp.search" || d.Name == "mcp.call" {
+			keep[d.Name] = true
+		}
 		switch d.Name {
 		case "kb.search", "kb.cite", "graph.expand",
 			"skill.invoke", "skill.view", "skill.create", "skill.manage",

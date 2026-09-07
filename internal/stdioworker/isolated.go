@@ -3,6 +3,7 @@ package stdioworker
 import (
 	"context"
 	"io"
+	"os"
 )
 
 // IsolatedProc is one short-lived child process launched under the same
@@ -26,11 +27,11 @@ type IsolatedProc struct {
 // is the caller's context deadline (the registry enforces 30 s).
 func StdioQuotas() Quotas {
 	return Quotas{
-		MaxProcs:        32,
-		MemoryCapBytes:  1 << 30,
-		DeadlineMS:      60_000,
-		HeartbeatMS:     250,
-		MaxMissedBeats:  120,
+		MaxProcs:       32,
+		MemoryCapBytes: 1 << 30,
+		DeadlineMS:     60_000,
+		HeartbeatMS:    250,
+		MaxMissedBeats: 120,
 	}
 }
 
@@ -38,7 +39,13 @@ func StdioQuotas() Quotas {
 // environment block (the parent environment never leaks) and returns the
 // pipe handles. The caller owns the proc: Close kills the tree.
 func SpawnIsolated(cmd string, args []string, dir string, env []string, q Quotas) (*IsolatedProc, error) {
-	p, err := engineSpawn(cmd, args, dir, env, q)
+	return SpawnIsolatedWithStderr(cmd, args, dir, env, q, nil)
+}
+
+// SpawnIsolatedWithStderr separates diagnostic output from framed protocols.
+// The caller retains ownership of stderr; the child receives its own handle.
+func SpawnIsolatedWithStderr(cmd string, args []string, dir string, env []string, q Quotas, stderr *os.File) (*IsolatedProc, error) {
+	p, err := engineSpawn(cmd, args, dir, env, q, stderr)
 	if err != nil {
 		return nil, err
 	}

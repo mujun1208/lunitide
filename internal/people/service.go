@@ -72,7 +72,20 @@ func (s *Service) Close() {
 		_ = os.Remove(in.path)
 		delete(s.incoming, id)
 	}
+	uploads := make([]*fileUpload, 0, len(s.uploads))
+	for id, up := range s.uploads {
+		uploads = append(uploads, up)
+		delete(s.uploads, id)
+	}
 	s.mu.Unlock()
+	for _, up := range uploads {
+		up.mu.Lock()
+		if up.file != nil {
+			_ = up.file.Close()
+			up.file = nil
+		}
+		up.mu.Unlock()
+	}
 	s.stopTCP()
 	for _, conn := range connections {
 		_ = conn.Close()

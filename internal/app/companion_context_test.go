@@ -297,12 +297,25 @@ func TestNoteCompanionDesktopOpen(t *testing.T) {
 	}
 }
 
-func TestCompanionExecuteRejectsCommandAndIM(t *testing.T) {
+func TestCompanionExecutionUsesSelectedMode(t *testing.T) {
 	e := NewEngine(nil, "test")
-	for _, name := range []string{"command.run", "im.send", "cc.mouse_click"} {
-		_, err := e.executeUserToolWithCompanion(context.Background(), executionModeFullAccess, "s1", name, json.RawMessage(`{}`), nil, true)
-		if err == nil || !strings.Contains(err.Error(), "月伴不能") {
-			t.Fatalf("%s must be denied on companion, got %v", name, err)
+	calls := 0
+	e.toolExecHook = func(_ context.Context, mode executionMode, _, _ string, _ json.RawMessage) (toolruntime.Result, error) {
+		calls++
+		if mode != executionModeFullAccess {
+			t.Errorf("voice changed mode to %s", mode)
 		}
+		return toolruntime.Result{Output: "fixture result"}, nil
+	}
+	for _, name := range []string{"command.run", "im.send", "workspace.write"} {
+		if _, err := e.executeUserToolWithCompanion(context.Background(), executionModeFullAccess, "s1", name, json.RawMessage(`{}`), nil, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := e.executeUserToolWithCompanion(context.Background(), executionModeFullAccess, "s1", "cc.mouse_click", json.RawMessage(`{}`), nil, true); err != errCompanionToolDenied {
+		t.Fatalf("raw desktop primitive: %v", err)
+	}
+	if calls != 3 {
+		t.Fatalf("governed runtime calls = %d", calls)
 	}
 }

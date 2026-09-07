@@ -2,10 +2,13 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/lunitide/lunitide/internal/atomicfile"
 	"github.com/lunitide/lunitide/internal/domain/message"
 )
 
@@ -33,16 +36,22 @@ func (e *Engine) sessionArtifactsPath(sessionID string) string {
 	return filepath.Join(dir, ".message-artifacts.json")
 }
 
-func loadSessionArtifactsDoc(path string) sessionArtifactsDoc {
+func loadSessionArtifactsDoc(path string) (sessionArtifactsDoc, error) {
 	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return sessionArtifactsDoc{Messages: map[string][]SessionArtifact{}}, nil
+	}
 	if err != nil {
-		return sessionArtifactsDoc{Messages: map[string][]SessionArtifact{}}
+		return sessionArtifactsDoc{}, err
 	}
 	var doc sessionArtifactsDoc
-	if json.Unmarshal(raw, &doc) != nil || doc.Messages == nil {
-		return sessionArtifactsDoc{Messages: map[string][]SessionArtifact{}}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return sessionArtifactsDoc{}, err
 	}
-	return doc
+	if doc.Messages == nil {
+		return sessionArtifactsDoc{}, errors.New("artifact metadata has no message index")
+	}
+	return doc, nil
 }
 
 func saveSessionArtifactsDoc(path string, doc sessionArtifactsDoc) error {
@@ -56,12 +65,7 @@ func saveSessionArtifactsDoc(path string, doc sessionArtifactsDoc) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0600); err != nil {
-		return err
-	}
-	_ = os.Remove(path)
-	return os.Rename(tmp, path)
+	return atomicfile.Write(path, raw, 0600)
 }
 
 // chatDeliverableArtifact decides whether a tool output should appear as a
@@ -81,6 +85,10 @@ func chatDeliverableArtifact(toolName, kind, path string) bool {
 	if kind == "image" {
 		return true
 	}
+	switch kind {
+	case "pptx", "docx", "xlsx", "pdf":
+		return true
+	}
 	if kind == "html" && toolName == "workspace.write" {
 		return true
 	}
@@ -93,7 +101,7 @@ func normalizeSessionArtifact(a SessionArtifact) (SessionArtifact, bool) {
 	a.CallID = strings.TrimSpace(a.CallID)
 	a.ToolName = strings.TrimSpace(a.ToolName)
 	if !artifactKindValid(a.Kind) || a.Path == "" || len(a.Path) > 512 ||
-		strings.HasPrefix(a.Path, "/") || strings.Contains(a.Path, "..") ||
+		a.Path == ".." || strings.HasPrefix(a.Path, "../") || strings.ContainsRune(a.Path, 0) ||
 		a.CallID == "" || len(a.CallID) > 128 || a.ToolName == "" {
 		return SessionArtifact{}, false
 	}
@@ -105,7 +113,11 @@ func (e *Engine) loadSessionArtifactsByMessage(sessionID string) map[string][]Se
 	if path == "" {
 		return nil
 	}
-	doc := loadSessionArtifactsDoc(path)
+	doc, err := loadSessionArtifactsDoc(path)
+	if err != nil {
+		log.Printf("load artifact metadata for session %s: %v", sessionID, err)
+		return nil
+	}
 	if len(doc.Messages) == 0 {
 		return nil
 	}
@@ -128,7 +140,7 @@ func (e *Engine) loadSessionArtifactsByMessage(sessionID string) map[string][]Se
 }
 
 func (e *Engine) appendMessageArtifacts(sessionID, messageID string, artifacts []SessionArtifact) {
-	if sessionID == "" || messageID == "" || len(artifacts) == 0 {
+	if !message.CanonicalULID(sessionID) || !message.CanonicalULID(messageID) || len(artifacts) == 0 {
 		return
 	}
 	path := e.sessionArtifactsPath(sessionID)
@@ -144,9 +156,18 @@ func (e *Engine) appendMessageArtifacts(sessionID, messageID string, artifacts [
 	if len(clean) == 0 {
 		return
 	}
-	doc := loadSessionArtifactsDoc(path)
+	e.sessionArtifactsMu.Lock()
+	defer e.sessionArtifactsMu.Unlock()
+	doc, err := loadSessionArtifactsDoc(path)
+	if err != nil {
+		// An unreadable existing index must never become an empty replacement.
+		log.Printf("preserving unreadable artifact metadata for session %s: %v", sessionID, err)
+		return
+	}
 	doc.Messages[messageID] = clean
-	_ = saveSessionArtifactsDoc(path, doc)
+	if err := saveSessionArtifactsDoc(path, doc); err != nil {
+		log.Printf("save artifact metadata for session %s: %v", sessionID, err)
+	}
 }
 
 func enrichMessageListPage(page any, artifacts map[string][]SessionArtifact) map[string]any {

@@ -1,10 +1,44 @@
 package app
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/llmadapter"
 )
+
+func TestVoiceAndTypedCompoundTaskTools(t *testing.T) {
+	defs := append(engineToolDefinitions(), llmadapter.ToolDefinition{Name: "computer.act"})
+	for _, tc := range []struct {
+		goal   string
+		needed []string
+	}{
+		{"查询合肥天气并发给微信里的小王", []string{"web.search", "im.send", "desktop.open", "computer.act"}},
+		{"查一下股价写一份报告", []string{"web.search", "workspace.write", "docx.gen"}},
+		{"打开记事本然后运行测试命令", []string{"desktop.open", "command.run", "workspace.read"}},
+		{"给小王发送消息", []string{"im.send"}},
+	} {
+		t.Run(tc.goal, func(t *testing.T) {
+			voice := assembleRoutedTools(defs, tc.goal, true, true)
+			typed := assembleRoutedTools(defs, tc.goal, false, true)
+			if !reflect.DeepEqual(voice, typed) {
+				t.Fatal("voice lost typed task capabilities")
+			}
+			seen := map[string]bool{}
+			for _, tool := range voice {
+				seen[tool.Name] = true
+			}
+			for _, name := range tc.needed {
+				if !seen[name] {
+					t.Errorf("missing %s", name)
+				}
+			}
+			if !companionWantsTools(tc.goal) {
+				t.Fatal("voice fast path suppressed an explicit task")
+			}
+		})
+	}
+}
 
 func TestCompanionParityDesktopAllow(t *testing.T) {
 	defs := []llmadapter.ToolDefinition{
@@ -25,8 +59,8 @@ func TestCompanionParityDesktopAllow(t *testing.T) {
 		if !has(voice, "desktop.open") || !has(typed, "desktop.open") {
 			t.Fatalf("%q must allow desktop.open on both lanes", goal)
 		}
-		if has(voice, "command.run") {
-			t.Fatalf("companion must strip command.run for %q", goal)
+		if has(voice, "command.run") != has(typed, "command.run") {
+			t.Fatalf("voice and typed routes differ for %q", goal)
 		}
 	}
 	offV := assembleRoutedTools(defs, "打开记事本", true, false)

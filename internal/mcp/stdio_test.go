@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +27,9 @@ func TestMain(m *testing.M) {
 // tools/call. mode "mute" closes stdout immediately (handshake failure),
 // mode "garbage" answers non-JSON lines.
 func fakeStdioMcpServer(mode string) {
+	if mode == "stderr" {
+		_, _ = os.Stderr.WriteString(strings.Repeat("package installer progress\n", 8192))
+	}
 	out := bufio.NewWriter(os.Stdout)
 	sc := bufio.NewScanner(os.Stdin)
 	sc.Buffer(make([]byte, 64*1024), 1<<20)
@@ -165,5 +170,40 @@ func TestStdioDialRejectsEmptyVector(t *testing.T) {
 	}
 	if _, err := StdioDial(ctx, "npx", nil, "", nil); err == nil {
 		t.Fatal("want launch failure for empty work dir")
+	}
+}
+
+func TestStdioSessionInstallerStderrDoesNotCorruptProtocol(t *testing.T) {
+	s := dialFake(t, "stderr")
+	tools, err := s.ListTools(context.Background())
+	if err != nil || len(tools) != 1 || tools[0].Name != "echo" {
+		t.Fatalf("stderr corrupted MCP: %v %v", tools, err)
+	}
+}
+
+func TestStdioWindowsShimPathWithSpaces(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows shim transport")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(t.TempDir(), "runtime with spaces")
+	if err = os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	shim := filepath.Join(root, "fixture.cmd")
+	if err = os.WriteFile(shim, []byte("@echo off\r\n\""+exe+"\" %*\r\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := StdioDial(context.Background(), shim, []string{"-test.run=TestMain"}, root, []string{"STDIO_MCP_FAKE=1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	tools, err := s.ListTools(context.Background())
+	if err != nil || len(tools) != 1 {
+		t.Fatalf("shim protocol: %v", err)
 	}
 }

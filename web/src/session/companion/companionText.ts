@@ -487,7 +487,7 @@ export function companionToolCloseoutSpeech(summary?: string): string {
   const browser = companionBrowserUnreadySpeech(summary)
   if (browser) return browser
   const line = stripTaskDonePhrases(summary ?? '').trim()
-  if (!line) return '还在处理。'
+  if (!line) return '这次执行已结束，但没有收到可确认的结果。'
   return companionTaskCompleteSpeech(line)
 }
 
@@ -613,36 +613,10 @@ export function shouldQueueBusyUserTranscript(input: {
   return looksLikeBargeInSpeech(input.text, input.lastSpoken)
 }
 
-const COMPANION_SPOKEN_MAX_SENTENCES = 2
-const COMPANION_SPOKEN_MAX_CHARS = 80
-
-/** Cap one companion turn to two sentences or 80 chars, whichever comes first. */
-export function clipCompanionSpokenTurn(text: string, already = ''): { spoken: string; overflow: boolean } {
-  const raw = text.trim()
-  if (!raw) return { spoken: '', overflow: false }
-  const prior = already.trim()
-  const priorChars = Array.from(prior).length
-  const priorSentences = prior ? prior.split(/(?<=[。？！!?])/u).filter(part => part.trim()).length : 0
-  const parts = raw.split(/(?<=[。？！!?])/u).filter(part => part.trim())
-  const out: string[] = []
-  let chars = priorChars
-  let sentences = priorSentences
-  for (const part of parts) {
-    if (sentences >= COMPANION_SPOKEN_MAX_SENTENCES || chars >= COMPANION_SPOKEN_MAX_CHARS) {
-      return { spoken: out.join('').trim(), overflow: true }
-    }
-    const runes = Array.from(part)
-    const room = COMPANION_SPOKEN_MAX_CHARS - chars
-    if (runes.length > room) {
-      out.push(runes.slice(0, room).join(''))
-      return { spoken: out.join('').trim(), overflow: true }
-    }
-    out.push(part)
-    chars += runes.length
-    sentences += 1
-  }
-  const spoken = out.join('').trim()
-  return { spoken, overflow: sentences > COMPANION_SPOKEN_MAX_SENTENCES || chars > COMPANION_SPOKEN_MAX_CHARS }
+/** Keep the complete answer. Brevity is a generation preference, never a
+ * reason to truncate a result or cancel the task that produced it. */
+export function clipCompanionSpokenTurn(text: string, _already = ''): { spoken: string; overflow: boolean } {
+  return { spoken: text.trim(), overflow: false }
 }
 
 /** Settings/clone labels must never become a dialogue round. */

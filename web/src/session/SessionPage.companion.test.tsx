@@ -112,7 +112,7 @@ it('starts companion chat even when persist append fails, and keeps the persist 
   const start = vi.fn()
   const append = vi.fn().mockRejectedValue(new BridgeClientError('write failed', 'WRITE_FAILED', true, 'engine'))
   const chat: ChatBridge = { start, approve: vi.fn(), dispose: vi.fn() }
-  const messages: MessageBridge = { list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append }
+  const messages: MessageBridge = { list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 37 }), append }
   render(
     <SessionPage
       project={project}
@@ -138,6 +138,7 @@ it('starts companion chat even when persist append fails, and keeps the persist 
   await waitFor(() => expect(append).toHaveBeenCalled())
   await waitFor(() => expect(start).toHaveBeenCalled())
   expect(start.mock.calls[0][0].messages?.[0]?.content).toBe('今晚月色如何')
+  expect(start.mock.calls[0][0].companionHistoryAfter).toBe(37)
   expect(await screen.findByRole('alert')).toHaveTextContent('这句话没记下')
 })
 

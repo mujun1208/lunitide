@@ -16,7 +16,7 @@ var errNoEngine = errors.New("stdioworker: spawn engine requires windows (Job Ob
 
 type engineProc struct{}
 
-func engineSpawn(cmd string, args []string, dir string, env []string, q Quotas) (*engineProc, error) {
+func engineSpawn(cmd string, args []string, dir string, env []string, q Quotas, stderr ...*os.File) (*engineProc, error) {
 	return nil, errNoEngine
 }
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
+	"github.com/lunitide/lunitide/internal/mcp"
 )
 
 // c3-mcp: the shipped catalog must survive the unchanged M6-MCP-004
@@ -21,8 +22,11 @@ func TestPresetCatalogPassesWhitelist(t *testing.T) {
 		t.Fatalf("expected a curated ~40 live presets, got %d", len(all))
 	}
 	for _, p := range all {
-		if p.Transport != "stdio" {
-			t.Fatalf("preset %s: transport = %q, want stdio", p.ID, p.Transport)
+		if p.Transport == "https" {
+			if err := mcp.ValidateBaseURL(p.URL); err != nil {
+				t.Fatal(err)
+			}
+			continue
 		}
 		if !m7flow.McpStdioCommandAllowed(p.Command) {
 			t.Fatalf("preset %s: command %q not whitelisted", p.ID, p.Command)
@@ -33,8 +37,18 @@ func TestPresetCatalogPassesWhitelist(t *testing.T) {
 		if !m7flow.McpArgsSafe(p.Args) {
 			t.Fatalf("preset %s: template args contain metacharacters", p.ID)
 		}
-		if !PresetPackageAllowed(p.Args[1]) {
-			t.Fatalf("preset %s: args[1] = %q, want a curated free server spec", p.ID, p.Args[1])
+		if p.Command == "node" {
+			if !p.NeedsArgs || p.SetupURL == "" {
+				t.Fatal("source-built server needs an explicit entry path and upstream guide")
+			}
+			continue
+		}
+		spec := p.Args[0]
+		if p.Command == "npx" {
+			spec = p.Args[1]
+		}
+		if !PresetPackageAllowed(spec) {
+			t.Fatalf("preset %s: args[1] = %q, want a curated free server spec", p.ID, spec)
 		}
 	}
 }
@@ -47,12 +61,12 @@ func TestPresetsRegisterThroughRegistryGate(t *testing.T) {
 	for _, p := range Presets() {
 		args := p.ResolveArgs("C:/Users/demo/projects/sample")
 		e, err := r.Register(context.Background(), EndpointInput{
-			Transport: "stdio", Command: p.Command, Args: args, Pin: validPin(),
+			Transport: p.Transport, URL: p.URL, Command: p.Command, Args: args, Pin: validPin(),
 		})
 		if err != nil || e.State != StateReady {
 			t.Fatalf("preset %s rejected by registry: %v state=%s", p.ID, err, e.State)
 		}
-		if e.URL != "stdio://"+p.Command {
+		if p.Transport == "stdio" && e.URL != "stdio://"+p.Command {
 			t.Fatalf("preset %s: url = %q", p.ID, e.URL)
 		}
 	}
@@ -104,7 +118,7 @@ func TestPresetNeedsArgsContract(t *testing.T) {
 	wantNeedsArgs := map[string]bool{
 		"everything": false, "filesystem": true, "fetch": false, "memory": false,
 		"sequentialthinking": false, "playwright": false, "time": false, "context7": false,
-		"chrome-devtools": false, "postgres": true, "tavily": true,
+		"chrome-devtools": false, "postgres": true, "tavily": false,
 	}
 	for id, want := range wantNeedsArgs {
 		p, ok := PresetByID(id)

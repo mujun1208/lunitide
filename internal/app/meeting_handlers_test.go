@@ -139,9 +139,9 @@ func TestMeetingsHandlersStartSystemAudioAndRejectRemote(t *testing.T) {
 
 func TestMeetingsHandlersLoopbackPoll(t *testing.T) {
 	e, _ := newMeetingsEngine(t)
-	idle := meetingsOK[map[string]any](t, e, "meetings.loopback.poll", map[string]any{"meetingId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"})
-	if idle["active"] != false || idle["pcm"] != "" {
-		t.Fatalf("idle poll = %#v", idle)
+	missing := meetingsCall(t, e, "meetings.loopback.poll", map[string]any{"meetingId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"})
+	if missing.OK || missing.Error == nil || missing.Error.Code != "MEETING_NOT_FOUND" {
+		t.Fatalf("missing meeting poll = %#v", missing)
 	}
 	meetings.InstallLoopbackForTest(t, func() []byte {
 		time.Sleep(4 * time.Millisecond)

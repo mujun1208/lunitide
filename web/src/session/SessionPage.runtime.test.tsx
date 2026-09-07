@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { BridgeClientError, runQueueBridge, type AttachmentBridge, type ChatBridge, type ChatStream, type ContextBridge, type MessageBridge, type ProviderBridge, type SessionBridge, type SkillBridge, type StreamEvent } from '../bridge/client'
+import { artifactReviewBridge, BridgeClientError, runQueueBridge, type AttachmentBridge, type ChatBridge, type ChatStream, type ContextBridge, type MessageBridge, type ProviderBridge, type SessionBridge, type SkillBridge, type StreamEvent } from '../bridge/client'
 import type { MessageDTO, ProjectDTO, ProviderDTO, SessionDTO } from '../generated/bridge'
 import { ATTACHMENT_FILE_MAX, SessionPage, persistedExecutionMode, generalDefaultExecutionMode, TURN_RESUME_PROMPT, turnFailureNotice } from './SessionPage'
 import { rememberAttachmentPreview } from './attachments'
@@ -750,6 +750,16 @@ it('does not auto-open the workspace for pptx.gen deliverables',async()=>{
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'tool_completed',tool:{callId:'ppt-1',name:'pptx.gen',argsDigest:'a'.repeat(64),summary:'wrote deck.pptx',artifact:{kind:'pptx',path:'deck.pptx',content:''}}}))
  expect(screen.queryByLabelText('统一工作区')).toBeNull()
  expect(screen.getByText('deck.pptx')).toBeInTheDocument()
+ const preview=vi.spyOn(artifactReviewBridge,'preview').mockResolvedValue({kind:'pptx',path:'deck.pptx',size:2048,content:'个人介绍演示内容',absolutePath:'E:/会话/deck.pptx'})
+ try{
+  await user.click(screen.getByText('deck.pptx'))
+  expect(await screen.findByLabelText('产物详情')).toBeInTheDocument()
+  expect(await screen.findByText('个人介绍演示内容')).toBeInTheDocument()
+  expect(preview).toHaveBeenCalledWith({sessionId:S,path:'deck.pptx'})
+  expect(screen.getByLabelText('向月汐提问，或描述你想完成的任务…')).toBeInTheDocument()
+  await user.click(screen.getByRole('button',{name:'关闭产物详情'}))
+  expect(screen.queryByLabelText('产物详情')).toBeNull()
+ }finally{preview.mockRestore()}
 })
 
 
@@ -959,6 +969,19 @@ it('keeps the user.ask wizard and follow-up draft when chat.start fails after ap
   expect((screen.getByLabelText('向月汐提问，或描述你想完成的任务…') as HTMLTextAreaElement).value).toContain('部署方式：容器化')
   expect(await screen.findByText(/这次没发出去/)).toBeInTheDocument()
   expect(screen.queryByText('ENGINE_UNAVAILABLE')).toBeNull()
+  // Retry the continuation without repeating the already consumed decision.
+  let resumedEvent!: (event: StreamEvent) => void
+  start.mockImplementationOnce(async (_payload, listener) => {
+    resumedEvent = listener
+    return { streamId: '01ARZ3NDEKTSV4RRFFQ69G5FB0', cancel: vi.fn(), dispose: vi.fn() }
+  })
+  await user.click(screen.getByRole('button', { name: '提交决策' }))
+  await waitFor(() => expect(start).toHaveBeenCalledTimes(3))
+  expect(approve).toHaveBeenCalledOnce()
+  expect(screen.queryByRole('form', { name: '需求边界' })).toBeNull()
+  await act(async () => resumedEvent({ v: '1.0', kind: 'event', id: '01ARZ3NDEKTSV4RRFFQ69G5FB1', streamId: '01ARZ3NDEKTSV4RRFFQ69G5FB0', sequence: 1, type: 'delta', delta: {text: '已采用容器化，下面开始实施。'} }))
+  expect(await screen.findByText('已采用容器化，下面开始实施。')).toBeInTheDocument()
+  expect(screen.queryByText('工具已执行：已批准')).toBeNull()
 })
 
 it('does not delete 月伴对话 after removing its last round', async () => {

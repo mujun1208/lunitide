@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/oklog/ulid/v2"
@@ -95,7 +96,7 @@ func (s *Service) StageFile(ctx context.Context, in StageInput) (StageResult, er
 		return StageResult{}, err
 	}
 	id := strings.TrimSpace(in.UploadID)
-	if len(id) != 26 {
+	if _, err := ulid.ParseStrict(id); err != nil || in.Index < 0 || in.Index > 4096 {
 		return StageResult{}, ErrInvalid
 	}
 	raw, err := decodeFile(in.ContentBase64)
@@ -109,36 +110,90 @@ func (s *Service) StageFile(ctx context.Context, in StageInput) (StageResult, er
 		return StageResult{}, err
 	}
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return StageResult{}, ErrInvalid
+	}
 	up := s.uploads[id]
 	if up == nil {
+		if in.Index != 0 {
+			s.mu.Unlock()
+			return StageResult{}, ErrInvalid
+		}
+		// Keep receipts for late replies, while bounding memory and open handles.
+		for key, old := range s.uploads {
+			if !old.mu.TryLock() {
+				continue
+			}
+			if time.Since(old.updated) > 30*time.Minute {
+				if old.file != nil {
+					_ = old.file.Close()
+					old.file = nil
+				}
+				delete(s.uploads, key)
+			}
+			old.mu.Unlock()
+		}
+		if len(s.uploads) >= 256 {
+			s.mu.Unlock()
+			return StageResult{}, fmt.Errorf("文件上传繁忙，请稍后再试")
+		}
 		path := filepath.Join(s.stagingDir, "up-"+id)
-		f, openErr := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+		// A restarted/expired upload must never truncate already acknowledged data.
+		f, openErr := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
 		if openErr != nil {
 			s.mu.Unlock()
 			return StageResult{}, openErr
 		}
-		up = &fileUpload{name: in.FileName, mime: in.FileMIME, path: path, file: f}
+		up = &fileUpload{name: in.FileName, mime: in.FileMIME, path: path, file: f, updated: time.Now()}
 		s.uploads[id] = up
 	}
 	s.mu.Unlock()
 	up.mu.Lock()
 	defer up.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return StageResult{}, err
+	}
+	if up.name != in.FileName || up.mime != in.FileMIME {
+		return StageResult{}, ErrInvalid
+	}
+	hash := sha256.Sum256(raw)
+	if in.Index < len(up.chunks) {
+		receipt := up.chunks[in.Index]
+		if receipt.hash != hash || receipt.last != in.Last {
+			return StageResult{}, ErrInvalid
+		}
+		up.updated = time.Now()
+		return receipt.result, nil
+	}
+	if up.complete || up.file == nil || in.Index != len(up.chunks) {
+		return StageResult{}, ErrInvalid
+	}
 	if up.size+int64(len(raw)) > maxFileBytes {
 		return StageResult{}, ErrTooLarge
 	}
-	if _, err := up.file.Write(raw); err != nil {
+	// Retry a partial/failed write at the same offset; publish a receipt only
+	// after the bytes are durable. Sync failure therefore cannot duplicate data.
+	if n, err := up.file.WriteAt(raw, up.size); err != nil {
+		return StageResult{}, err
+	} else if n != len(raw) {
+		return StageResult{}, io.ErrShortWrite
+	}
+	if err := up.file.Sync(); err != nil {
 		return StageResult{}, err
 	}
 	up.size += int64(len(raw))
-	if !in.Last {
-		return StageResult{Bytes: up.size}, nil
+	result := StageResult{Bytes: up.size}
+	if in.Last {
+		result.Ready = true
+		result.LocalPath = up.path
+		up.complete = true
+		_ = up.file.Close() // Sync succeeded before the completion receipt.
+		up.file = nil
 	}
-	_ = up.file.Close()
-	up.file = nil
-	s.mu.Lock()
-	delete(s.uploads, id)
-	s.mu.Unlock()
-	return StageResult{Ready: true, LocalPath: up.path, Bytes: up.size}, nil
+	up.chunks = append(up.chunks, stageChunkReceipt{hash: hash, last: in.Last, result: result})
+	up.updated = time.Now()
+	return result, nil
 }
 
 func (s *Service) PickFile(folder bool) (PickResult, error) {
@@ -156,7 +211,7 @@ func (s *Service) PickFile(folder bool) (PickResult, error) {
 	return PickResult{Path: path, FileName: info.Name(), Size: info.Size(), Directory: info.IsDir()}, nil
 }
 
-func (s *Service) OpenFile(destPath string) (string, error) {
+func (s *Service) OpenFile(destPath string, names ...string) (string, error) {
 	if err := s.readyUnlocked(); err != nil {
 		return "", err
 	}
@@ -176,6 +231,15 @@ func (s *Service) OpenFile(destPath string) (string, error) {
 	}
 	if !pathUnderRoot(s.receiveDir, abs) && !pathUnderRoot(s.stagingDir, abs) {
 		return "", ErrInvalid
+	}
+	// Old outgoing attachments were stored under an extensionless ID. Keep the
+	// original/history path, and give the OS a named copy it can associate.
+	if filepath.Ext(abs) == "" && len(names) > 0 && filepath.Ext(sanitizeName(names[0])) != "" {
+		named := abs + "-" + sanitizeName(names[0])
+		if err := copyFileLimited(abs, named, maxFileBytes); err != nil {
+			return "", err
+		}
+		abs = named
 	}
 	if err := openPathFn(abs); err != nil {
 		return "", ErrOpenFailed
@@ -218,7 +282,8 @@ func (s *Service) materializeFile(in SendInput) (string, int64, string, error) {
 	if err := os.MkdirAll(s.stagingDir, 0o700); err != nil {
 		return "", 0, "", err
 	}
-	stage := filepath.Join(s.stagingDir, ulid.Make().String())
+	name := nonempty(in.FileName, filepath.Base(in.LocalPath))
+	stage := filepath.Join(s.stagingDir, ulid.Make().String()+"-"+sanitizeName(name))
 	srcPath := strings.TrimSpace(in.LocalPath)
 	if srcPath != "" {
 		info, err := os.Stat(srcPath)

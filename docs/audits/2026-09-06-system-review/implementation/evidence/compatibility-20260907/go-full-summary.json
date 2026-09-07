@@ -1,0 +1,11 @@
+{
+  "started": "2026-09-07T02:36:11.296077",
+  "command": "go test ./... -p 4 -json -timeout 20m",
+  "passedTests": 4839,
+  "skippedTests": 30,
+  "failedTests": [],
+  "passedPackages": 123,
+  "failedPackages": [],
+  "exitCode": 0,
+  "finished": "2026-09-07T02:41:16.546264"
+}

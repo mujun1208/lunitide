@@ -59,7 +59,23 @@ function rememberCompanionId(id: string): void {
  * fixed home the user returns to, and keeps its stable 月伴对话 title (never
  * auto-renamed to a first utterance).
  */
-export async function ensureCompanionSession(
+const entering = new WeakMap<SessionBridge, Map<string, Promise<SessionDTO>>>()
+
+export function ensureCompanionSession(
+  sessions: SessionBridge,
+  projectId: string,
+  zh: boolean,
+): Promise<SessionDTO> {
+  let pending = entering.get(sessions)
+  if (!pending) { pending = new Map(); entering.set(sessions, pending) }
+  const existing = pending.get(projectId)
+  if (existing) return existing
+  const result = resolveCompanionSession(sessions, projectId, zh).finally(() => { pending!.delete(projectId) })
+  pending.set(projectId, result)
+  return result
+}
+
+async function resolveCompanionSession(
   sessions: SessionBridge,
   projectId: string,
   zh: boolean,

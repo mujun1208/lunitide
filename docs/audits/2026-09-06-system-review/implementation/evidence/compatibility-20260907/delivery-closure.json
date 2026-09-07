@@ -1,0 +1,16 @@
+{
+  "closedAt": "2026-09-06T21:12:29.647042+00:00",
+  "candidate": "compatibility-20260907-r2",
+  "installerSHA256": "50166ee1e5d25adc373b1aa18b60040709755a5df4e7f71096b753fbebcd4aef",
+  "currentCodeMatchesFinalTests": true,
+  "codeFileCount": 2820,
+  "codeSourceSHA256": "ed4a8af7a98a92bd630de2263089a725b47ad1dd6312ef07de52d9eaf9cddb03",
+  "qualitySummary": "final-quality-summary.json",
+  "raceClosure": "go-race-closure.json",
+  "allTestProcessesFinished": true,
+  "nativeAcceptance": "pending",
+  "installed": false,
+  "provisionalScore": 4.725142857142858,
+  "scoreModules": 24,
+  "brokenLocalDocumentLinks": []
+}
