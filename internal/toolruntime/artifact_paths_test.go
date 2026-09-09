@@ -6,6 +6,23 @@ import (
 	"testing"
 )
 
+func TestWriteArtifactForPathSurfacesDocumentsNotScratchCode(t *testing.T) {
+	md := writeArtifactForPath("周报/周报_2026-W37.md", "# 周报")
+	if md == nil || md.Kind != "md" || md.Path != "周报/周报_2026-W37.md" || md.Content != "" {
+		t.Fatalf("markdown = %+v", md)
+	}
+	html := writeArtifactForPath("site/index.html", "<h1>ok</h1>")
+	if html == nil || html.Kind != "html" || html.Content != "<h1>ok</h1>" {
+		t.Fatalf("html = %+v", html)
+	}
+	if got := writeArtifactForPath("scratch.go", "package main"); got != nil {
+		t.Fatalf("code scratch = %+v", got)
+	}
+	if got := writeArtifactForPath(".message-artifacts.json", "{}"); got != nil {
+		t.Fatalf("hidden file = %+v", got)
+	}
+}
+
 func TestArtifactReadUsesAuthorizedActualPath(t *testing.T) {
 	r, err := New(t.TempDir())
 	if err != nil {

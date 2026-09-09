@@ -14,6 +14,51 @@ import (
 	content "github.com/lunitide/lunitide/internal/officestudio"
 )
 
+func TestOfficeShellBypassedForBoundTaskAndLegacyPipelines(t *testing.T) {
+	if officeShellBypassed("workspace.read", "01ARZ3NDEKTSV4RRFFQ69G5FAV", nil) {
+		t.Fatal("non-shell tool blocked")
+	}
+	if !officeShellBypassed("command.run", "01ARZ3NDEKTSV4RRFFQ69G5FAV", &chatTurnCheckpoint{Goal: "随便看看"}) {
+		t.Fatal("office-bound command.run must use office.generate")
+	}
+	if !officeShellBypassed("run_terminal_cmd", "", &chatTurnCheckpoint{PptActive: true}) {
+		t.Fatal("ppt pipeline still allows shell bypass")
+	}
+	if officeShellBypassed("command.run", "", &chatTurnCheckpoint{Goal: "跑一下单元测试"}) {
+		t.Fatal("plain coding command blocked")
+	}
+	if officeShellBypassed("command.run", "", &chatTurnCheckpoint{Goal: "跑一下表格相关的单元测试"}) {
+		t.Fatal("coding verification mentioning a spreadsheet blocked")
+	}
+	for _, goal := range []string{"帮我做一个Excel表格", "参考材料写一份Word", "参考文档，帮我做一个10页的PDF"} {
+		if !officeShellBypassed("command.run", "", &chatTurnCheckpoint{Goal: goal}) {
+			t.Fatalf("office file goal still allows shell: %s", goal)
+		}
+	}
+}
+
+func TestOfficeManagedWriteBlockedForExcelWordPDF(t *testing.T) {
+	excel := json.RawMessage(`{"path":"半年财报.xlsx","content":"not-a-workbook"}`)
+	if !officeManagedBypass("workspace.write", "", &chatTurnCheckpoint{Goal: "做一份半年财报"}, excel) {
+		t.Fatal("excel workspace.write must use excel.gen")
+	}
+	word := json.RawMessage(`{"path":"周报.docx","content":"PK"}`)
+	if !officeManagedBypass("workspace.write", "", &chatTurnCheckpoint{Goal: "写一份周报"}, word) {
+		t.Fatal("word workspace.write must use docx.gen")
+	}
+	pdf := json.RawMessage(`{"path":"方案.pdf","content":"%PDF"}`)
+	if !officeManagedBypass("workspace.write", "", &chatTurnCheckpoint{Goal: "参考文档，帮我做一个10页的PDF"}, pdf) {
+		t.Fatal("pdf workspace.write must use pdf.gen")
+	}
+	note := json.RawMessage(`{"path":"notes.md","content":"ok"}`)
+	if officeManagedBypass("workspace.write", "", &chatTurnCheckpoint{Goal: "做一份半年财报"}, note) {
+		t.Fatal("non-office write blocked")
+	}
+	if officeManagedBypass("workspace.write", "", &chatTurnCheckpoint{Goal: "跑一下单元测试"}, excel) {
+		t.Fatal("coding turn blocked from writing a spreadsheet")
+	}
+}
+
 func TestOfficeChatBindingKeepsOlderTaskAndPendingApprovalDestination(t *testing.T) {
 	e, store := officeEngineFixture(t)
 	a := officeCreatedTask(t, e, "task-a")

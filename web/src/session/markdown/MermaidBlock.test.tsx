@@ -60,6 +60,36 @@ it('mounts parsed SVG instead of innerHTML and rejects junk', () => {
   expect(() => mountMermaidSvg(host, '<not-svg></not-svg>')).toThrow(/无法解析/)
 })
 
+it('does not flash a timeout error when the source is still streaming', async () => {
+  mermaid.render.mockImplementation(() => new Promise(() => {}))
+  const { rerender } = render(<MermaidBlock source={'```mermaid\nflowchart TD\nA'} />)
+  await new Promise(resolve => setTimeout(resolve, 80))
+  rerender(<MermaidBlock source={'flowchart TD\nA-->B'} />)
+  await new Promise(resolve => setTimeout(resolve, 80))
+  expect(screen.queryByText(/图表未能渲染/)).toBeNull()
+  expect(mermaid.render).not.toHaveBeenCalled()
+})
+
+it('holds a stable placeholder instead of rendering an unfinished arrow', async () => {
+  render(<MermaidBlock source={'flowchart TD\nA-->'} />)
+  await new Promise(resolve => setTimeout(resolve, 700))
+  expect(mermaid.render).not.toHaveBeenCalled()
+  expect(screen.getByText(/图表生成中/)).toBeInTheDocument()
+  expect(screen.queryByText(/图表未能渲染/)).toBeNull()
+})
+
+it('retries a cancelled worker and then mounts the SVG', async () => {
+  mermaid.render
+    .mockRejectedValueOnce(new Error('图表渲染超时或已取消，已回收独立渲染进程；源码仍保留'))
+    .mockResolvedValueOnce({
+      svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 40"><g class="node"><rect/></g></svg>',
+    })
+  render(<MermaidBlock source={'flowchart TD\nA-->B'} />)
+  await waitFor(() => expect(document.querySelector('.mermaid-host svg .node rect')).not.toBeNull(), { timeout: 4000 })
+  expect(screen.queryByText(/图表未能渲染/)).toBeNull()
+  expect(mermaid.render).toHaveBeenCalledTimes(2)
+})
+
 it('falls back to source when mermaid.render fails instead of throwing', async () => {
   mermaid.render.mockRejectedValue(new Error('parse failed'))
   render(<MermaidBlock source={'flowchart TD\nA-->B'} onCopy={vi.fn()} />)

@@ -172,7 +172,7 @@ func (e *Engine) executeOfficeTool(ctx context.Context, sessionID, name string, 
 			}
 			result, err = s.CreateBundle(ctx, task.ID, p.Title, p.VersionIDs, key)
 		case "apply":
-			err = s.Execute(ctx, task.ID, "patch", func(run context.Context) error {
+			err = e.officeExclusive(ctx, task.ID, "patch", func(run context.Context) error {
 				v, _, er := s.ReadVersion(run, task.ID, p.TargetVersionID)
 				if er != nil {
 					return er
@@ -204,7 +204,7 @@ func (e *Engine) executeOfficeTool(ctx context.Context, sessionID, name string, 
 		if err = e.hydrateOfficeImages(ctx, task.SessionID, &p.Spec); err != nil {
 			return nil, "", "", err
 		}
-		err = s.Execute(ctx, task.ID, "running", func(run context.Context) error {
+		err = e.officeExclusive(ctx, task.ID, "running", func(run context.Context) error {
 			var runErr error
 			version, runErr = s.Generate(run, task.ID, p.Name, p.Spec, key)
 			return runErr
@@ -218,7 +218,7 @@ func (e *Engine) executeOfficeTool(ctx context.Context, sessionID, name string, 
 		if !e.officeWritesEnabled("office.patch", v.Kind) {
 			return nil, "", "", fmt.Errorf("FEATURE_DISABLED: Office patch disabled")
 		}
-		err = s.Execute(ctx, task.ID, "running", func(run context.Context) error {
+		err = e.officeExclusive(ctx, task.ID, "running", func(run context.Context) error {
 			var runErr error
 			patch := content.PatchRequest{Kind: content.Kind(v.Kind), BaseSHA256: v.SHA256}
 			switch name {

@@ -120,6 +120,42 @@ export function recoverMermaidSource(source: string): string {
   return trimMermaidFenceLeak(source)
 }
 
+const MERMAID_CONNECTOR_TAIL = /(?:-->|---|==>|-\.->|-.->|<-->|~~>|-->>|--x|x--|o--)\s*$/
+
+/** False while the model is still typing the fence (unclosed labels, arrows, subgraphs). */
+export function mermaidSourceReady(source: string): boolean {
+  if (mermaidBudgetError(source)) return true
+  const prepared = prepareMermaidSource(source)
+  if (!prepared) return false
+  const first = prepared.split('\n').find(line => line.trim()) ?? ''
+  if (!MERMAID_DIAGRAM_START.test(first.trim())) return false
+  let depth = 0
+  for (const line of prepared.split('\n')) {
+    if (/^\s*subgraph\b/.test(line)) depth++
+    else if (/^\s*end\s*$/.test(line)) depth--
+  }
+  if (depth > 0) return false
+  const body = prepared.replace(/%%[^\n]*/g, '')
+  if (((body.match(/"/g) ?? []).length) % 2 !== 0) return false
+  if ((body.match(/\[/g) ?? []).length !== (body.match(/\]/g) ?? []).length) return false
+  const last = [...prepared.split('\n')].reverse().find(line => line.trim()) ?? ''
+  const tail = last.trim()
+  if (MERMAID_CONNECTOR_TAIL.test(tail) || /[\[{(]$/.test(tail)) return false
+  return true
+}
+
+export function mermaidTransientError(message: string): boolean {
+  return /超时|已取消|正在处理|DIAGRAM_BUSY|timeout|cancelled/i.test(message)
+}
+
+/** Last ```mermaid in the message has no closing fence — still streaming. */
+export function mermaidFenceStillOpen(markdown: string): boolean {
+  const lower = markdown.toLowerCase()
+  const idx = lower.lastIndexOf('```mermaid')
+  if (idx < 0) return false
+  return !/\n```/.test(markdown.slice(idx + '```mermaid'.length))
+}
+
 /** Drop author init directives so stock dark/default cannot wipe the Tide theme. */
 export function prepareMermaidSource(source: string): string {
   const stripped = source.replace(/%%\{\s*init[\s\S]*?\}%%/gi, '').trim()

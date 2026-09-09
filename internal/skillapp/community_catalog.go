@@ -116,10 +116,10 @@ func nativeCommunityAlternatives() []CatalogTemplate {
 		id, description, prompt string
 		aliases                 []string
 	}{
-		{"docx", "Word文档生成与修改（Lunitide原生）", "读取用户真实材料，列出受众、结构与缺失数据。使用docx.gen或当前Office任务的office.generate生成Word；修改已有文件优先office.inspect/office.patch并保留未修改部分。核验文件实际存在、内容和表格，报告可打开路径。", []string{"Word", "docx", "生成文档"}},
-		{"xlsx", "Excel表格分析与生成（Lunitide原生）", "先excel.parse或office.inspect读取原文件；核对列类型、单位、空值及来源。使用excel.gen或office.generate生成工作簿，公式保持可计算，避免把公式值当原始事实。修改使用局部版本，重读关键单元格和公式后报告文件路径。", []string{"Excel", "xlsx", "电子表格"}},
-		{"pptx", "PPT演示文稿生成与修改（Lunitide原生）", "根据受众和用途组织每页一个主张，提供实际内容、数据来源及演讲备注。使用pptx.gen或office.generate；已有稿件使用office.inspect/office.patch保留其余页面。核验页面内容和实际生成文件，再提供打开路径；未做渲染检查就明确说明。", []string{"PPT", "pptx", "幻灯片"}},
-		{"pdf", "PDF文档输出与核验（Lunitide原生）", "读取真实来源内容，核对标题、段落、数字与引用。使用pdf.gen输出PDF或已可用Office导出流程；优先已有文件解析工具读回，不把文件扩展名或创建回执当排版验收。给出文件路径及完成/尚未核验的项目。", []string{"PDF", "pdf"}},
+		{"docx", "Word文档生成与修改（Lunitide原生）", "读取用户真实材料，列出受众、结构与缺失数据。使用docx.gen或当前Office任务的office.generate生成Word；修改已有文件优先office.inspect/office.patch并保留未修改部分。需要段落/表格深度改稿时，可在 MCP 中心连接 Word MCP。核验文件实际存在、内容和表格，报告可打开路径。", []string{"Word", "docx", "生成文档"}},
+		{"xlsx", "Excel表格分析与生成（Lunitide原生）", "先excel.parse或office.inspect读取原文件；核对列类型、单位、空值及来源。使用excel.gen或office.generate生成工作簿，公式保持可计算，避免把公式值当原始事实。修改使用局部版本；复杂透视或格式可用 MCP 中心的 Excel MCP。重读关键单元格和公式后报告文件路径。", []string{"Excel", "xlsx", "电子表格"}},
+		{"pptx", "PPT演示文稿生成与修改（Lunitide原生）", "根据受众和用途组织每页一个主张，提供实际内容、数据来源及演讲备注。使用pptx.gen或office.generate；已有稿件使用office.inspect/office.patch保留其余页面。需要增删幻灯片时，可在 MCP 中心连接 PPT MCP，禁止 Office COM 和 command.run 拼文件。核验页面内容和实际生成文件，再提供打开路径；未做渲染检查就明确说明。", []string{"PPT", "pptx", "幻灯片"}},
+		{"pdf", "PDF文档输出与核验（Lunitide原生）", "读取真实来源内容，核对标题、段落、数字与引用。使用pdf.gen输出PDF或已可用Office导出流程；优先已有文件解析工具读回。需要批注/书签/合并拆分时，可在 MCP 中心连接 PDF MCP。不把文件扩展名或创建回执当排版验收。给出文件路径及完成/尚未核验的项目。", []string{"PDF", "pdf"}},
 		{"doc-coauthoring", "共同撰写、修订并核验文档（Lunitide原创）", "先明确文档用途、使用者和现有资料；已有答案不要再问。拟定章节后逐项补充可核验事实，维护待补信息与本次修改清单。成稿后用独立读者问题检查信息是否完整、结论是否有依据，修正发现的问题，交付可编辑文件和简短修改说明。", []string{"文档协作", "共创文档", "coauthoring"}},
 		{"docker-optimize", "Docker构建与部署文件优化（Lunitide原创）", "检查项目Dockerfile和compose真实内容：构建上下文、.dockerignore、锁文件、分层缓存、多阶段构建、基础镜像版本、非root用户、权限、运行时所需文件、健康检查及密钥来源。先量化现状再给最小修改；只有Docker已就绪且任务授权才执行实际构建。记录构建成功/失败与镜像大小，不声称未经运行的优化百分比，不删除用户容器或卷。", []string{"Dockerfile", "Docker优化", "容器优化"}},
 	}

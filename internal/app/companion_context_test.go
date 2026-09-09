@@ -94,8 +94,8 @@ func TestResolveMediaPlayArgsOpenAndPlayStillDefaultsHot(t *testing.T) {
 	if err := json.Unmarshal(out, &parsed); err != nil {
 		t.Fatal(err)
 	}
-	if parsed["target"] != "foreground" || parsed["query"] != "热门" {
-		t.Fatalf("open_and_play empty query should search 热门, got %#v", parsed)
+	if parsed["target"] != "foreground" || parsed["query"] != "random" {
+		t.Fatalf("open_and_play empty query should play random, got %#v", parsed)
 	}
 }
 
@@ -126,7 +126,7 @@ func TestCompanionAutoMediaPlayArgs(t *testing.T) {
 	if err := json.Unmarshal(args, &parsed); err != nil {
 		t.Fatal(err)
 	}
-	if parsed["target"] != "foreground" || parsed["query"] != "热门" {
+	if parsed["target"] != "foreground" || parsed["query"] != "random" {
 		t.Fatalf("parsed = %#v", parsed)
 	}
 }
@@ -151,7 +151,7 @@ func TestCompanionExtractMusicQueryExactDesktopJayChouUtterance(t *testing.T) {
 	if got := companionDefaultMusicQuery(uttered); got != "周杰伦" {
 		t.Fatalf("query = %q want 周杰伦 (not 热门, not leftover 打开软件搜索…)", got)
 	}
-	if got := companionDefaultMusicQuery("随便放一首"); got != "热门" {
+	if got := companionDefaultMusicQuery("随便放一首"); got != "random" {
 		t.Fatalf("generic play = %q", got)
 	}
 	if got := companionDefaultMusicQuery("随便放一首周杰伦"); got != "周杰伦" {
@@ -255,6 +255,13 @@ func TestCompanionWantsToolsForPlayFollowUp(t *testing.T) {
 	}
 	if !e.companionWantsToolsForTurn("s1", "随便放一首") {
 		t.Fatal("expected tools for random play follow-up")
+	}
+	if !e.companionWantsToolsForTurn("s1", "那你倒是试一试啊？") {
+		t.Fatal("retry after a music turn must keep tools")
+	}
+	args, ok := e.companionAutoMediaPlayArgs("s1", "那你倒是试一试啊？")
+	if !ok || !strings.Contains(string(args), "汽水音乐") || !strings.Contains(string(args), "random") {
+		t.Fatalf("retry with an open player must play again: %s", args)
 	}
 	if e.companionWantsToolsForTurn("s1", "你好") {
 		t.Fatal("expected no tools for idle chat")

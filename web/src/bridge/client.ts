@@ -340,7 +340,7 @@ export const sessionBridge:SessionBridge={list:p=>getSessionBridge().list(p),cre
 const textValid=(v:unknown)=>typeof v==='string'&&v.length>0&&!v.includes('\0')&&Array.from(v).length<=2048&&new TextEncoder().encode(v).length<=8192
 const dtoTextValid=(v:unknown)=>typeof v==='string'&&v.length>=1&&v.length<=65536
 const messageArtifactPathValid=(path:unknown)=>typeof path==='string'&&path.length>0&&path.length<=512&&!path.startsWith('/')&&!path.includes('\\')&&!path.split('/').includes('..')
-const messageArtifactKindValid=(kind:unknown)=>kind==='html'||kind==='xlsx'||kind==='docx'||kind==='pptx'||kind==='pdf'||kind==='image'
+const messageArtifactKindValid=(kind:unknown)=>kind==='html'||kind==='xlsx'||kind==='docx'||kind==='pptx'||kind==='pdf'||kind==='image'||kind==='md'||kind==='txt'
 const isMessageArtifact=(v:unknown)=>isObj(v)&&exact(v,['kind','path','callId','toolName'])&&typeof v.callId==='string'&&v.callId.length>0&&v.callId.length<=128&&typeof v.toolName==='string'&&v.toolName.length>0&&messageArtifactPathValid(v.path)&&messageArtifactKindValid(v.kind)
 const isMessage=(v:unknown,sessionId:string)=>{
  if(!isObj(v)||!exact(v,['id','sessionId','role','status','sequence','text','createdAt'],['artifacts','hasProcess'])||!isULID(v.id)||v.sessionId!==sessionId||(v.role!=='user'&&v.role!=='assistant'&&v.role!=='tool')||v.status!=='completed'||!Number.isSafeInteger(v.sequence)||Number(v.sequence)<=0||!dtoTextValid(v.text)||!isTime(v.createdAt))return false
@@ -1027,7 +1027,7 @@ let skillSingleton: SkillBridge | undefined
 export function getSkillBridge(): SkillBridge { return skillSingleton ??= createSkillBridge(webview()) }
 export const skillBridge: SkillBridge = { uploadBegin:p=>getSkillBridge().uploadBegin!(p), uploadChunk:p=>getSkillBridge().uploadChunk!(p), uploadCommit:p=>getSkillBridge().uploadCommit!(p), uploadAbort:p=>getSkillBridge().uploadAbort!(p), packageList:p=>getSkillBridge().packageList!(p), packageRead:p=>getSkillBridge().packageRead!(p), get: p => getSkillBridge().get(p), list: p => getSkillBridge().list(p), create: (p, o) => getSkillBridge().create(p, o), update: (p, o) => getSkillBridge().update(p, o), delete: (p, o) => getSkillBridge().delete(p, o), match: p => getSkillBridge().match(p), publish: p => getSkillBridge().publish(p), deprecate: p => getSkillBridge().deprecate(p), disable: p => getSkillBridge().disable(p),invoke:p=>getSkillBridge().invoke!(p),execute:p=>getSkillBridge().execute!(p),catalogList:p=>getSkillBridge().catalogList!(p),install:p=>getSkillBridge().install!(p),categorySet:p=>getSkillBridge().categorySet!(p) }
 
-export type StreamArtifact={kind:'html'|'xlsx'|'docx'|'pptx'|'pdf'|'image';path:string;content:string}
+export type StreamArtifact={kind:'html'|'xlsx'|'docx'|'pptx'|'pdf'|'image'|'md'|'txt';path:string;content:string}
 export type StreamEvent =
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'delta';delta:{text:string}}
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'thinking';thinking:{text:string}}
@@ -1053,6 +1053,8 @@ const isStreamArtifact=(artifact:unknown):artifact is StreamArtifact=>{
  switch(artifact.kind){
   case'html':return/\.html?$/i.test(path)&&new TextEncoder().encode(artifact.content).length<=184320
   case'xlsx':case'docx':case'pptx':case'pdf':return artifact.content===''
+  case'md':return/\.(md|markdown)$/i.test(path)&&artifact.content===''
+  case'txt':return/\.(txt|csv)$/i.test(path)&&artifact.content===''
   case'image':return/\.png$/i.test(path)&&artifact.content===''
   default:return false
  }

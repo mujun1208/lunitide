@@ -226,7 +226,7 @@ func companionExtractMusicQuery(text string) string {
 	}
 	t = strings.Join(kept, "，")
 	if t == "" {
-		return "热门"
+		return "random"
 	}
 	if q := companionExtractAfterSearch(t); q != "" {
 		return q
@@ -240,14 +240,14 @@ func companionExtractMusicQuery(text string) string {
 	}
 	stripped := companionStripMusicFiller(t)
 	if stripped == "" {
-		return "热门"
+		return "random"
 	}
 	n := utf8.RuneCountInString(stripped)
 	if n >= 2 && n <= 16 {
 		return stripped
 	}
 	if genericHint || n > 24 {
-		return "热门"
+		return "random"
 	}
 	return stripped
 }
@@ -256,10 +256,28 @@ func companionDefaultMusicQuery(text string) string {
 	return companionExtractMusicQuery(text)
 }
 
+func companionRetryActionTurn(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	for _, needle := range []string{
+		"再试", "试一试", "试一下", "再来一次", "再播", "倒是试", "你倒是", "再操作", "try again",
+	} {
+		if strings.Contains(t, needle) || strings.Contains(strings.ToLower(t), strings.ToLower(needle)) {
+			return true
+		}
+	}
+	return false
+}
+
 func companionPlayFollowUp(text string) bool {
 	t := strings.TrimSpace(text)
 	if t == "" {
 		return false
+	}
+	if companionRetryActionTurn(t) {
+		return true
 	}
 	for _, needle := range []string{
 		"播放", "播一首", "播歌", "放一首", "来一首", "随便", "任意", "随机", "暂停", "下一首", "上一首", "切歌",
@@ -297,6 +315,16 @@ func companionMusicQueryFollowUp(text string) bool {
 func (e *Engine) companionWantsToolsForTurn(sessionID, text string) bool {
 	if companionWantsTools(text) {
 		return true
+	}
+	if companionRetryActionTurn(text) && e != nil && sessionID != "" {
+		ctx := e.loadCompanionContext(sessionID)
+		if ctx.LastTool != "" || ctx.DesktopActive || ctx.Kind == "music_app" || looksLikeMusicAppName(ctx.ActiveAppName) {
+			return true
+		}
+		prev := e.loadTurnCheckpoint(sessionID)
+		if strings.TrimSpace(prev.Goal) != "" && (companionWantsTools(prev.Goal) || companionTurnWantsMusicPlay(prev.Goal) || companionWantsDesktopControl(prev.Goal)) {
+			return true
+		}
 	}
 	if sessionID == "" || e == nil {
 		return false
@@ -370,7 +398,7 @@ func (e *Engine) companionSessionInjection(sessionID, turnText string) string {
 	}
 	b.WriteString("。")
 	if ctx.Kind == "music_app" || looksLikeMusicAppName(ctx.ActiveAppName) {
-		b.WriteString("这是音乐类软件：点名歌手/歌名时 media.play target=foreground query=歌名；要随机或没说歌时 query=热门；暂停后再继续或只说「播放」且不换歌时 media.play action=play，不要带 query，不要 computer.act。禁止 cc.screen_capture、cc.mouse_click 等看屏操作，禁止 browser、netease、qqmusic 或网页搜索。")
+		b.WriteString("这是音乐类软件：点名歌手/歌名时 media.play target=foreground query=歌名；要随机或没说歌时 query=random；暂停后再继续或只说「播放」且不换歌时 media.play action=play，不要带 query，不要 computer.act。禁止 cc.screen_capture、cc.mouse_click 等看屏操作，禁止 browser、netease、qqmusic 或网页搜索。")
 	} else {
 		b.WriteString("用户后续要在该软件里继续操作时，优先在该前台窗口内完成，不要另开网页或无关程序。")
 	}
@@ -409,7 +437,7 @@ func mediaPlayQueryKeepsResume(action, query string) string {
 		return q
 	}
 	if strings.EqualFold(strings.TrimSpace(action), "open_and_play") {
-		return "热门"
+		return "random"
 	}
 	return ""
 }
@@ -499,7 +527,24 @@ func (e *Engine) resolveMediaPlayArgs(sessionID string, args json.RawMessage) js
 
 func (e *Engine) companionAutoMediaPlayArgs(sessionID, goal string) (json.RawMessage, bool) {
 	if !companionTurnWantsMusicPlay(goal) {
-		return nil, false
+		if !companionRetryActionTurn(goal) {
+			return nil, false
+		}
+		if sessionID != "" && e != nil {
+			if prev := e.loadTurnCheckpoint(sessionID); companionTurnWantsMusicPlay(prev.Goal) {
+				goal = prev.Goal
+			}
+		}
+		if !companionTurnWantsMusicPlay(goal) {
+			ctx := companionActionContext{}
+			if sessionID != "" && e != nil {
+				ctx = e.loadCompanionContext(sessionID)
+			}
+			if ctx.Kind != "music_app" && !looksLikeMusicAppName(ctx.ActiveAppName) {
+				return nil, false
+			}
+			goal = "随机播放"
+		}
 	}
 	ctx := e.loadCompanionContext(sessionID)
 	app := companionNamedMusicApp(goal)
@@ -508,7 +553,7 @@ func (e *Engine) companionAutoMediaPlayArgs(sessionID, goal string) (json.RawMes
 	}
 	if app == "" {
 		q := companionDefaultMusicQuery(goal)
-		if q != "" && q != "热门" && utf8.RuneCountInString(q) >= 2 && utf8.RuneCountInString(q) <= 6 {
+		if q != "" && q != "热门" && q != "random" && utf8.RuneCountInString(q) >= 2 && utf8.RuneCountInString(q) <= 6 {
 			app = toolruntime.FirstInstalledMusicApp()
 		}
 	}
@@ -538,9 +583,11 @@ func mediaArgsForGoal(goal string, args json.RawMessage) json.RawMessage {
 	}
 	fields["app"], fields["target"] = app, "foreground"
 	action, _ := fields["action"].(string)
-	if (action == "" || action == "play" || action == "open_and_play") && companionTurnWantsMusicPlay(goal) && companionDefaultMusicQuery(goal) == "热门" {
-		// The generic request must not inherit a made-up song or a response-style clause.
-		fields["query"] = "random"
+	if (action == "" || action == "play" || action == "open_and_play") && companionTurnWantsMusicPlay(goal) {
+		q := companionDefaultMusicQuery(goal)
+		if q == "热门" || q == "random" {
+			fields["query"] = "random"
+		}
 	}
 	delete(fields, "url")
 	out, err := json.Marshal(fields)

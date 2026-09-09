@@ -111,7 +111,16 @@ export const officeStudioApi: OfficeStudioApi = {
   create: p => detail(requestOffice('office.task.create',p)),
   get: p => detail(requestOffice('office.task.get',p)),
   update: p => detail(requestOffice('office.task.update',p)),
-  sync: p => detail(requestOffice('office.task.sync',p)),
+  sync: async p => {
+    try {
+      return await detail(requestOffice('office.task.sync',p))
+    } catch (error) {
+      if (error instanceof BridgeClientError && error.code === 'OFFICE_BUSY' && !p.artifactPath) {
+        return detail(requestOffice('office.task.get',{taskId:p.taskId}))
+      }
+      throw error
+    }
+  },
   importArtifact: p => detail(requestOffice('office.artifact.import',p)),
   preview: p => requestOffice('office.artifact.preview',p),
   patch: p => detail(requestOffice('office.artifact.patch',p)),
@@ -124,7 +133,7 @@ export const officeStudioApi: OfficeStudioApi = {
   cancel: p => detail(requestOffice('office.task.cancel',p)),
   openExport: p => requestOffice('office.artifact.open',p),
 }
-import { requestOffice } from '../bridge/client'
+import { BridgeClientError, requestOffice } from '../bridge/client'
 import { collectOfficeDetail, collectOfficeItems } from './officeSnapshot'
 import type { SnapshotPage } from './officeSnapshot'
 const detail = (result: Promise<OfficeTaskDetail>) => collectOfficeDetail(result,(taskId,cursor)=>requestOffice('office.task.get',{taskId,...cursor}))

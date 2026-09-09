@@ -69,6 +69,12 @@ it('renders mermaid blocks with copy fallback', () => {
   expect(onCopy).toHaveBeenCalledWith('flowchart TD\nA-->B')
 })
 
+it('does not start mermaid while the live fence is still open', () => {
+  render(<MarkdownMessage text={'```mermaid\nflowchart TD\nA-->B\n'} />)
+  expect(screen.getByText(/图表生成中/)).toBeInTheDocument()
+  expect(screen.queryByText(/图表未能渲染/)).toBeNull()
+})
+
 it('compresses thinking to the last short sentence instead of the full chain', () => {
   expect(compressThinking('先列出步骤。然后核对来源。最后给出结论。')).toBe('最后给出结论。')
   expect(compressThinking('x'.repeat(80)).startsWith('…')).toBe(true)

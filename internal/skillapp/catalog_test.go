@@ -232,6 +232,15 @@ func TestExpertManagerCatalogManifest(t *testing.T) {
 		if len(raw) > 65536 {
 			t.Fatalf("manifest too long: %d", len(raw))
 		}
+		prompt := string(raw)
+		for _, want := range []string{"岗位说明书六段", "装备匹配", "mcp:", "两张 GFM 表"} {
+			if !strings.Contains(prompt, want) {
+				t.Fatalf("expert-manager manifest missing %q", want)
+			}
+		}
+		if strings.Contains(prompt, "成功后必须立刻用中文明确告诉用户：已创建") {
+			t.Fatal("manifest still forces a one-line expert-center close")
+		}
 		return
 	}
 	t.Fatal("expert-manager template missing from catalog")

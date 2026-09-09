@@ -324,3 +324,57 @@ func TestOfficeArchiveSnapshotKeepsOldVersionsBeyondListCutoffs(t *testing.T) {
 		t.Fatal("archive snapshot bypassed scope")
 	}
 }
+
+func TestOfficeArchiveConcurrentSyncIsBusyNotVersionConflict(t *testing.T) {
+	e, _ := officeEngineFixture(t)
+	ctx := context.Background()
+	a := officeCreatedTask(t, e, "busy-sync")
+	m := officeArchiveMessageForTest(t, e, a.SessionID, "busy-message")
+	officeArchiveFileForTest(t, e, a.SessionID, "busy.docx", "需要导入才会碰到写入锁")
+	officeArchiveCardForTest(t, e, a.SessionID, m, "busy.docx", a.ID)
+	started, release, ended := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	go func() {
+		ended <- e.officeStudio.Execute(ctx, a.ID, "running", func(context.Context) error {
+			close(started)
+			<-release
+			return nil
+		})
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("hold not started")
+	}
+	err := e.syncOfficeArtifacts(ctx, a)
+	if !errors.Is(err, domain.ErrBusy) {
+		t.Fatalf("overlap must be busy, not version conflict: %v", err)
+	}
+	if errors.Is(err, domain.ErrConflict) {
+		t.Fatal("busy overlap leaked as version conflict")
+	}
+	if err = e.archiveOfficeTurnNow(ctx, a.SessionID, a.ID); err != nil {
+		t.Fatalf("chat archive must ignore busy: %v", err)
+	}
+	close(release)
+	if err = <-ended; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRetryOfficeBusyStopsWhenContextEnds(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := retryOfficeBusy(ctx, func() error { return domain.ErrBusy })
+	if !errors.Is(err, context.Canceled) && !errors.Is(err, domain.ErrBusy) {
+		t.Fatalf("busy retry ignored cancellation: %v", err)
+	}
+}
+
+func TestIgnoreOfficeBusyKeepsRealConflicts(t *testing.T) {
+	if ignoreOfficeBusy(domain.ErrBusy) != nil {
+		t.Fatal("busy must be ignored by deferred archive")
+	}
+	if !errors.Is(ignoreOfficeBusy(fmt.Errorf("同步文件 x.pptx：%w", domain.ErrConflict)), domain.ErrConflict) {
+		t.Fatal("real conflict must still fail")
+	}
+}

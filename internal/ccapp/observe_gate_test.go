@@ -37,32 +37,37 @@ func TestRequireObserveBeforeXY(t *testing.T) {
 		{Role: "button", Name: "保存", X: 10, Y: 10, W: 40, H: 20},
 	}))
 	s.observedFrameID = "frm_nodes"
-	if err := s.requireObserveBeforeXY(); err == nil {
-		t.Fatal("nodes>0 must forbid raw xy")
-	}
-	s.observedCount = 0
-	s.observedFrameID = "frm_empty"
-	s.allowGUIPixels = true
 	if err := s.requireObserveBeforeXY(); err != nil {
-		t.Fatalf("empty tree + GUI: %v", err)
+		t.Fatalf("OpenClaw path: nodes must not block xy after a frame: %v", err)
+	}
+	s.capMu.Lock()
+	s.capFrameID = "frm_shot"
+	s.observedFrameID = ""
+	s.observedCount = 0
+	s.capMu.Unlock()
+	if err := s.requireObserveBeforeXY(); err != nil {
+		t.Fatalf("screenshot frame must allow xy without observe: %v", err)
 	}
 }
 
 func TestSetAllowGUIPixelsProduction(t *testing.T) {
 	t.Parallel()
 	s := New(nil)
-	s.observedFrameID = "frm_empty"
-	s.observedCount = 0
 	if err := s.requireObserveBeforeXY(); err == nil {
-		t.Fatal("false: empty-tree xy must still fail")
+		t.Fatal("false: no-frame xy must still fail")
 	}
 	s.SetAllowGUIPixels(true)
 	if err := s.requireObserveBeforeXY(); err != nil {
-		t.Fatalf("true: empty-tree xy must pass: %v", err)
+		t.Fatalf("true: GUI bypass without frame must pass: %v", err)
 	}
 	s.SetAllowGUIPixels(false)
 	if err := s.requireObserveBeforeXY(); err == nil {
-		t.Fatal("after close: empty-tree xy must fail again")
+		t.Fatal("after close: no-frame xy must fail again")
+	}
+	s.observedFrameID = "frm_empty"
+	s.observedCount = 0
+	if err := s.requireObserveBeforeXY(); err != nil {
+		t.Fatalf("frame must allow xy: %v", err)
 	}
 	frame, n := s.ObservedSnapshot()
 	if frame != "frm_empty" || n != 0 {

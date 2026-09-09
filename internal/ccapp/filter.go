@@ -86,8 +86,11 @@ func (s *Service) filterInput(tool string, args json.RawMessage) ([]string, erro
 				return nil, err
 			}
 		}
-		needsFrame := a.X != nil || strings.TrimSpace(a.ID) != "" || strings.TrimSpace(a.Name) != ""
-		if !needsFrame && s.CurrentFrameID() != "" {
+		// name= resolves against the live UIA tree; do not stall for frameId.
+		// id= and raw x,y still bind to the latest screenshot.
+		// Scroll-only (no pointer target) is not a pixel action.
+		needsFrame := a.X != nil || strings.TrimSpace(a.ID) != ""
+		if !needsFrame && strings.TrimSpace(a.Name) == "" && a.Scroll == 0 && s.CurrentFrameID() != "" {
 			needsFrame = true
 		}
 		if needsFrame {

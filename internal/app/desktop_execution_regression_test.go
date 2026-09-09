@@ -50,7 +50,7 @@ func TestSpokenPlaybackCloseoutDoesNotCreateOfficeDocument(t *testing.T) {
 
 func TestMusicQueryDoesNotIncludeSpokenCloseoutInstructions(t *testing.T) {
 	goal := "帮我打开桌面汽水音乐，随机播放一首歌曲。结果只用一句话报告。"
-	if got := companionDefaultMusicQuery(goal); got != "热门" {
+	if got := companionDefaultMusicQuery(goal); got != "random" {
 		t.Fatal(got)
 	}
 	args := mediaArgsForGoal(goal, json.RawMessage(`{"action":"play","query":"结果只用一句话报告"}`))

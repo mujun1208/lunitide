@@ -392,7 +392,9 @@
             "docx",
             "pptx",
             "pdf",
-            "image"
+            "image",
+            "md",
+            "txt"
           ]
         },
         "path": {

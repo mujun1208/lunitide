@@ -276,10 +276,10 @@ export function Workspace({
     ? (
       <SessionFolderPanel
         sessionId={sessionId}
+        refreshKey={refreshRevision + artifactCards.length}
         onPreview={file => {
           setLocalDetail(file)
           setDetail(undefined)
-          setTab('code')
         }}
       />
     )

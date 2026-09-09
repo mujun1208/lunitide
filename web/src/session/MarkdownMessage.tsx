@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { MermaidBlock } from './markdown/MermaidBlock'
+import { mermaidFenceStillOpen } from './markdown/tideMermaid'
 import { RichCodeBlock, codeBlockLanguage } from './markdown/RichCodeBlock'
 import { MroCiteList } from './MroCiteList'
 import { parseMroCite } from './mroCite'
@@ -50,7 +51,7 @@ export const safeMarkdownUrl = (url: string): string => {
   }
 }
 
-function markdownComponents(onCopy?: (value: string) => void | Promise<void>, onMermaidLayout?: () => void): Components {
+function markdownComponents(onCopy?: (value: string) => void | Promise<void>, onMermaidLayout?: () => void, waitMermaid = false): Components {
   return {
     a: ({ children, href, ...props }) => {
       if (!href) return <>{children}</>
@@ -62,7 +63,7 @@ function markdownComponents(onCopy?: (value: string) => void | Promise<void>, on
     code: ({ className, children, ...props }) => {
       const lang = codeBlockLanguage(className)
       const text = String(children).replace(/\n$/, '')
-      if (lang === 'mermaid') return <MermaidBlock source={text} onCopy={onCopy} onLayout={onMermaidLayout} />
+      if (lang === 'mermaid') return <MermaidBlock source={text} onCopy={onCopy} onLayout={onMermaidLayout} wait={waitMermaid} />
       if (lang) return <RichCodeBlock lang={lang} code={text} onCopy={onCopy} />
       return <code className={className} {...props}>{children}</code>
     },
@@ -75,7 +76,7 @@ export function MarkdownMessage({ text, onCopy, onMermaidLayout }: { text: strin
     allowedElements={allowedElements}
     unwrapDisallowed
     urlTransform={safeMarkdownUrl}
-    components={markdownComponents(onCopy, onMermaidLayout)}
+    components={markdownComponents(onCopy, onMermaidLayout, mermaidFenceStillOpen(text))}
   >{text}</ReactMarkdown>
 }
 

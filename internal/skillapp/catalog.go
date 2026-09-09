@@ -142,8 +142,9 @@ func skillCreatorManifest() map[string]any {
 func expertManagerManifest() map[string]any {
 	body := stripYAMLFrontmatter(string(expertManagerSkillMD))
 	lunitide := "\n\n--- Lunitide 集成 ---\n" +
-		"完成六段式岗位说明书后，调用 expert.create（source=local，frontmatter + sixSection，requestId=新 UUID）。\n" +
-		"不要用 skill.create。expert.create 可带 skillKeys 把已发布技能挂到这位专家（不要钉对话输入框）。成功后必须立刻用中文明确告诉用户：已创建「名称」，请到专家中心确认挂载技能，需要时再挂到项目步骤。然后继续用户还没做完的工作。\n" +
+		"完成六段式岗位说明书后，调用 expert.create（对话工具用平铺字段 name/division/description/semver/六段正文/skillKeys，不要 source/frontmatter/sixSection/requestId）。\n" +
+		"不要用 skill.create。必须根据用户描述匹配已发布技能、已安装 MCP（skillKeys 里写 mcp:<id>）和内置能力，并在对话里用两张 GFM 表展示：岗位说明书六段、装备匹配（类型/名称/理由/是否已关联）。\n" +
+		"成功后保留这两张表，并写明名称、expertId、默认停用；用户可到专家中心「我创建的」看名片、试用后再启用。禁止只用一两句「已创建，请到专家中心」交差。\n" +
 		"失败时用中文说明原因，不要沉默结束。"
 	prompt := strings.TrimSpace(body) + lunitide
 	if len(prompt) > 60000 {

@@ -68,7 +68,7 @@ func TestFreshLookupCannotExecuteOldFileOrMusicTask(t *testing.T) {
 		t.Fatal("explicit combined task blocked")
 	}
 	instruction := currentTurnInstruction("查今天车票", time.Date(2026, 9, 8, 14, 0, 0, 0, time.FixedZone("CST", 8*3600)))
-	if !strings.Contains(instruction, "2026-09-08") || !strings.Contains(instruction, "不是本轮待执行清单") {
+	if !strings.Contains(instruction, "2026-09-08") || !strings.Contains(instruction, "不是本轮待执行清单") || !strings.Contains(instruction, "只用一到三句") {
 		t.Fatal(instruction)
 	}
 }

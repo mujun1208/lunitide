@@ -21,6 +21,8 @@ it('hides intermediate web search and fetch HTML from deliverable cards', () => 
   expect(isChatDeliverableArtifact({ toolName: 'web.fetch', kind: 'html', path: 'fetch.html' })).toBe(false)
   expect(isChatDeliverableArtifact({ toolName: 'pptx.gen', kind: 'pptx', path: 'deck.pptx' })).toBe(true)
   expect(isChatDeliverableArtifact({ toolName: 'workspace.write', kind: 'pptx', path: 'desktop/介绍.pptx' })).toBe(true)
+  expect(isChatDeliverableArtifact({ toolName: 'workspace.write', kind: 'md', path: '周报/周报_2026-W37.md' })).toBe(true)
+  expect(isChatDeliverableArtifact({ toolName: 'workspace.edit', kind: 'txt', path: 'notes.txt' })).toBe(true)
   expect(artifactOpenRelativePath(String.raw`C:\Users\mujun\Desktop\介绍.pptx`)).toBe('C:/Users/mujun/Desktop/介绍.pptx')
   expect(artifactOpenRelativePath(String.raw`E:\项目\介绍.pptx`)).toBe('E:/项目/介绍.pptx')
   const visible = filterChatDeliverables([
@@ -36,6 +38,15 @@ it('hides intermediate web search and fetch HTML from deliverable cards', () => 
   ]} />)
   expect(screen.queryByText('search.html')).toBeNull()
   expect(screen.getByText('deck.pptx')).toBeInTheDocument()
+})
+
+it('shows markdown skill files as chat cards without opening Office Studio', () => {
+  render(<ChatArtifactCards sessionId="01ARZ3NDEKTSV4RRFFQ69G5FAV" artifacts={[{
+    kind: 'md', path: '周报/周报_2026-W37.md', content: '', callId: 'write-1', toolName: 'workspace.write',
+  }]} />)
+  expect(screen.getByRole('listitem')).toHaveTextContent('Markdown · 点击打开')
+  expect(screen.getByText('周报_2026-W37.md')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '在办公工作台查看' })).toBeNull()
 })
 
 it('opens the inspector with the exact historical artifact path', () => {

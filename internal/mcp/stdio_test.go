@@ -201,6 +201,18 @@ func TestStdioDialRejectsEmptyVector(t *testing.T) {
 	}
 }
 
+func TestStdioLaunchEnvForwardsProxyAndCache(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:15715")
+	t.Setenv("UV_CACHE_DIR", "E:/cache/uv")
+	joined := strings.Join(stdioLaunchEnv(nil), "\n")
+	if !strings.Contains(joined, "HTTPS_PROXY=http://127.0.0.1:15715") {
+		t.Fatalf("missing proxy: %s", joined)
+	}
+	if !strings.Contains(joined, "UV_CACHE_DIR=E:/cache/uv") {
+		t.Fatalf("missing uv cache: %s", joined)
+	}
+}
+
 func TestStdioSessionInstallerStderrDoesNotCorruptProtocol(t *testing.T) {
 	s := dialFake(t, "stderr")
 	tools, err := s.ListTools(context.Background())

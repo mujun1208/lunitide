@@ -185,6 +185,54 @@ func TestExpertBridgeTrialWithoutModelCatalogStaysDisabled(t *testing.T) {
 	}
 }
 
+func TestExpertCreateToolDescriptionKeepsDossier(t *testing.T) {
+	e := newExpertSkillsEngine(t)
+	for _, d := range e.expertToolDefinitions() {
+		if d.Name != "expert.create" {
+			continue
+		}
+		if !strings.Contains(d.Description, "GFM") || !strings.Contains(d.Description, "mcp:") || strings.Contains(d.Description, "tell the user to confirm skills in Expert Center") {
+			t.Fatal(d.Description)
+		}
+		return
+	}
+	t.Fatal("expert.create missing")
+}
+
+func TestExpertToolCreationBindsMatchedSkillAndMCPKeys(t *testing.T) {
+	e := newExpertSkillsEngine(t)
+	out, err := e.invokeExpertCreateTool(context.Background(), "", json.RawMessage(`{"name":"网络漫剧爆款编剧专家","division":"design","description":"短剧与AI漫剧编剧","semver":"1.0.0","identity":"资深编剧","mission":"出爆款剧本","rules":"不泄密","workflow":"先定人设再写集","deliverableTemplate":"分集大纲","successMetrics":"完播与转发","skillKeys":["web-researcher","mcp:playwright"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Output, "网络漫剧爆款编剧专家") || !strings.Contains(out.Output, `"state":"disabled"`) {
+		t.Fatalf("creation output: %s", out.Output)
+	}
+	var created struct {
+		ExpertID string `json:"expertId"`
+	}
+	body := out.Output[strings.Index(out.Output, "{"):]
+	if json.Unmarshal([]byte(body), &created) != nil || created.ExpertID == "" {
+		t.Fatalf("expertId missing: %s", out.Output)
+	}
+	keys, err := e.m8expert.ListBoundSkills(context.Background(), created.ExpertID)
+	if err != nil || len(keys) < 2 {
+		t.Fatalf("bound: %#v %v", keys, err)
+	}
+	hasSkill, hasMCP := false, false
+	for _, key := range keys {
+		if key == "web-researcher" {
+			hasSkill = true
+		}
+		if key == "mcp:playwright" {
+			hasMCP = true
+		}
+	}
+	if !hasSkill || !hasMCP {
+		t.Fatalf("matching keys not persisted: %#v", keys)
+	}
+}
+
 func TestExpertToolCreationReturnsNamedDisabledManualExpert(t *testing.T) {
 	e := newExpertSkillsEngine(t)
 	out, err := e.invokeExpertCreateTool(context.Background(), "", json.RawMessage(`{"name":"Short Drama Expert","division":"design","description":"Story editor","semver":"1.0.0","identity":"i","mission":"m","rules":"r","workflow":"w","deliverableTemplate":"d","successMetrics":"s"}`))

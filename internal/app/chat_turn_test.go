@@ -20,6 +20,9 @@ func TestLooksLikeResume(t *testing.T) {
 	if !looksLikeResume(resumeUserPrompt) || !looksLikeResume("继续") || looksLikeResume("帮我安装技能") {
 		t.Fatal("resume detector mismatch")
 	}
+	if !looksLikeResume("那你倒是试一试啊？") || !looksLikeResume("再试一次") {
+		t.Fatal("retry utterances must resume the previous task")
+	}
 	if !looksLikeIndependentRequest("帮我打开桌面协议的文件") || !looksLikeIndependentRequest("打开协议") {
 		t.Fatal("new tasks must stay independent")
 	}

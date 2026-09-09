@@ -972,8 +972,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						if blocked, msg := docxGenBlocked(&turn, call.Name); blocked {
 							return blockedDocxGenResult(msg), nil
 						}
-						if (call.Name == "command.run" || call.Name == "run_terminal_cmd") && (turn.PptActive || turn.DocxActive || wantsOfficeFileOnDesktop(turn.Goal)) {
-							return toolruntime.Result{Output: "ok:false\n" + officeGenInternalHint + "立刻调用对应 *.gen，不要 command.run。"}, nil
+						if officeManagedBypass(call.Name, officeTaskContextID(op), &turn, call.Arguments) {
+							return toolruntime.Result{Output: "ok:false\n" + officeGenInternalHint + "立刻调用 office.generate 或对应 *.gen，不要 command.run 或 workspace.write。"}, nil
 						}
 						if call.Name == "command.run" || call.Name == "run_terminal_cmd" {
 							progress := func(chunk string) {

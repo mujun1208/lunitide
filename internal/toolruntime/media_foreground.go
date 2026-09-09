@@ -388,8 +388,13 @@ func executeMediaPlayForeground(ctx context.Context, invoke ccInvoker, session, 
 	if isGenericMediaQuery(q) {
 		shuffle := strings.Contains(q, "随机") || strings.Contains(strings.ToLower(q), "random") || strings.Contains(strings.ToLower(q), "shuffle")
 		if res, ok := controlMusicSession(ctx, app, "play", shuffle); ok {
-			return res, nil
+			if strings.Contains(res.Output, "verified playing") {
+				return res, nil
+			}
+			return genericPlaybackStarted(app, opened, "media session"), nil
 		}
+		_ = sendForegroundPlay("play")
+		return genericPlaybackStarted(app, opened, "media key"), nil
 	}
 	focus := app
 	if known, ok := matchKnownLaunchApp(app); ok {
@@ -409,6 +414,21 @@ func executeMediaPlayForeground(ctx context.Context, invoke ccInvoker, session, 
 		res.Output = "opened " + opened + "; " + res.Output
 	}
 	return attachMediaL0(res), nil
+}
+
+func genericPlaybackStarted(app, opened, how string) Result {
+	label := strings.TrimSpace(app)
+	if known, ok := matchKnownLaunchApp(app); ok {
+		label = known.Canonical
+	}
+	if label == "" {
+		label = "foreground app"
+	}
+	detail := fmt.Sprintf("started playing in %s (%s)", label, how)
+	if opened != "" {
+		detail = "opened " + opened + "; " + detail
+	}
+	return result(appendL0JSON(detail, "foreground", true, false, label))
 }
 
 func attachMediaL0(res Result) Result {

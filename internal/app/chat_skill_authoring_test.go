@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
@@ -15,6 +16,26 @@ import (
 	"github.com/lunitide/lunitide/internal/skillapp"
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
 )
+
+func TestExpertAuthoringInstructionKeepsDossierTables(t *testing.T) {
+	goal := "[引用技能 expert-manager|01ARZ3NDEKTSV4RRFFQ69G5FAV]\n请按以下完整需求创建专家。我要一位网络漫剧爆款编剧专家，覆盖B站、红果、抖音短剧与AI漫剧。"
+	if !looksLikeExpertAuthoringTask(goal) {
+		t.Fatal("expert-manager create not recognized")
+	}
+	hint := skillAuthoringInstruction(goal)
+	for _, want := range []string{"两张 GFM 表", "装备匹配", "岗位说明书", "不受「操作结果一到三句", "不要追加「下一步建议」", "skillKeys", "mcp:<id>"} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("missing %q in %s", want, hint)
+		}
+	}
+	if strings.Contains(hint, "请到专家中心确认挂载") {
+		t.Fatal("brief expert-center-only close must not override the dossier")
+	}
+	boundary := currentTurnInstruction(goal, time.Date(2026, 9, 9, 18, 0, 0, 0, time.FixedZone("CST", 8*3600)))
+	if strings.Contains(boundary, "只用一到三句") || strings.Contains(boundary, "不要展开核对表") {
+		t.Fatal("short-result rule still applies to expert creation")
+	}
+}
 
 func TestSkillAuthoringDoesNotGenerateItsSubjectAsAnOfficeDocument(t *testing.T) {
 	for _, goal := range []string{"创建一个每周写周报的技能", "帮我封装一个生成 Excel 表格的技能", "create a weekly report skill", "优化小说写作技能", "[引用技能 skill-creator|01ARZ3NDEKTSV4RRFFQ69G5FAV]\n每周收集进展，整理 Word 周报和 PPT", "把刚才这段对话整理成一个可复用技能。\n周报摘录"} {

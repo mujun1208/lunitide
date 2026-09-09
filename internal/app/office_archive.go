@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"log"
 	"time"
 
@@ -40,7 +41,7 @@ func (e *Engine) archiveOfficeTurnNow(ctx context.Context, sessionID, taskID str
 		if task.SessionID != sessionID {
 			return domain.ErrScope
 		}
-		return e.syncOfficeArtifacts(ctx, task)
+		return ignoreOfficeBusy(e.syncOfficeArtifacts(ctx, task))
 	}
 	// Mutable updated_at must never determine chat ownership. Without an
 	// explicit binding, select the latest created task and let message/card
@@ -62,5 +63,12 @@ func (e *Engine) archiveOfficeTurnNow(ctx context.Context, sessionID, taskID str
 			task = candidate.Task
 		}
 	}
-	return e.syncOfficeArtifacts(ctx, task)
+	return ignoreOfficeBusy(e.syncOfficeArtifacts(ctx, task))
+}
+
+func ignoreOfficeBusy(err error) error {
+	if errors.Is(err, domain.ErrBusy) {
+		return nil
+	}
+	return err
 }

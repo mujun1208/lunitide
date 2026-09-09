@@ -12,6 +12,7 @@ import (
 var (
 	ErrNotFound = errors.New("OFFICE_NOT_FOUND")
 	ErrConflict = errors.New("OFFICE_VERSION_CONFLICT")
+	ErrBusy     = errors.New("OFFICE_BUSY")
 	ErrInvalid  = errors.New("OFFICE_INVALID_INPUT")
 	ErrScope    = errors.New("OFFICE_SCOPE_MISMATCH")
 )

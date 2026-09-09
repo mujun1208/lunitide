@@ -294,6 +294,50 @@ func looksLikeComputerControlTurn(text string) bool {
 	return looksLikePlayOrOpenTurn(text) || looksLikeTypeAfterLabelTurn(text) || looksLikeWeatherTurn(text)
 }
 
+func officeHowToQuestion(text string) bool {
+	t := strings.ToLower(strings.TrimSpace(text))
+	for _, k := range []string{"怎么", "如何", "how to", "how do i", "what is a"} {
+		if strings.Contains(t, k) {
+			return true
+		}
+	}
+	return false
+}
+
+func officeCodingVerificationTurn(text string) bool {
+	t := strings.ToLower(strings.TrimSpace(text))
+	for _, k := range []string{"单元测试", "unit test", "go test", "npm test", "pnpm test", "yarn test", "pytest", "vitest", "跑一下测试", "跑测试"} {
+		if strings.Contains(t, k) {
+			return true
+		}
+	}
+	return false
+}
+
+func looksLikePdfTask(text string) bool {
+	if capabilityWorkTask(text) || officeMaterialReview(text) || officeHowToQuestion(text) {
+		return false
+	}
+	if explicitOfficeOutputTool(text) == "pdf.gen" {
+		return true
+	}
+	t := strings.ToLower(strings.TrimSpace(text))
+	if t == "" || looksLikeStatusFollowUp(text) || looksLikeResume(text) {
+		return false
+	}
+	for _, k := range []string{
+		"生成pdf", "制作pdf", "做成pdf", "导出pdf", "输出pdf", "转成pdf", "转换成pdf",
+		"做一个pdf", "做一份pdf", "做个pdf", "做份pdf", "写成pdf", "保存为pdf",
+		"generate a pdf", "generate pdf", "export a pdf", "export pdf", "create a pdf", "create pdf",
+		"save as pdf", "convert to pdf",
+	} {
+		if strings.Contains(t, k) {
+			return true
+		}
+	}
+	return false
+}
+
 func looksLikeExcelTask(text string) bool {
 	if capabilityWorkTask(text) || officeMaterialReview(text) {
 		return false
@@ -338,14 +382,14 @@ func wantsOfficeGen(text string) bool {
 	if spokenResultReportOnly(text) {
 		return false
 	}
-	if capabilityWorkTask(text) || officeMaterialReview(text) {
+	if capabilityWorkTask(text) || officeMaterialReview(text) || officeHowToQuestion(text) {
 		return false
 	}
 	t := strings.ToLower(strings.TrimSpace(text))
 	if t == "" || looksLikeStatusFollowUp(text) || looksLikeResume(text) {
 		return false
 	}
-	if looksLikePptTask(text) || looksLikeReportTask(text) || looksLikeNovelTask(text) ||
+	if looksLikePptTask(text) || looksLikePdfTask(text) || looksLikeReportTask(text) || looksLikeNovelTask(text) ||
 		looksLikeExcelTask(text) || looksLikeHtmlGenTask(text) {
 		return true
 	}
@@ -408,7 +452,7 @@ func hasOfficeGenTool(tools []string) bool {
 
 func usedCommandRun(tools []string) bool {
 	for _, name := range tools {
-		if name == "command.run" {
+		if name == "command.run" || name == "run_terminal_cmd" {
 			return true
 		}
 	}

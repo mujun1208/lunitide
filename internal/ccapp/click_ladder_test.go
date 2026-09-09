@@ -84,6 +84,41 @@ func TestClickNameMatch(t *testing.T) {
 	}
 }
 
+func TestResolveNamedPrefersExactOverContains(t *testing.T) {
+	t.Parallel()
+	s := New(nil)
+	s.SetHost(ladderStubHost{
+		title:   "汽水音乐",
+		process: "soda.exe",
+		nodes: []UINode{
+			{Role: "button", Name: "随机播放", X: 10, Y: 10, W: 80, H: 24},
+			{Role: "button", Name: "播放", X: 200, Y: 400, W: 40, H: 24},
+			{Role: "button", Name: "历史播放", X: 10, Y: 80, W: 80, H: 24},
+		},
+	})
+	name, sx, sy, hit, err := s.resolveNamedTarget("播放")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "播放" || hit != "播放" || sx != 220 || sy != 412 {
+		t.Fatalf("exact 播放 must win over 随机播放, got %q @ %d,%d", name, sx, sy)
+	}
+	name, _, _, _, err = s.resolveNamedTarget("Play")
+	if err != nil || name != "播放" {
+		t.Fatalf("Play alias must resolve to 播放, got %q %v", name, err)
+	}
+}
+
+func TestNamesExactAliasDoesNotSwallowContains(t *testing.T) {
+	t.Parallel()
+	if namesExactAlias("播放", "随机播放") {
+		t.Fatal("播放 must not exactly alias 随机播放")
+	}
+	if !namesExactAlias("播放", "Play") || !namesExactAlias("确定", "OK") {
+		t.Fatal("control aliases must match exactly")
+	}
+}
+
 func TestClickAccuracyFixturesSkipWithoutEnv(t *testing.T) {
 	if os.Getenv("LUNITIDE_CC_ACCURACY") == "1" {
 		t.Skip("live fixtures live in internal/ccapp/accuracy")
@@ -140,8 +175,12 @@ func TestClickNamedLadderPixelHitTest(t *testing.T) {
 		t.Fatalf("native pixel click = %d,%d", host.movedX, host.movedY)
 	}
 	host.hit = "取消"
-	if err := svc.clickNamedLadder("保存", 100, 200, "保存"); err == nil {
-		t.Fatal("hit-test mismatch must fail")
+	host.movedX, host.movedY = 0, 0
+	if err := svc.clickNamedLadder("保存", 100, 200, "保存"); err != nil {
+		t.Fatalf("hit-test mismatch must still click the resolved box: %v", err)
+	}
+	if host.movedX != 100 || host.movedY != 200 {
+		t.Fatalf("mismatch fallback click = %d,%d", host.movedX, host.movedY)
 	}
 }
 

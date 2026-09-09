@@ -76,6 +76,9 @@ func TestCompanionClarificationEndsWithoutApprovalAndAcceptsNextRound(t *testing
 					t.Fatalf("terminal: %#v", frames[len(frames)-1])
 				}
 				want := "请说出要打开的文件名。"
+				if !plain {
+					want = "请说出要打开的文件名。可以说年度总结，预算，或者你自己说。"
+				}
 				if round == 1 {
 					want = "收到，你说的是年度总结文档。"
 				}
@@ -91,7 +94,10 @@ func TestCompanionClarificationEndsWithoutApprovalAndAcceptsNextRound(t *testing
 }
 
 func TestCompanionSpokenQuestionAndPrompt(t *testing.T) {
-	if got := companionSpokenQuestion(json.RawMessage(`{"questions":[{"prompt":"发给谁？"},{"prompt":"内容是什么？"}]}`)); got != "发给谁？" {
+	if got := companionSpokenQuestion(json.RawMessage(`{"questions":[{"prompt":"发给谁？","options":[{"label":"小王"},{"label":"小组群"}]},{"prompt":"内容是什么？"}]}`)); got != "发给谁？可以说小王，小组群，或者你自己说。" {
+		t.Fatal(got)
+	}
+	if got := companionSpokenQuestion(json.RawMessage(`{"questions":[{"prompt":"发给谁？"}]}`)); got != "发给谁？" {
 		t.Fatal(got)
 	}
 	if got := companionSpokenQuestion(json.RawMessage(`{}`)); got == "" {
@@ -105,7 +111,7 @@ func TestCompanionSpokenQuestionAndPrompt(t *testing.T) {
 	if companionNeedsSpokenInput("今天合肥晴天，最高二十八度。") {
 		t.Fatal("answer mistaken for clarification")
 	}
-	for _, rule := range []string{"默认只答 1–2 句", "不使用 user.ask", "同一结果本轮只说一次"} {
+	for _, rule := range []string{"默认只答 1–2 句", "不使用 user.ask", "先从上下文推断并直接做", "同一结果本轮只说一次"} {
 		if !strings.Contains(companionPersonaChatInstruction(), rule) {
 			t.Fatal(rule)
 		}

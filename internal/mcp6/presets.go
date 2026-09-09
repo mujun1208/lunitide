@@ -59,6 +59,11 @@ var extraPresetPackages = map[string]bool{
 	"firecrawl-mcp":                     true,
 	"@notionhq/notion-mcp-server":       true,
 	"excel-mcp-server":                  true,
+	"office-word-mcp-server":            true,
+	"office-powerpoint-mcp-server":      true,
+	"office-ppt-mcp-server":             true,
+	"ppt-mcp":                           true,
+	"pdfnative-mcp":                     true,
 	"@larksuiteoapi/lark-mcp":           true,
 	"@sentry/mcp-server":                true,
 	"@microsoft/markitdown-mcp":         true,
@@ -80,6 +85,28 @@ func PresetPackageAllowed(spec string) bool {
 		return true
 	}
 	return extraPresetPackages[spec]
+}
+
+// PresetLaunchPackage is the npm/PyPI spec a stdio preset actually launches.
+// npx uses args[1] after -y; uvx --from <pkg> uses the following element.
+func PresetLaunchPackage(p Preset) string {
+	if p.Command == "npx" && len(p.Args) >= 2 && p.Args[0] == "-y" {
+		return p.Args[1]
+	}
+	if p.Command == "uvx" {
+		for i, a := range p.Args {
+			if a == "--from" && i+1 < len(p.Args) {
+				return p.Args[i+1]
+			}
+		}
+		if len(p.Args) > 0 {
+			return p.Args[0]
+		}
+	}
+	if len(p.Args) > 0 {
+		return p.Args[0]
+	}
+	return ""
 }
 
 // presets is the curated catalog. Official reference servers plus a
@@ -179,10 +206,13 @@ var presets = []Preset{
 	{ID: "tavily", Name: "Tavily", Description: "联网检索；通过凭据配置 Tavily API Key", Transport: "stdio", Command: "npx", Args: []string{"-y", "tavily-mcp"}, Category: "网络", NeedsCredential: true, CredentialEnvs: []string{"TAVILY_API_KEY"}},
 	{ID: "firecrawl", Name: "Firecrawl", Description: "网页搜索与抓取；通过凭据配置 Firecrawl API Key", Transport: "stdio", Command: "npx", Args: []string{"-y", "firecrawl-mcp"}, Category: "网络", NeedsCredential: true, CredentialEnvs: []string{"FIRECRAWL_API_KEY"}},
 	{ID: "notion", Name: "Notion", Description: "Notion 工作区；先配置集成令牌并在 Notion 授权相关页面", Transport: "stdio", Command: "npx", Args: []string{"-y", "@notionhq/notion-mcp-server"}, Category: "效率", NeedsCredential: true, CredentialEnvs: []string{"NOTION_TOKEN"}},
-	{ID: "excel-mcp", Name: "Excel MCP", Description: "本机表格读写，不是已归档的 SQLite MCP", Transport: "stdio", Command: "npx", Args: []string{"-y", "excel-mcp-server"}, Category: "数据"},
+	{ID: "excel-mcp", Name: "Excel MCP", Description: "本机表格读写（无需安装 Excel）。新建工作簿仍优先用月汐 excel.gen / office.generate", Transport: "stdio", Command: "uvx", Args: []string{"excel-mcp-server", "stdio"}, Category: "办公", SetupURL: "https://github.com/haris-musa/excel-mcp-server"},
+	{ID: "word-mcp", Name: "Word MCP", Description: "深度编辑已有 Word：段落、表格、样式。新建文档仍优先用月汐 docx.gen / office.generate", Transport: "stdio", Command: "uvx", Args: []string{"--from", "office-word-mcp-server", "word_mcp_server"}, Category: "办公", SetupURL: "https://github.com/GongRzhe/Office-Word-MCP-Server"},
+	{ID: "ppt-mcp", Name: "PPT MCP", Description: "深度编辑已有演示：增删页与布局。新建演示仍优先用月汐 pptx.gen / office.generate，不走 Office COM", Transport: "stdio", Command: "uvx", Args: []string{"office-ppt-mcp-server"}, Category: "办公", SetupURL: "https://pypi.org/project/office-ppt-mcp-server/"},
+	{ID: "pdf-mcp", Name: "PDF MCP", Description: "本机生成/批注/书签等 PDF 操作。简单文本 PDF 仍优先用月汐 pdf.gen / office.generate", Transport: "stdio", Command: "npx", Args: []string{"-y", "pdfnative-mcp"}, Category: "办公", SetupURL: "https://github.com/Nizoka/pdfnative-mcp"},
 	{ID: "lark", Name: "飞书", Description: "飞书开放平台；配置应用 ID、密钥，用户身份接口还需用户授权", Transport: "stdio", Command: "npx", Args: []string{"-y", "@larksuiteoapi/lark-mcp", "mcp", "-l", "zh"}, NeedsCredential: true, CredentialEnvs: []string{"APP_ID", "APP_SECRET", "USER_ACCESS_TOKEN"}, Category: "效率"},
 	{ID: "huggingface", Name: "Hugging Face", Description: "官方远程模型、数据集与论文检索；配置 HF Token 后连接", Transport: "https", URL: "https://huggingface.co/mcp", Args: []string{}, Category: "开发", NeedsCredential: true, SetupURL: "https://huggingface.co/docs/hub/en/agents-mcp"},
-	{ID: "markitdown", Name: "MarkItDown", Description: "Office/PDF 转 Markdown，本机转换；需要 Python 3.10+，首次启动会准备依赖", Transport: "stdio", Command: "uvx", Args: []string{"markitdown-mcp"}, Category: "效率", SetupURL: "https://github.com/microsoft/markitdown/tree/main/packages/markitdown-mcp"},
+	{ID: "markitdown", Name: "MarkItDown", Description: "Office/PDF 转 Markdown，本机转换；需要 Python 3.10+，首次启动会准备依赖", Transport: "stdio", Command: "uvx", Args: []string{"markitdown-mcp"}, Category: "办公", SetupURL: "https://github.com/microsoft/markitdown/tree/main/packages/markitdown-mcp"},
 	{ID: "neon", Name: "Neon", Description: "官方远程 Postgres 服务；配置 Neon API Key", Transport: "https", URL: "https://mcp.neon.tech/mcp", Args: []string{}, NeedsCredential: true, Category: "数据", SetupURL: "https://neon.tech/docs/ai/neon-mcp-server"},
 	{ID: "supabase", Name: "Supabase", Description: "Supabase 项目管理；通过凭据配置 Personal Access Token", Transport: "stdio", Command: "npx", Args: []string{"-y", "@supabase/mcp-server-supabase"}, NeedsCredential: true, CredentialEnvs: []string{"SUPABASE_ACCESS_TOKEN"}, Category: "数据"},
 	{ID: "qdrant", Name: "Qdrant", Description: "官方向量库记忆存取；先填 QDRANT_URL，云端实例再填 QDRANT_API_KEY", Transport: "stdio", Command: "uvx", Args: []string{"mcp-server-qdrant"}, Category: "数据", NeedsCredential: true, CredentialEnvs: []string{"QDRANT_URL", "QDRANT_API_KEY"}},

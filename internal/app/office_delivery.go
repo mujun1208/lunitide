@@ -87,7 +87,7 @@ func handleOfficeDelivery(e *Engine, ctx context.Context, r bridge.Request) brid
 	case "office.metric.capture":
 		_, err = s.CaptureMetric(ctx, task.ID, officeapp.MetricCapture{SourceVersionID: p.VersionID, SourceNodeID: p.NodeID, SourceNodeDigest: p.NodeDigest, Name: p.Name, Unit: p.Unit, Currency: p.Currency, Period: p.Period, RoundingDigits: p.RoundingDigits}, r.IdempotencyKey)
 	case "office.metric.apply":
-		err = s.Execute(ctx, task.ID, "patch", func(run context.Context) error {
+		err = e.officeExclusive(ctx, task.ID, "patch", func(run context.Context) error {
 			v, _, er := s.ReadVersion(run, task.ID, p.TargetVersionID)
 			if er != nil {
 				return er
