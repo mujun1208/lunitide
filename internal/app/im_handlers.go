@@ -76,19 +76,28 @@ func handleImChannelsSet(e *Engine, ctx context.Context, r bridge.Request) bridg
 		InboundAutoRun: p.InboundAutoRun, InboundAppID: p.InboundAppID, InboundAppSecret: p.InboundAppSecret,
 	})
 	if err != nil {
-		if errors.Is(err, scheduler.ErrWebhookInvalid) {
-			return r.Fail("BRIDGE_SCHEMA_INVALID", "Webhook 地址无效：仅支持飞书/企微/钉钉的 https 机器人地址", false)
-		}
-		if errors.Is(err, imapp.ErrWebhookRequired) {
-			return r.Fail("BRIDGE_SCHEMA_INVALID", "飞书/企微/钉钉启用前请粘贴 Webhook，不能只用本机打字", false)
-		}
-		if errors.Is(err, imapp.ErrInboundAllowlist) {
-			return r.Fail("BRIDGE_SCHEMA_INVALID", "开启入站需要 App ID，第一条消息会写入白名单", false)
-		}
-		if errors.Is(err, imapp.ErrInboundKind) {
-			return r.Fail("BRIDGE_SCHEMA_INVALID", "仅飞书和企业微信支持入站", false)
+		return imChannelsSetFailure(r, err)
+	}
+	return r.Ok(map[string]any{"channels": items})
+}
+
+func imChannelsSetFailure(r bridge.Request, err error) bridge.Response {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+		return r.Fail("REQUEST_DEADLINE_EXCEEDED", "消息通道设置超时，请重试", true)
+	case errors.Is(err, scheduler.ErrWebhookInvalid):
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "Webhook 地址无效：仅支持飞书/企微/钉钉的 https 机器人地址", false)
+	case errors.Is(err, imapp.ErrWebhookRequired):
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "飞书/企微/钉钉启用前请粘贴 Webhook，不能只用本机打字", false)
+	case errors.Is(err, imapp.ErrInboundAllowlist):
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "开启入站需要 App ID，第一条消息会写入白名单", false)
+	case errors.Is(err, imapp.ErrInboundKind):
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "仅飞书和企业微信支持入站", false)
+	default:
+		msg := strings.ToLower(err.Error())
+		if strings.Contains(msg, "busy") || strings.Contains(msg, "locked") {
+			return r.Fail("STORAGE_BUSY", "消息通道正忙，请稍后重试", true)
 		}
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "消息通道设置无效", false)
 	}
-	return r.Ok(map[string]any{"channels": items})
 }

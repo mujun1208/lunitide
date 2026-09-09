@@ -161,8 +161,12 @@ it('submits a new task goal once through the shared SessionPage and never repeat
   fireEvent.click(screen.getByRole('button', { name: '切换到对话' }));
   expect(observed.mounts).toHaveBeenCalledOnce();
   fireEvent.click(screen.getByRole('button', { name: '办公工作台' }));
+  await waitFor(() => {
+    expect(screen.queryByLabelText('共用会话输入')).not.toBeInTheDocument();
+  });
+  await screen.findByRole('heading', { name: '从材料到可交付文件' });
   fireEvent.click(await screen.findByRole('button', { name: /报告制作/ }));
   await screen.findByLabelText('共用会话输入');
-  expect(observed.mounts).toHaveBeenCalledTimes(2);
+  await waitFor(() => expect(observed.mounts).toHaveBeenCalledTimes(2));
   expect(observed.prompts).toHaveBeenCalledOnce();
 });
