@@ -176,6 +176,9 @@ describe('startCompanionSpeech capture graph', () => {
     handle.stop()
   })
   test('revises the same system-ASR result and preserves a complete caption against a trailing syllable final', async () => {
+    vi.useFakeTimers()
+    let paint: FrameRequestCallback = () => {}
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { paint = cb; return 1 })
     const onInterim = vi.fn()
     const onFinal = vi.fn()
     const handle = await startCompanionSpeech({ duplex: true, onInterim, onFinal, onError: vi.fn() })
@@ -188,7 +191,10 @@ describe('startCompanionSpeech capture graph', () => {
     expect(onInterim).toHaveBeenLastCalledWith('今天合肥市的天气怎么样呢？')
     deliver('呢？', true)
     expect(onInterim).toHaveBeenLastCalledWith('今天合肥市的天气怎么样呢？')
-    await new Promise(resolve => setTimeout(resolve, TURN_END_SILENCE_MS + 100))
+    expect(onFinal).not.toHaveBeenCalled()
+    capturePeak = 0
+    await vi.advanceTimersByTimeAsync(TURN_END_SILENCE_MS + 100)
+    paint(performance.now())
     expect(onFinal).toHaveBeenCalledExactlyOnceWith('今天合肥市的天气怎么样呢？')
     handle.stop()
   })

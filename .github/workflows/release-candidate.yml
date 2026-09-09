@@ -80,9 +80,10 @@ jobs:
           "CC=$($gcc.FullName)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
           & $gcc.FullName --version
         # Race instrumentation costs this tree about 23x, which puts the
-        # heaviest packages near an hour. Matches the Quality workflow.
+        # heaviest packages near an hour. Matches the Quality workflow
+        # (120m after hosted sqlite hit the old 90m ceiling).
         # cmd/desktop tests are //go:build !race — see quality.yml.
-      - run: go test -race -count=1 -p=4 -timeout 90m ./...
+      - run: go test -race -count=1 -p=4 -timeout 120m ./...
 
   x64-release-candidate:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref_type == 'tag')
