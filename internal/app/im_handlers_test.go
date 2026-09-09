@@ -183,7 +183,9 @@ func TestImInboundDeliverPairsFirstSender(t *testing.T) {
 	e := NewEngineWithMessages(providerapp.New(store, store), projects, sessions, msgs, "test", nil)
 	e.SetIMChannelsService(imapp.New(store))
 	ctx := context.Background()
-	if set := e.Handle(ctx, nominationRequest("im.channels.set", `{"kind":"feishu","inboundEnabled":true,"inboundAppId":"cli_x"}`)); !set.OK {
+	// Coverage on a loaded Windows runner can spend most of the default 3s
+	// envelope on engine authorize/capability before the write starts.
+	if set := e.Handle(ctx, imChannelsRequest("im.channels.set", `{"kind":"feishu","inboundEnabled":true,"inboundAppId":"cli_x"}`)); !set.OK {
 		t.Fatalf("enable pairing %+v", set.Error)
 	}
 	ok := e.Handle(ctx, inboundDeliverReq(`{"kind":"feishu","sender":"ou_paired","text":"打开网易云"}`))
@@ -206,7 +208,32 @@ func TestInboundAutoRunBudget(t *testing.T) {
 }
 
 func inboundDeliverReq(payload string) bridge.Request {
-	r := nominationRequest("im.inbound.deliver", payload)
+	r := imChannelsRequest("im.inbound.deliver", payload)
 	r.IdempotencyKey = "im-inbound-test-1"
 	return r
+}
+
+func imChannelsRequest(method, payload string) bridge.Request {
+	r := nominationRequest(method, payload)
+	r.DeadlineMS = bridge.DefaultMaxDeadlineMS
+	return r
+}
+
+type deadlineIMStore struct{}
+
+func (deadlineIMStore) ListIMChannels(context.Context) ([]imapp.Channel, error) {
+	return nil, context.DeadlineExceeded
+}
+
+func (deadlineIMStore) UpsertIMChannel(context.Context, imapp.Kind, imapp.ChannelPatch) ([]imapp.Channel, error) {
+	return nil, context.DeadlineExceeded
+}
+
+func TestImChannelsSetDoesNotCallTimeoutASchemaError(t *testing.T) {
+	e := NewEngine(nil, "test")
+	e.SetIMChannelsService(imapp.New(deadlineIMStore{}))
+	got := e.Handle(context.Background(), imChannelsRequest("im.channels.set", `{"kind":"feishu","inboundEnabled":true,"inboundAppId":"cli_x"}`))
+	if got.OK || got.Error == nil || got.Error.Code != "REQUEST_DEADLINE_EXCEEDED" || !got.Error.Retryable {
+		t.Fatalf("timeout must be retryable, not schema invalid: %+v", got.Error)
+	}
 }
