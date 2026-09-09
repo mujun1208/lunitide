@@ -70,12 +70,14 @@ func newSourceImportFixture(t *testing.T, text string) *sourceImportFixture {
 	}}
 	f.engine = NewEngine(nil, "test")
 	f.engine.skills = skillapp.New(st, st)
+	f.engine.SetPersistDir(filepath.Dir(dbPath))
 	f.restart()
 	return f
 }
 func (f *sourceImportFixture) restart() {
 	s := m6app.NewSkillImportService(f.store.AgentRuntimeRepository())
 	s.SetSource(f.source)
+	s.SetPackageRoot(filepath.Join(filepath.Dir(f.dbPath), "skill-package-store"))
 	f.engine.SetM6GovernanceServices(s, nil)
 }
 func (f *sourceImportFixture) call(t *testing.T, method string, payload map[string]any) bridge.Response {
@@ -89,6 +91,7 @@ func (f *sourceImportFixture) call(t *testing.T, method string, payload map[stri
 
 type sourceCandidateDTO struct {
 	CandidateID string                                      `json:"candidateId"`
+	SkillID     string                                      `json:"skillId"`
 	State       string                                      `json:"state"`
 	Version     int64                                       `json:"version"`
 	Summary     struct{ Name, License, ArchiveHash string } `json:"summary"`
@@ -239,6 +242,7 @@ func TestSkillSourceImportRuntimeWriteFailureRollsBackApproval(t *testing.T) {
 	c = f.step(t, c, "skill.import.submit")
 	s := m6app.NewSkillImportService(importFailWriterUOW{f.store.AgentRuntimeRepository()})
 	s.SetSource(f.source)
+	s.SetPackageRoot(filepath.Join(filepath.Dir(f.dbPath), "skill-package-store"))
 	f.engine.SetM6GovernanceServices(s, nil)
 	r := f.call(t, "skill.import.approve", map[string]any{"candidateId": c.CandidateID, "expectedVersion": c.Version, "approval": map[string]string{"by": "test"}})
 	if r.OK {

@@ -310,6 +310,17 @@ describe('looksLikePlaybackEcho', () => {
       }),
     ).toBe(true)
   })
+
+  test('does not drop a longer interruption merely because it shares a phrase with playback', () => {
+    expect(looksLikePlaybackEcho(
+      '点不到热门就点击播放按钮',
+      '点不到热门，我换个推荐列表试试。',
+    )).toBe(false)
+    expect(looksLikePlaybackEcho(
+      '好我来执行别关这个按钮',
+      '好，我来执行。',
+    )).toBe(false)
+  })
 })
 
 describe('companionInstantAck', () => {

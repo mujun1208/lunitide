@@ -15,6 +15,7 @@ import (
 	"github.com/lunitide/lunitide/internal/toolruntime"
 	"github.com/oklog/ulid/v2"
 	"strings"
+	"unicode/utf8"
 )
 
 // skillToolDefinitions exposes published skills as one model-callable tool
@@ -27,8 +28,8 @@ func (e *Engine) skillToolDefinitions() []llmadapter.ToolDefinition {
 		return nil
 	}
 	return []llmadapter.ToolDefinition{
-		{Name: "skill.invoke", Description: "Invoke one published skill by skillId (ULID or catalog template id such as slide-builder). input is the user's request text for the skill", Schema: []byte(`{"type":"object","properties":{"skillId":{"type":"string","description":"published skill ULID or catalog template id"},"input":{"type":"string","minLength":1,"maxLength":2048,"description":"the user request passed to the skill"}},"required":["skillId","input"],"additionalProperties":false}`)},
-		{Name: "skill.view", Description: "Read one skill's working agreement (SKILL.md / prompt) by skillId or market template id. Optional path reads a reference file (L2). Use when the catalog summary is not enough.", Schema: []byte(`{"type":"object","properties":{"skillId":{"type":"string","minLength":1,"maxLength":128,"description":"installed skill ULID or catalog template id"},"path":{"type":"string","maxLength":256,"description":"optional reference file path"}},"required":["skillId"],"additionalProperties":false}`)},
+		{Name: "skill.invoke", Description: "Invoke one published skill by skillId (ULID or catalog template id such as slide-builder). input is a concise task instruction; the full user request remains in this chat's context and must not be discarded.", Schema: []byte(`{"type":"object","properties":{"skillId":{"type":"string","description":"published skill ULID or catalog template id"},"input":{"type":"string","minLength":1,"maxLength":2048,"description":"concise task instruction, up to 2048 Unicode characters; use the complete user request already in this chat"}},"required":["skillId","input"],"additionalProperties":false}`)},
+		{Name: "skill.view", Description: "Read one complete skill source in bounded pages. Optional path selects a reference file. If hasMore, continue with offset=nextOffset and expectedDigest=digest until complete; never execute a partial agreement. A changed source rejects continuation.", Schema: []byte(`{"type":"object","properties":{"skillId":{"type":"string","minLength":1,"maxLength":128,"description":"installed skill ULID or catalog template id"},"path":{"type":"string","maxLength":256,"description":"optional reference file path"},"offset":{"type":"integer","minimum":0,"description":"Unicode rune offset; default 0"},"expectedDigest":{"type":"string","pattern":"^[0-9a-f]{64}$","description":"previous page digest; required for offset>0"}},"required":["skillId"],"additionalProperties":false}`)},
 		{Name: "skill.create", Description: "Create one local skill from a SKILL.md-style folder (name, displayName, permissions, entryPoint, manifestJson). Call once per skill. After it succeeds, write a short Chinese confirmation naming the skill and telling the user to install/publish it in Skill Center. Then continue any remaining user work.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":128,"description":"stable skill id slug"},"displayName":{"type":"string","maxLength":200,"description":"human title; defaults to name"},"description":{"type":"string","maxLength":4096},"version":{"type":"string","maxLength":32,"description":"semver, default 1.0.0"},"permissions":{"type":"array","minItems":1,"items":{"type":"string","enum":["read_only","read_write","network","file_system","shell","admin"]}},"entryPoint":{"type":"string","maxLength":512,"description":"SKILL.md path or builtin:// entry"},"manifestJson":{"type":"string","minLength":2,"maxLength":65536,"description":"JSON manifest with prompt and triggers"}},"required":["name","permissions","manifestJson"],"additionalProperties":false}`)},
 		{Name: "skill.manage", Description: "Create or patch a local skill draft. create stays draft until the user publishes in Skill Center (write approval). patch updates displayName/description/entryPoint/manifestJson of an existing skill.", Schema: []byte(`{"type":"object","properties":{"action":{"type":"string","enum":["create","patch"]},"skillId":{"type":"string","description":"required for patch"},"name":{"type":"string","maxLength":128},"displayName":{"type":"string","maxLength":200},"description":{"type":"string","maxLength":4096},"version":{"type":"string","maxLength":32},"permissions":{"type":"array","items":{"type":"string","enum":["read_only","read_write","network","file_system","shell","admin"]}},"entryPoint":{"type":"string","maxLength":512},"manifestJson":{"type":"string","maxLength":65536}},"required":["action"],"additionalProperties":false}`)},
 	}
@@ -57,8 +58,8 @@ func (e *Engine) invokeSkillTool(ctx context.Context, mode executionMode, sessio
 		return toolruntime.Result{}, resolveErr
 	}
 	a.SkillID = skillID
-	if len(a.Input) > 2048 {
-		return toolruntime.Result{}, errors.New("skill input too long (max 2048)")
+	if err := validateSkillToolInput(a.Input); err != nil {
+		return toolruntime.Result{}, err
 	}
 	inv, err := e.skills.Invoke(ctx, a.SkillID, session, a.Input, string(mode))
 	if err != nil {
@@ -72,7 +73,17 @@ func (e *Engine) invokeSkillTool(ctx context.Context, mode executionMode, sessio
 	if err != nil {
 		return toolruntime.Result{}, err
 	}
-	return toolruntime.Result{Output: out.Output}, nil
+	if len(out.Output) > skillInvocationMaxBytes {
+		return toolruntime.Result{}, errors.New("技能正文超过独立读取上限；未按不完整技能执行，请精简正文并把参考材料放入 references")
+	}
+	return toolruntime.Result{Output: fmt.Sprintf("[技能来源 skillId=%s version=%s manifestDigest=%s invocationId=%s]\n%s", inv.SkillID, inv.SkillVersion, inv.ManifestDigest, inv.ID, out.Output)}, nil
+}
+
+func validateSkillToolInput(input string) error {
+	if !utf8.ValidString(input) || strings.TrimSpace(input) == "" || strings.ContainsRune(input, 0) || utf8.RuneCountInString(input) > 2048 || len(input) > 8192 {
+		return errors.New("技能调用说明须为有效文字，最多 2048 个 Unicode 字符、8192 字节；请用简短任务说明引用本轮完整需求，原始对话需求仍须完整保留")
+	}
+	return nil
 }
 
 func (e *Engine) invokeSkillCreateTool(ctx context.Context, args json.RawMessage) (toolruntime.Result, error) {
@@ -111,10 +122,14 @@ func (e *Engine) invokeSkillCreateTool(ctx context.Context, args json.RawMessage
 	for _, p := range a.Permissions {
 		perms = append(perms, skill.PermissionLevel(p))
 	}
+	manifest, manifestErr := skillCreationManifest(ctx, a.ManifestJSON)
+	if manifestErr != nil {
+		return toolruntime.Result{}, manifestErr
+	}
 	created, err := e.skills.Create(ctx, skill.Skill{
 		Name: name, DisplayName: display, Description: a.Description,
 		Version: version, Permissions: perms, EntryPoint: entry,
-		ManifestJSON: a.ManifestJSON,
+		ManifestJSON: manifest,
 	})
 	if err != nil {
 		return toolruntime.Result{}, fmt.Errorf("%s", jsonutil.RetryMessage("skill.create", err.Error()))
@@ -128,80 +143,6 @@ func (e *Engine) invokeSkillCreateTool(ctx context.Context, args json.RawMessage
 		id = name
 	}
 	return toolruntime.Result{Output: "技能「" + label + "」已创建（id=" + id + "，status=" + string(created.Status) + "）。"}, nil
-}
-
-const skillViewMaxRunes = 8000
-
-func (e *Engine) invokeSkillViewTool(ctx context.Context, args json.RawMessage) (toolruntime.Result, error) {
-	if err := e.CheckCapability(ctx, "skills"); err != nil {
-		return toolruntime.Result{}, err
-	}
-	if !skillServiceAvailable(e.skills) {
-		return toolruntime.Result{}, errors.New("skill service unavailable")
-	}
-	var a struct {
-		SkillID string `json:"skillId"`
-		Path    string `json:"path"`
-	}
-	if json.Unmarshal(jsonutil.Repair(args), &a) != nil || strings.TrimSpace(a.SkillID) == "" {
-		return toolruntime.Result{}, errors.New("invalid skill.view arguments")
-	}
-	id := strings.TrimSpace(a.SkillID)
-	label, body, source, err := e.skillViewBody(ctx, id)
-	if err != nil {
-		return toolruntime.Result{}, err
-	}
-	runes := []rune(body)
-	truncated := false
-	if len(runes) > skillViewMaxRunes {
-		body = string(runes[:skillViewMaxRunes]) + "\n…(truncated)"
-		truncated = true
-	}
-	out := "技能「" + label + "」正文：\n" + body
-	refs := skillReferencesFromManifest(source)
-	path := strings.TrimSpace(a.Path)
-	if path != "" {
-		if file, ok := readLocalSkillAttachment(e.skillAttachmentRoots(), skillViewFolderKeys(id, label), path); ok {
-			runes := []rune(file)
-			if len(runes) > skillViewMaxRunes {
-				file = string(runes[:skillViewMaxRunes]) + "\n…(truncated)"
-			}
-			out += "\n\n附件「" + path + "」：\n" + file
-		} else if listedSkillReference(refs, path) {
-			out += "\n\n附件「" + path + "」列在 references，工作区没有这份文件。"
-		} else {
-			out += "\n\n该技能没有附件「" + path + "」，只有 SKILL.md 正文。"
-		}
-	} else if len(refs) > 0 {
-		out += "\n\nreferences：\n- " + strings.Join(refs, "\n- ")
-	} else {
-		out += "\n\n无附件，只有 SKILL.md 正文。"
-	}
-	if truncated {
-		out += "\n需要执行时用 skill.invoke。"
-	}
-	return toolruntime.Result{Output: out}, nil
-}
-
-func (e *Engine) skillViewBody(ctx context.Context, id string) (label, body, source string, err error) {
-	if validCanonicalULID(id) {
-		sk, getErr := e.skills.Get(ctx, id)
-		if getErr == nil && sk != nil {
-			return skillViewLabel(*sk), skillPromptFromManifest(sk.ManifestJSON), sk.ManifestJSON, nil
-		}
-	}
-	for _, tpl := range skillapp.Catalog() {
-		if tpl.ID == id || tpl.Name == id {
-			prompt, _ := tpl.Manifest["prompt"].(string)
-			name := tpl.DisplayName
-			if name == "" {
-				name = tpl.Name
-			}
-			raw, _ := json.Marshal(tpl.Manifest)
-			return name, strings.TrimSpace(prompt), string(raw), nil
-		}
-	}
-	return "", "", "", errors.New("skill not found")
 }
 
 func skillViewLabel(sk skill.Skill) string {
@@ -278,7 +219,7 @@ func skillViewFolderKeys(id, label string) []string {
 }
 
 // invokeExpertCreateTool routes a model-initiated expert.create call through
-// the M8 expert service. The expert is immediately available for mounting.
+// the M8 expert service. New experts remain disabled until explicitly enabled.
 func (e *Engine) invokeExpertCreateTool(ctx context.Context, session string, args json.RawMessage) (toolruntime.Result, error) {
 	var a struct {
 		Name                string   `json:"name"`
@@ -321,7 +262,7 @@ func (e *Engine) invokeExpertCreateTool(ctx context.Context, session string, arg
 		return toolruntime.Result{}, fmt.Errorf("%s", jsonutil.RetryMessage("expert.create", err.Error()))
 	}
 	b, _ := json.Marshal(res)
-	return toolruntime.Result{Output: "专家「" + a.Name + "」已创建成功。\n" + string(b)}, nil
+	return toolruntime.Result{Output: "专家「" + res.Name + "」已创建，尚未启用。可在专家中心的「我创建的」中查看名片、试用，再启用。\n" + string(b)}, nil
 }
 
 func (e *Engine) invokePluginCreateTool(ctx context.Context, session string, args json.RawMessage) (toolruntime.Result, error) {

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -262,10 +263,14 @@ func handleSkillDelete(e *Engine, ctx context.Context, r bridge.Request) bridge.
 
 func handleSkillList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		Status skill.SkillStatus `json:"status"`
+		Status          skill.SkillStatus `json:"status"`
+		SourceSessionID string            `json:"sourceSessionId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.list 参数无效", false)
+	}
+	if p.SourceSessionID != "" && !validCanonicalULID(p.SourceSessionID) {
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "技能来源会话参数无效", false)
 	}
 	if p.Status != "" && p.Status != skill.SkillStatusDraft && p.Status != skill.SkillStatusPublished && p.Status != skill.SkillStatusDeprecated && p.Status != skill.SkillStatusDisabled {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "skill.list 参数无效", false)
@@ -276,6 +281,18 @@ func handleSkillList(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 	items, err := e.skills.List(ctx, p.Status)
 	if err != nil {
 		return skillFailure(r, err)
+	}
+	if p.SourceSessionID != "" {
+		filtered := make([]skill.Skill, 0)
+		for _, item := range items {
+			var origin struct {
+				SessionID string `json:"originSessionId"`
+			}
+			if json.Unmarshal([]byte(item.ManifestJSON), &origin) == nil && origin.SessionID == p.SourceSessionID {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
 	}
 	dtos := make([]skillDTO, len(items))
 	if c := skillCategorySupport(e.skills); c != nil {

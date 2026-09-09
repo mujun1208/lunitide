@@ -355,7 +355,7 @@
         "text": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 65536
+          "maxLength": 32768
         },
         "createdAt": {
           "type": "string",
@@ -409,6 +409,9 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128
+        },
+        "officeTaskId": {
+          "$ref": "#/$defs/ULID"
         }
       },
       "required": [
@@ -3034,6 +3037,1378 @@
         "kind",
         "body",
         "createdAt"
+      ]
+    },
+    "OfficeTaskDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "sessionId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "projectId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "goal": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 8192
+        },
+        "goalTruncated": {
+          "type": "boolean"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "status": {
+          "enum": [
+            "draft",
+            "queued",
+            "planning",
+            "running",
+            "validating",
+            "succeeded",
+            "waiting_input",
+            "waiting_approval",
+            "cancelling",
+            "cancelled",
+            "failed",
+            "interrupted"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "updatedAt": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "id",
+        "sessionId",
+        "title",
+        "goal",
+        "revision",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "OfficeCheckDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "label": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 256
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "unavailable",
+            "pending"
+          ]
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "blocking"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "messageTruncated": {
+          "type": "boolean"
+        },
+        "nodeId": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 512
+        },
+        "labelTruncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "status",
+        "severity",
+        "message"
+      ]
+    },
+    "OfficeVersionDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "versionNo": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "quality": {
+          "enum": [
+            "unverified",
+            "checking",
+            "partial",
+            "passed",
+            "blocked",
+            "stale"
+          ]
+        },
+        "mode": {
+          "enum": [
+            "managed",
+            "imported"
+          ]
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sha256": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "createdAt": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "parentVersionId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 1024
+        },
+        "path": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "validationOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "totalValidations": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "validations": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/OfficeCheckDTO"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "versionNo",
+        "quality",
+        "mode",
+        "size",
+        "sha256",
+        "createdAt"
+      ]
+    },
+    "OfficeArtifactDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "enum": ["reference", "deliverable"]
+        },
+        "id": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "name": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 256
+        },
+        "kind": {
+          "enum": [
+            "pptx",
+            "docx",
+            "xlsx",
+            "pdf"
+          ]
+        },
+        "headVersionId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "acceptedVersionId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "versions": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/OfficeVersionDTO"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "name",
+        "kind",
+        "headVersionId",
+        "versions"
+      ]
+    },
+    "OfficeStepDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "label": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 256
+        },
+        "status": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "summaryTruncated": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "status"
+      ]
+    },
+    "OfficeSourceDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 256
+        },
+        "versionId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "location": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 512
+        },
+        "rawValue": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 1024
+        },
+        "displayValue": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 1024
+        },
+        "transform": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 2048
+        },
+        "transformTruncated": {
+          "type": "boolean"
+        },
+        "stale": {
+          "type": "boolean"
+        },
+        "targetVersionId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "targetLocation": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 512
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ]
+    },
+    "OfficeTaskDetailDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "task": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/OfficeTaskDTO"
+        },
+        "artifacts": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/OfficeArtifactDTO"
+          }
+        },
+        "steps": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/OfficeStepDTO"
+          }
+        },
+        "sources": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/OfficeSourceDTO"
+          }
+        },
+        "snapshotOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "nextSnapshotOffset": {
+          "type": "integer",
+          "minimum": -1,
+          "maximum": 9007199254740991
+        },
+        "totalSnapshotItems": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "snapshotDigest": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "committed": {
+          "type": "boolean"
+        },
+        "snapshotIncomplete": {
+          "type": "boolean"
+        },
+        "taskSnapshotStale": {
+          "type": "boolean"
+        },
+        "loadNotice": {
+          "type": "string",
+          "maxLength": 2048
+        }
+      },
+      "required": [
+        "task",
+        "artifacts",
+        "steps",
+        "sources"
+      ]
+    },
+    "OfficeNodeDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 512
+        },
+        "label": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 512
+        },
+        "text": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 131072
+        },
+        "location": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 512
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "editable": {
+          "type": "boolean"
+        },
+        "valueType": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "image": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/OfficeImageInfoDTO"
+        },
+        "chart": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/OfficeChartInfoDTO"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "text"
+      ]
+    },
+    "OfficePreviewDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "versionId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "kind": {
+          "enum": [
+            "pptx",
+            "docx",
+            "xlsx",
+            "pdf"
+          ]
+        },
+        "content": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 1048576
+        },
+        "notice": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "previewBasis": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "nodes": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/OfficeNodeDTO"
+          }
+        },
+        "pdfReady": {
+          "type": "boolean"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "nodeOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "nextNodeOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "totalNodes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "parts": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 512
+              },
+              "sha256": {
+                "type": "string",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "name",
+              "sha256",
+              "size"
+            ]
+          }
+        }
+      },
+      "required": [
+        "versionId",
+        "kind",
+        "content",
+        "previewBasis",
+        "nodes",
+        "pdfReady",
+        "truncated"
+      ]
+    },
+    "OfficeMetricDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "taskId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 256
+        },
+        "sourceVersionId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "sourceSha256": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "sourceNodeId": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 512
+        },
+        "sourceNodeDigest": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "rawValue": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 131072
+        },
+        "valueType": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 3
+        },
+        "period": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "aggregation": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "roundingDigits": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 12
+        },
+        "roundingPolicy": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "displayValue": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 131072
+        },
+        "createdAt": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "rawValueTruncated": {
+          "type": "boolean"
+        },
+        "displayValueTruncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "taskId",
+        "name",
+        "sourceVersionId",
+        "sourceSha256",
+        "sourceNodeId",
+        "sourceNodeDigest",
+        "rawValue",
+        "valueType",
+        "unit",
+        "currency",
+        "period",
+        "aggregation",
+        "roundingPolicy",
+        "displayValue",
+        "createdAt"
+      ]
+    },
+    "OfficeBundleFileDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "versionId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "artifactId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 512
+        },
+        "kind": {
+          "enum": [
+            "pptx",
+            "docx",
+            "xlsx",
+            "pdf"
+          ]
+        },
+        "sha256": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "quality": {
+          "enum": [
+            "unverified",
+            "checking",
+            "partial",
+            "passed",
+            "blocked",
+            "stale"
+          ]
+        },
+        "accepted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "versionId",
+        "artifactId",
+        "name",
+        "kind",
+        "sha256",
+        "size",
+        "quality",
+        "accepted"
+      ]
+    },
+    "OfficeBundleDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "id": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "taskId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 240
+        },
+        "files": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/OfficeBundleFileDTO"
+          }
+        },
+        "createdAt": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "id",
+        "taskId",
+        "title",
+        "files",
+        "createdAt"
+      ]
+    },
+    "OfficeDiffDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "baseVersionId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "versionId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        },
+        "kind": {
+          "enum": [
+            "pptx",
+            "docx",
+            "xlsx",
+            "pdf"
+          ]
+        },
+        "baseSha256": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "sha256": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "comparisonBasis": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "bytesIdentical": {
+          "type": "boolean"
+        },
+        "partHashesCompared": {
+          "type": "boolean"
+        },
+        "payloadIdentical": {
+          "type": "boolean"
+        },
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "addedNodes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "deletedNodes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "modifiedNodes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "unchangedNodes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "addedParts": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "deletedParts": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "modifiedParts": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "unchangedParts": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "unchangedBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "addedNodes",
+            "deletedNodes",
+            "modifiedNodes",
+            "unchangedNodes",
+            "addedParts",
+            "deletedParts",
+            "modifiedParts",
+            "unchangedParts",
+            "unchangedBytes"
+          ]
+        },
+        "changes": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "change": {
+                "enum": [
+                  "added",
+                  "deleted",
+                  "modified"
+                ]
+              },
+              "nodeId": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 512
+              },
+              "part": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 512
+              },
+              "partNameDigest": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 64
+              },
+              "partTruncated": {
+                "type": "boolean"
+              },
+              "locator": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 512
+              },
+              "locatorTruncated": {
+                "type": "boolean"
+              },
+              "changedFields": {
+                "type": "array",
+                "maxItems": 3,
+                "items": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 32
+                }
+              },
+              "before": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 64
+                  },
+                  "text": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 8192
+                  },
+                  "digest": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 64
+                  },
+                  "textTruncated": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "text",
+                  "digest",
+                  "textTruncated"
+                ]
+              },
+              "after": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 64
+                  },
+                  "text": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 8192
+                  },
+                  "digest": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 64
+                  },
+                  "textTruncated": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "text",
+                  "digest",
+                  "textTruncated"
+                ]
+              }
+            },
+            "required": [
+              "change",
+              "nodeId",
+              "part",
+              "partNameDigest",
+              "partTruncated",
+              "locator",
+              "locatorTruncated",
+              "changedFields"
+            ]
+          }
+        },
+        "parts": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "change": {
+                "enum": [
+                  "added",
+                  "deleted",
+                  "modified"
+                ]
+              },
+              "name": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 512
+              },
+              "nameDigest": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 64
+              },
+              "nameTruncated": {
+                "type": "boolean"
+              },
+              "beforeSha256": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 64
+              },
+              "sha256": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 64
+              },
+              "beforeSize": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "change",
+              "name",
+              "nameDigest",
+              "nameTruncated",
+              "beforeSize",
+              "size"
+            ]
+          }
+        },
+        "nodeOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "partOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "nextNodeOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "nextPartOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "totalNodeChanges": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "totalPartChanges": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "notice": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "baseVersionId",
+        "versionId",
+        "kind",
+        "baseSha256",
+        "sha256",
+        "comparisonBasis",
+        "bytesIdentical",
+        "partHashesCompared",
+        "payloadIdentical",
+        "summary",
+        "changes",
+        "parts",
+        "nodeOffset",
+        "partOffset",
+        "nextNodeOffset",
+        "nextPartOffset",
+        "totalNodeChanges",
+        "totalPartChanges",
+        "truncated",
+        "notice"
+      ]
+    },
+    "OfficeImageInfoDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pixelWidth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "pixelHeight": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "x": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "y": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cropLeft": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cropRight": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cropTop": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cropBottom": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "mediaPart": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "mediaSha256": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "relationshipId": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "sourceId": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+        }
+      },
+      "required": [
+        "mediaPart",
+        "mediaSha256",
+        "relationshipId",
+        "x",
+        "y",
+        "width",
+        "height"
+      ]
+    },
+    "OfficeSlideChartDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "column",
+            "bar",
+            "line",
+            "pie"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "categories": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "string",
+            "maxLength": 1024
+          }
+        },
+        "series": {
+          "type": "array",
+          "maxItems": 6,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 1024
+              },
+              "values": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            },
+            "required": [
+              "name",
+              "values"
+            ]
+          }
+        },
+        "x": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "y": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "legend": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "categories",
+        "series",
+        "x",
+        "y",
+        "width",
+        "height",
+        "legend"
+      ]
+    },
+    "OfficeChartInfoDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "chartPart": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "workbookPart": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "chartSha256": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "workbookSha256": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "type": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "sourceRanges": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "cacheState": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "seriesCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "categoryCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "x": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "y": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "chartPart",
+        "chartSha256",
+        "seriesCount",
+        "categoryCount",
+        "x",
+        "y",
+        "width",
+        "height"
       ]
     }
   },

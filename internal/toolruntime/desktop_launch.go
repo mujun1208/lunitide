@@ -133,7 +133,7 @@ var knownLaunchApps = []knownLaunchApp{
 
 var launchOpenPrefix = regexp.MustCompile(`^(?:你)?(?:请)?(?:可以)?(?:帮我)?(?:给我)?(?:把开了?|打开了?|打开|启动|运行)`)
 var desktopLocPrefix = regexp.MustCompile(`^(?:一下)?(?:的)?(?:桌面上的|桌面的|桌面上|桌面里的|桌面里)`)
-var desktopDocSuffix = regexp.MustCompile(`(?:文档|文件)$`)
+var desktopDocSuffix = regexp.MustCompile(`(?:的)?(?:文档|文件|图片|照片)$`)
 
 func foldLaunchQuery(raw string) string {
 	q := strings.ToLower(strings.TrimSpace(raw))
@@ -163,7 +163,7 @@ func launchQueryCore(query string) string {
 }
 
 func desktopQueryCandidates(query string) []string {
-	core := launchQueryCore(query)
+	core := strings.Trim(launchQueryCore(query), "，,。.!！?？ ")
 	if core == "" {
 		core = strings.TrimSpace(normalizeLaunchQuery(query))
 	}
@@ -175,7 +175,7 @@ func desktopQueryCandidates(query string) []string {
 			return
 		}
 		switch s {
-		case "桌面", "的", "上的", "一下", "文件", "文档":
+		case "桌面", "的", "上的", "一下", "文件", "文档", "图片", "照片":
 			return
 		}
 		if utf8.RuneCountInString(s) < 2 {
@@ -327,10 +327,14 @@ func walkForProcess(root string, processNames []string, maxDepth int) []string {
 }
 
 func CanonicalMusicApp(query string) string {
-	if app, ok := matchKnownLaunchApp(query); ok {
+	if app, ok := matchKnownLaunchApp(query); ok && isMusicLaunchApp(app) {
 		return app.Canonical
 	}
 	return ""
+}
+
+func isMusicLaunchApp(app knownLaunchApp) bool {
+	return app.Canonical == "网易云音乐" || app.Canonical == "汽水音乐" || app.Canonical == "QQ音乐"
 }
 
 func CanonicalMusicAppFromText(text string) string {
@@ -339,6 +343,9 @@ func CanonicalMusicAppFromText(text string) string {
 		return ""
 	}
 	for _, app := range knownLaunchApps {
+		if !isMusicLaunchApp(app) {
+			continue
+		}
 		for _, alias := range app.Aliases {
 			if strings.Contains(t, strings.ToLower(alias)) {
 				return app.Canonical
@@ -365,6 +372,9 @@ func pickKnownAppExecutable(query string) (string, bool) {
 // Order is 网易云音乐, 汽水音乐, QQ音乐 — never a website.
 func FirstInstalledMusicApp() string {
 	for _, app := range knownLaunchApps {
+		if !isMusicLaunchApp(app) {
+			continue
+		}
 		if len(lookupKnownAppExecutables(app)) > 0 {
 			return app.Canonical
 		}

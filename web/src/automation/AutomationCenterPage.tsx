@@ -19,6 +19,7 @@ import { AutomationRunDetail, automationRunLabel, schedulerStatusLabel } from '.
 type Job = AutomationJobListResult['jobs'][number]
 type Run = AutomationRunListResult['runs'][number]
 type Tab = 'jobs' | 'runs' | 'templates'
+export type AutomationViewState = { tab: Tab; openRun?: string }
 
 const EMPTY_DRAFT = (): AutomationDraft => ({
   name: '',
@@ -61,18 +62,23 @@ export function AutomationCenterPage({
   bridge = automationBridge,
   providers = providerBridge,
   sessions = sessionBridge,
+  initialViewState,
+  onViewStateChange,
 }: {
   onCreateInChat: () => void
   onOpenSession?: (session: SessionDTO) => void | Promise<void>
   bridge?: AutomationBridge
   providers?: ProviderBridge
   sessions?: SessionBridge
+  initialViewState?: AutomationViewState
+  onViewStateChange?: (state: AutomationViewState) => void
 }): React.JSX.Element {
   const saveAttempt = useRef<MutationAttempt<object> | undefined>(undefined)
   const generation = useRef(0)
-  const [tab, setTab] = useState<Tab>('jobs')
+  const [tab, setTab] = useState<Tab>(initialViewState?.tab ?? 'jobs')
   const [jobs, setJobs] = useState<Job[]>([])
   const [runs, setRuns] = useState<Run[]>([])
+  const [loading, setLoading] = useState(true)
   const [status, setStatus] = useState<AutomationStatusResult>()
   const [runnerSessionId, setRunnerSessionId] = useState('')
   const [defaults, setDefaults] = useState<{ providerId: string; modelId: string }>()
@@ -92,7 +98,16 @@ export function AutomationCenterPage({
       if (refreshTimer.current !== undefined) clearTimeout(refreshTimer.current)
     }
   }, [bridge])
-  const [openRun, setOpenRun] = useState<string>()
+  const [openRun, setOpenRun] = useState<string | undefined>(initialViewState?.openRun)
+  const restoreRun = useRef(initialViewState?.openRun)
+  const selectedRunRow = useRef<HTMLLIElement | null>(null)
+  useEffect(() => { onViewStateChange?.({ tab, openRun }) }, [tab, openRun, onViewStateChange])
+  useEffect(() => {
+    if (tab === 'runs' && restoreRun.current && runs.some(run => run.id === restoreRun.current)) {
+      selectedRunRow.current?.scrollIntoView?.({ block: 'nearest' })
+      restoreRun.current = undefined
+    }
+  }, [tab, runs])
 
   const reload = useCallback(async () => {
     const epoch = ++generation.current
@@ -101,6 +116,7 @@ export function AutomationCenterPage({
     setJobs(j.jobs)
     setRuns(r.runs)
     setStatus(s)
+    setLoading(false)
     return s.runningJobs.length > 0
   }, [bridge])
 
@@ -134,7 +150,7 @@ export function AutomationCenterPage({
     const poll = async () => {
       let running = false
       try { running = (await reload()) === true }
-      catch (e) { if (alive) setNotice(e instanceof Error ? e.message : '自动化刷新失败') }
+      catch (e) { if (alive) { setLoading(false); setNotice(e instanceof Error ? e.message : '自动化刷新失败') } }
       if (alive) timer = setTimeout(() => void poll(), running ? 3_000 : 15_000)
     }
     void poll()
@@ -413,7 +429,7 @@ export function AutomationCenterPage({
           {runs.length ? (
             <ul className="automation-runs">
               {runs.map((run) => (
-                <li key={run.id} className={`automation-run is-${run.state}`}>
+                <li key={run.id} ref={openRun === run.id ? selectedRunRow : undefined} className={`automation-run is-${run.state}`}>
                   <button
                     type="button"
                     className="automation-run-row"
@@ -438,7 +454,7 @@ export function AutomationCenterPage({
               ))}
             </ul>
           ) : (
-            <p className="automation-empty">还没有运行记录。</p>
+            <p className="automation-empty" role="status">{loading ? '正在读取执行历史…' : notice ? '执行历史暂时未能读取，请稍后重试。' : '还没有运行记录。'}</p>
           )}
         </section>
       )}

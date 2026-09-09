@@ -1,5 +1,5 @@
-// Package skillarchive reads pinned skill instructions without extracting or
-// executing repository code. Archive and decompression budgets are independent.
+// Package skillarchive reads pinned skill packages without executing repository
+// code. Archive and decompression budgets are independent.
 package skillarchive
 
 import (
@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/lunitide/lunitide/internal/domain/skill"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"gopkg.in/yaml.v3"
 )
@@ -72,6 +73,8 @@ type Package struct {
 	Source                                                   Source
 	ArchiveHash, Name, Description, Version, Prompt, License string
 	SkippedFiles                                             int
+	Files                                                    map[string][]byte
+	legacySkippedFiles                                       int
 }
 
 type FetchFunc func(context.Context, string, networkpolicy.FetchOptions) (networkpolicy.FetchResult, error)
@@ -96,8 +99,8 @@ func (l Loader) Load(ctx context.Context, raw, commit string) (Package, error) {
 	return Read(src, res.Body)
 }
 
-// Read validates all archive entries, but imports only the selected SKILL.md.
-// Supporting code is counted for the review report and never installed.
+// Read validates every archive entry and retains the complete selected skill
+// directory as inert bytes. Files outside that directory are not imported.
 func Read(src Source, archive []byte) (Package, error) {
 	canonical, err := ParseSource(src.URL, src.Commit)
 	if err != nil {
@@ -116,7 +119,7 @@ func Read(src Source, archive []byte) (Package, error) {
 	var expanded uint64
 	for _, f := range zr.File {
 		n := strings.TrimSuffix(f.Name, "/")
-		if n == "" || n == ".." || strings.ContainsAny(n, "\\:\x00") || strings.HasPrefix(n, "/") || path.Clean(n) != n || strings.HasPrefix(n, "../") || (!f.Mode().IsRegular() && !f.Mode().IsDir()) {
+		if !skill.PackageFilePath(n) || (!f.Mode().IsRegular() && !f.Mode().IsDir()) {
 			return Package{}, fmt.Errorf("%w: ZIP 含不安全路径或链接", ErrInvalid)
 		}
 		parts := strings.SplitN(n, "/", 2)
@@ -142,6 +145,13 @@ func Read(src Source, archive []byte) (Package, error) {
 		}
 		files[key] = f
 	}
+	for key := range files {
+		for parent := path.Dir(key); parent != "."; parent = path.Dir(parent) {
+			if files[parent] != nil {
+				return Package{}, fmt.Errorf("%w: ZIP 文件与目录路径冲突", ErrInvalid)
+			}
+		}
+	}
 	entry := path.Join(src.Directory, "SKILL.md")
 	f := files[strings.ToLower(entry)]
 	if f == nil {
@@ -156,6 +166,8 @@ func Read(src Source, archive []byte) (Package, error) {
 		return Package{}, err
 	}
 	license := "unknown"
+	var inheritedLicense []byte
+	inheritedLicenseName := ""
 	for _, dir := range []string{src.Directory, ""} {
 		for _, base := range []string{"LICENSE", "LICENSE.txt", "LICENSE.md", "COPYING"} {
 			if lf := files[strings.ToLower(path.Join(dir, base))]; lf != nil {
@@ -164,6 +176,10 @@ func Read(src Source, archive []byte) (Package, error) {
 					return Package{}, e
 				}
 				license = "LicenseRef-" + hash(lb)[:12]
+				if src.Directory != "" && dir == "" {
+					inheritedLicense = lb
+					inheritedLicenseName = "upstream-license/" + base
+				}
 				if declaredLicense != "" {
 					license = declaredLicense
 				}
@@ -174,17 +190,43 @@ func Read(src Source, archive []byte) (Package, error) {
 			break
 		}
 	}
-	skipped := 0
+	resources := map[string][]byte{}
+	retained := 0
 	prefix := strings.ToLower(src.Directory)
 	if prefix != "" {
 		prefix += "/"
 	}
-	for key := range files {
-		if strings.HasPrefix(key, prefix) && key != strings.ToLower(entry) {
-			skipped++
+	for key, file := range files {
+		if !strings.HasPrefix(key, prefix) {
+			continue
 		}
+		name := strings.TrimPrefix(file.Name, root+"/")
+		if src.Directory != "" {
+			name = name[len(src.Directory)+1:]
+		}
+		if strings.EqualFold(name, "SKILL.md") {
+			name = "SKILL.md"
+		}
+		if !skill.PackageFilePath(name) {
+			return Package{}, fmt.Errorf("%w: 技能资源路径无效", ErrInvalid)
+		}
+		raw, err := readBinaryEntry(file, MaxExpandedBytes-int64(retained))
+		if err != nil {
+			return Package{}, err
+		}
+		retained += len(raw)
+		resources[name] = raw
 	}
-	pkg := Package{Source: src, ArchiveHash: hash(archive), Name: name, Description: description, Version: "0.0.0+" + src.Commit[:12], Prompt: prompt, License: license, SkippedFiles: skipped}
+	legacySkipped := len(resources) - 1
+	if len(inheritedLicense) > 0 {
+		for name := range resources {
+			if strings.EqualFold(name, inheritedLicenseName) {
+				return Package{}, fmt.Errorf("%w: 继承许可证路径冲突", ErrInvalid)
+			}
+		}
+		resources[inheritedLicenseName] = inheritedLicense
+	}
+	pkg := Package{Source: src, ArchiveHash: hash(archive), Name: name, Description: description, Version: "0.0.0+" + src.Commit[:12], Prompt: prompt, License: license, Files: resources, legacySkippedFiles: legacySkipped}
 	if len(pkg.Attestation()) > 16384 {
 		return Package{}, fmt.Errorf("%w: 技能来源摘要编码后超过 16 KiB，请缩短名称或描述", ErrInvalid)
 	}
@@ -192,6 +234,20 @@ func Read(src Source, archive []byte) (Package, error) {
 }
 
 func readEntry(f *zip.File, limit int64) ([]byte, error) {
+	b, err := readBinaryEntry(f, limit)
+	if err != nil {
+		return nil, err
+	}
+	if !utf8.Valid(b) || bytes.ContainsRune(b, 0) {
+		return nil, fmt.Errorf("%w: ZIP 文本条目不是有效 UTF-8", ErrInvalid)
+	}
+	return b, nil
+}
+
+func readBinaryEntry(f *zip.File, limit int64) ([]byte, error) {
+	if limit < 0 {
+		return nil, fmt.Errorf("%w: 解压内容超过 32 MiB", ErrInvalid)
+	}
 	if f.UncompressedSize64 > uint64(limit) {
 		return nil, fmt.Errorf("%w: %s 超出大小限制", ErrInvalid, path.Base(f.Name))
 	}
@@ -201,8 +257,8 @@ func readEntry(f *zip.File, limit int64) ([]byte, error) {
 	}
 	b, readErr := io.ReadAll(io.LimitReader(r, limit+1))
 	closeErr := r.Close()
-	if readErr != nil || closeErr != nil || int64(len(b)) > limit || !utf8.Valid(b) || bytes.ContainsRune(b, 0) {
-		return nil, fmt.Errorf("%w: ZIP 条目损坏、过大或非 UTF-8 文本", ErrInvalid)
+	if readErr != nil || closeErr != nil || int64(len(b)) > limit {
+		return nil, fmt.Errorf("%w: ZIP 条目损坏或过大", ErrInvalid)
 	}
 	return b, nil
 }
@@ -254,6 +310,27 @@ func parseSkill(body []byte) (name, description, prompt, license string, err err
 func hash(b []byte) string { return fmt.Sprintf("%x", sha256.Sum256(b)) }
 
 func (p Package) Attestation() string {
-	b, _ := json.Marshal(map[string]any{"sourceUrl": p.Source.URL, "commit": p.Source.Commit, "archiveHash": p.ArchiveHash, "name": p.Name, "description": p.Description, "license": p.License, "promptHash": hash([]byte(p.Prompt)), "skippedFiles": p.SkippedFiles, "scope": "SKILL.md instructions only; repository scripts are not installed or executed"})
+	b, _ := json.Marshal(map[string]any{"sourceUrl": p.Source.URL, "commit": p.Source.Commit, "archiveHash": p.ArchiveHash, "name": p.Name, "description": p.Description, "license": p.License, "promptHash": hash([]byte(p.Prompt)), "skippedFiles": p.SkippedFiles, "fileCount": len(p.Files), "scope": "complete selected skill directory; resources preserved as inert bytes; no scripts executed"})
 	return string(b)
+}
+
+// MatchesAttestation permits an already-pinned legacy candidate to complete its
+// original approval flow after upgrading the reader. The archive and prompt
+// hashes must still match exactly; this cannot approve different source bytes.
+func (p Package) MatchesAttestation(raw string) bool {
+	var previous, expected map[string]any
+	if json.Unmarshal([]byte(raw), &previous) != nil || json.Unmarshal([]byte(p.Attestation()), &expected) != nil {
+		return false
+	}
+	if previous["scope"] == "SKILL.md instructions only; repository scripts are not installed or executed" {
+		expected["scope"] = previous["scope"]
+		expected["skippedFiles"] = float64(p.legacySkippedFiles)
+		delete(expected, "fileCount")
+	}
+	a, err := json.Marshal(previous)
+	if err != nil {
+		return false
+	}
+	b, err := json.Marshal(expected)
+	return err == nil && bytes.Equal(a, b)
 }

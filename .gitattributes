@@ -13,3 +13,7 @@ internal/contract/schema_generated_test.go text eol=lf
 # every file report drift.
 internal/storage/sqlite/testdata/*.json text eol=lf
 *.golden.json text eol=lf
+
+# Community packages retain upstream bytes and are verified against SHA-256.
+# Neither autocrlf nor text normalization may alter these review-only resources.
+internal/skillapp/bundled/community/** -text

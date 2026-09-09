@@ -6,6 +6,7 @@ import {
   type BrowserBridge,
   type LocalWorkspaceBridge,
   type StreamArtifact,
+  type SkillBridge,
 } from '../bridge/client'
 import type { AttachmentGetResult, AttachmentListResult } from '../generated/bridge'
 import { TerminalPanel } from '../terminal/TerminalPanel'
@@ -14,6 +15,7 @@ import { CodePanel } from './CodePanel'
 import { CoordinationPlanPanel } from './CoordinationPlanPanel'
 import { PlanDagPanel } from './PlanDagPanel'
 import { FilesPanel, type FilesFocus } from './FilesPanel'
+import { SkillPackagePanel } from '../skill/SkillPackagePanel'
 import { LocalExplorer } from './LocalExplorer'
 import { SessionFolderPanel } from './SessionFolderPanel'
 import { ArtifactPanel, type ArtifactCard } from './ArtifactPanel'
@@ -105,6 +107,10 @@ export function Workspace({
   isolateRoot = false,
   showPlanDag = false,
   onOpenApproval,
+  skillId,
+  skillRevision,
+  skills,
+  onCloseSkill,
 }: {
   attachments: AttachmentBridge
   projectId: string
@@ -124,6 +130,10 @@ export function Workspace({
   isolateRoot?: boolean
   showPlanDag?: boolean
   onOpenApproval?: () => void
+  skillRevision?: number
+  skillId?: string
+  skills?: SkillBridge
+  onCloseSkill?: () => void
 }): React.JSX.Element {
   const initialTab = normalizeWorkspaceTab(targetTab) ?? 'files'
   const [tab, setTab] = useState<WorkspaceTab>(initialTab)
@@ -301,6 +311,7 @@ export function Workspace({
     <aside className="workspace" aria-label="统一工作区">
       <header>
         <strong>工作区</strong>
+        {skillId&&onCloseSkill&&<button type="button" onClick={onCloseSkill}>返回会话文件</button>}
         <button type="button" aria-label="关闭工作区" onClick={onClose}>收起</button>
       </header>
       <nav aria-label="工作区标签">
@@ -311,7 +322,8 @@ export function Workspace({
         ))}
       </nav>
 
-      {tab === 'files' && (
+      {tab === 'files' && skillId && <SkillPackagePanel skillId={skillId} bridge={skills} refreshKey={skillRevision??refreshRevision}/>}
+      {tab === 'files' && !skillId && (
         <>
           {sessionFiles}
           {catalogFocus ? catalogFiles : null}

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/office.bundle.create.schema.json",
+  "title": "office.bundle.create payload",
+  "x-method": "office.bundle.create",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "taskId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240
+    },
+    "versionIds": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      }
+    }
+  },
+  "required": [
+    "taskId",
+    "title",
+    "versionIds"
+  ],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/OfficeBundleDTO"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "taskId": "01ARZ3NDEKTSV4RRFFQ69G5FAE",
+        "title": "季度交付",
+        "versionIds": [
+          "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        ]
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

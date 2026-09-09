@@ -28,6 +28,7 @@ func TestChatStreamErrorMapsProviderFailureClasses(t *testing.T) {
 		{"http 599", &llmadapter.Error{Code: "HTTP_599", Stage: llmadapter.StageHTTP, HTTPStatus: 599, Message: canary}, "UPSTREAM_UNAVAILABLE", "供应商服务暂时不可用，请稍后重试", true},
 		{"deadline", context.DeadlineExceeded, "UPSTREAM_TIMEOUT", "模型请求超时，请稍后重试", true},
 		{"uncertain timeout", &llmadapter.Error{Code: "OUTCOME_UNKNOWN", Stage: llmadapter.StageConnect, Message: canary}, "UPSTREAM_TIMEOUT", "模型请求超时，请稍后重试", true},
+		{"malformed response", &llmadapter.Error{Code: "MALFORMED_RESPONSE", Stage: llmadapter.StageDecode, Message: canary}, "UPSTREAM_MALFORMED_RESPONSE", "模型返回格式不完整，已保留收到的内容，请重试", true},
 		{"unknown", errors.New(canary), "UPSTREAM_FAILED", "模型请求失败", true},
 	}
 	for _, test := range tests {

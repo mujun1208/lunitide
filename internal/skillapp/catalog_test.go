@@ -70,7 +70,12 @@ func TestCatalogTemplatesWellFormed(t *testing.T) {
 		if tpl.ID == "" || tpl.Name == "" || tpl.DisplayName == "" || tpl.Category == "" {
 			t.Fatalf("template missing required identity fields: %+v", tpl)
 		}
-		if !strings.HasPrefix(tpl.Name, "tpl-") && tpl.ID != "skill-creator" && tpl.ID != "expert-manager" && tpl.ID != "plugin-creator" &&
+		_, community := tpl.Manifest["bundledPackage"]
+		native := false
+		if source, ok := tpl.Manifest["source"].(map[string]any); ok {
+			native = source["kind"] == "lunitide-native"
+		}
+		if !community && !native && !strings.HasPrefix(tpl.Name, "tpl-") && tpl.ID != "skill-creator" && tpl.ID != "expert-manager" && tpl.ID != "plugin-creator" &&
 			tpl.ID != "find-skills" && tpl.ID != "brainstorming" && tpl.ID != "pm-skill" && tpl.ID != "super-coders" &&
 			tpl.ID != "frontend-design" && tpl.ID != "ui-components" && tpl.ID != "design-system" && tpl.ID != "computer-control" && tpl.ID != "browser-automation" {
 			t.Fatalf("template name must use tpl- prefix: %q", tpl.Name)
@@ -250,9 +255,9 @@ func TestSkillCreatorCatalogManifest(t *testing.T) {
 		if !strings.Contains(tpl.Description, "skill.create") {
 			t.Fatalf("skill-creator Description must mention skill.create: %q", tpl.Description)
 		}
-		for _, banned := range []string{"eval-viewer", "generate_review", "measure skill performance"} {
-			if strings.Contains(strings.ToLower(tpl.Description), banned) || strings.Contains(strings.ToLower(raw), banned) {
-				t.Fatalf("skill-creator still mentions %q", banned)
+		for _, required := range []string{"skill.try", "skill.create", "skill.publish", "Benchmark", "bundledPackage"} {
+			if !strings.Contains(raw, required) {
+				t.Fatalf("skill-creator misses actual create/evaluate contract %q", required)
 			}
 		}
 		return

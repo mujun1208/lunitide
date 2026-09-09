@@ -55,6 +55,8 @@ func (s *PluginService) RequireEnabled(ctx context.Context, pluginIDs ...string)
 // command.run is called after run_terminal_cmd normalization by toolruntime.
 func ToolPluginIDs(name string, args json.RawMessage) []string {
 	switch {
+	case strings.HasPrefix(name, "office."):
+		return []string{"workspace", "filesystem"}
 	case strings.HasPrefix(name, "workspace."), name == "html.gen", name == "excel.gen", name == "docx.gen", name == "pptx.gen", name == "pdf.gen":
 		return []string{"workspace", "filesystem"}
 	case name == "web.search":

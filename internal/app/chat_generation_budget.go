@@ -21,10 +21,13 @@ const (
 // The budget covers every model pass in this turn, including reasoning and
 // tool arguments. Provider time excludes time waiting for human approval.
 type turnGenerationBudget struct {
-	mu            sync.Mutex
-	bytes, tokens int
-	elapsed       time.Duration
-	exhausted     bool
+	mu                 sync.Mutex
+	bytes, tokens      int
+	elapsed            time.Duration
+	exhausted          bool
+	usage              llmadapter.Usage
+	usageCalls         int
+	cacheReportedCalls int
 }
 
 type turnBudgetAdapter struct {
@@ -58,6 +61,8 @@ func (b *turnGenerationBudget) stream(ctx context.Context, adapter llmadapter.Ad
 	var callbackErr error
 	textBytes, reasoningBytes := 0, 0
 	toolBytes := map[string]int{}
+	var pendingTools []llmadapter.Delta
+	var reportedUsage llmadapter.Usage
 	consume := func(n int) error {
 		b.mu.Lock()
 		defer b.mu.Unlock()
@@ -82,6 +87,11 @@ func (b *turnGenerationBudget) stream(ctx context.Context, adapter llmadapter.Ad
 		return nil
 	}
 	result, err := adapter.Stream(op, secret, req, func(d llmadapter.Delta) error {
+		// Per-provider deltas are cumulative snapshots, not separate model
+		// calls. Retain the latest only, including on partial stream failure.
+		if d.Usage != nil {
+			reportedUsage = *d.Usage
+		}
 		n := len(d.Text) + len(d.Reasoning)
 		if d.ToolCall != nil {
 			n += max(0, len(d.ToolCall.Arguments)+len(d.ToolCall.Name)-toolBytes[d.ToolCall.ID])
@@ -93,20 +103,40 @@ func (b *turnGenerationBudget) stream(ctx context.Context, adapter llmadapter.Ad
 		reasoningBytes += len(d.Reasoning)
 		if d.ToolCall != nil {
 			toolBytes[d.ToolCall.ID] = len(d.ToolCall.Arguments) + len(d.ToolCall.Name)
+			// Finish metadata arrives after tool deltas. Release tools only once
+			// the whole response is known to be complete and within budget.
+			call := *d.ToolCall
+			call.Arguments = append([]byte(nil), call.Arguments...)
+			pendingTools = append(pendingTools, llmadapter.Delta{ToolCall: &call})
+			d.ToolCall = nil
 		}
-		callbackErr = emit(d)
+		if emit != nil && (d.Text != "" || d.Reasoning != "" || d.Usage != nil) {
+			callbackErr = emit(d)
+		}
 		return callbackErr
 	})
+	if result.Usage.TotalTokens == 0 && result.Usage.InputTokens == 0 && result.Usage.OutputTokens == 0 && !result.Usage.CacheUsageReported {
+		result.Usage = reportedUsage
+	}
 	// Some adapters return tool calls/fallback text without a corresponding
 	// delta. Charge those before the caller may execute or display them.
 	missing := max(0, len(result.Message.Content)-textBytes) + max(0, len(result.Reasoning)-reasoningBytes)
 	for _, tc := range result.Message.ToolCalls {
 		missing += max(0, len(tc.Name)+len(tc.Arguments)-toolBytes[tc.ID])
 	}
-	if callbackErr == nil && err == nil {
+	if callbackErr == nil && err == nil && missing > 0 {
 		callbackErr = consume(missing)
 	}
 	b.mu.Lock()
+	b.usageCalls++
+	b.usage.InputTokens += max(0, result.Usage.InputTokens)
+	b.usage.OutputTokens += max(0, result.Usage.OutputTokens)
+	b.usage.TotalTokens += max(0, result.Usage.TotalTokens)
+	b.usage.CachedInputTokens += max(0, result.Usage.CachedInputTokens)
+	b.usage.CacheWriteInputTokens += max(0, result.Usage.CacheWriteInputTokens)
+	if result.Usage.CacheUsageReported {
+		b.cacheReportedCalls++
+	}
 	b.tokens += max(0, result.Usage.OutputTokens)
 	tokensExceeded := b.tokens > turnGenerationMaxTokens
 	if tokensExceeded {
@@ -114,10 +144,37 @@ func (b *turnGenerationBudget) stream(ctx context.Context, adapter llmadapter.Ad
 	}
 	b.mu.Unlock()
 	if callbackErr != nil {
+		result.Message.ToolCalls = nil
 		return result, callbackErr
 	}
 	if (op.Err() != nil && ctx.Err() == nil) || tokensExceeded {
+		result.Message.ToolCalls = nil
 		return result, errTurnGenerationBudget
 	}
+	if err == nil {
+		err = chatModelFinishError(result.FinishReason)
+	}
+	if err != nil {
+		result.Message.ToolCalls = nil
+		return result, err
+	}
+	for _, delta := range pendingTools {
+		if emit != nil {
+			if err := emit(delta); err != nil {
+				result.Message.ToolCalls = nil
+				return result, err
+			}
+		}
+	}
 	return result, err
+}
+
+func (b *turnGenerationBudget) usageSnapshot() llmadapter.Usage {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	u := b.usage
+	// Partial known cache counts remain available, but are never presented as
+	// a complete hit rate if any expert/tool/model pass omitted its metadata.
+	u.CacheUsageReported = b.usageCalls > 0 && b.cacheReportedCalls == b.usageCalls
+	return u
 }

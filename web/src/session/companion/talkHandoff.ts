@@ -10,7 +10,7 @@ export async function resolveTalkHandoffMessage(
   const items: MessageDTO[] = []
   let cursor: string | undefined
   for (let pageNumber = 0; pageNumber < 16; pageNumber++) {
-    const page = await bridge.list({ sessionId, direction: 'backward', limit: 64, byteBudget: 131072, ...(cursor ? {cursor} : {}) })
+    const page = await bridge.list({ sessionId, direction: 'backward', limit: 64, byteBudget: 245760, ...(cursor ? {cursor} : {}) })
     items.push(...page.items)
     const first = items.find(item => item.id === messageId)
     if (first) {

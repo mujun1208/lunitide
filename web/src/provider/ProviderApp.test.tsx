@@ -3,10 +3,22 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import { BridgeClientError, type ProviderBridge } from '../bridge/client'
 import type { ProviderDTO } from '../generated/bridge'
-import { ProviderApp } from './ProviderApp'
+import { ProviderApp, providerTestModelId } from './ProviderApp'
 afterEach(cleanup)
+it('distinguishes enabled configuration from a failed connection and shows the HTTP cause', async () => {
+ const bridge=api({list:vi.fn().mockResolvedValue({items:[provider]}),get:vi.fn().mockResolvedValue(provider),test:vi.fn().mockResolvedValue({status:'failed',testedAt:new Date().toISOString(),latencyMs:240,errorCode:'HTTP_503',httpStatus:503,sanitizedMessage:'供应商服务暂不可用'})})
+ const user=userEvent.setup()
+ render(<ProviderApp bridge={bridge}/>)
+ await user.click(await screen.findByRole('button',{name:/Demo/}))
+ expect(screen.getByText('已启用')).toBeInTheDocument()
+ expect(screen.queryByText('正常')).not.toBeInTheDocument()
+ await user.click(screen.getByRole('button',{name:'测试连接'}))
+ expect(await screen.findByText('连接失败')).toBeInTheDocument()
+ expect(screen.getByRole('status')).toHaveTextContent('HTTP_503 · HTTP 503')
+})
 const provider:ProviderDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAV',name:'Demo',protocol:'openai_compatible',baseUrl:'https://example.com',models:[{modelId:'m',displayName:'M',isDefault:true}],status:'enabled',credentialState:'configured',credentialBackupCount:0,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),version:1}
 const credential={credentialSubmissionId:'01ARZ3NDEKTSV4RRFFQ69G5FAA',providerId:provider.id,expiresAt:new Date().toISOString(),expiresInSeconds:60}
+it('tests the model from the active catalog instead of the chat default',()=>{const mixed:ProviderDTO={...provider,models:[{modelId:'chat',displayName:'Chat',isDefault:true,kind:'llm'},{modelId:'seedream',displayName:'Seedream',isDefault:false,kind:'image',kindDefault:true},{modelId:'seedance',displayName:'Seedance',isDefault:false,kind:'video'}]};expect(providerTestModelId(mixed,'image')).toBe('seedream');expect(providerTestModelId(mixed,'video')).toBe('seedance');expect(providerTestModelId(mixed,'llm')).toBe('chat')})
 function api(overrides:Partial<ProviderBridge>={}):ProviderBridge{return{list:vi.fn().mockResolvedValue({items:[]}),get:vi.fn(),create:vi.fn().mockResolvedValue(provider),update:vi.fn(),delete:vi.fn(),revealCredential:vi.fn().mockResolvedValue({credential:'saved-key'}),submitCredential:vi.fn().mockResolvedValue(credential),syncModels:vi.fn(),test:vi.fn(),backupAdd:vi.fn().mockResolvedValue({...provider,credentialBackupCount:1,version:2}),backupRemove:vi.fn().mockResolvedValue(provider),...overrides}}
 async function fillCreate(user:ReturnType<typeof userEvent.setup>,urlValue='https://example.com/v1'){await user.click(screen.getByRole('button',{name:/新建供应商/}));await user.type(screen.getByLabelText('供应商名称'),'Demo');const url=screen.getByLabelText('基础 URL');await user.clear(url);await user.type(url,urlValue);await user.type(screen.getByLabelText('模型 1 ID'),'m');await user.type(screen.getByLabelText('模型 1 显示名称'),'M')}
 it('submits exact public request before bound create',async()=>{const bridge=api(),user=userEvent.setup();render(<ProviderApp bridge={bridge}/>);expect(await screen.findByText('还没有供应商')).toBeInTheDocument();await fillCreate(user);await user.type(screen.getByLabelText(/API 凭据/),'test-only');await user.click(screen.getByRole('button',{name:'安全保存'}));await waitFor(()=>expect(bridge.create).toHaveBeenCalledOnce());const submitted=vi.mocked(bridge.submitCredential).mock.calls[0][0],created=vi.mocked(bridge.create).mock.calls[0][0];expect(submitted.request).not.toHaveProperty('credentialSubmissionId');expect(created.credentialSubmissionId).toBe(credential.credentialSubmissionId)})

@@ -40,15 +40,15 @@ var (
 type StageKey string
 
 const (
-	StageInitiation          StageKey = "INITIATION_BOUNDARY"
-	StageResearch            StageKey = "RESEARCH_EVIDENCE"
-	StageRequirement         StageKey = "REQUIREMENT_DEFINITION"
-	StageSolution            StageKey = "SOLUTION_EXPERIENCE"
-	StageArchitecture        StageKey = "ARCHITECTURE_PLAN"
-	StageDevelopment         StageKey = "DEVELOPMENT_CHANGE"
-	StageVerification        StageKey = "VERIFICATION_ACCEPTANCE"
-	StageRelease             StageKey = "RELEASE_DELIVERY"
-	StageOperations          StageKey = "OPERATIONS_RETROSPECTIVE"
+	StageInitiation   StageKey = "INITIATION_BOUNDARY"
+	StageResearch     StageKey = "RESEARCH_EVIDENCE"
+	StageRequirement  StageKey = "REQUIREMENT_DEFINITION"
+	StageSolution     StageKey = "SOLUTION_EXPERIENCE"
+	StageArchitecture StageKey = "ARCHITECTURE_PLAN"
+	StageDevelopment  StageKey = "DEVELOPMENT_CHANGE"
+	StageVerification StageKey = "VERIFICATION_ACCEPTANCE"
+	StageRelease      StageKey = "RELEASE_DELIVERY"
+	StageOperations   StageKey = "OPERATIONS_RETROSPECTIVE"
 )
 
 // subprocessKeys are internal gate/subflow identifiers that must never
@@ -199,11 +199,11 @@ func canonicalJSON(v any) string {
 // name, deps, gatePolicy in fixed order) — the workflow's content address.
 func DefinitionDigest(defs []StageDefinition) string {
 	type row struct {
-		Key      string   `json:"key"`
-		Ordinal  int      `json:"ordinal"`
-		Name     string   `json:"name"`
-		Deps     []string `json:"deps"`
-		Policy   string   `json:"gatePolicy"`
+		Key     string   `json:"key"`
+		Ordinal int      `json:"ordinal"`
+		Name    string   `json:"name"`
+		Deps    []string `json:"deps"`
+		Policy  string   `json:"gatePolicy"`
 	}
 	rows := make([]row, 0, len(defs))
 	sorted := append([]StageDefinition(nil), defs...)
@@ -302,15 +302,15 @@ type WorkflowInstance struct {
 
 // StageRun is one attempt of one stage inside an instance.
 type StageRun struct {
-	ID                 string
-	InstanceID         string
-	StageDefinitionID  string
-	AttemptNo          int64
-	State              string
-	LockVersion        int64
-	StartedAt          *time.Time
-	CompletedAt        *time.Time
-	CreatedAt          time.Time
+	ID                string
+	InstanceID        string
+	StageDefinitionID string
+	AttemptNo         int64
+	State             string
+	LockVersion       int64
+	StartedAt         *time.Time
+	CompletedAt       *time.Time
+	CreatedAt         time.Time
 }
 
 // InputSnapshot is one append-only canonical capture of stage inputs.
@@ -347,7 +347,7 @@ type ArtifactVersion struct {
 	ArtifactID string
 	VersionNo  int64
 	Kind       string
-	ScopeType  string // project | stage_run | dev_task | release | m6_root
+	ScopeType  string // project | stage_run | dev_task | release | m6_root | session
 	ScopeID    string
 	ContentRef string
 	SHA256     string

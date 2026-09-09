@@ -91,8 +91,9 @@ type Runtime struct {
 	wsRootMu   map[string]*sync.Mutex
 	// ccExec runs the cc.* computer-control tools through the ccapp
 	// service (injected by the host; nil keeps them unavailable).
-	ccExec func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (ccapp.Outcome, error)
-	imSend func(ctx context.Context, kind, to, text string) (desktopApp, output string, err error)
+	ccExec     func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (ccapp.Outcome, error)
+	imSend     func(ctx context.Context, kind, to, text string) (desktopApp, output string, err error)
+	officeExec func(context.Context, string, string, json.RawMessage) ([]byte, string, string, error)
 	// fullDiskMu guards fullDiskSessions, the S-05 one-time per-session
 	// full-disk unlock. It is in-memory only (never persisted) so a restart
 	// drops every confirmation and forces a fresh one.
@@ -229,7 +230,7 @@ func (r *Runtime) ExecuteUnconfinedStreaming(ctx context.Context, session, name 
 }
 
 func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, args json.RawMessage, approved, unconfined bool, progress func(chunk string)) (out Result, err error) {
-	if name == "desktop.open" || name == "desktop.type" || name == "media.play" || name == "computer.act" || strings.HasPrefix(name, "cc.") {
+	if name == "desktop.open" || name == "desktop.quit" || name == "desktop.browse" || name == "desktop.type" || name == "media.play" || name == "computer.act" || strings.HasPrefix(name, "cc.") {
 		release, acquireErr := acquireDesktopOperation(ctx)
 		if acquireErr != nil {
 			return Result{}, acquireErr
@@ -290,7 +291,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 	if hooks.grantApproval && !approved && name != userAskTool {
 		approved = true
 	}
-	mutating := name == "workspace.write" || name == "workspace.edit" || name == "command.run" || name == "desktop.open" || name == "desktop.type" || name == "media.play" || name == "im.send" || officeGenTools[name] || ccToolChangesMachine(name, args)
+	mutating := name == "workspace.write" || name == "workspace.edit" || name == "command.run" || name == "desktop.open" || name == "desktop.quit" || name == "desktop.browse" || name == "desktop.type" || name == "media.play" || name == "im.send" || officeGenTools[name] || ccToolChangesMachine(name, args)
 	if mutating && !approved && (hooks.forceApproval || mode == Approval || (name == "command.run" && mode == AutoEdit)) {
 		// Remembered exact approvals (P1-5) satisfy the gate without a new
 		// round-trip; unmatched or argument-variant calls still gate.
@@ -314,6 +315,23 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		return Result{}, ErrApprovalRequired
 	}
 	switch name {
+	case "office.generate", "office.inspect", "office.patch", "office.range.patch", "office.image.replace", "office.chart.patch", "office.cache.refresh", "office.deliver":
+		if r.officeExec == nil {
+			return Result{}, errors.New("办公工作台未初始化")
+		}
+		data, fileName, summary, err := r.officeExec(ctx, session, name, args)
+		if err != nil {
+			return Result{}, err
+		}
+		if len(data) == 0 {
+			return Result{Output: summary, Digest: Digest(name, []byte(summary))}, nil
+		}
+		written, err := r.writeGenerated(mode, session, filepath.ToSlash(filepath.Join("office", fileName)), data, 1, false)
+		if err != nil {
+			return Result{}, fmt.Errorf("正式版本已存档，但会话副本写入失败：%w", err)
+		}
+		written.Output = summary + "\n" + written.Output
+		return written, nil
 	case "workspace.list":
 		var a struct {
 			Path string `json:"path"`
@@ -820,6 +838,10 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		}
 		written.Artifact = &Artifact{Kind: "html", Path: htmlArtifactPath(outPath, a.Desktop), Content: page}
 		return written, nil
+	case "desktop.quit":
+		return executeDesktopQuit(ctx, args, approved)
+	case "desktop.browse":
+		return executeDesktopBrowse(args, approved)
 	case "desktop.open":
 		var a struct {
 			Name string `json:"name"`

@@ -1,0 +1,11 @@
+.office-menu-settings > .setting-desc {
+  margin: 0;
+  padding: 16px;
+}
+.office-menu-settings .setting-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+}
+.office-menu-settings .setting-row > div {
+  min-width: 0;
+}

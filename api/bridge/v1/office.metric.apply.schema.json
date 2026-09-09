@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/office.metric.apply.schema.json",
+  "title": "office.metric.apply payload",
+  "x-method": "office.metric.apply",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "taskId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "metricId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "targetVersionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "targetNodeId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "targetNodeDigest": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "template": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 131072
+    },
+    "expectedRevision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "taskId",
+    "metricId",
+    "targetVersionId",
+    "targetNodeId",
+    "targetNodeDigest",
+    "template",
+    "expectedRevision"
+  ],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/OfficeTaskDetailDTO"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "taskId": "01ARZ3NDEKTSV4RRFFQ69G5FAE",
+        "metricId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "targetVersionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "targetNodeId": "node",
+        "targetNodeDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "template": "收入 {{value}} {{unit}}",
+        "expectedRevision": 1
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

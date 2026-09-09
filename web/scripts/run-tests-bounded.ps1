@@ -11,8 +11,11 @@ try {
   $npmCmd = Get-Command npm.cmd -ErrorAction SilentlyContinue
   if ($npmCmd) { $npm = $npmCmd.Source } else { $npm = (Get-Command npm -ErrorAction Stop).Source }
 
-  $args = @('test', '--')
-  if ($VitestArgs.Count -gt 0) { $args += $VitestArgs } else { $args += 'run' }
+  $args = @('run', 'test')
+  if ($VitestArgs.Count -gt 0) {
+    $args += '--'
+    $args += $VitestArgs
+  }
 
   $proc = Start-Process -FilePath $npm -ArgumentList $args -PassThru -NoNewWindow -Wait:$false
   $timeoutMs = [Math]::Max(1, $OuterTimeoutMinutes) * 60 * 1000

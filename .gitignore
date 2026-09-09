@@ -41,6 +41,9 @@ docs/audits/**/go-coverage.out
 docs/audits/**/evidence/
 htmlcov/
 .vitest/
+# Local scratch dumps and one-off audit scripts. Never ship these.
+_scratch/
+web/_scratch/
 # Transient lint/analysis reports written during local gate runs.
 lint-report.txt
 lint-full.txt

@@ -40,6 +40,7 @@ type anthropicCacheControl struct {
 func ephemeralCache() *anthropicCacheControl { return &anthropicCacheControl{Type: "ephemeral"} }
 
 type anthropicSystemBlock struct {
+	Type         string                 `json:"type"`
 	Text         string                 `json:"text"`
 	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 }
@@ -65,9 +66,16 @@ type anthropicImageSource struct {
 	Data      string `json:"data"`
 }
 type anthropicResponse struct {
-	Index        int `json:"index"`
+	ID           string  `json:"id"`
+	Type         string  `json:"type"`
+	Role         Role    `json:"role"`
+	Model        string  `json:"model"`
+	StopReason   *string `json:"stop_reason"`
+	StopSequence *string `json:"stop_sequence"`
+	Index        int     `json:"index"`
 	ContentBlock struct {
 		Type      string          `json:"type"`
+		Text      string          `json:"text"`
 		ID        string          `json:"id"`
 		Name      string          `json:"name"`
 		Input     json.RawMessage `json:"input"`
@@ -84,25 +92,16 @@ type anthropicResponse struct {
 		Input     json.RawMessage `json:"input"`
 	} `json:"content"`
 	Delta struct {
-		Type        string `json:"type"`
-		Text        string `json:"text"`
-		Thinking    string `json:"thinking"`
-		Signature   string `json:"signature"`
-		PartialJSON string `json:"partial_json"`
+		Type         string  `json:"type"`
+		Text         string  `json:"text"`
+		Thinking     string  `json:"thinking"`
+		Signature    string  `json:"signature"`
+		PartialJSON  string  `json:"partial_json"`
+		StopReason   *string `json:"stop_reason"`
+		StopSequence *string `json:"stop_sequence"`
 	} `json:"delta"`
-	Usage struct {
-		Input         int `json:"input_tokens"`
-		Output        int `json:"output_tokens"`
-		CacheRead     int `json:"cache_read_input_tokens"`
-		CacheCreation int `json:"cache_creation_input_tokens"`
-	} `json:"usage"`
-}
-
-// anthropicBilledInput folds cache accounting into the metered input count:
-// Anthropic reports uncached tokens in input_tokens while cached reads and
-// writes arrive separately, so all three must sum for truthful totals.
-func (x anthropicResponse) anthropicBilledInput() int {
-	return x.Usage.Input + x.Usage.CacheRead + x.Usage.CacheCreation
+	Usage   anthropicUsage     `json:"usage"`
+	Message *anthropicResponse `json:"message"`
 }
 
 // anthropicPayload builds the wire request. Three ephemeral cache
@@ -124,10 +123,14 @@ func anthropicPayload(in Request, stream bool, wn *wireNames) anthropicRequest {
 	}
 	var sys []string
 	lastUser := -1
+	toolResultGroup := -1
 	for _, m := range in.Messages {
 		if m.Role == RoleSystem {
 			sys = append(sys, m.Content)
 		} else {
+			if m.Role != RoleTool {
+				toolResultGroup = -1
+			}
 			role := m.Role
 			var content any = m.Content
 			if m.Role == RoleAssistant && len(m.ToolCalls) > 0 {
@@ -142,7 +145,17 @@ func anthropicPayload(in Request, stream bool, wn *wireNames) anthropicRequest {
 			}
 			if m.Role == RoleTool {
 				role = RoleUser
-				content = []anthropicBlock{{Type: "tool_result", ToolUseID: m.ToolCallID, Content: m.Content}}
+				result := anthropicBlock{Type: "tool_result", ToolUseID: m.ToolCallID, Content: m.Content}
+				// Parallel tool results belong in one user message directly after
+				// their assistant tool_use turn. Keep normal user turns separate
+				// so attachments still target their original user message.
+				if toolResultGroup >= 0 {
+					blocks := p.Messages[toolResultGroup].Content.([]anthropicBlock)
+					p.Messages[toolResultGroup].Content = append(blocks, result)
+					continue
+				}
+				toolResultGroup = len(p.Messages)
+				content = []anthropicBlock{result}
 			}
 			p.Messages = append(p.Messages, anthropicMessage{Role: role, Content: content})
 			if m.Role == RoleUser {
@@ -159,7 +172,7 @@ func anthropicPayload(in Request, stream bool, wn *wireNames) anthropicRequest {
 		p.Messages[lastUser].Content = blocks
 	}
 	for _, s := range sys {
-		p.System = append(p.System, anthropicSystemBlock{Text: s})
+		p.System = append(p.System, anthropicSystemBlock{Type: "text", Text: s})
 	}
 	if n := len(p.System); n > 0 {
 		// 严格分离静态区与动态区缓存：
@@ -198,6 +211,7 @@ func (a *Anthropic) Stream(ctx context.Context, s []byte, in Request, emit func(
 	return a.run(ctx, s, in, true, emit)
 }
 func (a *Anthropic) run(ctx context.Context, secret []byte, in Request, stream bool, emit func(Delta) error) (Response, error) {
+	in = prepareEfficientRequest(in, a.o)
 	wn := buildWireNames(in.Tools, anthropicToolNameMax)
 	p := anthropicPayload(in, stream, wn)
 	maxAttempts := attempts(a.o, in, stream)
@@ -248,7 +262,7 @@ func (a *Anthropic) run(ctx context.Context, secret []byte, in Request, stream b
 		if len(x.Content) == 0 {
 			return Response{}, safeError("MALFORMED_RESPONSE", StageDecode, resp.StatusCode, "upstream success omitted content")
 		}
-		if !validUsage(x.anthropicBilledInput(), x.Usage.Output, x.anthropicBilledInput()+x.Usage.Output) {
+		if !x.Usage.valid() {
 			return Response{}, safeError("MALFORMED_RESPONSE", StageDecode, resp.StatusCode, "upstream returned invalid fields")
 		}
 		var text, reasoning strings.Builder
@@ -264,7 +278,7 @@ func (a *Anthropic) run(ctx context.Context, secret []byte, in Request, stream b
 				calls = append(calls, ToolCall{ID: c.ID, Name: wn.original(c.Name), Arguments: c.Input})
 			}
 		}
-		return Response{Message: Message{Role: RoleAssistant, Content: text.String(), ToolCalls: calls}, Usage: normalizeUsage(x.anthropicBilledInput(), x.Usage.Output, 0), Reasoning: reasoning.String()}, nil
+		return Response{Message: Message{Role: RoleAssistant, Content: text.String(), ToolCalls: calls}, Usage: x.Usage.normalized(), Reasoning: reasoning.String(), FinishReason: normalizeFinishReason(x.StopReason)}, nil
 	}
 	return Response{}, safeError("RETRY_EXHAUSTED", StageConnect, 0, "upstream unavailable")
 }
@@ -276,16 +290,22 @@ func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error, wn *w
 		args     strings.Builder
 	}
 	partials := map[int]*partialCall{}
+	var usage anthropicUsage
+	completed := false
 	for {
 		ev, eof, e := a.c.ReadSSE(body)
 		if e != nil {
-			return out, classify(e)
+			return out, classifyStreamError(e)
 		}
 		if eof {
 			break
 		}
 		typ, data := sseData(ev)
+		if err := streamEventError(typ, data); err != nil {
+			return out, err
+		}
 		if typ == "message_stop" {
+			completed = true
 			break
 		}
 		var x anthropicResponse
@@ -345,21 +365,34 @@ func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error, wn *w
 			}
 		}
 		if typ == "message_start" || typ == "message_delta" {
-			billed := x.anthropicBilledInput()
-			u := normalizeUsage(billed, x.Usage.Output, 0)
-			if billed > 0 {
-				out.Usage.InputTokens = billed
+			next := x.Usage
+			if typ == "message_start" && x.Message != nil {
+				next = x.Message.Usage
+				out.recordFinishReason(x.Message.StopReason)
 			}
-			if x.Usage.Output > 0 {
-				out.Usage.OutputTokens = x.Usage.Output
+			if typ == "message_delta" {
+				out.recordFinishReason(x.Delta.StopReason)
 			}
-			out.Usage.TotalTokens = out.Usage.InputTokens + out.Usage.OutputTokens
-			if emit != nil && u.TotalTokens > 0 {
+			// Older compatible endpoints send zero placeholders on deltas.
+			// They cannot erase already reported positive input/cache counts.
+			if typ == "message_delta" && usageCount(next.Input) == 0 && usageCount(usage.Input) > 0 {
+				next.Input = nil
+			}
+			usage.merge(next)
+			if !usage.valid() {
+				return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "upstream returned invalid usage")
+			}
+			u := usage.normalized()
+			out.Usage = u
+			if emit != nil && (u.TotalTokens > 0 || u.CacheUsageReported) {
 				if e := emit(Delta{Usage: &u}); e != nil {
 					return out, e
 				}
 			}
 		}
+	}
+	if !completed {
+		return out, safeError("STREAM_INCOMPLETE", StageStream, 0, "upstream stream ended before completion")
 	}
 	if len(partials) != 0 {
 		return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "unterminated tool_use block")

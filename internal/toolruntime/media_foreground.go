@@ -21,6 +21,33 @@ var mediaSleep = time.Sleep
 var activateWindow = winexec.ActivateWindowMatching
 var sendForegroundPlay = winexec.SendMediaKey
 var openLaunchPath = openWithDefaultApp
+var mediaSessionAction = winexec.MediaSessionAction
+
+func controlMusicSession(ctx context.Context, app, action string, shuffle bool) (Result, bool) {
+	known, ok := matchKnownLaunchApp(app)
+	if !ok || CanonicalMusicApp(app) == "" {
+		return Result{}, false
+	}
+	aliases := append([]string{known.Canonical}, known.Aliases...)
+	for _, process := range known.Processes {
+		aliases = append(aliases, process, strings.TrimSuffix(process, filepath.Ext(process)))
+	}
+	state, err := mediaSessionAction(ctx, aliases, action, shuffle)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return result(appendL0JSON("media session request timed out; playback is unconfirmed; do not repeat the action automatically", "media-session", false, true, "timeout")), true
+		}
+		return Result{}, false
+	}
+	if !state.Verified {
+		return result(appendL0JSON(fmt.Sprintf("media session action=%s; status=%s; result unconfirmed", action, state.Status), "media-session", false, true, state.Title)), true
+	}
+	detail := fmt.Sprintf("verified %s in %s; status=%s; title=%q; artist=%q; shuffle=%t", action, known.Canonical, state.Status, state.Title, state.Artist, state.Shuffle)
+	if action == "play" {
+		detail = fmt.Sprintf("verified playing in %s; title=%q; artist=%q; shuffle=%t", known.Canonical, state.Title, state.Artist, state.Shuffle)
+	}
+	return result(appendL0JSON(detail, "media-session", true, false, state.Title)), true
+}
 
 // Input focus belongs to the operation, not a mutable process-global window.
 // Concurrent music/document tasks must never overwrite each other's target.
@@ -67,7 +94,11 @@ func ccCall(ctx context.Context, invoke ccInvoker, session, tool string, args ma
 	if err != nil {
 		return Result{}, err
 	}
-	return invoke(ctx, session, tool, raw, approved)
+	res, err := invoke(ctx, session, tool, raw, approved)
+	if err == nil && (strings.Contains(res.Output, "ok:false") || strings.Contains(res.Output, `"ok":false`) || strings.Contains(res.Output, "COMPUTER_STALE_FRAME")) {
+		err = errors.New(res.Output)
+	}
+	return res, err
 }
 
 func ccClickName(ctx context.Context, invoke ccInvoker, session, name string, clicks int, approved bool) error {
@@ -78,9 +109,9 @@ func ccClickName(ctx context.Context, invoke ccInvoker, session, name string, cl
 	if clicks < 1 {
 		clicks = 1
 	}
-	_, err := ccCall(ctx, invoke, session, ccapp.ToolMouseClick, map[string]any{
+	_, err := ccCall(ctx, invoke, session, ccapp.ToolMouseClick, ccFocusArgs(ctx, map[string]any{
 		"name": name, "clicks": clicks, "button": "left",
-	}, approved)
+	}), approved)
 	return err
 }
 
@@ -121,15 +152,6 @@ func parseImageSize(output string) (int, int) {
 		return 0, 0
 	}
 	return w, h
-}
-
-func ccCaptureForeground(ctx context.Context, invoke ccInvoker, session string, approved bool) (int, int, error) {
-	res, err := ccCall(ctx, invoke, session, ccapp.ToolScreenCapture, map[string]any{"target": "foreground"}, approved)
-	if err != nil {
-		return 0, 0, err
-	}
-	w, h := parseImageSize(res.Output)
-	return w, h, nil
 }
 
 func ccWaitChange(ctx context.Context, invoke ccInvoker, session string, ms int, approved bool) bool {
@@ -243,16 +265,10 @@ func confirmGenericPlayback(nodes []mediaUINode, title, app, how string, pixelsC
 	if playbackLooksActive(nodes, title, app) {
 		return result(fmt.Sprintf("verified playing in %s (%s)", label, how)), true
 	}
-	if uiaTreeSparse(nodes) && pixelsChanged {
-		return result(fmt.Sprintf("started playing in %s (%s; accessibility empty)", label, how)), true
-	}
 	return Result{}, false
 }
 
-// trySparseTreePlay is the OpenClaw ladder after UIA/MSAA is empty: the
-// app's real hotkeys (Space), then screenshot-coordinate click on the
-// player bar, then WM_APPCOMMAND play. Never claims success if 播放 is
-// still visible (still paused).
+// Sparse accessibility falls back to app hotkeys, but still requires playback evidence.
 func trySparseTreePlay(ctx context.Context, invoke ccInvoker, session, app string, approved bool) (Result, bool) {
 	nodes, title := snapshotMediaUI(ctx, invoke, session, approved)
 	if res, ok := confirmGenericPlayback(nodes, title, app, "already playing", false); ok {
@@ -273,25 +289,6 @@ func trySparseTreePlay(ctx context.Context, invoke ccInvoker, session, app strin
 		nodes, title = snapshotMediaUI(ctx, invoke, session, approved)
 		if res, ok := confirmGenericPlayback(nodes, title, app, "keyboard space", changed); ok {
 			return res, true
-		}
-	}
-
-	if uiaTreeSparse(nodes) || playbackLooksPaused(nodes) {
-		if w, h, err := ccCaptureForeground(ctx, invoke, session, approved); err == nil {
-			for _, pt := range playClickPoints(w, h) {
-				if err := ccClickXY(ctx, invoke, session, pt[0], pt[1], 1, approved); err != nil {
-					continue
-				}
-				mediaSleep(450 * time.Millisecond)
-				markChange()
-				nodes, title = snapshotMediaUI(ctx, invoke, session, approved)
-				if res, ok := confirmGenericPlayback(nodes, title, app, "screenshot play click", changed); ok {
-					return res, true
-				}
-				if playbackLooksPaused(nodes) {
-					continue
-				}
-			}
 		}
 	}
 
@@ -329,6 +326,9 @@ func activateAnyWindow(hints []string) error {
 }
 
 func ensureMusicAppForeground(app string) (string, error) {
+	if CanonicalMusicApp(app) == "" {
+		return "", fmt.Errorf("无法确认「%s」是受支持的音乐播放器，不会打开文档或其他文件", app)
+	}
 	hints := musicWindowHints(app)
 	if err := activateAnyWindow(hints); err == nil {
 		return "", nil
@@ -339,6 +339,9 @@ func ensureMusicAppForeground(app string) (string, error) {
 			err = errors.New("not found")
 		}
 		return "", fmt.Errorf("未能打开桌面应用「%s」: %w", app, err)
+	}
+	if ext := strings.ToLower(filepath.Ext(path)); ext != ".exe" && ext != ".lnk" {
+		return "", fmt.Errorf("「%s」匹配到了非应用文件，不会将它作为音乐播放器打开", app)
 	}
 	if err := openLaunchPath(path); err != nil {
 		return "", err
@@ -382,6 +385,12 @@ func executeMediaPlayForeground(ctx context.Context, invoke ccInvoker, session, 
 	if err != nil {
 		return Result{}, err
 	}
+	if isGenericMediaQuery(q) {
+		shuffle := strings.Contains(q, "随机") || strings.Contains(strings.ToLower(q), "random") || strings.Contains(strings.ToLower(q), "shuffle")
+		if res, ok := controlMusicSession(ctx, app, "play", shuffle); ok {
+			return res, nil
+		}
+	}
 	focus := app
 	if known, ok := matchKnownLaunchApp(app); ok {
 		focus = known.Canonical
@@ -391,8 +400,7 @@ func executeMediaPlayForeground(ctx context.Context, invoke ccInvoker, session, 
 	}
 	_, _ = ccCall(ctx, invoke, session, ccapp.ToolWindowFocus, map[string]any{"title": focus}, approved)
 	mediaSleep(450 * time.Millisecond)
-	// OpenClaw computer-use: focus → accessibility (MSAA/UIA) → app
-	// hotkeys → screenshot click. Electron 汽水 often has an empty tree.
+	// Named tracks still require the player's search and matching track evidence.
 	res, err := playNamedTrackInForeground(ctx, invoke, session, q, focus, approved)
 	if err != nil {
 		return res, err
@@ -496,7 +504,7 @@ func playNamedTrackInForeground(ctx context.Context, invoke ccInvoker, session, 
 		}
 	}
 
-	if !mustSearch {
+	if !mustSearch && !generic {
 		if track := pickTrackNode(nodes, query); track != nil {
 			if res, ok := tryClick(track.Name, "clicked list item"); ok {
 				return res, nil
@@ -517,12 +525,25 @@ func playNamedTrackInForeground(ctx context.Context, invoke ccInvoker, session, 
 			_ = ccClickName(ctx, invoke, session, clipMediaName(rec.Name), 1, approved)
 			mediaSleep(500 * time.Millisecond)
 			n2, _ := snapshotMediaUI(ctx, invoke, session, approved)
+			if play := pickPlayControl(n2); play != nil {
+				if ccClickName(ctx, invoke, session, play.Name, 1, approved) == nil {
+					mediaSleep(700 * time.Millisecond)
+					n2, title = snapshotMediaUI(ctx, invoke, session, approved)
+					if res, ok := confirmGenericPlayback(n2, title, label, "clicked recommendation play", false); ok {
+						return res, nil
+					}
+				}
+			}
 			if first := pickFirstPlayable(n2); first != nil {
 				if res, ok := acceptSearchPlayback(first.Name, "clicked recommend item"); ok {
 					return res, nil
 				}
 			}
 		}
+		if res, ok := trySparseTreePlay(ctx, invoke, session, label, approved); ok {
+			return res, nil
+		}
+		return Result{}, fmt.Errorf("未能确认%s已开始播放。请继续观察播放器的实际播放控件，不要把随机播放当成歌名搜索", label)
 	}
 
 	if search := pickSearchNode(nodes); search != nil && strings.EqualFold(search.Role, "button") {

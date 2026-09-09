@@ -7,6 +7,15 @@ import (
 	"testing"
 )
 
+func TestMediaPlayerRefusesDocumentBeforeAnyLaunch(t *testing.T) {
+	previous := openLaunchPath
+	defer func() { openLaunchPath = previous }()
+	openLaunchPath = func(string) error { t.Fatal("media.play opened a document"); return nil }
+	if _, err := ensureMusicAppForeground("企业AI智能助手.txt"); err == nil {
+		t.Fatal("document accepted as player")
+	}
+}
+
 func TestDesktopInputFocusStaysWithItsConcurrentTask(t *testing.T) {
 	var workers sync.WaitGroup
 	for _, window := range []string{"汽水音乐", "合同文档", "微信"} {

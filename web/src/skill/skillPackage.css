@@ -1,0 +1,25 @@
+.skill-package-panel{display:flex;flex-direction:column;gap:10px;min-width:0;padding:12px;color:var(--ink);background:var(--bg2);border:1px solid var(--rule);border-radius:10px}
+.skill-package-panel>*{flex-shrink:0}
+.skill-package-panel>header,.skill-package-preview>header{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.skill-package-panel header b{min-width:0;overflow-wrap:anywhere;font-size:13px}
+.skill-package-panel button{font-size:12px;color:var(--ink)}
+.skill-package-root{display:block;max-width:100%;color:var(--muted);overflow-wrap:anywhere;font-size:11px}
+.skill-package-tree,.skill-package-tree ul{list-style:none;padding:0;margin:0}
+.skill-package-tree{max-height:240px;overflow:auto;overscroll-behavior:contain}
+.skill-package-tree ul{padding-left:16px;border-left:1px solid var(--rule);margin-left:5px}
+.skill-package-tree summary{cursor:pointer;padding:6px 0;color:var(--muted);font-size:12px}
+.skill-package-tree button{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:6px 8px;text-align:left;border-color:transparent}
+.skill-package-tree button[aria-pressed="true"]{background:var(--bg3);border-color:var(--line)}
+.skill-package-tree button span{overflow-wrap:anywhere;min-width:0}
+.skill-package-tree small{flex:none;color:var(--muted);font:10px var(--mono)}
+.skill-package-preview{min-width:0;border-top:1px solid var(--rule);padding-top:10px}
+.skill-package-preview pre{max-height:360px;min-height:100px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;overscroll-behavior:contain;padding:10px;background:var(--bg);border:1px solid var(--rule);border-radius:7px;font:12px/1.6 var(--mono);color:var(--ink)}
+.skill-package-preview nav{display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.skill-package-preview nav span,.skill-package-note{font-size:11px;color:var(--muted);line-height:1.5}
+.skill-package-panel [role="alert"]{color:var(--err);overflow-wrap:anywhere;font-size:12px}
+.skill-created-cards{display:grid;gap:8px;max-width:800px;margin:12px auto;width:100%;padding:0 12px}
+.skill-created-card{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:12px;border:1px solid var(--rule);border-radius:10px;background:var(--bg2);color:var(--ink)}
+.skill-created-card strong{font-size:13px}.skill-created-card small{display:block;color:var(--muted);font-size:11px;margin-top:4px}
+.skill-created-card>div:last-child{display:flex;flex-wrap:wrap;gap:6px}.skill-created-card button{font-size:12px;color:var(--ink)}
+.skill-chip .skill-trial-label{font-size:10px;color:var(--muted)}
+.workspace>.skill-package-panel{margin:10px;min-height:0;overflow-y:auto;flex:1}

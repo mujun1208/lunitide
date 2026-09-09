@@ -45,22 +45,22 @@ func TestEdgeSSMLEscapesAndMapsRate(t *testing.T) {
 	if !strings.Contains(ssml, `xml:lang="zh-CN"`) {
 		t.Fatalf("lang: %s", ssml)
 	}
-	if !strings.Contains(ssml, `style="chat"`) || !strings.Contains(ssml, "mstts:express-as") {
-		t.Fatalf("chat style missing: %s", ssml)
+	if strings.Contains(ssml, "mstts:express-as") || !strings.Contains(ssml, `pitch="+0%"`) {
+		t.Fatalf("Read Aloud compatible chat prosody missing: %s", ssml)
 	}
 }
 
 func TestEdgeSSMLFollowsTheSentenceMood(t *testing.T) {
 	happy := edgeSSML(SynthesizeInput{Text: "太好了，那我们出发吧！", VoiceID: "zh-CN-XiaoxiaoNeural", Volume: 80})
-	if !strings.Contains(happy, `style="cheerful"`) || !strings.Contains(happy, `styledegree="1.8"`) {
+	if !strings.Contains(happy, `rate="+8%"`) || !strings.Contains(happy, `pitch="+10%"`) {
 		t.Fatalf("cheerful line: %s", happy)
 	}
 	soft := edgeSSML(SynthesizeInput{Text: "别担心，慢慢来就好。", VoiceID: "zh-CN-XiaoxiaoNeural", Volume: 80})
-	if !strings.Contains(soft, `style="gentle"`) || !strings.Contains(soft, `pitch="+2%"`) {
+	if !strings.Contains(soft, `rate="-4%"`) || !strings.Contains(soft, `pitch="+2%"`) {
 		t.Fatalf("gentle line: %s", soft)
 	}
 	ask := edgeSSML(SynthesizeInput{Text: "你今天过得怎么样？", VoiceID: "zh-CN-XiaoxiaoNeural", Volume: 80})
-	if !strings.Contains(ask, `style="chat"`) || !strings.Contains(ask, `pitch="+9%"`) {
+	if !strings.Contains(ask, `rate="+0%"`) || !strings.Contains(ask, `pitch="+9%"`) {
 		t.Fatalf("question line: %s", ask)
 	}
 }
@@ -69,7 +69,7 @@ func TestEdgeSSMLKeepsAnExplicitPersonaAndUnsupportedStyles(t *testing.T) {
 	// 「晓晓 · 新闻播报」 is the user's pick: an excited sentence must not
 	// silently turn it into the cheerful persona.
 	chosen := edgeSSML(SynthesizeInput{Text: "太好了！", VoiceID: "zh-CN-XiaoxiaoNeural", Style: "newscast", Volume: 80})
-	if !strings.Contains(chosen, `style="newscast"`) {
+	if !strings.Contains(chosen, `rate="+4%"`) || !strings.Contains(chosen, `pitch="+10%"`) {
 		t.Fatalf("explicit style overridden: %s", chosen)
 	}
 	// Yunyang publishes no cheerful preset — the base style stays put.
@@ -77,7 +77,7 @@ func TestEdgeSSMLKeepsAnExplicitPersonaAndUnsupportedStyles(t *testing.T) {
 		t.Fatal("Yunyang should not advertise cheerful")
 	}
 	flat := edgeSSML(SynthesizeInput{Text: "太好了！", VoiceID: "zh-CN-YunyangNeural", Style: "chat", Volume: 80})
-	if !strings.Contains(flat, `style="chat"`) {
+	if !strings.Contains(flat, `rate="+0%"`) || !strings.Contains(flat, `pitch="+10%"`) {
 		t.Fatalf("unsupported style used: %s", flat)
 	}
 }

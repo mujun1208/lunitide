@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, expect, it, vi } from 'vitest'
 import type { AutomationBridge } from '../bridge/client'
 import type { AutomationRunListResult, AutomationStatusResult, SessionDTO } from '../generated/bridge'
-import { AutomationCenterPage } from './AutomationCenterPage'
+import { AutomationCenterPage, type AutomationViewState } from './AutomationCenterPage'
 import { localAutomationTimezone } from './AutomationRunControls'
 
 vi.mock('./ensureAutomationRunner', () => ({
@@ -92,4 +92,34 @@ it('defaults newly created tasks to the system timezone',async()=>{
   render(<AutomationCenterPage bridge={api.bridge} onCreateInChat={vi.fn()}/> )
   fireEvent.click(screen.getByRole('button',{name:'手动新建'}))
   expect(screen.getByRole('combobox',{name:'任务时区'})).toHaveValue(localAutomationTimezone())
+})
+
+it('restores the expanded execution history after opening its actual session and remounting', async () => {
+  const session = { id, projectId: id, title: '执行对话', version: 1, pinned: false, createdAt: '2026-09-07T00:55:24Z', updatedAt: '2026-09-07T00:55:24Z' } as SessionDTO
+  const api = setup([run({ session, sessionId: id })])
+  const open = vi.fn()
+  let view: AutomationViewState | undefined
+  const saveView = (next: AutomationViewState) => { view = next }
+  const first = render(<AutomationCenterPage bridge={api.bridge} onCreateInChat={vi.fn()} onOpenSession={open} onViewStateChange={saveView} />)
+  await screen.findByText('定时调度已开启 · 当前无任务执行')
+  fireEvent.click(screen.getByRole('button', { name: '执行历史' }))
+  fireEvent.click(await screen.findByRole('button', { name: /每日新闻/ }))
+  fireEvent.click(screen.getByRole('button', { name: '查看完整对话与产物' }))
+  await waitFor(() => expect(open).toHaveBeenCalledExactlyOnceWith(session))
+  expect(view).toEqual({ tab: 'runs', openRun: 'run-one' })
+  const readsBeforeReturn = api.listRuns.mock.calls.length
+  first.unmount()
+  render(<AutomationCenterPage bridge={api.bridge} initialViewState={view} onViewStateChange={saveView} onCreateInChat={vi.fn()} onOpenSession={open} />)
+  expect(screen.getByText('正在读取执行历史…')).toBeInTheDocument()
+  expect(await screen.findByText('已完成第一条新闻的整理')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /每日新闻/ })).toHaveAttribute('aria-expanded', 'true')
+  expect(api.listRuns.mock.calls.length).toBeGreaterThan(readsBeforeReturn)
+  expect(open).toHaveBeenCalledOnce()
+})
+
+it('does not retain old execution data if the refreshed scope has no matching run', async () => {
+  const api = setup([])
+  render(<AutomationCenterPage bridge={api.bridge} initialViewState={{ tab: 'runs', openRun: 'old-private-run' }} onCreateInChat={vi.fn()} />)
+  expect(await screen.findByText('还没有运行记录。')).toBeInTheDocument()
+  expect(screen.queryByText('已完成第一条新闻的整理')).toBeNull()
 })

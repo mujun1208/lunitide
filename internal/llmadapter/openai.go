@@ -67,7 +67,8 @@ type openAIContentPart struct {
 }
 type openAIResponse struct {
 	Choices []struct {
-		Message struct {
+		FinishReason *string `json:"finish_reason"`
+		Message      struct {
 			Role             Role             `json:"role"`
 			Content          string           `json:"content"`
 			ReasoningContent string           `json:"reasoning_content,omitempty"`
@@ -79,11 +80,7 @@ type openAIResponse struct {
 			ToolCalls        []openAIToolCall `json:"tool_calls,omitempty"`
 		} `json:"delta,omitempty"`
 	} `json:"choices"`
-	Usage struct {
-		Prompt     int `json:"prompt_tokens"`
-		Completion int `json:"completion_tokens"`
-		Total      int `json:"total_tokens"`
-	} `json:"usage"`
+	Usage openAIUsage `json:"usage"`
 }
 
 func (a *OpenAI) Complete(ctx context.Context, secret []byte, in Request) (Response, error) {
@@ -116,6 +113,7 @@ func (a *OpenAI) TestConnection(ctx context.Context, secret []byte, in Request) 
 }
 
 func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool, emit func(Delta) error) (Response, error) {
+	in = prepareEfficientRequest(in, a.o)
 	wn := buildWireNames(in.Tools, openAIToolNameMax)
 	p := openAIRequest{Model: in.Model, Messages: openAIMessages(in, wn, false), MaxTokens: in.MaxTokens, Stream: stream}
 	if in.DisableReasoning {
@@ -216,14 +214,14 @@ func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool
 			if len(out.Choices) == 0 {
 				return Response{}, safeError("MALFORMED_RESPONSE", StageDecode, resp.StatusCode, "upstream success omitted choices")
 			}
-			if !validUsage(out.Usage.Prompt, out.Usage.Completion, out.Usage.Total) || out.Choices[0].Message.Role != RoleAssistant {
+			if !validUsage(usageCount(out.Usage.Prompt), out.Usage.Completion, out.Usage.Total) || out.Choices[0].Message.Role != RoleAssistant {
 				return Response{}, safeError("MALFORMED_RESPONSE", StageDecode, resp.StatusCode, "upstream returned invalid fields")
 			}
 			m := Message{Role: out.Choices[0].Message.Role, Content: out.Choices[0].Message.Content}
 			for _, tc := range out.Choices[0].Message.ToolCalls {
 				m.ToolCalls = append(m.ToolCalls, ToolCall{ID: tc.ID, Name: wn.original(tc.Function.Name), Arguments: json.RawMessage(tc.Function.Arguments)})
 			}
-			return Response{Message: m, Usage: normalizeUsage(out.Usage.Prompt, out.Usage.Completion, out.Usage.Total), Reasoning: out.Choices[0].Message.ReasoningContent}, nil
+			return Response{Message: m, Usage: out.Usage.normalized(), Reasoning: out.Choices[0].Message.ReasoningContent, FinishReason: normalizeFinishReason(out.Choices[0].FinishReason)}, nil
 		}
 		return a.readStream(resp.Body, emit, wn)
 	}
@@ -284,23 +282,38 @@ func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error, wn *wire
 	out.Message.Role = RoleAssistant
 	type partial struct{ id, name, args string }
 	calls := map[int]*partial{}
+	completed := false
 	for {
 		event, eof, err := a.c.ReadSSE(body)
 		if err != nil {
-			return out, classify(err)
+			return out, classifyStreamError(err)
 		}
 		if eof {
 			break
 		}
-		_, data := sseData(event)
+		typ, data := sseData(event)
+		if err := streamEventError(typ, data); err != nil {
+			return out, err
+		}
 		if data == "[DONE]" {
+			completed = true
 			break
 		}
 		var chunk openAIResponse
 		if e := compatibleJSON(strings.NewReader(data), &chunk); e != nil {
 			return out, e
 		}
+		if !validUsage(usageCount(chunk.Usage.Prompt), chunk.Usage.Completion, chunk.Usage.Total) {
+			return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "upstream returned invalid usage")
+		}
+		u := chunk.Usage.normalized()
+		if u.TotalTokens > 0 || u.CacheUsageReported {
+			// The same frame can carry both text and accounting. Keep the
+			// received counters even if the text consumer cancels below.
+			out.Usage = u
+		}
 		if len(chunk.Choices) > 0 {
+			out.recordFinishReason(chunk.Choices[0].FinishReason)
 			reasoning := chunk.Choices[0].Delta.ReasoningContent
 			out.Reasoning += reasoning
 			if emit != nil && reasoning != "" {
@@ -328,15 +341,16 @@ func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error, wn *wire
 				p.args += tc.Function.Arguments
 			}
 		}
-		u := normalizeUsage(chunk.Usage.Prompt, chunk.Usage.Completion, chunk.Usage.Total)
-		if u.TotalTokens > 0 {
-			out.Usage = u
+		if u.TotalTokens > 0 || u.CacheUsageReported {
 			if emit != nil {
 				if e := emit(Delta{Usage: &u}); e != nil {
 					return out, e
 				}
 			}
 		}
+	}
+	if !completed {
+		return out, safeError("STREAM_INCOMPLETE", StageStream, 0, "upstream stream ended before completion")
 	}
 	for i := 0; i < len(calls); i++ {
 		p := calls[i]

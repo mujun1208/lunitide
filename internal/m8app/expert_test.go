@@ -46,6 +46,13 @@ func createExpert(t *testing.T, svc *m8app.ExpertService, name string) m8app.Cre
 	if err != nil {
 		t.Fatalf("create %s: %v", name, err)
 	}
+	if res.State != m8core.ExpertDisabled {
+		t.Fatalf("new expert should start disabled: %+v", res)
+	}
+	if _, err := svc.Toggle(context.Background(), m8app.ExpertToggleInput{ExpertID: res.ExpertID, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	res.State = m8core.ExpertEnabled
 	return res
 }
 
@@ -333,6 +340,9 @@ func TestExpertMountingGetNinePhaseDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create PM: %v", err)
 	}
+	if _, err := svc.Toggle(ctx, m8app.ExpertToggleInput{ExpertID: prod.ExpertID, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
 	project := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	matrix, err := svc.MountingGet(ctx, m8app.MountingGetInput{ProjectID: project})
 	if err != nil || len(matrix.Matrix) != 9 {
@@ -396,11 +406,12 @@ func TestCreatePersistsCatalogItemIDAndSkillFloor(t *testing.T) {
 	svc.SetSkillStore(store)
 	ctx := context.Background()
 	res, err := svc.Create(ctx, m8app.CreateInput{
-		Source:        m8core.ExpertSourceLocal,
-		Frontmatter:   fm("演示顾问"),
-		SixSection:    sixBody("renamed-ppt"),
-		RequestID:     "req-renamed-ppt",
-		CatalogItemID: "ppt-expert",
+		Source:         m8core.ExpertSourceLocal,
+		Frontmatter:    fm("演示顾问"),
+		SixSection:     sixBody("renamed-ppt"),
+		RequestID:      "req-renamed-ppt",
+		CatalogItemID:  "ppt-expert",
+		CreationOrigin: m8core.ExpertOriginCatalog,
 	})
 	if err != nil {
 		t.Fatal(err)

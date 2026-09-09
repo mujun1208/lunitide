@@ -7,6 +7,7 @@ import type { MeetingsBridge } from '../bridge/client'
 import type { MeetingDTO, MeetingSegmentDTO } from '../generated/bridge'
 import type { CompanionSpeechHandle } from '../session/companion/speech'
 import { MeetingPage, MEETING_CAPTION_STALL_MS, MEETING_CAPTION_STALL_POLL_MS } from './MeetingPage'
+import { pcmFrameFromSamples } from './meetingAsr'
 
 const now = '2026-08-27T03:00:00.000Z'
 const meetingId = '01ARZ3NDEKTSV4RRFFQ69G5FAV'
@@ -504,6 +505,24 @@ describe('MeetingPage', () => {
     expect(speech.prepare).not.toHaveBeenCalled()
     await vi.waitFor(() => expect(meetings.loopbackPoll).toHaveBeenCalledWith({ meetingId }))
     expect(await screen.findByText('正在录制麦克风与系统声音')).toBeInTheDocument()
+  })
+
+  test.each(['cloud', 'local', 'volc'] as const)('%s transcribes native system PCM with a silent microphone from the first turn', async listen => {
+    const started: MeetingDTO = { ...base, status: 'recording', audioSource: 'microphone_and_system' }
+    localStorage.setItem('lunitide:meeting', JSON.stringify({ listen, modelId: '' }))
+    const samples = new Int16Array(1600).fill(1200)
+    const loopbackPoll = vi.fn().mockResolvedValue({ meetingId, active: true, pcm: pcmFrameFromSamples(samples).base64 })
+    const pushPcm = vi.fn()
+    speech.start.mockResolvedValue({ ...speech.handle(), pushPcm })
+    render(<MeetingPage meetings={bridge({ start: vi.fn().mockResolvedValue(started), loopbackPoll })} />)
+    await userEvent.setup().click(await screen.findByRole('button', { name: '开始录制' }))
+    await waitFor(() => expect(speech.start).toHaveBeenCalledWith(expect.objectContaining({ listen: listen === 'cloud' ? 'local' : listen, externalPcm: true })))
+    await vi.waitFor(() => expect(loopbackPoll).toHaveBeenCalled())
+    const options = vi.mocked(startMeetingAudioRecorder).mock.calls.at(-1)![0]
+    options.onFrame?.(pcmFrameFromSamples(new Int16Array(1600)))
+    expect(pushPcm).toHaveBeenCalled()
+    expect(pushPcm.mock.calls.at(-1)![0].samples.some((sample: number) => sample !== 0)).toBe(true)
+    expect(JSON.parse(localStorage.getItem('lunitide:meeting')!).listen).toBe(listen)
   })
 
   test('starts mic-only recording when engine loopback is unavailable without opening the share picker', async () => {

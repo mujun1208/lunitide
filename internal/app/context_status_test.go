@@ -42,3 +42,15 @@ func TestContextStatusReportsCanonicalLogicalUsageWithoutRequestAlias(t *testing
 		t.Fatalf("reported tokenizer = %q/%q", got.CanonicalTokenizerID, got.CanonicalTokenizerRevision)
 	}
 }
+
+func TestContextStatusReportsActualEfficiencySwitch(t *testing.T) {
+	for _, value := range []string{"", "off"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("LUNITIDE_TOKEN_EFFICIENCY", value)
+			got, err := NewEngine(nil, "test").ContextStatus(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+			if err != nil || got.TokenEfficiencyEnabled != (value != "off") {
+				t.Fatalf("switch=%q result=%+v err=%v", value, got, err)
+			}
+		})
+	}
+}

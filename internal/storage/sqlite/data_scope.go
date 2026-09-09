@@ -39,6 +39,9 @@ func authorizeDataResource(ctx context.Context, db dataScopeQueryer, kind, id, s
 		}
 	}
 	parentQueries := map[string]string{
+		"office-metric":        `SELECT 'office-task',task_id FROM office_metrics WHERE id=?`,
+		"office-bundle":        `SELECT 'office-task',task_id FROM office_bundles WHERE id=?`,
+		"office-version":       `SELECT 'office-task',b.task_id FROM artifact_versions v JOIN office_task_artifacts b ON b.artifact_id=v.artifact_id JOIN office_version_metadata m ON m.version_id=v.id WHERE v.id=?`,
 		"subagent":             `SELECT 'agent-run',root_run_id FROM subagent_runs WHERE id=?`,
 		"delegation":           `SELECT 'agent-run',root_id FROM m6_delegation WHERE id=?`,
 		"barrier":              `SELECT 'agent-run',root_id FROM m6_barrier WHERE id=?`,
@@ -50,7 +53,7 @@ func authorizeDataResource(ctx context.Context, db dataScopeQueryer, kind, id, s
 		"scan_run":             `SELECT 'dev_task',task_ref FROM scan_runs WHERE id=?`,
 		"gate-evaluation":      `SELECT 'stage_run',stage_run_id FROM gate_evaluations WHERE id=?`,
 		"trace-review":         `SELECT 'trace:'||subject_type,subject_id FROM reviews WHERE id=?`,
-		"artifact_version":     `SELECT CASE scope_type WHEN 'release' THEN 'release-package' WHEN 'm6_root' THEN 'agent-run' ELSE scope_type END,scope_id FROM artifact_versions WHERE id=?`,
+		"artifact_version":     `SELECT CASE WHEN scope_type='session' AND EXISTS(SELECT 1 FROM office_version_metadata m WHERE m.version_id=artifact_versions.id) THEN 'office-version' WHEN scope_type='release' THEN 'release-package' WHEN scope_type='m6_root' THEN 'agent-run' ELSE scope_type END,CASE WHEN scope_type='session' AND EXISTS(SELECT 1 FROM office_version_metadata m WHERE m.version_id=artifact_versions.id) THEN id ELSE scope_id END FROM artifact_versions WHERE id=?`,
 	}
 	if query, ok := parentQueries[kind]; ok {
 		var parentKind, parentID string
@@ -90,6 +93,7 @@ func authorizeDataResource(ctx context.Context, db dataScopeQueryer, kind, id, s
 		kind = "release-package"
 	}
 	queries := map[string]string{
+		"office-task":        `SELECT t.owner_org_id FROM office_tasks t LEFT JOIN sessions x ON x.id=t.session_id LEFT JOIN projects p ON p.id=x.project_id WHERE t.id=? AND (x.id IS NULL OR COALESCE(p.org_id,'')=t.owner_org_id)`,
 		"memory":             `SELECT COALESCE(p.org_id,'') FROM memories m JOIN projects p ON p.id=m.project_id WHERE m.id=?`,
 		"ontology-node":      `SELECT COALESCE(p.org_id,'') FROM ontology_nodes n JOIN projects p ON p.id=n.project_id WHERE n.id=?`,
 		"checkpoint":         `SELECT COALESCE(p.org_id,'') FROM compaction_checkpoints c JOIN sessions x ON x.id=c.session_id JOIN projects p ON p.id=x.project_id WHERE c.id=?`,

@@ -46,9 +46,16 @@ func DeliveryParts(d Delivery) []DeliveryPart {
 	for _, item := range d.Items {
 		text := strings.ReplaceAll(strings.ReplaceAll(item.Payload, "\r\n", "\n"), "\r", "\n")
 		runes := []rune(text)
-		for offset := 0; offset < len(runes); offset += message.MaxRunes {
-			end := min(offset+message.MaxRunes, len(runes))
-			out = append(out, DeliveryPart{Key: item.ID + ":" + string(rune('0'+offset/message.MaxRunes)), Text: string(runes[offset:end])})
+		partSize := message.MaxRunes
+		// Legacy queue rows admitted at most 8000 code points and used 2048
+		// point message parts. Preserve both text and keys for any receipt
+		// partially prepared before upgrade. Larger rows can only be new.
+		if len(runes) <= 8000 {
+			partSize = 2048
+		}
+		for offset := 0; offset < len(runes); offset += partSize {
+			end := min(offset+partSize, len(runes))
+			out = append(out, DeliveryPart{Key: item.ID + ":" + string(rune('0'+offset/partSize)), Text: string(runes[offset:end])})
 		}
 	}
 	return out

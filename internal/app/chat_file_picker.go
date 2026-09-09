@@ -30,12 +30,8 @@ func looksLikeUACToolResult(summary string) bool {
 	if strings.Contains(text, "uac dialog") || strings.Contains(text, "elevation dialog") {
 		return true
 	}
-	return strings.Contains(text, "access denied") ||
-		strings.Contains(text, "access is denied") ||
-		strings.Contains(text, "uipi") ||
-		strings.Contains(text, "elevated") ||
-		strings.Contains(text, "higher integrity") ||
-		strings.Contains(text, "跨完整性")
+	// Filesystem/sandbox and integrity errors do not prove a UAC dialog exists.
+	return false
 }
 
 func (e *Engine) parkUACAsk(ctx context.Context, runID, sessionID string, mode executionMode, send func(bridge.Event) error) error {

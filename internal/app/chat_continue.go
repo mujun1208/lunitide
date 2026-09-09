@@ -107,6 +107,26 @@ func lastToolOutput(messages []llmadapter.Message) string {
 	return ""
 }
 
+func lastNamedToolOutput(messages []llmadapter.Message, name string) string {
+	results := map[string]string{}
+	for i := len(messages) - 1; i >= 0; i-- {
+		m := messages[i]
+		if m.Role == llmadapter.RoleUser {
+			break
+		}
+		if m.Role == llmadapter.RoleTool {
+			results[m.ToolCallID] = m.Content
+		}
+		for j := len(m.ToolCalls) - 1; j >= 0; j-- {
+			call := m.ToolCalls[j]
+			if call.Name == name {
+				return results[call.ID]
+			}
+		}
+	}
+	return ""
+}
+
 func lastToolName(tools []string) string {
 	if len(tools) == 0 {
 		return ""
@@ -116,6 +136,9 @@ func lastToolName(tools []string) string {
 
 func shouldContinueIncompleteWork(text, lastToolOut string, lastTools []string, usedTools bool, nudges int) bool {
 	if !usedTools || nudges >= maxContinueNudges {
+		return false
+	}
+	if lastToolName(lastTools) == "media.play" && companionToolResultFailed(lastToolOut) {
 		return false
 	}
 	blob := strings.ToUpper(text + "\n" + lastToolOut)
@@ -143,12 +166,57 @@ func unverifiedMediaPlay(lastTool, out, assistant string) bool {
 	if lastTool != "media.play" {
 		return false
 	}
-	combined := strings.ToLower(out + "\n" + assistant)
-	if strings.Contains(combined, "正在播") || strings.Contains(combined, "now playing") || strings.Contains(combined, "already playing") {
+	if mediaControlReceiptSpeech(out) != "" {
 		return false
 	}
-	t := strings.ToLower(out)
-	return strings.Contains(t, "started") || strings.Contains(t, "已启动") || strings.Contains(t, "opened")
+	if l0, ok := extractL0(out); ok && (!l0.Passed || l0.Uncertain) {
+		return true
+	}
+	combined := strings.ToLower(out)
+	if strings.Contains(combined, "verified playing") || strings.Contains(combined, "verified already playing") {
+		return false
+	}
+	return true
+}
+
+func mediaTurnResultSpeech(messages []llmadapter.Message) string {
+	out := lastNamedToolOutput(messages, "media.play")
+	if out == "" {
+		return "尚未开始播放。请确认要使用的音乐播放器。"
+	}
+	if companionToolResultFailed(out) {
+		return companionToolResultSpeech("media.play", out)
+	}
+	return companionToolResultSpeech("media.play", out)
+}
+
+// A transport acknowledgement proves the command was sent, not the player's
+// resulting state. In particular, next/pause are not failed attempts to play.
+func mediaControlReceiptSpeech(out string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(out), "\n")
+	if proof, ok := extractL0(out); ok && proof.Kind == "media-session" && proof.Passed && !proof.Uncertain {
+		for prefix, speech := range map[string]string{
+			"verified next in ":  "已切换到下一首并开始播放。",
+			"verified prev in ":  "已切换到上一首并开始播放。",
+			"verified pause in ": "已暂停播放。",
+			"verified stop in ":  "已停止播放。",
+		} {
+			if strings.HasPrefix(line, prefix) {
+				return speech
+			}
+		}
+	}
+	switch strings.TrimSpace(line) {
+	case "sent next track":
+		return "已发送切换下一首的操作。"
+	case "sent previous track":
+		return "已发送切换上一首的操作。"
+	case "sent pause/play toggle":
+		return "已发送暂停或继续播放的操作。"
+	case "sent stop":
+		return "已发送停止播放的操作。"
+	}
+	return ""
 }
 
 func continueNudgeMessage() llmadapter.Message {
@@ -162,7 +230,7 @@ func desktopContinueNudgeMessage() llmadapter.Message {
 }
 
 func isDesktopControlTool(name string) bool {
-	return strings.HasPrefix(name, "cc.") || name == "computer.act" || name == "desktop.type" || name == "desktop.open" || name == "media.play" || name == "browser.act"
+	return strings.HasPrefix(name, "cc.") || name == "computer.act" || name == "desktop.type" || name == "desktop.open" || name == "desktop.browse" || name == "desktop.quit" || name == "media.play" || name == "browser.act"
 }
 
 func shouldContinueDesktopTurn(text string, nudges int) bool {
@@ -185,7 +253,7 @@ func companionGoalIsOpenOnly(text string) bool {
 	if !open {
 		return false
 	}
-	for _, follow := range []string{"填写", "填一下", "填", "输入", "写入", "写", "播放", "播一", "点", "搜索", "搜一", "发消息"} {
+	for _, follow := range []string{"填写", "填一下", "填", "输入", "写入", "写", "播放", "播一", "点", "搜索", "搜一", "查", "发消息", "发送", "提交", "保存", "生成", "制作", "编辑", "下载", "上传", "关闭", "退出", "朗读", "然后", "之后", "接着"} {
 		if strings.Contains(t, follow) {
 			return false
 		}
@@ -206,31 +274,44 @@ func desktopOpenSucceeded(toolOut string, lastTools []string) bool {
 // 「好，我来操作电脑」 is not done (that used to ask the model to narrate
 // “完成了” after only looking).
 func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []string, usedTools, usedDesktop, companion, disableReasoning bool, nudges int, userGoal string, toolsAttached bool) string {
+	computerTask := companion || computerExecutionTurn(userGoal)
+	if strings.TrimSpace(stepText) == "" {
+		stepText = assistantAll
+	}
+	if companion && companionNeedsSpokenInput(stepText) {
+		return ""
+	}
 	if shouldContinueTurn(stepText, usedTools, nudges, disableReasoning) {
 		return "ask"
 	}
 	if shouldContinueIncompleteWork(stepText, toolOut, lastTools, usedTools, nudges) {
 		return "incomplete"
 	}
-	if companion && lastToolName(lastTools) == "media.play" {
+	if computerTask && lastToolName(lastTools) == "media.play" && playbackOnlyGoal(userGoal) {
 		return ""
 	}
-	if companion && companionGoalIsOpenOnly(userGoal) && desktopOpenSucceeded(toolOut, lastTools) && !strings.Contains(stepText+assistantAll+toolOut, "无法执行") {
+	if computerTask && companionGoalIsOpenOnly(userGoal) && desktopOpenSucceeded(toolOut, lastTools) && !strings.Contains(stepText+assistantAll+toolOut, "无法执行") {
 		return ""
 	}
-	if companion && companionCloseResultSettled(stepText, userGoal, toolOut) {
+	if computerTask && companionCloseResultSettled(stepText, userGoal, toolOut) {
 		return ""
 	}
-	if companion && usedDesktop && shouldContinueDesktopTurnGoal(stepText, userGoal, nudges) {
+	if computerTask && usedTools && !looksLikeCompanionWaitPromise(stepText) && !isCompanionLeadInOnly(stepText) &&
+		(companionToolResultFailed(toolOut) || strings.Contains(stepText, "未能") || strings.Contains(stepText, "无法") || strings.Contains(stepText, "没有查到")) {
+		return ""
+	}
+	if computerTask && usedDesktop && shouldContinueDesktopTurnGoal(stepText, userGoal, nudges) {
 		return "desktop"
 	}
-	if companion && !usedTools && toolsAttached && nudges < maxContinueNudges &&
-		(looksLikeCompanionWaitPromise(assistantAll) || isCompanionLeadInOnly(assistantAll)) {
-		return "wait"
-	}
-	if companion && usedTools && isCompanionLeadInOnly(assistantAll) && nudges < maxContinueNudges {
+	if companion && usedTools && isCompanionLeadInOnly(stepText) && nudges < maxContinueNudges {
 		return "leadin"
 	}
+	if toolsAttached && nudges < maxContinueNudges &&
+		(looksLikeCompanionWaitPromise(stepText) || (companion && !usedTools && isCompanionLeadInOnly(stepText))) {
+		return "wait"
+	}
+	// A buffered final reply is not in assistantAll yet. The current step was
+	// checked above; an earlier spoken lead-in must not restart completed work.
 	return ""
 }
 

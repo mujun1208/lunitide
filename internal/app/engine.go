@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -48,6 +49,7 @@ import (
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/mroapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
+	"github.com/lunitide/lunitide/internal/officeapp"
 	"github.com/lunitide/lunitide/internal/org"
 	"github.com/lunitide/lunitide/internal/people"
 	"github.com/lunitide/lunitide/internal/providerapp"
@@ -210,7 +212,8 @@ type Engine struct {
 	m10nomination *m8app.NominationService
 	// Phase-3 governance switches (M1/M2/S2), default-off. When nil every
 	// switch reads false, so the frozen invariants hold unchanged.
-	govFlags *config.GovernanceFlags
+	govFlags    *config.GovernanceFlags
+	officeFlags *config.OfficeFlags
 	// M10: memory operations (stats/facts/traces/growth/settings/export/purge).
 	memoryOps *m8app.MemoryOpsService
 	// M10: expert scenario cards over the FR-19 expert core.
@@ -305,6 +308,8 @@ type Engine struct {
 
 	// P2-2: append-only artifact acceptance log (comment → revise → accept).
 	artifactReviews    *artifactreview.Store
+	officeStudio       *officeapp.Service
+	officeTexts        officeTextCache
 	sessionArtifactsMu sync.Mutex
 
 	// P2-3: resident cron automation scheduler.
@@ -427,7 +432,13 @@ func NewEngineWithP3P4(providers ProviderService, projects ProjectService, sessi
 	return e
 }
 
-func (e *Engine) SetToolRuntime(r *toolruntime.Runtime) { e.tools = r; e.wirePluginExecutionGate() }
+func (e *Engine) SetToolRuntime(r *toolruntime.Runtime) {
+	e.tools = r
+	e.wirePluginExecutionGate()
+	if r != nil && e.officeStudio != nil {
+		r.SetOfficeExecutor(e.executeOfficeTool)
+	}
+}
 
 func (e *Engine) SetConversationsStore(s *conversationsapp.Store) { e.conversations = s }
 
@@ -517,6 +528,7 @@ type ContextStatusResult struct {
 	ActiveCheckpointVersion    int64   `json:"activeCheckpointVersion"`
 	BudgetUsage                float64 `json:"budgetUsage"`
 	IsCompacting               bool    `json:"isCompacting"`
+	TokenEfficiencyEnabled     bool    `json:"tokenEfficiencyEnabled"`
 }
 
 // ContextStatus returns the current context state for a session, including
@@ -524,7 +536,7 @@ type ContextStatusResult struct {
 // active checkpoint version, budget usage ratio, and whether compaction is
 // in progress (ADR-005 §4.2).
 func (e *Engine) ContextStatus(ctx context.Context, sessionID string) (ContextStatusResult, error) {
-	result := ContextStatusResult{}
+	result := ContextStatusResult{TokenEfficiencyEnabled: config.TokenEfficiencyEnabled()}
 
 	// Get the latest checkpoint to determine provider/model and compaction state.
 	var latest *compaction.Checkpoint
@@ -951,7 +963,7 @@ func (e *Engine) ListReadableAttachmentsBySession(ctx context.Context, sessionID
 func NewEngineWithGateway(providers ProviderService, version string, leases LeaseClient) *Engine {
 	return &Engine{providers: providers, version: version, leases: leases, streamEngine: streamEngine{streams: make(map[string]*streamState), maxStreams: 32}, adapterCache: make(map[string]llmadapter.Adapter),
 		network: networkpolicy.Options{ConnectTimeout: 10 * time.Second, ResponseHeaderTimeout: 60 * time.Second, DisableOverallTimeout: true, IdleReadTimeout: 90 * time.Second, MaxResponseBytes: 1 << 20},
-		gateway: llmadapter.Options{MaxModels: 50, MaxAttempts: 1, MaxRequestBytes: 5 << 20}}
+		gateway: llmadapter.Options{MaxModels: 50, MaxAttempts: 1, MaxRequestBytes: 5 << 20, DisableTokenEfficiency: !config.TokenEfficiencyEnabled()}}
 }
 
 // Stream lifecycle methods (CancelAllStreams / cancelStream / selectTerminal /
@@ -1004,6 +1016,9 @@ func (e *Engine) SetM6MergeServices(mergeSvc *m6app.MergeService) {
 // import pipeline and the complexity router (0053 domains).
 func (e *Engine) SetM6GovernanceServices(skills *m6app.SkillImportService, routing *m6app.RoutingService) {
 	e.m6skills, e.m6routing = skills, routing
+	if skills != nil && e.persistDir != "" {
+		skills.SetPackageRoot(filepath.Join(e.persistDir, "skill-package-store"))
+	}
 }
 
 // SetM7WorkflowServices wires the M7 slice-1 service: the nine-stage

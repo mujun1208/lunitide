@@ -74,6 +74,7 @@ type ExpertTx interface {
 	GetMounting(projectID, phaseKey, expertID string) (m8core.ExpertMounting, bool, error)
 	PutMounting(m8core.ExpertMounting) error
 	ListMountingsByExpert(expertID string) ([]m8core.ExpertMounting, error)
+	HasExpertSessionMounts(expertID string) (bool, error)
 	ListMountingsByProjectPhase(projectID, phaseKey string) ([]ExpertMountingView, error)
 	CountMountedInPhase(projectID, phaseKey string) (int, error)
 	ReplaceExpertSkillKeys(expertID string, keys []string) error
@@ -146,17 +147,21 @@ func (s *ExpertService) loadBody(ref, digest string) ([]byte, error) {
 
 // CreateInput is the expert.create command.
 type CreateInput struct {
-	Source        string
-	Frontmatter   m8core.Frontmatter
-	SixSection    m8core.SixSection
-	RequestID     string
-	Actor         string
-	SkillKeys     []string
-	CatalogItemID string
+	// Internal callers must identify factory/catalog creations explicitly.
+	CreationOrigin string
+	Source         string
+	Frontmatter    m8core.Frontmatter
+	SixSection     m8core.SixSection
+	RequestID      string
+	Actor          string
+	SkillKeys      []string
+	CatalogItemID  string
 }
 
 // CreateResult is the expert.create outcome.
 type CreateResult struct {
+	Name             string `json:"name"`
+	CreationOrigin   string `json:"creationOrigin"`
 	ExpertID         string `json:"expertId"`
 	VersionID        string `json:"versionId"`
 	State            string `json:"state"`
@@ -174,6 +179,21 @@ func (s *ExpertService) Create(ctx context.Context, in CreateInput) (CreateResul
 	if in.Source != m8core.ExpertSourceLocal {
 		return CreateResult{}, ErrExpertSixSectionInvalid
 	}
+	if in.CreationOrigin == "" {
+		in.CreationOrigin = m8core.ExpertOriginManual
+	}
+	state := m8core.ExpertDisabled
+	switch in.CreationOrigin {
+	case m8core.ExpertOriginManual:
+		if in.CatalogItemID != "" {
+			return CreateResult{}, ErrPayloadInvalid
+		}
+	case m8core.ExpertOriginBuiltin, m8core.ExpertOriginCatalog:
+		state = m8core.ExpertEnabled
+	default:
+		return CreateResult{}, ErrPayloadInvalid
+	}
+	in.Frontmatter.Name = strings.TrimSpace(in.Frontmatter.Name)
 	if err := in.Frontmatter.Validate(); err != nil {
 		return CreateResult{}, fmt.Errorf("%w: %v", ErrExpertSixSectionInvalid, err)
 	}
@@ -204,7 +224,8 @@ func (s *ExpertService) Create(ctx context.Context, in CreateInput) (CreateResul
 			ExpertID: expertID, SubjectID: s.subject, Name: in.Frontmatter.Name,
 			Division: in.Frontmatter.Division, Source: in.Source,
 			CatalogItemID:    strings.TrimSpace(in.CatalogItemID),
-			CurrentVersionID: versionID, State: m8core.ExpertEnabled,
+			CreationOrigin:   in.CreationOrigin,
+			CurrentVersionID: versionID, State: state,
 			CreatedAt: now, UpdatedAt: now,
 		}
 		if err := tx.PutExpert(e); err != nil {
@@ -234,7 +255,7 @@ func (s *ExpertService) Create(ctx context.Context, in CreateInput) (CreateResul
 		}); err != nil {
 			return err
 		}
-		out = CreateResult{ExpertID: expertID, VersionID: versionID, State: m8core.ExpertEnabled, SixSectionDigest: digest}
+		out = CreateResult{ExpertID: expertID, Name: e.Name, CreationOrigin: e.CreationOrigin, VersionID: versionID, State: state, SixSectionDigest: digest}
 		return nil
 	})
 	if err != nil {
@@ -245,14 +266,19 @@ func (s *ExpertService) Create(ctx context.Context, in CreateInput) (CreateResul
 
 // ExpertFilter carries the expert.list filters.
 type ExpertFilter struct {
-	Division  string
-	Source    string
-	State     string
-	ProjectID string
+	CreationOrigin string
+	SubjectID      string
+	Division       string
+	Source         string
+	State          string
+	ProjectID      string
 }
 
 // ExpertListItem is one expert.list projection row.
 type ExpertListItem struct {
+	CreationOrigin    string `json:"creationOrigin"`
+	SubjectID         string `json:"-"`
+	IsOwn             bool   `json:"isOwn"`
 	ExpertID          string `json:"expertId"`
 	Name              string `json:"name"`
 	Division          string `json:"division"`
@@ -281,6 +307,14 @@ func (s *ExpertService) List(ctx context.Context, filter ExpertFilter) (ExpertLi
 	if filter.Division != "" && !m8core.ValidDivision(filter.Division) {
 		return ExpertListResult{}, ErrPayloadInvalid
 	}
+	switch filter.CreationOrigin {
+	case "", m8core.ExpertOriginManual, m8core.ExpertOriginBuiltin, m8core.ExpertOriginCatalog, m8core.ExpertOriginLegacy:
+	default:
+		return ExpertListResult{}, ErrPayloadInvalid
+	}
+	if filter.CreationOrigin == m8core.ExpertOriginManual {
+		filter.SubjectID = s.subject
+	}
 	if filter.Source != "" && filter.Source != m8core.ExpertSourcePack &&
 		filter.Source != m8core.ExpertSourceLocal && filter.Source != m8core.ExpertSourceBuiltin {
 		return ExpertListResult{}, ErrPayloadInvalid
@@ -296,6 +330,7 @@ func (s *ExpertService) List(ctx context.Context, filter ExpertFilter) (ExpertLi
 			return err
 		}
 		for i := range items {
+			items[i].IsOwn = items[i].SubjectID == s.subject
 			items[i].Kind = ExpertKindForExpert(items[i].Name, items[i].CatalogItemID)
 		}
 		out.Experts = items
@@ -357,6 +392,9 @@ func (s *ExpertService) Detail(ctx context.Context, in DetailInput) (DetailResul
 			return err
 		}
 		versionID := in.VersionID
+		if e.DeletedAt != "" || (e.CreationOrigin == m8core.ExpertOriginManual && e.SubjectID != s.subject) {
+			return ErrExpertNotFound
+		}
 		if versionID == "" {
 			versionID = e.CurrentVersionID
 		}
@@ -383,6 +421,7 @@ func (s *ExpertService) Detail(ctx context.Context, in DetailInput) (DetailResul
 			return err
 		}
 		out.Expert = map[string]any{
+			"creationOrigin": e.CreationOrigin, "isOwn": e.SubjectID == s.subject,
 			"expertId": e.ExpertID, "name": e.Name, "division": e.Division,
 			"source": e.Source, "state": e.State, "semver": cur.Semver,
 			"currentVersionId": e.CurrentVersionID,
@@ -731,6 +770,9 @@ func (s *ExpertService) Toggle(ctx context.Context, in ExpertToggleInput) (Exper
 		if err != nil {
 			return err
 		}
+		if e.DeletedAt != "" || (e.CreationOrigin == m8core.ExpertOriginManual && e.SubjectID != s.subject) {
+			return ErrExpertNotFound
+		}
 		if err := m8core.ExpertTransition(e.State, target); err != nil {
 			return ErrExpertStateInvalid
 		}
@@ -799,7 +841,10 @@ func (s *ExpertService) Archive(ctx context.Context, in ArchiveInput) (ArchiveRe
 		if err != nil {
 			return err
 		}
-		if e.Source == m8core.ExpertSourceBuiltin {
+		if e.DeletedAt != "" || (e.CreationOrigin == m8core.ExpertOriginManual && e.SubjectID != s.subject) {
+			return ErrExpertNotFound
+		}
+		if e.Source == m8core.ExpertSourceBuiltin || e.CreationOrigin == m8core.ExpertOriginBuiltin {
 			return ErrExpertBuiltinProtected
 		}
 		if err := m8core.ExpertTransition(e.State, m8core.ExpertArchived); err != nil {

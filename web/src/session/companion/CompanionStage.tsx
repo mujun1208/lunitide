@@ -77,7 +77,7 @@ import { useCompanionMachine, companionEventForDispatch, companionSurfaceState, 
 import { ToolTrajectory, type ToolTrajectoryItem } from '../ToolTrajectory'
 import { useZh } from '../../i18n/language'
 
-const RECOGNIZER_DEAF_MS = 2500
+const RECOGNIZER_DEAF_MS = 12000
 /** Room echo after she finishes a clip. Separate from ECHO_GUARD_MS (300–600). */
 const POST_SPEAK_ECHO_MS = 900
 
@@ -199,6 +199,8 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   const [voiceHeard, setVoiceHeard] = useState(false)
   /** When the microphone last carried speech, whatever the recognizer did. */
   const voiceEnergyAtRef = useRef(0)
+  const lastVoiceEnergyAtRef = useRef(0)
+  const recognizerRecoveryRef = useRef(false)
   const interimTextRef = useRef('')
   const [deafRecognizer, setDeafRecognizer] = useState(false)
   const deafRecoveriesRef = useRef(0)
@@ -227,6 +229,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   const [playerSounding, setPlayerSounding] = useState(false)
   const startListeningRef = useRef<(auto: boolean) => void>(() => {})
   const openingListenRef = useRef(false)
+  const listenGenerationRef = useRef(0)
   const captionHandleRef = useRef<CompanionSpeechHandle | undefined>(undefined)
   const handledReplyRef = useRef(chatStatus === 'done')
   const stateRef = useRef(machine.state)
@@ -752,7 +755,9 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       const reply = stripTaskDonePhrases(assistantText.trim())
       const leadInOnly = isCompanionLeadInOnly(assistantText.trim())
       const toolsRan = toolsRanThisTurnRef.current
-      if (toolsRan) setToolPhase('succeeded')
+      // A tool event marks transport completion, not the outcome of the whole task.
+      // The shared backend closeout supplies the verified result below this status.
+      if (toolsRan) setToolPhase('returned')
       const activityLine = activityStatus?.trim() || ''
       const activityResult = /中[….…]+$/.test(activityLine) ? '' : stripTaskDonePhrases(activityLine)
       const completionLine = (!leadInOnly ? reply : '') || activityResult
@@ -1494,10 +1499,17 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       staleReplyRef.current = assistantTextRef.current
       userInterruptedRef.current = true
       handledReplyRef.current = true
+      pendingSendRef.current = null
       cancelReply()
-      beginUserTurn(text)
+      if (stateRef.current === 'idle') applyEvent({ type: 'MIC_ACTIVATE' })
+      // Barge-in is an onset, not an endpoint. Keep capturing the rest of the
+      // sentence; only onFinal may send it to the conversation engine.
+      cancelCaptionFade()
+      setEngineHint('')
+      setInterimText(text)
+      setRounds([{ role: 'user', text }])
     },
-    [beginUserTurn, cancelReply],
+    [applyEvent, cancelReply],
   )
 
   // P3-4 automation→TTS linkage: a run that finishes while the stage
@@ -1571,11 +1583,14 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       return
     }
     openingListenRef.current = true
+    const listenGeneration = ++listenGenerationRef.current
+    const captureCurrent = () => listenGeneration === listenGenerationRef.current && !exitedRef.current && stageAliveRef.current
     setInterimText('')
     const speechOptions: CompanionSpeechOptions = {
       duplex: true,
       environment: settingsRef.current.speechEnvironment,
       onInterim: transcript => {
+        if (!captureCurrent()) return
         const next = cleanUserTranscript(transcript)
         if (!transcriptAcceptance(next)) {
           const lastAssistant = [...roundsRef.current].reverse().find(round => round.role === 'assistant')?.text ?? ''
@@ -1597,7 +1612,10 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         }
         cancelCaptionFade()
         setInterimText(next)
-        if (next) setDeafRecognizer(false)
+        if (next) {
+          setDeafRecognizer(false)
+          voiceEnergyAtRef.current = 0
+        }
         setVoiceHeard(true)
         setHeardThisVisit(true)
         setEngineHint('')
@@ -1606,10 +1624,12 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         }
       },
       onSpeechStart: () => {
+        if (!captureCurrent()) return
         setVoiceHeard(true)
         setHeardThisVisit(true)
       },
       onVoiceEnergy: () => {
+        if (!captureCurrent()) return
         // Hearing the user is the microphone's business, not the
         // recognizer's.
         //
@@ -1621,11 +1641,14 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         // questions and the user can only debug them if we answer them
         // separately.
         setVoiceHeard(true)
-        voiceEnergyAtRef.current = performance.now()
+        voiceEnergyAtRef.current = voiceEnergyAtRef.current || performance.now()
+        lastVoiceEnergyAtRef.current = performance.now()
       },
-      onEngineHint: message => setEngineHint(message),
+      onEngineHint: message => { if (captureCurrent()) setEngineHint(message) },
       onFinal: transcript => {
+        if (!captureCurrent()) return
         setDeafRecognizer(false)
+        voiceEnergyAtRef.current = 0
         setHeardThisVisit(true)
         listenOverrideRef.current = undefined
         volcDeafRestartsRef.current = 0
@@ -1634,9 +1657,10 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       bargeIn: () =>
         companionVoiceBargeInEnabled(settingsRef.current) &&
         (activeRecognizerRef.current === 'local' || activeRecognizerRef.current === 'volc'),
-      onBargeIn: acceptBargeIn,
+      onBargeIn: transcript => { if (captureCurrent()) acceptBargeIn(transcript) },
       spokenText: () => lastSpokenRef.current,
       onError: issue => {
+        if (!captureCurrent()) return
         speechHandleRef.current = undefined
         setRecognizerLive(false)
         // A local recognizer that dies mid-session under 'auto' is a fallback,
@@ -1666,10 +1690,11 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         if (stateRef.current === 'listening') applyEvent({ type: 'MIC_CANCEL' })
       },
       onLevels: next => {
+        if (!captureCurrent()) return
         setLevels(next)
       },
       onEndWithoutFinal: () => {
-        if (exitedRef.current) return
+        if (!captureCurrent()) return
         speechHandleRef.current?.resumeCapture()
         if (stateRef.current === 'idle') applyEvent({ type: 'MIC_ACTIVATE' })
       },
@@ -1679,16 +1704,15 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       // begin() is fire-and-forget: startCompanionSpeech / startLocal / openCloud
       // can resolve after exit() or unmount. Without this guard the mic + ASR
       // graph reopens with no owner (same leak class as the talk handle).
-      if (exitedRef.current || !stageAliveRef.current) {
+      if (!captureCurrent()) {
         void handle.stop()
-        openingListenRef.current = false
-        listenQueuedRef.current = false
         return
       }
       openingListenRef.current = false
       listenQueuedRef.current = false
       if (stateRef.current === 'idle') applyEvent({ type: 'MIC_ACTIVATE' })
       speechHandleRef.current = handle
+      speechSyncRef.current = undefined
       setRecognizerLive(true)
       syncSpeechModes()
       handle.resumeCapture()
@@ -1698,6 +1722,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     }
 
     const abandon = (issue: BridgeClientError) => {
+      if (!captureCurrent()) return
       openingListenRef.current = false
       setRecognizerLive(false)
       if (listenQueuedRef.current && !exitedRef.current) {
@@ -1722,11 +1747,13 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       listenOverrideRef.current = undefined
       const listenKind = override ?? companionListenKind(settingsRef.current.voicePath, settingsRef.current.recognizer)
       const openCloud = () => {
+        if (!captureCurrent()) return Promise.resolve()
         activeRecognizerRef.current = 'cloud'
         setAsrRoute('cloud')
         return startCompanionSpeech(speechOptions).then(adoptHandle)
       }
       const openLocal = async () => {
+        if (!captureCurrent()) return
         activeRecognizerRef.current = 'local'
         setAsrRoute('local')
         const opening = Promise.resolve(startLocalCompanionSpeech(speechOptions))
@@ -1738,17 +1765,14 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         }
       }
       const fallbackVolcToWorkingListen = async () => {
-        if (exitedRef.current) {
-          openingListenRef.current = false
-          return
-        }
+        if (!captureCurrent()) return
         setEngineHint('火山听写连不上。已选火山卡，不会改用本机或系统识别。请检查语音模型密钥。VOICE-004')
         openingListenRef.current = false
         if (stateRef.current === 'listening') applyEvent({ type: 'MIC_CANCEL' })
       }
 
       const talkGeneration = ++talkGenerationRef.current
-      const talkAttemptCurrent = () => talkGeneration === talkGenerationRef.current && !exitedRef.current && stageAliveRef.current
+      const talkAttemptCurrent = () => talkGeneration === talkGenerationRef.current && captureCurrent()
       let talkEnded = false
       const talkCurrent = () => talkAttemptCurrent() && !talkEnded
       const adoptTalk = (handle: CompanionTalkHandle) => {
@@ -1900,10 +1924,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
               window.setTimeout(() => resolve(undefined), VOLC_ASR_DECISION_MS)
             }),
           ])
-          if (exitedRef.current) {
-            openingListenRef.current = false
-            return
-          }
+          if (!captureCurrent()) return
           const picked = listed ? pickDefaultVoice(listed.items) : undefined
           if (!picked) {
             await fallbackVolcToWorkingListen()
@@ -1912,9 +1933,8 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
           const opening = Promise.resolve(startVolcCompanionSpeech(speechOptions, picked.provider.id))
           try {
             const handle = await withDeadline(opening, VOLC_ASR_DECISION_MS)
-            if (exitedRef.current || !openingListenRef.current) {
+            if (!captureCurrent()) {
               handle.stop()
-              openingListenRef.current = false
               return
             }
             adoptHandle(handle)
@@ -1923,10 +1943,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
             throw new Error('LISTEN_DEADLINE')
           }
         } catch {
-          if (exitedRef.current) {
-            openingListenRef.current = false
-            return
-          }
+          if (!captureCurrent()) return
           await fallbackVolcToWorkingListen()
         }
         return
@@ -1940,10 +1957,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
             await new Promise<void>(resolve => {
               window.setTimeout(resolve, 400)
             })
-            if (exitedRef.current) {
-              openingListenRef.current = false
-              return
-            }
+            if (!captureCurrent()) return
             await openLocal()
           } catch {
             abandon(issue as BridgeClientError)
@@ -1958,22 +1972,20 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         listenKind === 'auto'
           ? await readyWithin(localAsrProbeRef.current, LOCAL_ASR_DECISION_MS)
           : false
-      if (exitedRef.current) {
-        openingListenRef.current = false
-        return
-      }
+      if (!captureCurrent()) return
       const preferLocal = listenKind === 'auto' && installed
       try {
         if (preferLocal) await openLocal()
         else await openCloud()
       } catch (issue) {
+        if (!captureCurrent()) return
         if (preferLocal) {
           localAsrReadyRef.current = false
           void openCloud().catch(abandon)
           return
         }
         const localReady = await readyWithin(localAsrProbeRef.current, LOCAL_ASR_DECISION_MS)
-        if (localReady && !exitedRef.current) {
+        if (localReady && captureCurrent()) {
           setEngineHint('系统识别不可用，已改用本机识别')
           void openLocal().catch(abandon)
           return
@@ -2027,29 +2039,40 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
 
   // Audio arriving with no transcript behind it is a specific, nameable
   // failure, and one the user has no way to tell apart from a dead
-  // microphone unless it is said. Reported rather than repaired here: the
-  // repairs live in the speech layer, and this is what tells the user their
-  // voice is getting in while one of them runs.
+  // microphone unless it is said. Keep the heard-energy latch after the
+  // speaker stops: short utterances used to fall out of the 2.5s rolling
+  // window before recovery could run, leaving the next sentence ignored.
   useEffect(() => {
     if (machine.state !== 'listening') {
       setDeafRecognizer(false)
       return
     }
     const timer = window.setInterval(() => {
-      const heardRecently = performance.now() - voiceEnergyAtRef.current < RECOGNIZER_DEAF_MS
-      const deaf = heardRecently && !interimTextRef.current.trim()
+      const heardAt = voiceEnergyAtRef.current
+      const now = performance.now()
+      const deaf = heardAt > 0 && now - heardAt >= RECOGNIZER_DEAF_MS && !interimTextRef.current.trim()
       setDeafRecognizer(deaf)
       if (!deaf) {
         deafRecoveriesRef.current = 0
         return
       }
-      deafRecoveriesRef.current += 1
-      if (deafRecoveriesRef.current % 5 === 0) {
-        speechHandleRef.current?.pulseRecognition()
-        captionHandleRef.current?.pulseRecognition()
+      // Empty text does not mean empty audio. Never cancel recognition while
+      // the user is speaking, and let a final-only recognizer flush first.
+      if (now - lastVoiceEnergyAtRef.current < 2500 || recognizerRecoveryRef.current) return
+      const handle = speechHandleRef.current ?? captionHandleRef.current
+      if (handle?.flush && deafRecoveriesRef.current === 0) {
+        deafRecoveriesRef.current = 1
+        recognizerRecoveryRef.current = true
+        const generation = lastVoiceEnergyAtRef.current
+        void Promise.resolve().then(() => handle.flush?.()).catch(() => {}).finally(() => {
+          recognizerRecoveryRef.current = false
+          if (lastVoiceEnergyAtRef.current !== generation || interimTextRef.current.trim()) deafRecoveriesRef.current = 0
+        })
+        return
       }
-      if (deafRecoveriesRef.current < 10) return
       deafRecoveriesRef.current = 0
+      voiceEnergyAtRef.current = 0
+      setVoiceHeard(false)
       const preferred = companionListenKind(settingsRef.current.voicePath, settingsRef.current.recognizer)
       const next = companionListenFailover(
         activeRecognizerRef.current,
@@ -2072,13 +2095,15 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       openingListenRef.current = false
       setRecognizerLive(false)
       startListeningRef.current(true)
-    }, 500)
+      setEngineHint('听到你的声音了，但识别还没有出字。已重新连接，请再说一遍。')
+    }, 250)
     return () => window.clearInterval(timer)
   }, [machine.state])
 
   useEffect(() => {
     if (machine.state !== 'listening') {
       setVoiceHeard(false)
+      voiceEnergyAtRef.current = 0
       return
     }
     syncSpeechModes()
@@ -2120,16 +2145,6 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     }, FORCE_COMMIT_MS)
     return () => window.clearTimeout(timer)
   }, [machine.state, interimText, beginUserTurn])
-
-  useEffect(() => {
-    if (machine.state !== 'listening' || interimText.trim()) return
-    const timer = window.setTimeout(() => {
-      if (stateRef.current !== 'listening' || exitedRef.current || interimText.trim()) return
-      speechHandleRef.current?.pulseRecognition()
-      captionHandleRef.current?.pulseRecognition()
-    }, heardThisVisit ? 8000 : 2000)
-    return () => window.clearTimeout(timer)
-  }, [machine.state, interimText, heardThisVisit])
 
   useEffect(() => {
     if (machine.state === 'thinking') {
@@ -2257,11 +2272,23 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   }, [applyEvent, armListenLoop, clipSpokenCaption, onCancel, startListening, syncSpeechModes])
 
   const pauseListening = useCallback(() => {
+    listenGenerationRef.current++
+    openingListenRef.current = false
+    listenQueuedRef.current = false
+    talkGenerationRef.current++
+    void talkHandleRef.current?.stop()
+    talkHandleRef.current = undefined
+    talkPendingRef.current = false
+    talkLiveRef.current = false
+    setTalkLive(false)
     speechHandleRef.current?.stop()
     speechHandleRef.current = undefined
     captionHandleRef.current?.stop()
     captionHandleRef.current = undefined
     setRecognizerLive(false)
+    speechSyncRef.current = undefined
+    pendingSendRef.current = null
+    setInterimText('')
     setListenLoop(false)
     silentRestartsRef.current = 0
     applyEvent({ type: 'MIC_CANCEL' })
@@ -2282,6 +2309,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
 
   const exit = useCallback(() => {
     exitedRef.current = true
+    listenGenerationRef.current++
     pendingSendRef.current = null
     sentThisUtteranceRef.current = ''
     setListenLoop(false)
@@ -2699,10 +2727,11 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
           aria-label={
             machine.state === 'thinking' || machine.state === 'speaking'
               ? (zh ? '停止这一轮' : 'Stop this turn')
-              : (zh ? '暂停聆听' : 'Pause listening')
+              : machine.state === 'idle' ? (zh ? '继续聆听' : 'Resume listening') : (zh ? '暂停聆听' : 'Pause listening')
           }
-          disabled={machine.state === 'idle'}
+          disabled={!entryReady && machine.state === 'idle'}
           onClick={() => {
+            if (machine.state === 'idle') { startListening(false); return }
             if (machine.state === 'thinking' || machine.state === 'speaking') {
               interruptAssistant()
               return
@@ -2710,7 +2739,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
             pauseListening()
           }}
         >
-          {machine.state === 'thinking' || machine.state === 'speaking' ? (zh ? '停止' : 'Stop') : (zh ? '暂停' : 'Pause')}
+          {machine.state === 'thinking' || machine.state === 'speaking' ? (zh ? '停止' : 'Stop') : machine.state === 'idle' ? (zh ? '继续' : 'Resume') : (zh ? '暂停' : 'Pause')}
         </button>
         <CompanionSkinSwitch compact zh={zh} value={visualSkin} onChange={applyVisualSkin} />
         <CompanionEntryLights lights={entryLights} thinkReady={chatReady && !entryBlock.includes('对话模型')} />

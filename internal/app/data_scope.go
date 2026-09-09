@@ -82,6 +82,16 @@ func (e *Engine) authorizeDataRequest(ctx context.Context, method string, payloa
 	add("capsuleId", "capsule")
 	add("planId", "plan")
 	add("messageId", "message")
+	if method == "chat.start" || strings.HasPrefix(method, "run.queue") {
+		add("officeTaskId", "office-task")
+	}
+	if strings.HasPrefix(method, "office.") {
+		add("taskId", "office-task")
+		add("versionId", "office-version")
+		add("baseVersionId", "office-version")
+		add("targetVersionId", "office-version")
+		add("attachmentId", "attachment")
+	}
 	for _, container := range []string{"manifest", "target"} {
 		var nested struct {
 			ProjectID string `json:"projectId"`
@@ -164,7 +174,9 @@ func (e *Engine) authorizeDataRequest(ctx context.Context, method string, payloa
 			add("crId", "release-cr")
 		}
 	}
-	if !strings.HasPrefix(method, "plan.") {
+	// Scheduler run ids belong to the durable automation journal, not the
+	// agent_runs table. Automation handlers authorize their owning job/session.
+	if !strings.HasPrefix(method, "plan.") && !strings.HasPrefix(method, "automation.") {
 		add("runId", "agent-run")
 		add("rootRunId", "agent-run")
 		add("parentRunId", "agent-run")

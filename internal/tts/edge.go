@@ -224,30 +224,73 @@ func edgeSSML(in SynthesizeInput) string {
 		style = "chat"
 	}
 	expr := edgeExpressionFor(voice, style, in.Text)
-	inner := `<prosody rate="` + signedPercent(ratePct) + `" pitch="` + expr.pitch + `" volume="` + strconv.Itoa(vol) + `">` +
+	styleRate, stylePitch := edgeReadAloudProsody(expr.style)
+	ratePct += styleRate
+	if ratePct < -50 {
+		ratePct = -50
+	}
+	if ratePct > 100 {
+		ratePct = 100
+	}
+	// Sentence mood remains more specific than the selected persona.
+	if expr.pitch != "+6%" {
+		stylePitch = expr.pitch
+	}
+	inner := `<prosody rate="` + signedPercent(ratePct) + `" pitch="` + stylePitch + `" volume="` + strconv.Itoa(vol) + `">` +
 		text.String() +
 		`</prosody>`
-	if expr.style != "" {
-		inner = `<mstts:express-as style="` + xmlEscapeAttr(expr.style) + `" styledegree="` + expr.degree + `">` + inner + `</mstts:express-as>`
-	}
-	ns := `xmlns="http://www.w3.org/2001/10/synthesis"`
-	if expr.style != "" {
-		ns += ` xmlns:mstts="https://www.w3.org/2001/mstts"`
-	}
-	return `<speak version="1.0" ` + ns + ` xml:lang="` + lang + `">` +
-		`<voice name="` + voice + `">` +
+	return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="` + lang + `">` +
+		`<voice name="` + xmlEscapeAttr(voice) + `">` +
 		inner +
 		`</voice></speak>`
 }
 
-// edgeExpression is how one utterance is delivered: the persona style, how
-// strongly it is applied, and the pitch. Reading a whole call with one
-// fixed setting is what makes cloud TTS sound like a reader rather than
+// The consumer Read Aloud endpoint rejects Azure's mstts:express-as element
+// even for voices that advertise those styles. Keep the presets distinct with
+// the portable prosody controls that the endpoint accepts.
+func edgeReadAloudProsody(style string) (rateDelta int, pitch string) {
+	switch style {
+	case "cheerful":
+		return 8, "+8%"
+	case "affectionate":
+		return 2, "+4%"
+	case "gentle":
+		return -4, "-4%"
+	case "lyrical":
+		return 3, "+2%"
+	case "calm":
+		return -6, "-5%"
+	case "empathetic":
+		return -2, "+1%"
+	case "sad":
+		return -8, "-6%"
+	case "serious":
+		return -3, "-2%"
+	case "newscast":
+		return 4, "+0%"
+	case "customerservice":
+		return 1, "+2%"
+	case "assistant":
+		return 0, "+3%"
+	case "poetry-reading":
+		return -5, "+2%"
+	case "sports-commentary":
+		return 10, "+8%"
+	case "narration-relaxed":
+		return -4, "-2%"
+	case "narration-professional":
+		return 2, "-2%"
+	default:
+		return 0, "+0%"
+	}
+}
+
+// edgeExpression is how one utterance is delivered. Reading a whole call with
+// one fixed setting is what makes cloud TTS sound like a reader rather than
 // someone talking, so each clip is tuned to its own sentence.
 type edgeExpression struct {
-	style  string
-	degree string
-	pitch  string
+	style string
+	pitch string
 }
 
 var (
@@ -256,20 +299,20 @@ var (
 )
 
 func edgeExpressionFor(voice, style, text string) edgeExpression {
-	expr := edgeExpression{style: style, degree: "1.5", pitch: "+6%"}
+	expr := edgeExpression{style: style, pitch: "+6%"}
 	switch {
 	case edgeTextHasAny(text, edgeCheerfulHints) || strings.Contains(text, "！"):
-		expr.degree, expr.pitch = "1.8", "+10%"
+		expr.pitch = "+10%"
 		if edgeStyleIsNeutral(style) && edgeVoiceSupportsStyle(voice, "cheerful") {
 			expr.style = "cheerful"
 		}
 	case edgeTextHasAny(text, edgeGentleHints):
-		expr.degree, expr.pitch = "1.2", "+2%"
+		expr.pitch = "+2%"
 		if edgeStyleIsNeutral(style) && edgeVoiceSupportsStyle(voice, "gentle") {
 			expr.style = "gentle"
 		}
 	case strings.ContainsAny(text, "？?"):
-		expr.degree, expr.pitch = "1.6", "+9%"
+		expr.pitch = "+9%"
 	}
 	return expr
 }

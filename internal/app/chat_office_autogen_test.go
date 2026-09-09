@@ -179,6 +179,50 @@ func TestOfficeWorkflowDoesNotReuseHistoricalExpert(t *testing.T) {
 	}
 }
 
+func TestRequestedOfficeFormatOverridesMountedExpertWorkflow(t *testing.T) {
+	req := llmadapter.Request{Messages: []llmadapter.Message{{Role: llmadapter.RoleSystem, Content: "[稳定身份] 你就是「PPT专家」。"}}}
+	for _, goal := range []string{"生成 Word 文档 news.docx，不联网。", "生成 Excel 表格", "生成 HTML 页面"} {
+		if pptTaskFromRequest(req, goal) {
+			t.Fatalf("PPT identity overrode requested output: %s", goal)
+		}
+	}
+	for _, expert := range []string{"报告编写专家", "小说编写专家"} {
+		req.Messages[0].Content = "[稳定身份] 你就是「" + expert + "」。"
+		for _, goal := range []string{"生成 PPT", "生成 Excel 表格", "生成 HTML 页面"} {
+			if docxKindFromRequest(req, goal) != "" {
+				t.Fatalf("%s overrode requested output: %s", expert, goal)
+			}
+		}
+	}
+}
+
+func TestOfficeResearchCountsRepeatedToolExecutions(t *testing.T) {
+	turn := &chatTurnCheckpoint{PptActive: true, DocxActive: true, DocxKind: docxKindReport}
+	for i := 0; i < 2; i++ {
+		notePptTools(turn, []string{"web.search"})
+		noteDocxTools(turn, []string{"web.search"})
+		if pptWebPasses(turn) != i+1 || docxWebPasses(turn) != i+1 {
+			t.Fatal("separate successful searches were merged by tool name")
+		}
+	}
+	if !pptPipelineReady(turn) || !docxPipelineReady(turn) {
+		t.Fatal("two successful research passes must unlock generation")
+	}
+}
+
+func TestOfficeReferenceReadDoesNotRestoreResearchGate(t *testing.T) {
+	for _, goal := range []string{"生成 Word 新闻报告，不联网。", "将已有新闻整理成PPT。"} {
+		turn := &chatTurnCheckpoint{Goal: goal, PptActive: true, DocxActive: true, DocxKind: docxKindReport}
+		for _, name := range []string{"workspace.list", "workspace.read", "workspace.read"} {
+			notePptTools(turn, []string{name})
+			noteDocxTools(turn, []string{name})
+			if !pptPipelineReady(turn) || !docxPipelineReady(turn) {
+				t.Fatalf("%s restored research gate for %s", name, goal)
+			}
+		}
+	}
+}
+
 func TestOfficeFallbackApprovalIsActionableAndHasArtifact(t *testing.T) {
 	e := newArtifactEngine(t)
 	turn := chatTurnCheckpoint{Goal: "做一份介绍PPT", PptActive: true, PptStage: pptStageGenerate, StreamID: "test"}

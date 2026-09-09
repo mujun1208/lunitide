@@ -126,7 +126,7 @@ func renameShippedMROExpert(ctx context.Context, svc *ExpertService) error {
 		if row.Name == want {
 			taken = true
 		}
-		if row.CatalogItemID == "mro-expert" || row.Name == shippedMROExpertOldName {
+		if row.CreationOrigin != m8core.ExpertOriginManual && (row.CatalogItemID == "mro-expert" || row.Name == shippedMROExpertOldName) {
 			targetID = row.ExpertID
 		}
 	}
@@ -158,8 +158,8 @@ func sixSectionMap(s m8core.SixSection) map[string]string {
 }
 
 // refreshConversationExpertBodies writes the current catalog six-section onto
-// the 14 factory specialists when their stored digest drifted. Same-name
-// user cards are treated as factory roster rows.
+// factory specialists when their stored digest drifted. Explicit manual
+// creations retain their own body and equipment even when names match.
 func refreshConversationExpertBodies(ctx context.Context, svc *ExpertService) error {
 	if svc == nil {
 		return nil
@@ -170,6 +170,9 @@ func refreshConversationExpertBodies(ctx context.Context, svc *ExpertService) er
 	}
 	byName := map[string]string{}
 	for _, row := range listed.Experts {
+		if row.CreationOrigin == m8core.ExpertOriginManual {
+			continue
+		}
 		byName[row.Name] = row.ExpertID
 	}
 	for _, item := range ConversationExperts() {
@@ -223,6 +226,9 @@ func seedConversationSkillBindings(ctx context.Context, svc *ExpertService) erro
 	}
 	byName := map[string]string{}
 	for _, row := range listed.Experts {
+		if row.CreationOrigin == m8core.ExpertOriginManual {
+			continue
+		}
 		byName[row.Name] = row.ExpertID
 	}
 	for _, item := range ConversationExperts() {
@@ -249,7 +255,8 @@ func seedMissingExpert(ctx context.Context, svc *ExpertService, existing map[str
 		desc = string([]rune(desc)[:2000])
 	}
 	if _, err := svc.Create(ctx, CreateInput{
-		Source: m8core.ExpertSourceLocal,
+		CreationOrigin: m8core.ExpertOriginBuiltin,
+		Source:         m8core.ExpertSourceLocal,
 		Frontmatter: m8core.Frontmatter{
 			Name: name, Division: division,
 			Description: desc, Semver: semver,
@@ -277,6 +284,9 @@ func backfillConversationCatalogIDs(ctx context.Context, svc *ExpertService) err
 	}
 	return svc.uow.TransactExpert(ctx, func(tx ExpertTx) error {
 		for _, row := range listed.Experts {
+			if row.CreationOrigin == m8core.ExpertOriginManual {
+				continue
+			}
 			if strings.TrimSpace(row.CatalogItemID) != "" {
 				continue
 			}

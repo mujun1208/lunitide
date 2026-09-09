@@ -105,7 +105,14 @@ func (s *Service) PollLoopback(ctx context.Context, meetingID string) (pcm []byt
 		return s.retryLoopback(ctx, meetingID)
 	default:
 	}
-	return sess.takePoll(), true, nil
+	return sess.takePoll(), sess.active(), nil
+}
+
+func (sess *loopbackSession) active() bool {
+	if source, ok := sess.src.(interface{ Active() bool }); ok {
+		return source.Active()
+	}
+	return true
 }
 
 func (s *Service) retryLoopback(ctx context.Context, meetingID string) ([]byte, bool, error) {
@@ -132,7 +139,7 @@ func (s *Service) retryLoopback(ctx context.Context, meetingID string) ([]byte, 
 		select {
 		case <-current.done:
 		default:
-			return current.takePoll(), true, nil
+			return current.takePoll(), current.active(), nil
 		}
 	}
 	if time.Now().Before(s.loopbackRetryAt) {
@@ -151,7 +158,7 @@ func (s *Service) retryLoopback(ctx context.Context, meetingID string) ([]byte, 
 	s.audioMu.Lock()
 	next := s.loopback
 	s.audioMu.Unlock()
-	return next.takePoll(), true, nil
+	return next.takePoll(), next.active(), nil
 }
 
 func (s *Service) takeMixPCM(meetingID string, want int) []byte {

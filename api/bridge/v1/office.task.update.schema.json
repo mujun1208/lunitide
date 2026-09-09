@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/office.task.update.schema.json",
+  "title": "office.task.update payload",
+  "x-method": "office.task.update",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "taskId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "expectedRevision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240
+    },
+    "goal": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 8192
+    }
+  },
+  "required": [
+    "taskId",
+    "expectedRevision",
+    "title",
+    "goal"
+  ],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/OfficeTaskDetailDTO"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "taskId": "01ARZ3NDEKTSV4RRFFQ69G5FAE",
+        "expectedRevision": 1,
+        "title": "季度汇报",
+        "goal": ""
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

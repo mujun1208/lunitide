@@ -29,6 +29,11 @@ export function engineLoopbackPlan(): MeetingCapturePlan {
   return { extraStreams: [], audioSource: 'microphone_and_system', notice: '', engineOwned: true }
 }
 
+export function meetingLiveListen(listen: MeetingListen, plan: MeetingCapturePlan): MeetingListen {
+  // Web Speech cannot accept the recorder's PCM; acoustic mic pickup is not system capture.
+  return listen === 'cloud' && plan.audioSource === 'microphone_and_system' ? 'local' : listen
+}
+
 export function mixMeetingPcmS16le(mic: Int16Array, loop: Int16Array): Int16Array {
   const n = Math.max(mic.length, loop.length)
   const out = new Int16Array(n)
@@ -179,7 +184,7 @@ export type MeetingSpeechOptions = CompanionSpeechOptions & {
 }
 
 /** Stop-time catch-up always decodes the WAV with this-PC sherpa. Live listen can be 系统/火山/本机. */
-export const MEETING_CATCHUP_HINT = '补转写只用本机识别。选了系统或火山时，系统声会在停止后补，本机识别未就绪则没有；缺口仍走 sherpa，本机未就绪则保留实时字幕。'
+export const MEETING_CATCHUP_HINT = '补转写只用本机识别。实时转写和录音分别保存；本机识别未就绪时，保留录音和已有字幕，不保证补齐逐字稿。'
 export const MEETING_VOLC_END_WINDOW_MS = 400
 
 function resolveMeetingListen(listen: MeetingSpeechOptions['listen']): MeetingListen {
@@ -193,7 +198,7 @@ export async function startMeetingSpeech(options: MeetingSpeechOptions): Promise
   const probe = listen === 'local' ? await localAsrStatus() : undefined
   const localReady = probe?.supported === true && probe.ready === true
   if (listen === 'local' && !localReady) {
-    throw new Error('会议听写选了本机，但 sherpa 未就绪。请改选系统或火山，或先装本机识别。')
+    throw new Error('本机 sherpa 未就绪。系统声音转写需要本机识别或火山 seed-asr，请在听写设置中配置；录音仍会保留。')
   }
   if (listen === 'volc' && !options.volcProviderId) {
     throw new Error('会议听写选了火山，但没有可用的语音模型。请在供应商里配置 seed-asr。')
@@ -275,6 +280,7 @@ export async function recoverMeetingSystemAudio(
   current: MeetingCapturePlan | undefined,
   options: CaptureThisPcSystemAudioOptions = {},
 ): Promise<MeetingCapturePlan> {
+  if (current?.engineOwned) return current
   if (planHasLiveSystemAudio(current)) return current ?? { extraStreams: [], audioSource: 'microphone', notice: '' }
   const next = await prepareMeetingCapture(options)
   if (planHasLiveSystemAudio(next) && current) {

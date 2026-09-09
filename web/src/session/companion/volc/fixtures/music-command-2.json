@@ -1,0 +1,145 @@
+{
+  "events": [
+    {
+      "Text": "帮",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐随机播放",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机播放一首",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机播放一首歌曲",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机播放一首歌曲。",
+      "Final": true,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机播放一首歌曲。你",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机播放一首歌曲。你能",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机播放一首歌曲。你能听到",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机播放一首歌曲。你能听到我",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机播放一首歌曲。你能听到我说话吗",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机播放一首歌曲。你能听到我说话吗",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机播放一首歌曲。你能听到我说话吗？",
+      "Final": true,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机播放一首歌曲。你能听到我说话吗？请继续",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机播放一首歌曲。你能听到我说话吗？请继续在",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机播放一首歌曲。你能听到我说话吗？请继续在汽",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机播放一首歌曲。你能听到我说话吗？请继续在汽水音乐",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机播放一首歌曲。你能听到我说话吗？请继续在汽水音乐播放",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机播放一首歌曲。你能听到我说话吗？请继续在汽水音乐播放下一",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机播放一首歌曲。你能听到我说话吗？请继续在汽水音乐播放下一首歌",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机播放一首歌曲。你能听到我说话吗？请继续在汽水音乐播放下一首歌",
+      "Final": false,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机播放一首歌曲。你能听到我说话吗？请继续在汽水音乐播放下一首歌。",
+      "Final": true,
+      "Utterances": null
+    },
+    {
+      "Text": "帮我打开汽水音乐，随机播放一首歌曲。你能听到我说话吗？请继续在汽水音乐播放下一首歌。",
+      "Final": true,
+      "Utterances": null
+    }
+  ],
+  "final": "帮我打开汽水音乐，随机播放一首歌曲。你能听到我说话吗？请继续在汽水音乐播放下一首歌。",
+  "requests": [
+    "帮我打开汽水音乐，随机播放一首歌曲。",
+    "你能听到我说话吗？",
+    "请继续在汽水音乐播放下一首歌。"
+  ]
+}

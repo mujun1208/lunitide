@@ -142,7 +142,8 @@ func installCatalogExpert(ctx context.Context, experts *ExpertService, item Cata
 		version = "1.0.0"
 	}
 	res, err := experts.Create(ctx, CreateInput{
-		Source: m8core.ExpertSourceLocal,
+		CreationOrigin: m8core.ExpertOriginCatalog,
+		Source:         m8core.ExpertSourceLocal,
 		Frontmatter: m8core.Frontmatter{
 			Name: item.Name, Division: item.Division,
 			Description: desc, Semver: version,

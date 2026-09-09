@@ -121,7 +121,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	var generationBudget turnGenerationBudget
 	var turnArtifacts []SessionArtifact
 	turn := chatTurnCheckpoint{Status: turnStatusRunning, StreamID: id, Goal: lastUserChatText(req.Messages)}
+	computerTurn := computerExecutionTurn(turn.Goal)
 	checkpointErr := e.reconcileTurnCheckpointOnStart(sessionID, &turn)
+	turn.CapabilityWork = capabilityWorkRequest(req) || capabilityWorkTask(turn.Goal) || skillTrialsActive(ctx, sessionID)
 	mode := executionModeApproval
 	if len(modes) > 0 {
 		mode = modes[0]
@@ -272,12 +274,17 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			}
 			e.applyExpertCouncil(op, turnBudgetAdapter{Adapter: a, budget: &generationBudget}, credential, req.Model, state.council, &req, state.companion, send)
 			state.council = nil
-			startPptWorkflow(&req, &turn, send)
-			startDocxWorkflow(&req, &turn, send)
+			if officeTaskContextID(op) == "" && !turn.CapabilityWork {
+				startPptWorkflow(&req, &turn, send)
+				startDocxWorkflow(&req, &turn, send)
+			} else {
+				turn.PptActive, turn.DocxActive = false, false
+			}
 			logInjectedGuidance(sessionID, state.companion, req)
 			emitInjectedGuidance(send, req)
 			seen := map[string]bool{}
 			completedDigests := map[string]string{}
+			failedDesktopAttempts := map[string]int{}
 			var result llmadapter.Response
 			var streamErr error
 			toolsFallbackUsed := false
@@ -289,6 +296,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			usedDesktopTools := false
 			autoMediaPlayDone := false
 			autoDesktopTypeDone := false
+			autoLookupDone := false
+			autoMediaGenerationDone := false
+			autoDesktopOpenDone := false
+			autoDesktopObserveDone := false
 			nudges := 0
 			skillDraftOffered := false
 			leadInInjected := false
@@ -312,6 +323,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				stepTextStart := assistantText.Len()
 				stepThinkingStart := thinkingText.Len()
+				mediaTurn := playbackOnlyGoal(turn.Goal)
+				bufferReply := computerTurn || mediaTurn || (state.companion && len(req.Tools) > 0 && !companionLookupCanStream(turn.Goal, req.Messages))
+				var stepReply strings.Builder
 				result, streamErr = generationBudget.stream(op, a, credential, req, func(d llmadapter.Delta) error {
 					if err := e.CheckCapability(op, "llm", "session"); err != nil {
 						return err
@@ -333,6 +347,12 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						// spoken aloud and never shown as thinking in the UI.
 					}
 					if d.Text != "" {
+						// Playback acknowledgements must follow tool evidence, never
+						// a model's speculative success text streamed before the action.
+						if bufferReply {
+							stepReply.WriteString(d.Text)
+							return nil
+						}
 						assistantText.WriteString(d.Text)
 						if err := e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt); err != nil {
 							return err
@@ -343,12 +363,15 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 					return nil
 				})
+				if bufferReply && stepReply.Len() > 0 {
+					result.Message.Content = stepReply.String()
+				}
 				if len(result.Message.ToolCalls) > 0 {
 					if err := e.CheckCapability(op, "agent-loop"); err != nil {
 						return err
 					}
 				}
-				if streamErr == nil && state.companion && req.DisableReasoning && assistantText.Len() == 0 && len(result.Message.ToolCalls) == 0 {
+				if !bufferReply && streamErr == nil && state.companion && req.DisableReasoning && assistantText.Len() == 0 && len(result.Message.ToolCalls) == 0 {
 					if fallback := companionSpeakFallback(result); fallback != "" {
 						assistantText.WriteString(fallback)
 						if err := sendDeltaChunks(send, fallback); err != nil {
@@ -358,12 +381,16 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				var gatewayErr *llmadapter.Error
 				if streamErr != nil && !imagesFallbackUsed && assistantText.Len() == stepTextStart && thinkingText.Len() == stepThinkingStart && len(req.Images) > 0 && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 && imageUnsupportedReason(gatewayErr.Message) {
+					if text, ok := e.maybeDescribeImages(op, provider.Model{ModelID: req.Model}, req.Images, chatRoutingText(lastUserContent(req.Messages))); ok {
+						req.Messages = injectVisionDescription(req.Messages, text)
+					} else {
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: "当前模型拒绝图片，配置的 OCR/视觉模型也未能完成识别。画面未被读取，不得猜测图片或视频帧内容。请简洁说明识别失败。"})
+					}
 					req.Images = nil
-					req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: "本轮图片已因当前模型不支持图像而移除，画面未被读取。后续只能根据已经取得的文字或音轨识别回答；不得声称看过图片、视频抽样帧或猜测其中的视觉内容。"})
 					imagesFallbackUsed = true
 					continue
 				}
-				if streamErr != nil && !toolsFallbackUsed && assistantText.Len() == 0 && thinkingText.Len() == 0 && len(req.Tools) > 0 && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 {
+				if streamErr != nil && !toolsFallbackUsed && !unattended(op) && !skillTrialsActive(op, sessionID) && assistantText.Len() == 0 && thinkingText.Len() == 0 && len(req.Tools) > 0 && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 && gatewayErr.Stage != llmadapter.StageStream {
 					// Some compatible text models reject function definitions. Retry once
 					// as plain chat while preserving messages and attachment context. The
 					// degradation is surfaced explicitly instead of silently dropping
@@ -397,6 +424,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					continue
 				}
 				if streamErr != nil {
+					log.Printf("chat stream %s model_call=%d failed: %s received_text_bytes=%d received_thinking_bytes=%d", id, step+1, chatModelFailureDiagnostic(streamErr), assistantText.Len()-stepTextStart+stepReply.Len(), thinkingText.Len()-stepThinkingStart)
+					if bufferReply && stepReply.Len() > 0 {
+						assistantText.WriteString(stepReply.String())
+						_ = sendDeltaChunks(send, stepReply.String())
+					}
 					break
 				}
 				if state.companion {
@@ -416,12 +448,41 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						return nil
 					}
 				}
-				if state.companion && len(result.Message.ToolCalls) == 0 {
-					if companionNeedsSpokenInput(assistantText.String()[stepTextStart:]) {
+				if len(result.Message.ToolCalls) == 0 {
+					if state.companion && companionNeedsSpokenInput(result.Message.Content) {
 						waitingForSpokenInput = true
+						if bufferReply {
+							assistantText.WriteString(result.Message.Content)
+							return sendDeltaChunks(send, result.Message.Content)
+						}
 						return nil
 					}
-					if !autoMediaPlayDone && companionTurnWantsMusicPlay(turn.Goal) {
+					if !autoLookupDone && toolDefinitionsHave(req.Tools, "web.search") && !turnAttemptedAction(req.Messages, "lookup") && looksLikeCurrentLookupTurn(turn.Goal) {
+						if searchArgs := fallbackWebSearchArgs(turn.Goal); len(searchArgs) > 0 {
+							result.Message.ToolCalls = []llmadapter.ToolCall{{
+								ID:        "auto-" + ulid.Make().String(),
+								Name:      "web.search",
+								Arguments: searchArgs,
+							}}
+							autoLookupDone = true
+						}
+					}
+					if len(result.Message.ToolCalls) == 0 && !autoMediaGenerationDone {
+						if name := mediaGenerationKind(turn.Goal); name != "" {
+							if toolDefinitionsHave(req.Tools, name) && !usedAnyTool(turn.LastTools, name) {
+								mediaArgs := fallbackMediaGenerationArgs(turn.Goal)
+								if len(mediaArgs) > 0 {
+									result.Message.ToolCalls = []llmadapter.ToolCall{{
+										ID:        "auto-" + ulid.Make().String(),
+										Name:      name,
+										Arguments: mediaArgs,
+									}}
+									autoMediaGenerationDone = true
+								}
+							}
+						}
+					}
+					if len(result.Message.ToolCalls) == 0 && !autoMediaPlayDone && toolDefinitionsHave(req.Tools, "media.play") && !usedAnyTool(turn.LastTools, "media.play") && companionTurnWantsMusicPlay(turn.Goal) {
 						if playArgs, ok := e.companionAutoMediaPlayArgs(sessionID, turn.Goal); ok {
 							result.Message.ToolCalls = []llmadapter.ToolCall{{
 								ID:        "auto-" + ulid.Make().String(),
@@ -431,7 +492,17 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							autoMediaPlayDone = true
 						}
 					}
-					if !autoDesktopTypeDone && looksLikeTypeAfterLabelTurn(turn.Goal) {
+					if len(result.Message.ToolCalls) == 0 && !autoDesktopOpenDone && toolDefinitionsHave(req.Tools, "desktop.open") && !turnAttemptedAction(req.Messages, "open") {
+						if openArgs := fallbackDesktopOpenArgs(turn.Goal); len(openArgs) > 0 {
+							result.Message.ToolCalls = []llmadapter.ToolCall{{
+								ID:        "auto-" + ulid.Make().String(),
+								Name:      "desktop.open",
+								Arguments: openArgs,
+							}}
+							autoDesktopOpenDone = true
+						}
+					}
+					if len(result.Message.ToolCalls) == 0 && !autoDesktopTypeDone && toolDefinitionsHave(req.Tools, "desktop.type") && !turnAttemptedAction(req.Messages, "type") && looksLikeTypeAfterLabelTurn(turn.Goal) {
 						if typeArgs, ok := e.companionAutoDesktopTypeArgs(sessionID, turn.Goal); ok {
 							result.Message.ToolCalls = []llmadapter.ToolCall{{
 								ID:        "auto-" + ulid.Make().String(),
@@ -441,15 +512,36 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							autoDesktopTypeDone = true
 						}
 					}
+					if len(result.Message.ToolCalls) == 0 && !autoDesktopObserveDone && toolDefinitionsHave(req.Tools, "computer.act") && !turnAttemptedAction(req.Messages, "observe") && looksLikeDesktopObserveTurn(turn.Goal) {
+						result.Message.ToolCalls = []llmadapter.ToolCall{{
+							ID:        "auto-" + ulid.Make().String(),
+							Name:      "computer.act",
+							Arguments: json.RawMessage(`{"action":"screenshot","target":"foreground"}`),
+						}}
+						autoDesktopObserveDone = true
+					}
+				}
+				if mediaTurn && len(result.Message.ToolCalls) == 0 {
+					text := mediaTurnResultSpeech(req.Messages)
+					result.Message.Content = text
 				}
 				stepText := ""
 				if assistantText.Len() > stepTextStart {
 					stepText = assistantText.String()[stepTextStart:]
 				}
+				if bufferReply {
+					stepText = result.Message.Content
+				}
 				noteDocxChars(&turn, stepText)
 				if len(result.Message.ToolCalls) == 0 {
 					toolOut := lastToolOutput(req.Messages)
 					continueKind := pickTurnContinueKind(stepText, assistantText.String(), toolOut, turn.LastTools, usedTools, usedDesktopTools, state.companion, req.DisableReasoning, nudges, turn.Goal, len(req.Tools) > 0)
+					if continueKind == "desktop" && companionBrowserLookupSettled(turn.Goal, stepText, req.Messages) {
+						continueKind = ""
+					}
+					if (state.companion || computerTurn) && continueKind == "desktop" && computerReceiptCloseout(req.Messages, turn.Goal) != "" {
+						continueKind = ""
+					}
 					if continueKind == "" && !state.companion && !skillDraftOffered && shouldOfferSkillDraft(turn.LastTools) {
 						skillDraftOffered = true
 						msg := result.Message
@@ -473,7 +565,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						nudge := continueNudgeMessage()
 						switch continueKind {
 						case "leadin":
-							nudge = llmadapter.Message{Role: llmadapter.RoleSystem, Content: "工具已经跑完。用一两句口语把结果说给用户听（天气说出气温和阴晴；打开/写入说出已打开或已写入），不要只说等一下，不要沉默。"}
+							nudge = llmadapter.Message{Role: llmadapter.RoleSystem, Content: "根据本轮工具证据，用一两句报告结果和未完成部分。命令发送、磁盘写入、窗口更新是不同证据，不能混为一谈。不要只说稍等，也不要重复过程。"}
 						case "desktop":
 							nudge = desktopContinueNudgeMessage()
 						case "incomplete":
@@ -481,8 +573,22 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						case "wait":
 							nudge = llmadapter.Message{Role: llmadapter.RoleSystem, Content: "立刻调用本轮已装备的工具执行。不要再承诺稍等。下一句必须是结果或无法执行。"}
 						}
+						if bufferReply {
+							nudge.Content += "\n前面的回答草稿尚未发送给用户。最终回答必须直接给出实质结果，不能只说上面已经给出或不用重复。"
+						}
 						req.Messages = append(req.Messages, msg, nudge)
 						continue
+					}
+					if bufferReply {
+						stepText = companionFinalResult(req.Messages, stepText, turn.Goal)
+						if looksLikeCompanionWaitPromise(stepText) || isCompanionLeadInOnly(stepText) {
+							stepText = "这轮任务未完成，没有取得可验证的结果。"
+						}
+						result.Message.Content = stepText
+						assistantText.WriteString(stepText)
+						if err := sendDeltaChunks(send, stepText); err != nil {
+							return err
+						}
 					}
 					if continueKind == "" && state.companion && !usedTools && len(req.Tools) > 0 &&
 						(looksLikeCompanionWaitPromise(assistantText.String()) || isCompanionLeadInOnly(assistantText.String())) {
@@ -603,6 +709,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						return errors.New("duplicate tool call id")
 					}
 					seen[call.ID] = true
+					call.Arguments = officeBoundToolArgs(op, call.Name, call.Arguments)
+					if call.Name == "media.play" {
+						call.Arguments = mediaArgsForGoal(turn.Goal, call.Arguments)
+					}
 					prepared, retryHint := prepareToolArguments(call.Name, call.Arguments, toolSchemaByName(req.Tools, call.Name))
 					call.Arguments = prepared
 					digest := argsDigestOrFallback(call.Name, prepared)
@@ -631,7 +741,15 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
 						continue
 					}
-					if skipSummary, skip := duplicateToolSkipSummary(digest, completedDigests); skip {
+					skipSummary, skip := duplicateToolSkipSummary(digest, completedDigests)
+					if skip && (isSkillInvocationTool(call.Name) || isDesktopControlTool(call.Name)) {
+						skipSummary = completedDigests[digest]
+					}
+					if !skip && call.Name == "desktop.browse" {
+						skipSummary = reuseBrowserSearchEntry(turn.Goal, call.Arguments, req.Messages)
+						skip = skipSummary != ""
+					}
+					if skip && !liveDesktopObservation(call.Name, call.Arguments) {
 						if future, ok := parallelFutures[call.ID]; ok {
 							select {
 							case <-future:
@@ -787,6 +905,13 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						continue
 					}
 					r, toolErr := func() (toolruntime.Result, error) {
+						op := toolruntime.WithExecutionKey(op, sessionID, call.ID)
+						if desktopMutation(call.Name, call.Arguments) && failedDesktopAttempts[desktopAttemptKey(call.Name, call.Arguments)] >= 2 {
+							return toolruntime.Result{}, errors.New("无法执行：相同目标和参数已失败两次，未重复操作。请重新核对目标或改用已验证的路径。")
+						}
+						if err := guardCurrentTurnTool(turn.Goal, call.Name); err != nil {
+							return toolruntime.Result{}, err
+						}
 						if future, ok := parallelFutures[call.ID]; ok {
 							// Pre-started read-only call: consume the background
 							// result and drop the map entry (the end-of-turn drain
@@ -810,12 +935,15 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							return e.invokeBrowserAct(op, mode, sessionID, call.Arguments)
 						}
 						if call.Name == "image.generate" || call.Name == "video.generate" {
-							return e.invokeMediaGenerate(op, call.Name, call.Arguments)
+							return e.invokeMediaGenerate(op, sessionID, call.Name, call.Arguments)
 						}
 						// Model-initiated skill invocation rides the governed
 						// skillapp pipeline (never the raw toolruntime switch).
 						if call.Name == "skill.invoke" {
 							return e.invokeSkillTool(op, mode, sessionID, call.Arguments)
+						}
+						if call.Name == "skill.try" {
+							return e.invokeSkillTrialTool(op, mode, sessionID, call.Arguments)
 						}
 						if call.Name == "skill.view" {
 							return e.invokeSkillViewTool(op, call.Arguments)
@@ -823,10 +951,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						// Model-initiated expert creation routes through the
 						// M8 expert service (never the raw toolruntime switch).
 						if call.Name == "skill.create" {
-							return e.invokeSkillCreateTool(op, call.Arguments)
+							return e.invokeSkillCreateTool(withSkillCreationSession(op, sessionID), call.Arguments)
 						}
 						if call.Name == "skill.manage" {
-							return e.invokeSkillManageTool(op, call.Arguments)
+							return e.invokeSkillManageTool(withSkillCreationSession(op, sessionID), call.Arguments)
 						}
 						if call.Name == "expert.create" {
 							return e.invokeExpertCreateTool(op, sessionID, call.Arguments)
@@ -892,6 +1020,26 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							return nil
 						}
 					}
+					fullSkillOutput := ""
+					if toolErr == nil && isDesktopControlTool(call.Name) && companionToolResultFailed(r.Output) {
+						toolErr = errors.New(r.Output)
+					}
+					if desktopMutation(call.Name, call.Arguments) {
+						key := desktopAttemptKey(call.Name, call.Arguments)
+						proof, hasProof := extractL0(r.Output)
+						if toolErr != nil || companionToolResultFailed(r.Output) || (hasProof && (!proof.Passed || proof.Uncertain)) {
+							failedDesktopAttempts[key]++
+						} else {
+							delete(failedDesktopAttempts, key)
+						}
+					}
+					if toolErr == nil && isSkillInvocationTool(call.Name) {
+						if fitErr := skillInvocationFitsContext(p, req, r.Output); fitErr != nil {
+							toolErr = fitErr
+						} else {
+							fullSkillOutput = r.Output
+						}
+					}
 					summary := r.Output
 					if toolErr != nil {
 						summary = toolErr.Error()
@@ -902,14 +1050,28 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							turn.ToolFailed = true
 						}
 					}
-					summary = clipToolSummary(summary)
+					summary = clipExecutionToolSummary(call.Name, summary)
+					modelSummary := summary
+					if fullSkillOutput != "" {
+						modelSummary = fullSkillOutput
+						summary = skillInvocationDisplay(fullSkillOutput)
+					}
 					if toolErr == nil {
 						completedDigests[digest] = summary
+						if fullSkillOutput != "" {
+							completedDigests[digest] = skillInvocationReplay(fullSkillOutput, call.ID, call.Name)
+						}
 						if call.Name == "pptx.gen" && !strings.Contains(summary, "被流水线拦住") {
 							turn.PptGenerated = true
 						}
 						if call.Name == "docx.gen" && !strings.Contains(summary, "被流水线拦住") {
 							turn.DocxGenerated = true
+						}
+						if !companionToolResultFailed(summary) {
+							// Count successful executions, not unique tool names or
+							// the accumulated attempt list replayed at every step.
+							notePptTools(&turn, []string{call.Name})
+							noteDocxTools(&turn, []string{call.Name})
 						}
 						if state.companion {
 							e.noteCompanionToolSuccess(sessionID, call.Name, call.Arguments, summary)
@@ -929,7 +1091,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: toolEvent}); err != nil {
 						return err
 					}
-					req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
+					req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: modelSummary})
+					if errors.Is(toolErr, errSkillContextBudget) {
+						return toolErr
+					}
 					if len(r.VisionData) > 0 {
 						req.Images = appendCaptureVision(req.Images, r.VisionMIME, r.VisionData)
 					}
@@ -1063,8 +1228,6 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				for _, call := range result.Message.ToolCalls {
 					turn.LastTools = append(turn.LastTools, call.Name)
 				}
-				notePptTools(&turn, turn.LastTools)
-				noteDocxTools(&turn, turn.LastTools)
 				if draft := strings.TrimSpace(assistantText.String()); draft != "" {
 					turn.PersistDraft = draft
 				}
@@ -1085,6 +1248,13 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				// notice). Run one more pass WITHOUT tools so the model must wrap
 				// up in natural language; fall through to the static notice only
 				// if that pass also yields nothing.
+				if assistantText.Len() == 0 && len(result.Message.ToolCalls) > 0 && companionTurnWantsMusicPlay(turn.Goal) {
+					text := mediaTurnResultSpeech(req.Messages)
+					assistantText.WriteString(text)
+					if err := sendDeltaChunks(send, text); err != nil {
+						return err
+					}
+				}
 				if assistantText.Len() == 0 && len(result.Message.ToolCalls) > 0 {
 					sumReq := req
 					sumReq.Tools = nil
@@ -1101,7 +1271,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						}
 						return nil
 					})
-					if errors.Is(sumErr, errTurnGenerationBudget) {
+					if errors.Is(sumErr, errTurnGenerationBudget) || chatModelCompletionFailed(sumErr) {
 						streamErr = sumErr
 					}
 					if sumErr == nil {
@@ -1113,15 +1283,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 								}
 							}
 						}
-						if sumRes.Usage.TotalTokens > 0 {
-							result.Usage.InputTokens += sumRes.Usage.InputTokens
-							result.Usage.OutputTokens += sumRes.Usage.OutputTokens
-							result.Usage.TotalTokens += sumRes.Usage.TotalTokens
-						}
 					}
 				}
 				notice := createTurnClosingNotice(turn.LastTools, assistantText.String())
-				if turn.ToolFailed {
+				if turn.ToolFailed && (assistantText.Len() == 0 || isCompanionLeadInOnly(assistantText.String())) {
 					if failNotice := createTurnFailureNotice(turn.LastTools, assistantText.String()); failNotice != "" {
 						notice = failNotice
 					} else if notice == "" {
@@ -1141,13 +1306,17 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 				}
 			}
-			if streamErr == nil && result.Usage.TotalTokens > 0 {
-				if sendErr := send(bridge.Event{Type: bridge.EventUsage, Usage: &bridge.UsageEvent{InputTokens: result.Usage.InputTokens, OutputTokens: result.Usage.OutputTokens, TotalTokens: result.Usage.TotalTokens}}); sendErr != nil {
-					return sendErr
-				}
-			}
 			return streamErr
 		})
+	}
+	// Publish one aggregate for the complete turn, including council passes,
+	// tool continuations and forced summaries. The budget counts each model
+	// call once regardless of repeated provider usage frames.
+	if u := generationBudget.usageSnapshot(); u.TotalTokens > 0 || u.CacheUsageReported {
+		usage := &bridge.UsageEvent{InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, TotalTokens: u.TotalTokens, CachedInputTokens: u.CachedInputTokens, CacheWriteInputTokens: u.CacheWriteInputTokens, CacheUsageReported: u.CacheUsageReported}
+		if sendErr := send(bridge.Event{Type: bridge.EventUsage, Usage: usage}); sendErr != nil {
+			err = errors.Join(err, sendErr)
+		}
 	}
 	// Successful upstream completion must claim finalization before any durable
 	// side effect. This is the linearization point against stream.cancel.
@@ -1164,13 +1333,21 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		finalizationClaimed = e.claimStreamFinalization(state)
 	}
 	if !waitingForApproval && !waitingForSpokenInput && !e.isStreamCancelling(state) {
-		if finished, notice := e.tryFinishOfficeGen(ctx, mode, sessionID, &turn, assistantText.String(), err, func(event bridge.Event) error {
-			if event.Tool != nil && event.Tool.Artifact != nil && event.Type == bridge.EventToolCompleted {
-				a := event.Tool.Artifact
-				turnArtifacts = append(turnArtifacts, sessionArtifactFromTool(event.Tool.CallID, event.Tool.Name, a.Kind, a.Path))
+		finished, notice := false, ""
+		if !chatModelCompletionFailed(err) {
+			finished, notice = e.tryFinishOfficeGen(ctx, mode, sessionID, &turn, assistantText.String(), err, func(event bridge.Event) error {
+				if event.Tool != nil && event.Tool.Artifact != nil && event.Type == bridge.EventToolCompleted {
+					a := event.Tool.Artifact
+					turnArtifacts = append(turnArtifacts, sessionArtifactFromTool(event.Tool.CallID, event.Tool.Name, a.Kind, a.Path))
+				}
+				return send(event)
+			}, state.companion)
+		}
+		if finished || notice != "" {
+			if !finished && err != nil && notice == officeGenFailNotice(errOfficeGenEmpty) {
+				// Missing model output after a stream failure is not missing user input.
+				notice = chatModelOutcomeNotice(false, err)
 			}
-			return send(event)
-		}, state.companion); finished || notice != "" {
 			if finished {
 				err = nil
 				// A normal model completion already owns finalization. Claim only
@@ -1184,7 +1361,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				assistantText.WriteString(next)
 				_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: delta}})
 			}
-		} else if outcome := turnOutcomeNotice(e.isStreamCancelling(state), err, turn.Goal, turn.LastTools); outcome != "" {
+		} else if outcome := chatModelOutcomeNotice(e.isStreamCancelling(state), err); outcome != "" {
 			if next, delta := appendAssistantNotice(assistantText.String(), outcome); delta != "" {
 				assistantText.Reset()
 				assistantText.WriteString(next)
@@ -1253,6 +1430,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				messageID = msg.ID
 				turn.PersistDraft = ""
 				turn.PersistFailed = false
+				for i := range turnArtifacts {
+					turnArtifacts[i].OfficeTaskID = officeTaskContextID(ctx)
+				}
 				e.appendMessageArtifacts(sessionID, messageID, turnArtifacts)
 				e.pushInboundReply(sessionID, text)
 			}
@@ -1293,7 +1473,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		}
 	}
 	if terminal.Type == bridge.EventFailed {
-		terminal.Error = chatStreamError(err)
+		terminal.Error = chatModelStreamError(err)
 	}
 	if e.queue != nil && e.queue.Deliveries() != nil && (len(turn.QueueDeliveries) > 0 || ctx.Value(queueDeliveryStartKey{}) != nil) {
 		receiptCtx, receiptCancel := turnJournalContext()
@@ -1317,6 +1497,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		state.cancel()
 	}
 	e.finishTerminal(id, state)
+	if len(turnArtifacts) > 0 && messageID != "" && persistErr == nil {
+		e.archiveOfficeTurn(ctx, sessionID)
+	}
 	if terminal.Type == bridge.EventCompleted && messageID != "" && persistErr == nil {
 		e.enqueueChatMemory(sessionID, turn.Goal, assistantText.String(), messageID, state != nil && state.companion)
 	}

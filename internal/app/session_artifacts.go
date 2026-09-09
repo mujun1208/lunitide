@@ -15,10 +15,11 @@ import (
 // SessionArtifact is durable metadata for a chat output card (file bytes
 // live in the session folder or Desktop via desktop/ prefix).
 type SessionArtifact struct {
-	Kind     string `json:"kind"`
-	Path     string `json:"path"`
-	CallID   string `json:"callId"`
-	ToolName string `json:"toolName"`
+	OfficeTaskID string `json:"officeTaskId,omitempty"`
+	Kind         string `json:"kind"`
+	Path         string `json:"path"`
+	CallID       string `json:"callId"`
+	ToolName     string `json:"toolName"`
 }
 
 type sessionArtifactsDoc struct {
@@ -100,9 +101,11 @@ func normalizeSessionArtifact(a SessionArtifact) (SessionArtifact, bool) {
 	a.Path = filepath.ToSlash(filepath.Clean(strings.ReplaceAll(strings.TrimSpace(a.Path), "\\", "/")))
 	a.CallID = strings.TrimSpace(a.CallID)
 	a.ToolName = strings.TrimSpace(a.ToolName)
+	a.OfficeTaskID = strings.TrimSpace(a.OfficeTaskID)
 	if !artifactKindValid(a.Kind) || a.Path == "" || len(a.Path) > 512 ||
 		a.Path == ".." || strings.HasPrefix(a.Path, "../") || strings.ContainsRune(a.Path, 0) ||
-		a.CallID == "" || len(a.CallID) > 128 || a.ToolName == "" {
+		a.CallID == "" || len(a.CallID) > 128 || a.ToolName == "" ||
+		(a.OfficeTaskID != "" && !message.CanonicalULID(a.OfficeTaskID)) {
 		return SessionArtifact{}, false
 	}
 	return a, true

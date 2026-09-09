@@ -112,12 +112,23 @@ func (s *Store) DeleteSessionAudited(ctx context.Context, id, actor string) erro
 	return s.deleteSession(ctx, id, actor)
 }
 
-func (s *Store) deleteSession(ctx context.Context, id, actor string) error {
+func (s *Store) deleteSession(ctx context.Context, id, actor string, reclaimProjectID ...string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin delete session tx: %w", err)
 	}
 	defer tx.Rollback()
+	if len(reclaimProjectID) > 0 {
+		predicate, titleArgs := emptyDraftEligibility(nil)
+		args := append([]any{id, reclaimProjectID[0]}, titleArgs...)
+		var eligible bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sessions s WHERE s.id=? AND s.project_id=? AND `+predicate+`)`, args...).Scan(&eligible); err != nil {
+			return fmt.Errorf("recheck draft eligibility: %w", err)
+		}
+		if !eligible {
+			return errEmptyDraftChanged
+		}
+	}
 
 	// Idempotent: if session doesn't exist, return success. Capture the owning
 	// project and the session's accounted bytes before deleting either row so

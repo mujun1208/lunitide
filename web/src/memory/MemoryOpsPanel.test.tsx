@@ -155,10 +155,8 @@ it('resolves settings subject from identity.get, not local-user', async () => {
 })
 
 it('exports the memory bundle as a JSON download', async () => {
-  if (!('createObjectURL' in URL)) Object.defineProperty(URL, 'createObjectURL', { value: vi.fn(), writable: true })
-  if (!('revokeObjectURL' in URL)) Object.defineProperty(URL, 'revokeObjectURL', { value: vi.fn(), writable: true })
-  const createObjectURL = vi.mocked(URL.createObjectURL).mockReturnValue('blob:mock')
-  const revokeObjectURL = vi.mocked(URL.revokeObjectURL).mockReturnValue()
+  const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock')
+  const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined as never)
   const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
   render(<MemoryOpsPanel subjectId={SID} ops={opsApi()} />)
   await screen.findByText('暂无事实')
@@ -167,6 +165,8 @@ it('exports the memory bundle as a JSON download', async () => {
   expect(click).toHaveBeenCalledOnce()
   expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock')
   expect(await screen.findByText('记忆数据已导出')).toBeInTheDocument()
+  createObjectURL.mockRestore()
+  revokeObjectURL.mockRestore()
 })
 
 it('purges all memory data after double confirmation', async () => {

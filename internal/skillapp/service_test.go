@@ -178,6 +178,7 @@ func TestUpdateSuccess(t *testing.T) {
 
 func TestPublishFromDraft(t *testing.T) {
 	r := &mockSkillReader{skill: makeSkill("01ARZ3NDEKTSV4RRFFQ69G5FAV", skill.SkillStatusDraft, nil)}
+	r.skill.EntryPoint = "builtin:summarize-input"
 	w := &mockSkillWriter{}
 	s := New(r, w)
 	if err := s.Publish(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAV"); err != nil {
@@ -399,6 +400,7 @@ func TestPublishWriterUnavailable(t *testing.T) {
 
 func TestPublishPropagatesError(t *testing.T) {
 	r := &mockSkillReader{skill: makeSkill("01ARZ3NDEKTSV4RRFFQ69G5FAV", skill.SkillStatusDraft, nil)}
+	r.skill.EntryPoint = "builtin:summarize-input"
 	boom := errors.New("storage failure")
 	w := &mockSkillWriter{err: boom}
 	s := New(r, w)

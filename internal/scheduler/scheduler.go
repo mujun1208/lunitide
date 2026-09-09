@@ -189,10 +189,12 @@ type runControl struct {
 	cancel context.CancelCauseFunc
 }
 
-// New wires the scheduler; a nil notifier falls back to the platform one.
+// New wires the scheduler. Callers that want desktop notifications must pass
+// NewPlatformNotifier explicitly; nil stays quiet so tests and tools cannot
+// accidentally leak synthetic jobs into the user's notification center.
 func New(store *Store, exec Executor, notifier Notifier) *Scheduler {
 	if notifier == nil {
-		notifier = NewPlatformNotifier()
+		notifier = noopNotifier{}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Scheduler{store: store, exec: exec, notify: notifier, ctx: ctx, cancel: cancel, notifyGate: make(chan struct{}, 1),

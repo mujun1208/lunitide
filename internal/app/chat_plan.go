@@ -127,12 +127,8 @@ func extractL0(summary string) (l0Observation, bool) {
 	}
 	start := i + brace
 	raw := trimmed[start:]
-	end := strings.Index(raw, "}")
-	if end < 0 {
-		return l0Observation{}, false
-	}
 	var obs l0Observation
-	if json.Unmarshal([]byte(raw[:end+1]), &obs) != nil {
+	if json.NewDecoder(strings.NewReader(raw)).Decode(&obs) != nil {
 		return l0Observation{}, false
 	}
 	return obs, true

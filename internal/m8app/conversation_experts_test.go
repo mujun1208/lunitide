@@ -495,7 +495,10 @@ func TestEnsureBuiltinExpertsSeedsConversationRoster(t *testing.T) {
 func TestEnsureBuiltinExpertsRefreshesStaleConversationBodies(t *testing.T) {
 	svc := openExpertService(t)
 	ctx := context.Background()
-	created := createExpert(t, svc, "PPT专家")
+	created, err := svc.Create(ctx, m8app.CreateInput{Source: "local", CreationOrigin: "builtin", Frontmatter: fm("PPT专家"), SixSection: sixBody("PPT专家"), RequestID: "factory-ppt"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	before, err := svc.Detail(ctx, m8app.DetailInput{ExpertID: created.ExpertID})
 	if err != nil {
 		t.Fatal(err)
@@ -591,7 +594,10 @@ func TestEnsureBuiltinExpertsAddsMissingToExistingLibrary(t *testing.T) {
 func TestEnsureBuiltinExpertsRenamesShippedMROExpert(t *testing.T) {
 	svc := openExpertService(t)
 	ctx := context.Background()
-	created := createExpert(t, svc, "航空机务专家")
+	created, err := svc.Create(ctx, m8app.CreateInput{Source: "local", CreationOrigin: "builtin", Frontmatter: fm("航空机务专家"), SixSection: sixBody("航空机务专家"), RequestID: "factory-mro"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := m8app.EnsureBuiltinExperts(ctx, svc); err != nil {
 		t.Fatal(err)
 	}

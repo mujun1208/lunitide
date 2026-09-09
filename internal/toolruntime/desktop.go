@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -115,6 +116,22 @@ func desktopNameScore(base, query string) int {
 	stem := strings.TrimSuffix(base, filepath.Ext(base))
 	if strings.EqualFold(stem, q) || strings.EqualFold(base, q) {
 		return 100
+	}
+	// ASR inserts spaces around Latin words; keep the real filename intact.
+	fold := func(s string) string {
+		return strings.Map(func(r rune) rune {
+			if unicode.IsSpace(r) {
+				return -1
+			}
+			return unicode.ToLower(r)
+		}, s)
+	}
+	q, stem, base = fold(q), fold(stem), fold(base)
+	if q == "" {
+		return 0
+	}
+	if stem == q || base == q {
+		return 95
 	}
 	if utf8.RuneCountInString(q) < 2 {
 		return 0

@@ -44,9 +44,14 @@ type Image struct {
 }
 
 type Usage struct {
-	InputTokens  int `json:"inputTokens"`
-	OutputTokens int `json:"outputTokens"`
-	TotalTokens  int `json:"totalTokens"`
+	InputTokens           int `json:"inputTokens"`
+	OutputTokens          int `json:"outputTokens"`
+	TotalTokens           int `json:"totalTokens"`
+	CachedInputTokens     int `json:"cachedInputTokens,omitempty"`
+	CacheWriteInputTokens int `json:"cacheWriteInputTokens,omitempty"`
+	// False means the provider omitted cache accounting, or a multi-call
+	// aggregate includes an unreported call. Zero cache hits is not inferred.
+	CacheUsageReported bool `json:"cacheUsageReported,omitempty"`
 }
 
 type Request struct {
@@ -61,9 +66,10 @@ type Request struct {
 }
 
 type Response struct {
-	Message   Message `json:"message"`
-	Usage     Usage   `json:"usage"`
-	Reasoning string  `json:"reasoning,omitempty"`
+	Message      Message      `json:"message"`
+	Usage        Usage        `json:"usage"`
+	Reasoning    string       `json:"reasoning,omitempty"`
+	FinishReason FinishReason `json:"finishReason,omitempty"`
 }
 
 type Delta struct {
@@ -89,6 +95,7 @@ const (
 	StageConnect Stage = "connect"
 	StageHTTP    Stage = "http"
 	StageDecode  Stage = "decode"
+	StageStream  Stage = "stream"
 )
 
 type Error struct {
@@ -151,11 +158,14 @@ type ConnectionTester interface {
 }
 
 type Options struct {
-	MaxRequestBytes   int
-	MaxModels         int
-	MaxAttempts       int
-	RetryBase         time.Duration
-	IdempotencyHeader string
+	// DisableTokenEfficiency bypasses reversible request preparation for A/B
+	// verification or a compatibility rollback. Provider caching is unchanged.
+	DisableTokenEfficiency bool
+	MaxRequestBytes        int
+	MaxModels              int
+	MaxAttempts            int
+	RetryBase              time.Duration
+	IdempotencyHeader      string
 }
 
 func defaults(o Options) Options {

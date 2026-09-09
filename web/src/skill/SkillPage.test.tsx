@@ -4,8 +4,9 @@ import { BridgeClientError, type SkillBridge } from '../bridge/client'
 import { ENGINE_RECOVERED_EVENT } from '../bridge/engineHealth'
 import type { SkillDTO } from '../generated/bridge'
 import { SkillPage } from './SkillPage'
+import { webcrypto } from 'node:crypto'
 
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 const now = '2025-01-01T00:00:00Z'
 const skill: SkillDTO = {
   id: '01ARZ3NDEKTSV4RRFFQ69G5FAA', name: 'code-review', displayName: '代码审查', description: '审查代码',
@@ -31,6 +32,33 @@ it('renders empty state initially', async () => {
   fireEvent.click(screen.getByRole('tab', { name: '技能库' }))
   expect(await screen.findByText('暂无技能')).toBeInTheDocument()
   expect(bridge.list).toHaveBeenCalled()
+})
+
+it('keeps the file input alive after closing the add menu and uploads a real ZIP as a draft', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  let imported = false
+  const onTryInChat = vi.fn()
+  const bridge = api({
+    list: vi.fn(async () => ({ items: imported ? [skill] : [] })),
+    uploadBegin: vi.fn(async () => ({ uploadId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', chunkSize: 65536 as const })),
+    uploadChunk: vi.fn(async p => ({ received: p.offset + atob(p.dataBase64).length })),
+    uploadCommit: vi.fn(async () => { imported = true; return { skill } }), uploadAbort: vi.fn(),
+    packageList: vi.fn(async () => ({ skillId: skill.id, revision: 'r7', rootPath: 'C:/managed/code-review', entries: [{ path: 'SKILL.md', kind: 'file' as const, size: 10 }] })),
+    packageRead: vi.fn(async () => ({ skillId: skill.id, path: 'SKILL.md', revision: 'r7', content: '# 审查代码', encoding: 'utf8' as const, size: 10, nextOffset: 10, eof: true, digest: 'digest' })),
+  })
+  render(<SkillPage bridge={bridge} onTryInChat={onTryInChat} />)
+  fireEvent.click(screen.getByRole('button', { name: '添加技能' }))
+  fireEvent.click(screen.getByRole('button', { name: /上传技能包/ }))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  const fileInput = screen.getByLabelText('选择技能包')
+  fireEvent.change(fileInput, { target: { files: [new File([new Uint8Array([80, 75, 3, 4, 255])], 'review.zip')] } })
+  expect(await screen.findByText(/已导入为草稿，可查看文件/)).toBeInTheDocument()
+  expect(await screen.findByText('# 审查代码')).toBeInTheDocument()
+  expect(bridge.create).not.toHaveBeenCalled(); expect(bridge.publish).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: '在对话中试用草稿' }))
+  await waitFor(() => expect(onTryInChat).toHaveBeenCalledWith(skill))
+  fireEvent.click(screen.getByRole('button', { name: '安装并正式发布' }))
+  await waitFor(() => expect(bridge.publish).toHaveBeenCalledWith({ id: skill.id }))
 })
 
 it('renders skill items from bridge.list', async () => {
@@ -114,7 +142,7 @@ it('states the market is a bundled catalog not an online store', async () => {
   render(<SkillPage bridge={api({ catalogList: vi.fn().mockResolvedValue({ items: [catalogEntry] }) })} />)
   expect(await screen.findByText(/本机捆绑目录/)).toBeInTheDocument()
   expect(screen.getByText(/不是在线商店/)).toBeInTheDocument()
-  expect(screen.getAllByText(/捆绑目录/).length).toBeGreaterThanOrEqual(2)
+  expect(screen.getByText(/0 个已发布 · 0 个草稿/)).toBeInTheDocument()
 })
 
 it('keeps bundled catalog cards when a later catalog refresh fails', async () => {

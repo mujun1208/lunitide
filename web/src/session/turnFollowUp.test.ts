@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { classifyFollowUp, companionShouldDeferInFlight, companionShouldDiscardOnExit, inFlightLiveChat, isStatusFollowUp, isStopCommand, looksLikeTaskChange } from './turnFollowUp'
+import { classifyCompanionInFlight, classifyFollowUp, companionShouldDeferInFlight, companionShouldDiscardOnExit, inFlightLiveChat, isStatusFollowUp, isStopCommand, looksLikeTaskChange } from './turnFollowUp'
 
 it('treats 停止 as cancel, not a normal follow-up', () => {
   expect(isStopCommand('停止')).toBe(true)
@@ -36,6 +36,14 @@ it('defers the same companion sentence while a turn is live', () => {
   expect(companionShouldDeferInFlight(' 打开记事本 ', '打开记事本')).toBe(true)
   expect(companionShouldDeferInFlight('不是这个', '打开记事本')).toBe(false)
   expect(companionShouldDeferInFlight('', '打开记事本')).toBe(false)
+})
+
+it('keeps split ASR finals in the active companion task', () => {
+  expect(classifyCompanionInFlight('的最后一行', '打开桌面的企业AI智能助手文档')).toBe('supplement')
+  expect(classifyCompanionInFlight('输入13145262', '打开桌面的企业AI智能助手文档')).toBe('supplement')
+  expect(classifyCompanionInFlight('怎么样？', '查今天合肥到上海虹桥的火车')).toBe('supplement')
+  expect(classifyCompanionInFlight('帮我查天气', '打开桌面文档')).toBe('task_change')
+  expect(classifyCompanionInFlight('打开记事本', '打开记事本')).toBe('duplicate')
 })
 
 it('keeps a spoken companion session when exiting with empty local items', () => {

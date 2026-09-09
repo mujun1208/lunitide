@@ -3,10 +3,8 @@ package voice
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -38,9 +36,6 @@ type Refiner struct {
 
 	mu     sync.Mutex
 	server *sherpaServer
-	// warming keeps a failed turn from starting a second model load behind
-	// the one already running.
-	warming atomic.Bool
 }
 
 func (r *Refiner) modelID() string {
@@ -90,23 +85,21 @@ func (r *Refiner) Ready(context.Context) error {
 // the preamble promised and then closes — so there is nothing to reuse, and a
 // localhost TCP handshake is not a cost worth engineering around.
 func (r *Refiner) Transcribe(ctx context.Context, pcm []byte) (string, error) {
-	// A cold refiner is skipped, not waited for.
-	//
-	// Loading 232 MB of weights takes seconds, and the caller is a user who
-	// has just stopped speaking and is waiting for an answer. Spending that
-	// silence on a model load — on the very first turn, when the user is
-	// forming their first impression of whether this thing works — buys a
-	// slightly better transcript at a price nobody would agree to. So the
-	// first turn keeps the streamed text and pays for the load in the
-	// background, and every turn after it is refined.
-	server, hot := r.hot()
-	if !hot {
-		r.warmInBackground()
-		return "", fmt.Errorf("%w: refiner still loading its model", ErrBackendUnavailable)
-	}
-
 	ctx, cancel := context.WithTimeout(ctx, r.budget())
 	defer cancel()
+	// A first command needs the same accuracy as later turns. Include model
+	// startup in the bounded decode budget instead of silently skipping it.
+	server, hot := r.hot()
+	if !hot {
+		if err := r.Ready(ctx); err != nil {
+			return "", err
+		}
+		var err error
+		server, err = r.ensureServer(ctx)
+		if err != nil {
+			return "", err
+		}
+	}
 
 	text, err := transcribeOn(ctx, fmt.Sprintf("ws://127.0.0.1:%d", server.port), pcm)
 	if err != nil {
@@ -144,22 +137,6 @@ func (r *Refiner) hot() (*sherpaServer, bool) {
 		return r.server, true
 	}
 	return nil, false
-}
-
-// warmInBackground loads the model without holding up the turn that noticed
-// it was missing. At most one load runs at a time.
-func (r *Refiner) warmInBackground() {
-	if !r.warming.CompareAndSwap(false, true) {
-		return
-	}
-	go func() {
-		defer r.warming.Store(false)
-		ctx, cancel := context.WithTimeout(context.Background(), r.startup())
-		defer cancel()
-		if err := r.Warm(ctx); err != nil {
-			log.Printf("voice: warm refiner: %v", err)
-		}
-	}()
 }
 
 // transcribeOn is the protocol itself, against an address.
@@ -214,8 +191,17 @@ func transcribeOn(ctx context.Context, endpoint string, pcm []byte) (string, err
 }
 
 func (r *Refiner) ensureServer(ctx context.Context) (*sherpaServer, error) {
-	r.mu.Lock()
+	for !r.mu.TryLock() {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
 	defer r.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	if r.server != nil && r.server.alive() {
 		return r.server, nil

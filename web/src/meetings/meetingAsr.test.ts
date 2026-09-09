@@ -34,6 +34,7 @@ vi.mock('./meetingCapture', async importOriginal => {
 import { MEETING_TURN_END_SILENCE_MS, TURN_END_SILENCE_MS, turnEndWindows } from '../session/companion/speech'
 import { captureStateNotice, audioSourceLabel, decodeMeetingPcmBase64, MEETING_CATCHUP_HINT, MEETING_VOLC_END_WINDOW_MS, meetingAsrRuntimeLine, meetingSystemAudioMissing, mixMeetingPcmS16le, noteLoopbackEnergy, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, shouldFallbackLiveCaption, startMeetingSpeech } from './meetingAsr'
 import { MEETING_MERGE_GAP_MS } from './meetingText'
+import { engineLoopbackPlan, meetingLiveListen } from './meetingAsr'
 import { NO_SYSTEM_AUDIO_NOTICE } from './meetingCapture'
 
 const extra = { getAudioTracks: () => [{ kind: 'audio', readyState: 'live' }], getTracks: () => [] } as unknown as MediaStream
@@ -52,6 +53,21 @@ describe('startMeetingSpeech', () => {
     await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn(), listen: 'cloud' })
     expect(asr.web).toHaveBeenCalledOnce()
     expect(asr.local).not.toHaveBeenCalled()
+  })
+
+  test.each(['cloud', 'local', 'volc'] as const)('system audio routes %s through a PCM recognizer immediately', async selected => {
+    asr.probe.mockResolvedValue({ supported: true, ready: true })
+    const listen = meetingLiveListen(selected, engineLoopbackPlan())
+    expect(listen).toBe(selected === 'cloud' ? 'local' : selected)
+    await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn(), listen, externalPcm: true, volcProviderId: 'p1' })
+    expect(asr.web).not.toHaveBeenCalled()
+    expect((listen === 'volc' ? asr.volc : asr.local).mock.calls[0][0].externalPcm).toBe(true)
+  })
+
+  test('mixed system audio never quietly degrades to a microphone-only recognizer', async () => {
+    asr.probe.mockResolvedValue({ supported: true, ready: false })
+    await expect(startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn(), listen: meetingLiveListen('cloud', engineLoopbackPlan()), externalPcm: true })).rejects.toThrow(/sherpa 未就绪/)
+    expect(asr.web).not.toHaveBeenCalled()
   })
 
   test('explicit volc listen requires a voice provider', async () => {
@@ -117,7 +133,7 @@ describe('startMeetingSpeech', () => {
     expect(asr.web).not.toHaveBeenCalled()
     expect(asr.local.mock.calls[0][0].holdUtterance).toBe(true)
     expect(MEETING_CATCHUP_HINT).toMatch(/补转写只用本机/)
-    expect(MEETING_CATCHUP_HINT).toMatch(/系统声会在停止后补/)
+    expect(MEETING_CATCHUP_HINT).toMatch(/不保证补齐/)
   })
 
   test('cleans fillers and domain terms on committed meeting lines', async () => {
@@ -160,10 +176,10 @@ describe('startMeetingSpeech', () => {
     expect(asr.local.mock.calls[0][0].extraStreams).toBeUndefined()
   })
 
-  test('meeting hold windows are longer than the companion 1.2s commit', async () => {
+  test('meeting hold windows are longer than the companion commit window', async () => {
     await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn() })
     expect(asr.web.mock.calls[0][0].holdUtterance).toBe(true)
-    expect(TURN_END_SILENCE_MS).toBe(1200)
+    expect(TURN_END_SILENCE_MS).toBe(1800)
     expect(turnEndWindows(true).silenceMs).toBe(MEETING_TURN_END_SILENCE_MS)
     expect(turnEndWindows(true).silenceMs).toBeGreaterThan(TURN_END_SILENCE_MS)
     expect(turnEndWindows(false).silenceMs).toBe(TURN_END_SILENCE_MS)

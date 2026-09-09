@@ -954,30 +954,13 @@ func (s *Service) EnsureBundledSkills(ctx context.Context) (int, error) {
 		if !tpl.Bundled {
 			continue
 		}
-		var sk skill.Skill
-		created, err := s.InstallFromCatalog(ctx, tpl.ID)
-		switch {
-		case err == nil:
-			sk = created
-		case errors.Is(err, ErrTemplateInstalled):
-			existing, gerr := s.GetByNameVersion(ctx, tpl.Name, tpl.Version)
-			if gerr != nil {
-				continue
-			}
-			sk = *existing
-		default:
+		previous, readErr := s.GetByNameVersion(ctx, tpl.Name, tpl.Version)
+		if _, err := s.EnsureCatalogPublished(ctx, tpl.ID); err != nil {
 			continue
 		}
-		if sk.Status == skill.SkillStatusPublished {
-			continue
+		if readErr != nil || previous == nil || previous.Status != skill.SkillStatusPublished {
+			published++
 		}
-		if sk.Status != skill.SkillStatusDraft {
-			continue
-		}
-		if err := s.Publish(ctx, sk.ID); err != nil {
-			continue
-		}
-		published++
 	}
 	return published, nil
 }

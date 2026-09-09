@@ -1,8 +1,10 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"image/png"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +20,105 @@ func TestProviderTestUsesEmbedForEmbeddingKind(t *testing.T) {
 	}}
 	if !providerTestUsesEmbed(p, "bge") || providerTestUsesEmbed(p, "chat") {
 		t.Fatal("provider.test must Embed only embedding kind")
+	}
+}
+
+type mediaProbeAdapter struct {
+	completeCalls int
+	imageCalls    int
+	videoCalls    int
+	request       llmadapter.Request
+	streamText    *string
+}
+
+func (a *mediaProbeAdapter) Complete(_ context.Context, _ []byte, request llmadapter.Request) (llmadapter.Response, error) {
+	a.completeCalls++
+	a.request = request
+	return llmadapter.Response{}, nil
+}
+
+func TestVisionProbeIncludesSyntheticImageAndOCRPrompt(t *testing.T) {
+	a := &mediaProbeAdapter{}
+	if err := probeProviderModel(context.Background(), a, nil, provider.Model{ModelID: "deepseek-ocr", Kind: provider.KindVision}); err != nil {
+		t.Fatal(err)
+	}
+	if len(a.request.Images) != 1 || a.request.MaxTokens < 32 || a.request.Messages[0].Content != "<image>\nFree OCR." {
+		t.Fatalf("invalid OCR probe shape")
+	}
+	img, err := png.Decode(bytes.NewReader(a.request.Images[0].Data))
+	if err != nil || img.Bounds().Dx() != 256 {
+		t.Fatal("invalid probe image", err)
+	}
+}
+
+func TestProviderDiagnosticsExplainFailuresWithoutUpstreamSecrets(t *testing.T) {
+	for _, status := range []int{400, 401, 403, 404, 422, 429, 500, 503} {
+		d := diagnosticResult(&llmadapter.Error{HTTPStatus: status, Stage: llmadapter.StageHTTP}, 0, time.Now())
+		if d.SanitizedMessage == "供应商连接测试失败" || d.HTTPStatus != status {
+			t.Fatalf("generic diagnostic: %+v", d)
+		}
+	}
+}
+
+func TestProviderDiagnosticsIdentifyUnavailableModelChannel(t *testing.T) {
+	d := diagnosticResult(&llmadapter.Error{Code: "MODEL_CHANNEL_UNAVAILABLE", HTTPStatus: 503, Stage: llmadapter.StageHTTP, Message: "private upstream detail"}, 0, time.Now())
+	if d.Retryable || !strings.Contains(d.SanitizedMessage, "可用通道") || strings.Contains(d.SanitizedMessage, "private") {
+		t.Fatalf("invalid channel diagnosis: %+v", d)
+	}
+}
+func (a *mediaProbeAdapter) Stream(_ context.Context, _ []byte, request llmadapter.Request, _ func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	a.request = request
+	text := "123"
+	if a.streamText != nil {
+		text = *a.streamText
+	}
+	return llmadapter.Response{Message: llmadapter.Message{Content: text}}, nil
+}
+
+func TestOCRProbeRejectsSuccessfulButIncorrectRecognition(t *testing.T) {
+	for _, value := range []string{"", "124", "connection successful"} {
+		a := &mediaProbeAdapter{streamText: &value}
+		if err := probeProviderModel(context.Background(), a, nil, provider.Model{ModelID: "deepseek-ocr", Kind: provider.KindVision}); err == nil {
+			t.Fatalf("accepted incorrect recognition %q", value)
+		}
+	}
+}
+func (*mediaProbeAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, nil
+}
+func (a *mediaProbeAdapter) GenerateImage(context.Context, []byte, string, string) (llmadapter.MediaResult, error) {
+	a.imageCalls++
+	return llmadapter.MediaResult{URL: "https://example.test/probe.png"}, nil
+}
+func (a *mediaProbeAdapter) GenerateVideo(context.Context, []byte, string, string) (llmadapter.MediaResult, error) {
+	a.videoCalls++
+	return llmadapter.MediaResult{URL: "https://example.test/probe.mp4"}, nil
+}
+
+func TestProviderTestUsesSelectedMediaModelCapability(t *testing.T) {
+	a := &mediaProbeAdapter{}
+	if err := probeProviderModel(context.Background(), a, nil, provider.Model{ModelID: "seedream", Kind: provider.KindImage}); err != nil {
+		t.Fatal(err)
+	}
+	if err := probeProviderModel(context.Background(), a, nil, provider.Model{ModelID: "seedance", Kind: provider.KindVideo}); err != nil {
+		t.Fatal(err)
+	}
+	if a.imageCalls != 1 || a.videoCalls != 1 || a.completeCalls != 0 {
+		t.Fatalf("wrong probe route: %#v", a)
+	}
+}
+
+func TestProviderAdapterBaseURLAcceptsStoredFullMediaEndpoints(t *testing.T) {
+	cases := map[string]string{
+		"https://z.apiyihe.org/v1/images/generations":              "https://z.apiyihe.org/v1",
+		"https://z.apiyihe.org/volc/v1/contents/generations/tasks": "https://z.apiyihe.org/volc/v1",
+		"https://example.test/v1":                                  "https://example.test/v1",
+		"http://127.0.0.1:1234/v1/videos/generations/":             "http://127.0.0.1:1234/v1",
+	}
+	for input, want := range cases {
+		if got := providerAdapterBaseURL(input); got != want {
+			t.Fatalf("providerAdapterBaseURL(%q)=%q want %q", input, got, want)
+		}
 	}
 }
 

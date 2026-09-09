@@ -27,6 +27,12 @@ func (e *Engine) SetPersistDir(dir string) {
 		return
 	}
 	e.persistDir = strings.TrimSpace(dir)
+	if e.m6skills != nil && e.persistDir != "" {
+		e.m6skills.SetPackageRoot(filepath.Join(e.persistDir, "skill-package-store"))
+	}
+	if packages, ok := e.skills.(interface{ SetPackageRoot(string) }); ok && e.persistDir != "" {
+		packages.SetPackageRoot(filepath.Join(e.persistDir, "skill-package-store"))
+	}
 	e.loadPersistedState()
 }
 

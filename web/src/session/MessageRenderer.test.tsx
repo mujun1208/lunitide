@@ -25,8 +25,8 @@ it('Message Renderer merges backward pages into ascending UI order without dupli
   await screen.findByText('message-3')
   await user.click(screen.getByRole('button', { name: '加载更早' }))
   await waitFor(() => expect(list).toHaveBeenCalledTimes(2))
-  expect(list.mock.calls[0][0]).toEqual({ sessionId: S1, direction: 'backward', limit: 64, byteBudget: 131072 })
-  expect(list.mock.calls[1][0]).toEqual({ sessionId: S1, direction: 'backward', cursor: 'older', limit: 64, byteBudget: 131072 })
+  expect(list.mock.calls[0][0]).toEqual({ sessionId: S1, direction: 'backward', limit: 64, byteBudget: 245760 })
+  expect(list.mock.calls[1][0]).toEqual({ sessionId: S1, direction: 'backward', cursor: 'older', limit: 64, byteBudget: 245760 })
   const history = screen.getByText('message-1').closest('ol')!
   expect(within(history).getAllByRole('listitem').map(x => x.textContent?.match(/message-\d/)?.[0])).toEqual(['message-1', 'message-2', 'message-3'])
 })
@@ -36,7 +36,7 @@ it('Message Renderer refreshes the latest first page after append succeeds', asy
   await screen.findByText('message-1'); await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'), 'new text'); await user.click(screen.getByRole('button', { name: '仅保存' }))
   await screen.findByText('message-2')
   expect(append).toHaveBeenCalledWith({ sessionId: S1, text: 'new text' }, expect.objectContaining({ attempt: expect.any(Object) }))
-  expect(list).toHaveBeenLastCalledWith({ sessionId: S1, direction: 'backward', limit: 64, byteBudget: 131072 })
+  expect(list).toHaveBeenLastCalledWith({ sessionId: S1, direction: 'backward', limit: 64, byteBudget: 245760 })
 })
 
 it('Message Renderer ignores an old session list response after switching sessions', async () => {
@@ -92,14 +92,14 @@ it('Message Renderer accepts exact flat Unicode boundaries and rejects rune/byte
   const append = vi.fn().mockResolvedValue(message(1)), user = await open(messages({ append }))
   await screen.findByText('还没有消息')
   const input = screen.getByLabelText('向月汐提问，或描述你想完成的任务…')
-  for (const text of ['a'.repeat(2048), '😀'.repeat(2048)]) {
+  for (const text of ['a'.repeat(32768), '😀'.repeat(32768)]) {
     await user.clear(input)
     await fireEvent.change(input, { target: { value: text } })
-    expect(screen.getByText('2048/2048 字符 ·', { exact: false })).toBeInTheDocument()
+    expect(screen.getByText('32768/32768 字符 ·', { exact: false })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '仅保存' }))
     await waitFor(() => expect(append).toHaveBeenCalledWith({ sessionId: S1, text }, expect.anything()))
   }
-  for (const text of ['a'.repeat(2049), '😀'.repeat(2048) + 'a', 'a\0b']) {
+  for (const text of ['a'.repeat(32769), '😀'.repeat(32768) + 'a', 'a\0b']) {
     await user.clear(input)
     await fireEvent.change(input, { target: { value: text } })
     await user.click(screen.getByRole('button', { name: '仅保存' }))

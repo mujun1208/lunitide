@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode/utf16"
 
+	officedomain "github.com/lunitide/lunitide/internal/domain/officestudio"
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/mcp6"
 	"github.com/lunitide/lunitide/internal/people"
@@ -52,6 +53,9 @@ func (eq turnEquipment) RestrictMCP() bool {
 
 func (e *Engine) turnEquipmentFor(ctx context.Context, sessionID, turnText string, companion bool) turnEquipment {
 	eq := turnEquipment{Companion: companion, Brain: BrainLunitide}
+	if capabilityWorkTask(turnText) || skillTrialsActive(ctx, sessionID) {
+		return eq
+	}
 	if companion && !companionWantsTools(turnText) && len(m8app.ConversationExpertsMatchingIntent(turnText)) == 0 {
 		return eq
 	}
@@ -126,6 +130,14 @@ func (e *Engine) namesForTurn(ctx context.Context, sessionID string, expertIDs [
 	}
 	if len(names) > 0 {
 		return names
+	}
+	if e.officeStudio != nil && sessionID != "" {
+		orgID, _, err := e.boundOrgState(ctx)
+		if err == nil {
+			if tasks, readErr := e.officeStudio.Store.ListOfficeTasks(officedomain.WithScope(ctx, orgID), sessionID, 1); readErr == nil && len(tasks) > 0 {
+				return []string{"办公交付专家"}
+			}
+		}
 	}
 	for _, turnText := range turnTexts {
 		for _, name := range m8app.ConversationExpertsMatchingIntent(turnText) {

@@ -38,9 +38,9 @@ func TestClassifyTaskRoute(t *testing.T) {
 		},
 		{
 			id: "D-A3", goal: "打开浏览器查天气",
-			cc: true, route: RouteR1,
-			must:   []string{"web.search", "user.ask"},
-			forbid: []string{"browser.act", "desktop.open", "computer.act"},
+			cc: true, route: RouteR2,
+			must:   []string{"web.search", "weather.get", "desktop.browse", "computer.act", "user.ask"},
+			forbid: []string{"browser.act"},
 		},
 		{
 			id:     "D-A3b",

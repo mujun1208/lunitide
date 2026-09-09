@@ -103,15 +103,19 @@ func TestOperationSpecificTTL(t *testing.T) {
 	now := time.Now()
 	s := &Server{used: make(map[[32]byte]time.Time)}
 	for _, op := range []Operation{OperationProviderTest, OperationModelDiscover} {
+		limit := TestMaxTTL
+		if op == OperationModelDiscover {
+			limit = DiscoverMaxTTL
+		}
 		excessive := validRequest(now)
 		excessive.Operation = op
-		excessive.Deadline = now.Add(TestMaxTTL + time.Millisecond)
+		excessive.Deadline = now.Add(limit + time.Millisecond)
 		if s.consume(excessive, now) == nil {
-			t.Fatalf("%s lease over TestMaxTTL accepted", op)
+			t.Fatalf("%s lease over operation limit accepted", op)
 		}
 		bounded := validRequest(now)
 		bounded.Operation = op
-		bounded.Deadline = now.Add(TestMaxTTL - time.Millisecond)
+		bounded.Deadline = now.Add(limit - time.Millisecond)
 		if err := s.consume(bounded, now); err != nil {
 			t.Fatalf("bounded %s lease rejected: %v", op, err)
 		}

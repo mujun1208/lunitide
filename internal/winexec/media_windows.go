@@ -17,12 +17,12 @@ const (
 	vkMediaPrevTrack = 0xB1
 	vkMediaStop      = 0xB2
 
-	wmAppCommand              = 0x0319
-	appCommandMediaNext       = 11
-	appCommandMediaPrev       = 12
-	appCommandMediaStop       = 13
-	appCommandMediaPlayPause  = 14
-	appCommandMediaPlay       = 46
+	wmAppCommand             = 0x0319
+	appCommandMediaNext      = 11
+	appCommandMediaPrev      = 12
+	appCommandMediaStop      = 13
+	appCommandMediaPlayPause = 14
+	appCommandMediaPlay      = 46
 )
 
 var (
@@ -69,40 +69,32 @@ func sendAppCommand(cmd int) {
 	_, _, _ = procSendMessageMedia.Call(hwnd, wmAppCommand, hwnd, uintptr(cmd)<<16)
 }
 
-// SendMediaKey sends one Windows media key (play, pause, next, prev, stop)
-// via SendInput and a WM_APPCOMMAND to the foreground window so desktop
-// players that listen to either path actually start.
+// SendMediaKey dispatches once. Sending both a key and WM_APPCOMMAND can
+// toggle twice or skip two tracks in players that handle both paths.
 func SendMediaKey(action string) error {
 	switch strings.ToLower(strings.TrimSpace(action)) {
 	case "play":
-		if err := sendMediaVK(vkMediaPlayPause); err != nil {
-			return err
-		}
 		sendAppCommand(appCommandMediaPlay)
 		return nil
 	case "pause", "play_pause", "toggle":
 		if err := sendMediaVK(vkMediaPlayPause); err != nil {
 			return err
 		}
-		sendAppCommand(appCommandMediaPlayPause)
 		return nil
 	case "next", "skip":
 		if err := sendMediaVK(vkMediaNextTrack); err != nil {
 			return err
 		}
-		sendAppCommand(appCommandMediaNext)
 		return nil
 	case "prev", "previous":
 		if err := sendMediaVK(vkMediaPrevTrack); err != nil {
 			return err
 		}
-		sendAppCommand(appCommandMediaPrev)
 		return nil
 	case "stop":
 		if err := sendMediaVK(vkMediaStop); err != nil {
 			return err
 		}
-		sendAppCommand(appCommandMediaStop)
 		return nil
 	default:
 		return fmt.Errorf("unknown media action %q", action)

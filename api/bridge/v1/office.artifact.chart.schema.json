@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/office.artifact.chart.schema.json",
+  "title": "office.artifact.chart payload",
+  "x-method": "office.artifact.chart",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "taskId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "versionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "nodeId": {
+      "type": "string",
+      "maxLength": 512
+    },
+    "nodeDigest": {
+      "type": "string",
+      "maxLength": 64
+    }
+  },
+  "required": [
+    "taskId",
+    "versionId",
+    "nodeId",
+    "nodeDigest"
+  ],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/OfficeSlideChartDTO"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "taskId": "01ARZ3NDEKTSV4RRFFQ69G5FAE",
+        "versionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "nodeId": "chart-1",
+        "nodeDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

@@ -1,6 +1,7 @@
 package tts
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
@@ -42,5 +43,48 @@ func TestEdgeSynthesisLatency(t *testing.T) {
 		}
 		t.Logf("turn %d: %v for %.2fs of audio (%d base64 bytes)",
 			turn, elapsed.Round(time.Millisecond), res.DurationHint, len(res.WavBase64))
+	}
+}
+
+// TestEdgeStreamingFirstAudioLatency measures the delay the companion user
+// actually feels. The renderer can begin playback at the first emitted audio
+// chunk, well before synthesis of the whole sentence completes.
+func TestEdgeStreamingFirstAudioLatency(t *testing.T) {
+	if os.Getenv("LUNITIDE_EDGE_LIVE") == "" {
+		t.Skip("set LUNITIDE_EDGE_LIVE=1 to measure streaming first audio")
+	}
+	eng := NewEdgeEngine()
+	streamer, ok := eng.(ChunkStreamer)
+	if !ok {
+		t.Fatal("Edge engine does not expose streaming synthesis")
+	}
+	in := SynthesizeInput{
+		Text:    "你好呀，我是月汐。今天我们继续把语音链路检查完整。",
+		VoiceID: edgeVoiceStyleID(edgeDefaultVoice, "chat"),
+		Volume:  88,
+		Rate:    2,
+	}
+	for turn := 1; turn <= 2; turn++ {
+		started := time.Now()
+		firstAudio := time.Duration(0)
+		chunks := 0
+		bytes := 0
+		res, _, err := streamer.SynthesizeStream(context.Background(), in, func(chunk []byte) error {
+			if chunks == 0 {
+				firstAudio = time.Since(started)
+			}
+			chunks++
+			bytes += len(chunk)
+			return nil
+		})
+		elapsed := time.Since(started)
+		if err != nil {
+			t.Fatalf("turn %d streaming synthesis: %v", turn, err)
+		}
+		if chunks == 0 || bytes < 64 || res.WavBase64 == "" {
+			t.Fatalf("turn %d returned no streaming audio: chunks=%d bytes=%d", turn, chunks, bytes)
+		}
+		t.Logf("turn %d: first audio=%v complete=%v chunks=%d bytes=%d",
+			turn, firstAudio.Round(time.Millisecond), elapsed.Round(time.Millisecond), chunks, bytes)
 	}
 }

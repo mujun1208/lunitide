@@ -1,0 +1,149 @@
+{
+  "events": [
+    {
+      "Text": "请",
+      "Final": false,
+      "Utterances": [
+        {
+          "text": "请",
+          "startMs": 5552,
+          "endMs": 6522,
+          "final": false
+        }
+      ]
+    },
+    {
+      "Text": "请再说",
+      "Final": false,
+      "Utterances": [
+        {
+          "text": "请再说",
+          "startMs": 5552,
+          "endMs": 6722,
+          "final": false
+        }
+      ]
+    },
+    {
+      "Text": "请再说一遍",
+      "Final": false,
+      "Utterances": [
+        {
+          "text": "请再说一遍",
+          "startMs": 5552,
+          "endMs": 7122,
+          "final": false
+        }
+      ]
+    },
+    {
+      "Text": "请再说一遍。",
+      "Final": true,
+      "Utterances": [
+        {
+          "text": "请再说一遍。",
+          "startMs": 5552,
+          "endMs": 8132,
+          "final": true
+        }
+      ]
+    },
+    {
+      "Text": "请再说一遍。请",
+      "Final": false,
+      "Utterances": [
+        {
+          "text": "请再说一遍。",
+          "startMs": 5552,
+          "endMs": 8132,
+          "final": true
+        },
+        {
+          "text": "请",
+          "startMs": 9202,
+          "endMs": 10122,
+          "final": false
+        }
+      ]
+    },
+    {
+      "Text": "请再说一遍。请再说",
+      "Final": false,
+      "Utterances": [
+        {
+          "text": "请再说一遍。",
+          "startMs": 5552,
+          "endMs": 8132,
+          "final": true
+        },
+        {
+          "text": "请再说",
+          "startMs": 9202,
+          "endMs": 10522,
+          "final": false
+        }
+      ]
+    },
+    {
+      "Text": "请再说一遍。请再说一遍",
+      "Final": false,
+      "Utterances": [
+        {
+          "text": "请再说一遍。",
+          "startMs": 5552,
+          "endMs": 8132,
+          "final": true
+        },
+        {
+          "text": "请再说一遍",
+          "startMs": 9202,
+          "endMs": 10722,
+          "final": false
+        }
+      ]
+    },
+    {
+      "Text": "请再说一遍。请再说一遍。",
+      "Final": true,
+      "Utterances": [
+        {
+          "text": "请再说一遍。",
+          "startMs": 5552,
+          "endMs": 8132,
+          "final": true
+        },
+        {
+          "text": "请再说一遍。",
+          "startMs": 9202,
+          "endMs": 11732,
+          "final": true
+        }
+      ]
+    },
+    {
+      "Text": "请再说一遍。请再说一遍。",
+      "Final": true,
+      "Utterances": [
+        {
+          "text": "请再说一遍。",
+          "startMs": 5552,
+          "endMs": 8132,
+          "final": true
+        },
+        {
+          "text": "请再说一遍。",
+          "startMs": 9202,
+          "endMs": 11732,
+          "final": true
+        }
+      ]
+    }
+  ],
+  "final": "请再说一遍。请再说一遍。",
+  "requests": [
+    "停。",
+    "停。",
+    "请再说一遍。",
+    "请再说一遍。"
+  ]
+}

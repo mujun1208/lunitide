@@ -44,6 +44,9 @@
       },
       "isCompacting": {
         "type": "boolean"
+      },
+      "tokenEfficiencyEnabled": {
+        "type": "boolean"
       }
     },
     "required": [

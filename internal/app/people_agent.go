@@ -441,7 +441,11 @@ func (e *Engine) completePeopleAgentTurn(ctx context.Context, agent people.Conta
 		}
 		note := localBrainFallbackNotice(eq.Brain, err)
 		if e.tools != nil && sessionID != "" {
-			if out, tErr := e.completePeopleAgentWithTools(ctx, agent, threadID, sessionID, intent.Text); tErr == nil && strings.TrimSpace(out) != "" {
+			out, tErr := e.completePeopleAgentWithTools(ctx, agent, threadID, sessionID, intent.Text)
+			if errors.Is(tErr, errSkillContextBudget) {
+				return lockLocalBrainFallback(note, tErr.Error()), tErr
+			}
+			if tErr == nil && strings.TrimSpace(out) != "" {
 				return lockLocalBrainFallback(note, out), nil
 			}
 		}
@@ -459,6 +463,9 @@ func (e *Engine) completePeopleAgentTurn(ctx context.Context, agent people.Conta
 			return text, nil
 		}
 		if err != nil {
+			if errors.Is(err, errSkillContextBudget) {
+				return err.Error(), err
+			}
 			log.Printf("people agent tools: %v", err)
 		}
 	}
@@ -599,8 +606,12 @@ func (e *Engine) completePeopleAgentWithTools(ctx context.Context, agent people.
 					continue
 				}
 				summary := e.runPeopleAgentTool(op, sessionID, agent, call)
-				if len(summary) > 4096 {
-					summary = summary[:4096]
+				if call.Name == "skill.invoke" && !strings.HasPrefix(summary, "ok:false") {
+					if err := skillInvocationFitsContext(entry.Provider, req, summary); err != nil {
+						return err
+					}
+				} else {
+					summary = truncateUTF8Bytes(summary, 4096)
 				}
 				paths = append(paths, extractDeliverablePaths(summary)...)
 				req.Messages = append(req.Messages, llmadapter.Message{
@@ -673,7 +684,7 @@ func (e *Engine) runPeopleAgentTool(ctx context.Context, sessionID string, agent
 	case "browser.act":
 		r, err = e.invokeBrowserAct(ctx, peopleAgentExecutionMode(), sessionID, call.Arguments)
 	case "image.generate", "video.generate":
-		r, err = e.invokeMediaGenerate(ctx, call.Name, call.Arguments)
+		r, err = e.invokeMediaGenerate(ctx, sessionID, call.Name, call.Arguments)
 	default:
 		if call.Name == "mcp.search" {
 			out, sErr := e.searchMcpToolsFiltered(call.Arguments, eq.McpIDs, true)

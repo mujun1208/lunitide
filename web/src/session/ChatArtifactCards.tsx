@@ -1,5 +1,6 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { sessionFolderBridge, type StreamArtifact } from '../bridge/client'
+import { requestOfficeStudio } from '../officeStudio/officeNavigation'
 
 export type ChatArtifact = StreamArtifact & { callId: string; toolName: string }
 
@@ -41,6 +42,7 @@ export function ChatArtifactCards({
   onError?: (message: string) => void
   onInspect?: (artifact: ChatArtifact) => void
 }): React.JSX.Element | null {
+  const [openingOffice, setOpeningOffice] = useState(false)
   const visible = filterChatDeliverables(artifacts)
   if (!visible.length) return null
   const open = async (artifact: ChatArtifact) => {
@@ -54,6 +56,7 @@ export function ChatArtifactCards({
   return (
     <div className="chat-artifacts" role="list" aria-label="本次对话产物">
       {visible.map(artifact => (
+        <React.Fragment key={`${artifact.callId}:${artifact.path}`}>
         <button
           type="button"
           key={`${artifact.callId}:${artifact.path}`}
@@ -70,6 +73,12 @@ export function ChatArtifactCards({
             <small>{artifact.kind === 'image' && !artifact.toolName.startsWith('cc.') ? '图片' : KIND_LABEL[artifact.kind] ?? artifact.kind} · {onInspect ? '点击查看' : '点击打开'}</small>
           </span>
         </button>
+        {(OFFICE_KIND.has(artifact.kind) || OFFICE_EXT.test(artifact.path)) && <button type="button" disabled={openingOffice} title={`在办公工作台查看 ${artifact.path.split(/[/\\]/).pop()}`} onClick={() => {
+          if (openingOffice) return
+          setOpeningOffice(true)
+          void requestOfficeStudio(sessionId, artifact.path).catch(error => onError?.(error instanceof Error ? error.message : '办公工作台暂不可用，原对话仍可继续。')).finally(() => setOpeningOffice(false))
+        }}>在办公工作台查看</button>}
+        </React.Fragment>
       ))}
     </div>
   )

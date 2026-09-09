@@ -11,7 +11,7 @@ const api = (overrides: Partial<SkillImportBridge> = {}): SkillImportBridge => (
   discover: vi.fn().mockResolvedValue({ candidateId: id, state: 'discovered', version: 1, summary }),
   inspect: vi.fn().mockResolvedValue({ candidateId: id, state: 'inspected', version: 3, summary }),
   submit: vi.fn().mockResolvedValue({ candidateId: id, state: 'awaiting_approval', version: 6, summary }),
-  approve: vi.fn().mockResolvedValue({ candidateId: id, state: 'approved', version: 7, summary }),
+  approve: vi.fn().mockResolvedValue({ candidateId: id, state: 'approved', version: 7, summary, skillId: id }),
   reject: vi.fn(), revoke: vi.fn(), ...overrides,
 })
 
@@ -35,9 +35,10 @@ it('sends source identity only and imports a draft using backend evidence', asyn
   expect(bridge.submit).toHaveBeenCalledWith({ candidateId: id, expectedVersion: 3 }, expect.anything())
   expect(onApproved).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: '批准导入草稿' }))
-  await screen.findByText('技能已导入，可在技能中心查看当前状态。')
+  await screen.findByText(/技能已导入为草稿/)
   expect(bridge.approve).toHaveBeenCalledWith({ candidateId: id, expectedVersion: 6, approval: { source: 'github-import', scope: 'instructions-only-draft' } }, expect.anything())
   expect(onApproved).toHaveBeenCalledOnce()
+  expect(onApproved).toHaveBeenCalledWith(id)
 })
 
 it('keeps a failed real scan before approval and displays the error', async () => {
@@ -64,25 +65,26 @@ it('resumes the committed awaiting-approval step after reopening', async () => {
 
 
 it('retries a lost approval ACK with the same mutation attempt', async () => {
-  const approve = vi.fn().mockRejectedValueOnce(new BridgeClientError('响应丢失', 'TIMEOUT', true, 'renderer')).mockResolvedValueOnce({ candidateId: id, state: 'approved', version: 7, summary })
+  const approve = vi.fn().mockRejectedValueOnce(new BridgeClientError('响应丢失', 'TIMEOUT', true, 'renderer')).mockResolvedValueOnce({ candidateId: id, state: 'approved', version: 7, summary, skillId: id })
   const bridge = api({ discover: vi.fn().mockResolvedValue({ candidateId: id, state: 'awaiting_approval', version: 6, summary }), approve })
   render(<SkillImportWizard open onClose={vi.fn()} bridge={bridge} />)
   await discover()
   fireEvent.click(screen.getByRole('button', { name: '批准导入草稿' }))
   await screen.findByRole('alert')
   fireEvent.click(screen.getByRole('button', { name: '批准导入草稿' }))
-  await screen.findByText('技能已导入，可在技能中心查看当前状态。')
+  await screen.findByText(/技能已导入为草稿/)
   expect(approve.mock.calls[1][0]).toEqual(approve.mock.calls[0][0])
   expect(approve.mock.calls[1][1].attempt).toBe(approve.mock.calls[0][1].attempt)
 })
 
 it('shows an already committed import as completed after reopening', async () => {
-  const bridge = api({ discover: vi.fn().mockResolvedValue({ candidateId: id, state: 'approved', version: 7, summary }) })
+  const bridge = api({ discover: vi.fn().mockResolvedValue({ candidateId: id, state: 'approved', version: 7, summary, skillId: id }) })
   const onApproved = vi.fn()
   render(<SkillImportWizard open onClose={vi.fn()} onApproved={onApproved} bridge={bridge} />)
   await discover()
-  await screen.findByText('技能已导入，可在技能中心查看当前状态。')
+  await screen.findByText(/技能已导入为草稿/)
   expect(screen.queryByRole('button', { name: '批准导入草稿' })).toBeNull()
   expect(bridge.approve).not.toHaveBeenCalled()
   expect(onApproved).toHaveBeenCalledOnce()
+  expect(onApproved).toHaveBeenCalledWith(id)
 })

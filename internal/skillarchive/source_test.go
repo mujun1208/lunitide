@@ -48,7 +48,7 @@ func TestStandardSkillArchiveReadsPinnedSubdirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fetched != "https://codeload.github.com/acme/repo/zip/"+fixtureSHA || p.Name != "meeting-helper" || p.Description != "Summarize supplied notes into action items." || p.License != "unknown" || p.SkippedFiles != 1 || !strings.Contains(p.Prompt, "concise summary") {
+	if fetched != "https://codeload.github.com/acme/repo/zip/"+fixtureSHA || p.Name != "meeting-helper" || p.Description != "Summarize supplied notes into action items." || p.License != "unknown" || p.SkippedFiles != 0 || len(p.Files) != 2 || string(p.Files["scripts/unsafe.py"]) != "raise SystemExit('never run')" || !strings.Contains(p.Prompt, "concise summary") {
 		t.Fatalf("wrong source projection: %+v %s", p, fetched)
 	}
 	if p.ArchiveHash != hash(archive) {
@@ -80,6 +80,8 @@ func TestSkillArchiveRejectsUnsafeOrInvalidContent(t *testing.T) {
 		"traversal":                  {"repo/SKILL.md": fixtureSkill, "repo/../outside": "bad"},
 		"backslash":                  {"repo/SKILL.md": fixtureSkill, "repo/dir\\outside": "bad"},
 		"duplicate-case":             {"repo/SKILL.md": fixtureSkill, "repo/skill.md": fixtureSkill},
+		"windows-device":             {"repo/SKILL.md": fixtureSkill, "repo/CON.txt": "bad"},
+		"file-directory-conflict":    {"repo/SKILL.md": fixtureSkill, "repo/scripts": "file", "repo/scripts/work.py": "other"},
 		"missing-frontmatter":        {"repo/SKILL.md": "prompt only"},
 		"duplicate-yaml-key":         {"repo/SKILL.md": "---\nname: first\nname: second\ndescription: duplicate\n---\ntext"},
 		"oversize-prompt":            {"repo/SKILL.md": fixtureSkill + strings.Repeat("x", MaxPromptBytes)},

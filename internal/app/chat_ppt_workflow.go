@@ -43,6 +43,9 @@ const (
 )
 
 func looksLikePptTask(text string) bool {
+	if capabilityWorkTask(text) || officeMaterialReview(text) {
+		return false
+	}
 	t := strings.ToLower(strings.TrimSpace(text))
 	if t == "" || officeExpertIntroduction(text) || looksLikeStatusFollowUp(t) || looksLikeResume(t) {
 		return false
@@ -59,8 +62,14 @@ func looksLikePptTask(text string) bool {
 }
 
 func pptTaskFromRequest(req llmadapter.Request, goal string) bool {
+	if capabilityWorkTask(goal) || officeMaterialReview(goal) {
+		return false
+	}
 	if looksLikePptTask(goal) {
 		return true
+	}
+	if target := officeGenToolForGoal(goal); target != "" && target != "pptx.gen" {
+		return false
 	}
 	if officeExpertIntroduction(goal) || !expertMountedIn(req, "PPT专家", "ppt-expert") {
 		return false
@@ -95,18 +104,7 @@ func notePptTools(turn *chatTurnCheckpoint, names []string) {
 	if turn == nil || !turn.PptActive {
 		return
 	}
-	for _, name := range names {
-		seen := false
-		for _, existing := range turn.PptTools {
-			if existing == name {
-				seen = true
-				break
-			}
-		}
-		if !seen {
-			turn.PptTools = append(turn.PptTools, name)
-		}
-	}
+	turn.PptTools = append(turn.PptTools, names...)
 	turn.PptStage = inferPptStage(turn)
 }
 
@@ -116,6 +114,9 @@ func inferPptStage(turn *chatTurnCheckpoint) string {
 	}
 	if pptHasGen(turn) {
 		return pptStageGenerate
+	}
+	if lookupOptedOut(turn.Goal) || referenceOnlyOfficeTurn(turn.Goal) {
+		return pptStageWrite
 	}
 	web := pptWebPasses(turn)
 	hasTodo := false
@@ -236,13 +237,22 @@ func startPptWorkflow(req *llmadapter.Request, turn *chatTurnCheckpoint, send fu
 		return
 	}
 	if turn.PptActive {
-		injectPptPipelineOnce(req)
+		if lookupOptedOut(turn.Goal) || referenceOnlyOfficeTurn(turn.Goal) {
+			req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: referenceOfficeInstruction})
+		} else {
+			injectPptPipelineOnce(req)
+		}
 		return
 	}
 	if !pptTaskFromRequest(*req, turn.Goal) {
 		return
 	}
 	turn.PptActive = true
+	if lookupOptedOut(turn.Goal) || referenceOnlyOfficeTurn(turn.Goal) {
+		turn.PptStage = pptStageWrite
+		req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: referenceOfficeInstruction})
+		return
+	}
 	if turn.PptStage == "" {
 		turn.PptStage = pptStageClarify
 	}
@@ -271,7 +281,11 @@ func nudgePptWorkflow(req *llmadapter.Request, turn *chatTurnCheckpoint, send fu
 	turn.PptStage = stage
 	_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: pptThinkingBanner(stage)}})
 	if req != nil {
-		req.Messages = append(req.Messages, pptStageNudge(stage))
+		nudge := pptStageNudge(stage)
+		if lookupOptedOut(turn.Goal) || referenceOnlyOfficeTurn(turn.Goal) {
+			nudge.Content = referenceOfficeInstruction
+		}
+		req.Messages = append(req.Messages, nudge)
 	}
 	return true
 }

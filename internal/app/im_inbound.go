@@ -253,7 +253,11 @@ func (e *Engine) parkInboundMessage(ctx context.Context, idempotencyKey string, 
 }
 
 func (e *Engine) ensurePersonalChatProject(ctx context.Context) (string, error) {
-	items, err := e.projects.List(ctx, project.Filter{})
+	orgID, _, err := e.boundOrgState(ctx)
+	if err != nil {
+		return "", err
+	}
+	items, err := e.projects.List(ctx, project.Filter{OrgID: orgID})
 	if err != nil {
 		return "", err
 	}
@@ -266,8 +270,12 @@ func (e *Engine) ensurePersonalChatProject(ctx context.Context) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	created, err := e.projects.Create(ctx, "im-inbound-personal", "im-inbound", map[string]string{"name": name}, project.Project{
-		Name: name, Type: project.TypeImplementation, Status: project.StatusCreated,
+	scopeKey := orgID
+	if scopeKey == "" {
+		scopeKey = "personal"
+	}
+	created, err := e.projects.Create(ctx, "personal-chat:"+scopeKey, "im-inbound", map[string]string{"name": name, "orgId": orgID}, project.Project{
+		Name: name, Type: project.TypeImplementation, Status: project.StatusCreated, OrgID: orgID,
 	})
 	if err != nil {
 		return "", err

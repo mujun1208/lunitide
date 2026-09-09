@@ -139,9 +139,13 @@ func startAttachmentChat(t *testing.T, store *chatAttachmentStore, contextRefs s
 }
 
 func startAttachmentChatWithFiles(t *testing.T, store *chatAttachmentStore, files chatAttachmentFiles, contextRefs string) (bridge.Response, <-chan llmadapter.Request) {
+	return startAttachmentChatUsingReader(t, store, files, contextRefs, chatAttachmentReader{})
+}
+
+func startAttachmentChatUsingReader(t *testing.T, store *chatAttachmentStore, files chatAttachmentFiles, contextRefs string, reader contextapp.Reader) (bridge.Response, <-chan llmadapter.Request) {
 	t.Helper()
 	requests := make(chan llmadapter.Request, 1)
-	e := NewEngineWithContextReader(chatAttachmentProvider{}, nil, nil, nil, chatAttachmentReader{}, nil, "test", streamTestLease{})
+	e := NewEngineWithContextReader(chatAttachmentProvider{}, nil, nil, nil, reader, nil, "test", streamTestLease{})
 	e.SetAttachmentService(attachmentapp.NewService(store, files))
 	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return chatAttachmentAdapter{requests: requests}, nil

@@ -33,6 +33,30 @@ func TestResolveMediaPlayArgsUsesSessionMusicApp(t *testing.T) {
 	}
 }
 
+func TestMediaPlayNeverInheritsDocumentAndCurrentNamedPlayerWins(t *testing.T) {
+	runtime, err := toolruntime.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { runtime.Close() })
+	e := &Engine{tools: runtime}
+	e.saveCompanionContext("s1", companionActionContext{ActiveAppName: "企业AI智能助手.txt", Kind: "app"})
+	raw := e.resolveMediaPlayArgs("s1", json.RawMessage(`{"target":"foreground","query":"热门"}`))
+	if strings.Contains(string(raw), ".txt") {
+		t.Fatalf("document inherited as music player: %s", raw)
+	}
+	e.saveCompanionContext("s1", companionActionContext{ActiveAppName: "网易云音乐", Kind: "music_app"})
+	goal := "帮我打开汽水音乐，随机播放一首歌曲"
+	raw, ok := e.companionAutoMediaPlayArgs("s1", goal)
+	if !ok || !strings.Contains(string(raw), "汽水音乐") || strings.Contains(string(raw), "网易云") {
+		t.Fatalf("old player overrides current goal: %s", raw)
+	}
+	raw = mediaArgsForGoal(goal, json.RawMessage(`{"app":"网易云音乐","target":"netease","query":"热门"}`))
+	if !strings.Contains(string(raw), "汽水音乐") || !strings.Contains(string(raw), "foreground") {
+		t.Fatalf("model target drift: %s", raw)
+	}
+}
+
 func TestResolveMediaPlayArgsKeepsEmptyQueryForResume(t *testing.T) {
 	root := t.TempDir()
 	tools, err := toolruntime.New(root)
@@ -254,6 +278,11 @@ func TestCompanionSessionInjection(t *testing.T) {
 	}
 	if !strings.Contains(got, "不要带 query") {
 		t.Fatalf("injection must tell the model resume play has no query: %q", got)
+	}
+	for _, newTask := range []string{"今天沪深指数怎么样", "打开桌面企业 AI 智能助手文档", "在文档最后输入号码"} {
+		if injection := e.companionSessionInjection("s1", newTask); injection != "" {
+			t.Fatalf("old player instructions leaked into %q: %s", newTask, injection)
+		}
 	}
 }
 

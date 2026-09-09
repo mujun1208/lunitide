@@ -24,6 +24,10 @@ func (e *Engine) authorizeAutomationJob(ctx context.Context, request bridge.Requ
 	}
 	release, err := e.authorizeAutomationSession(ctx, job.SessionID)
 	if err != nil {
+		if !dataScopeAccessError(err) {
+			r := request.Fail("DATA_SCOPE_UNAVAILABLE", "任务所属范围暂时无法确认，请重试", true)
+			return nil, &r
+		}
 		r := request.Fail("DATA_SCOPE_DENIED", "当前组织无法访问该自动化任务", false)
 		return nil, &r
 	}

@@ -179,10 +179,12 @@ func dialogContextJSON(words []string) string {
 
 func fullClientRequest(cfg Config) map[string]any {
 	req := map[string]any{
-		"model_name":      DefaultModelName,
-		"enable_itn":      true,
-		"enable_punc":     true,
-		"enable_ddc":      true,
+		"model_name":  DefaultModelName,
+		"enable_itn":  true,
+		"enable_punc": true,
+		// Keep spoken corrections and repetitions in the transcript. Provider
+		// semantic smoothing may delete these; summaries are a separate layer.
+		"enable_ddc":      false,
 		"show_utterances": true,
 		"result_type":     "full",
 		"end_window_size": cfg.endWindowMS(),

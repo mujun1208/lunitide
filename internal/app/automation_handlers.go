@@ -258,7 +258,9 @@ func handleAutomationRunList(e *Engine, ctx context.Context, r bridge.Request) b
 	if p.Limit < 1 || p.Limit > 100 {
 		p.Limit = 50
 	}
-	runs, err := e.automation.Store().ListRuns(p.JobID, p.Limit)
+	// Scope and latest-state selection precede the visible limit. Otherwise
+	// another organization's newer executions can hide this scope's history.
+	runs, err := e.automation.Store().LatestRuns(p.JobID)
 	if err != nil {
 		return r.Fail("AUTOMATION_STORE_FAILED", "运行历史读取失败", true)
 	}
@@ -278,13 +280,8 @@ func handleAutomationRunList(e *Engine, ctx context.Context, r bridge.Request) b
 		OutcomeUnknown bool        `json:"outcomeUnknown,omitempty"`
 		Cancelled      bool        `json:"cancelled,omitempty"`
 	}
-	out := make([]runView, 0, len(runs))
-	seen := map[string]bool{}
+	out := make([]runView, 0, min(len(runs), p.Limit))
 	for _, run := range runs {
-		if seen[run.ID] {
-			continue
-		}
-		seen[run.ID] = true
 		if run.SessionID != "" {
 			scope, err := e.authorizeAutomationSession(ctx, run.SessionID)
 			if err != nil {
@@ -318,6 +315,9 @@ func handleAutomationRunList(e *Engine, ctx context.Context, r bridge.Request) b
 			v.FinishedAt = run.FinishedAt.UTC().Format(time.RFC3339)
 		}
 		out = append(out, v)
+		if len(out) == p.Limit {
+			break
+		}
 	}
 	return r.Ok(map[string]any{"runs": out})
 }

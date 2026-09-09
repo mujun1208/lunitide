@@ -378,6 +378,22 @@ func TestValidateEventDiscriminatedUnion(t *testing.T) {
 			e.Type = bridge.EventUsage
 			e.Usage = &bridge.UsageEvent{InputTokens: 2, OutputTokens: 3, TotalTokens: 20}
 		}, true},
+		{"usage cache counters", func(e *bridge.Event) {
+			e.Type = bridge.EventUsage
+			e.Usage = &bridge.UsageEvent{InputTokens: 100, OutputTokens: 3, TotalTokens: 103, CachedInputTokens: 80, CacheWriteInputTokens: 10, CacheUsageReported: true}
+		}, true},
+		{"usage partial cache counters", func(e *bridge.Event) {
+			e.Type = bridge.EventUsage
+			e.Usage = &bridge.UsageEvent{InputTokens: 100, OutputTokens: 3, TotalTokens: 103, CachedInputTokens: 80}
+		}, true},
+		{"usage cache exceeds input", func(e *bridge.Event) {
+			e.Type = bridge.EventUsage
+			e.Usage = &bridge.UsageEvent{InputTokens: 100, OutputTokens: 3, TotalTokens: 103, CachedInputTokens: 80, CacheWriteInputTokens: 21, CacheUsageReported: true}
+		}, false},
+		{"usage negative cache", func(e *bridge.Event) {
+			e.Type = bridge.EventUsage
+			e.Usage = &bridge.UsageEvent{InputTokens: 100, OutputTokens: 3, TotalTokens: 103, CachedInputTokens: -1}
+		}, false},
 		{"tool started", func(e *bridge.Event) {
 			e.Type = bridge.EventToolStarted
 			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "workspace.read", ArgsDigest: strings.Repeat("a", 64)}

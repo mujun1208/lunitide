@@ -644,7 +644,9 @@ func TestMessageOpenFailsClosedWhenConsistentProjectUsageExceedsQuota(t *testing
 		t.Fatal(err)
 	}
 	used := message.ProjectTextQuotaBytes + 8192
-	text := strings.Repeat("😀", message.MaxRunes)
+	// Keep this historical quota fixture at 8192 bytes per message; the
+	// admitted user input maximum may evolve independently.
+	text := strings.Repeat("😀", 2048)
 	tx, err := s.db.Begin()
 	if err != nil {
 		t.Fatal(err)

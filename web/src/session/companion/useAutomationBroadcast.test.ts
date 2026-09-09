@@ -29,9 +29,9 @@ const renderBroadcast = (options: {
   runs: () => Run[]
   enabled?: boolean
   idle?: () => boolean
-  onBroadcast?: ReturnType<typeof vi.fn>
+  onBroadcast?: import('vitest').Mock<(text: string) => void>
 }) => {
-  const onBroadcast: ReturnType<typeof vi.fn> = options.onBroadcast ?? vi.fn()
+  const onBroadcast: import('vitest').Mock<(text: string) => void> = options.onBroadcast ?? vi.fn()
   const bridge = makeBridge(options.runs)
   const utils = renderHook(() =>
     useAutomationBroadcast({
@@ -45,7 +45,7 @@ const renderBroadcast = (options: {
   return { ...utils, bridge, onBroadcast }
 }
 
-const awaitBaseline = async (onBroadcast: ReturnType<typeof vi.fn>) => {
+const awaitBaseline = async (onBroadcast: import('vitest').Mock<(text: string) => void>) => {
   await waitFor(() => expect(onBroadcast).not.toHaveBeenCalled())
 }
 

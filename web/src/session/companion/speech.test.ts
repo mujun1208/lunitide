@@ -379,9 +379,9 @@ describe('replacing a recognizer that is hearing speech but returning nothing', 
     expect(shouldReplaceSilentRecognizer({ ...silent, msSinceLastRestart: 100 })).toBe(false)
   })
 
-  test('acts well before the stall timer it used to depend on', () => {
-    expect(VOICE_RESTART_RESULT_MS).toBeLessThan(STALL_RESTART_AFTER_MS)
-    expect(VOICE_WITHOUT_TEXT_MS).toBeLessThan(STALL_RESTART_AFTER_MS)
+  test('gives first-token recognition longer than the idle-only stall timer', () => {
+    expect(VOICE_RESTART_RESULT_MS).toBeGreaterThanOrEqual(STALL_RESTART_AFTER_MS)
+    expect(VOICE_WITHOUT_TEXT_MS).toBeGreaterThanOrEqual(STALL_RESTART_AFTER_MS)
   })
 })
 
@@ -393,9 +393,9 @@ describe('when the user has finished speaking', () => {
     incomplete: false,
   }
 
-  test('the product window is 1.2s after they stop talking', () => {
-    expect(TURN_END_SILENCE_MS).toBe(1200)
-    expect(TURN_END_INCOMPLETE_SILENCE_MS).toBe(1500)
+  test('the product window protects a natural pause after they stop talking', () => {
+    expect(TURN_END_SILENCE_MS).toBe(1800)
+    expect(TURN_END_INCOMPLETE_SILENCE_MS).toBe(2800)
     expect(TURN_END_SILENCE_MS).toBeLessThanOrEqual(TURN_END_INCOMPLETE_SILENCE_MS)
     expect(FORCE_COMMIT_MS).toBeGreaterThan(TURN_END_SILENCE_MS)
     expect(FORCE_COMMIT_MS).toBeLessThan(2700)
@@ -489,8 +489,8 @@ describe('when the user has finished speaking', () => {
     })).toBe(true)
   })
 
-  test('incomplete endings wait 1.5s before commit', () => {
-    expect(TURN_END_INCOMPLETE_SILENCE_MS).toBe(1500)
+  test('incomplete endings wait longer before commit', () => {
+    expect(TURN_END_INCOMPLETE_SILENCE_MS).toBe(2800)
   })
 
   test('does not hard-commit an incomplete caption on a short breath', () => {

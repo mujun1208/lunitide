@@ -111,8 +111,8 @@ func TestMessageBridgeAppendTextBoundaries(t *testing.T) {
 	e, _, sessionID, _ := messageEngine(t)
 	for i, text := range []string{
 		"a",
-		strings.Repeat("a", 2048),
-		strings.Repeat("😀", 2048),
+		strings.Repeat("a", message.MaxRunes),
+		strings.Repeat("😀", message.MaxRunes),
 		"  hello\r\nworld\rtest  ",
 	} {
 		textJSON, _ := json.Marshal(text)
@@ -125,8 +125,8 @@ func TestMessageBridgeAppendTextBoundaries(t *testing.T) {
 	}
 	for _, text := range []string{
 		"",
-		strings.Repeat("a", 2049),
-		strings.Repeat("😀", 2048) + "a",
+		strings.Repeat("a", message.MaxRunes+1),
+		strings.Repeat("😀", message.MaxRunes) + "a",
 		"a\x00b",
 	} {
 		r := validRequest("message.append", fmt.Sprintf(`{"sessionId":"%s","text":%q}`, sessionID, text))

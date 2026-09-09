@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { BARGE_IN_ARM_MS, ENDPOINT_BACKSTOP_MS } from './volcSpeech'
-import { INCOMPLETE_HARD_MS } from '../speech'
+import { INCOMPLETE_HARD_MS, MEETING_TURN_END_SILENCE_MS, TURN_END_SILENCE_MS } from '../speech'
 
 const asr = {
   finish: vi.fn(),
@@ -58,21 +58,22 @@ afterEach(() => {
 })
 
 describe('startVolcCompanionSpeech', () => {
-  it('submits at 1.2s actual silence despite a late correction and a slow ASR flush', async () => {
+  it('preserves the caption while awaiting the final ASR flush', async () => {
     const stage = harness()
     let finish!: (value: string) => void
     asr.commit.mockReturnValueOnce(new Promise<string>(resolve => { finish = resolve }))
     const handle = await startVolcCompanionSpeech(stage.options, PROVIDER)
     onLevel(0.3)
     onTranscript('今天合肥天气怎么样？', false, true)
-    await vi.advanceTimersByTimeAsync(1140)
+    await vi.advanceTimersByTimeAsync(TURN_END_SILENCE_MS - 60)
     onTranscript('今天合肥市的天气怎么样？', false, true)
     expect(stage.onFinal).not.toHaveBeenCalled()
     await vi.advanceTimersByTimeAsync(60)
-    expect(stage.onFinal).toHaveBeenCalledExactlyOnceWith('今天合肥市的天气怎么样？')
-    expect(asr.commit).toHaveBeenCalledWith({ useStreamed: true })
+    expect(stage.onFinal).not.toHaveBeenCalled()
+    expect(asr.commit).toHaveBeenCalledWith()
     finish('怎么样？')
     await vi.advanceTimersByTimeAsync(100)
+    expect(stage.onFinal).toHaveBeenCalledExactlyOnceWith('今天合肥市的天气怎么样？')
     expect(stage.onFinal).toHaveBeenCalledTimes(1)
     handle.stop()
   })
@@ -89,7 +90,7 @@ describe('startVolcCompanionSpeech', () => {
         onLevel(0.3)
       }
       expect(stage.onFinal).toHaveBeenCalledTimes(previousCalls)
-      await vi.advanceTimersByTimeAsync(1140)
+      await vi.advanceTimersByTimeAsync(TURN_END_SILENCE_MS - 120)
       expect(stage.onFinal).toHaveBeenCalledTimes(previousCalls)
       await vi.advanceTimersByTimeAsync(120)
       expect(stage.onFinal).toHaveBeenLastCalledWith(text)
@@ -103,9 +104,9 @@ describe('startVolcCompanionSpeech', () => {
     const handle = await startVolcCompanionSpeech({ ...stage.options, holdUtterance: true }, PROVIDER)
     onLevel(0.3)
     onTranscript('今天合肥天气怎么样？', true, true)
-    await vi.advanceTimersByTimeAsync(1260)
+    await vi.advanceTimersByTimeAsync(MEETING_TURN_END_SILENCE_MS - 120)
     expect(stage.onFinal).not.toHaveBeenCalled()
-    await vi.advanceTimersByTimeAsync(1000)
+    await vi.advanceTimersByTimeAsync(120)
     expect(stage.onFinal).toHaveBeenCalledExactlyOnceWith('今天合肥天气怎么样？')
     expect(asr.commit).toHaveBeenCalledWith()
     handle.stop()
@@ -121,7 +122,7 @@ describe('startVolcCompanionSpeech', () => {
     expect(stage.onFinal).not.toHaveBeenCalled()
 
     onTranscript('今天天气很好', true)
-    await vi.advanceTimersByTimeAsync(220)
+    await vi.advanceTimersByTimeAsync(TURN_END_SILENCE_MS + 100)
     expect(stage.onFinal).toHaveBeenCalledWith('今天天气很好')
   })
 
@@ -215,6 +216,21 @@ describe('startVolcCompanionSpeech', () => {
     asr.commit.mockResolvedValue(complete)
     await handle.flush?.()
     expect(stage.onFinal).toHaveBeenCalledExactlyOnceWith(complete)
+    handle.stop()
+  })
+
+  it('keeps a full interruption that locally overlaps the spoken reply', async () => {
+    const onBargeIn = vi.fn()
+    const stage = harness()
+    stage.say('点不到热门，我换个推荐列表试试。')
+    const handle = await startVolcCompanionSpeech(
+      { ...stage.options, bargeIn: () => true, onBargeIn },
+      PROVIDER,
+    )
+    handle.setAssistantPlayback(true)
+    await vi.advanceTimersByTimeAsync(BARGE_IN_ARM_MS + 20)
+    onTranscript('点不到热门就点击播放按钮', false)
+    expect(onBargeIn).toHaveBeenCalledExactlyOnceWith('点不到热门就点击播放按钮')
     handle.stop()
   })
 

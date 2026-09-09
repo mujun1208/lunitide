@@ -3,7 +3,7 @@
 // boundary and folds it into the current turn; the renderer also
 // prepares leftover rows after a stream settles using durable delivery receipts.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { BridgeClientError, runQueueBridge } from '../bridge/client'
+import { BridgeClientError, runQueueBridge, type RunQueueBridge } from '../bridge/client'
 import { FOLLOW_UP_QUEUE_NOTICE } from './turnControl'
 import { ENGINE_RECOVERED_EVENT } from '../bridge/engineHealth'
 import type { RunQueueListResult } from '../generated/bridge'
@@ -11,8 +11,16 @@ import type { RunQueueListResult } from '../generated/bridge'
 export type QueueDelivery = NonNullable<RunQueueListResult['delivery']>
 type QueueSender = (text: string, deliveryId: string) => unknown | Promise<unknown>
 const QUEUE_READ_FAILED = '补充输入状态暂时无法读取，请重试核对'
+type EnqueueAttempt = { sessionId: string; officeTaskId?: string; text: string; requestId: string }
+const pendingAttempts = new WeakMap<RunQueueBridge, Map<string, EnqueueAttempt>>()
+function retainedAttempts(): Map<string, EnqueueAttempt> {
+  let attempts = pendingAttempts.get(runQueueBridge)
+  if (!attempts) { attempts = new Map(); pendingAttempts.set(runQueueBridge, attempts) }
+  return attempts
+}
 
 export interface QueuedItem {
+  officeTaskId?: string
   queuedId: string
   seq: number
   text: string
@@ -32,26 +40,32 @@ export interface InputQueueState {
   recoverDelivery: (send: QueueSender, action: 'resume' | 'dismiss') => Promise<void>
 }
 
-export function useInputQueue(sessionId: string, streaming = false): InputQueueState {
+export function useInputQueue(sessionId: string, streaming = false, officeTaskId?: string): InputQueueState {
   const [items, setItems] = useState<QueuedItem[]>([])
   const [notice, setNotice] = useState('')
   const [delivery, setDelivery] = useState<QueueDelivery>()
   const flushing = useRef<{ epoch: number } | undefined>(undefined)
-  const pendingEnqueue = useRef<{ sessionId: string; text: string; requestId: string } | undefined>(undefined)
+  const pendingEnqueue = useRef(retainedAttempts())
   const sessionRef = useRef(sessionId)
+  const officeRef = useRef(officeTaskId)
+  const scopeKey = `${sessionId}\0${officeTaskId ?? ''}`
+  const [loadedScope, setLoadedScope] = useState(scopeKey)
   const epoch = useRef(0)
   const mounted = useRef(true)
-  if (sessionRef.current !== sessionId) { sessionRef.current = sessionId; epoch.current++ }
+  if (sessionRef.current !== sessionId || officeRef.current !== officeTaskId) { sessionRef.current = sessionId; officeRef.current = officeTaskId; epoch.current++ }
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; epoch.current++ } }, [])
 
   const refresh = useCallback(async () => {
     const id = sessionRef.current
+    const task = officeRef.current
     const generation = epoch.current
     const current = () => mounted.current && generation === epoch.current && sessionRef.current === id
     if (!id) { setItems([]); setDelivery(undefined); return }
     try {
-      const r = await runQueueBridge.list({ sessionId: id })
+      const r = await runQueueBridge.list({ sessionId: id, ...(task ? { officeTaskId: task } : {}) })
       if (current()) {
+        assertQueueScope(task, r.items, r.delivery)
+        setLoadedScope(`${id}\0${task ?? ''}`)
         setItems(r.items); setDelivery(r.delivery)
         setNotice(previous => previous === QUEUE_READ_FAILED ? '' : previous)
       }
@@ -61,7 +75,7 @@ export function useInputQueue(sessionId: string, streaming = false): InputQueueS
   useEffect(() => {
     setItems([]); setNotice(''); setDelivery(undefined)
     void refresh()
-  }, [sessionId, refresh])
+  }, [sessionId, officeTaskId, refresh])
 
   useEffect(() => {
     const recovered = () => { void refresh() }
@@ -79,15 +93,17 @@ export function useInputQueue(sessionId: string, streaming = false): InputQueueS
     const trimmed = text.trim()
     if (!trimmed) return false
     const id = sessionRef.current
+    const task = officeRef.current, key = `${id}\0${task ?? ''}`
     const generation = epoch.current
     const current = () => mounted.current && generation === epoch.current && sessionRef.current === id
-    const request = pendingEnqueue.current?.sessionId === id && pendingEnqueue.current.text === trimmed
-      ? pendingEnqueue.current : { sessionId: id, text: trimmed, requestId: `ui-${crypto.randomUUID()}` }
-    pendingEnqueue.current = request
+    const prior = pendingEnqueue.current.get(key)
+    const request = prior?.text === trimmed ? prior : { sessionId: id, ...(task ? { officeTaskId: task } : {}), text: trimmed, requestId: `ui-${crypto.randomUUID()}` }
+    pendingEnqueue.current.set(key, request)
+    while (pendingEnqueue.current.size > 128) pendingEnqueue.current.delete(pendingEnqueue.current.keys().next().value!)
     try {
       await runQueueBridge.input(request)
       if (!current()) return false
-      pendingEnqueue.current = undefined
+      if (pendingEnqueue.current.get(key) === request) pendingEnqueue.current.delete(key)
       setNotice(FOLLOW_UP_QUEUE_NOTICE)
       await refresh()
       return true
@@ -99,9 +115,10 @@ export function useInputQueue(sessionId: string, streaming = false): InputQueueS
 
   const withdraw = useCallback(async (queuedId: string) => {
     const id = sessionRef.current, generation = epoch.current
+    const task = officeRef.current
     const current = () => mounted.current && generation === epoch.current && sessionRef.current === id
     try {
-      await runQueueBridge.withdraw({ sessionId: id, queuedId })
+      await runQueueBridge.withdraw({ sessionId: id, queuedId, ...(task ? { officeTaskId: task } : {}) })
       if (current()) setNotice('')
     } catch (e) {
       if (current()) setNotice(queueNotice(e))
@@ -112,6 +129,7 @@ export function useInputQueue(sessionId: string, streaming = false): InputQueueS
   const deliver = useCallback(async (send: QueueSender, action?: 'resume' | 'dismiss') => {
     if (flushing.current?.epoch === epoch.current) return
     const id = sessionRef.current
+    const task = officeRef.current
     const generation = epoch.current
     const current = () => mounted.current && generation === epoch.current && sessionRef.current === id
     if (!id) return
@@ -119,8 +137,10 @@ export function useInputQueue(sessionId: string, streaming = false): InputQueueS
     flushing.current = token
     try {
       const resolve = action && delivery && (action === 'dismiss' || delivery.state === 'unknown') ? { deliveryId: delivery.id, action } : {}
-      const r = await runQueueBridge.consume({ sessionId: id, ...resolve })
+      const r = await runQueueBridge.consume({ sessionId: id, ...resolve, ...(task ? { officeTaskId: task } : {}) })
       if (!current()) return
+      assertQueueScope(task, r.items, r.delivery)
+      setLoadedScope(`${id}\0${task ?? ''}`)
       setDelivery(r.delivery)
       if (!r.count) return
       if (r.delivery?.state === 'confirmed') { setNotice('已记录你的核对结果'); await refresh(); return }
@@ -143,7 +163,15 @@ export function useInputQueue(sessionId: string, streaming = false): InputQueueS
   const flushAfterStream = useCallback((send: QueueSender) => deliver(send), [deliver])
   const recoverDelivery = useCallback((send: QueueSender, action: 'resume' | 'dismiss') => deliver(send, action), [deliver])
 
-  return { items, notice, delivery, enqueue, withdraw, refresh, flushAfterStream, recoverDelivery }
+  return { items: loadedScope === scopeKey ? items : [], notice, delivery: loadedScope === scopeKey ? delivery : undefined, enqueue, withdraw, refresh, flushAfterStream, recoverDelivery }
+}
+
+function assertQueueScope(task: string | undefined, items: readonly { officeTaskId?: string }[], delivery?: QueueDelivery) {
+  const scope = task ?? ''
+  if (items.some(item => (item.officeTaskId ?? '') !== scope) ||
+      delivery?.items.some(item => (item.officeTaskId ?? '') !== scope) ||
+      (delivery?.officeTaskId !== undefined && delivery.officeTaskId !== scope))
+    throw new Error('补充输入与当前办公任务不一致，已保留记录，请重新读取。')
 }
 
 function queueNotice(e: unknown): string {

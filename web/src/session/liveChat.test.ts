@@ -3,6 +3,13 @@ import { applyLiveChatEvent, cancelLiveChatTurn, listActiveSessionIds, listActiv
 
 afterEach(resetLiveChatForTests)
 
+it('retains cache accounting when a view reconnects to a live turn', () => {
+  const entry = startLiveChat('usage-session', 'usage-turn')
+  const usage = {inputTokens:100,outputTokens:20,totalTokens:120,cachedInputTokens:30,cacheWriteInputTokens:10,cacheUsageReported:false}
+  applyLiveChatEvent(entry, {v:'1.0',kind:'event',id:'usage-event',streamId:'usage-stream',sequence:1,type:'usage',usage})
+  expect(entry.state.usage).toEqual(usage)
+})
+
 it('tracks multiple concurrent turns per session without cancelling siblings', () => {
   const a = startLiveChat('session-a', 'turn-1')
   const b = startLiveChat('session-a', 'turn-2')

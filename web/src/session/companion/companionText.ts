@@ -248,6 +248,12 @@ const INCOMPLETE_OPEN_GARBLE =
 /** Waiting for the filename: 「打开桌面上的」. */
 const INCOMPLETE_DESKTOP_WAITING =
   /(?:桌面上的|桌面的|桌面上)$/u
+/** A filename-only final is often the middle packet of an open/edit command. */
+const INCOMPLETE_DESKTOP_NOUN_FRAGMENT =
+  /^(?:桌面(?:上|上的|的)?)[^。！？?!]{2,}(?:文档|文件)$/u
+/** Windows may emit the tail of the same command as a separate final packet. */
+const INCOMPLETE_CONTINUATION_FRAGMENT =
+  /^(?:的(?:最后|末尾|第|里面|内容)|最后(?:一行|一页|一格)?|末尾(?:一行|一页)?|然后|接着|再(?:在|把|往|给))$/u
 /** App-name prefixes Windows often finals before the rest arrives. */
 const INCOMPLETE_APP_PREFIX =
   /(?:打开|启动|把开)(?:网易云|网易|汽水|qq|QQ)$/u
@@ -317,6 +323,8 @@ export function looksIncompleteUtterance(text: string): boolean {
   const compact = trimmed.replace(/\s+/g, '')
   if (INCOMPLETE_OPEN_GARBLE.test(compact)) return true
   if (INCOMPLETE_DESKTOP_WAITING.test(compact) && !/(?:协议|文档|文件)/.test(compact)) return true
+  if (INCOMPLETE_DESKTOP_NOUN_FRAGMENT.test(compact)) return true
+  if (INCOMPLETE_CONTINUATION_FRAGMENT.test(compact)) return true
   if (COMPLETE_OPEN_OBJECTS.test(compact)) return false
   if (COMPLETE_ACTION_ENDINGS.test(compact)) return false
   if (COMPLETE_TYPE_AFTER_LABEL.test(compact)) return false
@@ -421,7 +429,7 @@ export function companionToolProgressSpeech(activity?: string): string {
 // UX-05 #2: explicit subtitle state machine for a tool turn. The caption below
 // the glass bar moves 执行中 → 执行完成 / 执行失败 so a multi-tool / multi-round
 // loop always resolves to a terminal state instead of freezing on 执行中.
-export type CompanionToolPhase = 'running' | 'succeeded' | 'failed'
+export type CompanionToolPhase = 'running' | 'returned' | 'succeeded' | 'failed'
 
 /**
  * Render the subtitle status line for a tool phase (UX-05 #2). `detail` is the
@@ -429,6 +437,8 @@ export type CompanionToolPhase = 'running' | 'succeeded' | 'failed'
  * specific (e.g. "执行完成 · 已保存文件"). Pure and deterministic for tests.
  */
 export function companionToolPhaseCaption(phase: CompanionToolPhase, detail?: string): string {
+  if (phase === 'returned') return '操作已返回'
+  if (phase === 'succeeded' && /\bok\s*:\s*false\b|"ok"\s*:\s*false|COMPUTER_STALE_FRAME|M10-CC-008|无法执行/.test(detail ?? '')) phase = 'failed'
   const label = phase === 'running' ? '执行中…' : phase === 'succeeded' ? '执行完成' : '执行失败'
   const text = stripTaskDonePhrases(detail ?? '')
     .replace(/中[….…]+$/u, '')
@@ -698,6 +708,18 @@ function looksLikeShortPlaybackEcho(heard: string, spoken: string): boolean {
   return false
 }
 
+/** A long ASR correction can differ from TTS by a few glyphs while preserving
+ * most neighbouring pairs. A single shared phrase is not enough: commands
+ * spoken over the reply commonly reuse words such as "打开" or "按钮". */
+function playbackEchoPairCoverage(heard: string, spoken: string): number {
+  if (heard.length < 2) return 0
+  let matched = 0
+  for (let i = 0; i < heard.length - 1; i++) {
+    if (spoken.includes(heard.slice(i, i + 2))) matched++
+  }
+  return matched / (heard.length - 1)
+}
+
 /**
  * True when the recognizer almost certainly heard our own TTS playback
  * (speaker → microphone loop) rather than a new user utterance.
@@ -710,14 +732,13 @@ export function looksLikePlaybackEcho(heard: string, spoken: string): boolean {
   const recent = b.slice(-Math.max(a.length + 48, 160))
   // Laptop speaker bleed often comes back as a short fragment of the last line.
   if (a.length >= 2 && recent.includes(a)) return true
-  if (recent.length >= 4 && recent.length <= a.length + 2 && a.includes(recent)) return true
-  const window = Math.min(6, a.length)
-  if (window >= 4) {
-    for (let i = 0; i <= a.length - window; i++) {
-      if (recent.includes(a.slice(i, i + window))) return true
-    }
-  }
-  return looksLikeShortPlaybackEcho(a, recent)
+  // A longer caption containing the reply plus meaningful new words is a
+  // mixed speaker/user capture. Treating it as pure echo loses the user's
+  // interruption and leaves only a late tail such as "按钮".
+  if (recent.length >= 4 && a.includes(recent)) return a.length <= recent.length + 2
+  if (looksLikeShortPlaybackEcho(a, recent)) return true
+  if (a.length <= 6 || a.length > recent.length + 2) return false
+  return playbackEchoPairCoverage(a, recent) >= 0.72
 }
 
 /**

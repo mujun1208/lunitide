@@ -31,8 +31,8 @@ import { pickTranscriptRevision } from './transcriptRevision'
 const TICK_MS = 60
 
 /**
- * Reached only if the engine never reports an endpoint. Sized just above the
- * incomplete hard ceiling so a stuck recognizer still commits, not mid-breath.
+ * Bounded engine-endpoint backstop. Incomplete text still obeys the shared
+ * hard ceiling before it can be committed.
  */
 export const ENDPOINT_BACKSTOP_MS = 2300
 
@@ -80,7 +80,6 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
   let bargedThisPlayback = false
   let playbackStartedAt = 0
   let guardUntil = 0
-  let unmuteTimer = 0
   let commitPaused = false
   let recycling = false
   let pendingEvaluate = false
@@ -101,7 +100,6 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
   const teardown = () => {
     closed = true
     window.clearInterval(ticker)
-    window.clearTimeout(unmuteTimer)
     asr?.cancel()
     asr = undefined
     options.onLevels?.(silentBars())
@@ -118,27 +116,19 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
    * the companion's own voice coming back through the microphone, which must
    * reset the recognizer without ever reaching the stage.
    */
-  const recycle = async (emit: 'final' | false, readyAtVoiceDeadline = false) => {
+  const recycle = async (emit: 'final' | false) => {
     if (!asr || closed || recycling) return
     recycling = true
     const carried = text.trim()
+    let commitTimer = 0
     try {
       let settled = ''
       try {
-        if (readyAtVoiceDeadline) {
-          // Submit the complete streamed sentence now. Retire/flush the ASR
-          // session concurrently; a slow finish/refiner cannot delay the model.
-          const finishing = asr.commit({ useStreamed: true })
-          resetUtterance()
-          options.onFinal(carried)
-          void finishing.catch(error => { if (!closed) fail(error) })
-          return
-        }
         settled = (
           await Promise.race([
             asr.commit(),
-            new Promise<string>(resolve => {
-              window.setTimeout(() => resolve(''), 4000)
+            new Promise<string>((_resolve, reject) => {
+              commitTimer = window.setTimeout(() => reject(new Error('语音识别收尾超时，本句未提交，请重试。')), 15000)
             }),
           ])
         ).trim()
@@ -163,6 +153,7 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
         resetUtterance()
       }
     } finally {
+      window.clearTimeout(commitTimer)
       recycling = false
       if (pendingEvaluate) {
         pendingEvaluate = false
@@ -173,7 +164,7 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
     }
   }
 
-  /** Complete voice turns end after 1.2s of actual silence, without adding
+  /** Complete voice turns end after the shared actual-silence window, without adding
    * a second text/refiner wait. Meetings keep the longer hold. Without an
    * energy sample, the existing stable-text backstop remains available. */
   const evaluate = () => {
@@ -189,7 +180,7 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
     const incomplete = looksIncompleteUtterance(trimmed)
     const silentForMs = lastVoiceAt ? now - lastVoiceAt : undefined
     if (completeCaptionAtVoiceDeadline({ holdUtterance, silentForMs, incomplete })) {
-      void recycle('final', true)
+      void recycle('final')
       return
     }
     // With a real energy clock, an ordinary breath is still this sentence.
@@ -248,7 +239,9 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
       // normal final and skip the echo filter the stage already applies.
       if (playback || commitPaused) {
         if (playback) considerBargeIn(next)
-        return
+        // The stage synchronously releases playback on barge-in. Retain the
+        // triggering hypothesis and wait for the normal sentence endpoint.
+        if (playback || commitPaused) return
       }
       const trimmed = next.trim()
       if (!trimmed) return
@@ -330,15 +323,9 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
       // boundary, which is the cold start after she speaks. Mute still drops
       // frames (or barge-in leaves them flowing). The utterance buffer is
       // cleared so her last words cannot become the next turn.
-      window.clearTimeout(unmuteTimer)
-      if (active) {
-        asr?.setMuted(!listenThrough)
-      } else {
-        asr?.setMuted(true)
-        unmuteTimer = window.setTimeout(() => {
-          if (!closed) asr?.setMuted(false)
-        }, echoGuardMs)
-      }
+      // Guard endpointing, not capture: users often speak the instant TTS
+      // stops. Muting here permanently discards their first syllables.
+      asr?.setMuted(active && !listenThrough)
       resetUtterance()
     },
     forceCommit: (fallback?: string) => {
@@ -372,11 +359,10 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
     flush: () => recycle('final'),
     pulseRecognition: () => {
       if (closed || playback || commitPaused) return
-      if (text.trim()) {
-        void recycle('final')
-        return
-      }
-      void asr?.restart()
+      if (lastVoiceAt && Date.now() - lastVoiceAt < windows.silenceMs) return
+      if (text.trim()) { evaluate(); return }
+      // Ask the decoder for the captured utterance before discarding it.
+      void recycle('final')
     },
     resumeCapture: () => {
       if (closed) return

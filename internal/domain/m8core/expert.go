@@ -40,6 +40,13 @@ const (
 	ExpertSourceBuiltin = "builtin"
 )
 
+const (
+	ExpertOriginManual  = "manual"
+	ExpertOriginBuiltin = "builtin"
+	ExpertOriginCatalog = "catalog"
+	ExpertOriginLegacy  = "legacy"
+)
+
 // The M7 closed eight-skeleton division whitelist.
 const (
 	DivisionEngineering       = "engineering"
@@ -106,6 +113,8 @@ type ExpertCatalog struct {
 	Source           string
 	OriginBundleID   string
 	CatalogItemID    string
+	CreationOrigin   string
+	DeletedAt        string
 	CurrentVersionID string
 	State            string
 	CreatedAt        string

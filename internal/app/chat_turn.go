@@ -36,6 +36,7 @@ type chatTurnCheckpoint struct {
 	QueueDeliveries []string                  `json:"queueDeliveries,omitempty"`
 	LastTools       []string                  `json:"lastTools,omitempty"`
 	ToolFailed      bool                      `json:"toolFailed,omitempty"`
+	CapabilityWork  bool                      `json:"capabilityWork,omitempty"`
 	PptActive       bool                      `json:"pptActive,omitempty"`
 	PptStage        string                    `json:"pptStage,omitempty"`
 	PptTools        []string                  `json:"pptTools,omitempty"`

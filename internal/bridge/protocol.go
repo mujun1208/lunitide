@@ -132,9 +132,12 @@ type ThinkingEvent struct {
 	Text string `json:"text"`
 }
 type UsageEvent struct {
-	InputTokens  int `json:"inputTokens"`
-	OutputTokens int `json:"outputTokens"`
-	TotalTokens  int `json:"totalTokens"`
+	InputTokens           int  `json:"inputTokens"`
+	OutputTokens          int  `json:"outputTokens"`
+	TotalTokens           int  `json:"totalTokens"`
+	CachedInputTokens     int  `json:"cachedInputTokens,omitempty"`
+	CacheWriteInputTokens int  `json:"cacheWriteInputTokens,omitempty"`
+	CacheUsageReported    bool `json:"cacheUsageReported,omitempty"`
 }
 type CompletedEvent struct {
 	MessageID     string `json:"messageId,omitempty"`

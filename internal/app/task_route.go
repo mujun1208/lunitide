@@ -65,7 +65,7 @@ func classifyTaskRoute(goal string, companion, ccEnabled bool) (TaskRoute, map[s
 	if containsAnyFold(goal, lower, infoQueryHints) {
 		merge(routeAllow(RouteR1, ccEnabled))
 	}
-	if containsAnyFold(goal, lower, genHints) {
+	if containsAnyFold(goal, lower, genHints) || wantsOfficeGen(goal) || mediaGenerationKind(goal) != "" {
 		merge(routeAllow(RouteR4, ccEnabled))
 	}
 	if containsAnyFold(goal, lower, []string{"发送", "发给", "发消息", "告诉", "回复", "转发", "send", "message"}) {
@@ -90,11 +90,20 @@ func detectTaskRoute(goal string) TaskRoute {
 	namedApp := containsAnyFold(t, lower, namedLocalAppHints)
 	browserLookup := containsAnyFold(t, lower, browserLookupHints)
 	site := containsAnyFold(t, lower, siteHints)
-	gen := containsAnyFold(t, lower, genHints)
+	gen := containsAnyFold(t, lower, genHints) || wantsOfficeGen(t) || mediaGenerationKind(t) != ""
 	play := containsAnyFold(t, lower, playHints)
 	open := containsAnyFold(t, lower, openHints)
+	if open && containsAnyFold(t, lower, browserAppHints) && containsAnyFold(t, lower, []string{"桌面", "默认浏览器", "default browser", "desktop browser"}) {
+		return RouteR2
+	}
+	if namedApp && containsAnyFold(t, lower, []string{"退出", "关闭", "quit", "exit"}) {
+		return RouteR2
+	}
 
 	if info && namedApp {
+		return RouteR2
+	}
+	if info && open && (containsAnyFold(t, lower, browserAppHints) || containsAnyFold(t, lower, []string{"桌面", "本机", "文件", "文档"})) {
 		return RouteR2
 	}
 	if info && browserLookup {
@@ -142,7 +151,7 @@ func routeAllow(route TaskRoute, ccEnabled bool) map[string]bool {
 		}
 	case RouteR2:
 		allow := map[string]bool{
-			"desktop.open": true, "desktop.type": true, "media.play": true,
+			"desktop.open": true, "desktop.type": true, "desktop.quit": true, "desktop.browse": true, "media.play": true,
 			"excel.parse": true, "excel.gen": true, "docx.gen": true,
 			"pptx.gen": true, "pdf.gen": true, "html.gen": true,
 			"user.ask": true,

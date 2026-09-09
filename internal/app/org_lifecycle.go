@@ -29,6 +29,9 @@ func (e *Engine) boundOrgState(ctx context.Context) (string, string, error) {
 }
 
 func dataScopedMethod(method string) bool {
+	if strings.HasPrefix(method, "office.") {
+		return true
+	}
 	if strings.HasPrefix(method, "org.space.") || strings.HasPrefix(method, "org.member.") {
 		return true
 	}
@@ -57,6 +60,10 @@ func organizationWriteAllowed(state, method string) bool {
 		return !mroMutation(method)
 	}
 	switch method {
+	case "office.storage.usage", "office.task.list", "office.task.get", "office.artifact.preview", "office.artifact.chart", "office.artifact.diff", "office.artifact.readChunk", "office.renderer.probe", "office.task.cancel", "office.artifact.export", "office.artifact.open":
+		return true
+	case "office.metric.list", "office.bundle.list", "office.bundle.export":
+		return true
 	case "org.space.list", "org.member.list", "org.member.revoke":
 		return true
 	case "project.list", "project.get", "session.list", "session.get", "session.experts.get", "session.metadata.get", "session.folder.get", "session.folder.list", "session.folder.open",

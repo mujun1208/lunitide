@@ -4,7 +4,7 @@ import{isColleagueChatTitle,isPlaceholderChatTitle}from'../session/sessionTitle'
 
 export const PERSONAL_CHAT_PROJECT='⁣月汐·普通对话'
 export const PERSONAL_CHAT_PROJECT_ID_KEY='lunitide:personal-chat-project-id'
-export const validPrompt=(value:string)=>value.length>0&&!value.includes('\0')&&Array.from(value).length<=2048&&new TextEncoder().encode(value).length<=8192
+export {validMessageText as validPrompt} from '../session/messageLimits'
 export const isOrdinarySidebarChat=(title:string)=>!isPlaceholderChatTitle(title)&&!isColleagueChatTitle(title)
 export const formatBytes=(n:number)=>n<1024?`${n} B`:n<1048576?`${(n/1024).toFixed(1)} KiB`:`${(n/1048576).toFixed(1)} MiB`
 export const findPersonalProject=(items:ProjectDTO[]):ProjectDTO|undefined=>{const savedId=localStorage.getItem(PERSONAL_CHAT_PROJECT_ID_KEY);return items.find(item=>item.id===savedId)??items.find(item=>item.name===PERSONAL_CHAT_PROJECT)??items.find(item=>item.name.startsWith('\u2063'))}

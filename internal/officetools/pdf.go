@@ -10,6 +10,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/jung-kurt/gofpdf"
@@ -74,6 +75,14 @@ func pdfNeedsUnicode(text string) (bool, error) {
 // GenPDF renders complete A4 title/body text. ASCII keeps the existing
 // Helvetica rendering; Unicode uses an embedded, subsetted Chinese font.
 func GenPDF(title, body string) ([]byte, error) {
+	return genPDF(title, body, false)
+}
+
+// GenStablePDF uses fixed document metadata and sorted resources for managed
+// snapshots. The same input can safely retry under an idempotency key.
+func GenStablePDF(title, body string) ([]byte, error) { return genPDF(title, body, true) }
+
+func genPDF(title, body string, stable bool) ([]byte, error) {
 	if utf8.RuneCountInString(body) > MaxPDFBodyRunes {
 		return nil, fmt.Errorf("%w: pdf body exceeds %d runes", ErrLimit, MaxPDFBodyRunes)
 	}
@@ -82,6 +91,11 @@ func GenPDF(title, body string) ([]byte, error) {
 		return nil, err
 	}
 	pdf := gofpdf.New("P", "mm", "A4", "")
+	if stable {
+		pdf.SetCatalogSort(true)
+		pdf.SetCreationDate(time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC))
+		pdf.SetModificationDate(time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC))
+	}
 	family, titleStyle := "helvetica", "B"
 	if unicodeFont {
 		font, err := loadPDFFont()

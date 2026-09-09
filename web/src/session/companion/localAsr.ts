@@ -13,11 +13,11 @@ import { TARGET_SAMPLE_RATE } from './pcmFrames'
 import { startPcmCapture, type PcmCaptureHandle } from './pcmCapture'
 import { takePcmBatch } from './pcmQueue'
 
-/** Ceiling on audio waiting to be sent, in samples. Two seconds at 16 kHz. */
-const MAX_PENDING_SAMPLES = TARGET_SAMPLE_RATE * 2
+/** Bound startup/backpressure buffering without silently dropping speech. */
+const MAX_PENDING_SAMPLES = TARGET_SAMPLE_RATE * 15
 
 /** Bound on how long a drain will wait for the engine before giving up. */
-const DRAIN_ROUNDS = 40
+const DRAIN_TIMEOUT_MS = 6000
 
 /**
  * Companion 'auto' must not wait the full voice.status bridge deadline
@@ -152,6 +152,8 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
   let muted = false
   let swapping = false
   let inFlight = false
+  let inFlightSamples = 0
+  let completedSamples = 0
   /** Whether the open session has been given any audio since the last commit. */
   let fed = false
   /** Samples actually sent on the current sherpa session. */
@@ -225,6 +227,7 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
     const pcm = batch.base64
     const owner = sessionId
     inFlight = true
+    inFlightSamples = batch.sampleCount
     fed = true
     sessionSamples += batch.sampleCount
     bridge
@@ -266,6 +269,8 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
         fail(error)
       })
       .finally(() => {
+        completedSamples += batch.sampleCount
+        inFlightSamples = 0
         inFlight = false
         pump()
       })
@@ -273,8 +278,10 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
 
   /** Resolves once the recognizer has been given everything captured so far. */
   const drain = async () => {
-    for (let guard = 0; guard < DRAIN_ROUNDS && !closed; guard++) {
-      if (!inFlight && pending.length === 0) return
+    const boundary = completedSamples + inFlightSamples + pendingSamples
+    const deadline = Date.now() + DRAIN_TIMEOUT_MS
+    while (!closed && completedSamples < boundary) {
+      if (Date.now() >= deadline) throw new Error('语音发送超时，本句尚未完整识别。')
       pump()
       await settled()
     }
@@ -285,8 +292,9 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
     if (closed || muted) return
     pending.push({ base64: frame.base64, samples: frame.samples })
     pendingSamples += frame.samples.length
-    while (pendingSamples > MAX_PENDING_SAMPLES && pending.length > 1) {
-      pendingSamples -= pending.shift()!.samples.length
+    if (pendingSamples > MAX_PENDING_SAMPLES) {
+      fail(new Error('语音处理积压超过 15 秒，本句未完整识别，请稍后重试。'))
+      return
     }
     pump()
   }
@@ -312,6 +320,11 @@ export async function startLocalAsr(callbacks: LocalAsrCallbacks = {}): Promise<
 
   return {
     finish: async () => {
+      if (closed) return ''
+      capture?.flush()
+      capture?.stop()
+      capture = undefined
+      await drain()
       if (closed) return ''
       stop()
       const { text } = await bridge.finish({ sessionId })

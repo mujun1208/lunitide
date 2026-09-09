@@ -9,6 +9,7 @@ import (
 // officeGenTools are the P2-1 generators: they mutate the session
 // workspace, so they ride the workspace.write approval class.
 var officeGenTools = map[string]bool{
+	"office.generate": true, "office.patch": true, "office.range.patch": true, "office.image.replace": true, "office.chart.patch": true, "office.cache.refresh": true, "office.deliver": true,
 	"excel.gen": true, "docx.gen": true, "pptx.gen": true, "pdf.gen": true, "html.gen": true,
 }
 

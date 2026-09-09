@@ -111,6 +111,10 @@
           "archiveHash",
           "skippedFiles"
         ]
+      },
+      "skillId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID",
+        "description": "Created runtime draft skill ID; returned only for an approved source skill import."
       }
     },
     "required": [

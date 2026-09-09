@@ -11,8 +11,8 @@ import (
 
 const (
 	MaxSafeSequence         int64 = 9007199254740991
-	MaxRunes                      = 2048
-	MaxBytes                      = 8192
+	MaxRunes                      = 32768
+	MaxBytes                      = 131072
 	MaxRunesAssistant             = 16384
 	MaxBytesAssistant             = 65536
 	ProjectTextQuotaBytes   int64 = 64 << 20
@@ -58,7 +58,7 @@ func NormalizeText(raw string) (string, error) {
 
 // NormalizeAssistantText normalizes and validates assistant message text.
 // Assistant text allows 1..16,384 Unicode code points and at most 65,536 UTF-8
-// bytes, wider than user text because model outputs are typically longer.
+// bytes. Model output and user input retain independent limits.
 func NormalizeAssistantText(raw string) (string, error) {
 	text := normalizeLineEndings(raw)
 	if strings.ContainsRune(text, '\x00') || !utf8.ValidString(text) || utf8.RuneCountInString(text) < 1 || utf8.RuneCountInString(text) > MaxRunesAssistant || len(text) > MaxBytesAssistant {

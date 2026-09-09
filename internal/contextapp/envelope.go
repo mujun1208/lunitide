@@ -108,6 +108,9 @@ func (s *ContextSource) TokenCost() int64 {
 //  6. LatestUserTurn (protected by dedicated reserve)
 //  7. RelatedEvidence (injected only when within remaining budget)
 type ContextEnvelope struct {
+	// DisableTokenEfficiency keeps duplicate evidence projections for controlled
+	// comparisons. It never changes source authorization or history policy.
+	DisableTokenEfficiency bool
 	// Provider describes the target model's context capabilities and budget.
 	Provider ProviderInfo
 
@@ -215,6 +218,7 @@ type SelectionTraceEntry struct {
 // SelectionTrace is the diagnostic output of an assembly operation. It
 // records every candidate source and the budget state after assembly.
 type SelectionTrace struct {
+	Efficiency EvidenceEfficiency
 	// Entries lists every candidate source evaluated, in evaluation order.
 	Entries []SelectionTraceEntry
 

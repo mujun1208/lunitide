@@ -95,7 +95,7 @@ const (
 	Forward           Direction = "forward"
 	Backward          Direction = "backward"
 	DefaultLimit                = 64
-	DefaultByteBudget           = 131072
+	DefaultByteBudget           = 245760
 	MinByteBudget               = 16384
 	MaxByteBudget               = 245760
 )

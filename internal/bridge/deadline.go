@@ -2,7 +2,8 @@ package bridge
 
 // Envelope and method deadline ceilings. Most RPCs stay at 30s so a stuck
 // handler cannot pin the Engine. Long-running meeting notes, people file
-// transfer, people region snip (180s), and appUpdate.install are the exceptions.
+// transfer, people region snip (180s), app updates, and provider diagnostics
+// (which may wait for asynchronous video generation) are exceptions.
 const (
 	DefaultMaxDeadlineMS    = 30_000
 	MeetingLiveDeadlineMS   = 120_000
@@ -13,11 +14,16 @@ const (
 	TemplateFileDeadlineMS  = 120_000
 	ChatStartDeadlineMS     = 120_000
 	McpSetupDeadlineMS      = 80_000
+	ProviderTestDeadlineMS  = 360_000
 )
 
 // MaxDeadlineMS is the largest deadlineMs the Host/Engine accept for method.
 func MaxDeadlineMS(method string) int {
 	switch Method(method) {
+	case MethodProviderTest:
+		return ProviderTestDeadlineMS
+	case "office.artifact.validate", "office.artifact.refresh":
+		return 120_000
 	case "meetings.summarize", "meetings.catchup":
 		return MeetingNotesDeadlineMS
 	case "meetings.append", "meetings.audio.append", "meetings.stop", "meetings.heartbeat", "meetings.get", "meetings.export":
