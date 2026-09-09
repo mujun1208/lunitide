@@ -90,18 +90,21 @@ func TestExpertComposeHintListsPreferredForEachSpecialist(t *testing.T) {
 		t.Fatalf("want 18 compose-audited specialists, got %d", len(wantSkill))
 	}
 	for _, item := range m8app.ConversationExperts() {
-		hint := expertComposeHint([]string{item.Name}, published, nil)
-		if !strings.Contains(hint, "[专家装备]") || !strings.Contains(hint, "[稳定身份]") || !strings.Contains(hint, "[本轮任务]") || !strings.Contains(hint, item.Name) || strings.Contains(hint, "已自动挂载") {
-			t.Fatalf("%s compose hint missing header:\n%s", item.Name, hint)
-		}
-		for _, name := range wantSkill[item.Name] {
-			if !strings.Contains(hint, name) {
-				t.Fatalf("%s compose missing skill %q:\n%s", item.Name, name, hint)
+		item := item
+		t.Run(item.Name, func(t *testing.T) {
+			hint := expertComposeHint([]string{item.Name}, published, nil)
+			if !strings.Contains(hint, "[专家装备]") || !strings.Contains(hint, "[稳定身份]") || !strings.Contains(hint, "[本轮任务]") || !strings.Contains(hint, item.Name) || strings.Contains(hint, "已自动挂载") {
+				t.Fatalf("compose hint missing header:\n%s", hint)
 			}
-		}
-		if tool := wantTool[item.Name]; !strings.Contains(hint, tool) {
-			t.Fatalf("%s compose missing tool %q:\n%s", item.Name, tool, hint)
-		}
+			for _, name := range wantSkill[item.Name] {
+				if !strings.Contains(hint, name) {
+					t.Fatalf("compose missing skill %q:\n%s", name, hint)
+				}
+			}
+			if tool := wantTool[item.Name]; !strings.Contains(hint, tool) {
+				t.Fatalf("compose missing tool %q:\n%s", tool, hint)
+			}
+		})
 	}
 }
 
