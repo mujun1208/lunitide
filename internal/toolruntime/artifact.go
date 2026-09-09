@@ -12,6 +12,31 @@ import (
 	"github.com/lunitide/lunitide/internal/canonpath"
 )
 
+// writeArtifactForPath attaches chat-card metadata for user-facing files.
+// HTML still carries inline content for the isolated browser; everything
+// else is path+kind only so binary or long text never rides the stream.
+func writeArtifactForPath(relPath, content string) *Artifact {
+	base := filepath.Base(filepath.Clean(strings.TrimSpace(relPath)))
+	if base == "" || base == "." || strings.HasPrefix(base, ".") {
+		return nil
+	}
+	path := filepath.ToSlash(relPath)
+	switch strings.ToLower(filepath.Ext(base)) {
+	case ".html", ".htm":
+		return &Artifact{Kind: "html", Path: htmlArtifactPath(relPath, false), Content: content}
+	case ".md", ".markdown":
+		return &Artifact{Kind: "md", Path: path}
+	case ".txt", ".csv":
+		return &Artifact{Kind: "txt", Path: path}
+	case ".docx", ".pptx", ".xlsx", ".pdf":
+		return &Artifact{Kind: strings.TrimPrefix(strings.ToLower(filepath.Ext(base)), "."), Path: path}
+	case ".png":
+		return &Artifact{Kind: "image", Path: path}
+	default:
+		return nil
+	}
+}
+
 // htmlArtifactPath is the renderer-safe preview name. Host sanitizer
 // rejects file:// URLs, backslashes and non-.html suffixes, so desktop
 // writes still preview as desktop/basename.html.

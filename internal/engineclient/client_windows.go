@@ -438,7 +438,7 @@ func validRendererArtifact(a *bridge.ArtifactEvent) error {
 		if !strings.HasSuffix(lower, ".html") && !strings.HasSuffix(lower, ".htm") {
 			return errors.New("invalid tool artifact")
 		}
-	case "xlsx", "docx", "pptx", "pdf":
+	case "xlsx", "docx", "pptx", "pdf", "md", "txt":
 		if a.Content != "" {
 			return errors.New("invalid tool artifact")
 		}
@@ -657,7 +657,7 @@ func validStreamArtifact(a *bridge.ArtifactEvent) error {
 	switch a.Kind {
 	case "html":
 		return nil
-	case "xlsx", "docx", "pptx", "pdf":
+	case "xlsx", "docx", "pptx", "pdf", "md", "txt":
 		if a.Content != "" {
 			return errors.New("invalid tool artifact")
 		}

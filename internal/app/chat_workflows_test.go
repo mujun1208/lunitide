@@ -26,11 +26,14 @@ func TestProjectPhaseWorkflowInjectionOpsDev(t *testing.T) {
 
 func TestProjectPhaseWorkflowInjectionAsksDecisions(t *testing.T) {
 	hint := projectPhaseWorkflowInjection(1, "需求架构规范")
-	if !strings.Contains(hint, "user.ask") {
-		t.Fatalf("spec phase must require user.ask, got %q", hint)
+	if !strings.Contains(hint, "user.ask") || !strings.Contains(hint, "能自行决定的不要弹卡") {
+		t.Fatalf("spec phase must keep Claude-style ask-only-if-needed, got %q", hint)
+	}
+	if strings.Contains(hint, "拍板必须调用") {
+		t.Fatal("spec phase must not force a decision card")
 	}
 	ops := projectPhaseWorkflowInjection(8, "运维")
-	if !strings.Contains(ops, "user.ask") {
-		t.Fatalf("default phase must require user.ask, got %q", ops)
+	if !strings.Contains(ops, "user.ask") || !strings.Contains(ops, "先自行判断") {
+		t.Fatalf("default phase must keep ask-only-if-needed, got %q", ops)
 	}
 }

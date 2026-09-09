@@ -15,7 +15,7 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 512,
-      "pattern": "^(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).*\\.(html|xlsx|docx|pptx|pdf)$"
+      "pattern": "^(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).*\\.(html|xlsx|docx|pptx|pdf|md|markdown|txt|csv)$"
     },
     "target": {
       "type": "string",

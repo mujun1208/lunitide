@@ -401,10 +401,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			return Result{}, e
 		}
 		written := result("wrote " + a.Path)
-		ext := strings.ToLower(filepath.Ext(a.Path))
-		if ext == ".html" || ext == ".htm" {
-			written.Artifact = &Artifact{Kind: "html", Path: htmlArtifactPath(a.Path, false), Content: a.Content}
-		}
+		written.Artifact = writeArtifactForPath(a.Path, a.Content)
 		return written, nil
 	case "workspace.search":
 		var a struct {
@@ -475,7 +472,9 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			}
 		}
 		if len(pending) == 1 {
-			return result(fmt.Sprintf("edited %s (%d replacement(s))", pending[0].rel, pending[0].count)), nil
+			edited := result(fmt.Sprintf("edited %s (%d replacement(s))", pending[0].rel, pending[0].count))
+			edited.Artifact = writeArtifactForPath(pending[0].rel, "")
+			return edited, nil
 		}
 		names := make([]string, 0, len(pending))
 		for _, item := range pending {

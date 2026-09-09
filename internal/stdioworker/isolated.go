@@ -22,13 +22,14 @@ type IsolatedProc struct {
 	inner *engineProc
 }
 
-// StdioQuotas is the frozen quota envelope for one MCP stdio session: the
-// process tree is capped at 32 procs / 1 GiB commit. The wall-clock bound
-// is the caller's context deadline (the registry enforces 30 s).
+// StdioQuotas is the quota envelope for one MCP stdio session: the process
+// tree is capped at 32 procs / 2 GiB commit. MarkItDown and similar office
+// converters load native runtimes that exceed a 1 GiB commit cap. The
+// wall-clock bound is the caller's context deadline.
 func StdioQuotas() Quotas {
 	return Quotas{
 		MaxProcs:       32,
-		MemoryCapBytes: 1 << 30,
+		MemoryCapBytes: 2 << 30,
 		DeadlineMS:     60_000,
 		HeartbeatMS:    250,
 		MaxMissedBeats: 120,

@@ -41,6 +41,11 @@ var (
 	}
 	openHints       = []string{"打开", "启动", "把开"}
 	playHints       = []string{"播放", "暂停", "下一首", "上一首"}
+	desktopActHints = []string{
+		"点击", "点一下", "帮我点", "点按钮", "截图", "输入", "打字", "填写", "填表",
+		"回车", "按一下", "按回车", "粘贴", "快捷键", "热键", "ctrl+",
+		"点确定", "点保存", "点取消",
+	}
 	browserAppHints = []string{"chrome", "edge", "firefox", "浏览器"}
 )
 
@@ -125,6 +130,9 @@ func detectTaskRoute(goal string) TaskRoute {
 		return RouteR4
 	}
 	if play {
+		return RouteR2
+	}
+	if containsAnyFold(t, lower, desktopActHints) {
 		return RouteR2
 	}
 	if open && namedApp {

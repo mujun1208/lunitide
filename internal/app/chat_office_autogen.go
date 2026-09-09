@@ -19,28 +19,52 @@ var officeExpertRefRE = regexp.MustCompile(`\[引用专家[^\]]+\]`)
 var officeExplicitCreationRE = regexp.MustCompile(`(?:制作|做|生成|创建|写|输出|保存|做成).{0,40}(?:ppt|word|docx|excel|xlsx|pdf|html|报告|小说|演示|表格)`)
 
 // Match output instructions, not format names in source attachments or roles.
-var officeOutputFormatRE = regexp.MustCompile(`(?i)(?:生成|制作|输出|导出|保存为|另存为|转成|转换成|做成|写成|create\b|generate\b|export\b|save as\b|convert to\b)[^，。；;\n]{0,24}?(pdf|docx|word|pptx|ppt|xlsx|excel|html)`)
+var officeOutputFormatRE = regexp.MustCompile(`(?i)(?:生成|制作|输出|导出|保存为|另存为|转成|转换成|做成|写成|做一个|做一份|做个|做份|create\b|generate\b|export\b|save as\b|convert to\b)[^，。；;\n]{0,24}?(pdf|docx|word|pptx|ppt|xlsx|excel|html)`)
+var officeFormatTokenRE = regexp.MustCompile(`(?i)pptx|docx|xlsx|pdf|word|ppt|excel|html`)
+var officeFormatChoiceRE = regexp.MustCompile(`还是|或者|或是|\bor\b`)
 
-func explicitOfficeOutputTool(goal string) string {
-	var tool string
+func officeOutputFormatTools(goal string) []string {
+	var tools []string
+	seen := map[string]bool{}
 	for _, part := range strings.FieldsFunc(chatRoutingText(goal), func(r rune) bool { return strings.ContainsRune("，,。；;\n", r) }) {
 		lower := strings.ToLower(part)
 		negated := false
-		for _, word := range []string{"不要", "不用", "无需", "不需要", "别", "do not", "don't", "without"} {
+		for _, word := range []string{"不要", "不用", "无需", "不需要", "别", "怎么", "如何", "how to", "how do", "without"} {
 			negated = negated || strings.Contains(lower, word)
 		}
 		if negated {
 			continue
 		}
-		for _, match := range officeOutputFormatRE.FindAllStringSubmatch(part, -1) {
-			next := map[string]string{"pdf": "pdf.gen", "docx": "docx.gen", "word": "docx.gen", "pptx": "pptx.gen", "ppt": "pptx.gen", "xlsx": "excel.gen", "excel": "excel.gen", "html": "html.gen"}[strings.ToLower(match[1])]
-			if tool != "" && next != tool {
-				return "" // Multi-format requests are planned by the model.
+		add := func(token string) {
+			next := map[string]string{"pdf": "pdf.gen", "docx": "docx.gen", "word": "docx.gen", "pptx": "pptx.gen", "ppt": "pptx.gen", "xlsx": "excel.gen", "excel": "excel.gen", "html": "html.gen"}[strings.ToLower(token)]
+			if next == "" || seen[next] {
+				return
 			}
-			tool = next
+			seen[next] = true
+			tools = append(tools, next)
+		}
+		for _, match := range officeOutputFormatRE.FindAllStringSubmatch(part, -1) {
+			add(match[1])
+		}
+		if officeFormatChoiceRE.MatchString(lower) {
+			for _, token := range officeFormatTokenRE.FindAllString(lower, -1) {
+				add(token)
+			}
 		}
 	}
-	return tool
+	return tools
+}
+
+func explicitOfficeOutputTool(goal string) string {
+	tools := officeOutputFormatTools(goal)
+	if len(tools) != 1 {
+		return ""
+	}
+	return tools[0]
+}
+
+func officeOutputFormatAmbiguous(goal string) bool {
+	return len(officeOutputFormatTools(goal)) > 1
 }
 
 func officeExpertIntroduction(goal string) bool {
@@ -69,7 +93,7 @@ func officeGenToolForGoal(goal string) string {
 	if spokenResultReportOnly(goal) {
 		return ""
 	}
-	if capabilityWorkTask(goal) || officeMaterialReview(goal) {
+	if capabilityWorkTask(goal) || officeMaterialReview(goal) || officeHowToQuestion(goal) {
 		return ""
 	}
 	if officeExpertIntroduction(goal) {
@@ -81,8 +105,14 @@ func officeGenToolForGoal(goal string) string {
 	if tool := explicitOfficeOutputTool(goal); tool != "" {
 		return tool
 	}
+	if officeOutputFormatAmbiguous(goal) {
+		return ""
+	}
 	if looksLikePptTask(goal) {
 		return "pptx.gen"
+	}
+	if looksLikePdfTask(goal) {
+		return "pdf.gen"
 	}
 	if looksLikeNovelTask(goal) || looksLikeReportTask(goal) {
 		return "docx.gen"

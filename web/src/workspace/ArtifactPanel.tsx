@@ -2,8 +2,8 @@ import React,{useEffect,useState}from'react'
 import{artifactReviewBridge,type ArtifactReviewBridge}from'../bridge/client'
 import type{StreamArtifact}from'../bridge/client'
 export type ArtifactCard=StreamArtifact&{callId:string;toolName:string}
-const KIND_LABEL:Record<string,string>={html:'HTML',xlsx:'Excel',docx:'Word',pptx:'PPT',pdf:'PDF'}
-const KIND_ICON:Record<string,string>={html:'◧',xlsx:'▤',docx:'▤',pptx:'◫',pdf:'▦'}
+const KIND_LABEL:Record<string,string>={html:'HTML',xlsx:'Excel',docx:'Word',pptx:'PPT',pdf:'PDF',md:'Markdown',txt:'文本'}
+const KIND_ICON:Record<string,string>={html:'◧',xlsx:'▤',docx:'▤',pptx:'◫',pdf:'▦',md:'▤',txt:'▤'}
 type Preview=|{kind:'xlsx';sheets:Array<{name:string;rows:number;cols:number;truncated:boolean;preview:string[][];header:string[]}>}|{kind:'html'|'docx'|'pptx';text:string}|{kind:'error';message:string}|{kind:'loading'}
 const parseXlsx=(content:string)=>{try{const parsed=JSON.parse(content)as{sheets?:Array<{name?:string;rows?:number;cols?:number;truncated?:boolean;preview?:string[][];header?:string[]}>};if(!Array.isArray(parsed.sheets))return undefined;return parsed.sheets.map(sheet=>({name:sheet.name??'',rows:Number(sheet.rows??0),cols:Number(sheet.cols??0),truncated:!!sheet.truncated,preview:Array.isArray(sheet.preview)?sheet.preview:[],header:Array.isArray(sheet.header)?sheet.header:[]}))}catch{return undefined}}
 export function ArtifactPanel({sessionId,artifacts,bridge=artifactReviewBridge,onRevise}:{sessionId:string;artifacts:ArtifactCard[];bridge?:ArtifactReviewBridge;onRevise?:(path:string,note:string)=>void}):React.JSX.Element{

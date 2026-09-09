@@ -243,8 +243,14 @@ func TestCompanionWantsTools(t *testing.T) {
 	if !companionWantsTools("随机播放") {
 		t.Fatal("shuffle play must request tools")
 	}
+	if !companionRetryActionTurn("那你倒是试一试啊？") || !companionRetryActionTurn("再试一次") {
+		t.Fatal("retry utterances must be recognized")
+	}
 	if !companionWantsTools("继续填表") || !companionWantsTools("下一步再点一下") {
 		t.Fatal("desktop follow-through must request tools")
+	}
+	if !companionWantsTools("按一下回车") || !companionWantsTools("帮我粘贴") || !companionWantsTools("点保存") {
+		t.Fatal("keyboard/click computer.act turns must request tools")
 	}
 }
 

@@ -83,6 +83,13 @@ it('message bridge accepts optional persisted artifacts on list and append resul
   await expect(appended).resolves.toMatchObject({ artifacts: [artifact] })
 })
 
+it('message bridge accepts markdown skill deliverables on list results', async () => {
+  const artifact = { kind: 'md' as const, path: '周报/周报_2026-W37.md', callId: 'write-1', toolName: 'workspace.write' }
+  const h = controlled(), listed = h.bridge.list({ sessionId: SESSION, direction: 'backward' })
+  h.reply(h.sent[0], page([dto({ role: 'assistant', artifacts: [artifact] })]))
+  await expect(listed).resolves.toMatchObject({ items: [{ artifacts: [artifact] }] })
+})
+
 it('message bridge accepts screenshot image artifacts and drops only malformed ones', async () => {
   const image = { kind: 'image' as const, path: 'screen-capture-20260901T090803.png', callId: 'cap-1', toolName: 'computer.act' }
   const bad = { kind: 'image' as const, path: '../escape.png', callId: 'cap-2', toolName: 'computer.act' }

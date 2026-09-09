@@ -109,6 +109,9 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	if pickTurnContinueKind("这次没有完成。", "这次没有完成。", "ok:false\nnot found", []string{"media.play"}, true, true, true, false, 0, "放一首复古公路风", true) != "" {
 		t.Fatal("failed media.play must not desktop-continue")
 	}
+	if pickTurnContinueKind("好，我再点一下。", "好，我再点一下。", "clicked 播放", []string{"media.play", "computer.act"}, true, true, true, false, 0, "打开汽水音乐随机播放一首歌曲", true) != "" {
+		t.Fatal("playback-only turns must stop after media.play even if computer.act followed")
+	}
 	if shouldContinueIncompleteWork("文件写好了，下一步打开网页。", "ok:true\nwritten", []string{"workspace.write"}, true, 0) {
 		t.Fatal("successful write plus 下一步 must not extra-loop")
 	}

@@ -62,9 +62,9 @@ func TestExpertComposeHintListsPreferredForEachSpecialist(t *testing.T) {
 		"开发专家":        {"tpl-implement", "tpl-tdd-loop", "tpl-debugger"},
 		"航空机务维修专家":    {"tpl-aircraft-maintenance-engineer", "tpl-mro-manual-rag", "tpl-mro-fault-tree", "tpl-mro-checklist"},
 		"低空适航专家":      {"tpl-uas-airworthiness-advisor", "tpl-mro-manual-rag"},
-		"航空工具化工品专家":  {"tpl-tooling-chemical-advisor"},
+		"航空工具化工品专家":   {"tpl-tooling-chemical-advisor"},
 		"航空航材专家":      {"tpl-parts-supply-advisor"},
-		"航空维修计划专家":   {"tpl-mx-planning-advisor"},
+		"航空维修计划专家":    {"tpl-mx-planning-advisor"},
 	}
 	wantTool := map[string]string{
 		"PPT专家":       "pptx.gen",
@@ -82,9 +82,9 @@ func TestExpertComposeHintListsPreferredForEachSpecialist(t *testing.T) {
 		"开发专家":        "workspace.edit",
 		"航空机务维修专家":    "kb.search",
 		"低空适航专家":      "kb.search",
-		"航空工具化工品专家":  "kb.search",
+		"航空工具化工品专家":   "kb.search",
 		"航空航材专家":      "kb.search",
-		"航空维修计划专家":   "kb.search",
+		"航空维修计划专家":    "kb.search",
 	}
 	if len(wantSkill) != 18 {
 		t.Fatalf("want 18 compose-audited specialists, got %d", len(wantSkill))
@@ -105,6 +105,36 @@ func TestExpertComposeHintListsPreferredForEachSpecialist(t *testing.T) {
 				t.Fatalf("compose missing tool %q:\n%s", tool, hint)
 			}
 		})
+	}
+}
+
+func TestExpertComposeHintDoesNotAskToReconnectWrappedFetch(t *testing.T) {
+	hint := expertComposeHint([]string{"报告编写专家"}, nil, nil)
+	if !strings.Contains(hint, "web.fetch") {
+		t.Fatalf("report writer lost native fetch fallback:\n%s", hint)
+	}
+	if strings.Contains(hint, "未连接 MCP") && strings.Contains(hint, "fetch") {
+		t.Fatalf("official fetch treated as a missing install:\n%s", hint)
+	}
+	ppt := expertComposeHint([]string{"PPT专家"}, nil, nil)
+	if !strings.Contains(ppt, "未连接 MCP") || !strings.Contains(ppt, "playwright") {
+		t.Fatalf("real optional MCP must still ask to connect:\n%s", ppt)
+	}
+}
+
+func TestTurnEquipInfoDoesNotNagNativeCoveredMCP(t *testing.T) {
+	e := NewEngine(nil, "test")
+	eq := e.equipmentForNames(context.Background(), []string{"报告编写专家"})
+	if _, _, missing := e.turnEquipInfo(context.Background(), "", "请帮我创建一个可以实现每周生成工作周报的skill"); len(missing) != 0 {
+		t.Fatalf("skill authoring nagged MCP: %v", missing)
+	}
+	for _, id := range missingComposeMCP(eq.McpIDs, nil) {
+		if officialMcpCoveredByNative(id) {
+			t.Fatalf("native-covered MCP listed as missing: %v", eq.McpIDs)
+		}
+	}
+	if got := missingComposeMCP([]string{"fetch", "playwright"}, nil); len(got) != 1 || got[0] != "playwright" {
+		t.Fatalf("missing=%v", got)
 	}
 }
 

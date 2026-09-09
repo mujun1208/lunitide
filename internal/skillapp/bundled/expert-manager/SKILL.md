@@ -28,18 +28,26 @@ Valid divisions: `engineering`, `design`, `product`, `project-management`, `test
 
 2. **Interview lightly** — Confirm: target users, typical tasks, tone (formal/casual), forbidden actions, and example deliverables. Prefer inferring from the user's experience paragraph before asking.
 
-3. **Draft all six sections** — Write in Chinese unless the user uses English. Each section should be actionable prose (not bullet stubs). Align workflow with Lunitide project phases when relevant.
+3. **Draft all six sections** — Write in Chinese unless the user uses English. Each section should be actionable prose (not bullet stubs). Align workflow with Lunitide project phases when relevant. Infer from the user's brief; do not leave「待补充」.
 
-4. **Review with user** — Present a compact summary table of the six sections. Offer to revise before creation.
+4. **Match equipment** — From the injected `[可用技能目录]`, installed MCP presets, and built-in tools, decide what this expert actually needs:
+   - Skills: published catalog keys the expert should invoke (e.g. `web-researcher`, `slide-builder`).
+   - MCP: bind as `mcp:<presetId>` only when that server is listed/installed (e.g. `mcp:playwright`, `mcp:fetch`).
+   - Capabilities: name the built-in tools the persona will rely on (`web.search`, `docx.gen`, `pptx.gen`, `computer.act`…). These stay in the six-section workflow; they are not `skillKeys`.
+   - Skip unmatched items; do not invent unpublished skill names.
 
-5. **Create via `expert.create`** — Call the tool once with:
+5. **Show the dossier in chat first** — This turn is not a 1–3 sentence operation receipt. Before or immediately after `expert.create`, output two GFM tables (not a prose dump, not only “去专家中心看”):
+   - **岗位说明书**：`| 卡片 | 写入内容 |` covering 身份 / 使命 / 规则 / 流程 / 交付模板 / 成败标准 — each cell a real excerpt of what you wrote, not a stub.
+   - **装备匹配**：`| 类型 | 名称 | 匹配理由 | 关联 |` with 类型 in 技能 / MCP / 能力. 关联 = 已写入 skillKeys / 仅写入流程 / 目录没有未挂.
+
+6. **Create via `expert.create`** — Call the tool once with:
    - Flat fields: `name`, `division`, `description`, `semver: "1.0.0"`.
    - Flat six-section fields: `identity`, `mission`, `rules`, `workflow`, `deliverableTemplate`, `successMetrics`.
-   - Optional `skillKeys`: installed skill keys to bind.
+   - `skillKeys`: the matched published skills plus any `mcp:<id>` (and `brain:codex` / `brain:claude` only if the user asked for that brain).
    - Do not send `source`, `frontmatter`, `sixSection` or `requestId`; those belong to the native API, not this model tool.
    - Expert business topics such as novels, reports and Word output are profile content, not a request to generate a document now. Never substitute docx.gen for expert.create.
 
-6. **After creation** — Report the returned expert name and ID. New profiles remain disabled and appear under 专家中心 > 我创建的. The user can inspect the card, run a text trial without enabling, then explicitly enable before mounting to project phases (≤4 per phase). Only their manually created profiles can be deleted; active project or session references must be removed first. Never claim creation also enabled the expert.
+7. **After creation** — Keep the two tables on screen. Also report name, expertId, and that the profile stays **disabled** under 专家中心 > 我创建的. The user can open the card, trial without enabling, then enable before mounting to project phases (≤4 per phase). Never claim creation also enabled the expert. Do not replace the dossier with a one-line “已创建，请到专家中心”. Do not append generic「下一步建议」.
 
 ## Quality bar
 

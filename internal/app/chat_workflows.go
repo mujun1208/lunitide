@@ -41,7 +41,7 @@ const workflowMediaClause = "- 播放音乐/视频：用 media.play target=foreg
 
 const workflowIMClause = "- 发飞书/企微/钉钉/微信/QQ：设置 → 消息通道启用后用 im.send。\n"
 
-const workflowComputerClause = "- 看屏幕：电脑控制开启时只用 computer.act。默认 action=screenshot 截当前窗口（target=desktop 才是虚拟桌面全屏，含所有显示器）。截图会作为视觉输入回传并带 frameId（后缀 sN 是 screenIndex：0=虚拟桌面，1…=从左到右的显示器）。随后的鼠标坐标必须用该图像素，并把同一个 frameId 回传。显示器重连或 DPI 变化会 COMPUTER_STALE_FRAME，必须重新截图。点按钮优先 action=observe 再 click name=控件名或 id=B1，不要盲点。底层仍走 cc.screen_capture / cc.observe_ui / cc.mouse_click（模型不要自己调 cc.*）。\n" +
+const workflowComputerClause = "- 看屏幕：电脑控制开启时只用 computer.act。默认 action=screenshot 截当前窗口（target=desktop 才是虚拟桌面全屏，含所有显示器）。截图会作为视觉输入回传并带 frameId（后缀 sN 是 screenIndex：0=虚拟桌面，1…=从左到右的显示器）。随后的鼠标坐标必须用该图像素，并把同一个 frameId 回传；有控件树也不禁止坐标（OpenClaw：看见就点）。显示器重连或 DPI 变化会 COMPUTER_STALE_FRAME，必须重新截图。能对上唯一按钮用 click name=（不必 observe、不必 frameId）；需要 id 时再 observe。控件树稀疏或对不上时点截图像素，不要反复 observe。底层仍走 cc.screen_capture / cc.observe_ui / cc.mouse_click（模型不要自己调 cc.*）。\n" +
 	"- 窗口：computer.act action=list 列出，action=focus 激活已运行应用；输入前先 focus。未运行的用 desktop.open。用户没说关闭时不要 close。最小化/还原/移动用 window_action；退出应用用 app_quit（禁止关资源管理器/UAC）。拖拽用 drag。粘贴用 paste；按键用 press；按住用 hold_key，松开用 key_up（8 秒内会自动松开）；Ctrl/Shift 点击用 click 的 modifiers。菜单用 menu；填表用 set_value。UI 动画未结束用 wait until=change。底层仍走 cc.window_list / cc.window_focus / cc.window_action / cc.app_quit / cc.mouse_drag / cc.paste。\n" +
 	"- 对话框确认：先 computer.act action=observe_dialog，若是普通 Yes/OK/确认/是/确定 再用 confirm。禁止确认 UAC、提权。遇到打开/保存文件对话框不要代点，对用户说请你点「保存」「打开」或「取消」。禁止自动接受未知文件。不要靠截图盲点。底层仍走 cc.observe_dialog / cc.confirm_dialog。\n"
 
@@ -215,7 +215,7 @@ func projectPhaseWorkflowInjection(phase int, label string) string {
 		return "\n\n[项目阶段 · " + label + "]\n" +
 			"对齐需求与边界时优先 skill.invoke：grill-me、to-spec；拆票用 to-tickets；架构审视用 improve-architecture。\n" +
 			"形成规范/设计后给出完整交付物正文，并提示用户在右侧「交付物」面板保存为草稿；需要可保存文件时用 structured.output 或 docx.gen 生成到工作区。\n" +
-			"范围、选型、是否继续等拍板必须调用 user.ask（每题 2–5 个选项；界面提供「其他」）。一次只推进一题，不要用长文代替决策。\n"
+			"先把范围和取舍想清楚并给出你的判断。只有想完后仍存在用户必须拍板、且不同选择会改变交付的分叉时，才调用 user.ask（每题 2–5 个选项，界面有「其他」）。能自行决定的不要弹卡。\n"
 	case "测试":
 		return "\n\n[项目阶段 · " + label + "]\n" +
 			"测试阶段优先 skill.invoke：test-writer、code-reviewer、pm-phase-6（或 pm-phase-5 运维型项目）。\n"
@@ -223,6 +223,6 @@ func projectPhaseWorkflowInjection(phase int, label string) string {
 		return "\n\n[项目阶段 · " + label + "]\n" +
 			"按阶段交付物推进；匹配场景时用 skill.invoke 调用已发布技能，不要只口头描述流程。\n" +
 			"产出规格/设计/清单等交付物时给出完整正文，并提示用户在右侧「交付物」面板保存为草稿再逐关确认；需要可保存文件时用 structured.output 或 docx.gen/excel.gen 生成到工作区。\n" +
-			"需要用户拍板（范围、方案、优先级、是否继续）时调用 user.ask，不要用聊天长文代替选项。\n"
+			"先自行判断并推进。只有想完后仍有用户必须拍板、且选项会改变交付的分叉时，才调用 user.ask。\n"
 	}
 }

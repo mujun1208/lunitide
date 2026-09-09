@@ -18,9 +18,9 @@ export function isChatDeliverableArtifact(artifact: Pick<ChatArtifact, 'toolName
   if (['pptx.gen', 'docx.gen', 'excel.gen', 'pdf.gen', 'html.gen'].includes(artifact.toolName)) return true
   const base = artifact.path.split(/[/\\]/).pop()?.toLowerCase() ?? ''
   if (artifact.kind === 'html' && (base === 'search.html' || base === 'fetch.html')) return false
-  if (artifact.kind === 'image') return true
+  if (artifact.kind === 'image' || artifact.kind === 'md' || artifact.kind === 'txt') return true
   if (OFFICE_KIND.has(artifact.kind) || OFFICE_EXT.test(base)) return true
-  if (artifact.kind === 'html' && artifact.toolName === 'workspace.write') return true
+  if (artifact.kind === 'html' && (artifact.toolName === 'workspace.write' || artifact.toolName === 'workspace.edit')) return true
   return false
 }
 
@@ -28,8 +28,8 @@ export function filterChatDeliverables(artifacts: readonly ChatArtifact[]): Chat
   return artifacts.filter(isChatDeliverableArtifact)
 }
 
-const KIND_LABEL: Record<string, string> = { html: 'HTML', xlsx: 'Excel', docx: 'Word', pptx: 'PPT', pdf: 'PDF', image: '截图' }
-const KIND_ICON: Record<string, string> = { html: '◧', xlsx: '▤', docx: '▤', pptx: '◫', pdf: '▦', image: '▣' }
+const KIND_LABEL: Record<string, string> = { html: 'HTML', xlsx: 'Excel', docx: 'Word', pptx: 'PPT', pdf: 'PDF', image: '截图', md: 'Markdown', txt: '文本' }
+const KIND_ICON: Record<string, string> = { html: '◧', xlsx: '▤', docx: '▤', pptx: '◫', pdf: '▦', image: '▣', md: '▤', txt: '▤' }
 
 export function ChatArtifactCards({
   sessionId,

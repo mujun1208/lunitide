@@ -882,15 +882,15 @@ func TestCcNamedClickFallsBackToCenterWhenInvokeFails(t *testing.T) {
 	host.uiNodes = []ccapp.UINode{{Role: "button", Name: "保存", X: 40, Y: 80, W: 60, H: 24}}
 	host.invokeFail = map[string]error{"保存": errors.New("invoke unavailable")}
 
-	_, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, []byte(`{"name":"保存"}`), true)
-	if err == nil || !errors.Is(err, ccapp.ErrCcExecFailed) {
-		t.Fatalf("invoke miss must fail closed, err=%v", err)
+	out, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, []byte(`{"name":"保存"}`), true)
+	if err != nil || !strings.Contains(out.Summary, "保存") {
+		t.Fatalf("invoke miss must click the resolved box: %v %s", err, out.Summary)
 	}
 	if len(host.invokes) != 1 || host.invokes[0] != "保存" {
 		t.Fatalf("should try invoke first, invokes=%v", host.invokes)
 	}
-	if len(host.moves) != 0 || len(host.clicks) != 0 {
-		t.Fatalf("must not center-click, moves=%v clicks=%v", host.moves, host.clicks)
+	if len(host.moves) != 1 || host.moves[0] != [2]int{70, 92} || len(host.clicks) != 1 {
+		t.Fatalf("fallback center-click = moves=%v clicks=%v", host.moves, host.clicks)
 	}
 }
 
@@ -1673,7 +1673,7 @@ func TestComputerActAuditsAsOwnTool(t *testing.T) {
 	}
 }
 
-func TestCcNamedClickRequiresFrameIDAfterCapture(t *testing.T) {
+func TestCcNamedClickUsesLiveTreeWithoutFrameID(t *testing.T) {
 	svc, host, _ := newCcService(t)
 	ctx := context.Background()
 	enableCc(t, svc, nil)
@@ -1682,9 +1682,12 @@ func TestCcNamedClickRequiresFrameIDAfterCapture(t *testing.T) {
 	if _, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolScreenCapture, []byte(`{}`), true); err != nil {
 		t.Fatal(err)
 	}
-	_, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, []byte(`{"name":"保存"}`), true)
-	if err == nil || !strings.Contains(err.Error(), "COMPUTER_STALE_FRAME") {
-		t.Fatalf("name click without frameId after capture: %v", err)
+	out, err := svc.ExecuteTool(ctx, "s1", ccapp.ToolMouseClick, []byte(`{"name":"保存"}`), true)
+	if err != nil || !strings.Contains(out.Summary, "保存") {
+		t.Fatalf("name click without frameId: %v %s", err, out.Summary)
+	}
+	if len(host.invokes) != 1 || host.invokes[0] != "保存" {
+		t.Fatalf("live name click should invoke, invokes=%v", host.invokes)
 	}
 }
 

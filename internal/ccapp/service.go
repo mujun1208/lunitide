@@ -196,9 +196,10 @@ func (s *Service) SetHost(h Host) { s.host = h }
 // SetMutateSettleForTest shortens the post-mutation wait (tests).
 func (s *Service) SetMutateSettleForTest(d time.Duration) { s.mutateSettle = d }
 
-// SetAllowGUIPixels allows raw xy after an empty observe. Production GUI
-// fallback turns this on only around that click and must defer it off.
-// Models cannot call this.
+// SetAllowGUIPixels allows raw xy when no screenshot/observe frame exists.
+// Production GUI fallback turns this on only around that click and must
+// defer it off. Models cannot call this. After a screenshot, xy is already
+// allowed (OpenClaw path) even when the UIA tree has nodes.
 func (s *Service) SetAllowGUIPixels(ok bool) {
 	if s == nil {
 		return
@@ -784,13 +785,13 @@ func (s *Service) rememberHits(nodes []UINode) {
 func (s *Service) requireObserveBeforeXY() error {
 	s.capMu.Lock()
 	defer s.capMu.Unlock()
-	if strings.TrimSpace(s.observedFrameID) == "" {
-		return fmt.Errorf("%w: 先 observe 再使用坐标", ErrCcInputFiltered)
-	}
-	if s.observedCount == 0 && s.allowGUIPixels {
+	if strings.TrimSpace(s.capFrameID) != "" || strings.TrimSpace(s.observedFrameID) != "" {
 		return nil
 	}
-	return fmt.Errorf("%w: 坐标点击仅允许空树 GUI 兜底；请用 id=", ErrCcInputFiltered)
+	if s.allowGUIPixels {
+		return nil
+	}
+	return fmt.Errorf("%w: 先 screenshot 或 observe 再使用坐标", ErrCcInputFiltered)
 }
 
 func (s *Service) lookupHit(query string) (uiHit, bool) {
@@ -908,9 +909,9 @@ func (s *Service) resolveNamedTarget(query string) (invokeName string, sx, sy in
 		switch {
 		case strings.EqualFold(n.ID, query):
 			score = 120
-		case got == want || namesEquivalent(query, n.Name):
+		case got == want || namesExactAlias(query, n.Name):
 			score = 100
-		case strings.Contains(got, want) || strings.Contains(want, got):
+		case strings.Contains(got, want) || strings.Contains(want, got) || namesEquivalent(query, n.Name):
 			score = 50
 		}
 		if score > bestScore {
@@ -926,7 +927,7 @@ func (s *Service) resolveNamedTarget(query string) (invokeName string, sx, sy in
 		}
 		return "", 0, 0, "", fmt.Errorf("%w: no UI node matching %q", ErrCcInputFiltered, query)
 	}
-	if bestScore >= 50 && len(hits) > 1 {
+	if len(hits) > 1 && unnamedUIName(hits[0].Name) && allSameUIName(hits) {
 		ids := make([]string, 0, len(hits))
 		for _, n := range hits {
 			if n.ID != "" {
@@ -935,7 +936,7 @@ func (s *Service) resolveNamedTarget(query string) (invokeName string, sx, sy in
 		}
 		return "", 0, 0, "", fmt.Errorf("%w: name %q matches %d nodes (%s); use id=", ErrCcInputFiltered, query, len(hits), strings.Join(ids, "/"))
 	}
-	best := hits[0]
+	best := pickPreferredNamedHit(query, hits)
 	name := strings.TrimSpace(best.Name)
 	if name == "" {
 		return "", 0, 0, "", fmt.Errorf("%w: no UI node matching %q", ErrCcInputFiltered, query)
@@ -971,11 +972,8 @@ func (s *Service) verifyClickHit(want string, sx, sy int) error {
 }
 
 func (s *Service) clickNamedLadder(invokeName string, sx, sy int, hit string) error {
-	// Hit-test before an action can dismiss or replace its target. Checking
-	// afterwards can falsely fail a successful click and trigger a second one.
-	if err := s.verifyClickHit(hit, sx, sy); err != nil {
-		return err
-	}
+	// Electron/UIA often reports the wrong hit-test name. Invoke first; if
+	// that fails, click the resolved box (OpenClaw). Hit-test is advisory.
 	if !unnamedUIName(invokeName) {
 		if err := s.controlHost().InvokeUI(invokeName); err == nil {
 			return nil
@@ -992,12 +990,24 @@ func (s *Service) clickNamedLadder(invokeName string, sx, sy int, hit string) er
 			}
 		}
 	}
-	// Layer 4: native desktop pixels (sx/sy are SetCursorPos space, not the
-	// 1280 vision thumbnail) + hit-test. Missing hit-test host = fail closed.
-	if _, ok := s.host.(clickHitter); ok {
-		return s.clickResolvedPointer(sx, sy, hit, "left", 1, nil)
+	return s.clickNamedPixels(sx, sy)
+}
+
+func (s *Service) clickNamedPixels(sx, sy int) error {
+	if s.host != nil {
+		ox, oy := s.host.ScreenOrigin()
+		w, h := s.host.ScreenSize()
+		if w <= 0 || h <= 0 || sx < ox || sy < oy || sx >= ox+w || sy >= oy+h {
+			return fmt.Errorf("%w: resolved target outside current desktop; observe again", ErrCcInputFiltered)
+		}
 	}
-	return fmt.Errorf("%w: control %q is not invokable via accessibility", ErrCcExecFailed, hit)
+	if err := s.refuseSelfWindowPixels(); err != nil {
+		return err
+	}
+	if err := s.controlHost().MouseMove(sx, sy); err != nil {
+		return err
+	}
+	return s.controlHost().MouseClick("left", 1)
 }
 
 func (s *Service) verifyPixelClick(sx, sy int) error {

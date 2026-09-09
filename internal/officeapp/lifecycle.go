@@ -95,7 +95,7 @@ func (s *Service) Execute(ctx context.Context, taskID, phase string, fn func(con
 	if _, exists := s.runs[taskID]; exists {
 		s.mu.Unlock()
 		cancel()
-		return domain.ErrConflict
+		return domain.ErrBusy
 	}
 	if s.runs == nil {
 		s.runs = map[string]officeOperation{}
@@ -111,7 +111,7 @@ func (s *Service) Execute(ctx context.Context, taskID, phase string, fn func(con
 		s.mu.Unlock()
 	}()
 	if officeActive(task.Status) {
-		return domain.ErrConflict
+		return domain.ErrBusy
 	}
 	task.RunID = runID
 	task.Status = "queued"

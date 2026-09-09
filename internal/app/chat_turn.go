@@ -63,6 +63,9 @@ func looksLikeResume(text string) bool {
 	if t == "继续" || strings.HasPrefix(t, "继续上次") {
 		return true
 	}
+	if companionRetryActionTurn(t) {
+		return true
+	}
 	return strings.Contains(t, "未完成的工作")
 }
 

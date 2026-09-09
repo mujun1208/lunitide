@@ -21,6 +21,12 @@ func TestChatDeliverableArtifact(t *testing.T) {
 	if !chatDeliverableArtifact("workspace.write", "html", "index.html") {
 		t.Fatal("user html pages must be deliverables")
 	}
+	if !chatDeliverableArtifact("workspace.write", "md", "周报/周报_2026-W37.md") {
+		t.Fatal("skill markdown writes must be chat deliverables")
+	}
+	if !chatDeliverableArtifact("workspace.edit", "txt", "notes.txt") {
+		t.Fatal("edited text files must be chat deliverables")
+	}
 }
 
 func TestAppendAndLoadSessionArtifacts(t *testing.T) {

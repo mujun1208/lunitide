@@ -71,6 +71,8 @@ func officeFailure(r bridge.Request, err error) bridge.Response {
 	case errors.Is(err, domain.ErrScope):
 		code = "OFFICE_SCOPE_MISMATCH"
 		retry = false
+	case errors.Is(err, domain.ErrBusy):
+		return r.Fail("OFFICE_BUSY", "办公任务正在同步或写入，请稍后重试", true)
 	case errors.Is(err, domain.ErrConflict):
 		code = "OFFICE_VERSION_CONFLICT"
 		retry = false
@@ -289,7 +291,7 @@ func handleOfficeStudio(e *Engine, ctx context.Context, r bridge.Request) bridge
 				return officeFailure(r, domain.ErrInvalid)
 			}
 		}
-		err = s.Execute(ctx, p.TaskID, "running", func(run context.Context) error {
+		err = e.officeExclusive(ctx, p.TaskID, "running", func(run context.Context) error {
 			_, importErr := s.Import(run, p.TaskID, p.ArtifactID, name, data, p.BaseVersionID, p.ExpectedRevision, r.IdempotencyKey)
 			return importErr
 		})
@@ -333,7 +335,7 @@ func handleOfficeStudio(e *Engine, ctx context.Context, r bridge.Request) bridge
 		if v.Kind != "pptx" || p.ExpectedRevision < 1 {
 			return officeFailure(r, domain.ErrInvalid)
 		}
-		err = s.Execute(ctx, p.TaskID, "patch", func(run context.Context) error {
+		err = e.officeExclusive(ctx, p.TaskID, "patch", func(run context.Context) error {
 			_, er := s.Patch(run, p.TaskID, vid, p.ExpectedRevision, content.PatchRequest{Kind: content.PPTX, BaseSHA256: v.SHA256, Charts: []content.ChartPatch{{NodeID: p.NodeID, ExpectedDigest: p.NodeDigest, Chart: p.Chart}}}, r.IdempotencyKey)
 			return er
 		})
@@ -347,7 +349,7 @@ func handleOfficeStudio(e *Engine, ctx context.Context, r bridge.Request) bridge
 		if p.ExpectedRevision < 1 {
 			return officeFailure(r, domain.ErrInvalid)
 		}
-		err = s.Execute(ctx, p.TaskID, "validating", func(run context.Context) error {
+		err = e.officeExclusive(ctx, p.TaskID, "validating", func(run context.Context) error {
 			_, er := s.RefreshNativeCaches(run, p.TaskID, vid, p.ExpectedRevision, r.IdempotencyKey)
 			return er
 		})
@@ -398,7 +400,7 @@ func handleOfficeStudio(e *Engine, ctx context.Context, r bridge.Request) bridge
 		if p.ExpectedRevision < 1 || p.NodeID == "" || len(p.NodeDigest) != 64 || len(p.Text) > 131072 {
 			return officeFailure(r, domain.ErrInvalid)
 		}
-		err = s.Execute(ctx, p.TaskID, "running", func(run context.Context) error {
+		err = e.officeExclusive(ctx, p.TaskID, "running", func(run context.Context) error {
 			_, patchErr := s.Patch(run, p.TaskID, vid, p.ExpectedRevision, content.PatchRequest{Kind: content.Kind(v.Kind), BaseSHA256: v.SHA256, Operations: []content.TextPatch{{NodeID: p.NodeID, ExpectedDigest: p.NodeDigest, Text: p.Text}}}, r.IdempotencyKey)
 			return patchErr
 		})
@@ -413,7 +415,7 @@ func handleOfficeStudio(e *Engine, ctx context.Context, r bridge.Request) bridge
 		if sourceErr != nil {
 			return officeFailure(r, sourceErr)
 		}
-		err = s.Execute(ctx, p.TaskID, "patch", func(run context.Context) error {
+		err = e.officeExclusive(ctx, p.TaskID, "patch", func(run context.Context) error {
 			_, er := s.Patch(run, p.TaskID, vid, p.ExpectedRevision, content.PatchRequest{Kind: content.PPTX, BaseSHA256: v.SHA256, Images: []content.ImagePatch{{NodeID: p.NodeID, ExpectedDigest: p.NodeDigest, SourceID: p.AttachmentID, SHA256: p.SHA256, Fit: p.Fit, Alt: p.Alt, Data: imageBytes}}}, r.IdempotencyKey)
 			return er
 		})
@@ -424,7 +426,7 @@ func handleOfficeStudio(e *Engine, ctx context.Context, r bridge.Request) bridge
 		if v.Kind != "xlsx" || p.ExpectedRevision < 1 || len(p.Ranges) == 0 {
 			return officeFailure(r, domain.ErrInvalid)
 		}
-		err = s.Execute(ctx, p.TaskID, "patch", func(run context.Context) error {
+		err = e.officeExclusive(ctx, p.TaskID, "patch", func(run context.Context) error {
 			_, er := s.Patch(run, p.TaskID, vid, p.ExpectedRevision, content.PatchRequest{Kind: content.XLSX, BaseSHA256: v.SHA256, Ranges: p.Ranges}, r.IdempotencyKey)
 			return er
 		})
@@ -432,14 +434,14 @@ func handleOfficeStudio(e *Engine, ctx context.Context, r bridge.Request) bridge
 		if failure := requireIdempotency(r); failure != nil {
 			return *failure
 		}
-		err = s.Execute(ctx, p.TaskID, "running", func(run context.Context) error {
+		err = e.officeExclusive(ctx, p.TaskID, "running", func(run context.Context) error {
 			_, restoreErr := s.Restore(run, p.TaskID, vid, p.ExpectedRevision, r.IdempotencyKey)
 			return restoreErr
 		})
 	case "office.artifact.accept":
 		_, err = s.Store.AcceptOfficeVersion(ctx, p.TaskID, v.ArtifactID, vid, p.ExpectedRevision)
 	case "office.artifact.validate":
-		err = s.Execute(ctx, p.TaskID, "validating", func(run context.Context) error { _, checkErr := s.Check(run, p.TaskID, vid, true); return checkErr })
+		err = e.officeExclusive(ctx, p.TaskID, "validating", func(run context.Context) error { _, checkErr := s.Check(run, p.TaskID, vid, true); return checkErr })
 	case "office.artifact.export":
 		if v.Quality != "passed" && !p.Draft {
 			return r.Fail("OFFICE_DRAFT_REQUIRED", "此版本检查未全部完成，请选择导出草稿", false)

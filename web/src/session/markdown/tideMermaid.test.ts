@@ -3,6 +3,9 @@ import {
   MERMAID_MAX_HEIGHT_CSS,
   TIDE_PALETTE_FALLBACK,
   fitMermaidSvg,
+  mermaidFenceStillOpen,
+  mermaidSourceReady,
+  mermaidTransientError,
   mountMermaidSvg,
   prepareMermaidSource,
   readTidePalette,
@@ -120,6 +123,18 @@ it('trims leaked Chinese prose and desktop=true closed-loop tails from a mermaid
   expect(prepared).not.toContain('NODE_STRING')
   expect(recoverMermaidSource(LEAKED_PPT_FENCE)).toContain('I --> J[')
   expect(trimMermaidFenceLeak(`${LEAKED_PPT_FENCE}\n\`\`\`\nextra`)).not.toContain('extra')
+})
+
+it('waits while arrows, quotes or subgraphs are still being typed', () => {
+  expect(mermaidSourceReady('flowchart TD\nA-->')).toBe(false)
+  expect(mermaidSourceReady('flowchart TD\nA["封面')).toBe(false)
+  expect(mermaidSourceReady('flowchart TD\nsubgraph layer\nA-->B')).toBe(false)
+  expect(mermaidSourceReady('flowchart TD\nA-->B')).toBe(true)
+  expect(mermaidSourceReady(PPT_STRUCTURE_GRAPH)).toBe(true)
+  expect(mermaidFenceStillOpen('```mermaid\nflowchart TD\nA-->B\n')).toBe(true)
+  expect(mermaidFenceStillOpen('```mermaid\nflowchart TD\nA-->B\n```\n下一步')).toBe(false)
+  expect(mermaidTransientError('图表渲染超时或已取消，已回收独立渲染进程；源码仍保留')).toBe(true)
+  expect(mermaidTransientError('parse failed')).toBe(false)
 })
 
 it('mounts mermaid SVG that XML would reject because of HTML <br> in foreignObject', () => {

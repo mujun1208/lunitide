@@ -43,12 +43,9 @@ func TestPresetCatalogPassesWhitelist(t *testing.T) {
 			}
 			continue
 		}
-		spec := p.Args[0]
-		if p.Command == "npx" {
-			spec = p.Args[1]
-		}
+		spec := PresetLaunchPackage(p)
 		if !PresetPackageAllowed(spec) {
-			t.Fatalf("preset %s: args[1] = %q, want a curated free server spec", p.ID, spec)
+			t.Fatalf("preset %s: launch package %q is not curated", p.ID, spec)
 		}
 	}
 }
@@ -154,6 +151,58 @@ func TestPresetNeedsArgsContract(t *testing.T) {
 	// unknown lookup
 	if _, ok := PresetByID("no-such-preset"); ok {
 		t.Fatal("unknown preset id resolved")
+	}
+}
+
+func TestOfficeDocumentPresetsAreCurated(t *testing.T) {
+	want := map[string]struct {
+		category string
+		command  string
+		args     []string
+		pkg      string
+	}{
+		"excel-mcp":  {category: "办公", command: "uvx", args: []string{"excel-mcp-server", "stdio"}, pkg: "excel-mcp-server"},
+		"word-mcp":   {category: "办公", command: "uvx", args: []string{"--from", "office-word-mcp-server", "word_mcp_server"}, pkg: "office-word-mcp-server"},
+		"ppt-mcp":    {category: "办公", command: "uvx", args: []string{"office-ppt-mcp-server"}, pkg: "office-ppt-mcp-server"},
+		"pdf-mcp":    {category: "办公", command: "npx", args: []string{"-y", "pdfnative-mcp"}, pkg: "pdfnative-mcp"},
+		"markitdown": {category: "办公", command: "uvx", args: []string{"markitdown-mcp"}, pkg: "markitdown-mcp"},
+	}
+	for id, spec := range want {
+		p, ok := PresetByID(id)
+		if !ok {
+			t.Fatalf("missing office preset %s", id)
+		}
+		if p.Category != spec.category || p.Command != spec.command || strings.Join(p.Args, " ") != strings.Join(spec.args, " ") {
+			t.Fatalf("%s = %s %v category=%q", id, p.Command, p.Args, p.Category)
+		}
+		if got := PresetLaunchPackage(p); got != spec.pkg || !PresetPackageAllowed(got) {
+			t.Fatalf("%s launch package %q not allowed", id, got)
+		}
+		if _, err := mcp.ResolveLaunchArgs(context.Background(), p.Command, p.Args, officePresetLockFetch); err != nil {
+			t.Fatalf("%s launch lock rejected catalog args: %v", id, err)
+		}
+	}
+	if PresetLaunchPackage(Preset{Command: "uvx", Args: []string{"--from", "office-word-mcp-server", "word_mcp_server"}}) != "office-word-mcp-server" {
+		t.Fatal("uvx --from package resolution failed")
+	}
+}
+
+func officePresetLockFetch(_ context.Context, target string) ([]byte, error) {
+	switch {
+	case strings.Contains(target, "excel-mcp-server"):
+		return []byte(`{"info":{"name":"excel-mcp-server","version":"0.1.0"}}`), nil
+	case strings.Contains(target, "office-word-mcp-server"):
+		return []byte(`{"info":{"name":"office-word-mcp-server","version":"1.1.0"}}`), nil
+	case strings.Contains(target, "office-ppt-mcp-server"):
+		return []byte(`{"info":{"name":"office-ppt-mcp-server","version":"2.0.7"}}`), nil
+	case strings.Contains(target, "office-powerpoint-mcp-server"):
+		return []byte(`{"info":{"name":"office-powerpoint-mcp-server","version":"2.0.0"}}`), nil
+	case strings.Contains(target, "markitdown-mcp"):
+		return []byte(`{"info":{"name":"markitdown-mcp","version":"0.0.1"}}`), nil
+	case strings.Contains(target, "pdfnative-mcp"):
+		return []byte(`{"name":"pdfnative-mcp","version":"1.6.0"}`), nil
+	default:
+		return nil, errors.New(target)
 	}
 }
 

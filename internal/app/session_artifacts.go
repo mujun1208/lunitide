@@ -83,14 +83,14 @@ func chatDeliverableArtifact(toolName, kind, path string) bool {
 	if kind == "html" && (base == "search.html" || base == "fetch.html") {
 		return false
 	}
-	if kind == "image" {
+	if kind == "image" || kind == "md" || kind == "txt" {
 		return true
 	}
 	switch kind {
 	case "pptx", "docx", "xlsx", "pdf":
 		return true
 	}
-	if kind == "html" && toolName == "workspace.write" {
+	if kind == "html" && (toolName == "workspace.write" || toolName == "workspace.edit") {
 		return true
 	}
 	return false

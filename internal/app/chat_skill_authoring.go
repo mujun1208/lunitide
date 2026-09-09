@@ -88,7 +88,7 @@ func looksLikeSkillAuthoringTask(text string) bool {
 
 func skillAuthoringInstruction(text string) string {
 	if looksLikeExpertAuthoringTask(text) {
-		return "\n[本轮专家创建] 用户要创建或改进专家岗位说明书。先读取 expert-manager，再调用 expert.create 保存真实专家。模型工具参数是平铺的 name/division/description/semver/identity/mission/rules/workflow/deliverableTemplate/successMetrics/skillKeys，不是 source/frontmatter/sixSection/requestId。只有 expert.create 返回成功和 expertId 后才能报告创建成功。小说、报告、Word 是专家的业务范围，不是这轮要生成的文档。不要触发文档流水线或要求确认文件生成。\n"
+		return "\n[本轮专家创建] 用户要创建或改进专家岗位说明书。先读取 expert-manager，再调用 expert.create 保存真实专家。本轮不受「操作结果一到三句 / 不要展开核对表」限制，也不要追加「下一步建议」。必须把用户描述充分拆进六段卡片，对照可用技能目录和已装 MCP 做匹配，并把匹配项写入 skillKeys（技能用目录 key，MCP 用 mcp:<id>）。对话里用两张 GFM 表交代：①岗位说明书（身份/使命/规则/流程/交付模板/成败标准）②装备匹配（类型/名称/理由/是否已关联）。模型工具参数是平铺的 name/division/description/semver/identity/mission/rules/workflow/deliverableTemplate/successMetrics/skillKeys，不是 source/frontmatter/sixSection/requestId。只有 expert.create 返回成功和 expertId 后才能报告创建成功，并保留上述表格。小说、报告、Word 是专家的业务范围，不是这轮要生成的文档。不要触发文档流水线或要求确认文件生成。\n"
 	}
 	if !looksLikeSkillAuthoringTask(text) {
 		return ""

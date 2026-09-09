@@ -25,6 +25,37 @@ func TestMediaPlayForegroundRequiresCCAndWindow(t *testing.T) {
 	}
 }
 
+func TestGenericForegroundPlaySendsKeyWithoutUIHunt(t *testing.T) {
+	origActivate := activateWindow
+	origSession := mediaSessionAction
+	origPlay := sendForegroundPlay
+	t.Cleanup(func() {
+		activateWindow = origActivate
+		mediaSessionAction = origSession
+		sendForegroundPlay = origPlay
+	})
+	activateWindow = func(string) error { return nil }
+	mediaSessionAction = func(context.Context, []string, string, bool) (winexec.MediaSessionResult, error) {
+		return winexec.MediaSessionResult{}, errors.New("no session")
+	}
+	played := false
+	sendForegroundPlay = func(string) error {
+		played = true
+		return nil
+	}
+	invoke := func(context.Context, string, string, json.RawMessage, bool) (Result, error) {
+		t.Fatal("generic play must not hunt the UI")
+		return Result{}, errors.New("unexpected")
+	}
+	res, err := executeMediaPlayForeground(context.Background(), invoke, "s1", "随机播放", "汽水音乐", true, true)
+	if err != nil || !played || !strings.Contains(res.Output, "started playing") {
+		t.Fatalf("got %+v %v played=%v", res, err, played)
+	}
+	if !strings.Contains(res.Output, `"passed":true`) || strings.Contains(res.Output, `"uncertain":true`) {
+		t.Fatalf("generic play must close as passed: %s", res.Output)
+	}
+}
+
 func TestQueryIsKnownMusicAppResumesPlay(t *testing.T) {
 	if !queryIsKnownMusicApp("汽水音乐") || !queryIsKnownMusicApp("汽水") || !queryIsKnownMusicApp("网易云") {
 		t.Fatal("player names must resume with the media key")

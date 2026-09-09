@@ -85,6 +85,32 @@ func stdioResolveCommand(command string, args []string) (string, []string, error
 	return resolved, args, nil
 }
 
+// stdioLaunchEnv is the explicit child block. Host secrets stay out; proxy
+// and cache roots are the minimum npx/uvx need to finish a first download.
+func stdioLaunchEnv(extraEnv []string) []string {
+	env := []string{
+		"STDIOMCP_SESSION=1",
+		"PATH=" + os.Getenv("PATH"),
+	}
+	for _, key := range []string{"HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "UV_CACHE_DIR"} {
+		if v := os.Getenv(key); v != "" && !strings.ContainsAny(v, "\x00\r\n") {
+			env = append(env, key+"="+v)
+		}
+	}
+	for _, kv := range extraEnv {
+		if kv != "" && !strings.Contains(kv, "\x00") {
+			env = append(env, kv)
+		}
+	}
+	if root := os.Getenv("SystemRoot"); root != "" && runtime.GOOS == "windows" {
+		env = append(env, "SystemRoot="+root)
+	}
+	if tv := os.Getenv("TEMP"); tv != "" {
+		env = append(env, "TEMP="+tv, "TMP="+tv)
+	}
+	return env
+}
+
 // StdioDial spawns the isolated server and completes the MCP initialize
 // handshake. workDir receives the child's CWD (created when missing); the
 // parent environment never leaks (explicit minimal block plus extraEnv,
@@ -103,21 +129,7 @@ func StdioDial(ctx context.Context, command string, args []string, workDir strin
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
 		return nil, fmt.Errorf("%w: work dir: %v", ErrStdioLaunch, err)
 	}
-	env := []string{
-		"STDIOMCP_SESSION=1",
-		"PATH=" + os.Getenv("PATH"),
-	}
-	for _, kv := range extraEnv {
-		if kv != "" && !strings.Contains(kv, "\x00") {
-			env = append(env, kv)
-		}
-	}
-	if root := os.Getenv("SystemRoot"); root != "" && runtime.GOOS == "windows" {
-		env = append(env, "SystemRoot="+root)
-	}
-	if tv := os.Getenv("TEMP"); tv != "" {
-		env = append(env, "TEMP="+tv, "TMP="+tv)
-	}
+	env := stdioLaunchEnv(extraEnv)
 	// npx/uvx and MCP servers write diagnostics to stderr. Never feed those
 	// bytes into JSON-RPC, and continuously drain them without unbounded storage
 	// or logging potentially sensitive server output.

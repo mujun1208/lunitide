@@ -3,10 +3,13 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/bridge"
@@ -400,6 +403,54 @@ func TestOfficeEngineMetricsRangeBundlesAndRollbackReads(t *testing.T) {
 	}
 	if r := officeCall(t, e, "office.artifact.export", "retained", map[string]any{"taskId": task.ID, "versionId": derived.ID, "draft": true}); !r.OK {
 		t.Fatalf("retained file lost after session deletion: %+v", r.Error)
+	}
+}
+
+func TestOfficeFailureMapsBusySeparatelyFromVersionConflict(t *testing.T) {
+	r := bridge.Request{ID: "req-busy", Method: "office.task.sync"}
+	busy := officeFailure(r, domain.ErrBusy)
+	if busy.OK || busy.Error == nil || busy.Error.Code != "OFFICE_BUSY" || !busy.Error.Retryable {
+		t.Fatalf("busy: %+v", busy)
+	}
+	if busy.Error.Message != "办公任务正在同步或写入，请稍后重试" {
+		t.Fatalf("busy message leaked raw sentinel: %q", busy.Error.Message)
+	}
+	conflict := officeFailure(r, fmt.Errorf("同步文件 汇报.pptx：%w", domain.ErrConflict))
+	if conflict.OK || conflict.Error == nil || conflict.Error.Code != "OFFICE_VERSION_CONFLICT" || conflict.Error.Retryable {
+		t.Fatalf("conflict: %+v", conflict)
+	}
+}
+
+func TestOfficeTaskSyncBusyIsRetryableNotVersionConflict(t *testing.T) {
+	e, _ := officeEngineFixture(t)
+	ctx := context.Background()
+	a := officeCreatedTask(t, e, "sync-busy-bridge")
+	m := officeArchiveMessageForTest(t, e, a.SessionID, "sync-busy-message")
+	officeArchiveFileForTest(t, e, a.SessionID, "sync-busy.docx", "桥接同步碰到写入锁")
+	officeArchiveCardForTest(t, e, a.SessionID, m, "sync-busy.docx", a.ID)
+	started, release, ended := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	go func() {
+		ended <- e.officeStudio.Execute(ctx, a.ID, "running", func(context.Context) error {
+			close(started)
+			<-release
+			return nil
+		})
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("hold not started")
+	}
+	got := officeCall(t, e, "office.task.sync", "sync-busy", map[string]any{"taskId": a.ID})
+	if got.OK || got.Error == nil || got.Error.Code != "OFFICE_BUSY" || !got.Error.Retryable {
+		t.Fatalf("sync overlap: %+v", got)
+	}
+	if errors.Is(fmt.Errorf("%s", got.Error.Code), domain.ErrConflict) || got.Error.Code == "OFFICE_VERSION_CONFLICT" {
+		t.Fatal("sync overlap reported as version conflict")
+	}
+	close(release)
+	if err := <-ended; err != nil {
+		t.Fatal(err)
 	}
 }
 

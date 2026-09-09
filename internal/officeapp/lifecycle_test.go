@@ -146,7 +146,7 @@ func TestOfficeLifecycleRejectsForeignCancelAndDuplicateWriter(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("run not started")
 	}
-	if err := s.Execute(ctx, task.ID, "running", func(context.Context) error { t.Error("duplicate writer executed"); return nil }); !errors.Is(err, domain.ErrConflict) {
+	if err := s.Execute(ctx, task.ID, "running", func(context.Context) error { t.Error("duplicate writer executed"); return nil }); !errors.Is(err, domain.ErrBusy) {
 		t.Fatalf("concurrent writer: %v", err)
 	}
 	foreign := domain.WithScope(ctx, ulid.Make().String())

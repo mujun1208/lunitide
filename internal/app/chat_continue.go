@@ -287,7 +287,7 @@ func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []st
 	if shouldContinueIncompleteWork(stepText, toolOut, lastTools, usedTools, nudges) {
 		return "incomplete"
 	}
-	if computerTask && lastToolName(lastTools) == "media.play" && playbackOnlyGoal(userGoal) {
+	if computerTask && playbackOnlyGoal(userGoal) && usedAnyTool(lastTools, "media.play") {
 		return ""
 	}
 	if computerTask && companionGoalIsOpenOnly(userGoal) && desktopOpenSucceeded(toolOut, lastTools) && !strings.Contains(stepText+assistantAll+toolOut, "无法执行") {
@@ -351,6 +351,8 @@ func companionWantsDesktopControl(text string) bool {
 	for _, needle := range []string{
 		"截图", "屏幕", "对话框", "点击", "鼠标", "电脑", "填写", "输入", "证件",
 		"填表", "再点", "帮我点", "打字", "点一下", "点按钮", "记事本",
+		"回车", "按一下", "按回车", "快捷键", "粘贴", "全选", "热键", "ctrl+",
+		"点确定", "点保存", "点取消",
 		"word", "notepad",
 		"打开", "播放", "播一首", "播歌", "听歌", "放一首", "网易云", "汽水", "网页", "浏览器",
 	} {

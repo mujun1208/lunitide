@@ -233,7 +233,15 @@ func TestWorkspaceWriteReturnsPreviewMetadataOnlyForHTML(t *testing.T) {
 		t.Fatalf("html result = %+v, err=%v", html, err)
 	}
 	text, err := r.Execute(context.Background(), AutoEdit, session, "workspace.write", json.RawMessage(`{"path":"notes.txt","content":"plain"}`), false)
-	if err != nil || text.Artifact != nil {
+	if err != nil || text.Artifact == nil || text.Artifact.Kind != "txt" || text.Artifact.Path != "notes.txt" || text.Artifact.Content != "" {
 		t.Fatalf("text result = %+v, err=%v", text, err)
+	}
+	report, err := r.Execute(context.Background(), AutoEdit, session, "workspace.write", json.RawMessage(`{"path":"周报/周报_2026-W37.md","content":"# 周报"}`), false)
+	if err != nil || report.Artifact == nil || report.Artifact.Kind != "md" || report.Artifact.Path != "周报/周报_2026-W37.md" || report.Artifact.Content != "" {
+		t.Fatalf("markdown result = %+v, err=%v", report, err)
+	}
+	scratch, err := r.Execute(context.Background(), AutoEdit, session, "workspace.write", json.RawMessage(`{"path":"scratch.go","content":"package main"}`), false)
+	if err != nil || scratch.Artifact != nil {
+		t.Fatalf("code scratch must not become a card: %+v, err=%v", scratch, err)
 	}
 }

@@ -1,15 +1,20 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { sessionFolderBridge, type SessionFolderBridge } from '../bridge/client'
+import { artifactReviewBridge, sessionFolderBridge, type SessionFolderBridge } from '../bridge/client'
 
 type Node = { name: string; path: string; directory: boolean }
+
+const orderedNodes = (items: Node[]) =>
+  [...items].sort((a, b) => Number(a.directory === false) - Number(b.directory === false) || a.name.localeCompare(b.name, 'zh'))
 
 export function SessionFolderPanel({
   sessionId,
   bridge = sessionFolderBridge,
+  refreshKey = 0,
   onPreview,
 }: {
   sessionId: string
   bridge?: SessionFolderBridge
+  refreshKey?: number
   onPreview?: (file: { path: string; content: string; size: number }) => void
 }): React.JSX.Element {
   const [rootPath, setRootPath] = useState('')
@@ -21,7 +26,7 @@ export function SessionFolderPanel({
   const loadDir = useCallback(
     async (relativePath = '') => {
       const listed = await bridge.list({ sessionId, ...(relativePath ? { relativePath } : {}) })
-      return listed.items
+      return orderedNodes(listed.items)
     },
     [bridge, sessionId],
   )
@@ -50,7 +55,7 @@ export function SessionFolderPanel({
     return () => {
       alive = false
     }
-  }, [refresh])
+  }, [refresh, refreshKey])
 
   const activate = async (node: Node) => {
     try {
@@ -69,7 +74,13 @@ export function SessionFolderPanel({
         return
       }
       if (onPreview) {
-        onPreview({ path: node.path, content: '（会话产物文件，请在资源管理器中打开查看）', size: 0 })
+        try {
+          const preview = await artifactReviewBridge.preview({ sessionId, path: node.path })
+          onPreview({ path: node.path, content: preview.content || preview.notice || '此文件可在工作区预览或本机打开。', size: preview.size })
+        } catch {
+          onPreview({ path: node.path, content: '无法生成预览，可用本机软件打开。', size: 0 })
+        }
+        return
       }
       await bridge.open({ sessionId, relativePath: node.path })
     } catch (e) {

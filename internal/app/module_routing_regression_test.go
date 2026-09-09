@@ -6,6 +6,9 @@ func TestExplicitOfficeOutputFormatWinsOverSourceAndExpert(t *testing.T) {
 	for _, tc := range []struct{ goal, tool string }{
 		{"请生成中文 PDF 报告，不联网", "pdf.gen"},
 		{"将 Word 报告转成 PDF", "pdf.gen"},
+		{"参考文档，帮我做一个10页的PDF", "pdf.gen"},
+		{"帮我做一个Word周报", "docx.gen"},
+		{"帮我做个Excel表格", "excel.gen"},
 		{"生成 Word 报告，参考 source.pdf", "docx.gen"},
 		{"参考附件 PDF，生成 PPT", "pptx.gen"},
 		{"请生成 Excel 表格，不要生成 PDF", "excel.gen"},
@@ -18,9 +21,12 @@ func TestExplicitOfficeOutputFormatWinsOverSourceAndExpert(t *testing.T) {
 			t.Errorf("expert overrode explicit output: %s -> %s", tc.goal, got)
 		}
 	}
-	for _, goal := range []string{"请读取附件 PDF", "检查这个 PDF 文件", "不要生成 PDF", "what is a PDF?"} {
+	for _, goal := range []string{"请读取附件 PDF", "检查这个 PDF 文件", "不要生成 PDF", "what is a PDF?", "怎么做一个PDF", "做一个PDF还是Word"} {
 		if got := explicitOfficeOutputTool(goal); got != "" {
 			t.Errorf("not an output request: %s -> %s", goal, got)
+		}
+		if got := officeGenToolForGoal(goal); got != "" {
+			t.Errorf("how-to or mixed format routed to %s: %s", got, goal)
 		}
 	}
 }

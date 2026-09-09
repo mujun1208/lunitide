@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -160,7 +161,7 @@ func (e *Engine) syncOfficeArtifacts(ctx context.Context, supplied domain.Task, 
 			}
 			var v domain.Version
 			var runID string
-			err = e.officeStudio.Execute(ctx, t.ID, "sync", func(run context.Context) error {
+			err = e.officeExclusive(ctx, t.ID, "sync", func(run context.Context) error {
 				current, getErr := e.officeStudio.Store.GetOfficeTask(run, t.ID)
 				if getErr != nil {
 					return getErr
@@ -168,10 +169,16 @@ func (e *Engine) syncOfficeArtifacts(ctx context.Context, supplied domain.Task, 
 				runID = current.RunID
 				var importErr error
 				v, importErr = e.officeStudio.ImportLinked(run, t.ID, artifactID, filepath.Base(a.Path), a.Path, data, baseID, revision, "chat-"+t.ID+"-"+sha)
-				return importErr
+				if importErr != nil {
+					return fmt.Errorf("同步文件 %s：%w", filepath.Base(a.Path), importErr)
+				}
+				return nil
 			})
+			if errors.Is(err, domain.ErrBusy) {
+				return err
+			}
 			if err != nil {
-				return fmt.Errorf("同步文件 %s：%w", filepath.Base(a.Path), err)
+				return err
 			}
 			known[sha] = true
 			artifactByPath[a.Path] = v.ArtifactID
@@ -188,4 +195,32 @@ func (e *Engine) syncOfficeArtifacts(ctx context.Context, supplied domain.Task, 
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+func (e *Engine) officeExclusive(ctx context.Context, taskID, phase string, fn func(context.Context) error) error {
+	if e == nil || e.officeStudio == nil {
+		return domain.ErrInvalid
+	}
+	return retryOfficeBusy(ctx, func() error {
+		return e.officeStudio.Execute(ctx, taskID, phase, fn)
+	})
+}
+
+func retryOfficeBusy(ctx context.Context, fn func() error) error {
+	var err error
+	for attempt := 0; attempt < 8; attempt++ {
+		err = fn()
+		if !errors.Is(err, domain.ErrBusy) {
+			return err
+		}
+		if attempt == 7 {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(150 * time.Millisecond):
+		}
+	}
+	return err
 }

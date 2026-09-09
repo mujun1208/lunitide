@@ -115,6 +115,33 @@ func filterLiveComposeMCP(ids []string) []string {
 	return out
 }
 
+// officialMcpCoveredByNative is true when 月汐 already ships the capability
+// (workspace.* / web.fetch / 会话记忆 / todo.write). Expert bindings may still
+// list these official presets; the chip must not ask the operator to install
+// a second copy.
+func officialMcpCoveredByNative(id string) bool {
+	switch strings.ToLower(strings.TrimSpace(id)) {
+	case "fetch", "filesystem", "memory", "sequentialthinking":
+		return true
+	}
+	return false
+}
+
+func missingComposeMCP(preferred, connected []string) []string {
+	have := map[string]bool{}
+	for _, id := range connected {
+		have[strings.ToLower(strings.TrimSpace(id))] = true
+	}
+	var missing []string
+	for _, id := range filterLiveComposeMCP(preferred) {
+		if have[id] || officialMcpCoveredByNative(id) {
+			continue
+		}
+		missing = append(missing, id)
+	}
+	return missing
+}
+
 func expertComposeHint(names []string, published []skill.Skill, connectedMcp []string, preferred ...[]string) string {
 	skills, tools, mcp, fallbacks := m8app.ComposeForExpertNames(names)
 	if len(preferred) > 0 && len(preferred[0]) > 0 {
@@ -165,18 +192,13 @@ func expertComposeHint(names []string, published []skill.Skill, connectedMcp []s
 	}
 	liveIDs := uniqueStrings(append(filterLiveComposeMCP(mcp), filterLiveComposeMCP(connectedMcp)...))
 	if len(liveIDs) > 0 {
-		var ready, missing []string
-		preferred := map[string]bool{}
-		for _, id := range filterLiveComposeMCP(mcp) {
-			preferred[id] = true
-		}
+		var ready []string
 		for _, id := range liveIDs {
 			if connected[id] {
 				ready = append(ready, id)
-			} else if preferred[id] {
-				missing = append(missing, id)
 			}
 		}
+		missing := missingComposeMCP(mcp, connectedMcp)
 		if len(ready) > 0 {
 			b.WriteString("已连接 MCP：")
 			b.WriteString(strings.Join(ready, "、"))
@@ -210,16 +232,7 @@ func (e *Engine) turnEquipInfo(ctx context.Context, sessionID, turnText string) 
 		return nil, nil, nil
 	}
 	boundSkills, _ := m8app.SplitBoundKeys(eq.BindKeys)
-	connected := map[string]bool{}
-	for _, id := range e.connectedComposeMcpIDs() {
-		connected[strings.ToLower(strings.TrimSpace(id))] = true
-	}
-	for _, id := range filterLiveComposeMCP(eq.McpIDs) {
-		if !connected[id] {
-			missingMcp = append(missingMcp, id)
-		}
-	}
-	return names, boundSkills, missingMcp
+	return names, boundSkills, missingComposeMCP(eq.McpIDs, e.connectedComposeMcpIDs())
 }
 
 func (e *Engine) expertComposeForTurn(ctx context.Context, sessionID, turnText string, companion ...bool) (preferred []string, hint string) {
