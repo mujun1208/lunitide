@@ -12,6 +12,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/m8core"
 	"github.com/lunitide/lunitide/internal/domain/skill"
 	"github.com/lunitide/lunitide/internal/providerapp"
+	"github.com/lunitide/lunitide/internal/skillapp"
 	"github.com/lunitide/lunitide/internal/skillarchive"
 	"github.com/oklog/ulid/v2"
 )
@@ -31,6 +32,7 @@ type importSkillReader interface{ ImportedSkillExists(string) (bool, error) }
 
 func (s *SkillImportService) SetSource(source SkillSource) { s.source = source }
 func (s *SkillImportService) HasSource() bool              { return s != nil && s.source != nil }
+func (s *SkillImportService) SetPackageRoot(root string)   { s.packageRoot = root }
 
 func (s *SkillImportService) resolveDiscovery(ctx context.Context, in DiscoverInput) (DiscoverInput, error) {
 	if in.AssetType != m6supply.AssetSkill {
@@ -74,7 +76,7 @@ func (s *SkillImportService) reload(ctx context.Context, c m6supply.ImportCandid
 	if err != nil {
 		return p, err
 	}
-	if p.ArchiveHash != c.ArchiveHash || p.Attestation() != c.SourceAttestation {
+	if p.ArchiveHash != c.ArchiveHash || !p.MatchesAttestation(c.SourceAttestation) {
 		return p, ErrImportChanged
 	}
 	return p, nil
@@ -196,7 +198,14 @@ func (s *SkillImportService) approveResolved(ctx context.Context, in ApproveInpu
 	if evidence.ScanRefs != c.ScanRefs || evidence.InjectionScan != c.InjectionScan || evidence.EvaluationID != c.EvaluationID {
 		return c, ErrImportChanged
 	}
-	manifest, err := json.Marshal(map[string]any{"prompt": p.Prompt, "triggers": []string{p.Name}, "importCandidateId": c.ID, "sourceUrl": c.SourceURL, "commit": c.ImmutableCommit, "archiveHash": c.ArchiveHash, "license": c.License, "importScope": "instructions_only", "skippedFiles": p.SkippedFiles})
+	if len(p.Files) == 0 {
+		return c, fmt.Errorf("%w: 技能包资源为空，未批准导入", skillarchive.ErrInvalid)
+	}
+	packageDigest, err := skillapp.StoreLocalPackage(s.packageRoot, p.Files)
+	if err != nil {
+		return c, fmt.Errorf("保存完整技能资源失败，未批准导入: %w", err)
+	}
+	manifest, err := json.Marshal(map[string]any{"prompt": p.Prompt, "triggers": []string{p.Name}, "importCandidateId": c.ID, "sourceUrl": c.SourceURL, "commit": c.ImmutableCommit, "archiveHash": c.ArchiveHash, "license": c.License, "importScope": "complete_package", "localPackageDigest": packageDigest, "fileCount": len(p.Files), "skippedFiles": p.SkippedFiles})
 	if err != nil || len(manifest) > 65536 {
 		return c, fmt.Errorf("%w: 技能正文超过运行时限制", skillarchive.ErrInvalid)
 	}

@@ -43,9 +43,10 @@ var (
 
 // SkillImportService implements the governed import pipeline.
 type SkillImportService struct {
-	uow    UnitOfWork
-	clock  Clock
-	source SkillSource
+	uow         UnitOfWork
+	clock       Clock
+	source      SkillSource
+	packageRoot string
 }
 
 func NewSkillImportService(uow UnitOfWork) *SkillImportService {

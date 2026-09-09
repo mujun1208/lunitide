@@ -402,7 +402,7 @@ test('the pad finishing does not end her turn while the model is still writing',
   expect(stateOf(utils.container)).toBe('speaking')
 })
 
-test('a barge-in from local ASR cuts the reply and starts the next user turn', async () => {
+test('barge-in stops playback but waits for the full utterance before sending', async () => {
   const onSend = vi.fn()
   const onCancel = vi.fn()
   const props = { ...baseProps, onSend, onCancel }
@@ -425,8 +425,17 @@ test('a barge-in from local ASR cuts the reply and starts the next user turn', a
   await flush(0)
 
   expect(onCancel).toHaveBeenCalled()
+  expect(onSend).toHaveBeenCalledTimes(1)
+  expect(stateOf(utils.container)).toBe('listening')
+  await act(async () => {
+    speech.callbacks!.onInterim?.('不是这个，查一下今天合肥的天气')
+  })
+  expect(onSend).toHaveBeenCalledTimes(1)
+  await act(async () => {
+    speech.callbacks!.onFinal('不是这个，查一下今天合肥的天气')
+  })
   expect(onSend).toHaveBeenCalledTimes(2)
-  expect(onSend).toHaveBeenLastCalledWith('不是这个')
+  expect(onSend).toHaveBeenLastCalledWith('不是这个，查一下今天合肥的天气')
   expect(stateOf(utils.container)).toBe('thinking')
 })
 
@@ -443,14 +452,56 @@ test('Space and moon while listening do not cancel the microphone', async () => 
 })
 
 test('the pause control is the only listening path that cancels the mic', async () => {
-  const utils = render(<CompanionStage {...baseProps} />)
+  const onSend = vi.fn()
+  const utils = render(<CompanionStage {...baseProps} onSend={onSend} />)
   await flush(600)
   const pause = utils.container.querySelector('.companion-pause') as HTMLButtonElement
   expect(pause.disabled).toBe(false)
+  const retired = speech.callbacks!
   fireEvent.click(pause)
   await flush(0)
   expect(speech.stop).toHaveBeenCalled()
   expect(stateOf(utils.container)).toBe('idle')
+  expect(pause).toHaveTextContent('继续')
+  await act(async () => {
+    retired.onInterim?.('暂停后迟到的半句')
+    retired.onFinal('暂停后迟到的结果')
+    retired.onEndWithoutFinal?.()
+  })
+  expect(stateOf(utils.container)).toBe('idle')
+  expect(onSend).not.toHaveBeenCalled()
+  fireEvent.click(pause)
+  await flush(100)
+  expect(stateOf(utils.container)).toBe('listening')
+  await act(async () => retired.onFinal('旧会话不允许提交'))
+  expect(onSend).not.toHaveBeenCalled()
+  await act(async () => speech.callbacks!.onFinal('恢复后继续查天气'))
+  expect(onSend).toHaveBeenCalledExactlyOnceWith('恢复后继续查天气')
+})
+
+test('a late recognizer start cannot replace the resumed listening session', async () => {
+  let resolveStart!: (handle: ReturnType<typeof speech.handle>) => void
+  speech.start.mockReturnValueOnce(new Promise(resolve => { resolveStart = resolve }))
+  const onSend = vi.fn()
+  const utils = render(<CompanionStage {...baseProps} onSend={onSend} />)
+  await flush(600)
+  const retired = speech.callbacks!
+  const pause = utils.container.querySelector('.companion-pause') as HTMLButtonElement
+  // A pending startup is idle; enter the listening state before pausing it.
+  await act(async () => retired.onEndWithoutFinal?.())
+  fireEvent.click(pause)
+  await flush(0)
+  expect(stateOf(utils.container)).toBe('idle')
+  fireEvent.click(pause)
+  await flush(100)
+  const late = { ...speech.handle(), stop: vi.fn() }
+  await act(async () => resolveStart(late))
+  expect(late.stop).toHaveBeenCalledOnce()
+  expect(stateOf(utils.container)).toBe('listening')
+  await act(async () => retired.onFinal('旧识别结果'))
+  expect(onSend).not.toHaveBeenCalled()
+  await act(async () => speech.callbacks!.onFinal('新会话的完整问题'))
+  expect(onSend).toHaveBeenCalledExactlyOnceWith('新会话的完整问题')
 })
 
 test('force-commits the stage caption when the recognizer buffer is empty', async () => {

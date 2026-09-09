@@ -2,6 +2,7 @@
 // Only 停止 (the stop button or an explicit stop command) cancels.
 
 export type FollowUpKind = 'progress' | 'supplement' | 'task_change'
+export type CompanionInFlightKind = 'duplicate' | 'supplement' | 'task_change'
 
 export function isStopCommand(text: string): boolean {
   const t = text.trim().replace(/[。.！!]+$/u, '')
@@ -12,10 +13,29 @@ export function inFlightLiveChat(entry: { terminal?: boolean } | undefined, chat
   return Boolean((entry && !entry.terminal) || chatActive)
 }
 
-/** Same user sentence while a companion turn is live: queue/drop, never reset+restart. */
-export function companionShouldDeferInFlight(incoming: string, activeGoal: string): boolean {
+const companionContinuation = /^(?:的|最后|末尾|在|到|和|与|以及|然后|接着|再|把|给|往|其中|里面)/u
+const companionDesktopAction = /(?:输入|填写|填入|写入|写上|打字|点击|按下|最后一行|末尾|保存|发送)/u
+const companionDesktopContext = /(?:桌面|文档|文件|表格|记事本|浏览器|窗口)/u
+
+/** Keep ASR final-packet fragments attached to the running task. */
+export function classifyCompanionInFlight(incoming: string, activeGoal: string): CompanionInFlightKind {
   const next = incoming.trim()
-  return next !== '' && next === activeGoal.trim()
+  const goal = activeGoal.trim()
+  if (!next || !goal) return 'task_change'
+  if (next === goal) return 'duplicate'
+  if (isStatusFollowUp(next) || /^(?:怎么样|然后呢|好了吗)[？?。.!！]*$/u.test(next)) return 'supplement'
+  if (/^(?:不是这个|不是这样|换个任务|换一件事|算了|别做了)/u.test(next)) return 'task_change'
+  if (companionContinuation.test(next)) return 'supplement'
+  if (companionDesktopContext.test(goal) && companionDesktopAction.test(next)) return 'supplement'
+  if (Array.from(next.replace(/[，,。！？?!\s]/gu, '')).length <= 8 && !/(?:查|搜索|打开|播放|生成|写一份|做一份)/u.test(next)) {
+    return 'supplement'
+  }
+  return 'task_change'
+}
+
+/** Same user sentence while a companion turn is live: drop the duplicate. */
+export function companionShouldDeferInFlight(incoming: string, activeGoal: string): boolean {
+  return classifyCompanionInFlight(incoming, activeGoal) === 'duplicate'
 }
 
 /**

@@ -47,3 +47,9 @@ export function titleFromFirstTurn(text: string, max = 80): string {
   const runes = [...t]
   return runes.length <= max ? t : runes.slice(0, max).join('')
 }
+
+export function localizedSessionTitle(title: string, zh: boolean): string {
+  if (isCompanionChatTitle(title)) return zh ? '月伴对话' : 'Companion talk'
+  if (isPlaceholderChatTitle(title)) return zh ? '新对话' : 'New chat'
+  return displaySessionTitle(title)
+}

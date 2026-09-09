@@ -6,7 +6,7 @@ import (
 	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
-const officeGenWorkflowClause = "- 文档：必须用 pptx.gen / docx.gen / excel.gen / pdf.gen 写入工作区并汇报路径。用户要放到桌面时加 desktop=true（path 用文件名即可，例如 半年财报.xlsx），禁止填 C:\\\\Users\\\\...\\\\Desktop 绝对路径，禁止 PowerPoint/Excel/Word COM、Python 拼 OOXML、command.run 复制到桌面。" + officeGenInternalHint + "做 PPT 禁止 ZipFile 改 XML。PPT 必须走九步流水线（思考→定义结构→写内容→web.search 收集素材→再思考→再收集素材→思考创作→写完整页→最后 pptx.gen），禁止跳步生成空页或只有深色底没有文字的文件；pptx.gen 会拒绝空标题/不可读页。报告必须走流水线（思考受众→目录→两轮 web.search/fetch→再思考→完整章节→最后 docx.gen）；小说必须走流水线（类型人设→大纲起承转合→人物世界观→必要时检索→分章正文→修订文风→最后 docx.gen）。禁止跳步生成空稿、无标题样式或只有提纲的 Word；docx.gen 会拒绝空文档和单样式正文。表格用月度汇总，不要一次塞几百行。\n"
+const officeGenWorkflowClause = "- 文档：必须用 pptx.gen / docx.gen / excel.gen / pdf.gen 写入工作区并汇报路径。用户要放到桌面时加 desktop=true（path 用文件名即可，例如 半年财报.xlsx），禁止填 C:\\\\Users\\\\...\\\\Desktop 绝对路径，禁止 PowerPoint/Excel/Word COM、Python 拼 OOXML、command.run 复制到桌面。" + officeGenInternalHint + "做 PPT 禁止 ZipFile 改 XML。仅需要外部调研的 PPT 必须走九步流水线（思考→定义结构→写内容→web.search 收集素材→再思考→再收集素材→思考创作→写完整页→最后 pptx.gen），禁止跳步生成空页或只有深色底没有文字的文件；pptx.gen 会拒绝空标题/不可读页。需要外部调研的报告必须走流水线（思考受众→目录→两轮 web.search/fetch→再思考→完整章节→最后 docx.gen）；小说必须走流水线（类型人设→大纲起承转合→人物世界观→必要时检索→分章正文→修订文风→最后 docx.gen）。禁止跳步生成空稿、无标题样式或只有提纲的 Word；docx.gen 会拒绝空文档和单样式正文。按用户要求保留完整表格数据；数据量大时分批写入，不得擅自汇总丢行。来源材料已齐或用户要求离线时，跳过联网调研，读取原文后直接排版生成。以用户指定输出格式为准：中文 PDF 直接用 pdf.gen，不得改成交付 Word。\n"
 
 const workflowResearchClause = "- 调研：专用实时数据优先对应数据工具；普通资料用 web.search（不要 web.fetch Bing/Google 首页）；后台检索供你引用，只有用户明确要看/打开网页时才需要工作区浏览器。完成后只给简短来源列表并结束，不要写任务过程长文。\n"
 
@@ -36,7 +36,7 @@ const workflowDesktopOpenClause = "- 打开桌面文件：必须用 desktop.open
 
 const workflowDesktopTypeClause = "- 在已打开的对话框里填写：有命名输入框时用 desktop.type（after=界面上真实字段名如身份证号码或证件号码，text=要写的内容，需要发送时 submit=true，window=窗口标题）。Word 正文没有命名输入框时改 computer.act：先截图，记下 frameId，再点输入位置后 type，verifyAfter。找不到字段必须对用户说无法执行和原因。写完不要关窗口。\n"
 
-const workflowMediaClause = "- 播放音乐/视频：打开桌面播放器后用 media.play target=foreground（没说歌名或要随机播放时 query=热门；说了歌手如周杰伦则 query=周杰伦）。未运行则 desktop.open 启动后再 foreground 搜索播放。禁止点「我喜欢的音乐」「收藏」。成功以正在播放为准，不要只启动进程。禁止默认打开 music.163.com / YouTube。仅当用户明确要网页版时才用 target=browser。\n" +
+const workflowMediaClause = "- 播放音乐/视频：用 media.play target=foreground（没说歌名或要随机播放时 query=random，不要搜索热门；说了歌手如周杰伦则 query=周杰伦）。工具会启动指定播放器。禁止点收藏或点赞开关。成功以正在播放为准，收到 verified 且 passed=true 后直接报告，不要重复操作。禁止默认打开 music.163.com / YouTube。仅当用户明确要网页版时才用 target=browser。\n" +
 	"- 暂停/下一首：media.play action=pause|next|prev。已打开的播放器暂停后再继续：media.play action=play，不要带歌名或应用名当 query，不要 computer.act 找播放按钮。\n"
 
 const workflowIMClause = "- 发飞书/企微/钉钉/微信/QQ：设置 → 消息通道启用后用 im.send。\n"
@@ -81,7 +81,7 @@ func companionTaskWorkflowInjection(text string) string {
 	return "\n\n[月伴办公流水线] 生成文档别一步到位，按顺序做完再收尾：\n" +
 		"1) 先想清目标/受众/页数，列出结构（PPT 列封面·目录·分节·结尾；报告列章节；表格列字段）。\n" +
 		"2) 逐页/逐节写完整内容：每页要有可见标题和 3-5 条要点，深色底配浅色字；缺事实用 web.search 收集，禁止编造。\n" +
-		"3) 内容齐了最后一步才生成文件：PPT 用 pptx.gen、报告/小说用 docx.gen、表格用 excel.gen，写进工作区并报出路径；用户要放桌面加 desktop=true（path 只填文件名）。\n" +
+		"3) 内容齐了最后一步才生成文件：PPT 用 pptx.gen、Word 报告/小说用 docx.gen、表格用 excel.gen、PDF 用 pdf.gen，写进工作区并报出路径；用户要放桌面加 desktop=true（path 只填文件名）。\n" +
 		"禁止跳步直接生成空页、只有深色底没有文字、或只有提纲的文件——pptx.gen/docx.gen 会拒绝空标题与空文档。本轮连续做到出文件再停，不要勘查后就停下等确认。\n"
 }
 

@@ -40,6 +40,21 @@ const { installLocalAsr, localAsrStatus, startLocalAsr, readyWithin, LOCAL_ASR_D
 const frame = (peak = 0.2) => ({ base64: 'AAAA', samples: new Int16Array(1600), peak })
 const settle = () => new Promise(resolve => setTimeout(resolve, 0))
 
+it('forwards soft speech below the activity threshold before and after unmuting', async () => {
+  const handle = await startLocalAsr()
+  emitFrame(frame(0.005))
+  await settle()
+  expect(bridge.append).toHaveBeenCalledOnce()
+  handle.setMuted(true)
+  await settle()
+  handle.setMuted(false)
+  const count = bridge.append.mock.calls.length
+  emitFrame(frame(0.005))
+  await settle()
+  expect(bridge.append.mock.calls.length).toBeGreaterThan(count)
+  handle.cancel()
+})
+
 beforeEach(() => {
   vi.clearAllMocks()
   captureRejects = undefined
@@ -91,6 +106,23 @@ describe('installLocalAsr', () => {
 })
 
 describe('startLocalAsr', () => {
+  it('waits for a slow final audio append instead of finishing with truncated speech', async () => {
+    vi.useFakeTimers()
+    try {
+      const handle = await startLocalAsr()
+      let complete!: (value: { text: string; final: boolean }) => void
+      bridge.append.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+      bridge.finish.mockResolvedValueOnce({ text: '帮我打开汽水音乐，随机播放一首歌曲。' })
+      emitFrame(frame())
+      const commit = handle.commit()
+      await vi.advanceTimersByTimeAsync(800)
+      expect(bridge.finish).not.toHaveBeenCalled()
+      complete({ text: '随机播放一首歌曲', final: false })
+      await vi.advanceTimersByTimeAsync(20)
+      await expect(commit).resolves.toBe('帮我打开汽水音乐，随机播放一首歌曲。')
+      handle.cancel()
+    } finally { vi.useRealTimers() }
+  })
   it('retires a streamed turn before late replies and keeps the next round separate', async () => {
     const onTranscript = vi.fn()
     const handle = await startLocalAsr({ onTranscript })
@@ -377,7 +409,10 @@ describe('startLocalAsr', () => {
   it('opens a fresh recognizer session before sherpa rejects a long utterance', async () => {
     bridge.start.mockResolvedValueOnce({ sessionId: 'v1' }).mockResolvedValueOnce({ sessionId: 'v2' })
     const handle = await startLocalAsr({ externalPcm: true })
-    handle.pushFrame({ base64: 'AAAA', samples: new Int16Array(LOCAL_ASR_MAX_SESSION_SAMPLES), peak: 0.2 })
+    for (let offset = 0; offset < LOCAL_ASR_MAX_SESSION_SAMPLES; offset += 16000) {
+      handle.pushFrame({ base64: 'AAAA', samples: new Int16Array(16000), peak: 0.2 })
+      await settle()
+    }
     await vi.waitFor(() => expect(bridge.start).toHaveBeenCalledTimes(2))
     expect(bridge.stop).toHaveBeenCalledWith({ sessionId: 'v1' })
     expect(stopCapture).not.toHaveBeenCalled()

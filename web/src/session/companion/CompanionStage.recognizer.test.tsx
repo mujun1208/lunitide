@@ -223,6 +223,28 @@ const volcProvider = {
   models: [{ modelId: 'seed-asr-2.0', displayName: 'seed-asr 2.0', isDefault: true, kind: 'voice', kindDefault: true }],
 }
 
+test.each(['cloud', 'local', 'volc'] as const)('%s preserves delayed first text and sends the entire music request', async path => {
+  saveCompanionSettings(applyVoicePath(defaultCompanionSettings(), path))
+  recognizers.providers = [chatProvider, volcProvider]
+  const onSend = vi.fn().mockResolvedValue(true)
+  const utils = render(<CompanionStage {...baseProps} onSend={onSend} />)
+  await act(async () => { recognizers.settleProbe(path === 'local') })
+  await flush(600)
+  const recognizer = recognizers[path]
+  expect(recognizer).toHaveBeenCalledTimes(1)
+  const callbacks = recognizer.mock.calls[0][0]
+  for (let i = 0; i < 28; i++) {
+    await act(async () => { callbacks.onVoiceEnergy() })
+    await flush(500)
+  }
+  expect(recognizer).toHaveBeenCalledTimes(1)
+  expect(onSend).not.toHaveBeenCalled()
+  const request = '帮我打开汽水音乐，随机播放一首歌曲'
+  await act(async () => { callbacks.onInterim(request); callbacks.onFinal(request) })
+  expect(onSend).toHaveBeenCalledExactlyOnceWith(request)
+  utils.unmount()
+})
+
 test('opens volc seed-asr when the 火山 path is saved', async () => {
   saveCompanionSettings(applyVoicePath(defaultCompanionSettings(), 'volc'))
   recognizers.providers = [chatProvider, volcProvider]

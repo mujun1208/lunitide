@@ -1,5 +1,11 @@
 import { expect, it } from 'vitest'
-import { displaySessionTitle, isColleagueChatTitle, isCompanionChatTitle, isProtectedSidebarChat, isRenameableChatTitle, titleFromFirstTurn } from './sessionTitle'
+import { displaySessionTitle, localizedSessionTitle, isColleagueChatTitle, isCompanionChatTitle, isProtectedSidebarChat, isRenameableChatTitle, titleFromFirstTurn } from './sessionTitle'
+
+it('localizes the stored companion title without renaming custom chats', () => {
+  expect(localizedSessionTitle('Companion talk', true)).toBe('月伴对话')
+  expect(localizedSessionTitle('月伴对话', false)).toBe('Companion talk')
+  expect(localizedSessionTitle('My custom chat', true)).toBe('My custom chat')
+})
 
 it('strips the leftover 同事 · prefix from bound colleague session titles', () => {
   expect(displaySessionTitle('同事 · PPT专家')).toBe('PPT专家')

@@ -83,9 +83,9 @@ func TestMessageValidateAssistantRole(t *testing.T) {
 	if err := oversized.Validate(); err == nil {
 		t.Fatal("accepted assistant message with oversized text")
 	}
-	// Assistant text within assistant limit but exceeding user limit accepted.
+	// Assistant output retains its independent maximum.
 	wideText := valid
-	wideText.Text = strings.Repeat("a", MaxRunes+1)
+	wideText.Text = strings.Repeat("a", MaxRunesAssistant)
 	if err := wideText.Validate(); err != nil {
 		t.Fatalf("assistant text within assistant limit but exceeding user limit rejected: %v", err)
 	}
@@ -117,9 +117,9 @@ func TestMessageValidateToolRole(t *testing.T) {
 	if err := oversized.Validate(); err == nil {
 		t.Fatal("accepted tool message with oversized text")
 	}
-	// Tool text within assistant limit but exceeding user limit accepted.
+	// Tool output retains the independent assistant maximum.
 	wideText := valid
-	wideText.Text = strings.Repeat("a", MaxRunes+1)
+	wideText.Text = strings.Repeat("a", MaxRunesAssistant)
 	if err := wideText.Validate(); err != nil {
 		t.Fatalf("tool text within assistant limit but exceeding user limit rejected: %v", err)
 	}

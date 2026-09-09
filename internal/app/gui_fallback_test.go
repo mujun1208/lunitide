@@ -144,11 +144,14 @@ func TestDesktopToolFailedForGUI(t *testing.T) {
 	if desktopToolFailedForGUI("web.search", "ok:false", nil) {
 		t.Fatal("other tools do not trigger")
 	}
-	if desktopToolFailedForGUI("desktop.type", `typed ok {"l0":{"kind":"type","passed":true}}`, nil) {
+	if desktopToolFailedForGUI("desktop.type", `typed ok {"l0":{"kind":"field","passed":true}}`, nil) {
 		t.Fatal("D-D6 L0 passed must not trigger")
 	}
-	if !desktopTypePassedL0("desktop.type", `{"l0":{"kind":"type","passed":true}}`) {
+	if !desktopTypePassedL0("desktop.type", `{"l0":{"kind":"field","passed":true}}`) {
 		t.Fatal("desktop.type L0.passed")
+	}
+	if desktopTypePassedL0("desktop.type", `{"l0":{"kind":"field","passed":true,"uncertain":true}}`) {
+		t.Fatal("uncertain field must not be treated as verified")
 	}
 }
 

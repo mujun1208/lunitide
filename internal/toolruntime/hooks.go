@@ -47,11 +47,12 @@ var ErrHookBlocked = errors.New("hook blocked")
 // hookableTools is the frozen matcher universe: hooks may only reference
 // tools the runtime actually executes (fail-closed on anything else).
 var hookableTools = map[string]bool{
+	"office.generate": true, "office.inspect": true, "office.patch": true, "office.range.patch": true, "office.image.replace": true, "office.chart.patch": true, "office.cache.refresh": true, "office.deliver": true,
 	"workspace.list": true, "workspace.read": true, "workspace.write": true,
 	"workspace.search": true, "workspace.edit": true, "todo.write": true,
 	"command.run": true, "web.fetch": true, "web.search": true, "weather.get": true,
 	"excel.gen": true, "excel.parse": true, "docx.gen": true, "pptx.gen": true, "pdf.gen": true,
-	"html.gen": true, "desktop.open": true, "desktop.type": true, "media.play": true,
+	"html.gen": true, "desktop.open": true, "desktop.quit": true, "desktop.browse": true, "desktop.type": true, "media.play": true,
 }
 
 var hookIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)

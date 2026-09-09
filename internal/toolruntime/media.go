@@ -132,9 +132,34 @@ func executeMediaPlayWithCC(ctx context.Context, invoke ccInvoker, session strin
 		action = "play"
 	}
 	target := strings.ToLower(strings.TrimSpace(a.Target))
+	if mediaPlayUsesDesktop(target, a.URL) {
+		control := action
+		switch control {
+		case "skip":
+			control = "next"
+		case "previous":
+			control = "prev"
+		}
+		if control == "next" || control == "prev" || control == "pause" || control == "stop" {
+			if app := resolveDesktopPlayApp(target, a.App); app != "" {
+				if res, ok := controlMusicSession(ctx, app, control, false); ok {
+					return res, nil
+				}
+			}
+		}
+	}
 	switch action {
 	case "play", "open_and_play":
 		q := strings.TrimSpace(a.Query)
+		if mediaPlayUsesDesktop(target, a.URL) && (q == "" || queryIsKnownMusicApp(q)) {
+			app := resolveDesktopPlayApp(target, a.App)
+			if queryIsKnownMusicApp(q) {
+				app = CanonicalMusicApp(q)
+			}
+			if app != "" && invoke != nil {
+				return executeMediaPlayForeground(ctx, invoke, session, "播放一首歌", app, approved, unconfined)
+			}
+		}
 		if mediaPlayUsesDesktop(target, a.URL) && q != "" && !queryIsKnownMusicApp(q) {
 			app := resolveDesktopPlayApp(target, a.App)
 			if app == "" {

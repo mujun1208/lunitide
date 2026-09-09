@@ -65,6 +65,15 @@ func (s *Store) ReplaceSessionExpertIDs(ctx context.Context, sessionID string, e
 	if count == 0 {
 		return sessionapp.ErrSessionNotFound
 	}
+	for _, id := range expertIDs {
+		var blocked bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM expert_catalog WHERE expert_id=? AND (deleted_at<>'' OR (creation_origin='manual' AND state<>'enabled')))`, id).Scan(&blocked); err != nil {
+			return fmt.Errorf("check expert lifecycle for session mount: %w", err)
+		}
+		if blocked {
+			return fmt.Errorf("expert is disabled or deleted")
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM session_expert_mounts WHERE session_id=?`, sessionID); err != nil {
 		return fmt.Errorf("clear session expert mounts: %w", err)
 	}

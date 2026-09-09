@@ -372,8 +372,8 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 			if !strings.Contains(string(d.Schema), `"desktop"`) || !strings.Contains(d.Description, "desktop=true") {
 				t.Fatalf("%s must advertise desktop=true", name)
 			}
-			if name == "pdf.gen" && !strings.Contains(d.Description, "docx.gen") {
-				t.Fatal("pdf.gen must send Chinese reports to docx.gen")
+			if name == "pdf.gen" && !strings.Contains(d.Description, "embedded Chinese font") {
+				t.Fatal("pdf.gen must advertise native Chinese PDF support")
 			}
 		}
 		if !found {

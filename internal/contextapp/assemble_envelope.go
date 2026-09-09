@@ -94,7 +94,9 @@ func AssembleEnvelope(ctx context.Context, reader Reader, sessionID string, env 
 		env.MaxMessages = 256
 	}
 
-	trace := SelectionTrace{}
+	// Deletion/readability validation above must run before any reduction.
+	env, efficiency, duplicateTrace := prepareEvidence(env)
+	trace := SelectionTrace{Efficiency: efficiency, Entries: duplicateTrace}
 
 	// Compute reserved token costs for preambles (priorities 3, 4, handoff, attachments).
 	var priorSummaryTokens, pinnedFactsTokens, handoffCapsuleTokens, attachmentExcerptTokens int64

@@ -11,11 +11,12 @@ import (
 )
 
 type queueDeliveryDTO struct {
-	ID         string          `json:"id"`
-	State      string          `json:"state"`
-	StreamID   string          `json:"streamId,omitempty"`
-	MessageIDs []string        `json:"messageIds"`
-	Items      []queuedItemDTO `json:"items"`
+	OfficeTaskID string          `json:"officeTaskId,omitempty"`
+	ID           string          `json:"id"`
+	State        string          `json:"state"`
+	StreamID     string          `json:"streamId,omitempty"`
+	MessageIDs   []string        `json:"messageIds"`
+	Items        []queuedItemDTO `json:"items"`
 }
 
 type queueDeliveryStartKey struct{}
@@ -24,7 +25,11 @@ func deliveryDTO(d queueapp.Delivery) *queueDeliveryDTO {
 	if d.ID == "" {
 		return nil
 	}
-	return &queueDeliveryDTO{ID: d.ID, State: d.State, StreamID: d.StreamID, MessageIDs: append([]string{}, d.MessageIDs...), Items: queueItemDTOs(d.Items)}
+	officeTaskID := ""
+	if len(d.Items) > 0 {
+		officeTaskID = d.Items[0].OfficeTaskID
+	}
+	return &queueDeliveryDTO{ID: d.ID, OfficeTaskID: officeTaskID, State: d.State, StreamID: d.StreamID, MessageIDs: append([]string{}, d.MessageIDs...), Items: queueItemDTOs(d.Items)}
 }
 
 func (e *Engine) queueOwnerActive(id string) bool {

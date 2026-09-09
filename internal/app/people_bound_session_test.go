@@ -9,6 +9,8 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/identity"
+	"github.com/lunitide/lunitide/internal/m9app"
+	"github.com/lunitide/lunitide/internal/org"
 	"github.com/lunitide/lunitide/internal/people"
 	"github.com/lunitide/lunitide/internal/projectapp"
 	"github.com/lunitide/lunitide/internal/sessionapp"
@@ -69,6 +71,62 @@ func TestPeopleBoundSessionNotThreadID(t *testing.T) {
 	mapped, ok, err := roster.ThreadSession(ctx, thread.ThreadID)
 	if err != nil || !ok || mapped != sessionID {
 		t.Fatalf("map = %q ok=%v err=%v", mapped, ok, err)
+	}
+}
+
+func TestPeopleBoundSessionDoesNotReuseAnotherOrganizationSession(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlitestore.OpenTemplated(ctx, filepath.Join(t.TempDir(), "bound-scope.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	ident := identity.New(store)
+	if err := ident.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	roster := people.New(store, ident, t.TempDir(), t.TempDir())
+	t.Cleanup(roster.Close)
+	peerID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	if err := roster.UpsertAgentContact(ctx, people.Contact{SubjectID: peerID, Nickname: "PPT专家", Status: "online", OrgName: people.AgentOrgName}); err != nil {
+		t.Fatal(err)
+	}
+	thread, _, err := roster.OpenDirect(ctx, peerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := NewEngineWithSessions(nil, projectapp.New(store, store), sessionapp.New(store, store), "test", nil)
+	e.SetIdentityPeopleServices(ident, roster)
+	admin := m9app.NewOrgAdminService(
+		org.NewService(org.NewGate(store.OrgStorage()), nil),
+		m9app.NewFileBindingStore(filepath.Join(t.TempDir(), "binding.json")),
+	)
+	e.SetM9OrgAdminService(admin)
+	if err := m9app.EnsureDefaultOrgBinding(ctx, admin); err != nil {
+		t.Fatal(err)
+	}
+	firstID, err := e.ensurePeopleBoundSession(ctx, thread.ThreadID, "PPT专家")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondOrg, err := admin.CreateOrg(ctx, "Second organization")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Switch(ctx, secondOrg.OrgID); err != nil {
+		t.Fatal(err)
+	}
+	secondID, err := e.ensurePeopleBoundSession(ctx, thread.ThreadID, "PPT专家")
+	if err != nil || secondID == firstID {
+		t.Fatalf("second organization reused session %q: %q %v", firstID, secondID, err)
+	}
+	secondSession, err := e.sessions.(sessionByID).Get(ctx, secondID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err := e.projects.Get(ctx, secondSession.ProjectID)
+	if err != nil || parent.OrgID != secondOrg.OrgID {
+		t.Fatalf("second organization parent: %+v %v", parent, err)
 	}
 }
 

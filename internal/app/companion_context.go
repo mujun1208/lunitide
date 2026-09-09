@@ -215,6 +215,16 @@ func companionExtractAfterSearch(text string) string {
 
 func companionExtractMusicQuery(text string) string {
 	t := strings.TrimSpace(text)
+	parts := strings.FieldsFunc(t, func(r rune) bool { return strings.ContainsRune("，,。！!；;\n", r) })
+	kept := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if spokenResultReportOnly(part) || strings.HasPrefix(part, "核对播放结果") || strings.HasPrefix(part, "必须核对是否开始播放") {
+			continue
+		}
+		kept = append(kept, part)
+	}
+	t = strings.Join(kept, "，")
 	if t == "" {
 		return "热门"
 	}
@@ -291,6 +301,9 @@ func (e *Engine) companionWantsToolsForTurn(sessionID, text string) bool {
 	if sessionID == "" || e == nil {
 		return false
 	}
+	if e.companionFileCorrection(sessionID, text) {
+		return true
+	}
 	ctx := e.loadCompanionContext(sessionID)
 	if ctx.ActiveAppName == "" {
 		return false
@@ -326,7 +339,23 @@ func (e *Engine) companionSessionInjection(sessionID, turnText string) string {
 	if sessionID == "" || e == nil {
 		return ""
 	}
+	if e.companionFileCorrection(sessionID, turnText) {
+		return "\n[本轮文件名更正] 用户在补充上一轮打开文件的名字，请用本轮给出的名字调用 desktop.open；不要只说稍等。真实路径以工具解析结果为准，不复用旧文件名。\n"
+	}
+	if lookupOnlyTurn(turnText) {
+		return ""
+	}
 	ctx := e.loadCompanionContext(sessionID)
+	if named := companionNamedMusicApp(turnText); named != "" && named != toolruntime.CanonicalMusicApp(ctx.ActiveAppName) {
+		return ""
+	}
+	if target, open := desktopOpenTargetFromGoal(turnText); open && !looksLikeMusicAppName(target) {
+		return ""
+	}
+	if (ctx.Kind == "music_app" || looksLikeMusicAppName(ctx.ActiveAppName)) &&
+		(looksLikeDesktopObserveTurn(turnText) || looksLikeTypeAfterLabelTurn(turnText)) {
+		return ""
+	}
 	if ctx.ActiveAppName == "" {
 		return ""
 	}
@@ -345,10 +374,30 @@ func (e *Engine) companionSessionInjection(sessionID, turnText string) string {
 	} else {
 		b.WriteString("用户后续要在该软件里继续操作时，优先在该前台窗口内完成，不要另开网页或无关程序。")
 	}
-	if companionPlayFollowUp(turnText) {
+	if companionPlayFollowUp(turnText) && (ctx.Kind == "music_app" || looksLikeMusicAppName(ctx.ActiveAppName)) && companionNamedMusicApp(turnText) == "" {
 		b.WriteString(" 当前这句话是续播/搜索指令，直接 media.play target=foreground，不要 desktop.open 或打开浏览器。")
 	}
 	return b.String()
+}
+
+func (e *Engine) companionFileCorrection(sessionID, text string) bool {
+	t := strings.Trim(strings.TrimSpace(text), "。.!！？? ")
+	if t == "" || len([]rune(t)) > 80 || looksLikeCurrentLookupTurn(t) || companionWantsTools(t) {
+		return false
+	}
+	namedFile := false
+	for _, suffix := range []string{"图片", "照片", "文件", "文档", ".txt", ".png", ".jpg", "TXT 文件"} {
+		if strings.HasSuffix(t, suffix) && t != suffix {
+			namedFile = true
+			break
+		}
+	}
+	if !namedFile {
+		return false
+	}
+	previous := e.loadTurnCheckpoint(sessionID)
+	_, open := desktopOpenTargetFromGoal(previous.Goal)
+	return open
 }
 
 // mediaPlayQueryKeepsResume leaves action=play with an empty query empty so
@@ -430,7 +479,7 @@ func (e *Engine) resolveMediaPlayArgs(sessionID string, args json.RawMessage) js
 	}
 	query := mediaPlayQueryKeepsResume(action, a.Query)
 	app := strings.TrimSpace(a.App)
-	if app == "" {
+	if app == "" && (ctx.Kind == "music_app" || looksLikeMusicAppName(ctx.ActiveAppName)) {
 		app = ctx.ActiveAppName
 	}
 	if app == "" {
@@ -453,9 +502,9 @@ func (e *Engine) companionAutoMediaPlayArgs(sessionID, goal string) (json.RawMes
 		return nil, false
 	}
 	ctx := e.loadCompanionContext(sessionID)
-	app := strings.TrimSpace(ctx.ActiveAppName)
-	if app == "" || (ctx.Kind != "music_app" && !looksLikeMusicAppName(app)) {
-		app = companionNamedMusicApp(goal)
+	app := companionNamedMusicApp(goal)
+	if app == "" && (ctx.Kind == "music_app" || looksLikeMusicAppName(ctx.ActiveAppName)) {
+		app = strings.TrimSpace(ctx.ActiveAppName)
 	}
 	if app == "" {
 		q := companionDefaultMusicQuery(goal)
@@ -476,6 +525,29 @@ func (e *Engine) companionAutoMediaPlayArgs(sessionID, goal string) (json.RawMes
 		return nil, false
 	}
 	return e.resolveMediaPlayArgs(sessionID, raw), true
+}
+
+func mediaArgsForGoal(goal string, args json.RawMessage) json.RawMessage {
+	app := companionNamedMusicApp(goal)
+	if app == "" || strings.Contains(goal, "网页版") {
+		return args
+	}
+	var fields map[string]any
+	if json.Unmarshal(args, &fields) != nil {
+		return args
+	}
+	fields["app"], fields["target"] = app, "foreground"
+	action, _ := fields["action"].(string)
+	if (action == "" || action == "play" || action == "open_and_play") && companionTurnWantsMusicPlay(goal) && companionDefaultMusicQuery(goal) == "热门" {
+		// The generic request must not inherit a made-up song or a response-style clause.
+		fields["query"] = "random"
+	}
+	delete(fields, "url")
+	out, err := json.Marshal(fields)
+	if err != nil {
+		return args
+	}
+	return out
 }
 
 func (e *Engine) companionAutoDesktopTypeArgs(sessionID, goal string) (json.RawMessage, bool) {

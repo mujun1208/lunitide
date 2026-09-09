@@ -60,18 +60,18 @@ describe('识别速度', () => {
     incomplete: false,
   }
 
-  test('commit is 1.2s after they stop, not 50–400ms and not 2.7–3.5s', () => {
+  test('commit is 1.8s after they stop, not a natural mid-sentence pause', () => {
     expect(turnEnded({ ...settled, silentForMs: 80 })).toBe(false)
     expect(turnEnded({ ...settled, silentForMs: 400 })).toBe(false)
     expect(turnEnded({ ...settled, silentForMs: 1100 })).toBe(false)
     expect(turnEnded({ ...settled, silentForMs: TURN_END_SILENCE_MS })).toBe(true)
-    expect(TURN_END_SILENCE_MS).toBe(1200)
-    expect(TURN_END_INCOMPLETE_SILENCE_MS).toBe(1500)
+    expect(TURN_END_SILENCE_MS).toBe(1800)
+    expect(TURN_END_INCOMPLETE_SILENCE_MS).toBe(2800)
     expect(FORCE_COMMIT_MS).toBeGreaterThan(TURN_END_SILENCE_MS)
     expect(FORCE_COMMIT_MS).toBeLessThan(2700)
   })
 
-  test('incomplete-looking phrases end at 1.2s of true silence, not a short breath', () => {
+  test('incomplete-looking phrases end after extended true silence, not a short breath', () => {
     const incomplete = { ...settled, incomplete: true }
     expect(turnEnded({ ...incomplete, silentForMs: 400 })).toBe(false)
     expect(turnEnded({ ...incomplete, silentForMs: 1100 })).toBe(false)

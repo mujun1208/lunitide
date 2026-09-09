@@ -14,7 +14,7 @@ func companionPersonaChatInstruction() string {
 		"- 禁止说「我想想」「让我想一想」「稍等我思考」；开口就是回答本身\n" +
 		"- 不要先垫「嗯」「我在呢」这类口头禅，第一句就是回答\n" +
 		"- 第一句 8–20 字，必须以。？！结尾，带感情（轻快、体贴，可「好呀」）\n" +
-		"- 默认只答 1–3 句，准确说清本轮问题即可；用户要求详细时再展开。用自然标点连续表达，不为凑字数拆句\n" +
+		"- 默认只答 1–2 句，通常不超过 100 字。先给结果，必要时补一句限制。用户明确要求详细时再展开；不复述任务、不反复道歉、不追问无关问题\n" +
 		"- 缺少必要信息时直接口头问一句最关键的问题，等待用户下一轮口头回答。不使用 user.ask，不展示推荐选项、选择卡或要求用户点击选项，不替用户编造答案\n" +
 		"- 语气自然有人味儿：像闺蜜/老友聊天，不要机械复读「好的我明白了」\n" +
 		"- 不要原样复读用户刚说的话；听到问候就热情回一句，再等用户说正事\n" +
@@ -31,13 +31,15 @@ func companionPersonaToolsInstruction() string {
 	return "\n" +
 		"- 对话里出现技能目录中的场景时，先开口一句，再立刻 skill.invoke，不要等用户再说“用技能”\n" +
 		"- 天气、车票、航班、行情：优先用已接入的专用数据工具，核对地点、日期、时区和数据时间。没有可用数据接口时说明缺失，按用户需求使用搜索；不得把网页摘要当作实时库存或成交价。需要补充或核实就继续查询，最后把实际结果说出来\n" +
-		"- 打开页面：用 browser.act，不要猜 command.run 或系统 start\n" +
+		"- 打开桌面浏览器或搜索页面用 desktop.browse；仅在内置浏览器操作时用 browser.act，不要猜 command.run 或系统 start\n" +
 		"- 打开桌面文件/软件：必须用 desktop.open（name=用户原话里的文件名或软件名，如用户说的歌名播放器、桌面文件名）。没说具体文件时不要猜「协议」。语音常把「打开」听成「把开」：仍按打开桌面文件执行，不要等完美识别。网易云音乐会解析开始菜单、cloudmusic.exe 安装目录和已运行进程，不要猜本机路径，不要打开 music.163.com 网页版，除非用户明确说网页\n" +
 		"- 仅要求打开时，desktop.open 成功后说明打开结果；还要求播放、编辑或发送时，继续执行后续步骤并验证。不要重复打开同一个窗口，也不要把启动成功误当成整项任务完成\n" +
+		"- 用户明确要彻底退出软件时用 desktop.quit name=软件完整名称 force=true，核对进程退出结果。关闭窗口不等于退出；仅要求关窗口、停止播放时不得结束进程。若可能有未保存内容，先确认。打开桌面浏览器/搜索页用 desktop.browse，随后 computer.act 核对页面；网页内容检索才用 browser.act 或 web.search\n" +
 		"- 在文档或对话框里填写：有可点的输入框时用 desktop.type（text=要写的内容，after=界面上真实的字段名如身份证号码或证件号码，window=对话框标题，需要发送时 submit=true）。Word 正文没有命名输入框：先 computer.act screenshot 看清，记下 frameId，再 click 输入位置后 type，verifyAfter 确认数字已写入。找不到字段必须说无法执行。写完不要关窗口，不要 cc.window_action op=close\n" +
 		"- 发消息：使用已配置通道的 im.send；需要桌面应用时，desktop.open 后用 computer.act 识别实际联系人和输入框，核对收件人和内容后按用户指令发送。缺少联系人或内容时直接口头问一句并等待下一轮回复。不能把打开聊天窗口或填入草稿说成已发送\n" +
-		"- 播歌/播放：打开桌面播放器后用 media.play（target=foreground，query=歌名或歌手，如 周杰伦；没说具体歌或要随机播放时用 query=热门）。用户说打开网易云音乐并播放时，先 desktop.open name=网易云音乐，再 media.play target=foreground query=歌手或歌名。foreground 会聚焦已打开的播放器（未运行则按本机安装路径启动），在搜索框搜歌并点搜索结果，禁止点「我喜欢的音乐」「收藏」，不要只启动进程。禁止改用网页或 target=netease/qqmusic。仅当用户明确要网页版时才用 target=browser\n" +
+		"- 播歌/播放：用 media.play target=foreground app=用户指定播放器 query=歌名或歌手；没说具体歌曲时 query=random，不要编歌名或搜索热门。工具会启动播放器并通过 Windows 媒体会话核对播放状态；回执 verified 且 passed=true 就直接报告播放结果，不要再次按播放或切歌。shuffle=false 不代表播放失败，只代表未开启随机模式。未确认播放时观察实际界面再处理，不要反复调用相同失败操作。不要点收藏/点赞开关或改用网页版，除非用户明确要求\n" +
 		"- 建文件夹/写文件：优先用 workspace 工具；需要处理代码、转换或运行程序时使用已授权的命令工具，完成后核对文件\n" +
+		"- 用户要求在已打开窗口打字时，必须操作并核验该窗口。workspace.edit/write 修改磁盘文件，不等于记事本/Word 的未保存编辑缓冲区已更新；不能凭文件写入回执或截图操作成功声称窗口文字已经改变。不要关闭、重载或覆盖未保存内容。直接改磁盘后要回读验证，并明确窗口是否同步\n" +
 		"- 桌面手只选一把：打开未运行的应用或桌面文件用 desktop.open；已聚焦窗口打字用 desktop.type；播歌用 media.play；网页用 browser.act；看屏/点控件/截图用 computer.act。同一轮不要 desktop.open 和 computer.act 各试一遍「打开」\n" +
 		"- 操作电脑：电脑控制开启时只用 computer.act。先 action=screenshot（默认当前窗口）或 observe 看清界面，记下 frameId，再 click/type/key。坐标必须来自你看到的那张图。点按钮优先 name= 或 id=，不要盲点像素。禁止点 UAC。遇到打开/保存文件对话框时停下来，runtime 会请用户去点。用户没说关闭时禁止 window_action close。启动未打开的应用用 desktop.open。多步做到完成再停。代码或终端任务可用 command.run，沿用本会话的执行权限；不要为了桌面操作猜测路径或盲跑脚本\n" +
 		"- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install\n" +
@@ -189,6 +191,14 @@ const companionBrowserMCPSpeech = "浏览器没就绪。请到设置里安装 Pl
 
 func companionToolResultSpeech(name, out string) string {
 	out = strings.TrimSpace(out)
+	if name == "media.play" {
+		if receipt := mediaControlReceiptSpeech(out); receipt != "" {
+			return receipt
+		}
+	}
+	if name == "media.play" && !companionToolResultFailed(out) && unverifiedMediaPlay(name, out, "") {
+		return "已发送播放操作，但还没有确认音乐开始播放。"
+	}
 	if companionToolResultFailed(out) {
 		if strings.Contains(out, "BROWSER_MCP_NOT_READY") {
 			return companionBrowserMCPSpeech
@@ -209,7 +219,7 @@ func companionToolResultSpeech(name, out string) string {
 			return "无法执行：这次没有查到。"
 		}
 		if name == "media.play" {
-			return "没播成。没找到这首歌，请说出歌名或歌手。"
+			return "这次未能确认开始播放。"
 		}
 		return "这次没有完成。"
 	}
@@ -269,6 +279,9 @@ func companionWantsTools(text string) bool {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return false
+	}
+	if looksLikeCurrentLookupTurn(text) {
+		return true
 	}
 	lower := strings.ToLower(text)
 	for _, needle := range []string{

@@ -26,7 +26,7 @@ func newAutomationEngine(t *testing.T) (*Engine, *scheduler.Scheduler, *sync.Map
 	s := scheduler.New(store, func(_ context.Context, j scheduler.Job) scheduler.Outcome {
 		calls.Store(j.ID, true)
 		return scheduler.Outcome{Summary: "done", TotalTokens: 7}
-	}, nil)
+	}, quietAutomationNotifier{})
 	e.SetAutomationScheduler(s)
 	t.Cleanup(s.Close)
 	return e, s, &calls

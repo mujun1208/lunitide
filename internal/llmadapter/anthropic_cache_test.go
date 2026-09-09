@@ -13,7 +13,9 @@ import (
 	"testing"
 )
 
-func countBreakpoints(body string) int { return strings.Count(body, `"cache_control":{"type":"ephemeral"}`) }
+func countBreakpoints(body string) int {
+	return strings.Count(body, `"cache_control":{"type":"ephemeral"}`)
+}
 
 func TestAnthropicCacheBreakpoints(t *testing.T) {
 	in := Request{
@@ -45,7 +47,7 @@ func TestAnthropicCacheBreakpoints(t *testing.T) {
 		t.Fatalf("non-tail tool must stay unmarked: %s", s)
 	}
 	// System tail: block-array form with the breakpoint on the first and last blocks.
-	if !strings.Contains(s, `"system":[{"text":"rules part one","cache_control":{"type":"ephemeral"}},{"text":"rules part two","cache_control":{"type":"ephemeral"}}]`) {
+	if !strings.Contains(s, `"system":[{"type":"text","text":"rules part one","cache_control":{"type":"ephemeral"}},{"type":"text","text":"rules part two","cache_control":{"type":"ephemeral"}}]`) {
 		t.Fatalf("system-tail breakpoint missing: %s", s)
 	}
 	// History prefix: the second-to-last message ("answer one") is lifted

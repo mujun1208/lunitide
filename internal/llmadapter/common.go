@@ -96,6 +96,9 @@ func statusError(status int) *Error {
 // cause (schema keyword rejected, tools unsupported, ...) instead of a bare
 // status text.
 func statusErrorReason(status int, reason string) *Error {
+	if status == http.StatusServiceUnavailable && (strings.Contains(strings.ToLower(reason), "no available channel") || strings.Contains(reason, "无可用渠道") || strings.Contains(reason, "无可用通道")) {
+		return safeError("MODEL_CHANNEL_UNAVAILABLE", StageHTTP, status, "configured model has no available provider channel")
+	}
 	msg := http.StatusText(status)
 	if reason != "" {
 		msg += ": " + reason

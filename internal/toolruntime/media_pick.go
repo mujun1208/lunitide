@@ -2,6 +2,7 @@ package toolruntime
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -93,10 +94,16 @@ func mediaNameScore(got, want string) int {
 	return 0
 }
 
+var genericMediaRequestRE = regexp.MustCompile(`^(?:请|帮我)?(?:播放|放|来)?(?:随机|随便|任意|推荐|热门)?(?:播放|放|来)?(?:一首|首|一些)?(?:歌|歌曲|音乐|曲子)?$`)
+
 func isGenericMediaQuery(query string) bool {
+	q := strings.TrimSpace(strings.TrimRight(foldMedia(query), "。！!"))
+	if q != "" && genericMediaRequestRE.MatchString(q) {
+		return true
+	}
 	switch foldMedia(query) {
 	case "热门", "随便", "任意", "随机", "推荐", "popular", "random", "hot",
-		"随便一首", "随机一首", "一首歌", "任意一首":
+		"随便一首", "随机一首", "一首歌", "任意一首", "shuffle", "any song", "play music", "random song":
 		return true
 	default:
 		return false
@@ -111,11 +118,14 @@ func isPlayControlName(name string) bool {
 	if strings.Contains(n, "暂停") || n == "pause" || n == "stop" || strings.Contains(n, "停止") {
 		return false
 	}
-	if strings.Contains(n, "列表") || strings.Contains(n, "队列") || strings.Contains(n, "历史") || strings.Contains(n, "全部") {
+	if strings.HasPrefix(n, "播放全部") || strings.HasPrefix(n, "全部播放") || n == "play all" {
+		return true
+	}
+	if strings.Contains(n, "列表") || strings.Contains(n, "队列") || strings.Contains(n, "历史") {
 		return false
 	}
 	if strings.Contains(n, "随机") || n == "shuffle" || strings.Contains(n, "shuffle") {
-		return true
+		return false
 	}
 	switch n {
 	case "播放", "play", "开始播放", "播放/暂停", "play/pause", "play pause":
@@ -157,7 +167,7 @@ func pickPlayControl(nodes []mediaUINode) *mediaUINode {
 			play = n
 		}
 	}
-	if shuffle != nil {
+	if play == nil && shuffle != nil {
 		return shuffle
 	}
 	return play
@@ -220,7 +230,12 @@ func playbackLooksPaused(nodes []mediaUINode) bool {
 	if pickPauseControl(nodes) != nil {
 		return false
 	}
-	return pickPlayControl(nodes) != nil
+	for _, n := range nodes {
+		if foldMedia(n.Name) == "播放" || foldMedia(n.Name) == "play" || foldMedia(n.Name) == "开始播放" {
+			return true
+		}
+	}
+	return false
 }
 
 func titleLooksLikeNowPlaying(title, app string) bool {
@@ -266,7 +281,7 @@ func isMediaNavName(name string) bool {
 	switch n {
 	case "我喜欢的音乐", "喜欢", "我喜欢", "收藏", "我的收藏", "红心", "liked", "favorites",
 		"推荐", "首页", "发现", "播客", "电台", "视频",
-		"设置", "搜索", "search", "我的", "歌单", "排行榜", "每日推荐", "音乐库",
+		"设置", "搜索", "search", "我的", "歌单", "排行榜", "每日推荐", "音乐库", "听歌模式", "我的音乐", "历史播放", "创建的歌单", "ai写歌", "vip", "svip", "音质", "音效", "歌词", "音量", "静音", "更多", "最小化", "最大化", "关闭",
 		"播放", "暂停", "下一首", "上一首", "play", "pause", "next", "previous":
 		return true
 	}
@@ -337,7 +352,7 @@ func pickFirstPlayable(nodes []mediaUINode) *mediaUINode {
 	bestY := -1
 	for i := range nodes {
 		n := &nodes[i]
-		if isMediaNavName(n.Name) {
+		if isMediaNavName(n.Name) || isPlayControlName(n.Name) {
 			continue
 		}
 		role := strings.ToLower(n.Role)

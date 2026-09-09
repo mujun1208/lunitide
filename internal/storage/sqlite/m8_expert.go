@@ -27,13 +27,13 @@ func (r *AgentRuntimeRepository) TransactExpert(ctx context.Context, fn func(m8a
 	})
 }
 
-const m8ecColumns = `expert_id,subject_id,name,division,source,origin_bundle_id,catalog_item_id,current_version_id,state,created_at,updated_at`
+const m8ecColumns = `expert_id,subject_id,name,division,source,origin_bundle_id,catalog_item_id,current_version_id,state,created_at,updated_at,creation_origin,deleted_at`
 
 func scanExpert(s interface{ Scan(...any) error }) (m8core.ExpertCatalog, error) {
 	var e m8core.ExpertCatalog
 	var origin, catalog *string
 	err := s.Scan(&e.ExpertID, &e.SubjectID, &e.Name, &e.Division, &e.Source,
-		&origin, &catalog, &e.CurrentVersionID, &e.State, &e.CreatedAt, &e.UpdatedAt)
+		&origin, &catalog, &e.CurrentVersionID, &e.State, &e.CreatedAt, &e.UpdatedAt, &e.CreationOrigin, &e.DeletedAt)
 	if origin != nil {
 		e.OriginBundleID = *origin
 	}
@@ -68,6 +68,9 @@ func (t *agentRuntimeTx) GetExpertByName(subjectID, name string) (m8core.ExpertC
 
 // PutExpert upserts one catalog row.
 func (t *agentRuntimeTx) PutExpert(e m8core.ExpertCatalog) error {
+	if e.CreationOrigin == "" {
+		e.CreationOrigin = m8core.ExpertOriginLegacy
+	}
 	var origin, catalog any
 	if e.OriginBundleID != "" {
 		origin = e.OriginBundleID
@@ -76,12 +79,13 @@ func (t *agentRuntimeTx) PutExpert(e m8core.ExpertCatalog) error {
 		catalog = e.CatalogItemID
 	}
 	_, err := t.tx.ExecContext(t.ctx, `INSERT INTO expert_catalog
-		(expert_id,subject_id,name,division,source,origin_bundle_id,catalog_item_id,current_version_id,state,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?)
+		(expert_id,subject_id,name,division,source,origin_bundle_id,catalog_item_id,current_version_id,state,created_at,updated_at,creation_origin,deleted_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(expert_id) DO UPDATE SET
 			name=excluded.name,
 			current_version_id=excluded.current_version_id,
 			state=excluded.state,
+			deleted_at=excluded.deleted_at,
 			updated_at=excluded.updated_at,
 			catalog_item_id=CASE
 				WHEN excluded.catalog_item_id IS NOT NULL AND excluded.catalog_item_id != ''
@@ -89,7 +93,7 @@ func (t *agentRuntimeTx) PutExpert(e m8core.ExpertCatalog) error {
 				ELSE expert_catalog.catalog_item_id
 			END`,
 		e.ExpertID, e.SubjectID, e.Name, e.Division, e.Source, origin, catalog,
-		e.CurrentVersionID, e.State, e.CreatedAt, e.UpdatedAt)
+		e.CurrentVersionID, e.State, e.CreatedAt, e.UpdatedAt, e.CreationOrigin, e.DeletedAt)
 	return t.fail(err)
 }
 
@@ -164,10 +168,18 @@ func (t *agentRuntimeTx) ListExperts(filter m8app.ExpertFilter) ([]m8app.ExpertL
 			(SELECT COUNT(*) FROM expert_versions ev WHERE ev.expert_id = e.expert_id) AS version_count,
 			(SELECT COUNT(*) FROM project_phase_expert_mounting m
 			 WHERE m.expert_id = e.expert_id AND m.state = 'mounted') AS mounted_phase_count,
-			e.origin_bundle_id, e.catalog_item_id
+			e.origin_bundle_id, e.catalog_item_id, e.creation_origin, e.subject_id
 		FROM expert_catalog e JOIN expert_versions v ON v.version_id = e.current_version_id
-		WHERE 1=1`
+		WHERE e.deleted_at = ''`
 	var args []any
+	if filter.CreationOrigin != "" {
+		q += ` AND e.creation_origin = ?`
+		args = append(args, filter.CreationOrigin)
+	}
+	if filter.SubjectID != "" {
+		q += ` AND e.subject_id = ?`
+		args = append(args, filter.SubjectID)
+	}
 	if filter.Division != "" {
 		q += ` AND e.division = ?`
 		args = append(args, filter.Division)
@@ -196,7 +208,7 @@ func (t *agentRuntimeTx) ListExperts(filter m8app.ExpertFilter) ([]m8app.ExpertL
 		var it m8app.ExpertListItem
 		var origin, catalog *string
 		if err := rows.Scan(&it.ExpertID, &it.Name, &it.Division, &it.Source,
-			&it.Semver, &it.State, &it.VersionCount, &it.MountedPhaseCount, &origin, &catalog); err != nil {
+			&it.Semver, &it.State, &it.VersionCount, &it.MountedPhaseCount, &origin, &catalog, &it.CreationOrigin, &it.SubjectID); err != nil {
 			return nil, t.fail(err)
 		}
 		if origin != nil {
@@ -211,6 +223,12 @@ func (t *agentRuntimeTx) ListExperts(filter m8app.ExpertFilter) ([]m8app.ExpertL
 }
 
 const m8pemColumns = `mounting_id,project_id,phase_key,expert_id,version_id,state,mounted_at,updated_at`
+
+func (t *agentRuntimeTx) HasExpertSessionMounts(expertID string) (bool, error) {
+	var exists bool
+	err := t.tx.QueryRowContext(t.ctx, `SELECT EXISTS(SELECT 1 FROM session_expert_mounts WHERE expert_id=?)`, expertID).Scan(&exists)
+	return exists, t.fail(err)
+}
 
 func scanMounting(s interface{ Scan(...any) error }) (m8core.ExpertMounting, error) {
 	var m m8core.ExpertMounting

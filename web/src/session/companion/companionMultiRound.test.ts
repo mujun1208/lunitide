@@ -32,19 +32,19 @@ const ROUNDS = [
 ]
 
 describe('对话模式多轮契约（云端 / 本地 共用）', () => {
-  test('1.2s of true silence ends a turn; a 400ms breath does not', () => {
+  test('1.8s of true silence ends a turn; a 400ms breath does not', () => {
     const settled = {
       speechActive: false,
       msSinceLastResult: TURN_END_TEXT_SETTLE_MS + 50,
       incomplete: false,
     }
-    expect(TURN_END_SILENCE_MS).toBe(1200)
-    expect(TURN_END_INCOMPLETE_SILENCE_MS).toBe(1500)
+    expect(TURN_END_SILENCE_MS).toBe(1800)
+    expect(TURN_END_INCOMPLETE_SILENCE_MS).toBe(2800)
     expect(turnEnded({ ...settled, silentForMs: 400 })).toBe(false)
-    expect(turnEnded({ ...settled, silentForMs: 1200 })).toBe(true)
+    expect(turnEnded({ ...settled, silentForMs: TURN_END_SILENCE_MS })).toBe(true)
   })
 
-  test('「打开网」is not committed until they finish or 1.2s of real silence', () => {
+  test('「打开网」is not committed until they finish or extended real silence', () => {
     expect(turnEnded({
       speechActive: false,
       silentForMs: 400,

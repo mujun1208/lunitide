@@ -68,8 +68,16 @@ func (e *Engine) peopleBoundSessionExists(ctx context.Context, sessionID string)
 	if !ok {
 		return validCanonicalULID(sessionID)
 	}
-	_, err := getter.Get(ctx, sessionID)
-	return err == nil
+	bound, err := getter.Get(ctx, sessionID)
+	if err != nil {
+		return false
+	}
+	orgID, _, err := e.boundOrgState(ctx)
+	if err != nil || e.projects == nil {
+		return false
+	}
+	parent, err := e.projects.Get(ctx, bound.ProjectID)
+	return err == nil && parent.OrgID == orgID
 }
 
 func (e *Engine) noticePeopleBoundSessionFailure(ctx context.Context, threadID string, msgs []people.Message) []people.Message {

@@ -71,9 +71,10 @@ func TestHTMLGenDesktopArtifactPath(t *testing.T) {
 		t.Fatalf("preview path = %+v", out.Artifact)
 	}
 	resolved, err := r.ResolveSessionArtifact(officeSession, out.Artifact.Path)
-	if err != nil || resolved != target {
+	if err != nil {
 		t.Fatalf("ResolveSessionArtifact = %q err=%v want %q", resolved, err, target)
 	}
+	sameResolvedPath(t, resolved, target)
 	b, err := os.ReadFile(target)
 	if err != nil || !strings.Contains(string(b), "canvas") {
 		t.Fatalf("desktop write failed: %v", err)

@@ -34,6 +34,31 @@ func TestExtendToolLoopLimit(t *testing.T) {
 	}
 }
 
+func TestPlaybackClaimsRequireThisTurnsMatchingToolReceipt(t *testing.T) {
+	for _, out := range []string{"", "ok:true", "opened player and sent play", `opened https://music.example\n{"l0":{"passed":true,"uncertain":false}}`} {
+		if !unverifiedMediaPlay("media.play", out, "音乐已经在播放") {
+			t.Fatalf("unverified output accepted: %q", out)
+		}
+	}
+	messages := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "放一首歌"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "music", Name: "media.play"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "music", Content: "sent play"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "other", Name: "desktop.open"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "other", Content: "verified playing"},
+	}
+	if got := lastNamedToolOutput(messages, "media.play"); got != "sent play" {
+		t.Fatalf("wrong receipt: %q", got)
+	}
+	if got := mediaTurnResultSpeech(messages); strings.Contains(got, "已经在播") {
+		t.Fatal(got)
+	}
+	messages = append(messages, llmadapter.Message{Role: llmadapter.RoleUser, Content: "再播放"})
+	if got := lastNamedToolOutput(messages, "media.play"); got != "" {
+		t.Fatalf("old turn reused: %q", got)
+	}
+}
+
 func TestAssistantPausedMidTask(t *testing.T) {
 	paused := []string{
 		"找到 59 个技能目录，请确认是否继续安装。",
@@ -78,8 +103,8 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	if shouldContinueIncompleteWork("好，我来播放。", "media.play started player", []string{"media.play"}, true, 1) {
 		t.Fatal("unverified media.play continues only once")
 	}
-	if shouldContinueIncompleteWork("正在播放周杰伦", "media.play started player", []string{"media.play"}, true, 0) {
-		t.Fatal("verified play must not extra-loop")
+	if !shouldContinueIncompleteWork("正在播放周杰伦", "media.play started player", []string{"media.play"}, true, 0) {
+		t.Fatal("assistant claim is not playback evidence")
 	}
 	if pickTurnContinueKind("这次没有完成。", "这次没有完成。", "ok:false\nnot found", []string{"media.play"}, true, true, true, false, 0, "放一首复古公路风", true) != "" {
 		t.Fatal("failed media.play must not desktop-continue")
@@ -323,7 +348,7 @@ func (a *waitPromiseAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Re
 	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
 }
 
-func TestRunStreamCompanionWaitExhaustedSaysCannotExecute(t *testing.T) {
+func TestRunStreamPromiseTriggersHostToolFallback(t *testing.T) {
 	adapter := &waitPromiseAdapter{}
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
 	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
@@ -334,15 +359,19 @@ func TestRunStreamCompanionWaitExhaustedSaysCannotExecute(t *testing.T) {
 	e.streams[id] = state
 	done := make(chan struct{})
 	var deltas []string
+	toolStarts := 0
 	req := llmadapter.Request{
-		Model:             "m",
-		DisableReasoning:  true,
-		Tools:             []llmadapter.ToolDefinition{{Name: "web.search"}},
-		Messages:          []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "今天合肥的天气怎么样"}},
+		Model:            "m",
+		DisableReasoning: true,
+		Tools:            []llmadapter.ToolDefinition{{Name: "web.search"}},
+		Messages:         []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "今天合肥的天气怎么样"}},
 	}
 	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, req, func(event bridge.Event) error {
 		if event.Type == bridge.EventDelta && event.Delta != nil {
 			deltas = append(deltas, event.Delta.Text)
+		}
+		if event.Type == bridge.EventToolStarted && event.Tool != nil && event.Tool.Name == "web.search" {
+			toolStarts++
 		}
 		if event.Type == bridge.EventCompleted || event.Type == bridge.EventFailed {
 			close(done)
@@ -355,11 +384,46 @@ func TestRunStreamCompanionWaitExhaustedSaysCannotExecute(t *testing.T) {
 		t.Fatal("timed out waiting for wait-closeout")
 	}
 	joined := strings.Join(deltas, "")
-	if !strings.Contains(joined, "无法执行：这一轮没有完成查询。") {
-		t.Fatalf("exhausted wait must speak 无法执行, got %q", joined)
+	if toolStarts != 1 {
+		t.Fatalf("promise-only response must trigger one web.search, starts=%d text=%q", toolStarts, joined)
 	}
-	if adapter.calls < 4 {
-		t.Fatalf("calls=%d, want at least 4 (3 wait nudges then closeout step)", adapter.calls)
+	if adapter.calls < 2 {
+		t.Fatalf("calls=%d, want the model to receive the fallback result", adapter.calls)
+	}
+}
+
+func TestRunStreamTypedPromiseTriggersHostToolFallback(t *testing.T) {
+	adapter := &waitPromiseAdapter{}
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	state := &streamState{cancel: cancel, state: streamRunning, companion: false}
+	id := "stream-typed-fallback"
+	e.streams[id] = state
+	done := make(chan struct{})
+	toolStarts := 0
+	req := llmadapter.Request{
+		Model:    "m",
+		Tools:    []llmadapter.ToolDefinition{{Name: "web.search"}},
+		Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "今天合肥到上海虹桥的火车"}},
+	}
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, req, func(event bridge.Event) error {
+		if event.Type == bridge.EventToolStarted && event.Tool != nil && event.Tool.Name == "web.search" {
+			toolStarts++
+		}
+		if event.Type == bridge.EventCompleted || event.Type == bridge.EventFailed {
+			close(done)
+		}
+		return nil
+	}, "")
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for typed fallback")
+	}
+	if toolStarts != 1 {
+		t.Fatalf("typed promise-only response must trigger one web.search, starts=%d", toolStarts)
 	}
 }
 

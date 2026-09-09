@@ -8,6 +8,7 @@ import{VoicePathPicker}from'./VoicePathPicker'
 import{VoicePersonaGrid}from'./VoicePersonaGrid'
 import{filterSettingsNav,SETTINGS_NAV_GROUPS,SETTINGS_CATEGORIES,type SettingsCategory}from'./settingsNav'
 import{MeetingNotesPanel}from'./MeetingNotesPanel'
+import { OfficeMenuPanel } from './OfficeMenuPanel'
 import{REPLY_STYLE_OPTIONS,STRUCTURED_TEMPLATE_OPTIONS}from'./replySettings'
 import{applyLocalEngine,applyVoicePath,defaultCompanionSettings,formatInterruptHotkey,interruptHotkeyFromEvent,loadCompanionSettings,saveCompanionSettings,type CompanionSettings,type InterruptHotkey}from'../session/companion/companionSettings'
 import{setVoicePrewarmPref,voicePrewarmPref,prewarmDefaultForEngine}from'../session/companion/voicePrewarm'
@@ -168,6 +169,7 @@ export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabe
         <div className={`settings-body${category === 'providers' ? ' settings-body-providers' : ''}${category === 'voice' ? ' settings-body-voice' : ''}`}>
           {category === 'general' && <GeneralPanel settings={general} onChange={updateGeneral} />}
           {category === 'appearance' && <AppearancePanel settings={appearance} onChange={updateAppearance} />}
+          {category === 'office-menu' && <OfficeMenuPanel onSaved={() => setSaved(true)} />}
           {category === 'profile' && <ProfilePanel />}
           {category === 'providers' && (providers ? <><CapabilityRouting providers={providers} roles={roles} /><ProviderApp bridge={providers} embedded onPreferLLM={onPreferLLM} /></> : <p className="setting-desc">供应商列表需要 Host 桥接。</p>)}
           {category === 'voice' && <VoicePanel />}

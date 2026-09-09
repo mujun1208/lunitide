@@ -183,7 +183,7 @@ func TestAnthropicContractSystemAndStream(t *testing.T) {
 	b, _ := io.ReadAll(r.Body)
 	// P0-2: system rides the block-array form so the trailing block can
 	// carry an ephemeral cache_control breakpoint.
-	if strings.Contains(string(b), `"role":"system"`) || !strings.Contains(string(b), `"system":[{"text":"rules","cache_control":{"type":"ephemeral"}}]`) {
+	if strings.Contains(string(b), `"role":"system"`) || !strings.Contains(string(b), `"system":[{"type":"text","text":"rules","cache_control":{"type":"ephemeral"}}]`) {
 		t.Fatalf("system not lifted with cache breakpoint: %s", b)
 	}
 	d, _ := a.Discover(context.Background(), nil)

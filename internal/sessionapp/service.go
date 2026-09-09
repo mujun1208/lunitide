@@ -72,6 +72,10 @@ type emptyDraftFinder interface {
 	ListEmptyDraftSessionIDs(ctx context.Context, projectID string, titles []string, limit int) ([]string, error)
 }
 
+type guardedEmptyDraftDeleter interface {
+	DeleteEmptyDraftSession(context.Context, string, string) (bool, error)
+}
+
 // ReclaimEmptyDrafts deletes leftover empty launch/companion shells so a
 // personal project that looks empty in the sidebar can create a new chat.
 func (s *Service) ReclaimEmptyDrafts(ctx context.Context, projectID string, need int) (int, error) {
@@ -88,6 +92,16 @@ func (s *Service) ReclaimEmptyDrafts(ctx context.Context, projectID string, need
 	}
 	freed := 0
 	for _, id := range ids {
+		if guarded, ok := s.deleter.(guardedEmptyDraftDeleter); ok {
+			deleted, delErr := guarded.DeleteEmptyDraftSession(ctx, projectID, id)
+			if delErr != nil {
+				return freed, delErr
+			}
+			if deleted {
+				freed++
+			}
+			continue
+		}
 		if delErr := s.deleter.DeleteSession(ctx, id); delErr != nil {
 			return freed, delErr
 		}

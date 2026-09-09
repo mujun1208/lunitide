@@ -16,8 +16,9 @@ import (
 // empty 11pt docs; runStream tracks stages, shows them in 思考, blocks
 // early docx.gen, and nudges until research/outline + body exist.
 const (
-	docxKindReport = "report"
-	docxKindNovel  = "novel"
+	referenceOfficeInstruction = "本轮仅使用已有材料或用户指定的离线信息生成文件，不套用联网调研步骤。先完整读取材料，再调用本轮要求格式的生成工具。保留正文与格式校验，不补编事实；生成成功后只报告文件名和必要的核对结果。"
+	docxKindReport             = "report"
+	docxKindNovel              = "novel"
 
 	docxStageAudience  = "audience"
 	docxStageOutline   = "outline"
@@ -57,8 +58,28 @@ const (
 	novelGenBlockedMsg  = "ok:false\ndocx.gen 被流水线拦住：还没有大纲和分章正文。先写出起承转合大纲、人物与世界观，再写各章正文并修订文风，最后才 docx.gen。禁止把三页提纲当成小说。\n"
 )
 
-func looksLikeReportTask(text string) bool {
+func spokenResultReportOnly(text string) bool {
 	t := strings.ToLower(strings.TrimSpace(text))
+	if officeExplicitCreationRE.MatchString(t) {
+		return false
+	}
+	for _, phrase := range []string{"一句话报告", "一句话汇报", "口头报告", "口头汇报", "报告执行结果", "报告播放结果", "报告操作结果", "汇报执行结果"} {
+		if strings.Contains(t, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func looksLikeReportTask(text string) bool {
+	if capabilityWorkTask(text) || officeMaterialReview(text) {
+		return false
+	}
+	t := strings.ToLower(strings.TrimSpace(text))
+	// A spoken closeout is not a request to create a report document.
+	if spokenResultReportOnly(t) {
+		return false
+	}
 	if t == "" || officeExpertIntroduction(text) || looksLikeStatusFollowUp(t) || looksLikeResume(t) || looksLikePptTask(text) {
 		return false
 	}
@@ -74,6 +95,9 @@ func looksLikeReportTask(text string) bool {
 }
 
 func looksLikeNovelTask(text string) bool {
+	if capabilityWorkTask(text) || officeMaterialReview(text) {
+		return false
+	}
 	t := strings.ToLower(strings.TrimSpace(text))
 	if t == "" || officeExpertIntroduction(text) || looksLikeStatusFollowUp(t) || looksLikeResume(t) || looksLikePptTask(text) {
 		return false
@@ -110,6 +134,9 @@ func expertMountedIn(req llmadapter.Request, needles ...string) bool {
 }
 
 func reportTaskFromRequest(req llmadapter.Request, goal string) bool {
+	if capabilityWorkTask(goal) || officeMaterialReview(goal) {
+		return false
+	}
 	if officeExpertIntroduction(goal) {
 		return false
 	}
@@ -132,6 +159,9 @@ func reportTaskFromRequest(req llmadapter.Request, goal string) bool {
 }
 
 func novelTaskFromRequest(req llmadapter.Request, goal string) bool {
+	if capabilityWorkTask(goal) || officeMaterialReview(goal) {
+		return false
+	}
 	if officeExpertIntroduction(goal) {
 		return false
 	}
@@ -154,6 +184,9 @@ func novelTaskFromRequest(req llmadapter.Request, goal string) bool {
 }
 
 func docxKindFromRequest(req llmadapter.Request, goal string) string {
+	if target := officeGenToolForGoal(goal); target != "" && target != "docx.gen" {
+		return ""
+	}
 	if looksLikePptTask(goal) {
 		return ""
 	}
@@ -209,18 +242,7 @@ func noteDocxTools(turn *chatTurnCheckpoint, names []string) {
 	if turn == nil || !turn.DocxActive {
 		return
 	}
-	for _, name := range names {
-		seen := false
-		for _, existing := range turn.DocxTools {
-			if existing == name {
-				seen = true
-				break
-			}
-		}
-		if !seen {
-			turn.DocxTools = append(turn.DocxTools, name)
-		}
-	}
+	turn.DocxTools = append(turn.DocxTools, names...)
 	turn.DocxStage = inferDocxStage(turn)
 }
 
@@ -239,6 +261,9 @@ func inferDocxStage(turn *chatTurnCheckpoint) string {
 	}
 	if turn.DocxGenerated {
 		return docxStageGenerate
+	}
+	if lookupOptedOut(turn.Goal) || referenceOnlyOfficeTurn(turn.Goal) {
+		return docxStageWrite
 	}
 	if turn.DocxKind == docxKindNovel {
 		if turn.DocxChars >= minNovelDocxChars {
@@ -443,6 +468,11 @@ func startDocxWorkflow(req *llmadapter.Request, turn *chatTurnCheckpoint, send f
 	}
 	turn.DocxActive = true
 	turn.DocxKind = kind
+	if lookupOptedOut(turn.Goal) || referenceOnlyOfficeTurn(turn.Goal) {
+		turn.DocxStage = docxStageWrite
+		req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: referenceOfficeInstruction})
+		return
+	}
 	turn.DocxStage = docxStageAudience
 	_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: docxThinkingBanner(kind, docxStageAudience)}})
 	instr := reportPipelineInstruction
@@ -465,7 +495,11 @@ func nudgeDocxWorkflow(req *llmadapter.Request, turn *chatTurnCheckpoint, send f
 	}
 	_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: docxThinkingBanner(kind, stage)}})
 	if req != nil {
-		req.Messages = append(req.Messages, docxStageNudge(kind, stage))
+		nudge := docxStageNudge(kind, stage)
+		if lookupOptedOut(turn.Goal) || referenceOnlyOfficeTurn(turn.Goal) {
+			nudge.Content = referenceOfficeInstruction
+		}
+		req.Messages = append(req.Messages, nudge)
 	}
 	return true
 }

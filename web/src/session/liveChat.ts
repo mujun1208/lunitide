@@ -33,7 +33,7 @@ export interface LiveChatState {
   assistantText: string
   thinkingText: string
   toolActivities: LiveToolActivity[]
-  usage?: { inputTokens: number; outputTokens: number; totalTokens: number }
+  usage?: Extract<StreamEvent, {type: 'usage'}>['usage']
   error?: { message: string; code: string; retryable: boolean }
   guidance?: { labels: string[]; digest: string }
   equip?: { experts: string[]; skills?: string[]; missingMcp?: string[] }
@@ -172,7 +172,7 @@ export function applyLiveChatEvent(entry: LiveChatEntry, event: StreamEvent): vo
         state.thinkingText += event.thinking?.text ?? ''
         break
       case 'usage':
-        if (event.usage) state.usage = { inputTokens: event.usage.inputTokens, outputTokens: event.usage.outputTokens, totalTokens: event.usage.totalTokens }
+        if (event.usage) state.usage = {...event.usage}
         break
       case 'tool_started':
       case 'tool_completed':

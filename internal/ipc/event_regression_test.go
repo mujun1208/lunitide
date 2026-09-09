@@ -109,7 +109,7 @@ func TestEveryAuthenticatedFrameRenewsWriteBudget(t *testing.T) {
 		return checked.SetWriteDeadline(time.Now().Add(time.Second))
 	}
 	go func() {
-		done <- serveSession(context.Background(), checked, 42, NewSessionAuthenticator(secret), staticHandler{payload: true}, nil, func(net.Conn) (uint32, error) { return 42, nil }, writer)
+		done <- serveSession(context.Background(), checked, 42, NewSessionAuthenticator(append([]byte(nil), secret...)), staticHandler{payload: true}, nil, func(net.Conn) (uint32, error) { return 42, nil }, writer)
 	}()
 	t.Cleanup(func() {
 		_ = client.Close()

@@ -8,6 +8,7 @@ import { ConfirmDialog } from '../ui/Dialog'
 import { usePanelResize } from '../ui/usePanelResize'
 import { audioSourceLabel, captureStateNotice, decodeMeetingPcmBase64, engineLoopbackPlan, MEETING_CATCHUP_HINT, meetingAsrRuntimeLine, meetingSystemAudioMissing, mixMeetingPcmS16le, noteLoopbackEnergy, pcmFrameFromSamples, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, releaseMeetingCapture, shouldFallbackLiveCaption, startMeetingSpeech, type MeetingAsrRuntime, type MeetingCapturePlan } from './meetingAsr'
 import { localAsrStatus } from '../session/companion/localAsr'
+import { meetingLiveListen, planOwnsEngineLoopback } from './meetingAsr'
 import type { MeetingListen } from './meetingSettings'
 import { ASR_INTERRUPTED_NOTICE, startMeetingAudioRecorder, verifyMeetingAudioAck, trimLiveSegments, type MeetingAudioHandle } from './meetingAudio'
 import { watchCaptureTracksEnded } from './meetingCapture'
@@ -27,8 +28,8 @@ export const MEETING_CAPTION_STALL_POLL_MS = 2_000
  *  fall back to this-PC sherpa. seed-asr handshake often exceeds 8s; 20s
  *  absorbs warm-up without leaving a deaf engine on for the whole meeting. */
 export const MEETING_LIVE_FALLBACK_MS = 20_000
-const MEETING_LIVE_FALLBACK_NOTICE = '实时字幕已切换到本机识别（所选引擎未返回结果）。停止后仍生成完整逐字稿。'
-const MEETING_LIVE_UNAVAILABLE_NOTICE = '实时字幕暂不可用。系统声会在停止后补，本机识别未就绪则没有；本机补转写仍会尽量生成完整逐字稿。'
+const MEETING_LIVE_FALLBACK_NOTICE = '所选引擎未返回字幕，已切换到本机识别。'
+const MEETING_LIVE_UNAVAILABLE_NOTICE = '实时字幕暂不可用，本机识别也未就绪。录音继续保存。'
 const VOLC_CONNECTING_NOTICE = '正在连接火山听写…'
 const VOLC_LISTENING_NOTICE = '正在听写'
 
@@ -289,7 +290,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
       }
       bindSystemWatch(livePlan)
       let volcProviderId = ''
-      const listenKind = effectiveListen ?? prefsRef.current.listen
+      const listenKind = effectiveListen ?? meetingLiveListen(prefsRef.current.listen, livePlan)
       if (listenKind === 'volc') {
         const listed = await getProviderBridge().list().catch(() => ({ items: [] as ProviderDTO[] }))
         volcProviderId = pickDefaultVoice(listed.items)?.provider.id ?? ''
@@ -379,7 +380,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
       window.clearTimeout(liveFallbackRef.current)
       liveFallbackRef.current = window.setTimeout(async () => {
         if (userStopRef.current || speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
-        const kind = effectiveListen ?? prefsRef.current.listen
+        const kind = effectiveListen ?? meetingLiveListen(prefsRef.current.listen, captureRef.current ?? plan)
         const probe = await localAsrStatus().catch(() => undefined)
         if (userStopRef.current || speechGen.current !== gen || currentIdRef.current !== meeting.meetingId) return
         const decision = shouldFallbackLiveCaption({
@@ -1011,11 +1012,12 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
           </p>
         )}
         {notice && <p className="meeting-notice" role="status">{notice}</p>}
+        {recording && asrRuntime && <p className="meeting-diag" role="note" aria-label="听写诊断">{meetingAsrRuntimeLine(asrRuntime)}</p>}
+        {recording && planOwnsEngineLoopback(captureRef.current) && <p className="meeting-diag" role="note" aria-label="系统音频状态">{engineLoopbackActive === false ? '系统音频未接入' : engineLoopbackActive === undefined ? '正在连接系统音频' : systemHeard ? '系统音频已收到信号' : '系统音频已连接，等待信号'}</p>}
         <details className="meeting-capture-info">
           <summary>录音与转写说明</summary>
           <p>开始后持续收录麦克风与电脑播放的声音，只有点击停止才结束。实时字幕可能暂时缺漏，本机录音用于停止后的补转写。</p>
           <p>{MEETING_CATCHUP_HINT}</p>
-          {recording && asrRuntime && <p className="meeting-diag" role="note" aria-label="听写诊断">{meetingAsrRuntimeLine(asrRuntime)}</p>}
         </details>
         <details className={`meeting-live-section ${recording || !current ? 'is-live' : ''}`} open={recording || !current || undefined} key={recording || !current ? 'live' : current.meetingId}>
           <summary>{recording || !current ? '实时转写' : '查看录制字幕与分段记录'}</summary>

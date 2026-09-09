@@ -171,7 +171,7 @@ it('preserves near-limit user text and sends auto-edit mode through chat.start',
  expect(screen.queryByLabelText('供应商')).toBeNull();expect(screen.queryByLabelText('模型')).toBeNull()
  await user.click(screen.getByRole('button',{name:'执行模式'}));await user.click(screen.getByRole('button',{name:/自动审批/}))
  expect(localStorage.getItem(`lunitide:execution-mode:${S}`)).toBe('auto-edit')
- const raw='界'.repeat(2048);fireEvent.change(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),{target:{value:raw}})
+ const raw='界'.repeat(32768);fireEvent.change(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),{target:{value:raw}})
  await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
  await waitFor(()=>expect(start).toHaveBeenCalled());expect(vi.mocked(append).mock.calls[0][0].text).toBe(raw);expect(start.mock.calls[0][0]).toMatchObject({sessionId:S,executionMode:'auto-edit'})
 })

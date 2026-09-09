@@ -637,6 +637,7 @@ input,select,textarea{width:100%;border:1px solid var(--line);border-radius:10px
 .ok-text{color:var(--ok)}
 .err-text{color:var(--err)}
 .chat-usage{display:block;margin-top:8px;color:var(--muted);font-size:11px;font-family:var(--mono)}
+.token-usage{display:flex;flex-wrap:wrap;gap:4px 12px;padding:4px 18px;overflow-wrap:anywhere;max-width:100%}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 
 /* Ordinary chat switches from the centered launcher to a full conversation view. */
@@ -893,7 +894,12 @@ html[data-theme="light"] .launch-shell:has(.launch-main){background:#f7f8fc}
 .launch-shell:has([data-aurora="webgl"]) .launch-main::before{display:none}
 html[data-theme="light"] .launch-brand b,html[data-theme="light"] .launch-brand em,html[data-theme="light"] .launch-center h1,html[data-theme="light"] .launch-actions b{color:var(--ink)}
 html[data-theme="light"] .primary-actions>button,html[data-theme="light"] .office-nav-list>button,html[data-theme="light"] .launch-nav button,html[data-theme="light"] .launch-bottom button{color:var(--muted)}
-html[data-theme="light"] .launch-nav button:hover,html[data-theme="light"] .launch-bottom button:hover,html[data-theme="light"] .launch-nav button.active,html[data-theme="light"] .launch-bottom button.active{background:rgba(0,138,197,.08);color:var(--tide1)}
+html[data-theme="light"] .launch-nav button:hover,html[data-theme="light"] .launch-bottom button:hover,html[data-theme="light"] .launch-nav button.active,html[data-theme="light"] .launch-bottom button.active{background:rgba(0,138,197,.08);color:var(--ink)}
+/* Navigation labels and icons must follow the light palette, including the
+   section headings whose shared rule intentionally has stronger priority. */
+html[data-theme="light"] .launch-sidebar .conversation-heading{color:var(--muted)!important}
+html[data-theme="light"] .launch-nav button span,html[data-theme="light"] .launch-bottom button span{color:var(--muted)}
+html[data-theme="light"] .conversation-row.is-pinned .conversation-open{color:var(--ink)}
 html[data-theme="light"] .launch-composer{border-color:var(--rule);background:#fff;box-shadow:0 10px 40px rgba(44,93,135,.08)}
 html[data-theme="light"] .launch-composer textarea{color:var(--ink)}
 html[data-theme="light"] .launch-menu{background:#fff;box-shadow:0 14px 40px rgba(44,93,135,.15);border:1px solid var(--rule)}
@@ -2490,3 +2496,6 @@ html[data-theme="light"] .people-ava-badge{background:var(--tide1);color:#fff}
 .thinking-panel.is-streaming .thinking-summary-label::before{content:'';display:inline-block;width:6px;height:6px;margin-right:7px;border-radius:50%;background:var(--accent);animation:thinking-status-pulse 1.2s ease-in-out infinite}
 @keyframes thinking-status-pulse{50%{opacity:.3}}
 @media(prefers-reduced-motion:reduce){.thinking-panel.is-streaming .thinking-summary-label::before{animation:none}}
+
+/* Long-message counters use the same global theme as the composer. */
+.launch-input-size{display:block;text-align:right;margin:0 12px 4px;font-size:10px;color:var(--muted);overflow-wrap:anywhere}

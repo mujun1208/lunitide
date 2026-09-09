@@ -13,6 +13,23 @@ import (
 
 const officeSession = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
+func sameResolvedPath(t *testing.T, got, want string) {
+	t.Helper()
+	if got == want {
+		return
+	}
+	// Hosted Windows runners often resolve TempDir through the 8.3 alias
+	// (RUNNER~1) while os.UserHomeDir keeps the long name (runneradmin).
+	ga, err := os.Stat(got)
+	if err != nil {
+		t.Fatalf("ResolveSessionArtifact = %q err=%v want %q", got, err, want)
+	}
+	wa, err := os.Stat(want)
+	if err != nil || !os.SameFile(ga, wa) {
+		t.Fatalf("ResolveSessionArtifact = %q err=%v want %q", got, err, want)
+	}
+}
+
 func styledDocxArgs(path, title string, extra map[string]any) json.RawMessage {
 	args := map[string]any{
 		"path": path, "title": title, "blocks": officetools.SampleStyledDocxBlocks(),
@@ -162,9 +179,10 @@ func TestOfficeGenDesktopArtifactPath(t *testing.T) {
 				t.Fatalf("absolute path leaked: %+v", out.Artifact)
 			}
 			resolved, err := r.ResolveSessionArtifact(officeSession, out.Artifact.Path)
-			if err != nil || resolved != target {
+			if err != nil {
 				t.Fatalf("ResolveSessionArtifact = %q err=%v want %q", resolved, err, target)
 			}
+			sameResolvedPath(t, resolved, target)
 			if _, err := os.Stat(target); err != nil {
 				t.Fatalf("desktop write failed: %v", err)
 			}

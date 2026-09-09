@@ -150,3 +150,51 @@ func TestLegacyPersonalScopeRecoveryKeepsExplicitOrAmbiguousBinding(t *testing.T
 		})
 	}
 }
+
+func TestHiddenChatProjectIsCreatedAndReusedWithinEachOrganization(t *testing.T) {
+	ctx := context.Background()
+	e, _, store := agentRunEngine(t)
+	binding := m9app.NewFileBindingStore(filepath.Join(t.TempDir(), "binding.json"))
+	admin := m9app.NewOrgAdminService(org.NewService(org.NewGate(store.OrgStorage()), nil), binding)
+	e.SetM9OrgAdminService(admin)
+	if err := m9app.EnsureDefaultOrgBinding(ctx, admin); err != nil {
+		t.Fatal(err)
+	}
+	firstSummary, err := admin.Summary(ctx)
+	if err != nil || firstSummary.BoundOrgID == "" {
+		t.Fatalf("first organization: %+v %v", firstSummary, err)
+	}
+	firstID, err := e.ensurePersonalChatProject(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := e.projects.Get(ctx, firstID)
+	if err != nil || first.OrgID != firstSummary.BoundOrgID {
+		t.Fatalf("first hidden project scope: %+v %v", first, err)
+	}
+	if again, err := e.ensurePersonalChatProject(ctx); err != nil || again != firstID {
+		t.Fatalf("first hidden project was not reused: %q %v", again, err)
+	}
+
+	secondOrg, err := admin.CreateOrg(ctx, "Second organization")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Switch(ctx, secondOrg.OrgID); err != nil {
+		t.Fatal(err)
+	}
+	secondID, err := e.ensurePersonalChatProject(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := e.projects.Get(ctx, secondID)
+	if err != nil || second.OrgID != secondOrg.OrgID || secondID == firstID {
+		t.Fatalf("second hidden project scope: %+v first=%q err=%v", second, firstID, err)
+	}
+	if _, err := admin.Switch(ctx, firstSummary.BoundOrgID); err != nil {
+		t.Fatal(err)
+	}
+	if returned, err := e.ensurePersonalChatProject(ctx); err != nil || returned != firstID {
+		t.Fatalf("switching back did not recover the scoped project: %q %v", returned, err)
+	}
+}

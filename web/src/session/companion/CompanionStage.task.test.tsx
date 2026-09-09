@@ -265,21 +265,33 @@ test('playback end clears 说话中 and resumes listen for the rest of the reply
   expect(liveLog(container).textContent).toContain('今天想聊点什么')
 })
 
-test('heard-you-no-glyphs restarts the recognizer instead of hanging', async () => {
-  const { container, handle } = await renderStage()
-  expect(stateOf(container)).toBe('listening')
-  const started = speech.start.mock.calls.length
-  for (let i = 0; i < 12; i++) {
-    await act(async () => {
-      speech.callbacks!.onVoiceEnergy?.()
-      await new Promise(resolve => setTimeout(resolve, 500))
-    })
+test('heard-you-no-glyphs waits for silence before restarting the recognizer', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance'] })
+  try {
+    const handle = speech.handle()
+    speech.start.mockResolvedValue(handle)
+    const { container } = render(<CompanionStage {...baseProps} />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(500) })
+    expect(stateOf(container)).toBe('listening')
+    const started = speech.start.mock.calls.length
+    for (let i = 0; i < 28; i++) {
+      await act(async () => {
+        speech.callbacks!.onVoiceEnergy?.()
+        await vi.advanceTimersByTimeAsync(500)
+      })
+    }
+    expect(speech.stop).not.toHaveBeenCalled()
+    expect(speech.start).toHaveBeenCalledTimes(started)
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
+    expect(liveLog(container).textContent).toMatch(/还没有出字/)
+    expect(handle.pulseRecognition).not.toHaveBeenCalled()
+    expect(speech.stop).toHaveBeenCalled()
+    expect(speech.start.mock.calls.length).toBeGreaterThan(started)
+  } finally {
+    cleanup()
+    vi.useRealTimers()
   }
-  expect(liveLog(container).textContent).toMatch(/还没有出字/)
-  expect(handle.pulseRecognition).toHaveBeenCalled()
-  expect(speech.stop).toHaveBeenCalled()
-  expect(speech.start.mock.calls.length).toBeGreaterThan(started)
-}, 15_000)
+})
 
 test('lead-in-only terminal reports missing result without claiming ongoing work', async () => {
   const onSend = vi.fn()

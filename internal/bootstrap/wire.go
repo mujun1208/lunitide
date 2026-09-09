@@ -36,6 +36,7 @@ import (
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/mroapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
+	"github.com/lunitide/lunitide/internal/officeapp"
 	"github.com/lunitide/lunitide/internal/ontologyapp"
 	"github.com/lunitide/lunitide/internal/org"
 	"github.com/lunitide/lunitide/internal/people"
@@ -234,6 +235,7 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	// Phase-3 governance switches (M1/M2/S2), armed only by explicit env
 	// override; unset keeps every frozen default in force.
 	engine.SetGovernanceFlags(config.LoadGovernanceFlagsFromEnv())
+	engine.SetOfficeFlags(config.LoadOfficeFlagsFromEnv())
 	engine.SetPersistDir(dataRoot.Path())
 	// M10: the memory nomination workflow over the slice-1 core.
 	engine.SetM10NominationService(m8app.NewNominationService(store.AgentRuntimeRepository(), memorySvc))
@@ -528,6 +530,24 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 		return fail(err)
 	}
 	engine.SetArtifactReviewStore(reviews)
+	officeRoot, err := dataRoot.PrepareSubdirectory("office-studio")
+	if err != nil {
+		log.Printf("office-studio storage unavailable; existing chat remains available: %v", err)
+	} else {
+		closers = append(closers, func() { _ = officeRoot.Close() })
+		officeService, officeErr := officeapp.New(store, officeRoot.Path())
+		if officeErr != nil {
+			log.Printf("office-studio unavailable; existing chat remains available: %v", officeErr)
+		} else {
+			policy, policyErr := config.OfficeStoragePolicy()
+			if policyErr != nil {
+				log.Printf("office storage configuration invalid; using default policy: %v", policyErr)
+			} else {
+				officeService.StoragePolicy = policy
+			}
+			engine.SetOfficeStudio(officeService)
+		}
+	}
 	engine.SetAssetStorage(store)
 	engine.SetDataScopeStore(store)
 	engine.SetDeliverableStorage(store)

@@ -4,7 +4,7 @@
 // suspended AudioContext so volume bars actually move.
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { MOON_RING_BINS } from './MoonSphere'
-import { startCompanionSpeech } from './speech'
+import { FORCE_COMMIT_MS, startCompanionSpeech, TURN_END_SILENCE_MS } from './speech'
 
 type Rec = {
   lang: string
@@ -25,7 +25,7 @@ let recognition: Rec
 let recognitionCtorCount = 0
 let micTrack: { enabled: boolean }
 let trackStop: ReturnType<typeof vi.fn>
-let resume: ReturnType<typeof vi.fn>
+let resume: import('vitest').Mock<() => Promise<void>>
 let contextState: AudioContextState
 let capturePeak = 60
 
@@ -35,6 +35,25 @@ function heard(transcript: string) {
     results: Object.assign([{ 0: { transcript, confidence: 0.9 }, length: 1, isFinal: true }], { length: 1 }),
   }
 }
+
+test('mode resync after interruption never replaces the recognizer holding the new sentence', async () => {
+  vi.useFakeTimers()
+  const onFinal = vi.fn()
+  const onInterim = vi.fn()
+  const handle = await startCompanionSpeech({ duplex: true, meterless: true, onFinal, onInterim, onError: vi.fn() })
+  handle.setAssistantPlayback(true)
+  handle.setAssistantPlayback(false, 80)
+  const count = recognitionCtorCount
+  recognition.onresult?.(heard('今天合肥'))
+  handle.setAssistantPlayback(false, 450)
+  handle.resumeCapture()
+  expect(recognitionCtorCount).toBe(count)
+  recognition.onresult?.({ resultIndex: 1, results: [heard('今天合肥').results[0], heard('的天气怎么样？').results[0]] })
+  expect(onInterim).toHaveBeenLastCalledWith('今天合肥的天气怎么样？')
+  await vi.advanceTimersByTimeAsync(TURN_END_SILENCE_MS + 600)
+  expect(onFinal).toHaveBeenCalledExactlyOnceWith('今天合肥的天气怎么样？')
+  handle.stop()
+})
 
 beforeEach(() => {
   recognition = {
@@ -125,7 +144,7 @@ afterEach(() => {
 })
 
 describe('startCompanionSpeech capture graph', () => {
-  test('system ASR late text corrections do not restart the actual 1.2s silence deadline', async () => {
+  test('system ASR late text corrections do not restart the actual silence deadline', async () => {
     vi.useFakeTimers()
     let paint: FrameRequestCallback = () => {}
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { paint = cb; return 1 })
@@ -134,7 +153,7 @@ describe('startCompanionSpeech capture graph', () => {
     const interim = (text: string) => recognition.onresult?.({ resultIndex: 0, results: [{ 0: { transcript: text }, length: 1, isFinal: false }] })
     interim('今天合肥天气怎么样？')
     capturePeak = 0
-    await vi.advanceTimersByTimeAsync(1140)
+    await vi.advanceTimersByTimeAsync(TURN_END_SILENCE_MS - 60)
     paint(performance.now())
     interim('今天合肥市的天气怎么样？')
     expect(onFinal).not.toHaveBeenCalled()
@@ -151,7 +170,7 @@ describe('startCompanionSpeech capture graph', () => {
       { 0: { transcript: '今天上海到合肥的火车。' }, length: 1, isFinal: false },
     ] })
     capturePeak = 0
-    await vi.advanceTimersByTimeAsync(1200)
+    await vi.advanceTimersByTimeAsync(TURN_END_SILENCE_MS)
     paint(performance.now())
     expect(onFinal.mock.calls).toEqual([['今天合肥市的天气怎么样？'], ['今天上海到合肥的火车。']])
     handle.stop()
@@ -169,7 +188,7 @@ describe('startCompanionSpeech capture graph', () => {
     expect(onInterim).toHaveBeenLastCalledWith('今天合肥市的天气怎么样呢？')
     deliver('呢？', true)
     expect(onInterim).toHaveBeenLastCalledWith('今天合肥市的天气怎么样呢？')
-    await new Promise(resolve => setTimeout(resolve, 1300))
+    await new Promise(resolve => setTimeout(resolve, TURN_END_SILENCE_MS + 100))
     expect(onFinal).toHaveBeenCalledExactlyOnceWith('今天合肥市的天气怎么样呢？')
     handle.stop()
   })
@@ -204,6 +223,25 @@ describe('startCompanionSpeech capture graph', () => {
     recognition.onend?.()
     handle.resumeCapture()
     expect(recognition.start).toHaveBeenCalled()
+    handle.stop()
+  })
+
+  test('preserves slow recognition and only recovers after a bounded wait and silence', async () => {
+    vi.useFakeTimers()
+    let paint: FrameRequestCallback = () => {}
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { paint = cb; return 1 })
+    const onEngineHint = vi.fn()
+    const handle = await startCompanionSpeech({ duplex: true, onFinal: vi.fn(), onError: vi.fn(), onEngineHint })
+    await vi.advanceTimersByTimeAsync(1)
+    paint(performance.now())
+    capturePeak = 0
+    await vi.advanceTimersByTimeAsync(1700)
+    paint(performance.now())
+    expect(recognitionCtorCount).toBe(1)
+    expect(onEngineHint).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(11000)
+    paint(performance.now())
+    expect(recognitionCtorCount).toBeGreaterThan(1)
     handle.stop()
   })
 
@@ -334,8 +372,8 @@ describe('startCompanionSpeech capture graph', () => {
     })
     await new Promise(resolve => setTimeout(resolve, 200))
     expect(onFinal).not.toHaveBeenCalled()
-    // Actual captured voice ends the turn at 1.2s; the echo guard overlaps.
-    await new Promise(resolve => setTimeout(resolve, 1100))
+    // A stuck-hot analyser still commits at the guarded force deadline.
+    await new Promise(resolve => setTimeout(resolve, FORCE_COMMIT_MS))
     expect(onFinal).toHaveBeenCalledWith('下一句你好吗')
     handle.stop()
   })
@@ -365,7 +403,7 @@ describe('startCompanionSpeech capture graph', () => {
     recognition.stop.mockClear()
     await new Promise(resolve => setTimeout(resolve, 200))
     expect(onFinal).not.toHaveBeenCalled()
-    await new Promise(resolve => setTimeout(resolve, 1100))
+    await new Promise(resolve => setTimeout(resolve, FORCE_COMMIT_MS))
     expect(onFinal).toHaveBeenCalledWith('今天合肥天气怎么样')
     expect(recognition.stop).not.toHaveBeenCalled()
     handle.stop()

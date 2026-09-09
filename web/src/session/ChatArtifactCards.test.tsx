@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { artifactOpenRelativePath, ChatArtifactCards, filterChatDeliverables, isChatDeliverableArtifact } from './ChatArtifactCards'
+import { OFFICE_STUDIO_OPEN_EVENT, type OfficeOpenRequest } from '../officeStudio/officeNavigation'
 
 vi.mock('../bridge/client', () => ({
   sessionFolderBridge: { open: vi.fn() },
@@ -43,4 +44,18 @@ it('opens the inspector with the exact historical artifact path', () => {
   render(<ChatArtifactCards sessionId="01ARZ3NDEKTSV4RRFFQ69G5FAV" artifacts={[artifact]} onInspect={onInspect}/>)
   fireEvent.click(screen.getByText('报告.docx'))
   expect(onInspect).toHaveBeenCalledWith(artifact)
+})
+
+it('opens Office artifacts in the workbench with the original session and reports feature errors in chat', async () => {
+  const onError = vi.fn()
+  let requested: OfficeOpenRequest | undefined
+  window.addEventListener(OFFICE_STUDIO_OPEN_EVENT, event => {
+    requested = (event as CustomEvent<OfficeOpenRequest>).detail
+    requested.finish('办公工作台暂未启用')
+  }, { once: true })
+  render(<ChatArtifactCards sessionId="same-session" artifacts={[{kind:'docx',path:'报告.docx',content:'',callId:'call',toolName:'docx.gen'}]} onError={onError}/>)
+  fireEvent.click(screen.getByRole('button', { name: '在办公工作台查看' }))
+  await vi.waitFor(() => expect(onError).toHaveBeenCalledWith('办公工作台暂未启用'))
+  expect(requested?.sessionId).toBe('same-session')
+  expect(requested?.path).toBe('报告.docx')
 })

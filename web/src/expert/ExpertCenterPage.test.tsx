@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ExpertBridge, ProjectBridge, SkillBridge } from '../bridge/client'
 import { ExpertCenterPage } from './ExpertCenterPage'
@@ -43,6 +43,126 @@ const projects: ProjectBridge = {
   list: vi.fn().mockResolvedValue({ items: [{ id: '01ARZ3NDEKTSV4RRFFQ69G5FAZ', name: '在线电商', projectCode: 'ITM00001', type: 'implementation', createdAt: now, updatedAt: now, status: 'active', version: 1 }] }),
   create: vi.fn(), update: vi.fn(), publish: vi.fn(), close: vi.fn(), reopen: vi.fn(), advanceStatus: vi.fn(), delete: vi.fn(),
 }
+
+const manualId = '01ARZ3NDEKTSV4RRFFQ69G5FB1'
+const manualExpert = { ...expertList.experts[0], expertId: manualId, name: '短剧创作专家', source: 'local', creationOrigin: 'manual', isOwn: true, state: 'disabled' }
+const manualDetail = { ...expertDetail, expert: { ...expertDetail.expert, ...manualExpert, currentVersionId: versionId } }
+
+it('selects the newly created disabled expert card and clears conflicting filters', async () => {
+  const bridge = expertApi({
+    list: vi.fn().mockResolvedValueOnce(expertList).mockResolvedValue({ experts: [...expertList.experts, manualExpert] }),
+    create: vi.fn().mockResolvedValue({ expertId: manualId, versionId, name: manualExpert.name, state: 'disabled', creationOrigin: 'manual', sixSectionDigest: digest }),
+    detail: vi.fn().mockImplementation(({ expertId: id }) => Promise.resolve(id === manualId ? manualDetail : expertDetail)),
+    try: vi.fn(), delete: vi.fn(),
+  })
+  render(<ExpertCenterPage bridge={bridge} projects={projects} initialSelectedId={expertId} />)
+  await screen.findByText('安全岗位')
+  fireEvent.click(screen.getByRole('tab', { name: /已启用/ }))
+  fireEvent.change(screen.getByLabelText('搜索专家'), { target: { value: '安全' } })
+  fireEvent.click(screen.getByRole('button', { name: '添加专家' }))
+  fireEvent.click(screen.getByRole('button', { name: /手动填写/ }))
+  const form = within(await screen.findByRole('dialog', { name: '创建专家向导' }))
+  fireEvent.change(form.getByLabelText('名称'), { target: { value: manualExpert.name } })
+  fireEvent.change(form.getByLabelText('描述'), { target: { value: '短剧创作与场景打磨' } })
+  for (const label of ['① 身份', '② 使命', '③ 规则', '④ 流程', '⑤ 交付模板', '⑥ 成功度量']) {
+    fireEvent.change(form.getByLabelText(label), { target: { value: `${label}的完整内容` } })
+  }
+  fireEvent.click(form.getByRole('button', { name: '创建专家' }))
+  expect(await screen.findByText(`专家「${manualExpert.name}」已创建，尚未启用`)).toBeInTheDocument()
+  expect(screen.getByLabelText('搜索专家')).toHaveValue('')
+  expect(screen.getByRole('tab', { name: '我创建的' })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.getByRole('region', { name: '专家名片' })).toHaveTextContent(manualExpert.name)
+  expect(screen.queryByText('安全工程师')).not.toBeInTheDocument()
+  await waitFor(() => expect(screen.getByRole('button', { name: '试用' })).toBeEnabled())
+  expect(screen.getByRole('button', { name: '启用' })).toBeInTheDocument()
+  expect(bridge.toggle).not.toHaveBeenCalled()
+  expect(bridge.create).toHaveBeenCalledWith(expect.objectContaining({ frontmatter: expect.objectContaining({ name: manualExpert.name }) }), expect.anything())
+})
+
+it('filters by manual ownership instead of local source and removes hidden selections', async () => {
+  const rows = [
+    { ...expertList.experts[0], source: 'local', creationOrigin: 'builtin', isOwn: true },
+    { ...manualExpert, expertId: '01ARZ3NDEKTSV4RRFFQ69G5FB2', name: '旧本地专家', creationOrigin: 'legacy' },
+    { ...manualExpert, expertId: '01ARZ3NDEKTSV4RRFFQ69G5FB3', name: '其他人的专家', isOwn: false },
+    manualExpert,
+  ]
+  const bridge = expertApi({ list: vi.fn().mockResolvedValue({ experts: rows }), detail: vi.fn().mockResolvedValue(manualDetail), try: vi.fn(), delete: vi.fn() })
+  render(<ExpertCenterPage bridge={bridge} projects={projects} />)
+  await screen.findAllByText('安全工程师')
+  fireEvent.click(screen.getByRole('tab', { name: '我创建的' }))
+  expect(screen.getByRole('region', { name: '专家名片' })).toHaveTextContent(manualExpert.name)
+  for (const name of ['安全工程师', '旧本地专家', '其他人的专家']) expect(screen.queryByText(name)).not.toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('搜索专家'), { target: { value: 'no-match' } })
+  expect(screen.queryByRole('region', { name: '专家名片' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '删除' })).not.toBeInTheDocument()
+})
+
+it('retries disabled trials, enables explicitly, and confirms a guarded deletion', async () => {
+  let rows = [manualExpert]
+  const trial = vi.fn().mockRejectedValueOnce(new Error('模型暂不可用')).mockResolvedValue({ expertId: manualId, versionId, name: manualExpert.name, state: 'disabled', output: '第一场：两位主角发生冲突。' })
+  const remove = vi.fn().mockRejectedValueOnce(new Error('专家仍被会话引用')).mockImplementation(async () => { rows = []; return { expertId: manualId, deleted: true } })
+  const bridge = expertApi({
+    list: vi.fn().mockImplementation(async () => ({ experts: rows })),
+    detail: vi.fn().mockImplementation(async () => ({ ...manualDetail, expert: { ...manualDetail.expert, state: rows[0]?.state } })),
+    try: trial, delete: remove,
+    toggle: vi.fn().mockImplementation(async () => { rows = [{ ...manualExpert, state: 'enabled' }]; return { expertId: manualId, state: 'enabled', affectedMountings: 0 } }),
+  })
+  render(<ExpertCenterPage bridge={bridge} projects={projects} />)
+  await waitFor(() => expect(screen.getByRole('button', { name: '试用' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: '试用' }))
+  fireEvent.change(screen.getByLabelText('试答题目'), { target: { value: '写开场对白' } })
+  fireEvent.click(screen.getByRole('button', { name: '开始试答' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('模型暂不可用')
+  fireEvent.click(screen.getByRole('button', { name: '开始试答' }))
+  expect(await screen.findByRole('region', { name: '试答结果' })).toHaveTextContent('第一场')
+  expect(trial).toHaveBeenLastCalledWith({ expertId: manualId, expectedVersionId: versionId, input: '写开场对白' })
+  expect(bridge.toggle).not.toHaveBeenCalled()
+  expect(bridge.mount).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: '取消' }))
+  fireEvent.click(screen.getByRole('button', { name: '启用' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: '停用' })).toBeInTheDocument())
+  expect(bridge.toggle).toHaveBeenCalledOnce()
+  await waitFor(() => expect(screen.getByRole('button', { name: '删除' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: '删除' }))
+  expect(remove).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('专家仍被会话引用')
+  expect(screen.getByRole('region', { name: '专家名片' })).toHaveTextContent(manualExpert.name)
+  fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+  await waitFor(() => expect(screen.queryByRole('region', { name: '专家名片' })).not.toBeInTheDocument())
+  expect(remove).toHaveBeenLastCalledWith({ expertId: manualId, expectedVersionId: versionId, confirmToken: expect.stringMatching(/^[0-9a-f]{64}$/) }, expect.anything())
+})
+
+it.each([
+  ['EXPERT_TRIAL_INCOMPLETE', '专家试答达到输出限制，内容未完成，请缩短样例后重试'],
+  ['EXPERT_TRIAL_FILTERED', '专家试答被模型内容过滤，未返回完整回答'],
+])('shows %s without stale success or enabling the expert', async (_code, message) => {
+  const trial = vi.fn()
+    .mockResolvedValueOnce({ expertId: manualId, versionId, name: manualExpert.name, state: 'disabled', output: 'A complete previous scene.' })
+    .mockRejectedValue(new Error(message))
+  const bridge = expertApi({ list: vi.fn().mockResolvedValue({ experts: [manualExpert] }), detail: vi.fn().mockResolvedValue(manualDetail), try: trial, delete: vi.fn() })
+  render(<ExpertCenterPage bridge={bridge} projects={projects} />)
+  await waitFor(() => expect(screen.getByRole('button', { name: '试用' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: '试用' }))
+  fireEvent.change(screen.getByLabelText('试答题目'), { target: { value: 'Write a complete scene' } })
+  fireEvent.click(screen.getByRole('button', { name: '开始试答' }))
+  expect(await screen.findByRole('region', { name: '试答结果' })).toHaveTextContent('A complete previous scene.')
+  fireEvent.click(screen.getByRole('button', { name: '开始试答' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent(message)
+  expect(screen.queryByRole('region', { name: '试答结果' })).not.toBeInTheDocument()
+  expect(screen.getByText(/文本试答.*尚未启用/)).toBeInTheDocument()
+  expect(trial).toHaveBeenCalledTimes(2)
+  expect(bridge.toggle).not.toHaveBeenCalled()
+  expect(bridge.mount).not.toHaveBeenCalled()
+  expect(bridge.delete).not.toHaveBeenCalled()
+})
+
+it.each(['builtin', 'catalog', 'legacy'])('does not offer manual deletion or trial for %s origin', async creationOrigin => {
+  render(<ExpertCenterPage bridge={expertApi({ list: vi.fn().mockResolvedValue({ experts: [{ ...manualExpert, creationOrigin }] }), try: vi.fn(), delete: vi.fn() })} projects={projects} />)
+  await screen.findByRole('region', { name: '专家名片' })
+  expect(screen.queryByRole('button', { name: '删除' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '试用' })).not.toBeInTheDocument()
+})
 
 it('shows runtime tools and opens a conversation specialist as a colleague', async () => {
   const onOpenExpert = vi.fn()
@@ -262,7 +382,9 @@ it('lets an agent specialist pick a local Codex or Claude Code brain', async () 
   expect(await screen.findByRole('group', { name: '大脑' })).toBeInTheDocument()
   expect(screen.getAllByRole('radio', { name: /月汐引擎/ })[0]).toBeChecked()
   fireEvent.click(screen.getAllByRole('radio', { name: /本机 Codex/ })[0])
-  fireEvent.click(screen.getByRole('button', { name: '保存运行时绑定' }))
+  const save = screen.getByRole('button', { name: '保存运行时绑定' })
+  await waitFor(() => expect(save).toBeEnabled())
+  fireEvent.submit(save.closest('form')!)
   await waitFor(() => expect(bridge.skillsSet).toHaveBeenCalled())
   expect(vi.mocked(bridge.skillsSet!).mock.calls[0][0].skillKeys).toContain('brain:codex')
 })

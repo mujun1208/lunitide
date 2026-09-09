@@ -14,10 +14,16 @@ import (
 
 const deliveryColumns = `id,session_id,consumer,state,stream_id,message_ids_json,created_at,updated_at`
 
+// A receipt belongs to exactly one input scope. Checking every member also
+// rejects a corrupt mixed receipt instead of exposing just a partial batch.
+const deliveryOfficeScope = `EXISTS(SELECT 1 FROM queue_delivery_items WHERE delivery_id=queue_deliveries.id)
+ AND NOT EXISTS(SELECT 1 FROM queue_delivery_items qi JOIN queued_user_messages qm ON qm.id=qi.queued_id
+ WHERE qi.delivery_id=queue_deliveries.id AND (qm.session_id<>queue_deliveries.session_id OR COALESCE(qm.office_task_id,'')<>?))`
+
 func getQueueDelivery(ctx context.Context, q sqlRunner, sessionID, id string) (queueapp.Delivery, error) {
 	var d queueapp.Delivery
 	var raw string
-	err := q.QueryRowContext(ctx, `SELECT `+deliveryColumns+` FROM queue_deliveries WHERE session_id=? AND id=?`, sessionID, id).Scan(&d.ID, &d.SessionID, &d.Consumer, &d.State, &d.StreamID, &raw, &d.CreatedAt, &d.UpdatedAt)
+	err := q.QueryRowContext(ctx, `SELECT `+deliveryColumns+` FROM queue_deliveries WHERE session_id=? AND id=? AND `+deliveryOfficeScope, sessionID, id, queueinput.OfficeTaskID(ctx)).Scan(&d.ID, &d.SessionID, &d.Consumer, &d.State, &d.StreamID, &raw, &d.CreatedAt, &d.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return d, queueapp.ErrNotFound
 	}
@@ -48,7 +54,7 @@ func (s *Store) GetQueueDelivery(ctx context.Context, sessionID, id string) (que
 
 func (s *Store) PendingQueueDelivery(ctx context.Context, sessionID string) (queueapp.Delivery, error) {
 	var id string
-	err := s.db.QueryRowContext(ctx, `SELECT id FROM queue_deliveries WHERE session_id=? AND state<>'confirmed' ORDER BY created_at,id LIMIT 1`, sessionID).Scan(&id)
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM queue_deliveries WHERE session_id=? AND state<>'confirmed' AND `+deliveryOfficeScope+` ORDER BY created_at,id LIMIT 1`, sessionID, queueinput.OfficeTaskID(ctx)).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return queueapp.Delivery{}, nil
 	}
@@ -65,7 +71,7 @@ func (s *Store) ClaimQueueDelivery(ctx context.Context, sessionID, consumer stri
 	var out queueapp.Delivery
 	err := s.do(ctx, func(tx *txAdapter) error {
 		var id string
-		err := tx.q.QueryRowContext(ctx, `SELECT id FROM queue_deliveries WHERE session_id=? AND (state IN ('claimed','prepared') OR (?='renderer' AND state IN ('started','unknown'))) ORDER BY created_at,id LIMIT 1`, sessionID, consumer).Scan(&id)
+		err := tx.q.QueryRowContext(ctx, `SELECT id FROM queue_deliveries WHERE session_id=? AND (state IN ('claimed','prepared') OR (?='renderer' AND state IN ('started','unknown'))) AND `+deliveryOfficeScope+` ORDER BY created_at,id LIMIT 1`, sessionID, consumer, queueinput.OfficeTaskID(ctx)).Scan(&id)
 		if err == nil {
 			out, err = getQueueDelivery(ctx, tx.q, sessionID, id)
 			if err != nil {
@@ -82,7 +88,7 @@ func (s *Store) ClaimQueueDelivery(ctx context.Context, sessionID, consumer stri
 		// Older admission paths could exceed the per-session quota concurrently.
 		// Preserve that backlog in bounded batches instead of returning a receipt
 		// that cannot fit the Bridge contract.
-		rows, err := tx.q.QueryContext(ctx, `SELECT `+queueColumns+` FROM queued_user_messages WHERE session_id=? AND status='queued' AND NOT EXISTS(SELECT 1 FROM queue_delivery_items WHERE queued_id=queued_user_messages.id) ORDER BY seq LIMIT ?`, sessionID, queueinput.MaxQueuedPerSession)
+		rows, err := tx.q.QueryContext(ctx, `SELECT `+queueColumns+` FROM queued_user_messages WHERE session_id=? AND COALESCE(office_task_id,'')=? AND status='queued' AND NOT EXISTS(SELECT 1 FROM queue_delivery_items WHERE queued_id=queued_user_messages.id) ORDER BY seq LIMIT ?`, sessionID, queueinput.OfficeTaskID(ctx), queueinput.MaxQueuedPerSession)
 		if err != nil {
 			return err
 		}
@@ -118,7 +124,7 @@ func (s *Store) ClaimQueueDelivery(ctx context.Context, sessionID, consumer stri
 				return err
 			}
 		}
-		return s.appendAuditTx(ctx, tx.q, "queue.consume", sessionID, "engine", map[string]any{"deliveryId": out.ID, "phase": "claimed", "count": len(out.Items)})
+		return s.appendAuditTx(ctx, tx.q, "queue.consume", sessionID, "engine", map[string]any{"deliveryId": out.ID, "phase": "claimed", "count": len(out.Items), "officeTaskId": queueinput.OfficeTaskID(ctx)})
 	})
 	if err != nil {
 		return queueapp.Delivery{}, err
@@ -188,7 +194,7 @@ func (s *Store) StartQueueDelivery(ctx context.Context, sessionID, id, streamID 
 		if _, err := tx.q.ExecContext(ctx, `UPDATE queued_user_messages SET status='injected',consumed_at=?,updated_at=? WHERE id IN (SELECT queued_id FROM queue_delivery_items WHERE delivery_id=?) AND status='queued'`, at, at, id); err != nil {
 			return err
 		}
-		return s.appendAuditTx(ctx, tx.q, "queue.consume", sessionID, "engine", map[string]any{"deliveryId": id, "phase": "started", "streamId": streamID})
+		return s.appendAuditTx(ctx, tx.q, "queue.consume", sessionID, "engine", map[string]any{"deliveryId": id, "phase": "started", "streamId": streamID, "officeTaskId": queueinput.OfficeTaskID(ctx)})
 	})
 }
 
@@ -198,7 +204,7 @@ func (s *Store) FinishQueueDeliveries(ctx context.Context, sessionID, streamID s
 		state = "confirmed"
 	}
 	return s.do(ctx, func(tx *txAdapter) error {
-		res, err := tx.q.ExecContext(ctx, `UPDATE queue_deliveries SET state=?,updated_at=? WHERE session_id=? AND stream_id=? AND state='started'`, state, formatTime(time.Now().UTC()), sessionID, streamID)
+		res, err := tx.q.ExecContext(ctx, `UPDATE queue_deliveries SET state=?,updated_at=? WHERE session_id=? AND stream_id=? AND state='started' AND `+deliveryOfficeScope, state, formatTime(time.Now().UTC()), sessionID, streamID, queueinput.OfficeTaskID(ctx))
 		if err != nil {
 			return err
 		}
@@ -206,7 +212,7 @@ func (s *Store) FinishQueueDeliveries(ctx context.Context, sessionID, streamID s
 		if err != nil || count == 0 {
 			return err
 		}
-		return s.appendAuditTx(ctx, tx.q, "queue.consume", sessionID, "engine", map[string]any{"phase": state, "streamId": streamID, "deliveries": count})
+		return s.appendAuditTx(ctx, tx.q, "queue.consume", sessionID, "engine", map[string]any{"phase": state, "streamId": streamID, "deliveries": count, "officeTaskId": queueinput.OfficeTaskID(ctx)})
 	})
 }
 
@@ -259,7 +265,7 @@ func (s *Store) RecoverQueueDelivery(ctx context.Context, sessionID, id, action 
 				return err
 			}
 		}
-		return s.appendAuditTx(ctx, tx.q, "queue.consume", sessionID, "engine", map[string]any{"deliveryId": id, "phase": action})
+		return s.appendAuditTx(ctx, tx.q, "queue.consume", sessionID, "engine", map[string]any{"deliveryId": id, "phase": action, "officeTaskId": queueinput.OfficeTaskID(ctx)})
 	})
 	if err != nil {
 		return queueapp.Delivery{}, err

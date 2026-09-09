@@ -74,14 +74,17 @@ func (systemClock) Now() time.Time { return time.Now().UTC() }
 
 // Service coordinates skill lifecycle, invocation gating, and matching.
 type Service struct {
-	read     SkillReader
-	write    SkillWriter
-	catRead  CategoryReader
-	catWrite CategoryWriter
-	clock    Clock
-	invMu    sync.Mutex
-	invCache *invocationLRU
-	invStore InvocationStore
+	packageMu      sync.Mutex
+	packageRoot    string
+	packageUploads *packageUploads
+	read           SkillReader
+	write          SkillWriter
+	catRead        CategoryReader
+	catWrite       CategoryWriter
+	clock          Clock
+	invMu          sync.Mutex
+	invCache       *invocationLRU
+	invStore       InvocationStore
 }
 
 type Invocation struct {
@@ -115,11 +118,20 @@ func manifestDigest(sk skill.Skill) string {
 }
 
 func allowlistedSkillEntryPoint(ep string) bool {
+	if markdownSkillEntryPoint(ep) {
+		return true
+	}
 	switch ep {
-	case "builtin:summarize-input", "builtin:list-context":
+	case "builtin:summarize-input", "builtin:list-context", "SKILL.md":
 		return true
 	}
 	return strings.HasPrefix(ep, "builtin://") && len(ep) > len("builtin://")
+}
+
+// Legacy authored drafts used package-relative SKILL.md names. These are
+// declarative aliases for the stored prompt, never paths to execute or read.
+func markdownSkillEntryPoint(ep string) bool {
+	return PackageFilePath(ep) && (ep == "SKILL.md" || strings.HasSuffix(ep, "/SKILL.md"))
 }
 
 func catalogSkillWorkingAgreement(sk skill.Skill, input string) string {
@@ -141,15 +153,40 @@ func catalogSkillWorkingAgreement(sk skill.Skill, input string) string {
 
 // Invoke freezes an immutable, short-lived execution proposal. It never runs code.
 func (s *Service) Invoke(ctx context.Context, skillID, sessionID, input, mode string) (Invocation, error) {
+	if strings.HasPrefix(mode, "trial:") {
+		return Invocation{}, ErrExecutionForbidden
+	}
+	return s.invoke(ctx, skillID, sessionID, input, mode, false)
+}
+
+// InvokeTrial creates a draft-only proposal after the caller has received an
+// explicit per-turn selection. The stored mode makes its draft scope survive a
+// process restart without changing the meaning of ordinary Invoke.
+func (s *Service) InvokeTrial(ctx context.Context, skillID, sessionID, input, mode string) (Invocation, error) {
+	switch mode {
+	case "approval", "auto-edit", "plan", "full-access":
+	default:
+		return Invocation{}, ErrExecutionForbidden
+	}
+	if strings.TrimSpace(sessionID) == "" {
+		return Invocation{}, ErrInvocationNotFound
+	}
+	return s.invoke(ctx, skillID, sessionID, input, mode, true)
+}
+
+func (s *Service) invoke(ctx context.Context, skillID, sessionID, input, mode string, trial bool) (Invocation, error) {
 	sk, err := s.Get(ctx, skillID)
 	if err != nil {
 		return Invocation{}, err
 	}
-	if sk.Status != skill.SkillStatusPublished {
+	if trial && sk.Status != skill.SkillStatusDraft {
+		return Invocation{}, ErrInvalidStatus
+	}
+	if !trial && sk.Status != skill.SkillStatusPublished {
 		return Invocation{}, ErrSkillNotPublished
 	}
-	if !allowlistedSkillEntryPoint(sk.EntryPoint) {
-		return Invocation{}, ErrUnknownEntryPoint
+	if err := s.validateRunnableSkill(*sk); err != nil {
+		return Invocation{}, err
 	}
 	risk := sk.MaxRiskLevel()
 	if risk == "critical" {
@@ -158,6 +195,9 @@ func (s *Service) Invoke(ctx context.Context, skillID, sessionID, input, mode st
 	requires := mode == "approval" || risk != "low"
 	now := s.clock.Now()
 	inv := Invocation{ID: newULID(now), SkillID: sk.ID, SkillVersion: sk.Version, SessionID: sessionID, Input: input, InputDigest: digest(input), ManifestDigest: manifestDigest(*sk), Risk: risk, Mode: mode, RequiresApproval: requires, ExpiresAt: now.Add(5 * time.Minute)}
+	if trial {
+		inv.Mode = "trial:" + mode
+	}
 	// Authoritative write first: a proposal that is not durable must not be
 	// handed back, otherwise a restart would strand the caller with an id the
 	// store has never heard of.
@@ -195,7 +235,12 @@ func (s *Service) Execute(ctx context.Context, invocationID, sessionID string, a
 		s.dropInvocation(ctx, invocationID)
 		return Execution{}, ErrInvocationExpired
 	}
-	if inv.Mode == "plan" {
+	trial := strings.HasPrefix(inv.Mode, "trial:")
+	mode := strings.TrimPrefix(inv.Mode, "trial:")
+	if trial && mode != "approval" && mode != "auto-edit" && mode != "plan" && mode != "full-access" {
+		return Execution{}, ErrExecutionForbidden
+	}
+	if mode == "plan" {
 		return Execution{}, ErrExecutionForbidden
 	}
 	if inv.RequiresApproval && !approved {
@@ -230,7 +275,10 @@ func (s *Service) Execute(ctx context.Context, invocationID, sessionID string, a
 	if err != nil {
 		return Execution{}, err
 	}
-	if sk.Status != skill.SkillStatusPublished {
+	if trial && sk.Status != skill.SkillStatusDraft {
+		return Execution{}, ErrInvocationChanged
+	}
+	if !trial && sk.Status != skill.SkillStatusPublished {
 		return Execution{}, ErrSkillNotPublished
 	}
 	if sk.Version != inv.SkillVersion || manifestDigest(*sk) != inv.ManifestDigest {
@@ -247,10 +295,15 @@ func (s *Service) Execute(ctx context.Context, invocationID, sessionID string, a
 		output = "输入摘要（只读 builtin）：" + trimmed
 	case sk.EntryPoint == "builtin:list-context":
 		output = "上下文清单（只读 builtin）：session=" + sessionID + "；inputSha256=" + inv.InputDigest
-	case strings.HasPrefix(sk.EntryPoint, "builtin://"):
+	case markdownSkillEntryPoint(sk.EntryPoint), strings.HasPrefix(sk.EntryPoint, "builtin://"):
+		// SKILL.md denotes the stored prompt contract, not a filesystem program.
+		// Custom skills created by the product use this entry point by default.
 		output = catalogSkillWorkingAgreement(*sk, inv.Input)
 	default:
 		return Execution{}, ErrUnknownEntryPoint
+	}
+	if trial {
+		output = "[草稿试用：未发布，仅本次指定会话的执行提案]\n" + output
 	}
 	return Execution{InvocationID: inv.ID, AuditID: newULID(s.clock.Now()), Output: output}, nil
 }
@@ -427,6 +480,10 @@ func (s *Service) UpdateFields(ctx context.Context, id string, displayName, desc
 			return nil, errors.New("skill manifest_json size out of bounds")
 		}
 		resolvedManifest = *manifestJSON
+		resolvedManifest, err = preserveSkillOrigin(sk.ManifestJSON, resolvedManifest)
+		if err != nil {
+			return nil, err
+		}
 	}
 	resolvedPerms := sk.Permissions
 	if permissions != nil {
@@ -534,6 +591,9 @@ func (s *Service) Publish(ctx context.Context, id string) error {
 	}
 	if !canTransitionTo(sk.Status, skill.SkillStatusPublished) {
 		return ErrInvalidTransition
+	}
+	if err := s.validateRunnableSkill(*sk); err != nil {
+		return err
 	}
 	return s.write.UpdateSkillStatus(ctx, id, string(skill.SkillStatusPublished), sk.Rev)
 }

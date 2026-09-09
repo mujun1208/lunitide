@@ -33,12 +33,13 @@ Valid divisions: `engineering`, `design`, `product`, `project-management`, `test
 4. **Review with user** — Present a compact summary table of the six sections. Offer to revise before creation.
 
 5. **Create via `expert.create`** — Call the tool once with:
-   - `source`: `"local"`
-   - `frontmatter`: `{ name, division, description, semver: "1.0.0" }`
-   - `sixSection`: all six fields populated
-   - `requestId`: new UUID
+   - Flat fields: `name`, `division`, `description`, `semver: "1.0.0"`.
+   - Flat six-section fields: `identity`, `mission`, `rules`, `workflow`, `deliverableTemplate`, `successMetrics`.
+   - Optional `skillKeys`: installed skill keys to bind.
+   - Do not send `source`, `frontmatter`, `sixSection` or `requestId`; those belong to the native API, not this model tool.
+   - Expert business topics such as novels, reports and Word output are profile content, not a request to generate a document now. Never substitute docx.gen for expert.create.
 
-6. **After creation** — Tell the user the expert appears in 专家中心 and can be mounted to project phases (≤4 per phase).
+6. **After creation** — Report the returned expert name and ID. New profiles remain disabled and appear under 专家中心 > 我创建的. The user can inspect the card, run a text trial without enabling, then explicitly enable before mounting to project phases (≤4 per phase). Only their manually created profiles can be deleted; active project or session references must be removed first. Never claim creation also enabled the expert.
 
 ## Quality bar
 

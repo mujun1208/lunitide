@@ -12,37 +12,16 @@ import (
 func TestMeetingSummarySourceMigrationDoesNotInventLegacyInput(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "legacy.db")
-	store, err := OpenTemplated(ctx, path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	raw := legacyBeforeMigration(t, path, "0141_")
 	m := meetings.Meeting{MeetingID: ulid.Make().String(), Title: "历史会议", Status: meetings.StatusReady, AudioSource: meetings.AudioMicrophone,
 		StartedAt: "2026-09-06T00:00:00Z", CreatedAt: "2026-09-06T00:00:00Z", UpdatedAt: "2026-09-06T00:00:00Z", Transcript: "后来修改过的原稿", Summary: "来源无法证明的旧摘要", Actions: "旧待办"}
-	if err = store.InsertMeeting(ctx, m); err != nil {
+	if _, err := raw.Exec(`INSERT INTO meetings(meeting_id,title,status,audio_source,started_at,created_at,updated_at,transcript,summary,actions) VALUES(?,?,?,?,?,?,?,?,?,?)`, m.MeetingID, m.Title, m.Status, m.AudioSource, m.StartedAt, m.CreatedAt, m.UpdatedAt, m.Transcript, m.Summary, m.Actions); err != nil {
 		t.Fatal(err)
 	}
-	if err = store.Close(); err != nil {
+	if err := raw.Close(); err != nil {
 		t.Fatal(err)
 	}
-	raw := openRaw(t, path)
-	if _, err = raw.Exec(`ALTER TABLE memory_settings DROP COLUMN capture_mode`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = raw.Exec(`DELETE FROM schema_migrations WHERE version='0142_memory_capture_mode.sql'`); err != nil {
-		t.Fatal(err)
-	}
-	for _, column := range []string{"summary_edited", "summary_source_transcript", "summary_source_title", "summary_source_digest", "summary_source_revision", "transcript_revision"} {
-		if _, err = raw.Exec("ALTER TABLE meetings DROP COLUMN " + column); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err = raw.Exec(`DELETE FROM schema_migrations WHERE version='0141_meeting_summary_source.sql'`); err != nil {
-		t.Fatal(err)
-	}
-	if err = raw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err = Open(ctx, path)
+	store, err := Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}

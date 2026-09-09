@@ -79,7 +79,9 @@ func (e *Engine) persistTalkTranscript(session *talkSession, event talk.ServerEv
 	if !project.CanEditMutableFields() {
 		return message.Message{}, errors.New("session project is read only")
 	}
-	limitRunes, limitBytes := message.MaxRunes, message.MaxBytes
+	// This is a persisted part-key protocol, independent of the typed input
+	// limit. Changing it would invalidate a pre-upgrade final's retry receipt.
+	limitRunes, limitBytes := 2048, 8192
 	if event.Role == "assistant" {
 		limitRunes, limitBytes = message.MaxRunesAssistant, message.MaxBytesAssistant
 	}

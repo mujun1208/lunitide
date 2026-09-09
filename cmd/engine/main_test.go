@@ -9,6 +9,10 @@ import (
 	"github.com/lunitide/lunitide/internal/scheduler"
 )
 
+type quietSchedulerNotifier struct{}
+
+func (quietSchedulerNotifier) Notify(string, string) error { return nil }
+
 func TestSchedulerSurvivesSessionLeave(t *testing.T) {
 	engineCtx, cancelEngine := context.WithCancel(context.Background())
 	defer cancelEngine()
@@ -23,7 +27,7 @@ func TestSchedulerSurvivesSessionLeave(t *testing.T) {
 		default:
 		}
 		return scheduler.Outcome{Summary: "ok"}
-	}, nil)
+	}, quietSchedulerNotifier{})
 	sched.Start(engineCtx)
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) && !sched.Snapshot().Running {

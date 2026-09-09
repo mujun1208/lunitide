@@ -74,6 +74,11 @@ func TestDesktopNameScoreSkipsLockfiles(t *testing.T) {
 }
 
 func TestCanonicalMusicAppResolvesNetease(t *testing.T) {
+	for _, nonMusic := range []string{"微信", "QQ", "飞书", "企业AI智能助手.txt"} {
+		if CanonicalMusicApp(nonMusic) != "" || CanonicalMusicAppFromText("打开"+nonMusic) != "" {
+			t.Fatalf("non-player accepted: %s", nonMusic)
+		}
+	}
 	if got := CanonicalMusicApp("网易云"); got != "网易云音乐" {
 		t.Fatalf("got %q", got)
 	}

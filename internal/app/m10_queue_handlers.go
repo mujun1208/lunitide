@@ -16,20 +16,22 @@ import (
 // join the current task instead of waiting for the stream to settle.
 
 type queuedItemDTO struct {
-	QueuedID  string `json:"queuedId"`
-	Seq       int64  `json:"seq"`
-	Text      string `json:"text"`
-	Status    string `json:"status"`
-	Mark      string `json:"mark"`
-	CreatedAt string `json:"createdAt"`
+	OfficeTaskID string `json:"officeTaskId,omitempty"`
+	QueuedID     string `json:"queuedId"`
+	Seq          int64  `json:"seq"`
+	Text         string `json:"text"`
+	Status       string `json:"status"`
+	Mark         string `json:"mark"`
+	CreatedAt    string `json:"createdAt"`
 }
 
 func handleRunQueueInput(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		SessionID string `json:"sessionId"`
-		Text      string `json:"text"`
-		Mark      string `json:"mark"`
-		RequestID string `json:"requestId"`
+		OfficeTaskID string `json:"officeTaskId"`
+		SessionID    string `json:"sessionId"`
+		Text         string `json:"text"`
+		Mark         string `json:"mark"`
+		RequestID    string `json:"requestId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SessionID) ||
 		len(p.RequestID) < 1 || len(p.RequestID) > 128 ||
@@ -39,6 +41,10 @@ func handleRunQueueInput(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if e.queue == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "排队输入服务暂时不可用", true)
 	}
+	if err := e.validateOfficeChatTask(ctx, p.SessionID, p.OfficeTaskID); err != nil {
+		return officeFailure(r, err)
+	}
+	ctx = withOfficeTask(ctx, p.OfficeTaskID)
 	m, err := e.queue.Enqueue(ctx, p.SessionID, "", p.Text, p.Mark, p.RequestID)
 	if err != nil {
 		return queueFailure(r, err)
@@ -53,7 +59,8 @@ func handleRunQueueInput(e *Engine, ctx context.Context, r bridge.Request) bridg
 
 func handleRunQueueList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		SessionID string `json:"sessionId"`
+		OfficeTaskID string `json:"officeTaskId"`
+		SessionID    string `json:"sessionId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SessionID) {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "run.queueList 参数无效", false)
@@ -61,6 +68,10 @@ func handleRunQueueList(e *Engine, ctx context.Context, r bridge.Request) bridge
 	if e.queue == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "排队输入服务暂时不可用", true)
 	}
+	if err := e.validateOfficeChatTask(ctx, p.SessionID, p.OfficeTaskID); err != nil {
+		return officeFailure(r, err)
+	}
+	ctx = withOfficeTask(ctx, p.OfficeTaskID)
 	items, err := e.queue.List(ctx, p.SessionID)
 	if err != nil {
 		return queueFailure(r, err)
@@ -85,8 +96,9 @@ func handleRunQueueList(e *Engine, ctx context.Context, r bridge.Request) bridge
 
 func handleRunQueueWithdraw(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		SessionID string `json:"sessionId"`
-		QueuedID  string `json:"queuedId"`
+		OfficeTaskID string `json:"officeTaskId"`
+		SessionID    string `json:"sessionId"`
+		QueuedID     string `json:"queuedId"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SessionID) || !validCanonicalULID(p.QueuedID) {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "run.queueWithdraw 参数无效", false)
@@ -94,6 +106,10 @@ func handleRunQueueWithdraw(e *Engine, ctx context.Context, r bridge.Request) br
 	if e.queue == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "排队输入服务暂时不可用", true)
 	}
+	if err := e.validateOfficeChatTask(ctx, p.SessionID, p.OfficeTaskID); err != nil {
+		return officeFailure(r, err)
+	}
+	ctx = withOfficeTask(ctx, p.OfficeTaskID)
 	m, err := e.queue.Withdraw(ctx, p.SessionID, p.QueuedID)
 	if err != nil {
 		return queueFailure(r, err)
@@ -106,9 +122,10 @@ func handleRunQueueWithdraw(e *Engine, ctx context.Context, r bridge.Request) br
 
 func handleRunQueueConsume(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		SessionID  string `json:"sessionId"`
-		DeliveryID string `json:"deliveryId"`
-		Action     string `json:"action"`
+		OfficeTaskID string `json:"officeTaskId"`
+		SessionID    string `json:"sessionId"`
+		DeliveryID   string `json:"deliveryId"`
+		Action       string `json:"action"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SessionID) || (p.DeliveryID != "" && !validCanonicalULID(p.DeliveryID)) || (p.Action != "" && p.Action != "resume" && p.Action != "dismiss") || ((p.Action == "") != (p.DeliveryID == "")) {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "run.queueConsume 参数无效", false)
@@ -116,6 +133,10 @@ func handleRunQueueConsume(e *Engine, ctx context.Context, r bridge.Request) bri
 	if e.queue == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "排队输入服务暂时不可用", true)
 	}
+	if err := e.validateOfficeChatTask(ctx, p.SessionID, p.OfficeTaskID); err != nil {
+		return officeFailure(r, err)
+	}
+	ctx = withOfficeTask(ctx, p.OfficeTaskID)
 	if store := e.queue.Deliveries(); store != nil {
 		if !e.reserveChatSession(p.SessionID) {
 			return queueFailure(r, queueapp.ErrDeliveryBusy)
@@ -166,7 +187,8 @@ func queueItemDTOs(items []queueinput.Message) []queuedItemDTO {
 	result := make([]queuedItemDTO, 0, len(items))
 	for _, m := range items {
 		result = append(result, queuedItemDTO{
-			QueuedID: m.ID, Seq: m.Seq, Text: m.Payload,
+			OfficeTaskID: m.OfficeTaskID,
+			QueuedID:     m.ID, Seq: m.Seq, Text: m.Payload,
 			Status: m.Status, Mark: m.Mark, CreatedAt: m.CreatedAt,
 		})
 	}
@@ -181,7 +203,7 @@ func queueFailure(r bridge.Request, err error) bridge.Response {
 	case errors.Is(err, queueapp.ErrDeliveryUnavailable):
 		return r.Fail("STORAGE_UNAVAILABLE", "补充输入的持久交付服务不可用", true)
 	case errors.Is(err, queueapp.ErrPayloadInvalid):
-		return r.Fail("M10-QI-001", "补充文本为空或超过 8000 字符", false)
+		return r.Fail("M10-QI-001", "补充文本须为有效文字，最多 32768 字符、131072 字节", false)
 	case errors.Is(err, queueapp.ErrSessionNotFound):
 		return r.Fail("M10-QI-002", "会话不存在或不可用", false)
 	case errors.Is(err, queueapp.ErrNotFound):

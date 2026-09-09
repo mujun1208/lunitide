@@ -316,9 +316,9 @@ func TestService_IngestFile_UnsupportedMIME(t *testing.T) {
 
 	att, err := svc.IngestFile(context.Background(), IngestFileRequest{
 		ProjectID:    mustULID(),
-		OriginalName: "deck.pdf",
-		MIME:         "application/pdf",
-		Content:      []byte("%PDF-1.4"),
+		OriginalName: "archive.7z",
+		MIME:         "application/x-7z-compressed",
+		Content:      []byte("7z archive"),
 	})
 	if err != nil {
 		t.Fatalf("IngestFile should not return error for unsupported MIME: %v", err)

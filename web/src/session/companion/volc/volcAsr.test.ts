@@ -30,6 +30,21 @@ const PROVIDER = '01ARZ3NDEKTSV4RRFFQ69G5FAV'
 const frame = (peak = 0.2) => ({ base64: 'AAAA', samples: new Int16Array(1600), peak })
 const settle = () => new Promise(resolve => setTimeout(resolve, 0))
 
+it('forwards soft speech below the activity threshold before and after unmuting', async () => {
+  const handle = await startVolcAsr(PROVIDER)
+  emitFrame(frame(0.005))
+  await settle()
+  expect(bridge.append).toHaveBeenCalledOnce()
+  handle.setMuted(true)
+  await settle()
+  handle.setMuted(false)
+  const count = bridge.append.mock.calls.length
+  emitFrame(frame(0.005))
+  await settle()
+  expect(bridge.append.mock.calls.length).toBeGreaterThan(count)
+  handle.cancel()
+})
+
 beforeEach(() => {
   vi.clearAllMocks()
   bridge.start.mockResolvedValue({ sessionId: 'v1' })
@@ -39,6 +54,46 @@ beforeEach(() => {
 })
 
 describe('startVolcAsr', () => {
+  it('waits for the final audio append before committing a slow response', async () => {
+    vi.useFakeTimers()
+    try {
+      const handle = await startVolcAsr(PROVIDER)
+      let complete!: (value: { text: string; final: boolean }) => void
+      bridge.append.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+      emitFrame(frame())
+      let committed = false
+      const commit = handle.commit().then(text => { committed = true; return text })
+      await vi.advanceTimersByTimeAsync(800)
+      expect(committed).toBe(false)
+      complete({ text: '帮我打开汽水音乐，随机播放一首歌曲。', final: true })
+      await vi.advanceTimersByTimeAsync(20)
+      await expect(commit).resolves.toBe('帮我打开汽水音乐，随机播放一首歌曲。')
+      handle.cancel()
+    } finally { vi.useRealTimers() }
+  })
+  it('keeps twelve product turns intact when late finals split off a different one-word tail', async () => {
+    const onTranscript = vi.fn()
+    const handle = await startVolcAsr(PROVIDER, { onTranscript })
+    for (let round = 0; round < 12; round++) {
+      const startMs = round * 5000
+      const text = `第${round + 1}轮，今天合肥的天气怎么样？`
+      bridge.append.mockResolvedValueOnce({ text, final: false, utterances: [{ text, startMs, endMs: startMs + 2400, final: false }] })
+      emitFrame(frame())
+      await settle()
+      expect(onTranscript).toHaveBeenLastCalledWith(text, false, true)
+      await expect(handle.commit({ useStreamed: true })).resolves.toBe(text)
+      await settle()
+      onTranscript.mockClear()
+      bridge.append.mockResolvedValueOnce({ text: '呢？', final: true, utterances: [{ text: '呢？', startMs: startMs + 2100, endMs: startMs + 2400, final: true }] })
+      emitFrame(frame())
+      await settle()
+      expect(onTranscript).not.toHaveBeenCalled()
+    }
+    expect(bridge.start).toHaveBeenCalledTimes(1)
+    expect(bridge.finish).not.toHaveBeenCalled()
+    handle.cancel()
+  })
+
   it('retires the streamed cursor immediately while an old append is still pending', async () => {
     const onTranscript = vi.fn()
     const handle = await startVolcAsr(PROVIDER, { onTranscript })

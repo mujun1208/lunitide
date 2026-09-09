@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"context"
-	"github.com/lunitide/lunitide/internal/domain/m8core"
 	"path/filepath"
 	"testing"
 )
@@ -10,27 +9,14 @@ import (
 func TestMemoryCaptureModeMigrationPreservesOffAndPersistsChoice(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "memory-settings.db")
-	store, err := OpenTemplated(ctx, path)
-	if err != nil {
+	raw := legacyBeforeMigration(t, path, "0142_")
+	if _, err := raw.Exec(`INSERT INTO memory_settings(subject_id,memory_enabled,auto_nominate,growth_days,created_at,updated_at) VALUES('local-user',0,1,30,?,?)`, rfc(rtAt), rfc(rtAt)); err != nil {
 		t.Fatal(err)
 	}
-	if err = store.UpsertMemorySettings(ctx, m8core.MemorySettings{SubjectID: "local-user", MemoryEnabled: false, AutoNominate: true, GrowthDays: 30}); err != nil {
+	if err := raw.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err = store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	raw := openRaw(t, path)
-	if _, err = raw.Exec(`ALTER TABLE memory_settings DROP COLUMN capture_mode`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = raw.Exec(`DELETE FROM schema_migrations WHERE version='0142_memory_capture_mode.sql'`); err != nil {
-		t.Fatal(err)
-	}
-	if err = raw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err = Open(ctx, path)
+	store, err := Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -329,7 +329,7 @@ func (s *Service) IngestFile(ctx context.Context, req IngestFileRequest) (attach
 	if len(req.Content) > MaxFileSize {
 		return attachment.Attachment{}, ErrFileTooLarge
 	}
-	mime := req.MIME
+	mime := attachmentTextMIME(req.OriginalName, req.MIME, req.Content)
 	if mime == "" {
 		mime = "application/octet-stream"
 	}
@@ -378,7 +378,7 @@ func (s *Service) IngestFile(ctx context.Context, req IngestFileRequest) (attach
 	}
 
 	// 6. Parse the file synchronously (text extraction).
-	parsedText, parseErr := s.parse(mime, req.Content)
+	parsedText, parseErr := s.parseDocument(ctx, req.OriginalName, mime, req.Content)
 	if parseErr != nil {
 		errCode := "PARSE_FAILED"
 		if errors.Is(parseErr, ErrUnsupportedMIME) {

@@ -20,6 +20,9 @@
         "resume",
         "dismiss"
       ]
+    },
+    "officeTaskId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
     }
   },
   "required": [
@@ -51,7 +54,7 @@
             "text": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 8000
+              "maxLength": 32768
             },
             "status": {
               "type": "string",
@@ -70,6 +73,9 @@
             "createdAt": {
               "type": "string",
               "format": "date-time"
+            },
+            "officeTaskId": {
+              "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
             }
           },
           "required": [
@@ -126,7 +132,7 @@
                 "text": {
                   "type": "string",
                   "minLength": 1,
-                  "maxLength": 8000
+                  "maxLength": 32768
                 },
                 "status": {
                   "type": "string",
@@ -145,6 +151,9 @@
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
+                },
+                "officeTaskId": {
+                  "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
                 }
               },
               "required": [
@@ -156,6 +165,9 @@
                 "createdAt"
               ]
             }
+          },
+          "officeTaskId": {
+            "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
           }
         },
         "required": [
@@ -180,6 +192,10 @@
         "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FA1",
         "deliveryId": "01ARZ3NDEKTSV4RRFFQ69G5FA2",
         "action": "resume"
+      },
+      {
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FA1",
+        "officeTaskId": "01ARZ3NDEKTSV4RRFFQ69G5FA9"
       }
     ],
     "negative": [

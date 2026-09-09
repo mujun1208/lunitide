@@ -10,8 +10,29 @@ const template = (id: string, name: string): TemplateListResult['items'][number]
   id, name, templateCode: id, templateType: 'document', status: 'draft',
   createdAt: '2026-09-06T00:00:00Z', updatedAt: '2026-09-06T00:00:00Z', version: 1,
 })
-const bridge = (list: TemplateBridge['list']): TemplateBridge => ({ list, create: vi.fn(), enable: vi.fn(), void: vi.fn(), restore: vi.fn(), delete: vi.fn(), fileStage: vi.fn() })
+const bridge = (list: TemplateBridge['list']): TemplateBridge => ({ list, open: vi.fn(), create: vi.fn(), enable: vi.fn(), void: vi.fn(), restore: vi.fn(), delete: vi.fn(), fileStage: vi.fn() })
 afterEach(cleanup)
+
+it.each(['draft', 'enabled', 'void'] as const)('opens a viewing copy of a %s asset without enabling or changing it', async status => {
+  const item = { ...template('1', '周报模版'), status, fileName: '周报.docx' }
+  const api = bridge(vi.fn().mockResolvedValue({ items: [item] }))
+  vi.mocked(api.open).mockResolvedValue({ opened: true })
+  render(<AssetManagerPage templates={api} />)
+  fireEvent.click(await screen.findByRole('button', { name: '查看附件' }))
+  expect(await screen.findByRole('status')).toHaveTextContent('已打开 周报.docx 的查看副本')
+  expect(api.open).toHaveBeenCalledWith({ id: '1' })
+  expect(api.enable).not.toHaveBeenCalled()
+})
+
+it('reports an attachment open failure and allows retry', async () => {
+  const api = bridge(vi.fn().mockResolvedValue({ items: [{ ...template('1', '周报'), fileName: '周报.docx' }] }))
+  vi.mocked(api.open).mockRejectedValueOnce(new Error('附件已丢失')).mockResolvedValueOnce({ opened: true })
+  render(<AssetManagerPage templates={api} />)
+  fireEvent.click(await screen.findByRole('button', { name: '查看附件' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('附件已丢失')
+  fireEvent.click(screen.getByRole('button', { name: '查看附件' }))
+  expect(await screen.findByRole('status')).toHaveTextContent('已打开')
+})
 
 describe('asset pagination', () => {
   it('loads the next page and searches all pages on the server', async () => {

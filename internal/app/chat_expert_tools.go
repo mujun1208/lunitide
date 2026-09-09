@@ -26,6 +26,7 @@ func specialistPersonaCapabilityLine() string {
 }
 
 var specialistToolAllow = map[string]bool{
+	"office.generate": true, "office.inspect": true, "office.patch": true, "office.range.patch": true, "office.image.replace": true, "office.chart.patch": true, "office.cache.refresh": true, "office.deliver": true,
 	"workspace.list": true, "workspace.read": true, "workspace.write": true,
 	"workspace.search": true, "workspace.edit": true,
 	"todo.write": true, "user.ask": true, "command.run": true,
@@ -35,6 +36,7 @@ var specialistToolAllow = map[string]bool{
 	"skill.invoke":     true,
 	"skill.view":       true,
 	"image.generate":   true,
+	"video.generate":   true,
 	"datasource.query": true,
 }
 

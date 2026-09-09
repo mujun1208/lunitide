@@ -265,3 +265,66 @@ it('does not start a saved delivery after the hook has unmounted', async () => {
   await act(async () => { resolve({ count: 1, items: rows, delivery: { id: DELIVERY_ID, state: 'prepared', messageIds: [MESSAGE_ID], items: rows } }); await pending })
   expect(send).not.toHaveBeenCalled()
 })
+
+it('keeps Office task scope on list, enqueue, withdrawal and saved-delivery recovery', async () => {
+  const task = '01ARZ3NDEKTSV4RRFFQ69G5FB1', rows = [{ ...item(1, 'Office input'), officeTaskId: task }]
+  const delivery = { id: DELIVERY_ID, officeTaskId: task, state: 'unknown' as const, messageIds: [MESSAGE_ID], items: rows }
+  queue().list.mockResolvedValue({ items: rows, delivery })
+  queue().consume.mockResolvedValue({ count: 1, items: rows, delivery: { ...delivery, state: 'prepared' } })
+  const { result } = renderHook(() => useInputQueue(MESSAGE_ID, false, task))
+  await waitFor(() => expect(result.current.delivery?.id).toBe(DELIVERY_ID))
+  expect(queue().list).toHaveBeenCalledWith({ sessionId: MESSAGE_ID, officeTaskId: task })
+  await act(async () => { await result.current.enqueue('Office input'); await result.current.withdraw(rows[0].queuedId) })
+  expect(queue().input).toHaveBeenCalledWith(expect.objectContaining({ sessionId: MESSAGE_ID, officeTaskId: task, text: 'Office input' }))
+  expect(queue().withdraw).toHaveBeenCalledWith({ sessionId: MESSAGE_ID, officeTaskId: task, queuedId: rows[0].queuedId })
+  const send = vi.fn().mockResolvedValue(true)
+  await act(async () => { await result.current.recoverDelivery(send, 'resume') })
+  expect(queue().consume).toHaveBeenCalledWith({ sessionId: MESSAGE_ID, officeTaskId: task, deliveryId: DELIVERY_ID, action: 'resume' })
+  expect(send).toHaveBeenCalledExactlyOnceWith('Office input', DELIVERY_ID)
+})
+
+it('does not deliver a late task A response into task B within the same session', async () => {
+  const a = '01ARZ3NDEKTSV4RRFFQ69G5FB2', b = '01ARZ3NDEKTSV4RRFFQ69G5FB3'
+  const rows = [{ ...item(1, 'A saved input'), officeTaskId: a }]
+  let resolve!: (value: Awaited<ReturnType<RunQueueBridge['consume']>>) => void
+  queue().consume.mockImplementation(() => new Promise(done => { resolve = done }))
+  const { result, rerender } = renderHook(({ task }) => useInputQueue(MESSAGE_ID, false, task), { initialProps: { task: a } })
+  const send = vi.fn(); let pending!: Promise<void>
+  act(() => { pending = result.current.flushAfterStream(send) })
+  rerender({ task: b })
+  await act(async () => { resolve({ count: 1, items: rows, delivery: { id: DELIVERY_ID, state: 'prepared', officeTaskId: a, messageIds: [MESSAGE_ID], items: rows } }); await pending })
+  expect(send).not.toHaveBeenCalled()
+  expect(result.current.delivery).toBeUndefined()
+  expect(queue().list).toHaveBeenLastCalledWith({ sessionId: MESSAGE_ID, officeTaskId: b })
+})
+
+it('retains lost enqueue receipt identities separately for Office A, B and a remounted ordinary view', async () => {
+  const a = '01ARZ3NDEKTSV4RRFFQ69G5FB4', b = '01ARZ3NDEKTSV4RRFFQ69G5FB5'
+  queue().input.mockRejectedValue(new Error('lost acknowledgement'))
+  const first = renderHook(() => useInputQueue(MESSAGE_ID, false, a))
+  await act(async () => { await first.result.current.enqueue('scope retry input') })
+  first.unmount()
+  const second = renderHook(() => useInputQueue(MESSAGE_ID, false, b))
+  await act(async () => { await second.result.current.enqueue('scope retry input') })
+  second.unmount()
+  const again = renderHook(() => useInputQueue(MESSAGE_ID, false, a))
+  await act(async () => { await again.result.current.enqueue('scope retry input') })
+  const calls = queue().input.mock.calls
+  expect(calls[2][0]).toEqual(calls[0][0])
+  expect(calls[1][0].requestId).not.toBe(calls[0][0].requestId)
+  again.unmount()
+  const ordinary = renderHook(() => useInputQueue(MESSAGE_ID))
+  await act(async () => { await ordinary.result.current.enqueue('scope retry input') })
+  expect(calls[3][0]).not.toHaveProperty('officeTaskId')
+  expect(calls[3][0].requestId).not.toBe(calls[0][0].requestId)
+})
+
+it('rejects a receipt whose member belongs to another task before invoking chat', async () => {
+  const task = '01ARZ3NDEKTSV4RRFFQ69G5FB6', rows = [{ ...item(1, 'wrong input'), officeTaskId: '01ARZ3NDEKTSV4RRFFQ69G5FB7' }]
+  queue().consume.mockResolvedValue({ count: 1, items: rows, delivery: { id: DELIVERY_ID, officeTaskId: task, state: 'prepared', messageIds: [MESSAGE_ID], items: rows } })
+  const { result } = renderHook(() => useInputQueue(MESSAGE_ID, false, task))
+  const send = vi.fn()
+  await act(async () => { await result.current.flushAfterStream(send) })
+  expect(send).not.toHaveBeenCalled()
+  expect(result.current.notice).toContain('已保留记录')
+})

@@ -228,10 +228,7 @@ func TestOfflineResultReportsUnreadableRepliesRatherThanReturningNothing(t *test
 	}
 }
 
-func TestAColdRefinerGivesUpImmediatelyInsteadOfLoadingAModel(t *testing.T) {
-	// The first turn after the app starts. Waiting here would put the whole
-	// model load — seconds of it — into the pause after the user stops
-	// talking, which is the worst possible place to spend it.
+func TestMissingRefinerModelFailsWithoutStartingBackgroundWork(t *testing.T) {
 	refiner := &Refiner{Root: t.TempDir()}
 
 	started := time.Now()
@@ -242,7 +239,23 @@ func TestAColdRefinerGivesUpImmediatelyInsteadOfLoadingAModel(t *testing.T) {
 		t.Fatal("a refiner with no model installed reported a successful decode")
 	}
 	if elapsed > time.Second {
-		t.Errorf("cold Transcribe took %s; it must not wait for a model to load", elapsed)
+		t.Errorf("missing-model Transcribe took %s", elapsed)
+	}
+}
+
+func TestRefinerStartupLockHonorsCancellation(t *testing.T) {
+	r := &Refiner{}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := r.ensureServer(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("got %v", err)
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("startup lock ignored deadline")
 	}
 }
 

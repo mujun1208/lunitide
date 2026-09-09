@@ -136,6 +136,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		QueueDeliveryID string               `json:"queueDeliveryId"`
 		Messages        []llmadapter.Message `json:"messages"`
 		ExecutionMode   executionMode        `json:"executionMode"`
+		TrialSkillIDs   []string             `json:"trialSkillIds"`
 		ContextRefs     []struct {
 			Type string `json:"type"`
 			ID   string `json:"id"`
@@ -149,6 +150,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		ProjectPhaseLabel     string          `json:"projectPhaseLabel"`
 		SubagentPolicy        json.RawMessage `json:"subagentPolicy"`
 		ToolProfile           string          `json:"toolProfile"`
+		OfficeTaskID          string          `json:"officeTaskId"`
 	}
 	if decodePayload(request.Payload, &p) != nil || !ulidValid(p.ProviderID) || len(p.ModelID) < 1 || len(p.ModelID) > 128 {
 		return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.start 参数无效", false)
@@ -163,6 +165,17 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 	ident := e.conversationIdentityForSession(ctx, p.SessionID, p.Companion)
 	boundSessionID := ident.sessionKey(p.SessionID)
+	trialInstruction, trialErr := e.prepareSkillTrials(ctx, boundSessionID, p.TrialSkillIDs, p.Companion)
+	if trialErr != nil {
+		return request.Fail("SKILL_TRIAL_INVALID", trialErr.Error(), false)
+	}
+	if p.OfficeTaskID != "" && (p.Companion || boundSessionID != p.SessionID) {
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "办公任务必须绑定当前打字会话", false)
+	}
+	if err := e.validateOfficeChatTask(ctx, boundSessionID, p.OfficeTaskID); err != nil {
+		return officeFailure(request, err)
+	}
+	ctx = withOfficeTask(ctx, p.OfficeTaskID)
 	if !e.reserveChatSession(boundSessionID) {
 		return request.Fail("STREAM_LIMIT_REACHED", "当前会话仍在处理上一轮，请等待结束或停止后重试", true)
 	}
@@ -218,7 +231,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 
 	turnText := lastUserChatText(p.Messages)
-	if p.Companion && turnText == "" && hasSession && e.messageReader != nil {
+	if turnText == "" && hasSession && e.messageReader != nil {
 		turnText = e.peekLastUserMessage(ctx, boundSessionID)
 	}
 	var contextRefs []string
@@ -231,6 +244,10 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	wantsTools := !p.Companion || mode == executionModeFullAccess || companionWantsTools(turnText)
 
 	instruction := executionModeInstruction(mode)
+	instruction += currentTurnInstruction(turnText, time.Now())
+	if computerExecutionTurn(turnText) {
+		instruction += desktopExecutionInstruction()
+	}
 	// Moon Companion: Doubao-style voice. First audible sentence must
 	// land in TTS immediately (period-terminated, 8–20 chars). Later
 	// sentences stay short so synthesis overlaps playback. Tools stay
@@ -241,6 +258,8 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		instruction += chatSuggestionsInstruction
 	}
 	instruction += replyStyleInstruction(p.ReplyStyle, p.Companion)
+	instruction += skillAuthoringInstruction(turnText)
+	instruction += trialInstruction
 	instruction += structuredTemplateInstruction(inferStructuredTemplate(turnText, p.StructuredTemplate))
 	// Full-access workspace hint: tell the model where file tools actually
 	// operate (user-selected workspace root, or the sandbox when none resolves)
@@ -385,6 +404,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		instruction += e.unfinishedTurnInjection(boundSessionID, intent.Text)
 		instruction += closedLoopTurnInjection(turnText)
 	}
+	if p.OfficeTaskID != "" {
+		instruction += officeChatInstruction
+	}
 	trustedMessages := append([]llmadapter.Message{{Role: llmadapter.RoleSystem, Content: instruction}}, p.Messages...)
 
 	if getErr != nil {
@@ -414,7 +436,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 
 	var messages []llmadapter.Message
 	var images []llmadapter.Image
-	if hasSession && e.messageReader != nil {
+	if hasSession && (e.messageReader != nil || len(p.ContextRefs) > 0 || p.OfficeTaskID != "") {
 		// Durable session path: assemble context from session history.
 		// Dynamic context window: read from provider model config, fallback to 128000.
 		contextWindow := int64(128000)
@@ -467,10 +489,11 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 
 		// Build the ContextEnvelope (ADR-005 §3 seven-level priority).
 		envelope := contextapp.ContextEnvelope{
-			Provider:          providerInfo,
-			MaxMessages:       256,
-			RecentUserReserve: 0, // Use default: max(512, budget/10)
-			SafetyMargin:      1024,
+			DisableTokenEfficiency: e.gateway.DisableTokenEfficiency,
+			Provider:               providerInfo,
+			MaxMessages:            256,
+			RecentUserReserve:      0, // Use default: max(512, budget/10)
+			SafetyMargin:           1024,
 		}
 		if p.Companion {
 			envelope.MaxMessages = companionMaxMessages
@@ -542,6 +565,13 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			}
 		}
 
+		if p.OfficeTaskID != "" {
+			sources, err := e.officeChatEvidence(ctx, p.OfficeTaskID)
+			if err != nil {
+				return internalBridgeFailure(request, "OFFICE_CONTEXT_READ_FAILED", "办公任务参考材料暂时无法读取", true, err)
+			}
+			envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, sources...)
+		}
 		// Attachment excerpts are opt-in per turn. Do not enumerate or resend
 		// historical session attachments unless the renderer supplied at least
 		// one explicit attachment ref. This keeps ordinary chat.start latency off
@@ -634,49 +664,34 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		if p.Companion {
 			history.afterSequence = p.CompanionHistoryAfter
 		}
-		result, assembleErr := contextapp.AssembleEnvelope(ctx, history, boundSessionID, envelope)
-		assembled := assembleErr == nil
-		// UX-04 graceful degradation: a non-companion turn whose authoritative
-		// instructions are so large that no message budget remains
-		// (ErrEnvelopeBudgetTooSmall) used to dead-end at CONTEXT_ASSEMBLY_FAILED.
-		// Retry once with a minimal system instruction (execution-mode line only,
-		// dropping expert persona / skill catalog / workflow injections), which
-		// frees the budget while keeping durable history. UX-03 already caps
-		// expert injection, so this only fires for other oversized instructions.
-		if assembleErr != nil && !p.Companion && errors.Is(assembleErr, contextapp.ErrEnvelopeBudgetTooSmall) {
-			minimalInstruction := executionModeInstruction(mode)
-			minimalTrusted := append([]llmadapter.Message{{Role: llmadapter.RoleSystem, Content: minimalInstruction}}, p.Messages...)
-			var minimalSystemTokens int64
-			for _, m := range minimalTrusted {
-				// Q-05: exact count when the model is known (p.ModelID here).
-				minimalSystemTokens += token.CountTokensForModel(p.ModelID, m.Content)
-			}
-			degradedInfo := providerInfo
-			degradedInfo.SystemTokens = minimalSystemTokens
-			degradedEnvelope := envelope
-			degradedEnvelope.Provider = degradedInfo
-			if retryResult, retryErr := contextapp.AssembleEnvelope(ctx, history, boundSessionID, degradedEnvelope); retryErr == nil {
-				log.Printf("chat.start degraded to minimal system instruction after budget-too-small: %v", assembleErr)
-				result = retryResult
-				providerInfo = degradedInfo
-				trustedMessages = minimalTrusted
-				assembleErr = nil
-				assembled = true
-			}
+		var assemblyReader contextapp.Reader = history
+		if e.messageReader == nil {
+			assemblyReader = explicitChatReader{messages: trustedMessages}
 		}
+		result, assembleErr := contextapp.AssembleEnvelope(ctx, assemblyReader, boundSessionID, envelope)
+		assembled := assembleErr == nil
 		if assembleErr != nil {
+			if errors.Is(assembleErr, contextapp.ErrEnvelopeBudgetTooSmall) {
+				return request.Fail("CONTEXT_BUDGET_EXCEEDED", "当前模型上下文预算不足，请减少材料或选择更大上下文模型；已选技能与专家不会被移除", false)
+			}
 			if !useExplicitChatFallback(p.Companion, trustedMessages, assembleErr) {
 				return internalBridgeFailure(request, "CONTEXT_ASSEMBLY_FAILED", "上下文装配暂时不可用", true, assembleErr)
 			}
-			log.Printf("chat.start using explicit turn after context assembly failed: %v", assembleErr)
-			messages = trustedMessages
+			log.Printf("chat.start assembling explicit turn after durable assembly failed: %v", assembleErr)
+			messages, assembleErr = assembleExplicitChat(ctx, boundSessionID, envelope, trustedMessages)
+			if assembleErr != nil {
+				return internalBridgeFailure(request, "CONTEXT_ASSEMBLY_FAILED", "当前模型上下文预算不足或引用不可用，请减少材料或选择更大上下文模型；已选技能与专家不会被移除", false, assembleErr)
+			}
 		} else {
 			var combineErr error
 			messages, combineErr = combineDurableProviderMessages(result.Messages, trustedMessages, providerInfo)
 			if combineErr != nil {
 				if useExplicitChatFallback(p.Companion, trustedMessages, combineErr) {
 					log.Printf("chat.start using explicit turn after context combine failed: %v", combineErr)
-					messages = trustedMessages
+					messages, combineErr = assembleExplicitChat(ctx, boundSessionID, envelope, trustedMessages)
+					if combineErr != nil {
+						return internalBridgeFailure(request, "CONTEXT_ASSEMBLY_FAILED", "当前模型上下文预算不足或引用不可用，请减少材料或选择更大上下文模型；已选技能与专家不会被移除", false, combineErr)
+					}
 					assembled = false
 				} else if errors.Is(combineErr, errCombinedContextOverBudget) {
 					return request.Fail("CONTEXT_BUDGET_EXCEEDED", "最终上下文超过模型输入预算", false)
@@ -694,26 +709,26 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 					messages[0].Content += tierHint
 				}
 			}
-			// Images are expensive and model-dependent. Unlike parsed text, do not
-			// silently resend every historical image on every turn: only explicitly
-			// referenced images enter the multimodal request.
-			if len(imageRefs) > 0 {
-				if len(imageRefs) > attachmentapp.MaxVisionImages {
+		}
+		// Images are expensive and model-dependent. Unlike parsed text, do not
+		// silently resend every historical image on every turn: only explicitly
+		// referenced images enter the multimodal request.
+		if len(imageRefs) > 0 {
+			if len(imageRefs) > attachmentapp.MaxVisionImages {
+				return request.Fail("ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
+			}
+			total := 0
+			for _, imageID := range imageRefs {
+				image, visionErr := e.GetVisionImage(ctx, imageID, boundSessionID)
+				if visionErr != nil {
+					retryable := !errors.Is(visionErr, attachmentapp.ErrAttachmentNotFound) && !errors.Is(visionErr, attachmentapp.ErrScopeMismatch) && !errors.Is(visionErr, attachmentapp.ErrUnsupportedMIME) && !errors.Is(visionErr, attachmentapp.ErrImageIntegrity) && !errors.Is(visionErr, attachmentapp.ErrImageBudget)
+					return internalBridgeFailure(request, "ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", retryable, visionErr)
+				}
+				total += len(image.Data)
+				if total > attachmentapp.MaxVisionBatchBytes {
 					return request.Fail("ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
 				}
-				total := 0
-				for _, imageID := range imageRefs {
-					image, visionErr := e.GetVisionImage(ctx, imageID, boundSessionID)
-					if visionErr != nil {
-						retryable := !errors.Is(visionErr, attachmentapp.ErrAttachmentNotFound) && !errors.Is(visionErr, attachmentapp.ErrScopeMismatch) && !errors.Is(visionErr, attachmentapp.ErrUnsupportedMIME) && !errors.Is(visionErr, attachmentapp.ErrImageIntegrity) && !errors.Is(visionErr, attachmentapp.ErrImageBudget)
-						return internalBridgeFailure(request, "ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", retryable, visionErr)
-					}
-					total += len(image.Data)
-					if total > attachmentapp.MaxVisionBatchBytes {
-						return request.Fail("ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
-					}
-					images = append(images, llmadapter.Image{MIME: image.MIME, Data: image.Data})
-				}
+				images = append(images, llmadapter.Image{MIME: image.MIME, Data: image.Data})
 			}
 		}
 	} else {
@@ -742,6 +757,8 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		parent = ctx
 	}
 	streamCtx, cancel := context.WithCancel(parent)
+	streamCtx = withOfficeTask(streamCtx, p.OfficeTaskID)
+	streamCtx = withSkillTrials(streamCtx, boundSessionID, p.TrialSkillIDs)
 	equip := e.turnEquipmentFor(ctx, boundSessionID, intent.Text, intent.Companion)
 	state := &streamState{cancel: cancel, companion: p.Companion, subagentPolicy: subagentPolicy, council: councilCfg, mcpRestrict: equip.RestrictMCP(), mcpAllowed: equip.McpIDs, brain: equip.Brain, memorySummary: formatChatMemorySummary(memPack), kbCites: append([]CitationBlock(nil), memPack.KBCites...), kbDiscarded: memPack.KBDiscarded, mroTurn: memPack.MROTurn || turnHasMROName(equip.Names)}
 	state.sessionID = boundSessionID
@@ -761,7 +778,10 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 	if e.tools != nil && wantsTools {
 		profile := parseToolProfile(p.ToolProfile)
-		if profile == toolProfileDefault && !p.Companion {
+		if len(p.TrialSkillIDs) > 0 {
+			profile = toolProfileDefault
+		}
+		if profile == toolProfileDefault && !p.Companion && len(p.TrialSkillIDs) == 0 {
 			// S1: a short, high-confidence pure-chat turn drops the full tool +
 			// MCP + skill + expert schema it will never use. Any task intent
 			// keeps the full surface (autoToolProfile is precision-biased).
@@ -787,7 +807,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		if p.Companion {
 			req.Tools = filterCompanionDefaultTools(req.Tools)
 		}
-		if profile == toolProfileDefault || profile == toolProfileMinimal {
+		if len(p.TrialSkillIDs) == 0 && (profile == toolProfileDefault || profile == toolProfileMinimal) {
 			route, allow := classifyTaskRoute(intent.Text, p.Companion, e.computerControlEnabled())
 			if route == RouteUnspecified {
 				if flashRoute, flashAllow, used := e.tryFlashClassify(ctx, intent.Text); used {
@@ -797,6 +817,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			req.Tools = applyTaskRoute(req.Tools, route, allow)
 			state.taskRoute = route
 		}
+	}
+	if len(p.TrialSkillIDs) > 0 {
+		req.Tools = append(req.Tools, skillTrialToolDefinition())
 	}
 	if p.QueueDeliveryID != "" {
 		if err := e.queue.Deliveries().StartQueueDelivery(ctx, boundSessionID, p.QueueDeliveryID, streamID); err != nil {
@@ -853,7 +876,7 @@ var errCombinedContextOverBudget = errors.New("combined provider context exceeds
 func lastUserChatText(messages []llmadapter.Message) string {
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == llmadapter.RoleUser {
-			if text := strings.TrimSpace(messages[i].Content); text != "" {
+			if text := chatRoutingText(messages[i].Content); text != "" {
 				return text
 			}
 		}
@@ -863,9 +886,9 @@ func lastUserChatText(messages []llmadapter.Message) string {
 
 // useExplicitChatFallback lets chat.start proceed with the renderer-supplied
 // user turn when durable assembly cannot. Empty-session ErrNoMessages is
-// recoverable for any caller that already sent that turn. Companion also
-// falls back on budget/sequence failures so a voice round never dead-ends
-// behind CONTEXT_ASSEMBLY_FAILED.
+// recoverable for any caller that already sent that turn. Companion can retry
+// sequence failures against its explicit turn; the retry retains the envelope
+// and enforces the same budget, selected instructions and quoted evidence.
 func useExplicitChatFallback(companion bool, trusted []llmadapter.Message, err error) bool {
 	if err == nil || lastUserChatText(trusted) == "" {
 		return false
@@ -919,12 +942,24 @@ func (e *Engine) priorTurnTexts(ctx context.Context, sessionID, turnText string)
 }
 
 func validChatMessages(model string, messages []llmadapter.Message) bool {
+	if len(messages) > 32 {
+		return false
+	}
 	totalBytes := len(model)
 	for _, m := range messages {
 		totalBytes += len(m.Content)
 		// Public chat.start input is renderer-controlled; system and tool roles
 		// remain available only to trusted engine-owned assembly mechanisms.
-		if (m.Role != llmadapter.RoleUser && m.Role != llmadapter.RoleAssistant) || strings.TrimSpace(m.Content) == "" || len(m.Content) > 16*1024 || totalBytes > 48*1024 {
+		if (m.Role != llmadapter.RoleUser && m.Role != llmadapter.RoleAssistant) || len(m.ToolCalls) != 0 || m.ToolCallID != "" || strings.TrimSpace(m.Content) == "" || totalBytes > 512*1024 {
+			return false
+		}
+		var err error
+		if m.Role == llmadapter.RoleUser {
+			_, err = message.NormalizeText(m.Content)
+		} else {
+			_, err = message.NormalizeAssistantText(m.Content)
+		}
+		if err != nil {
 			return false
 		}
 	}
@@ -1416,7 +1451,7 @@ func toolStartedSummary(name string, args json.RawMessage) string {
 		if json.Unmarshal(args, &a) == nil && a.URL != "" {
 			return a.URL
 		}
-	case "skill.invoke":
+	case "skill.invoke", "skill.try":
 		var a struct {
 			SkillID string `json:"skillId"`
 			Input   string `json:"input"`
@@ -1480,6 +1515,9 @@ func chatStreamError(err error) *bridge.StreamError {
 	streamError := func(code, message string, retryable bool) *bridge.StreamError {
 		return &bridge.StreamError{Code: code, Message: message, Retryable: retryable}
 	}
+	if errors.Is(err, errSkillContextBudget) {
+		return streamError("SKILL_CONTEXT_BUDGET_EXCEEDED", "当前模型上下文不足以完整加载技能，请开启新对话或选择更大上下文模型。技能正文没有被截断。", false)
+	}
 	if errors.Is(err, errTurnGenerationBudget) {
 		return streamError("TURN_GENERATION_BUDGET_EXCEEDED", "本轮生成已达到总预算，已保留收到的内容。发送“继续”可以接着完成。", false)
 	}
@@ -1500,6 +1538,9 @@ func chatStreamError(err error) *bridge.StreamError {
 		}
 		if gatewayErr.Code == "TIMEOUT" || gatewayErr.Code == "OUTCOME_UNKNOWN" {
 			return streamError("UPSTREAM_TIMEOUT", "模型请求超时，请稍后重试", true)
+		}
+		if gatewayErr.Code == "MALFORMED_RESPONSE" {
+			return streamError("UPSTREAM_MALFORMED_RESPONSE", "模型返回格式不完整，已保留收到的内容，请重试", true)
 		}
 		switch gatewayErr.HTTPStatus {
 		case 400:

@@ -4,6 +4,20 @@ import { createVolcTranscriptCursor, type VolcUtterance } from './volcTranscript
 const segment = (text: string, startMs: number, final = false, endMs = startMs + 900): VolcUtterance => ({ text, startMs, endMs, final })
 
 describe('Volc full snapshot audio-time cursor', () => {
+  it('does not treat a late re-segmented tail inside submitted audio as a new turn', () => {
+    const cursor = createVolcTranscriptCursor()
+    for (let round = 0; round < 12; round++) {
+      const start = round * 5000
+      const full = `第${round + 1}轮，请查询今天合肥的天气怎么样？`
+      expect(cursor.update(full, false, [segment(full, start, false, start + 2300)]).text).toBe(full)
+      expect(cursor.commit()).toBe(full)
+      // SAUC may revise VAD segmentation after the product silence deadline.
+      // The tail now has a different start, but contains no newly spoken audio.
+      expect(cursor.update('呢？', true, [segment('呢？', start + 1900, true, start + 2300)]).text).toBe('')
+      expect(cursor.commit()).toBe('')
+    }
+  })
+
   it('replaces dozens of corrected hypotheses in the same segment instead of making a repeated wall', () => {
     const cursor = createVolcTranscriptCursor()
     for (let i = 0; i < 60; i++) {

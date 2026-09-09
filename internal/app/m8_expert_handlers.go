@@ -125,10 +125,11 @@ func handleExpertInstall(e *Engine, ctx context.Context, r bridge.Request) bridg
 
 func handleExpertList(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		Division  string `json:"division"`
-		Source    string `json:"source"`
-		State     string `json:"state"`
-		ProjectID string `json:"projectId"`
+		Division       string `json:"division"`
+		CreationOrigin string `json:"creationOrigin"`
+		Source         string `json:"source"`
+		State          string `json:"state"`
+		ProjectID      string `json:"projectId"`
 	}
 	if decodePayload(r.Payload, &p) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "expert.list 参数无效", false)
@@ -137,7 +138,8 @@ func handleExpertList(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 		return r.Fail("STORAGE_UNAVAILABLE", "专家服务暂时不可用", true)
 	}
 	res, err := e.m8expert.List(ctx, m8app.ExpertFilter{
-		Division: p.Division, Source: p.Source, State: p.State, ProjectID: p.ProjectID,
+		CreationOrigin: p.CreationOrigin,
+		Division:       p.Division, Source: p.Source, State: p.State, ProjectID: p.ProjectID,
 	})
 	if err != nil {
 		return m8ExpertFailure(r, err)
@@ -324,6 +326,10 @@ func handleExpertSkillsSet(e *Engine, ctx context.Context, r bridge.Request) bri
 // (M8-042~048 plus the shared family).
 func m8ExpertFailure(r bridge.Request, err error) bridge.Response {
 	switch {
+	case errors.Is(err, m8app.ErrExpertManualOnly):
+		return r.Fail("EXPERT_MANUAL_ONLY", "仅支持自己手动创建的专家", false)
+	case errors.Is(err, m8app.ErrExpertInUse):
+		return r.Fail("EXPERT_IN_USE", "专家仍被项目或会话引用，请先解除挂载", false)
 	case errors.Is(err, m8app.ErrExpertBodyUnavailable):
 		return r.Fail("EXPERT_BODY_UNAVAILABLE", "专家正文缺失或损坏，请恢复对应版本后重试", false)
 	case errors.Is(err, m8app.ErrExpertSixSectionInvalid):

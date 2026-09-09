@@ -18,6 +18,31 @@ import (
 var officeExpertRefRE = regexp.MustCompile(`\[引用专家[^\]]+\]`)
 var officeExplicitCreationRE = regexp.MustCompile(`(?:制作|做|生成|创建|写|输出|保存|做成).{0,40}(?:ppt|word|docx|excel|xlsx|pdf|html|报告|小说|演示|表格)`)
 
+// Match output instructions, not format names in source attachments or roles.
+var officeOutputFormatRE = regexp.MustCompile(`(?i)(?:生成|制作|输出|导出|保存为|另存为|转成|转换成|做成|写成|create\b|generate\b|export\b|save as\b|convert to\b)[^，。；;\n]{0,24}?(pdf|docx|word|pptx|ppt|xlsx|excel|html)`)
+
+func explicitOfficeOutputTool(goal string) string {
+	var tool string
+	for _, part := range strings.FieldsFunc(chatRoutingText(goal), func(r rune) bool { return strings.ContainsRune("，,。；;\n", r) }) {
+		lower := strings.ToLower(part)
+		negated := false
+		for _, word := range []string{"不要", "不用", "无需", "不需要", "别", "do not", "don't", "without"} {
+			negated = negated || strings.Contains(lower, word)
+		}
+		if negated {
+			continue
+		}
+		for _, match := range officeOutputFormatRE.FindAllStringSubmatch(part, -1) {
+			next := map[string]string{"pdf": "pdf.gen", "docx": "docx.gen", "word": "docx.gen", "pptx": "pptx.gen", "ppt": "pptx.gen", "xlsx": "excel.gen", "excel": "excel.gen", "html": "html.gen"}[strings.ToLower(match[1])]
+			if tool != "" && next != tool {
+				return "" // Multi-format requests are planned by the model.
+			}
+			tool = next
+		}
+	}
+	return tool
+}
+
 func officeExpertIntroduction(goal string) bool {
 	text := strings.ToLower(officeExpertRefRE.ReplaceAllString(goal, ""))
 	for _, part := range strings.FieldsFunc(text, func(r rune) bool { return strings.ContainsRune("，,。；;", r) }) {
@@ -41,11 +66,20 @@ func officeExpertIntroduction(goal string) bool {
 }
 
 func officeGenToolForGoal(goal string) string {
+	if spokenResultReportOnly(goal) {
+		return ""
+	}
+	if capabilityWorkTask(goal) || officeMaterialReview(goal) {
+		return ""
+	}
 	if officeExpertIntroduction(goal) {
 		return ""
 	}
 	if looksLikeArchitectMermaidTurn(goal) && !wantsOfficeFileOnDesktop(goal) {
 		return ""
+	}
+	if tool := explicitOfficeOutputTool(goal); tool != "" {
+		return tool
 	}
 	if looksLikePptTask(goal) {
 		return "pptx.gen"
@@ -64,6 +98,8 @@ func officeGenToolForGoal(goal string) string {
 	}
 	g := strings.ToLower(goal)
 	switch {
+	case strings.Contains(g, "pdf"):
+		return "pdf.gen"
 	case strings.Contains(g, "ppt") || strings.Contains(g, "pptx") || strings.Contains(g, "幻灯") || strings.Contains(g, "演示"):
 		return "pptx.gen"
 	case strings.Contains(g, "docx") || strings.Contains(g, "word") || strings.Contains(g, "报告") || strings.Contains(g, "小说") || strings.Contains(g, "prd") || strings.Contains(g, "brd"):
@@ -78,8 +114,11 @@ func officeGenToolForGoal(goal string) string {
 }
 
 func officeGenToolForTurn(turn *chatTurnCheckpoint) string {
-	if turn == nil {
+	if turn == nil || turn.CapabilityWork || capabilityWorkTask(turn.Goal) || officeMaterialReview(turn.Goal) {
 		return ""
+	}
+	if tool := explicitOfficeOutputTool(turn.Goal); tool != "" {
+		return tool
 	}
 	if turn.PptActive || looksLikePptTask(turn.Goal) {
 		return "pptx.gen"
@@ -91,7 +130,7 @@ func officeGenToolForTurn(turn *chatTurnCheckpoint) string {
 }
 
 func shouldAutoOfficeGen(turn *chatTurnCheckpoint, streamErr error) bool {
-	if turn == nil {
+	if turn == nil || errors.Is(streamErr, errSkillContextBudget) {
 		return false
 	}
 	if turn.PptGenerated || turn.DocxGenerated {
@@ -110,15 +149,23 @@ func shouldAutoOfficeGen(turn *chatTurnCheckpoint, streamErr error) bool {
 	if name == "docx.gen" && (docxPipelineReady(turn) || turn.DocxNudges >= 3) {
 		return !turn.DocxGenerated
 	}
-	if name == "html.gen" || name == "excel.gen" {
+	if name == "html.gen" || name == "excel.gen" || name == "pdf.gen" {
 		return wantsOfficeFileOnDesktop(turn.Goal) || streamErr != nil
 	}
 	return wantsOfficeFileOnDesktop(turn.Goal) && streamErr != nil
 }
 
 func fallbackOfficeGenArgs(name, goal, assistant string) json.RawMessage {
-	desktop := wantsOfficeFileOnDesktop(goal) || strings.Contains(goal, "桌面")
+	desktop := wantsOfficeFileOnDesktop(goal)
 	switch name {
+	case "pdf.gen":
+		if !officeContentUsable(assistant) {
+			return nil
+		}
+		raw, _ := json.Marshal(map[string]any{
+			"path": "文档.pdf", "desktop": desktop, "title": clipOfficeTitle(goal, "文档"), "body": assistant,
+		})
+		return raw
 	case "pptx.gen":
 		title := clipOfficeTitle(goal, "演示文稿")
 		slides := officeContentSlides(goal, assistant)
@@ -237,7 +284,10 @@ func friendlyOfficeGenCause(msg string) string {
 }
 
 func (e *Engine) tryFinishOfficeGen(ctx context.Context, mode executionMode, sessionID string, turn *chatTurnCheckpoint, assistant string, streamErr error, send func(bridge.Event) error, companion ...bool) (bool, string) {
-	if e == nil || e.tools == nil || turn == nil || ctx.Err() != nil || errors.Is(streamErr, context.Canceled) {
+	if e == nil || e.tools == nil || turn == nil || ctx.Err() != nil || errors.Is(streamErr, context.Canceled) || errors.Is(streamErr, errSkillContextBudget) {
+		return false, ""
+	}
+	if officeTaskContextID(ctx) != "" || skillTrialsActive(ctx, sessionID) {
 		return false, ""
 	}
 	if !shouldAutoOfficeGen(turn, streamErr) && !usedCommandRun(turn.LastTools) {
@@ -299,7 +349,7 @@ func (e *Engine) tryFinishOfficeGen(ctx context.Context, mode executionMode, ses
 	if name == "docx.gen" {
 		turn.DocxGenerated = true
 	}
-	pathNotice := officeGenSuccessNotice(name, wantsOfficeFileOnDesktop(turn.Goal) || strings.Contains(turn.Goal, "桌面"))
+	pathNotice := officeGenSuccessNotice(name, wantsOfficeFileOnDesktop(turn.Goal))
 	if strings.Contains(summary, "desktop/") || strings.Contains(summary, ".docx") || strings.Contains(summary, ".pptx") || strings.Contains(summary, ".xlsx") || strings.Contains(summary, ".html") {
 		if clip := clipOfficeTitle(summary, ""); clip != "" && utf8RuneLen(summary) < 120 {
 			pathNotice = pathNotice + " " + strings.TrimSpace(summary)

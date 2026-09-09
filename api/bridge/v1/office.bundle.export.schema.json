@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/office.bundle.export.schema.json",
+  "title": "office.bundle.export payload",
+  "x-method": "office.bundle.export",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "taskId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "bundleId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    }
+  },
+  "required": [
+    "taskId",
+    "bundleId"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "bundleId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "directory": {
+        "type": "string",
+        "minLength": 0,
+        "maxLength": 4096
+      },
+      "manifestPath": {
+        "type": "string",
+        "minLength": 0,
+        "maxLength": 4096
+      },
+      "files": {
+        "type": "array",
+        "maxItems": 32,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "versionId": {
+              "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 512
+            },
+            "path": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 4096
+            },
+            "sha256": {
+              "type": "string",
+              "minLength": 64,
+              "maxLength": 64
+            },
+            "reused": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "versionId",
+            "name",
+            "path",
+            "sha256",
+            "reused"
+          ]
+        }
+      },
+      "complete": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "bundleId",
+      "directory",
+      "manifestPath",
+      "files",
+      "complete"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "taskId": "01ARZ3NDEKTSV4RRFFQ69G5FAE",
+        "bundleId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

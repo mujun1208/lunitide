@@ -10,14 +10,19 @@ export type ToolTrajectoryItem = {
 const STATUS_LABEL: Record<string, string> = {
   tool_started: '运行中',
   tool_output: '运行中',
-  tool_completed: '完成',
+  tool_completed: '已返回',
   approval_required: '待批准',
   approved: '已批准',
   rejected: '拒绝',
   failed: '失败',
 }
 
-export function toolTrajectoryStatus(status: string): string {
+export function toolResultFailed(summary?: string): boolean {
+  return /\bok\s*:\s*false\b|"ok"\s*:\s*false|COMPUTER_STALE_FRAME|M10-CC-008|无法执行/.test(summary ?? '')
+}
+
+export function toolTrajectoryStatus(status: string, summary?: string): string {
+  if (status === 'tool_completed' && toolResultFailed(summary)) return STATUS_LABEL.failed
   return STATUS_LABEL[status] ?? status
 }
 
@@ -30,7 +35,7 @@ export function ToolTrajectory({ items }: { items: readonly ToolTrajectoryItem[]
         {items.map(item => (
           <li key={item.callId}>
             <span>{item.name}</span>
-            <span> · {toolTrajectoryStatus(item.status)}</span>
+            <span> · {toolTrajectoryStatus(item.status, item.summary)}</span>
             {item.summary?.trim() ? <small> {item.summary.trim().slice(0, 80)}</small> : null}
           </li>
         ))}

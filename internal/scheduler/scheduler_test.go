@@ -250,6 +250,14 @@ func TestSchedulerFailureRunNotifiesFailure(t *testing.T) {
 	}
 }
 
+func TestNilNotifierIsQuiet(t *testing.T) {
+	s := New(newTestStore(t), nil, nil)
+	t.Cleanup(s.Close)
+	if _, ok := s.notify.(noopNotifier); !ok {
+		t.Fatalf("nil notifier must stay quiet, got %T", s.notify)
+	}
+}
+
 func TestTriggerNowRejectsUnknownAndConcurrent(t *testing.T) {
 	store := newTestStore(t)
 	job := validJob("manual", "*/5 * * * *")

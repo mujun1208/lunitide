@@ -4,7 +4,25 @@
 // withdrawn); seq is monotonic per session and never recycled.
 package queueinput
 
-import "errors"
+import (
+	"context"
+	"errors"
+
+	"github.com/lunitide/lunitide/internal/domain/message"
+)
+
+type officeTaskKey struct{}
+
+// WithOfficeTask binds queued input to one validated Office task. An empty ID
+// explicitly selects ordinary conversation input, including legacy rows.
+func WithOfficeTask(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, officeTaskKey{}, id)
+}
+
+func OfficeTaskID(ctx context.Context) string {
+	id, _ := ctx.Value(officeTaskKey{}).(string)
+	return id
+}
 
 var (
 	ErrNotFound      = errors.New("queued message not found")
@@ -16,17 +34,18 @@ var (
 
 // Message is one queued user supplement row.
 type Message struct {
-	ID         string
-	SessionID  string
-	RunID      string // nullable join point for the future M4 run kernel
-	Seq        int64
-	Payload    string
-	Status     string
-	Mark       string
-	RequestID  string
-	ConsumedAt string
-	CreatedAt  string
-	UpdatedAt  string
+	ID           string
+	SessionID    string
+	RunID        string // nullable join point for the future M4 run kernel
+	OfficeTaskID string
+	Seq          int64
+	Payload      string
+	Status       string
+	Mark         string
+	RequestID    string
+	ConsumedAt   string
+	CreatedAt    string
+	UpdatedAt    string
 }
 
 // Status values (the only persisted set; UI grouping is a projection).
@@ -45,7 +64,8 @@ const (
 // Hard limits from the M10 wire contract (M10-QI-001/005/007).
 const (
 	MaxQueuedPerSession = 5
-	MaxPayloadChars     = 8000
+	MaxPayloadChars     = message.MaxRunes
+	MaxPayloadBytes     = message.MaxBytes
 	MaxPerMinute        = 10
 )
 

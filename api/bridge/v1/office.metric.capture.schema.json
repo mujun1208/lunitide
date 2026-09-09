@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/office.metric.capture.schema.json",
+  "title": "office.metric.capture payload",
+  "x-method": "office.metric.capture",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "taskId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "versionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "nodeId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "nodeDigest": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "name": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 256
+    },
+    "unit": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 64
+    },
+    "currency": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 3
+    },
+    "period": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 128
+    },
+    "roundingDigits": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 12
+    }
+  },
+  "required": [
+    "taskId",
+    "versionId",
+    "nodeId",
+    "nodeDigest",
+    "name"
+  ],
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/OfficeTaskDetailDTO"
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "taskId": "01ARZ3NDEKTSV4RRFFQ69G5FAE",
+        "versionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "nodeId": "node",
+        "nodeDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "name": "销售额"
+      }
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

@@ -4,6 +4,7 @@ import type { TemplateCreatePayload, TemplateListResult } from '../generated/bri
 import { ConfirmDialog, Dialog } from '../ui/Dialog'
 import { bytesToBase64, stageTemplateFile, TEMPLATE_INLINE_MAX } from './assetStage'
 import { readBoundedFile } from '../files/readBoundedFile'
+import { ExternalLink } from 'lucide-react'
 
 type TemplateDTO = TemplateListResult['items'][number]
 
@@ -199,6 +200,23 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
     }
   }
 
+  const openAttachment = async (item: TemplateDTO) => {
+    if (busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    setActionError(undefined)
+    try {
+      const result = await templates.open({ id: item.id })
+      if (!result.opened) throw new Error('附件未打开，请重试')
+      if (mounted.current) setNotice(`已打开 ${item.fileName || item.name} 的查看副本`)
+    } catch (error) {
+      if (mounted.current) setActionError(problem(error))
+    } finally {
+      busyRef.current = false
+      if (mounted.current) setBusy(false)
+    }
+  }
+
   const acceptUpload = form.templateType === 'scaffold'
     ? '.zip,.tar.gz,application/zip,application/gzip,application/x-gzip'
     : '.md,.txt,.pdf,.doc,.docx,.dot,.xls,.xlsx,.ppt,.pptx,.html,.htm,.json,.yaml,.yml,.csv,text/*,application/*'
@@ -238,6 +256,7 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
                     <i className="pm-chip mono">v{item.version}</i>
                   </span>
                   <span className="pm-item-actions">
+                    <button disabled={busy || !item.fileName} title={`查看附件 ${item.fileName || item.name}`} onClick={() => void openAttachment(item)}><ExternalLink size={15} aria-hidden="true"/> 查看附件</button>
                     {item.status === 'draft' && <button className="primary" disabled={busy} onClick={() => void runAction('enable', item)}>启用</button>}
                     {item.status === 'draft' && <button className="danger" disabled={busy} onClick={() => setConfirm({ kind: 'delete', item })}>删除</button>}
                     {item.status === 'enabled' && <button disabled={busy} onClick={() => setConfirm({ kind: 'void', item })}>作废</button>}

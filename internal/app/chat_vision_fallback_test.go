@@ -9,6 +9,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/contextapp"
 	"github.com/lunitide/lunitide/internal/domain/attachment"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/llmadapter"
@@ -63,7 +64,7 @@ func (a visionFallbackAdapter) Stream(_ context.Context, _ []byte, req llmadapte
 	return llmadapter.Response{}, nil
 }
 
-func startVisionFallbackChat(t *testing.T, supportsVision bool) (bridge.Response, llmadapter.Request, int, []llmadapter.Image) {
+func startVisionFallbackChat(t *testing.T, supportsVision bool, readers ...contextapp.Reader) (bridge.Response, llmadapter.Request, int, []llmadapter.Image) {
 	t.Helper()
 	data := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1}
 	digest := sha256.Sum256(data)
@@ -76,7 +77,11 @@ func startVisionFallbackChat(t *testing.T, supportsVision bool) (bridge.Response
 	requests := make(chan llmadapter.Request, 1)
 	completeCalls := 0
 	var completeImgs []llmadapter.Image
-	e := NewEngineWithContextReader(visionCatalogProvider{supportsVision: supportsVision}, nil, nil, nil, chatAttachmentReader{}, nil, "test", streamTestLease{})
+	var reader contextapp.Reader = chatAttachmentReader{}
+	if len(readers) > 0 {
+		reader = readers[0]
+	}
+	e := NewEngineWithContextReader(visionCatalogProvider{supportsVision: supportsVision}, nil, nil, nil, reader, nil, "test", streamTestLease{})
 	e.SetAttachmentService(attachmentapp.NewService(store, chatAttachmentFiles{image.FileRef: data}))
 	e.SetAdapterFactoryForTest(func(_ context.Context, p provider.Provider) (llmadapter.Adapter, error) {
 		return visionFallbackAdapter{id: p.ID, requests: requests, completeCalls: &completeCalls, completeImgs: &completeImgs}, nil

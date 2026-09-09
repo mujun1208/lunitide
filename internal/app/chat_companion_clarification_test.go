@@ -105,7 +105,7 @@ func TestCompanionSpokenQuestionAndPrompt(t *testing.T) {
 	if companionNeedsSpokenInput("今天合肥晴天，最高二十八度。") {
 		t.Fatal("answer mistaken for clarification")
 	}
-	for _, rule := range []string{"默认只答 1–3 句", "不使用 user.ask", "同一结果本轮只说一次"} {
+	for _, rule := range []string{"默认只答 1–2 句", "不使用 user.ask", "同一结果本轮只说一次"} {
 		if !strings.Contains(companionPersonaChatInstruction(), rule) {
 			t.Fatal(rule)
 		}

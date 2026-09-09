@@ -4,7 +4,7 @@ import type { SkillImportDiscoverResult } from '../generated/bridge'
 import { Dialog } from '../ui/Dialog'
 
 const problem = (e: unknown) => e instanceof BridgeClientError ? e : new BridgeClientError(e instanceof Error ? e.message : '请求失败', 'CLIENT_ERROR', false, 'renderer')
-type Props = { open: boolean; onClose: () => void; onApproved?: () => void; bridge?: SkillImportBridge; initialUrl?: string }
+type Props = { open: boolean; onClose: () => void; onApproved?: (skillId?: string) => void; bridge?: SkillImportBridge; initialUrl?: string }
 
 export function SkillImportWizard({ open, onClose, onApproved, bridge = defaultSkillImportBridge, initialUrl = '' }: Props): React.JSX.Element {
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1)
@@ -39,7 +39,7 @@ export function SkillImportWizard({ open, onClose, onApproved, bridge = defaultS
     setCandidate(result)
     // Reopening an unfinished import resumes the committed step.
     setStep(result.state === 'approved' ? 5 : result.state === 'awaiting_approval' ? 4 : result.state === 'inspected' ? 3 : 2)
-    if (result.state === 'approved') onApproved?.()
+    if (result.state === 'approved') onApproved?.(result.skillId)
   })
   const inspect = () => perform(async () => {
     if (!candidate) return
@@ -57,7 +57,7 @@ export function SkillImportWizard({ open, onClose, onApproved, bridge = defaultS
     if (!candidate) return
     const payload = { candidateId: candidate.candidateId, expectedVersion: candidate.version, approval: { source: 'github-import', scope: 'instructions-only-draft' } }
     const result = await bridge.approve(payload, { attempt: attemptFor('skill.import.approve', payload) })
-    setCandidate({ ...candidate, ...result }); setStep(5); onApproved?.()
+    setCandidate({ ...candidate, ...result }); setStep(5); onApproved?.(result.skillId)
   })
 
   return <Dialog open={open} title="从 GitHub 导入技能" description="读取固定提交 → 校验文件 → 静态检查 → 导入草稿" onClose={close} wide>
@@ -78,7 +78,7 @@ export function SkillImportWizard({ open, onClose, onApproved, bridge = defaultS
       {step === 2 && <div className="dialog-actions"><button disabled={busy} onClick={close}>稍后继续</button><button className="primary" disabled={busy} onClick={() => void inspect()}>{busy ? '校验中…' : '校验固定文件'}</button></div>}
       {step === 3 && <><p className="gate-note">固定文件校验通过。下一步检查正文中的已知指令覆盖和权限绕过标记。</p><div className="dialog-actions"><button disabled={busy} onClick={close}>稍后继续</button><button className="primary" disabled={busy} onClick={() => void submit()}>{busy ? '检查中…' : '运行静态检查'}</button></div></>}
       {step === 4 && <><p className="gate-note">静态规则检查未发现已知标记。未执行脚本，也未验证技能效果；批准后请在技能中心审阅草稿，再决定是否启用。</p><div className="dialog-actions"><button disabled={busy} onClick={close}>稍后继续</button><button className="primary" disabled={busy} onClick={() => void approve()}>{busy ? '导入中…' : '批准导入草稿'}</button></div></>}
-      {step === 5 && <><p className="gate-note">技能已导入，可在技能中心查看当前状态。</p><div className="dialog-actions"><button className="primary" onClick={close}>完成</button></div></>}
+      {step === 5 && <><p className="gate-note">技能已导入为草稿。返回技能库即可查看目录与文件、在对话中试用，再决定是否安装并正式发布。</p><div className="dialog-actions"><button className="primary" onClick={close}>完成</button></div></>}
       {error && <p className="error" role="alert"><b>{error}</b></p>}
     </div>
   </Dialog>

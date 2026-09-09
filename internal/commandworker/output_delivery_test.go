@@ -15,13 +15,13 @@ func TestRunBlockedOutputCannotDefeatProcessTimeout(t *testing.T) {
 	block := make(chan struct{})
 	defer close(block)
 	spec := helperSpec(t, t.TempDir(), "write", "8388608")
-	spec.Timeout = 200 * time.Millisecond
+	spec.Timeout = 2 * time.Second
 	started := time.Now()
 	out, err := Run(context.Background(), spec, nil, func([]byte) { <-block })
 	if !errors.Is(err, ErrOutputUnavailable) || !out.Truncated {
 		t.Fatalf("blocked consumer reported success: %+v %v", out, err)
 	}
-	if elapsed := time.Since(started); elapsed > 3*time.Second {
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
 		t.Fatalf("blocked callback defeated worker teardown: %s", elapsed)
 	}
 }

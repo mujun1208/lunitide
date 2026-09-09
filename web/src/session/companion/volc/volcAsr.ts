@@ -12,10 +12,10 @@ import { takePcmBatch } from '../pcmQueue'
 import type { LocalAsrCallbacks, LocalAsrHandle } from '../localAsr'
 import { createVolcTranscriptCursor, type VolcUtterance } from './volcTranscript'
 
-/** Ceiling on audio waiting to be sent, in samples. Two seconds at 16 kHz. */
-const MAX_PENDING_SAMPLES = TARGET_SAMPLE_RATE * 2
+/** Bound startup/backpressure buffering without silently dropping speech. */
+const MAX_PENDING_SAMPLES = TARGET_SAMPLE_RATE * 15
 
-const DRAIN_ROUNDS = 40
+const DRAIN_TIMEOUT_MS = 6000
 
 /** Match the Go handshake budget so a hung provider.list falls back. */
 export const VOLC_ASR_DECISION_MS = 3000
@@ -44,6 +44,8 @@ export async function startVolcAsr(providerId: string, callbacks: VolcAsrCallbac
   let muted = false
   let swapping = false
   let inFlight = false
+  let inFlightSamples = 0
+  let completedSamples = 0
   let fed = false
   // Latches the first real external PCM frame. External always wins over the
   // deaf-rescue mic, so this gate guarantees we never run two capture sources.
@@ -108,11 +110,11 @@ export async function startVolcAsr(providerId: string, callbacks: VolcAsrCallbac
   let pending: { base64: string; samples: Int16Array }[] = []
   let pendingSamples = 0
 
-  const takePending = (): string | undefined => {
+  const takePending = () => {
     const batch = takePcmBatch(pending)
     if (!batch) return undefined
     pendingSamples -= batch.sampleCount
-    return batch.base64
+    return batch
   }
 
   const queueSilence = () => {
@@ -133,10 +135,12 @@ export async function startVolcAsr(providerId: string, callbacks: VolcAsrCallbac
 
   const pump = () => {
     if (closed || swapping || inFlight || !sessionId) return
-    const pcm = takePending()
-    if (!pcm) return
+    const batch = takePending()
+    if (!batch) return
+    const pcm = batch.base64
     const owner = sessionId
     inFlight = true
+    inFlightSamples = batch.sampleCount
     fed = true
     bridge
       .append({ sessionId: owner, pcm })
@@ -166,14 +170,18 @@ export async function startVolcAsr(providerId: string, callbacks: VolcAsrCallbac
         fail(error)
       })
       .finally(() => {
+        completedSamples += batch.sampleCount
+        inFlightSamples = 0
         inFlight = false
         pump()
       })
   }
 
   const drain = async () => {
-    for (let guard = 0; guard < DRAIN_ROUNDS && !closed; guard++) {
-      if (!inFlight && pending.length === 0) return
+    const boundary = completedSamples + inFlightSamples + pendingSamples
+    const deadline = Date.now() + DRAIN_TIMEOUT_MS
+    while (!closed && completedSamples < boundary) {
+      if (Date.now() >= deadline) throw new Error('语音发送超时，本句尚未完整识别。')
       pump()
       await settled()
     }
@@ -184,8 +192,9 @@ export async function startVolcAsr(providerId: string, callbacks: VolcAsrCallbac
     if (closed || muted) return
     pending.push({ base64: frame.base64, samples: frame.samples })
     pendingSamples += frame.samples.length
-    while (pendingSamples > MAX_PENDING_SAMPLES && pending.length > 1) {
-      pendingSamples -= pending.shift()!.samples.length
+    if (pendingSamples > MAX_PENDING_SAMPLES) {
+      fail(new Error('语音处理积压超过 15 秒，本句未完整识别，请稍后重试。'))
+      return
     }
     pump()
   }

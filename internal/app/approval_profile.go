@@ -125,7 +125,7 @@ func companionFullDiskWrite(name string) bool {
 // enable pre-authorizes for 月伴: open, play, type, and click. Raw cc.* stays gated.
 func ccStandingApprovedTool(name string) bool {
 	switch strings.TrimSpace(name) {
-	case "desktop.open", "media.play", "desktop.type", "computer.act":
+	case "desktop.open", "desktop.browse", "desktop.quit", "media.play", "desktop.type", "computer.act":
 		return true
 	default:
 		return false

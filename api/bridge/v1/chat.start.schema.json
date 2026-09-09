@@ -27,6 +27,15 @@
         "full-access"
       ]
     },
+    "trialSkillIds": {
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "description": "Draft skills explicitly selected for this typed chat turn only. Requires a sessionId; unavailable in companion voice. Does not publish or install drafts."
+    },
     "companion": {
       "type": "boolean",
       "description": "Moon Companion (月伴) voice request; engine upgrades executionMode to full-access and applies the spoken-style system instruction."
@@ -114,7 +123,7 @@
           "content": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 16384
+            "maxLength": 32768
           }
         },
         "required": [
@@ -211,6 +220,10 @@
     },
     "queueDeliveryId": {
       "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "officeTaskId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID",
+      "description": "Bind this typed-chat run and its file deliveries to an existing Office task in the same session."
     },
     "companionHistoryAfter": {
       "type": "integer",

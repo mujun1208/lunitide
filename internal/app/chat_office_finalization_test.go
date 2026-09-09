@@ -17,6 +17,17 @@ import (
 )
 
 func TestRunStreamOfficeFallbackSuccessPersistsMessageArtifactAndProcess(t *testing.T) {
+	testOfficeFinalizationWithoutLookup(t, "制作一份产品介绍PPT")
+}
+
+func TestOfflineNewsOfficeFinalizationDoesNotSearch(t *testing.T) {
+	for _, goal := range []string{"将已有新闻整理成PPT，不联网，保留原文。", "将已完成的新闻报告转换成PPT。"} {
+		t.Run(goal, func(t *testing.T) { testOfficeFinalizationWithoutLookup(t, goal) })
+	}
+}
+
+func testOfficeFinalizationWithoutLookup(t *testing.T, goal string) {
+	t.Helper()
 	storeEngine, _, sid, _ := messageEngine(t)
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
 	e.messages, e.sessions = storeEngine.messages, storeEngine.sessions
@@ -38,7 +49,7 @@ func TestRunStreamOfficeFallbackSuccessPersistsMessageArtifactAndProcess(t *test
 	var events []bridge.Event
 	e.runStream(ctx, "01ARZ3NDEKTSV4RRFFQ69G5FAV", state,
 		provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"},
-		llmadapter.Request{Model: "model", Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "制作一份产品介绍PPT"}}},
+		llmadapter.Request{Model: "model", Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: goal}}, Tools: []llmadapter.ToolDefinition{{Name: "web.search", Schema: json.RawMessage(`{"type":"object"}`)}}},
 		func(event bridge.Event) error { events = append(events, event); return nil }, sid, executionModeFullAccess)
 	if len(events) == 0 {
 		t.Fatal("stream emitted no events")
@@ -49,6 +60,9 @@ func TestRunStreamOfficeFallbackSuccessPersistsMessageArtifactAndProcess(t *test
 	}
 	var artifact *bridge.ToolEvent
 	for _, event := range events {
+		if event.Tool != nil && event.Tool.Name == "web.search" {
+			t.Fatal("document finalization injected an unrequested lookup")
+		}
 		if event.Type == bridge.EventToolCompleted && event.Tool != nil && event.Tool.Name == "pptx.gen" {
 			if artifact != nil {
 				t.Fatal("fallback generated the file more than once")

@@ -313,12 +313,17 @@ func skillCandidateSuccess(r bridge.Request, c m6supply.ImportCandidate) bridge.
 			report = &decoded
 		}
 	}
+	var skillID string
+	if c.State == "approved" && c.SourceAttestation != "" && c.AssetType == m6supply.AssetSkill {
+		skillID = c.ID
+	}
 	return r.Ok(struct {
 		CandidateID string   `json:"candidateId"`
+		SkillID     string   `json:"skillId,omitempty"`
 		State       string   `json:"state"`
 		Version     int64    `json:"version"`
 		Summary     *summary `json:"summary,omitempty"`
-	}{c.ID, c.State, c.Version, report})
+	}{c.ID, skillID, c.State, c.Version, report})
 }
 
 // skillImportFailure maps pipeline errors onto the wire.

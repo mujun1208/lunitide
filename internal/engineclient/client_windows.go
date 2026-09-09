@@ -527,6 +527,9 @@ func validateEvent(e bridge.Event) error {
 		if e.Delta != nil || e.Thinking != nil || e.Usage == nil || e.Error != nil || e.Usage.InputTokens < 0 || e.Usage.OutputTokens < 0 || e.Usage.TotalTokens < 0 {
 			return errors.New("invalid usage event")
 		}
+		if e.Usage.CachedInputTokens < 0 || e.Usage.CacheWriteInputTokens < 0 || e.Usage.CachedInputTokens > e.Usage.InputTokens || e.Usage.CacheWriteInputTokens > e.Usage.InputTokens-e.Usage.CachedInputTokens {
+			return errors.New("invalid cache usage event")
+		}
 	case bridge.EventToolStarted, bridge.EventToolCompleted, bridge.EventApprovalRequired, bridge.EventToolOutput:
 		if e.Tool == nil || e.Delta != nil || e.Thinking != nil || e.Usage != nil || e.Completed != nil || e.Error != nil || e.Terminal != nil {
 			return errors.New("invalid tool event payload")

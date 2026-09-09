@@ -9,15 +9,15 @@ import (
 )
 
 var (
-	kernel32           = syscall.NewLazyDLL("kernel32.dll")
-	procCreateMutexW   = kernel32.NewProc("CreateMutexW")
-	procCloseHandle    = kernel32.NewProc("CloseHandle")
-	procReleaseMutex   = kernel32.NewProc("ReleaseMutex")
-	errAlreadyExists   = syscall.Errno(183)
+	kernel32         = syscall.NewLazyDLL("kernel32.dll")
+	procCreateMutexW = kernel32.NewProc("CreateMutexW")
+	procCloseHandle  = kernel32.NewProc("CloseHandle")
+	procReleaseMutex = kernel32.NewProc("ReleaseMutex")
+	errAlreadyExists = syscall.Errno(183)
 )
 
 func claimGatewayInstance() (already bool, release func()) {
-	name, err := syscall.UTF16PtrFromString("Local\\lunitide-gateway")
+	name, err := syscall.UTF16PtrFromString(gatewayInstanceMutexName())
 	if err != nil {
 		return false, func() {}
 	}

@@ -63,6 +63,32 @@ func routedRequestHasTool(req llmadapter.Request, name string) bool {
 	return false
 }
 
+func TestMusicTurnDoesNotStreamUnverifiedPlaybackClaims(t *testing.T) {
+	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	runtime, err := toolruntime.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { runtime.Close() })
+	e.SetToolRuntime(runtime)
+	adapter := &routedExecutionAdapter{stream: func(llmadapter.Request) (llmadapter.Response, error) {
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "音乐已经帮你放起来啦。"}}, nil
+	}}
+	frames := runRoutedExecution(t, e, "帮我打开汽水音乐，随机播放一首歌曲", adapter)
+	var spoken strings.Builder
+	for _, frame := range frames {
+		if frame.Delta != nil {
+			spoken.WriteString(frame.Delta.Text)
+		}
+	}
+	if strings.Contains(spoken.String(), "已经帮你放起来") {
+		t.Fatalf("speculative playback escaped: %s", spoken.String())
+	}
+	if spoken.Len() == 0 {
+		t.Fatal("music turn ended silently")
+	}
+}
+
 func TestTypedVideoRequestExecutesPublicReaderAndReturnsActualEvidence(t *testing.T) {
 	for _, tc := range []struct {
 		name, source, evidence string

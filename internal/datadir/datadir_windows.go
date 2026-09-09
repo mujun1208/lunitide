@@ -144,6 +144,9 @@ func (r *SecureRoot) ProtectRegularFile(name string) error {
 
 // PrepareProduction resolves LocalAppData via Known Folder and pins the result.
 func PrepareProduction() (*SecureRoot, error) {
+	if root, handled, err := prepareProductionOverride(); handled {
+		return root, err
+	}
 	known, err := windows.KnownFolderPath(windows.FOLDERID_LocalAppData, 0)
 	if err != nil {
 		return nil, fmt.Errorf("resolve LocalAppData known folder: %w", err)

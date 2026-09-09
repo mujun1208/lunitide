@@ -24,7 +24,8 @@ import (
 const (
 	MaxFrame             = 64 << 10
 	MaxTTL               = 5 * time.Second
-	TestMaxTTL           = 30 * time.Second
+	TestMaxTTL           = 6 * time.Minute
+	DiscoverMaxTTL       = 30 * time.Second
 	ChatMaxTTL           = 10 * time.Minute
 	MaxActiveConnections = 32
 	MaxNonceCacheEntries = 4096
@@ -48,8 +49,10 @@ func (o Operation) maxTTL() time.Duration {
 	switch o {
 	case OperationChat:
 		return ChatMaxTTL
-	case OperationProviderTest, OperationModelDiscover:
+	case OperationProviderTest:
 		return TestMaxTTL
+	case OperationModelDiscover:
+		return DiscoverMaxTTL
 	default:
 		return MaxTTL
 	}

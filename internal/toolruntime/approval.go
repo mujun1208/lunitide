@@ -206,6 +206,7 @@ func (r *Runtime) approvalRemembered(ctx context.Context, session, name, digest 
 }
 
 func (r *Runtime) decide(ctx context.Context, session, callID, digest string, approve bool) (Result, error) {
+	ctx = WithExecutionKey(ctx, session, callID)
 	if err := r.ensureAudit(); err != nil {
 		return Result{}, err
 	}

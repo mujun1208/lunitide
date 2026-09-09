@@ -2,6 +2,7 @@ package volcsauc
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -35,6 +36,17 @@ func TestSessionPartialThenDefinite(t *testing.T) {
 			return
 		} else if decoded, _ := DecodeFrame(frame); decoded.Type != msgFullClient {
 			t.Errorf("first packet type = %d", decoded.Type)
+		} else {
+			var config struct {
+				Request struct {
+					Smoothing *bool  `json:"enable_ddc"`
+					Full      string `json:"result_type"`
+				} `json:"request"`
+			}
+			if err := json.Unmarshal(decoded.JSON, &config); err != nil || config.Request.Smoothing == nil || *config.Request.Smoothing || config.Request.Full != "full" {
+				t.Error("speech wire must preserve repetitions and return full snapshots")
+				return
+			}
 		}
 		partial, _ := jsonResult("打开网", false)
 		_ = conn.WriteMessage(websocket.BinaryMessage, partial)

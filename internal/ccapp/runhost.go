@@ -11,10 +11,21 @@ import (
 )
 
 func observeUIPayload(mapped []UINode, maxNodes int, frameID string) map[string]any {
+	visible := append([]UINode(nil), mapped...)
+	for i := range visible {
+		// Embedded application URLs can contain kilobytes of internal configuration.
+		// Keep input values, but do not let link metadata hide actionable controls.
+		if strings.Contains(visible[i].Value, "://") && visible[i].Role != "edit" && visible[i].Role != "combobox" {
+			visible[i].Value = ""
+		}
+		if r := []rune(visible[i].Value); len(r) > 240 {
+			visible[i].Value = string(r[:240]) + "..."
+		}
+	}
 	return map[string]any{
 		"count":     len(mapped),
 		"space":     "image",
-		"nodes":     mapped,
+		"nodes":     visible,
 		"frameId":   frameID,
 		"truncated": maxNodes > 0 && len(mapped) >= maxNodes,
 		"maxNodes":  maxNodes,

@@ -133,24 +133,24 @@ export const INCOMPLETE_SILENCE_MS = 900
 /** After Windows isFinal on a fragment, wait this long for more tokens before commit. */
 export const INCOMPLETE_HOLD_MS = 1600
 /** Hard ceiling: if Windows never sends the rest of the sentence, stop waiting. */
-export const INCOMPLETE_HARD_MS = 2200
+export const INCOMPLETE_HARD_MS = 4200
 /** Minimum time with text on screen before we accept a non-terminal commit. */
 export const MIN_UTTERANCE_MS = 140
 /** Last-resort commit when the transcript AND the mic have been quiet.
- *  Sits just above the 1.2s turn-end so it never becomes the rule they feel. */
-export const STUCK_TRANSCRIPT_MS = 1400
-/** Last-resort stage commit. Sits just above the 1.2s turn-end so a stuck
+ *  Sits just above the normal turn-end so it only handles stuck transcripts. */
+export const STUCK_TRANSCRIPT_MS = 2200
+/** Last-resort stage commit. Sits just above the normal turn-end so a stuck
  *  caption still answers, without becoming the everyday endpoint. */
-export const FORCE_COMMIT_MS = 1400
+export const FORCE_COMMIT_MS = 2200
 /** Restart SR only after this long of real mic energy with no transcript.
  *  Windows returns a first interim within a few hundred milliseconds of
  *  speech, so a second of talking with nothing on screen is already wrong. */
-export const VOICE_WITHOUT_TEXT_MS = 900
+export const VOICE_WITHOUT_TEXT_MS = 12000
 /** How long since the last SR token before a voice-energy restart.
  *  Bounds how long a dead session can swallow speech before it is replaced,
  *  so it is kept just above the time a healthy engine takes to return its
  *  first token rather than well clear of it. */
-export const VOICE_RESTART_RESULT_MS = 1400
+export const VOICE_RESTART_RESULT_MS = 12000
 /** Minimum gap between stall-recovery restarts (avoids WebView SR crashes). */
 export const STALL_RESTART_GAP_MS = 1600
 /** Recycle a silent WebView SR session only after Windows has had time to
@@ -201,20 +201,20 @@ export function shouldCommitStable(hasText: boolean, stableForMs: number, stable
   return hasText && stableForMs >= stableMs
 }
 
-/** Silence that ends a turn: 1.2s after they actually stop talking. */
-export const TURN_END_SILENCE_MS = 1200
-/** Incomplete phrases like 「打开网」 wait a beat longer than a finished
- *  sentence so a breath mid-clause is not treated as done. */
-export const TURN_END_INCOMPLETE_SILENCE_MS = 1500
+/** Silence that ends a turn after the speaker actually stops talking. */
+export const TURN_END_SILENCE_MS = 1800
+/** Incomplete phrases like 「打开网」 wait longer than a finished sentence so
+ * a natural pause, filename, or field name is not split into another turn. */
+export const TURN_END_INCOMPLETE_SILENCE_MS = 2800
 /** Meeting notes: people pause mid-thought; keep the clause open longer than companion turn-taking. */
-export const MEETING_TURN_END_SILENCE_MS = 2000
+export const MEETING_TURN_END_SILENCE_MS = 2400
 /** Unfinished meeting phrases wait a little past the 2s hold. */
-export const MEETING_TURN_END_INCOMPLETE_SILENCE_MS = 2500
+export const MEETING_TURN_END_INCOMPLETE_SILENCE_MS = 3600
 /** Fallback text settling when there is no completed actual-silence window. */
 export const TURN_END_TEXT_SETTLE_MS = 400
 
 /** The complete caption is already available when the actual microphone has
- * been quiet for 1.2s. Late/corrected text packets must not start another wait.
+ * been quiet for the shared turn-end window. Late/corrected text packets must not start another wait.
  * Meetings deliberately retain their longer hold; incomplete commands keep
  * the existing protection against ending in the middle of a field name. */
 export function completeCaptionAtVoiceDeadline(input: {
@@ -276,9 +276,9 @@ export function turnEnded(input: {
  *
  * Windows can keep speechActive true by re-firing the same interim, and
  * analyser noise can do the same. A caption that has not grown for the
- * 1.2s product window is a finished turn even if those signals lie.
+ * product silence window is a finished turn even if those signals lie.
  * Incomplete commands still must not commit on a 50–400ms breath — only
- * after 1.2s of true silence after they actually stopped.
+ * after the extended true-silence window once they actually stopped.
  */
 export function shouldForceCommitUtterance(input: {
   speechActive: boolean
@@ -333,7 +333,7 @@ export function stageForceCommitMayBeginTurn(_committed: boolean): boolean {
 /**
  * Product endpoint for a heard caption.
  * Complete greetings/clauses: 220ms stable + 280ms silence (「你好」 under 400ms).
- * Incomplete commands stay on the 1.2s / 1.5s / 2.2s force-commit windows.
+ * Incomplete commands stay on the extended silence / hard-ceiling windows.
  * Meeting notes keep the long hold via holdUtterance.
  */
 export function shouldCommitHeardUtterance(input: {
@@ -556,8 +556,8 @@ export function idleMeterLevel(t: number, index: number): number {
  * start of the session, so a dead recognizer swallowed whole sentences and
  * the user had to say them again.
  *
- * Requiring an empty transcript is what makes replacing it safe: there is no
- * utterance in flight to lose.
+ * An empty transcript may still have audio in flight; the caller must also
+ * wait for sustained microphone silence before replacing a recognizer.
  */
 export function shouldReplaceSilentRecognizer(input: {
   hasText: boolean
@@ -633,7 +633,6 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
   let echoGuardUntil = 0
   let echoTimer = 0
   let playbackApplied = false
-  let playbackEchoGuardMs = ECHO_GUARD_MS
   let commitPausedApplied = false
   let lastResultAt = performance.now()
   let lastRecognitionPulseAt = 0
@@ -973,13 +972,13 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         else voiceEnergyWithoutTextSince = 0
       } else if (now - lastVoiceAt > profile.utteranceSilenceMs) {
         speechActive = false
-        voiceEnergyWithoutTextSince = 0
       }
       callbacks.onLevels?.(levels)
       if (
         duplex &&
         !assistantPlayback &&
-        energy >= profile.voicePeak &&
+        !speechActive &&
+        lastCapturedVoiceAt !== undefined && now - lastCapturedVoiceAt >= 2500 &&
         voiceEnergyWithoutTextSince &&
         shouldReplaceSilentRecognizer({
           hasText: !!assembled().trim(),
@@ -988,13 +987,16 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
           msSinceLastRestart: now - lastStallRestartAt,
         })
       ) {
-        voiceEnergyWithoutTextSince = now
+        // Consume this heard-but-empty utterance. A new energy crossing may
+        // arm another recovery, but room silence cannot create a restart loop.
+        voiceEnergyWithoutTextSince = 0
         lastStallRestartAt = now
         // The replacement runs in the other mode. Whether Windows returns
         // anything is machine-dependent, and continuous is the mode that just
         // produced nothing here — retrying it identically is the one option
         // already known not to work on this machine.
         preferContinuous = !preferContinuous
+        callbacks.onEngineHint?.('刚才听到声音但没有识别出文字，正在重连，请再说一遍。')
         restartRecognition(false)
       }
       tryCommitFromSilence(lastVoiceAt)
@@ -1223,9 +1225,10 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         teardown()
       },
       setAssistantPlayback: (active: boolean, echoGuardMs = ECHO_GUARD_MS) => {
-        if (active === playbackApplied && (active || echoGuardMs === playbackEchoGuardMs)) return
+        // Repeated mode syncs must not mint a second recognizer and erase the
+        // sentence already arriving after an interruption.
+        if (active === playbackApplied) return
         playbackApplied = active
-        playbackEchoGuardMs = echoGuardMs
         assistantPlayback = active
         // The mic is muted for the length of the reply. It was left hot for a
         // while so the user could cut in by talking, but neither energy nor

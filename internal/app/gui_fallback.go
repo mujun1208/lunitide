@@ -127,12 +127,48 @@ func computerActIsObserve(name string, args json.RawMessage) bool {
 	return action == "observe" || action == "observe_ui"
 }
 
+// Observations expire after every UI change; identical arguments are not a
+// reason to replay an old screenshot or suppress a fresh frame ID.
+func liveDesktopObservation(name string, args json.RawMessage) bool {
+	if name == "browser.act" {
+		var call browserActCall
+		if json.Unmarshal(args, &call) != nil {
+			return false
+		}
+		switch call.Op {
+		case "snapshot", "read", "wait":
+			return true
+		case "tabs":
+			return call.Tab == "" || call.Tab == "list"
+		}
+		return false
+	}
+	switch name {
+	case "cc.screen_capture", "cc.get_active_window", "cc.observe_ui", "cc.observe_dialog", "cc.window_list", "cc.app_list", "cc.wait":
+		return true
+	}
+	if name != "computer.act" {
+		return false
+	}
+	var a struct {
+		Action string `json:"action"`
+	}
+	if json.Unmarshal(args, &a) != nil {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(a.Action)) {
+	case "screenshot", "capture", "observe", "observe_ui", "wait", "get_active_window", "list_windows":
+		return true
+	}
+	return false
+}
+
 func desktopTypePassedL0(name, summary string) bool {
 	if name != "desktop.type" {
 		return false
 	}
 	l0, ok := extractL0(summary)
-	return ok && l0.Passed
+	return ok && l0.Passed && !l0.Uncertain && l0.Kind == "field"
 }
 
 func guiSomPickUserPrompt(goal, frameID string, emptyTree bool) string {
@@ -399,23 +435,27 @@ func (e *Engine) completeSOMPick(ctx context.Context, exec guiExecutor, images [
 		return "", fmt.Errorf("empty som catalog")
 	}
 	req := llmadapter.Request{
-		Messages:    []llmadapter.Message{{Role: llmadapter.RoleUser, Content: prompt}},
-		Images:      images,
-		MaxTokens:   128,
-		MaxAttempts: 1,
+		Messages:         []llmadapter.Message{{Role: llmadapter.RoleUser, Content: prompt}},
+		Images:           images,
+		MaxTokens:        128,
+		MaxAttempts:      1,
+		DisableReasoning: true,
 	}
 	var last error
 	for _, entry := range catalog {
 		req.Model = entry.Model.ModelID
 		var text string
 		leaseErr := e.withProviderLease(ctx, entry.Provider, secretlease.OperationChat, func(op context.Context, secret []byte) error {
-			a, adapterErr := e.adapter(op, entry.Provider)
+			a, adapterErr := e.adapterForModel(op, entry.Provider, entry.Model)
 			if adapterErr != nil {
 				return adapterErr
 			}
 			out, completeErr := a.Complete(op, secret, req)
 			if completeErr != nil {
 				return completeErr
+			}
+			if out.FinishReason == "length" || out.FinishReason == "content_filter" {
+				return fmt.Errorf("incomplete GUI target response: %s", out.FinishReason)
 			}
 			text = strings.TrimSpace(out.Message.Content)
 			if text == "" {

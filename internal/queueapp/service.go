@@ -47,7 +47,7 @@ func (s *Service) Enqueue(ctx context.Context, sessionID, runID, payload, mark, 
 	if s == nil || s.store == nil {
 		return queueinput.Message{}, ErrSessionNotFound
 	}
-	if n := utf8.RuneCountInString(payload); n < 1 || n > queueinput.MaxPayloadChars || !utf8.ValidString(payload) || strings.ContainsRune(payload, 0) {
+	if n := utf8.RuneCountInString(payload); n < 1 || n > queueinput.MaxPayloadChars || len(payload) > queueinput.MaxPayloadBytes || !utf8.ValidString(payload) || strings.ContainsRune(payload, 0) {
 		return queueinput.Message{}, ErrPayloadInvalid
 	}
 	if mark == "" {
