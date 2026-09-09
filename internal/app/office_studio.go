@@ -452,6 +452,9 @@ func handleOfficeStudio(e *Engine, ctx context.Context, r bridge.Request) bridge
 		if exportErr != nil {
 			return officeFailure(r, exportErr)
 		}
+		if canon, canonErr := canonpath.Canonical(path); canonErr == nil {
+			path = canon
+		}
 		return r.Ok(map[string]any{"path": filepath.ToSlash(path), "absolutePath": filepath.ToSlash(path), "notice": "已导出可编辑副本；原始存档与接受状态保持不变"})
 	default:
 		return officeFailure(r, domain.ErrInvalid)

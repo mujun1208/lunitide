@@ -26,6 +26,21 @@ import (
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
+// Hosted Windows runners often spell one TempDir two ways: the 8.3 alias
+// (C:\Users\RUNNER~1\...) and the long name. filepath.Clean does not fold them.
+func sameExistingPath(t *testing.T, got, want string) bool {
+	t.Helper()
+	if filepath.Clean(got) == filepath.Clean(want) {
+		return true
+	}
+	ga, err := os.Stat(got)
+	if err != nil {
+		return false
+	}
+	wa, err := os.Stat(want)
+	return err == nil && os.SameFile(ga, wa)
+}
+
 func officeEngineFixture(t *testing.T) (*Engine, *storage.Store) {
 	t.Helper()
 	ctx := context.Background()
@@ -223,8 +238,8 @@ func TestOfficeEngineBridgeAndRealRuntimeDelivery(t *testing.T) {
 	opened := openArtifactTarget
 	t.Cleanup(func() { openArtifactTarget = opened })
 	openArtifactTarget = func(p string, file, reveal bool) error {
-		if filepath.Clean(p) != filepath.Clean(path.Path) || !file {
-			t.Fatalf("wrong open target %s", p)
+		if !file || !sameExistingPath(t, p, path.Path) {
+			t.Fatalf("wrong open target got=%s want=%s file=%v", p, path.Path, file)
 		}
 		return nil
 	}
