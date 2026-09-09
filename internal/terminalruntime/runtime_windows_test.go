@@ -18,25 +18,47 @@ func TestConPTYLifecycle(t *testing.T) {
 	if e = r.Start(context.Background(), "life", 80, 24); e != nil {
 		t.Skipf("ConPTY unavailable: %v", e)
 	}
+	// Hosted Windows runners often emit the PowerShell banner several seconds
+	// after Start returns. Bytes written before that are dropped, so wait for
+	// the first real output and then give the command a longer window.
+	if !waitConPTYOutput(t, r, "life", "", 20*time.Second) {
+		t.Fatal("ConPTY produced no output")
+	}
 	if e = r.Write("life", []byte("Write-Output LUNITIDE_MARKER\r\n")); e != nil {
 		t.Fatal(e)
 	}
-	deadline := time.After(10 * time.Second)
+	if !waitConPTYOutput(t, r, "life", "LUNITIDE_MARKER", 45*time.Second) {
+		t.Fatal("no ConPTY output")
+	}
+	if e = r.Resize("life", 100, 30); e != nil {
+		t.Fatal(e)
+	}
+	if e = r.Close("life"); e != nil {
+		t.Fatal(e)
+	}
+}
+
+func waitConPTYOutput(t *testing.T, r *Runtime, sessionID, needle string, timeout time.Duration) bool {
+	t.Helper()
+	deadline := time.After(timeout)
 	for {
 		select {
 		case ev := <-r.Events():
 			t.Logf("event type=%s code=%d err=%v data=%q", ev.Type, ev.ExitCode, ev.Err, ev.Data)
-			if ev.SessionID == "life" && strings.Contains(string(ev.Data), "LUNITIDE_MARKER") {
-				if e = r.Resize("life", 100, 30); e != nil {
-					t.Fatal(e)
+			if ev.SessionID != sessionID {
+				continue
+			}
+			if needle == "" {
+				if ev.Type == EventOutput && len(ev.Data) > 0 {
+					return true
 				}
-				if e = r.Close("life"); e != nil {
-					t.Fatal(e)
-				}
-				return
+				continue
+			}
+			if strings.Contains(string(ev.Data), needle) {
+				return true
 			}
 		case <-deadline:
-			t.Fatal("no ConPTY output")
+			return false
 		}
 	}
 }

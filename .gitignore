@@ -17,7 +17,9 @@ __pycache__/
 *.pyc
 *.log
 *.tsbuildinfo
-bin/
+# Only the repo-root compiler output. Nested bin/ trees (community skill
+# upstreams) are product data for go:embed and must stay in the checkout.
+/bin/
 /*.exe
 smoke-*/
 *.WebView2/
