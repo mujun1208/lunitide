@@ -18,6 +18,7 @@ import (
 	"github.com/lunitide/lunitide/internal/buildinfo"
 	"github.com/lunitide/lunitide/internal/ccapp"
 	"github.com/lunitide/lunitide/internal/config"
+	"github.com/lunitide/lunitide/internal/connectorapp"
 	"github.com/lunitide/lunitide/internal/conversationsapp"
 	"github.com/lunitide/lunitide/internal/datadir"
 	"github.com/lunitide/lunitide/internal/datasourceapp"
@@ -36,6 +37,7 @@ import (
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/mroapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
+	"github.com/lunitide/lunitide/internal/ocrapp"
 	"github.com/lunitide/lunitide/internal/officeapp"
 	"github.com/lunitide/lunitide/internal/ontologyapp"
 	"github.com/lunitide/lunitide/internal/org"
@@ -55,6 +57,7 @@ import (
 	"github.com/lunitide/lunitide/internal/terminalruntime"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 	"github.com/lunitide/lunitide/internal/tts"
+	"github.com/lunitide/lunitide/internal/widgetapp"
 )
 
 // EngineDeps carries the process-owned collaborators that main() constructs
@@ -105,6 +108,12 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 		return fail(err)
 	}
 	closers = append(closers, func() { _ = store.Close() })
+	if err := store.RecoverInterruptedToolOperations(ctx); err != nil {
+		return fail(fmt.Errorf("tool operation recovery failed: %w", err))
+	}
+	if err := store.RecoverInterruptedCallAttempts(ctx); err != nil {
+		return fail(fmt.Errorf("call attempt recovery failed: %w", err))
+	}
 	// Inspect persisted ownership before any startup seeder can add rows.
 	personalData, organizationData, err := store.DesktopScopePresence(ctx)
 	if err != nil {
@@ -144,6 +153,9 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	engine := app.NewEngineWithP3P4(providerService, projectService, sessionService, messageService, stageService, planningService, governanceService, memoryService, ontologyService, skillService, store.ContextReader(), store, buildinfo.Version, leaseClient)
 	engine.SetChatTurnJournal(store)
 	engine.SetStorageReadiness(store)
+	engine.SetToolOperationStore(store)
+	engine.SetCallAttemptStore(store)
+	engine.SetMessageGroupStore(store)
 	coordinator, err := agentorchestration.New(store.AgentOrchestrationRepository(), agentorchestration.Limits{MaxDepth: 8, MaxConcurrency: 64}, nil)
 	if err != nil {
 		return fail(err)
@@ -477,6 +489,9 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 		return root, nil
 	})
 	engine.SetToolRuntime(tools)
+	engine.SetOCR(ocrapp.New(ocrapp.NewFileStore(filepath.Join(dataRoot.Path(), "ocr-routing.json"))))
+	engine.SetWidgetStore(widgetapp.NewFileStore(filepath.Join(dataRoot.Path(), "widgets.json")))
+	engine.SetConnectorStore(connectorapp.NewFileStore(filepath.Join(dataRoot.Path(), "connector-recipes.json")))
 	closers = append(closers, func() { _ = tools.Close() })
 	// M10 wave-4: the cc.* agent tools execute through the ccapp
 	// service (three-layer interception, risk gate, audit ledger).
@@ -582,16 +597,18 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	// P2-3 resident automation: cron scheduler beside the tool workspaces.
 	// The headless executor is attached after the engine is fully wired so
 	// scheduled runs reuse the single durable chat kernel.
-	automationStore, err := scheduler.NewStore(dataRoot.Path())
+	automationStore, closeAutomation, err := scheduler.OpenAutomationRepository(dataRoot.Path())
 	if err != nil {
 		return fail(err)
 	}
+	closers = append(closers, closeAutomation)
 	if err := automationStore.RecoverInterrupted(); err != nil {
 		return fail(fmt.Errorf("automation recovery failed: %w", err))
 	}
 	automationSched := scheduler.New(automationStore, nil, scheduler.NewPlatformNotifier())
 	closers = append(closers, automationSched.Close)
 	automationSched.SetExecutor(engine.AutomationHeadlessExecutor())
+	automationSched.SetContextualExecutor(engine.AutomationHeadlessContextualExecutor())
 	engine.SetAutomationScheduler(automationSched)
 	terminalRoot, err := toolRoot.PrepareSubdirectory("terminals")
 	if err != nil {

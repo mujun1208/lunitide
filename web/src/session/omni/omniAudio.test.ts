@@ -10,6 +10,7 @@ const omni = vi.hoisted(() => ({
 
 const capture = vi.hoisted(() => ({
   onFrame: undefined as ((frame: { base64: string }) => void) | undefined,
+  onError: undefined as ((error: Error) => void) | undefined,
   muted: false,
 }))
 
@@ -18,8 +19,9 @@ vi.mock('../../bridge/client', () => ({
 }))
 
 vi.mock('../companion/pcmCapture', () => ({
-  startPcmCapture: async (options: { onFrame: (frame: { base64: string }) => void }) => {
+  startPcmCapture: async (options: { onFrame: (frame: { base64: string }) => void; onError?: (error: Error) => void }) => {
     capture.onFrame = options.onFrame
+    capture.onError = options.onError
     return {
       stop: async () => {},
       setMuted: (muted: boolean) => {
@@ -45,11 +47,59 @@ beforeEach(() => {
   omni.stop.mockReset().mockResolvedValue(undefined)
   omni.append.mockReset()
   capture.onFrame = undefined
+  capture.onError = undefined
   capture.muted = false
 })
 
 afterEach(() => {
   vi.useRealTimers()
+})
+
+test('does not leak raw English append or capture failures', async () => {
+  omni.ensure.mockResolvedValue({ ready: true, hostState: 'ready' })
+  omni.start.mockResolvedValue({ sessionId: 'omni-err' })
+  omni.append.mockRejectedValue(new Error('Failed to fetch'))
+  const onError = vi.fn()
+  const handle = await startOmniCompanion({
+    personaId: 'refpack:优质台湾腔.wav',
+    onText: vi.fn(),
+    onError,
+  })
+  capture.onFrame?.({ base64: 'AAAA' })
+  capture.onFrame?.({ base64: 'BBBB' })
+  capture.onFrame?.({ base64: 'CCCC' })
+  expect(handle.commitUserAudio()).toBe(true)
+  await vi.waitFor(() => expect(onError).toHaveBeenCalledWith('MiniCPM-o 推理失败'))
+  expect(onError).not.toHaveBeenCalledWith('Failed to fetch')
+  onError.mockClear()
+  capture.onError?.(new Error('Failed to fetch'))
+  expect(onError).toHaveBeenCalledWith('无法开始录音')
+  expect(onError).not.toHaveBeenCalledWith('Failed to fetch')
+  handle.stop()
+})
+
+test('treats cancel and abort as silent on omni errors', async () => {
+  omni.ensure.mockResolvedValue({ ready: true, hostState: 'ready' })
+  omni.start.mockResolvedValue({ sessionId: 'omni-cancel' })
+  omni.append.mockRejectedValue(new Error('用户取消'))
+  const onError = vi.fn()
+  const handle = await startOmniCompanion({
+    personaId: 'refpack:优质台湾腔.wav',
+    onText: vi.fn(),
+    onError,
+  })
+  capture.onFrame?.({ base64: 'AAAA' })
+  capture.onFrame?.({ base64: 'BBBB' })
+  capture.onFrame?.({ base64: 'CCCC' })
+  expect(handle.commitUserAudio()).toBe(true)
+  await vi.waitFor(() => expect(omni.append).toHaveBeenCalledTimes(3))
+  expect(onError).not.toHaveBeenCalled()
+  const aborted = new Error('The user aborted a request')
+  aborted.name = 'AbortError'
+  capture.onError?.(aborted)
+  capture.onError?.(new Error('用户取消'))
+  expect(onError).not.toHaveBeenCalled()
+  handle.stop()
 })
 
 test('omniStartBlock treats missing model as a download, not a missing server', () => {

@@ -33,7 +33,7 @@ func handleConversationsRootSet(e *Engine, _ context.Context, r bridge.Request) 
 	}
 	migrated, err := e.conversations.SetRoot(p.Path)
 	if err != nil {
-		return r.Fail("CONVERSATIONS_ROOT_INVALID", err.Error(), false)
+		return r.Fail("CONVERSATIONS_ROOT_INVALID", conversationsRootMessage(err), false)
 	}
 	status, _ := e.conversations.Status()
 	return r.Ok(struct {
@@ -53,7 +53,7 @@ func handleSessionFolderGet(e *Engine, _ context.Context, r bridge.Request) brid
 	}
 	path, err := e.sessionOutputDir(p.SessionID)
 	if err != nil {
-		return r.Fail("SESSION_FOLDER_UNAVAILABLE", err.Error(), false)
+		return r.Fail("SESSION_FOLDER_UNAVAILABLE", "会话目录暂时不可用", false)
 	}
 	return r.Ok(map[string]any{"path": path})
 }
@@ -140,7 +140,20 @@ func (e *Engine) sessionOutputDir(sessionID string) (string, error) {
 	if e.conversations != nil {
 		return e.conversations.SessionDir(sessionID)
 	}
-	return "", errors.New("session folder unavailable")
+	return "", errors.New("会话目录暂时不可用")
+}
+
+func conversationsRootMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "empty") || strings.Contains(msg, "不能为空"):
+		return "对话存储路径不能为空"
+	default:
+		return "对话存储路径必须是存在的本地目录"
+	}
 }
 
 var openArtifactTarget = openArtifactInShell

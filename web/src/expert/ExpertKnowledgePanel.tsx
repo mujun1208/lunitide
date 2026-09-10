@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useZh } from '../i18n/language'
-import type {KnowledgeSource,KnowledgeIngest,KnowledgeStats,KnowledgeGetPayload} from './knowledgeTypes'
+import type {KnowledgeSource,KnowledgeIngest,KnowledgeDelete,KnowledgeStats,KnowledgeGetPayload} from './knowledgeTypes'
+import {knowledgeUserError, localizeKBFailReason} from './kbFailReason'
 export type {KnowledgeStats} from './knowledgeTypes'
 
 const KNOWLEDGE_MEDIA: Record<string, string> = {
@@ -24,11 +25,12 @@ export function knowledgeMediaType(name: string, fileType: string): string {
 }
 
 export function ExpertKnowledgePanel({
-  expertId, knowledgeGet, knowledgeIngest,
+  expertId, knowledgeGet, knowledgeIngest, knowledgeDelete,
 }: {
   expertId: string
   knowledgeGet?: (payload: KnowledgeGetPayload) => Promise<KnowledgeStats>
   knowledgeIngest?: KnowledgeIngest
+  knowledgeDelete?: KnowledgeDelete
 }): React.JSX.Element {
   const zh = useZh()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -61,7 +63,7 @@ export function ExpertKnowledgePanel({
       if (alive) { setStats(next); setLoaded(true) }
     }).catch(e => {
       if (alive) {
-        setError(e instanceof Error ? e.message : (zh ? '知识库加载失败' : 'Failed to load knowledge'))
+        setError(knowledgeUserError(e instanceof Error ? e.message : '', zh, '知识库加载失败', 'Failed to load knowledge'))
         setLoaded(true)
       }
     })
@@ -80,17 +82,17 @@ export function ExpertKnowledgePanel({
       const result = await knowledgeIngest({expertId,path:path.trim(),mediaType, ...(source ? {sourceLocator:source.sourceLocator,expectedRevision:source.revision} : {})})
       if (epoch.current !== generation) return
       const failed = result.documents.find(doc=>doc.indexState==='failed')
-      if (failed) throw new Error(failed.failReason || (zh?'无法抽出正文':'Could not extract body'))
+      if (failed) throw new Error(localizeKBFailReason(failed.failReason || (zh?'无法抽出正文':'Could not extract body')))
       setPreview(result.documents.flatMap(doc=>doc.preview??[]).slice(0,3))
       setNotice(zh ? '来源已校验，索引已更新。' : 'Source verified and index updated.')
     } catch (e) {
-      if (epoch.current === generation) setError(zh ? `无法抽出正文或刷新来源：${e instanceof Error?e.message:String(e)}` : `Source update failed: ${e instanceof Error?e.message:String(e)}`)
+      if (epoch.current === generation) setError(knowledgeUserError(e instanceof Error?e.message:String(e), zh, '无法抽出正文或刷新来源', 'Source update failed'))
     } finally {
       // A rejected parse still has a durable failed-source receipt. Reload it
       // so the UI does not leave an old "ready" label after refresh failure.
       if (epoch.current === generation) {
         try { const next = await knowledgeGet?.({expertId,...(sourceCursor?{sourcesAfter:sourceCursor}:{})}); if (next && epoch.current===generation) setStats(next) }
-        catch(e) { if(epoch.current===generation) setError(e instanceof Error?e.message:String(e)) }
+        catch(e) { if(epoch.current===generation) setError(knowledgeUserError(e instanceof Error?e.message:'', zh, '知识库加载失败', 'Failed to load knowledge')) }
         if(epoch.current===generation) {active.current=false;setBusy(false)}
       }
     }
@@ -102,6 +104,24 @@ export function ExpertKnowledgePanel({
     if (file.size>32*1024*1024) {setError(zh?'单个来源不能超过 32 MiB。':'A source must be at most 32 MiB.');return}
     await ingestPath(path,knowledgeMediaType(file.name,file.type))
   }
+  const deleteSource = async (source:KnowledgeSource) => {
+    if (!knowledgeDelete || active.current) return
+    const generation = epoch.current
+    active.current = true; setBusy(true); setError(''); setNotice('')
+    try {
+      const result = await knowledgeDelete({expertId, sourceId: source.sourceId, expectedRevision: source.revision})
+      if (epoch.current !== generation) return
+      setNotice(localizeKBFailReason(result.error) || (zh ? '知识来源已删除' : 'Knowledge source deleted.'))
+    } catch (e) {
+      if (epoch.current === generation) setError(knowledgeUserError(e instanceof Error?e.message:String(e), zh, '无法删除知识来源', 'Could not delete knowledge source'))
+    } finally {
+      if (epoch.current === generation) {
+        try { const next = await knowledgeGet?.({expertId,...(sourceCursor?{sourcesAfter:sourceCursor}:{})}); if (next && epoch.current===generation) setStats(next) }
+        catch(e) { if(epoch.current===generation) setError(knowledgeUserError(e instanceof Error?e.message:'', zh, '知识库加载失败', 'Failed to load knowledge')) }
+        if(epoch.current===generation) {active.current=false;setBusy(false)}
+      }
+    }
+  }
   const loadHistory = async (source:KnowledgeSource,before?:number) => {
     if(!knowledgeGet||active.current)return
     const generation=epoch.current;active.current=true;setBusy(true);setError('')
@@ -110,7 +130,7 @@ export function ExpertKnowledgePanel({
       if(epoch.current!==generation)return
       const updated=next.sources?.find(row=>row.sourceId===source.sourceId)
       if(updated){setStats(current=>current?{...current,sources:current.sources?.map(row=>row.sourceId===source.sourceId?updated:row)}:current);setHistoryPages(current=>({...current,[source.sourceId]:!!before}))}
-    }catch(e){if(epoch.current===generation)setError(e instanceof Error?e.message:String(e))}
+    }catch(e){if(epoch.current===generation)setError(knowledgeUserError(e instanceof Error?e.message:'', zh, '知识库加载失败', 'Failed to load knowledge'))}
     finally{if(epoch.current===generation){active.current=false;setBusy(false)}}
   }
   const sourceLabel = (state:KnowledgeSource['state']) => ({fresh:zh?'已索引，使用时校验':'Indexed; verified when used',refreshing:zh?'刷新未完成，可重试':'Refresh incomplete; retry available',stale:zh?'原文件已变更':'Source changed',missing:zh?'原文件不存在':'Source missing',failed:zh?'来源或解析失败':'Source or parsing failed'})[state]
@@ -136,10 +156,11 @@ export function ExpertKnowledgePanel({
       )}
       {(stats?.sources?.length ?? 0)>0 && <ul aria-label={zh?'知识来源':'Knowledge sources'}>{stats?.sources?.map(source=><li key={source.sourceId}>
         <p>{source.path} · v{source.version} · {sourceLabel(source.state)}</p>
-        {source.error && <p>{source.error}</p>}
+        {source.error && <p>{localizeKBFailReason(source.error)}</p>}
         <small>{zh?'上次校验':'Last checked'}：{source.checkedAt || '—'}</small>
         <button type="button" disabled={busy || !knowledgeIngest} onClick={()=>void ingestPath(source.path,source.mediaType,source)}>{zh?'刷新来源':'Refresh source'}</button>
-        <details><summary>{zh?'来源版本记录（每页最多 50 版）':'Source version history (up to 50 per page)'}</summary><ol>{source.versions.map(version=><li key={version.version}>v{version.version} · {version.state==='fresh'?(zh?'已发布':'Published'):(zh?'失败':'Failed')} · {version.createdAt} · {version.sha256 || '—'} {version.error}</li>)}</ol>
+        <button type="button" disabled={busy || !knowledgeDelete} onClick={()=>void deleteSource(source)}>{zh?'删除来源':'Delete source'}</button>
+        <details><summary>{zh?'来源版本记录（每页最多 50 版）':'Source version history (up to 50 per page)'}</summary><ol>{source.versions.map(version=><li key={version.version}>v{version.version} · {version.state==='fresh'?(zh?'已发布':'Published'):(zh?'失败':'Failed')} · {version.createdAt} · {version.sha256 || '—'} {localizeKBFailReason(version.error)}</li>)}</ol>
           {!!source.nextBeforeVersion && <button type="button" disabled={busy} onClick={()=>void loadHistory(source,source.nextBeforeVersion)}>{zh?'更早版本':'Earlier versions'}</button>}
           {historyPages[source.sourceId] && <button type="button" disabled={busy} onClick={()=>void loadHistory(source)}>{zh?'返回最新版本':'Back to latest versions'}</button>}
         </details>

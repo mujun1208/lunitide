@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Dialog } from '../ui/Dialog';
 import type { OfficeArtifact, OfficeBundle, OfficeBundleExport } from './officeStudioApi';
 import { officeDate, officeQualityLabel } from './officePresentation';
+import { officeStudioUserError } from './officeUserError';
 
 export interface OfficeBundleActions {
   list: () => Promise<{ items: OfficeBundle[] }>;
@@ -66,7 +67,7 @@ export function OfficeBundleDialog({
         if (active) setBundles(list.items);
       })
       .catch((cause) => {
-        if (active) setError(cause instanceof Error ? cause.message : '历史交付包读取失败。');
+        if (active) setError(officeStudioUserError(cause, '历史交付包读取失败。'));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -89,7 +90,7 @@ export function OfficeBundleDialog({
     try {
       await work();
     } catch (cause) {
-      if (mounted.current) setError(cause instanceof Error ? cause.message : '成套导出失败，可重试同一交付包。');
+      if (mounted.current) setError(officeStudioUserError(cause, '成套导出失败，可重试同一交付包。'));
     } finally {
       operation.current = false;
       if (mounted.current) setBusy(false);

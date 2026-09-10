@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -89,7 +90,7 @@ func handleOmniEnsure(e *Engine, _ context.Context, r bridge.Request) bridge.Res
 	state, err := e.omni.host.Ensure()
 	last := ""
 	if err != nil {
-		last = truncate(err.Error(), 512)
+		last = omniUserLastError(err.Error())
 	}
 	return r.Ok(map[string]any{
 		"hostState": state,
@@ -116,7 +117,7 @@ func handleOmniStart(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		case errors.Is(err, omni.ErrMissingRuntime):
 			return r.Fail("OMNI-002", "本机 MiniCPM-o 推理进程未能展开，请重装月汐后再试", true)
 		default:
-			return r.Fail("OMNI-003", "MiniCPM-o 启动失败："+truncate(err.Error(), 256), true)
+			return r.Fail("OMNI-003", chinesePrefixedDetail("MiniCPM-o 启动失败", err.Error()), true)
 		}
 	}
 	id := fmt.Sprintf("o%d", e.omni.counter.Add(1))
@@ -144,7 +145,7 @@ func handleOmniAppend(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 	}
 	turn, err := session.Append(ctx, pcm)
 	if err != nil {
-		return r.Fail("OMNI-005", "MiniCPM-o 推理失败："+truncate(err.Error(), 256), true)
+		return r.Fail("OMNI-005", chinesePrefixedDetail("MiniCPM-o 推理失败", err.Error()), true)
 	}
 	wavs := turn.WAVs
 	if wavs == nil {
@@ -226,8 +227,11 @@ func (s *OmniService) status() map[string]any {
 	if s.state == "downloading" {
 		out["hostState"] = omni.HostDownloading
 	}
+	if last, ok := out["lastError"].(string); ok && last != "" {
+		out["lastError"] = omniUserLastError(last)
+	}
 	if s.lastErr != "" {
-		out["lastError"] = truncate(s.lastErr, 512)
+		out["lastError"] = omniUserLastError(s.lastErr)
 	}
 	return out
 }
@@ -245,9 +249,20 @@ func (s *OmniService) installSnapshot() map[string]any {
 		out["file"] = s.progress.File
 	}
 	if s.lastErr != "" {
-		out["lastError"] = truncate(s.lastErr, 512)
+		out["lastError"] = omniUserLastError(s.lastErr)
 	}
 	return out
+}
+
+func omniUserLastError(msg string) string {
+	msg = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(msg), "omni:"))
+	if msg == "" {
+		return ""
+	}
+	if peopleUserMessageHasHan(msg) {
+		return truncate(msg, 512)
+	}
+	return "MiniCPM-o 未能就绪"
 }
 
 func (s *OmniService) beginInstall() {

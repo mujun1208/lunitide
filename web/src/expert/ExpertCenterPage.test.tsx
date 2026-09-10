@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { ExpertBridge, ProjectBridge, SkillBridge } from '../bridge/client'
+import { BridgeClientError, type ExpertBridge, type ProjectBridge, type SkillBridge } from '../bridge/client'
 import { ExpertCenterPage } from './ExpertCenterPage'
 
 afterEach(cleanup)
@@ -47,6 +47,49 @@ const projects: ProjectBridge = {
 const manualId = '01ARZ3NDEKTSV4RRFFQ69G5FB1'
 const manualExpert = { ...expertList.experts[0], expertId: manualId, name: '短剧创作专家', source: 'local', creationOrigin: 'manual', isOwn: true, state: 'disabled' }
 const manualDetail = { ...expertDetail, expert: { ...expertDetail.expert, ...manualExpert, currentVersionId: versionId } }
+
+it('does not show raw English list, save or install failures', async () => {
+  render(<ExpertCenterPage bridge={expertApi({ list: vi.fn().mockRejectedValue(new Error('Failed to fetch')) })} projects={projects} />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('专家清单加载失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  cleanup()
+  const bridge = expertApi({ create: vi.fn().mockRejectedValue(new Error('Failed to fetch')) })
+  render(<ExpertCenterPage bridge={bridge} projects={projects} />)
+  await screen.findByText('安全岗位')
+  fireEvent.click(screen.getByRole('button', { name: '添加专家' }))
+  fireEvent.click(screen.getByRole('button', { name: /手动填写/ }))
+  const form = within(await screen.findByRole('dialog', { name: '创建专家向导' }))
+  fireEvent.change(form.getByLabelText('名称'), { target: { value: '短剧创作专家' } })
+  fireEvent.change(form.getByLabelText('描述'), { target: { value: '短剧创作与场景打磨' } })
+  for (const label of ['① 身份', '② 使命', '③ 规则', '④ 流程', '⑤ 交付模板', '⑥ 成功度量']) {
+    fireEvent.change(form.getByLabelText(label), { target: { value: `${label}的完整内容` } })
+  }
+  fireEvent.click(form.getByRole('button', { name: '创建专家' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('专家保存失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  cleanup()
+  const market = expertApi({
+    catalogList: vi.fn().mockResolvedValue({
+      items: [{ id: 'ppt-expert', name: 'ppt-expert', displayName: 'PPT专家', description: '做演示文稿', category: '产品', version: '1.0.0', installed: false, featured: true }],
+    }),
+    install: vi.fn().mockRejectedValue(new Error('Failed to fetch')),
+  })
+  render(<ExpertCenterPage bridge={market} projects={projects} />)
+  fireEvent.click(await screen.findByRole('tab', { name: '专家市场' }))
+  fireEvent.click(await screen.findByRole('button', { name: '安装 PPT专家' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('安装失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
+it('does not leak raw English catalog failures and keeps protocol codes', async () => {
+  const catalogList = vi.fn().mockRejectedValue(new BridgeClientError('Failed to fetch', 'ENGINE_UNAVAILABLE', true, '01ARZ3NDEKTSV4RRFFQ69G5FAV'))
+  render(<ExpertCenterPage bridge={expertApi({ catalogList })} projects={projects} />)
+  fireEvent.click(await screen.findByRole('tab', { name: '专家市场' }))
+  expect(await screen.findByText(/专家市场加载失败/)).toBeInTheDocument()
+  expect(screen.getByText(/ENGINE_UNAVAILABLE/)).toBeInTheDocument()
+  expect(screen.getByText(/01ARZ3NDEKTSV4RRFFQ69G5FAV/)).toBeInTheDocument()
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
 
 it('selects the newly created disabled expert card and clears conflicting filters', async () => {
   const bridge = expertApi({

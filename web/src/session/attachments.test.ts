@@ -63,6 +63,17 @@ it('cleans up a late begin response after cancellation without uploading',async(
  expect(result.failed).toHaveLength(1);resolveBegin({uploadId:'late',chunkSize:32768,expiresAt:new Date().toISOString()});await Promise.resolve();await Promise.resolve()
  expect(bridge.abort).toHaveBeenCalledWith({uploadId:'late',projectId:'project',sessionId:'session'});expect(bridge.chunk).not.toHaveBeenCalled()
 })
+it('does not leak raw English prepare or upload failures',async()=>{
+  vi.stubGlobal('createImageBitmap',vi.fn().mockRejectedValue(new Error('Failed to fetch')))
+  const prepared=await prepareAttachmentFiles([new File([new Uint8Array(200*1024)],'large.png',{type:'image/png'})])
+  expect(prepared.failed[0]).toBe('large.png（图片处理失败）')
+  expect(prepared.failed.join('')).not.toContain('Failed to fetch')
+  const begin=vi.fn().mockRejectedValue(new Error('Failed to fetch')),abort=vi.fn()
+  const result=await ingestAttachments({begin,chunk:vi.fn(),commit:vi.fn(),abort} as unknown as AttachmentBridge,'project','session',[bytes([1],'note.txt','text/plain')])
+  expect(result.failed[0].error).toBe('上传失败')
+  expect(result.failed[0].error).not.toContain('Failed to fetch')
+})
+
 it('times out image decoding and closes a bitmap arriving after timeout',async()=>{
  vi.useFakeTimers();let resolveBitmap!:(bitmap:ImageBitmap)=>void
  vi.stubGlobal('createImageBitmap',vi.fn(()=>new Promise(resolve=>{resolveBitmap=resolve})))

@@ -87,6 +87,17 @@ it('stops an expanded execution and shows cancellation with its retained partial
   expect(screen.queryByRole('button',{name:'停止 每日新闻'})).toBeNull()
 })
 
+it('does not show raw English refresh failures', async () => {
+  const bridge = {
+    listJobs: vi.fn().mockRejectedValue(new Error('Failed to fetch')),
+    listRuns: vi.fn().mockRejectedValue(new Error('Failed to fetch')),
+    status: vi.fn().mockRejectedValue(new Error('Failed to fetch')),
+  } as unknown as AutomationBridge
+  render(<AutomationCenterPage bridge={bridge} onCreateInChat={vi.fn()} />)
+  expect(await screen.findByText('自动化刷新失败')).toBeInTheDocument()
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('defaults newly created tasks to the system timezone',async()=>{
   const api=setup([])
   render(<AutomationCenterPage bridge={api.bridge} onCreateInChat={vi.fn()}/> )

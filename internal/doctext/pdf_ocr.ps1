@@ -1,4 +1,9 @@
-param([Parameter(Mandatory=$true)][string]$InputPath, [Parameter(Mandatory=$true)][string]$OutputPath)
+param(
+  [Parameter(Mandatory=$true)][string]$InputPath,
+  [Parameter(Mandatory=$true)][string]$OutputPath,
+  [string]$PageIndexes = '',
+  [switch]$RenderOnly
+)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $null = [Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]
@@ -16,14 +21,29 @@ function AwaitAction($async) {
   $task = $action.Invoke($null, @($async))
   $task.GetAwaiter().GetResult()
 }
-$engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-if ($null -eq $engine) { throw 'Local OCR language is unavailable. Install a Windows OCR language pack.' }
+$engine = $null
+if (-not $RenderOnly) {
+  $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+  if ($null -eq $engine) { throw 'Local OCR language is unavailable. Install a Windows OCR language pack.' }
+}
 $file = AwaitResult ([Windows.Storage.StorageFile]::GetFileFromPathAsync($InputPath)) ([Windows.Storage.StorageFile])
 $pdf = AwaitResult ([Windows.Data.Pdf.PdfDocument]::LoadFromFileAsync($file)) ([Windows.Data.Pdf.PdfDocument])
 if ($pdf.PageCount -gt 100) { throw 'OCR page budget exceeded (100 pages).' }
+$wanted = $null
+if ($PageIndexes -ne '') {
+  $wanted = @{}
+  foreach ($part in $PageIndexes.Split(',')) {
+    $n = 0
+    if (-not [int]::TryParse($part.Trim(), [ref]$n) -or $n -lt 1) { throw "Invalid page index: $part" }
+    $wanted[$n] = $true
+  }
+}
 $pages = [System.Collections.Generic.List[object]]::new()
 $characters = 0
+$outDir = [System.IO.Path]::GetDirectoryName($OutputPath)
 for ($index = 0; $index -lt $pdf.PageCount; $index++) {
+  $pageNum = $index + 1
+  if ($null -ne $wanted -and -not $wanted.ContainsKey($pageNum)) { continue }
   $page = $pdf.GetPage($index)
   $stream = [Windows.Storage.Streams.InMemoryRandomAccessStream]::new()
   $bitmap = $null
@@ -33,6 +53,15 @@ for ($index = 0; $index -lt $pdf.PageCount; $index++) {
     $options.DestinationWidth = [uint32][Math]::Max(1, [Math]::Round($page.Size.Width * $scale))
     $options.DestinationHeight = [uint32][Math]::Max(1, [Math]::Round($page.Size.Height * $scale))
     AwaitAction ($page.RenderToStreamAsync($stream, $options))
+    if ($RenderOnly) {
+      $pngName = "page-$pageNum.png"
+      $net = [System.IO.WindowsRuntimeStreamExtensions]::AsStream($stream)
+      $net.Position = 0
+      $fs = [System.IO.File]::Create((Join-Path $outDir $pngName))
+      try { $net.CopyTo($fs) } finally { $fs.Dispose() }
+      $pages.Add(@{ page = $pageNum; file = $pngName })
+      continue
+    }
     $stream.Seek(0)
     $decoder = AwaitResult ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
     $text = ''
@@ -49,12 +78,16 @@ for ($index = 0; $index -lt $pdf.PageCount; $index++) {
     }
     $characters += $text.Length
     if ($characters -gt 500000) { throw 'OCR text budget exceeded.' }
-    $pages.Add(@{ page = $index + 1; text = $text; rotation = $rotation })
+    $pages.Add(@{ page = $pageNum; text = $text; rotation = $rotation })
   } finally {
     if ($null -ne $bitmap) { $bitmap.Dispose() }
     $stream.Dispose()
     $page.Dispose()
   }
 }
-$json = @{ method = 'windows-ocr'; language = $engine.RecognizerLanguage.LanguageTag; pages = $pages.ToArray() } | ConvertTo-Json -Depth 4 -Compress
+if ($RenderOnly) {
+  $json = @{ method = 'windows-render'; pages = $pages.ToArray() } | ConvertTo-Json -Depth 4 -Compress
+} else {
+  $json = @{ method = 'windows-ocr'; language = $engine.RecognizerLanguage.LanguageTag; pages = $pages.ToArray() } | ConvertTo-Json -Depth 4 -Compress
+}
 [System.IO.File]::WriteAllText($OutputPath, $json, [System.Text.UTF8Encoding]::new($false))

@@ -194,11 +194,15 @@ func desktopTypeVisible(nodes []mediaUINode, text string) bool {
 	return false
 }
 
+const desktopTypeVerifyTries = 3
+
 func verifyDesktopTyped(ctx context.Context, invoke ccInvoker, session string, approved bool, text string) error {
-	mediaSleep(80 * time.Millisecond)
-	nodes, _, _ := ccObserveNodes(ctx, invoke, session, approved)
-	if desktopTypeVisible(nodes, text) {
-		return nil
+	for i := 0; i < desktopTypeVerifyTries; i++ {
+		mediaSleep(80 * time.Millisecond)
+		nodes, _, _ := ccObserveNodes(ctx, invoke, session, approved)
+		if desktopTypeVisible(nodes, text) {
+			return nil
+		}
 	}
 	return fmt.Errorf("无法执行：写完后界面上看不到「%s」，不能确认已写入", text)
 }

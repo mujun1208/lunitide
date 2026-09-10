@@ -25,6 +25,10 @@ const inputStyle: React.CSSProperties = { width: '100%', padding: '6px 8px', bac
 const btnStyle: React.CSSProperties = { padding: '6px 12px', backgroundColor: 'var(--bg3)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: '4px', cursor: 'pointer' }
 const primaryBtnStyle: React.CSSProperties = { ...btnStyle, backgroundColor: '#2563eb', borderColor: '#3b82f6' }
 const dangerBtnStyle: React.CSSProperties = { ...btnStyle, color: '#f87171' }
+function ontologyUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
 
 export function OntologyPage({ projectId, bridge = ontologyBridge }: { projectId: string; bridge?: OntologyBridge }): React.JSX.Element {
   const [nodes, setNodes] = useState<OntologyNodeDTO[]>([])
@@ -60,7 +64,7 @@ export function OntologyPage({ projectId, bridge = ontologyBridge }: { projectId
     try {
       const r = await bridge.listNodes({ ...(typeFilter ? { type: typeFilter } : {}), projectId })
       setNodes(r.items)
-    } catch (e) { setError(e instanceof Error ? e.message : '加载失败') }
+    } catch (e) { setError(ontologyUserError(e, '加载失败')) }
     finally { setLoading(false) }
   }, [projectId, bridge, typeFilter])
 
@@ -68,7 +72,7 @@ export function OntologyPage({ projectId, bridge = ontologyBridge }: { projectId
 
   const loadEdges = useCallback(async (nodeId: string, direction: 'outgoing' | 'incoming') => {
     try { const r = await bridge.listEdges({ nodeId, direction }); setEdges(r.items) }
-    catch (e) { setError(e instanceof Error ? e.message : '加载边失败') }
+    catch (e) { setError(ontologyUserError(e, '加载边失败')) }
   }, [bridge])
 
   useEffect(() => { if (selected) loadEdges(selected.id, edgeDirection); else setEdges([]) }, [selected, edgeDirection, loadEdges])
@@ -77,7 +81,7 @@ export function OntologyPage({ projectId, bridge = ontologyBridge }: { projectId
     if (!projectId || !searchQuery.trim()) return
     setLoading(true); setError(undefined)
     try { const r = await bridge.searchNodes({ projectId, query: searchQuery.trim() }); setNodes(r.items) }
-    catch (e) { setError(e instanceof Error ? e.message : '搜索失败') }
+    catch (e) { setError(ontologyUserError(e, '搜索失败')) }
     finally { setLoading(false) }
   }
 
@@ -89,7 +93,7 @@ export function OntologyPage({ projectId, bridge = ontologyBridge }: { projectId
       await bridge.createNode({ projectId, type: newNodeType, name: newNodeName.trim(), fullPath: newNodeFullPath.trim(), description: newNodeDescription })
       setNewNodeName(''); setNewNodeFullPath(''); setNewNodeDescription(''); setShowCreateNode(false)
       await load()
-    } catch (e) { setError(e instanceof Error ? e.message : '创建失败') }
+    } catch (e) { setError(ontologyUserError(e, '创建失败')) }
     finally { setBusy(false) }
   }
 
@@ -102,7 +106,7 @@ export function OntologyPage({ projectId, bridge = ontologyBridge }: { projectId
       setShowEditNode(false)
       await load()
       await loadEdges(selected.id, edgeDirection)
-    } catch (e) { setError(e instanceof Error ? e.message : '更新失败') }
+    } catch (e) { setError(ontologyUserError(e, '更新失败')) }
     finally { setBusy(false) }
   }
 
@@ -112,7 +116,7 @@ export function OntologyPage({ projectId, bridge = ontologyBridge }: { projectId
       await bridge.deleteNode({ id })
       if (selected?.id === id) setSelected(null)
       await load()
-    } catch (e) { setError(e instanceof Error ? e.message : '删除失败') }
+    } catch (e) { setError(ontologyUserError(e, '删除失败')) }
     finally { setBusy(false) }
   }
 
@@ -124,7 +128,7 @@ export function OntologyPage({ projectId, bridge = ontologyBridge }: { projectId
       await bridge.createEdge({ sourceNodeId: selected.id, targetNodeId: newEdgeTargetNodeId.trim(), type: newEdgeType, label: newEdgeLabel })
       setNewEdgeTargetNodeId(''); setNewEdgeLabel(''); setShowCreateEdge(false)
       await loadEdges(selected.id, edgeDirection)
-    } catch (e) { setError(e instanceof Error ? e.message : '创建失败') }
+    } catch (e) { setError(ontologyUserError(e, '创建失败')) }
     finally { setBusy(false) }
   }
 
@@ -135,7 +139,7 @@ export function OntologyPage({ projectId, bridge = ontologyBridge }: { projectId
       await bridge.updateEdge({ id: edgeId, label: editEdgeLabel })
       setEditingEdgeId(null)
       await loadEdges(selected.id, edgeDirection)
-    } catch (e) { setError(e instanceof Error ? e.message : '更新失败') }
+    } catch (e) { setError(ontologyUserError(e, '更新失败')) }
     finally { setBusy(false) }
   }
 
@@ -145,7 +149,7 @@ export function OntologyPage({ projectId, bridge = ontologyBridge }: { projectId
     try {
       await bridge.deleteEdge({ id: edgeId })
       await loadEdges(selected.id, edgeDirection)
-    } catch (e) { setError(e instanceof Error ? e.message : '删除失败') }
+    } catch (e) { setError(ontologyUserError(e, '删除失败')) }
     finally { setBusy(false) }
   }
 

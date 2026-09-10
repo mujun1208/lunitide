@@ -281,7 +281,30 @@ func pickLaunchTarget(query string) (string, []string, error) {
 	return "", nil, errors.New("无法执行：桌面、安装目录和开始菜单里都没找到「" + strings.TrimSpace(query) + "」。请确认它已安装，或把它的快捷方式放到桌面后再试")
 }
 
+// testingProcess reports whether this process is a go-test binary
+// (foo.test / foo.test.exe, or started with -test.* flags). The host binary
+// never matches, so desktop launches stay live in production.
+func testingProcess() bool {
+	exe := filepath.Base(os.Args[0])
+	if strings.HasSuffix(exe, ".test") || strings.HasSuffix(exe, ".test.exe") {
+		return true
+	}
+	for _, a := range os.Args[1:] {
+		if strings.HasPrefix(a, "-test.") {
+			return true
+		}
+	}
+	return false
+}
+
 func openWithDefaultApp(path string) error {
+	// A test fixture that forgets to mock the launch path must not open real
+	// user apps (e.g. 汽水音乐) on the developer's Desktop. Fail-safe:
+	// remember the resolved path but never start the process under go test.
+	if testingProcess() {
+		rememberDesktopOpen(path)
+		return nil
+	}
 	err := startOpenedPath(path, func(cmd *exec.Cmd) error { return cmd.Start() })
 	if err != nil {
 		time.Sleep(350 * time.Millisecond)

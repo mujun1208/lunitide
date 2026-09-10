@@ -61,12 +61,12 @@ func TestFreshChatImagesReachDirectAndConfiguredVisionProviders(t *testing.T) {
 func TestExplicitAssemblyPreservesSelectedInstructionsAndRejectsInsufficientBudget(t *testing.T) {
 	trusted := []llmadapter.Message{{Role: llmadapter.RoleSystem, Content: "[已选技能] skill-creator；[已选专家] 程序工程师；权限约束保持。"}, {Role: llmadapter.RoleUser, Content: "创建每周周报技能"}}
 	env := contextapp.ContextEnvelope{Provider: contextapp.ProviderInfo{Model: "model", ContextWindow: 128000, ReservedOutput: 1024, SystemTokens: 100}}
-	got, err := assembleExplicitChat(context.Background(), chatAttachmentSessionID, env, trusted)
+	got, err := assembleExplicitChat(context.Background(), chatAttachmentSessionID, env, trusted, nil)
 	if err != nil || len(got) != 2 || got[0].Content != trusted[0].Content || got[0].Role != llmadapter.RoleSystem || got[1].Content != trusted[1].Content {
 		t.Fatalf("instructions lost or explicit turn duplicated: %+v %v", got, err)
 	}
 	env.Provider.ContextWindow = 100
-	if _, err = assembleExplicitChat(context.Background(), chatAttachmentSessionID, env, trusted); !errors.Is(err, contextapp.ErrEnvelopeBudgetTooSmall) {
+	if _, err = assembleExplicitChat(context.Background(), chatAttachmentSessionID, env, trusted, nil); !errors.Is(err, contextapp.ErrEnvelopeBudgetTooSmall) {
 		t.Fatalf("expected honest budget failure, got %v", err)
 	}
 }
@@ -100,7 +100,7 @@ func TestQuotedMaterialsDoNotChooseAProductWorkflow(t *testing.T) {
 func TestExplicitMultiMessageAssemblyKeepsOrderAndLastTurnAttachment(t *testing.T) {
 	trusted := []llmadapter.Message{{Role: llmadapter.RoleSystem, Content: "保持系统约束"}, {Role: llmadapter.RoleUser, Content: "第一轮问题"}, {Role: llmadapter.RoleAssistant, Content: "第一轮回答"}, {Role: llmadapter.RoleUser, Content: "第二轮读取材料"}}
 	env := contextapp.ContextEnvelope{Provider: contextapp.ProviderInfo{Model: "model", ContextWindow: 128000, ReservedOutput: 1024, SystemTokens: 100}, AttachmentExcerpts: []contextapp.ContextSource{{Type: contextapp.SourceAttachmentExcerpt, ID: "attached", Content: "本轮附件内容", Authority: contextapp.AuthorityEvidence}}, AcceptedCheckpoint: &contextapp.ContextSource{Content: "历史摘要", CoverageEndSequence: 100}}
-	got, err := assembleExplicitChat(context.Background(), chatAttachmentSessionID, env, trusted)
+	got, err := assembleExplicitChat(context.Background(), chatAttachmentSessionID, env, trusted, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -18,6 +18,21 @@ const seeded: ImChannelsGetResult = {
 describe('ChannelsPanel', () => {
   afterEach(() => cleanup())
 
+  test('does not show raw English load or save failures', async () => {
+    render(<ChannelsPanel bridge={{ get: vi.fn().mockRejectedValue(new Error('Failed to fetch')), set: vi.fn(), deliver: vi.fn() }} />)
+    expect(await screen.findByText('消息通道加载失败')).toBeInTheDocument()
+    expect(screen.queryByText('Failed to fetch')).toBeNull()
+    cleanup()
+    const user = userEvent.setup()
+    const set = vi.fn().mockRejectedValue(new Error('Failed to fetch'))
+    render(<ChannelsPanel bridge={{ get: vi.fn().mockResolvedValue(seeded), set, deliver: vi.fn() }} />)
+    expect(await screen.findByText('飞书')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('消息通道 Webhook'), 'https://open.feishu.cn/open-apis/bot/v2/hook/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')
+    await user.click(screen.getByRole('button', { name: '识别并启用' }))
+    expect(await screen.findByText('保存失败')).toBeInTheDocument()
+    expect(screen.queryByText('Failed to fetch')).toBeNull()
+  })
+
   test('detects a Feishu webhook and enables with a test send', async () => {
     const user = userEvent.setup()
     const set = vi.fn(async (p: ImChannelsSetPayload): Promise<ImChannelsGetResult> => ({

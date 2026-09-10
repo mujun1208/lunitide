@@ -18,7 +18,7 @@ import (
 func openSource(path string) (*os.File, error) {
 	volume := filepath.VolumeName(path)
 	if len(volume) != 2 || strings.Contains(path[2:], ":") {
-		return nil, errors.New("document source must be a local drive file")
+		return nil, errors.New("文档必须是本地磁盘文件")
 	}
 	drive := volume + string(filepath.Separator)
 	drivePtr, err := windows.UTF16PtrFromString(drive)
@@ -28,7 +28,7 @@ func openSource(path string) (*os.File, error) {
 	switch windows.GetDriveType(drivePtr) {
 	case windows.DRIVE_FIXED, windows.DRIVE_REMOVABLE, windows.DRIVE_CDROM, windows.DRIVE_RAMDISK:
 	default:
-		return nil, errors.New("network or unavailable document drive is not supported")
+		return nil, errors.New("不支持网络盘或不可用的文档磁盘")
 	}
 	guard, err := commandworker.PinWorkingDirectory(drive, filepath.Dir(path))
 	if err != nil {

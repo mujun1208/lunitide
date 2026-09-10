@@ -47,8 +47,14 @@ func ValidateJob(j Job) error {
 	if j.Name == "" || len([]rune(j.Name)) > maxNameRunes || strings.ContainsRune(j.Name, 0) {
 		return fmt.Errorf("%w: name", ErrInvalid)
 	}
-	if _, err := nextJobFireTime(j, time.Now().UTC()); err != nil {
+	kind, err := NormalizeTriggerKind(j.TriggerKind)
+	if err != nil {
 		return err
+	}
+	if kind == TriggerSchedule {
+		if _, err := nextJobFireTime(j, time.Now().UTC()); err != nil {
+			return err
+		}
 	}
 	if _, err := normalizeSessionMode(j.SessionMode); err != nil {
 		return err
@@ -232,7 +238,18 @@ func (s *Store) loadJobs() ([]Job, error) {
 	return jobs, nil
 }
 
+func (s *Store) refuseIfCutover() error {
+	raw, err := os.ReadFile(filepath.Join(s.dir, "writer"))
+	if err == nil && strings.TrimSpace(string(raw)) == WriterSQLite {
+		return errors.New("scheduler JSON store is read-only after sqlite cutover")
+	}
+	return nil
+}
+
 func (s *Store) saveJobs(jobs []Job) error {
+	if err := s.refuseIfCutover(); err != nil {
+		return err
+	}
 	b, err := json.MarshalIndent(jobs, "", " ")
 	if err != nil {
 		return err
@@ -284,6 +301,9 @@ func (s *Store) loadRunsLocked() ([]Run, error) {
 }
 
 func (s *Store) saveRuns(runs []Run) error {
+	if err := s.refuseIfCutover(); err != nil {
+		return err
+	}
 	var out bytes.Buffer
 	enc := json.NewEncoder(&out)
 	for _, r := range runs {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Dialog } from '../ui/Dialog';
 import { chartDecimalValid } from './officeChartForm';
 import type { OfficeNode, OfficeStudioApi, OfficeTaskDetail } from './officeStudioApi';
+import { officeStudioUserError } from './officeUserError';
 
 export interface OfficeSheetChartTarget {
   taskId: string;
@@ -90,7 +91,7 @@ export function OfficeSheetChartDialog({
       const values = addresses.map(column => column.map(address => cells.get(address)!));
       setColumns(values); setOriginal(values);
     };
-    void load().catch(cause => { if (request.current === generation) setError(cause instanceof Error ? cause.message : '源数据读取失败。'); })
+    void load().catch(cause => { if (request.current === generation) setError(officeStudioUserError(cause, '源数据读取失败。')); })
       .finally(() => { if (request.current === generation) setLoading(false); });
     return () => { request.current++; };
   }, [api, target]);
@@ -135,7 +136,7 @@ export function OfficeSheetChartDialog({
       onChanged(next);
       onClose();
     } catch (cause) {
-      if (request.current === generation) setError(cause instanceof Error ? cause.message : '图表源范围未保存。');
+      if (request.current === generation) setError(officeStudioUserError(cause, '图表源范围未保存。'));
     } finally {
       if (request.current === generation) setBusy(false);
     }

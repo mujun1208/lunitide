@@ -16,6 +16,21 @@ const api = (o: Partial<PlanBridge> = {}): PlanBridge => ({
   runTree: vi.fn(), spawnRun: vi.fn(), joinRun: vi.fn(), cancelRun: vi.fn(), ...o,
 })
 
+it('does not show raw English plan list or create failures', async () => {
+  render(<PlanPage projectId={P} bridge={api({ list: vi.fn().mockRejectedValue(new Error('Failed to fetch')) })} />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('加载失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  cleanup()
+  const create = vi.fn().mockRejectedValue(new Error('Failed to fetch'))
+  render(<PlanPage projectId={P} bridge={api({ create })} />)
+  await screen.findByText('暂无计划')
+  fireEvent.click(screen.getByText('新建计划'))
+  fireEvent.change(screen.getByLabelText('计划名称'), { target: { value: '新计划' } })
+  fireEvent.click(screen.getByRole('button', { name: '创建计划' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('创建失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('renders empty state and loads plans for the project', async () => {
   const bridge = api()
   render(<PlanPage projectId={P} bridge={bridge} />)

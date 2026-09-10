@@ -20,10 +20,14 @@ import {
 } from './crRevision'
 import { releasePhaseForType } from './deliverableTypes'
 
+function releaseUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
 const problem = (e: unknown) =>
   e instanceof BridgeClientError
     ? e
-    : new BridgeClientError(e instanceof Error ? e.message : '请求失败', 'CLIENT_ERROR', false, 'renderer')
+    : new BridgeClientError(releaseUserError(e, '请求失败'), 'CLIENT_ERROR', false, 'renderer')
 
 const CHECKS = [
   '服务端重新读取已批准的数据库、接口和开发交付文件，计算实际大小与摘要。',

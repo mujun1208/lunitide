@@ -4,6 +4,7 @@
 // rejections are not caught by getDerivedStateFromError — subscribe to
 // window so those become this recovery shell instead of a native exit.
 import React from 'react'
+import { bridgeTransportUserError } from './bridge/bridgeUserError'
 
 interface Props {
   children: React.ReactNode
@@ -100,7 +101,7 @@ export class RootErrorBoundary extends React.Component<Props, State> {
         <div className="root-error" role="alert">
           <h1>界面遇到了一个错误</h1>
           <p>月汐已经把细节写进日志。重新载入通常就能恢复。</p>
-          <pre>{error.message}</pre>
+          <pre>{bridgeTransportUserError(error, '界面运行时错误')}</pre>
           <button type="button" onClick={this.reload}>
             重新载入
           </button>

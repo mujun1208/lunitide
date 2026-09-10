@@ -26,7 +26,7 @@ it('reloads durable failure after a refresh rejects instead of keeping ready sta
  render(<LanguageProvider value="zh-CN"><ExpertKnowledgePanel expertId={expertId} knowledgeGet={knowledgeGet} knowledgeIngest={knowledgeIngest}/></LanguageProvider>)
  fireEvent.click(await screen.findByRole('button',{name:'刷新来源'}))
  expect(await screen.findByText('原文件已删除')).toBeInTheDocument()
- expect(screen.getByRole('alert')).toHaveTextContent('KB_INDEX_FAILED')
+ expect(screen.getByRole('alert')).toHaveTextContent('无法抽出正文或刷新来源')
  expect(screen.queryByText(/已索引，使用时校验/)).toBeNull()
 })
 
@@ -63,6 +63,16 @@ it('navigates source pages using the returned cursor and can return to the first
  fireEvent.click(screen.getByRole('button',{name:'上一页来源'}))
  expect(await screen.findByText(/guide.md/)).toBeInTheDocument()
  expect(knowledgeGet).toHaveBeenLastCalledWith({expertId})
+})
+
+it('deletes a source with the observed revision and reloads the tombstone in Chinese',async()=>{
+ const knowledgeGet=vi.fn().mockResolvedValueOnce(stats).mockResolvedValue({...stats,sources:[{...source,state:'failed',error:'知识来源已删除'}]})
+ const knowledgeDelete=vi.fn().mockResolvedValue({sourceId:source.sourceId,state:'failed',error:'知识来源已删除'})
+ render(<LanguageProvider value="zh-CN"><ExpertKnowledgePanel expertId={expertId} knowledgeGet={knowledgeGet} knowledgeDelete={knowledgeDelete}/></LanguageProvider>)
+ fireEvent.click(await screen.findByRole('button',{name:'删除来源'}))
+ await waitFor(()=>expect(knowledgeDelete).toHaveBeenCalledWith({expertId,sourceId:source.sourceId,expectedRevision:5}))
+ await waitFor(()=>expect(screen.getAllByText('知识来源已删除').length).toBeGreaterThan(0))
+ expect(screen.queryByText('tombstone:deleted')).toBeNull()
 })
 
 it('loads older history as a separate bounded page and returns to recent versions',async()=>{

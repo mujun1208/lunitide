@@ -3,7 +3,7 @@ import { automationBridge, createMutationAttempt, type MutationAttempt, type Aut
 import type { AutomationJobListResult, AutomationRunListResult, AutomationStatusResult } from '../generated/bridge'
 import { cronToHuman, delayAtCron } from '../automation/automationTemplates'
 import {AutomationStopButton,AutomationTimezoneField,localAutomationTimezone} from '../automation/AutomationRunControls'
-import { AutomationRunDetail, automationRunLabel, schedulerStatusLabel } from '../automation/automationRunPresentation'
+import { AutomationRunDetail, automationRunLabel, automationUserError, schedulerStatusLabel } from '../automation/automationRunPresentation'
 
 type Job = AutomationJobListResult['jobs'][number]
 type Run = AutomationRunListResult['runs'][number]
@@ -184,7 +184,7 @@ export function AutomationPanel({
       setNotice('任务已保存')
     } catch (e) {
       if (operationScope !== scope.current) return
-      setNotice(e instanceof Error ? e.message : '保存失败')
+      setNotice(automationUserError(e, '保存失败'))
     } finally {
       if (operationScope === scope.current) {
         busyRef.current = false
@@ -210,7 +210,7 @@ export function AutomationPanel({
       }, 800)
     } catch (e) {
       if (operationScope !== scope.current) return
-      setNotice(e instanceof Error ? e.message : '触发失败')
+      setNotice(automationUserError(e, '触发失败'))
     } finally {
       if (operationScope === scope.current) {
         busyRef.current = false
@@ -251,7 +251,7 @@ export function AutomationPanel({
       if (operationScope !== scope.current) return
     } catch (e) {
       if (operationScope !== scope.current) return
-      setNotice(e instanceof Error ? e.message : '更新失败')
+      setNotice(automationUserError(e, '更新失败'))
     } finally {
       if (operationScope === scope.current) {
         busyRef.current = false
@@ -273,7 +273,7 @@ export function AutomationPanel({
       setNotice('任务已删除')
     } catch (e) {
       if (operationScope !== scope.current) return
-      setNotice(e instanceof Error ? e.message : '删除失败')
+      setNotice(automationUserError(e, '删除失败'))
     } finally {
       if (operationScope === scope.current) {
         busyRef.current = false

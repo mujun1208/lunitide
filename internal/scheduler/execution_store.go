@@ -66,6 +66,32 @@ func (s *Store) RecoverInterrupted() error {
 	return s.saveRuns(runs)
 }
 
+// BindRunSession records the isolated execution session on a still-running
+// intent so the same dispatch can be recovered without creating a second chat.
+func (s *Store) BindRunSession(runID, sessionID string) error {
+	if runID == "" || sessionID == "" {
+		return ErrInvalid
+	}
+	s.mu.Lock()
+	runs, err := s.loadRunsLocked()
+	if err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	var found Run
+	for _, run := range runs {
+		if run.ID == runID {
+			found = run
+		}
+	}
+	s.mu.Unlock()
+	if found.ID == "" || found.State != RunRunning {
+		return ErrInvalid
+	}
+	found.SessionID = sessionID
+	return s.AppendRun(found)
+}
+
 func nextJobTimestamp(previous time.Time) time.Time {
 	now := time.Now().UTC()
 	if !now.After(previous) {

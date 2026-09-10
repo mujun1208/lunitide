@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/ocr.routing.get.schema.json",
+  "title": "ocr.routing.get payload",
+  "x-method": "ocr.routing.get",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "providerId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "modelId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "preferProvider": { "type": "boolean" },
+      "revision": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+      "appliedRevision": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+      "state": { "enum": ["applied"] },
+      "lastFailure": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "class": { "type": "string", "minLength": 1, "maxLength": 32 },
+          "operation": { "type": "string", "minLength": 1, "maxLength": 32 },
+          "until": { "type": "string", "format": "date-time" }
+        },
+        "required": ["class", "operation", "until"]
+      },
+      "localReady": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "pdf": { "type": "boolean" },
+          "image": { "type": "boolean" },
+          "backend": { "enum": ["windows-ocr", "unavailable"] }
+        },
+        "required": ["pdf", "image", "backend"]
+      }
+    },
+    "required": ["preferProvider", "revision", "appliedRevision", "state", "localReady"]
+  },
+  "x-examples": {
+    "positive": [{}],
+    "negative": [{ "unexpected": true }]
+  }
+}

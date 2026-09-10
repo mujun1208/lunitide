@@ -108,7 +108,7 @@ type workspaceEditFile struct {
 
 func validateWorkspaceEditText(data []byte) error {
 	if !utf8.Valid(data) || bytes.ContainsRune(data, 0) || bytes.HasPrefix(data, []byte("PK")) || bytes.HasPrefix(data, []byte("%PDF-")) {
-		return errors.New("workspace.edit requires plain UTF-8 text; read Office/PDF content with workspace.read and use its document generator to create a revised copy")
+		return errors.New("不能直接改 Office/PDF；请先用 workspace.read 读正文，再用文档生成工具写出修订稿")
 	}
 	return nil
 }

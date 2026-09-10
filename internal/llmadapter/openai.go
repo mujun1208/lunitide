@@ -44,10 +44,11 @@ type openAITool struct {
 	} `json:"function"`
 }
 type openAIMessage struct {
-	Role       Role             `json:"role"`
-	Content    any              `json:"content"`
-	ToolCallID string           `json:"tool_call_id,omitempty"`
-	ToolCalls  []openAIToolCall `json:"tool_calls,omitempty"`
+	Role             Role             `json:"role"`
+	Content          any              `json:"content"`
+	ReasoningContent string           `json:"reasoning_content,omitempty"`
+	ToolCallID       string           `json:"tool_call_id,omitempty"`
+	ToolCalls        []openAIToolCall `json:"tool_calls,omitempty"`
 }
 type openAIToolCall struct {
 	Index    int    `json:"index,omitempty"`
@@ -113,7 +114,7 @@ func (a *OpenAI) TestConnection(ctx context.Context, secret []byte, in Request) 
 }
 
 func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool, emit func(Delta) error) (Response, error) {
-	in = prepareEfficientRequest(in, a.o)
+	in = attachEfficientRequest(in, a.o)
 	wn := buildWireNames(in.Tools, openAIToolNameMax)
 	p := openAIRequest{Model: in.Model, Messages: openAIMessages(in, wn, false), MaxTokens: in.MaxTokens, Stream: stream}
 	if in.DisableReasoning {
@@ -217,7 +218,7 @@ func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool
 			if !validUsage(usageCount(out.Usage.Prompt), out.Usage.Completion, out.Usage.Total) || out.Choices[0].Message.Role != RoleAssistant {
 				return Response{}, safeError("MALFORMED_RESPONSE", StageDecode, resp.StatusCode, "upstream returned invalid fields")
 			}
-			m := Message{Role: out.Choices[0].Message.Role, Content: out.Choices[0].Message.Content}
+			m := Message{Role: out.Choices[0].Message.Role, Content: out.Choices[0].Message.Content, ReasoningContent: out.Choices[0].Message.ReasoningContent}
 			for _, tc := range out.Choices[0].Message.ToolCalls {
 				m.ToolCalls = append(m.ToolCalls, ToolCall{ID: tc.ID, Name: wn.original(tc.Function.Name), Arguments: json.RawMessage(tc.Function.Arguments)})
 			}
@@ -232,7 +233,7 @@ func openAIMessages(in Request, wn *wireNames, rawImageURL bool) []openAIMessage
 	out := make([]openAIMessage, 0, len(in.Messages))
 	lastUser := -1
 	for _, m := range in.Messages {
-		x := openAIMessage{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID}
+		x := openAIMessage{Role: m.Role, Content: m.Content, ReasoningContent: m.ReasoningContent, ToolCallID: m.ToolCallID}
 		for _, tc := range m.ToolCalls {
 			c := openAIToolCall{ID: tc.ID, Type: "function"}
 			name := tc.Name
@@ -365,6 +366,7 @@ func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error, wn *wire
 			}
 		}
 	}
+	out.Message.ReasoningContent = out.Reasoning
 	return out, nil
 }
 

@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/chat.usage.get.schema.json",
+  "title": "chat.usage.get payload",
+  "x-method": "chat.usage.get",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "taskId": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200
+    }
+  },
+  "required": ["sessionId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "sessionId": {
+        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+      },
+      "collected": { "type": "boolean" },
+      "integrity": { "enum": ["reported", "partial", "estimated", "unknown"] },
+      "inputTokens": { "type": "integer", "minimum": 0 },
+      "outputTokens": { "type": "integer", "minimum": 0 },
+      "cachedInputTokens": { "type": "integer", "minimum": 0 },
+      "cacheWriteInputTokens": { "type": "integer", "minimum": 0 },
+      "cacheUsageReported": { "type": "boolean" },
+      "stablePrefixHash": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$",
+        "description": "Local typed-default instruction fingerprint; not a supplier cache hit"
+      },
+      "attempts": {
+        "type": "array",
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "callId": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "attemptId": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "purpose": { "type": "string", "maxLength": 64 },
+            "provider": { "type": "string", "maxLength": 64 },
+            "model": { "type": "string", "maxLength": 256 },
+            "status": { "type": "string", "maxLength": 32 },
+            "integrity": { "enum": ["reported", "partial", "estimated", "unknown"] },
+            "inputTokens": { "type": "integer", "minimum": 0 },
+            "outputTokens": { "type": "integer", "minimum": 0 },
+            "cachedInputTokens": { "type": "integer", "minimum": 0 },
+            "cacheWriteInputTokens": { "type": "integer", "minimum": 0 },
+            "policyVersion": { "type": "string", "maxLength": 64 },
+            "bytesBefore": { "type": "integer", "minimum": 0 },
+            "bytesAfter": { "type": "integer", "minimum": 0 },
+            "startedAt": { "type": "string", "format": "date-time" },
+            "endedAt": { "type": "string", "format": "date-time" },
+            "durationMs": { "type": "integer", "minimum": 0 },
+            "costStatus": { "const": "unknown" }
+          },
+          "required": ["callId", "attemptId", "purpose", "status", "integrity", "inputTokens", "outputTokens"]
+        }
+      }
+    },
+    "required": ["sessionId", "collected", "integrity", "inputTokens", "outputTokens", "attempts"]
+  },
+  "x-examples": {
+    "positive": [
+      { "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }
+    ],
+    "negative": [
+      { "unexpected": true },
+      { "sessionId": "not-a-ulid" }
+    ]
+  }
+}

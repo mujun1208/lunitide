@@ -102,7 +102,20 @@ func mcpGatewayToolDefinitions(n int) []llmadapter.ToolDefinition {
 // leasing and breaker accounting; the 30 s deadline mirrors the frozen
 // mcp6.invoke upper bound. The result is flattened to canonical JSON so it
 // can ride the normal tool-message path back to the model.
-func (e *Engine) invokeMcpTool(ctx context.Context, endpointID, tool string, rawArgs json.RawMessage) (string, error) {
+func (e *Engine) invokeMcpTool(ctx context.Context, session, endpointID, tool string, rawArgs json.RawMessage) (string, error) {
+	session = receiptSession(ctx, session)
+	name, ok := mcpToolName(endpointID, tool)
+	if !ok {
+		name = mcpToolPrefix + endpointID + "_" + tool
+	}
+	out, err := e.recordExistingToolCall(ctx, session, name, rawArgs, func() (toolruntime.Result, error) {
+		text, runErr := e.runMcpTool(ctx, endpointID, tool, rawArgs)
+		return toolruntime.Result{Output: text}, runErr
+	})
+	return out.Output, err
+}
+
+func (e *Engine) runMcpTool(ctx context.Context, endpointID, tool string, rawArgs json.RawMessage) (string, error) {
 	if e.mcp6Registry == nil {
 		return "", errors.New("MCP gateway unavailable")
 	}
@@ -142,6 +155,12 @@ func (e *Engine) invokeMcpTool(ctx context.Context, endpointID, tool string, raw
 }
 
 func (e *Engine) invokeBrowserAct(ctx context.Context, mode executionMode, session string, raw json.RawMessage) (toolruntime.Result, error) {
+	return e.recordExistingToolCall(ctx, session, "browser.act", raw, func() (toolruntime.Result, error) {
+		return e.runBrowserAct(ctx, mode, session, raw)
+	})
+}
+
+func (e *Engine) runBrowserAct(ctx context.Context, mode executionMode, session string, raw json.RawMessage) (toolruntime.Result, error) {
 	if err := e.CheckCapability(ctx, "browser"); err != nil {
 		return toolruntime.Result{}, err
 	}
@@ -246,7 +265,7 @@ func (e *Engine) searchMcpToolsScoped(raw json.RawMessage, allowed []string, res
 	return string(b), nil
 }
 
-func (e *Engine) callMcpToolByName(ctx context.Context, raw json.RawMessage) (string, error) {
+func (e *Engine) callMcpToolByName(ctx context.Context, session string, raw json.RawMessage) (string, error) {
 	var a struct {
 		Name      string         `json:"name"`
 		Arguments map[string]any `json:"arguments"`
@@ -262,5 +281,5 @@ func (e *Engine) callMcpToolByName(ctx context.Context, raw json.RawMessage) (st
 	if a.Arguments == nil {
 		args = []byte(`{}`)
 	}
-	return e.invokeMcpTool(ctx, endpointID, tool, args)
+	return e.invokeMcpTool(ctx, session, endpointID, tool, args)
 }

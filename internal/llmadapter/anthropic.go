@@ -211,7 +211,7 @@ func (a *Anthropic) Stream(ctx context.Context, s []byte, in Request, emit func(
 	return a.run(ctx, s, in, true, emit)
 }
 func (a *Anthropic) run(ctx context.Context, secret []byte, in Request, stream bool, emit func(Delta) error) (Response, error) {
-	in = prepareEfficientRequest(in, a.o)
+	in = attachEfficientRequest(in, a.o)
 	wn := buildWireNames(in.Tools, anthropicToolNameMax)
 	p := anthropicPayload(in, stream, wn)
 	maxAttempts := attempts(a.o, in, stream)
@@ -278,7 +278,7 @@ func (a *Anthropic) run(ctx context.Context, secret []byte, in Request, stream b
 				calls = append(calls, ToolCall{ID: c.ID, Name: wn.original(c.Name), Arguments: c.Input})
 			}
 		}
-		return Response{Message: Message{Role: RoleAssistant, Content: text.String(), ToolCalls: calls}, Usage: x.Usage.normalized(), Reasoning: reasoning.String(), FinishReason: normalizeFinishReason(x.StopReason)}, nil
+		return Response{Message: Message{Role: RoleAssistant, Content: text.String(), ReasoningContent: reasoning.String(), ToolCalls: calls}, Usage: x.Usage.normalized(), Reasoning: reasoning.String(), FinishReason: normalizeFinishReason(x.StopReason)}, nil
 	}
 	return Response{}, safeError("RETRY_EXHAUSTED", StageConnect, 0, "upstream unavailable")
 }
@@ -397,6 +397,7 @@ func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error, wn *w
 	if len(partials) != 0 {
 		return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "unterminated tool_use block")
 	}
+	out.Message.ReasoningContent = out.Reasoning
 	return out, nil
 }
 func (a *Anthropic) Discover(ctx context.Context, secret []byte) (Discovery, error) {

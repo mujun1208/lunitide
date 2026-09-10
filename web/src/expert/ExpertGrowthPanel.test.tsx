@@ -7,6 +7,12 @@ afterEach(cleanup)
 
 const expertId = '01ARZ3NDEKTSV4RRFFQ69G5FAV'
 
+it('does not show raw English growth path failures', async () => {
+  render(<LanguageProvider value="zh-CN"><ExpertGrowthPanel expertId={expertId} growthGet={vi.fn().mockRejectedValue(new Error('Failed to fetch'))} /></LanguageProvider>)
+  expect(await screen.findByRole('alert')).toHaveTextContent('成长路径加载失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('shows this expert path title and hides fake ladder when coverage is empty', async () => {
   const growthGet = vi.fn().mockResolvedValue({
     missionSnapshot: '持证人员的辅助检索顾问',

@@ -24,7 +24,7 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
   { id: 'appearance', icon: '◐', label: '外观', labelEn: 'Appearance', keywords: '主题 星光 月光 密度 动效 动画 theme' },
   { id: 'office-menu', icon: '▤', label: '办公菜单', labelEn: 'Office menu', keywords: '办公 同事聊天 机务工作台 办公工作台 会议记录 显示 隐藏 导航 office menu navigation' },
   { id: 'profile', icon: '☺', label: '个人资料', labelEn: 'Profile', keywords: '昵称 头像 状态 部门 职位 组织 局域网 发现 配对 密码 名片 nickname' },
-  { id: 'providers', icon: '◈', label: '模型与供应商', labelEn: 'Models & providers', keywords: '模型 API Key 供应商 BYOK endpoint 视觉 生图 生视频 OCR LLM models providers 能力路由 向量 GUI judge' },
+  { id: 'providers', icon: '◈', label: '模型与供应商', labelEn: 'Models & providers', keywords: '模型 API Key 供应商 BYOK endpoint 视觉 生图 生视频 OCR 路由 本机兜底 LLM models providers 能力路由 向量 GUI judge' },
   { id: 'voice', icon: '◉', label: '语音与麦克风', labelEn: 'Voice & microphone', keywords: '月伴 TTS ASR 朗读 麦克风 全双工 音色 云端 本地 晓晓 sherpa GPT-SoVITS 克隆 人生 唤醒 纠错 VAD 先应一声 语音插话 voice' },
   { id: 'meetings', icon: '◎', label: '会议纪要', labelEn: 'Meeting notes', keywords: '会议 纪要 听写 转写 字幕 摘要 待办 系统 火山 本机 sherpa 模型 meeting minutes asr' },
   { id: 'personal', icon: '✧', label: '个人智能', labelEn: 'Personal intelligence', keywords: '记忆 偏好 专家 画像 memory' },
@@ -35,7 +35,7 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
   { id: 'channels', icon: '✉', label: '消息通道', labelEn: 'Message channels', keywords: '飞书 企微 钉钉 微信 QQ webhook 机器人 发消息 im' },
   { id: 'subagents', icon: '⎇', label: '子智能体', labelEn: 'Subagents', keywords: '委派 spawn 并行' },
   { id: 'collab', icon: '⌘', label: '协作门禁', labelEn: 'Collaboration', keywords: '协作 门禁 审批' },
-  { id: 'diagnostics', icon: '◉', label: '诊断与更新', labelEn: 'Diagnostics', keywords: '日志 更新 健康 诊断' },
+  { id: 'diagnostics', icon: '◉', label: '诊断与更新', labelEn: 'Diagnostics', keywords: '日志 更新 健康 诊断 精简 Token 开关 重启' },
   { id: 'about', icon: 'ⓘ', label: '关于', labelEn: 'About', keywords: '版本 关于 月汐 about version' },
 ]
 

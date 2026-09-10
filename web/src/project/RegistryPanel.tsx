@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { asUserBridgeError } from '../bridge/bridgeUserError'
 import {
   BridgeClientError,
   createMutationAttempt,
@@ -21,10 +22,14 @@ import { designPhaseForType, devPhaseForType } from './checklistTypes'
 type EndpointRow = { method: string; path: string; operationId: string }
 type Tab = 'openapi' | 'db'
 
+function registryUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
 const problem = (e: unknown) =>
   e instanceof BridgeClientError
-    ? e
-    : new BridgeClientError(e instanceof Error ? e.message : '请求失败', 'CLIENT_ERROR', false, 'renderer')
+    ? asUserBridgeError(e, '请求失败')
+    : new BridgeClientError(registryUserError(e, '请求失败'), 'CLIENT_ERROR', false, 'renderer')
 
 const sampleOpenAPISpec = `{"openapi":"3.0.3","info":{"title":"Sample API","version":"1.0.0","description":"Paste or edit your OpenAPI document here."},"paths":{"/health":{"get":{"operationId":"getHealth","summary":"Health check","responses":{"200":{"description":"ok"}}}},"/items":{"get":{"operationId":"listItems","responses":{"200":{"description":"ok"}}},"post":{"operationId":"createItem","responses":{"201":{"description":"created"}}}}}}`
 

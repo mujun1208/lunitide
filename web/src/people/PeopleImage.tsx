@@ -3,6 +3,11 @@ import type { PeopleBridge } from '../bridge/client'
 import type { PeopleMessageDTO } from '../generated/bridge'
 import { Dialog } from '../ui/Dialog'
 
+function peopleImageUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 /** Preview from the engine avoids blocked file:// loads in the desktop webview. */
 export function PeopleImage({ message, people, onError }: {
   message: PeopleMessageDTO; people: PeopleBridge; onError: (message: string) => void
@@ -22,7 +27,11 @@ export function PeopleImage({ message, people, onError }: {
     return () => { live = false }
   }, [people, message.offerId, message.destPath])
   const openOriginal = () => {
-    if (message.destPath) void people.fileOpen({ destPath: message.destPath, fileName: message.fileName }).catch(error => onError(error instanceof Error ? error.message : '无法打开文件'))
+    if (message.destPath) void people.fileOpen({ destPath: message.destPath, fileName: message.fileName }).catch(error => {
+      const raw = error instanceof Error ? error.message.trim() : ''
+      if (/取消/.test(raw)) return
+      onError(peopleImageUserError(error, '无法打开文件'))
+    })
   }
   const previewFailed = () => { setDataUrl(''); setFailed(true) }
   return <>

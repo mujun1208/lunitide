@@ -5,6 +5,24 @@ import "testing"
 // TestCountTokensForModel_KnownModelExact verifies that a known OpenAI-family
 // model uses the exact BPE tokenizer and returns the well-known token counts.
 // These values are stable properties of the cl100k_base / o200k_base encoders.
+func TestEstimateForDeploymentDoesNotClaimExactOnFamilyModels(t *testing.T) {
+	ds := EstimateForDeployment("deepseek-chat", "hello world")
+	if ds.Method != "family_calibrated" || ds.Confidence != "medium" || ds.Count < 1 {
+		t.Fatalf("deepseek estimate: %+v", ds)
+	}
+	glm := EstimateForDeployment("glm-4", "hello world")
+	if glm.Method != "family_calibrated" || glm.Confidence != "medium" {
+		t.Fatalf("glm estimate: %+v", glm)
+	}
+	unknown := EstimateForDeployment("totally-unknown-model", "hello world")
+	if unknown.Method != "canonical_fallback" || unknown.Confidence != "low" {
+		t.Fatalf("unknown must stay fallback: %+v", unknown)
+	}
+	if EstimateTokens("hello world") != unknown.Count {
+		t.Fatal("fallback must reuse frozen canonical count")
+	}
+}
+
 func TestCountTokensForModel_KnownModelExact(t *testing.T) {
 	tests := []struct {
 		name  string

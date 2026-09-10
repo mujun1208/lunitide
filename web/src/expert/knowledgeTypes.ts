@@ -6,6 +6,7 @@ export type KnowledgeSource = {
   versions: Array<{version:number;sha256:string;state:string;error:string;createdAt:string}>
 }
 export type KnowledgeIngest = (payload: {expertId:string;path:string;mediaType?:string;sourceLocator?:string;expectedRevision?:number}) => Promise<{documents:Array<{indexState?:string;preview?:string[];failReason?:string}>}>
+export type KnowledgeDelete = (payload: {expertId:string;sourceId:string;expectedRevision?:number}) => Promise<{sourceId:string;state:string;error:string}>
 
 export type KnowledgeStats = {
   collectionId?: string

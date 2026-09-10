@@ -202,7 +202,8 @@ describe('CompanionSection voice path', () => {
     render(<CompanionSection />)
     await user.click(await screen.findByRole('radio', { name: /本地/ }))
     await user.selectOptions(await screen.findByRole('combobox', { name: '本地语音引擎' }), 'ref')
-    expect(await screen.findByText(/jieba_fast/)).toBeInTheDocument()
+    expect(await screen.findByText(/分词词典/)).toBeInTheDocument()
+    expect(screen.queryByText(/jieba_fast/)).not.toBeInTheDocument()
     expect(await screen.findByRole('button', { name: '试听' })).toBeEnabled()
   })
 

@@ -54,6 +54,27 @@ func TestParseBodyIndexerEmptyFileFails(t *testing.T) {
 	}
 }
 
+func TestParseBodyIndexerOfficeWithoutParseFnUsesChinese(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.docx")
+	if err := os.WriteFile(path, []byte("PK"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc := m8core.KBDocument{
+		DocumentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Version: 1,
+		MediaType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		ContentRef: path, SHA256: m8app.SourceDigest([]byte("PK")), SourceLocator: path,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	_, err := m8app.ParseBodyIndexer(context.Background(), doc)
+	if err == nil || !strings.Contains(err.Error(), "未配置正文解析") {
+		t.Fatalf("office without parse fn must stay Chinese: %v", err)
+	}
+	if strings.Contains(err.Error(), "parse function not configured") {
+		t.Fatalf("must not leak English parse-fn gap: %v", err)
+	}
+}
+
 func TestParseBodyIndexerRelativePathFails(t *testing.T) {
 	doc := m8core.KBDocument{
 		DocumentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Version: 1,

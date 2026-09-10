@@ -56,6 +56,12 @@
               "type": "string",
               "maxLength": 512
             },
+            "triggerKind": {
+              "type": "string"
+            },
+            "triggerSpec": {
+              "type": "string"
+            },
             "enabled": {
               "type": "boolean"
             },

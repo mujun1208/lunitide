@@ -9,6 +9,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/llmadapter"
+	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 	"github.com/oklog/ulid/v2"
 )
@@ -128,6 +129,44 @@ func TestChatToolLoopEmitsOneAggregateUsageAfterBothModelCalls(t *testing.T) {
 	want := bridge.UsageEvent{InputTokens: 30, OutputTokens: 4, TotalTokens: 34, CachedInputTokens: 15, CacheUsageReported: true}
 	if calls != 2 || !toolSeen || len(usages) != 1 || usages[0] != want || terminal.Type != bridge.EventCompleted {
 		t.Fatalf("tool loop usage: calls=%d tool=%t usages=%+v terminal=%+v", calls, toolSeen, usages, terminal)
+	}
+}
+
+func TestChatToolLoopPersistsAggregateUsage(t *testing.T) {
+	e := NewEngine(nil, "test")
+	spy := &assistantUsageSpy{}
+	e.messages = spy
+	e.leases = streamTestLease{}
+	e.SetChatTurnJournal(&budgetTestJournal{})
+	runtime, err := toolruntime.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { runtime.Close() })
+	e.SetToolRuntime(runtime)
+	calls := 0
+	a := budgetAdapter{run: func(_ context.Context, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+		calls++
+		u := llmadapter.Usage{InputTokens: 10 * calls, OutputTokens: 2, TotalTokens: 10*calls + 2, CachedInputTokens: 5 * calls, CacheUsageReported: true}
+		if calls == 1 {
+			return llmadapter.Response{Usage: u, Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "inspect-local", Name: "workspace.list", Arguments: []byte(`{"path":"."}`)}}}}, nil
+		}
+		if err := emit(llmadapter.Delta{Text: "已检查完成。"}); err != nil {
+			return llmadapter.Response{Usage: u}, err
+		}
+		return llmadapter.Response{Usage: u, Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "已检查完成。"}}, nil
+	}}
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return a, nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	id := ulid.Make().String()
+	state := &streamState{cancel: cancel, state: streamRunning, sessionID: chatAttachmentSessionID}
+	e.streams[id] = state
+	req := llmadapter.Request{Model: "model", Tools: engineToolDefinitions(), Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "检查工作目录内容"}}}
+	e.runStream(ctx, id, state, provider.Provider{ID: chatAttachmentProviderID, Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://example.test", CredentialRef: "credential-ref"}, req, func(bridge.Event) error { return nil }, chatAttachmentSessionID, executionModeFullAccess)
+	want := messageapp.AssistantUsage{Provider: "openai_compatible", Model: "model", InputTokens: 30, OutputTokens: 4, CachedInputTokens: 15, CacheUsageReported: true}
+	if spy.usage != want {
+		t.Fatalf("persist used last stream frame, not turn aggregate: %+v", spy.usage)
 	}
 }
 

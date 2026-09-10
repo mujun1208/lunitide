@@ -27,6 +27,35 @@ const profile = (partial: Partial<IdentityDTO> = {}): IdentityDTO => ({
 describe('ProfilePanel', () => {
   afterEach(() => cleanup())
 
+  function peopleStub(overrides: Partial<PeopleBridge> = {}): PeopleBridge {
+    return {
+      list: vi.fn(), pair: vi.fn(), discoveryGet: vi.fn(),
+      discoverySet: vi.fn(), threadList: vi.fn(), threadOpen: vi.fn(),
+      threadSend: vi.fn(), groupCreate: vi.fn(), fileDecide: vi.fn(),
+      threadTyping: vi.fn(), fileStage: vi.fn(), fileOpen: vi.fn(), filePreview: vi.fn(), filePick: vi.fn(), screenCapture: vi.fn(), peerAdd: vi.fn(), contactUpdate: vi.fn(),
+      ...overrides,
+    }
+  }
+
+  test('does not show raw English profile load or save failures', async () => {
+    render(<ProfilePanel identity={{ get: vi.fn().mockRejectedValue(new Error('Failed to fetch')), update: vi.fn(), passwordSet: vi.fn(), unlock: vi.fn() }} people={peopleStub()} />)
+    expect(await screen.findByText('无法读取个人资料')).toBeInTheDocument()
+    expect(screen.queryByText('Failed to fetch')).toBeNull()
+    cleanup()
+    const current = profile()
+    const identity: IdentityBridge = {
+      get: vi.fn().mockResolvedValue(current),
+      update: vi.fn().mockRejectedValue(new Error('Failed to fetch')),
+      passwordSet: vi.fn(),
+      unlock: vi.fn(),
+    }
+    render(<ProfilePanel identity={identity} people={peopleStub()} />)
+    await screen.findByDisplayValue('月汐用户')
+    await userEvent.click(screen.getByRole('button', { name: '保存名片' }))
+    expect(await screen.findByText('保存失败')).toBeInTheDocument()
+    expect(screen.queryByText('Failed to fetch')).toBeNull()
+  })
+
   test('saves nickname and keeps LAN discovery off by default', async () => {
     const current = profile()
     const identity: IdentityBridge = {

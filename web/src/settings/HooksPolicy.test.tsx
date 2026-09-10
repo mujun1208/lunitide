@@ -59,12 +59,30 @@ it('drops rows without id or tools instead of sending them', async () => {
 })
 
 it('surfaces the rejection reason and keeps rules editable', async () => {
-  const bridge = api({ setHooksPolicy: vi.fn().mockRejectedValue(new BridgeClientError('hooks-policy.json: hook "no-docx" block decision requires a message', 'HOOKS_POLICY_INVALID', false, 'trace')) })
+  const bridge = api({ setHooksPolicy: vi.fn().mockRejectedValue(new BridgeClientError('拦截规则必须填写说明', 'HOOKS_POLICY_INVALID', false, 'trace')) })
   render(<HooksPanel bridge={bridge} />)
   await screen.findByLabelText('规则 1 ID')
   fireEvent.click(screen.getByRole('button', { name: '保存并热生效' }))
-  expect(await screen.findByRole('status')).toHaveTextContent('block decision requires a message')
+  expect(await screen.findByRole('status')).toHaveTextContent('拦截规则必须填写说明')
   expect(screen.getByLabelText('规则 1 ID')).toHaveValue('no-docx')
+})
+
+it('does not show raw English load or save failures', async () => {
+  const bridge = api({
+    getHooksPolicy: vi.fn().mockRejectedValueOnce(new BridgeClientError('Failed to fetch', 'ENGINE_UNAVAILABLE', true, 'engine')),
+  })
+  render(<HooksPanel bridge={bridge} />)
+  expect(await screen.findByRole('status')).toHaveTextContent('Hooks 规则读取失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  const ready = api({
+    setHooksPolicy: vi.fn().mockRejectedValue(new BridgeClientError('Failed to fetch', 'ENGINE_UNAVAILABLE', true, 'engine')),
+  })
+  cleanup()
+  render(<HooksPanel bridge={ready} />)
+  await screen.findByLabelText('规则 1 ID')
+  fireEvent.click(screen.getByRole('button', { name: '保存并热生效' }))
+  expect(await screen.findByRole('status')).toHaveTextContent('Hooks 规则保存失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
 })
 
 it('surfaces load failures without unlocking save', async () => {

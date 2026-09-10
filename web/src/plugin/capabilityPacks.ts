@@ -135,8 +135,24 @@ export function combinedPluginMarket(): PluginMarketEntry[] {
 // reads renderer storage; authoritative references live in SQLite.
 export const PACK_LEDGER_KEY = 'lunitide:capability-pack-ledger'
 export type PackLedgerEntry = PluginPackInstallResult & {packId:string;failed?:string}
+export function localizePackUserError(msg?: string): string {
+  const text = (msg ?? '').trim()
+  if (!text) return ''
+  if (/is not installed/i.test(text)) return '权限开关尚未安装'
+  if (/is not built in/i.test(text)) return '权限开关不是内置能力'
+  if (/template unknown/i.test(text)) return '技能模板不存在'
+  if (/unknown MCP preset/i.test(text)) return '未知的 MCP 预设'
+  if (/^MCP .+ needs /i.test(text)) return 'MCP 需要先配置参数'
+  if (/probe failed/i.test(text)) return '能力包组件探测失败'
+  if (/capability pack not found/i.test(text)) return '能力包不存在'
+  if (/manifest or operation changed/i.test(text)) return '能力包清单或操作已变化，请刷新后再试'
+  if (/service unavailable/i.test(text)) return '能力包服务暂时不可用'
+  if (/[\u4e00-\u9fff]/.test(text)) return text
+  return '能力包操作失败，可继续或撤下'
+}
+
 export function packLedgerRecords(records:PluginPackInstallResult[]):PackLedgerEntry[]{
- return records.filter(row=>row.state!=='uninstalled').map(row=>({...row,packId:row.spec.id,failed:row.state==='installed'?undefined:(row.error||'操作未完成，可继续或撤下')}))
+ return records.filter(row=>row.state!=='uninstalled').map(row=>({...row,packId:row.spec.id,failed:row.state==='installed'?undefined:(localizePackUserError(row.error)||'操作未完成，可继续或撤下')}))
 }
 export async function loadPackLedger(plugins:PluginBridge):Promise<PackLedgerEntry[]>{
  if(!plugins.packList)throw new Error('能力包服务不可用，请更新客户端')
@@ -171,8 +187,9 @@ export function isPackPluginId(pluginId: string): boolean {
 export async function installCapabilityPack(pack:CapabilityPackSpec,deps:{plugins?:PluginBridge;repair?:boolean}):Promise<{ok:boolean;notes:string[];record:PackLedgerEntry}>{
  if(!deps.plugins?.packInstall)throw new Error('能力包安装服务不可用')
  const result=await deps.plugins.packInstall({spec:pack,repair:deps.repair??false,confirmed:true})
- const record={...result,packId:result.spec.id,failed:result.state==='installed'?undefined:result.error}
- return {ok:result.state==='installed',notes:result.state==='installed'?['已复核技能、MCP 与权限开关']: [result.error||'操作尚未完成'],record}
+ const error=localizePackUserError(result.error)
+ const record={...result,packId:result.spec.id,error,failed:result.state==='installed'?undefined:error}
+ return {ok:result.state==='installed',notes:result.state==='installed'?['已复核技能、MCP 与权限开关']: [error||'操作尚未完成'],record}
 }
 export async function uninstallCapabilityPack(pack:CapabilityPackSpec,deps:{plugins?:PluginBridge;record?:PackLedgerEntry}):Promise<{ok:boolean;notes:string[]}>{
  if(!deps.plugins?.packUninstall||!deps.record)throw new Error('缺少服务端安装记录，请刷新后重试')

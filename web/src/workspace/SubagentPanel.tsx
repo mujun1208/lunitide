@@ -3,6 +3,11 @@ import { subagentBridge } from '../bridge/client'
 import type { SubagentTreeResult } from '../generated/bridge'
 import { loadSubagentSettings } from '../settings/subagentSettings'
 
+function subagentUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 type Row = SubagentTreeResult['subagents'][number]
 
 const STATUS_LABEL: Record<string, string> = {
@@ -33,7 +38,7 @@ export function SubagentPanel({ sessionId, refreshKey = 0 }: { sessionId: string
       const r = await subagentBridge.tree({ rootRunId: sessionId, limit: 50 })
       setRows(r.subagents ?? [])
     } catch (e) {
-      setError(e instanceof Error ? e.message : '子智能体列表载入失败')
+      setError(subagentUserError(e, '子智能体列表载入失败'))
     } finally {
       setLoading(false)
     }
@@ -62,7 +67,7 @@ export function SubagentPanel({ sessionId, refreshKey = 0 }: { sessionId: string
       const text = (r as { summary?: string }).summary ?? (r.observations?.map(o => o.summary).join('\n') ?? '')
       setSummary(v => ({ ...v, [id]: text || '暂无摘要' }))
     } catch (e) {
-      setSummary(v => ({ ...v, [id]: e instanceof Error ? e.message : '读取摘要失败' }))
+      setSummary(v => ({ ...v, [id]: subagentUserError(e, '读取摘要失败') }))
     }
   }
 

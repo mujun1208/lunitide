@@ -43,6 +43,12 @@ func (e *Engine) skillToolDefinitions() []llmadapter.ToolDefinition {
 // parking the stream in an approval flow the caller may not be able to
 // answer (voice companion).
 func (e *Engine) invokeSkillTool(ctx context.Context, mode executionMode, session string, args json.RawMessage) (toolruntime.Result, error) {
+	return e.recordExistingToolCall(ctx, session, "skill.invoke", args, func() (toolruntime.Result, error) {
+		return e.runSkillTool(ctx, mode, session, args)
+	})
+}
+
+func (e *Engine) runSkillTool(ctx context.Context, mode executionMode, session string, args json.RawMessage) (toolruntime.Result, error) {
 	if err := e.CheckCapability(ctx, "skills"); err != nil {
 		return toolruntime.Result{}, err
 	}
@@ -86,7 +92,14 @@ func validateSkillToolInput(input string) error {
 	return nil
 }
 
-func (e *Engine) invokeSkillCreateTool(ctx context.Context, args json.RawMessage) (toolruntime.Result, error) {
+func (e *Engine) invokeSkillCreateTool(ctx context.Context, session string, args json.RawMessage) (toolruntime.Result, error) {
+	return e.recordExistingToolCall(ctx, receiptSession(ctx, session), "skill.create", args, func() (toolruntime.Result, error) {
+		return e.runSkillCreateTool(ctx, session, args)
+	})
+}
+
+func (e *Engine) runSkillCreateTool(ctx context.Context, session string, args json.RawMessage) (toolruntime.Result, error) {
+	_ = session
 	if err := e.CheckCapability(ctx, "skills"); err != nil {
 		return toolruntime.Result{}, err
 	}
@@ -221,6 +234,12 @@ func skillViewFolderKeys(id, label string) []string {
 // invokeExpertCreateTool routes a model-initiated expert.create call through
 // the M8 expert service. New experts remain disabled until explicitly enabled.
 func (e *Engine) invokeExpertCreateTool(ctx context.Context, session string, args json.RawMessage) (toolruntime.Result, error) {
+	return e.recordExistingToolCall(ctx, session, "expert.create", args, func() (toolruntime.Result, error) {
+		return e.runExpertCreateTool(ctx, session, args)
+	})
+}
+
+func (e *Engine) runExpertCreateTool(ctx context.Context, session string, args json.RawMessage) (toolruntime.Result, error) {
 	var a struct {
 		Name                string   `json:"name"`
 		Division            string   `json:"division"`
@@ -266,6 +285,12 @@ func (e *Engine) invokeExpertCreateTool(ctx context.Context, session string, arg
 }
 
 func (e *Engine) invokePluginCreateTool(ctx context.Context, session string, args json.RawMessage) (toolruntime.Result, error) {
+	return e.recordExistingToolCall(ctx, receiptSession(ctx, session), "plugin.create", args, func() (toolruntime.Result, error) {
+		return e.runPluginCreateTool(ctx, session, args)
+	})
+}
+
+func (e *Engine) runPluginCreateTool(ctx context.Context, session string, args json.RawMessage) (toolruntime.Result, error) {
 	var a struct {
 		PluginID    string         `json:"pluginId"`
 		Name        string         `json:"name"`

@@ -9,6 +9,12 @@ import { parseMroContext, type MroSessionContext } from './mroContext'
 import { parseAogPaste } from './aogPaste'
 import { QuickForm, type QuickFormSpec } from './MroForms'
 import {bindMroPage, useMroPagination, type MroPageRequest, type MroPageMeta} from './pagination'
+import {localizeKBFailReason} from '../expert/kbFailReason'
+
+function mroUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
 
 export type MroAircraft = { aircraftId: string; tailNo: string; msn: string; model: string; config: string }
 export type MroManual = {
@@ -339,7 +345,7 @@ export function MroWorkbenchPage({
         setStock(v => ({ ...v, connectionId: conns[0].id }))
       }
     })
-    void (auditList?.().catch(e => { if (alive) setError(e instanceof Error ? e.message : (zh ? '审计加载失败' : 'Audit load failed')); return { items: [] as AuditRow[] } }) ?? Promise.resolve({ items: [] as AuditRow[] })).then(result => {
+    void (auditList?.().catch(e => { if (alive) setError(mroUserError(e, zh ? '审计加载失败' : 'Audit load failed')); return { items: [] as AuditRow[] } }) ?? Promise.resolve({ items: [] as AuditRow[] })).then(result => {
       if (alive) setAuditItems(result.items)
     })
     const keys = ['aircraft', 'manuals', 'constraints', 'components', 'pireps', 'aog', 'po', 'triggers', 'intervals']
@@ -397,7 +403,7 @@ export function MroWorkbenchPage({
       const ingested = await onIngestManual({ expertId, path: manualFile.path, sourceLocator: buildImportLocator(), mediaType })
       const failed = ingested.documents.find(d => d.indexState === 'failed')
       if (failed) {
-        setError((zh ? '解析失败：' : 'Parse failed: ') + (failed.failReason ?? (zh ? '未产出可检索正文' : 'no searchable body')))
+        setError((zh ? '解析失败：' : 'Parse failed: ') + localizeKBFailReason(failed.failReason ?? (zh ? '未产出可检索正文' : 'no searchable body')))
         return
       }
       const docs = ingested.documents.filter(d => d.documentId).map((d, i) => ({ documentId: d.documentId, partNo: i + 1 }))
@@ -419,7 +425,7 @@ export function MroWorkbenchPage({
       setManualDraft({ title: '', docType: 'AMM', revision: '', status: 'controlled', ata: '', tail: '' })
       setManualFile(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : (zh ? '导入失败' : 'Could not import manual'))
+      setError(mroUserError(e, zh ? '导入失败' : 'Could not import manual'))
     }
   }
 
@@ -449,7 +455,7 @@ export function MroWorkbenchPage({
       link.click()
       URL.revokeObjectURL(url)
     } catch (e) {
-      setError(e instanceof Error ? e.message : (zh ? '检查单生成失败' : 'Could not build checklist'))
+      setError(mroUserError(e, zh ? '检查单生成失败' : 'Could not build checklist'))
     }
   }
 
@@ -464,7 +470,7 @@ export function MroWorkbenchPage({
       setRegisterOpen(false)
       setDraft({ tailNo: '', msn: '', model: '', config: '' })
     } catch (e) {
-      setError(e instanceof Error ? e.message : (zh ? '登记失败' : 'Could not register tail'))
+      setError(mroUserError(e, zh ? '登记失败' : 'Could not register tail'))
     }
   }
 
@@ -484,7 +490,7 @@ export function MroWorkbenchPage({
         prompt: `质量通报串查 批次 ${lot.lotNo}${chain.tails?.length ? ` 机尾 ${chain.tails.join(',')}` : ''}`,
       })
       onAskOpened?.(opened)
-    })().catch(e => setError(e instanceof Error ? e.message : String(e)))
+    })().catch(e => setError(mroUserError(e, zh ? '通报串查失败' : 'Bulletin lookup failed')))
   }
 
   const addKitTodo = (kit: MroKitRow) => {
@@ -498,7 +504,7 @@ export function MroWorkbenchPage({
         setTodoRows(rows => rows.some(t => t.kind === 'parts_request' && t.ref === kit.id)
           ? rows
           : [...rows, { id: result.id || `kit-${kit.id}`, kind: 'parts_request', ref: kit.id, status: 'open', detail }])
-      }).catch(e => setError(e instanceof Error ? e.message : String(e)))
+      }).catch(e => setError(mroUserError(e, zh ? '待办写入失败' : 'Could not add todo')))
       return
     }
     setTodoRows(rows => rows.some(t => t.kind === 'parts_request' && t.ref === kit.id)
@@ -522,7 +528,7 @@ export function MroWorkbenchPage({
       if (result.todos) setTodoRows(rows => [...new Map([...rows, ...result.todos!].map(row => [row.id, row])).values()])
       await refetchPlan()
     } catch (e) {
-      setError(e instanceof Error ? e.message : (zh ? '发布失败，请复查当前约束与来源' : 'Publish failed. Review the current constraints and sources.'))
+      setError(mroUserError(e, zh ? '发布失败，请复查当前约束与来源' : 'Publish failed. Review the current constraints and sources.'))
       try { await refetchPlan() } catch { /* Keep the publication error and previous rows visible. */ }
     } finally {
       publishPending.current = false; setPublishing('')
@@ -928,11 +934,12 @@ export function MroWorkbenchPage({
           ) : rail === 'audit' ? (
             <div className="mro-domain">
               <div className="mro-domain-head"><h2 className="view-subtitle">{zh ? '审计' : 'Audit'}</h2></div>
-              {auditItems.length === 0 ? (
+              {error && <p role="alert">{error}</p>}
+              {auditItems.length === 0 && !error ? (
                 <div className="mro-empty">
                   <p>{zh ? '还没有可回放的机务审计。' : 'No MRO audit events to replay yet.'}</p>
                 </div>
-              ) : (
+              ) : auditItems.length === 0 ? null : (
                 <ol className="mro-audit-list" aria-label={zh ? '审计回放' : 'Audit replay'}>
                   {auditItems.map(item => (
                     <li key={item.id}>
@@ -1264,7 +1271,7 @@ export function MroWorkbenchPage({
                           })
                           setBindMsg(zh ? '库存表已绑定' : 'Stock table bound')
                         } catch (err) {
-                          setError(err instanceof Error ? err.message : (zh ? '绑定失败' : 'Bind failed'))
+                          setError(mroUserError(err, zh ? '绑定失败' : 'Bind failed'))
                         }
                       }}>
                         <p>{zh ? '把已探测连接映射到库存表。不手写 SQL。' : 'Map a probed connection to the stock table. No handwritten SQL.'}</p>
@@ -1298,7 +1305,7 @@ export function MroWorkbenchPage({
                   {planTab === 'intervals' && onProposeInterval && addBtn('interval-propose', zh ? '复审草案' : 'Propose')}
                   {planTab === 'schedule' && onAddSchedule && addBtn('schedule', zh ? '登记窗口' : 'Add window')}
                   {planTab === 'schedule' && onSetCapacity && addBtn('capacity', zh ? '设置工时' : 'Set capacity')}
-                  {planTab === 'schedule' && constraintList && <button type="button" onClick={() => void refetchConstraints().catch(e => { setConstraintChecked(false); setError(e instanceof Error ? e.message : (zh ? '检查失败' : 'Check failed')) })}>{zh ? '运行检查' : 'Run check'}</button>}
+                  {planTab === 'schedule' && constraintList && <button type="button" onClick={() => void refetchConstraints().catch(e => { setConstraintChecked(false); setError(mroUserError(e, zh ? '检查失败' : 'Check failed')) })}>{zh ? '运行检查' : 'Run check'}</button>}
                 </div>
               </div>
               {subTabs<PlanTab>([

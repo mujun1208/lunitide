@@ -19,10 +19,11 @@ const (
 )
 
 type Message struct {
-	Role       Role       `json:"role"`
-	Content    string     `json:"content"`
-	ToolCallID string     `json:"toolCallId,omitempty"`
-	ToolCalls  []ToolCall `json:"toolCalls,omitempty"`
+	Role             Role       `json:"role"`
+	Content          string     `json:"content"`
+	ReasoningContent string     `json:"reasoningContent,omitempty"`
+	ToolCallID       string     `json:"toolCallId,omitempty"`
+	ToolCalls        []ToolCall `json:"toolCalls,omitempty"`
 }
 
 type ToolDefinition struct {
@@ -63,6 +64,9 @@ type Request struct {
 	IdempotencyKey   string
 	Tools            []ToolDefinition
 	DisableReasoning bool // 月伴模式：跳过推理/思考内容，直接流式输出文本
+	// Efficiency is an observation-only snapshot of request preparation.
+	// Adapters must not serialize it to providers.
+	Efficiency EfficiencySnapshot
 }
 
 type Response struct {

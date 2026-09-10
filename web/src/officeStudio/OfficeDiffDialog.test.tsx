@@ -172,6 +172,35 @@ it('does not claim PDF content or layout is unchanged from a hash-only compariso
   expect(screen.queryByText('内容节点')).toBeNull();
 });
 
+it('does not show raw English transport failures', async () => {
+  render(
+    <OfficeDiffDialog
+      taskId="task"
+      fileName="报告.docx"
+      baseVersion={baseVersion}
+      version={version}
+      request={vi.fn().mockRejectedValue(new Error('Failed to fetch'))}
+      onClose={vi.fn()}
+    />,
+  )
+  expect(await screen.findByRole('alert')).toHaveTextContent('版本对比暂时不可用，请重试。')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
+it('leaves FEATURE_DISABLED inspect text unchanged', async () => {
+  render(
+    <OfficeDiffDialog
+      taskId="task"
+      fileName="报告.docx"
+      baseVersion={baseVersion}
+      version={version}
+      request={vi.fn().mockRejectedValue(new Error('FEATURE_DISABLED: office inspect unavailable'))}
+      onClose={vi.fn()}
+    />,
+  )
+  expect(await screen.findByRole('alert')).toHaveTextContent('FEATURE_DISABLED: office inspect unavailable')
+})
+
 it('rejects a diff response that belongs to another selected version', async () => {
   const request = vi.fn(async () => ({ ...diff(), versionId: 'other-version' }));
   render(

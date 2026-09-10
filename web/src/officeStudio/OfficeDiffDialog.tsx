@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Dialog } from '../ui/Dialog';
 import type { OfficeDiff, OfficeVersion } from './officeStudioApi';
 import { officeBytes } from './officePresentation';
+import { officeStudioUserError } from './officeUserError';
 
 type DiffInput = { taskId: string; baseVersionId: string; versionId: string; nodeOffset?: number; partOffset?: number };
 const changeName = (value: string) => ({ added: '新增', deleted: '删除', modified: '修改' })[value] || value;
@@ -45,7 +46,7 @@ export function OfficeDiffDialog({
         setResult(value);
       })
       .catch((cause) => {
-        if (active) setError(cause instanceof Error ? cause.message : '版本对比暂时不可用，请重试。');
+        if (active) setError(officeStudioUserError(cause, '版本对比暂时不可用，请重试。'));
       })
       .finally(() => {
         if (active) setLoading(false);

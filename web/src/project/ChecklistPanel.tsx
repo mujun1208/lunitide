@@ -24,10 +24,14 @@ import { rollbackTestFailToDev } from './checklistStore'
 
 type DeliverableItem = DeliverableListResult['items'][number]
 
+function checklistUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
 const problem = (e: unknown) =>
   e instanceof BridgeClientError
     ? e
-    : new BridgeClientError(e instanceof Error ? e.message : '请求失败', 'CLIENT_ERROR', false, 'renderer')
+    : new BridgeClientError(checklistUserError(e, '请求失败'), 'CLIENT_ERROR', false, 'renderer')
 
 const STATUS_LABEL: Record<ChecklistItemStatus, string> = {
   pending: '待处理',

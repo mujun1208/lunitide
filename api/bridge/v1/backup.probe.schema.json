@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/backup.probe.schema.json",
+  "title": "backup.probe payload",
+  "x-method": "backup.probe",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "directory": { "type": "string", "minLength": 1, "maxLength": 512 }
+  },
+  "required": ["directory"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": { "type": "boolean" },
+      "format": { "type": "string", "maxLength": 64 },
+      "files": { "type": "integer", "minimum": 0 },
+      "reason": { "type": "string", "maxLength": 256 }
+    },
+    "required": ["ok", "format", "files"]
+  },
+  "x-examples": {
+    "positive": [{ "directory": "C:/tmp/backup-fixture" }],
+    "negative": [{ "unexpected": true }, {}]
+  }
+}

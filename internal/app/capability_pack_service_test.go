@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/capabilitypack"
 	"github.com/lunitide/lunitide/internal/m7app"
 	"github.com/lunitide/lunitide/internal/m8app"
@@ -228,5 +230,67 @@ func TestCapabilityPackFailureResumeAndManualClaim(t *testing.T) {
 	_, state := packGate(t, e, "web-fetch")
 	if state != "enabled" {
 		t.Fatal("manual ownership was disabled")
+	}
+}
+
+func TestPackFailureUserMessagesAreChinese(t *testing.T) {
+	r := bridge.Request{ID: "pack-zh", Method: "plugin.pack.uninstall"}
+	cases := []struct {
+		err  error
+		code string
+	}{
+		{capabilitypack.ErrNotFound, "PACK_NOT_FOUND"},
+		{capabilitypack.ErrConflict, "PACK_CONFLICT"},
+		{capabilitypack.ErrUnavailable, "PACK_OPERATION_FAILED"},
+	}
+	for _, tc := range cases {
+		got := packFailure(r, tc.err)
+		if got.OK || got.Error == nil || got.Error.Code != tc.code {
+			t.Fatalf("%v: %+v", tc.err, got)
+		}
+		if strings.Contains(got.Error.Message, "capability pack") || !officeUserMessageHasHan(got.Error.Message) {
+			t.Fatalf("%v leaked %q", tc.err, got.Error.Message)
+		}
+	}
+}
+
+func TestPluginPackListLocalizesStoredEnglishError(t *testing.T) {
+	e, store := packFixture(t)
+	ctx := context.Background()
+	seed := capabilitypack.Record{
+		Spec:      capabilitypack.Spec{ID: "pack-browser", Name: "浏览器工作包", Skills: []string{"web-search"}},
+		Digest:    strings.Repeat("b", 64),
+		State:     "failed",
+		Desired:   "installed",
+		Version:   1,
+		Error:     "gate web-fetch is not installed",
+		CreatedAt: "2026-09-10T00:00:00Z",
+		UpdatedAt: "2026-09-10T00:00:00Z",
+	}
+	if err := store.AgentRuntimeRepository().TransactPack(ctx, func(tx capabilitypack.Tx) error {
+		return tx.SavePack(seed, 0)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp := handlePluginPackList(e, ctx, bridge.Request{ID: "pack-list-zh", Method: "plugin.pack.list"})
+	if !resp.OK {
+		t.Fatalf("list: %+v", resp.Error)
+	}
+	var body struct {
+		Items []capabilitypack.Record `json:"items"`
+	}
+	raw, err := json.Marshal(resp.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(raw, &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Items) != 1 {
+		t.Fatalf("items=%d payload=%s", len(body.Items), raw)
+	}
+	got := body.Items[0].Error
+	if strings.Contains(got, "is not installed") || strings.Contains(got, "gate web-fetch") || !officeUserMessageHasHan(got) {
+		t.Fatalf("stored pack error must stay Chinese, got %q", got)
 	}
 }

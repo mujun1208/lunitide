@@ -69,7 +69,8 @@ func organizationWriteAllowed(state, method string) bool {
 	case "project.list", "project.get", "session.list", "session.get", "session.experts.get", "session.metadata.get", "session.folder.get", "session.folder.list", "session.folder.open",
 		"message.list", "message.search", "message.process", "plan.get", "plan.list", "plan.run.tree", "node.list", "stage.list", "deliverable.list", "template.list", "attachment.get", "attachment.list", "projectAttachment.get", "projectAttachment.list",
 		"agent.run.get", "command.get", "evidence.list", "review.list", "release.getRevision", "release.getPackage", "release.getPromotion",
-		"context.status", "context.handoff.inspect", "context.handoff.list", "context.handoff.list-imports", "chat.turn.get",
+		"context.status", "context.handoff.inspect", "context.handoff.list", "context.handoff.list-imports", "chat.turn.get", "chat.usage.get",
+		"operation.list", "operation.get", "files.status", "ocr.routing.get",
 		"workspace.list", "workspace.read", "workspace.open", "workspace.root.get", "workspace.artifact.preview", "workspace.artifactReview.list",
 		"memory.get", "memory.list", "memory.search", "ontology.node.get", "ontology.node.list", "ontology.node.search", "ontology.edge.list", "trace.query",
 		"automation.job.list", "automation.run.list", "automation.status", "run.queueList", "subagent.tree":

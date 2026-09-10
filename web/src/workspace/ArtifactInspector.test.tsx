@@ -9,6 +9,21 @@ const sessionId='01ARZ3NDEKTSV4RRFFQ69G5FAV'
 afterEach(cleanup)
 beforeEach(()=>{vi.resetAllMocks();vi.mocked(sessionFolderBridge.open).mockResolvedValue({opened:'E:/项目/报告.docx'})})
 
+it('does not show raw English preview or open failures',async()=>{
+  vi.mocked(artifactReviewBridge.preview).mockRejectedValue(new Error('Failed to fetch'))
+  render(<ArtifactInspector sessionId={sessionId} path="notes.md" onClose={vi.fn()}/>)
+  expect(await screen.findByRole('alert')).toHaveTextContent('文件预览失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  cleanup()
+  vi.mocked(artifactReviewBridge.preview).mockResolvedValue({kind:'text',path:'notes.md',content:'正文',size:2})
+  vi.mocked(sessionFolderBridge.open).mockRejectedValue(new Error('Failed to fetch'))
+  render(<ArtifactInspector sessionId={sessionId} path="notes.md" onClose={vi.fn()}/>)
+  await screen.findByText('正文')
+  fireEvent.click(screen.getByRole('button',{name:'本机打开'}))
+  expect(await screen.findByRole('alert')).toHaveTextContent('无法打开文件')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('displays a host preview and opens the same file or folder without guessing Desktop', async()=>{
   const path='E:/项目/报告.docx'
   vi.mocked(artifactReviewBridge.preview).mockResolvedValue({kind:'docx',path,content:'报告正文',size:1234,absolutePath:path})

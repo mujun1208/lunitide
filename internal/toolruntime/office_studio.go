@@ -26,3 +26,7 @@ func ExecutionKey(ctx context.Context) string {
 func (r *Runtime) SetOfficeExecutor(f func(context.Context, string, string, json.RawMessage) ([]byte, string, string, error)) {
 	r.officeExec = f
 }
+
+func (r *Runtime) SetDocumentText(f func(ctx context.Context, name string, raw []byte, media string) (text, kind, method string, pages int, err error)) {
+	r.documentText = f
+}

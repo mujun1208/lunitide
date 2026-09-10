@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { BridgeClientError, createMutationAttempt, getCapabilityRolesBridge, getProviderBridge, type CapabilityRoleName, type CapabilityRoleRow, type CapabilityRolesBridge, type ProviderBridge } from '../bridge/client'
+import { createMutationAttempt, getCapabilityRolesBridge, getProviderBridge, type CapabilityRoleName, type CapabilityRoleRow, type CapabilityRolesBridge, type ProviderBridge } from '../bridge/client'
 import type { ProviderDTO } from '../generated/bridge'
 import { modelKind } from '../provider/modelKind'
 
@@ -11,6 +11,11 @@ const ROLES: { id: CapabilityRoleName; label: string; hint: string }[] = [
   { id: 'judge', label: 'Judge', hint: '验证 Complete；与 chat 相同必须勾选允许' },
   { id: 'gui', label: 'GUI', hint: '只作兜底，模型看不见' },
 ]
+
+function capabilityUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
 
 type Option = { value: string; label: string; providerId: string; modelId: string }
 
@@ -53,7 +58,7 @@ export function CapabilityRouting({ providers, roles }: { providers?: ProviderBr
       setRows(got.roles)
       setError('')
     } catch (e) {
-      if (epoch === generation.current) setError(e instanceof BridgeClientError ? e.message : '能力路由载入失败')
+      if (epoch === generation.current) setError(capabilityUserError(e, '能力路由载入失败'))
     }
   }
 
@@ -82,7 +87,7 @@ export function CapabilityRouting({ providers, roles }: { providers?: ProviderBr
       setRows(saved.roles)
       setNotice('能力路由已保存')
     } catch (e) {
-      if (epoch === generation.current) setError(e instanceof BridgeClientError ? e.message : '能力路由保存失败')
+      if (epoch === generation.current) setError(capabilityUserError(e, '能力路由保存失败'))
     } finally {
       saving.current = false
       if (epoch === generation.current) setBusy(false)

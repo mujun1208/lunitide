@@ -104,7 +104,8 @@ describe('inspectCompanionEntry', () => {
       localAsr: async () => ({ supported: true, ready: true }),
       refEngine: async () => ({ state: 'offline', last_error: 'jieba_fast dict.txt missing' }),
     }, 'ref')
-    expect(report.lights[1].label).toMatch(/jieba_fast/)
+    expect(report.lights[1].label).toMatch(/分词词典/)
+    expect(report.lights[1].label).not.toMatch(/jieba_fast/)
   })
 
   test('allows local entry when sherpa and SoVITS are both ready', async () => {

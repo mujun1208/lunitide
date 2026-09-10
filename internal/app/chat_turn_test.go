@@ -12,6 +12,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/queueinput"
 	"github.com/lunitide/lunitide/internal/llmadapter"
+	"github.com/lunitide/lunitide/internal/modelfit"
 	"github.com/lunitide/lunitide/internal/queueapp"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
@@ -259,6 +260,15 @@ func TestUnfinishedTurnInjectionUsesCheckpoint(t *testing.T) {
 	}
 	if e.unfinishedTurnInjection(session, "新开一个话题") != "" {
 		t.Fatal("non-resume turns must not force the old task")
+	}
+
+	e.saveTurnCheckpoint(session, chatTurnCheckpoint{
+		Status: turnStatusInterrupted, Goal: "写周报", LastTools: []string{"workspace.read"},
+		Continuation: &modelfit.ContinuationEnvelope{Completeness: modelfit.CompletenessStructuredOnly},
+	})
+	pack := e.unfinishedTurnInjection(session, resumeUserPrompt)
+	if !strings.Contains(pack, "business_rebuild") || !strings.Contains(pack, "workspace.read") || !strings.Contains(pack, "不重放厂商私有字段") {
+		t.Fatalf("structured recovery pack missing: %q", pack)
 	}
 }
 

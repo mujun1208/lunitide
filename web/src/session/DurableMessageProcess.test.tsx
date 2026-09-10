@@ -8,6 +8,13 @@ afterEach(()=>{cleanup();vi.restoreAllMocks()})
 const sessionId='01ARZ3NDEKTSV4RRFFQ69G5FAV',messageId='01ARZ3NDEKTSV4RRFFQ69G5FAA'
 const result:MessageProcessResult={messageId,thinking:'先核对输入。\n\n再检查文件是否存在。',equipment:{experts:['AI 工程师'],skills:['文件检查']},tools:[{callId:'read-1',name:'workspace.read',status:'tool_completed',summary:'读取完成'}],truncated:false}
 
+it('does not show raw English process load failures',async()=>{
+  render(<DurableMessageProcess sessionId={sessionId} messageId={messageId} bridge={{process:vi.fn().mockRejectedValue(new Error('Failed to fetch'))}}/>)
+  fireEvent.click(screen.getByText('任务过程'))
+  expect(await screen.findByText('过程记录暂时无法读取')).toBeInTheDocument()
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('loads only after expanding and preserves the multi-paragraph process across toggles',async()=>{
   const process=vi.fn().mockResolvedValue(result)
   const {container}=render(<DurableMessageProcess sessionId={sessionId} messageId={messageId} bridge={{process}}/>)

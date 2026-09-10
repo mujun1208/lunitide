@@ -36,6 +36,31 @@ var quotePattern = regexp.MustCompile(`"([^"]{4,})"`)
 // extraction on adversarial inputs.
 const maxProtectedFacts = 200
 
+var toolCallIDPattern = regexp.MustCompile(`callId=([A-Za-z0-9_-]+)`)
+var nativeToolCallIDPattern = regexp.MustCompile(`(?:"(?:id|tool_call_id)"\s*:\s*"([A-Za-z0-9_-]+)")`)
+
+func ExtractProtocolGroupFacts(messages []SummaryMessage) []ProtectedFact {
+	seen := make(map[string]bool)
+	var facts []ProtectedFact
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] || len(facts) >= maxProtectedFacts {
+			return
+		}
+		seen[id] = true
+		facts = append(facts, ProtectedFact{Value: id, Kind: "protocol"})
+	}
+	for _, msg := range messages {
+		for _, m := range toolCallIDPattern.FindAllStringSubmatch(msg.Content, -1) {
+			add(m[1])
+		}
+		for _, m := range nativeToolCallIDPattern.FindAllStringSubmatch(msg.Content, -1) {
+			add(m[1])
+		}
+	}
+	return facts
+}
+
 // ExtractProtectedFacts extracts exact identifiers, values, and quotations
 // from source messages that must be preserved verbatim in the summary.
 // Extraction is deterministic and ordered by first appearance.

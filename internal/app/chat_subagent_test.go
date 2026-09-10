@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -13,6 +14,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
 	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/m7app"
+	"github.com/lunitide/lunitide/internal/modelfit"
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
@@ -75,6 +77,49 @@ func newSubagentChatEngine(t *testing.T) *Engine {
 const subTestSession = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
 func subTestPolicy() subagentChatPolicy { return defaultSubagentChatPolicy() }
+
+func TestSubagentToolRecordsReceiptWithoutAutoApprove(t *testing.T) {
+	e := newSubagentChatEngine(t)
+	store := &memToolOps{}
+	e.SetToolOperationStore(store)
+	if err := os.MkdirAll(filepath.Join(e.tools.WorkspaceRoot(), subTestSession), 0700); err != nil {
+		t.Fatal(err)
+	}
+	listed := e.runSubagentTool(context.Background(), subTestSession, llmadapter.ToolCall{
+		ID: "list", Name: "workspace.list", Arguments: json.RawMessage(`{"path":"."}`),
+	}, executionModeApproval)
+	if strings.Contains(listed, "approval required") {
+		t.Fatalf("read must stay ungated: %s", listed)
+	}
+	read := store.last()
+	if read.ToolName != "workspace.list" || read.State != modelfit.OpSucceeded {
+		t.Fatalf("subagent read must leave a receipt: %+v", read)
+	}
+	write := e.runSubagentTool(context.Background(), subTestSession, llmadapter.ToolCall{
+		ID: "write", Name: "workspace.write", Arguments: json.RawMessage(`{"path":"secret.txt","content":"no"}`),
+	}, executionModeApproval)
+	if !strings.Contains(write, "approval required") {
+		t.Fatalf("write must keep approved=false: %s", write)
+	}
+	var writeOp modelfit.ToolOperation
+	for _, op := range mustListToolOps(t, store, subTestSession) {
+		if op.ToolName == "workspace.write" {
+			writeOp = op
+		}
+	}
+	if writeOp.ID == "" || writeOp.State == modelfit.OpSucceeded {
+		t.Fatalf("gated write must be recorded without succeeding: %+v", writeOp)
+	}
+}
+
+func mustListToolOps(t *testing.T, store *memToolOps, owner string) []modelfit.ToolOperation {
+	t.Helper()
+	ops, err := store.ListToolOperations(context.Background(), owner, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ops
+}
 
 func TestSubagentToolDefinitionsTiers(t *testing.T) {
 	e := newSubagentChatEngine(t)
@@ -383,5 +428,19 @@ func TestSubagentOutOfStepsStillReportsWhatItFound(t *testing.T) {
 	// accounting stays honest.
 	if want := int64(profile.MaxSteps*3 + 7); spent != want {
 		t.Fatalf("spent = %d, want %d", spent, want)
+	}
+}
+
+func TestSubagentFailureReportIsChinese(t *testing.T) {
+	e := newSubagentChatEngine(t)
+	out, err := e.invokeSubagentTool(context.Background(), &subagentOutcomeAdapter{mode: "failure"}, nil, "m", subTestSession, "subagent.spawn", json.RawMessage(`{"purpose":"检查失败文案"}`), subTestPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "子任务执行失败") {
+		t.Fatalf("failure summary must be Chinese: %s", out)
+	}
+	if strings.Contains(out, "subagent execution failed") {
+		t.Fatalf("must not leak English failure prefix: %s", out)
 	}
 }

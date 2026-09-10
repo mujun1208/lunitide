@@ -67,6 +67,19 @@
       "maxLength": 512,
       "pattern": "^https://[a-zA-Z0-9.-]+\\..*$"
     },
+    "triggerKind": {
+      "enum": [
+        "schedule",
+        "file_set_changed",
+        "http_snapshot_changed",
+        "metric_threshold",
+        "allowed_message"
+      ]
+    },
+    "triggerSpec": {
+      "type": "string",
+      "maxLength": 2048
+    },
     "enabled": {
       "type": "boolean"
     },

@@ -54,3 +54,26 @@ func TestContextStatusReportsActualEfficiencySwitch(t *testing.T) {
 		})
 	}
 }
+
+func TestContextStatusReportsWiredEfficiencyAfterEnvFlip(t *testing.T) {
+	t.Setenv("LUNITIDE_TOKEN_EFFICIENCY", "")
+	e := NewEngine(nil, "test")
+	if e.gateway.DisableTokenEfficiency {
+		t.Fatal("constructor must wire efficiency on")
+	}
+	t.Setenv("LUNITIDE_TOKEN_EFFICIENCY", "off")
+	got, err := e.ContextStatus(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.TokenEfficiencyEnabled {
+		t.Fatalf("status must report the wired process switch, not a live env flip: %+v", got)
+	}
+	t.Setenv("LUNITIDE_TOKEN_EFFICIENCY", "off")
+	off := NewEngine(nil, "test")
+	t.Setenv("LUNITIDE_TOKEN_EFFICIENCY", "")
+	got, err = off.ContextStatus(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	if err != nil || got.TokenEfficiencyEnabled {
+		t.Fatalf("off engine must stay off after env flip: %+v err=%v", got, err)
+	}
+}

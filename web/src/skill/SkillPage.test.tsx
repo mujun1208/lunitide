@@ -26,6 +26,19 @@ const catalogEntry = {
   permissions: ['read_write' as const], installed: false, featured: true, source: '月汐',
 }
 
+it('does not show raw English list or install failures', async () => {
+  render(<SkillPage bridge={api({ list: vi.fn().mockRejectedValue(new Error('Failed to fetch')), catalogList: vi.fn().mockResolvedValue({ items: [] }) })} />)
+  fireEvent.click(screen.getByRole('tab', { name: '技能库' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('技能载入失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  cleanup()
+  const install = vi.fn().mockRejectedValue(new Error('Failed to fetch'))
+  render(<SkillPage bridge={api({ catalogList: vi.fn().mockResolvedValue({ items: [catalogEntry] }), install })} />)
+  fireEvent.click(await screen.findByRole('button', { name: '安装 会议纪要助手' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('安装失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('renders empty state initially', async () => {
   const bridge = api()
   render(<SkillPage bridge={bridge} />)
@@ -177,6 +190,15 @@ it('filters the market by category', async () => {
   fireEvent.click(screen.getByRole('button', { name: /研发效能/ }))
   expect(screen.getByText('Go 代码审查')).toBeInTheDocument()
   expect(screen.queryByText('会议纪要助手')).not.toBeInTheDocument()
+})
+
+it('does not leak raw English catalog failures and keeps protocol codes', async () => {
+  const catalogList = vi.fn().mockRejectedValue(new BridgeClientError('Failed to fetch', 'ENGINE_UNAVAILABLE', true, '01ARZ3NDEKTSV4RRFFQ69G5FAV'))
+  render(<SkillPage bridge={api({ catalogList })} />)
+  expect(await screen.findByText(/技能市场加载失败/)).toBeInTheDocument()
+  expect(screen.getByText(/ENGINE_UNAVAILABLE/)).toBeInTheDocument()
+  expect(screen.getByText(/01ARZ3NDEKTSV4RRFFQ69G5FAV/)).toBeInTheDocument()
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
 })
 
 it('renders ENGINE_UNAVAILABLE code and correlationId on the market', async () => {

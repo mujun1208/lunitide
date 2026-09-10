@@ -13,6 +13,10 @@ const ORG_STATES:Record<OrgState,string>={draft:'草稿',active:'活跃',suspend
 const PRINCIPAL_STATES:Record<PrincipalState,string>={active:'活跃',suspended:'已暂停',expired:'已过期',revoked:'已撤销'}
 const ROLES:Record<Role,string>={'org-admin':'组织管理员','space-admin':'空间管理员',operator:'操作者',approver:'审批者',auditor:'审计者','legal-officer':'法务专员',member:'成员'}
 const orgPill=(state:OrgState)=>`org-pill ${state}`
+function orgUserError(err:unknown,fallback:string):string{
+ const detail=err instanceof Error?err.message.trim():''
+ return /[\u4e00-\u9fff]/.test(detail)?detail:fallback
+}
 
 // M9 组织控制台导航（与设计文档 06-完整UI界面设计 · M9 原型一致）
 type ConsoleTab='overview'|'spaces'|'members'|'roadmap'
@@ -55,7 +59,7 @@ export function OrgAdminPage({bridge=orgBridge}:{bridge?:OrgBridge}):React.JSX.E
    const next=await bridge.summary()
    setSummary(next)
    await loadScoped(next.boundOrgId)
-  }catch(e){setError(e instanceof Error?e.message:'组织概览加载失败')}
+  }catch(e){setError(orgUserError(e,'组织概览加载失败'))}
   finally{setLoading(false)}
  },[bridge,loadScoped])
 
@@ -74,7 +78,7 @@ export function OrgAdminPage({bridge=orgBridge}:{bridge?:OrgBridge}):React.JSX.E
    setSummary(next)
    setSpaces(undefined);setMembers(undefined)
    await loadScoped(next.boundOrgId)
-  }catch(e){setError(e instanceof Error?e.message:'组织切换失败')}finally{setBusy(false)}
+  }catch(e){setError(orgUserError(e,'组织切换失败'))}finally{setBusy(false)}
  }
  const createOrg=async()=>{
   const name=orgName.trim()
@@ -90,7 +94,7 @@ export function OrgAdminPage({bridge=orgBridge}:{bridge?:OrgBridge}):React.JSX.E
    await bridge.switch(baseSwitch,{attempt:attemptSwitch})
    const switched=await bridge.summary();setSummary(switched)
    await loadScoped(switched.boundOrgId)
-  }catch(e){setError(e instanceof Error?e.message:'组织创建失败')}finally{setBusy(false)}
+  }catch(e){setError(orgUserError(e,'组织创建失败'))}finally{setBusy(false)}
  }
  const lifecycle=async(action:'activate'|'suspend')=>{
   setBusy(true);setError('');setNotice('')
@@ -98,7 +102,7 @@ export function OrgAdminPage({bridge=orgBridge}:{bridge?:OrgBridge}):React.JSX.E
    if(action==='activate'){const attempt=createMutationAttempt('org.activate',{});const r=await bridge.activate({},{attempt});setNotice(`组织「${r.name}」已激活`)}
    else{const attempt=createMutationAttempt('org.suspend',{});const r=await bridge.suspend({},{attempt});setNotice(`组织「${r.name}」已暂停（保留审计与法务持有）`)}
    const next=await bridge.summary();setSummary(next)
-  }catch(e){setError(e instanceof Error?e.message:action==='activate'?'组织激活失败':'组织暂停失败')}finally{setBusy(false)}
+  }catch(e){setError(orgUserError(e,action==='activate'?'组织激活失败':'组织暂停失败'))}finally{setBusy(false)}
  }
  const addSpace=async()=>{
   const name=spaceName.trim()
@@ -110,7 +114,7 @@ export function OrgAdminPage({bridge=orgBridge}:{bridge?:OrgBridge}):React.JSX.E
    setNotice(`空间「${created.name}」已创建`)
    setSpaceName('')
    const next=await bridge.spaceList();setSpaces(next.spaces)
-  }catch(e){setError(e instanceof Error?e.message:'空间创建失败')}finally{setBusy(false)}
+  }catch(e){setError(orgUserError(e,'空间创建失败'))}finally{setBusy(false)}
  }
  const invite=async()=>{
   const displayName=inviteName.trim()
@@ -125,7 +129,7 @@ export function OrgAdminPage({bridge=orgBridge}:{bridge?:OrgBridge}):React.JSX.E
    setNotice(`成员「${created.displayName}」已加入（${PRINCIPAL_STATES[created.state]}）`)
    setInviteName('');setInviteExpiry('')
    const next=await bridge.memberList();setMembers(next.members)
-  }catch(e){setError(e instanceof Error?e.message:'成员邀请失败')}finally{setBusy(false)}
+  }catch(e){setError(orgUserError(e,'成员邀请失败'))}finally{setBusy(false)}
  }
  const revoke=async()=>{
   if(!revokeTarget)return
@@ -136,7 +140,7 @@ export function OrgAdminPage({bridge=orgBridge}:{bridge?:OrgBridge}):React.JSX.E
    setNotice(`成员「${revokeTarget.principal.displayName}」已撤销（${PRINCIPAL_STATES[result.state]}），其角色绑定即时失效`)
    setRevokeTarget(undefined)
    const next=await bridge.memberList();setMembers(next.members)
-  }catch(e){setError(e instanceof Error?e.message:'成员撤销失败')}finally{setBusy(false)}
+  }catch(e){setError(orgUserError(e,'成员撤销失败'))}finally{setBusy(false)}
  }
 
  const activeNav=NAV.find(item=>item.id===tab)!

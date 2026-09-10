@@ -32,7 +32,7 @@ func (r *Runtime) readWorkspace(ctx context.Context, mode Mode, session string, 
 		limit = *args.Limit
 	}
 	if offset < 0 || limit < 1 || limit > workspaceReadPageChars {
-		return Result{}, errors.New("offset must be nonnegative and limit must be 1-3000 characters")
+		return Result{}, errors.New("offset 不能为负，limit 必须是 1-3000 个字符")
 	}
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
@@ -51,14 +51,14 @@ func (r *Runtime) readWorkspace(ctx context.Context, mode Mode, session string, 
 		return Result{}, err
 	}
 	if !info.Mode().IsRegular() || info.Size() > maxGeneratedBytes {
-		return Result{}, errors.New("file missing or exceeds 8 MiB document limit")
+		return Result{}, errors.New("文件不存在或超过 8 MiB 文档上限")
 	}
 	raw, err := io.ReadAll(io.LimitReader(file, maxGeneratedBytes+1))
 	if err != nil {
 		return Result{}, err
 	}
 	if len(raw) > maxGeneratedBytes {
-		return Result{}, errors.New("file exceeds 8 MiB document limit")
+		return Result{}, errors.New("文件超过 8 MiB 文档上限")
 	}
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
@@ -67,20 +67,39 @@ func (r *Runtime) readWorkspace(ctx context.Context, mode Mode, session string, 
 	kind := "text"
 	ext := strings.ToLower(filepath.Ext(path))
 	isDocument := ext == ".docx" || ext == ".pptx" || ext == ".xlsx" || ext == ".pdf" || bytes.HasPrefix(raw, []byte("PK")) || bytes.HasPrefix(raw, []byte("%PDF-"))
-	if isDocument {
+	isImage := doctext.LooksLikeRasterImage(path, "", raw)
+	if isDocument || isImage {
 		// Reuse the application's isolated, time/memory bounded document parser.
 		// The existing path resolver still decides what this tool may access.
-		extracted, err := doctext.ExtractContext(ctx, path, raw, "")
-		if err != nil {
-			return Result{}, fmt.Errorf("document could not be read (scanned PDFs need OCR): %w", err)
+		if r.documentText != nil {
+			got, gotKind, method, _, readErr := r.documentText(ctx, path, raw, "")
+			if readErr != nil {
+				return Result{}, fmt.Errorf("文档无法读取（识别未完成）：%w", readErr)
+			}
+			text, kind = got, gotKind
+			if strings.Contains(method, "incomplete-coverage") {
+				kind = kind + "+incomplete"
+			} else if method != "" && method != "text-layer" {
+				kind = kind + "+ocr"
+			}
+		} else if isImage {
+			return Result{}, errors.New("图片无法读取（OCR 未装配）")
+		} else {
+			extracted, err := doctext.ExtractContext(ctx, path, raw, "")
+			if err != nil {
+				if errors.Is(err, doctext.ErrNoTextLayer) {
+					return Result{}, errors.New("文档无法读取（OCR 未装配）")
+				}
+				return Result{}, fmt.Errorf("文档无法读取：%w", err)
+			}
+			text, kind = extracted.Text, extracted.Kind
 		}
-		text, kind = extracted.Text, extracted.Kind
 	} else {
 		if len(raw) > maxFile {
-			return Result{}, errors.New("text file exceeds 1 MiB limit")
+			return Result{}, errors.New("文本文件超过 1 MiB 上限")
 		}
 		if !utf8.Valid(raw) || bytes.ContainsRune(raw, 0) {
-			return Result{}, errors.New("file is binary or uses an unsupported text encoding; do not edit it as plain text")
+			return Result{}, errors.New("文件是二进制或不支持的文本编码，不能当纯文本编辑")
 		}
 	}
 	if !isDocument && args.Offset == nil && args.Limit == nil && len(text) <= workspaceReadPageBytes {
@@ -88,7 +107,7 @@ func (r *Runtime) readWorkspace(ctx context.Context, mode Mode, session string, 
 	}
 	chars := []rune(text)
 	if offset > len(chars) {
-		return Result{}, errors.New("offset is beyond the file text; restart from offset=0 if the file changed")
+		return Result{}, errors.New("偏移已超出文件文本；若文件已变化，请从 offset=0 重新读取")
 	}
 	end, count := offset, 0
 	for end < len(chars) && end-offset < limit {

@@ -23,6 +23,12 @@ describe('refPreviewStatus', () => {
     expect(refPreviewStatus(new BridgeClientError('语音引擎启动中，请稍候', 'M95-001', true, 't'))).toMatch(/请稍候再试听/)
     expect(refPreviewStatus(new BridgeClientError('该段语音合成失败', 'M95-002', false, 't'))).toBe('试听失败：该段语音合成失败')
   })
+
+  test('does not leak raw English transport failures', () => {
+    expect(refPreviewStatus(new Error('Failed to fetch'))).toBe('试听失败，请检查引擎配置')
+    expect(refPreviewStatus(new Error('Failed to fetch'))).not.toMatch(/Failed to fetch/)
+    expect(refPreviewStatus(new BridgeClientError('引擎尚未就绪', 'ENGINE_UNAVAILABLE', true, 't'))).toBe('试听失败：引擎尚未就绪')
+  })
 })
 
 describe('refEngineCaption', () => {
@@ -37,7 +43,12 @@ describe('refEngineCaption', () => {
       host_state: 'offline',
       host_script: 'E:\\GPT-SoVITS\\start-api-cpu.bat',
       host_last_err: 'service stopped answering',
-    })).toMatch(/service stopped answering/)
+    })).toMatch(/已停止响应/)
+    expect(refEngineCaption({
+      host_state: 'offline',
+      host_script: 'E:\\GPT-SoVITS\\start-api-cpu.bat',
+      host_last_err: 'service stopped answering',
+    })).not.toMatch(/stopped answering/)
     expect(refEngineCaption({ server_online: true, pack_exists: true }, 50)).toMatch(/引擎在线/)
   })
 })
@@ -45,7 +56,8 @@ describe('refEngineCaption', () => {
 describe('refLaunchPollStatus', () => {
   test('stays quiet until the budget is gone', () => {
     expect(refLaunchPollStatus(3, 40)).toBeUndefined()
-    expect(refLaunchPollStatus(40, 40, 'spawn failed')).toMatch(/spawn failed/)
+    expect(refLaunchPollStatus(40, 40, 'spawn failed')).toMatch(/无法启动/)
+    expect(refLaunchPollStatus(40, 40, 'spawn failed')).not.toMatch(/spawn failed/)
     expect(refLaunchPollStatus(40, 40)).toMatch(/超过 2 分钟/)
   })
 })

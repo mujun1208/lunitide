@@ -11,6 +11,16 @@ const status=(over:Partial<AutomationStatusResult>={}):AutomationStatusResult=>(
 type Cfg={jobs?:AutomationJobListResult['jobs'];runs?:AutomationRunListResult['runs'];status?:AutomationStatusResult}
 function bridge(cfg:Cfg={}):{b:AutomationBridge;setJob:ReturnType<typeof vi.fn>;deleteJob:ReturnType<typeof vi.fn>;trigger:ReturnType<typeof vi.fn>}{const setJob=vi.fn().mockResolvedValue({id:'01ARZ3NDEKTSV4RRFFQ69G5FAX',createdAt:'2026-08-16T00:00:00Z'}),deleteJob=vi.fn().mockResolvedValue({ok:true}),trigger=vi.fn().mockResolvedValue({triggered:true});const listJobs=vi.fn().mockImplementation(()=>Promise.resolve({jobs:cfg.jobs??[]}))
 const b={listJobs,setJob,deleteJob,triggerJob:trigger,listRuns:vi.fn().mockImplementation(()=>Promise.resolve({runs:cfg.runs??[]})),status:vi.fn().mockImplementation(()=>Promise.resolve(cfg.status??status()))}as unknown as AutomationBridge;return{b,setJob,deleteJob,trigger}}
+it('does not show raw English trigger failures',async()=>{
+  const {b,trigger}=bridge({jobs:[job()]})
+  trigger.mockRejectedValue(new Error('Failed to fetch'))
+  render(<AutomationPanel sessionId={P} providerId={P} modelId="gpt-test" bridge={b}/>)
+  await screen.findByText('日报')
+  fireEvent.click(screen.getByRole('button',{name:'立即运行'}))
+  expect(await screen.findByText('触发失败')).toBeInTheDocument()
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('shows empty hint and scheduler heartbeat when nothing exists',async()=>{const{b}=bridge();render(<AutomationPanel sessionId={P} providerId={P} modelId="gpt-test" bridge={b}/>)
 expect(await screen.findByText(/还没有定时任务/)).toBeInTheDocument();expect(screen.getByText('定时调度已开启 · 当前无任务执行')).toBeInTheDocument()})
 it('renders jobs with cron, mode, next fire and drives trigger/toggle/delete',async()=>{const{b,trigger,setJob,deleteJob}=bridge({jobs:[job({lastRunAt:'2026-08-16T00:30:00Z'})],status:status({nextFire:{'01ARZ3NDEKTSV4RRFFQ69G5FAX':'2026-08-17T00:30:00Z'},runningJobs:['01ARZ3NDEKTSV4RRFFQ69G5FAX']})});render(<AutomationPanel sessionId={P} providerId={P} modelId="gpt-test" bridge={b}/>)

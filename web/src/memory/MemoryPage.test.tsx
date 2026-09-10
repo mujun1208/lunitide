@@ -23,6 +23,22 @@ const nominationApi = (o: Partial<NominationBridge> = {}): NominationBridge => (
   list: vi.fn().mockResolvedValue({ items: [] }), ...o,
 })
 
+it('does not show raw English memory list or create failures', async () => {
+  render(<MemoryPage projectId={P} bridge={api({ list: vi.fn().mockRejectedValue(new Error('Failed to fetch')) })} />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('加载失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  cleanup()
+  const create = vi.fn().mockRejectedValue(new Error('Failed to fetch'))
+  render(<MemoryPage projectId={P} bridge={api({ create })} />)
+  await screen.findByText('当前任务')
+  fireEvent.click(screen.getByRole('button', { name: '＋ 添加记忆' }))
+  fireEvent.change(screen.getByLabelText('键名'), { target: { value: '新决策' } })
+  fireEvent.change(screen.getByLabelText('内容'), { target: { value: '采用 TypeScript' } })
+  fireEvent.click(screen.getByRole('button', { name: '创建记忆' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('创建失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('renders the four-layer grid and loads memories for the project', async () => {
   const bridge = api()
   const { container } = render(<MemoryPage projectId={P} bridge={bridge} />)

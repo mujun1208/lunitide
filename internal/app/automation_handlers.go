@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -21,6 +22,26 @@ import (
 )
 
 const isolatedAutomationTitle = "新对话"
+
+var isolatedDispatch sync.Map
+
+func rememberIsolatedDispatch(key, sessionID string) {
+	if key != "" && sessionID != "" {
+		isolatedDispatch.Store(key, sessionID)
+	}
+}
+
+func lookupIsolatedDispatch(key string) (string, bool) {
+	if key == "" {
+		return "", false
+	}
+	v, ok := isolatedDispatch.Load(key)
+	if !ok {
+		return "", false
+	}
+	id, _ := v.(string)
+	return id, id != ""
+}
 
 func automationUnavailable(r bridge.Request) bridge.Response {
 	return r.Fail("FEATURE_DISABLED", "自动化调度器未初始化", false)
@@ -48,6 +69,8 @@ func handleAutomationJobList(e *Engine, ctx context.Context, r bridge.Request) b
 		SessionMode   string `json:"sessionMode,omitempty"`
 		RunOnce       bool   `json:"runOnce,omitempty"`
 		WebhookURL    string `json:"webhookUrl,omitempty"`
+		TriggerKind   string `json:"triggerKind,omitempty"`
+		TriggerSpec   string `json:"triggerSpec,omitempty"`
 		Enabled       bool   `json:"enabled"`
 		LastRunAt     string `json:"lastRunAt,omitempty"`
 		CreatedAt     string `json:"createdAt"`
@@ -67,7 +90,7 @@ func handleAutomationJobList(e *Engine, ctx context.Context, r bridge.Request) b
 		v := jobView{ID: j.ID, Name: j.Name, Cron: j.Cron, Timezone: j.Timezone, Prompt: j.Prompt,
 			ProviderID: j.ProviderID, ModelID: j.ModelID, SessionID: j.SessionID,
 			ExecutionMode: j.ExecutionMode, SessionMode: j.SessionMode, RunOnce: j.RunOnce,
-			WebhookURL: j.WebhookURL, Enabled: j.Enabled,
+			WebhookURL: j.WebhookURL, TriggerKind: j.TriggerKind, TriggerSpec: j.TriggerSpec, Enabled: j.Enabled,
 			CreatedAt: j.CreatedAt.UTC().Format(time.RFC3339), UpdatedAt: j.UpdatedAt.UTC().Format(time.RFC3339Nano), Revision: scheduler.JobRevision(j)}
 		if !j.LastRunAt.IsZero() {
 			v.LastRunAt = j.LastRunAt.UTC().Format(time.RFC3339)
@@ -96,6 +119,8 @@ func handleAutomationJobSet(e *Engine, ctx context.Context, r bridge.Request) br
 		SessionMode      string  `json:"sessionMode"`
 		RunOnce          bool    `json:"runOnce"`
 		WebhookURL       string  `json:"webhookUrl"`
+		TriggerKind      string  `json:"triggerKind"`
+		TriggerSpec      string  `json:"triggerSpec"`
 		Enabled          bool    `json:"enabled"`
 	}
 	if decodePayload(r.Payload, &p) != nil || p.Name == "" || len([]rune(p.Name)) > 64 ||
@@ -113,6 +138,9 @@ func handleAutomationJobSet(e *Engine, ctx context.Context, r bridge.Request) br
 	if err := scheduler.ValidateWebhookURL(p.WebhookURL); err != nil {
 		return r.Fail("AUTOMATION_WEBHOOK_INVALID", "webhook 地址无效（需 https 且不允许内网/IP 地址）", false)
 	}
+	if _, err := scheduler.NormalizeTriggerKind(p.TriggerKind); err != nil {
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "triggerKind 无效", false)
+	}
 	scope, scopeErr := e.authorizeAutomationSession(ctx, p.SessionID)
 	if scopeErr != nil {
 		return r.Fail("DATA_SCOPE_DENIED", "当前组织无法使用该自动化会话", false)
@@ -123,7 +151,7 @@ func handleAutomationJobSet(e *Engine, ctx context.Context, r bridge.Request) br
 		Name: p.Name, Cron: p.Cron, Prompt: p.Prompt,
 		ProviderID: p.ProviderID, ModelID: p.ModelID, SessionID: p.SessionID,
 		ExecutionMode: p.ExecutionMode, SessionMode: p.SessionMode, RunOnce: p.RunOnce,
-		WebhookURL: p.WebhookURL, Enabled: p.Enabled,
+		WebhookURL: p.WebhookURL, TriggerKind: p.TriggerKind, TriggerSpec: p.TriggerSpec, Enabled: p.Enabled,
 		CreatedAt: now, UpdatedAt: now,
 	}
 	if p.Timezone != nil {
@@ -150,6 +178,12 @@ func handleAutomationJobSet(e *Engine, ctx context.Context, r bridge.Request) br
 		job.LastRunAt = existing.LastRunAt
 		if p.Timezone == nil {
 			job.Timezone = existing.Timezone
+		}
+		if strings.TrimSpace(p.TriggerKind) == "" {
+			job.TriggerKind = existing.TriggerKind
+		}
+		if strings.TrimSpace(p.TriggerSpec) == "" {
+			job.TriggerSpec = existing.TriggerSpec
 		}
 	} else {
 		job.ID = r.ID
@@ -303,7 +337,7 @@ func handleAutomationRunList(e *Engine, ctx context.Context, r bridge.Request) b
 		}
 		v := runView{ID: run.ID, JobID: run.JobID, JobName: run.JobName,
 			State: run.State, SessionID: run.SessionID, Trigger: run.Trigger, Summary: run.Summary,
-			TotalTokens: run.TotalTokens, Error: run.Error, OutcomeUnknown: run.OutcomeUnknown, Cancelled: run.Cancelled,
+			TotalTokens: run.TotalTokens, Error: scheduler.UserMessage(run.Error), OutcomeUnknown: run.OutcomeUnknown, Cancelled: run.Cancelled,
 			StartedAt: run.StartedAt.UTC().Format(time.RFC3339)}
 		if getter, ok := e.sessions.(sessionGetter); ok && sessionServiceAvailable(e.sessions) && run.SessionID != "" {
 			if actual, err := getter.Get(ctx, run.SessionID); err == nil {
@@ -379,52 +413,64 @@ func stampOrEmpty(t time.Time) string {
 // context owns the complete run, including all model and tool passes.
 func (e *Engine) AutomationHeadlessExecutor() scheduler.Executor {
 	return func(ctx context.Context, job scheduler.Job) scheduler.Outcome {
-		runCtx := ctx
-		scope, scopeErr := e.authorizeAutomationSession(runCtx, job.SessionID)
-		if scopeErr != nil {
-			return scheduler.Outcome{Err: scopeErr, NotStarted: true}
-		}
-		isolatedID := ""
-		if strings.TrimSpace(job.SessionMode) == "isolated" {
-			isolatedID = e.isolatedAutomationSession(runCtx, job.SessionID)
-		}
-		scope()
-		if strings.TrimSpace(job.SessionMode) == "isolated" && isolatedID == "" {
-			return scheduler.Outcome{Err: errors.New("独立自动化会话创建失败，任务未执行"), NotStarted: true}
-		}
-		payloadMap := automationChatStartPayload(job, isolatedID)
-		payload, err := json.Marshal(payloadMap)
-		if err != nil {
-			return scheduler.Outcome{Err: err, NotStarted: true}
-		}
-
-		req := bridge.Request{
-			Version: bridge.Version, Kind: "request",
-			ID: ulid.Make().String(), TraceID: ulid.Make().String(),
-			Method: "chat.start", SentAt: time.Now().UTC(),
-			Payload: payload, DeadlineMS: bridge.ChatStartDeadlineMS,
-		}
-		out := e.runHeadlessStream(runCtx, req)
-		out.SessionID = job.SessionID
-		if isolatedID != "" {
-			out.SessionID = isolatedID
-		}
-		return out
+		return e.runAutomationHeadless(ctx, job, scheduler.RunContext{SessionID: job.SessionID})
 	}
+}
+
+func (e *Engine) AutomationHeadlessContextualExecutor() scheduler.ContextualExecutor {
+	return e.runAutomationHeadless
+}
+
+func (e *Engine) runAutomationHeadless(ctx context.Context, job scheduler.Job, rc scheduler.RunContext) scheduler.Outcome {
+	runCtx := withAutomationDispatch(withCallPurpose(ctx, "automation"), rc.RunID, rc.DispatchKey)
+	scope, scopeErr := e.authorizeAutomationSession(runCtx, job.SessionID)
+	if scopeErr != nil {
+		return scheduler.Outcome{Err: scopeErr, NotStarted: true}
+	}
+	isolatedID := e.isolatedSessionForRun(runCtx, job, rc)
+	if isolatedID != "" {
+		e.bindIsolatedRunSession(rc.RunID, isolatedID)
+	}
+	scope()
+	if strings.TrimSpace(job.SessionMode) == "isolated" && isolatedID == "" {
+		return scheduler.Outcome{Err: errors.New("独立自动化会话创建失败，任务未执行"), NotStarted: true}
+	}
+	payloadMap := automationChatStartPayload(job, isolatedID, rc.Recover)
+	payload, err := json.Marshal(payloadMap)
+	if err != nil {
+		return scheduler.Outcome{Err: err, NotStarted: true}
+	}
+
+	req := bridge.Request{
+		Version: bridge.Version, Kind: "request",
+		ID: ulid.Make().String(), TraceID: ulid.Make().String(),
+		Method: "chat.start", SentAt: time.Now().UTC(),
+		Payload: payload, DeadlineMS: bridge.ChatStartDeadlineMS,
+	}
+	out := e.runHeadlessStream(runCtx, req)
+	out.SessionID = job.SessionID
+	if isolatedID != "" {
+		out.SessionID = isolatedID
+	}
+	return out
 }
 
 // automationChatStartPayload builds chat.start for a scheduled fire.
 // Isolated jobs never reuse the bound sessionId; they use a fresh session
 // when one was created, otherwise messages-only so the main chat stays clean.
-func automationChatStartPayload(job scheduler.Job, isolatedSessionID string) map[string]any {
+func automationChatStartPayload(job scheduler.Job, isolatedSessionID string, recover bool) map[string]any {
 	mode := job.ExecutionMode
 	if mode == "" {
 		mode = "auto-edit"
 	}
+	content := job.Prompt
+	if recover {
+		content = "继续"
+	}
 	payload := map[string]any{
 		"providerId":    job.ProviderID,
 		"modelId":       job.ModelID,
-		"messages":      []map[string]string{{"role": "user", "content": job.Prompt}},
+		"messages":      []map[string]string{{"role": "user", "content": content}},
 		"executionMode": mode,
 	}
 	if strings.TrimSpace(job.SessionMode) == "isolated" {
@@ -435,6 +481,53 @@ func automationChatStartPayload(job scheduler.Job, isolatedSessionID string) map
 	}
 	payload["sessionId"] = job.SessionID
 	return payload
+}
+
+func (e *Engine) isolatedSessionForRun(ctx context.Context, job scheduler.Job, rc scheduler.RunContext) string {
+	if strings.TrimSpace(job.SessionMode) != "isolated" {
+		return ""
+	}
+	if rc.SessionID != "" && rc.SessionID != job.SessionID {
+		return rc.SessionID
+	}
+	if id, ok := lookupIsolatedDispatch(rc.DispatchKey); ok {
+		return id
+	}
+	if id := e.persistedIsolatedRunSession(job, rc); id != "" {
+		rememberIsolatedDispatch(rc.DispatchKey, id)
+		return id
+	}
+	id := e.isolatedAutomationSession(ctx, job.SessionID)
+	if id != "" {
+		rememberIsolatedDispatch(rc.DispatchKey, id)
+	}
+	return id
+}
+
+func (e *Engine) persistedIsolatedRunSession(job scheduler.Job, rc scheduler.RunContext) string {
+	if e == nil || e.automation == nil || rc.RunID == "" {
+		return ""
+	}
+	latest, err := e.automation.Store().LatestRuns(job.ID)
+	if err != nil {
+		return ""
+	}
+	for _, run := range latest {
+		if run.ID != rc.RunID || run.State != scheduler.RunRunning {
+			continue
+		}
+		if run.SessionID != "" && run.SessionID != job.SessionID {
+			return run.SessionID
+		}
+	}
+	return ""
+}
+
+func (e *Engine) bindIsolatedRunSession(runID, sessionID string) {
+	if e == nil || e.automation == nil || runID == "" || sessionID == "" {
+		return
+	}
+	_ = e.automation.Store().BindRunSession(runID, sessionID)
 }
 
 // isolatedAutomationSession creates a placeholder-titled chat in the bound

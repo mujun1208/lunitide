@@ -22,6 +22,30 @@ async function discover() {
   await screen.findByText('notes-helper')
 }
 
+it('does not leak BridgeClientError transport English from discover', async () => {
+  render(<SkillImportWizard open onClose={vi.fn()} bridge={api({ discover: vi.fn().mockRejectedValue(new BridgeClientError('Failed to fetch', 'ENGINE_UNAVAILABLE', true, 'engine')) })} />)
+  fireEvent.change(screen.getByLabelText('GitHub 仓库或技能目录 URL'), { target: { value: 'https://github.com/acme/notes' } })
+  fireEvent.change(screen.getByLabelText('固定提交 SHA'), { target: { value: sha } })
+  fireEvent.click(screen.getByRole('button', { name: '读取技能' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('请求失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  cleanup()
+  render(<SkillImportWizard open onClose={vi.fn()} bridge={api({ discover: vi.fn().mockRejectedValue(new BridgeClientError('FEATURE_DISABLED: catalog inspect', 'FEATURE_DISABLED', false, 'engine')) })} />)
+  fireEvent.change(screen.getByLabelText('GitHub 仓库或技能目录 URL'), { target: { value: 'https://github.com/acme/notes' } })
+  fireEvent.change(screen.getByLabelText('固定提交 SHA'), { target: { value: sha } })
+  fireEvent.click(screen.getByRole('button', { name: '读取技能' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('FEATURE_DISABLED: catalog inspect')
+})
+
+it('does not show raw English discover failures', async () => {
+  render(<SkillImportWizard open onClose={vi.fn()} bridge={api({ discover: vi.fn().mockRejectedValue(new Error('Failed to fetch')) })} />)
+  fireEvent.change(screen.getByLabelText('GitHub 仓库或技能目录 URL'), { target: { value: 'https://github.com/acme/notes' } })
+  fireEvent.change(screen.getByLabelText('固定提交 SHA'), { target: { value: sha } })
+  fireEvent.click(screen.getByRole('button', { name: '读取技能' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('请求失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('sends source identity only and imports a draft using backend evidence', async () => {
   const bridge = api(), onApproved = vi.fn()
   render(<SkillImportWizard open onClose={vi.fn()} onApproved={onApproved} bridge={bridge} />)

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { BridgeClientError } from '../../../bridge/client'
 import { BARGE_IN_ARM_MS, ENDPOINT_BACKSTOP_MS } from './volcSpeech'
 import { INCOMPLETE_HARD_MS, MEETING_TURN_END_SILENCE_MS, TURN_END_SILENCE_MS } from '../speech'
 
@@ -13,11 +14,13 @@ const asr = {
 
 let onTranscript: (text: string, final: boolean, timestamped?: boolean) => void = () => {}
 let onLevel: (peak: number) => void = () => {}
+let onAsrError: (error: unknown) => void = () => {}
 
 vi.mock('./volcAsr', () => ({
   startVolcAsr: vi.fn(async (_providerId: string, callbacks: Record<string, (...args: never[]) => void>) => {
     onTranscript = callbacks.onTranscript as typeof onTranscript
     onLevel = callbacks.onLevel as typeof onLevel
+    onAsrError = callbacks.onError as typeof onAsrError
     return asr
   }),
 }))
@@ -58,6 +61,21 @@ afterEach(() => {
 })
 
 describe('startVolcCompanionSpeech', () => {
+  it('does not leak raw English transport failures into the stage error', async () => {
+    const transport = harness()
+    await startVolcCompanionSpeech(transport.options, PROVIDER)
+    onAsrError(new Error('Failed to fetch'))
+    const issue = transport.onError.mock.calls[0][0] as BridgeClientError
+    expect(issue).toBeInstanceOf(BridgeClientError)
+    expect(issue.code).toBe('SPEECH_RECOGNITION_UNAVAILABLE')
+    expect(issue.message).toBe('火山语音识别中断')
+    expect(issue.message).not.toContain('Failed to fetch')
+    const coded = harness()
+    await startVolcCompanionSpeech(coded.options, PROVIDER)
+    onAsrError(new BridgeClientError('引擎尚未就绪', 'VOICE-004', true, 'engine'))
+    expect(coded.onError.mock.calls[0][0]).toMatchObject({ code: 'VOICE-004', message: '引擎尚未就绪' })
+  })
+
   it('preserves the caption while awaiting the final ASR flush', async () => {
     const stage = harness()
     let finish!: (value: string) => void

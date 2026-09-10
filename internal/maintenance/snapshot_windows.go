@@ -391,6 +391,14 @@ func validManifest(m *Manifest) error {
 		}
 		seen[key] = true
 	}
+	filePaths := make([]string, 0, len(m.Files)+len(m.Directories))
+	filePaths = append(filePaths, m.Directories...)
+	for _, f := range m.Files {
+		filePaths = append(filePaths, f.Path)
+	}
+	if err := CheckManifestPaths(filePaths); err != nil {
+		return err
+	}
 	for _, f := range m.Files {
 		if strings.Contains(f.Path, `\`) {
 			return errors.New("backup file paths must use canonical slashes")

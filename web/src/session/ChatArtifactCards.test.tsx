@@ -8,6 +8,18 @@ vi.mock('../bridge/client', () => ({
 }))
 afterEach(cleanup)
 
+it('does not show raw English artifact open failures', async () => {
+  const { sessionFolderBridge } = await import('../bridge/client')
+  vi.mocked(sessionFolderBridge.open).mockRejectedValue(new Error('Failed to fetch'))
+  const onError = vi.fn()
+  render(<ChatArtifactCards sessionId="01ARZ3NDEKTSV4RRFFQ69G5FAV" artifacts={[{
+    kind: 'md', path: 'notes.md', content: '', callId: 'call-1', toolName: 'workspace.write',
+  }]} onError={onError} />)
+  fireEvent.click(screen.getByText('notes.md'))
+  await vi.waitFor(() => expect(onError).toHaveBeenCalledWith('无法打开产物文件'))
+  expect(onError).not.toHaveBeenCalledWith('Failed to fetch')
+})
+
 it('labels image artifacts as screenshots the user can open', () => {
   render(<ChatArtifactCards sessionId="01ARZ3NDEKTSV4RRFFQ69G5FAV" artifacts={[{
     kind: 'image', path: 'screen-capture-20260826.png', content: '', callId: 'call-1', toolName: 'cc.screen_capture',

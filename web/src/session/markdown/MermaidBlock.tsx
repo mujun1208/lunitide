@@ -12,6 +12,11 @@ import {
 
 export { mermaidInitConfig, mermaidThemeVariables, mountMermaidSvg } from './tideMermaid'
 
+function mermaidUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 const SETTLE_MS = 480
 const RETRIES = 3
 
@@ -119,7 +124,7 @@ export function MermaidBlock({
         if (cancelled) return
         if (!hasSvgRef.current && hostRef.current) hostRef.current.replaceChildren()
         setPending(false)
-        setError(e instanceof Error ? e.message : '图表渲染失败')
+        setError(mermaidUserError(e, '图表渲染失败'))
         onLayoutRef.current?.()
       }
     }

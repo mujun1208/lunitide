@@ -36,7 +36,11 @@ type compactionAdapterFactory struct {
 }
 
 func (f *compactionAdapterFactory) Adapter(ctx context.Context, p provider.Provider) (llmadapter.Adapter, error) {
-	return f.e.adapter(ctx, p)
+	a, err := f.e.adapter(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	return purposeAdapter{inner: a, purpose: "compaction"}, nil
 }
 
 // SetupCompactionServices wires the compaction trigger, executor, and summary

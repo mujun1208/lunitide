@@ -3,6 +3,7 @@
 // Root-level window/unhandledrejection handling stays in RootErrorBoundary;
 // this boundary only catches render-time throws for the page it wraps.
 import React from 'react'
+import { bridgeTransportUserError } from '../bridge/bridgeUserError'
 
 interface Props {
   label?: string
@@ -42,7 +43,7 @@ export class PageErrorBoundary extends React.Component<Props, State> {
         <div className="page-error" role="alert">
           <h2>本页出错了</h2>
           <p>其它页面仍然可用。重试通常就能恢复本页。</p>
-          <pre>{error.message}</pre>
+          <pre>{bridgeTransportUserError(error, '本页渲染失败')}</pre>
           <button type="button" onClick={this.reset}>
             重试
           </button>

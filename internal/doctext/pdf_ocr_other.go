@@ -8,5 +8,5 @@ import (
 )
 
 func ExtractPDFOCR(ctx context.Context, raw []byte) (PDFOCRResult, error) {
-	return PDFOCRResult{}, errors.New("local PDF OCR is unavailable on this platform; provide a text-bearing source")
+	return PDFOCRResult{}, errors.New("当前平台未装配本地 PDF 识别，请提供带文字层的源文件")
 }

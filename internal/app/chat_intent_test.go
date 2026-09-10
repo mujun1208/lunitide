@@ -89,6 +89,9 @@ func TestDesktopFallbackExtractsTargetBeforeEditTail(t *testing.T) {
 	if !ok || target != "企业AI智能助手文档" {
 		t.Fatalf("target=%q ok=%v", target, ok)
 	}
+	if string(autoDesktopObserveArgs()) != `{"action":"observe"}` {
+		t.Fatalf("desktop observe nudge must read the UIA tree, not screenshot pixels: %s", autoDesktopObserveArgs())
+	}
 	if !looksLikeDesktopObserveTurn("打开桌面的企业AI智能助手文档的最后一行输入13145262") {
 		t.Fatal("multi-step desktop task must observe after opening")
 	}

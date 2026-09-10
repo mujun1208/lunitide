@@ -99,6 +99,34 @@ func (a *catalogOCRContractAdapter) Complete(_ context.Context, _ []byte, reques
 	return llmadapter.Response{Message: llmadapter.Message{Content: "123"}, FinishReason: "stop"}, nil
 }
 
+func TestMaybeDescribeImagesRecordsVisionPurpose(t *testing.T) {
+	p := videoTestProvider()
+	p.Models = []provider.Model{{ModelID: "vision-desc", Kind: provider.KindVision, KindDefault: true, SupportsVision: true}}
+	e := NewEngineWithGateway(videoTestProviders{items: []provider.Provider{p}}, "test", streamTestLease{})
+	store := &memCalls{}
+	e.SetCallAttemptStore(store)
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
+		return completeMeterAdapter{usage: llmadapter.Usage{InputTokens: 2, OutputTokens: 1, TotalTokens: 3}, content: "发票 12"}, nil
+	})
+	parent := withContinuityScope(context.Background(), continuityScope{Owner: "sess", Task: "sess", Turn: "turn", Purpose: "chat"})
+	text, ok := e.maybeDescribeImages(parent, provider.Model{ModelID: "llm"}, []llmadapter.Image{{MIME: "image/png", Data: []byte("fixture")}}, "这张图是什么")
+	if !ok || !strings.Contains(text, "发票") {
+		t.Fatalf("vision describe %+v %v", text, ok)
+	}
+	seen := false
+	for _, rec := range store.recs {
+		if rec.Purpose == "vision" {
+			seen = true
+		}
+		if rec.Purpose == "chat" {
+			t.Fatalf("vision describe reused chat purpose: %+v", rec)
+		}
+	}
+	if !seen {
+		t.Fatalf("vision purpose missing: %+v", store.recs)
+	}
+}
+
 func TestCatalogOCRUsesTheSameModelContractAsItsConnectionProbe(t *testing.T) {
 	p := videoTestProvider()
 	p.Models = []provider.Model{{ModelID: "deepseek-ocr", Kind: provider.KindVision, KindDefault: true}}

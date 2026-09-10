@@ -7,6 +7,19 @@ import{SessionPage}from'./SessionPage'
 afterEach(cleanup)
 const U='01ARZ3NDEKTSV4RRFFQ69G5FAV',P='01ARZ3NDEKTSV4RRFFQ69G5FAA',now='2025-01-01T00:00:00Z',project:ProjectDTO={id:P,name:'Parent',projectCode:'ITM00001',type:'implementation',status:'active',createdAt:now,updatedAt:now,version:1},item:SessionDTO={id:U,projectId:P,title:'<img src=x onerror=alert(1)>',pinned:false,status:'active',createdAt:now,updatedAt:now,version:1}
 const api=(x:Partial<SessionBridge>={}):SessionBridge=>({list:vi.fn().mockResolvedValue({items:[]}),create:vi.fn().mockResolvedValue(item),update:vi.fn().mockResolvedValue(item),delete:vi.fn().mockResolvedValue({deleted:true,id:'01ARZ3NDEKTSV4RRFFQ69G5FAV'}),...x})
+it('does not show raw English session list failures from generic errors',async()=>{
+ render(<SessionPage project={project} bridge={api({list:vi.fn().mockRejectedValue(new Error('Failed to fetch'))})} onBack={vi.fn()}/>)
+ expect(await screen.findByRole('alert')).toHaveTextContent('请求失败')
+ expect(screen.queryByText('Failed to fetch')).toBeNull()
+ expect(await screen.findByRole('alert')).not.toHaveTextContent('LIST_FAILED')
+})
+
+it('does not leak BridgeClientError transport English from the session list',async()=>{
+ render(<SessionPage project={project} bridge={api({list:vi.fn().mockRejectedValue(new BridgeClientError('Failed to fetch','ENGINE_UNAVAILABLE',true,'engine'))})} onBack={vi.fn()}/>)
+ expect(await screen.findByRole('alert')).toHaveTextContent('请求失败')
+ expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('hides sidebar delete for 月伴对话',async()=>{
  const companion={...item,title:'月伴对话'}
  render(<SessionPage project={project} bridge={api({list:vi.fn().mockResolvedValue({items:[companion]})})} onBack={vi.fn()}/>)

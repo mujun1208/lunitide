@@ -263,6 +263,12 @@ it('shows the reconnect diagnostic instead of treating a degraded probe as a suc
  expect(await screen.findByRole('alert')).toHaveTextContent('本地 Python 或软件依赖未能准备完成')
  expect(screen.queryByText('Memory：连接异常')).not.toBeInTheDocument()
 })
+it('does not show raw English list failures',async()=>{
+ render(<McpPage bridge={api({list:vi.fn().mockRejectedValue(new Error('Failed to fetch'))})}/>)
+ expect(await screen.findByRole('alert')).toHaveTextContent('MCP 清单加载失败')
+ expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('explains the OAuth requirement on a legacy Google Drive installation and links official setup',async()=>{
  const bridge=api({presets:vi.fn().mockResolvedValue({items:[{id:'gdrive',name:'Google Drive',description:'文件检索',transport:'stdio',command:'npx',args:['-y','@modelcontextprotocol/server-gdrive'],needsArgs:false,category:'文件',needsCredential:true,credentialEnvs:['GDRIVE_CREDENTIALS_PATH'],setupUrl:'https://github.com/modelcontextprotocol/servers-archived/tree/main/src/gdrive'}]}),list:vi.fn().mockResolvedValue({endpoints:[{...memoryEndpoint,displayName:'Google Drive',args:['-y','@modelcontextprotocol/server-gdrive','C:/old/folder'],state:'degraded',credentialConfigured:false}]})})
  render(<McpPage bridge={bridge}/>);fireEvent.click(await screen.findByRole('tab',{name:'已安装（1）'}))

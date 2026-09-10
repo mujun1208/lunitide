@@ -4,6 +4,7 @@ import { readBoundedFile } from '../files/readBoundedFile';
 import type { OfficeImageUpload } from './officeImageUpload';
 import type { OfficeNode, OfficeStudioApi, OfficeTask, OfficeTaskDetail } from './officeStudioApi';
 import { officeBytes } from './officePresentation';
+import { officeStudioUserError } from './officeUserError';
 
 export interface OfficeImageTarget {
   task: OfficeTask; artifactId: string; baseVersionId: string; expectedRevision: number;
@@ -29,7 +30,7 @@ export function OfficeImageDialog({ api, target, onUpload, onChanged, onClose }:
       const bytes = new Uint8Array(await readBoundedFile(next, 8 * 1024 * 1024));
       if (![137,80,78,71,13,10,26,10].every((v, i) => bytes[i] === v) && !(bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255)) throw new Error('请选择文件内容有效的 PNG 或 JPEG 原图。');
       if (revision === generation.current) setFile(next);
-    } catch (cause) { if (revision === generation.current) setError(cause instanceof Error ? cause.message : '图片读取失败。'); }
+    } catch (cause) { if (revision === generation.current) setError(officeStudioUserError(cause, '图片读取失败。')); }
     finally { if (revision === generation.current) setBusy(false); }
   };
   const replace = async () => {
@@ -43,7 +44,7 @@ export function OfficeImageDialog({ api, target, onUpload, onChanged, onClose }:
       const next = await api.replaceImage({ taskId: snapshot.task.id, artifactId: snapshot.artifactId, baseVersionId: snapshot.baseVersionId, expectedRevision: snapshot.expectedRevision, nodeId: snapshot.node.id, nodeDigest: snapshot.node.digest!, attachmentId: uploaded.attachmentId, sha256: uploaded.sha256, fit, ...(editAlt ? { alt } : {}) });
       if (revision !== generation.current) return;
       onChanged(next); onClose();
-    } catch (cause) { if (revision === generation.current) setError(cause instanceof Error ? cause.message : '图片替换未完成。'); }
+    } catch (cause) { if (revision === generation.current) setError(officeStudioUserError(cause, '图片替换未完成。')); }
     finally { if (revision === generation.current) { setBusy(false); setCommitting(false); operation.current = undefined; } }
   };
   return <Dialog open={!!target} title="替换选中的图片" onClose={() => { if (!busy) onClose(); }} wide>

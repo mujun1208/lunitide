@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/widget.query.schema.json",
+  "title": "widget.query payload",
+  "x-method": "widget.query",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "owner": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "id": { "type": "string", "maxLength": 64 }
+  },
+  "required": ["owner"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 100,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string" },
+            "revision": { "type": "integer", "minimum": 0 },
+            "owner": { "type": "string" },
+            "title": { "type": "string" },
+            "status": { "type": "string" },
+            "widgets": {
+              "type": "array",
+              "maxItems": 32,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": { "type": "string" },
+                  "kind": { "enum": ["timer", "checklist", "metric", "table", "bar", "progress", "todo", "checkin"] },
+                  "state": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "seconds": { "type": "integer", "minimum": 0, "maximum": 86400 },
+                      "running": { "type": "boolean" },
+                      "updatedAt": { "type": "string", "maxLength": 40 },
+                      "value": { "type": "string", "maxLength": 64 },
+                      "unit": { "type": "string", "maxLength": 16 },
+                      "percent": { "type": "integer", "minimum": 0, "maximum": 100 },
+                      "rows": { "type": "string", "maxLength": 500 },
+                      "checked": { "type": "string", "maxLength": 500 },
+                      "items": { "type": "string", "maxLength": 500 }
+                    }
+                  }
+                },
+                "required": ["id", "kind"]
+              }
+            }
+          },
+          "required": ["id", "revision", "owner", "title", "status"]
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "x-examples": {
+    "positive": [{ "owner": "u1" }],
+    "negative": [{ "unexpected": true }, {}]
+  }
+}

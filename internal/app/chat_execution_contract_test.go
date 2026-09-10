@@ -273,3 +273,29 @@ func TestDesktopToolRoutesHaveTypedVoiceParity(t *testing.T) {
 		}
 	}
 }
+
+func TestDesktopCapabilityDeniedIsNotRetried(t *testing.T) {
+	failed := map[string]int{}
+	args := json.RawMessage(`{"text":"hi"}`)
+	if desktopMutationRetryBlocked(failed, "desktop.type", args) {
+		t.Fatal("first attempt must run")
+	}
+	recordDesktopMutationFailure(failed, "desktop.type", args, "CAPABILITY_NOT_READY: 请先在设置中启用电脑控制")
+	if !desktopMutationRetryBlocked(failed, "desktop.type", args) {
+		t.Fatal("missing computer control must not be retried")
+	}
+	locked := map[string]int{}
+	recordDesktopMutationFailure(locked, "desktop.type", args, "锁屏中，已停止桌面输入，未向界面发送按键")
+	if !desktopMutationRetryBlocked(locked, "desktop.type", args) {
+		t.Fatal("lock screen must not be retried")
+	}
+	transient := map[string]int{}
+	recordDesktopMutationFailure(transient, "desktop.type", args, "无法执行：目标未出现")
+	if desktopMutationRetryBlocked(transient, "desktop.type", args) {
+		t.Fatal("a single transient failure may retry once")
+	}
+	recordDesktopMutationFailure(transient, "desktop.type", args, "无法执行：目标未出现")
+	if !desktopMutationRetryBlocked(transient, "desktop.type", args) {
+		t.Fatal("two identical failures must stop repeating")
+	}
+}

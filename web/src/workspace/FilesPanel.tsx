@@ -2,6 +2,11 @@ import React,{useEffect,useMemo,useState}from'react'
 import{expertBridge,ontologyBridge,pluginBridge,skillBridge,type ExpertBridge,type OntologyBridge,type PluginBridge,type SkillBridge}from'../bridge/client'
 import type{OntologyNodeDTO,SkillDTO}from'../generated/bridge'
 
+function filesUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 export type FilesFocus='session'|'skills'|'experts'|'plugins'|'assets'
 
 type TreeNode={name:string;path:string;kind:'directory'|'file';children:TreeNode[];meta?:string}
@@ -34,7 +39,7 @@ export function FilesPanel({projectId,ontology=ontologyBridge,skills=skillBridge
  if(mode==='skills')tasks.push(Promise.resolve().then(()=>skills.list({})).then(r=>{if(active)setSkillItems(r.items)}))
  if(mode==='experts')tasks.push(Promise.resolve().then(()=>experts.list({})).then(r=>{if(active)setExpertItems(r.experts.map(item=>({name:item.name,meta:`${item.division} · v${item.semver}`})))}))
  if(mode==='plugins')tasks.push(Promise.resolve().then(()=>plugins.list({})).then(r=>{if(active)setPluginItems(r.plugins.map(item=>({name:item.pluginId,meta:`${item.kind} · ${item.state}`})))}).catch(()=>{if(active)setPluginItems([])}))
- Promise.all(tasks).catch(e=>{if(active)setError(e instanceof Error?e.message:'目录载入失败')}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[ontology,projectId,skills,experts,plugins,mode])
+ Promise.all(tasks).catch(e=>{if(active)setError(filesUserError(e,'目录载入失败'))}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[ontology,projectId,skills,experts,plugins,mode])
  const roots=useMemo(()=>{
   if(mode==='experts')return[{name:'专家目录',path:'experts',kind:'directory' as const,children:expertItems.map(item=>({name:item.name,path:`experts/${item.name}`,kind:'file' as const,children:[],meta:item.meta})).sort((a,b)=>a.name.localeCompare(b.name))}]
   if(mode==='plugins')return[{name:'插件目录',path:'plugins',kind:'directory' as const,children:pluginItems.map(item=>({name:item.name,path:`plugins/${item.name}`,kind:'file' as const,children:[],meta:item.meta})).sort((a,b)=>a.name.localeCompare(b.name))}]

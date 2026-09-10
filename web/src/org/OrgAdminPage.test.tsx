@@ -139,6 +139,12 @@ it('keeps invite and space actions disabled until required input is provided', a
   await waitFor(() => expect(bridge.memberInvite).toHaveBeenCalledWith({ displayName: '王工' }, expect.anything()))
 })
 
+it('does not show raw English summary failures', async () => {
+  render(<OrgAdminPage bridge={api({ summary: vi.fn().mockRejectedValue(new Error('Failed to fetch')) })} />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('组织概览加载失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('planned governance roadmap renders concept contracts without enableable controls', async () => {
   const bridge = api({ summary: vi.fn().mockResolvedValue({ boundOrgId: orgA.orgId, org: orgDetail, orgs: [orgA] }) })
   render(<OrgAdminPage bridge={bridge} />)

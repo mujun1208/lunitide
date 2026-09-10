@@ -49,4 +49,12 @@ describe('stageBrowserFile', () => {
     } as unknown as PeopleBridge
     await expect(stageBrowserFile(people, file('飞算AI.png', bytes), bytes)).rejects.toThrow(/分片上传超时（1\/1）/)
   })
+
+  it('leaves unmapped BridgeClientError text on the thrown Error for the send sink to wrap', async () => {
+    const bytes = Uint8Array.from([1, 2, 3, 4])
+    const people = {
+      fileStage: vi.fn().mockRejectedValue(new BridgeClientError('Failed to fetch', 'ENGINE_UNAVAILABLE', true, 'engine')),
+    } as unknown as PeopleBridge
+    await expect(stageBrowserFile(people, file('飞算AI.png', bytes), bytes)).rejects.toThrow('Failed to fetch')
+  })
 })

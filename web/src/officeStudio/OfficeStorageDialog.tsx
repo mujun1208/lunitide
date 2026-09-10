@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Dialog } from '../ui/Dialog';
 import type { OfficeStudioApi } from './officeStudioApi';
 import { officeBytes } from './officePresentation';
+import { officeStudioUserError } from './officeUserError';
 
 export function OfficeStorageDialog({ api, open, onClose }: { api: OfficeStudioApi; open: boolean; onClose: () => void }) {
   const [usage, setUsage] = useState<Awaited<ReturnType<OfficeStudioApi['storageUsage']>>>();
@@ -12,7 +13,7 @@ export function OfficeStorageDialog({ api, open, onClose }: { api: OfficeStudioA
     const revision = ++generation.current;
     setBusy(true); setError('');
     try { const next = await api.storageUsage(); if (revision === generation.current) setUsage(next); }
-    catch (cause) { if (revision === generation.current) setError(cause instanceof Error ? cause.message : '存储用量读取失败。'); }
+    catch (cause) { if (revision === generation.current) setError(officeStudioUserError(cause, '存储用量读取失败。')); }
     finally { if (revision === generation.current) setBusy(false); }
   };
   useEffect(() => { if (open) { setUsage(undefined); setReport(undefined); setNotice(''); void refresh(); } return () => { generation.current++; }; }, [open, api]);
@@ -32,7 +33,7 @@ export function OfficeStorageDialog({ api, open, onClose }: { api: OfficeStudioA
       }
     } catch (cause) {
       if (revision === generation.current) {
-        setError(cause instanceof Error ? cause.message : '清理检查未完成。');
+        setError(officeStudioUserError(cause, '清理检查未完成。'));
         if (!dryRun) { setReport(undefined); setNotice('清理结果暂未确认。请先刷新用量并重新检查可清理文件，再决定是否继续。'); }
       }
     }

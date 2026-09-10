@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import type { FeedbackBridge, IdentityBridge, MemoryBridge, PeopleBridge } from '../bridge/client'
+import { BridgeClientError, type FeedbackBridge, type IdentityBridge, type MemoryBridge, type PeopleBridge } from '../bridge/client'
 import type { IdentityDTO, PeopleContactDTO, PeopleMessageDTO, PeopleThreadDTO } from '../generated/bridge'
 import { captureThisPcFrame } from './peopleCapture'
 import { PeoplePage } from './PeoplePage'
@@ -85,6 +85,13 @@ describe('PeoplePage', () => {
     vi.useRealTimers()
     localStorage.removeItem('lunitide:people-composer-height')
     vi.mocked(captureThisPcFrame).mockReset()
+  })
+  test('does not show raw English directory load failures', async () => {
+    const { identity, people } = bridges()
+    vi.mocked(people.list).mockRejectedValue(new Error('Failed to fetch'))
+    render(<PeoplePage identity={identity} people={people} />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('通讯录加载失败')
+    expect(screen.queryByText('Failed to fetch')).toBeNull()
   })
   test('pages older messages and returns to the latest page', async () => {
     const { identity, people } = bridges()
@@ -493,6 +500,20 @@ describe('PeoplePage', () => {
     await act(async () => { finishRead(new Uint8Array([1, 2, 3]).buffer) })
     expect(people.threadSend).toHaveBeenCalledTimes(2)
     expect(people.fileStage).not.toHaveBeenCalled()
+  })
+
+  test('does not leak raw English staging failures into the send notice', async () => {
+    const { identity, people } = bridges()
+    const bytes = new Uint8Array(100 * 1024)
+    const file = new File([bytes], '截图.png', { type: 'image/png' })
+    Object.defineProperty(file, 'arrayBuffer', { value: async () => bytes.buffer })
+    vi.mocked(captureThisPcFrame).mockResolvedValue({ source: 'native', file })
+    people.fileStage = vi.fn().mockRejectedValue(new BridgeClientError('Failed to fetch', 'ENGINE_UNAVAILABLE', true, 'engine'))
+    const user = userEvent.setup()
+    render(<PeoplePage identity={identity} people={people} initialPeerSubjectId={peer.subjectId} />)
+    await user.click(await screen.findByRole('button', { name: '框选截图' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('发送失败')
+    expect(screen.queryByText('Failed to fetch')).toBeNull()
   })
 
   test('a failed screenshot chunk releases the composer for subsequent text and emoji', async () => {

@@ -23,6 +23,7 @@ import (
 	"github.com/lunitide/lunitide/internal/ccapp"
 	"github.com/lunitide/lunitide/internal/compactionapp"
 	"github.com/lunitide/lunitide/internal/config"
+	"github.com/lunitide/lunitide/internal/connectorapp"
 	"github.com/lunitide/lunitide/internal/contextapp"
 	"github.com/lunitide/lunitide/internal/conversationsapp"
 	"github.com/lunitide/lunitide/internal/datasourceapp"
@@ -35,6 +36,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/session"
 	"github.com/lunitide/lunitide/internal/domain/stage"
 	"github.com/lunitide/lunitide/internal/domain/token"
+	"github.com/lunitide/lunitide/internal/fileops"
 	"github.com/lunitide/lunitide/internal/handoffapp"
 	"github.com/lunitide/lunitide/internal/identity"
 	"github.com/lunitide/lunitide/internal/imapp"
@@ -47,8 +49,10 @@ import (
 	"github.com/lunitide/lunitide/internal/mcp6"
 	"github.com/lunitide/lunitide/internal/meetings"
 	"github.com/lunitide/lunitide/internal/messageapp"
+	"github.com/lunitide/lunitide/internal/modelfit"
 	"github.com/lunitide/lunitide/internal/mroapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
+	"github.com/lunitide/lunitide/internal/ocrapp"
 	"github.com/lunitide/lunitide/internal/officeapp"
 	"github.com/lunitide/lunitide/internal/org"
 	"github.com/lunitide/lunitide/internal/people"
@@ -62,6 +66,7 @@ import (
 	"github.com/lunitide/lunitide/internal/terminalruntime"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 	"github.com/lunitide/lunitide/internal/tts"
+	"github.com/lunitide/lunitide/internal/widgetapp"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -158,6 +163,13 @@ type Engine struct {
 	streamEngine
 	tools              *toolruntime.Runtime
 	turnJournal        ChatTurnJournal
+	toolOps            ToolOperationStore
+	callAttempts       CallAttemptStore
+	messageGroups      MessageGroupStore
+	ocr                *ocrapp.Service
+	fileOps            *fileops.Service
+	widgets            *widgetapp.FileStore
+	connectors         *connectorapp.FileStore
 	storageReadiness   StorageReadiness
 	diagnosticsRunning atomic.Bool
 	conversations      *conversationsapp.Store
@@ -382,7 +394,8 @@ type providerDTO struct {
 }
 
 func NewEngine(providers ProviderService, version string) *Engine {
-	return &Engine{providers: providers, version: version, streamEngine: streamEngine{streams: make(map[string]*streamState), maxStreams: 32}, adapterCache: make(map[string]llmadapter.Adapter)}
+	return &Engine{providers: providers, version: version, streamEngine: streamEngine{streams: make(map[string]*streamState), maxStreams: 32}, adapterCache: make(map[string]llmadapter.Adapter),
+		gateway: llmadapter.Options{DisableTokenEfficiency: !config.TokenEfficiencyEnabled()}}
 }
 
 func NewEngineWithProjects(providers ProviderService, projects ProjectService, version string, leases LeaseClient) *Engine {
@@ -438,6 +451,113 @@ func (e *Engine) SetToolRuntime(r *toolruntime.Runtime) {
 	if r != nil && e.officeStudio != nil {
 		r.SetOfficeExecutor(e.executeOfficeTool)
 	}
+	e.wireDocumentText()
+	e.wireIMSendGate()
+}
+
+func (e *Engine) SetOCR(s *ocrapp.Service) {
+	if e == nil {
+		return
+	}
+	e.ocr = s
+	if s != nil {
+		s.SetProvider(e.ocrProviderCall)
+		s.SetCredential(e.ocrCredentialRef)
+	}
+	e.wireDocumentText()
+}
+
+func (e *Engine) SetFileOps(s *fileops.Service) {
+	if e != nil {
+		e.fileOps = s
+	}
+}
+
+func (e *Engine) SetWidgetStore(s *widgetapp.FileStore) {
+	if e != nil {
+		e.widgets = s
+		e.wireAutomationItemDue()
+	}
+}
+
+func (e *Engine) SetConnectorStore(s *connectorapp.FileStore) {
+	if e != nil {
+		e.connectors = s
+		if s != nil {
+			s.SetRevokeHook(func(id string) {
+				e.cancelConnectorOperations(context.Background(), "", id)
+			})
+		}
+		e.wireIMSendGate()
+	}
+}
+
+func (e *Engine) wireIMSendGate() {
+	if e == nil || e.tools == nil {
+		return
+	}
+	e.tools.SetIMAllowed(func(channel string) bool {
+		if e.connectors == nil {
+			return true
+		}
+		if _, ok := e.connectors.Get(channel); !ok {
+			return true
+		}
+		return e.connectors.BackgroundAllowed(channel)
+	})
+}
+
+func (e *Engine) RevokeConnectorCredential(ctx context.Context, id, owner string) (connectorapp.Recipe, error) {
+	if e == nil || e.connectors == nil {
+		return connectorapp.Recipe{}, errors.New("connector store unavailable")
+	}
+	got, err := e.connectors.RevokeCredential(id)
+	if err != nil {
+		return got, err
+	}
+	e.cancelConnectorOperations(ctx, owner, id)
+	return got, nil
+}
+
+func (e *Engine) cancelConnectorOperations(ctx context.Context, owner, connectorID string) {
+	if e == nil || e.toolOps == nil || strings.TrimSpace(connectorID) == "" {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	owners := []string{owner, ownerScope(owner), connectorID, "diagnostic"}
+	seen := map[string]bool{}
+	now := time.Now().UTC()
+	for _, scope := range owners {
+		scope = strings.TrimSpace(scope)
+		if scope == "" || seen[scope] {
+			continue
+		}
+		seen[scope] = true
+		ops, err := e.toolOps.ListToolOperations(ctx, scope, 200)
+		if err != nil {
+			continue
+		}
+		for _, op := range ops {
+			if op.ExternalID != connectorID {
+				continue
+			}
+			switch op.State {
+			case modelfit.OpPending, modelfit.OpRunning, modelfit.OpUnknown, modelfit.OpPartial:
+			default:
+				continue
+			}
+			_ = e.toolOps.RequestToolOperationCancel(ctx, op.OwnerScope, op.ID, op.ExpectedVersion, now)
+		}
+	}
+}
+
+func (e *Engine) wireDocumentText() {
+	if e == nil || e.tools == nil || e.ocr == nil {
+		return
+	}
+	e.tools.SetDocumentText(e.workspaceDocumentText)
 }
 
 func (e *Engine) SetConversationsStore(s *conversationsapp.Store) { e.conversations = s }
@@ -448,7 +568,37 @@ func (e *Engine) SetArtifactReviewStore(s *artifactreview.Store) { e.artifactRev
 // SetAutomationScheduler wires the P2-3 resident cron scheduler. When the
 // scheduler carries no executor yet (engine not ready), a later
 // StartAutomationScheduler call attaches the headless chat executor.
-func (e *Engine) SetAutomationScheduler(s *scheduler.Scheduler) { e.automation = s }
+func (e *Engine) SetAutomationScheduler(s *scheduler.Scheduler) {
+	e.automation = s
+	e.wireAutomationItemDue()
+}
+
+func (e *Engine) itemTriggerDue(spec string) bool {
+	if e == nil || e.widgets == nil || !e.widgets.HasItem(spec) {
+		return true
+	}
+	return e.widgets.ItemDue(spec)
+}
+
+func (e *Engine) wireAutomationItemDue() {
+	if e == nil || e.automation == nil {
+		return
+	}
+	e.automation.SetItemDue(e.triggerSpecAllowed)
+}
+
+func (e *Engine) triggerSpecAllowed(spec string) bool {
+	if !e.itemTriggerDue(spec) {
+		return false
+	}
+	if e == nil || e.connectors == nil {
+		return true
+	}
+	if _, ok := e.connectors.Get(spec); !ok {
+		return true
+	}
+	return e.connectors.BackgroundAllowed(spec)
+}
 
 func (e *Engine) SetTerminalRuntime(r *terminalruntime.Runtime) {
 	e.terminalsMu.Lock()
@@ -536,7 +686,7 @@ type ContextStatusResult struct {
 // active checkpoint version, budget usage ratio, and whether compaction is
 // in progress (ADR-005 §4.2).
 func (e *Engine) ContextStatus(ctx context.Context, sessionID string) (ContextStatusResult, error) {
-	result := ContextStatusResult{TokenEfficiencyEnabled: config.TokenEfficiencyEnabled()}
+	result := ContextStatusResult{TokenEfficiencyEnabled: !e.gateway.DisableTokenEfficiency}
 
 	// Get the latest checkpoint to determine provider/model and compaction state.
 	var latest *compaction.Checkpoint
@@ -687,6 +837,7 @@ func (e *Engine) TriggerPreTurnCompaction(ctx context.Context, sessionID, provid
 	if e.compactionTrigger == nil || e.compactionExecutor == nil {
 		return result
 	}
+	ctx = withContinuityScope(ctx, continuityScope{Owner: ownerScope(sessionID), Task: sessionID, Purpose: "compaction"})
 
 	// 1. Check if compaction should be triggered.
 	triggerResult, err := e.compactionTrigger.CheckAndTrigger(ctx, sessionID, provider, model, tokenizerRevision, contextWindow)

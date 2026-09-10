@@ -32,9 +32,13 @@ const MEETING_LIVE_FALLBACK_NOTICE = '所选引擎未返回字幕，已切换到
 const MEETING_LIVE_UNAVAILABLE_NOTICE = '实时字幕暂不可用，本机识别也未就绪。录音继续保存。'
 const VOLC_CONNECTING_NOTICE = '正在连接火山听写…'
 const VOLC_LISTENING_NOTICE = '正在听写'
+function meetingUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
 
 function speechNotice(error: unknown): string {
-  return error instanceof Error && error.message ? error.message : ASR_INTERRUPTED_NOTICE
+  return meetingUserError(error, ASR_INTERRUPTED_NOTICE)
 }
 
 async function capturePlanForStarted(meeting: MeetingDTO): Promise<MeetingCapturePlan> {
@@ -330,7 +334,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
             }),
           ).catch(error => {
             if (currentIdRef.current === id && speechGen.current === gen) {
-              setNotice(error instanceof Error ? error.message : '转写写入失败')
+              setNotice(meetingUserError(error, '转写写入失败'))
             }
           })
         },
@@ -478,10 +482,10 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
           if (alive) setNotice(speechNotice(error))
         }
       } catch (error) {
-        if (alive) setNotice(error instanceof Error ? error.message : '无法继续上一场录制')
+        if (alive) setNotice(meetingUserError(error, '无法继续上一场录制'))
       }
     }).catch(error => {
-      if (alive) setNotice(error instanceof Error ? error.message : '无法读取会议记录')
+      if (alive) setNotice(meetingUserError(error, '无法读取会议记录'))
     })
     return () => { alive = false }
   }, [refresh, meetings])
@@ -680,7 +684,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
       releaseMeetingCapture(plan)
       captureRef.current = undefined
       if (!isCanceled(error) && !(error instanceof DOMException && (error.name === 'AbortError' || error.name === 'NotAllowedError'))) {
-        setNotice(error instanceof Error ? error.message : '无法开始录制')
+        setNotice(meetingUserError(error, '无法开始录制'))
       }
       await refresh().catch(() => undefined)
     } finally {
@@ -720,7 +724,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
       const latest = honestNotes(await meetings.get({ meetingId }))
       if (!active()) return
       adopt(latest)
-      setNotice(latest.summaryError || (error instanceof Error ? error.message : '无法生成摘要，可重试'))
+      setNotice(latest.summaryError || meetingUserError(error, '无法生成摘要，可重试'))
     }
   }
 
@@ -758,7 +762,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     const saveError = await savingAudio
     if (saveError) {
       if (!active()) return
-      setNotice(saveError.message)
+      setNotice(meetingUserError(saveError, '无法写入本机录音'))
       setStopping(false)
       setBusy(false)
       userStopRef.current = false
@@ -779,10 +783,10 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
         const latest = honestNotes(await meetings.get({ meetingId: current.meetingId }))
         if (!active()) return
         adopt(latest)
-        setNotice(latest.summaryError || (error instanceof Error ? error.message : '无法结束录制'))
+        setNotice(latest.summaryError || meetingUserError(error, '无法结束录制'))
       } catch {
         if (!active()) return
-        setNotice(error instanceof Error ? error.message : '无法结束录制')
+        setNotice(meetingUserError(error, '无法结束录制'))
       }
     } finally {
       if (active()) {
@@ -805,9 +809,9 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
       try {
         const latest = honestNotes(await meetings.get({ meetingId: current.meetingId }))
         adopt(latest)
-        setNotice(latest.summaryError || (error instanceof Error ? error.message : '无法生成摘要'))
+        setNotice(latest.summaryError || meetingUserError(error, '无法生成摘要'))
       } catch {
-        setNotice(error instanceof Error ? error.message : '无法生成摘要')
+        setNotice(meetingUserError(error, '无法生成摘要'))
       }
     } finally {
       setBusy(false)
@@ -852,7 +856,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
       setNotice('')
     } catch (error) {
       if (!mountedRef.current || epoch !== selectionEpoch.current) return
-      setNotice(error instanceof Error ? error.message : '无法打开会议')
+      setNotice(meetingUserError(error, '无法打开会议'))
     }
   }
 
@@ -893,7 +897,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
       const result = await meetings.exportMeeting({ meetingId: current.meetingId, format })
       setNotice(`已导出到 ${result.path}`)
     } catch (error) {
-      if (!isCanceled(error)) setNotice(error instanceof Error ? error.message : '无法导出')
+      if (!isCanceled(error)) setNotice(meetingUserError(error, '无法导出'))
     } finally {
       setBusy(false)
     }
@@ -903,7 +907,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
     const epoch = selectionEpoch.current
     setBusy(true)
     try { await persistEdits(revision); if (mountedRef.current && epoch === selectionEpoch.current) setNotice('纪要已保存') }
-    catch (error) { if (mountedRef.current && epoch === selectionEpoch.current) setNotice(error instanceof Error ? error.message : '无法保存') }
+    catch (error) { if (mountedRef.current && epoch === selectionEpoch.current) setNotice(meetingUserError(error, '无法保存')) }
     finally { if (mountedRef.current && epoch === selectionEpoch.current) setBusy(false) }
   }
 
@@ -923,7 +927,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
       setDeleteTarget(undefined)
       setNotice('会议已删除')
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : '无法删除会议')
+      setNotice(meetingUserError(error, '无法删除会议'))
     } finally {
       setBusy(false)
     }

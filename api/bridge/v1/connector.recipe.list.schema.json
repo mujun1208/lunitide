@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/connector.recipe.list.schema.json",
+  "title": "connector.recipe.list payload",
+  "x-method": "connector.recipe.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 100,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string", "maxLength": 64 },
+            "scope": { "type": "string", "maxLength": 64 },
+            "rateLimit": { "type": "string", "maxLength": 32 },
+            "revision": { "type": "integer", "minimum": 0 },
+            "credentialBound": { "type": "boolean" },
+            "health": { "type": "string", "maxLength": 64 },
+            "status": { "enum": ["ready", "missing_credential", "pending_external"] },
+            "paused": { "type": "boolean" }
+          },
+          "required": ["id", "scope", "revision", "status"]
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "x-examples": {
+    "positive": [{}],
+    "negative": [{ "unexpected": true }]
+  }
+}

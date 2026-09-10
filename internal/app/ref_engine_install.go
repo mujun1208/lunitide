@@ -142,7 +142,7 @@ func (s *RefEngineInstall) snapshot() map[string]any {
 		out["file"] = s.progress.File
 	}
 	if s.lastErr != "" {
-		out["lastError"] = truncate(s.lastErr, 512)
+		out["lastError"] = installUserLastError(s.lastErr)
 	}
 	return out
 }

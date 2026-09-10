@@ -33,6 +33,14 @@ it('keeps independent agents separate and displays a failed task without a succe
  expect(container.querySelector('.is-running')).toBeInTheDocument()
 })
 
+it('does not show raw English join result failures',async()=>{
+  const join=vi.fn().mockRejectedValue(new Error('Failed to fetch'))
+  const {container}=render(<SubagentActivityRow activity={{callId:'a',name:'subagent.spawn',status:'tool_completed',summary:progress({status:'completed'})}} bridge={{join}}/> )
+  fireEvent.click(container.querySelector('summary')!)
+  expect(await screen.findByRole('alert')).toHaveTextContent('读取结果失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('retries reading the saved result without restarting the agent',async()=>{
  const join=vi.fn().mockRejectedValueOnce(new Error('连接恢复中')).mockResolvedValue({status:'completed',summary:'结果已保存',spentTokens:10,digests:[],truncated:false})
  const {container}=render(<SubagentActivityRow activity={{callId:'a',name:'subagent.spawn',status:'tool_completed',summary:progress({status:'completed'})}} bridge={{join}}/> )

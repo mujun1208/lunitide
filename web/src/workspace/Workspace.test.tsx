@@ -9,6 +9,24 @@ const P='01ARZ3NDEKTSV4RRFFQ69G5FAV',S='01ARZ3NDEKTSV4RRFFQ69G5FAA',OTHER='01ARZ
 const item=(id=A,sessionId=S,name='notes.txt')=>({attachmentId:id,projectId:P,sessionId,originalName:name,mime:'text/plain',size:12,sha256:'hash',parseStatus:'succeeded' as const,parseErrorCode:'',parsedTextBytes:12,createdAt:NOW})
 const bridge=(text='hello https://safe.example/path and javascript:alert(1) http://plain.test')=>({list:vi.fn().mockResolvedValue({items:[item(),item(OTHER,OTHER,'hidden.txt')]}),get:vi.fn().mockResolvedValue({...item(),parsedText:text}),ingest:vi.fn(),delete:vi.fn(),begin:vi.fn(),chunk:vi.fn(),commit:vi.fn(),abort:vi.fn()} as unknown as AttachmentBridge)
 afterEach(()=>{cleanup();resetSessionWorkspaceBindings()})
+it('does not show raw English attachment or browser failures',async()=>{
+  const attachments={list:vi.fn().mockRejectedValue(new Error('Failed to fetch')),get:vi.fn(),ingest:vi.fn(),delete:vi.fn(),begin:vi.fn(),chunk:vi.fn(),commit:vi.fn(),abort:vi.fn()} as unknown as AttachmentBridge
+  render(<Workspace attachments={attachments} projectId={P} sessionId={S} onClose={vi.fn()}/>)
+  expect(await screen.findByText('附件载入失败')).toBeInTheDocument()
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  cleanup()
+  const browser={open:vi.fn().mockRejectedValue(new Error('Failed to fetch')),close:vi.fn()} as unknown as BrowserBridge
+  const user=userEvent.setup()
+  render(<Workspace attachments={bridge()} browser={browser} projectId={P} sessionId={S} onClose={vi.fn()}/>)
+  await user.click(screen.getByRole('tab',{name:'浏览器'}))
+  const input=screen.getByLabelText('浏览器地址')
+  await user.clear(input)
+  await user.type(input,'https://example.com/')
+  await user.click(screen.getByRole('button',{name:'打开独立浏览器'}))
+  expect(await screen.findByLabelText('浏览器状态')).toHaveTextContent('打开失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 describe('Workspace',()=>{
  it('routes web search to the browser, office files to files, and does not auto-reveal the terminal or subagents tab',()=>{expect(workspaceTabForTool('browser.open')).toBe('browser');expect(workspaceTabForTool('web.search')).toBe('browser');expect(workspaceTabForTool('web.fetch')).toBe('browser');expect(workspaceTabForTool('html.gen')).toBe('browser');expect(workspaceTabForTool('subagent.spawn')).toBeUndefined();expect(workspaceTabForTool('subagent.join')).toBeUndefined();expect(workspaceTabForTool('command.run')).toBe('terminal');expect(autoRevealWorkspaceTab('command.run')).toBeUndefined();expect(autoRevealWorkspaceTab('web.search')).toBeUndefined();expect(autoRevealWorkspaceTab('web.search',true)).toBe('browser');expect(autoRevealWorkspaceTab('web.fetch')).toBeUndefined();expect(autoRevealWorkspaceTab('browser.open')).toBe('browser');expect(autoRevealWorkspaceTab('subagent.spawn')).toBeUndefined();expect(autoRevealWorkspaceForHtmlTool('web.search')).toBeUndefined();expect(autoRevealWorkspaceForHtmlTool('web.search',true)).toBe('browser');expect(autoRevealWorkspaceTab('pptx.gen')).toBeUndefined();expect(workspaceTabForTool('workspace.write')).toBe('code');expect(autoRevealWorkspaceTab('workspace.write')).toBeUndefined();expect(workspaceTabForTool('answer.with.https-link')).toBeUndefined()})
  it('adds user-facing workspace tabs without exposing the unfinished Agent runtime console',()=>{render(<Workspace attachments={bridge()} projectId={P} sessionId={S} onClose={vi.fn()}/>);expect(screen.getAllByRole('tab').map(tab=>tab.textContent)).toEqual(expect.arrayContaining(['文件','代码','浏览器','终端','计划','变更']));expect(screen.queryByRole('tab',{name:'子智能体'})).toBeNull();expect(screen.queryByRole('tab',{name:'自动化'})).toBeNull();expect(screen.queryByRole('tab',{name:'Agent'})).toBeNull();expect(screen.queryByRole('button',{name:'启动 Run'})).toBeNull()})

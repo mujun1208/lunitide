@@ -93,6 +93,10 @@ type webhookNotifier struct {
 	client   *http.Client
 }
 
+// openWebhookNotifier is the production webhook factory. Tests replace it
+// to assert fan-out without touching the network.
+var openWebhookNotifier = NewWebhookNotifier
+
 // NewWebhookNotifier validates (production SSRF guard) and wires a webhook
 // notifier. It answers ErrWebhookInvalid for anything the guard rejects.
 func NewWebhookNotifier(rawURL string) (Notifier, error) {

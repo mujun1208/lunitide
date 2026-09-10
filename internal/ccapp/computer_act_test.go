@@ -136,6 +136,61 @@ func TestMapComputerActUnknownAction(t *testing.T) {
 	}
 }
 
+func TestMapComputerActNamedClickDropsGuessedPixels(t *testing.T) {
+	tool, raw, err := MapComputerAct([]byte(`{"action":"click","name":"保存","x":12,"y":34,"frameId":"frm_abc"}`))
+	if err != nil || tool != ToolMouseClick {
+		t.Fatalf("named click: %s %v", tool, err)
+	}
+	var click struct {
+		Name    string `json:"name"`
+		ID      string `json:"id"`
+		X       *int   `json:"x"`
+		Y       *int   `json:"y"`
+		FrameID string `json:"frameId"`
+	}
+	if json.Unmarshal(raw, &click) != nil || click.Name != "保存" || click.X != nil || click.Y != nil || click.FrameID != "" {
+		t.Fatalf("name must beat guessed x,y and skip frameId, got %s", raw)
+	}
+
+	tool, raw, err = MapComputerAct([]byte(`{"action":"click","id":"B1","x":9,"y":8,"frameId":"frm_1"}`))
+	if err != nil || tool != ToolMouseClick {
+		t.Fatalf("id click: %s %v", tool, err)
+	}
+	if json.Unmarshal(raw, &click) != nil || click.ID != "B1" || click.X != nil || click.Y != nil {
+		t.Fatalf("id must beat guessed x,y, got %s", raw)
+	}
+
+	if _, _, err := MapComputerAct([]byte(`{"action":"click"}`)); !errors.Is(err, ErrCcInputFiltered) {
+		t.Fatalf("click without name/id/xy must fail, got %v", err)
+	}
+}
+
+func TestComputerActStepsParse(t *testing.T) {
+	steps, err := ComputerActSteps([]byte(`{"action":"run","steps":[{"action":"focus","title":"记事本"},{"action":"click","name":"保存"},{"action":"type","text":"hi"}]}`))
+	if err != nil || len(steps) != 3 {
+		t.Fatalf("steps: %d %v", len(steps), err)
+	}
+	if _, err := ComputerActSteps([]byte(`{"action":"run","steps":[]}`)); !errors.Is(err, ErrCcInputFiltered) {
+		t.Fatalf("empty steps: %v", err)
+	}
+	if _, err := ComputerActSteps([]byte(`{"action":"click","name":"保存","steps":[{"action":"type","text":"x"}]}`)); !errors.Is(err, ErrCcInputFiltered) {
+		t.Fatalf("steps mixed with a real action: %v", err)
+	}
+	tooMany := `{"action":"run","steps":[{"action":"list"},{"action":"list"},{"action":"list"},{"action":"list"},{"action":"list"},{"action":"list"}]}`
+	if _, err := ComputerActSteps([]byte(tooMany)); !errors.Is(err, ErrCcInputFiltered) {
+		t.Fatalf("max 5 steps: %v", err)
+	}
+	if _, err := ComputerActSteps([]byte(`{"action":"run","steps":[{"action":"run","steps":[{"action":"list"}]}]}`)); !errors.Is(err, ErrCcInputFiltered) {
+		t.Fatalf("nested steps: %v", err)
+	}
+	if ComputerActChangesMachine([]byte(`{"action":"run","steps":[{"action":"observe"},{"action":"list"}]}`)) {
+		t.Fatal("observe+list batch must stay observation")
+	}
+	if !ComputerActChangesMachine([]byte(`{"action":"run","steps":[{"action":"observe"},{"action":"click","name":"保存"}]}`)) {
+		t.Fatal("click inside a batch must count as mutating")
+	}
+}
+
 func TestFrameIDFromHashStable(t *testing.T) {
 	var a, b [32]byte
 	a[0], a[1] = 0xab, 0xcd

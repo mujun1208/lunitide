@@ -16,6 +16,10 @@ import { filterMentionMembers, insertMention, mentionQuery, parseClaimedTasks, p
 import { PEOPLE_EMOJI, contactAvatarIsImage, displayName, filterContacts, filterMessages, filterThreads, formatBytes, groupContactsByOrg, initials, isAgentContact, lastPreview, orgGroupCollapsed, peopleShowsOpenThread, relativeTime, resolveColleaguePeerId, shouldPinPeopleLog, shouldReloadOpenThread, statusLabel, threadHeading, threadPeer, threadTitle, trustLabel, visiblePeopleThreads } from './peopleRoster'
 
 const STICK_PX = 48
+function peopleUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
 
 const MAX_FILE = 32 * 1024 * 1024
 const INLINE_MAX = 80 * 1024
@@ -139,7 +143,7 @@ export function PeoplePage({
     setThreads([])
     return () => { ++openEpoch.current }
   }, [identity, people])
-  useEffect(() => { void refresh().catch(e => showNotice(e instanceof Error ? e.message : '通讯录加载失败', true)) }, [identity, people])
+  useEffect(() => { void refresh().catch(e => showNotice(peopleUserError(e, '通讯录加载失败'), true)) }, [identity, people])
   useEffect(() => {
     const raw = initialPeerSubjectId?.trim()
     if (!raw || openedPeerRef.current === raw) return
@@ -171,7 +175,7 @@ export function PeoplePage({
         setCard(threadPeer(opened.thread.members, me?.subjectId) ?? opened.thread.members.find(m => !m.self))
         await refresh()
       } catch (e) {
-        if (alive && initialEpoch === openEpoch.current) showNotice(e instanceof Error ? e.message : '无法打开专家会话', true)
+        if (alive && initialEpoch === openEpoch.current) showNotice(peopleUserError(e, '无法打开专家会话'), true)
       } finally {
         if (alive && initialEpoch === openEpoch.current) setBusy(false)
       }
@@ -258,7 +262,7 @@ export function PeoplePage({
       setPendingPref(undefined)
       showNotice('已确认，后续对话会遵守这条偏好')
     } catch (e) {
-      showNotice(e instanceof Error ? e.message : '确认偏好失败', true)
+      showNotice(peopleUserError(e, '确认偏好失败'), true)
     } finally {
       setPrefBusy(false)
     }
@@ -303,7 +307,7 @@ export function PeoplePage({
         setViewingHistory(false)
       await refresh()
     } catch (e) {
-      if(epoch===openEpoch.current) showNotice(e instanceof Error ? e.message : '无法打开会话', true)
+      if(epoch===openEpoch.current) showNotice(peopleUserError(e, '无法打开会话'), true)
     } finally {
       if(epoch===openEpoch.current) setBusy(false)
     }
@@ -326,7 +330,7 @@ export function PeoplePage({
       setMembersOpen(false)
       await refresh()
     } catch (e) {
-      if(epoch===openEpoch.current) showNotice(e instanceof Error ? e.message : '无法打开会话', true)
+      if(epoch===openEpoch.current) showNotice(peopleUserError(e, '无法打开会话'), true)
     } finally {
       if(epoch===openEpoch.current) setBusy(false)
     }
@@ -351,7 +355,7 @@ export function PeoplePage({
         if (scroller.current) scroller.current.scrollTop = 0
       } else showNotice('已到达最早的消息')
     } catch (e) {
-      if (epoch === openEpoch.current) showNotice(e instanceof Error ? e.message : '历史消息加载失败', true)
+      if (epoch === openEpoch.current) showNotice(peopleUserError(e, '历史消息加载失败'), true)
     } finally {
       if (epoch === openEpoch.current) {
         historyBusyRef.current = false
@@ -416,7 +420,7 @@ export function PeoplePage({
       void refresh().catch(() => undefined)
       if (result.offer?.status === 'pending') showNotice(`已发出文件「${result.offer.fileName}」，对方必须确认后才会保存。`)
     } catch (e) {
-      showNotice(e instanceof Error ? e.message : '发送失败', true)
+      showNotice(peopleUserError(e, '发送失败'), true)
     } finally {
       sending.current = false
       setBusy(false)
@@ -437,9 +441,9 @@ export function PeoplePage({
       const kind = !folder && picked.fileName.match(/\.(png|jpe?g|gif|webp|bmp)$/i) ? 'image' : 'file'
       await send(kind, '', undefined, picked.path, folder ? `${picked.fileName}.zip` : picked.fileName)
     } catch (e) {
-      const msg = e instanceof Error ? e.message : '无法选择文件'
-      if (/取消/.test(msg)) return
-      showNotice(msg, true)
+      const raw = e instanceof Error ? e.message.trim() : ''
+      if (/取消/.test(raw)) return
+      showNotice(peopleUserError(e, '无法选择文件'), true)
     }
   }
 
@@ -450,7 +454,7 @@ export function PeoplePage({
       setPendingSave(undefined)
       setNotice(accept ? `已接收到本机收件夹：${offer.destPath || offer.fileName}` : `已拒绝 ${offer.fileName}`)
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : '无法确认文件')
+      setNotice(peopleUserError(e, '无法确认文件'))
     }
   }
 
@@ -487,7 +491,7 @@ export function PeoplePage({
         showNotice('')
         return
       }
-      showNotice(e instanceof Error ? e.message : '无法截取本机画面', true)
+      showNotice(peopleUserError(e, '无法截取本机画面'), true)
     }
   }
   grabScreenRef.current = grabScreen
@@ -511,7 +515,7 @@ export function PeoplePage({
       await refresh()
       setNotice(`已与 ${displayName(peer)} 配对`)
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : '配对失败')
+      setNotice(peopleUserError(e, '配对失败'))
     }
   }
 
@@ -526,7 +530,7 @@ export function PeoplePage({
       await refresh()
       setNotice(`已添加 ${displayName(added)}${added.hostAddr ? ` · ${added.hostAddr}` : ''}，配对后才能发消息。`)
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : '无法添加该地址')
+      setNotice(peopleUserError(e, '无法添加该地址'))
     } finally {
       setBusy(false)
     }
@@ -583,7 +587,7 @@ export function PeoplePage({
               <label>对方地址<input value={peerAddr} onChange={e => setPeerAddr(e.target.value)} placeholder="10.0.0.8 或 host:36422" aria-label="对方地址" /></label>
               <button type="submit" disabled={busy || !peerAddr.trim()}>添加</button>
             </form>
-            <button type="button" disabled={busy} onClick={() => void people.discoverySet({ enabled: !me?.discoveryEnabled }).then(d => setMe(cur => cur ? { ...cur, discoveryEnabled: d.enabled } : cur)).catch(e => setNotice(e instanceof Error ? e.message : '无法切换发现'))}>
+            <button type="button" disabled={busy} onClick={() => void people.discoverySet({ enabled: !me?.discoveryEnabled }).then(d => setMe(cur => cur ? { ...cur, discoveryEnabled: d.enabled } : cur)).catch(e => setNotice(peopleUserError(e, '无法切换发现')))}>
               {me?.discoveryEnabled ? '发现开' : '发现关'}
             </button>
             {groups.length === 0 ? <p className="people-empty">{contacts.length === 0 ? '还没有同事' : '没有匹配的同事'}</p> : groups.map(group => {
@@ -661,10 +665,10 @@ export function PeoplePage({
               </div>
             )}
             {moreOpen && card && !card.self && (
-              <form className="people-pair-bar people-remark-bar" onSubmit={e => { e.preventDefault(); void people.contactUpdate({ subjectId: card.subjectId, remark: card.remark ?? '' }).then(updated => { setCard(updated); void refresh() }).catch(err => setNotice(err instanceof Error ? err.message : '无法更新备注')) }}>
+              <form className="people-pair-bar people-remark-bar" onSubmit={e => { e.preventDefault(); void people.contactUpdate({ subjectId: card.subjectId, remark: card.remark ?? '' }).then(updated => { setCard(updated); void refresh() }).catch(err => setNotice(peopleUserError(err, '无法更新备注'))) }}>
                 <label>备注<input value={card.remark ?? ''} maxLength={64} aria-label="备注" onChange={e => setCard(cur => cur ? { ...cur, remark: e.target.value } : cur)} /></label>
                 <button type="submit">保存备注</button>
-                <button type="button" onClick={() => void people.contactUpdate({ subjectId: card.subjectId, blocked: !card.blocked }).then(updated => { setCard(updated); void refresh() }).catch(err => setNotice(err instanceof Error ? err.message : '无法更新屏蔽'))}>{card.blocked ? '取消屏蔽' : '屏蔽'}</button>
+                <button type="button" onClick={() => void people.contactUpdate({ subjectId: card.subjectId, blocked: !card.blocked }).then(updated => { setCard(updated); void refresh() }).catch(err => setNotice(peopleUserError(err, '无法更新屏蔽')))}>{card.blocked ? '取消屏蔽' : '屏蔽'}</button>
               </form>
             )}
             {card?.trustState === 'discovered' && (
@@ -706,7 +710,7 @@ export function PeoplePage({
                     {(item.kind === 'file' || item.kind === 'image') && (
                       <div className="people-file">
                         {item.destPath && (mine || item.offerStatus === 'accepted') && item.kind !== 'image'
-                          ? <button type="button" className="people-file-name" onClick={() => void people.fileOpen({ destPath: item.destPath!, fileName: item.fileName }).catch(err => showNotice(err instanceof Error ? err.message : '无法打开文件', true))}>{item.fileName || '文件'}</button>
+                          ? <button type="button" className="people-file-name" onClick={() => void people.fileOpen({ destPath: item.destPath!, fileName: item.fileName }).catch(err => showNotice(peopleUserError(err, '无法打开文件'), true))}>{item.fileName || '文件'}</button>
                           : <b>{item.fileName || '文件'}</b>}
                         <small>{fileCaption(item, mine)}</small>
                         {item.offerId && item.offerStatus === 'pending' && !mine && (
@@ -717,7 +721,7 @@ export function PeoplePage({
                         )}
                         {item.destPath && (item.offerStatus === 'accepted' || mine) && (
                           <div className="people-file-actions">
-                            <button type="button" onClick={() => void people.fileOpen({ destPath: item.destPath!, fileName: item.fileName }).catch(err => showNotice(err instanceof Error ? err.message : '无法打开文件', true))}>打开</button>
+                            <button type="button" onClick={() => void people.fileOpen({ destPath: item.destPath!, fileName: item.fileName }).catch(err => showNotice(peopleUserError(err, '无法打开文件'), true))}>打开</button>
                           </div>
                         )}
                       </div>
@@ -793,7 +797,7 @@ export function PeoplePage({
 
       {groupOpen && (
         <div className="people-modal" role="dialog" aria-label="创建群聊">
-          <form onSubmit={e => { e.preventDefault(); void people.groupCreate({ title: groupTitle.trim(), ownerSubjectId: groupOwner || undefined, memberSubjectIds: groupMembers }).then(async created => { setGroupOpen(false); setGroupTitle(''); setRail('chats'); await refresh(); await openThread(created) }).catch(err => setNotice(err instanceof Error ? err.message : '无法建群')) }}>
+          <form onSubmit={e => { e.preventDefault(); void people.groupCreate({ title: groupTitle.trim(), ownerSubjectId: groupOwner || undefined, memberSubjectIds: groupMembers }).then(async created => { setGroupOpen(false); setGroupTitle(''); setRail('chats'); await refresh(); await openThread(created) }).catch(err => setNotice(peopleUserError(err, '无法建群'))) }}>
             <h3>创建群聊</h3>
             <div className="people-group-hero">
               <span className="people-ava lg" aria-hidden="true">{initials(groupTitle || '群')}</span>

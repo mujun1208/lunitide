@@ -21,6 +21,22 @@ const api = (o: Partial<OntologyBridge> = {}): OntologyBridge => ({
   updateEdge: vi.fn().mockResolvedValue(edge), deleteEdge: vi.fn().mockResolvedValue({ deleted: true }), ...o,
 })
 
+it('does not show raw English node list or create failures', async () => {
+  render(<OntologyPage projectId={P} bridge={api({ listNodes: vi.fn().mockRejectedValue(new Error('Failed to fetch')) })} />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('加载失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  cleanup()
+  const createNode = vi.fn().mockRejectedValue(new Error('Failed to fetch'))
+  render(<OntologyPage projectId={P} bridge={api({ createNode })} />)
+  await screen.findByText('暂无节点')
+  fireEvent.click(screen.getByText('新建节点'))
+  fireEvent.change(screen.getByLabelText('节点名称'), { target: { value: '新函数' } })
+  fireEvent.change(screen.getByLabelText('完整路径'), { target: { value: 'src/new' } })
+  fireEvent.click(screen.getByRole('button', { name: '创建节点' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('创建失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('renders empty state and loads nodes for the project', async () => {
   const bridge = api()
   render(<OntologyPage projectId={P} bridge={bridge} />)

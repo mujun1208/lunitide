@@ -6,6 +6,52 @@ import (
 	"github.com/lunitide/lunitide/internal/tokenefficiency"
 )
 
+// EfficiencySnapshot is an observation-only report of request preparation.
+// It never contains prompt text or private reasoning.
+type EfficiencySnapshot struct {
+	PolicyVersion string
+	BytesBefore   int
+	BytesAfter    int
+	Disabled      bool
+}
+
+func requestVisibleBytes(r Request) int {
+	n := 0
+	for _, m := range r.Messages {
+		n += len(m.Content)
+		for _, call := range m.ToolCalls {
+			n += len(call.Name) + len(call.Arguments)
+		}
+	}
+	for _, tool := range r.Tools {
+		n += len(tool.Name) + len(tool.Description) + len(tool.Schema)
+	}
+	return n
+}
+
+func prepareEfficientRequestReport(in Request, opts Options) (Request, EfficiencySnapshot) {
+	before := requestVisibleBytes(in)
+	out := prepareEfficientRequest(in, opts)
+	return out, EfficiencySnapshot{
+		PolicyVersion: "token-efficiency-v1",
+		BytesBefore:   before,
+		BytesAfter:    requestVisibleBytes(out),
+		Disabled:      opts.DisableTokenEfficiency,
+	}
+}
+
+func attachEfficientRequest(in Request, opts Options) Request {
+	out, snap := prepareEfficientRequestReport(in, opts)
+	out.Efficiency = snap
+	return out
+}
+
+// AttachEfficientRequest is the exported observation boundary used by the
+// call meter so ledger snapshots match the request the adapter will send.
+func AttachEfficientRequest(in Request, opts Options) Request {
+	return attachEfficientRequest(in, opts)
+}
+
 // prepareEfficientRequest is the single provider-neutral optimization boundary.
 // Stable tool order keeps equivalent catalogs identical for provider prefix
 // caches. Each tool definition remains complete; authorization/routing and all

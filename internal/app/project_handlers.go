@@ -124,7 +124,7 @@ func handleProjectCreate(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if p == (projectCreatePayload{Name: "\u2063月汐·普通对话"}) {
 		candidate.Type = project.TypeImplementation
 	} else if err := project.ValidateCreateBusinessFields(candidate); err != nil {
-		return r.Fail("BRIDGE_SCHEMA_INVALID", err.Error(), false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", projectCreateFieldMessage(err), false)
 	}
 	created, err := e.projects.Create(ctx, r.IdempotencyKey, projectMutationActor, struct {
 		OrgID   string
@@ -282,6 +282,9 @@ func handleProjectMutate(e *Engine, ctx context.Context, r bridge.Request, actio
 		return nil
 	})
 	if err != nil {
+		if msg, ok := projectUserFieldMessage(err); ok {
+			return r.Fail("BRIDGE_SCHEMA_INVALID", msg, false)
+		}
 		return projectFailure(r, err)
 	}
 	return r.Ok(newProjectDTO(result))
@@ -408,4 +411,54 @@ func handleProjectDelete(e *Engine, ctx context.Context, r bridge.Request) bridg
 		return projectFailure(r, err)
 	}
 	return r.Ok(map[string]any{"deleted": true, "id": p.ID})
+}
+
+func projectCreateFieldMessage(err error) string {
+	if msg, ok := projectUserFieldMessage(err); ok {
+		return msg
+	}
+	if err != nil {
+		msg := strings.TrimSpace(err.Error())
+		if peopleUserMessageHasHan(msg) {
+			return msg
+		}
+	}
+	return "项目参数无效"
+}
+
+func projectUserFieldMessage(err error) (string, bool) {
+	if err == nil {
+		return "", false
+	}
+	switch strings.TrimSpace(err.Error()) {
+	case "close reason is required":
+		return "请填写关闭原因", true
+	case "reopen reason is required":
+		return "请填写重新打开原因", true
+	case "closed project requires a close reason":
+		return "关闭项目需要填写原因", true
+	case "project name must contain 1 to 200 characters":
+		return "项目名称需为 1 到 200 个字符", true
+	case "project name is not normalized":
+		return "项目名称格式无效", true
+	case "project type is required":
+		return "请选择项目类型", true
+	case "project description is required":
+		return "请填写项目描述", true
+	case "project client is required":
+		return "请填写客户", true
+	case "project plan start date is required":
+		return "请填写计划开始日期", true
+	case "project plan end date is required":
+		return "请填写计划结束日期", true
+	case "project plan end must not precede plan start":
+		return "计划结束日期不能早于开始日期", true
+	case "project type is invalid":
+		return "项目类型无效", true
+	case "project amounts must be non-negative":
+		return "项目金额不能为负", true
+	case "project plan dates must be YYYY-MM-DD":
+		return "计划日期须为 YYYY-MM-DD", true
+	}
+	return "", false
 }

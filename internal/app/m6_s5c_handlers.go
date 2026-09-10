@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"unicode"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/complexity"
@@ -330,7 +331,7 @@ func skillCandidateSuccess(r bridge.Request, c m6supply.ImportCandidate) bridge.
 func skillImportFailure(r bridge.Request, err error) bridge.Response {
 	switch {
 	case errors.Is(err, skillarchive.ErrInvalid):
-		return r.Fail("SKILL_IMPORT_SOURCE_INVALID", err.Error(), false)
+		return r.Fail("SKILL_IMPORT_SOURCE_INVALID", skillImportUserMessage(err), false)
 	case errors.Is(err, skillarchive.ErrFetch):
 		return r.Fail("SKILL_IMPORT_FETCH_FAILED", "无法读取固定提交的技能归档，请检查网络、仓库地址和提交 SHA", true)
 	case errors.Is(err, m6app.ErrImportChanged):
@@ -338,7 +339,7 @@ func skillImportFailure(r bridge.Request, err error) bridge.Response {
 	case errors.Is(err, m6app.ErrImportRuntimeMissing):
 		return r.Fail("SKILL_IMPORT_RESULT_MISSING", "此导入已批准，但技能记录已被删除，请在技能中心核对；系统未重新创建技能", false)
 	case errors.Is(err, m6app.ErrImportScan):
-		return r.Fail("SKILL_IMPORT_SCAN_REJECTED", err.Error(), false)
+		return r.Fail("SKILL_IMPORT_SCAN_REJECTED", skillImportUserMessage(err), false)
 	case errors.Is(err, m6app.ErrCandidateNotFound):
 		return r.Fail("SKILL_CANDIDATE_NOT_FOUND", "导入候选不存在", false)
 	case errors.Is(err, m6app.ErrCandidateExists):
@@ -388,6 +389,36 @@ func jsonObjectString(s string, maxLen int) bool {
 		return false
 	}
 	return strings.HasPrefix(strings.TrimSpace(s), "{")
+}
+
+func skillImportUserMessage(err error) string {
+	if err == nil {
+		return "技能导入失败"
+	}
+	msg := strings.TrimSpace(err.Error())
+	for _, prefix := range []string{
+		skillarchive.ErrInvalid.Error(),
+		m6app.ErrImportScan.Error(),
+		m6app.ErrImportChanged.Error(),
+		m6app.ErrImportRuntimeMissing.Error(),
+	} {
+		if strings.HasPrefix(msg, prefix) {
+			msg = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(msg, prefix), ":"))
+			break
+		}
+	}
+	for _, r := range msg {
+		if unicode.Is(unicode.Han, r) {
+			return msg
+		}
+	}
+	if errors.Is(err, skillarchive.ErrInvalid) {
+		return "技能来源无效"
+	}
+	if errors.Is(err, m6app.ErrImportScan) {
+		return "技能静态扫描未通过"
+	}
+	return "技能导入失败"
 }
 
 // jsonString marshals one string for embedding in a JSON literal.

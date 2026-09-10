@@ -18,6 +18,7 @@ import { OfficeStudioPage, type OfficeConversationOptions } from './OfficeStudio
 import { officeStudioApi, type OfficeStudioApi, type OfficeTask } from './officeStudioApi';
 import { uploadOfficeFiles } from './officeUpload';
 import { officeRead } from './officeRead';
+import { officeStudioUserError } from './officeUserError';
 
 interface OfficeRouteProps {
   initialTaskId?: string;
@@ -89,7 +90,7 @@ function OfficeConversationHost({
         }
       })
       .catch((cause) => {
-        if (active) setError(cause instanceof Error ? cause.message : '原对话加载失败。');
+        if (active) setError(officeStudioUserError(cause, '原对话加载失败。'));
       });
     return () => {
       active = false;

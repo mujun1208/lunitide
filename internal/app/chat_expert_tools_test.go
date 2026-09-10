@@ -11,6 +11,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/skill"
 	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/toolruntime"
+	"github.com/oklog/ulid/v2"
 )
 
 func TestFullSubagentReadCapsIs全部权限Pack(t *testing.T) {
@@ -235,6 +236,34 @@ func TestDeliberateExpertOffersSpecialistTools(t *testing.T) {
 	}
 	if adapter.disableReasoning {
 		t.Fatal("desktop council must not disable thinking")
+	}
+}
+
+func TestDeliberateExpertRecordsCouncilPurpose(t *testing.T) {
+	e := NewEngine(nil, "test")
+	store := &memCalls{}
+	e.SetCallAttemptStore(store)
+	inner := &deliberateToolsAdapter{}
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
+		return inner, nil
+	})
+	p := provider.Provider{ID: ulid.Make().String(), Protocol: provider.ProtocolOpenAICompatible}
+	a, err := e.adapter(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := e.deliberateExpert(context.Background(), a, nil, "m", councilExpert{ID: "ppt", Name: "PPT专家", Body: "做演示"}, "做一份介绍", "", "", false, executionModeFullAccess, subTestSession)
+	if op.Text != "独立意见" {
+		t.Fatalf("opinion = %+v", op)
+	}
+	council := 0
+	for _, rec := range store.recs {
+		if rec.Purpose == "council" {
+			council++
+		}
+	}
+	if council < 1 {
+		t.Fatalf("expert.deliberate must record purpose council: %+v", purposesOf(store))
 	}
 }
 

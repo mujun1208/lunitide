@@ -194,7 +194,8 @@ func blockedPptGenResult(msg string) toolruntime.Result {
 }
 
 func shouldContinuePptTurn(turn *chatTurnCheckpoint, disableReasoning bool) bool {
-	if disableReasoning || turn == nil || !turn.PptActive {
+	_ = disableReasoning
+	if turn == nil || !turn.PptActive {
 		return false
 	}
 	if pptHasGen(turn) || turn.PptNudges >= maxPptNudges {

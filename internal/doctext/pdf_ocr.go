@@ -9,3 +9,9 @@ type PDFOCRResult struct {
 	Language string    `json:"language"`
 	Pages    []OCRPage `json:"pages"`
 }
+
+// RenderedPDFPage is one rasterized PDF page. PNG is the encoded image bytes.
+type RenderedPDFPage struct {
+	Page int
+	PNG  []byte
+}

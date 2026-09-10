@@ -69,6 +69,29 @@ func TestOmniStatusReportsCatalogue(t *testing.T) {
 	}
 }
 
+func TestOmniEnsureLastErrorDropsEnglishPrefix(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.SetOmniService(NewOmniService(t.TempDir()))
+	resp := e.Handle(context.Background(), validRequest("omni.ensure", `{}`))
+	if !resp.OK {
+		t.Fatalf("omni.ensure = %+v", resp)
+	}
+	payload := resp.Payload.(map[string]any)
+	last, _ := payload["lastError"].(string)
+	if last == "" || strings.Contains(last, "omni:") || !officeUserMessageHasHan(last) {
+		t.Fatalf("omni.ensure lastError leaked English: %q", last)
+	}
+	status := e.Handle(context.Background(), validRequest("omni.status", `{}`))
+	if !status.OK {
+		t.Fatalf("omni.status = %+v", status)
+	}
+	st := status.Payload.(map[string]any)
+	got, _ := st["lastError"].(string)
+	if got == "" || strings.Contains(got, "omni:") || !officeUserMessageHasHan(got) {
+		t.Fatalf("omni.status lastError leaked English: %q", got)
+	}
+}
+
 func TestOmniStopWithoutSession(t *testing.T) {
 	e := NewEngine(providerRepositoryStub{}, "test")
 	resp := e.Handle(context.Background(), validRequest("omni.stop", `{}`))

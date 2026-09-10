@@ -245,3 +245,15 @@ func TestWorkspaceWriteReturnsPreviewMetadataOnlyForHTML(t *testing.T) {
 		t.Fatalf("code scratch must not become a card: %+v, err=%v", scratch, err)
 	}
 }
+
+func TestLocalizeWorkspaceWriteError(t *testing.T) {
+	if got := localizeWorkspaceWriteError(os.ErrNotExist); got == nil || got.Error() != "文件或目录不存在" {
+		t.Fatalf("not exist: %v", got)
+	}
+	if got := localizeWorkspaceWriteError(errors.New("relative path required")); got == nil || got.Error() != "relative path required" {
+		t.Fatalf("protocol must stay: %v", got)
+	}
+	if got := localizeWorkspaceWriteError(errors.New("The system cannot find the path specified.")); got == nil || strings.Contains(got.Error(), "cannot find") || !strings.Contains(got.Error(), "写入") {
+		t.Fatalf("os english leaked: %v", got)
+	}
+}

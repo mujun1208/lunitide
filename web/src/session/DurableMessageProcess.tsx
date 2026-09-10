@@ -5,6 +5,11 @@ import type {MessageProcessResult} from '../generated/bridge'
 import {ThinkingPanel} from './MarkdownMessage'
 import {TOOL_LABELS} from './toolLabels'
 
+function processUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 /** Load process details only on expansion; transcript paging stays lightweight. */
 export function DurableMessageProcess({sessionId,messageId,bridge,onCopy}:{
   sessionId:string; messageId:string; bridge:Pick<MessageBridge,'process'>
@@ -21,7 +26,7 @@ export function DurableMessageProcess({sessionId,messageId,bridge,onCopy}:{
     void bridge.process({sessionId,messageId}).then(value=>{
       if(active)setRecord(value)
     }).catch(cause=>{
-      if(active)setError(cause instanceof Error?cause.message:'过程记录暂时无法读取')
+      if(active)setError(processUserError(cause,'过程记录暂时无法读取'))
     })
     return()=>{active=false}
   },[open,sessionId,messageId,bridge,attempt,record])

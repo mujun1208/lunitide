@@ -2,16 +2,33 @@ package llmadapter
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 )
 
+func TestOpenAISendsObtainedReasoningAndDoesNotInventIt(t *testing.T) {
+	withHistory := Request{Messages: []Message{
+		{Role: RoleUser, Content: "q"},
+		{Role: RoleAssistant, Content: "answer", ReasoningContent: "private chain"},
+	}}
+	body, err := json.Marshal(openAIRequest{Model: "m", Messages: openAIMessages(withHistory, nil, false)})
+	if err != nil || !strings.Contains(string(body), `"reasoning_content":"private chain"`) {
+		t.Fatalf("obtained reasoning omitted: %s err=%v", body, err)
+	}
+	plain := Request{Messages: []Message{{Role: RoleAssistant, Content: "answer"}}}
+	plainBody, err := json.Marshal(openAIRequest{Model: "m", Messages: openAIMessages(plain, nil, false)})
+	if err != nil || strings.Contains(string(plainBody), "reasoning_content") || strings.Contains(string(plainBody), "private") {
+		t.Fatalf("invented reasoning: %s err=%v", plainBody, err)
+	}
+}
+
 func TestOpenAIReasoningContentStaysSeparateFromAnswer(t *testing.T) {
 	f := &fakeConnector{responses: []*http.Response{response(200, `{"choices":[{"message":{"role":"assistant","content":"answer","reasoning_content":"private chain"}}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}`)}}
 	out, err := NewOpenAI(f, Options{}).Complete(context.Background(), nil, Request{})
-	if err != nil || out.Message.Content != "answer" || out.Reasoning != "private chain" {
+	if err != nil || out.Message.Content != "answer" || out.Reasoning != "private chain" || out.Message.ReasoningContent != "private chain" {
 		t.Fatalf("out=%+v err=%v", out, err)
 	}
 
@@ -19,7 +36,7 @@ func TestOpenAIReasoningContentStaysSeparateFromAnswer(t *testing.T) {
 	f = &fakeConnector{responses: []*http.Response{response(200, stream)}}
 	var answer, reasoning string
 	out, err = NewOpenAI(f, Options{}).Stream(context.Background(), nil, Request{}, func(d Delta) error { answer += d.Text; reasoning += d.Reasoning; return nil })
-	if err != nil || answer != "answer" || reasoning != "think " || out.Message.Content != "answer" || out.Reasoning != "think " {
+	if err != nil || answer != "answer" || reasoning != "think " || out.Message.Content != "answer" || out.Reasoning != "think " || out.Message.ReasoningContent != "think " {
 		t.Fatalf("out=%+v answer=%q reasoning=%q err=%v", out, answer, reasoning, err)
 	}
 }

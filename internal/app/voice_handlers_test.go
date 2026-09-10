@@ -243,3 +243,23 @@ func TestVoiceErrorMessagesAreBounded(t *testing.T) {
 		t.Fatalf("truncate mangled a short string: %q", got)
 	}
 }
+
+func TestInstallUserLastErrorDropsEnglish(t *testing.T) {
+	got := installUserLastError("voice: download model.bin: HTTP 403")
+	if got == "" || strings.Contains(got, "voice:") || strings.Contains(got, "model.bin") || !officeUserMessageHasHan(got) {
+		t.Fatalf("download leak: %q", got)
+	}
+	keep := installUserLastError("omni: MiniCPM-o 4.5 Q4 尚未下载")
+	if strings.Contains(keep, "omni:") || !strings.Contains(keep, "尚未下载") {
+		t.Fatalf("lost Chinese install reason: %q", keep)
+	}
+}
+
+func TestChinesePrefixedDetailDropsEnglish(t *testing.T) {
+	if got := chinesePrefixedDetail("本地识别引擎启动失败", "exec: no such file or directory"); got != "本地识别引擎启动失败" {
+		t.Fatalf("english detail leaked: %q", got)
+	}
+	if got := chinesePrefixedDetail("识别失败", "模型权重损坏"); got != "识别失败：模型权重损坏" {
+		t.Fatalf("lost Chinese detail: %q", got)
+	}
+}

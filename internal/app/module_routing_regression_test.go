@@ -87,4 +87,7 @@ func TestBufferedVoiceResultDoesNotRepeatEarlierLeadIn(t *testing.T) {
 	if got := pickTurnContinueKind("", "稍等，我来处理。", "", nil, false, false, true, true, 0, "生成 PDF", true); got != "wait" {
 		t.Fatalf("empty promise stopped instead of executing: %s", got)
 	}
+	if got := pickTurnContinueKind("", "稍等，我来处理。", "", nil, false, false, false, false, 0, "生成 PDF", true); got != "wait" {
+		t.Fatalf("typed empty promise must also execute or fail, not stop: %s", got)
+	}
 }

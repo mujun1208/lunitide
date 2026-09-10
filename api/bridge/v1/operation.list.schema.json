@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/operation.list.schema.json",
+  "title": "operation.list payload",
+  "x-method": "operation.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
+  },
+  "required": ["sessionId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "sessionId": { "type": "string", "maxLength": 64 },
+            "turnId": { "type": "string", "maxLength": 64 },
+            "toolName": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "effectClass": { "type": "string", "maxLength": 64 },
+            "state": { "type": "string", "maxLength": 32 },
+            "expectedVersion": { "type": "integer", "minimum": 1 },
+            "attempt": { "type": "integer", "minimum": 1 },
+            "errorKind": { "type": "string", "maxLength": 64 },
+            "externalId": { "type": "string", "maxLength": 256 },
+            "resumeAction": { "enum": ["show_existing", "reread", "compare_and_continue", "query_existing", "verify_unknown", "reobserve", "keep_stopped"] },
+            "resumeHint": { "type": "string", "maxLength": 200 }
+          },
+          "required": ["id", "toolName", "effectClass", "state", "expectedVersion", "attempt", "resumeAction", "resumeHint"]
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "x-examples": {
+    "positive": [
+      { "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }
+    ],
+    "negative": [
+      { "unexpected": true },
+      { "sessionId": "not-a-ulid" }
+    ]
+  }
+}

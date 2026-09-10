@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -23,6 +24,25 @@ import (
 )
 
 const importFixtureSHA = "0123456789abcdef0123456789abcdef01234567"
+
+func TestSkillImportFailureStripsEnglishPrefix(t *testing.T) {
+	r := bridge.Request{ID: "skill-zh", Method: "skill.import.discover"}
+	invalid := skillImportFailure(r, fmt.Errorf("%w: 请提供 GitHub HTTPS 地址和完整的 40 位小写提交 SHA", skillarchive.ErrInvalid))
+	if invalid.OK || invalid.Error == nil || invalid.Error.Code != "SKILL_IMPORT_SOURCE_INVALID" {
+		t.Fatalf("invalid: %+v", invalid)
+	}
+	if strings.Contains(invalid.Error.Message, "skill import") || !officeUserMessageHasHan(invalid.Error.Message) {
+		t.Fatalf("invalid leaked %q", invalid.Error.Message)
+	}
+	scan := skillImportFailure(r, fmt.Errorf("%w: 正文含权限绕过或指令覆盖标记", m6app.ErrImportScan))
+	if scan.OK || scan.Error == nil || scan.Error.Code != "SKILL_IMPORT_SCAN_REJECTED" {
+		t.Fatalf("scan: %+v", scan)
+	}
+	if strings.Contains(scan.Error.Message, "skill import") || !officeUserMessageHasHan(scan.Error.Message) {
+		t.Fatalf("scan leaked %q", scan.Error.Message)
+	}
+}
+
 const importFixtureText = "---\nname: imported-summary\ndescription: Summarize supplied notes\n---\nProduce a concise summary of supplied notes.\n"
 
 func skillImportZip(t *testing.T, text string) []byte {

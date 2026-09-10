@@ -3,6 +3,11 @@ import {skillBridge, type SkillBridge} from '../bridge/client'
 import type {SkillPackageListResult, SkillPackageReadResult} from '../generated/bridge'
 import './skillPackage.css'
 
+function skillPackageUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 type Entry = SkillPackageListResult['entries'][number]
 type FileNode = {path:string; name:string; directory:boolean; size:number; children:FileNode[]}
 
@@ -38,7 +43,7 @@ export function SkillPackagePanel({skillId,bridge=skillBridge,refreshKey=0}:{ski
     const gen=++generation.current
     setListing(undefined);setPath('');setContent(undefined);setOffsets([0]);setError('');setReadError('');setLoading(true)
     if(!bridge.packageList){setError('当前引擎尚未提供技能包文件读取，请更新引擎后重试。');setLoading(false);return}
-    void bridge.packageList({skillId}).then(value=>{if(gen!==generation.current)return;setListing(value);setPath(value.entries.find(item=>item.path==='SKILL.md')?.path??value.entries.find(item=>item.kind==='file')?.path??'')}).catch(cause=>{if(gen===generation.current)setError(cause instanceof Error?cause.message:'技能目录读取失败')}).finally(()=>{if(gen===generation.current)setLoading(false)})
+    void bridge.packageList({skillId}).then(value=>{if(gen!==generation.current)return;setListing(value);setPath(value.entries.find(item=>item.path==='SKILL.md')?.path??value.entries.find(item=>item.kind==='file')?.path??'')}).catch(cause=>{if(gen===generation.current)setError(skillPackageUserError(cause,'技能目录读取失败'))}).finally(()=>{if(gen===generation.current)setLoading(false)})
     return()=>{generation.current++;request.current++}
   },[skillId,bridge,refreshKey,reload])
   const offset=offsets[offsets.length-1]??0
@@ -48,7 +53,7 @@ export function SkillPackagePanel({skillId,bridge=skillBridge,refreshKey=0}:{ski
     if(!path||!listing||listing.skillId!==skillId)return
     if(!bridge.packageRead){setReadError('当前引擎尚未提供技能文件内容读取。');return}
     setReading(true)
-    void bridge.packageRead({skillId,path,offset,limit:16384,expectedRevision:listing.revision}).then(value=>{if(seq===request.current)setContent(value)}).catch(cause=>{if(seq===request.current)setReadError(cause instanceof Error?cause.message:'技能文件读取失败')}).finally(()=>{if(seq===request.current)setReading(false)})
+    void bridge.packageRead({skillId,path,offset,limit:16384,expectedRevision:listing.revision}).then(value=>{if(seq===request.current)setContent(value)}).catch(cause=>{if(seq===request.current)setReadError(skillPackageUserError(cause,'技能文件读取失败'))}).finally(()=>{if(seq===request.current)setReading(false)})
     return()=>{request.current++}
   },[skillId,path,offset,listing?.revision,bridge])
   const more=async()=>{
@@ -60,7 +65,7 @@ export function SkillPackagePanel({skillId,bridge=skillBridge,refreshKey=0}:{ski
       if(gen!==generation.current)return
       if(page.revision!==snapshot.revision){setError('技能文件已更新，请刷新目录后继续查看。');return}
       setListing({...page,entries:[...snapshot.entries,...page.entries.filter(item=>!snapshot.entries.some(old=>old.path===item.path))]})
-    }catch(cause){if(gen===generation.current)setError(cause instanceof Error?cause.message:'更多文件读取失败')}
+    }catch(cause){if(gen===generation.current)setError(skillPackageUserError(cause,'更多文件读取失败'))}
     finally{if(gen===generation.current)setLoading(false)}
   }
   const tree=useMemo(()=>skillPackageTree(listing?.entries??[]),[listing?.entries])

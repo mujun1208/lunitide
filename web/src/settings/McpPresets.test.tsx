@@ -17,6 +17,12 @@ function api(overrides: Partial<McpBridge> = {}): McpBridge {
   }
 }
 
+it('does not show raw English MCP list failures', async () => {
+  render(<McpPresetsSection bridge={api({ list: vi.fn().mockRejectedValue(new Error('Failed to fetch')) })} onOpenMcp={vi.fn()} />)
+  expect(await screen.findByRole('status')).toHaveTextContent('MCP 清单加载失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('points to the MCP page instead of registering presets in settings', async () => {
   const onOpenMcp = vi.fn()
   const bridge = api()

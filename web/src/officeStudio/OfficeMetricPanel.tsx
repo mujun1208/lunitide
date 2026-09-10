@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { OfficeArtifact, OfficeNode, OfficeTaskDetail, OfficeVersion, OfficeMetric } from './officeStudioApi';
+import { officeStudioUserError } from './officeUserError';
 
 export interface OfficeMetricActions {
   list: () => Promise<{ items: OfficeMetric[] }>;
@@ -74,7 +75,7 @@ export function OfficeMetricPanel({
         if (active) setMetrics(result.items);
       })
       .catch((cause) => {
-        if (active) setError(cause instanceof Error ? cause.message : '指标读取失败。');
+        if (active) setError(officeStudioUserError(cause, '指标读取失败。'));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -99,7 +100,7 @@ export function OfficeMetricPanel({
       setNotice(selectHead ? '已根据真实来源生成修改草稿，原接受版保持不变。' : '指标已记录，原始值和来源版本已保留。');
     } catch (cause) {
       if (mounted.current && scopeRef.current === currentTaskId)
-        setError(cause instanceof Error ? cause.message : '指标操作失败。');
+        setError(officeStudioUserError(cause, '指标操作失败。'));
     } finally {
       operation.current = false;
       if (mounted.current && scopeRef.current === currentTaskId) setBusy(false);

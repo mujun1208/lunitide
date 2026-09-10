@@ -62,7 +62,7 @@ func handleImChannelsSet(e *Engine, ctx context.Context, r bridge.Request) bridg
 			return r.Fail("BRIDGE_SCHEMA_INVALID", "Webhook 地址无效：仅支持飞书/企微/钉钉的 https 机器人地址", false)
 		}
 		if err := n.Notify(imapp.Label(kind), "月汐已连上"); err != nil {
-			return r.Fail("WEBHOOK_UNREACHABLE", "试发失败，地址没保存："+err.Error(), true)
+			return r.Fail("WEBHOOK_UNREACHABLE", imTestSendFailureMessage(err), true)
 		}
 	}
 	if p.ProbeDesktop != nil && *p.ProbeDesktop && p.Enabled != nil && *p.Enabled && (kind == imapp.KindWeChat || kind == imapp.KindQQ) {
@@ -100,4 +100,16 @@ func imChannelsSetFailure(r bridge.Request, err error) bridge.Response {
 		}
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "消息通道设置无效", false)
 	}
+}
+
+func imTestSendFailureMessage(err error) string {
+	prefix := "试发失败，地址没保存"
+	if err == nil {
+		return prefix
+	}
+	msg := strings.TrimSpace(err.Error())
+	if peopleUserMessageHasHan(msg) {
+		return prefix + "：" + msg
+	}
+	return prefix
 }

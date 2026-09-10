@@ -20,6 +20,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
+	"github.com/lunitide/lunitide/internal/mediajob"
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/tts"
 	"github.com/oklog/ulid/v2"
@@ -40,9 +41,11 @@ func handleTtsVoices(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		return r.Ok(map[string]any{"voices": tts.VolcVoices()})
 	}
 	if p.Engine == tts.EngineRef {
+		meta := tts.RefPackMeta(p.RefEndpoint)
+		meta.HostLastErr = ttsRefHostUserLastError(meta.HostLastErr)
 		return r.Ok(map[string]any{
 			"voices":   tts.RefVoices(),
-			"ref_meta": tts.RefPackMeta(p.RefEndpoint),
+			"ref_meta": meta,
 		})
 	}
 	if e.m9tts == nil {
@@ -230,8 +233,10 @@ func (e *Engine) runTtsStream(ctx context.Context, streamID string, state *strea
 		})
 	}
 	term := e.selectTerminal(streamID, state, err)
-	if out.Discarded {
-		term = bridge.EventCancelled
+	if out.Discarded || ctx.Err() != nil {
+		if len(ttsRemainingWork(true, 1, nil)) == 0 {
+			term = bridge.EventCancelled
+		}
 	}
 	if term == bridge.EventFailed {
 		_ = send(bridge.Event{Type: term, Error: &bridge.StreamError{Code: "M95-002", Message: "该段语音合成失败", Retryable: false}})
@@ -353,6 +358,10 @@ func ttsSynthResponse(r bridge.Request, out tts.SynthesizeResultOut, err error) 
 	return r.Ok(payload)
 }
 
+func ttsRemainingWork(cancel bool, total int, done []int) []int {
+	return mediajob.Remaining(mediajob.Journal{Total: total, Done: done, Cancel: cancel})
+}
+
 func handleTtsCancel(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct{}
 	if decodePayload(r.Payload, &p) != nil {
@@ -405,17 +414,7 @@ func ttsFailure(r bridge.Request, err error) bridge.Response {
 		// family): the player waits and retries instead of breaking.
 		return r.Fail("M95-001", "语音引擎启动中，请稍候", true)
 	case errors.Is(err, tts.ErrSynthesisFailed):
-		msg := "该段语音合成失败"
-		if strings.Contains(err.Error(), "火山") || strings.Contains(err.Error(), "seed-tts") {
-			msg = "火山语音合成失败（请核对 Agent Plan 专属 API Key 与音色）"
-		} else if strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), "Forbidden") {
-			msg = "云端语音被拒绝（请检查系统时间与网络，或改用「自然语音」本机引擎）"
-		} else if strings.Contains(err.Error(), "云端") {
-			msg = "云端语音合成失败（请检查网络，或改用「自然语音」本机引擎）"
-		} else if idx := strings.Index(err.Error(), "HTTP "); idx >= 0 {
-			msg = "该段语音合成失败（" + err.Error()[idx:] + "）"
-		}
-		return r.Fail("M95-002", msg, false)
+		return r.Fail("M95-002", ttsSynthesisUserMessage(err), false)
 	default:
 		log.Printf("tts bridge failure: %v", err)
 		return r.Fail("M95-002", "该段语音合成失败", false)
@@ -453,6 +452,61 @@ func handleTtsEnsureRefEngine(e *Engine, ctx context.Context, r bridge.Request) 
 		"state":       state,
 		"host_script": script,
 		"endpoint":    endpoint,
-		"last_error":  tts.DefaultRefHost.LastErr(),
+		"last_error":  ttsRefHostUserLastError(tts.DefaultRefHost.LastErr()),
 	})
+}
+
+func ttsSynthesisUserMessage(err error) string {
+	if err == nil {
+		return "该段语音合成失败"
+	}
+	raw := strings.ReplaceAll(strings.TrimSpace(err.Error()), "ref wav too short", "参考音频太短")
+	switch {
+	case strings.Contains(raw, "火山") || strings.Contains(raw, "seed-tts"):
+		return "火山语音合成失败（请核对 Agent Plan 专属 API Key 与音色）"
+	case strings.Contains(raw, "403") || strings.Contains(raw, "Forbidden"):
+		return "云端语音被拒绝（请检查系统时间与网络，或改用「自然语音」本机引擎）"
+	case strings.Contains(raw, "云端"):
+		return "云端语音合成失败（请检查网络，或改用「自然语音」本机引擎）"
+	}
+	if peopleUserMessageHasHan(raw) {
+		return raw
+	}
+	if idx := strings.Index(raw, "HTTP "); idx >= 0 {
+		code := ""
+		for _, c := range raw[idx+5:] {
+			if c >= '0' && c <= '9' {
+				code += string(c)
+				continue
+			}
+			break
+		}
+		if code != "" {
+			return "该段语音合成失败（HTTP " + code + "）"
+		}
+	}
+	return "该段语音合成失败"
+}
+
+func ttsRefHostUserLastError(msg string) string {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return ""
+	}
+	switch {
+	case strings.Contains(msg, "jieba") || strings.Contains(msg, "dict.txt missing"):
+		return "参考音色引擎缺少分词词典"
+	case strings.Contains(msg, "launch timed out"):
+		return "参考音色引擎启动超时"
+	case strings.Contains(msg, "service stopped answering"):
+		return "参考音色引擎已停止响应"
+	case strings.Contains(msg, "launcher exited"):
+		return "参考音色引擎在就绪前退出"
+	case strings.Contains(msg, "spawn failed"):
+		return "参考音色引擎无法启动"
+	}
+	if peopleUserMessageHasHan(msg) {
+		return msg
+	}
+	return "参考音色引擎未就绪"
 }

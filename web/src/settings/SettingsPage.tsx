@@ -1,6 +1,6 @@
 import {SystemDiagnostics} from './SystemDiagnostics'
 import React, { useEffect, useRef, useState } from 'react'
-import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getProviderBridge,getSystemHealthBridge,getTtsBridge,projectBridge,systemSettingsBridge,toolsPolicyBridge,conversationsBridge,type CapabilityRolesBridge,type McpBridge,type ProviderBridge,type ToolsPolicyBridge,type TtsVoice,type TtsRefMeta}from'../bridge/client'
+import{getAppUpdateBridge,getCollabGateBridge,getDiagnosticsBridge,getMcpBridge,getProviderBridge,getSystemHealthBridge,getTtsBridge,projectBridge,systemSettingsBridge,toolsPolicyBridge,conversationsBridge,type CapabilityRolesBridge,type McpBridge,type OCRRoutingBridge,type ProviderBridge,type ToolsPolicyBridge,type TtsVoice,type TtsRefMeta}from'../bridge/client'
 import type{Mcp6PresetsListResult,ProjectDTO}from'../generated/bridge'
 import{microphoneConstraints,saveMicrophoneId,selectedMicrophoneId}from'./microphone'
 import{ChoiceTiles}from'./ChoiceTiles'
@@ -22,6 +22,7 @@ import{AsrCorrectionRow}from'./AsrCorrectionRow'
 import{SubagentsPanel}from'./SubagentsPanel'
 import{ProviderApp}from'../provider/ProviderApp'
 import{CapabilityRouting}from'./CapabilityRouting'
+import{OCRRouting}from'./OCRRouting'
 import{PlanPage}from'../plan/PlanPage'
 import{ReviewPage}from'../review/ReviewPage'
 import{PersonalIntelligencePage}from'../m8/PersonalIntelligencePage'
@@ -39,6 +40,10 @@ import { DataSourcePanel } from './DataSourcePanel'
 import { datasourceBridge } from '../bridge/client'
 export { BrowserPanel, ComputerPanel, ChannelsPanel, HooksPanel }
 
+function settingsUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
 
 interface GeneralSettings {
   startupPage: 'new' | 'last' | 'projects'
@@ -97,7 +102,7 @@ function saveSettings<T>(key: string, value: T): void {
   } catch { /* ignore */ }
 }
 
-export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabel, initialCategory = 'general', providers, roles, onPreferLLM, embedded = false, recordingLock = false }: { onNavigateExpert?: () => void; onNavigateMcp?: () => void; onBack?: () => void; backLabel?: string; initialCategory?: SettingsCategory; providers?: ProviderBridge; roles?: CapabilityRolesBridge; onPreferLLM?: (providerId: string, modelId: string) => void; embedded?: boolean; recordingLock?: boolean }): React.JSX.Element {
+export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabel, initialCategory = 'general', providers, roles, ocr, onPreferLLM, embedded = false, recordingLock = false }: { onNavigateExpert?: () => void; onNavigateMcp?: () => void; onBack?: () => void; backLabel?: string; initialCategory?: SettingsCategory; providers?: ProviderBridge; roles?: CapabilityRolesBridge; ocr?: OCRRoutingBridge; onPreferLLM?: (providerId: string, modelId: string) => void; embedded?: boolean; recordingLock?: boolean }): React.JSX.Element {
   const zh = useZh()
   const [category, setCategory] = useState<SettingsCategory>(initialCategory)
   const [search, setSearch] = useState('')
@@ -171,7 +176,7 @@ export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabe
           {category === 'appearance' && <AppearancePanel settings={appearance} onChange={updateAppearance} />}
           {category === 'office-menu' && <OfficeMenuPanel onSaved={() => setSaved(true)} />}
           {category === 'profile' && <ProfilePanel />}
-          {category === 'providers' && (providers ? <><CapabilityRouting providers={providers} roles={roles} /><ProviderApp bridge={providers} embedded onPreferLLM={onPreferLLM} /></> : <p className="setting-desc">供应商列表需要 Host 桥接。</p>)}
+          {category === 'providers' && (providers ? <><CapabilityRouting providers={providers} roles={roles} /><OCRRouting providers={providers} ocr={ocr} /><ProviderApp bridge={providers} embedded onPreferLLM={onPreferLLM} /></> : <p className="setting-desc">供应商列表需要 Host 桥接。</p>)}
           {category === 'voice' && <VoicePanel />}
           {category === 'meetings' && <MeetingNotesPanel onSaved={() => setSaved(true)} recordingLock={recordingLock} />}
           {category === 'personal' && <PersonalIntelligencePage onNavigateExpert={onNavigateExpert} />}
@@ -341,7 +346,7 @@ function ConversationsStorageSection(): React.JSX.Element {
       setConfigured(!!status.configured)
       setLegacyPath(status.legacyPath ?? '')
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : '无法读取对话存储路径')
+      setNotice(settingsUserError(e, '无法读取对话存储路径'))
     }
   }
   useEffect(() => {
@@ -354,7 +359,7 @@ function ConversationsStorageSection(): React.JSX.Element {
       const picked = await conversationsBridge.select()
       if (picked.path) setPath(picked.path)
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : '未选择文件夹')
+      setNotice(settingsUserError(e, '未选择文件夹'))
     } finally {
       setBusy(false)
     }
@@ -378,7 +383,7 @@ function ConversationsStorageSection(): React.JSX.Element {
           : '已保存。每个新对话都会在此目录下自动创建独立子文件夹。',
       )
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : '保存失败')
+      setNotice(settingsUserError(e, '保存失败'))
     } finally {
       setBusy(false)
     }
@@ -469,11 +474,11 @@ function AppearancePanel({ settings, onChange }: { settings: AppearanceSettings;
 
 function VoicePanel():React.JSX.Element{
  const[devices,setDevices]=useState<MediaDeviceInfo[]>([]),[deviceId,setDeviceId]=useState(selectedMicrophoneId),[status,setStatus]=useState(''),[busy,setBusy]=useState(false)
- const refresh=async()=>{setBusy(true);setStatus('正在检测麦克风…');try{if(!navigator.mediaDevices?.enumerateDevices)throw new Error('当前 WebView 不支持设备检测');const items=(await navigator.mediaDevices.enumerateDevices()).filter(item=>item.kind==='audioinput');setDevices(items);if(deviceId&&!items.some(item=>item.deviceId===deviceId))setStatus('当前设备列表中未显示已选麦克风；获得权限或重新连接设备后再确认。');else setStatus(items.length?`检测到 ${items.length} 个麦克风输入设备。`:'未检测到麦克风，请检查连接和 Windows 设备设置。')}catch(e){setStatus(e instanceof Error?e.message:'无法检测麦克风')}finally{setBusy(false)}}
+ const refresh=async()=>{setBusy(true);setStatus('正在检测麦克风…');try{if(!navigator.mediaDevices?.enumerateDevices)throw new Error('当前 WebView 不支持设备检测');const items=(await navigator.mediaDevices.enumerateDevices()).filter(item=>item.kind==='audioinput');setDevices(items);if(deviceId&&!items.some(item=>item.deviceId===deviceId))setStatus('当前设备列表中未显示已选麦克风；获得权限或重新连接设备后再确认。');else setStatus(items.length?`检测到 ${items.length} 个麦克风输入设备。`:'未检测到麦克风，请检查连接和 Windows 设备设置。')}catch(e){setStatus(settingsUserError(e,'无法检测麦克风'))}finally{setBusy(false)}}
  useEffect(()=>{void refresh()},[])
  const choose=(value:string)=>{setDeviceId(value);saveMicrophoneId(value);setStatus(value?'已保存所选麦克风。':'已使用系统默认麦克风。')}
  const test=async()=>{setBusy(true);setStatus('正在请求麦克风权限…');let stream:MediaStream|undefined;try{stream=await navigator.mediaDevices.getUserMedia(microphoneConstraints());setStatus('麦克风可用，测试成功。');const items=(await navigator.mediaDevices.enumerateDevices()).filter(item=>item.kind==='audioinput');setDevices(items)}catch(e){const name=e instanceof DOMException?e.name:'';setStatus(name==='NotAllowedError'||name==='SecurityError'?'权限被拒绝，请打开 Windows 麦克风设置并允许桌面应用访问。':name==='NotFoundError'?'未检测到可用麦克风。':'无法启动麦克风，请检查设备是否被占用或驱动异常。')}finally{stream?.getTracks().forEach(track=>track.stop());setBusy(false)}}
- const openSettings=async()=>{setBusy(true);try{await systemSettingsBridge.open({page:'privacy-microphone'});setStatus('已打开 Windows 麦克风隐私设置。请开启“麦克风访问”和“允许桌面应用访问麦克风”。')}catch(e){setStatus(e instanceof Error?e.message:'无法打开 Windows 麦克风设置')}finally{setBusy(false)}}
+ const openSettings=async()=>{setBusy(true);try{await systemSettingsBridge.open({page:'privacy-microphone'});setStatus('已打开 Windows 麦克风隐私设置。请开启“麦克风访问”和“允许桌面应用访问麦克风”。')}catch(e){setStatus(settingsUserError(e,'无法打开 Windows 麦克风设置'))}finally{setBusy(false)}}
  return <div className="setting-group"><div className="setting-group-title">语音与麦克风</div><div className="setting-row"><div><div className="setting-label">输入设备</div><div className="setting-desc">选择语音输入使用的麦克风；设备失效时自动回退到系统默认。</div></div><select className="setting-select" aria-label="麦克风输入设备" value={deviceId} onChange={e=>choose(e.target.value)}><option value="">系统默认麦克风</option>{devices.map((device,index)=><option key={device.deviceId} value={device.deviceId}>{device.label||`麦克风 ${index+1}`}</option>)}</select></div><div className="setting-row" style={{gridTemplateColumns:'1fr'}}><div className="setting-desc">Windows 隐私权限不能由软件自动开启。请确保“麦克风访问”和“允许桌面应用访问麦克风”均已开启；语音转文字还依赖 Windows 在线语音识别服务。</div><div className="microphone-setting-actions"><button disabled={busy} onClick={()=>void refresh()}>刷新设备</button><button disabled={busy} onClick={()=>void test()}>测试麦克风</button><button className="primary" disabled={busy} onClick={()=>void openSettings()}>打开 Windows 麦克风设置</button></div>{status&&<p role="status" className="notice">{status}</p>}</div><CompanionSection/></div>
 }
 export function CompanionSection():React.JSX.Element{
@@ -569,12 +574,12 @@ export function McpPresetsSection({ bridge = getMcpBridge(), onOpenMcp }: { brid
   const [status, setStatus] = useState('')
 
   useEffect(() => {
-    bridge.list().catch(() => ({ endpoints: [] }))
+    bridge.list()
       .then(listed => {
         setLeftover(leftoverArchivedNames(listed?.endpoints ?? []))
         setStatus('')
       })
-      .catch(e => setStatus(e instanceof Error ? e.message : 'MCP 清单加载失败'))
+      .catch(e => setStatus(settingsUserError(e, 'MCP 清单加载失败')))
   }, [bridge])
 
   return (
@@ -608,7 +613,7 @@ function CollabGatePanel(): React.JSX.Element {
   const refresh = async () => {
     if (!subjectId.trim()) return
     setBusy(true); setStatus('')
-    try { setSnapshot(await bridge.status({ subjectId: subjectId.trim() })) } catch (e) { setStatus(e instanceof Error ? e.message : '门禁状态查询失败') } finally { setBusy(false) }
+    try { setSnapshot(await bridge.status({ subjectId: subjectId.trim() })) } catch (e) { setStatus(settingsUserError(e, '门禁状态查询失败')) } finally { setBusy(false) }
   }
   useEffect(() => { void refresh() }, [])
   const evaluate = async () => {
@@ -620,7 +625,7 @@ function CollabGatePanel(): React.JSX.Element {
       setEvaluation(r)
       setStatus(r.outcome === 'pass' ? '评估通过：已生成待确认决策（令牌经审计事件带外下发）。' : r.outcome === 'fail' ? `评估未通过：${r.failedCriteria.join('、')}` : '证据不足：窗口内运行样本不够。')
       await refresh()
-    } catch (e) { setStatus(e instanceof Error ? e.message : '评估失败') } finally { setBusy(false) }
+    } catch (e) { setStatus(settingsUserError(e, '评估失败')) } finally { setBusy(false) }
   }
   const confirm = async () => {
     setBusy(true); setStatus('')
@@ -629,7 +634,7 @@ function CollabGatePanel(): React.JSX.Element {
       setStatus(`已确认：协作能力 ${r.capability === 'enabled' ? '开启' : '关闭'}（生效 ${r.effectiveAt}）。`)
       setDecisionId(''); setDecisionToken('')
       await refresh()
-    } catch (e) { setStatus(e instanceof Error ? e.message : '确认失败（令牌或决策无效）') } finally { setBusy(false) }
+    } catch (e) { setStatus(settingsUserError(e, '确认失败（令牌或决策无效）')) } finally { setBusy(false) }
   }
 
   return (
@@ -687,6 +692,11 @@ function CollabGatePanel(): React.JSX.Element {
 // 0.3.5 命令白名单 — command.run 用户可配只读命令集（tools.commandPolicy.*）。
 // 内置 git/go 只读规则不可移除；此处编辑的是叠加在其上的用户白名单，
 // 保存即校验并热生效（fail-closed：非法文档整体拒绝，不影响现运行规则）。
+function commandPolicyUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 interface PolicyEntry { prefix: string; maxArgs: number; timeoutMs: number }
 export function CommandPolicyPanel({ bridge = toolsPolicyBridge }: { bridge?: ToolsPolicyBridge }): React.JSX.Element {
   const [entries, setEntries] = useState<PolicyEntry[]>([])
@@ -713,7 +723,7 @@ export function CommandPolicyPanel({ bridge = toolsPolicyBridge }: { bridge?: To
         setRevision(r.revision)
         if(r.state!=='applied')setStatus('配置已保存，当前运行规则尚未应用；请重新保存或重启。')
         setLoaded(true)
-      } catch (e) { if(alive)setStatus(e instanceof Error ? e.message : '命令白名单读取失败') } finally { if(alive)setBusy(false) }
+      } catch (e) { if(alive)setStatus(commandPolicyUserError(e, '命令白名单读取失败')) } finally { if(alive)setBusy(false) }
     }
     void load()
     return()=>{alive=false}
@@ -734,7 +744,7 @@ export function CommandPolicyPanel({ bridge = toolsPolicyBridge }: { bridge?: To
       setRevision(result.revision);setFullAccess(on)
       setStatus(on ? '全盘完全访问已开启并热生效。' : '全盘完全访问已关闭并热生效。')
     } catch (e) {
-      setStatus(e instanceof Error ? e.message : '全盘访问开关保存失败（现运行规则不变）')
+      setStatus(commandPolicyUserError(e, '全盘访问开关保存失败（现运行规则不变）'))
     } finally {saving.current=false;setBusy(false)}
   }
 
@@ -754,7 +764,7 @@ export function CommandPolicyPanel({ bridge = toolsPolicyBridge }: { bridge?: To
       setRevision(r.revision)
       setStatus(`已保存并热生效：${r.applied} 条用户规则（叠加内置 git/go 只读集）。`)
       setEntries(commands.map(c => ({ prefix: formatPrefix(c.prefix), maxArgs: c.maxArgs ?? 0, timeoutMs: c.timeoutMs ?? 10_000 })))
-    } catch (e) { setStatus(e instanceof Error ? e.message : '命令白名单保存失败（文档被整体拒绝，现运行规则不变）') } finally { saving.current=false;setBusy(false) }
+    } catch (e) { setStatus(commandPolicyUserError(e, '命令白名单保存失败（文档被整体拒绝，现运行规则不变）')) } finally { saving.current=false;setBusy(false) }
   }
 
   return (
@@ -812,7 +822,7 @@ function DiagnosticsPanel(): React.JSX.Element {
       const r = await bridge.check({ channel, currentVersion: health?.version || '0.0.0' })
       if (!r.updateId) { setUpdate(undefined); setStatus('已是最新版本。') }
       else { setUpdate({ updateId: r.updateId, version: r.version, digest: r.digest, mandatory: r.mandatory }); setStatus(`发现新版本 ${r.version}${r.mandatory ? '（强制更新）' : ''}`) }
-    } catch (e) { setStatus(e instanceof Error ? e.message : '检查更新失败') } finally { setBusy(false) }
+    } catch (e) { setStatus(settingsUserError(e, '检查更新失败')) } finally { setBusy(false) }
   }
   const install = async () => {
     if (!update) return
@@ -821,7 +831,7 @@ function DiagnosticsPanel(): React.JSX.Element {
       const r = await bridge.install({ updateId: update.updateId, expectedDigest: update.digest })
       setStatus(r.state === 'installed' ? '更新已安装。' : `更新已回滚（${r.state}），请查看诊断日志。`)
       setUpdate(undefined)
-    } catch (e) { setStatus(e instanceof Error ? e.message : '安装失败') } finally { setBusy(false) }
+    } catch (e) { setStatus(settingsUserError(e, '安装失败')) } finally { setBusy(false) }
   }
   // diagnostics.export — 脱敏诊断包导出（M8 低风险残留项补齐）
   const exportDiagnostics = async () => {
@@ -830,7 +840,7 @@ function DiagnosticsPanel(): React.JSX.Element {
       const r = await diagnostics.exportDiagnostics({ includeLogs, redactPaths })
       setExportResult({ path: r.path, createdAt: r.createdAt })
       setStatus(`诊断包已导出：${r.path}`)
-    } catch (e) { setStatus(e instanceof Error ? e.message : '诊断包导出失败') } finally { setBusy(false) }
+    } catch (e) { setStatus(settingsUserError(e, '诊断包导出失败')) } finally { setBusy(false) }
   }
 
   return (
@@ -881,7 +891,7 @@ function ProjectScopedTabs({ tabs }: { tabs: Array<{ id: string; label: string; 
       if (!alive) return
       setProjects(result.items)
       setProjectId(current => (result.items.some(item => item.id === current) ? current : (result.items[0]?.id ?? '')))
-    }).catch(e => { if (alive) setError(e instanceof Error ? e.message : '项目列表载入失败') })
+    }).catch(e => { if (alive) setError(settingsUserError(e, '项目列表载入失败')) })
     return () => { alive = false }
   }, [])
   const active = tabs.find(item => item.id === tab) ?? tabs[0]

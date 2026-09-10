@@ -115,6 +115,31 @@ func TestChatStartInjectsSkillCatalog(t *testing.T) {
 	}
 }
 
+func TestChatStartKeepsStablePrefixBeforeTurnBoundary(t *testing.T) {
+	response, requests := startSkillCatalogChat(t, &skillCatalogStub{}, "approval")
+	if !response.OK {
+		t.Fatalf("chat.start failed: %#v", response)
+	}
+	sys := capturedSkillChatSystem(t, requests)
+	boundary := strings.Index(sys, "[当前任务边界]")
+	if boundary < 0 {
+		t.Fatalf("missing turn boundary:\n%s", sys)
+	}
+	for _, stable := range []string{"Execution mode: approval.", "[身份与边界]", "[内置工作流]", "[回复排版]"} {
+		idx := strings.Index(sys, stable)
+		if idx < 0 || idx > boundary {
+			t.Fatalf("stable %q must precede the current-turn clock/goal (idx=%d boundary=%d)\n%s", stable, idx, boundary, sys)
+		}
+	}
+	dynamic := sys[boundary:]
+	if !strings.Contains(dynamic, "当前本地时间") || !strings.Contains(dynamic, "最新用户要求") || !strings.Contains(dynamic, "hi") {
+		t.Fatalf("dynamic segment must keep clock and current goal:\n%s", dynamic)
+	}
+	if strings.Contains(sys[:boundary], "当前本地时间") || strings.Contains(sys[:boundary], "最新用户要求") {
+		t.Fatalf("stable prefix must not include the current-turn clock or goal:\n%s", sys[:boundary])
+	}
+}
+
 func TestChatStartInjectsSkillCatalogInPlanMode(t *testing.T) {
 	// Legacy "plan" mode normalizes to approval (complexity routing replaced
 	// it); the skill catalog must still be injected on that legacy path.

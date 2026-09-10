@@ -40,6 +40,7 @@ func TestCcInputToolsGateInApprovalMode(t *testing.T) {
 		{"computer.act", `{"action":"click","x":10,"y":10}`},
 		{"computer.act", `{"action":"type","text":"hello"}`},
 		{"computer.act", `{"action":"paste","text":"hi"}`},
+		{"computer.act", `{"action":"run","steps":[{"action":"observe"},{"action":"click","name":"保存"}]}`},
 	} {
 		ran = ""
 		_, err := r.Execute(context.Background(), Approval, "s01", tc.tool, json.RawMessage(tc.args), false)
@@ -77,6 +78,7 @@ func TestCcObservationStaysUngated(t *testing.T) {
 		{"computer.act", `{"action":"screenshot"}`},
 		{"computer.act", `{"action":"observe"}`},
 		{"computer.act", `{"action":"list"}`},
+		{"computer.act", `{"action":"run","steps":[{"action":"observe"},{"action":"list"}]}`},
 	} {
 		if _, err := r.Execute(context.Background(), Approval, "s01", tc.tool, json.RawMessage(tc.args), false); err != nil {
 			t.Fatalf("%s %s must not need approval: %v", tc.tool, tc.args, err)

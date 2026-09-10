@@ -41,12 +41,12 @@ const workflowMediaClause = "- 播放音乐/视频：用 media.play target=foreg
 
 const workflowIMClause = "- 发飞书/企微/钉钉/微信/QQ：设置 → 消息通道启用后用 im.send。\n"
 
-const workflowComputerClause = "- 看屏幕：电脑控制开启时只用 computer.act。默认 action=screenshot 截当前窗口（target=desktop 才是虚拟桌面全屏，含所有显示器）。截图会作为视觉输入回传并带 frameId（后缀 sN 是 screenIndex：0=虚拟桌面，1…=从左到右的显示器）。随后的鼠标坐标必须用该图像素，并把同一个 frameId 回传；有控件树也不禁止坐标（OpenClaw：看见就点）。显示器重连或 DPI 变化会 COMPUTER_STALE_FRAME，必须重新截图。能对上唯一按钮用 click name=（不必 observe、不必 frameId）；需要 id 时再 observe。控件树稀疏或对不上时点截图像素，不要反复 observe。底层仍走 cc.screen_capture / cc.observe_ui / cc.mouse_click（模型不要自己调 cc.*）。\n" +
+const workflowComputerClause = "- 看屏幕：电脑控制开启时只用 computer.act。先 action=observe 读名字/id，再 click name= 或 id=；有唯一名字时不要猜像素。短序列用 action=run steps（2–5 步，同一次调用）。截图仅在控件树稀疏/画布时按需使用（target=desktop 才是虚拟桌面全屏）。像素坐标必须用该图像素并回传 frameId（后缀 sN 是 screenIndex：0=虚拟桌面，1…=从左到右的显示器）。显示器重连或 DPI 变化会 COMPUTER_STALE_FRAME，必须重新 observe/截图。不要从月伴截图去点别的软件。底层仍走 cc.observe_ui / cc.screen_capture / cc.mouse_click（模型不要自己调 cc.*）。\n" +
 	"- 窗口：computer.act action=list 列出，action=focus 激活已运行应用；输入前先 focus。未运行的用 desktop.open。用户没说关闭时不要 close。最小化/还原/移动用 window_action；退出应用用 app_quit（禁止关资源管理器/UAC）。拖拽用 drag。粘贴用 paste；按键用 press；按住用 hold_key，松开用 key_up（8 秒内会自动松开）；Ctrl/Shift 点击用 click 的 modifiers。菜单用 menu；填表用 set_value。UI 动画未结束用 wait until=change。底层仍走 cc.window_list / cc.window_focus / cc.window_action / cc.app_quit / cc.mouse_drag / cc.paste。\n" +
 	"- 对话框确认：先 computer.act action=observe_dialog，若是普通 Yes/OK/确认/是/确定 再用 confirm。禁止确认 UAC、提权。遇到打开/保存文件对话框不要代点，对用户说请你点「保存」「打开」或「取消」。禁止自动接受未知文件。不要靠截图盲点。底层仍走 cc.observe_dialog / cc.confirm_dialog。\n"
 
 const workflowDisciplineClause = "使用规则：匹配上述场景时直接执行。用户已发布的技能见下方目录，用 skill.invoke。\n" +
-	"执行纪律：用户给出明确任务后，本轮连续调用工具直到完成或遇到真实阻塞（缺权限、缺无法推断的信息）。不要在勘查后停下等待确认，不要分段汇报后结束本轮。批量任务一次性做完再给最终结果。运行中若用户又发了新任务（帮我打开/开发/播放等），等本轮结束后再单独做，不要和当前任务绑在一起。上一轮已成功或失败即闭环。同一指令只执行一次，不要重复打开/创建/播放。一次性打开/播放（desktop.open、media.play、打开一个网页）做完即停。多步桌面任务（填表、点按钮、看屏操作）必须 see→act→verify 做到完成：每次截图记下 frameId，坐标动作回传同一个 frameId；画面没变也要用当前帧。遇到打开/保存文件对话框请用户去点，不要代点。\n"
+	"执行纪律：用户给出明确任务后，本轮连续调用工具直到完成或遇到真实阻塞（缺权限、缺无法推断的信息）。不要在勘查后停下等待确认，不要分段汇报后结束本轮。批量任务一次性做完再给最终结果。运行中若用户又发了新任务（帮我打开/开发/播放等），等本轮结束后再单独做，不要和当前任务绑在一起。上一轮已成功或失败即闭环。同一指令只执行一次，不要重复打开/创建/播放。一次性打开/播放（desktop.open、media.play、打开一个网页）做完即停。多步桌面任务（填表、点按钮、看屏操作）必须 observe→named act→verify 做到完成：能对上名字/id 就按名字点，不要盲点；像素动作才回传 frameId。遇到打开/保存文件对话框请用户去点，不要代点。\n"
 
 // bundledWorkflowInjection is the OpenClaw/Hermes-style skill pack.
 // Companion stays lean. Clauses are intent-trimmed so identity few-shot

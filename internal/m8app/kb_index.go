@@ -21,21 +21,21 @@ const parseChunkRunes = 1200
 func ParseBodyIndexer(ctx context.Context, doc m8core.KBDocument) ([]m8core.KBChunk, error) {
 	ref := strings.TrimSpace(doc.ContentRef)
 	if ref == "" || !filepath.IsAbs(ref) {
-		return nil, fmt.Errorf("content_ref must be an absolute path")
+		return nil, fmt.Errorf("内容路径必须是绝对路径")
 	}
 	mt := strings.ToLower(strings.TrimSpace(doc.MediaType))
 	if strings.HasPrefix(mt, "application/pdf") ||
 		strings.Contains(mt, "wordprocessingml") ||
 		strings.Contains(mt, "spreadsheetml") ||
 		strings.Contains(mt, "officedocument") {
-		return nil, fmt.Errorf("%w: parse function not configured", ErrKBIndexFailed)
+		return nil, fmt.Errorf("%w: 未配置正文解析", ErrKBIndexFailed)
 	}
 	raw, err := doctext.ReadSource(ref)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrKBIndexFailed, err)
 	}
 	if SourceDigest(raw) != doc.SHA256 {
-		return nil, fmt.Errorf("%w: source digest changed", ErrKBIndexFailed)
+		return nil, fmt.Errorf("%w: 源文件在入库后已被修改", ErrKBIndexFailed)
 	}
 	extracted, err := doctext.ExtractContext(ctx, ref, raw, doc.MediaType)
 	if err != nil {
@@ -43,14 +43,14 @@ func ParseBodyIndexer(ctx context.Context, doc m8core.KBDocument) ([]m8core.KBCh
 	}
 	text := strings.TrimSpace(extracted.Text)
 	if text == "" {
-		return nil, fmt.Errorf("%w: empty body", ErrKBIndexFailed)
+		return nil, fmt.Errorf("%w: 没有可检索的正文", ErrKBIndexFailed)
 	}
 	parts := SplitSearchableParts(doc.MediaType, text)
 	if len(parts) == 0 {
-		return nil, fmt.Errorf("%w: no non-empty chunks", ErrKBIndexFailed)
+		return nil, fmt.Errorf("%w: 没有可检索的正文", ErrKBIndexFailed)
 	}
 	if len(parts) > m8core.MaxKBChunksPerVersion {
-		return nil, fmt.Errorf("%w: chunk count %d exceeds cap", ErrKBIndexFailed, len(parts))
+		return nil, fmt.Errorf("%w: 分块数量超过上限", ErrKBIndexFailed)
 	}
 	return ChunksFromParts(doc, parts)
 }
@@ -93,7 +93,7 @@ func ChunksFromParts(doc m8core.KBDocument, parts []string) ([]m8core.KBChunk, e
 	out := make([]m8core.KBChunk, 0, len(parts))
 	for i, part := range parts {
 		if len(part) > m8core.MaxKBChunkBody {
-			return nil, fmt.Errorf("%w: chunk body exceeds budget", ErrKBIndexFailed)
+			return nil, fmt.Errorf("%w: 分块正文超过上限", ErrKBIndexFailed)
 		}
 		if strings.TrimSpace(part) == "" {
 			continue
@@ -121,7 +121,7 @@ func ChunksFromParts(doc m8core.KBDocument, parts []string) ([]m8core.KBChunk, e
 		})
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("%w: no non-empty chunks", ErrKBIndexFailed)
+		return nil, fmt.Errorf("%w: 没有可检索的正文", ErrKBIndexFailed)
 	}
 	return out, nil
 }

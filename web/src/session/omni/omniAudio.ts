@@ -47,6 +47,16 @@ export interface OmniChannelSnapshot {
 export const OMNI_MISSING_MODEL = '请先在设置里下载 MiniCPM-o 4.5 Q4'
 export const OMNI_MISSING_RUNTIME = '本机 MiniCPM-o 推理进程未能展开，请重装月汐后再试'
 
+function omniSilent(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  return err.name === 'AbortError' || /取消|aborted/i.test(err.message)
+}
+
+function omniUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 /** User-facing block before MiniCPM-o can start. Missing model is a download, not a missing server. */
 export function omniStartBlock(snap: OmniChannelSnapshot): string | undefined {
   if (snap.hostState === 'missing_model') return OMNI_MISSING_MODEL
@@ -296,7 +306,7 @@ export async function startOmniCompanion(options: OmniCompanionOptions): Promise
           } catch (err) {
             appendFails += 1
             if (!stopped && appendFails >= OMNI_APPEND_FAILS_BEFORE_ERROR) {
-              options.onError(err instanceof Error ? err.message : 'MiniCPM-o 推理失败')
+              if (!omniSilent(err)) options.onError(omniUserError(err, 'MiniCPM-o 推理失败'))
               return
             }
           }
@@ -353,7 +363,7 @@ export async function startOmniCompanion(options: OmniCompanionOptions): Promise
         }
       },
       onError: error => {
-        if (!stopped) options.onError(error.message)
+        if (!stopped && !omniSilent(error)) options.onError(omniUserError(error, '无法开始录音'))
       },
     })
   } catch (err) {

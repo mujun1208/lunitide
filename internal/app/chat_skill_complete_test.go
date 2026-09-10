@@ -29,7 +29,7 @@ func customSkillFixture(t *testing.T, body string) (*Engine, skill.Skill) {
 	e.skills = skillapp.New(store, store)
 	manifest, _ := json.Marshal(map[string]any{"prompt": body, "triggers": []string{"按技能复核"}})
 	args, _ := json.Marshal(map[string]any{"name": "long-custom-fixture", "displayName": "自定义技能", "permissions": []string{"read_only"}, "manifestJson": string(manifest)})
-	if _, err = e.invokeSkillCreateTool(ctx, args); err != nil {
+	if _, err = e.invokeSkillCreateTool(ctx, "", args); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := e.skills.List(ctx, skill.SkillStatusDraft)

@@ -446,6 +446,7 @@ func (e *Engine) completeSOMPick(ctx context.Context, exec guiExecutor, images [
 		req.Model = entry.Model.ModelID
 		var text string
 		leaseErr := e.withProviderLease(ctx, entry.Provider, secretlease.OperationChat, func(op context.Context, secret []byte) error {
+			op = withCallPurpose(op, "gui")
 			a, adapterErr := e.adapterForModel(op, entry.Provider, entry.Model)
 			if adapterErr != nil {
 				return adapterErr

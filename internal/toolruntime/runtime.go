@@ -19,6 +19,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/canonpath"
 	"github.com/lunitide/lunitide/internal/ccapp"
+	"github.com/lunitide/lunitide/internal/connectorapp"
 	"github.com/lunitide/lunitide/internal/commandworker"
 	"github.com/lunitide/lunitide/internal/htmlapp"
 	"github.com/lunitide/lunitide/internal/jsonutil"
@@ -93,7 +94,11 @@ type Runtime struct {
 	// service (injected by the host; nil keeps them unavailable).
 	ccExec     func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (ccapp.Outcome, error)
 	imSend     func(ctx context.Context, kind, to, text string) (desktopApp, output string, err error)
+	imAllowed  func(channel string) bool
 	officeExec func(context.Context, string, string, json.RawMessage) ([]byte, string, string, error)
+	// documentText optionally replaces doctext.ExtractContext for Office/PDF
+	// reads so OCR can run without this package importing app.
+	documentText func(ctx context.Context, name string, raw []byte, media string) (text, kind, method string, pages int, err error)
 	// fullDiskMu guards fullDiskSessions, the S-05 one-time per-session
 	// full-disk unlock. It is in-memory only (never persisted) so a restart
 	// drops every confirmation and forces a fresh one.
@@ -161,6 +166,12 @@ func (r *Runtime) SetCcExecutor(f func(ctx context.Context, session, tool string
 
 func (r *Runtime) SetIMSend(f func(ctx context.Context, kind, to, text string) (desktopApp, output string, err error)) {
 	r.imSend = f
+}
+
+func (r *Runtime) SetIMAllowed(f func(channel string) bool) {
+	if r != nil {
+		r.imAllowed = f
+	}
 }
 
 // SetFullAccessRootResolver installs the user-workspace root resolver used by
@@ -376,7 +387,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		}
 		p, e := r.path(mode, session, a.Path, true, unconfined)
 		if e != nil {
-			return Result{}, e
+			return Result{}, localizeWorkspaceWriteError(e)
 		}
 		tmp, e := os.CreateTemp(filepath.Dir(p), ".write-*")
 		if e != nil {
@@ -398,7 +409,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			e = os.Rename(tn, p)
 		}
 		if e != nil {
-			return Result{}, e
+			return Result{}, localizeWorkspaceWriteError(e)
 		}
 		written := result("wrote " + a.Path)
 		written.Artifact = writeArtifactForPath(a.Path, a.Content)
@@ -444,11 +455,14 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		for _, f := range files {
 			p, pe := r.path(mode, session, f.Path, false, unconfined)
 			if pe != nil {
+				if os.IsNotExist(pe) {
+					return Result{}, errors.New("文件不存在或超过大小上限")
+				}
 				return Result{}, pe
 			}
 			b, re := os.ReadFile(p)
 			if re != nil || len(b) > maxFile {
-				return Result{}, errors.New("file missing or exceeds limit")
+				return Result{}, errors.New("文件不存在或超过大小上限")
 			}
 			if err := validateWorkspaceEditText(b); err != nil {
 				return Result{}, err
@@ -461,7 +475,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 				return Result{}, ae
 			}
 			if len(updated) > maxFile {
-				return Result{}, errors.New("edited file exceeds limit")
+				return Result{}, errors.New("修改后的文件超过大小上限")
 			}
 			pending = append(pending, pendingEdit{rel: f.Path, abs: p, updated: updated, count: count})
 			total += count
@@ -662,6 +676,9 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		}
 		if strict(args, &a) != nil || strings.TrimSpace(a.Query) == "" || len(a.Query) > 512 {
 			return Result{}, errors.New("invalid arguments")
+		}
+		if searchQueryForbidden(a.Query) {
+			return Result{}, errors.New("不能通过网页搜索冒充商业数据源")
 		}
 		if r.fetchWeb == nil {
 			return Result{}, errors.New("web tools unavailable")
@@ -969,4 +986,43 @@ func strict(b []byte, v any) error {
 func result(s string) Result {
 	h := sha256.Sum256([]byte(s))
 	return Result{Output: s, Digest: hex.EncodeToString(h[:])}
+}
+
+func searchQueryForbidden(query string) bool {
+	q := strings.TrimSpace(query)
+	if connectorapp.ForbiddenLookup(q) {
+		return true
+	}
+	fields := strings.FieldsFunc(q, func(r rune) bool {
+		return r == ' ' || r == '\t' || r == ',' || r == '/' || r == '，'
+	})
+	for _, tok := range fields {
+		if connectorapp.ForbiddenLookup(tok) {
+			return true
+		}
+	}
+	return false
+}
+
+func localizeWorkspaceWriteError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := strings.TrimSpace(err.Error())
+	switch msg {
+	case "relative path required", "invalid arguments", "path traversal", "invalid path", "invalid session", "workspace root is not writable", "path escape", "symlink escape", "session workspace is not a directory":
+		return err
+	}
+	for _, r := range msg {
+		if r >= 0x4e00 && r <= 0x9fff {
+			return err
+		}
+	}
+	if os.IsNotExist(err) || errors.Is(err, os.ErrNotExist) {
+		return errors.New("文件或目录不存在")
+	}
+	if os.IsPermission(err) || errors.Is(err, os.ErrPermission) {
+		return errors.New("没有写入权限")
+	}
+	return errors.New("文件写入失败")
 }

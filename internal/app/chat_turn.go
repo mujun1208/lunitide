@@ -15,6 +15,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/queueinput"
 	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/messageapp"
+	"github.com/lunitide/lunitide/internal/modelfit"
 	"github.com/lunitide/lunitide/internal/queueapp"
 	"github.com/oklog/ulid/v2"
 )
@@ -49,10 +50,13 @@ type chatTurnCheckpoint struct {
 	DocxNudges      int                       `json:"docxNudges,omitempty"`
 	DocxGenerated   bool                      `json:"docxGenerated,omitempty"`
 	DocxChars       int                       `json:"docxChars,omitempty"`
-	PersistDraft    string                    `json:"persistDraft,omitempty"`
-	PersistFailed   bool                      `json:"persistFailed,omitempty"`
-	PersistUsage    messageapp.AssistantUsage `json:"persistUsage,omitempty"`
-	UpdatedAt       string                    `json:"updatedAt"`
+	PersistDraft    string                         `json:"persistDraft,omitempty"`
+	PersistFailed   bool                           `json:"persistFailed,omitempty"`
+	PersistUsage    messageapp.AssistantUsage      `json:"persistUsage,omitempty"`
+	UpdatedAt       string                         `json:"updatedAt"`
+	Continuation    *modelfit.ContinuationEnvelope `json:"continuation,omitempty"`
+	extra           map[string]json.RawMessage     `json:"-"`
+	liveProtocol    []llmadapter.Message           `json:"-"`
 }
 
 func looksLikeResume(text string) bool {
@@ -138,7 +142,28 @@ func (e *Engine) saveTurnCheckpoint(sessionID string, cp chatTurnCheckpoint) err
 	if cp.StreamID == "" {
 		cp.StreamID = ulid.Make().String()
 	}
-	raw, err := json.Marshal(cp)
+	writer := ""
+	if e != nil {
+		writer = e.version
+	}
+	if e != nil {
+		if err := e.persistRememberedMessageGroups(sessionID, &cp); err != nil {
+			return err
+		}
+		if cp.Continuation != nil {
+			if err := e.persistProtocolPrivate(sessionID, cp.Continuation); err != nil {
+				return err
+			}
+		}
+	} else {
+		rememberMessageGroups(&cp, cp.liveProtocol)
+	}
+	attachContinuation(sessionID, writer, &cp)
+	stored := cp
+	if stored.Continuation != nil && stored.Continuation.ProtocolPrivateRef != "" {
+		stored.Continuation = continuationExport(stored.Continuation)
+	}
+	raw, err := json.Marshal(stored)
 	if err != nil {
 		return err
 	}
@@ -353,6 +378,24 @@ func (e *Engine) unfinishedTurnInjection(sessionID, userText string) string {
 		b.WriteString("\n原任务：")
 		b.WriteString(strings.TrimSpace(cp.Goal))
 	}
+	if cp.Continuation != nil {
+		decision := modelfit.RecoveryDecision(*cp.Continuation)
+		if decision != "" {
+			b.WriteString("\n恢复方式：")
+			b.WriteString(decision)
+		}
+		if decision == modelfit.RecoverBusinessRebuild {
+			b.WriteString("\n已证实：保留资料、工具回执与产物，不重放厂商私有字段。")
+			if len(cp.LastTools) > 0 {
+				b.WriteString("\n已完成动作：")
+				b.WriteString(strings.Join(cp.LastTools, "、"))
+			}
+			b.WriteString("\n待做：继续未完成步骤；未知副作用先核实。")
+		}
+		if decision == modelfit.RecoverVerifyReadonly {
+			b.WriteString("\n待核实：只读核对文件/外部任务，不能当作失败重做。")
+		}
+	}
 	for _, s := range cp.Injected {
 		if strings.TrimSpace(s) == "" {
 			continue
@@ -462,7 +505,7 @@ func (e *Engine) pullQueuedSupplements(ctx context.Context, sessionID string, cp
 }
 
 func (e *Engine) applyQueuedSupplements(ctx context.Context, sessionID string, req *llmadapter.Request, cp *chatTurnCheckpoint, send func(bridge.Event) error, assistantText *strings.Builder) (bool, error) {
-	if req.DisableReasoning || cp == nil {
+	if cp == nil {
 		return false, nil
 	}
 	note, _, err := e.pullQueuedSupplements(ctx, sessionID, cp)

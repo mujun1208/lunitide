@@ -15,11 +15,10 @@ type videoProxyAdapter struct {
 }
 
 func (a *videoProxyAdapter) GenerateVideo(ctx context.Context, secret []byte, model, prompt string) (llmadapter.MediaResult, error) {
-	primary, ok := a.Adapter.(llmadapter.VideoGenerator)
-	if !ok {
+	if _, ok := adapterAs[llmadapter.VideoGenerator](a.Adapter); !ok {
 		return llmadapter.MediaResult{}, errors.New("adapter does not support video generation")
 	}
-	out, err := primary.GenerateVideo(ctx, secret, model, prompt)
+	out, err := generateVideoThrough(ctx, a.Adapter, secret, model, prompt)
 	if !llmadapter.IsVideoEndpointNotFound(err) || ctx.Err() != nil {
 		return out, err
 	}

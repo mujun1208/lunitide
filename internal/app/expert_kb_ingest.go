@@ -52,6 +52,8 @@ func (in *ExpertKBIngest) Ingest(ctx context.Context, input ExpertKBIngestInput)
 	return ExpertKBIngestResult{CollectionID: result.CollectionID, Documents: result.Documents, Source: result.Source}, err
 }
 
+var errOCRCoverageIncomplete = errors.New("文档识别覆盖不完整，未入库")
+
 // ingestFailReason turns a doctext error into an operator-facing reason.
 func ingestFailReason(err error) string {
 	switch {
@@ -59,7 +61,11 @@ func ingestFailReason(err error) string {
 		return "无法抽取正文（可能是扫描件或空文档）"
 	case errors.Is(err, doctext.ErrUnsupportedFormat):
 		return "暂不支持该文件格式的正文解析"
+	case errors.Is(err, doctext.ErrBudgetExceeded):
+		return "文档超过解析上限"
+	case errors.Is(err, errOCRCoverageIncomplete):
+		return errOCRCoverageIncomplete.Error()
 	default:
-		return err.Error()
+		return localizeStoredKBFailReason(err.Error())
 	}
 }

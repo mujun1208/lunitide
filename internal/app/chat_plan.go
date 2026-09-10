@@ -55,6 +55,7 @@ func (e *Engine) invokePlanRunTool(ctx context.Context, a llmadapter.Adapter, cr
 	if err := json.Unmarshal(rawArgs, &p); err != nil || len(p.Objective) < 1 || len(p.Objective) > planMaxObjectiv {
 		return "", errors.New("plan.run requires objective of 1-2000 characters")
 	}
+	ctx = withCallPurpose(ctx, "plan")
 	// Phase 1: plan.
 	planReq := llmadapter.Request{
 		Model: model, MaxTokens: 1024, MaxAttempts: 1,
@@ -79,6 +80,7 @@ func (e *Engine) invokePlanRunToolRouted(ctx context.Context, a llmadapter.Adapt
 	if err := json.Unmarshal(rawArgs, &p); err != nil || len(p.Objective) < 1 || len(p.Objective) > planMaxObjectiv {
 		return "", errors.New("plan.run requires objective of 1-2000 characters")
 	}
+	ctx = withCallPurpose(ctx, "plan")
 	planReq := llmadapter.Request{
 		Model: model, MaxTokens: 1024, MaxAttempts: 1,
 		Messages: []llmadapter.Message{
@@ -180,6 +182,7 @@ func (e *Engine) judgeModelID(ctx context.Context, chatModel string) string {
 }
 
 func (e *Engine) completeJudge(ctx context.Context, a llmadapter.Adapter, credential []byte, chatModel string, req llmadapter.Request) (llmadapter.Response, error) {
+	ctx = withCallPurpose(ctx, "judge")
 	providerID, modelID := "", ""
 	if e != nil {
 		if row, ok := e.resolveRoleRow(ctx, "judge"); ok && !(row.ModelID == chatModel && !row.AllowJudgeEqChat) {
@@ -307,6 +310,7 @@ func truncatePlanText(s string, n int) string {
 // the plan and the step under execution, and may use the session toolset
 // (bounded to one tool round; approval gating still applies).
 func (e *Engine) executePlanStep(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID string, mode executionMode, objective string, step planStep, index, total int, route TaskRoute) string {
+	ctx = withCallPurpose(ctx, "plan")
 	req := llmadapter.Request{
 		Model: model, MaxTokens: 2048, MaxAttempts: 1,
 		Messages: []llmadapter.Message{
@@ -332,7 +336,9 @@ func (e *Engine) executePlanStep(ctx context.Context, a llmadapter.Adapter, cred
 		} else if planToolNames[call.Name] {
 			summary = "refused: nested plan.run inside plan steps is not allowed"
 		} else {
-			r, toolErr := e.tools.Execute(ctx, toolruntime.Mode(mode), sessionID, call.Name, call.Arguments, false)
+			r, toolErr := e.recordExistingToolCall(ctx, sessionID, call.Name, call.Arguments, func() (toolruntime.Result, error) {
+				return e.tools.Execute(ctx, toolruntime.Mode(mode), sessionID, call.Name, call.Arguments, false)
+			})
 			if toolErr != nil {
 				summary = toolErr.Error()
 			} else {

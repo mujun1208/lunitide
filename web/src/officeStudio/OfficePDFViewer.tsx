@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, Minus, Plus, RotateCw } from 'lucide-react';
 import type { PDFDocumentProxy, PDFDocumentLoadingTask, RenderTask } from 'pdfjs-dist';
 import type { OfficeStudioApi } from './officeStudioApi';
 import { readOfficePDF } from './officePDF';
+import { officeStudioUserError } from './officeUserError';
 
 export function OfficePDFViewer({ api, taskId, versionId, name }: {
   api: OfficeStudioApi; taskId: string; versionId: string; name: string;
@@ -43,7 +44,7 @@ export function OfficePDFViewer({ api, taskId, versionId, name }: {
       if (!controller.signal.aborted) setDocument(loaded);
     })().catch(cause => {
       if (!controller.signal.aborted) {
-        setError(cause instanceof Error ? cause.message : 'PDF 预览读取失败。');
+        setError(officeStudioUserError(cause, 'PDF 预览读取失败。'));
         setRendering(false);
       }
     });
@@ -89,7 +90,7 @@ export function OfficePDFViewer({ api, taskId, versionId, name }: {
       if (!disposed) setRendering(false);
     }).catch(cause => {
       if (!disposed) {
-        setError(cause instanceof Error ? cause.message : '此页无法显示。');
+        setError(officeStudioUserError(cause, '此页无法显示。'));
         setRendering(false);
       }
     });

@@ -82,8 +82,8 @@ func TestComputerActSharedExecutionInstruction(t *testing.T) {
 	if !strings.Contains(wf, "computer.act") || !strings.Contains(wf, "frameId") {
 		t.Fatal("desktop workflow must stay on computer.act")
 	}
-	if !strings.Contains(wf, "不必 observe") && !strings.Contains(companionPersonaToolsInstruction(), "不必再 observe") {
-		t.Fatal("OpenClaw see→act must be in the live instruction")
+	if !strings.Contains(wf, "name=") || !strings.Contains(wf, "observe") {
+		t.Fatal("named observe-then-act must be in the live instruction")
 	}
 }
 

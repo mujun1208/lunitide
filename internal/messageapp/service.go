@@ -416,11 +416,17 @@ func (s *Service) Rewind(ctx context.Context, key, actor, sessionID, messageID s
 }
 
 // AssistantUsage carries provider-reported token usage for an assistant message.
+// Input/cache fields are persisted for history details; they do not write extra
+// token_ledger rows (the frozen ledger still only records output when present).
 type AssistantUsage struct {
-	TranscriptDigest string `json:"transcriptDigest,omitempty"`
-	Provider         string `json:"provider"`
-	Model            string `json:"model"`
-	OutputTokens     int64  `json:"outputTokens"`
+	TranscriptDigest      string `json:"transcriptDigest,omitempty"`
+	Provider              string `json:"provider"`
+	Model                 string `json:"model"`
+	OutputTokens          int64  `json:"outputTokens"`
+	InputTokens           int64  `json:"inputTokens,omitempty"`
+	CachedInputTokens     int64  `json:"cachedInputTokens,omitempty"`
+	CacheWriteInputTokens int64  `json:"cacheWriteInputTokens,omitempty"`
+	CacheUsageReported    bool   `json:"cacheUsageReported,omitempty"`
 }
 
 // assistantRequest is the idempotency digest input for AppendAssistant.

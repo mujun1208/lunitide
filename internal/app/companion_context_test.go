@@ -355,3 +355,15 @@ func TestCompanionExecutionUsesSelectedMode(t *testing.T) {
 		t.Fatalf("governed runtime calls = %d", calls)
 	}
 }
+
+func TestPreturnContextWaitKindKeepsVoiceAndTypedPathsDistinct(t *testing.T) {
+	if preturnContextWaitKind(true) != "companion-skip" || preturnContextWaitKind(false) != "typed-sync-wait" {
+		t.Fatal("T08 must keep voice skip and typed summary-wait as distinct paths")
+	}
+	if qualityContractAllowsComplete("稍等") || qualityContractAllowsComplete("我来执行") {
+		t.Fatal("T08 shared quality: empty promise is not a complete answer")
+	}
+	if !qualityContractAllowsComplete("已经打开记事本，号码是123。") {
+		t.Fatal("T08 shared quality: factual close is complete")
+	}
+}

@@ -25,3 +25,7 @@ it('exports and imports pack JSON without scripts',()=>{
  expect(CAPABILITY_PACKS.length).toBeGreaterThanOrEqual(12)
  const raw=exportCapabilityPackJSON(CAPABILITY_PACKS[0]);expect(raw).toContain('lunitide-capability-pack');expect(raw).not.toContain('plugin/main.ts');expect(parseCapabilityPackJSON(raw).id).toBe('pack-browser')
 })
+it('localizes leftover English pack errors on the installed card',()=>{
+ const rows=packLedgerRecords([{...committed,state:'failed',error:'probe failed'}])
+ expect(rows[0].failed).toBe('能力包组件探测失败')
+})

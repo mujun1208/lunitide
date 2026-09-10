@@ -35,6 +35,12 @@ const brApi = (o: Partial<BrBridge> = {}): BrBridge => ({
   ...o,
 })
 
+it('does not show raw English load failures', async () => {
+  render(<BrowserPanel bridge={brApi({ getSettings: vi.fn().mockRejectedValue(new Error('Failed to fetch')) })} />)
+  expect(await screen.findByText('浏览器设置加载失败')).toBeInTheDocument()
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('renders the five mode cards with the active mode checked', async () => {
   render(<BrowserPanel bridge={brApi()} />)
   const group = await screen.findByRole('radiogroup', { name: '浏览器连接模式' })

@@ -35,13 +35,13 @@ func companionPersonaToolsInstruction() string {
 		"- 打开桌面文件/软件：必须用 desktop.open（name=用户原话里的文件名或软件名，如用户说的歌名播放器、桌面文件名）。没说具体文件时不要猜「协议」。语音常把「打开」听成「把开」：仍按打开桌面文件执行，不要等完美识别。网易云音乐会解析开始菜单、cloudmusic.exe 安装目录和已运行进程，不要猜本机路径，不要打开 music.163.com 网页版，除非用户明确说网页\n" +
 		"- 仅要求打开时，desktop.open 成功后说明打开结果；还要求播放、编辑或发送时，继续执行后续步骤并验证。不要重复打开同一个窗口，也不要把启动成功误当成整项任务完成\n" +
 		"- 用户明确要彻底退出软件时用 desktop.quit name=软件完整名称 force=true，核对进程退出结果。关闭窗口不等于退出；仅要求关窗口、停止播放时不得结束进程。若可能有未保存内容，先确认。打开桌面浏览器/搜索页用 desktop.browse，随后 computer.act 核对页面；网页内容检索才用 browser.act 或 web.search\n" +
-		"- 在文档或对话框里填写：有可点的输入框时用 desktop.type（text=要写的内容，after=界面上真实的字段名如身份证号码或证件号码，window=对话框标题，需要发送时 submit=true）。Word 正文没有命名输入框：先 computer.act screenshot 看清，记下 frameId，再 click 输入位置后 type，verifyAfter 确认数字已写入。找不到字段必须说无法执行。写完不要关窗口，不要 cc.window_action op=close\n" +
+		"- 在文档或对话框里填写：有可点的输入框时用 desktop.type（text=要写的内容，after=界面上真实的字段名如身份证号码或证件号码，window=对话框标题，需要发送时 submit=true）。Word 正文没有命名输入框：先 computer.act observe，能对上名字/id 就按名字点，再 type，verifyAfter 确认数字已写入。找不到字段必须说无法执行。写完不要关窗口，不要 cc.window_action op=close\n" +
 		"- 发消息：使用已配置通道的 im.send；需要桌面应用时，desktop.open 后用 computer.act 识别实际联系人和输入框，核对收件人和内容后按用户指令发送。缺少联系人或内容时直接口头问一句并等待下一轮回复。不能把打开聊天窗口或填入草稿说成已发送\n" +
 		"- 播歌/播放：用 media.play target=foreground app=用户指定播放器 query=歌名或歌手；没说具体歌曲时 query=random，不要编歌名或搜索热门。工具会启动播放器并发送一次播放。回执 verified 或 started playing 就直接报告，不要 computer.act 补点，不要再次 media.play。shuffle=false 不代表播放失败。不要点收藏/点赞开关或改用网页版，除非用户明确要求\n" +
 		"- 建文件夹/写文件：优先用 workspace 工具；需要处理代码、转换或运行程序时使用已授权的命令工具，完成后核对文件\n" +
 		"- 用户要求在已打开窗口打字时，必须操作并核验该窗口。workspace.edit/write 修改磁盘文件，不等于记事本/Word 的未保存编辑缓冲区已更新；不能凭文件写入回执或截图操作成功声称窗口文字已经改变。不要关闭、重载或覆盖未保存内容。直接改磁盘后要回读验证，并明确窗口是否同步\n" +
 		"- 桌面手只选一把：打开未运行的应用或桌面文件用 desktop.open；已聚焦窗口打字用 desktop.type；播歌用 media.play；网页用 browser.act；看屏/点控件/截图用 computer.act。同一轮不要 desktop.open 和 computer.act 各试一遍「打开」\n" +
-		"- 操作电脑：电脑控制开启时只用 computer.act。先 action=screenshot 看清（默认当前窗口），记下 frameId，再立刻 click/type/key。坐标必须来自你看到的那张图并回传 frameId。能对上唯一按钮用 name=（不必再 observe，也不必带 frameId）；控件树稀疏、对不上或 Electron 点不动时，直接点截图像素，不要反复 observe。同一失败不要连点超过两次。禁止点 UAC。遇到打开/保存文件对话框时停下来，runtime 会请用户去点。用户没说关闭时禁止 window_action close。启动未打开的应用用 desktop.open。多步做到完成再停。代码或终端任务可用 command.run，沿用本会话的执行权限；不要为了桌面操作猜测路径或盲跑脚本\n" +
+		"- 操作电脑：电脑控制开启时只用 computer.act。先 action=observe 读名字/id，再 click name= 或 id=，不要猜像素。短序列用 action=run steps（2–5 步）。截图只用于稀疏/画布界面，像素必须回传 frameId。同一失败不要连点超过两次。禁止点 UAC。遇到打开/保存文件对话框时停下来，runtime 会请用户去点。用户没说关闭时禁止 window_action close。启动未打开的应用用 desktop.open。多步做到完成再停。代码或终端任务可用 command.run，沿用本会话的执行权限；不要为了桌面操作猜测路径或盲跑脚本\n" +
 		"- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install\n" +
 		"- 对话里贴了抖音/B站/腾讯视频/YouTube 或视频文件直链：调用 video.understand 获取真实来源，不要 browser.act 或 media.play 代替分析。分享页面无字幕时只能按简介；直链仅按实际音轨识别和抽样画面及覆盖范围回答，禁止声称看完全部画面\n" +
 		"- 多次调用工具或经过多轮执行后，最后一句必须用自然语言把这次做完的结果讲清楚收尾（例如做了什么、结果如何），禁止在中途工具反馈后就沉默停住，也禁止只说「好的」「稍等」而不给最终结果"
@@ -193,6 +193,7 @@ func companionToolResultFailed(out string) bool {
 		strings.Contains(out, "COMPUTER_STALE_FRAME") ||
 		strings.Contains(out, "M10-CC-012") ||
 		strings.Contains(out, "电脑控制未启用") ||
+		capabilityDeniedOutput(out) ||
 		strings.Contains(out, "BROWSER_MCP_NOT_READY") ||
 		strings.Contains(lower, "verify capture failed") ||
 		strings.Contains(lower, "refused") ||
@@ -217,7 +218,7 @@ func companionToolResultSpeech(name, out string) string {
 		if strings.Contains(out, "BROWSER_MCP_NOT_READY") {
 			return companionBrowserMCPSpeech
 		}
-		if strings.Contains(out, "M10-CC-012") || strings.Contains(out, "电脑控制未启用") {
+		if strings.Contains(out, "M10-CC-012") || strings.Contains(out, "电脑控制未启用") || capabilityDeniedOutput(out) {
 			return "电脑控制未启用。第一次控桌面请到设置里打开。"
 		}
 		if strings.Contains(strings.ToLower(out), "uac") || strings.Contains(out, "提权") {

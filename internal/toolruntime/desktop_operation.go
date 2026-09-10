@@ -11,6 +11,9 @@ func acquireDesktopOperation(ctx context.Context) (func(), error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if desktopInputBlocked != nil && desktopInputBlocked() {
+		return nil, ErrDesktopLocked
+	}
 	select {
 	case desktopOperationSlot <- struct{}{}:
 		return func() { <-desktopOperationSlot }, nil

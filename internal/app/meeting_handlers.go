@@ -480,6 +480,11 @@ func meetingSummaryCandidates(items []provider.Provider) []provider.CatalogEntry
 }
 
 func (e *Engine) completeMeeting(ctx context.Context, title, transcript string) (meetings.Notes, error) {
+	owner := "meeting"
+	if id := meetings.MeetingIDFrom(ctx); looksLikeULID(id) {
+		owner = "meeting:" + id
+	}
+	ctx = withContinuityScope(ctx, continuityScope{Owner: owner, Task: owner, Purpose: "meeting"})
 	if e.providers == nil {
 		return meetings.Notes{}, errors.New("没有可用模型")
 	}

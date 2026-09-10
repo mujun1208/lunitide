@@ -13,6 +13,19 @@ const fixture=(overrides:Partial<DatasourceWriteAPI>={}):DatasourceWriteAPI=>({
 })
 function show(api:DatasourceWriteAPI){render(<LanguageProvider value="zh-CN"><DataSourceWriteDialog connectionId={id} name="本机测试库" api={api} onClose={()=>{}} /></LanguageProvider>)}
 
+it('does not show raw English history or write failures',async()=>{
+  show(fixture({writeList:vi.fn().mockRejectedValue(new Error('Failed to fetch'))}))
+  expect(await screen.findByRole('alert')).toHaveTextContent('无法读取操作记录')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  cleanup()
+  const api=fixture({writePrepare:vi.fn().mockRejectedValue(new Error('Failed to fetch'))})
+  show(api)
+  fireEvent.change(screen.getByLabelText('SQL 语句'),{target:{value:op.sql}})
+  fireEvent.click(screen.getByRole('button',{name:'检查写入'}))
+  expect(await screen.findByRole('alert')).toHaveTextContent('操作失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('executes only the reviewed operation after the second explicit action',async()=>{
   const api=fixture();show(api)
   fireEvent.change(screen.getByLabelText('SQL 语句'),{target:{value:op.sql}})
@@ -29,10 +42,10 @@ it('reuses the prepare attempt after lost ACK and recovers commit outcome by ID'
   const prepare=vi.fn().mockRejectedValueOnce(new Error('ACK lost')).mockResolvedValue(op)
   const api=fixture({writePrepare:prepare,writeCommit:vi.fn().mockRejectedValue(new Error('Commit ACK lost')),writeGet:vi.fn().mockResolvedValue({...op,state:'completed'})});show(api)
   fireEvent.change(screen.getByLabelText('SQL 语句'),{target:{value:op.sql}})
-  fireEvent.click(screen.getByRole('button',{name:'检查写入'}));await screen.findByText('ACK lost')
+  fireEvent.click(screen.getByRole('button',{name:'检查写入'}));await screen.findByText('操作失败')
   fireEvent.click(screen.getByRole('button',{name:'检查写入'}));await screen.findByRole('button',{name:'确认执行'})
   expect(prepare.mock.calls[0][1].attempt.idempotencyKey).toBe(prepare.mock.calls[1][1].attempt.idempotencyKey)
-  fireEvent.click(screen.getByRole('button',{name:'确认执行'}));await screen.findByText('Commit ACK lost')
+  fireEvent.click(screen.getByRole('button',{name:'确认执行'}));await screen.findByText('操作失败')
   fireEvent.click(screen.getByRole('button',{name:'核查执行结果'}));await screen.findByText('写入已完成')
   expect(api.writeCommit).toHaveBeenCalledTimes(1)
   expect(api.writeGet).toHaveBeenCalledWith({id:op.id})

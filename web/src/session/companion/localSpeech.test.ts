@@ -424,6 +424,21 @@ describe('startLocalCompanionSpeech', () => {
     expect(stage.onSpeechStart).toHaveBeenCalledTimes(1)
   })
 
+  it('does not leak raw English transport failures into the stage error', async () => {
+    const transport = harness()
+    await startLocalCompanionSpeech(transport.options)
+    onAsrError(new Error('Failed to fetch'))
+    const issue = transport.onError.mock.calls[0][0] as BridgeClientError
+    expect(issue).toBeInstanceOf(BridgeClientError)
+    expect(issue.code).toBe('SPEECH_RECOGNITION_UNAVAILABLE')
+    expect(issue.message).toBe('本地语音识别中断')
+    expect(issue.message).not.toContain('Failed to fetch')
+    const coded = harness()
+    await startLocalCompanionSpeech(coded.options)
+    onAsrError(new BridgeClientError('引擎尚未就绪', 'VOICE-004', true, 'engine'))
+    expect(coded.onError.mock.calls[0][0]).toMatchObject({ code: 'VOICE-004', message: '引擎尚未就绪' })
+  })
+
   it('surfaces a recognizer failure as a bridge error and stops', async () => {
     const stage = harness()
     await startLocalCompanionSpeech(stage.options)
@@ -431,7 +446,10 @@ describe('startLocalCompanionSpeech', () => {
     onAsrError(new Error('sidecar exited'))
 
     expect(stage.onError).toHaveBeenCalledTimes(1)
-    expect(stage.onError.mock.calls[0][0]).toBeInstanceOf(BridgeClientError)
+    const issue = stage.onError.mock.calls[0][0] as BridgeClientError
+    expect(issue).toBeInstanceOf(BridgeClientError)
+    expect(issue.code).toBe('SPEECH_RECOGNITION_UNAVAILABLE')
+    expect(issue.message).toBe('sidecar exited')
     expect(asr.cancel).toHaveBeenCalled()
     // A dead recognizer must not keep painting a live-looking meter.
     expect(stage.onLevels).toHaveBeenLastCalledWith(Array.from({ length: 12 }, () => 0))

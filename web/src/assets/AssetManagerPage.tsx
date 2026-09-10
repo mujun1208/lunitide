@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { asUserBridgeError } from '../bridge/bridgeUserError'
 import { BridgeClientError, createMutationAttempt, templateBridge, type TemplateBridge } from '../bridge/client'
 import type { TemplateCreatePayload, TemplateListResult } from '../generated/bridge'
 import { ConfirmDialog, Dialog } from '../ui/Dialog'
@@ -19,7 +20,11 @@ const DOCUMENT_TYPES = [
 const TYPE_LABEL: Record<TemplateDTO['templateType'], string> = { document: '文档模版', scaffold: '脚手架模版' }
 const STATUS_LABEL: Record<TemplateDTO['status'], string> = { draft: '创建', enabled: '可用', disabled: '停用', void: '作废' }
 
-const problem = (e: unknown) => e instanceof BridgeClientError ? e : new BridgeClientError(e instanceof Error ? e.message : '请求失败', 'CLIENT_ERROR', false, 'renderer')
+function assetUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+const problem = (e: unknown) => e instanceof BridgeClientError ? asUserBridgeError(e, '请求失败') : new BridgeClientError(assetUserError(e, '请求失败'), 'CLIENT_ERROR', false, 'renderer')
 const ordered = (items: TemplateDTO[]) => [...items].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id))
 
 const readFileBytes = (file: File): Promise<Uint8Array> => readBoundedFile(file, 10 * 1024 * 1024).then(buf => new Uint8Array(buf))

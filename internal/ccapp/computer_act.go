@@ -61,6 +61,75 @@ func putFrame(m map[string]any, frameID string) {
 	}
 }
 
+// MaxComputerActSteps is the longest named sequence one computer.act call
+// may run without another model turn. Longer work stays step-by-step.
+const MaxComputerActSteps = 5
+
+// ComputerActSteps returns the inner payloads when action=run (or batch)
+// carries steps. A single action with no steps returns nil, nil.
+func ComputerActSteps(args json.RawMessage) ([]json.RawMessage, error) {
+	var env struct {
+		Action string            `json:"action"`
+		Steps  []json.RawMessage `json:"steps"`
+	}
+	if json.Unmarshal(args, &env) != nil {
+		return nil, fmt.Errorf("%w: arguments", ErrCcSchema)
+	}
+	action := strings.ToLower(strings.TrimSpace(env.Action))
+	if len(env.Steps) == 0 {
+		if action == "run" || action == "batch" {
+			return nil, fmt.Errorf("%w: steps required", ErrCcInputFiltered)
+		}
+		return nil, nil
+	}
+	if action != "run" && action != "batch" {
+		return nil, fmt.Errorf("%w: steps only with action=run", ErrCcInputFiltered)
+	}
+	if len(env.Steps) > MaxComputerActSteps {
+		return nil, fmt.Errorf("%w: at most %d steps", ErrCcInputFiltered, MaxComputerActSteps)
+	}
+	out := make([]json.RawMessage, 0, len(env.Steps))
+	for _, step := range env.Steps {
+		var nested struct {
+			Steps []json.RawMessage `json:"steps"`
+		}
+		if json.Unmarshal(step, &nested) != nil {
+			return nil, fmt.Errorf("%w: step arguments", ErrCcSchema)
+		}
+		if len(nested.Steps) > 0 {
+			return nil, fmt.Errorf("%w: nested steps", ErrCcInputFiltered)
+		}
+		if _, _, err := MapComputerAct(step); err != nil {
+			return nil, err
+		}
+		out = append(out, step)
+	}
+	return out, nil
+}
+
+// ComputerActChangesMachine reports whether a computer.act payload (including
+// a short steps batch) touches the machine. Unparseable input fail-closes.
+func ComputerActChangesMachine(args json.RawMessage) bool {
+	steps, err := ComputerActSteps(args)
+	if err != nil {
+		return true
+	}
+	if len(steps) == 0 {
+		mapped, _, err := MapComputerAct(args)
+		if err != nil {
+			return true
+		}
+		return ToolChangesMachine(mapped)
+	}
+	for _, step := range steps {
+		mapped, _, err := MapComputerAct(step)
+		if err != nil || ToolChangesMachine(mapped) {
+			return true
+		}
+	}
+	return false
+}
+
 // MapComputerAct expands one computer.act payload onto a governed cc.* tool.
 func MapComputerAct(args json.RawMessage) (string, json.RawMessage, error) {
 	var a computerActArgs
@@ -323,23 +392,25 @@ func mapClick(a computerActArgs, button string, clicks int) (string, json.RawMes
 	if a.Clicks > 0 {
 		clicks = a.Clicks
 	}
+	name := strings.TrimSpace(a.Name)
+	id := strings.TrimSpace(a.ID)
 	m := map[string]any{"button": button, "clicks": clicks}
-	if a.X != nil {
+	switch {
+	case id != "":
+		m["id"] = id
+		putFrame(m, a.FrameID)
+	case name != "":
+		m["name"] = name
+	case a.X != nil && a.Y != nil:
 		m["x"] = *a.X
-	}
-	if a.Y != nil {
 		m["y"] = *a.Y
-	}
-	if a.Name != "" {
-		m["name"] = a.Name
-	}
-	if a.ID != "" {
-		m["id"] = a.ID
+		putFrame(m, a.FrameID)
+	default:
+		return "", nil, fmt.Errorf("%w: click needs name, id, or x,y", ErrCcInputFiltered)
 	}
 	if len(a.Modifiers) > 0 {
 		m["modifiers"] = a.Modifiers
 	}
-	putFrame(m, a.FrameID)
 	raw, err := compactJSON(m)
 	return ToolMouseClick, raw, err
 }

@@ -1,9 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { asUserBridgeError } from '../bridge/bridgeUserError'
 import { BridgeClientError, createMutationAttempt, skillImportBridge as defaultSkillImportBridge, type SkillImportBridge, type MutationAttempt, type MutationMethod } from '../bridge/client'
 import type { SkillImportDiscoverResult } from '../generated/bridge'
 import { Dialog } from '../ui/Dialog'
 
-const problem = (e: unknown) => e instanceof BridgeClientError ? e : new BridgeClientError(e instanceof Error ? e.message : '请求失败', 'CLIENT_ERROR', false, 'renderer')
+function skillImportUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+const problem = (e: unknown) => e instanceof BridgeClientError ? asUserBridgeError(e, '请求失败') : new BridgeClientError(skillImportUserError(e, '请求失败'), 'CLIENT_ERROR', false, 'renderer')
 type Props = { open: boolean; onClose: () => void; onApproved?: (skillId?: string) => void; bridge?: SkillImportBridge; initialUrl?: string }
 
 export function SkillImportWizard({ open, onClose, onApproved, bridge = defaultSkillImportBridge, initialUrl = '' }: Props): React.JSX.Element {

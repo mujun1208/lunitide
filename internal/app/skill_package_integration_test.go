@@ -154,7 +154,7 @@ func TestSkillPackageCreatedInChatRetainsOriginAndFiles(t *testing.T) {
 	sessionID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	manifest, _ := json.Marshal(map[string]any{"prompt": "不要编造周报数据。", "originSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAX", "files": map[string]string{"evals/evals.json": "{\"evals\":[]}", "references/rules.md": "保留所有约束"}})
 	args, _ := json.Marshal(map[string]any{"name": "created-here", "permissions": []string{"read_only"}, "manifestJson": string(manifest)})
-	if _, err := e.invokeSkillCreateTool(withSkillCreationSession(ctx, sessionID), args); err != nil {
+	if _, err := e.invokeSkillCreateTool(withSkillCreationSession(ctx, sessionID), sessionID, args); err != nil {
 		t.Fatal(err)
 	}
 	items, err := svc.List(ctx, skill.SkillStatusDraft)

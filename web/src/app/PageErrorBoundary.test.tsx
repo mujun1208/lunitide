@@ -4,6 +4,31 @@ import { PageErrorBoundary } from './PageErrorBoundary'
 
 afterEach(cleanup)
 
+it('does not leak raw English transport failures on the page crash screen', () => {
+  const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const Boom = () => {
+    throw new Error('Failed to fetch')
+  }
+  render(
+    <PageErrorBoundary label="providers">
+      <Boom />
+    </PageErrorBoundary>,
+  )
+  expect(screen.getByRole('alert')).toHaveTextContent('本页渲染失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  cleanup()
+  const Chinese = () => {
+    throw new Error('核心引擎暂时不可用')
+  }
+  render(
+    <PageErrorBoundary label="providers">
+      <Chinese />
+    </PageErrorBoundary>,
+  )
+  expect(screen.getByRole('alert')).toHaveTextContent('核心引擎暂时不可用')
+  spy.mockRestore()
+})
+
 it('shows a per-page retry shell when a child render throws and does not escape to the root', () => {
   const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
   const Boom = () => {

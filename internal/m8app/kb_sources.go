@@ -69,6 +69,11 @@ type KBLocalSourceInput struct {
 	CollectionID, Path, MediaType, SourceLocator string
 	ExpectedRevision                             *int64
 }
+
+type KBDeleteSourceInput struct {
+	CollectionID, SourceID string
+	ExpectedRevision       int64
+}
 type KBLocalSourceResult struct {
 	CollectionID string
 	Source       KBSource
@@ -416,6 +421,53 @@ func (s *KBService) checkSource(ctx context.Context, source KBSource) (KBSource,
 		cache[cacheKey] = source
 	}
 	return source, err
+}
+
+func (s *KBService) DeleteLocalSource(ctx context.Context, in KBDeleteSourceInput) error {
+	if s == nil || s.uow == nil || in.CollectionID == "" || in.SourceID == "" {
+		return ErrPayloadInvalid
+	}
+	return s.uow.TransactKB(ctx, func(tx KBTx) error {
+		st, ok := tx.(KBSourceTx)
+		if !ok {
+			return ErrServiceUnavailable
+		}
+		if owner, ok := tx.(interface {
+			KBCollectionOwned(string, string) (bool, error)
+		}); ok {
+			owned, e := owner.KBCollectionOwned(in.CollectionID, s.subject)
+			if e != nil {
+				return e
+			}
+			if !owned {
+				return ErrPayloadInvalid
+			}
+		}
+		source, exists, err := st.GetKBSourceByID(in.CollectionID, in.SourceID)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return ErrPayloadInvalid
+		}
+		if in.ExpectedRevision != 0 && source.Revision != in.ExpectedRevision {
+			return ErrKBVersionConflict
+		}
+		rev := source.Revision
+		source.State = "failed"
+		source.Error = "tombstone:deleted"
+		source.Revision++
+		now := source.CheckedAt
+		if s.clock != nil {
+			now = s.clock.Now().UTC().Format(time.RFC3339Nano)
+		}
+		source.CheckedAt = now
+		if err := st.PutKBSource(source, rev); err != nil {
+			return err
+		}
+		_, err = tx.AppendAuditEvent(audit.Event{ID: ulid.Make().String(), Action: "kb.source.tombstone", ResourceType: "kb_source", ResourceID: source.SourceID, Actor: "local", AfterDigest: SourceDigest([]byte(source.SourceID + "tombstone")), CreatedAt: now})
+		return err
+	})
 }
 
 func (s *KBService) sourceDocumentUsable(ctx context.Context, doc m8core.KBDocument) (bool, error) {

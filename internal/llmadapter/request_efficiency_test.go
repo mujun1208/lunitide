@@ -63,6 +63,33 @@ func TestRequestEfficiencyProtectsTaskAndCaller(t *testing.T) {
 	}
 }
 
+func TestAttachEfficientRequestStoresSnapshotOnRequest(t *testing.T) {
+	in := efficiencyFixture()
+	out := attachEfficientRequest(in, Options{})
+	if out.Efficiency.PolicyVersion != "token-efficiency-v1" || out.Efficiency.Disabled || out.Efficiency.BytesBefore <= 0 || out.Efficiency.BytesAfter >= out.Efficiency.BytesBefore {
+		t.Fatalf("attached snapshot %+v", out.Efficiency)
+	}
+	off := attachEfficientRequest(in, Options{DisableTokenEfficiency: true})
+	if !off.Efficiency.Disabled || off.Efficiency.BytesAfter != off.Efficiency.BytesBefore {
+		t.Fatalf("disabled attached snapshot %+v", off.Efficiency)
+	}
+}
+
+func TestPrepareEfficientRequestReportsSnapshotWithoutQualityLoss(t *testing.T) {
+	in := efficiencyFixture()
+	out, snap := prepareEfficientRequestReport(in, Options{})
+	if snap.PolicyVersion == "" || snap.Disabled || snap.BytesBefore <= 0 || snap.BytesAfter >= snap.BytesBefore {
+		t.Fatalf("snapshot %+v", snap)
+	}
+	if out.Messages[3].Content != `{"source":"原始来源","validAt":"2026-09-07","value":1.2300e-09}` {
+		t.Fatal("report path changed compact result")
+	}
+	_, off := prepareEfficientRequestReport(in, Options{DisableTokenEfficiency: true})
+	if !off.Disabled || off.BytesAfter != off.BytesBefore {
+		t.Fatalf("disabled snapshot %+v", off)
+	}
+}
+
 func TestRequestEfficiencyAmbiguousAndUnknownToolsStayIntact(t *testing.T) {
 	in := Request{Tools: []ToolDefinition{{Name: "same", Description: "one"}, {Name: "same", Description: "two"}}, Messages: []Message{
 		{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "c", Name: "weather.get"}, {ID: "c", Name: "unknown"}}},
@@ -148,4 +175,34 @@ func TestRequestEfficiencyFixtureReportsEstimateWithoutQualityLoss(t *testing.T)
 		t.Fatal("no structural reduction")
 	}
 	t.Logf("synthetic structured-result fixture: bytes %d -> %d; canonical estimated tokens %d -> %d (not billed usage or real-task quality score)", len(pretty), len(optimized), token.CountTokensForModel("", string(pretty)), token.CountTokensForModel("", optimized))
+}
+
+func TestAblationKeepsProtectedFactsAndEmptyPromise(t *testing.T) {
+	protected := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	in := Request{Messages: []Message{
+		{Role: RoleUser, Content: "请确认路径 `" + protected + "` 是否已写。承诺：文件已写好。"},
+		{Role: RoleAssistant, ReasoningContent: "keep-chain", ToolCalls: []ToolCall{
+			{ID: "c1", Name: "office.inspect", Arguments: []byte("{\n  \"path\": \"" + protected + "\"\n}")},
+		}},
+		{Role: RoleTool, ToolCallID: "c1", Content: "{\n  \"ok\": true,\n  \"path\": \"" + protected + "\"\n}"},
+	}}
+	out := prepareEfficientRequest(in, Options{})
+	if out.Messages[1].ReasoningContent != "keep-chain" || out.Messages[1].ToolCalls[0].ID != "c1" {
+		t.Fatalf("ablation must keep native replay fields: %#v", out.Messages[1])
+	}
+	joined := out.Messages[0].Content + string(out.Messages[1].ToolCalls[0].Arguments) + out.Messages[2].Content
+	if !strings.Contains(joined, protected) || !strings.Contains(out.Messages[0].Content, "文件已写好") {
+		t.Fatalf("protected fact or empty-promise sentence dropped: %q", joined)
+	}
+}
+
+func TestRequestEfficiencyKeepsNativeReasoning(t *testing.T) {
+	in := Request{Messages: []Message{{
+		Role: RoleAssistant, Content: "先读", ReasoningContent: "need file 001234",
+		ToolCalls: []ToolCall{{ID: "c1", Name: "workspace.read", Arguments: []byte(`{"path":"a.md"}`)}},
+	}}}
+	out := prepareEfficientRequest(in, Options{})
+	if out.Messages[0].ReasoningContent != "need file 001234" || out.Messages[0].ToolCalls[0].ID != "c1" {
+		t.Fatalf("native reasoning or tool id stripped: %#v", out.Messages[0])
+	}
 }

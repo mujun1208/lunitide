@@ -2,15 +2,19 @@ package app
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/identity"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/people"
 	"github.com/lunitide/lunitide/internal/projectapp"
 	"github.com/lunitide/lunitide/internal/sessionapp"
 	sqlitestore "github.com/lunitide/lunitide/internal/storage/sqlite"
+	"github.com/oklog/ulid/v2"
 )
 
 func TestParseAgentMentionsAndClaimTask(t *testing.T) {
@@ -226,6 +230,17 @@ func TestPeopleAgentMembersSkipsHumans(t *testing.T) {
 	}
 }
 
+func TestPeopleAgentFailedUserErrorDropsEnglish(t *testing.T) {
+	got := peopleAgentFailedUserError(errors.New("invalid arguments"))
+	if strings.Contains(got, "invalid arguments") || !officeUserMessageHasHan(got) {
+		t.Fatalf("people IM error leaked English: %q", got)
+	}
+	keep := peopleAgentFailedUserError(errors.New("工具运行时不可用"))
+	if !strings.Contains(keep, "工具运行时不可用") {
+		t.Fatalf("lost Chinese tool reason: %q", keep)
+	}
+}
+
 func TestPeopleAgentEmptyReplyDoesNotClaimMissingModel(t *testing.T) {
 	kind, msg := classifyPeopleAgentFailure(true, nil, "")
 	if kind != peopleFailEmpty || strings.Contains(msg, "启用一个对话模型") {
@@ -245,5 +260,33 @@ func TestPeopleAgentHistorySkipsCurrentUser(t *testing.T) {
 	}, "agent", "做个模拟计算表", 8)
 	if len(hist) != 2 || hist[0].Content != "周转件怎么算" || hist[1].Content != "先算周转率…" {
 		t.Fatalf("%+v", hist)
+	}
+}
+
+func TestPeopleAgentRecordsSessionOwnerScope(t *testing.T) {
+	e := NewEngineWithGateway(meetingNotesProvider{}, "test", streamTestLease{})
+	store := &memCalls{}
+	e.SetCallAttemptStore(store)
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
+		return completeMeterAdapter{content: "先对一下口径", usage: llmadapter.Usage{InputTokens: 4, OutputTokens: 2, TotalTokens: 6}}, nil
+	})
+	sessionID := ulid.Make().String()
+	text, err := e.completePeopleAgentText(context.Background(), people.Contact{Nickname: "同事"}, "thread", sessionID, "你好")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "口径") {
+		t.Fatalf("reply = %q", text)
+	}
+	if len(store.recs) == 0 {
+		t.Fatal("people agent must record a metered attempt")
+	}
+	for _, rec := range store.recs {
+		if rec.Purpose != "people" {
+			t.Fatalf("people purpose = %+v", rec)
+		}
+		if rec.OwnerScope != sessionID {
+			t.Fatalf("people owner = %q, want session %s", rec.OwnerScope, sessionID)
+		}
 	}
 }
