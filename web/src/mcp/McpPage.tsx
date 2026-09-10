@@ -31,6 +31,11 @@ const installedKey=(item:Endpoint)=>item.transport==='https'?`https|${item.url}`
 const presetKey=(preset:Preset)=>preset.transport==='https'?`https|${preset.url}`:`${preset.command}|${packageName(preset.args)||preset.args[0]||''}`
 const presetIdForEndpoint=(item:Endpoint,presets:readonly Preset[])=>presets.find(preset=>presetKey(preset)===installedKey(item))?.id??''
 
+function mcpUserError(err:unknown,fallback:string):string{
+ const detail=err instanceof Error?err.message.trim():''
+ return /[\u4e00-\u9fff]/.test(detail)?detail:fallback
+}
+
 type ParsedServer={name:string;transport:'stdio'|'https';command?:string;args?:string[];url?:string}
 
 function parseManualJson(raw:string):ParsedServer[]{
@@ -80,7 +85,7 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
     setView('installed')
    }
    return list.endpoints
-  }catch(e){setError(e instanceof Error?e.message:'MCP 清单加载失败')}
+  }catch(e){setError(mcpUserError(e,'MCP 清单加载失败'))}
  },[bridge])
  useEffect(()=>{void load()},[load])
 
@@ -107,7 +112,7 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
     const target=refreshed?.find(item=>item.endpointId===added.endpointId)
     if(target&&bridge.credentialSet)setCredentialTarget(target)
    }else setNotice(`已安装「${preset.name}」`)
-  }catch(e){await load();setError(e instanceof Error?e.message:`${preset.name} 安装失败`)}finally{setBusy('')}
+  }catch(e){await load();setError(mcpUserError(e,`${preset.name} 安装失败`))}finally{setBusy('')}
  }
  const reconnect=async(item:Endpoint)=>{
   setBusy(item.endpointId);setError('');setNotice('')
@@ -117,7 +122,7 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
    if(health.state==='ready')setNotice(`${item.displayName||item.endpointId}：已连接${health.latencyMs?` · ${health.latencyMs}ms`:''}`)
    else setError(`${item.displayName||item.endpointId}：${health.diagnosticMessage||'未能建立连接，请检查启动配置与所需凭据后重试。'}`)
    await load()
-  }catch(e){setError(e instanceof Error?e.message:'重新连接失败')}finally{await load();setBusy('')}
+  }catch(e){setError(mcpUserError(e,'重新连接失败'))}finally{await load();setBusy('')}
  }
  const remove=async()=>{
   if(!removeTarget)return
@@ -126,7 +131,7 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
    const token=await mcBridge.confirmToken({method:'mc.connector.uninstall',target:removeTarget.endpointId})
    await mcBridge.uninstall({endpointId:removeTarget.endpointId,confirmToken:token.confirmToken})
    setNotice(`已删除「${removeTarget.displayName||removeTarget.endpointId}」`);setRemoveTarget(null);await load()
-  }catch(e){setError(e instanceof Error?e.message:'删除失败')}finally{setBusy('')}
+  }catch(e){setError(mcpUserError(e,'删除失败'))}finally{setBusy('')}
  }
  const saveManual=async()=>{
   setBusy('manual');setError('');setNotice('')
@@ -143,7 +148,7 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
     }
    }
    setCreateOpen(false);setRiskConfirmed(false);setNotice(`已保存 ${servers.length} 个 MCP，请配置所需凭据后连接`);await load();setView('installed')
-  }catch(e){await load();setError(e instanceof Error?e.message:'保存失败：请使用 mcpServers 或 command/args JSON')}finally{setBusy('')}
+  }catch(e){await load();setError(mcpUserError(e,'保存失败：请使用 mcpServers 或 command/args JSON'))}finally{setBusy('')}
  }
 
  return <main className="skill-center mcp-page">

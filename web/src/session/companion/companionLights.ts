@@ -4,6 +4,7 @@ import { hasConfiguredVolcTts, llmReadyProviders, pickDefaultLLM, pickDefaultTTS
 import { VOLC_OFFICIAL_SPEAKERS } from './volcVoices'
 import { localAsrStatus } from './localAsr'
 import { shownVoicePath, type VoicePath } from './voicePersonas'
+import { refHostUserLastError } from '../../settings/refEnginePreview'
 
 export type LightKind = 'on' | 'off' | 'warn'
 
@@ -171,7 +172,7 @@ export async function inspectCompanionEntry(
     } else {
       speakReady = false
       speakState = 'off'
-      const err = ref.value.last_error?.trim()
+      const err = refHostUserLastError(ref.value.last_error)
       speakLabel = err ? `本地朗读未就绪（${err.slice(0, 40)}）` : 'GPT-SoVITS 未就绪'
     }
   }

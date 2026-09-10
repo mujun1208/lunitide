@@ -15,6 +15,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/llmadapter"
+	"github.com/lunitide/lunitide/internal/modelfit"
 	"github.com/lunitide/lunitide/internal/skillapp"
 )
 
@@ -143,6 +144,96 @@ func TestSkillInvokeToolDefinitionsWithAndWithoutService(t *testing.T) {
 	defs := e.skillToolDefinitions()
 	if len(defs) != 4 || defs[0].Name != "skill.invoke" || defs[1].Name != "skill.view" || defs[2].Name != "skill.create" || defs[3].Name != "skill.manage" {
 		t.Fatalf("definitions = %#v, want skill.invoke, skill.view, skill.create, skill.manage", defs)
+	}
+}
+
+func TestInvokeSkillToolRecordsReceipt(t *testing.T) {
+	e := NewEngine(nil, "test")
+	store := &memToolOps{}
+	e.SetToolOperationStore(store)
+	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	_, err := e.invokeSkillTool(context.Background(), executionModeApproval, session, []byte(`{"skillId":"missing","input":"整理手册"}`))
+	if err == nil {
+		t.Fatal("unready skill.invoke must fail")
+	}
+	op := store.last()
+	if op.ToolName != "skill.invoke" || op.State == modelfit.OpSucceeded {
+		t.Fatalf("skill.invoke must leave a receipt without inventing success: %+v", op)
+	}
+}
+
+func TestInvokeExpertCreateToolRecordsReceipt(t *testing.T) {
+	e := NewEngine(nil, "test")
+	store := &memToolOps{}
+	e.SetToolOperationStore(store)
+	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	_, err := e.invokeExpertCreateTool(context.Background(), session, []byte(`{"name":"测试专家"}`))
+	if err == nil {
+		t.Fatal("unready expert.create must fail")
+	}
+	op := store.last()
+	if op.ToolName != "expert.create" || op.State == modelfit.OpSucceeded {
+		t.Fatalf("expert.create must leave a receipt without inventing success: %+v", op)
+	}
+}
+
+func TestInvokeSkillCreateToolRecordsReceipt(t *testing.T) {
+	e := NewEngine(nil, "test")
+	store := &memToolOps{}
+	e.SetToolOperationStore(store)
+	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	_, err := e.invokeSkillCreateTool(context.Background(), session, []byte(`{"name":"draft","permissions":["read_only"],"manifestJson":"{}"}`))
+	if err == nil {
+		t.Fatal("unready skill.create must fail")
+	}
+	op := store.last()
+	if op.ToolName != "skill.create" || op.State == modelfit.OpSucceeded {
+		t.Fatalf("skill.create must leave a receipt without inventing success: %+v", op)
+	}
+}
+
+func TestInvokeSkillManageToolRecordsReceipt(t *testing.T) {
+	e := NewEngine(nil, "test")
+	store := &memToolOps{}
+	e.SetToolOperationStore(store)
+	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	_, err := e.invokeSkillManageTool(context.Background(), session, []byte(`{"action":"patch"}`))
+	if err == nil {
+		t.Fatal("unready skill.manage must fail")
+	}
+	op := store.last()
+	if op.ToolName != "skill.manage" || op.State == modelfit.OpSucceeded {
+		t.Fatalf("skill.manage must leave a receipt without inventing success: %+v", op)
+	}
+}
+
+func TestInvokeSkillTrialToolRecordsReceipt(t *testing.T) {
+	e := NewEngine(nil, "test")
+	store := &memToolOps{}
+	e.SetToolOperationStore(store)
+	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	_, err := e.invokeSkillTrialTool(context.Background(), executionModeApproval, session, []byte(`{"skillId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","input":"试用草稿"}`))
+	if err == nil {
+		t.Fatal("unready skill.try must fail")
+	}
+	op := store.last()
+	if op.ToolName != "skill.try" || op.State == modelfit.OpSucceeded {
+		t.Fatalf("skill.try must leave a receipt without inventing success: %+v", op)
+	}
+}
+
+func TestInvokePluginCreateToolRecordsReceipt(t *testing.T) {
+	e := NewEngine(nil, "test")
+	store := &memToolOps{}
+	e.SetToolOperationStore(store)
+	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	_, err := e.invokePluginCreateTool(context.Background(), session, []byte(`{"pluginId":"x","name":"x","kind":"mcp"}`))
+	if err == nil {
+		t.Fatal("plugin.create mcp kind must fail")
+	}
+	op := store.last()
+	if op.ToolName != "plugin.create" || op.State == modelfit.OpSucceeded {
+		t.Fatalf("plugin.create must leave a receipt without inventing success: %+v", op)
 	}
 }
 

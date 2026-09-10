@@ -2,6 +2,11 @@ import {BridgeClientError} from '../bridge/client'
 import {attachmentOperation,attachmentCancelled} from './attachmentOperation'
 import {ATTACHMENT_FILE_MAX,ATTACHMENT_BATCH_MAX,ATTACHMENT_BATCH_BYTES} from './attachments'
 
+function pickUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 export type DesktopPickItem = {path: string; fileName: string; mime: string; size: number}
 
 export type DesktopFilesBridge = {
@@ -75,7 +80,7 @@ export async function pickComposerFiles(bridge: DesktopFilesBridge | undefined, 
     for (const item of picked.items.slice(0,ATTACHMENT_BATCH_MAX)){
       if(signal?.aborted)return {kind:'canceled'}
       if(total+item.size>ATTACHMENT_BATCH_BYTES){skipped.push(`${item.fileName}（本批超过 20 MiB）`);continue}
-      try{files.push(await readPickedFile(bridge,item,signal));total+=item.size}catch(error){if(signal?.aborted)return {kind:'canceled'};skipped.push(`${item.fileName}：${error instanceof Error?error.message:'读取失败'}`)}
+      try{files.push(await readPickedFile(bridge,item,signal));total+=item.size}catch(error){if(signal?.aborted)return {kind:'canceled'};skipped.push(`${item.fileName}：${pickUserError(error,'读取失败')}`)}
     }
     if(picked.items.length>ATTACHMENT_BATCH_MAX)skipped.push(`超过 20 个的 ${picked.items.length-ATTACHMENT_BATCH_MAX} 个文件`)
     if(!files.length)return {kind:'error',error:new BridgeClientError(skipped.join('；')||'未读取到文件，请重新选择','DESKTOP_FILE_READ_FAILED',true,'renderer')}

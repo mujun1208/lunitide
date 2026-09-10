@@ -41,7 +41,10 @@ export function AutomationStopButton({run, bridge, onRequested}: {run?: Run; bri
       setNotice(result.cancellationRequested?'正在停止本次执行，已产生的结果会保留。':'这次执行已经结束，请查看最新记录。')
       await onRequested()
     } catch(error) {
-      if(alive.current&&requestScope===scope.current)setNotice(error instanceof Error?error.message:'停止请求失败，请重试')
+      if(alive.current&&requestScope===scope.current){
+        const detail=error instanceof Error?error.message.trim():''
+        setNotice(/[\u4e00-\u9fff]/.test(detail)?detail:'停止请求失败，请重试')
+      }
     } finally {
       if(alive.current&&requestScope===scope.current){busyRef.current=false;setBusy(false)}
     }

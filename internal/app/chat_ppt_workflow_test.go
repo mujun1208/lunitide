@@ -67,6 +67,10 @@ func TestPptStageNudgeVisibleInThinking(t *testing.T) {
 	if shouldContinuePptTurn(turn, false) {
 		t.Fatal("finished pptx.gen must stop nudging")
 	}
+	turn.PptGenerated = false
+	if !shouldContinuePptTurn(turn, true) {
+		t.Fatal("FR-502: DisableReasoning must not stop an active ppt turn")
+	}
 }
 
 func TestStartPptWorkflowInjectsPipeline(t *testing.T) {

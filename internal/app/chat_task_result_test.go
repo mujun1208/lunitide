@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -67,9 +69,39 @@ func TestFreshLookupCannotExecuteOldFileOrMusicTask(t *testing.T) {
 	if guardCurrentTurnTool("打开图片，然后查车票", "desktop.open") != nil {
 		t.Fatal("explicit combined task blocked")
 	}
-	instruction := currentTurnInstruction("查今天车票", time.Date(2026, 9, 8, 14, 0, 0, 0, time.FixedZone("CST", 8*3600)))
+	now := time.Date(2026, 9, 8, 14, 0, 0, 0, time.FixedZone("CST", 8*3600))
+	instruction := currentTurnInstruction("查今天车票", now)
 	if !strings.Contains(instruction, "2026-09-08") || !strings.Contains(instruction, "不是本轮待执行清单") || !strings.Contains(instruction, "只用一到三句") {
 		t.Fatal(instruction)
+	}
+	stable := executionModeInstruction(executionModeAutoEdit) + chatSuggestionsInstruction
+	if strings.Contains(stable, "当前本地时间") || strings.Contains(stable, "最新用户要求") {
+		t.Fatal("stable prefix must not include the current-turn clock or goal")
+	}
+	composed := appendCurrentTurnBoundary(stable, "查今天车票", now)
+	if !strings.HasPrefix(composed, stable) || strings.Index(composed, "当前本地时间") < len(stable) {
+		t.Fatal("current-turn boundary must follow the stable prefix")
+	}
+}
+
+func TestStableInstructionPrefixHashIgnoresClock(t *testing.T) {
+	stable := typedDefaultStablePrefix()
+	a := appendCurrentTurnBoundary(stable, "查今天车票", time.Date(2026, 9, 9, 10, 0, 0, 0, time.UTC))
+	b := appendCurrentTurnBoundary(stable, "写周报", time.Date(2026, 9, 9, 23, 59, 59, 0, time.UTC))
+	if a == b {
+		t.Fatal("clock and goal must change the dynamic segment")
+	}
+	pa, pb := stableInstructionPrefix(a), stableInstructionPrefix(b)
+	if pa != pb || pa != stable {
+		t.Fatalf("stable prefix must ignore clock and goal: %q vs %q", pa, pb)
+	}
+	sumA := sha256.Sum256([]byte(pa))
+	sumB := sha256.Sum256([]byte(pb))
+	if sumA != sumB {
+		t.Fatal("stable prefix hash must match across turns")
+	}
+	if typedDefaultStablePrefixHash() != fmt.Sprintf("%x", sumA) {
+		t.Fatalf("typed-default hash must match extracted builder: %s", typedDefaultStablePrefixHash())
 	}
 }
 

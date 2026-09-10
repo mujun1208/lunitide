@@ -24,6 +24,12 @@ export type DatasourcePanelApi = {
   disable: (id: string) => Promise<{ id: string; state: 'disabled' }>
 }
 
+function datasourceUserError(err: unknown, zh: boolean, fallbackZh: string, fallbackEn: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  if (/[\u4e00-\u9fff]/.test(detail)) return detail
+  return zh ? fallbackZh : fallbackEn
+}
+
 const emptyForm = { name: '', host: '127.0.0.1', port: '', database: '', user: '', password: '', ssl: false }
 
 export function DataSourcePanel({ api }: { api?: DatasourcePanelApi }): React.JSX.Element {
@@ -47,7 +53,7 @@ export function DataSourcePanel({ api }: { api?: DatasourcePanelApi }): React.JS
       const got = await api.list()
       if(epoch===listEpoch.current) setItems(got.items)
     } catch(e) {
-      if(epoch===listEpoch.current) setError(e instanceof Error ? e.message : (zh?'连接列表加载失败':'Could not load connections'))
+      if(epoch===listEpoch.current) setError(datasourceUserError(e, zh, '连接列表加载失败', 'Could not load connections'))
     }
   }
 
@@ -70,7 +76,7 @@ export function DataSourcePanel({ api }: { api?: DatasourcePanelApi }): React.JS
       setSaved(true)
       await reload()
     } catch (e) {
-      setError(e instanceof Error ? e.message : (zh ? '保存失败' : 'Could not save'))
+      setError(datasourceUserError(e, zh, '保存失败', 'Could not save'))
     } finally {
       setBusy(false)
     }
@@ -84,7 +90,7 @@ export function DataSourcePanel({ api }: { api?: DatasourcePanelApi }): React.JS
       setSaved(true)
       await reload()
     } catch (e) {
-      setError(e instanceof Error ? e.message : (zh ? '探测失败' : 'Probe failed'))
+      setError(datasourceUserError(e, zh, '探测失败', 'Probe failed'))
     }
   }
 
@@ -96,7 +102,7 @@ export function DataSourcePanel({ api }: { api?: DatasourcePanelApi }): React.JS
       const schemas = await api.browse({ id, scope: 'schema' })
       if(epoch===browseEpoch.current) setBrowse({ id, schemas: schemas.items, tables: [], columns: [] })
     } catch (e) {
-      if(epoch===browseEpoch.current) setError(e instanceof Error ? e.message : (zh ? '浏览失败' : 'Browse failed'))
+      if(epoch===browseEpoch.current) setError(datasourceUserError(e, zh, '浏览失败', 'Browse failed'))
     }
   }
 
@@ -106,7 +112,7 @@ export function DataSourcePanel({ api }: { api?: DatasourcePanelApi }): React.JS
     try {
       const tables = await api.browse({ id: browse.id, scope: 'table', schema })
       if(epoch===browseEpoch.current) setBrowse({ ...browse, tables: tables.items, columns: [] })
-    } catch(e) { if(epoch===browseEpoch.current) setError(e instanceof Error?e.message:'Browse failed') }
+    } catch(e) { if(epoch===browseEpoch.current) setError(datasourceUserError(e, zh, '浏览失败', 'Browse failed')) }
   }
 
   const openColumns = async (schema: string, table: string) => {
@@ -115,7 +121,7 @@ export function DataSourcePanel({ api }: { api?: DatasourcePanelApi }): React.JS
     try {
       const columns = await api.browse({ id: browse.id, scope: 'column', schema, table })
       if(epoch===browseEpoch.current) setBrowse({ ...browse, columns: columns.items })
-    } catch(e) { if(epoch===browseEpoch.current) setError(e instanceof Error?e.message:'Browse failed') }
+    } catch(e) { if(epoch===browseEpoch.current) setError(datasourceUserError(e, zh, '浏览失败', 'Browse failed')) }
   }
 
   const confirmDisable = async () => {
@@ -125,7 +131,7 @@ export function DataSourcePanel({ api }: { api?: DatasourcePanelApi }): React.JS
       setDisableId('')
       await reload()
     } catch (e) {
-      setError(e instanceof Error ? e.message : (zh ? '禁用失败' : 'Disable failed'))
+      setError(datasourceUserError(e, zh, '禁用失败', 'Disable failed'))
     }
   }
 

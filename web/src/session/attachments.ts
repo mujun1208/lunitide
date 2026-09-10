@@ -3,6 +3,11 @@ import type{AttachmentIngestResult}from'../generated/bridge'
 import {readBoundedFile} from '../files/readBoundedFile'
 import {attachmentOperation,attachmentCancelled} from './attachmentOperation'
 
+function attachmentUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 export const ATTACHMENT_FILE_MAX=10*1024*1024
 export const ATTACHMENT_BATCH_MAX=20
 export const VISION_IMAGE_MAX=4
@@ -42,7 +47,7 @@ export async function prepareAttachmentFiles(files:readonly File[],signal?:Abort
   if(!ALLOWED_EXTENSIONS.includes(ext)){failed.push(`${file.name}（不支持的类型）`);continue}
   if(file.size>ATTACHMENT_FILE_MAX){failed.push(`${file.name}（超过 10 MiB）`);continue}
   if((total+=file.size)>ATTACHMENT_BATCH_BYTES){failed.push(`${file.name}（本批原文件合计超过 20 MiB）`);continue}
-  try{prepared.push(imageMIME?await compressVisionImage(file,signal):file)}catch(e){if(signal?.aborted)throw e;failed.push(e instanceof Error?e.message:`${file.name}（图片处理失败）`)}
+  try{prepared.push(imageMIME?await compressVisionImage(file,signal):file)}catch(e){if(signal?.aborted)throw e;failed.push(attachmentUserError(e,`${file.name}（图片处理失败）`))}
  }
  if(files.length>ATTACHMENT_BATCH_MAX)failed.push(`超过 20 个的 ${files.length-ATTACHMENT_BATCH_MAX} 个文件`)
  return{files:prepared,failed}
@@ -153,7 +158,7 @@ export async function ingestAttachments(attachments:AttachmentBridge,projectId:s
    // Best-effort cleanup must never hold the composer hostage. A commit that
    // already persisted remains available in session attachments.
    if(uploadId)void abortUpload(uploadId)
-   const error=signal?.aborted?'附件操作已取消':e instanceof Error?e.message:'上传失败'
+   const error=signal?.aborted?'附件操作已取消':attachmentUserError(e,'上传失败')
    failed.push({name:file.name,error,file});emit(signal?.aborted?'cancelled':'failed',{error})
   }
  }

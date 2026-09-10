@@ -8,6 +8,14 @@ afterEach(cleanup)
 const node=(fullPath:string)=>({id:'01ARZ3NDEKTSV4RRFFQ69G5FAA',projectId:P,type:'file',name:'App',fullPath,description:'',metadataJson:'{}',version:1,createdAt:now,updatedAt:now})
 const skill=(name:string,displayName:string,entryPoint:string)=>({id:'01ARZ3NDEKTSV4RRFFQ69G5FAB',name,displayName,description:'',version:'1.0.0',status:'published',permissions:['read_only'],entryPoint,manifestJson:'{}',createdAt:now,updatedAt:now})
 
+it('does not show raw English directory load failures',async()=>{
+  const ontology={listNodes:vi.fn().mockRejectedValue(new Error('Failed to fetch'))}as unknown as OntologyBridge
+  const skills={list:vi.fn().mockResolvedValue({items:[]})}as unknown as SkillBridge
+  render(<FilesPanel projectId={P} ontology={ontology} skills={skills}/>)
+  expect(await screen.findByRole('alert')).toHaveTextContent('目录载入失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('builds project and skill roots from indexed paths, directories before files',()=>{
  const[project,skills]=buildDirectoryTree([node('src/App.tsx'),node('README.md')]as any,[skill('review','审查','skills/review/index.js')]as any)
  expect(project.name).toBe('项目目录')

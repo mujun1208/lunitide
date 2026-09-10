@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/item.upsert.schema.json",
+  "title": "item.upsert payload",
+  "x-method": "item.upsert",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "type": { "enum": ["subscription", "bill", "id", "checkin", "action"] },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "sourceRef": { "type": "string", "maxLength": 128 },
+    "dueAt": { "type": "string", "maxLength": 64 },
+    "timezone": { "type": "string", "maxLength": 64 },
+    "repeatRule": { "type": "string", "maxLength": 64 },
+    "status": { "enum": ["open", "stopped"] },
+    "amount": { "type": "string", "maxLength": 32 },
+    "currency": { "type": "string", "maxLength": 8 }
+  },
+  "required": ["id", "type", "title"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "id": { "type": "string" },
+      "type": { "type": "string" },
+      "title": { "type": "string" },
+      "status": { "type": "string" },
+      "updatedAt": { "type": "string" }
+    },
+    "required": ["id", "type", "title", "status"]
+  },
+  "x-examples": {
+    "positive": [{ "id": "i1", "type": "bill", "title": "rent" }],
+    "negative": [{ "unexpected": true }, { "id": "i1" }]
+  }
+}

@@ -12,6 +12,17 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/provider"
 )
 
+func readinessDiagnostic(ready CapabilityReadiness) (string, string, string) {
+	switch ready.Availability {
+	case "ready":
+		return "configured", ready.Detail, ""
+	case "unavailable":
+		return "degraded", ready.Detail, ready.Code
+	default:
+		return "not_configured", ready.Detail, ready.Code
+	}
+}
+
 type diagnosticComponent struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
@@ -82,7 +93,12 @@ func handleSystemDiagnostics(e *Engine, ctx context.Context, r bridge.Request) b
 		}
 		return "not_configured", "请先配置并启用供应商、凭据和模型", ""
 	})
-	add("text_chat", "打字对话", e.messages != nil && e.sessions != nil && e.leases != nil, nil)
+	add("text_chat", "打字对话", true, func(ctx context.Context) (string, string, string) {
+		return readinessDiagnostic(e.capabilityReadiness(ctx, "chat"))
+	})
+	add("gui", "GUI / 视觉", true, func(ctx context.Context) (string, string, string) {
+		return readinessDiagnostic(e.capabilityReadiness(ctx, "gui"))
+	})
 	add("voice_local", "语音：本地识别", e.voice != nil && e.voice.backend != nil, func(ctx context.Context) (string, string, string) {
 		if e.voice.ready(ctx) {
 			return "configured", "本地语音资源已就绪，录音设备尚未测试", ""
@@ -112,17 +128,23 @@ func handleSystemDiagnostics(e *Engine, ctx context.Context, r bridge.Request) b
 	add("memory", "记忆", e.m8memory != nil, nil)
 	add("browser", "浏览器控制", e.brmulti != nil, nil)
 	add("computer", "电脑控制", e.ccctrl != nil, func(ctx context.Context) (string, string, string) {
-		cfg, err := e.ccctrl.GetConfig(ctx)
-		if err != nil {
-			return readResult(err, "")
+		ready := e.capabilityReadiness(ctx, "desktop")
+		switch ready.Availability {
+		case "ready":
+			return "configured", "电脑控制已启用；未执行鼠标、键盘或窗口操作", ""
+		case "unavailable":
+			if ready.Code == "SCOPE_DENIED" {
+				return "disabled", ready.Detail, ready.Code
+			}
+			return "degraded", ready.Detail, ready.Code
+		case "missing_dependency", "needs_config":
+			if ready.Code == "CAPABILITY_NOT_READY" {
+				return "disabled", "电脑控制已关闭", ready.Code
+			}
+			return "not_configured", ready.Detail, ready.Code
+		default:
+			return "disabled", ready.Detail, ready.Code
 		}
-		if cfg.EmergencyStopped {
-			return "disabled", "急停锁存中，恢复后需重新明确启用", ""
-		}
-		if !cfg.Enabled {
-			return "disabled", "电脑控制已关闭", ""
-		}
-		return "configured", "电脑控制已启用；未执行鼠标、键盘或窗口操作", ""
 	})
 	add("tool_policy", "命令与钩子设置", e.tools != nil, func(ctx context.Context) (string, string, string) {
 		for _, kind := range []string{"commands", "hooks"} {
@@ -141,6 +163,24 @@ func handleSystemDiagnostics(e *Engine, ctx context.Context, r bridge.Request) b
 			}
 		}
 		return "healthy", "持久配置与当前运行规则的版本一致", ""
+	})
+	add("ocr", "OCR 路由", e.ocr != nil, func(ctx context.Context) (string, string, string) {
+		ready := e.capabilityReadiness(ctx, "ocr")
+		switch ready.Availability {
+		case "ready":
+			return "configured", ready.Detail, ""
+		case "unavailable":
+			return "degraded", ready.Detail, ready.Code
+		default:
+			return "not_configured", ready.Detail, ready.Code
+		}
+	})
+	add("files", "文件批处理", e.fileOps != nil || e.tools != nil, func(ctx context.Context) (string, string, string) {
+		ready := e.capabilityReadiness(ctx, "files")
+		if ready.Availability == "ready" {
+			return "configured", ready.Detail, ""
+		}
+		return "not_configured", ready.Detail, ready.Code
 	})
 	add("automation", "自动化", e.automation != nil, func(ctx context.Context) (string, string, string) {
 		if _, err := e.automation.Store().ListJobs(); err != nil {

@@ -25,6 +25,11 @@ export type QuickFormSpec = {
   submit: (values: Record<string, string>) => Promise<void> | void
 }
 
+function formUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 function defaults(fields: QuickField[]): Record<string, string> {
   const out: Record<string, string> = {}
   for (const f of fields) out[f.name] = f.kind === 'select' ? f.options?.[0]?.value ?? '' : ''
@@ -68,7 +73,7 @@ export function QuickForm({ spec, onClose }: { spec: QuickFormSpec | null; onClo
       await spec.submit(values)
       onClose()
     } catch (e) {
-      setError(e instanceof Error ? e.message : (zh ? '保存失败' : 'Save failed'))
+      setError(formUserError(e, zh ? '保存失败' : 'Save failed'))
     } finally {
       setBusy(false)
     }

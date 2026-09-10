@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -107,6 +108,44 @@ func TestCapabilityRolesSetRejectsJudgeEqChat(t *testing.T) {
 	resp := e.Handle(context.Background(), req)
 	if resp.OK || resp.Error == nil || resp.Error.Code != "CAPABILITY_ROLE_JUDGE_EQ_CHAT" {
 		t.Fatalf("D-P1 %#v", resp)
+	}
+}
+
+func TestCapabilityRolesSetRejectsUnpairedBindingInChinese(t *testing.T) {
+	e := NewEngine(roleCatalog{}, "test")
+	e.SetCapabilityRoleStore(&memoryRoleStore{})
+	payload := map[string]any{"expectedRevision": sqlite.CapabilityRolesRevision(nil), "roles": []map[string]any{
+		{"role": "chat", "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"},
+		{"role": "flash"}, {"role": "vision"}, {"role": "embed"}, {"role": "judge"}, {"role": "gui"},
+	}}
+	raw, _ := json.Marshal(payload)
+	req := validRequest("capability.roles.set", string(raw))
+	req.IdempotencyKey = ulid.Make().String()
+	resp := e.Handle(context.Background(), req)
+	if resp.OK || resp.Error == nil || resp.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+		t.Fatalf("unpaired binding %#v", resp)
+	}
+	if !strings.Contains(resp.Error.Message, "必须同时填写") || strings.Contains(resp.Error.Message, "must be set") {
+		t.Fatalf("unpaired binding must stay Chinese: %q", resp.Error.Message)
+	}
+}
+
+func TestCapabilityRolesSetRejectsUnknownCatalogInChinese(t *testing.T) {
+	e := NewEngine(roleCatalog{}, "test")
+	e.SetCapabilityRoleStore(&memoryRoleStore{})
+	payload := map[string]any{"expectedRevision": sqlite.CapabilityRolesRevision(nil), "roles": []map[string]any{
+		{"role": "chat", "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "modelId": "missing-l"},
+		{"role": "flash"}, {"role": "vision"}, {"role": "embed"}, {"role": "judge"}, {"role": "gui"},
+	}}
+	raw, _ := json.Marshal(payload)
+	req := validRequest("capability.roles.set", string(raw))
+	req.IdempotencyKey = ulid.Make().String()
+	resp := e.Handle(context.Background(), req)
+	if resp.OK || resp.Error == nil || resp.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+		t.Fatalf("unknown catalog %#v", resp)
+	}
+	if !strings.Contains(resp.Error.Message, "不在当前目录") || strings.Contains(resp.Error.Message, "not in the current") {
+		t.Fatalf("unknown catalog must stay Chinese: %q", resp.Error.Message)
 	}
 }
 

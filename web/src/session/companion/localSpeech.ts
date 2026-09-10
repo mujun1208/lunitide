@@ -8,7 +8,7 @@
  * Two copies of those rules would drift, and the drift would show up as the
  * companion interrupting on one engine but not the other.
  */
-import { BridgeClientError } from '../../bridge/client'
+import { asSpeechBridgeError } from './speechUserError'
 import { startLocalAsr, type LocalAsrHandle } from './localAsr'
 import { MOON_RING_BINS } from './MoonSphere'
 import {
@@ -48,15 +48,7 @@ export const BARGE_IN_ARM_MS = 160
 
 const silentBars = () => Array.from({ length: MOON_RING_BINS }, () => 0)
 
-const asBridgeError = (error: unknown): BridgeClientError =>
-  error instanceof BridgeClientError
-    ? error
-    : new BridgeClientError(
-        error instanceof Error && error.message ? error.message : '本地语音识别中断',
-        'SPEECH_RECOGNITION_UNAVAILABLE',
-        false,
-        'renderer',
-      )
+const asBridgeError = (error: unknown) => asSpeechBridgeError(error, '本地语音识别中断')
 
 export async function startLocalCompanionSpeech(options: CompanionSpeechOptions): Promise<CompanionSpeechHandle> {
   const profile = speechProfile(options.environment)

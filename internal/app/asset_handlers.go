@@ -184,7 +184,7 @@ func handleTemplateCreate(e *Engine, ctx context.Context, r bridge.Request) brid
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "template.create 需要上传附件", false)
 	}
 	if err := asset.ValidateTemplateFile(tplType, fileName); err != nil {
-		return r.Fail("BRIDGE_SCHEMA_INVALID", err.Error(), false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", templateFileMessage(err), false)
 	}
 	if strings.TrimSpace(p.UploadID) == "" && strings.TrimSpace(p.ContentBase64) == "" {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "template.create 需要上传附件", false)
@@ -388,9 +388,28 @@ func assetFailure(r bridge.Request, err error) bridge.Response {
 		return r.Fail("TEMPLATE_VERSION_CONFLICT", "模板已被其他操作修改，请刷新后重试", false)
 	default:
 		msg := strings.TrimSpace(err.Error())
-		if msg == "" {
+		if msg == "" || !peopleUserMessageHasHan(msg) {
 			msg = "模板数据暂时不可用"
 		}
 		return r.Fail("STORAGE_UNAVAILABLE", msg, true)
 	}
+}
+
+func templateFileMessage(err error) string {
+	if err == nil {
+		return "模板文件无效"
+	}
+	switch strings.TrimSpace(err.Error()) {
+	case "template file name is required":
+		return "请填写模板文件名"
+	case "scaffold template must be .zip or .tar.gz":
+		return "脚手架模板必须是 .zip 或 .tar.gz"
+	case "document template file type not allowed":
+		return "文档模板不支持该文件类型"
+	}
+	msg := strings.TrimSpace(err.Error())
+	if peopleUserMessageHasHan(msg) {
+		return msg
+	}
+	return "模板文件无效"
 }

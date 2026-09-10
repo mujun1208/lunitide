@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
+	"github.com/lunitide/lunitide/internal/modelfit"
 )
 
 func TestChatMcpEndpointIDStripsSettingsPrefix(t *testing.T) {
@@ -38,6 +39,58 @@ func TestSeedRecommendedMcpKitAddsDistinctNpxServers(t *testing.T) {
 	}
 	if len(seen) != 2 {
 		t.Fatalf("stdio args collided: %+v", eps)
+	}
+}
+
+func TestInvokeMcpToolRecordsReceipt(t *testing.T) {
+	e := NewEngine(nil, "test")
+	store := &memToolOps{}
+	e.SetToolOperationStore(store)
+	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	ctx := withContinuityScope(context.Background(), continuityScope{Owner: session, Task: session})
+	_, err := e.invokeMcpTool(ctx, session, session, "weather", []byte(`{}`))
+	if err == nil {
+		t.Fatal("unready mcp tool must fail")
+	}
+	op := store.last()
+	if !strings.HasPrefix(op.ToolName, "mcp_") || op.State == modelfit.OpSucceeded {
+		t.Fatalf("mcp invoke must leave a receipt without inventing success: %+v", op)
+	}
+	if op.SessionID != session && op.OwnerScope != session {
+		t.Fatalf("receipt must belong to the chat session: %+v", op)
+	}
+}
+
+func TestCallMcpToolByNameRecordsReceipt(t *testing.T) {
+	e := NewEngine(nil, "test")
+	store := &memToolOps{}
+	e.SetToolOperationStore(store)
+	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	ctx := withContinuityScope(context.Background(), continuityScope{Owner: session, Task: session})
+	name := mcpToolPrefix + session + "_weather"
+	args := []byte(`{"name":"` + name + `","arguments":{}}`)
+	_, err := e.callMcpToolByName(ctx, session, args)
+	if err == nil {
+		t.Fatal("unready mcp.call must fail")
+	}
+	op := store.last()
+	if !strings.HasPrefix(op.ToolName, "mcp_") || op.State == modelfit.OpSucceeded {
+		t.Fatalf("mcp.call must leave a receipt without inventing success: %+v", op)
+	}
+}
+
+func TestInvokeBrowserActRecordsReceipt(t *testing.T) {
+	e := NewEngine(nil, "test")
+	store := &memToolOps{}
+	e.SetToolOperationStore(store)
+	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	_, err := e.invokeBrowserAct(context.Background(), executionModeApproval, session, []byte(`{"op":"click"}`))
+	if err == nil {
+		t.Fatal("unready click must fail")
+	}
+	op := store.last()
+	if op.ToolName != "browser.act" || op.State == modelfit.OpSucceeded {
+		t.Fatalf("browser.act must leave a receipt without inventing success: %+v", op)
 	}
 }
 

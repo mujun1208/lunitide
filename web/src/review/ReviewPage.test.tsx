@@ -23,6 +23,20 @@ const planApi = (o: Partial<PlanBridge> = {}): PlanBridge => ({
   list: vi.fn().mockResolvedValue({ items: [] }), ...o,
 }) as PlanBridge
 
+it('does not show raw English review list or decide failures', async () => {
+  render(<ReviewPage projectId={PROJECT_ID} bridge={reviewApi({ list: vi.fn().mockRejectedValue(new Error('Failed to fetch')) })} plans={planApi({ list: vi.fn().mockResolvedValue({ items: [plan] }) })} />)
+  fireEvent.change(await screen.findByRole('combobox'), { target: { value: PLAN_ID } })
+  expect(await screen.findByRole('alert')).toHaveTextContent('加载失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  cleanup()
+  const approve = vi.fn().mockRejectedValue(new Error('Failed to fetch'))
+  render(<ReviewPage projectId={PROJECT_ID} bridge={reviewApi({ list: vi.fn().mockResolvedValue({ items: [review] }), approve })} plans={planApi({ list: vi.fn().mockResolvedValue({ items: [plan] }) })} />)
+  fireEvent.change(await screen.findByRole('combobox'), { target: { value: PLAN_ID } })
+  fireEvent.click(await screen.findByRole('button', { name: '批准启动计划' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('操作失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('renders empty state when no project selected', () => {
   const bridge = reviewApi()
   const plans = planApi()

@@ -19,13 +19,7 @@ var officeGenTools = map[string]bool{
 // only pauses for high/critical risk — a click is medium.
 func ccToolChangesMachine(name string, args json.RawMessage) bool {
 	if name == ccapp.ToolComputerAct {
-		mapped, _, err := ccapp.MapComputerAct(args)
-		if err != nil {
-			// Fail closed: ccapp will refuse an unmappable payload anyway, and
-			// assuming "harmless" is the wrong way to be wrong here.
-			return true
-		}
-		return ccapp.ToolChangesMachine(mapped)
+		return ccapp.ComputerActChangesMachine(args)
 	}
 	return ccapp.ToolChangesMachine(name)
 }

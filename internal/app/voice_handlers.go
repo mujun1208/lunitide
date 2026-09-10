@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -380,9 +381,40 @@ func (s *VoiceService) snapshot() map[string]any {
 		out["file"] = s.progress.File
 	}
 	if s.lastErr != "" {
-		out["lastError"] = truncate(s.lastErr, 512)
+		out["lastError"] = installUserLastError(s.lastErr)
 	}
 	return out
+}
+
+func installUserLastError(msg string) string {
+	msg = strings.TrimSpace(msg)
+	for _, prefix := range []string{"voice: ", "omni: ", "tts: "} {
+		msg = strings.TrimPrefix(msg, prefix)
+	}
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return ""
+	}
+	if peopleUserMessageHasHan(msg) {
+		return truncate(msg, 512)
+	}
+	if strings.Contains(msg, "digest mismatch") {
+		return "下载文件校验失败，请重试"
+	}
+	if idx := strings.Index(msg, "HTTP "); idx >= 0 {
+		code := ""
+		for _, c := range msg[idx+5:] {
+			if c >= '0' && c <= '9' {
+				code += string(c)
+				continue
+			}
+			break
+		}
+		if code != "" {
+			return "下载失败（HTTP " + code + "）"
+		}
+	}
+	return "下载失败，请检查网络后重试"
 }
 
 func handleVoiceStart(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -412,7 +444,7 @@ func handleVoiceStart(e *Engine, ctx context.Context, r bridge.Request) bridge.R
 		if errors.Is(err, voice.ErrModelMissing) {
 			return r.Fail("VOICE-003", "本地识别模型尚未下载", true)
 		}
-		return r.Fail("VOICE-004", "本地识别引擎启动失败："+truncate(err.Error(), 256), true)
+		return r.Fail("VOICE-004", chinesePrefixedDetail("本地识别引擎启动失败", err.Error()), true)
 	}
 
 	// Load the refiner's model while the user is still talking. It is not
@@ -490,7 +522,7 @@ func handleVoiceAppend(e *Engine, ctx context.Context, r bridge.Request) bridge.
 		return r.Fail("VOICE-005", "识别会话不存在", false)
 	}
 	if err := session.Append(ctx, pcm); err != nil {
-		return r.Fail("VOICE-006", "音频写入失败："+truncate(err.Error(), 256), true)
+		return r.Fail("VOICE-006", chinesePrefixedDetail("音频写入失败", err.Error()), true)
 	}
 	// Partials ride back on the reply rather than through a second channel.
 	if reader, ok := session.(interface{ LatestTranscript() voice.Transcript }); ok {
@@ -526,7 +558,7 @@ func handleVoiceFinish(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	// user actually said is worth more to them than an empty box, and the
 	// renderer decides whether it is enough to send.
 	if err != nil && text == "" {
-		return r.Fail("VOICE-007", "识别失败："+truncate(err.Error(), 256), true)
+		return r.Fail("VOICE-007", chinesePrefixedDetail("识别失败", err.Error()), true)
 	}
 	return r.Ok(map[string]any{"text": text})
 }
@@ -603,4 +635,12 @@ func truncate(s string, limit int) string {
 		return s
 	}
 	return s[:limit]
+}
+
+func chinesePrefixedDetail(prefix, detail string) string {
+	detail = strings.TrimSpace(detail)
+	if detail == "" || !peopleUserMessageHasHan(detail) {
+		return prefix
+	}
+	return prefix + "：" + truncate(detail, 256)
 }

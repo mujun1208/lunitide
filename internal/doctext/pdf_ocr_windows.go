@@ -38,7 +38,7 @@ func ExtractPDFOCR(ctx context.Context, raw []byte) (PDFOCRResult, error) {
 	case parserSlots <- struct{}{}:
 		defer func() { <-parserSlots }()
 	default:
-		return PDFOCRResult{}, errors.New("local OCR is busy; retry this document")
+		return PDFOCRResult{}, errors.New("本地识别正忙，请稍后重试该文档")
 	}
 	parent := ""
 	if config := parserConfig.Load(); config != nil {
@@ -71,10 +71,10 @@ func ExtractPDFOCR(ctx context.Context, raw []byte) (PDFOCRResult, error) {
 		return PDFOCRResult{}, err
 	}
 	if outcome.TimedOut {
-		return PDFOCRResult{}, errors.New("local PDF OCR timed out; no complete text was read")
+		return PDFOCRResult{}, errors.New("本地 PDF 识别超时，未读到完整文本")
 	}
 	if outcome.ExitCode != 0 {
-		return PDFOCRResult{}, errors.New("local PDF OCR failed; check the installed Windows OCR language and PDF rendering support")
+		return PDFOCRResult{}, errors.New("本地 PDF 识别失败，请检查已安装的 Windows OCR 语言包和 PDF 渲染支持")
 	}
 	f, err := os.Open(output)
 	if err != nil {
@@ -98,7 +98,7 @@ func ExtractPDFOCR(ctx context.Context, raw []byte) (PDFOCRResult, error) {
 	chars := 0
 	for i, p := range result.Pages {
 		if p.Page != i+1 {
-			return PDFOCRResult{}, fmt.Errorf("incomplete OCR page sequence")
+			return PDFOCRResult{}, fmt.Errorf("识别页序不完整")
 		}
 		chars += len(strings.TrimSpace(p.Text))
 	}

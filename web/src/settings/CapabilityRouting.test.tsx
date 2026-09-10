@@ -97,6 +97,31 @@ it('saves judge=chat after the allow checkbox and reloads the binding', async ()
   expect(screen.getByLabelText('允许 judge 与 chat 相同')).toBeChecked()
 })
 
+it('does not show raw English load failures', async () => {
+  const providers = { list: vi.fn().mockRejectedValue(new BridgeClientError('Failed to fetch', 'ENGINE_UNAVAILABLE', true, 'engine')) } as unknown as ProviderBridge
+  const roles = {
+    get: vi.fn().mockResolvedValue({ roles: emptyRoles, ...status }),
+    set: vi.fn(),
+  } as unknown as CapabilityRolesBridge
+  render(<CapabilityRouting providers={providers} roles={roles} />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('能力路由载入失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
+it('keeps Chinese save conflicts and hides English save failures', async () => {
+  const user = userEvent.setup()
+  const { providers, roles } = api(vi.fn()
+    .mockRejectedValueOnce(new BridgeClientError('能力路由已被修改，请载入最新版本', 'SETTINGS_VERSION_CONFLICT', false, 'engine'))
+    .mockRejectedValueOnce(new BridgeClientError('Failed to fetch', 'ENGINE_UNAVAILABLE', true, 'engine')))
+  render(<CapabilityRouting providers={providers} roles={roles} />)
+  await user.click(await screen.findByRole('button', { name: '保存能力路由' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('能力路由已被修改，请载入最新版本')
+  expect(screen.queryByText('SETTINGS_VERSION_CONFLICT')).toBeNull()
+  await user.click(screen.getByRole('button', { name: '保存能力路由' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('能力路由保存失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('lists only matching kinds on each role', async () => {
   const mixed: ProviderDTO = {
     ...provider,

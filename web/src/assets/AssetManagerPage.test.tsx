@@ -1,7 +1,7 @@
 import React from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { TemplateBridge } from '../bridge/client'
+import { BridgeClientError, type TemplateBridge } from '../bridge/client'
 import type { TemplateListResult } from '../generated/bridge'
 import { AssetManagerPage } from './AssetManagerPage'
 import { listTemplatePages } from './templatePages'
@@ -12,6 +12,31 @@ const template = (id: string, name: string): TemplateListResult['items'][number]
 })
 const bridge = (list: TemplateBridge['list']): TemplateBridge => ({ list, open: vi.fn(), create: vi.fn(), enable: vi.fn(), void: vi.fn(), restore: vi.fn(), delete: vi.fn(), fileStage: vi.fn() })
 afterEach(cleanup)
+
+it('does not leak BridgeClientError transport English and keeps protocol codes', async () => {
+  render(<AssetManagerPage templates={bridge(vi.fn().mockRejectedValue(new BridgeClientError('Failed to fetch', 'ENGINE_UNAVAILABLE', true, '01ARZ3NDEKTSV4RRFFQ69G5FAV')))} />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('请求失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  cleanup()
+  render(<AssetManagerPage templates={bridge(vi.fn().mockRejectedValue(new BridgeClientError('模版清单读取失败', 'ENGINE_UNAVAILABLE', true, 'engine')))} />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('模版清单读取失败')
+  cleanup()
+  render(<AssetManagerPage templates={bridge(vi.fn().mockRejectedValue(new BridgeClientError('FEATURE_DISABLED: catalog inspect', 'FEATURE_DISABLED', false, 'engine')))} />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('FEATURE_DISABLED: catalog inspect')
+})
+
+it('does not show raw English list or open failures', async () => {
+  render(<AssetManagerPage templates={bridge(vi.fn().mockRejectedValue(new Error('Failed to fetch')))} />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('请求失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  cleanup()
+  const api = bridge(vi.fn().mockResolvedValue({ items: [{ ...template('1', '周报'), fileName: '周报.docx' }] }))
+  vi.mocked(api.open).mockRejectedValue(new Error('Failed to fetch'))
+  render(<AssetManagerPage templates={api} />)
+  fireEvent.click(await screen.findByRole('button', { name: '查看附件' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('请求失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
 
 it.each(['draft', 'enabled', 'void'] as const)('opens a viewing copy of a %s asset without enabling or changing it', async status => {
   const item = { ...template('1', '周报模版'), status, fileName: '周报.docx' }

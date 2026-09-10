@@ -404,7 +404,7 @@ var catalogTemplates = []CatalogTemplate{
 	},
 	{
 		ID: "computer-control", Name: "computer-control", DisplayName: "computer-control",
-		Description: "Operate this Windows PC with computer.act: screenshot, named click, type, paste, press, windows, menus. This PC only.",
+		Description: "Operate this Windows PC with computer.act: observe, named click, type, paste, press, windows, menus. This PC only.",
 		Category:    "办公协作", Version: "1.0.0",
 		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint:  "builtin://computer-control",

@@ -76,8 +76,16 @@ import { useAutomationBroadcast } from './useAutomationBroadcast'
 import { useCompanionMachine, companionEventForDispatch, companionSurfaceState, companionStatusLabel, type CompanionEvent } from './useCompanionMachine'
 import { ToolTrajectory, type ToolTrajectoryItem } from '../ToolTrajectory'
 import { useZh } from '../../i18n/language'
+import { speechTransportUserError } from './speechUserError'
 
 const RECOGNIZER_DEAF_MS = 12000
+
+function companionBannerText(issue: BridgeClientError): string | null {
+  if (issue.code === 'TALK_BARGE') return null
+  const detail = (issue.message || '').trim()
+  if (/取消/.test(detail) || /aborted/i.test(detail)) return null
+  return speechTransportUserError(issue, '识别中断，请再说一遍')
+}
 /** Room echo after she finishes a clip. Separate from ECHO_GUARD_MS (300–600). */
 const POST_SPEAK_ECHO_MS = 900
 
@@ -1870,7 +1878,8 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
             onError: issue => {
               if (!talkCurrent()) return
               if (issue.code === 'TALK_BARGE') return
-              setEngineHint(issue.message || TALK_FALLBACK_BANNER)
+              const detail = (issue.message || '').trim()
+              setEngineHint(/[\u4e00-\u9fff]/.test(detail) ? detail : TALK_FALLBACK_BANNER)
             },
             onEnded: () => {
               if (!talkCurrent()) return
@@ -2423,6 +2432,8 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   const surfaceState = companionSurfaceState(machine.state, (assistantAloud || playerSounding) && !executing && !userInterruptedRef.current, executing)
   const liveCaption = !!interimText.trim() && (machine.state === 'listening' || machine.state === 'idle')
   interimTextRef.current = interimText
+  const bannerIssue = localError ?? error
+  const bannerText = bannerIssue ? companionBannerText(bannerIssue) : null
 
   return (
     <div
@@ -2506,16 +2517,15 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
           </button>
         </div>
       )}
-      {(localError ?? error) && (localError ?? error)!.code === 'CHAT_CONFIG_MISSING' && (
+      {bannerIssue && bannerIssue.code === 'CHAT_CONFIG_MISSING' && bannerText && (
         <div className="companion-banner warn" role="status">
-          {(localError ?? error)!.message}
+          {bannerText}
         </div>
       )}
-      {(localError ?? error) &&
-        (localError ?? error)!.code !== 'CHAT_CONFIG_MISSING' && (
+      {bannerIssue && bannerIssue.code !== 'CHAT_CONFIG_MISSING' && bannerText && (
         <div className="companion-banner error" role="alert">
-          {(localError ?? error)!.message}
-          <span>代码 {(localError ?? error)!.code}</span>
+          {bannerText}
+          <span>代码 {bannerIssue.code}</span>
         </div>
       )}
       {computerControlOff && (

@@ -8,6 +8,7 @@ import { Dialog } from '../ui/Dialog';
 import { listActiveSessionIds, subscribeLiveChatRegistry } from '../session/liveChat';
 import { OFFICE_ARTIFACT_FOCUS_KEY, OFFICE_STUDIO_HOME_EVENT, requestedOfficeTask } from './officeNavigation';
 import { officeRead } from './officeRead';
+import { officeStudioUserError } from './officeUserError';
 import { useLanguage } from '../i18n/language';
 import { OfficeArtifactViewer } from './OfficeArtifactViewer';
 import { OfficeMetricPanel } from './OfficeMetricPanel';
@@ -57,7 +58,7 @@ interface Props {
   onOpenExport?: (task: OfficeTask, path: string, reveal: boolean) => Promise<void>;
 }
 const LAST_TASK = 'lunitide:office-studio:last-task';
-const message = (error: unknown): string => (error instanceof Error ? error.message : '操作没有完成，请重试。');
+const message = (error: unknown): string => officeStudioUserError(error, '操作没有完成，请重试。');
 const SAVED_READ_NOTICE = '操作已保存，最新记录暂时读不到。当前保留上次已读内容，请重新读取完整记录，无需再次提交。';
 function visibleDetail(previous: OfficeTaskDetail | undefined, next: OfficeTaskDetail): OfficeTaskDetail {
   if (!next.snapshotIncomplete || previous?.task.id !== next.task.id) return next;

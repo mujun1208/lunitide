@@ -1,6 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { artifactReviewBridge, sessionFolderBridge, type SessionFolderBridge } from '../bridge/client'
 
+function folderUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 type Node = { name: string; path: string; directory: boolean }
 
 const orderedNodes = (items: Node[]) =>
@@ -41,7 +46,7 @@ export function SessionFolderPanel({
       setChildren({ '': items })
       setOpen(new Set())
     } catch (e) {
-      setError(e instanceof Error ? e.message : '会话目录载入失败')
+      setError(folderUserError(e, '会话目录载入失败'))
     } finally {
       setLoading(false)
     }
@@ -84,7 +89,7 @@ export function SessionFolderPanel({
       }
       await bridge.open({ sessionId, relativePath: node.path })
     } catch (e) {
-      setError(e instanceof Error ? e.message : '无法打开文件')
+      setError(folderUserError(e, '无法打开文件'))
     }
   }
 
@@ -113,7 +118,7 @@ export function SessionFolderPanel({
           <b>对话产物目录</b>
           <small>本对话生成的文件与附件会保存在这里</small>
         </div>
-        <button type="button" onClick={() => void bridge.open({ sessionId }).catch(e => setError(e instanceof Error ? e.message : '打开失败'))}>
+        <button type="button" onClick={() => void bridge.open({ sessionId }).catch(e => setError(folderUserError(e, '打开失败')))}>
           在资源管理器中打开
         </button>
       </header>

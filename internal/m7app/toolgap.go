@@ -854,6 +854,9 @@ func unpackZip(src, dst, workspaceRoot string, maxEntries, maxBytes int64) (Unpa
 			}
 			continue
 		}
+		if err := rejectZipEntryBomb(int64(f.UncompressedSize64), int64(f.CompressedSize64)); err != nil {
+			return UnpackResult{}, fmt.Errorf("%w: %v", ErrToolSchema, err)
+		}
 		rc, oerr := f.Open()
 		if oerr != nil {
 			return UnpackResult{}, oerr
@@ -880,4 +883,19 @@ func unpackZip(src, dst, workspaceRoot string, maxEntries, maxBytes int64) (Unpa
 		}
 	}
 	return UnpackResult{DestDir: dst, EntryCount: count, TotalBytes: total}, nil
+}
+
+func rejectZipEntryBomb(uncompressed, compressed int64) error {
+	// Empty/directory-ish entries are allowed; maintenance.RejectZipBomb is not
+	// imported here (m7app ↔ maintenance import cycle). Declared bombs still fail.
+	if uncompressed <= 0 {
+		return nil
+	}
+	if compressed <= 0 {
+		return errors.New("archive ratio rejected")
+	}
+	if uncompressed > 100<<20 && uncompressed/compressed > 100 {
+		return errors.New("archive ratio rejected")
+	}
+	return nil
 }

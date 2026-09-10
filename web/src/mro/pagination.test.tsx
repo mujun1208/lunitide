@@ -77,6 +77,16 @@ it.each([
   expect(() => mergeMroPage<MroPage>({ items: [{ id: 'lot', tails: ['B1'] }] }, page)).toThrow()
 })
 
+it('does not store raw English fetch failures on the page state', async () => {
+  const fetch = vi.fn().mockRejectedValue(new Error('Failed to fetch'))
+  const { result } = renderHook(() => useMroPagination({ tools: bindMroPage(fetch, vi.fn()) }, 'org'))
+  await act(async () => {
+    await expect(result.current.refresh('tools')).rejects.toThrow('Failed to fetch')
+  })
+  expect(result.current.states.tools.error).toBe('列表读取失败')
+  expect(result.current.states.tools.error).not.toBe('Failed to fetch')
+})
+
 it('ignores delayed next page after refresh and keeps rows on snapshot rejection', async () => {
   const late = deferred<MroPage>(),
     accept = vi.fn()
@@ -107,7 +117,7 @@ it('ignores delayed next page after refresh and keeps rows on snapshot rejection
     await expect(result.current.next('tools')).rejects.toThrow('MRO_PAGE_CHANGED')
   })
   expect(result.current.states.tools.data?.items).toEqual(['fresh'])
-  expect(result.current.states.tools.error).toBe('MRO_PAGE_CHANGED')
+  expect(result.current.states.tools.error).toBe('列表读取失败')
 })
 
 it('blocks duplicate reads and rejects a non-advancing cursor', async () => {

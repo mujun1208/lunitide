@@ -2,6 +2,7 @@ package ccapp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"image"
@@ -386,5 +387,36 @@ func TestComputerActMapsStayOnOnePipeline(t *testing.T) {
 		if tool == ToolComputerAct || !strings.HasPrefix(tool, "cc.") {
 			t.Fatalf("%s mapped to %q, want governed cc.*", action, tool)
 		}
+	}
+}
+
+func TestExecuteComputerActNamedStepsOneCall(t *testing.T) {
+	t.Parallel()
+	svc, tx, _ := executionTestService(t)
+	nodes := []UINode{{Role: "button", Name: "保存", X: 40, Y: 80, W: 60, H: 24}}
+	host := &chainHost{
+		nativeStubHost: nativeStubHost{
+			ladderStubHost: ladderStubHost{title: "Untitled - Notepad", process: "notepad.exe", nodes: nodes},
+			hit:            "保存",
+		},
+		png: tinyPNG(t, 64, 36),
+	}
+	svc.SetHost(host)
+	svc.SetMutateSettleForTest(time.Millisecond)
+	out, err := svc.ExecuteTool(context.Background(), "s1", ToolComputerAct, []byte(`{"action":"run","steps":[{"action":"focus","title":"Notepad"},{"action":"click","name":"保存"},{"action":"type","text":"hi"}]}`), true)
+	if err != nil {
+		t.Fatalf("named steps: %v", err)
+	}
+	if !strings.Contains(out.Summary, "保存") || !strings.Contains(strings.ToLower(out.Summary), "typed") {
+		t.Fatalf("batch summary %q", out.Summary)
+	}
+	if len(host.invokes) == 0 || host.invokes[0] != "保存" {
+		t.Fatalf("batch must click by name, invokes=%v", host.invokes)
+	}
+	if len(host.typed) == 0 || host.typed[0] != "hi" {
+		t.Fatalf("batch must type after the named click, typed=%v", host.typed)
+	}
+	if len(tx.entries) < 3 {
+		t.Fatalf("each step must keep its own audit, got %d", len(tx.entries))
 	}
 }

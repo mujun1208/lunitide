@@ -7,6 +7,13 @@ import {useSessionSkillArtifacts} from './SessionSkillArtifacts'
 afterEach(cleanup)
 const skill=(id:string,sessionId?:string)=>({id,manifestJson:JSON.stringify({originSessionId:sessionId}),status:'draft'}) as SkillDTO
 
+it('does not expose raw English list failures',async()=>{
+  const bridge={list:vi.fn().mockRejectedValue(new Error('Failed to fetch')),get:vi.fn()} as unknown as SkillBridge
+  const {result}=renderHook(()=>useSessionSkillArtifacts('session-a',bridge,[]))
+  await waitFor(()=>expect(result.current.error).toBe('技能产物暂时无法读取'))
+  expect(result.current.error).not.toContain('Failed to fetch')
+})
+
 it('restores only skills with exact creation-session provenance, including no legacy guesses',async()=>{
   const bridge={list:vi.fn().mockResolvedValue({items:[skill('mine','session-a'),skill('another','session-b'),skill('legacy')]}),get:vi.fn()} as unknown as SkillBridge
   const {result}=renderHook(()=>useSessionSkillArtifacts('session-a',bridge,[]))

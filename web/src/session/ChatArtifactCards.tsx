@@ -28,6 +28,11 @@ export function filterChatDeliverables(artifacts: readonly ChatArtifact[]): Chat
   return artifacts.filter(isChatDeliverableArtifact)
 }
 
+function artifactCardUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 const KIND_LABEL: Record<string, string> = { html: 'HTML', xlsx: 'Excel', docx: 'Word', pptx: 'PPT', pdf: 'PDF', image: '截图', md: 'Markdown', txt: '文本' }
 const KIND_ICON: Record<string, string> = { html: '◧', xlsx: '▤', docx: '▤', pptx: '◫', pdf: '▦', image: '▣', md: '▤', txt: '▤' }
 
@@ -50,7 +55,7 @@ export function ChatArtifactCards({
     try {
       await sessionFolderBridge.open({ sessionId, relativePath: artifactOpenRelativePath(artifact.path) })
     } catch (e) {
-      onError?.(e instanceof Error ? e.message : '无法打开产物文件')
+      onError?.(artifactCardUserError(e, '无法打开产物文件'))
     }
   }
   return (
@@ -76,7 +81,7 @@ export function ChatArtifactCards({
         {(OFFICE_KIND.has(artifact.kind) || OFFICE_EXT.test(artifact.path)) && <button type="button" disabled={openingOffice} title={`在办公工作台查看 ${artifact.path.split(/[/\\]/).pop()}`} onClick={() => {
           if (openingOffice) return
           setOpeningOffice(true)
-          void requestOfficeStudio(sessionId, artifact.path).catch(error => onError?.(error instanceof Error ? error.message : '办公工作台暂不可用，原对话仍可继续。')).finally(() => setOpeningOffice(false))
+          void requestOfficeStudio(sessionId, artifact.path).catch(error => onError?.(artifactCardUserError(error, '办公工作台暂不可用，原对话仍可继续。'))).finally(() => setOpeningOffice(false))
         }}>在办公工作台查看</button>}
         </React.Fragment>
       ))}

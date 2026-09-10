@@ -110,7 +110,7 @@ func (e *Engine) playwrightSnapshotForEndpoint(ctx context.Context, endpointID s
 	if !ok {
 		return ""
 	}
-	out, err := e.invokeMcpTool(ctx, endpointID, entry.Tool, json.RawMessage(`{}`))
+	out, err := e.invokeMcpTool(ctx, receiptSession(ctx, ""), endpointID, entry.Tool, json.RawMessage(`{}`))
 	if err != nil || browserMCPResultError(out) != nil {
 		return ""
 	}

@@ -37,6 +37,14 @@ func (chatAttachmentProvider) Get(context.Context, string) (provider.Provider, e
 	}, nil
 }
 
+func (p chatAttachmentProvider) List(ctx context.Context, _ provider.Filter) ([]provider.Provider, error) {
+	item, err := p.Get(ctx, chatAttachmentProviderID)
+	if err != nil {
+		return nil, err
+	}
+	return []provider.Provider{item}, nil
+}
+
 type chatAttachmentReader struct{}
 
 func (chatAttachmentReader) ListMessages(context.Context, string, string, int) ([]contextapp.Message, error) {

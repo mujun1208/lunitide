@@ -4,6 +4,10 @@ import type{ContextHandoffInspectResult,ContextHandoffListResult,ProjectDTO,Sess
 
 type Capsule=ContextHandoffListResult['items'][number]
 type Pending={checkpointId:string;summary:string}
+function handoffUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
 
 export function HandoffConsole({
  context=contextBridge,
@@ -26,7 +30,7 @@ export function HandoffConsole({
   try{
    const[listed,imported]=await Promise.all([context.handoffList({sourceSessionId:id,limit:50}),context.handoffListImports({targetSessionId:id})])
    setCapsules(listed.items);setImports(imported.items)
-  }catch(e){setError(e instanceof Error?e.message:'交接列表加载失败')}
+  }catch(e){setError(handoffUserError(e,'交接列表加载失败'))}
  }
  const previewExport=async()=>{
   if(!sessionId||busy)return
@@ -34,7 +38,7 @@ export function HandoffConsole({
   try{
    const ready=await context.compactPreview({sessionId})
    setPending({checkpointId:ready.checkpointId,summary:ready.humanSummary||ready.summaryPreview||''})
-  }catch(e){setError(e instanceof Error?e.message:'压缩预览失败')}finally{setBusy(false)}
+  }catch(e){setError(handoffUserError(e,'压缩预览失败'))}finally{setBusy(false)}
  }
  const confirmExport=async()=>{
   if(!sessionId||!pending||busy)return
@@ -44,7 +48,7 @@ export function HandoffConsole({
    setPending(undefined)
    setNotice(`已导出交接胶囊 ${created.capsuleId}`)
    await reload(sessionId)
-  }catch(e){setError(e instanceof Error?e.message:'导出交接失败')}finally{setBusy(false)}
+  }catch(e){setError(handoffUserError(e,'导出交接失败'))}finally{setBusy(false)}
  }
  const doImport=async()=>{
   if(!sessionId||!importId.trim()||busy)return
@@ -54,19 +58,19 @@ export function HandoffConsole({
    setNotice(r.alreadyImported?'该胶囊已导入（幂等）':`已导入胶囊 · 摘要有效：${r.digestValid?'是':'否'}`)
    setImportId('')
    await reload(sessionId)
-  }catch(e){setError(e instanceof Error?e.message:'导入失败')}finally{setBusy(false)}
+  }catch(e){setError(handoffUserError(e,'导入失败'))}finally{setBusy(false)}
  }
  const doInspect=async()=>{
   if(!inspectId.trim()||busy)return
   setBusy(true);setError('')
   try{setInspect(await context.handoffInspect({capsuleId:inspectId.trim()}))}
-  catch(e){setError(e instanceof Error?e.message:'查看失败')}finally{setBusy(false)}
+  catch(e){setError(handoffUserError(e,'查看失败'))}finally{setBusy(false)}
  }
  const doRevoke=async(id:string)=>{
   if(busy)return
   setBusy(true);setError('');setNotice('')
   try{await context.handoffRevoke({capsuleId:id});setNotice('已撤销胶囊');if(sessionId)await reload(sessionId)}
-  catch(e){setError(e instanceof Error?e.message:'撤销失败')}finally{setBusy(false)}
+  catch(e){setError(handoffUserError(e,'撤销失败'))}finally{setBusy(false)}
  }
 
  return <div className="org-section" style={{marginTop:6}}>

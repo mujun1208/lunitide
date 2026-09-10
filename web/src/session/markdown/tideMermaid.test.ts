@@ -135,6 +135,7 @@ it('waits while arrows, quotes or subgraphs are still being typed', () => {
   expect(mermaidFenceStillOpen('```mermaid\nflowchart TD\nA-->B\n```\n下一步')).toBe(false)
   expect(mermaidTransientError('图表渲染超时或已取消，已回收独立渲染进程；源码仍保留')).toBe(true)
   expect(mermaidTransientError('parse failed')).toBe(false)
+  expect(mermaidTransientError('Failed to fetch')).toBe(false)
 })
 
 it('mounts mermaid SVG that XML would reject because of HTML <br> in foreignObject', () => {

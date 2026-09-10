@@ -252,6 +252,10 @@ func fallbackDesktopOpenArgs(goal string) json.RawMessage {
 	return raw
 }
 
+func autoDesktopObserveArgs() json.RawMessage {
+	return json.RawMessage(`{"action":"observe"}`)
+}
+
 func looksLikeDesktopObserveTurn(text string) bool {
 	t := strings.TrimSpace(text)
 	if t == "" {

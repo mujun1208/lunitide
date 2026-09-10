@@ -1,6 +1,7 @@
 package toolruntime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,8 +12,20 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/jung-kurt/gofpdf"
 	"github.com/lunitide/lunitide/internal/officetools"
 )
+
+func blankScanPDF(t *testing.T) []byte {
+	t.Helper()
+	doc := gofpdf.New("P", "mm", "A4", "")
+	doc.AddPage()
+	var buf bytes.Buffer
+	if err := doc.Output(&buf); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
 
 const workspaceDocumentSession = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
@@ -121,6 +134,133 @@ func TestWorkspaceDocumentReadKeepsScopeAndSmallTextCompatibility(t *testing.T) 
 	}
 }
 
+func TestWorkspaceReadImageUsesInjectedOCR(t *testing.T) {
+	runtime, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	png := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 1, 2, 0}
+	folder, _ := runtime.SessionFolder(workspaceDocumentSession)
+	if err := os.WriteFile(filepath.Join(folder, "scan.png"), png, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.Execute(context.Background(), AutoEdit, workspaceDocumentSession, "workspace.read", json.RawMessage(`{"path":"scan.png"}`), false); err == nil || strings.Contains(err.Error(), "scanned PDFs") {
+		t.Fatalf("image without OCR must fail as OCR routing, not a scanned-PDF hint: %v", err)
+	}
+	runtime.SetDocumentText(func(context.Context, string, []byte, string) (string, string, string, int, error) {
+		return "识别到发票 88", "image", "provider-ocr", 1, nil
+	})
+	got, err := runtime.Execute(context.Background(), AutoEdit, workspaceDocumentSession, "workspace.read", json.RawMessage(`{"path":"scan.png"}`), false)
+	if err != nil || !strings.Contains(got.Output, "识别到发票 88") {
+		t.Fatalf("injected OCR not used: %q %v", got.Output, err)
+	}
+}
+
+func TestWorkspaceReadScanPDFWithoutOCRUsesRoutingFailClosed(t *testing.T) {
+	runtime, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	folder, _ := runtime.SessionFolder(workspaceDocumentSession)
+	if err := os.WriteFile(filepath.Join(folder, "scan.pdf"), blankScanPDF(t), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = runtime.Execute(context.Background(), AutoEdit, workspaceDocumentSession, "workspace.read", json.RawMessage(`{"path":"scan.pdf"}`), false)
+	if err == nil || !strings.Contains(err.Error(), "OCR 未装配") {
+		t.Fatalf("scan PDF without documentText must fail as OCR routing: %v", err)
+	}
+	if strings.Contains(err.Error(), "OCR routing is not configured") {
+		t.Fatalf("must not leak English OCR-routing gap: %v", err)
+	}
+	if strings.Contains(err.Error(), "scanned PDFs need OCR") {
+		t.Fatalf("must not use the old local-OCR hint: %v", err)
+	}
+}
+
+func TestWorkspaceReadMarksIncompleteOCRCoverage(t *testing.T) {
+	runtime, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	folder, _ := runtime.SessionFolder(workspaceDocumentSession)
+	if err := os.WriteFile(filepath.Join(folder, "mixed.pdf"), []byte("%PDF-1.4 mixed"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runtime.SetDocumentText(func(context.Context, string, []byte, string) (string, string, string, int, error) {
+		return "Cover layer only", "pdf", "text-layer incomplete-coverage", 3, nil
+	})
+	got, err := runtime.Execute(context.Background(), AutoEdit, workspaceDocumentSession, "workspace.read", json.RawMessage(`{"path":"mixed.pdf"}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got.Output, "incomplete") || !strings.Contains(got.Output, "Cover layer only") {
+		t.Fatalf("incomplete OCR coverage must stay visible: %q", got.Output)
+	}
+	if strings.Contains(got.Output, "kind=pdf]") && !strings.Contains(got.Output, "incomplete") {
+		t.Fatalf("must not present a bare pdf kind as complete coverage: %q", got.Output)
+	}
+}
+
+func TestWorkspaceReadBinaryRejectsEnglishAndUsesChinese(t *testing.T) {
+	runtime, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	folder, _ := runtime.SessionFolder(workspaceDocumentSession)
+	if err := os.WriteFile(filepath.Join(folder, "blob.bin"), []byte{0x00, 0x01, 0x02, 0xff}, 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = runtime.Execute(context.Background(), AutoEdit, workspaceDocumentSession, "workspace.read", json.RawMessage(`{"path":"blob.bin"}`), false)
+	if err == nil || !strings.Contains(err.Error(), "二进制") {
+		t.Fatalf("binary read must be Chinese fail-closed: %v", err)
+	}
+	if strings.Contains(err.Error(), "file is binary") {
+		t.Fatalf("must not leak English binary-read gap: %v", err)
+	}
+}
+
+func TestWorkspaceReadInvalidOffsetUsesChinese(t *testing.T) {
+	runtime, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	folder, _ := runtime.SessionFolder(workspaceDocumentSession)
+	if err := os.WriteFile(filepath.Join(folder, "note.txt"), []byte("短文本"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = runtime.Execute(context.Background(), AutoEdit, workspaceDocumentSession, "workspace.read", json.RawMessage(`{"path":"note.txt","offset":-1}`), false)
+	if err == nil || !strings.Contains(err.Error(), "offset 不能为负") {
+		t.Fatalf("invalid offset must be Chinese fail-closed: %v", err)
+	}
+	if strings.Contains(err.Error(), "must be nonnegative") {
+		t.Fatalf("must not leak English offset bounds: %v", err)
+	}
+}
+
+func TestWorkspaceReadOffsetBeyondTextUsesChinese(t *testing.T) {
+	runtime, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	folder, _ := runtime.SessionFolder(workspaceDocumentSession)
+	if err := os.WriteFile(filepath.Join(folder, "note.txt"), []byte("短文本"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = runtime.Execute(context.Background(), AutoEdit, workspaceDocumentSession, "workspace.read", json.RawMessage(`{"path":"note.txt","offset":99}`), false)
+	if err == nil || !strings.Contains(err.Error(), "偏移已超出") {
+		t.Fatalf("offset overflow must be Chinese fail-closed: %v", err)
+	}
+	if strings.Contains(err.Error(), "offset is beyond") {
+		t.Fatalf("must not leak English offset overflow: %v", err)
+	}
+}
+
 func TestWorkspaceEditReplaceFailurePreservesOriginalAndCleansTemporary(t *testing.T) {
 	folder := t.TempDir()
 	path := filepath.Join(folder, "existing.txt")
@@ -167,11 +307,30 @@ func TestWorkspaceWriteEditAndNestedHTMLArtifactCanBeRead(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(folder, "existing.pdf"), binary, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.Execute(ctx, AutoEdit, workspaceDocumentSession, "workspace.edit", json.RawMessage(`{"path":"existing.pdf","oldText":"text","newText":"changed"}`), false); err == nil {
+	_, err = runtime.Execute(ctx, AutoEdit, workspaceDocumentSession, "workspace.edit", json.RawMessage(`{"path":"existing.pdf","oldText":"text","newText":"changed"}`), false)
+	if err == nil {
 		t.Fatal("binary document was edited as plain text")
+	}
+	if !strings.Contains(err.Error(), "不能直接改") || strings.Contains(err.Error(), "requires plain UTF-8") {
+		t.Fatalf("Office/PDF edit must be Chinese fail-closed: %v", err)
 	}
 	unchanged, err := os.ReadFile(filepath.Join(folder, "existing.pdf"))
 	if err != nil || string(unchanged) != string(binary) {
 		t.Fatal("unsupported edit corrupted the document")
+	}
+}
+
+func TestWorkspaceEditMissingFileUsesChinese(t *testing.T) {
+	runtime, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	_, err = runtime.Execute(context.Background(), AutoEdit, workspaceDocumentSession, "workspace.edit", json.RawMessage(`{"path":"missing.txt","oldText":"a","newText":"b"}`), false)
+	if err == nil || !strings.Contains(err.Error(), "文件不存在") {
+		t.Fatalf("missing edit target must be Chinese fail-closed: %v", err)
+	}
+	if strings.Contains(err.Error(), "file missing or exceeds") {
+		t.Fatalf("must not leak English edit-missing gap: %v", err)
 	}
 }

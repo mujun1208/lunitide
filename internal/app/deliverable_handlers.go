@@ -188,7 +188,7 @@ func deliverableFailure(r bridge.Request, err error) bridge.Response {
 		return r.Fail("DELIVERABLE_VERSION_CONFLICT", "交付物已被其他操作修改，请刷新后重试", false)
 	default:
 		msg := strings.TrimSpace(err.Error())
-		if msg == "" {
+		if msg == "" || !peopleUserMessageHasHan(msg) {
 			msg = "交付物数据暂时不可用"
 		}
 		return r.Fail("STORAGE_UNAVAILABLE", msg, true)

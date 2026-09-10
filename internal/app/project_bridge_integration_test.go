@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -76,6 +77,39 @@ func TestProjectBridgeRejectsNullAndOversizedPayloads(t *testing.T) {
 				t.Fatalf("invalid payload accepted: %#v", response)
 			}
 		})
+	}
+}
+
+func TestProjectUserFieldMessagesAreChinese(t *testing.T) {
+	cases := []string{
+		"close reason is required",
+		"reopen reason is required",
+		"project name must contain 1 to 200 characters",
+		"project type is required",
+	}
+	for _, en := range cases {
+		msg, ok := projectUserFieldMessage(errors.New(en))
+		if !ok || strings.Contains(msg, "reason") || strings.Contains(msg, "must contain") || strings.Contains(msg, "is required") || !officeUserMessageHasHan(msg) {
+			t.Fatalf("%q leaked %q ok=%v", en, msg, ok)
+		}
+	}
+}
+
+func TestProjectCreateMissingBusinessFieldsIsChinese(t *testing.T) {
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "project-zh.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	e := NewEngineWithProjects(providerapp.New(store, store), projectapp.New(store, store), "test", nil)
+	create := validRequest("project.create", `{"name":"Alpha"}`)
+	create.IdempotencyKey = "project-zh-missing-fields"
+	resp := e.Handle(context.Background(), create)
+	if resp.OK || resp.Error == nil || resp.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+		t.Fatalf("expected schema invalid, got %+v", resp)
+	}
+	if strings.Contains(resp.Error.Message, "project type") || strings.Contains(resp.Error.Message, "is required") || !officeUserMessageHasHan(resp.Error.Message) {
+		t.Fatalf("project.create leaked English: %q", resp.Error.Message)
 	}
 }
 

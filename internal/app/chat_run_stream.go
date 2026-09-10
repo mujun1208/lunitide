@@ -10,6 +10,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/messageapp"
+	"github.com/lunitide/lunitide/internal/modelfit"
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 	"github.com/oklog/ulid/v2"
@@ -19,6 +20,20 @@ import (
 	"sync"
 	"time"
 )
+
+func validateToolCallIDs(calls []llmadapter.ToolCall) error {
+	seen := map[string]bool{}
+	for _, call := range calls {
+		if strings.TrimSpace(call.ID) == "" {
+			return errors.New("empty tool call id")
+		}
+		if seen[call.ID] {
+			return errors.New("duplicate tool call id")
+		}
+		seen[call.ID] = true
+	}
+	return nil
+}
 
 func writeGUIFallbackResult(send func(bridge.Event) error, req *llmadapter.Request, completedDigests map[string]string, turn *chatTurnCheckpoint, usedTools, usedDesktopTools *bool, fb toolruntime.Result, fbArgs json.RawMessage) error {
 	summary := strings.TrimSpace(fb.Output)
@@ -80,7 +95,7 @@ func (e *Engine) reconcileTurnCheckpointOnStart(sessionID string, turn *chatTurn
 		}
 	}
 	if looksLikeStatusFollowUp(turn.Goal) || looksLikeResume(turn.Goal) {
-		if prev := e.loadTurnCheckpoint(sessionID); prev.PptActive || prev.DocxActive || prev.Status == turnStatusInterrupted || prev.Status == turnStatusRunning {
+		if prev := e.loadTurnCheckpoint(sessionID); prev.PptActive || prev.DocxActive || prev.Status == turnStatusInterrupted || prev.Status == turnStatusRunning || prev.Continuation != nil {
 			if strings.TrimSpace(prev.Goal) != "" {
 				turn.Goal = prev.Goal
 			}
@@ -97,6 +112,13 @@ func (e *Engine) reconcileTurnCheckpointOnStart(sessionID string, turn *chatTurn
 			turn.DocxGenerated = prev.DocxGenerated
 			turn.DocxChars = prev.DocxChars
 			turn.Injected = append([]string{}, prev.Injected...)
+			if prev.Continuation != nil {
+				cloned := *prev.Continuation
+				if len(cloned.OperationRefs) > 0 {
+					cloned.OperationRefs = append([]string{}, cloned.OperationRefs...)
+				}
+				turn.Continuation = &cloned
+			}
 		}
 	}
 	return nil
@@ -123,6 +145,14 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	turn := chatTurnCheckpoint{Status: turnStatusRunning, StreamID: id, Goal: lastUserChatText(req.Messages)}
 	computerTurn := computerExecutionTurn(turn.Goal)
 	checkpointErr := e.reconcileTurnCheckpointOnStart(sessionID, &turn)
+	seedContinuationFromScope(ctx, &turn)
+	pinContinuationIdentity(&turn, continuationIdentity{
+		ProviderDeploymentRef: strings.TrimSpace(p.ID),
+		ModelRequested:        strings.TrimSpace(req.Model),
+		OwnerScope:            ownerScope(sessionID),
+		TaskRef:               sessionID,
+		CodecVersion:          modelfit.CodecForModel(req.Model, string(p.Protocol)),
+	})
 	turn.CapabilityWork = capabilityWorkRequest(req) || capabilityWorkTask(turn.Goal) || skillTrialsActive(ctx, sessionID)
 	mode := executionModeApproval
 	if len(modes) > 0 {
@@ -260,6 +290,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		}
 		err = e.withRotatingProviderLease(ctx, p, secretlease.OperationChat, rot, emitted, func(op context.Context, credential []byte) (cbErr error) {
 			op = withLeaseRotate(op, p, rot, emitted)
+			purpose := continuityScopeFrom(op).Purpose
+			if purpose == "" {
+				purpose = "chat"
+			}
+			op = withContinuityScope(op, continuityScope{Owner: ownerScope(sessionID), Task: sessionID, Turn: id, Purpose: purpose})
 			// A panic anywhere in the streaming/tool loop must degrade to a
 			// failed stream, never take down the Engine process (which would
 			// sever the event pipe for every active session).
@@ -307,6 +342,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				turn.Goal = prev.Goal
 				turn.Injected = append(turn.Injected, prev.Injected...)
 			}
+			turn.liveProtocol = req.Messages
 			if err := e.saveTurnCheckpoint(sessionID, turn); err != nil {
 				return err
 			}
@@ -315,6 +351,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				toolLoopLimit = companionMaxToolLoopSteps
 			}
 			for step := 0; step < toolLoopLimit; step++ {
+				turn.liveProtocol = req.Messages
 				if err := e.CheckCapability(op, "llm", "session"); err != nil {
 					return err
 				}
@@ -516,7 +553,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						result.Message.ToolCalls = []llmadapter.ToolCall{{
 							ID:        "auto-" + ulid.Make().String(),
 							Name:      "computer.act",
-							Arguments: json.RawMessage(`{"action":"screenshot","target":"foreground"}`),
+							Arguments: autoDesktopObserveArgs(),
 						}}
 						autoDesktopObserveDone = true
 					}
@@ -626,13 +663,13 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						continue
 					}
 					if nudgePptWorkflow(&req, &turn, send) {
-						if err := e.saveTurnCheckpoint(sessionID, turn); err != nil {
+						if err := e.saveTurnCheckpointAfterModel(sessionID, &turn, result, thinkingText.String(), req.DisableReasoning, req.Messages); err != nil {
 							return err
 						}
 						continue
 					}
 					if nudgeDocxWorkflow(&req, &turn, send) {
-						if err := e.saveTurnCheckpoint(sessionID, turn); err != nil {
+						if err := e.saveTurnCheckpointAfterModel(sessionID, &turn, result, thinkingText.String(), req.DisableReasoning, req.Messages); err != nil {
 							return err
 						}
 						continue
@@ -665,6 +702,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 				}
 				req.Messages = append(req.Messages, result.Message)
+				if err := validateToolCallIDs(result.Message.ToolCalls); err != nil {
+					return err
+				}
 				// Parallel subagents: same-turn subagent.spawn calls are
 				// pre-started (bounded) so independent research subagents
 				// overlap; each result is consumed in original call order
@@ -827,7 +867,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
 							continue
 						}
-						summary, invokeErr := e.callMcpToolByNameGuarded(op, call.Arguments, state.mcpAllowed, state.mcpRestrict)
+						summary, invokeErr := e.callMcpToolByNameGuarded(op, sessionID, call.Arguments, state.mcpAllowed, state.mcpRestrict)
 						if invokeErr != nil {
 							summary = invokeErr.Error()
 						}
@@ -859,7 +899,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							delete(parallelFutures, call.ID)
 							summary, invokeErr = res.summary, res.err
 						} else {
-							summary, invokeErr = e.invokeMcpTool(op, endpointID, mcpTool, call.Arguments)
+							summary, invokeErr = e.invokeMcpTool(op, sessionID, endpointID, mcpTool, call.Arguments)
 						}
 						if invokeErr != nil {
 							summary = invokeErr.Error()
@@ -906,8 +946,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 					r, toolErr := func() (toolruntime.Result, error) {
 						op := toolruntime.WithExecutionKey(op, sessionID, call.ID)
-						if desktopMutation(call.Name, call.Arguments) && failedDesktopAttempts[desktopAttemptKey(call.Name, call.Arguments)] >= 2 {
-							return toolruntime.Result{}, errors.New("无法执行：相同目标和参数已失败两次，未重复操作。请重新核对目标或改用已验证的路径。")
+						if desktopMutationRetryBlocked(failedDesktopAttempts, call.Name, call.Arguments) {
+							return toolruntime.Result{}, errors.New("无法执行：相同目标和参数已失败，未重复操作。请重新核对目标或改用已验证的路径。")
 						}
 						if err := guardCurrentTurnTool(turn.Goal, call.Name); err != nil {
 							return toolruntime.Result{}, err
@@ -951,10 +991,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						// Model-initiated expert creation routes through the
 						// M8 expert service (never the raw toolruntime switch).
 						if call.Name == "skill.create" {
-							return e.invokeSkillCreateTool(withSkillCreationSession(op, sessionID), call.Arguments)
+							return e.invokeSkillCreateTool(withSkillCreationSession(op, sessionID), sessionID, call.Arguments)
 						}
 						if call.Name == "skill.manage" {
-							return e.invokeSkillManageTool(withSkillCreationSession(op, sessionID), call.Arguments)
+							return e.invokeSkillManageTool(withSkillCreationSession(op, sessionID), sessionID, call.Arguments)
 						}
 						if call.Name == "expert.create" {
 							return e.invokeExpertCreateTool(op, sessionID, call.Arguments)
@@ -1028,7 +1068,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						key := desktopAttemptKey(call.Name, call.Arguments)
 						proof, hasProof := extractL0(r.Output)
 						if toolErr != nil || companionToolResultFailed(r.Output) || (hasProof && (!proof.Passed || proof.Uncertain)) {
-							failedDesktopAttempts[key]++
+							summary := r.Output
+							if toolErr != nil {
+								summary = toolErr.Error()
+							}
+							recordDesktopMutationFailure(failedDesktopAttempts, call.Name, call.Arguments, summary)
 						} else {
 							delete(failedDesktopAttempts, key)
 						}
@@ -1231,7 +1275,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				if draft := strings.TrimSpace(assistantText.String()); draft != "" {
 					turn.PersistDraft = draft
 				}
-				if err := e.saveTurnCheckpoint(sessionID, turn); err != nil {
+				if err := e.saveTurnCheckpointAfterModel(sessionID, &turn, result, thinkingText.String(), req.DisableReasoning, req.Messages); err != nil {
 					return err
 				}
 			}
@@ -1372,6 +1416,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 
 	cancelling := e.isStreamCancelling(state)
 	upstreamErr := err
+	attachObtainedProtocol(&turn, obtainedProtocolReasoning(streamResult, thinkingText.String(), req.DisableReasoning))
 	var persistErr error
 	if sessionID != "" && e.messages != nil {
 		// Reasoning is available through message.process, never model history.
@@ -1410,12 +1455,13 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: delta}})
 				}
 			}
-			usage := messageapp.AssistantUsage{
-				Provider:     string(p.Protocol),
-				Model:        req.Model,
-				OutputTokens: int64(streamResult.Usage.OutputTokens),
+			usageSrc := generationBudget.usageSnapshot()
+			if usageSrc.TotalTokens == 0 && !usageSrc.CacheUsageReported {
+				usageSrc = streamResult.Usage
 			}
+			usage := persistUsageFromStream(string(p.Protocol), req.Model, usageSrc)
 			turn.PersistDraft, turn.PersistUsage = text, usage
+			turn.liveProtocol = req.Messages
 			journalErr := e.saveTurnCheckpoint(sessionID, turn)
 			var msg message.Message
 			appendErr := journalErr
@@ -1456,6 +1502,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			turn.Status = turnStatusInterrupted
 		}
 	}
+	turn.liveProtocol = req.Messages
 	if journalErr := e.saveTurnCheckpoint(sessionID, turn); journalErr != nil {
 		persistErr = errors.Join(persistErr, journalErr)
 	}

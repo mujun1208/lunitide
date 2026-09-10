@@ -4,6 +4,10 @@ import{FitAddon}from'@xterm/addon-fit'
 import'@xterm/xterm/css/xterm.css'
 import{getTerminalBridge,type TerminalBridge,type TerminalSession}from'../bridge/client'
 
+function terminalUserError(err:unknown,fallback:string):string{
+ const detail=err instanceof Error?err.message.trim():''
+ return /[\u4e00-\u9fff]/.test(detail)?detail:fallback
+}
 type ToolActivity={callId:string;name:string;status:string;summary?:string}
 const commandLine=(activity:ToolActivity)=>{
  const summary=(activity.summary??'').trim()
@@ -46,7 +50,10 @@ export function TerminalPanel({projectId,sessionId,bridge,toolActivities=[],exec
    window.addEventListener('resize',resize)
    setStatus('running')
   }catch(e){
-   terminal.dispose();term.current=undefined;interactive.current=false;setStatus('error');setError(e instanceof Error?e.message:'终端启动失败')
+   terminal.dispose();term.current=undefined;interactive.current=false
+   const raw=e instanceof Error?e.message.trim():''
+   if(/取消/.test(raw)){setStatus('idle');setError('');return}
+   setStatus('error');setError(terminalUserError(e,'终端启动失败'))
   }
  }
  useEffect(()=>{

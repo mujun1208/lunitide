@@ -2,6 +2,11 @@ import React, { useRef, useState } from 'react'
 import type { McpCredentialSetPayload, McpCredentialSetResult, McpListResult } from '../generated/bridge'
 import { Dialog } from '../ui/Dialog'
 
+function mcpCredentialUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 type Endpoint = McpListResult['endpoints'][number]
 type Props = {
   endpoint: Endpoint
@@ -47,7 +52,7 @@ export function McpCredentialDialog({ endpoint, suggestedEnvs = [], save, onClos
         setEnv(suggestedEnvs[suggestedEnvs.indexOf(env) + 1] ?? '')
       } else onClose()
     } catch (e) {
-      setError(`${e instanceof Error ? e.message : '凭据保存失败'}。如结果待确认，请重新输入相同凭据重试。`)
+      setError(`${mcpCredentialUserError(e, '凭据保存失败')}。如结果待确认，请重新输入相同凭据重试。`)
     } finally { inFlight.current = false; setBusy(false) }
   }
 

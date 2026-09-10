@@ -18,7 +18,7 @@ Do **not** use this skill to: operate desktop apps (`computer-control` / `cc.*`)
 
 1. `browser.act` `op=navigate` with an absolute `https` URL. Prefer the snapshot it returns; do not open a second tab for the same task.
 2. If you have no refs, `op=snapshot`.
-3. `click` / `type` using snapshot refs (or a selector only when the snapshot named it). After the tool returns, use the appended `[snapshot after …]` tree — do not reuse old refs.
+3. `click` / `type` using snapshot refs (or a selector only when the snapshot named it). Never guess CSS or pixel coordinates. After the tool returns, use the appended `[snapshot after …]` tree — do not reuse old refs.
 4. If a ref is stale, snapshot **once** and retry that single action. If it is still stale, stop and describe the blocker.
 5. Login wall, 2FA, captcha, camera/mic permission, or a file picker: tell the user what to do. Do not invent credentials or click through security prompts.
 6. For page text without clicking, `op=read` (fetch). For controls, stay on snapshot/act.

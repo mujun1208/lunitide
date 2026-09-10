@@ -33,7 +33,7 @@ func (explicitChatReader) SumTokens(context.Context, string, string, string, str
 	return 0, nil
 }
 
-func assembleExplicitChat(ctx context.Context, session string, env contextapp.ContextEnvelope, trusted []llmadapter.Message) ([]llmadapter.Message, error) {
+func assembleExplicitChat(ctx context.Context, session string, env contextapp.ContextEnvelope, trusted []llmadapter.Message, native []llmadapter.Message) ([]llmadapter.Message, error) {
 	// These sequences belong to the explicit request, not the durable journal.
 	// A checkpoint cannot claim coverage of newly supplied messages.
 	if env.AcceptedCheckpoint != nil {
@@ -51,5 +51,5 @@ func assembleExplicitChat(ctx context.Context, session string, env contextapp.Co
 			system = append(system, m)
 		}
 	}
-	return combineDurableProviderMessages(result.Messages, system, env.Provider)
+	return combineProviderMessages(result.Messages, system, env.Provider, nil, native)
 }

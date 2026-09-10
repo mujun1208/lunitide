@@ -2,6 +2,11 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { planBridge, reviewBridge, type PlanBridge, type ReviewBridge } from '../bridge/client'
 import type { PlanDTO, PlanNodeDTO, PlanStatus, NodeStatus, ReviewDTO } from '../generated/bridge'
 
+function planUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 const PLAN_STATUS: Record<PlanStatus, string> = {
   draft: '草稿', active: '执行中', paused: '已暂停', completed: '已完成', cancelled: '已取消', failed: '已失败',
 }
@@ -64,7 +69,7 @@ export function PlanDagPanel({
       setPendingReviews(reviewResult.items.filter(r => r.status === 'pending'))
       setError('')
     } catch (e) {
-      setError(e instanceof Error ? e.message : '加载计划失败')
+      setError(planUserError(e, '加载计划失败'))
     }
   }, [bridge, reviews])
 
@@ -74,7 +79,7 @@ export function PlanDagPanel({
       setPlans(result.items)
       const active = result.items.find(p => p.status === 'active') ?? result.items[0]
       setPlanId(current => current || active?.id || '')
-    }).catch(e => setError(e instanceof Error ? e.message : '计划列表加载失败'))
+    }).catch(e => setError(planUserError(e, '计划列表加载失败')))
   }, [bridge, projectId])
 
   useEffect(() => { void refresh(planId) }, [planId, refresh])
@@ -91,7 +96,7 @@ export function PlanDagPanel({
       setPlans(listed.items)
       await refresh(planId)
     } catch (e) {
-      setError(e instanceof Error ? e.message : '操作失败')
+      setError(planUserError(e, '操作失败'))
     } finally {
       setBusy(false)
     }

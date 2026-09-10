@@ -80,7 +80,7 @@ func (e *Engine) completeExpertTrial(ctx context.Context, snapshot m8app.ExpertT
 		if err != nil {
 			return err
 		}
-		response, err := adapter.Complete(op, secret, llmadapter.Request{
+		response, err := adapter.Complete(withCallPurpose(op, "expert"), secret, llmadapter.Request{
 			Model: entry.Model.ModelID, MaxTokens: 2000, MaxAttempts: 1, DisableReasoning: true,
 			Messages: []llmadapter.Message{
 				{Role: "system", Content: "You are testing the expert profile " + snapshot.Name + ". Answer the user's sample according to all six sections below. Give a concise, complete answer with the requested ending; output only the final answer, without reasoning or a preamble. This is a text-only trial: no tools, files, browsing or skill execution are available. Do not claim any actions were performed. Do not enable, install or modify the expert.\n" + string(body)},

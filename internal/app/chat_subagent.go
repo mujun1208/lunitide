@@ -187,7 +187,7 @@ func (e *Engine) runSubagentSession(ctx context.Context, a llmadapter.Adapter, c
 		if errors.Is(execErr, context.Canceled) {
 			status = m7flow.SagCancelled
 		}
-		report = "subagent execution failed: " + execErr.Error()
+		report = "子任务执行失败：" + execErr.Error()
 	}
 	if strings.TrimSpace(report) == "" {
 		status = m7flow.SagFailed
@@ -214,6 +214,7 @@ func (e *Engine) runSubagentSession(ctx context.Context, a llmadapter.Adapter, c
 }
 
 func (e *Engine) executeSubagentLoop(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID, purpose string, budget int64, profile subagentProfileDef, parentMode executionMode) (string, int64, error) {
+	ctx = withCallPurpose(ctx, "subagent")
 	maxTokens := int(budget)
 	if maxTokens > 16000 {
 		maxTokens = 16000
@@ -346,7 +347,9 @@ func (e *Engine) runSubagentTool(ctx context.Context, sessionID string, call llm
 	if call.Name == "browser.act" {
 		r, err = e.invokeBrowserAct(ctx, subagentToolMode(parentMode), sessionID, call.Arguments)
 	} else {
-		r, err = e.tools.Execute(ctx, toolruntime.Mode(subagentToolMode(parentMode)), sessionID, call.Name, call.Arguments, false)
+		r, err = e.recordExistingToolCall(ctx, sessionID, call.Name, call.Arguments, func() (toolruntime.Result, error) {
+			return e.tools.Execute(ctx, toolruntime.Mode(subagentToolMode(parentMode)), sessionID, call.Name, call.Arguments, false)
+		})
 	}
 	if err != nil {
 		emitSubagentProgress(ctx, "tool", call.Name, "工具执行失败，正在整理结果")

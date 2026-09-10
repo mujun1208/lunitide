@@ -119,6 +119,46 @@ func TestKBSourceRefreshChangeDeleteFailureAndReopen(t *testing.T) {
 	}
 }
 
+func TestKBSourceDeleteTombstoneHidesSearchAndCite(t *testing.T) {
+	ctx := context.Background()
+	file := filepath.Join(t.TempDir(), "keep.md")
+	if err := os.WriteFile(file, []byte("Tombstone pneumatic note"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.OpenTemplated(ctx, filepath.Join(t.TempDir(), "kb-del.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	expert := ulid.Make().String()
+	svc := m8app.NewKBService(store.AgentRuntimeRepository(), "local-user")
+	coll, err := svc.EnsureExpertCollection(ctx, expert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ingested, err := svc.IngestLocalSource(ctx, m8app.KBLocalSourceInput{CollectionID: coll.CollectionID, Path: file})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hit, err := svc.Search(ctx, m8app.KBSearchInput{ExpertID: expert, Query: "pneumatic"})
+	if err != nil || len(hit.Hits) != 1 {
+		t.Fatalf("pre-delete search %+v %v", hit, err)
+	}
+	if err := svc.DeleteLocalSource(ctx, m8app.KBDeleteSourceInput{CollectionID: coll.CollectionID, SourceID: ingested.Source.SourceID, ExpectedRevision: ingested.Source.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := svc.Search(ctx, m8app.KBSearchInput{ExpertID: expert, Query: "pneumatic"})
+	if err != nil || len(after.Hits) != 0 {
+		t.Fatalf("tombstone leaked search %+v %v", after, err)
+	}
+	if _, e := svc.Cite(ctx, hit.Hits[0]); !errors.Is(e, m8app.ErrKBDocumentNotReady) {
+		t.Fatalf("tombstone cite: %v", e)
+	}
+	if _, err := os.Stat(file); err != nil {
+		t.Fatal("delete must not remove the original file")
+	}
+}
+
 type failingSourceUOW struct {
 	m8app.KBUnitOfWork
 	fail bool

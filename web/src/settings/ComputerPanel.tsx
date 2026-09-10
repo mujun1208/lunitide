@@ -27,6 +27,11 @@ const CC_LEVEL_META: Record<'standard' | 'strict', { label: string; desc: string
   strict: { label: '严格', desc: '仅允许低/中风险操作；高危一律拦截，适合首次试用' },
 }
 
+function ccUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): React.JSX.Element {
   const [settings, setSettings] = useState<CcGetConfigResult | null>(null)
   const [entries, setEntries] = useState<CcAuditRow[]>([])
@@ -65,7 +70,7 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
   useEffect(() => { void refresh(); return () => { refreshGeneration.current++ } }, [])
 
   const showSaveError = async (error: unknown, fallback: string) => {
-    const message = error instanceof Error ? error.message : fallback
+    const message = error instanceof Error ? error.message : ''
     if (message.includes('CC_CONFIG_CONFLICT') || message.includes('配置已变更')) {
       try {
         const current = await bridge.getConfig()
@@ -75,7 +80,7 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
         setWizard(null)
         setStatus('配置已在其他位置变更，已载入最新配置，请重新确认后保存')
       } catch { setStatus('配置发生冲突且刷新失败，请点击刷新后重新确认') }
-    } else setStatus(message)
+    } else setStatus(ccUserError(error, fallback))
   }
 
   const patch = async (p: Omit<CcUpdateConfigPayload, 'expectedRevision'>, okMsg: string) => {
@@ -109,7 +114,7 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
       setSettings(cfg)
       notifyCcConfigChanged()
       setStatus('紧急停止已激活')
-    } catch (e) { setStatus(e instanceof Error ? e.message : '紧急停止失败') } finally { setBusy(false) }
+    } catch (e) { await showSaveError(e, '紧急停止失败') } finally { setBusy(false) }
   }
 
   const addBlock = async () => {

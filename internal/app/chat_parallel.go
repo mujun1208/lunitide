@@ -92,7 +92,7 @@ func startParallelToolFutures(op context.Context, e *Engine, mode executionMode,
 				}
 			}()
 			if endpointID, mcpTool, isMcp := parseMcpToolName(call.Name); isMcp {
-				summary, err := e.invokeMcpTool(op, endpointID, mcpTool, call.Arguments)
+				summary, err := e.invokeMcpTool(op, sessionID, endpointID, mcpTool, call.Arguments)
 				ch <- parallelToolFuture{summary: summary, err: err}
 				return
 			}

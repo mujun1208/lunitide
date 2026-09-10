@@ -234,6 +234,51 @@ func TestDesktopTypeFindAfterIDCardNumber(t *testing.T) {
 	}
 }
 
+func TestVerifyDesktopTypedRetriesThenSucceeds(t *testing.T) {
+	mediaSleep = func(time.Duration) {}
+	t.Cleanup(func() { mediaSleep = time.Sleep })
+	observes := 0
+	invoke := func(_ context.Context, _, tool string, _ json.RawMessage, _ bool) (Result, error) {
+		if tool != ccapp.ToolObserveUI {
+			return result("ok"), nil
+		}
+		observes++
+		value := ""
+		if observes >= 2 {
+			value = "hello"
+		}
+		raw, _ := json.Marshal(map[string]any{"nodes": []mediaUINode{{Role: "edit", Value: value}}})
+		return Result{Output: string(raw)}, nil
+	}
+	if err := verifyDesktopTyped(context.Background(), invoke, "s1", true, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if observes != 2 {
+		t.Fatalf("first miss then pass should poll twice, got %d", observes)
+	}
+}
+
+func TestVerifyDesktopTypedFailsAfterThreeMisses(t *testing.T) {
+	mediaSleep = func(time.Duration) {}
+	t.Cleanup(func() { mediaSleep = time.Sleep })
+	observes := 0
+	invoke := func(_ context.Context, _, tool string, _ json.RawMessage, _ bool) (Result, error) {
+		if tool != ccapp.ToolObserveUI {
+			return result("ok"), nil
+		}
+		observes++
+		raw, _ := json.Marshal(map[string]any{"nodes": []mediaUINode{{Role: "edit", Value: ""}}})
+		return Result{Output: string(raw)}, nil
+	}
+	err := verifyDesktopTyped(context.Background(), invoke, "s1", true, "hello")
+	if err == nil || !strings.Contains(err.Error(), "无法执行") || !strings.Contains(err.Error(), "不能确认已写入") {
+		t.Fatalf("three misses must keep typed-fail copy, got %v", err)
+	}
+	if observes != 3 {
+		t.Fatalf("want 3 polls, got %d", observes)
+	}
+}
+
 func TestDesktopTypeFailsLoudlyWithoutCC(t *testing.T) {
 	payload, _ := json.Marshal(map[string]any{"text": "hello"})
 	_, err := executeDesktopType(context.Background(), nil, "s1", payload, true, true)

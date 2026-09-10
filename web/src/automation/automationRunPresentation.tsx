@@ -1,5 +1,7 @@
 import React from 'react'
+import type { ChatUsageBridge } from '../bridge/client'
 import type { AutomationRunListResult, AutomationStatusResult, SessionDTO } from '../generated/bridge'
+import { SessionUsageBar } from '../session/SessionUsageBar'
 
 type Run = AutomationRunListResult['runs'][number]
 
@@ -17,15 +19,23 @@ export function automationRunLabel(run: Run): string {
   return run.state === 'succeeded' ? '成功' : run.state
 }
 
-function failureMessage(error?: string): string {
-  if (error?.includes('context deadline exceeded')) return '执行超时，任务已停止。可查看已生成内容，核对后再决定是否重新运行。'
-  if (error?.includes('context canceled')) return '执行已中断，任务已停止。可查看已生成内容。'
-  return error || '任务未完成，请查看执行对话了解详情。'
+export function automationUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
 }
 
-export function AutomationRunDetail({ run, onOpenSession }: { run: Run; onOpenSession?: (session: SessionDTO) => void }): React.JSX.Element {
+function failureMessage(error?: string): string {
+  const text = error?.trim() ?? ''
+  if (!text) return '任务未完成，请查看执行对话了解详情。'
+  if (text.includes('context deadline exceeded')) return '执行超时，任务已停止。可查看已生成内容，核对后再决定是否重新运行。'
+  if (text.includes('context canceled')) return '执行已中断，任务已停止。可查看已生成内容。'
+  if (/[\u4e00-\u9fff]/.test(text)) return text
+  return '任务未完成，请查看执行对话了解详情。'
+}
+
+export function AutomationRunDetail({ run, onOpenSession, usageApi }: { run: Run; onOpenSession?: (session: SessionDTO) => void; usageApi?: ChatUsageBridge }): React.JSX.Element {
   return <div className="automation-run-detail">
-    {run.state === 'failed' && <p role="alert" title={run.error}>{failureMessage(run.error)}</p>}
+    {run.state === 'failed' && <p role="alert" title={failureMessage(run.error)}>{failureMessage(run.error)}</p>}
     {run.state === 'running' && <p>任务正在执行，完成后会更新结果。</p>}
     {run.summary ? <>
       {run.state === 'failed' && <p>已生成内容（任务未完成）</p>}
@@ -33,5 +43,6 @@ export function AutomationRunDetail({ run, onOpenSession }: { run: Run; onOpenSe
     </> : run.state !== 'running' && <p>本次没有可显示的摘要。</p>}
     {run.finishedAt && <small>结束于 {new Date(run.finishedAt).toLocaleString('zh-CN')}</small>}
     {run.session && onOpenSession && <p><button type="button" onClick={() => onOpenSession(run.session!)}>查看完整对话与产物</button></p>}
+    {run.session?.id && <SessionUsageBar sessionId={run.session.id} zh usageApi={usageApi} />}
   </div>
 }

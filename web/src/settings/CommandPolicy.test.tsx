@@ -56,12 +56,26 @@ it('drops blank rows instead of sending empty prefixes', async () => {
 })
 
 it('keeps rows editable and surfaces the rejection reason on rejected documents', async () => {
-  const bridge = api({ setCommandPolicy: vi.fn().mockRejectedValue(new BridgeClientError('command-policy.json: invalid prefix item', 'COMMAND_POLICY_INVALID', false, 'trace')) })
+  const bridge = api({ setCommandPolicy: vi.fn().mockRejectedValue(new BridgeClientError('命令前缀无效：不能为空、不能包含 ..，也不能以 /、\\ 或盘符开头', 'COMMAND_POLICY_INVALID', false, 'trace')) })
   render(<CommandPolicyPanel bridge={bridge} />)
   await screen.findByLabelText('规则 1 命令前缀')
   fireEvent.click(screen.getByRole('button', { name: '保存并热生效' }))
-  expect(await screen.findByRole('status')).toHaveTextContent('command-policy.json: invalid prefix item')
+  expect(await screen.findByRole('status')).toHaveTextContent('命令前缀无效')
   expect(screen.getByLabelText('规则 1 命令前缀')).toHaveValue('node --version')
+})
+
+it('does not show raw English load or save failures', async () => {
+  const bridge = api({ getCommandPolicy: vi.fn().mockRejectedValue(new BridgeClientError('Failed to fetch', 'ENGINE_UNAVAILABLE', true, 'engine')) })
+  render(<CommandPolicyPanel bridge={bridge} />)
+  expect(await screen.findByRole('status')).toHaveTextContent('命令白名单读取失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  const ready = api({ setCommandPolicy: vi.fn().mockRejectedValue(new BridgeClientError('Failed to fetch', 'ENGINE_UNAVAILABLE', true, 'engine')) })
+  cleanup()
+  render(<CommandPolicyPanel bridge={ready} />)
+  await screen.findByLabelText('规则 1 命令前缀')
+  fireEvent.click(screen.getByRole('button', { name: '保存并热生效' }))
+  expect(await screen.findByRole('status')).toHaveTextContent('命令白名单保存失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
 })
 
 it('surfaces load failures without unlocking save', async () => {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Dialog } from '../ui/Dialog';
 import type { OfficeNode, OfficeStudioApi, OfficeTaskDetail } from './officeStudioApi';
 import { chartFormError, type OfficeChartForm } from './officeChartForm';
+import { officeStudioUserError } from './officeUserError';
 
 export interface OfficeChartTarget { taskId: string; artifactId: string; baseVersionId: string; expectedRevision: number; versionNo: number; node: OfficeNode }
 export function OfficeChartDialog({ api, target, onChanged, onClose }: { api: OfficeStudioApi; target?: OfficeChartTarget; onChanged: (detail: OfficeTaskDetail) => void; onClose: () => void }) {
@@ -11,7 +12,7 @@ export function OfficeChartDialog({ api, target, onChanged, onClose }: { api: Of
     const token = ++generation.current; setChart(undefined); setError(''); setBusy(false);
     if (!target?.node.digest) return;
     setLoading(true);
-    void api.readChart({ taskId: target.taskId, versionId: target.baseVersionId, nodeId: target.node.id, nodeDigest: target.node.digest }).then(value => { if (token === generation.current) setChart(value); }).catch(cause => { if (token === generation.current) setError(cause instanceof Error ? cause.message : '图表数据读取失败。'); }).finally(() => { if (token === generation.current) setLoading(false); });
+    void api.readChart({ taskId: target.taskId, versionId: target.baseVersionId, nodeId: target.node.id, nodeDigest: target.node.digest }).then(value => { if (token === generation.current) setChart(value); }).catch(cause => { if (token === generation.current) setError(officeStudioUserError(cause, '图表数据读取失败。')); }).finally(() => { if (token === generation.current) setLoading(false); });
     return () => { generation.current++; };
   }, [target, api, revision]);
   const invalid = chart ? chartFormError(chart) : '';
@@ -22,7 +23,7 @@ export function OfficeChartDialog({ api, target, onChanged, onClose }: { api: Of
     try {
       const result = await api.patchChart({ taskId: snapshot.taskId, artifactId: snapshot.artifactId, baseVersionId: snapshot.baseVersionId, expectedRevision: snapshot.expectedRevision, nodeId: snapshot.node.id, nodeDigest: snapshot.node.digest!, chart });
       if (token === generation.current) { onChanged(result); onClose(); }
-    } catch (cause) { if (token === generation.current) setError(cause instanceof Error ? cause.message : '图表修改未保存。'); }
+    } catch (cause) { if (token === generation.current) setError(officeStudioUserError(cause, '图表修改未保存。')); }
     finally { if (token === generation.current) setBusy(false); }
   };
   const seriesName = (index: number, name: string) => setChart(current => current && ({ ...current, series: current.series.map((series, i) => i === index ? { ...series, name } : series) }));

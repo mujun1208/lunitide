@@ -22,6 +22,10 @@ const riskColor = (r: RiskLevel): string => r === 'low' ? '#34d399' : r === 'med
 const inputStyle: React.CSSProperties = { width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: '4px', boxSizing: 'border-box' }
 const btnStyle: React.CSSProperties = { padding: '6px 12px', backgroundColor: 'var(--bg3)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: '4px', cursor: 'pointer' }
 const primaryBtnStyle: React.CSSProperties = { ...btnStyle, backgroundColor: '#2563eb', borderColor: '#3b82f6' }
+function planPageUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
 
 export function PlanPage({ projectId, bridge = planBridge }: { projectId: string; bridge?: PlanBridge }): React.JSX.Element {
   const [plans, setPlans] = useState<PlanDTO[]>([])
@@ -46,13 +50,13 @@ export function PlanPage({ projectId, bridge = planBridge }: { projectId: string
     if (!projectId) { setLoading(false); return }
     setLoading(true); setError(undefined)
     try { const r = await bridge.list({ projectId }); setPlans(r.items) }
-    catch (e) { setError(e instanceof Error ? e.message : '加载失败') }
+    catch (e) { setError(planPageUserError(e, '加载失败')) }
     finally { setLoading(false) }
   }, [projectId, bridge])
 
   const loadNodes = useCallback(async (planId: string) => {
     try { const r = await bridge.listNodes({ planId }); setNodes(r.items) }
-    catch (e) { setError(e instanceof Error ? e.message : '加载节点失败') }
+    catch (e) { setError(planPageUserError(e, '加载节点失败')) }
   }, [bridge])
 
   useEffect(() => { loadPlans() }, [loadPlans])
@@ -67,7 +71,7 @@ export function PlanPage({ projectId, bridge = planBridge }: { projectId: string
       else await bridge.complete({ planId })
       await loadPlans()
       if (selectedPlan?.id === planId) await loadNodes(planId)
-    } catch (e) { setError(e instanceof Error ? e.message : '操作失败') }
+    } catch (e) { setError(planPageUserError(e, '操作失败')) }
     finally { setBusy(false) }
   }
 
@@ -79,7 +83,7 @@ export function PlanPage({ projectId, bridge = planBridge }: { projectId: string
       else if (op === 'completeNode') await bridge.completeNode({ nodeId })
       else await bridge.failNode({ nodeId })
       await loadNodes(selectedPlan.id)
-    } catch (e) { setError(e instanceof Error ? e.message : '操作失败') }
+    } catch (e) { setError(planPageUserError(e, '操作失败')) }
     finally { setBusy(false) }
   }
 
@@ -91,7 +95,7 @@ export function PlanPage({ projectId, bridge = planBridge }: { projectId: string
       await bridge.create({ projectId, name: planName.trim(), description: planDescription })
       setPlanName(''); setPlanDescription(''); setShowCreatePlan(false)
       await loadPlans()
-    } catch (e) { setError(e instanceof Error ? e.message : '创建失败') }
+    } catch (e) { setError(planPageUserError(e, '创建失败')) }
     finally { setBusy(false) }
   }
 
@@ -108,7 +112,7 @@ export function PlanPage({ projectId, bridge = planBridge }: { projectId: string
       setNodeName(''); setNodeDescription(''); setNodeWorkerRole(''); setNodeSequence('1'); setNodeRiskLevel('low')
       setShowCreateNode(false)
       await loadNodes(selectedPlan.id)
-    } catch (e) { setError(e instanceof Error ? e.message : '创建失败') }
+    } catch (e) { setError(planPageUserError(e, '创建失败')) }
     finally { setBusy(false) }
   }
 

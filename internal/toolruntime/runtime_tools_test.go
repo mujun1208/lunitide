@@ -267,6 +267,28 @@ func TestWebToolsUnavailableWithoutFetcher(t *testing.T) {
 	}
 }
 
+func TestWebSearchRefusesCommercialFeedImpersonation(t *testing.T) {
+	r, _ := New(t.TempDir())
+	s := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	called := false
+	r.SetWebFetcher(func(context.Context, string) (networkpolicy.FetchResult, error) {
+		called = true
+		return networkpolicy.FetchResult{Status: 200, ContentType: "text/html", Body: []byte(ddgLiteBody)}, nil
+	})
+	for _, query := range []string{"ifind", "tianyancha 股权", "sec-edgar"} {
+		args, err := json.Marshal(map[string]string{"query": query})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.Execute(context.Background(), Approval, s, "web.search", args, false); err == nil {
+			t.Fatalf("query %q must not impersonate a commercial feed", query)
+		}
+	}
+	if called {
+		t.Fatal("forbidden lookup must not hit the public search transport")
+	}
+}
+
 // currentRules snapshots the live rule slice under the reload lock so tests
 // observe the same view Execute does after a hot policy swap.
 func currentRules(r *Runtime) []commandRule {

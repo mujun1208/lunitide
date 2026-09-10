@@ -2,7 +2,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import { LanguageProvider } from '../i18n/language'
-import type { CapabilityRolesBridge, ProviderBridge } from '../bridge/client'
+import type { CapabilityRolesBridge, OCRRoutingBridge, ProviderBridge } from '../bridge/client'
 import type { ProviderDTO } from '../generated/bridge'
 import { SettingsPage } from './SettingsPage'
 
@@ -32,17 +32,21 @@ function bridges() {
     get: vi.fn().mockResolvedValue({ roles: emptyRoles, revision: 'a'.repeat(64), appliedRevision: 'a'.repeat(64), state: 'applied' }),
     set: vi.fn().mockResolvedValue({ roles: emptyRoles, revision: 'a'.repeat(64), appliedRevision: 'a'.repeat(64), state: 'applied' }),
   } as unknown as CapabilityRolesBridge
-  return { providers, roles }
+  const ocr = {
+    get: vi.fn().mockResolvedValue({ preferProvider: true, revision: 'a'.repeat(64), appliedRevision: 'a'.repeat(64), state: 'applied' }),
+    set: vi.fn().mockResolvedValue({ preferProvider: true, revision: 'a'.repeat(64), appliedRevision: 'a'.repeat(64), state: 'applied' }),
+  } as unknown as OCRRoutingBridge
+  return { providers, roles, ocr }
 }
 
 function open(category: React.ComponentProps<typeof SettingsPage>['initialCategory'] = 'general') {
-  const { providers, roles } = bridges()
+  const { providers, roles, ocr } = bridges()
   render(
     <LanguageProvider value="zh-CN">
-      <SettingsPage initialCategory={category} providers={providers} roles={roles} onBack={vi.fn()} />
+      <SettingsPage initialCategory={category} providers={providers} roles={roles} ocr={ocr} onBack={vi.fn()} />
     </LanguageProvider>,
   )
-  return { providers, roles }
+  return { providers, roles, ocr }
 }
 
 it('persists general settings and shows a save indicator', async () => {
@@ -64,6 +68,7 @@ it('searches 能力路由 and opens providers with routing above the catalog', a
   expect(screen.queryByRole('button', { name: /^常规$/ })).not.toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: /模型与供应商/ }))
   expect(await screen.findByRole('heading', { name: '能力路由' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'OCR 路由' })).toBeInTheDocument()
   expect(roles.get).toHaveBeenCalled()
   expect(screen.getByRole('tab', { name: 'LLM' })).toBeInTheDocument()
   expect(screen.getByRole('tab', { name: '向量模型' })).toBeInTheDocument()

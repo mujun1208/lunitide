@@ -25,6 +25,16 @@ const api = (o: Partial<DatasourcePanelApi> = {}): DatasourcePanelApi => ({
   ...o,
 })
 
+it('does not show raw English load failures', async () => {
+  render(
+    <LanguageProvider value="zh-CN">
+      <DataSourcePanel api={api({ list: vi.fn().mockRejectedValue(new Error('Failed to fetch')) })} />
+    </LanguageProvider>,
+  )
+  expect(await screen.findByRole('alert')).toHaveTextContent('连接列表加载失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('lists connections without echoing dsn or password', async () => {
   render(
     <LanguageProvider value="zh-CN">

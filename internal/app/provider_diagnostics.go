@@ -53,25 +53,22 @@ type diagnosticDTO struct {
 func probeProviderModel(ctx context.Context, adapter llmadapter.Adapter, secret []byte, model provider.Model) error {
 	switch model.EffectiveKind() {
 	case provider.KindEmbedding:
-		embedder, ok := adapter.(llmadapter.Embedder)
-		if !ok {
+		if _, ok := adapterAs[llmadapter.Embedder](adapter); !ok {
 			return errors.New("adapter does not support embeddings")
 		}
-		_, err := embedder.Embed(ctx, secret, model.ModelID, []string{"ping"})
+		_, err := embedThrough(ctx, adapter, secret, model.ModelID, []string{"ping"})
 		return err
 	case provider.KindImage:
-		generator, ok := adapter.(llmadapter.ImageGenerator)
-		if !ok {
+		if _, ok := adapterAs[llmadapter.ImageGenerator](adapter); !ok {
 			return errors.New("adapter does not support image generation")
 		}
-		_, err := generator.GenerateImage(ctx, secret, model.ModelID, "A small solid blue square for a connection test")
+		_, err := generateImageThrough(ctx, adapter, secret, model.ModelID, "A small solid blue square for a connection test")
 		return err
 	case provider.KindVideo:
-		generator, ok := adapter.(llmadapter.VideoGenerator)
-		if !ok {
+		if _, ok := adapterAs[llmadapter.VideoGenerator](adapter); !ok {
 			return errors.New("adapter does not support video generation")
 		}
-		_, err := generator.GenerateVideo(ctx, secret, model.ModelID, "A still blue square for a connection test")
+		_, err := generateVideoThrough(ctx, adapter, secret, model.ModelID, "A still blue square for a connection test")
 		return err
 	case provider.KindVision:
 		// OCR proxies can be SSE-only. Exercise the same image-bearing inference
@@ -99,7 +96,10 @@ func probeProviderModel(ctx context.Context, adapter llmadapter.Adapter, secret 
 		if model.EffectiveKind() == provider.KindVision {
 			testRequest = visionProbeRequest(model.ModelID)
 		}
-		if tester, ok := adapter.(llmadapter.ConnectionTester); ok {
+		if tester, ok := adapterAs[llmadapter.ConnectionTester](adapter); ok {
+			if m, ok := adapter.(meteredAdapter); ok {
+				return m.TestConnection(ctx, secret, testRequest)
+			}
 			return tester.TestConnection(ctx, secret, testRequest)
 		}
 		_, err := adapter.Complete(ctx, secret, testRequest)
@@ -180,7 +180,7 @@ func handleProviderTest(e *Engine, ctx context.Context, request bridge.Request) 
 		if adapterErr != nil {
 			return adapterErr
 		}
-		return probeProviderModel(opCtx, adapter, secret, modelByID(p, modelID))
+		return probeProviderModel(withCallPurpose(opCtx, "diagnostic"), adapter, secret, modelByID(p, modelID))
 	})
 	dto := diagnosticResult(err, time.Since(started), testedAt)
 	return request.Ok(dto)
@@ -279,7 +279,11 @@ func (e *Engine) adapterForModel(ctx context.Context, p provider.Provider, model
 
 func (e *Engine) adapter(ctx context.Context, p provider.Provider) (llmadapter.Adapter, error) {
 	if e.adapterFactory != nil {
-		return e.adapterFactory(ctx, p)
+		created, err := e.adapterFactory(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		return e.withCallMeter(created, p.ID, string(p.Protocol), p.CredentialRef), nil
 	}
 	key := p.ID + "\x00" + p.BaseURL + "\x00" + string(p.Protocol)
 	e.adapterCacheMu.Lock()
@@ -288,7 +292,7 @@ func (e *Engine) adapter(ctx context.Context, p provider.Provider) (llmadapter.A
 	}
 	if cached, ok := e.adapterCache[key]; ok {
 		e.adapterCacheMu.Unlock()
-		return cached, nil
+		return e.withCallMeter(cached, p.ID, string(p.Protocol), p.CredentialRef), nil
 	}
 	e.adapterCacheMu.Unlock()
 	created, err := e.newProductionAdapter(ctx, p)
@@ -298,11 +302,11 @@ func (e *Engine) adapter(ctx context.Context, p provider.Provider) (llmadapter.A
 	e.adapterCacheMu.Lock()
 	if existing, ok := e.adapterCache[key]; ok {
 		e.adapterCacheMu.Unlock()
-		return existing, nil
+		return e.withCallMeter(existing, p.ID, string(p.Protocol), p.CredentialRef), nil
 	}
 	e.adapterCache[key] = created
 	e.adapterCacheMu.Unlock()
-	return created, nil
+	return e.withCallMeter(created, p.ID, string(p.Protocol), p.CredentialRef), nil
 }
 
 func (e *Engine) newProductionAdapter(ctx context.Context, p provider.Provider) (llmadapter.Adapter, error) {

@@ -6,14 +6,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 )
 
 func TestReadSourceRejectsUNCDevicesAndAlternateStreams(t *testing.T) {
 	for _, path := range []string{`\\127.0.0.1\share\file.txt`, `\\.\pipe\not-a-file`, `\\?\C:\file.txt`, `C:\file.txt:stream`} {
-		if _, err := ReadSource(path); err == nil {
+		_, err := ReadSource(path)
+		if err == nil {
 			t.Fatalf("unsupported path accepted: %s", path)
+		}
+		if !strings.Contains(err.Error(), "本地磁盘") || strings.Contains(err.Error(), "local drive file") {
+			t.Fatalf("unsupported source must stay Chinese: %s %v", path, err)
 		}
 	}
 }

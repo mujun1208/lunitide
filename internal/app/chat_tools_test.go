@@ -535,7 +535,7 @@ func TestMcpLongToolAliasSearchSchemaAndInvocation(t *testing.T) {
 		t.Fatalf("search omitted parameter schema: %s %v", raw, err)
 	}
 	args, _ := json.Marshal(map[string]any{"name": defs[0].Name, "arguments": map[string]string{"city": "合肥"}})
-	if _, err = e.callMcpToolByName(ctx, args); err != nil || calls != 1 {
+	if _, err = e.callMcpToolByName(ctx, "01ARZ3NDEKTSV4RRFFQ69G5FAV", args); err != nil || calls != 1 {
 		t.Fatalf("alias invoke: %v calls=%d", err, calls)
 	}
 }

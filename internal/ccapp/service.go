@@ -435,6 +435,15 @@ func (s *Service) ExecuteTool(ctx context.Context, session, tool string, args js
 	if len(session) < 1 || len(session) > 64 {
 		return Outcome{}, fmt.Errorf("%w: sessionId", ErrCcSchema)
 	}
+	if tool == ToolComputerAct {
+		steps, stepErr := ComputerActSteps(args)
+		if stepErr != nil {
+			return Outcome{}, stepErr
+		}
+		if len(steps) > 0 {
+			return s.executeComputerActSteps(ctx, session, steps, approved)
+		}
+	}
 	op, err := s.beginExecution(ctx)
 	if err != nil {
 		if errors.Is(err, ErrCcEmergency) {
@@ -595,6 +604,31 @@ func (s *Service) ExecuteTool(ctx context.Context, session, tool string, args js
 	}
 	out := Outcome{Tool: tool, Summary: summary, CapturePNG: capture}
 	return out, nil
+}
+
+func (s *Service) executeComputerActSteps(ctx context.Context, session string, steps []json.RawMessage, approved bool) (Outcome, error) {
+	var parts []string
+	var lastPNG []byte
+	for i, step := range steps {
+		out, err := s.ExecuteTool(ctx, session, ToolComputerAct, step, approved)
+		if err != nil {
+			if len(parts) == 0 {
+				return Outcome{}, fmt.Errorf("step %d/%d: %w", i+1, len(steps), err)
+			}
+			return Outcome{
+				Tool:       ToolComputerAct,
+				Summary:    strings.Join(parts, " | ") + fmt.Sprintf(" | step %d/%d failed", i+1, len(steps)),
+				CapturePNG: lastPNG,
+			}, fmt.Errorf("step %d/%d: %w", i+1, len(steps), err)
+		}
+		if strings.TrimSpace(out.Summary) != "" {
+			parts = append(parts, out.Summary)
+		}
+		if len(out.CapturePNG) > 0 {
+			lastPNG = out.CapturePNG
+		}
+	}
+	return Outcome{Tool: ToolComputerAct, Summary: strings.Join(parts, " | "), CapturePNG: lastPNG}, nil
 }
 
 func isCompanionProcess(process string) bool {

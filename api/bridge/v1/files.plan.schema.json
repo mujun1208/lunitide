@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/files.plan.schema.json",
+  "title": "files.plan payload",
+  "x-method": "files.plan",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "recipe": { "enum": ["classify", "weekly-report", "briefing"] },
+    "files": {
+      "type": "array",
+      "maxItems": 200,
+      "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+    },
+    "dest": { "type": "string", "maxLength": 512 },
+    "title": { "type": "string", "maxLength": 200 },
+    "notes": {
+      "type": "array",
+      "maxItems": 40,
+      "items": { "type": "string", "maxLength": 2000 }
+    },
+    "bullets": {
+      "type": "array",
+      "maxItems": 40,
+      "items": { "type": "string", "maxLength": 2000 }
+    },
+    "items": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "action": { "enum": ["mkdir", "rename", "move", "write"] },
+          "from": { "type": "string", "maxLength": 512 },
+          "to": { "type": "string", "maxLength": 512 },
+          "body": { "type": "string", "maxLength": 65536 }
+        },
+        "required": ["action"]
+      }
+    }
+  },
+  "required": ["sessionId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+      "recipe": { "type": "string", "maxLength": 64 },
+      "root": { "type": "string", "maxLength": 1024 },
+      "digest": { "type": "string", "maxLength": 128 },
+      "createdAt": { "type": "string" },
+      "items": {
+        "type": "array",
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string", "maxLength": 64 },
+            "action": { "enum": ["mkdir", "rename", "move", "write"] },
+            "from": { "type": "string", "maxLength": 512 },
+            "to": { "type": "string", "maxLength": 512 },
+            "sourceDigest": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "required": ["id", "action"]
+        }
+      }
+    },
+    "required": ["id", "root", "digest", "items"]
+  },
+  "x-examples": {
+    "positive": [
+      { "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "recipe": "classify", "files": ["a.pdf"] }
+    ],
+    "negative": [
+      { "unexpected": true },
+      { "recipe": "classify" },
+      { "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "items": [{ "action": "move", "from": "a.pdf", "to": "pdf/a.pdf", "sourceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }] }
+    ]
+  }
+}

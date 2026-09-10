@@ -1,4 +1,4 @@
-import { startMeetingAudioRecorder } from './meetingAudio'
+import { ASR_INTERRUPTED_NOTICE, startMeetingAudioRecorder } from './meetingAudio'
 import { BridgeClientError } from '../bridge/client'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -129,6 +129,12 @@ describe('MeetingPage', () => {
     speech.onFinal = undefined
     speech.onInterim = undefined
     speech.onError = undefined
+  })
+
+  test('does not show raw English meeting list failures', async () => {
+    render(<MeetingPage meetings={bridge({ list: vi.fn().mockRejectedValue(new Error('Failed to fetch')) })} />)
+    expect(await screen.findByText('无法读取会议记录')).toBeInTheDocument()
+    expect(screen.queryByText('Failed to fetch')).toBeNull()
   })
 
   test('capture startup resolved after page exit is immediately released', async () => {
@@ -737,6 +743,27 @@ describe('MeetingPage', () => {
     expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
     expect(meetings.stop).not.toHaveBeenCalled()
     expect(screen.getByRole('status')).toHaveTextContent(/本地语音识别中断/)
+  })
+
+  test('does not leak raw English speech or save failures', async () => {
+    const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0 }
+    const meetings = bridge({ start: vi.fn().mockResolvedValue(started), stop: vi.fn() })
+    speech.start.mockRejectedValue(new Error('Failed to fetch'))
+    vi.mocked(startMeetingAudioRecorder).mockResolvedValueOnce({
+      stop: vi.fn().mockRejectedValue(new Error('Failed to fetch')),
+      flush: vi.fn().mockResolvedValue(undefined),
+      attachExtraStream: vi.fn(),
+    })
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={meetings} />)
+    await user.click(await screen.findByRole('button', { name: '开始录制' }))
+    expect(await screen.findByRole('button', { name: '停止' })).toBeInTheDocument()
+    expect(await screen.findByRole('status')).toHaveTextContent(ASR_INTERRUPTED_NOTICE)
+    expect(screen.queryByText('Failed to fetch')).toBeNull()
+    speech.start.mockResolvedValue(speech.handle())
+    await user.click(screen.getByRole('button', { name: '停止' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('无法写入本机录音')
+    expect(screen.queryByText('Failed to fetch')).toBeNull()
   })
 
   test('ASR end does not call meetings.stop; only 停止 does', async () => {

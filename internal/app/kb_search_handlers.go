@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -74,7 +75,22 @@ func handleExpertKnowledgeGet(e *Engine, ctx context.Context, r bridge.Request) 
 	if err != nil {
 		return m8SliceFailure(r, err)
 	}
-	return r.Ok(res)
+	return r.Ok(localizeKnowledgeStats(res))
+}
+
+func localizeKnowledgeStats(stats m8app.KnowledgeStats) m8app.KnowledgeStats {
+	for i := range stats.Sources {
+		stats.Sources[i] = localizeKBSource(stats.Sources[i])
+	}
+	return stats
+}
+
+func localizeKBSource(src m8app.KBSource) m8app.KBSource {
+	src.Error = localizeStoredKBFailReason(src.Error)
+	for i := range src.Versions {
+		src.Versions[i].Error = localizeStoredKBFailReason(src.Versions[i].Error)
+	}
+	return src
 }
 
 func handleExpertKnowledgeIngest(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -106,11 +122,39 @@ func handleExpertKnowledgeIngest(e *Engine, ctx context.Context, r bridge.Reques
 			row["preview"] = d.Preview
 		}
 		if strings.TrimSpace(d.FailReason) != "" {
-			row["failReason"] = d.FailReason
+			row["failReason"] = localizeStoredKBFailReason(d.FailReason)
 		}
 		docs = append(docs, row)
 	}
-	return r.Ok(map[string]any{"collectionId": res.CollectionID, "documents": docs, "source": res.Source})
+	return r.Ok(map[string]any{"collectionId": res.CollectionID, "documents": docs, "source": localizeKBSource(res.Source)})
+}
+
+func handleExpertKnowledgeDelete(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		ExpertID         string `json:"expertId"`
+		SourceID         string `json:"sourceId"`
+		ExpectedRevision int64  `json:"expectedRevision"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ExpertID) || !validCanonicalULID(p.SourceID) {
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "expert.knowledge.delete 参数无效", false)
+	}
+	if e.m8kb == nil {
+		return r.Fail("STORAGE_UNAVAILABLE", "知识库服务暂时不可用", true)
+	}
+	coll, err := e.m8kb.EnsureExpertCollection(ctx, p.ExpertID)
+	if err != nil {
+		return m8SliceFailure(r, err)
+	}
+	if err := e.m8kb.DeleteLocalSource(ctx, m8app.KBDeleteSourceInput{
+		CollectionID: coll.CollectionID, SourceID: p.SourceID, ExpectedRevision: p.ExpectedRevision,
+	}); err != nil {
+		return m8SliceFailure(r, err)
+	}
+	return r.Ok(map[string]any{
+		"sourceId": p.SourceID,
+		"state":    "failed",
+		"error":    localizeStoredKBFailReason("tombstone:deleted"),
+	})
 }
 
 func handleExpertGrowthGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -157,32 +201,56 @@ func handleExpertGrowthGet(e *Engine, ctx context.Context, r bridge.Request) bri
 	return r.Ok(out)
 }
 
-// doctextProjector decodes a DOCX/PPTX/XLSX/PDF content_ref to its text layer
-// then splits it into searchable chunks. A scanned or unsupported binary fails
-// closed with an honest reason so the version parks at failed rather than
-// indexing garbage bytes.
-func doctextProjector(ctx context.Context, doc m8core.KBDocument) ([]m8core.KBChunk, error) {
+// kbDocumentProjector decodes a DOCX/PPTX/XLSX/PDF content_ref to its text
+// layer then splits it into searchable chunks. A scanned or unsupported
+// binary fails closed so the version parks at failed rather than indexing
+// garbage bytes.
+func (e *Engine) kbDocumentProjector(ctx context.Context, doc m8core.KBDocument) ([]m8core.KBChunk, error) {
+	return projectKBDocument(ctx, e, doc)
+}
+
+func projectKBDocument(ctx context.Context, e *Engine, doc m8core.KBDocument) ([]m8core.KBChunk, error) {
 	ref := strings.TrimSpace(doc.ContentRef)
 	if ref == "" || !filepath.IsAbs(ref) {
-		return nil, fmt.Errorf("%w: content_ref must be an absolute path", m8app.ErrKBIndexFailed)
+		return nil, fmt.Errorf("%w: 内容路径必须是绝对路径", m8app.ErrKBIndexFailed)
 	}
 	raw, err := doctext.ReadSource(ref)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", m8app.ErrKBIndexFailed, err)
 	}
 	if m8app.SourceDigest(raw) != doc.SHA256 {
-		return nil, fmt.Errorf("%w: source digest changed", m8app.ErrKBIndexFailed)
+		return nil, fmt.Errorf("%w: 源文件在入库后已被修改", m8app.ErrKBIndexFailed)
 	}
-	extracted, xerr := doctext.ExtractContext(ctx, ref, raw, doc.MediaType)
-	if xerr != nil {
-		return nil, fmt.Errorf("%w: %s", m8app.ErrKBIndexFailed, ingestFailReason(xerr))
+	text, media := "", "text/plain"
+	if e != nil && e.ocr != nil {
+		got, ocrErr := e.ocr.RecognizeDocument(ctx, ref, raw, doc.MediaType)
+		if ocrErr != nil {
+			return nil, fmt.Errorf("%w: %s", m8app.ErrKBIndexFailed, ingestFailReason(ocrErr))
+		}
+		if !got.Complete {
+			return nil, fmt.Errorf("%w: %w", m8app.ErrKBIndexFailed, errOCRCoverageIncomplete)
+		}
+		text = got.Text
+	} else {
+		extracted, xerr := doctext.ExtractContext(ctx, ref, raw, doc.MediaType)
+		if xerr != nil {
+			return nil, fmt.Errorf("%w: %s", m8app.ErrKBIndexFailed, ingestFailReason(xerr))
+		}
+		if looksLikePDFSource(ref, doc.MediaType, raw) && !pdfTextLayerComplete("pdf", raw, nil) {
+			return nil, fmt.Errorf("%w: %w", m8app.ErrKBIndexFailed, errOCRCoverageIncomplete)
+		}
+		text, media = extracted.Text, extracted.Media
 	}
-	parts := m8app.SplitSearchableParts(extracted.Media, strings.TrimSpace(extracted.Text))
+	parts := m8app.SplitSearchableParts(media, strings.TrimSpace(text))
 	if len(parts) == 0 {
-		return nil, fmt.Errorf("%w: no non-empty chunks", m8app.ErrKBIndexFailed)
+		return nil, fmt.Errorf("%w: 没有可检索的正文", m8app.ErrKBIndexFailed)
 	}
 	if len(parts) > m8core.MaxKBChunksPerVersion {
-		return nil, fmt.Errorf("%w: chunk count %d exceeds cap", m8app.ErrKBIndexFailed, len(parts))
+		return nil, fmt.Errorf("%w: 分块数量超过上限", m8app.ErrKBIndexFailed)
 	}
 	return m8app.ChunksFromParts(doc, parts)
+}
+
+func looksLikePDFSource(ref, media string, raw []byte) bool {
+	return strings.HasSuffix(strings.ToLower(ref), ".pdf") || strings.Contains(strings.ToLower(media), "pdf") || bytes.HasPrefix(raw, []byte("%PDF-"))
 }

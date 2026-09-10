@@ -419,6 +419,60 @@ func TestOfficeFailureMapsBusySeparatelyFromVersionConflict(t *testing.T) {
 	if conflict.OK || conflict.Error == nil || conflict.Error.Code != "OFFICE_VERSION_CONFLICT" || conflict.Error.Retryable {
 		t.Fatalf("conflict: %+v", conflict)
 	}
+	if strings.Contains(conflict.Error.Message, "OFFICE_") || !officeUserMessageHasHan(conflict.Error.Message) {
+		t.Fatalf("conflict message leaked sentinel: %q", conflict.Error.Message)
+	}
+}
+
+func TestOfficeFailureUserMessagesAreChinese(t *testing.T) {
+	r := bridge.Request{ID: "req-office-zh", Method: "office.task.get"}
+	cases := []struct {
+		name string
+		err  error
+		code string
+	}{
+		{"not_found", domain.ErrNotFound, "OFFICE_NOT_FOUND"},
+		{"quota", domain.ErrStorageQuota, "OFFICE_STORAGE_QUOTA"},
+		{"lease", domain.ErrBlobLease, "OFFICE_BLOB_LEASE_EXPIRED"},
+		{"scope", domain.ErrScope, "OFFICE_SCOPE_MISMATCH"},
+		{"invalid", domain.ErrInvalid, "BRIDGE_SCHEMA_INVALID"},
+		{"cancelled", context.Canceled, "OFFICE_CANCELLED"},
+		{"timeout", context.DeadlineExceeded, "OFFICE_TIMEOUT"},
+	}
+	for _, tc := range cases {
+		got := officeFailure(r, tc.err)
+		if got.OK || got.Error == nil || got.Error.Code != tc.code {
+			t.Fatalf("%s: %+v", tc.name, got)
+		}
+		if strings.Contains(got.Error.Message, "OFFICE_") || !officeUserMessageHasHan(got.Error.Message) {
+			t.Fatalf("%s leaked %q", tc.name, got.Error.Message)
+		}
+	}
+}
+
+func TestOfficeFailureKeepsChineseOfficeAppMessage(t *testing.T) {
+	r := bridge.Request{ID: "req-keep", Method: "office.task.sync"}
+	got := officeFailure(r, errors.New("办公受管目录已改变，停止文件写入与清理"))
+	if got.Error == nil || got.Error.Message != "办公受管目录已改变，停止文件写入与清理" {
+		t.Fatalf("lost officeapp Chinese: %+v", got)
+	}
+}
+
+func TestOfficeFailureEnglishFallbackIsChinese(t *testing.T) {
+	r := bridge.Request{ID: "req-en", Method: "office.task.sync"}
+	got := officeFailure(r, errors.New("office store does not support durable recovery"))
+	if got.Error == nil || strings.Contains(got.Error.Message, "office store") || !officeUserMessageHasHan(got.Error.Message) {
+		t.Fatalf("english leaked: %+v", got)
+	}
+}
+
+func officeUserMessageHasHan(s string) bool {
+	for _, r := range s {
+		if r >= 0x4e00 && r <= 0x9fff {
+			return true
+		}
+	}
+	return false
 }
 
 func TestOfficeTaskSyncBusyIsRetryableNotVersionConflict(t *testing.T) {

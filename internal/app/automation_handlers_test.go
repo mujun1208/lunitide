@@ -140,6 +140,30 @@ func TestAutomationJobSetAcceptsAtAndIsolated(t *testing.T) {
 	}
 }
 
+func TestAutomationJobSetPersistsTypedTrigger(t *testing.T) {
+	e, s, _ := newAutomationEngine(t)
+	payload := `{"name":"材料变更","cron":"0 0 1 1 *","prompt":"核对材料","providerId":"01ARZ3NDEKTSV4RRFFQ69G5FAE","modelId":"gpt-test","sessionId":"01ARZ3NDEKTSV4RRFFQ69G5FAF","triggerKind":"file_set_changed","triggerSpec":"inbox","enabled":true}`
+	created := e.Handle(context.Background(), automationRequest("automation.job.set", payload))
+	if !created.OK {
+		t.Fatalf("typed trigger create failed: %+v", created)
+	}
+	listed := e.Handle(context.Background(), automationRequest("automation.job.list", "{}"))
+	raw := string(mustJSON(listed.Payload))
+	if !strings.Contains(raw, `"triggerKind":"file_set_changed"`) || !strings.Contains(raw, `"triggerSpec":"inbox"`) {
+		t.Fatalf("list dropped typed trigger: %s", raw)
+	}
+	var createdPayload struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(mustJSON(created.Payload), &createdPayload); err != nil {
+		t.Fatal(err)
+	}
+	job, ok, err := s.Store().GetJob(createdPayload.ID)
+	if err != nil || !ok || job.TriggerKind != scheduler.TriggerFileSetChanged || job.TriggerSpec != "inbox" {
+		t.Fatalf("store dropped typed trigger: %+v %v %v", job, ok, err)
+	}
+}
+
 func TestAutomationChatStartPayloadBoundVsIsolated(t *testing.T) {
 	job := scheduler.Job{
 		ProviderID:    "01ARZ3NDEKTSV4RRFFQ69G5FAE",
@@ -149,21 +173,26 @@ func TestAutomationChatStartPayloadBoundVsIsolated(t *testing.T) {
 		ExecutionMode: "full-access",
 		SessionMode:   "bound",
 	}
-	bound := automationChatStartPayload(job, "01ARZ3NDEKTSV4RRFFQ69G5FZZ")
+	bound := automationChatStartPayload(job, "01ARZ3NDEKTSV4RRFFQ69G5FZZ", false)
 	if bound["sessionId"] != job.SessionID {
 		t.Fatalf("bound used isolated id: %#v", bound)
 	}
 	job.SessionMode = "isolated"
-	fresh := automationChatStartPayload(job, "01ARZ3NDEKTSV4RRFFQ69G5FZZ")
+	fresh := automationChatStartPayload(job, "01ARZ3NDEKTSV4RRFFQ69G5FZZ", false)
 	if fresh["sessionId"] != "01ARZ3NDEKTSV4RRFFQ69G5FZZ" {
 		t.Fatalf("isolated+id want new session, got %#v", fresh)
 	}
 	if _, ok := fresh["messages"]; !ok {
 		t.Fatal("isolated payload dropped messages")
 	}
-	fallback := automationChatStartPayload(job, "")
+	fallback := automationChatStartPayload(job, "", false)
 	if _, ok := fallback["sessionId"]; ok {
 		t.Fatalf("isolated without session should omit sessionId: %#v", fallback)
+	}
+	recovered := automationChatStartPayload(job, "01ARZ3NDEKTSV4RRFFQ69G5FZZ", true)
+	msgs, _ := recovered["messages"].([]map[string]string)
+	if len(msgs) != 1 || msgs[0]["content"] == job.Prompt {
+		t.Fatalf("classified recover must not resubmit the original prompt: %#v", recovered)
 	}
 }
 
@@ -189,6 +218,114 @@ func (f *fakeAutomationSessions) Get(_ context.Context, id string) (session.Sess
 		return f.bound, nil
 	}
 	return session.Session{}, errors.New("missing")
+}
+
+func TestIsolatedDispatchReusesSession(t *testing.T) {
+	e := NewEngine(nil, "test")
+	bound := session.Session{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAF", ProjectID: "01ARZ3NDEKTSV4RRFFQ69G5FAE", Title: "主聊天"}
+	fake := &fakeAutomationSessions{bound: bound}
+	e.sessions = fake
+	first := e.isolatedAutomationSession(context.Background(), bound.ID)
+	rememberIsolatedDispatch("job:run", first)
+	second, ok := lookupIsolatedDispatch("job:run")
+	if !ok || second != first {
+		t.Fatalf("dispatch reuse %q %v", second, ok)
+	}
+}
+
+func TestIsolatedSessionForRunReusesBoundSessionWithoutCreating(t *testing.T) {
+	e := NewEngine(nil, "test")
+	bound := session.Session{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAF", ProjectID: "01ARZ3NDEKTSV4RRFFQ69G5FAE", Title: "主聊天"}
+	fake := &fakeAutomationSessions{bound: bound}
+	e.sessions = fake
+	job := scheduler.Job{SessionID: bound.ID, SessionMode: "isolated"}
+	existing := "01ARZ3NDEKTSV4RRFFQ69G5FZZ"
+	got := e.isolatedSessionForRun(context.Background(), job, scheduler.RunContext{
+		RunID: "01ARZ3NDEKTSV4RRFFQ69G5FRN", SessionID: existing, DispatchKey: "job:run", Recover: true,
+	})
+	if got != existing || len(fake.created) != 0 {
+		t.Fatalf("recover created a second session: got=%q created=%d", got, len(fake.created))
+	}
+}
+
+func TestIsolatedSessionForRunReusesPersistedSessionAfterCacheMiss(t *testing.T) {
+	store, err := scheduler.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := scheduler.Job{
+		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAX", Name: "简报", Cron: "0 9 * * *", Prompt: "生成简报",
+		ProviderID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", ModelID: "gpt-test",
+		SessionID: "01ARZ3NDEKTSV4RRFFQ69G5FAW", SessionMode: "isolated", Enabled: true,
+	}
+	if err := store.PutJob(job); err != nil {
+		t.Fatal(err)
+	}
+	runID := "01ARZ3NDEKTSV4RRFFQ69G5FRN"
+	if err := store.AppendRun(scheduler.Run{
+		ID: runID, JobID: job.ID, JobName: job.Name, SessionID: job.SessionID,
+		State: scheduler.RunRunning, Trigger: "cron", StartedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e := NewEngine(nil, "test")
+	e.SetAutomationScheduler(scheduler.New(store, nil, nil))
+	bound := session.Session{ID: job.SessionID, ProjectID: "01ARZ3NDEKTSV4RRFFQ69G5FAE", Title: "主聊天"}
+	fake := &fakeAutomationSessions{bound: bound}
+	e.sessions = fake
+	key := job.ID + ":" + runID
+	first := e.isolatedSessionForRun(context.Background(), job, scheduler.RunContext{
+		RunID: runID, SessionID: job.SessionID, DispatchKey: key,
+	})
+	if first == "" || first == job.SessionID {
+		t.Fatalf("expected isolated session, got %q", first)
+	}
+	e.bindIsolatedRunSession(runID, first)
+	isolatedDispatch.Delete(key)
+	second := e.isolatedSessionForRun(context.Background(), job, scheduler.RunContext{
+		RunID: runID, SessionID: job.SessionID, DispatchKey: key,
+	})
+	if second != first || len(fake.created) != 1 {
+		t.Fatalf("same dispatch created a second session: first=%q second=%q created=%d", first, second, len(fake.created))
+	}
+}
+
+func TestIsolatedHeadlessBindsSessionToRunningRun(t *testing.T) {
+	store, err := scheduler.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := scheduler.Job{
+		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAX", Name: "简报", Cron: "0 9 * * *", Prompt: "生成简报",
+		ProviderID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", ModelID: "gpt-test",
+		SessionID: "01ARZ3NDEKTSV4RRFFQ69G5FAW", SessionMode: "isolated", Enabled: true,
+	}
+	if err := store.PutJob(job); err != nil {
+		t.Fatal(err)
+	}
+	runID := "01ARZ3NDEKTSV4RRFFQ69G5FRN"
+	if err := store.AppendRun(scheduler.Run{
+		ID: runID, JobID: job.ID, JobName: job.Name, SessionID: job.SessionID,
+		State: scheduler.RunRunning, Trigger: "manual", StartedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e := NewEngine(nil, "test")
+	e.SetAutomationScheduler(scheduler.New(store, nil, nil))
+	bound := session.Session{ID: job.SessionID, ProjectID: "01ARZ3NDEKTSV4RRFFQ69G5FAE", Title: "主聊天"}
+	fake := &fakeAutomationSessions{bound: bound}
+	e.sessions = fake
+	isolated := e.isolatedSessionForRun(context.Background(), job, scheduler.RunContext{
+		RunID: runID, SessionID: job.SessionID, DispatchKey: job.ID + ":" + runID,
+	})
+	if isolated == "" || isolated == job.SessionID {
+		t.Fatalf("expected new isolated session, got %q", isolated)
+	}
+	e.bindIsolatedRunSession(runID, isolated)
+	latest, err := store.LatestRuns(job.ID)
+	if err != nil || len(latest) == 0 || latest[0].SessionID != isolated {
+		t.Fatalf("running run session not bound: %+v %v", latest, err)
+	}
 }
 
 func TestIsolatedAutomationSessionCreatesHiddenChat(t *testing.T) {
@@ -222,6 +359,36 @@ func TestAutomationJobListFeatureDisabled(t *testing.T) {
 	resp := e.Handle(context.Background(), automationRequest("automation.job.list", "{}"))
 	if resp.OK || resp.Error == nil || resp.Error.Code != "FEATURE_DISABLED" {
 		t.Fatalf("expected FEATURE_DISABLED: %+v", resp)
+	}
+}
+
+func TestAutomationRunListLocalizesEnglishError(t *testing.T) {
+	e, sched, _ := newAutomationEngine(t)
+	if err := sched.Store().AppendRun(scheduler.Run{
+		ID: ulid.Make().String(), JobID: "01ARZ3NDEKTSV4RRFFQ69G5FAQ", JobName: "简报",
+		State: scheduler.RunFailed, Trigger: "manual", Error: "context deadline exceeded",
+		StartedAt: time.Now().UTC(), FinishedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp := e.Handle(context.Background(), automationRequest("automation.run.list", `{"limit":10}`))
+	if !resp.OK {
+		t.Fatalf("run list failed: %+v", resp)
+	}
+	var payload struct {
+		Runs []struct {
+			Error string `json:"error"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal(mustJSON(resp.Payload), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Runs) != 1 {
+		t.Fatalf("runs=%d", len(payload.Runs))
+	}
+	got := payload.Runs[0].Error
+	if strings.Contains(got, "context deadline") || strings.Contains(got, "exceeded") || !strings.Contains(got, "超时") {
+		t.Fatalf("run error must stay Chinese, got %q", got)
 	}
 }
 

@@ -16,3 +16,24 @@ func TokenEfficiencyEnabled() bool {
 		return true
 	}
 }
+
+// TokenEfficiencyScope is the user-visible contract for the process switch.
+// It only covers reversible request JSON compacting and exact evidence
+// dedup. Independent summaries, provider caches, and call metering stay on.
+type TokenEfficiencyScope struct {
+	RequestJSONCompact bool
+	EvidenceDedup      bool
+	IndependentSummary bool
+	ProviderCache      bool
+	Metering           bool
+	AppliesTo          string
+}
+
+func CurrentTokenEfficiencyScope() TokenEfficiencyScope {
+	on := TokenEfficiencyEnabled()
+	return TokenEfficiencyScope{
+		RequestJSONCompact: on,
+		EvidenceDedup:      on,
+		AppliesTo:          "process_restart",
+	}
+}

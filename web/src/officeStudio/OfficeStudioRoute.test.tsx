@@ -103,6 +103,23 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+it('does not show raw English conversation bind failures', async () => {
+  const props = fixtures();
+  vi.mocked(props.projects.list).mockRejectedValue(new Error('Failed to fetch'));
+  localStorage.setItem('lunitide:office-studio:last-task', detail.task.id);
+  render(<OfficeStudioRoute {...props} initialTaskId={detail.task.id} />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('原对话加载失败。');
+  expect(screen.queryByText('Failed to fetch')).toBeNull();
+});
+
+it('leaves FEATURE_DISABLED inspect text on the conversation bind', async () => {
+  const props = fixtures();
+  vi.mocked(props.projects.list).mockRejectedValue(new Error('FEATURE_DISABLED: office inspect unavailable'));
+  localStorage.setItem('lunitide:office-studio:last-task', detail.task.id);
+  render(<OfficeStudioRoute {...props} initialTaskId={detail.task.id} />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('FEATURE_DISABLED: office inspect unavailable');
+});
+
 it('opens exactly the bound project/session and never creates a replacement conversation', async () => {
   const props = fixtures();
   expect(await resolveOfficeBinding(detail.task, props.projects, props.sessions)).toEqual({

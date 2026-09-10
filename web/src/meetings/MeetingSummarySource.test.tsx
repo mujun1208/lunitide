@@ -13,6 +13,14 @@ const meeting: MeetingDTO = {
 }
 const page: MeetingsSummarySourceGetResult = { meetingId: meeting.meetingId, sourceRevision: 2, sourceDigest, title: '生成时标题', transcript: '此前的原稿', offset: 0, nextOffset: 16_384, totalRunes: 16_390 }
 
+test('does not show raw English summary source load failures', async () => {
+  const load = vi.fn().mockRejectedValue(new Error('Failed to fetch'))
+  render(<MeetingSummarySource meeting={meeting} load={load} />)
+  await userEvent.click(screen.getByRole('button', { name: '查看摘要所用原稿' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('无法读取摘要来源，请重试。')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 test('unknown source is explicit and cannot invent a source snapshot', () => {
   const load = vi.fn()
   render(<MeetingSummarySource meeting={{ ...meeting, summarySourceRevision: 0, summarySourceDigest: undefined }} load={load} />)

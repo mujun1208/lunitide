@@ -14,7 +14,7 @@ import { AutomationCreateDialog, draftFromTemplate, type AutomationDraft } from 
 import {AutomationStopButton,localAutomationTimezone} from './AutomationRunControls'
 import { AUTOMATION_TEMPLATES, cronToHuman, type AutomationTemplate } from './automationTemplates'
 import { ensureAutomationRunner, loadDefaultModel } from './ensureAutomationRunner'
-import { AutomationRunDetail, automationRunLabel, schedulerStatusLabel } from './automationRunPresentation'
+import { AutomationRunDetail, automationRunLabel, automationUserError, schedulerStatusLabel } from './automationRunPresentation'
 
 type Job = AutomationJobListResult['jobs'][number]
 type Run = AutomationRunListResult['runs'][number]
@@ -150,7 +150,7 @@ export function AutomationCenterPage({
     const poll = async () => {
       let running = false
       try { running = (await reload()) === true }
-      catch (e) { if (alive) { setLoading(false); setNotice(e instanceof Error ? e.message : '自动化刷新失败') } }
+      catch (e) { if (alive) { setLoading(false); setNotice(automationUserError(e, '自动化刷新失败')) } }
       if (alive) timer = setTimeout(() => void poll(), running ? 3_000 : 15_000)
     }
     void poll()
@@ -231,7 +231,7 @@ export function AutomationCenterPage({
       })
     } catch (e) {
       if (operationScope !== scope.current) return
-      setNotice(e instanceof Error ? e.message : '保存失败')
+      setNotice(automationUserError(e, '保存失败'))
     } finally {
       if (operationScope === scope.current) {
         busyRef.current = false
@@ -254,11 +254,11 @@ export function AutomationCenterPage({
       if (refreshTimer.current !== undefined) clearTimeout(refreshTimer.current)
       refreshTimer.current = setTimeout(() => {
         if (operationScope !== scope.current) return
-        void reload().catch((e) => { if(operationScope === scope.current) setNotice(e instanceof Error ? e.message : '自动化刷新失败') })
+        void reload().catch((e) => { if(operationScope === scope.current) setNotice(automationUserError(e, '自动化刷新失败')) })
       }, 800)
     } catch (e) {
       if (operationScope !== scope.current) return
-      setNotice(e instanceof Error ? e.message : '触发失败')
+      setNotice(automationUserError(e, '触发失败'))
     } finally {
       if (operationScope === scope.current) {
         busyRef.current = false
@@ -293,7 +293,7 @@ export function AutomationCenterPage({
       if (operationScope !== scope.current) return
     } catch (e) {
       if (operationScope !== scope.current) return
-      setNotice(e instanceof Error ? e.message : '更新失败')
+      setNotice(automationUserError(e, '更新失败'))
     } finally {
       if (operationScope === scope.current) {
         busyRef.current = false
@@ -315,7 +315,7 @@ export function AutomationCenterPage({
       setNotice('任务已删除')
     } catch (e) {
       if (operationScope !== scope.current) return
-      setNotice(e instanceof Error ? e.message : '删除失败')
+      setNotice(automationUserError(e, '删除失败'))
     } finally {
       if (operationScope === scope.current) {
         busyRef.current = false
@@ -447,7 +447,7 @@ export function AutomationCenterPage({
                   </button>
                   {openRun === run.id && (
                     <><AutomationStopButton run={run} bridge={bridge} onRequested={reload}/><AutomationRunDetail run={run} onOpenSession={onOpenSession ? id => {
-                      void Promise.resolve().then(() => onOpenSession(id)).catch(e => setNotice(e instanceof Error ? e.message : '执行对话打开失败'))
+                      void Promise.resolve().then(() => onOpenSession(id)).catch(e => setNotice(automationUserError(e, '执行对话打开失败')))
                     } : undefined} /></>
                   )}
                 </li>

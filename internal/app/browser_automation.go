@@ -190,7 +190,7 @@ func (e *Engine) invokeBrowserActViaPlaywright(ctx context.Context, call browser
 	// can invalidate the exact ref the model was just given. Each successful
 	// mutation already returns its same-endpoint follow-up snapshot.
 	raw, _ := json.Marshal(args)
-	out, err := e.invokeMcpTool(ctx, endpointID, tool, raw)
+	out, err := e.invokeMcpTool(ctx, receiptSession(ctx, ""), endpointID, tool, raw)
 	if err != nil {
 		return toolruntime.Result{}, err
 	}

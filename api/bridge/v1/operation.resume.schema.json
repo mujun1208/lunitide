@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/operation.resume.schema.json",
+  "title": "operation.resume payload",
+  "x-method": "operation.resume",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "operationId": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "expectedVersion": { "type": "integer", "minimum": 1 }
+  },
+  "required": ["sessionId", "operationId", "expectedVersion"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+      "sessionId": { "type": "string", "maxLength": 64 },
+      "turnId": { "type": "string", "maxLength": 64 },
+      "toolName": { "type": "string", "minLength": 1, "maxLength": 128 },
+      "effectClass": { "type": "string", "maxLength": 64 },
+      "state": { "type": "string", "maxLength": 32 },
+      "expectedVersion": { "type": "integer", "minimum": 1 },
+      "attempt": { "type": "integer", "minimum": 1 },
+      "errorKind": { "type": "string", "maxLength": 64 },
+      "externalId": { "type": "string", "maxLength": 256 },
+      "resumeAction": { "enum": ["show_existing", "reread", "compare_and_continue", "query_existing", "verify_unknown", "reobserve", "keep_stopped"] },
+      "resumeHint": { "type": "string", "maxLength": 200 },
+      "executed": { "type": "boolean" }
+    },
+    "required": ["id", "toolName", "effectClass", "state", "expectedVersion", "attempt", "resumeAction", "resumeHint", "executed"]
+  },
+  "x-examples": {
+    "positive": [
+      { "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "expectedVersion": 1 }
+    ],
+    "negative": [
+      { "unexpected": true },
+      { "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }
+    ]
+  }
+}

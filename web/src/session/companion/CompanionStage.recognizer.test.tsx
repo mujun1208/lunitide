@@ -103,6 +103,7 @@ vi.mock('./ttsPlayer', () => ({
   },
 }))
 
+import { BridgeClientError } from '../../bridge/client'
 import { CompanionStage, type CompanionStageProps } from './CompanionStage'
 import { LOCAL_ASR_DECISION_MS } from './localAsr'
 import { applyVoicePath, defaultCompanionSettings, saveCompanionSettings } from './companionSettings'
@@ -186,6 +187,27 @@ test('does not arm the hands-free loop when full duplex is off', async () => {
   await flush(LOCAL_ASR_DECISION_MS + 50)
   expect(recognizers.cloud).toHaveBeenCalled()
   expect(utils.container.querySelector('.companion-stage')?.getAttribute('data-hands-free')).toBe('false')
+  utils.unmount()
+})
+
+test('does not show raw English transport errors on the localError banner', async () => {
+  const utils = render(<CompanionStage {...baseProps} />)
+  await flush(LOCAL_ASR_DECISION_MS + 50)
+  const options = recognizers.cloud.mock.calls[0][0] as { onError: (issue: BridgeClientError) => void }
+  await act(async () => {
+    options.onError(new BridgeClientError('Failed to fetch', 'SPEECH_RECOGNITION_FAILED', false, 'renderer'))
+  })
+  expect(utils.container.textContent).toContain('识别中断，请再说一遍')
+  expect(utils.container.textContent).toContain('SPEECH_RECOGNITION_FAILED')
+  expect(utils.container.textContent).not.toContain('Failed to fetch')
+  await act(async () => {
+    options.onError(new BridgeClientError('sidecar exited', 'SPEECH_RECOGNITION_UNAVAILABLE', false, 'renderer'))
+  })
+  expect(utils.container.textContent).toContain('sidecar exited')
+  await act(async () => {
+    options.onError(new BridgeClientError('barge', 'TALK_BARGE', true, 'talk'))
+  })
+  expect(utils.container.textContent).not.toContain('barge')
   utils.unmount()
 })
 

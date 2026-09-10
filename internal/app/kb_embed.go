@@ -37,15 +37,15 @@ func (e *Engine) embedKBTexts(ctx context.Context, texts []string) ([][]float32,
 		}
 		var out [][]float32
 		leaseErr := e.withProviderLease(ctx, entry.Provider, secretlease.OperationProviderTest, func(op context.Context, secret []byte) error {
+			op = withCallPurpose(op, "embed")
 			a, adapterErr := e.adapter(op, entry.Provider)
 			if adapterErr != nil {
 				return adapterErr
 			}
-			emb, ok := a.(llmadapter.Embedder)
-			if !ok {
+			if _, ok := adapterAs[llmadapter.Embedder](a); !ok {
 				return errKBEmbedUnavailable
 			}
-			vecs, embedErr := emb.Embed(op, secret, entry.Model.ModelID, texts)
+			vecs, embedErr := embedThrough(op, a, secret, entry.Model.ModelID, texts)
 			if embedErr != nil {
 				return embedErr
 			}

@@ -35,13 +35,26 @@ export function refPreviewStatus(error: unknown): string {
   if (error instanceof BridgeClientError && error.code === 'M95-001' && /启动中/.test(error.message)) {
     return '语音引擎启动中，请稍候再试听。首次加载模型约 30-90 秒。'
   }
-  if (error instanceof Error) return `试听失败：${error.message}`
+  const detail = error instanceof Error ? error.message.trim() : ''
+  if (/[\u4e00-\u9fff]/.test(detail)) return `试听失败：${detail}`
   return '试听失败，请检查引擎配置'
+}
+
+export function refHostUserLastError(err?: string): string {
+  const raw = err?.trim() ?? ''
+  if (!raw) return ''
+  if (/jieba|dict\.txt missing/i.test(raw)) return '参考音色引擎缺少分词词典'
+  if (/launch timed out/i.test(raw)) return '参考音色引擎启动超时'
+  if (/stopped answering/i.test(raw)) return '参考音色引擎已停止响应'
+  if (/launcher exited/i.test(raw)) return '参考音色引擎在就绪前退出'
+  if (/spawn failed/i.test(raw)) return '参考音色引擎无法启动'
+  if (/[\u4e00-\u9fff]/.test(raw)) return raw
+  return '参考音色引擎未就绪'
 }
 
 export function refLaunchPollStatus(tries: number, maxTries = REF_LAUNCH_POLL_MAX, lastErr?: string): string | undefined {
   if (tries < maxTries) return undefined
-  const err = lastErr?.trim()
+  const err = refHostUserLastError(lastErr)
   return err
     ? `语音引擎超过 2 分钟仍未就绪（${err}）。请查看本机 GPT-SoVITS 窗口或改用云端晓晓。`
     : '语音引擎超过 2 分钟仍未就绪。请查看本机 GPT-SoVITS 窗口或改用云端晓晓。'
@@ -60,12 +73,12 @@ export function refEngineCaption(meta: RefMetaCaption | undefined, voiceCount = 
     return `音色 ${voiceCount} 个（GPT-SoVITS 本地克隆，引擎在线，按风格分组）`
   }
   if (meta.host_state === 'launching') {
-    const err = meta.host_last_err?.trim()
+    const err = refHostUserLastError(meta.host_last_err)
     if (err) return `引擎未就绪：${err}。可先用晓晓试听。`
     return '语音引擎启动中…（首次加载模型约 30-90 秒，就绪后 50 种音色自动可用）'
   }
   if (meta.host_script) {
-    const err = meta.host_last_err?.trim()
+    const err = refHostUserLastError(meta.host_last_err)
     if (meta.host_state === 'offline' && err) {
       return `语音引擎未就绪：${err}。已再次尝试启动，请稍候或检查 E:\\GPT-SoVITS。`
     }

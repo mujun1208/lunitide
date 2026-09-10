@@ -430,7 +430,7 @@ func skillFailure(r bridge.Request, err error) bridge.Response {
 	case errors.Is(err, skillapp.ErrExecutionForbidden):
 		return r.Fail("SKILL_EXECUTION_FORBIDDEN", "当前执行模式禁止技能执行", false)
 	case errors.Is(err, skillapp.ErrUnknownEntryPoint):
-		return r.Fail("SKILL_ENTRY_POINT_DENIED", "技能入口不在 Engine builtin allowlist", false)
+		return r.Fail("SKILL_ENTRY_POINT_DENIED", "技能入口不在引擎内置白名单", false)
 	case errors.Is(err, skillapp.ErrSkillNotFound):
 		return r.Fail("SKILL_NOT_FOUND", "技能不存在", false)
 	case errors.Is(err, skillapp.ErrSkillVersionConflict):
@@ -504,7 +504,7 @@ func handleSkillInstall(e *Engine, ctx context.Context, r bridge.Request) bridge
 		status := string(s.Status)
 		if s.Status == skill.SkillStatusDraft {
 			if perr := e.skills.Publish(ctx, s.ID); perr != nil {
-				return r.Fail("SKILL_PUBLISH_FAILED", "已安装但发布失败："+perr.Error(), true)
+				return r.Fail("SKILL_PUBLISH_FAILED", chinesePrefixedDetail("已安装但发布失败", perr.Error()), true)
 			}
 			status = string(skill.SkillStatusPublished)
 		}

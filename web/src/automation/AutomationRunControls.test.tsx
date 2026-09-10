@@ -39,6 +39,15 @@ it('ignores an old cancellation reply after the card has moved to a new run', as
   expect(refresh).not.toHaveBeenCalled()
 })
 
+it('does not show raw English stop failures', async()=>{
+  const cancelRun=vi.fn().mockRejectedValue(new Error('Failed to fetch'))
+  const bridge={cancelRun} as unknown as AutomationBridge
+  render(<AutomationStopButton run={run} bridge={bridge} onRequested={vi.fn()}/> )
+  fireEvent.click(screen.getByRole('button'))
+  expect(await screen.findByRole('status')).toHaveTextContent('停止请求失败，请重试')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('keeps a failed stop retryable and never offers cancellation for a finished occurrence', async()=>{
   const cancelRun=vi.fn().mockRejectedValueOnce(new Error('连接中断')).mockResolvedValueOnce({cancellationRequested:false})
   const bridge={cancelRun} as unknown as AutomationBridge,refresh=vi.fn()

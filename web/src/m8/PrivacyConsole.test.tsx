@@ -5,6 +5,15 @@ import { PrivacyConsole } from './PrivacyConsole'
 
 afterEach(cleanup)
 
+it('does not show raw English export failures', async () => {
+  const diagnostics = { exportDiagnostics: vi.fn().mockRejectedValue(new Error('Failed to fetch')) } as unknown as DiagnosticsBridge
+  const memory = { export: vi.fn(), purge: vi.fn() } as unknown as MemoryOpsBridge
+  render(<PrivacyConsole diagnostics={diagnostics} memory={memory} />)
+  fireEvent.click(screen.getByRole('button', { name: '导出诊断包' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('诊断包导出失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('exports a diagnostics pack through the live bridge', async () => {
   const exportDiagnostics = vi.fn().mockResolvedValue({ path: 'C:\\diag.zip', createdAt: '2026-08-19T00:00:00Z', redacted: true })
   const diagnostics = { exportDiagnostics } as unknown as DiagnosticsBridge

@@ -1,6 +1,11 @@
 import React,{useState}from'react'
 import{diagnosticsBridge,memoryOpsBridge,type DiagnosticsBridge,type MemoryOpsBridge}from'../bridge/client'
 
+function privacyUserError(err:unknown,fallback:string):string{
+ const detail=err instanceof Error?err.message.trim():''
+ return /[\u4e00-\u9fff]/.test(detail)?detail:fallback
+}
+
 export function PrivacyConsole({
  diagnostics=diagnosticsBridge,
  memory=memoryOpsBridge,
@@ -15,7 +20,7 @@ export function PrivacyConsole({
    const r=await diagnostics.exportDiagnostics({includeLogs,redactPaths})
    setExportPath(r.path)
    setNotice(`诊断包已导出：${r.path}`)
-  }catch(e){setError(e instanceof Error?e.message:'诊断包导出失败')}finally{setBusy(false)}
+  }catch(e){setError(privacyUserError(e,'诊断包导出失败'))}finally{setBusy(false)}
  }
  const exportMemory=async()=>{
   setBusy(true);setError('');setNotice('')
@@ -27,7 +32,7 @@ export function PrivacyConsole({
    a.href=url;a.download=`lunitide-memory-export-${Date.now()}.json`;a.click()
    URL.revokeObjectURL(url)
    setNotice(`已导出记忆快照：事实 ${r.facts.length} · 候选 ${r.candidates.length} · 痕迹 ${r.traces.length}`)
-  }catch(e){setError(e instanceof Error?e.message:'记忆导出失败')}finally{setBusy(false)}
+  }catch(e){setError(privacyUserError(e,'记忆导出失败'))}finally{setBusy(false)}
  }
  const purge=async()=>{
   setBusy(true);setError('');setNotice('')
@@ -35,7 +40,7 @@ export function PrivacyConsole({
    const r=await memory.purge({})
    setConfirmPurge(false)
    setNotice(`已清除本机记忆：事实 ${r.factsTombstoned} · 候选 ${r.candidates} · 记忆 ${r.memories}`)
-  }catch(e){setError(e instanceof Error?e.message:'记忆清除失败')}finally{setBusy(false)}
+  }catch(e){setError(privacyUserError(e,'记忆清除失败'))}finally{setBusy(false)}
  }
 
  return <div className="org-section" style={{marginTop:6}}>

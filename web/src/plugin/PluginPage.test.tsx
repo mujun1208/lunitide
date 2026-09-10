@@ -54,6 +54,26 @@ function api(overrides: Partial<PluginBridge> = {}): PluginBridge {
   }
 }
 
+it('does not show raw English plugin list, install or delete failures', async () => {
+  render(<PluginPage bridge={api({ list: vi.fn().mockRejectedValue(new Error('Failed to fetch')) })} />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('插件清单加载失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  cleanup()
+  const bridge = api({ toggle: vi.fn().mockRejectedValue(new Error('Failed to fetch')) })
+  render(<PluginPage bridge={bridge} />)
+  fireEvent.click(await screen.findByRole('button', { name: '启用 网页搜索' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('安装失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  cleanup()
+  const remove = api({ uninstall: vi.fn().mockRejectedValue(new Error('Failed to fetch')) })
+  render(<PluginPage bridge={remove} />)
+  fireEvent.click(await screen.findByRole('tab', { name: /已安装/ }))
+  fireEvent.click((await screen.findAllByRole('button', { name: '删除' }))[0])
+  fireEvent.click(await screen.findByRole('button', { name: '确认删除' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('删除失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('renders the plugin market and enables a catalog card', async () => {
   const bridge = api()
   render(<PluginPage bridge={bridge} />)
@@ -143,8 +163,13 @@ it('reloads unfinished operations and offers a real resume',async()=>{
  const record={spec:CAPABILITY_PACKS[0],digest:'b'.repeat(64),state:'failed',desired:'installed',version:3,error:'probe failed',createdAt:now,updatedAt:now,components:[]}
  const bridge=api({packList:vi.fn().mockResolvedValue({items:[record]}),packInstall:vi.fn().mockRejectedValue(new Error('probe failed again'))})
  render(<PluginPage bridge={bridge}/>);fireEvent.click(await screen.findByRole('tab',{name:/已安装/}))
+ expect(await screen.findByText('能力包组件探测失败')).toBeInTheDocument()
+ expect(screen.queryByText('probe failed')).toBeNull()
  fireEvent.click(await screen.findByRole('button',{name:'继续安装'}))
- await waitFor(()=>expect(bridge.packInstall).toHaveBeenCalledOnce());expect(await screen.findByRole('alert')).toHaveTextContent('probe failed again')
+ await waitFor(()=>expect(bridge.packInstall).toHaveBeenCalledOnce())
+ const alert=await screen.findByRole('alert')
+ expect(alert).toHaveTextContent('能力包组件探测失败')
+ expect(alert.textContent).not.toMatch(/probe failed/)
  expect(screen.getByRole('button',{name:'继续安装'})).toBeInTheDocument()
 })
 

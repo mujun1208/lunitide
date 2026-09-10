@@ -210,7 +210,7 @@ func projectAttachmentFailure(r bridge.Request, err error) bridge.Response {
 		return r.Fail("PROJECT_ATTACHMENT_FILE_TOO_LARGE", "项目附件超过 10 MiB 限制", false)
 	default:
 		msg := strings.TrimSpace(err.Error())
-		if msg == "" {
+		if msg == "" || !peopleUserMessageHasHan(msg) {
 			msg = "项目附件操作暂时不可用"
 		}
 		return r.Fail("STORAGE_UNAVAILABLE", msg, true)

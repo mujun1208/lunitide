@@ -3,6 +3,11 @@ import { createMutationAttempt, type DatasourceBridge, type DatasourceWriteOpera
 import { Dialog } from '../ui/Dialog'
 import { useZh } from '../i18n/language'
 
+function writeUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 export type DatasourceWriteAPI = Pick<DatasourceBridge, 'writePrepare'|'writeCommit'|'writeGet'|'writeList'>
 export function DataSourceWriteDialog({ connectionId, name, api, onClose }: {
   connectionId:string; name:string; api:DatasourceWriteAPI; onClose:()=>void
@@ -21,14 +26,14 @@ export function DataSourceWriteDialog({ connectionId, name, api, onClose }: {
     alive.current = true
     void apiRef.current.writeList({connectionId}).then(result => {
       if (alive.current) setHistory(result.items)
-    }).catch(e => { if(alive.current) setError(e instanceof Error ? e.message : 'Could not load operation history') })
+    }).catch(e => { if(alive.current) setError(writeUserError(e, zh ? '无法读取操作记录' : 'Could not load operation history')) })
     return () => { alive.current = false }
   },[connectionId])
   const perform = async (action:()=>Promise<DatasourceWriteOperation>) => {
     if(working.current) return
     working.current = true; setBusy(true); setError('')
     try { const result = await action(); if(alive.current) setOperation(result) }
-    catch(e) { if(alive.current) setError(e instanceof Error ? e.message : (zh?'操作失败':'Operation failed')) }
+    catch(e) { if(alive.current) setError(writeUserError(e, zh ? '操作失败' : 'Operation failed')) }
     finally { working.current=false; if(alive.current) setBusy(false) }
   }
   const prepare = () => perform(() => {

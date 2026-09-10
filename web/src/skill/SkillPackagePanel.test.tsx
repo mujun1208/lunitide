@@ -10,6 +10,12 @@ const listing:SkillPackageListResult={skillId:id,rootPath:'C:/Lunitide/skills/we
 const read=(path='SKILL.md',content='# 周报技能\n按照原始内容生成。'):SkillPackageReadResult=>({skillId:id,path,content,encoding:'utf8',size:30,nextOffset:30,eof:true,digest:'digest',revision:'rev-1'})
 const api=(overrides:Partial<SkillBridge>={})=>({packageList:vi.fn().mockResolvedValue(listing),packageRead:vi.fn().mockImplementation(async({path})=>read(path)),...overrides}) as unknown as SkillBridge
 
+it('does not show raw English directory load failures',async()=>{
+  render(<SkillPackagePanel skillId={id} bridge={api({packageList:vi.fn().mockRejectedValue(new Error('Failed to fetch'))})}/>)
+  expect(await screen.findByRole('alert')).toHaveTextContent('技能目录读取失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('opens real package files with the listed revision and renders content as text',async()=>{
   const bridge=api({packageRead:vi.fn().mockImplementation(async({path})=>read(path,path==='SKILL.md'?'# 周报\n<script>不执行</script>':'参考资料原文'))})
   const {container}=render(<SkillPackagePanel skillId={id} bridge={bridge}/>)

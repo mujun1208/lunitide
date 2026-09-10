@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/base64"
+	"strings"
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/attachmentapp"
@@ -128,6 +129,29 @@ func TestHandleTemplateFileStageAndCreate(t *testing.T) {
 		if string(content) != "hello-dot" {
 			t.Fatalf("stored content = %q", content)
 		}
+	}
+}
+
+func TestHandleTemplateCreateRejectsDisallowedFileTypeInChinese(t *testing.T) {
+	t.Parallel()
+	engine := &Engine{
+		assets:        &mockTemplateStore{},
+		templateFiles: &memTemplateFiles{files: map[string][]byte{}},
+	}
+	req := bridge.Request{
+		ID: ulid.Make().String(), TraceID: ulid.Make().String(),
+		Method: string(bridge.MethodTemplateCreate),
+		Payload: mustJSON(map[string]any{
+			"name": "x", "templateType": "document", "documentType": "业务蓝图文档",
+			"description": "d", "fileName": "payload.exe",
+		}),
+	}
+	resp := handleTemplateCreate(engine, context.Background(), req)
+	if resp.OK || resp.Error == nil || resp.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+		t.Fatalf("expected schema invalid, got %+v", resp)
+	}
+	if strings.Contains(resp.Error.Message, "document template") || strings.Contains(resp.Error.Message, "not allowed") || !officeUserMessageHasHan(resp.Error.Message) {
+		t.Fatalf("template.create leaked English: %q", resp.Error.Message)
 	}
 }
 

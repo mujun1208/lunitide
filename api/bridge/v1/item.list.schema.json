@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/item.list.schema.json",
+  "title": "item.list payload",
+  "x-method": "item.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string" },
+            "type": { "type": "string" },
+            "title": { "type": "string" },
+            "status": { "type": "string" },
+            "dueAt": { "type": "string" },
+            "timezone": { "type": "string" },
+            "repeatRule": { "type": "string" },
+            "amount": { "type": "string" },
+            "currency": { "type": "string" },
+            "sourceRef": { "type": "string" },
+            "updatedAt": { "type": "string" }
+          },
+          "required": ["id", "type", "title", "status"]
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "x-examples": {
+    "positive": [{}],
+    "negative": [{ "unexpected": true }]
+  }
+}

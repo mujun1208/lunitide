@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/canonpath"
@@ -72,7 +73,7 @@ func officeFailure(r bridge.Request, err error) bridge.Response {
 		code = "OFFICE_SCOPE_MISMATCH"
 		retry = false
 	case errors.Is(err, domain.ErrBusy):
-		return r.Fail("OFFICE_BUSY", "办公任务正在同步或写入，请稍后重试", true)
+		return r.Fail("OFFICE_BUSY", officeFailureMessage(err), true)
 	case errors.Is(err, domain.ErrConflict):
 		code = "OFFICE_VERSION_CONFLICT"
 		retry = false
@@ -84,7 +85,46 @@ func officeFailure(r bridge.Request, err error) bridge.Response {
 	case errors.Is(err, context.DeadlineExceeded):
 		code = "OFFICE_TIMEOUT"
 	}
-	return r.Fail(code, err.Error(), retry)
+	return r.Fail(code, officeFailureMessage(err), retry)
+}
+
+func officeFailureMessage(err error) string {
+	if err == nil {
+		return "办公操作失败，请稍后重试"
+	}
+	switch {
+	case errors.Is(err, domain.ErrStorageQuota):
+		return "办公存储配额已满，现有文件未覆盖"
+	case errors.Is(err, domain.ErrBlobLease):
+		return "办公文件租约已过期，请重新打开后再试"
+	case errors.Is(err, domain.ErrNotFound):
+		return "办公文件或任务不存在"
+	case errors.Is(err, domain.ErrScope):
+		return "办公任务不属于当前空间"
+	case errors.Is(err, domain.ErrBusy):
+		return "办公任务正在同步或写入，请稍后重试"
+	case errors.Is(err, domain.ErrConflict):
+		return "办公版本已变化，请载入最新后再试"
+	case errors.Is(err, domain.ErrInvalid):
+		return "办公参数无效"
+	case errors.Is(err, context.Canceled):
+		return "办公操作已取消"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "办公操作超时"
+	}
+	msg := strings.TrimSpace(err.Error())
+	if strings.Contains(msg, "organization binding is unavailable") {
+		return "组织绑定暂不可用"
+	}
+	if strings.HasPrefix(msg, "OFFICE_") || strings.Contains(msg, "：OFFICE_") || strings.Contains(msg, ": OFFICE_") {
+		return "办公操作失败，已保留现有文件"
+	}
+	for _, r := range msg {
+		if unicode.Is(unicode.Han, r) {
+			return msg
+		}
+	}
+	return "办公操作失败，已保留现有文件"
 }
 
 func officeMutation(method string) bool {

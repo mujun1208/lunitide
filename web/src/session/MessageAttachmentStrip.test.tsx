@@ -43,6 +43,14 @@ it('loads a persisted webp after restart and opens the real image when clicked',
  fireEvent.click(screen.getByRole('button',{name:'关闭附件预览'}))
  expect(screen.queryByRole('dialog')).toBeNull()
 })
+it('does not show raw English attachment read failures',async()=>{
+  const get=vi.fn().mockRejectedValue(new Error('Failed to fetch')),attachments={get} as unknown as AttachmentBridge
+  render(<MessageAttachmentStrip mentions={[{id:OTHER,label:'notes.md'}]} attachments={attachments}/>)
+  fireEvent.click(screen.getByRole('button',{name:'查看附件 notes.md'}))
+  expect(await screen.findByRole('alert')).toHaveTextContent('附件读取失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('opens a text file and permits retry after a preview failure',async()=>{
  const get=vi.fn().mockRejectedValueOnce(new Error('暂时不可用')).mockResolvedValue({attachmentId:OTHER,originalName:'notes.md',mime:'text/plain',parsedText:'# 原文件内容'}),attachments={get} as unknown as AttachmentBridge
  render(<MessageAttachmentStrip mentions={[{id:OTHER,label:'notes.md'}]} attachments={attachments}/>)

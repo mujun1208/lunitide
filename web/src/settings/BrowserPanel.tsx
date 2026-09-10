@@ -6,6 +6,11 @@ import { Toggle } from './settingsControls'
 // M10 wave-3 — 浏览器多模式设置：5 种连接模式卡片（builtin/chrome/edge/extension/ask）、
 // 可执行路径 / 扩展端口 / 数据留存 / 私网拦截配置、导航白名单管理、CDP 会话生命周期
 // 与 ask/allow/deny 权限审批队列。
+function browserUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 type BrMode = 'builtin' | 'chrome' | 'edge' | 'extension' | 'ask'
 const BR_MODE_META: Record<BrMode, { label: string; desc: string }> = {
   builtin: { label: '内置 WebView2', desc: '应用内嵌渲染，始终可用；导航走 browser.act 通道' },
@@ -59,7 +64,7 @@ export function BrowserPanel({ bridge = brBridge }: { bridge?: BrBridge }): Reac
       if (modes) setDetect(modes)
       setStatus('')
     } catch (e) {
-      if (current === epoch.current) setStatus(e instanceof Error ? e.message : '浏览器设置加载失败')
+      if (current === epoch.current) setStatus(browserUserError(e, '浏览器设置加载失败'))
     } finally { if (current === epoch.current) { busyRef.current = false; setBusy(false) } }
   }
   useEffect(() => { void refresh(); return () => { epoch.current++; busyRef.current = false } }, [bridge])
@@ -70,7 +75,7 @@ export function BrowserPanel({ bridge = brBridge }: { bridge?: BrBridge }): Reac
       const r = await bridge.detectModes()
       setDetect(r)
       setStatus(`探测完成：内置 ${r.builtin ? '✓' : '✗'} · Chrome ${r.chrome.available ? '✓' : '✗'} · Edge ${r.edge.available ? '✓' : '✗'} · 扩展桥 ${r.extension.available ? '✓' : '✗'}（端口 ${r.extension.port}）`)
-    } catch (e) { setStatus(e instanceof Error ? e.message : '模式探测失败') } finally { setBusy(false) }
+    } catch (e) { setStatus(browserUserError(e, '模式探测失败')) } finally { setBusy(false) }
   }
   const patch = async (p: Omit<BrSettingsUpdatePayload, 'expectedRevision'>, okMsg: string): Promise<boolean> => {
     if (!settings || busyRef.current) return false
@@ -93,7 +98,7 @@ export function BrowserPanel({ bridge = brBridge }: { bridge?: BrBridge }): Reac
         const latest = await bridge.getSettings()
         if (current === epoch.current) setSettings(latest)
       } catch { /* retain the current draft and revision if offline */ }
-      if (current === epoch.current) setStatus(e instanceof Error ? e.message : '设置更新失败，请重试')
+      if (current === epoch.current) setStatus(browserUserError(e, '设置更新失败，请重试'))
       return false
     } finally { if (current === epoch.current) { busyRef.current = false; setBusy(false) } }
   }
@@ -104,7 +109,7 @@ export function BrowserPanel({ bridge = brBridge }: { bridge?: BrBridge }): Reac
       setStatus(`会话 ${sess.sessionId.slice(0, 12)}… ${sess.mode} · ${sess.state}`)
       const list = await bridge.listSessions()
       setSessions(list.sessions)
-    } catch (e) { setStatus(e instanceof Error ? e.message : '连接失败') } finally { setBusy(false) }
+    } catch (e) { setStatus(browserUserError(e, '连接失败')) } finally { setBusy(false) }
   }
   const disconnect = async (sessionId: string) => {
     setBusy(true); setStatus('')
@@ -112,7 +117,7 @@ export function BrowserPanel({ bridge = brBridge }: { bridge?: BrBridge }): Reac
       await bridge.disconnect({ sessionId })
       const list = await bridge.listSessions()
       setSessions(list.sessions)
-    } catch (e) { setStatus(e instanceof Error ? e.message : '断开失败') } finally { setBusy(false) }
+    } catch (e) { setStatus(browserUserError(e, '断开失败')) } finally { setBusy(false) }
   }
   const refreshUsage = async () => {
     setBusy(true); setStatus('')
@@ -120,14 +125,14 @@ export function BrowserPanel({ bridge = brBridge }: { bridge?: BrBridge }): Reac
       const r = await bridge.dataUsage({})
       setUsage(r.usage)
       setStatus(`已刷新 ${r.usage.length} 个会话的存储快照`)
-    } catch (e) { setStatus(e instanceof Error ? e.message : '用量查询失败') } finally { setBusy(false) }
+    } catch (e) { setStatus(browserUserError(e, '用量查询失败')) } finally { setBusy(false) }
   }
   const clearData = async () => {
     setBusy(true); setStatus('')
     try {
       const r = await bridge.clearData({})
       setStatus(`已清理 ${r.clearedSessions.length} 个会话，释放 ${(r.freedBytes / 1024).toFixed(1)} KB`)
-    } catch (e) { setStatus(e instanceof Error ? e.message : '清理失败') } finally { setBusy(false) }
+    } catch (e) { setStatus(browserUserError(e, '清理失败')) } finally { setBusy(false) }
   }
   const decide = async (permissionId: string, decision: 'grant' | 'deny') => {
     setBusy(true); setStatus('')
@@ -135,7 +140,7 @@ export function BrowserPanel({ bridge = brBridge }: { bridge?: BrBridge }): Reac
       await bridge.decidePermission({ permissionId, decision })
       const perms = await bridge.listPermissions({ state: 'pending' })
       setPending(perms.permissions)
-    } catch (e) { setStatus(e instanceof Error ? e.message : '审批失败') } finally { setBusy(false) }
+    } catch (e) { setStatus(browserUserError(e, '审批失败')) } finally { setBusy(false) }
   }
   const setPolicy = async (origin: string, permission: string, policy: 'ask' | 'allow' | 'deny') => {
     setBusy(true); setStatus('')
@@ -144,7 +149,7 @@ export function BrowserPanel({ bridge = brBridge }: { bridge?: BrBridge }): Reac
       const perms = await bridge.listPermissions({ state: 'pending' })
       setPending(perms.permissions)
       setStatus('策略已更新')
-    } catch (e) { setStatus(e instanceof Error ? e.message : '策略更新失败') } finally { setBusy(false) }
+    } catch (e) { setStatus(browserUserError(e, '策略更新失败')) } finally { setBusy(false) }
   }
   const addAllow = async () => {
     if (!settings) return

@@ -129,7 +129,8 @@ export function useMroPagination(bindings: Record<string, MroPageBinding>, scope
       binding.accept(merged)
     } catch (error) {
       if (!current()) return
-      state.error = error instanceof Error ? error.message : String(error)
+      const detail = error instanceof Error ? error.message.trim() : String(error)
+      state.error = /[\u4e00-\u9fff]/.test(detail) ? detail : '列表读取失败'
       throw error
     } finally {
       if (current()) {

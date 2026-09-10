@@ -213,6 +213,7 @@ func (e *Executor) Execute(ctx context.Context, checkpointID string) (ExecuteRes
 		}
 
 		cumulativeFacts = mergeProtectedFacts(cumulativeFacts, ExtractProtectedFacts(messages))
+		cumulativeFacts = mergeProtectedFacts(cumulativeFacts, ExtractProtocolGroupFacts(messages))
 		batchCtx, cancel := context.WithTimeout(ctx, e.timeout)
 		var summarizeErr error
 		summaryJSON, humanSummary, summarizeErr = e.summarizer.Summarize(batchCtx, cp.SessionID, cp.Provider, cp.Model, batchStart, batchEnd, messages, priorSummary)

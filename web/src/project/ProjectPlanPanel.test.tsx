@@ -1,10 +1,11 @@
 import React from 'react'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PlanBridge, StageBridge } from '../bridge/client'
 import type { ProjectDTO } from '../generated/bridge'
 import { ProjectPlanPanel } from './ProjectPlanPanel'
 
+afterEach(cleanup)
 const project = { id: '01ARZ3NDEKTSV4RRFFQ69G5FAV', name: 'Project', type: 'implementation', status: 'in_progress', version: 1 } as ProjectDTO
 const props = { project, phase: 5, checklistPhase: 5, checklistType: 'dev_checklist', checklistTitle: '开发清单' }
 const api = () => ({
@@ -12,6 +13,14 @@ const api = () => ({
   stages: { list: vi.fn().mockResolvedValue({ items: [] }), create: vi.fn() },
 })
 const cast = (value: ReturnType<typeof api>) => ({ bridge: value.bridge as unknown as PlanBridge, stages: value.stages as unknown as StageBridge })
+
+it('does not show raw English plan load failures', async () => {
+  const value = api()
+  value.stages.list.mockRejectedValue(new Error('Failed to fetch'))
+  render(<ProjectPlanPanel {...props} {...cast(value)} />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('请求失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
 
 describe('stage-bound plan records', () => {
   it('performs no writes when a read-only project has no phase plan', async () => {

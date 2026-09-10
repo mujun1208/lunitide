@@ -138,14 +138,14 @@ func validateCapabilityRoleSet(roles []capabilityRoleDTO, items []provider.Provi
 	for _, row := range roles {
 		bound := row.ProviderID != "" || row.ModelID != ""
 		if (row.ProviderID == "") != (row.ModelID == "") {
-			return errors.New("providerId and modelId must be set together")
+			return errors.New("providerId 与 modelId 必须同时填写")
 		}
 		if !bound {
 			continue
 		}
 		model, ok := byKey[row.ProviderID+"\x00"+row.ModelID]
 		if !ok {
-			return errors.New("bound model is not in the current catalog")
+			return errors.New("绑定的模型不在当前目录")
 		}
 		if !roleKindAllowed(row.Role, model.EffectiveKind(), model.SupportsVision) {
 			return errRoleKindMismatch
@@ -274,7 +274,7 @@ func (e *Engine) tryFlashClassify(ctx context.Context, goal string) (TaskRoute, 
 		if adapterErr != nil {
 			return adapterErr
 		}
-		resp, completeErr := a.Complete(op, secret, llmadapter.Request{
+		resp, completeErr := a.Complete(withCallPurpose(op, "route"), secret, llmadapter.Request{
 			Model: modelID, MaxTokens: 128, MaxAttempts: 1,
 			Messages: []llmadapter.Message{
 				{Role: llmadapter.RoleSystem, Content: `Classify the user goal into one JSON object {"route":"R0|R1|R2|R3|R4","allow":{}}. No prose.`},

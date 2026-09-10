@@ -96,6 +96,10 @@ func TestDocxStageNudgeVisibleInThinking(t *testing.T) {
 	if shouldContinueDocxTurn(turn, false) {
 		t.Fatal("finished docx.gen must stop nudging")
 	}
+	turn.DocxGenerated = false
+	if !shouldContinueDocxTurn(turn, true) {
+		t.Fatal("FR-502: DisableReasoning must not stop an active docx turn")
+	}
 }
 
 func TestStartDocxWorkflowInjectsReportPipeline(t *testing.T) {

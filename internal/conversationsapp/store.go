@@ -53,7 +53,7 @@ func (s *Store) Status() (Status, error) {
 func (s *Store) SetRoot(path string) (migrated int, err error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return 0, errors.New("conversations root path is empty")
+		return 0, errors.New("对话存储路径不能为空")
 	}
 	path, err = filepath.Abs(path)
 	if err != nil {
@@ -61,7 +61,7 @@ func (s *Store) SetRoot(path string) (migrated int, err error) {
 	}
 	info, err := os.Stat(path)
 	if err != nil || !info.IsDir() {
-		return 0, errors.New("conversations root must be an existing directory")
+		return 0, errors.New("对话存储路径必须是存在的本地目录")
 	}
 	if err := os.MkdirAll(path, 0700); err != nil {
 		return 0, err

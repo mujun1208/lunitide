@@ -79,7 +79,7 @@ func ExtractContext(ctx context.Context, name string, raw []byte, media string) 
 	case parserSlots <- struct{}{}:
 		defer func() { <-parserSlots }()
 	default:
-		return Result{}, errors.New("document parser is busy; retry this document")
+		return Result{}, errors.New("文档解析正忙，请稍后重试")
 	}
 	root, err := os.MkdirTemp(config.root, "parse-")
 	if err != nil {
@@ -106,7 +106,7 @@ func ExtractContext(ctx context.Context, name string, raw []byte, media string) 
 		return Result{}, err
 	}
 	if out.TimedOut || out.ExitCode != 0 || out.Truncated {
-		return Result{}, errors.New("document parser exceeded its limits or terminated")
+		return Result{}, errors.New("文档解析超过上限或已中止")
 	}
 	file, err := os.Open(filepath.Join(root, "result.json"))
 	if err != nil {

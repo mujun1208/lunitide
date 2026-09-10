@@ -88,6 +88,12 @@ test('cancels a native read that never replies',async()=>{
  const reading=readPickedFile(bridge,{path:'C:/a',fileName:'a.txt',size:3,mime:'text/plain'},controller.signal)
  controller.abort();await expect(reading).rejects.toThrow('取消')
 })
+test('does not leak raw English native file read failures',async()=>{
+ const bridge={pick:vi.fn().mockResolvedValue({items:[{path:'bad',fileName:'bad.txt',size:3,mime:'text/plain'},{path:'good',fileName:'good.txt',size:2,mime:'text/plain'}]}),readChunk:vi.fn().mockRejectedValueOnce(new Error('Failed to fetch')).mockResolvedValue({contentBase64:btoa('ok'),nextOffset:2,eof:true})} as unknown as DesktopFilesBridge
+ const result=await pickComposerFiles(bridge,true)
+ expect(result.kind).toBe('files');if(result.kind==='files'){expect(result.skipped[0]).toBe('bad.txt：读取失败');expect(result.skipped.join('')).not.toContain('Failed to fetch')}
+})
+
 test('keeps readable folder files after one native file fails',async()=>{
  const bridge={pick:vi.fn().mockResolvedValue({items:[{path:'bad',fileName:'bad.txt',size:3,mime:'text/plain'},{path:'good',fileName:'good.txt',size:2,mime:'text/plain'}]}),readChunk:vi.fn().mockRejectedValueOnce(new Error('文件已删除')).mockResolvedValue({contentBase64:btoa('ok'),nextOffset:2,eof:true})} as unknown as DesktopFilesBridge
  const result=await pickComposerFiles(bridge,true)

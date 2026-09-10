@@ -14,6 +14,17 @@ import (
 // Keep complete JSON below that boundary; Bridge previews have a separate cap.
 const officeToolPageLimit = 3800
 
+func officeInspectOCRNotice(method string) string {
+	switch method {
+	case "", "text-layer":
+		return ""
+	case "windows-ocr":
+		return "Local OCR of rendered PDF pages; text/numbers may be incorrect or missing. Prefer a supplied editable original. Use view=text for reading, not editing."
+	default:
+		return "OCR routing result (provider and/or local), not a verified text layer. May omit or misread text/numbers; prefer a supplied editable original. Use view=text for reading, not editing."
+	}
+}
+
 func officeToolJSON(value any) (string, error) {
 	b, err := json.Marshal(value)
 	if err != nil {
@@ -117,13 +128,13 @@ func (e *Engine) officeInspectPage(ctx context.Context, taskID, versionID, view 
 	}
 	h := headByArtifact[v.ArtifactID]
 	page := map[string]any{"taskId": taskID, "versionId": v.ID, "artifactId": v.ArtifactID, "kind": v.Kind, "sha256": v.SHA256, "expectedRevision": h.Revision, "latestVersionId": h.LatestVersionID, "previewBasis": "structure", "notice": "Read all text chunks before replacing a node. Structural inspection does not verify rendered layout."}
-	if textMethod == "windows-ocr" {
+	if notice := officeInspectOCRNotice(textMethod); notice != "" {
 		page["method"] = textMethod
-		page["notice"] = "Local OCR of rendered PDF pages; text/numbers may be incorrect or missing. Prefer a supplied editable original. Use view=text for reading, not editing."
+		page["notice"] = notice
 	}
 	if view == "parts" {
 		if v.Kind == "pdf" {
-			page["notice"] = "PDF is not an OOXML package. An empty parts list says nothing about visible page content or its text layer. Use view=text to read text or local OCR."
+			page["notice"] = "PDF is not an OOXML package. An empty parts list says nothing about visible page content or its text layer. Use view=text to read text; OCR routing covers pages without a text layer."
 		}
 		if offset > len(i.Parts) {
 			return "", domain.ErrInvalid

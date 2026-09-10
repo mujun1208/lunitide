@@ -221,6 +221,7 @@ func expertDeliberateUserPrompt(question, phaseLabel, priorFindings string) stri
 }
 
 func (e *Engine) deliberateExpert(ctx context.Context, a llmadapter.Adapter, credential []byte, model string, expert councilExpert, question, phaseLabel, priorFindings string, companion bool, mode executionMode, sessionID string) councilOpinion {
+	ctx = withCallPurpose(ctx, "council")
 	op := councilOpinion{ExpertID: expert.ID, ExpertName: expert.Name}
 	eq := e.equipmentForNames(ctx, []string{expert.Name})
 	tools := specialistToolDefinitions(e.engineToolDefinitionsFor(mode))
@@ -299,7 +300,7 @@ func (e *Engine) runCouncilToolCalls(ctx context.Context, mode executionMode, se
 				summary = outText
 			}
 		} else if call.Name == "mcp.call" {
-			outText, err := e.callMcpToolByNameGuarded(ctx, call.Arguments, eq.McpIDs, true)
+			outText, err := e.callMcpToolByNameGuarded(ctx, sessionID, call.Arguments, eq.McpIDs, true)
 			if err != nil {
 				summary = err.Error()
 			} else {
@@ -308,7 +309,7 @@ func (e *Engine) runCouncilToolCalls(ctx context.Context, mode executionMode, se
 		} else if endpointID, tool, ok := parseMcpToolName(call.Name); ok {
 			if !e.mcpNameAllowed(call.Name, endpointID, eq.McpIDs, true) {
 				summary = "未授权这个 MCP"
-			} else if text, err := e.invokeMcpTool(ctx, endpointID, tool, call.Arguments); err != nil {
+			} else if text, err := e.invokeMcpTool(ctx, sessionID, endpointID, tool, call.Arguments); err != nil {
 				summary = err.Error()
 			} else {
 				summary = text
@@ -460,6 +461,7 @@ func (e *Engine) applyExpertCouncil(ctx context.Context, a llmadapter.Adapter, c
 	if cfg == nil || !cfg.Enabled {
 		return
 	}
+	ctx = withCallPurpose(ctx, "council")
 	brief, err := e.runExpertCouncil(ctx, a, credential, model, *cfg, send)
 	if err != nil {
 		log.Printf("expert council failed: %v", err)

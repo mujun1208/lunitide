@@ -57,7 +57,7 @@ func (e *Engine) searchMcpToolsFiltered(raw json.RawMessage, allowed []string, r
 	return e.searchMcpToolsScoped(raw, allowed, restrict)
 }
 
-func (e *Engine) callMcpToolByNameGuarded(ctx context.Context, raw json.RawMessage, allowed []string, restrict bool) (string, error) {
+func (e *Engine) callMcpToolByNameGuarded(ctx context.Context, session string, raw json.RawMessage, allowed []string, restrict bool) (string, error) {
 	var a struct {
 		Name string `json:"name"`
 	}
@@ -71,7 +71,7 @@ func (e *Engine) callMcpToolByNameGuarded(ctx context.Context, raw json.RawMessa
 	if !e.mcpNameAllowed(a.Name, endpointID, allowed, restrict) {
 		return "", errors.New("未授权这个 MCP")
 	}
-	return e.callMcpToolByName(ctx, raw)
+	return e.callMcpToolByName(ctx, session, raw)
 }
 
 func (e *Engine) denyRestrictedMCP(name string, raw json.RawMessage, restrict bool, allowed []string) (string, bool) {
@@ -155,7 +155,13 @@ func (e *Engine) resolvePublishedSkillID(ctx context.Context, raw string) (strin
 	return "", errors.New("skill not found: " + id)
 }
 
-func (e *Engine) invokeSkillManageTool(ctx context.Context, args json.RawMessage) (toolruntime.Result, error) {
+func (e *Engine) invokeSkillManageTool(ctx context.Context, session string, args json.RawMessage) (toolruntime.Result, error) {
+	return e.recordExistingToolCall(ctx, receiptSession(ctx, session), "skill.manage", args, func() (toolruntime.Result, error) {
+		return e.runSkillManageTool(ctx, session, args)
+	})
+}
+
+func (e *Engine) runSkillManageTool(ctx context.Context, session string, args json.RawMessage) (toolruntime.Result, error) {
 	if err := e.CheckCapability(ctx, "skills"); err != nil {
 		return toolruntime.Result{}, err
 	}
@@ -181,7 +187,7 @@ func (e *Engine) invokeSkillManageTool(ctx context.Context, args json.RawMessage
 		if strings.TrimSpace(a.Name) == "" || strings.TrimSpace(a.ManifestJSON) == "" {
 			return toolruntime.Result{}, errors.New("skill.manage create needs name and manifestJson")
 		}
-		created, err := e.invokeSkillCreateTool(ctx, args)
+		created, err := e.runSkillCreateTool(ctx, session, args)
 		if err != nil {
 			return toolruntime.Result{}, err
 		}

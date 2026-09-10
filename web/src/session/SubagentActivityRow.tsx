@@ -3,6 +3,11 @@ import {subagentBridge,type SubagentBridge} from '../bridge/client'
 import {TOOL_LABELS} from './toolLabels'
 import './subagentActivity.css'
 
+function activityUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 export type SubagentActivity={callId:string;name:string;status:string;summary?:string}
 type Progress={id:string;profile?:string;purpose?:string;status:string;stage?:string;tool?:string;detail?:string;summary?:string}
 const STATUS:Record<string,string>={running:'运行中',completed:'已完成',failed:'失败',cancelled:'已取消'}
@@ -25,7 +30,7 @@ export function SubagentActivityRow({activity,bridge=subagentBridge}:{activity:S
  useEffect(()=>{const next=parseSubagentProgress(activity.summary);if(next)setRemembered(previous=>({...previous,...next,profile:next.profile??previous?.profile,purpose:next.purpose??previous?.purpose}))},[activity.summary])
  const progress=current?{...remembered,...current,profile:current.profile??remembered?.profile,purpose:current.purpose??remembered?.purpose}:remembered
  const terminal=progress?.status==='completed'||progress?.status==='failed'||progress?.status==='cancelled'
- useEffect(()=>{if(!open||!progress?.id||progress.status!=='completed')return;let alive=true;setError('');void bridge.join({subagentId:progress.id,waitMs:1000,maxSummaryBytes:8192}).then(value=>{if(alive)setReport((value as {summary?:string}).summary??value.observations?.map(item=>item.summary).join('\n')??'暂无摘要')}).catch(e=>{if(alive)setError(e instanceof Error?e.message:'读取结果失败')});return()=>{alive=false}},[open,progress?.id,progress?.status,bridge,retry])
+ useEffect(()=>{if(!open||!progress?.id||progress.status!=='completed')return;let alive=true;setError('');void bridge.join({subagentId:progress.id,waitMs:1000,maxSummaryBytes:8192}).then(value=>{if(alive)setReport((value as {summary?:string}).summary??value.observations?.map(item=>item.summary).join('\n')??'暂无摘要')}).catch(e=>{if(alive)setError(activityUserError(e,'读取结果失败'))});return()=>{alive=false}},[open,progress?.id,progress?.status,bridge,retry])
  const status=progress?.status??(activity.status==='tool_completed'?'completed':'running')
  const title=progress?.purpose||progress?.profile||(activity.name==='subagent.join'?'收集子任务结果':'子任务')
  const detail=progress?.tool?(TOOL_LABELS[progress.tool]??'执行工具'):STAGES[progress?.stage??'']||STATUS[status]

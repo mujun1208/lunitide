@@ -372,7 +372,8 @@ func blockedDocxGenResult(msg string) toolruntime.Result {
 }
 
 func shouldContinueDocxTurn(turn *chatTurnCheckpoint, disableReasoning bool) bool {
-	if disableReasoning || turn == nil || !turn.DocxActive {
+	_ = disableReasoning
+	if turn == nil || !turn.DocxActive {
 		return false
 	}
 	if turn.DocxGenerated || turn.DocxNudges >= maxDocxNudges {

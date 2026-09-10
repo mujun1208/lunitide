@@ -3,6 +3,7 @@ import { ExternalLink, Paperclip, Plus, X } from 'lucide-react';
 import { Dialog } from '../ui/Dialog';
 import { OfficePDFViewer } from './OfficePDFViewer';
 import type { OfficeArtifact, OfficeStudioApi, OfficeTask } from './officeStudioApi';
+import { officeStudioUserError } from './officeUserError';
 
 export function OfficeReferences({ api, task, files, onAdd, onOpenExport }: {
   api: OfficeStudioApi; task: OfficeTask; files: OfficeArtifact[]; onAdd?: () => void;
@@ -23,7 +24,7 @@ export function OfficeReferences({ api, task, files, onAdd, onOpenExport }: {
       else await api.openExport({ taskId: task.id, path: copy.path, reveal: false });
       setNotice(`已打开 ${file.name} 的查看副本`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '附件打开失败，请重试。');
+      setError(officeStudioUserError(cause, '附件打开失败，请重试。'));
     } finally { busy.current = false; setOpening(''); }
   };
   return <section className="os-references" aria-label="对话参考附件">

@@ -24,6 +24,16 @@ function api(overrides: Partial<CcBridge> = {}): CcBridge {
   }
 }
 
+it('does not show raw English emergency stop failures', async () => {
+  vi.spyOn(window, 'confirm').mockReturnValue(true)
+  const emergencyStop = vi.fn().mockRejectedValue(new Error('Failed to fetch'))
+  const user = userEvent.setup()
+  render(<ComputerPanel bridge={api({ getConfig: vi.fn().mockResolvedValue(cfg({ enabled: true })), emergencyStop })} />)
+  await user.click(await screen.findByRole('button', { name: '紧急停止' }))
+  expect(await screen.findByText('紧急停止失败')).toBeInTheDocument()
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('walks the enable wizard and writes the new config', async () => {
   const updateConfig = vi.fn().mockResolvedValue(cfg({ enabled: true, securityLevel: 'strict', armedUntil: now }))
   const user = userEvent.setup()

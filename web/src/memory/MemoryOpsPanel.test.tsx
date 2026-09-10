@@ -36,6 +36,16 @@ const growth = {
   lastReferencedAt: null, reviewAt: now, decidedAt: null, createdAt: now,
 }
 
+it('does not show raw English facts or growth load failures', async () => {
+  render(<MemoryOpsPanel subjectId={SID} ops={opsApi({ listFacts: vi.fn().mockRejectedValue(new Error('Failed to fetch')) })} />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('事实库加载失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  cleanup()
+  render(<MemoryOpsPanel subjectId={SID} ops={opsApi({ listGrowth: vi.fn().mockRejectedValue(new Error('Failed to fetch')) })} />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('成长箱加载失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('renders the statistics strip from memory.stats', async () => {
   render(<MemoryOpsPanel subjectId={SID} ops={opsApi()} />)
   expect(await screen.findByText('3')).toBeInTheDocument()
@@ -223,7 +233,8 @@ it('keeps edited settings on conflict until the user reviews the latest version'
 it('never saves defaults when settings cannot be loaded', async () => {
   const updateSettings = vi.fn()
   render(<MemoryOpsPanel subjectId={SID} ops={opsApi({ getSettings: vi.fn().mockRejectedValue(new Error('read failed')), updateSettings })} />)
-  expect(await screen.findByText('read failed')).toBeInTheDocument()
+  expect(await screen.findByText('设置加载失败')).toBeInTheDocument()
+  expect(screen.queryByText('read failed')).toBeNull()
   expect(screen.getByRole('button', { name: '保存设置' })).toBeDisabled()
   expect(updateSettings).not.toHaveBeenCalled()
 })

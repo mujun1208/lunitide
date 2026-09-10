@@ -369,6 +369,52 @@ func TestCompleteMeetingFallsBackToStream(t *testing.T) {
 	}
 }
 
+func TestCompleteMeetingLedgersPurposeMeeting(t *testing.T) {
+	e := NewEngineWithGateway(meetingNotesProvider{}, "test", streamTestLease{})
+	store := &memCalls{}
+	e.SetCallAttemptStore(store)
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
+		return notesStreamAdapter{streamed: `{"title":"评审","summary":"结论","actions":["跟进"]}`}, nil
+	})
+	if _, err := e.completeMeeting(context.Background(), "周会", "先对齐范围"); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.recs) == 0 {
+		t.Fatal("meeting summary must record a metered attempt")
+	}
+	for _, rec := range store.recs {
+		if rec.Purpose != "meeting" {
+			t.Fatalf("meeting summary must ledger purpose meeting, got %+v", rec)
+		}
+	}
+}
+
+func TestCompleteMeetingLedgersOwnerScope(t *testing.T) {
+	e := NewEngineWithGateway(meetingNotesProvider{}, "test", streamTestLease{})
+	store := &memCalls{}
+	e.SetCallAttemptStore(store)
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
+		return notesStreamAdapter{streamed: `{"title":"评审","summary":"结论","actions":["跟进"]}`}, nil
+	})
+	meetingID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	ctx := meetings.WithMeetingID(context.Background(), meetingID)
+	if _, err := e.completeMeeting(ctx, "周会", "先对齐范围"); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.recs) == 0 {
+		t.Fatal("meeting summary must record a metered attempt")
+	}
+	wantOwner := "meeting:" + meetingID
+	for _, rec := range store.recs {
+		if rec.OwnerScope == "diagnostic" {
+			t.Fatalf("meeting summary must not fall back to diagnostic owner: %+v", rec)
+		}
+		if rec.Purpose != "meeting" || rec.OwnerScope != wantOwner {
+			t.Fatalf("meeting owner/purpose = %+v, want owner %s", rec, wantOwner)
+		}
+	}
+}
+
 func TestCompleteMeetingStreamsWhenCompleteIsEmpty(t *testing.T) {
 	e := NewEngineWithGateway(meetingNotesProvider{}, "test", streamTestLease{})
 	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {

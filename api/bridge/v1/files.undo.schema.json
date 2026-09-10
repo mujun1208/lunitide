@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/files.undo.schema.json",
+  "title": "files.undo payload",
+  "x-method": "files.undo",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "planId": { "type": "string", "minLength": 1, "maxLength": 64 }
+  },
+  "required": ["sessionId", "planId"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "planId": { "type": "string", "minLength": 1, "maxLength": 64 },
+      "state": { "type": "string", "maxLength": 32 },
+      "appliedAt": { "type": "string" },
+      "undoneAt": { "type": "string" },
+      "items": {
+        "type": "array",
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string", "maxLength": 64 },
+            "state": { "type": "string", "maxLength": 32 },
+            "error": { "type": "string", "maxLength": 512 }
+          },
+          "required": ["id", "state"]
+        }
+      }
+    },
+    "required": ["planId", "state", "items"]
+  },
+  "x-examples": {
+    "positive": [
+      { "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "planId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }
+    ],
+    "negative": [
+      { "unexpected": true },
+      { "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }
+    ]
+  }
+}

@@ -332,12 +332,24 @@ func peopleAgentEmptyReplyUserError() string {
 func peopleAgentFailedUserError(err error) string {
 	why := "工具没有跑完"
 	if err != nil {
-		why = strings.TrimSpace(err.Error())
+		msg := strings.TrimSpace(err.Error())
+		if peopleUserMessageHasHan(msg) {
+			why = msg
+		}
 	}
 	if n := utf8.RuneCountInString(why); n > 80 {
 		why = string([]rune(why)[:80])
 	}
 	return "这轮没做成：" + why + "。请再发一次。"
+}
+
+func peopleUserMessageHasHan(s string) bool {
+	for _, r := range s {
+		if r >= 0x4e00 && r <= 0x9fff {
+			return true
+		}
+	}
+	return false
 }
 
 type peopleAgentFailKind int
@@ -578,6 +590,7 @@ func (e *Engine) completePeopleAgentWithTools(ctx context.Context, agent people.
 	allowed := toolNameSet(tools)
 	var text string
 	leaseErr := e.withProviderLease(ctx, entry.Provider, secretlease.OperationChat, func(op context.Context, secret []byte) error {
+		op = withContinuityScope(op, continuityScope{Owner: ownerScope(sessionID), Task: sessionID, Purpose: "people"})
 		a, aErr := e.adapter(op, entry.Provider)
 		if aErr != nil {
 			return aErr
@@ -694,7 +707,7 @@ func (e *Engine) runPeopleAgentTool(ctx context.Context, sessionID string, agent
 			return out
 		}
 		if call.Name == "mcp.call" {
-			out, cErr := e.callMcpToolByNameGuarded(ctx, call.Arguments, eq.McpIDs, true)
+			out, cErr := e.callMcpToolByNameGuarded(ctx, sessionID, call.Arguments, eq.McpIDs, true)
 			if cErr != nil {
 				return "ok:false\n" + cErr.Error()
 			}
@@ -704,7 +717,7 @@ func (e *Engine) runPeopleAgentTool(ctx context.Context, sessionID string, agent
 			if !e.mcpNameAllowed(call.Name, eid, eq.McpIDs, true) {
 				return "ok:false\n未授权这个 MCP。"
 			}
-			out, mErr := e.invokeMcpTool(ctx, eid, tool, call.Arguments)
+			out, mErr := e.invokeMcpTool(ctx, sessionID, eid, tool, call.Arguments)
 			if mErr != nil {
 				return "ok:false\n" + mErr.Error()
 			}
@@ -770,6 +783,7 @@ func (e *Engine) completePeopleAgentText(ctx context.Context, agent people.Conta
 	}
 	var text string
 	leaseErr := e.withProviderLease(ctx, entry.Provider, secretlease.OperationChat, func(op context.Context, secret []byte) error {
+		op = withContinuityScope(op, continuityScope{Owner: ownerScope(sessionID), Task: sessionID, Purpose: "people"})
 		a, aErr := e.adapter(op, entry.Provider)
 		if aErr != nil {
 			return aErr

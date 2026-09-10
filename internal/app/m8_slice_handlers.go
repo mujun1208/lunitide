@@ -41,7 +41,7 @@ func handleKBUpsertDocument(e *Engine, ctx context.Context, r bridge.Request) br
 		ExpectedVersion: p.ExpectedVersion, MediaType: p.MediaType,
 		ContentRef: p.ContentRef, SHA256: p.SHA256,
 		SourceLocator: p.SourceLocator, RequestID: p.RequestID, Actor: p.Actor,
-		Projector: doctextProjector,
+		Projector: e.kbDocumentProjector,
 	})
 	if err != nil {
 		return m8SliceFailure(r, err)
@@ -203,8 +203,54 @@ func kbIndexFailMessage(err error) string {
 	if i := strings.LastIndex(msg, ": "); i >= 0 {
 		msg = strings.TrimSpace(msg[i+2:])
 	}
+	msg = localizeKBIndexSuffix(msg)
 	if msg == "" || msg == m8app.ErrKBIndexFailed.Error() {
 		return "无法抽出正文：索引失败，未产出可检索投影"
 	}
 	return "无法抽出正文：" + msg
+}
+
+func localizeKBIndexSuffix(msg string) string {
+	switch {
+	case msg == "content_ref must be an absolute path" || strings.Contains(msg, "content_ref must"):
+		return "内容路径必须是绝对路径"
+	case msg == "source digest changed" || strings.Contains(msg, "source changed during parsing"):
+		return "源文件在入库后已被修改"
+	case msg == "no non-empty chunks":
+		return "没有可检索的正文"
+	case strings.HasPrefix(msg, "chunk count ") && strings.Contains(msg, "exceeds cap"):
+		return "分块数量超过上限"
+	case msg == "parse function not configured":
+		return "未配置正文解析"
+	case msg == "tombstone:deleted" || strings.Contains(msg, "tombstone:deleted"):
+		return "知识来源已删除"
+	case msg == "empty body":
+		return "没有可检索的正文"
+	case msg == "chunk body exceeds budget":
+		return "分块正文超过上限"
+	case strings.Contains(msg, "document parser is busy"):
+		return "文档解析正忙，请稍后重试"
+	case strings.Contains(msg, "document parser exceeded"):
+		return "文档解析超过上限或已中止"
+	case strings.Contains(msg, "local drive file") || strings.Contains(msg, "document source must"):
+		return "文档必须是本地磁盘文件"
+	case strings.Contains(msg, "unavailable document drive") || strings.Contains(msg, "network or unavailable"):
+		return "不支持网络盘或不可用的文档磁盘"
+	case strings.Contains(msg, "parsing budget exceeded"):
+		return "文档超过解析上限"
+	default:
+		return msg
+	}
+}
+
+func localizeStoredKBFailReason(msg string) string {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return ""
+	}
+	const prefix = "无法抽出正文："
+	if strings.HasPrefix(msg, prefix) {
+		return prefix + localizeKBIndexSuffix(strings.TrimPrefix(msg, prefix))
+	}
+	return localizeKBIndexSuffix(msg)
 }

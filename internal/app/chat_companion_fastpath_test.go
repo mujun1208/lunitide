@@ -190,6 +190,33 @@ func TestChatStartEmptyHistoryWithoutMessagesStillFailsAssembly(t *testing.T) {
 	}
 }
 
+func TestReservedOutputForTurnCompanionVsTyped(t *testing.T) {
+	if got := reservedOutputForTurn(true); got != int64(companionMaxTokens) {
+		t.Fatalf("companion reserved=%d want %d", got, companionMaxTokens)
+	}
+	if got := reservedOutputForTurn(false); got != int64(chatMaxTokens) {
+		t.Fatalf("typed reserved=%d want %d", got, chatMaxTokens)
+	}
+}
+
+func TestCompanionReservedOutputFitsHistoryThatTypedReserveRejects(t *testing.T) {
+	history := []contextapp.Message{{Role: "user", Content: strings.Repeat("历史回合。", 80)}}
+	explicit := []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "继续"}}
+	used := countVisibleRequestTokens("", []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: history[0].Content},
+		explicit[0],
+	}, nil)
+	window := used + int64(companionMaxTokens) + 1024 + 16
+	typed := contextapp.ProviderInfo{ContextWindow: window, SafetyCeiling: window, ReservedOutput: reservedOutputForTurn(false), SafetyMargin: 1024}
+	voice := contextapp.ProviderInfo{ContextWindow: window, SafetyCeiling: window, ReservedOutput: reservedOutputForTurn(true), SafetyMargin: 1024}
+	if _, err := combineDurableProviderMessages(history, explicit, typed); !errors.Is(err, errCombinedContextOverBudget) {
+		t.Fatalf("typed 32k reserve must reject, err=%v used=%d window=%d", err, used, window)
+	}
+	if _, err := combineDurableProviderMessages(history, explicit, voice); err != nil {
+		t.Fatalf("companion reserve must fit: %v used=%d window=%d", err, used, window)
+	}
+}
+
 func TestUseExplicitChatFallback(t *testing.T) {
 	trusted := []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "hi"}}
 	if !useExplicitChatFallback(true, trusted, contextapp.ErrNoMessages) {

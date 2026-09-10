@@ -146,3 +146,46 @@ func filterCompanionDefaultTools(defs []llmadapter.ToolDefinition) []llmadapter.
 	}
 	return out
 }
+
+type chatTurnToolBuild struct {
+	Mode           executionMode
+	Profile        toolProfile
+	Companion      bool
+	Equip          turnEquipment
+	SubagentPolicy subagentChatPolicy
+}
+
+func resolveChatToolProfile(companion bool, trialSkillIDs []string, explicit, intentText string) toolProfile {
+	profile := parseToolProfile(explicit)
+	if len(trialSkillIDs) > 0 {
+		return toolProfileDefault
+	}
+	if profile == toolProfileDefault && !companion {
+		return autoToolProfile(intentText)
+	}
+	return profile
+}
+
+func (e *Engine) chatTurnToolDefinitions(b chatTurnToolBuild) []llmadapter.ToolDefinition {
+	if e == nil {
+		return nil
+	}
+	tools := applyToolProfile(append(e.engineToolDefinitionsFor(b.Mode), e.subagentToolDefinitions(b.Mode, b.SubagentPolicy)...), b.Profile)
+	switch b.Profile {
+	case toolProfileDefault:
+		tools = append(tools, planToolDefinitions(b.Mode)...)
+		tools = append(tools, e.mcpToolDefinitionsRestricted(b.Equip.McpIDs, b.Equip.RestrictMCP())...)
+		tools = append(tools, e.ccToolDefinitions()...)
+		tools = append(tools, e.skillToolDefinitions()...)
+		tools = append(tools, e.expertToolDefinitions()...)
+		tools = append(tools, e.pluginToolDefinitions()...)
+		tools = append(tools, e.settingsPlaneToolDefinitions()...)
+	case toolProfileCoding, toolProfileColleague:
+		tools = append(tools, e.skillToolDefinitions()...)
+		tools = applyToolProfile(tools, b.Profile)
+	}
+	if b.Companion {
+		tools = filterCompanionDefaultTools(tools)
+	}
+	return tools
+}

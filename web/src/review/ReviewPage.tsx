@@ -11,6 +11,10 @@ const RISK_LABELS: Record<RiskLevel, string> = { low: 'LOW RISK', medium: 'MEDIU
 const riskClass = (r: RiskLevel): string => (r === 'high' || r === 'critical') ? 'high' : r === 'medium' ? 'med' : 'low'
 
 const isRetryable = (e: unknown): boolean => e instanceof BridgeClientError && e.retryable
+function reviewUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
 
 const expireText = (iso?: string): string => {
   if (!iso) return ''
@@ -71,7 +75,7 @@ export function ReviewPage({
       const r = await bridge.list({ planId: pid })
       setReviews(r.items)
     } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败')
+      setError(reviewUserError(e, '加载失败'))
       setRetryable(isRetryable(e))
     } finally {
       setLoading(false)
@@ -90,7 +94,7 @@ export function ReviewPage({
       setNotes(prev => { const next = { ...prev }; delete next[reviewId]; return next })
       await load(selectedPlanId)
     } catch (e) {
-      setError(e instanceof Error ? e.message : '操作失败')
+      setError(reviewUserError(e, '操作失败'))
       setRetryable(isRetryable(e))
     } finally {
       setBusy(false)

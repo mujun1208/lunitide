@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/connector.recipe.revoke.schema.json",
+  "title": "connector.recipe.revoke payload",
+  "x-method": "connector.recipe.revoke",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9-]*$"
+    }
+  },
+  "required": ["id"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "id": { "type": "string", "maxLength": 64 },
+      "status": { "enum": ["ready", "missing_credential", "pending_external"] },
+      "paused": { "type": "boolean" }
+    },
+    "required": ["id", "status", "paused"]
+  },
+  "x-examples": {
+    "positive": [{ "id": "im-text" }],
+    "negative": [{ "id": "IM TEXT" }, {}]
+  }
+}

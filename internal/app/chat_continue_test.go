@@ -115,6 +115,9 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	if shouldContinueIncompleteWork("文件写好了，下一步打开网页。", "ok:true\nwritten", []string{"workspace.write"}, true, 0) {
 		t.Fatal("successful write plus 下一步 must not extra-loop")
 	}
+	if pickTurnContinueKind("好，我来操作电脑。", "好，我来操作电脑。", "ok:false\nCAPABILITY_NOT_READY: 请先在设置中启用电脑控制", []string{"desktop.type"}, true, true, false, false, 0, "帮我点确定", true) != "" {
+		t.Fatal("capability denial must not desktop-nudge or empty-spin")
+	}
 	if !shouldContinueDesktopTurn("好，我来操作电脑。", 0) {
 		t.Fatal("lead-in after desktop tools must continue")
 	}
@@ -301,14 +304,14 @@ func TestRunStreamContinuesAfterPrematureStop(t *testing.T) {
 	}
 }
 
-func TestRunStreamDoesNotNudgeCompanion(t *testing.T) {
+func TestRunStreamContinuesAskWhenReasoningDisabled(t *testing.T) {
 	adapter := &continueAdapter{}
 	_ = runContinueStream(t, adapter, llmadapter.Request{Model: "m", DisableReasoning: true})
-	if adapter.sawNudge {
-		t.Fatal("companion turns must not inject a continue nudge")
+	if !adapter.sawNudge {
+		t.Fatal("DisableReasoning must not block a mid-task continue nudge")
 	}
-	if adapter.calls != 2 {
-		t.Fatalf("calls = %d, want 2 (tool then pause, no third turn)", adapter.calls)
+	if adapter.calls < 3 {
+		t.Fatalf("calls = %d, want at least 3 (tool, pause, finish)", adapter.calls)
 	}
 }
 

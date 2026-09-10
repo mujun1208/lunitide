@@ -93,9 +93,17 @@ it('retries a cancelled worker and then mounts the SVG', async () => {
 it('falls back to source when mermaid.render fails instead of throwing', async () => {
   mermaid.render.mockRejectedValue(new Error('parse failed'))
   render(<MermaidBlock source={'flowchart TD\nA-->B'} onCopy={vi.fn()} />)
-  expect(await screen.findByText(/图表未能渲染：parse failed/)).toBeInTheDocument()
+  expect(await screen.findByText(/图表未能渲染：图表渲染失败/)).toBeInTheDocument()
+  expect(screen.queryByText(/parse failed/)).toBeNull()
   expect(screen.getByText(/flowchart TD/)).toBeInTheDocument()
   expect(document.querySelector('.mermaid-host')).toHaveAttribute('hidden')
+})
+
+it('does not show raw English mermaid failures', async () => {
+  mermaid.render.mockRejectedValue(new Error('Failed to fetch'))
+  render(<MermaidBlock source={'flowchart TD\nA-->B'} />)
+  expect(await screen.findByText(/图表未能渲染：图表渲染失败/)).toBeInTheDocument()
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
 })
 
 it('renders a flowchart SVG into the host', async () => {

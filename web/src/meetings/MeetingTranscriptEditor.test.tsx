@@ -15,6 +15,12 @@ function api(overrides: Partial<MeetingsBridge> = {}) {
   return { transcriptGet: vi.fn().mockResolvedValue(first), update: vi.fn(), get: vi.fn().mockResolvedValue(meeting), ...overrides } as unknown as MeetingsBridge
 }
 
+test('does not show raw English transcript page load failures', async () => {
+  render(<MeetingTranscriptEditor meeting={meeting} meetings={api({ transcriptGet: vi.fn().mockRejectedValue(new Error('Failed to fetch')) })} onSaved={vi.fn()} />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('无法读取本页原稿')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 test('page edits use Unicode character offsets, preserve the rest, and wait for commit before navigation', async () => {
   let acknowledge!: (value: MeetingDTO) => void
   const update = vi.fn(() => new Promise<MeetingDTO>(resolve => { acknowledge = resolve }))

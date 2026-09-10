@@ -1,12 +1,17 @@
 import React,{useCallback,useEffect,useMemo,useRef,useState}from'react'
 import{BridgeClientError,createMutationAttempt,type MutationAttempt,type ProjectBridge}from'../bridge/client'
+import{asUserBridgeError}from'../bridge/bridgeUserError'
 import{ENGINE_RECOVERED_EVENT}from'../bridge/engineHealth'
 import type{ProjectClosePayload,ProjectCreatePayload,ProjectDTO,ProjectPublishPayload,ProjectReopenPayload,ProjectType,ProjectUpdatePayload}from'../generated/bridge'
 import{ConfirmDialog,Dialog}from'../ui/Dialog'
 import{canClose,canDelete,canEnterWorkbench,canPublish,isReadOnly,normalizeStatus,statusLabel}from'./projectStatus'
 
 export const normalizeProjectName=(raw:string):string=>raw.split(/\p{White_Space}+/u).filter(Boolean).join(' ')
-const problem=(e:unknown)=>e instanceof BridgeClientError?e:new BridgeClientError(e instanceof Error?e.message:'请求失败','CLIENT_ERROR',false,'renderer')
+function projectUserError(err:unknown,fallback:string):string{
+ const detail=err instanceof Error?err.message.trim():''
+ return /[\u4e00-\u9fff]/.test(detail)?detail:fallback
+}
+const problem=(e:unknown)=>e instanceof BridgeClientError?asUserBridgeError(e,'请求失败'):new BridgeClientError(projectUserError(e,'请求失败'),'CLIENT_ERROR',false,'renderer')
 
 const TYPE_LABELS:Record<ProjectType,string>={implementation:'实施项目',operations:'运维项目',enhancement:'增强项目'}
 const orderedProjects=(values:ProjectDTO[]):ProjectDTO[]=>[...values].sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||b.id.localeCompare(a.id))

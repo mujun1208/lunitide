@@ -64,8 +64,8 @@ it('shows a red fail reason when index_state is failed', async () => {
   Object.defineProperty(input, 'files', { value: [file], configurable: true })
   fireEvent.change(input)
   const alert = await screen.findByRole('alert')
-  expect(alert).toHaveTextContent('无法抽出正文')
-  expect(alert).toHaveTextContent('parse function not configured')
+  expect(alert).toHaveTextContent('未配置正文解析')
+  expect(alert).not.toHaveTextContent('parse function not configured')
   expect(alert).toHaveClass('is-failed')
 })
 

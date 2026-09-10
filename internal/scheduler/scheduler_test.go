@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -228,7 +229,7 @@ func TestSchedulerFailureRunNotifiesFailure(t *testing.T) {
 	_ = store.PutJob(job)
 	notify := newCaptureNotifier()
 	s := New(store, func(context.Context, Job) Outcome {
-		return Outcome{Err: errors.New("模型网关超时")}
+		return Outcome{Err: errors.New("模型网关超时"), NotStarted: true}
 	}, notify)
 	t.Cleanup(s.Close)
 	now := time.Now().UTC().Truncate(time.Minute)
@@ -250,11 +251,182 @@ func TestSchedulerFailureRunNotifiesFailure(t *testing.T) {
 	}
 }
 
+func TestOutcomeUnknownDoesNotClaimFailureOrFanOutWebhook(t *testing.T) {
+	store := newTestStore(t)
+	job := validJob("unknown", "*/5 * * * *")
+	job.WebhookURL = "https://example.com/automation-hook"
+	if err := store.PutJob(job); err != nil {
+		t.Fatal(err)
+	}
+	notify := newCaptureNotifier()
+	webhook := newCaptureNotifier()
+	orig := openWebhookNotifier
+	openWebhookNotifier = func(raw string) (Notifier, error) {
+		if raw != job.WebhookURL {
+			t.Fatalf("webhook url %q", raw)
+		}
+		return webhook, nil
+	}
+	t.Cleanup(func() { openWebhookNotifier = orig })
+	s := New(store, func(context.Context, Job) Outcome {
+		return Outcome{Summary: "已写一半", Err: errors.New("回执丢失")}
+	}, notify)
+	t.Cleanup(s.Close)
+	now := time.Now().UTC().Truncate(time.Minute)
+	s.mu.Lock()
+	s.nextFire[job.ID] = now.Add(-time.Minute)
+	s.schedules[job.ID] = job.Cron + "/" + job.UpdatedAt.Format(time.RFC3339Nano)
+	s.mu.Unlock()
+	s.fireDue(now)
+	notify.waitFor(t, 1)
+	if notify.len() != 1 || !strings.Contains(notify.rows[0], "待核对") || strings.Contains(notify.rows[0], "失败") || strings.Contains(notify.rows[0], "已完成") {
+		t.Fatalf("unknown outcome toast = %+v", notify.rows)
+	}
+	if webhook.len() != 0 {
+		t.Fatalf("unknown outcome must not blind-send webhook: %+v", webhook.rows)
+	}
+	runs, err := store.ListRuns(job.ID, 10)
+	if err != nil || len(runs) == 0 || !runs[0].OutcomeUnknown || runs[0].State != RunFailed {
+		t.Fatalf("receipt: %+v %v", runs, err)
+	}
+}
+
+func TestSameDueJobHundredFiresIsSingleDispatch(t *testing.T) {
+	store := newTestStore(t)
+	job := validJob("burst", "*/5 * * * *")
+	if err := store.PutJob(job); err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int32
+	s := New(store, func(context.Context, Job) Outcome {
+		if calls.Add(1) == 1 {
+			close(started)
+		}
+		<-release
+		return Outcome{Summary: "一次即可"}
+	}, noopNotifier{})
+	t.Cleanup(s.Close)
+	now := time.Now().UTC().Truncate(time.Minute)
+	s.mu.Lock()
+	s.nextFire[job.ID] = now.Add(-time.Minute)
+	s.schedules[job.ID] = job.Cron + "/" + job.UpdatedAt.Format(time.RFC3339Nano)
+	s.mu.Unlock()
+	var wg sync.WaitGroup
+	for range 100 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.fireDue(now)
+		}()
+	}
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("due job never started")
+	}
+	wg.Wait()
+	close(release)
+	s.wg.Wait()
+	if calls.Load() != 1 {
+		t.Fatalf("same due slot launched %d times", calls.Load())
+	}
+	runs, err := store.LatestRuns(job.ID)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("want one dispatch, got %+v %v", runs, err)
+	}
+}
+
+func TestSleepMissCatchesCronUpOnce(t *testing.T) {
+	store := newTestStore(t)
+	job := validJob("sleep", "*/5 * * * *")
+	if err := store.PutJob(job); err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int32
+	notify := newCaptureNotifier()
+	s := New(store, func(context.Context, Job) Outcome {
+		calls.Add(1)
+		return Outcome{Summary: "补一次"}
+	}, notify)
+	t.Cleanup(s.Close)
+	now := time.Now().UTC().Truncate(time.Minute)
+	s.mu.Lock()
+	s.nextFire[job.ID] = now.Add(-8 * time.Hour)
+	s.schedules[job.ID] = job.Cron + "/" + job.UpdatedAt.Format(time.RFC3339Nano)
+	s.mu.Unlock()
+	s.fireDue(now)
+	notify.waitFor(t, 1)
+	s.fireDue(now)
+	s.fireDue(now.Add(time.Second))
+	if calls.Load() != 1 {
+		t.Fatalf("sleep miss replayed %d times", calls.Load())
+	}
+}
+
+func TestPastAtReminderStillFiresAfterReplan(t *testing.T) {
+	store := newTestStore(t)
+	job := validJob("once", "at:2026-01-01T00:00:00Z")
+	if err := store.PutJob(job); err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int32
+	notify := newCaptureNotifier()
+	s := New(store, func(context.Context, Job) Outcome {
+		calls.Add(1)
+		return Outcome{Summary: "到期提醒"}
+	}, notify)
+	t.Cleanup(s.Close)
+	now := time.Now().UTC()
+	s.replan(now)
+	s.fireDue(now)
+	notify.waitFor(t, 1)
+	if calls.Load() != 1 {
+		t.Fatalf("past at: reminder calls=%d", calls.Load())
+	}
+	stored, _, err := store.GetJob(job.ID)
+	if err != nil || stored.Enabled {
+		t.Fatalf("one-shot must disable after fire: %+v %v", stored, err)
+	}
+	s.replan(now.Add(time.Hour))
+	s.fireDue(now.Add(time.Hour))
+	if calls.Load() != 1 {
+		t.Fatalf("one-shot replayed after replan: %d", calls.Load())
+	}
+}
+
 func TestNilNotifierIsQuiet(t *testing.T) {
 	s := New(newTestStore(t), nil, nil)
 	t.Cleanup(s.Close)
 	if _, ok := s.notify.(noopNotifier); !ok {
 		t.Fatalf("nil notifier must stay quiet, got %T", s.notify)
+	}
+}
+
+func TestTypedTriggerIsNotFiredByCronTick(t *testing.T) {
+	store := newTestStore(t)
+	job := validJob("watch-files", "* * * * *")
+	job.TriggerKind = TriggerFileSetChanged
+	job.TriggerSpec = t.TempDir()
+	if err := store.PutJob(job); err != nil {
+		t.Fatal(err)
+	}
+	fired := 0
+	s := New(store, func(context.Context, Job) Outcome {
+		fired++
+		return Outcome{Summary: "should not run"}
+	}, nil)
+	t.Cleanup(s.Close)
+	now := time.Now().UTC()
+	s.mu.Lock()
+	s.nextFire[job.ID] = now.Add(-time.Minute)
+	s.schedules[job.ID] = scheduleKey(job)
+	s.mu.Unlock()
+	s.fireDue(now)
+	time.Sleep(50 * time.Millisecond)
+	if fired != 0 {
+		t.Fatalf("typed trigger must not ride the cron tick, fired=%d", fired)
 	}
 }
 
@@ -305,10 +477,54 @@ func TestDisabledJobNeverFires(t *testing.T) {
 	}
 }
 
+func TestRunContextDispatchKeyMatchesRun(t *testing.T) {
+	store := newTestStore(t)
+	job := validJob("ctx", "*/5 * * * *")
+	_ = store.PutJob(job)
+	got := make(chan RunContext, 1)
+	s := New(store, nil, noopNotifier{})
+	s.SetContextualExecutor(func(_ context.Context, j Job, rc RunContext) Outcome {
+		if j.ID != job.ID {
+			t.Errorf("job id %q", j.ID)
+		}
+		got <- rc
+		return Outcome{}
+	})
+	t.Cleanup(s.Close)
+	now := time.Now().UTC().Truncate(time.Minute)
+	s.mu.Lock()
+	s.nextFire[job.ID] = now.Add(-time.Minute)
+	s.schedules[job.ID] = job.Cron + "/" + job.UpdatedAt.Format(time.RFC3339Nano)
+	s.mu.Unlock()
+	if err := s.TriggerNow(job.ID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case rc := <-got:
+		if rc.RunID == "" || rc.DispatchKey != job.ID+":"+rc.RunID || rc.SessionID != job.SessionID || rc.Recover {
+			t.Fatalf("%+v", rc)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("contextual executor was not invoked")
+	}
+}
+
 func TestPsQuoteNeutralizesInjection(t *testing.T) {
 	got := psQuote("a'; Remove-Item C:\\ -Recurse; 'b")
 	// 2 embedded quotes doubled to 4, plus the 2 wrapping quotes = 6.
 	if strings.Count(got, "'") != 6 || !strings.Contains(got, "''") {
 		t.Fatalf("psQuote = %q", got)
+	}
+}
+
+func TestUserMessageDropsEnglish(t *testing.T) {
+	if got := UserMessage("context deadline exceeded"); !strings.Contains(got, "超时") || strings.Contains(got, "deadline") {
+		t.Fatalf("deadline: %q", got)
+	}
+	if got := UserMessage("sql: database is locked"); strings.Contains(got, "sql:") || !strings.Contains(got, "未完成") {
+		t.Fatalf("unknown english: %q", got)
+	}
+	if got := UserMessage("自动化对话执行失败"); got != "自动化对话执行失败" {
+		t.Fatalf("keep chinese: %q", got)
 	}
 }

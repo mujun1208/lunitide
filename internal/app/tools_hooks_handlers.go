@@ -48,7 +48,7 @@ func handleToolsHooksPolicySet(e *Engine, _ context.Context, r bridge.Request) b
 		if errors.Is(err, toolruntime.ErrPolicyRevisionConflict) {
 			return r.Fail("SETTINGS_VERSION_CONFLICT", err.Error(), false)
 		}
-		return r.Fail("HOOKS_POLICY_INVALID", err.Error(), false)
+		return r.Fail("HOOKS_POLICY_INVALID", localizeSettingsPolicyError(err), false)
 	}
 	return r.Ok(struct {
 		Applied int `json:"applied"`

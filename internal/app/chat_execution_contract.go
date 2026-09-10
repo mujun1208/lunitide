@@ -95,6 +95,22 @@ func desktopMutation(name string, args json.RawMessage) bool {
 	return isDesktopControlTool(name) && !liveDesktopObservation(name, args)
 }
 
+func recordDesktopMutationFailure(failed map[string]int, name string, args json.RawMessage, summary string) {
+	if failed == nil || !desktopMutation(name, args) {
+		return
+	}
+	key := desktopAttemptKey(name, args)
+	if capabilityDeniedOutput(summary) || strings.Contains(summary, "锁屏") {
+		failed[key] = 2
+		return
+	}
+	failed[key]++
+}
+
+func desktopMutationRetryBlocked(failed map[string]int, name string, args json.RawMessage) bool {
+	return desktopMutation(name, args) && failed[desktopAttemptKey(name, args)] >= 2
+}
+
 func desktopAttemptKey(name string, args json.RawMessage) string {
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(args, &fields) != nil {

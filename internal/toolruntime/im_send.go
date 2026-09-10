@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/lunitide/lunitide/internal/connectorapp"
 )
 
 var (
@@ -17,9 +19,10 @@ var (
 
 func (r *Runtime) executeIMSend(ctx context.Context, session string, args json.RawMessage, approved, unconfined bool) (Result, error) {
 	var a struct {
-		Channel string `json:"channel"`
-		To      string `json:"to"`
-		Text    string `json:"text"`
+		Channel    string `json:"channel"`
+		To         string `json:"to"`
+		Text       string `json:"text"`
+		Attachment string `json:"attachment"`
 	}
 	if strict(args, &a) != nil {
 		return Result{}, errors.New("无法执行：参数无效")
@@ -27,6 +30,9 @@ func (r *Runtime) executeIMSend(ctx context.Context, session string, args json.R
 	text := strings.TrimSpace(a.Text)
 	if text == "" || utf8.RuneCountInString(text) > 4000 {
 		return Result{}, errors.New("无法执行：没有可发送的内容")
+	}
+	if r != nil && r.imAllowed != nil && !r.imAllowed(strings.TrimSpace(a.Channel)) {
+		return Result{}, errors.New("无法执行：该消息通道已暂停")
 	}
 	if r == nil || r.imSend == nil {
 		return Result{}, errors.New("无法执行：消息通道未配置")
@@ -36,7 +42,7 @@ func (r *Runtime) executeIMSend(ctx context.Context, session string, args json.R
 		return Result{}, err
 	}
 	if desktopApp == "" {
-		return result(output), nil
+		return result(imSendOutput(output, a.Attachment)), nil
 	}
 	if err := requireDesktopAction(approved); err != nil {
 		return Result{}, errors.New("无法执行：本机客户端发送需要完整权限或用户批准")
@@ -64,5 +70,12 @@ func (r *Runtime) executeIMSend(ctx context.Context, session string, args json.R
 	if typeErr != nil {
 		return Result{}, fmt.Errorf("无法执行：已打开客户端但没打进会话：%v", typeErr)
 	}
-	return result(fmt.Sprintf("opened %s; %s", desktopApp, typed.Output)), nil
+	return result(imSendOutput(fmt.Sprintf("opened %s; %s", desktopApp, typed.Output), a.Attachment)), nil
+}
+
+func imSendOutput(output, attachment string) string {
+	if strings.TrimSpace(attachment) == "" {
+		return output
+	}
+	return output + "\nattachment: " + connectorapp.AttachmentReceipt(connectorapp.Recipe{PendingExternal: true})
 }

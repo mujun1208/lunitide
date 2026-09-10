@@ -6,8 +6,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lunitide/lunitide/internal/contextapp"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/llmadapter"
+	"github.com/lunitide/lunitide/internal/modelfit"
+	"github.com/lunitide/lunitide/internal/toolruntime"
+	"github.com/oklog/ulid/v2"
 )
 
 // planFakeAdapter answers the plan/execute/verify Complete calls in order.
@@ -34,6 +38,107 @@ func (a *planFakeAdapter) Stream(context.Context, []byte, llmadapter.Request, fu
 
 func (a *planFakeAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
 	return llmadapter.Discovery{}, nil
+}
+
+type planPurposeAdapter struct{ planFakeAdapter }
+
+func (a *planPurposeAdapter) Complete(ctx context.Context, secret []byte, req llmadapter.Request) (llmadapter.Response, error) {
+	if len(req.Messages) > 0 && strings.Contains(req.Messages[0].Content, "execution agent") {
+		return llmadapter.Response{Message: llmadapter.Message{Content: `{"l0":{"kind":"check","passed":false,"uncertain":true,"detail":"incomplete"}}`}}, nil
+	}
+	return a.planFakeAdapter.Complete(ctx, secret, req)
+}
+
+type planStepToolAdapter struct {
+	wrote bool
+}
+
+func (a *planStepToolAdapter) Complete(_ context.Context, _ []byte, req llmadapter.Request) (llmadapter.Response, error) {
+	if len(req.Messages) > 0 && req.Messages[len(req.Messages)-1].Role == llmadapter.RoleTool {
+		return llmadapter.Response{Message: llmadapter.Message{Content: "step outcome: done"}}, nil
+	}
+	if a.wrote {
+		return llmadapter.Response{Message: llmadapter.Message{Content: "step outcome: done"}}, nil
+	}
+	a.wrote = true
+	return llmadapter.Response{Message: llmadapter.Message{ToolCalls: []llmadapter.ToolCall{{
+		ID: "w1", Name: "workspace.write", Arguments: json.RawMessage(`{"path":"plan-secret.txt","content":"no"}`),
+	}}}}, nil
+}
+
+func (a *planStepToolAdapter) Stream(context.Context, []byte, llmadapter.Request, func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	return llmadapter.Response{}, context.Canceled
+}
+
+func (a *planStepToolAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, nil
+}
+
+func TestPlanStepRecordsReceiptWithoutAutoApprove(t *testing.T) {
+	e := newSubagentChatEngine(t)
+	store := &memToolOps{}
+	e.SetToolOperationStore(store)
+	out := e.executePlanStep(context.Background(), &planStepToolAdapter{}, nil, "model-x", subTestSession, executionModeApproval, "inspect", planStep{Action: "write", Detail: "do not write"}, 1, 1, RouteUnspecified)
+	if !strings.Contains(out, "approval required") && !strings.Contains(out, "step outcome") {
+		// The tool error is fed back to the model; the receipt is the contract.
+		t.Log(out)
+	}
+	var writeOp modelfit.ToolOperation
+	for _, op := range mustListToolOps(t, store, subTestSession) {
+		if op.ToolName == "workspace.write" {
+			writeOp = op
+		}
+	}
+	if writeOp.ID == "" {
+		t.Fatal("plan step write must leave a receipt")
+	}
+	if writeOp.State == modelfit.OpSucceeded {
+		t.Fatalf("plan step must keep approved=false: %+v", writeOp)
+	}
+	if _, err := e.tools.Execute(context.Background(), toolruntime.FullAccess, subTestSession, "workspace.read", json.RawMessage(`{"path":"plan-secret.txt"}`), false); err == nil {
+		t.Fatal("gated plan step must not create the file")
+	}
+}
+
+func TestPlanRunRecordsPlanPurpose(t *testing.T) {
+	e := newSubagentChatEngine(t)
+	store := &memCalls{}
+	e.SetCallAttemptStore(store)
+	inner := &planPurposeAdapter{}
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
+		return inner, nil
+	})
+	p := provider.Provider{ID: ulid.Make().String(), Protocol: provider.ProtocolOpenAICompatible}
+	a, err := e.adapter(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.invokePlanRunTool(context.Background(), a, nil, "model-x", subTestSession, executionModeFullAccess, json.RawMessage(`{"objective":"audit the workspace files"}`)); err != nil {
+		t.Fatal(err)
+	}
+	plan, judge := 0, 0
+	for _, rec := range store.recs {
+		switch rec.Purpose {
+		case "plan":
+			plan++
+		case "judge":
+			judge++
+		}
+	}
+	if plan < 2 {
+		t.Fatalf("planner and executor must record purpose plan: %+v", purposesOf(store))
+	}
+	if judge < 1 {
+		t.Fatalf("verifier must stay purpose judge: %+v", purposesOf(store))
+	}
+}
+
+func purposesOf(store *memCalls) []string {
+	out := make([]string, 0, len(store.recs))
+	for _, rec := range store.recs {
+		out = append(out, rec.Purpose)
+	}
+	return out
 }
 
 func TestPlanRunCyclePlanExecuteVerify(t *testing.T) {
@@ -233,5 +338,27 @@ func TestComplexityTierHintWiring(t *testing.T) {
 	hint := complexityTierHint(many)
 	if !strings.Contains(hint, "moderate") || !strings.Contains(hint, "plan.run") {
 		t.Fatalf("moderate hint = %q", hint)
+	}
+}
+
+func TestComplexityTierHintDoesNotExceedFinalBudget(t *testing.T) {
+	many := []llmadapter.Message{{Role: llmadapter.RoleSystem, Content: "sys"}}
+	for i := 0; i < 10; i++ {
+		many = append(many, llmadapter.Message{Role: llmadapter.RoleUser, Content: "question"}, llmadapter.Message{Role: llmadapter.RoleTool, Content: "tool output"}, llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "answer"})
+	}
+	if complexityTierHint(many) == "" {
+		t.Fatal("fixture must produce a hint")
+	}
+	used := countVisibleRequestTokens("glm-4", many, nil)
+	info := contextapp.ProviderInfo{Model: "glm-4", ContextWindow: used + 1, SafetyCeiling: used + 1}
+	if err := errIfRequestOverBudget(used, info); err != nil {
+		t.Fatalf("base messages must fit: %v", err)
+	}
+	got := applyComplexityTierHint(many, nil, info)
+	if err := errIfRequestOverBudget(countVisibleRequestTokens("glm-4", got, nil), info); err != nil {
+		t.Fatalf("hint must not push the request over budget: %v", err)
+	}
+	if got[0].Content != many[0].Content {
+		t.Fatal("over-budget hint must be skipped rather than sent")
 	}
 }

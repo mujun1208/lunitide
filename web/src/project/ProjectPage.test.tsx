@@ -20,6 +20,31 @@ const fillRequired=async(user:ReturnType<typeof userEvent.setup>,container:HTMLE
  fireEvent.change(dates[1],{target:{value:'2026-06-30'}})
 }
 
+it('does not show raw English list failures',async()=>{
+ render(<ProjectPage bridge={api({list:vi.fn().mockRejectedValue(new Error('Failed to fetch'))})}/>)
+ expect(await screen.findByRole('alert')).toHaveTextContent('请求失败')
+ expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
+it('does not leak BridgeClientError transport English and keeps protocol codes',async()=>{
+ render(<ProjectPage bridge={api({list:vi.fn().mockRejectedValue(new BridgeClientError('Failed to fetch','ENGINE_UNAVAILABLE',true,'01ARZ3NDEKTSV4RRFFQ69G5FAV'))})}/>)
+ const box=await screen.findByRole('alert')
+ expect(box).toHaveTextContent('请求失败')
+ expect(box).toHaveTextContent('ENGINE_UNAVAILABLE')
+ expect(box).toHaveTextContent('01ARZ3NDEKTSV4RRFFQ69G5FAV')
+ expect(box).toHaveTextContent('可重试')
+ expect(screen.queryByText('Failed to fetch')).toBeNull()
+ cleanup()
+ render(<ProjectPage bridge={api({list:vi.fn().mockRejectedValue(new BridgeClientError('项目清单读取失败','ENGINE_UNAVAILABLE',true,'engine'))})}/>)
+ expect(await screen.findByRole('alert')).toHaveTextContent('项目清单读取失败')
+ expect(screen.getByRole('alert')).toHaveTextContent('ENGINE_UNAVAILABLE')
+ cleanup()
+ render(<ProjectPage bridge={api({list:vi.fn().mockRejectedValue(new BridgeClientError('FEATURE_DISABLED: catalog inspect','FEATURE_DISABLED',false,'engine'))})}/>)
+ expect(await screen.findByRole('alert')).toHaveTextContent('FEATURE_DISABLED: catalog inspect')
+ expect(screen.getByRole('alert')).toHaveTextContent('FEATURE_DISABLED')
+ expect(screen.queryByText('SETTINGS_VERSION_CONFLICT')).toBeNull()
+})
+
 it('normalizes Go-style whitespace and counts astral code points',()=>{expect(normalizeProjectName(' \t月\n\u00a0汐 ')).toBe('月 汐');expect(Array.from('😀')).toHaveLength(1)})
 
 it('shows the management table, validates required A–N fields, normalizes create, and renders names as inert text',async()=>{

@@ -11,6 +11,13 @@ const digest = 'a'.repeat(64)
 const documents = () => ({ list: vi.fn(async ({ phase }: { phase: number }) => ({ items: [{ documentType: phase === 3 ? 'db_design' : phase === 4 ? 'interface_list' : 'dev_checklist', status: 'approved', digest }] })) }) as unknown as DeliverableBridge
 afterEach(() => { cleanup(); localStorage.clear() })
 
+it('does not show raw English revision load failures', async () => {
+  const release = { getRevision: vi.fn().mockRejectedValue(new Error('Failed to fetch')) } as unknown as ReleaseBridge
+  render(<ReleasePanel project={project} bridge={release} deliverables={documents()} />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('请求失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('creates a source-bound revision without invented members or size', async () => {
   const createRevision = vi.fn().mockResolvedValue({ crRevisionId: 'revision', revisionNo: 1, digest })
   await createProjectCrRevision(project, 'Release', documents(), { createRevision } as unknown as ReleaseBridge)

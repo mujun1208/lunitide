@@ -6,6 +6,22 @@ const P='01ARZ3NDEKTSV4RRFFQ69G5FAV',emptyList={items:[],acceptedPaths:[]}
 afterEach(cleanup)
 const card=(kind:ArtifactCard['kind']='xlsx',path='reports/q3.xlsx'):ArtifactCard=>({callId:`call-${path}`,toolName:'excel.gen',kind,path,content:''})
 const bridge=(list=emptyList,preview?:{kind:string;path:string;size:number;content:string}):{b:ArtifactReviewBridge;append:ReturnType<typeof vi.fn>}=>{const append=vi.fn().mockResolvedValue({ok:true});return{b:{list:vi.fn().mockResolvedValue(list),append,preview:vi.fn().mockImplementation(()=>preview?Promise.resolve(preview):Promise.reject(new Error('no preview')))}as unknown as ArtifactReviewBridge,append}}
+it('does not show raw English review or export failures',async()=>{
+  const append=vi.fn().mockRejectedValue(new Error('Failed to fetch'))
+  const b={list:vi.fn().mockResolvedValue(emptyList),append,preview:vi.fn().mockRejectedValue(new Error('Failed to fetch')),exportArtifact:vi.fn().mockRejectedValue(new Error('Failed to fetch'))}as unknown as ArtifactReviewBridge
+  render(<ArtifactPanel sessionId={P} artifacts={[card()]} bridge={b}/>)
+  fireEvent.change(screen.getByLabelText(/产物备注/),{target:{value:'补一列环比'}})
+  fireEvent.click(screen.getByRole('button',{name:'评论'}))
+  expect(await screen.findByText('操作失败')).toBeInTheDocument()
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  fireEvent.click(screen.getByRole('button',{name:'导出'}))
+  expect(await screen.findByText('导出失败')).toBeInTheDocument()
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  fireEvent.click(screen.getByRole('button',{name:'预览'}))
+  expect(await screen.findByRole('alert')).toHaveTextContent('预览失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('shows empty hint when no artifacts exist',()=>{render(<ArtifactPanel sessionId={P} artifacts={[]} bridge={bridge().b}/>);expect(screen.getByText(/还没有生成的产物/)).toBeInTheDocument()})
 it('renders artifact cards with kind label and drives comment→revise→accept loop',async()=>{const accepted:string[]=[];const list=vi.fn().mockImplementation(()=>Promise.resolve({items:[],acceptedPaths:[...accepted]}));const append=vi.fn().mockImplementation((_p:{action:string})=>{if(_p.action==='accept')accepted.push('reports/q3.xlsx');return Promise.resolve({ok:true})});const b={list,append,preview:vi.fn()}as unknown as ArtifactReviewBridge;const onRevise=vi.fn();render(<ArtifactPanel sessionId={P} artifacts={[card()]} bridge={b} onRevise={onRevise}/>)
 await waitFor(()=>expect(b.list).toHaveBeenCalledWith({sessionId:P}))

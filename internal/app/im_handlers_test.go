@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -235,5 +236,16 @@ func TestImChannelsSetDoesNotCallTimeoutASchemaError(t *testing.T) {
 	got := e.Handle(context.Background(), imChannelsRequest("im.channels.set", `{"kind":"feishu","inboundEnabled":true,"inboundAppId":"cli_x"}`))
 	if got.OK || got.Error == nil || got.Error.Code != "REQUEST_DEADLINE_EXCEEDED" || !got.Error.Retryable {
 		t.Fatalf("timeout must be retryable, not schema invalid: %+v", got.Error)
+	}
+}
+
+func TestImTestSendFailureMessageDropsEnglish(t *testing.T) {
+	got := imTestSendFailureMessage(errors.New(`Post "https://open.feishu.cn/hook": dial tcp 127.0.0.1:443: connectex: No connection`))
+	if strings.Contains(got, "Post ") || strings.Contains(got, "dial tcp") || strings.Contains(got, "connectex") || !officeUserMessageHasHan(got) {
+		t.Fatalf("IM test-send leaked English: %q", got)
+	}
+	keep := imTestSendFailureMessage(errors.New("机器人未加入群"))
+	if keep != "试发失败，地址没保存：机器人未加入群" {
+		t.Fatalf("lost Chinese notify reason: %q", keep)
 	}
 }

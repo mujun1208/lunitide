@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import type { MeetingsBridge } from '../bridge/client'
 import type { MeetingDTO, MeetingsSegmentsListResult } from '../generated/bridge'
 
+function segmentsUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 export function MeetingSegments({ meeting, load }: { meeting: MeetingDTO; load: MeetingsBridge['segmentsList'] }) {
   const [page, setPage] = useState<MeetingsSegmentsListResult>()
   const [cursors, setCursors] = useState<number[]>([0])
@@ -23,7 +28,7 @@ export function MeetingSegments({ meeting, load }: { meeting: MeetingDTO; load: 
       setPage(result)
       setCursors(nextCursors)
     } catch (cause) {
-      if (request === epoch.current && identity === identityRef.current) setError(cause instanceof Error ? cause.message : '无法读取分段记录')
+      if (request === epoch.current && identity === identityRef.current) setError(segmentsUserError(cause, '无法读取分段记录'))
     } finally {
       if (request === epoch.current && identity === identityRef.current) setBusy(false)
     }

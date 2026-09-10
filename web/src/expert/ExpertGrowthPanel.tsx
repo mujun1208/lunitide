@@ -1,6 +1,11 @@
 import React, { useEffect, useState } from 'react'
 import { useZh } from '../i18n/language'
 
+function growthUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 export type GrowthView = {
   missionSnapshot: string
   ladder: Array<{ name: string; state: 'have' | 'learning' | 'next' }>
@@ -25,7 +30,7 @@ export function ExpertGrowthPanel({
       return
     }
     void growthGet({ expertId }).then(next => { if (alive) setPath(next) }).catch(e => {
-      if (alive) setError(e instanceof Error ? e.message : (zh ? '成长路径加载失败' : 'Failed to load path'))
+      if (alive) setError(growthUserError(e, zh ? '成长路径加载失败' : 'Failed to load path'))
     })
     return () => { alive = false }
   }, [expertId, growthGet, zh])

@@ -5,6 +5,29 @@ import { BridgeClientError, type ProviderBridge } from '../bridge/client'
 import type { ProviderDTO } from '../generated/bridge'
 import { ProviderApp, providerTestModelId } from './ProviderApp'
 afterEach(cleanup)
+it('does not show raw English list failures', async () => {
+ render(<ProviderApp bridge={api({list:vi.fn().mockRejectedValue(new Error('Failed to fetch'))})}/>)
+ expect(await screen.findByRole('alert')).toHaveTextContent('请求失败')
+ expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
+it('does not leak BridgeClientError transport English and keeps protocol codes', async () => {
+ render(<ProviderApp bridge={api({list:vi.fn().mockRejectedValue(new BridgeClientError('Failed to fetch','ENGINE_UNAVAILABLE',true,'01ARZ3NDEKTSV4RRFFQ69G5FAV'))})}/>)
+ const box=await screen.findByRole('alert')
+ expect(box).toHaveTextContent('请求失败')
+ expect(box).toHaveTextContent('ENGINE_UNAVAILABLE')
+ expect(box).toHaveTextContent('01ARZ3NDEKTSV4RRFFQ69G5FAV')
+ expect(box).toHaveTextContent('可重试')
+ expect(screen.queryByText('Failed to fetch')).toBeNull()
+ cleanup()
+ render(<ProviderApp bridge={api({list:vi.fn().mockRejectedValue(new BridgeClientError('供应商清单读取失败','ENGINE_UNAVAILABLE',true,'engine'))})}/>)
+ expect(await screen.findByRole('alert')).toHaveTextContent('供应商清单读取失败')
+ cleanup()
+ render(<ProviderApp bridge={api({list:vi.fn().mockRejectedValue(new BridgeClientError('FEATURE_DISABLED: catalog inspect','FEATURE_DISABLED',false,'engine'))})}/>)
+ expect(await screen.findByRole('alert')).toHaveTextContent('FEATURE_DISABLED: catalog inspect')
+ expect(screen.getByRole('alert')).toHaveTextContent('FEATURE_DISABLED')
+})
+
 it('distinguishes enabled configuration from a failed connection and shows the HTTP cause', async () => {
  const bridge=api({list:vi.fn().mockResolvedValue({items:[provider]}),get:vi.fn().mockResolvedValue(provider),test:vi.fn().mockResolvedValue({status:'failed',testedAt:new Date().toISOString(),latencyMs:240,errorCode:'HTTP_503',httpStatus:503,sanitizedMessage:'供应商服务暂不可用'})})
  const user=userEvent.setup()

@@ -28,6 +28,10 @@ const inputStyle: React.CSSProperties = { width: '100%', padding: '6px 8px', bac
 const btnStyle: React.CSSProperties = { padding: '6px 12px', backgroundColor: 'var(--bg3)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: '4px', cursor: 'pointer' }
 const primaryBtnStyle: React.CSSProperties = { ...btnStyle, backgroundColor: '#2563eb', borderColor: '#3b82f6' }
 const ttlText = (m: MemoryDTO) => m.expiresAt ? `TTL: ${new Date(m.expiresAt).toLocaleDateString()}` : 'TTL: 长期'
+function memoryUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
 
 export function MemoryPage({ projectId, bridge = memoryBridge, feedback = feedbackBridge, nominations = nominationBridge }: { projectId: string; bridge?: MemoryBridge; feedback?: FeedbackBridge; nominations?: NominationBridge }): React.JSX.Element {
   const [tab, setTab] = useState<MemoryTab>('overview')
@@ -58,7 +62,7 @@ export function MemoryPage({ projectId, bridge = memoryBridge, feedback = feedba
     try {
       const r = await bridge.list({ projectId })
       setMemories(r.items)
-    } catch (e) { setError(e instanceof Error ? e.message : '加载失败') }
+    } catch (e) { setError(memoryUserError(e, '加载失败')) }
     finally { setLoading(false) }
   }, [projectId, bridge])
 
@@ -73,7 +77,7 @@ export function MemoryPage({ projectId, bridge = memoryBridge, feedback = feedba
     if (!projectId || !searchQuery.trim()) return
     setLoading(true); setError(undefined)
     try { const r = await bridge.search({ projectId, query: searchQuery.trim() }); setMemories(r.items) }
-    catch (e) { setError(e instanceof Error ? e.message : '搜索失败') }
+    catch (e) { setError(memoryUserError(e, '搜索失败')) }
     finally { setLoading(false) }
   }
 
@@ -85,7 +89,7 @@ export function MemoryPage({ projectId, bridge = memoryBridge, feedback = feedba
       await bridge.create({ projectId, layer: newLayer, scope: newScope, key: newKey.trim(), content: newContent })
       setNewKey(''); setNewContent(''); setShowCreate(false)
       await load()
-    } catch (e) { setError(e instanceof Error ? e.message : '创建失败') }
+    } catch (e) { setError(memoryUserError(e, '创建失败')) }
     finally { setBusy(false) }
   }
 
@@ -93,14 +97,14 @@ export function MemoryPage({ projectId, bridge = memoryBridge, feedback = feedba
     if (editContent === null) return
     setBusy(true); setError(undefined)
     try { await bridge.update({ id, content: editContent }); setEditContent(null); await load() }
-    catch (e) { setError(e instanceof Error ? e.message : '更新失败') }
+    catch (e) { setError(memoryUserError(e, '更新失败')) }
     finally { setBusy(false) }
   }
 
   const doDelete = async (id: string) => {
     setBusy(true); setError(undefined)
     try { await bridge.delete({ id }); if (selected?.id === id) setSelected(null); await load() }
-    catch (e) { setError(e instanceof Error ? e.message : '删除失败') }
+    catch (e) { setError(memoryUserError(e, '删除失败')) }
     finally { setBusy(false) }
   }
 
@@ -119,7 +123,7 @@ export function MemoryPage({ projectId, bridge = memoryBridge, feedback = feedba
     try {
       await bridge.confirmCandidate({ candidateId: item.candidateId, confirmationToken: item.confirmationToken, action, requestId: `ui-${Date.now()}` })
       setPending(values => values.filter(v => v.candidateId !== item.candidateId))
-    } catch (e) { setError(e instanceof Error ? e.message : '偏好确认失败') }
+    } catch (e) { setError(memoryUserError(e, '偏好确认失败')) }
     finally { setPendingBusy('') }
   }
 
@@ -143,7 +147,7 @@ export function MemoryPage({ projectId, bridge = memoryBridge, feedback = feedba
     try {
       await bridge.confirmCandidate({ candidateId: item.candidateId, confirmationToken: item.confirmationToken, action, requestId: `ui-${Date.now()}` })
       await loadNominations()
-    } catch (e) { setError(e instanceof Error ? e.message : '提名处理失败') }
+    } catch (e) { setError(memoryUserError(e, '提名处理失败')) }
     finally { setNomBusy('') }
   }
 
@@ -153,7 +157,7 @@ export function MemoryPage({ projectId, bridge = memoryBridge, feedback = feedba
     try {
       await nominations.withdraw({ nominationId: item.nominationId })
       await loadNominations()
-    } catch (e) { setError(e instanceof Error ? e.message : '撤回提名失败') }
+    } catch (e) { setError(memoryUserError(e, '撤回提名失败')) }
     finally { setNomBusy('') }
   }
 

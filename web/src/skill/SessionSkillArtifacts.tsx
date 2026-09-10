@@ -3,6 +3,11 @@ import type {SkillBridge} from '../bridge/client'
 import type {SkillDTO} from '../generated/bridge'
 import './skillPackage.css'
 
+function sessionSkillUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 /** Session provenance is supplied by the engine, never inferred from timestamps. */
 export function useSessionSkillArtifacts(sessionId:string, bridge:SkillBridge, liveIds:string[]) {
   const [items,setItems]=useState<SkillDTO[]>([]),[error,setError]=useState(''),[revision,setRevision]=useState(0)
@@ -21,7 +26,7 @@ export function useSessionSkillArtifacts(sessionId:string, bridge:SkillBridge, l
       if(!active)return
       setItems([...known,...extra.flatMap(item=>item.status==='fulfilled'?[item.value]:[])])
       if(extra.some(item=>item.status==='rejected'))setError('部分新建技能暂时无法读取，请刷新。')
-    })().catch(cause=>{if(active)setError(cause instanceof Error?cause.message:'技能产物暂时无法读取')})
+    })().catch(cause=>{if(active)setError(sessionSkillUserError(cause,'技能产物暂时无法读取'))})
     return()=>{active=false}
   },[sessionId,bridge,liveKey,revision])
   return {items,error,revision,reload:()=>setRevision(value=>value+1)}

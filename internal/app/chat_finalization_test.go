@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -239,6 +240,34 @@ func TestCombineDurableProviderMessagesOrdersAndValidatesFinalSequence(t *testin
 	}
 }
 
+func TestCombineProviderMessagesReplaysNativeGroups(t *testing.T) {
+	history := []contextapp.Message{
+		{Role: "user", Content: "打开记事本", TokenCount: 2},
+		{Role: "tool", Content: "[tool-result callId=abc]\nok", TokenCount: 3},
+	}
+	explicit := []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "继续"}}
+	native := []llmadapter.Message{
+		{Role: llmadapter.RoleAssistant, ReasoningContent: "need app", ToolCalls: []llmadapter.ToolCall{{ID: "c1", Name: "desktop.open", Arguments: []byte(`{}`)}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "c1", Content: "ok"},
+	}
+	got, err := combineProviderMessages(history, explicit, contextapp.ProviderInfo{ContextWindow: 2000, SafetyCeiling: 2000}, nil, native)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawNative bool
+	for _, m := range got {
+		if m.Role == llmadapter.RoleTool && m.ToolCallID == "c1" {
+			sawNative = true
+		}
+		if m.Role == llmadapter.RoleTool && m.ToolCallID == "" {
+			t.Fatalf("orphan tool survived native replay: %#v", got)
+		}
+	}
+	if !sawNative {
+		t.Fatalf("qualified native group missing: %#v", got)
+	}
+}
+
 func TestCombineDurableProviderMessagesFoldsHistoricalToolResults(t *testing.T) {
 	// A persisted role:"tool" row (no tool_call_id in the store) must never be
 	// replayed as an orphan tool message — strict providers (glm/Zhipu) reject
@@ -287,6 +316,80 @@ func TestFoldHistoricalToolResultStripsHeaderAndNeverEmpty(t *testing.T) {
 	}
 	if got := foldHistoricalToolResult("plain text no header"); got != "（历史工具结果）plain text no header" {
 		t.Fatalf("fold without header = %q", got)
+	}
+}
+
+func TestReserveImageBudgetIncreasesSystemTokens(t *testing.T) {
+	info := contextapp.ProviderInfo{SystemTokens: 20, SafetyMargin: 8, ReservedOutput: 4}
+	images := []llmadapter.Image{{MIME: "image/png", Data: bytes.Repeat([]byte{1}, 8000)}}
+	got := reserveImageBudget(info, "glm-4", images)
+	n := estimateImageTokens("glm-4", images)
+	if n <= 0 {
+		t.Fatal("image token estimate must be positive")
+	}
+	if got.SystemTokens != info.SystemTokens+n {
+		t.Fatalf("SystemTokens=%d want %d", got.SystemTokens, info.SystemTokens+n)
+	}
+	if got.SafetyMargin != info.SafetyMargin || got.ReservedOutput != info.ReservedOutput {
+		t.Fatal("reserve must not rewrite unrelated budget fields")
+	}
+	if info.SystemTokens != 20 {
+		t.Fatal("reserve must not mutate the caller's ProviderInfo")
+	}
+}
+
+func TestChatStartAssemblyReservesExplicitImageBudget(t *testing.T) {
+	history := []contextapp.Message{{Role: "user", Content: strings.Repeat("历史材料。", 80)}}
+	explicit := []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "看图"}}
+	images := []llmadapter.Image{{MIME: "image/png", Data: bytes.Repeat([]byte{1}, 48<<10)}}
+	wide := contextapp.ProviderInfo{Model: "glm-4", ContextWindow: 100000, SafetyCeiling: 100000, ReservedOutput: 8, SafetyMargin: 8}
+	combined, err := combineDurableProviderMessages(history, explicit, wide)
+	if err != nil {
+		t.Fatal(err)
+	}
+	used := countVisibleRequestTokens("glm-4", combined, nil)
+	img := estimateImageTokens("glm-4", images)
+	if img <= 0 {
+		t.Fatal("image tokens must be positive")
+	}
+	info := contextapp.ProviderInfo{Model: "glm-4", ContextWindow: used + 8 + 8 + 8, SafetyCeiling: used + 8 + 8 + 8, ReservedOutput: 8, SafetyMargin: 8, SystemTokens: 20}
+	if _, err := combineDurableProviderMessages(history, explicit, info); err != nil {
+		t.Fatalf("text-only must fit: %v", err)
+	}
+	if _, err := combineDurableProviderMessages(history, explicit, info, images...); !errors.Is(err, errCombinedContextOverBudget) {
+		t.Fatalf("same window + images must fail at combine, err=%v", err)
+	}
+	reserved := reserveImageBudget(info, "glm-4", images)
+	if reserved.EffectiveInputBudget() >= info.EffectiveInputBudget() {
+		t.Fatalf("image reserve must shrink assembly budget: before=%d after=%d", info.EffectiveInputBudget(), reserved.EffectiveInputBudget())
+	}
+}
+
+func TestCombineDurableProviderMessagesCountsImages(t *testing.T) {
+	info := contextapp.ProviderInfo{Model: "glm-4", ContextWindow: 12, SafetyCeiling: 12}
+	small := []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "go"}}
+	if _, err := combineDurableProviderMessages(nil, small, info); err != nil {
+		t.Fatalf("text-only must fit: %v", err)
+	}
+	_, err := combineDurableProviderMessages(nil, small, info, llmadapter.Image{MIME: "image/png", Data: bytes.Repeat([]byte{0x89}, 32<<10)})
+	if !errors.Is(err, errCombinedContextOverBudget) {
+		t.Fatalf("images must count in the final budget, err=%v", err)
+	}
+}
+
+func TestCombineDurableProviderMessagesCountsToolCallPayloads(t *testing.T) {
+	args := strings.Repeat("tool-arg-payload-", 80)
+	info := contextapp.ProviderInfo{Model: "glm-4", ContextWindow: 40, SafetyCeiling: 40}
+	small := []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "go"}, {Role: llmadapter.RoleAssistant, Content: "ok"}}
+	if _, err := combineDurableProviderMessages(nil, small, info); err != nil {
+		t.Fatalf("content-only must fit: %v", err)
+	}
+	_, err := combineDurableProviderMessages(nil, []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "go"},
+		{Role: llmadapter.RoleAssistant, Content: "ok", ToolCalls: []llmadapter.ToolCall{{ID: "c1", Name: "files.plan", Arguments: []byte(`{"body":"` + args + `"}`)}}},
+	}, info)
+	if !errors.Is(err, errCombinedContextOverBudget) {
+		t.Fatalf("tool-call args must count in final budget, err=%v", err)
 	}
 }
 

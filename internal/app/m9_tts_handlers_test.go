@@ -31,6 +31,15 @@ func (brokenComEngine) Synthesize(in tts.SynthesizeInput) (tts.SynthesizeResult,
 	return tts.SynthesizeResult{}, false, tts.ErrEngineUnavailable
 }
 
+func TestTtsCancelClearsRemainingExportWork(t *testing.T) {
+	if left := ttsRemainingWork(true, 3, []int{0}); len(left) != 0 {
+		t.Fatalf("cancel must drop leftover TTS segments: %+v", left)
+	}
+	if left := ttsRemainingWork(false, 3, []int{0}); len(left) != 2 || left[0] != 1 {
+		t.Fatalf("resume must keep leftover TTS segments: %+v", left)
+	}
+}
+
 func TestTtsWindowsNServiceNotWired(t *testing.T) {
 	// The full Windows N simulation: host.go never wires SetM9TtsService,
 	// so the engine carries a nil service and every tts.* call must
@@ -104,8 +113,11 @@ func TestTtsSynthesizeKeepsRefHttpDetail(t *testing.T) {
 	if resp.OK || resp.Error == nil || resp.Error.Code != "M95-002" {
 		t.Fatalf("http fail = %+v, want M95-002", resp)
 	}
-	if !strings.Contains(resp.Error.Message, "HTTP 400") || !strings.Contains(resp.Error.Message, "ref wav too short") {
-		t.Fatalf("message = %q, want HTTP detail", resp.Error.Message)
+	if !strings.Contains(resp.Error.Message, "HTTP 400") || !strings.Contains(resp.Error.Message, "参考音频太短") {
+		t.Fatalf("message = %q, want Chinese HTTP detail", resp.Error.Message)
+	}
+	if strings.Contains(resp.Error.Message, "ref wav too short") {
+		t.Fatalf("message leaked English body: %q", resp.Error.Message)
 	}
 }
 
@@ -209,6 +221,32 @@ func TestTtsVoicesEnginelessIsM95_001(t *testing.T) {
 	sapiResp := e.Handle(context.Background(), validRequest("tts.voices", `{}`))
 	if sapiResp.OK || sapiResp.Error == nil || sapiResp.Error.Code != "M95-001" {
 		t.Fatalf("tts.voices sapi = %+v, want M95-001", sapiResp)
+	}
+}
+
+func TestTtsRefHostUserLastErrorDropsEnglish(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"jieba_fast dict.txt missing", "参考音色引擎缺少分词词典"},
+		{"launch timed out", "参考音色引擎启动超时"},
+		{"service stopped answering", "参考音色引擎已停止响应"},
+		{"launcher exited before /docs answered", "参考音色引擎在就绪前退出"},
+		{"引擎未就绪：/docs 仍无响应", "引擎未就绪：/docs 仍无响应"},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		got := ttsRefHostUserLastError(tc.in)
+		if got != tc.want {
+			t.Fatalf("%q -> %q, want %q", tc.in, got, tc.want)
+		}
+		if got != "" && !officeUserMessageHasHan(got) {
+			t.Fatalf("no Han: %q", got)
+		}
+	}
+	if got := ttsRefHostUserLastError("exec: no such file"); strings.Contains(got, "exec:") || !officeUserMessageHasHan(got) {
+		t.Fatalf("os english leaked: %q", got)
 	}
 }
 

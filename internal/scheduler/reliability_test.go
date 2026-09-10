@@ -175,3 +175,23 @@ func TestSchedulerRestartReconcilesIntentAndDisablesUncertainJob(t *testing.T) {
 		t.Fatal("uncertain operation replayed on startup")
 	}
 }
+
+func TestBindRunSessionUpdatesRunningIntentWithoutRelaunch(t *testing.T) {
+	store := newTestStore(t)
+	job := validJob("bind", "* * * * *")
+	if err := store.PutJob(job); err != nil {
+		t.Fatal(err)
+	}
+	runID := "01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+	if err := store.AppendRun(Run{ID: runID, JobID: job.ID, JobName: job.Name, SessionID: job.SessionID, State: RunRunning, StartedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	isolated := "01ARZ3NDEKTSV4RRFFQ69G5FAA"
+	if err := store.BindRunSession(runID, isolated); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := store.LatestRuns(job.ID)
+	if err != nil || len(latest) != 1 || latest[0].State != RunRunning || latest[0].SessionID != isolated || latest[0].ID != runID {
+		t.Fatalf("bound run %+v %v", latest, err)
+	}
+}

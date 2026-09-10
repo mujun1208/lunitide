@@ -22,6 +22,10 @@ const btnStyle: React.CSSProperties = { padding: '6px 12px', backgroundColor: 'v
 const primaryBtnStyle: React.CSSProperties = { ...btnStyle, backgroundColor: '#2563eb', borderColor: '#3b82f6' }
 const dangerBtnStyle: React.CSSProperties = { ...btnStyle, color: '#f87171', borderColor: '#7f1d1d' }
 const chipStyle: React.CSSProperties = { padding: '2px 8px', borderRadius: '999px', fontSize: '11px', border: '1px solid var(--line)', color: 'var(--muted)' }
+function memoryOpsUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
 
 const StatCard = ({ label, value, hint }: { label: string; value: number | string; hint?: string }) => (
   <div style={{ flex: 1, minWidth: '130px', padding: '12px 14px', border: '1px solid var(--rule)', borderRadius: '10px', background: 'var(--bg3)' }}>
@@ -78,7 +82,7 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
     try {
       const r = await ops.listFacts({ ...(factsState ? { state: factsState } : {}), limit: PAGE_SIZE, offset: factsPage * PAGE_SIZE })
       setFacts(r.items); setFactsTotal(r.total)
-    } catch (e) { setError(e instanceof Error ? e.message : '事实库加载失败') }
+    } catch (e) { setError(memoryOpsUserError(e, '事实库加载失败')) }
   }, [ops, factsState, factsPage])
 
   const loadTraces = useCallback(async () => {
@@ -86,7 +90,7 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
     try {
       const r = await ops.listTraces({ limit: PAGE_SIZE, offset: tracesPage * PAGE_SIZE })
       setTraces(r.items); setTracesTotal(r.total)
-    } catch (e) { setError(e instanceof Error ? e.message : '召回记录加载失败') }
+    } catch (e) { setError(memoryOpsUserError(e, '召回记录加载失败')) }
   }, [ops, tracesPage])
 
   const loadGrowth = useCallback(async () => {
@@ -94,7 +98,7 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
     try {
       const r = await ops.listGrowth({ ...(growthStatus ? { status: growthStatus } : {}), limit: PAGE_SIZE, offset: growthPage * PAGE_SIZE })
       setGrowth(r.items); setGrowthTotal(r.total)
-    } catch (e) { setError(e instanceof Error ? e.message : '成长箱加载失败') }
+    } catch (e) { setError(memoryOpsUserError(e, '成长箱加载失败')) }
   }, [ops, growthStatus, growthPage])
 
   useEffect(() => {
@@ -119,7 +123,7 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
       if (!r.version) throw new Error('设置版本不可用，请重新加载')
       setSettings({ captureMode: r.captureMode ?? 'auto', memoryEnabled: r.memoryEnabled, autoNominate: r.autoNominate, growthDays: r.growthDays })
       setSettingsVersion(r.version)
-    } catch (e) { setSettingsError(e instanceof Error ? e.message : '设置加载失败') }
+    } catch (e) { setSettingsError(memoryOpsUserError(e, '设置加载失败')) }
   }, [ops, resolvedSubject])
 
   const reviewLatestSettings = async () => {
@@ -130,7 +134,7 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
       if (!latest.version) throw new Error('设置版本不可用')
       setSettingsLatest({ ...latest, captureMode: latest.captureMode ?? 'auto' }); setSettingsVersion(latest.version); setSettingsConflict(false)
       setSettingsError('已读取最新设置；当前编辑草稿保留，请核对后再保存')
-    } catch (e) { setSettingsError(e instanceof Error ? e.message : '最新设置读取失败') }
+    } catch (e) { setSettingsError(memoryOpsUserError(e, '最新设置读取失败')) }
     finally { setBusy('') }
   }
 
@@ -147,7 +151,7 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
       const on = flag === 'pinned' ? !item.pinned : !item.hidden
       await ops.flagFact({ factId: item.factId, flag, on })
       await loadFacts(); await loadStats()
-    } catch (e) { setError(e instanceof Error ? e.message : '标记失败') }
+    } catch (e) { setError(memoryOpsUserError(e, '标记失败')) }
     finally { setBusy('') }
   }
 
@@ -157,7 +161,7 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
     try {
       await ops.decideGrowth({ factId: item.factId, decision })
       await loadGrowth(); await loadStats()
-    } catch (e) { setError(e instanceof Error ? e.message : '成长箱决定失败') }
+    } catch (e) { setError(memoryOpsUserError(e, '成长箱决定失败')) }
     finally { setBusy('') }
   }
 
@@ -170,7 +174,7 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
       setSettingsVersion(result.version); setSettingsLatest(undefined)
       setNotice('记忆设置已保存')
     } catch (e) {
-      setSettingsError(e instanceof Error ? e.message : '设置保存失败，草稿已保留')
+      setSettingsError(memoryOpsUserError(e, '设置保存失败，草稿已保留'))
       if (e && typeof e === 'object' && 'code' in e && e.code === 'MEMORY_SETTINGS_CONFLICT') setSettingsConflict(true)
     } finally { setBusy('') }
   }
@@ -186,7 +190,7 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
       a.href = url; a.download = `lunitide-memory-export-${Date.now()}.json`; a.click()
       URL.revokeObjectURL(url)
       setNotice('记忆数据已导出')
-    } catch (e) { setError(e instanceof Error ? e.message : '导出失败') }
+    } catch (e) { setError(memoryOpsUserError(e, '导出失败')) }
     finally { setBusy('') }
   }
 
@@ -201,7 +205,7 @@ export function MemoryOpsPanel({ ops = memoryOpsBridge, identity = getIdentityBr
       const counts = await ops.purge({})
       setNotice(`已清除：封存事实 ${counts.factsTombstoned} 条，候选 ${counts.candidates} 条，成长箱 ${counts.growthRows} 条，标记 ${counts.flags} 条，召回记录 ${counts.traces} 条，四层记忆 ${counts.memories} 条`)
       await Promise.all([loadStats(), loadFacts(), loadTraces(), loadGrowth()])
-    } catch (e) { setError(e instanceof Error ? e.message : '清除失败') }
+    } catch (e) { setError(memoryOpsUserError(e, '清除失败')) }
     finally { setBusy('') }
   }
 

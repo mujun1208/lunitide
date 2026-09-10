@@ -3,6 +3,8 @@
 // must stay off unless tool handoff set talkSuppressPlay.
 import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { BridgeClientError } from '../../bridge/client'
+import { TALK_FALLBACK_BANNER } from './companionTalk'
 import type { TtsPlayerCallbacks } from './ttsPlayer'
 import { defaultCompanionSettings } from './companionSettings'
 import type { EntryLight } from './companionLights'
@@ -152,6 +154,25 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
   cleanup()
+})
+
+test('does not show raw English talk errors and keeps Chinese hints', async () => {
+  const ui = render(<CompanionStage {...baseProps} />)
+  await flush(800)
+  const callbacks = talk.start.mock.calls[0][0]
+  await act(async () => {
+    callbacks.onError(new BridgeClientError('Failed to fetch', 'CLIENT_ERROR', true, 'talk'))
+  })
+  expect(ui.container.textContent).toContain(TALK_FALLBACK_BANNER)
+  expect(ui.container.textContent).not.toContain('Failed to fetch')
+  await act(async () => {
+    callbacks.onError(new BridgeClientError('通话核适配还没接通，这轮用语模型', 'TALK_ADAPTER_UNREADY', true, 'talk'))
+  })
+  expect(ui.container.textContent).toContain('通话核适配还没接通，这轮用语模型')
+  await act(async () => {
+    callbacks.onError(new BridgeClientError('barge', 'TALK_BARGE', true, 'talk'))
+  })
+  expect(ui.container.textContent).not.toContain('barge')
 })
 
 test('done-flush does not enqueue cascade TTS while talk is live', async () => {

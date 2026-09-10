@@ -23,6 +23,11 @@ import { SafeLinkedText } from './safeLinks'
 import { isBrowserAddress, latestBrowserAddress, parseSearchCards } from './browserAddress'
 import { extractTaskFiles, isChangeTool } from './codePanelUtils'
 
+function workspaceUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 export type WorkspaceTab = 'files' | 'code' | 'browser' | 'terminal' | 'plan' | 'changes'
 /** @deprecated legacy tab ids mapped in normalizeWorkspaceTab */
 export type LegacyWorkspaceTab = WorkspaceTab | 'preview' | 'develop'
@@ -185,7 +190,7 @@ export function Workspace({
       setItems(current)
       setSelectedId(id => (current.some(x => x.attachmentId === id) ? id : (current[0]?.attachmentId ?? '')))
     }).catch(e => {
-      if (active) setError(e instanceof Error ? e.message : '附件载入失败')
+      if (active) setError(workspaceUserError(e, '附件载入失败'))
     }).finally(() => {
       if (active) setLoading(false)
     })
@@ -201,7 +206,7 @@ export function Workspace({
       if (current === request.current && r.sessionId === sessionId && r.projectId === projectId) setDetail(r)
       else if (current === request.current) setError('附件不属于当前会话')
     }).catch(e => {
-      if (current === request.current) setError(e instanceof Error ? e.message : '预览载入失败')
+      if (current === request.current) setError(workspaceUserError(e, '预览载入失败'))
     })
     return () => { request.current++ }
   }, [attachments, selectedId, projectId, sessionId])
@@ -217,7 +222,7 @@ export function Workspace({
       setBrowserURL(result.url)
       setBrowserStatus('已接受，正在打开独立浏览器窗口')
     } catch (e) {
-      setBrowserStatus(e instanceof Error ? e.message : '打开失败')
+      setBrowserStatus(workspaceUserError(e, '打开失败'))
     } finally {
       setBrowserBusy(false)
     }
@@ -229,7 +234,7 @@ export function Workspace({
       await browser.close()
       setBrowserStatus('已关闭')
     } catch (e) {
-      setBrowserStatus(e instanceof Error ? e.message : '关闭失败')
+      setBrowserStatus(workspaceUserError(e, '关闭失败'))
     } finally {
       setBrowserBusy(false)
     }
@@ -253,7 +258,7 @@ export function Workspace({
         setBrowserURL(result.url || url)
         setBrowserStatus('已在独立窗口打开')
       } catch (e) {
-        setBrowserStatus(e instanceof Error ? e.message : '已更新地址栏')
+        setBrowserStatus(workspaceUserError(e, '已更新地址栏'))
       } finally {
         setBrowserBusy(false)
       }

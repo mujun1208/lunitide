@@ -1,6 +1,8 @@
 package app
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -8,6 +10,41 @@ import (
 
 	"github.com/lunitide/lunitide/internal/llmadapter"
 )
+
+func appendCurrentTurnBoundary(instruction, goal string, now time.Time) string {
+	return instruction + currentTurnInstruction(goal, now)
+}
+
+func stableInstructionPrefix(instruction string) string {
+	if i := strings.Index(instruction, "\n[当前任务边界]"); i >= 0 {
+		return instruction[:i]
+	}
+	return instruction
+}
+
+// appendTypedStableBlocks appends the TE-06 identity / optional workflow /
+// markdown bytes used by typed turns before [当前任务边界].
+func appendTypedStableBlocks(instruction, workflow, repo string) string {
+	instruction += identityAndFewShotInstruction()
+	if workflow != "" {
+		instruction += workflow
+		instruction += identityAnchorReminder()
+	}
+	if repo != "" {
+		instruction += repo
+	}
+	instruction += chatRichMarkdownInstruction()
+	return instruction
+}
+
+func typedDefaultStablePrefix() string {
+	return appendTypedStableBlocks(executionModeInstruction(executionModeApproval), "", "")
+}
+
+func typedDefaultStablePrefixHash() string {
+	sum := sha256.Sum256([]byte(typedDefaultStablePrefix()))
+	return hex.EncodeToString(sum[:])
+}
 
 func currentTurnInstruction(goal string, now time.Time) string {
 	base := "\n[当前任务边界] 当前本地时间：" + now.Format("2006-01-02 15:04:05 -07:00") +

@@ -76,7 +76,10 @@ func assistantPausedMidTask(text string) bool {
 }
 
 func shouldContinueTurn(text string, usedTools bool, nudges int, disableReasoning bool) bool {
-	if disableReasoning || !usedTools || nudges >= maxContinueNudges {
+	// disableReasoning only affects model thinking output. Continuation is a
+	// task-completion decision and stays independent (PRD C09 / FR-502).
+	_ = disableReasoning
+	if !usedTools || nudges >= maxContinueNudges {
 		return false
 	}
 	return assistantPausedMidTask(text)
@@ -277,6 +280,9 @@ func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []st
 	computerTask := companion || computerExecutionTurn(userGoal)
 	if strings.TrimSpace(stepText) == "" {
 		stepText = assistantAll
+	}
+	if capabilityDeniedOutput(toolOut) {
+		return ""
 	}
 	if companion && companionNeedsSpokenInput(stepText) {
 		return ""

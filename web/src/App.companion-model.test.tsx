@@ -5,6 +5,7 @@ import type { ChatBridge, MessageBridge, ProjectBridge, ProviderBridge, SessionB
 import type { ProjectDTO } from './generated/bridge'
 import type { CompanionSpeechHandle } from './session/companion/speech'
 import { App, PERSONAL_CHAT_PROJECT } from './App'
+import { ensureCompanionCapabilities } from './session/companion/ensureCompanionCapabilities'
 
 const speech = vi.hoisted(() => ({
   start: vi.fn(),
@@ -105,6 +106,8 @@ beforeEach(() => {
   speech.callbacks = undefined
   speech.start.mockReset()
   speech.start.mockResolvedValue(speech.handle())
+  vi.mocked(ensureCompanionCapabilities).mockReset()
+  vi.mocked(ensureCompanionCapabilities).mockResolvedValue({ fullAccess: true, ccEnabled: true })
 })
 
 const now = '2026-01-01T00:00:00Z'
@@ -125,6 +128,25 @@ const provider = {
   updatedAt: now,
   version: 1,
 }
+
+it('does not show raw English companion start failures', async () => {
+  vi.mocked(ensureCompanionCapabilities).mockRejectedValue(new Error('Failed to fetch'))
+  const start = vi.fn().mockResolvedValue({ streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAY', cancel: vi.fn(), dispose: vi.fn() })
+  const chat: ChatBridge = { start, approve: vi.fn(), dispose: vi.fn() }
+  const messages: MessageBridge = { list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append: vi.fn().mockResolvedValue({}) }
+  const projects: ProjectBridge = {
+    list: vi.fn().mockResolvedValue({ items: [personal] }),
+    create: vi.fn(), update: vi.fn(), publish: vi.fn(), close: vi.fn(), reopen: vi.fn(), advanceStatus: vi.fn(), delete: vi.fn(),
+  }
+  const sessions: SessionBridge = { list: vi.fn().mockResolvedValue({ items: [] }), create: vi.fn().mockResolvedValue(session), update: vi.fn(), delete: vi.fn() }
+  const providers = { list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge
+  const user = userEvent.setup()
+  render(<App projects={projects} sessions={sessions} providers={providers} messages={messages} chat={chat} />)
+  await screen.findByRole('button', { name: /Model One/ })
+  await user.click(await screen.findByRole('button', { name: /月伴对话|Companion talk/ }))
+  expect(await screen.findByText(/进入月伴对话失败，请重试|Could not open companion talk/)).toBeInTheDocument()
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
 
 it('uses the home-page model when opening companion talk', async () => {
   const start = vi.fn().mockResolvedValue({ streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAY', cancel: vi.fn(), dispose: vi.fn() })

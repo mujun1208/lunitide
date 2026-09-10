@@ -113,6 +113,28 @@ const (
 	chatMaxTokens = 32768
 )
 
+func reservedOutputForTurn(companion bool) int64 {
+	if companion {
+		return int64(companionMaxTokens)
+	}
+	return int64(chatMaxTokens)
+}
+
+func preturnContextWaitKind(companion bool) string {
+	if companion {
+		return "companion-skip"
+	}
+	return "typed-sync-wait"
+}
+
+func qualityContractAllowsComplete(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" || looksLikeCompanionWaitPromise(t) || isCompanionLeadInOnly(t) {
+		return false
+	}
+	return true
+}
+
 // Skill catalog injection budget (c4-skill): the installed-skill directory
 // appended to the system instruction is bounded the same way so the catalog
 // can never crowd out the conversation context.
@@ -219,6 +241,17 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	if !validMode {
 		return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.start executionMode 无效", false)
 	}
+	if ready := e.capabilityReadiness(ctx, "chat"); ready.Availability != "ready" {
+		code := strings.TrimSpace(ready.Code)
+		if code == "" {
+			code = "CAPABILITY_NOT_READY"
+		}
+		detail := strings.TrimSpace(ready.Detail)
+		if detail == "" {
+			detail = "对话能力未就绪"
+		}
+		return request.Fail(code, detail, code == "STORAGE_UNAVAILABLE")
+	}
 
 	// Attended voice entry authorizes this session's enabled tool capabilities.
 	// Global disabled switches, emergency stops and user.ask stay effective.
@@ -244,7 +277,6 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	wantsTools := !p.Companion || mode == executionModeFullAccess || companionWantsTools(turnText)
 
 	instruction := executionModeInstruction(mode)
-	instruction += currentTurnInstruction(turnText, time.Now())
 	if computerExecutionTurn(turnText) {
 		instruction += desktopExecutionInstruction()
 	}
@@ -293,8 +325,16 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	if !p.Companion && subagentPolicy.DelegationMode != delegationDisabled {
 		instruction += subagentProfileCatalogInjection(subagentPolicy)
 	}
+	if !p.Companion {
+		instruction += videoTaskInstruction(intent.Text)
+		instruction = appendTypedStableBlocks(instruction, bundledWorkflowInjection(turnText), e.workspaceRepoGuidance())
+	}
+	if hint := projectPhaseWorkflowInjection(p.ProjectPhase, p.ProjectPhaseLabel); hint != "" {
+		instruction += hint
+	}
+	instruction = appendCurrentTurnBoundary(instruction, turnText, time.Now())
 
-	// Overlap provider lookup with preference/skill injection (Cursor-style
+	// Overlap provider lookup with preference/skill injection (Cursor-style)
 	// TTFT). The skill catalog is metadata-only (name + triggers + one-line
 	// summary); the full SKILL body loads only when skill.invoke runs.
 	// Companion idle chat still skips an unmatched catalog so TTFT stays short.
@@ -354,19 +394,6 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		}
 	}
 	instruction = renderPreferenceInstruction(instruction, memPack.Prefs)
-	if !p.Companion {
-		instruction += videoTaskInstruction(intent.Text)
-		instruction += identityAndFewShotInstruction()
-		if wf := bundledWorkflowInjection(turnText); wf != "" {
-			instruction += wf
-			instruction += identityAnchorReminder()
-		}
-		instruction += e.workspaceRepoGuidance()
-		instruction += chatRichMarkdownInstruction()
-	}
-	if hint := projectPhaseWorkflowInjection(p.ProjectPhase, p.ProjectPhaseLabel); hint != "" {
-		instruction += hint
-	}
 	if catalog != "" {
 		instruction += "\n\n" + catalog
 	}
@@ -434,6 +461,16 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		}
 	}
 
+	equip := e.turnEquipmentFor(ctx, boundSessionID, intent.Text, intent.Companion)
+	turnProfile := resolveChatToolProfile(p.Companion, p.TrialSkillIDs, p.ToolProfile, intent.Text)
+	var turnTools []llmadapter.ToolDefinition
+	if e.tools != nil && wantsTools {
+		turnTools = e.chatTurnToolDefinitions(chatTurnToolBuild{
+			Mode: mode, Profile: turnProfile, Companion: p.Companion,
+			Equip: equip, SubagentPolicy: subagentPolicy,
+		})
+	}
+
 	var messages []llmadapter.Message
 	var images []llmadapter.Image
 	if hasSession && (e.messageReader != nil || len(p.ContextRefs) > 0 || p.OfficeTaskID != "") {
@@ -463,10 +500,17 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			Model:             p.ModelID,
 			ContextWindow:     contextWindow,
 			SafetyCeiling:     safetyCeiling,
-			ReservedOutput:    int64(chatMaxTokens),
+			ReservedOutput:    reservedOutputForTurn(p.Companion),
 			SystemTokens:      explicitTokens,
 			SafetyMargin:      1024,
 			TokenizerRevision: tokenizerRevision,
+		}
+		if e.tools != nil && wantsTools {
+			budgetTools := turnTools
+			if len(p.TrialSkillIDs) > 0 {
+				budgetTools = append(append([]llmadapter.ToolDefinition(nil), turnTools...), skillTrialToolDefinition())
+			}
+			providerInfo.ToolSchemaTokens = estimateToolSchemaTokens(p.ModelID, budgetTools)
 		}
 
 		// ADR-005 §5: Synchronous pre-turn compaction. When token usage exceeds
@@ -477,6 +521,11 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		// → re-assemble → send request.
 		// ADR-005 §5: Synchronous pre-turn compaction. Companion voice
 		// turns skip this — a compaction LLM call would dominate TTFT.
+		// T08: typed chat waits; voice skips. Log the path; do not unify.
+		preturnStarted := time.Now()
+		if p.Companion {
+			log.Printf("chat preturn path=%s session=%s", preturnContextWaitKind(true), boundSessionID)
+		}
 		if !p.Companion && e.compactionTrigger != nil && e.compactionExecutor != nil {
 			compactionResult := e.TriggerPreTurnCompaction(ctx, boundSessionID, item.ID, p.ModelID, tokenizerRevision, providerInfo.ContextWindow)
 			if compactionResult.Err != nil {
@@ -533,6 +582,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 					CoverageEndSequence: coverageEnd,
 				}
 			}
+		}
+		if !p.Companion {
+			log.Printf("chat preturn path=%s session=%s waited=%s", preturnContextWaitKind(false), boundSessionID, time.Since(preturnStarted).Round(time.Millisecond))
 		}
 
 		// Handoff capsules: provenance-linked summaries from other sessions,
@@ -607,6 +659,30 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			}
 			envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, contextapp.ContextSource{Type: contextapp.SourceAttachmentExcerpt, ID: candidate.ID, Authority: contextapp.AuthorityEvidence, Content: candidate.OriginalName + "\n" + candidate.ParsedText, Provenance: "attachment:" + candidate.ID + ":project:" + candidate.ProjectID})
 		}
+		// Images are expensive and model-dependent. Unlike parsed text, do not
+		// silently resend every historical image on every turn: only explicitly
+		// referenced images enter the multimodal request, and their token cost
+		// is reserved before AssembleEnvelope / combine.
+		if len(imageRefs) > 0 {
+			if len(imageRefs) > attachmentapp.MaxVisionImages {
+				return request.Fail("ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
+			}
+			total := 0
+			for _, imageID := range imageRefs {
+				image, visionErr := e.GetVisionImage(ctx, imageID, boundSessionID)
+				if visionErr != nil {
+					retryable := !errors.Is(visionErr, attachmentapp.ErrAttachmentNotFound) && !errors.Is(visionErr, attachmentapp.ErrScopeMismatch) && !errors.Is(visionErr, attachmentapp.ErrUnsupportedMIME) && !errors.Is(visionErr, attachmentapp.ErrImageIntegrity) && !errors.Is(visionErr, attachmentapp.ErrImageBudget)
+					return internalBridgeFailure(request, "ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", retryable, visionErr)
+				}
+				total += len(image.Data)
+				if total > attachmentapp.MaxVisionBatchBytes {
+					return request.Fail("ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
+				}
+				images = append(images, llmadapter.Image{MIME: image.MIME, Data: image.Data})
+			}
+			providerInfo = reserveImageBudget(providerInfo, p.ModelID, images)
+			envelope.Provider = providerInfo
+		}
 
 		// Q-11: explicit @message references inject a specific prior message from
 		// this session as quoted evidence. Messages are untrusted user data and
@@ -678,17 +754,17 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 				return internalBridgeFailure(request, "CONTEXT_ASSEMBLY_FAILED", "上下文装配暂时不可用", true, assembleErr)
 			}
 			log.Printf("chat.start assembling explicit turn after durable assembly failed: %v", assembleErr)
-			messages, assembleErr = assembleExplicitChat(ctx, boundSessionID, envelope, trustedMessages)
+			messages, assembleErr = assembleExplicitChat(ctx, boundSessionID, envelope, trustedMessages, e.nativeReplayMessages(boundSessionID))
 			if assembleErr != nil {
 				return internalBridgeFailure(request, "CONTEXT_ASSEMBLY_FAILED", "当前模型上下文预算不足或引用不可用，请减少材料或选择更大上下文模型；已选技能与专家不会被移除", false, assembleErr)
 			}
 		} else {
 			var combineErr error
-			messages, combineErr = combineDurableProviderMessages(result.Messages, trustedMessages, providerInfo)
+			messages, combineErr = combineProviderMessages(result.Messages, trustedMessages, providerInfo, images, e.nativeReplayMessages(boundSessionID))
 			if combineErr != nil {
 				if useExplicitChatFallback(p.Companion, trustedMessages, combineErr) {
 					log.Printf("chat.start using explicit turn after context combine failed: %v", combineErr)
-					messages, combineErr = assembleExplicitChat(ctx, boundSessionID, envelope, trustedMessages)
+					messages, combineErr = assembleExplicitChat(ctx, boundSessionID, envelope, trustedMessages, e.nativeReplayMessages(boundSessionID))
 					if combineErr != nil {
 						return internalBridgeFailure(request, "CONTEXT_ASSEMBLY_FAILED", "当前模型上下文预算不足或引用不可用，请减少材料或选择更大上下文模型；已选技能与专家不会被移除", false, combineErr)
 					}
@@ -700,36 +776,13 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 				}
 			}
 		}
-		if assembled {
-			// P1-3 complexity.decide wiring: deterministic full-conversation
-			// scoring labels the tier; moderate+ conversations get an explicit
-			// nudge toward the planned path (plan.run) in the system message.
-			if !p.Companion {
-				if tierHint := complexityTierHint(messages); tierHint != "" && len(messages) > 0 && messages[0].Role == llmadapter.RoleSystem {
-					messages[0].Content += tierHint
-				}
-			}
+		if assembled && !p.Companion {
+			// P1-3 complexity.decide wiring after images attach so the hint
+			// cannot push a previously-fitting request over the final budget.
+			messages = applyComplexityTierHint(messages, images, providerInfo)
 		}
-		// Images are expensive and model-dependent. Unlike parsed text, do not
-		// silently resend every historical image on every turn: only explicitly
-		// referenced images enter the multimodal request.
-		if len(imageRefs) > 0 {
-			if len(imageRefs) > attachmentapp.MaxVisionImages {
-				return request.Fail("ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
-			}
-			total := 0
-			for _, imageID := range imageRefs {
-				image, visionErr := e.GetVisionImage(ctx, imageID, boundSessionID)
-				if visionErr != nil {
-					retryable := !errors.Is(visionErr, attachmentapp.ErrAttachmentNotFound) && !errors.Is(visionErr, attachmentapp.ErrScopeMismatch) && !errors.Is(visionErr, attachmentapp.ErrUnsupportedMIME) && !errors.Is(visionErr, attachmentapp.ErrImageIntegrity) && !errors.Is(visionErr, attachmentapp.ErrImageBudget)
-					return internalBridgeFailure(request, "ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", retryable, visionErr)
-				}
-				total += len(image.Data)
-				if total > attachmentapp.MaxVisionBatchBytes {
-					return request.Fail("ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
-				}
-				images = append(images, llmadapter.Image{MIME: image.MIME, Data: image.Data})
-			}
+		if err := errIfRequestOverBudget(countVisibleRequestTokens(p.ModelID, messages, images), providerInfo); err != nil {
+			return request.Fail("CONTEXT_BUDGET_EXCEEDED", "最终上下文超过模型输入预算", false)
 		}
 	} else {
 		// Legacy path: use directly provided messages.
@@ -759,7 +812,6 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	streamCtx, cancel := context.WithCancel(parent)
 	streamCtx = withOfficeTask(streamCtx, p.OfficeTaskID)
 	streamCtx = withSkillTrials(streamCtx, boundSessionID, p.TrialSkillIDs)
-	equip := e.turnEquipmentFor(ctx, boundSessionID, intent.Text, intent.Companion)
 	state := &streamState{cancel: cancel, companion: p.Companion, subagentPolicy: subagentPolicy, council: councilCfg, mcpRestrict: equip.RestrictMCP(), mcpAllowed: equip.McpIDs, brain: equip.Brain, memorySummary: formatChatMemorySummary(memPack), kbCites: append([]CitationBlock(nil), memPack.KBCites...), kbDiscarded: memPack.KBDiscarded, mroTurn: memPack.MROTurn || turnHasMROName(equip.Names)}
 	state.sessionID = boundSessionID
 	state.equipEvent = equipEvent
@@ -777,37 +829,8 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		req.MaxTokens = companionMaxTokens
 	}
 	if e.tools != nil && wantsTools {
-		profile := parseToolProfile(p.ToolProfile)
-		if len(p.TrialSkillIDs) > 0 {
-			profile = toolProfileDefault
-		}
-		if profile == toolProfileDefault && !p.Companion && len(p.TrialSkillIDs) == 0 {
-			// S1: a short, high-confidence pure-chat turn drops the full tool +
-			// MCP + skill + expert schema it will never use. Any task intent
-			// keeps the full surface (autoToolProfile is precision-biased).
-			profile = autoToolProfile(intent.Text)
-		}
-		req.Tools = applyToolProfile(append(e.engineToolDefinitionsFor(mode), e.subagentToolDefinitions(mode, subagentPolicy)...), profile)
-		switch profile {
-		case toolProfileDefault:
-			req.Tools = append(req.Tools, planToolDefinitions(mode)...)
-			req.Tools = append(req.Tools, e.mcpToolDefinitionsRestricted(equip.McpIDs, equip.RestrictMCP())...)
-			req.Tools = append(req.Tools, e.ccToolDefinitions()...)
-			req.Tools = append(req.Tools, e.skillToolDefinitions()...)
-			req.Tools = append(req.Tools, e.expertToolDefinitions()...)
-			req.Tools = append(req.Tools, e.pluginToolDefinitions()...)
-			req.Tools = append(req.Tools, e.settingsPlaneToolDefinitions()...)
-		case toolProfileCoding:
-			req.Tools = append(req.Tools, e.skillToolDefinitions()...)
-			req.Tools = applyToolProfile(req.Tools, profile)
-		case toolProfileColleague:
-			req.Tools = append(req.Tools, e.skillToolDefinitions()...)
-			req.Tools = applyToolProfile(req.Tools, profile)
-		}
-		if p.Companion {
-			req.Tools = filterCompanionDefaultTools(req.Tools)
-		}
-		if len(p.TrialSkillIDs) == 0 && (profile == toolProfileDefault || profile == toolProfileMinimal) {
+		req.Tools = turnTools
+		if len(p.TrialSkillIDs) == 0 && (turnProfile == toolProfileDefault || turnProfile == toolProfileMinimal) {
 			route, allow := classifyTaskRoute(intent.Text, p.Companion, e.computerControlEnabled())
 			if route == RouteUnspecified {
 				if flashRoute, flashAllow, used := e.tryFlashClassify(ctx, intent.Text); used {
@@ -983,6 +1006,82 @@ func normalizeExecutionMode(mode executionMode) (executionMode, bool) {
 	}
 }
 
+func persistUsageFromStream(protocol, model string, u llmadapter.Usage) messageapp.AssistantUsage {
+	return messageapp.AssistantUsage{
+		Provider:              protocol,
+		Model:                 model,
+		OutputTokens:          int64(u.OutputTokens),
+		InputTokens:           int64(u.InputTokens),
+		CachedInputTokens:     int64(u.CachedInputTokens),
+		CacheWriteInputTokens: int64(u.CacheWriteInputTokens),
+		CacheUsageReported:    u.CacheUsageReported,
+	}
+}
+
+func reserveImageBudget(info contextapp.ProviderInfo, model string, images []llmadapter.Image) contextapp.ProviderInfo {
+	if n := estimateImageTokens(model, images); n > 0 {
+		info.SystemTokens += n
+	}
+	return info
+}
+
+func estimateImageTokens(model string, images []llmadapter.Image) int64 {
+	var n int64
+	for _, img := range images {
+		n += token.CountTokensForModel(model, img.MIME)
+		if len(img.Data) > 0 {
+			n += int64((len(img.Data) + 1023) / 1024)
+		}
+	}
+	return n
+}
+
+func countVisibleRequestTokens(model string, messages []llmadapter.Message, images []llmadapter.Image) int64 {
+	var used int64
+	for _, m := range messages {
+		used += token.CountTokensForModel(model, m.Content)
+		for _, call := range m.ToolCalls {
+			used += token.CountTokensForModel(model, call.Name+"\n"+string(call.Arguments))
+		}
+	}
+	return used + estimateImageTokens(model, images)
+}
+
+func applyComplexityTierHint(messages []llmadapter.Message, images []llmadapter.Image, info contextapp.ProviderInfo) []llmadapter.Message {
+	if len(messages) == 0 || messages[0].Role != llmadapter.RoleSystem {
+		return messages
+	}
+	hint := complexityTierHint(messages)
+	if hint == "" {
+		return messages
+	}
+	next := append([]llmadapter.Message(nil), messages...)
+	next[0].Content += hint
+	if errIfRequestOverBudget(countVisibleRequestTokens(info.Model, next, images), info) != nil {
+		return messages
+	}
+	return next
+}
+
+func errIfRequestOverBudget(used int64, info contextapp.ProviderInfo) error {
+	ceiling := info.ContextWindow
+	if info.SafetyCeiling > 0 && info.SafetyCeiling < ceiling {
+		ceiling = info.SafetyCeiling
+	}
+	if used > ceiling-info.ReservedOutput-info.ToolSchemaTokens-info.SafetyMargin {
+		return errCombinedContextOverBudget
+	}
+	return nil
+}
+
+func estimateToolSchemaTokens(model string, defs []llmadapter.ToolDefinition) int64 {
+	var n int64
+	for _, d := range defs {
+		n += token.CountTokensForModel(model, d.Name+"\n"+d.Description+"\n"+string(d.Schema))
+	}
+	return n
+}
+
 func executionModeInstruction(mode executionMode) string {
 	const available = "Tools may be used only when they are actually available in this runtime; never claim that a command ran, a file changed, or any other mutation occurred unless it actually did."
 	switch mode {
@@ -995,13 +1094,18 @@ func executionModeInstruction(mode executionMode) string {
 	}
 }
 
-func combineDurableProviderMessages(history []contextapp.Message, explicit []llmadapter.Message, info contextapp.ProviderInfo) ([]llmadapter.Message, error) {
-	combined := make([]llmadapter.Message, 0, len(history)+len(explicit))
+func combineDurableProviderMessages(history []contextapp.Message, explicit []llmadapter.Message, info contextapp.ProviderInfo, images ...llmadapter.Image) ([]llmadapter.Message, error) {
+	return combineProviderMessages(history, explicit, info, images, nil)
+}
+
+func combineProviderMessages(history []contextapp.Message, explicit []llmadapter.Message, info contextapp.ProviderInfo, images []llmadapter.Image, native []llmadapter.Message) ([]llmadapter.Message, error) {
+	combined := make([]llmadapter.Message, 0, len(history)+len(explicit)+len(native))
 	for _, m := range explicit {
 		if m.Role == llmadapter.RoleSystem {
 			combined = append(combined, m)
 		}
 	}
+	combined = append(combined, native...)
 	for _, m := range history {
 		role := gatewayRole(m.Role)
 		content := m.Content
@@ -1016,6 +1120,9 @@ func combineDurableProviderMessages(history []contextapp.Message, explicit []llm
 			// Fold historical tool results into a plain user-role context note so
 			// the linkage-free record still informs the model without ever
 			// emitting an invalid tool message.
+			if len(native) > 0 {
+				continue
+			}
 			role = llmadapter.RoleUser
 			content = foldHistoricalToolResult(m.Content)
 		}
@@ -1027,14 +1134,9 @@ func combineDurableProviderMessages(history []contextapp.Message, explicit []llm
 		}
 	}
 	// History counts can predate normalization or synthetic concatenation.
-	// Enforce the final provider budget only from exact visible contents.
-	var used int64
-	for _, m := range combined {
-		// Q-05: the final provider budget check uses the model's exact tokenizer
-		// when known (info.Model); this keeps the enforcement guard consistent
-		// with the exact reservation done at assembly time.
-		used += token.CountTokensForModel(info.Model, m.Content)
-	}
+	// Enforce the final provider budget only from exact visible contents,
+	// tool-call payloads, and any images on this request.
+	used := countVisibleRequestTokens(info.Model, combined, images)
 	providerSequence := make([]contextapp.Message, len(combined))
 	for i, m := range combined {
 		providerSequence[i] = contextapp.Message{Role: string(m.Role), Content: m.Content}
@@ -1042,12 +1144,8 @@ func combineDurableProviderMessages(history []contextapp.Message, explicit []llm
 	if err := contextapp.ValidateProviderSequence(providerSequence); err != nil {
 		return nil, err
 	}
-	ceiling := info.ContextWindow
-	if info.SafetyCeiling > 0 && info.SafetyCeiling < ceiling {
-		ceiling = info.SafetyCeiling
-	}
-	if used > ceiling-info.ReservedOutput-info.ToolSchemaTokens-info.SafetyMargin {
-		return nil, errCombinedContextOverBudget
+	if err := errIfRequestOverBudget(used, info); err != nil {
+		return nil, err
 	}
 	return combined, nil
 }

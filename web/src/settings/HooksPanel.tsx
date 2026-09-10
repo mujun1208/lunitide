@@ -12,6 +12,11 @@ const HOOK_DECISIONS = [
   { value: 'requireApproval', label: '强制审批' },
   { value: 'allow', label: '免审批放行' },
 ] as const
+function hooksUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 interface HookEntry { id: string; events: string[]; tools: string[]; decision: string; message: string }
 export function HooksPanel({ bridge = hooksPolicyBridge }: { bridge?: HooksPolicyBridge }): React.JSX.Element {
   const [entries, setEntries] = useState<HookEntry[]>([])
@@ -35,7 +40,7 @@ export function HooksPanel({ bridge = hooksPolicyBridge }: { bridge?: HooksPolic
         setRevision(policy.revision)
         if(policy.state!=='applied')setStatus('配置已保存，当前运行规则尚未应用；请重新保存或重启。')
         setLoaded(true)
-      } catch (e) { if(alive)setStatus(e instanceof Error ? e.message : 'Hooks 规则读取失败') } finally { if(alive)setBusy(false) }
+      } catch (e) { if(alive)setStatus(hooksUserError(e, 'Hooks 规则读取失败')) } finally { if(alive)setBusy(false) }
     }
     void load()
     return()=>{alive=false}
@@ -57,7 +62,7 @@ export function HooksPanel({ bridge = hooksPolicyBridge }: { bridge?: HooksPolic
       setRevision(r.revision)
       setStatus(`已保存并热生效：${r.applied} 条 Hook 规则。`)
       setEntries(hooks)
-    } catch (e) { setStatus(e instanceof Error ? e.message : 'Hooks 规则保存失败（文档被整体拒绝，现运行规则不变）') } finally { saving.current=false;setBusy(false) }
+    } catch (e) { setStatus(hooksUserError(e, 'Hooks 规则保存失败（文档被整体拒绝，现运行规则不变）')) } finally { saving.current=false;setBusy(false) }
   }
 
   const toggleIn = (list: string[], value: string): string[] => list.includes(value) ? list.filter(x => x !== value) : [...list, value]

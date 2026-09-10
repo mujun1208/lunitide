@@ -12,6 +12,20 @@ import (
 	"github.com/lunitide/lunitide/internal/officetools"
 )
 
+func TestOfficeInspectOCRNoticeUsesRoutingNotLocalForProvider(t *testing.T) {
+	provider := officeInspectOCRNotice("provider-ocr")
+	if provider == "" || strings.Contains(provider, "Local OCR") || !strings.Contains(provider, "misread") {
+		t.Fatalf("provider OCR must be routing, not local: %q", provider)
+	}
+	local := officeInspectOCRNotice("windows-ocr")
+	if !strings.Contains(local, "Local OCR") {
+		t.Fatalf("windows-ocr must keep the local notice: %q", local)
+	}
+	if officeInspectOCRNotice("text-layer") != "" || officeInspectOCRNotice("") != "" {
+		t.Fatal("text-layer and empty method must keep the structural notice")
+	}
+}
+
 func TestOfficeInspectReadsUploadedPDFText(t *testing.T) {
 	e, _ := officeEngineFixture(t)
 	task := officeCreatedTask(t, e, "pdf-source")

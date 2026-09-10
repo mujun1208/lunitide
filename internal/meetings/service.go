@@ -637,7 +637,7 @@ func (s *Service) Summarize(ctx context.Context, meetingID string, expectedRevis
 	workCtx, workCancel := context.WithTimeout(lifetime, summarizeJobDeadline)
 	defer workCancel()
 	sourceTitle, sourceTranscript := m.Title, CleanTranscript(m.Transcript)
-	notes, err := SummarizeLong(workCtx, s.complete, sourceTitle, sourceTranscript)
+	notes, err := SummarizeLong(WithMeetingID(workCtx, meetingID), s.complete, sourceTitle, sourceTranscript)
 	if workCtx.Err() != nil {
 		err = workCtx.Err()
 	}

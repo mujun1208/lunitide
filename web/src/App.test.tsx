@@ -17,7 +17,7 @@ import{EXPERT_CREATE_PROMPT}from'./skill/ensureExpertManager'
 import{PLUGIN_CREATE_PROMPT}from'./plugin/ensurePluginCreator'
 import{resetLiveChatForTests}from'./session/liveChat'
 import { officeStudioApi } from './officeStudio/officeStudioApi'
-import { OFFICE_ARTIFACT_FOCUS_KEY, OFFICE_LAST_TASK_KEY } from './officeStudio/officeNavigation'
+import { OFFICE_ARTIFACT_FOCUS_KEY, OFFICE_LAST_TASK_KEY, OFFICE_STUDIO_OPEN_EVENT } from './officeStudio/officeNavigation'
 afterEach(()=>{cleanup();localStorage.removeItem('lunitide:office-menu');resetLiveChatForTests();mockPeopleThreadList.mockResolvedValue({items:[]});mockDesktopPick.mockReset();mockDesktopPick.mockResolvedValue({canceled:true,items:[]});localStorage.removeItem('lunitide:language');localStorage.removeItem('lunitide:language-default-en');localStorage.removeItem('lunitide:sidebar-chats-open');localStorage.removeItem('lunitide:sidebar-projects-open')})
 const now='2026-01-01T00:00:00Z'
 const personal:ProjectDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAV',name:PERSONAL_CHAT_PROJECT,projectCode:'ITM00000',type:'implementation',status:'active',createdAt:now,updatedAt:now,version:1}
@@ -85,6 +85,29 @@ it('opens Office home on every sidebar click instead of restoring the previous t
     localStorage.removeItem(OFFICE_LAST_TASK_KEY)
     localStorage.removeItem(OFFICE_ARTIFACT_FOCUS_KEY)
   }
+})
+
+it('does not show raw English office-open transport failures, but keeps inspect English', async () => {
+  const finish = vi.fn()
+  const list = vi.spyOn(officeStudioApi, 'list').mockRejectedValue(new Error('Failed to fetch'))
+  try {
+    render(<App projects={projectBridge([])} sessions={sessionBridge()} providers={providers} messages={messages} chat={chat} />)
+    window.dispatchEvent(new CustomEvent(OFFICE_STUDIO_OPEN_EVENT, { detail: { sessionId: '01ARZ3NDEKTSV4RRFFQ69G5FAV', path: 'report.docx', finish, cancelled: () => false } }))
+    await vi.waitFor(() => expect(finish).toHaveBeenCalledWith('办公工作台暂不可用，原对话仍可继续。'))
+    expect(finish).not.toHaveBeenCalledWith('Failed to fetch')
+    cleanup()
+    finish.mockClear()
+    list.mockRejectedValue(new Error('FEATURE_DISABLED'))
+    render(<App projects={projectBridge([])} sessions={sessionBridge()} providers={providers} messages={messages} chat={chat} />)
+    window.dispatchEvent(new CustomEvent(OFFICE_STUDIO_OPEN_EVENT, { detail: { sessionId: '01ARZ3NDEKTSV4RRFFQ69G5FAV', path: 'report.docx', finish, cancelled: () => false } }))
+    await vi.waitFor(() => expect(finish).toHaveBeenCalledWith('FEATURE_DISABLED'))
+    cleanup()
+    finish.mockClear()
+    list.mockRejectedValue(new Error('办公任务暂不可用'))
+    render(<App projects={projectBridge([])} sessions={sessionBridge()} providers={providers} messages={messages} chat={chat} />)
+    window.dispatchEvent(new CustomEvent(OFFICE_STUDIO_OPEN_EVENT, { detail: { sessionId: '01ARZ3NDEKTSV4RRFFQ69G5FAV', path: 'report.docx', finish, cancelled: () => false } }))
+    await vi.waitFor(() => expect(finish).toHaveBeenCalledWith('办公任务暂不可用'))
+  } finally { list.mockRestore() }
 })
 
 it('returns from the actual automation execution chat to its expanded history without replaying it', async () => {

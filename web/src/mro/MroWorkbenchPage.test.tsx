@@ -5,6 +5,43 @@ import { MroWorkbenchPage, manualMediaType, type MroOpsTodo } from './MroWorkben
 
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
+it('does not show raw English audit, import or publish failures', async () => {
+  vi.spyOn(window, 'confirm').mockReturnValue(true)
+  render(
+    <LanguageProvider value="zh-CN">
+      <MroWorkbenchPage enabled auditList={async () => { throw new Error('Failed to fetch') }} aircraftList={async () => ({ items: [] })} manualList={async () => ({ items: [] })} />
+    </LanguageProvider>,
+  )
+  fireEvent.click(await screen.findByRole('button', { name: '审计' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('审计加载失败')
+  expect(screen.queryByText('还没有可回放的机务审计。')).toBeNull()
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  cleanup()
+  const onIngestManual = vi.fn().mockRejectedValue(new Error('Failed to fetch'))
+  const onRegisterManual = vi.fn()
+  render(
+    <LanguageProvider value="zh-CN">
+      <MroWorkbenchPage enabled mroExpertId="01ARZ3NDEKTSV4RRFFQ69G5FAX" aircraftList={async () => ({ items: [] })} manualList={async () => ({ items: [] })} onIngestManual={onIngestManual} onRegisterManual={onRegisterManual} />
+    </LanguageProvider>,
+  )
+  fireEvent.click(await screen.findByRole('button', { name: '导入手册' }))
+  fireEvent.change(screen.getByLabelText('手册文件'), { target: { files: [fileWithPath('amm.md', 'C:/amm.md')] } })
+  fireEvent.change(screen.getByLabelText('修订'), { target: { value: '42' } })
+  fireEvent.click(screen.getByRole('button', { name: '导入' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('导入失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  cleanup()
+  const onPublishSchedule = vi.fn().mockRejectedValue(new Error('Failed to fetch'))
+  render(
+    <LanguageProvider value="zh-CN">
+      <MroWorkbenchPage enabled initialRail="plan" workPackages={[{ id: 'wp1', title: 'C检', sources: ['标准卡'] }]} onPublishSchedule={onPublishSchedule} />
+    </LanguageProvider>,
+  )
+  fireEvent.click(await screen.findByRole('button', { name: '发布' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('发布失败，请复查当前约束与来源')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('maps manual filenames to the ingest media hint', () => {
   expect(manualMediaType('amm.pdf')).toBe('application/pdf')
   expect(manualMediaType('amm.docx')).toContain('wordprocessingml')
@@ -266,7 +303,8 @@ it('shows the parse failure reason and does not register on a failed ingest', as
   fireEvent.change(screen.getByLabelText('修订'), { target: { value: '42' } })
   fireEvent.click(screen.getByRole('button', { name: '导入' }))
   await waitFor(() => expect(onIngestManual).toHaveBeenCalled())
-  expect(await screen.findByText(/parse function not configured/)).toBeInTheDocument()
+  expect(await screen.findByText(/未配置正文解析/)).toBeInTheDocument()
+  expect(screen.queryByText(/parse function not configured/)).toBeNull()
   expect(onRegisterManual).not.toHaveBeenCalled()
 })
 

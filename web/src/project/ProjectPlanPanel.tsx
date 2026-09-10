@@ -10,10 +10,14 @@ import {
 import type { PlanDTO, PlanRunDTO, ProjectDTO } from '../generated/bridge'
 import { loadChecklistDoc } from './checklistStore'
 
+function planPanelUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
 const problem = (e: unknown) =>
   e instanceof BridgeClientError
     ? e
-    : new BridgeClientError(e instanceof Error ? e.message : '请求失败', 'CLIENT_ERROR', false, 'renderer')
+    : new BridgeClientError(planPanelUserError(e, '请求失败'), 'CLIENT_ERROR', false, 'renderer')
 
 const icon = (status: PlanRunDTO['status']) =>
   status === 'succeeded' ? '✓' : status === 'failed' || status === 'cancelled' ? '×' : '○'

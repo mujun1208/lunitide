@@ -4,6 +4,11 @@ import type { WorkspaceArtifactPreviewResult } from '../generated/bridge'
 import { isolatedHTML } from './isolatedHTML'
 import './artifactInspector.css'
 
+function inspectorUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 export function ArtifactInspector({ sessionId, path, onClose }: {
   sessionId: string; path: string; onClose: () => void
 }): React.JSX.Element {
@@ -21,7 +26,7 @@ export function ArtifactInspector({ sessionId, path, onClose }: {
     artifactReviewBridge.preview({ sessionId, path }).then(result => {
       if (active) setPreview(result)
     }).catch(cause => {
-      if (active) setError(cause instanceof Error ? cause.message : '文件预览失败')
+      if (active) setError(inspectorUserError(cause, '文件预览失败'))
     }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [sessionId, path, revision])
@@ -32,7 +37,7 @@ export function ArtifactInspector({ sessionId, path, onClose }: {
     setOpening(true)
     setError('')
     try { await sessionFolderBridge.open({ sessionId, relativePath: path, reveal }) }
-    catch (cause) { setError(cause instanceof Error ? cause.message : '无法打开文件') }
+    catch (cause) { setError(inspectorUserError(cause, '无法打开文件')) }
     finally { actionInFlight.current = false; setOpening(false) }
   }
   return <section className="artifact-inspector" aria-label="产物详情">

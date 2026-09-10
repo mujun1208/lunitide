@@ -7,7 +7,13 @@ import{McpSecurityReviewDialog}from'./McpSecurityReviewDialog'
 const endpoint={endpointId:'mcp-fixture',transport:'https' as const,state:'quarantined' as const,enabled:true,securityVersion:3}
 afterEach(cleanup)
 describe('MCP security dialogs',()=>{
- it('clears password after sending and retries the same operation after lost acknowledgement',async()=>{
+ it('does not show raw English inspect or accept failures',async()=>{
+  render(<McpSecurityReviewDialog endpoint={endpoint} review={vi.fn().mockRejectedValue(new Error('Failed to fetch'))} onClose={()=>{}} onSaved={()=>{}}/>)
+  expect(await screen.findByRole('alert')).toHaveTextContent('无法读取服务器定义')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
+it('clears password after sending and retries the same operation after lost acknowledgement',async()=>{
   const save=vi.fn().mockRejectedValueOnce(new Error('结果待确认')).mockResolvedValue({configured:true,securityVersion:4}),onClose=vi.fn(),onSaved=vi.fn()
   render(<McpCredentialDialog endpoint={endpoint} save={save} onClose={onClose} onSaved={onSaved}/> )
   fireEvent.change(screen.getByLabelText('MCP 凭据值'),{target:{value:'fixture-token'}});fireEvent.click(screen.getByText('保存凭据'))

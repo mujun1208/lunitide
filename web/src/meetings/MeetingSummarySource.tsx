@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import type { MeetingsBridge } from '../bridge/client'
 import type { MeetingDTO, MeetingsSummarySourceGetResult } from '../generated/bridge'
 
+function summarySourceUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 export function MeetingSummarySource({ meeting, load }: { meeting: MeetingDTO; load: MeetingsBridge['summarySource'] }) {
   const [page, setPage] = useState<MeetingsSummarySourceGetResult>()
   const [busy, setBusy] = useState(false)
@@ -36,7 +41,7 @@ export function MeetingSummarySource({ meeting, load }: { meeting: MeetingDTO; l
       setPage(result)
     } catch (cause) {
       if (requestEpoch === epoch.current && requestIdentity === identityRef.current) {
-        setError(cause instanceof Error ? cause.message : '无法读取摘要来源，请重试。')
+        setError(summarySourceUserError(cause, '无法读取摘要来源，请重试。'))
       }
     } finally {
       if (requestEpoch === epoch.current && requestIdentity === identityRef.current) setBusy(false)

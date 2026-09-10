@@ -5,7 +5,7 @@ description: Operate this Windows PC with Lunitide computer.act. Use when the us
 
 # Computer Control
 
-Drive the local Windows desktop the way Peekaboo / OpenClaw `computer.act` does: **see → act → verify**. The model-facing tool is `computer.act` (audit, rate limit, emergency stop, process blocklist). Do not invent a parallel stack (`command.run` SendKeys, Python, cua-driver, Peekaboo CLI). Do **not** call `cc.*` names — they are not in the tool list.
+Drive the local Windows desktop the way Peekaboo / OpenClaw `computer.act` does: **observe → named act → verify**. The model-facing tool is `computer.act` (audit, rate limit, emergency stop, process blocklist). Do not invent a parallel stack (`command.run` SendKeys, Python, cua-driver, Peekaboo CLI). Do **not** call `cc.*` names — they are not in the tool list.
 
 ## When to Use
 
@@ -18,12 +18,13 @@ Do **not** use this skill to: auto-click UAC / elevation / file Open-Save; launc
 
 ## Loop
 
-1. `computer.act` `action=list` (or `screenshot`) if you need a target.
-2. `computer.act` `action=focus` so input lands in the right app.
-3. `computer.act` `action=observe` (preferred) or `screenshot`. The observe image has Peekaboo-style badges (`B1`, `E1`) and a **`frameId`**. Node bounds are **image pixels**.
-4. Act with `computer.act` (`click` / `type` / `press` / …). Pixel clicks/drags **must echo `frameId`**. Mismatch fails closed (`COMPUTER_STALE_FRAME`), including display reconnect / DPI / monitor count change. `frameId` ends with `sN` (`0` = virtual desktop, `1…` = monitor left-to-right).
-5. If the tool returns a verify screenshot, check the hit before the next action. Unchanged pixels still attach the **current** frame and keep the same `frameId` — that id is still valid; do not reuse the pre-action image.
-6. If the UI is animating, `computer.act` `action=wait` `until=change` (or a short timeout).
+1. `computer.act` `action=list` if you need a window title, then `action=focus`.
+2. `computer.act` `action=observe` to read names / ids (`B1`, `E1`). Screenshot is on-demand only (sparse/canvas UI) — do not screenshot 月伴 to drive another app.
+3. Click / type / press by **unique `name=` or observe `id=`**. Never guess pixels when a name or id is visible. Unique names beat contains (播放 ≠ 随机播放). `name=` resolves live and does not need `frameId`.
+4. Short known sequences: one `computer.act` `action=run` with `steps` (2–5 named actions, same gates). Do not nest steps.
+5. Pixel `x,y` / drag is last-resort and **must echo `frameId`**. Mismatch fails closed (`COMPUTER_STALE_FRAME`), including display reconnect / DPI / monitor count change. `frameId` ends with `sN` (`0` = virtual desktop, `1…` = monitor left-to-right).
+6. If the tool returns a verify screenshot, check the hit before the next action. Unchanged pixels still attach the **current** frame and keep the same `frameId`.
+7. If the UI is animating, `computer.act` `action=wait` `until=change` (or a short timeout).
 
 Mouse `x,y` / drag `x1,y1,x2,y2` **must** be pixels of the latest capture/observe image, not OS screen coordinates, plus that image's `frameId`. After a capture, window list bounds are those image pixels (`space=image`). Window move/resize still use OS screen pixels.
 

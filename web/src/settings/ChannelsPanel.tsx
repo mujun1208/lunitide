@@ -3,6 +3,11 @@ import { imBridge, type ImBridge } from '../bridge/client'
 import type { ImChannelsGetResult, ImChannelsSetPayload } from '../generated/bridge'
 import { detectImWebhookKind } from './imWebhook'
 
+function channelUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 function inboundPaired(ch: { inboundEnabled: boolean; inboundAllowlist: string }): boolean {
   return ch.inboundEnabled && ch.inboundAllowlist.trim() !== ''
 }
@@ -31,7 +36,7 @@ export function ChannelsPanel({ bridge = imBridge }: { bridge?: ImBridge }): Rea
       setAppIdDrafts(Object.fromEntries(r.channels.map(ch => [ch.kind, ch.inboundAppId])))
       setStatus('')
     } catch (e) {
-      setStatus(e instanceof Error ? e.message : '消息通道加载失败')
+      setStatus(channelUserError(e, '消息通道加载失败'))
     } finally { setBusy(false) }
   }
   useEffect(() => { void refresh() }, [])
@@ -46,7 +51,7 @@ export function ChannelsPanel({ bridge = imBridge }: { bridge?: ImBridge }): Rea
       setSecretDrafts(d => ({ ...d, [p.kind]: '' }))
       setStatus(okMsg)
     } catch (e) {
-      setStatus(e instanceof Error ? e.message : '保存失败')
+      setStatus(channelUserError(e, '保存失败'))
     } finally { setBusy(false) }
   }
 

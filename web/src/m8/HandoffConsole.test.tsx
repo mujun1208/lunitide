@@ -26,6 +26,22 @@ function harness() {
   return { context, projects, sessions, compactPreview, handoffCreate, handoffList, handoffImport, handoffRevoke }
 }
 
+it('does not show raw English handoff list or export failures', async () => {
+  const h = harness()
+  h.context.handoffList = vi.fn().mockRejectedValue(new Error('Failed to fetch'))
+  render(<HandoffConsole context={h.context} projects={h.projects} sessions={h.sessions} />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('交接列表加载失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+  cleanup()
+  const preview = harness()
+  preview.compactPreview.mockRejectedValue(new Error('Failed to fetch'))
+  render(<HandoffConsole context={preview.context} projects={preview.projects} sessions={preview.sessions} />)
+  await screen.findByRole('option', { name: '交接会话' })
+  fireEvent.click(screen.getByRole('button', { name: '生成压缩预览' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('压缩预览失败')
+  expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
 it('previews then confirms capsule export without activating compaction', async () => {
   const h = harness()
   render(<HandoffConsole context={h.context} projects={h.projects} sessions={h.sessions} />)

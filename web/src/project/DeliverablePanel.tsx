@@ -1,4 +1,5 @@
 import React,{useCallback,useEffect,useMemo,useRef,useState}from'react'
+import{asUserBridgeError}from'../bridge/bridgeUserError'
 import{BridgeClientError,createMutationAttempt,deliverableBridge as defaultDeliverableBridge,projectAttachmentBridge as defaultProjectAttachmentBridge,templateBridge as defaultTemplateBridge,type DeliverableBridge,type ProjectAttachmentBridge,type ProjectBridge,type StageBridge,type TemplateBridge}from'../bridge/client'
 import type{DeliverableListResult,ProjectAttachmentListResult,ProjectDTO,StageDTO,TemplateListResult}from'../generated/bridge'
 import{fileToBase64}from'../session/attachments'
@@ -17,7 +18,11 @@ type TemplateItem=TemplateListResult['items'][number]
 
 const templateLabelFor=(key:string,phase:number,title:string)=>phase===7&&key==='integration_test_list'?'集成测试场景清单':DELIVERABLE_TEMPLATE_LABEL[key]??title
 
-const problem=(e:unknown)=>e instanceof BridgeClientError?e:new BridgeClientError(e instanceof Error?e.message:'请求失败','CLIENT_ERROR',false,'renderer')
+function deliverableUserError(err:unknown,fallback:string):string{
+ const detail=err instanceof Error?err.message.trim():''
+ return /[\u4e00-\u9fff]/.test(detail)?detail:fallback
+}
+const problem=(e:unknown)=>e instanceof BridgeClientError?asUserBridgeError(e,'请求失败'):new BridgeClientError(deliverableUserError(e,'请求失败'),'CLIENT_ERROR',false,'renderer')
 const statusText=(status?:string)=>status==='approved'?'已批准':status==='immutable'?'已锁定':status==='review'?'审核中':status==='draft'?'草稿':'未绑定'
 
 const advanceHint=(project:ProjectDTO,phase:number):string=>{

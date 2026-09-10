@@ -10,7 +10,9 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/llmadapter"
+	"github.com/lunitide/lunitide/internal/modelfit"
 	"github.com/lunitide/lunitide/internal/scheduler"
+	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
 func TestHeadlessStreamWaitsForActualTerminalAfterStartAck(t *testing.T) {
@@ -55,6 +57,32 @@ func TestHeadlessStreamWaitsForActualTerminalAfterStartAck(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("terminal never reached caller")
+	}
+}
+
+func TestHeadlessAutomationRecordsPurposeAutomation(t *testing.T) {
+	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	store := &memCalls{}
+	e.SetCallAttemptStore(store)
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
+		return budgetAdapter{run: func(_ context.Context, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+			if emit != nil {
+				_ = emit(llmadapter.Delta{Text: "完成"})
+			}
+			return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "完成"}, Usage: llmadapter.Usage{InputTokens: 2, OutputTokens: 1, TotalTokens: 3}}, nil
+		}}, nil
+	})
+	out := e.runHeadlessStream(withCallPurpose(context.Background(), "automation"), validRequest("chat.start", `{"providerId":"`+chatAttachmentProviderID+`","modelId":"model","messages":[{"role":"user","content":"你好"}]}`))
+	if out.Err != nil {
+		t.Fatal(out.Err)
+	}
+	if len(store.recs) == 0 {
+		t.Fatal("automation chat must record a metered attempt")
+	}
+	for _, rec := range store.recs {
+		if rec.Purpose != "automation" {
+			t.Fatalf("automation purpose = %+v", rec)
+		}
 	}
 }
 
@@ -105,10 +133,57 @@ func TestAutomationRunKeepsSchedulerBudgetBeyondStartupDeadline(t *testing.T) {
 	}
 }
 
+func TestAutomationHeadlessWritesDispatchIdentityOnContinuation(t *testing.T) {
+	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	runtime, err := toolruntime.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { runtime.Close() })
+	e.SetToolRuntime(runtime)
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
+		return budgetAdapter{run: func(_ context.Context, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+			if emit != nil {
+				_ = emit(llmadapter.Delta{Text: "已完成新闻简报"})
+			}
+			return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "已完成新闻简报"}}, nil
+		}}, nil
+	})
+	job := scheduler.Job{
+		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAJ", ProviderID: chatAttachmentProviderID, ModelID: "model",
+		SessionID: chatAttachmentSessionID, Prompt: "生成新闻简报",
+	}
+	runID := "01ARZ3NDEKTSV4RRFFQ69G5FAR"
+	out := e.runAutomationHeadless(context.Background(), job, scheduler.RunContext{
+		RunID: runID, SessionID: job.SessionID, DispatchKey: job.ID + ":" + runID, Recover: false,
+	})
+	if out.Err != nil {
+		t.Fatal(out.Err)
+	}
+	got := e.loadTurnCheckpoint(job.SessionID)
+	if got.Continuation == nil || got.Continuation.AutomationRunID != runID || got.Continuation.DispatchKey != job.ID+":"+runID {
+		t.Fatalf("automation dispatch identity missing from continuation: %#v", got.Continuation)
+	}
+	if got.Continuation.Completeness == modelfit.CompletenessNativeComplete {
+		t.Fatal("S1 must not claim native_complete on automation continuation")
+	}
+}
+
 func TestHeadlessStartRefusalDoesNotClaimAnUnknownExecution(t *testing.T) {
 	e := NewEngine(nil, "test")
 	out := e.runHeadlessStream(context.Background(), validRequest("chat.start", `{}`))
 	if out.Err == nil || !out.NotStarted {
 		t.Fatalf("preflight rejection must distinguish unstarted work: %+v", out)
+	}
+}
+
+func TestHeadlessChatStartFailsClosedWhenCatalogEmpty(t *testing.T) {
+	e := NewEngineWithGateway(providerRepositoryStub{}, "test", streamTestLease{})
+	out := e.runHeadlessStream(context.Background(), validRequest("chat.start", `{"providerId":"`+chatAttachmentProviderID+`","modelId":"model","messages":[{"role":"user","content":"你好"}]}`))
+	if out.Err == nil || !out.NotStarted {
+		t.Fatalf("empty catalog must not start automation: %+v", out)
+	}
+	if !strings.Contains(out.Err.Error(), "CAPABILITY_NOT_READY") || !strings.Contains(out.Err.Error(), "请先配置并启用供应商、凭据和模型") {
+		t.Fatalf("headless must surface HAT-05 Chinese + code: %v", out.Err)
 	}
 }

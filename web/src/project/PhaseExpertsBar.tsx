@@ -6,6 +6,10 @@ import { resolvePhaseExpertIds } from './phaseExperts'
 
 const MAX_MOUNTS = 4
 const SESSION_EXPERTS_EVENT = 'lunitide:session-experts'
+function phaseExpertsUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
 
 const expertName = (id: string): string => conversationExpertByNameOrID(id)?.name ?? id
 
@@ -72,7 +76,7 @@ export function PhaseExpertsBar({
       setIds(saved?.expertIds ?? next)
     } catch (e) {
       setIds(prev)
-      setError(e instanceof Error ? e.message : '保存失败')
+      setError(phaseExpertsUserError(e, '保存失败'))
     } finally {
       setBusy(false)
     }

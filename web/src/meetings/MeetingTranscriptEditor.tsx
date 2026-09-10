@@ -2,6 +2,10 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import type { MeetingsBridge } from '../bridge/client'
 import type { MeetingDTO, MeetingsTranscriptGetResult } from '../generated/bridge'
 
+function transcriptUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
 export interface MeetingTranscriptEditorHandle { save(): Promise<MeetingDTO | undefined> }
 type Props = { meeting: MeetingDTO; meetings: MeetingsBridge; disabled?: boolean; onSaved(meeting: MeetingDTO): void }
 const pageSize = 16_384
@@ -41,7 +45,7 @@ export const MeetingTranscriptEditor = forwardRef<MeetingTranscriptEditorHandle,
       if (result.meetingId !== id || result.transcriptRevision !== meeting.transcriptRevision || result.offset !== offset) throw new Error('逐字稿版本已变化，请重新读取。')
       assign(result)
     } catch (cause) {
-      if (request === epoch.current && identity.current === id) setError(cause instanceof Error ? cause.message : '无法读取本页原稿')
+      if (request === epoch.current && identity.current === id) setError(transcriptUserError(cause, '无法读取本页原稿'))
     } finally {
       if (request === epoch.current && identity.current === id) { busyRef.current = false; setBusy(false) }
     }
@@ -77,7 +81,7 @@ export const MeetingTranscriptEditor = forwardRef<MeetingTranscriptEditorHandle,
       await loadPage(offset, next)
       return next
     } catch (cause) {
-      if (request === epoch.current && identity.current === id) setError(`${cause instanceof Error ? cause.message : '无法保存本页'}。草稿仍保留，可核对最新原稿。`)
+      if (request === epoch.current && identity.current === id) setError(`${transcriptUserError(cause, '无法保存本页')}。草稿仍保留，可核对最新原稿。`)
       throw cause
     } finally {
       if (request === epoch.current && identity.current === id) { busyRef.current = false; setBusy(false) }
@@ -98,7 +102,7 @@ export const MeetingTranscriptEditor = forwardRef<MeetingTranscriptEditorHandle,
       if (request !== epoch.current || identity.current !== id) return
       setLatest({ meeting: next, page: result })
     } catch (cause) {
-      if (request === epoch.current && identity.current === id) setError(cause instanceof Error ? cause.message : '无法读取最新原稿')
+      if (request === epoch.current && identity.current === id) setError(transcriptUserError(cause, '无法读取最新原稿'))
     } finally {
       if (request === epoch.current && identity.current === id) { busyRef.current = false; setBusy(false) }
     }

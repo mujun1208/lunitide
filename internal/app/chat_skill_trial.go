@@ -79,6 +79,12 @@ func skillTrialToolDefinition() llmadapter.ToolDefinition {
 }
 
 func (e *Engine) invokeSkillTrialTool(ctx context.Context, mode executionMode, session string, args json.RawMessage) (toolruntime.Result, error) {
+	return e.recordExistingToolCall(ctx, receiptSession(ctx, session), "skill.try", args, func() (toolruntime.Result, error) {
+		return e.runSkillTrialTool(ctx, mode, session, args)
+	})
+}
+
+func (e *Engine) runSkillTrialTool(ctx context.Context, mode executionMode, session string, args json.RawMessage) (toolruntime.Result, error) {
 	if err := e.CheckCapability(ctx, "skills"); err != nil {
 		return toolruntime.Result{}, err
 	}

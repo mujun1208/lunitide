@@ -4,6 +4,11 @@ import { createMutationAttempt, type ExpertBridge } from '../bridge/client'
 import type { ExpertListResult } from '../generated/bridge'
 import { Dialog } from '../ui/Dialog'
 
+function lifecycleUserError(err: unknown, fallback: string): string {
+  const detail = err instanceof Error ? err.message.trim() : ''
+  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
 export function ExpertLifecycleActions({ item, versionId, bridge, disabled, onDeleted }: {
   item: ExpertListResult['experts'][number]
   versionId: string
@@ -33,7 +38,7 @@ export function ExpertLifecycleActions({ item, versionId, bridge, disabled, onDe
         await onDeleted()
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '操作失败，请重试')
+      setError(lifecycleUserError(reason, '操作失败，请重试'))
     } finally { setBusy(false) }
   }
   return <>
