@@ -1,10 +1,12 @@
 # Lunitide 产品健康诊断（准确性 / 可靠性 / 速度效率 / 稳定性）
 
-- **日期**：2026-09-11
-- **基线**：`feat/prd-v7-s1-continuity` @ `1326fb2`（`VERSION` = **0.4.75**）
+- **日期**：2026-09-11（修订：纳入用户本机未提交 WIP 与本地测试日志）
+- **已提交基线**：`feat/prd-v7-s1-continuity` @ `1326fb24`（`VERSION` = **0.4.75**）。云端克隆与本报告源码引用以此为准。
+- **用户本机分叉（本克隆不可见）**：同一 commit 上约 **21 个未提交文件（+441/−112）**。业主描述含：Office Studio 导航/引用、`session_artifacts` 绑定 `officeTaskContextID`、Mermaid 引擎路径（`SETTLE` 480→280ms、去掉 `RETRIES=3`、`loadMermaidEngine` 直接渲染）、`internal/diagramrender/handler.go` Timeout 8s→20s、连续性测试。**只当「本机 WIP 声明」写入，不当已合入事实。**
 - **范围**：Go Core Engine + Windows WebView2 Host + `web/` React Renderer；不改运行时代码
-- **方法**：对照 README / ADR / 近期 release notes / 审计文档，独立阅读关键用户链路源码与回归测试；**不把 0.4.75 提交说明当结论**
-- **不在范围内**：安全渗透清单、文风 nit、未在本环境实测的 Windows 启动毫秒数、付费 live 模型评测
+- **权威已发布说明**：`release/notes-0.4.75.md` 对抖动 / Mermaid 等待 / 专家误装 / 周报试运行序列的口径作准
+- **方法**：对照 README、ADR、`docs/implementation/P0-P1-status.md`、`docs/system-analysis-report-2026-09-06.md`、`docs/audits/2026-09-08*` / `2026-09-09*`，独立阅读关键链路；**不把旧审计的 P0 清单当仍未修**
+- **不在范围内**：安全渗透清单、文风 nit、付费 live 模型评测；本云环境未跑 120 分钟 `go test -race`，也未跑 `Test-Install.ps1`（业主本机因已有安装被脚本拒绝）
 
 ---
 
@@ -16,9 +18,13 @@
 - **速度痛点不在「再少等 50ms 的 token」，而在冷启动与被挡住的首字。** Engine 必须跑完 `WireEngine`（152 条迁移 + 一串 reconcile）才听 Named Pipe；桌面/媒体/月伴工具轮还把模型正文缓冲到工具证据之后。0.4.75 修的是**回合结束后的视觉抖动**，不是 Time-to-first-token。
 - **稳定性目前主要被 CI 预算和测试替身「买下来」。** `windows-cgo-race` 从 90 分钟抬到 120 分钟；语音 flake 改用 fake timers；`cmd/desktop` 因 PE relocation 被踢出 `-race`。这能让 Quality 绿，但不能证明长会话 Host/Engine 在真机上不抖。
 - **S1 连续性（0.4.74）落地了检查点与 native replay，但「继续」仍会整包回灌 PPT/DOCX 工作流。** 用户改口做别的事时，模型可能接着写上一份幻灯片。
-- **`computer.act` 指名路径是对的，像素回退仍在。** 控件 `Invoke` 失败会点坐标；这比盲点月伴前台安全，但在 DPI/缩放窗口上仍会点错。
-- **单体正在长大。** `runStream` 1563 行、`chat.go` 1700 行、`Engine` 方法约 475、bridge handler 约 509、`RuntimeHandlers` 533。F-06/F-07 仍是设计文档。以后每一次准确性补丁都会同时增加稳定性风险。
-- **给一人公司的取舍：** 先修「用户看到的错」（多专家挂载语义、办公质量门、工具 400 降级、启动失败可恢复），再动 god-object 拆分。不要并行开第三条大重构。
+- **`computer.act` 已产品化，但合同明确不承诺「任意 Windows 应用一次成功」。** 指名 `observe`→`name=`/`id=` 是对的；Invoke 失败仍点像素。现场验收只能当抽样，不能当全桌面 SLA。
+- **2026-09-06 报告里的两项安全 P0（身份私钥明文、`command.run` 继承全环境）在后续同文档登记为 S-01/S-02 已落地。** 当前树能对上 DPAPI sentinel（`internal/storage/sqlite/identity.go`）和环境白名单（`internal/toolruntime/command_env.go`）。不要再当未修 P0 排期；残留是非 Windows/无 secret store 仍写明文、白名单仍含 `APPDATA`/`USERPROFILE` 等宽项。
+- **P0/P1 发布门仍是有条件关闭。** `docs/implementation/P0-P1-status.md`：Windows CGO `-race`、一次性 Win10/11 安装生命周期、Authenticode 仍标外部证据。业主本机未跑 120 分钟 race；`Test-Install.ps1` 因机器已有安装被拒。本云克隆未见单独的 `P0-P1-CLOSEOUT.md`。
+- **本机测试日志不能替代发布证据。** `test_all.log` 多为缓存绿；`vitest-all` 74 文件 / 583 项约 26s（远小于 notes 的 288/2176）；`.tts-test.log` **仅 4/21 通过**——语音 flake 在本机仍在。覆盖率闸 58.8% ≥ 51% 与 0.4.75 notes 一致。
+- **本机未提交 WIP 会改准确性和稳定性权衡。** 办公产物绑 `officeTaskContextID` 有利于对话卡打开正确任务；Mermaid 若改为主页面 `loadMermaidEngine` 直接渲染，可能回退 B06 隔离 worker。Timeout 8s→20s 让卡死更久。合入前要单独审，不要和 0.4.75 已发布行为混谈。
+- **单体正在长大。** `runStream` 1563 行（2026-09-06 时尚记 1138 / gocyclo 332+）。F-06/F-07 仍是设计文档。
+- **给一人公司的取舍：** 先修「用户看到的错」，再决定是否合入本机 Mermaid/Office WIP，最后才拆 god-object。不要并行开第三条大重构。
 
 ---
 
@@ -72,21 +78,29 @@
 - **影响面**：跨领域追问、办公 vs 桌面、复合「查+写+发」。
 - **建议方向**：把「点名 / 单挂载 / 意图」做成一张用户能看懂的优先级表，并在装备条上显示「本轮实际装备」。不要再加第三套平行关键词。复合任务以工具并集为准（代码已 merge），避免再 shrink 到单一 R2。
 
-### 1.7 `computer.act` 指名优先，Invoke 失败仍点像素
+### 1.7 `computer.act` 指名优先，Invoke 失败仍点像素；不承诺任意应用一次成功
 
-- **现象**：合同要求先 `observe` 再 `name=` / `id=`，禁止空点。控件 Invoke 失败时测试明确期望像素点击（`TestComputerActChainInvokeFailClicksPixels`）。
-- **证据**：`internal/ccapp/computer_act.go`、`computer_act_chain_test.go`；工作流文案在 `chat_workflows.go` / `chat_companion_speech.go`。0.4.74 禁止「截月伴前台去点别的软件」——这条是真进步。
-- **严重度**：**P2**
+- **现象**：合同要求先 `observe` 再 `name=` / `id=`，禁止空点。控件 Invoke 失败时测试明确期望像素点击（`TestComputerActChainInvokeFailClicksPixels`）。产品化不等于「任意 Windows 应用点一次就成」——`docs/audits/2026-09-09-module-review.md` / closeout 已写明该验收边界。
+- **证据**：`internal/ccapp/computer_act.go`、`computer_act_chain_test.go`；工作流文案在 `chat_workflows.go` / `chat_companion_speech.go`。0.4.74 禁止「截月伴前台去点别的软件」。
+- **严重度**：**P2**（错点）；**不升级为 P0 缺口**（从未承诺全桌面 SLA）
 - **影响面**：桌面自动化、月伴操控、高 DPI / 缩放 / 动画中的按钮。
-- **建议方向**：Invoke 失败应重新 observe 或交给用户，而不是默认像素。像素只留给「树稀疏 / 画布」且带当前 `frameId` 的路径（合同已写，执行层要守住）。
+- **建议方向**：Invoke 失败应重新 observe 或交给用户，而不是默认像素。对外话术保持「抽样能用、不是万能遥控」。
 
-### 1.8 截断 / 过滤已不再冒充成功（0.4.75 附近的真修复）
+### 1.8 截断 / 过滤 / 不完整流已不再冒充成功
 
-- **现象**：`length` / `content_filter` 会剥掉 ToolCalls，保留部分正文，禁止自动产物。空 finish reason 仍当正常结束。
-- **证据**：`chatModelFinishError`（`chat_model_stream_error.go`）；`turnGenerationBudget.stream`（`chat_generation_budget.go`）；`chat_finish_reason_test.go`。
-- **严重度**：产物造假路径已从 P0 **降为已缓解**；空 finish reason 残留 **P2**。
-- **影响面**：全聊天流、办公自动生成门。
-- **建议方向**：对缺 finish reason 且已有未完成 tool_call 的流按不完整处理。保持「部分正文 ≠ 任务完成」。
+- **现象**：`length` / `content_filter` 会剥掉 ToolCalls，保留部分正文，禁止自动产物。空 finish reason 仍当正常结束。2026-09-08 周报/自动化跟进把缺 `[DONE]` / `message_stop` 收成 `STREAM_INCOMPLETE`，不从残流放工具；无人值守 HTTP 400 不得剥工具后当完成。
+- **证据**：`chatModelFinishError`（`chat_model_stream_error.go`）；`turnGenerationBudget.stream`；`docs/audits/2026-09-08-automation-weekly-stream-followup.md`；`chat_run_stream.go` 工具 400 分支带 `!unattended(op)`。
+- **严重度**：产物造假路径已从 P0 **降为已缓解**；空 finish reason 与用户可见的 `STREAM_INCOMPLETE` 残留 **P2**。
+- **影响面**：全聊天流、办公自动生成、无人值守自动化、周报试运行。
+- **建议方向**：对缺 finish reason 且已有未完成 tool_call 的流按不完整处理。保持「部分正文 ≠ 任务完成」。自动化失败要留原失败记录（该审计已示范新闻任务）。
+
+### 1.9 办公工作台导航与产物任务 ID：已提交树已写字段，本机 WIP 在补「打开对的任务」
+
+- **现象**：对话里的 Office 卡片经 `requestOfficeStudio`（35s 超时事件）打开工作台。持久化时已把 `OfficeTaskID = officeTaskContextID(ctx)` 写入会话产物元数据。用户本机 WIP 据称为导航/引用与 `session_artifacts` 收紧绑定；云端未见 diff。
+- **证据（已提交）**：`web/src/officeStudio/officeNavigation.ts`；`internal/app/session_artifacts.go`（`OfficeTaskID`、`.message-artifacts.json`）；`chat_run_stream.go` 落盘循环。元数据仍是会话文件夹旁路 JSON，不是 SQLite。
+- **严重度**：**P2**（打开错任务 / 卡片与工作台脱节）；WIP 合入前按准确性回归，不按已修复关闭
+- **影响面**：Office Studio、聊天附件卡、从对话返回任务列表（2026-09-08 office-navigation 审计同类）。
+- **建议方向**：打开工作台必须带可校验的 `officeTaskId`；sidecar 写失败要可见。合入本机 WIP 时用「从卡片进对的任务、返回不丢引用」做合同，而不是只加字段。
 
 ---
 
@@ -110,8 +124,8 @@
 
 ### 2.3 旁路状态与工具回执会静默丢
 
-- **现象**：IM 入站路由、MCP preset 记在内存 `sync.Map` + JSON 文件，`save*` 对 `writePersistJSON` 用 `_ =`。工具操作结束同样 `_ = FinishToolOperation`。崩溃或磁盘错误后，UI 的操作列表、入站回复路径、计量账本可能和真实执行不一致。
-- **证据**：`internal/app/persist_state.go`；`continuity_wire.go`（`FinishToolOperation` / call attempt）。聊天主路径 `MaxAttempts: 1`，付费生图/视频有 `findReusableMediaOp`——主路径不差，旁路差。
+- **现象**：IM 入站路由、MCP preset 记在内存 `sync.Map` + JSON 文件，`save*` 对 `writePersistJSON` 用 `_ =`。工具操作结束同样 `_ = FinishToolOperation`。会话产物卡元数据写在 `.message-artifacts.json`（`session_artifacts.go`），与 SQLite 消息行是双写。崩溃或磁盘错误后，UI 的操作列表、入站回复路径、办公任务引用、计量账本可能和真实执行不一致。
+- **证据**：`internal/app/persist_state.go`；`continuity_wire.go`；`session_artifacts.go`。聊天主路径 `MaxAttempts: 1`，付费生图/视频有 `findReusableMediaOp`——主路径不差，旁路差。本机 WIP 若加强 `officeTaskContextID` 绑定，仍走同一 sidecar。
 - **严重度**：**P2**
 - **影响面**：IM 回程、MCP 限制、操作中心、用量诚实性（0.4.74 强调「按收据说话」）。
 - **建议方向**：这两类状态迁进 SQLite（已有会话/审计模型），或至少把写失败打进 diagnostics 且下次启动可见。回执失败进死信，而不是继续当成功。
@@ -126,11 +140,11 @@
 
 ### 2.5 语音 flake 在单测里被钉住，生产仍是 WebView2 真时钟
 
-- **现象**：0.4.73 后 Quality 曾被 ASR 尾音节 / 静音截止 flake 打红。6a5de76 把 `speech.capture.test.ts` 改成 fake timers，并给 race 作业 120 分钟。行为合同（迟到修正不重启静音窗、尾音节不吞整句）是清楚的；真机麦克风、权限弹窗、`AudioContext` 挂起不在 CI。
-- **证据**：`web/src/session/companion/speech.capture.test.ts`；`.github/workflows/quality.yml`。既有审计明确「真人打断 / 回声未 E2E」。
-- **严重度**：**P2**
-- **影响面**：三条语音链路、会议、月伴半双工。
-- **建议方向**：保留 fake-timer 回归。另做少量 **opt-in 真机** 脚本（已有 `LUNITIDE_*_LIVE` 传统），不要把「vitest 绿」说成「语音稳」。
+- **现象**：0.4.73 后 Quality 曾被 ASR 尾音节 / 静音截止 flake 打红。6a5de76 把 `speech.capture.test.ts` 改成 fake timers，并给 race 作业 120 分钟。业主本机 `.tts-test.log` **4/21 通过**——这是比「CI 用假时钟买绿」更硬的现场信号。
+- **证据**：`web/src/session/companion/speech.capture.test.ts`；`.github/workflows/quality.yml`；业主本机 TTS 日志（本克隆无文件，按声明收录）；`docs/audits/2026-09-08-voice-interruption-check.md` 仍标真人打断未 E2E。
+- **严重度**：**P2**（产品体感）；发布话术若写「语音已稳」则为 **P1 诚信风险**
+- **影响面**：三条语音链路、会议、月伴半双工、TTS。
+- **建议方向**：保留 fake-timer 回归。把 4/21 当已知债，不要用 vitest 子集或缓存 `test_all.log` 对冲。另做少量 opt-in 真机脚本。
 
 ### 2.6 技能分页一次读完：中途失败仍可能告诉模型「还有下一页」
 
@@ -156,6 +170,14 @@
 - **影响面**：生图/视频、长流。
 - **建议方向**：不要为「提高成功率」加自动换模型。未知结果保持 `OUTCOME_UNKNOWN`。
 
+### 2.9 2026-09-06 安全 P0 多数已落地；不要按旧矩阵重开
+
+- **现象**：`docs/system-analysis-report-2026-09-06.md` 矩阵曾列「身份 Ed25519 私钥明文 hex」「`command.run` 继承完整父进程环境」。同文档后续登记 S-01..S-07 已核验。当前树：库列存 sentinel，真钥进 DPAPI（无 `identitySecrets` 时测试路径仍明文）；`commandEnvAllowlist` 不再 `os.Environ()` 全量，Job Object 在 Windows streaming/batched 路径挂接。
+- **证据**：`identity.go` / `identity_privkey_test.go`；`command_env.go`；系统分析「本轮新增完成」S-01..S-07 行。市场签名根是 ADR-017 策略（离线根不参与日常签名），本克隆未见单独「市场私钥明文写库」的现行路径；业主口中的 market key 与 09-06「身份私钥」应对齐理解，避免重复开单。
+- **严重度**：原 P0 **视为已缓解**。残留 **P3**：无 DPAPI 的非生产路径；环境白名单含 `APPDATA`/`USERPROFILE`（子进程仍可能读用户配置，但不再继承引擎里的 API key 环境变量——若密钥只在 DPAPI，这是可接受折中）。
+- **影响面**：身份签名、People 配对、`command.run` / `run_terminal_cmd`。
+- **建议方向**：保持回归。不要为了「再收紧」把 `go test` 所需的 `GOCACHE` 等砍掉。新密钥一律走 `secret.Service`，禁止第三份明文列。
+
 ---
 
 ## 3. 速度效率
@@ -176,13 +198,14 @@
 - **影响面**：电脑控制、媒体、月伴——最常用的「快」场景。
 - **建议方向**：先流一句中性进度（不宣称成功），工具后再替换/续写。不要为了 TTFT 重新流「我已经点了播放」。
 
-### 3.3 Mermaid：永久等待已去掉，480ms + 隔离进程还在
+### 3.3 Mermaid：0.4.75 去掉永久等待；本机 WIP 在换引擎路径
 
-- **现象**：0.4.75 仅在 `streaming && mermaidFenceStillOpen` 时 `wait`；结束后不再因布局把滚动钉回底部。`MermaidBlock` 仍 `SETTLE_MS = 480`，全局串行队列，经 `diagram.render` 拉独立 WebView2 worker（8s 超时）。
-- **证据**：`MarkdownMessage.tsx`；`MermaidBlock.tsx`；`docs/audits/.../phase2-conversation.md`（B06 隔离 worker，本机约 400ms 渲染 + 冷启动）。主包构建约 1.9MB，Mermaid 相关 chunk ~680KB。
-- **严重度**：**P2**
-- **影响面**：架构图、流式气泡、历史重绘。
-- **建议方向**：围栏闭合后跳过 settle 或用 ≤1 帧；worker 保活/缓存；不要把 parser 搬回主页面（CSP/稳定性收益要留）。
+- **现象（已发布 0.4.75）**：仅在 `streaming && mermaidFenceStillOpen` 时 `wait`；结束后不再因布局把滚动钉回底部。`MermaidBlock`：`SETTLE_MS = 480`、`RETRIES = 3`，经 `getDiagramBridge().render` 走隔离 WebView2 worker，`diagramrender` **Timeout = 8s**。`loadMermaidEngine()` 已存在于 `tideMermaid.ts`（动态 `import('mermaid')`），**主路径当前未用它渲染**。
+- **现象（业主本机 WIP，本克隆未见）**：SETTLE 480→**280ms**；去掉 `RETRIES=3`；改为 `loadMermaidEngine` **直接渲染**；worker Timeout **8s→20s**。这会缩短「看起来在等」的时间，但把 parser 拉回主页面，并让一次卡死最长多等 12 秒。
+- **证据**：已提交 `MarkdownMessage.tsx`、`MermaidBlock.tsx`、`tideMermaid.ts`、`internal/diagramrender/handler.go`；B06 见 `docs/audits/2026-09-06-system-review/implementation/phase2-conversation.md`。0.4.75 notes 只覆盖「围栏未闭合才显示生成中」，不覆盖 WIP 换引擎。
+- **严重度**：已发布路径 **P2**（480ms + 冷 worker）。WIP 若合入且破坏隔离，稳定性升为 **P1**（主 WebView 可被恶意/畸形图拖死）。
+- **影响面**：架构图、流式气泡、历史重绘、CSP。
+- **建议方向**：围栏闭合后跳过 settle。Worker 保活/缓存。**不要为了 200ms 放弃 B06 隔离**；若本机是「失败时才 fallback 到 loadMermaidEngine」，须在报告合入前用测试写清。Timeout 加长只能当诊断，不能当默认。
 
 ### 3.4 回合后闪烁已压住，轮询 RPC 没减
 
@@ -202,11 +225,11 @@
 
 ### 3.6 迭代被 120 分钟 race 和迁移重放拖住
 
-- **现象**：Quality 普通 Go 测试 25 分钟预算；CGO race **120 分钟**（sqlite 在 0.4.73 撞过 90 分钟天花板）。`cmd/desktop` `//go:build !race`。覆盖率地板 51%（notes 写 58.8%）。前端约 288 files / 2176 tests。
-- **证据**：`.github/workflows/quality.yml`、`release-candidate.yml`；`6a5de76`。
-- **严重度**：**P3**（产品运行时不是 P0，但会拖慢修 1.x/2.x）
+- **现象**：Quality 普通 Go 测试 25 分钟预算；CGO race **120 分钟**（sqlite 在 0.4.73 撞过 90 分钟天花板）。`cmd/desktop` `//go:build !race`。覆盖率地板 51%，0.4.75 notes 与本机闸均为 **58.8% ≥ 51%**。业主 `test_all.log` **多为缓存绿**；`vitest-all` 只有 **74/583 ~26s**，不是全套 288/2176。本机与本云均**未**跑 120 分钟 `-race`。
+- **证据**：`.github/workflows/quality.yml`、`release-candidate.yml`；`6a5de76`；`release/notes-0.4.75.md`；业主本地日志声明。
+- **严重度**：**P3**（迭代）；若用缓存日志对外称「全量已验」则为 **P2 发布诚信**
 - **影响面**：一人公司的反馈环；「先扩 timeout 再绿」会掩盖真 hang。
-- **建议方向**：模板库 + 按包拆 race；给 desktop 一条不链 `.rsrc` 的 race 子集。Timeout 只当保险丝，不当性能策略。
+- **建议方向**：模板库 + 按包拆 race。对外只用 `-count=1` 非缓存日志。Timeout 只当保险丝。
 
 ---
 
@@ -222,8 +245,9 @@
 
 ### 4.2 长会话无界缓存 vs 已修好的 compaction 泄漏
 
-- **现象**：Q-04 已把 compaction `sessionLocks` / `lastTrigger` 改成有界 LRU（`internal/compactionapp/boundedmap.go`）。`adapterCache` 仍是无逐出 `map[string]Adapter`（`provider_diagnostics.go`）。`inboundRoutes` / `mcpPresetByEP` 是无界 `sync.Map`。
-- **严重度**：**P2**
+- **现象**：2026-09-06 曾把 `compactionapp.sessionLocks` 标 P3/P2 泄漏。Q-04 已改成有界 LRU（`internal/compactionapp/boundedmap.go`）。`adapterCache` 仍是无逐出 `map[string]Adapter`（`provider_diagnostics.go`）。`inboundRoutes` / `mcpPresetByEP` 是无界 `sync.Map`。
+- **证据**：`boundedmap.go` 注释（Q-04）；`provider_diagnostics.go`；`engine.go` 字段。
+- **严重度**：**P2**（adapter/sidecar）；compaction 原项 **已缓解**
 - **影响面**：多供应商诊断、长开不关的 Engine、大量 IM 会话。
 - **建议方向**：adapter 按 provider+model 做小 LRU；sidecar 迁库后自然有界。不要再引入第三份「会话级只增不减」的 map。
 
@@ -237,27 +261,43 @@
 
 ### 4.4 Quality 绿，部分来自放宽而不是根因消失
 
-- **现象**：语音 flake → fake timers；sqlite race → 120m；更早还有 IM timeout / Office remount 不当红（`586b0f6`）。大量真机路径 `t.Skip`（WebView2、SAPI、环回音频、LibreOffice）。
-- **证据**：workflows；`internal/webviewhost/browser_native_windows_test.go`；`internal/meetings/loopback_*`；`internal/officerender/*_integration_test.go`。
+- **现象**：语音 flake → fake timers；sqlite race → 120m；更早还有 IM timeout / Office remount 不当红（`586b0f6`）。大量真机路径 `t.Skip`（WebView2、SAPI、环回音频、LibreOffice）。业主本机 TTS 4/21、Go 全量多为缓存，与「Quality 绿」可以同时成立。
+- **证据**：workflows；`internal/webviewhost/browser_native_windows_test.go`；`internal/meetings/loopback_*`；`internal/officerender/*_integration_test.go`；业主 `.tts-test.log` / `test_all.log` 声明。
 - **严重度**：**P2**
 - **影响面**：发布信心；回归「绿了但周报试运行仍序列错误」这类 0.4.75 才补上的洞。
-- **建议方向**：每放宽一条 CI，登记「被买下来的风险」和复测日期。真机矩阵保持小而重复（装/升/语音/一份办公），不要再堆跳过的 integration 文件。
+- **建议方向**：每放宽一条 CI，登记「被买下来的风险」和复测日期。真机矩阵保持小而重复（装/升/语音/一份办公）。缓存绿不进发布清单。
 
 ### 4.5 `runStream` 体量本身就是竞态工厂
 
 - **现象**：一个函数里叠了工具环、bufferReply、视觉/工具 400 回退、办公收尾、预算、companion fallback、checkpoint。0.4.75 又加了技能停轮、序列消毒调用点。单测很多，但交互空间是组合爆炸。
-- **证据**：`chat_run_stream.go` 127–1563 行；`maxToolLoopSteps` 24、硬顶 48（`chat_continue.go`）。
+- **证据**：`chat_run_stream.go` 127–1563 行（09-06 报告记 1138，gocyclo 曾 344→332）。`maxToolLoopSteps` 24、硬顶 48（`chat_continue.go`）。本机 WIP「连续性测试」若再往此函数加分支，回归面继续胀。
 - **严重度**：**P2**
 - **影响面**：任何「再加一个特殊轮」——专家、试运行、办公、电脑控制——都可能复活旧抖动/空转。
 - **建议方向**：冻结「再往 runStream 加布尔分支」。新行为走显式 stage + 测试表。这是稳定性工作，不是风格偏好。
 
 ### 4.6 WebView2 边角仍然是发布门，不是单测门
 
-- **现象**：README / ADR-001：缺 `ICoreWebView2_3/4` 或 frame2 则关窗；无 Bind/host object。原生关闭、图表 worker、会议采集在审计里有本机证据，CI 默认跳过。
-- **证据**：`README.md`；`docs/implementation/P0-P1-status.md`（Win10/11 一次性生命周期、Authenticode 仍标外部证据）；B06 图表 worker。
-- **严重度**：**P2**（环境）
-- **影响面**：Evergreen Runtime 缺失、多显示器 DPI、任务管理器杀 Host 留 Engine。
-- **建议方向**：保持 fail-closed。发布清单继续要干净机安装；不要用本机已装环境代替 `Test-Install.ps1`（0.4.75 notes 已承认没跑）。
+- **现象**：README / ADR-001：缺 `ICoreWebView2_3/4` 或 frame2 则关窗；无 Bind/host object。原生关闭、图表 worker、会议采集在审计里有本机证据，CI 默认跳过。`P0-P1-status.md` 仍要求：远程 CGO race、一次性 Win10/11 装/升/留/重装/`/PURGE`、Authenticode 时间戳。业主本机 `Test-Install.ps1` **因已有安装拒绝**；本云克隆无 `P0-P1-CLOSEOUT.md`。
+- **证据**：`README.md`；`docs/implementation/P0-P1-status.md` 外部证据行；0.4.75 notes「未跑 Test-Install.ps1」；业主确认。
+- **严重度**：**P2**（发布门未关）；不是运行时崩溃
+- **影响面**：Evergreen Runtime 缺失、干净机升级、签名可信。
+- **建议方向**：保持 fail-closed。用一次性虚拟机跑安装生命周期；不要把「本机已装、脚本拒跑」写成 closeout。Authenticode 缺证书就明确「开发包，非生产」。
+
+### 4.7 实时 talk 仍无发送背压（09-06 仍在）
+
+- **现象**：2026-09-06 标 P1：OpenAI realtime WS 无客户端背压，发送队列可能堆积。当前 `handleTalkAppend` 对 PCM 直接 `session.write(...)`，失败才报会话结束，未见有界队列或对慢连接的拒绝/合流。
+- **证据**：`docs/system-analysis-report-2026-09-06.md` §2；`internal/app/talk_handlers.go`（`talk.append`）。
+- **严重度**：**P2**（长通话卡顿/假死）；高频全双工升 **P1**
+- **影响面**：实时全双工 talk（与半双工月伴/按钮路径不同）。
+- **建议方向**：给 write 加有界队列 + 满则丢旧 PCM 或断开并明示。不要在无背压时加大采集帧率。
+
+### 4.8 本机 Mermaid WIP 可能把解析器搬回主 WebView
+
+- **现象**：B06 把 Mermaid 放进独立 worker，主界面只挂 SVG。本机若改 `loadMermaidEngine` 直接 `import('mermaid')` 渲染，等于撤回隔离。Timeout 20s 会让主线程/页面更长时间不可用。
+- **证据**：已提交路径仍走 `getDiagramBridge().render`；WIP 为业主声明。
+- **严重度**：合入前按 **P1 候选** 审；未合入不记现行缺陷
+- **影响面**：畸形图、主题切换、CSP、与 0.4.75「结束等待」补丁的交互。
+- **建议方向**：保持 worker 为主路径。直接引擎只允许测试或明确的降级，且须能 kill。
 
 ---
 
@@ -268,11 +308,12 @@
 - **生产架构边界清楚**：Go Host / Engine / React；Electron/Python 已删除（ADR-001）。固定 `https://app.lunitide.local`，只让顶层可信源进网关。
 - **IPC 与机密**：Named Pipe + nonce + PID；bootstrap 凭据不进命令行（ADR-002/004）。部分写失败毒化连接，而不是拼脏帧。
 - **SQLite 纪律**：WAL、迁移校验和、schema 指纹、不确定事务关库而不是复用。覆盖率与 contract 测试挡回归。
-- **诚实失败（近期）**：截断/过滤保留部分正文、不放工具、不造办公文件；用量不编节省百分比；商业目录/IM 附件不标假 ready（0.4.74 notes）。
-- **电脑控制统一管道**：`computer.act` 映射到现有 `cc.*`，审计/限流/风险门不另开一条。
-- **Bridge 契约**：schema ↔ `RuntimeHandlers` 双射 + `verify:bridge` + 生成文件 drift 门。这是少有的「加方法就会疼」的好疼。
-- **0.4.75 针对性修复是真的**：流式才钉底滚动；ctx/queue/CC 相同 JSON 不 `setState`；Mermaid 只在未闭合围栏时等待；剧本点名不再落到机务；技能分页与序列消毒对准周报试运行。
-- **Compaction 泄漏（Q-04）已有界**；流数量封顶 32；付费媒体有 receipt。
+- **诚实失败（近期）**：截断/过滤保留部分正文、不放工具、不造办公文件；`STREAM_INCOMPLETE` 不从残流放工具；无人值守 400 不剥工具装完成（`docs/audits/2026-09-08-automation-weekly-stream-followup.md`）；用量不编节省百分比。
+- **电脑控制统一管道**：`computer.act` 映射到现有 `cc.*`。验收边界诚实：不承诺任意 Windows 应用一次成功。
+- **S-01/S-02 安全加固**：身份私钥 DPAPI sentinel；`command.run` 环境白名单。09-06 矩阵里的对应 P0 不要当未修重开。
+- **Bridge 契约**：schema ↔ `RuntimeHandlers` 双射 + `verify:bridge` + 生成文件 drift 门。
+- **0.4.75 针对性修复是真的**（以 `release/notes-0.4.75.md` 为准）：流式才钉底；相同 JSON 不 `setState`；Mermaid 只在未闭合围栏等待；剧本点名不再落到机务；技能分页与序列消毒对准周报试运行。
+- **Compaction 泄漏（Q-04）已有界**；流数量封顶 32；付费媒体有 receipt。覆盖率闸 58.8% ≥ 51%。
 
 ---
 
@@ -287,8 +328,9 @@
 3. **上下文 fallback 可观测**：序列消毒命中、native replay 超时、显式回退打点到 diagnostics（§1.3）。
 4. **工具 400**：本轮失败或强制换模型，禁止纯聊天假装有工具（§1.4）。
 5. **Handler panic 打栈**（§4.1）——改动小、收益是以后所有稳定性问题。
+6. **审本机 Office/Mermaid WIP**：产物 `officeTaskId` 导航可合；`loadMermaidEngine` 回主页面须单独否决或加隔离合同（§1.9 / §3.3 / §4.8）。
 
-成功标准：再出现误装/空 PPT/「模型不认刚才的工具」时，能从装备条或 diagnostics 看出**走了哪条分支**，而不是猜关键词。
+成功标准：再出现误装/空 PPT/「模型不认刚才的工具」时，能从装备条或 diagnostics 看出**走了哪条分支**，而不是猜关键词。本机 WIP 要么进独立提交说明，要么不和 0.4.75 已发布行为混为一谈。
 
 ### 第二段（约 60 天量级）——失败可恢复，收据一致
 
@@ -304,8 +346,8 @@
 
 1. 抽出 StreamEngine / 冻结 `runStream` 新分支（§3.5 / §4.5）。
 2. 月伴/桌面首字进度流，不破坏「先证据后表态」（§3.2）。
-3. Mermaid worker 保活 + 闭合后去 settle（§3.3）；会话轮询改事件（§3.4）。
-4. CI：模板库、race 拆包、desktop race 子集（§3.6 / §4.4）。
+3. Mermaid **保持**隔离 worker + 闭合后去 settle（§3.3）；会话轮询改事件（§3.4）。talk 发送背压（§4.7）。
+4. CI：模板库、race 拆包、desktop race 子集（§3.6 / §4.4）。用一次性 VM 补 `Test-Install` / Win10/11 生命周期（§4.6）。
 5. 再谈 Model Fit Slice 的 probe/qualify（`docs/design/PRD-MULTI-MODEL-CONTINUOUS-FUSION-v3.md`），否则 1.4 会反复出现。
 
 成功标准：加一个专家或一种办公格式时，不必再改 1500 行主循环；Quality 绿来自更短的测试，而不是更长的 timeout。
@@ -314,10 +356,12 @@
 
 ## 调查边界（避免误读本报告）
 
-- 本环境是 Linux 工作区，**未**复跑 Windows CGO `-race`（120 分钟），**未**启动 WebView2 真机。启动与 TTFT 是结构判断，不是毫秒基准。
-- 0.4.75 notes 称本机 `vitest` 288/2176 全绿；本诊断以源码与测试**合同**为准，不以另一次全量复跑为准。
-- 2026-09-06 系统分析与 2026-09-09 模块复盘仍有历史价值；本报告只把**当前树仍存在**的问题写入，并独立重读了 0.4.74/0.4.75 路径。
-- 未把「邮件 / 共享日历 / 在线 48 场景」列为缺陷——release notes 已声明未通。
+- 本云环境是 Linux 工作区，工作树干净，**看不到**业主那 21 个未提交文件。WIP 条目全部标成「声明 / 合入前候选」，源码行号只引已提交 0.4.75。
+- **未**复跑 120 分钟 Windows CGO `-race`（业主本机也未跑）。**未**跑 `Test-Install.ps1`（业主本机因已有安装被拒）。启动与 TTFT 是结构判断，不是毫秒基准。
+- 业主 `test_all.log` 缓存绿、`vitest-all` 74/583、`.tts-test.log` 4/21、覆盖率 58.8%：按声明收录。0.4.75 notes 的 288/2176 是另一份全套口径，两者不要加减。
+- `docs/implementation/P0-P1-CLOSEOUT.md` 在本克隆不存在；发布门以 `P0-P1-status.md` 为准（有条件关闭）。
+- 2026-09-06 系统分析里的 P0 安全项以同文档「S-01..S-07 已落地」+ 当前源码复核为准，不把旧矩阵当仍打开。
+- 未把「邮件 / 共享日历 / 在线 48 场景」列为缺陷——release notes 已声明未通。`computer.act` 未承诺任意应用一次成功。
 
 ---
 
@@ -327,8 +371,11 @@
 |---|---|---|
 | 打字一轮 → 专家/工具 | `chat.go` → `turnEquipmentFor` → `task_route.go` → `runStream` | 1.1–1.6, 3.2, 4.5 |
 | 流式与收尾 | `chat_run_stream.go`、`chat_generation_budget.go`、`SessionPage.tsx` | 1.8, 3.2, 3.4 |
-| PPT/PDF/Excel/周报 | `chat_office_autogen.go`、`chat_*_workflow.go`、`chat_skill_trial.go` | 1.2, 2.6 |
-| Mermaid | `MarkdownMessage.tsx`、`MermaidBlock.tsx`、`diagramrender` | 3.3 |
+| PPT/PDF/Excel/周报 | `chat_office_autogen.go`、`chat_*_workflow.go`、`chat_skill_trial.go`、`session_artifacts.go` | 1.2, 1.8, 1.9, 2.6 |
+| Office Studio 导航 | `web/src/officeStudio/officeNavigation.ts` | 1.9 |
+| Mermaid | `MarkdownMessage.tsx`、`MermaidBlock.tsx`、`tideMermaid.ts`、`diagramrender` | 3.3, 4.8 |
 | `computer.act` | `internal/ccapp/computer_act.go`、`chat_workflows.go` | 1.7 |
+| 实时 talk | `talk_handlers.go` | 4.7 |
+| 发布门 | `docs/implementation/P0-P1-status.md`、`quality.yml` | 3.6, 4.4, 4.6 |
 | S1 连续 | `chat_continuation.go`、`reconcileTurnCheckpointOnStart` | 1.3, 1.5 |
 | Host/Engine 活下来 | `cmd/desktop/main.go`、`ipc/session.go`、`hostbridge/gateway.go`、`sqlite/uow.go` | 2.1–2.4, 2.7, 4.3 |
