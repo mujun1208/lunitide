@@ -24,6 +24,9 @@ func TestLooksLikeResume(t *testing.T) {
 	if !looksLikeResume("那你倒是试一试啊？") || !looksLikeResume("再试一次") {
 		t.Fatal("retry utterances must resume the previous task")
 	}
+	if !looksLikeResume("没成功，能不能换一种方式？") {
+		t.Fatal("another-way follow-ups must resume the previous play/desktop task")
+	}
 	if !looksLikeIndependentRequest("帮我打开桌面协议的文件") || !looksLikeIndependentRequest("打开协议") {
 		t.Fatal("new tasks must stay independent")
 	}

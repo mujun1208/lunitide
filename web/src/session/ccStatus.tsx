@@ -22,6 +22,14 @@ export interface CcStatusState {
 
 const POLL_MS = 5000
 
+function sameJson(a: unknown, b: unknown): boolean {
+  try {
+    return JSON.stringify(a) === JSON.stringify(b)
+  } catch {
+    return false
+  }
+}
+
 export function useCcStatus(sessionId: string, liveTool?: string, liveToolStatus?: string): CcStatusState {
   const [config, setConfig] = useState<CcGetConfigResult | null>(null)
   const [lastAction, setLastAction] = useState<AuditRow | undefined>(undefined)
@@ -38,7 +46,10 @@ export function useCcStatus(sessionId: string, liveTool?: string, liveToolStatus
         const log = await ccBridge.getAuditLog({ sessionId: id, limit: 1 })
         latest = log.items[0]
       } catch { /* audit projection is best-effort */ }
-      if (sessionRef.current === id) { setConfig(cfg); setLastAction(latest) }
+      if (sessionRef.current === id) {
+        setConfig(prev => sameJson(prev, cfg) ? prev : cfg)
+        setLastAction(prev => sameJson(prev, latest) ? prev : latest)
+      }
     } catch (e) {
       // Offline bridge (tests, non-WebView2): keep the last projection.
       if (e instanceof BridgeClientError && sessionRef.current === id) setConfig(prev => prev)

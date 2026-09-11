@@ -27,6 +27,16 @@ const DELIVERY_ID = '01ARZ3NDEKTSV4RRFFQ69G5FAY', MESSAGE_ID = '01ARZ3NDEKTSV4RR
 
 const item = (seq: number, text: string) => ({ queuedId: `01ARZ3NDEKTSV4RRFFQ69G5FA${String(seq).padStart(2, '0')}`, seq, text, status: 'queued' as const, mark: 'turn_boundary' as const, createdAt: '2025-01-01T00:00:00Z' })
 
+it('does not replace queue items when the poll payload is unchanged', async () => {
+  const rows = [item(1, 'saved')]
+  queue().list.mockResolvedValue({ items: rows })
+  const { result } = renderHook(() => useInputQueue(MESSAGE_ID, true))
+  await waitFor(() => expect(result.current.items).toHaveLength(1))
+  const first = result.current.items
+  await act(async () => { await result.current.refresh() })
+  expect(result.current.items).toBe(first)
+})
+
 it('reloads saved supplements and clears the read failure after engine recovery without sending', async () => {
   queue().list.mockRejectedValueOnce(new Error('RPC closed')).mockResolvedValue({ items: [item(1, 'saved')] })
   const { result, unmount } = renderHook(() => useInputQueue(MESSAGE_ID))

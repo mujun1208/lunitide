@@ -89,6 +89,26 @@ func TestFallbackOfficeGenArgsDesktopAndKind(t *testing.T) {
 	}
 }
 
+func TestTrialWeeklyReportStillMapsToDocxAndIsNotBlocked(t *testing.T) {
+	session := "01ARZ3NDEKTSV4RRFFQ69G5FAA"
+	ctx := withSkillTrials(context.Background(), session, []string{"01ARZ3NDEKTSV4RRFFQ69G5FAB"})
+	for _, goal := range []string{"生成周报", "用周报技能生成本周周报", "试用周报技能生成一份周报"} {
+		if skipOfficeAutogen(ctx, session, goal) {
+			t.Fatalf("trial generate %q must not skip office autogen", goal)
+		}
+		turn := &chatTurnCheckpoint{Goal: goal, LastTools: []string{"skill.try"}, CapabilityWork: true}
+		if officeGenToolForTurn(turn) != "docx.gen" {
+			t.Fatalf("%q tool = %s", goal, officeGenToolForTurn(turn))
+		}
+		if !shouldAutoOfficeGen(turn, errors.New("模型结果不完整")) {
+			t.Fatalf("%q incomplete trial must auto docx.gen", goal)
+		}
+	}
+	if !skipOfficeAutogen(ctx, session, "创建一个每周写周报的技能") {
+		t.Fatal("trial + skill authoring must still skip office autogen")
+	}
+}
+
 func TestShouldAutoOfficeGenOnIncompleteNovel(t *testing.T) {
 	turn := &chatTurnCheckpoint{Goal: "写一份12星座爱情小说Word到桌面", DocxActive: true, DocxKind: docxKindNovel}
 	if !shouldAutoOfficeGen(turn, errors.New("incomplete")) {

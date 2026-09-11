@@ -345,6 +345,9 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 	if !strings.Contains(chatRichMarkdownInstruction(), `A["封面<br/>副标题"]`) || !strings.Contains(chatRichMarkdownInstruction(), "禁止裸写") {
 		t.Fatal("mermaid instruction must require quoted labels with <br/>")
 	}
+	if !strings.Contains(chatRichMarkdownInstruction(), "必须闭合围栏") {
+		t.Fatal("mermaid instruction must require a closed fence")
+	}
 	if !strings.Contains(wf, "desktop=true") || !strings.Contains(wf, "半年财报.xlsx") {
 		t.Fatal("office desktop workflow must use *.gen desktop=true")
 	}

@@ -919,7 +919,21 @@ func useExplicitChatFallback(companion bool, trusted []llmadapter.Message, err e
 	if errors.Is(err, contextapp.ErrNoMessages) {
 		return true
 	}
-	return companion
+	if companion {
+		return true
+	}
+	return isProviderSequenceError(err)
+}
+
+func isProviderSequenceError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "system message at position") ||
+		strings.Contains(s, "consecutive assistant") ||
+		strings.Contains(s, "tool message at position") ||
+		strings.Contains(s, "empty message sequence")
 }
 
 func (e *Engine) peekLastUserMessage(ctx context.Context, sessionID string) string {
@@ -1098,6 +1112,30 @@ func combineDurableProviderMessages(history []contextapp.Message, explicit []llm
 	return combineProviderMessages(history, explicit, info, images, nil)
 }
 
+func sanitizeProviderReplay(msgs []llmadapter.Message) []llmadapter.Message {
+	out := make([]llmadapter.Message, 0, len(msgs))
+	seenNonSystem := false
+	for _, m := range msgs {
+		if m.Role == llmadapter.RoleSystem {
+			if seenNonSystem {
+				continue
+			}
+			out = append(out, m)
+			continue
+		}
+		seenNonSystem = true
+		if m.Role == llmadapter.RoleAssistant && len(out) > 0 && out[len(out)-1].Role == llmadapter.RoleAssistant {
+			if len(out[len(out)-1].ToolCalls) > 0 && len(m.ToolCalls) == 0 {
+				continue
+			}
+			out[len(out)-1] = m
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
 func combineProviderMessages(history []contextapp.Message, explicit []llmadapter.Message, info contextapp.ProviderInfo, images []llmadapter.Image, native []llmadapter.Message) ([]llmadapter.Message, error) {
 	combined := make([]llmadapter.Message, 0, len(history)+len(explicit)+len(native))
 	for _, m := range explicit {
@@ -1133,6 +1171,8 @@ func combineProviderMessages(history []contextapp.Message, explicit []llmadapter
 			combined = append(combined, m)
 		}
 	}
+	combined = sanitizeProviderReplay(combined)
+
 	// History counts can predate normalization or synthetic concatenation.
 	// Enforce the final provider budget only from exact visible contents,
 	// tool-call payloads, and any images on this request.

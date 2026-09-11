@@ -367,22 +367,38 @@ func pickKnownAppExecutable(query string) (string, bool) {
 	return found[0], true
 }
 
+func musicAppInstalled(app knownLaunchApp) bool {
+	if len(lookupKnownAppExecutables(app)) > 0 {
+		return true
+	}
+	for _, alias := range append([]string{app.Canonical}, app.Aliases...) {
+		if path, _, _ := pickStartMenuShortcut(alias); path != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// InstalledMusicApps lists known desktop players that are actually installed.
+// Order is 网易云音乐, 汽水音乐, QQ音乐 — never a website.
+func InstalledMusicApps() []string {
+	var out []string
+	for _, app := range knownLaunchApps {
+		if !isMusicLaunchApp(app) || !musicAppInstalled(app) {
+			continue
+		}
+		out = append(out, app.Canonical)
+	}
+	return out
+}
+
 // FirstInstalledMusicApp returns the first known desktop player that is
 // actually installed on this PC (exe path or Start Menu shortcut).
 // Order is 网易云音乐, 汽水音乐, QQ音乐 — never a website.
 func FirstInstalledMusicApp() string {
-	for _, app := range knownLaunchApps {
-		if !isMusicLaunchApp(app) {
-			continue
-		}
-		if len(lookupKnownAppExecutables(app)) > 0 {
-			return app.Canonical
-		}
-		for _, alias := range append([]string{app.Canonical}, app.Aliases...) {
-			if path, _, _ := pickStartMenuShortcut(alias); path != "" {
-				return app.Canonical
-			}
-		}
+	apps := InstalledMusicApps()
+	if len(apps) == 0 {
+		return ""
 	}
-	return ""
+	return apps[0]
 }

@@ -61,6 +61,8 @@ func conversationExpertNameAliases(id string) []string {
 		return []string{"航空机务专家"}
 	case "tooling-chemical-expert":
 		return []string{"工具化工品专家"}
+	case "novel-writer":
+		return []string{"剧本专家", "编剧专家", "剧本", "编剧"}
 	default:
 		return nil
 	}

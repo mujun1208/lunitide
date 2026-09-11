@@ -107,6 +107,54 @@ func (e *Engine) invokeSkillViewTool(ctx context.Context, args json.RawMessage) 
 	return toolruntime.Result{Output: string(best)}, nil
 }
 
+func (e *Engine) assembleSkillViewForModel(ctx context.Context, firstArgs json.RawMessage, firstOutput string) string {
+	var page skillReadPage
+	if json.Unmarshal([]byte(firstOutput), &page) != nil || !page.HasMore {
+		return firstOutput
+	}
+	var text strings.Builder
+	text.WriteString(page.Text)
+	digest := page.Digest
+	offset := page.NextOffset
+	skillID := page.SkillID
+	path := page.Path
+	for hops := 0; hops < 40 && page.HasMore; hops++ {
+		if text.Len() > skillInvocationMaxBytes {
+			break
+		}
+		args, err := json.Marshal(map[string]any{
+			"skillId": skillID, "path": path, "offset": offset, "expectedDigest": digest,
+		})
+		if err != nil {
+			break
+		}
+		out, err := e.invokeSkillViewTool(ctx, args)
+		if err != nil {
+			break
+		}
+		if json.Unmarshal([]byte(out.Output), &page) != nil {
+			break
+		}
+		text.WriteString(page.Text)
+		offset = page.NextOffset
+		digest = page.Digest
+	}
+	page.Text = text.String()
+	page.Offset = 0
+	page.NextOffset = utf8.RuneCountInString(page.Text)
+	if page.TotalRunes > 0 && page.NextOffset >= page.TotalRunes {
+		page.HasMore = false
+		page.Notice = "已一次读完技能正文，无需再分页 skill.view。"
+	} else if page.HasMore {
+		page.Notice = "正文过长，已尽量一次读完；hasMore=true 时从 nextOffset 续读。"
+	}
+	raw, err := json.Marshal(page)
+	if err != nil || len(raw) > skillInvocationMaxBytes+4096 {
+		return firstOutput
+	}
+	return string(raw)
+}
+
 func (e *Engine) skillReadSource(ctx context.Context, id, path string) (skillReadPage, string, string, error) {
 	p := skillReadPage{SkillID: id, Path: path}
 	var body, manifest, folderKey string

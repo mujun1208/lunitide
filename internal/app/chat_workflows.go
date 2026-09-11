@@ -36,7 +36,7 @@ const workflowDesktopOpenClause = "- 打开桌面文件：必须用 desktop.open
 
 const workflowDesktopTypeClause = "- 在已打开的对话框里填写：有命名输入框时用 desktop.type（after=界面上真实字段名如身份证号码或证件号码，text=要写的内容，需要发送时 submit=true，window=窗口标题）。Word 正文没有命名输入框时改 computer.act：先截图，记下 frameId，再点输入位置后 type，verifyAfter。找不到字段必须对用户说无法执行和原因。写完不要关窗口。\n"
 
-const workflowMediaClause = "- 播放音乐/视频：用 media.play target=foreground（没说歌名或要随机播放时 query=random，不要搜索热门；说了歌手如周杰伦则 query=周杰伦）。工具会启动指定播放器。禁止点收藏或点赞开关。成功以正在播放为准，收到 verified 且 passed=true 后直接报告，不要重复操作。禁止默认打开 music.163.com / YouTube。仅当用户明确要网页版时才用 target=browser。\n" +
+const workflowMediaClause = "- 播放音乐/视频：用 media.play target=foreground（没说歌名或要随机播放时 query=random，不要搜索热门；说了歌手如周杰伦则 query=周杰伦）。工具会启动指定播放器。禁止点收藏或点赞开关。成功以正在播放为准，收到 verified 且 passed=true 后直接报告，不要重复操作。用户说换一种方式/换个播放器时仍用 media.play，改用本机另一个已安装播放器，禁止改用网页或 computer.act。禁止默认打开 music.163.com / YouTube。仅当用户明确要网页版时才用 target=browser。\n" +
 	"- 暂停/下一首：media.play action=pause|next|prev。已打开的播放器暂停后再继续：media.play action=play，不要带歌名或应用名当 query，不要 computer.act 找播放按钮。\n"
 
 const workflowIMClause = "- 发飞书/企微/钉钉/微信/QQ：设置 → 消息通道启用后用 im.send。\n"
@@ -192,7 +192,7 @@ func chatRichMarkdownInstruction() string {
 	return "\n\n[回复排版]\n" +
 		"- 可执行命令用 ```powershell 或 ```bash 独立成块；环境变量/配置用 ```env\n" +
 		"- 结构化对比、安装状态、参数清单用 GFM 表格（| 列 | 列 |）\n" +
-		"- 流程、规划、架构说明必须用 ```mermaid（优先 flowchart TD/LR）：用 subgraph 画分层与边界；节点标签必须加双引号，换行写在引号内（A[\"封面<br/>副标题\"]），禁止裸写 A[封面<br/>副标题]（<br> 会让 SVG 无法解析）。标签里的 / 和 · 也要放进引号。边用箭头并加短标签；禁止 ASCII 框线图或只有文字没有框和连线。约 8-12 个节点、一条主路径。时序才用 sequenceDiagram\n" +
+		"- 流程、规划、架构说明必须用 ```mermaid（优先 flowchart TD/LR）：用 subgraph 画分层与边界；节点标签必须加双引号，换行写在引号内（A[\"封面<br/>副标题\"]），禁止裸写 A[封面<br/>副标题]（<br> 会让 SVG 无法解析）。标签里的 / 和 · 也要放进引号。边用箭头并加短标签；禁止 ASCII 框线图或只有文字没有框和连线。约 8-12 个节点、一条主路径。时序才用 sequenceDiagram。同一条消息里必须闭合围栏，不要把图表截在未关闭的 ``` 上\n" +
 		"- 每段命令/代码单独成块，便于用户一键复制；正文先给结论，再附表格或图\n"
 }
 

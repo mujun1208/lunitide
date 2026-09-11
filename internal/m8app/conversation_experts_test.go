@@ -933,6 +933,32 @@ func TestConversationExpertsMatchingIntent(t *testing.T) {
 	if named := m8app.ConversationExpertsMatchingIntent("请 PPT专家出大纲"); len(named) != 1 || named[0] != "PPT专家" {
 		t.Fatalf("named expert = %#v", named)
 	}
+	script := m8app.ConversationExpertsMatchingIntent("处理剧本专家的问题，帮我改一版对白")
+	if len(script) == 0 || script[0] != "小说编写专家" {
+		t.Fatalf("script intent = %#v", script)
+	}
+	for _, name := range script {
+		if strings.Contains(name, "航空") || strings.Contains(name, "机务") || strings.Contains(name, "维修") {
+			t.Fatalf("script task equipped ops colleague: %#v", script)
+		}
+	}
+	if names := m8app.ConversationExpertsMatchingIntent("这个专家的问题怎么处理"); len(names) != 0 {
+		t.Fatalf("generic 专家/问题 must not auto-equip: %#v", names)
+	}
+	if _, ok := m8app.ConversationExpertByName("剧本专家"); !ok {
+		t.Fatal("剧本专家 alias must resolve to the fiction card")
+	}
+	for _, q := range []string{"帮我改这个剧本", "找编剧看对白", "启用剧本专家"} {
+		got := m8app.ConversationExpertsMatchingIntent(q)
+		if len(got) == 0 || got[0] != "小说编写专家" {
+			t.Fatalf("%q = %#v", q, got)
+		}
+		for _, name := range got {
+			if strings.Contains(name, "航空") || strings.Contains(name, "机务") || strings.Contains(name, "维修") {
+				t.Fatalf("%q equipped ops: %#v", q, got)
+			}
+		}
+	}
 }
 
 func TestConversationIntentSkipsDefinitionalQueries(t *testing.T) {

@@ -133,6 +133,25 @@ func TestSelectedTurnExpertIDsEmptyPMRethinkDoesNotAttachCatalog(t *testing.T) {
 	}
 }
 
+func TestSelectedTurnExpertIDsMountedOpsYieldsToScriptIntent(t *testing.T) {
+	got := selectedTurnExpertIDs([]string{"mx-planning-expert"}, "处理剧本专家的问题，帮我改一版对白")
+	if len(got) != 0 {
+		t.Fatalf("mounted aviation must yield to script intent: %#v", got)
+	}
+	keep := selectedTurnExpertIDs([]string{"mx-planning-expert"}, "查一下飞机维修手册隔离步骤")
+	if len(keep) != 1 || keep[0] != "mx-planning-expert" {
+		t.Fatalf("same-domain ops mount must stay: %#v", keep)
+	}
+	ppt := selectedTurnExpertIDs([]string{"ppt-expert"}, "处理剧本专家的问题，帮我改一版对白")
+	if len(ppt) != 0 {
+		t.Fatalf("mounted PPT must also yield to script intent: %#v", ppt)
+	}
+	same := selectedTurnExpertIDs([]string{"ppt-expert"}, "帮我做一份路演 PPT")
+	if len(same) != 1 || same[0] != "ppt-expert" {
+		t.Fatalf("same-domain PPT mount must stay: %#v", same)
+	}
+}
+
 func TestCollectCouncilExpertIDsIgnoresProjectPhaseMatrix(t *testing.T) {
 	ai, arch := "01ARZ3NDEKTSV4RRFFQ69G5FAV", "01ARZ3NDEKTSV4RRFFQ69G5FAW"
 	e := &Engine{sessionExperts: stubSessionExperts{ids: []string{ai, arch}}}

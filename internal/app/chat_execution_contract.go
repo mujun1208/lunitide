@@ -16,7 +16,7 @@ func computerExecutionTurn(goal string) bool {
 		return false
 	}
 	return containsAnyFold(goal, strings.ToLower(goal), []string{
-		"打开", "启动", "点击", "点一下", "输入", "填写", "打字", "写入",
+		"打开", "启动", "点击", "点一下", "点开", "点进", "第一条", "输入", "填写", "打字", "写入",
 		"关闭", "退出", "播放", "暂停", "下一首", "上一首", "截图",
 		"click", "type ", "open ", "close ", "quit ",
 	})

@@ -217,6 +217,19 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	if got := pickTurnContinueKind("", "", "", nil, false, false, true, true, 0, "今天合肥的天气怎么样", true); got != "wait" {
 		t.Fatal("empty lead-in with tools attached must wait")
 	}
+	if got := pickTurnContinueKind("好，我来执行。", "好，我来执行。", "", nil, false, false, true, true, 0, "没成功，能不能换一种方式？", false); got != "" {
+		t.Fatalf("lead-in without tools must not wait-loop, got %q", got)
+	}
+	review := "已按技能复核。我来执行修改并给出流程图。\n```mermaid\nflowchart TD\nA-->B"
+	if got := pickTurnContinueKind(review, review, `{"hasMore":false,"text":"ok"}`, []string{"skill.view"}, true, false, false, false, 0, "修改周报技能", true); got != "" {
+		t.Fatalf("typed skill review containing 我来执行 must not wait-loop, got %q", got)
+	}
+	if got := pickTurnContinueKind("技能已保存。", "技能已保存。", "ok:true skillId=01ARZ3NDEKTSV4RRFFQ69G5FAV", []string{"skill.manage"}, true, false, false, false, 0, "修改周报技能", true); got != "" {
+		t.Fatalf("successful skill.manage must stop, got %q", got)
+	}
+	if !strings.Contains(companionStuckLeadInSpeech("播放周杰伦", "没成功，能不能换一种方式？"), "播放") {
+		t.Fatal("lead-in without a tool call must speak a playback failure, not freeze")
+	}
 }
 
 type continueAdapter struct {

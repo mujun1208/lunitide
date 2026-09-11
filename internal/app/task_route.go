@@ -42,9 +42,13 @@ var (
 	openHints       = []string{"打开", "启动", "把开"}
 	playHints       = []string{"播放", "暂停", "下一首", "上一首"}
 	desktopActHints = []string{
-		"点击", "点一下", "帮我点", "点按钮", "截图", "输入", "打字", "填写", "填表",
+		"点击", "点一下", "点开", "点进", "第一条", "帮我点", "点按钮", "截图", "输入", "打字", "填写", "填表",
 		"回车", "按一下", "按回车", "粘贴", "快捷键", "热键", "ctrl+",
 		"点确定", "点保存", "点取消",
+	}
+	officeComputerHints = []string{
+		"打开word", "打开 word", "在word", "在 word", "用word", "用 word",
+		"电脑操作", "用电脑写", "用电脑打开",
 	}
 	browserAppHints = []string{"chrome", "edge", "firefox", "浏览器"}
 )
@@ -114,6 +118,9 @@ func detectTaskRoute(goal string) TaskRoute {
 	if info && browserLookup {
 		return RouteR1
 	}
+	if info && containsAnyFold(t, lower, desktopActHints) {
+		return RouteR2
+	}
 	if info {
 		return RouteR1
 	}
@@ -125,6 +132,9 @@ func detectTaskRoute(goal string) TaskRoute {
 	}
 	if site && (open || containsAnyFold(t, lower, siteActHints) || browserLookup || containsAnyFold(t, lower, browserAppHints)) {
 		return RouteR3
+	}
+	if gen && (containsAnyFold(t, lower, officeComputerHints) || (open && containsAnyFold(t, lower, []string{"word", "wps"}))) {
+		return RouteR2
 	}
 	if gen {
 		return RouteR4

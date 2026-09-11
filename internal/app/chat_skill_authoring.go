@@ -93,5 +93,5 @@ func skillAuthoringInstruction(text string) string {
 	if !looksLikeSkillAuthoringTask(text) {
 		return ""
 	}
-	return "\n[本轮技能创建] 用户要创建或改进可复用技能。先按所选 skill-creator 的说明调用 skill.invoke 或 skill.view，再用 skill.create / skill.manage 保存真实技能。周报、PPT、表格是技能处理的主题，不是本轮必须生成的文件。不要启动文档生成流水线或把一份文档当成技能交付；只有工具返回保存成功与技能 ID 才能报告创建成功。\n"
+	return "\n[本轮技能创建] 用户要创建或改进可复用技能。优先 skill.invoke 一次读完整约定；不要为同一份 SKILL.md 反复 skill.view 分页或 workspace.read。再用 skill.create / skill.manage 保存真实技能；保存成功后直接汇报技能 ID，不要再继续工具循环。流程图必须在同一条消息里闭合 ```mermaid 围栏。周报、PPT、表格是技能处理的主题，不是本轮必须生成的文件。不要启动文档生成流水线或把一份文档当成技能交付；只有工具返回保存成功与技能 ID 才能报告创建成功。\n"
 }

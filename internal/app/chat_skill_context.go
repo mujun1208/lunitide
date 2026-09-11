@@ -57,8 +57,11 @@ func skillInvocationDisplay(output string) string {
 func skillInvocationReplay(output, callID string, names ...string) string {
 	source, _, _ := strings.Cut(output, "\n")
 	name := "skill.invoke"
-	if len(names) > 0 && names[0] == "skill.try" {
-		name = "skill.try"
+	if len(names) > 0 {
+		switch names[0] {
+		case "skill.try", "skill.view":
+			name = names[0]
+		}
 	}
 	return truncateUTF8Bytes(source, 800) + "\n本次是重复调用回执，不是技能全文。完整约定保留在此前 callId=" + truncateUTF8Bytes(callID, 128) + " 的 " + name + " 工具消息中；继续使用那份完整约定，不重复注入或执行。"
 }

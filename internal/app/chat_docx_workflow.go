@@ -72,7 +72,10 @@ func spokenResultReportOnly(text string) bool {
 }
 
 func looksLikeReportTask(text string) bool {
-	if capabilityWorkTask(text) || officeMaterialReview(text) {
+	if looksLikeSkillAuthoringTask(text) || looksLikeExpertAuthoringTask(text) || officeMaterialReview(text) {
+		return false
+	}
+	if capabilityWorkTask(text) && !wantsOfficeDeliverableDuringTrial(text) {
 		return false
 	}
 	t := strings.ToLower(strings.TrimSpace(text))

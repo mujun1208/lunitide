@@ -89,7 +89,7 @@ func TestComputerActSharedExecutionInstruction(t *testing.T) {
 
 func TestComputerActVoiceKeyboardAndClickNeedles(t *testing.T) {
 	t.Parallel()
-	for _, goal := range []string{"按一下回车", "按回车", "帮我粘贴", "按一下快捷键", "点确定", "点保存"} {
+	for _, goal := range []string{"按一下回车", "按回车", "帮我粘贴", "按一下快捷键", "点确定", "点保存", "点开第一条新闻"} {
 		if !companionWantsTools(goal) {
 			t.Fatalf("3-chain must keep the computer.act chain for %q", goal)
 		}

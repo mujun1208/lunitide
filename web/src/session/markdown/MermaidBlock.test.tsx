@@ -71,11 +71,18 @@ it('does not flash a timeout error when the source is still streaming', async ()
 })
 
 it('holds a stable placeholder instead of rendering an unfinished arrow', async () => {
-  render(<MermaidBlock source={'flowchart TD\nA-->'} />)
+  render(<MermaidBlock source={'flowchart TD\nA-->'} wait />)
   await new Promise(resolve => setTimeout(resolve, 700))
   expect(mermaid.render).not.toHaveBeenCalled()
   expect(screen.getByText(/图表生成中/)).toBeInTheDocument()
   expect(screen.queryByText(/图表未能渲染/)).toBeNull()
+})
+
+it('leaves pending after a finished turn when the source never became ready', async () => {
+  mermaid.render.mockRejectedValue(new Error('parse failed'))
+  render(<MermaidBlock source={'flowchart TD\nA-->'} />)
+  expect(await screen.findByText(/图表未能渲染/)).toBeInTheDocument()
+  expect(screen.queryByText(/图表生成中/)).toBeNull()
 })
 
 it('retries a cancelled worker and then mounts the SVG', async () => {

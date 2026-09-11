@@ -256,10 +256,30 @@ func companionDefaultMusicQuery(text string) string {
 	return companionExtractMusicQuery(text)
 }
 
+func companionRetryWantsAlternate(text string) bool {
+	t := strings.ToLower(strings.TrimSpace(text))
+	if t == "" {
+		return false
+	}
+	for _, needle := range []string{
+		"换一种方式", "换一个方式", "换个方式", "换种方式", "另一种方式",
+		"换一种方法", "换个方法", "换种方法", "换个办法",
+		"换个播放器", "换一个播放器", "another way", "try another",
+	} {
+		if strings.Contains(t, needle) || strings.Contains(strings.ToLower(text), needle) {
+			return true
+		}
+	}
+	return false
+}
+
 func companionRetryActionTurn(text string) bool {
 	t := strings.TrimSpace(text)
 	if t == "" {
 		return false
+	}
+	if companionRetryWantsAlternate(t) {
+		return true
 	}
 	for _, needle := range []string{
 		"再试", "试一试", "试一下", "再来一次", "再播", "倒是试", "你倒是", "再操作", "try again",
@@ -269,6 +289,29 @@ func companionRetryActionTurn(text string) bool {
 		}
 	}
 	return false
+}
+
+func companionPickAlternateMusicApp(current string, installed []string) string {
+	skip := toolruntime.CanonicalMusicApp(current)
+	if skip == "" {
+		skip = strings.TrimSpace(current)
+	}
+	for _, app := range installed {
+		name := toolruntime.CanonicalMusicApp(app)
+		if name == "" {
+			name = strings.TrimSpace(app)
+		}
+		if name != "" && name != skip {
+			return name
+		}
+	}
+	if skip != "" {
+		return skip
+	}
+	if len(installed) > 0 {
+		return strings.TrimSpace(installed[0])
+	}
+	return ""
 }
 
 func companionPlayFollowUp(text string) bool {
@@ -355,7 +398,7 @@ func companionDesktopFollowUp(text string) bool {
 			return false
 		}
 	}
-	for _, needle := range []string{"继续", "接着", "再点", "下一步", "填", "点一", "帮我点", "还没", "再帮", "点击", "输入", "那个", "这个", "按钮"} {
+	for _, needle := range []string{"继续", "接着", "再点", "下一步", "填", "点一", "点开", "点进", "第一条", "帮我点", "还没", "再帮", "点击", "输入", "那个", "这个", "按钮"} {
 		if strings.Contains(t, needle) {
 			return true
 		}
@@ -525,9 +568,21 @@ func (e *Engine) resolveMediaPlayArgs(sessionID string, args json.RawMessage) js
 	return out
 }
 
+func companionShouldAutoMediaPlay(goal string) bool {
+	return companionTurnWantsMusicPlay(goal) || companionRetryActionTurn(goal)
+}
+
 func (e *Engine) companionAutoMediaPlayArgs(sessionID, goal string) (json.RawMessage, bool) {
+	return e.companionAutoMediaPlayArgsForTurn(sessionID, goal, goal)
+}
+
+func (e *Engine) companionAutoMediaPlayArgsForTurn(sessionID, goal, spoken string) (json.RawMessage, bool) {
+	hint := strings.TrimSpace(spoken)
+	if hint == "" {
+		hint = goal
+	}
 	if !companionTurnWantsMusicPlay(goal) {
-		if !companionRetryActionTurn(goal) {
+		if !companionRetryActionTurn(goal) && !companionRetryActionTurn(hint) {
 			return nil, false
 		}
 		if sessionID != "" && e != nil {
@@ -555,6 +610,11 @@ func (e *Engine) companionAutoMediaPlayArgs(sessionID, goal string) (json.RawMes
 		q := companionDefaultMusicQuery(goal)
 		if q != "" && q != "热门" && q != "random" && utf8.RuneCountInString(q) >= 2 && utf8.RuneCountInString(q) <= 6 {
 			app = toolruntime.FirstInstalledMusicApp()
+		}
+	}
+	if companionRetryWantsAlternate(hint) {
+		if next := companionPickAlternateMusicApp(app, toolruntime.InstalledMusicApps()); next != "" {
+			app = next
 		}
 	}
 	if app == "" {

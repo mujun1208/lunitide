@@ -133,6 +133,21 @@ func TestClassifyTaskRoute(t *testing.T) {
 			must:   []string{"browser.act"},
 			forbid: []string{"video.understand"},
 		},
+		{
+			id:     "click-first-news",
+			goal:   "继续点开第一条新闻",
+			cc:     true,
+			route:  RouteR2,
+			must:   []string{"computer.act", "desktop.browse"},
+			forbid: []string{},
+		},
+		{
+			id:     "weekly-in-word",
+			goal:   "打开Word写周报",
+			cc:     true,
+			route:  RouteR2,
+			must:   []string{"computer.act", "desktop.open", "docx.gen"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.id, func(t *testing.T) {

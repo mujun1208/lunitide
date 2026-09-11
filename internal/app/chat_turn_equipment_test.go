@@ -42,6 +42,41 @@ func TestTurnEquipmentForIntentAndCompanion(t *testing.T) {
 	}
 }
 
+func TestTurnEquipmentScriptIntentDoesNotKeepMountedOps(t *testing.T) {
+	e := NewEngine(nil, "test")
+	e.sessionExperts = stubSessionExperts{ids: []string{"mx-planning-expert"}}
+	eq := e.turnEquipmentFor(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAA", "处理剧本专家的问题，帮我改一版对白", false)
+	if len(eq.Names) == 0 || eq.Names[0] != "小说编写专家" {
+		t.Fatalf("script intent names=%v ids=%v", eq.Names, eq.ExpertIDs)
+	}
+	for _, name := range eq.Names {
+		if strings.Contains(name, "航空") || strings.Contains(name, "机务") || strings.Contains(name, "维修") {
+			t.Fatalf("mounted ops leaked into script turn: %+v", eq)
+		}
+	}
+}
+
+func TestTurnEquipmentScriptIntentDoesNotKeepMountedPPT(t *testing.T) {
+	e := NewEngine(nil, "test")
+	e.sessionExperts = stubSessionExperts{ids: []string{"ppt-expert"}}
+	eq := e.turnEquipmentFor(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAA", "处理剧本专家的问题，帮我改一版对白", false)
+	if len(eq.Names) == 0 || eq.Names[0] != "小说编写专家" {
+		t.Fatalf("script intent over PPT mount names=%v ids=%v", eq.Names, eq.ExpertIDs)
+	}
+}
+
+func TestTurnEquipmentCurrentScriptIgnoresPriorAviationText(t *testing.T) {
+	e := NewEngine(nil, "test")
+	e.messageReader = priorUserReader{msgs: []contextapp.Message{
+		{Role: "user", Sequence: 1, Content: "查一下飞机维修手册隔离步骤"},
+		{Role: "user", Sequence: 2, Content: "帮我改一版对白"},
+	}}
+	eq := e.turnEquipmentFor(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAA", "帮我改一版对白", false)
+	if len(eq.Names) == 0 || eq.Names[0] != "小说编写专家" {
+		t.Fatalf("current script text must not inherit prior aviation: %+v", eq)
+	}
+}
+
 func TestTurnEquipmentForResumePeeksPriorExpertChip(t *testing.T) {
 	const ppt = "01ARZ3NDEKTSV4RRFFQ69G5FAC"
 	const resume = "继续上次未完成的工作。结合任务清单、已完成步骤和我补充过的说明，接着做到完成。"

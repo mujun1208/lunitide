@@ -93,7 +93,10 @@ func officeGenToolForGoal(goal string) string {
 	if spokenResultReportOnly(goal) {
 		return ""
 	}
-	if capabilityWorkTask(goal) || officeMaterialReview(goal) || officeHowToQuestion(goal) {
+	if looksLikeSkillAuthoringTask(goal) || looksLikeExpertAuthoringTask(goal) || officeMaterialReview(goal) || officeHowToQuestion(goal) {
+		return ""
+	}
+	if capabilityWorkTask(goal) && !wantsOfficeDeliverableDuringTrial(goal) {
 		return ""
 	}
 	if officeExpertIntroduction(goal) {
@@ -144,7 +147,10 @@ func officeGenToolForGoal(goal string) string {
 }
 
 func officeGenToolForTurn(turn *chatTurnCheckpoint) string {
-	if turn == nil || turn.CapabilityWork || capabilityWorkTask(turn.Goal) || officeMaterialReview(turn.Goal) {
+	if turn == nil || officeMaterialReview(turn.Goal) {
+		return ""
+	}
+	if (turn.CapabilityWork || capabilityWorkTask(turn.Goal)) && !wantsOfficeDeliverableDuringTrial(turn.Goal) {
 		return ""
 	}
 	if tool := explicitOfficeOutputTool(turn.Goal); tool != "" {
@@ -157,6 +163,32 @@ func officeGenToolForTurn(turn *chatTurnCheckpoint) string {
 		return "docx.gen"
 	}
 	return officeGenToolForGoal(turn.Goal)
+}
+
+func skipOfficeAutogen(ctx context.Context, sessionID, goal string) bool {
+	if officeTaskContextID(ctx) != "" {
+		return true
+	}
+	if !skillTrialsActive(ctx, sessionID) {
+		return false
+	}
+	return looksLikeSkillAuthoringTask(goal) || looksLikeExpertAuthoringTask(goal)
+}
+
+func wantsOfficeDeliverableDuringTrial(goal string) bool {
+	if looksLikeSkillAuthoringTask(goal) || looksLikeExpertAuthoringTask(goal) {
+		return false
+	}
+	t := strings.ToLower(capabilityRequestBody(goal))
+	if strings.Contains(t, "生成") && (strings.Contains(t, "周报") || strings.Contains(t, "报告") || strings.Contains(t, "ppt") || strings.Contains(t, "演示")) {
+		return true
+	}
+	for _, n := range []string{"写周报", "写一份周报", "做周报", "出周报", "写一份报告", "做一份"} {
+		if strings.Contains(t, n) {
+			return true
+		}
+	}
+	return false
 }
 
 func shouldAutoOfficeGen(turn *chatTurnCheckpoint, streamErr error) bool {
@@ -317,7 +349,7 @@ func (e *Engine) tryFinishOfficeGen(ctx context.Context, mode executionMode, ses
 	if e == nil || e.tools == nil || turn == nil || ctx.Err() != nil || errors.Is(streamErr, context.Canceled) || errors.Is(streamErr, errSkillContextBudget) {
 		return false, ""
 	}
-	if officeTaskContextID(ctx) != "" || skillTrialsActive(ctx, sessionID) {
+	if skipOfficeAutogen(ctx, sessionID, turn.Goal) {
 		return false, ""
 	}
 	if !shouldAutoOfficeGen(turn, streamErr) && !usedCommandRun(turn.LastTools) {

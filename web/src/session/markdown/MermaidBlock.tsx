@@ -69,7 +69,7 @@ export function MermaidBlock({
       setError(budgetError)
       return
     }
-    if (wait || !mermaidSourceReady(source)) {
+    if (wait) {
       setError('')
       if (!hasSvgRef.current) setPending(true)
       return

@@ -74,7 +74,7 @@ it('blocks busy re-entry and retains the same attempt for a retryable retry',asy
  await user.click(screen.getByRole('button',{name:/创建项目/}))
  await fillRequired(user,container)
  await user.click(screen.getByRole('button',{name:'保存项目'}))
- expect(create).toHaveBeenCalledOnce()
+ await waitFor(()=>expect(create).toHaveBeenCalledOnce())
  expect(screen.getByRole('button',{name:'保存中…'})).toBeDisabled()
  reject(new BridgeClientError('uncertain','TIMEOUT',true,'trace'))
  expect(await screen.findByText('uncertain')).toBeInTheDocument()

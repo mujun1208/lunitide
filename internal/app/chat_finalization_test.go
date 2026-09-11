@@ -230,13 +230,16 @@ func TestCombineDurableProviderMessagesOrdersAndValidatesFinalSequence(t *testin
 		t.Fatalf("current request not final: %#v", got)
 	}
 
-	_, err = combineDurableProviderMessages(
+	got, err = combineDurableProviderMessages(
 		[]contextapp.Message{{Role: "user", Content: "history", TokenCount: 1}, {Role: "assistant", Content: "restored answer", TokenCount: 1}},
 		[]llmadapter.Message{{Role: llmadapter.RoleAssistant, Content: "invalid current assistant"}},
-		contextapp.ProviderInfo{ContextWindow: 100},
+		contextapp.ProviderInfo{ContextWindow: 100, SafetyCeiling: 100},
 	)
-	if err == nil {
-		t.Fatal("final combined sequence was not validated")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Role != llmadapter.RoleUser || got[1].Role != llmadapter.RoleAssistant || got[1].Content != "invalid current assistant" {
+		t.Fatalf("consecutive assistants must collapse: %#v", got)
 	}
 }
 
@@ -265,6 +268,42 @@ func TestCombineProviderMessagesReplaysNativeGroups(t *testing.T) {
 	}
 	if !sawNative {
 		t.Fatalf("qualified native group missing: %#v", got)
+	}
+}
+
+func TestCombineProviderMessagesDropsMidTurnSystemReplay(t *testing.T) {
+	history := []contextapp.Message{
+		{Role: "user", Content: "生成周报", TokenCount: 2},
+		{Role: "assistant", Content: "无法执行。模型结果不完整，请重试。", TokenCount: 2},
+	}
+	explicit := []llmadapter.Message{
+		{Role: llmadapter.RoleSystem, Content: "you are lunitide"},
+		{Role: llmadapter.RoleUser, Content: "再试一次"},
+	}
+	native := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "生成周报"},
+		{Role: llmadapter.RoleAssistant, Content: "稍等，我来执行。"},
+		{Role: llmadapter.RoleSystem, Content: "继续完成未写完的周报，不要再说稍等。"},
+		{Role: llmadapter.RoleAssistant, Content: "无法执行。模型结果不完整，请重试。"},
+	}
+	got, err := combineProviderMessages(history, explicit, contextapp.ProviderInfo{ContextWindow: 4000, SafetyCeiling: 4000}, nil, native)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seenNonSystem := false
+	prev := ""
+	for i, m := range got {
+		if m.Role == llmadapter.RoleSystem {
+			if seenNonSystem {
+				t.Fatalf("mid-turn system survived at %d: %#v", i, got)
+			}
+			continue
+		}
+		seenNonSystem = true
+		if string(m.Role) == "assistant" && prev == "assistant" {
+			t.Fatalf("consecutive assistants at %d: %#v", i, got)
+		}
+		prev = string(m.Role)
 	}
 }
 

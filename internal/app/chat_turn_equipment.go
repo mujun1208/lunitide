@@ -129,6 +129,15 @@ func (e *Engine) namesForTurn(ctx context.Context, sessionID string, expertIDs [
 		add(name)
 	}
 	if len(names) > 0 {
+		if len(turnTexts) > 0 {
+			if named := m8app.ConversationExpertNamesInText(turnTexts[0]); expertIntentOverridesMount(names, named) {
+				names = nil
+				seen = map[string]bool{}
+				for _, name := range named {
+					add(name)
+				}
+			}
+		}
 		return names
 	}
 	if e.officeStudio != nil && sessionID != "" {
@@ -139,15 +148,39 @@ func (e *Engine) namesForTurn(ctx context.Context, sessionID string, expertIDs [
 			}
 		}
 	}
-	for _, turnText := range turnTexts {
-		for _, name := range m8app.ConversationExpertsMatchingIntent(turnText) {
+	if len(turnTexts) > 0 {
+		for _, name := range m8app.ConversationExpertsMatchingIntent(turnTexts[0]) {
 			add(name)
-		}
-		if len(names) > 0 {
-			return names
 		}
 	}
 	return names
+}
+
+func expertIntentOverridesMount(mounted, intent []string) bool {
+	if len(intent) == 0 {
+		return false
+	}
+	mountedSet := map[string]bool{}
+	mountedOps := false
+	for _, name := range mounted {
+		mountedSet[name] = true
+		if m8app.IsOpsColleague(name, "") {
+			mountedOps = true
+		}
+	}
+	intentOpsOnly := true
+	for _, name := range intent {
+		if mountedSet[name] {
+			return false
+		}
+		if !m8app.IsOpsColleague(name, "") {
+			intentOpsOnly = false
+		}
+	}
+	if mountedOps && intentOpsOnly {
+		return false
+	}
+	return true
 }
 
 func (e *Engine) rememberMcpPreset(endpointID, presetID string) {
