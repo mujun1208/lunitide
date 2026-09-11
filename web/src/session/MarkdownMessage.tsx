@@ -70,13 +70,13 @@ function markdownComponents(onCopy?: (value: string) => void | Promise<void>, on
   }
 }
 
-export function MarkdownMessage({ text, onCopy, onMermaidLayout }: { text: string; onCopy?: (value: string) => void | Promise<void>; onMermaidLayout?: () => void }) {
+export function MarkdownMessage({ text, onCopy, onMermaidLayout, streaming = false }: { text: string; onCopy?: (value: string) => void | Promise<void>; onMermaidLayout?: () => void; streaming?: boolean }) {
   return <ReactMarkdown
     remarkPlugins={[remarkGfm, remarkTrimBareUrlPunctuation]}
     allowedElements={allowedElements}
     unwrapDisallowed
     urlTransform={safeMarkdownUrl}
-    components={markdownComponents(onCopy, onMermaidLayout, mermaidFenceStillOpen(text))}
+    components={markdownComponents(onCopy, onMermaidLayout, streaming && mermaidFenceStillOpen(text))}
   >{text}</ReactMarkdown>
 }
 
@@ -104,14 +104,14 @@ export function thinkingDuplicatesBody(thinking: string, body: string): boolean 
   return false
 }
 
-export function AssistantMessageBody({ text, onCopy, onMermaidLayout }: { text: string; onCopy?: (value: string) => void | Promise<void>; onMermaidLayout?: () => void }) {
+export function AssistantMessageBody({ text, onCopy, onMermaidLayout, streaming = false }: { text: string; onCopy?: (value: string) => void | Promise<void>; onMermaidLayout?: () => void; streaming?: boolean }) {
   const { thinking, body } = splitPersistedThinking(text)
   const parsed = parseMroCite(body)
   const shown = thinking && !thinkingDuplicatesBody(thinking, parsed.visible) ? thinking : ''
   const [open, setOpen] = useState(false)
   return <>
     {shown ? <ThinkingPanel text={shown} open={open} onToggle={setOpen} onCopy={onCopy} /> : null}
-    {parsed.visible ? <MarkdownMessage text={parsed.visible} onCopy={onCopy} onMermaidLayout={onMermaidLayout} /> : null}
+    {parsed.visible ? <MarkdownMessage text={parsed.visible} onCopy={onCopy} onMermaidLayout={onMermaidLayout} streaming={streaming} /> : null}
     {parsed.view ? <MroCiteList {...parsed.view} /> : null}
   </>
 }

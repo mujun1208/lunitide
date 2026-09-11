@@ -234,6 +234,13 @@ func TestUseExplicitChatFallback(t *testing.T) {
 	if useExplicitChatFallback(true, nil, contextapp.ErrNoMessages) {
 		t.Fatal("no spoken turn means no fallback")
 	}
+	seq := errors.New("consecutive assistant messages at position 3 without intervening user or tool message")
+	if !useExplicitChatFallback(false, trusted, seq) {
+		t.Fatal("typed sequence-invalid must fall back to the current user turn")
+	}
+	if useExplicitChatFallback(false, trusted, errCombinedContextOverBudget) {
+		t.Fatal("typed over-budget must stay fail-closed")
+	}
 }
 
 func TestCompanionWantsTools(t *testing.T) {
@@ -272,6 +279,12 @@ func TestCompanionWantsTools(t *testing.T) {
 	}
 	if !companionRetryActionTurn("那你倒是试一试啊？") || !companionRetryActionTurn("再试一次") {
 		t.Fatal("retry utterances must be recognized")
+	}
+	if !companionRetryActionTurn("没成功，能不能换一种方式？") || !companionRetryActionTurn("换个办法") {
+		t.Fatal("another-way follow-ups must be recognized as retry")
+	}
+	if companionRetryActionTurn("这种方式不错") {
+		t.Fatal("bare 方式 must not look like a retry")
 	}
 	if !companionWantsTools("继续填表") || !companionWantsTools("下一步再点一下") {
 		t.Fatal("desktop follow-through must request tools")

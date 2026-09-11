@@ -259,9 +259,22 @@ func TestCompanionWantsToolsForPlayFollowUp(t *testing.T) {
 	if !e.companionWantsToolsForTurn("s1", "那你倒是试一试啊？") {
 		t.Fatal("retry after a music turn must keep tools")
 	}
+	if !companionRetryActionTurn("没成功，能不能换一种方式？") || !companionRetryActionTurn("换个播放器") {
+		t.Fatal("another-way utterances must count as retry")
+	}
+	if !e.companionWantsToolsForTurn("s1", "没成功，能不能换一种方式？") {
+		t.Fatal("another-way after a music turn must keep tools")
+	}
 	args, ok := e.companionAutoMediaPlayArgs("s1", "那你倒是试一试啊？")
 	if !ok || !strings.Contains(string(args), "汽水音乐") || !strings.Contains(string(args), "random") {
 		t.Fatalf("retry with an open player must play again: %s", args)
+	}
+	alt, ok := e.companionAutoMediaPlayArgsForTurn("s1", "播放一首周杰伦的歌曲", "没成功，能不能换一种方式？")
+	if !ok {
+		t.Fatal("another-way must still auto-play on the desktop stack")
+	}
+	if strings.Contains(string(alt), "music.163.com") || strings.Contains(string(alt), `"target":"browser"`) {
+		t.Fatalf("another way must not switch to a website: %s", alt)
 	}
 	if e.companionWantsToolsForTurn("s1", "你好") {
 		t.Fatal("expected no tools for idle chat")
@@ -365,5 +378,45 @@ func TestPreturnContextWaitKindKeepsVoiceAndTypedPathsDistinct(t *testing.T) {
 	}
 	if !qualityContractAllowsComplete("已经打开记事本，号码是123。") {
 		t.Fatal("T08 shared quality: factual close is complete")
+	}
+}
+
+func TestCompanionPickAlternateMusicApp(t *testing.T) {
+	if got := companionPickAlternateMusicApp("汽水音乐", []string{"网易云音乐", "汽水音乐"}); got != "网易云音乐" {
+		t.Fatalf("got %q", got)
+	}
+	if got := companionPickAlternateMusicApp("汽水音乐", []string{"汽水音乐"}); got != "汽水音乐" {
+		t.Fatalf("single player must retry same app, got %q", got)
+	}
+}
+
+func TestCompanionStuckLeadInSpeech(t *testing.T) {
+	if got := companionStuckLeadInSpeech("播放周杰伦", "没成功，能不能换一种方式？"); !strings.Contains(got, "播放") {
+		t.Fatalf("music lead-in stuck must name playback, got %q", got)
+	}
+	if got := companionStuckLeadInSpeech("今天天气", "今天天气"); !strings.Contains(got, "无法执行") {
+		t.Fatalf("lookup lead-in stuck must stay a failed query, got %q", got)
+	}
+}
+
+func TestCompanionFollowUpKeepsDesktopClickTools(t *testing.T) {
+	if !companionWantsTools("点开第一条新闻") || !companionWantsDesktopControl("点开第一条新闻") {
+		t.Fatal("click-first-news must keep the desktop/browser act chain")
+	}
+	if !companionDesktopFollowUp("点开第一条新闻") || !companionDesktopFollowUp("继续点开第一条") {
+		t.Fatal("positional click follow-ups must stay on the desktop loop")
+	}
+	tools, err := toolruntime.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &Engine{tools: tools}
+	e.saveCompanionContext("s1", companionActionContext{ActiveAppName: "Edge", DesktopActive: true})
+	if !e.companionWantsToolsForTurn("s1", "点开第一条新闻") {
+		t.Fatal("after a desktop browser is open, click-first-news must attach tools")
+	}
+	e.saveCompanionContext("s2", companionActionContext{LastTool: "docx.gen"})
+	if !e.companionWantsToolsForTurn("s2", "没成功，能不能换一种方式？") {
+		t.Fatal("another-way after a weekly-report turn must keep tools")
 	}
 }

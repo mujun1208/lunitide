@@ -130,6 +130,18 @@ func lastNamedToolOutput(messages []llmadapter.Message, name string) string {
 	return ""
 }
 
+func skillAuthoringSettled(lastTools []string, toolOut string) bool {
+	switch lastToolName(lastTools) {
+	case "skill.manage", "skill.create":
+	default:
+		return false
+	}
+	if companionToolResultFailed(toolOut) {
+		return false
+	}
+	return !strings.Contains(strings.ToLower(toolOut), "ok:false")
+}
+
 func lastToolName(tools []string) string {
 	if len(tools) == 0 {
 		return ""
@@ -180,6 +192,17 @@ func unverifiedMediaPlay(lastTool, out, assistant string) bool {
 		return false
 	}
 	return true
+}
+
+func companionStuckLeadInSpeech(goal, spoken string) string {
+	blob := goal + "\n" + spoken
+	if companionTurnWantsMusicPlay(blob) || companionRetryActionTurn(spoken) || companionPlayFollowUp(spoken) || companionPlayFollowUp(goal) {
+		return "尚未开始播放。请确认要使用的音乐播放器。"
+	}
+	if companionWantsDesktopControl(blob) || strings.Contains(blob, "点开") || strings.Contains(blob, "第一条") {
+		return "这一轮没有真正操作电脑。请再说一次要点哪里。"
+	}
+	return "无法执行：这一轮没有完成查询。"
 }
 
 func mediaTurnResultSpeech(messages []llmadapter.Message) string {
@@ -284,6 +307,9 @@ func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []st
 	if capabilityDeniedOutput(toolOut) {
 		return ""
 	}
+	if usedTools && skillAuthoringSettled(lastTools, toolOut) {
+		return ""
+	}
 	if companion && companionNeedsSpokenInput(stepText) {
 		return ""
 	}
@@ -312,8 +338,8 @@ func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []st
 	if companion && usedTools && isCompanionLeadInOnly(stepText) && nudges < maxContinueNudges {
 		return "leadin"
 	}
-	if toolsAttached && nudges < maxContinueNudges &&
-		(looksLikeCompanionWaitPromise(stepText) || (companion && !usedTools && isCompanionLeadInOnly(stepText))) {
+	if toolsAttached && !usedTools && nudges < maxContinueNudges &&
+		(looksLikeCompanionWaitPromise(stepText) || (companion && isCompanionLeadInOnly(stepText))) {
 		return "wait"
 	}
 	// A buffered final reply is not in assistantAll yet. The current step was
@@ -360,7 +386,7 @@ func companionWantsDesktopControl(text string) bool {
 		"回车", "按一下", "按回车", "快捷键", "粘贴", "全选", "热键", "ctrl+",
 		"点确定", "点保存", "点取消",
 		"word", "notepad",
-		"打开", "播放", "播一首", "播歌", "听歌", "放一首", "网易云", "汽水", "网页", "浏览器",
+		"打开", "点开", "点进", "第一条", "播放", "播一首", "播歌", "听歌", "放一首", "网易云", "汽水", "网页", "浏览器",
 	} {
 		if strings.Contains(t, needle) || strings.Contains(lower, needle) {
 			return true

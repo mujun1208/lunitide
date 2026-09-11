@@ -2,6 +2,14 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { AssistantMessageBody, MarkdownMessage, ThinkingPanel, compressThinking, formatTaskElapsed, safeMarkdownUrl, splitPersistedThinking } from './MarkdownMessage'
 
+vi.mock('../bridge/client', () => ({
+  getDiagramBridge: () => ({
+    render: async () => {
+      throw new Error('parse failed')
+    },
+  }),
+}))
+
 afterEach(cleanup)
 
 it('renders GFM structures and secure HTTPS links', () => {
@@ -70,9 +78,15 @@ it('renders mermaid blocks with copy fallback', () => {
 })
 
 it('does not start mermaid while the live fence is still open', () => {
-  render(<MarkdownMessage text={'```mermaid\nflowchart TD\nA-->B\n'} />)
+  render(<MarkdownMessage streaming text={'```mermaid\nflowchart TD\nA-->B\n'} />)
   expect(screen.getByText(/图表生成中/)).toBeInTheDocument()
   expect(screen.queryByText(/图表未能渲染/)).toBeNull()
+})
+
+it('does not keep 图表生成中 after the turn has finished with an unclosed fence', async () => {
+  render(<MarkdownMessage text={'```mermaid\nflowchart TD\nA-->B\n'} />)
+  expect(await screen.findByText(/图表未能渲染/)).toBeInTheDocument()
+  expect(screen.queryByText(/图表生成中/)).toBeNull()
 })
 
 it('compresses thinking to the last short sentence instead of the full chain', () => {

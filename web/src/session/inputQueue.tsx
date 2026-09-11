@@ -11,6 +11,14 @@ import type { RunQueueListResult } from '../generated/bridge'
 export type QueueDelivery = NonNullable<RunQueueListResult['delivery']>
 type QueueSender = (text: string, deliveryId: string) => unknown | Promise<unknown>
 const QUEUE_READ_FAILED = '补充输入状态暂时无法读取，请重试核对'
+
+function sameQueueJson(a: unknown, b: unknown): boolean {
+  try {
+    return JSON.stringify(a) === JSON.stringify(b)
+  } catch {
+    return false
+  }
+}
 type EnqueueAttempt = { sessionId: string; officeTaskId?: string; text: string; requestId: string }
 const pendingAttempts = new WeakMap<RunQueueBridge, Map<string, EnqueueAttempt>>()
 function retainedAttempts(): Map<string, EnqueueAttempt> {
@@ -66,7 +74,8 @@ export function useInputQueue(sessionId: string, streaming = false, officeTaskId
       if (current()) {
         assertQueueScope(task, r.items, r.delivery)
         setLoadedScope(`${id}\0${task ?? ''}`)
-        setItems(r.items); setDelivery(r.delivery)
+        setItems(prev => sameQueueJson(prev, r.items) ? prev : r.items)
+        setDelivery(prev => sameQueueJson(prev, r.delivery) ? prev : r.delivery)
         setNotice(previous => previous === QUEUE_READ_FAILED ? '' : previous)
       }
     } catch { if (current()) setNotice(QUEUE_READ_FAILED) }

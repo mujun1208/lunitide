@@ -37,7 +37,7 @@ func companionPersonaToolsInstruction() string {
 		"- 用户明确要彻底退出软件时用 desktop.quit name=软件完整名称 force=true，核对进程退出结果。关闭窗口不等于退出；仅要求关窗口、停止播放时不得结束进程。若可能有未保存内容，先确认。打开桌面浏览器/搜索页用 desktop.browse，随后 computer.act 核对页面；网页内容检索才用 browser.act 或 web.search\n" +
 		"- 在文档或对话框里填写：有可点的输入框时用 desktop.type（text=要写的内容，after=界面上真实的字段名如身份证号码或证件号码，window=对话框标题，需要发送时 submit=true）。Word 正文没有命名输入框：先 computer.act observe，能对上名字/id 就按名字点，再 type，verifyAfter 确认数字已写入。找不到字段必须说无法执行。写完不要关窗口，不要 cc.window_action op=close\n" +
 		"- 发消息：使用已配置通道的 im.send；需要桌面应用时，desktop.open 后用 computer.act 识别实际联系人和输入框，核对收件人和内容后按用户指令发送。缺少联系人或内容时直接口头问一句并等待下一轮回复。不能把打开聊天窗口或填入草稿说成已发送\n" +
-		"- 播歌/播放：用 media.play target=foreground app=用户指定播放器 query=歌名或歌手；没说具体歌曲时 query=random，不要编歌名或搜索热门。工具会启动播放器并发送一次播放。回执 verified 或 started playing 就直接报告，不要 computer.act 补点，不要再次 media.play。shuffle=false 不代表播放失败。不要点收藏/点赞开关或改用网页版，除非用户明确要求\n" +
+		"- 播歌/播放：用 media.play target=foreground app=用户指定播放器 query=歌名或歌手；没说具体歌曲时 query=random，不要编歌名或搜索热门。工具会启动播放器并发送一次播放。回执 verified 或 started playing 就直接报告，不要 computer.act 补点，不要再次 media.play。shuffle=false 不代表播放失败。用户说换一种方式/换个播放器：仍用 media.play target=foreground，改用本机另一个已安装播放器；不要改用网页或 computer.act，除非用户明确要求\n" +
 		"- 建文件夹/写文件：优先用 workspace 工具；需要处理代码、转换或运行程序时使用已授权的命令工具，完成后核对文件\n" +
 		"- 用户要求在已打开窗口打字时，必须操作并核验该窗口。workspace.edit/write 修改磁盘文件，不等于记事本/Word 的未保存编辑缓冲区已更新；不能凭文件写入回执或截图操作成功声称窗口文字已经改变。不要关闭、重载或覆盖未保存内容。直接改磁盘后要回读验证，并明确窗口是否同步\n" +
 		"- 桌面手只选一把：打开未运行的应用或桌面文件用 desktop.open；已聚焦窗口打字用 desktop.type；播歌用 media.play；网页用 browser.act；看屏/点控件/截图用 computer.act。同一轮不要 desktop.open 和 computer.act 各试一遍「打开」\n" +
@@ -300,7 +300,7 @@ func companionWantsTools(text string) bool {
 	}
 	lower := strings.ToLower(text)
 	for _, needle := range []string{
-		"搜索", "搜一下", "搜网页", "打开", "把开", "播放", "播一首", "播歌", "听歌", "放一首",
+		"搜索", "搜一下", "搜网页", "打开", "把开", "点开", "点进", "第一条", "播放", "播一首", "播歌", "听歌", "放一首",
 		"查一下", "查询", "查火车", "查航班", "火车票", "航班", "查天气", "weather",
 		"建文件夹", "创建文件夹", "写文件", "安装", "插件", "技能",
 		"mcp", "运行命令", "打开网页", "浏览器", "下载",

@@ -338,6 +338,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			nudges := 0
 			skillDraftOffered := false
 			leadInInjected := false
+			spokenGoal := turn.Goal
 			if prev := e.loadTurnCheckpoint(sessionID); looksLikeResume(turn.Goal) && strings.TrimSpace(prev.Goal) != "" {
 				turn.Goal = prev.Goal
 				turn.Injected = append(turn.Injected, prev.Injected...)
@@ -519,8 +520,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							}
 						}
 					}
-					if len(result.Message.ToolCalls) == 0 && !autoMediaPlayDone && toolDefinitionsHave(req.Tools, "media.play") && !usedAnyTool(turn.LastTools, "media.play") && companionTurnWantsMusicPlay(turn.Goal) {
-						if playArgs, ok := e.companionAutoMediaPlayArgs(sessionID, turn.Goal); ok {
+					if len(result.Message.ToolCalls) == 0 && !autoMediaPlayDone && toolDefinitionsHave(req.Tools, "media.play") && !usedAnyTool(turn.LastTools, "media.play") && (companionShouldAutoMediaPlay(turn.Goal) || companionRetryActionTurn(spokenGoal)) {
+						if playArgs, ok := e.companionAutoMediaPlayArgsForTurn(sessionID, turn.Goal, spokenGoal); ok {
 							result.Message.ToolCalls = []llmadapter.ToolCall{{
 								ID:        "auto-" + ulid.Make().String(),
 								Name:      "media.play",
@@ -627,9 +628,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							return err
 						}
 					}
-					if continueKind == "" && state.companion && !usedTools && len(req.Tools) > 0 &&
-						(looksLikeCompanionWaitPromise(assistantText.String()) || isCompanionLeadInOnly(assistantText.String())) {
-						close := "无法执行：这一轮没有完成查询。"
+					if continueKind == "" && state.companion && !usedTools &&
+						(looksLikeCompanionWaitPromise(assistantText.String()) || isCompanionLeadInOnly(assistantText.String())) &&
+						(len(req.Tools) > 0 || companionShouldAutoMediaPlay(turn.Goal) || companionRetryActionTurn(spokenGoal) || companionWantsDesktopControl(spokenGoal)) {
+						close := companionStuckLeadInSpeech(turn.Goal, spokenGoal)
 						assistantText.WriteString(close)
 						if err := sendDeltaChunks(send, close); err != nil {
 							return err
@@ -1084,6 +1086,14 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							fullSkillOutput = r.Output
 						}
 					}
+					if toolErr == nil && call.Name == "skill.view" {
+						assembled := e.assembleSkillViewForModel(op, call.Arguments, r.Output)
+						if fitErr := skillInvocationFitsContext(p, req, assembled); fitErr != nil {
+							toolErr = fitErr
+						} else {
+							fullSkillOutput = assembled
+						}
+					}
 					summary := r.Output
 					if toolErr != nil {
 						summary = toolErr.Error()
@@ -1185,7 +1195,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 					return nil
 				}
-				if companionTurnWantsMusicPlay(turn.Goal) {
+				if companionShouldAutoMediaPlay(turn.Goal) || companionRetryActionTurn(spokenGoal) {
 					hasMediaPlay := autoMediaPlayDone
 					for _, call := range result.Message.ToolCalls {
 						if call.Name == "media.play" {
@@ -1194,7 +1204,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						}
 					}
 					if !hasMediaPlay {
-						if playArgs, ok := e.companionAutoMediaPlayArgs(sessionID, turn.Goal); ok {
+						if playArgs, ok := e.companionAutoMediaPlayArgsForTurn(sessionID, turn.Goal, spokenGoal); ok {
 							autoMediaPlayDone = true
 							callID := "auto-" + ulid.Make().String()
 							name := "media.play"
@@ -1292,7 +1302,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				// notice). Run one more pass WITHOUT tools so the model must wrap
 				// up in natural language; fall through to the static notice only
 				// if that pass also yields nothing.
-				if assistantText.Len() == 0 && len(result.Message.ToolCalls) > 0 && companionTurnWantsMusicPlay(turn.Goal) {
+				if assistantText.Len() == 0 && len(result.Message.ToolCalls) > 0 && (companionShouldAutoMediaPlay(turn.Goal) || companionRetryActionTurn(spokenGoal)) {
 					text := mediaTurnResultSpeech(req.Messages)
 					assistantText.WriteString(text)
 					if err := sendDeltaChunks(send, text); err != nil {

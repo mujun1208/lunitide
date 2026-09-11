@@ -198,7 +198,7 @@ func ConversationExpertsMatchingIntent(text string) []string {
 var conversationIntentAliases = map[string][]string{
 	"ppt-expert":       {"ppt", "pptx", "幻灯片", "演示稿", "路演", "做ppt"},
 	"report-writer":    {"写报告", "工作报告", "说明书", "周报", "调研报告"},
-	"novel-writer":     {"写小说", "写一章", "小说"},
+	"novel-writer":     {"写小说", "写一章", "小说", "剧本", "编剧", "写剧本", "对白"},
 	"excel-maker":      {"excel", "xlsx", "表格", "做表"},
 	"ui-designer":      {"界面设计", "设计稿"},
 	"pm-expert":        {"prd", "用户故事", "产品经理"},
@@ -214,6 +214,7 @@ var conversationIntentAliases = map[string][]string{
 func conversationExpertIntentScore(item CatalogItem, query string) int {
 	hay := strings.ToLower(strings.Join([]string{
 		item.Name, item.DisplayName, item.Scene, item.Description, item.Category,
+		item.SixSection.Mission,
 		strings.Join(item.PreferredSkills, " "), strings.Join(item.RequiredTools, " "),
 	}, " "))
 	score := 0
@@ -226,7 +227,7 @@ func conversationExpertIntentScore(item CatalogItem, query string) int {
 		}
 	}
 	for _, tok := range intentQueryTokens(query) {
-		if tok == "" {
+		if tok == "" || intentQueryStopword(tok) {
 			continue
 		}
 		if strings.Contains(hay, tok) {
@@ -234,6 +235,15 @@ func conversationExpertIntentScore(item CatalogItem, query string) int {
 		}
 	}
 	return score
+}
+
+func intentQueryStopword(tok string) bool {
+	switch strings.ToLower(strings.TrimSpace(tok)) {
+	case "专家", "问题", "处理", "帮我", "一下", "这个", "那个", "请", "的", "怎么":
+		return true
+	default:
+		return false
+	}
 }
 
 func intentQueryTokens(q string) []string {

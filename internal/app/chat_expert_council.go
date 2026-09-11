@@ -114,9 +114,42 @@ func selectedTurnExpertIDs(mounted []string, turnTexts ...string) []string {
 		}
 	}
 	if len(mounted) == 1 {
-		return appendUniqueExpertIDs(nil, mounted[0])
+		current := ""
+		if len(turnTexts) > 0 {
+			current = turnTexts[0]
+		}
+		if !mountedExpertYieldsToIntent(mounted[0], current) {
+			return appendUniqueExpertIDs(nil, mounted[0])
+		}
 	}
 	return nil
+}
+
+func mountedExpertYieldsToIntent(mountedID, current string) bool {
+	if strings.TrimSpace(current) == "" {
+		return false
+	}
+	named := m8app.ConversationExpertNamesInText(current)
+	if len(named) == 0 {
+		return false
+	}
+	if item, ok := m8app.ConversationExpertByID(mountedID); ok {
+		for _, name := range named {
+			if name == item.Name || name == item.DisplayName {
+				return false
+			}
+		}
+		if m8app.IsOpsColleague("", item.ID) {
+			for _, name := range named {
+				if !m8app.IsOpsColleague(name, "") {
+					return true
+				}
+			}
+			return false
+		}
+		return true
+	}
+	return true
 }
 
 func (e *Engine) collectCouncilExpertIDs(ctx context.Context, in expertCouncilInputs) []string {

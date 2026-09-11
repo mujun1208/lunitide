@@ -94,6 +94,14 @@ func TestCanonicalMusicAppResolvesNetease(t *testing.T) {
 	if got := CanonicalMusicAppFromText("打开桌面网易云音乐软件，搜索周杰伦歌曲，放一首"); got != "网易云音乐" {
 		t.Fatalf("exact user utterance app = %q", got)
 	}
+	apps := InstalledMusicApps()
+	first := FirstInstalledMusicApp()
+	if first == "" && len(apps) != 0 {
+		t.Fatal("FirstInstalledMusicApp must match InstalledMusicApps")
+	}
+	if first != "" && (len(apps) == 0 || apps[0] != first) {
+		t.Fatalf("installed=%v first=%q", apps, first)
+	}
 }
 
 func TestDesktopQueryCandidatesFromOpenUtterance(t *testing.T) {

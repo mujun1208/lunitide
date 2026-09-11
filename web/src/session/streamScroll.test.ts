@@ -78,6 +78,11 @@ describe('conversation stream scroll pin', () => {
     expect(src).toMatch(/querySelector\('\.chat-response \.message-body'\)/)
     expect(src).not.toMatch(/ro\.observe\(box\)/)
     expect(src).not.toMatch(/thinking-panel/)
+    expect(src).toMatch(/chatStatus==='streaming'&&autoFollowRef\.current/)
+    expect(src).toMatch(/chatStatus==='streaming'&&autoFollow\)schedulePin/)
+    expect(src).toMatch(/streaming=\{chatStatus==='streaming'\}/)
+    expect(src).toMatch(/JSON\.stringify\(prev\)===JSON\.stringify\(s\)/)
+    expect(src).toMatch(/pinIfFollowing=\(\)=>\{const box=scrollRef\.current;if\(!box\|\|!autoFollowRef\.current\|\|chatStatusRef\.current!=='streaming'\)return/)
   })
 
   it('never pins html or body (page-level jump)', () => {

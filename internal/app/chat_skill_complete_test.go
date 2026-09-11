@@ -95,6 +95,22 @@ func TestLongSkillViewPagesPreserveAllConstraintsAndRejectSourceChanges(t *testi
 	if pages < 2 || combined.String() != body+"\n\n无附件，只有 SKILL.md 正文。" {
 		t.Fatal("skill tail or source bytes missing")
 	}
+	firstArgs, _ := json.Marshal(map[string]any{"skillId": sk.ID})
+	first, viewErr := e.invokeSkillViewTool(context.Background(), firstArgs)
+	if viewErr != nil {
+		t.Fatal(viewErr)
+	}
+	assembled := e.assembleSkillViewForModel(context.Background(), firstArgs, first.Output)
+	var packed skillReadPage
+	if json.Unmarshal([]byte(assembled), &packed) != nil {
+		t.Fatal(assembled)
+	}
+	if packed.HasMore || packed.Text != combined.String() || !strings.Contains(packed.Notice, "一次读完") {
+		t.Fatalf("assembled view = %+v", packed)
+	}
+	if display := skillInvocationDisplay(assembled); len(display) > 4096 {
+		t.Fatalf("UI skill.view summary too large: %d", len(display))
+	}
 	bad := func(args map[string]any, contains string) {
 		t.Helper()
 		raw, _ := json.Marshal(args)

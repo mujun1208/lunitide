@@ -295,6 +295,15 @@ describe('looksLikePlaybackEcho', () => {
     expect(looksLikePlaybackEcho('我在呢', '嗨，我在呢。')).toBe(true)
     expect(looksLikePlaybackEcho('谢你见', '谢谢你，我看到了。')).toBe(true)
     expect(looksLikePlaybackEcho('我来执行', '好，我来执行。')).toBe(true)
+    expect(looksLikePlaybackEcho('没成功，能不能换一种方式？', '好，我来执行。')).toBe(false)
+    expect(
+      shouldAcceptUserTranscript({
+        state: 'listening',
+        text: '没成功，能不能换一种方式？',
+        lastSpoken: '好，我来执行。',
+        lastAssistant: '好，我来执行。',
+      }),
+    ).toBe(true)
   })
 
   test('does not treat a new question as echo of the previous reply', () => {
