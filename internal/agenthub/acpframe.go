@@ -45,10 +45,17 @@ func DecodeACPFrame(r *bufio.Reader) ([]byte, error) {
 	}
 	line = bytes.TrimRight(line, "\r\n")
 	if bytes.HasPrefix(bytes.TrimSpace(line), []byte("Content-Length:")) {
-		return nil, fmt.Errorf("acp frame is Content-Length, want NDJSON")
+		return nil, &acpFrameError{Line: line, msg: "acp frame is Content-Length, want NDJSON"}
 	}
 	if !json.Valid(line) {
-		return nil, fmt.Errorf("acp frame is not JSON-RPC")
+		return nil, &acpFrameError{Line: line, msg: "acp frame is not JSON-RPC"}
 	}
 	return line, nil
 }
+
+type acpFrameError struct {
+	Line []byte
+	msg  string
+}
+
+func (e *acpFrameError) Error() string { return e.msg }

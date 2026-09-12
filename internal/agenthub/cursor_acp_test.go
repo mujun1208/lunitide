@@ -257,6 +257,159 @@ func TestCursorACPPromptReturnsWhenPeerAsks(t *testing.T) {
 	}
 }
 
+func TestCursorACPPromptDoesNotTimeoutWhilePeerWorks(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "cursor", "ACP", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	adapter := NewCursorACP(store)
+	adapter.look = func(string) (string, error) { return filepath.Join(thread.WorkspaceRoot, "cursor-agent.exe"), nil }
+	adapter.startPersistent = func(context.Context, ProcSpec) (*PersistentProc, error) {
+		return fakeACPPeer(t, func(msg map[string]any) (any, string) {
+			switch msg["method"] {
+			case "initialize":
+				return map[string]any{"protocolVersion": 1}, ""
+			case "session/new":
+				return map[string]any{"sessionId": "sess_long"}, ""
+			case "session/prompt":
+				return acpNoReply, ""
+			default:
+				return map[string]any{}, ""
+			}
+		}), nil
+	}
+	if err := adapter.Prompt(thread.ID, "long turn"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(21 * time.Second)
+	got, err := store.Get(thread.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status == "faulted" {
+		_, content := loadLastMessage(t, store.db, thread.ID)
+		t.Fatalf("open session/prompt must not fault after 20s: status=%q hint=%q", got.Status, content)
+	}
+	if got.Status != "running" {
+		t.Fatalf("status = %q, want running", got.Status)
+	}
+}
+
+func TestCursorACPInitializeDeathUsesCLIHint(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "cursor", "ACP", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	cli := "unsupported ACP protocol version from cursor-agent stderr"
+	stdoutLine := "cursor-agent: protocol mismatch"
+	adapter := NewCursorACP(store)
+	adapter.look = func(string) (string, error) { return filepath.Join(thread.WorkspaceRoot, "cursor-agent.exe"), nil }
+	adapter.startPersistent = func(context.Context, ProcSpec) (*PersistentProc, error) {
+		inR, inW := io.Pipe()
+		outR, outW := io.Pipe()
+		logs := &safeLogBuf{}
+		_, _ = logs.Write([]byte(cli))
+		go func() { _, _ = io.Copy(io.Discard, inR) }()
+		go func() {
+			_, _ = outW.Write(append([]byte(stdoutLine), '\n'))
+			_ = outW.Close()
+		}()
+		t.Cleanup(func() { _ = inW.Close(); _ = outW.Close(); _ = inR.Close() })
+		return &PersistentProc{stdin: inW, stdout: outR, logs: logs, closer: func() error {
+			_ = inW.Close()
+			_ = outW.Close()
+			return nil
+		}}, nil
+	}
+	_ = adapter.Open(thread)
+	got, err := store.Get(thread.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "faulted" {
+		t.Fatalf("status = %q, want faulted", got.Status)
+	}
+	_, content := loadLastMessage(t, store.db, thread.ID)
+	if content == "acp closed" || content == "acp timeout initialize" || !strings.Contains(content, "protocol") {
+		t.Fatalf("hint = %q, want CLI stderr/stdout text", content)
+	}
+	if utf8.RuneCountInString(content) > 200 {
+		t.Fatalf("hint longer than 200: %d", utf8.RuneCountInString(content))
+	}
+}
+
+func TestCursorACPConcurrentEnsureStartsOneProcess(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "cursor", "ACP", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var starts int
+	type tracked struct {
+		proc   *PersistentProc
+		closed bool
+	}
+	var live []*tracked
+	adapter := NewCursorACP(store)
+	adapter.look = func(string) (string, error) { return filepath.Join(thread.WorkspaceRoot, "cursor-agent.exe"), nil }
+	adapter.startPersistent = func(context.Context, ProcSpec) (*PersistentProc, error) {
+		time.Sleep(50 * time.Millisecond)
+		proc := fakeACPPeer(t, func(msg map[string]any) (any, string) {
+			switch msg["method"] {
+			case "initialize":
+				return map[string]any{"protocolVersion": 1}, ""
+			case "session/new":
+				return map[string]any{"sessionId": "sess_one"}, ""
+			case "session/prompt":
+				return map[string]any{"stopReason": "end_turn"}, ""
+			default:
+				return map[string]any{}, ""
+			}
+		})
+		item := &tracked{proc: proc}
+		orig := proc.closer
+		proc.closer = func() error {
+			mu.Lock()
+			item.closed = true
+			mu.Unlock()
+			if orig != nil {
+				return orig()
+			}
+			return nil
+		}
+		mu.Lock()
+		starts++
+		live = append(live, item)
+		mu.Unlock()
+		return proc, nil
+	}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); _ = adapter.Open(thread) }()
+	go func() { defer wg.Done(); _ = adapter.Prompt(thread.ID, "hi") }()
+	wg.Wait()
+	mu.Lock()
+	defer mu.Unlock()
+	if starts == 1 {
+		return
+	}
+	open := 0
+	for _, item := range live {
+		if !item.closed {
+			open++
+		}
+	}
+	if starts != 1 && open > 1 {
+		t.Fatalf("starts=%d still-open=%d, loser process leaked", starts, open)
+	}
+}
+
 func TestThreadAdapterWiresCursorACP(t *testing.T) {
 	s := &Service{Threads: NewThreadStore(openThreadDB(t))}
 	adapter, err := s.threadAdapter("cursor")
