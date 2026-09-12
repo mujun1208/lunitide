@@ -172,6 +172,26 @@ func TestAgentHubPickDirCanceled(t *testing.T) {
 	}
 }
 
+func TestAgentHubInboxDropEscapeKeepsPathUnsupported(t *testing.T) {
+	s := agenthub.New(agenthub.NewMemoryStore(), t.TempDir(), nil)
+	e := &Engine{agentHub: s}
+	raw, err := json.Marshal(map[string]string{
+		"action":  "drop",
+		"workDir": t.TempDir(),
+		"name":    `..\secret.txt`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := handleAgentHub(e, context.Background(), validRequest("agentHub.inbox", string(raw)))
+	if resp.OK || resp.Error == nil || resp.Error.Code != "AGENT_HUB_FAILED" {
+		t.Fatalf("%#v", resp)
+	}
+	if resp.Error.Message != "路径不受支持" {
+		t.Fatalf("want 路径不受支持, got %q", resp.Error.Message)
+	}
+}
+
 func TestAgentHubInboxCopiesWithInjectedPicker(t *testing.T) {
 	s := agenthub.New(agenthub.NewMemoryStore(), t.TempDir(), nil)
 	src := filepath.Join(t.TempDir(), "note.txt")
