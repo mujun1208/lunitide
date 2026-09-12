@@ -1,7 +1,32 @@
 import type { AgentHubState } from './agentHubApi'
 
 export type HubScene = 'ppt' | 'write' | 'fix' | 'free'
+export type AgentHubThreadScene = 'write_project' | 'fix' | 'ppt' | 'free'
 export type InboxFile = { name: string; path: string; size: number }
+
+export const PICK_PROJECT_DIR = '请先选择项目目录'
+
+export const SCENE_BLURBS: Record<AgentHubThreadScene, string> = {
+  write_project: '在你选的文件夹里按你的规则创建子目录并写文件。不要把已有文件挪到别处。',
+  fix: '在此仓库根内检索和修改。已有文件保持原路径。新文件按已有结构和你的规则放置。',
+  ppt: '用 Kimi 自己的技能做文稿。pptx 写在工作区；指定了导出目录则完成时复制过去。',
+  free: '',
+}
+
+export const THREAD_SCENES = [
+  { id: 'write' as const, zh: '写项目', en: 'Write project' },
+  { id: 'fix' as const, zh: '改代码', en: 'Fix code' },
+  { id: 'ppt' as const, zh: '做 PPT', en: 'Make a PPT' },
+  { id: 'free' as const, zh: '自由', en: 'Free' },
+] as const
+
+export function sceneBlurb(scene: AgentHubThreadScene): string {
+  return SCENE_BLURBS[scene]
+}
+
+export function hubSceneToThreadScene(scene: HubScene): AgentHubThreadScene {
+  return scene === 'write' ? 'write_project' : scene
+}
 
 export const SCENE_KEY = 'lunitide:agent-hub-scene'
 export const workDirKey = (scene: HubScene) => `lunitide:agent-hub-workdir:${scene}`
