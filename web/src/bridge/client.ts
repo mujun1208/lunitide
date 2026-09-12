@@ -507,6 +507,7 @@ export const automationBridge:AutomationBridge={listJobs:()=>{try{return getAuto
 
 // This-PC meeting notes — microphone transcript, then 摘要/待办/逐字稿. Never mixes into session.* or people P2P.
 export const BRIDGE_DEADLINE_CAP_MS = 30_000
+export const AGENT_HUB_DIR_PICK_MS = 600_000
 export const PROVIDER_TEST_DEADLINE_MS = 360_000
 export const MEETING_APPEND_DEADLINE_MS = 120_000
 export const MEETING_STOP_DEADLINE_MS = 120_000
@@ -527,6 +528,7 @@ export function capBridgeDeadlineMs(method: string, deadlineMs: number): number 
   else if (method === 'office.artifact.validate' || method === 'office.artifact.refresh') cap = 120_000
   else if (method === 'mcp.add' || method === 'mcp.toggle' || method === 'mcp.health') cap = MCP_SETUP_DEADLINE_MS
   else if (method === 'provider.test') cap = PROVIDER_TEST_DEADLINE_MS
+  else if (method === 'agentHub.dir.pick' || method === 'agentHub.inbox') cap = AGENT_HUB_DIR_PICK_MS
   return Math.min(cap, Math.max(1, deadlineMs))
 }
 const isRetryableBridgeError = (error: unknown) => error instanceof BridgeClientError && error.retryable
@@ -1971,4 +1973,22 @@ export const datasourceBridge:DatasourceBridge={
   bind:(p,o)=>{try{return getDatasourceBridge().bind(p,o)}catch(error){return Promise.reject(error)}},
   disable:(p,o)=>{try{return getDatasourceBridge().disable(p,o)}catch(error){return Promise.reject(error)}},
   query:p=>{try{return getDatasourceBridge().query(p)}catch(error){return Promise.reject(error)}},
+}
+
+export interface AgentHubBridge {
+  request<T>(method: string, payload: object): Promise<T>
+}
+export function createAgentHubBridge(transport: WebViewTransport = webview(), deadlineMs = 30_000): AgentHubBridge {
+  const core = createSimpleBridge(transport, {}, deadlineMs)
+  return {
+    request: (method, payload) => core.request(
+      method as BridgeMethod,
+      payload,
+      method === 'agentHub.dir.pick' || method === 'agentHub.inbox' ? AGENT_HUB_DIR_PICK_MS : deadlineMs,
+    ),
+  }
+}
+let agentHubSingleton: AgentHubBridge | undefined
+export function getAgentHubBridge(): AgentHubBridge {
+  return agentHubSingleton ??= createAgentHubBridge()
 }

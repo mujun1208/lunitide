@@ -53,6 +53,18 @@ func TestMaxDeadlineMSAllowsLongMeetings(t *testing.T) {
 	}
 }
 
+func TestMaxDeadlineMSAgentHubPickers(t *testing.T) {
+	if MaxDeadlineMS("agentHub.dir.pick") != 600_000 {
+		t.Fatalf("dir.pick cap = %d", MaxDeadlineMS("agentHub.dir.pick"))
+	}
+	if MaxDeadlineMS("agentHub.inbox") != 600_000 {
+		t.Fatalf("inbox cap = %d", MaxDeadlineMS("agentHub.inbox"))
+	}
+	if MaxDeadlineMS("agentHub.detect") != DefaultMaxDeadlineMS {
+		t.Fatalf("detect must stay 30s: %d", MaxDeadlineMS("agentHub.detect"))
+	}
+}
+
 func TestMcpSetupDeadlineOutlastsColdStartupWithoutExtendingCalls(t *testing.T) {
 	for _, method := range []string{"mcp.add", "mcp.toggle", "mcp.health"} {
 		if MaxDeadlineMS(method) != 80000 {

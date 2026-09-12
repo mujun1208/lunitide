@@ -15,6 +15,7 @@ const (
 	ChatStartDeadlineMS     = 120_000
 	McpSetupDeadlineMS      = 80_000
 	ProviderTestDeadlineMS  = 360_000
+	AgentHubPickDeadlineMS  = 600_000
 )
 
 // MaxDeadlineMS is the largest deadlineMs the Host/Engine accept for method.
@@ -40,6 +41,8 @@ func MaxDeadlineMS(method string) int {
 		return McpSetupDeadlineMS
 	case MethodChatStart:
 		return ChatStartDeadlineMS
+	case MethodAgentHubDirPick, MethodAgentHubInbox:
+		return AgentHubPickDeadlineMS
 	default:
 		return DefaultMaxDeadlineMS
 	}

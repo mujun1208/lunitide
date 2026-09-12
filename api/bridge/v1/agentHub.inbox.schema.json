@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/agentHub.inbox.schema.json",
+  "title": "agentHub.inbox payload",
+  "x-method": "agentHub.inbox",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "action": { "type": "string", "enum": ["files", "folder", "list", "drop"] },
+    "workDir": { "type": "string", "maxLength": 1024 },
+    "name": { "type": "string", "maxLength": 512 }
+  },
+  "required": ["action"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "canceled": { "type": "boolean" },
+      "workDir": { "type": "string", "maxLength": 1024 },
+      "files": {
+        "type": "array",
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+            "size": { "type": "integer", "minimum": 0 }
+          },
+          "required": ["name", "path", "size"]
+        }
+      },
+      "skipped": {
+        "type": "array",
+        "maxItems": 20,
+        "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    },
+    "required": ["canceled", "workDir", "files"]
+  },
+  "x-examples": {
+    "positive": [
+      { "action": "list", "workDir": "D:/work" },
+      { "action": "files" },
+      { "action": "drop", "workDir": "D:/work", "name": "note.txt" }
+    ],
+    "negative": [{}, { "action": "upload" }, { "extra": true }]
+  }
+}
