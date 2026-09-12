@@ -49,7 +49,7 @@ func (a cursorAdapter) Detect(look LookPath, version VersionRunner) AgentStatus 
 }
 
 func (cursorAdapter) BuildCommand(req TaskRequest) (string, []string, []byte, error) {
-	return "cursor-agent", []string{"-p", "--force", "--trust", "--output-format", "stream-json"}, []byte(req.Prompt), nil
+	return "cursor-agent", []string{"-p", "--force", "--trust", "--workspace", req.WorkDir, "--output-format", "stream-json"}, []byte(req.Prompt), nil
 }
 
 func (cursorAdapter) ParseLine(line string) (AgentEvent, bool) { return ParseLine("cursor", line) }
