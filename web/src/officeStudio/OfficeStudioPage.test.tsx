@@ -109,6 +109,10 @@ const apiFor = (
   exportBundle: vi.fn(),
   diff: vi.fn(),
 });
+const chooseOption = (name: '简报' | '风格' | '品牌' | '说明') => {
+  fireEvent.click(screen.getByRole('button', { name }));
+};
+
 const open = async (
   api: OfficeStudioApi,
   renderConversation: (task: OfficeTaskDetail['task'], options: OfficeConversationOptions) => React.ReactNode = () => (
@@ -203,6 +207,58 @@ it('lists deliverables in the conversation rail and previews the clicked file', 
   fireEvent.click(within(rail).getByRole('button', { name: '查看交付文件 节奏图.pptx' }));
   expect(await screen.findByText('幻灯片正文')).toBeInTheDocument();
   expect(api.preview).toHaveBeenCalledWith(expect.objectContaining({ versionId: 'pv1' }));
+});
+
+it('collapses brief controls once a deliverable exists and lists PPT pages under the import control', async () => {
+  const ppt = {
+    ...fixture().artifacts[0],
+    id: 'ppt',
+    name: '十页汇报.pptx',
+    kind: 'pptx' as const,
+    headVersionId: 'pv1',
+    versions: [{ id: 'pv1', versionNo: 1, quality: 'unverified' as const, mode: 'imported' as const, size: 64, sha256: 'd'.repeat(64), createdAt: '2026-09-07T00:00:00Z' }],
+  };
+  const api = apiFor({ ...fixture(), artifacts: [ppt] });
+  vi.mocked(api.preview).mockResolvedValue({
+    versionId: 'pv1',
+    kind: 'pptx',
+    content: '',
+    previewBasis: '结构预览',
+    pdfReady: false,
+    truncated: false,
+    nodes: [
+      { id: 'a', label: 'ppt/slides/slide1.xml · t1', text: '封面标题', location: 'ppt/slides/slide1.xml', editable: true },
+      { id: 'b', label: 'ppt/slides/slide1.xml · t2', text: '副标题', location: 'ppt/slides/slide1.xml', editable: true },
+      { id: 'c', label: 'ppt/slides/slide2.xml · t1', text: '目录正文', location: 'ppt/slides/slide2.xml', editable: true },
+    ],
+  });
+  localStorage.setItem('lunitide:office-studio:last-task', taskId);
+  render(
+    <OfficeStudioPage
+      initialTaskId={taskId}
+      api={api}
+      renderConversation={() => <div>原会话输入框</div>}
+      onOpenSession={vi.fn()}
+      onImportFiles={vi.fn(async () => undefined)}
+    />,
+  );
+  expect(await screen.findByText('封面标题')).toBeInTheDocument();
+  expect(screen.queryByRole('navigation', { name: '内容目录' })).toBeNull();
+  const files = screen.getByRole('complementary', { name: '任务与文件' });
+  expect(within(files).getByRole('button', { name: '导入当前文件的修改版' })).toBeInTheDocument();
+  const pages = within(files).getByRole('navigation', { name: '幻灯片页' });
+  expect(within(pages).getByRole('button', { name: '01 第 1 页' })).toBeInTheDocument();
+  expect(within(pages).getByRole('button', { name: '02 第 2 页' })).toBeInTheDocument();
+  expect(screen.getAllByRole('article').filter((item) => item.className.includes('os-paper'))).toHaveLength(2);
+  const options = screen.getByRole('navigation', { name: '可选设置' });
+  expect(within(options).getByRole('button', { name: '简报' })).toHaveAttribute('aria-pressed', 'false');
+  expect(screen.queryByLabelText('受众')).toBeNull();
+  expect(screen.queryByRole('radio', { name: '清晰经营' })).toBeNull();
+  fireEvent.click(within(options).getByRole('button', { name: '简报' }));
+  expect(screen.getByLabelText('受众')).toBeVisible();
+  fireEvent.click(within(options).getByRole('button', { name: '风格' }));
+  expect(screen.queryByLabelText('受众')).toBeNull();
+  expect(screen.getByRole('radio', { name: '清晰经营' })).toBeVisible();
 });
 
 it('keeps an uploaded source separate until a generated deliverable appears', async () => {
@@ -732,6 +788,7 @@ describe('Office Studio production state', () => {
     const detail = fixture();
     detail.task.styleId = 'editorial-report';
     await open(apiFor(detail));
+    chooseOption('风格');
     expect(screen.getByRole('radio', { name: '编辑式报告' })).toBeChecked();
     expect(screen.getByLabelText('任务概要')).toHaveTextContent('编辑式报告');
   });
@@ -740,6 +797,7 @@ describe('Office Studio production state', () => {
     localStorage.setItem(`lunitide:office-studio:style:${taskId}`, 'brand-pitch');
     const api = apiFor();
     await open(api);
+    chooseOption('风格');
     expect(screen.getByRole('radio', { name: '品牌方案' })).toBeChecked();
     fireEvent.click(screen.getByRole('radio', { name: '编辑式报告' }));
     expect(localStorage.getItem(`lunitide:office-studio:style:${taskId}`)).toBe('editorial-report');
@@ -772,10 +830,12 @@ describe('Office Studio production state', () => {
     api.list = vi.fn(async () => ({ items: [current.task, other.task] }));
     api.get = vi.fn(async (payload) => (payload.taskId === otherId ? other : current));
     await open(api);
+    chooseOption('品牌');
     fireEvent.change(screen.getByLabelText('品牌编号'), { target: { value: 'task-teal' } });
     fireEvent.change(screen.getByLabelText('许可'), { target: { value: 'client-granted' } });
     fireEvent.click(screen.getByRole('button', { name: '另一任务' }));
     await screen.findByRole('heading', { name: '另一任务' });
+    chooseOption('品牌');
     expect(screen.getByLabelText('品牌编号')).toHaveValue('');
     expect(screen.getByLabelText('许可')).toHaveValue('');
   });
@@ -783,6 +843,7 @@ describe('Office Studio production state', () => {
   it('registers optional navy and logo digest without showing hex in the strip', async () => {
     const api = apiFor();
     await open(api);
+    chooseOption('品牌');
     fireEvent.change(screen.getByLabelText('品牌编号'), { target: { value: 'task-teal' } });
     fireEvent.change(screen.getByLabelText('主色'), { target: { value: '112233' } });
     fireEvent.change(screen.getByLabelText('来源'), { target: { value: 'https://example.invalid/brand' } });
@@ -815,6 +876,7 @@ describe('Office Studio production state', () => {
   it('refuses L1 brand when navy is not six hex digits', async () => {
     const api = apiFor();
     await open(api);
+    chooseOption('品牌');
     fireEvent.change(screen.getByLabelText('品牌编号'), { target: { value: 'task-teal' } });
     fireEvent.change(screen.getByLabelText('主色'), { target: { value: 'navy' } });
     fireEvent.change(screen.getByLabelText('来源'), { target: { value: 'https://example.invalid/brand' } });
@@ -827,6 +889,7 @@ describe('Office Studio production state', () => {
   it('registers L1 brand through task update and refuses missing license', async () => {
     const api = apiFor();
     await open(api);
+    chooseOption('品牌');
     expect(screen.getByLabelText('任务品牌')).toHaveTextContent('不还原');
     fireEvent.change(screen.getByLabelText('品牌编号'), { target: { value: 'task-teal' } });
     fireEvent.change(screen.getByLabelText('西文字体'), { target: { value: 'Georgia' } });
@@ -864,6 +927,7 @@ describe('Office Studio production state', () => {
     expect(screen.getByLabelText('任务概要')).toHaveTextContent('方案汇报');
     expect(screen.getByLabelText('任务概要')).toHaveTextContent('约 8 页');
     expect(screen.getByLabelText('任务概要')).not.toHaveTextContent('管理层');
+    chooseOption('简报');
     expect(screen.getByLabelText('受众')).toHaveValue('客户');
     expect(screen.getByLabelText('用途')).toHaveValue('方案汇报');
     expect(screen.getByLabelText('目标页数')).toHaveValue(8);
@@ -873,6 +937,7 @@ describe('Office Studio production state', () => {
     const detail = fixture();
     const api = apiFor(detail);
     await open(api);
+    chooseOption('简报');
     fireEvent.change(screen.getByLabelText('页标题'), { target: { value: '指标' } });
     fireEvent.change(screen.getByLabelText('页目的'), { target: { value: '指标概览' } });
     fireEvent.change(screen.getByLabelText('页结论'), { target: { value: '订单仍为 1280' } });
@@ -886,6 +951,7 @@ describe('Office Studio production state', () => {
         }),
       ),
     );
+    chooseOption('说明');
     expect(screen.getByText(/不是生成按钮/)).toBeInTheDocument();
     expect(screen.getByText(/预览只来自当前任务/)).toBeInTheDocument();
     expect(screen.getByLabelText('当前任务预览')).not.toHaveTextContent('精美示例');
@@ -894,6 +960,7 @@ describe('Office Studio production state', () => {
   it('persists two outline pages and does not save a blank extra page', async () => {
     const api = apiFor();
     await open(api);
+    chooseOption('简报');
     fireEvent.click(screen.getByRole('button', { name: '增加大纲页' }));
     const titles = screen.getAllByLabelText('页标题');
     const purposes = screen.getAllByLabelText('页目的');
@@ -926,6 +993,7 @@ describe('Office Studio production state', () => {
     };
     const api = apiFor(detail);
     await open(api);
+    chooseOption('简报');
     expect(screen.getByLabelText('页标题')).toHaveValue('指标');
     expect(screen.getByLabelText('页目的')).toHaveValue('指标概览');
     expect(screen.getByLabelText('页结论')).toHaveValue('订单仍为 1280');
@@ -945,10 +1013,11 @@ describe('Office Studio production state', () => {
 
   it('persists editable brief without wiping style or brand', async () => {
     const detail = fixture();
-    detail.task.styleId = 'brand-proposal';
+    detail.task.styleId = 'brand-pitch';
     detail.task.brandId = 'task-teal';
     const api = apiFor(detail);
     await open(api);
+    chooseOption('简报');
     fireEvent.change(screen.getByLabelText('受众'), { target: { value: '客户' } });
     fireEvent.change(screen.getByLabelText('用途'), { target: { value: '方案汇报' } });
     fireEvent.change(screen.getByLabelText('目标页数'), { target: { value: '8' } });
@@ -978,9 +1047,11 @@ describe('Office Studio production state', () => {
     api.list = vi.fn(async () => ({ items: [current.task, other.task] }));
     api.get = vi.fn(async (payload) => (payload.taskId === otherId ? other : current));
     await open(api);
+    chooseOption('简报');
     expect(screen.getByLabelText('受众')).toHaveValue('客户');
     fireEvent.click(screen.getByRole('button', { name: '另一任务' }));
     await screen.findByRole('heading', { name: '另一任务' });
+    chooseOption('简报');
     expect(screen.getByLabelText('受众')).toHaveValue('');
     expect(screen.getByLabelText('用途')).toHaveValue('');
     expect(screen.getByLabelText('目标页数')).toHaveValue(null);
@@ -1013,6 +1084,7 @@ describe('Office Studio production state', () => {
     );
     await screen.findByRole('heading', { name: '季度汇报' });
     await screen.findByText('Q3 封面');
+    chooseOption('说明');
     expect(screen.getByLabelText('封面预览')).toHaveTextContent('Q3 封面');
     expect(screen.getByLabelText('正文预览')).toHaveTextContent('收入 1200');
     expect(screen.getByLabelText('图表预览')).toHaveTextContent('趋势图');
@@ -1022,6 +1094,7 @@ describe('Office Studio production state', () => {
 
   it('says the current task has no chart page instead of showing stock art', async () => {
     await open(apiFor());
+    chooseOption('说明');
     expect(screen.getByLabelText('封面预览')).toHaveTextContent('经营总结');
     expect(screen.getByLabelText('图表预览')).toHaveTextContent('当前任务尚无该页');
     expect(screen.getByLabelText('图表预览')).not.toHaveTextContent('示例图');
@@ -1030,6 +1103,7 @@ describe('Office Studio production state', () => {
   it('saves authored confidentiality without inventing a classification', async () => {
     const api = apiFor();
     await open(api);
+    chooseOption('简报');
     fireEvent.change(screen.getByLabelText('密级'), { target: { value: '内部' } });
     fireEvent.click(screen.getByRole('button', { name: '保存概要' }));
     await waitFor(() =>
@@ -1052,7 +1126,10 @@ describe('Office Studio production state', () => {
     expect(screen.getByLabelText('任务概要')).toHaveTextContent('未填写');
     expect(screen.getByLabelText('任务概要')).toHaveTextContent('页数未填写');
     expect(screen.getByLabelText('任务概要')).not.toHaveTextContent('管理层');
+    chooseOption('风格');
     expect(screen.getByRole('radio', { name: '清晰经营' })).toBeChecked();
+    expect(screen.getByText(/工程变体，非设计师已检 36/)).toBeVisible();
+    chooseOption('说明');
     expect(screen.getByLabelText('生成流程说明')).toHaveTextContent('整理');
     expect(screen.getByText(/未校准/)).toBeVisible();
     expect(screen.getByText(/本期不做/)).toBeVisible();
@@ -1061,7 +1138,6 @@ describe('Office Studio production state', () => {
     expect(screen.getByText(/外部生成器未进生产主链/)).toBeVisible();
     expect(screen.getByText(/不能从成稿反推/)).toBeVisible();
     expect(screen.getByText(/不是生成按钮/)).toBeVisible();
-    expect(screen.getByText(/工程变体，非设计师已检 36/)).toBeVisible();
     expect(screen.getByText(/概念预览/)).toBeVisible();
     expect(screen.getByRole('button', { name: '查看本机排版与检查组件' })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '版本' }));
@@ -1144,6 +1220,7 @@ describe('Office Studio production state', () => {
     const api = apiFor();
     vi.mocked(api.update).mockRejectedValueOnce(new Error('版本冲突'));
     await open(api);
+    chooseOption('简报');
     fireEvent.change(screen.getByLabelText('受众'), { target: { value: '客户' } });
     fireEvent.click(screen.getByRole('button', { name: '保存概要' }));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('版本冲突'));
@@ -1153,6 +1230,7 @@ describe('Office Studio production state', () => {
   it('disables brand register until required fields are valid', async () => {
     const api = apiFor();
     await open(api);
+    chooseOption('品牌');
     expect(screen.getByRole('button', { name: '登记品牌' })).toBeDisabled();
     fireEvent.change(screen.getByLabelText('品牌编号'), { target: { value: 'task-teal' } });
     fireEvent.change(screen.getByLabelText('来源'), { target: { value: 'https://example.invalid/brand' } });

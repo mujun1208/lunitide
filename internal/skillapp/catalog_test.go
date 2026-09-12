@@ -64,6 +64,33 @@ func TestMROCatalogSkillsPresent(t *testing.T) {
 	}
 }
 
+func TestOfficeCatalogPromptsPreferOfficeGenerate(t *testing.T) {
+	want := map[string][]string{
+		"weekly-report":    {"office.generate", "docx.gen", "excel.gen"},
+		"meeting-minutes":  {"office.generate", "docx.gen"},
+		"docx-writer":      {"office.generate", "docx.gen"},
+		"slide-builder":    {"office.generate", "pptx.gen"},
+	}
+	found := map[string]string{}
+	for _, tpl := range Catalog() {
+		if _, ok := want[tpl.ID]; ok {
+			prompt, _ := tpl.Manifest["prompt"].(string)
+			found[tpl.ID] = prompt
+		}
+	}
+	for id, needles := range want {
+		prompt, ok := found[id]
+		if !ok {
+			t.Fatalf("catalog missing %s", id)
+		}
+		for _, needle := range needles {
+			if !strings.Contains(prompt, needle) {
+				t.Fatalf("%s prompt must mention %s: %s", id, needle, prompt)
+			}
+		}
+	}
+}
+
 func TestCatalogTemplatesWellFormed(t *testing.T) {
 	seen := map[string]bool{}
 	for _, tpl := range Catalog() {

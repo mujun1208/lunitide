@@ -15,7 +15,7 @@ export function artifactOpenRelativePath(path: string): string {
 /** User-facing deliverables only — not intermediate web.search/fetch HTML. */
 export function isChatDeliverableArtifact(artifact: Pick<ChatArtifact, 'toolName' | 'kind' | 'path'>): boolean {
   if (artifact.toolName === 'web.search' || artifact.toolName === 'web.fetch') return false
-  if (['pptx.gen', 'docx.gen', 'excel.gen', 'pdf.gen', 'html.gen'].includes(artifact.toolName)) return true
+  if (['pptx.gen', 'docx.gen', 'excel.gen', 'pdf.gen', 'html.gen', 'office.generate'].includes(artifact.toolName)) return true
   const base = artifact.path.split(/[/\\]/).pop()?.toLowerCase() ?? ''
   if (artifact.kind === 'html' && (base === 'search.html' || base === 'fetch.html')) return false
   if (artifact.kind === 'image' || artifact.kind === 'md' || artifact.kind === 'txt') return true
@@ -66,11 +66,10 @@ export function ChatArtifactCards({
   }
   return (
     <div className="chat-artifacts" role="list" aria-label="本次对话产物">
-      {visible.map(artifact => (
+      {visible.map((artifact, index) => (
         <React.Fragment key={`${artifact.callId}:${artifact.path}`}>
         <button
           type="button"
-          key={`${artifact.callId}:${artifact.path}`}
           className="chat-artifact-card"
           role="listitem"
           title={artifact.path}
@@ -80,8 +79,8 @@ export function ChatArtifactCards({
             {KIND_ICON[artifact.kind] ?? '▣'}
           </span>
           <span className="chat-artifact-body">
-            <b>{artifact.path.split(/[/\\]/).pop() ?? artifact.path}</b>
-            <small>{artifact.kind === 'image' && !artifact.toolName.startsWith('cc.') ? '图片' : KIND_LABEL[artifact.kind] ?? artifact.kind} · {onInspect ? '点击查看' : '点击打开'}</small>
+            <b>{index === 0 ? `${visible.length}个文件已更改` : (artifact.path.split(/[/\\]/).pop() ?? artifact.path)}</b>
+            <small><span>{artifact.path.split(/[/\\]/).pop() ?? artifact.path}</span> · {artifact.kind === 'image' && !artifact.toolName.startsWith('cc.') ? '图片' : KIND_LABEL[artifact.kind] ?? artifact.kind} · {onInspect ? '点击查看' : '点击打开'}</small>
           </span>
         </button>
         {(OFFICE_KIND.has(artifact.kind) || OFFICE_EXT.test(artifact.path)) && <button type="button" disabled={openingOffice} title={`在办公工作台查看 ${artifact.path.split(/[/\\]/).pop()}`} onClick={() => {

@@ -202,7 +202,22 @@ it('still draws A–J when prose leaks into the mermaid fence and does not show 
   expect(screen.queryByText(/NODE_STRING/)).toBeNull()
   expect(screen.queryByText(/图表未能渲染/)).toBeNull()
   expect(document.querySelector('.mermaid-host')?.textContent).toMatch(/封面/)
-  expect((document.querySelector('.mermaid-host svg') as HTMLElement | null)?.style.maxHeight).toBe(MERMAID_MAX_HEIGHT_CSS)
+  expect((document.querySelector('.mermaid-host svg') as SVGSVGElement | null)?.style.maxHeight).toBe(MERMAID_MAX_HEIGHT_CSS)
+})
+
+it('opens a larger diagram viewer from the preview without leaving a nested chat scroller', async () => {
+  mermaid.render.mockResolvedValue({
+    svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80"><g class="node"><rect width="72" height="36"/></g></svg>',
+  })
+  render(<MermaidBlock source={'flowchart TD\nA-->B'} />)
+  await waitFor(() => expect(document.querySelector('.mermaid-host svg')).not.toBeNull())
+  expect(screen.queryByRole('dialog', { name: '查看图表' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '放大查看图表' }))
+  const dialog = await screen.findByRole('dialog', { name: '查看图表' })
+  expect(dialog.querySelector('svg')).not.toBeNull()
+  expect((dialog.querySelector('svg') as SVGSVGElement).style.maxHeight).not.toBe(MERMAID_MAX_HEIGHT_CSS)
+  fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+  expect(screen.queryByRole('dialog', { name: '查看图表' })).toBeNull()
 })
 
 it('does not call scrollTo on mermaid layout complete when follow is paused', async () => {

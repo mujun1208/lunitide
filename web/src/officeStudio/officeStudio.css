@@ -508,6 +508,69 @@ html[data-theme='light'] .os-alert {
 .os-brief-strip p {
   margin: 0;
   min-width: 0;
+  flex: 1 1 220px;
+}
+.os-brief-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.office-studio .os-brief-options button {
+  min-width: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: none;
+}
+.office-studio .os-brief-options button[aria-pressed='true'] {
+  border-color: var(--tide1);
+  color: var(--tide1);
+}
+.os-brief-strip .os-brief-editor,
+.os-brief-strip .os-style-picker,
+.os-brief-strip .os-brand-import,
+.os-brief-strip .os-task-previews,
+.os-brief-strip .os-generate-stages,
+.os-brief-strip .os-generate-choice,
+.os-brief-strip .os-import-limit-notice,
+.os-brief-strip .os-visual-score-notice,
+.os-brief-strip .os-deferred-notice,
+.os-brief-strip .os-trial-notice,
+.os-brief-strip .os-usability-notice {
+  flex: 1 1 100%;
+}
+.os-page-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+}
+.office-studio .os-page-rail button {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  min-width: 0;
+  padding: 7px;
+  background: none;
+}
+.os-page-rail span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.os-page-rail b {
+  font-size: 12px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.office-studio .os-page-rail button[aria-current='location'] {
+  border-color: var(--tide1);
+}
+.os-page-heading {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #5c6b80;
 }
 .os-style-picker {
   border: 0;

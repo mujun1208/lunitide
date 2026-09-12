@@ -721,6 +721,27 @@ it('does not open a stale historical model menu when refreshing providers fails'
  await user.click(await screen.findByRole('button',{name:'已配置模型'}));expect(screen.queryByRole('menu')).toBeNull();expect(await screen.findByText('模型列表格式无效')).toBeInTheDocument()
 })
 
+it('puts token and tool receipts on the composer hint line instead of a dump above the input',async()=>{
+ let onEvent!:(event:StreamEvent)=>void
+ const question:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',text:'写一份周报',status:'completed',sequence:1,createdAt:NOW}
+ const streamId='01ARZ3NDEKTSV4RRFFQ69G5FAD',start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return{streamId,cancel:vi.fn(),dispose:vi.fn()}})
+ const user=userEvent.setup();render(<SessionPage project={project} bridge={sessionBridge} personal providers={providers} initialSession={session} chat={{start,dispose:vi.fn()}} messages={{list:vi.fn().mockResolvedValue(page([question])),append:vi.fn().mockResolvedValue({})} as MessageBridge} onBack={vi.fn()}/>);await screen.findByText(question.text)
+ await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'继续');await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}));await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ await act(async()=>{
+  onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId,sequence:1,type:'delta',delta:{text:'已按本周范围写好摘要。'}})
+  onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',streamId,sequence:2,type:'usage',usage:{inputTokens:12930,outputTokens:8704,totalTokens:21634}})
+  onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAG',streamId,sequence:3,type:'completed'})
+ })
+ const hint=document.querySelector('.msg-hint')
+ expect(hint?.textContent).toContain('发送')
+ expect(hint?.textContent).toContain('换行')
+ expect(hint?.textContent).toContain('输入 12930')
+ expect(hint?.textContent).toContain('字符')
+ expect(document.querySelector('.conversation-scroll + .chat-usage')).toBeNull()
+ expect(screen.queryByText(/只作用于请求结构与同源去重/)).toBeNull()
+ expect(screen.queryByRole('group',{name:'下一步建议'})).toBeNull()
+})
+
 it('retires a successfully saved live response and keeps one expandable historical process',async()=>{
  let onEvent!:(event:StreamEvent)=>void
  const question:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',text:'核对我的文件',status:'completed',sequence:1,createdAt:NOW}

@@ -160,6 +160,9 @@ func TestSkillTrialSelectionIsExplicitAndLimitedToThisTurn(t *testing.T) {
 	if err != nil || !strings.Contains(instruction, "skill.try") || !strings.Contains(instruction, sk.ID) {
 		t.Fatalf("trial instruction %s %v", instruction, err)
 	}
+	if !strings.Contains(instruction, "office.generate") {
+		t.Fatalf("trial must tell the model to deliver with office.generate: %s", instruction)
+	}
 	args, _ := json.Marshal(map[string]string{"skillId": sk.ID, "input": "测试"})
 	for _, denied := range []context.Context{ctx, withSkillTrials(ctx, "other-session", []string{sk.ID}), withSkillTrials(ctx, chatAttachmentSessionID, []string{chatAttachmentProviderID})} {
 		if _, err = e.invokeSkillTrialTool(denied, executionModeFullAccess, chatAttachmentSessionID, args); err == nil {

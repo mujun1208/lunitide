@@ -30,6 +30,9 @@ func TestChatDeliverableArtifact(t *testing.T) {
 	if !chatDeliverableArtifact("pptx.gen", "pptx", "deck.pptx") {
 		t.Fatal("pptx.gen must be a chat deliverable")
 	}
+	if !chatDeliverableArtifact("office.generate", "docx", "office/周报-abc123.docx") {
+		t.Fatal("office.generate Word must be a chat deliverable")
+	}
 	if !chatDeliverableArtifact("workspace.write", "html", "index.html") {
 		t.Fatal("user html pages must be deliverables")
 	}

@@ -72,16 +72,23 @@ export function SessionOperationsBar({sessionId, zh, opsApi}: {sessionId: string
       setBusyId(undefined)
     }
   }
-  return <div className="chat-usage token-usage" role="status" aria-label={zh ? '本会话操作回执' : 'Session operations'}>
-    <span>{zh ? '文件批次 / 工具回执' : 'File batches / tool receipts'} ({items.length})</span>
-    {items.map(item => (
-      <div key={item.id}>
-        {item.toolName} · {operationStateLabel(item.state, zh)} · {resumeActionLabel(item.resumeAction, zh)}
-        {item.externalId ? ` · ${item.externalId}` : ''}
-        {item.resumeHint ? <div>{item.resumeHint}</div> : null}
-        {canCancel(item.state) ? <button type="button" disabled={busyId === item.id} onClick={() => void cancelRunning(item)}>{zh ? '停止' : 'Stop'}</button> : null}
-      </div>
+  const summary = items.map(item => `${item.toolName} · ${operationStateLabel(item.state, zh)}`).join(' · ')
+  const cancellable = items.filter(item => canCancel(item.state))
+  return <div className="chat-usage token-usage token-usage-compact" role="status" aria-label={zh ? '本会话操作回执' : 'Session operations'}>
+    <span>{summary}</span>
+    {cancellable.map(item => (
+      <button key={item.id} type="button" disabled={busyId === item.id} onClick={() => void cancelRunning(item)}>{zh ? '停止' : 'Stop'}</button>
     ))}
+    <details>
+      <summary>{zh ? '文件批次 / 工具回执' : 'File batches / tool receipts'} ({items.length})</summary>
+      {items.map(item => (
+        <div key={item.id}>
+          {item.toolName} · {operationStateLabel(item.state, zh)} · {resumeActionLabel(item.resumeAction, zh)}
+          {item.externalId ? ` · ${item.externalId}` : ''}
+          {item.resumeHint ? <div>{item.resumeHint}</div> : null}
+        </div>
+      ))}
+    </details>
     {notice ? <div>{notice}</div> : null}
   </div>
 }

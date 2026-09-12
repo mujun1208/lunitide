@@ -506,7 +506,7 @@ func councilChairInstructionForLane(brief string, companion bool, lane ChatLane)
 		"## 主要分歧\n（列出专家间冲突点及你的取舍理由）\n\n" +
 		"## 待你拍板\n（仍需用户决定的问题，若无写“无”）\n\n" +
 		"## 各专家要点\n（每位专家 1-3 行摘要，不要全文粘贴）\n\n" +
-		"综合后必须把交付做完：需要网上事实就 web.search / web.fetch；结构图画 mermaid；成文用 docx.gen / excel.gen / pptx.gen / html.gen（桌面 desktop=true）；匹配技能立刻 skill.invoke。不要只给口头结论交差。\n"
+		"综合后必须把交付做完：需要网上事实就 web.search / web.fetch；结构图画 mermaid；成文用 office.generate 或 docx.gen / excel.gen / pptx.gen / html.gen（桌面 desktop=true）；匹配技能立刻 skill.invoke。不要只给口头结论交差。\n"
 }
 
 func injectCouncilChairBrief(req *llmadapter.Request, brief string, companion bool, lane ChatLane) {

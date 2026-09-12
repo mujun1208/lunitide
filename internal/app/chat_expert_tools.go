@@ -16,13 +16,13 @@ func specialistRuntimeInstruction() string {
 		"- 技能：匹配目录立刻 skill.invoke，不要等用户再说“用技能”。\n" +
 		"- 检索：事实、素材、行情、出处先 web.search，必要时 web.fetch 或 browser.act，禁止编造。\n" +
 		"- 画图：结构/流程/架构用 markdown mermaid（节点双引号，换行 <br/>）。\n" +
-		"- 成文：docx.gen / excel.gen / pptx.gen / html.gen / workspace.write；放到桌面 desktop=true。\n" +
+		"- 成文：office.generate 或 docx.gen / excel.gen / pptx.gen / html.gen / workspace.write；放到桌面 desktop=true。\n" +
 		"- 派出子智能体时给全部只读能力（fs + web + browser + evidence），并按岗位必备工具放开成文写入；禁止 computer.act / 桌面控制。\n" +
 		"不要倾倒 200 页全书或 200 条空用例。PPT 仍走产品九步流水线，禁止空页。报告走调研与章节流水线，小说走大纲与分章正文流水线，禁止跳步 docx.gen 交空稿或只有提纲的 Word。\n"
 }
 
 func specialistPersonaCapabilityLine() string {
-	return "任务过程中思考；匹配技能立刻 skill.invoke；事实先 web.search（必要时 web.fetch / browser.act）；结构图画 mermaid；成文用 docx.gen / excel.gen / pptx.gen / html.gen（桌面 desktop=true）。禁止只口头交差或倾倒 200 页全书。"
+	return "任务过程中思考；匹配技能立刻 skill.invoke；事实先 web.search（必要时 web.fetch / browser.act）；结构图画 mermaid；成文用 office.generate 或 docx.gen / excel.gen / pptx.gen / html.gen（桌面 desktop=true）。禁止只口头交差或倾倒 200 页全书。"
 }
 
 var specialistToolAllow = map[string]bool{

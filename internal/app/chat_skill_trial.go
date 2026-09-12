@@ -56,7 +56,7 @@ func (e *Engine) prepareSkillTrials(ctx context.Context, session string, ids []s
 	}
 	seen := make(map[string]bool, len(ids))
 	var b strings.Builder
-	b.WriteString("\n[用户本轮显式选择的草稿试用]\n以下草稿尚未发布；执行本轮工作前，先分别 skill.try 读取完整约定。这里的试用优先于同名已发布目录项。不可用 skill.invoke 代替，不得自动发布；其他未选草稿不允许试用。工具权限仍依当前执行模式。试用输出不代表已安装或已通过质量测试。skill.try 一次成功后直接按约定交付（例如周报用 docx.gen），禁止再 workspace.read 同一份 SKILL.md。\n")
+	b.WriteString("\n[用户本轮显式选择的草稿试用]\n以下草稿尚未发布；执行本轮工作前，先分别 skill.try 读取完整约定。这里的试用优先于同名已发布目录项。不可用 skill.invoke 代替，不得自动发布；其他未选草稿不允许试用。工具权限仍依当前执行模式。试用输出不代表已安装或已通过质量测试。skill.try 一次成功后直接按约定交付（周报等文档用 office.generate 的 {name,spec}；本轮若仍有 docx.gen/excel.gen 也可用），禁止再 workspace.read 同一份 SKILL.md。\n")
 	for _, id := range ids {
 		if !validCanonicalULID(id) || seen[id] {
 			return "", errors.New("trialSkillIds 必须是最多 8 个不重复的技能 ULID")

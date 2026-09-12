@@ -446,17 +446,17 @@ var catalogTemplates = []CatalogTemplate{
 		EntryPoint: "builtin://meeting-minutes",
 		Manifest: map[string]any{
 			"triggers": []string{"会议纪要", "整理会议", "meeting minutes", "纪要"},
-			"prompt":   "你是会议纪要助手。通读会话上下文，产出：①会议主题与时间 ②关键结论（按议题分组）③待办清单（责任人/截止时间）④遗留风险。语言精炼，使用中文；如需产出文档请调用 docx.gen 生成并汇报路径。",
+			"prompt":   "你是会议纪要助手。通读会话上下文，产出：①会议主题与时间 ②关键结论（按议题分组）③待办清单（责任人/截止时间）④遗留风险。语言精炼，使用中文；如需产出文档，调用 office.generate {name,spec.kind=docx,blocks}，本轮若仍有 docx.gen 也可用，并汇报真实路径。",
 		},
 	},
 	{
 		ID: "weekly-report", Name: "tpl-weekly-report", DisplayName: "周报生成器",
-		Description: "汇总本周自动化运行记录与会话产出，生成一份本周工作周报（Excel 汇总 + 摘要）。",
+		Description: "汇总本周自动化运行记录与会话产出，生成一份本周工作周报（Word 正文 + 可选 Excel 汇总）。",
 		Category:    "办公协作", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
 		EntryPoint: "builtin://weekly-report",
 		Manifest: map[string]any{
 			"triggers": []string{"周报", "本周总结", "weekly report"},
-			"prompt":   "你是周报助手。检索本周会话与自动化运行历史，归纳：①本周完成事项 ②进行中事项 ③风险与求助 ④下周计划。汇总表用 excel.gen 输出，正文用中文。",
+			"prompt":   "你是周报助手。检索本周会话与自动化运行历史，归纳：①本周完成事项 ②进行中事项 ③风险与求助 ④下周计划。正文用 office.generate 写 Word（name + spec.kind=docx + blocks）；本轮若仍有 docx.gen 也可用。汇总表用 office.generate（kind=xlsx）或 excel.gen（若该工具可用）。只写会话里已有事实，不要编造完成率或节省百分比。正文用中文。",
 		},
 	},
 	{
@@ -477,7 +477,7 @@ var catalogTemplates = []CatalogTemplate{
 		EntryPoint: "builtin://docx-writer",
 		Manifest: map[string]any{
 			"triggers": []string{"写文档", "生成 word", "方案书", "docx"},
-			"prompt":   "你是文档撰写助手。先与用户确认提纲与受众，再分章节撰写；定稿调用 docx.gen 产出 .docx 并在工作区产物面板提示验收。",
+			"prompt":   "你是文档撰写助手。先与用户确认提纲与受众，再分章节撰写；定稿调用 office.generate {name,spec.kind=docx,blocks} 产出 .docx，本轮若仍有 docx.gen 也可用，并在工作区产物面板提示验收。",
 		},
 	},
 	{
@@ -488,7 +488,7 @@ var catalogTemplates = []CatalogTemplate{
 		EntryPoint: "builtin://slide-builder",
 		Manifest: map[string]any{
 			"triggers": []string{"做 ppt", "演示文稿", "幻灯片", "pptx"},
-			"prompt":   "你是演示文稿助手。先锁定听众、文类、语气、密度、是否封面/目录。按九步做：思考受众→定义结构（mermaid）→写每页要点与演讲备注→web.search 收集素材→再思考→再检索→定版式→写完整页→最后才 pptx.gen。大纲须确认后再生成。每页一句主张标题+3-5 条要点+slides[].notes 演讲备注，禁止空页或只有深色底没有文字。",
+			"prompt":   "你是演示文稿助手。先锁定听众、文类、语气、密度、是否封面/目录。按九步做：思考受众→定义结构（mermaid）→写每页要点与演讲备注→web.search 收集素材→再思考→再检索→定版式→写完整页→最后才 office.generate（kind=pptx）或本轮仍有的 pptx.gen。大纲须确认后再生成。每页一句主张标题+3-5 条要点+slides[].notes 演讲备注，禁止空页或只有深色底没有文字。",
 		},
 	},
 	{
