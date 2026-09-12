@@ -410,6 +410,114 @@ func TestCursorACPConcurrentEnsureStartsOneProcess(t *testing.T) {
 	}
 }
 
+func TestCursorACPCloseDuringHandshakeDoesNotLeak(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "cursor", "ACP", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var mu sync.Mutex
+	var closed bool
+	adapter := NewCursorACP(store)
+	adapter.look = func(string) (string, error) { return filepath.Join(thread.WorkspaceRoot, "cursor-agent.exe"), nil }
+	adapter.startPersistent = func(context.Context, ProcSpec) (*PersistentProc, error) {
+		close(entered)
+		<-release
+		proc := fakeACPPeer(t, func(msg map[string]any) (any, string) {
+			switch msg["method"] {
+			case "initialize":
+				return map[string]any{"protocolVersion": 1}, ""
+			case "session/new":
+				return map[string]any{"sessionId": "sess_close"}, ""
+			default:
+				return map[string]any{}, ""
+			}
+		})
+		orig := proc.closer
+		proc.closer = func() error {
+			mu.Lock()
+			closed = true
+			mu.Unlock()
+			if orig != nil {
+				return orig()
+			}
+			return nil
+		}
+		return proc, nil
+	}
+	opened := make(chan error, 1)
+	go func() { opened <- adapter.Open(thread) }()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handshake did not reach StartPersistent")
+	}
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- adapter.Close(thread.ID) }()
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	select {
+	case <-opened:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Open did not return after Close")
+	}
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not return")
+	}
+	_ = adapter.Close(thread.ID)
+	mu.Lock()
+	defer mu.Unlock()
+	if !closed {
+		t.Fatal("Close during handshake leaked the Job Object")
+	}
+}
+
+func TestCursorACPRespondDuringHandshakeDoesNotPanic(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "cursor", "ACP", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	adapter := NewCursorACP(store)
+	adapter.look = func(string) (string, error) { return filepath.Join(thread.WorkspaceRoot, "cursor-agent.exe"), nil }
+	adapter.startPersistent = func(context.Context, ProcSpec) (*PersistentProc, error) {
+		close(entered)
+		<-release
+		return fakeACPPeer(t, func(msg map[string]any) (any, string) {
+			switch msg["method"] {
+			case "initialize":
+				return map[string]any{"protocolVersion": 1}, ""
+			case "session/new":
+				return map[string]any{"sessionId": "sess_respond"}, ""
+			default:
+				return map[string]any{}, ""
+			}
+		}), nil
+	}
+	go func() { _ = adapter.Open(thread) }()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handshake did not reach StartPersistent")
+	}
+	defer close(release)
+	err := adapter.Respond(thread.ID, "call1", "是")
+	if err == nil {
+		t.Fatal("Respond during handshake must not treat the placeholder as open")
+	}
+}
+
 func TestThreadAdapterWiresCursorACP(t *testing.T) {
 	s := &Service{Threads: NewThreadStore(openThreadDB(t))}
 	adapter, err := s.threadAdapter("cursor")
