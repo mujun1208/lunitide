@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -126,8 +125,11 @@ func TestDetectCursorInteractiveACPWhenFound(t *testing.T) {
 	kimi := detectOne("kimi", func(string) (string, error) { return `C:\kimi.exe`, nil }, func(string, time.Duration) (string, error) {
 		return "kimi 1", nil
 	})
-	if kimi.Interactive || kimi.Protocol != "exec" {
-		t.Fatalf("kimi must stay false/exec: %+v", kimi)
+	if !kimi.NonInteractive {
+		t.Fatalf("kimi V1 task detect must stay available: %+v", kimi)
+	}
+	if !kimi.Interactive || kimi.Protocol != "acp" {
+		t.Fatalf("kimi detect = interactive=%v protocol=%q, want true/acp: %+v", kimi.Interactive, kimi.Protocol, kimi)
 	}
 }
 
@@ -527,9 +529,12 @@ func TestThreadAdapterWiresCursorACP(t *testing.T) {
 	if _, ok := adapter.(*CursorACP); !ok {
 		t.Fatalf("cursor adapter = %T", adapter)
 	}
-	_, err = s.threadAdapter("kimi")
-	if !errors.Is(err, ErrNotAvailable) {
-		t.Fatalf("kimi must stay unavailable: %v", err)
+	kimi, err := s.threadAdapter("kimi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := kimi.(*KimiACP); !ok {
+		t.Fatalf("kimi adapter = %T", kimi)
 	}
 }
 
