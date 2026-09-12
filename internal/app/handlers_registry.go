@@ -11,6 +11,16 @@ type runtimeHandler func(*Engine, context.Context, bridge.Request) bridge.Respon
 // RuntimeHandlers is both the runtime allow-list and the dispatch table.
 // Contract tests compare its non-nil handlers with the public schema.
 var RuntimeHandlers = map[bridge.Method]runtimeHandler{
+	bridge.Method("agentHub.detect"):              handleAgentHub,
+	bridge.Method("agentHub.dir.pick"):            handleAgentHub,
+	bridge.Method("agentHub.task.start"):          handleAgentHub,
+	bridge.Method("agentHub.task.get"):            handleAgentHub,
+	bridge.Method("agentHub.task.cancel"):         handleAgentHub,
+	bridge.Method("agentHub.task.list"):           handleAgentHub,
+	bridge.Method("agentHub.artifact.list"):       handleAgentHub,
+	bridge.Method("agentHub.file.preview"):        handleAgentHub,
+	bridge.Method("agentHub.inbox"):               handleAgentHub,
+	bridge.Method("agentHub.file.open"):           handleAgentHub,
 	bridge.Method("office.artifact.chart"):        handleOfficeStudio,
 	bridge.Method("office.artifact.patchChart"):   handleOfficeStudio,
 	bridge.Method("office.artifact.refresh"):      handleOfficeStudio,
