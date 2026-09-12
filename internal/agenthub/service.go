@@ -33,7 +33,9 @@ type Service struct {
 	Start   StartFunc
 	Notify  func(title, body string) error
 	Now     func() time.Time
-	Pick    func() (string, error)
+	Pick       func() (string, error)
+	PickFiles  func() ([]string, error)
+	PickFolder func() (string, error)
 
 	mu       sync.Mutex
 	cancels  map[string]context.CancelFunc
