@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/agenthub"
 	"github.com/lunitide/lunitide/internal/agentorchestration"
 	"github.com/lunitide/lunitide/internal/agentrunapp"
 	"github.com/lunitide/lunitide/internal/app"
@@ -562,6 +563,17 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 			}
 			engine.SetOfficeStudio(officeService)
 		}
+	}
+	hubRoot, hubErr := dataRoot.PrepareSubdirectory("agent-hub")
+	if hubErr != nil {
+		log.Printf("agent-hub storage unavailable; existing chat remains available: %v", hubErr)
+	} else {
+		closers = append(closers, func() { _ = hubRoot.Close() })
+		hub := agenthub.New(store, hubRoot.Path(), func(title, body string) error {
+			return scheduler.NewPlatformNotifier().Notify(title, body)
+		})
+		hub.Recover()
+		engine.SetAgentHub(hub)
 	}
 	engine.SetAssetStorage(store)
 	engine.SetDataScopeStore(store)

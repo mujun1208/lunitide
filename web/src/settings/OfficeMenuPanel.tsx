@@ -8,6 +8,7 @@ const ITEMS: { key: keyof OfficeMenuSettings; zh: string; en: string; descriptio
   { key: 'people', zh: '同事聊天', en: 'Colleague chat', description: '与同事和已启用的专家交流。', descriptionEn: 'Talk with colleagues and enabled experts.' },
   { key: 'mro', zh: '机务工作台', en: 'MRO workbench', description: '启用相关机务专家后，在办公菜单显示工作台。', descriptionEn: 'Show the workbench when its operations expert is enabled.' },
   { key: 'office', zh: '办公工作台', en: 'Office Studio', description: '制作文档、表格和演示文稿，查看版本与产物。', descriptionEn: 'Create documents, spreadsheets and presentations; review versions and outputs.' },
+  { key: 'agentHub', zh: 'Agent 调度台', en: 'Agent Hub', description: '调度本机已安装的 Codex / Cursor / Kimi CLI，查看过程与产物。', descriptionEn: 'Dispatch locally installed Codex / Cursor / Kimi CLIs and review their output.' },
   { key: 'meetings', zh: '会议记录', en: 'Meeting notes', description: '录制麦克风与电脑声音，整理会议纪要。', descriptionEn: 'Record microphone and system audio and organize meeting notes.' },
 ]
 

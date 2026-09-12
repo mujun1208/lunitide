@@ -303,6 +303,7 @@ var manifest = []struct{ name, checksum string }{
 	{"0150_call_attempt_efficiency.sql", "002297eaf1d1cc0264d5f1360cbefa0a891349cbb9b9f8b0fb3db5b3a96e4363"},
 	{"0151_protocol_message_groups.sql", "f9664864b6640be929664ee85c96abfeb0a8fbeff3c6bd2095c39f46387cb76d"},
 	{"0152_model_fit_qualification.sql", "2dcc10f33483a44208dce29eed47a9b3a5a77967451cf689dc27287131774b89"},
+	{"0153_agent_hub.sql", "e7797be6a85a9cef387d4e1f4b71bd2dc6a081abd4275c46e7acdef8c8aa56e9"},
 }
 
 const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"
@@ -1156,6 +1157,13 @@ var expectedSchemaSQL = map[string]string{
 	"table:protocol_private":                    "CREATE TABLE protocol_private (\n    id TEXT PRIMARY KEY CHECK (length(id)=26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    owner_scope TEXT NOT NULL CHECK (length(owner_scope) BETWEEN 1 AND 128),\n    ref TEXT NOT NULL CHECK (length(ref) BETWEEN 1 AND 64),\n    cipher_blob BLOB NOT NULL,\n    digest TEXT NOT NULL CHECK (length(digest)=64 AND digest NOT GLOB '*[^0-9a-f]*'),\n    credential_generation TEXT NOT NULL DEFAULT '' CHECK (length(credential_generation) <= 64),\n    created_at TEXT NOT NULL,\n    UNIQUE(owner_scope, ref)\n)",
 	"table:model_fit_qualification":            "CREATE TABLE model_fit_qualification (\n    id TEXT PRIMARY KEY CHECK (length(id)=26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n    owner_scope TEXT NOT NULL CHECK (length(owner_scope) BETWEEN 1 AND 128),\n    family TEXT NOT NULL CHECK (length(family) BETWEEN 1 AND 32),\n    codec_version TEXT NOT NULL DEFAULT '' CHECK (length(codec_version) <= 64),\n    model_id TEXT NOT NULL CHECK (length(model_id) BETWEEN 1 AND 200),\n    status TEXT NOT NULL CHECK (status IN ('untested','fixture_pass','blocked')),\n    evidence TEXT NOT NULL DEFAULT '' CHECK (length(evidence) <= 2000),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    UNIQUE(owner_scope, family, model_id, codec_version)\n)",
 	"index:ix_model_fit_qualification_scope":   "CREATE INDEX ix_model_fit_qualification_scope ON model_fit_qualification(owner_scope, family, model_id)",
+	"table:agent_hub_tasks": "CREATE TABLE agent_hub_tasks (\n  id TEXT PRIMARY KEY CHECK (length(id)=26 AND substr(id, 1, 1) GLOB '[0-7]' AND id NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'),\n  agent TEXT NOT NULL CHECK (agent IN ('codex','cursor','kimi')),\n  prompt TEXT NOT NULL CHECK (length(prompt) BETWEEN 1 AND 100000),\n  work_dir TEXT NOT NULL,\n  sandbox TEXT,\n  status TEXT NOT NULL CHECK (status IN ('queued','running','success','failed','timeout','cancelled')),\n  exit_code INTEGER,\n  tokens_used INTEGER NOT NULL DEFAULT 0,\n  error_msg TEXT NOT NULL DEFAULT '',\n  created_at TEXT NOT NULL,\n  started_at TEXT,\n  finished_at TEXT,\n  idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 1 AND 128),\n  UNIQUE(idempotency_key)\n)",
+	"table:agent_hub_events": "CREATE TABLE agent_hub_events (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  task_id TEXT NOT NULL REFERENCES agent_hub_tasks(id),\n  seq INTEGER NOT NULL,\n  type TEXT NOT NULL,\n  title TEXT NOT NULL,\n  detail TEXT NOT NULL DEFAULT '',\n  ts TEXT NOT NULL,\n  UNIQUE(task_id, seq)\n)",
+	"table:agent_hub_artifacts": "CREATE TABLE agent_hub_artifacts (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  task_id TEXT NOT NULL REFERENCES agent_hub_tasks(id),\n  name TEXT NOT NULL,\n  path TEXT NOT NULL,\n  size INTEGER NOT NULL DEFAULT 0,\n  mime TEXT NOT NULL DEFAULT '',\n  source TEXT NOT NULL CHECK (source IN ('event','scan','outside')),\n  UNIQUE(task_id, path)\n)",
+	"index:ix_agent_hub_tasks_agent_status": "CREATE INDEX ix_agent_hub_tasks_agent_status ON agent_hub_tasks(agent, status, created_at)",
+	"index:ix_agent_hub_events_task_seq": "CREATE INDEX ix_agent_hub_events_task_seq ON agent_hub_events(task_id, seq)",
+	"index:ix_agent_hub_artifacts_task": "CREATE INDEX ix_agent_hub_artifacts_task ON agent_hub_artifacts(task_id)",
+	"table:sqlite_sequence": "CREATE TABLE sqlite_sequence(name,seq)",
 	// M7 slices 6-8 (migrations 0058-0060).
 	"index:ix_dbconn_kind":        "CREATE INDEX ix_dbconn_kind ON db_connections(kind)",
 	"index:ix_mcpes_state":        "CREATE INDEX ix_mcpes_state ON mcp_endpoint_settings(state)",

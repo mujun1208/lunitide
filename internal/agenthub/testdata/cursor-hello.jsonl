@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"writing hello.txt"}]}}
+{"type":"file_write","path":"hello.txt"}
+{"type":"result","subtype":"success"}

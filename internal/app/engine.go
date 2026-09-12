@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/agenthub"
 	"github.com/lunitide/lunitide/internal/agentorchestration"
 	"github.com/lunitide/lunitide/internal/agentrunapp"
 	"github.com/lunitide/lunitide/internal/artifactreview"
@@ -323,6 +324,7 @@ type Engine struct {
 	// P2-2: append-only artifact acceptance log (comment → revise → accept).
 	artifactReviews    *artifactreview.Store
 	officeStudio       *officeapp.Service
+	agentHub           *agenthub.Service
 	officeTexts        officeTextCache
 	sessionArtifactsMu sync.Mutex
 
@@ -568,6 +570,8 @@ func (e *Engine) SetConversationsStore(s *conversationsapp.Store) { e.conversati
 
 // SetArtifactReviewStore wires the P2-2 artifact acceptance log.
 func (e *Engine) SetArtifactReviewStore(s *artifactreview.Store) { e.artifactReviews = s }
+
+func (e *Engine) SetAgentHub(s *agenthub.Service) { e.agentHub = s }
 
 // SetAutomationScheduler wires the P2-3 resident cron scheduler. When the
 // scheduler carries no executor yet (engine not ready), a later
