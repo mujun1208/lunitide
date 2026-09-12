@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useZh } from '../i18n/language'
 import { AgentHubAskBar } from './AgentHubAskBar'
 import { AgentHubFileInspector } from './AgentHubFileInspector'
@@ -24,6 +24,20 @@ export function AgentHubThread({
   const [preview, setPreview] = useState<AgentHubPreview>()
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
+  const threadIdRef = useRef(threadId)
+  threadIdRef.current = threadId
+  const wasLive = useRef(false)
+  useEffect(() => { wasLive.current = false }, [threadId])
+  const refreshFiles = async (id: string) => {
+    const listed = await agentHubApi.workspaceList({ threadId: id })
+    if (threadIdRef.current !== id) return
+    setFiles(listed.items ?? [])
+  }
+  const applyDetail = async (next: AgentHubThreadDetail) => {
+    if (threadIdRef.current !== next.thread.threadId) return
+    setDetail(next)
+    await refreshFiles(next.thread.threadId)
+  }
   useEffect(() => {
     let alive = true
     const load = async () => {
@@ -45,23 +59,32 @@ export function AgentHubThread({
   }, [threadId, zh])
   useEffect(() => {
     if (!liveStatus(detail?.thread.status)) return
+    let alive = true
     const timer = window.setInterval(() => {
       void Promise.all([
         agentHubApi.threadGet({ threadId }),
         agentHubApi.workspaceList({ threadId }),
       ]).then(([next, listed]) => {
+        if (!alive) return
         setDetail(next)
         setFiles(listed.items ?? [])
       }).catch(() => undefined)
     }, 400)
-    return () => window.clearInterval(timer)
+    return () => { alive = false; window.clearInterval(timer) }
   }, [threadId, detail?.thread.status])
+  useEffect(() => {
+    const live = liveStatus(detail?.thread.status)
+    if (wasLive.current && !live && detail) {
+      void refreshFiles(detail.thread.threadId)
+    }
+    wasLive.current = live
+  }, [detail])
   const send = async () => {
     const text = draft.trim()
     if (!text) return
     try {
       const next = await agentHubApi.threadPrompt({ threadId, text })
-      setDetail(next)
+      await applyDetail(next)
       setDraft('')
       setError('')
     } catch (err) {
@@ -80,7 +103,7 @@ export function AgentHubThread({
           </div>
         ))}
         {detail?.prompt ? (
-          <AgentHubAskBar threadId={threadId} prompt={detail.prompt} onResponded={setDetail} />
+          <AgentHubAskBar threadId={threadId} prompt={detail.prompt} onResponded={next => { void applyDetail(next) }} />
         ) : null}
         <div className="agent-hub-console">
           <textarea
