@@ -3041,6 +3041,210 @@
         "createdAt"
       ]
     },
+    "OfficeBriefFactDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "factId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 32
+        },
+        "period": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "sourceId": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "locator": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "status": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 32
+        },
+        "locked": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "factId",
+        "value"
+      ]
+    },
+    "OfficeBriefDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "audience": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "language": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 16
+        },
+        "targetLength": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 80
+        },
+        "deliverables": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "enum": ["pptx", "docx", "xlsx", "pdf"]
+          }
+        },
+        "facts": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/OfficeBriefFactDTO"
+          }
+        },
+        "outline": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/OfficeNarrativeNodeDTO"
+          }
+        },
+        "confidentiality": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 32
+        }
+      }
+    },
+    "OfficeNarrativeNodeDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "nodeId": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "title": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "claim": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 256
+        }
+      }
+    },
+    "OfficeBrandImportDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "brandId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "colors": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 16
+          }
+        },
+        "fonts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "latin": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 64
+            },
+            "east": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 64
+            }
+          }
+        },
+        "asset": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sourceUrl": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "author": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 128
+            },
+            "license": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "digest": {
+              "type": "string",
+              "minLength": 64,
+              "maxLength": 64
+            },
+            "logoDigest": {
+              "type": "string",
+              "minLength": 64,
+              "maxLength": 64
+            },
+            "commercial": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "sourceUrl",
+            "license",
+            "digest"
+          ]
+        }
+      },
+      "required": [
+        "brandId",
+        "asset"
+      ]
+    },
     "OfficeTaskDTO": {
       "type": "object",
       "additionalProperties": false,
@@ -3094,6 +3298,19 @@
           "maxLength": 64
         },
         "updatedAt": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "styleId": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "brief": {
+          "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/OfficeBriefDTO"
+        },
+        "brandId": {
           "type": "string",
           "minLength": 0,
           "maxLength": 64

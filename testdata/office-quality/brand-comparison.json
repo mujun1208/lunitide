@@ -1,0 +1,10 @@
+{
+  "audience": "客户采购",
+  "purpose": "方案对比页",
+  "language": "zh-CN",
+  "targetLength": 8,
+  "deliverables": ["pptx", "docx"],
+  "facts": [
+    {"factId": "response_hours", "value": "4", "unit": "小时", "period": "SLA", "sourceId": "contract-draft", "locator": "响应时效"}
+  ]
+}

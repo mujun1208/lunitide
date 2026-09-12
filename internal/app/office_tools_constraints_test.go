@@ -85,7 +85,33 @@ func TestOfficeToolLayoutsMatchGeneratorAndRangeDoesNotOfferFormatting(t *testin
 		t.Fatal("range cell accepts unspecified mutation fields")
 	}
 	spec := properties(definitions["office.generate"])["spec"].(map[string]any)
+	version := properties(spec)["schemaVersion"].(map[string]any)
+	seen := map[int]bool{}
+	enumVals, _ := version["enum"].([]any)
+	for _, item := range enumVals {
+		switch n := item.(type) {
+		case float64:
+			seen[int(n)] = true
+		case int:
+			seen[n] = true
+		}
+	}
+	if !seen[1] || !seen[2] || len(enumVals) != 2 {
+		t.Fatalf("office.generate must allow only schemaVersion 1 and 2, got %#v", version["enum"])
+	}
+	if _, ok := properties(spec)["brandId"]; !ok {
+		t.Fatal("office.generate spec missing brandId")
+	}
+	if _, ok := properties(spec)["facts"]; !ok {
+		t.Fatal("office.generate spec missing facts")
+	}
 	slide := properties(spec)["slides"].(map[string]any)["items"].(map[string]any)
+	if _, ok := properties(slide)["metrics"]; !ok {
+		t.Fatal("office.generate slides missing v2 metrics")
+	}
+	if _, ok := properties(slide)["evidence"]; !ok {
+		t.Fatal("office.generate slides missing v2 evidence")
+	}
 	layouts := properties(slide)["layout"].(map[string]any)["enum"].([]any)
 	deck := content.Spec{SchemaVersion: 1, Kind: content.PPTX, Title: "全部工具布局"}
 	for _, value := range layouts {

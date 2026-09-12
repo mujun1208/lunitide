@@ -6,14 +6,66 @@ import (
 
 	domain "github.com/lunitide/lunitide/internal/domain/officestudio"
 	"github.com/lunitide/lunitide/internal/officerender"
+	content "github.com/lunitide/lunitide/internal/officestudio"
 )
+
+func officeCheckPresent(checks []domain.Check, id string) bool {
+	for _, c := range checks {
+		if c.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func requiredQualityCheck(id string) bool {
+	switch id {
+	case "native_render", "actual-render", "geometry_bounds", "fields_update", "full_recalculation":
+		return true
+	default:
+		return false
+	}
+}
+
+func evaluateOfficeQuality(checks []domain.Check, facts []content.Fact) content.QualityReport {
+	mapped := make([]content.Check, 0, len(checks))
+	for _, c := range checks {
+		status := c.Status
+		if status == "unsupported" && requiredQualityCheck(c.ID) {
+			status = "missing"
+		}
+		mapped = append(mapped, content.Check{ID: c.ID, Status: status, Message: c.Detail})
+	}
+	report := content.EvaluateQuality(mapped, 0, facts)
+	report.FormalOK = content.CanFormalDeliver(report)
+	return report
+}
+
+func targetAppCoverageChecks() []domain.Check {
+	return []domain.Check{
+		{ID: "target-compatibility", Label: "Office/WPS 目标软件兼容性", Status: "unsupported", Required: false, Detail: "支持矩阵：PowerPoint、WPS、LibreOffice 均未完成目标软件打开验证；无头导出不能代替界面打开"},
+		{ID: "target-powerpoint", Label: "Microsoft PowerPoint 打开验证", Status: "unsupported", Required: false, Detail: "尚未在 Microsoft PowerPoint 完成打开验证；版本未知"},
+		{ID: "target-wps", Label: "WPS 打开验证", Status: "unsupported", Required: false, Detail: "尚未在 WPS 完成打开验证；版本未知"},
+		{ID: "target-libreoffice", Label: "LibreOffice 界面打开验证", Status: "unsupported", Required: false, Detail: "无头导出不能代替 LibreOffice 界面打开验证"},
+		{ID: "visual-model", Label: "视觉模型诊断", Status: "unsupported", Required: false, Detail: "未接入视觉模型，不能当作已校准视觉验收"},
+		{ID: "pdfa", Label: "PDF/A 合规", Status: "unsupported", Required: false, Detail: "导出 PDF 不表示 PDF/A 或 PDF/UA 合规"},
+	}
+}
 
 func officeCheckLabel(id string) string {
 	labels := map[string]string{
-		"package": "文件结构与资源", "native_render": "实际排版预览",
+		"package": "文件结构与资源", "native_render": "实际排版预览", "design_system": "设计系统",
 		"content_safety": "活动内容与外部引用", "pdf_structure": "PDF 页面结构",
 		"fields_update": "原文件目录与页码缓存", "full_recalculation": "原文件公式与计算缓存",
 		"geometry_bounds": "几何越界",
+		"rasterized_object":    "栅格对象",
+		"target-compatibility": "Office/WPS 目标软件兼容性",
+		"target-powerpoint":    "Microsoft PowerPoint 打开验证",
+		"target-wps":           "WPS 打开验证",
+		"target-libreoffice":   "LibreOffice 界面打开验证",
+		"visual-model":         "视觉模型诊断",
+		"pdfa":                 "PDF/A 合规",
+		"independent_pdf":      "独立 PDF",
 	}
 	if label := labels[id]; label != "" {
 		return label

@@ -29,7 +29,26 @@ func logInjectedGuidance(sessionID string, companion bool, req llmadapter.Reques
 	log.Printf("chat.guidance session=%s companion=%v system_bytes=%d sha256_8=%s tools=%d", sessionID, companion, n, digest, tools)
 }
 
-func injectedGuidanceLabels(req llmadapter.Request) []string {
+func laneGuidanceLabel(lane ChatLane) string {
+	switch lane {
+	case LaneL0:
+		return "档位:寒暄"
+	case LaneL1:
+		return "档位:对话"
+	case LaneL2:
+		return "档位:已有材料"
+	case LaneL2Ask:
+		return "档位:先问缺什么"
+	case LaneL3:
+		return "档位:调研"
+	case LaneL4:
+		return "档位:操作"
+	default:
+		return ""
+	}
+}
+
+func injectedGuidanceLabels(req llmadapter.Request, lane ChatLane) []string {
 	var labels []string
 	add := func(label string) {
 		for _, existing := range labels {
@@ -41,6 +60,9 @@ func injectedGuidanceLabels(req llmadapter.Request) []string {
 			return
 		}
 		labels = append(labels, label)
+	}
+	if word := laneGuidanceLabel(lane); word != "" {
+		add(word)
 	}
 	for _, m := range req.Messages {
 		if m.Role != llmadapter.RoleSystem {
@@ -63,8 +85,8 @@ func injectedGuidanceLabels(req llmadapter.Request) []string {
 	return labels
 }
 
-func emitInjectedGuidance(send func(bridge.Event) error, req llmadapter.Request) {
-	labels := injectedGuidanceLabels(req)
+func emitInjectedGuidance(send func(bridge.Event) error, req llmadapter.Request, lane ChatLane) {
+	labels := injectedGuidanceLabels(req, lane)
 	if len(labels) == 0 || send == nil {
 		return
 	}

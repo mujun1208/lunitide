@@ -17,7 +17,11 @@ import (
 // through Patch; reconstructing an import from this spec would lose opaque
 // parts and is intentionally not an operation offered by this package.
 func Generate(spec Spec) ([]byte, error) {
-	if spec.SchemaVersion != 1 {
+	spec, err := PrepareManagedSpec(spec)
+	if err != nil {
+		return nil, err
+	}
+	if spec.SchemaVersion != 1 && spec.SchemaVersion != 2 {
 		return nil, fmt.Errorf("%w: unsupported spec schema version", ErrFormat)
 	}
 	if strings.TrimSpace(spec.Title) == "" || len(spec.Title) > 1024 || !validText(spec.Title) {
@@ -27,7 +31,6 @@ func Generate(spec Spec) ([]byte, error) {
 		return nil, fmt.Errorf("%w: content fields do not match document kind; no content was discarded", ErrFormat)
 	}
 	var data []byte
-	var err error
 	switch spec.Kind {
 	case PPTX:
 		if len(spec.Slides) == 0 || len(spec.Slides) > officetools.MaxPptxSlides {
@@ -54,14 +57,40 @@ func Generate(spec Spec) ([]byte, error) {
 				}
 				tables[i] = s.Rows
 			}
-			slides[i] = officetools.SlideSpec{Title: s.Title, Subtitle: s.Subtitle, Layout: s.Layout, Bullets: s.Bullets, Notes: s.Notes}
+			s = keepSlideNarrative(s)
+			slides[i] = officetools.SlideSpec{Title: s.Title, Subtitle: s.Subtitle, Layout: normalizeSemanticLayout(s.Layout), Bullets: s.Bullets, Notes: s.Notes}
+			if len(s.Metrics) > 0 {
+				slides[i].Metrics = make([]officetools.SlideMetric, len(s.Metrics))
+				for j, m := range s.Metrics {
+					if !validText(m.Label) || !validText(m.Value) || !validText(m.Unit) {
+						return nil, ErrFormat
+					}
+					slides[i].Metrics[j] = officetools.SlideMetric{Label: m.Label, Value: m.Value, Unit: m.Unit}
+				}
+			}
+			if s.Comparison != nil {
+				for _, side := range [][]string{s.Comparison.Left, s.Comparison.Right} {
+					for _, v := range side {
+						if !validText(v) {
+							return nil, ErrFormat
+						}
+					}
+				}
+				slides[i].Comparison = &officetools.SlideComparison{Left: append([]string(nil), s.Comparison.Left...), Right: append([]string(nil), s.Comparison.Right...)}
+			}
 			if s.Layout == "" && (len(s.Images) > 0 || len(s.Charts) > 0) {
 				// Object coordinates describe the content area. A first-slide cover
 				// puts its title in that area and would overlap otherwise valid data.
 				slides[i].Layout = "content"
 			}
 		}
-		data, err = officetools.GenStudioPptxWithTables(spec.Title, slides, tables)
+		theme := ResolveTheme(brandForSpec(spec))
+		data, err = officetools.GenStudioPptxThemed(spec.Title, slides, tables, officetools.SlideTheme{
+			Navy: theme.Navy, Teal: theme.Teal, Gold: theme.Gold, Paper: theme.Paper,
+			Ink: theme.Ink, Muted: theme.Muted, White: theme.White, Soft: theme.Soft,
+			Latin: theme.Latin, East: theme.East,
+			TitleSz: theme.TitleSz, BodySz: theme.BodySz, NotesSz: theme.NotesSz,
+		})
 		if err == nil {
 			data, err = addSlideImages(data, spec.Slides)
 		}
@@ -69,9 +98,21 @@ func Generate(spec Spec) ([]byte, error) {
 			data, err = addSlideCharts(data, spec.Slides)
 		}
 		if err == nil {
-			_, data, err = RepairGeometryOverflow(data)
+			var qa QualityReport
+			data, qa, err = BoundedRepair(data, factsFromSpec(spec))
+			if err == nil {
+				for _, issue := range qa.Blockers {
+					if issue.Code == "FACT_LOCK" {
+						return nil, ErrFactConflict
+					}
+				}
+			}
 		}
 	case DOCX:
+		spec, err = ApplyWordTemplate(spec)
+		if err != nil {
+			return nil, err
+		}
 		blocks := make([]officetools.StudioDocxBlock, len(spec.Blocks))
 		for i, b := range spec.Blocks {
 			if b.Type != "table" && len(b.Rows) > 0 || b.Type != "section" && b.Section != nil || (b.Type == "table" || b.Type == "toc" || b.Type == "pagebreak") && b.Text != "" {
@@ -97,9 +138,17 @@ func Generate(spec Spec) ([]byte, error) {
 		if optionErr != nil {
 			return nil, optionErr
 		}
+		if options == nil {
+			options = &officetools.StudioDocumentOptions{}
+		}
+		theme := ResolveTheme(brandForSpec(spec))
+		options.Latin, options.East = theme.Latin, theme.East
+		options.Navy, options.Ink, options.Muted = theme.Navy, theme.Ink, theme.Muted
+		options.Teal, options.Gold, options.Paper, options.White, options.Soft = theme.Teal, theme.Gold, theme.Paper, theme.White, theme.Soft
+		options.BodyHalfPt = theme.WordBodySz
 		data, err = officetools.GenStudioDocxWithOptions(spec.Title, blocks, options)
 	case XLSX:
-		data, err = generateXLSX(spec.Sheets)
+		data, err = generateXLSX(spec.Sheets, ResolveTheme(brandForSpec(spec)))
 		if err == nil {
 			data, err = addSheetCharts(data, spec.Sheets)
 		}
@@ -107,7 +156,8 @@ func Generate(spec Spec) ([]byte, error) {
 		if !validText(spec.Body) {
 			return nil, ErrFormat
 		}
-		data, err = officetools.GenStablePDF(spec.Title, spec.Body)
+		title, body, theme := independentPDFInput(spec)
+		data, _, err = RenderIndependentPDFWithTheme("", title, body, theme)
 	default:
 		return nil, ErrFormat
 	}
@@ -120,6 +170,9 @@ func Generate(spec Spec) ([]byte, error) {
 	}
 	if i.Editability == "blocked" {
 		return nil, fmt.Errorf("%w: generated document failed preflight: %v", ErrFormat, i.Issues)
+	}
+	if err := AssertFactSetCoverage(factsFromSpec(spec), []Inspection{i}); err != nil {
+		return nil, err
 	}
 	return data, nil
 }
@@ -137,7 +190,10 @@ func docOptions(o *DocumentOptions) (*officetools.StudioDocumentOptions, error) 
 var decimalPattern = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$`)
 var dangerousFormula = regexp.MustCompile(`(?i)(?:\b(?:WEBSERVICE|HYPERLINK|RTD|CALL|EXEC|REGISTER|REGISTER\.ID|EVALUATE|DDE|IMAGE|FILTERXML)\s*\(|\[[^\]]+\][^!+*/(),;]*!|\||https?://|file:|\\\\|\b[A-Z]:\\)`)
 
-func generateXLSX(sheets []Sheet) ([]byte, error) {
+func generateXLSX(sheets []Sheet, theme Theme) ([]byte, error) {
+	if theme.Navy == "" {
+		theme = ResolveTheme(DefaultBrand())
+	}
 	if len(sheets) == 0 || len(sheets) > officetools.MaxSheets {
 		return nil, ErrLimit
 	}
@@ -184,18 +240,25 @@ func generateXLSX(sheets []Sheet) ([]byte, error) {
 				if err != nil {
 					return nil, fmt.Errorf("%s!%s: %w", name, address, err)
 				}
+				if format == "" {
+					format = managedNumberFormat(cell)
+				}
 				{
-					styleKey := fmt.Sprintf("%t:%s", s.FreezeHeader && ri == 0, format)
+					riskInk := theme.Ink
+					if cell.Type == "number" && strings.HasPrefix(cell.Value, "-") && theme.Risk != "" {
+						riskInk = theme.Risk
+					}
+					styleKey := fmt.Sprintf("%t:%s:%s:%s:%s:%s", s.FreezeHeader && ri == 0, format, theme.Latin, theme.Navy, theme.Soft, riskInk)
 					style, ok := styleCache[styleKey]
 					if !ok {
-						options := &excelize.Style{Font: &excelize.Font{Size: 11}, Alignment: &excelize.Alignment{Vertical: "top", WrapText: true}}
+						options := &excelize.Style{Font: &excelize.Font{Size: 11, Family: theme.Latin, Color: riskInk}, Alignment: &excelize.Alignment{Vertical: "top", WrapText: true}}
 						if format != "" {
 							options.CustomNumFmt = &format
 						}
 						if s.FreezeHeader && ri == 0 {
 							options.Font.Bold = true
-							options.Font.Color = "15314A"
-							options.Fill = excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"E8F0F6"}}
+							options.Font.Color = theme.Navy
+							options.Fill = excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{theme.Soft}}
 						}
 						style, err = f.NewStyle(options)
 						if err != nil {
@@ -217,6 +280,9 @@ func generateXLSX(sheets []Sheet) ([]byte, error) {
 				return nil, err
 			}
 		}
+		if err := applySheetRoleLayout(f, name, s); err != nil {
+			return nil, err
+		}
 	}
 	var b bytes.Buffer
 	if err := f.Write(&b); err != nil {
@@ -228,14 +294,25 @@ func generateXLSX(sheets []Sheet) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	replaced := map[string][]byte{}
+	replaced := map[string][]byte{
+		"xl/theme/theme1.xml": []byte(officetools.ThemeXMLFor(
+			theme.Latin, theme.East, theme.Navy, theme.Teal, theme.Gold, theme.Paper, theme.Ink, theme.White, theme.Soft,
+		)),
+	}
+	if east := strings.TrimSpace(theme.East); east != "" {
+		if next := injectExcelNamedFont(p.parts["xl/styles.xml"], east); !bytes.Equal(p.parts["xl/styles.xml"], next) {
+			replaced["xl/styles.xml"] = next
+		}
+	}
 	for si, s := range sheets {
 		writes := map[string]Cell{}
 		for ri, row := range s.Rows {
 			for ci, cell := range row {
-				if cell.Type == "number" {
+				if cell.Type == "number" || cell.Type == "date" {
 					address, _ := excelize.CoordinatesToCellName(ci+1, ri+1)
-					cell.Format = ""
+					if cell.Type == "number" {
+						cell.Format = ""
+					}
 					writes[address] = cell
 				}
 			}
@@ -254,6 +331,26 @@ func generateXLSX(sheets []Sheet) ([]byte, error) {
 		return b.Bytes(), nil
 	}
 	return rewritePackage(p, replaced)
+}
+
+var excelFontsCount = regexp.MustCompile(`(<fonts\b[^>]*\bcount=")(\d+)(")`)
+
+func injectExcelNamedFont(styles []byte, family string) []byte {
+	family = strings.TrimSpace(family)
+	if family == "" || bytes.Contains(styles, []byte(`name val="`+family+`"`)) {
+		return styles
+	}
+	m := excelFontsCount.FindSubmatch(styles)
+	if m == nil || !bytes.Contains(styles, []byte("</fonts>")) {
+		return styles
+	}
+	n, err := strconv.Atoi(string(m[2]))
+	if err != nil {
+		return styles
+	}
+	out := bytes.Replace(styles, m[0], []byte(string(m[1])+strconv.Itoa(n+1)+string(m[3])), 1)
+	esc := strings.NewReplacer(`&`, "&amp;", `"`, "&quot;", `<`, "&lt;", `>`, "&gt;").Replace(family)
+	return bytes.Replace(out, []byte("</fonts>"), []byte(`<font><sz val="11"/><name val="`+esc+`"/></font></fonts>`), 1)
 }
 
 func writeTypedCell(f *excelize.File, sheet, address string, cell Cell) (string, error) {
@@ -323,6 +420,31 @@ func writeTypedCell(f *excelize.File, sheet, address string, cell Cell) (string,
 
 // Formula is an explicit cell type, so both '=SUM(A1:A2)' and the OOXML-style
 // 'SUM(A1:A2)' are unambiguous. Text cells never use this normalization.
+func managedNumberFormat(cell Cell) string {
+	if strings.TrimSpace(cell.Format) != "" {
+		return cell.Format
+	}
+	switch cell.Type {
+	case "date":
+		return "yyyy-mm-dd"
+	case "number":
+		dec := 0
+		if i := strings.LastIndex(cell.Value, "."); i >= 0 {
+			dec = len(cell.Value) - i - 1
+		}
+		if dec > 10 {
+			dec = 10
+		}
+		pos := "#,##0"
+		if dec > 0 {
+			pos = "#,##0." + strings.Repeat("0", dec)
+		}
+		return pos + ";-" + pos
+	default:
+		return ""
+	}
+}
+
 func localFormula(value string) (string, error) {
 	formula := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(value), "="))
 	if formula == "" || strings.HasPrefix(formula, "=") || dangerousFormula.MatchString(formula) {

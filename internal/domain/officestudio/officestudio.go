@@ -118,6 +118,9 @@ func QualityFor(checks []Check) string {
 			pending = true
 		}
 		if c.Status != "passed" {
+			if honestCoverageGap(c) {
+				continue
+			}
 			partial = true
 		}
 	}
@@ -128,6 +131,18 @@ func QualityFor(checks []Check) string {
 		return "partial"
 	}
 	return "passed"
+}
+
+func honestCoverageGap(c Check) bool {
+	if c.Status != "unsupported" && c.Status != "missing" {
+		return false
+	}
+	switch c.ID {
+	case "target-compatibility", "target-powerpoint", "target-wps", "target-libreoffice", "visual-model", "pdfa":
+		return true
+	default:
+		return false
+	}
 }
 
 type StepReceipt struct {

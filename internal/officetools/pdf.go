@@ -75,14 +75,23 @@ func pdfNeedsUnicode(text string) (bool, error) {
 // GenPDF renders complete A4 title/body text. ASCII keeps the existing
 // Helvetica rendering; Unicode uses an embedded, subsetted Chinese font.
 func GenPDF(title, body string) ([]byte, error) {
-	return genPDF(title, body, false)
+	return genPDF(title, body, false, PDFTheme{})
 }
 
 // GenStablePDF uses fixed document metadata and sorted resources for managed
 // snapshots. The same input can safely retry under an idempotency key.
-func GenStablePDF(title, body string) ([]byte, error) { return genPDF(title, body, true) }
+func GenStablePDF(title, body string) ([]byte, error) { return genPDF(title, body, true, PDFTheme{}) }
 
-func genPDF(title, body string, stable bool) ([]byte, error) {
+type PDFTheme struct {
+	Heading string
+	Body    string
+}
+
+func GenStablePDFThemed(title, body string, theme PDFTheme) ([]byte, error) {
+	return genPDF(title, body, true, theme)
+}
+
+func genPDF(title, body string, stable bool, theme PDFTheme) ([]byte, error) {
 	if utf8.RuneCountInString(body) > MaxPDFBodyRunes {
 		return nil, fmt.Errorf("%w: pdf body exceeds %d runes", ErrLimit, MaxPDFBodyRunes)
 	}
@@ -108,15 +117,25 @@ func genPDF(title, body string, stable bool) ([]byte, error) {
 	pdf.SetTitle(title, true)
 	pdf.AddPage()
 	pdf.SetFont(family, titleStyle, 18)
+	setPDFTextColor(pdf, theme.Heading)
 	writePDFParagraph(pdf, title, 10, unicodeFont)
 	pdf.Ln(2)
 	pdf.SetFont(family, "", 11)
+	setPDFTextColor(pdf, theme.Body)
 	for _, para := range strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
 		if strings.TrimSpace(para) == "" {
 			pdf.Ln(3)
 			continue
 		}
-		writePDFParagraph(pdf, para, 6, unicodeFont)
+		if IndependentPDFHeading(para) {
+			pdf.SetFont(family, titleStyle, 13)
+			setPDFTextColor(pdf, theme.Heading)
+			writePDFParagraph(pdf, para, 7, unicodeFont)
+			pdf.SetFont(family, "", 11)
+			setPDFTextColor(pdf, theme.Body)
+		} else {
+			writePDFParagraph(pdf, para, 6, unicodeFont)
+		}
 		pdf.Ln(1)
 	}
 	var buf bytes.Buffer
@@ -124,6 +143,27 @@ func genPDF(title, body string, stable bool) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func setPDFTextColor(pdf *gofpdf.Fpdf, hex string) {
+	hex = strings.TrimPrefix(strings.TrimSpace(hex), "#")
+	if len(hex) != 6 {
+		return
+	}
+	var n int
+	if _, err := fmt.Sscanf(hex, "%06x", &n); err != nil {
+		return
+	}
+	pdf.SetTextColor((n>>16)&0xff, (n>>8)&0xff, n&0xff)
+}
+
+func IndependentPDFHeading(line string) bool {
+	switch strings.TrimSpace(line) {
+	case "封面", "目录", "正文", "引用":
+		return true
+	default:
+		return false
+	}
 }
 
 func writePDFParagraph(pdf *gofpdf.Fpdf, text string, height float64, unicodeFont bool) {

@@ -2,10 +2,35 @@ export type OfficeKind = 'pptx' | 'docx' | 'xlsx' | 'pdf'
 export type OfficeQuality = 'unverified' | 'checking' | 'partial' | 'passed' | 'blocked' | 'stale'
 export type OfficeRunStatus = 'draft' | 'queued' | 'planning' | 'running' | 'validating' | 'succeeded' | 'waiting_input' | 'waiting_approval' | 'cancelling' | 'cancelled' | 'failed' | 'interrupted'
 
+export interface OfficeBriefFact {
+  factId: string; value: string; unit?: string; period?: string; sourceId?: string
+  locator?: string; status?: string; locked?: boolean
+}
+export interface OfficeNarrativeNode {
+  nodeId?: string
+  title?: string
+  purpose?: string
+  claim?: string
+}
+export interface OfficeBrief {
+  audience?: string; purpose?: string; language?: string; targetLength?: number
+  deliverables?: OfficeKind[]; facts?: OfficeBriefFact[]
+  outline?: OfficeNarrativeNode[]
+  confidentiality?: string
+}
+export interface OfficeBrandImport {
+  brandId: string
+  colors?: Record<string, string>
+  fonts?: { latin?: string; east?: string }
+  asset: { sourceUrl: string; author?: string; license: string; digest: string; logoDigest?: string; commercial?: boolean }
+}
 export interface OfficeTask {
   id: string; sessionId: string; projectId?: string; title: string; goal: string
   goalTruncated?: boolean
   revision: number; status: OfficeRunStatus; createdAt: string; updatedAt: string
+  styleId?: string
+  brief?: OfficeBrief
+  brandId?: string
 }
 export interface OfficeCheck {
   id: string; label: string; status: 'passed' | 'failed' | 'unavailable' | 'pending'
@@ -75,7 +100,7 @@ export interface OfficeStudioApi {
   list(payload?: { query?: string; sessionId?: string }): Promise<{ items: OfficeTask[] }>
   create(payload: { title: string; goal?: string; sessionId?: string; includeHistory?: boolean }): Promise<OfficeTaskDetail>
   get(payload: { taskId: string }): Promise<OfficeTaskDetail>
-  update(payload: { taskId: string; expectedRevision: number; title: string; goal: string }): Promise<OfficeTaskDetail>
+  update(payload: { taskId: string; expectedRevision: number; title: string; goal: string; styleId?: string; brief?: OfficeBrief; brand?: OfficeBrandImport }): Promise<OfficeTaskDetail>
   sync(payload: { taskId: string; artifactPath?: string }): Promise<OfficeTaskDetail>
   importArtifact(payload: { taskId: string; attachmentId: string; name?: string; artifactId?:string; baseVersionId?:string; expectedRevision?:number }): Promise<OfficeTaskDetail>
   preview(payload: { taskId: string; versionId: string; nodeOffset?:number }): Promise<OfficePreview>

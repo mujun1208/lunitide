@@ -1,0 +1,10 @@
+{
+  "audience": "编辑",
+  "purpose": "编辑式结构页",
+  "language": "zh-CN",
+  "targetLength": 10,
+  "deliverables": ["pptx"],
+  "facts": [
+    {"factId": "chapters", "value": "4", "unit": "章", "period": "当前稿", "sourceId": "outline", "locator": "章节数"}
+  ]
+}

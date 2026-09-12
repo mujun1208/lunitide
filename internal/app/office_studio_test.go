@@ -156,6 +156,65 @@ func TestOfficeTaskCreatesItsHiddenSessionInsideTheBoundOrganization(t *testing.
 	}
 }
 
+func TestOfficeGenerateV2MetricsThroughTool(t *testing.T) {
+	e, store := officeEngineFixture(t)
+	task := officeCreatedTask(t, e, "v2-metrics")
+	args, _ := json.Marshal(map[string]any{
+		"taskId": task.ID,
+		"name":   "经营指标.pptx",
+		"spec": content.Spec{
+			SchemaVersion: 2, Kind: content.PPTX, Title: "经营指标",
+			Slides: []content.Slide{{
+				Title:   "指标",
+				Layout:  "metrics",
+				Metrics: []content.MetricBlock{{Label: "订单", Value: "1280", Unit: "单", FactID: "orders"}},
+			}},
+		},
+	})
+	result, err := e.executeUserTool(context.Background(), executionModeFullAccess, task.SessionID, "office.generate", args)
+	if err != nil || result.Artifact == nil {
+		t.Fatalf("v2 generate: %+v %v", result, err)
+	}
+	versions, err := store.ListOfficeVersions(context.Background(), task.ID, "")
+	if err != nil || len(versions) != 1 {
+		t.Fatalf("versions: %v %v", versions, err)
+	}
+	preview, err := e.officeStudio.Preview(context.Background(), task.ID, versions[0].ID)
+	if err != nil || !strings.Contains(preview.Content, "1280") {
+		t.Fatalf("v2 preview missing fact: %#v %v", preview, err)
+	}
+}
+
+func TestOfficeDeliverCaptureByFactID(t *testing.T) {
+	e, _ := officeEngineFixture(t)
+	ctx := context.Background()
+	task := officeCreatedTask(t, e, "fact-capture")
+	facts := []content.Fact{{FactID: "orders", Value: "1280", Unit: "单", Locked: true, Locator: "订单数"}}
+	wb, err := content.PlanWorkbook("ops-ledger", "经营簿", facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, err := e.officeStudio.Generate(ctx, task.ID, "经营簿.xlsx", wb, "wb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]any{
+		"taskId": task.ID, "action": "capture", "versionId": x.ID,
+		"factId": "orders", "value": "1280", "unit": "单", "name": "订单数",
+	})
+	_, _, output, err := e.executeOfficeTool(ctx, task.SessionID, "office.deliver", args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "1280") {
+		t.Fatalf("fact capture output: %s", output)
+	}
+	listed, err := e.officeStudio.ListMetrics(ctx, task.ID)
+	if err != nil || len(listed) != 1 || listed[0].RawValue != "1280" {
+		t.Fatalf("captured: %#v %v", listed, err)
+	}
+}
+
 func TestOfficeEngineBridgeAndRealRuntimeDelivery(t *testing.T) {
 	e, store := officeEngineFixture(t)
 	ctx := context.Background()
@@ -280,6 +339,33 @@ func TestOfficeEngineImportReadableAttachmentAndTaskIsolation(t *testing.T) {
 	vs, _ := e.officeStudio.Store.ListOfficeVersions(ctx, task.ID, "")
 	if r := officeCall(t, e, "office.artifact.preview", "", map[string]any{"taskId": other.ID, "versionId": vs[0].ID}); r.OK {
 		t.Fatal("version leaked across task")
+	}
+}
+
+func TestOfficeMetricCaptureBridgeAcceptsFactID(t *testing.T) {
+	e, store := officeEngineFixture(t)
+	ctx := context.Background()
+	task := officeCreatedTask(t, e, "bridge-fact")
+	facts := []content.Fact{{FactID: "orders", Value: "1280", Unit: "单", Locked: true, Locator: "订单数"}}
+	wb, err := content.PlanWorkbook("ops-ledger", "经营簿", facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, err := e.officeStudio.Generate(ctx, task.ID, "经营簿.xlsx", wb, "wb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := officeCall(t, e, "office.metric.capture", "bridge-fact", map[string]any{
+		"taskId": task.ID, "versionId": x.ID, "nodeId": "unused-node",
+		"nodeDigest": strings.Repeat("0", 64), "name": "订单数",
+		"factId": "orders", "value": "1280", "unit": "单",
+	})
+	if !r.OK {
+		t.Fatal(r.Error)
+	}
+	listed, err := store.ListOfficeMetrics(ctx, task.ID)
+	if err != nil || len(listed) != 1 || listed[0].RawValue != "1280" {
+		t.Fatalf("bridge fact capture: %#v %v", listed, err)
 	}
 }
 

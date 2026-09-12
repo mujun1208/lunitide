@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { sessionFolderBridge, type StreamArtifact } from '../bridge/client'
-import { requestOfficeStudio } from '../officeStudio/officeNavigation'
+import { focusOfficeArtifact, requestOfficeStudio } from '../officeStudio/officeNavigation'
 
 export type ChatArtifact = StreamArtifact & { callId: string; toolName: string }
 
@@ -41,16 +41,22 @@ export function ChatArtifactCards({
   artifacts,
   onError,
   onInspect,
+  officeTaskId,
 }: {
   sessionId: string
   artifacts: ChatArtifact[]
   onError?: (message: string) => void
   onInspect?: (artifact: ChatArtifact) => void
+  officeTaskId?: string
 }): React.JSX.Element | null {
   const [openingOffice, setOpeningOffice] = useState(false)
   const visible = filterChatDeliverables(artifacts)
   if (!visible.length) return null
   const open = async (artifact: ChatArtifact) => {
+    if (officeTaskId) {
+      focusOfficeArtifact(officeTaskId, artifact.path)
+      return
+    }
     if (onInspect) { onInspect(artifact); return }
     try {
       await sessionFolderBridge.open({ sessionId, relativePath: artifactOpenRelativePath(artifact.path) })
@@ -80,6 +86,10 @@ export function ChatArtifactCards({
         </button>
         {(OFFICE_KIND.has(artifact.kind) || OFFICE_EXT.test(artifact.path)) && <button type="button" disabled={openingOffice} title={`在办公工作台查看 ${artifact.path.split(/[/\\]/).pop()}`} onClick={() => {
           if (openingOffice) return
+          if (officeTaskId) {
+            focusOfficeArtifact(officeTaskId, artifact.path)
+            return
+          }
           setOpeningOffice(true)
           void requestOfficeStudio(sessionId, artifact.path).catch(error => onError?.(artifactCardUserError(error, '办公工作台暂不可用，原对话仍可继续。'))).finally(() => setOpeningOffice(false))
         }}>在办公工作台查看</button>}

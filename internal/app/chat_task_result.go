@@ -69,13 +69,90 @@ func lookupOnlyTurn(goal string) bool {
 	return true
 }
 
+func inventoryLookupGoal(text string) bool {
+	t := strings.ToLower(strings.TrimSpace(text))
+	if t == "" {
+		return false
+	}
+	for _, needle := range []string{
+		"火车", "高铁", "动车", "车次", "火车票", "车票", "余票",
+		"航班", "机票", "飞机票",
+		"train", "flight", "airfare",
+	} {
+		if strings.Contains(t, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func inventoryOpenPageAllowed(goal string) bool {
+	t := strings.ToLower(strings.TrimSpace(goal))
+	if t == "" {
+		return false
+	}
+	for _, needle := range []string{
+		"打开12306", "打开 12306", "上12306", "打开网页", "用浏览器",
+	} {
+		if strings.Contains(t, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func inventoryLookupBlocksPublicWeb(goal string) bool {
+	return inventoryLookupGoal(goal)
+}
+
 func guardCurrentTurnTool(goal, name string) error {
+	if companionGoalIsOpenOnly(goal) || companionDesktopFilenameFragment(goal) {
+		switch name {
+		case "workspace.list", "workspace.search", "workspace.read", "workspace.write", "command.run":
+			return errors.New("本轮只要打开桌面文件或应用，不得浏览工作区或跑命令。请只用 desktop.open。")
+		}
+	}
+	if inventoryLookupGoal(goal) {
+		switch name {
+		case "web.search", "web.fetch", "browser.act":
+			return errors.New("本轮是实时余票/航班查询：没有已接入的专用接口时不得抓网页或打开 12306。请说明尚未接入并结束本轮。")
+		}
+	}
 	if !lookupOnlyTurn(goal) {
 		return nil
 	}
 	switch name {
 	case "desktop.open", "desktop.type", "desktop.quit", "desktop.browse", "media.play", "workspace.write", "workspace.edit", "im.send":
+		if inventoryOpenPageAllowed(goal) && (name == "desktop.open" || name == "desktop.browse") {
+			return nil
+		}
 		return errors.New("本轮只要求查询信息；不得执行历史任务中的打开文件、播放或写入操作。请继续本轮查询。")
+	}
+	return nil
+}
+
+func currentTurnHasBrowserMCPNotReady(messages []llmadapter.Message) bool {
+	start := 0
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == llmadapter.RoleUser {
+			start = i + 1
+			break
+		}
+	}
+	for _, m := range messages[start:] {
+		if m.Role == llmadapter.RoleTool && strings.Contains(m.Content, "BROWSER_MCP_NOT_READY") {
+			return true
+		}
+	}
+	return false
+}
+
+func guardCurrentTurnToolHistory(goal, name string, messages []llmadapter.Message) error {
+	if err := guardCurrentTurnTool(goal, name); err != nil {
+		return err
+	}
+	if name == "browser.act" && currentTurnHasBrowserMCPNotReady(messages) {
+		return errors.New("本轮 Playwright 未就绪，不得再调用 browser.act。请说明无法点页面并结束。")
 	}
 	return nil
 }

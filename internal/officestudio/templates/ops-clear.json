@@ -1,0 +1,8 @@
+{
+  "templateId": "ops-clear",
+  "version": "1",
+  "license": "internal-original",
+  "supportedKinds": ["pptx"],
+  "slots": ["cover", "section", "conclusion", "two-column", "comparison", "metrics", "trend", "structure", "process", "timeline", "evidence", "closing"],
+  "constraints": {"maxMetrics": 6, "canvas": "16:9"}
+}

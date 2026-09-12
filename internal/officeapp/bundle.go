@@ -46,7 +46,40 @@ func (s *Service) CreateBundle(ctx context.Context, taskID, title string, versio
 		name := fmt.Sprintf("%02d-%s-v%d-%s.%s", index+1, string(base), v.VersionNo, v.ID, v.Kind)
 		b.Files = append(b.Files, domain.BundleFile{VersionID: v.ID, ArtifactID: v.ArtifactID, Name: name, Kind: v.Kind, SHA256: v.SHA256, Size: v.Size})
 	}
+	if err := s.assertBundleFactSet(ctx, taskID, versionIDs); err != nil {
+		return domain.Bundle{}, err
+	}
 	return d.CreateOfficeBundle(ctx, b, key)
+}
+
+func (s *Service) assertBundleFactSet(ctx context.Context, taskID string, versionIDs []string) error {
+	task, err := s.Store.GetOfficeTask(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	facts := append([]content.Fact(nil), BriefFromCheckpoint(task.Checkpoint).Facts...)
+	for _, id := range versionIDs {
+		v, _, err := s.ReadVersion(ctx, taskID, id)
+		if err != nil {
+			return err
+		}
+		var spec content.Spec
+		if json.Unmarshal(v.Spec, &spec) != nil {
+			continue
+		}
+		facts = append(facts, content.FactsFromSpec(spec)...)
+	}
+	locked := false
+	for _, f := range facts {
+		if f.Locked {
+			locked = true
+			break
+		}
+	}
+	if !locked {
+		return nil
+	}
+	return s.AssertTaskFactSet(ctx, taskID, facts, versionIDs)
 }
 
 func (s *Service) ListBundles(ctx context.Context, taskID string) ([]domain.Bundle, error) {

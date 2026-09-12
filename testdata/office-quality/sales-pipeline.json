@@ -1,0 +1,10 @@
+{
+  "audience": "销售管理",
+  "purpose": "销售过程表",
+  "language": "zh-CN",
+  "targetLength": 4,
+  "deliverables": ["xlsx"],
+  "facts": [
+    {"factId": "open_deals", "value": "9", "unit": "个", "period": "2026-Q3", "sourceId": "crm", "locator": "在谈商机"}
+  ]
+}

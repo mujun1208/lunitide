@@ -303,7 +303,7 @@ export function getSystemSettingsBridge():SystemSettingsBridge{return systemSett
 export const systemSettingsBridge:SystemSettingsBridge={open:p=>{try{return getSystemSettingsBridge().open(p)}catch(error){return Promise.reject(error)}}}
 export type DiagramBridge = { render(payload: {source: string; config: object}): Promise<{svg: string}> }
 export function createDiagramBridge(transport: WebViewTransport = webview()): DiagramBridge {
- const core = createSimpleBridge(transport, {}, 10_000)
+ const core = createSimpleBridge(transport, {}, 25_000)
  return {render: payload => core.request<{svg: string}>('diagram.render' as BridgeMethod, payload)}
 }
 let diagramSingleton: DiagramBridge | undefined

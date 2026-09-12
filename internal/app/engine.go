@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -362,6 +364,8 @@ type streamState struct {
 	kbDiscarded    int
 	mroTurn        bool
 	taskRoute      TaskRoute
+	lane           LaneContract
+	inviteLead     string
 }
 
 type streamLifecycle uint8
@@ -1373,6 +1377,10 @@ func (e *Engine) SetM9TtsService(ttsSvc *tts.Service) {
 	e.m9tts = ttsSvc
 }
 
+func handlerPanicLog(method string, rec any) string {
+	return fmt.Sprintf("engine handler %s panicked: %v\n%s", method, rec, debug.Stack())
+}
+
 func (e *Engine) Handle(ctx context.Context, request bridge.Request) bridge.Response {
 	if _, err := ulid.ParseStrict(request.ID); err != nil {
 		return bridge.Failure(ulid.Make().String(), ulid.Make().String(), "BRIDGE_SCHEMA_INVALID", "请求标识无效", false)
@@ -1418,6 +1426,7 @@ func (e *Engine) Handle(ctx context.Context, request bridge.Request) bridge.Resp
 	return func() (resp bridge.Response) {
 		defer func() {
 			if rec := recover(); rec != nil {
+				log.Print(handlerPanicLog(request.Method, rec))
 				resp = request.Fail("ENGINE_HANDLER_PANIC", "内部处理错误，请重试", true)
 			}
 		}()

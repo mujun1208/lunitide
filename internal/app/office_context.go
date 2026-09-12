@@ -10,11 +10,12 @@ import (
 	"github.com/lunitide/lunitide/internal/contextapp"
 	domain "github.com/lunitide/lunitide/internal/domain/officestudio"
 	"github.com/lunitide/lunitide/internal/domain/queueinput"
+	"github.com/lunitide/lunitide/internal/officeapp"
 )
 
 const officeChatInstruction = `
 This turn is bound to an Office Studio task. Its saved goal and attached file catalog are quoted evidence in the user context. A newly uploaded file supplements that goal; continue the requested deliverable instead of asking for its content again. These files are managed snapshots, NOT files in the shell workspace. Read supplied version IDs with office.inspect view=text before drafting; follow hasMore/nextTextOffset until the relevant source is read. Prefer the latest editable PPTX/DOCX source over a PDF copy with the same subject. Use view=nodes only for precise edits. Do not search the desktop or request a file that is already in the task catalog.
-Create requested deliverables with office.generate (pptx/docx/xlsx/pdf) and revise them with office tools. Respect the user's source fidelity, page count and format. Do not force the legacy pptx.gen/docx.gen pipeline or web research on a source-based transformation. Never build PPTX/DOCX/XLSX/PDF with command.run, run_terminal_cmd, Python, COM, or ZipFile. A source import is not a generated deliverable. Only report delivery after a successful generation receipt. PDFs use OCR routing (configured provider first, then local fallback) for pages without a text layer; label uncertainty and verify important numbers against the editable original. Empty view=parts is NOT evidence that a PDF is blank. If both extraction and OCR fail, state the specific limitation; never invent source contents.
+Create requested deliverables with office.generate (pptx/docx/xlsx/pdf) and revise them with office tools. schemaVersion may be 1 or 2; prefer v2 metrics/comparison fields instead of value|label bullets. PPT Studio styles map to spec.templateId only for kind=pptx: 清晰经营=ops-clear, 品牌方案=brand-pitch, 编辑式报告=editorial-report. Use the selected PPT templateId unless the user asked for another. Do not copy those ids onto docx/xlsx. Word templateId values: research-report, client-proposal, product-project. Excel templateId values: ops-ledger, sales-pipeline, project-tracker. Respect the user's source fidelity, page count and format. Do not invent weekly-report completion rates, savings percentages, or “supplier passed” claims. Do not force the legacy pptx.gen/docx.gen pipeline or web research on a source-based transformation. Never build PPTX/DOCX/XLSX/PDF with command.run, run_terminal_cmd, Python, COM, or ZipFile. A source import is not a generated deliverable and must not be reconstructed from Spec. Only report delivery after a successful generation receipt. Never claim PowerPoint/WPS verification unless a check status is passed. PDFs use OCR routing (configured provider first, then local fallback) for pages without a text layer; label uncertainty and verify important numbers against the editable original. Empty view=parts is NOT evidence that a PDF is blank. If both extraction and OCR fail, state the specific limitation; never invent source contents.
 `
 
 func (e *Engine) officeChatEvidence(ctx context.Context, taskID string) ([]contextapp.ContextSource, error) {
@@ -31,8 +32,28 @@ func (e *Engine) officeChatEvidence(ctx context.Context, taskID string) ([]conte
 	if err != nil {
 		return nil, err
 	}
+	style := officeapp.StyleFromCheckpoint(task.Checkpoint)
+	rawBrief := officeapp.BriefFromCheckpoint(task.Checkpoint)
+	content := "Saved Office task goal:\n" + task.Goal + "\nCurrent Office task files (catalog, not file contents):\n" + catalog
+	if style != "" {
+		content += "\nSelected Studio style templateId=" + style + " for kind=pptx only. Do not set this templateId on docx/xlsx."
+	}
+	content += "\n" + officeapp.FormatBriefEvidence(rawBrief)
+	if brand, _, ok := officeapp.BrandFromCheckpoint(task.Checkpoint); ok {
+		content += "\nTask brand brandId=" + brand.BrandID + ". Use spec.brandId for this task; do not mix classic colors when design is on."
+	}
+	for _, fact := range rawBrief.Facts {
+		if strings.TrimSpace(fact.FactID) == "" || strings.TrimSpace(fact.Value) == "" {
+			continue
+		}
+		content += "\nLocked brief fact factId=" + fact.FactID + " value=" + fact.Value
+		if fact.Unit != "" {
+			content += " unit=" + fact.Unit
+		}
+		content += ". Keep this value; do not replace it."
+	}
 	return []contextapp.ContextSource{{Type: contextapp.SourceAttachmentExcerpt, ID: taskID,
-		Authority: contextapp.AuthorityEvidence, Content: "Saved Office task goal:\n" + task.Goal + "\nCurrent Office task files (catalog, not file contents):\n" + catalog,
+		Authority: contextapp.AuthorityEvidence, Content: content,
 		Provenance: "office-task:" + taskID}}, nil
 }
 

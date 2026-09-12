@@ -8,6 +8,18 @@ import (
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
+func TestSessionArtifactFromToolBindsOfficeTask(t *testing.T) {
+	task := "01ARZ3NDEKTSV4RRFFQ69G5FA3"
+	got := sessionArtifactFromTool("call-1", "pptx.gen", "pptx", "deck.pptx", task)
+	if got.OfficeTaskID != task || got.Kind != "pptx" || got.Path != "deck.pptx" || got.CallID != "call-1" || got.ToolName != "pptx.gen" {
+		t.Fatalf("chat card lost the bound office task: %+v", got)
+	}
+	unbound := sessionArtifactFromTool("call-2", "docx.gen", "docx", "note.docx", "")
+	if unbound.OfficeTaskID != "" {
+		t.Fatalf("empty task leaked onto an unbound card: %+v", unbound)
+	}
+}
+
 func TestChatDeliverableArtifact(t *testing.T) {
 	if chatDeliverableArtifact("web.search", "html", "search.html") {
 		t.Fatal("web.search html must not be a chat deliverable")

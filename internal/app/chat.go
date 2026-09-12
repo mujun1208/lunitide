@@ -275,6 +275,24 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 	intent := turnIntentForChat(p.Companion, turnText, p.ProjectID, string(mode), contextRefs)
 	wantsTools := !p.Companion || mode == executionModeFullAccess || companionWantsTools(turnText)
+	hasAtt := false
+	for _, ref := range p.ContextRefs {
+		if ref.Type == "attachment" && strings.TrimSpace(ref.ID) != "" {
+			hasAtt = true
+			break
+		}
+	}
+	prevGoal := ""
+	if looksLikeResume(chatRoutingText(intent.Text)) {
+		prevGoal = e.loadTurnCheckpoint(boundSessionID).Goal
+	}
+	laneIn := LaneInput{
+		Goal:             resolveLaneGoal(intent.Text, prevGoal),
+		HasTurnMaterials: hasTurnMaterials(resolveLaneGoal(intent.Text, prevGoal), hasAtt, false),
+		Companion:        p.Companion,
+		OfficeTaskID:     p.OfficeTaskID,
+	}
+	startLane := classifyChatLane(laneIn)
 
 	instruction := executionModeInstruction(mode)
 	if computerExecutionTurn(turnText) {
@@ -327,7 +345,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 	if !p.Companion {
 		instruction += videoTaskInstruction(intent.Text)
-		instruction = appendTypedStableBlocks(instruction, bundledWorkflowInjection(turnText), e.workspaceRepoGuidance())
+		instruction = appendTypedStableBlocks(instruction, bundledWorkflowInjectionForLane(laneIn.Goal, startLane), e.workspaceRepoGuidance())
 	}
 	if hint := projectPhaseWorkflowInjection(p.ProjectPhase, p.ProjectPhaseLabel); hint != "" {
 		instruction += hint
@@ -402,9 +420,18 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		ProjectID:    intent.ProjectID,
 		PhaseLabel:   p.ProjectPhaseLabel,
 		Companion:    intent.Companion,
-		TurnText:     intent.Text,
+		TurnText:     laneIn.Goal,
 		ExplicitMsgs: p.Messages,
+		Lane:         startLane,
 	})
+	inviteLead := ""
+	if !intent.Companion && councilCfg == nil {
+		roster := e.collectCouncilExpertIDs(ctx, expertCouncilInputs{SessionID: boundSessionID, TurnText: laneIn.Goal, ExplicitMsgs: p.Messages})
+		if councilInviteNeeded(laneIn.Goal, roster) {
+			inviteLead = councilInviteSpeech()
+			instruction += "\n" + inviteLead + "。本轮不要装成已经评过。\n"
+		}
+	}
 	if councilCfg != nil {
 		councilCfg.Mode = mode
 	}
@@ -746,6 +773,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		}
 		result, assembleErr := contextapp.AssembleEnvelope(ctx, assemblyReader, boundSessionID, envelope)
 		assembled := assembleErr == nil
+		usedFallback := false
+		usedExplicitReader := e.messageReader == nil
+		usedCheckpoint := envelope.AcceptedCheckpoint != nil
 		if assembleErr != nil {
 			if errors.Is(assembleErr, contextapp.ErrEnvelopeBudgetTooSmall) {
 				return request.Fail("CONTEXT_BUDGET_EXCEEDED", "当前模型上下文预算不足，请减少材料或选择更大上下文模型；已选技能与专家不会被移除", false)
@@ -754,6 +784,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 				return internalBridgeFailure(request, "CONTEXT_ASSEMBLY_FAILED", "上下文装配暂时不可用", true, assembleErr)
 			}
 			log.Printf("chat.start assembling explicit turn after durable assembly failed: %v", assembleErr)
+			usedFallback = true
 			messages, assembleErr = assembleExplicitChat(ctx, boundSessionID, envelope, trustedMessages, e.nativeReplayMessages(boundSessionID))
 			if assembleErr != nil {
 				return internalBridgeFailure(request, "CONTEXT_ASSEMBLY_FAILED", "当前模型上下文预算不足或引用不可用，请减少材料或选择更大上下文模型；已选技能与专家不会被移除", false, assembleErr)
@@ -764,6 +795,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			if combineErr != nil {
 				if useExplicitChatFallback(p.Companion, trustedMessages, combineErr) {
 					log.Printf("chat.start using explicit turn after context combine failed: %v", combineErr)
+					usedFallback = true
 					messages, combineErr = assembleExplicitChat(ctx, boundSessionID, envelope, trustedMessages, e.nativeReplayMessages(boundSessionID))
 					if combineErr != nil {
 						return internalBridgeFailure(request, "CONTEXT_ASSEMBLY_FAILED", "当前模型上下文预算不足或引用不可用，请减少材料或选择更大上下文模型；已选技能与专家不会被移除", false, combineErr)
@@ -776,6 +808,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 				}
 			}
 		}
+		logChatContextPath(boundSessionID, contextAssemblyPath(assembled, usedFallback, usedExplicitReader, usedCheckpoint))
 		if assembled && !p.Companion {
 			// P1-3 complexity.decide wiring after images attach so the hint
 			// cannot push a previously-fitting request over the final budget.
@@ -790,6 +823,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.start 无有效消息（Session 上下文装配器不可用，需提供 messages）", false)
 		}
 		messages = trustedMessages
+		logChatContextPath(boundSessionID, "explicit")
 	}
 
 	if p.Companion {
@@ -812,7 +846,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	streamCtx, cancel := context.WithCancel(parent)
 	streamCtx = withOfficeTask(streamCtx, p.OfficeTaskID)
 	streamCtx = withSkillTrials(streamCtx, boundSessionID, p.TrialSkillIDs)
-	state := &streamState{cancel: cancel, companion: p.Companion, subagentPolicy: subagentPolicy, council: councilCfg, mcpRestrict: equip.RestrictMCP(), mcpAllowed: equip.McpIDs, brain: equip.Brain, memorySummary: formatChatMemorySummary(memPack), kbCites: append([]CitationBlock(nil), memPack.KBCites...), kbDiscarded: memPack.KBDiscarded, mroTurn: memPack.MROTurn || turnHasMROName(equip.Names)}
+	state := &streamState{cancel: cancel, companion: p.Companion, subagentPolicy: subagentPolicy, council: councilCfg, mcpRestrict: equip.RestrictMCP(), mcpAllowed: equip.McpIDs, brain: equip.Brain, memorySummary: formatChatMemorySummary(memPack), kbCites: append([]CitationBlock(nil), memPack.KBCites...), kbDiscarded: memPack.KBDiscarded, mroTurn: memPack.MROTurn || turnHasMROName(equip.Names), inviteLead: inviteLead}
 	state.sessionID = boundSessionID
 	state.equipEvent = equipEvent
 	e.streams[streamID] = state
@@ -828,18 +862,43 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	if p.Companion {
 		req.MaxTokens = companionMaxTokens
 	}
+	lane := startLane
 	if e.tools != nil && wantsTools {
 		req.Tools = turnTools
 		if len(p.TrialSkillIDs) == 0 && (turnProfile == toolProfileDefault || turnProfile == toolProfileMinimal) {
-			route, allow := classifyTaskRoute(intent.Text, p.Companion, e.computerControlEnabled())
+			route, allow := classifyTaskRoute(laneIn.Goal, p.Companion, e.computerControlEnabled())
 			if route == RouteUnspecified {
-				if flashRoute, flashAllow, used := e.tryFlashClassify(ctx, intent.Text); used {
+				if flashRoute, flashAllow, used := e.tryFlashClassify(ctx, laneIn.Goal); used {
 					route, allow = flashRoute, flashAllow
 				}
 			}
 			req.Tools = applyTaskRoute(req.Tools, route, allow)
 			state.taskRoute = route
 		}
+	}
+	if chatLanesEnabled() && !p.Companion {
+		overlay := CouncilOverlay{}
+		if councilCfg != nil {
+			overlay.Run = true
+		}
+		lane, contract := applyLaneOverrides(lane, laneIn, state.taskRoute, overlay)
+		if councilCfg != nil {
+			councilCfg.Lane = lane
+			councilCfg.MaxSteps = councilStepsForLane(lane)
+			councilCfg.Tools = councilToolsForLane(lane)
+		}
+		if expertWork {
+			contract.KeepSpecialistTools = true
+			if contract.MaxMainToolSteps < 8 {
+				contract.MaxMainToolSteps = 8
+			}
+		}
+		if len(p.TrialSkillIDs) > 0 && contract.MaxMainToolSteps < 8 {
+			contract.MaxMainToolSteps = 8
+		}
+		req.Tools = applyLaneTools(req.Tools, contract)
+		req.DisableReasoning = contract.DisableReasoning || isShortIdleGreeting(intent.Text)
+		state.lane = contract
 	}
 	if len(p.TrialSkillIDs) > 0 {
 		req.Tools = append(req.Tools, skillTrialToolDefinition())
@@ -912,6 +971,26 @@ func lastUserChatText(messages []llmadapter.Message) string {
 // recoverable for any caller that already sent that turn. Companion can retry
 // sequence failures against its explicit turn; the retry retains the envelope
 // and enforces the same budget, selected instructions and quoted evidence.
+func contextAssemblyPath(assembled, usedFallback, usedExplicitReader, usedCheckpoint bool) string {
+	if usedFallback {
+		return "fallback"
+	}
+	if usedCheckpoint {
+		return "checkpoint"
+	}
+	if usedExplicitReader {
+		return "explicit"
+	}
+	if assembled {
+		return "durable"
+	}
+	return "explicit"
+}
+
+func logChatContextPath(sessionID, path string) {
+	log.Printf("chat.context path=%s session=%s", path, sessionID)
+}
+
 func useExplicitChatFallback(companion bool, trusted []llmadapter.Message, err error) bool {
 	if err == nil || lastUserChatText(trusted) == "" {
 		return false

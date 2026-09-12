@@ -519,6 +519,51 @@ describe('when the user has finished speaking', () => {
       incomplete: true,
     })).toBe(true)
   })
+
+  test('does not hard-commit a desktop filename fragment without 打开 on INCOMPLETE_HARD_MS alone', () => {
+    const text = '桌面上的日常操作功能增补文档'
+    expect(looksIncompleteUtterance(text)).toBe(true)
+    expect(shouldForceCommitUtterance({
+      speechActive: true,
+      silentForMs: 0,
+      textStableForMs: INCOMPLETE_HARD_MS,
+      incomplete: true,
+      text,
+    })).toBe(false)
+    expect(shouldCommitHeardUtterance({
+      speechActive: true,
+      silentForMs: 0,
+      textStableForMs: INCOMPLETE_HARD_MS,
+      incomplete: true,
+      text,
+    })).toBe(false)
+  })
+
+  test('does not hard-commit an incomplete desktop-open filename on INCOMPLETE_HARD_MS alone', () => {
+    const text = '打开桌面上的日常操作功能'
+    expect(looksIncompleteUtterance(text)).toBe(true)
+    expect(shouldForceCommitUtterance({
+      speechActive: true,
+      silentForMs: 0,
+      textStableForMs: INCOMPLETE_HARD_MS,
+      incomplete: true,
+      text,
+    })).toBe(false)
+    expect(shouldCommitHeardUtterance({
+      speechActive: true,
+      silentForMs: 0,
+      textStableForMs: INCOMPLETE_HARD_MS,
+      incomplete: true,
+      text,
+    })).toBe(false)
+    expect(shouldForceCommitUtterance({
+      speechActive: false,
+      silentForMs: TURN_END_INCOMPLETE_SILENCE_MS,
+      textStableForMs: INCOMPLETE_HARD_MS,
+      incomplete: true,
+      text,
+    })).toBe(true)
+  })
 })
 
 describe('who may end her turn', () => {

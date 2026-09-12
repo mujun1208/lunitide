@@ -40,6 +40,14 @@ func TestPlaybackClaimsRequireThisTurnsMatchingToolReceipt(t *testing.T) {
 			t.Fatalf("unverified output accepted: %q", out)
 		}
 	}
+	started := `started playing in 汽水音乐 (media key)` + "\n" + `{"l0":{"kind":"foreground","passed":true,"uncertain":false,"detail":"汽水音乐"}}`
+	if unverifiedMediaPlay("media.play", started, "还没有确认开始播放") {
+		t.Fatal("started playing with passed foreground l0 must close the play loop")
+	}
+	verified := `verified playing in 汽水音乐; title="x"; artist=""; shuffle=false` + "\n" + `{"l0":{"kind":"media-session","passed":true,"uncertain":false}}`
+	if unverifiedMediaPlay("media.play", verified, "") {
+		t.Fatal("verified media-session must close the play loop")
+	}
 	messages := []llmadapter.Message{
 		{Role: llmadapter.RoleUser, Content: "放一首歌"},
 		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "music", Name: "media.play"}}},
@@ -229,6 +237,46 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	}
 	if !strings.Contains(companionStuckLeadInSpeech("播放周杰伦", "没成功，能不能换一种方式？"), "播放") {
 		t.Fatal("lead-in without a tool call must speak a playback failure, not freeze")
+	}
+}
+
+func TestDesktopFilenameFragmentWithoutOpenIsNotOpenOnly(t *testing.T) {
+	frag := "桌面上的日常操作功能增补文档"
+	if companionGoalIsOpenOnly(frag) {
+		t.Fatal("T29 fragment without 打开 is not open-only")
+	}
+	if err := guardCurrentTurnTool(frag, "workspace.list"); err == nil {
+		t.Fatal("T29 fragment must not list the workspace")
+	}
+}
+
+func TestCompanionGoalIsOpenOnly(t *testing.T) {
+	if !companionGoalIsOpenOnly("打开桌面上的日常操作功能增补文档") {
+		t.Fatal("filename 增补文档 is not a write command")
+	}
+	if !companionGoalIsOpenOnly("打开桌面上的手写文档") {
+		t.Fatal("filename 手写文档 is not a write command")
+	}
+	if companionGoalIsOpenOnly("打开记事本帮我写号码") {
+		t.Fatal("open then write is not open-only")
+	}
+	if companionGoalIsOpenOnly("打开记事本并写你好") {
+		t.Fatal("open+type is not open-only")
+	}
+	if companionGoalIsOpenOnly("打开记事本然后填身份证") {
+		t.Fatal("open-then-act")
+	}
+}
+
+func TestOpenOnlyStopsAfterSuccessfulDesktopOpenEvenIfLaterTool(t *testing.T) {
+	goal := "打开记事本"
+	out := "opened notepad\n{\"l0\":{\"kind\":\"foreground\",\"passed\":true}}"
+	tools := []string{"desktop.open", "workspace.read"}
+	if !desktopOpenSucceeded(out, tools) {
+		t.Fatal("successful desktop.open this turn must count even if it is not last")
+	}
+	if got := pickTurnContinueKind("已经打开记事本。", "已经打开记事本。", out, tools, true, true, true, true, 0, goal, true); got != "" {
+		t.Fatalf("open-only must stop after opened receipt, got %q", got)
 	}
 }
 
@@ -425,7 +473,7 @@ func TestRunStreamTypedPromiseTriggersHostToolFallback(t *testing.T) {
 	req := llmadapter.Request{
 		Model:    "m",
 		Tools:    []llmadapter.ToolDefinition{{Name: "web.search"}},
-		Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "今天合肥到上海虹桥的火车"}},
+		Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "今天合肥的天气怎么样"}},
 	}
 	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, req, func(event bridge.Event) error {
 		if event.Type == bridge.EventToolStarted && event.Tool != nil && event.Tool.Name == "web.search" {
@@ -443,6 +491,90 @@ func TestRunStreamTypedPromiseTriggersHostToolFallback(t *testing.T) {
 	}
 	if toolStarts != 1 {
 		t.Fatalf("typed promise-only response must trigger one web.search, starts=%d", toolStarts)
+	}
+}
+
+func TestRunStreamL2AskDoesNotAutoWebSearch(t *testing.T) {
+	adapter := &waitPromiseAdapter{}
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	state := &streamState{
+		cancel: cancel,
+		state:  streamRunning,
+		lane:   buildLaneContract(LaneL2Ask, RouteR4, CouncilOverlay{}),
+	}
+	id := "stream-l2ask-no-search"
+	e.streams[id] = state
+	done := make(chan struct{})
+	toolStarts := 0
+	req := llmadapter.Request{
+		Model:            "m",
+		DisableReasoning: true,
+		Tools:            []llmadapter.ToolDefinition{{Name: "web.search"}},
+		Messages:         []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "今天合肥的天气怎么样"}},
+	}
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, req, func(event bridge.Event) error {
+		if event.Type == bridge.EventToolStarted && event.Tool != nil && event.Tool.Name == "web.search" {
+			toolStarts++
+		}
+		if event.Type == bridge.EventCompleted || event.Type == bridge.EventFailed {
+			close(done)
+		}
+		return nil
+	}, "")
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for L2-ask closeout")
+	}
+	if toolStarts != 0 {
+		t.Fatalf("L2-ask must not auto-inject web.search, starts=%d", toolStarts)
+	}
+}
+
+func TestRunStreamInventoryLookupDoesNotAutoWebSearch(t *testing.T) {
+	adapter := &waitPromiseAdapter{}
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	state := &streamState{cancel: cancel, state: streamRunning, companion: true}
+	id := "stream-inventory-no-scrape"
+	e.streams[id] = state
+	done := make(chan struct{})
+	webStarts, mcpStarts := 0, 0
+	req := llmadapter.Request{
+		Model:            "m",
+		DisableReasoning: true,
+		Tools:            []llmadapter.ToolDefinition{{Name: "web.search"}, {Name: "mcp.search"}},
+		Messages:         []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "今天上海到合肥高铁票有哪些"}},
+	}
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, req, func(event bridge.Event) error {
+		if event.Type == bridge.EventToolStarted && event.Tool != nil {
+			switch event.Tool.Name {
+			case "web.search":
+				webStarts++
+			case "mcp.search":
+				mcpStarts++
+			}
+		}
+		if event.Type == bridge.EventCompleted || event.Type == bridge.EventFailed {
+			close(done)
+		}
+		return nil
+	}, "")
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for inventory fail-closed")
+	}
+	if webStarts != 0 {
+		t.Fatalf("live tickets must not auto-inject web.search, starts=%d", webStarts)
+	}
+	if mcpStarts != 1 {
+		t.Fatalf("live tickets should probe mcp.search once, starts=%d", mcpStarts)
 	}
 }
 

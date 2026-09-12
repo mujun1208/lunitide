@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type { OfficeArtifact, OfficeNode, OfficePreview, OfficeStudioApi, OfficeVersion } from './officeStudioApi';
 import { officeQualityLabel } from './officePresentation';
+import { conceptPreviewLabel } from './officeQualityUi';
 import { OfficePDFViewer } from './OfficePDFViewer';
 
 export function OfficeArtifactViewer({
@@ -44,7 +45,7 @@ export function OfficeArtifactViewer({
     <section className="os-viewer" aria-label="文件预览">
       <div className="os-preview-caption">
         <span>
-          {layout ? '文件排版预览' : '结构预览'} · v{version.versionNo}
+          {conceptPreviewLabel(layout)} · v{version.versionNo}
         </span>
         <span className={`os-quality is-${version.quality}`}>{officeQualityLabel(version.quality)}</span>
         {preview?.pdfReady && (

@@ -57,6 +57,16 @@ type officePayload struct {
 	PartOffset       int                  `json:"partOffset"`
 	SnapshotOffset   int                  `json:"snapshotOffset"`
 	SnapshotDigest   string               `json:"snapshotDigest"`
+	StyleID          string               `json:"styleId"`
+	Brief            *content.Brief       `json:"brief"`
+	Brand            *officeBrandPayload  `json:"brand"`
+}
+
+type officeBrandPayload struct {
+	BrandID string               `json:"brandId"`
+	Colors  map[string]string    `json:"colors"`
+	Fonts   content.BrandFonts   `json:"fonts"`
+	Asset   content.AssetRecord  `json:"asset"`
 }
 
 func officeFailure(r bridge.Request, err error) bridge.Response {
@@ -107,6 +117,8 @@ func officeFailureMessage(err error) string {
 		return "办公版本已变化，请载入最新后再试"
 	case errors.Is(err, domain.ErrInvalid):
 		return "办公参数无效"
+	case errors.Is(err, content.ErrFactConflict):
+		return "任务概要中的关键数字互相冲突，未保存"
 	case errors.Is(err, context.Canceled):
 		return "办公操作已取消"
 	case errors.Is(err, context.DeadlineExceeded):
@@ -292,6 +304,29 @@ func handleOfficeStudio(e *Engine, ctx context.Context, r bridge.Request) bridge
 		}
 		task.Title = p.Title
 		task.Goal = p.Goal
+		if p.StyleID != "" {
+			if officeapp.NormalizeTaskStyle(p.StyleID) == "" {
+				return officeFailure(r, domain.ErrInvalid)
+			}
+			task.Checkpoint = officeapp.WithTaskStyle(task.Checkpoint, p.StyleID)
+		}
+		if p.Brief != nil {
+			if len(p.Brief.Facts) > 0 {
+				if err := content.ValidateFactSet(p.Brief.Facts); err != nil {
+					return officeFailure(r, err)
+				}
+			}
+			task.Checkpoint = officeapp.WithTaskBrief(task.Checkpoint, *p.Brief)
+		}
+		if p.Brand != nil {
+			imported, brandErr := content.ImportBrandL1(content.BrandImport{
+				BrandID: p.Brand.BrandID, Colors: p.Brand.Colors, Fonts: p.Brand.Fonts,
+			}, p.Brand.Asset)
+			if brandErr != nil {
+				return officeFailure(r, brandErr)
+			}
+			task.Checkpoint = officeapp.WithTaskBrand(task.Checkpoint, imported, p.Brand.Asset)
+		}
 		task, err = s.Store.UpdateOfficeTask(ctx, task, p.ExpectedRevision)
 		if err != nil {
 			return officeFailure(r, err)
@@ -497,7 +532,7 @@ func handleOfficeStudio(e *Engine, ctx context.Context, r bridge.Request) bridge
 		if canon, canonErr := canonpath.Canonical(path); canonErr == nil {
 			path = canon
 		}
-		return r.Ok(map[string]any{"path": filepath.ToSlash(path), "absolutePath": filepath.ToSlash(path), "notice": "已导出可编辑副本；原始存档与接受状态保持不变"})
+		return r.Ok(map[string]any{"path": filepath.ToSlash(path), "absolutePath": filepath.ToSlash(path), "notice": content.ExportNotice(content.Kind(v.Kind), false)})
 	default:
 		return officeFailure(r, domain.ErrInvalid)
 	}
@@ -517,6 +552,13 @@ func (e *Engine) officeTaskDTO(ctx context.Context, t domain.Task, projectIDs ..
 	}
 	if pid, ok, err := projectIDForSession(e, ctx, t.SessionID); err == nil && ok {
 		o["projectId"] = pid
+	}
+	if style := officeapp.StyleFromCheckpoint(t.Checkpoint); style != "" {
+		o["styleId"] = style
+	}
+	o["brief"] = officeapp.BriefFromCheckpoint(t.Checkpoint)
+	if brand, _, ok := officeapp.BrandFromCheckpoint(t.Checkpoint); ok {
+		o["brandId"] = brand.BrandID
 	}
 	return o
 }

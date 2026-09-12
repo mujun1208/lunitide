@@ -1,0 +1,8 @@
+{
+  "templateId": "client-proposal",
+  "version": "1",
+  "license": "internal-original",
+  "supportedKinds": ["docx"],
+  "slots": ["toc", "heading", "heading2", "paragraph", "table"],
+  "constraints": {"page": "A4", "style": "paragraph-styles"}
+}

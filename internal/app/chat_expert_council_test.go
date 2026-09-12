@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -98,8 +99,8 @@ func (s stubSessionExperts) ReplaceSessionExpertIDs(context.Context, string, []s
 func TestSelectedTurnExpertIDsUsesMountedSubsetOnly(t *testing.T) {
 	ai, arch := "01ARZ3NDEKTSV4RRFFQ69G5FAV", "01ARZ3NDEKTSV4RRFFQ69G5FAW"
 	got := selectedTurnExpertIDs([]string{ai, arch}, "重新思考，给出一个新的方案。")
-	if len(got) != 0 {
-		t.Fatalf("two mounts and no @/chip must not start council: %#v", got)
+	if len(got) != 2 || got[0] != ai || got[1] != arch {
+		t.Fatalf("two mounts and no @/chip must still be the roster: %#v", got)
 	}
 }
 
@@ -116,13 +117,13 @@ func TestSelectedTurnExpertIDsTurnRefsBeatStalePMMounts(t *testing.T) {
 	ai, security := "01ARZ3NDEKTSV4RRFFQ69G5FAD", "01ARZ3NDEKTSV4RRFFQ69G5FAE"
 	turn := "[引用专家 AI工程师|" + ai + "]\n[引用专家 安全工程师|" + security + "]\n重新思考，给出一个新的方案。"
 	got := selectedTurnExpertIDs([]string{ppt, novel, report}, turn)
-	if len(got) != 2 || got[0] != ai || got[1] != security {
-		t.Fatalf("PM rethink must not keep ppt/novel/report: %#v", got)
+	if !containsAllExpertIDs(got, ppt, novel, report, ai, security) {
+		t.Fatalf("chips must union with still-mounted experts, not replace them: %#v", got)
 	}
 	prev := "[引用专家 PPT专家|" + ppt + "]\n[引用专家 小说编写专家|" + novel + "]\n旧方案"
 	got = selectedTurnExpertIDs([]string{ppt, novel, report}, turn, prev)
-	if len(got) != 2 || got[0] != ai || got[1] != security {
-		t.Fatalf("current chips must ignore previous-turn catalog refs: %#v", got)
+	if !containsAllExpertIDs(got, ppt, novel, report, ai, security) {
+		t.Fatalf("current chips must union mounts and ignore previous-turn-only refs: %#v", got)
 	}
 }
 
@@ -161,7 +162,133 @@ func TestCollectCouncilExpertIDsIgnoresProjectPhaseMatrix(t *testing.T) {
 		PhaseLabel: "需求架构规范",
 		TurnText:   "重新思考，给出一个新的方案。",
 	})
-	if len(got) != 0 {
-		t.Fatalf("mount-only rethink must not open council: %#v", got)
+	if len(got) != 2 || got[0] != ai || got[1] != arch {
+		t.Fatalf("two session mounts must be the council roster: %#v", got)
+	}
+}
+
+func containsAllExpertIDs(got []string, want ...string) bool {
+	seen := map[string]bool{}
+	for _, id := range got {
+		seen[id] = true
+	}
+	for _, id := range want {
+		if !seen[id] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestExpertDeliberatePromptDropsToolsWhenLaneForbids(t *testing.T) {
+	prompt := expertDeliberateSystemPromptForTools("润色专家", "改句子", false)
+	if strings.Contains(prompt, "先调用 web.search") || strings.Contains(prompt, "*.gen") && strings.Contains(prompt, "需要成文") {
+		t.Fatalf("no-tool prompt still asks for tools: %q", prompt)
+	}
+	if !strings.Contains(prompt, "不要调用任何工具") {
+		t.Fatalf("missing no-tool instruction: %q", prompt)
+	}
+}
+
+func TestCouncilChairL1DoesNotForceDocx(t *testing.T) {
+	chair := councilChairInstructionForLane(formatCouncilBrief("润色这段", nil), false, LaneL1)
+	if strings.Contains(chair, "必须把交付做完") || councilChairMustUseTools(chair) {
+		t.Fatalf("L1 chair must not hijack polish into gen/search: %q", chair)
+	}
+	if !strings.Contains(chair, "原任务") && !strings.Contains(chair, "润色") {
+		t.Fatalf("L1 chair = %q", chair)
+	}
+}
+
+func TestCouncilStepsForLane(t *testing.T) {
+	if councilStepsForLane(LaneL1) != 1 || councilToolsForLane(LaneL1) {
+		t.Fatal("L1 council is 1 step without tools")
+	}
+	if councilStepsForLane(LaneL3) != 2 || !councilToolsForLane(LaneL3) {
+		t.Fatal("L3 council is 2 steps with tools")
+	}
+	if councilStepsForLane(LaneL4) != councilExpertMaxSteps {
+		t.Fatal("L4 keeps current council steps")
+	}
+}
+
+func TestPinCouncilInviteLeadT15(t *testing.T) {
+	lead := councilInviteSpeech()
+	if got := pinCouncilInviteLead("我已经综合两位专家的意见。", lead); !strings.HasPrefix(strings.TrimLeft(got, " \n"), lead) {
+		t.Fatalf("must lead with invite, got %q", got)
+	}
+	dup := lead + "。请在侧栏挂上。\n"
+	if got := pinCouncilInviteLead(dup, lead); got != dup {
+		t.Fatalf("already-pinned text rewritten: %q", got)
+	}
+	if pinCouncilInviteLead("ok", "") != "ok" {
+		t.Fatal("empty lead must not change text")
+	}
+}
+
+func TestSelectedTurnExpertIDsChipsAloneAreCouncilRosterT12(t *testing.T) {
+	a, b := "01ARZ3NDEKTSV4RRFFQ69G5FAV", "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	turn := "[引用专家 润色A|" + a + "][引用专家 润色B|" + b + "]\n把这段话润色得更顺：今天开会很顺利"
+	got := selectedTurnExpertIDs(nil, turn)
+	if !containsAllExpertIDs(got, a, b) || len(got) != 2 {
+		t.Fatalf("T12 chips-only roster = %#v", got)
+	}
+	if !councilShouldRun(LaneL1, got, turn, false) {
+		t.Fatal("T12 chips must open council")
+	}
+	if councilToolsForLane(LaneL1) {
+		t.Fatal("T12 L1 experts must have no tools")
+	}
+}
+
+func TestBuildExpertCouncilConfigChipsAloneT12(t *testing.T) {
+	e := newExpertSkillsEngine(t)
+	ctx := context.Background()
+	a := createNamedLocalExpert(t, e, ctx, "润色A", "req-t12-a")
+	b := createNamedLocalExpert(t, e, ctx, "润色B", "req-t12-b")
+	turn := "[引用专家 润色A|" + a + "][引用专家 润色B|" + b + "]\n把这段话润色得更顺：今天开会很顺利"
+	cfg := e.buildExpertCouncilConfig(ctx, expertCouncilInputs{TurnText: turn, Lane: LaneL1})
+	if cfg == nil || !cfg.Enabled || len(cfg.Experts) < 2 {
+		t.Fatalf("T12 chips-only council = %+v", cfg)
+	}
+	if cfg.Tools || cfg.MaxSteps != 1 {
+		t.Fatalf("T12 L1 experts must be 1 step no tools: steps=%d tools=%v", cfg.MaxSteps, cfg.Tools)
+	}
+}
+
+func createNamedLocalExpert(t *testing.T, e *Engine, ctx context.Context, name, requestID string) string {
+	t.Helper()
+	created := e.Handle(ctx, nominationRequest("expert.create", `{"source":"local","frontmatter":{"name":"`+name+`","division":"engineering","description":"x","semver":"1.0.0"},"sixSection":{"identity":"i","mission":"m","rules":"r","workflow":"w","deliverableTemplate":"d","successMetrics":"s"},"requestId":"`+requestID+`"}`))
+	if !created.OK {
+		t.Fatalf("expert.create %s: %+v", name, created.Error)
+	}
+	var payload struct {
+		ExpertID string `json:"expertId"`
+	}
+	if err := json.Unmarshal(mustJSON(created.Payload), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.ExpertID) != 26 {
+		t.Fatalf("expert id = %q", payload.ExpertID)
+	}
+	return payload.ExpertID
+}
+
+func TestCouncilShouldRunT11T15T21(t *testing.T) {
+	a, b := "01ARZ3NDEKTSV4RRFFQ69G5FAV", "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	if !councilShouldRun(LaneL1, []string{a, b}, "润色这段", false) {
+		t.Fatal("T11: L1 + two mounts must run council")
+	}
+	if councilShouldRun(LaneL0, []string{a, b}, "你好", false) {
+		t.Fatal("T21: L0 must not run council")
+	}
+	if councilShouldRun(LaneL1, nil, "请两位一起评", false) {
+		t.Fatal("T15: no mounts must not run council")
+	}
+	if !councilInviteNeeded("请两位一起评这份稿", nil) {
+		t.Fatal("T15: must ask the user to mount two experts")
+	}
+	if councilShouldRun(LaneL1, []string{a, b}, "润色这段", true) {
+		t.Fatal("companion must not run council")
 	}
 }

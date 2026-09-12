@@ -1,0 +1,10 @@
+{
+  "audience": "客户",
+  "purpose": "品牌方案封面",
+  "language": "zh-CN",
+  "targetLength": 8,
+  "deliverables": ["pptx"],
+  "facts": [
+    {"factId": "pilot_sites", "value": "3", "unit": "处", "period": "2026-Q3", "sourceId": "brief", "locator": "试点数量"}
+  ]
+}

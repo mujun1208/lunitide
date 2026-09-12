@@ -162,7 +162,7 @@ func companionTurnWantsMusicPlay(text string) bool {
 		return false
 	}
 	for _, needle := range []string{
-		"播放", "播一首", "播歌", "放一首", "来一首", "随便", "任意", "随机", "听歌", "一首",
+		"播放", "播一首", "播歌", "放一首", "放首歌", "放歌", "来一首", "随便", "任意", "随机", "听歌", "一首",
 		"play", "song", "music",
 	} {
 		if strings.Contains(t, needle) || strings.Contains(strings.ToLower(t), strings.ToLower(needle)) {
@@ -214,6 +214,9 @@ func companionExtractAfterSearch(text string) string {
 }
 
 func companionExtractMusicQuery(text string) string {
+	if action, resume := companionMediaCommand(text); resume || (action != "" && action != "play") {
+		return ""
+	}
 	t := strings.TrimSpace(text)
 	parts := strings.FieldsFunc(t, func(r rune) bool { return strings.ContainsRune("，,。！!；;\n", r) })
 	kept := make([]string, 0, len(parts))
@@ -283,12 +286,38 @@ func companionRetryActionTurn(text string) bool {
 	}
 	for _, needle := range []string{
 		"再试", "试一试", "试一下", "再来一次", "再播", "倒是试", "你倒是", "再操作", "try again",
+		"再点击", "再点", "没有成功", "点击播放",
 	} {
 		if strings.Contains(t, needle) || strings.Contains(strings.ToLower(t), strings.ToLower(needle)) {
 			return true
 		}
 	}
 	return false
+}
+
+func companionMediaCommand(text string) (action string, resume bool) {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return "", false
+	}
+	if strings.Contains(t, "停止播放") || strings.Contains(t, "别放了") {
+		return "stop", false
+	}
+	if strings.Contains(t, "暂停") {
+		return "pause", false
+	}
+	if strings.Contains(t, "上一首") {
+		return "prev", false
+	}
+	if strings.Contains(t, "下一首") || strings.Contains(t, "切歌") ||
+		(strings.Contains(t, "下一周") && (strings.Contains(t, "播放") || strings.Contains(t, "音乐"))) {
+		return "next", false
+	}
+	if strings.Contains(t, "再点击") || strings.Contains(t, "再点") || strings.Contains(t, "没有成功") ||
+		strings.Contains(t, "再播一下") || strings.Contains(t, "再播放") || strings.Contains(t, "点击播放") {
+		return "play", true
+	}
+	return "", false
 }
 
 func companionPickAlternateMusicApp(current string, installed []string) string {
@@ -569,6 +598,9 @@ func (e *Engine) resolveMediaPlayArgs(sessionID string, args json.RawMessage) js
 }
 
 func companionShouldAutoMediaPlay(goal string) bool {
+	if action, _ := companionMediaCommand(goal); action != "" {
+		return true
+	}
 	return companionTurnWantsMusicPlay(goal) || companionRetryActionTurn(goal)
 }
 
@@ -581,8 +613,12 @@ func (e *Engine) companionAutoMediaPlayArgsForTurn(sessionID, goal, spoken strin
 	if hint == "" {
 		hint = goal
 	}
+	mediaAction, mediaResume := companionMediaCommand(hint)
+	if mediaAction == "" {
+		mediaAction, mediaResume = companionMediaCommand(goal)
+	}
 	if !companionTurnWantsMusicPlay(goal) {
-		if !companionRetryActionTurn(goal) && !companionRetryActionTurn(hint) {
+		if !companionRetryActionTurn(goal) && !companionRetryActionTurn(hint) && mediaAction == "" {
 			return nil, false
 		}
 		if sessionID != "" && e != nil {
@@ -620,9 +656,18 @@ func (e *Engine) companionAutoMediaPlayArgsForTurn(sessionID, goal, spoken strin
 	if app == "" {
 		return nil, false
 	}
+	action := mediaAction
+	resume := mediaResume
+	if action == "" {
+		action = "play"
+	}
+	query := companionDefaultMusicQuery(goal)
+	if resume || action != "play" {
+		query = ""
+	}
 	raw, err := json.Marshal(map[string]string{
-		"action": "play",
-		"query":  companionDefaultMusicQuery(goal),
+		"action": action,
+		"query":  query,
 		"target": "foreground",
 		"app":    app,
 	})

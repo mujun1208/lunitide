@@ -1,0 +1,11 @@
+{
+  "audience": "客户采购",
+  "purpose": "销售客户方案",
+  "language": "zh-CN",
+  "targetLength": 10,
+  "deliverables": ["pptx", "docx"],
+  "facts": [
+    {"factId": "pilot_sites", "value": "3", "unit": "处", "period": "2026-Q3", "sourceId": "brief", "locator": "试点数量"},
+    {"factId": "response_hours", "value": "4", "unit": "小时", "period": "SLA", "sourceId": "contract-draft", "locator": "响应时效"}
+  ]
+}

@@ -1,13 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import type { OfficeArtifact, OfficeNode, OfficeTaskDetail, OfficeVersion, OfficeMetric } from './officeStudioApi';
+import type { OfficeArtifact, OfficeNode, OfficeTaskDetail, OfficeVersion, OfficeMetric, OfficeBriefFact } from './officeStudioApi';
+import { findFactRefs } from './officeQualityUi';
 import { officeStudioUserError } from './officeUserError';
 
 export interface OfficeMetricActions {
   list: () => Promise<{ items: OfficeMetric[] }>;
   capture: (input: {
     versionId: string;
-    nodeId: string;
-    nodeDigest: string;
+    nodeId?: string;
+    nodeDigest?: string;
+    factId?: string;
+    value?: string;
     name: string;
     unit?: string;
     currency?: string;
@@ -31,6 +34,8 @@ export function OfficeMetricPanel({
   actions,
   onChanged,
   readOnly = false,
+  facts = [],
+  nodes = [],
 }: {
   taskId: string;
   artifact?: OfficeArtifact;
@@ -39,6 +44,8 @@ export function OfficeMetricPanel({
   actions: OfficeMetricActions;
   onChanged: (detail: OfficeTaskDetail, selectHead: boolean) => void;
   readOnly?: boolean;
+  facts?: OfficeBriefFact[];
+  nodes?: Array<Pick<OfficeNode, 'id' | 'text' | 'valueType'>>;
 }): React.JSX.Element {
   const [metrics, setMetrics] = useState<OfficeMetric[]>([]);
   const [revision, setRevision] = useState(0);
@@ -49,6 +56,9 @@ export function OfficeMetricPanel({
   const [currency, setCurrency] = useState('');
   const [period, setPeriod] = useState('');
   const [digits, setDigits] = useState('');
+  const [factId, setFactId] = useState('');
+  const [factValue, setFactValue] = useState('');
+  const [factOpen, setFactOpen] = useState(false);
   const [template, setTemplate] = useState('{{value}}{{unit}}');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -97,6 +107,7 @@ export function OfficeMetricPanel({
       onChanged(detail, selectHead);
       setRevision((value) => value + 1);
       setCaptureOpen(false);
+      setFactOpen(false);
       setNotice(selectHead ? '已根据真实来源生成修改草稿，原接受版保持不变。' : '指标已记录，原始值和来源版本已保留。');
     } catch (cause) {
       if (mounted.current && scopeRef.current === currentTaskId)
@@ -110,6 +121,7 @@ export function OfficeMetricPanel({
   const nodeKind = node?.valueType?.replace(/^cell:/, '') || 'text';
   const numericSource = nodeKind === 'number';
   const canCapture = !readOnly && !!version && !!node?.digest && !['formula', 'error'].includes(nodeKind);
+  const canCaptureFact = !readOnly && !!version;
   const canApply =
     !readOnly &&
     !!selected &&
@@ -119,6 +131,7 @@ export function OfficeMetricPanel({
     !!node.digest &&
     !['number', 'formula', 'error'].includes(nodeKind);
   const placeholders = template.match(/\{\{value\}\}/g)?.length || 0;
+  const factRefs = findFactRefs(facts, nodes);
   return (
     <section className="os-metrics" aria-label="来源指标">
       <div className="os-section-heading">
@@ -127,7 +140,18 @@ export function OfficeMetricPanel({
           刷新
         </button>
       </div>
-      <p className="os-muted">选择表格单元格或文本节点，记录真实原值；再选择目标内容，将指标写入新草稿。</p>
+      <p className="os-muted">选择表格单元格或文本节点记录真实原值，或按已核对 factId 定位；再选择目标内容，将指标写入新草稿。</p>
+      {factRefs.length > 0 ? (
+        <ul aria-label="事实引用位置">
+          {factRefs.map((ref) => (
+            <li key={ref.factId + ':' + ref.nodeId}>
+              {ref.factId} → {ref.nodeId}
+            </li>
+          ))}
+        </ul>
+      ) : facts.length > 0 ? (
+        <p className="os-muted">当前预览未找到已核对事实的节点，不能假装已绑定。</p>
+      ) : null}
       {error && (
         <p role="alert" className="os-metric-error">
           {error}
@@ -143,10 +167,60 @@ export function OfficeMetricPanel({
         onClick={() => {
           setName(node?.label || '');
           setCaptureOpen((value) => !value);
+          setFactOpen(false);
         }}
       >
         记录选中内容的指标
       </button>
+      <button
+        disabled={!canCaptureFact || busy}
+        onClick={() => {
+          setFactOpen((value) => !value);
+          setCaptureOpen(false);
+        }}
+      >
+        按事实编号记录
+      </button>
+      {factOpen && version && (
+        <form
+          className="os-metric-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void run(
+              () =>
+                actions.capture({
+                  versionId: version.id,
+                  factId: factId.trim(),
+                  value: factValue.trim(),
+                  name: name.trim() || factId.trim(),
+                  ...(unit.trim() ? { unit: unit.trim() } : {}),
+                  ...(period.trim() ? { period: period.trim() } : {}),
+                }),
+              false,
+            );
+          }}
+        >
+          <p className="os-muted">只定位文件中已存在的锁定数值，不接受模型另写的数字。</p>
+          <label>
+            事实编号
+            <input value={factId} onChange={(event) => setFactId(event.target.value)} maxLength={64} required />
+          </label>
+          <label>
+            已核对数值
+            <input value={factValue} onChange={(event) => setFactValue(event.target.value)} maxLength={64} required />
+          </label>
+          <label>
+            指标名称
+            <input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
+          </label>
+          <div className="os-row-actions">
+            <button type="button" disabled={busy} onClick={() => setFactOpen(false)}>
+              取消
+            </button>
+            <button disabled={readOnly || busy || !factId.trim() || !factValue.trim()}>按事实定位并记录</button>
+          </div>
+        </form>
+      )}
       {captureOpen && version && node && (
         <form
           className="os-metric-form"

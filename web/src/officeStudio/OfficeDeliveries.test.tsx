@@ -177,6 +177,52 @@ it('retains a selected source when the target changes and uses the target artifa
   expect(onChanged).toHaveBeenCalledWith(detail, true);
 });
 
+it('lists fact refs from current preview nodes only', async () => {
+  render(
+    <OfficeMetricPanel
+      taskId="task"
+      artifact={artifact}
+      version={artifact.versions[0]}
+      facts={[{ factId: 'orders', value: '1280', unit: '单' }]}
+      nodes={[{ id: 'n1', text: '订单 1280单', valueType: 'text' }]}
+      actions={metricActions()}
+      onChanged={vi.fn()}
+    />,
+  );
+  const list = await screen.findByRole('list', { name: '事实引用位置' });
+  expect(list).toHaveTextContent('orders');
+  expect(list).toHaveTextContent('n1');
+});
+
+it('captures a locked fact by factId without inventing a node value', async () => {
+  const actions = metricActions(),
+    onChanged = vi.fn();
+  render(
+    <OfficeMetricPanel
+      taskId="task"
+      artifact={artifact}
+      version={artifact.versions[0]}
+      actions={actions}
+      onChanged={onChanged}
+    />,
+  );
+  await screen.findByRole('button', { name: /实际收入/ });
+  fireEvent.click(screen.getByRole('button', { name: '按事实编号记录' }));
+  fireEvent.change(screen.getByLabelText('事实编号'), { target: { value: 'orders' } });
+  fireEvent.change(screen.getByLabelText('已核对数值'), { target: { value: '1280' } });
+  fireEvent.change(screen.getByLabelText('指标名称'), { target: { value: '订单数' } });
+  fireEvent.click(screen.getByRole('button', { name: '按事实定位并记录' }));
+  await waitFor(() =>
+    expect(actions.capture).toHaveBeenCalledExactlyOnceWith({
+      versionId: 'v1',
+      factId: 'orders',
+      value: '1280',
+      name: '订单数',
+    }),
+  );
+  expect(onChanged).toHaveBeenCalledWith(detail, false);
+});
+
 it('allows explicit rounding only for numeric cells and rejects formula cache as a source', async () => {
   const actions = metricActions();
   const props = {

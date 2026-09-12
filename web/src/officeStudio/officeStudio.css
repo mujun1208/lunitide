@@ -494,6 +494,125 @@ html[data-theme='light'] .os-alert {
   gap: 4px;
   flex-wrap: wrap;
 }
+.os-brief-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding: 8px 16px;
+  align-items: center;
+  border-bottom: 1px solid var(--rule);
+  flex: none;
+  font-size: 12px;
+  color: var(--muted);
+}
+.os-brief-strip p {
+  margin: 0;
+  min-width: 0;
+}
+.os-style-picker {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.os-brief-editor,
+.os-task-previews {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  align-items: center;
+}
+.os-brief-editor {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.os-brief-editor legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+.os-brief-editor label {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.os-brief-editor input {
+  width: 7.5em;
+}
+.os-outline-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  align-items: center;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.os-outline-row legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+.os-task-preview {
+  min-width: 8em;
+  flex: 1 1 8em;
+}
+.os-task-preview h3,
+.os-task-preview p {
+  margin: 0;
+}
+.os-generate-choice {
+  margin: 0;
+  color: var(--muted, #64748b);
+  font-size: 13px;
+}
+.os-style-picker legend,
+.os-brand-import legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+.os-brand-import {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  align-items: center;
+}
+.os-brand-notice {
+  flex: 1 1 100%;
+  margin: 0;
+}
+.os-brand-import label {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.os-brand-import input {
+  width: 7.5em;
+}
+.os-generate-stages {
+  display: flex;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.os-generate-stages li + li::before {
+  content: '→ ';
+  color: var(--muted);
+}
 .office-studio .os-document-bar button {
   font-size: 12px;
   padding: 5px 8px;
@@ -795,6 +914,7 @@ html[data-theme='light'] .os-alert {
 }
 .os-conversation[hidden] { display: none; }
 .os-references { flex: 0 0 auto; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.os-reference-sources { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--rule); }
 .os-reference-heading { display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
 .os-reference-files { display: flex; flex-wrap: wrap; gap: 6px; max-height: 120px; overflow: auto; }
 .os-reference-files button { display: flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; margin-top: 6px; }

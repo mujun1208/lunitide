@@ -131,6 +131,77 @@ func TestCompanionAutoMediaPlayArgs(t *testing.T) {
 	}
 }
 
+func TestCompanionRetryClickPlayIsResumeNotSongTitle(t *testing.T) {
+	goal := "播放没有成功，再点击播放一下。"
+	if got := companionDefaultMusicQuery(goal); got != "" {
+		t.Fatalf("retry click-play must not become a song title, got %q", got)
+	}
+	if action, resume := companionMediaCommand(goal); action != "play" || !resume {
+		t.Fatalf("command = %q resume=%v", action, resume)
+	}
+	if !companionRetryActionTurn(goal) {
+		t.Fatal("再点击播放 must count as retry")
+	}
+	tools, err := toolruntime.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &Engine{tools: tools}
+	e.saveCompanionContext("s1", companionActionContext{ActiveAppName: "汽水音乐", Kind: "music_app"})
+	args, ok := e.companionAutoMediaPlayArgs("s1", goal)
+	if !ok {
+		t.Fatal("expected auto media.play")
+	}
+	var parsed map[string]string
+	if err := json.Unmarshal(args, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed["action"] != "play" || parsed["query"] != "" || parsed["app"] != "汽水音乐" || parsed["target"] != "foreground" {
+		t.Fatalf("resume args = %#v", parsed)
+	}
+}
+
+func TestCompanionMediaCommandTransport(t *testing.T) {
+	cases := []struct {
+		text   string
+		action string
+	}{
+		{"暂停", "pause"},
+		{"暂停播放", "pause"},
+		{"下一首", "next"},
+		{"切歌", "next"},
+		{"播放汽水音乐下一周", "next"},
+		{"上一首", "prev"},
+		{"停止播放", "stop"},
+		{"别放了", "stop"},
+		{"别放了吧", "stop"},
+	}
+	for _, tc := range cases {
+		action, resume := companionMediaCommand(tc.text)
+		if action != tc.action || resume {
+			t.Fatalf("%q => %q resume=%v", tc.text, action, resume)
+		}
+	}
+}
+
+func TestCompanionCancelAndPlaySongRoutesAsPlay(t *testing.T) {
+	if detectTaskRoute("算了放首歌") != RouteR2 {
+		t.Fatalf("算了放首歌 route=%s want R2", detectTaskRoute("算了放首歌"))
+	}
+	if !companionTurnWantsMusicPlay("算了放首歌") || !companionShouldAutoMediaPlay("算了放首歌") {
+		t.Fatal("un-stripped 算了放首歌 must still auto-play")
+	}
+}
+
+func TestCompanionStopSongIsNotATitle(t *testing.T) {
+	if got := companionExtractMusicQuery("别放了"); got != "" {
+		t.Fatalf("别放了 must not be a song title, got %q", got)
+	}
+	if action, resume := companionMediaCommand("别放了"); action != "stop" || resume {
+		t.Fatalf("别放了 => %q resume=%v", action, resume)
+	}
+}
+
 func TestCompanionExtractMusicQueryKeepsArtist(t *testing.T) {
 	if got := companionDefaultMusicQuery("播放一首周杰伦的歌曲"); got != "周杰伦" {
 		t.Fatalf("got %q", got)

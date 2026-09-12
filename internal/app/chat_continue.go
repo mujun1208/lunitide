@@ -191,6 +191,11 @@ func unverifiedMediaPlay(lastTool, out, assistant string) bool {
 	if strings.Contains(combined, "verified playing") || strings.Contains(combined, "verified already playing") {
 		return false
 	}
+	if strings.Contains(combined, "started playing") {
+		if l0, ok := extractL0(out); ok && l0.Passed && !l0.Uncertain {
+			return false
+		}
+	}
 	return true
 }
 
@@ -279,7 +284,17 @@ func companionGoalIsOpenOnly(text string) bool {
 	if !open {
 		return false
 	}
-	for _, follow := range []string{"填写", "填一下", "填", "输入", "写入", "写", "播放", "播一", "点", "搜索", "搜一", "查", "发消息", "发送", "提交", "保存", "生成", "制作", "编辑", "下载", "上传", "关闭", "退出", "朗读", "然后", "之后", "接着"} {
+	for _, follow := range []string{
+		"填写", "填一下", "填入", "填上", "填",
+		"输入",
+		"写入", "写上", "写一", "写进", "写好", "帮我写", "然后写", "并写",
+		"播放", "播一",
+		"点击", "点开", "点一下", "点保存", "点确定",
+		"搜索", "搜一", "查",
+		"发消息", "发送", "提交", "保存", "生成", "制作", "编辑",
+		"下载", "上传", "关闭", "退出", "朗读",
+		"然后", "之后", "接着",
+	} {
 		if strings.Contains(t, follow) {
 			return false
 		}
@@ -287,12 +302,30 @@ func companionGoalIsOpenOnly(text string) bool {
 	return true
 }
 
+func companionDesktopFilenameFragment(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	if strings.Contains(t, "打开") || strings.Contains(t, "启动") || strings.Contains(t, "把开") || strings.Contains(t, "运行") {
+		return false
+	}
+	if strings.HasSuffix(t, "增补文档") || strings.HasSuffix(t, "手写文档") || strings.HasSuffix(t, "协议文档") {
+		return true
+	}
+	return strings.Contains(t, "桌面上的") && (strings.HasSuffix(t, "文档") || strings.HasSuffix(t, "文件"))
+}
+
 func desktopOpenSucceeded(toolOut string, lastTools []string) bool {
-	if lastToolName(lastTools) != "desktop.open" {
+	if !usedAnyTool(lastTools, "desktop.open") {
 		return false
 	}
 	out := strings.TrimSpace(toolOut)
-	return strings.HasPrefix(out, "opened ") && !strings.Contains(out, "无法执行")
+	if strings.Contains(out, "opened ") {
+		return !strings.Contains(out, "无法执行")
+	}
+	// Open ran earlier this turn; a later tool's output is not the receipt.
+	return lastToolName(lastTools) != "desktop.open"
 }
 
 // pickTurnContinueKind decides why the tool loop should take another

@@ -361,6 +361,9 @@ func docxGenBlocked(turn *chatTurnCheckpoint, name string) (bool, string) {
 	if name != "docx.gen" || turn == nil || !turn.DocxActive {
 		return false, ""
 	}
+	if turn.SkipOfficeResearch {
+		return false, ""
+	}
 	if docxPipelineReady(turn) || turn.DocxStage == docxStageGenerate || turn.DocxNudges >= 3 {
 		return false, ""
 	}

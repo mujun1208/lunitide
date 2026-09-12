@@ -1,0 +1,10 @@
+{
+  "audience": "评审",
+  "purpose": "证据页引用检查",
+  "language": "zh-CN",
+  "targetLength": 10,
+  "deliverables": ["pptx", "docx"],
+  "facts": [
+    {"factId": "sample_n", "value": "42", "unit": "份", "period": "研究窗口", "sourceId": "notes", "locator": "样本数"}
+  ]
+}

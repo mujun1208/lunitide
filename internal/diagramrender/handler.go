@@ -16,7 +16,9 @@ import (
 	"github.com/lunitide/lunitide/internal/commandworker"
 )
 
-const Timeout = 8 * time.Second
+// Cold-start of a hidden WebView2 plus a 10-node Chinese flowchart needs more
+// than 8s; the Job Object still kills a wedged worker.
+const Timeout = 20 * time.Second
 const MaxResultBytes = 2 << 20
 
 type Request struct {
@@ -89,8 +91,14 @@ func (h *Handler) render(ctx context.Context, p Request) (Result, error) {
 		run = commandworker.Run
 	}
 	outcome, err := run(ctx, commandworker.Spec{Exe: executable, Args: []string{"--diagram-worker=" + path}, Dir: task, Env: os.Environ(), Timeout: Timeout, MaxOutputBytes: 4096}, nil, nil)
-	if err != nil || outcome.TimedOut || ctx.Err() != nil {
-		return Result{}, errors.New("图表渲染超时或已取消，已回收独立渲染进程；源码仍保留")
+	if err != nil {
+		return Result{}, errors.New("独立图表进程未能启动，源码仍保留")
+	}
+	if outcome.TimedOut || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return Result{}, errors.New("图表渲染超时，已回收独立渲染进程；源码仍保留")
+	}
+	if ctx.Err() != nil {
+		return Result{}, errors.New("图表渲染已取消，已回收独立渲染进程；源码仍保留")
 	}
 	if outcome.ExitCode != 0 {
 		return Result{}, errors.New("独立图表渲染失败，源码仍保留")

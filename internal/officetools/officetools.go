@@ -318,12 +318,25 @@ func GenDocxDoc(doc DocxDoc) ([]byte, error) {
 }
 
 // SlideSpec is one pptx slide. Layout is title (cover), section, or content.
+type SlideMetric struct {
+	Label string
+	Value string
+	Unit  string
+}
+
+type SlideComparison struct {
+	Left  []string
+	Right []string
+}
+
 type SlideSpec struct {
-	Title    string   `json:"title"`
-	Subtitle string   `json:"subtitle,omitempty"`
-	Bullets  []string `json:"bullets"`
-	Layout   string   `json:"layout,omitempty"`
-	Notes    string   `json:"notes,omitempty"`
+	Title      string           `json:"title"`
+	Subtitle   string           `json:"subtitle,omitempty"`
+	Bullets    []string         `json:"bullets"`
+	Layout     string           `json:"layout,omitempty"`
+	Notes      string           `json:"notes,omitempty"`
+	Metrics    []SlideMetric    `json:"-"`
+	Comparison *SlideComparison `json:"-"`
 }
 
 // GenPptx writes a minimal-but-valid PowerPoint deck (OOXML zip:

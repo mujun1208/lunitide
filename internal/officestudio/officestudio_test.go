@@ -198,7 +198,7 @@ func TestInvalidSpecAndUnsafeFormulasFail(t *testing.T) {
 			t.Errorf("accepted %#v", cell)
 		}
 	}
-	if _, err := Generate(Spec{SchemaVersion: 2, Kind: PDF, Title: "不支持", Body: "正文"}); err == nil {
+	if _, err := Generate(Spec{SchemaVersion: 9, Kind: PDF, Title: "不支持", Body: "正文"}); err == nil {
 		t.Fatal("accepted future schema")
 	}
 	if _, err := Generate(Spec{SchemaVersion: 1, Kind: PPTX, Title: "不支持", Slides: []Slide{{Title: "标题", Layout: "invented"}}}); err == nil {

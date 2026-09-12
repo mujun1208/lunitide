@@ -9,9 +9,43 @@ import (
 	"time"
 
 	domain "github.com/lunitide/lunitide/internal/domain/officestudio"
+	"github.com/lunitide/lunitide/internal/officestudio"
 	"github.com/lunitide/lunitide/internal/org"
 	"github.com/oklog/ulid/v2"
 )
+
+func TestOperationCheckpointKeepsTaskStyle(t *testing.T) {
+	s, store, task := studioServiceFixture(t)
+	ctx := context.Background()
+	if err := s.SetTaskStyle(ctx, task.ID, "editorial-report"); err != nil {
+		t.Fatal(err)
+	}
+	task, err := store.GetOfficeTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Checkpoint = WithTaskBrief(task.Checkpoint, officestudio.Brief{
+		Audience: "客户",
+		Facts:    []officestudio.Fact{{FactID: "orders", Value: "1280", Locked: true}},
+	})
+	if _, err = store.UpdateOfficeTask(ctx, task, task.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Execute(ctx, task.ID, "validating", func(context.Context) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	after, err := store.GetOfficeTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if StyleFromCheckpoint(after.Checkpoint) != "editorial-report" {
+		t.Fatalf("style lost after operation: %s", after.Checkpoint)
+	}
+	brief := BriefFromCheckpoint(after.Checkpoint)
+	if brief.Audience != "客户" || len(brief.Facts) != 1 || brief.Facts[0].Value != "1280" {
+		t.Fatalf("brief lost after operation: %s", after.Checkpoint)
+	}
+}
 
 func TestOfficeLifecycleSuccessFailureAndPanicRetainCheckpoints(t *testing.T) {
 	s, store, task := studioServiceFixture(t)

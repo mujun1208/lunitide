@@ -72,7 +72,10 @@ const preview = (versionId: string): OfficePreview => ({
     { id: `node-${versionId}`, label: '经营总结', text: `正文 ${versionId}`, editable: true, digest: 'c'.repeat(64) },
   ],
 });
-const apiFor = (detail = fixture()): OfficeStudioApi => ({
+const apiFor = (
+  detail = fixture(),
+  previewFor: (versionId: string) => OfficePreview = preview,
+): OfficeStudioApi => ({
   storageUsage: vi.fn(async () => ({limitBytes:2147483648,usedBytes:0,reservedBytes:0,totalBytes:0,referencedBytes:0,unmanagedBytes:0,blobCount:0,activeLeaseCount:0,overLimit:false})),
   sweepStorage: vi.fn(async () => ({dryRun:true,candidates:0,removed:0,freedBytes:0,releasedReservationBytes:0,hasMore:false,errors:[]})),
   replaceImage: vi.fn(async () => detail),
@@ -86,7 +89,7 @@ const apiFor = (detail = fixture()): OfficeStudioApi => ({
   update: vi.fn(async () => detail),
   sync: vi.fn(async () => detail),
   importArtifact: vi.fn(async () => detail),
-  preview: vi.fn(async (p) => preview(p.versionId)),
+  preview: vi.fn(async (p) => previewFor(p.versionId)),
   patch: vi.fn(async () => detail),
   validate: vi.fn(async () => detail),
   accept: vi.fn(async () => detail),
@@ -115,6 +118,90 @@ const open = async (
   await screen.findByRole('heading', { name: '季度汇报' });
   await screen.findByText('正文 v2');
 };
+
+it('syncs chat files after an incomplete first snapshot and opens the deliverable', async () => {
+  const empty = { ...fixture(), artifacts: [], snapshotIncomplete: true, committed: true };
+  const api = apiFor(empty);
+  vi.mocked(api.get).mockResolvedValue(empty);
+  vi.mocked(api.sync).mockResolvedValue(fixture());
+  localStorage.setItem('lunitide:office-studio:last-task', taskId);
+  render(<OfficeStudioPage initialTaskId={taskId} api={api} renderConversation={() => <div>原会话输入框</div>} onOpenSession={vi.fn()} />);
+  await waitFor(() => expect(api.sync).toHaveBeenCalledWith({ taskId }));
+  expect(await screen.findByText('正文 v2')).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: '尚未生成交付文件' })).toBeNull();
+});
+
+it('opens the synced deliverable when the bound conversation becomes idle', async () => {
+  const empty = { ...fixture(), artifacts: [] };
+  const api = apiFor(empty);
+  vi.mocked(api.get).mockResolvedValue(empty);
+  vi.mocked(api.sync).mockResolvedValueOnce(empty).mockResolvedValue(fixture());
+  let reportActivity: (active: boolean) => void = () => {};
+  function Conversation({ options }: { options: OfficeConversationOptions }) {
+    useEffect(() => {
+      reportActivity = options.onActivityChange;
+      options.onReady();
+    }, [options]);
+    return <div>原会话输入框</div>;
+  }
+  localStorage.setItem('lunitide:office-studio:last-task', taskId);
+  render(<OfficeStudioPage initialTaskId={taskId} api={api} renderConversation={(_, options) => <Conversation options={options} />} onOpenSession={vi.fn()} />);
+  await screen.findByRole('heading', { name: '尚未生成交付文件' });
+  await waitFor(() => expect(api.sync).toHaveBeenCalledTimes(1));
+  await act(async () => {
+    reportActivity(true);
+    reportActivity(false);
+  });
+  expect(await screen.findByText('正文 v2')).toBeInTheDocument();
+});
+
+it('retries idle sync until the archived deliverable appears', async () => {
+  const empty = { ...fixture(), artifacts: [] };
+  const api = apiFor(empty);
+  vi.mocked(api.get).mockResolvedValue(empty);
+  vi.mocked(api.sync).mockResolvedValueOnce(empty).mockResolvedValueOnce(empty).mockResolvedValue(fixture());
+  let reportActivity: (active: boolean) => void = () => {};
+  function Conversation({ options }: { options: OfficeConversationOptions }) {
+    useEffect(() => {
+      reportActivity = options.onActivityChange;
+      options.onReady();
+    }, [options]);
+    return <div>原会话输入框</div>;
+  }
+  localStorage.setItem('lunitide:office-studio:last-task', taskId);
+  render(<OfficeStudioPage initialTaskId={taskId} api={api} renderConversation={(_, options) => <Conversation options={options} />} onOpenSession={vi.fn()} />);
+  await screen.findByRole('heading', { name: '尚未生成交付文件' });
+  await waitFor(() => expect(api.sync).toHaveBeenCalledTimes(1));
+  await act(async () => {
+    reportActivity(true);
+    reportActivity(false);
+  });
+  expect(await screen.findByText('正文 v2')).toBeInTheDocument();
+  expect(api.sync.mock.calls.length).toBeGreaterThanOrEqual(3);
+});
+
+it('lists deliverables in the conversation rail and previews the clicked file', async () => {
+  const second = {
+    ...fixture().artifacts[0],
+    id: 'ppt',
+    name: '节奏图.pptx',
+    kind: 'pptx' as const,
+    headVersionId: 'pv1',
+    versions: [{ id: 'pv1', versionNo: 1, quality: 'unverified' as const, mode: 'imported' as const, size: 64, sha256: 'd'.repeat(64), createdAt: '2026-09-07T00:00:00Z' }],
+  };
+  const detail = { ...fixture(), artifacts: [...fixture().artifacts, second] };
+  const api = apiFor(detail);
+  vi.mocked(api.preview).mockImplementation(async (p) =>
+    p.versionId === 'pv1'
+      ? { versionId: 'pv1', kind: 'pptx', content: '', previewBasis: '结构预览', pdfReady: false, truncated: false, nodes: [{ id: 'slide-1', label: '封面', text: '幻灯片正文', editable: false }] }
+      : preview(p.versionId),
+  );
+  await open(api);
+  const rail = screen.getByRole('region', { name: '产物清单' });
+  fireEvent.click(within(rail).getByRole('button', { name: '查看交付文件 节奏图.pptx' }));
+  expect(await screen.findByText('幻灯片正文')).toBeInTheDocument();
+  expect(api.preview).toHaveBeenCalledWith(expect.objectContaining({ versionId: 'pv1' }));
+});
 
 it('keeps an uploaded source separate until a generated deliverable appears', async () => {
   const detail = fixture();
@@ -624,5 +711,360 @@ describe('Office Studio production state', () => {
       }),
     );
     expect(api.accept).not.toHaveBeenCalled();
+  });
+
+  it('shows the independent PDF export notice from the server', async () => {
+    const api = apiFor();
+    vi.mocked(api.exportArtifact).mockResolvedValue({
+      path: 'exports/独立.pdf',
+      notice: '独立 PDF 与 Word 使用同一内容版本，但不保证分页与 Word 像素一致。',
+    });
+    await open(api);
+    fireEvent.click(screen.getByRole('button', { name: '导出副本' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存副本' }));
+    expect(await screen.findByText(/不保证分页/)).toBeVisible();
+  });
+
+  it('restores style from the task snapshot when local storage is empty', async () => {
+    const detail = fixture();
+    detail.task.styleId = 'editorial-report';
+    await open(apiFor(detail));
+    expect(screen.getByRole('radio', { name: '编辑式报告' })).toBeChecked();
+    expect(screen.getByLabelText('任务概要')).toHaveTextContent('编辑式报告');
+  });
+
+  it('restores and persists the selected style per task', async () => {
+    localStorage.setItem(`lunitide:office-studio:style:${taskId}`, 'brand-pitch');
+    const api = apiFor();
+    await open(api);
+    expect(screen.getByRole('radio', { name: '品牌方案' })).toBeChecked();
+    fireEvent.click(screen.getByRole('radio', { name: '编辑式报告' }));
+    expect(localStorage.getItem(`lunitide:office-studio:style:${taskId}`)).toBe('editorial-report');
+    expect(screen.getByLabelText('任务概要')).toHaveTextContent('编辑式报告');
+    await waitFor(() =>
+      expect(api.update).toHaveBeenCalledWith({
+        taskId,
+        expectedRevision: 42,
+        title: '季度汇报',
+        goal: '根据已提供的数据整理季度汇报',
+        styleId: 'editorial-report',
+      }),
+    );
+  });
+
+  it('renders persisted brand id without inventing colors', async () => {
+    const detail = fixture();
+    detail.task.brandId = 'task-teal';
+    await open(apiFor(detail));
+    expect(screen.getByLabelText('任务概要')).toHaveTextContent('品牌：task-teal');
+    expect(screen.getByLabelText('任务概要')).not.toHaveTextContent('112233');
+  });
+
+  it('clears brand draft when switching tasks so the previous license is not reused', async () => {
+    const otherId = '01ARZ3NDEKTSV4RRFFQ69G5FA9';
+    const current = fixture();
+    const other = fixture();
+    other.task = { ...other.task, id: otherId, title: '另一任务', revision: 3 };
+    const api = apiFor(current);
+    api.list = vi.fn(async () => ({ items: [current.task, other.task] }));
+    api.get = vi.fn(async (payload) => (payload.taskId === otherId ? other : current));
+    await open(api);
+    fireEvent.change(screen.getByLabelText('品牌编号'), { target: { value: 'task-teal' } });
+    fireEvent.change(screen.getByLabelText('许可'), { target: { value: 'client-granted' } });
+    fireEvent.click(screen.getByRole('button', { name: '另一任务' }));
+    await screen.findByRole('heading', { name: '另一任务' });
+    expect(screen.getByLabelText('品牌编号')).toHaveValue('');
+    expect(screen.getByLabelText('许可')).toHaveValue('');
+  });
+
+  it('registers optional navy and logo digest without showing hex in the strip', async () => {
+    const api = apiFor();
+    await open(api);
+    fireEvent.change(screen.getByLabelText('品牌编号'), { target: { value: 'task-teal' } });
+    fireEvent.change(screen.getByLabelText('主色'), { target: { value: '112233' } });
+    fireEvent.change(screen.getByLabelText('来源'), { target: { value: 'https://example.invalid/brand' } });
+    fireEvent.change(screen.getByLabelText('许可'), { target: { value: 'client-granted' } });
+    fireEvent.change(screen.getByLabelText('摘要'), { target: { value: 'ab'.repeat(32) } });
+    fireEvent.change(screen.getByLabelText('标识摘要'), { target: { value: 'cd'.repeat(32) } });
+    fireEvent.click(screen.getByRole('button', { name: '登记品牌' }));
+    await waitFor(() =>
+      expect(api.update).toHaveBeenCalledWith({
+        taskId,
+        expectedRevision: 42,
+        title: '季度汇报',
+        goal: '根据已提供的数据整理季度汇报',
+        brand: {
+          brandId: 'task-teal',
+          colors: { navy: '112233' },
+          fonts: { latin: '', east: '' },
+          asset: {
+            sourceUrl: 'https://example.invalid/brand',
+            license: 'client-granted',
+            digest: 'ab'.repeat(32),
+            logoDigest: 'cd'.repeat(32),
+          },
+        },
+      }),
+    );
+    expect(screen.getByLabelText('任务概要')).not.toHaveTextContent('112233');
+  });
+
+  it('refuses L1 brand when navy is not six hex digits', async () => {
+    const api = apiFor();
+    await open(api);
+    fireEvent.change(screen.getByLabelText('品牌编号'), { target: { value: 'task-teal' } });
+    fireEvent.change(screen.getByLabelText('主色'), { target: { value: 'navy' } });
+    fireEvent.change(screen.getByLabelText('来源'), { target: { value: 'https://example.invalid/brand' } });
+    fireEvent.change(screen.getByLabelText('许可'), { target: { value: 'client-granted' } });
+    fireEvent.change(screen.getByLabelText('摘要'), { target: { value: 'ab'.repeat(32) } });
+    fireEvent.click(screen.getByRole('button', { name: '登记品牌' }));
+    expect(api.update).not.toHaveBeenCalled();
+  });
+
+  it('registers L1 brand through task update and refuses missing license', async () => {
+    const api = apiFor();
+    await open(api);
+    expect(screen.getByLabelText('任务品牌')).toHaveTextContent('不还原');
+    fireEvent.change(screen.getByLabelText('品牌编号'), { target: { value: 'task-teal' } });
+    fireEvent.change(screen.getByLabelText('西文字体'), { target: { value: 'Georgia' } });
+    fireEvent.change(screen.getByLabelText('中文字体'), { target: { value: 'SimSun' } });
+    fireEvent.change(screen.getByLabelText('来源'), { target: { value: 'https://example.invalid/brand' } });
+    fireEvent.click(screen.getByRole('button', { name: '登记品牌' }));
+    expect(api.update).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('许可'), { target: { value: 'client-granted' } });
+    fireEvent.change(screen.getByLabelText('摘要'), { target: { value: 'ab'.repeat(32) } });
+    fireEvent.click(screen.getByRole('button', { name: '登记品牌' }));
+    await waitFor(() =>
+      expect(api.update).toHaveBeenCalledWith({
+        taskId,
+        expectedRevision: 42,
+        title: '季度汇报',
+        goal: '根据已提供的数据整理季度汇报',
+        brand: {
+          brandId: 'task-teal',
+          fonts: { latin: 'Georgia', east: 'SimSun' },
+          asset: {
+            sourceUrl: 'https://example.invalid/brand',
+            license: 'client-granted',
+            digest: 'ab'.repeat(32),
+          },
+        },
+      }),
+    );
+  });
+
+  it('renders persisted brief instead of inventing audience', async () => {
+    const detail = fixture();
+    detail.task.brief = { audience: '客户', purpose: '方案汇报', targetLength: 8 };
+    await open(apiFor(detail));
+    expect(screen.getByLabelText('任务概要')).toHaveTextContent('客户');
+    expect(screen.getByLabelText('任务概要')).toHaveTextContent('方案汇报');
+    expect(screen.getByLabelText('任务概要')).toHaveTextContent('约 8 页');
+    expect(screen.getByLabelText('任务概要')).not.toHaveTextContent('管理层');
+    expect(screen.getByLabelText('受众')).toHaveValue('客户');
+    expect(screen.getByLabelText('用途')).toHaveValue('方案汇报');
+    expect(screen.getByLabelText('目标页数')).toHaveValue(8);
+  });
+
+  it('persists editable outline without inventing stock pages', async () => {
+    const detail = fixture();
+    const api = apiFor(detail);
+    await open(api);
+    fireEvent.change(screen.getByLabelText('页标题'), { target: { value: '指标' } });
+    fireEvent.change(screen.getByLabelText('页目的'), { target: { value: '指标概览' } });
+    fireEvent.change(screen.getByLabelText('页结论'), { target: { value: '订单仍为 1280' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存概要' }));
+    await waitFor(() =>
+      expect(api.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          brief: expect.objectContaining({
+            outline: [{ title: '指标', purpose: '指标概览', claim: '订单仍为 1280' }],
+          }),
+        }),
+      ),
+    );
+    expect(screen.getByText('可先看上方三个预览再生成，或直接生成。预览只来自当前任务。')).toBeInTheDocument();
+    expect(screen.getByLabelText('当前任务预览')).not.toHaveTextContent('精美示例');
+  });
+
+  it('persists two outline pages and does not save a blank extra page', async () => {
+    const api = apiFor();
+    await open(api);
+    fireEvent.click(screen.getByRole('button', { name: '增加大纲页' }));
+    const titles = screen.getAllByLabelText('页标题');
+    const purposes = screen.getAllByLabelText('页目的');
+    fireEvent.change(titles[0], { target: { value: '封面' } });
+    fireEvent.change(purposes[0], { target: { value: '封面' } });
+    fireEvent.change(titles[1], { target: { value: '指标' } });
+    fireEvent.change(purposes[1], { target: { value: '指标概览' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存概要' }));
+    await waitFor(() =>
+      expect(api.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          brief: expect.objectContaining({
+            outline: [
+              { title: '封面', purpose: '封面', claim: '' },
+              { title: '指标', purpose: '指标概览', claim: '' },
+            ],
+          }),
+        }),
+      ),
+    );
+    expect(screen.getByLabelText('大纲第2页')).toBeInTheDocument();
+  });
+
+  it('renders persisted outline and does not send a blank outline page', async () => {
+    const detail = fixture();
+    detail.task.brief = {
+      audience: '客户',
+      purpose: '方案汇报',
+      outline: [{ title: '指标', purpose: '指标概览', claim: '订单仍为 1280' }],
+    };
+    const api = apiFor(detail);
+    await open(api);
+    expect(screen.getByLabelText('页标题')).toHaveValue('指标');
+    expect(screen.getByLabelText('页目的')).toHaveValue('指标概览');
+    expect(screen.getByLabelText('页结论')).toHaveValue('订单仍为 1280');
+    fireEvent.click(screen.getByRole('button', { name: '保存概要' }));
+    await waitFor(() =>
+      expect(api.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          brief: expect.objectContaining({
+            audience: '客户',
+            purpose: '方案汇报',
+            outline: [{ title: '指标', purpose: '指标概览', claim: '订单仍为 1280' }],
+          }),
+        }),
+      ),
+    );
+  });
+
+  it('persists editable brief without wiping style or brand', async () => {
+    const detail = fixture();
+    detail.task.styleId = 'brand-proposal';
+    detail.task.brandId = 'task-teal';
+    const api = apiFor(detail);
+    await open(api);
+    fireEvent.change(screen.getByLabelText('受众'), { target: { value: '客户' } });
+    fireEvent.change(screen.getByLabelText('用途'), { target: { value: '方案汇报' } });
+    fireEvent.change(screen.getByLabelText('目标页数'), { target: { value: '8' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存概要' }));
+    await waitFor(() =>
+      expect(api.update).toHaveBeenCalledWith({
+        taskId,
+        expectedRevision: 42,
+        title: '季度汇报',
+        goal: '根据已提供的数据整理季度汇报',
+        brief: { audience: '客户', purpose: '方案汇报', targetLength: 8 },
+      }),
+    );
+    expect(api.update).not.toHaveBeenCalledWith(expect.objectContaining({ styleId: '' }));
+    expect(api.update).not.toHaveBeenCalledWith(expect.objectContaining({ brand: expect.anything() }));
+    expect(screen.getByLabelText('任务概要')).toHaveTextContent('品牌方案');
+    expect(screen.getByLabelText('任务概要')).toHaveTextContent('品牌：task-teal');
+  });
+
+  it('clears brief draft when switching tasks so the previous audience is not reused', async () => {
+    const otherId = '01ARZ3NDEKTSV4RRFFQ69G5FA9';
+    const current = fixture();
+    current.task.brief = { audience: '客户', purpose: '方案汇报', targetLength: 8 };
+    const other = fixture();
+    other.task = { ...other.task, id: otherId, title: '另一任务', revision: 3 };
+    const api = apiFor(current);
+    api.list = vi.fn(async () => ({ items: [current.task, other.task] }));
+    api.get = vi.fn(async (payload) => (payload.taskId === otherId ? other : current));
+    await open(api);
+    expect(screen.getByLabelText('受众')).toHaveValue('客户');
+    fireEvent.click(screen.getByRole('button', { name: '另一任务' }));
+    await screen.findByRole('heading', { name: '另一任务' });
+    expect(screen.getByLabelText('受众')).toHaveValue('');
+    expect(screen.getByLabelText('用途')).toHaveValue('');
+    expect(screen.getByLabelText('目标页数')).toHaveValue(null);
+  });
+
+  it('shows cover body and chart previews from the current task only', async () => {
+    const rich = (versionId: string): OfficePreview => ({
+      ...preview(versionId),
+      nodes: [
+        { id: 'cover', label: '封面', text: 'Q3 封面', editable: true, digest: 'c'.repeat(64) },
+        { id: 'body', label: '经营总结', text: '收入 1200', editable: true, digest: 'd'.repeat(64) },
+        {
+          id: 'chart',
+          label: '趋势图',
+          text: '季度趋势',
+          valueType: 'chart',
+          editable: true,
+          digest: 'e'.repeat(64),
+        },
+      ],
+    });
+    localStorage.setItem('lunitide:office-studio:last-task', taskId);
+    render(
+      <OfficeStudioPage
+        initialTaskId={taskId}
+        api={apiFor(fixture(), rich)}
+        renderConversation={() => <div>原会话输入框</div>}
+        onOpenSession={vi.fn()}
+      />,
+    );
+    await screen.findByRole('heading', { name: '季度汇报' });
+    await screen.findByLabelText('封面预览');
+    expect(screen.getByLabelText('封面预览')).toHaveTextContent('Q3 封面');
+    expect(screen.getByLabelText('正文预览')).toHaveTextContent('收入 1200');
+    expect(screen.getByLabelText('图表预览')).toHaveTextContent('趋势图');
+    expect(screen.getByLabelText('当前任务预览')).not.toHaveTextContent('库存样图');
+    expect(screen.getByLabelText('当前任务预览')).not.toHaveTextContent('示例图');
+  });
+
+  it('says the current task has no chart page instead of showing stock art', async () => {
+    await open(apiFor());
+    expect(screen.getByLabelText('封面预览')).toHaveTextContent('经营总结');
+    expect(screen.getByLabelText('图表预览')).toHaveTextContent('当前任务尚无该页');
+    expect(screen.getByLabelText('图表预览')).not.toHaveTextContent('示例图');
+  });
+
+  it('saves authored confidentiality without inventing a classification', async () => {
+    const api = apiFor();
+    await open(api);
+    fireEvent.change(screen.getByLabelText('密级'), { target: { value: '内部' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存概要' }));
+    await waitFor(() =>
+      expect(api.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          brief: expect.objectContaining({ confidentiality: '内部' }),
+        }),
+      ),
+    );
+    expect(api.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        brief: expect.objectContaining({ confidentiality: '机密' }),
+      }),
+    );
+  });
+
+  it('disables formal deliver when blockers remain and labels concept preview', async () => {
+    const api = apiFor();
+    await open(api);
+    expect(screen.getByLabelText('任务概要')).toHaveTextContent('未填写');
+    expect(screen.getByLabelText('任务概要')).toHaveTextContent('页数未填写');
+    expect(screen.getByLabelText('任务概要')).not.toHaveTextContent('管理层');
+    expect(screen.getByRole('radio', { name: '清晰经营' })).toBeChecked();
+    expect(screen.getByLabelText('生成进度')).toHaveTextContent('整理');
+    expect(screen.getByText(/未校准/)).toBeVisible();
+    expect(screen.getByText(/本期不做/)).toBeVisible();
+    expect(screen.getByText(/试验范围/)).toBeVisible();
+    expect(screen.getByText(/概念预览/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '版本' }));
+    expect(screen.getAllByText(/只能导出草稿|正式交付仍被阻断/).length).toBeGreaterThan(0);
+    const formal = screen.getAllByRole('button', { name: '作为正式交付' });
+    expect(formal.length).toBeGreaterThan(0);
+    formal.forEach((button) => expect(button).toBeDisabled());
+    fireEvent.click(formal[0]);
+    expect(api.accept).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '切换到检查' }));
+    expect(screen.getByText('内容完整')).toBeVisible();
+    expect(screen.getByText('可继续编辑')).toBeVisible();
+    expect(screen.getByText('存在需处理的问题')).toBeVisible();
+    expect(screen.queryByText('排版已检查')).not.toBeInTheDocument();
   });
 });

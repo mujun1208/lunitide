@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -105,5 +106,12 @@ func TestProviderListExcludesLegacyIDFromBridgeJSON(t *testing.T) {
 	}
 	if !bytes.Contains(raw, []byte(`"status":"enabled"`)) {
 		t.Fatalf("required ProviderDTO status missing: %s", raw)
+	}
+}
+
+func TestHandlerPanicLogIncludesStack(t *testing.T) {
+	got := handlerPanicLog("chat.start", "boom")
+	if !strings.Contains(got, "chat.start") || !strings.Contains(got, "boom") || !strings.Contains(got, "goroutine") {
+		t.Fatalf("missing method/reason/stack: %q", got)
 	}
 }

@@ -188,6 +188,7 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
         holdUtterance,
         silenceMs: windows.silenceMs,
         incompleteSilenceMs: windows.incompleteSilenceMs,
+        text: trimmed,
       })
     ) {
       return
@@ -341,6 +342,7 @@ export async function startLocalCompanionSpeech(options: CompanionSpeechOptions)
           incomplete: looksIncompleteUtterance(fromBuffer),
           silenceMs: windows.silenceMs,
           incompleteSilenceMs: windows.incompleteSilenceMs,
+          text: fromBuffer,
         })
       ) {
         return false

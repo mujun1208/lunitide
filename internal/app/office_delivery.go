@@ -9,6 +9,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	domain "github.com/lunitide/lunitide/internal/domain/officestudio"
 	"github.com/lunitide/lunitide/internal/officeapp"
+	content "github.com/lunitide/lunitide/internal/officestudio"
 )
 
 type officeDeliveryPayload struct {
@@ -29,6 +30,8 @@ type officeDeliveryPayload struct {
 	ExpectedRevision int64    `json:"expectedRevision"`
 	Title            string   `json:"title"`
 	VersionIDs       []string `json:"versionIds"`
+	FactID           string   `json:"factId"`
+	Value            string   `json:"value"`
 	BundleID         string   `json:"bundleId"`
 	SnapshotOffset   int      `json:"snapshotOffset"`
 	SnapshotDigest   string   `json:"snapshotDigest"`
@@ -85,7 +88,11 @@ func handleOfficeDelivery(e *Engine, ctx context.Context, r bridge.Request) brid
 		}
 		return officeSnapshotBundles(r, items)
 	case "office.metric.capture":
-		_, err = s.CaptureMetric(ctx, task.ID, officeapp.MetricCapture{SourceVersionID: p.VersionID, SourceNodeID: p.NodeID, SourceNodeDigest: p.NodeDigest, Name: p.Name, Unit: p.Unit, Currency: p.Currency, Period: p.Period, RoundingDigits: p.RoundingDigits}, r.IdempotencyKey)
+		if strings.TrimSpace(p.FactID) != "" {
+			_, err = s.CaptureMetricByFact(ctx, task.ID, p.VersionID, content.Fact{FactID: p.FactID, Value: p.Value, Unit: p.Unit, Period: p.Period, Locator: p.Name}, r.IdempotencyKey)
+		} else {
+			_, err = s.CaptureMetric(ctx, task.ID, officeapp.MetricCapture{SourceVersionID: p.VersionID, SourceNodeID: p.NodeID, SourceNodeDigest: p.NodeDigest, Name: p.Name, Unit: p.Unit, Currency: p.Currency, Period: p.Period, RoundingDigits: p.RoundingDigits}, r.IdempotencyKey)
+		}
 	case "office.metric.apply":
 		err = e.officeExclusive(ctx, task.ID, "patch", func(run context.Context) error {
 			v, _, er := s.ReadVersion(run, task.ID, p.TargetVersionID)

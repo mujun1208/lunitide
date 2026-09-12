@@ -56,13 +56,25 @@ func bundledWorkflowInjection(turnText ...string) string {
 	if len(turnText) > 0 {
 		text = turnText[0]
 	}
-	clauses := selectWorkflowClauses(text)
+	lane := ChatLane("")
+	if chatLanesEnabled() {
+		lane = classifyChatLane(LaneInput{Goal: text})
+	}
+	return bundledWorkflowInjectionForLane(text, lane)
+}
+
+func bundledWorkflowInjectionForLane(text string, lane ChatLane) string {
+	clauses := selectWorkflowClauses(text, lane)
 	if len(clauses) == 0 {
 		return "\n\n[内置工作流] 匹配当前任务才展开细则。工具结果 ok:false 时不得对用户报成功。\n"
 	}
+	disc := workflowDisciplineClause
+	if chatLanesEnabled() && lane == LaneL2Ask {
+		disc = "使用规则：本轮只问缺什么，问完即停。不要 web.search，不要调用 *.gen。\n"
+	}
 	return "\n\n[内置工作流] 开箱即用，直接调用已有工具，不必安装技能、不必 MCP：\n" +
 		strings.Join(clauses, "") +
-		workflowDisciplineClause
+		disc
 }
 
 // companionTaskWorkflowInjection is the voice-lane office pipeline. The full
@@ -85,7 +97,7 @@ func companionTaskWorkflowInjection(text string) string {
 		"禁止跳步直接生成空页、只有深色底没有文字、或只有提纲的文件——pptx.gen/docx.gen 会拒绝空标题与空文档。本轮连续做到出文件再停，不要勘查后就停下等确认。\n"
 }
 
-func selectWorkflowClauses(text string) []string {
+func selectWorkflowClauses(text string, lane ChatLane) []string {
 	t := strings.ToLower(strings.TrimSpace(text))
 	if t == "" {
 		return nil
@@ -104,10 +116,14 @@ func selectWorkflowClauses(text string) []string {
 		out = append(out, "- 天气：优先 weather.get 读取结构化免费预报；城市含糊先核实，按返回的当地日期、更新时间和采样范围回答。不要抓网页片段冒充实测温度。\n")
 	}
 	if has("火车", "高铁", "机票", "航班", "股价", "股票", "行情") {
-		out = append(out, "- 车票/航班/行情：先 mcp.search 找当前已连接的专用接口，再按真实schema调用。缺日期/地点/证券市场先核实；若没有接口，说明尚未接入，不能凭网页摘要或旧记忆报实时余票/报价。仅用户允许时使用公开网页查询，并标明来源与时间。\n")
+		out = append(out, "- 车票/航班/行情：先 mcp.search 找当前已连接的专用接口，再按真实schema调用。缺日期/地点/证券市场先核实；若没有接口，说明尚未接入，立刻结束本轮，不能凭网页摘要或旧记忆报实时余票/报价。禁止 web.search/web.fetch/browser.act 访问 12306。仅当用户明确说打开某网站或允许网上查时才用公开网页，并标明来源与时间。\n")
 	}
-	if has("调研", "搜", "查", "天气", "search", "火车", "航班") {
-		out = append(out, workflowResearchClause)
+	if has("调研", "搜", "天气", "search") || (has("查") && !has("火车", "高铁", "机票", "航班", "车票")) {
+		skipResearch := chatLanesEnabled() && (lane == LaneL2 || lane == LaneL2Ask ||
+			(looksLikeReportTask(text) && !laneLooksLikeResearch(text)))
+		if !skipResearch {
+			out = append(out, workflowResearchClause)
+		}
 	}
 	if has("改代码", "修bug", "修这个", "编译", "workspace.edit", "实现", "补测试") {
 		out = append(out, workflowCodeClause)
@@ -129,7 +145,18 @@ func selectWorkflowClauses(text string) []string {
 		out = append(out, workflowGitClause)
 	}
 	if includeOfficeGenWorkflow(text) {
-		out = append(out, officeGenWorkflowClause)
+		if chatLanesEnabled() {
+			switch lane {
+			case LaneL2Ask:
+				out = append(out, "- 本轮要出文件但还没有可用材料：只用一句话问缺什么（本周完成、风险、下周或请贴笔记），不要 web.search，不要调用 *.gen。\n")
+			case LaneL2:
+				out = append(out, "- "+referenceOfficeInstruction+"\n")
+			default:
+				out = append(out, officeGenWorkflowClause)
+			}
+		} else {
+			out = append(out, officeGenWorkflowClause)
+		}
 	}
 	if has("小游戏", "html.gen", "点球", "清单", "checklist", "待办页") {
 		out = append(out, workflowHtmlClause)
@@ -142,7 +169,7 @@ func selectWorkflowClauses(text string) []string {
 		needDesktopHand = true
 		out = append(out, workflowDesktopTypeClause)
 	}
-	if has("播放", "播歌", "media.play", "暂停", "下一首", "播一", "一首歌", "随便放", "放一首") {
+	if has("播放", "播歌", "media.play", "暂停", "下一首", "播一", "一首歌", "随便放", "放一首", "放首歌") {
 		needDesktopHand = true
 		out = append(out, workflowMediaClause)
 	}

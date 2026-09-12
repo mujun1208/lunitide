@@ -1,0 +1,10 @@
+{
+  "audience": "管理层",
+  "purpose": "指标页容量检查",
+  "language": "zh-CN",
+  "targetLength": 8,
+  "deliverables": ["pptx"],
+  "facts": [
+    {"factId": "orders", "value": "1280", "unit": "单", "period": "2026-08", "sourceId": "sales-sheet", "locator": "订单数"}
+  ]
+}

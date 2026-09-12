@@ -1,0 +1,11 @@
+{
+  "audience": "项目评审",
+  "purpose": "研究与项目正式报告",
+  "language": "zh-CN",
+  "targetLength": 20,
+  "deliverables": ["docx", "pdf"],
+  "facts": [
+    {"factId": "sample_n", "value": "42", "unit": "份", "period": "研究窗口", "sourceId": "notes", "locator": "样本数"},
+    {"factId": "open_risks", "value": "5", "unit": "项", "period": "当前", "sourceId": "risk-log", "locator": "未关闭风险"}
+  ]
+}

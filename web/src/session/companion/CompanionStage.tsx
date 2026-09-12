@@ -25,7 +25,7 @@ import {
   saveCompanionSettings,
   voiceIdForEngineSwitch,
 } from './companionSettings'
-import { alreadySpokenCloseout, cleanForSpeech, cleanUserTranscript, clipAssistantToSpoken, clipCompanionPrompt, clipCompanionSpokenTurn, compactSpeech, companionCannotExecuteSpeech, companionCaptionFromStream, companionExecutingSpeech, companionHasFreshAssistantText, companionPadSpeech, companionReplyStallMs, companionTaskCompleteSpeech, companionToolCloseoutSpeech, companionToolPhaseCaption, COMPANION_TOOL_PROGRESS_MS, companionToolProgressSpeech, companionToolsExecuting, FIRST_SPEAK_STALL_MS, handsFreeRetryDelayMs, isCompanionLeadInOnly, looksLikeBargeInSpeech, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, shouldQueueBusyUserTranscript, stripTaskDonePhrases, takeSpeakableChunk, type CompanionToolPhase } from './companionText'
+import { alreadySpokenCloseout, cleanForSpeech, cleanUserTranscript, clipAssistantToSpoken, clipCompanionPrompt, clipCompanionSpokenTurn, compactSpeech, companionCancelRemainder, companionCannotExecuteSpeech, companionCaptionFromStream, companionDeafHasVisibleText, companionExecutingSpeech, companionHasFreshAssistantText, companionPadSpeech, companionReplyStallMs, companionShouldHoldBusyTurn, companionSpokenCancel, companionTaskCompleteSpeech, companionToolCloseoutSpeech, companionToolPhaseCaption, COMPANION_TOOL_PROGRESS_MS, companionToolProgressSpeech, companionToolsExecuting, FIRST_SPEAK_STALL_MS, handsFreeRetryDelayMs, isCompanionLeadInOnly, looksLikeAsrHallucination, looksLikeBargeInSpeech, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, shouldQueueBusyUserTranscript, stripTaskDonePhrases, takeSpeakableChunk, type CompanionToolPhase } from './companionText'
 import { companionAsrPathLabel, companionListenFailover, companionListenKind, companionListenLightLabel, companionVolcDeafGiveUp, withDeadline, type AsrRoute } from './asrPath'
 import { isCompanionInfraBusy } from './companionBusy'
 import { localAsrStatus, LOCAL_ASR_DECISION_MS, readyWithin } from './localAsr'
@@ -355,6 +355,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   const justSpokeRef = useRef(false)
   /** User clicked 打断 / hotkey — block streaming TTS until the next user turn. */
   const userInterruptedRef = useRef(false)
+  const cancelReplyRef = useRef<() => void>(() => {})
   /** After clip-to-spoken, ignore leftover stream captions until assistantText resets. */
   const holdSpokenCaptionRef = useRef(false)
   /** P0-1: Incremented when a streaming chunk finishes, forcing the streaming
@@ -958,12 +959,13 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       if (stateRef.current !== 'thinking') return
       if (companionHasFreshAssistantText(assistantTextRef.current, staleReplyRef.current)) return
       if (companionToolsExecuting(chatStatusRef.current, activityStatusRef.current)) return
-      onCancel?.()
+      cancelReplyRef.current()
+      setInterimText('')
+      setRounds([])
       setLocalError(new BridgeClientError('月汐没有及时回应，请再说一次', 'COMPANION_REPLY_STALL', true, 'renderer'))
-      applyEvent({ type: 'REPLY_TERMINAL' })
     }, ms)
     return () => window.clearTimeout(timer)
-  }, [machine.state, chatStatus, assistantText, activityStatus, applyEvent, onCancel])
+  }, [machine.state, chatStatus, assistantText, activityStatus])
 
   // TTS drained but the stream is still open: leave “说话中” so the mic
   // hears the next utterance instead of looking frozen.
@@ -1215,6 +1217,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     captionHandleRef.current?.resumeCapture()
     speechHandleRef.current?.resumeCapture()
   }, [applyEvent, clipSpokenCaption, onCancel])
+  cancelReplyRef.current = cancelReply
 
   const syncSpeechModes = useCallback(() => {
     const handle = speechHandleRef.current
@@ -1336,7 +1339,38 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
   const pendingPersistedMessageRef = useRef<{text: string; id: string} | undefined>(undefined)
   const beginUserTurn = useCallback(
     (transcript: string, persistedMessageId?: string) => {
-      const text = clipCompanionPrompt(cleanUserTranscript(transcript))
+      let text = clipCompanionPrompt(cleanUserTranscript(transcript))
+      if (looksLikeAsrHallucination(text) || looksLikeAsrHallucination(transcript)) {
+        setInterimText('')
+        setEngineHint('没听清，请再说一遍。')
+        discardEchoCaption(transcript)
+        return
+      }
+      const cancelKind = companionSpokenCancel(text)
+      if (cancelKind === 'cancel') {
+        cancelReply()
+        setInterimText('')
+        setRounds([])
+        setEngineHint('好，已停下。')
+        if (settingsRef.current.autoSpeak && ttsAvailableRef.current !== false) {
+          void unlockTtsAudio()
+          ensurePlayer().enqueue(['好，已停下。'], { ...settingsRef.current, voiceId: activeVoiceId() }, {})
+        }
+        return
+      }
+      if (cancelKind === 'cancel-and') {
+        cancelReply()
+        text = companionCancelRemainder(text)
+        if (!text) {
+          setInterimText('')
+          setEngineHint('好，已停下。')
+          return
+        }
+      }
+      if (companionShouldHoldBusyTurn(chatStatusRef.current, cancelKind, userInterruptedRef.current)) {
+        setEngineHint('上一句还在做，要停下就说撤了或点打断')
+        return
+      }
       pendingPersistedMessageRef.current = persistedMessageId ? {text, id: persistedMessageId} : undefined
       const skinTurn = consumeCompanionSkinCommand(text, settingsRef.current.visualSkin === 'particle' ? 'particle' : 'classic')
       if (skinTurn) {
@@ -2059,6 +2093,12 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     const timer = window.setInterval(() => {
       const heardAt = voiceEnergyAtRef.current
       const now = performance.now()
+      const userCaption = roundsRef.current.find(round => round.role === 'user')?.text ?? ''
+      if (companionDeafHasVisibleText(interimTextRef.current, userCaption)) {
+        setDeafRecognizer(false)
+        deafRecoveriesRef.current = 0
+        return
+      }
       const deaf = heardAt > 0 && now - heardAt >= RECOGNIZER_DEAF_MS && !interimTextRef.current.trim()
       setDeafRecognizer(deaf)
       if (!deaf) {

@@ -1,0 +1,8 @@
+{
+  "templateId": "ops-ledger",
+  "version": "1",
+  "license": "internal-original",
+  "supportedKinds": ["xlsx"],
+  "slots": ["notes", "raw", "calc", "board"],
+  "constraints": {"equalsImport": "text"}
+}
