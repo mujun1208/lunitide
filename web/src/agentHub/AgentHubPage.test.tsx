@@ -2,7 +2,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, expect, it, vi } from 'vitest'
 import { LanguageProvider } from '../i18n/language'
 import { AgentHubPage } from './AgentHubPage'
-import { agentHubApi } from './agentHubApi'
+import { AgentHubWorkbench } from './AgentHubWorkbench'
+import { agentHubApi, type AgentHubStatus } from './agentHubApi'
 
 vi.mock('./agentHubApi', () => ({
   agentHubApi: {
@@ -75,6 +76,20 @@ function openLegacy() {
   fireEvent.click(screen.getByRole('button', { name: '旧版任务' }))
 }
 
+function workbenchAgents(items?: AgentHubStatus[]): AgentHubStatus[] {
+  return items ?? [
+    { name: 'codex', state: 'available', version: '1.2.3', nonInteractive: true, streamJSON: true, hint: '可用' },
+    { name: 'cursor', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装 Cursor CLI' },
+    { name: 'kimi', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装 Kimi Code CLI（kimi）。安装后重新打开调度台。' },
+  ]
+}
+
+function renderWorkbench(agents?: AgentHubStatus[]) {
+  const onOpened = vi.fn()
+  render(<LanguageProvider value="zh-CN"><AgentHubWorkbench agents={workbenchAgents(agents)} live={[]} onOpened={onOpened} /></LanguageProvider>)
+  return onOpened
+}
+
 it('shows a probe hint before detect returns', async () => {
   let finish: (value: { agents: [] }) => void = () => {}
   vi.mocked(agentHubApi.detect).mockReturnValue(new Promise(resolve => { finish = resolve }))
@@ -103,7 +118,6 @@ it('shortens work dirs in the task list', async () => {
   })
   render(<LanguageProvider value="zh-CN"><AgentHubPage /></LanguageProvider>)
   await openLegacy()
-  fireEvent.click(await screen.findByRole('tab', { name: '任务中心' }))
   expect(await screen.findByText('codex · Trae-Work-Projects/lunitide')).toBeInTheDocument()
 })
 
@@ -124,9 +138,11 @@ it('renders Home by default and opens 旧版任务 instead of the four tabs', as
     expect(screen.queryByRole('tab', { name })).toBeNull()
   }
   await openLegacy()
-  for (const name of ['工作台', '任务中心', '任务详情', '产物中心']) {
-    expect(screen.getByRole('tab', { name })).toBeInTheDocument()
-  }
+  expect(screen.getByRole('tab', { name: '任务中心' })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: '任务详情' })).toBeInTheDocument()
+  expect(screen.queryByRole('tab', { name: '工作台' })).toBeNull()
+  expect(screen.queryByRole('tab', { name: '产物中心' })).toBeNull()
+  expect(screen.queryByRole('button', { name: /其它任务/ })).toBeNull()
 })
 
 it('does not re-detect every 400ms while a task is live', async () => {
@@ -174,7 +190,7 @@ it('shows a finish banner when a live workbench task completes', async () => {
   render(<LanguageProvider value="zh-CN"><AgentHubPage /></LanguageProvider>)
   await act(async () => { await vi.advanceTimersByTimeAsync(0) })
   await openLegacy()
-  expect(screen.getByText('进行中')).toBeInTheDocument()
+  expect(document.querySelector('.agent-hub-status.running')).toHaveTextContent('进行中')
   await act(async () => { await vi.advanceTimersByTimeAsync(400) })
   expect(screen.getByText('任务已结束')).toBeInTheDocument()
   vi.useRealTimers()
@@ -194,8 +210,11 @@ it('starts a cursor task from an available adapter', async () => {
   const started = startedFixture('cursor', '写 hello.txt')
   vi.mocked(agentHubApi.start).mockResolvedValue(started)
   vi.mocked(agentHubApi.get).mockResolvedValue(started)
-  render(<LanguageProvider value="zh-CN"><AgentHubPage /></LanguageProvider>)
-  await openLegacy()
+  renderWorkbench([
+    { name: 'codex', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装' },
+    { name: 'cursor', state: 'available', version: '2026.09.10-fd3934a', nonInteractive: true, streamJSON: true, hint: '可用' },
+    { name: 'kimi', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装' },
+  ])
   fireEvent.click(await screen.findByRole('button', { name: /其它任务/ }))
   fireEvent.click(await screen.findByRole('button', { name: /Cursor 可用/ }))
   fireEvent.change(screen.getByLabelText('任务说明'), { target: { value: '写 hello.txt' } })
@@ -217,8 +236,11 @@ it('starts a kimi task from an available adapter', async () => {
   const started = startedFixture('kimi', '写 hello.txt')
   vi.mocked(agentHubApi.start).mockResolvedValue(started)
   vi.mocked(agentHubApi.get).mockResolvedValue(started)
-  render(<LanguageProvider value="zh-CN"><AgentHubPage /></LanguageProvider>)
-  await openLegacy()
+  renderWorkbench([
+    { name: 'codex', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装' },
+    { name: 'cursor', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装' },
+    { name: 'kimi', state: 'available', version: '0.42.0', nonInteractive: true, streamJSON: true, hint: '可用' },
+  ])
   fireEvent.click(await screen.findByRole('button', { name: /其它任务/ }))
   fireEvent.click(await screen.findByRole('button', { name: /Kimi 可用/ }))
   fireEvent.change(screen.getByLabelText('任务说明'), { target: { value: '写 hello.txt' } })
@@ -231,12 +253,11 @@ it('starts a task from an available adapter', async () => {
   const started = startedFixture('codex', '写周报 Markdown')
   vi.mocked(agentHubApi.start).mockResolvedValue(started)
   vi.mocked(agentHubApi.get).mockResolvedValue(started)
-  render(<LanguageProvider value="zh-CN"><AgentHubPage /></LanguageProvider>)
-  await openLegacy()
+  const onOpened = renderWorkbench()
   fireEvent.click(await screen.findByRole('button', { name: /其它任务/ }))
   fireEvent.change(screen.getByLabelText('任务说明'), { target: { value: '写周报 Markdown' } })
   fireEvent.click(screen.getByRole('button', { name: '执行' }))
-  expect(await screen.findByRole('heading', { level: 2, name: '写周报 Markdown' })).toBeInTheDocument()
+  await waitFor(() => expect(onOpened).toHaveBeenCalledWith('01ARZ3NDEKTSV4RRFFQ69G5FAE'))
   expect(agentHubApi.start).toHaveBeenCalledWith(expect.objectContaining({
     agent: 'codex',
     prompt: expect.not.stringContaining('【场景：'),
@@ -250,8 +271,7 @@ it('sends a picked work directory with the task', async () => {
   const started = startedFixture('codex', 'hi')
   vi.mocked(agentHubApi.start).mockResolvedValue(started)
   vi.mocked(agentHubApi.get).mockResolvedValue(started)
-  render(<LanguageProvider value="zh-CN"><AgentHubPage /></LanguageProvider>)
-  await openLegacy()
+  renderWorkbench()
   fireEvent.click(await screen.findByRole('button', { name: /其它任务/ }))
   fireEvent.click(screen.getByRole('button', { name: '工作目录' }))
   await waitFor(() => expect(screen.getByRole('button', { name: '工作目录' })).toHaveTextContent('repo'))
@@ -263,8 +283,7 @@ it('sends a picked work directory with the task', async () => {
 it('other-task starts without a directory and without a scene prefix', async () => {
   stubLists()
   vi.mocked(agentHubApi.start).mockResolvedValue(startedFixture('codex', '写说明'))
-  render(<LanguageProvider value="zh-CN"><AgentHubPage /></LanguageProvider>)
-  await openLegacy()
+  renderWorkbench()
   fireEvent.click(await screen.findByRole('button', { name: /其它任务/ }))
   fireEvent.change(screen.getByLabelText('任务说明'), { target: { value: '写说明' } })
   fireEvent.click(screen.getByRole('button', { name: '执行' }))
@@ -283,8 +302,11 @@ it('ppt shortcut does not start without a work directory', async () => {
       { name: 'kimi', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用' },
     ],
   })
-  render(<LanguageProvider value="zh-CN"><AgentHubPage /></LanguageProvider>)
-  await openLegacy()
+  renderWorkbench([
+    { name: 'codex', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装' },
+    { name: 'cursor', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装' },
+    { name: 'kimi', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用' },
+  ])
   fireEvent.click(await screen.findByRole('button', { name: /做 PPT/ }))
   fireEvent.change(screen.getByLabelText('任务说明'), { target: { value: '做两页' } })
   fireEvent.click(screen.getByRole('button', { name: '执行' }))
@@ -303,8 +325,11 @@ it('ppt shortcut locks kimi and prefixes the prompt when a directory is remember
   })
   vi.mocked(agentHubApi.inbox).mockResolvedValue({ canceled: false, workDir: 'E:/slides', files: [] })
   vi.mocked(agentHubApi.start).mockResolvedValue(startedFixture('kimi', '做两页'))
-  render(<LanguageProvider value="zh-CN"><AgentHubPage /></LanguageProvider>)
-  await openLegacy()
+  renderWorkbench([
+    { name: 'codex', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: 'x' },
+    { name: 'cursor', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: 'x' },
+    { name: 'kimi', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用' },
+  ])
   fireEvent.click(await screen.findByRole('button', { name: /做 PPT/ }))
   fireEvent.change(screen.getByLabelText('任务说明'), { target: { value: '做两页' } })
   fireEvent.click(screen.getByRole('button', { name: '执行' }))
@@ -323,8 +348,7 @@ it('free ingest lists files in the start prompt and binds the allocated director
     files: [{ name: '纪要.pdf', path: '纪要.pdf', size: 12 }],
   })
   vi.mocked(agentHubApi.start).mockResolvedValue(startedFixture('codex', '总结'))
-  render(<LanguageProvider value="zh-CN"><AgentHubPage /></LanguageProvider>)
-  await openLegacy()
+  renderWorkbench()
   fireEvent.click(await screen.findByRole('button', { name: /其它任务/ }))
   fireEvent.click(screen.getByRole('button', { name: '添加文件' }))
   await waitFor(() => expect(agentHubApi.inbox).toHaveBeenCalledWith(expect.objectContaining({ action: 'files' })))
@@ -349,8 +373,11 @@ it('ppt ingest picks a directory before opening the file dialog', async () => {
     ],
   })
   vi.mocked(agentHubApi.pickDir).mockResolvedValue({ canceled: true, path: '' })
-  render(<LanguageProvider value="zh-CN"><AgentHubPage /></LanguageProvider>)
-  await openLegacy()
+  renderWorkbench([
+    { name: 'codex', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: 'x' },
+    { name: 'cursor', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: 'x' },
+    { name: 'kimi', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用' },
+  ])
   fireEvent.click(await screen.findByRole('button', { name: /做 PPT/ }))
   fireEvent.click(screen.getByRole('button', { name: '添加文件' }))
   await waitFor(() => expect(agentHubApi.pickDir).toHaveBeenCalled())
@@ -360,8 +387,7 @@ it('ppt ingest picks a directory before opening the file dialog', async () => {
 it('keeps ppt unselected and shows an in-page hint when kimi is unavailable', async () => {
   stubLists()
   const alert = vi.spyOn(window, 'alert').mockImplementation(() => {})
-  render(<LanguageProvider value="zh-CN"><AgentHubPage /></LanguageProvider>)
-  await openLegacy()
+  renderWorkbench()
   fireEvent.click(await screen.findByRole('button', { name: /做 PPT/ }))
   expect(alert).not.toHaveBeenCalled()
   expect(screen.getByRole('button', { name: '执行' })).toBeDisabled()
@@ -373,8 +399,7 @@ it('keeps the free agent and shows a hint when a grey capsule is clicked', async
   stubLists()
   const alert = vi.spyOn(window, 'alert').mockImplementation(() => {})
   vi.mocked(agentHubApi.start).mockResolvedValue(startedFixture('codex', '写说明'))
-  render(<LanguageProvider value="zh-CN"><AgentHubPage /></LanguageProvider>)
-  await openLegacy()
+  renderWorkbench()
   fireEvent.click(await screen.findByRole('button', { name: /其它任务/ }))
   fireEvent.click(screen.getByRole('button', { name: /Kimi 未安装/ }))
   expect(alert).not.toHaveBeenCalled()
@@ -413,4 +438,34 @@ it('opens a thread from selectedThreadId and returns to Home when newThreadNonce
   view.rerender(<LanguageProvider value="zh-CN"><AgentHubPage selectedThreadId={undefined} newThreadNonce={1} /></LanguageProvider>)
   expect(await screen.findByRole('button', { name: '写项目' })).toBeInTheDocument()
   expect(screen.queryByLabelText('消息')).toBeNull()
+})
+
+it('leaves 旧版任务 when selectedThreadId is set from the rail', async () => {
+  stubLists()
+  const threadId = '01ARZ3NDEKTSV4RRFFQ69G5FAE'
+  vi.mocked(agentHubApi.threadGet).mockResolvedValue({
+    thread: {
+      threadId,
+      harnessId: 'cursor',
+      nativeSessionId: '',
+      title: '写项目会话',
+      pinned: false,
+      workspaceRoot: 'C:/tmp',
+      exportDir: '',
+      scene: 'free',
+      status: 'idle',
+      accessMode: 'approval',
+      createdAt: '2026-09-13T00:00:00Z',
+      updatedAt: '2026-09-13T00:00:00Z',
+    },
+    messages: [{ id: threadId, seq: 1, role: 'user', content: '继续', createdAt: '2026-09-13T00:00:00Z' }],
+    events: [],
+    files: [],
+  })
+  const view = render(<LanguageProvider value="zh-CN"><AgentHubPage selectedThreadId={undefined} onOpenThread={vi.fn()} /></LanguageProvider>)
+  openLegacy()
+  expect(screen.getByRole('tab', { name: '任务中心' })).toBeInTheDocument()
+  view.rerender(<LanguageProvider value="zh-CN"><AgentHubPage selectedThreadId={threadId} onOpenThread={vi.fn()} /></LanguageProvider>)
+  expect(await screen.findByLabelText('消息')).toBeInTheDocument()
+  expect(screen.queryByRole('tab', { name: '任务中心' })).toBeNull()
 })

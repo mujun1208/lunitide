@@ -5,8 +5,12 @@ import './agentHub.css'
 
 export function AgentHubSidebar({
   onOpenThread,
+  selectedThreadId,
+  newThreadNonce = 0,
 }: {
   onOpenThread: (threadId: string) => void
+  selectedThreadId?: string
+  newThreadNonce?: number
 }): React.JSX.Element {
   const zh = useZh()
   const [agents, setAgents] = useState<AgentHubStatus[]>([])
@@ -16,20 +20,23 @@ export function AgentHubSidebar({
     let alive = true
     const load = async () => {
       try {
-        const [detected, listed] = await Promise.all([
-          agentHubApi.detect(),
-          agentHubApi.threadList({}),
-        ])
+        const listed = await agentHubApi.threadList({})
         if (!alive) return
-        setAgents(detected.agents ?? [])
         setThreads(listed.items ?? [])
       } catch {
         if (alive) setThreads([])
       }
+      try {
+        const detected = await agentHubApi.detect()
+        if (!alive) return
+        setAgents(detected.agents ?? [])
+      } catch {
+        // Keep the last good detect result; a slow CLI --version must not blank the list.
+      }
     }
     void load()
     return () => { alive = false }
-  }, [])
+  }, [selectedThreadId, newThreadNonce])
   const groups = useMemo(() => {
     const names = [...new Set([
       ...agents.map(item => item.name),
