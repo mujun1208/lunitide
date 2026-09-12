@@ -110,14 +110,19 @@ func TestArtifactPreviewKindAware(t *testing.T) {
 	if !strings.Contains(previewPayload.Content, "进展") || !strings.Contains(previewPayload.Content, "&") || !strings.Contains(previewPayload.Content, "P2-2 验收闭环") {
 		t.Fatalf("docx text extraction wrong: %s", previewPayload.Content)
 	}
-	// PDF keeps an actionable file card even without an inline extractor.
 	pdf := handleWorkspaceArtifactPreview(e, ctx, artifactRequest(`{"sessionId":"`+artifactSession+`","path":"说明.pdf"}`))
 	if !pdf.OK {
 		t.Fatalf("PDF should retain file metadata and native open: %+v", pdf)
 	}
 	pdfMeta, _ := json.Marshal(pdf.Payload)
-	if !strings.Contains(string(pdfMeta), `"kind":"pdf"`) || !strings.Contains(string(pdfMeta), `"absolutePath":`) || !strings.Contains(string(pdfMeta), `"notice":`) {
+	if !strings.Contains(string(pdfMeta), `"kind":"pdf"`) || !strings.Contains(string(pdfMeta), `"absolutePath":`) {
 		t.Fatalf("PDF metadata incomplete: %s", pdfMeta)
+	}
+	var pdfPayload struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(pdfMeta, &pdfPayload); err != nil || pdfPayload.Content == "" {
+		t.Fatalf("PDF preview must embed bytes: %v %s", err, pdfMeta)
 	}
 	// escaping or missing paths fail closed.
 	escape := handleWorkspaceArtifactPreview(e, ctx, artifactRequest(`{"sessionId":"`+artifactSession+`","path":"../x.docx"}`))

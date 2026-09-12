@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
+const inspectorCss = readFileSync(resolve(process.cwd(), 'src/workspace/artifactInspector.css'), 'utf8')
 const app = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8')
 
 describe('project workbench native-frame stability', () => {
@@ -47,7 +48,19 @@ describe('project workbench native-frame stability', () => {
     expect(css).toMatch(/\.mermaid-host\{[^}]*overflow:hidden/)
     expect(css).not.toMatch(/\.mermaid-host\{[^}]*overflow:auto/)
     expect(css).toMatch(/\.mermaid-lightbox\{[^}]*overflow:auto/)
+    expect(css).toMatch(/\.mermaid-skin/)
+    expect(css).toMatch(/\.moon-dialog\{[^}]*overflow-anchor:none/)
+    expect(css).toMatch(/\.modal-backdrop\{[^}]*overflow-anchor:none/)
+    expect(css).toMatch(/\.mermaid-preview\{[^}]*overflow-anchor:none/)
+    expect(css).toMatch(/\.chat-follow-ups\{[^}]*overflow-anchor:none/)
     expect(css).toMatch(/\.workspace-layout\.workspace-is-open\{[^}]*grid-template-rows:minmax\(0,1fr\)/)
+    expect(css).toMatch(/\.workspace-layout\.workspace-is-expanded\{[^}]*grid-template-columns:0 0 minmax\(0,1fr\)/)
+    expect(css).toMatch(/\.workspace-layout\.workspace-is-expanded>\.message-panel\{[^}]*visibility:hidden/)
+    expect(css).toMatch(/\.workspace-layout\.workspace-is-expanded>\.message-panel\{[^}]*overflow-anchor:none/)
+    expect(css).toMatch(/\.workspace-layout\.workspace-is-expanded \.workspace-side-menu\{[^}]*display:none/)
+    expect(css).toMatch(/\.workspace-layout\.workspace-is-expanded>\.workspace-column\{[^}]*width:100%/)
+    expect(inspectorCss).toMatch(/\.artifact-inspector\{[^}]*overflow-anchor:none/)
+    expect(inspectorCss).toMatch(/\.artifact-icon-btn\{[^}]*width:22px/)
     expect(css).toMatch(/\.workspace-layout>\.message-panel\{[^}]*min-height:0;[^}]*height:100%/)
     expect(css).toMatch(/\.project-chat-panel\.workspace-layout>\.message-panel\{min-height:0;height:100%/)
   })

@@ -78,11 +78,19 @@ describe('conversation stream scroll pin', () => {
     expect(src).toMatch(/querySelector\('\.chat-response \.message-body'\)/)
     expect(src).not.toMatch(/ro\.observe\(box\)/)
     expect(src).not.toMatch(/thinking-panel/)
-    expect(src).toMatch(/chatStatus==='streaming'&&autoFollowRef\.current/)
-    expect(src).toMatch(/chatStatus==='streaming'&&autoFollow\)schedulePin/)
+    expect(src).toMatch(/autoFollowRef\.current\)schedulePin/)
     expect(src).toMatch(/streaming=\{chatStatus==='streaming'\}/)
     expect(src).toMatch(/JSON\.stringify\(prev\)===JSON\.stringify\(s\)/)
-    expect(src).toMatch(/pinIfFollowing=\(\)=>\{const box=scrollRef\.current;if\(!box\|\|!autoFollowRef\.current\|\|chatStatusRef\.current!=='streaming'\)return/)
+    expect(src).toMatch(/pinIfFollowing=\(\)=>\{const box=scrollRef\.current;if\(!box\|\|!autoFollowRef\.current\)return/)
+    expect(src).not.toMatch(/pinIfFollowing=\(\)=>\{const box=scrollRef\.current;if\(!box\|\|!autoFollowRef\.current\|\|chatStatusRef\.current!=='streaming'\)return/)
+    expect(src).toMatch(/onMermaidLayout=\{pinIfFollowing\}/)
+  })
+
+  it('keeps a following user on the tail after the turn ends when content below grows', () => {
+    const scrollTo = vi.fn()
+    const box = {scrollHeight: 1200, clientHeight: 300, scrollTop: 600, scrollTo}
+    expect(pinConversationScroll(box, {userFollowPaused: false})).toBe(true)
+    expect(scrollTo).toHaveBeenCalledWith({top: 900, behavior: 'auto'})
   })
 
   it('never pins html or body (page-level jump)', () => {

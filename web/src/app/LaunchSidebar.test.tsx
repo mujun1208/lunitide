@@ -43,6 +43,18 @@ function sidebarProps(overrides: Record<string, unknown> = {}) {
   }
 }
 
+it('starts the sidebar at 新对话 and has no product wordmark', () => {
+  render(<LaunchSidebar {...sidebarProps()} />)
+  const sidebar = document.getElementById('launch-sidebar')
+  expect(sidebar).not.toBeNull()
+  expect(screen.queryByRole('button', { name: '月汐首页' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Lunitide home' })).toBeNull()
+  expect(sidebar!.querySelector('.launch-brand')).toBeNull()
+  expect(sidebar!.textContent).not.toContain('月汐')
+  expect(sidebar!.textContent).not.toContain('LUNITIDE')
+  expect(sidebar!.querySelector('button')).toHaveTextContent('新对话')
+})
+
 it('hides Agent Hub until the office menu switch is on, then navigates without activating Settings', async () => {
   render(<LaunchSidebar {...sidebarProps()} />)
   expect(screen.queryByRole('button', { name: 'Agent 调度台' })).toBeNull()

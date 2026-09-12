@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<!-- Visual mock only. Not product chrome. Land per lunitide-agent-hub-prd.md V1.2:
+     LaunchSidebar + page tabs; --acc maps to --tide1; no Pro copy; no commandworker.Run. -->
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>lunitide · Agent Hub</title>
+<style>
+[data-theme="dark"]{
+  --bg:#0e0e10; --panel:rgba(255,255,255,.035); --panel-solid:#161618;
+  --line:rgba(255,255,255,.1); --line-soft:rgba(255,255,255,.05);
+  --ink:#f2f2f3; --ink-2:#a8a8ae; --ink-3:#63636b;
+  --acc:#f2f2f3; --acc-ink:#111113; --acc-dim:rgba(255,255,255,.08);
+  --glow:0 0 24px rgba(255,255,255,.14);
+  --ok:#9fd69f; --bad:#e0a49b;
+  --grid:rgba(255,255,255,.028);
+}
+[data-theme="light"]{
+  --bg:#ececee; --panel:rgba(20,20,25,.03); --panel-solid:#ffffff;
+  --line:rgba(20,20,25,.12); --line-soft:rgba(20,20,25,.06);
+  --ink:#17171a; --ink-2:#5c5c63; --ink-3:#9a9aa2;
+  --acc:#17171a; --acc-ink:#ffffff; --acc-dim:rgba(20,20,25,.06);
+  --glow:0 0 24px rgba(20,20,25,.12);
+  --ok:#3d7a3d; --bad:#a34a3e;
+  --grid:rgba(20,20,25,.04);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:"PingFang SC","Microsoft YaHei",-apple-system,sans-serif;min-height:100vh;overflow-x:hidden;transition:background .35s}
+::selection{background:var(--acc);color:var(--acc-ink)}
+::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+
+/* 网格背景 + 顶光 */
+.bg-fx{position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:56px 56px;
+  mask-image:radial-gradient(ellipse 90% 60% at 50% 0%,#000 30%,transparent 75%);
+  -webkit-mask-image:radial-gradient(ellipse 90% 60% at 50% 0%,#000 30%,transparent 75%);}
+.bg-glow{position:fixed;top:-220px;left:50%;transform:translateX(-50%);width:760px;height:420px;border-radius:50%;
+  background:radial-gradient(ellipse,var(--acc-dim),transparent 70%);filter:blur(40px);pointer-events:none;z-index:0}
+
+/* ── 顶部导航 ── */
+.topnav{position:relative;z-index:2;display:flex;align-items:center;gap:34px;padding:22px 44px}
+.logo{display:flex;align-items:center;gap:11px;font-weight:800;font-size:17px;letter-spacing:.5px}
+.logo-dot{width:10px;height:10px;border-radius:3px;background:var(--acc);box-shadow:var(--glow)}
+.nav-links{display:flex;gap:4px;margin-left:12px}
+.nav-links span{font-size:13.5px;color:var(--ink-3);padding:8px 16px;border-radius:20px;cursor:pointer;transition:.2s}
+.nav-links span:hover{color:var(--ink)}
+.nav-links span.on{color:var(--ink);background:var(--panel);border:1px solid var(--line)}
+.nav-right{margin-left:auto;display:flex;align-items:center;gap:14px}
+.conn{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2)}
+.orb{width:8px;height:8px;border-radius:50%;background:var(--acc);box-shadow:0 0 10px var(--acc);animation:breath 2.4s infinite}
+@keyframes breath{50%{opacity:.35}}
+.theme-btn{width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer;font-size:14px;transition:.2s}
+.theme-btn:hover{border-color:var(--acc);color:var(--acc)}
+
+.wrap{position:relative;z-index:1;max-width:1120px;margin:0 auto;padding:20px 44px 80px}
+.page{display:none;animation:rise .45s cubic-bezier(.2,.8,.3,1)}
+.page.show{display:block}
+@keyframes rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+
+/* ── 工作台 Hero ── */
+.hero{text-align:center;padding:56px 0 40px}
+.hero-eyebrow{font-size:12px;letter-spacing:4px;color:var(--acc);text-transform:uppercase;margin-bottom:18px;font-weight:600}
+.hero h1{font-size:52px;font-weight:800;line-height:1.15;letter-spacing:-1px}
+.hero h1 em{font-style:normal;color:var(--acc);text-shadow:var(--glow)}
+.hero p{margin-top:16px;color:var(--ink-2);font-size:15px}
+
+/* Agent 胶囊选择器 */
+.agent-pills{display:flex;justify-content:center;gap:14px;margin:38px 0 30px}
+.pill{display:flex;align-items:center;gap:10px;padding:12px 22px;border-radius:40px;border:1px solid var(--line);background:var(--panel);cursor:pointer;transition:.25s;backdrop-filter:blur(8px)}
+.pill:hover{transform:translateY(-2px);border-color:var(--ink-3)}
+.pill.sel{border-color:var(--acc);box-shadow:var(--glow);background:var(--acc-dim)}
+.pill.sel .p-name{color:var(--acc)}
+.p-logo{width:26px;height:26px;border-radius:8px;background:var(--panel-solid);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800}
+.p-name{font-size:14px;font-weight:700}
+.p-stat{font-size:10.5px;color:var(--ink-3)}
+
+/* 命令台输入 */
+.console{border:1px solid var(--line);border-radius:22px;background:var(--panel);backdrop-filter:blur(14px);padding:8px;transition:.3s;max-width:860px;margin:0 auto}
+.console:focus-within{border-color:var(--acc);box-shadow:var(--glow)}
+.console textarea{width:100%;background:transparent;border:none;outline:none;color:var(--ink);font-family:inherit;font-size:16px;line-height:1.8;padding:18px 20px 8px;min-height:88px;resize:none}
+.console textarea::placeholder{color:var(--ink-3)}
+.console-bar{display:flex;align-items:center;gap:10px;padding:8px 12px 10px;border-top:1px solid var(--line-soft)}
+.c-chip{font-size:11.5px;color:var(--ink-2);border:1px solid var(--line);border-radius:14px;padding:5px 12px;cursor:pointer;transition:.15s;font-family:"SF Mono",Consolas,monospace}
+.c-chip:hover{border-color:var(--acc);color:var(--acc)}
+.c-chip.sel{border-color:var(--acc);color:var(--acc);background:var(--acc-dim)}
+.run-btn{margin-left:auto;background:var(--acc);color:var(--acc-ink);border:none;border-radius:14px;padding:11px 26px;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;transition:.2s;display:flex;align-items:center;gap:8px}
+.run-btn:hover{transform:translateY(-1px);box-shadow:var(--glow)}
+.templates{display:flex;justify-content:center;gap:10px;margin-top:22px;flex-wrap:wrap}
+.tpl{font-size:12.5px;color:var(--ink-3);cursor:pointer;transition:.15s;padding:6px 4px;border-bottom:1px dashed transparent}
+.tpl:hover{color:var(--acc);border-color:var(--acc)}
+
+/* 实时活动条 */
+.live-strip{max-width:860px;margin:44px auto 0;border:1px solid var(--line);border-radius:18px;background:var(--panel);backdrop-filter:blur(10px);padding:18px 24px;display:flex;align-items:center;gap:18px;cursor:pointer;transition:.2s}
+.live-strip:hover{border-color:var(--acc)}
+.live-ring{width:38px;height:38px;border-radius:50%;border:2px solid var(--acc);border-top-color:transparent;animation:spin 1.1s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ls-title{font-size:14px;font-weight:700;margin-bottom:3px}
+.ls-sub{font-size:12px;color:var(--ink-3);font-family:"SF Mono",Consolas,monospace}
+.ls-time{margin-left:auto;font-size:22px;font-weight:800;font-family:"SF Mono",Consolas,monospace;color:var(--acc)}
+
+/* ── 通用面板 ── */
+.panel{border:1px solid var(--line);border-radius:20px;background:var(--panel);backdrop-filter:blur(12px);overflow:hidden}
+.panel-h{padding:16px 22px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;gap:10px}
+.panel-h h3{font-size:14px;font-weight:700}
+.panel-h .hint{margin-left:auto;font-size:11px;color:var(--ink-3);font-family:"SF Mono",Consolas,monospace}
+.sec-title{font-size:13px;letter-spacing:3px;color:var(--ink-3);text-transform:uppercase;margin:38px 0 18px;font-weight:600}
+.sec-title b{color:var(--acc)}
+
+/* ── 任务中心 ── */
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:26px}
+.stat-c{border:1px solid var(--line);border-radius:18px;background:var(--panel);padding:20px 22px;backdrop-filter:blur(8px)}
+.stat-c .k{font-size:11px;color:var(--ink-3);letter-spacing:1px;margin-bottom:8px}
+.stat-c .v{font-size:26px;font-weight:800;font-family:"SF Mono",Consolas,monospace}
+.stat-c .v.acc{color:var(--acc)}
+.task-rows{display:flex;flex-direction:column;gap:12px}
+.t-row{display:flex;align-items:center;gap:18px;border:1px solid var(--line);border-radius:18px;background:var(--panel);padding:18px 24px;cursor:pointer;transition:.22s;backdrop-filter:blur(8px)}
+.t-row:hover{border-color:var(--acc);transform:translateX(4px)}
+.t-badge{width:40px;height:40px;border-radius:12px;background:var(--panel-solid);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;flex-shrink:0}
+.t-main{flex:1;min-width:0}
+.t-title{font-size:14px;font-weight:700;margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-meta{font-size:11.5px;color:var(--ink-3);display:flex;gap:16px;font-family:"SF Mono",Consolas,monospace}
+.t-status{font-size:11.5px;padding:6px 14px;border-radius:20px;font-weight:700;flex-shrink:0}
+.st-run{color:var(--acc);background:var(--acc-dim);border:1px solid var(--acc)}
+.st-ok{color:var(--ok);background:transparent;border:1px solid var(--line)}
+.st-fail{color:var(--bad);background:transparent;border:1px solid var(--line)}
+.st-queue{color:var(--ink-3);background:transparent;border:1px solid var(--line)}
+
+/* ── 任务详情 ── */
+.detail-head{display:flex;align-items:center;gap:18px;margin-top:26px;flex-wrap:wrap}
+.dh-title{font-size:22px;font-weight:800}
+.dh-meta{font-size:12px;color:var(--ink-3);font-family:"SF Mono",Consolas,monospace;margin-left:auto}
+.detail-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:18px;margin-top:20px}
+.timeline{padding:14px 22px 22px;max-height:480px;overflow-y:auto}
+.tl{display:flex;gap:16px;padding:13px 0;border-bottom:1px dashed var(--line-soft)}
+.tl:last-child{border:none}
+.tl-node{width:12px;height:12px;border-radius:50%;border:2px solid var(--acc);margin-top:4px;flex-shrink:0;box-shadow:0 0 8px var(--acc-dim)}
+.tl-node.dim{border-color:var(--ink-3);box-shadow:none}
+.tl-title{font-size:13.5px;font-weight:700;margin-bottom:3px}
+.tl-detail{font-size:12px;color:var(--ink-3);font-family:"SF Mono",Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:480px}
+.tl-time{margin-left:auto;font-size:11px;color:var(--ink-3);font-family:"SF Mono",Consolas,monospace;flex-shrink:0}
+.art-list{padding:16px;display:flex;flex-direction:column;gap:10px;max-height:420px;overflow-y:auto}
+.art{display:flex;align-items:center;gap:13px;padding:13px 15px;border:1px solid var(--line-soft);border-radius:14px;cursor:pointer;transition:.18s;background:var(--panel-solid)}
+.art:hover{border-color:var(--acc);transform:translateX(3px)}
+.art-ico{width:34px;height:34px;border-radius:10px;background:var(--acc-dim);color:var(--acc);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0}
+.art-name{font-size:13px;font-weight:700}
+.art-path{font-size:10.5px;color:var(--ink-3);font-family:"SF Mono",Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:250px}
+.art-size{margin-left:auto;font-size:11px;color:var(--ink-3);font-family:"SF Mono",Consolas,monospace)}
+.panel-foot{padding:14px 16px;border-top:1px solid var(--line-soft);display:flex;gap:10px}
+.btn-glow{background:var(--acc);color:var(--acc-ink);border:none;border-radius:12px;padding:10px 20px;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit}
+.btn-line{border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:12px;padding:10px 20px;font-size:13px;cursor:pointer;font-family:inherit;transition:.15s}
+.btn-line:hover{border-color:var(--acc);color:var(--acc)}
+
+/* ── 产物中心 ── */
+.art-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.a-card{border:1px solid var(--line);border-radius:18px;background:var(--panel);padding:20px;cursor:pointer;transition:.22s;backdrop-filter:blur(8px)}
+.a-card:hover{border-color:var(--acc);transform:translateY(-4px);box-shadow:var(--glow)}
+.a-card .art-ico{width:38px;height:38px;margin-bottom:14px;font-size:12px}
+.a-card .meta{font-size:10.5px;color:var(--ink-3);font-family:"SF Mono",Consolas,monospace;margin-top:7px}
+
+/* toast */
+.toast{position:fixed;bottom:28px;right:28px;z-index:99;display:flex;gap:14px;align-items:center;border:1px solid var(--acc);border-radius:16px;background:var(--panel-solid);padding:16px 22px;box-shadow:var(--glow),0 16px 40px rgba(0,0,0,.4);transform:translateY(110px);opacity:0;transition:.5s cubic-bezier(.2,.9,.3,1.15);cursor:pointer;max-width:400px}
+.toast.in{transform:none;opacity:1}
+.toast .t-ico{width:36px;height:36px;border-radius:11px;background:var(--acc-dim);color:var(--acc);display:flex;align-items:center;justify-content:center;font-weight:800}
+.toast .t-t{font-size:13px;font-weight:800;margin-bottom:2px}
+.toast .t-d{font-size:11px;color:var(--ink-3);font-family:"SF Mono",Consolas,monospace}
+
+@media(max-width:900px){.hero h1{font-size:36px}.detail-grid,.stats-row{grid-template-columns:1fr 1fr}.art-grid{grid-template-columns:1fr 1fr}.agent-pills{flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<div class="bg-fx"></div><div class="bg-glow"></div>
+
+<nav class="topnav">
+  <div class="logo"><span class="logo-dot"></span>lunitide</div>
+  <div class="nav-links">
+    <span class="on" data-p="home">工作台</span>
+    <span data-p="tasks">任务中心</span>
+    <span data-p="detail">任务详情</span>
+    <span data-p="arts">产物中心</span>
+  </div>
+  <div class="nav-right">
+    <div class="conn"><span class="orb"></span>3 Agent 在线</div>
+    <button class="theme-btn" id="themeBtn">◐</button>
+  </div>
+</nav>
+
+<div class="wrap">
+
+<!-- ═══ 工作台 ═══ -->
+<div class="page show" id="page-home">
+  <div class="hero">
+    <div class="hero-eyebrow">Agent Orchestration</div>
+    <h1>一个入口<br>调度你的 <em>AI 军团</em></h1>
+    <p>Codex · Cursor · Kimi —— 本机会员直连，零 API 成本，产物自动归拢</p>
+  </div>
+
+  <div class="agent-pills">
+    <div class="pill sel" data-agent="Codex">
+      <div class="p-logo">C</div>
+      <div><div class="p-name">Codex</div><div class="p-stat">Pro 已登录</div></div>
+    </div>
+    <div class="pill" data-agent="Cursor">
+      <div class="p-logo">Cu</div>
+      <div><div class="p-name">Cursor</div><div class="p-stat">Pro 已登录</div></div>
+    </div>
+    <div class="pill" data-agent="Kimi">
+      <div class="p-logo">K</div>
+      <div><div class="p-name">Kimi</div><div class="p-stat">会员已登录</div></div>
+    </div>
+  </div>
+
+  <div class="console">
+    <textarea id="prompt" placeholder="下达任务…… 例如：写一个 Python 脚本，扫描重复文件并生成清理报告"></textarea>
+    <div class="console-bar">
+      <span class="c-chip sel">⬡ Codex</span>
+      <span class="c-chip">~/workspace/0911-03</span>
+      <span class="c-chip">工作区可写</span>
+      <span class="c-chip">30min</span>
+      <button class="run-btn" id="btnRun">执行 ⏎</button>
+    </div>
+  </div>
+  <div class="templates">
+    <span class="tpl">写工具脚本</span><span class="tpl">重构模块</span><span class="tpl">写技术文档</span><span class="tpl">修复 Bug</span><span class="tpl">写周报 Markdown</span>
+  </div>
+
+  <div class="live-strip" onclick="go('detail')">
+    <div class="live-ring"></div>
+    <div><div class="ls-title">Codex 正在执行：扫描重复文件并生成清理报告</div>
+    <div class="ls-sub">step 6/9 · 已写入 4 个文件 · 3,906 tokens</div></div>
+    <div class="ls-time" id="clock">04:32</div>
+  </div>
+</div>
+
+<!-- ═══ 任务中心 ═══ -->
+<div class="page" id="page-tasks">
+  <div class="stats-row">
+    <div class="stat-c"><div class="k">运行中</div><div class="v acc">1</div></div>
+    <div class="stat-c"><div class="k">排队中</div><div class="v">1</div></div>
+    <div class="stat-c"><div class="k">今日完成</div><div class="v">7</div></div>
+    <div class="stat-c"><div class="k">今日 Tokens</div><div class="v">42.6k</div></div>
+  </div>
+  <div class="sec-title">近期任务 <b>/ Tasks</b></div>
+  <div class="task-rows">
+    <div class="t-row" onclick="go('detail')">
+      <div class="t-badge">C</div>
+      <div class="t-main"><div class="t-title">写一个 Python 脚本，扫描重复文件并生成清理报告</div>
+      <div class="t-meta"><span>Codex</span><span>04:32</span><span>~/workspace/0911-03</span></div></div>
+      <span class="t-status st-run">● RUNNING</span>
+    </div>
+    <div class="t-row">
+      <div class="t-badge">K</div>
+      <div class="t-main"><div class="t-title">整理本周项目进展，输出周报 Markdown</div>
+      <div class="t-meta"><span>Kimi</span><span>排队 #1</span></div></div>
+      <span class="t-status st-queue">QUEUED</span>
+    </div>
+    <div class="t-row">
+      <div class="t-badge">Cu</div>
+      <div class="t-main"><div class="t-title">重构 utils 模块并补单测</div>
+      <div class="t-meta"><span>Cursor</span><span>12:08</span><span>8,214 tok</span><span>6 产物</span></div></div>
+      <span class="t-status st-ok">✓ DONE</span>
+    </div>
+    <div class="t-row">
+      <div class="t-badge">C</div>
+      <div class="t-main"><div class="t-title">批量重命名图片并按日期归档</div>
+      <div class="t-meta"><span>Codex</span><span>02:41</span><span>订阅限流</span></div></div>
+      <span class="t-status st-fail">✕ FAILED</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 任务详情 ═══ -->
+<div class="page" id="page-detail">
+  <div class="detail-head">
+    <span class="t-status st-run">● RUNNING</span>
+    <div class="dh-title">扫描重复文件并生成清理报告</div>
+    <div class="dh-meta">Codex · ~/workspace/0911-03 · 3,906 tokens</div>
+  </div>
+  <div class="detail-grid">
+    <div class="panel">
+      <div class="panel-h"><h3>执行过程</h3><span class="hint">stdout JSONL · 零 token 解析</span></div>
+      <div class="timeline">
+        <div class="tl"><div class="tl-node dim"></div><div><div class="tl-title">任务启动</div><div class="tl-detail">codex exec --json --sandbox workspace-write</div></div><div class="tl-time">14:02:11</div></div>
+        <div class="tl"><div class="tl-node dim"></div><div><div class="tl-title">规划执行步骤</div><div class="tl-detail">扫描目录 → 计算哈希 → 生成报告</div></div><div class="tl-time">14:02:19</div></div>
+        <div class="tl"><div class="tl-node dim"></div><div><div class="tl-title">创建 dupscan.py</div><div class="tl-detail">~/workspace/0911-03/dupscan.py · 3.2 KB</div></div><div class="tl-time">14:03:02</div></div>
+        <div class="tl"><div class="tl-node dim"></div><div><div class="tl-title">执行命令</div><div class="tl-detail">python dupscan.py --dir ~/Downloads --dry-run</div></div><div class="tl-time">14:04:18</div></div>
+        <div class="tl"><div class="tl-node dim"></div><div><div class="tl-title">写入 report.md</div><div class="tl-detail">~/workspace/0911-03/report.md · 1.8 KB</div></div><div class="tl-time">14:05:44</div></div>
+        <div class="tl"><div class="tl-node"></div><div><div class="tl-title">运行单元测试</div><div class="tl-detail">pytest tests/ -q · 12 passed</div></div><div class="tl-time">14:06:20</div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-h"><h3>产物清单</h3><span class="hint">事件流 + 结束扫描</span></div>
+      <div class="art-list">
+        <div class="art"><div class="art-ico">Py</div><div><div class="art-name">dupscan.py</div><div class="art-path">~/workspace/0911-03/dupscan.py</div></div><div class="art-size">3.2 KB</div></div>
+        <div class="art"><div class="art-ico">Md</div><div><div class="art-name">report.md</div><div class="art-path">~/workspace/0911-03/report.md</div></div><div class="art-size">1.8 KB</div></div>
+        <div class="art"><div class="art-ico">Py</div><div><div class="art-name">test_dupscan.py</div><div class="art-path">~/workspace/0911-03/tests/</div></div><div class="art-size">2.1 KB</div></div>
+        <div class="art"><div class="art-ico">Yml</div><div><div class="art-name">config.yaml</div><div class="art-path">~/workspace/0911-03/config.yaml</div></div><div class="art-size">0.4 KB</div></div>
+      </div>
+      <div class="panel-foot">
+        <button class="btn-glow">打开所在目录</button>
+        <button class="btn-line">重新运行</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 产物中心 ═══ -->
+<div class="page" id="page-arts">
+  <div class="sec-title" style="margin-top:26px">全部产物 <b>/ Artifacts</b></div>
+  <div class="art-grid">
+    <div class="a-card"><div class="art-ico">Py</div><div class="art-name">dupscan.py</div><div class="meta">Codex · 今天 14:05 · 3.2 KB</div></div>
+    <div class="a-card"><div class="art-ico">Md</div><div class="art-name">report.md</div><div class="meta">Codex · 今天 14:05 · 1.8 KB</div></div>
+    <div class="a-card"><div class="art-ico">Ts</div><div class="art-name">stringUtils.ts</div><div class="meta">Cursor · 昨天 18:22 · 5.6 KB</div></div>
+    <div class="a-card"><div class="art-ico">Md</div><div class="art-name">weekly-36.md</div><div class="meta">Kimi · 昨天 16:40 · 4.1 KB</div></div>
+    <div class="a-card"><div class="art-ico">Yml</div><div class="art-name">config.yaml</div><div class="meta">Codex · 今天 14:03 · 0.4 KB</div></div>
+    <div class="a-card"><div class="art-ico">Py</div><div class="art-name">test_dupscan.py</div><div class="meta">Codex · 今天 14:06 · 2.1 KB</div></div>
+    <div class="a-card"><div class="art-ico">Go</div><div class="art-name">watcher.go</div><div class="meta">Cursor · 前天 11:15 · 7.3 KB</div></div>
+    <div class="a-card"><div class="art-ico">Md</div><div class="art-name">api-design.md</div><div class="meta">Kimi · 前天 09:52 · 6.8 KB</div></div>
+  </div>
+</div>
+
+</div>
+
+<div class="toast" id="toast" onclick="go('detail');hideToast()">
+  <div class="t-ico">✓</div>
+  <div><div class="t-t">Codex 任务完成：共 6 个产物</div><div class="t-d">~/workspace/0911-03/ · 点击查看</div></div>
+</div>
+
+<script>
+function go(p){document.querySelectorAll('.page').forEach(e=>e.classList.remove('show'));
+  document.getElementById('page-'+p).classList.add('show');
+  document.querySelectorAll('.nav-links span').forEach(s=>s.classList.toggle('on',s.dataset.p===p));}
+document.querySelectorAll('.nav-links span').forEach(s=>s.onclick=()=>go(s.dataset.p));
+document.querySelectorAll('.pill').forEach(c=>c.onclick=()=>{
+  document.querySelectorAll('.pill').forEach(x=>x.classList.remove('sel'));c.classList.add('sel');
+  document.querySelector('.c-chip.sel').textContent='⬡ '+c.dataset.agent;});
+document.querySelectorAll('.tpl').forEach(t=>t.onclick=()=>{document.getElementById('prompt').value=t.textContent+'：';});
+document.getElementById('btnRun').onclick=()=>{go('detail');setTimeout(showToast,6000);};
+function showToast(){document.getElementById('toast').classList.add('in');}
+function hideToast(){document.getElementById('toast').classList.remove('in');}
+document.getElementById('themeBtn').onclick=()=>{const h=document.documentElement;
+  h.dataset.theme=h.dataset.theme==='dark'?'light':'dark';};
+let s=272;setInterval(()=>{s++;const el=document.getElementById('clock');
+  if(el)el.textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');},1000);
+</script>
+</body>
+</html>

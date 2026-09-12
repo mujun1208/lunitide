@@ -37,6 +37,12 @@ export function officePreviewPages(kind: OfficeKind | undefined, nodes: OfficeNo
   return pages
 }
 
+export function officePreviewThumb(page: OfficePreviewPage): { title: string; excerpt: string } {
+  const texts = page.nodes.map((node) => node.text?.trim()).filter((text): text is string => Boolean(text))
+  const title = texts[0]?.split('\n')[0] || page.label
+  return { title, excerpt: texts.join(' · ') }
+}
+
 function slideKey(location?: string) {
   const match = location?.match(/ppt\/slides\/slide(\d+)\.xml/i)
   return match ? `slide-${match[1]}` : location

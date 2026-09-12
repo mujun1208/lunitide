@@ -19,6 +19,8 @@ import { SkillPackagePanel } from '../skill/SkillPackagePanel'
 import { LocalExplorer } from './LocalExplorer'
 import { SessionFolderPanel } from './SessionFolderPanel'
 import { ArtifactPanel, type ArtifactCard } from './ArtifactPanel'
+import { ArtifactPreviewContent } from './ArtifactInspector'
+import { previewKindFromPath } from './artifactPreviewMode'
 import { SafeLinkedText } from './safeLinks'
 import { isBrowserAddress, latestBrowserAddress, parseSearchCards } from './browserAddress'
 import { extractTaskFiles, isChangeTool } from './codePanelUtils'
@@ -317,7 +319,7 @@ export function Workspace({
       <header>
         <strong>工作区</strong>
         {skillId&&onCloseSkill&&<button type="button" onClick={onCloseSkill}>返回会话文件</button>}
-        <button type="button" aria-label="关闭工作区" onClick={onClose}>收起</button>
+        <button type="button" className="artifact-icon-btn" aria-label="关闭工作区" title="收起" onClick={onClose}>×</button>
       </header>
       <nav aria-label="工作区标签">
         {TABS.map(x => (
@@ -362,11 +364,9 @@ export function Workspace({
             ) : <p>当前会话没有附件。</p>}
             {error && <p role="alert">{error}</p>}
             {localDetail ? (
-              <article className="workspace-document" style={{ fontSize: `${zoom}%` }}>
-                <h3>{localDetail.path}</h3>
-                <small>{fmtSize(localDetail.size)} · 本地工作区只读预览</small>
-                <pre><SafeLinkedText text={localDetail.content} /></pre>
-              </article>
+              <div className="workspace-inline-preview" style={{ fontSize: `${zoom}%` }}>
+                <ArtifactPreviewContent preview={{ kind: previewKindFromPath(localDetail.path), path: localDetail.path, content: localDetail.content, size: localDetail.size }} />
+              </div>
             ) : detail && (
               <article className="workspace-document" style={{ fontSize: `${zoom}%` }}>
                 <h3>{detail.originalName}</h3>

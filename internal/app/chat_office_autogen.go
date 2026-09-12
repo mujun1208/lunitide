@@ -376,7 +376,7 @@ func (e *Engine) tryFinishOfficeGen(ctx context.Context, mode executionMode, ses
 	}
 	r, err := e.executeUserTool(ctx, mode, sessionID, name, args)
 	if errors.Is(err, toolruntime.ErrApprovalRequired) {
-		preapproved := len(companion) > 0 && companion[0] && companionToolPreapproved(name, e.fullDiskChat(mode), e.companionCcEnabled(ctx))
+		preapproved := conversationGrantsTool(mode, name) || (len(companion) > 0 && companion[0] && companionToolPreapproved(name, e.fullDiskChat(mode), e.companionCcEnabled(ctx)))
 		if unattended(ctx) && !preapproved {
 			err = errors.New(unattendedApprovalDenial(name))
 		} else if _, prepErr := e.tools.Prepare(ctx, turn.StreamID, sessionID, callID, name, args, toolruntime.Mode(mode), 10*time.Minute); prepErr != nil {

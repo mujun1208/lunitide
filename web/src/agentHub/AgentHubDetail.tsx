@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useZh } from '../i18n/language'
 import { AgentHubFileInspector } from './AgentHubFileInspector'
 import { agentHubApi, type AgentHubArtifact, type AgentHubEvent, type AgentHubPreview, type AgentHubTaskDetail } from './agentHubApi'
-import { mergeEvents, shortWorkDir, statusLabel, taskElapsed, visibleHubArtifacts } from './agentHubCopy'
+import { mergeEvents, pptDeckMissing, shortWorkDir, statusLabel, taskElapsed, visibleHubArtifacts } from './agentHubCopy'
 
 export function AgentHubDetail({
   taskId,
@@ -62,6 +62,8 @@ export function AgentHubDetail({
   if (!detail) return <p role="status">{error || (zh ? '正在读取任务…' : 'Loading task…')}</p>
   const { task } = detail
   const artifacts = visibleHubArtifacts(detail.artifacts, showScan)
+  const done = task.status === 'success' || task.status === 'failed' || task.status === 'timeout' || task.status === 'cancelled'
+  const noDeck = done && pptDeckMissing(task.agent, task.prompt, detail.artifacts)
   const tokens = task.tokensUsed > 0 ? String(task.tokensUsed) : (zh ? 'CLI 未回报' : 'CLI did not report tokens')
   return (
     <section>
@@ -70,6 +72,7 @@ export function AgentHubDetail({
           <h2 className="dh-title">{task.prompt}</h2>
           <p className="agent-hub-hint">{task.agent} · {statusLabel(task.status, zh)} · {taskElapsed(task, Date.now())} · {tokens}{task.exitCode != null ? ` · exit ${task.exitCode}` : ''} · {shortWorkDir(task.workDir)}</p>
           {task.errorMsg && <p className="agent-hub-error">{task.errorMsg}</p>}
+          {noDeck && <p className="agent-hub-hint">{zh ? '没有文稿。打开目录查看本轮文件，或看时间线说明。' : 'No deck was produced. Open the folder or read the timeline.'}</p>}
         </div>
         <div className="agent-hub-actions">
           {(task.status === 'running' || task.status === 'queued') && (

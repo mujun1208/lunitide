@@ -4,6 +4,24 @@ export const isOfficeReference = (file: OfficeArtifact): boolean =>
   file.role === 'reference' || (!file.role && file.versions.length > 0 && file.versions.every(v => v.mode === 'imported' && !v.path));
 export const defaultOfficeArtifact = (files: OfficeArtifact[]): OfficeArtifact | undefined =>
   files.find(file => !isOfficeReference(file));
+export const visibleOfficeArtifact = (files: OfficeArtifact[], selectedId?: string): OfficeArtifact | undefined =>
+  files.find(file => file.id === selectedId) ?? defaultOfficeArtifact(files) ?? files[0];
+export const officeSyncSelection = (
+  files: OfficeArtifact[],
+  selectedId: string | undefined,
+  selectedVersionId: string | undefined,
+  selectHead: boolean,
+): { artifact: OfficeArtifact; replace: boolean } | undefined => {
+  const current = files.find(file => file.id === selectedId);
+  const preferred = selectHead
+    ? defaultOfficeArtifact(files) ?? current ?? files[0]
+    : current ?? defaultOfficeArtifact(files) ?? files[0];
+  if (!preferred) return undefined;
+  return {
+    artifact: preferred,
+    replace: !current || current.id !== preferred.id || (selectHead && preferred.headVersionId !== selectedVersionId),
+  };
+};
 
 const runLabels: Record<OfficeRunStatus, string> = {
   draft: '尚未开始',

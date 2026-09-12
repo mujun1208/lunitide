@@ -32,9 +32,10 @@ import {
   type OfficeTaskDetail,
   type OfficeVersion,
 } from './officeStudioApi';
-import { defaultOfficeArtifact, isOfficeReference, officeDate, officeRunLabel } from './officePresentation';
+import { defaultOfficeArtifact, isOfficeReference, officeDate, officeRunLabel, officeSyncSelection, visibleOfficeArtifact } from './officePresentation';
 import { OFFICE_GENERATE_STAGES, OFFICE_STYLE_OPTIONS, briefFieldLabel, briefLengthLabel, deferredOfficeCapabilitiesNotice, draftQualityNotice, generateActionNotice, importLimitNotice, nextLocateFactOffset, nextLocatePreviewOffset, trialScopeNotice, usabilityScopeNotice, visualScoreNotice } from './officeQualityUi';
-import { officePreviewPages } from './officePreviewPages';
+import { officePreviewPages, officePreviewThumb } from './officePreviewPages';
+import { scrollOfficeNodeIntoView } from './officePreviewScroll';
 import './officeStudio.css';
 import { useOfficePanelResize } from './useOfficePanelResize';
 import { OfficeReferences } from './OfficeReferences';
@@ -166,8 +167,10 @@ export function OfficeStudioPage({
     previous: [],
   });
   const [selection, setSelection] = useState<{ versionId: string; offset: number; node: OfficeNode }>();
+  const [activePageId, setActivePageId] = useState('');
   const [tab, setTab] = useState<OfficeInspectorTab | null>('conversation');
   const [filesOpen, setFilesOpen] = useState(false);
+  const [previewExpanded, setPreviewExpanded] = useState(false);
   const [query, setQuery] = useState('');
   const [goal, setGoal] = useState('');
   const [error, setError] = useState('');
@@ -236,8 +239,9 @@ export function OfficeStudioPage({
   const syncEpoch = useRef(0);
   const applyDetailRef = useRef<(next: OfficeTaskDetail, selectHead?: boolean) => void>(() => undefined);
   currentTaskId.current = taskId;
-  const deliverables = detail?.artifacts.filter(item => !isOfficeReference(item)) ?? [];
-  const artifact = deliverables.find((item) => item.id === artifactId) ?? defaultOfficeArtifact(deliverables);
+  const files = detail?.artifacts ?? [];
+  const deliverables = files.filter(item => !isOfficeReference(item));
+  const artifact = visibleOfficeArtifact(files, artifactId);
   const version =
     artifact?.versions.find((item) => item.id === versionId) ??
     artifact?.versions.find((item) => item.id === artifact.headVersionId) ??
@@ -249,6 +253,8 @@ export function OfficeStudioPage({
   const setSelectedNode = (node?: OfficeNode) =>
     setSelection(node && version ? { versionId: version.id, offset: nodeOffset, node } : undefined);
   const previewPages = officePreviewPages(artifact?.kind, preview?.nodes ?? []);
+  const currentPageId = previewPages.some((page) => page.id === activePageId) ? activePageId : previewPages[0]?.id ?? '';
+  const currentPageIndex = Math.max(0, previewPages.findIndex((page) => page.id === currentPageId));
 
   const applyDetail = useCallback(
     (next: OfficeTaskDetail, selectHead = false) => {
@@ -256,15 +262,17 @@ export function OfficeStudioPage({
       setDetail((previous) => visibleDetail(previous, next));
       setTasks((items) => [next.task, ...items.filter((item) => item.id !== next.task.id)]);
       if (next.snapshotIncomplete) return;
-      const current = next.artifacts.find((item) => item.id === artifactId && !isOfficeReference(item));
-      const nextArtifact = current ?? defaultOfficeArtifact(next.artifacts);
-      if (nextArtifact && (selectHead || !current)) {
-        setArtifactId(nextArtifact.id);
-        setVersionId(nextArtifact.headVersionId);
-        setPreviewPage({ versionId: nextArtifact.headVersionId, offset: 0, previous: [] });
+      const nextSelection = officeSyncSelection(next.artifacts, artifactId, versionId, selectHead);
+      if (nextSelection?.replace) {
+        setArtifactId(nextSelection.artifact.id);
+        setVersionId(nextSelection.artifact.headVersionId);
+        setPreviewPage({ versionId: nextSelection.artifact.headVersionId, offset: 0, previous: [] });
+        setActivePageId('');
+      } else if (selectHead && nextSelection) {
+        setPreviewPage({ versionId: nextSelection.artifact.headVersionId, offset: 0, previous: [] });
       }
     },
-    [artifactId],
+    [artifactId, versionId],
   );
   applyDetailRef.current = applyDetail;
   const requestSync = useCallback(
@@ -356,6 +364,7 @@ export function OfficeStudioPage({
                 setArtifactId(focused.id);
                 setVersionId(focused.headVersionId);
                 setPreviewPage({ versionId: focused.headVersionId, offset: 0, previous: [] });
+                setActivePageId('');
               }
               if (focus?.taskId === taskId) localStorage.removeItem(OFFICE_ARTIFACT_FOCUS_KEY);
             } catch {
@@ -435,6 +444,7 @@ export function OfficeStudioPage({
           setArtifactId(file.id);
           setVersionId(file.headVersionId);
           setPreviewPage({ versionId: file.headVersionId, offset: 0, previous: [] });
+          setActivePageId('');
         }
       }, false);
     };
@@ -478,10 +488,9 @@ export function OfficeStudioPage({
   }, [requestSync, taskId, activity]);
   useEffect(() => {
     let active = true;
-    setPreview(undefined);
     setPreviewError('');
-    setSelectedNode(undefined);
     if (!taskId || !version?.id) {
+      setPreview(undefined);
       setPreviewLoading(false);
       return;
     }
@@ -548,6 +557,7 @@ export function OfficeStudioPage({
     }
     setTaskId(id);
     setFilesOpen(false);
+    setPreviewExpanded(false);
     setNotice('');
     setTab('conversation');
   };
@@ -717,8 +727,11 @@ export function OfficeStudioPage({
     });
   const locate = (node: OfficeNode) => {
     setSelectedNode(node);
+    const page = previewPages.find((item) => item.nodes.some((candidate) => candidate.id === node.id));
+    if (page) setActivePageId(page.id);
+    if (artifact?.kind === 'pptx') return;
     requestAnimationFrame(() =>
-      document.getElementById(`office-node-${node.id}`)?.scrollIntoView({ block: 'nearest', behavior: 'auto' }),
+      scrollOfficeNodeIntoView(document.querySelector('.os-paper-scroll'), document.getElementById(`office-node-${node.id}`)),
     );
   };
   const locateNode = async (id: string) => {
@@ -794,6 +807,7 @@ export function OfficeStudioPage({
     setArtifactId(file.id);
     setVersionId(file.headVersionId);
     setPreviewPage({ versionId: file.headVersionId, offset: 0, previous: [] });
+    setActivePageId('');
   };
   const onChatActivity = (active: boolean) => {
     if (currentTaskId.current !== taskId) return;
@@ -811,6 +825,7 @@ export function OfficeStudioPage({
     setVersionId(id);
     setPreviewPage({ versionId: id, offset: 0, previous: [] });
     setSelectedNode(undefined);
+    setActivePageId('');
   };
   const openExport = () => {
     if (artifact && version) {
@@ -822,7 +837,7 @@ export function OfficeStudioPage({
 
   return (
     <div
-      className={`office-studio ${taskId ? 'is-task' : 'is-home'} ${filesOpen ? 'files-open' : ''} ${tab ? 'inspector-open' : ''}`}
+      className={`office-studio ${taskId ? 'is-task' : 'is-home'} ${filesOpen ? 'files-open' : ''} ${tab ? 'inspector-open' : ''} ${previewExpanded ? 'preview-expanded' : ''}`}
     >
       <header className="os-header">
         <div>
@@ -1067,8 +1082,8 @@ export function OfficeStudioPage({
               </button>
             </div>
             <div className="os-file-list">
-              {deliverables.length ? (
-                deliverables.map((file) => (
+              {files.length ? (
+                files.map((file) => (
                   <button
                     key={file.id}
                     aria-current={artifact?.id === file.id ? 'true' : undefined}
@@ -1076,6 +1091,7 @@ export function OfficeStudioPage({
                       setArtifactId(file.id);
                       setVersionId(file.headVersionId);
                       setPreviewPage({ versionId: file.headVersionId, offset: 0, previous: [] });
+                      setActivePageId('');
                       setFilesOpen(false);
                     }}
                   >
@@ -1140,19 +1156,31 @@ export function OfficeStudioPage({
             )}
             {artifact && preview && previewPages.length > 0 && (
               <nav className="os-page-rail" aria-label={artifact.kind === 'pptx' ? '幻灯片页' : '内容目录'}>
-                {previewPages.map((page, index) => (
+                {previewPages.map((page, index) => {
+                  const thumb = officePreviewThumb(page);
+                  return (
                   <button
                     key={page.id}
-                    aria-current={page.nodes.some((node) => node.id === selectedNode?.id) ? 'location' : undefined}
+                    type="button"
+                    aria-label={page.label}
+                    aria-current={page.id === currentPageId ? 'location' : undefined}
                     onClick={() => {
+                      setActivePageId(page.id);
                       const node = page.nodes[0];
                       if (node) locate(node);
                     }}
                   >
+                    {artifact.kind === 'pptx' ? (
+                      <span className="os-page-thumb" aria-hidden="true">
+                        <b>{thumb.title}</b>
+                        <small>{thumb.excerpt}</small>
+                      </span>
+                    ) : null}
                     <span>{String(index + 1).padStart(2, '0')}</span>
-                    <b>{page.label}</b>
+                    <b>{artifact.kind === 'pptx' ? thumb.title : page.label}</b>
                   </button>
-                ))}
+                  );
+                })}
               </nav>
             )}
             <details className="os-task-switcher">
@@ -1178,17 +1206,28 @@ export function OfficeStudioPage({
                   </span>
                 )}
               </div>
-              <nav aria-label="工作台详情">
-                {(Object.keys(officeInspectorLabels) as OfficeInspectorTab[]).map((value) => (
-                  <button
-                    key={value}
-                    aria-pressed={tab === value}
-                    onClick={() => setTab((current) => (current === value ? null : value))}
-                  >
-                    {officeInspectorLabels[value]}
-                  </button>
-                ))}
-              </nav>
+              <div className="os-document-tools">
+                <button
+                  type="button"
+                  className="os-icon-btn"
+                  aria-label={previewExpanded ? '恢复对话' : '放大预览'}
+                  title={previewExpanded ? '恢复对话' : '放大'}
+                  onClick={() => setPreviewExpanded((open) => !open)}
+                >
+                  {previewExpanded ? '❐' : '⛶'}
+                </button>
+                <nav aria-label="工作台详情">
+                  {(Object.keys(officeInspectorLabels) as OfficeInspectorTab[]).map((value) => (
+                    <button
+                      key={value}
+                      aria-pressed={tab === value}
+                      onClick={() => setTab((current) => (current === value ? null : value))}
+                    >
+                      {officeInspectorLabels[value]}
+                    </button>
+                  ))}
+                </nav>
+              </div>
             </div>
             <section className="os-brief-strip" aria-label="任务概要">
               <p>
@@ -1532,11 +1571,43 @@ export function OfficeStudioPage({
               loading={previewLoading}
               error={previewError}
               selectedNodeId={selectedNode?.id}
+              activePageId={currentPageId}
               onSelectNode={locate}
               onRetry={() => setPreviewRevision((value) => value + 1)}
               onRebuild={() => void validate()}
             />
-            {version && preview && typeof preview.totalNodes === 'number' && preview.totalNodes > 0 && (
+            {version && preview && artifact?.kind === 'pptx' && previewPages.length > 0 && (
+              <nav className="os-preview-pages" aria-label="幻灯片翻页">
+                <button
+                  disabled={previewLoading || currentPageIndex <= 0}
+                  onClick={() => {
+                    const page = previewPages[currentPageIndex - 1];
+                    if (page) {
+                      setActivePageId(page.id);
+                      if (page.nodes[0]) setSelectedNode(page.nodes[0]);
+                    }
+                  }}
+                >
+                  上一页
+                </button>
+                <span>
+                  第 {currentPageIndex + 1} 页 / 共 {previewPages.length} 页
+                </span>
+                <button
+                  disabled={previewLoading || currentPageIndex >= previewPages.length - 1}
+                  onClick={() => {
+                    const page = previewPages[currentPageIndex + 1];
+                    if (page) {
+                      setActivePageId(page.id);
+                      if (page.nodes[0]) setSelectedNode(page.nodes[0]);
+                    }
+                  }}
+                >
+                  下一页
+                </button>
+              </nav>
+            )}
+            {version && preview && artifact?.kind !== 'pptx' && typeof preview.totalNodes === 'number' && preview.totalNodes > 0 && (
               <nav className="os-preview-pages" aria-label="结构内容翻页">
                 <button
                   disabled={previewLoading || !previousNodeOffsets.length}

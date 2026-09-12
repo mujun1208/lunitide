@@ -1,0 +1,122 @@
+{
+  "status": "declared_not_live_qualified",
+  "note": "窗口与输出采用保守应用配置，不代表供应商完整上限；实际采用前须绑定端点并通过协议探测。",
+  "profiles": [
+    {
+      "schemaVersion": 2,
+      "profileId": "deepseek-v4-flash-standard-v2",
+      "family": "deepseek",
+      "codecVersion": "deepseek-native-v2",
+      "modelContract": "deepseek-v4-flash-2026-09-12",
+      "endpointPurpose": "standard",
+      "protocol": "openai_compatible",
+      "modelIds": [
+        "deepseek-v4-flash"
+      ],
+      "modes": {
+        "quick": {
+          "thinkingType": "enabled",
+          "effort": "low",
+          "clearThinking": null
+        },
+        "standard": {
+          "thinkingType": "enabled",
+          "effort": "high",
+          "clearThinking": null
+        },
+        "deep": {
+          "thinkingType": "enabled",
+          "effort": "max",
+          "clearThinking": null
+        }
+      },
+      "replayPolicy": "exact_assistant_history",
+      "strictTools": false,
+      "strictEndpointSuffix": "",
+      "contextWindow": 1000000,
+      "maxOutputTokens": 32768,
+      "sourceUrls": [
+        "https://api-docs.deepseek.com/guides/thinking_mode/"
+      ],
+      "sourceCheckedAt": "2026-09-12"
+    },
+    {
+      "schemaVersion": 2,
+      "profileId": "glm-5.3-standard-v2",
+      "family": "glm",
+      "codecVersion": "glm-native-v2",
+      "modelContract": "glm-5.3-2026-09-12",
+      "endpointPurpose": "standard",
+      "protocol": "openai_compatible",
+      "modelIds": [
+        "glm-5.3"
+      ],
+      "modes": {
+        "quick": {
+          "thinkingType": "enabled",
+          "effort": "low",
+          "clearThinking": false
+        },
+        "standard": {
+          "thinkingType": "enabled",
+          "effort": "high",
+          "clearThinking": false
+        },
+        "deep": {
+          "thinkingType": "enabled",
+          "effort": "max",
+          "clearThinking": false
+        }
+      },
+      "replayPolicy": "exact_assistant_history",
+      "strictTools": false,
+      "strictEndpointSuffix": "",
+      "contextWindow": 1000000,
+      "maxOutputTokens": 32768,
+      "sourceUrls": [
+        "https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3",
+        "https://docs.z.ai/guides/capabilities/thinking-mode"
+      ],
+      "sourceCheckedAt": "2026-09-12"
+    },
+    {
+      "schemaVersion": 2,
+      "profileId": "glm-5.3-coding-v2",
+      "family": "glm",
+      "codecVersion": "glm-native-v2",
+      "modelContract": "glm-5.3-2026-09-12",
+      "endpointPurpose": "coding_plan",
+      "protocol": "openai_compatible",
+      "modelIds": [
+        "glm-5.3"
+      ],
+      "modes": {
+        "quick": {
+          "thinkingType": "enabled",
+          "effort": "low",
+          "clearThinking": false
+        },
+        "standard": {
+          "thinkingType": "enabled",
+          "effort": "high",
+          "clearThinking": false
+        },
+        "deep": {
+          "thinkingType": "enabled",
+          "effort": "max",
+          "clearThinking": false
+        }
+      },
+      "replayPolicy": "exact_assistant_history",
+      "strictTools": false,
+      "strictEndpointSuffix": "",
+      "contextWindow": 1000000,
+      "maxOutputTokens": 32768,
+      "sourceUrls": [
+        "https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3",
+        "https://docs.z.ai/guides/capabilities/thinking-mode"
+      ],
+      "sourceCheckedAt": "2026-09-12"
+    }
+  ]
+}

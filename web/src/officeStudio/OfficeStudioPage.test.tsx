@@ -205,7 +205,7 @@ it('lists deliverables in the conversation rail and previews the clicked file', 
   await open(api);
   const rail = screen.getByRole('region', { name: '产物清单' });
   fireEvent.click(within(rail).getByRole('button', { name: '查看交付文件 节奏图.pptx' }));
-  expect(await screen.findByText('幻灯片正文')).toBeInTheDocument();
+  expect((await screen.findAllByText('幻灯片正文')).length).toBeGreaterThan(0);
   expect(api.preview).toHaveBeenCalledWith(expect.objectContaining({ versionId: 'pv1' }));
 });
 
@@ -226,6 +226,8 @@ it('collapses brief controls once a deliverable exists and lists PPT pages under
     previewBasis: '结构预览',
     pdfReady: false,
     truncated: false,
+    totalNodes: 82,
+    nextNodeOffset: 82,
     nodes: [
       { id: 'a', label: 'ppt/slides/slide1.xml · t1', text: '封面标题', location: 'ppt/slides/slide1.xml', editable: true },
       { id: 'b', label: 'ppt/slides/slide1.xml · t2', text: '副标题', location: 'ppt/slides/slide1.xml', editable: true },
@@ -242,14 +244,26 @@ it('collapses brief controls once a deliverable exists and lists PPT pages under
       onImportFiles={vi.fn(async () => undefined)}
     />,
   );
-  expect(await screen.findByText('封面标题')).toBeInTheDocument();
+  expect((await screen.findAllByText('封面标题')).length).toBeGreaterThan(0);
   expect(screen.queryByRole('navigation', { name: '内容目录' })).toBeNull();
   const files = screen.getByRole('complementary', { name: '任务与文件' });
   expect(within(files).getByRole('button', { name: '导入当前文件的修改版' })).toBeInTheDocument();
   const pages = within(files).getByRole('navigation', { name: '幻灯片页' });
-  expect(within(pages).getByRole('button', { name: '01 第 1 页' })).toBeInTheDocument();
-  expect(within(pages).getByRole('button', { name: '02 第 2 页' })).toBeInTheDocument();
-  expect(screen.getAllByRole('article').filter((item) => item.className.includes('os-paper'))).toHaveLength(2);
+  expect(within(pages).getByRole('button', { name: '第 1 页' })).toBeInTheDocument();
+  expect(within(pages).getByRole('button', { name: '第 2 页' })).toBeInTheDocument();
+  expect(within(pages).getAllByText('封面标题').length).toBeGreaterThan(0);
+  const papers = () => screen.getAllByRole('article').filter((item) => item.className.includes('os-paper'));
+  expect(papers()).toHaveLength(1);
+  expect(within(papers()[0]).getByText('封面标题')).toBeInTheDocument();
+  expect(within(papers()[0]).queryByText('目录正文')).toBeNull();
+  expect(screen.getByText('第 1 页 / 共 2 页')).toBeInTheDocument();
+  expect(screen.queryByText(/段内容/)).toBeNull();
+  fireEvent.click(within(pages).getByRole('button', { name: '第 2 页' }));
+  expect(papers()).toHaveLength(1);
+  expect(within(papers()[0]).getByText('目录正文')).toBeInTheDocument();
+  expect(within(papers()[0]).queryByText('封面标题')).toBeNull();
+  expect(screen.getByText('第 2 页 / 共 2 页')).toBeInTheDocument();
+  expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
   const options = screen.getByRole('navigation', { name: '可选设置' });
   expect(within(options).getByRole('button', { name: '简报' })).toHaveAttribute('aria-pressed', 'false');
   expect(screen.queryByLabelText('受众')).toBeNull();
@@ -261,27 +275,49 @@ it('collapses brief controls once a deliverable exists and lists PPT pages under
   expect(screen.getByRole('radio', { name: '清晰经营' })).toBeVisible();
 });
 
-it('keeps an uploaded source separate until a generated deliverable appears', async () => {
+it('keeps an uploaded source labeled as reference while still previewing it in the studio', async () => {
   const detail = fixture();
   detail.artifacts[0].role = 'reference';
   detail.sources = [{ id: 'source', name: '季度汇报.docx', versionId: 'v2', location: '上传的参考材料' }];
   const api = apiFor(detail);
   localStorage.setItem('lunitide:office-studio:last-task', taskId);
   render(<OfficeStudioPage initialTaskId={taskId} api={api} renderConversation={() => <div>原会话输入框</div>} onOpenSession={vi.fn()} />);
-  await screen.findByRole('heading', { name: '尚未生成交付文件' });
-  expect(api.preview).not.toHaveBeenCalled();
+  expect(await screen.findByText('正文 v2')).toBeInTheDocument();
+  expect(api.preview).toHaveBeenCalledWith(expect.objectContaining({ versionId: 'v2' }));
   expect(screen.getByText('参考材料已就绪，尚无交付文件')).toBeVisible();
+  expect(screen.queryByRole('heading', { name: '尚未生成交付文件' })).toBeNull();
+  expect(within(screen.getByLabelText('任务与文件')).getByText('季度汇报.docx')).toBeInTheDocument();
+  expect(within(screen.getByLabelText('任务与文件')).getByText(/参考材料/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '来源' }));
   expect(screen.getByText('上传的参考材料')).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: '对话' }));
   const references = screen.getByRole('region', { name: '对话参考附件' });
   fireEvent.click(within(references).getByRole('button', { name: '查看附件 季度汇报.docx' }));
-  await waitFor(() => expect(api.openExport).toHaveBeenCalledWith({taskId, path: 'exports/季度汇报.docx', reveal: false}));
-  expect(api.exportArtifact).toHaveBeenCalledWith({taskId, versionId: 'v2', name: '季度汇报.docx', draft: true});
-  expect(api.preview).not.toHaveBeenCalled();
-  expect(screen.getByRole('heading', { name: '尚未生成交付文件' })).toBeVisible();
-  expect(within(screen.getByLabelText('任务与文件')).queryByText('季度汇报.docx')).not.toBeInTheDocument();
+  expect(screen.getByText('正文 v2')).toBeInTheDocument();
+  expect(api.openExport).not.toHaveBeenCalled();
+  expect(api.exportArtifact).not.toHaveBeenCalled();
   expect(screen.queryByRole('heading', { name: '本次工作' })).not.toBeInTheDocument();
+});
+
+it('keeps a reference preview after background sync and does not remount the conversation', async () => {
+  const detail = fixture();
+  detail.artifacts[0].role = 'reference';
+  const mounted = vi.fn();
+  function Conversation() {
+    useEffect(() => {
+      mounted();
+    }, []);
+    return <div>原会话输入框</div>;
+  }
+  const api = apiFor(detail);
+  localStorage.setItem('lunitide:office-studio:last-task', taskId);
+  render(<OfficeStudioPage initialTaskId={taskId} api={api} renderConversation={() => <Conversation />} onOpenSession={vi.fn()} />);
+  expect(await screen.findByText('正文 v2')).toBeInTheDocument();
+  fireEvent.click(screen.getByTitle('同步原对话中的文件'));
+  await waitFor(() => expect(api.sync).toHaveBeenCalled());
+  expect(screen.getByText('正文 v2')).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: '尚未生成交付文件' })).toBeNull();
+  expect(mounted).toHaveBeenCalledOnce();
 });
 
 it('updates native fields only on request and binds the selected historical version and artifact revision', async () => {
@@ -355,6 +391,12 @@ describe('Office Studio production state', () => {
     expect(divider).not.toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '对话' }));
     expect(divider).toHaveAttribute('aria-valuenow', '600');
+    const conversation = screen.getByText('原会话输入框');
+    fireEvent.click(screen.getByRole('button', { name: '放大预览' }));
+    expect(document.querySelector('.office-studio')?.className).toContain('preview-expanded');
+    expect(conversation).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '恢复对话' }));
+    expect(document.querySelector('.office-studio')?.className).not.toContain('preview-expanded');
     cleanup();
     await open(api);
     expect(screen.getByRole('separator')).toHaveAttribute('aria-valuenow', '600');

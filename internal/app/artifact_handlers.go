@@ -7,6 +7,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"os"
 	"path/filepath"
@@ -110,7 +111,7 @@ func handleWorkspaceArtifactPreview(e *Engine, ctx context.Context, r bridge.Req
 	default:
 		kind = "file"
 	}
-	if kind == "pdf" || kind == "file" {
+	if kind == "file" {
 		notice = "请用本机软件打开查看完整内容"
 	} else if info.Size() > 8<<20 {
 		notice = "文件较大，请用本机软件打开查看完整内容"
@@ -130,13 +131,19 @@ func handleWorkspaceArtifactPreview(e *Engine, ctx context.Context, r bridge.Req
 			content = strings.ToValidUTF8(string(data), "�")
 		case "image":
 			content, err = imagepreview.Encode(ctx, data)
+		case "pdf":
+			if len(data) == 0 || len(data) > 4<<20 {
+				notice = "请用本机软件打开查看完整内容"
+			} else {
+				content = base64.StdEncoding.EncodeToString(data)
+			}
 		}
 		if err != nil {
 			notice = "无法生成预览，可用本机软件打开原文件"
 			content = ""
 		}
 	}
-	if kind != "image" && len(content) > 256<<10 {
+	if kind != "image" && kind != "pdf" && len(content) > 256<<10 {
 		runes := []rune(content)
 		keep := len(runes) * (256 << 10) / len(content)
 		content = string(runes[:keep]) + "…"

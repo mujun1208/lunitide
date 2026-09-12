@@ -84,8 +84,9 @@ export function CodePanel({
         <span className="code-panel-title">代码</span>
         <button
           type="button"
-          className="code-panel-vscode"
+          className="artifact-icon-btn code-panel-vscode"
           disabled={!bridge}
+          aria-label="在 VS Code 中打开"
           title="在 VS Code 中打开当前文件或工作区根目录"
           onClick={() => {
             if (!bridge) return
@@ -94,7 +95,7 @@ export function CodePanel({
               .catch(() => setOpenError('无法在 VS Code 中打开；已尝试资源管理器回退'))
           }}
         >
-          在 VS Code 中打开
+          ↗
         </button>
       </header>
       {openError && <p className="code-panel-open-error" role="alert">{openError}</p>}

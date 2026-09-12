@@ -14,6 +14,7 @@ export function OfficeArtifactViewer({
   loading,
   error,
   selectedNodeId,
+  activePageId,
   onSelectNode,
   onRetry,
   onRebuild,
@@ -26,11 +27,15 @@ export function OfficeArtifactViewer({
   loading: boolean;
   error: string;
   selectedNodeId?: string;
+  activePageId?: string;
   onSelectNode: (node: OfficeNode) => void;
   onRetry: () => void;
   onRebuild?: () => void;
 }): React.JSX.Element {
   const [layout, setLayout] = useState(false);
+  const pages = artifact && preview ? officePreviewPages(artifact.kind, preview.nodes) : [];
+  const visiblePages =
+    artifact?.kind === 'pptx' ? pages.filter((page) => page.id === (activePageId ?? pages[0]?.id)) : pages;
   useEffect(() => {
     setLayout(!!preview?.pdfReady);
   }, [preview?.versionId, preview?.pdfReady]);
@@ -94,7 +99,7 @@ export function OfficeArtifactViewer({
           <div className="os-paper-scroll">
             {preview.nodes.length > 0 ? (
               <div className={`os-structure-pages is-${artifact.kind}`}>
-                {officePreviewPages(artifact.kind, preview.nodes).map((page) => (
+                {visiblePages.map((page) => (
                   <article
                     className={`os-paper ${page.nodes.some((node) => node.id === selectedNodeId) ? 'is-selected' : ''}`}
                     key={page.id}

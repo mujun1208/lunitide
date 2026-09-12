@@ -45,8 +45,28 @@ func TestOfficeSessionOutputDoesNotRequestOrGrantFullDisk(t *testing.T) {
 		t.Fatal("scoped generation granted full disk")
 	}
 	args, _ = json.Marshal(map[string]any{"path": "weekly.docx", "desktop": true, "title": "Weekly report", "blocks": officetools.SampleStyledDocxBlocks()})
-	if _, err := e.executeUserTool(ctx, executionModeFullAccess, session, "docx.gen", args); !errors.Is(err, toolruntime.ErrApprovalRequired) {
-		t.Fatalf("desktop output must retain full-disk gate: %v", err)
+	if _, err := e.executeUserTool(ctx, executionModeFullAccess, session, "docx.gen", args); err != nil {
+		t.Fatalf("full-access desktop output must not ask for a second approval: %v", err)
+	}
+}
+
+func TestApprovalModeDesktopOfficeStillGates(t *testing.T) {
+	tools, err := toolruntime.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tools.Close()
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.SetToolRuntime(tools)
+	ctx := context.Background()
+	resp := e.Handle(ctx, observedPolicyRequest(t, e, "tools.commandPolicy.set", `{"commands":[],"fullAccess":true}`))
+	if !resp.OK {
+		t.Fatalf("policy: %+v", resp.Error)
+	}
+	const session = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	args, _ := json.Marshal(map[string]any{"path": "weekly.docx", "desktop": true, "title": "Weekly report", "blocks": officetools.SampleStyledDocxBlocks()})
+	if _, err := e.executeUserTool(ctx, executionModeApproval, session, "docx.gen", args); !errors.Is(err, toolruntime.ErrApprovalRequired) {
+		t.Fatalf("approval mode must still gate desktop output: %v", err)
 	}
 }
 

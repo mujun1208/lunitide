@@ -1,7 +1,37 @@
 import React,{createRef}from'react'
 import{cleanup,fireEvent,render,screen}from'@testing-library/react'
 import{afterEach,expect,it,vi}from'vitest'
-import{Dialog}from'./Dialog'
+import{ConfirmDialog,Dialog}from'./Dialog'
 afterEach(cleanup)
 it('falls back from disabled initial focus, traps escaped focus, and ignores callback identity rerenders',async()=>{const initial=createRef<HTMLButtonElement>(),outside=document.createElement('button');document.body.append(outside);outside.focus();const view=render(<Dialog open title="One" onClose={vi.fn()} initialFocus={initial}><button ref={initial} disabled>disabled</button><button>fallback</button></Dialog>);await new Promise(requestAnimationFrame);expect(screen.getByRole('button',{name:'fallback'})).toHaveFocus();outside.focus();fireEvent.keyDown(document,{key:'Tab'});expect(screen.getByRole('button',{name:'fallback'})).toHaveFocus();outside.focus();view.rerender(<Dialog open title="One" onClose={()=>{}} initialFocus={initial}><button ref={initial} disabled>disabled</button><button>fallback</button></Dialog>);await Promise.resolve();expect(outside).toHaveFocus();outside.remove()})
 it('uses unique accessible ids for simultaneous dialogs',()=>{render(<><Dialog open title="One" onClose={()=>{}}><button>one</button></Dialog><Dialog open title="Two" onClose={()=>{}}><button>two</button></Dialog></>);const dialogs=screen.getAllByRole('dialog');expect(dialogs[0].getAttribute('aria-labelledby')).not.toBe(dialogs[1].getAttribute('aria-labelledby'))})
+it('surfaces a confirm error inside the dialog',()=>{render(<ConfirmDialog open title="清除旧回答并重新生成？" description="将清除这条回答。" confirmLabel="重新生成" error="当前会话仍在处理，请停止并等待结束后再回退" onCancel={vi.fn()} onConfirm={vi.fn()}/>);expect(screen.getByRole('dialog')).toHaveTextContent('当前会话仍在处理，请停止并等待结束后再回退');expect(screen.getByRole('alert')).toHaveTextContent('当前会话仍在处理，请停止并等待结束后再回退')})
+it('focuses without scrolling the page so a long dialog or the chat behind it stays put',async()=>{
+ const focus=vi.spyOn(HTMLElement.prototype,'focus')
+ const outside=document.createElement('button')
+ document.body.append(outside)
+ outside.focus()
+ focus.mockClear()
+ render(<Dialog open title="One" onClose={vi.fn()}><button>fallback</button></Dialog>)
+ await new Promise(requestAnimationFrame)
+ expect(focus.mock.calls.length).toBeGreaterThan(0)
+ expect(focus.mock.calls.every(call=>(call[0] as FocusOptions|undefined)?.preventScroll===true)).toBe(true)
+ outside.remove()
+ focus.mockRestore()
+})
+it('returns focus without scrolling when the dialog closes',async()=>{
+ const focus=vi.spyOn(HTMLElement.prototype,'focus')
+ const outside=document.createElement('button')
+ document.body.append(outside)
+ outside.focus()
+ const onClose=vi.fn()
+ const view=render(<Dialog open title="One" onClose={onClose}><button>fallback</button></Dialog>)
+ await new Promise(requestAnimationFrame)
+ focus.mockClear()
+ view.rerender(<Dialog open={false} title="One" onClose={onClose}><button>fallback</button></Dialog>)
+ await new Promise(requestAnimationFrame)
+ expect(focus.mock.calls.length).toBeGreaterThan(0)
+ expect(focus.mock.calls.every(call=>(call[0] as FocusOptions|undefined)?.preventScroll===true)).toBe(true)
+ outside.remove()
+ focus.mockRestore()
+})

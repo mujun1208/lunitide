@@ -91,16 +91,10 @@ func TestFullDiskChatWritesAbsolutePaths(t *testing.T) {
 	if !resp.OK {
 		t.Fatalf("set fullAccess=true rejected: %+v", resp.Error)
 	}
-	// S-05: the opt-in only ARMS full-disk. Before the session confirms the
-	// one-time unlock the absolute write still gates.
-	if _, err = e.executeUserTool(context.Background(), executionModeFullAccess, "s01", "workspace.write", args); err == nil {
-		t.Fatal("armed full-disk must still gate before session confirmation")
-	}
-	if err = tools.ConfirmFullDiskSession(context.Background(), "s01"); err != nil {
-		t.Fatal(err)
-	}
+	// Conversation full-access is the grant. The persisted toggle only arms
+	// unconfined paths; do not make the user click 审批 again.
 	if _, err = e.executeUserTool(context.Background(), executionModeFullAccess, "s01", "workspace.write", args); err != nil {
-		t.Fatalf("explicit fullAccess absolute write: %v", err)
+		t.Fatalf("full-access conversation must write without a second approval: %v", err)
 	}
 	if b, rerr := os.ReadFile(desktop); rerr != nil || string(b) != "hi" {
 		t.Fatalf("desktop write content = %q err=%v", string(b), rerr)

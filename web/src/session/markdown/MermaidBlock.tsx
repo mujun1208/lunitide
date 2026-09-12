@@ -1,7 +1,6 @@
-import React, { useEffect, useId, useRef, useState } from 'react'
+import React, { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { Dialog } from '../../ui/Dialog'
 import {
-  MERMAID_LIGHTBOX_MAX_HEIGHT_CSS,
   mermaidBudgetError,
   mermaidSourceReady,
   mountMermaidSvg,
@@ -49,6 +48,7 @@ export function MermaidBlock({
   const hasSvgRef = useRef(false)
   const [copied, setCopied] = useState(false)
   const [open, setOpen] = useState(false)
+  const [zoom, setZoom] = useState(1)
   const lightboxRef = useRef<HTMLDivElement>(null)
   const [themeEpoch, setThemeEpoch] = useState(0)
 
@@ -131,15 +131,18 @@ export function MermaidBlock({
     }
   }, [])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return
     const sourceSvg = hostRef.current?.querySelector('svg')
     const host = lightboxRef.current
     if (!sourceSvg || !host) return
-    const clone = sourceSvg.cloneNode(true) as SVGSVGElement
-    fitMermaidSvg(clone, { maxHeight: MERMAID_LIGHTBOX_MAX_HEIGHT_CSS })
-    host.replaceChildren(clone)
-  }, [open, hasSvg])
+    let clone = host.querySelector('svg')
+    if (!clone) {
+      clone = sourceSvg.cloneNode(true) as SVGSVGElement
+      host.replaceChildren(clone)
+    }
+    fitMermaidSvg(clone, { fill: true, zoom })
+  }, [open, hasSvg, zoom])
 
   const copySource = async () => {
     if (!onCopy) return
@@ -181,10 +184,19 @@ export function MermaidBlock({
       >
         <div ref={hostRef} className="mermaid-host" hidden={!!error} aria-label="Mermaid 图表" />
       </button>
-      <Dialog open={open} title="查看图表" onClose={() => setOpen(false)} wide>
-        <div ref={lightboxRef} className="mermaid-lightbox" aria-label="放大后的 Mermaid 图表" />
+      <Dialog open={open} title="查看图表" onClose={() => { setOpen(false); setZoom(1) }} wide>
+        <div ref={lightboxRef} className="mermaid-lightbox mermaid-skin" aria-label="放大后的 Mermaid 图表" />
         <div className="dialog-actions">
-          <button type="button" onClick={() => setOpen(false)}>
+          <button type="button" aria-label="缩小" disabled={zoom <= 0.5} onClick={() => setZoom(value => Math.max(0.5, Math.round((value - 0.5) * 100) / 100))}>
+            缩小
+          </button>
+          <button type="button" aria-label="适合宽度" onClick={() => setZoom(1)}>
+            适合宽度
+          </button>
+          <button type="button" aria-label="放大" disabled={zoom >= 4} onClick={() => setZoom(value => Math.min(4, Math.round((value + 0.5) * 100) / 100))}>
+            放大
+          </button>
+          <button type="button" onClick={() => { setOpen(false); setZoom(1) }}>
             关闭
           </button>
         </div>

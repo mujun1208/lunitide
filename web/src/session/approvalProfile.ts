@@ -15,3 +15,8 @@ export function companionMayAutoApprove(name: string, fullDisk?: boolean): boole
   if (isFullDiskCompanionWrite(name) && fullDisk !== false) return false
   return true
 }
+
+/** Typed 完全访问 already granted this turn; only user.ask still needs a human answer. */
+export function sessionMayAutoApprove(name: string): boolean {
+  return name !== 'user.ask'
+}

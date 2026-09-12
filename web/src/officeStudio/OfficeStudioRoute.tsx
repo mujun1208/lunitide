@@ -35,10 +35,21 @@ interface OfficeRouteProps {
   onActivityChange: (sessionId: string, active: boolean) => void;
   api?: OfficeStudioApi;
 }
-interface OfficeBinding {
+export interface OfficeBinding {
   project: ProjectDTO;
   session: SessionDTO;
   personal: boolean;
+}
+export function keepOfficeBinding(previous: OfficeBinding | undefined, next: OfficeBinding): OfficeBinding {
+  if (
+    previous &&
+    previous.session.id === next.session.id &&
+    previous.project.id === next.project.id &&
+    previous.personal === next.personal
+  ) {
+    return previous;
+  }
+  return next;
 }
 export async function resolveOfficeBinding(
   task: OfficeTask,
@@ -85,7 +96,7 @@ function OfficeConversationHost({
     void officeRead(resolveOfficeBinding(task, route.projects, route.sessions))
       .then((result) => {
         if (active) {
-          setBinding(result);
+          setBinding((previous) => keepOfficeBinding(previous, result));
           readyRef.current();
         }
       })

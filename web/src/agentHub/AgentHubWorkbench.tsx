@@ -46,6 +46,7 @@ export function AgentHubWorkbench({
   const [files, setFiles] = useState<InboxFile[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [hint, setHint] = useState('')
   const lockedAgent = scene && scene !== 'free' ? sceneAgent(scene) : agent
   const selected = agents.find(item => item.name === lockedAgent)
   const available = selected?.state === 'available' && selected.nonInteractive
@@ -77,7 +78,7 @@ export function AgentHubWorkbench({
     if (next !== 'free') {
       const locked = agents.find(item => item.name === sceneAgent(next))
       if (agents.length > 0 && (locked?.state !== 'available' || !locked.nonInteractive)) {
-        window.alert(locked?.hint ?? '')
+        setHint(locked?.hint ?? '')
         return
       }
       setAgent(sceneAgent(next))
@@ -85,6 +86,7 @@ export function AgentHubWorkbench({
       const first = agents.find(item => item.state === 'available' && item.nonInteractive)
       if (first) setAgent(first.name)
     }
+    setHint('')
     setScene(next)
     localStorage.setItem(SCENE_KEY, next)
     setWorkDir(localStorage.getItem(workDirKey(next)) ?? '')
@@ -150,8 +152,8 @@ export function AgentHubWorkbench({
     <section>
       <div className="agent-hub-hero">
         <div className="eyebrow">Agent Hub</div>
-        <h2>{zh ? <>一个入口<br />调度本机已安装的 <em>CLI</em></> : <>One place to dispatch locally installed <em>CLIs</em></>}</h2>
-        <p>{zh ? '调用本机已安装的 Codex / Cursor / Kimi。不能跑的适配器保持灰色，不假装三家齐。' : 'Call Codex, Cursor or Kimi already installed on this machine. Unavailable adapters stay grey.'}</p>
+        <h2>{zh ? '常用三件事一键开始' : 'Start the three common jobs in one click'}</h2>
+        <p>{zh ? '其它事点「其它任务」自己选 Agent' : 'For anything else, open Other task and pick an agent.'}</p>
       </div>
       <div className="agent-hub-scenes">
         {HUB_SCENES.map(item => {
@@ -181,9 +183,10 @@ export function AgentHubWorkbench({
               aria-pressed={agent === item.name}
               onClick={() => {
                 if (item.state !== 'available' || !item.nonInteractive) {
-                  window.alert(item.hint)
+                  setHint(item.hint)
                   return
                 }
+                setHint('')
                 setAgent(item.name)
               }}
             >
@@ -246,6 +249,7 @@ export function AgentHubWorkbench({
       {scene === 'free' && agent === 'cursor' && <p className="agent-hub-hint">{zh ? 'Cursor 将自动改工作目录内文件。' : 'Cursor will edit files inside the work folder automatically.'}</p>}
       {scene === 'free' && agent === 'kimi' && <p className="agent-hub-hint">{zh ? 'Kimi 将自动改工作目录内文件。未登录时请先在该 CLI 自己的终端完成登录。' : 'Kimi will edit files inside the work folder automatically. Sign in from that CLI first if it is not logged in.'}</p>}
       {agents.length > 0 && !anyAvailable && <p className="agent-hub-hint">{zh ? '当前没有可执行的 CLI。点灰色胶囊看安装或登录说明。' : 'No runnable CLI yet. Click a grey card for install or sign-in help.'}</p>}
+      {hint && <p className="agent-hub-hint" role="status">{hint}</p>}
       {error && <p className="agent-hub-error" role="alert">{error}</p>}
       {live.map(item => (
         <button key={item.taskId} type="button" className="agent-hub-live" onClick={() => onOpened(item.taskId)}>
