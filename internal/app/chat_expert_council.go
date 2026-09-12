@@ -49,6 +49,9 @@ type expertCouncilConfig struct {
 	SessionID  string
 	Mode       executionMode
 	Experts    []councilExpert
+	Lane       ChatLane
+	MaxSteps   int
+	Tools      bool
 }
 
 type expertCouncilInputs struct {
@@ -58,6 +61,7 @@ type expertCouncilInputs struct {
 	Companion    bool
 	TurnText     string
 	ExplicitMsgs []llmadapter.Message
+	Lane         ChatLane
 }
 
 func phaseKeyFromWorkbenchLabel(label string) string {
@@ -108,21 +112,75 @@ func appendUniqueExpertIDs(ids []string, extra ...string) []string {
 // chips are used. The 13-specialist catalog and phase-matrix defaults are
 // never unioned in.
 func selectedTurnExpertIDs(mounted []string, turnTexts ...string) []string {
-	for _, text := range turnTexts {
-		if refs := extractExpertRefIDs(text); len(refs) > 0 {
-			return appendUniqueExpertIDs(nil, refs...)
+	current := ""
+	if len(turnTexts) > 0 {
+		current = turnTexts[0]
+	}
+	refs := extractExpertRefIDs(current)
+	if len(refs) == 0 {
+		for _, text := range turnTexts[1:] {
+			if more := extractExpertRefIDs(text); len(more) > 0 {
+				refs = more
+				break
+			}
 		}
 	}
-	if len(mounted) == 1 {
-		current := ""
-		if len(turnTexts) > 0 {
-			current = turnTexts[0]
+	if !chatLanesEnabled() {
+		if len(refs) > 0 {
+			return appendUniqueExpertIDs(nil, refs...)
 		}
+		if len(mounted) == 1 && !mountedExpertYieldsToIntent(mounted[0], current) {
+			return appendUniqueExpertIDs(nil, mounted[0])
+		}
+		return nil
+	}
+	if len(mounted) >= 2 {
+		return appendUniqueExpertIDs(nil, append(append([]string{}, mounted...), refs...)...)
+	}
+	if len(refs) > 0 {
+		return appendUniqueExpertIDs(nil, append(append([]string{}, mounted...), refs...)...)
+	}
+	if len(mounted) == 1 {
 		if !mountedExpertYieldsToIntent(mounted[0], current) {
 			return appendUniqueExpertIDs(nil, mounted[0])
 		}
 	}
 	return nil
+}
+
+func councilShouldRun(lane ChatLane, roster []string, goal string, companion bool) bool {
+	if companion || lane == LaneL0 || skipExpertCouncil(goal) {
+		return false
+	}
+	return len(roster) >= 2
+}
+
+func councilInviteNeeded(goal string, roster []string) bool {
+	if len(roster) >= 2 {
+		return false
+	}
+	t := strings.TrimSpace(goal)
+	return strings.Contains(t, "请两位") || strings.Contains(t, "请三位") ||
+		strings.Contains(t, "一起评") || strings.Contains(t, "开会评")
+}
+
+func councilInviteSpeech() string {
+	return "请先挂载至少两位专家"
+}
+
+// pinCouncilInviteLead keeps T15's invite as the first visible sentence.
+func pinCouncilInviteLead(text, lead string) string {
+	lead = strings.TrimSpace(lead)
+	if lead == "" {
+		return text
+	}
+	if strings.HasPrefix(strings.TrimLeft(text, " \t\n"), lead) {
+		return text
+	}
+	if strings.TrimSpace(text) == "" {
+		return lead
+	}
+	return lead + "\n" + text
 }
 
 func mountedExpertYieldsToIntent(mountedID, current string) bool {
@@ -209,7 +267,14 @@ func (e *Engine) buildExpertCouncilConfig(ctx context.Context, in expertCouncilI
 		return nil
 	}
 	ids := e.collectCouncilExpertIDs(ctx, in)
-	if len(ids) < 2 {
+	lane := in.Lane
+	if lane == "" {
+		lane = classifyChatLane(LaneInput{Goal: in.TurnText})
+	}
+	if !chatLanesEnabled() {
+		lane = ""
+	}
+	if !councilShouldRun(lane, ids, in.TurnText, in.Companion) {
 		return nil
 	}
 	experts := e.resolveCouncilExperts(ctx, ids)
@@ -230,11 +295,42 @@ func (e *Engine) buildExpertCouncilConfig(ctx context.Context, in expertCouncilI
 		Companion:  in.Companion,
 		SessionID:  in.SessionID,
 		Experts:    experts,
+		Lane:       lane,
+		MaxSteps:   councilStepsForLane(lane),
+		Tools:      councilToolsForLane(lane),
+	}
+}
+
+func councilStepsForLane(lane ChatLane) int {
+	switch lane {
+	case LaneL0, LaneL1, LaneL2, LaneL2Ask:
+		return 1
+	case LaneL3:
+		return 2
+	default:
+		return councilExpertMaxSteps
+	}
+}
+
+func councilToolsForLane(lane ChatLane) bool {
+	switch lane {
+	case LaneL0, LaneL1, LaneL2, LaneL2Ask:
+		return false
+	default:
+		return true
 	}
 }
 
 func expertDeliberateSystemPrompt(name, body string) string {
-	return fmt.Sprintf("你是专家「%s」。请严格以该岗位说明书的专业视角独立作答，不要模拟其他角色，也不要替用户做最终拍板。\n\n岗位说明书：\n%s\n\n%s\n\n输出格式（中文，简洁）：\n【立场】一句话\n【建议】3-6 条要点\n【风险】主要风险或反对点\n【前提】关键假设\n需要事实或素材时先调用 web.search（必要时 web.fetch）；需要成文时调用对应 *.gen（桌面 desktop=true）；结构图用 mermaid；匹配技能立刻 skill.invoke。不要倾倒 200 页全书。", name, body, specialistPersonaCapabilityLine())
+	return expertDeliberateSystemPromptForTools(name, body, true)
+}
+
+func expertDeliberateSystemPromptForTools(name, body string, tools bool) string {
+	base := fmt.Sprintf("你是专家「%s」。请严格以该岗位说明书的专业视角独立作答，不要模拟其他角色，也不要替用户做最终拍板。\n\n岗位说明书：\n%s\n\n%s\n\n输出格式（中文，简洁）：\n【立场】一句话\n【建议】3-6 条要点\n【风险】主要风险或反对点\n【前提】关键假设\n", name, body, specialistPersonaCapabilityLine())
+	if !tools {
+		return base + "本轮不要调用任何工具，不要建议 web.search 或 *.gen。不要倾倒 200 页全书。"
+	}
+	return base + "需要事实或素材时先调用 web.search（必要时 web.fetch）；需要成文时调用对应 *.gen（桌面 desktop=true）；结构图用 mermaid；匹配技能立刻 skill.invoke。不要倾倒 200 页全书。"
 }
 
 func expertDeliberateUserPrompt(question, phaseLabel, priorFindings string) string {
@@ -253,8 +349,11 @@ func expertDeliberateUserPrompt(question, phaseLabel, priorFindings string) stri
 	return b.String()
 }
 
-func (e *Engine) deliberateExpert(ctx context.Context, a llmadapter.Adapter, credential []byte, model string, expert councilExpert, question, phaseLabel, priorFindings string, companion bool, mode executionMode, sessionID string) councilOpinion {
+func (e *Engine) deliberateExpert(ctx context.Context, a llmadapter.Adapter, credential []byte, model string, expert councilExpert, question, phaseLabel, priorFindings string, cfg expertCouncilConfig) councilOpinion {
 	ctx = withCallPurpose(ctx, "council")
+	companion := cfg.Companion
+	mode := cfg.Mode
+	sessionID := cfg.SessionID
 	op := councilOpinion{ExpertID: expert.ID, ExpertName: expert.Name}
 	eq := e.equipmentForNames(ctx, []string{expert.Name})
 	tools := specialistToolDefinitions(e.engineToolDefinitionsFor(mode))
@@ -266,20 +365,26 @@ func (e *Engine) deliberateExpert(ctx context.Context, a llmadapter.Adapter, cre
 		}
 	}
 	tools = append(tools, e.mcpToolDefinitionsRestricted(eq.McpIDs, true)...)
+	if cfg.Lane != "" && !cfg.Tools {
+		tools = nil
+	}
 	req := llmadapter.Request{
 		Model:            model,
 		MaxTokens:        councilExpertMaxTokens,
 		MaxAttempts:      1,
-		DisableReasoning: companion,
+		DisableReasoning: companion || (cfg.Lane != "" && !cfg.Tools),
 		Tools:            tools,
 		Messages: []llmadapter.Message{
-			{Role: llmadapter.RoleSystem, Content: expertDeliberateSystemPrompt(expert.Name, expert.Body)},
+			{Role: llmadapter.RoleSystem, Content: expertDeliberateSystemPromptForTools(expert.Name, expert.Body, len(tools) > 0)},
 			{Role: llmadapter.RoleUser, Content: expertDeliberateUserPrompt(question, phaseLabel, priorFindings)},
 		},
 	}
 	allowed := toolNameSet(tools)
 	var lastText string
 	steps := councilExpertMaxSteps
+	if cfg.MaxSteps > 0 {
+		steps = cfg.MaxSteps
+	}
 	if e.tools == nil || len(tools) == 0 {
 		steps = 1
 		req.Tools = nil
@@ -385,8 +490,20 @@ func formatCouncilBrief(question string, opinions []councilOpinion) string {
 }
 
 func councilChairInstruction(brief string, companion bool) string {
+	return councilChairInstructionForLane(brief, companion, LaneL4)
+}
+
+func councilChairInstructionForLane(brief string, companion bool, lane ChatLane) string {
 	if companion {
 		return brief + "\n\n你是月汐（会议主席）。上面是各位专家的独立意见。请综合分歧与共识，给用户一份最优方案：先 1-2 句结论（适合语音朗读），再简短说明关键分歧与推荐取舍。不要逐条复读每位专家原文，不要拆成多条助手消息。\n"
+	}
+	switch lane {
+	case LaneL1:
+		return brief + "\n\n你是月汐（会议主席）。上面是各位专家的独立意见。请综合后只完成用户原任务（润色或对话成文）。禁止要求 web.search，禁止调用未点名的 *.gen。不要把润色做成调研或 Word。\n"
+	case LaneL2:
+		return brief + "\n\n你是月汐（会议主席）。上面是各位专家的独立意见。请综合后只用已有材料生成用户点名的文件。禁止 web.search。禁止补编用户没给的数字。\n"
+	case LaneL2Ask:
+		return brief + "\n\n你是月汐（会议主席）。上面是各位专家的独立意见。请综合后只列出还缺什么材料，问一句即停。禁止 web.search，禁止 *.gen。\n"
 	}
 	return brief + "\n\n你是月汐（会议主席）。上面是各位专家的独立征询结果。请输出一份给用户的最优方案，结构如下：\n" +
 		"## 综合结论\n（明确推荐方案）\n\n" +
@@ -396,11 +513,11 @@ func councilChairInstruction(brief string, companion bool) string {
 		"综合后必须把交付做完：需要网上事实就 web.search / web.fetch；结构图画 mermaid；成文用 docx.gen / excel.gen / pptx.gen / html.gen（桌面 desktop=true）；匹配技能立刻 skill.invoke。不要只给口头结论交差。\n"
 }
 
-func injectCouncilChairBrief(req *llmadapter.Request, brief string, companion bool) {
+func injectCouncilChairBrief(req *llmadapter.Request, brief string, companion bool, lane ChatLane) {
 	if req == nil || brief == "" {
 		return
 	}
-	chair := councilChairInstruction(brief, companion)
+	chair := councilChairInstructionForLane(brief, companion, lane)
 	if len(req.Messages) == 0 || req.Messages[0].Role != llmadapter.RoleSystem {
 		req.Messages = append([]llmadapter.Message{{Role: llmadapter.RoleSystem, Content: chair}}, req.Messages...)
 		return
@@ -438,7 +555,7 @@ func (e *Engine) runExpertCouncil(ctx context.Context, a llmadapter.Adapter, cre
 					Type: bridge.EventToolStarted,
 					Tool: &bridge.ToolEvent{CallID: callID, Name: "expert.deliberate", ArgsDigest: digest, Summary: "专家「" + expert.Name + "」发言中…"},
 				})
-				opinions[idx] = e.deliberateExpert(ctx, a, credential, model, expert, cfg.Question, cfg.PhaseLabel, "", cfg.Companion, cfg.Mode, cfg.SessionID)
+				opinions[idx] = e.deliberateExpert(ctx, a, credential, model, expert, cfg.Question, cfg.PhaseLabel, "", cfg)
 				summary := truncateUTF8Bytes(opinions[idx].Text, 480)
 				if opinions[idx].Err != nil {
 					summary = opinions[idx].Text
@@ -471,7 +588,7 @@ func (e *Engine) runExpertCouncilShared(ctx context.Context, a llmadapter.Adapte
 			Type: bridge.EventToolStarted,
 			Tool: &bridge.ToolEvent{CallID: callID, Name: "expert.deliberate", ArgsDigest: digest, Summary: "专家「" + expert.Name + "」发言中…"},
 		})
-		op := e.deliberateExpert(ctx, a, credential, model, expert, cfg.Question, cfg.PhaseLabel, bus.render(), cfg.Companion, cfg.Mode, cfg.SessionID)
+		op := e.deliberateExpert(ctx, a, credential, model, expert, cfg.Question, cfg.PhaseLabel, bus.render(), cfg)
 		opinions[idx] = op
 		if op.Err == nil {
 			bus.append(op.ExpertName, op.Text)
@@ -501,6 +618,6 @@ func (e *Engine) applyExpertCouncil(ctx context.Context, a llmadapter.Adapter, c
 		return
 	}
 	if brief != "" {
-		injectCouncilChairBrief(req, brief, companion)
+		injectCouncilChairBrief(req, brief, companion, cfg.Lane)
 	}
 }

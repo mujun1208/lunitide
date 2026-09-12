@@ -111,6 +111,7 @@ func (e *Engine) reconcileTurnCheckpointOnStart(sessionID string, turn *chatTurn
 			turn.DocxNudges = prev.DocxNudges
 			turn.DocxGenerated = prev.DocxGenerated
 			turn.DocxChars = prev.DocxChars
+			turn.SkipOfficeResearch = prev.SkipOfficeResearch
 			turn.Injected = append([]string{}, prev.Injected...)
 			if prev.Continuation != nil {
 				cloned := *prev.Continuation
@@ -254,6 +255,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	if state.equipEvent != nil {
 		_ = send(bridge.Event{Type: bridge.EventEquip, Equip: state.equipEvent})
 	}
+	if lead := strings.TrimSpace(state.inviteLead); lead != "" && !strings.HasPrefix(strings.TrimLeft(assistantText.String(), " \n"), lead) {
+		notice := lead + "。\n"
+		assistantText.WriteString(notice)
+		_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: notice}})
+	}
 	var err error
 	usedLocalBrain := false
 	if !state.companion && state.brain != "" && state.brain != BrainLunitide {
@@ -309,14 +315,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			}
 			e.applyExpertCouncil(op, turnBudgetAdapter{Adapter: a, budget: &generationBudget}, credential, req.Model, state.council, &req, state.companion, send)
 			state.council = nil
-			if officeTaskContextID(op) == "" && !turn.CapabilityWork {
-				startPptWorkflow(&req, &turn, send)
-				startDocxWorkflow(&req, &turn, send)
-			} else {
-				turn.PptActive, turn.DocxActive = false, false
-			}
+			startOfficeWorkflowsIfNeeded(&req, &turn, send, state.lane, officeTaskContextID(op), turn.CapabilityWork)
 			logInjectedGuidance(sessionID, state.companion, req)
-			emitInjectedGuidance(send, req)
+			emitInjectedGuidance(send, req, state.lane.Lane)
 			seen := map[string]bool{}
 			completedDigests := map[string]string{}
 			failedDesktopAttempts := map[string]int{}
@@ -351,6 +352,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			if state.companion && !companionDesktopToolLoop(e, sessionID, turn.Goal) {
 				toolLoopLimit = companionMaxToolLoopSteps
 			}
+			if inventoryLookupBlocksPublicWeb(turn.Goal) {
+				toolLoopLimit = 2
+			}
+			toolLoopLimit = capToolLoopLimit(toolLoopLimit, state.lane)
 			for step := 0; step < toolLoopLimit; step++ {
 				turn.liveProtocol = req.Messages
 				if err := e.CheckCapability(op, "llm", "session"); err != nil {
@@ -495,14 +500,25 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						}
 						return nil
 					}
-					if !autoLookupDone && toolDefinitionsHave(req.Tools, "web.search") && !turnAttemptedAction(req.Messages, "lookup") && looksLikeCurrentLookupTurn(turn.Goal) {
-						if searchArgs := fallbackWebSearchArgs(turn.Goal); len(searchArgs) > 0 {
-							result.Message.ToolCalls = []llmadapter.ToolCall{{
-								ID:        "auto-" + ulid.Make().String(),
-								Name:      "web.search",
-								Arguments: searchArgs,
-							}}
-							autoLookupDone = true
+					if !autoLookupDone && !turnAttemptedAction(req.Messages, "lookup") && looksLikeCurrentLookupTurn(turn.Goal) {
+						if inventoryLookupBlocksPublicWeb(turn.Goal) && toolDefinitionsHave(req.Tools, "mcp.search") {
+							if searchArgs := fallbackMcpSearchArgs(turn.Goal); len(searchArgs) > 0 {
+								result.Message.ToolCalls = []llmadapter.ToolCall{{
+									ID:        "auto-" + ulid.Make().String(),
+									Name:      "mcp.search",
+									Arguments: searchArgs,
+								}}
+								autoLookupDone = true
+							}
+						} else if laneAllowsWebSearch(state.lane) && toolDefinitionsHave(req.Tools, "web.search") {
+							if searchArgs := fallbackWebSearchArgs(turn.Goal); len(searchArgs) > 0 {
+								result.Message.ToolCalls = []llmadapter.ToolCall{{
+									ID:        "auto-" + ulid.Make().String(),
+									Name:      "web.search",
+									Arguments: searchArgs,
+								}}
+								autoLookupDone = true
+							}
 						}
 					}
 					if len(result.Message.ToolCalls) == 0 && !autoMediaGenerationDone {
@@ -574,6 +590,12 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				if len(result.Message.ToolCalls) == 0 {
 					toolOut := lastToolOutput(req.Messages)
 					continueKind := pickTurnContinueKind(stepText, assistantText.String(), toolOut, turn.LastTools, usedTools, usedDesktopTools, state.companion, req.DisableReasoning, nudges, turn.Goal, len(req.Tools) > 0)
+					if !laneAllowsContinueNudges(state.lane) && !(continueKind == "desktop" && laneAllowsDesktopContinue(state.lane)) {
+						continueKind = ""
+					}
+					if state.lane.Lane == LaneL2 && continueKind != "" && continueKind != "incomplete" {
+						continueKind = ""
+					}
 					if continueKind == "desktop" && companionBrowserLookupSettled(turn.Goal, stepText, req.Messages) {
 						continueKind = ""
 					}
@@ -664,17 +686,19 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: queueInjectNotice}})
 						continue
 					}
-					if nudgePptWorkflow(&req, &turn, send) {
-						if err := e.saveTurnCheckpointAfterModel(sessionID, &turn, result, thinkingText.String(), req.DisableReasoning, req.Messages); err != nil {
-							return err
+					if shouldStartOfficeResearch(state.lane, officeTaskContextID(op), turn.CapabilityWork) {
+						if nudgePptWorkflow(&req, &turn, send) {
+							if err := e.saveTurnCheckpointAfterModel(sessionID, &turn, result, thinkingText.String(), req.DisableReasoning, req.Messages); err != nil {
+								return err
+							}
+							continue
 						}
-						continue
-					}
-					if nudgeDocxWorkflow(&req, &turn, send) {
-						if err := e.saveTurnCheckpointAfterModel(sessionID, &turn, result, thinkingText.String(), req.DisableReasoning, req.Messages); err != nil {
-							return err
+						if nudgeDocxWorkflow(&req, &turn, send) {
+							if err := e.saveTurnCheckpointAfterModel(sessionID, &turn, result, thinkingText.String(), req.DisableReasoning, req.Messages); err != nil {
+								return err
+							}
+							continue
 						}
-						continue
 					}
 					break
 				}
@@ -683,13 +707,13 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				// real tool calls near its limit gets more room instead of a
 				// silent mid-batch truncation. Companion (voice) turns keep
 				// their fixed budget so a spoken reply never runs long.
-				if !state.companion {
+				if !state.companion && !inventoryLookupBlocksPublicWeb(turn.Goal) && laneMayExtendToolLoop(state.lane) {
 					toolLoopLimit = extendToolLoopLimit(toolLoopLimit, step)
 				}
 				for _, call := range result.Message.ToolCalls {
 					if isDesktopControlTool(call.Name) {
 						usedDesktopTools = true
-						if toolLoopLimit < maxToolLoopSteps {
+						if !inventoryLookupBlocksPublicWeb(turn.Goal) && toolLoopLimit < maxToolLoopSteps && laneAllowsDesktopContinue(state.lane) {
 							toolLoopLimit = maxToolLoopSteps
 						}
 						break
@@ -818,6 +842,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: clipToolSummary(toolStartedSummary(call.Name, call.Arguments))}}); err != nil {
 						return err
 					}
+					log.Printf("chat stream %s tool start name=%s", id, call.Name)
 					// The branches below dispatch without going through the tool
 					// runtime, so toolruntime's approval gate never sees them.
 					if reason, deny := ungatedEngineToolDenied(mode, state.companion, call.Name, call.Arguments); deny {
@@ -951,7 +976,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						if desktopMutationRetryBlocked(failedDesktopAttempts, call.Name, call.Arguments) {
 							return toolruntime.Result{}, errors.New("无法执行：相同目标和参数已失败，未重复操作。请重新核对目标或改用已验证的路径。")
 						}
-						if err := guardCurrentTurnTool(turn.Goal, call.Name); err != nil {
+						if err := guardCurrentTurnToolHistory(turn.Goal, call.Name, req.Messages); err != nil {
 							return toolruntime.Result{}, err
 						}
 						if future, ok := parallelFutures[call.ID]; ok {
@@ -1139,7 +1164,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							toolEvent.Artifact = &bridge.ArtifactEvent{Kind: k, Path: r.Artifact.Path, Content: ""}
 						}
 						if toolEvent.Artifact != nil && chatDeliverableArtifact(call.Name, toolEvent.Artifact.Kind, toolEvent.Artifact.Path) {
-							turnArtifacts = append(turnArtifacts, sessionArtifactFromTool(call.ID, call.Name, toolEvent.Artifact.Kind, toolEvent.Artifact.Path))
+							turnArtifacts = append(turnArtifacts, sessionArtifactFromTool(call.ID, call.Name, toolEvent.Artifact.Kind, toolEvent.Artifact.Path, officeTaskContextID(ctx)))
 						}
 					}
 					if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: toolEvent}); err != nil {
@@ -1392,7 +1417,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			finished, notice = e.tryFinishOfficeGen(ctx, mode, sessionID, &turn, assistantText.String(), err, func(event bridge.Event) error {
 				if event.Tool != nil && event.Tool.Artifact != nil && event.Type == bridge.EventToolCompleted {
 					a := event.Tool.Artifact
-					turnArtifacts = append(turnArtifacts, sessionArtifactFromTool(event.Tool.CallID, event.Tool.Name, a.Kind, a.Path))
+					turnArtifacts = append(turnArtifacts, sessionArtifactFromTool(event.Tool.CallID, event.Tool.Name, a.Kind, a.Path, officeTaskContextID(ctx)))
 				}
 				return send(event)
 			}, state.companion)
@@ -1431,6 +1456,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	if sessionID != "" && e.messages != nil {
 		// Reasoning is available through message.process, never model history.
 		text := assistantTurnPersistText(assistantText.String(), "", false)
+		if state != nil {
+			text = pinCouncilInviteLead(text, state.inviteLead)
+		}
 		if text == "" && turn.ToolFailed && len(turn.LastTools) > 0 {
 			if failNotice := createTurnFailureNotice(turn.LastTools, ""); failNotice != "" {
 				text = failNotice

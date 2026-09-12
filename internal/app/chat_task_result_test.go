@@ -53,7 +53,9 @@ func TestDiskEditDoesNotProveEditorUpdated(t *testing.T) {
 }
 
 func TestFreshLookupCannotExecuteOldFileOrMusicTask(t *testing.T) {
-	for _, goal := range []string{"今天上海虹桥到合肥南站的火车票有哪些？", "今天沪深指数怎么样"} {
+	ticket := "今天上海虹桥到合肥南站的火车票有哪些？"
+	stock := "今天沪深指数怎么样"
+	for _, goal := range []string{ticket, stock} {
 		if !companionWantsTools(goal) || !looksLikeCurrentLookupTurn(goal) {
 			t.Fatal("lookup lost tools", goal)
 		}
@@ -62,9 +64,12 @@ func TestFreshLookupCannotExecuteOldFileOrMusicTask(t *testing.T) {
 				t.Fatal("old action allowed", goal, name)
 			}
 		}
-		if guardCurrentTurnTool(goal, "web.search") != nil || guardCurrentTurnTool(goal, "browser.act") != nil {
-			t.Fatal("lookup tool blocked")
-		}
+	}
+	if guardCurrentTurnTool(stock, "web.search") != nil || guardCurrentTurnTool(stock, "browser.act") != nil {
+		t.Fatal("stock lookup tool blocked")
+	}
+	if guardCurrentTurnTool(ticket, "mcp.search") != nil {
+		t.Fatal("ticket discovery blocked")
 	}
 	if guardCurrentTurnTool("打开图片，然后查车票", "desktop.open") != nil {
 		t.Fatal("explicit combined task blocked")
@@ -102,6 +107,97 @@ func TestStableInstructionPrefixHashIgnoresClock(t *testing.T) {
 	}
 	if typedDefaultStablePrefixHash() != fmt.Sprintf("%x", sumA) {
 		t.Fatalf("typed-default hash must match extracted builder: %s", typedDefaultStablePrefixHash())
+	}
+}
+
+func TestInventoryLiveLookupFailsClosedWithoutTicketAPI(t *testing.T) {
+	goal := "今天上海虹桥到合肥南站的高铁票有哪些？"
+	for _, name := range []string{"web.search", "web.fetch", "browser.act", "desktop.browse"} {
+		if err := guardCurrentTurnTool(goal, name); err == nil {
+			t.Fatal("inventory scrape allowed", name)
+		}
+	}
+	if guardCurrentTurnTool(goal, "mcp.search") != nil {
+		t.Fatal("mcp.search is the only live-ticket probe")
+	}
+	if len(fallbackWebSearchArgs(goal)) != 0 {
+		t.Fatal("must not auto-inject web.search for live tickets")
+	}
+	if len(fallbackWebSearchArgs("今天合肥到上海虹桥站的火车")) != 0 {
+		t.Fatal("train lookup must not fall back to public web search")
+	}
+	if !strings.Contains(companionPersonaToolsInstruction(), "立刻结束") || strings.Contains(companionPersonaToolsInstruction(), "需要补充或核实就继续查询") {
+		t.Fatal("companion prompt still asks to keep scraping tickets")
+	}
+	blob := bundledWorkflowInjection(goal)
+	if !strings.Contains(blob, "尚未接入") {
+		t.Fatal("missing fail-closed ticket clause")
+	}
+	if strings.Contains(blob, "普通资料用 web.search") {
+		t.Fatal("generic research clause fights ticket fail-closed")
+	}
+	if guardCurrentTurnTool("打开12306查今天上海到合肥高铁", "desktop.browse") != nil {
+		t.Fatal("explicit 12306 open blocked")
+	}
+}
+
+func TestInventoryOpen12306AllowsPageButNotScrapeT32(t *testing.T) {
+	goal := "打开12306查今天上海到合肥高铁"
+	if guardCurrentTurnTool(goal, "desktop.browse") != nil || guardCurrentTurnTool(goal, "desktop.open") != nil {
+		t.Fatal("T32 must allow opening the page")
+	}
+	for _, name := range []string{"web.search", "web.fetch", "browser.act"} {
+		if err := guardCurrentTurnTool(goal, name); err == nil {
+			t.Fatal("T32 scrape allowed", name)
+		}
+	}
+}
+
+func TestInventoryFlightLookupFailsClosedWithoutTicketAPI(t *testing.T) {
+	goal := "查明天上海到北京机票"
+	for _, name := range []string{"web.search", "web.fetch", "browser.act", "desktop.browse"} {
+		if err := guardCurrentTurnTool(goal, name); err == nil {
+			t.Fatal("flight scrape allowed", name)
+		}
+	}
+	if guardCurrentTurnTool(goal, "mcp.search") != nil {
+		t.Fatal("mcp.search is the only live-ticket probe")
+	}
+	if len(fallbackWebSearchArgs(goal)) != 0 {
+		t.Fatal("must not auto-inject web.search for flights")
+	}
+}
+
+func TestGuardBrowserActAfterMCPNotReady(t *testing.T) {
+	goal := "打开这个网页点登录"
+	if err := guardCurrentTurnToolHistory(goal, "browser.act", nil); err != nil {
+		t.Fatal("first browser.act blocked", err)
+	}
+	messages := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: goal},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "b1", Name: "browser.act"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "b1", Content: "ok:false\nBROWSER_MCP_NOT_READY: Playwright MCP 未就绪"},
+	}
+	if err := guardCurrentTurnToolHistory(goal, "browser.act", messages); err == nil {
+		t.Fatal("second browser.act after BROWSER_MCP_NOT_READY allowed")
+	}
+	if err := guardCurrentTurnToolHistory(goal, "web.search", messages); err != nil {
+		t.Fatal("non-browser tool blocked after MCP not ready", err)
+	}
+}
+
+func TestGuardOpenOnlyBlocksWorkspaceAndCommand(t *testing.T) {
+	goal := "打开桌面上的日常操作功能增补文档"
+	if !companionGoalIsOpenOnly(goal) {
+		t.Fatal("open-only goal")
+	}
+	for _, name := range []string{"workspace.list", "workspace.search", "workspace.read", "workspace.write", "command.run"} {
+		if err := guardCurrentTurnTool(goal, name); err == nil {
+			t.Fatal("open-only allowed", name)
+		}
+	}
+	if guardCurrentTurnTool(goal, "desktop.open") != nil {
+		t.Fatal("desktop.open blocked for open-only")
 	}
 }
 

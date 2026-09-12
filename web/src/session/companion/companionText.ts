@@ -251,6 +251,9 @@ const INCOMPLETE_DESKTOP_WAITING =
 /** A filename-only final is often the middle packet of an open/edit command. */
 const INCOMPLETE_DESKTOP_NOUN_FRAGMENT =
   /^(?:桌面(?:上|上的|的)?)[^。！？?!]{2,}(?:文档|文件)$/u
+/** Residual filename without 打开 — do not start a workspace-list turn. */
+const INCOMPLETE_DESKTOP_FILENAME_ONLY =
+  /^(?!.*(?:打开|启动|把开|运行))[^。！？?!]{2,}(?:增补文档|手写文档|协议文档)$/u
 /** Windows may emit the tail of the same command as a separate final packet. */
 const INCOMPLETE_CONTINUATION_FRAGMENT =
   /^(?:的(?:最后|末尾|第|里面|内容)|最后(?:一行|一页|一格)?|末尾(?:一行|一页)?|然后|接着|再(?:在|把|往|给))$/u
@@ -289,6 +292,8 @@ const SPEECH_CORRECTIONS: Array<[RegExp, string]> = [
   [/写意文档|协意文档/g, '协议文档'],
   [/帮我打开桌面的/g, '帮我打开桌面'],
   [/帮我打开一个/g, '帮我打开'],
+  [/在点击/g, '再点击'],
+  [/点击放一下/g, '点击播放一下'],
   [/\bb\s*r\s*d\b/gi, 'BRD'],
   [/\bp\s*r\s*d\b/gi, 'PRD'],
   [/\bo\s*k\s*r\b/gi, 'OKR'],
@@ -315,6 +320,17 @@ const COMPLETE_SHORT_UTTERANCE =
   /^(?:你好(?:月汐|啊|呀)?|嗨(?:我在呢|我在)?|嘿|在吗|在不在|听到了|谢谢|再见|拜拜|早上好|晚上好|下午好|好的|好啊|嗯嗯|月汐|停|停下|别说了|继续)$/
 
 /** True when the recognizer likely stopped mid-thought — wait longer before commit. */
+/** Incomplete「打开桌面上的…文档/文件」must not commit on the hard ceiling alone. */
+export function looksLikeIncompleteDesktopOpen(text: string): boolean {
+  if (!looksIncompleteUtterance(text)) return false
+  const compact = text.trim().replace(/\s+/g, '')
+  if (/(?:打开|启动|把开|运行).*(?:桌面|文档|文件)/.test(compact)) return true
+  if (INCOMPLETE_DESKTOP_WAITING.test(compact)) return true
+  if (INCOMPLETE_DESKTOP_NOUN_FRAGMENT.test(compact)) return true
+  if (INCOMPLETE_DESKTOP_FILENAME_ONLY.test(compact)) return true
+  return false
+}
+
 export function looksIncompleteUtterance(text: string): boolean {
   const trimmed = text.trim()
   if (!trimmed) return false
@@ -324,6 +340,7 @@ export function looksIncompleteUtterance(text: string): boolean {
   if (INCOMPLETE_OPEN_GARBLE.test(compact)) return true
   if (INCOMPLETE_DESKTOP_WAITING.test(compact) && !/(?:协议|文档|文件)/.test(compact)) return true
   if (INCOMPLETE_DESKTOP_NOUN_FRAGMENT.test(compact)) return true
+  if (INCOMPLETE_DESKTOP_FILENAME_ONLY.test(compact)) return true
   if (INCOMPLETE_CONTINUATION_FRAGMENT.test(compact)) return true
   if (COMPLETE_OPEN_OBJECTS.test(compact)) return false
   if (COMPLETE_ACTION_ENDINGS.test(compact)) return false
@@ -583,6 +600,59 @@ export function collapseRepeatedCaptionBlocks(text: string): string {
  * Whether a transcript is a new user turn, not her reply coming back
  * through the microphone, and not a leftover from the previous round.
  */
+export function looksLikeAsrHallucination(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+  if (/hello\s*月汐|嗨.{0,6}在吗|查今天|查一下|打开|播放|天气/i.test(t) && !/hellolo|嘀嘀|\bty\b/i.test(t)) {
+    return false
+  }
+  const compact = t.replace(/\s+/g, '')
+  if (/嘀{2,}/.test(compact) || /hellolo/i.test(t)) return true
+  if (/(?:^|\s)([a-z]{1,3})(?:\s+\1){1,}(?:\s|$)/i.test(t)) return true
+  const han = compact.replace(/[^\u4e00-\u9fff]/g, '')
+  const residual = han.replace(/[的了一在哦嘀呀啊嗯]/g, '')
+  if (han.length >= 3 && residual.length === 0) return true
+  return false
+}
+
+export function companionDeafHasVisibleText(interim: string, userCaption: string): boolean {
+  return Boolean(interim.trim() || userCaption.trim())
+}
+
+export type SpokenCancelKind = 'cancel' | 'cancel-and'
+
+export function companionCancelRemainder(text: string): string {
+  let t = text.trim()
+  t = t.replace(/^算了/, '')
+  t = t.replace(/^不要这个[，,。]?\s*改?/, '')
+  t = t.replace(/^[，,。！!；;：:\s]+/, '')
+  return t.trim()
+}
+
+export function companionSpokenCancel(text: string): SpokenCancelKind | null {
+  const t = text.trim()
+  if (!t) return null
+  const compact = t.replace(/\s+/g, '')
+  if (/^(暂停|暂停播放|下一首|上一首|切歌|别放了|停止播放)$/.test(compact)) return null
+  if (/^算了/.test(compact) && !/^算了不用了?$/.test(compact)) {
+    const rest = companionCancelRemainder(t)
+    if (rest && /放|查|打开|播放|搜/.test(rest)) return 'cancel-and'
+  }
+  if (/不要这个/.test(compact) && /打开|改/.test(compact)) return 'cancel-and'
+  if (/不说了|撤了|别查了|不用查了|算了不用|你直接撤/.test(compact)) return 'cancel'
+  if (compact === '取消' || compact === '停下' || compact === '停下来') return 'cancel'
+  return null
+}
+
+export function companionShouldHoldBusyTurn(
+  chatStatus: string,
+  cancelKind: SpokenCancelKind | null,
+  locallyInterrupted = false,
+): boolean {
+  if (cancelKind || locallyInterrupted) return false
+  return chatStatus === 'streaming' || chatStatus === 'thinking'
+}
+
 export function shouldAcceptUserTranscript(input: {
   state: 'idle' | 'listening' | 'thinking' | 'speaking'
   text: string
@@ -595,6 +665,7 @@ export function shouldAcceptUserTranscript(input: {
 }): boolean {
   if (input.assistantBusy || input.state === 'speaking' || input.state === 'thinking') return false
   if (!input.text.trim()) return false
+  if (looksLikeAsrHallucination(input.text)) return false
   if (looksLikeInjectedLeadIn(input.text)) return false
   if (looksLikeOmniPersonaCaption(input.text)) return false
   if (looksLikeOmniUnavailable(input.text)) return false

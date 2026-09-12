@@ -1,0 +1,8 @@
+{
+  "templateId": "editorial-report",
+  "version": "1",
+  "license": "internal-original",
+  "supportedKinds": ["pptx"],
+  "slots": ["cover", "section", "conclusion", "two-column", "comparison", "metrics", "trend", "structure", "process", "timeline", "evidence", "closing"],
+  "constraints": {"maxMetrics": 6, "page": "A4"}
+}

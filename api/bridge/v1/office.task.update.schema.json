@@ -25,6 +25,17 @@
       "type": "string",
       "minLength": 0,
       "maxLength": 8192
+    },
+    "styleId": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 64
+    },
+    "brief": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/OfficeBriefDTO"
+    },
+    "brand": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/OfficeBrandImportDTO"
     }
   },
   "required": [
@@ -42,7 +53,17 @@
         "taskId": "01ARZ3NDEKTSV4RRFFQ69G5FAE",
         "expectedRevision": 1,
         "title": "季度汇报",
-        "goal": ""
+        "goal": "",
+        "brief": {
+          "confidentiality": "内部",
+          "outline": [
+            {
+              "title": "本季进展",
+              "purpose": "对照目标",
+              "claim": "订单按计划交付"
+            }
+          ]
+        }
       }
     ],
     "negative": [

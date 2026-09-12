@@ -206,11 +206,12 @@ func enrichMessageListPage(page any, artifacts map[string][]SessionArtifact) map
 }
 
 // sessionArtifactFromTool builds a persisted card record from a tool result.
-func sessionArtifactFromTool(callID, toolName, kind, path string) SessionArtifact {
+func sessionArtifactFromTool(callID, toolName, kind, path, officeTaskID string) SessionArtifact {
 	return SessionArtifact{
-		Kind:     kind,
-		Path:     path,
-		CallID:   callID,
-		ToolName: toolName,
+		OfficeTaskID: officeTaskID,
+		Kind:         kind,
+		Path:         path,
+		CallID:       callID,
+		ToolName:     toolName,
 	}
 }

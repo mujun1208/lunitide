@@ -224,6 +224,9 @@ func TestServiceImportScopeAndCorruptBlobAreRejected(t *testing.T) {
 	if err != nil || imported.ContentMode != "imported" || imported.SHA256 != source.SHA256 {
 		t.Fatalf("import: %#v %v", imported, err)
 	}
+	if strings.TrimSpace(string(imported.Spec)) != "{}" {
+		t.Fatalf("import must stay Patch-only with empty spec, got %s", imported.Spec)
+	}
 	other, err := store.CreateOfficeTask(ctx, domain.Task{SessionID: task.SessionID, Title: "另一任务"}, "another-task")
 	if err != nil {
 		t.Fatal(err)

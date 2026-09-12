@@ -24,6 +24,16 @@
       "minLength": 64,
       "maxLength": 64
     },
+    "factId": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 64
+    },
+    "value": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 64
+    },
     "name": {
       "type": "string",
       "minLength": 0,

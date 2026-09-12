@@ -1,6 +1,7 @@
 import React from 'react';
 import type { OfficeArtifact, OfficeSource, OfficeVersion } from './officeStudioApi';
 import { officeBytes, officeDate, officeQualityLabel } from './officePresentation';
+import { canFormalDeliver, formalDeliverBlockedReason, qualityPromiseLabels } from './officeQualityUi';
 
 export type OfficeInspectorTab = 'conversation' | 'checks' | 'versions' | 'sources';
 export const officeInspectorLabels: Record<OfficeInspectorTab, string> = {
@@ -29,11 +30,19 @@ export function OfficeChecks({
 }): React.JSX.Element {
   if (!version) return <p className="os-muted">选择一份文件后查看检查结果。</p>;
   const checks = version.validations ?? [];
+  const promises = qualityPromiseLabels(version);
   return (
     <>
       <div className={`os-check-summary is-${version.quality}`}>
         <h3>{checking ? '检查中' : officeQualityLabel(version.quality)}</h3>
         <p>v{version.versionNo} · 检查结果只适用于此版本。</p>
+        {promises.length ? (
+          <ul aria-label="质量承诺">
+            {promises.map((label) => (
+              <li key={label}>{label}</li>
+            ))}
+          </ul>
+        ) : null}
       </div>
       {checking || version.quality === 'checking' ? (
         <button disabled={stopping} onClick={onStop}>
@@ -89,7 +98,9 @@ export function OfficeVersions({
     <ol className="os-version-list">
       {[...artifact.versions]
         .sort((a, b) => b.versionNo - a.versionNo)
-        .map((version) => (
+        .map((version) => {
+          const formalReason = formalDeliverBlockedReason(version);
+          return (
           <li key={version.id} className={selectedVersionId === version.id ? 'is-selected' : ''}>
             <button className="os-version-select" onClick={() => onSelect(version.id)}>
               <strong>v{version.versionNo}</strong>
@@ -111,6 +122,13 @@ export function OfficeVersions({
               <button disabled={busy || artifact.acceptedVersionId === version.id} onClick={() => onAccept(version)}>
                 {version.quality === 'passed' ? '使用此版' : '接受为草稿'}
               </button>
+              <button
+                disabled={busy || artifact.acceptedVersionId === version.id || !canFormalDeliver(version)}
+                onClick={() => onAccept(version)}
+              >
+                作为正式交付
+              </button>
+              {formalReason ? <p className="os-muted">{formalReason}</p> : null}
               {version.id !== artifact.headVersionId && (
                 <button disabled={busy} onClick={() => onRestore(version)}>
                   恢复为新版本
@@ -129,7 +147,8 @@ export function OfficeVersions({
               </dl>
             </details>
           </li>
-        ))}
+          );
+        })}
     </ol>
   );
 }

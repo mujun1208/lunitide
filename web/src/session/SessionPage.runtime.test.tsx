@@ -183,6 +183,25 @@ it('offers personal composer context actions',async()=>{
  await user.click(screen.getByRole('button',{name:/@ 上下文/}));expect(screen.getByLabelText('向月汐提问，或描述你想完成的任务…')).toHaveValue('@')
 })
 
+it('keeps execution mode and inserts lane override phrases beside a read-only lane word',async()=>{
+ let onEvent!:(event:StreamEvent)=>void
+ const stream:ChatStream={streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn().mockResolvedValue(true),dispose:vi.fn()}
+ const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return stream})
+ const user=await open({personal:true,providers,initialSession:session,chat:{start,approve:vi.fn(),dispose:vi.fn()}})
+ await user.click(screen.getByRole('button',{name:'执行模式'}))
+ expect(screen.getByRole('button',{name:/自动审批/})).toBeInTheDocument()
+ await user.click(screen.getByRole('button',{name:'执行模式'}))
+ await user.click(screen.getByRole('button',{name:'深度思考'}))
+ expect(screen.getByLabelText('向月汐提问，或描述你想完成的任务…')).toHaveValue('深度思考')
+ await user.click(screen.getByRole('button',{name:'先搜索'}))
+ expect(screen.getByLabelText('向月汐提问，或描述你想完成的任务…')).toHaveValue('深度思考 先搜索')
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'guidance',guidance:{labels:['档位:先问缺什么','工作流'],digest:'abcd1234abcd1234'}}))
+ expect(screen.getByText('档位:先问缺什么')).toBeInTheDocument()
+ expect(screen.getByText('档位:先问缺什么').tagName).not.toBe('BUTTON')
+})
+
 it('shows a retryable alert when 选技能 list fails instead of an empty catalog',async()=>{
  const skills={list:vi.fn().mockRejectedValue(new BridgeClientError('down','ENGINE_UNAVAILABLE',true,'engine'))} as unknown as SkillBridge
  const user=await open({personal:true,providers,initialSession:session,skills})

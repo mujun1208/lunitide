@@ -12,7 +12,7 @@ func TestInjectedGuidanceLabels(t *testing.T) {
 		{Role: llmadapter.RoleSystem, Content: "[身份记忆] 你叫月汐。\n\n[内置工作流] 开箱即用\n[仓库约定] AGENTS.md：Keep tests.\n[可用技能目录]\n- search"},
 		{Role: llmadapter.RoleUser, Content: "打开网易云"},
 	}}
-	got := injectedGuidanceLabels(req)
+	got := injectedGuidanceLabels(req, "")
 	joined := strings.Join(got, ",")
 	for _, want := range []string{"工作流", "身份", "AGENTS", "技能"} {
 		if !strings.Contains(joined, want) {
@@ -29,7 +29,18 @@ func TestInjectedGuidanceLabelsEmpty(t *testing.T) {
 	req := llmadapter.Request{Messages: []llmadapter.Message{
 		{Role: llmadapter.RoleUser, Content: "hi"},
 	}}
-	if labels := injectedGuidanceLabels(req); len(labels) != 0 {
+	if labels := injectedGuidanceLabels(req, ""); len(labels) != 0 {
 		t.Fatalf("labels = %v", labels)
+	}
+}
+
+func TestInjectedGuidanceLabelsIncludesWeeklyAskLane(t *testing.T) {
+	req := llmadapter.Request{Messages: []llmadapter.Message{
+		{Role: llmadapter.RoleSystem, Content: "[内置工作流] 问缺什么"},
+		{Role: llmadapter.RoleUser, Content: "写周报"},
+	}}
+	got := injectedGuidanceLabels(req, LaneL2Ask)
+	if !strings.Contains(strings.Join(got, ","), "档位:先问缺什么") {
+		t.Fatalf("missing lane label: %v", got)
 	}
 }

@@ -75,11 +75,17 @@ type Spec struct {
 	SchemaVersion int              `json:"schemaVersion"`
 	Kind          Kind             `json:"kind"`
 	Title         string           `json:"title"`
+	BrandID       string           `json:"brandId,omitempty"`
+	TemplateID    string           `json:"templateId,omitempty"`
 	Slides        []Slide          `json:"slides,omitempty"`
 	Blocks        []Block          `json:"blocks,omitempty"`
 	Sheets        []Sheet          `json:"sheets,omitempty"`
 	Body          string           `json:"body,omitempty"`
+	Audience        string           `json:"audience,omitempty"`
+	Purpose         string           `json:"purpose,omitempty"`
+	Confidentiality string           `json:"confidentiality,omitempty"`
 	Document      *DocumentOptions `json:"document,omitempty"`
+	Facts         []Fact           `json:"facts,omitempty"`
 }
 
 type DocumentOptions struct {
@@ -94,14 +100,20 @@ type DocumentOptions struct {
 // Layout supports cover, section, content, two-column, comparison, quote,
 // metrics, timeline, agenda, closing and native table. Bullets are never silently truncated.
 type Slide struct {
-	Title    string       `json:"title"`
-	Subtitle string       `json:"subtitle,omitempty"`
-	Layout   string       `json:"layout,omitempty"`
-	Bullets  []string     `json:"bullets,omitempty"`
-	Notes    string       `json:"notes,omitempty"`
-	Rows     [][]string   `json:"rows,omitempty"`
-	Images   []SlideImage `json:"images,omitempty"`
-	Charts   []SlideChart `json:"charts,omitempty"`
+	Title        string           `json:"title"`
+	Subtitle     string           `json:"subtitle,omitempty"`
+	Layout       string           `json:"layout,omitempty"`
+	Bullets      []string         `json:"bullets,omitempty"`
+	Notes        string           `json:"notes,omitempty"`
+	Rows         [][]string       `json:"rows,omitempty"`
+	Images       []SlideImage     `json:"images,omitempty"`
+	Charts       []SlideChart     `json:"charts,omitempty"`
+	Purpose      string           `json:"purpose,omitempty"`
+	Claim        string           `json:"claim,omitempty"`
+	EvidenceRefs []string         `json:"evidenceRefs,omitempty"`
+	Comparison   *ComparisonBlock `json:"comparison,omitempty"`
+	Metrics      []MetricBlock    `json:"metrics,omitempty"`
+	Evidence     []EvidenceItem   `json:"evidence,omitempty"`
 }
 
 // Native charts contain editable DrawingML objects and an internal XLSX data
@@ -191,10 +203,13 @@ type ImagePatch struct {
 }
 
 type Block struct {
-	Type    string           `json:"type"` // heading, heading2, heading3, paragraph, bullet, numbered, quote, caption, table, pagebreak, toc, section
-	Text    string           `json:"text,omitempty"`
-	Rows    [][]string       `json:"rows,omitempty"`
-	Section *DocumentOptions `json:"section,omitempty"`
+	Type         string           `json:"type"` // heading, heading2, heading3, paragraph, bullet, numbered, quote, caption, table, pagebreak, toc, section
+	Text         string           `json:"text,omitempty"`
+	Rows         [][]string       `json:"rows,omitempty"`
+	Section      *DocumentOptions `json:"section,omitempty"`
+	Purpose      string           `json:"purpose,omitempty"`
+	Claim        string           `json:"claim,omitempty"`
+	EvidenceRefs []string         `json:"evidenceRefs,omitempty"`
 }
 
 type Sheet struct {

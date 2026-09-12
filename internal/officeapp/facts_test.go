@@ -271,3 +271,206 @@ func TestOfficeMetricProvenanceSurvivesOrdinaryEdits(t *testing.T) {
 		t.Fatalf("source update skipped descendant: %#v %v", latest, err)
 	}
 }
+
+func TestGeneratePersistsDefaultPptxTemplate(t *testing.T) {
+	svc, _, task := studioServiceFixture(t)
+	v, err := svc.Generate(context.Background(), task.ID, "默认.pptx", content.Spec{
+		SchemaVersion: 2, Kind: content.PPTX, Title: "默认",
+		Slides: []content.Slide{{Title: "页", Layout: "content", Bullets: []string{"要点"}}},
+	}, "default-pptx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spec content.Spec
+	if err = json.Unmarshal(v.Spec, &spec); err != nil || spec.TemplateID != "ops-clear" {
+		t.Fatalf("default pptx template not persisted: %s %v", v.Spec, err)
+	}
+}
+
+func TestGenerateDoesNotApplyPptStyleToWord(t *testing.T) {
+	svc, _, task := studioServiceFixture(t)
+	ctx := context.Background()
+	if err := svc.SetTaskStyle(ctx, task.ID, "brand-pitch"); err != nil {
+		t.Fatal(err)
+	}
+	v, err := svc.Generate(ctx, task.ID, "说明.docx", shortWordSpec(), "word-after-ppt-style")
+	if err != nil {
+		t.Fatalf("ppt studio style must not break word generate: %v", err)
+	}
+	var spec content.Spec
+	if err = json.Unmarshal(v.Spec, &spec); err != nil {
+		t.Fatal(err)
+	}
+	if spec.TemplateID == "brand-pitch" {
+		t.Fatal("word spec stored a ppt-only style")
+	}
+}
+
+func TestGenerateAppliesTaskStyleTemplateWhenSpecOmitsIt(t *testing.T) {
+	svc, store, task := studioServiceFixture(t)
+	ctx := context.Background()
+	task, err := store.GetOfficeTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = svc.SetTaskStyle(ctx, task.ID, "brand-pitch"); err != nil {
+		t.Fatal(err)
+	}
+	v, err := svc.Generate(ctx, task.ID, "风格.pptx", content.Spec{
+		SchemaVersion: 2, Kind: content.PPTX, Title: "风格",
+		Slides: []content.Slide{{Title: "指标", Layout: "metrics", Metrics: []content.MetricBlock{{Label: "订单", Value: "1280", Unit: "单", FactID: "orders"}}}},
+	}, "styled")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spec content.Spec
+	if err = json.Unmarshal(v.Spec, &spec); err != nil || spec.TemplateID != "brand-pitch" {
+		t.Fatalf("task style not applied: %s %v", v.Spec, err)
+	}
+	_, data, err := svc.ReadVersion(ctx, task.ID, v.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i, err := content.Inspect(content.PPTX, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(i.Preview, "1280") {
+		t.Fatal("style apply dropped fact")
+	}
+}
+
+func TestCaptureMetricByFactFindsLockedValue(t *testing.T) {
+	svc, _, task := studioServiceFixture(t)
+	ctx := context.Background()
+	facts := []content.Fact{{FactID: "orders", Value: "1280", Unit: "单", Locked: true, Locator: "订单数"}}
+	wb, err := content.PlanWorkbook("ops-ledger", "经营簿", facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	xlsx, err := svc.Generate(ctx, task.ID, "经营簿.xlsx", wb, "fact-capture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := svc.CaptureMetricByFact(ctx, task.ID, xlsx.ID, facts[0], "by-fact")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.RawValue != "1280" || m.Name == "" {
+		t.Fatalf("fact capture: %#v", m)
+	}
+	if _, err = svc.CaptureMetricByFact(ctx, task.ID, xlsx.ID, content.Fact{FactID: "orders", Value: "9999"}, "missing-fact"); err == nil {
+		t.Fatal("missing fact captured")
+	}
+}
+
+func TestFactSetSyncAcrossGeneratedOfficeFiles(t *testing.T) {
+	svc, store, task := studioServiceFixture(t)
+	ctx := context.Background()
+	facts := []content.Fact{{FactID: "orders", Value: "1280", Unit: "单", Locked: true, Locator: "订单数"}}
+	wb, err := content.PlanWorkbook("ops-ledger", "经营簿", facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	xlsx, err := svc.Generate(ctx, task.ID, "经营簿.xlsx", wb, "fact-xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := content.WordReportSpec("research-report", "经营说明", facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	docx, err := svc.Generate(ctx, task.ID, "经营说明.docx", doc, "fact-docx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = svc.AssertTaskFactSet(ctx, task.ID, facts, []string{xlsx.ID, docx.ID}); err != nil {
+		t.Fatal(err)
+	}
+	n := metricNode(t, svc, task.ID, docx, "订单数 1280单")
+	heads, err := store.ListOfficeHeads(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev := int64(0)
+	for _, h := range heads {
+		if h.ArtifactID == docx.ArtifactID {
+			rev = h.Revision
+		}
+	}
+	if rev == 0 {
+		t.Fatal("docx head missing")
+	}
+	patched, err := svc.Patch(ctx, task.ID, docx.ID, rev, content.PatchRequest{
+		Kind: content.DOCX, BaseSHA256: docx.SHA256,
+		Operations: []content.TextPatch{{NodeID: n.ID, ExpectedDigest: n.Digest, Text: "订单数 待核"}},
+	}, "break-fact")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = svc.AssertTaskFactSet(ctx, task.ID, facts, []string{xlsx.ID, patched.ID}); !errors.Is(err, content.ErrFactConflict) {
+		t.Fatalf("changed locked fact not reported: %v", err)
+	}
+	if _, err = svc.CreateBundle(ctx, task.ID, "经营交付", []string{xlsx.ID, patched.ID}, "conflict-bundle"); !errors.Is(err, content.ErrFactConflict) {
+		t.Fatalf("bundle must not pin conflicting locked facts: %v", err)
+	}
+}
+
+func TestCreateBundleUsesCheckpointFactsWhenPatchedSpecEmpty(t *testing.T) {
+	svc, store, task := studioServiceFixture(t)
+	ctx := context.Background()
+	facts := []content.Fact{{FactID: "orders", Value: "1280", Unit: "单", Locked: true, Locator: "订单数"}}
+	task.Checkpoint = WithTaskBrief(task.Checkpoint, content.Brief{Facts: facts})
+	if _, err := store.UpdateOfficeTask(ctx, task, task.Revision); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := content.WordReportSpec("research-report", "经营说明", facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	docx, err := svc.Generate(ctx, task.ID, "经营说明.docx", doc, "brief-docx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	title := metricNode(t, svc, task.ID, docx, "研究范围")
+	heads, err := store.ListOfficeHeads(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev := int64(0)
+	for _, h := range heads {
+		if h.ArtifactID == docx.ArtifactID {
+			rev = h.Revision
+		}
+	}
+	kept, err := svc.Patch(ctx, task.ID, docx.ID, rev, content.PatchRequest{
+		Kind: content.DOCX, BaseSHA256: docx.SHA256,
+		Operations: []content.TextPatch{{NodeID: title.ID, ExpectedDigest: title.Digest, Text: "研究范围（修订）"}},
+	}, "keep-fact")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.CreateBundle(ctx, task.ID, "仅修订标题", []string{kept.ID}, "brief-keep"); err != nil {
+		t.Fatalf("checkpoint facts still in patched file: %v", err)
+	}
+	heads, err = store.ListOfficeHeads(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range heads {
+		if h.ArtifactID == kept.ArtifactID {
+			rev = h.Revision
+		}
+	}
+	broken := metricNode(t, svc, task.ID, kept, "订单数 1280单")
+	patched, err := svc.Patch(ctx, task.ID, kept.ID, rev, content.PatchRequest{
+		Kind: content.DOCX, BaseSHA256: kept.SHA256,
+		Operations: []content.TextPatch{{NodeID: broken.ID, ExpectedDigest: broken.Digest, Text: "订单数 待核"}},
+	}, "drop-fact")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.CreateBundle(ctx, task.ID, "丢失锁定事实", []string{patched.ID}, "brief-drop"); !errors.Is(err, content.ErrFactConflict) {
+		t.Fatalf("empty patched spec skipped checkpoint facts: %v", err)
+	}
+}

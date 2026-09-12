@@ -10,6 +10,16 @@ vi.mock('../bridge/client', () => ({
   }),
 }))
 
+vi.mock('./markdown/tideMermaid', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./markdown/tideMermaid')>()
+  return {
+    ...actual,
+    loadMermaidEngine: async () => {
+      throw new Error('parse failed')
+    },
+  }
+})
+
 afterEach(cleanup)
 
 it('renders GFM structures and secure HTTPS links', () => {

@@ -6,7 +6,7 @@
 import { BridgeClientError } from '../../bridge/client'
 import { microphoneConstraints, saveMicrophoneId, selectedMicrophoneId } from '../../settings/microphone'
 import { MOON_RING_BINS } from './MoonSphere'
-import { looksIncompleteUtterance, looksLikePlaybackEcho } from './companionText'
+import { looksIncompleteUtterance, looksLikeIncompleteDesktopOpen, looksLikePlaybackEcho } from './companionText'
 import { sharedTtsAudioContext, unlockTtsAudio } from './ttsPlayer'
 import { pickTranscriptRevision } from './transcriptRevision'
 
@@ -287,6 +287,7 @@ export function shouldForceCommitUtterance(input: {
   incomplete: boolean
   silenceMs?: number
   incompleteSilenceMs?: number
+  text?: string
 }): boolean {
   if (input.textStableForMs < TURN_END_TEXT_SETTLE_MS) return false
   const quiet = input.incomplete
@@ -300,6 +301,9 @@ export function shouldForceCommitUtterance(input: {
   if (input.textStableForMs >= Math.max(quiet, STUCK_TRANSCRIPT_MS)) {
     if (!input.incomplete) return true
     if (!input.speechActive || (input.silentForMs !== undefined && input.silentForMs >= quiet)) return true
+    // Incomplete desktop-open filenames must wait for real silence, not the
+    // 4.2s hard ceiling that used to start a turn mid-name.
+    if (input.text && looksLikeIncompleteDesktopOpen(input.text)) return false
     // Incomplete + analyser still hot: 「你可以」/「打开网」may still grow.
     // Past the hard ceiling the recognizer is stuck, not the speaker.
     if (input.textStableForMs >= INCOMPLETE_HARD_MS) return true
@@ -344,6 +348,7 @@ export function shouldCommitHeardUtterance(input: {
   holdUtterance?: boolean
   silenceMs?: number
   incompleteSilenceMs?: number
+  text?: string
 }): boolean {
   if (input.holdUtterance) return shouldForceCommitUtterance(input)
   if (input.incomplete) return shouldForceCommitUtterance(input)
@@ -933,6 +938,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
           holdUtterance,
           silenceMs: windows.silenceMs,
           incompleteSilenceMs: windows.incompleteSilenceMs,
+          text,
         })
       ) {
         commit(text)
@@ -1316,6 +1322,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
             incomplete: looksIncompleteUtterance(fromBuffer),
             silenceMs: windows.silenceMs,
             incompleteSilenceMs: windows.incompleteSilenceMs,
+            text: fromBuffer,
           })
         ) {
           return false

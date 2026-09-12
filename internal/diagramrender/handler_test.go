@@ -56,7 +56,19 @@ func TestDiagramTimeoutNeverReturnsPartialSVG(t *testing.T) {
 		return commandworker.Outcome{TimedOut: true}, nil
 	}
 	result, err := h.render(context.Background(), Request{Source: "flowchart LR\nA-->B", Config: json.RawMessage(`{}`)})
-	if err == nil || result.SVG != "" || !strings.Contains(err.Error(), "源码仍保留") {
+	if err == nil || result.SVG != "" || !strings.Contains(err.Error(), "图表渲染超时") || !strings.Contains(err.Error(), "源码仍保留") {
 		t.Fatalf("timeout appeared successful: %#v %v", result, err)
+	}
+}
+
+func TestDiagramStartFailureIsNotReportedAsTimeout(t *testing.T) {
+	h := New(t.TempDir())
+	h.Executable = filepath.Join(t.TempDir(), "desktop.exe")
+	h.Run = func(context.Context, commandworker.Spec, commandworker.StartGuard, func([]byte)) (commandworker.Outcome, error) {
+		return commandworker.Outcome{}, errors.New("create process")
+	}
+	result, err := h.render(context.Background(), Request{Source: "flowchart LR\nA-->B", Config: json.RawMessage(`{}`)})
+	if err == nil || result.SVG != "" || !strings.Contains(err.Error(), "未能启动") || strings.Contains(err.Error(), "超时") {
+		t.Fatalf("start failure looked like a timeout: %#v %v", result, err)
 	}
 }

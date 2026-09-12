@@ -367,3 +367,29 @@ test('speaks the complete task result after a lead-in without cancelling at eigh
   expect(liveLog(container).textContent).toContain('查询结果已返回')
   expect(onCancel).not.toHaveBeenCalled()
 })
+
+test('reply stall cancels the engine turn and drops the user caption', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance'] })
+  try {
+    const onCancel = vi.fn()
+    const handle = speech.handle()
+    speech.start.mockResolvedValue(handle)
+    const { container } = render(<CompanionStage {...baseProps} onCancel={onCancel} />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(600) })
+    expect(stateOf(container)).toBe('listening')
+    await act(async () => {
+      speech.callbacks!.onFinal('查今天天气')
+    })
+    expect(liveLog(container).textContent).toContain('查今天天气')
+    expect(stateOf(container)).toBe('thinking')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6500)
+    })
+    expect(onCancel).toHaveBeenCalled()
+    expect(container.textContent).toMatch(/没有及时回应/)
+    expect(liveLog(container).textContent ?? '').not.toContain('查今天天气')
+  } finally {
+    cleanup()
+    vi.useRealTimers()
+  }
+})

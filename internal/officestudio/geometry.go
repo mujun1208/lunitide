@@ -28,17 +28,18 @@ type GeometryReport struct {
 }
 
 type geomObject struct {
-	part, kind, unsupported string
-	x, y, w, h              int64
-	offStart, offEnd        int
+	part, kind, unsupported, name, text string
+	hasText                             bool
+	x, y, w, h                          int64
+	offStart, offEnd                    int
 }
 
 type geomFrame struct {
-	local, space, unsupported string
-	object                    bool
-	x, y, w, h                int64
-	offStart, offEnd          int
-	hasOff, hasExt            bool
+	local, space, unsupported, name, text string
+	object, hasText                       bool
+	x, y, w, h                            int64
+	offStart, offEnd                      int
+	hasOff, hasExt                        bool
 }
 
 func geometryCheck(issues []Issue) Check {
@@ -60,7 +61,7 @@ func geometryCheck(issues []Issue) Check {
 	return Check{ID: "geometry_bounds", Status: "passed", Message: "简单对象均在幻灯片画布内。文字溢出与字体度量未用像素估算代替。"}
 }
 
-func geometryIssues(parts map[string][]byte) []Issue {
+func geometryIssues(parts map[string][]byte, nodes []Node) []Issue {
 	sw, sh, err := deckSize(parts)
 	if err != nil {
 		return []Issue{{Code: "OFFICE_GEOMETRY_UNSUPPORTED", Severity: "info", Message: "无法读取幻灯片画布尺寸，未做几何越界判断。"}}
@@ -82,9 +83,10 @@ func geometryIssues(parts map[string][]byte) []Issue {
 				continue
 			}
 			if geometryOverflows(obj, sw, sh) {
-				issues = append(issues, Issue{Code: "OFFICE_GEOMETRY_OVERFLOW", Severity: "warning", Part: name, Message: fmt.Sprintf("简单对象 %s 超出画布 (%d,%d %dx%d)。", obj.kind, obj.x, obj.y, obj.w, obj.h)})
+				issues = append(issues, Issue{Code: "OFFICE_GEOMETRY_OVERFLOW", Severity: "warning", Part: name, NodeID: bindGeomNode(nodes, name, obj), Message: fmt.Sprintf("简单对象 %s 超出画布 (%d,%d %dx%d)。", obj.kind, obj.x, obj.y, obj.w, obj.h)})
 			}
 		}
+		issues = append(issues, geometryOverlapIssues(name, objects, nodes)...)
 	}
 	return issues
 }
@@ -96,7 +98,7 @@ func RepairGeometryOverflow(data []byte) (GeometryReport, []byte, error) {
 	}
 	sw, sh, err := deckSize(p.parts)
 	if err != nil {
-		return GeometryReport{Issues: geometryIssues(p.parts)}, data, nil
+		return GeometryReport{Issues: geometryIssues(p.parts, nil)}, data, nil
 	}
 	report := GeometryReport{SlideWidth: sw, SlideHeight: sh}
 	replaced := map[string][]byte{}
@@ -158,7 +160,7 @@ func RepairGeometryOverflow(data []byte) (GeometryReport, []byte, error) {
 		}
 	}
 	if len(replaced) == 0 {
-		report.Issues = geometryIssues(p.parts)
+		report.Issues = geometryIssues(p.parts, nil)
 		report.RemainingOverflow = countGeometryOverflow(report.Issues)
 		return report, data, nil
 	}
@@ -169,7 +171,7 @@ func RepairGeometryOverflow(data []byte) (GeometryReport, []byte, error) {
 	if _, err = Inspect(PPTX, out); err != nil {
 		return report, nil, err
 	}
-	report.Issues = geometryIssues(mustParts(out))
+	report.Issues = geometryIssues(mustParts(out), nil)
 	report.RemainingOverflow = countGeometryOverflow(report.Issues)
 	for name := range replaced {
 		report.ChangedParts = append(report.ChangedParts, name)
@@ -209,6 +211,159 @@ func geometryOverflows(obj geomObject, sw, sh int64) bool {
 	return obj.w <= 0 || obj.h <= 0 || obj.x < 0 || obj.y < 0 || obj.x > sw || obj.y > sh || obj.w > sw-obj.x || obj.h > sh-obj.y
 }
 
+func geometryOverlapIssues(part string, objects []geomObject, nodes []Node) []Issue {
+	var issues []Issue
+	for i := 0; i < len(objects); i++ {
+		for j := i + 1; j < len(objects); j++ {
+			a, b := objects[i], objects[j]
+			if a.unsupported != "" || b.unsupported != "" || !overlapCandidates(a, b) || !boxesOverlap(a, b) {
+				continue
+			}
+			nodeID := bindGeomNode(nodes, part, a)
+			if nodeID == "" {
+				nodeID = bindGeomNode(nodes, part, b)
+			}
+			issues = append(issues, Issue{
+				Code: "OFFICE_GEOMETRY_OVERLAP", Severity: "warning",
+				Part: part, NodeID: nodeID,
+				Message: fmt.Sprintf("文本或图片对象重叠：%s / %s", firstNonEmpty(a.name, a.kind), firstNonEmpty(b.name, b.kind)),
+			})
+		}
+	}
+	return issues
+}
+
+func overlapCandidates(a, b geomObject) bool {
+	return (a.hasText || a.kind == "pic") && (b.hasText || b.kind == "pic") && (a.hasText || b.hasText)
+}
+
+func boxesOverlap(a, b geomObject) bool {
+	return a.w > 0 && b.w > 0 && a.x < b.x+b.w && b.x < a.x+a.w && a.y < b.y+b.h && b.y < a.y+a.h
+}
+
+func RepairGeometryOverlap(data []byte, maxRounds int) (GeometryReport, []byte, error) {
+	if maxRounds < 1 {
+		return GeometryReport{}, data, nil
+	}
+	p, err := readPackage(data)
+	if err != nil {
+		return GeometryReport{}, nil, err
+	}
+	sw, sh, err := deckSize(p.parts)
+	if err != nil {
+		return GeometryReport{Issues: geometryIssues(p.parts, nil)}, data, nil
+	}
+	report := GeometryReport{SlideWidth: sw, SlideHeight: sh}
+	replaced := map[string][]byte{}
+	for round := 1; round <= maxRounds; round++ {
+		moved := 0
+		for _, name := range sortedPartNames(p.parts) {
+			if !isSlidePart(name) {
+				continue
+			}
+			body := p.parts[name]
+			objects, _, err := scanSlideGeometry(name, body)
+			if err != nil {
+				continue
+			}
+			edits := []byteEdit{}
+			used := map[int]bool{}
+			for i := 0; i < len(objects); i++ {
+				for j := i + 1; j < len(objects); j++ {
+					a, b := objects[i], objects[j]
+					if a.unsupported != "" || b.unsupported != "" || !overlapCandidates(a, b) || !boxesOverlap(a, b) {
+						continue
+					}
+					moveIdx := j
+					if b.y < a.y {
+						moveIdx = i
+					}
+					if used[moveIdx] || objects[moveIdx].offEnd <= objects[moveIdx].offStart {
+						continue
+					}
+					other := a
+					if moveIdx == i {
+						other = b
+					}
+					ny, ok := overlapShiftY(objects[moveIdx], other, sh)
+					if !ok {
+						continue
+					}
+					rewritten, err := rewriteOff(body[objects[moveIdx].offStart:objects[moveIdx].offEnd], objects[moveIdx].x, ny)
+					if err != nil {
+						continue
+					}
+					edits = append(edits, byteEdit{start: objects[moveIdx].offStart, end: objects[moveIdx].offEnd, body: rewritten})
+					objects[moveIdx].y = ny
+					used[moveIdx] = true
+					moved++
+					report.Repaired++
+				}
+			}
+			if len(edits) == 0 {
+				continue
+			}
+			next, err := splice(body, edits)
+			if err != nil {
+				return report, nil, err
+			}
+			replaced[name] = next
+			p.parts[name] = next
+		}
+		report.Rounds = round
+		if moved == 0 {
+			break
+		}
+	}
+	if len(replaced) == 0 {
+		report.Issues = geometryIssues(p.parts, nil)
+		return report, data, nil
+	}
+	out, err := rewritePackage(p, replaced)
+	if err != nil {
+		return report, nil, err
+	}
+	if _, err = Inspect(PPTX, out); err != nil {
+		return report, nil, err
+	}
+	report.Issues = geometryIssues(mustParts(out), nil)
+	for name := range replaced {
+		report.ChangedParts = append(report.ChangedParts, name)
+	}
+	sort.Strings(report.ChangedParts)
+	return report, out, nil
+}
+
+func overlapShiftY(move, other geomObject, sh int64) (int64, bool) {
+	overlap := other.y + other.h - move.y
+	if overlap <= 0 {
+		return move.y, false
+	}
+	ny := move.y + overlap + 127000
+	if ny < 0 || ny+move.h > sh {
+		return move.y, false
+	}
+	return ny, true
+}
+
+func bindGeomNode(nodes []Node, part string, obj geomObject) string {
+	text := strings.TrimSpace(obj.text)
+	for _, n := range nodes {
+		if n.Part != part || strings.TrimSpace(n.Text) == "" {
+			continue
+		}
+		if text != "" && (strings.Contains(text, n.Text) || strings.Contains(n.Text, text)) {
+			return n.ID
+		}
+	}
+	for _, n := range nodes {
+		if n.Part == part && n.ID != "" {
+			return n.ID
+		}
+	}
+	return ""
+}
+
 func isSlidePart(name string) bool {
 	return strings.HasPrefix(name, "ppt/slides/slide") && strings.HasSuffix(name, ".xml") && !strings.Contains(name, "/_rels/")
 }
@@ -244,6 +399,14 @@ func scanSlideGeometry(part string, body []byte) ([]geomObject, []Issue, error) 
 					grouped++
 				}
 			}
+			if obj := currentGeom(stack); obj != nil {
+				if t.Name.Local == "cNvPr" {
+					obj.name = xmlAttr(t, "name")
+				}
+				if t.Name.Local == "txBody" {
+					obj.hasText = true
+				}
+			}
 			if obj := currentGeom(stack); obj != nil && geomTransformChild(stack, obj, t) {
 				switch t.Name.Local {
 				case "xfrm":
@@ -276,6 +439,10 @@ func scanSlideGeometry(part string, body []byte) ([]geomObject, []Issue, error) 
 				}
 			}
 			stack = append(stack, f)
+		case xml.CharData:
+			if obj := currentGeom(stack); obj != nil && obj.hasText && len(obj.text) < 200 {
+				obj.text += string(t)
+			}
 		case xml.EndElement:
 			if len(stack) == 0 {
 				return nil, nil, ErrFormat
@@ -291,7 +458,7 @@ func scanSlideGeometry(part string, body []byte) ([]geomObject, []Issue, error) 
 			if f.unsupported == "" && (!f.hasOff || !f.hasExt) {
 				f.unsupported = "inherited or incomplete transform"
 			}
-			objects = append(objects, geomObject{part: part, kind: f.local, unsupported: f.unsupported, x: f.x, y: f.y, w: f.w, h: f.h, offStart: f.offStart, offEnd: f.offEnd})
+			objects = append(objects, geomObject{part: part, kind: f.local, unsupported: f.unsupported, name: f.name, text: f.text, hasText: f.hasText, x: f.x, y: f.y, w: f.w, h: f.h, offStart: f.offStart, offEnd: f.offEnd})
 		}
 	}
 	return objects, issues, nil

@@ -198,7 +198,14 @@ func Inspect(kind Kind, data []byte) (Inspection, error) {
 		}
 	}
 	if kind == PPTX {
-		out.Issues = append(out.Issues, geometryIssues(p.parts)...)
+		out.Issues = append(out.Issues, geometryIssues(p.parts, out.Nodes)...)
+		out.Issues = append(out.Issues, LogoSafeAreaIssues(out.Nodes, DefaultBrand())...)
+	}
+	if kind == DOCX {
+		out.Issues = append(out.Issues, wordLayoutIssues(p.parts, out.Nodes)...)
+	}
+	if kind == XLSX {
+		out.Issues = append(out.Issues, sheetLayoutIssues(p.parts)...)
 	}
 	for _, issue := range out.Issues {
 		if issue.Severity == "blocked" {

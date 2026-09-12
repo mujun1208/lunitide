@@ -186,6 +186,7 @@ export async function startVolcCompanionSpeech(
         holdUtterance,
         silenceMs: windows.silenceMs,
         incompleteSilenceMs: windows.incompleteSilenceMs,
+        text: trimmed,
       })
     ) {
       return
@@ -337,6 +338,7 @@ export async function startVolcCompanionSpeech(
           incomplete: looksIncompleteUtterance(fromBuffer),
           silenceMs: windows.silenceMs,
           incompleteSilenceMs: windows.incompleteSilenceMs,
+          text: fromBuffer,
         })
       ) {
         return false

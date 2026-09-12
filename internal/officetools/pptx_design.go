@@ -37,11 +37,22 @@ func pptxLayoutOf(index int, s SlideSpec) string {
 }
 
 func pptxFontRun(text, color string, sz int, bold bool) string {
+	return SlideTheme{}.fontRun(text, color, sz, bold)
+}
+
+func (theme SlideTheme) fontRun(text, color string, sz int, bold bool) string {
 	weight := ""
 	if bold {
 		weight = ` b="1"`
 	}
-	return fmt.Sprintf(`<a:r><a:rPr lang="zh-CN" altLang="en-US" sz="%d"%s dirty="0"><a:solidFill><a:srgbClr val="%s"/></a:solidFill><a:latin typeface="Calibri"/><a:ea typeface="Microsoft YaHei"/><a:cs typeface="Microsoft YaHei"/></a:rPr><a:t>%s</a:t></a:r>`, sz, weight, color, xmlEscape(text))
+	latin, east := theme.Latin, theme.East
+	if latin == "" {
+		latin = "Calibri"
+	}
+	if east == "" {
+		east = "Microsoft YaHei"
+	}
+	return fmt.Sprintf(`<a:r><a:rPr lang="zh-CN" altLang="en-US" sz="%d"%s dirty="0"><a:solidFill><a:srgbClr val="%s"/></a:solidFill><a:latin typeface="%s"/><a:ea typeface="%s"/><a:cs typeface="%s"/></a:rPr><a:t>%s</a:t></a:r>`, sz, weight, color, xmlEscape(latin), xmlEscape(east), xmlEscape(east), xmlEscape(text))
 }
 
 func pptxRect(id int, name, fill string, x, y, cx, cy int) string {
@@ -60,9 +71,16 @@ func pptxPara(align, run string) string {
 	return `<a:p><a:pPr` + algn + `></a:pPr>` + run + `<a:endParaRPr lang="zh-CN"/></a:p>`
 }
 
-func pptxBulletPara(text string) string {
-	return `<a:p><a:pPr marL="342900" indent="-171450"><a:buFont typeface="Arial"/><a:buClr><a:srgbClr val="` + clrTeal + `"/></a:buClr><a:buChar char="●"/><a:spcBef><a:spcPts val="1200"/></a:spcBef></a:pPr>` +
-		pptxFontRun(text, clrInk, 1800, false) +
+func pptxBulletPara(text string, theme SlideTheme) string {
+	ink, teal := theme.Ink, theme.Teal
+	if ink == "" {
+		ink = clrInk
+	}
+	if teal == "" {
+		teal = clrTeal
+	}
+	return `<a:p><a:pPr marL="342900" indent="-171450"><a:buFont typeface="Arial"/><a:buClr><a:srgbClr val="` + teal + `"/></a:buClr><a:buChar char="●"/><a:spcBef><a:spcPts val="1200"/></a:spcBef></a:pPr>` +
+		theme.fontRun(text, ink, 1800, false) +
 		`<a:endParaRPr lang="zh-CN"/></a:p>`
 }
 
@@ -84,17 +102,21 @@ func pptxSpTreeOpen() string {
 }
 
 func slideXML(index, total int, deckTitle string, s SlideSpec) string {
+	theme := ClassicSlideTheme()
 	switch pptxLayoutOf(index, s) {
 	case "title":
-		return pptxTitleSlide(s, deckTitle)
+		return pptxTitleSlide(s, deckTitle, theme)
 	case "section":
-		return pptxSectionSlide(index, total, s)
+		return pptxSectionSlide(index, total, s, theme)
 	default:
-		return pptxContentSlide(index, total, deckTitle, s)
+		return pptxContentSlide(index, total, deckTitle, s, theme)
 	}
 }
 
-func pptxTitleSlide(s SlideSpec, deckTitle string) string {
+func pptxTitleSlide(s SlideSpec, deckTitle string, theme SlideTheme) string {
+	if theme.Navy == "" {
+		theme = ClassicSlideTheme()
+	}
 	sub := strings.TrimSpace(s.Subtitle)
 	if sub == "" && len(s.Bullets) > 0 {
 		sub = strings.Join(s.Bullets, "  ·  ")
@@ -104,39 +126,47 @@ func pptxTitleSlide(s SlideSpec, deckTitle string) string {
 	}
 	var b strings.Builder
 	b.WriteString(pptxTreeOpen())
-	b.WriteString(pptxBg(clrNavy))
+	b.WriteString(pptxBg(theme.Navy))
 	b.WriteString(pptxSpTreeOpen())
-	b.WriteString(pptxRect(2, "AccentBar", clrTeal, 0, 0, 280000, pptxH))
-	b.WriteString(pptxRect(3, "GoldRule", clrGold, 720000, 3520000, 2400000, 36000))
-	b.WriteString(pptxTextBox(4, "Title", 720000, 2100000, 10700000, 1300000, pptxPara("l", pptxFontRun(s.Title, clrWhite, 4000, true))))
-	b.WriteString(pptxTextBox(5, "Subtitle", 720000, 3720000, 10700000, 900000, pptxPara("l", pptxFontRun(sub, "A5F3FC", 1800, false))))
-	b.WriteString(pptxTextBox(6, "Brand", 720000, 6200000, 5000000, 360000, pptxPara("l", pptxFontRun("LUNITIDE  商务演示", clrGold, 1200, false))))
+	b.WriteString(pptxRect(2, "AccentBar", theme.Teal, 0, 0, 280000, pptxH))
+	b.WriteString(pptxRect(3, "GoldRule", theme.Gold, 720000, 3520000, 2400000, 36000))
+	b.WriteString(pptxTextBox(4, "Title", 720000, 2100000, 10700000, 1300000, pptxPara("l", theme.fontRun(s.Title, theme.White, 4000, true))))
+	b.WriteString(pptxTextBox(5, "Subtitle", 720000, 3720000, 10700000, 900000, pptxPara("l", theme.fontRun(sub, "A5F3FC", 1800, false))))
+	b.WriteString(pptxTextBox(6, "Brand", 720000, 6200000, 5000000, 360000, pptxPara("l", theme.fontRun("LUNITIDE  商务演示", theme.Gold, 1200, false))))
+	b.WriteString(pptxMetricValueBoxes(7, s, theme, 4700000))
 	b.WriteString(pptxTreeClose())
 	return b.String()
 }
 
-func pptxSectionSlide(index, total int, s SlideSpec) string {
+func pptxSectionSlide(index, total int, s SlideSpec, theme SlideTheme) string {
+	if theme.Navy == "" {
+		theme = ClassicSlideTheme()
+	}
 	var b strings.Builder
 	b.WriteString(pptxTreeOpen())
-	b.WriteString(pptxBg(clrNavy))
+	b.WriteString(pptxBg(theme.Navy))
 	b.WriteString(pptxSpTreeOpen())
-	b.WriteString(pptxRect(2, "AccentBar", clrTeal, 0, 0, 280000, pptxH))
-	b.WriteString(pptxTextBox(3, "Kicker", 720000, 2400000, 10700000, 400000, pptxPara("l", pptxFontRun(fmt.Sprintf("0%d  /  %02d", index+1, total), clrGold, 1400, false))))
-	b.WriteString(pptxTextBox(4, "Title", 720000, 2880000, 10700000, 1400000, pptxPara("l", pptxFontRun(s.Title, clrWhite, 3600, true))))
+	b.WriteString(pptxRect(2, "AccentBar", theme.Teal, 0, 0, 280000, pptxH))
+	b.WriteString(pptxTextBox(3, "Kicker", 720000, 2400000, 10700000, 400000, pptxPara("l", theme.fontRun(fmt.Sprintf("0%d  /  %02d", index+1, total), theme.Gold, 1400, false))))
+	b.WriteString(pptxTextBox(4, "Title", 720000, 2880000, 10700000, 1400000, pptxPara("l", theme.fontRun(s.Title, theme.White, 3600, true))))
 	if len(s.Bullets) > 0 {
-		b.WriteString(pptxTextBox(5, "Lead", 720000, 4400000, 10700000, 800000, pptxPara("l", pptxFontRun(s.Bullets[0], "A5F3FC", 1600, false))))
+		b.WriteString(pptxTextBox(5, "Lead", 720000, 4400000, 10700000, 800000, pptxPara("l", theme.fontRun(s.Bullets[0], "A5F3FC", 1600, false))))
 	}
+	b.WriteString(pptxMetricValueBoxes(6, s, theme, 5300000))
 	b.WriteString(pptxTreeClose())
 	return b.String()
 }
 
-func pptxContentSlide(index, total int, deckTitle string, s SlideSpec) string {
+func pptxContentSlide(index, total int, deckTitle string, s SlideSpec, theme SlideTheme) string {
+	if theme.Navy == "" {
+		theme = ClassicSlideTheme()
+	}
 	var bullets strings.Builder
 	if len(s.Bullets) == 0 {
 		bullets.WriteString(`<a:p><a:endParaRPr lang="zh-CN"/></a:p>`)
 	}
 	for _, item := range s.Bullets {
-		bullets.WriteString(pptxBulletPara(item))
+		bullets.WriteString(pptxBulletPara(item, theme))
 	}
 	footer := strings.TrimSpace(deckTitle)
 	if footer == "" {
@@ -144,15 +174,34 @@ func pptxContentSlide(index, total int, deckTitle string, s SlideSpec) string {
 	}
 	var b strings.Builder
 	b.WriteString(pptxTreeOpen())
-	b.WriteString(pptxBg(clrPaper))
+	b.WriteString(pptxBg(theme.Paper))
 	b.WriteString(pptxSpTreeOpen())
-	b.WriteString(pptxRect(2, "Header", clrNavy, 0, 0, pptxW, 1180000))
-	b.WriteString(pptxRect(3, "AccentBar", clrTeal, 0, 0, 160000, pptxH))
-	b.WriteString(pptxTextBox(4, "Title", 520000, 280000, 11000000, 700000, pptxPara("l", pptxFontRun(s.Title, clrWhite, 2400, true))))
+	b.WriteString(pptxRect(2, "Header", theme.Navy, 0, 0, pptxW, 1180000))
+	b.WriteString(pptxRect(3, "AccentBar", theme.Teal, 0, 0, 160000, pptxH))
+	b.WriteString(pptxTextBox(4, "Title", 520000, 280000, 11000000, 700000, pptxPara("l", theme.fontRun(s.Title, theme.White, 2400, true))))
 	b.WriteString(pptxTextBox(5, "Body", 520000, 1480000, 11000000, 4500000, bullets.String()))
-	b.WriteString(pptxRect(6, "FooterRule", clrSoft, 520000, 6280000, 11000000, 12700))
-	b.WriteString(pptxTextBox(7, "Footer", 520000, 6380000, 8000000, 320000, pptxPara("l", pptxFontRun(footer, clrMuted, 1100, false))))
-	b.WriteString(pptxTextBox(8, "Page", 9000000, 6380000, 2600000, 320000, pptxPara("r", pptxFontRun(fmt.Sprintf("%d / %d", index+1, total), clrMuted, 1100, false))))
+	b.WriteString(pptxRect(6, "FooterRule", theme.Soft, 520000, 6280000, 11000000, 12700))
+	b.WriteString(pptxTextBox(7, "Footer", 520000, 6380000, 8000000, 320000, pptxPara("l", theme.fontRun(footer, theme.Muted, 1100, false))))
+	b.WriteString(pptxTextBox(8, "Page", 9000000, 6380000, 2600000, 320000, pptxPara("r", theme.fontRun(fmt.Sprintf("%d / %d", index+1, total), theme.Muted, 1100, false))))
+	b.WriteString(pptxMetricValueBoxes(9, s, theme, 5600000))
 	b.WriteString(pptxTreeClose())
+	return b.String()
+}
+
+func pptxMetricValueBoxes(startID int, s SlideSpec, theme SlideTheme, y int) string {
+	if len(s.Metrics) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	id := startID
+	for j, m := range s.Metrics {
+		if strings.TrimSpace(m.Value) == "" {
+			continue
+		}
+		x := 720000 + (j%4)*2800000
+		yy := y + (j/4)*380000
+		b.WriteString(pptxTextBox(id, fmt.Sprintf("Metric%d", j+1), x, yy, 2600000, 340000, pptxPara("l", theme.fontRun(m.Value, theme.Gold, 1400, true))))
+		id++
+	}
 	return b.String()
 }

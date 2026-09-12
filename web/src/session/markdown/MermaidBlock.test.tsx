@@ -16,6 +16,11 @@ vi.mock('../../bridge/client', () => ({
   } }),
 }))
 
+vi.mock('./tideMermaid', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./tideMermaid')>()
+  return { ...actual, loadMermaidEngine: async () => mermaid }
+})
+
 import { MermaidBlock } from './MermaidBlock'
 
 afterEach(() => {
@@ -62,9 +67,9 @@ it('mounts parsed SVG instead of innerHTML and rejects junk', () => {
 
 it('does not flash a timeout error when the source is still streaming', async () => {
   mermaid.render.mockImplementation(() => new Promise(() => {}))
-  const { rerender } = render(<MermaidBlock source={'```mermaid\nflowchart TD\nA'} />)
+  const { rerender } = render(<MermaidBlock source={'```mermaid\nflowchart TD\nA'} wait />)
   await new Promise(resolve => setTimeout(resolve, 80))
-  rerender(<MermaidBlock source={'flowchart TD\nA-->B'} />)
+  rerender(<MermaidBlock source={'flowchart TD\nA-->B'} wait />)
   await new Promise(resolve => setTimeout(resolve, 80))
   expect(screen.queryByText(/图表未能渲染/)).toBeNull()
   expect(mermaid.render).not.toHaveBeenCalled()
@@ -78,23 +83,19 @@ it('holds a stable placeholder instead of rendering an unfinished arrow', async 
   expect(screen.queryByText(/图表未能渲染/)).toBeNull()
 })
 
-it('leaves pending after a finished turn when the source never became ready', async () => {
-  mermaid.render.mockRejectedValue(new Error('parse failed'))
+it('does not start a renderer when the finished turn left an unfinished arrow', async () => {
   render(<MermaidBlock source={'flowchart TD\nA-->'} />)
-  expect(await screen.findByText(/图表未能渲染/)).toBeInTheDocument()
+  await new Promise(resolve => setTimeout(resolve, 700))
+  expect(mermaid.render).not.toHaveBeenCalled()
+  expect(screen.getByText(/图表源码未闭合或未写完/)).toBeInTheDocument()
   expect(screen.queryByText(/图表生成中/)).toBeNull()
 })
 
-it('retries a cancelled worker and then mounts the SVG', async () => {
-  mermaid.render
-    .mockRejectedValueOnce(new Error('图表渲染超时或已取消，已回收独立渲染进程；源码仍保留'))
-    .mockResolvedValueOnce({
-      svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 40"><g class="node"><rect/></g></svg>',
-    })
+it('does not retry a timed-out render', async () => {
+  mermaid.render.mockRejectedValue(new Error('图表渲染超时，已回收独立渲染进程；源码仍保留'))
   render(<MermaidBlock source={'flowchart TD\nA-->B'} />)
-  await waitFor(() => expect(document.querySelector('.mermaid-host svg .node rect')).not.toBeNull(), { timeout: 4000 })
-  expect(screen.queryByText(/图表未能渲染/)).toBeNull()
-  expect(mermaid.render).toHaveBeenCalledTimes(2)
+  expect(await screen.findByText(/图表未能渲染：图表渲染超时/)).toBeInTheDocument()
+  expect(mermaid.render).toHaveBeenCalledTimes(1)
 })
 
 it('falls back to source when mermaid.render fails instead of throwing', async () => {
@@ -121,7 +122,6 @@ it('renders a flowchart SVG into the host', async () => {
   await waitFor(() => expect(document.querySelector('.mermaid-host svg .node rect')).not.toBeNull())
   expect(document.querySelector('.mermaid-host svg .edgePath .path')).not.toBeNull()
   expect(document.querySelector('.mermaid-host svg')?.getAttribute('height')).toBeNull()
-  expect(mermaid.initialize).toHaveBeenCalled()
 })
 
 it('copies mermaid source from the toolbar', async () => {

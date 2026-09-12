@@ -69,7 +69,7 @@ func turnAttemptedAction(messages []llmadapter.Message, action string) bool {
 		_ = json.Unmarshal(receipt.Args, &args)
 		switch action {
 		case "lookup":
-			if receipt.Name == "weather.get" || receipt.Name == "web.search" || receipt.Name == "web.fetch" {
+			if receipt.Name == "weather.get" || receipt.Name == "web.search" || receipt.Name == "web.fetch" || receipt.Name == "mcp.search" {
 				return true
 			}
 		case "open":

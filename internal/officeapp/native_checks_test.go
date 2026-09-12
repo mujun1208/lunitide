@@ -16,6 +16,95 @@ import (
 	content "github.com/lunitide/lunitide/internal/officestudio"
 )
 
+func TestEvaluateOfficeQualityWholeSlideRasterBlocksFormal(t *testing.T) {
+	report := evaluateOfficeQuality([]domain.Check{
+		{ID: "native_render", Status: "passed", Detail: "ok"},
+		{ID: "rasterized_object", Status: "failed", Detail: "reason=whole-slide count=1；栅格对象不计入可编辑覆盖率"},
+	}, nil)
+	if report.FormalOK {
+		t.Fatal("whole-slide raster must block Formal")
+	}
+	if strings.Contains(strings.ToLower(report.Coverage), "fully editable") {
+		t.Fatal("must not claim fully editable after rasterization")
+	}
+}
+
+func TestTargetAppCoverageChecksStayUnsupported(t *testing.T) {
+	for _, c := range targetAppCoverageChecks() {
+		if c.Status == "passed" || c.Required {
+			t.Fatalf("coverage check must stay honest: %#v", c)
+		}
+	}
+}
+
+func TestCheckQualityReportBlocksFormalWhenRendererUnavailable(t *testing.T) {
+	svc, _, task := studioServiceFixture(t)
+	v := generatedWord(t, svc, task, "qa-missing-render")
+	qa, err := svc.Check(context.Background(), task.ID, v.ID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if qa.Quality == "passed" {
+		t.Fatal("missing renderer must not mark validation passed")
+	}
+	var evidence struct {
+		FormalOK      bool                  `json:"formalOk"`
+		QualityReport content.QualityReport `json:"qualityReport"`
+	}
+	if err := json.Unmarshal(qa.Evidence, &evidence); err != nil {
+		t.Fatal(err)
+	}
+	if evidence.FormalOK || evidence.QualityReport.FormalOK {
+		t.Fatalf("formal delivery allowed without renderer: %#v", evidence)
+	}
+	if len(evidence.QualityReport.Blockers) == 0 {
+		t.Fatal("missing renderer must be a quality blocker")
+	}
+}
+
+func TestCheckMarksLegacyQualityWhenDesignSystemOff(t *testing.T) {
+	t.Setenv("LUNITIDE_OFFICE_DESIGN", "off")
+	svc, _, task := studioServiceFixture(t)
+	v := generatedWord(t, svc, task, "design-off-scope")
+	qa, err := svc.Check(context.Background(), task.ID, v.ID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var design string
+	for _, c := range qa.Checks {
+		if c.ID == "design_system" {
+			design = c.Detail
+		}
+	}
+	if !strings.Contains(design, "旧质量范围") || strings.Contains(design, "已启用") {
+		t.Fatalf("design off must mark legacy quality: %q quality=%s", design, qa.Quality)
+	}
+	if qa.Quality == "passed" {
+		t.Fatal("design off must not pretend the new quality bar passed")
+	}
+}
+
+func TestCheckBindsDiagnoseRenderWhenRendererUnavailable(t *testing.T) {
+	svc, _, task := studioServiceFixture(t)
+	v := generatedWord(t, svc, task, "diagnose-render")
+	qa, err := svc.Check(context.Background(), task.ID, v.ID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var native string
+	for _, c := range qa.Checks {
+		if c.ID == "native_render" {
+			native = c.Detail
+		}
+	}
+	if !strings.Contains(native, "不能标为已验证") {
+		t.Fatalf("native_render must use DiagnoseRender: %q", native)
+	}
+	if qa.Quality == "passed" {
+		t.Fatal("missing renderer must not mark validation passed")
+	}
+}
+
 func TestNativePreviewChecksKeepIncompleteScansAndErrorsVisible(t *testing.T) {
 	base := officerender.NativeEvidence{Scope: "derived-preview", SourceUnchanged: true, Recalculated: true, FormulaCells: 50000}
 	if checks := nativePreviewChecks(base); len(checks) != 1 || checks[0].Status != "unsupported" {
@@ -148,5 +237,32 @@ func TestServiceNativeWordPreviewPreservesSourceChecksAndReceipt(t *testing.T) {
 	actual, err := svc.ReadPDF(ctx, task.ID, v.ID)
 	if err != nil || !bytes.Equal(pdf, actual) {
 		t.Fatal("preview PDF not available by source version", err)
+	}
+}
+
+func TestPreviewRejectsStaleSameSourcePDF(t *testing.T) {
+	svc, store, task := studioServiceFixture(t)
+	ctx := context.Background()
+	v, err := svc.Generate(ctx, task.ID, "源.docx", shortWordSpec(), "stale-pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bind := content.InvalidateSameSourcePDF(content.BindSameSourcePDF(content.DOCX, "deadbeef", []byte("%PDF-1.4 stale")), v.SHA256)
+	if !bind.Stale {
+		t.Fatal("fixture bind must be stale")
+	}
+	_, err = store.AddOfficeValidation(ctx, domain.Validation{
+		VersionID: v.ID, SHA256: v.SHA256, Validator: "test", Quality: "partial",
+		Evidence: encode(map[string]any{"pdfRef": strings.Repeat("a", 64), "sameSourcePdf": bind}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := svc.Preview(ctx, task.ID, v.ID)
+	if err != nil || preview.PDFReady {
+		t.Fatalf("stale same-source PDF marked ready: %#v %v", preview, err)
+	}
+	if _, err = svc.ReadPDF(ctx, task.ID, v.ID); err == nil {
+		t.Fatal("stale same-source PDF still readable")
 	}
 }

@@ -240,26 +240,50 @@ func docxCoverPage(doc DocxDoc, kind string) string {
 }
 
 func docxParagraph(style, text, extraPPr string) string {
-	rPr := docxRunProps(style)
+	return docxThemedParagraph(style, text, extraPPr, "", "", "", "", "", 0)
+}
+
+func docxThemedParagraph(style, text, extraPPr, latin, east, navy, ink, muted string, bodyHalfPt int) string {
+	rPr := docxRunProps(style, latin, east, navy, ink, muted, bodyHalfPt)
 	pPr := `<w:pPr><w:pStyle w:val="` + style + `"/>` + extraPPr + `</w:pPr>`
 	return `<w:p>` + pPr + `<w:r>` + rPr + `<w:t xml:space="preserve">` + xmlEscape(text) + `</w:t></w:r></w:p>`
 }
 
-func docxRunProps(style string) string {
-	east, sz, bold, color := "SimSun", docxBodyPt, false, docxInk
+func docxRunProps(style string, latin, east, navy, ink, muted string, bodyHalfPt int) string {
+	if navy == "" {
+		navy = docxNavy
+	}
+	if ink == "" {
+		ink = docxInk
+	}
+	if muted == "" {
+		muted = docxMuted
+	}
+	if bodyHalfPt <= 0 {
+		bodyHalfPt = docxBodyPt
+	}
+	styleEast, sz, bold, color := "SimSun", bodyHalfPt, false, ink
 	switch style {
 	case "Title":
-		east, sz, bold, color = "SimHei", docxTitlePt, true, docxNavy
+		styleEast, sz, bold, color = "SimHei", docxTitlePt, true, navy
 	case "Subtitle":
-		east, sz, color = "Microsoft YaHei", docxH2Pt, docxMuted
+		styleEast, sz, color = "Microsoft YaHei", docxH2Pt, muted
 	case "Heading1":
-		east, sz, bold, color = "SimHei", docxH1Pt, true, docxNavy
+		styleEast, sz, bold, color = "SimHei", docxH1Pt, true, navy
 	case "Heading2":
-		east, sz, bold, color = "SimHei", docxH2Pt, true, docxNavy
+		styleEast, sz, bold, color = "SimHei", docxH2Pt, true, navy
+	case "Heading3":
+		styleEast, sz, bold, color = "SimHei", bodyHalfPt, true, navy
 	case "Quote":
-		east, sz, color = "SimSun", docxBodyPt, docxMuted
+		styleEast, sz, color = "SimSun", docxBodyPt, muted
 	case "Caption", "Author":
-		east, sz, color = "Microsoft YaHei", 20, docxMuted
+		styleEast, sz, color = "Microsoft YaHei", 20, muted
+	}
+	if latin == "" {
+		latin = "Calibri"
+	}
+	if east == "" {
+		east = styleEast
 	}
 	b := ""
 	if bold {
@@ -269,7 +293,7 @@ func docxRunProps(style string) string {
 	if style == "Quote" {
 		italic = `<w:i/><w:iCs/>`
 	}
-	return `<w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="` + east + `" w:cs="Calibri" w:hint="eastAsia"/>` +
+	return `<w:rPr><w:rFonts w:ascii="` + xmlEscape(latin) + `" w:hAnsi="` + xmlEscape(latin) + `" w:eastAsia="` + xmlEscape(east) + `" w:cs="` + xmlEscape(latin) + `" w:hint="eastAsia"/>` +
 		b + italic +
 		`<w:color w:val="` + color + `"/><w:sz w:val="` + itoa(sz) + `"/><w:szCs w:val="` + itoa(sz) + `"/><w:lang w:val="en-US" w:eastAsia="zh-CN"/></w:rPr>`
 }

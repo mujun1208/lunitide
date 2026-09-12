@@ -45,10 +45,10 @@ func TestLooksLikeTypeAfterLabelTurnComplete(t *testing.T) {
 
 func TestHostToolFallbackIntentCoversVoiceAndTypedTasks(t *testing.T) {
 	if !looksLikeCurrentLookupTurn("今天合肥到上海虹桥站的火车") {
-		t.Fatal("train lookup must get a deterministic web search")
+		t.Fatal("train lookup must still be treated as a current lookup")
 	}
-	if got := string(fallbackWebSearchArgs("今天合肥到上海虹桥站的火车")); !strings.Contains(got, `"max":5`) {
-		t.Fatalf("search args = %s", got)
+	if got := fallbackWebSearchArgs("今天合肥到上海虹桥站的火车"); len(got) != 0 {
+		t.Fatalf("live tickets must not auto-search the public web: %s", got)
 	}
 	if mediaGenerationKind("帮我生成一张月球图片") != "image.generate" || mediaGenerationKind("生成一个短视频") != "video.generate" {
 		t.Fatal("media generation intent missing")

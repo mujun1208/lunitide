@@ -1,0 +1,10 @@
+{
+  "audience": "执行团队",
+  "purpose": "时间线拆页检查",
+  "language": "zh-CN",
+  "targetLength": 6,
+  "deliverables": ["pptx"],
+  "facts": [
+    {"factId": "milestones", "value": "7", "unit": "项", "period": "2026-Q3", "sourceId": "plan", "locator": "里程碑数"}
+  ]
+}

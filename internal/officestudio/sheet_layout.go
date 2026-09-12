@@ -1,6 +1,7 @@
 package officestudio
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"unicode"
@@ -72,6 +73,51 @@ func layoutManagedSheet(f *excelize.File, name string, sheet Sheet) error {
 	}
 	side, vertical := 0.35, 0.5
 	return f.SetPageMargins(name, &excelize.PageLayoutMarginsOptions{Left: &side, Right: &side, Top: &vertical, Bottom: &vertical})
+}
+
+func applySheetRoleLayout(f *excelize.File, name string, sheet Sheet) error {
+	lastRow := len(sheet.Rows)
+	lastCol := 1
+	for _, row := range sheet.Rows {
+		if len(row) > lastCol {
+			lastCol = len(row)
+		}
+	}
+	end, err := excelize.CoordinatesToCellName(lastCol, max(lastRow, 1))
+	if err != nil {
+		return err
+	}
+	if err = setManagedPrintArea(f, name, lastCol, max(lastRow, 1)); err != nil {
+		return err
+	}
+	switch name {
+	case "原始数据":
+		return f.AutoFilter(name, "A1:"+end, nil)
+	case "看板":
+		show := false
+		return f.SetSheetView(name, 0, &excelize.ViewOptions{ShowGridLines: &show})
+	default:
+		return nil
+	}
+}
+
+func setManagedPrintArea(f *excelize.File, name string, lastCol, lastRow int) error {
+	if lastRow < 1 {
+		lastRow = 1
+	}
+	if lastCol < 1 {
+		lastCol = 1
+	}
+	col, err := excelize.ColumnNumberToName(lastCol)
+	if err != nil {
+		return err
+	}
+	quoted := "'" + strings.ReplaceAll(name, "'", "''") + "'"
+	return f.SetDefinedName(&excelize.DefinedName{
+		Name:     "_xlnm.Print_Area",
+		RefersTo: fmt.Sprintf("%s!$A$1:$%s$%d", quoted, col, lastRow),
+		Scope:    name,
+	})
 }
 
 func displayWidth(value string) int {

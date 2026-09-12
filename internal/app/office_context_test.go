@@ -14,6 +14,217 @@ import (
 	content "github.com/lunitide/lunitide/internal/officestudio"
 )
 
+func TestOfficeChatInstructionForbidsInventedMetricsAndSpecRebuild(t *testing.T) {
+	if !strings.Contains(officeChatInstruction, "schemaVersion may be 1 or 2") {
+		t.Fatal("chat must know v2 generate")
+	}
+	if !strings.Contains(officeChatInstruction, "savings") || !strings.Contains(officeChatInstruction, "not be reconstructed from Spec") {
+		t.Fatal("chat must forbid invented savings and spec rebuild of imports")
+	}
+	if !strings.Contains(officeChatInstruction, "templateId") || !strings.Contains(officeChatInstruction, "brand-pitch") {
+		t.Fatal("chat must map Studio styles to templateId")
+	}
+	if !strings.Contains(officeChatInstruction, "kind=pptx") || !strings.Contains(officeChatInstruction, "research-report") || !strings.Contains(officeChatInstruction, "ops-ledger") {
+		t.Fatal("chat must not copy PPT style ids onto Word/Excel")
+	}
+}
+
+func TestOfficeChatEvidenceIncludesSelectedPptStyle(t *testing.T) {
+	e, _ := officeEngineFixture(t)
+	task := officeCreatedTask(t, e, "style-evidence")
+	r := officeCall(t, e, "office.task.update", "style-upd", map[string]any{
+		"taskId": task.ID, "expectedRevision": task.Revision, "title": task.Title, "goal": task.Goal, "styleId": "brand-pitch",
+	})
+	if !r.OK {
+		t.Fatalf("update: %+v", r.Error)
+	}
+	sources, err := e.officeChatEvidence(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, source := range sources {
+		if strings.Contains(source.Content, "templateId=brand-pitch") && strings.Contains(source.Content, "kind=pptx") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("style missing from chat evidence: %+v", sources)
+	}
+}
+
+func TestOfficeChatEvidenceIncludesBriefFacts(t *testing.T) {
+	e, _ := officeEngineFixture(t)
+	task := officeCreatedTask(t, e, "brief-evidence")
+	r := officeCall(t, e, "office.task.update", "brief-upd", map[string]any{
+		"taskId": task.ID, "expectedRevision": task.Revision, "title": task.Title, "goal": task.Goal,
+		"brief": map[string]any{
+			"audience": "客户", "purpose": "方案汇报", "targetLength": 8,
+			"facts": []map[string]any{{"factId": "orders", "value": "1280", "unit": "单", "locked": true}},
+		},
+	})
+	if !r.OK {
+		t.Fatalf("update: %+v", r.Error)
+	}
+	var page struct {
+		Task struct {
+			Brief struct {
+				Audience     string `json:"audience"`
+				Purpose      string `json:"purpose"`
+				TargetLength int    `json:"targetLength"`
+			} `json:"brief"`
+		} `json:"task"`
+	}
+	if err := decodeResponsePayload(r.Payload, &page); err != nil || page.Task.Brief.Audience != "客户" || page.Task.Brief.TargetLength != 8 {
+		t.Fatalf("snapshot brief: %+v %v", page.Task.Brief, err)
+	}
+	sources, err := e.officeChatEvidence(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, source := range sources {
+		if strings.Contains(source.Content, "factId=orders") && strings.Contains(source.Content, "1280") && strings.Contains(source.Content, "客户") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("brief facts missing from chat evidence: %+v", sources)
+	}
+}
+
+func TestOfficeChatEvidenceDoesNotInventBriefDefaults(t *testing.T) {
+	e, _ := officeEngineFixture(t)
+	task := officeCreatedTask(t, e, "brief-evidence-raw")
+	sources, err := e.officeChatEvidence(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob := ""
+	for _, source := range sources {
+		blob += source.Content
+	}
+	if strings.Contains(blob, "audience=管理层") || strings.Contains(blob, "purpose=经营汇报") {
+		t.Fatalf("invented brief defaults in chat evidence: %s", blob)
+	}
+	if !strings.Contains(blob, "audience unset") {
+		t.Fatalf("empty audience not marked unset: %s", blob)
+	}
+	r := officeCall(t, e, "office.task.update", "brief-conf-ev", map[string]any{
+		"taskId": task.ID, "expectedRevision": task.Revision, "title": task.Title, "goal": task.Goal,
+		"brief": map[string]any{"confidentiality": "内部"},
+	})
+	if !r.OK {
+		t.Fatalf("update: %+v", r.Error)
+	}
+	sources, err = e.officeChatEvidence(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob = ""
+	for _, source := range sources {
+		blob += source.Content
+	}
+	if !strings.Contains(blob, "confidentiality=内部") {
+		t.Fatalf("authored confidentiality missing: %s", blob)
+	}
+	if strings.Contains(blob, "机密") {
+		t.Fatal("invented stricter classification")
+	}
+}
+
+func TestOfficeTaskSnapshotDoesNotInventBriefDefaults(t *testing.T) {
+	e, _ := officeEngineFixture(t)
+	task := officeCreatedTask(t, e, "brief-raw")
+	r := officeCall(t, e, "office.task.get", "brief-get", map[string]any{"taskId": task.ID})
+	if !r.OK {
+		t.Fatalf("get: %+v", r.Error)
+	}
+	var page struct {
+		Task struct {
+			Brief struct {
+				Audience        string `json:"audience"`
+				Purpose         string `json:"purpose"`
+				TargetLength    int    `json:"targetLength"`
+				Confidentiality string `json:"confidentiality"`
+			} `json:"brief"`
+		} `json:"task"`
+	}
+	if err := decodeResponsePayload(r.Payload, &page); err != nil {
+		t.Fatal(err)
+	}
+	if page.Task.Brief.Audience != "" || page.Task.Brief.Purpose != "" || page.Task.Brief.TargetLength != 0 || page.Task.Brief.Confidentiality != "" {
+		t.Fatalf("invented brief defaults: %+v", page.Task.Brief)
+	}
+}
+
+func TestOfficeTaskUpdatePersistsConfidentialityWithoutInventingAudience(t *testing.T) {
+	e, _ := officeEngineFixture(t)
+	task := officeCreatedTask(t, e, "brief-conf")
+	r := officeCall(t, e, "office.task.update", "brief-conf-upd", map[string]any{
+		"taskId": task.ID, "expectedRevision": task.Revision, "title": task.Title, "goal": task.Goal,
+		"brief": map[string]any{"confidentiality": "内部"},
+	})
+	if !r.OK {
+		t.Fatalf("update: %+v", r.Error)
+	}
+	var page struct {
+		Task struct {
+			Brief struct {
+				Audience        string `json:"audience"`
+				Confidentiality string `json:"confidentiality"`
+			} `json:"brief"`
+		} `json:"task"`
+	}
+	if err := decodeResponsePayload(r.Payload, &page); err != nil || page.Task.Brief.Confidentiality != "内部" {
+		t.Fatalf("confidentiality: %+v %v", page.Task.Brief, err)
+	}
+	if page.Task.Brief.Audience == "管理层" {
+		t.Fatal("update invented audience")
+	}
+}
+
+func TestOfficeChatEvidenceIncludesTaskBrand(t *testing.T) {
+	e, _ := officeEngineFixture(t)
+	task := officeCreatedTask(t, e, "brand-evidence")
+	r := officeCall(t, e, "office.task.update", "brand-upd", map[string]any{
+		"taskId": task.ID, "expectedRevision": task.Revision, "title": task.Title, "goal": task.Goal,
+		"brand": map[string]any{
+			"brandId": "task-teal",
+			"colors":  map[string]any{"navy": "112233"},
+			"fonts":   map[string]any{"latin": "Georgia", "east": "SimSun"},
+			"asset": map[string]any{
+				"sourceUrl": "https://example.invalid/brand", "license": "client-granted",
+				"digest": "abababababababababababababababababababababababababababababababab", "commercial": true,
+			},
+		},
+	})
+	if !r.OK {
+		t.Fatalf("update: %+v", r.Error)
+	}
+	var page struct {
+		Task struct {
+			BrandID string `json:"brandId"`
+		} `json:"task"`
+	}
+	if err := decodeResponsePayload(r.Payload, &page); err != nil || page.Task.BrandID != "task-teal" {
+		t.Fatalf("snapshot brand: %+v %v", page.Task, err)
+	}
+	sources, err := e.officeChatEvidence(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, source := range sources {
+		if strings.Contains(source.Content, "brandId=task-teal") && strings.Contains(source.Content, "do not mix classic colors") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("brand missing from chat evidence: %+v", sources)
+	}
+}
+
 func TestOfficeShellBypassedForBoundTaskAndLegacyPipelines(t *testing.T) {
 	if officeShellBypassed("workspace.read", "01ARZ3NDEKTSV4RRFFQ69G5FAV", nil) {
 		t.Fatal("non-shell tool blocked")

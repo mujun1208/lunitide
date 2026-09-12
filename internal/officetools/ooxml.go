@@ -105,6 +105,38 @@ const slideLayoutRels = xmlDecl + `
 const themeXML = xmlDecl + `
 <a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Lunitide"><a:themeElements><a:clrScheme name="Lunitide"><a:dk1><a:srgbClr val="111827"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="1F2937"/></a:dk2><a:lt2><a:srgbClr val="F3F4F6"/></a:lt2><a:accent1><a:srgbClr val="2563EB"/></a:accent1><a:accent2><a:srgbClr val="0891B2"/></a:accent2><a:accent3><a:srgbClr val="059669"/></a:accent3><a:accent4><a:srgbClr val="D97706"/></a:accent4><a:accent5><a:srgbClr val="7C3AED"/></a:accent5><a:accent6><a:srgbClr val="DB2777"/></a:accent6><a:hlink><a:srgbClr val="2563EB"/></a:hlink><a:folHlink><a:srgbClr val="7C3AED"/></a:folHlink></a:clrScheme><a:fontScheme name="Lunitide"><a:majorFont><a:latin typeface="Calibri Light"/><a:ea typeface="Microsoft YaHei"/><a:cs typeface="Microsoft YaHei"/></a:majorFont><a:minorFont><a:latin typeface="Calibri"/><a:ea typeface="Microsoft YaHei"/><a:cs typeface="Microsoft YaHei"/></a:minorFont></a:fontScheme><a:fmtScheme name="Lunitide"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>`
 
+func ThemeXMLFor(latin, east, navy, teal, gold, paper, ink, white, soft string) string {
+	if latin == "" {
+		latin = "Calibri"
+	}
+	if east == "" {
+		east = "Microsoft YaHei"
+	}
+	if navy == "" {
+		navy = "0B1F3A"
+	}
+	if teal == "" {
+		teal = "0D9488"
+	}
+	if gold == "" {
+		gold = "C9A227"
+	}
+	if paper == "" {
+		paper = "F4F6F8"
+	}
+	if ink == "" {
+		ink = "1F2937"
+	}
+	if white == "" {
+		white = "FFFFFF"
+	}
+	if soft == "" {
+		soft = "E2E8F0"
+	}
+	return xmlDecl + `
+<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Lunitide"><a:themeElements><a:clrScheme name="Lunitide"><a:dk1><a:srgbClr val="` + xmlEscape(ink) + `"/></a:dk1><a:lt1><a:srgbClr val="` + xmlEscape(white) + `"/></a:lt1><a:dk2><a:srgbClr val="` + xmlEscape(navy) + `"/></a:dk2><a:lt2><a:srgbClr val="` + xmlEscape(paper) + `"/></a:lt2><a:accent1><a:srgbClr val="` + xmlEscape(teal) + `"/></a:accent1><a:accent2><a:srgbClr val="` + xmlEscape(navy) + `"/></a:accent2><a:accent3><a:srgbClr val="` + xmlEscape(gold) + `"/></a:accent3><a:accent4><a:srgbClr val="` + xmlEscape(gold) + `"/></a:accent4><a:accent5><a:srgbClr val="` + xmlEscape(teal) + `"/></a:accent5><a:accent6><a:srgbClr val="` + xmlEscape(soft) + `"/></a:accent6><a:hlink><a:srgbClr val="` + xmlEscape(teal) + `"/></a:hlink><a:folHlink><a:srgbClr val="` + xmlEscape(navy) + `"/></a:folHlink></a:clrScheme><a:fontScheme name="Lunitide"><a:majorFont><a:latin typeface="` + xmlEscape(latin) + `"/><a:ea typeface="` + xmlEscape(east) + `"/><a:cs typeface="` + xmlEscape(east) + `"/></a:majorFont><a:minorFont><a:latin typeface="` + xmlEscape(latin) + `"/><a:ea typeface="` + xmlEscape(east) + `"/><a:cs typeface="` + xmlEscape(east) + `"/></a:minorFont></a:fontScheme><a:fmtScheme name="Lunitide"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>`
+}
+
 func coreXML(title string) string {
 	return xmlDecl + `
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>` + xmlEscape(title) + `</dc:title><dc:creator>Lunitide</dc:creator></cp:coreProperties>`

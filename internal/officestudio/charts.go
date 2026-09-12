@@ -101,7 +101,7 @@ func chartWorkbook(c SlideChart) ([]byte, error) {
 	for i, v := range c.Categories {
 		rows[i+1][0].Value = v
 	}
-	data, err := generateXLSX([]Sheet{{Name: "Data", Rows: rows}})
+	data, err := generateXLSX([]Sheet{{Name: "Data", Rows: rows}}, Theme{})
 	if err != nil {
 		return nil, err
 	}

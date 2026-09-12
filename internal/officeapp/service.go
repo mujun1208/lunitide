@@ -131,11 +131,25 @@ func (s *Service) ImportLinked(ctx context.Context, taskID, artifactID, name, so
 }
 
 func (s *Service) Generate(ctx context.Context, taskID, name string, spec content.Spec, key string) (domain.Version, error) {
-	b, err := content.Generate(spec)
+	task, err := s.Store.GetOfficeTask(ctx, taskID)
 	if err != nil {
 		return domain.Version{}, err
 	}
-	return s.publish(ctx, taskID, "", name, string(spec.Kind), "managed", b, encode(spec), "", 0, key)
+	spec = applyTaskStyle(task, spec)
+	spec = applyTaskBrief(task, spec)
+	spec, err = applyTaskBrand(task, spec)
+	if err != nil {
+		return domain.Version{}, err
+	}
+	prepared, err := content.PrepareManagedSpec(spec)
+	if err != nil {
+		return domain.Version{}, err
+	}
+	b, err := content.Generate(prepared)
+	if err != nil {
+		return domain.Version{}, err
+	}
+	return s.publish(ctx, taskID, "", name, string(prepared.Kind), "managed", b, encode(prepared), "", 0, key)
 }
 
 func (s *Service) publish(ctx context.Context, taskID, artifactID, name, kind, mode string, data []byte, spec json.RawMessage, baseID string, revision int64, key string) (domain.Version, error) {
@@ -230,11 +244,19 @@ func (s *Service) Check(ctx context.Context, taskID, versionID string, render bo
 	if err != nil {
 		return domain.Validation{}, err
 	}
-	local, err := content.Validate(content.Kind(v.Kind), b)
+	var published content.Spec
+	_ = json.Unmarshal(v.Spec, &published)
+	local, err := content.ValidateBrand(content.Kind(v.Kind), b, content.BrandForSpec(published))
 	if err != nil {
 		return domain.Validation{}, err
 	}
-	checks := make([]domain.Check, 0, len(local.Checks)+3)
+	checks := make([]domain.Check, 0, len(local.Checks)+4)
+	design := content.DesignScopeCheck()
+	designStatus := design.Status
+	if designStatus == "missing" {
+		designStatus = "unsupported"
+	}
+	checks = append(checks, domain.Check{ID: design.ID, Label: officeCheckLabel(design.ID), Status: designStatus, Required: false, Detail: design.Message})
 	for _, c := range local.Checks {
 		// PDFs are already paginated source files, not Office documents that
 		// need conversion in Word/PowerPoint/Excel to obtain a PDF preview.
@@ -248,7 +270,8 @@ func (s *Service) Check(ctx context.Context, taskID, versionID string, render bo
 		if status == "missing" {
 			status = "unsupported"
 		}
-		checks = append(checks, domain.Check{ID: c.ID, Label: officeCheckLabel(c.ID), Status: status, Required: true, Detail: c.Message})
+		required := c.ID != "pdfa"
+		checks = append(checks, domain.Check{ID: c.ID, Label: officeCheckLabel(c.ID), Status: status, Required: required, Detail: c.Message})
 	}
 	evidence := map[string]any{"issues": local.Issues, "sourceDigest": v.SHA256}
 	fontChecks, fontReport := s.fontChecks(ctx, v.Kind, b)
@@ -271,6 +294,17 @@ func (s *Service) Check(ctx context.Context, taskID, versionID string, render bo
 			status := "failed"
 			if errors.Is(renderErr, officerender.ErrUnavailable) {
 				status = "unsupported"
+				for i := range checks {
+					if checks[i].ID != "native_render" {
+						continue
+					}
+					for _, d := range content.DiagnoseRender(false, local.Issues) {
+						if d.ID == "native_render" {
+							checks[i].Status = "unsupported"
+							checks[i].Detail = d.Message
+						}
+					}
+				}
 			}
 			checks = append(checks, domain.Check{ID: "actual-render", Label: "实际排版", Status: status, Required: true, Detail: renderErr.Error()})
 		} else {
@@ -280,6 +314,7 @@ func (s *Service) Check(ctx context.Context, taskID, versionID string, render bo
 			}
 			previewLease = lease
 			evidence["pdfRef"] = lease.Digest
+			evidence["sameSourcePdf"] = content.BindSameSourcePDF(content.Kind(v.Kind), v.SHA256, result.PDF)
 			evidence["renderer"] = result.Renderer
 			evidence["rendererVersion"] = result.RendererVersion
 			if result.Native != nil {
@@ -296,8 +331,14 @@ func (s *Service) Check(ctx context.Context, taskID, versionID string, render bo
 		}
 	}
 	if v.Kind != "pdf" {
-		checks = append(checks, domain.Check{ID: "target-compatibility", Label: "Office/WPS 目标软件兼容性", Status: "unsupported", Required: true, Detail: "尚未在目标软件完成打开验证"})
+		checks = append(checks, targetAppCoverageChecks()...)
+	} else if !officeCheckPresent(checks, "pdfa") {
+		checks = append(checks, domain.Check{ID: "pdfa", Label: "PDF/A 合规", Status: "unsupported", Required: false, Detail: "导出 PDF 不表示 PDF/A 或 PDF/UA 合规"})
 	}
+	specFacts := content.FactsFromSpec(published)
+	report := evaluateOfficeQuality(checks, specFacts)
+	evidence["qualityReport"] = report
+	evidence["formalOk"] = report.FormalOK
 	qa := domain.Validation{VersionID: v.ID, SHA256: v.SHA256, Validator: "office-studio-go-v1", Quality: domain.QualityFor(checks), Checks: checks, Evidence: encode(evidence), BlobLeaseID: previewLease.ID}
 	return s.Store.AddOfficeValidation(ctx, qa)
 }
@@ -384,6 +425,17 @@ func (s *Service) PreviewPage(ctx context.Context, taskID, versionID string, off
 			var evidence map[string]any
 			if json.Unmarshal(q.Evidence, &evidence) == nil {
 				if ref, ok := evidence["pdfRef"].(string); ok && ref != "" {
+					if same, ok := evidence["sameSourcePdf"]; ok {
+						raw, _ := json.Marshal(same)
+						var bind content.SameSourcePDF
+						if json.Unmarshal(raw, &bind) == nil {
+							bind = content.InvalidateSameSourcePDF(bind, v.SHA256)
+							if bind.Stale {
+								p.Notice += bind.Notice
+								continue
+							}
+						}
+					}
 					p.PDFReady = true
 					break
 				}
@@ -409,6 +461,16 @@ func (s *Service) ReadPDF(ctx context.Context, taskID, versionID string) ([]byte
 		var evidence map[string]any
 		if json.Unmarshal(q.Evidence, &evidence) == nil {
 			if ref, ok := evidence["pdfRef"].(string); ok && ref != "" {
+				if same, ok := evidence["sameSourcePdf"]; ok {
+					raw, _ := json.Marshal(same)
+					var bind content.SameSourcePDF
+					if json.Unmarshal(raw, &bind) == nil {
+						bind = content.InvalidateSameSourcePDF(bind, v.SHA256)
+						if bind.Stale {
+							continue
+						}
+					}
+				}
 				return s.read(ref)
 			}
 		}

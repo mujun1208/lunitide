@@ -1,0 +1,10 @@
+{
+  "audience": "财务核对",
+  "purpose": "经营台账输入与推导",
+  "language": "zh-CN",
+  "targetLength": 4,
+  "deliverables": ["xlsx"],
+  "facts": [
+    {"factId": "orders", "value": "1280", "unit": "单", "period": "2026-08", "sourceId": "sales-sheet", "locator": "订单数"}
+  ]
+}

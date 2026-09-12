@@ -6,7 +6,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { Dialog } from '../ui/Dialog';
 import { listActiveSessionIds, subscribeLiveChatRegistry } from '../session/liveChat';
-import { OFFICE_ARTIFACT_FOCUS_KEY, OFFICE_STUDIO_HOME_EVENT, requestedOfficeTask } from './officeNavigation';
+import { OFFICE_ARTIFACT_FOCUS_EVENT, OFFICE_ARTIFACT_FOCUS_KEY, OFFICE_STUDIO_HOME_EVENT, requestedOfficeTask, type OfficeArtifactFocus } from './officeNavigation';
 import { officeRead } from './officeRead';
 import { officeStudioUserError } from './officeUserError';
 import { useLanguage } from '../i18n/language';
@@ -33,6 +33,7 @@ import {
   type OfficeVersion,
 } from './officeStudioApi';
 import { defaultOfficeArtifact, isOfficeReference, officeDate, officeRunLabel } from './officePresentation';
+import { OFFICE_GENERATE_STAGES, OFFICE_STYLE_OPTIONS, briefFieldLabel, briefLengthLabel, deferredOfficeCapabilitiesNotice, trialScopeNotice, visualScoreNotice } from './officeQualityUi';
 import './officeStudio.css';
 import { useOfficePanelResize } from './useOfficePanelResize';
 import { OfficeReferences } from './OfficeReferences';
@@ -58,6 +59,68 @@ interface Props {
   onOpenExport?: (task: OfficeTask, path: string, reveal: boolean) => Promise<void>;
 }
 const LAST_TASK = 'lunitide:office-studio:last-task';
+const STYLE_PREFIX = 'lunitide:office-studio:style:';
+
+function readStoredStyle(taskId: string): (typeof OFFICE_STYLE_OPTIONS)[number]['id'] {
+  try {
+    const raw = localStorage.getItem(STYLE_PREFIX + taskId);
+    if (OFFICE_STYLE_OPTIONS.some((option) => option.id === raw)) {
+      return raw as (typeof OFFICE_STYLE_OPTIONS)[number]['id'];
+    }
+  } catch {
+    /* ignore */
+  }
+  return 'ops-clear';
+}
+
+function styleFromTask(styleId?: string): (typeof OFFICE_STYLE_OPTIONS)[number]['id'] | undefined {
+  if (OFFICE_STYLE_OPTIONS.some((option) => option.id === styleId)) {
+    return styleId as (typeof OFFICE_STYLE_OPTIONS)[number]['id'];
+  }
+  return undefined;
+}
+
+const emptyBrandDraft = { brandId: '', latin: '', east: '', navy: '', sourceUrl: '', license: '', digest: '', logoDigest: '' };
+
+function officeBrandNavy(value: string): string | undefined {
+  const hex = value.trim().replace(/^#/, '');
+  return /^[0-9a-fA-F]{6}$/.test(hex) ? hex.toLowerCase() : undefined;
+}
+
+function officeBrandLogoDigest(value: string): string | undefined {
+  const digest = value.trim().toLowerCase();
+  return /^[0-9a-f]{64}$/.test(digest) ? digest : undefined;
+}
+const emptyOutlineRow = { title: '', purpose: '', claim: '' };
+const emptyBriefDraft = { audience: '', purpose: '', targetLength: '', confidentiality: '', outline: [emptyOutlineRow] };
+
+function canRegisterOfficeBrand(draft: typeof emptyBrandDraft): boolean {
+  if (
+    draft.brandId.trim() === '' ||
+    draft.sourceUrl.trim() === '' ||
+    draft.license.trim() === '' ||
+    draft.digest.trim().length !== 64
+  ) {
+    return false;
+  }
+  if (draft.navy.trim() !== '' && !officeBrandNavy(draft.navy)) return false;
+  if (draft.logoDigest.trim() !== '' && !officeBrandLogoDigest(draft.logoDigest)) return false;
+  return true;
+}
+
+function taskPreviewSlots(nodes: OfficeNode[] | undefined) {
+  const list = nodes ?? [];
+  const cover = list.find((node) => /封面|cover/i.test(node.label)) ?? list[0];
+  const chart = list.find((node) => node.valueType === 'chart' || Boolean(node.chart));
+  const body = list.find((node) => node.id !== cover?.id && node.id !== chart?.id);
+  return { cover, body, chart };
+}
+
+function previewSlotText(node: OfficeNode | undefined) {
+  if (!node) return '当前任务尚无该页';
+  const text = [node.label, node.text].filter((part) => part.trim()).join(' · ');
+  return text || '当前任务尚无该页';
+}
 const message = (error: unknown): string => officeStudioUserError(error, '操作没有完成，请重试。');
 const SAVED_READ_NOTICE = '操作已保存，最新记录暂时读不到。当前保留上次已读内容，请重新读取完整记录，无需再次提交。';
 function visibleDetail(previous: OfficeTaskDetail | undefined, next: OfficeTaskDetail): OfficeTaskDetail {
@@ -149,6 +212,11 @@ export function OfficeStudioPage({
   }>();
   const [exportName, setExportName] = useState('');
   const [exportedPath, setExportedPath] = useState('');
+  const [styleId, setStyleId] = useState<(typeof OFFICE_STYLE_OPTIONS)[number]['id']>(() =>
+    taskId ? readStoredStyle(taskId) : 'ops-clear',
+  );
+  const [brandDraft, setBrandDraft] = useState(emptyBrandDraft);
+  const [briefDraft, setBriefDraft] = useState(emptyBriefDraft);
   const [components, setComponents] = useState<OfficeRendererStatus>();
   const [componentsOpen, setComponentsOpen] = useState(false);
   const operation = useRef(false);
@@ -162,6 +230,8 @@ export function OfficeStudioPage({
   const fileInput = useRef<HTMLInputElement>(null);
   const revisionInput = useRef<HTMLInputElement>(null);
   const revisionTarget = useRef<OfficeImportRevision | undefined>(undefined);
+  const syncEpoch = useRef(0);
+  const applyDetailRef = useRef<(next: OfficeTaskDetail, selectHead?: boolean) => void>(() => undefined);
   currentTaskId.current = taskId;
   const deliverables = detail?.artifacts.filter(item => !isOfficeReference(item)) ?? [];
   const artifact = deliverables.find((item) => item.id === artifactId) ?? defaultOfficeArtifact(deliverables);
@@ -181,17 +251,35 @@ export function OfficeStudioPage({
       if (!alive.current || next.task.id !== currentTaskId.current) return;
       setDetail((previous) => visibleDetail(previous, next));
       setTasks((items) => [next.task, ...items.filter((item) => item.id !== next.task.id)]);
-      if (selectHead && !next.snapshotIncomplete) {
-        const nextArtifact =
-          next.artifacts.find((item) => item.id === artifactId) ?? defaultOfficeArtifact(next.artifacts);
-        if (nextArtifact) {
-          setArtifactId(nextArtifact.id);
-          setVersionId(nextArtifact.headVersionId);
-          setPreviewPage({ versionId: nextArtifact.headVersionId, offset: 0, previous: [] });
-        }
+      if (next.snapshotIncomplete) return;
+      const current = next.artifacts.find((item) => item.id === artifactId && !isOfficeReference(item));
+      const nextArtifact = current ?? defaultOfficeArtifact(next.artifacts);
+      if (nextArtifact && (selectHead || !current)) {
+        setArtifactId(nextArtifact.id);
+        setVersionId(nextArtifact.headVersionId);
+        setPreviewPage({ versionId: nextArtifact.headVersionId, offset: 0, previous: [] });
       }
     },
     [artifactId],
+  );
+  applyDetailRef.current = applyDetail;
+  const requestSync = useCallback(
+    async (id: string, options?: { selectHead?: boolean; artifactPath?: string; untilDeliverable?: boolean }) => {
+      const epoch = ++syncEpoch.current;
+      const pull = () =>
+        officeRead(api.sync({ taskId: id, ...(options?.artifactPath ? { artifactPath: options.artifactPath } : {}) }));
+      let next = await pull();
+      for (let attempt = 0; options?.untilDeliverable && attempt < 4 && !defaultOfficeArtifact(next.artifacts); attempt++) {
+        if (!alive.current || currentTaskId.current !== id || epoch !== syncEpoch.current) return;
+        await new Promise((resolve) => window.setTimeout(resolve, 200));
+        if (!alive.current || currentTaskId.current !== id || epoch !== syncEpoch.current) return;
+        next = await pull();
+      }
+      if (!alive.current || currentTaskId.current !== id || epoch !== syncEpoch.current) return;
+      applyDetailRef.current(next, !!options?.selectHead);
+      return next;
+    },
+    [api],
   );
   const refreshList = useCallback(async () => {
     setLoading(true);
@@ -236,6 +324,7 @@ export function OfficeStudioPage({
     setError('');
     try {
       taskId ? localStorage.setItem(LAST_TASK, taskId) : localStorage.removeItem(LAST_TASK);
+      if (taskId) setStyleId(readStoredStyle(taskId));
     } catch {
       /* view state is optional */
     }
@@ -244,27 +333,32 @@ export function OfficeStudioPage({
         .then(async (next) => {
           if (!active) return;
           setDetail((previous) => visibleDetail(previous, next));
+          const checkpointStyle = styleFromTask(next.task.styleId);
+          if (checkpointStyle) setStyleId(checkpointStyle);
           setTaskLoading(false);
-          if (next.snapshotIncomplete) return;
-          const synced = await officeRead(api.sync({ taskId }));
-          if (active) {
-            setDetail((previous) => visibleDetail(previous, synced));
+          try {
+            const synced = await requestSync(taskId, { selectHead: true });
+            if (!active || !synced) return;
             try {
               const focus = JSON.parse(localStorage.getItem(OFFICE_ARTIFACT_FOCUS_KEY) || 'null');
-              if (focus?.taskId === taskId && typeof focus.path === 'string') {
-                const name = focus.path.split(/[/\\]/).pop();
-                const file = synced.artifacts.find(
-                  (item) => item.name === name || item.versions.some((candidate) => candidate.path === focus.path),
-                );
-                if (file) {
-                  setArtifactId(file.id);
-                  setVersionId(file.headVersionId);
-                }
-                localStorage.removeItem(OFFICE_ARTIFACT_FOCUS_KEY);
+              const name = typeof focus?.path === 'string' ? focus.path.split(/[/\\]/).pop() : '';
+              const focused =
+                focus?.taskId === taskId && name
+                  ? synced.artifacts.find(
+                      (item) => item.name === name || item.versions.some((candidate) => candidate.path === focus.path),
+                    )
+                  : undefined;
+              if (focused) {
+                setArtifactId(focused.id);
+                setVersionId(focused.headVersionId);
+                setPreviewPage({ versionId: focused.headVersionId, offset: 0, previous: [] });
               }
+              if (focus?.taskId === taskId) localStorage.removeItem(OFFICE_ARTIFACT_FOCUS_KEY);
             } catch {
-              /* optional view state never blocks task loading */
+              /* applyDetail already selected the first deliverable */
             }
+          } catch (cause) {
+            if (active && !next.snapshotIncomplete) setTaskLoadError(message(cause));
           }
         })
         .catch((cause) => {
@@ -283,7 +377,31 @@ export function OfficeStudioPage({
     return () => {
       active = false;
     };
-  }, [api, taskId, taskLoadRevision]);
+  }, [api, taskId, taskLoadRevision, requestSync]);
+  useEffect(() => {
+    setBrandDraft(emptyBrandDraft);
+    setBriefDraft(emptyBriefDraft);
+  }, [taskId]);
+  useEffect(() => {
+    if (!detail || detail.task.id !== taskId) return;
+    const outline = (detail.task.brief?.outline ?? [])
+      .map((node) => ({
+        title: node.title?.trim() ?? '',
+        purpose: node.purpose?.trim() ?? '',
+        claim: node.claim?.trim() ?? '',
+      }))
+      .filter((node) => node.title || node.purpose || node.claim);
+    setBriefDraft({
+      audience: detail.task.brief?.audience?.trim() ?? '',
+      purpose: detail.task.brief?.purpose?.trim() ?? '',
+      targetLength:
+        detail.task.brief?.targetLength && detail.task.brief.targetLength > 0
+          ? String(detail.task.brief.targetLength)
+          : '',
+      confidentiality: detail.task.brief?.confidentiality?.trim() ?? '',
+      outline: outline.length > 0 ? outline : [emptyOutlineRow],
+    });
+  }, [taskId, detail]);
   useEffect(() => {
     const home = () => {
       if (operation.current) { setNotice('当前文件操作尚未结束，请稍后返回任务列表。'); return; }
@@ -298,30 +416,49 @@ export function OfficeStudioPage({
     return () => window.removeEventListener(OFFICE_STUDIO_HOME_EVENT, home);
   }, [refreshList]);
   useEffect(() => {
+    const onFocus = (event: Event) => {
+      const focus = (event as CustomEvent<OfficeArtifactFocus>).detail;
+      if (!focus?.path || focus.taskId !== currentTaskId.current) return;
+      void run(async () => {
+        const next = await requestSync(focus.taskId, { selectHead: true, artifactPath: focus.path, untilDeliverable: true });
+        if (!next) return;
+        const name = focus.path.split(/[/\\]/).pop();
+        const file = next.artifacts.find(
+          (item) => item.name === name || item.versions.some((candidate) => candidate.path === focus.path),
+        );
+        if (file) {
+          setArtifactId(file.id);
+          setVersionId(file.headVersionId);
+          setPreviewPage({ versionId: file.headVersionId, offset: 0, previous: [] });
+        }
+      }, false);
+    };
+    window.addEventListener(OFFICE_ARTIFACT_FOCUS_EVENT, onFocus);
+    return () => window.removeEventListener(OFFICE_ARTIFACT_FOCUS_EVENT, onFocus);
+  }, [requestSync]);
+  useEffect(() => {
     if (!detail?.task.sessionId) return;
     let wasActive = false;
     const syncActivity = () => {
       const active = listActiveSessionIds().includes(detail.task.sessionId);
       setActivity(active);
       if (wasActive && !active)
-        void api[snapshotIncomplete ? 'get' : 'sync']({ taskId })
-          .then((next) => applyDetail(next))
-          .catch((cause) => {
-            if (alive.current && currentTaskId.current === taskId) setError(message(cause));
-          });
+        void requestSync(taskId, { selectHead: true, untilDeliverable: true }).catch((cause) => {
+          if (alive.current && currentTaskId.current === taskId) setError(message(cause));
+        });
       wasActive = active;
     };
     syncActivity();
     return subscribeLiveChatRegistry(syncActivity);
-  }, [api, taskId, detail?.task.sessionId, snapshotIncomplete, applyDetail]);
+  }, [requestSync, taskId, detail?.task.sessionId]);
   useEffect(() => {
     if (!taskId || !activity) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
     const sync = async () => {
       try {
-        const next = await api[snapshotIncomplete ? 'get' : 'sync']({ taskId });
-        if (active) applyDetail(next);
+        await requestSync(taskId);
+        if (!active) return;
       } catch (cause) {
         if (active) setError(message(cause));
       } finally {
@@ -333,7 +470,7 @@ export function OfficeStudioPage({
       active = false;
       clearTimeout(timer);
     };
-  }, [api, taskId, activity, snapshotIncomplete, applyDetail]);
+  }, [requestSync, taskId, activity]);
   useEffect(() => {
     let active = true;
     setPreview(undefined);
@@ -484,8 +621,7 @@ export function OfficeStudioPage({
   const syncNow = () =>
     run(async () => {
       if (detail) {
-        const next = await api.sync({ taskId: detail.task.id });
-        applyDetail(next);
+        await requestSync(detail.task.id, { selectHead: true });
         setNotice('已同步原对话的交付文件。');
       }
     });
@@ -569,15 +705,18 @@ export function OfficeStudioPage({
       document.getElementById(`office-node-${node.id}`)?.scrollIntoView({ block: 'nearest', behavior: 'auto' }),
     );
   };
+  const selectDeliverable = (file: { id: string; headVersionId: string }) => {
+    setArtifactId(file.id);
+    setVersionId(file.headVersionId);
+    setPreviewPage({ versionId: file.headVersionId, offset: 0, previous: [] });
+  };
   const onChatActivity = (active: boolean) => {
     if (currentTaskId.current !== taskId) return;
     setActivity(active);
     if (!active && taskId)
-      void api[snapshotIncomplete ? 'get' : 'sync']({ taskId })
-        .then((next) => applyDetail(next))
-        .catch((cause) => {
-          if (alive.current) setError(message(cause));
-        });
+      void requestSync(taskId, { selectHead: true, untilDeliverable: true }).catch((cause) => {
+        if (alive.current) setError(message(cause));
+      });
   };
   const filter = query.trim().toLocaleLowerCase();
   const visibleTasks = tasks.filter(
@@ -935,6 +1074,303 @@ export function OfficeStudioPage({
                 ))}
               </nav>
             </div>
+            <section className="os-brief-strip" aria-label="任务概要">
+              <p>
+                {`受众：${briefFieldLabel(detail?.task.brief?.audience)} · 用途：${briefFieldLabel(detail?.task.brief?.purpose)} · ${briefLengthLabel(detail?.task.brief?.targetLength)}`}
+                {detail?.task.brief?.confidentiality?.trim() ? ` · 密级：${detail.task.brief.confidentiality.trim()}` : ''}
+                {` · 风格：${OFFICE_STYLE_OPTIONS.find((option) => option.id === styleId)?.label ?? styleId}`}
+                {detail?.task.brandId ? ` · 品牌：${detail.task.brandId}` : ''}
+                {detail?.task.goal ? ` · ${detail.task.goal}` : ''}
+              </p>
+              <fieldset className="os-brief-editor" aria-label="任务简报">
+                <legend>任务简报</legend>
+                <label>
+                  受众
+                  <input
+                    value={briefDraft.audience}
+                    onChange={(event) => setBriefDraft((current) => ({ ...current, audience: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  用途
+                  <input
+                    value={briefDraft.purpose}
+                    onChange={(event) => setBriefDraft((current) => ({ ...current, purpose: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  目标页数
+                  <input
+                    type="number"
+                    min={1}
+                    value={briefDraft.targetLength}
+                    onChange={(event) => setBriefDraft((current) => ({ ...current, targetLength: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  密级
+                  <input
+                    value={briefDraft.confidentiality}
+                    onChange={(event) => setBriefDraft((current) => ({ ...current, confidentiality: event.target.value }))}
+                  />
+                </label>
+                {briefDraft.outline.map((row, index) => (
+                  <fieldset key={index} className="os-outline-row" aria-label={`大纲第${index + 1}页`}>
+                    <legend>大纲第{index + 1}页</legend>
+                    <label>
+                      页标题
+                      <input
+                        value={row.title}
+                        onChange={(event) =>
+                          setBriefDraft((current) => ({
+                            ...current,
+                            outline: current.outline.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, title: event.target.value } : item,
+                            ),
+                          }))
+                        }
+                      />
+                    </label>
+                    <label>
+                      页目的
+                      <input
+                        value={row.purpose}
+                        onChange={(event) =>
+                          setBriefDraft((current) => ({
+                            ...current,
+                            outline: current.outline.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, purpose: event.target.value } : item,
+                            ),
+                          }))
+                        }
+                      />
+                    </label>
+                    <label>
+                      页结论
+                      <input
+                        value={row.claim}
+                        onChange={(event) =>
+                          setBriefDraft((current) => ({
+                            ...current,
+                            outline: current.outline.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, claim: event.target.value } : item,
+                            ),
+                          }))
+                        }
+                      />
+                    </label>
+                    {briefDraft.outline.length > 1 ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setBriefDraft((current) => ({
+                            ...current,
+                            outline: current.outline.filter((_, itemIndex) => itemIndex !== index),
+                          }))
+                        }
+                      >
+                        删除本页
+                      </button>
+                    ) : null}
+                  </fieldset>
+                ))}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setBriefDraft((current) => ({ ...current, outline: [...current.outline, emptyOutlineRow] }))
+                  }
+                >
+                  增加大纲页
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!taskId || !detail || detail.task.id !== taskId) return;
+                    const targetLength = Number(briefDraft.targetLength);
+                    const confidentiality = briefDraft.confidentiality.trim();
+                    const outline = briefDraft.outline
+                      .map((row) => ({
+                        title: row.title.trim(),
+                        purpose: row.purpose.trim(),
+                        claim: row.claim.trim(),
+                      }))
+                      .filter((row) => row.title || row.purpose || row.claim);
+                    void officeRead(
+                      api.update({
+                        taskId,
+                        expectedRevision: detail.task.revision,
+                        title: detail.task.title,
+                        goal: detail.task.goal ?? '',
+                        brief: {
+                          audience: briefDraft.audience.trim(),
+                          purpose: briefDraft.purpose.trim(),
+                          ...(Number.isFinite(targetLength) && targetLength > 0 ? { targetLength } : {}),
+                          ...(confidentiality ? { confidentiality } : {}),
+                          ...(outline.length > 0 ? { outline } : {}),
+                        },
+                      }),
+                    )
+                      .then((next) => setDetail((previous) => visibleDetail(previous, next)))
+                      .catch(() => {
+                        /* keep draft so the user can fix audience or length */
+                      });
+                  }}
+                >
+                  保存概要
+                </button>
+              </fieldset>
+              <section className="os-task-previews" aria-label="当前任务预览">
+                {(['封面', '正文', '图表'] as const).map((slot) => {
+                  const nodes = taskPreviewSlots(preview?.nodes);
+                  const node = slot === '封面' ? nodes.cover : slot === '正文' ? nodes.body : nodes.chart;
+                  return (
+                    <article key={slot} className="os-task-preview" aria-label={`${slot}预览`}>
+                      <h3>{slot}</h3>
+                      <p>{previewSlotText(node)}</p>
+                    </article>
+                  );
+                })}
+              </section>
+              <p className="os-generate-choice">可先看上方三个预览再生成，或直接生成。预览只来自当前任务。</p>
+              <fieldset className="os-style-picker">
+                <legend>风格</legend>
+                {OFFICE_STYLE_OPTIONS.map((option) => (
+                  <label key={option.id}>
+                    <input
+                      type="radio"
+                      name="office-style"
+                      value={option.id}
+                      checked={styleId === option.id}
+                      onChange={() => {
+                        setStyleId(option.id);
+                        if (!taskId) return;
+                        try {
+                          localStorage.setItem(STYLE_PREFIX + taskId, option.id);
+                        } catch {
+                          /* view state is optional */
+                        }
+                        if (!detail || detail.task.id !== taskId) return;
+                        void officeRead(
+                          api.update({
+                            taskId,
+                            expectedRevision: detail.task.revision,
+                            title: detail.task.title,
+                            goal: detail.task.goal ?? '',
+                            styleId: option.id,
+                          }),
+                        )
+                          .then((next) => setDetail((previous) => visibleDetail(previous, next)))
+                          .catch(() => {
+                            /* local style still applies on next generate if the model sends templateId */
+                          });
+                      }}
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </fieldset>
+              <fieldset className="os-brand-import" aria-label="任务品牌">
+                <legend>任务品牌</legend>
+                <p className="os-brand-notice">一级导入只登记颜色、字体与授权记录，不还原 PPT 母版。</p>
+                <label>
+                  品牌编号
+                  <input
+                    value={brandDraft.brandId}
+                    onChange={(event) => setBrandDraft((current) => ({ ...current, brandId: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  西文字体
+                  <input
+                    value={brandDraft.latin}
+                    onChange={(event) => setBrandDraft((current) => ({ ...current, latin: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  中文字体
+                  <input
+                    value={brandDraft.east}
+                    onChange={(event) => setBrandDraft((current) => ({ ...current, east: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  主色
+                  <input
+                    value={brandDraft.navy}
+                    onChange={(event) => setBrandDraft((current) => ({ ...current, navy: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  来源
+                  <input
+                    value={brandDraft.sourceUrl}
+                    onChange={(event) => setBrandDraft((current) => ({ ...current, sourceUrl: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  许可
+                  <input
+                    value={brandDraft.license}
+                    onChange={(event) => setBrandDraft((current) => ({ ...current, license: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  摘要
+                  <input
+                    value={brandDraft.digest}
+                    onChange={(event) => setBrandDraft((current) => ({ ...current, digest: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  标识摘要
+                  <input
+                    value={brandDraft.logoDigest}
+                    onChange={(event) => setBrandDraft((current) => ({ ...current, logoDigest: event.target.value }))}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!taskId || !detail || detail.task.id !== taskId || !canRegisterOfficeBrand(brandDraft)) return;
+                    const navy = officeBrandNavy(brandDraft.navy);
+                    const logoDigest = officeBrandLogoDigest(brandDraft.logoDigest);
+                    void officeRead(
+                      api.update({
+                        taskId,
+                        expectedRevision: detail.task.revision,
+                        title: detail.task.title,
+                        goal: detail.task.goal ?? '',
+                        brand: {
+                          brandId: brandDraft.brandId.trim(),
+                          ...(navy ? { colors: { navy } } : {}),
+                          fonts: { latin: brandDraft.latin.trim(), east: brandDraft.east.trim() },
+                          asset: {
+                            sourceUrl: brandDraft.sourceUrl.trim(),
+                            license: brandDraft.license.trim(),
+                            digest: brandDraft.digest.trim(),
+                            ...(logoDigest ? { logoDigest } : {}),
+                          },
+                        },
+                      }),
+                    )
+                      .then((next) => setDetail((previous) => visibleDetail(previous, next)))
+                      .catch(() => {
+                        /* keep draft so the user can fix license or digest */
+                      });
+                  }}
+                >
+                  登记品牌
+                </button>
+              </fieldset>
+              <ol className="os-generate-stages" aria-label="生成进度">
+                {OFFICE_GENERATE_STAGES.map((stage) => (
+                  <li key={stage}>{stage}</li>
+                ))}
+              </ol>
+              <p className="os-visual-score-notice">{visualScoreNotice()}</p>
+              <p className="os-deferred-notice">{deferredOfficeCapabilitiesNotice()}</p>
+              <p className="os-trial-notice">{trialScopeNotice()}</p>
+            </section>
             <OfficeArtifactViewer
               api={api}
               taskId={taskId}
@@ -1069,7 +1505,8 @@ export function OfficeStudioPage({
             </nav>
             <div className="os-conversation" hidden={tab !== 'conversation'}>
               {detail && <OfficeReferences key={`references:${detail.task.id}`} api={api} task={detail.task}
-                files={detail.artifacts.filter(isOfficeReference)} onOpenExport={onOpenExport}
+                files={detail.artifacts} selectedId={artifact?.id} onSelectDeliverable={selectDeliverable}
+                onOpenExport={onOpenExport}
                 onAdd={onImportFiles && !mutationBusy ? () => fileInput.current?.click() : undefined}/>} 
               {detail && (!snapshotIncomplete || !startup.current) ? (
                 renderConversation(detail.task, {
@@ -1129,6 +1566,8 @@ export function OfficeStudioPage({
                     artifact={artifact}
                     version={version}
                     node={selectedNode}
+                    facts={detail.task.brief?.facts}
+                    nodes={preview?.nodes}
                     actions={{
                       list: () => api.listMetrics({ taskId }),
                       capture: (input) => api.captureMetric({ taskId, ...input }),

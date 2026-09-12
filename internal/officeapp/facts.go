@@ -16,6 +16,7 @@ type MetricCapture struct {
 	SourceVersionID  string `json:"sourceVersionId"`
 	SourceNodeID     string `json:"sourceNodeId"`
 	SourceNodeDigest string `json:"sourceNodeDigest"`
+	FactID           string `json:"factId,omitempty"`
 	Name             string `json:"name"`
 	Unit             string `json:"unit"`
 	Currency         string `json:"currency"`
@@ -113,6 +114,48 @@ func (s *Service) CaptureMetric(ctx context.Context, taskID string, r MetricCapt
 		m.RoundingPolicy = "half_away_from_zero"
 	}
 	return d.CreateOfficeMetric(ctx, m, key)
+}
+
+func (s *Service) CaptureMetricByFact(ctx context.Context, taskID, versionID string, fact content.Fact, key string) (domain.Metric, error) {
+	if strings.TrimSpace(fact.FactID) == "" || strings.TrimSpace(fact.Value) == "" {
+		return domain.Metric{}, domain.ErrInvalid
+	}
+	v, b, err := s.ReadVersion(ctx, taskID, versionID)
+	if err != nil {
+		return domain.Metric{}, err
+	}
+	i, err := content.Inspect(content.Kind(v.Kind), b)
+	if err != nil {
+		return domain.Metric{}, err
+	}
+	node, ok := content.LocateFactNode(i, fact)
+	if !ok {
+		return domain.Metric{}, domain.ErrNotFound
+	}
+	name := fact.FactID
+	if fact.Locator != "" {
+		name = fact.Locator
+	}
+	return s.CaptureMetric(ctx, taskID, MetricCapture{
+		SourceVersionID: versionID, SourceNodeID: node.ID, SourceNodeDigest: node.Digest,
+		FactID: fact.FactID, Name: name, Unit: fact.Unit, Period: fact.Period,
+	}, key)
+}
+
+func (s *Service) AssertTaskFactSet(ctx context.Context, taskID string, facts []content.Fact, versionIDs []string) error {
+	inspections := make([]content.Inspection, 0, len(versionIDs))
+	for _, id := range versionIDs {
+		v, b, err := s.ReadVersion(ctx, taskID, id)
+		if err != nil {
+			return err
+		}
+		i, err := content.Inspect(content.Kind(v.Kind), b)
+		if err != nil {
+			return err
+		}
+		inspections = append(inspections, i)
+	}
+	return content.AssertFactSetCoverage(facts, inspections)
 }
 
 func (s *Service) ListMetrics(ctx context.Context, taskID string) ([]domain.Metric, error) {

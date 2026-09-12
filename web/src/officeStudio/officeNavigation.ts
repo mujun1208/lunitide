@@ -1,7 +1,17 @@
 export const OFFICE_STUDIO_OPEN_EVENT = 'lunitide:office-studio-open';
 export const OFFICE_LAST_TASK_KEY = 'lunitide:office-studio:last-task';
 export const OFFICE_ARTIFACT_FOCUS_KEY = 'lunitide:office-studio:artifact-focus';
+export const OFFICE_ARTIFACT_FOCUS_EVENT = 'lunitide:office-artifact-focus';
 export const OFFICE_STUDIO_HOME_EVENT = 'lunitide:office-studio-home';
+
+export interface OfficeArtifactFocus {
+  taskId: string;
+  path: string;
+}
+
+export function focusOfficeArtifact(taskId: string, path: string): void {
+  window.dispatchEvent(new CustomEvent<OfficeArtifactFocus>(OFFICE_ARTIFACT_FOCUS_EVENT, { detail: { taskId, path } }));
+}
 
 export function requestedOfficeTask(): string {
   try {

@@ -146,10 +146,19 @@ func looksLikeCurrentLookupTurn(text string) bool {
 
 func fallbackWebSearchArgs(goal string) json.RawMessage {
 	goal = strings.TrimSpace(goal)
-	if goal == "" || len(goal) > 512 || lookupOptedOut(goal) || referenceOnlyOfficeTurn(goal) {
+	if goal == "" || len(goal) > 512 || lookupOptedOut(goal) || referenceOnlyOfficeTurn(goal) || inventoryLookupBlocksPublicWeb(goal) {
 		return nil
 	}
 	raw, _ := json.Marshal(map[string]any{"query": goal, "max": 5})
+	return raw
+}
+
+func fallbackMcpSearchArgs(goal string) json.RawMessage {
+	goal = strings.TrimSpace(goal)
+	if goal == "" || len(goal) > 512 {
+		return nil
+	}
+	raw, _ := json.Marshal(map[string]any{"query": goal})
 	return raw
 }
 

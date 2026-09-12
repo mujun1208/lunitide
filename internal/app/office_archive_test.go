@@ -75,6 +75,38 @@ func officeArchiveVersionsForTest(t *testing.T, e *Engine, taskID string, names 
 	return vs
 }
 
+func TestOfficeArchiveSyncsChatBoundPptxFromToolConstructor(t *testing.T) {
+	e, _ := officeEngineFixture(t)
+	ctx := context.Background()
+	task := officeCreatedTask(t, e, "pptx-bound")
+	messageID := officeArchiveMessageForTest(t, e, task.SessionID, "pptx-message")
+	data, err := content.Generate(content.Spec{SchemaVersion: 1, Kind: content.PPTX, Title: "演示", Slides: []content.Slide{{Title: "封面", Bullets: []string{"要点"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder, err := e.tools.SessionFolder(task.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(folder, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(folder, "deck.pptx"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	e.appendMessageArtifacts(task.SessionID, messageID, []SessionArtifact{
+		sessionArtifactFromTool(messageID, "pptx.gen", "pptx", "deck.pptx", task.ID),
+	})
+	got := e.loadSessionArtifactsByMessage(task.SessionID)[messageID]
+	if len(got) != 1 || got[0].OfficeTaskID != task.ID {
+		t.Fatalf("constructor binding was not persisted: %+v", got)
+	}
+	if err = e.syncOfficeArtifacts(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	officeArchiveVersionsForTest(t, e, task.ID, "deck.pptx")
+}
+
 func TestOfficeArchiveSeparatesTaskIntervalsAndLateBoundTurns(t *testing.T) {
 	e, store := officeEngineFixture(t)
 	ctx := context.Background()

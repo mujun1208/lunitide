@@ -1,0 +1,6 @@
+{
+  "reviewed": false,
+  "notice": "发行包许可复核尚未完成。不得把本文件当作已通过商用审查。",
+  "requiredFields": ["sourceUrl", "author", "license", "digest", "commercial", "redistributable"],
+  "items": []
+}

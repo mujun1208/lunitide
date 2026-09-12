@@ -1,13 +1,11 @@
-import { getDiagramBridge } from '../../bridge/client'
 import React, { useEffect, useId, useRef, useState } from 'react'
 import {
-  mermaidInitConfig,
   mermaidBudgetError,
   mermaidSourceReady,
-  mermaidTransientError,
   mountMermaidSvg,
   prepareMermaidSource,
   recoverMermaidSource,
+  loadMermaidEngine,
 } from './tideMermaid'
 
 export { mermaidInitConfig, mermaidThemeVariables, mountMermaidSvg } from './tideMermaid'
@@ -17,8 +15,7 @@ function mermaidUserError(err: unknown, fallback: string): string {
   return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
 }
 
-const SETTLE_MS = 480
-const RETRIES = 3
+const SETTLE_MS = 280
 
 let mermaidQueue: Promise<unknown> = Promise.resolve()
 
@@ -26,10 +23,6 @@ function withMermaidLock<T>(work: () => Promise<T>): Promise<T> {
   const run = mermaidQueue.then(work, work)
   mermaidQueue = run.then(() => undefined, () => undefined)
   return run
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => window.setTimeout(resolve, ms))
 }
 
 export function MermaidBlock({
@@ -74,12 +67,18 @@ export function MermaidBlock({
       if (!hasSvgRef.current) setPending(true)
       return
     }
+    if (!mermaidSourceReady(source)) {
+      setPending(false)
+      setError('图表源码未闭合或未写完，源码仍保留')
+      return
+    }
     const timer = window.setTimeout(() => {
       void run()
     }, SETTLE_MS)
     const mount = async (src: string) => {
       if (cancelled) return
-      const { svg } = await getDiagramBridge().render({ source: src, config: mermaidInitConfig() })
+      const engine = await loadMermaidEngine()
+      const { svg } = await engine.render(`tide-mermaid-${id}`, src)
       if (cancelled || !hostRef.current) return
       mountMermaidSvg(hostRef.current, svg)
       hasSvgRef.current = true
@@ -99,26 +98,13 @@ export function MermaidBlock({
       }
       try {
         await withMermaidLock(async () => {
-          let last: unknown
-          for (let attempt = 0; attempt < RETRIES; attempt++) {
-            if (cancelled) return
-            try {
-              try {
-                await mount(prepared)
-              } catch (first) {
-                const recovered = prepareMermaidSource(recoverMermaidSource(source))
-                if (!recovered || recovered === prepared) throw first
-                await mount(recovered)
-              }
-              return
-            } catch (err) {
-              last = err
-              const message = err instanceof Error ? err.message : '图表渲染失败'
-              if (cancelled || attempt === RETRIES - 1 || !mermaidTransientError(message)) throw err
-              await sleep(350 * (attempt + 1))
-            }
+          try {
+            await mount(prepared)
+          } catch (first) {
+            const recovered = prepareMermaidSource(recoverMermaidSource(source))
+            if (!recovered || recovered === prepared) throw first
+            await mount(recovered)
           }
-          throw last
         })
       } catch (e) {
         if (cancelled) return

@@ -30,33 +30,34 @@ const (
 )
 
 type chatTurnCheckpoint struct {
-	Status          string                    `json:"status"`
-	Goal            string                    `json:"goal"`
-	StreamID        string                    `json:"streamId"`
-	Injected        []string                  `json:"injected,omitempty"`
-	QueueDeliveries []string                  `json:"queueDeliveries,omitempty"`
-	LastTools       []string                  `json:"lastTools,omitempty"`
-	ToolFailed      bool                      `json:"toolFailed,omitempty"`
-	CapabilityWork  bool                      `json:"capabilityWork,omitempty"`
-	PptActive       bool                      `json:"pptActive,omitempty"`
-	PptStage        string                    `json:"pptStage,omitempty"`
-	PptTools        []string                  `json:"pptTools,omitempty"`
-	PptNudges       int                       `json:"pptNudges,omitempty"`
-	PptGenerated    bool                      `json:"pptGenerated,omitempty"`
-	DocxActive      bool                      `json:"docxActive,omitempty"`
-	DocxKind        string                    `json:"docxKind,omitempty"`
-	DocxStage       string                    `json:"docxStage,omitempty"`
-	DocxTools       []string                  `json:"docxTools,omitempty"`
-	DocxNudges      int                       `json:"docxNudges,omitempty"`
-	DocxGenerated   bool                      `json:"docxGenerated,omitempty"`
-	DocxChars       int                       `json:"docxChars,omitempty"`
-	PersistDraft    string                         `json:"persistDraft,omitempty"`
-	PersistFailed   bool                           `json:"persistFailed,omitempty"`
-	PersistUsage    messageapp.AssistantUsage      `json:"persistUsage,omitempty"`
-	UpdatedAt       string                         `json:"updatedAt"`
-	Continuation    *modelfit.ContinuationEnvelope `json:"continuation,omitempty"`
-	extra           map[string]json.RawMessage     `json:"-"`
-	liveProtocol    []llmadapter.Message           `json:"-"`
+	Status             string                         `json:"status"`
+	Goal               string                         `json:"goal"`
+	StreamID           string                         `json:"streamId"`
+	Injected           []string                       `json:"injected,omitempty"`
+	QueueDeliveries    []string                       `json:"queueDeliveries,omitempty"`
+	LastTools          []string                       `json:"lastTools,omitempty"`
+	ToolFailed         bool                           `json:"toolFailed,omitempty"`
+	CapabilityWork     bool                           `json:"capabilityWork,omitempty"`
+	PptActive          bool                           `json:"pptActive,omitempty"`
+	PptStage           string                         `json:"pptStage,omitempty"`
+	PptTools           []string                       `json:"pptTools,omitempty"`
+	PptNudges          int                            `json:"pptNudges,omitempty"`
+	PptGenerated       bool                           `json:"pptGenerated,omitempty"`
+	DocxActive         bool                           `json:"docxActive,omitempty"`
+	DocxKind           string                         `json:"docxKind,omitempty"`
+	DocxStage          string                         `json:"docxStage,omitempty"`
+	DocxTools          []string                       `json:"docxTools,omitempty"`
+	DocxNudges         int                            `json:"docxNudges,omitempty"`
+	DocxGenerated      bool                           `json:"docxGenerated,omitempty"`
+	DocxChars          int                            `json:"docxChars,omitempty"`
+	SkipOfficeResearch bool                           `json:"skipOfficeResearch,omitempty"`
+	PersistDraft       string                         `json:"persistDraft,omitempty"`
+	PersistFailed      bool                           `json:"persistFailed,omitempty"`
+	PersistUsage       messageapp.AssistantUsage      `json:"persistUsage,omitempty"`
+	UpdatedAt          string                         `json:"updatedAt"`
+	Continuation       *modelfit.ContinuationEnvelope `json:"continuation,omitempty"`
+	extra              map[string]json.RawMessage     `json:"-"`
+	liveProtocol       []llmadapter.Message           `json:"-"`
 }
 
 func looksLikeResume(text string) bool {

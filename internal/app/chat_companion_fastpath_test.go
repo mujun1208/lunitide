@@ -70,7 +70,7 @@ func TestCompanionFastPathCapsTokensAndKeepsVoice(t *testing.T) {
 	if !strings.Contains(system, "不要原样复读") {
 		t.Fatalf("companion must not echo the user verbatim: %q", system)
 	}
-	if !strings.Contains(system, "最后把实际结果说出来") {
+	if !strings.Contains(system, "把这次做完的结果讲清楚收尾") {
 		t.Fatalf("companion tools instruction missing: %q", system)
 	}
 	foundSearch := false

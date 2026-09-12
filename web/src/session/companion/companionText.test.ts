@@ -20,10 +20,16 @@ import {
   COMPANION_PAD_SPEECH,
   isCompanionPadSpeech,
   looksLikeBargeInSpeech,
+  looksLikeAsrHallucination,
+  companionDeafHasVisibleText,
+  companionSpokenCancel,
+  companionCancelRemainder,
+  companionShouldHoldBusyTurn,
   companionHasFreshAssistantText,
   companionReplyStallMs,
   looksLikePlaybackEcho,
   looksIncompleteUtterance,
+  looksLikeIncompleteDesktopOpen,
   mergeShortSegments,
   prepareSpeech,
   segmentForSpeech,
@@ -237,6 +243,10 @@ describe('looksIncompleteUtterance', () => {
     expect(looksIncompleteUtterance('把开了我把它桌面上的')).toBe(true)
     expect(looksIncompleteUtterance('打开桌面上的')).toBe(true)
     expect(looksIncompleteUtterance('打开桌面上的协议文档')).toBe(false)
+    expect(looksIncompleteUtterance('桌面上的日常操作功能增补文档')).toBe(true)
+    expect(looksLikeIncompleteDesktopOpen('桌面上的日常操作功能增补文档')).toBe(true)
+    expect(looksIncompleteUtterance('日常操作功能增补文档')).toBe(true)
+    expect(looksLikeIncompleteDesktopOpen('日常操作功能增补文档')).toBe(true)
     expect(looksIncompleteUtterance('帮我在文档的身份证号码')).toBe(true)
     expect(looksIncompleteUtterance('文档联系电话')).toBe(true)
     expect(looksIncompleteUtterance('联系电话')).toBe(true)
@@ -277,6 +287,8 @@ describe('cleanUserTranscript', () => {
     expect(cleanUserTranscript('把开了')).toBe('打开')
     expect(cleanUserTranscript('打开桌面上的协议文档')).toBe('打开桌面上的协议文档')
     expect(cleanUserTranscript('用 gpt so vits 克隆')).toBe('用 GPT-SoVITS 克隆')
+    expect(cleanUserTranscript('播放没有成功，在点击播放一下。')).toBe('播放没有成功，再点击播放一下。')
+    expect(cleanUserTranscript('再点击放一下')).toBe('再点击播放一下')
   })
 })
 
@@ -520,6 +532,24 @@ describe('shouldAcceptUserTranscript', () => {
     expect(shouldAcceptUserTranscript({ ...base, text: '下一句' })).toBe(true)
   })
 
+  test('rejects sherpa decoder hallucination', () => {
+    const garbage = 'hellolo 哦嘀嘀嘀 ty ty ty of的的的一的在的一yely'
+    expect(looksLikeAsrHallucination(garbage)).toBe(true)
+    expect(looksLikeAsrHallucination('ty ty ty')).toBe(true)
+    expect(looksLikeAsrHallucination('的的的一的在的')).toBe(true)
+    expect(looksLikeAsrHallucination('hello 月汐')).toBe(false)
+    expect(looksLikeAsrHallucination('嗨，在吗')).toBe(false)
+    expect(looksLikeAsrHallucination('查今天天气')).toBe(false)
+    expect(shouldAcceptUserTranscript({ ...base, text: garbage })).toBe(false)
+  })
+
+  test('deaf reconnect stays off once any caption text exists', () => {
+    expect(companionDeafHasVisibleText('', '')).toBe(false)
+    expect(companionDeafHasVisibleText('查天气', '')).toBe(true)
+    expect(companionDeafHasVisibleText('', '查天气')).toBe(true)
+    expect(companionDeafHasVisibleText('hellolo ty ty', '')).toBe(true)
+  })
+
   test('never treats a missing MiniCPM-o notice as a user turn or spoken reply', () => {
     const notice = '本机 MiniCPM-o 推理进程未能展开，请重装月汐后再试'
     expect(looksLikeOmniUnavailable(notice)).toBe(true)
@@ -527,6 +557,41 @@ describe('shouldAcceptUserTranscript', () => {
     expect(shouldAcceptUserTranscript({ ...base, text: notice })).toBe(false)
     expect(stripTaskDonePhrases(notice)).toBe('')
     expect(shouldAcceptUserTranscript({ ...base, text: '下一句' })).toBe(true)
+  })
+})
+
+describe('companionSpokenCancel', () => {
+  test('treats withdraw-only speech as cancel', () => {
+    expect(companionSpokenCancel('我说我不说了你直接撤了吧')).toBe('cancel')
+    expect(companionSpokenCancel('撤了吧')).toBe('cancel')
+    expect(companionSpokenCancel('别查了')).toBe('cancel')
+    expect(companionSpokenCancel('算了不用了')).toBe('cancel')
+  })
+
+  test('keeps a follow-up task after 算了', () => {
+    expect(companionSpokenCancel('算了放首歌')).toBe('cancel-and')
+    expect(companionCancelRemainder('算了放首歌')).toBe('放首歌')
+    expect(companionSpokenCancel('算了，放首歌')).toBe('cancel-and')
+    expect(companionCancelRemainder('算了，放首歌')).toBe('放首歌')
+    expect(companionSpokenCancel('算了 放首歌')).toBe('cancel-and')
+    expect(companionCancelRemainder('算了 放首歌')).toBe('放首歌')
+    expect(companionSpokenCancel('算了查天气')).toBe('cancel-and')
+    expect(companionCancelRemainder('算了查天气')).toBe('查天气')
+  })
+
+  test('does not steal playback transport', () => {
+    expect(companionSpokenCancel('暂停')).toBeNull()
+    expect(companionSpokenCancel('下一首')).toBeNull()
+    expect(companionSpokenCancel('别放了')).toBeNull()
+  })
+
+  test('holds a new goal while the previous stream is still live', () => {
+    expect(companionShouldHoldBusyTurn('streaming', null)).toBe(true)
+    expect(companionShouldHoldBusyTurn('thinking', null)).toBe(true)
+    expect(companionShouldHoldBusyTurn('streaming', 'cancel')).toBe(false)
+    expect(companionShouldHoldBusyTurn('streaming', null, true)).toBe(false)
+    expect(companionShouldHoldBusyTurn('idle', null)).toBe(false)
+    expect(companionShouldHoldBusyTurn('done', null)).toBe(false)
   })
 })
 

@@ -243,6 +243,74 @@ func TestVideoInstructionPreservesExplicitBrowserRequest(t *testing.T) {
 	}
 }
 
+func TestTypedWeeklyReportAskOmitsSearchTools(t *testing.T) {
+	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	runtime, err := toolruntime.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { runtime.Close() })
+	e.SetToolRuntime(runtime)
+	var captured llmadapter.Request
+	adapter := &routedExecutionAdapter{stream: func(req llmadapter.Request) (llmadapter.Response, error) {
+		captured = req
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "好的，请补充本周完成和风险。"}}, nil
+	}}
+	_ = runRoutedExecution(t, e, "写周报", adapter)
+	if routedRequestHasTool(captured, "web.search") || routedRequestHasTool(captured, "docx.gen") {
+		t.Fatalf("写周报 kept scrape/gen: %#v", captured.Tools)
+	}
+	sys := ""
+	if len(captured.Messages) > 0 {
+		sys = captured.Messages[0].Content
+	}
+	if !strings.Contains(sys, "问缺什么") && !strings.Contains(sys, "问完即停") {
+		t.Fatalf("missing L2-ask clause:\n%s", sys)
+	}
+}
+
+func TestTypedPolishOmitsDocxGen(t *testing.T) {
+	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	runtime, err := toolruntime.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { runtime.Close() })
+	e.SetToolRuntime(runtime)
+	var captured llmadapter.Request
+	adapter := &routedExecutionAdapter{stream: func(req llmadapter.Request) (llmadapter.Response, error) {
+		captured = req
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "今天的会议开得很顺利，节奏清楚。"}}, nil
+	}}
+	_ = runRoutedExecution(t, e, "把这段话润色得更顺：今天开会很顺利", adapter)
+	if routedRequestHasTool(captured, "docx.gen") || routedRequestHasTool(captured, "web.search") {
+		t.Fatalf("L1 polish kept scrape/gen: %#v", captured.Tools)
+	}
+}
+
+func TestTypedCouncilInviteLeadsReplyT15(t *testing.T) {
+	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	runtime, err := toolruntime.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { runtime.Close() })
+	e.SetToolRuntime(runtime)
+	adapter := &routedExecutionAdapter{stream: func(llmadapter.Request) (llmadapter.Response, error) {
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "我已经综合两位专家的意见，结论如下。"}}, nil
+	}}
+	frames := runRoutedExecution(t, e, "请两位一起评这份稿", adapter)
+	var spoken strings.Builder
+	for _, frame := range frames {
+		if frame.Delta != nil {
+			spoken.WriteString(frame.Delta.Text)
+		}
+	}
+	if !strings.HasPrefix(strings.TrimLeft(spoken.String(), " \n"), councilInviteSpeech()) {
+		t.Fatalf("T15 first sentence = %q", spoken.String())
+	}
+}
+
 func TestExpertMcpHintOnlyClaimsActuallyAllowedConnections(t *testing.T) {
 	eq := turnEquipment{Names: []string{"PPT专家"}, McpIDs: []string{"fetch", "playwright"}}
 	ready := []string{"fetch", "context7"}

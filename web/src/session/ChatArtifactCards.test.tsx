@@ -69,6 +69,33 @@ it('opens the inspector with the exact historical artifact path', () => {
   expect(onInspect).toHaveBeenCalledWith(artifact)
 })
 
+it('focuses the current office task instead of remounting the workbench', () => {
+  const focuses: Array<{ taskId: string; path: string }> = []
+  const onFocus = (event: Event) => {
+    focuses.push((event as CustomEvent<{ taskId: string; path: string }>).detail)
+  }
+  const opened: OfficeOpenRequest[] = []
+  const onOpen = (event: Event) => {
+    opened.push((event as CustomEvent<OfficeOpenRequest>).detail)
+    opened.at(-1)?.finish()
+  }
+  window.addEventListener('lunitide:office-artifact-focus', onFocus)
+  window.addEventListener(OFFICE_STUDIO_OPEN_EVENT, onOpen)
+  try {
+    render(<ChatArtifactCards officeTaskId="01ARZ3NDEKTSV4RRFFQ69G5FA0" sessionId="same-session" artifacts={[{kind:'pptx',path:'节奏图.pptx',content:'',callId:'call',toolName:'pptx.gen'}]}/>)
+    fireEvent.click(screen.getByText('节奏图.pptx'))
+    fireEvent.click(screen.getByRole('button', { name: '在办公工作台查看' }))
+    expect(focuses).toEqual([
+      { taskId: '01ARZ3NDEKTSV4RRFFQ69G5FA0', path: '节奏图.pptx' },
+      { taskId: '01ARZ3NDEKTSV4RRFFQ69G5FA0', path: '节奏图.pptx' },
+    ])
+    expect(opened).toEqual([])
+  } finally {
+    window.removeEventListener('lunitide:office-artifact-focus', onFocus)
+    window.removeEventListener(OFFICE_STUDIO_OPEN_EVENT, onOpen)
+  }
+})
+
 it('opens Office artifacts in the workbench with the original session and reports feature errors in chat', async () => {
   const onError = vi.fn()
   let requested: OfficeOpenRequest | undefined

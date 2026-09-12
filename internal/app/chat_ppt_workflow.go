@@ -183,6 +183,9 @@ func pptGenBlocked(turn *chatTurnCheckpoint, name string) (bool, string) {
 	if name != "pptx.gen" || turn == nil || !turn.PptActive {
 		return false, ""
 	}
+	if turn.SkipOfficeResearch {
+		return false, ""
+	}
 	if pptPipelineReady(turn) || turn.PptStage == pptStageGenerate || turn.PptStage == pptStageWrite {
 		return false, ""
 	}

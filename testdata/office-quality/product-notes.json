@@ -1,0 +1,10 @@
+{
+  "audience": "产品评审",
+  "purpose": "产品项目文档",
+  "language": "zh-CN",
+  "targetLength": 16,
+  "deliverables": ["docx"],
+  "facts": [
+    {"factId": "open_risks", "value": "5", "unit": "项", "period": "当前", "sourceId": "risk-log", "locator": "未关闭风险"}
+  ]
+}

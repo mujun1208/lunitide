@@ -10,6 +10,8 @@ export function pickTranscriptRevision(previous: string, incoming: string): stri
   if (!prev) return next
   const a = compact(prev)
   const b = compact(next)
-  if (b && a.includes(b) && b.length < a.length * 0.6) return prev
+  if (b && (a.startsWith(b) || a.endsWith(b) || b.startsWith(a) || b.endsWith(a))) {
+    return a.length >= b.length ? prev : next
+  }
   return next
 }

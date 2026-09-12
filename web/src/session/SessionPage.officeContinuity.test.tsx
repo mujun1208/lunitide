@@ -14,6 +14,7 @@ import {
 } from '../bridge/client';
 import type { MessageDTO, ProjectDTO, SessionDTO, SkillDTO, ProviderDTO } from '../generated/bridge';
 import { SessionPage } from './SessionPage';
+import { OFFICE_ARTIFACT_FOCUS_EVENT, type OfficeArtifactFocus } from '../officeStudio/officeNavigation';
 import { readSessionComposerDraft, writeSessionComposerDraft } from './sessionComposerDraft';
 import { resetLiveChatForTests } from './liveChat';
 
@@ -226,5 +227,41 @@ it('binds each Office turn to the selected task without changing user text or le
       }),
     );
     view.unmount();
+  }
+});
+
+it('does not open the session workspace when an office conversation card is clicked', async () => {
+  const props = fixtures();
+  const taskId = '01ARZ3NDEKTSV4RRFFQ69G5FA3';
+  vi.mocked(props.messages.list).mockResolvedValue({
+    items: [
+      {
+        id: '01ARZ3NDEKTSV4RRFFQ69G5FAH',
+        sessionId: S,
+        role: 'assistant',
+        status: 'completed',
+        sequence: 1,
+        text: '已生成演示文稿。',
+        createdAt: now,
+        artifacts: [{ kind: 'pptx', path: '节奏图.pptx', callId: 'c1', toolName: 'pptx.gen' }],
+      },
+    ],
+    hasMore: false,
+    nextCursor: null,
+    snapshotSequence: 1,
+  });
+  const focuses: OfficeArtifactFocus[] = [];
+  const onFocus = (event: Event) => {
+    focuses.push((event as CustomEvent<OfficeArtifactFocus>).detail);
+  };
+  window.addEventListener(OFFICE_ARTIFACT_FOCUS_EVENT, onFocus);
+  try {
+    render(<SessionPage {...props} officeTaskId={taskId} />);
+    expect(await screen.findByText('节奏图.pptx')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('节奏图.pptx'));
+    expect(focuses).toEqual([{ taskId, path: '节奏图.pptx' }]);
+    expect(screen.queryByLabelText('统一工作区')).toBeNull();
+  } finally {
+    window.removeEventListener(OFFICE_ARTIFACT_FOCUS_EVENT, onFocus);
   }
 });

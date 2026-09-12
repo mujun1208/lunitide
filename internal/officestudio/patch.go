@@ -336,7 +336,14 @@ func rewritePackage(p packageData, replaced map[string][]byte) ([]byte, error) {
 // checker. Native rendering and a full spreadsheet calculation are separate
 // required checks, so a valid ZIP alone cannot produce a green final status.
 func Validate(kind Kind, data []byte) (Validation, error) {
+	return ValidateBrand(kind, data, DefaultBrand())
+}
+
+func ValidateBrand(kind Kind, data []byte, brand BrandProfile) (Validation, error) {
 	i, err := Inspect(kind, data)
+	if err == nil && kind == PPTX {
+		i = WithBrandLogoIssues(i, brand)
+	}
 	if err != nil {
 		return Validation{Status: "blocked", Checks: []Check{{ID: "package", Status: "blocked", Message: err.Error()}}, Issues: []Issue{}}, err
 	}
@@ -350,6 +357,7 @@ func Validate(kind Kind, data []byte) (Validation, error) {
 	}
 	if kind == PDF {
 		v.Checks[0] = Check{ID: "pdf_structure", Status: "missing", Message: "仅验证了 PDF 文件头与结束标记；对象、字体和页面需隔离预览器验证。"}
+		v.Checks = append(v.Checks, IndependentPDFCheck(), IndependentPDFACheck())
 	}
 	if kind == XLSX {
 		formulaCount := 0
@@ -367,6 +375,7 @@ func Validate(kind Kind, data []byte) (Validation, error) {
 	}
 	if kind == PPTX {
 		v.Checks = append(v.Checks, geometryCheck(i.Issues))
+		v.Checks = append(v.Checks, RasterChecksFromInspection(i)...)
 	}
 	return v, nil
 }

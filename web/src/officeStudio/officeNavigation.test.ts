@@ -1,7 +1,24 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { OFFICE_STUDIO_OPEN_EVENT, requestOfficeStudio, type OfficeOpenRequest } from './officeNavigation';
+import {
+  OFFICE_ARTIFACT_FOCUS_EVENT,
+  OFFICE_STUDIO_OPEN_EVENT,
+  focusOfficeArtifact,
+  requestOfficeStudio,
+  type OfficeArtifactFocus,
+  type OfficeOpenRequest,
+} from './officeNavigation';
 
 afterEach(() => vi.useRealTimers());
+it('focuses an artifact on the current office task without opening a new route', () => {
+  let captured: OfficeArtifactFocus | undefined;
+  const listener = (event: Event) => {
+    captured = (event as CustomEvent<OfficeArtifactFocus>).detail;
+  };
+  window.addEventListener(OFFICE_ARTIFACT_FOCUS_EVENT, listener, { once: true });
+  focusOfficeArtifact('01ARZ3NDEKTSV4RRFFQ69G5FA0', 'desktop/节奏图.pptx');
+  expect(captured).toEqual({ taskId: '01ARZ3NDEKTSV4RRFFQ69G5FA0', path: 'desktop/节奏图.pptx' });
+});
+
 it('passes the exact session and artifact while loading no separate chat state', async () => {
   let captured: OfficeOpenRequest | undefined;
   const listener = (event: Event) => {
