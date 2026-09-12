@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/agentHub.task.list.schema.json",
+  "title": "agentHub.task.list payload",
+  "x-method": "agentHub.task.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "agent": { "type": "string", "enum": ["codex", "cursor", "kimi"] },
+    "status": { "type": "string", "enum": ["queued", "running", "success", "failed", "timeout", "cancelled"] },
+    "dateFrom": { "type": "string", "maxLength": 32 },
+    "dateTo": { "type": "string", "maxLength": 32 }
+  },
+  "x-result": { "type": "object", "additionalProperties": true },
+  "x-examples": {
+    "positive": [{}, { "agent": "codex", "status": "running" }],
+    "negative": [{ "unexpected": true }]
+  }
+}

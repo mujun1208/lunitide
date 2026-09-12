@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/agentHub.file.preview.schema.json",
+  "title": "agentHub.file.preview payload",
+  "x-method": "agentHub.file.preview",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "taskId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    }
+  },
+  "required": ["taskId", "path"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "kind": { "type": "string" },
+      "path": { "type": "string" },
+      "absolutePath": { "type": "string" },
+      "size": { "type": "integer" },
+      "content": { "type": "string" },
+      "notice": { "type": "string" }
+    },
+    "required": ["kind", "path", "size", "content"]
+  },
+  "x-examples": {
+    "positive": [{ "taskId": "01ARZ3NDEKTSV4RRFFQ69G5FAE", "path": "hello.txt" }],
+    "negative": [{}, { "taskId": "01ARZ3NDEKTSV4RRFFQ69G5FAE" }]
+  }
+}
