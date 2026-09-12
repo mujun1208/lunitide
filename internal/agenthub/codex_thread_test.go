@@ -2,6 +2,7 @@ package agenthub
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -155,8 +156,8 @@ func TestCodexThreadPromptFaultsOnStartError(t *testing.T) {
 	}
 	adapter := NewCodexThread(store)
 	adapter.look = func(string) (string, error) { return "", errors.New("not found") }
-	if err := adapter.Prompt(thread.ID, "hi"); err == nil {
-		t.Fatal("missing exe must error")
+	if err := adapter.Prompt(thread.ID, "hi"); err != nil {
+		t.Fatalf("persisted fault must return nil so GetThread can load it: %v", err)
 	}
 	got, err := store.Get(thread.ID)
 	if err != nil {
@@ -165,6 +166,47 @@ func TestCodexThreadPromptFaultsOnStartError(t *testing.T) {
 	if got.Status != "faulted" {
 		t.Fatalf("status = %q, want faulted", got.Status)
 	}
+	role, content := loadFirstUserMessage(t, store.db, thread.ID)
+	if role != "user" || content != "hi" {
+		t.Fatalf("user row = %s %q", role, content)
+	}
+}
+
+func TestCodexThreadPromptFaultsOnRunError(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "codex", "Exec", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	adapter := NewCodexThread(store)
+	adapter.look = func(string) (string, error) { return `C:\fake-codex.exe`, nil }
+	adapter.start = func(context.Context, ProcSpec, func(string)) (int64, bool, error) {
+		return 1, false, errors.New("exec failed")
+	}
+	if err := adapter.Prompt(thread.ID, "run me"); err != nil {
+		t.Fatalf("persisted fault must return nil so GetThread can load it: %v", err)
+	}
+	got, err := store.Get(thread.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "faulted" {
+		t.Fatalf("status = %q, want faulted", got.Status)
+	}
+	role, content := loadFirstUserMessage(t, store.db, thread.ID)
+	if role != "user" || content != "run me" {
+		t.Fatalf("user row = %s %q", role, content)
+	}
+}
+
+func loadFirstUserMessage(t *testing.T, db *sql.DB, threadID string) (role, content string) {
+	t.Helper()
+	err := db.QueryRow(`SELECT role, content FROM agent_hub_messages WHERE thread_id=? AND role='user' ORDER BY seq LIMIT 1`, threadID).Scan(&role, &content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return role, content
 }
 
 func TestCodexThreadRespondErrors(t *testing.T) {
