@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/agentHub.task.start.schema.json",
+  "title": "agentHub.task.start payload",
+  "x-method": "agentHub.task.start",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "taskId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "agent": { "type": "string", "enum": ["codex", "cursor", "kimi"] },
+    "prompt": { "type": "string", "minLength": 1, "maxLength": 100000 },
+    "workDir": { "type": "string", "maxLength": 1024 },
+    "sandbox": { "type": "string", "enum": ["read-only", "workspace-write", "full-access"] },
+    "timeoutMin": { "type": "integer", "minimum": 1, "maximum": 120 },
+    "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 128 }
+  },
+  "required": ["agent", "prompt", "idempotencyKey"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": true
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "agent": "codex",
+        "prompt": "写一份周报 Markdown",
+        "idempotencyKey": "hub-start-1",
+        "sandbox": "workspace-write",
+        "timeoutMin": 30
+      }
+    ],
+    "negative": [{}, { "agent": "codex", "prompt": "x" }]
+  }
+}

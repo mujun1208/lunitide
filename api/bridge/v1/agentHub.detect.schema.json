@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/agentHub.detect.schema.json",
+  "title": "agentHub.detect payload",
+  "x-method": "agentHub.detect",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "agents": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string", "enum": ["codex", "cursor", "kimi"] },
+            "state": { "type": "string", "enum": ["available", "not_installed", "not_logged_in", "unknown"] },
+            "version": { "type": "string" },
+            "nonInteractive": { "type": "boolean" },
+            "streamJSON": { "type": "boolean" },
+            "hint": { "type": "string" }
+          },
+          "required": ["name", "state", "version", "nonInteractive", "streamJSON", "hint"]
+        }
+      }
+    },
+    "required": ["agents"]
+  },
+  "x-examples": {
+    "positive": [{}],
+    "negative": [{ "unexpected": true }]
+  }
+}

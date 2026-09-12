@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/agentHub.dir.pick.schema.json",
+  "title": "agentHub.dir.pick payload",
+  "x-method": "agentHub.dir.pick",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "canceled": { "type": "boolean" },
+      "path": { "type": "string", "maxLength": 1024 }
+    },
+    "required": ["canceled", "path"]
+  },
+  "x-examples": {
+    "positive": [{}],
+    "negative": [{ "unexpected": true }]
+  }
+}
