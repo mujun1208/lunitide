@@ -27,15 +27,31 @@ function Assert-ReleaseChildPath([string]$Path,[string]$Parent) {
   Assert-NoReleaseReparsePoint $full -Tree
   return $full
 }
+function Read-GitNulSeparatedUtf8([string]$RepoRoot,[string[]]$GitArgs) {
+  $psi=New-Object Diagnostics.ProcessStartInfo
+  $psi.FileName='git'
+  $psi.Arguments=('-C "'+$RepoRoot+'" '+($GitArgs -join ' '))
+  $psi.UseShellExecute=$false
+  $psi.RedirectStandardOutput=$true
+  $psi.RedirectStandardError=$true
+  $psi.CreateNoWindow=$true
+  $psi.StandardOutputEncoding=[Text.Encoding]::UTF8
+  $proc=New-Object Diagnostics.Process
+  $proc.StartInfo=$psi
+  [void]$proc.Start()
+  $text=$proc.StandardOutput.ReadToEnd()
+  $err=$proc.StandardError.ReadToEnd()
+  $proc.WaitForExit()
+  if($proc.ExitCode){throw "git $($GitArgs -join ' ') failed: $err"}
+  return $text.TrimEnd("`r","`n")
+}
 function Get-ReleaseSourceSnapshot([string]$Root,[string]$ExcludedRoot) {
   $rootFull=[IO.Path]::GetFullPath($Root).TrimEnd('\')
   $exclude=if($ExcludedRoot){[IO.Path]::GetFullPath($ExcludedRoot).TrimEnd('\')+'\'}else{''}
   $commit=(& git -C $rootFull rev-parse HEAD | Out-String).Trim()
   if($LASTEXITCODE -or $commit -notmatch '^[a-f0-9]{40,64}$'){throw 'Source commit could not be determined'}
-  $raw=(& git -C $rootFull -c core.quotepath=false ls-files --cached --others --exclude-standard -z | Out-String).TrimEnd("`r","`n")
-  if($LASTEXITCODE){throw 'Source input list could not be determined'}
-  $deletedRaw=(& git -C $rootFull -c core.quotepath=false ls-files --deleted -z | Out-String).TrimEnd("`r","`n")
-  if($LASTEXITCODE){throw 'Deleted source inputs could not be determined'}
+  $raw=Read-GitNulSeparatedUtf8 $rootFull @('-c','core.quotepath=false','ls-files','--cached','--others','--exclude-standard','-z')
+  $deletedRaw=Read-GitNulSeparatedUtf8 $rootFull @('-c','core.quotepath=false','ls-files','--deleted','-z')
   $deleted=@{}
   foreach($relative in $deletedRaw.Split([char[]]@([char]0),[StringSplitOptions]::RemoveEmptyEntries)){$deleted[$relative]=$true}
   $files=@()
