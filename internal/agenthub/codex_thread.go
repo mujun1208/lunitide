@@ -72,7 +72,7 @@ func (a *CodexThread) Prompt(threadID, text string) error {
 			lookErr = fmt.Errorf("codex 未找到")
 		}
 		a.fault(threadID, lookErr)
-		return lookErr
+		return nil
 	}
 	start := a.start
 	if start == nil {
@@ -115,7 +115,7 @@ func (a *CodexThread) Prompt(threadID, text string) error {
 			_ = insertThreadMessage(a.store, threadID, "assistant", out)
 		}
 		a.fault(threadID, runErr)
-		return runErr
+		return nil
 	}
 	if out != "" {
 		if err = insertThreadMessage(a.store, threadID, "assistant", out); err != nil {
