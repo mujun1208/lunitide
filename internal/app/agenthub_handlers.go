@@ -228,7 +228,7 @@ func agentHubFailure(r bridge.Request, err error) bridge.Response {
 		return r.Fail("NOT_FOUND", "任务或文件不存在", false)
 	default:
 		msg := err.Error()
-		if !strings.ContainsAny(msg, "任务目录参数工作") {
+		if !strings.Contains(msg, "工作目录不受支持") && !strings.Contains(msg, "路径不受支持") && !strings.ContainsAny(msg, "任务目录参数工作") {
 			msg = "调度台操作失败"
 		}
 		return r.Fail("AGENT_HUB_FAILED", msg, false)
