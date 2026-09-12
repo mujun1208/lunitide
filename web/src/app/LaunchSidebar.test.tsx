@@ -17,6 +17,48 @@ afterEach(() => {
   localStorage.clear()
 })
 
+function sidebarProps(overrides: Record<string, unknown> = {}) {
+  return {
+    open: true,
+    page: 'home' as const,
+    setPage: vi.fn(),
+    projects: { list: vi.fn().mockResolvedValue({ items: [] }) } as unknown as ProjectBridge,
+    sessions: { list: vi.fn(), update: vi.fn(), delete: vi.fn() } as unknown as SessionBridge,
+    messages: {} as MessageBridge,
+    onSelect: vi.fn(),
+    onNew: vi.fn(),
+    theme: 'dark' as const,
+    language: 'zh-CN' as const,
+    refreshKey: 0,
+    localChats: [],
+    deletedChatIds: new Set<string>(),
+    draftSessionIds: new Set<string>(),
+    onToggleTheme: vi.fn(),
+    onToggleLanguage: vi.fn(),
+    collapsed: false,
+    onUpdated: vi.fn(),
+    onDeleted: vi.fn(),
+    onOpenPeople: vi.fn(),
+    ...overrides,
+  }
+}
+
+it('hides Agent Hub until the office menu switch is on, then navigates without activating Settings', async () => {
+  render(<LaunchSidebar {...sidebarProps()} />)
+  expect(screen.queryByRole('button', { name: 'Agent 调度台' })).toBeNull()
+  localStorage.setItem('lunitide:office-menu', JSON.stringify({ agentHub: true }))
+  cleanup()
+  const setPage = vi.fn()
+  render(<LaunchSidebar {...sidebarProps({ setPage, page: 'agentHub' })} />)
+  const button = screen.getByRole('button', { name: 'Agent 调度台' })
+  expect(button.className).toMatch(/active/)
+  expect(screen.getByRole('button', { name: '设置' }).className).not.toMatch(/active/)
+  cleanup()
+  render(<LaunchSidebar {...sidebarProps({ setPage })} />)
+  screen.getByRole('button', { name: 'Agent 调度台' }).click()
+  expect(setPage).toHaveBeenCalledWith('agentHub')
+})
+
 it('does not show raw English conversation list failures', async () => {
   render(
     <LaunchSidebar

@@ -6,6 +6,7 @@ const {mockSkillCreator,mockEnsureSkillCreator,mockExpertManager,mockEnsureExper
 vi.mock('./skill/ensureSkillCreator',()=>({SKILL_CREATE_PROMPT:'请帮我创建一个可以实现「……」的skill',SKILL_CREATOR_NAME:'skill-creator',SKILL_CREATOR_TEMPLATE_ID:'skill-creator',ensureSkillCreator:mockEnsureSkillCreator}))
 vi.mock('./skill/ensureExpertManager',()=>({EXPERT_CREATE_PROMPT:'帮我创建一个 XXX 专家，擅长 XXXXX。我的经验是：[请补充你的行业背景、相关经验]',EXPERT_MANAGER_NAME:'expert-manager',EXPERT_MANAGER_TEMPLATE_ID:'expert-manager',ensureExpertManager:mockEnsureExpertManager}))
 vi.mock('./plugin/ensurePluginCreator',()=>({PLUGIN_CREATE_PROMPT:'帮我创建一个能力包。说明要组合哪些技能模板、MCP 预置和工具门闸。调用 plugin.create 时在 manifest 里写 skills、mcpPresetIds、toolGates。创建成功后告诉我去能力包页查看。不会执行外部脚本。',PLUGIN_CREATOR_NAME:'plugin-creator',PLUGIN_CREATOR_TEMPLATE_ID:'plugin-creator',ensurePluginCreator:mockEnsurePluginCreator}))
+vi.mock('./agentHub/agentHubApi',()=>({agentHubApi:{detect:vi.fn().mockResolvedValue({agents:[{name:'codex',state:'not_installed',version:'',nonInteractive:true,streamJSON:true,hint:'未安装 Codex CLI'},{name:'cursor',state:'not_installed',version:'',nonInteractive:true,streamJSON:true,hint:'未安装 Cursor CLI'},{name:'kimi',state:'not_installed',version:'',nonInteractive:false,streamJSON:false,hint:'未检测到非交互 CLI'}]}),pickDir:vi.fn().mockResolvedValue({canceled:true,path:''}),list:vi.fn().mockResolvedValue({items:[],counts:{queued:0,running:0,success:0,failed:0}}),listArtifacts:vi.fn().mockResolvedValue({items:[]}),start:vi.fn(),get:vi.fn(),cancel:vi.fn(),preview:vi.fn(),open:vi.fn()}}))
 vi.mock('./bridge/client',async importOriginal=>{const actual=await importOriginal<typeof import('./bridge/client')>();return{...actual,templateBridge:{list:vi.fn().mockResolvedValue({items:[]}),create:vi.fn(),enable:vi.fn(),void:vi.fn(),restore:vi.fn(),delete:vi.fn()},deliverableBridge:{list:vi.fn().mockResolvedValue({items:[]}),upsert:vi.fn(),confirmGate:vi.fn()},stageBridge:{...actual.stageBridge,list:vi.fn().mockResolvedValue({items:[]}),create:vi.fn(),update:vi.fn()},automationBridge:{listJobs:vi.fn().mockResolvedValue({jobs:[]}),setJob:vi.fn(),deleteJob:vi.fn(),triggerJob:vi.fn(),listRuns:vi.fn().mockResolvedValue({runs:[]}),status:vi.fn().mockResolvedValue({running:true,lastHeartbeat:'2026-01-01T00:00:00Z',nextFire:{},runningJobs:[]})},meetingsBridge:{list:vi.fn().mockResolvedValue({items:[]}),start:vi.fn(),append:vi.fn(),loopbackPoll:vi.fn(),stop:vi.fn(),get:vi.fn(),heartbeat:vi.fn(),summarize:vi.fn(),exportMeeting:vi.fn(),update:vi.fn(),delete:vi.fn()},getIdentityBridge:getIdentityBridgeMock,getPeopleBridge:getPeopleBridgeMock,getMeetingsBridge:getMeetingsBridgeMock,getDesktopFilesBridge:()=>({pick:mockDesktopPick,readChunk:vi.fn()}),getCapabilityRolesBridge:()=>({get:vi.fn().mockResolvedValue({roles:['chat','flash','vision','embed','judge','gui'].map(role=>({role,allowJudgeEqChat:false}))}),set:vi.fn().mockResolvedValue({roles:[]})})}})
 
 import type{ChatBridge,ExpertBridge,MessageBridge,MroBridge,ProjectBridge,ProviderBridge,SessionBridge}from'./bridge/client'
@@ -34,7 +35,7 @@ it('hides optional Office entries by default and places search between New chat 
   expect(screen.getByRole('button', { name: /New chat/ }).compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(search.compareDocumentPosition(screen.getByRole('button', { name: /^Office$/ })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Automation' })).toBeInTheDocument()
-  for (const name of ['Colleague chat', 'Meeting notes', 'MRO workbench', 'Office Studio']) expect(screen.queryByRole('button', { name })).toBeNull()
+  for (const name of ['Colleague chat', 'Meeting notes', 'MRO workbench', 'Office Studio', 'Agent Hub']) expect(screen.queryByRole('button', { name })).toBeNull()
 })
 
 it('applies global Office menu switches immediately in both themes while keeping the MRO feature gate', async () => {
@@ -42,12 +43,12 @@ it('applies global Office menu switches immediately in both themes while keeping
   render(<App projects={projectBridge([])} sessions={sessionBridge()} providers={providers} messages={messages} chat={chat} />)
   await user.click(screen.getByRole('button', { name: 'Settings' }))
   await user.click(screen.getByRole('button', { name: 'Office menu' }))
-  for (const name of ['Colleague chat', 'Office Studio', 'Meeting notes', 'MRO workbench']) {
+  for (const name of ['Colleague chat', 'Office Studio', 'Agent Hub', 'Meeting notes', 'MRO workbench']) {
     const toggle = screen.getByRole('switch', { name })
     expect(toggle).toHaveAttribute('aria-checked', 'false')
     await user.click(toggle)
   }
-  for (const name of ['Colleague chat', 'Office Studio']) expect(screen.getByRole('button', { name })).toBeInTheDocument()
+  for (const name of ['Colleague chat', 'Office Studio', 'Agent Hub']) expect(screen.getByRole('button', { name })).toBeInTheDocument()
   expect(document.getElementById('office-list')?.textContent).toContain('Meeting notes')
   expect(screen.queryByRole('button', { name: 'MRO workbench' })).toBeNull()
   const before = document.documentElement.dataset.theme
@@ -57,6 +58,17 @@ it('applies global Office menu switches immediately in both themes while keeping
   await user.click(screen.getByRole('switch', { name: 'Office Studio' }))
   expect(screen.queryByRole('button', { name: 'Office Studio' })).toBeNull()
   expect(screen.getByRole('button', { name: 'Automation' })).toBeInTheDocument()
+})
+
+it('opens Agent Hub from the Office menu instead of the provider page', async () => {
+  const user = userEvent.setup()
+  localStorage.setItem('lunitide:office-menu', JSON.stringify({ agentHub: true }))
+  render(<App projects={projectBridge([])} sessions={sessionBridge()} providers={providers} messages={messages} chat={chat} />)
+  await user.click(screen.getByRole('button', { name: 'Agent Hub' }))
+  expect(await screen.findByRole('heading', { name: 'Agent Hub' })).toBeVisible()
+  expect(screen.getByRole('tab', { name: 'Workbench' })).toBeInTheDocument()
+  expect(screen.queryByText('生成周报')).toBeNull()
+  expect(screen.queryByRole('heading', { name: /模型与供应商|Models & providers/ })).toBeNull()
 })
 
 it('opens Office home on every sidebar click instead of restoring the previous task', async () => {

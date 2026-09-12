@@ -9,7 +9,7 @@ afterEach(() => { cleanup(); localStorage.removeItem(OFFICE_MENU_KEY); vi.restor
 it('defaults every optional navigation entry to hidden and rejects malformed stored values', () => {
   expect(loadOfficeMenu()).toEqual(DEFAULT_OFFICE_MENU)
   localStorage.setItem(OFFICE_MENU_KEY, JSON.stringify({ people: 'false', mro: 1, office: true, meetings: false }))
-  expect(loadOfficeMenu()).toEqual({ people: false, mro: false, office: true, meetings: false })
+  expect(loadOfficeMenu()).toEqual({ people: false, mro: false, office: true, meetings: false, agentHub: false })
   localStorage.setItem(OFFICE_MENU_KEY, '{bad')
   expect(loadOfficeMenu()).toEqual(DEFAULT_OFFICE_MENU)
 })
@@ -20,7 +20,9 @@ it('shares changes between mounted consumers and retains them after remount with
   const first = render(<><OfficeMenuPanel /><Consumer /></>)
   fireEvent.click(screen.getByRole('switch', { name: '同事聊天' }))
   fireEvent.click(screen.getByRole('switch', { name: '办公工作台' }))
+  fireEvent.click(screen.getByRole('switch', { name: 'Agent 调度台' }))
   expect(screen.getByRole('status')).toHaveTextContent('"people":true')
+  expect(screen.getByRole('status')).toHaveTextContent('"agentHub":true')
   first.unmount()
   render(<OfficeMenuPanel />)
   expect(screen.getByRole('switch', { name: '同事聊天' })).toHaveAttribute('aria-checked', 'true')

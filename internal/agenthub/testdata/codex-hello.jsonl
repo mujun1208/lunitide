@@ -1,0 +1,4 @@
+{"type":"thread.started","title":"start"}
+{"type":"item.completed","title":"write","path":"hello.txt"}
+{"type":"usage","usage":{"input_tokens":12,"output_tokens":8}}
+{"type":"turn.completed"}
