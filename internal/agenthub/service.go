@@ -167,6 +167,18 @@ func (s *Service) execute(ctx context.Context, adapter AgentAdapter, req TaskReq
 		s.fail(task, 0, false, err)
 		return
 	}
+	if req.Agent == "kimi" {
+		hasSkillsDir := false
+		for _, arg := range args {
+			if arg == "--skills-dir" {
+				hasSkillsDir = true
+				break
+			}
+		}
+		if !hasSkillsDir {
+			_ = s.appendEvent(task.ID, AgentEvent{Type: "message", Title: "未找到 kimi-slides 技能目录", TS: s.now().Format(time.RFC3339)})
+		}
+	}
 	look := s.Look
 	if look == nil {
 		look = defaultLookPath
