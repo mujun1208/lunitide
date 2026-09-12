@@ -144,7 +144,15 @@ func (s *Service) inboxDrop(workDir, name string) (bool, string, []InboxFile, []
 	if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
 		return false, clean, nil, nil, err
 	}
-	return false, clean, []InboxFile{}, nil, nil
+	inboxDir := filepath.Join(clean, inboxDirName)
+	files, err := listInbox(inboxDir)
+	if err != nil {
+		return false, clean, nil, nil, err
+	}
+	if files == nil {
+		files = []InboxFile{}
+	}
+	return false, clean, files, nil, nil
 }
 
 func (s *Service) ingestFilePaths(inboxDir string, paths []string) ([]string, error) {
