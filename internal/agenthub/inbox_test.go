@@ -87,6 +87,28 @@ func TestInboxFolderSkipsNodeModules(t *testing.T) {
 	}
 }
 
+func TestInboxDropReturnsRemainingFiles(t *testing.T) {
+	s := New(NewMemoryStore(), t.TempDir(), nil)
+	tmp := t.TempDir()
+	first := filepath.Join(tmp, "first.txt")
+	second := filepath.Join(tmp, "second.txt")
+	if err := os.WriteFile(first, []byte("1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.PickFiles = func() ([]string, error) { return []string{first, second}, nil }
+	_, dir, _, _, err := s.Inbox("files", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, files, _, err := s.Inbox("drop", dir, "first.txt")
+	if err != nil || len(files) != 1 || files[0].Name != "second.txt" {
+		t.Fatalf("%v %v", files, err)
+	}
+}
+
 func TestInboxDropOnlyInsideInbox(t *testing.T) {
 	s := New(NewMemoryStore(), t.TempDir(), nil)
 	src := filepath.Join(t.TempDir(), "note.txt")
