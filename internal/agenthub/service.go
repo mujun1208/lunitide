@@ -27,6 +27,7 @@ type StartFunc func(ctx context.Context, spec ProcSpec, onLine func(string)) (ex
 
 type Service struct {
 	Store   TaskStore
+	Threads *ThreadStore
 	Root    string
 	Look    LookPath
 	Version VersionRunner

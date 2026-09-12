@@ -2,26 +2,81 @@ package agenthub
 
 import (
 	"database/sql"
+	"encoding/json"
 	"path/filepath"
 )
 
 type ThreadRecord struct {
-	ID              string
-	HarnessID       string
-	NativeSessionID string
-	Title           string
-	Pinned          bool
-	WorkspaceRoot   string
-	ExportDir       string
-	Scene           string
-	Status          string
-	AccessMode      string
-	CreatedAt       string
-	UpdatedAt       string
+	ID              string `json:"threadId"`
+	HarnessID       string `json:"harnessId"`
+	NativeSessionID string `json:"nativeSessionId"`
+	Title           string `json:"title"`
+	Pinned          bool   `json:"pinned"`
+	WorkspaceRoot   string `json:"workspaceRoot"`
+	ExportDir       string `json:"exportDir"`
+	Scene           string `json:"scene"`
+	Status          string `json:"status"`
+	AccessMode      string `json:"accessMode"`
+	CreatedAt       string `json:"createdAt"`
+	UpdatedAt       string `json:"updatedAt"`
 }
 
 type ThreadFilter struct {
 	HarnessID string
+}
+
+type ThreadMessage struct {
+	ID        string `json:"id"`
+	Seq       int    `json:"seq"`
+	Role      string `json:"role"`
+	Content   string `json:"content"`
+	CreatedAt string `json:"createdAt"`
+}
+
+type ThreadEvent struct {
+	Seq    int    `json:"seq"`
+	Type   string `json:"type"`
+	Title  string `json:"title"`
+	Detail string `json:"detail"`
+	TS     string `json:"ts"`
+}
+
+type ThreadFile struct {
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	Size   int64  `json:"size"`
+	Source string `json:"source"`
+}
+
+type ThreadOpenPrompt struct {
+	CallID  string               `json:"callId"`
+	Prompt  string               `json:"prompt"`
+	Options []ThreadPromptOption `json:"options"`
+	Status  string               `json:"status"`
+}
+
+type ThreadDetail struct {
+	Thread   ThreadRecord      `json:"thread"`
+	Messages []ThreadMessage   `json:"messages"`
+	Events   []ThreadEvent     `json:"events"`
+	Files    []ThreadFile      `json:"files"`
+	Prompt   *ThreadOpenPrompt `json:"prompt"`
+}
+
+type WorkspaceEntry struct {
+	Name  string `json:"name"`
+	Path  string `json:"path"`
+	Size  int64  `json:"size"`
+	IsDir bool   `json:"isDir"`
+}
+
+type ThreadCreateRequest struct {
+	HarnessID     string `json:"harnessId"`
+	Scene         string `json:"scene"`
+	WorkspaceRoot string `json:"workspaceRoot"`
+	ExportDir     string `json:"exportDir"`
+	Title         string `json:"title"`
+	AccessMode    string `json:"accessMode"`
 }
 
 type ThreadStore struct {
@@ -146,4 +201,81 @@ func boolToInt(v bool) int {
 		return 1
 	}
 	return 0
+}
+
+func (s *ThreadStore) ListMessages(threadID string) ([]ThreadMessage, error) {
+	rows, err := s.db.Query(`SELECT id, seq, role, content, created_at FROM agent_hub_messages WHERE thread_id=? ORDER BY seq`, threadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ThreadMessage{}
+	for rows.Next() {
+		var item ThreadMessage
+		if err = rows.Scan(&item.ID, &item.Seq, &item.Role, &item.Content, &item.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *ThreadStore) ListEvents(threadID string) ([]ThreadEvent, error) {
+	rows, err := s.db.Query(`SELECT seq, type, title, detail, ts FROM agent_hub_thread_events WHERE thread_id=? ORDER BY seq`, threadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ThreadEvent{}
+	for rows.Next() {
+		var item ThreadEvent
+		if err = rows.Scan(&item.Seq, &item.Type, &item.Title, &item.Detail, &item.TS); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *ThreadStore) ListFiles(threadID string) ([]ThreadFile, error) {
+	rows, err := s.db.Query(`SELECT rel_path, abs_path, size, source FROM agent_hub_thread_files WHERE thread_id=? ORDER BY rel_path`, threadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ThreadFile{}
+	for rows.Next() {
+		var rel, abs, source string
+		var size int64
+		if err = rows.Scan(&rel, &abs, &size, &source); err != nil {
+			return nil, err
+		}
+		items = append(items, ThreadFile{Name: filepath.Base(rel), Path: filepath.ToSlash(rel), Size: size, Source: source})
+	}
+	return items, rows.Err()
+}
+
+func (s *ThreadStore) OpenPrompt(threadID string) (*ThreadOpenPrompt, error) {
+	var item ThreadOpenPrompt
+	var optionsJSON string
+	err := s.db.QueryRow(`SELECT call_id, prompt, options_json, status FROM agent_hub_prompts WHERE thread_id=? AND status='open' LIMIT 1`, threadID).
+		Scan(&item.CallID, &item.Prompt, &optionsJSON, &item.Status)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if optionsJSON != "" {
+		_ = json.Unmarshal([]byte(optionsJSON), &item.Options)
+	}
+	if item.Options == nil {
+		item.Options = []ThreadPromptOption{}
+	}
+	return &item, nil
+}
+
+func (s *ThreadStore) CancelOpenPrompts(threadID string) error {
+	_, err := s.db.Exec(`UPDATE agent_hub_prompts SET status='cancelled' WHERE thread_id=? AND status='open'`, threadID)
+	return err
 }

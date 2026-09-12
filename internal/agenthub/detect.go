@@ -96,14 +96,14 @@ func DetectAll(look LookPath, version VersionRunner) []AgentStatus {
 	}
 	wg.Wait()
 	if os.Getenv("LUNITIDE_HARNESS_LOOPBACK") == "1" {
-		out = append(out, AgentStatus{Name: "loopback", State: "available"})
+		out = append(out, AgentStatus{Name: "loopback", State: "available", Interactive: true, Protocol: "none"})
 	}
 	return out
 }
 
 func detectOne(name string, look LookPath, version VersionRunner) AgentStatus {
 	cap := CapabilityFor(name)
-	st := AgentStatus{Name: name, NonInteractive: cap.NonInteractive, StreamJSON: cap.StreamJSON}
+	st := AgentStatus{Name: name, NonInteractive: cap.NonInteractive, StreamJSON: cap.StreamJSON, Interactive: cap.Interactive, Protocol: cap.Protocol}
 	exe, err := look(exeName(name))
 	if err != nil || strings.TrimSpace(exe) == "" {
 		st.State = "not_installed"
