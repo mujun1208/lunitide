@@ -111,6 +111,69 @@ it('shows AskBar for an open prompt and submits the composer via threadPrompt', 
   await waitFor(() => expect(agentHubApi.threadPrompt).toHaveBeenCalledWith({ threadId: THREAD_ID, text: '继续' }))
 })
 
+it('lists loopback.txt after answering an open prompt', async () => {
+  vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('waiting_user', {
+    prompt: {
+      callId: '01ARZ3NDEKTSV4RRFFQ69G5FAF',
+      prompt: '选哪个?',
+      options: [{ id: '是', label: '是' }, { id: '否', label: '否' }],
+      status: 'open',
+    },
+  }))
+  vi.mocked(agentHubApi.workspaceList).mockResolvedValue({ items: [] })
+  vi.mocked(agentHubApi.threadRespond).mockResolvedValue(threadDetail('success'))
+  render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
+  expect(await screen.findByRole('button', { name: '是' })).toBeInTheDocument()
+  vi.mocked(agentHubApi.workspaceList).mockResolvedValue({
+    items: [{ name: 'loopback.txt', path: 'loopback.txt', size: 2, isDir: false }],
+  })
+  fireEvent.click(screen.getByRole('button', { name: '是' }))
+  await waitFor(() => expect(agentHubApi.threadRespond).toHaveBeenCalledWith({
+    threadId: THREAD_ID,
+    callId: '01ARZ3NDEKTSV4RRFFQ69G5FAF',
+    optionId: '是',
+  }))
+  expect(await screen.findByRole('button', { name: 'loopback.txt' })).toBeInTheDocument()
+})
+
+it('ignores a late poll from a previous threadId', async () => {
+  vi.useFakeTimers()
+  stubWorkspace()
+  const otherId = '01ARZ3NDEKTSV4RRFFQ69G5FAF'
+  let finishPoll: (value: ReturnType<typeof threadDetail>) => void = () => {}
+  let gets = 0
+  vi.mocked(agentHubApi.threadGet).mockImplementation(async (payload: { threadId: string }) => {
+    if (payload.threadId === THREAD_ID) {
+      gets += 1
+      if (gets === 1) {
+        return threadDetail('running', {
+          messages: [{ id: '01ARZ3NDEKTSV4RRFFQ69G5FAA', seq: 1, role: 'user', content: 'a-live', createdAt: '2026-09-13T00:00:00Z' }],
+        })
+      }
+      return new Promise(resolve => { finishPoll = resolve })
+    }
+    return {
+      ...threadDetail('idle'),
+      thread: { ...threadDetail('idle').thread, threadId: otherId, title: 'B' },
+      messages: [{ id: '01ARZ3NDEKTSV4RRFFQ69G5FAB', seq: 1, role: 'user', content: 'b-idle', createdAt: '2026-09-13T00:00:00Z' }],
+    }
+  })
+  const { rerender } = render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
+  await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+  expect(screen.getByText('a-live')).toBeInTheDocument()
+  await act(async () => { await vi.advanceTimersByTimeAsync(400) })
+  rerender(<LanguageProvider value="zh-CN"><AgentHubThread threadId={otherId} /></LanguageProvider>)
+  await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+  expect(screen.getByText('b-idle')).toBeInTheDocument()
+  await act(async () => {
+    finishPoll(threadDetail('running', {
+      messages: [{ id: '01ARZ3NDEKTSV4RRFFQ69G5FAC', seq: 1, role: 'user', content: 'a-stale', createdAt: '2026-09-13T00:00:01Z' }],
+    }))
+  })
+  expect(screen.queryByText('a-stale')).toBeNull()
+  expect(screen.getByText('b-idle')).toBeInTheDocument()
+})
+
 it('previews a workspace file with threadId', async () => {
   vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('idle'))
   vi.mocked(agentHubApi.workspaceList).mockResolvedValue({
