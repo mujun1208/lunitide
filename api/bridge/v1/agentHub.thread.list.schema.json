@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/agentHub.thread.list.schema.json",
+  "title": "agentHub.thread.list payload",
+  "x-method": "agentHub.thread.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "harnessId": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9-]+$" }
+  },
+  "x-result": { "type": "object", "additionalProperties": true },
+  "x-examples": {
+    "positive": [{}, { "harnessId": "cursor" }],
+    "negative": [{ "unexpected": true }]
+  }
+}

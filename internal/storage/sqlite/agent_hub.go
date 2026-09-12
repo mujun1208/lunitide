@@ -10,6 +10,10 @@ import (
 
 var _ agenthub.TaskStore = (*Store)(nil)
 
+func (s *Store) ThreadStore() *agenthub.ThreadStore {
+	return agenthub.NewThreadStore(s.db)
+}
+
 func (s *Store) InsertTask(task agenthub.TaskRecord) error {
 	_, err := s.db.ExecContext(context.Background(), `INSERT INTO agent_hub_tasks(id,agent,prompt,work_dir,sandbox,status,exit_code,tokens_used,error_msg,created_at,started_at,finished_at,idempotency_key)
 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, task.ID, task.Agent, task.Prompt, task.WorkDir, nullString(task.Sandbox), task.Status, task.ExitCode, task.TokensUsed, task.ErrorMsg, task.CreatedAt, nullString(task.StartedAt), nullString(task.FinishedAt), task.IdempotencyKey)

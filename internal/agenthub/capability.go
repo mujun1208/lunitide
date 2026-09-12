@@ -5,7 +5,7 @@ package agenthub
 func CapabilityFor(name string) Capability {
 	switch name {
 	case "codex", "cursor", "kimi":
-		return Capability{NonInteractive: true, StreamJSON: true}
+		return Capability{NonInteractive: true, StreamJSON: true, Interactive: false, Protocol: "exec"}
 	default:
 		return Capability{}
 	}

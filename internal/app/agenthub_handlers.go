@@ -125,6 +125,107 @@ func handleAgentHub(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 			payload["skipped"] = skipped
 		}
 		return r.Ok(payload)
+	case "agentHub.thread.create":
+		var p agenthub.ThreadCreateRequest
+		if decodePayload(r.Payload, &p) != nil || p.HarnessID == "" || p.Scene == "" {
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.thread.create 参数无效", false)
+		}
+		detail, err := e.agentHub.CreateThread(p)
+		if err != nil {
+			return agentHubFailure(r, err)
+		}
+		return r.Ok(detail)
+	case "agentHub.thread.get":
+		var p struct {
+			ThreadID string `json:"threadId"`
+		}
+		if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ThreadID) {
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.thread.get 参数无效", false)
+		}
+		detail, err := e.agentHub.GetThread(p.ThreadID)
+		if err != nil {
+			return agentHubFailure(r, err)
+		}
+		return r.Ok(detail)
+	case "agentHub.thread.list":
+		var p struct {
+			HarnessID string `json:"harnessId"`
+		}
+		if decodePayload(r.Payload, &p) != nil {
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.thread.list 参数无效", false)
+		}
+		items, err := e.agentHub.ListThreads(p.HarnessID)
+		if err != nil {
+			return agentHubFailure(r, err)
+		}
+		return r.Ok(map[string]any{"items": items})
+	case "agentHub.thread.update":
+		var p struct {
+			ThreadID string `json:"threadId"`
+			Title    string `json:"title"`
+			Pinned   *bool  `json:"pinned"`
+		}
+		if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ThreadID) {
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.thread.update 参数无效", false)
+		}
+		detail, err := e.agentHub.UpdateThread(p.ThreadID, p.Title, p.Pinned)
+		if err != nil {
+			return agentHubFailure(r, err)
+		}
+		return r.Ok(detail)
+	case "agentHub.thread.cancel":
+		var p struct {
+			ThreadID string `json:"threadId"`
+		}
+		if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ThreadID) {
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.thread.cancel 参数无效", false)
+		}
+		detail, err := e.agentHub.CancelThread(p.ThreadID)
+		if err != nil {
+			return agentHubFailure(r, err)
+		}
+		return r.Ok(detail)
+	case "agentHub.thread.prompt":
+		var p struct {
+			ThreadID string `json:"threadId"`
+			Text     string `json:"text"`
+		}
+		if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ThreadID) || strings.TrimSpace(p.Text) == "" {
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.thread.prompt 参数无效", false)
+		}
+		detail, err := e.agentHub.PromptThread(p.ThreadID, p.Text)
+		if err != nil {
+			return agentHubFailure(r, err)
+		}
+		return r.Ok(detail)
+	case "agentHub.thread.respond":
+		var p struct {
+			ThreadID string `json:"threadId"`
+			CallID   string `json:"callId"`
+			OptionID string `json:"optionId"`
+			Text     string `json:"text"`
+		}
+		if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ThreadID) || p.CallID == "" || p.OptionID == "" {
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.thread.respond 参数无效", false)
+		}
+		detail, err := e.agentHub.RespondThread(p.ThreadID, p.CallID, p.OptionID)
+		if err != nil {
+			return agentHubFailure(r, err)
+		}
+		return r.Ok(detail)
+	case "agentHub.workspace.list":
+		var p struct {
+			ThreadID     string `json:"threadId"`
+			RelativePath string `json:"relativePath"`
+		}
+		if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ThreadID) {
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.workspace.list 参数无效", false)
+		}
+		items, err := e.agentHub.ListWorkspace(p.ThreadID, p.RelativePath)
+		if err != nil {
+			return agentHubFailure(r, err)
+		}
+		return r.Ok(map[string]any{"items": items})
 	case "agentHub.file.preview":
 		return handleAgentHubPreview(e, ctx, r)
 	case "agentHub.file.open":
@@ -136,13 +237,25 @@ func handleAgentHub(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 
 func handleAgentHubPreview(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		TaskID string `json:"taskId"`
-		Path   string `json:"path"`
+		TaskID   string `json:"taskId"`
+		ThreadID string `json:"threadId"`
+		Path     string `json:"path"`
 	}
-	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.TaskID) || p.Path == "" {
+	if decodePayload(r.Payload, &p) != nil || p.Path == "" {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.file.preview 参数无效", false)
 	}
-	target, err := e.agentHub.ResolveFile(p.TaskID, p.Path)
+	hasTask := validCanonicalULID(p.TaskID)
+	hasThread := validCanonicalULID(p.ThreadID)
+	if hasTask == hasThread {
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.file.preview 参数无效", false)
+	}
+	var target string
+	var err error
+	if hasTask {
+		target, err = e.agentHub.ResolveFile(p.TaskID, p.Path)
+	} else {
+		target, err = e.agentHub.ResolveThreadFile(p.ThreadID, p.Path)
+	}
 	if err != nil {
 		return agentHubFailure(r, err)
 	}
@@ -192,14 +305,26 @@ func handleAgentHubPreview(e *Engine, ctx context.Context, r bridge.Request) bri
 
 func handleAgentHubOpen(e *Engine, r bridge.Request) bridge.Response {
 	var p struct {
-		TaskID string `json:"taskId"`
-		Path   string `json:"path"`
-		Reveal bool   `json:"reveal"`
+		TaskID   string `json:"taskId"`
+		ThreadID string `json:"threadId"`
+		Path     string `json:"path"`
+		Reveal   bool   `json:"reveal"`
 	}
-	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.TaskID) {
+	if decodePayload(r.Payload, &p) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.file.open 参数无效", false)
 	}
-	target, err := e.agentHub.OpenPath(p.TaskID, p.Path)
+	hasTask := validCanonicalULID(p.TaskID)
+	hasThread := validCanonicalULID(p.ThreadID)
+	if hasTask == hasThread {
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.file.open 参数无效", false)
+	}
+	var target string
+	var err error
+	if hasTask {
+		target, err = e.agentHub.OpenPath(p.TaskID, p.Path)
+	} else {
+		target, err = e.agentHub.OpenThreadPath(p.ThreadID, p.Path)
+	}
 	if err != nil {
 		return agentHubFailure(r, err)
 	}
@@ -226,6 +351,10 @@ func agentHubFailure(r bridge.Request, err error) bridge.Response {
 		return r.Fail("PATH_OUTSIDE", "路径不在任务工作目录内", false)
 	case errors.Is(err, agenthub.ErrNotFound):
 		return r.Fail("NOT_FOUND", "任务或文件不存在", false)
+	case errors.Is(err, agenthub.ErrNoOpenPrompt), errors.Is(err, agenthub.ErrCallIDMismatch):
+		return r.Fail("AGENT_HUB_FAILED", "没有待回答的提问或 callId 不匹配", false)
+	case errors.Is(err, agenthub.ErrThreadBusy):
+		return r.Fail("AGENT_HUB_FAILED", "当前对话正在等待回答", false)
 	default:
 		msg := err.Error()
 		if !strings.Contains(msg, "工作目录不受支持") && !strings.Contains(msg, "路径不受支持") && !strings.ContainsAny(msg, "任务目录参数工作") {

@@ -572,6 +572,7 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 		hub := agenthub.New(store, hubRoot.Path(), func(title, body string) error {
 			return scheduler.NewPlatformNotifier().Notify(title, body)
 		})
+		hub.Threads = store.ThreadStore()
 		hub.Recover()
 		engine.SetAgentHub(hub)
 	}

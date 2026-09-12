@@ -9,13 +9,18 @@
   "additionalProperties": false,
   "properties": {
     "taskId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "threadId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
     "path": {
       "type": "string",
       "minLength": 1,
       "maxLength": 1024
     }
   },
-  "required": ["taskId", "path"],
+  "required": ["path"],
+  "oneOf": [
+    { "required": ["taskId"], "properties": { "taskId": {} }, "not": { "required": ["threadId"], "properties": { "threadId": {} } } },
+    { "required": ["threadId"], "properties": { "threadId": {} }, "not": { "required": ["taskId"], "properties": { "taskId": {} } } }
+  ],
   "x-result": {
     "type": "object",
     "additionalProperties": false,
@@ -30,7 +35,10 @@
     "required": ["kind", "path", "size", "content"]
   },
   "x-examples": {
-    "positive": [{ "taskId": "01ARZ3NDEKTSV4RRFFQ69G5FAE", "path": "hello.txt" }],
-    "negative": [{}, { "taskId": "01ARZ3NDEKTSV4RRFFQ69G5FAE" }]
+    "positive": [
+      { "taskId": "01ARZ3NDEKTSV4RRFFQ69G5FAE", "path": "hello.txt" },
+      { "threadId": "01ARZ3NDEKTSV4RRFFQ69G5FAE", "path": "loopback.txt" }
+    ],
+    "negative": [{}, { "taskId": "01ARZ3NDEKTSV4RRFFQ69G5FAE" }, { "taskId": "01ARZ3NDEKTSV4RRFFQ69G5FAE", "threadId": "01ARZ3NDEKTSV4RRFFQ69G5FAF", "path": "hello.txt" }]
   }
 }
