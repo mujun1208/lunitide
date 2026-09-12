@@ -21,7 +21,7 @@ $manifest=Join-Path $install 'SHA256SUMS.txt'
 if($ExpectedManifestHash -notmatch '^[0-9A-Fa-f]{64}$' -or (Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash -ine $ExpectedManifestHash){throw 'Installed manifest differs from the accepted candidate'}
 if(-not $AllowUnsignedDevelopment -and $ExpectedSignerThumbprint -notmatch '^[0-9A-Fa-f]{40}$'){throw 'Supply the publisher thumbprint or explicitly use unsigned rehearsal mode'}
 & (Join-Path $PSScriptRoot 'Verify-Layout.ps1') -Stage $install -Version $ExpectedVersion -VerifyManifest -Installed -ExpectedSignerThumbprint $ExpectedSignerThumbprint
-$source=Get-Content -LiteralPath (Join-Path $install 'SOURCE-CANDIDATE.json') -Raw | ConvertFrom-Json
+$source=Read-ReleaseJson (Join-Path $install 'SOURCE-CANDIDATE.json')
 $evidence=[IO.Path]::GetFullPath($EvidenceDirectory)
 Assert-NoReleaseReparsePoint $evidence
 if(Test-Path -LiteralPath $evidence){throw 'EvidenceDirectory must be new; previous observations are retained'}

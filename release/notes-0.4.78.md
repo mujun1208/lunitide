@@ -33,7 +33,7 @@
 - Go：覆盖率闸 **59.5% ≥ 51%**；`go vet ./...` 干净；`go build ./...`（CGO=0）干净；`golangci-lint run ./...` **0 issues**；`govulncheck ./...` 受影响漏洞 **0**。
 - 前端：`npm audit` **0**；`tsc --noEmit` 通过；`verify:bridge` 无生成器错误；生成文件已重跑并对齐；`vitest run` **299 files / 2322 tests** 全绿；`vite build` 通过。
 - `./release/Test-OmniExcluded.ps1` 通过；`./release/Test-ReleaseTools.ps1` 通过。
-- 打包指纹改为按 UTF-8 读 git 文件列表。中文文件名不再被系统 ANSI 解成 `?` 而让 `GetFullPath` 失败。
+- 打包指纹改为按 UTF-8 读 git 文件列表和 `SOURCE-CANDIDATE.json`。中文文件名不再被系统 ANSI 解成 `?`，也不再让布局校验对不上摘要。
 - 本机未跑 CI 的 120 分钟 `go test -race`（`windows-cgo-race`）；推送后由 Quality / Release candidate 工作流补跑。
 - 未跑 `Test-Install.ps1`（本机已有官方安装，脚本会拒绝）。
 
