@@ -119,6 +119,9 @@ func detectOne(name string, look LookPath, version VersionRunner) AgentStatus {
 		}
 		st.State = "available"
 		st.Hint = "已找到 CLI"
+		if name == "codex" {
+			st.Hint = codexAvailableHint
+		}
 		return st
 	}
 	st.Version = firstLine(text)
@@ -134,6 +137,9 @@ func detectOne(name string, look LookPath, version VersionRunner) AgentStatus {
 	}
 	st.State = "available"
 	st.Hint = "可用"
+	if name == "codex" {
+		st.Hint = codexAvailableHint
+	}
 	return st
 }
 
