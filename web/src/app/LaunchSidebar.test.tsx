@@ -53,6 +53,8 @@ it('starts the sidebar at 新对话 and has no product wordmark', () => {
   expect(sidebar!.textContent).not.toContain('月汐')
   expect(sidebar!.textContent).not.toContain('LUNITIDE')
   expect(sidebar!.querySelector('button')).toHaveTextContent('新对话')
+  expect(screen.getByRole('button', { name: '对话' })).not.toBeNull()
+  expect(screen.getByRole('button', { name: '办公' })).not.toBeNull()
 })
 
 it('hides Agent Hub until the office menu switch is on, then navigates without activating Settings', async () => {
@@ -98,4 +100,10 @@ it('does not show raw English conversation list failures', async () => {
   )
   expect(await screen.findByRole('alert')).toHaveTextContent('对话列表加载失败，请重试。')
   expect(screen.queryByText('Failed to fetch')).toBeNull()
+})
+
+it('shows replaceMainNav and hides the 对话 heading', () => {
+  render(<LaunchSidebar {...sidebarProps({ replaceMainNav: <div>slot</div> })} />)
+  expect(screen.getByText('slot')).not.toBeNull()
+  expect(screen.queryByRole('button', { name: '对话' })).toBeNull()
 })
