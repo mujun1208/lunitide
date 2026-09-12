@@ -14,6 +14,19 @@ import (
 
 const officeSnapshotFrameBytes = 120 << 10
 
+func officeSnapshotCheckStatus(id, status string) string {
+	if status == "missing" || status == "unsupported" {
+		switch id {
+		case "pdfa", "visual-model", "independent_pdf", "target-compatibility", "target-powerpoint", "target-wps", "target-libreoffice", "native_render", "actual-render", "fields_update", "full_recalculation":
+			return status
+		}
+	}
+	if status == "missing" || status == "skipped" || status == "unsupported" {
+		return "unavailable"
+	}
+	return status
+}
+
 // Only a handler that has already completed its mutation calls this path.
 // Failure to read the first display snapshot must not turn a committed write
 // into a failed operation. The known task came from an authorized read or the
@@ -221,9 +234,8 @@ func (e *Engine) officeSnapshotDetail(ctx context.Context, r bridge.Request, id 
 		for offset := 0; offset < len(checks) || offset == 0; offset += checkChunk {
 			qa := []any{}
 			for _, c := range checks[offset:min(offset+checkChunk, len(checks))] {
-				status, severity := c.Status, "info"
-				if status == "missing" || status == "skipped" || status == "unsupported" {
-					status = "unavailable"
+				status, severity := officeSnapshotCheckStatus(c.ID, c.Status), "info"
+				if status == "missing" || status == "skipped" || status == "unsupported" || status == "unavailable" {
 					severity = "warning"
 				}
 				if status == "failed" && c.Required {

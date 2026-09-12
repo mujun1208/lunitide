@@ -115,6 +115,7 @@ func genPDF(title, body string, stable bool, theme PDFTheme) ([]byte, error) {
 		pdf.AddUTF8FontFromBytes(family, "", font)
 	}
 	pdf.SetTitle(title, true)
+	pdf.SetProducer("lunitide-gofpdf", true)
 	pdf.AddPage()
 	pdf.SetFont(family, titleStyle, 18)
 	setPDFTextColor(pdf, theme.Heading)

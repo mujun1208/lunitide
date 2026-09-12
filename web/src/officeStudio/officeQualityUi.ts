@@ -28,8 +28,11 @@ export function conceptPreviewLabel(layoutPreview: boolean): string {
   return layoutPreview ? '文件排版预览' : '概念预览'
 }
 
-export function draftQualityNotice(quality: OfficeQuality): string {
-  return quality === 'passed' ? '检查已通过，可作为正式交付。' : '低风险未检全版本标为草稿，正式交付前需清除硬问题。'
+export function draftQualityNotice(quality: OfficeQuality, accepted = false): string {
+  if (quality === 'passed') {
+    return accepted ? '检查已通过，已接受此版本。' : '检查通过；尚未接受为正式版'
+  }
+  return '低风险未检全版本标为草稿，正式交付前需清除硬问题。'
 }
 
 export function visualScoreNotice(): string {
@@ -44,20 +47,98 @@ export function trialScopeNotice(): string {
   return '本期试验范围：可编辑简报、四格式生成、检查、局部修改、草稿或正式导出。不声称设计师已检 36 变体、校准 85 分、PowerPoint/WPS 实机通过、竞品盲评或企业模板审批。'
 }
 
+export function usabilityScopeNotice(): string {
+  return '可用范围：未配置视觉模型或 PDF/A 验证器时仍可检查、改稿和导出草稿；配置后按当前文件实跑。外部生成器未进生产主链。企业审批与在线协同不在可用范围内。'
+}
+
+function pdfaUsabilityLabel(status?: string): string {
+  switch (status) {
+    case 'passed':
+      return 'PDF/A 已验证'
+    case 'failed':
+      return 'PDF/A 未通过'
+    case 'missing':
+      return 'PDF/A 验证器已配置，待验文件'
+    default:
+      return 'PDF/A 未配置，草稿仍可用'
+  }
+}
+
+function visionUsabilityLabel(status?: string): string {
+  switch (status) {
+    case 'passed':
+      return '视觉模型已检查'
+    case 'failed':
+      return '视觉模型未通过'
+    case 'missing':
+      return '视觉模型已配置，待验渲染图'
+    default:
+      return '视觉模型未配置，草稿仍可用'
+  }
+}
+
+function requiredFormalCheck(id?: string): boolean {
+  return id === 'native_render' || id === 'actual-render' || id === 'fields_update' || id === 'full_recalculation'
+}
+
+export function officeCheckStatusLabel(status?: string, id?: string): string {
+  if (requiredFormalCheck(id) && (status === 'missing' || status === 'unsupported' || status === 'unavailable')) {
+    return '缺组件，不能正式交付'
+  }
+  switch (status) {
+    case 'passed':
+      return '通过'
+    case 'failed':
+    case 'blocked':
+      return '未通过'
+    case 'missing':
+      return '待验'
+    case 'unavailable':
+      return '尚未验证'
+    case 'pending':
+      return '待检查'
+    default:
+      return '未验证'
+  }
+}
+
+export function importLimitNotice(): string {
+  return '导入只能合并受支持的修改，不能从成稿反推简报或规格。'
+}
+
+export function generateActionNotice(): string {
+  return '生成在右侧对话里进行；上方预览和工作台阶段不是生成按钮。'
+}
+
+export function capabilityUsabilityLabels(checks: Array<{ id: string; status: string }>): string[] {
+  const pdfa = checks.find((check) => check.id === 'pdfa')
+  const vision = checks.find((check) => check.id === 'visual-model')
+  const labels = [pdfaUsabilityLabel(pdfa?.status), visionUsabilityLabel(vision?.status)]
+  if (checks.some((check) => check.id.startsWith('target-'))) {
+    labels.push('目标软件未做打开验证，仍可导出后自行打开')
+  }
+  return labels
+}
+
 export function qualityPromiseLabels(
   version?: Pick<OfficeVersion, 'quality' | 'mode' | 'validations'>,
+  evidence?: {
+    facts?: Array<{ factId: string; value: string; unit?: string }>
+    nodes?: Array<{ id: string; text: string; valueType?: string }>
+  },
 ): string[] {
   if (!version) return []
   const checks = version.validations ?? []
   const out: string[] = []
-  const factFailed = checks.some((check) => /fact|source|metric/i.test(check.id) && check.status === 'failed')
-  if (checks.some((check) => check.id === 'structure' && check.status === 'passed') && !factFailed) {
+  if (checks.some((check) => (check.id === 'package' || check.id === 'pdf_structure') && check.status === 'passed')) {
     out.push('内容完整')
   }
-  if (checks.some((check) => /layout|overlap|geometry|clip|overflow/i.test(check.id) && check.status === 'passed')) {
+  if (checks.some((check) => (check.id === 'native_render' || check.id === 'actual-render') && check.status === 'passed')) {
     out.push('排版已检查')
   }
-  if (checks.some((check) => /source|fact|metric/i.test(check.id) && check.status === 'passed')) {
+  const facts = evidence?.facts ?? []
+  const nodes = evidence?.nodes ?? []
+  if (facts.some((fact) => fact.factId.trim() && fact.value.trim()) || findFactRefs(facts, nodes).length > 0) {
     out.push('关键数字有来源')
   }
   if (version.mode === 'managed' || version.mode === 'imported') {
@@ -85,6 +166,37 @@ export function formalDeliverBlockedReason(version?: Pick<OfficeVersion, 'qualit
     return '检查尚未全部通过，只能导出草稿，不能作为正式交付。'
   }
   return '正式交付仍被阻断。'
+}
+
+export function nextLocatePreviewOffset(
+  nodeId: string,
+  nodes: Array<{ id: string }>,
+  currentOffset: number,
+  nextOffset?: number,
+): { found: true } | { missing: true } | { nextOffset: number } {
+  if (nodes.some((node) => node.id === nodeId)) {
+    return { found: true }
+  }
+  if (nextOffset != null && nextOffset > currentOffset) {
+    return { nextOffset }
+  }
+  return { missing: true }
+}
+
+export function nextLocateFactOffset(
+  facts: Array<{ factId: string; value: string; unit?: string }>,
+  nodes: Array<{ id: string; text: string; valueType?: string }>,
+  currentOffset: number,
+  nextOffset?: number,
+): { found: true; nodeId: string } | { missing: true } | { nextOffset: number } {
+  const ref = findFactRefs(facts, nodes)[0]
+  if (ref) {
+    return { found: true, nodeId: ref.nodeId }
+  }
+  if (nextOffset != null && nextOffset > currentOffset) {
+    return { nextOffset }
+  }
+  return { missing: true }
 }
 
 export function findFactRefs(

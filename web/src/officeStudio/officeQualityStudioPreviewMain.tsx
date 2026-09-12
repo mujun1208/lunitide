@@ -34,14 +34,16 @@ const fixture = (): OfficeTaskDetail => ({
           sha256: 'b'.repeat(64),
           createdAt: '2026-09-07T00:00:00Z',
           validations: [
-            { id: 'structure', label: '结构检查', status: 'passed', severity: 'info', message: '结构完整' },
+            { id: 'package', label: '文件结构与资源', status: 'passed', severity: 'info', message: '结构完整' },
             {
-              id: 'layout',
-              label: '排版检查',
-              status: 'unavailable',
+              id: 'native_render',
+              label: '实际排版预览',
+              status: 'unsupported',
               severity: 'warning',
-              message: '排版组件尚未配置',
+              message: '未检测到 LibreOffice，可继续查看结构预览或用本机软件打开',
             },
+            { id: 'pdfa', label: 'PDF/A 合规', status: 'unsupported', severity: 'info', message: '未配置' },
+            { id: 'visual-model', label: '视觉模型诊断', status: 'unsupported', severity: 'info', message: '未配置' },
           ],
         },
       ],
@@ -94,7 +96,7 @@ const api: OfficeStudioApi = {
   update: async () => detail,
   sync: async () => detail,
   importArtifact: async () => detail,
-  preview: async (p) => preview(p.versionId),
+  preview: async (p: { versionId: string }) => preview(p.versionId),
   patch: async () => detail,
   validate: async () => detail,
   accept: async () => detail,
@@ -111,7 +113,7 @@ const api: OfficeStudioApi = {
   createBundle: async () => ({ schemaVersion: 1, id: '01ARZ3NDEKTSV4RRFFQ69G5FA3', taskId, title: '预览', files: [], createdAt: '2026-09-07T00:00:00Z' }),
   exportBundle: async () => ({ path: 'exports/bundle.zip' }),
   diff: async () => ({ parts: [], nodes: [] }),
-} as OfficeStudioApi;
+} as unknown as OfficeStudioApi;
 
 localStorage.setItem('lunitide:office-studio:last-task', taskId);
 createRoot(document.getElementById('root')!).render(

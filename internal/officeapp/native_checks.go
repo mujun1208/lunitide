@@ -41,14 +41,69 @@ func evaluateOfficeQuality(checks []domain.Check, facts []content.Fact) content.
 	return report
 }
 
+func usabilityOptionalID(id string) bool {
+	switch id {
+	case "pdfa", "visual-model":
+		return true
+	default:
+		return false
+	}
+}
+
+func remapStudioStatus(id, status string) string {
+	if status == "blocked" {
+		return "failed"
+	}
+	if status == "missing" && !usabilityOptionalID(id) {
+		return "unsupported"
+	}
+	return status
+}
+
+func upsertOfficeCheck(checks []domain.Check, next domain.Check) []domain.Check {
+	for i, c := range checks {
+		if c.ID == next.ID {
+			checks[i] = next
+			return checks
+		}
+	}
+	return append(checks, next)
+}
+
+func applyUsabilityChecks(checks []domain.Check, pdf []byte) []domain.Check {
+	pdfa := content.IndependentPDFACheck(pdf)
+	visionReq := content.VisualModelRequest{Configured: content.VisionModelConfigured()}
+	if len(pdf) > 0 && visionReq.Configured {
+		visionReq.Pages = [][]byte{pdf}
+		visionReq.Review = content.RunConfiguredVisualReview
+	}
+	vision := content.VisualModelCheck(visionReq)
+	checks = upsertOfficeCheck(checks, domain.Check{
+		ID: pdfa.ID, Label: officeCheckLabel(pdfa.ID), Status: pdfa.Status, Required: false, Detail: pdfa.Message,
+	})
+	return upsertOfficeCheck(checks, domain.Check{
+		ID: vision.ID, Label: officeCheckLabel(vision.ID), Status: vision.Status, Required: false, Detail: vision.Message,
+	})
+}
+
+func visualModelCoverageCheck() domain.Check {
+	c := content.VisualModelCheck(content.VisualModelRequest{Configured: content.VisionModelConfigured()})
+	return domain.Check{ID: c.ID, Label: officeCheckLabel(c.ID), Status: c.Status, Required: false, Detail: c.Message}
+}
+
+func pdfaCoverageCheck() domain.Check {
+	c := content.IndependentPDFACheck()
+	return domain.Check{ID: c.ID, Label: officeCheckLabel(c.ID), Status: c.Status, Required: false, Detail: c.Message}
+}
+
 func targetAppCoverageChecks() []domain.Check {
 	return []domain.Check{
 		{ID: "target-compatibility", Label: "Office/WPS 目标软件兼容性", Status: "unsupported", Required: false, Detail: "支持矩阵：PowerPoint、WPS、LibreOffice 均未完成目标软件打开验证；无头导出不能代替界面打开"},
 		{ID: "target-powerpoint", Label: "Microsoft PowerPoint 打开验证", Status: "unsupported", Required: false, Detail: "尚未在 Microsoft PowerPoint 完成打开验证；版本未知"},
 		{ID: "target-wps", Label: "WPS 打开验证", Status: "unsupported", Required: false, Detail: "尚未在 WPS 完成打开验证；版本未知"},
 		{ID: "target-libreoffice", Label: "LibreOffice 界面打开验证", Status: "unsupported", Required: false, Detail: "无头导出不能代替 LibreOffice 界面打开验证"},
-		{ID: "visual-model", Label: "视觉模型诊断", Status: "unsupported", Required: false, Detail: "未接入视觉模型，不能当作已校准视觉验收"},
-		{ID: "pdfa", Label: "PDF/A 合规", Status: "unsupported", Required: false, Detail: "导出 PDF 不表示 PDF/A 或 PDF/UA 合规"},
+		visualModelCoverageCheck(),
+		pdfaCoverageCheck(),
 	}
 }
 
@@ -57,7 +112,7 @@ func officeCheckLabel(id string) string {
 		"package": "文件结构与资源", "native_render": "实际排版预览", "design_system": "设计系统",
 		"content_safety": "活动内容与外部引用", "pdf_structure": "PDF 页面结构",
 		"fields_update": "原文件目录与页码缓存", "full_recalculation": "原文件公式与计算缓存",
-		"geometry_bounds": "几何越界",
+		"geometry_bounds":      "几何越界",
 		"rasterized_object":    "栅格对象",
 		"target-compatibility": "Office/WPS 目标软件兼容性",
 		"target-powerpoint":    "Microsoft PowerPoint 打开验证",

@@ -22,4 +22,10 @@ describe('pickTranscriptRevision', () => {
   test('still replaces with a genuinely different shorter sentence', () => {
     expect(pickTranscriptRevision('打开汽水音乐', '暂停')).toBe('暂停')
   })
+
+  test('keeps later terminal punctuation on the same spoken words', () => {
+    expect(pickTranscriptRevision('你好', '你好。')).toBe('你好。')
+    expect(pickTranscriptRevision('今天合肥的天气怎么样', '今天合肥的天气怎么样？')).toBe('今天合肥的天气怎么样？')
+    expect(pickTranscriptRevision('你好。', '你好')).toBe('你好。')
+  })
 })

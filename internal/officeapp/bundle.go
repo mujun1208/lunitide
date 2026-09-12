@@ -104,6 +104,7 @@ type BundleExport struct {
 	ManifestPath string             `json:"manifestPath"`
 	Files        []BundleExportFile `json:"files"`
 	Complete     bool               `json:"complete"`
+	Notice       string             `json:"notice,omitempty"`
 }
 
 // ExportBundle uses the saved manifest, never whichever versions happen to be
@@ -178,6 +179,16 @@ func (s *Service) ExportBundle(ctx context.Context, taskID, bundleID, dir string
 			return out, fmt.Errorf("文件已导出，但回执未保存，请重试核对：%w", e)
 		}
 		out.Files = append(out.Files, BundleExportFile{VersionID: v.ID, Name: f.Name, Path: path, SHA256: f.SHA256, Reused: reused})
+		notice := content.ExportNotice(content.Kind(v.Kind), s.SameSourceExport(ctx, v))
+		if v.Quality == "passed" {
+			notice += "；检查通过不是已接受为正式版"
+		}
+		if !strings.Contains(out.Notice, notice) {
+			if out.Notice != "" {
+				out.Notice += " "
+			}
+			out.Notice += notice
+		}
 	}
 	out.Complete = true
 	return out, nil

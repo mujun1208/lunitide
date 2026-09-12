@@ -1,7 +1,7 @@
 import React from 'react';
 import type { OfficeArtifact, OfficeSource, OfficeVersion } from './officeStudioApi';
 import { officeBytes, officeDate, officeQualityLabel } from './officePresentation';
-import { canFormalDeliver, formalDeliverBlockedReason, qualityPromiseLabels } from './officeQualityUi';
+import { canFormalDeliver, capabilityUsabilityLabels, formalDeliverBlockedReason, officeCheckStatusLabel, qualityPromiseLabels } from './officeQualityUi';
 
 export type OfficeInspectorTab = 'conversation' | 'checks' | 'versions' | 'sources';
 export const officeInspectorLabels: Record<OfficeInspectorTab, string> = {
@@ -16,6 +16,9 @@ export function OfficeChecks({
   busy,
   checking,
   stopping,
+  checkStopped,
+  facts,
+  nodes,
   onValidate,
   onStop,
   onLocate,
@@ -24,21 +27,33 @@ export function OfficeChecks({
   busy: boolean;
   checking: boolean;
   stopping: boolean;
+  checkStopped?: boolean;
+  facts?: Array<{ factId: string; value: string; unit?: string }>;
+  nodes?: Array<{ id: string; text: string; valueType?: string }>;
   onValidate: () => void;
   onStop: () => void;
   onLocate: (nodeId: string) => void;
 }): React.JSX.Element {
   if (!version) return <p className="os-muted">选择一份文件后查看检查结果。</p>;
   const checks = version.validations ?? [];
-  const promises = qualityPromiseLabels(version);
+  const promises = qualityPromiseLabels(version, { facts, nodes });
+  const usable = capabilityUsabilityLabels(checks);
   return (
     <>
       <div className={`os-check-summary is-${version.quality}`}>
         <h3>{checking ? '检查中' : officeQualityLabel(version.quality)}</h3>
         <p>v{version.versionNo} · 检查结果只适用于此版本。</p>
+        {checkStopped ? <p>已停止，检查未完成。</p> : null}
         {promises.length ? (
           <ul aria-label="质量承诺">
             {promises.map((label) => (
+              <li key={label}>{label}</li>
+            ))}
+          </ul>
+        ) : null}
+        {usable.length ? (
+          <ul aria-label="可用状态">
+            {usable.map((label) => (
               <li key={label}>{label}</li>
             ))}
           </ul>
@@ -60,7 +75,7 @@ export function OfficeChecks({
               <div>
                 <strong>{check.label}</strong>
                 <span>
-                  {{ passed: '通过', failed: '未通过', unavailable: '尚未验证', pending: '待检查' }[check.status]}
+                  {officeCheckStatusLabel(check.status, check.id)}
                 </span>
               </div>
               <p>{check.message}</p>
@@ -89,7 +104,7 @@ export function OfficeVersions({
   selectedVersionId?: string;
   busy: boolean;
   onSelect: (versionId: string) => void;
-  onAccept: (version: OfficeVersion) => void;
+  onAccept: (version: OfficeVersion, formal?: boolean) => void;
   onRestore: (version: OfficeVersion) => void;
   onCompare: (version: OfficeVersion) => void;
 }): React.JSX.Element {
@@ -124,7 +139,7 @@ export function OfficeVersions({
               </button>
               <button
                 disabled={busy || artifact.acceptedVersionId === version.id || !canFormalDeliver(version)}
-                onClick={() => onAccept(version)}
+                onClick={() => onAccept(version, true)}
               >
                 作为正式交付
               </button>

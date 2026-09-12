@@ -233,7 +233,7 @@ func (e *Engine) executeOfficeTool(ctx context.Context, sessionID, name string, 
 			switch name {
 			case "office.cache.refresh":
 				if !e.officeCapabilities().Render {
-					return fmt.Errorf("FEATURE_DISABLED: native renderer disabled")
+					return fmt.Errorf("FEATURE_DISABLED: 未检测到 LibreOffice，不能刷新目录或公式缓存")
 				}
 				version, runErr = s.RefreshNativeCaches(run, task.ID, v.ID, p.ExpectedRevision, key)
 				return runErr

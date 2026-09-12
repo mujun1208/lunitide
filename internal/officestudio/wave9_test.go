@@ -95,6 +95,7 @@ func TestWordBodyUsesBrandWordLadderNotPPTBodyPt(t *testing.T) {
 }
 
 func TestIndependentTypstHeadingsDoNotClaimPDFA(t *testing.T) {
+	t.Setenv("LUNITIDE_PDFA_VALIDATOR", "")
 	body := FormatIndependentReport("研究报告", "客户", "复盘", "订单 1280单", []string{"台账A1"})
 	markup := typstMarkup("研究报告", body)
 	for _, h := range []string{"= 封面", "= 目录", "= 正文", "= 引用"} {

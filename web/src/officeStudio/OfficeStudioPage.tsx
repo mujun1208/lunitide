@@ -33,7 +33,7 @@ import {
   type OfficeVersion,
 } from './officeStudioApi';
 import { defaultOfficeArtifact, isOfficeReference, officeDate, officeRunLabel } from './officePresentation';
-import { OFFICE_GENERATE_STAGES, OFFICE_STYLE_OPTIONS, briefFieldLabel, briefLengthLabel, deferredOfficeCapabilitiesNotice, trialScopeNotice, visualScoreNotice } from './officeQualityUi';
+import { OFFICE_GENERATE_STAGES, OFFICE_STYLE_OPTIONS, briefFieldLabel, briefLengthLabel, deferredOfficeCapabilitiesNotice, draftQualityNotice, generateActionNotice, importLimitNotice, nextLocateFactOffset, nextLocatePreviewOffset, trialScopeNotice, usabilityScopeNotice, visualScoreNotice } from './officeQualityUi';
 import './officeStudio.css';
 import { useOfficePanelResize } from './useOfficePanelResize';
 import { OfficeReferences } from './OfficeReferences';
@@ -178,6 +178,7 @@ export function OfficeStudioPage({
   const [activity, setActivity] = useState(false);
   const [checking, setChecking] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [checkStopped, setCheckStopped] = useState(false);
   const [initialFiles, setInitialFiles] = useState<File[]>([]);
   const [renameOpen, setRenameOpen] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
@@ -269,9 +270,9 @@ export function OfficeStudioPage({
       const pull = () =>
         officeRead(api.sync({ taskId: id, ...(options?.artifactPath ? { artifactPath: options.artifactPath } : {}) }));
       let next = await pull();
-      for (let attempt = 0; options?.untilDeliverable && attempt < 4 && !defaultOfficeArtifact(next.artifacts); attempt++) {
+      for (let attempt = 0; options?.untilDeliverable && attempt < 12 && !defaultOfficeArtifact(next.artifacts); attempt++) {
         if (!alive.current || currentTaskId.current !== id || epoch !== syncEpoch.current) return;
-        await new Promise((resolve) => window.setTimeout(resolve, 200));
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
         if (!alive.current || currentTaskId.current !== id || epoch !== syncEpoch.current) return;
         next = await pull();
       }
@@ -625,7 +626,7 @@ export function OfficeStudioPage({
         setNotice('已同步原对话的交付文件。');
       }
     });
-  const accept = (accepted: OfficeVersion) =>
+  const accept = (accepted: OfficeVersion, formal = false) =>
     run(async () => {
       if (!detail || !artifact) return;
       applyDetail(
@@ -634,9 +635,10 @@ export function OfficeStudioPage({
           artifactId: artifact.id,
           versionId: accepted.id,
           expectedRevision: artifact.revision,
+          ...(formal ? { formal: true } : {}),
         }),
       );
-      setNotice(accepted.quality === 'passed' ? '已接受此版本。' : '已接受为草稿，检查状态保持不变。');
+      setNotice(formal ? '已接受为正式交付。' : accepted.quality === 'passed' ? '已接受此版本。' : '已接受为草稿，检查状态保持不变。');
     });
   const restore = (restored: OfficeVersion) =>
     run(async () => {
@@ -656,6 +658,7 @@ export function OfficeStudioPage({
     run(async () => {
       if (version) {
         setChecking(true);
+        setCheckStopped(false);
         try {
           applyDetail(await api.validate({ taskId, versionId: version.id }));
           setPreviewRevision((value) => value + 1);
@@ -666,10 +669,19 @@ export function OfficeStudioPage({
     });
   const stopCheck = async () => {
     if (stopping) return;
+    if (detail?.task.status === 'running') {
+      setError('停止检查不会取消正在生成的文件。');
+      return;
+    }
+    if (!checking && detail?.task.status !== 'validating' && version?.quality !== 'checking') {
+      setNotice('当前没有进行中的检查。');
+      return;
+    }
     setStopping(true);
     try {
       applyDetail(await api.cancel({ taskId }));
-      setNotice('检查已停止，原文件和已有检查记录仍保留。');
+      setCheckStopped(true);
+      setNotice('已停止，检查未完成。原文件和已有检查记录仍保留。');
     } catch (cause) {
       setError(message(cause));
     } finally {
@@ -704,6 +716,75 @@ export function OfficeStudioPage({
     requestAnimationFrame(() =>
       document.getElementById(`office-node-${node.id}`)?.scrollIntoView({ block: 'nearest', behavior: 'auto' }),
     );
+  };
+  const locateNode = async (id: string) => {
+    if (!version) return;
+    let page = preview;
+    let offset = nodeOffset;
+    const seen = new Set<number>();
+    while (page) {
+      const step = nextLocatePreviewOffset(id, page.nodes, offset, page.nextNodeOffset);
+      if ('found' in step) {
+        const node = page.nodes.find((item) => item.id === id);
+        if (offset !== nodeOffset) {
+          setPreviewPage({ versionId: version.id, offset, previous: [...previousNodeOffsets, nodeOffset] });
+        }
+        if (node) locate(node);
+        return;
+      }
+      if ('missing' in step) {
+        setError('不在此版本');
+        return;
+      }
+      if (seen.has(step.nextOffset)) {
+        setError('不在此版本');
+        return;
+      }
+      seen.add(offset);
+      try {
+        page = await api.preview({ taskId, versionId: version.id, nodeOffset: step.nextOffset });
+        offset = page.nodeOffset ?? step.nextOffset;
+      } catch (cause) {
+        setError(message(cause));
+        return;
+      }
+    }
+    setError('不在此版本');
+  };
+  const locateFacts = async () => {
+    const facts = detail?.task.brief?.facts ?? [];
+    if (!version || !facts.length) return;
+    let page = preview;
+    let offset = nodeOffset;
+    const seen = new Set<number>();
+    while (page) {
+      const step = nextLocateFactOffset(facts, page.nodes, offset, page.nextNodeOffset);
+      if ('found' in step) {
+        const node = page.nodes.find((item) => item.id === step.nodeId);
+        if (offset !== nodeOffset) {
+          setPreviewPage({ versionId: version.id, offset, previous: [...previousNodeOffsets, nodeOffset] });
+        }
+        if (node) locate(node);
+        return;
+      }
+      if ('missing' in step) {
+        setError('不在此版本');
+        return;
+      }
+      if (seen.has(step.nextOffset)) {
+        setError('不在此版本');
+        return;
+      }
+      seen.add(offset);
+      try {
+        page = await api.preview({ taskId, versionId: version.id, nodeOffset: step.nextOffset });
+        offset = page.nodeOffset ?? step.nextOffset;
+      } catch (cause) {
+        setError(message(cause));
+        return;
+      }
+    }
+    setError('不在此版本');
   };
   const selectDeliverable = (file: { id: string; headVersionId: string }) => {
     setArtifactId(file.id);
@@ -788,6 +869,19 @@ export function OfficeStudioPage({
             </>
           )}
           <button disabled={busy} onClick={() => setStorageOpen(true)}>存储用量</button>
+          {detail && (
+            <button
+              disabled={busy}
+              onClick={() =>
+                void run(async () => {
+                  setComponents(await api.probe());
+                  setComponentsOpen(true);
+                })
+              }
+            >
+              查看本机排版与检查组件
+            </button>
+          )}
           {detail && (
             <button
               className="os-primary"
@@ -1036,6 +1130,7 @@ export function OfficeStudioPage({
                 >
                   导入当前文件的修改版
                 </button>
+                <small className="os-muted">{importLimitNotice()}</small>
                 <small className="os-muted">单个文件不超过 10 MiB</small>
               </>
             )}
@@ -1211,8 +1306,8 @@ export function OfficeStudioPage({
                       }),
                     )
                       .then((next) => setDetail((previous) => visibleDetail(previous, next)))
-                      .catch(() => {
-                        /* keep draft so the user can fix audience or length */
+                      .catch((cause) => {
+                        setError(message(cause));
                       });
                   }}
                 >
@@ -1231,9 +1326,11 @@ export function OfficeStudioPage({
                   );
                 })}
               </section>
-              <p className="os-generate-choice">可先看上方三个预览再生成，或直接生成。预览只来自当前任务。</p>
+              <p className="os-generate-choice">{generateActionNotice()} 预览只来自当前任务。</p>
+              <p className="os-import-limit-notice">{importLimitNotice()}</p>
               <fieldset className="os-style-picker">
                 <legend>风格</legend>
+                <p className="os-muted">工程变体，非设计师已检 36</p>
                 {OFFICE_STYLE_OPTIONS.map((option) => (
                   <label key={option.id}>
                     <input
@@ -1260,8 +1357,8 @@ export function OfficeStudioPage({
                           }),
                         )
                           .then((next) => setDetail((previous) => visibleDetail(previous, next)))
-                          .catch(() => {
-                            /* local style still applies on next generate if the model sends templateId */
+                          .catch((cause) => {
+                            setError(message(cause));
                           });
                       }}
                     />
@@ -1330,6 +1427,7 @@ export function OfficeStudioPage({
                 </label>
                 <button
                   type="button"
+                  disabled={!canRegisterOfficeBrand(brandDraft)}
                   onClick={() => {
                     if (!taskId || !detail || detail.task.id !== taskId || !canRegisterOfficeBrand(brandDraft)) return;
                     const navy = officeBrandNavy(brandDraft.navy);
@@ -1354,15 +1452,18 @@ export function OfficeStudioPage({
                       }),
                     )
                       .then((next) => setDetail((previous) => visibleDetail(previous, next)))
-                      .catch(() => {
-                        /* keep draft so the user can fix license or digest */
+                      .catch((cause) => {
+                        setError(message(cause));
                       });
                   }}
                 >
                   登记品牌
                 </button>
+                {!canRegisterOfficeBrand(brandDraft) ? (
+                  <p className="os-muted">登记品牌需要编号、来源、许可和 64 位摘要。</p>
+                ) : null}
               </fieldset>
-              <ol className="os-generate-stages" aria-label="生成进度">
+              <ol className="os-generate-stages" aria-label="生成流程说明">
                 {OFFICE_GENERATE_STAGES.map((stage) => (
                   <li key={stage}>{stage}</li>
                 ))}
@@ -1370,6 +1471,7 @@ export function OfficeStudioPage({
               <p className="os-visual-score-notice">{visualScoreNotice()}</p>
               <p className="os-deferred-notice">{deferredOfficeCapabilitiesNotice()}</p>
               <p className="os-trial-notice">{trialScopeNotice()}</p>
+              <p className="os-usability-notice">{usabilityScopeNotice()}</p>
             </section>
             <OfficeArtifactViewer
               api={api}
@@ -1382,6 +1484,7 @@ export function OfficeStudioPage({
               selectedNodeId={selectedNode?.id}
               onSelectNode={locate}
               onRetry={() => setPreviewRevision((value) => value + 1)}
+              onRebuild={() => void validate()}
             />
             {version && preview && typeof preview.totalNodes === 'number' && preview.totalNodes > 0 && (
               <nav className="os-preview-pages" aria-label="结构内容翻页">
@@ -1535,11 +1638,13 @@ export function OfficeStudioPage({
                   busy={mutationBusy}
                   checking={checking}
                   stopping={stopping}
+                  checkStopped={checkStopped}
+                  facts={detail?.task.brief?.facts}
+                  nodes={preview?.nodes}
                   onStop={() => void stopCheck()}
                   onValidate={() => void validate()}
                   onLocate={(id) => {
-                    const node = preview?.nodes.find((item) => item.id === id);
-                    if (node) locate(node);
+                    void locateNode(id);
                   }}
                 />
               )}
@@ -1568,9 +1673,28 @@ export function OfficeStudioPage({
                     node={selectedNode}
                     facts={detail.task.brief?.facts}
                     nodes={preview?.nodes}
+                    onLocate={(id) => {
+                      void locateNode(id);
+                    }}
+                    onSearchFacts={() => {
+                      void locateFacts();
+                    }}
                     actions={{
                       list: () => api.listMetrics({ taskId }),
-                      capture: (input) => api.captureMetric({ taskId, ...input }),
+                      capture: (input) =>
+                        api.captureMetric({
+                          taskId,
+                          versionId: input.versionId,
+                          nodeId: input.nodeId || 'unused-node',
+                          nodeDigest: input.nodeDigest || '0'.repeat(64),
+                          name: input.name,
+                          ...(input.factId !== undefined ? { factId: input.factId } : {}),
+                          ...(input.value !== undefined ? { value: input.value } : {}),
+                          ...(input.unit !== undefined ? { unit: input.unit } : {}),
+                          ...(input.currency !== undefined ? { currency: input.currency } : {}),
+                          ...(input.period !== undefined ? { period: input.period } : {}),
+                          ...(input.roundingDigits !== undefined ? { roundingDigits: input.roundingDigits } : {}),
+                        }),
                       apply: (input) => api.applyMetric({ taskId, ...input }),
                     }}
                     onChanged={applyDetail}
@@ -1689,8 +1813,8 @@ export function OfficeStudioPage({
         open={exportOpen}
         title="导出副本"
         description={
-          version?.quality === 'passed'
-            ? '导出当前查看的版本，历史和已接受版本保持不变。'
+          version
+            ? `${draftQualityNotice(version.quality, artifact?.acceptedVersionId === version.id)} 历史和已接受版本保持不变。`
             : '此版本尚未通过全部所需检查，将按草稿导出。'
         }
         onClose={() => {

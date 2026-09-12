@@ -105,6 +105,27 @@ describe('bounded Office byte transport', () => {
     expect(bridge.abort).not.toHaveBeenCalled();
   });
 
+  it('surfaces a failed abort instead of swallowing it', async () => {
+    const bridge = attachments(),
+      office = api(),
+      progress = vi.fn();
+    vi.spyOn(crypto.subtle, 'digest').mockResolvedValue(new Uint8Array(32).buffer);
+    vi.mocked(bridge.chunk).mockResolvedValue({ uploadId: 'upload', nextOffset: 999 });
+    vi.mocked(bridge.abort).mockRejectedValue(new Error('abort failed'));
+    await expect(
+      uploadOfficeFiles(
+        bridge,
+        office,
+        task,
+        'project',
+        [new File(['PK12345'], 'test.xlsx')],
+        progress,
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('进度不一致');
+    await vi.waitFor(() => expect(progress).toHaveBeenCalledWith('取消未完成的导入失败，请重试。'));
+  });
+
   it('aborts a malformed upload acknowledgment and never commits or imports it', async () => {
     const bridge = attachments(),
       office = api();

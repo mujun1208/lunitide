@@ -36,6 +36,8 @@ export function OfficeMetricPanel({
   readOnly = false,
   facts = [],
   nodes = [],
+  onLocate,
+  onSearchFacts,
 }: {
   taskId: string;
   artifact?: OfficeArtifact;
@@ -46,6 +48,8 @@ export function OfficeMetricPanel({
   readOnly?: boolean;
   facts?: OfficeBriefFact[];
   nodes?: Array<Pick<OfficeNode, 'id' | 'text' | 'valueType'>>;
+  onLocate?: (nodeId: string) => void;
+  onSearchFacts?: () => void;
 }): React.JSX.Element {
   const [metrics, setMetrics] = useState<OfficeMetric[]>([]);
   const [revision, setRevision] = useState(0);
@@ -146,11 +150,23 @@ export function OfficeMetricPanel({
           {factRefs.map((ref) => (
             <li key={ref.factId + ':' + ref.nodeId}>
               {ref.factId} → {ref.nodeId}
+              {onLocate && (
+                <button type="button" onClick={() => onLocate(ref.nodeId)}>
+                  定位
+                </button>
+              )}
             </li>
           ))}
         </ul>
       ) : facts.length > 0 ? (
-        <p className="os-muted">当前预览未找到已核对事实的节点，不能假装已绑定。</p>
+        <div>
+          <p className="os-muted">当前预览未找到已核对事实的节点；不在当前页或不在此版本，不能假装已绑定。</p>
+          {onSearchFacts && (
+            <button type="button" onClick={onSearchFacts}>
+              在此版本查找
+            </button>
+          )}
+        </div>
       ) : null}
       {error && (
         <p role="alert" className="os-metric-error">
