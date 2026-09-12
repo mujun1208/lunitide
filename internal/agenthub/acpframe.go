@@ -2,51 +2,53 @@ package agenthub
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
-	"strconv"
-	"strings"
 )
 
 const maxACPFrameBytes = 4 << 20
 
 func EncodeACPFrame(body []byte) []byte {
-	header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(body))
-	out := make([]byte, 0, len(header)+len(body))
-	out = append(out, header...)
-	return append(out, body...)
+	if bytes.IndexByte(body, '\n') >= 0 || bytes.IndexByte(body, '\r') >= 0 {
+		var compact bytes.Buffer
+		if err := json.Compact(&compact, body); err == nil {
+			body = compact.Bytes()
+		}
+	}
+	out := make([]byte, 0, len(body)+1)
+	out = append(out, body...)
+	return append(out, '\n')
 }
 
 func DecodeACPFrame(r *bufio.Reader) ([]byte, error) {
-	var length int
+	var line []byte
 	for {
-		line, err := r.ReadString('\n')
-		if err != nil {
-			return nil, err
+		part, err := r.ReadSlice('\n')
+		if len(line)+len(part) > maxACPFrameBytes {
+			return nil, fmt.Errorf("acp frame too large")
 		}
-		trimmed := strings.TrimRight(line, "\r\n")
-		if trimmed == "" {
-			if length <= 0 {
-				return nil, fmt.Errorf("acp frame missing Content-Length")
+		line = append(line, part...)
+		if err == nil {
+			break
+		}
+		if err == io.EOF {
+			if len(line) == 0 {
+				return nil, err
 			}
 			break
 		}
-		key, value, ok := strings.Cut(trimmed, ":")
-		if !ok {
-			return nil, fmt.Errorf("acp frame header %q", trimmed)
+		if err != bufio.ErrBufferFull {
+			return nil, err
 		}
-		if !strings.EqualFold(strings.TrimSpace(key), "Content-Length") {
-			continue
-		}
-		n, err := strconv.Atoi(strings.TrimSpace(value))
-		if err != nil || n < 0 || n > maxACPFrameBytes {
-			return nil, fmt.Errorf("acp frame length %q", value)
-		}
-		length = n
 	}
-	body := make([]byte, length)
-	if _, err := io.ReadFull(r, body); err != nil {
-		return nil, err
+	line = bytes.TrimRight(line, "\r\n")
+	if bytes.HasPrefix(bytes.TrimSpace(line), []byte("Content-Length:")) {
+		return nil, fmt.Errorf("acp frame is Content-Length, want NDJSON")
 	}
-	return body, nil
+	if !json.Valid(line) {
+		return nil, fmt.Errorf("acp frame is not JSON-RPC")
+	}
+	return line, nil
 }

@@ -35,15 +35,14 @@ func TestACPFrameRoundTripHelloFixture(t *testing.T) {
 			t.Fatalf("fixture line %d is not JSON: %s", n, line)
 		}
 		frame := EncodeACPFrame(line)
-		header, body, ok := bytes.Cut(frame, []byte("\r\n\r\n"))
-		if !ok {
-			t.Fatalf("frame %d missing Content-Length CRLF separator (must not be NDJSON): %q", n, frame)
+		if bytes.HasPrefix(frame, []byte("Content-Length:")) || bytes.Contains(frame, []byte("\r\n\r\n")) {
+			t.Fatalf("frame %d uses Content-Length, want NDJSON: %q", n, frame)
 		}
-		if !bytes.Equal(header, []byte("Content-Length: "+strconv.Itoa(len(line)))) {
-			t.Fatalf("frame %d header = %q", n, header)
+		if bytes.Count(frame, []byte{'\n'}) != 1 || !bytes.HasSuffix(frame, []byte{'\n'}) {
+			t.Fatalf("frame %d must be one JSON line plus \\n: %q", n, frame)
 		}
-		if bytes.Contains(header, []byte{'\n'}) && !bytes.HasPrefix(frame, []byte("Content-Length:")) {
-			t.Fatalf("frame %d is not Content-Length framed", n)
+		if bytes.Contains(bytes.TrimSuffix(frame, []byte{'\n'}), []byte{'\n'}) {
+			t.Fatalf("frame %d embeds a newline inside the JSON-RPC message: %q", n, frame)
 		}
 		got, err := DecodeACPFrame(bufio.NewReader(bytes.NewReader(frame)))
 		if err != nil {
@@ -52,15 +51,21 @@ func TestACPFrameRoundTripHelloFixture(t *testing.T) {
 		if !jsonEqual(got, line) {
 			t.Fatalf("round-trip line %d\n got %s\nwant %s", n, got, line)
 		}
-		if !bytes.Equal(body, line) {
-			t.Fatalf("frame body != fixture line %d", n)
-		}
 	}
 	if err = sc.Err(); err != nil {
 		t.Fatal(err)
 	}
 	if n < 3 {
 		t.Fatalf("fixture objects = %d, want at least 3 JSON-RPC lines", n)
+	}
+}
+
+func TestACPFrameRejectsContentLength(t *testing.T) {
+	body := []byte(`{"jsonrpc":"2.0","id":1,"method":"initialize"}`)
+	framed := append([]byte("Content-Length: "+strconv.Itoa(len(body))+"\r\n\r\n"), body...)
+	got, err := DecodeACPFrame(bufio.NewReader(bytes.NewReader(framed)))
+	if err == nil {
+		t.Fatalf("Content-Length wire must fail, got %s", got)
 	}
 }
 
