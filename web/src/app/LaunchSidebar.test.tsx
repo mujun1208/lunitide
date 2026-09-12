@@ -104,6 +104,9 @@ it('does not show raw English conversation list failures', async () => {
 
 it('shows replaceMainNav and hides the 对话 heading', () => {
   render(<LaunchSidebar {...sidebarProps({ replaceMainNav: <div>slot</div> })} />)
-  expect(screen.getByText('slot')).not.toBeNull()
+  const slot = screen.getByText('slot')
+  expect(slot).not.toBeNull()
   expect(screen.queryByRole('button', { name: '对话' })).toBeNull()
+  expect(slot.closest('.primary-actions')).toBeNull()
+  expect(slot.parentElement).toBe(document.getElementById('launch-sidebar'))
 })
