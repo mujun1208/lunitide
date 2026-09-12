@@ -1,0 +1,175 @@
+package agenthub
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestCodexThreadArgvOmitsIgnoreUserConfig(t *testing.T) {
+	exe, args := codexThreadArgv(`D:\work`, "workspace-write")
+	if exe != "codex" {
+		t.Fatalf("exe = %q, want codex", exe)
+	}
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "exec") || !strings.Contains(joined, "--json") || !strings.Contains(joined, "--skip-git-repo-check") || !strings.Contains(joined, "--sandbox") || !strings.Contains(joined, "--cd") {
+		t.Fatalf("thread argv missing flags: %v", args)
+	}
+	if !hasPair(args, "--sandbox", "workspace-write") || !hasPair(args, "--cd", `D:\work`) {
+		t.Fatalf("sandbox/cd = %v", args)
+	}
+	if !strings.Contains(joined, filepath.Join(`D:\work`, "codex-last-message.md")) {
+		t.Fatalf("missing last-message output: %v", args)
+	}
+	if strings.Contains(joined, "--ignore-user-config") {
+		t.Fatalf("thread argv must not include --ignore-user-config: %v", args)
+	}
+}
+
+func TestCodexThreadArgvDefaultsSandbox(t *testing.T) {
+	_, args := codexThreadArgv(`D:\work`, "")
+	if !hasPair(args, "--sandbox", "workspace-write") {
+		t.Fatalf("default sandbox = %v", args)
+	}
+	if strings.Contains(strings.Join(args, " "), "--ignore-user-config") {
+		t.Fatalf("thread argv must not include --ignore-user-config: %v", args)
+	}
+}
+
+func TestDetectCodexAvailableHintCannotAsk(t *testing.T) {
+	want := "当前只能一把跑完，不能中途提问"
+	st := detectOne("codex", func(string) (string, error) { return `C:\codex.exe`, nil }, func(string, time.Duration) (string, error) {
+		return "codex-cli 0.1.0", nil
+	})
+	if st.State != "available" || st.Interactive || st.Protocol != "exec" {
+		t.Fatalf("codex detect = %+v, want available/false/exec", st)
+	}
+	if st.Hint != want {
+		t.Fatalf("hint = %q, want %q", st.Hint, want)
+	}
+
+	timeout := detectOne("codex", func(string) (string, error) { return `C:\codex.exe`, nil }, func(string, time.Duration) (string, error) {
+		return "", errors.New("timeout")
+	})
+	if timeout.State != "available" || timeout.Hint != want {
+		t.Fatalf("timeout available hint = %+v", timeout)
+	}
+
+	cursor := detectOne("cursor", func(string) (string, error) { return `C:\cursor-agent.cmd`, nil }, func(string, time.Duration) (string, error) {
+		return "2026.09.10", nil
+	})
+	if cursor.Hint != "可用" {
+		t.Fatalf("cursor hint = %q, want 可用", cursor.Hint)
+	}
+}
+
+func TestThreadAdapterWiresCodex(t *testing.T) {
+	s := &Service{Threads: NewThreadStore(openThreadDB(t))}
+	adapter, err := s.threadAdapter("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := adapter.(*CodexThread); !ok {
+		t.Fatalf("codex adapter = %T", adapter)
+	}
+}
+
+func TestCodexThreadPromptRunsExecWithoutIgnore(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "codex", "Exec", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	var got ProcSpec
+	adapter := NewCodexThread(store)
+	adapter.look = func(string) (string, error) { return `C:\fake-codex.exe`, nil }
+	adapter.start = func(_ context.Context, spec ProcSpec, onLine func(string)) (int64, bool, error) {
+		got = spec
+		onLine(`{"type":"agent.message","text":"done as-is"}`)
+		return 0, false, nil
+	}
+	if err := adapter.Prompt(thread.ID, "user as-is"); err != nil {
+		t.Fatal(err)
+	}
+	if string(got.Stdin) != "user as-is" {
+		t.Fatalf("stdin = %q, want user text as-is", got.Stdin)
+	}
+	if got.Dir != thread.WorkspaceRoot {
+		t.Fatalf("dir = %q", got.Dir)
+	}
+	joined := strings.Join(got.Args, " ")
+	if strings.Contains(joined, "--ignore-user-config") {
+		t.Fatalf("prompt argv has ignore: %v", got.Args)
+	}
+	if !strings.Contains(joined, "exec") || !strings.Contains(joined, "--json") || !strings.Contains(joined, "--skip-git-repo-check") {
+		t.Fatalf("prompt argv missing exec flags: %v", got.Args)
+	}
+	gotThread, err := store.Get(thread.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotThread.Status != "success" {
+		t.Fatalf("status = %q, want success", gotThread.Status)
+	}
+	role, content := loadLastMessage(t, store.db, thread.ID)
+	if role != "assistant" || !strings.Contains(content, "done as-is") {
+		t.Fatalf("assistant = %s %q", role, content)
+	}
+}
+
+func TestCodexThreadPromptReadsLastMessageFile(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "codex", "Exec", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	adapter := NewCodexThread(store)
+	adapter.look = func(string) (string, error) { return `C:\fake-codex.exe`, nil }
+	adapter.start = func(_ context.Context, spec ProcSpec, _ func(string)) (int64, bool, error) {
+		if err := os.WriteFile(filepath.Join(spec.Dir, "codex-last-message.md"), []byte("from last-message"), 0o644); err != nil {
+			return 1, false, err
+		}
+		return 0, false, nil
+	}
+	if err := adapter.Prompt(thread.ID, "hi"); err != nil {
+		t.Fatal(err)
+	}
+	role, content := loadLastMessage(t, store.db, thread.ID)
+	if role != "assistant" || content != "from last-message" {
+		t.Fatalf("assistant = %s %q", role, content)
+	}
+}
+
+func TestCodexThreadPromptFaultsOnStartError(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "codex", "Exec", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	adapter := NewCodexThread(store)
+	adapter.look = func(string) (string, error) { return "", errors.New("not found") }
+	if err := adapter.Prompt(thread.ID, "hi"); err == nil {
+		t.Fatal("missing exe must error")
+	}
+	got, err := store.Get(thread.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "faulted" {
+		t.Fatalf("status = %q, want faulted", got.Status)
+	}
+}
+
+func TestCodexThreadRespondErrors(t *testing.T) {
+	adapter := NewCodexThread(NewThreadStore(openThreadDB(t)))
+	if err := adapter.Respond("x", "c", "yes"); err == nil {
+		t.Fatal("exec cannot respond mid-turn")
+	}
+}

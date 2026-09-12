@@ -269,6 +269,9 @@ func (s *Service) threadAdapter(harness string) (ThreadAdapter, error) {
 	if harness == "cursor" {
 		return NewCursorACP(s.Threads), nil
 	}
+	if harness == "codex" {
+		return NewCodexThread(s.Threads), nil
+	}
 	return nil, fmt.Errorf("%w: 该 Agent 尚未接入会话", ErrNotAvailable)
 }
 
