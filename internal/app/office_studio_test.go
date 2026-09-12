@@ -609,3 +609,335 @@ func TestOfficeEngineToolCallPublicationIsIdempotent(t *testing.T) {
 		t.Fatalf("duplicate tool publication: %d %v", len(versions), err)
 	}
 }
+
+func TestOfficeRendererProbeListsOptionalTools(t *testing.T) {
+	t.Setenv("LUNITIDE_PDFA_VALIDATOR", "")
+	t.Setenv("LUNITIDE_OFFICE_VISION", "")
+	t.Setenv("LUNITIDE_TYPST", "")
+	t.Setenv("LUNITIDE_PRESENTON", "")
+	t.Setenv("LUNITIDE_PPTXGENJS", "")
+	e, _ := officeEngineFixture(t)
+	r := officeCall(t, e, "office.renderer.probe", "probe-optional", map[string]any{})
+	if !r.OK {
+		t.Fatalf("probe: %+v", r.Error)
+	}
+	var out struct {
+		Components []struct{ ID, Label, Status, Detail string }
+	}
+	if err := decodeResponsePayload(r.Payload, &out); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]struct{ Status, Detail string }{}
+	for _, c := range out.Components {
+		seen[c.ID] = struct{ Status, Detail string }{c.Status, c.Detail}
+	}
+	for _, id := range []string{"go", "desktop-office", "libreoffice", "pdfa", "vision", "typst", "presenton", "pptxgenjs"} {
+		if _, ok := seen[id]; !ok {
+			t.Fatalf("missing component %s: %#v", id, out.Components)
+		}
+	}
+	if seen["pdfa"].Status != "unavailable" || !strings.Contains(seen["pdfa"].Detail, "草稿") {
+		t.Fatalf("pdfa=%#v", seen["pdfa"])
+	}
+	if seen["presenton"].Status != "unavailable" || !strings.Contains(seen["presenton"].Detail, "未进生产主链") {
+		t.Fatalf("presenton=%#v", seen["presenton"])
+	}
+	if !strings.Contains(seen["desktop-office"].Detail, "不等于") {
+		t.Fatalf("desktop=%#v", seen["desktop-office"])
+	}
+	if !strings.Contains(seen["typst"].Detail, "gofpdf") {
+		t.Fatalf("typst=%#v", seen["typst"])
+	}
+}
+
+func TestOfficeFormalAcceptRequiresPassedQuality(t *testing.T) {
+	e, store := officeEngineFixture(t)
+	task := officeCreatedTask(t, e, "formal-gate")
+	ctx := context.Background()
+	data, err := content.Generate(content.Spec{SchemaVersion: 1, Kind: content.DOCX, Title: "草稿", Blocks: []content.Block{{Type: "paragraph", Text: "正文"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := e.officeStudio.Import(ctx, task.ID, "", "draft.docx", data, "", 0, "formal-import")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Quality == "passed" {
+		t.Fatal("imported docx must not start passed")
+	}
+	formal := officeCall(t, e, "office.artifact.accept", "accept-formal", map[string]any{
+		"taskId": task.ID, "artifactId": v.ArtifactID, "versionId": v.ID, "expectedRevision": 1, "formal": true,
+	})
+	if formal.OK || formal.Error.Code != "OFFICE_DRAFT_REQUIRED" {
+		t.Fatalf("formal accept of draft: %+v", formal)
+	}
+	draft := officeCall(t, e, "office.artifact.accept", "accept-draft", map[string]any{
+		"taskId": task.ID, "artifactId": v.ArtifactID, "versionId": v.ID, "expectedRevision": 1,
+	})
+	if !draft.OK {
+		t.Fatalf("draft accept: %+v", draft.Error)
+	}
+	heads, err := store.ListOfficeHeads(ctx, task.ID)
+	if err != nil || len(heads) == 0 || heads[0].AcceptedVersionID != v.ID {
+		t.Fatalf("accepted pointer: %#v %v", heads, err)
+	}
+}
+
+func TestOfficeGenerateXLSXFallsIntoCurrentTask(t *testing.T) {
+	e, store := officeEngineFixture(t)
+	task := officeCreatedTask(t, e, "xlsx-generate")
+	ctx := toolruntime.WithExecutionKey(context.Background(), task.SessionID, "xlsx-gen-1")
+	args, _ := json.Marshal(map[string]any{
+		"name": "stable.xlsx",
+		"spec": content.Spec{SchemaVersion: 2, Kind: content.XLSX, Title: "经营簿", Sheets: []content.Sheet{
+			{Name: "原始数据", Rows: [][]content.Cell{{{Type: "text", Value: "订单"}, {Type: "number", Value: "1280"}}}},
+		}},
+	})
+	if _, err := e.executeUserTool(ctx, executionModeFullAccess, task.SessionID, "office.generate", args); err != nil {
+		t.Fatal(err)
+	}
+	versions, err := store.ListOfficeVersions(ctx, task.ID, "")
+	if err != nil || len(versions) != 1 || versions[0].Kind != "xlsx" {
+		t.Fatalf("xlsx generate versions: %#v %v", versions, err)
+	}
+}
+
+func TestOfficeGeneratePDFFallsIntoCurrentTask(t *testing.T) {
+	e, store := officeEngineFixture(t)
+	task := officeCreatedTask(t, e, "pdf-generate")
+	ctx := toolruntime.WithExecutionKey(context.Background(), task.SessionID, "pdf-gen-1")
+	args, _ := json.Marshal(map[string]any{
+		"name": "stable.pdf",
+		"spec": content.Spec{SchemaVersion: 2, Kind: content.PDF, Title: "月报", Body: "订单 1280单"},
+	})
+	if _, err := e.executeUserTool(ctx, executionModeFullAccess, task.SessionID, "office.generate", args); err != nil {
+		t.Fatal(err)
+	}
+	versions, err := store.ListOfficeVersions(ctx, task.ID, "")
+	if err != nil || len(versions) != 1 || versions[0].Kind != "pdf" {
+		t.Fatalf("pdf generate versions: %#v %v", versions, err)
+	}
+}
+
+func TestOfficeCacheRefreshWithoutRendererFailsInChinese(t *testing.T) {
+	e, store := officeEngineFixture(t)
+	flags := config.DefaultOfficeFlags()
+	flags.Render = false
+	e.SetOfficeFlags(flags)
+	task := officeCreatedTask(t, e, "refresh-flag-off")
+	ctx := toolruntime.WithExecutionKey(context.Background(), task.SessionID, "refresh-docx")
+	args, _ := json.Marshal(map[string]any{
+		"name": "目录.docx",
+		"spec": content.Spec{SchemaVersion: 1, Kind: content.DOCX, Title: "目录", Blocks: []content.Block{{Type: "paragraph", Text: "正文"}}},
+	})
+	if _, err := e.executeUserTool(ctx, executionModeFullAccess, task.SessionID, "office.generate", args); err != nil {
+		t.Fatal(err)
+	}
+	versions, err := store.ListOfficeVersions(ctx, task.ID, "")
+	if err != nil || len(versions) != 1 {
+		t.Fatalf("versions: %#v %v", versions, err)
+	}
+	refreshArgs, _ := json.Marshal(map[string]any{"taskId": task.ID, "versionId": versions[0].ID, "expectedRevision": 1})
+	_, err = e.executeUserTool(toolruntime.WithExecutionKey(context.Background(), task.SessionID, "refresh-1"), executionModeFullAccess, task.SessionID, "office.cache.refresh", refreshArgs)
+	if err == nil || !strings.Contains(err.Error(), "LibreOffice") || !strings.Contains(err.Error(), "不能刷新") {
+		t.Fatalf("cache.refresh without renderer: %v", err)
+	}
+	bridgeRefresh := officeCall(t, e, "office.artifact.refresh", "refresh-bridge", map[string]any{
+		"taskId": task.ID, "artifactId": versions[0].ArtifactID, "versionId": versions[0].ID, "expectedRevision": 1,
+	})
+	if bridgeRefresh.OK || bridgeRefresh.Error.Code != "FEATURE_DISABLED" || !strings.Contains(bridgeRefresh.Error.Message, "本机排版更新已关闭") {
+		t.Fatalf("artifact.refresh flag off: %+v", bridgeRefresh)
+	}
+}
+
+func TestOfficeArtifactRefreshMissingSofficeFailsInChinese(t *testing.T) {
+	e, store := officeEngineFixture(t)
+	e.officeStudio.Renderer.Executable = filepath.Join(t.TempDir(), "missing-soffice.exe")
+	task := officeCreatedTask(t, e, "refresh-missing")
+	ctx := toolruntime.WithExecutionKey(context.Background(), task.SessionID, "refresh-word")
+	args, _ := json.Marshal(map[string]any{
+		"name": "目录.docx",
+		"spec": content.Spec{SchemaVersion: 1, Kind: content.DOCX, Title: "目录", Blocks: []content.Block{{Type: "toc"}, {Type: "paragraph", Text: "正文"}}},
+	})
+	if _, err := e.executeUserTool(ctx, executionModeFullAccess, task.SessionID, "office.generate", args); err != nil {
+		t.Fatal(err)
+	}
+	versions, err := store.ListOfficeVersions(ctx, task.ID, "")
+	if err != nil || len(versions) != 1 {
+		t.Fatalf("versions: %#v %v", versions, err)
+	}
+	got := officeCall(t, e, "office.artifact.refresh", "refresh-missing", map[string]any{
+		"taskId": task.ID, "artifactId": versions[0].ArtifactID, "versionId": versions[0].ID, "expectedRevision": 1,
+	})
+	if got.OK || !strings.Contains(got.Error.Message, "LibreOffice") {
+		t.Fatalf("missing soffice refresh: %+v", got)
+	}
+}
+
+func TestOfficeClosedLoopProtocol(t *testing.T) {
+	t.Setenv("LUNITIDE_TYPST", "")
+	t.Setenv("LUNITIDE_PRESENTON", "")
+	t.Setenv("LUNITIDE_PDFA_VALIDATOR", "")
+	e, store := officeEngineFixture(t)
+	ctx := context.Background()
+	task := officeCreatedTask(t, e, "closed-loop-s1")
+	specs := []struct {
+		kind content.Kind
+		name string
+		spec content.Spec
+	}{
+		{content.PPTX, "闭环.pptx", content.Spec{SchemaVersion: 2, Kind: content.PPTX, Title: "闭环PPT", Slides: []content.Slide{{Title: "封面", Layout: "section", Bullets: []string{"订单 1280单"}}}}},
+		{content.DOCX, "闭环.docx", content.Spec{SchemaVersion: 1, Kind: content.DOCX, Title: "闭环Word", Blocks: []content.Block{{Type: "paragraph", Text: "订单 1280单"}}}},
+		{content.XLSX, "闭环.xlsx", content.Spec{SchemaVersion: 2, Kind: content.XLSX, Title: "闭环Excel", Sheets: []content.Sheet{{Name: "原始数据", Rows: [][]content.Cell{{{Type: "text", Value: "订单"}, {Type: "number", Value: "1280"}}}}}}},
+		{content.PDF, "闭环.pdf", content.Spec{SchemaVersion: 2, Kind: content.PDF, Title: "闭环PDF", Body: "订单 1280单"}},
+	}
+	for i, fx := range specs {
+		ctx := toolruntime.WithExecutionKey(context.Background(), task.SessionID, fmt.Sprintf("cl-gen-%d", i))
+		args, _ := json.Marshal(map[string]any{"name": fx.name, "spec": fx.spec})
+		if _, err := e.executeUserTool(ctx, executionModeFullAccess, task.SessionID, "office.generate", args); err != nil {
+			t.Fatalf("generate %s: %v", fx.kind, err)
+		}
+	}
+	versions, err := store.ListOfficeVersions(ctx, task.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]domain.Version{}
+	for _, v := range versions {
+		seen[v.Kind] = v
+	}
+	for _, kind := range []string{"pptx", "docx", "xlsx", "pdf"} {
+		if seen[kind].ID == "" {
+			t.Fatalf("missing generated %s in current task: %#v", kind, versions)
+		}
+	}
+	got := officeCall(t, e, "office.task.get", "cl-get", map[string]any{"taskId": task.ID})
+	if !got.OK {
+		t.Fatalf("task.get: %+v", got.Error)
+	}
+	var page struct {
+		Artifacts []struct {
+			Kind     string
+			Versions []struct {
+				ID, Quality string
+			}
+		}
+	}
+	if err := decodeResponsePayload(got.Payload, &page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Artifacts) < 4 {
+		t.Fatalf("task.get artifacts: %#v", page.Artifacts)
+	}
+	probe := officeCall(t, e, "office.renderer.probe", "cl-probe", map[string]any{})
+	if !probe.OK {
+		t.Fatalf("probe: %+v", probe.Error)
+	}
+	var components struct {
+		Components []struct{ ID, Detail string }
+	}
+	if err := decodeResponsePayload(probe.Payload, &components); err != nil {
+		t.Fatal(err)
+	}
+	typst := ""
+	presenton := ""
+	for _, c := range components.Components {
+		if c.ID == "typst" {
+			typst = c.Detail
+		}
+		if c.ID == "presenton" {
+			presenton = c.Detail
+		}
+	}
+	if !strings.Contains(typst, "gofpdf") {
+		t.Fatalf("typst probe: %q", typst)
+	}
+	if !strings.Contains(presenton, "未进生产主链") {
+		t.Fatalf("presenton probe: %q", presenton)
+	}
+	pdf := seen["pdf"]
+	if pdf.Quality != "passed" {
+		t.Fatalf("independent PDF without Typst must be formally check-passed: %#v", pdf)
+	}
+	docx := seen["docx"]
+	formalDoc := officeCall(t, e, "office.artifact.accept", "cl-formal-docx", map[string]any{
+		"taskId": task.ID, "artifactId": docx.ArtifactID, "versionId": docx.ID, "expectedRevision": 1, "formal": true,
+	})
+	if formalDoc.OK || formalDoc.Error.Code != "OFFICE_DRAFT_REQUIRED" {
+		t.Fatalf("formal accept non-passed docx: %+v", formalDoc)
+	}
+	draftDoc := officeCall(t, e, "office.artifact.accept", "cl-draft-docx", map[string]any{
+		"taskId": task.ID, "artifactId": docx.ArtifactID, "versionId": docx.ID, "expectedRevision": 1,
+	})
+	if !draftDoc.OK {
+		t.Fatalf("draft accept: %+v", draftDoc.Error)
+	}
+	exportFormal := officeCall(t, e, "office.artifact.export", "cl-export-formal", map[string]any{"taskId": task.ID, "versionId": docx.ID, "draft": false})
+	if exportFormal.OK || exportFormal.Error.Code != "OFFICE_DRAFT_REQUIRED" {
+		t.Fatalf("formal export of draft: %+v", exportFormal)
+	}
+	exportDraft := officeCall(t, e, "office.artifact.export", "cl-export-draft", map[string]any{"taskId": task.ID, "versionId": docx.ID, "draft": true})
+	if !exportDraft.OK {
+		t.Fatalf("draft export: %+v", exportDraft.Error)
+	}
+	formalPDF := officeCall(t, e, "office.artifact.accept", "cl-formal-pdf", map[string]any{
+		"taskId": task.ID, "artifactId": pdf.ArtifactID, "versionId": pdf.ID, "expectedRevision": 1, "formal": true,
+	})
+	if !formalPDF.OK {
+		t.Fatalf("formal accept passed PDF: %+v", formalPDF.Error)
+	}
+	exportPDF := officeCall(t, e, "office.artifact.export", "cl-export-pdf", map[string]any{"taskId": task.ID, "versionId": pdf.ID, "draft": false})
+	if !exportPDF.OK {
+		t.Fatalf("formal export passed PDF: %+v", exportPDF.Error)
+	}
+	var exported struct{ Notice string }
+	if err := decodeResponsePayload(exportPDF.Payload, &exported); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(exported.Notice, "检查通过不是已接受为正式版") {
+		t.Fatalf("export notice: %q", exported.Notice)
+	}
+	if !strings.Contains(exported.Notice, "不保证分页") || !strings.Contains(exported.Notice, "PDF/A") {
+		t.Fatalf("independent PDF export must not claim Word-pixel or PDF/A: %q", exported.Notice)
+	}
+	if e.officeStudio.SameSourceExport(ctx, docx) {
+		t.Fatal("docx without a bound render PDF must not export as same-source")
+	}
+	preview := officeCall(t, e, "office.artifact.preview", "cl-preview", map[string]any{"taskId": task.ID, "versionId": docx.ID})
+	if !preview.OK {
+		t.Fatalf("preview: %+v", preview.Error)
+	}
+	var nodes struct {
+		Nodes []struct{ ID, Digest, Text string }
+	}
+	if err := decodeResponsePayload(preview.Payload, &nodes); err != nil {
+		t.Fatal(err)
+	}
+	var node struct{ ID, Digest, Text string }
+	for _, n := range nodes.Nodes {
+		if strings.Contains(n.Text, "1280") {
+			node = n
+			break
+		}
+	}
+	if node.ID == "" {
+		t.Fatalf("docx preview missing fact text: %#v", nodes.Nodes)
+	}
+	heads, err := store.ListOfficeHeads(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var docHead domain.Head
+	for _, h := range heads {
+		if h.ArtifactID == docx.ArtifactID {
+			docHead = h
+		}
+	}
+	patched := officeCall(t, e, "office.artifact.patch", "cl-patch", map[string]any{
+		"taskId": task.ID, "artifactId": docx.ArtifactID, "baseVersionId": docx.ID, "expectedRevision": docHead.Revision,
+		"nodeId": node.ID, "nodeDigest": node.Digest, "text": "订单 1280单 已修订",
+	})
+	if !patched.OK {
+		t.Fatalf("patch: %+v", patched.Error)
+	}
+}

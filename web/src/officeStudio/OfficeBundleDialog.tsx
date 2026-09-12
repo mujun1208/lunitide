@@ -174,7 +174,7 @@ export function OfficeBundleDialog({
           <p className="os-muted">
             {!versionIds.length
               ? '请选择需要放入交付包的文件。'
-              : `已选 ${versionIds.length} 份文件${draftCount ? `，其中 ${draftCount} 份尚未通过全部检查，将明确标为草稿。` : '，全部所需检查已通过。'}`}
+              : `已选 ${versionIds.length} 份文件${draftCount ? `，其中 ${draftCount} 份尚未通过全部检查，将明确标为草稿。` : '，全部所需检查已通过。检查通过不是已接受为正式版。'}`}
           </p>
           <div className="dialog-actions">
             <button type="button" disabled={busy} onClick={onClose}>

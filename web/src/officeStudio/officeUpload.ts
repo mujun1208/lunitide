@@ -66,7 +66,9 @@ export async function uploadOfficeFiles(
         attachments.abort({ uploadId: id, projectId, sessionId: task.sessionId }),
         undefined,
         2000,
-      ).catch(() => {});
+      ).catch(() => {
+        progress('取消未完成的导入失败，请重试。');
+      });
     try {
       if (signal.aborted) throw new Error('导入已取消。');
       progress(`正在读取 ${file.name}…`);

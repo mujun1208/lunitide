@@ -33,7 +33,10 @@ export async function uploadOfficeImage(bridge: AttachmentBridge, projectId: str
   if (attempt?.result) return attempt.result;
   if (!attempt) {
     let uploadId = '', abandoned = false;
-    const abort = (id: string) => bridge.abort({ uploadId: id, projectId, sessionId }).catch(() => {});
+    const abort = (id: string) =>
+      bridge.abort({ uploadId: id, projectId, sessionId }).catch(() => {
+        progress('取消未完成的上传失败，请重试。');
+      });
     try {
       const beginning = bridge.begin({ projectId, sessionId, originalName: file.name, mime, size: bytes.length, sha256 });
       void beginning.then(r => { if (abandoned || signal.aborted) void abort(r.uploadId); }, () => {});

@@ -146,7 +146,7 @@ func applyLayoutPlanning(spec Spec) (Spec, error) {
 			Comparison:   s.Comparison,
 			Bullets:      s.Bullets,
 			ImageAspect:  aspect,
-		}, brand, EstimateMeasure{}, spec.TemplateID)
+		}, brand, DefaultTextMeasure(brand.Fonts.East), spec.TemplateID)
 		if err != nil {
 			return Spec{}, err
 		}

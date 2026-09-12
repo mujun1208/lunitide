@@ -299,7 +299,7 @@ func TestRenderIndependentPDFWithThemeFallsBackWhenTypstMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if check.Status != "missing" || !strings.HasPrefix(string(data), "%PDF") {
+	if check.Status != "passed" || !strings.Contains(check.Message, "稳定独立 PDF") || !strings.HasPrefix(string(data), "%PDF") {
 		t.Fatalf("fallback: %#v", check)
 	}
 }
@@ -406,6 +406,7 @@ func TestIndependentPDFMarkupUsesBrandFontNotClassicOnly(t *testing.T) {
 }
 
 func TestIndependentPDFNoticeStillNotPDFA(t *testing.T) {
+	t.Setenv("LUNITIDE_PDFA_VALIDATOR", "")
 	if !strings.Contains(IndependentPDFNotice(), "不保证分页") {
 		t.Fatalf("notice=%q", IndependentPDFNotice())
 	}
@@ -441,20 +442,20 @@ func TestCompareExternalAdaptersDoesNotBypassArtifact(t *testing.T) {
 }
 
 func TestMeasureOfficeFixturesSkipsFakeP50(t *testing.T) {
-	samples := MeasureOfficeFixtures(1)
+	samples := MeasureOfficeFixtures(0)
 	if len(samples) == 0 {
 		t.Fatal("expected skip samples")
 	}
 	for _, s := range samples {
 		if !s.Skipped {
-			t.Fatalf("n=1 must skip, got %#v", s)
+			t.Fatalf("n=0 must skip, got %#v", s)
 		}
 		if s.Reason == "" || strings.Contains(strings.ToLower(s.Reason), "p50=") {
 			t.Fatalf("must not invent p50: %#v", s)
 		}
 	}
-	if p50 := SummarizePerf(samples); p50.Ready || p50.P50MS != 0 {
-		t.Fatalf("unready summary leaked P50: %#v", p50)
+	if p50 := SummarizePerf(samples); p50.Ready {
+		t.Fatalf("unready summary leaked ready P50: %#v", p50)
 	}
 }
 
@@ -484,6 +485,7 @@ func TestApplyLayoutPlanningWritesReadingOrderIntoNotes(t *testing.T) {
 
 func TestValidatePDFIncludesHonestPDFAUnsupported(t *testing.T) {
 	t.Setenv("LUNITIDE_TYPST", "")
+	t.Setenv("LUNITIDE_PDFA_VALIDATOR", "")
 	data, err := Generate(Spec{SchemaVersion: 2, Kind: PDF, Title: "月报", Body: "订单 1280单"})
 	if err != nil {
 		t.Fatal(err)

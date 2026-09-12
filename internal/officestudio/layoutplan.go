@@ -131,6 +131,11 @@ func (EstimateMeasure) Runes(s string) int {
 }
 
 func measureLabel(measure TextMeasure) string {
+	if g, ok := measure.(GlyphMeasure); ok && g.Extent != nil {
+		if _, ready := g.Extent("国", g.FontFamily); ready {
+			return "measure=glyph; font=" + g.FontFamily
+		}
+	}
 	if _, ok := measure.(EstimateMeasure); ok {
 		return "measure=cjk-ascii-estimate; not glyph"
 	}

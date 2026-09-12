@@ -10,6 +10,10 @@ import (
 	"github.com/lunitide/lunitide/internal/officetools"
 )
 
+func PDFAValidatorExecutable() string {
+	return strings.TrimSpace(os.Getenv("LUNITIDE_PDFA_VALIDATOR"))
+}
+
 type AssetRecord struct {
 	SourceURL  string `json:"sourceUrl"`
 	Author     string `json:"author,omitempty"`
@@ -101,7 +105,7 @@ func ProbePptxGenJS() ExternalAdapterStatus {
 func ProbeTypst(executable string) ExternalAdapterStatus {
 	st := ProbeExternalAdapter("typst", executable)
 	if !st.Available {
-		st.Reason = "未检测到 Typst，独立 PDF 不可用；不得标为已验证"
+		st.Reason = "未检测到 Typst 出版排版；仍可用 gofpdf 稳定稿，不得把探测结果标为已验证"
 	}
 	return st
 }
@@ -110,20 +114,96 @@ func TypstExecutable() string {
 	return strings.TrimSpace(os.Getenv("LUNITIDE_TYPST"))
 }
 
-func IndependentPDFCheck() Check {
-	st := ProbeTypst(TypstExecutable())
-	if st.Available {
-		return Check{ID: "independent_pdf", Status: "passed", Message: st.Reason}
+func DetectIndependentPDFBackend(data []byte) string {
+	if len(data) == 0 {
+		return ""
 	}
-	return Check{ID: "independent_pdf", Status: "missing", Message: st.Reason}
+	head := data
+	if len(head) > 64<<10 {
+		head = head[:64<<10]
+	}
+	s := string(head)
+	if strings.Contains(s, "lunitide-typst") || strings.Contains(strings.ToLower(s), "typst") && strings.Contains(s, "/Producer") {
+		return "typst"
+	}
+	if strings.Contains(s, "lunitide-gofpdf") || strings.Contains(s, "gofpdf") || strings.Contains(s, "LunitideSansSC") {
+		return "gofpdf"
+	}
+	return "gofpdf"
+}
+
+func IndependentPDFCheckFromBackend(backend string) Check {
+	switch backend {
+	case "typst":
+		return Check{ID: "independent_pdf", Status: "passed", Message: "本文件由 Typst 编译"}
+	case "gofpdf":
+		return Check{ID: "independent_pdf", Status: "passed", Message: "稳定独立 PDF，不是 Typst 出版稿"}
+	case "":
+		return Check{ID: "independent_pdf", Status: "missing", Message: "没有待验 PDF 文件，不能按进程探测标为已验证；仍可用 gofpdf 生成稳定稿"}
+	default:
+		return Check{ID: "independent_pdf", Status: "passed", Message: "稳定独立 PDF，不是 Typst 出版稿"}
+	}
+}
+
+func IndependentPDFCheck(pdf ...[]byte) Check {
+	if len(pdf) > 0 && len(pdf[0]) > 0 {
+		return IndependentPDFCheckFromBackend(DetectIndependentPDFBackend(pdf[0]))
+	}
+	return IndependentPDFCheckFromBackend("")
 }
 
 func IndependentPDFNotice() string {
 	return "独立 PDF 与 Word 使用同一内容版本，但不保证分页与 Word 像素一致。导出 PDF 不表示 PDF/A 或 PDF/UA 合规。"
 }
 
-func IndependentPDFACheck() Check {
-	return Check{ID: "pdfa", Status: "unsupported", Message: "导出 PDF 不表示 PDF/A 或 PDF/UA 合规"}
+var pdfaRunner = runPDFAValidator
+
+func SetPDFARunnerForTest(t interface{ Cleanup(func()) }, run func(string, []byte) error) {
+	prev := pdfaRunner
+	pdfaRunner = run
+	t.Cleanup(func() { pdfaRunner = prev })
+}
+
+func IndependentPDFACheck(pdf ...[]byte) Check {
+	var data []byte
+	if len(pdf) > 0 {
+		data = pdf[0]
+	}
+	return checkPDFA(data, PDFAValidatorExecutable(), pdfaRunner)
+}
+
+func checkPDFA(pdf []byte, executable string, run func(string, []byte) error) Check {
+	if strings.TrimSpace(executable) == "" {
+		return Check{ID: "pdfa", Status: "unsupported", Message: "导出 PDF 不表示 PDF/A 或 PDF/UA 合规"}
+	}
+	if len(pdf) == 0 {
+		return Check{ID: "pdfa", Status: "missing", Message: "已配置 PDF/A 验证器但没有待验 PDF，不能标为合规"}
+	}
+	if run == nil {
+		return Check{ID: "pdfa", Status: "missing", Message: "已配置 PDF/A 验证器但没有可执行检查，不能标为合规"}
+	}
+	if err := run(executable, pdf); err != nil {
+		return Check{ID: "pdfa", Status: "failed", Message: "PDF/A 验证未通过，不能标为合规"}
+	}
+	return Check{ID: "pdfa", Status: "passed", Message: "验证器已通过 PDF/A 检查；不表示 PDF/UA"}
+}
+
+func runPDFAValidator(executable string, pdf []byte) error {
+	if strings.TrimSpace(executable) == "" || len(pdf) == 0 {
+		return fmt.Errorf("%w: pdfa validator", ErrFormat)
+	}
+	dir, err := os.MkdirTemp("", "lunitide-pdfa-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	src := filepath.Join(dir, "check.pdf")
+	if err = os.WriteFile(src, pdf, 0600); err != nil {
+		return err
+	}
+	cmd := exec.Command(executable, src)
+	cmd.Dir = dir
+	return cmd.Run()
 }
 
 func FormatIndependentReport(title, audience, purpose, body string, citations []string) string {
@@ -196,16 +276,14 @@ func RenderIndependentPDF(workDir, title, body string) ([]byte, Check, error) {
 }
 
 func RenderIndependentPDFWithTheme(workDir, title, body string, theme Theme) ([]byte, Check, error) {
-	check := IndependentPDFCheck()
-	if check.Status == "passed" {
-		pdf, err := runTypst(workDir, title, body, TypstExecutable(), theme)
+	if exe := TypstExecutable(); exe != "" {
+		pdf, err := runTypst(workDir, title, body, exe, theme)
 		if err == nil && len(pdf) > 0 {
-			return pdf, check, nil
+			return pdf, IndependentPDFCheckFromBackend("typst"), nil
 		}
-		check = Check{ID: "independent_pdf", Status: "missing", Message: "Typst 已配置但未能生成独立 PDF；不得标为已验证"}
 	}
 	data, err := officetools.GenStablePDFThemed(title, body, officetools.PDFTheme{Heading: theme.Navy, Body: theme.Ink})
-	return data, check, err
+	return data, IndependentPDFCheckFromBackend("gofpdf"), err
 }
 
 func runTypst(workDir, title, body, executable string, theme Theme) ([]byte, error) {
@@ -232,6 +310,7 @@ func typstMarkup(title, body string) string {
 
 func typstMarkupWithBrand(title, body string, theme Theme) string {
 	var b strings.Builder
+	b.WriteString("#set document(keywords: (\"lunitide-typst\",))\n")
 	b.WriteString("#set page(paper: \"a4\")\n")
 	if fonts := typstFontList(theme); fonts != "" {
 		b.WriteString("#set text(font: " + fonts + ")\n")

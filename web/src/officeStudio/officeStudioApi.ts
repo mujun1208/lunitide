@@ -33,7 +33,7 @@ export interface OfficeTask {
   brandId?: string
 }
 export interface OfficeCheck {
-  id: string; label: string; status: 'passed' | 'failed' | 'unavailable' | 'pending'
+  id: string; label: string; status: 'passed' | 'failed' | 'unavailable' | 'pending' | 'missing' | 'unsupported'
   severity: 'info' | 'warning' | 'blocking'; message: string; nodeId?: string
   messageTruncated?: boolean
 }
@@ -106,7 +106,7 @@ export interface OfficeStudioApi {
   preview(payload: { taskId: string; versionId: string; nodeOffset?:number }): Promise<OfficePreview>
   patch(payload: { taskId: string; artifactId: string; baseVersionId: string; expectedRevision: number; nodeId: string; nodeDigest: string; text: string }): Promise<OfficeTaskDetail>
   validate(payload: { taskId: string; versionId: string }): Promise<OfficeTaskDetail>
-  accept(payload: { taskId: string; artifactId: string; versionId: string; expectedRevision: number }): Promise<OfficeTaskDetail>
+  accept(payload: { taskId: string; artifactId: string; versionId: string; expectedRevision: number; formal?: boolean }): Promise<OfficeTaskDetail>
   restore(payload: { taskId: string; artifactId: string; versionId: string; expectedRevision: number }): Promise<OfficeTaskDetail>
   exportArtifact(payload: { taskId: string; versionId: string; name?: string; draft: boolean }): Promise<{ path: string; absolutePath?: string; notice?: string }>
   probe(): Promise<OfficeRendererStatus>

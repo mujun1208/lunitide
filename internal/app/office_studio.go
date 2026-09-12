@@ -26,6 +26,38 @@ func (e *Engine) SetOfficeStudio(s *officeapp.Service) {
 	}
 }
 
+func officeTypstProbeComponent() map[string]string {
+	st := content.ProbeTypst(content.TypstExecutable())
+	status := "unavailable"
+	if st.Available {
+		status = "ready"
+	}
+	return map[string]string{"id": "typst", "label": "Typst 独立 PDF", "status": status, "detail": st.Reason}
+}
+
+func officeOptionalProbeComponent(id, label, executable string, compareOnly bool) map[string]string {
+	if strings.TrimSpace(executable) == "" {
+		detail := "未配置，不挡检查、改稿和导出草稿"
+		if compareOnly {
+			detail = "未配置；只做对照，未进生产主链，不挡草稿"
+		}
+		return map[string]string{"id": id, "label": label, "status": "unavailable", "detail": detail}
+	}
+	st := content.ProbeExternalAdapter(id, executable)
+	status := "unavailable"
+	detail := st.Reason
+	if st.Available {
+		status = "ready"
+	}
+	if compareOnly && !strings.Contains(detail, "未进生产主链") {
+		detail += "；只做对照，未进生产主链"
+	}
+	if !compareOnly && !st.Available && !strings.Contains(detail, "草稿") {
+		detail += "；不挡草稿"
+	}
+	return map[string]string{"id": id, "label": label, "status": status, "detail": detail}
+}
+
 type officePayload struct {
 	Path             string               `json:"path"`
 	Reveal           bool                 `json:"reveal"`
@@ -49,6 +81,7 @@ type officePayload struct {
 	NodeDigest       string               `json:"nodeDigest"`
 	Text             string               `json:"text"`
 	Draft            bool                 `json:"draft"`
+	Formal           bool                 `json:"formal"`
 	Offset           int64                `json:"offset"`
 	Limit            int64                `json:"limit"`
 	Ranges           []content.RangePatch `json:"ranges"`
@@ -63,10 +96,10 @@ type officePayload struct {
 }
 
 type officeBrandPayload struct {
-	BrandID string               `json:"brandId"`
-	Colors  map[string]string    `json:"colors"`
-	Fonts   content.BrandFonts   `json:"fonts"`
-	Asset   content.AssetRecord  `json:"asset"`
+	BrandID string              `json:"brandId"`
+	Colors  map[string]string   `json:"colors"`
+	Fonts   content.BrandFonts  `json:"fonts"`
+	Asset   content.AssetRecord `json:"asset"`
 }
 
 func officeFailure(r bridge.Request, err error) bridge.Response {
@@ -182,6 +215,11 @@ func handleOfficeStudio(e *Engine, ctx context.Context, r bridge.Request) bridge
 			{"id": "go", "label": "本地文件结构检查", "status": "ready", "detail": "可生成与检查受支持的 Office 文件；不等于目标软件验证"},
 			{"id": "desktop-office", "label": "本机 Office / WPS", "status": desktopStatus, "detail": desktopNotice},
 			{"id": "libreoffice", "label": "LibreOffice 隔离排版检查", "status": status, "detail": strings.TrimSpace(c.Version + " " + c.Notice)},
+			officeOptionalProbeComponent("pdfa", "PDF/A 验证器", content.PDFAValidatorExecutable(), false),
+			officeOptionalProbeComponent("vision", "视觉模型", strings.TrimSpace(os.Getenv("LUNITIDE_OFFICE_VISION")), false),
+			officeTypstProbeComponent(),
+			officeOptionalProbeComponent("presenton", "Presenton 对照", strings.TrimSpace(os.Getenv("LUNITIDE_PRESENTON")), true),
+			officeOptionalProbeComponent("pptxgenjs", "PptxGenJS 对照", strings.TrimSpace(os.Getenv("LUNITIDE_PPTXGENJS")), true),
 		}})
 	}
 	if r.Method == "office.task.list" {
@@ -514,6 +552,9 @@ func handleOfficeStudio(e *Engine, ctx context.Context, r bridge.Request) bridge
 			return restoreErr
 		})
 	case "office.artifact.accept":
+		if p.Formal && v.Quality != "passed" {
+			return r.Fail("OFFICE_DRAFT_REQUIRED", "此版本检查未全部完成，请选择导出草稿或接受为草稿", false)
+		}
 		_, err = s.Store.AcceptOfficeVersion(ctx, p.TaskID, v.ArtifactID, vid, p.ExpectedRevision)
 	case "office.artifact.validate":
 		err = e.officeExclusive(ctx, p.TaskID, "validating", func(run context.Context) error { _, checkErr := s.Check(run, p.TaskID, vid, true); return checkErr })
@@ -532,7 +573,12 @@ func handleOfficeStudio(e *Engine, ctx context.Context, r bridge.Request) bridge
 		if canon, canonErr := canonpath.Canonical(path); canonErr == nil {
 			path = canon
 		}
-		return r.Ok(map[string]any{"path": filepath.ToSlash(path), "absolutePath": filepath.ToSlash(path), "notice": content.ExportNotice(content.Kind(v.Kind), false)})
+		sameSource := s.SameSourceExport(ctx, v)
+		notice := content.ExportNotice(content.Kind(v.Kind), sameSource)
+		if v.Quality == "passed" {
+			notice += "；检查通过不是已接受为正式版"
+		}
+		return r.Ok(map[string]any{"path": filepath.ToSlash(path), "absolutePath": filepath.ToSlash(path), "notice": notice, "sameSource": sameSource})
 	default:
 		return officeFailure(r, domain.ErrInvalid)
 	}

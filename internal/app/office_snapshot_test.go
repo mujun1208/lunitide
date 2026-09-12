@@ -253,3 +253,21 @@ func TestOfficeDeliverySnapshotBoundsLongMetricsAndBundles(t *testing.T) {
 		}
 	}
 }
+
+func TestOfficeSnapshotCheckStatusKeepsOptionalMissing(t *testing.T) {
+	if got := officeSnapshotCheckStatus("pdfa", "missing"); got != "missing" {
+		t.Fatalf("pdfa missing = %s", got)
+	}
+	if got := officeSnapshotCheckStatus("visual-model", "missing"); got != "missing" {
+		t.Fatalf("visual-model missing = %s", got)
+	}
+	if got := officeSnapshotCheckStatus("target-wps", "unsupported"); got != "unsupported" {
+		t.Fatalf("target-wps unsupported = %s", got)
+	}
+	if got := officeSnapshotCheckStatus("independent_pdf", "unsupported"); got != "unsupported" {
+		t.Fatalf("independent_pdf unsupported = %s", got)
+	}
+	if got := officeSnapshotCheckStatus("native_render", "unsupported"); got != "unsupported" {
+		t.Fatalf("native_render unsupported = %s", got)
+	}
+}

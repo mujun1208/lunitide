@@ -31,6 +31,18 @@ it('preserves a lost commit identity and never shares its receipt with another s
   expect(bridge.begin).toHaveBeenCalledTimes(2);
 });
 
+it('surfaces a failed abort instead of swallowing it', async () => {
+  vi.stubGlobal('crypto', webcrypto);
+  const bridge = fixture();
+  const progress = vi.fn();
+  vi.mocked(bridge.chunk).mockRejectedValueOnce(new Error('分片失败'));
+  vi.mocked(bridge.abort).mockRejectedValueOnce(new Error('abort failed'));
+  await expect(uploadOfficeImage(bridge, 'p', 's', file(), progress, new AbortController().signal)).rejects.toThrow(
+    '分片失败',
+  );
+  await vi.waitFor(() => expect(progress).toHaveBeenCalledWith('取消未完成的上传失败，请重试。'));
+});
+
 it('rejects a fake PNG filename before any upload begins', async () => {
   vi.stubGlobal('crypto', webcrypto); const bridge = fixture();
   await expect(uploadOfficeImage(bridge, 'p', 's', new File(['<svg/>'], 'fake.png', { type: 'image/png' }), vi.fn(), new AbortController().signal)).rejects.toThrow('文件内容不是 PNG 或 JPEG');

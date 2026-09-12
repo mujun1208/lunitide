@@ -434,9 +434,6 @@ func applyLaneTools(defs []llmadapter.ToolDefinition, c LaneContract) []llmadapt
 		return defs
 	}
 	if c.KeepSpecialistTools {
-		if keep == nil {
-			keep = map[string]bool{}
-		}
 		for _, d := range defs {
 			if specialistToolAllow[d.Name] {
 				keep[d.Name] = true

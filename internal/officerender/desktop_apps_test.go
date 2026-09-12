@@ -1,6 +1,9 @@
 package officerender
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestDesktopApplicationsNotice(t *testing.T) {
 	notice, ready := DesktopApplicationsNotice(nil)
@@ -12,7 +15,7 @@ func TestDesktopApplicationsNotice(t *testing.T) {
 		{ID: "winword-copy", Label: "Microsoft Word"},
 		{ID: "wps", Label: "WPS Writer"},
 	})
-	if !ready || notice != "已检测到 Microsoft Word、WPS Writer；可用于本机打开核对，不参与隔离自动排版检查" {
+	if !ready || !strings.Contains(notice, "Microsoft Word") || !strings.Contains(notice, "WPS Writer") || !strings.Contains(notice, "不等于") {
 		t.Fatalf("detected applications: %q %v", notice, ready)
 	}
 }

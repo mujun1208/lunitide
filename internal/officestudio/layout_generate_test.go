@@ -46,3 +46,45 @@ func TestGenerateFromLayoutPlanKeepsEditableMetricsAndComparison(t *testing.T) {
 		t.Fatal("comparison text must stay editable")
 	}
 }
+
+func TestGenerateAllTwelveSemanticLayoutsKeepMarker(t *testing.T) {
+	for _, layout := range semanticLayouts {
+		layout := layout
+		t.Run(layout, func(t *testing.T) {
+			marker := "布局标记-" + layout
+			node := NarrativeNode{
+				Title:   marker,
+				Layout:  layout,
+				Bullets: []string{marker + " 要点"},
+			}
+			if layout == "metrics" || layout == "trend" {
+				node.Metrics = []MetricBlock{{Label: "订单", Value: "1280", Unit: "单", FactID: "orders-" + layout}}
+			}
+			if layout == "comparison" {
+				node.Comparison = &ComparisonBlock{Left: []string{marker}, Right: []string{"对照"}}
+			}
+			plans, err := PlanLayout(node, DefaultBrand(), RuneMeasure{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(plans) < 1 {
+				t.Fatal("layout produced no page")
+			}
+			spec, err := SpecFromLayoutPlans(marker, plans)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := Generate(spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			i, err := Inspect(PPTX, data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if findText(t, i, marker).ID == "" {
+				t.Fatalf("layout %s truncated marker", layout)
+			}
+		})
+	}
+}

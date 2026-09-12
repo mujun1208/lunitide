@@ -9,7 +9,7 @@ type DesktopApplication struct {
 
 func DesktopApplicationsNotice(apps []DesktopApplication) (string, bool) {
 	if len(apps) == 0 {
-		return "未检测到 Microsoft Office 或 WPS；仍可导出文件后自行打开", false
+		return "未检测到 Microsoft Office 或 WPS；仍可导出文件后自行打开，不等于检查里的打开验证", false
 	}
 	labels := make([]string, 0, len(apps))
 	seen := map[string]bool{}
@@ -22,7 +22,7 @@ func DesktopApplicationsNotice(apps []DesktopApplication) (string, bool) {
 		labels = append(labels, label)
 	}
 	if len(labels) == 0 {
-		return "未检测到 Microsoft Office 或 WPS；仍可导出文件后自行打开", false
+		return "未检测到 Microsoft Office 或 WPS；仍可导出文件后自行打开，不等于检查里的打开验证", false
 	}
-	return "已检测到 " + strings.Join(labels, "、") + "；可用于本机打开核对，不参与隔离自动排版检查", true
+	return "已检测到 " + strings.Join(labels, "、") + "；已安装可自行打开，不等于检查里的打开验证，不参与隔离自动排版检查", true
 }

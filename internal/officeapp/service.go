@@ -263,14 +263,8 @@ func (s *Service) Check(ctx context.Context, taskID, versionID string, render bo
 		if v.Kind == "pdf" && c.ID == "native_render" {
 			continue
 		}
-		status := c.Status
-		if status == "blocked" {
-			status = "failed"
-		}
-		if status == "missing" {
-			status = "unsupported"
-		}
-		required := c.ID != "pdfa"
+		status := remapStudioStatus(c.ID, c.Status)
+		required := !usabilityOptionalID(c.ID)
 		checks = append(checks, domain.Check{ID: c.ID, Label: officeCheckLabel(c.ID), Status: status, Required: required, Detail: c.Message})
 	}
 	evidence := map[string]any{"issues": local.Issues, "sourceDigest": v.SHA256}
@@ -284,6 +278,7 @@ func (s *Service) Check(ctx context.Context, taskID, versionID string, render bo
 	}
 	nativeCacheChecks(v, checks)
 	var previewLease domain.BlobLease
+	var previewPDF []byte
 	defer func() { s.releaseBlob(ctx, previewLease.ID) }()
 	if render && v.Kind != "pdf" {
 		result, renderErr := s.Renderer.RenderWithChecks(ctx, v.Kind, b, nativeOptions(v.Kind, checks))
@@ -313,6 +308,7 @@ func (s *Service) Check(ctx context.Context, taskID, versionID string, render bo
 				return domain.Validation{}, putErr
 			}
 			previewLease = lease
+			previewPDF = result.PDF
 			evidence["pdfRef"] = lease.Digest
 			evidence["sameSourcePdf"] = content.BindSameSourcePDF(content.Kind(v.Kind), v.SHA256, result.PDF)
 			evidence["renderer"] = result.Renderer
@@ -333,8 +329,13 @@ func (s *Service) Check(ctx context.Context, taskID, versionID string, render bo
 	if v.Kind != "pdf" {
 		checks = append(checks, targetAppCoverageChecks()...)
 	} else if !officeCheckPresent(checks, "pdfa") {
-		checks = append(checks, domain.Check{ID: "pdfa", Label: "PDF/A 合规", Status: "unsupported", Required: false, Detail: "导出 PDF 不表示 PDF/A 或 PDF/UA 合规"})
+		checks = append(checks, pdfaCoverageCheck())
 	}
+	pdf := previewPDF
+	if v.Kind == "pdf" {
+		pdf = b
+	}
+	checks = applyUsabilityChecks(checks, pdf)
 	specFacts := content.FactsFromSpec(published)
 	report := evaluateOfficeQuality(checks, specFacts)
 	evidence["qualityReport"] = report
@@ -476,6 +477,36 @@ func (s *Service) ReadPDF(ctx context.Context, taskID, versionID string) ([]byte
 		}
 	}
 	return nil, domain.ErrNotFound
+}
+
+func (s *Service) SameSourceExport(ctx context.Context, v domain.Version) bool {
+	if v.Kind == "pdf" {
+		return false
+	}
+	items, err := s.Store.ListOfficeValidations(ctx, v.ID)
+	if err != nil {
+		return false
+	}
+	for _, q := range items {
+		var evidence map[string]any
+		if json.Unmarshal(q.Evidence, &evidence) != nil {
+			continue
+		}
+		same, ok := evidence["sameSourcePdf"]
+		if !ok {
+			continue
+		}
+		raw, _ := json.Marshal(same)
+		var bind content.SameSourcePDF
+		if json.Unmarshal(raw, &bind) != nil {
+			continue
+		}
+		bind = content.InvalidateSameSourcePDF(bind, v.SHA256)
+		if bind.ValidFor(v.SHA256) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) Export(ctx context.Context, taskID, versionID, dir string, exportNames ...string) (string, error) {

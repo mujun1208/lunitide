@@ -321,10 +321,6 @@ func councilToolsForLane(lane ChatLane) bool {
 	}
 }
 
-func expertDeliberateSystemPrompt(name, body string) string {
-	return expertDeliberateSystemPromptForTools(name, body, true)
-}
-
 func expertDeliberateSystemPromptForTools(name, body string, tools bool) string {
 	base := fmt.Sprintf("你是专家「%s」。请严格以该岗位说明书的专业视角独立作答，不要模拟其他角色，也不要替用户做最终拍板。\n\n岗位说明书：\n%s\n\n%s\n\n输出格式（中文，简洁）：\n【立场】一句话\n【建议】3-6 条要点\n【风险】主要风险或反对点\n【前提】关键假设\n", name, body, specialistPersonaCapabilityLine())
 	if !tools {

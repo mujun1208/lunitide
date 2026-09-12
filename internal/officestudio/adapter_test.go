@@ -1,6 +1,8 @@
 package officestudio
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -75,13 +77,79 @@ func TestTypstIndependentPDFNoticeDiffersFromWord(t *testing.T) {
 
 func TestIndependentPDFMissingWithoutTypstBlocksFormal(t *testing.T) {
 	t.Setenv("LUNITIDE_TYPST", "")
-	c := IndependentPDFCheck()
-	if c.ID != "independent_pdf" || c.Status != "missing" {
-		t.Fatalf("check: %#v", c)
+	data, check, err := RenderIndependentPDFWithTheme(t.TempDir(), "标题", "订单 1280单", Theme{})
+	if err != nil {
+		t.Fatal(err)
 	}
-	report := EvaluateQuality([]Check{c}, 88, nil)
-	if report.FormalOK || len(report.Blockers) == 0 {
-		t.Fatalf("missing typst formal: %#v", report)
+	if !strings.HasPrefix(string(data), "%PDF") {
+		t.Fatalf("gofpdf fallback missing file: %#v", check)
+	}
+	if check.ID != "independent_pdf" || check.Status != "passed" {
+		t.Fatalf("gofpdf fallback check: %#v", check)
+	}
+	if !strings.Contains(check.Message, "稳定独立 PDF") || strings.Contains(check.Message, "Typst 已验证") {
+		t.Fatalf("gofpdf message must name this file's backend: %#v", check)
+	}
+	report := EvaluateQuality([]Check{check}, 88, nil)
+	if !report.FormalOK || len(report.Blockers) != 0 {
+		t.Fatalf("gofpdf fallback must Formal: %#v", report)
+	}
+	if IndependentPDFCheck().Status == "passed" {
+		t.Fatal("env probe without file bytes must not pass independent_pdf")
+	}
+}
+
+func TestIndependentPDFTypstConfiguredButCompileFailsIsGofpdfNotTypstPassed(t *testing.T) {
+	dummy := filepath.Join(t.TempDir(), "typst.bat")
+	if err := os.WriteFile(dummy, []byte("@echo off\r\nexit /b 1\r\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LUNITIDE_TYPST", dummy)
+	data, check, err := RenderIndependentPDFWithTheme(t.TempDir(), "标题", "订单 1280单", Theme{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(data), "%PDF") || check.Status != "passed" {
+		t.Fatalf("fallback after typst fail: %#v", check)
+	}
+	if strings.Contains(check.Message, "Typst 已验证") || strings.Contains(check.Message, "已检测到工作进程") {
+		t.Fatalf("compile failure must not look Typst-passed: %#v", check)
+	}
+	if !strings.Contains(check.Message, "稳定独立 PDF") {
+		t.Fatalf("fallback must name gofpdf: %#v", check)
+	}
+	if IndependentPDFCheck(data).Status != "passed" || strings.Contains(IndependentPDFCheck(data).Message, "Typst 已验证") {
+		t.Fatalf("bytes check used env: %#v", IndependentPDFCheck(data))
+	}
+	report := EvaluateQuality([]Check{check}, 88, nil)
+	if !report.FormalOK {
+		t.Fatalf("gofpdf after typst fail must Formal: %#v", report)
+	}
+}
+
+func TestValidateBrandIndependentPDFUsesFileBackendNotEnv(t *testing.T) {
+	t.Setenv("LUNITIDE_TYPST", filepath.Join(t.TempDir(), "missing-typst.exe"))
+	t.Setenv("LUNITIDE_PDFA_VALIDATOR", "")
+	data, _, err := RenderIndependentPDF(t.TempDir(), "标题", "订单 1280单")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := ValidateBrand(PDF, data, DefaultBrand())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pdfCheck Check
+	for _, c := range v.Checks {
+		if c.ID == "independent_pdf" {
+			pdfCheck = c
+		}
+	}
+	if pdfCheck.Status != "passed" || strings.Contains(pdfCheck.Message, "Typst 已验证") {
+		t.Fatalf("validate used env probe: %#v", v.Checks)
+	}
+	report := EvaluateQuality(v.Checks, 0, nil)
+	if !report.FormalOK {
+		t.Fatalf("validated gofpdf PDF must Formal: %#v", report)
 	}
 }
 
@@ -105,7 +173,7 @@ func TestRenderIndependentPDFFallsBackWhenTypstMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if check.Status != "missing" || !strings.HasPrefix(string(data), "%PDF") {
+	if check.Status != "passed" || !strings.Contains(check.Message, "稳定独立 PDF") || !strings.HasPrefix(string(data), "%PDF") {
 		t.Fatalf("fallback: %#v %v", check, err)
 	}
 	if len(data) < 32 {

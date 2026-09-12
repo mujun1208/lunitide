@@ -356,8 +356,17 @@ func ValidateBrand(kind Kind, data []byte, brand BrandProfile) (Validation, erro
 		}
 	}
 	if kind == PDF {
-		v.Checks[0] = Check{ID: "pdf_structure", Status: "missing", Message: "仅验证了 PDF 文件头与结束标记；对象、字体和页面需隔离预览器验证。"}
-		v.Checks = append(v.Checks, IndependentPDFCheck(), IndependentPDFACheck())
+		checks := []Check{
+			{ID: "pdf_structure", Status: "passed", Message: "已验证 PDF 文件头与结束标记；对象、字体和页面需隔离预览器阅读。"},
+			IndependentPDFCheck(data),
+			IndependentPDFACheck(data),
+		}
+		for _, c := range v.Checks {
+			if c.ID == "content_safety" {
+				checks = append(checks, c)
+			}
+		}
+		v.Checks = checks
 	}
 	if kind == XLSX {
 		formulaCount := 0

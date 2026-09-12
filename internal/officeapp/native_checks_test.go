@@ -29,7 +29,97 @@ func TestEvaluateOfficeQualityWholeSlideRasterBlocksFormal(t *testing.T) {
 	}
 }
 
+func findOfficeCheck(checks []domain.Check, id string) domain.Check {
+	for _, c := range checks {
+		if c.ID == id {
+			return c
+		}
+	}
+	return domain.Check{}
+}
+
+func TestRemapStudioStatusKeepsUsabilityMissing(t *testing.T) {
+	if got := remapStudioStatus("pdfa", "missing"); got != "missing" {
+		t.Fatalf("pdfa missing remapped to %s", got)
+	}
+	if got := remapStudioStatus("visual-model", "missing"); got != "missing" {
+		t.Fatalf("visual-model missing remapped to %s", got)
+	}
+	if got := remapStudioStatus("independent_pdf", "missing"); got != "unsupported" {
+		t.Fatalf("independent_pdf missing = %s", got)
+	}
+	if got := remapStudioStatus("native_render", "missing"); got != "unsupported" {
+		t.Fatalf("native_render missing = %s", got)
+	}
+	if got := remapStudioStatus("geometry_bounds", "blocked"); got != "failed" {
+		t.Fatalf("blocked = %s", got)
+	}
+}
+
+func TestApplyUsabilityChecksKeepsConfiguredMissingWithoutFile(t *testing.T) {
+	t.Setenv("LUNITIDE_PDFA_VALIDATOR", filepath.Join(t.TempDir(), "pdfa-validator"))
+	t.Setenv("LUNITIDE_OFFICE_VISION", filepath.Join(t.TempDir(), "vision"))
+	checks := applyUsabilityChecks(nil, nil)
+	if c := findOfficeCheck(checks, "pdfa"); c.Status != "missing" {
+		t.Fatalf("pdfa=%#v", c)
+	}
+	if c := findOfficeCheck(checks, "visual-model"); c.Status != "missing" {
+		t.Fatalf("visual-model=%#v", c)
+	}
+}
+
+func TestApplyUsabilityChecksRunsConfiguredToolsOnPDF(t *testing.T) {
+	t.Setenv("LUNITIDE_PDFA_VALIDATOR", filepath.Join(t.TempDir(), "pdfa-validator"))
+	t.Setenv("LUNITIDE_OFFICE_VISION", filepath.Join(t.TempDir(), "vision"))
+	pdf := []byte("%PDF-1.4 usability")
+	var sawPDF, sawVision []byte
+	content.SetPDFARunnerForTest(t, func(_ string, data []byte) error {
+		sawPDF = append([]byte(nil), data...)
+		return nil
+	})
+	content.SetVisualReviewForTest(t, func(pages [][]byte) ([]content.Issue, string, error) {
+		if len(pages) > 0 {
+			sawVision = append([]byte(nil), pages[0]...)
+		}
+		return nil, "已检查预览 PDF", nil
+	})
+	checks := applyUsabilityChecks([]domain.Check{
+		{ID: "pdfa", Status: "unsupported", Detail: "placeholder"},
+		{ID: "visual-model", Status: "unsupported", Detail: "placeholder"},
+	}, pdf)
+	if c := findOfficeCheck(checks, "pdfa"); c.Status != "passed" {
+		t.Fatalf("pdfa=%#v", c)
+	}
+	if c := findOfficeCheck(checks, "visual-model"); c.Status != "passed" {
+		t.Fatalf("visual-model=%#v", c)
+	}
+	if strings.Contains(findOfficeCheck(checks, "visual-model").Detail, "85") && !strings.Contains(findOfficeCheck(checks, "visual-model").Detail, "uncalibrated") {
+		t.Fatalf("visual passed must stay uncalibrated: %#v", findOfficeCheck(checks, "visual-model"))
+	}
+	if !bytes.Equal(sawPDF, pdf) || !bytes.Equal(sawVision, pdf) {
+		t.Fatalf("did not run on current file bytes pdf=%q vision=%q", sawPDF, sawVision)
+	}
+}
+
+func TestApplyUsabilityChecksFailedStayFailed(t *testing.T) {
+	t.Setenv("LUNITIDE_PDFA_VALIDATOR", filepath.Join(t.TempDir(), "pdfa-validator"))
+	t.Setenv("LUNITIDE_OFFICE_VISION", filepath.Join(t.TempDir(), "vision"))
+	content.SetPDFARunnerForTest(t, func(string, []byte) error { return fmt.Errorf("not pdfa") })
+	content.SetVisualReviewForTest(t, func([][]byte) ([]content.Issue, string, error) {
+		return []content.Issue{{Code: "overlap", Message: "重叠"}}, "重叠", nil
+	})
+	checks := applyUsabilityChecks(nil, []byte("%PDF-1.4 fail"))
+	if findOfficeCheck(checks, "pdfa").Status != "failed" {
+		t.Fatalf("pdfa=%#v", findOfficeCheck(checks, "pdfa"))
+	}
+	if findOfficeCheck(checks, "visual-model").Status != "failed" {
+		t.Fatalf("visual-model=%#v", findOfficeCheck(checks, "visual-model"))
+	}
+}
+
 func TestTargetAppCoverageChecksStayUnsupported(t *testing.T) {
+	t.Setenv("LUNITIDE_PDFA_VALIDATOR", "")
+	t.Setenv("LUNITIDE_OFFICE_VISION", "")
 	for _, c := range targetAppCoverageChecks() {
 		if c.Status == "passed" || c.Required {
 			t.Fatalf("coverage check must stay honest: %#v", c)

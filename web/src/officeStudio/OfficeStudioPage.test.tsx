@@ -45,14 +45,16 @@ const fixture = (): OfficeTaskDetail => ({
           sha256: 'b'.repeat(64),
           createdAt: '2026-09-07T00:00:00Z',
           validations: [
-            { id: 'structure', label: '结构检查', status: 'passed', severity: 'info', message: '结构完整' },
+            { id: 'package', label: '文件结构与资源', status: 'passed', severity: 'info', message: '结构完整' },
             {
-              id: 'layout',
-              label: '排版检查',
-              status: 'unavailable',
+              id: 'native_render',
+              label: '实际排版预览',
+              status: 'missing',
               severity: 'warning',
-              message: '排版组件尚未配置',
+              message: '尚无该版本在目标软件中的实际渲染证据。',
             },
+            { id: 'pdfa', label: 'PDF/A 合规', status: 'unsupported', severity: 'info', message: '未配置' },
+            { id: 'visual-model', label: '视觉模型诊断', status: 'unsupported', severity: 'info', message: '未配置' },
           ],
         },
       ],
@@ -177,7 +179,7 @@ it('retries idle sync until the archived deliverable appears', async () => {
     reportActivity(false);
   });
   expect(await screen.findByText('正文 v2')).toBeInTheDocument();
-  expect(api.sync.mock.calls.length).toBeGreaterThanOrEqual(3);
+  expect(vi.mocked(api.sync).mock.calls.length).toBeGreaterThanOrEqual(3);
 });
 
 it('lists deliverables in the conversation rail and previews the clicked file', async () => {
@@ -654,6 +656,7 @@ describe('Office Studio production state', () => {
       finish({ ...fixture(), task: { ...fixture().task, status: 'cancelled' as const } });
     });
     expect(await screen.findByRole('button', { name: '检查此版本' })).toBeEnabled();
+    expect(screen.getAllByText(/检查未完成/).length).toBeGreaterThan(0);
     expect(screen.queryByText('所需检查已通过')).not.toBeInTheDocument();
   });
 
@@ -883,7 +886,8 @@ describe('Office Studio production state', () => {
         }),
       ),
     );
-    expect(screen.getByText('可先看上方三个预览再生成，或直接生成。预览只来自当前任务。')).toBeInTheDocument();
+    expect(screen.getByText(/不是生成按钮/)).toBeInTheDocument();
+    expect(screen.getByText(/预览只来自当前任务/)).toBeInTheDocument();
     expect(screen.getByLabelText('当前任务预览')).not.toHaveTextContent('精美示例');
   });
 
@@ -1008,7 +1012,7 @@ describe('Office Studio production state', () => {
       />,
     );
     await screen.findByRole('heading', { name: '季度汇报' });
-    await screen.findByLabelText('封面预览');
+    await screen.findByText('Q3 封面');
     expect(screen.getByLabelText('封面预览')).toHaveTextContent('Q3 封面');
     expect(screen.getByLabelText('正文预览')).toHaveTextContent('收入 1200');
     expect(screen.getByLabelText('图表预览')).toHaveTextContent('趋势图');
@@ -1049,11 +1053,17 @@ describe('Office Studio production state', () => {
     expect(screen.getByLabelText('任务概要')).toHaveTextContent('页数未填写');
     expect(screen.getByLabelText('任务概要')).not.toHaveTextContent('管理层');
     expect(screen.getByRole('radio', { name: '清晰经营' })).toBeChecked();
-    expect(screen.getByLabelText('生成进度')).toHaveTextContent('整理');
+    expect(screen.getByLabelText('生成流程说明')).toHaveTextContent('整理');
     expect(screen.getByText(/未校准/)).toBeVisible();
     expect(screen.getByText(/本期不做/)).toBeVisible();
     expect(screen.getByText(/试验范围/)).toBeVisible();
+    expect(screen.getByText(/可用范围/)).toBeVisible();
+    expect(screen.getByText(/外部生成器未进生产主链/)).toBeVisible();
+    expect(screen.getByText(/不能从成稿反推/)).toBeVisible();
+    expect(screen.getByText(/不是生成按钮/)).toBeVisible();
+    expect(screen.getByText(/工程变体，非设计师已检 36/)).toBeVisible();
     expect(screen.getByText(/概念预览/)).toBeVisible();
+    expect(screen.getByRole('button', { name: '查看本机排版与检查组件' })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '版本' }));
     expect(screen.getAllByText(/只能导出草稿|正式交付仍被阻断/).length).toBeGreaterThan(0);
     const formal = screen.getAllByRole('button', { name: '作为正式交付' });
@@ -1066,5 +1076,88 @@ describe('Office Studio production state', () => {
     expect(screen.getByText('可继续编辑')).toBeVisible();
     expect(screen.getByText('存在需处理的问题')).toBeVisible();
     expect(screen.queryByText('排版已检查')).not.toBeInTheDocument();
+    expect(screen.getByText('缺组件，不能正式交付')).toBeVisible();
+    expect(screen.getByText('PDF/A 未配置，草稿仍可用')).toBeVisible();
+    expect(screen.getByText('视觉模型未配置，草稿仍可用')).toBeVisible();
+    expect(screen.getAllByText('未验证').length).toBeGreaterThan(0);
+    expect(screen.queryByText('85 分认证')).not.toBeInTheDocument();
+  });
+
+  it('searches later preview pages for a locked fact instead of inventing a binding', async () => {
+    const detail = fixture();
+    detail.task.brief = { facts: [{ factId: 'orders', value: '1280', unit: '单' }] };
+    const api = apiFor(detail, (versionId) => ({
+      ...preview(versionId),
+      nextNodeOffset: 20,
+      totalNodes: 21,
+    }));
+    vi.mocked(api.preview).mockImplementation(async (p) => {
+      if (p.nodeOffset === 20) {
+        return {
+          versionId: p.versionId,
+          kind: 'docx',
+          content: '',
+          previewBasis: '结构预览',
+          pdfReady: false,
+          truncated: false,
+          nodeOffset: 20,
+          nodes: [{ id: 'later-node', label: '订单', text: '订单 1280单', editable: true, digest: 'd'.repeat(64) }],
+        };
+      }
+      return { ...preview(p.versionId), nextNodeOffset: 20, totalNodes: 21 };
+    });
+    await open(api);
+    fireEvent.click(screen.getByRole('button', { name: '切换到来源' }));
+    fireEvent.click(screen.getByRole('button', { name: '在此版本查找' }));
+    expect(await screen.findByText('订单 1280单')).toBeVisible();
+    expect(screen.queryByText('不在此版本')).not.toBeInTheDocument();
+  });
+
+  it('tells the user when a locked fact is not in this version', async () => {
+    const detail = fixture();
+    detail.task.brief = { facts: [{ factId: 'orders', value: '1280', unit: '单' }] };
+    const api = apiFor(detail);
+    await open(api);
+    fireEvent.click(screen.getByRole('button', { name: '切换到来源' }));
+    fireEvent.click(screen.getByRole('button', { name: '在此版本查找' }));
+    expect(await screen.findByText('不在此版本')).toBeVisible();
+  });
+
+  it('tells the user when locate target is not in this version', async () => {
+    const detail = fixture();
+    detail.artifacts[0].versions[1].validations?.push({
+      id: 'geometry_bounds',
+      label: '几何',
+      status: 'failed',
+      severity: 'blocking',
+      message: '越界',
+      nodeId: 'missing-node',
+    });
+    const api = apiFor(detail);
+    await open(api);
+    fireEvent.click(screen.getByRole('button', { name: '切换到检查' }));
+    fireEvent.click(screen.getByRole('button', { name: '定位内容' }));
+    expect(await screen.findByText('不在此版本')).toBeVisible();
+  });
+
+  it('shows brief save failures instead of swallowing them', async () => {
+    const api = apiFor();
+    vi.mocked(api.update).mockRejectedValueOnce(new Error('版本冲突'));
+    await open(api);
+    fireEvent.change(screen.getByLabelText('受众'), { target: { value: '客户' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存概要' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('版本冲突'));
+    expect(screen.getByLabelText('受众')).toHaveValue('客户');
+  });
+
+  it('disables brand register until required fields are valid', async () => {
+    const api = apiFor();
+    await open(api);
+    expect(screen.getByRole('button', { name: '登记品牌' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('品牌编号'), { target: { value: 'task-teal' } });
+    fireEvent.change(screen.getByLabelText('来源'), { target: { value: 'https://example.invalid/brand' } });
+    fireEvent.change(screen.getByLabelText('许可'), { target: { value: 'client-granted' } });
+    fireEvent.change(screen.getByLabelText('摘要'), { target: { value: 'ab'.repeat(32) } });
+    expect(screen.getByRole('button', { name: '登记品牌' })).toBeEnabled();
   });
 });

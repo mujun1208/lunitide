@@ -218,7 +218,7 @@ func TestClassifyChatLaneWeatherLookupKeepsSearch(t *testing.T) {
 	if lane == LaneL3 {
 		t.Fatal("weather must not be promoted to research-report L3")
 	}
-	lane, contract := applyLaneOverrides(lane, in, RouteR1, CouncilOverlay{})
+	_, contract := applyLaneOverrides(lane, in, RouteR1, CouncilOverlay{})
 	if !contract.AllowWebSearch || contract.MaxMainToolSteps < 2 {
 		t.Fatalf("weather must open search with room for a result step: %#v", contract)
 	}

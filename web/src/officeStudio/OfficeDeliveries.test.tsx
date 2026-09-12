@@ -178,6 +178,7 @@ it('retains a selected source when the target changes and uses the target artifa
 });
 
 it('lists fact refs from current preview nodes only', async () => {
+  const onLocate = vi.fn();
   render(
     <OfficeMetricPanel
       taskId="task"
@@ -187,11 +188,34 @@ it('lists fact refs from current preview nodes only', async () => {
       nodes={[{ id: 'n1', text: '订单 1280单', valueType: 'text' }]}
       actions={metricActions()}
       onChanged={vi.fn()}
+      onLocate={onLocate}
     />,
   );
   const list = await screen.findByRole('list', { name: '事实引用位置' });
   expect(list).toHaveTextContent('orders');
   expect(list).toHaveTextContent('n1');
+  fireEvent.click(screen.getByRole('button', { name: '定位' }));
+  expect(onLocate).toHaveBeenCalledWith('n1');
+});
+
+it('does not invent a fact binding when the current preview has no matching node', async () => {
+  const onSearchFacts = vi.fn();
+  render(
+    <OfficeMetricPanel
+      taskId="task"
+      artifact={artifact}
+      version={artifact.versions[0]}
+      facts={[{ factId: 'orders', value: '1280', unit: '单' }]}
+      nodes={[{ id: 'n1', text: '其他', valueType: 'text' }]}
+      actions={metricActions()}
+      onChanged={vi.fn()}
+      onSearchFacts={onSearchFacts}
+    />,
+  );
+  expect(await screen.findByText(/不在此版本/)).toBeTruthy();
+  expect(screen.queryByRole('list', { name: '事实引用位置' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: '在此版本查找' }));
+  expect(onSearchFacts).toHaveBeenCalledTimes(1);
 });
 
 it('captures a locked fact by factId without inventing a node value', async () => {
@@ -305,6 +329,26 @@ it('retries the same fixed manifest after export failure and never labels incomp
   expect(actions.create).toHaveBeenCalledTimes(1);
   expect(actions.export).toHaveBeenCalledTimes(2);
   expect(screen.queryByRole('heading', { name: '交付包已保存' })).toBeNull();
+});
+
+it('says a passed check is not a formal accept when every selected file passed', async () => {
+  const passed: OfficeArtifact = {
+    ...artifact,
+    acceptedVersionId: 'v2',
+    versions: artifact.versions.map((version) => ({ ...version, quality: 'passed' })),
+  };
+  render(
+    <OfficeBundleDialog
+      open
+      taskId="task"
+      taskTitle="季度报告"
+      artifacts={[passed]}
+      actions={bundleActions()}
+      onClose={vi.fn()}
+    />,
+  );
+  expect(await screen.findByText(/检查通过不是已接受为正式版/)).toBeTruthy();
+  expect(screen.queryByText(/尚未通过全部检查/)).toBeNull();
 });
 
 it('keeps explicit version choices through background polling and requires at least one file', async () => {

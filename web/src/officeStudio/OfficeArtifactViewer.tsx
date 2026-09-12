@@ -15,6 +15,7 @@ export function OfficeArtifactViewer({
   selectedNodeId,
   onSelectNode,
   onRetry,
+  onRebuild,
 }: {
   api: OfficeStudioApi;
   taskId: string;
@@ -26,6 +27,7 @@ export function OfficeArtifactViewer({
   selectedNodeId?: string;
   onSelectNode: (node: OfficeNode) => void;
   onRetry: () => void;
+  onRebuild?: () => void;
 }): React.JSX.Element {
   const [layout, setLayout] = useState(false);
   useEffect(() => {
@@ -71,6 +73,11 @@ export function OfficeArtifactViewer({
         </div>
       )}
       {preview?.notice && <p className="os-preview-notice">{preview.notice}</p>}
+      {preview?.notice?.includes('重建') && onRebuild ? (
+        <button type="button" onClick={onRebuild}>
+          按新版本重建
+        </button>
+      ) : null}
       {preview?.truncated && (
         <p className="os-preview-notice">
           {preview.totalNodes && preview.nextNodeOffset !== undefined && preview.nextNodeOffset < preview.totalNodes

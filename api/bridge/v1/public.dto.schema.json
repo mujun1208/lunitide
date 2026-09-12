@@ -3346,7 +3346,9 @@
             "passed",
             "failed",
             "unavailable",
-            "pending"
+            "pending",
+            "missing",
+            "unsupported"
           ]
         },
         "severity": {
