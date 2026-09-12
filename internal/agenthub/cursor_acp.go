@@ -167,7 +167,7 @@ func (a *CursorACP) Prompt(threadID, text string) error {
 	if err != nil {
 		return err
 	}
-	if thread.Status == "waiting_user" {
+	if thread.Status == "waiting_user" || thread.Status == "running" {
 		return ErrThreadBusy
 	}
 	open, err := countOpenPrompts(a.store, threadID)
@@ -207,6 +207,7 @@ func (a *CursorACP) Prompt(threadID, text string) error {
 		}
 		_ = setThreadStatus(a.store, threadID, "success")
 	}); err != nil {
+		a.dropSession(threadID, sess)
 		a.fault(threadID, sess.proc, sess, err)
 		return err
 	}
@@ -244,6 +245,7 @@ func (a *CursorACP) Respond(threadID, callID, option string) error {
 		return err
 	}
 	if _, err = sess.proc.stdin.Write(EncodeACPFrame(body)); err != nil {
+		a.dropSession(threadID, sess)
 		return err
 	}
 	if err = setPromptStatus(a.store, threadID, callID, "answered"); err != nil {
@@ -286,6 +288,14 @@ func (a *CursorACP) ensure(thread ThreadRecord) (*cursorACPSession, error) {
 		return nil, err
 	}
 	return sess, nil
+}
+
+func (a *CursorACP) dropSession(threadID string, sess *cursorACPSession) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.sessions[threadID] == sess {
+		delete(a.sessions, threadID)
+	}
 }
 
 func (a *CursorACP) handshake(thread ThreadRecord, sess *cursorACPSession) error {
@@ -435,7 +445,10 @@ func waitACPReply(method string, ch <-chan *acpRPC, done func(*acpRPC, error)) {
 }
 
 func (s *cursorACPSession) pump(a *CursorACP) {
-	defer s.failPending(fmt.Errorf("acp closed"))
+	defer func() {
+		s.failPending(fmt.Errorf("acp closed"))
+		a.dropSession(s.threadID, s)
+	}()
 	for {
 		body, err := DecodeACPFrame(s.reader)
 		if err != nil {

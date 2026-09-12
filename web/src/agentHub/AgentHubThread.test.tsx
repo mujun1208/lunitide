@@ -8,6 +8,7 @@ vi.mock('./agentHubApi', () => ({
   agentHubApi: {
     threadGet: vi.fn(),
     threadPrompt: vi.fn(),
+    threadCancel: vi.fn(),
     threadRespond: vi.fn(),
     workspaceList: vi.fn(),
     preview: vi.fn(),
@@ -93,7 +94,7 @@ it('keeps polling while waiting_user and stops after a terminal status', async (
   expect(vi.mocked(agentHubApi.threadGet).mock.calls.length).toBe(doneCalls)
 })
 
-it('shows AskBar for an open prompt and submits the composer via threadPrompt', async () => {
+it('shows AskBar for an open prompt and disables Send while waiting_user', async () => {
   stubWorkspace()
   vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('waiting_user', {
     prompt: {
@@ -103,10 +104,36 @@ it('shows AskBar for an open prompt and submits the composer via threadPrompt', 
       status: 'open',
     },
   }))
-  vi.mocked(agentHubApi.threadPrompt).mockResolvedValue(threadDetail('running'))
   render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
   expect(await screen.findByRole('button', { name: '是' })).toBeInTheDocument()
   fireEvent.change(screen.getByLabelText('消息'), { target: { value: '继续' } })
+  expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: '发送' }))
+  expect(agentHubApi.threadPrompt).not.toHaveBeenCalled()
+})
+
+it('disables Send while running', async () => {
+  stubWorkspace()
+  vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('running'))
+  render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
+  expect(await screen.findByRole('button', { name: '发送' })).toBeDisabled()
+})
+
+it('shows cancel while live and calls threadCancel', async () => {
+  stubWorkspace()
+  vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('running'))
+  vi.mocked(agentHubApi.threadCancel).mockResolvedValue(threadDetail('cancelled'))
+  render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: '取消' }))
+  await waitFor(() => expect(agentHubApi.threadCancel).toHaveBeenCalledWith({ threadId: THREAD_ID }))
+})
+
+it('submits the composer via threadPrompt when idle', async () => {
+  stubWorkspace()
+  vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('idle'))
+  vi.mocked(agentHubApi.threadPrompt).mockResolvedValue(threadDetail('running'))
+  render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
+  fireEvent.change(await screen.findByLabelText('消息'), { target: { value: '继续' } })
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
   await waitFor(() => expect(agentHubApi.threadPrompt).toHaveBeenCalledWith({ threadId: THREAD_ID, text: '继续' }))
 })

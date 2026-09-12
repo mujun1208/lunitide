@@ -157,7 +157,7 @@ FROM agent_hub_threads`
 }
 
 func (s *ThreadStore) Update(id, title string, pinned bool) error {
-	res, err := s.db.Exec(`UPDATE agent_hub_threads SET title=?, pinned=? WHERE id=?`, title, boolToInt(pinned), id)
+	res, err := s.db.Exec(`UPDATE agent_hub_threads SET title=?, pinned=?, updated_at=? WHERE id=?`, title, boolToInt(pinned), threadNow(), id)
 	if err != nil {
 		return err
 	}

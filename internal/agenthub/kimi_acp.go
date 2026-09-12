@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +27,13 @@ func resolveKimiACP(look LookPath) (string, []string, error) {
 			err = fmt.Errorf("kimi 未找到")
 		}
 		return "", nil, err
+	}
+	if runtime.GOOS == "windows" && strings.EqualFold(filepath.Ext(path), ".cmd") {
+		node, nodeArgs, ok := resolveCursorNodeACP(path)
+		if !ok {
+			return "", nil, fmt.Errorf("kimi 无法解析为 node")
+		}
+		return node, nodeArgs, nil
 	}
 	return path, args, nil
 }
@@ -106,7 +115,7 @@ func (a *KimiACP) Prompt(threadID, text string) error {
 	if err != nil {
 		return err
 	}
-	if thread.Status == "waiting_user" {
+	if thread.Status == "waiting_user" || thread.Status == "running" {
 		return ErrThreadBusy
 	}
 	open, err := countOpenPrompts(a.store, threadID)
@@ -118,7 +127,7 @@ func (a *KimiACP) Prompt(threadID, text string) error {
 	}
 	sess, err := a.ensure(thread)
 	if err != nil {
-		return nil
+		return err
 	}
 	var blocks []map[string]any
 	if msgs, listErr := a.store.ListMessages(threadID); listErr == nil {
@@ -146,8 +155,9 @@ func (a *KimiACP) Prompt(threadID, text string) error {
 		}
 		_ = setThreadStatus(a.store, threadID, "success")
 	}); err != nil {
+		a.dropSession(threadID, sess)
 		a.fault(threadID, sess.proc, sess, err)
-		return nil
+		return err
 	}
 	return nil
 }
@@ -183,6 +193,7 @@ func (a *KimiACP) Respond(threadID, callID, option string) error {
 		return err
 	}
 	if _, err = sess.proc.stdin.Write(EncodeACPFrame(body)); err != nil {
+		a.dropSession(threadID, sess)
 		return err
 	}
 	if err = setPromptStatus(a.store, threadID, callID, "answered"); err != nil {
@@ -225,6 +236,14 @@ func (a *KimiACP) ensure(thread ThreadRecord) (*kimiACPSession, error) {
 		return nil, err
 	}
 	return sess, nil
+}
+
+func (a *KimiACP) dropSession(threadID string, sess *kimiACPSession) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.sessions[threadID] == sess {
+		delete(a.sessions, threadID)
+	}
 }
 
 func (a *KimiACP) handshake(thread ThreadRecord, sess *kimiACPSession) error {
@@ -351,7 +370,10 @@ func (s *kimiACPSession) failPending(err error) {
 }
 
 func (s *kimiACPSession) pump(a *KimiACP) {
-	defer s.failPending(fmt.Errorf("acp closed"))
+	defer func() {
+		s.failPending(fmt.Errorf("acp closed"))
+		a.dropSession(s.threadID, s)
+	}()
 	for {
 		body, err := DecodeACPFrame(s.reader)
 		if err != nil {

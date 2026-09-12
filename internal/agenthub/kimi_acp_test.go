@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -182,8 +184,8 @@ func TestKimiACPInitializeFailureFaultsThread(t *testing.T) {
 	if err := adapter.Open(thread); err != nil {
 		t.Fatalf("Open after persisted fault must return nil: %v", err)
 	}
-	if err := adapter.Prompt(thread.ID, "hi"); err != nil {
-		t.Fatalf("Prompt after persisted fault must return nil: %v", err)
+	if err := adapter.Prompt(thread.ID, "hi"); err == nil {
+		t.Fatal("Prompt after ensure failure must return the error")
 	}
 	got, err := store.Get(thread.ID)
 	if err != nil {
@@ -299,8 +301,214 @@ func TestKimiACPPromptSendsUserText(t *testing.T) {
 	if len(prompts) == 0 || !strings.Contains(prompts[0], "hello as-is") {
 		t.Fatalf("user text not sent as-is: %v", prompts)
 	}
+	if !strings.Contains(prompts[0], "用 Kimi 自己的技能做文稿。pptx 写在工作区；指定了导出目录则完成时复制过去。") {
+		t.Fatalf("system text missing from prompt fixture: %v", prompts)
+	}
 	if strings.Contains(prompts[0], "--skills-dir") || strings.Contains(prompts[0], "--force") || strings.Contains(prompts[0], "-p") {
 		t.Fatalf("must not stuff scene or skills-dir into argv/prompt: %v", prompts)
+	}
+}
+
+func TestKimiACPSecondPromptWhileRunningIsBusy(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "kimi", "ACP", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	adapter := NewKimiACP(store)
+	adapter.look = func(string) (string, error) { return filepath.Join(thread.WorkspaceRoot, "kimi.exe"), nil }
+	adapter.startPersistent = func(context.Context, ProcSpec) (*PersistentProc, error) {
+		return fakeACPPeer(t, func(msg map[string]any) (any, string) {
+			switch msg["method"] {
+			case "initialize":
+				return map[string]any{"protocolVersion": 1}, ""
+			case "session/new":
+				return map[string]any{"sessionId": "sess_busy"}, ""
+			case "session/prompt":
+				return acpNoReply, ""
+			default:
+				return map[string]any{}, ""
+			}
+		}), nil
+	}
+	if err := adapter.Prompt(thread.ID, "first"); err != nil {
+		t.Fatal(err)
+	}
+	err := adapter.Prompt(thread.ID, "second")
+	if err == nil {
+		t.Fatal("second prompt while running must be busy")
+	}
+	var users int
+	if scanErr := store.db.QueryRow(`SELECT COUNT(*) FROM agent_hub_messages WHERE thread_id=? AND role='user'`, thread.ID).Scan(&users); scanErr != nil {
+		t.Fatal(scanErr)
+	}
+	if users != 1 {
+		t.Fatalf("user messages = %d, want 1", users)
+	}
+}
+
+func TestKimiACPPromptRehandshakesAfterProcessDeath(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "kimi", "ACP", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var starts int
+	var live *PersistentProc
+	adapter := NewKimiACP(store)
+	adapter.look = func(string) (string, error) { return filepath.Join(thread.WorkspaceRoot, "kimi.exe"), nil }
+	adapter.startPersistent = func(context.Context, ProcSpec) (*PersistentProc, error) {
+		proc := fakeACPPeer(t, func(msg map[string]any) (any, string) {
+			switch msg["method"] {
+			case "initialize":
+				return map[string]any{"protocolVersion": 1}, ""
+			case "session/new":
+				return map[string]any{"sessionId": "sess_re"}, ""
+			case "session/prompt":
+				return map[string]any{"stopReason": "end_turn"}, ""
+			default:
+				return map[string]any{}, ""
+			}
+		})
+		mu.Lock()
+		starts++
+		live = proc
+		mu.Unlock()
+		return proc, nil
+	}
+	if err := adapter.Open(thread); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	if starts != 1 || live == nil {
+		mu.Unlock()
+		t.Fatalf("starts = %d", starts)
+	}
+	proc := live
+	mu.Unlock()
+	if err := proc.Close(); err != nil {
+		t.Fatal(err)
+	}
+	waitACPSessionGone(t, func() bool {
+		adapter.mu.Lock()
+		defer adapter.mu.Unlock()
+		return adapter.sessions[thread.ID] != nil
+	})
+	if err := adapter.Prompt(thread.ID, "again"); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if starts < 2 {
+		t.Fatalf("ensure did not run again after death, starts=%d", starts)
+	}
+}
+
+func TestKimiACPPromptEnsureFailureReturnsError(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "kimi", "ACP", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	adapter := NewKimiACP(store)
+	adapter.look = func(string) (string, error) { return "", errors.New("kimi missing") }
+	err := adapter.Prompt(thread.ID, "hi")
+	if err == nil {
+		t.Fatal("ensure failure must return after fault")
+	}
+	got, getErr := store.Get(thread.ID)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if got.Status != "faulted" {
+		t.Fatalf("status = %q, want faulted", got.Status)
+	}
+}
+
+func TestKimiACPPromptSendFailureReturnsError(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "kimi", "ACP", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	adapter := NewKimiACP(store)
+	adapter.look = func(string) (string, error) { return filepath.Join(thread.WorkspaceRoot, "kimi.exe"), nil }
+	adapter.startPersistent = func(context.Context, ProcSpec) (*PersistentProc, error) {
+		return fakeACPPeer(t, func(msg map[string]any) (any, string) {
+			switch msg["method"] {
+			case "initialize":
+				return map[string]any{"protocolVersion": 1}, ""
+			case "session/new":
+				return map[string]any{"sessionId": "sess_write"}, ""
+			default:
+				return map[string]any{}, ""
+			}
+		}), nil
+	}
+	if err := adapter.Open(thread); err != nil {
+		t.Fatal(err)
+	}
+	adapter.mu.Lock()
+	sess := adapter.sessions[thread.ID]
+	adapter.mu.Unlock()
+	if sess == nil || sess.proc == nil {
+		t.Fatal("missing session")
+	}
+	_, broken := io.Pipe()
+	_ = broken.Close()
+	sess.proc.stdin = broken
+	err := adapter.Prompt(thread.ID, "hi")
+	if err == nil {
+		t.Fatal("send failure must return after fault")
+	}
+	got, getErr := store.Get(thread.ID)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if got.Status != "faulted" {
+		t.Fatalf("status = %q, want faulted", got.Status)
+	}
+}
+
+func TestResolveKimiACPWindowsCmdUsesNode(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows .cmd resolve")
+	}
+	root := t.TempDir()
+	ver := filepath.Join(root, "versions", "2026.01.02-deadbee")
+	if err := os.MkdirAll(ver, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	node := filepath.Join(ver, "node.exe")
+	index := filepath.Join(ver, "index.js")
+	cmd := filepath.Join(root, "kimi.cmd")
+	if err := os.WriteFile(node, []byte("MZ"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(index, []byte("module.exports=1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cmd, []byte("@echo off\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	exe, args, err := resolveKimiACP(func(string) (string, error) { return cmd, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exe != node {
+		t.Fatalf("exe = %q, want %q", exe, node)
+	}
+	if len(args) != 2 || args[0] != index || args[1] != "acp" {
+		t.Fatalf("args = %#v, want [index.js acp]", args)
+	}
+	if strings.EqualFold(filepath.Ext(exe), ".cmd") {
+		t.Fatal("persistent session must not stay on the .cmd shim")
 	}
 }
 
