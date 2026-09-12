@@ -146,11 +146,16 @@ func (a *CursorACP) Open(thread ThreadRecord) error {
 func (a *CursorACP) Close(threadID string) error {
 	a.mu.Lock()
 	sess := a.sessions[threadID]
-	delete(a.sessions, threadID)
 	a.mu.Unlock()
 	if sess == nil {
 		return nil
 	}
+	<-sess.ready
+	a.mu.Lock()
+	if a.sessions[threadID] == sess {
+		delete(a.sessions, threadID)
+	}
+	a.mu.Unlock()
 	if sess.proc == nil {
 		return nil
 	}
@@ -213,6 +218,14 @@ func (a *CursorACP) Respond(threadID, callID, option string) error {
 	sess := a.sessions[threadID]
 	a.mu.Unlock()
 	if sess == nil {
+		return fmt.Errorf("会话未打开")
+	}
+	select {
+	case <-sess.ready:
+		if sess.readyErr != nil || sess.proc == nil {
+			return fmt.Errorf("会话未打开")
+		}
+	default:
 		return fmt.Errorf("会话未打开")
 	}
 	sess.mu.Lock()
