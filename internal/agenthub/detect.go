@@ -95,6 +95,9 @@ func DetectAll(look LookPath, version VersionRunner) []AgentStatus {
 		}(i, name)
 	}
 	wg.Wait()
+	if os.Getenv("LUNITIDE_HARNESS_LOOPBACK") == "1" {
+		out = append(out, AgentStatus{Name: "loopback", State: "available"})
+	}
 	return out
 }
 
