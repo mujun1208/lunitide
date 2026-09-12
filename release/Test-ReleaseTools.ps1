@@ -41,6 +41,11 @@ try{
   Expect-Rejected {Assert-ReleaseSourceUnchanged $beforeDeletion $withDeletion} 'source deletion'
   Set-Content -LiteralPath (Join-Path $source 'VERSION') '0.0.2' -Encoding ascii
   Assert-ReleaseSourceUnchanged $beforeDeletion (Get-ReleaseSourceSnapshot $source '')
+  $cjkName=(-join @([char]0x4E09,[char]0x573A,[char]0x666F))+'.txt'
+  [IO.File]::WriteAllText((Join-Path $source $cjkName),'cjk',(New-Object Text.UTF8Encoding $false))
+  $cjkSnap=Get-ReleaseSourceSnapshot $source ''
+  Assert-ReleaseCandidate $cjkSnap
+  if(@($cjkSnap.files | ForEach-Object {$_.path}) -notcontains $cjkName){throw 'UTF-8 source path was dropped or mojibake'}
   $outside=Join-Path $fixture 'outside';$install=Join-Path $fixture 'install'
   New-Item $outside,$install -ItemType Directory | Out-Null
   Set-Content -LiteralPath (Join-Path $outside 'retain.txt') 'retain'
