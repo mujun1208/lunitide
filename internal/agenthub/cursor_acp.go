@@ -102,6 +102,9 @@ type cursorACPSession struct {
 	serverReq map[string]json.RawMessage
 	reader    *bufio.Reader
 	assist    strings.Builder
+	rejected  strings.Builder
+	ready     chan struct{}
+	readyErr  error
 	mu        sync.Mutex
 }
 
@@ -148,6 +151,9 @@ func (a *CursorACP) Close(threadID string) error {
 	if sess == nil {
 		return nil
 	}
+	if sess.proc == nil {
+		return nil
+	}
 	return sess.proc.Close()
 }
 
@@ -187,7 +193,7 @@ func (a *CursorACP) Prompt(threadID, text string) error {
 	blocks = append(blocks, map[string]any{"type": "text", "text": text})
 	if err = sess.send("session/prompt", map[string]any{"sessionId": sess.sessionID, "prompt": blocks}, func(resp *acpRPC, callErr error) {
 		if callErr != nil {
-			a.fault(threadID, sess.proc, callErr)
+			a.fault(threadID, sess.proc, sess, callErr)
 			return
 		}
 		sess.flushAssistant(a)
@@ -196,7 +202,7 @@ func (a *CursorACP) Prompt(threadID, text string) error {
 		}
 		_ = setThreadStatus(a.store, threadID, "success")
 	}); err != nil {
-		a.fault(threadID, sess.proc, err)
+		a.fault(threadID, sess.proc, sess, err)
 		return err
 	}
 	return nil
@@ -237,13 +243,43 @@ func (a *CursorACP) ensure(thread ThreadRecord) (*cursorACPSession, error) {
 	a.mu.Lock()
 	if sess := a.sessions[thread.ID]; sess != nil {
 		a.mu.Unlock()
+		<-sess.ready
+		if sess.readyErr != nil {
+			return nil, sess.readyErr
+		}
 		return sess, nil
 	}
+	sess := &cursorACPSession{
+		threadID:  thread.ID,
+		access:    thread.AccessMode,
+		pending:   map[int64]chan *acpRPC{},
+		serverReq: map[string]json.RawMessage{},
+		ready:     make(chan struct{}),
+	}
+	a.sessions[thread.ID] = sess
 	a.mu.Unlock()
+	err := a.handshake(thread, sess)
+	sess.readyErr = err
+	close(sess.ready)
+	if err != nil {
+		a.mu.Lock()
+		if a.sessions[thread.ID] == sess {
+			delete(a.sessions, thread.ID)
+		}
+		a.mu.Unlock()
+		if sess.proc != nil {
+			_ = sess.proc.Close()
+		}
+		return nil, err
+	}
+	return sess, nil
+}
+
+func (a *CursorACP) handshake(thread ThreadRecord, sess *cursorACPSession) error {
 	exe, args, err := resolveCursorACP(a.look)
 	if err != nil {
-		a.fault(thread.ID, nil, err)
-		return nil, err
+		a.fault(thread.ID, nil, sess, err)
+		return err
 	}
 	start := a.startPersistent
 	if start == nil {
@@ -251,19 +287,13 @@ func (a *CursorACP) ensure(thread ThreadRecord) (*cursorACPSession, error) {
 	}
 	proc, err := start(context.Background(), ProcSpec{Exe: exe, Dir: thread.WorkspaceRoot, Args: args})
 	if err != nil {
-		a.fault(thread.ID, nil, err)
-		return nil, err
+		a.fault(thread.ID, nil, sess, err)
+		return err
 	}
-	sess := &cursorACPSession{
-		proc:      proc,
-		threadID:  thread.ID,
-		access:    thread.AccessMode,
-		pending:   map[int64]chan *acpRPC{},
-		serverReq: map[string]json.RawMessage{},
-		reader:    bufio.NewReader(proc.stdout),
-	}
+	sess.proc = proc
+	sess.reader = bufio.NewReader(proc.stdout)
 	go sess.pump(a)
-	initResp, err := sess.call("initialize", map[string]any{
+	_, err = sess.call("initialize", map[string]any{
 		"protocolVersion": 1,
 		"clientCapabilities": map[string]any{
 			"fs": map[string]any{"readTextFile": false, "writeTextFile": false},
@@ -271,16 +301,13 @@ func (a *CursorACP) ensure(thread ThreadRecord) (*cursorACPSession, error) {
 		"clientInfo": map[string]any{"name": "lunitide", "version": "0.1.0"},
 	})
 	if err != nil {
-		_ = proc.Close()
-		a.fault(thread.ID, proc, err)
-		return nil, err
+		a.fault(thread.ID, proc, sess, err)
+		return err
 	}
-	_ = initResp
 	newResp, err := sess.call("session/new", map[string]any{"cwd": thread.WorkspaceRoot, "mcpServers": []any{}})
 	if err != nil {
-		_ = proc.Close()
-		a.fault(thread.ID, proc, err)
-		return nil, err
+		a.fault(thread.ID, proc, sess, err)
+		return err
 	}
 	var created struct {
 		SessionID string `json:"sessionId"`
@@ -290,19 +317,27 @@ func (a *CursorACP) ensure(thread ThreadRecord) (*cursorACPSession, error) {
 	}
 	sess.sessionID = created.SessionID
 	_, _ = a.store.db.Exec(`UPDATE agent_hub_threads SET native_session_id=? WHERE id=?`, sess.sessionID, thread.ID)
-	a.mu.Lock()
-	a.sessions[thread.ID] = sess
-	a.mu.Unlock()
-	return sess, nil
+	return nil
 }
 
-func (a *CursorACP) fault(threadID string, proc *PersistentProc, err error) {
-	text := ""
-	if err != nil {
-		text = err.Error()
+func (a *CursorACP) fault(threadID string, proc *PersistentProc, sess *cursorACPSession, err error) {
+	var parts []string
+	if proc != nil {
+		if logs := strings.TrimSpace(proc.logText()); logs != "" {
+			parts = append(parts, logs)
+		}
 	}
-	if text == "" {
-		text = proc.logText()
+	if sess != nil {
+		sess.mu.Lock()
+		rejected := strings.TrimSpace(sess.rejected.String())
+		sess.mu.Unlock()
+		if rejected != "" {
+			parts = append(parts, rejected)
+		}
+	}
+	text := strings.Join(parts, "\n")
+	if text == "" && err != nil {
+		text = err.Error()
 	}
 	if text == "" {
 		text = "initialize failed"
@@ -319,18 +354,7 @@ func (s *cursorACPSession) send(method string, params any, done func(*acpRPC, er
 		ch := make(chan *acpRPC, 1)
 		s.pending[id] = ch
 		go func() {
-			timer := time.NewTimer(20 * time.Second)
-			defer timer.Stop()
-			select {
-			case resp := <-ch:
-				if resp.Error != nil {
-					done(resp, fmt.Errorf("%s", resp.Error.Message))
-					return
-				}
-				done(resp, nil)
-			case <-timer.C:
-				done(nil, fmt.Errorf("acp timeout %s", method))
-			}
+			waitACPReply(method, ch, done)
 		}()
 	}
 	s.mu.Unlock()
@@ -374,11 +398,42 @@ func (s *cursorACPSession) failPending(err error) {
 	}
 }
 
+func waitACPReply(method string, ch <-chan *acpRPC, done func(*acpRPC, error)) {
+	finish := func(resp *acpRPC) {
+		if resp.Error != nil {
+			done(resp, fmt.Errorf("%s", resp.Error.Message))
+			return
+		}
+		done(resp, nil)
+	}
+	switch method {
+	case "initialize", "session/new":
+		timer := time.NewTimer(20 * time.Second)
+		defer timer.Stop()
+		select {
+		case resp := <-ch:
+			finish(resp)
+		case <-timer.C:
+			done(nil, fmt.Errorf("acp timeout %s", method))
+		}
+	default:
+		finish(<-ch)
+	}
+}
+
 func (s *cursorACPSession) pump(a *CursorACP) {
 	defer s.failPending(fmt.Errorf("acp closed"))
 	for {
 		body, err := DecodeACPFrame(s.reader)
 		if err != nil {
+			if frameErr, ok := err.(*acpFrameError); ok && len(frameErr.Line) > 0 && !strings.HasPrefix(strings.TrimSpace(string(frameErr.Line)), "Content-Length:") {
+				s.mu.Lock()
+				if s.rejected.Len() > 0 {
+					s.rejected.WriteByte('\n')
+				}
+				s.rejected.Write(frameErr.Line)
+				s.mu.Unlock()
+			}
 			return
 		}
 		var msg acpRPC
