@@ -4,7 +4,9 @@ package agenthub
 // non-interactive argv. Detect `available` still requires the exe on PATH.
 func CapabilityFor(name string) Capability {
 	switch name {
-	case "codex", "cursor", "kimi":
+	case "cursor":
+		return Capability{NonInteractive: true, StreamJSON: true, Interactive: true, Protocol: "acp"}
+	case "codex", "kimi":
 		return Capability{NonInteractive: true, StreamJSON: true, Interactive: false, Protocol: "exec"}
 	default:
 		return Capability{}
