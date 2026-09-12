@@ -69,4 +69,49 @@ it('maps 写项目 to write_project after a folder is chosen', async () => {
     scene: 'write_project',
     workspaceRoot: 'E:/proj',
   })))
+  const first = vi.mocked(agentHubApi.threadCreate).mock.calls[0]?.[0]
+  expect(first?.accessMode === undefined || first?.accessMode === 'approval').toBe(true)
+})
+
+it('passes title, exportDir, and accessMode from Home', async () => {
+  stubHome()
+  vi.mocked(agentHubApi.pickDir)
+    .mockResolvedValueOnce({ canceled: false, path: 'E:/proj' })
+    .mockResolvedValueOnce({ canceled: false, path: 'E:/export' })
+  vi.mocked(agentHubApi.threadCreate).mockResolvedValue({
+    thread: {
+      threadId: '01ARZ3NDEKTSV4RRFFQ69G5FAE',
+      harnessId: 'cursor',
+      nativeSessionId: '',
+      title: '写一个 CLI',
+      pinned: false,
+      workspaceRoot: 'E:/proj',
+      exportDir: 'E:/export',
+      scene: 'write_project',
+      status: 'idle',
+      accessMode: 'full-access',
+      createdAt: '2026-09-13T00:00:00Z',
+      updatedAt: '2026-09-13T00:00:00Z',
+    },
+    messages: [],
+    events: [],
+    files: [],
+  })
+  render(<LanguageProvider value="zh-CN"><AgentHubHome /></LanguageProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: '写项目' }))
+  fireEvent.click(screen.getByRole('button', { name: '选择文件夹' }))
+  expect(await screen.findByRole('button', { name: 'E:/proj' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '导出目录' }))
+  expect(await screen.findByRole('button', { name: 'E:/export' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '完全访问' }))
+  fireEvent.change(screen.getByLabelText('任务说明'), { target: { value: '写一个 CLI' } })
+  fireEvent.click(screen.getByRole('button', { name: '执行' }))
+  await waitFor(() => expect(agentHubApi.threadCreate).toHaveBeenCalledWith(expect.objectContaining({
+    harnessId: 'cursor',
+    scene: 'write_project',
+    workspaceRoot: 'E:/proj',
+    exportDir: 'E:/export',
+    title: '写一个 CLI',
+    accessMode: 'full-access',
+  })))
 })

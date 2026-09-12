@@ -123,6 +123,36 @@ func TestCodexThreadPromptRunsExecWithoutIgnore(t *testing.T) {
 	}
 }
 
+func TestCodexThreadPromptStdinIncludesStoredSystem(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "codex", "Exec", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	if err := insertThreadMessage(store, thread.ID, "system", sceneFix); err != nil {
+		t.Fatal(err)
+	}
+	var got ProcSpec
+	adapter := NewCodexThread(store)
+	adapter.look = func(string) (string, error) { return `C:\fake-codex.exe`, nil }
+	adapter.start = func(_ context.Context, spec ProcSpec, onLine func(string)) (int64, bool, error) {
+		got = spec
+		onLine(`{"type":"agent.message","text":"ok"}`)
+		return 0, false, nil
+	}
+	if err := adapter.Prompt(thread.ID, "user as-is"); err != nil {
+		t.Fatal(err)
+	}
+	stdin := string(got.Stdin)
+	if !strings.Contains(stdin, sceneFix) {
+		t.Fatalf("stdin missing system text: %q", stdin)
+	}
+	if !strings.Contains(stdin, "user as-is") {
+		t.Fatalf("stdin missing user text: %q", stdin)
+	}
+}
+
 func TestCodexThreadPromptReadsLastMessageFile(t *testing.T) {
 	store := NewThreadStore(openThreadDB(t))
 	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "codex", "Exec", false)

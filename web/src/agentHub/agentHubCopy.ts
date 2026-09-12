@@ -13,6 +13,12 @@ export const SCENE_BLURBS: Record<AgentHubThreadScene, string> = {
   free: '',
 }
 
+export const ACCESS_MODES = [
+  { id: 'approval' as const, zh: '手动', en: 'Manual' },
+  { id: 'auto-edit' as const, zh: '自动', en: 'Auto' },
+  { id: 'full-access' as const, zh: '完全访问', en: 'Full access' },
+] as const
+
 export const THREAD_SCENES = [
   { id: 'write' as const, zh: '写项目', en: 'Write project' },
   { id: 'fix' as const, zh: '改代码', en: 'Fix code' },

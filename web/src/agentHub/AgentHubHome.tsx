@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useZh } from '../i18n/language'
 import { agentHubApi, type AgentHubName, type AgentHubStatus } from './agentHubApi'
 import {
+  ACCESS_MODES,
   PICK_PROJECT_DIR,
   SCENE_KEY,
   THREAD_SCENES,
@@ -33,6 +34,8 @@ export function AgentHubHome({
   const [agent, setAgent] = useState<AgentHubName>('cursor')
   const [workDir, setWorkDir] = useState('')
   const [prompt, setPrompt] = useState('')
+  const [exportDir, setExportDir] = useState('')
+  const [accessMode, setAccessMode] = useState<'approval' | 'auto-edit' | 'full-access'>('approval')
   const [error, setError] = useState('')
   const [agents, setAgents] = useState<AgentHubStatus[]>([])
   useEffect(() => {
@@ -58,6 +61,16 @@ export function AgentHubHome({
       setError(userError(err, zh ? '没有选到工作目录。' : 'Could not choose a work folder.'))
     }
   }
+  const pickExport = async () => {
+    try {
+      const got = await agentHubApi.pickDir()
+      if (got.canceled || !got.path) return
+      setExportDir(got.path)
+      setError('')
+    } catch (err) {
+      setError(userError(err, zh ? '没有选到导出目录。' : 'Could not choose an export folder.'))
+    }
+  }
   const submit = async () => {
     if (!scene) return
     if ((scene === 'write' || scene === 'fix') && !workDir) {
@@ -66,12 +79,15 @@ export function AgentHubHome({
     }
     setError('')
     try {
+      const text = prompt.trim()
       const created = await agentHubApi.threadCreate({
         harnessId: scene === 'free' ? agent : defaultHarness(scene),
         scene: hubSceneToThreadScene(scene),
         workspaceRoot: workDir,
+        ...(exportDir ? { exportDir } : {}),
+        ...(text ? { title: text } : {}),
+        accessMode,
       })
-      const text = prompt.trim()
       if (text) {
         await agentHubApi.threadPrompt({ threadId: created.thread.threadId, text })
       }
@@ -121,6 +137,20 @@ export function AgentHubHome({
           <button type="button" className={`agent-hub-chip${workDir ? ' is-on' : ''}`} onClick={() => void pickFolder()}>
             {workDir ? shortWorkDir(workDir) : (zh ? '选择文件夹' : 'Choose folder')}
           </button>
+          <button type="button" className={`agent-hub-chip${exportDir ? ' is-on' : ''}`} onClick={() => void pickExport()}>
+            {exportDir ? shortWorkDir(exportDir) : (zh ? '导出目录' : 'Export folder')}
+          </button>
+          {ACCESS_MODES.map(item => (
+            <button
+              key={item.id}
+              type="button"
+              className={`agent-hub-chip${accessMode === item.id ? ' is-on' : ''}`}
+              aria-pressed={accessMode === item.id}
+              onClick={() => setAccessMode(item.id)}
+            >
+              {zh ? item.zh : item.en}
+            </button>
+          ))}
           <button type="button" className="agent-hub-run" onClick={() => void submit()}>
             {zh ? '执行' : 'Run'}
           </button>

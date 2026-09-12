@@ -55,6 +55,7 @@ func (a *CodexThread) Prompt(threadID, text string) error {
 	if thread.Status == "waiting_user" || thread.Status == "running" {
 		return ErrThreadBusy
 	}
+	stdin := composeCodexExecPrompt(a.store, threadID, text)
 	if err = insertThreadMessage(a.store, threadID, "user", text); err != nil {
 		return err
 	}
@@ -83,7 +84,7 @@ func (a *CodexThread) Prompt(threadID, text string) error {
 		Exe:   looked,
 		Dir:   thread.WorkspaceRoot,
 		Args:  args,
-		Stdin: []byte(text),
+		Stdin: []byte(stdin),
 	}, func(line string) {
 		ev, ok := ParseLine("codex", line)
 		if !ok {
@@ -123,6 +124,28 @@ func (a *CodexThread) Prompt(threadID, text string) error {
 		}
 	}
 	return setThreadStatus(a.store, threadID, "success")
+}
+
+func composeCodexExecPrompt(store *ThreadStore, threadID, userText string) string {
+	var b strings.Builder
+	if msgs, listErr := store.ListMessages(threadID); listErr == nil {
+		for _, msg := range msgs {
+			if msg.Role != "system" || strings.TrimSpace(msg.Content) == "" {
+				continue
+			}
+			if b.Len() > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString(msg.Content)
+		}
+	}
+	if userText != "" {
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(userText)
+	}
+	return b.String()
 }
 
 func (a *CodexThread) fault(threadID string, err error) {

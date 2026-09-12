@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { composeHubPrompt, FREE_TEMPLATES, hubSceneToThreadScene, mergeEvents, pptDeckMissing, sceneBlurb, scenePrefix, shortWorkDir, taskElapsed, visibleHubArtifacts } from './agentHubCopy'
+import { ACCESS_MODES, composeHubPrompt, FREE_TEMPLATES, hubSceneToThreadScene, mergeEvents, pptDeckMissing, sceneBlurb, scenePrefix, shortWorkDir, taskElapsed, visibleHubArtifacts } from './agentHubCopy'
 
 it('keeps the weekly-report Markdown template and never offers generating a weekly Office file', () => {
   expect(FREE_TEMPLATES.map(item => item.zh)).toContain('写周报 Markdown')
@@ -46,6 +46,14 @@ it('maps the write home scene to write_project and keeps the other thread scenes
   expect(hubSceneToThreadScene('fix')).toBe('fix')
   expect(hubSceneToThreadScene('ppt')).toBe('ppt')
   expect(hubSceneToThreadScene('free')).toBe('free')
+})
+
+it('keeps the spec §8 permission chip labels', () => {
+  expect(ACCESS_MODES.map(item => [item.id, item.zh])).toEqual([
+    ['approval', '手动'],
+    ['auto-edit', '自动'],
+    ['full-access', '完全访问'],
+  ])
 })
 
 it('keeps the spec §8 scene blurbs and leaves 自由 empty', () => {

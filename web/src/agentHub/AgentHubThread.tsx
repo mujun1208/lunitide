@@ -79,9 +79,10 @@ export function AgentHubThread({
     }
     wasLive.current = live
   }, [detail])
+  const live = liveStatus(detail?.thread.status)
   const send = async () => {
     const text = draft.trim()
-    if (!text) return
+    if (!text || live) return
     try {
       const next = await agentHubApi.threadPrompt({ threadId, text })
       await applyDetail(next)
@@ -89,6 +90,15 @@ export function AgentHubThread({
       setError('')
     } catch (err) {
       setError(err instanceof Error && /[\u4e00-\u9fff]/.test(err.message) ? err.message : (zh ? '消息没有发出。' : 'The message did not send.'))
+    }
+  }
+  const cancel = async () => {
+    try {
+      const next = await agentHubApi.threadCancel({ threadId })
+      await applyDetail(next)
+      setError('')
+    } catch (err) {
+      setError(err instanceof Error && /[\u4e00-\u9fff]/.test(err.message) ? err.message : (zh ? '没有取消。' : 'Could not cancel.'))
     }
   }
   const openPreview = async (path: string) => {
@@ -112,7 +122,10 @@ export function AgentHubThread({
             aria-label="消息"
           />
           <div className="agent-hub-console-bar">
-            <button type="button" className="agent-hub-run" onClick={() => void send()}>{zh ? '发送' : 'Send'}</button>
+            {live ? (
+              <button type="button" className="agent-hub-chip" onClick={() => void cancel()}>{zh ? '取消' : 'Cancel'}</button>
+            ) : null}
+            <button type="button" className="agent-hub-run" disabled={live} onClick={() => void send()}>{zh ? '发送' : 'Send'}</button>
           </div>
         </div>
         {error && <p className="agent-hub-error" role="alert">{error}</p>}

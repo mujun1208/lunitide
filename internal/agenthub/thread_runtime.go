@@ -2,6 +2,9 @@ package agenthub
 
 import (
 	"errors"
+	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/oklog/ulid/v2"
 )
@@ -32,7 +35,7 @@ VALUES(?,?,?,?,?,datetime('now'))`, ulid.Make().String(), threadID, last+1, role
 }
 
 func setThreadStatus(store *ThreadStore, threadID, status string) error {
-	_, err := store.db.Exec(`UPDATE agent_hub_threads SET status=? WHERE id=?`, status, threadID)
+	_, err := store.db.Exec(`UPDATE agent_hub_threads SET status=?, updated_at=? WHERE id=?`, status, threadNow(), threadID)
 	if err != nil || status != "success" {
 		return err
 	}
@@ -59,4 +62,42 @@ func countOpenPrompts(store *ThreadStore, threadID string) (int, error) {
 	var n int
 	err := store.db.QueryRow(`SELECT COUNT(*) FROM agent_hub_prompts WHERE thread_id=? AND status='open'`, threadID).Scan(&n)
 	return n, err
+}
+
+func touchThread(store *ThreadStore, threadID string) error {
+	_, err := store.db.Exec(`UPDATE agent_hub_threads SET updated_at=? WHERE id=?`, threadNow(), threadID)
+	return err
+}
+
+func applyFirstUserTitle(store *ThreadStore, threadID, text string) error {
+	thread, err := store.Get(threadID)
+	if err != nil {
+		return err
+	}
+	if thread.Title != "" && thread.Title != "新会话" {
+		return nil
+	}
+	title := titleFromPrompt(text)
+	if title == "" {
+		return nil
+	}
+	return store.Update(threadID, title, thread.Pinned)
+}
+
+func titleFromPrompt(text string) string {
+	text = strings.TrimSpace(text)
+	if i := strings.IndexAny(text, "\r\n"); i >= 0 {
+		text = strings.TrimSpace(text[:i])
+	}
+	if text == "" {
+		return ""
+	}
+	if utf8.RuneCountInString(text) <= 200 {
+		return text
+	}
+	return string([]rune(text)[:200])
+}
+
+func threadNow() string {
+	return time.Now().UTC().Format(time.RFC3339)
 }

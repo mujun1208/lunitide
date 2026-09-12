@@ -219,8 +219,109 @@ func TestCursorACPPromptSendsUserText(t *testing.T) {
 	if len(prompts) == 0 || !strings.Contains(prompts[0], "hello as-is") {
 		t.Fatalf("user text not sent as-is: %v", prompts)
 	}
+	if !strings.Contains(prompts[0], "在你选的文件夹里按你的规则创建子目录并写文件。不要把已有文件挪到别处。") {
+		t.Fatalf("system text missing from prompt fixture: %v", prompts)
+	}
 	if strings.Contains(prompts[0], "--force") || strings.Contains(prompts[0], "-p") {
 		t.Fatalf("must not stuff scene into argv: %v", prompts)
+	}
+}
+
+func TestCursorACPSecondPromptWhileRunningIsBusy(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "cursor", "ACP", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	adapter := NewCursorACP(store)
+	adapter.look = func(string) (string, error) { return filepath.Join(thread.WorkspaceRoot, "cursor-agent.exe"), nil }
+	adapter.startPersistent = func(context.Context, ProcSpec) (*PersistentProc, error) {
+		return fakeACPPeer(t, func(msg map[string]any) (any, string) {
+			switch msg["method"] {
+			case "initialize":
+				return map[string]any{"protocolVersion": 1}, ""
+			case "session/new":
+				return map[string]any{"sessionId": "sess_busy"}, ""
+			case "session/prompt":
+				return acpNoReply, ""
+			default:
+				return map[string]any{}, ""
+			}
+		}), nil
+	}
+	if err := adapter.Prompt(thread.ID, "first"); err != nil {
+		t.Fatal(err)
+	}
+	err := adapter.Prompt(thread.ID, "second")
+	if err == nil {
+		t.Fatal("second prompt while running must be busy")
+	}
+	var users int
+	if scanErr := store.db.QueryRow(`SELECT COUNT(*) FROM agent_hub_messages WHERE thread_id=? AND role='user'`, thread.ID).Scan(&users); scanErr != nil {
+		t.Fatal(scanErr)
+	}
+	if users != 1 {
+		t.Fatalf("user messages = %d, want 1", users)
+	}
+}
+
+func TestCursorACPPromptRehandshakesAfterProcessDeath(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "cursor", "ACP", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var starts int
+	var live *PersistentProc
+	adapter := NewCursorACP(store)
+	adapter.look = func(string) (string, error) { return filepath.Join(thread.WorkspaceRoot, "cursor-agent.exe"), nil }
+	adapter.startPersistent = func(context.Context, ProcSpec) (*PersistentProc, error) {
+		proc := fakeACPPeer(t, func(msg map[string]any) (any, string) {
+			switch msg["method"] {
+			case "initialize":
+				return map[string]any{"protocolVersion": 1}, ""
+			case "session/new":
+				return map[string]any{"sessionId": "sess_re"}, ""
+			case "session/prompt":
+				return map[string]any{"stopReason": "end_turn"}, ""
+			default:
+				return map[string]any{}, ""
+			}
+		})
+		mu.Lock()
+		starts++
+		live = proc
+		mu.Unlock()
+		return proc, nil
+	}
+	if err := adapter.Open(thread); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	if starts != 1 || live == nil {
+		mu.Unlock()
+		t.Fatalf("starts = %d", starts)
+	}
+	proc := live
+	mu.Unlock()
+	if err := proc.Close(); err != nil {
+		t.Fatal(err)
+	}
+	waitACPSessionGone(t, func() bool {
+		adapter.mu.Lock()
+		defer adapter.mu.Unlock()
+		return adapter.sessions[thread.ID] != nil
+	})
+	if err := adapter.Prompt(thread.ID, "again"); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if starts < 2 {
+		t.Fatalf("ensure did not run again after death, starts=%d", starts)
 	}
 }
 
@@ -586,6 +687,18 @@ func fakeACPPeer(t *testing.T, handle func(map[string]any) (any, string)) *Persi
 		_ = outW.Close()
 		return nil
 	}}
+}
+
+func waitACPSessionGone(t *testing.T, stillHeld func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if !stillHeld() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("session was not evicted after process death")
 }
 
 func jsonEqual(a, b []byte) bool {

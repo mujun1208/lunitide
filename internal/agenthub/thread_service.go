@@ -58,6 +58,11 @@ func (s *Service) CreateThread(req ThreadCreateRequest) (ThreadDetail, error) {
 	if err := s.Threads.Insert(thread); err != nil {
 		return ThreadDetail{}, err
 	}
+	if text := sceneSystemText(req.Scene); text != "" {
+		if err := insertThreadMessage(s.Threads, id, "system", text); err != nil {
+			return ThreadDetail{}, err
+		}
+	}
 	if adapter, err := s.threadAdapter(req.HarnessID); err == nil {
 		_ = adapter.Open(thread)
 	}
@@ -161,6 +166,8 @@ func (s *Service) PromptThread(id, text string) (ThreadDetail, error) {
 	if err = adapter.Prompt(id, text); err != nil {
 		return ThreadDetail{}, err
 	}
+	_ = applyFirstUserTitle(s.Threads, id, text)
+	_ = touchThread(s.Threads, id)
 	return s.GetThread(id)
 }
 
@@ -357,6 +364,19 @@ func validThreadScene(scene string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func sceneSystemText(scene string) string {
+	switch scene {
+	case "write_project":
+		return "在你选的文件夹里按你的规则创建子目录并写文件。不要把已有文件挪到别处。"
+	case "fix":
+		return "在此仓库根内检索和修改。已有文件保持原路径。新文件按已有结构和你的规则放置。"
+	case "ppt":
+		return "用 Kimi 自己的技能做文稿。pptx 写在工作区；指定了导出目录则完成时复制过去。"
+	default:
+		return ""
 	}
 }
 
