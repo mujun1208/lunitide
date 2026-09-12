@@ -1,0 +1,3841 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "lunitide-model-office-v1",
+  "version": 1,
+  "scope": "固定开发集；故障fixture的合同通过率与真实任务交付成功率分别统计。",
+  "rules": [
+    "所有已启动尝试进入分母，禁止删除失败样本。",
+    "fixtureOnly=true用例不得计入真实模型成功率。",
+    "expectedTaskSuccess=false表示正确处理故障，不是成功交付。",
+    "输入生成器必须由T01/T12实现，固定种子与产物摘要；不得读取私人文件。",
+    "真实批次在明示预算后启动，结果必须附应用、profile、工具、renderer和文件身份。"
+  ],
+  "cases": [
+    {
+      "caseId": "D01",
+      "version": 1,
+      "category": "office",
+      "format": "docx",
+      "title": "中文研究报告",
+      "prompt": "按六个章节与两张数据表生成中文研究报告，保持全部八个事实，包含可更新目录与页码。",
+      "inputBuilder": "managed-spec-v2",
+      "inputs": {
+        "facts": [
+          {
+            "factId": "revenue_q1",
+            "value": "1200000",
+            "unit": "CNY",
+            "period": "2026Q1",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "revenue_q2",
+            "value": "1500000",
+            "unit": "CNY",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "cost_q1",
+            "value": "720000",
+            "unit": "CNY",
+            "period": "2026Q1",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "cost_q2",
+            "value": "870000",
+            "unit": "CNY",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "customers_q1",
+            "value": "120",
+            "unit": "count",
+            "period": "2026Q1",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "customers_q2",
+            "value": "150",
+            "unit": "count",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "retention",
+            "value": "92",
+            "unit": "percent",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "nps",
+            "value": "48",
+            "unit": "points",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          }
+        ],
+        "sections": [
+          "摘要",
+          "经营概况",
+          "收入分析",
+          "成本分析",
+          "客户分析",
+          "建议"
+        ],
+        "tables": 2,
+        "brandId": "editorial-report"
+      },
+      "checks": [
+        "sections=6",
+        "tables=2",
+        "all_locked_facts_exact",
+        "toc_cache_updated_in_docx",
+        "all_pages_text_covered",
+        "formal_decision_verified"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": false,
+      "sourceRequirementIds": [
+        "FR17",
+        "FR20",
+        "FR23"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "live",
+          "statisticGroup": "office_delivery",
+          "inputOverrides": {},
+          "checks": [
+            "sections=6",
+            "tables=2",
+            "all_locked_facts_exact",
+            "toc_cache_updated_in_docx",
+            "all_pages_text_covered",
+            "formal_decision_verified"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "D02",
+      "version": 1,
+      "category": "office",
+      "format": "docx",
+      "title": "中文长表分页",
+      "prompt": "将65行记录完整放入客户方案，重复表头，不截断长单元格。",
+      "inputBuilder": "managed-spec-v2",
+      "inputs": {
+        "rows": [
+          {
+            "id": 1,
+            "title": "条目1",
+            "description": "这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。"
+          },
+          {
+            "id": 2,
+            "title": "条目2",
+            "description": "这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。"
+          },
+          {
+            "id": 3,
+            "title": "条目3",
+            "description": "这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。"
+          },
+          {
+            "id": 4,
+            "title": "条目4",
+            "description": "这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。"
+          },
+          {
+            "id": 5,
+            "title": "条目5",
+            "description": "这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。"
+          },
+          {
+            "id": 6,
+            "title": "条目6",
+            "description": "这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。这是一段需要换行且跨页仍保持完整的中英混排 Customer Description。"
+          },
+          {
+            "id": 7,
+            "title": "条目7",
+            "description": "说明7"
+          },
+          {
+            "id": 8,
+            "title": "条目8",
+            "description": "说明8"
+          },
+          {
+            "id": 9,
+            "title": "条目9",
+            "description": "说明9"
+          },
+          {
+            "id": 10,
+            "title": "条目10",
+            "description": "说明10"
+          },
+          {
+            "id": 11,
+            "title": "条目11",
+            "description": "说明11"
+          },
+          {
+            "id": 12,
+            "title": "条目12",
+            "description": "说明12"
+          },
+          {
+            "id": 13,
+            "title": "条目13",
+            "description": "说明13"
+          },
+          {
+            "id": 14,
+            "title": "条目14",
+            "description": "说明14"
+          },
+          {
+            "id": 15,
+            "title": "条目15",
+            "description": "说明15"
+          },
+          {
+            "id": 16,
+            "title": "条目16",
+            "description": "说明16"
+          },
+          {
+            "id": 17,
+            "title": "条目17",
+            "description": "说明17"
+          },
+          {
+            "id": 18,
+            "title": "条目18",
+            "description": "说明18"
+          },
+          {
+            "id": 19,
+            "title": "条目19",
+            "description": "说明19"
+          },
+          {
+            "id": 20,
+            "title": "条目20",
+            "description": "说明20"
+          },
+          {
+            "id": 21,
+            "title": "条目21",
+            "description": "说明21"
+          },
+          {
+            "id": 22,
+            "title": "条目22",
+            "description": "说明22"
+          },
+          {
+            "id": 23,
+            "title": "条目23",
+            "description": "说明23"
+          },
+          {
+            "id": 24,
+            "title": "条目24",
+            "description": "说明24"
+          },
+          {
+            "id": 25,
+            "title": "条目25",
+            "description": "说明25"
+          },
+          {
+            "id": 26,
+            "title": "条目26",
+            "description": "说明26"
+          },
+          {
+            "id": 27,
+            "title": "条目27",
+            "description": "说明27"
+          },
+          {
+            "id": 28,
+            "title": "条目28",
+            "description": "说明28"
+          },
+          {
+            "id": 29,
+            "title": "条目29",
+            "description": "说明29"
+          },
+          {
+            "id": 30,
+            "title": "条目30",
+            "description": "说明30"
+          },
+          {
+            "id": 31,
+            "title": "条目31",
+            "description": "说明31"
+          },
+          {
+            "id": 32,
+            "title": "条目32",
+            "description": "说明32"
+          },
+          {
+            "id": 33,
+            "title": "条目33",
+            "description": "说明33"
+          },
+          {
+            "id": 34,
+            "title": "条目34",
+            "description": "说明34"
+          },
+          {
+            "id": 35,
+            "title": "条目35",
+            "description": "说明35"
+          },
+          {
+            "id": 36,
+            "title": "条目36",
+            "description": "说明36"
+          },
+          {
+            "id": 37,
+            "title": "条目37",
+            "description": "说明37"
+          },
+          {
+            "id": 38,
+            "title": "条目38",
+            "description": "说明38"
+          },
+          {
+            "id": 39,
+            "title": "条目39",
+            "description": "说明39"
+          },
+          {
+            "id": 40,
+            "title": "条目40",
+            "description": "说明40"
+          },
+          {
+            "id": 41,
+            "title": "条目41",
+            "description": "说明41"
+          },
+          {
+            "id": 42,
+            "title": "条目42",
+            "description": "说明42"
+          },
+          {
+            "id": 43,
+            "title": "条目43",
+            "description": "说明43"
+          },
+          {
+            "id": 44,
+            "title": "条目44",
+            "description": "说明44"
+          },
+          {
+            "id": 45,
+            "title": "条目45",
+            "description": "说明45"
+          },
+          {
+            "id": 46,
+            "title": "条目46",
+            "description": "说明46"
+          },
+          {
+            "id": 47,
+            "title": "条目47",
+            "description": "说明47"
+          },
+          {
+            "id": 48,
+            "title": "条目48",
+            "description": "说明48"
+          },
+          {
+            "id": 49,
+            "title": "条目49",
+            "description": "说明49"
+          },
+          {
+            "id": 50,
+            "title": "条目50",
+            "description": "说明50"
+          },
+          {
+            "id": 51,
+            "title": "条目51",
+            "description": "说明51"
+          },
+          {
+            "id": 52,
+            "title": "条目52",
+            "description": "说明52"
+          },
+          {
+            "id": 53,
+            "title": "条目53",
+            "description": "说明53"
+          },
+          {
+            "id": 54,
+            "title": "条目54",
+            "description": "说明54"
+          },
+          {
+            "id": 55,
+            "title": "条目55",
+            "description": "说明55"
+          },
+          {
+            "id": 56,
+            "title": "条目56",
+            "description": "说明56"
+          },
+          {
+            "id": 57,
+            "title": "条目57",
+            "description": "说明57"
+          },
+          {
+            "id": 58,
+            "title": "条目58",
+            "description": "说明58"
+          },
+          {
+            "id": 59,
+            "title": "条目59",
+            "description": "说明59"
+          },
+          {
+            "id": 60,
+            "title": "条目60",
+            "description": "说明60"
+          },
+          {
+            "id": 61,
+            "title": "条目61",
+            "description": "说明61"
+          },
+          {
+            "id": 62,
+            "title": "条目62",
+            "description": "说明62"
+          },
+          {
+            "id": 63,
+            "title": "条目63",
+            "description": "说明63"
+          },
+          {
+            "id": 64,
+            "title": "条目64",
+            "description": "说明64"
+          },
+          {
+            "id": 65,
+            "title": "条目65",
+            "description": "说明65"
+          }
+        ],
+        "brandId": "brand-pitch"
+      },
+      "checks": [
+        "all_rows=65",
+        "repeat_header=true",
+        "no_fixed_height_clipping",
+        "paragraph_table_content_covered"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": false,
+      "sourceRequirementIds": [
+        "FR18",
+        "FR20",
+        "FR23"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "live",
+          "statisticGroup": "office_delivery",
+          "inputOverrides": {},
+          "checks": [
+            "all_rows=65",
+            "repeat_header=true",
+            "no_fixed_height_clipping",
+            "paragraph_table_content_covered"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "D03",
+      "version": 1,
+      "category": "office",
+      "format": "docx",
+      "title": "Word局部更新",
+      "prompt": "只把第二节的“计划收入120万元”改成“计划收入150万元”，并将指定表格目标值1200000改为1500000，其他内容保持。",
+      "inputBuilder": "managed-import-docx-v1",
+      "inputs": {
+        "sections": [
+          "摘要",
+          "收入计划",
+          "风险"
+        ],
+        "originalSentence": "计划收入120万元",
+        "replacementSentence": "计划收入150万元",
+        "cell": {
+          "table": 0,
+          "row": 1,
+          "col": 1,
+          "from": "1200000",
+          "to": "1500000"
+        }
+      },
+      "checks": [
+        "only_target_nodes_changed",
+        "unrelated_parts_digest_equal",
+        "old_version_immutable",
+        "new_pdf_bound_to_new_sha"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": false,
+      "sourceRequirementIds": [
+        "FR20",
+        "FR24"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "live",
+          "statisticGroup": "office_delivery",
+          "inputOverrides": {},
+          "checks": [
+            "only_target_nodes_changed",
+            "unrelated_parts_digest_equal",
+            "old_version_immutable",
+            "new_pdf_bound_to_new_sha"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "P01",
+      "version": 1,
+      "category": "office",
+      "format": "pptx",
+      "title": "经营复盘",
+      "prompt": "用12个事实做8页经营复盘PPT，包含收入和成本两张原生图表，并导出PDF。",
+      "inputBuilder": "managed-spec-v2",
+      "inputs": {
+        "facts": [
+          {
+            "factId": "revenue_q1",
+            "value": "1200000",
+            "unit": "CNY",
+            "period": "2026Q1",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "revenue_q2",
+            "value": "1500000",
+            "unit": "CNY",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "cost_q1",
+            "value": "720000",
+            "unit": "CNY",
+            "period": "2026Q1",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "cost_q2",
+            "value": "870000",
+            "unit": "CNY",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "customers_q1",
+            "value": "120",
+            "unit": "count",
+            "period": "2026Q1",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "customers_q2",
+            "value": "150",
+            "unit": "count",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "retention",
+            "value": "92",
+            "unit": "percent",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "nps",
+            "value": "48",
+            "unit": "points",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "new_orders",
+            "value": "240",
+            "unit": "count",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "refund_orders",
+            "value": "12",
+            "unit": "count",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "staff",
+            "value": "30",
+            "unit": "count",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "target_revenue",
+            "value": "1600000",
+            "unit": "CNY",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          }
+        ],
+        "slides": 8,
+        "charts": [
+          "revenue",
+          "cost"
+        ],
+        "brandId": "ops-clear"
+      },
+      "checks": [
+        "slides=8",
+        "all_locked_facts_exact",
+        "native_charts=2",
+        "embedded_data_exact",
+        "all_pages_rendered",
+        "same_source_pdf"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": false,
+      "sourceRequirementIds": [
+        "FR17",
+        "FR19",
+        "FR22",
+        "FR23"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "live",
+          "statisticGroup": "office_delivery",
+          "inputOverrides": {},
+          "checks": [
+            "slides=8",
+            "all_locked_facts_exact",
+            "native_charts=2",
+            "embedded_data_exact",
+            "all_pages_rendered",
+            "same_source_pdf"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "P02",
+      "version": 1,
+      "category": "office",
+      "format": "pptx",
+      "title": "超量内容适配",
+      "prompt": "制作双栏方案对比，完整保留12项对比与36字标题；必要时拆页，不缩小到低于品牌正文字号下限。",
+      "inputBuilder": "managed-spec-v2",
+      "inputs": {
+        "title": "这是一个需要自动换行同时保持清晰阅读层级的企业数字化转型方案对比标题示例",
+        "comparisons": [
+          {
+            "left": "方案A第1项详细说明",
+            "right": "方案B第1项不同策略"
+          },
+          {
+            "left": "方案A第2项详细说明",
+            "right": "方案B第2项不同策略"
+          },
+          {
+            "left": "方案A第3项详细说明",
+            "right": "方案B第3项不同策略"
+          },
+          {
+            "left": "方案A第4项详细说明",
+            "right": "方案B第4项不同策略"
+          },
+          {
+            "left": "方案A第5项详细说明",
+            "right": "方案B第5项不同策略"
+          },
+          {
+            "left": "方案A第6项详细说明",
+            "right": "方案B第6项不同策略"
+          },
+          {
+            "left": "方案A第7项详细说明",
+            "right": "方案B第7项不同策略"
+          },
+          {
+            "left": "方案A第8项详细说明",
+            "right": "方案B第8项不同策略"
+          },
+          {
+            "left": "方案A第9项详细说明",
+            "right": "方案B第9项不同策略"
+          },
+          {
+            "left": "方案A第10项详细说明",
+            "right": "方案B第10项不同策略"
+          },
+          {
+            "left": "方案A第11项详细说明",
+            "right": "方案B第11项不同策略"
+          },
+          {
+            "left": "方案A第12项详细说明",
+            "right": "方案B第12项不同策略"
+          }
+        ],
+        "brandId": "brand-pitch"
+      },
+      "checks": [
+        "all_comparisons=12",
+        "no_content_truncation",
+        "minimum_body_pt>=brand_minimum",
+        "zero_out_of_bounds",
+        "zero_illegal_overlap"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": false,
+      "sourceRequirementIds": [
+        "FR18",
+        "FR19"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "live",
+          "statisticGroup": "office_delivery",
+          "inputOverrides": {},
+          "checks": [
+            "all_comparisons=12",
+            "no_content_truncation",
+            "minimum_body_pt>=brand_minimum",
+            "zero_out_of_bounds",
+            "zero_illegal_overlap"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "P03",
+      "version": 1,
+      "category": "office",
+      "format": "pptx",
+      "title": "图表与图片局部修改",
+      "prompt": "仅替换第二页图片和第三页图表第二个数值，保留其他对象的位置、文本和样式。",
+      "inputBuilder": "managed-import-pptx-v1",
+      "inputs": {
+        "slides": 4,
+        "imageFixture": {
+          "width": 320,
+          "height": 180,
+          "fromRGB": [
+            13,
+            148,
+            136
+          ],
+          "toRGB": [
+            124,
+            58,
+            237
+          ]
+        },
+        "chart": {
+          "series": [
+            100,
+            200,
+            300
+          ],
+          "replaceIndex": 1,
+          "value": 250
+        }
+      },
+      "checks": [
+        "image_box_equal",
+        "chart_and_workbook=[100,250,300]",
+        "unrelated_nodes_equal",
+        "new_quality_sha_matches"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": false,
+      "sourceRequirementIds": [
+        "FR19",
+        "FR24"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "live",
+          "statisticGroup": "office_delivery",
+          "inputOverrides": {},
+          "checks": [
+            "image_box_equal",
+            "chart_and_workbook=[100,250,300]",
+            "unrelated_nodes_equal",
+            "new_quality_sha_matches"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "X01",
+      "version": 1,
+      "category": "office",
+      "format": "xlsx",
+      "title": "经营订单工作簿",
+      "prompt": "根据200行订单生成经营台账，保留前导零、退款和缺失值，用公式计算总额，提供说明和筛选。",
+      "inputBuilder": "orders-inline-v1",
+      "inputs": {
+        "orders": [
+          {
+            "orderId": "000001",
+            "date": "2026-06-01",
+            "amountCents": -10000,
+            "discountBasisPoints": 0,
+            "region": "east",
+            "note": null
+          },
+          {
+            "orderId": "000002",
+            "date": "2026-06-02",
+            "amountCents": 10037,
+            "discountBasisPoints": 100,
+            "region": "west",
+            "note": "订单2"
+          },
+          {
+            "orderId": "000003",
+            "date": "2026-06-03",
+            "amountCents": 10074,
+            "discountBasisPoints": 200,
+            "region": "north",
+            "note": "订单3"
+          },
+          {
+            "orderId": "000004",
+            "date": "2026-06-04",
+            "amountCents": 10111,
+            "discountBasisPoints": 300,
+            "region": "south",
+            "note": "订单4"
+          },
+          {
+            "orderId": "000005",
+            "date": "2026-06-05",
+            "amountCents": 10148,
+            "discountBasisPoints": 400,
+            "region": "east",
+            "note": "订单5"
+          },
+          {
+            "orderId": "000006",
+            "date": "2026-06-06",
+            "amountCents": 10185,
+            "discountBasisPoints": 0,
+            "region": "west",
+            "note": "订单6"
+          },
+          {
+            "orderId": "000007",
+            "date": "2026-06-07",
+            "amountCents": 10222,
+            "discountBasisPoints": 100,
+            "region": "north",
+            "note": "订单7"
+          },
+          {
+            "orderId": "000008",
+            "date": "2026-06-08",
+            "amountCents": 10259,
+            "discountBasisPoints": 200,
+            "region": "south",
+            "note": "订单8"
+          },
+          {
+            "orderId": "000009",
+            "date": "2026-06-09",
+            "amountCents": 10296,
+            "discountBasisPoints": 300,
+            "region": "east",
+            "note": "订单9"
+          },
+          {
+            "orderId": "000010",
+            "date": "2026-06-10",
+            "amountCents": 10333,
+            "discountBasisPoints": 400,
+            "region": "west",
+            "note": "订单10"
+          },
+          {
+            "orderId": "000011",
+            "date": "2026-06-11",
+            "amountCents": -10370,
+            "discountBasisPoints": 0,
+            "region": "north",
+            "note": "订单11"
+          },
+          {
+            "orderId": "000012",
+            "date": "2026-06-12",
+            "amountCents": 10407,
+            "discountBasisPoints": 100,
+            "region": "south",
+            "note": "订单12"
+          },
+          {
+            "orderId": "000013",
+            "date": "2026-06-13",
+            "amountCents": 10444,
+            "discountBasisPoints": 200,
+            "region": "east",
+            "note": "订单13"
+          },
+          {
+            "orderId": "000014",
+            "date": "2026-06-14",
+            "amountCents": 10481,
+            "discountBasisPoints": 300,
+            "region": "west",
+            "note": "订单14"
+          },
+          {
+            "orderId": "000015",
+            "date": "2026-06-15",
+            "amountCents": 10518,
+            "discountBasisPoints": 400,
+            "region": "north",
+            "note": "订单15"
+          },
+          {
+            "orderId": "000016",
+            "date": "2026-06-16",
+            "amountCents": 10555,
+            "discountBasisPoints": 0,
+            "region": "south",
+            "note": "订单16"
+          },
+          {
+            "orderId": "000017",
+            "date": "2026-06-17",
+            "amountCents": 10592,
+            "discountBasisPoints": 100,
+            "region": "east",
+            "note": "订单17"
+          },
+          {
+            "orderId": "000018",
+            "date": "2026-06-18",
+            "amountCents": 10629,
+            "discountBasisPoints": 200,
+            "region": "west",
+            "note": null
+          },
+          {
+            "orderId": "000019",
+            "date": "2026-06-19",
+            "amountCents": 10666,
+            "discountBasisPoints": 300,
+            "region": "north",
+            "note": "订单19"
+          },
+          {
+            "orderId": "000020",
+            "date": "2026-06-20",
+            "amountCents": 10703,
+            "discountBasisPoints": 400,
+            "region": "south",
+            "note": "订单20"
+          },
+          {
+            "orderId": "000021",
+            "date": "2026-06-21",
+            "amountCents": -10740,
+            "discountBasisPoints": 0,
+            "region": "east",
+            "note": "订单21"
+          },
+          {
+            "orderId": "000022",
+            "date": "2026-06-22",
+            "amountCents": 10777,
+            "discountBasisPoints": 100,
+            "region": "west",
+            "note": "订单22"
+          },
+          {
+            "orderId": "000023",
+            "date": "2026-06-23",
+            "amountCents": 10814,
+            "discountBasisPoints": 200,
+            "region": "north",
+            "note": "订单23"
+          },
+          {
+            "orderId": "000024",
+            "date": "2026-06-24",
+            "amountCents": 10851,
+            "discountBasisPoints": 300,
+            "region": "south",
+            "note": "订单24"
+          },
+          {
+            "orderId": "000025",
+            "date": "2026-06-25",
+            "amountCents": 10888,
+            "discountBasisPoints": 400,
+            "region": "east",
+            "note": "订单25"
+          },
+          {
+            "orderId": "000026",
+            "date": "2026-06-26",
+            "amountCents": 10925,
+            "discountBasisPoints": 0,
+            "region": "west",
+            "note": "订单26"
+          },
+          {
+            "orderId": "000027",
+            "date": "2026-06-27",
+            "amountCents": 10962,
+            "discountBasisPoints": 100,
+            "region": "north",
+            "note": "订单27"
+          },
+          {
+            "orderId": "000028",
+            "date": "2026-06-28",
+            "amountCents": 10999,
+            "discountBasisPoints": 200,
+            "region": "south",
+            "note": "订单28"
+          },
+          {
+            "orderId": "000029",
+            "date": "2026-06-01",
+            "amountCents": 11036,
+            "discountBasisPoints": 300,
+            "region": "east",
+            "note": "订单29"
+          },
+          {
+            "orderId": "000030",
+            "date": "2026-06-02",
+            "amountCents": 11073,
+            "discountBasisPoints": 400,
+            "region": "west",
+            "note": "订单30"
+          },
+          {
+            "orderId": "000031",
+            "date": "2026-06-03",
+            "amountCents": -11110,
+            "discountBasisPoints": 0,
+            "region": "north",
+            "note": "订单31"
+          },
+          {
+            "orderId": "000032",
+            "date": "2026-06-04",
+            "amountCents": 11147,
+            "discountBasisPoints": 100,
+            "region": "south",
+            "note": "订单32"
+          },
+          {
+            "orderId": "000033",
+            "date": "2026-06-05",
+            "amountCents": 11184,
+            "discountBasisPoints": 200,
+            "region": "east",
+            "note": "订单33"
+          },
+          {
+            "orderId": "000034",
+            "date": "2026-06-06",
+            "amountCents": 11221,
+            "discountBasisPoints": 300,
+            "region": "west",
+            "note": "订单34"
+          },
+          {
+            "orderId": "000035",
+            "date": "2026-06-07",
+            "amountCents": 11258,
+            "discountBasisPoints": 400,
+            "region": "north",
+            "note": null
+          },
+          {
+            "orderId": "000036",
+            "date": "2026-06-08",
+            "amountCents": 11295,
+            "discountBasisPoints": 0,
+            "region": "south",
+            "note": "订单36"
+          },
+          {
+            "orderId": "000037",
+            "date": "2026-06-09",
+            "amountCents": 11332,
+            "discountBasisPoints": 100,
+            "region": "east",
+            "note": "订单37"
+          },
+          {
+            "orderId": "000038",
+            "date": "2026-06-10",
+            "amountCents": 11369,
+            "discountBasisPoints": 200,
+            "region": "west",
+            "note": "订单38"
+          },
+          {
+            "orderId": "000039",
+            "date": "2026-06-11",
+            "amountCents": 11406,
+            "discountBasisPoints": 300,
+            "region": "north",
+            "note": "订单39"
+          },
+          {
+            "orderId": "000040",
+            "date": "2026-06-12",
+            "amountCents": 11443,
+            "discountBasisPoints": 400,
+            "region": "south",
+            "note": "订单40"
+          },
+          {
+            "orderId": "000041",
+            "date": "2026-06-13",
+            "amountCents": -11480,
+            "discountBasisPoints": 0,
+            "region": "east",
+            "note": "订单41"
+          },
+          {
+            "orderId": "000042",
+            "date": "2026-06-14",
+            "amountCents": 11517,
+            "discountBasisPoints": 100,
+            "region": "west",
+            "note": "订单42"
+          },
+          {
+            "orderId": "000043",
+            "date": "2026-06-15",
+            "amountCents": 11554,
+            "discountBasisPoints": 200,
+            "region": "north",
+            "note": "订单43"
+          },
+          {
+            "orderId": "000044",
+            "date": "2026-06-16",
+            "amountCents": 11591,
+            "discountBasisPoints": 300,
+            "region": "south",
+            "note": "订单44"
+          },
+          {
+            "orderId": "000045",
+            "date": "2026-06-17",
+            "amountCents": 11628,
+            "discountBasisPoints": 400,
+            "region": "east",
+            "note": "订单45"
+          },
+          {
+            "orderId": "000046",
+            "date": "2026-06-18",
+            "amountCents": 11665,
+            "discountBasisPoints": 0,
+            "region": "west",
+            "note": "订单46"
+          },
+          {
+            "orderId": "000047",
+            "date": "2026-06-19",
+            "amountCents": 11702,
+            "discountBasisPoints": 100,
+            "region": "north",
+            "note": "订单47"
+          },
+          {
+            "orderId": "000048",
+            "date": "2026-06-20",
+            "amountCents": 11739,
+            "discountBasisPoints": 200,
+            "region": "south",
+            "note": "订单48"
+          },
+          {
+            "orderId": "000049",
+            "date": "2026-06-21",
+            "amountCents": 11776,
+            "discountBasisPoints": 300,
+            "region": "east",
+            "note": "订单49"
+          },
+          {
+            "orderId": "000050",
+            "date": "2026-06-22",
+            "amountCents": 11813,
+            "discountBasisPoints": 400,
+            "region": "west",
+            "note": "订单50"
+          },
+          {
+            "orderId": "000051",
+            "date": "2026-06-23",
+            "amountCents": -11850,
+            "discountBasisPoints": 0,
+            "region": "north",
+            "note": "订单51"
+          },
+          {
+            "orderId": "000052",
+            "date": "2026-06-24",
+            "amountCents": 11887,
+            "discountBasisPoints": 100,
+            "region": "south",
+            "note": null
+          },
+          {
+            "orderId": "000053",
+            "date": "2026-06-25",
+            "amountCents": 11924,
+            "discountBasisPoints": 200,
+            "region": "east",
+            "note": "订单53"
+          },
+          {
+            "orderId": "000054",
+            "date": "2026-06-26",
+            "amountCents": 11961,
+            "discountBasisPoints": 300,
+            "region": "west",
+            "note": "订单54"
+          },
+          {
+            "orderId": "000055",
+            "date": "2026-06-27",
+            "amountCents": 11998,
+            "discountBasisPoints": 400,
+            "region": "north",
+            "note": "订单55"
+          },
+          {
+            "orderId": "000056",
+            "date": "2026-06-28",
+            "amountCents": 12035,
+            "discountBasisPoints": 0,
+            "region": "south",
+            "note": "订单56"
+          },
+          {
+            "orderId": "000057",
+            "date": "2026-06-01",
+            "amountCents": 12072,
+            "discountBasisPoints": 100,
+            "region": "east",
+            "note": "订单57"
+          },
+          {
+            "orderId": "000058",
+            "date": "2026-06-02",
+            "amountCents": 12109,
+            "discountBasisPoints": 200,
+            "region": "west",
+            "note": "订单58"
+          },
+          {
+            "orderId": "000059",
+            "date": "2026-06-03",
+            "amountCents": 12146,
+            "discountBasisPoints": 300,
+            "region": "north",
+            "note": "订单59"
+          },
+          {
+            "orderId": "000060",
+            "date": "2026-06-04",
+            "amountCents": 12183,
+            "discountBasisPoints": 400,
+            "region": "south",
+            "note": "订单60"
+          },
+          {
+            "orderId": "000061",
+            "date": "2026-06-05",
+            "amountCents": -12220,
+            "discountBasisPoints": 0,
+            "region": "east",
+            "note": "订单61"
+          },
+          {
+            "orderId": "000062",
+            "date": "2026-06-06",
+            "amountCents": 12257,
+            "discountBasisPoints": 100,
+            "region": "west",
+            "note": "订单62"
+          },
+          {
+            "orderId": "000063",
+            "date": "2026-06-07",
+            "amountCents": 12294,
+            "discountBasisPoints": 200,
+            "region": "north",
+            "note": "订单63"
+          },
+          {
+            "orderId": "000064",
+            "date": "2026-06-08",
+            "amountCents": 12331,
+            "discountBasisPoints": 300,
+            "region": "south",
+            "note": "订单64"
+          },
+          {
+            "orderId": "000065",
+            "date": "2026-06-09",
+            "amountCents": 12368,
+            "discountBasisPoints": 400,
+            "region": "east",
+            "note": "订单65"
+          },
+          {
+            "orderId": "000066",
+            "date": "2026-06-10",
+            "amountCents": 12405,
+            "discountBasisPoints": 0,
+            "region": "west",
+            "note": "订单66"
+          },
+          {
+            "orderId": "000067",
+            "date": "2026-06-11",
+            "amountCents": 12442,
+            "discountBasisPoints": 100,
+            "region": "north",
+            "note": "订单67"
+          },
+          {
+            "orderId": "000068",
+            "date": "2026-06-12",
+            "amountCents": 12479,
+            "discountBasisPoints": 200,
+            "region": "south",
+            "note": "订单68"
+          },
+          {
+            "orderId": "000069",
+            "date": "2026-06-13",
+            "amountCents": 12516,
+            "discountBasisPoints": 300,
+            "region": "east",
+            "note": null
+          },
+          {
+            "orderId": "000070",
+            "date": "2026-06-14",
+            "amountCents": 12553,
+            "discountBasisPoints": 400,
+            "region": "west",
+            "note": "订单70"
+          },
+          {
+            "orderId": "000071",
+            "date": "2026-06-15",
+            "amountCents": -12590,
+            "discountBasisPoints": 0,
+            "region": "north",
+            "note": "订单71"
+          },
+          {
+            "orderId": "000072",
+            "date": "2026-06-16",
+            "amountCents": 12627,
+            "discountBasisPoints": 100,
+            "region": "south",
+            "note": "订单72"
+          },
+          {
+            "orderId": "000073",
+            "date": "2026-06-17",
+            "amountCents": 12664,
+            "discountBasisPoints": 200,
+            "region": "east",
+            "note": "订单73"
+          },
+          {
+            "orderId": "000074",
+            "date": "2026-06-18",
+            "amountCents": 12701,
+            "discountBasisPoints": 300,
+            "region": "west",
+            "note": "订单74"
+          },
+          {
+            "orderId": "000075",
+            "date": "2026-06-19",
+            "amountCents": 12738,
+            "discountBasisPoints": 400,
+            "region": "north",
+            "note": "订单75"
+          },
+          {
+            "orderId": "000076",
+            "date": "2026-06-20",
+            "amountCents": 12775,
+            "discountBasisPoints": 0,
+            "region": "south",
+            "note": "订单76"
+          },
+          {
+            "orderId": "000077",
+            "date": "2026-06-21",
+            "amountCents": 12812,
+            "discountBasisPoints": 100,
+            "region": "east",
+            "note": "订单77"
+          },
+          {
+            "orderId": "000078",
+            "date": "2026-06-22",
+            "amountCents": 12849,
+            "discountBasisPoints": 200,
+            "region": "west",
+            "note": "订单78"
+          },
+          {
+            "orderId": "000079",
+            "date": "2026-06-23",
+            "amountCents": 12886,
+            "discountBasisPoints": 300,
+            "region": "north",
+            "note": "订单79"
+          },
+          {
+            "orderId": "000080",
+            "date": "2026-06-24",
+            "amountCents": 12923,
+            "discountBasisPoints": 400,
+            "region": "south",
+            "note": "订单80"
+          },
+          {
+            "orderId": "000081",
+            "date": "2026-06-25",
+            "amountCents": -12960,
+            "discountBasisPoints": 0,
+            "region": "east",
+            "note": "订单81"
+          },
+          {
+            "orderId": "000082",
+            "date": "2026-06-26",
+            "amountCents": 12997,
+            "discountBasisPoints": 100,
+            "region": "west",
+            "note": "订单82"
+          },
+          {
+            "orderId": "000083",
+            "date": "2026-06-27",
+            "amountCents": 13034,
+            "discountBasisPoints": 200,
+            "region": "north",
+            "note": "订单83"
+          },
+          {
+            "orderId": "000084",
+            "date": "2026-06-28",
+            "amountCents": 13071,
+            "discountBasisPoints": 300,
+            "region": "south",
+            "note": "订单84"
+          },
+          {
+            "orderId": "000085",
+            "date": "2026-06-01",
+            "amountCents": 13108,
+            "discountBasisPoints": 400,
+            "region": "east",
+            "note": "订单85"
+          },
+          {
+            "orderId": "000086",
+            "date": "2026-06-02",
+            "amountCents": 13145,
+            "discountBasisPoints": 0,
+            "region": "west",
+            "note": null
+          },
+          {
+            "orderId": "000087",
+            "date": "2026-06-03",
+            "amountCents": 13182,
+            "discountBasisPoints": 100,
+            "region": "north",
+            "note": "订单87"
+          },
+          {
+            "orderId": "000088",
+            "date": "2026-06-04",
+            "amountCents": 13219,
+            "discountBasisPoints": 200,
+            "region": "south",
+            "note": "订单88"
+          },
+          {
+            "orderId": "000089",
+            "date": "2026-06-05",
+            "amountCents": 13256,
+            "discountBasisPoints": 300,
+            "region": "east",
+            "note": "订单89"
+          },
+          {
+            "orderId": "000090",
+            "date": "2026-06-06",
+            "amountCents": 13293,
+            "discountBasisPoints": 400,
+            "region": "west",
+            "note": "订单90"
+          },
+          {
+            "orderId": "000091",
+            "date": "2026-06-07",
+            "amountCents": -13330,
+            "discountBasisPoints": 0,
+            "region": "north",
+            "note": "订单91"
+          },
+          {
+            "orderId": "000092",
+            "date": "2026-06-08",
+            "amountCents": 13367,
+            "discountBasisPoints": 100,
+            "region": "south",
+            "note": "订单92"
+          },
+          {
+            "orderId": "000093",
+            "date": "2026-06-09",
+            "amountCents": 13404,
+            "discountBasisPoints": 200,
+            "region": "east",
+            "note": "订单93"
+          },
+          {
+            "orderId": "000094",
+            "date": "2026-06-10",
+            "amountCents": 13441,
+            "discountBasisPoints": 300,
+            "region": "west",
+            "note": "订单94"
+          },
+          {
+            "orderId": "000095",
+            "date": "2026-06-11",
+            "amountCents": 13478,
+            "discountBasisPoints": 400,
+            "region": "north",
+            "note": "订单95"
+          },
+          {
+            "orderId": "000096",
+            "date": "2026-06-12",
+            "amountCents": 13515,
+            "discountBasisPoints": 0,
+            "region": "south",
+            "note": "订单96"
+          },
+          {
+            "orderId": "000097",
+            "date": "2026-06-13",
+            "amountCents": 13552,
+            "discountBasisPoints": 100,
+            "region": "east",
+            "note": "订单97"
+          },
+          {
+            "orderId": "000098",
+            "date": "2026-06-14",
+            "amountCents": 13589,
+            "discountBasisPoints": 200,
+            "region": "west",
+            "note": "订单98"
+          },
+          {
+            "orderId": "000099",
+            "date": "2026-06-15",
+            "amountCents": 13626,
+            "discountBasisPoints": 300,
+            "region": "north",
+            "note": "订单99"
+          },
+          {
+            "orderId": "000100",
+            "date": "2026-06-16",
+            "amountCents": 13663,
+            "discountBasisPoints": 400,
+            "region": "south",
+            "note": "订单100"
+          },
+          {
+            "orderId": "000101",
+            "date": "2026-06-17",
+            "amountCents": -13700,
+            "discountBasisPoints": 0,
+            "region": "east",
+            "note": "订单101"
+          },
+          {
+            "orderId": "000102",
+            "date": "2026-06-18",
+            "amountCents": 13737,
+            "discountBasisPoints": 100,
+            "region": "west",
+            "note": "订单102"
+          },
+          {
+            "orderId": "000103",
+            "date": "2026-06-19",
+            "amountCents": 13774,
+            "discountBasisPoints": 200,
+            "region": "north",
+            "note": null
+          },
+          {
+            "orderId": "000104",
+            "date": "2026-06-20",
+            "amountCents": 13811,
+            "discountBasisPoints": 300,
+            "region": "south",
+            "note": "订单104"
+          },
+          {
+            "orderId": "000105",
+            "date": "2026-06-21",
+            "amountCents": 13848,
+            "discountBasisPoints": 400,
+            "region": "east",
+            "note": "订单105"
+          },
+          {
+            "orderId": "000106",
+            "date": "2026-06-22",
+            "amountCents": 13885,
+            "discountBasisPoints": 0,
+            "region": "west",
+            "note": "订单106"
+          },
+          {
+            "orderId": "000107",
+            "date": "2026-06-23",
+            "amountCents": 13922,
+            "discountBasisPoints": 100,
+            "region": "north",
+            "note": "订单107"
+          },
+          {
+            "orderId": "000108",
+            "date": "2026-06-24",
+            "amountCents": 13959,
+            "discountBasisPoints": 200,
+            "region": "south",
+            "note": "订单108"
+          },
+          {
+            "orderId": "000109",
+            "date": "2026-06-25",
+            "amountCents": 13996,
+            "discountBasisPoints": 300,
+            "region": "east",
+            "note": "订单109"
+          },
+          {
+            "orderId": "000110",
+            "date": "2026-06-26",
+            "amountCents": 14033,
+            "discountBasisPoints": 400,
+            "region": "west",
+            "note": "订单110"
+          },
+          {
+            "orderId": "000111",
+            "date": "2026-06-27",
+            "amountCents": -14070,
+            "discountBasisPoints": 0,
+            "region": "north",
+            "note": "订单111"
+          },
+          {
+            "orderId": "000112",
+            "date": "2026-06-28",
+            "amountCents": 14107,
+            "discountBasisPoints": 100,
+            "region": "south",
+            "note": "订单112"
+          },
+          {
+            "orderId": "000113",
+            "date": "2026-06-01",
+            "amountCents": 14144,
+            "discountBasisPoints": 200,
+            "region": "east",
+            "note": "订单113"
+          },
+          {
+            "orderId": "000114",
+            "date": "2026-06-02",
+            "amountCents": 14181,
+            "discountBasisPoints": 300,
+            "region": "west",
+            "note": "订单114"
+          },
+          {
+            "orderId": "000115",
+            "date": "2026-06-03",
+            "amountCents": 14218,
+            "discountBasisPoints": 400,
+            "region": "north",
+            "note": "订单115"
+          },
+          {
+            "orderId": "000116",
+            "date": "2026-06-04",
+            "amountCents": 14255,
+            "discountBasisPoints": 0,
+            "region": "south",
+            "note": "订单116"
+          },
+          {
+            "orderId": "000117",
+            "date": "2026-06-05",
+            "amountCents": 14292,
+            "discountBasisPoints": 100,
+            "region": "east",
+            "note": "订单117"
+          },
+          {
+            "orderId": "000118",
+            "date": "2026-06-06",
+            "amountCents": 14329,
+            "discountBasisPoints": 200,
+            "region": "west",
+            "note": "订单118"
+          },
+          {
+            "orderId": "000119",
+            "date": "2026-06-07",
+            "amountCents": 14366,
+            "discountBasisPoints": 300,
+            "region": "north",
+            "note": "订单119"
+          },
+          {
+            "orderId": "000120",
+            "date": "2026-06-08",
+            "amountCents": 14403,
+            "discountBasisPoints": 400,
+            "region": "south",
+            "note": null
+          },
+          {
+            "orderId": "000121",
+            "date": "2026-06-09",
+            "amountCents": -14440,
+            "discountBasisPoints": 0,
+            "region": "east",
+            "note": "订单121"
+          },
+          {
+            "orderId": "000122",
+            "date": "2026-06-10",
+            "amountCents": 14477,
+            "discountBasisPoints": 100,
+            "region": "west",
+            "note": "订单122"
+          },
+          {
+            "orderId": "000123",
+            "date": "2026-06-11",
+            "amountCents": 14514,
+            "discountBasisPoints": 200,
+            "region": "north",
+            "note": "订单123"
+          },
+          {
+            "orderId": "000124",
+            "date": "2026-06-12",
+            "amountCents": 14551,
+            "discountBasisPoints": 300,
+            "region": "south",
+            "note": "订单124"
+          },
+          {
+            "orderId": "000125",
+            "date": "2026-06-13",
+            "amountCents": 14588,
+            "discountBasisPoints": 400,
+            "region": "east",
+            "note": "订单125"
+          },
+          {
+            "orderId": "000126",
+            "date": "2026-06-14",
+            "amountCents": 14625,
+            "discountBasisPoints": 0,
+            "region": "west",
+            "note": "订单126"
+          },
+          {
+            "orderId": "000127",
+            "date": "2026-06-15",
+            "amountCents": 14662,
+            "discountBasisPoints": 100,
+            "region": "north",
+            "note": "订单127"
+          },
+          {
+            "orderId": "000128",
+            "date": "2026-06-16",
+            "amountCents": 14699,
+            "discountBasisPoints": 200,
+            "region": "south",
+            "note": "订单128"
+          },
+          {
+            "orderId": "000129",
+            "date": "2026-06-17",
+            "amountCents": 14736,
+            "discountBasisPoints": 300,
+            "region": "east",
+            "note": "订单129"
+          },
+          {
+            "orderId": "000130",
+            "date": "2026-06-18",
+            "amountCents": 14773,
+            "discountBasisPoints": 400,
+            "region": "west",
+            "note": "订单130"
+          },
+          {
+            "orderId": "000131",
+            "date": "2026-06-19",
+            "amountCents": -14810,
+            "discountBasisPoints": 0,
+            "region": "north",
+            "note": "订单131"
+          },
+          {
+            "orderId": "000132",
+            "date": "2026-06-20",
+            "amountCents": 14847,
+            "discountBasisPoints": 100,
+            "region": "south",
+            "note": "订单132"
+          },
+          {
+            "orderId": "000133",
+            "date": "2026-06-21",
+            "amountCents": 14884,
+            "discountBasisPoints": 200,
+            "region": "east",
+            "note": "订单133"
+          },
+          {
+            "orderId": "000134",
+            "date": "2026-06-22",
+            "amountCents": 14921,
+            "discountBasisPoints": 300,
+            "region": "west",
+            "note": "订单134"
+          },
+          {
+            "orderId": "000135",
+            "date": "2026-06-23",
+            "amountCents": 14958,
+            "discountBasisPoints": 400,
+            "region": "north",
+            "note": "订单135"
+          },
+          {
+            "orderId": "000136",
+            "date": "2026-06-24",
+            "amountCents": 14995,
+            "discountBasisPoints": 0,
+            "region": "south",
+            "note": "订单136"
+          },
+          {
+            "orderId": "000137",
+            "date": "2026-06-25",
+            "amountCents": 15032,
+            "discountBasisPoints": 100,
+            "region": "east",
+            "note": null
+          },
+          {
+            "orderId": "000138",
+            "date": "2026-06-26",
+            "amountCents": 15069,
+            "discountBasisPoints": 200,
+            "region": "west",
+            "note": "订单138"
+          },
+          {
+            "orderId": "000139",
+            "date": "2026-06-27",
+            "amountCents": 15106,
+            "discountBasisPoints": 300,
+            "region": "north",
+            "note": "订单139"
+          },
+          {
+            "orderId": "000140",
+            "date": "2026-06-28",
+            "amountCents": 15143,
+            "discountBasisPoints": 400,
+            "region": "south",
+            "note": "订单140"
+          },
+          {
+            "orderId": "000141",
+            "date": "2026-06-01",
+            "amountCents": -15180,
+            "discountBasisPoints": 0,
+            "region": "east",
+            "note": "订单141"
+          },
+          {
+            "orderId": "000142",
+            "date": "2026-06-02",
+            "amountCents": 15217,
+            "discountBasisPoints": 100,
+            "region": "west",
+            "note": "订单142"
+          },
+          {
+            "orderId": "000143",
+            "date": "2026-06-03",
+            "amountCents": 15254,
+            "discountBasisPoints": 200,
+            "region": "north",
+            "note": "订单143"
+          },
+          {
+            "orderId": "000144",
+            "date": "2026-06-04",
+            "amountCents": 15291,
+            "discountBasisPoints": 300,
+            "region": "south",
+            "note": "订单144"
+          },
+          {
+            "orderId": "000145",
+            "date": "2026-06-05",
+            "amountCents": 15328,
+            "discountBasisPoints": 400,
+            "region": "east",
+            "note": "订单145"
+          },
+          {
+            "orderId": "000146",
+            "date": "2026-06-06",
+            "amountCents": 15365,
+            "discountBasisPoints": 0,
+            "region": "west",
+            "note": "订单146"
+          },
+          {
+            "orderId": "000147",
+            "date": "2026-06-07",
+            "amountCents": 15402,
+            "discountBasisPoints": 100,
+            "region": "north",
+            "note": "订单147"
+          },
+          {
+            "orderId": "000148",
+            "date": "2026-06-08",
+            "amountCents": 15439,
+            "discountBasisPoints": 200,
+            "region": "south",
+            "note": "订单148"
+          },
+          {
+            "orderId": "000149",
+            "date": "2026-06-09",
+            "amountCents": 15476,
+            "discountBasisPoints": 300,
+            "region": "east",
+            "note": "订单149"
+          },
+          {
+            "orderId": "000150",
+            "date": "2026-06-10",
+            "amountCents": 15513,
+            "discountBasisPoints": 400,
+            "region": "west",
+            "note": "订单150"
+          },
+          {
+            "orderId": "000151",
+            "date": "2026-06-11",
+            "amountCents": -15550,
+            "discountBasisPoints": 0,
+            "region": "north",
+            "note": "订单151"
+          },
+          {
+            "orderId": "000152",
+            "date": "2026-06-12",
+            "amountCents": 15587,
+            "discountBasisPoints": 100,
+            "region": "south",
+            "note": "订单152"
+          },
+          {
+            "orderId": "000153",
+            "date": "2026-06-13",
+            "amountCents": 15624,
+            "discountBasisPoints": 200,
+            "region": "east",
+            "note": "订单153"
+          },
+          {
+            "orderId": "000154",
+            "date": "2026-06-14",
+            "amountCents": 15661,
+            "discountBasisPoints": 300,
+            "region": "west",
+            "note": null
+          },
+          {
+            "orderId": "000155",
+            "date": "2026-06-15",
+            "amountCents": 15698,
+            "discountBasisPoints": 400,
+            "region": "north",
+            "note": "订单155"
+          },
+          {
+            "orderId": "000156",
+            "date": "2026-06-16",
+            "amountCents": 15735,
+            "discountBasisPoints": 0,
+            "region": "south",
+            "note": "订单156"
+          },
+          {
+            "orderId": "000157",
+            "date": "2026-06-17",
+            "amountCents": 15772,
+            "discountBasisPoints": 100,
+            "region": "east",
+            "note": "订单157"
+          },
+          {
+            "orderId": "000158",
+            "date": "2026-06-18",
+            "amountCents": 15809,
+            "discountBasisPoints": 200,
+            "region": "west",
+            "note": "订单158"
+          },
+          {
+            "orderId": "000159",
+            "date": "2026-06-19",
+            "amountCents": 15846,
+            "discountBasisPoints": 300,
+            "region": "north",
+            "note": "订单159"
+          },
+          {
+            "orderId": "000160",
+            "date": "2026-06-20",
+            "amountCents": 15883,
+            "discountBasisPoints": 400,
+            "region": "south",
+            "note": "订单160"
+          },
+          {
+            "orderId": "000161",
+            "date": "2026-06-21",
+            "amountCents": -15920,
+            "discountBasisPoints": 0,
+            "region": "east",
+            "note": "订单161"
+          },
+          {
+            "orderId": "000162",
+            "date": "2026-06-22",
+            "amountCents": 15957,
+            "discountBasisPoints": 100,
+            "region": "west",
+            "note": "订单162"
+          },
+          {
+            "orderId": "000163",
+            "date": "2026-06-23",
+            "amountCents": 15994,
+            "discountBasisPoints": 200,
+            "region": "north",
+            "note": "订单163"
+          },
+          {
+            "orderId": "000164",
+            "date": "2026-06-24",
+            "amountCents": 16031,
+            "discountBasisPoints": 300,
+            "region": "south",
+            "note": "订单164"
+          },
+          {
+            "orderId": "000165",
+            "date": "2026-06-25",
+            "amountCents": 16068,
+            "discountBasisPoints": 400,
+            "region": "east",
+            "note": "订单165"
+          },
+          {
+            "orderId": "000166",
+            "date": "2026-06-26",
+            "amountCents": 16105,
+            "discountBasisPoints": 0,
+            "region": "west",
+            "note": "订单166"
+          },
+          {
+            "orderId": "000167",
+            "date": "2026-06-27",
+            "amountCents": 16142,
+            "discountBasisPoints": 100,
+            "region": "north",
+            "note": "订单167"
+          },
+          {
+            "orderId": "000168",
+            "date": "2026-06-28",
+            "amountCents": 16179,
+            "discountBasisPoints": 200,
+            "region": "south",
+            "note": "订单168"
+          },
+          {
+            "orderId": "000169",
+            "date": "2026-06-01",
+            "amountCents": 16216,
+            "discountBasisPoints": 300,
+            "region": "east",
+            "note": "订单169"
+          },
+          {
+            "orderId": "000170",
+            "date": "2026-06-02",
+            "amountCents": 16253,
+            "discountBasisPoints": 400,
+            "region": "west",
+            "note": "订单170"
+          },
+          {
+            "orderId": "000171",
+            "date": "2026-06-03",
+            "amountCents": -16290,
+            "discountBasisPoints": 0,
+            "region": "north",
+            "note": null
+          },
+          {
+            "orderId": "000172",
+            "date": "2026-06-04",
+            "amountCents": 16327,
+            "discountBasisPoints": 100,
+            "region": "south",
+            "note": "订单172"
+          },
+          {
+            "orderId": "000173",
+            "date": "2026-06-05",
+            "amountCents": 16364,
+            "discountBasisPoints": 200,
+            "region": "east",
+            "note": "订单173"
+          },
+          {
+            "orderId": "000174",
+            "date": "2026-06-06",
+            "amountCents": 16401,
+            "discountBasisPoints": 300,
+            "region": "west",
+            "note": "订单174"
+          },
+          {
+            "orderId": "000175",
+            "date": "2026-06-07",
+            "amountCents": 16438,
+            "discountBasisPoints": 400,
+            "region": "north",
+            "note": "订单175"
+          },
+          {
+            "orderId": "000176",
+            "date": "2026-06-08",
+            "amountCents": 16475,
+            "discountBasisPoints": 0,
+            "region": "south",
+            "note": "订单176"
+          },
+          {
+            "orderId": "000177",
+            "date": "2026-06-09",
+            "amountCents": 16512,
+            "discountBasisPoints": 100,
+            "region": "east",
+            "note": "订单177"
+          },
+          {
+            "orderId": "000178",
+            "date": "2026-06-10",
+            "amountCents": 16549,
+            "discountBasisPoints": 200,
+            "region": "west",
+            "note": "订单178"
+          },
+          {
+            "orderId": "000179",
+            "date": "2026-06-11",
+            "amountCents": 16586,
+            "discountBasisPoints": 300,
+            "region": "north",
+            "note": "订单179"
+          },
+          {
+            "orderId": "000180",
+            "date": "2026-06-12",
+            "amountCents": 16623,
+            "discountBasisPoints": 400,
+            "region": "south",
+            "note": "订单180"
+          },
+          {
+            "orderId": "000181",
+            "date": "2026-06-13",
+            "amountCents": -16660,
+            "discountBasisPoints": 0,
+            "region": "east",
+            "note": "订单181"
+          },
+          {
+            "orderId": "000182",
+            "date": "2026-06-14",
+            "amountCents": 16697,
+            "discountBasisPoints": 100,
+            "region": "west",
+            "note": "订单182"
+          },
+          {
+            "orderId": "000183",
+            "date": "2026-06-15",
+            "amountCents": 16734,
+            "discountBasisPoints": 200,
+            "region": "north",
+            "note": "订单183"
+          },
+          {
+            "orderId": "000184",
+            "date": "2026-06-16",
+            "amountCents": 16771,
+            "discountBasisPoints": 300,
+            "region": "south",
+            "note": "订单184"
+          },
+          {
+            "orderId": "000185",
+            "date": "2026-06-17",
+            "amountCents": 16808,
+            "discountBasisPoints": 400,
+            "region": "east",
+            "note": "订单185"
+          },
+          {
+            "orderId": "000186",
+            "date": "2026-06-18",
+            "amountCents": 16845,
+            "discountBasisPoints": 0,
+            "region": "west",
+            "note": "订单186"
+          },
+          {
+            "orderId": "000187",
+            "date": "2026-06-19",
+            "amountCents": 16882,
+            "discountBasisPoints": 100,
+            "region": "north",
+            "note": "订单187"
+          },
+          {
+            "orderId": "000188",
+            "date": "2026-06-20",
+            "amountCents": 16919,
+            "discountBasisPoints": 200,
+            "region": "south",
+            "note": null
+          },
+          {
+            "orderId": "000189",
+            "date": "2026-06-21",
+            "amountCents": 16956,
+            "discountBasisPoints": 300,
+            "region": "east",
+            "note": "订单189"
+          },
+          {
+            "orderId": "000190",
+            "date": "2026-06-22",
+            "amountCents": 16993,
+            "discountBasisPoints": 400,
+            "region": "west",
+            "note": "订单190"
+          },
+          {
+            "orderId": "000191",
+            "date": "2026-06-23",
+            "amountCents": -17030,
+            "discountBasisPoints": 0,
+            "region": "north",
+            "note": "订单191"
+          },
+          {
+            "orderId": "000192",
+            "date": "2026-06-24",
+            "amountCents": 17067,
+            "discountBasisPoints": 100,
+            "region": "south",
+            "note": "订单192"
+          },
+          {
+            "orderId": "000193",
+            "date": "2026-06-25",
+            "amountCents": 17104,
+            "discountBasisPoints": 200,
+            "region": "east",
+            "note": "订单193"
+          },
+          {
+            "orderId": "000194",
+            "date": "2026-06-26",
+            "amountCents": 17141,
+            "discountBasisPoints": 300,
+            "region": "west",
+            "note": "订单194"
+          },
+          {
+            "orderId": "000195",
+            "date": "2026-06-27",
+            "amountCents": 17178,
+            "discountBasisPoints": 400,
+            "region": "north",
+            "note": "订单195"
+          },
+          {
+            "orderId": "000196",
+            "date": "2026-06-28",
+            "amountCents": 17215,
+            "discountBasisPoints": 0,
+            "region": "south",
+            "note": "订单196"
+          },
+          {
+            "orderId": "000197",
+            "date": "2026-06-01",
+            "amountCents": 17252,
+            "discountBasisPoints": 100,
+            "region": "east",
+            "note": "订单197"
+          },
+          {
+            "orderId": "000198",
+            "date": "2026-06-02",
+            "amountCents": 17289,
+            "discountBasisPoints": 200,
+            "region": "west",
+            "note": "订单198"
+          },
+          {
+            "orderId": "000199",
+            "date": "2026-06-03",
+            "amountCents": 17326,
+            "discountBasisPoints": 300,
+            "region": "north",
+            "note": "订单199"
+          },
+          {
+            "orderId": "000200",
+            "date": "2026-06-04",
+            "amountCents": 17363,
+            "discountBasisPoints": 400,
+            "region": "south",
+            "note": "订单200"
+          }
+        ],
+        "expectedTotalCents": 2195700
+      },
+      "checks": [
+        "orders=200",
+        "leading_zero_ids_exact",
+        "sum_cents_exact",
+        "formula_not_constant",
+        "full_recalculation",
+        "no_formula_errors"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": false,
+      "sourceRequirementIds": [
+        "FR17",
+        "FR21"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "live",
+          "statisticGroup": "office_delivery",
+          "inputOverrides": {},
+          "checks": [
+            "orders=200",
+            "leading_zero_ids_exact",
+            "sum_cents_exact",
+            "formula_not_constant",
+            "full_recalculation",
+            "no_formula_errors"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "X02",
+      "version": 1,
+      "category": "office",
+      "format": "xlsx",
+      "title": "销售看板",
+      "prompt": "生成输入、计算、看板、说明四张工作表，计算环比和达成率，零分母显示未适用。",
+      "inputBuilder": "managed-spec-v2",
+      "inputs": {
+        "months": [
+          {
+            "month": "2026-05",
+            "salesCents": 12000000,
+            "targetCents": 15000000
+          },
+          {
+            "month": "2026-06",
+            "salesCents": 15000000,
+            "targetCents": 16000000
+          }
+        ],
+        "zeroDenominatorRow": {
+          "previous": 0,
+          "current": 300
+        }
+      },
+      "checks": [
+        "sheets=4",
+        "growth=0.25",
+        "attainment_june=0.9375",
+        "zero_denominator_not_applicable",
+        "chart_ranges_exact"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": false,
+      "sourceRequirementIds": [
+        "FR21",
+        "FR23"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "live",
+          "statisticGroup": "office_delivery",
+          "inputOverrides": {},
+          "checks": [
+            "sheets=4",
+            "growth=0.25",
+            "attainment_june=0.9375",
+            "zero_denominator_not_applicable",
+            "chart_ranges_exact"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "X03",
+      "version": 1,
+      "category": "office",
+      "format": "xlsx",
+      "title": "重算与范围补丁",
+      "prompt": "只将B2:B5改为11、22、33、44，更新依赖合计和图表，其余不变。",
+      "inputBuilder": "managed-import-xlsx-v1",
+      "inputs": {
+        "oldValues": [
+          10,
+          20,
+          30,
+          40
+        ],
+        "newValues": [
+          11,
+          22,
+          33,
+          44
+        ],
+        "range": "B2:B5",
+        "formula": "SUM(B2:B5)",
+        "expected": 110
+      },
+      "checks": [
+        "target_range_exact",
+        "formula_preserved",
+        "recalculated_sum=110",
+        "chart_source_updated",
+        "unrelated_styles_equal"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": false,
+      "sourceRequirementIds": [
+        "FR21",
+        "FR24"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "live",
+          "statisticGroup": "office_delivery",
+          "inputOverrides": {},
+          "checks": [
+            "target_range_exact",
+            "formula_preserved",
+            "recalculated_sum=110",
+            "chart_source_updated",
+            "unrelated_styles_equal"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "F01",
+      "version": 1,
+      "category": "office",
+      "format": "pdf",
+      "title": "同源PDF失效",
+      "prompt": "从已验证DOCX导出PDF，然后修改源文件中的目标数字，再导出新PDF。",
+      "inputBuilder": "managed-import-docx-v1",
+      "inputs": {
+        "original": "季度收入120万元",
+        "updated": "季度收入150万元"
+      },
+      "checks": [
+        "old_pdf_old_sha",
+        "old_pdf_invalid_for_new_source",
+        "new_pdf_new_sha",
+        "updated_text_present"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": false,
+      "sourceRequirementIds": [
+        "FR22",
+        "FR24"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "live",
+          "statisticGroup": "office_delivery",
+          "inputOverrides": {},
+          "checks": [
+            "old_pdf_old_sha",
+            "old_pdf_invalid_for_new_source",
+            "new_pdf_new_sha",
+            "updated_text_present"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "F02",
+      "version": 1,
+      "category": "office",
+      "format": "pdf",
+      "title": "中文长报告",
+      "prompt": "将18000字报告、30条来源和3张长表制作成可搜索中文PDF，保留全部内容。先生成结构化DOCX长表，再导出同源PDF。",
+      "inputBuilder": "long-docx-to-pdf-v1",
+      "inputs": {
+        "characters": 18000,
+        "sourceCount": 30,
+        "tables": 3,
+        "rowsPerTable": 30,
+        "paragraphSeed": "企业经营分析需要逐项记录数据来源、单位、期间与验证结果。",
+        "sourceUrlPattern": "https://example.com/research/{index}",
+        "sourceFormat": "docx"
+      },
+      "checks": [
+        "pdf_parse_all_pages",
+        "text_coverage_exact",
+        "sources=30",
+        "tables_rows=90",
+        "searchable_chinese",
+        "backend_identity_recorded"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": false,
+      "sourceRequirementIds": [
+        "FR20",
+        "FR22",
+        "FR23"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "live",
+          "statisticGroup": "office_delivery",
+          "inputOverrides": {},
+          "checks": [
+            "pdf_parse_all_pages",
+            "text_coverage_exact",
+            "sources=30",
+            "tables_rows=90",
+            "searchable_chinese",
+            "backend_identity_recorded"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "F03",
+      "version": 1,
+      "category": "office",
+      "format": "pdf",
+      "title": "缺字处理",
+      "prompt": "生成包含指定字符的PDF，任何无法显示的字必须报告，禁止静默丢字。",
+      "inputBuilder": "unicode-report-v1",
+      "inputs": {
+        "text": "人民币￥100；达成率％；长度μm；温度℃；生僻字𠮷。",
+        "fontFixture": "verified-full-glyph-coverage"
+      },
+      "checks": [
+        "all_input_glyphs_visible",
+        "pdf_text_exact",
+        "same_source_or_declared_independent",
+        "formal_decision_verified"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": false,
+      "sourceRequirementIds": [
+        "FR22",
+        "FR23"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "supported-font",
+          "mode": "live",
+          "statisticGroup": "office_delivery",
+          "inputOverrides": {
+            "fontFixture": "verified-full-glyph-coverage"
+          },
+          "checks": [
+            "all_input_glyphs_visible",
+            "pdf_text_exact",
+            "same_source_or_declared_independent",
+            "formal_decision_verified"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        },
+        {
+          "scenarioId": "missing-glyph",
+          "mode": "fixture",
+          "statisticGroup": "contract_fault",
+          "inputOverrides": {
+            "fontFixture": "known-missing-glyph"
+          },
+          "checks": [
+            "missing_glyph_detected",
+            "formal_blocked",
+            "no_silent_character_loss"
+          ],
+          "expectedTaskSuccess": false,
+          "expectedStates": [
+            "incomplete",
+            "paused"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "R01",
+      "version": 1,
+      "category": "protocol",
+      "format": "none",
+      "title": "全历史原序回放",
+      "prompt": "连续执行文本、工具、下一用户轮，保存并重放实际取得的原生字段；不要求模型输出合成的空值或超长推理。",
+      "inputBuilder": "protocol-history-v2",
+      "inputs": {
+        "capture": "actual_provider_response",
+        "compare": "exact_fields_observed",
+        "doNotRequireSyntheticReasoning": true
+      },
+      "checks": [
+        "observed_native_fields_exact",
+        "ordinary_and_tool_assistant_preserved",
+        "sequence_complete"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": false,
+      "sourceRequirementIds": [
+        "FR03",
+        "FR05",
+        "FR06"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "live-observed-replay",
+          "mode": "live",
+          "statisticGroup": "protocol_live",
+          "inputOverrides": {},
+          "checks": [
+            "observed_native_fields_exact",
+            "ordinary_and_tool_assistant_preserved",
+            "sequence_complete"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        },
+        {
+          "scenarioId": "fixture-exact-values",
+          "mode": "fixture",
+          "statisticGroup": "contract_fault",
+          "inputOverrides": {
+            "reasoningValues": [
+              "  前导与结尾  ",
+              "\r\n第二轮\r\n",
+              "é",
+              "",
+              null
+            ],
+            "largeReasoningBytes": 300000
+          },
+          "checks": [
+            "whitespace_null_missing_preserved",
+            "over_300k_no_truncation",
+            "exact_replay"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "R02",
+      "version": 1,
+      "category": "protocol",
+      "format": "none",
+      "title": "断流与工具分片",
+      "prompt": "注入工具参数分片、缺DONE和截断，检查工具是否被错误执行。",
+      "inputBuilder": "fault-stream-v2",
+      "inputs": {
+        "faults": [
+          "split_arguments",
+          "missing_done",
+          "finish_length",
+          "duplicate_call_id"
+        ]
+      },
+      "checks": [
+        "complete_call_once",
+        "incomplete_call_zero_execution",
+        "usage_unknown_not_zero"
+      ],
+      "expectedTaskSuccess": false,
+      "expectedStates": [
+        "incomplete",
+        "outcome_unknown",
+        "failed"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": true,
+      "sourceRequirementIds": [
+        "FR06",
+        "FR08",
+        "FR11"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "fixture",
+          "statisticGroup": "contract_fault",
+          "inputOverrides": {},
+          "checks": [
+            "complete_call_once",
+            "incomplete_call_zero_execution",
+            "usage_unknown_not_zero"
+          ],
+          "expectedTaskSuccess": false,
+          "expectedStates": [
+            "incomplete",
+            "outcome_unknown",
+            "failed"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "R03",
+      "version": 1,
+      "category": "protocol",
+      "format": "none",
+      "title": "模型与端点切换",
+      "prompt": "依次切换DeepSeek、GLM以及标准API/Coding Plan，保留任务事实。",
+      "inputBuilder": "binding-switch-v2",
+      "inputs": {
+        "transitions": [
+          "deepseek_to_glm",
+          "glm_standard_to_coding",
+          "provider_alias_change"
+        ]
+      },
+      "checks": [
+        "private_state_isolated",
+        "facts_retained",
+        "effective_parameters_legal",
+        "rebuild_reason_recorded"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": false,
+      "sourceRequirementIds": [
+        "FR01",
+        "FR02",
+        "FR04"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "live",
+          "statisticGroup": "protocol_live",
+          "inputOverrides": {},
+          "checks": [
+            "private_state_isolated",
+            "facts_retained",
+            "effective_parameters_legal",
+            "rebuild_reason_recorded"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "R04",
+      "version": 1,
+      "category": "protocol",
+      "format": "none",
+      "title": "别名漂移与配置采用",
+      "prompt": "注入相同模型别名的返回身份改变和身份未知，再修改profile。",
+      "inputBuilder": "identity-drift-v2",
+      "inputs": {
+        "returnedModels": [
+          "revision-a",
+          "revision-b",
+          null
+        ]
+      },
+      "checks": [
+        "qualification_invalidated_on_change",
+        "unknown_not_fabricated",
+        "inflight_binding_pinned",
+        "new_activation_requires_qualification"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": true,
+      "sourceRequirementIds": [
+        "FR14",
+        "FR16"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "fixture",
+          "statisticGroup": "contract_fault",
+          "inputOverrides": {},
+          "checks": [
+            "qualification_invalidated_on_change",
+            "unknown_not_fabricated",
+            "inflight_binding_pinned",
+            "new_activation_requires_qualification"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "L01",
+      "version": 1,
+      "category": "long_task",
+      "format": "none",
+      "title": "轮内上下文增长",
+      "prompt": "读取40个分页结果并汇总全部证据，在窗口不足时保留任务重新建立上下文。",
+      "inputBuilder": "paged-tool-data-v1",
+      "inputs": {
+        "pages": 40,
+        "charsPerPage": 3000,
+        "contextWindow": 16000
+      },
+      "checks": [
+        "preflight_every_attempt",
+        "all_items_covered=40",
+        "no_broken_tool_group",
+        "same_task_budget_across_epoch"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": false,
+      "sourceRequirementIds": [
+        "FR07",
+        "FR11"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "live",
+          "statisticGroup": "long_task_live",
+          "inputOverrides": {},
+          "checks": [
+            "preflight_every_attempt",
+            "all_items_covered=40",
+            "no_broken_tool_group",
+            "same_task_budget_across_epoch"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "L02",
+      "version": 1,
+      "category": "long_task",
+      "format": "none",
+      "title": "拒绝自证成功",
+      "prompt": "两个必须步骤中仅一个成功，另一步失败且无回执；模型正文自称L0通过。",
+      "inputBuilder": "trusted-outcome-fault-v1",
+      "inputs": {
+        "requiredSteps": [
+          "read",
+          "write"
+        ],
+        "successful": [
+          "read"
+        ],
+        "fakeClaim": {
+          "l0": {
+            "passed": true
+          }
+        }
+      },
+      "checks": [
+        "task_not_verified",
+        "missing_step_preserved",
+        "model_l0_ignored"
+      ],
+      "expectedTaskSuccess": false,
+      "expectedStates": [
+        "incomplete",
+        "failed"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": true,
+      "sourceRequirementIds": [
+        "FR09",
+        "FR12"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "fixture",
+          "statisticGroup": "contract_fault",
+          "inputOverrides": {},
+          "checks": [
+            "task_not_verified",
+            "missing_step_preserved",
+            "model_l0_ignored"
+          ],
+          "expectedTaskSuccess": false,
+          "expectedStates": [
+            "incomplete",
+            "failed"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "L03",
+      "version": 1,
+      "category": "long_task",
+      "format": "none",
+      "title": "工具执行后重启",
+      "prompt": "工具写入成功后模拟重启，恢复并完成下一步，禁止重复副作用。",
+      "inputBuilder": "restart-effects-v1",
+      "inputs": {
+        "crashAt": [
+          "after_dispatch",
+          "after_tool_success",
+          "after_receipt_commit"
+        ]
+      },
+      "checks": [
+        "known_effect_once",
+        "unknown_effect_reconciled",
+        "same_task_budget",
+        "single_effective_delivery"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": true,
+      "sourceRequirementIds": [
+        "FR03",
+        "FR08",
+        "FR11"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "fixture",
+          "statisticGroup": "contract_fault",
+          "inputOverrides": {},
+          "checks": [
+            "known_effect_once",
+            "unknown_effect_reconciled",
+            "same_task_budget",
+            "single_effective_delivery"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "L04",
+      "version": 1,
+      "category": "long_task",
+      "format": "none",
+      "title": "并发预算与取消",
+      "prompt": "主代理委派三个子任务，两个同时申请超出剩余预算的额度，然后取消。",
+      "inputBuilder": "budget-concurrency-v1",
+      "inputs": {
+        "remainingTokens": 1000,
+        "reservations": [
+          700,
+          700,
+          700
+        ],
+        "cancelAfterDispatch": true
+      },
+      "checks": [
+        "at_most_one_700_admitted",
+        "no_double_charge",
+        "sent_unknown_isolated",
+        "no_followup_after_cancel",
+        "partial_evidence_retained"
+      ],
+      "expectedTaskSuccess": false,
+      "expectedStates": [
+        "cancelled",
+        "paused",
+        "outcome_unknown"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": true,
+      "sourceRequirementIds": [
+        "FR08",
+        "FR11",
+        "FR12"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "fixture",
+          "statisticGroup": "contract_fault",
+          "inputOverrides": {},
+          "checks": [
+            "at_most_one_700_admitted",
+            "no_double_charge",
+            "sent_unknown_isolated",
+            "no_followup_after_cancel",
+            "partial_evidence_retained"
+          ],
+          "expectedTaskSuccess": false,
+          "expectedStates": [
+            "cancelled",
+            "paused",
+            "outcome_unknown"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "C01",
+      "version": 1,
+      "category": "code_data",
+      "format": "none",
+      "title": "修复日期边界函数",
+      "prompt": "修复Go函数对月底日期边界的处理，只修改实现，不修改测试。",
+      "inputBuilder": "go-date-bug-v1",
+      "inputs": {
+        "source": "package dateutil\nimport \"time\"\nfunc NextDay(t time.Time) time.Time { return t.Add(23*time.Hour) }\n",
+        "cases": [
+          {
+            "input": "2026-01-31T12:00:00Z",
+            "expected": "2026-02-01T12:00:00Z"
+          },
+          {
+            "input": "2024-02-28T12:00:00Z",
+            "expected": "2024-02-29T12:00:00Z"
+          }
+        ]
+      },
+      "checks": [
+        "independent_tests_pass",
+        "test_files_unchanged",
+        "only_implementation_changed",
+        "diff_artifact_present"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": false,
+      "sourceRequirementIds": [
+        "FR09",
+        "FR10",
+        "FR28"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "live",
+          "statisticGroup": "code_data_live",
+          "inputOverrides": {},
+          "checks": [
+            "independent_tests_pass",
+            "test_files_unchanged",
+            "only_implementation_changed",
+            "diff_artifact_present"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "C02",
+      "version": 1,
+      "category": "code_data",
+      "format": "xlsx",
+      "title": "清洗客户CSV",
+      "prompt": "保留客户ID前导零，同一ID保留更新时间最新行；空日期保留空，输出清洗表与操作说明。",
+      "inputBuilder": "customer-csv-v1",
+      "inputs": {
+        "rows": 100,
+        "uniqueIds": 80,
+        "duplicateRule": "rows_81_to_100_repeat_ids_1_to_20_with_later_iso_timestamp",
+        "idWidth": 6,
+        "emptyDatesAt": [
+          5,
+          17,
+          38
+        ]
+      },
+      "checks": [
+        "unique_rows=80",
+        "leading_zero_ids_exact",
+        "latest_timestamp_rule",
+        "empty_dates_preserved",
+        "transform_log_complete"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": false,
+      "sourceRequirementIds": [
+        "FR09",
+        "FR21"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "live",
+          "statisticGroup": "code_data_live",
+          "inputOverrides": {},
+          "checks": [
+            "unique_rows=80",
+            "leading_zero_ids_exact",
+            "latest_timestamp_rule",
+            "empty_dates_preserved",
+            "transform_log_complete"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "C03",
+      "version": 1,
+      "category": "code_data",
+      "format": "xlsx",
+      "title": "只读数据库分析",
+      "prompt": "按月份与地区汇总合成销售数据库，输出CSV和XLSX，禁止写数据库。",
+      "inputBuilder": "sales-sqlite-v1",
+      "inputs": {
+        "rows": [
+          {
+            "month": "2026-05",
+            "region": "east",
+            "amountCents": 10000
+          },
+          {
+            "month": "2026-05",
+            "region": "east",
+            "amountCents": 20000
+          },
+          {
+            "month": "2026-06",
+            "region": "west",
+            "amountCents": 15000
+          }
+        ],
+        "expected": [
+          {
+            "month": "2026-05",
+            "region": "east",
+            "amountCents": 30000
+          },
+          {
+            "month": "2026-06",
+            "region": "west",
+            "amountCents": 15000
+          }
+        ]
+      },
+      "checks": [
+        "readonly_connection",
+        "database_logical_content_unchanged",
+        "group_totals_exact",
+        "csv_xlsx_equal"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": false,
+      "sourceRequirementIds": [
+        "FR09",
+        "FR10",
+        "FR21"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "default",
+          "mode": "live",
+          "statisticGroup": "code_data_live",
+          "inputOverrides": {},
+          "checks": [
+            "readonly_connection",
+            "database_logical_content_unchanged",
+            "group_totals_exact",
+            "csv_xlsx_equal"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "C04",
+      "version": 1,
+      "category": "code_data",
+      "format": "bundle",
+      "title": "四格式一致交付包",
+      "prompt": "使用同一组销售事实交付DOCX、PPTX、XLSX、PDF，任何格式失败都必须报告包未全部完成。",
+      "inputBuilder": "multi-format-sales-v1",
+      "inputs": {
+        "facts": [
+          {
+            "factId": "revenue_q1",
+            "value": "1200000",
+            "unit": "CNY",
+            "period": "2026Q1",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "revenue_q2",
+            "value": "1500000",
+            "unit": "CNY",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "cost_q1",
+            "value": "720000",
+            "unit": "CNY",
+            "period": "2026Q1",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "cost_q2",
+            "value": "870000",
+            "unit": "CNY",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "customers_q1",
+            "value": "120",
+            "unit": "count",
+            "period": "2026Q1",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "customers_q2",
+            "value": "150",
+            "unit": "count",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "retention",
+            "value": "92",
+            "unit": "percent",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "nps",
+            "value": "48",
+            "unit": "points",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "new_orders",
+            "value": "240",
+            "unit": "count",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "refund_orders",
+            "value": "12",
+            "unit": "count",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "staff",
+            "value": "30",
+            "unit": "count",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          },
+          {
+            "factId": "target_revenue",
+            "value": "1600000",
+            "unit": "CNY",
+            "period": "2026Q2",
+            "sourceId": "synthetic-sales-v1",
+            "locked": true
+          }
+        ],
+        "formats": [
+          "docx",
+          "pptx",
+          "xlsx",
+          "pdf"
+        ],
+        "brandId": "ops-clear"
+      },
+      "checks": [
+        "facts_units_periods_equal",
+        "four_fixed_versions",
+        "bundle_manifest_sha_matches",
+        "all_formal_decisions_valid"
+      ],
+      "expectedTaskSuccess": true,
+      "expectedStates": [
+        "succeeded"
+      ],
+      "budget": {
+        "maxTotalTokens": 262144,
+        "maxOutputTokens": 65536,
+        "maxModelAttempts": 48,
+        "maxActiveMillis": 900000,
+        "maxOutputBytes": 1048576,
+        "closeoutOutputTokens": 1024
+      },
+      "oracle": "deterministic-host-v1",
+      "fixtureOnly": false,
+      "sourceRequirementIds": [
+        "FR17",
+        "FR22",
+        "FR23",
+        "FR24",
+        "FR29"
+      ],
+      "scenarios": [
+        {
+          "scenarioId": "all-formats-success",
+          "mode": "live",
+          "statisticGroup": "code_data_live",
+          "inputOverrides": {},
+          "checks": [
+            "facts_units_periods_equal",
+            "four_fixed_versions",
+            "bundle_manifest_sha_matches",
+            "all_formal_decisions_valid"
+          ],
+          "expectedTaskSuccess": true,
+          "expectedStates": [
+            "succeeded"
+          ]
+        },
+        {
+          "scenarioId": "one-validator-fails",
+          "mode": "fixture",
+          "statisticGroup": "contract_fault",
+          "inputOverrides": {
+            "fault": {
+              "validator": "pptx-native-editability",
+              "result": "failed",
+              "at": "before_bundle_commit"
+            }
+          },
+          "checks": [
+            "bundle_not_verified",
+            "old_bundle_unchanged",
+            "partial_candidates_retained"
+          ],
+          "expectedTaskSuccess": false,
+          "expectedStates": [
+            "incomplete",
+            "failed"
+          ]
+        }
+      ]
+    }
+  ]
+}

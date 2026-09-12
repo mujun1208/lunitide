@@ -4,8 +4,8 @@
 .attachment-transfer-status{display:flex;align-items:center;gap:12px;padding:6px 12px;font-size:12px}
 .message-att-strip .message-attachment-button{display:block;padding:0;border:0;background:transparent;cursor:pointer;color:inherit;max-width:100%}
 .message-att-strip .message-attachment-button img{display:block;max-width:min(180px,100%);max-height:120px;object-fit:contain;border-radius:8px}
-.attachment-viewer-backdrop{position:fixed;inset:0;background:rgb(0 0 0 / .55);z-index:1200;display:flex;align-items:center;justify-content:center;padding:24px}
-.attachment-viewer{display:flex;flex-direction:column;width:min(960px,100%);max-height:90vh;overflow:auto;color:var(--ink);background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:0 12px 48px #0005}
+.attachment-viewer-backdrop{position:fixed;inset:0;background:rgb(0 0 0 / .55);z-index:1200;display:flex;align-items:center;justify-content:center;padding:24px;overflow:auto;overflow-anchor:none;overscroll-behavior:contain}
+.attachment-viewer{display:flex;flex-direction:column;width:min(960px,100%);max-height:90vh;overflow:auto;overflow-anchor:none;overscroll-behavior:contain;color:var(--ink);background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:0 12px 48px #0005}
 .attachment-viewer header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px;overflow-wrap:anywhere}
 .attachment-viewer-image{display:block;max-width:100%;max-height:75vh;object-fit:contain}
 .attachment-viewer pre{white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto;margin:0;padding:8px}

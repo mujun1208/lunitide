@@ -1,0 +1,636 @@
+{
+  "schemaVersion": 1,
+  "baselineCommit": "afbcb2c733d4",
+  "requirements": [
+    {
+      "id": "FR01",
+      "requirement": "版本化模型 profile 与显式部署绑定；未知模型不能靠名称自动认证能力",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T02"
+      ],
+      "testIds": [
+        "TestModelProfileBindingAlias"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR02",
+      "requirement": "按型号和端点编译 thinking、effort、工具和结构化输出参数，记录实际生效配置",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T03"
+      ],
+      "testIds": [
+        "TestCompileParametersMatrix"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR03",
+      "requirement": "普通回复、工具调用、工具结果和终答完整原序持久化与重放",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T04",
+        "T05"
+      ],
+      "testIds": [
+        "TestNativeHistoryExactRoundTrip"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR04",
+      "requirement": "换模型/端点/profile 时检查兼容，必要时重建上下文并保留任务进度",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T05"
+      ],
+      "testIds": [
+        "TestNativeTargetMismatchRebuild"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR05",
+      "requirement": "协议消息加密、密钥生命周期、旧记录迁移和备份行为明确",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T04",
+        "T19"
+      ],
+      "testIds": [
+        "TestProtocolCipherAADAndLegacyMigration"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR06",
+      "requirement": "分片工具、断流、400、429、重试和强制总结遵守协议与副作用边界",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T03",
+        "T05",
+        "T09"
+      ],
+      "testIds": [
+        "TestAttemptErrorMatrix",
+        "TestTaskOutcomeForcedSummarySequence"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR07",
+      "requirement": "每次模型请求前检查最终输入窗口，并在完整消息组边界处理增长",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T07"
+      ],
+      "testIds": [
+        "TestFinalInputPreflightEveryAttempt"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR08",
+      "requirement": "所有计费模型路径受同一任务总预算约束；并发预留、迟到结算和未知用量正确",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T06",
+        "T07",
+        "T09"
+      ],
+      "testIds": [
+        "TestExecutionBudgetConcurrentParentChildReservation",
+        "TestExecutionBudgetLateOverrun"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR09",
+      "requirement": "必须步骤覆盖完整，可信回执证明执行，模型正文不能自产验证证据",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T08"
+      ],
+      "testIds": [
+        "TestTaskOutcomeRejectsModelAuthoredL0",
+        "TestTaskOutcomeMissingRequiredStep"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR10",
+      "requirement": "成果 SHA 和大小来自完整原文件，快照稳定且受路径权限约束",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T08"
+      ],
+      "testIds": [
+        "TestArtifactSnapshotRawTail"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR11",
+      "requirement": "中断、重启、未知副作用与继续执行有持久状态，预算不被重置",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T09",
+        "T19"
+      ],
+      "testIds": [
+        "TestExecutionResumeUnknownEffect"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR12",
+      "requirement": "流结束、任务结果、用户采纳相互独立；新要求不被旧终态覆盖",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T09",
+        "T10"
+      ],
+      "testIds": [
+        "TestOutcomeGoalRevisionOrder"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR13",
+      "requirement": "提示词、技能和工具目录按任务/模型编译，保持稳定版本与必要权限",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T03",
+        "T07"
+      ],
+      "testIds": [
+        "TestCompiledToolCatalogStable"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR14",
+      "requirement": "声明、探测、合格、采用分开；资格绑定实际模型合同和证据",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T11"
+      ],
+      "testIds": [
+        "TestQualificationFixtureCannotPromote"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR15",
+      "requirement": "24 项评测可执行、可复现、可导出；固定集和留出集分开",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T12"
+      ],
+      "testIds": [
+        "TestEvalSuiteAllCasesHaveIndependentOracle"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR16",
+      "requirement": "候选采用、有效期、回归监测和撤回配置不影响在途任务",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T11",
+        "T12"
+      ],
+      "testIds": [
+        "TestActivationCASAndRollback"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR17",
+      "requirement": "Brief、事实与品牌在四格式间统一，复用三套现有品牌",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T13"
+      ],
+      "testIds": [
+        "TestOfficeBriefBrandFactsAcrossFormats"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "artifact_digest",
+        "quality_decision"
+      ]
+    },
+    {
+      "id": "FR18",
+      "requirement": "文字测量、版式适配和有界修复保持事实及锁定元素不变",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T13",
+        "T14"
+      ],
+      "testIds": [
+        "TestLayoutFitPreservesLockedFacts"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "artifact_digest",
+        "quality_decision"
+      ]
+    },
+    {
+      "id": "FR19",
+      "requirement": "首发 PPT 支持矩阵内对象原生可编辑，导出后实际渲染",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T14"
+      ],
+      "testIds": [
+        "TestPPTEditableObjectsAndCoverage"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "artifact_digest",
+        "quality_decision"
+      ]
+    },
+    {
+      "id": "FR20",
+      "requirement": "Word 标题、分页、目录与表格覆盖可验证的正式报告范围",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T15"
+      ],
+      "testIds": [
+        "TestDOCXLongTableAndFieldRefresh"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "artifact_digest",
+        "quality_decision"
+      ]
+    },
+    {
+      "id": "FR21",
+      "requirement": "Excel 公式、数据类型、计算、图表及打印范围有独立校验",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T15"
+      ],
+      "testIds": [
+        "TestXLSXIndependentOracleAndTypes"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "artifact_digest",
+        "quality_decision"
+      ]
+    },
+    {
+      "id": "FR22",
+      "requirement": "PDF 解析和页面覆盖真实完成；同源 PDF 绑定源文件版本",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T16"
+      ],
+      "testIds": [
+        "TestPDFParseAllPagesAndSameSource"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "artifact_digest",
+        "quality_decision"
+      ]
+    },
+    {
+      "id": "FR23",
+      "requirement": "唯一 FormalDecision 决定正式交付，缺检查和陈旧证据不能通过",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T13",
+        "T16"
+      ],
+      "testIds": [
+        "TestFormalDecisionRequiredCoverage"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "artifact_digest",
+        "quality_decision"
+      ]
+    },
+    {
+      "id": "FR24",
+      "requirement": "局部修改、跨文件指标和版本恢复沿用版本 CAS 与来源绑定",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T17"
+      ],
+      "testIds": [
+        "TestOfficePatchCASAndBundleAtomicity"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "artifact_digest",
+        "quality_decision"
+      ]
+    },
+    {
+      "id": "FR25",
+      "requirement": "模型能力、任务进度、质检与导出状态在 UI 中准确呈现",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T10",
+        "T18"
+      ],
+      "testIds": [
+        "TestModelFitAndOfficeOutcomeUI"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR26",
+      "requirement": "用量、延迟、配置和证据可追踪；日志与导出不泄露推理私有数据",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T04",
+        "T06",
+        "T12",
+        "T19"
+      ],
+      "testIds": [
+        "TestRuntimeEvidenceRedaction"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR27",
+      "requirement": "迁移、备份、旧客户端和旧会话有明确兼容行为",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T01",
+        "T19"
+      ],
+      "testIds": [
+        "TestUpgradeMigrationBackupCompatibility"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR28",
+      "requirement": "模型与办公效果分开比较；模板/字体/工具来源可商用追踪",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T12",
+        "T14",
+        "T20"
+      ],
+      "testIds": [
+        "TestTemplateCertificationAndBenchmarkAccounting"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR29",
+      "requirement": "外部 Agent 的能力、费用和成果证据独立标识，统一交付检查",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T18"
+      ],
+      "testIds": [
+        "TestExternalExecutorArtifactVerification"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    },
+    {
+      "id": "FR30",
+      "requirement": "一次发布覆盖所有功能合同，离线和真实依赖验收有完整证据",
+      "perspectives": [
+        "user",
+        "code",
+        "audit"
+      ],
+      "tasks": [
+        "T20"
+      ],
+      "testIds": [
+        "TestUpgradeReleaseEvidenceComplete"
+      ],
+      "evidenceKinds": [
+        "source_change",
+        "regression_result",
+        "contract_evidence"
+      ]
+    }
+  ]
+}

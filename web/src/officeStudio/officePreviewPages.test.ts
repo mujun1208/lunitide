@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { officePreviewPages } from './officePreviewPages'
+import { officePreviewPages, officePreviewThumb } from './officePreviewPages'
 import type { OfficeNode } from './officeStudioApi'
 
 const node = (id: string, location: string, text: string): OfficeNode => ({
@@ -35,5 +35,16 @@ describe('officePreviewPages', () => {
     ])
     expect(pages).toHaveLength(1)
     expect(pages[0].label).toBe('第 1 页')
+  })
+
+  test('builds a slide thumb from the first visible texts', () => {
+    const [page] = officePreviewPages('pptx', [
+      node('a', 'ppt/slides/slide1.xml', '封面标题'),
+      node('b', 'ppt/slides/slide1.xml', '副标题'),
+    ])
+    expect(officePreviewThumb(page)).toEqual({
+      title: '封面标题',
+      excerpt: '封面标题 · 副标题',
+    })
   })
 })

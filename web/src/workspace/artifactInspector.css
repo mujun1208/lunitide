@@ -1,17 +1,37 @@
-.artifact-inspector{height:100%;min-height:0;overflow:auto;padding:18px;background:var(--bg);color:var(--ink);display:flex;flex-direction:column;gap:14px}
-.artifact-inspector header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
-.artifact-inspector h3{margin:4px 0;overflow-wrap:anywhere;font-size:16px}
-.artifact-inspector small,.artifact-inspector dt,.artifact-inspector-notice{color:var(--muted)}
-.artifact-inspector-actions{display:flex;flex-wrap:wrap;gap:8px}
-.artifact-inspector button{background:var(--bg2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 10px;cursor:pointer}
-.artifact-inspector button:disabled{opacity:.5;cursor:wait}
-.artifact-inspector button:focus-visible{outline:2px solid var(--tide1);outline-offset:2px}
-.artifact-inspector dl{margin:0;padding:12px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;font-size:12px}
-.artifact-inspector dd{margin:4px 0 8px;overflow-wrap:anywhere;user-select:text}
-.artifact-inspector dd:last-child{margin-bottom:0}
-.artifact-inspector p{margin:0;font-size:13px;line-height:1.6}
-.artifact-inspector-image{display:block;width:100%;height:auto;object-fit:contain;border-radius:8px}
-.artifact-inspector iframe{width:100%;min-height:360px;flex:1;border:1px solid var(--line);border-radius:8px;background:var(--bg2)}
-.artifact-inspector-text{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font-size:13px;line-height:1.8;user-select:text}
-.artifact-inspector-sheets{min-width:0}.artifact-inspector-grid{overflow:auto;max-height:480px}
-.artifact-inspector-grid table{border-collapse:collapse;font-size:12px}.artifact-inspector-grid td{border:1px solid var(--line);padding:6px 10px;max-width:300px;overflow-wrap:anywhere}
+.artifact-inspector{height:100%;min-height:0;overflow:hidden;padding:0;background:#0b0d12;color:var(--ink);display:flex;flex-direction:column;overflow-anchor:none}
+.artifact-inspector-chrome{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:none;height:32px;min-height:32px;padding:0 6px 0 12px;border-bottom:1px solid rgba(255,255,255,.06);background:#11141b}
+.artifact-inspector-title{min-width:0;display:flex;align-items:center}
+.artifact-inspector-title b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:500}
+.artifact-inspector-tools{display:flex;align-items:center;gap:1px;flex:none}
+.artifact-icon-btn{width:22px;height:22px;padding:0;border:0;border-radius:5px;background:transparent;color:#c5cdd8;font-size:12px;line-height:22px;cursor:pointer}
+.artifact-icon-btn:hover{background:rgba(255,255,255,.06);color:#fff}
+.artifact-icon-btn:disabled{opacity:.45;cursor:wait}
+.artifact-icon-btn:focus-visible{outline:2px solid var(--tide1);outline-offset:2px}
+.artifact-inspector>p{margin:0;padding:8px 12px;font-size:12px;line-height:1.6}
+.artifact-inspector-notice{color:var(--muted)}
+.artifact-inspector-image{display:block;width:100%;height:auto;object-fit:contain;background:#000}
+.artifact-inspector-frame{flex:1;width:100%;min-height:0;border:0;background:#fff}
+.artifact-inspector-text{flex:1;min-height:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;margin:0;padding:16px 18px;font-size:13px;line-height:1.7;user-select:text}
+.artifact-inspector-paper{flex:1;min-height:0;overflow:auto;padding:22px 16px 36px;background:#d8dde4}
+.artifact-inspector-paper pre{margin:0 auto;max-width:780px;min-height:calc(100% - 8px);padding:48px 56px;background:#fff;box-shadow:0 8px 28px rgba(15,23,42,.16);white-space:pre-wrap;overflow-wrap:anywhere;color:#1b1b1b;font:15px/1.8 "Iowan Old Style","Palatino Linotype",Georgia,"Songti SC","SimSun",serif;user-select:text}
+.artifact-inspector-md{flex:1;min-height:0;overflow:auto;background:#11141b;padding:28px 32px 40px}
+.artifact-inspector-md.message-body{max-width:none;margin:0}
+.artifact-inspector-md .message-body,.artifact-inspector-md{font-size:14px;line-height:1.75}
+.artifact-inspector-md h1{margin:0 0 16px;font-size:22px;font-weight:650;line-height:1.3}
+.artifact-inspector-md h2{margin:28px 0 12px;font-size:18px;font-weight:650}
+.artifact-inspector-md h3{margin:22px 0 10px;font-size:16px}
+.artifact-inspector-md p,.artifact-inspector-md li{font-size:14px;line-height:1.75}
+.artifact-inspector-md table{width:100%;border-collapse:collapse;font-size:13px}
+.artifact-inspector-md th,.artifact-inspector-md td{border:1px solid rgba(255,255,255,.08);padding:8px 10px;text-align:left}
+.artifact-inspector-md th{background:rgba(255,255,255,.04);font-weight:600}
+.artifact-inspector-md .md-table-wrap{margin:16px 0;border:1px solid rgba(255,255,255,.08);border-radius:8px;overflow:auto}
+.artifact-inspector-code{flex:1;min-height:0;display:flex;overflow:auto;background:#0d1117;font:12px/1.65 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.artifact-inspector-gutter{flex:none;margin:0;padding:12px 8px 12px 12px;color:#5b6573;text-align:right;user-select:none}
+.artifact-inspector-source{flex:1;margin:0;padding:12px 16px 12px 10px;color:#d7deea;user-select:text}
+.artifact-inspector-sheets{flex:1;min-height:0;overflow:auto;padding:12px}
+.artifact-inspector-sheets h4{margin:0 0 8px;font-size:12px;color:var(--muted)}
+.artifact-inspector-grid{overflow:auto}
+.artifact-inspector-grid table{border-collapse:collapse;font-size:12px}
+.artifact-inspector-grid td{border:1px solid var(--line);padding:6px 10px;max-width:300px;overflow-wrap:anywhere}
+.workspace-inline-preview{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.workspace-inline-preview .artifact-inspector-code,.workspace-inline-preview .artifact-inspector-md,.workspace-inline-preview .artifact-inspector-paper,.workspace-inline-preview .artifact-inspector-text,.workspace-inline-preview .artifact-inspector-frame{flex:1}

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { composeHubPrompt, FREE_TEMPLATES, mergeEvents, scenePrefix, shortWorkDir, taskElapsed, visibleHubArtifacts } from './agentHubCopy'
+import { composeHubPrompt, FREE_TEMPLATES, mergeEvents, pptDeckMissing, scenePrefix, shortWorkDir, taskElapsed, visibleHubArtifacts } from './agentHubCopy'
 
 it('keeps the weekly-report Markdown template and never offers generating a weekly Office file', () => {
   expect(FREE_TEMPLATES.map(item => item.zh)).toContain('写周报 Markdown')
@@ -11,6 +11,14 @@ it('prefixes shortcuts but leaves free prompts clean until inbox files exist', (
   expect(scenePrefix('ppt', 'E:/hub', '做两页')).toContain('【场景：做 PPT】')
   expect(composeHubPrompt('free', 'E:/hub', '总结这些材料', [{ name: '纪要.pdf', path: '纪要.pdf', size: 12 }])).toContain('.agenthub-inbox')
   expect(composeHubPrompt('free', 'E:/hub', '总结这些材料', [{ name: '纪要.pdf', path: '纪要.pdf', size: 12 }])).not.toContain('【场景：')
+})
+
+it('says a PPT shortcut finished without a deck until a pptx appears', () => {
+  const prompt = scenePrefix('ppt', 'E:/hub', '做两页')
+  expect(pptDeckMissing('kimi', prompt, [{ name: 'notes.md', path: 'notes.md' }])).toBe(true)
+  expect(pptDeckMissing('kimi', prompt, [{ name: 'demo.pptx', path: 'demo.pptx' }])).toBe(false)
+  expect(pptDeckMissing('codex', prompt, [])).toBe(false)
+  expect(pptDeckMissing('kimi', '总结这些材料', [])).toBe(false)
 })
 
 it('hides scan and outside artifacts until asked', () => {

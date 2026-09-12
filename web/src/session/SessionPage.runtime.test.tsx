@@ -12,7 +12,7 @@ beforeEach(() => {
  vi.spyOn(runQueueBridge, 'list').mockResolvedValue({ items: [] })
  vi.spyOn(runQueueBridge, 'consume').mockResolvedValue({ count: 0, items: [] })
 })
-afterEach(()=>{cleanup();resetLiveChatForTests();vi.mocked(runQueueBridge.list).mockRestore();vi.mocked(runQueueBridge.consume).mockRestore();localStorage.removeItem('lunitide:microphone-device-id');localStorage.removeItem('lunitide:active-turn:01ARZ3NDEKTSV4RRFFQ69G5FAA');localStorage.removeItem('lunitide:persist-failed:01ARZ3NDEKTSV4RRFFQ69G5FAA');localStorage.removeItem('lunitide:session-experts:01ARZ3NDEKTSV4RRFFQ69G5FAA')})
+afterEach(()=>{cleanup();resetLiveChatForTests();vi.mocked(runQueueBridge.list).mockRestore();vi.mocked(runQueueBridge.consume).mockRestore();localStorage.removeItem('lunitide:microphone-device-id');localStorage.removeItem('lunitide:active-turn:01ARZ3NDEKTSV4RRFFQ69G5FAA');localStorage.removeItem('lunitide:persist-failed:01ARZ3NDEKTSV4RRFFQ69G5FAA');localStorage.removeItem('lunitide:session-experts:01ARZ3NDEKTSV4RRFFQ69G5FAA');localStorage.removeItem('lunitide:execution-mode:01ARZ3NDEKTSV4RRFFQ69G5FAA')})
 const P='01ARZ3NDEKTSV4RRFFQ69G5FAV',S='01ARZ3NDEKTSV4RRFFQ69G5FAA',NOW='2025-01-01T00:00:00Z'
 const project:ProjectDTO={id:P,name:'Runtime',projectCode:'ITM00001',type:'implementation',status:'active',createdAt:NOW,updatedAt:NOW,version:1}
 const session:SessionDTO={id:S,projectId:P,title:'Session',pinned:false,status:'active',createdAt:NOW,updatedAt:NOW,version:1}
@@ -200,6 +200,8 @@ it('keeps execution mode and inserts lane override phrases beside a read-only la
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'guidance',guidance:{labels:['档位:先问缺什么','工作流'],digest:'abcd1234abcd1234'}}))
  expect(screen.getByText('档位:先问缺什么')).toBeInTheDocument()
  expect(screen.getByText('档位:先问缺什么').tagName).not.toBe('BUTTON')
+ expect(screen.queryByText(/本轮约定/)).toBeNull()
+ expect(document.querySelector('.message-action-notice')).toBeNull()
 })
 
 it('shows a retryable alert when 选技能 list fails instead of an empty catalog',async()=>{
@@ -692,6 +694,85 @@ it('rewinds an assistant answer and automatically asks the original question aga
  await user.click(screen.getByRole('button',{name:'重新生成'}));await waitFor(()=>expect(rewind).toHaveBeenCalledWith(expect.objectContaining({sessionId:S,messageId:question.id}),expect.anything()));await waitFor(()=>expect(append).toHaveBeenCalledWith(expect.objectContaining({sessionId:S,text:'原来的问题'}),expect.anything()));expect(start).toHaveBeenCalledWith(expect.objectContaining({sessionId:S}),expect.any(Function))
 })
 
+it('cancels an in-flight turn before regenerating so rewind is not blocked',async()=>{
+ const question:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',text:'原来的问题',status:'completed',sequence:1,createdAt:NOW},answer:MessageDTO={...question,id:'01ARZ3NDEKTSV4RRFFQ69G5FAD',role:'assistant',text:'旧回答',sequence:2}
+ const cancel=vi.fn().mockResolvedValue(true)
+ const rewind=vi.fn().mockImplementation(async()=>{
+  if(!cancel.mock.calls.length)throw new BridgeClientError('当前会话仍在处理，请停止并等待结束后再回退','STREAM_LIMIT_REACHED',true,'host')
+  return {sessionId:S,messageId:question.id,deletedCount:2,lastSequence:0,historyRevision:2}
+ })
+ const append=vi.fn().mockResolvedValue({}),start=vi.fn().mockResolvedValue({streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAE',cancel,dispose:vi.fn()})
+ const input=vi.spyOn(runQueueBridge,'input').mockResolvedValue({queuedId:'01ARZ3NDEKTSV4RRFFQ69G5FA01',seq:1,status:'queued',mark:'turn_boundary'})
+ const user=userEvent.setup();render(<SessionPage project={project} bridge={sessionBridge} initialSession={session} personal providers={providers} chat={{start,dispose:vi.fn()}} messages={{list:vi.fn().mockResolvedValue(page([question,answer])),append,rewind} as MessageBridge} onBack={vi.fn()}/>)
+ await screen.findByText('旧回答')
+ fireEvent.change(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),{target:{value:'继续补充'}})
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ await user.click(screen.getByLabelText('助手消息操作').querySelector('button:last-child')!)
+ expect(screen.getByRole('dialog')).toHaveTextContent('清除旧回答并重新生成')
+ await user.click(screen.getByRole('button',{name:'重新生成'}))
+ await waitFor(()=>expect(cancel).toHaveBeenCalled())
+ await waitFor(()=>expect(rewind).toHaveBeenCalledWith(expect.objectContaining({sessionId:S,messageId:question.id}),expect.anything()))
+ await waitFor(()=>expect(start).toHaveBeenCalledTimes(2))
+ expect(input).not.toHaveBeenCalled()
+ input.mockRestore()
+})
+
+it('keeps the regenerate dialog open and shows a rewind limit error',async()=>{
+ const question:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',text:'原来的问题',status:'completed',sequence:1,createdAt:NOW},answer:MessageDTO={...question,id:'01ARZ3NDEKTSV4RRFFQ69G5FAD',role:'assistant',text:'旧回答',sequence:2}
+ const rewind=vi.fn().mockRejectedValue(new BridgeClientError('当前会话仍在处理，请停止并等待结束后再回退','STREAM_LIMIT_REACHED',true,'host'))
+ const user=userEvent.setup();render(<SessionPage project={project} bridge={sessionBridge} initialSession={session} personal providers={providers} chat={{start:vi.fn(),dispose:vi.fn()}} messages={{list:vi.fn().mockResolvedValue(page([question,answer])),append:vi.fn(),rewind} as MessageBridge} onBack={vi.fn()}/>)
+ await screen.findByText('旧回答');await user.click(screen.getByLabelText('助手消息操作').querySelector('button:last-child')!)
+ await user.click(screen.getByRole('button',{name:'重新生成'}))
+ const dialog=await screen.findByRole('dialog')
+ await waitFor(()=>expect(dialog).toHaveTextContent('当前会话仍在处理，请停止并等待结束后再回退'))
+ expect(screen.getByRole('button',{name:'重新生成'})).toBeEnabled()
+ expect(screen.queryByRole('button',{name:'处理中…'})).toBeNull()
+ await user.click(screen.getByRole('button',{name:'取消'}))
+ expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+it('regenerates a completed live reply with a new chat.start instead of enqueueing',async()=>{
+ let onEvent!:(event:StreamEvent)=>void
+ const question:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',text:'再回答一次',status:'completed',sequence:1,createdAt:NOW}
+ const cancel=vi.fn().mockResolvedValue(true)
+ const rewind=vi.fn().mockResolvedValue({sessionId:S,messageId:question.id,deletedCount:1,lastSequence:0,historyRevision:2})
+ const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return{streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel,dispose:vi.fn()}})
+ const append=vi.fn().mockResolvedValue({}),input=vi.spyOn(runQueueBridge,'input').mockResolvedValue({queuedId:'01ARZ3NDEKTSV4RRFFQ69G5FA01',seq:1,status:'queued',mark:'turn_boundary'})
+ const user=userEvent.setup();render(<SessionPage project={project} bridge={sessionBridge} personal providers={providers} initialSession={session} chat={{start,dispose:vi.fn()}} messages={{list:vi.fn().mockResolvedValue(page([question])),append,rewind} as MessageBridge} onBack={vi.fn()}/>)
+ await screen.findByText('再回答一次')
+ fireEvent.change(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),{target:{value:'继续'}})
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ act(()=>{onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:1,type:'delta',delta:{text:'新回答'}});onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:2,type:'completed'})})
+ const actions=screen.getByLabelText('当前助手回复操作')
+ await user.click(actions.querySelector('button[aria-label="重试"]')!)
+ await user.click(screen.getByRole('button',{name:'重新生成'}))
+ await waitFor(()=>expect(rewind).toHaveBeenCalled())
+ await waitFor(()=>expect(start).toHaveBeenCalledTimes(2))
+ expect(input).not.toHaveBeenCalled()
+ input.mockRestore()
+})
+
+it('cancels an in-flight turn before deleting a round',async()=>{
+ const question:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',text:'最后一个问题',status:'completed',sequence:1,createdAt:NOW},answer:MessageDTO={...question,id:'01ARZ3NDEKTSV4RRFFQ69G5FAD',role:'assistant',text:'最后一个回答',sequence:2}
+ const cancel=vi.fn().mockResolvedValue(true)
+ const rewind=vi.fn().mockImplementation(async()=>{
+  if(!cancel.mock.calls.length)throw new BridgeClientError('当前会话仍在处理，请停止并等待结束后再回退','STREAM_LIMIT_REACHED',true,'host')
+  return {sessionId:S,messageId:question.id,deletedCount:2,lastSequence:0,historyRevision:2}
+ })
+ const start=vi.fn().mockResolvedValue({streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAE',cancel,dispose:vi.fn()})
+ const user=userEvent.setup();render(<SessionPage project={project} bridge={{...sessionBridge,delete:vi.fn()}} initialSession={session} personal providers={providers} chat={{start,dispose:vi.fn()}} messages={{list:vi.fn().mockResolvedValue(page([question,answer])),append:vi.fn().mockResolvedValue({}),rewind} as MessageBridge} onBack={vi.fn()}/>)
+ await screen.findByText('最后一个回答')
+ fireEvent.change(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),{target:{value:'继续补充'}})
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ await user.click(screen.getByRole('button',{name:'删除'}))
+ await user.click(screen.getByRole('button',{name:'确认删除'}))
+ await waitFor(()=>expect(cancel).toHaveBeenCalled())
+ await waitFor(()=>expect(rewind).toHaveBeenCalledWith(expect.objectContaining({sessionId:S,messageId:question.id}),expect.anything()))
+})
+
 it('deletes the empty session and returns home after removing its last round',async()=>{
  const question:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',text:'最后一个问题',status:'completed',sequence:1,createdAt:NOW},answer:MessageDTO={...question,id:'01ARZ3NDEKTSV4RRFFQ69G5FAD',role:'assistant',text:'最后一个回答',sequence:2},rewind=vi.fn().mockResolvedValue({sessionId:S,messageId:question.id,deletedCount:2,lastSequence:0,historyRevision:2}),remove=vi.fn().mockResolvedValue({deleted:true,id:S}),onDeleted=vi.fn()
  const user=userEvent.setup();render(<SessionPage project={project} bridge={{...sessionBridge,delete:remove}} initialSession={session} personal messages={{list:vi.fn().mockResolvedValue(page([question,answer])),append:vi.fn(),rewind}as MessageBridge} onBack={vi.fn()} onDeleted={onDeleted}/>)
@@ -772,7 +853,7 @@ it.each(['pending-approval','persist-failed','not-yet-listed'] as const)('keeps 
  const question:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',text:'核对文件',status:'completed',sequence:1,createdAt:NOW}
  const answer:MessageDTO={...question,id:'01ARZ3NDEKTSV4RRFFQ69G5FAH',role:'assistant',sequence:2,text:'仍需保留的当前回答。'}
  const list=vi.fn().mockResolvedValue(page([question])),streamId='01ARZ3NDEKTSV4RRFFQ69G5FAD',start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return{streamId,cancel:vi.fn(),dispose:vi.fn()}})
- const user=userEvent.setup();render(<SessionPage project={project} bridge={sessionBridge} personal providers={providers} initialSession={session} chat={{start,approve:vi.fn(),dispose:vi.fn()}} messages={{list,append:vi.fn().mockResolvedValue({})} as MessageBridge} onBack={vi.fn()}/>);await screen.findByText(question.text)
+ const user=userEvent.setup();render(<SessionPage project={project} bridge={sessionBridge} personal providers={providers} initialSession={session} initialExecutionMode={kind==='pending-approval'?'approval':undefined} chat={{start,approve:vi.fn(),dispose:vi.fn()}} messages={{list,append:vi.fn().mockResolvedValue({})} as MessageBridge} onBack={vi.fn()}/>);await screen.findByText(question.text)
  await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'继续');await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}));await waitFor(()=>expect(start).toHaveBeenCalledOnce())
  if(kind!=='not-yet-listed')list.mockResolvedValue(page([question,answer]))
  await act(async()=>{
@@ -783,6 +864,40 @@ it.each(['pending-approval','persist-failed','not-yet-listed'] as const)('keeps 
  expect(screen.getByLabelText('当前助手回复操作')).toBeInTheDocument()
  if(kind==='persist-failed')expect(screen.getByRole('button',{name:'只重试写入'})).toBeInTheDocument()
  if(kind==='pending-approval')expect(screen.getByText('等待确认写入')).toBeInTheDocument()
+})
+
+it('auto-approves office generation in full-access instead of asking again in 任务过程',async()=>{
+ let onEvent!:(event:StreamEvent)=>void
+ const approve=vi.fn().mockResolvedValue({callId:'office-1',status:'executed',summary:'已生成周报',resultDigest:'b'.repeat(64)})
+ const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return{streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn(),dispose:vi.fn()}})
+ const user=await open({personal:true,initialSession:session,providers,initialExecutionMode:'full-access',chat:{start,approve,dispose:vi.fn()},messages:{list:vi.fn().mockResolvedValue(page()),append:vi.fn().mockResolvedValue({})} as MessageBridge})
+ await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'按草稿做一份周报Word')
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ expect(start.mock.calls[0][0]).toMatchObject({executionMode:'full-access'})
+ await act(async()=>{
+  onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:1,type:'tool_completed',tool:{callId:'try-1',name:'skill.try',argsDigest:'a'.repeat(64),summary:'草稿试用已返回'}})
+  onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:2,type:'approval_required',tool:{callId:'office-1',name:'office.generate',argsDigest:'c'.repeat(64),summary:'等待确认生成周报'}})
+ })
+ await waitFor(()=>expect(approve).toHaveBeenCalledWith({sessionId:S,callId:'office-1',argsDigest:'c'.repeat(64),approved:true,scope:'once'}))
+ expect(screen.queryByRole('button',{name:'批准并执行'})).toBeNull()
+ expect(screen.queryByText('等待你的批准')).toBeNull()
+})
+
+it('still shows 批准并执行 when the turn is 手动审批',async()=>{
+ let onEvent!:(event:StreamEvent)=>void
+ const approve=vi.fn()
+ const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return{streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn(),dispose:vi.fn()}})
+ const user=await open({personal:true,initialSession:session,providers,initialExecutionMode:'approval',chat:{start,approve,dispose:vi.fn()},messages:{list:vi.fn().mockResolvedValue(page()),append:vi.fn().mockResolvedValue({})} as MessageBridge})
+ await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'写周报')
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ await act(async()=>{
+  onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:1,type:'approval_required',tool:{callId:'office-1',name:'office.generate',argsDigest:'c'.repeat(64),summary:'等待确认生成周报'}})
+ })
+ expect(await screen.findByRole('button',{name:'批准并执行'})).toBeInTheDocument()
+ expect(approve).not.toHaveBeenCalled()
+ expect(screen.getByText('等待你的批准')).toBeInTheDocument()
 })
 
 it('keeps an icon retry action on the completed live response',async()=>{
@@ -842,6 +957,31 @@ it('does not auto-open the workspace for pptx.gen deliverables',async()=>{
   expect(screen.getByLabelText('向月汐提问，或描述你想完成的任务…')).toBeInTheDocument()
   await user.click(screen.getByRole('button',{name:'关闭产物详情'}))
   expect(screen.queryByLabelText('产物详情')).toBeNull()
+ }finally{preview.mockRestore()}
+})
+
+it('expands an HTML artifact over the conversation and restores it without remounting messages',async()=>{
+ let onEvent!:(event:StreamEvent)=>void
+ const stream:ChatStream={streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn().mockResolvedValue(true),dispose:vi.fn()}
+ const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return stream})
+ const preview=vi.spyOn(artifactReviewBridge,'preview').mockResolvedValue({kind:'html',path:'index.html',size:32,content:'<h1>周报</h1>',absolutePath:'E:/会话/index.html'})
+ const user=await open({personal:true,initialSession:session,providers,chat:{start,dispose:vi.fn()},attachments:{list:vi.fn().mockResolvedValue({items:[]}),get:vi.fn(),ingest:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge})
+ try{
+  await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'生成网页')
+  await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+  await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'tool_completed',tool:{callId:'html-1',name:'html.gen',argsDigest:'a'.repeat(64),summary:'wrote index.html',artifact:{kind:'html',path:'index.html',content:'<h1>周报</h1>'}}}))
+  await user.click(screen.getByRole('listitem',{name:/index\.html/}))
+  expect(await screen.findByLabelText('产物详情')).toBeInTheDocument()
+  const layout=document.querySelector('.workspace-layout')!
+  expect(layout.className).toContain('workspace-is-open')
+  expect(layout.className).not.toContain('workspace-is-expanded')
+  await user.click(screen.getByRole('button',{name:'放大预览'}))
+  expect(layout.className).toContain('workspace-is-expanded')
+  expect(document.querySelector('.message-panel')?.getAttribute('aria-label')).toMatch(/消息$/)
+  await user.click(screen.getByRole('button',{name:'恢复对话'}))
+  expect(layout.className).not.toContain('workspace-is-expanded')
+  expect(screen.getByLabelText('产物详情')).toBeInTheDocument()
  }finally{preview.mockRestore()}
 })
 

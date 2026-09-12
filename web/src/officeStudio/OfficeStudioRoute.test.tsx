@@ -11,7 +11,7 @@ import type {
   ChatBridge,
 } from '../bridge/client';
 import type { ProjectDTO, SessionDTO } from '../generated/bridge';
-import { OfficeStudioRoute, resolveOfficeBinding } from './OfficeStudioRoute';
+import { keepOfficeBinding, OfficeStudioRoute, resolveOfficeBinding } from './OfficeStudioRoute';
 import type { OfficeStudioApi, OfficeTaskDetail } from './officeStudioApi';
 
 const observed = vi.hoisted(() => ({ mounts: vi.fn(), prompts: vi.fn(), taskScopes: vi.fn() }));
@@ -120,6 +120,12 @@ it('leaves FEATURE_DISABLED inspect text on the conversation bind', async () => 
   expect(await screen.findByRole('alert')).toHaveTextContent('FEATURE_DISABLED: office inspect unavailable');
 });
 
+it('reuses the same conversation binding object when only the payload identity changed', () => {
+  const first = { project, session, personal: true };
+  const next = { project: { ...project }, session: { ...session }, personal: true };
+  expect(keepOfficeBinding(first, next)).toBe(first);
+});
+
 it('opens exactly the bound project/session and never creates a replacement conversation', async () => {
   const props = fixtures();
   expect(await resolveOfficeBinding(detail.task, props.projects, props.sessions)).toEqual({
@@ -159,7 +165,7 @@ it('syncs files on entry and passes the existing conversation on return without 
   await screen.findByLabelText('共用会话输入');
   expect(props.api.sync).toHaveBeenCalledWith({ taskId: detail.task.id });
   expect(observed.prompts).not.toHaveBeenCalled();
-  expect(observed.taskScopes).toHaveBeenCalledWith(detail.task.id);
+  await waitFor(() => expect(observed.taskScopes).toHaveBeenCalledWith(detail.task.id));
   fireEvent.click(screen.getByRole('button', { name: '返回原对话' }));
   await waitFor(() =>
     expect(props.onOpenChat).toHaveBeenCalledWith({ project, session, personal: true, noAutoSend: true }),

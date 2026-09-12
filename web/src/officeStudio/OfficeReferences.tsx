@@ -66,8 +66,11 @@ export function OfficeReferences({
       </div>
       <div className="os-reference-files">{references.map(file => <button key={file.id} disabled={!!opening}
         title={`查看附件 ${file.name}`} aria-label={`查看附件 ${file.name}`}
-        onClick={() => { if (file.kind === 'pdf') { setError(''); setPdf(file); } else void open(file); }}>
-        <Paperclip size={15}/><span>{file.name}</span>{opening === file.id ? <small>正在打开…</small> : <ExternalLink size={14}/>}</button>)}</div>
+        onClick={() => {
+          if (file.kind === 'pdf') { setError(''); setPdf(file); }
+          onSelectDeliverable?.(file);
+        }}>
+        <Paperclip size={15}/><span>{file.name}</span></button>)}</div>
     </section>
     {notice && !pdf && <p role="status">{notice}</p>}{error && !pdf && <p role="alert">{error}</p>}
     <Dialog open={!!pdf} title={pdf?.name || '参考附件'} wide onClose={() => setPdf(undefined)}>

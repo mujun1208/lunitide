@@ -17,6 +17,10 @@ func (e *Engine) fullDiskChat(mode executionMode) bool {
 	return mode == executionModeFullAccess && e.tools != nil && e.tools.FullDiskEnabled()
 }
 
+func conversationGrantsTool(mode executionMode, name string) bool {
+	return mode == executionModeFullAccess && name != "user.ask"
+}
+
 func sessionOfficeOutput(name string, args json.RawMessage) bool {
 	switch name {
 	case "docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "html.gen":
@@ -127,14 +131,11 @@ func (e *Engine) executeUserToolStreaming(ctx context.Context, mode executionMod
 	if name == "docx.gen" {
 		args = enrichDocxGenArgs(e, "", args)
 	}
-	approved := mode == executionModeFullAccess && name != "user.ask"
+	approved := conversationGrantsTool(mode, name)
 	if e.fullDiskChat(mode) && !sessionOfficeOutput(name, args) {
-		// S-05: unconfined disk access auto-approves only after this session
-		// confirmed the one-time full-disk unlock. Before that, mutating tools
-		// gate (ErrApprovalRequired) so the stream emits one approval card; the
-		// grant marks the session confirmed and the rest of the turn runs
-		// without prompting. Restart drops the confirmation.
-		approved = name != "user.ask" && e.tools.FullDiskSessionConfirmed(session)
+		// Conversation full-access is the user's grant for this session.
+		// Settings fullAccess only arms unconfined paths; do not ask them
+		// to click 审批 again after the composer already shows 完全访问.
 		return e.tools.ExecuteUnconfinedStreaming(ctx, session, name, args, approved, progress)
 	}
 	return e.tools.ExecuteStreaming(ctx, toolruntime.Mode(mode), session, name, args, approved, progress)

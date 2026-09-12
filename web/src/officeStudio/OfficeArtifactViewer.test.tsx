@@ -57,7 +57,7 @@ it('offers rebuild when the same-source PDF is stale and never treats it as the 
   expect(onRebuild).toHaveBeenCalledTimes(1);
 });
 
-it('renders one PPT paper per slide and does not keep a viewer-side page rail', () => {
+it('renders only the active PPT slide and does not keep a viewer-side page rail', () => {
   const ppt: OfficeArtifact = { ...artifact, id: 'ppt', name: '汇报.pptx', kind: 'pptx' };
   const preview: OfficePreview = {
     versionId: 'v2',
@@ -72,7 +72,7 @@ it('renders one PPT paper per slide and does not keep a viewer-side page rail', 
       { id: 'c', label: 'ppt/slides/slide2.xml · t1', text: '目录', location: 'ppt/slides/slide2.xml', editable: true },
     ],
   };
-  render(
+  const { rerender } = render(
     <OfficeArtifactViewer
       api={api}
       taskId="task"
@@ -81,12 +81,31 @@ it('renders one PPT paper per slide and does not keep a viewer-side page rail', 
       preview={preview}
       loading={false}
       error=""
+      activePageId="slide-1"
       onSelectNode={vi.fn()}
       onRetry={vi.fn()}
     />,
   );
   expect(screen.queryByRole('navigation', { name: '内容目录' })).toBeNull();
-  expect(screen.getAllByRole('article')).toHaveLength(2);
+  expect(screen.getAllByRole('article')).toHaveLength(1);
   expect(screen.getByText('封面标题')).toBeTruthy();
   expect(screen.getByText('副标题')).toBeTruthy();
+  expect(screen.queryByText('目录')).toBeNull();
+  rerender(
+    <OfficeArtifactViewer
+      api={api}
+      taskId="task"
+      artifact={ppt}
+      version={version}
+      preview={preview}
+      loading={false}
+      error=""
+      activePageId="slide-2"
+      onSelectNode={vi.fn()}
+      onRetry={vi.fn()}
+    />,
+  );
+  expect(screen.getAllByRole('article')).toHaveLength(1);
+  expect(screen.getByText('目录')).toBeTruthy();
+  expect(screen.queryByText('封面标题')).toBeNull();
 });

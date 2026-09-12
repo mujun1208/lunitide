@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "status": "passed",
+  "scope": "文档Schema、需求追踪、本地链接和阅读版布局；不代表产品实现测试或真实模型资格通过",
+  "checkedAt": "2026-09-12T12:00:20.537Z",
+  "contracts": {
+    "status": "passed",
+    "scope": "documentation contracts and traceability only; no product implementation or live-model qualification",
+    "checkedAt": "2026-09-12T12:00:18.528Z",
+    "counts": {
+      "requirements": 30,
+      "tasks": 20,
+      "testIdentifiers": 33,
+      "cases": 24,
+      "scenarios": 27,
+      "officePositiveScenarios": 12,
+      "profiles": 3
+    },
+    "categories": {
+      "office": 12,
+      "protocol": 4,
+      "long_task": 4,
+      "code_data": 4
+    },
+    "errors": []
+  },
+  "reader": {
+    "desktop": {
+      "title": "Lunitide 模型与办公系统升级开发规格",
+      "sections": 23,
+      "tables": 9,
+      "externalLinks": 4,
+      "missingAnchors": [],
+      "horizontalOverflow": false,
+      "emptyLinks": 0
+    },
+    "mobile": {
+      "width": 390,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "overflow": false
+    },
+    "print": {
+      "sidebarHidden": true,
+      "bodyFont": "13.3333px"
+    }
+  },
+  "files": [
+    {
+      "path": "docs/design/PRD-model-office-system-upgrade-2026-09-12.md",
+      "bytes": 41572,
+      "sha256": "35a7e5fa6f60c37928d95571c5fcd69a573ed7d1a6d6d5a68991dc99c30228b6"
+    },
+    {
+      "path": "docs/design/PRD-model-office-system-upgrade-2026-09-12.html",
+      "bytes": 56635,
+      "sha256": "b5d23b5268573dd691bef36a1076bd2a1d74f249f1607da78c575d5a92346ff4"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-12-model-office-system-upgrade.md",
+      "bytes": 52611,
+      "sha256": "4144b658b90d46bfc73b63004e25e0cc3d81262737ecc16a7a2873c532c942e9"
+    },
+    {
+      "path": "docs/design/model-office-upgrade-2026-09-12/contracts.md",
+      "bytes": 44429,
+      "sha256": "dcf558f74b991b1454c8b7e9956758e2824c7b3bbb4420d7845d83fc744438f1"
+    },
+    {
+      "path": "docs/design/model-office-upgrade-2026-09-12/contracts.schema.json",
+      "bytes": 18422,
+      "sha256": "f007ac18877b6197f49e3be9d1439f78497481b687a1bb290b152ddb8502ed7a"
+    },
+    {
+      "path": "docs/design/model-office-upgrade-2026-09-12/profile-examples.json",
+      "bytes": 3455,
+      "sha256": "281c90bafb2460ce9c586fbff1b772d2dbdee22fdc294fd61b672157e66886c4"
+    },
+    {
+      "path": "docs/design/model-office-upgrade-2026-09-12/eval-cases.json",
+      "bytes": 111548,
+      "sha256": "1fafac909b4d6c2efd5e5e03779c9ea6355d8db7772139ba224960e246e0abbf"
+    },
+    {
+      "path": "docs/design/model-office-upgrade-2026-09-12/traceability.json",
+      "bytes": 14153,
+      "sha256": "f8afb6a63bec59894db9fbc5541fc319a62c8bf55203e94ab2853a76936b340d"
+    }
+  ],
+  "reproduce": [
+    "node _scratch/model-office-prd-2026-09-12/verify-prd.mjs",
+    "node _scratch/model-office-prd-2026-09-12/build-report.mjs",
+    "node _scratch/model-office-prd-2026-09-12/verify-report.mjs",
+    "node _scratch/model-office-prd-2026-09-12/publish-verification.mjs"
+  ]
+}

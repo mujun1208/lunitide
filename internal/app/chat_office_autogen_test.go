@@ -275,6 +275,27 @@ func TestOfficeFallbackApprovalIsActionableAndHasArtifact(t *testing.T) {
 	}
 }
 
+func TestOfficeFallbackFullAccessDoesNotAskAgain(t *testing.T) {
+	e := newArtifactEngine(t)
+	if err := e.tools.SetCommandPolicyJSON([]byte(`{"commands":[],"fullAccess":true}`)); err != nil {
+		t.Fatal(err)
+	}
+	turn := chatTurnCheckpoint{Goal: "做一份介绍PPT输出到桌面", PptActive: true, PptStage: pptStageGenerate, StreamID: "test"}
+	var events []bridge.Event
+	finished, notice := e.tryFinishOfficeGen(context.Background(), executionModeFullAccess, artifactSession, &turn, officeFallbackProse, nil, func(event bridge.Event) error {
+		events = append(events, event)
+		return nil
+	})
+	if !finished {
+		t.Fatalf("full-access must generate without a second approval, notice=%s events=%+v", notice, events)
+	}
+	for _, event := range events {
+		if event.Type == bridge.EventApprovalRequired {
+			t.Fatalf("full-access emitted approval_required: %+v", event)
+		}
+	}
+}
+
 func TestPoliteDocumentRequestsRemainCreationTasks(t *testing.T) {
 	for _, goal := range []string{"你可以帮我做一份产品介绍 PPT 吗", "你可以帮我写调研报告吗", "介绍自己并做成 PPT", "[引用专家 PPT专家|01ARZ3NDEKTSV4RRFFQ69G5FAV] 请做一份介绍"} {
 		if officeExpertIntroduction(goal) || officeGenToolForGoal(goal) == "" {

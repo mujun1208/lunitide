@@ -43,6 +43,11 @@ export const HUB_SCENES = [
   { id: 'free' as const, agent: '' as const, zh: '其它任务', en: 'Other task', subZh: '自己选 Codex / Cursor / Kimi：写文档、总结资料、做小游戏…', subEn: 'Pick Codex, Cursor or Kimi yourself' },
 ] as const
 
+export function pptDeckMissing(agent: string, prompt: string, artifacts: { name: string; path: string }[]): boolean {
+  if (agent !== 'kimi' || !prompt.includes('【场景：做 PPT】')) return false
+  return !artifacts.some(item => /\.pptx$/i.test(item.name) || /\.pptx$/i.test(item.path))
+}
+
 export function visibleHubArtifacts<T extends { source: string }>(items: T[], showScan: boolean): T[] {
   return items.filter(item => {
     if (item.source === 'outside') return false

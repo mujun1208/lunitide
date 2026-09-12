@@ -188,15 +188,22 @@ export const MERMAID_MAX_HEIGHT_CSS = 'min(40vh, 360px)'
 export const MERMAID_LIGHTBOX_MAX_HEIGHT_CSS = 'min(82vh, 920px)'
 
 /** Responsive SVG: mermaid often sets inline height=viewBox px, which leaves a huge empty band. */
-export function fitMermaidSvg(svg: SVGSVGElement, opts?: { maxHeight?: string }): void {
-  svg.style.maxWidth = '100%'
-  svg.style.maxHeight = opts?.maxHeight ?? MERMAID_MAX_HEIGHT_CSS
-  svg.style.width = 'auto'
+export function fitMermaidSvg(svg: SVGSVGElement, opts?: { maxHeight?: string; fill?: boolean; zoom?: number }): void {
   svg.style.height = 'auto'
   svg.style.objectFit = 'contain'
   svg.removeAttribute('width')
   svg.removeAttribute('height')
   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet')
+  if (opts?.fill) {
+    const zoom = opts.zoom && opts.zoom > 0 ? opts.zoom : 1
+    svg.style.width = `${Math.round(zoom * 100)}%`
+    svg.style.maxWidth = 'none'
+    svg.style.maxHeight = 'none'
+    return
+  }
+  svg.style.maxWidth = '100%'
+  svg.style.maxHeight = opts?.maxHeight ?? MERMAID_MAX_HEIGHT_CSS
+  svg.style.width = 'auto'
 }
 
 /** Parse mermaid SVG without innerHTML so a bad payload cannot break the chat tree. */
