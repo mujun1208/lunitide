@@ -6,7 +6,7 @@ const {mockSkillCreator,mockEnsureSkillCreator,mockExpertManager,mockEnsureExper
 vi.mock('./skill/ensureSkillCreator',()=>({SKILL_CREATE_PROMPT:'请帮我创建一个可以实现「……」的skill',SKILL_CREATOR_NAME:'skill-creator',SKILL_CREATOR_TEMPLATE_ID:'skill-creator',ensureSkillCreator:mockEnsureSkillCreator}))
 vi.mock('./skill/ensureExpertManager',()=>({EXPERT_CREATE_PROMPT:'帮我创建一个 XXX 专家，擅长 XXXXX。我的经验是：[请补充你的行业背景、相关经验]',EXPERT_MANAGER_NAME:'expert-manager',EXPERT_MANAGER_TEMPLATE_ID:'expert-manager',ensureExpertManager:mockEnsureExpertManager}))
 vi.mock('./plugin/ensurePluginCreator',()=>({PLUGIN_CREATE_PROMPT:'帮我创建一个能力包。说明要组合哪些技能模板、MCP 预置和工具门闸。调用 plugin.create 时在 manifest 里写 skills、mcpPresetIds、toolGates。创建成功后告诉我去能力包页查看。不会执行外部脚本。',PLUGIN_CREATOR_NAME:'plugin-creator',PLUGIN_CREATOR_TEMPLATE_ID:'plugin-creator',ensurePluginCreator:mockEnsurePluginCreator}))
-vi.mock('./agentHub/agentHubApi',()=>({agentHubApi:{detect:vi.fn().mockResolvedValue({agents:[{name:'codex',state:'not_installed',version:'',nonInteractive:true,streamJSON:true,hint:'未安装 Codex CLI'},{name:'cursor',state:'not_installed',version:'',nonInteractive:true,streamJSON:true,hint:'未安装 Cursor CLI'},{name:'kimi',state:'not_installed',version:'',nonInteractive:false,streamJSON:false,hint:'未检测到非交互 CLI'}]}),pickDir:vi.fn().mockResolvedValue({canceled:true,path:''}),list:vi.fn().mockResolvedValue({items:[],counts:{queued:0,running:0,success:0,failed:0}}),listArtifacts:vi.fn().mockResolvedValue({items:[]}),start:vi.fn(),get:vi.fn(),cancel:vi.fn(),preview:vi.fn(),open:vi.fn()}}))
+vi.mock('./agentHub/agentHubApi',()=>({agentHubApi:{detect:vi.fn().mockResolvedValue({agents:[{name:'codex',state:'not_installed',version:'',nonInteractive:true,streamJSON:true,hint:'未安装 Codex CLI'},{name:'cursor',state:'not_installed',version:'',nonInteractive:true,streamJSON:true,hint:'未安装 Cursor CLI'},{name:'kimi',state:'not_installed',version:'',nonInteractive:false,streamJSON:false,hint:'未检测到非交互 CLI'}]}),pickDir:vi.fn().mockResolvedValue({canceled:true,path:''}),list:vi.fn().mockResolvedValue({items:[],counts:{queued:0,running:0,success:0,failed:0}}),listArtifacts:vi.fn().mockResolvedValue({items:[]}),start:vi.fn(),get:vi.fn(),cancel:vi.fn(),preview:vi.fn(),open:vi.fn(),threadList:vi.fn().mockResolvedValue({items:[]}),threadGet:vi.fn(),threadCreate:vi.fn(),threadUpdate:vi.fn(),threadPrompt:vi.fn(),workspaceList:vi.fn().mockResolvedValue({items:[]})}}))
 vi.mock('./bridge/client',async importOriginal=>{const actual=await importOriginal<typeof import('./bridge/client')>();return{...actual,templateBridge:{list:vi.fn().mockResolvedValue({items:[]}),create:vi.fn(),enable:vi.fn(),void:vi.fn(),restore:vi.fn(),delete:vi.fn()},deliverableBridge:{list:vi.fn().mockResolvedValue({items:[]}),upsert:vi.fn(),confirmGate:vi.fn()},stageBridge:{...actual.stageBridge,list:vi.fn().mockResolvedValue({items:[]}),create:vi.fn(),update:vi.fn()},automationBridge:{listJobs:vi.fn().mockResolvedValue({jobs:[]}),setJob:vi.fn(),deleteJob:vi.fn(),triggerJob:vi.fn(),listRuns:vi.fn().mockResolvedValue({runs:[]}),status:vi.fn().mockResolvedValue({running:true,lastHeartbeat:'2026-01-01T00:00:00Z',nextFire:{},runningJobs:[]})},meetingsBridge:{list:vi.fn().mockResolvedValue({items:[]}),start:vi.fn(),append:vi.fn(),loopbackPoll:vi.fn(),stop:vi.fn(),get:vi.fn(),heartbeat:vi.fn(),summarize:vi.fn(),exportMeeting:vi.fn(),update:vi.fn(),delete:vi.fn()},getIdentityBridge:getIdentityBridgeMock,getPeopleBridge:getPeopleBridgeMock,getMeetingsBridge:getMeetingsBridgeMock,getDesktopFilesBridge:()=>({pick:mockDesktopPick,readChunk:vi.fn()}),getCapabilityRolesBridge:()=>({get:vi.fn().mockResolvedValue({roles:['chat','flash','vision','embed','judge','gui'].map(role=>({role,allowJudgeEqChat:false}))}),set:vi.fn().mockResolvedValue({roles:[]})})}})
 
 import type{ChatBridge,ExpertBridge,MessageBridge,MroBridge,ProjectBridge,ProviderBridge,SessionBridge}from'./bridge/client'
@@ -66,9 +66,24 @@ it('opens Agent Hub from the Office menu instead of the provider page', async ()
   render(<App projects={projectBridge([])} sessions={sessionBridge()} providers={providers} messages={messages} chat={chat} />)
   await user.click(screen.getByRole('button', { name: 'Agent Hub' }))
   expect(await screen.findByRole('heading', { name: 'Agent Hub' })).toBeVisible()
-  expect(screen.getByRole('tab', { name: 'Workbench' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Legacy tasks' })).toBeInTheDocument()
+  expect(screen.queryByRole('tab', { name: 'Workbench' })).toBeNull()
   expect(screen.queryByText('生成周报')).toBeNull()
   expect(screen.queryByRole('heading', { name: /模型与供应商|Models & providers/ })).toBeNull()
+})
+
+it('clears the personal chat target when switching to Agents', async () => {
+  const user = userEvent.setup()
+  const session = { id: '01ARZ3NDEKTSV4RRFFQ69G5FAZ', projectId: personal.id, title: 'Open chat', status: 'active' as const, createdAt: now, updatedAt: now, version: 1 }
+  const sessions = sessionBridge([session])
+  localStorage.setItem('lunitide:office-menu', JSON.stringify({ agentHub: true }))
+  render(<App projects={projectBridge([personal])} sessions={sessions} providers={providers} messages={messages} chat={chat} />)
+  await user.click(await screen.findByRole('button', { name: 'Open chat' }))
+  expect(await screen.findByLabelText('Open chat messages')).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Agents' }))
+  expect(await screen.findByRole('heading', { name: 'Agent Hub' })).toBeVisible()
+  expect(screen.queryByLabelText('Open chat messages')).toBeNull()
+  expect(sessions.create).not.toHaveBeenCalled()
 })
 
 it('opens Office home on every sidebar click instead of restoring the previous task', async () => {
