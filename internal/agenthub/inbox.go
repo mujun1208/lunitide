@@ -45,7 +45,7 @@ func (s *Service) inboxFiles(workDir string) (bool, string, []InboxFile, []strin
 	}
 	pick := s.PickFiles
 	if pick == nil {
-		return true, dir, []InboxFile{}, nil, nil
+		pick = pickFilesOS
 	}
 	paths, err := pick()
 	if errors.Is(err, ErrPickCanceled) {
@@ -82,7 +82,7 @@ func (s *Service) inboxFolder(workDir string) (bool, string, []InboxFile, []stri
 	}
 	pick := s.PickFolder
 	if pick == nil {
-		return true, dir, []InboxFile{}, nil, nil
+		pick = pickFolderOS
 	}
 	srcFolder, err := pick()
 	if errors.Is(err, ErrPickCanceled) {
