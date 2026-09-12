@@ -33,7 +33,15 @@ VALUES(?,?,?,?,?,datetime('now'))`, ulid.Make().String(), threadID, last+1, role
 
 func setThreadStatus(store *ThreadStore, threadID, status string) error {
 	_, err := store.db.Exec(`UPDATE agent_hub_threads SET status=? WHERE id=?`, status, threadID)
-	return err
+	if err != nil || status != "success" {
+		return err
+	}
+	thread, loadErr := store.Get(threadID)
+	if loadErr != nil {
+		return nil
+	}
+	_ = CopyThreadExport(thread.WorkspaceRoot, thread.ExportDir)
+	return nil
 }
 
 func insertThreadPrompt(store *ThreadStore, threadID, callID, prompt, optionsJSON string) error {
