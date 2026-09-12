@@ -83,3 +83,31 @@ it('filters thread titles locally and pins through thread.update', async () => {
   fireEvent.click(screen.getByRole('button', { name: '置顶 写项目会话' }))
   await waitFor(() => expect(agentHubApi.threadUpdate).toHaveBeenCalledWith({ threadId: THREAD_ID, pinned: true }))
 })
+
+it('reloads threads when selectedThreadId or newThreadNonce changes', async () => {
+  vi.mocked(agentHubApi.detect).mockResolvedValue({
+    agents: [{ name: 'cursor', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用' }],
+  })
+  vi.mocked(agentHubApi.threadList).mockResolvedValue({ items: [] })
+  const view = render(
+    <LanguageProvider value="zh-CN">
+      <AgentHubSidebar onOpenThread={vi.fn()} selectedThreadId={undefined} newThreadNonce={0} />
+    </LanguageProvider>,
+  )
+  expect(await screen.findByRole('heading', { name: 'cursor' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '新会话' })).toBeNull()
+  vi.mocked(agentHubApi.threadList).mockResolvedValue({ items: [thread('新会话')] })
+  view.rerender(
+    <LanguageProvider value="zh-CN">
+      <AgentHubSidebar onOpenThread={vi.fn()} selectedThreadId={THREAD_ID} newThreadNonce={1} />
+    </LanguageProvider>,
+  )
+  expect(await screen.findByRole('button', { name: '新会话' })).toBeInTheDocument()
+})
+
+it('keeps listed threads when detect fails', async () => {
+  vi.mocked(agentHubApi.detect).mockRejectedValue(new Error('timeout'))
+  vi.mocked(agentHubApi.threadList).mockResolvedValue({ items: [thread('写项目会话')] })
+  render(<LanguageProvider value="zh-CN"><AgentHubSidebar onOpenThread={vi.fn()} /></LanguageProvider>)
+  expect(await screen.findByRole('button', { name: '写项目会话' })).toBeInTheDocument()
+})
