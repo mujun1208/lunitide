@@ -46,6 +46,11 @@ try{
   $cjkSnap=Get-ReleaseSourceSnapshot $source ''
   Assert-ReleaseCandidate $cjkSnap
   if(@($cjkSnap.files | ForEach-Object {$_.path}) -notcontains $cjkName){throw 'UTF-8 source path was dropped or mojibake'}
+  $cjkJson=Join-Path $fixture 'SOURCE-CANDIDATE.json'
+  [IO.File]::WriteAllText($cjkJson,($cjkSnap | ConvertTo-Json -Depth 6),(New-Object Text.UTF8Encoding $false))
+  $round=Read-ReleaseJson $cjkJson
+  Assert-ReleaseCandidate $round
+  if(@($round.files | ForEach-Object {$_.path}) -notcontains $cjkName){throw 'SOURCE-CANDIDATE.json lost UTF-8 paths'}
   $outside=Join-Path $fixture 'outside';$install=Join-Path $fixture 'install'
   New-Item $outside,$install -ItemType Directory | Out-Null
   Set-Content -LiteralPath (Join-Path $outside 'retain.txt') 'retain'

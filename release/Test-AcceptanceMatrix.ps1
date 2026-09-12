@@ -25,7 +25,7 @@ $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'Resolve-SignTool.ps1')
 . (Join-Path $PSScriptRoot 'Release-Safety.ps1')
 $Installer=(Resolve-Path $Installer).Path
-$source=Get-Content -LiteralPath $SourceCandidate -Raw | ConvertFrom-Json
+$source=Read-ReleaseJson $SourceCandidate
 Assert-ReleaseCandidate $source
 if($ExpectedSourceTreeSha256 -notmatch '^[0-9A-Fa-f]{64}$' -or $source.treeSha256 -ine $ExpectedSourceTreeSha256 -or $source.version -cne $ExpectedVersion){throw 'Source candidate differs from the accepted version or digest'}
 if($Commit -and $Commit -cne $source.commit){throw 'Supplied commit differs from the artifact source record'}

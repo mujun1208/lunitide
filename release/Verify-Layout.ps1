@@ -53,7 +53,7 @@ if($ExpectedSignerThumbprint){
     if($LASTEXITCODE){throw "Windows policy rejected the publisher signature or timestamp chain: $binary"}
   }
 }
-$candidate=Get-Content -LiteralPath (Join-Path $Stage 'SOURCE-CANDIDATE.json') -Raw | ConvertFrom-Json
+$candidate=Read-ReleaseJson (Join-Path $Stage 'SOURCE-CANDIDATE.json')
 Assert-ReleaseCandidate $candidate
 if($Version -and $candidate.version -cne $Version){throw 'Candidate source evidence version does not match'}
 if($ExpectedSignerThumbprint -and $candidate.releaseMode -cne 'publisher-signed'){throw 'A development candidate cannot satisfy publisher release acceptance'}

@@ -123,7 +123,8 @@ jobs:
         run: |
           $version=(Get-Content VERSION -Raw).Trim()
           $installerHash=(Get-FileHash "release/out/Lunitide-Setup-$version-x64.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
-          $source=Get-Content "release/out/Lunitide-$version-x64/SOURCE-CANDIDATE.json" -Raw | ConvertFrom-Json
+          . ./release/Release-Safety.ps1
+          $source=Read-ReleaseJson "release/out/Lunitide-$version-x64/SOURCE-CANDIDATE.json"
           "CANDIDATE_INSTALLER_SHA256=$installerHash" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
           "CANDIDATE_SOURCE_SHA256=$($source.treeSha256)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Verify staged manifest and layout

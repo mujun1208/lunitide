@@ -79,6 +79,11 @@ function Get-ReleaseSourceSnapshot([string]$Root,[string]$ExcludedRoot) {
 function Assert-ReleaseSourceUnchanged($Before,$After) {
   if($Before.commit -cne $After.commit -or $Before.treeSha256 -cne $After.treeSha256){throw 'Source inputs changed during the build; discard this mixed candidate and build again from a stable checkout'}
 }
+function Read-ReleaseJson([string]$Path) {
+  # PS 5.1 Get-Content -Raw uses the ANSI code page; -Encoding UTF8 also
+  # expects a BOM. The candidate is written UTF-8 without a BOM.
+  return [IO.File]::ReadAllText($Path,[Text.Encoding]::UTF8) | ConvertFrom-Json
+}
 function Assert-ReleaseCandidate($Candidate) {
   if($Candidate.treeSha256 -notmatch '^[a-f0-9]{64}$' -or $Candidate.commit -notmatch '^[a-f0-9]{40,64}$' -or $Candidate.fileCount -ne @($Candidate.files).Count -or $Candidate.fileCount -lt 1 -or $Candidate.fileCount -gt 50000){throw 'Candidate source evidence is malformed'}
   $seen=@{}; $lines=@()
