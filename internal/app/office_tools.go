@@ -108,6 +108,9 @@ func (e *Engine) executeOfficeTool(ctx context.Context, sessionID, name string, 
 		FactID           string               `json:"factId"`
 		Value            string               `json:"value"`
 	}
+	if name == "office.generate" {
+		args = adaptOfficeGenerateArgs(args)
+	}
 	if decodePayload(args, &p) != nil {
 		return nil, "", "", domain.ErrInvalid
 	}
@@ -260,10 +263,24 @@ func (e *Engine) executeOfficeTool(ctx context.Context, sessionID, name string, 
 			return runErr
 		})
 	}
+	return e.officeToolAfterMutate(ctx, task.ID, version, err)
+}
+
+func (e *Engine) officeToolAfterMutate(ctx context.Context, taskID string, version domain.Version, err error) ([]byte, string, string, error) {
 	if err != nil {
+		if version.ID == "" {
+			return nil, "", "", err
+		}
+		data, name, summary, fileErr := e.officeToolFile(ctx, taskID, version)
+		if fileErr != nil {
+			return nil, "", "", err
+		}
+		return data, name, summary + "\n" + err.Error(), nil
+	}
+	if version.ID == "" {
 		return nil, "", "", err
 	}
-	return e.officeToolFile(ctx, task.ID, version)
+	return e.officeToolFile(ctx, taskID, version)
 }
 
 func (e *Engine) officeToolFile(ctx context.Context, taskID string, version domain.Version) ([]byte, string, string, error) {

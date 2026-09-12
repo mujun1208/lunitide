@@ -32,11 +32,9 @@ it('falls back to file-specific review requests without inventing style changes'
   expect(chips.join(' ')).not.toMatch(/联系方式|深色|主题|精简一页|需要我/)
 })
 
-it('acknowledges unresolved failures instead of assuming success',()=>{
-  expect(suggestChatFollowUps('无法读取文件，任务未完成。')).toEqual([
-    '说明这次未完成的具体原因，以及继续处理所需的信息',
-    '根据目前已确认的信息，给出可行的替代方案和取舍',
-  ])
+it('does not invent generic next-step chips when the answer has no structured suggestions',()=>{
+  expect(suggestChatFollowUps('已读取周报草稿并按本周范围写了摘要。')).toEqual([])
+  expect(suggestChatFollowUps('无法读取文件，任务未完成。')).toEqual([])
 })
 
 it('sends only the chosen next request after a click',async()=>{

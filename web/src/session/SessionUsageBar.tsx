@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { getChatUsageBridge, type ChatUsageBridge, type ChatUsageSnapshot } from '../bridge/client'
 import { TokenUsage, type TokenUsageValue } from './TokenUsage'
 
-export function SessionUsageBar({ sessionId, usage, enabled, zh, usageApi }: { sessionId: string; usage?: TokenUsageValue; enabled?: boolean; zh: boolean; usageApi?: ChatUsageBridge }) {
+export function SessionUsageBar({ sessionId, usage, enabled, zh, usageApi, compact }: { sessionId: string; usage?: TokenUsageValue; enabled?: boolean; zh: boolean; usageApi?: ChatUsageBridge; compact?: boolean }) {
   const [ledger, setLedger] = useState<ChatUsageSnapshot>()
   useEffect(() => {
     let cancelled = false
@@ -17,5 +17,5 @@ export function SessionUsageBar({ sessionId, usage, enabled, zh, usageApi }: { s
     }
     return () => { cancelled = true }
   }, [sessionId, usage, usageApi])
-  return <TokenUsage usage={usage} enabled={enabled} zh={zh} ledger={ledger} />
+  return <TokenUsage usage={usage} enabled={enabled} zh={zh} ledger={ledger} compact={compact} />
 }

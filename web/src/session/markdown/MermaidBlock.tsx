@@ -1,11 +1,14 @@
 import React, { useEffect, useId, useRef, useState } from 'react'
+import { Dialog } from '../../ui/Dialog'
 import {
+  MERMAID_LIGHTBOX_MAX_HEIGHT_CSS,
   mermaidBudgetError,
   mermaidSourceReady,
   mountMermaidSvg,
   prepareMermaidSource,
   recoverMermaidSource,
   loadMermaidEngine,
+  fitMermaidSvg,
 } from './tideMermaid'
 
 export { mermaidInitConfig, mermaidThemeVariables, mountMermaidSvg } from './tideMermaid'
@@ -45,6 +48,8 @@ export function MermaidBlock({
   const [hasSvg, setHasSvg] = useState(false)
   const hasSvgRef = useRef(false)
   const [copied, setCopied] = useState(false)
+  const [open, setOpen] = useState(false)
+  const lightboxRef = useRef<HTMLDivElement>(null)
   const [themeEpoch, setThemeEpoch] = useState(0)
 
   useEffect(() => {
@@ -126,6 +131,16 @@ export function MermaidBlock({
     }
   }, [])
 
+  useEffect(() => {
+    if (!open) return
+    const sourceSvg = hostRef.current?.querySelector('svg')
+    const host = lightboxRef.current
+    if (!sourceSvg || !host) return
+    const clone = sourceSvg.cloneNode(true) as SVGSVGElement
+    fitMermaidSvg(clone, { maxHeight: MERMAID_LIGHTBOX_MAX_HEIGHT_CSS })
+    host.replaceChildren(clone)
+  }, [open, hasSvg])
+
   const copySource = async () => {
     if (!onCopy) return
     await onCopy(source.trim())
@@ -142,6 +157,11 @@ export function MermaidBlock({
             {copied ? '已复制' : '复制'}
           </button>
         )}
+        {hasSvg ? (
+          <button type="button" className="rich-code-copy" aria-label="放大查看" onClick={() => setOpen(true)}>
+            放大查看
+          </button>
+        ) : null}
       </div>
       {error ? (
         <div className="mermaid-fallback">
@@ -152,7 +172,23 @@ export function MermaidBlock({
         </div>
       ) : null}
       {pending && !error && !hasSvg ? <p className="mermaid-pending">图表生成中…</p> : null}
-      <div ref={hostRef} className="mermaid-host" hidden={!!error} aria-label="Mermaid 图表" />
+      <button
+        type="button"
+        className="mermaid-preview"
+        aria-label="放大查看图表"
+        disabled={!hasSvg || !!error}
+        onClick={() => setOpen(true)}
+      >
+        <div ref={hostRef} className="mermaid-host" hidden={!!error} aria-label="Mermaid 图表" />
+      </button>
+      <Dialog open={open} title="查看图表" onClose={() => setOpen(false)} wide>
+        <div ref={lightboxRef} className="mermaid-lightbox" aria-label="放大后的 Mermaid 图表" />
+        <div className="dialog-actions">
+          <button type="button" onClick={() => setOpen(false)}>
+            关闭
+          </button>
+        </div>
+      </Dialog>
     </div>
   )
 }

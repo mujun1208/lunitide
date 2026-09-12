@@ -14,6 +14,19 @@ describe('TokenUsage', () => {
     expect(screen.getByRole('status').textContent).toContain('已关闭')
     expect(screen.getByRole('status').textContent).toContain('不含独立摘要或供应商缓存')
   })
+  it('keeps the default view to one token line and hides the policy essay in details', () => {
+    render(<TokenUsage zh enabled usage={{inputTokens: 12930, outputTokens: 8704, totalTokens: 21634}} />)
+    const status = screen.getByRole('status')
+    const summary = [...status.querySelectorAll(':scope > span')].map(node => node.textContent).join(' · ')
+    expect(summary).toContain('输入 12930')
+    expect(summary).toContain('输出 8704')
+    expect(summary).toContain('合计 21634')
+    expect(summary).not.toContain('只作用于请求结构与同源去重')
+    const details = status.querySelector('details')
+    expect(details?.textContent).toContain('只作用于请求结构与同源去重')
+    expect(details?.textContent).toContain('上下文精简: 已开启')
+    expect(status.textContent).not.toContain('%')
+  })
   it('keeps full input totals and distinguishes partial cache accounting', () => {
     const usage = {inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: 30, cacheWriteInputTokens: 10}
     const view = render(<TokenUsage zh usage={usage} />)

@@ -28,6 +28,17 @@ it('labels image artifacts as screenshots the user can open', () => {
   expect(screen.getByText('screen-capture-20260826.png')).toBeInTheDocument()
 })
 
+it('shows a Trae-style changed-file card for office.generate Word', () => {
+  expect(isChatDeliverableArtifact({ toolName: 'office.generate', kind: 'docx', path: 'office/周报-abc123.docx' })).toBe(true)
+  render(<ChatArtifactCards sessionId="01ARZ3NDEKTSV4RRFFQ69G5FAV" artifacts={[{
+    kind: 'docx', path: 'office/周报-abc123.docx', content: '', callId: 'gen-1', toolName: 'office.generate',
+  }]} />)
+  const card = screen.getByRole('listitem')
+  expect(card).toHaveTextContent('1个文件已更改')
+  expect(card).toHaveTextContent('周报-abc123.docx')
+  expect(card).toHaveTextContent('点击打开')
+})
+
 it('hides intermediate web search and fetch HTML from deliverable cards', () => {
   expect(isChatDeliverableArtifact({ toolName: 'web.search', kind: 'html', path: 'search.html' })).toBe(false)
   expect(isChatDeliverableArtifact({ toolName: 'web.fetch', kind: 'html', path: 'fetch.html' })).toBe(false)

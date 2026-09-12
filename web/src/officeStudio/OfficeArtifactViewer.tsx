@@ -3,6 +3,7 @@ import type { OfficeArtifact, OfficeNode, OfficePreview, OfficeStudioApi, Office
 import { officeQualityLabel } from './officePresentation';
 import { conceptPreviewLabel } from './officeQualityUi';
 import { OfficePDFViewer } from './OfficePDFViewer';
+import { officePreviewPages } from './officePreviewPages';
 
 export function OfficeArtifactViewer({
   api,
@@ -90,38 +91,62 @@ export function OfficeArtifactViewer({
       )}
       {preview && !loading && !layout && (
         <div className="os-preview-layout">
-          {preview.nodes.length > 0 && (
-            <nav className="os-outline" aria-label="内容目录">
-              {preview.nodes.map((node, index) => (
-                <button
-                  key={node.id}
-                  aria-current={selectedNodeId === node.id ? 'location' : undefined}
-                  onClick={() => onSelectNode(node)}
-                >
-                  <span>{String(index + 1).padStart(2, '0')}</span>
-                  <b>{node.label || node.location || `内容 ${index + 1}`}</b>
-                </button>
-              ))}
-            </nav>
-          )}
           <div className="os-paper-scroll">
             {preview.nodes.length > 0 ? (
               <div className={`os-structure-pages is-${artifact.kind}`}>
-                {preview.nodes.map((node) => (
+                {officePreviewPages(artifact.kind, preview.nodes).map((page) => (
                   <article
-                    className={`os-paper ${selectedNodeId === node.id ? 'is-selected' : ''}`}
-                    key={node.id}
-                    id={`office-node-${node.id}`}
+                    className={`os-paper ${page.nodes.some((node) => node.id === selectedNodeId) ? 'is-selected' : ''}`}
+                    key={page.id}
+                    id={`office-page-${page.id}`}
                   >
-                    <button
-                      className="os-node-heading"
-                      onClick={() => onSelectNode(node)}
-                      aria-label={`选择 ${node.label}`}
-                    >
-                      <b>{node.label}</b>
-                      {node.location && <small>{node.location}</small>}
-                    </button>
-                    {node.valueType === 'image' && node.image ? <div className="os-image-node"><strong>图片{node.image.pixelWidth && node.image.pixelHeight ? ` · ${node.image.pixelWidth} × ${node.image.pixelHeight}` : ''}</strong><p>{node.text || '未提供替代说明。'}</p><small>{node.image.sourceId ? '来源：上传附件' : '来源：文件内嵌图片'} · {node.image.mediaPart}</small><p className="os-muted">选择此图片可替换原图；精确排版请切换到排版预览或打开导出的文件。</p></div> : node.valueType === 'chart' && node.chart ? <div className="os-image-node"><strong>图表 · {node.chart.seriesCount} 个系列 / {node.chart.categoryCount} 个类别</strong><p>{node.text || '此图表未提供文字说明。'}</p><small>{node.chart.chartPart}{node.chart.sourceRanges?.length ? ` · 源范围 ${node.chart.sourceRanges.join('、')}` : ''}{node.chart.cacheState ? ` · 缓存 ${node.chart.cacheState}` : ''}</small><p className="os-muted">{node.editable ? '选择此图表可编辑数据，修改后另存为新版本。' : '图表对象只读。修改本表源单元格后，受管图表缓存随新版本更新。'}</p></div> : <p>{node.text || '此处没有可提取的文字。'}</p>}
+                    <h3 className="os-page-heading">{page.label}</h3>
+                    {page.nodes.map((node) => (
+                      <div key={node.id} id={`office-node-${node.id}`}>
+                        <button
+                          className="os-node-heading"
+                          onClick={() => onSelectNode(node)}
+                          aria-label={`选择 ${node.label}`}
+                        >
+                          <b>{node.label}</b>
+                          {node.location && <small>{node.location}</small>}
+                        </button>
+                        {node.valueType === 'image' && node.image ? (
+                          <div className="os-image-node">
+                            <strong>
+                              图片
+                              {node.image.pixelWidth && node.image.pixelHeight
+                                ? ` · ${node.image.pixelWidth} × ${node.image.pixelHeight}`
+                                : ''}
+                            </strong>
+                            <p>{node.text || '未提供替代说明。'}</p>
+                            <small>
+                              {node.image.sourceId ? '来源：上传附件' : '来源：文件内嵌图片'} · {node.image.mediaPart}
+                            </small>
+                            <p className="os-muted">选择此图片可替换原图；精确排版请切换到排版预览或打开导出的文件。</p>
+                          </div>
+                        ) : node.valueType === 'chart' && node.chart ? (
+                          <div className="os-image-node">
+                            <strong>
+                              图表 · {node.chart.seriesCount} 个系列 / {node.chart.categoryCount} 个类别
+                            </strong>
+                            <p>{node.text || '此图表未提供文字说明。'}</p>
+                            <small>
+                              {node.chart.chartPart}
+                              {node.chart.sourceRanges?.length ? ` · 源范围 ${node.chart.sourceRanges.join('、')}` : ''}
+                              {node.chart.cacheState ? ` · 缓存 ${node.chart.cacheState}` : ''}
+                            </small>
+                            <p className="os-muted">
+                              {node.editable
+                                ? '选择此图表可编辑数据，修改后另存为新版本。'
+                                : '图表对象只读。修改本表源单元格后，受管图表缓存随新版本更新。'}
+                            </p>
+                          </div>
+                        ) : (
+                          <p>{node.text || '此处没有可提取的文字。'}</p>
+                        )}
+                      </div>
+                    ))}
                   </article>
                 ))}
               </div>

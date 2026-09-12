@@ -72,6 +72,8 @@ it('fits mermaid SVG so inline height cannot leave a huge empty band', () => {
   expect(svg.style.maxHeight).toBe(MERMAID_MAX_HEIGHT_CSS)
   expect(svg.style.objectFit).toBe('contain')
   expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet')
+  fitMermaidSvg(svg, { maxHeight: 'min(82vh, 920px)' })
+  expect(svg.style.maxHeight).toBe('min(82vh, 920px)')
 })
 
 it('mounts mermaid SVG through the parser and fits height', () => {

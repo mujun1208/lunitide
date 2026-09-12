@@ -34,6 +34,7 @@ import {
 } from './officeStudioApi';
 import { defaultOfficeArtifact, isOfficeReference, officeDate, officeRunLabel } from './officePresentation';
 import { OFFICE_GENERATE_STAGES, OFFICE_STYLE_OPTIONS, briefFieldLabel, briefLengthLabel, deferredOfficeCapabilitiesNotice, draftQualityNotice, generateActionNotice, importLimitNotice, nextLocateFactOffset, nextLocatePreviewOffset, trialScopeNotice, usabilityScopeNotice, visualScoreNotice } from './officeQualityUi';
+import { officePreviewPages } from './officePreviewPages';
 import './officeStudio.css';
 import { useOfficePanelResize } from './useOfficePanelResize';
 import { OfficeReferences } from './OfficeReferences';
@@ -218,6 +219,7 @@ export function OfficeStudioPage({
   );
   const [brandDraft, setBrandDraft] = useState(emptyBrandDraft);
   const [briefDraft, setBriefDraft] = useState(emptyBriefDraft);
+  const [briefOption, setBriefOption] = useState<'brief' | 'style' | 'brand' | 'notes' | null>(null);
   const [components, setComponents] = useState<OfficeRendererStatus>();
   const [componentsOpen, setComponentsOpen] = useState(false);
   const operation = useRef(false);
@@ -246,6 +248,7 @@ export function OfficeStudioPage({
     selection?.versionId === version?.id && selection?.offset === nodeOffset ? selection.node : undefined;
   const setSelectedNode = (node?: OfficeNode) =>
     setSelection(node && version ? { versionId: version.id, offset: nodeOffset, node } : undefined);
+  const previewPages = officePreviewPages(artifact?.kind, preview?.nodes ?? []);
 
   const applyDetail = useCallback(
     (next: OfficeTaskDetail, selectHead = false) => {
@@ -382,6 +385,7 @@ export function OfficeStudioPage({
   useEffect(() => {
     setBrandDraft(emptyBrandDraft);
     setBriefDraft(emptyBriefDraft);
+    setBriefOption(null);
   }, [taskId]);
   useEffect(() => {
     if (!detail || detail.task.id !== taskId) return;
@@ -1134,6 +1138,23 @@ export function OfficeStudioPage({
                 <small className="os-muted">单个文件不超过 10 MiB</small>
               </>
             )}
+            {artifact && preview && previewPages.length > 0 && (
+              <nav className="os-page-rail" aria-label={artifact.kind === 'pptx' ? '幻灯片页' : '内容目录'}>
+                {previewPages.map((page, index) => (
+                  <button
+                    key={page.id}
+                    aria-current={page.nodes.some((node) => node.id === selectedNode?.id) ? 'location' : undefined}
+                    onClick={() => {
+                      const node = page.nodes[0];
+                      if (node) locate(node);
+                    }}
+                  >
+                    <span>{String(index + 1).padStart(2, '0')}</span>
+                    <b>{page.label}</b>
+                  </button>
+                ))}
+              </nav>
+            )}
             <details className="os-task-switcher">
               <summary>其他任务</summary>
               {tasks
@@ -1177,6 +1198,26 @@ export function OfficeStudioPage({
                 {detail?.task.brandId ? ` · 品牌：${detail.task.brandId}` : ''}
                 {detail?.task.goal ? ` · ${detail.task.goal}` : ''}
               </p>
+              <nav className="os-brief-options" aria-label="可选设置">
+                {(
+                  [
+                    ['brief', '简报'],
+                    ['style', '风格'],
+                    ['brand', '品牌'],
+                    ['notes', '说明'],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={briefOption === id}
+                    onClick={() => setBriefOption((current) => (current === id ? null : id))}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </nav>
+              {briefOption === 'brief' ? (
               <fieldset className="os-brief-editor" aria-label="任务简报">
                 <legend>任务简报</legend>
                 <label>
@@ -1314,20 +1355,8 @@ export function OfficeStudioPage({
                   保存概要
                 </button>
               </fieldset>
-              <section className="os-task-previews" aria-label="当前任务预览">
-                {(['封面', '正文', '图表'] as const).map((slot) => {
-                  const nodes = taskPreviewSlots(preview?.nodes);
-                  const node = slot === '封面' ? nodes.cover : slot === '正文' ? nodes.body : nodes.chart;
-                  return (
-                    <article key={slot} className="os-task-preview" aria-label={`${slot}预览`}>
-                      <h3>{slot}</h3>
-                      <p>{previewSlotText(node)}</p>
-                    </article>
-                  );
-                })}
-              </section>
-              <p className="os-generate-choice">{generateActionNotice()} 预览只来自当前任务。</p>
-              <p className="os-import-limit-notice">{importLimitNotice()}</p>
+              ) : null}
+              {briefOption === 'style' ? (
               <fieldset className="os-style-picker">
                 <legend>风格</legend>
                 <p className="os-muted">工程变体，非设计师已检 36</p>
@@ -1366,6 +1395,8 @@ export function OfficeStudioPage({
                   </label>
                 ))}
               </fieldset>
+              ) : null}
+              {briefOption === 'brand' ? (
               <fieldset className="os-brand-import" aria-label="任务品牌">
                 <legend>任务品牌</legend>
                 <p className="os-brand-notice">一级导入只登记颜色、字体与授权记录，不还原 PPT 母版。</p>
@@ -1463,6 +1494,23 @@ export function OfficeStudioPage({
                   <p className="os-muted">登记品牌需要编号、来源、许可和 64 位摘要。</p>
                 ) : null}
               </fieldset>
+              ) : null}
+              {briefOption === 'notes' ? (
+              <>
+              <section className="os-task-previews" aria-label="当前任务预览">
+                {(['封面', '正文', '图表'] as const).map((slot) => {
+                  const nodes = taskPreviewSlots(preview?.nodes);
+                  const node = slot === '封面' ? nodes.cover : slot === '正文' ? nodes.body : nodes.chart;
+                  return (
+                    <article key={slot} className="os-task-preview" aria-label={`${slot}预览`}>
+                      <h3>{slot}</h3>
+                      <p>{previewSlotText(node)}</p>
+                    </article>
+                  );
+                })}
+              </section>
+              <p className="os-generate-choice">{generateActionNotice()} 预览只来自当前任务。</p>
+              <p className="os-import-limit-notice">{importLimitNotice()}</p>
               <ol className="os-generate-stages" aria-label="生成流程说明">
                 {OFFICE_GENERATE_STAGES.map((stage) => (
                   <li key={stage}>{stage}</li>
@@ -1472,6 +1520,8 @@ export function OfficeStudioPage({
               <p className="os-deferred-notice">{deferredOfficeCapabilitiesNotice()}</p>
               <p className="os-trial-notice">{trialScopeNotice()}</p>
               <p className="os-usability-notice">{usabilityScopeNotice()}</p>
+              </>
+              ) : null}
             </section>
             <OfficeArtifactViewer
               api={api}

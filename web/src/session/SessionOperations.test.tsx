@@ -5,6 +5,37 @@ import {SessionOperationsBar} from './SessionOperations'
 
 afterEach(cleanup)
 
+it('summarizes receipts on one line and keeps stop controls outside hidden details', async () => {
+  const list = vi.fn().mockResolvedValue({
+    items: [
+      {
+        id: '01ARZ3NDEKTSV4RRFFQ69G5FAV', toolName: 'office.generate', effectClass: 'write',
+        state: 'failed', expectedVersion: 1, attempt: 1, resumeAction: 'verify_unknown',
+      },
+      {
+        id: '01ARZ3NDEKTSV4RRFFQ69G5FAW', toolName: 'skill.try', effectClass: 'read',
+        state: 'succeeded', expectedVersion: 1, attempt: 1, resumeAction: 'show_existing',
+      },
+      {
+        id: '01ARZ3NDEKTSV4RRFFQ69G5FAX', toolName: 'files.apply', effectClass: 'write',
+        state: 'running', expectedVersion: 2, attempt: 1, resumeAction: 'keep_stopped',
+      },
+    ],
+  })
+  const opsApi = {list, get: vi.fn(), cancel: vi.fn(), resume: vi.fn()} as unknown as OperationBridge
+  render(<SessionOperationsBar sessionId="01ARZ3NDEKTSV4RRFFQ69G5FAW" zh opsApi={opsApi} />)
+  const status = await screen.findByRole('status')
+  const summary = [...status.querySelectorAll(':scope > span')].map(node => node.textContent).join(' · ')
+  expect(summary).toContain('office.generate · 失败')
+  expect(summary).toContain('skill.try · 已完成')
+  expect(summary).not.toContain('文件批次')
+  expect(summary).not.toContain('查看已有结果')
+  expect(status.querySelector('details')?.textContent).toContain('文件批次')
+  const stop = await screen.findByRole('button', {name: '停止'})
+  expect(stop).toBeInTheDocument()
+  expect(status.querySelector('details')?.contains(stop)).toBe(false)
+})
+
 it('labels pending as 待执行 and unknown as 待核实', async () => {
   const list = vi.fn().mockResolvedValue({
     items: [
@@ -24,11 +55,12 @@ it('labels pending as 待执行 and unknown as 待核实', async () => {
   })
   const opsApi = {list, get: vi.fn(), cancel: vi.fn(), resume: vi.fn()} as unknown as OperationBridge
   render(<SessionOperationsBar sessionId="01ARZ3NDEKTSV4RRFFQ69G5FAW" zh opsApi={opsApi} />)
-  const text = (await screen.findByRole('status')).textContent ?? ''
-  expect(text).toContain('待执行')
-  expect(text).toContain('待核实')
-  expect(text).toContain('部分完成')
-  expect(text.split('待核实').length - 1).toBe(1)
+  const status = await screen.findByRole('status')
+  const summary = [...status.querySelectorAll(':scope > span')].map(node => node.textContent).join(' · ')
+  expect(summary).toContain('待执行')
+  expect(summary).toContain('待核实')
+  expect(summary).toContain('部分完成')
+  expect(summary.split('待核实').length - 1).toBe(1)
 })
 
 it('lists tool operations in Chinese and never invents a resume execution', async () => {

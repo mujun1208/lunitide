@@ -84,7 +84,13 @@ function attemptTrimCopy(item: UsageAttempt, zh: boolean): string {
   return zh ? `未精简 ${before}→${after}` : `unchanged ${before}→${after}`
 }
 
-export function TokenUsage({usage, enabled, zh, ledger}: {usage?: TokenUsageValue; enabled?: boolean; zh: boolean; ledger?: ChatUsageSnapshot}) {
+export function tokenUsageLine(display: {inputTokens: number; outputTokens: number; totalTokens: number}, zh: boolean): string {
+  return zh
+    ? `输入 ${display.inputTokens} · 输出 ${display.outputTokens} · 合计 ${display.totalTokens}`
+    : `Input ${display.inputTokens} · Output ${display.outputTokens} · Total ${display.totalTokens}`
+}
+
+export function TokenUsage({usage, enabled, zh, ledger, compact}: {usage?: TokenUsageValue; enabled?: boolean; zh: boolean; ledger?: ChatUsageSnapshot; compact?: boolean}) {
   const collected = ledger?.collected === true
   const display = usage ?? (collected ? {
     inputTokens: ledger.inputTokens,
@@ -97,25 +103,27 @@ export function TokenUsage({usage, enabled, zh, ledger}: {usage?: TokenUsageValu
   const uncollected = !!ledger && !collected && !usage
   if (!display && enabled === undefined && !uncollected) return null
   const reported = display?.cacheUsageReported === true
-  return <div className="chat-usage token-usage" role="status" aria-label={zh ? 'Token 用量与精简' : 'Token usage and efficiency'}>
+  const summary = display ? tokenUsageLine(display, zh) : uncollected ? (zh ? '旧记录未采集' : 'Not collected for this turn') : ''
+  const details = <>
     {enabled !== undefined && <span>{zh ? '上下文精简' : 'Context trimming'}: {enabled ? (zh ? '已开启' : 'On') : (zh ? '已关闭' : 'Off')}{zh ? '（只作用于请求结构与同源去重，不含独立摘要或供应商缓存；改环境变量后需重启，进行中的任务不改版）' : ' (JSON/dedup only; not independent summaries or provider caches; restart required; in-flight tasks keep their version)'}</span>}
-    {uncollected && <span>{zh ? '旧记录未采集' : 'Not collected for this turn'}</span>}
+    {uncollected && !summary && <span>{zh ? '旧记录未采集' : 'Not collected for this turn'}</span>}
     {collected && ledger?.stablePrefixHash && <span>{zh ? '固定段' : 'Fixed prefix'} {ledger.stablePrefixHash.slice(0, 8)} · {zh ? '不含当前任务边界，不表示供应商命中' : 'Excludes the current-turn boundary; not a supplier cache hit'}</span>}
     {display && <>
-      <span>{zh ? '输入' : 'Input'} {display.inputTokens} · {zh ? '输出' : 'Output'} {display.outputTokens} · {zh ? '合计' : 'Total'} {display.totalTokens}</span>
       <span>{zh ? '缓存命中' : 'Cache read'} {reported ? (display.cachedInputTokens ?? 0) : display.cachedInputTokens ? `${display.cachedInputTokens} (${zh ? '部分回报' : 'partial'})` : (zh ? '未完整回报' : 'Not fully reported')}</span>
       {(reported || !!display.cacheWriteInputTokens) && <span>{zh ? '缓存写入' : 'Cache write'} {display.cacheWriteInputTokens ?? 0}{!reported && (zh ? ' (部分回报)' : ' (partial)')}</span>}
     </>}
     {ledger?.integrity && collected && <span>{zh ? '完整性' : 'Integrity'} {integrityLabel(ledger.integrity, zh)}</span>}
     {collected && ledger && <span>{trimCopy(ledger.attempts, zh)}</span>}
-    {collected && ledger && ledger.attempts.length > 0 && <details>
-      <summary>{zh ? '调用详情' : 'Call details'} ({ledger.attempts.length})</summary>
-      {ledger.attempts.map(item => {
-        const duration = attemptDurationCopy(item.durationMs, zh)
-        return <div key={`${item.callId}:${item.attemptId}`}>
-          {purposeLabel(item.purpose, zh)} · {callStatusLabel(item.status, zh)} · {zh ? '输入' : 'in'} {item.inputTokens} / {zh ? '输出' : 'out'} {item.outputTokens}{duration && ` · ${duration}`} · {attemptTrimCopy(item, zh)}
-        </div>
-      })}
-    </details>}
+    {collected && ledger && ledger.attempts.length > 0 && ledger.attempts.map(item => {
+      const duration = attemptDurationCopy(item.durationMs, zh)
+      return <div key={`${item.callId}:${item.attemptId}`}>
+        {purposeLabel(item.purpose, zh)} · {callStatusLabel(item.status, zh)} · {zh ? '输入' : 'in'} {item.inputTokens} / {zh ? '输出' : 'out'} {item.outputTokens}{duration && ` · ${duration}`} · {attemptTrimCopy(item, zh)}
+      </div>
+    })}
+  </>
+  const hasDetails = enabled !== undefined || (collected && !!ledger) || !!display
+  return <div className={`chat-usage token-usage${compact ? ' token-usage-compact' : ''}`} role="status" aria-label={zh ? 'Token 用量与精简' : 'Token usage and efficiency'}>
+    {summary ? <span>{summary}</span> : null}
+    {compact ? null : hasDetails ? <details><summary>{zh ? '详情' : 'Details'}</summary>{details}</details> : null}
   </div>
 }

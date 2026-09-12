@@ -185,11 +185,12 @@ export function sanitizeMermaidSvg(svg: string): string {
 
 /** Cap so a PPT cover / tall flowchart cannot swallow the chat column. */
 export const MERMAID_MAX_HEIGHT_CSS = 'min(40vh, 360px)'
+export const MERMAID_LIGHTBOX_MAX_HEIGHT_CSS = 'min(82vh, 920px)'
 
 /** Responsive SVG: mermaid often sets inline height=viewBox px, which leaves a huge empty band. */
-export function fitMermaidSvg(svg: SVGSVGElement): void {
+export function fitMermaidSvg(svg: SVGSVGElement, opts?: { maxHeight?: string }): void {
   svg.style.maxWidth = '100%'
-  svg.style.maxHeight = MERMAID_MAX_HEIGHT_CSS
+  svg.style.maxHeight = opts?.maxHeight ?? MERMAID_MAX_HEIGHT_CSS
   svg.style.width = 'auto'
   svg.style.height = 'auto'
   svg.style.objectFit = 'contain'

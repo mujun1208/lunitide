@@ -28,22 +28,9 @@ export function suggestChatFollowUps(text: string, artifacts: readonly ChatArtif
   if (structured.length === MAX_CHIPS) return structured
   const out: string[] = []
   const seen = new Set<string>()
-  const plain = text.replace(/```[\s\S]*?```/g, ' ').replace(/[#*_`]/g, ' ')
   for (const prompt of kindPrompts(artifacts)) {
     if (out.length >= MAX_CHIPS) break
     addUnique(out, seen, prompt)
-  }
-  if (out.length === 0 && plain.trim()) {
-    if (/失败|报错|无法|未完成|缺少|待确认|待核实/.test(plain)) {
-      addUnique(out, seen, '说明这次未完成的具体原因，以及继续处理所需的信息')
-      addUnique(out, seen, '根据目前已确认的信息，给出可行的替代方案和取舍')
-    } else if (/方案|计划|步骤|改造|实施|开发/.test(plain)) {
-      addUnique(out, seen, '复核上述方案的依赖、遗漏和风险，给出具体修改建议')
-      addUnique(out, seen, '把上述方案拆成可执行步骤，并列出每一步的验收标准')
-    } else {
-      addUnique(out, seen, '结合我刚才的问题，用一个具体例子说明这个回答')
-      addUnique(out, seen, '指出上述回答的适用条件，以及还需要确认的信息')
-    }
   }
   return out.slice(0, MAX_CHIPS)
 }
