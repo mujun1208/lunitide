@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { composeHubPrompt, FREE_TEMPLATES, mergeEvents, pptDeckMissing, scenePrefix, shortWorkDir, taskElapsed, visibleHubArtifacts } from './agentHubCopy'
+import { composeHubPrompt, FREE_TEMPLATES, hubSceneToThreadScene, mergeEvents, pptDeckMissing, sceneBlurb, scenePrefix, shortWorkDir, taskElapsed, visibleHubArtifacts } from './agentHubCopy'
 
 it('keeps the weekly-report Markdown template and never offers generating a weekly Office file', () => {
   expect(FREE_TEMPLATES.map(item => item.zh)).toContain('写周报 Markdown')
@@ -39,4 +39,18 @@ it('dedupes timeline events by seq while keeping order', () => {
 it('shortens work dirs and formats elapsed time', () => {
   expect(shortWorkDir('E:/Trae-Work-Projects/lunitide')).toBe('Trae-Work-Projects/lunitide')
   expect(taskElapsed({ startedAt: '2026-09-12T00:00:00Z', finishedAt: '2026-09-12T00:01:05Z' }, Date.parse('2026-09-12T00:02:00Z'))).toBe('1m 5s')
+})
+
+it('maps the write home scene to write_project and keeps the other thread scenes', () => {
+  expect(hubSceneToThreadScene('write')).toBe('write_project')
+  expect(hubSceneToThreadScene('fix')).toBe('fix')
+  expect(hubSceneToThreadScene('ppt')).toBe('ppt')
+  expect(hubSceneToThreadScene('free')).toBe('free')
+})
+
+it('keeps the spec §8 scene blurbs and leaves 自由 empty', () => {
+  expect(sceneBlurb('write_project')).toBe('在你选的文件夹里按你的规则创建子目录并写文件。不要把已有文件挪到别处。')
+  expect(sceneBlurb('fix')).toBe('在此仓库根内检索和修改。已有文件保持原路径。新文件按已有结构和你的规则放置。')
+  expect(sceneBlurb('ppt')).toBe('用 Kimi 自己的技能做文稿。pptx 写在工作区；指定了导出目录则完成时复制过去。')
+  expect(sceneBlurb('free')).toBe('')
 })
