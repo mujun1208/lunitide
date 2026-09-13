@@ -16,6 +16,7 @@ it('picks a Trae-style viewer for each artifact kind', () => {
 it('only treats compact base64 as inline PDF bytes', () => {
   expect(artifactLooksLikePdfBytes('JVBERi0xLjQKMTAw')).toBe(true)
   expect(artifactLooksLikePdfBytes('请用本机软件打开查看完整内容')).toBe(false)
+  expect(artifactLooksLikePdfBytes('QUFBQUFBQUFBQUFBQUFBQQ==')).toBe(false)
 })
 
 it('maps a file path to the same preview kind the inspector uses', () => {

@@ -35,7 +35,7 @@ import {
 import { defaultOfficeArtifact, isOfficeReference, officeDate, officeRunLabel, officeSyncSelection, visibleOfficeArtifact } from './officePresentation';
 import { OFFICE_GENERATE_STAGES, OFFICE_STYLE_OPTIONS, briefFieldLabel, briefLengthLabel, deferredOfficeCapabilitiesNotice, draftQualityNotice, generateActionNotice, importLimitNotice, nextLocateFactOffset, nextLocatePreviewOffset, trialScopeNotice, usabilityScopeNotice, visualScoreNotice } from './officeQualityUi';
 import { officePreviewPages, officePreviewThumb } from './officePreviewPages';
-import { scrollOfficeNodeIntoView } from './officePreviewScroll';
+import { resetOfficePaperScroll, scrollOfficeNodeIntoView } from './officePreviewScroll';
 import './officeStudio.css';
 import { useOfficePanelResize } from './useOfficePanelResize';
 import { OfficeReferences } from './OfficeReferences';
@@ -255,6 +255,9 @@ export function OfficeStudioPage({
   const previewPages = officePreviewPages(artifact?.kind, preview?.nodes ?? []);
   const currentPageId = previewPages.some((page) => page.id === activePageId) ? activePageId : previewPages[0]?.id ?? '';
   const currentPageIndex = Math.max(0, previewPages.findIndex((page) => page.id === currentPageId));
+  useEffect(() => {
+    resetOfficePaperScroll(document.querySelector('.os-paper-scroll'));
+  }, [currentPageId, version?.id]);
 
   const applyDetail = useCallback(
     (next: OfficeTaskDetail, selectHead = false) => {
@@ -268,8 +271,6 @@ export function OfficeStudioPage({
         setVersionId(nextSelection.artifact.headVersionId);
         setPreviewPage({ versionId: nextSelection.artifact.headVersionId, offset: 0, previous: [] });
         setActivePageId('');
-      } else if (selectHead && nextSelection) {
-        setPreviewPage({ versionId: nextSelection.artifact.headVersionId, offset: 0, previous: [] });
       }
     },
     [artifactId, versionId],
@@ -325,6 +326,10 @@ export function OfficeStudioPage({
     setArtifactId('');
     setVersionId('');
     setPreview(undefined);
+    setPreviewError('');
+    setPreviewPage({ versionId: '', offset: 0, previous: [] });
+    setActivePageId('');
+    setPreviewExpanded(false);
     setSelectedNode(undefined);
     setImageTarget(undefined);
     setNativeTarget(undefined);
@@ -423,6 +428,7 @@ export function OfficeStudioPage({
       setTaskId('');
       setFilesOpen(false);
       setTab('conversation');
+      setPreviewExpanded(false);
       setNotice('');
       void refreshList();
     };
@@ -501,7 +507,10 @@ export function OfficeStudioPage({
         if (active) setPreview(result);
       })
       .catch((cause) => {
-        if (active) setPreviewError(message(cause));
+        if (active) {
+          setPreview(undefined);
+          setPreviewError(message(cause));
+        }
       })
       .finally(() => {
         if (active) setPreviewLoading(false);
@@ -1607,7 +1616,7 @@ export function OfficeStudioPage({
                 </button>
               </nav>
             )}
-            {version && preview && artifact?.kind !== 'pptx' && typeof preview.totalNodes === 'number' && preview.totalNodes > 0 && (
+            {version && preview && typeof preview.totalNodes === 'number' && preview.totalNodes > 0 && (artifact?.kind !== 'pptx' || previousNodeOffsets.length > 0 || (preview.nextNodeOffset !== undefined && preview.nextNodeOffset < preview.totalNodes)) && (
               <nav className="os-preview-pages" aria-label="结构内容翻页">
                 <button
                   disabled={previewLoading || !previousNodeOffsets.length}

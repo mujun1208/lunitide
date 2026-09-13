@@ -239,9 +239,47 @@ func loadFirstUserMessage(t *testing.T, db *sql.DB, threadID string) (role, cont
 	return role, content
 }
 
+func TestCodexThreadCloseCancelsInFlightPrompt(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "codex", "Exec", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	adapter := NewCodexThread(store)
+	adapter.look = func(string) (string, error) { return `C:\fake-codex.exe`, nil }
+	adapter.start = func(ctx context.Context, _ ProcSpec, _ func(string)) (int64, bool, error) {
+		close(started)
+		<-ctx.Done()
+		return 1, false, ctx.Err()
+	}
+	done := make(chan error, 1)
+	go func() { done <- adapter.Prompt(thread.ID, "long") }()
+	<-started
+	if err := adapter.Close(thread.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := setThreadStatus(store, thread.ID, "cancelled"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("prompt after cancel: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("prompt did not return after Close")
+	}
+	got, err := store.Get(thread.ID)
+	if err != nil || got.Status != "cancelled" {
+		t.Fatalf("status = %#v %v", got, err)
+	}
+}
+
 func TestCodexThreadRespondErrors(t *testing.T) {
 	adapter := NewCodexThread(NewThreadStore(openThreadDB(t)))
-	if err := adapter.Respond("x", "c", "yes"); err == nil {
+	if err := adapter.Respond("x", "c", "yes", ""); err == nil {
 		t.Fatal("exec cannot respond mid-turn")
 	}
 }

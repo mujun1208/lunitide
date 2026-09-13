@@ -110,3 +110,13 @@ it('shows replaceMainNav and hides the 对话 heading', () => {
   expect(slot.closest('.primary-actions')).toBeNull()
   expect(slot.parentElement).toBe(document.getElementById('launch-sidebar'))
 })
+
+it('hides Lunitide message search when replaceMainNav is set', () => {
+  const search = vi.fn()
+  render(<LaunchSidebar {...sidebarProps({
+    replaceMainNav: <div>slot</div>,
+    messages: { search } as unknown as MessageBridge,
+  })} />)
+  expect(screen.queryByRole('button', { name: /搜索/ })).toBeNull()
+  expect(search).not.toHaveBeenCalled()
+})

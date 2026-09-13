@@ -16,6 +16,8 @@ export function AgentHubSidebar({
   const [agents, setAgents] = useState<AgentHubStatus[]>([])
   const [threads, setThreads] = useState<AgentHubThread[]>([])
   const [query, setQuery] = useState('')
+  const [renameId, setRenameId] = useState('')
+  const [renameTitle, setRenameTitle] = useState('')
   useEffect(() => {
     let alive = true
     const load = async () => {
@@ -52,6 +54,19 @@ export function AgentHubSidebar({
     const next = await agentHubApi.threadUpdate({ threadId: item.threadId, pinned: !item.pinned })
     setThreads(values => values.map(value => value.threadId === next.thread.threadId ? next.thread : value))
   }
+  const saveTitle = async (item: AgentHubThread) => {
+    const title = renameTitle.trim()
+    if (!title) return
+    const next = await agentHubApi.threadUpdate({ threadId: item.threadId, title })
+    setThreads(values => values.map(value => value.threadId === next.thread.threadId ? next.thread : value))
+    setRenameId('')
+  }
+  const remove = async (item: AgentHubThread) => {
+    const ok = window.confirm(zh ? `删除会话「${item.title}」？` : `Delete thread “${item.title}”?`)
+    if (!ok) return
+    await agentHubApi.threadDelete({ threadId: item.threadId })
+    setThreads(values => values.filter(value => value.threadId !== item.threadId))
+  }
   return (
     <nav
       className="agent-hub-sidebar"
@@ -66,7 +81,18 @@ export function AgentHubSidebar({
           <h2 className="conversation-heading">{group.name}</h2>
           {group.items.map(item => (
             <div key={item.threadId} className={`conversation-row${item.pinned ? ' is-pinned' : ''}`}>
-              <button type="button" className="conversation-open" onClick={() => onOpenThread(item.threadId)}>{item.title}</button>
+              {renameId === item.threadId ? (
+                <>
+                  <input
+                    value={renameTitle}
+                    onChange={event => setRenameTitle(event.target.value)}
+                    aria-label={zh ? '会话标题' : 'Thread title'}
+                  />
+                  <button type="button" onClick={() => void saveTitle(item)}>{zh ? '保存标题' : 'Save title'}</button>
+                </>
+              ) : (
+                <button type="button" className="conversation-open" onClick={() => onOpenThread(item.threadId)}>{item.title}</button>
+              )}
               <button
                 type="button"
                 className="conversation-more"
@@ -74,6 +100,22 @@ export function AgentHubSidebar({
                 onClick={() => void pin(item)}
               >
                 {item.pinned ? '⌃' : '📌'}
+              </button>
+              <button
+                type="button"
+                className="conversation-more"
+                aria-label={`${zh ? '重命名' : 'Rename'} ${item.title}`}
+                onClick={() => { setRenameId(item.threadId); setRenameTitle(item.title) }}
+              >
+                ✎
+              </button>
+              <button
+                type="button"
+                className="conversation-more"
+                aria-label={`${zh ? '删除' : 'Delete'} ${item.title}`}
+                onClick={() => void remove(item)}
+              >
+                ×
               </button>
             </div>
           ))}

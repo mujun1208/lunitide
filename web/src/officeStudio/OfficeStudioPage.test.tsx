@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OfficeStudioPage, type OfficeConversationOptions } from './OfficeStudioPage';
+import { OFFICE_STUDIO_HOME_EVENT } from './officeNavigation';
 import { OFFICE_PANEL_WIDTH_KEY } from './useOfficePanelResize';
 import type { OfficeStudioApi, OfficeTaskDetail, OfficePreview } from './officeStudioApi';
 
@@ -275,6 +276,58 @@ it('collapses brief controls once a deliverable exists and lists PPT pages under
   expect(screen.getByRole('radio', { name: '清晰经营' })).toBeVisible();
 });
 
+it('keeps backend batch navigation when a PPT preview is truncated', async () => {
+  const ppt = {
+    ...fixture().artifacts[0],
+    id: 'ppt',
+    name: '长汇报.pptx',
+    kind: 'pptx' as const,
+    headVersionId: 'pv1',
+    versions: [{ id: 'pv1', versionNo: 1, quality: 'unverified' as const, mode: 'imported' as const, size: 64, sha256: 'd'.repeat(64), createdAt: '2026-09-07T00:00:00Z' }],
+  };
+  const api = apiFor({ ...fixture(), artifacts: [ppt] });
+  vi.mocked(api.preview).mockResolvedValue({
+    versionId: 'pv1',
+    kind: 'pptx',
+    content: '',
+    previewBasis: '结构预览',
+    pdfReady: false,
+    truncated: true,
+    totalNodes: 82,
+    nextNodeOffset: 20,
+    nodes: [
+      { id: 'a', label: 'ppt/slides/slide1.xml · t1', text: '封面标题', location: 'ppt/slides/slide1.xml', editable: true },
+    ],
+  });
+  localStorage.setItem('lunitide:office-studio:last-task', taskId);
+  render(
+    <OfficeStudioPage
+      initialTaskId={taskId}
+      api={api}
+      renderConversation={() => <div>原会话输入框</div>}
+      onOpenSession={vi.fn()}
+      onImportFiles={vi.fn(async () => undefined)}
+    />,
+  );
+  expect((await screen.findAllByText('封面标题')).length).toBeGreaterThan(0);
+  expect(screen.getByRole('button', { name: '下一批内容' })).toBeEnabled();
+  expect(screen.getByText(/1–20 \/ 82/)).toBeInTheDocument();
+});
+
+it('does not keep the previous version nodes after a preview fetch fails', async () => {
+  const api = apiFor();
+  vi.mocked(api.preview).mockImplementation(async (payload) => {
+    if (payload.versionId === 'v1') throw new Error('预览失败');
+    return preview(payload.versionId);
+  });
+  await open(api);
+  expect(await screen.findByText('正文 v2')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '版本' }));
+  fireEvent.click(screen.getByRole('button', { name: 'v1' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('预览失败');
+  expect(screen.queryByText('正文 v2')).toBeNull();
+});
+
 it('keeps an uploaded source labeled as reference while still previewing it in the studio', async () => {
   const detail = fixture();
   detail.artifacts[0].role = 'reference';
@@ -396,6 +449,10 @@ describe('Office Studio production state', () => {
     expect(document.querySelector('.office-studio')?.className).toContain('preview-expanded');
     expect(conversation).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '恢复对话' }));
+    expect(document.querySelector('.office-studio')?.className).not.toContain('preview-expanded');
+    fireEvent.click(screen.getByRole('button', { name: '放大预览' }));
+    expect(document.querySelector('.office-studio')?.className).toContain('preview-expanded');
+    act(() => { window.dispatchEvent(new Event(OFFICE_STUDIO_HOME_EVENT)); });
     expect(document.querySelector('.office-studio')?.className).not.toContain('preview-expanded');
     cleanup();
     await open(api);
@@ -576,9 +633,7 @@ describe('Office Studio production state', () => {
         expect.objectContaining({ nodeId: 'node-3', baseVersionId: 'v2', text: '尾部修改' }),
       ),
     );
-    await screen.findByText('正文 v2');
-    fireEvent.click(screen.getByRole('button', { name: '下一批内容' }));
-    await screen.findByText('尾部正文');
+    expect(screen.getByText('尾部正文')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '上一批内容' }));
     await screen.findByText('正文 v2');
     expect(api.preview).toHaveBeenLastCalledWith({ taskId, versionId: 'v2' });

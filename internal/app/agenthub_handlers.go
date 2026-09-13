@@ -173,6 +173,17 @@ func handleAgentHub(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 			return agentHubFailure(r, err)
 		}
 		return r.Ok(detail)
+	case "agentHub.thread.delete":
+		var p struct {
+			ThreadID string `json:"threadId"`
+		}
+		if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ThreadID) {
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.thread.delete 参数无效", false)
+		}
+		if err := e.agentHub.DeleteThread(p.ThreadID); err != nil {
+			return agentHubFailure(r, err)
+		}
+		return r.Ok(map[string]any{"ok": true})
 	case "agentHub.thread.cancel":
 		var p struct {
 			ThreadID string `json:"threadId"`
@@ -208,7 +219,7 @@ func handleAgentHub(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 		if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ThreadID) || p.CallID == "" || p.OptionID == "" {
 			return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.thread.respond 参数无效", false)
 		}
-		detail, err := e.agentHub.RespondThread(p.ThreadID, p.CallID, p.OptionID)
+		detail, err := e.agentHub.RespondThread(p.ThreadID, p.CallID, p.OptionID, p.Text)
 		if err != nil {
 			return agentHubFailure(r, err)
 		}

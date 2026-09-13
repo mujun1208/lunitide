@@ -1,5 +1,10 @@
 import { expect, it } from 'vitest'
-import { ACCESS_MODES, composeHubPrompt, FREE_TEMPLATES, hubSceneToThreadScene, mergeEvents, pptDeckMissing, sceneBlurb, scenePrefix, shortWorkDir, taskElapsed, visibleHubArtifacts } from './agentHubCopy'
+import { ACCESS_MODES, composeHubPrompt, FREE_TEMPLATES, hubSceneToThreadScene, mergeEvents, parentWorkspacePath, pptDeckMissing, sceneBlurb, scenePrefix, shortWorkDir, statusLabel, taskElapsed, threadPptMissing, threadTitleFromPrompt, visibleHubArtifacts } from './agentHubCopy'
+
+it('clips a create title to the first 200-rune line', () => {
+  expect(threadTitleFromPrompt('第一行\n第二行')).toBe('第一行')
+  expect(threadTitleFromPrompt('字'.repeat(220))).toBe('字'.repeat(200))
+})
 
 it('keeps the weekly-report Markdown template and never offers generating a weekly Office file', () => {
   expect(FREE_TEMPLATES.map(item => item.zh)).toContain('写周报 Markdown')
@@ -17,6 +22,9 @@ it('says a PPT shortcut finished without a deck until a pptx appears', () => {
   const prompt = scenePrefix('ppt', 'E:/hub', '做两页')
   expect(pptDeckMissing('kimi', prompt, [{ name: 'notes.md', path: 'notes.md' }])).toBe(true)
   expect(pptDeckMissing('kimi', prompt, [{ name: 'demo.pptx', path: 'demo.pptx' }])).toBe(false)
+  expect(pptDeckMissing('kimi', prompt, [{ name: '参考.pptx', path: '参考.pptx', source: 'inbox' }, { name: 'notes.md', path: 'notes.md', source: 'changed' }])).toBe(true)
+  expect(pptDeckMissing('kimi', prompt, [{ name: 'demo.pptx', path: 'demo.pptx', source: 'scan' }, { name: 'notes.md', path: 'notes.md', source: 'changed' }])).toBe(true)
+  expect(pptDeckMissing('kimi', prompt, [{ name: 'demo.pptx', path: 'demo.pptx', source: 'changed' }])).toBe(false)
   expect(pptDeckMissing('codex', prompt, [])).toBe(false)
   expect(pptDeckMissing('kimi', '总结这些材料', [])).toBe(false)
 })
@@ -54,6 +62,26 @@ it('keeps the spec §8 permission chip labels', () => {
     ['auto-edit', '自动'],
     ['full-access', '完全访问'],
   ])
+})
+
+it('walks one workspace folder up', () => {
+  expect(parentWorkspacePath('src/pkg')).toBe('src')
+  expect(parentWorkspacePath('src')).toBe('')
+})
+
+it('says a thread PPT scene finished without a produced deck', () => {
+  expect(threadPptMissing('ppt', [{ name: 'notes.md', path: 'notes.md', source: 'scan' }])).toBe(true)
+  expect(threadPptMissing('ppt', [{ name: '参考.pptx', path: '.agenthub-inbox/参考.pptx', source: 'scan' }])).toBe(true)
+  expect(threadPptMissing('ppt', [{ name: 'demo.pptx', path: 'demo.pptx', source: 'scan' }])).toBe(false)
+  expect(threadPptMissing('ppt', [{ name: 'demo.pptx', path: 'demo.pptx', source: 'export' }])).toBe(false)
+  expect(threadPptMissing('free', [])).toBe(false)
+})
+
+it('labels thread statuses and keeps task labels', () => {
+  expect(statusLabel('waiting_user', true)).toBe('等你回答')
+  expect(statusLabel('faulted', true)).toBe('失败')
+  expect(statusLabel('idle', true)).toBe('空闲')
+  expect(statusLabel('running', true)).toBe('进行中')
 })
 
 it('keeps the spec §8 scene blurbs and leaves 自由 empty', () => {

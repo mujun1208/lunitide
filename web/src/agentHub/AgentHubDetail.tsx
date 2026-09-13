@@ -72,7 +72,7 @@ export function AgentHubDetail({
           <h2 className="dh-title">{task.prompt}</h2>
           <p className="agent-hub-hint">{task.agent} · {statusLabel(task.status, zh)} · {taskElapsed(task, Date.now())} · {tokens}{task.exitCode != null ? ` · exit ${task.exitCode}` : ''} · {shortWorkDir(task.workDir)}</p>
           {task.errorMsg && <p className="agent-hub-error">{task.errorMsg}</p>}
-          {noDeck && <p className="agent-hub-hint">{zh ? '没有文稿。打开目录查看本轮文件，或看时间线说明。' : 'No deck was produced. Open the folder or read the timeline.'}</p>}
+          {noDeck && <p className="agent-hub-hint" role="status">{zh ? '没有文稿。打开目录查看本轮文件，或看时间线说明。' : 'No deck was produced. Open the folder or read the timeline.'}</p>}
         </div>
         <div className="agent-hub-actions">
           {(task.status === 'running' || task.status === 'queued') && (
