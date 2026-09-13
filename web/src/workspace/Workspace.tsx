@@ -112,6 +112,7 @@ export function Workspace({
   executionMode = 'auto-edit',
   filesFocus = 'session',
   isolateRoot = false,
+  projectRoot,
   showPlanDag = false,
   onOpenApproval,
   skillId,
@@ -135,6 +136,7 @@ export function Workspace({
   executionMode?: 'approval' | 'auto-edit' | 'full-access'
   filesFocus?: FilesFocus
   isolateRoot?: boolean
+  projectRoot?: string
   showPlanDag?: boolean
   onOpenApproval?: () => void
   skillRevision?: number
@@ -297,7 +299,8 @@ export function Workspace({
       <LocalExplorer
         bridge={localFiles}
         sessionId={sessionId}
-        isolateRoot={isolateRoot}
+        isolateRoot={isolateRoot && !projectRoot}
+        projectRoot={projectRoot}
         targetPath={targetPath}
         onPreview={file => {
           setLocalDetail(file)
@@ -404,7 +407,8 @@ export function Workspace({
         <CodePanel
           bridge={localBridge()}
           sessionId={sessionId}
-          isolateRoot={isolateRoot}
+          isolateRoot={isolateRoot && !projectRoot}
+          projectRoot={projectRoot}
           targetPath={targetPath}
           toolActivities={toolActivities}
         />

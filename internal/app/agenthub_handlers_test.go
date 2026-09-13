@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/agenthub"
+	"github.com/lunitide/lunitide/internal/domain/project"
+	"github.com/lunitide/lunitide/internal/projectapp"
+	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/storage/sqlite"
 )
 
@@ -244,6 +247,43 @@ type threadHubDetail struct {
 	Prompt *struct {
 		CallID string `json:"callId"`
 	} `json:"prompt"`
+}
+
+func TestAgentHubThreadCreateProjectIdIgnoresClientWorkspace(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.OpenTemplated(ctx, filepath.Join(t.TempDir(), "hub-project.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	svc := projectapp.New(store, store)
+	e := NewEngineWithProjects(providerapp.New(store, store), svc, "test", nil)
+	root := t.TempDir()
+	hub := agenthub.New(agenthub.NewMemoryStore(), t.TempDir(), nil)
+	hub.Threads = store.ThreadStore()
+	e.agentHub = hub
+	created, err := svc.Create(ctx, "hub-root", "test", map[string]string{"n": "x"}, project.Project{
+		Name: "Mall", Type: project.TypeImplementation, Description: "d", Client: "c",
+		PlanStart: "2026-01-01", PlanEnd: "2026-12-31", RootPath: root, Status: project.StatusCreated,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientRoot := t.TempDir()
+	body, err := json.Marshal(map[string]any{
+		"harnessId": "loopback", "scene": "write_project", "projectId": created.ID, "workspaceRoot": clientRoot,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := handleAgentHub(e, ctx, validRequest("agentHub.thread.create", string(body)))
+	if !resp.OK {
+		t.Fatalf("%#v", resp)
+	}
+	detail := decodeThreadHubDetail(t, resp.Payload)
+	if filepath.Clean(detail.Thread.WorkspaceRoot) != filepath.Clean(root) {
+		t.Fatalf("workspaceRoot=%q want project root %q (client sent %q)", detail.Thread.WorkspaceRoot, root, clientRoot)
+	}
 }
 
 func TestAgentHubThreadCreateEmptyWorkspaceUsesRootThreads(t *testing.T) {

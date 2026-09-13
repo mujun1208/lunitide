@@ -2,6 +2,12 @@ import type { ProjectType } from '../generated/bridge'
 
 export type ChecklistItemStatus = 'pending' | 'in_progress' | 'dev_done' | 'test_pass' | 'test_fail'
 
+export type ChecklistTestReturn = {
+  id: string
+  reason: string
+  at: string
+}
+
 export type ChecklistItem = {
   id: string
   title: string
@@ -10,6 +16,17 @@ export type ChecklistItem = {
   status: ChecklistItemStatus
   sourceId?: string
   notes?: string
+  acceptance?: string
+  targetRelPath?: string
+  executor?: 'lunitide' | 'cursor' | 'codex'
+  workSessionId?: string
+  hubThreadId?: string
+  lastRunKind?: string
+  lastResultSummary?: string
+  lastResultAt?: string
+  testReturnId?: string
+  testReturn?: ChecklistTestReturn
+  openedAt?: string
 }
 
 export type ChecklistDoc = {
@@ -18,7 +35,11 @@ export type ChecklistDoc = {
 }
 
 export const CHECKLIST_DOCUMENTS = new Set([
+  'req_task_list',
+  'biz_flow_list',
   'feature_dev_list',
+  'api_list',
+  'interface_list',
   'dev_checklist',
   'test_checklist',
   'integration_test_list',
@@ -39,6 +60,7 @@ export function parseChecklist(raw: string): ChecklistDoc {
     const items = parsed.items
       .filter(item => item && typeof item.id === 'string' && typeof item.title === 'string')
       .map(item => ({
+        ...item,
         id: item.id,
         title: item.title,
         module: item.module,
@@ -46,6 +68,17 @@ export function parseChecklist(raw: string): ChecklistDoc {
         status: validStatus(item.status) ? item.status : 'pending',
         sourceId: item.sourceId,
         notes: item.notes,
+        acceptance: item.acceptance,
+        targetRelPath: item.targetRelPath,
+        executor: item.executor,
+        workSessionId: item.workSessionId,
+        hubThreadId: item.hubThreadId,
+        lastRunKind: item.lastRunKind,
+        lastResultSummary: item.lastResultSummary,
+        lastResultAt: item.lastResultAt,
+        testReturnId: item.testReturnId,
+        testReturn: item.testReturn,
+        openedAt: item.openedAt,
       }))
     return { version: 1, items }
   } catch {
@@ -60,6 +93,19 @@ function validStatus(status: unknown): status is ChecklistItemStatus {
 
 export function serializeChecklist(doc: ChecklistDoc): string {
   return JSON.stringify(doc, null, 2)
+}
+
+export function checklistToBase64(text: string): string {
+  return btoa(unescape(encodeURIComponent(text)))
+}
+
+export function checklistFromBase64(raw: string): string {
+  const binary = atob(raw)
+  try {
+    return decodeURIComponent(escape(binary))
+  } catch {
+    return binary
+  }
 }
 
 export function checklistSummary(doc: ChecklistDoc): string {

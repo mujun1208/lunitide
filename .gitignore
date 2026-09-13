@@ -46,6 +46,8 @@ htmlcov/
 # Local scratch dumps and one-off audit scripts. Never ship these.
 _scratch/
 web/_scratch/
+docs/design/feilunshengj/
+tools/_factory_schemas.py
 # Transient lint/analysis reports written during local gate runs.
 lint-report.txt
 lint-full.txt

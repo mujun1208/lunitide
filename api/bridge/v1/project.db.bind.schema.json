@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/project.db.bind.schema.json",
+  "title": "project.db.bind payload",
+  "x-method": "project.db.bind",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "projectId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "dbPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    }
+  },
+  "required": [
+    "projectId",
+    "version",
+    "dbPath"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": true
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "projectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "version": 1,
+        "dbPath": ".lunitide/data/app.sqlite"
+      }
+    ],
+    "negative": [
+      {}
+    ]
+  }
+}

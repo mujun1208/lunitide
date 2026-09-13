@@ -9,6 +9,7 @@ export type WorkbenchNav = {
 export type WorkbenchStats = {
   running: boolean
   changes: number
+  lastAssistant?: string
 }
 
 export async function openWorkspaceInEditor(

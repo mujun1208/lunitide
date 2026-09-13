@@ -12,6 +12,15 @@ vi.mock('./DeliverablePanel', () => ({ DeliverablePanel: () => <div data-testid=
 vi.mock('./RegistryPanel', () => ({ RegistryPanel: () => <div data-testid="registry-panel">注册表</div> }))
 vi.mock('./ReleasePanel', () => ({ ReleasePanel: () => <div data-testid="release-panel">发布</div> }))
 vi.mock('./phaseExperts', () => ({ applySessionPhaseExperts: vi.fn().mockResolvedValue([]) }))
+vi.mock('./projectSpineApi', () => ({
+  projectSpineApi: {
+    treeGet: vi.fn().mockResolvedValue({ tree: { version: 1, dirs: ['src'], phaseMap: {}, codeRoot: 'src' }, treeStatus: 'none' }),
+    treeMaterialize: vi.fn(),
+    rootPick: vi.fn(),
+    rootRebind: vi.fn(),
+  },
+  shortRootPath: (path: string) => path,
+}))
 
 afterEach(() => {
   cleanup()

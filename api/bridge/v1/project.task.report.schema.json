@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/project.task.report.schema.json",
+  "title": "project.task.report payload",
+  "x-method": "project.task.report",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "projectId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "itemId": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "executor": { "type": "string", "enum": ["lunitide", "cursor", "codex"] },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "hubThreadId": { "type": "string", "maxLength": 26 }
+  },
+  "required": ["projectId", "itemId", "summary"],
+  "x-result": { "type": "object", "additionalProperties": true },
+  "x-examples": {
+    "positive": [{ "projectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "itemId": "F001", "summary": "写了登录", "executor": "lunitide" }],
+    "negative": [{ "projectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "itemId": "F001" }]
+  }
+}

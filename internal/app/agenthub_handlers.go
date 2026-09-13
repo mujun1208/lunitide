@@ -130,6 +130,19 @@ func handleAgentHub(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 		if decodePayload(r.Payload, &p) != nil || p.HarnessID == "" || p.Scene == "" {
 			return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.thread.create 参数无效", false)
 		}
+		if p.ProjectID != "" {
+			if !validCanonicalULID(p.ProjectID) || !projectServiceAvailable(e.projects) {
+				return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.thread.create 参数无效", false)
+			}
+			proj, err := e.projects.Get(ctx, p.ProjectID)
+			if err != nil {
+				return projectFailure(r, err)
+			}
+			if strings.TrimSpace(proj.RootPath) == "" {
+				return r.Fail("PROJECT_ROOT_REQUIRED", "请先补选项目根目录", false)
+			}
+			p.WorkspaceRoot = proj.RootPath
+		}
 		detail, err := e.agentHub.CreateThread(p)
 		if err != nil {
 			return agentHubFailure(r, err)

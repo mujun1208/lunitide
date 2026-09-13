@@ -6,6 +6,9 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/deliverable"
+	"github.com/lunitide/lunitide/internal/projectapp"
+	"github.com/lunitide/lunitide/internal/projectgen"
+	"github.com/lunitide/lunitide/internal/projecttask"
 )
 
 func scanProjectDeliverable(row interface {
@@ -110,6 +113,7 @@ func (s *Store) UpsertProjectDeliverable(ctx context.Context, d deliverable.Proj
 				if err != nil && err != sql.ErrNoRows {
 					return err
 				}
+				wasApproved := err == nil && (current.Status == deliverable.StatusApproved || current.Status == deliverable.StatusImmutable)
 				if err == nil {
 					if current.Status == deliverable.StatusImmutable {
 						return deliverable.ErrGateLocked
@@ -121,9 +125,28 @@ func (s *Store) UpsertProjectDeliverable(ctx context.Context, d deliverable.Proj
 						d.TemplateID = current.TemplateID
 					}
 				}
+				if !wasApproved && d.AttachmentID == "" {
+					return projectapp.ErrAttachmentRequired
+				}
 				receipt, err := s.verifyProjectEvidence(ctx, tx, d, false)
 				if err != nil {
 					return err
+				}
+				if !wasApproved {
+					bytes, _ := receipt["bytes"].(int)
+					if bytes < 32 {
+						return projectapp.ErrAttachmentRequired
+					}
+					if projectgen.IsChecklistType(d.DocumentType) {
+						var path string
+						if scanErr := tx.QueryRowContext(ctx, `SELECT file_path FROM project_attachments WHERE id=?`, d.AttachmentID).Scan(&path); scanErr == nil && s.projectEvidenceFiles.attachments != nil {
+							if raw, rerr := s.projectEvidenceFiles.attachments.ReadFile(ctx, path); rerr == nil {
+								if _, perr := projecttask.ParseStrict(raw); perr != nil {
+									return projectapp.ErrBoardSourceInvalid
+								}
+							}
+						}
+					}
 				}
 				d.Digest = receipt["digest"].(string)
 			}

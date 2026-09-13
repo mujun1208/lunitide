@@ -5,7 +5,7 @@
 ## 安装边界
 
 - `skill-creator` 创建模板按已授权范围升级为 `2.0.0`，保留默认供应。其他原有已安装记录完整保留，社区新版由用户手动选择；不因同名目录更新重新安装已卸载的技能。同名同版本内容不同的草稿不会自动发布或覆盖。
-- 其他 36 个社区入口及 6 个原生替代入口均为市场待安装，`Bundled=false`、`Compose=false`。用户测试时自行选择安装。
+- 其他 67 个社区入口及 6 个原生替代入口均为市场待安装，`Bundled=false`、`Compose=false`。用户测试时自行选择安装。
 - 新增依赖入口用于完整工作流，例如 `grill-with-docs` 依赖 `grilling` 与 `domain-modeling`；依赖显示在清单中，但不以读取市场目录为理由自动安装。
 - “Superpowers”和“gstack”是集合。前者按原技能目录提供入口；后者保留固定版本源码并提供路由入口，按任务读取单个工作流，不把全部内容灌入每轮对话。
 
@@ -52,6 +52,28 @@
 | `firecrawl` / `firecrawl` | [firecrawl/cli/skills/firecrawl/SKILL.md](https://github.com/firecrawl/cli/blob/06e2fd59d3a78051c8fcb05223b00aaff131267c/skills/firecrawl/SKILL.md) | [ISC](https://github.com/firecrawl/cli/blob/06e2fd59d3a78051c8fcb05223b00aaff131267c/package.json) | 市场待安装 |
 | `deploy-checklist` / `deploy-checklist` | [anthropics/knowledge-work-plugins/engineering/skills/deploy-checklist/SKILL.md](https://github.com/anthropics/knowledge-work-plugins/blob/1f517b9de47e827c80cd933ed364e16838072239/engineering/skills/deploy-checklist/SKILL.md) | [Apache-2.0](https://github.com/anthropics/knowledge-work-plugins/blob/1f517b9de47e827c80cd933ed364e16838072239/LICENSE) | 市场待安装 |
 | `incident-response` / `incident-response` | [anthropics/knowledge-work-plugins/engineering/skills/incident-response/SKILL.md](https://github.com/anthropics/knowledge-work-plugins/blob/1f517b9de47e827c80cd933ed364e16838072239/engineering/skills/incident-response/SKILL.md) | [Apache-2.0](https://github.com/anthropics/knowledge-work-plugins/blob/1f517b9de47e827c80cd933ed364e16838072239/LICENSE) | 市场待安装 |
+| `mcp-builder` / `mcp-builder` | [anthropics/skills/skills/mcp-builder/SKILL.md](https://github.com/anthropics/skills/blob/41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f/skills/mcp-builder/SKILL.md) | [Apache-2.0](https://github.com/anthropics/skills/blob/41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f/skills/mcp-builder/LICENSE.txt) | 市场待安装 |
+| `vercel-optimize` / `vercel-optimize` | [vercel-labs/agent-skills/skills/vercel-optimize/SKILL.md](https://github.com/vercel-labs/agent-skills/blob/063bee94c3f4df8453406c830b0a7df0f2860278/skills/vercel-optimize/SKILL.md) | [MIT](https://github.com/vercel-labs/agent-skills/blob/063bee94c3f4df8453406c830b0a7df0f2860278/README.md) | 市场待安装 |
+| `writing-guidelines` / `writing-guidelines` | [vercel-labs/agent-skills/skills/writing-guidelines/SKILL.md](https://github.com/vercel-labs/agent-skills/blob/063bee94c3f4df8453406c830b0a7df0f2860278/skills/writing-guidelines/SKILL.md) | [MIT](https://github.com/vercel-labs/agent-skills/blob/063bee94c3f4df8453406c830b0a7df0f2860278/README.md) | 市场待安装 |
+| `composition-patterns` / `composition-patterns` | [vercel-labs/agent-skills/skills/composition-patterns/SKILL.md](https://github.com/vercel-labs/agent-skills/blob/063bee94c3f4df8453406c830b0a7df0f2860278/skills/composition-patterns/SKILL.md) | [MIT](https://github.com/vercel-labs/agent-skills/blob/063bee94c3f4df8453406c830b0a7df0f2860278/README.md) | 市场待安装 |
+| `react-view-transitions` / `react-view-transitions` | [vercel-labs/agent-skills/skills/react-view-transitions/SKILL.md](https://github.com/vercel-labs/agent-skills/blob/063bee94c3f4df8453406c830b0a7df0f2860278/skills/react-view-transitions/SKILL.md) | [MIT](https://github.com/vercel-labs/agent-skills/blob/063bee94c3f4df8453406c830b0a7df0f2860278/README.md) | 市场待安装 |
+| `react-native-skills` / `react-native-skills` | [vercel-labs/agent-skills/skills/react-native-skills/SKILL.md](https://github.com/vercel-labs/agent-skills/blob/063bee94c3f4df8453406c830b0a7df0f2860278/skills/react-native-skills/SKILL.md) | [MIT](https://github.com/vercel-labs/agent-skills/blob/063bee94c3f4df8453406c830b0a7df0f2860278/README.md) | 市场待安装 |
+| `deploy-to-vercel` / `deploy-to-vercel` | [vercel-labs/agent-skills/skills/deploy-to-vercel/SKILL.md](https://github.com/vercel-labs/agent-skills/blob/063bee94c3f4df8453406c830b0a7df0f2860278/skills/deploy-to-vercel/SKILL.md) | [MIT](https://github.com/vercel-labs/agent-skills/blob/063bee94c3f4df8453406c830b0a7df0f2860278/README.md) | 市场待安装 |
+| `handoff` / `handoff` | [mattpocock/skills/skills/productivity/handoff/SKILL.md](https://github.com/mattpocock/skills/blob/3cca18b368ae95cdbdebbff572ccafa662551015/skills/productivity/handoff/SKILL.md) | [MIT](https://github.com/mattpocock/skills/blob/3cca18b368ae95cdbdebbff572ccafa662551015/LICENSE) | 市场待安装 |
+| `caveman` / `caveman` | [JuliusBrussee/caveman/skills/caveman/SKILL.md](https://github.com/JuliusBrussee/caveman/blob/15581d14007fd01fb3f132016741962f34936ca2/skills/caveman/SKILL.md) | [MIT](https://github.com/JuliusBrussee/caveman/blob/15581d14007fd01fb3f132016741962f34936ca2/LICENSE) | 市场待安装；仅MIT技能说明，不分发BSL引擎 |
+| `codeql` / `codeql` | [trailofbits/skills/plugins/static-analysis/skills/codeql/SKILL.md](https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/plugins/static-analysis/skills/codeql/SKILL.md) | [CC-BY-SA-4.0](https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/LICENSE) | 市场待安装 |
+| `semgrep` / `semgrep` | [trailofbits/skills/plugins/static-analysis/skills/semgrep/SKILL.md](https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/plugins/static-analysis/skills/semgrep/SKILL.md) | [CC-BY-SA-4.0](https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/LICENSE) | 市场待安装 |
+| `sarif-parsing` / `sarif-parsing` | [trailofbits/skills/plugins/static-analysis/skills/sarif-parsing/SKILL.md](https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/plugins/static-analysis/skills/sarif-parsing/SKILL.md) | [CC-BY-SA-4.0](https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/LICENSE) | 市场待安装 |
+| `variant-analysis` / `variant-analysis` | [trailofbits/skills/plugins/variant-analysis](https://github.com/trailofbits/skills/tree/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/plugins/variant-analysis) | [CC-BY-SA-4.0](https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/LICENSE) | 市场待安装 |
+| `supply-chain-risk-auditor` / `supply-chain-risk-auditor` | [trailofbits/skills/plugins/supply-chain-risk-auditor](https://github.com/trailofbits/skills/tree/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/plugins/supply-chain-risk-auditor) | [CC-BY-SA-4.0](https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/LICENSE) | 市场待安装 |
+| `modern-python` / `modern-python` | [trailofbits/skills/plugins/modern-python](https://github.com/trailofbits/skills/tree/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/plugins/modern-python) | [CC-BY-SA-4.0](https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/LICENSE) | 市场待安装 |
+| `modern-cpp` / `modern-cpp` | [trailofbits/skills/plugins/modern-cpp](https://github.com/trailofbits/skills/tree/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/plugins/modern-cpp) | [CC-BY-SA-4.0](https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/LICENSE) | 市场待安装 |
+| `rust-review` / `rust-review` | [trailofbits/skills/plugins/rust-review](https://github.com/trailofbits/skills/tree/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/plugins/rust-review) | [CC-BY-SA-4.0](https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/LICENSE) | 市场待安装 |
+| `property-based-testing` / `property-based-testing` | [trailofbits/skills/plugins/property-based-testing](https://github.com/trailofbits/skills/tree/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/plugins/property-based-testing) | [CC-BY-SA-4.0](https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/LICENSE) | 市场待安装 |
+| `playwright-skill` 等7个TestMu入口 | [LambdaTest/agent-skills](https://github.com/LambdaTest/agent-skills/tree/0de6ebfd44b7c67c62171320c4446f13856fc443) | [MIT](https://github.com/LambdaTest/agent-skills/blob/0de6ebfd44b7c67c62171320c4446f13856fc443/LICENSE) | 市场待安装；未整包50+框架 |
+| `attach-db` / `duckdb-query` / `duckdb-read-file` / `duckdb-docs` | [duckdb/duckdb-skills](https://github.com/duckdb/duckdb-skills/tree/7feda8e01e22bc0886c86123f3884947e36d8c69/skills) | [MIT](https://github.com/duckdb/duckdb-skills/blob/7feda8e01e22bc0886c86123f3884947e36d8c69/LICENSE) | 市场待安装 |
+| `awesome-agent-skills` / `awesome-agent-skills` | [VoltAgent/awesome-agent-skills/README.md](https://github.com/VoltAgent/awesome-agent-skills/blob/8873794bcb26ff5dcf9cd518c87cf5638ca44b92/README.md) | [MIT](https://github.com/VoltAgent/awesome-agent-skills/blob/8873794bcb26ff5dcf9cd518c87cf5638ca44b92/LICENSE) | 发现索引；不分发1000+源码 |
+| `skill-doctor` / `skill-doctor` | [alirezarezvani/claude-skills/engineering/skill-doctor](https://github.com/alirezarezvani/claude-skills/tree/19392f7a08264ed00486a251f5b2098321771f94/engineering/skill-doctor) | [MIT](https://github.com/alirezarezvani/claude-skills/blob/19392f7a08264ed00486a251f5b2098321771f94/LICENSE) | 市场待安装；未整包388项 |
 
 ## 明确的名称映射和不能混淆的来源
 
@@ -62,6 +84,10 @@
 | postmortem | 映射 Anthropic knowledge-work-plugins 的 `incident-response` 中 postmortem 模式，没有编造独立官方 `postmortem` 包。 |
 | Design Taste | 映射明确可验证的 Leonxlnx/taste-skill 中 `design-taste-frontend`；不是声明所有同名社区项目等价。它面向 landing/portfolio/redesign，复杂业务 UI 可选择 Impeccable。 |
 | Firecrawl | 来源为 Firecrawl 官方 CLI，非 Anthropic 自研技能。`package.json` 声明 ISC，连同原声明保存。托管 API 消耗 credits，有免费试用并不等于永久免费。 |
+| caveman | mattpocock 已移除该技能；当前官方维护仓库为 JuliusBrussee/caveman。只收录 MIT 的 `skills/caveman`，不复制 BSL Engine-linked 目录。 |
+| VoltAgent awesome-agent-skills | 全球索引，不是技能包。产品只收录 README/LICENSE 作发现入口。 |
+| alirezarezvani/claude-skills | 未整包 388 项。只收录其技能审计器 `skill-doctor`。 |
+| trailofbits/skills | CC-BY-SA-4.0。只收录表内安全/工程审查切片，不收录 trailmark 全图或攻击向插件。 |
 | agent-browser | 官方安装目录当前是 discovery stub；额外保留全部 `skill-data` 的实际工作流、命令参考和模板，避免仅安装一个让用户再找文档的壳。 |
 
 ## 不分发受限源码；提供原创能力入口
@@ -84,7 +110,7 @@
 
 ## 完整性和验证
 
-- 37 个社区包、1,915 个来源资源，约 32 MiB。未因提示词/Bridge大小限制裁剪源文件；例如 Design Taste 原文超过 80 KiB，清单只用短入口，完整源文件保留在包中供分段读取。
+- 68 个社区包、2,565 个来源资源。未因提示词/Bridge大小限制裁剪源文件；例如 Design Taste 原文超过 80 KiB，清单只用短入口，完整源文件保留在包中供分段读取。
 - `BundledPackageFiles` 校验来源标记、名称、版本、commit、整体摘要、来源路径/许可以及每文件SHA/长度；同名用户技能不能借名字取得官方资源。
 - 资源物化使用产品不可覆盖目录。新增市场包不会在启动时自动安装。来源包不是新的执行授权，原业务权限和工具授权仍生效。
 - 真实 SQLite 回归覆盖旧版本保留、同名同版本用户草稿不被覆盖/发布、升级重试不产生重复。完整资源回归覆盖跨平台路径、每文件完整性、实际支持文件、转发技能依赖和受限源码不分发。

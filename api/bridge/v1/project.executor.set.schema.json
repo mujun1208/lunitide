@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/project.executor.set.schema.json",
+  "title": "project.executor.set payload",
+  "x-method": "project.executor.set",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "version": { "type": "integer", "minimum": 1 },
+    "executor": { "type": "string", "enum": ["lunitide", "cursor", "codex"] }
+  },
+  "required": ["id", "version", "executor"],
+  "x-result": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ProjectDTO" },
+  "x-examples": {
+    "positive": [{ "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "version": 2, "executor": "lunitide" }],
+    "negative": [{ "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "version": 2, "executor": "kimi" }]
+  }
+}

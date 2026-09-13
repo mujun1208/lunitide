@@ -1,7 +1,7 @@
 package agenthub
 
 // CapabilityFor is the V1.2 matrix. Codex/Cursor/Kimi have documented
-// non-interactive argv. Detect `available` still requires the exe on PATH.
+// non-interactive argv. Detect looks PATH, user bins, and vendor install roots.
 func CapabilityFor(name string) Capability {
 	switch name {
 	case "cursor", "kimi":

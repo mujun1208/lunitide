@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/project.root.rebind.schema.json",
+  "title": "project.root.rebind payload",
+  "x-method": "project.root.rebind",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "version": { "type": "integer", "minimum": 1 },
+    "rootPath": { "type": "string", "minLength": 1, "maxLength": 1024 }
+  },
+  "required": ["id", "version", "rootPath"],
+  "x-result": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ProjectDTO" },
+  "x-examples": {
+    "positive": [{ "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "version": 2, "rootPath": "D:\\\\work\\\\mall" }],
+    "negative": [{ "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "version": 2 }]
+  }
+}

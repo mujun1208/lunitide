@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { asUserBridgeError } from '../bridge/bridgeUserError'
 import {
   BridgeClientError,
   createMutationAttempt,
@@ -15,6 +16,8 @@ import {
   nextChecklistId,
   parseChecklist,
   serializeChecklist,
+  checklistFromBase64,
+  checklistToBase64,
   TEST_ITEM_STATUSES,
   type ChecklistDoc,
   type ChecklistItem,
@@ -30,7 +33,7 @@ function checklistUserError(err: unknown, fallback: string): string {
 }
 const problem = (e: unknown) =>
   e instanceof BridgeClientError
-    ? e
+    ? asUserBridgeError(e, '请求失败')
     : new BridgeClientError(checklistUserError(e, '请求失败'), 'CLIENT_ERROR', false, 'renderer')
 
 const STATUS_LABEL: Record<ChecklistItemStatus, string> = {
@@ -60,6 +63,10 @@ export function ChecklistPanel({
   importFrom,
   onSaved,
   enableTestRollback = false,
+  onOpenTask,
+  currentTaskId,
+  onGoDevItem,
+  autoImport = false,
 }: {
   project: ProjectDTO
   phase: number
@@ -72,6 +79,10 @@ export function ChecklistPanel({
   importFrom?: ImportSpec
   onSaved?: () => void
   enableTestRollback?: boolean
+  onOpenTask?: (itemId: string, executor?: ChecklistItem['executor']) => void
+  currentTaskId?: string
+  onGoDevItem?: (itemId: string) => void
+  autoImport?: boolean
 }): React.JSX.Element {
   const [deliverable, setDeliverable] = useState<DeliverableItem | undefined>()
   const [doc, setDoc] = useState<ChecklistDoc>(emptyChecklist())
@@ -79,6 +90,9 @@ export function ChecklistPanel({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [loadError, setLoadError] = useState('')
+  const [failTarget, setFailTarget] = useState<string>()
+  const [failReason, setFailReason] = useState('')
+  const autoImported = useRef(false)
 
   const load = useCallback(async () => {
     setLoadError('')
@@ -89,16 +103,53 @@ export function ChecklistPanel({
       if (!saved?.attachmentId) {
         setDoc(emptyChecklist())
         setDirty(false)
+        if (autoImport && !readOnly && importFrom && !autoImported.current) {
+          const sourceList = await deliverables.list({ projectId: project.id, phase: importFrom.phase })
+          const sourceDeliverable = sourceList.items.find(i => i.documentType === importFrom.documentType)
+          if (sourceDeliverable?.attachmentId) {
+            const sourceFile = await attachments.get({ projectId: project.id, attachmentId: sourceDeliverable.attachmentId })
+            const imported = importFrom.mapItems(parseChecklist(checklistFromBase64(sourceFile.contentBase64)), emptyChecklist())
+            if (imported.length) {
+              autoImported.current = true
+              const merged = { version: 1 as const, items: imported }
+              const ingested = await attachments.ingest({
+                projectId: project.id,
+                phase,
+                category: 'checklist',
+                fileName: `${documentType}.json`,
+                mimeType: 'application/json',
+                contentBase64: checklistToBase64(serializeChecklist(merged)),
+              })
+              const payload = {
+                projectId: project.id,
+                phase,
+                documentType,
+                title,
+                attachmentId: ingested.attachmentId,
+                status: 'review' as const,
+                digest: `items:${merged.items.length}`,
+              }
+              const savedDoc = await deliverables.upsert(payload, { attempt: createMutationAttempt('deliverable.upsert', payload) })
+              setDeliverable({
+                ...savedDoc,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              })
+              setDoc(merged)
+              setDirty(false)
+              onSaved?.()
+            }
+          }
+        }
         return
       }
       const file = await attachments.get({ projectId: project.id, attachmentId: saved.attachmentId })
-      const binary = atob(file.contentBase64)
-      setDoc(parseChecklist(binary))
+      setDoc(parseChecklist(checklistFromBase64(file.contentBase64)))
       setDirty(false)
     } catch (e) {
       setLoadError(problem(e).message)
     }
-  }, [attachments, deliverables, documentType, phase, project.id])
+  }, [attachments, autoImport, deliverables, documentType, importFrom, onSaved, phase, project.id, readOnly, title])
 
   useEffect(() => { void load() }, [load])
 
@@ -106,7 +157,7 @@ export function ChecklistPanel({
     setBusy(true)
     setError('')
     try {
-      const contentBase64 = btoa(unescape(encodeURIComponent(serializeChecklist(next))))
+      const contentBase64 = checklistToBase64(serializeChecklist(next))
       const ingested = await attachments.ingest({
         projectId: project.id,
         phase,
@@ -153,9 +204,43 @@ export function ChecklistPanel({
       && patch.status === 'test_fail'
       && prev?.sourceId
     ) {
-      void rollbackTestFailToDev(project, id, prev.sourceId, patch.notes ?? '测试不通过').then(ok => {
-        if (ok) setError('已退回开发清单，对应条目状态改为进行中。')
-      }).catch(e => setError(problem(e).message))
+      setFailTarget(id)
+      setFailReason('')
+      setDoc(current => ({
+        ...current,
+        items: current.items.map(item => (item.id === id ? { ...item, status: prev.status } : item)),
+      }))
+      setDirty(false)
+    }
+  }
+
+  const submitTestFail = async () => {
+    if (!failTarget || busy) return
+    const reason = failReason.trim()
+    if (!reason) {
+      setError('请填写测试不通过原因')
+      return
+    }
+    const item = doc.items.find(i => i.id === failTarget)
+    if (!item?.sourceId) {
+      setError('这条测试没有对应开发条目，不能退回。')
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      const ok = await rollbackTestFailToDev(project, failTarget, item.sourceId, reason, deliverables, attachments)
+      if (ok) {
+        setError(`已退回开发清单 ${item.sourceId}`)
+        setFailTarget(undefined)
+        setFailReason('')
+        await load()
+        onSaved?.()
+      }
+    } catch (e) {
+      setError(problem(e).message)
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -188,7 +273,7 @@ export function ChecklistPanel({
         return
       }
       const file = await attachments.get({ projectId: project.id, attachmentId: sourceDeliverable.attachmentId })
-      const sourceDoc = parseChecklist(atob(file.contentBase64))
+      const sourceDoc = parseChecklist(checklistFromBase64(file.contentBase64))
       const imported = importFrom.mapItems(sourceDoc, doc)
       if (!imported.length) {
         setError(`${importFrom.label} 中没有可导入的条目。`)
@@ -272,7 +357,19 @@ export function ChecklistPanel({
                           <select
                             value={item.status}
                             disabled={busy}
-                            onChange={e => patchItem(item.id, { status: e.target.value as ChecklistItemStatus })}
+                            onChange={e => {
+                              const next = e.target.value as ChecklistItemStatus
+                              if (enableTestRollback && next === 'test_fail') {
+                                if (!item.sourceId) {
+                                  setError('这条测试没有对应开发条目，不能标不通过。')
+                                  return
+                                }
+                                setFailTarget(item.id)
+                                setFailReason('')
+                                return
+                              }
+                              patchItem(item.id, { status: next })
+                            }}
                           >
                             {statusOptions.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
                           </select>
@@ -280,6 +377,29 @@ export function ChecklistPanel({
                     </td>
                     {!readOnly && (
                       <td>
+                        {documentType === 'dev_checklist' && onOpenTask && (
+                          <>
+                            <select
+                              aria-label={`执行器 ${item.id}`}
+                              value={item.executor ?? ''}
+                              disabled={busy}
+                              onChange={e => patchItem(item.id, { executor: (e.target.value || undefined) as ChecklistItem['executor'] })}
+                            >
+                              <option value="">默认</option>
+                              <option value="lunitide">月汐</option>
+                              <option value="cursor">Cursor</option>
+                              <option value="codex">Codex</option>
+                            </select>
+                            <button type="button" disabled={busy || project.treeStatus !== 'ready'} title={project.treeStatus !== 'ready' ? '尚未生成项目目录' : undefined} onClick={() => onOpenTask(item.id, item.executor)}>进入开发</button>
+                          </>
+                        )}
+                        {documentType === 'test_checklist' && item.status === 'test_fail' && item.sourceId && onGoDevItem && (
+                          <button type="button" disabled={busy} onClick={() => onGoDevItem(item.sourceId!)}>去开发改这一条</button>
+                        )}
+                        {currentTaskId === item.id && <small>当前任务</small>}
+                        {item.executor && <small>{item.executor}</small>}
+                        {item.lastResultSummary && <small title={item.lastResultSummary}>已回写</small>}
+                        {item.testReturn?.reason && <small title={item.testReturn.reason}>测试退回</small>}
                         <button type="button" className="checklist-remove" disabled={busy} onClick={() => removeRow(item.id)} aria-label={`删除 ${item.id}`}>×</button>
                       </td>
                     )}
@@ -291,6 +411,16 @@ export function ChecklistPanel({
         )}
       {openCount > 0 && documentType === 'dev_checklist' && (
         <p className="checklist-note">还有 {openCount} 条开发任务未完成。完成后可将条目流转到测试阶段。</p>
+      )}
+      {failTarget && (
+        <div className="pm-confirm" role="dialog" aria-label="测试不通过原因">
+          <p>不通过原因（必填）</p>
+          <textarea className="pm-reason" rows={3} maxLength={2000} value={failReason} onChange={e => setFailReason(e.target.value)} placeholder="说明失败原因，将退回同一条开发任务" />
+          <div className="dialog-actions">
+            <button type="button" disabled={busy} onClick={() => { setFailTarget(undefined); setFailReason('') }}>取消</button>
+            <button type="button" className="primary" disabled={busy || !failReason.trim()} onClick={() => void submitTestFail()}>退回开发</button>
+          </div>
+        </div>
       )}
     </section>
   )

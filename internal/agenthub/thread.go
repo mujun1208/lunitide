@@ -74,6 +74,7 @@ type WorkspaceEntry struct {
 type ThreadCreateRequest struct {
 	HarnessID     string `json:"harnessId"`
 	Scene         string `json:"scene"`
+	ProjectID     string `json:"projectId,omitempty"`
 	WorkspaceRoot string `json:"workspaceRoot"`
 	ExportDir     string `json:"exportDir"`
 	Title         string `json:"title"`

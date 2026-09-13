@@ -13,6 +13,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
 	"github.com/lunitide/lunitide/internal/domain/projectattachment"
 	"github.com/lunitide/lunitide/internal/m7app"
+	"github.com/lunitide/lunitide/internal/projectgen"
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
 )
 
@@ -35,6 +36,9 @@ func projectReleaseFixture(t *testing.T) (*Engine, *storage.Store, attachmentapp
 		key   string
 	}{{3, "db_design"}, {4, "interface_list"}, {5, "dev_checklist"}} {
 		data := []byte("Actual approved bytes for " + entry.key)
+		if projectgen.IsChecklistType(entry.key) {
+			data = []byte(`{"version":1,"items":[],"note":"Actual approved bytes for ` + entry.key + `"}`)
+		}
 		if err = files.WriteFile(ctx, entry.key, data); err != nil {
 			t.Fatal(err)
 		}

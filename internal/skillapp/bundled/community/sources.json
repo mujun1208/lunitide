@@ -10488,5 +10488,4037 @@
         "bytes": 5669
       }
     ]
+  },
+  {
+    "id": "mcp-builder",
+    "catalogId": "mcp-builder",
+    "name": "mcp-builder",
+    "version": "2.0.0",
+    "repository": "https://github.com/anthropics/skills",
+    "commit": "41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f",
+    "subdirectory": "skills/mcp-builder",
+    "entry": "upstream/skills/mcp-builder/SKILL.md",
+    "license": "Apache-2.0",
+    "licenseEvidence": "https://github.com/anthropics/skills/blob/41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f/skills/mcp-builder/LICENSE.txt",
+    "description": "Guide for creating high-quality MCP (Model Context Protocol) servers that enable LLMs to interact with external services through well-designed tools. Use when building MCP servers to integrate external APIs or services, whether in Python (FastMCP) or Node/TypeScript (MCP SDK).",
+    "category": "研发效能",
+    "aliases": [
+      "MCP",
+      "mcp-builder"
+    ],
+    "dependencies": [
+      "Python 或 Node MCP SDK（按任务核验）"
+    ],
+    "runtimeNotes": [
+      "用Lunitide现有workspace/command写MCP服务；上游脚本依赖外部SDK，未安装不得宣称已创建可运行服务。"
+    ],
+    "digest": "21d1aececbd3ec5a8511bce1636d740823771d0a4dee73841cc0ef7689f36679",
+    "resources": [
+      {
+        "path": "upstream/README.md",
+        "sha256": "2fb9c4cc026366ea6e21c60cb23c908a4d27c62071819cc06beffaac102d0694",
+        "bytes": 5552
+      },
+      {
+        "path": "upstream/THIRD_PARTY_NOTICES.md",
+        "sha256": "a8ff7a84dee9dfb42ab448de281784387ceafdf63881b7c070ee2de7f6ed865c",
+        "bytes": 46162
+      },
+      {
+        "path": "upstream/skills/mcp-builder/LICENSE.txt",
+        "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362",
+        "bytes": 11345
+      },
+      {
+        "path": "upstream/skills/mcp-builder/SKILL.md",
+        "sha256": "0f4592dcb53cf2b5d6b7febee6b4152018b565551a1c29e3c612f57b218ab295",
+        "bytes": 9092
+      },
+      {
+        "path": "upstream/skills/mcp-builder/reference/evaluation.md",
+        "sha256": "8c99479f8a2d22a636c38e274537aac3610879e26f34e0709825077c4576f427",
+        "bytes": 21663
+      },
+      {
+        "path": "upstream/skills/mcp-builder/reference/mcp_best_practices.md",
+        "sha256": "80fb4369a349447cf18ecdd7494fe7938b6065377e9f08c077cec411093a3007",
+        "bytes": 7330
+      },
+      {
+        "path": "upstream/skills/mcp-builder/reference/node_mcp_server.md",
+        "sha256": "c3ba35a4f599dd53be9c6555ae72c19a7bf412cd5426576c2c08d42755482c66",
+        "bytes": 28550
+      },
+      {
+        "path": "upstream/skills/mcp-builder/reference/python_mcp_server.md",
+        "sha256": "2da52f77e675191014ca2e146a4b95aa04d0ca7dd7e2b100322df15ade685e80",
+        "bytes": 25099
+      },
+      {
+        "path": "upstream/skills/mcp-builder/scripts/connections.py",
+        "sha256": "9403668a2041568772082a8b334122c1f88daf0541fb393af4522d0094a47a6e",
+        "bytes": 4875
+      },
+      {
+        "path": "upstream/skills/mcp-builder/scripts/evaluation.py",
+        "sha256": "49ed1d17cdce5da101b210197740713f49b935c29d4f339542a14b132658e6f7",
+        "bytes": 12579
+      },
+      {
+        "path": "upstream/skills/mcp-builder/scripts/example_evaluation.xml",
+        "sha256": "9272b348ddcc4b06ba562367ccd0770e018158c0068ac5116d5e34aaeff8777a",
+        "bytes": 1194
+      },
+      {
+        "path": "upstream/skills/mcp-builder/scripts/requirements.txt",
+        "sha256": "d5d7558b2368ecea9dfeed7d1fbc71ee9e0750bebd1282faa527d528a344c3c7",
+        "bytes": 29
+      }
+    ]
+  },
+  {
+    "id": "vercel-optimize",
+    "catalogId": "vercel-optimize",
+    "name": "vercel-optimize",
+    "version": "2.0.0",
+    "repository": "https://github.com/vercel-labs/agent-skills",
+    "commit": "063bee94c3f4df8453406c830b0a7df0f2860278",
+    "subdirectory": "skills/vercel-optimize",
+    "entry": "upstream/skills/vercel-optimize/SKILL.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/vercel-labs/agent-skills/blob/063bee94c3f4df8453406c830b0a7df0f2860278/README.md",
+    "description": "Use for Vercel cost and performance optimization on deployed projects, especially Next.js, SvelteKit, Nuxt, and limited Astro apps. Collect Vercel metrics, usage, project config, and code scan results first; investigate only metric-backed candidates; produce ranked recommendations grounded in verified files and version-aware Vercel/framework docs. Trigger for Vercel bill reduction, slow or expensive routes, caching opportunities, Function Invocations, Build Minutes, Fast Data Transfer, Core Web Vitals, Bot Management, Fluid compute, or cost breakdown requests.",
+    "category": "研发效能",
+    "aliases": [
+      "Vercel优化"
+    ],
+    "dependencies": [
+      "Vercel项目与已授权的部署指标（可选）"
+    ],
+    "runtimeNotes": [
+      "没有Vercel指标时只审查仓库配置，不编造节省金额。"
+    ],
+    "digest": "6890a011cd0da712a763ac862fa2e34d449325550baefd67079778704359fa13",
+    "resources": [
+      {
+        "path": "upstream/README.md",
+        "sha256": "7c02f64b08fc6c4eef03c01d64f3e2ed478193ccfcbd14edba379abe23304651",
+        "bytes": 7838
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/AGENTS.md",
+        "sha256": "922a35993ffd98c923d61fa3d7a722bc1bc17466ea1e0b5828f67de21fbb0e7a",
+        "bytes": 1964
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/CONTRIBUTING.md",
+        "sha256": "4a3c6695f23ada3228582f1062509545dbad485e5011434c12b7ddd81bf1370a",
+        "bytes": 2224
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/README.md",
+        "sha256": "4ebb0ae7c6a2c8cfe7ed8ad26a6bee0be99d8682be331d9d28c1cb81ad3718d0",
+        "bytes": 4471
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/SKILL.md",
+        "sha256": "95ae2683b30d892d165af92a350c5628b68106f395a59b448857b654e306ed91",
+        "bytes": 17311
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/auth-route.mjs",
+        "sha256": "c06a222bccd2c57b418b1d935d73f5b81297dac8533c004ec5bb4027cec3307a",
+        "bytes": 807
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/budget-summary.mjs",
+        "sha256": "8662a2914940b8c548be164c09ce7706ea261549fb61147d2a7a13af1e3337cc",
+        "bytes": 7145
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/citations.mjs",
+        "sha256": "41a1bafa7addc4b39d144491f178a159cc23ff779b4803f2c152fe579209b384",
+        "bytes": 4029
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/cost-coverage.mjs",
+        "sha256": "483b0f03f5db08e15388e1c047ffad414bb132bb3ce48418defc0d9a70a20e44",
+        "bytes": 8628
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/dedup-recs.mjs",
+        "sha256": "5fc631c1f56eea8bf8c59afb773511d9a8f42d29574fa14f03abb60c881206cc",
+        "bytes": 10151
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/deep-dive.mjs",
+        "sha256": "c86c5ed224c00c2e72a54eef16260b8e7237302a7e69e47310077eae7f65ced1",
+        "bytes": 10458
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/display-labels.mjs",
+        "sha256": "e56e54a0e19ed3ed4f45112cb358c1df5a77caa7411f5c2267c73064f64d1b08",
+        "bytes": 7611
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/extract-claims.mjs",
+        "sha256": "a3f44334dad0ba743699860d6b83a06e38c7e465f73418749822cf00d563ee2a",
+        "bytes": 19136
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/framework-support.mjs",
+        "sha256": "ed8ef73604d5bd91f4aea6fb0de465079474e00299c23bbdba8b04dd70545364",
+        "bytes": 2126
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/gates/build-minutes-fanout.mjs",
+        "sha256": "c088ab1f91af8b4e86e8f3f3210c7b625757a3699bd5818c905f66ade92064b1",
+        "bytes": 3016
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/gates/cold-start.mjs",
+        "sha256": "40023aae34ebc37df1382c7c4c00efc3864b2c11a8c9ee8cf05f371762680300",
+        "bytes": 2797
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/gates/contract.mjs",
+        "sha256": "e0bd012b53b6a70684279a3ad58598f5a1f79698d0e521d0e9d0994e87b3ae65",
+        "bytes": 3143
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/gates/cwv-poor.mjs",
+        "sha256": "17ab4ae24b5d0220d941215db8544bed68c1af02e6d5d7aba4ff077a46675fbb",
+        "bytes": 3372
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/gates/external-api-slow.mjs",
+        "sha256": "12ce4f0cf906e5631170a58307758f095069d3051c16f64ddeec00bb99a66dc9",
+        "bytes": 2173
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/gates/hard-gates.mjs",
+        "sha256": "b31d94495e20721b8ce825bde073ba9a32c14063b0cc711e23e2582fb0ebd677",
+        "bytes": 2543
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/gates/index.mjs",
+        "sha256": "d473dfce777f68430d2b68836efb184152a59da97d3b06d37a6f618c7d4c59a6",
+        "bytes": 2066
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/gates/isr-overrevalidation.mjs",
+        "sha256": "333d2dc8523d5850fddb5c13cd78fe62c0838ffd627c41b374804dca26cc63c6",
+        "bytes": 2442
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/gates/middleware-heavy.mjs",
+        "sha256": "1ad98bc73be97254d6131707ed93c72262c071e54ce071a392549df33d0d7ae7",
+        "bytes": 2085
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/gates/observability-events-attribution.mjs",
+        "sha256": "8e465217257c771c0be8580c1b9abcf1defd26e5a70c9559dc10f4cc45527c52",
+        "bytes": 2255
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/gates/platform-bot-protection.mjs",
+        "sha256": "0124cd71876616f7de741d962ff4cbcb79a78654a3026372a18195e2ff99294b",
+        "bytes": 5089
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/gates/platform-fluid-compute.mjs",
+        "sha256": "de81279134bef9499f1cbe2f38d06bb5caa968daa5438f09c9bad0d2f27efa96",
+        "bytes": 3630
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/gates/region-misconfig.mjs",
+        "sha256": "0b3976cd50a9fb54601c60ad27c62b64aa7a4eeb338af4226b618ae1d5a9cc4a",
+        "bytes": 3101
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/gates/route-errors.mjs",
+        "sha256": "a32a29b683557409b351da84e45ab316818f8a90c5af380ba7efc5366c03129f",
+        "bytes": 3101
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/gates/scanner-driven.mjs",
+        "sha256": "485313169d009ded7bdb1e4083150919e77eb4373aff0252cd5c0c235f2e8f3b",
+        "bytes": 5191
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/gates/select-candidates.mjs",
+        "sha256": "bde0714be600905caaaa99991d37c31df9e6775b8a107ee2df5eb63ffa9d1e11",
+        "bytes": 4703
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/gates/slow-route.mjs",
+        "sha256": "b0d330e4244bd3d2e240f6398ead4b235bb69b72fe585771cde4f11ae8726148",
+        "bytes": 4384
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/gates/types.d.ts",
+        "sha256": "097ea533204446ccc18798fc01656577df8b864c24b0eda4c66ebc913fa36f31",
+        "bytes": 893
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/gates/uncached-route.mjs",
+        "sha256": "c4f89fa083f13a9360dd5ec6b45b39db3f480c797193c590bf131f53463388cb",
+        "bytes": 3963
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/gates/usage-spike-triage.mjs",
+        "sha256": "b8f84b57fe9d41323467c765ef9da4893b0cac6eee31603179cd8cb77ffd7be3",
+        "bytes": 5095
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/grade-recommendation.mjs",
+        "sha256": "e06008677dd1c6a27d767636356b6a68f357a3122b57adca3238bd2ca7576c38",
+        "bytes": 6887
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/impact-label.mjs",
+        "sha256": "4d55baae79025bfa43b829ff291019bb6a1f6d015c72dd44612d8e3afeb60b9f",
+        "bytes": 5344
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/impact-magnitude.mjs",
+        "sha256": "a87cec394f9d853da43e633e8ce2cb9f1f62fb2ae7dd6a58f542a5e7024b2c5b",
+        "bytes": 2172
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/investigation-brief.mjs",
+        "sha256": "f41d9354992fb5c7904b8faa1ad1fa457f8b69533d2113ec9c38192c227bf0c7",
+        "bytes": 35165
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/observation-safety.mjs",
+        "sha256": "540a4c49f10ceab570513f2834b7fbd88b2090c85690ed0f8b5c5bf0e623badd",
+        "bytes": 9486
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/project-facts.mjs",
+        "sha256": "d8b508d1077fdb4bcf5c2f267750cb4a6ca529811eecdadb10f9e632e304f30b",
+        "bytes": 4399
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/queries.mjs",
+        "sha256": "a747292c7bbc69a245799f846c6d081df44506c5c8e3d245b610c0f32edcea69",
+        "bytes": 10338
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/reconcile-candidates.mjs",
+        "sha256": "4e02dbc4fba1834192f018b05e9d42723fda13dbecf26a7cc09eacbfe1925b75",
+        "bytes": 15966
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/render-report.mjs",
+        "sha256": "35068fb5df2f2b9a89cabf40e050c40da5d8fadeec33cdbd47c8fc995677a127",
+        "bytes": 39131
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/repo-root.mjs",
+        "sha256": "77ce8277fa444dea77cb10c17e7a0d2db98a6cbea6e2df0fa2ff01372b52eb0c",
+        "bytes": 3135
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/route-normalize.mjs",
+        "sha256": "a2e39b3f653695392f096c1b385e31a9b1452714de4908c1d0e6604626274b5d",
+        "bytes": 8590
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/sanitizers/bot-protection-certainty.mjs",
+        "sha256": "2edac6df3f4565ec7d2f784db7e660767f8a213bfe9f55f6da14f2517f4a071a",
+        "bytes": 1988
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/sanitizers/cache-tag-invalidation-certainty.mjs",
+        "sha256": "31aec0481e996fd2a9a546c792ff17223747c850806405b2ee3cb95c40e296c0",
+        "bytes": 1522
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/sanitizers/count-correct.mjs",
+        "sha256": "cf427876a8c64d9591d89da727a2d4cec9dc0dcd717ffba3f82be52c38c73de3",
+        "bytes": 1956
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/sanitizers/function-duration-invocations.mjs",
+        "sha256": "c745bc90e67722f8584d3d426f28ccc4701504a635dd966cdb8f487ee79eb7b3",
+        "bytes": 1470
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/sanitizers/index.mjs",
+        "sha256": "99babb880c7d5e7ac209e7eb1bf26f2ae9ac5a795062d01e15d76c57055247bf",
+        "bytes": 3053
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/sanitizers/middleware-conflict.mjs",
+        "sha256": "89fae25e31662ed7f31fef973e7b969271fc061839112adabf253a3e87380b97",
+        "bytes": 1586
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/sanitizers/missing-citation.mjs",
+        "sha256": "431ec0944239d4477556a23808733298ecd5bdfb4a810ab887b83f0266eb5904",
+        "bytes": 497
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/sanitizers/pre-release.mjs",
+        "sha256": "dce1475fd392d245bd4a48e1280c2f0a00fc4dea96cd9f40e4d260fdc0bf5940",
+        "bytes": 2224
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/sanitizers/rate-limit.mjs",
+        "sha256": "42b2a3ecb07443ab5aeb881ab6dea31a92f767b73697fd0529e877084657629c",
+        "bytes": 2655
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/sanitizers/rendering-mode-mislabel.mjs",
+        "sha256": "410c60d8f71250d8b443384098f02869e7a1b4d9dcb3e3ca384ca3b875648788",
+        "bytes": 1670
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/sanitizers/undeclared-dep.mjs",
+        "sha256": "bc2a483311a2c44103b15d9498b5d303101724454c114907d23de6d7725e8769",
+        "bytes": 2833
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/sanitizers/vercel-directive-strip.mjs",
+        "sha256": "b94a6fcd0a03358dcb853b04a392b0946d8a07d8619e86b562b8b38a6cffac85",
+        "bytes": 1460
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/sanitizers/window-units.mjs",
+        "sha256": "f7823f1c4705166c313107571f048fd4e7fa160cb982dcbfe07d936ab4cb5a3b",
+        "bytes": 869
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/scanners/cache-components-suspense-dedupe.mjs",
+        "sha256": "ca4c643a30b76df0e8728f8b8854167483f746a9d45aafb467c3bec9125b7878",
+        "bytes": 4367
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/scanners/edge-heavy-import.mjs",
+        "sha256": "0faacf202542cc6ea37290377a61e9c34a84d3d9439822cd7df09d450ff663a3",
+        "bytes": 3740
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/scanners/force-dynamic.mjs",
+        "sha256": "5f378119f8e6d1961cde57dcd6ccd193cc4a9713068d4828ca4eee724b15095d",
+        "bytes": 1586
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/scanners/headers-in-page.mjs",
+        "sha256": "84f72dcd79631561fa54f6a5128337b6b9317bc9b7c720b709078cf0c2758e7d",
+        "bytes": 1537
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/scanners/index.mjs",
+        "sha256": "9443d7e055a4b8368973c027b739742bbf5e98de4dbc5078c4cd7fb2677aeeb9",
+        "bytes": 1458
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/scanners/large-static-asset.mjs",
+        "sha256": "5ee29065ae96b7aff236dd3ea9766765a7c48e1bd95008e261837ae42932b783",
+        "bytes": 3279
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/scanners/max-age-without-s-maxage.mjs",
+        "sha256": "ec722b65530f428232f2b501f5f52e427cd7218c51cceb4783b5f7b03c3ad577",
+        "bytes": 1629
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/scanners/middleware-broad-matcher.mjs",
+        "sha256": "e41e07c4fb8d0b6776e5f27609e719ae42c1644b7adcfa2dc1abc90a511c0492",
+        "bytes": 1986
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/scanners/missing-cache-headers.mjs",
+        "sha256": "cc4ccea4c4f1d8594a97b18ca39b5212060faa3306dccdea0b2c7645d3f3cf8a",
+        "bytes": 3922
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/scanners/prisma-include-tree.mjs",
+        "sha256": "ab107e2732ca1873b4e4ce974e9c08b6ebde83a8f96675b96087213b16aa901e",
+        "bytes": 1585
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/scanners/region-pin-in-config.mjs",
+        "sha256": "906f33c344c98910f1148c86a9c5cd5cfbaf84cc8c06d02e3eb257ecd639b0d3",
+        "bytes": 3448
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/scanners/source-maps-production.mjs",
+        "sha256": "f9ab9cf88a22a4c0fa32f73ac39243b6f61a868b81ca55f804d8c33a9341013c",
+        "bytes": 1300
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/scanners/sveltekit-prerender-missing.mjs",
+        "sha256": "ff5380fa9d8a3e77d8ff430e1b7866a0890b50d163bcc2a599f0b30238947999",
+        "bytes": 2127
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/scanners/turbo-force-bypass.mjs",
+        "sha256": "b84a7774f18e1ea86cb19335fd41324b89635ccb43b75f31e0218516fd9363d2",
+        "bytes": 4974
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/scanners/unoptimized-image.mjs",
+        "sha256": "f2049c073b769838e33f6110f8f139cacd1e8b8a01eda1473ebed0a14ec64b4f",
+        "bytes": 4516
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/scanners/use-cache-date-stamp.mjs",
+        "sha256": "2d04abd40b888e8c16bccee92dc3423ab86b109551cfab8807367d9cc8ca0878",
+        "bytes": 4040
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/support-topics.mjs",
+        "sha256": "c9ac60070df4e6707299da5ab0d72a9853659ddfcfd4dca29f5803ef3ce41840",
+        "bytes": 12836
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/throttle.mjs",
+        "sha256": "1d09d586071838152fe28882cd65f508a508ecd99b59187c84f27b908cc18017",
+        "bytes": 8992
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/util.mjs",
+        "sha256": "431eb675f0a658e19a1b08cdb064e19f96a62d42a35c5f4d962756c8cf97d523",
+        "bytes": 544
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/vercel.mjs",
+        "sha256": "01a7bd818b64bd26143f93e4417f6463199a81c154854e9c60d2fcce3aea2e82",
+        "bytes": 31125
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/verify-claim.mjs",
+        "sha256": "b7956b5e96e0be7e4ed7a107541d5e4ea11475f9b4e7829c4035769d3a879f71",
+        "bytes": 60992
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/lib/workspace-resolver.mjs",
+        "sha256": "9da10f288418475ab871b5430de38d4b97441794373721844cb540e40986e74c",
+        "bytes": 17545
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/metadata.json",
+        "sha256": "729f7dcb13ebac414d54232e56acaeae4f7ded041947805a0b30a5d8fee59511",
+        "bytes": 903
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/candidates.md",
+        "sha256": "1e04722b3924a11a774d87abbf35070cdf480ad02c8487f97a3dd69bb46b59af",
+        "bytes": 8510
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/data-collection.md",
+        "sha256": "dbc013dfc59c29f38f279fbbb422f19d7cc1ba37d17ee02d9c64ea6cb594bd22",
+        "bytes": 20925
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/docs-library.json",
+        "sha256": "287d4dabbb3eab789911a6c2b4aea9ffc57206fa4a8449636358503e32b9542c",
+        "bytes": 31540
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/doctrine.md",
+        "sha256": "4a7eac752141410d134febe786c4b51f4723a55026a5638c38fcb492a1d86df4",
+        "bytes": 9512
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/observability-plus.md",
+        "sha256": "86b6f6d5bd7f4b9827f70505705ed0f875a0ef2e2cdb85653f0e09f825393333",
+        "bytes": 5329
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/playbooks/README.md",
+        "sha256": "9b699bb8d2436b089ced036780cbc108502f3713b15f83440fd042e393487cf3",
+        "bytes": 2812
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/playbooks/ai-application.md",
+        "sha256": "e9e353a3f7d5c576e14893ebb0e1eddaa90ee986f0ef3d9edb3be73a2e947ac9",
+        "bytes": 3933
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/playbooks/api-service.md",
+        "sha256": "f90e2d558ea697dc06f05794ad47770f379e3268321ab8a6a642abd7f2fa7ed3",
+        "bytes": 2485
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/playbooks/content-site.md",
+        "sha256": "9d4b1a7d1c6eb6f58e94c5df5dc8264c5bd6c877f045c7c81228924cbadc9d37",
+        "bytes": 2502
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/playbooks/ecommerce.md",
+        "sha256": "f44707fac676e67de04b7ddb2f78bc806f286cd324d05d990641acef3097a0e9",
+        "bytes": 2737
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/playbooks/marketing.md",
+        "sha256": "b7e0ed3de01e95f7776891b6a63e0d2929b066c61ccd9b8ac012b42cbc3e4a19",
+        "bytes": 2675
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/playbooks/saas.md",
+        "sha256": "f23b518dd7c369144813f80abe6eba3e762db3b737b3271bb8b887307fcec387",
+        "bytes": 2896
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/playbooks/sveltekit.md",
+        "sha256": "32db0a70f1217c2e3f750ef5e5671da54a07a510369307e38877e3fd3ad21767",
+        "bytes": 4019
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/recommendations.md",
+        "sha256": "8e65890c1afd942f4bf9dd07ba538b2b9f53a6136ec83e96cc10740c6f8dda87",
+        "bytes": 10788
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/scanner-patterns.md",
+        "sha256": "e160869045f6456d10bd4f1fdeff76d42d8b3e0c50a7212a607603589798bcaa",
+        "bytes": 13671
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/scoring.md",
+        "sha256": "44a295b6c65ee5c221815149c7fad1adb02c8ac8750d0604a8dfbfe47d04b6d6",
+        "bytes": 12505
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/README.md",
+        "sha256": "63e2acd6e221ca52355a5f70ff8d9c3d9704600eb7e176d3cb2f4597ad03db4b",
+        "bytes": 1785
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/astro-edge-middleware-scope.md",
+        "sha256": "80586e0b110749f2cdd6e56635d6cd88082230b9bd11a8e388ec6d3b280bc65d",
+        "bytes": 1012
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/astro-output-mode-and-isr.md",
+        "sha256": "6137553e35076795f6c0851b0e93d4686cf937930d35b284567da7c0edfe35ba",
+        "bytes": 1135
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/auth-preserving-parallelization.md",
+        "sha256": "34cfd687cc106ef15696b8f1f155c30f635234e29f3c4db087193c3c2c3c4bac",
+        "bytes": 1203
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/bot-protection-product-guardrails.md",
+        "sha256": "892d8f32deb5bded86863a513d3799bfd81dc4654ae4fde5a264638cfd86755d",
+        "bytes": 1119
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/build-minutes-monorepo-fanout.md",
+        "sha256": "1f54f0ba4d1b2ab873eb166ca2f1661d39b49e70253dea8ce13a44c2b728ba85",
+        "bytes": 1269
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/cache-components-static-shell-boundaries.md",
+        "sha256": "664a13ced4e985e9b12bdf6730fecccfd79fb715be2998a710068384a0ab4cc0",
+        "bytes": 1162
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/cache-components-suspense-dedupe-pitfall.md",
+        "sha256": "212f1bedf49c9a1e7aac7745c5b19f57c486456d5e4ef9037fa9689f51930047",
+        "bytes": 1380
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/cdn-cache-auth-safety.md",
+        "sha256": "5691cd39b3403ef939199c3b9b21e28cb447b2f8d2f6dea6000064e5ef3fdfb5",
+        "bytes": 1068
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/cold-start-initialization-bundle.md",
+        "sha256": "98961df48eac648e71c73b7dd53a215ac02af62f0bfbc67a1af335e66b8fb7c1",
+        "bytes": 1159
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/core-web-vitals-client-bottlenecks.md",
+        "sha256": "05d84906be0f1e26787e871c00cd563f18533a7b12d3383c5cb3557fe01ea768",
+        "bytes": 1037
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/database-egress-pooling-region.md",
+        "sha256": "83fa0f1a3ff67b9f149ba39432834bba88437dbdf09d6b5e7a5e3b552ceb473e",
+        "bytes": 1015
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/dynamic-rendering-traps.md",
+        "sha256": "a075a13fc3c40d7d249051519cf2384497a34f3f4a207f757bf4343c3896fd64",
+        "bytes": 1139
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/external-api-critical-path-platform.md",
+        "sha256": "02a7a7e3ba867973c9e45d565e69349cd44a5bdb9e00e6fbbf9c76edd01516e5",
+        "bytes": 1145
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/external-api-critical-path.md",
+        "sha256": "dade955ceba21150590f8606b993881d6f6b20fef32c147b77ce26d9e9931773",
+        "bytes": 978
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/fast-data-transfer-payloads.md",
+        "sha256": "d7daca1a05d8f3157aab22b97552247cb0a8f856f08fc49079fd76872f7a50fa",
+        "bytes": 1050
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/fluid-compute-caveats.md",
+        "sha256": "3408a19b49a9723cfac1b461babe56dc414f0f1f7561bd7e6f4f7579ab26a13f",
+        "bytes": 1125
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/function-duration-io-and-after.md",
+        "sha256": "693c07390d7cf8b4c0a0d0235176a5f452694d1553c33db4fd385f76c94d307d",
+        "bytes": 1027
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/function-invocation-reduction.md",
+        "sha256": "1e50e0e24299fc08aaf6b81d6673ce24c0bc250883c8ecc76e52d6d1dca989a9",
+        "bytes": 1181
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/function-region-misconfiguration-ttfb.md",
+        "sha256": "dd5013cf9bd5b3ee7383d3b9835babc6a93b965e07b7093f48d53ce755510326",
+        "bytes": 1254
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/image-optimization-cost-control.md",
+        "sha256": "1123f4712ec4a4ff057dadbee25f7de51bc8473862dbb398693f9c091336681c",
+        "bytes": 1071
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/isr-revalidation-static-generation.md",
+        "sha256": "fafc8585a02b2142b60289177b041d63e1280d1fdccd38a2faa2e89d7c1950cb",
+        "bytes": 1419
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/middleware-proxy-edge-cost.md",
+        "sha256": "d1c6f3b0f4ecf3c4d430c2ae3999c9485e8f2115e40d9ba973b637541a5a5f32",
+        "bytes": 991
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/next-fetch-revalidate-floor.md",
+        "sha256": "65897b4111c75457e1fbe16ce6f9716c5fd58365d8defaeb80b5ea0ca4f2a3b0",
+        "bytes": 1059
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/next-font-cls-self-hosting.md",
+        "sha256": "a06d7f692fc902f41a227f5acb20d694e2d47c3098b1fba354b5413e7df32964",
+        "bytes": 906
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/next-heavy-ui-lazy-load-boundaries.md",
+        "sha256": "f48f1f61626aa313b3e08a6e43a5550bddef278f5c6aa4093b52bee1e9e1d78b",
+        "bytes": 1048
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/next-image-lcp-preload-sizes.md",
+        "sha256": "f176647780339cbd409897cbbaa8666f0dc7c301905651ad39b7feb2a0696a89",
+        "bytes": 1062
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/next-route-handler-get-cache-defaults.md",
+        "sha256": "2f7e29b85cc1a8a31db214f59524035d3486c3a26c9fb9a39d62f3b834ee0f0c",
+        "bytes": 1072
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/next-script-third-party-strategy.md",
+        "sha256": "413fb8dfdb561ccb5073c89b93c0e28420cfa5125bff89317c699167c3b2f35a",
+        "bytes": 1051
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/nextjs-version-cache-semantics.md",
+        "sha256": "e8bf6e27e63841bb49c44e8d0e93d674866ba28f6217d41d5c4de2b51178b8dc",
+        "bytes": 996
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/not-found-catchall-request-waste.md",
+        "sha256": "88a9bf8ec200182534957603bda8c3bcc8d9dce8d884ea19c890994424827ab8",
+        "bytes": 1273
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/nuxt-route-rules-cache-isr.md",
+        "sha256": "639b0a57b50813bfea7f1734a2cb883d8fb756c86a3a4460e08e899d04323cbb",
+        "bytes": 1188
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/observability-events-cost-attribution.md",
+        "sha256": "60b2aea01836d6554b07cc79c9d8d64a4430782a2a4cec2ccd43ad957d69658e",
+        "bytes": 1155
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/post-response-work-waituntil.md",
+        "sha256": "da5ff4b2d2a714bc06d2cc4b442e77840b89f9e72e171ec33af4fb95cac8ab26",
+        "bytes": 1009
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/route-error-durable-offload.md",
+        "sha256": "2ff21304503673bbeb656d92fd9841f8aa874cd93a5428f14a0f9abb55e49b65",
+        "bytes": 1298
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/route-error-runtime-limits.md",
+        "sha256": "e4a70ec3e1112c658e1ce136359c00fcb6c9fb484887efafb3ba3364ebdb70a6",
+        "bytes": 988
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/runtime-cache-reusable-data.md",
+        "sha256": "cf59ca89dbfa178d371435e0aa7f5c588c2fc3114b4574049b4d644c63628911",
+        "bytes": 1180
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/sveltekit-isr-prerender-safety.md",
+        "sha256": "909357c83a7718865cf5e1056653117f08df0042416e17050f22eae7900dfa49",
+        "bytes": 1167
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/sveltekit-split-cold-start-tradeoff.md",
+        "sha256": "e61fee58a22120acbdfafb2559959749806cf2c1ad242749d30ad6d9f533d5f6",
+        "bytes": 1040
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/usage-spike-triage.md",
+        "sha256": "850ce351c3cbff86a321b349eaa82330a29e08b78a3d255150dc290a7d095015",
+        "bytes": 1018
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/use-cache-date-stamp-isr-write-amplifier.md",
+        "sha256": "45d5381f890b552dd672f6577aad203630f9f0e3caf04f3f2170726c0cea86fb",
+        "bytes": 1189
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/use-cache-remote-shared-origin-data.md",
+        "sha256": "4e8590e6c3ed65e5ec8811cfad82fcecf3cf5ac797e446bbf00e4498bd7e0d68",
+        "bytes": 1089
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/support-topics/workflow-resumable-stream-routes.md",
+        "sha256": "07145dac55800c709a57a1abfbe29e1764ecd6371ff05f342c8f73f69d101257",
+        "bytes": 1274
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/verification.md",
+        "sha256": "db3ffb183ae3c141eeb980ea3765ff215da01eb4bb8b569c7f86868ec3cfe5a1",
+        "bytes": 9000
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/references/voice.md",
+        "sha256": "1bd89b7f12f8ce912d0381b9ca7c251f8183f69bae0abf0021391e8397dfef11",
+        "bytes": 3731
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/scripts/budget-summary.mjs",
+        "sha256": "4dc6cb8ab9278ac9196e4cd70c36ecc1ffe2afeaffe09e99e562de42e62f94ea",
+        "bytes": 2096
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/scripts/build-docs.mjs",
+        "sha256": "ce426e5bb4a803b86981588b733fc97aff13fea1c393d6d6559b97518df31ad8",
+        "bytes": 3414
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/scripts/check-citations.mjs",
+        "sha256": "47acb1d9deba97531ad46ef81cccaa9349bec4a3cf57d8fdc2bd601411b57fdb",
+        "bytes": 3531
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/scripts/check-docs-fresh.mjs",
+        "sha256": "6c47f5595c6e317426606d67afa53d52d822fcc071fee27885cc25df38e7949e",
+        "bytes": 3910
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/scripts/collect-signals.mjs",
+        "sha256": "bc1dcba99aa20ad7863450bc1a336d0ec8d78aac0f3f26f8b6be9183e52e944a",
+        "bytes": 21576
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/scripts/collect-sub-agent-outputs.mjs",
+        "sha256": "21bd960b11c75711e1f51cb362efb5243f19bc8db65a3bfdab48549bb47bf9fb",
+        "bytes": 10123
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/scripts/deep-dive.mjs",
+        "sha256": "f90c74b28a1a1580a45d7d12ab64f683c8c6f1b59d32aa7299980e74980550aa",
+        "bytes": 12332
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/scripts/gate-investigations.mjs",
+        "sha256": "b30d756a3af5bc1170e4eec95e2fca7241999a516d8871497bd4e5a1cd681535",
+        "bytes": 6353
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/scripts/merge-signals.mjs",
+        "sha256": "2d16f83d221ea6bb28f1a05f48829c2e67e315d0acc2125fc8b642813a527f06",
+        "bytes": 6325
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/scripts/prepare-investigation-brief.mjs",
+        "sha256": "8a9c9a840e907985f8a84218251c33c38f3dc17956b851a8b5d7e28c56689edc",
+        "bytes": 8071
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/scripts/reconcile-candidates.mjs",
+        "sha256": "ef8d6ae2f1e7e43c62a46dfe7af14e9618fd2b550724823448f8badf266cccaf",
+        "bytes": 2442
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/scripts/render-report.mjs",
+        "sha256": "ab0a3f0188215fe0f9a464858b3a42c74e2d4daea6fe857b6a969595f27ebf5b",
+        "bytes": 17424
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/scripts/scan-codebase.mjs",
+        "sha256": "4b5c847899604831aafd3fcdf860968792e99203670a3ba6f3947cb7ae708705",
+        "bytes": 11521
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/scripts/verify-and-regen.mjs",
+        "sha256": "9211268107c17f577d24a8994515946b9fd3a1fc1d2353a79dd0a139df25f706",
+        "bytes": 15238
+      },
+      {
+        "path": "upstream/skills/vercel-optimize/scripts/verify-finding.mjs",
+        "sha256": "534590f7900e20648f67cc2d6845502960709ddfeb10cbb6733ade37b2eebe8e",
+        "bytes": 698
+      }
+    ]
+  },
+  {
+    "id": "writing-guidelines",
+    "catalogId": "writing-guidelines",
+    "name": "writing-guidelines",
+    "version": "2.0.0",
+    "repository": "https://github.com/vercel-labs/agent-skills",
+    "commit": "063bee94c3f4df8453406c830b0a7df0f2860278",
+    "subdirectory": "skills/writing-guidelines",
+    "entry": "upstream/skills/writing-guidelines/SKILL.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/vercel-labs/agent-skills/blob/063bee94c3f4df8453406c830b0a7df0f2860278/README.md",
+    "description": "Review docs/prose for Writing Guidelines compliance. Use when asked to \"review my docs\", \"check writing style\", \"audit prose\", \"review docs voice and tone\", or \"check this page against the writing handbook\".",
+    "category": "审美设计",
+    "aliases": [
+      "文案规范"
+    ],
+    "dependencies": [],
+    "runtimeNotes": [
+      "按当前产品文案与真实页面审查，不套用未核验的外部站点。"
+    ],
+    "digest": "f5049e417b2c939cc11ac145394b95df22a835fd9c9f6e1fcb0a88723f7c814e",
+    "resources": [
+      {
+        "path": "upstream/README.md",
+        "sha256": "7c02f64b08fc6c4eef03c01d64f3e2ed478193ccfcbd14edba379abe23304651",
+        "bytes": 7838
+      },
+      {
+        "path": "upstream/skills/writing-guidelines/SKILL.md",
+        "sha256": "89a5f581193289b80af58b980090aeed535047c8df2b55ccbaae0de40283a99d",
+        "bytes": 1233
+      }
+    ]
+  },
+  {
+    "id": "composition-patterns",
+    "catalogId": "composition-patterns",
+    "name": "composition-patterns",
+    "version": "2.0.0",
+    "repository": "https://github.com/vercel-labs/agent-skills",
+    "commit": "063bee94c3f4df8453406c830b0a7df0f2860278",
+    "subdirectory": "skills/composition-patterns",
+    "entry": "upstream/skills/composition-patterns/SKILL.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/vercel-labs/agent-skills/blob/063bee94c3f4df8453406c830b0a7df0f2860278/README.md",
+    "description": "React composition patterns that scale. Use when refactoring components with\nboolean prop proliferation, building flexible component libraries, or\ndesigning reusable APIs. Triggers on tasks involving compound components,\nrender props, context providers, or component architecture. Includes React 19\nAPI changes.",
+    "category": "研发效能",
+    "aliases": [
+      "组合模式"
+    ],
+    "dependencies": [],
+    "runtimeNotes": [
+      "对照当前React源码给改造建议，不虚构已完成的重构。"
+    ],
+    "digest": "ea044756bf3e6c41eaa8bed8abf7602498fbf35ab46762b0d8d0976947afbb06",
+    "resources": [
+      {
+        "path": "upstream/README.md",
+        "sha256": "7c02f64b08fc6c4eef03c01d64f3e2ed478193ccfcbd14edba379abe23304651",
+        "bytes": 7838
+      },
+      {
+        "path": "upstream/skills/composition-patterns/AGENTS.md",
+        "sha256": "89e3ddd58fcf99a53a50e25dfd21b8cde1be5f10b7df6bacd3dfa6796932f516",
+        "bytes": 22627
+      },
+      {
+        "path": "upstream/skills/composition-patterns/README.md",
+        "sha256": "85915a43a6f0b4efe525e3cf6398dd866166da2025837c4460468a24a940da94",
+        "bytes": 2140
+      },
+      {
+        "path": "upstream/skills/composition-patterns/SKILL.md",
+        "sha256": "e38e0eaa609316b10423a9a138ed95e35099accd3f735585295c8a8f165c28a3",
+        "bytes": 2886
+      },
+      {
+        "path": "upstream/skills/composition-patterns/metadata.json",
+        "sha256": "49262ed5cb4186f31ee980cf8d990be0170c51efed4908d0464a1cff9905bd05",
+        "bytes": 530
+      },
+      {
+        "path": "upstream/skills/composition-patterns/rules/_sections.md",
+        "sha256": "a174213b87e6911e2b766995a2cbaf8d1534057076e82fb79fe3f0ecb38047df",
+        "bytes": 829
+      },
+      {
+        "path": "upstream/skills/composition-patterns/rules/_template.md",
+        "sha256": "587f7d16b0660eb61fee4a4d3d7df2b3077d6835de170602c7d6e60bee559131",
+        "bytes": 329
+      },
+      {
+        "path": "upstream/skills/composition-patterns/rules/architecture-avoid-boolean-props.md",
+        "sha256": "007555ebb020f4d552582a2c4db194db71a1fd33094012e5187bcfa4f8c392d5",
+        "bytes": 2267
+      },
+      {
+        "path": "upstream/skills/composition-patterns/rules/architecture-compound-components.md",
+        "sha256": "f246af13dc269b521cf20eb8ad99a0cb645beac381c8c9b117262c34612c8457",
+        "bytes": 2600
+      },
+      {
+        "path": "upstream/skills/composition-patterns/rules/patterns-children-over-render-props.md",
+        "sha256": "7c45a0d21b3c4126a32cba916ee31adeae195386ad1dbbe6634aedb7457aa0ad",
+        "bytes": 1886
+      },
+      {
+        "path": "upstream/skills/composition-patterns/rules/patterns-explicit-variants.md",
+        "sha256": "8c19e596e61807549d01ce8c6954c6358199f97a8511c0c02c625ec0efda8c0e",
+        "bytes": 2395
+      },
+      {
+        "path": "upstream/skills/composition-patterns/rules/react19-no-forwardref.md",
+        "sha256": "881830adb7534c4b2d70db426556646ad9837f5478f744f35641f635ada22227",
+        "bytes": 953
+      },
+      {
+        "path": "upstream/skills/composition-patterns/rules/state-context-interface.md",
+        "sha256": "09e73afbf9285fa416679cc864a287b9e8b821d0969272ab784295386d8c9bc3",
+        "bytes": 4974
+      },
+      {
+        "path": "upstream/skills/composition-patterns/rules/state-decouple-implementation.md",
+        "sha256": "76a8c1eb29a70d8996ab3f71260345af2f7bc89deab815a421d6c87c6591a9c3",
+        "bytes": 2699
+      },
+      {
+        "path": "upstream/skills/composition-patterns/rules/state-lift-state.md",
+        "sha256": "74c54038a6c554c748fe31cec673b80861b5d920b7553cf78cdf10d18b4b759b",
+        "bytes": 3224
+      }
+    ]
+  },
+  {
+    "id": "react-view-transitions",
+    "catalogId": "react-view-transitions",
+    "name": "react-view-transitions",
+    "version": "2.0.0",
+    "repository": "https://github.com/vercel-labs/agent-skills",
+    "commit": "063bee94c3f4df8453406c830b0a7df0f2860278",
+    "subdirectory": "skills/react-view-transitions",
+    "entry": "upstream/skills/react-view-transitions/SKILL.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/vercel-labs/agent-skills/blob/063bee94c3f4df8453406c830b0a7df0f2860278/README.md",
+    "description": "Guide for implementing smooth, native-feeling animations using React's View Transition API (`<ViewTransition>` component, `addTransitionType`, and CSS view transition pseudo-elements). Use this skill whenever the user wants to add page transitions, animate route changes, create shared element animations, animate enter/exit of components, animate list reorder, implement directional (forward/back) navigation animations, or integrate view transitions in Next.js. Also use when the user mentions view transitions, `startViewTransition`, `ViewTransition`, transition types, or asks about animating between UI states in React without third-party animation libraries.",
+    "category": "审美设计",
+    "aliases": [
+      "View Transitions"
+    ],
+    "dependencies": [],
+    "runtimeNotes": [
+      "未运行浏览器核验时标明过渡效果未实测。"
+    ],
+    "digest": "ec20eca0ac0f84ac5cec95ebe9b667857c9f851e86bf9f81d33cd16c1aeaba65",
+    "resources": [
+      {
+        "path": "upstream/README.md",
+        "sha256": "7c02f64b08fc6c4eef03c01d64f3e2ed478193ccfcbd14edba379abe23304651",
+        "bytes": 7838
+      },
+      {
+        "path": "upstream/skills/react-view-transitions/AGENTS.md",
+        "sha256": "83fd29aec273cf4318a4f428ed2725f2cd3b6adbd76640e495c31f0a2521c702",
+        "bytes": 58993
+      },
+      {
+        "path": "upstream/skills/react-view-transitions/README.md",
+        "sha256": "aba31b4ac31c1b13d2a8054179604abd4498b0d7324746635ff0e3b0aea9d608",
+        "bytes": 2231
+      },
+      {
+        "path": "upstream/skills/react-view-transitions/SKILL.md",
+        "sha256": "1520343c8814c972fee001cac6d6185976d6eb3f4edcac33afe95c10f3b3228b",
+        "bytes": 14407
+      },
+      {
+        "path": "upstream/skills/react-view-transitions/metadata.json",
+        "sha256": "b1a5ae09f3904dc83dab79f518d033bd98f1e2f55caabfdb5beeeaaf0ca5e4c2",
+        "bytes": 852
+      },
+      {
+        "path": "upstream/skills/react-view-transitions/references/css-recipes.md",
+        "sha256": "f4a5b92a7aad6befd2779e498ab04311277f179b240d2170f0a68a1444024d51",
+        "bytes": 8337
+      },
+      {
+        "path": "upstream/skills/react-view-transitions/references/implementation.md",
+        "sha256": "87687de5fa2f775a6b5134ee02863ebede9ee6bc42ea8ed99bd53aa5325e78f4",
+        "bytes": 9280
+      },
+      {
+        "path": "upstream/skills/react-view-transitions/references/nextjs.md",
+        "sha256": "f926a645d5e4c62fcc2d5832be0f3ad048f2ee1d17f8476324e2bc407e4b3a07",
+        "bytes": 10700
+      },
+      {
+        "path": "upstream/skills/react-view-transitions/references/patterns.md",
+        "sha256": "da24d7f37c7e6b8ecbcf05525ef613d8f5be94655c233d6fa62833c8a746604f",
+        "bytes": 11941
+      },
+      {
+        "path": "upstream/skills/react-view-transitions/references/troubleshooting.md",
+        "sha256": "aa6811d276dcf06dcc9aba90d1e11e1d0a29146604bf7c89a9e93a6fa8883c7a",
+        "bytes": 4940
+      }
+    ]
+  },
+  {
+    "id": "react-native-skills",
+    "catalogId": "react-native-skills",
+    "name": "react-native-skills",
+    "version": "2.0.0",
+    "repository": "https://github.com/vercel-labs/agent-skills",
+    "commit": "063bee94c3f4df8453406c830b0a7df0f2860278",
+    "subdirectory": "skills/react-native-skills",
+    "entry": "upstream/skills/react-native-skills/SKILL.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/vercel-labs/agent-skills/blob/063bee94c3f4df8453406c830b0a7df0f2860278/README.md",
+    "description": "React Native and Expo best practices for building performant mobile apps. Use\nwhen building React Native components, optimizing list performance,\nimplementing animations, or working with native modules. Triggers on tasks\ninvolving React Native, Expo, mobile performance, or native platform APIs.",
+    "category": "研发效能",
+    "aliases": [
+      "React Native"
+    ],
+    "dependencies": [],
+    "runtimeNotes": [
+      "按当前RN项目结构工作；缺少模拟器时不宣称已跑通。"
+    ],
+    "digest": "408f0a268960a60eef7a6fb4e697a6b9a43b0686530e4302931fe3549ca48394",
+    "resources": [
+      {
+        "path": "upstream/README.md",
+        "sha256": "7c02f64b08fc6c4eef03c01d64f3e2ed478193ccfcbd14edba379abe23304651",
+        "bytes": 7838
+      },
+      {
+        "path": "upstream/skills/react-native-skills/AGENTS.md",
+        "sha256": "72996343b8260800fbeb9af63ddaed91f14b65dc547e0922f9f8e9bd72076cbf",
+        "bytes": 73771
+      },
+      {
+        "path": "upstream/skills/react-native-skills/README.md",
+        "sha256": "d60d7623005a833b928be6a109ed9d14dea43d7217fb534e8f2e4de5fc1f0ddf",
+        "bytes": 5064
+      },
+      {
+        "path": "upstream/skills/react-native-skills/SKILL.md",
+        "sha256": "4012750a5ccbe064ca04af3835d5d1b011979d2d09d9b6df1c8128fac58e0a66",
+        "bytes": 4439
+      },
+      {
+        "path": "upstream/skills/react-native-skills/metadata.json",
+        "sha256": "59ee2274cadbd95b2220727028f0dbc26d3e0251e7937226edc9e7640756ba21",
+        "bytes": 896
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/_sections.md",
+        "sha256": "21d7445e92bd7d393b420118c3fb9ebbf30aaf123a15143afb6c0b1b562cfdfd",
+        "bytes": 2228
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/_template.md",
+        "sha256": "99df2a3ea088c6c22de2484ddc7e964d0e9923846f44c63380343ecc64455442",
+        "bytes": 631
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/animation-derived-value.md",
+        "sha256": "689228e9d59227934f296563963951aa9368be0afb2a188f650de161203b1862",
+        "bytes": 1373
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/animation-gesture-detector-press.md",
+        "sha256": "69408d4be669e74689d865c5f50a22fc3a802d521fe493371761abd20526e58e",
+        "bytes": 2559
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/animation-gpu-properties.md",
+        "sha256": "f885e4179445da27cbc225e0a4aa3ed9016fc3507ca6f864392ba7a9d0bd7516",
+        "bytes": 2059
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/design-system-compound-components.md",
+        "sha256": "dcb10900a58fcf57cca2e27c062d02df2325a7949e08fb45e9e05cc2b132b1a6",
+        "bytes": 1625
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/fonts-config-plugin.md",
+        "sha256": "b92568774064a604e7a479d4c8d7263aed5609740e9161d2f2764bfff761905d",
+        "bytes": 1393
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/imports-design-system-folder.md",
+        "sha256": "aa6337f7f2869a46a9141ec65e02c3da5c3bf051023899b82e0f0aef5bff8423",
+        "bytes": 1418
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/js-hoist-intl.md",
+        "sha256": "b4b08622465ffcd5e5961878eb8c6d7359aa242d16c990b59941c9111962fe46",
+        "bytes": 1645
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/list-performance-callbacks.md",
+        "sha256": "db800e9dfe0080eb4954b96e2a362ee8344d08e08b1ed06bc8059450f3e6f0dd",
+        "bytes": 1059
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/list-performance-function-references.md",
+        "sha256": "b54470e41d578b207ee3223f6853efb7fbf8e5f83d9aecf8da16989072f99544",
+        "bytes": 4133
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/list-performance-images.md",
+        "sha256": "e88f16ac113c29230d674b7aa2c66c31d5772a74b1ea378d48a97b1143fe6c19",
+        "bytes": 1417
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/list-performance-inline-objects.md",
+        "sha256": "e2a80aac0f29c6abaf0163c1cc273d09cc8a0030ec077ca2022bbf5c309e4625",
+        "bytes": 2308
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/list-performance-item-expensive.md",
+        "sha256": "a68cc8ec5dba3c55761bd5df9dfd3d98485f63076868d3e03af15f1e58907ce3",
+        "bytes": 2466
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/list-performance-item-memo.md",
+        "sha256": "38ec1d149ee485434d11c2b9e2101dfc914afadae4a0738ca905f26b05f708c1",
+        "bytes": 2250
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/list-performance-item-types.md",
+        "sha256": "eed225f4e9e504bfa7db01f5395d1402545cc47de8adf1829a9408cd5d158cf6",
+        "bytes": 2749
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/list-performance-virtualize.md",
+        "sha256": "98cad308118acb4d6e8e975c0168ce56e2d48ca52ed47f23bc9a30667c066ada",
+        "bytes": 1742
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/monorepo-native-deps-in-app.md",
+        "sha256": "8368b109027fcec1b8a81bfb99718aef2b64edaba77107f73d7c465cc5a14217",
+        "bytes": 1091
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/monorepo-single-dependency-versions.md",
+        "sha256": "61c01b9eaab1e319bf078204231fb573bdfea3c43a6eb99e7ef73ee95d474ccc",
+        "bytes": 1351
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/navigation-native-navigators.md",
+        "sha256": "6642dedb57e72f0b56df5fbc3d5b8aaa91fc4456932c12712cfd076d393f32c6",
+        "bytes": 4941
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/react-compiler-destructure-functions.md",
+        "sha256": "8048926a4fa3fbd28fc0ecf4ba4c383a2f0ed06c2fd7330dd4a15d7f4e548044",
+        "bytes": 1274
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/react-compiler-reanimated-shared-values.md",
+        "sha256": "3174303a72b6849ff0eda5cd9f9650f26baa5f31ed28d35a75076af714fb2ffc",
+        "bytes": 1268
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/react-state-dispatcher.md",
+        "sha256": "7ec5b653e3ff8d9ca97d8d66981cce5590c0e49fa79ab708fd6324542b588870",
+        "bytes": 2255
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/react-state-fallback.md",
+        "sha256": "eb76e386d71680bfdfc0ab64dba1221f4d3d0fdcb4980bb4a871381d58e9e58b",
+        "bytes": 1735
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/react-state-minimize.md",
+        "sha256": "31b989de61defda1c61d8578c4700efd64a427218c3f3dbb7062a1666e1cbe43",
+        "bytes": 1740
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/rendering-no-falsy-and.md",
+        "sha256": "7300fa45ac3a4968db144727a21052421bc62de9b5e9f6f59e28bd16d2fff001",
+        "bytes": 1812
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/rendering-text-in-text-component.md",
+        "sha256": "fc67897b6126b6b5574f4d284a6c5b2282528fe89de8ec08e6cfd2a86ab5b235",
+        "bytes": 697
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/scroll-position-no-state.md",
+        "sha256": "70aa1ee679e755556d7b01b326431fe898d3c23ddba40d0da6bdac23c87a1525",
+        "bytes": 1936
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/state-ground-truth.md",
+        "sha256": "9f3efc73d2e66a5deb3199c9774f42524cd6a0f69784af38301946be5d747cb5",
+        "bytes": 2172
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/ui-expo-image.md",
+        "sha256": "c3c13cce3dd2cc7f8a9b4861e5743af98f62e28f5699f72f492e79a335cfae55",
+        "bytes": 1648
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/ui-image-gallery.md",
+        "sha256": "b34d1ba03710ed9622187716541ae618968e7d03bc28895c2ac918d3cc5853f1",
+        "bytes": 2546
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/ui-measure-views.md",
+        "sha256": "170d058abc4900ea9e851e54f5e8b437ffffc2c9d3847ae35e30a515c8990c3d",
+        "bytes": 2232
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/ui-menus.md",
+        "sha256": "5964adbecfe9aeb28d736a4eaacec6469a1c4ca3f48779d243eb38b6d181cfe9",
+        "bytes": 4598
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/ui-native-modals.md",
+        "sha256": "d803493b3046ad31cbb2c189f1fffb948fd0055050e3c322589bd548421e23a8",
+        "bytes": 1859
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/ui-pressable.md",
+        "sha256": "52cdbad127d713d7d32c59ef74ab1bbd6dca211edc9b25993453f7f4545e79fa",
+        "bytes": 1534
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/ui-safe-area-scroll.md",
+        "sha256": "3dd776caef2344d73529010940b50042861d06d31a192122a4df64bc06aed0e8",
+        "bytes": 1579
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/ui-scrollview-content-inset.md",
+        "sha256": "89e4bbe5e9a602660f4155e9d4c0dee09db1adf21c73f47213cd67ec896e5a13",
+        "bytes": 1317
+      },
+      {
+        "path": "upstream/skills/react-native-skills/rules/ui-styling.md",
+        "sha256": "cdef4d8b1a097b844e5992ab78e66a2dc604faf1e90f8d325a0eb116e8ef6a7e",
+        "bytes": 2212
+      }
+    ]
+  },
+  {
+    "id": "deploy-to-vercel",
+    "catalogId": "deploy-to-vercel",
+    "name": "deploy-to-vercel",
+    "version": "2.0.0",
+    "repository": "https://github.com/vercel-labs/agent-skills",
+    "commit": "063bee94c3f4df8453406c830b0a7df0f2860278",
+    "subdirectory": "skills/deploy-to-vercel",
+    "entry": "upstream/skills/deploy-to-vercel/SKILL.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/vercel-labs/agent-skills/blob/063bee94c3f4df8453406c830b0a7df0f2860278/README.md",
+    "description": "Deploy applications and websites to Vercel. Use when the user requests deployment actions like \"deploy my app\", \"deploy and give me the link\", \"push this live\", or \"create a preview deployment\".",
+    "category": "研发效能",
+    "aliases": [
+      "部署到Vercel"
+    ],
+    "dependencies": [
+      "Vercel CLI或已授权的部署账号（可选）"
+    ],
+    "runtimeNotes": [
+      "没有用户授权和凭证时只准备清单，不代为部署或声明已上线。"
+    ],
+    "digest": "bd2d50b2dc2dfd648e469ef479821e8822168d616e90e855a03ef906157bd9e3",
+    "resources": [
+      {
+        "path": "upstream/README.md",
+        "sha256": "7c02f64b08fc6c4eef03c01d64f3e2ed478193ccfcbd14edba379abe23304651",
+        "bytes": 7838
+      },
+      {
+        "path": "upstream/skills/deploy-to-vercel/SKILL.md",
+        "sha256": "cfcc3dd479ab2e0ae721ddf39b8af84d977321487672f1487c8d6855f576927b",
+        "bytes": 11786
+      },
+      {
+        "path": "upstream/skills/deploy-to-vercel/resources/deploy-codex.sh",
+        "sha256": "18b411e2bfe07778bca11d7f0e1ec9c95e5764011dd2e3838f51066728646855",
+        "bytes": 8855
+      },
+      {
+        "path": "upstream/skills/deploy-to-vercel/resources/deploy.sh",
+        "sha256": "418da6ff48c582790799d850a88fd83ca00f2ee00502665caf8dbb06d4dab8b9",
+        "bytes": 8841
+      }
+    ]
+  },
+  {
+    "id": "matt-handoff",
+    "catalogId": "handoff",
+    "name": "handoff",
+    "version": "2.0.0",
+    "repository": "https://github.com/mattpocock/skills",
+    "commit": "3cca18b368ae95cdbdebbff572ccafa662551015",
+    "subdirectory": "skills/productivity/handoff",
+    "entry": "upstream/skills/productivity/handoff/SKILL.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/mattpocock/skills/blob/3cca18b368ae95cdbdebbff572ccafa662551015/LICENSE",
+    "description": "Compact the current conversation into a handoff document for another agent to pick up.",
+    "category": "研发效能",
+    "aliases": [
+      "会话交接"
+    ],
+    "dependencies": [],
+    "runtimeNotes": [
+      "交接材料只写本会话真实进度与未决问题，不编造下游已读回执。"
+    ],
+    "digest": "f4cc7fea239e0d5e3b8e75d4cdcf5bbcea686d55d73e691c3e4a11f119c2ffdf",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5",
+        "bytes": 1068
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "4079d981bc2ac0a52aaf2c76d1c1476f4297937a8ff3a2e2322b6b730dc2d4f6",
+        "bytes": 15587
+      },
+      {
+        "path": "upstream/skills/productivity/handoff/SKILL.md",
+        "sha256": "7c62de979fdc7ac32fb5ddb2146156c917f80ee070d30fadc9d40343c4b6ed25",
+        "bytes": 894
+      },
+      {
+        "path": "upstream/skills/productivity/handoff/agents/openai.yaml",
+        "sha256": "5c479fd562c691851690e8b18c8501045bef0943c10743d636b2fae26add1d28",
+        "bytes": 141
+      }
+    ]
+  },
+  {
+    "id": "caveman",
+    "catalogId": "caveman",
+    "name": "caveman",
+    "version": "2.0.0",
+    "repository": "https://github.com/JuliusBrussee/caveman",
+    "commit": "15581d14007fd01fb3f132016741962f34936ca2",
+    "subdirectory": "skills/caveman",
+    "entry": "upstream/skills/caveman/SKILL.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/JuliusBrussee/caveman/blob/15581d14007fd01fb3f132016741962f34936ca2/LICENSE",
+    "description": "Ultra-compressed communication mode that cuts output tokens while keeping\ntechnical accuracy. Levels: lite, full, ultra and the wenyan variants. Use for\n/caveman, \"caveman mode\", \"talk like caveman\", \"be brief\" or \"less tokens\".",
+    "category": "研发效能",
+    "aliases": [
+      "caveman mode",
+      "少token"
+    ],
+    "dependencies": [],
+    "runtimeNotes": [
+      "只分发MIT许可的skills/caveman说明。不复制或不执行Engine-linked/BSL目录。",
+      "安全警告与不可逆操作仍用完整句子，不因压缩漏掉风险。"
+    ],
+    "digest": "6bf79c859670aa11d6d339b84d73e6630edf48e021c0df14bc91ffd0bcc3841a",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "94fe75d355887f84ee7eefca68e06d8d082a23dad47a8e1f58a94d98900edf5b",
+        "bytes": 1433
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "c209e98184df3e78fbd6466305198cdf46b4dededbe0f8ca83cf3ef68149dad6",
+        "bytes": 25811
+      },
+      {
+        "path": "upstream/skills/caveman/README.md",
+        "sha256": "e86f4b56765fc288859a8a1f3e3814c990ba920b326c40c55667b56d44c58c1e",
+        "bytes": 1902
+      },
+      {
+        "path": "upstream/skills/caveman/SKILL.md",
+        "sha256": "c4d7354b4b063d54601fcdd5097a5b1713d1a1a2e386ac39efa438aa1ffef8ce",
+        "bytes": 7022
+      }
+    ]
+  },
+  {
+    "id": "codeql",
+    "catalogId": "codeql",
+    "name": "codeql",
+    "version": "2.0.0",
+    "repository": "https://github.com/trailofbits/skills",
+    "commit": "321ccfe628eca0d314b0ee4eaffcdd8a05639aaf",
+    "subdirectory": "plugins/static-analysis/skills/codeql",
+    "entry": "upstream/plugins/static-analysis/skills/codeql/SKILL.md",
+    "license": "CC-BY-SA-4.0",
+    "licenseEvidence": "https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/LICENSE",
+    "description": ">-\nScans a codebase for security vulnerabilities using CodeQL's interprocedural data flow and\ntaint tracking analysis. Triggers on \"run codeql\", \"codeql scan\", \"build codeql database\",\n\"SAST scan\", \"taint analysis\", \"dataflow analysis\", or \"find vulnerabilities in this repo\".\nCovers Python, JavaScript/TypeScript, Go, Java/Kotlin, C/C++, C#, Ruby, and Swift. Supports\n\"run all\" (security-and-quality + security-experimental) and \"important only\"\n(high-precision) scan modes, and creates data extension models for project-specific sources\nand sinks. For fast single-file pattern matching, or when no build is available for a\ncompiled language, use the semgrep skill; to parse SARIF that already exists rather than\nproduce it, use the sarif-parsing skill.",
+    "category": "研发效能",
+    "aliases": [
+      "CodeQL"
+    ],
+    "dependencies": [
+      "CodeQL CLI（可选，未安装则只写查询计划）"
+    ],
+    "runtimeNotes": [
+      "仅用于已授权仓库的防御性静态分析。未运行CodeQL不得宣称已发现漏洞。"
+    ],
+    "digest": "1f0d984567b0b1a4f7195b2d0b3842bc476c80138fa3a7c53d3f7ad8ac08dcaa",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "7abe19ec9bb73b36141b999b861d24ad855e808bafe0f81e84cce28556f6c297",
+        "bytes": 20131
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "e0298bad7817b8bfbf5ba7761dcfd755d7433951f1e12debe4715e4b6c9a044c",
+        "bytes": 9332
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/SKILL.md",
+        "sha256": "1a6d919ff80f83b262daf650552af6eb6d2c32b19d0c529b70efe0c116b675cf",
+        "bytes": 18600
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/agents/openai.yaml",
+        "sha256": "11a851b1841f3e828e7609045d91e0632cac07dfc008b2740f487cee83a5efd1",
+        "bytes": 128
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/assets/trail-of-bits-mark.svg",
+        "sha256": "4bf74c789b38dcf6ad762c136b6832363d27ae19fbaa9a18ec18d66ecce6ca05",
+        "bytes": 3084
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/references/build-fixes.md",
+        "sha256": "e4af17ecbe5a6784e3c011fec1f093ce25e5c852cd92be97caaeaea0be10ca1a",
+        "bytes": 3290
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/references/diagnostic-query-templates.md",
+        "sha256": "c27a979094f8de6d1d341a838de52952a98385ff75c9439a7e76ba3bb3fbe662",
+        "bytes": 9751
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/references/extension-yaml-format.md",
+        "sha256": "c98903da4f21fd94816c520f6fdaba8d12e08b4bd55f85233c487e3baf39a1a6",
+        "bytes": 7621
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/references/important-only-suite.md",
+        "sha256": "9f2fbb57b0e02fe964ad268b11ad88c9598b38314fc008016caa615cf303b3a5",
+        "bytes": 5270
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/references/language-details.md",
+        "sha256": "f0857914eeabfb96929c2d1a8f086e92c0a3973cc2ac8460f371fedc2d023818",
+        "bytes": 5811
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/references/macos-arm64e-workaround.md",
+        "sha256": "72d7c9fc2be8368968516857fe4e32211473b92cc8bc3ef1d28530aaf744d1fe",
+        "bytes": 7455
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/references/performance-tuning.md",
+        "sha256": "536473b91e8574c18a3a943df2e4328615bbabbd899c76827d345ff7be986b7d",
+        "bytes": 2835
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/references/quality-assessment.md",
+        "sha256": "2acbb61d487211a0d6342ef86f774de3d4e05496185d337e09cb39810bcae08a",
+        "bytes": 7969
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/references/ruleset-catalog.md",
+        "sha256": "2b139ae593865548a596fb5b78694cb09d4a1959beb5225a5d8a914155a72165",
+        "bytes": 2197
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/references/run-all-suite.md",
+        "sha256": "bbac653d6e8ea115fa7df47307729745157bb60868939a71167c30cc18dcffb6",
+        "bytes": 5552
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/references/sarif-processing.md",
+        "sha256": "abde04ca479a372ed134150cd9cd1fd2b45cd7b4b45386034a2b3f4d415f6f9b",
+        "bytes": 3119
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/references/threat-models.md",
+        "sha256": "fd4252f0fc71734ab756ff51bead1b894397bf67382b2337cbe0b0de4672cefd",
+        "bytes": 2799
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/scripts/build_log.sh",
+        "sha256": "83c98d08c85a96b0b46246c14f3ffbe61370f5d184338455c6c288ddcf8df5de",
+        "bytes": 2144
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/scripts/check_db_quality.py",
+        "sha256": "fca99a149eb4689730b7d3a3314527a5716823fb5f19b6b79114f4949b726c36",
+        "bytes": 15069
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/scripts/find_databases.sh",
+        "sha256": "a56995c048b322bce45baf4482388a3cdf78dd59d562eca39e169c065f7f9b18",
+        "bytes": 2515
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/scripts/generate_suite.sh",
+        "sha256": "489516c52155c2061ec2a53d8190ebe474f4bdcb53ddc53b1216dc72ff7b1d9f",
+        "bytes": 3406
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/scripts/pyproject.toml",
+        "sha256": "c78fce8eeb7d91895dfc44296bdf547bcf77a156c8c057ae5238032883dfa41b",
+        "bytes": 585
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/scripts/test_build_log.py",
+        "sha256": "3d58186d066d0ebf8117f89dfb03d49a8db8907e43cb013bd51b7669aa478f2d",
+        "bytes": 3244
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/scripts/test_build_mode_claims.py",
+        "sha256": "eeddedd49a2aa33790425f828c808a0504fab66a635c7902878cac2a292db89e",
+        "bytes": 3678
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/scripts/test_check_db_quality.py",
+        "sha256": "842c78079bb0a033f7e3ec0d2608ac5913906c87e96132e85fb38577eb170c29",
+        "bytes": 20247
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/scripts/test_find_databases.py",
+        "sha256": "eb9895c35f94ccb334997b296774dc36c5997ce520acb606bfd83b0934d4982a",
+        "bytes": 6116
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/scripts/test_generation_scripts.py",
+        "sha256": "9b092f2c0ebf630f21276214dc05b72b681a5c3e5e26816621e028d880cf2feb",
+        "bytes": 11900
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/scripts/test_script_flags.py",
+        "sha256": "7aa9ca403051f4bd7690ee4ce46b3d9e16050119a24b4eb2858653e489c7edeb",
+        "bytes": 6451
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/scripts/test_section_pointers.py",
+        "sha256": "46aa000803005d5e3328b4c028b3431f67c7105997bddd15aa361a3e2511695c",
+        "bytes": 8072
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/scripts/test_shell_blocks.py",
+        "sha256": "bf800714b9bee72292d74ac0c80acd47c00e6bb7e2624731e8b30a82c840358e",
+        "bytes": 29804
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/scripts/test_suite_templates.py",
+        "sha256": "94028929d16a3bbcdcc4b92b5f32bda396360cbbb34198c4f2405b3397957d5d",
+        "bytes": 5120
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/scripts/test_verify_query_suite.py",
+        "sha256": "21089b2b06407c6dcf43ff2bf44644b64ad4fd028713eadeafb92e8db8d5732d",
+        "bytes": 1902
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/scripts/verify_query_suite.py",
+        "sha256": "ad1bb120201c9af5ae199d3d36a727ba12d897162f817045e8a8006e691154f8",
+        "bytes": 2802
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/workflows/build-database.md",
+        "sha256": "06794bb67182303b0c81d30b3772531537d9f986b7b2cbe2a9ffa4b4f3e230ba",
+        "bytes": 13273
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/workflows/create-data-extensions.md",
+        "sha256": "f3643e4916e7586c7738c14f781e3919bce35129d75beb00812b963efbbc4673",
+        "bytes": 10555
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/codeql/workflows/run-analysis.md",
+        "sha256": "a85ee6df365445353e482e38c43c73e013a280268570284ac858798f47716626",
+        "bytes": 12939
+      }
+    ]
+  },
+  {
+    "id": "semgrep",
+    "catalogId": "semgrep",
+    "name": "semgrep",
+    "version": "2.0.0",
+    "repository": "https://github.com/trailofbits/skills",
+    "commit": "321ccfe628eca0d314b0ee4eaffcdd8a05639aaf",
+    "subdirectory": "plugins/static-analysis/skills/semgrep",
+    "entry": "upstream/plugins/static-analysis/skills/semgrep/SKILL.md",
+    "license": "CC-BY-SA-4.0",
+    "licenseEvidence": "https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/LICENSE",
+    "description": ">-\nRuns a Semgrep security scan over a codebase: detects languages, selects\nrulesets, presents the plan for explicit approval, then runs every approved\nruleset through scripts/run-scans.sh, which batches the semgrep processes and\nwrites scans.json, and merges the output to SARIF. Supports two scan modes,\n\"run all\" for full ruleset coverage and \"important only\" for security\nfindings at medium-to-high confidence and impact. Uses Semgrep Pro for\ncross-file taint analysis when it is available. Use when asked to scan code\nfor vulnerabilities, run a security audit with Semgrep, find bugs, or perform\nstatic analysis. For the same scan without the approval gate, use the\n/static-analysis:semgrep-scan workflow.",
+    "category": "研发效能",
+    "aliases": [
+      "Semgrep"
+    ],
+    "dependencies": [
+      "Semgrep CLI（可选）"
+    ],
+    "runtimeNotes": [
+      "仅用于已授权仓库的防御性规则审查。未运行不得宣称扫描通过。"
+    ],
+    "digest": "247c3fec1eae8ba8244baac5700201711aa9311ef7017696c8170a4b8f50fab1",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "7abe19ec9bb73b36141b999b861d24ad855e808bafe0f81e84cce28556f6c297",
+        "bytes": 20131
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "e0298bad7817b8bfbf5ba7761dcfd755d7433951f1e12debe4715e4b6c9a044c",
+        "bytes": 9332
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/semgrep/SKILL.md",
+        "sha256": "04df36a7685632ee39271aa432a4d32e1203b326e4a8091e6f5c0eb191ef90f1",
+        "bytes": 15531
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/semgrep/agents/openai.yaml",
+        "sha256": "11a851b1841f3e828e7609045d91e0632cac07dfc008b2740f487cee83a5efd1",
+        "bytes": 128
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/semgrep/assets/trail-of-bits-mark.svg",
+        "sha256": "4bf74c789b38dcf6ad762c136b6832363d27ae19fbaa9a18ec18d66ecce6ca05",
+        "bytes": 3084
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/semgrep/references/rulesets.md",
+        "sha256": "e641bf7b2f32cd81b2623759f72a560dd96f6747f1295157f2984fe8ebac3f74",
+        "bytes": 7695
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/semgrep/references/scan-modes.md",
+        "sha256": "6450b636217ae7aff577828c9e4b570737291b09e3cd25f3678c8bf6e48deeab",
+        "bytes": 7011
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/semgrep/scripts/merge_sarif.py",
+        "sha256": "8b6094e18a0e4d36250c72c81903edac914552df7eb2a7eebd1ac449d105f7ba",
+        "bytes": 14034
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/semgrep/scripts/run-scans.sh",
+        "sha256": "d5f8dbf5652057351b3425741562acaf251217c45131c8b69312e2e77923d97a",
+        "bytes": 29821
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/semgrep/scripts/test_merge_sarif.py",
+        "sha256": "8f235bface6ff37f813c1a44b2a6c2edf273cd548b95b770c362f0a443473c75",
+        "bytes": 22943
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/semgrep/workflows/scan-workflow.md",
+        "sha256": "505eec11479f3f744b3c4491803a41e833874117c121dc7d01152804354f97a9",
+        "bytes": 23205
+      }
+    ]
+  },
+  {
+    "id": "sarif-parsing",
+    "catalogId": "sarif-parsing",
+    "name": "sarif-parsing",
+    "version": "2.0.0",
+    "repository": "https://github.com/trailofbits/skills",
+    "commit": "321ccfe628eca0d314b0ee4eaffcdd8a05639aaf",
+    "subdirectory": "plugins/static-analysis/skills/sarif-parsing",
+    "entry": "upstream/plugins/static-analysis/skills/sarif-parsing/SKILL.md",
+    "license": "CC-BY-SA-4.0",
+    "licenseEvidence": "https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/LICENSE",
+    "description": ">-\nParses and processes SARIF files from static analysis tools like CodeQL, Semgrep, or other\nscanners. Triggers on \"parse sarif\", \"read scan results\", \"aggregate findings\", \"deduplicate\nalerts\", or \"process sarif output\". Handles filtering, deduplication, format conversion, and\nCI/CD integration of SARIF data. Does NOT run scans — use the Semgrep or CodeQL skills for that.",
+    "category": "研发效能",
+    "aliases": [
+      "SARIF"
+    ],
+    "dependencies": [],
+    "runtimeNotes": [
+      "只解析用户提供的真实SARIF文件，不编造finding。"
+    ],
+    "digest": "53294638a4514ff7c91f3acc48b65cce51c906fb4fe50bb419dad213e8cae2dd",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "7abe19ec9bb73b36141b999b861d24ad855e808bafe0f81e84cce28556f6c297",
+        "bytes": 20131
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "e0298bad7817b8bfbf5ba7761dcfd755d7433951f1e12debe4715e4b6c9a044c",
+        "bytes": 9332
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/sarif-parsing/SKILL.md",
+        "sha256": "cc5f008f40ffb8a1ae03ebd32d7234de43e828293955a0bc251b76ba249554fa",
+        "bytes": 17925
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/sarif-parsing/agents/openai.yaml",
+        "sha256": "11a851b1841f3e828e7609045d91e0632cac07dfc008b2740f487cee83a5efd1",
+        "bytes": 128
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/sarif-parsing/assets/trail-of-bits-mark.svg",
+        "sha256": "4bf74c789b38dcf6ad762c136b6832363d27ae19fbaa9a18ec18d66ecce6ca05",
+        "bytes": 3084
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/sarif-parsing/resources/fixtures/codeql-no-level.sarif",
+        "sha256": "edc92b09e4d8b1247ec87f081c68caa1843d8407063508ad33aab13327ba386a",
+        "bytes": 2302
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/sarif-parsing/resources/fixtures/levels-on-results.sarif",
+        "sha256": "625e8175a3c68d0d11f7e4c14095dddff5056d52a539e3153180cdb37ce50c6b",
+        "bytes": 1782
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/sarif-parsing/resources/jq-queries.md",
+        "sha256": "f44ec4e219c93504ec69fdeb2c60668ee3934585e5565fffdaa43f6b224b5d6a",
+        "bytes": 7868
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/sarif-parsing/resources/sarif_helpers.py",
+        "sha256": "06d8e63849bd2b93baf31b23a33550447eed2ac457c2687f173933039e5ad247",
+        "bytes": 13027
+      },
+      {
+        "path": "upstream/plugins/static-analysis/skills/sarif-parsing/resources/test_sarif_helpers.py",
+        "sha256": "5efc4e50f3dbd81ea223049b1892653a46bce0c273904d0b04e43e449343fe17",
+        "bytes": 14028
+      }
+    ]
+  },
+  {
+    "id": "variant-analysis",
+    "catalogId": "variant-analysis",
+    "name": "variant-analysis",
+    "version": "2.0.0",
+    "repository": "https://github.com/trailofbits/skills",
+    "commit": "321ccfe628eca0d314b0ee4eaffcdd8a05639aaf",
+    "subdirectory": "plugins/variant-analysis",
+    "entry": "upstream/plugins/variant-analysis/skills/variant-analysis/SKILL.md",
+    "license": "CC-BY-SA-4.0",
+    "licenseEvidence": "https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/LICENSE",
+    "description": "Hunts for the other instances of a bug already found — the variants of one root cause across a codebase. Use immediately after a vulnerability, logic bug, or bad pattern turns up in a specific file and the question becomes where else it occurs, including the bare conversational form (\"are there others like this?\", \"is this the same bug?\"). Also for generalizing one known instance into a CodeQL or Semgrep query for its whole pattern family, and for triaging a set of look-alike candidates against a known root cause. Not for initial discovery with no bug in hand.",
+    "category": "研发效能",
+    "aliases": [
+      "变体分析"
+    ],
+    "dependencies": [],
+    "runtimeNotes": [
+      "在已授权代码中查找同类缺陷模式。每个候选必须落到真实文件行，禁止编造利用链。"
+    ],
+    "digest": "327376753ef99d716a48fe3e2827f0db84f1d9c1d30d743e9ba43718954cb2f3",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "7abe19ec9bb73b36141b999b861d24ad855e808bafe0f81e84cce28556f6c297",
+        "bytes": 20131
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "e0298bad7817b8bfbf5ba7761dcfd755d7433951f1e12debe4715e4b6c9a044c",
+        "bytes": 9332
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/.claude-plugin/plugin.json",
+        "sha256": "128fa74fd16dcbdfd0e4ceb8b8e918b94f26e715b383277f91fdf644ce35a632",
+        "bytes": 206
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/README.md",
+        "sha256": "bfacc3ad4e93eb2c9922e8b8ac01fed4f02e350e2e9a6f5ae95b01e7f33a8a33",
+        "bytes": 2218
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/01-shell-sink-family/graders/precision-safe-sites-ruled-out.md",
+        "sha256": "28e71de8b6e66d41dab34fdb75c9b2ec31d5d4b1a2ca711c035bdcd6fcae3f28",
+        "bytes": 2292
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/01-shell-sink-family/graders/recall-cross-api-variants.md",
+        "sha256": "091dd2016ff05848874feb2da6f4eb7dedb7ebaa13c5e28b5beb2231346a7305",
+        "bytes": 1110
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/01-shell-sink-family/graders/skill-fired.md",
+        "sha256": "f8f43bab2c2c5ddfcb1dd00ef9d713a5fb02b53c4f948d6aad1fa6cf05a58ce0",
+        "bytes": 43
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/01-shell-sink-family/prompt.md",
+        "sha256": "61eabf290bdefb4aa9632d6645b9d6c7fbe8e7c172ebb44384b267c9844e0eb4",
+        "bytes": 2158
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/02-just-found-this/graders/precision-safe-sites-ruled-out.md",
+        "sha256": "107b3f8941f1b18b472c0bd2bbaf4b9d58610e2fd9695ff91d017f88549c467b",
+        "bytes": 2282
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/02-just-found-this/graders/recall-cross-api-variants.md",
+        "sha256": "07537fce6955d2dbae7e66107649c063d76cf3d05c786f25042ebb39519fe44d",
+        "bytes": 1263
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/02-just-found-this/graders/skill-fired.md",
+        "sha256": "f8f43bab2c2c5ddfcb1dd00ef9d713a5fb02b53c4f948d6aad1fa6cf05a58ce0",
+        "bytes": 43
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/02-just-found-this/prompt.md",
+        "sha256": "1f4124a536d866d5b235fbacedd955803f973c7137a98e7ab829ecd5d7a2d802",
+        "bytes": 1351
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/03-path-traversal-java/graders/precision-validated-sites-ruled-out.md",
+        "sha256": "113d0dc6ec249d2b373bfec957907c85f640440bc60e8d6c49ed597af53ad244",
+        "bytes": 2482
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/03-path-traversal-java/graders/recall-zipslip-and-template.md",
+        "sha256": "bca5a5ef06dfcfce7d1d87583c46e371fab3460275aa06d8edeece702cedb5e1",
+        "bytes": 1215
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/03-path-traversal-java/prompt.md",
+        "sha256": "6702c67a3bbbd8ad8b46cb5784802c9da61b28ad2010f9c192aef560313b6237",
+        "bytes": 2330
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/04-invariant-bug/graders/precision-atomic-sites-ruled-out.md",
+        "sha256": "98fc7a83bb6d58a875098e9519af5e15e6c8be4200730093090b61a9205d9998",
+        "bytes": 2284
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/04-invariant-bug/graders/recall-toctou-variants.md",
+        "sha256": "c8f0776095ddc5f2e5812327d937f7798ff37a54f7bf2cbf9bc6a649b3dff17b",
+        "bytes": 1132
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/04-invariant-bug/graders/root-cause-as-invariant.md",
+        "sha256": "63f8ef4c3ca305bed9e25572726c4d7b9ba076a127cd3963ee52ed17edc88ad5",
+        "bytes": 1190
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/04-invariant-bug/prompt.md",
+        "sha256": "fe5493e27389b0493e1a199da91b8b791dc7fe0e5e8f51ebbfd874fb63ba4548",
+        "bytes": 1776
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/05-all-safe-panel/graders/explicit-negative-conclusion.md",
+        "sha256": "c1f40621422c151e72995cb75ef7553f8df47404ba2d276d37e2acff197e6df0",
+        "bytes": 928
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/05-all-safe-panel/graders/precision-floor-zero-variants.md",
+        "sha256": "87adb99c75886ff01007cce0d073dd0bb78eb0e1482ea34687c21022f9977a8b",
+        "bytes": 2371
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/05-all-safe-panel/prompt.md",
+        "sha256": "6784f9f03daa6040b0dce9b77a364cc175ab3d93f5db31b8b6f2c27c0a5ebdf9",
+        "bytes": 1993
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/06-neg-explain-function/graders/explains-without-hunting.md",
+        "sha256": "abda62544c677cd2dbe1c223acf032db806ef38ae0dba1038f8c7f59a4a7ce40",
+        "bytes": 2140
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/06-neg-explain-function/prompt.md",
+        "sha256": "e156519000e0c29e7bddc06e937721ef274261d17d647cd901cfb99fb288bfb9",
+        "bytes": 403
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/07-neg-initial-discovery/graders/audits-without-variant-hunt.md",
+        "sha256": "445788454657bead7dbd36c86daa0b10d13ed8da9c4760502715ca16185ded57",
+        "bytes": 2109
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/07-neg-initial-discovery/prompt.md",
+        "sha256": "c01c1116e50829193c6b87718ac4b5ff1951e8e1908b12b1cccd053ba8915937",
+        "bytes": 1337
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/evals/README.md",
+        "sha256": "dafb6f2c5fc07f6d85384cddb21e35eadd70f460d15a2ef3ec6812a26ad2bf80",
+        "bytes": 6614
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/skills/variant-analysis/SKILL.md",
+        "sha256": "7b6b78e499bcb88d05c68254ffc91ebc28edabf4e9808adcc40e2628ebb9407e",
+        "bytes": 3903
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/skills/variant-analysis/agents/openai.yaml",
+        "sha256": "11a851b1841f3e828e7609045d91e0632cac07dfc008b2740f487cee83a5efd1",
+        "bytes": 128
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/skills/variant-analysis/assets/trail-of-bits-mark.svg",
+        "sha256": "4bf74c789b38dcf6ad762c136b6832363d27ae19fbaa9a18ec18d66ecce6ca05",
+        "bytes": 3084
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/skills/variant-analysis/references/reporting.md",
+        "sha256": "07a1d8f25537ec3da44b7c6e484bf922ab2eeaee733ced6df423df7bea517906",
+        "bytes": 1547
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/skills/variant-analysis/references/root-cause.md",
+        "sha256": "b4556f22adadc894b22c8df01d98bb94596d4e035386c780fbca73594014660c",
+        "bytes": 4209
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/skills/variant-analysis/references/searching.md",
+        "sha256": "22834e63e7412220feec9bd1d4cfd9298c17679489ad66d13be450928bf5d158",
+        "bytes": 4585
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/skills/variant-analysis/references/triage.md",
+        "sha256": "f1f0277096ae41641be311c783f2f7a1c677c2c6b6e8a485986d8d5ed7fa3653",
+        "bytes": 3587
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/skills/variant-analysis/resources/codeql/cpp.ql",
+        "sha256": "efd574081969d2bdd19e1756302d843fdbf936968a72de62eb24d66db43efc0c",
+        "bytes": 3503
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/skills/variant-analysis/resources/codeql/go.ql",
+        "sha256": "d3fa419af29bb15bf81510c54bc1ce0cf55f5b7adbdbf79cc2c8cd922d2365fb",
+        "bytes": 2018
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/skills/variant-analysis/resources/codeql/java.ql",
+        "sha256": "ee4a92a5cbde67304d17a2c5fb739fe9acf1d39ebac9406e3d3a2c1cbbbb19c1",
+        "bytes": 2365
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/skills/variant-analysis/resources/codeql/javascript.ql",
+        "sha256": "b6ceaa3acb6ba6fa89903c14c8fd3aa7cf48316e6b2588dcacae51bb423b3526",
+        "bytes": 1733
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/skills/variant-analysis/resources/codeql/python.ql",
+        "sha256": "135ec55760e1e827065e34b002c6d954b4c4293d07233a93d7ff31d9d97528a9",
+        "bytes": 2447
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/skills/variant-analysis/resources/semgrep/cpp.yaml",
+        "sha256": "41f034c9a5967cc3b87bf5880243ed21f633017111489ee843dd5d002271b10a",
+        "bytes": 2795
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/skills/variant-analysis/resources/semgrep/go.yaml",
+        "sha256": "8a8257eb8e0a7150cb7dffa2b64813691fd560de24b0f85fa6640ec2bfc6595f",
+        "bytes": 1797
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/skills/variant-analysis/resources/semgrep/java.yaml",
+        "sha256": "5be3990b052bc9ce5e1aa203d1f3c93cb3cde7d46eba463c24c661fc6b342902",
+        "bytes": 2011
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/skills/variant-analysis/resources/semgrep/javascript.yaml",
+        "sha256": "2f97e3545fcac449820c2d058bcb9cc36822e238b6249efa3a5dcb4f5f576912",
+        "bytes": 1715
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/skills/variant-analysis/resources/semgrep/python.yaml",
+        "sha256": "c1ce15574569d45555d582707db030b226763d81b2d521d9e61d6067440948f2",
+        "bytes": 2002
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/skills/variant-analysis/resources/variant-report-template.md",
+        "sha256": "03333c762318a89dd819784a62695f7660713479a5009a15189314400836202f",
+        "bytes": 1356
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/tests/README.md",
+        "sha256": "00e2f3ec83170ff38c830205165f103e0515f589ccf90c2f0cf1be03eeed7eb0",
+        "bytes": 7068
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/tests/eval.sh",
+        "sha256": "d899aa337d22842183daf2903134aca412397df19be2d38809c9b2a748c1c478",
+        "bytes": 8836
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/tests/gradio-vulns.patch",
+        "sha256": "22b757c9e788c4667d7cbc9871d6aad0b8cd1c25f7b75c72376a84fe349f469d",
+        "bytes": 2758
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/tests/ground-truth.json",
+        "sha256": "2a8d84db30e53726c278125b0dce892327163690a6e22d1ee0e3f41252cf84f3",
+        "bytes": 3045
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/tests/run_fixtures.sh",
+        "sha256": "8fd52ee82ae15c031e87b2535258ad03116433e7e46a4ba0a1f38207890b28bf",
+        "bytes": 2000
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/tests/score.py",
+        "sha256": "b2d46db90cdeda9e1a70a8fcb1cb5220e785ef408b9d770b48f008f80881d73a",
+        "bytes": 30950
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/tests/setup-gradio.sh",
+        "sha256": "c49fedeb1ce672fe58719c0c0a7f2452c0f1140a980076920455014477abd3bd",
+        "bytes": 2492
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/tests/summarize.py",
+        "sha256": "3d2821d2456519422187079f274ba5e1561ab99f94bd4c785c1b65cb0a1dfffc",
+        "bytes": 9211
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/tests/verify_fixtures.py",
+        "sha256": "5ed7b2233c058f807c0989601762a74491f66339663ee2b0c1dc4db67d5f3ccd",
+        "bytes": 6539
+      },
+      {
+        "path": "upstream/plugins/variant-analysis/workflows/variants.js",
+        "sha256": "325fc6b077cd8e2b107d2e13ded23582b573d278928fda7dd23d55c4f8b8e404",
+        "bytes": 24721
+      }
+    ]
+  },
+  {
+    "id": "supply-chain-risk-auditor",
+    "catalogId": "supply-chain-risk-auditor",
+    "name": "supply-chain-risk-auditor",
+    "version": "2.0.0",
+    "repository": "https://github.com/trailofbits/skills",
+    "commit": "321ccfe628eca0d314b0ee4eaffcdd8a05639aaf",
+    "subdirectory": "plugins/supply-chain-risk-auditor",
+    "entry": "upstream/plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor/SKILL.md",
+    "license": "CC-BY-SA-4.0",
+    "licenseEvidence": "https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/LICENSE",
+    "description": "Audits a project's dependencies for supply-chain risk: version-matched advisories for direct dependencies and the full lockfile tree, abandoned or archived upstreams, npm publisher concentration, and install-time script execution. Use when asked to audit dependencies, assess supply-chain or third-party package risk, or review a dependency tree before an engagement.",
+    "category": "研发效能",
+    "aliases": [
+      "供应链审计"
+    ],
+    "dependencies": [],
+    "runtimeNotes": [
+      "对照真实lockfile。缺少advisory数据就标未知，不编造CVE。"
+    ],
+    "digest": "4861a782624ac86a8de98e4035d4171f66db5b4a1eedd4ad30a8936016fd9fca",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "7abe19ec9bb73b36141b999b861d24ad855e808bafe0f81e84cce28556f6c297",
+        "bytes": 20131
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "e0298bad7817b8bfbf5ba7761dcfd755d7433951f1e12debe4715e4b6c9a044c",
+        "bytes": 9332
+      },
+      {
+        "path": "upstream/plugins/supply-chain-risk-auditor/.claude-plugin/plugin.json",
+        "sha256": "3df536053a6f7168a0f8a825dc977ece7309ef9793706ba2be21e9ec4acd0f12",
+        "bytes": 454
+      },
+      {
+        "path": "upstream/plugins/supply-chain-risk-auditor/README.md",
+        "sha256": "a1de260cf368cd1ab1e595ec5268876b9cc413187de9bbc808ae19c170f28fb8",
+        "bytes": 3404
+      },
+      {
+        "path": "upstream/plugins/supply-chain-risk-auditor/evals/evals.json",
+        "sha256": "1d6a68c0568310ca7e4ad403585cc4174c46ef4c3381709d73b6b96be35e950b",
+        "bytes": 3949
+      },
+      {
+        "path": "upstream/plugins/supply-chain-risk-auditor/evals/fixtures/data-service/pyproject.toml",
+        "sha256": "4865cc1d06164971244d81b2c6471780524af6b3f627b6649011eb212b8d759a",
+        "bytes": 190
+      },
+      {
+        "path": "upstream/plugins/supply-chain-risk-auditor/evals/fixtures/rusty-svc/Cargo.toml",
+        "sha256": "ea5879b7b6028b6566f4967786a6d6f4effa92169c6a940a51e766c2f612b6ce",
+        "bytes": 141
+      },
+      {
+        "path": "upstream/plugins/supply-chain-risk-auditor/evals/fixtures/shipping-api/package.json",
+        "sha256": "8fabfb3b7dc23eb29a5a774c58ddd4d1aef342a73a6a99d57cb0467cca5536c5",
+        "bytes": 255
+      },
+      {
+        "path": "upstream/plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor/SKILL.md",
+        "sha256": "a1254b7f8d3a1731a9a7e1f9cd6c67b59cf84ed6ef7c7fb455db9a14c528ceb4",
+        "bytes": 6991
+      },
+      {
+        "path": "upstream/plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor/agents/openai.yaml",
+        "sha256": "11a851b1841f3e828e7609045d91e0632cac07dfc008b2740f487cee83a5efd1",
+        "bytes": 128
+      },
+      {
+        "path": "upstream/plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor/assets/trail-of-bits-mark.svg",
+        "sha256": "4bf74c789b38dcf6ad762c136b6832363d27ae19fbaa9a18ec18d66ecce6ca05",
+        "bytes": 3084
+      },
+      {
+        "path": "upstream/plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor/scripts/collect.py",
+        "sha256": "fd75cffad628980a6da521b5d3a40fb5dd16c5bb9ad63a25245e5208d08abff7",
+        "bytes": 65756
+      },
+      {
+        "path": "upstream/plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor/scripts/model.py",
+        "sha256": "78a20954b76e81216991b57453ceddbdb867035a0d6993b98cfa05a7f8d008d3",
+        "bytes": 17595
+      },
+      {
+        "path": "upstream/plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor/scripts/pyproject.toml",
+        "sha256": "a79ec30039ce3bc90544b9d833f7edc128232821575736f659d2b2ca0a601f3b",
+        "bytes": 683
+      },
+      {
+        "path": "upstream/plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor/scripts/render.py",
+        "sha256": "9d6091645c8a8edf5c50d24bd70ff881efa30b920d93b46ea1775ee2dd328bc7",
+        "bytes": 35181
+      },
+      {
+        "path": "upstream/plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor/scripts/sources.py",
+        "sha256": "4eb66952dca285b4790d1193b39f240e8015025ee054a215f4c696cbba2478e2",
+        "bytes": 29204
+      },
+      {
+        "path": "upstream/plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor/scripts/test_collect.py",
+        "sha256": "ea4f25bdab0add75d500b22ba5eb9f993d3695d974cd3f92b418f5cff07e00da",
+        "bytes": 38131
+      },
+      {
+        "path": "upstream/plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor/scripts/test_model.py",
+        "sha256": "92059fe937c50f1502d71df2ddc4f123e8e2647fc0f4f7b270727ef9a2004f5c",
+        "bytes": 7842
+      },
+      {
+        "path": "upstream/plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor/scripts/test_render.py",
+        "sha256": "319970fd010d6bf5fbf79b595e8fc918c5e74645b718f495f2479aef3ea8cc16",
+        "bytes": 14313
+      },
+      {
+        "path": "upstream/plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor/scripts/test_sources.py",
+        "sha256": "5c0a993d747e3ed29972272a18a14dd46b6f897bdfff7e147d0a9e9b4b4b6511",
+        "bytes": 10542
+      },
+      {
+        "path": "upstream/plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor/scripts/uv.lock",
+        "sha256": "99598cc397a42c945abbc9d839d1c61f1852f414660ce41e2e68bd9cdf664100",
+        "bytes": 337
+      }
+    ]
+  },
+  {
+    "id": "modern-python",
+    "catalogId": "modern-python",
+    "name": "modern-python",
+    "version": "2.0.0",
+    "repository": "https://github.com/trailofbits/skills",
+    "commit": "321ccfe628eca0d314b0ee4eaffcdd8a05639aaf",
+    "subdirectory": "plugins/modern-python",
+    "entry": "upstream/plugins/modern-python/skills/modern-python/SKILL.md",
+    "license": "CC-BY-SA-4.0",
+    "licenseEvidence": "https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/LICENSE",
+    "description": "Configures Python projects with modern tooling (uv, ruff, ty). Use when creating projects, writing standalone scripts, or migrating from pip/Poetry/mypy/black.",
+    "category": "研发效能",
+    "aliases": [
+      "现代Python"
+    ],
+    "dependencies": [],
+    "runtimeNotes": [
+      "按当前仓库工具链给建议，不替用户全局安装包管理器。"
+    ],
+    "digest": "c1d1058976300513ceec97f49fa5b3c5f172cb1bfed969c94daec745e76b251d",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "7abe19ec9bb73b36141b999b861d24ad855e808bafe0f81e84cce28556f6c297",
+        "bytes": 20131
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "e0298bad7817b8bfbf5ba7761dcfd755d7433951f1e12debe4715e4b6c9a044c",
+        "bytes": 9332
+      },
+      {
+        "path": "upstream/plugins/modern-python/.claude-plugin/plugin.json",
+        "sha256": "caf070750e8657b5ef28475ad519ef4a86ca6143ab45c43e49a129f7b6d5ac78",
+        "bytes": 352
+      },
+      {
+        "path": "upstream/plugins/modern-python/README.md",
+        "sha256": "1f1248aa48fb6f0f74c3c10b49aebdb59561afb070e237699ee79777e094da64",
+        "bytes": 3880
+      },
+      {
+        "path": "upstream/plugins/modern-python/hooks/hooks.json",
+        "sha256": "e466d54e77e4913b54f87bcfdad6d483c8f45eae7baa6215ba26015717a06c98",
+        "bytes": 352
+      },
+      {
+        "path": "upstream/plugins/modern-python/hooks/setup-shims.bats",
+        "sha256": "b44e3244f43d7fb3d84e7dc3b732fa640cb66892ac0b585b37f24ceb4e0b04fc",
+        "bytes": 1987
+      },
+      {
+        "path": "upstream/plugins/modern-python/hooks/setup-shims.sh",
+        "sha256": "785c8487112ea9f9e4c8e550fe02ee734a49eaad6ba03dc7c50bf389eacbd71d",
+        "bytes": 760
+      },
+      {
+        "path": "upstream/plugins/modern-python/hooks/shims/pip",
+        "sha256": "9ca978edc656896b7d84c0cea2aae8d32bfe084d60d5268f8152bef7bd15fdf4",
+        "bytes": 839
+      },
+      {
+        "path": "upstream/plugins/modern-python/hooks/shims/pip-shim.bats",
+        "sha256": "c53cf9d56b186abc473b7b30ce437bf5f0d856fabdcfbbe496cb94fb6c744857",
+        "bytes": 970
+      },
+      {
+        "path": "upstream/plugins/modern-python/hooks/shims/pip3",
+        "sha256": "fed5038bf2f427ab2ec84f85881f103c0e946e8d6252b8731f99ab0cb57729d9",
+        "bytes": 3
+      },
+      {
+        "path": "upstream/plugins/modern-python/hooks/shims/pipx",
+        "sha256": "e53afc0765a7ef1f27336ae4a5a1009ea5ef779994ba7cd6a892955ac75c12a1",
+        "bytes": 1319
+      },
+      {
+        "path": "upstream/plugins/modern-python/hooks/shims/pipx-shim.bats",
+        "sha256": "bb674b5ae6021fc686770115f11345ab7bd15ab9a1b6e0bd4866d7c4fc3faad0",
+        "bytes": 1412
+      },
+      {
+        "path": "upstream/plugins/modern-python/hooks/shims/python",
+        "sha256": "a1cfef87ae7b0ca03cbd32754277e7ee7f5ccd36c59c07058d31e51827d9dcfe",
+        "bytes": 3526
+      },
+      {
+        "path": "upstream/plugins/modern-python/hooks/shims/python-shim.bats",
+        "sha256": "bd82313b819c2ecfd924ba91ded89476601cc59b7c43a157a75ee87fa3ad1423",
+        "bytes": 4679
+      },
+      {
+        "path": "upstream/plugins/modern-python/hooks/shims/python3",
+        "sha256": "11a4a60b518bf24989d481468076e5d5982884626aed9faeb35b8576fcd223e1",
+        "bytes": 6
+      },
+      {
+        "path": "upstream/plugins/modern-python/hooks/shims/uv",
+        "sha256": "e4aa8f2bbf5aa8d8953160a585a874106ad1deadc848aec525eaffbaf8cc9d81",
+        "bytes": 1541
+      },
+      {
+        "path": "upstream/plugins/modern-python/hooks/shims/uv-shim.bats",
+        "sha256": "a828ba25d69ba457f9048bdf74c2e1eca9a83d0b23ddad43eaa034f771d0d608",
+        "bytes": 2510
+      },
+      {
+        "path": "upstream/plugins/modern-python/skills/modern-python/SKILL.md",
+        "sha256": "ef774b925eb1d1fc12e4f5ddc3f5ad925ecd795315827447228c70cc44c6170c",
+        "bytes": 10015
+      },
+      {
+        "path": "upstream/plugins/modern-python/skills/modern-python/agents/openai.yaml",
+        "sha256": "11a851b1841f3e828e7609045d91e0632cac07dfc008b2740f487cee83a5efd1",
+        "bytes": 128
+      },
+      {
+        "path": "upstream/plugins/modern-python/skills/modern-python/assets/trail-of-bits-mark.svg",
+        "sha256": "4bf74c789b38dcf6ad762c136b6832363d27ae19fbaa9a18ec18d66ecce6ca05",
+        "bytes": 3084
+      },
+      {
+        "path": "upstream/plugins/modern-python/skills/modern-python/references/dependabot.md",
+        "sha256": "d3678e32472305c0ef136bca99b26c3f75554d63675930e396f26a91a97451ad",
+        "bytes": 1800
+      },
+      {
+        "path": "upstream/plugins/modern-python/skills/modern-python/references/migration-checklist.md",
+        "sha256": "58c947e6200a91f350c9adc898af7fc6263fda41d36ae81ffd4dd923b3a1015e",
+        "bytes": 3071
+      },
+      {
+        "path": "upstream/plugins/modern-python/skills/modern-python/references/pep723-scripts.md",
+        "sha256": "c348b136613a4fed8f623d6013c0c6413d2c24f2973b2e5f85b80ecc68646045",
+        "bytes": 5134
+      },
+      {
+        "path": "upstream/plugins/modern-python/skills/modern-python/references/prek.md",
+        "sha256": "4be1c181c71aab64ba58573242a1c451d576a5c61ceeb400bb5827f4e1f9532a",
+        "bytes": 5951
+      },
+      {
+        "path": "upstream/plugins/modern-python/skills/modern-python/references/pyproject.md",
+        "sha256": "aec906835ec687024700d31e5c146baaabc9524129384304857b3aa81809401b",
+        "bytes": 5694
+      },
+      {
+        "path": "upstream/plugins/modern-python/skills/modern-python/references/ruff-config.md",
+        "sha256": "8d247862f1beaf76816ed6775f5a0c8dc96d74c7f2b71bbf1aaedc4937373b17",
+        "bytes": 5476
+      },
+      {
+        "path": "upstream/plugins/modern-python/skills/modern-python/references/security-setup.md",
+        "sha256": "32d6754a87d5006f923706d10446cc617cb22d36cfc30b55d39bd7f4c61d864c",
+        "bytes": 6504
+      },
+      {
+        "path": "upstream/plugins/modern-python/skills/modern-python/references/testing.md",
+        "sha256": "82e36068fbf28a9615d3c96e5d946e304ce8f89ae1ba7475d20934501d55b0d9",
+        "bytes": 5214
+      },
+      {
+        "path": "upstream/plugins/modern-python/skills/modern-python/references/uv-commands.md",
+        "sha256": "348cd69e8c780a0c7d54a2fac3c2956c7efe5630229782753da1685416672cdc",
+        "bytes": 4653
+      },
+      {
+        "path": "upstream/plugins/modern-python/skills/modern-python/templates/dependabot.yml",
+        "sha256": "a85ede8ff9cc3a2f63cb1fba24e65c36a5885ecc95722af15157dc5258f28a12",
+        "bytes": 958
+      },
+      {
+        "path": "upstream/plugins/modern-python/skills/modern-python/templates/pre-commit-config.yaml",
+        "sha256": "18efd067e75cba5fc71705c2f90c548a03c3cded4cd2a7f9b4a1d617e115db0d",
+        "bytes": 2259
+      }
+    ]
+  },
+  {
+    "id": "modern-cpp",
+    "catalogId": "modern-cpp",
+    "name": "modern-cpp",
+    "version": "2.0.0",
+    "repository": "https://github.com/trailofbits/skills",
+    "commit": "321ccfe628eca0d314b0ee4eaffcdd8a05639aaf",
+    "subdirectory": "plugins/modern-cpp",
+    "entry": "upstream/plugins/modern-cpp/skills/modern-cpp/SKILL.md",
+    "license": "CC-BY-SA-4.0",
+    "licenseEvidence": "https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/LICENSE",
+    "description": "Guides C++ code toward modern idioms (C++20/23/26). Use when writing new C++ code, modernizing legacy patterns, or working on security-critical C++. Replaces raw pointers with smart pointers, SFINAE with concepts, printf with std::print, error codes with std::expected.",
+    "category": "研发效能",
+    "aliases": [
+      "现代C++"
+    ],
+    "dependencies": [],
+    "runtimeNotes": [
+      "对照真实C++源码。未编译通过不得宣称现代化完成。"
+    ],
+    "digest": "4f1fc35dcb1b7b7812305bca9351a0ed6388c0d7352cb17680e1c9c077894d97",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "7abe19ec9bb73b36141b999b861d24ad855e808bafe0f81e84cce28556f6c297",
+        "bytes": 20131
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "e0298bad7817b8bfbf5ba7761dcfd755d7433951f1e12debe4715e4b6c9a044c",
+        "bytes": 9332
+      },
+      {
+        "path": "upstream/plugins/modern-cpp/.claude-plugin/plugin.json",
+        "sha256": "1efbecede380b18a1e83225192fc189bbec55dcb4de8bf4ac16b421364bbfa5d",
+        "bytes": 338
+      },
+      {
+        "path": "upstream/plugins/modern-cpp/README.md",
+        "sha256": "efd9505370485905ab943ed0176df1abd3ff9fc3a8090f9a60a86a6a2a4b3266",
+        "bytes": 1521
+      },
+      {
+        "path": "upstream/plugins/modern-cpp/skills/modern-cpp/SKILL.md",
+        "sha256": "a3a886fc425c591202b18165aa587111fafdd9250c37a71bbc48f7285fcd3c3e",
+        "bytes": 8656
+      },
+      {
+        "path": "upstream/plugins/modern-cpp/skills/modern-cpp/references/anti-patterns.md",
+        "sha256": "b0c4cdfbcaf90653b603aece91d1695b61592851acd39e93a79c40c92f54b35c",
+        "bytes": 5630
+      },
+      {
+        "path": "upstream/plugins/modern-cpp/skills/modern-cpp/references/compiler-hardening.md",
+        "sha256": "7965180ea742a1c59db75f4c8df8fa1f5a8cdf67d8d1a30f6b8b9705cdcb3902",
+        "bytes": 7471
+      },
+      {
+        "path": "upstream/plugins/modern-cpp/skills/modern-cpp/references/cpp20-features.md",
+        "sha256": "5498d853cdfb0be5e29c3c1bd55121cc166a0e0cb972d7733e8cbd5aa94a99b7",
+        "bytes": 7138
+      },
+      {
+        "path": "upstream/plugins/modern-cpp/skills/modern-cpp/references/cpp23-features.md",
+        "sha256": "feb1b1b5d80eecdbbde5396c3e0675ddba2c13c4c5d187b3b36d9b716e648015",
+        "bytes": 7150
+      },
+      {
+        "path": "upstream/plugins/modern-cpp/skills/modern-cpp/references/cpp26-features.md",
+        "sha256": "9984022424fedfe5ba97b2f17f83007ec14f394d8e7054d559951c7dd04118cb",
+        "bytes": 7696
+      },
+      {
+        "path": "upstream/plugins/modern-cpp/skills/modern-cpp/references/safe-idioms.md",
+        "sha256": "9c46fd20cfc0ea24ce49dfec13cd9f463528a4b4c691b78eb90df84c1682ed9a",
+        "bytes": 8316
+      }
+    ]
+  },
+  {
+    "id": "rust-review",
+    "catalogId": "rust-review",
+    "name": "rust-review",
+    "version": "2.0.0",
+    "repository": "https://github.com/trailofbits/skills",
+    "commit": "321ccfe628eca0d314b0ee4eaffcdd8a05639aaf",
+    "subdirectory": "plugins/rust-review",
+    "entry": "upstream/plugins/rust-review/skills/rust-review/SKILL.md",
+    "license": "CC-BY-SA-4.0",
+    "licenseEvidence": "https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/LICENSE",
+    "description": "Performs comprehensive Rust security review for safe/unsafe boundary issues, memory safety in unsafe blocks, concurrency hazards, panic-induced DoS, FFI safety, and async runtime mistakes. Use when auditing Rust crates, services, or libraries — particularly those with `unsafe`, FFI, or concurrent code.",
+    "category": "研发效能",
+    "aliases": [
+      "Rust审查"
+    ],
+    "dependencies": [],
+    "runtimeNotes": [
+      "安全审查只针对已授权代码。发现需落到文件与理由，禁止编写利用PoC。"
+    ],
+    "digest": "bf6bf526c15e7aed273c886579aa8418fd59fe5ecb7e854b99c51799fa5ce7df",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "7abe19ec9bb73b36141b999b861d24ad855e808bafe0f81e84cce28556f6c297",
+        "bytes": 20131
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "e0298bad7817b8bfbf5ba7761dcfd755d7433951f1e12debe4715e4b6c9a044c",
+        "bytes": 9332
+      },
+      {
+        "path": "upstream/plugins/rust-review/.claude-plugin/plugin.json",
+        "sha256": "29c2ac373843da78e17d249bfdfae5fc06b37e1e5309885a48344b7d53edc631",
+        "bytes": 530
+      },
+      {
+        "path": "upstream/plugins/rust-review/README.md",
+        "sha256": "9fb4965b92b365679632fafa087a6a669078bccda0b887c600c3b0651f37a571",
+        "bytes": 8418
+      },
+      {
+        "path": "upstream/plugins/rust-review/agents/rust-review-dedup-judge.md",
+        "sha256": "23f09a5af3c3cc5f350bfa937a368c10ae931dad1077ca7e7099e83170b5ed47",
+        "bytes": 20862
+      },
+      {
+        "path": "upstream/plugins/rust-review/agents/rust-review-fp-judge.md",
+        "sha256": "ebb25be71a2f7d078e6c9a79be7ad6481d81423c7bc21d1dce061f04321175b8",
+        "bytes": 23654
+      },
+      {
+        "path": "upstream/plugins/rust-review/agents/rust-review-worker.md",
+        "sha256": "ee116cafa60d1b64df641793b5e7c0df909a31a94e5e953db31d9a3a578c688e",
+        "bytes": 32587
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/clusters/async-runtime.md",
+        "sha256": "5c1e493b1317217574cc27d45159775c2cfa3fa25090b9f9f737b525bfcc8369",
+        "bytes": 855
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/clusters/concurrency-data-race.md",
+        "sha256": "344fdfe042ea014f920215589fa603f5e85a5056e4f8a79f49b191627f87e0d6",
+        "bytes": 2632
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/clusters/concurrency-locking.md",
+        "sha256": "a1c771a6dc73df18d244363f051ff37e54153e1bef848f130e30a3a14f456080",
+        "bytes": 7072
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/clusters/error-handling.md",
+        "sha256": "fcc8d9b999a17ced9c54e1aafa9071238a7e66538d453937196b8ebc4694b58b",
+        "bytes": 1597
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/clusters/ffi-cross-language.md",
+        "sha256": "5f1d2184a34f6d000a6e18c695c82e2607d0dd56e6a6d9380bfe5c2df4c5280b",
+        "bytes": 3401
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/clusters/info-disclosure.md",
+        "sha256": "5a1c23addc4cc12ff164f98ba34678be6c9b63cf9b7987f21dedc9a43b27f52f",
+        "bytes": 562
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/clusters/input-os-safety.md",
+        "sha256": "aa00fa03182c2c1117c3340a5d7c578b256b2be2ef376ef71840c1c3e18c35ea",
+        "bytes": 1082
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/clusters/layout-safety.md",
+        "sha256": "c25e2582b9302c7de66d695f634ccb618d30fbf874661b88f0f80915eedbc127",
+        "bytes": 572
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/clusters/logic-correctness.md",
+        "sha256": "e18dd1a9fd4d33d00399ec1ed5af05071b469095aaa6d27b4ea2455f678b4a0e",
+        "bytes": 3884
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/clusters/manifest.json",
+        "sha256": "76dbca40fa7a46df81d8af6eda3a0e66229c7277e254e86c7ab95bba0b8eb1cd",
+        "bytes": 11150
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/clusters/memory-safety.md",
+        "sha256": "24a788bd692e90870265addec88f05707bf88c422cbca097785702521eb09195",
+        "bytes": 4663
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/clusters/panic-dos.md",
+        "sha256": "bc0a365f423bdde596834f995a6a1c003fad568d52d5e9509b98d8f0a3e38d9f",
+        "bytes": 6143
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/clusters/recursion-dos.md",
+        "sha256": "4de2aec45f196b36584226fd70b56a82df1b6d75b33056d46ae8e2c292022947",
+        "bytes": 5425
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/clusters/resource-handling.md",
+        "sha256": "5b5702c57166f9f8cb183f7602702baf16a0a20821bf8ba1efd911a64df1aa84",
+        "bytes": 1519
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/clusters/static-hygiene.md",
+        "sha256": "d9045ccb6e90f64273845c43d6b9b79bf77df2e520b2ac2714de890cc467e90a",
+        "bytes": 746
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/clusters/unsafe-boundary.md",
+        "sha256": "10f7dabee93a1ff0b9229ba7e23c5b0900da64825d2b3d186ffcc297f6da4dfd",
+        "bytes": 15998
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/abi-mismatch-finder.md",
+        "sha256": "235bbd82a8794e6a2b8d5c360811a362a5927ca1d417a8508e4e0abba9fb04ee",
+        "bytes": 705
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/adversarial-trait-finder.md",
+        "sha256": "7cd0587f25560c80bca17767931ca3cbd833dbc6a7b352c82a1d54ebdfe63e16",
+        "bytes": 1558
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/arithmetic-overflow-finder.md",
+        "sha256": "f2a1fb7fc32898a7f54c4da1467db149bce55e6d4b1d2ee08e01648862b63488",
+        "bytes": 2187
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/assertion-reachable-finder.md",
+        "sha256": "9bab8d87093e4dabf3461d9575dd23fc66c3f83949eafd5e30b9fab94bd7dc30",
+        "bytes": 879
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/async-blocking-finder.md",
+        "sha256": "05cd757a948d102fdd547874d8267167ca0895d393119f9af6fc3a08167b48d1",
+        "bytes": 1236
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/atomic-race-finder.md",
+        "sha256": "3128365d7e44adf4b69058b77bb63432648cbc9adb10e8b6d4a902da25ce54e1",
+        "bytes": 1292
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/buffer-overflow-unsafe-finder.md",
+        "sha256": "13c538ed4dbc0535a0fbef691f4c79fe538ed9d675af0c88ff6d48594ff08570",
+        "bytes": 2701
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/bufwriter-unflushed-finder.md",
+        "sha256": "d6bb277a0ea6575862b6620f7820c425f4321dc9d8f7d7627b026f01d169517c",
+        "bytes": 995
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/cancel-safety-finder.md",
+        "sha256": "75fea515a1e818c90ec1ff024b7e3d595e4247fb8a9f6c5b2004baa56bc3c51c",
+        "bytes": 1227
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/cargo-lint-config-finder.md",
+        "sha256": "ae2eddc58db7394b212ac8b7b8cc38a2a94138a5cc932f073ce7beb639b1036a",
+        "bytes": 2502
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/closure-ffi-finder.md",
+        "sha256": "e02de116960cd52bc81074e11a522ace6ab70fa4773fe9235c86d85154f7f36a",
+        "bytes": 3991
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/closure-panic-finder.md",
+        "sha256": "9ec22b968985aa82e068996107bb2027eaf7aadb4ae135f5871ed562984a750b",
+        "bytes": 1091
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/collection-key-mutation-finder.md",
+        "sha256": "ade9461584d12c45fa434bfd55a83e974dbef1e8315a133dc08bccfcf12d0089",
+        "bytes": 1935
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/cstring-dangling-finder.md",
+        "sha256": "3bbd4e310ad0fac5303729f5d693eaba4ffee77aa32dd408877412c0e002b26c",
+        "bytes": 1368
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/deprecated-api-finder.md",
+        "sha256": "2356c3a229d51939bb377c2d1ce32fd1df4959411c679c62fb1199fff01ec63a",
+        "bytes": 1968
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/destructor-skip-finder.md",
+        "sha256": "258025c6150e5f4edda8669743bcb556ea50c87b070b5221032b0b7630f03b8c",
+        "bytes": 1406
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/double-free-finder.md",
+        "sha256": "c6b15798988e9a05bd03ff49ee27cd180224c44545b91b2dd53d9db580b701a3",
+        "bytes": 1685
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/drop-panic-finder.md",
+        "sha256": "b37e62548f486406183b2ecfd395b1f070954ada3c7499bf65f76718e0d85968",
+        "bytes": 973
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/dyn-trait-ffi-finder.md",
+        "sha256": "73dc05f43283ff438052a142a78a8bb9da18b5946ae4bbf87c07f27e5b162f56",
+        "bytes": 2849
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/float-edge-finder.md",
+        "sha256": "c4dc578ae38787a5bc54544a9c876a7a80e3d9a0bdcec8bb239a5c6dc8790e58",
+        "bytes": 798
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/foreign-drop-finder.md",
+        "sha256": "76a52b3ed8077443e8ead91faaa1c5b7e4bafab7c68e6504a081899ad683dfac",
+        "bytes": 2803
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/invalid-free-finder.md",
+        "sha256": "ee7faafdb62f1cd5c696b1e2afa7bfc42078fd47121af55ab2e14004006e1ffd",
+        "bytes": 1185
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/lossy-from-into-finder.md",
+        "sha256": "104ff498f652f9fdf4d2798dfebb092dc380b708df2ea97e9960f65d8d308b75",
+        "bytes": 603
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/lossy-str-conversion-finder.md",
+        "sha256": "3b7e787ee0dec3651af699293258e5997d468bc0fdf55fa8314cb6ead9903fa3",
+        "bytes": 1240
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/msrv-mismatch-finder.md",
+        "sha256": "61663658007d08e2ef2911a096b54d837e829badf4ac92d688fb01c459d9e5d1",
+        "bytes": 401
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/nondeterminism-finder.md",
+        "sha256": "dad119c84180920e4258e493d969a9598f7b8aaa22b7bd2a44437ddb5fd7e5eb",
+        "bytes": 1657
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/opaque-pointer-finder.md",
+        "sha256": "3469427249df12d83b82ff90b3d72837d8d4c215e98d4d35f2d35f2a197d4d40",
+        "bytes": 1948
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/ord-eq-hash-finder.md",
+        "sha256": "58055286593db6ad08917709582f3cef6da17fd01793182abc567b4bb67a627f",
+        "bytes": 754
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/out-of-bounds-index-finder.md",
+        "sha256": "8629f653d73e0e267e2ba548a3c88295efe03793f5853473dda2b0cfbe42845d",
+        "bytes": 727
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/packed-field-ref-finder.md",
+        "sha256": "eb28bd82060275326b718a4839e252345fd4ed86dcb828f28c5e039fa9e16f37",
+        "bytes": 3776
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/panic-unwind-unsafe-finder.md",
+        "sha256": "30a82a7d83ee1cbea971a2d87f6e996db077c48fc1e6b1afbed3c27dd3d26459",
+        "bytes": 3031
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/path-traversal-join-finder.md",
+        "sha256": "13c8e5ad1330baa012cf7014d386e61e243a0f31fa42bab498ffb4838116c934",
+        "bytes": 1768
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/pointer-exposure-finder.md",
+        "sha256": "e5dda8d39ec41c1d83be1de783e5c1f379913aa6467dbaba8353f8bcd7ff3e18",
+        "bytes": 1878
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/raw-fd-lifecycle-finder.md",
+        "sha256": "f4e485de5943cfb1128bc7a1bdd6bb23bef4c422bfbd63b2c5229a95bd4befcd",
+        "bytes": 2024
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/recursive-deserialize-stack-overflow-finder.md",
+        "sha256": "0f16fbc717bf048c5adbe23bbe2c056993becec796e8ec36325e6fd75ef44c5c",
+        "bytes": 4945
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/recursive-drop-stack-overflow-finder.md",
+        "sha256": "212ccf950aa2bd0b91950179c4d7e5d42ad7eb4a2707950ff9112017f43575b0",
+        "bytes": 2757
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/recursive-format-stack-overflow-finder.md",
+        "sha256": "085f4241ffa49123f1be72a9b26fab67b231ee20c90fa402e66fc3a113bfae46",
+        "bytes": 4248
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/refcell-borrow-panic-finder.md",
+        "sha256": "119970e1ef75547d54d76e1bb7251b83e189621e2aa817f0f5b47cede8c81414",
+        "bytes": 1213
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/repr-c-padding-finder.md",
+        "sha256": "31d73bff27df552ef2d8e4d9d1b203757f128ca818823ea4363f184f86995667",
+        "bytes": 2235
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/resource-exhaustion-finder.md",
+        "sha256": "d8a169f355cfa18d30177bb19171190c290890d51af8ebde996767c1e07098f5",
+        "bytes": 2506
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/result-discarded-finder.md",
+        "sha256": "99fbad8883f690e690c6509008e1acd7654b5b98f087b896bae4082b7d14c79b",
+        "bytes": 1601
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/select-bias-finder.md",
+        "sha256": "24c1284014a89c74327b0dc123b6c5ec0a9bf57bd0971f883ec51426ac69dfb5",
+        "bytes": 1278
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/send-sync-bounds-finder.md",
+        "sha256": "8f27a590734113e7094f45f2b71d115e807e9eb35d33fe8de2883c403e7957f4",
+        "bytes": 2639
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/serialize-struct-mismatch-finder.md",
+        "sha256": "3a4f25ef4afa7a676016fe0b1631b5b1a41c53a532a4ed5e6128f5807f52ac1e",
+        "bytes": 2324
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/shared-memory-race-finder.md",
+        "sha256": "400c82d7872b1e848daadd6fe3fc4834397198b6340777dbbf57cfd28a5f7daf",
+        "bytes": 2867
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/static-mut-race-finder.md",
+        "sha256": "dc3edd55cad150f52c6f1a2e5ccffc1d1224d831766ba9ec952e76128bc7b9d8",
+        "bytes": 2887
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/str-slice-boundary-finder.md",
+        "sha256": "870e5114e4d318e7cdaccf96315d67d8b3e3fafab01f497ab74d4e40dc72d4a9",
+        "bytes": 1068
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/string-comparison-finder.md",
+        "sha256": "bc7ec9e43749b367c4aeb88c60a8fd5139b37b98a72d1faf66f47a9d0525f548",
+        "bytes": 1394
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/toctou-finder.md",
+        "sha256": "87917e3b47b0f2c6ee83af499144dabca50bd91e7a87f63963c301582457e09f",
+        "bytes": 1316
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/uninitialized-read-finder.md",
+        "sha256": "591021ed80c16ab7e4b4552b90773b508e68cbc4aaf124f1c64a823c308623fe",
+        "bytes": 1884
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/union-ub-finder.md",
+        "sha256": "be8259632d1bd20dff2cc53c3fbedd48358fab381d64abef0cb0f2feee0bd9c1",
+        "bytes": 3541
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/unsafe-sync-impl-finder.md",
+        "sha256": "88f21b78fc146827e10ddfe823ed34057aaaedcd834141cb1ef10f1c3c4d3d65",
+        "bytes": 3803
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/unwrap-on-untrusted-finder.md",
+        "sha256": "49fd0889307a1ab13c32ef654f2541d1424500ebb5d50db231feede71f2cb8b7",
+        "bytes": 1303
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/use-after-free-finder.md",
+        "sha256": "8a8237880088a98a3b49c402672809431cda66f6e03fb0e98f84e7a96faf4bda",
+        "bytes": 2963
+      },
+      {
+        "path": "upstream/plugins/rust-review/prompts/general/vec-set-len-uninit-finder.md",
+        "sha256": "b641f302ec14455aeb2a1fcfaeae4986d2b0a91fd26966e1228786d3932f2195",
+        "bytes": 2551
+      },
+      {
+        "path": "upstream/plugins/rust-review/scripts/build_run_plan.py",
+        "sha256": "2fa42b567741e6735d2e1099561dae9cde5c631ea7408bc84bc1aaac74d3f782",
+        "bytes": 24572
+      },
+      {
+        "path": "upstream/plugins/rust-review/scripts/generate_sarif.py",
+        "sha256": "0cfd2f1f0ff6927f64bbe0be2c75cf84954602d49cb338a15c4908b841373fe8",
+        "bytes": 23499
+      },
+      {
+        "path": "upstream/plugins/rust-review/scripts/pyproject.toml",
+        "sha256": "a75faeec5e7b34727236c42a2eaa3a7bf3d3935263a7bf73a764ed80d2bc09dc",
+        "bytes": 220
+      },
+      {
+        "path": "upstream/plugins/rust-review/scripts/test_gating.py",
+        "sha256": "8b1aa4e7cd8b6e083f389c9716e1421d1cebebaba41684fe02096dce491403bf",
+        "bytes": 12907
+      },
+      {
+        "path": "upstream/plugins/rust-review/scripts/test_generate_sarif.py",
+        "sha256": "6d3e3e9c9af035f87f6c4a9fce74750dca88d5ffacb32702a23a6512020ecd02",
+        "bytes": 19936
+      },
+      {
+        "path": "upstream/plugins/rust-review/scripts/test_prompt_regexes.py",
+        "sha256": "d3b2ad1f72623fd3f0df07e989b22e07176f0150eb0d438142ab51dbd3087d77",
+        "bytes": 4444
+      },
+      {
+        "path": "upstream/plugins/rust-review/scripts/test_split.py",
+        "sha256": "067f7ac4c2a0bb8ef4e5a55862ffec900ea5a6b44e00642d1e49c576e1792b1e",
+        "bytes": 10492
+      },
+      {
+        "path": "upstream/plugins/rust-review/scripts/test_validate_artifacts.py",
+        "sha256": "e8cf32c277a340c607b519d691b83f1a64951c6557d7fba7fc11bbc27ee99f75",
+        "bytes": 10564
+      },
+      {
+        "path": "upstream/plugins/rust-review/scripts/validate_artifacts.py",
+        "sha256": "f373bc7dafabd027afe0fd825169440736c7425c559b7bf4a8779e9ec3ace658",
+        "bytes": 11677
+      },
+      {
+        "path": "upstream/plugins/rust-review/skills/rust-review/SKILL.md",
+        "sha256": "52ee8b08876b0ad90ecdf4a58de8d41fb2d8627f1e4d259a806a35a6e187ae91",
+        "bytes": 44520
+      }
+    ]
+  },
+  {
+    "id": "property-based-testing",
+    "catalogId": "property-based-testing",
+    "name": "property-based-testing",
+    "version": "2.0.0",
+    "repository": "https://github.com/trailofbits/skills",
+    "commit": "321ccfe628eca0d314b0ee4eaffcdd8a05639aaf",
+    "subdirectory": "plugins/property-based-testing",
+    "entry": "upstream/plugins/property-based-testing/skills/property-based-testing/SKILL.md",
+    "license": "CC-BY-SA-4.0",
+    "licenseEvidence": "https://github.com/trailofbits/skills/blob/321ccfe628eca0d314b0ee4eaffcdd8a05639aaf/LICENSE",
+    "description": "Writes, reviews, and debugs property-based tests — Hypothesis, fast-check, proptest, jqwik, rapid, and Echidna or Medusa for Solidity invariants. Use whenever tests should cover a whole input domain instead of a hand-picked list of examples: encode/decode and serialize/deserialize pairs, parsers, canonicalizers and normalizers, validators, numeric and Decimal types, comparators and sort order, data structures, and smart-contract state invariants. Also use when adding cases to an existing @given, fast-check, or proptest suite, when judging whether existing property tests assert anything real, and when a generator has shrunk a counterexample and you need to tell a wrong property from a genuine bug. Not for coverage-guided binary fuzzing (libFuzzer, AFL), mutation-testing campaigns, static analysis, benchmarking, or end-to-end UI tests.",
+    "category": "研发效能",
+    "aliases": [
+      "属性测试"
+    ],
+    "dependencies": [
+      "Hypothesis / fast-check / proptest（按语言核验）"
+    ],
+    "runtimeNotes": [
+      "未实际跑测试时标记未知，不编造通过率。"
+    ],
+    "digest": "4125148479dd6bc3db6def9ceb1ecca498059cebe1487c9b0b809d56ab4fa16e",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "7abe19ec9bb73b36141b999b861d24ad855e808bafe0f81e84cce28556f6c297",
+        "bytes": 20131
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "e0298bad7817b8bfbf5ba7761dcfd755d7433951f1e12debe4715e4b6c9a044c",
+        "bytes": 9332
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/.claude-plugin/plugin.json",
+        "sha256": "1e2211e35d60aaee2944431ae54c00764ecc8d0c571da1b625c2dd33263f6bc0",
+        "bytes": 304
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/README.md",
+        "sha256": "c30064490a8220080585e2e8ab0132a7800bae798b392934aff5d3af3775c018",
+        "bytes": 5739
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/01-roundtrip-codec.md",
+        "sha256": "81612629160ddf658d112a4f2e3051087740cfe00a47ad2035346c390edf4268",
+        "bytes": 228
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/02-normalizer-idempotence.md",
+        "sha256": "eea95ddc847f068ce75b541290f1aee250f9ae3653a1ab0207e621dc4d03e5cb",
+        "bytes": 118
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/03-hypothesis-existing.md",
+        "sha256": "f55c038dcae954e66c9539c03d3bee80366039204369909afe254058c5dd7f54",
+        "bytes": 122
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/04-echidna-invariant.md",
+        "sha256": "c62e5f29fae9a12458dbcb4a144a14782a38a4b126b4834bb834198e4d66c667",
+        "bytes": 189
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/05-review-weak-tests.md",
+        "sha256": "6bf0b6bb209be3f4d09305bd22b3a2373fef49a4c89b9898e1e51e65b4abf7c9",
+        "bytes": 181
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/07-fuzz-serializer-noname.md",
+        "sha256": "22343a429fa841ec7d8728423abd79b4aa992b1dccfe698d867fc79ee988e70b",
+        "bytes": 171
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/08-sort-comparator.md",
+        "sha256": "fd1c958c892d0dd450e528e3ecca66cc07a563cb8a13b8cb4e70bae0f1713cc7",
+        "bytes": 148
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/09-neg-libfuzzer-harness.md",
+        "sha256": "44ec51b1bf737dfe8e75a45ac6791d40f2b008935c066bf2e429e422ab4757e5",
+        "bytes": 145
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/10-neg-mutation-campaign.md",
+        "sha256": "5e97166e5b4f3fc6ee259b7ed513d31d6fd96fd8dff59b974fa7190b8fef587c",
+        "bytes": 116
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/11-neg-flaky-ci.md",
+        "sha256": "b7d14b16348efc305c74e80d8513a5e46af9bda652fb424e13024c9bf155080d",
+        "bytes": 132
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/12-neg-crud-unit-test.md",
+        "sha256": "c8276bce8c9ef810561dc850d171b3a5036b0b3efa49badb77cf43328ad2e711",
+        "bytes": 126
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/13-neg-slither-scan.md",
+        "sha256": "5ce260cf75fc965663aaaf56c2733e318c271a6043702267074c15a77bfc9b3f",
+        "bytes": 130
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/14-neg-benchmark.md",
+        "sha256": "ca8944afbfd101d6a5bf9cd10003788b864be8bbca4f812b51ab310d857b27c3",
+        "bytes": 133
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/15-neg-pytest-setup.md",
+        "sha256": "b1e383645e1d41bfbf5badcfc60d9b406c26d357572a9153ee026349de433c63",
+        "bytes": 114
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/16-neg-e2e-playwright.md",
+        "sha256": "0f1c8829a7e1765fa18ecd20be5c2a8724e160ac1dde2244198737372bc97a51",
+        "bytes": 116
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/effectiveness.sh",
+        "sha256": "e9a35d2af55a0be3214d6b5b67f9f6e727e025315ad287849f9fdb8fb659fc9a",
+        "bytes": 12194
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/fixture/contracts/Staking.sol",
+        "sha256": "51b6dc58610c23cea8d36ecdf1db021c0dbd4824607ee272306d5581fdb8a53e",
+        "bytes": 355
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/fixture/requirements.txt",
+        "sha256": "2ec024d4ac8c016735259761d43f120128dec869de202feebf46ec030ba09b77",
+        "bytes": 11
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/fixture/src/codec.py",
+        "sha256": "e04e560e8fdf6f402feebac1178c4594c276e2744a728e1bb08285379db0661b",
+        "bytes": 527
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/fixture/src/money.py",
+        "sha256": "80a2561c2845e56a3ada781ac6f24929bcb544f4b55f69fa932f8d170ba61a40",
+        "bytes": 249
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/fixture/tests/test_parser.py",
+        "sha256": "de024488462860b084c9a3d8e4b6136a3de0083cc26092dce7746d699b7b9d86",
+        "bytes": 295
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals-extra/run.sh",
+        "sha256": "95043d2d8e2de4f69801384eda9f6b19fa86de8c7d76c2de0dd5b3eadfb3e41c",
+        "bytes": 28616
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals/02-neg-cargo-fuzz-coverage/graders/answers-on-its-own-terms.md",
+        "sha256": "d5bf3a46de865606a2d12ab3427dcc44d8f94f10a4f9b316fd02c22609af1d57",
+        "bytes": 1422
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals/02-neg-cargo-fuzz-coverage/graders/does-not-pivot-to-pbt.md",
+        "sha256": "15f22205bf2994a17619dc430f5d99a443838be5bae7318a439a6f52fc228375",
+        "bytes": 1319
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals/02-neg-cargo-fuzz-coverage/graders/no-skill-invocation.md",
+        "sha256": "3854369334a51e7560110a2a3d27020a57a92dc84d47dc6550b9f4e168345e56",
+        "bytes": 60
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals/02-neg-cargo-fuzz-coverage/prompt.md",
+        "sha256": "23d8e9d3cb68141ce86f4db69515dcb0fec7d6e201e23168547c5765df5dfe22",
+        "bytes": 372
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals/03-dependency-is-users-call/graders/dependency-left-to-user.md",
+        "sha256": "58750de044da1c9f5485c4c0d8e76f1f05c65e597605b14f71f3745e22dceddb",
+        "bytes": 1288
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals/03-dependency-is-users-call/graders/no-dependency-file-written.md",
+        "sha256": "01a92cb394f5b8ee22d304fd5ff1878d660897124c9497f00f1cb19d628e666b",
+        "bytes": 117
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals/03-dependency-is-users-call/graders/skill-fired.md",
+        "sha256": "f8f43bab2c2c5ddfcb1dd00ef9d713a5fb02b53c4f948d6aad1fa6cf05a58ce0",
+        "bytes": 43
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/evals/03-dependency-is-users-call/prompt.md",
+        "sha256": "f73816c4aa2ea2c0917138a15e0a6185d994f40ec6912090e90f5db84e0649dc",
+        "bytes": 815
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/skills/property-based-testing/README.md",
+        "sha256": "ffbe30eec09cc64fb1eae836b07ca1d82939bda3f1e6f0dceadcdd78793a3112",
+        "bytes": 15332
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/skills/property-based-testing/SKILL.md",
+        "sha256": "9448cacb65c6237a7c22dc59602667177ecae405524079ae9ff92240590b995a",
+        "bytes": 4306
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/skills/property-based-testing/agents/openai.yaml",
+        "sha256": "11a851b1841f3e828e7609045d91e0632cac07dfc008b2740f487cee83a5efd1",
+        "bytes": 128
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/skills/property-based-testing/assets/trail-of-bits-mark.svg",
+        "sha256": "4bf74c789b38dcf6ad762c136b6832363d27ae19fbaa9a18ec18d66ecce6ca05",
+        "bytes": 3084
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/skills/property-based-testing/references/generating.md",
+        "sha256": "c0e72dfc89babe3c32de718b81b94044362c85e776d7475e950dfeaab78bb58e",
+        "bytes": 2634
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/skills/property-based-testing/references/interpreting-failures.md",
+        "sha256": "dbae7db8773712ba03268a3d56ea5aa6720af0650a5189580bfd88aa2edc3f9a",
+        "bytes": 3426
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/skills/property-based-testing/references/libraries.md",
+        "sha256": "f7218acf8e668130ef3048983472579d04e12030c5401926f666363e5f69c686",
+        "bytes": 2952
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/skills/property-based-testing/references/refactoring.md",
+        "sha256": "6eb5c206f575704791f089608bb06e41d6eed91b9d3c7fb27912f969aed07a18",
+        "bytes": 4854
+      },
+      {
+        "path": "upstream/plugins/property-based-testing/skills/property-based-testing/references/reviewing.md",
+        "sha256": "110b08118a1e7b1a2566def6e9d2a0bf43fc2deefce857d2ce3b4382b07bc774",
+        "bytes": 2859
+      }
+    ]
+  },
+  {
+    "id": "playwright-skill",
+    "catalogId": "playwright-skill",
+    "name": "playwright-skill",
+    "version": "2.0.0",
+    "repository": "https://github.com/LambdaTest/agent-skills",
+    "commit": "0de6ebfd44b7c67c62171320c4446f13856fc443",
+    "subdirectory": "playwright-skill",
+    "entry": "upstream/playwright-skill/SKILL.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/LambdaTest/agent-skills/blob/0de6ebfd44b7c67c62171320c4446f13856fc443/LICENSE",
+    "description": "Generates production-grade Playwright automation scripts and E2E tests\nin TypeScript, JavaScript, Python, Java, or C#. Supports local execution\nand TestMu AI cloud across 3000+ browser/OS combinations and real mobile\ndevices. Use when the user asks to write Playwright tests, automate\nbrowsers, run cross-browser tests, test on real devices, debug flaky\ntests, mock APIs, or do visual regression. Triggers on: \"Playwright\",\n\"E2E test\", \"browser test\", \"run on cloud\", \"cross-browser\", \"TestMu\",\n\"LambdaTest\", \"test my app\", \"test on mobile\", \"real device\".",
+    "category": "研发效能",
+    "aliases": [
+      "Playwright"
+    ],
+    "dependencies": [
+      "Playwright（可选）；TestMu云为独立账号"
+    ],
+    "runtimeNotes": [
+      "优先本地或现有browser.act。没有云凭证时不调用TestMu，不宣称云上已跑。"
+    ],
+    "digest": "3d5543d1633ea1992b1f2d8d06048105ac4711c0dc85a9548f351708a9f17985",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "e6f84c7e8a2b848489204f0ee2909c0b48978d0300c22f1d0f3adc2ebef00bec",
+        "bytes": 1079
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "85f76b53355eb1eb2447a9961d2bf24a3de5b613964eb68b8cec81261b60e635",
+        "bytes": 7362
+      },
+      {
+        "path": "upstream/playwright-skill/SKILL.md",
+        "sha256": "5082e63290820979da035c46e91270fb6b7f6e3d801ccf10ef427004d6a4e9d9",
+        "bytes": 11847
+      },
+      {
+        "path": "upstream/playwright-skill/reference/api-mocking-visual.md",
+        "sha256": "632ebc05e5f7921f03502c3826a6800edf7a14be2ca5dbda266ca468b2e46c67",
+        "bytes": 3351
+      },
+      {
+        "path": "upstream/playwright-skill/reference/cloud-integration.md",
+        "sha256": "894ea584e6342044fb6b3b9336cec4bf451e1fa2c2a10c2949046548d99e6b14",
+        "bytes": 8379
+      },
+      {
+        "path": "upstream/playwright-skill/reference/csharp-patterns.md",
+        "sha256": "ef250a51d9c32ddccc537bb31bdeaefcdfe5296964ee71611fe08ef0a5772db9",
+        "bytes": 4693
+      },
+      {
+        "path": "upstream/playwright-skill/reference/debugging-flaky.md",
+        "sha256": "4e6c7f2b1ddae8604000195add51157aa89f87fa108f015ea399797d75159c1a",
+        "bytes": 4273
+      },
+      {
+        "path": "upstream/playwright-skill/reference/java-patterns.md",
+        "sha256": "d74d157acda2a073da0aa23b221a3122558e4ef1532d96bdfcf1b9c20568849f",
+        "bytes": 5104
+      },
+      {
+        "path": "upstream/playwright-skill/reference/mobile-testing.md",
+        "sha256": "fb2ef9625e5a1069919e7abc34fdbf70630bf1531cdad11476344fd38b8258e7",
+        "bytes": 4423
+      },
+      {
+        "path": "upstream/playwright-skill/reference/page-object-model.md",
+        "sha256": "23e685b8c666ea797676d17792d484ba41f261172109771c04c2445482174660",
+        "bytes": 5131
+      },
+      {
+        "path": "upstream/playwright-skill/reference/playbook.md",
+        "sha256": "80c3e33041a11fc4ff133eb32defda4e2dd3433d00704d5e892a4a3e0c55d351",
+        "bytes": 16928
+      },
+      {
+        "path": "upstream/playwright-skill/reference/python-patterns.md",
+        "sha256": "f9bf44322090f6c041a8b01dc5f1933d6e858dbf5c7c04654136a354cc9a43b0",
+        "bytes": 5389
+      },
+      {
+        "path": "upstream/playwright-skill/scripts/scaffold-project.sh",
+        "sha256": "86490db8b307965ac9262166715f360dff3de890805bc435feaea15d2ab2ab0e",
+        "bytes": 6429
+      },
+      {
+        "path": "upstream/playwright-skill/scripts/validate-config.py",
+        "sha256": "9822bbe70123cbc1031cec8ae995febf93146e821bea156b56fe916cdd087446",
+        "bytes": 3338
+      },
+      {
+        "path": "upstream/playwright-skill/templates/lambdatest-setup.ts",
+        "sha256": "0d9d8b0ac5c8cf82d6791cb55d13b858d83027c064fddd9c83b33804b22300fc",
+        "bytes": 2766
+      },
+      {
+        "path": "upstream/playwright-skill/templates/playwright.config.ts",
+        "sha256": "9742d01bf1e4d59bed03a78ff583c99868142943aba82f1734e105e91ff993bc",
+        "bytes": 2262
+      }
+    ]
+  },
+  {
+    "id": "cypress-skill",
+    "catalogId": "cypress-skill",
+    "name": "cypress-skill",
+    "version": "2.0.0",
+    "repository": "https://github.com/LambdaTest/agent-skills",
+    "commit": "0de6ebfd44b7c67c62171320c4446f13856fc443",
+    "subdirectory": "cypress-skill",
+    "entry": "upstream/cypress-skill/SKILL.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/LambdaTest/agent-skills/blob/0de6ebfd44b7c67c62171320c4446f13856fc443/LICENSE",
+    "description": "Generates production-grade Cypress E2E and component tests in JavaScript\nor TypeScript. Supports local execution and TestMu AI cloud. Use when\nthe user asks to write Cypress tests, set up Cypress, test with cy commands,\nor mentions \"Cypress\", \"cy.visit\", \"cy.get\", \"cy.intercept\". Triggers on:\n\"Cypress\", \"cy.\", \"component test\", \"E2E test\", \"TestMu\", \"LambdaTest\".",
+    "category": "研发效能",
+    "aliases": [
+      "Cypress"
+    ],
+    "dependencies": [
+      "Cypress（可选）"
+    ],
+    "runtimeNotes": [
+      "没有云凭证时只写本地测试。未运行不得宣称通过。"
+    ],
+    "digest": "7091d48562b5e71a4024493a52ab127daf52a46781c60da2a9fbdb7908af686a",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "e6f84c7e8a2b848489204f0ee2909c0b48978d0300c22f1d0f3adc2ebef00bec",
+        "bytes": 1079
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "85f76b53355eb1eb2447a9961d2bf24a3de5b613964eb68b8cec81261b60e635",
+        "bytes": 7362
+      },
+      {
+        "path": "upstream/cypress-skill/SKILL.md",
+        "sha256": "e3925ff1a5aa4764a93b5292f0e1baabc584b4699b5508472a18918cd43522fe",
+        "bytes": 7052
+      },
+      {
+        "path": "upstream/cypress-skill/reference/cloud-integration.md",
+        "sha256": "1558f51069a754c35cd094367da3d14d40117de538a44dd3fef28b07b5ee94cb",
+        "bytes": 1491
+      },
+      {
+        "path": "upstream/cypress-skill/reference/component-testing.md",
+        "sha256": "4eaa77a3d16c45e89f1248f9a25beb157ea626bb9122af465475fa5ffc3b9246",
+        "bytes": 1318
+      },
+      {
+        "path": "upstream/cypress-skill/reference/custom-commands.md",
+        "sha256": "f86613a7b622feadc868075ce9009bb2893e5bc20dfe723b1573a4d8a026ff48",
+        "bytes": 1209
+      },
+      {
+        "path": "upstream/cypress-skill/reference/debugging-flaky.md",
+        "sha256": "b2a339250773e4cfb39b9dbbab2a2db2537ed2f058ada336a726ecd610ffb43d",
+        "bytes": 1624
+      },
+      {
+        "path": "upstream/cypress-skill/reference/playbook.md",
+        "sha256": "490aae2b6f0559a68ebba5bf4d3d5827d678c64fedfcefceea0940b6d71914f7",
+        "bytes": 13280
+      },
+      {
+        "path": "upstream/cypress-skill/scripts/scaffold-project.sh",
+        "sha256": "19ee35e4d831164dd5d8c4ab8335eecfeb278496b8c1f762a37f69b130c31409",
+        "bytes": 870
+      },
+      {
+        "path": "upstream/cypress-skill/templates/cypress.config.js",
+        "sha256": "2aedddc8b7f1c3be5d39c3d7941c4b2eb4056f8f91cabf591b558cb053e8e43e",
+        "bytes": 457
+      }
+    ]
+  },
+  {
+    "id": "jest-skill",
+    "catalogId": "jest-skill",
+    "name": "jest-skill",
+    "version": "2.0.0",
+    "repository": "https://github.com/LambdaTest/agent-skills",
+    "commit": "0de6ebfd44b7c67c62171320c4446f13856fc443",
+    "subdirectory": "jest-skill",
+    "entry": "upstream/jest-skill/SKILL.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/LambdaTest/agent-skills/blob/0de6ebfd44b7c67c62171320c4446f13856fc443/LICENSE",
+    "description": "Generates Jest unit and integration tests in JavaScript or TypeScript.\nCovers mocking, snapshots, async testing, and React component testing.\nUse when user mentions \"Jest\", \"describe/it/expect\", \"jest.mock\",\n\"toMatchSnapshot\". Triggers on: \"Jest\", \"expect().toBe()\", \"jest.mock\",\n\"snapshot test\", \"JS test\", \"React test\".",
+    "category": "研发效能",
+    "aliases": [
+      "Jest"
+    ],
+    "dependencies": [
+      "Jest（项目已有时）"
+    ],
+    "runtimeNotes": [
+      "测试命令以当前仓库脚本为准。"
+    ],
+    "digest": "08c3686880879fe479cb01f867f430e4f880dc560e1a3923653cd1113160a614",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "e6f84c7e8a2b848489204f0ee2909c0b48978d0300c22f1d0f3adc2ebef00bec",
+        "bytes": 1079
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "85f76b53355eb1eb2447a9961d2bf24a3de5b613964eb68b8cec81261b60e635",
+        "bytes": 7362
+      },
+      {
+        "path": "upstream/jest-skill/SKILL.md",
+        "sha256": "c4027b9faea954ddc2a459a751f04eb3b11ff9e6ab88bf20bfcdd00f5e5b2ef7",
+        "bytes": 4896
+      },
+      {
+        "path": "upstream/jest-skill/reference/advanced-patterns.md",
+        "sha256": "8e445ef801adff52bb0f4416929aaf155ff1b2a4d07e09295eb2d53074a78e69",
+        "bytes": 7256
+      },
+      {
+        "path": "upstream/jest-skill/reference/playbook.md",
+        "sha256": "49f26fdd9e9bd1e3dd3734c4534343b8ae6699b170cb5f4d3c2f7b9e09624aeb",
+        "bytes": 13245
+      }
+    ]
+  },
+  {
+    "id": "vitest-skill",
+    "catalogId": "vitest-skill",
+    "name": "vitest-skill",
+    "version": "2.0.0",
+    "repository": "https://github.com/LambdaTest/agent-skills",
+    "commit": "0de6ebfd44b7c67c62171320c4446f13856fc443",
+    "subdirectory": "vitest-skill",
+    "entry": "upstream/vitest-skill/SKILL.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/LambdaTest/agent-skills/blob/0de6ebfd44b7c67c62171320c4446f13856fc443/LICENSE",
+    "description": "Generates Vitest tests in JavaScript/TypeScript with Vite-native speed.\nJest-compatible API with ESM support and HMR. Use when user mentions \"Vitest\",\n\"vi.mock\", \"vitest.config\". Triggers on: \"Vitest\", \"vi.mock\", \"vi.fn\",\n\"Vite test\", \"vitest config\".",
+    "category": "研发效能",
+    "aliases": [
+      "Vitest"
+    ],
+    "dependencies": [
+      "Vitest（项目已有时）"
+    ],
+    "runtimeNotes": [
+      "测试命令以当前仓库脚本为准。"
+    ],
+    "digest": "9465dd4815595b41617cbdb0d5d447fedf312e7ea9583ad48256e9d82f8dbef3",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "e6f84c7e8a2b848489204f0ee2909c0b48978d0300c22f1d0f3adc2ebef00bec",
+        "bytes": 1079
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "85f76b53355eb1eb2447a9961d2bf24a3de5b613964eb68b8cec81261b60e635",
+        "bytes": 7362
+      },
+      {
+        "path": "upstream/vitest-skill/SKILL.md",
+        "sha256": "9621fe2d5f5fa4f955a5242ec451cbd46ad35df55b78559182c74c6387b30319",
+        "bytes": 4010
+      },
+      {
+        "path": "upstream/vitest-skill/reference/advanced-patterns.md",
+        "sha256": "8863defdfccfd74fa110cd52943e9bb0e19cc8767d246f2cb15b488d4d6c87e1",
+        "bytes": 4600
+      },
+      {
+        "path": "upstream/vitest-skill/reference/playbook.md",
+        "sha256": "a06ed3933873a079755db11f71fa77e2295b59adfd69aedb1d9ad46b39f58e62",
+        "bytes": 11962
+      }
+    ]
+  },
+  {
+    "id": "pytest-skill",
+    "catalogId": "pytest-skill",
+    "name": "pytest-skill",
+    "version": "2.0.0",
+    "repository": "https://github.com/LambdaTest/agent-skills",
+    "commit": "0de6ebfd44b7c67c62171320c4446f13856fc443",
+    "subdirectory": "pytest-skill",
+    "entry": "upstream/pytest-skill/SKILL.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/LambdaTest/agent-skills/blob/0de6ebfd44b7c67c62171320c4446f13856fc443/LICENSE",
+    "description": "Generates production-grade pytest tests in Python with fixtures, parametrize,\nmarkers, mocking, and conftest patterns. Use when user mentions \"pytest\",\n\"conftest\", \"@pytest.fixture\", \"@pytest.mark\", \"Python test\". Triggers on:\n\"pytest\", \"conftest\", \"Python test\", \"parametrize\", \"Python unit test\".",
+    "category": "研发效能",
+    "aliases": [
+      "pytest"
+    ],
+    "dependencies": [
+      "pytest（可选）"
+    ],
+    "runtimeNotes": [
+      "未运行pytest时标记未知。"
+    ],
+    "digest": "bc9715d08fbf6af33afddc8a8c5ff8cf85c91f08454f5209b7d518bcb4f075eb",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "e6f84c7e8a2b848489204f0ee2909c0b48978d0300c22f1d0f3adc2ebef00bec",
+        "bytes": 1079
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "85f76b53355eb1eb2447a9961d2bf24a3de5b613964eb68b8cec81261b60e635",
+        "bytes": 7362
+      },
+      {
+        "path": "upstream/pytest-skill/SKILL.md",
+        "sha256": "771b4f0c803eec80b3c6682cdcb7f6561698ec0534261d893a5e41361a9d2fa2",
+        "bytes": 4951
+      },
+      {
+        "path": "upstream/pytest-skill/reference/advanced-patterns.md",
+        "sha256": "324f93cbcc73c9918521f69200b4be3744b7e1219ddf5414bcd59be5e1e782ed",
+        "bytes": 5930
+      },
+      {
+        "path": "upstream/pytest-skill/reference/playbook.md",
+        "sha256": "02da3341634de43d145d1575c5e41a15d654747df38ae2e9c3cd43628eeabb3b",
+        "bytes": 10967
+      }
+    ]
+  },
+  {
+    "id": "selenium-skill",
+    "catalogId": "selenium-skill",
+    "name": "selenium-skill",
+    "version": "2.0.0",
+    "repository": "https://github.com/LambdaTest/agent-skills",
+    "commit": "0de6ebfd44b7c67c62171320c4446f13856fc443",
+    "subdirectory": "selenium-skill",
+    "entry": "upstream/selenium-skill/SKILL.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/LambdaTest/agent-skills/blob/0de6ebfd44b7c67c62171320c4446f13856fc443/LICENSE",
+    "description": "Generates production-grade Selenium WebDriver automation scripts and tests\nin Java, Python, JavaScript, C#, Ruby, or PHP. Supports local execution\nand TestMu AI cloud with 3000+ browser/OS combinations. Use when the user\nasks to write Selenium tests, automate with WebDriver, run cross-browser\ntests on Selenium Grid, or mentions \"Selenium\", \"WebDriver\", \"RemoteWebDriver\",\n\"ChromeDriver\", \"GeckoDriver\". Triggers on: \"Selenium\", \"WebDriver\",\n\"browser automation\", \"Selenium Grid\", \"cross-browser\", \"TestMu\", \"LambdaTest\".",
+    "category": "研发效能",
+    "aliases": [
+      "Selenium"
+    ],
+    "dependencies": [
+      "Selenium（可选）"
+    ],
+    "runtimeNotes": [
+      "没有云凭证时只写本地或现有browser流程。"
+    ],
+    "digest": "88f6e8f06632c5c9317910c7642a8ff69cc9873aac418de6386236b457bca048",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "e6f84c7e8a2b848489204f0ee2909c0b48978d0300c22f1d0f3adc2ebef00bec",
+        "bytes": 1079
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "85f76b53355eb1eb2447a9961d2bf24a3de5b613964eb68b8cec81261b60e635",
+        "bytes": 7362
+      },
+      {
+        "path": "upstream/selenium-skill/SKILL.md",
+        "sha256": "fc6802ecd174946799c85625dad66a743d9431e0708dd732da92467e7a16a92a",
+        "bytes": 9230
+      },
+      {
+        "path": "upstream/selenium-skill/reference/cloud-integration.md",
+        "sha256": "ee24fd9502f7069184d26461045dbf709844939aabce79980823a9a690928c57",
+        "bytes": 4773
+      },
+      {
+        "path": "upstream/selenium-skill/reference/csharp-patterns.md",
+        "sha256": "1c1820afce221f2ff4f7e9dc2541aa9dcef1d7fe4faf1b7d838daa5a2f4d4c49",
+        "bytes": 1851
+      },
+      {
+        "path": "upstream/selenium-skill/reference/debugging-common-issues.md",
+        "sha256": "b3506614acf845dab2475372b30c534530903de30b63676d79c97aabadb105bd",
+        "bytes": 2597
+      },
+      {
+        "path": "upstream/selenium-skill/reference/javascript-patterns.md",
+        "sha256": "ee2feb75defac568771573ec166d3c7e28d3ea81168d85170cda5721b3c8292d",
+        "bytes": 1704
+      },
+      {
+        "path": "upstream/selenium-skill/reference/page-object-model.md",
+        "sha256": "4402a16eb8d45c753013ddf0f9ab338cf987dfaf7b5241b36cf215eda680de4f",
+        "bytes": 2597
+      },
+      {
+        "path": "upstream/selenium-skill/reference/php-patterns.md",
+        "sha256": "bcb1af501e0bbc74e8ac61f0fadcd60e16bc5c2c64f418b33df4e8fd06c49510",
+        "bytes": 3817
+      },
+      {
+        "path": "upstream/selenium-skill/reference/playbook.md",
+        "sha256": "8e7cfec2830158a1a45c210ba304cba364c3baa9b9b0f95f7e996d879c489799",
+        "bytes": 21351
+      },
+      {
+        "path": "upstream/selenium-skill/reference/python-patterns.md",
+        "sha256": "0961b0a253f2c3cd1d91cccbd470b09a55386d2b5f4c3ecaf122db9d087d05f8",
+        "bytes": 2634
+      },
+      {
+        "path": "upstream/selenium-skill/reference/ruby-patterns.md",
+        "sha256": "dca93b1f5b631c8bcbb9ac32f1a5707ab528ca4adb258f0cba805a420d5ee2da",
+        "bytes": 1340
+      },
+      {
+        "path": "upstream/selenium-skill/scripts/scaffold-project.sh",
+        "sha256": "aa9d58f41712589d60b725fd6cdc6afbfc2a543d8223db34bb41baba2d430e7f",
+        "bytes": 1718
+      },
+      {
+        "path": "upstream/selenium-skill/templates/pom.xml",
+        "sha256": "7c254700cf0633fde7a794c651192f914b1196fbfc4c59aa93eca33bc70fb284",
+        "bytes": 1084
+      }
+    ]
+  },
+  {
+    "id": "cicd-pipeline-skill",
+    "catalogId": "cicd-pipeline-skill",
+    "name": "cicd-pipeline-skill",
+    "version": "2.0.0",
+    "repository": "https://github.com/LambdaTest/agent-skills",
+    "commit": "0de6ebfd44b7c67c62171320c4446f13856fc443",
+    "subdirectory": "cicd-pipeline-skill",
+    "entry": "upstream/cicd-pipeline-skill/SKILL.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/LambdaTest/agent-skills/blob/0de6ebfd44b7c67c62171320c4446f13856fc443/LICENSE",
+    "description": "Generates CI/CD pipeline configurations for test automation with GitHub Actions,\nJenkins, GitLab CI, and Azure DevOps. Includes TestMu AI cloud integration.\nUse when user mentions \"CI/CD\", \"pipeline\", \"GitHub Actions\", \"Jenkins\",\n\"GitLab CI\". Triggers on: \"CI/CD\", \"pipeline\", \"GitHub Actions\", \"Jenkins\",\n\"GitLab CI\", \"Azure DevOps\", \"automated testing pipeline\".",
+    "category": "研发效能",
+    "aliases": [
+      "CI/CD测试"
+    ],
+    "dependencies": [],
+    "runtimeNotes": [
+      "对照仓库真实CI文件。未触发流水线不得宣称已绿。"
+    ],
+    "digest": "5799a40ac4034efe19cbac1674a78d94ee4b0c1b23e8b1576db537a29ddd93af",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "e6f84c7e8a2b848489204f0ee2909c0b48978d0300c22f1d0f3adc2ebef00bec",
+        "bytes": 1079
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "85f76b53355eb1eb2447a9961d2bf24a3de5b613964eb68b8cec81261b60e635",
+        "bytes": 7362
+      },
+      {
+        "path": "upstream/cicd-pipeline-skill/SKILL.md",
+        "sha256": "d23bd09f4dd50ad33ab87b4c19e86a0d211b0895a748645b0df0480a396d6c83",
+        "bytes": 2996
+      },
+      {
+        "path": "upstream/cicd-pipeline-skill/reference/playbook.md",
+        "sha256": "35b8215adfc2462312f21050fd60578c7e04b4aa4bf665b757af84baf844a9ee",
+        "bytes": 14480
+      }
+    ]
+  },
+  {
+    "id": "duckdb-attach-db",
+    "catalogId": "attach-db",
+    "name": "attach-db",
+    "version": "2.0.0",
+    "repository": "https://github.com/duckdb/duckdb-skills",
+    "commit": "7feda8e01e22bc0886c86123f3884947e36d8c69",
+    "subdirectory": "skills/attach-db",
+    "entry": "upstream/skills/attach-db/SKILL.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/duckdb/duckdb-skills/blob/7feda8e01e22bc0886c86123f3884947e36d8c69/LICENSE",
+    "description": "Attach a DuckDB database file for use with /duckdb-skills:query.\nExplores the schema (tables, columns, row counts) and writes a SQL state file\nso subsequent queries can restore this session automatically via duckdb -init.",
+    "category": "研发效能",
+    "aliases": [
+      "DuckDB挂载"
+    ],
+    "dependencies": [
+      "duckdb CLI"
+    ],
+    "runtimeNotes": [
+      "本机未安装duckdb时只准备SQL，不假装已查询。"
+    ],
+    "digest": "111cf56f9b0cb5ec53f00d3ebd4e587a892a03b92e2c5b7709210b06f020f205",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "7e17fd31249fa875cb3b1c5e05c6c3e99b75509f6a2804ca176c217834de1dcb",
+        "bytes": 1072
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "3b9ca1ae24420d24d46bb100f75f4feb80f9ef06ce2b1c96c83cee7a777561eb",
+        "bytes": 5692
+      },
+      {
+        "path": "upstream/skills/attach-db/SKILL.md",
+        "sha256": "778075c35b56dbb4c2a4974d2377a091f84d476dd13df28c2c546d8e22114af0",
+        "bytes": 4804
+      }
+    ]
+  },
+  {
+    "id": "duckdb-query",
+    "catalogId": "duckdb-query",
+    "name": "query",
+    "version": "2.0.0",
+    "repository": "https://github.com/duckdb/duckdb-skills",
+    "commit": "7feda8e01e22bc0886c86123f3884947e36d8c69",
+    "subdirectory": "skills/query",
+    "entry": "upstream/skills/query/SKILL.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/duckdb/duckdb-skills/blob/7feda8e01e22bc0886c86123f3884947e36d8c69/LICENSE",
+    "description": "Run SQL queries against the attached DuckDB database or ad-hoc against files.\nAccepts raw SQL or natural language questions. Uses DuckDB Friendly SQL idioms.",
+    "category": "研发效能",
+    "aliases": [
+      "DuckDB查询"
+    ],
+    "dependencies": [
+      "duckdb CLI",
+      "attach-db或可读文件"
+    ],
+    "runtimeNotes": [
+      "只报告真实查询输出。"
+    ],
+    "digest": "76a82420778f9bcdd6a1b573ada56c6cb05381524e705c5b98a7205ab6135041",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "7e17fd31249fa875cb3b1c5e05c6c3e99b75509f6a2804ca176c217834de1dcb",
+        "bytes": 1072
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "3b9ca1ae24420d24d46bb100f75f4feb80f9ef06ce2b1c96c83cee7a777561eb",
+        "bytes": 5692
+      },
+      {
+        "path": "upstream/skills/query/SKILL.md",
+        "sha256": "c66aedb3a0c6efe45cbc1fdd6b819002da91b5831e13c087552c2f8eeac8ec99",
+        "bytes": 7955
+      }
+    ]
+  },
+  {
+    "id": "duckdb-read-file",
+    "catalogId": "duckdb-read-file",
+    "name": "read-file",
+    "version": "2.0.0",
+    "repository": "https://github.com/duckdb/duckdb-skills",
+    "commit": "7feda8e01e22bc0886c86123f3884947e36d8c69",
+    "subdirectory": "skills/read-file",
+    "entry": "upstream/skills/read-file/SKILL.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/duckdb/duckdb-skills/blob/7feda8e01e22bc0886c86123f3884947e36d8c69/LICENSE",
+    "description": "Read any data file (CSV, JSON, Parquet, Avro, Excel, spatial, SQLite) or remote URL (S3, HTTPS).\nUse when user references a data file, asks \"what's in this file\", or wants to preview/profile a dataset.\nNot for source code.",
+    "category": "研发效能",
+    "aliases": [
+      "DuckDB读文件"
+    ],
+    "dependencies": [
+      "duckdb CLI"
+    ],
+    "runtimeNotes": [
+      "远程S3/GCS需要用户已有凭证。没有凭证就停在本地文件。"
+    ],
+    "digest": "5d98358e0c58ed2cc45930cf6657fa884119fad7d86513d06abfe2e66f48e3aa",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "7e17fd31249fa875cb3b1c5e05c6c3e99b75509f6a2804ca176c217834de1dcb",
+        "bytes": 1072
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "3b9ca1ae24420d24d46bb100f75f4feb80f9ef06ce2b1c96c83cee7a777561eb",
+        "bytes": 5692
+      },
+      {
+        "path": "upstream/skills/read-file/SKILL.md",
+        "sha256": "ab75a9963471a178e1bc0db581386d6b8fe4de98483b19008d037325d263d729",
+        "bytes": 3675
+      }
+    ]
+  },
+  {
+    "id": "duckdb-docs",
+    "catalogId": "duckdb-docs",
+    "name": "duckdb-docs",
+    "version": "2.0.0",
+    "repository": "https://github.com/duckdb/duckdb-skills",
+    "commit": "7feda8e01e22bc0886c86123f3884947e36d8c69",
+    "subdirectory": "skills/duckdb-docs",
+    "entry": "upstream/skills/duckdb-docs/SKILL.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/duckdb/duckdb-skills/blob/7feda8e01e22bc0886c86123f3884947e36d8c69/LICENSE",
+    "description": "Search DuckDB and DuckLake documentation and blog posts. Returns relevant\ndoc chunks for a question or keyword using full-text search against a\nlocally cached index.",
+    "category": "研发效能",
+    "aliases": [
+      "DuckDB文档"
+    ],
+    "dependencies": [],
+    "runtimeNotes": [
+      "文档检索失败时标明未知，不编造SQL方言。"
+    ],
+    "digest": "bf9e6566fe6022fed3eef09d8c88464ef61ca5363cf6504f402c76646343a30a",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "7e17fd31249fa875cb3b1c5e05c6c3e99b75509f6a2804ca176c217834de1dcb",
+        "bytes": 1072
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "3b9ca1ae24420d24d46bb100f75f4feb80f9ef06ce2b1c96c83cee7a777561eb",
+        "bytes": 5692
+      },
+      {
+        "path": "upstream/skills/duckdb-docs/SKILL.md",
+        "sha256": "e6388de6257665f71da783b4d4e7b3072d788c0fbc4ce280959fb3c9191d4489",
+        "bytes": 5708
+      }
+    ]
+  },
+  {
+    "id": "awesome-agent-skills",
+    "catalogId": "awesome-agent-skills",
+    "name": "awesome-agent-skills",
+    "version": "2.0.0",
+    "repository": "https://github.com/VoltAgent/awesome-agent-skills",
+    "commit": "8873794bcb26ff5dcf9cd518c87cf5638ca44b92",
+    "subdirectory": "",
+    "entry": "upstream/README.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/VoltAgent/awesome-agent-skills/blob/8873794bcb26ff5dcf9cd518c87cf5638ca44b92/LICENSE",
+    "description": "Curated index of official and community agent skills. Use to discover a skill, then install it through Lunitide catalog — not by vendoring the whole list.",
+    "category": "研发效能",
+    "aliases": [
+      "技能索引",
+      "awesome skills"
+    ],
+    "dependencies": [],
+    "runtimeNotes": [
+      "这是发现索引，不是1000个技能的源码包。匹配后走skill.catalog.list与skill.install。",
+      "npx skills或其他宿主安装结果无效。"
+    ],
+    "digest": "4526e475c5fe5081e92c7d447c8d3e212d5c4caedd533b601ce9affba764bd0e",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "17a5b3b9a701b28197b4f921c363d0eba6d7a77f8289fa1aa34df572be7ce5b6",
+        "bytes": 1066
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "ed28292423dc69289df212f01746b6975b61a0f8442523d3dfe2a5d592e3d0c5",
+        "bytes": 255384
+      }
+    ]
+  },
+  {
+    "id": "skill-doctor",
+    "catalogId": "skill-doctor",
+    "name": "skill-doctor",
+    "version": "2.0.0",
+    "repository": "https://github.com/alirezarezvani/claude-skills",
+    "commit": "19392f7a08264ed00486a251f5b2098321771f94",
+    "subdirectory": "engineering/skill-doctor",
+    "entry": "upstream/engineering/skill-doctor/skills/skill-doctor/SKILL.md",
+    "license": "MIT",
+    "licenseEvidence": "https://github.com/alirezarezvani/claude-skills/blob/19392f7a08264ed00486a251f5b2098321771f94/LICENSE",
+    "description": "Use when the user wants their agent setup graded from real conversation history, asks which installed skills are actually working, or wants evidence-backed skill edits — scores recent local Claude Code / Codex sessions against efficiency and code-quality rubrics, then drafts skill changes gated by a deterministic aggregator and renders one local shareable report.",
+    "category": "研发效能",
+    "aliases": [
+      "技能审计",
+      "skill auditor"
+    ],
+    "dependencies": [],
+    "runtimeNotes": [
+      "只审计用户指定的技能文件。388项工程库未整包分发。",
+      "审计结论必须引用真实文件，不把外部榜单当已安装证据。"
+    ],
+    "digest": "3822250b7daed3b6d5fecc33f180a0ab3e88f9e484a2201547d1405d4ec47d81",
+    "resources": [
+      {
+        "path": "upstream/LICENSE",
+        "sha256": "a20126646f93d32a8989c3cf4772d59194f405034f7babe7daebeac22b8ab151",
+        "bytes": 1072
+      },
+      {
+        "path": "upstream/README.md",
+        "sha256": "f7a1b881bc5abf370e6eb83eaf1a34488b9595a6464de7613d1ec6207acb8195",
+        "bytes": 26216
+      },
+      {
+        "path": "upstream/engineering/skill-doctor/.claude-plugin/authoring-notes.json",
+        "sha256": "5eddedc4dc66e0a290d5889682f0e0d1d8d801e74144f775a91d244470d666f5",
+        "bytes": 1333
+      },
+      {
+        "path": "upstream/engineering/skill-doctor/.claude-plugin/plugin.json",
+        "sha256": "18a36c7decc479bd1be9c26640014e406427f51bb4391324a33ff47f9e8b5dfd",
+        "bytes": 1318
+      },
+      {
+        "path": "upstream/engineering/skill-doctor/LICENSE",
+        "sha256": "5a1c0ef303aeb1d82b28e34c14a14a182291f9fde4d474ea1330cd65d10a27db",
+        "bytes": 1848
+      },
+      {
+        "path": "upstream/engineering/skill-doctor/README.md",
+        "sha256": "143928455e3b9dff285c6bc03be8005ee83263d10a2fda8c36306156fd4d1dab",
+        "bytes": 10094
+      },
+      {
+        "path": "upstream/engineering/skill-doctor/agents/cs-skill-doctor.md",
+        "sha256": "8f6bdf3a5c547008c1a2928ac510e4ecfdb2b37dea9cd304f81e2988cf102a06",
+        "bytes": 2906
+      },
+      {
+        "path": "upstream/engineering/skill-doctor/commands/cs-skill-doctor.md",
+        "sha256": "4ca6aa07937b5261656377ce9f06d53c880b889368a4c5370576207a93200db1",
+        "bytes": 2245
+      },
+      {
+        "path": "upstream/engineering/skill-doctor/skills/skill-doctor/SKILL.md",
+        "sha256": "068bb9078ec1313072bb91b285d8c4ed5ef3d5af3d27aba5162aa788a5877a1f",
+        "bytes": 6252
+      },
+      {
+        "path": "upstream/engineering/skill-doctor/skills/skill-doctor/assets/report.example.json",
+        "sha256": "38471fbe2bf14e6f09e428ba4dddf3da4c62c6174853fe19658ca9a2a5b7eedc",
+        "bytes": 2132
+      },
+      {
+        "path": "upstream/engineering/skill-doctor/skills/skill-doctor/assets/session_scores.example.json",
+        "sha256": "2e4532b875fd440dfdb0fffe16bb1eb236de912bfe5ef5d4b09d390badebd675",
+        "bytes": 1675
+      },
+      {
+        "path": "upstream/engineering/skill-doctor/skills/skill-doctor/assets/suggestions.example.json",
+        "sha256": "c63251fee176c82e55462700efa99517e8ba77e8602a96f7efab3036d8e95d51",
+        "bytes": 1197
+      },
+      {
+        "path": "upstream/engineering/skill-doctor/skills/skill-doctor/references/session_mining_privacy.md",
+        "sha256": "4e1f0ad1e5260d502033de909f391a056efd6f863f7231eeae76bc5afe663343",
+        "bytes": 5082
+      },
+      {
+        "path": "upstream/engineering/skill-doctor/skills/skill-doctor/references/skill_edit_governance.md",
+        "sha256": "d97479e3bb8378b682fee9fde74596336230e799d2634a4c1e4e87816601910d",
+        "bytes": 5895
+      },
+      {
+        "path": "upstream/engineering/skill-doctor/skills/skill-doctor/references/transcript_scoring_canon.md",
+        "sha256": "b7700e80b4be90316123ee2543f02cfebb47d022be307a9724199791a3dfd3fb",
+        "bytes": 4804
+      },
+      {
+        "path": "upstream/engineering/skill-doctor/skills/skill-doctor/scorers/code-quality.md",
+        "sha256": "8d53db1c0a708519444dd2a9295f0dd52054cda7ee4fcb7cbcc5b1fa615ac798",
+        "bytes": 4781
+      },
+      {
+        "path": "upstream/engineering/skill-doctor/skills/skill-doctor/scorers/efficiency.md",
+        "sha256": "35332dc761e31f0086568bbae529005f98358359a288a86d20bf7e921aae298e",
+        "bytes": 3340
+      },
+      {
+        "path": "upstream/engineering/skill-doctor/skills/skill-doctor/scripts/collect_sessions.py",
+        "sha256": "92da8305347656b09badc82f1d87a65f9c68cba0f2b18fb3a656760e684cd499",
+        "bytes": 33284
+      },
+      {
+        "path": "upstream/engineering/skill-doctor/skills/skill-doctor/scripts/render_report.py",
+        "sha256": "b94da2240ce7dd159204f002a5893003127c87b5baa06d205937ca3cac9e2ef8",
+        "bytes": 11737
+      },
+      {
+        "path": "upstream/engineering/skill-doctor/skills/skill-doctor/scripts/score_aggregator.py",
+        "sha256": "58f3fd124281ccde3b3bdd44842059549044013a590c416031b8247c8fc160d0",
+        "bytes": 15734
+      }
+    ]
   }
 ]

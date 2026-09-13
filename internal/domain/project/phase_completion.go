@@ -84,3 +84,35 @@ func ReleasePhase(t Type) int {
 	}
 	return 8
 }
+
+func DevPhase(t Type) int {
+	if t == TypeOperations {
+		return 4
+	}
+	return 5
+}
+
+func TestPhase(t Type) int {
+	if t == TypeOperations {
+		return 5
+	}
+	return 6
+}
+
+func DesignPhase(t Type) int {
+	return 2
+}
+
+func DBPhase(t Type) int {
+	if t == TypeOperations {
+		return 2
+	}
+	return 3
+}
+
+func InterfacePhase(t Type) int {
+	if t == TypeOperations {
+		return 3
+	}
+	return 4
+}

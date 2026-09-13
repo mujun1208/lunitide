@@ -19,6 +19,8 @@ import {
   type CrMember,
 } from './crRevision'
 import { releasePhaseForType } from './deliverableTypes'
+import { projectFactoryApi } from './projectFactoryApi'
+import { projectSpineApi } from './projectSpineApi'
 
 function releaseUserError(err: unknown, fallback: string): string {
   const detail = err instanceof Error ? err.message.trim() : ''
@@ -62,6 +64,7 @@ export function ReleasePanel({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [note, setNote] = useState('')
+  const [destPath, setDestPath] = useState('')
 
   const loadRevision = useCallback(async () => {
     if (!crId) return
@@ -146,6 +149,34 @@ export function ReleasePanel({
     }
   }
 
+  const pickDest = async () => {
+    if (readOnly || busy) return
+    setBusy(true)
+    setError('')
+    try {
+      const picked = await projectSpineApi.rootPick()
+      if (!picked.canceled && picked.path) setDestPath(picked.path)
+    } catch (e) {
+      setError(problem(e).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const syncDest = async () => {
+    if (readOnly || busy || !project || !destPath.trim()) return
+    setBusy(true)
+    setError('')
+    try {
+      await projectFactoryApi.releaseSync({ projectId: project.id, destPath: destPath.trim() })
+      setNote('已同步到选定目录并写下回执。')
+    } catch (e) {
+      setError(problem(e).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const completePreparation = async () => {
     if (readOnly || busy || !project) return
     setBusy(true)
@@ -170,7 +201,7 @@ export function ReleasePanel({
         <section className="release-section">
           <h4>发布检查</h4>
           <ul className="release-checks">{CHECKS.map(c => <li key={c}>{c}</li>)}</ul>
-          <p className="gate-note">当前发布生成本地制品，尚未配置外部部署环境。完成发布准备不会把项目标记为已上线。</p>
+          <p className="gate-note">同步是复制到你选的目录，不是外部生产发布。当前发布生成本地制品，尚未配置外部部署环境。完成发布准备不会把项目标记为已上线。</p>
         </section>
         <section className="release-section">
           <h4>CR 修订时间线</h4>
@@ -209,6 +240,11 @@ export function ReleasePanel({
               </>
             )}
             {promotionId && <p className="release-result">promotionId: <code>{promotionId}</code></p>}
+            <label>同步目录<input value={destPath} onChange={e => setDestPath(e.target.value)} placeholder="选择或粘贴目标目录" disabled={readOnly || busy} /></label>
+            <div className="checklist-actions">
+              <button type="button" disabled={busy} onClick={() => void pickDest()}>选择同步目录</button>
+              <button type="button" className="primary" disabled={busy || !destPath.trim()} onClick={() => void syncDest()}>同步到选定目录</button>
+            </div>
             <button type="button" disabled={busy} onClick={() => void completePreparation()}>核验制品并完成发布准备</button>
           </>
         )}

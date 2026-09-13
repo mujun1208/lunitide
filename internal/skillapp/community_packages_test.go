@@ -60,7 +60,7 @@ func TestCommunitySourcesArePinnedCompleteAndPortable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(packages) != 37 {
+	if len(packages) != 68 {
 		t.Fatalf("reviewed package inventory changed: %d", len(packages))
 	}
 	seen := map[string]bool{}
@@ -166,6 +166,50 @@ func TestCommunitySourceReceiptCannotBeForgedByName(t *testing.T) {
 	files, err := BundledPackageFiles(skill.Skill{Name: "skill-creator", Version: "2.0.0", ManifestJSON: `{"prompt":"user-created content"}`})
 	if err != nil || files != nil {
 		t.Fatal("name alone attached official resources")
+	}
+}
+
+func TestFactoryTableCommunitySkillsPresent(t *testing.T) {
+	want := []string{
+		"mcp-builder",
+		"vercel-optimize", "writing-guidelines", "composition-patterns",
+		"react-view-transitions", "react-native-skills", "deploy-to-vercel",
+		"matt-handoff", "caveman",
+		"codeql", "semgrep", "sarif-parsing", "variant-analysis",
+		"supply-chain-risk-auditor", "modern-python", "modern-cpp",
+		"rust-review", "property-based-testing",
+		"playwright-skill", "cypress-skill", "jest-skill", "vitest-skill",
+		"pytest-skill", "selenium-skill", "cicd-pipeline-skill",
+		"duckdb-attach-db", "duckdb-query", "duckdb-read-file", "duckdb-docs",
+		"awesome-agent-skills", "skill-doctor",
+	}
+	packages, err := CommunityPackages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]CommunityPackage{}
+	for _, pkg := range packages {
+		seen[pkg.ID] = pkg
+	}
+	for _, id := range want {
+		pkg, ok := seen[id]
+		if !ok {
+			t.Fatalf("missing factory-table package %s", id)
+		}
+		if len(pkg.Commit) != 40 || pkg.License == "" || pkg.LicenseEvidence == "" {
+			t.Fatalf("incomplete provenance: %s", id)
+		}
+		if _, err := PackageFiles(communitySkillForTest(t, pkg.CatalogID)); err != nil {
+			t.Fatalf("%s package files: %v", id, err)
+		}
+		for _, tpl := range Catalog() {
+			if tpl.ID != pkg.CatalogID {
+				continue
+			}
+			if tpl.Bundled || tpl.Compose {
+				t.Fatalf("factory-table entry auto-installed: %s", id)
+			}
+		}
 	}
 }
 

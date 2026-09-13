@@ -24,6 +24,15 @@ vi.mock('./RegistryPanel', () => ({ RegistryPanel: () => <div data-testid="regis
 vi.mock('./ReleasePanel', () => ({ ReleasePanel: () => <div data-testid="release-panel">发布</div> }))
 
 vi.mock('./phaseExperts', () => ({ applySessionPhaseExperts: vi.fn().mockResolvedValue([]) }))
+vi.mock('./projectSpineApi', () => ({
+  projectSpineApi: {
+    treeGet: vi.fn().mockResolvedValue({ tree: { version: 1, dirs: ['src'], phaseMap: {}, codeRoot: 'src' }, treeStatus: 'none' }),
+    treeMaterialize: vi.fn(),
+    rootPick: vi.fn(),
+    rootRebind: vi.fn(),
+  },
+  shortRootPath: (path: string) => path,
+}))
 
 beforeEach(() => {
   localStorage.removeItem(`lunitide:project-phase:${project.id}`)
@@ -142,4 +151,37 @@ it('creates a phase session when none exist for the active stage', async () => {
   )
   await waitFor(() => expect(sessions.create).toHaveBeenCalledOnce())
   expect(await screen.findByTestId('workbench-chat')).toHaveTextContent(`home:${created.id}:${created.title}:1:nested`)
+})
+
+it('offers to materialize the tree when a root exists but dirs are missing', async () => {
+  render(
+    <ProjectWorkbenchShell
+      project={{ ...project, rootPath: 'D:\\work\\mall', treeStatus: 'none' }}
+      projects={{} as ProjectBridge}
+      sessions={{ list: vi.fn().mockResolvedValue({ items: [phase1Session] }), create: vi.fn(), update: vi.fn(), delete: vi.fn() } as unknown as SessionBridge}
+      messages={{} as MessageBridge}
+      stages={{ list: vi.fn().mockResolvedValue({ items: [] }), create: vi.fn(), update: vi.fn() } as unknown as StageBridge}
+      chat={{} as ChatBridge}
+      providers={{} as ProviderBridge}
+      onBack={vi.fn()}
+    />,
+  )
+  expect(await screen.findByText('尚未生成项目目录')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '仅补生成目录' })).toBeInTheDocument()
+})
+
+it('asks history projects to pick a root before claiming the tree is ready', async () => {
+  render(
+    <ProjectWorkbenchShell
+      project={project}
+      projects={{} as ProjectBridge}
+      sessions={{ list: vi.fn().mockResolvedValue({ items: [phase1Session] }), create: vi.fn(), update: vi.fn(), delete: vi.fn() } as unknown as SessionBridge}
+      messages={{} as MessageBridge}
+      stages={{ list: vi.fn().mockResolvedValue({ items: [] }), create: vi.fn(), update: vi.fn() } as unknown as StageBridge}
+      chat={{} as ChatBridge}
+      providers={{} as ProviderBridge}
+      onBack={vi.fn()}
+    />,
+  )
+  expect(await screen.findByText('补选项目根')).toBeInTheDocument()
 })

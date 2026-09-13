@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/project.test.run.schema.json",
+  "title": "project.test.run payload",
+  "x-method": "project.test.run",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "projectId": {
+      "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "itemId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "command": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "evidence": {
+      "type": "string",
+      "maxLength": 2000
+    }
+  },
+  "required": [
+    "projectId",
+    "itemId",
+    "kind"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": true
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "projectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "itemId": "T-F001",
+        "kind": "unit"
+      }
+    ],
+    "negative": [
+      {}
+    ]
+  }
+}

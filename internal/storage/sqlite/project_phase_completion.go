@@ -12,6 +12,8 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/deliverable"
 	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/projectapp"
+	"github.com/lunitide/lunitide/internal/projectrules"
+	"github.com/lunitide/lunitide/internal/projecttree"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/oklog/ulid/v2"
 )
@@ -103,6 +105,40 @@ func (t *txAdapter) CompleteProjectPhase(ctx context.Context, id string, version
 		}
 		evidence = append(evidence, receipt)
 	}
+	if err = t.enforceFactoryGates(ctx, p, phase); err != nil {
+		return p, err
+	}
+	if phase == project.DevPhase(p.Type) {
+		if err = t.enforceDevChecklist(ctx, p); err != nil {
+			return p, err
+		}
+	}
+	if phase == project.TestPhase(p.Type) {
+		if err = t.enforceTestChecklist(ctx, p); err != nil {
+			return p, err
+		}
+	}
+	if phase == 7 && p.Type != project.TypeOperations {
+		if err = t.enforceDevChecklist(ctx, p); err != nil {
+			return p, err
+		}
+		if err = t.enforceTestChecklist(ctx, p); err != nil {
+			return p, err
+		}
+	}
+	var treeStatus project.TreeStatus
+	var treeDigest, treeAt string
+	var rulesMan projectrules.Manifest
+	if phase == 1 {
+		treeStatus, treeDigest, treeAt, err = t.materializeBoundTree(ctx, p)
+		if err != nil {
+			return p, err
+		}
+		rulesMan, err = t.materializeRulesTx(ctx, p)
+		if err != nil {
+			return p, projectapp.ErrRulesFailed
+		}
+	}
 	now := time.Now().UTC()
 	for _, key := range project.RequiredPhaseDocuments(p.Type, phase) {
 		d := docs[key]
@@ -132,13 +168,43 @@ func (t *txAdapter) CompleteProjectPhase(ctx context.Context, id string, version
 	if n != 1 {
 		return p, phaseGateError("stage changed")
 	}
-	p, err = t.UpdateProject(ctx, id, version, func(p *project.Project) error { p.Status = next; return nil })
+	if phase == project.DevPhase(p.Type) {
+		if err = t.seedTestChecklist(ctx, p); err != nil {
+			return p, err
+		}
+	}
+	p, err = t.UpdateProject(ctx, id, version, func(cur *project.Project) error {
+		cur.Status = next
+		if phase == 1 {
+			cur.TreeStatus = treeStatus
+			cur.TreeDigest = treeDigest
+			cur.TreeGeneratedAt = treeAt
+			cur.RulesDigest = rulesMan.Digest
+			cur.RulesMaterializedAt = rulesMan.MaterializedAt
+		}
+		return nil
+	})
 	if err != nil {
 		return p, err
 	}
 	meta, _ := json.Marshal(map[string]any{"projectId": id, "phase": phase, "version": stageVersion + 1, "evidence": evidence})
 	err = t.PutAudit(ctx, providerapp.Audit{ID: ulid.Make().String(), Action: "stage.updated", AggregateID: stageID, Actor: "desktop-host", Metadata: meta, CreatedAt: now})
 	return p, err
+}
+
+func (t *txAdapter) materializeBoundTree(ctx context.Context, p project.Project) (project.TreeStatus, string, string, error) {
+	if p.RootPath == "" {
+		return "", "", "", projectapp.ErrRootRequired
+	}
+	tree, err := t.resolveBoundTree(ctx, p)
+	if err != nil {
+		return "", "", "", projectapp.ErrTreeInvalid
+	}
+	receipt, err := projecttree.Materialize(p.RootPath, tree)
+	if err != nil {
+		return project.TreeFailed, receipt.Digest, "", projectapp.ErrTreeFailed
+	}
+	return project.TreeReady, receipt.Digest, time.Now().UTC().Format(time.RFC3339), nil
 }
 
 func (t *txAdapter) phaseEvidence(ctx context.Context, d deliverable.ProjectDeliverable) (map[string]any, error) {

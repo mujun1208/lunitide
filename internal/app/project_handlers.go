@@ -10,6 +10,10 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/projectapp"
+	"github.com/lunitide/lunitide/internal/projectgen"
+	"github.com/lunitide/lunitide/internal/projectroot"
+	"github.com/lunitide/lunitide/internal/projectrules"
+	"github.com/lunitide/lunitide/internal/projectschema"
 )
 
 const projectMutationActor = "desktop-host"
@@ -33,24 +37,43 @@ type projectDTO struct {
 	StatusBeforeClose project.Status `json:"statusBeforeClose,omitempty"`
 	ReopenReason      string         `json:"reopenReason,omitempty"`
 	Status            project.Status `json:"status"`
-	OrgID             string         `json:"orgId,omitempty"`
-	SpaceID           string         `json:"spaceId,omitempty"`
-	CreatedAt         time.Time      `json:"createdAt"`
-	UpdatedAt         time.Time      `json:"updatedAt"`
-	Version           int64          `json:"version"`
+	OrgID             string               `json:"orgId,omitempty"`
+	SpaceID           string               `json:"spaceId,omitempty"`
+	RootPath          string               `json:"rootPath,omitempty"`
+	TreeStatus        project.TreeStatus   `json:"treeStatus,omitempty"`
+	TreeDigest        string               `json:"treeDigest,omitempty"`
+	TreeGeneratedAt   string               `json:"treeGeneratedAt,omitempty"`
+	DefaultExecutor      project.Executor     `json:"defaultExecutor,omitempty"`
+	RulesDigest          string               `json:"rulesDigest,omitempty"`
+	RulesMaterializedAt  string               `json:"rulesMaterializedAt,omitempty"`
+	DBStatus             project.DBStatus     `json:"dbStatus,omitempty"`
+	DBPath               string               `json:"dbPath,omitempty"`
+	DBDigest             string               `json:"dbDigest,omitempty"`
+	DBVerifiedAt         string               `json:"dbVerifiedAt,omitempty"`
+	CreatedAt         time.Time            `json:"createdAt"`
+	UpdatedAt         time.Time            `json:"updatedAt"`
+	Version           int64                `json:"version"`
 }
 
 func newProjectDTO(p project.Project) projectDTO {
 	p.Status = project.NormalizeStatus(p.Status)
-	return projectDTO{
+	dto := projectDTO{
 		ID: p.ID, Name: p.Name, ProjectCode: p.ProjectCode, Type: p.Type,
 		Description: p.Description, Summary: p.Summary, Objective: p.Objective,
 		Client: p.Client, ContractNo: p.ContractNo, Amount: p.Amount, Budget: p.Budget,
 		PlanStart: p.PlanStart, PlanEnd: p.PlanEnd, Remark: p.Remark,
 		CloseReason: p.CloseReason, StatusBeforeClose: p.StatusBeforeClose,
 		ReopenReason: p.ReopenReason, Status: p.Status, OrgID: p.OrgID, SpaceID: p.SpaceID,
+		RootPath: p.RootPath, TreeStatus: p.TreeStatus, TreeDigest: p.TreeDigest,
+		TreeGeneratedAt: p.TreeGeneratedAt, DefaultExecutor: p.DefaultExecutor,
+		RulesDigest: p.RulesDigest, RulesMaterializedAt: p.RulesMaterializedAt,
+		DBStatus: p.DBStatus, DBPath: p.DBPath, DBDigest: p.DBDigest, DBVerifiedAt: p.DBVerifiedAt,
 		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Version: p.Version,
 	}
+	if dto.DBStatus == project.DBNone {
+		dto.DBStatus = ""
+	}
+	return dto
 }
 
 func (e *Engine) boundOrgID(ctx context.Context) (string, error) {
@@ -79,6 +102,7 @@ type projectCreatePayload struct {
 	PlanStart   string  `json:"planStart"`
 	PlanEnd     string  `json:"planEnd"`
 	Remark      string  `json:"remark"`
+	RootPath    string  `json:"rootPath"`
 }
 
 func clampText(raw string, max int) string {
@@ -114,7 +138,7 @@ func handleProjectCreate(e *Engine, ctx context.Context, r bridge.Request) bridg
 		Objective: clampText(p.Objective, 2000), Client: clampText(p.Client, 200),
 		ContractNo: clampText(p.ContractNo, 100), Amount: p.Amount, Budget: p.Budget,
 		PlanStart: p.PlanStart, PlanEnd: p.PlanEnd, Remark: clampText(p.Remark, 2000),
-		Status: project.StatusCreated, OrgID: orgID,
+		RootPath: strings.TrimSpace(p.RootPath), Status: project.StatusCreated, OrgID: orgID,
 	}
 	// Ordinary and companion chat share this internal storage container. Their
 	// existing renderer sends only this reserved name, not a business-project
@@ -124,6 +148,9 @@ func handleProjectCreate(e *Engine, ctx context.Context, r bridge.Request) bridg
 	if p == (projectCreatePayload{Name: "\u2063月汐·普通对话"}) {
 		candidate.Type = project.TypeImplementation
 	} else if err := project.ValidateCreateBusinessFields(candidate); err != nil {
+		if err.Error() == "project root path is required" {
+			return r.Fail("PROJECT_ROOT_REQUIRED", "请选择项目根目录", false)
+		}
 		return r.Fail("BRIDGE_SCHEMA_INVALID", projectCreateFieldMessage(err), false)
 	}
 	created, err := e.projects.Create(ctx, r.IdempotencyKey, projectMutationActor, struct {
@@ -217,6 +244,7 @@ type projectUpdatePayload struct {
 	PlanStart   string  `json:"planStart"`
 	PlanEnd     string  `json:"planEnd"`
 	Remark      string  `json:"remark"`
+	RootPath    string  `json:"rootPath"`
 }
 
 func handleProjectMutate(e *Engine, ctx context.Context, r bridge.Request, action, id string, version int64, reason string, request any, apply func(*project.Project) error) bridge.Response {
@@ -317,6 +345,25 @@ func handleProjectUpdate(e *Engine, ctx context.Context, r bridge.Request) bridg
 		cur.Amount, cur.Budget = body.Amount, body.Budget
 		cur.PlanStart, cur.PlanEnd = body.PlanStart, body.PlanEnd
 		cur.Remark = clampText(body.Remark, 2000)
+		if body.RootPath != "" && cur.Status == project.StatusCreated {
+			normalized, nerr := projectroot.Normalize(body.RootPath)
+			if nerr != nil {
+				return projectapp.ErrRootInvalid
+			}
+			if err := projectroot.Probe(normalized); err != nil {
+				return mapRootBindError(err)
+			}
+			if err := projectroot.Bind(normalized, projectroot.Lock{ProjectID: cur.ID, ProjectCode: cur.ProjectCode, Name: cur.Name}); err != nil {
+				return mapRootBindError(err)
+			}
+			if cur.RootPath != "" && cur.RootPath != normalized {
+				_ = projectroot.RemoveLock(cur.RootPath)
+			}
+			cur.RootPath = normalized
+			if cur.TreeStatus == project.TreeReady || cur.TreeStatus == project.TreeFailed || cur.TreeStatus == project.TreePartial {
+				cur.TreeStatus = project.TreePending
+			}
+		}
 		return nil
 	})
 }
@@ -326,7 +373,12 @@ func handleProjectPublish(e *Engine, ctx context.Context, r bridge.Request) brid
 	if decodePayload(r.Payload, &p) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "project.publish 参数无效", false)
 	}
-	return handleProjectMutate(e, ctx, r, "project.publish", p.ID, p.Version, "", p, func(*project.Project) error { return nil })
+	return handleProjectMutate(e, ctx, r, "project.publish", p.ID, p.Version, "", p, func(cur *project.Project) error {
+		if strings.TrimSpace(cur.RootPath) == "" && cur.Name != "\u2063月汐·普通对话" {
+			return projectapp.ErrRootRequired
+		}
+		return nil
+	})
 }
 
 func handleProjectClose(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -372,6 +424,74 @@ func projectFailure(r bridge.Request, err error) bridge.Response {
 		return r.Fail("PROJECT_VERSION_CONFLICT", "项目已被其他操作修改，请刷新后重试", false)
 	case errors.Is(err, projectapp.ErrInvalidTransition), errors.Is(err, project.ErrNotFound):
 		return r.Fail("PROJECT_INVALID_TRANSITION", "项目状态或阶段门禁不允许该操作，请核对前序阶段和有效交付物", false)
+	case errors.Is(err, projectapp.ErrRootRequired):
+		return r.Fail("PROJECT_ROOT_REQUIRED", "请选择项目根目录", false)
+	case errors.Is(err, projectapp.ErrRootInvalid):
+		return r.Fail("PROJECT_ROOT_INVALID", "根目录不存在或不是文件夹", false)
+	case errors.Is(err, projectapp.ErrRootBusy):
+		return r.Fail("PROJECT_ROOT_BUSY", "该目录已被其他项目占用", false)
+	case errors.Is(err, projectapp.ErrRootReadonly):
+		return r.Fail("PROJECT_ROOT_READONLY", "无法写入项目根目录，请换可写盘", false)
+	case errors.Is(err, projectapp.ErrTreeInvalid):
+		return r.Fail("PROJECT_TREE_INVALID", "目录树不合格", false)
+	case errors.Is(err, projectapp.ErrTreeFailed):
+		return r.Fail("PROJECT_TREE_FAILED", "生成项目目录失败，请检查权限后补生成", false)
+	case errors.Is(err, projectapp.ErrTreeRequired):
+		return r.Fail("PROJECT_TREE_REQUIRED", "尚未生成项目目录", false)
+	case errors.Is(err, projectapp.ErrTaskNotFound):
+		return r.Fail("PROJECT_TASK_NOT_FOUND", "清单条目不存在", false)
+	case errors.Is(err, projectapp.ErrTaskPhase):
+		return r.Fail("PROJECT_TASK_PHASE", "只能对开发清单打开任务", false)
+	case errors.Is(err, projectapp.ErrExecutorUnavailable):
+		return r.Fail("PROJECT_EXECUTOR_UNAVAILABLE", "所选执行器未检测到，请安装登录或改选月汐", false)
+	case errors.Is(err, projectapp.ErrDevIncomplete):
+		return r.Fail("PROJECT_DEV_INCOMPLETE", "开发清单尚未全部完成", false)
+	case errors.Is(err, projectapp.ErrTestOpen):
+		return r.Fail("PROJECT_TEST_OPEN", "测试清单仍有未完成或未通过项", false)
+	case errors.Is(err, projectapp.ErrTestReasonRequired):
+		return r.Fail("PROJECT_TEST_REASON_REQUIRED", "请填写测试不通过的原因", false)
+	case errors.Is(err, projectapp.ErrTestNoSource):
+		return r.Fail("PROJECT_TEST_NO_SOURCE", "请先绑定对应的开发条目", false)
+	case errors.Is(err, projectgen.ErrInterviewInvalid):
+		return r.Fail("PROJECT_INTERVIEW_INVALID", "访谈答案不合格", false)
+	case errors.Is(err, projectapp.ErrGenerateEmpty), errors.Is(err, projectgen.ErrGenerateEmpty):
+		return r.Fail("PROJECT_GENERATE_EMPTY", "生成结果为空，请换模版或重试", false)
+	case errors.Is(err, projectapp.ErrGenerateSkipApproved), errors.Is(err, projectgen.ErrGenerateSkipApproved):
+		return r.Fail("PROJECT_GENERATE_SKIP_APPROVED", "已批准的交付物不会覆盖，请先打回", false)
+	case errors.Is(err, projectapp.ErrTemplateMissing):
+		return r.Fail("PROJECT_TEMPLATE_MISSING", "模版文件不存在，请重选或改用骨架", false)
+	case errors.Is(err, projectapp.ErrRulesFailed), errors.Is(err, projectrules.ErrRulesFailed):
+		return r.Fail("PROJECT_RULES_FAILED", "规范写入失败，请检查根目录后重试", false)
+	case errors.Is(err, projectapp.ErrRulesStale):
+		return r.Fail("PROJECT_RULES_STALE", "规范已过期，请重新物化", false)
+	case errors.Is(err, projectapp.ErrSchemaInvalid), errors.Is(err, projectschema.ErrSchemaInvalid):
+		return r.Fail("PROJECT_SCHEMA_INVALID", "数据库模式不合格", false)
+	case errors.Is(err, projectapp.ErrDBBindInvalid), errors.Is(err, projectschema.ErrDBBindInvalid):
+		return r.Fail("PROJECT_DB_BIND_INVALID", "请选择项目根内的 sqlite 文件", false)
+	case errors.Is(err, projectapp.ErrDBFailed), errors.Is(err, projectschema.ErrDBFailed):
+		return r.Fail("PROJECT_DB_FAILED", "建表失败，请检查路径与权限", false)
+	case errors.Is(err, projectapp.ErrDBIncomplete), errors.Is(err, projectschema.ErrDBIncomplete):
+		return r.Fail("PROJECT_DB_INCOMPLETE", "请先物化并核齐全部数据表", false)
+	case errors.Is(err, projectapp.ErrDBRequired):
+		return r.Fail("PROJECT_DB_REQUIRED", "先完成库表核齐，才能开始开发任务", false)
+	case errors.Is(err, projectapp.ErrInterfaceRequired):
+		return r.Fail("PROJECT_INTERFACE_REQUIRED", "先完成接口阶段确认，才能开始开发任务", false)
+	case errors.Is(err, projectapp.ErrBoardSourceInvalid):
+		return r.Fail("PROJECT_BOARD_SOURCE_INVALID", "源清单无法解析，请改成 JSON 或 OpenAPI", false)
+	case errors.Is(err, projectapp.ErrBoardDirty):
+		return r.Fail("PROJECT_BOARD_DIRTY", "清单已更新，请先处理待再处理的条目", false)
+	case errors.Is(err, projectapp.ErrSelfTestRequired):
+		return r.Fail("PROJECT_SELFTEST_REQUIRED", "请先对照详细设计自测并通过", false)
+	case errors.Is(err, projectapp.ErrTestKindUnsupported):
+		return r.Fail("PROJECT_TEST_KIND_UNSUPPORTED", "该测试类型需要命令或证据", false)
+	case errors.Is(err, projectapp.ErrIntegrationNotReady):
+		return r.Fail("PROJECT_INTEGRATION_NOT_READY", "场景内单元测试尚未全部通过", false)
+	case errors.Is(err, projectapp.ErrSyncInvalid):
+		return r.Fail("PROJECT_SYNC_INVALID", "请另选可写的同步目录", false)
+	case errors.Is(err, projectapp.ErrSyncRequired):
+		return r.Fail("PROJECT_SYNC_REQUIRED", "发布前请先同步到选定目录", false)
+	case errors.Is(err, projectapp.ErrAttachmentRequired):
+		return r.Fail("PROJECT_ATTACHMENT_REQUIRED", "请先写入不少于 32 字节的附件正文，不能只绑模版", false)
 	default:
 		return r.Fail("STORAGE_UNAVAILABLE", "项目数据暂时不可用", true)
 	}

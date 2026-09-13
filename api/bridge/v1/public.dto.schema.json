@@ -253,6 +253,47 @@
         "spaceId": {
           "$ref": "#/$defs/ULID"
         },
+        "rootPath": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "treeStatus": {
+          "type": "string",
+          "enum": ["none", "pending", "ready", "partial", "failed"]
+        },
+        "treeDigest": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "treeGeneratedAt": {
+          "type": "string"
+        },
+        "defaultExecutor": {
+          "type": "string",
+          "enum": ["lunitide", "cursor", "codex"]
+        },
+        "rulesDigest": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "rulesMaterializedAt": {
+          "type": "string"
+        },
+        "dbStatus": {
+          "type": "string",
+          "enum": ["none", "pending", "ready", "failed"]
+        },
+        "dbPath": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "dbDigest": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "dbVerifiedAt": {
+          "type": "string"
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time"

@@ -11,18 +11,55 @@ import (
 	"time"
 )
 
-var defaultLookPath LookPath = lookWithCommonPaths
+var (
+	defaultLookPath     LookPath = lookWithCommonPaths
+	versionProbeTimeout          = 8 * time.Second
+)
 
 func lookWithCommonPaths(name string) (string, error) {
 	if path, err := exec.LookPath(name); err == nil && strings.TrimSpace(path) != "" {
 		return preferRunnableCLI(path), nil
 	}
-	for _, dir := range append(extraPathDirs(), commonBinDirs()...) {
+	dirs := append(extraPathDirs(), commonBinDirs()...)
+	dirs = append(dirs, vendorInstallDirs()...)
+	switch name {
+	case "cursor-agent":
+		dirs = append(dirs, dirsNearLauncher("cursor")...)
+	case "kimi", "codex":
+		dirs = append(dirs, dirsNearLauncher(name)...)
+	}
+	for _, dir := range dirs {
 		if path := firstRunnableInDir(dir, name); path != "" {
 			return path, nil
 		}
 	}
 	return "", exec.ErrNotFound
+}
+
+func dirsNearLauncher(launcher string) []string {
+	path, err := exec.LookPath(launcher)
+	if err != nil || strings.TrimSpace(path) == "" {
+		return nil
+	}
+	dir := filepath.Dir(preferRunnableCLI(path))
+	var out []string
+	for i := 0; i < 6; i++ {
+		if dir == "" {
+			break
+		}
+		out = append(out, dir)
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return out
+}
+
+func launcherPresent(name string) bool {
+	path, err := exec.LookPath(name)
+	return err == nil && strings.TrimSpace(path) != ""
 }
 
 func preferRunnableCLI(path string) string {
@@ -66,10 +103,10 @@ func commonBinDirs() []string {
 	roaming := os.Getenv("APPDATA")
 	var dirs []string
 	if home != "" {
-		dirs = append(dirs, filepath.Join(home, ".local", "bin"), filepath.Join(home, ".cargo", "bin"), filepath.Join(home, "bin"), filepath.Join(home, ".kimi-code", "bin"), filepath.Join(home, ".kimi-code", "node_modules", ".bin"))
+		dirs = append(dirs, filepath.Join(home, ".local", "bin"), filepath.Join(home, ".cargo", "bin"), filepath.Join(home, "bin"), filepath.Join(home, ".kimi-code", "bin"), filepath.Join(home, ".kimi-code", "node_modules", ".bin"), filepath.Join(home, ".npm-global"), filepath.Join(home, ".npm-global", "bin"))
 	}
 	if local != "" {
-		dirs = append(dirs, filepath.Join(local, "cursor-agent"), filepath.Join(local, "npm"), filepath.Join(local, "Programs"), filepath.Join(local, "Microsoft", "WinGet", "Links"))
+		dirs = append(dirs, filepath.Join(local, "cursor-agent"), filepath.Join(local, "npm"), filepath.Join(local, "Programs"), filepath.Join(local, "Programs", "cursor"), filepath.Join(local, "Programs", "Cursor"), filepath.Join(local, "Microsoft", "WinGet", "Links"))
 	}
 	if roaming != "" {
 		dirs = append(dirs, filepath.Join(roaming, "npm"))
@@ -108,9 +145,12 @@ func detectOne(name string, look LookPath, version VersionRunner) AgentStatus {
 	if err != nil || strings.TrimSpace(exe) == "" {
 		st.State = "not_installed"
 		st.Hint = installHint(name)
+		if name == "cursor" && launcherPresent("cursor") {
+			st.Hint = "已找到 Cursor 软件，但没有 cursor-agent CLI。装好并登录后会自动连通。"
+		}
 		return st
 	}
-	text, verErr := version(exe, 2*time.Second)
+	text, verErr := version(exe, versionProbeTimeout)
 	if verErr != nil {
 		if !cap.NonInteractive {
 			st.State = "unknown"

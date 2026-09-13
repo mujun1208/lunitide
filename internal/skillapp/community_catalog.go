@@ -73,6 +73,15 @@ func communityTemplate(pkg CommunityPackage) (CatalogTemplate, error) {
 	if pkg.ID == "matt-improve-codebase-architecture" {
 		intro += "\n先skill.invoke加载codebase-design与domain-modeling，检查真实源码再给改造建议。\n"
 	}
+	if pkg.ID == "awesome-agent-skills" {
+		intro += "\n这是技能发现索引，不是整包安装。先skill.catalog.list匹配产品已有入口，缺失再按官方仓库固定commit导入。禁止把npx skills或其他宿主结果当成Lunitide安装。\n"
+	}
+	if pkg.ID == "caveman" {
+		intro += "\n只使用MIT的skills/caveman说明压缩回复。不要运行或引用Engine-linked/BSL代码。安全警告与不可逆操作必须用完整句子。\n"
+	}
+	if pkg.ID == "skill-doctor" {
+		intro += "\n只审计用户指定的技能文件。本产品没有整包分发alirezarezvani的388项技能。\n"
+	}
 	body := stripYAMLFrontmatter(string(raw))
 	// Large source files stay complete in the immutable package. A lightweight
 	// entry points to that resource rather than silently truncating instructions.
@@ -98,7 +107,10 @@ func communityTemplate(pkg CommunityPackage) (CatalogTemplate, error) {
 	if pkg.Category == "研发效能" {
 		permissions = append(permissions, skill.PermissionShell)
 	}
-	if pkg.ID == "firecrawl" || pkg.ID == "agent-browser" || pkg.ID == "find-skills" || pkg.ID == "web-design-guidelines" {
+	if pkg.ID == "firecrawl" || pkg.ID == "agent-browser" || pkg.ID == "find-skills" || pkg.ID == "web-design-guidelines" ||
+		pkg.ID == "awesome-agent-skills" || pkg.ID == "deploy-to-vercel" || pkg.ID == "vercel-optimize" ||
+		pkg.ID == "duckdb-docs" || pkg.ID == "duckdb-query" || pkg.ID == "duckdb-read-file" || pkg.ID == "duckdb-attach-db" ||
+		pkg.ID == "playwright-skill" || pkg.ID == "cypress-skill" || pkg.ID == "supply-chain-risk-auditor" {
 		permissions = append(permissions, skill.PermissionNetwork)
 	}
 	tpl := CatalogTemplate{ID: pkg.CatalogID, Name: pkg.Name, DisplayName: pkg.Name, Description: description, Category: pkg.Category, Version: pkg.Version, Permissions: permissions, EntryPoint: "builtin://" + pkg.CatalogID, Manifest: manifest, Featured: true, Source: pkg.Repository + " @ " + pkg.Commit[:12] + " · " + pkg.License}

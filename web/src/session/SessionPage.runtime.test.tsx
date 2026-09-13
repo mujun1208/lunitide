@@ -1288,6 +1288,13 @@ it.each(['button','enter'])('sends a completed attachment with no typed body via
  expect(append.mock.calls[0][0].text).toContain(`[attachment:${id}|only.txt]`)
  expect(append.mock.calls[0][0].text).toContain('请查看这些附件。')
 })
+it('fills the current task brief into the composer without sending',async()=>{
+ render(<SessionPage project={project} bridge={sessionBridge} messages={{list:vi.fn().mockResolvedValue(page()),append:vi.fn()} as MessageBridge} onBack={vi.fn()} initialSession={session} homeChat currentTaskBrief={'任务 F001：登录\n验收：能登录'}/>)
+ await screen.findByText('还没有消息')
+ expect(screen.getByLabelText('向月汐提问，或描述你想完成的任务…')).toHaveValue('任务 F001：登录\n验收：能登录')
+ expect(await screen.findByText('已填入当前任务说明书，确认后发送')).toBeInTheDocument()
+})
+
 it.each(['button','enter'])('queues a follow-up via %s with the uploaded attachment token during a running answer',async(method)=>{
  const id='01ARZ3NDEKTSV4RRFFQ69G5FAD',data=new Uint8Array([1,2,3]),file=new File([data],'follow-up.txt',{type:'text/plain'});Object.defineProperty(file,'arrayBuffer',{value:async()=>data.buffer})
  const attachments={list:vi.fn().mockResolvedValue({items:[]}),begin:vi.fn().mockResolvedValue({uploadId:'upload',chunkSize:3}),chunk:vi.fn().mockResolvedValue({nextOffset:3}),commit:vi.fn().mockResolvedValue({attachmentId:id}),abort:vi.fn(),get:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge

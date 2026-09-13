@@ -40,6 +40,7 @@ export function CodePanel({
   bridge,
   sessionId,
   isolateRoot = false,
+  projectRoot,
   targetPath,
   toolActivities = [],
   onOpenPath,
@@ -47,6 +48,7 @@ export function CodePanel({
   bridge?: LocalWorkspaceBridge
   sessionId: string
   isolateRoot?: boolean
+  projectRoot?: string
   targetPath?: string
   toolActivities?: WorkspaceToolActivity[]
   onOpenPath?: (path: string) => void
@@ -81,7 +83,7 @@ export function CodePanel({
   return (
     <div className="code-panel">
       <header className="code-panel-toolbar">
-        <span className="code-panel-title">代码</span>
+        <span className="code-panel-title">代码{projectRoot ? ` · ${projectRoot}` : ''}</span>
         <button
           type="button"
           className="artifact-icon-btn code-panel-vscode"
@@ -128,7 +130,8 @@ export function CodePanel({
               <LocalExplorer
                 bridge={bridge}
                 sessionId={sessionId}
-                isolateRoot={isolateRoot}
+                isolateRoot={isolateRoot && !projectRoot}
+                projectRoot={projectRoot}
                 targetPath={targetPath ?? file?.path}
                 onPreview={next => {
                   setFile(next)

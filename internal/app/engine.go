@@ -457,6 +457,11 @@ func (e *Engine) SetToolRuntime(r *toolruntime.Runtime) {
 	if r != nil && e.officeStudio != nil {
 		r.SetOfficeExecutor(e.executeOfficeTool)
 	}
+	if r != nil {
+		r.SetProjectRootResolver(func(sessionID string) (string, error) {
+			return e.lookupPhaseProjectRoot(context.Background(), sessionID)
+		})
+	}
 	e.wireDocumentText()
 	e.wireIMSendGate()
 }

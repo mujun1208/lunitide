@@ -15,6 +15,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/token"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/projectapp"
+	"github.com/lunitide/lunitide/internal/projectroot"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/sessionapp"
@@ -86,7 +87,7 @@ type txAdapter struct {
 	q *sql.Conn
 }
 
-const projectColumns = `id,name,project_code,project_type,description,summary,objective,client,contract_no,amount,budget,plan_start,plan_end,remark,close_reason,status_before_close,reopen_reason,status,created_at,updated_at,version,org_id,space_id`
+const projectColumns = `id,name,project_code,project_type,description,summary,objective,client,contract_no,amount,budget,plan_start,plan_end,remark,close_reason,status_before_close,reopen_reason,status,created_at,updated_at,version,org_id,space_id,root_path,tree_status,tree_digest,tree_generated_at,default_executor,rules_digest,rules_materialized_at,db_status,db_path,db_digest,db_verified_at`
 
 func optionalProjectID(value sql.NullString) string {
 	if value.Valid {
@@ -107,7 +108,7 @@ func (t *txAdapter) getProject(ctx context.Context, id string) (project.Project,
 	var created, updated string
 	var orgID, spaceID sql.NullString
 	row := t.q.QueryRowContext(ctx, `SELECT `+projectColumns+` FROM projects WHERE id=?`, id)
-	if err := row.Scan(&p.ID, &p.Name, &p.ProjectCode, &p.Type, &p.Description, &p.Summary, &p.Objective, &p.Client, &p.ContractNo, &p.Amount, &p.Budget, &p.PlanStart, &p.PlanEnd, &p.Remark, &p.CloseReason, &p.StatusBeforeClose, &p.ReopenReason, &p.Status, &created, &updated, &p.Version, &orgID, &spaceID); err != nil {
+	if err := row.Scan(&p.ID, &p.Name, &p.ProjectCode, &p.Type, &p.Description, &p.Summary, &p.Objective, &p.Client, &p.ContractNo, &p.Amount, &p.Budget, &p.PlanStart, &p.PlanEnd, &p.Remark, &p.CloseReason, &p.StatusBeforeClose, &p.ReopenReason, &p.Status, &created, &updated, &p.Version, &orgID, &spaceID, &p.RootPath, &p.TreeStatus, &p.TreeDigest, &p.TreeGeneratedAt, &p.DefaultExecutor, &p.RulesDigest, &p.RulesMaterializedAt, &p.DBStatus, &p.DBPath, &p.DBDigest, &p.DBVerifiedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return p, project.ErrNotFound
 		}
@@ -166,17 +167,61 @@ func (t *txAdapter) CreateProject(ctx context.Context, p project.Project) (proje
 			return p, err
 		}
 	}
+	if p.TreeStatus == "" {
+		p.TreeStatus = project.TreeNone
+	}
+	if p.DefaultExecutor == "" {
+		p.DefaultExecutor = project.ExecutorLunitide
+	}
+	if p.DBStatus == "" {
+		p.DBStatus = project.DBNone
+	}
+	if p.RootPath != "" {
+		normalized, nerr := projectroot.Normalize(p.RootPath)
+		if nerr != nil {
+			return p, mapRootError(nerr)
+		}
+		p.RootPath = normalized
+		var occupied string
+		if err = t.q.QueryRowContext(ctx, `SELECT id FROM projects WHERE root_path=?`, p.RootPath).Scan(&occupied); err != nil && err != sql.ErrNoRows {
+			return p, err
+		}
+		if occupied != "" {
+			return p, projectapp.ErrRootBusy
+		}
+	}
 	now := time.Now().UTC()
 	p.CreatedAt, p.UpdatedAt, p.Version = now, now, 1
 	if err = p.Validate(); err != nil {
 		return p, err
 	}
-	_, err = t.q.ExecContext(ctx, `INSERT INTO projects(`+projectColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		p.ID, p.Name, p.ProjectCode, p.Type, p.Description, p.Summary, p.Objective, p.Client, p.ContractNo, p.Amount, p.Budget, p.PlanStart, p.PlanEnd, p.Remark, p.CloseReason, p.StatusBeforeClose, p.ReopenReason, p.Status, formatTime(now), formatTime(now), p.Version, nullableProjectID(p.OrgID), nullableProjectID(p.SpaceID))
+	if p.RootPath != "" {
+		if err = projectroot.Bind(p.RootPath, projectroot.Lock{ProjectID: p.ID, ProjectCode: p.ProjectCode, Name: p.Name}); err != nil {
+			return p, mapRootError(err)
+		}
+	}
+	_, err = t.q.ExecContext(ctx, `INSERT INTO projects(`+projectColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		p.ID, p.Name, p.ProjectCode, p.Type, p.Description, p.Summary, p.Objective, p.Client, p.ContractNo, p.Amount, p.Budget, p.PlanStart, p.PlanEnd, p.Remark, p.CloseReason, p.StatusBeforeClose, p.ReopenReason, p.Status, formatTime(now), formatTime(now), p.Version, nullableProjectID(p.OrgID), nullableProjectID(p.SpaceID), p.RootPath, p.TreeStatus, p.TreeDigest, p.TreeGeneratedAt, p.DefaultExecutor, p.RulesDigest, p.RulesMaterializedAt, p.DBStatus, p.DBPath, p.DBDigest, p.DBVerifiedAt)
 	if err == nil {
 		_, err = t.q.ExecContext(ctx, `INSERT INTO message_project_usage(project_id,text_bytes) VALUES(?,0)`, p.ID)
 	}
+	if err != nil && p.RootPath != "" {
+		_ = projectroot.RemoveLock(p.RootPath)
+	}
 	return p, mapWriteError(err)
+}
+
+func mapRootError(err error) error {
+	switch {
+	case errors.Is(err, projectroot.ErrBusy):
+		return projectapp.ErrRootBusy
+	case errors.Is(err, projectroot.ErrReadonly):
+		return projectapp.ErrRootReadonly
+	case errors.Is(err, projectroot.ErrInvalid):
+		return projectapp.ErrRootInvalid
+	default:
+		return err
+	}
 }
 
 func (t *txAdapter) UpdateProject(ctx context.Context, id string, version int64, mutate func(*project.Project) error) (project.Project, error) {
@@ -195,8 +240,8 @@ func (t *txAdapter) UpdateProject(ctx context.Context, id string, version int64,
 	if err = p.Validate(); err != nil {
 		return p, err
 	}
-	result, err := t.q.ExecContext(ctx, `UPDATE projects SET name=?,project_type=?,description=?,summary=?,objective=?,client=?,contract_no=?,amount=?,budget=?,plan_start=?,plan_end=?,remark=?,close_reason=?,status_before_close=?,reopen_reason=?,status=?,updated_at=?,version=? WHERE id=? AND version=?`,
-		p.Name, p.Type, p.Description, p.Summary, p.Objective, p.Client, p.ContractNo, p.Amount, p.Budget, p.PlanStart, p.PlanEnd, p.Remark, p.CloseReason, p.StatusBeforeClose, p.ReopenReason, p.Status, formatTime(p.UpdatedAt), p.Version, id, version)
+	result, err := t.q.ExecContext(ctx, `UPDATE projects SET name=?,project_type=?,description=?,summary=?,objective=?,client=?,contract_no=?,amount=?,budget=?,plan_start=?,plan_end=?,remark=?,close_reason=?,status_before_close=?,reopen_reason=?,status=?,updated_at=?,version=?,root_path=?,tree_status=?,tree_digest=?,tree_generated_at=?,default_executor=?,rules_digest=?,rules_materialized_at=?,db_status=?,db_path=?,db_digest=?,db_verified_at=? WHERE id=? AND version=?`,
+		p.Name, p.Type, p.Description, p.Summary, p.Objective, p.Client, p.ContractNo, p.Amount, p.Budget, p.PlanStart, p.PlanEnd, p.Remark, p.CloseReason, p.StatusBeforeClose, p.ReopenReason, p.Status, formatTime(p.UpdatedAt), p.Version, p.RootPath, p.TreeStatus, p.TreeDigest, p.TreeGeneratedAt, p.DefaultExecutor, p.RulesDigest, p.RulesMaterializedAt, p.DBStatus, p.DBPath, p.DBDigest, p.DBVerifiedAt, id, version)
 	if err != nil {
 		return p, mapWriteError(err)
 	}
