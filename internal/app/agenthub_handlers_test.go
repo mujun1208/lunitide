@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/agenthub"
+	"github.com/lunitide/lunitide/internal/storage/sqlite"
 )
 
 func TestAgentHubStartUnavailableChinese(t *testing.T) {
@@ -224,4 +225,153 @@ func hubJSON(v any) []byte {
 		panic(err)
 	}
 	return raw
+}
+
+type threadHubDetail struct {
+	Thread struct {
+		ID            string `json:"threadId"`
+		WorkspaceRoot string `json:"workspaceRoot"`
+		Status        string `json:"status"`
+	} `json:"thread"`
+	Messages []struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	} `json:"messages"`
+	Files []struct {
+		Name string `json:"name"`
+		Path string `json:"path"`
+	} `json:"files"`
+	Prompt *struct {
+		CallID string `json:"callId"`
+	} `json:"prompt"`
+}
+
+func TestAgentHubThreadCreateEmptyWorkspaceUsesRootThreads(t *testing.T) {
+	e, root := newThreadHubEngine(t)
+	resp := handleAgentHub(e, context.Background(), validRequest("agentHub.thread.create", `{"harnessId":"loopback","scene":"free","workspaceRoot":""}`))
+	if !resp.OK {
+		t.Fatalf("%#v", resp)
+	}
+	detail := decodeThreadHubDetail(t, resp.Payload)
+	if detail.Thread.ID == "" {
+		t.Fatal("missing threadId")
+	}
+	want := agenthub.DefaultThreadDir(root, detail.Thread.ID)
+	if filepath.Clean(detail.Thread.WorkspaceRoot) != filepath.Clean(want) {
+		t.Fatalf("workspaceRoot = %q, want %q", detail.Thread.WorkspaceRoot, want)
+	}
+	info, err := os.Stat(detail.Thread.WorkspaceRoot)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("workspace dir: %v", err)
+	}
+}
+
+func TestAgentHubPreviewThreadRejectsEscape(t *testing.T) {
+	e, _ := newThreadHubEngine(t)
+	created := handleAgentHub(e, context.Background(), validRequest("agentHub.thread.create", `{"harnessId":"loopback","scene":"free","workspaceRoot":""}`))
+	if !created.OK {
+		t.Fatalf("%#v", created)
+	}
+	detail := decodeThreadHubDetail(t, created.Payload)
+	resp := handleAgentHub(e, context.Background(), validRequest("agentHub.file.preview", `{"threadId":"`+detail.Thread.ID+`","path":"..\\Windows\\win.ini"}`))
+	if resp.OK || resp.Error == nil || resp.Error.Code != "PATH_OUTSIDE" {
+		t.Fatalf("%#v", resp)
+	}
+}
+
+func TestAgentHubLoopbackCreatePromptRespond(t *testing.T) {
+	t.Setenv("LUNITIDE_HARNESS_LOOPBACK", "1")
+	e, _ := newThreadHubEngine(t)
+	created := handleAgentHub(e, context.Background(), validRequest("agentHub.thread.create", `{"harnessId":"loopback","scene":"free","workspaceRoot":""}`))
+	if !created.OK {
+		t.Fatalf("%#v", created)
+	}
+	detail := decodeThreadHubDetail(t, created.Payload)
+	prompt := handleAgentHub(e, context.Background(), validRequest("agentHub.thread.prompt", `{"threadId":"`+detail.Thread.ID+`","text":"选哪个?"}`))
+	if !prompt.OK {
+		t.Fatalf("%#v", prompt)
+	}
+	waiting := handleAgentHub(e, context.Background(), validRequest("agentHub.thread.get", `{"threadId":"`+detail.Thread.ID+`"}`))
+	if !waiting.OK {
+		t.Fatalf("%#v", waiting)
+	}
+	got := decodeThreadHubDetail(t, waiting.Payload)
+	if got.Thread.Status != "waiting_user" {
+		t.Fatalf("status after prompt = %q, want waiting_user", got.Thread.Status)
+	}
+	if got.Prompt == nil || got.Prompt.CallID == "" {
+		t.Fatalf("missing open prompt: %#v", got.Prompt)
+	}
+	respond := handleAgentHub(e, context.Background(), validRequest("agentHub.thread.respond", `{"threadId":"`+detail.Thread.ID+`","callId":"`+got.Prompt.CallID+`","optionId":"是"}`))
+	if !respond.OK {
+		t.Fatalf("%#v", respond)
+	}
+	done := handleAgentHub(e, context.Background(), validRequest("agentHub.thread.get", `{"threadId":"`+detail.Thread.ID+`"}`))
+	if !done.OK {
+		t.Fatalf("%#v", done)
+	}
+	after := decodeThreadHubDetail(t, done.Payload)
+	var assistant string
+	for _, msg := range after.Messages {
+		if msg.Role == "assistant" && msg.Content != "" {
+			assistant = msg.Content
+			break
+		}
+	}
+	if assistant == "" {
+		t.Fatalf("missing assistant text: %#v", after.Messages)
+	}
+	if threadHubHasLoopbackFile(after.Files) {
+		return
+	}
+	listed := handleAgentHub(e, context.Background(), validRequest("agentHub.workspace.list", `{"threadId":"`+detail.Thread.ID+`"}`))
+	if !listed.OK {
+		t.Fatalf("%#v", listed)
+	}
+	var workspace struct {
+		Items []struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(hubJSON(listed.Payload), &workspace); err != nil {
+		t.Fatal(err)
+	}
+	if !threadHubHasLoopbackFile(workspace.Items) {
+		t.Fatalf("loopback.txt missing from get.files and workspace.list: files=%#v list=%s", after.Files, hubJSON(listed.Payload))
+	}
+}
+
+func newThreadHubEngine(t *testing.T) (*Engine, string) {
+	t.Helper()
+	store, err := sqlite.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "hub-threads.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	root := t.TempDir()
+	s := agenthub.New(agenthub.NewMemoryStore(), root, nil)
+	s.Threads = store.ThreadStore()
+	return &Engine{agentHub: s}, root
+}
+
+func decodeThreadHubDetail(t *testing.T, payload any) threadHubDetail {
+	t.Helper()
+	var out threadHubDetail
+	if err := json.Unmarshal(hubJSON(payload), &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func threadHubHasLoopbackFile(items []struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}) bool {
+	for _, item := range items {
+		if item.Name == "loopback.txt" || strings.Contains(filepath.ToSlash(item.Path), "loopback.txt") {
+			return true
+		}
+	}
+	return false
 }

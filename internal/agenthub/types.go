@@ -9,6 +9,8 @@ type AgentStatus struct {
 	NonInteractive bool   `json:"nonInteractive"`
 	StreamJSON     bool   `json:"streamJSON"`
 	Hint           string `json:"hint"`
+	Interactive    bool   `json:"interactive"`
+	Protocol       string `json:"protocol"`
 }
 
 type TaskRequest struct {
@@ -87,6 +89,8 @@ type ListFilter struct {
 type Capability struct {
 	NonInteractive bool
 	StreamJSON     bool
+	Interactive    bool
+	Protocol       string
 }
 
 type LookPath func(name string) (string, error)

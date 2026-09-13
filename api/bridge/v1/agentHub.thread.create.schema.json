@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/agentHub.thread.create.schema.json",
+  "title": "agentHub.thread.create payload",
+  "x-method": "agentHub.thread.create",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "harnessId": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9-]+$" },
+    "scene": { "type": "string", "enum": ["write_project", "fix", "ppt", "free"] },
+    "workspaceRoot": { "type": "string", "maxLength": 1024 },
+    "exportDir": { "type": "string", "maxLength": 1024 },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "accessMode": { "type": "string", "enum": ["approval", "auto-edit", "full-access"] }
+  },
+  "required": ["harnessId", "scene", "workspaceRoot"],
+  "x-result": { "type": "object", "additionalProperties": true },
+  "x-examples": {
+    "positive": [
+      { "harnessId": "loopback", "scene": "free", "workspaceRoot": "" },
+      { "harnessId": "cursor", "scene": "write_project", "workspaceRoot": "C:\\proj\\demo", "title": "写项目", "accessMode": "approval" }
+    ],
+    "negative": [{}, { "harnessId": "cursor" }, { "unexpected": true }]
+  }
+}

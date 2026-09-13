@@ -27,6 +27,7 @@ type StartFunc func(ctx context.Context, spec ProcSpec, onLine func(string)) (ex
 
 type Service struct {
 	Store   TaskStore
+	Threads *ThreadStore
 	Root    string
 	Look    LookPath
 	Version VersionRunner
@@ -58,32 +59,52 @@ func New(store TaskStore, root string, notify func(title, body string) error) *S
 }
 
 func (s *Service) Recover() {
-	if s.Store == nil {
+	if s.Store != nil {
+		items, _, err := s.Store.ListTasks(ListFilter{})
+		if err == nil {
+			queued := map[string]bool{}
+			now := s.now().Format(time.RFC3339)
+			for _, task := range items {
+				if task.Status == "running" {
+					task.Status = "failed"
+					task.ErrorMsg = "应用重启后未能继续该任务"
+					task.FinishedAt = now
+					_ = s.Store.UpdateTask(task)
+					for _, art := range ScanWorkDir(task.WorkDir, nil, parseRFC3339(task.StartedAt)) {
+						art.Source = persistableSource(art.Source)
+						_ = s.Store.UpsertArtifact(task.ID, art)
+					}
+				}
+				if task.Status == "queued" {
+					queued[task.Agent] = true
+				}
+			}
+			for agent := range queued {
+				s.kickAgentQueue(agent)
+			}
+		}
+	}
+	s.recoverLiveThreads()
+}
+
+func (s *Service) recoverLiveThreads() {
+	if s.Threads == nil {
 		return
 	}
-	items, _, err := s.Store.ListTasks(ListFilter{})
+	items, err := s.Threads.List(ThreadFilter{})
 	if err != nil {
 		return
 	}
-	queued := map[string]bool{}
-	now := s.now().Format(time.RFC3339)
-	for _, task := range items {
-		if task.Status == "running" {
-			task.Status = "failed"
-			task.ErrorMsg = "应用重启后未能继续该任务"
-			task.FinishedAt = now
-			_ = s.Store.UpdateTask(task)
-			for _, art := range ScanWorkDir(task.WorkDir, nil, parseRFC3339(task.StartedAt)) {
-				art.Source = persistableSource(art.Source)
-				_ = s.Store.UpsertArtifact(task.ID, art)
-			}
+	for _, thread := range items {
+		if thread.Status != "running" && thread.Status != "waiting_user" {
+			continue
 		}
-		if task.Status == "queued" {
-			queued[task.Agent] = true
-		}
-	}
-	for agent := range queued {
-		s.kickAgentQueue(agent)
+		_ = s.Threads.CancelOpenPrompts(thread.ID)
+		_ = setThreadStatus(s.Threads, thread.ID, "faulted")
+		_ = insertThreadMessage(s.Threads, thread.ID, "notice", "应用重启后未能继续")
+		_ = insertThreadEvent(s.Threads, thread.ID, AgentEvent{
+			Type: "error", Title: "应用重启后未能继续", Detail: "应用重启后未能继续",
+		})
 	}
 }
 

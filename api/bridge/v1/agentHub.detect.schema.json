@@ -18,14 +18,16 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "name": { "type": "string", "enum": ["codex", "cursor", "kimi"] },
+            "name": { "type": "string", "enum": ["codex", "cursor", "kimi", "loopback"] },
             "state": { "type": "string", "enum": ["available", "not_installed", "not_logged_in", "unknown"] },
             "version": { "type": "string" },
             "nonInteractive": { "type": "boolean" },
             "streamJSON": { "type": "boolean" },
-            "hint": { "type": "string" }
+            "hint": { "type": "string" },
+            "interactive": { "type": "boolean" },
+            "protocol": { "type": "string", "enum": ["acp", "exec", "none"] }
           },
-          "required": ["name", "state", "version", "nonInteractive", "streamJSON", "hint"]
+          "required": ["name", "state", "version", "nonInteractive", "streamJSON", "hint", "interactive", "protocol"]
         }
       }
     },

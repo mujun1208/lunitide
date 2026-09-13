@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { scrollOfficeNodeIntoView } from './officePreviewScroll'
+import { resetOfficePaperScroll, scrollOfficeNodeIntoView } from './officePreviewScroll'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -18,6 +18,13 @@ test('moves only the paper scroller and never calls scrollIntoView', () => {
   expect(scrollOfficeNodeIntoView(root, node)).toBe(true)
   expect(root.scrollTop).toBe(148)
   expect(scrollIntoView).not.toHaveBeenCalled()
+})
+
+test('resets only the paper scroller', () => {
+  const root = document.createElement('div')
+  Object.defineProperty(root, 'scrollTop', { value: 240, writable: true })
+  resetOfficePaperScroll(root)
+  expect(root.scrollTop).toBe(0)
 })
 
 test('leaves foreign scrollers alone when the node is outside the paper root', () => {
