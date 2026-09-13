@@ -202,7 +202,7 @@ func (a *CursorACP) Prompt(threadID, text string) error {
 			return
 		}
 		sess.flushAssistant(a)
-		if thread, getErr := a.store.Get(threadID); getErr == nil && thread.Status == "waiting_user" {
+		if thread, getErr := a.store.Get(threadID); getErr == nil && ignoreTurnSuccess(thread.Status) {
 			return
 		}
 		_ = setThreadStatus(a.store, threadID, "success")
@@ -327,19 +327,15 @@ func (a *CursorACP) handshake(thread ThreadRecord, sess *cursorACPSession) error
 		a.fault(thread.ID, proc, sess, err)
 		return err
 	}
-	newResp, err := sess.call("session/new", map[string]any{"cwd": thread.WorkspaceRoot, "mcpServers": []any{}})
+	sessionID, err := acpOpenNativeSession(sess.call, thread.WorkspaceRoot, thread.NativeSessionID)
 	if err != nil {
 		a.fault(thread.ID, proc, sess, err)
 		return err
 	}
-	var created struct {
-		SessionID string `json:"sessionId"`
+	sess.sessionID = sessionID
+	if sessionID != "" {
+		_, _ = a.store.db.Exec(`UPDATE agent_hub_threads SET native_session_id=? WHERE id=?`, sessionID, thread.ID)
 	}
-	if newResp != nil {
-		_ = json.Unmarshal(newResp.Result, &created)
-	}
-	sess.sessionID = created.SessionID
-	_, _ = a.store.db.Exec(`UPDATE agent_hub_threads SET native_session_id=? WHERE id=?`, sess.sessionID, thread.ID)
 	return nil
 }
 
@@ -430,7 +426,7 @@ func waitACPReply(method string, ch <-chan *acpRPC, done func(*acpRPC, error)) {
 		done(resp, nil)
 	}
 	switch method {
-	case "initialize", "session/new":
+	case "initialize", "session/new", "session/load":
 		timer := time.NewTimer(20 * time.Second)
 		defer timer.Stop()
 		select {

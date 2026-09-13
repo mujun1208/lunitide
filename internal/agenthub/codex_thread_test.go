@@ -41,7 +41,22 @@ func TestCodexThreadArgvDefaultsSandbox(t *testing.T) {
 	}
 }
 
+func TestCodexExecSandboxMapsAccessMode(t *testing.T) {
+	if got := codexExecSandbox("full-access"); got != "danger-full-access" {
+		t.Fatalf("full-access = %q", got)
+	}
+	if got := codexExecSandbox("approval"); got != "workspace-write" {
+		t.Fatalf("approval = %q", got)
+	}
+	if got := codexExecSandbox("auto-edit"); got != "workspace-write" {
+		t.Fatalf("auto-edit = %q", got)
+	}
+}
+
 func TestDetectCodexAvailableHintCannotAsk(t *testing.T) {
+	prev := probeCodexAppServer
+	probeCodexAppServer = func(LookPath) bool { return false }
+	t.Cleanup(func() { probeCodexAppServer = prev })
 	want := "当前只能一把跑完，不能中途提问"
 	st := detectOne("codex", func(string) (string, error) { return `C:\codex.exe`, nil }, func(string, time.Duration) (string, error) {
 		return "codex-cli 0.1.0", nil

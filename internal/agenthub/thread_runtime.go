@@ -14,6 +14,15 @@ import (
 
 var ErrThreadBusy = errors.New("thread is waiting for user")
 
+func ignoreTurnSuccess(status string) bool {
+	switch status {
+	case "waiting_user", "cancelled", "faulted":
+		return true
+	default:
+		return false
+	}
+}
+
 type ThreadAdapter interface {
 	Open(thread ThreadRecord) error
 	Prompt(threadID, text string) error

@@ -120,7 +120,7 @@ func detectOne(name string, look LookPath, version VersionRunner) AgentStatus {
 		st.State = "available"
 		st.Hint = "已找到 CLI"
 		if name == "codex" {
-			st.Hint = codexAvailableHint
+			applyCodexDetect(&st, look)
 		}
 		return st
 	}
@@ -138,9 +138,21 @@ func detectOne(name string, look LookPath, version VersionRunner) AgentStatus {
 	st.State = "available"
 	st.Hint = "可用"
 	if name == "codex" {
-		st.Hint = codexAvailableHint
+		applyCodexDetect(&st, look)
 	}
 	return st
+}
+
+func applyCodexDetect(st *AgentStatus, look LookPath) {
+	if probeCodexAppServer(look) {
+		st.Interactive = true
+		st.Protocol = "app-server"
+		st.Hint = "可用"
+		return
+	}
+	st.Interactive = false
+	st.Protocol = "exec"
+	st.Hint = codexAvailableHint
 }
 
 func defaultVersion(exe string, timeout time.Duration) (string, error) {

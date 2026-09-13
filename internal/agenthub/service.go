@@ -26,14 +26,14 @@ var (
 type StartFunc func(ctx context.Context, spec ProcSpec, onLine func(string)) (exit int64, timedOut bool, err error)
 
 type Service struct {
-	Store   TaskStore
-	Threads *ThreadStore
-	Root    string
-	Look    LookPath
-	Version VersionRunner
-	Start   StartFunc
-	Notify  func(title, body string) error
-	Now     func() time.Time
+	Store      TaskStore
+	Threads    *ThreadStore
+	Root       string
+	Look       LookPath
+	Version    VersionRunner
+	Start      StartFunc
+	Notify     func(title, body string) error
+	Now        func() time.Time
 	Pick       func() (string, error)
 	PickFiles  func() ([]string, error)
 	PickFolder func() (string, error)
@@ -98,6 +98,9 @@ func (s *Service) recoverLiveThreads() {
 	for _, thread := range items {
 		if thread.Status != "running" && thread.Status != "waiting_user" {
 			continue
+		}
+		if adapter, err := s.threadAdapter(thread.HarnessID); err == nil {
+			_ = adapter.Close(thread.ID)
 		}
 		_ = s.Threads.CancelOpenPrompts(thread.ID)
 		_ = setThreadStatus(s.Threads, thread.ID, "faulted")

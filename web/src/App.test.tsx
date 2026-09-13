@@ -35,7 +35,8 @@ it('hides optional Office entries by default and places search between New chat 
   expect(screen.getByRole('button', { name: /New chat/ }).compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(search.compareDocumentPosition(screen.getByRole('button', { name: /^Office$/ })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Automation' })).toBeInTheDocument()
-  for (const name of ['Colleague chat', 'Meeting notes', 'MRO workbench', 'Office Studio', 'Agent Hub']) expect(screen.queryByRole('button', { name })).toBeNull()
+  for (const name of ['Colleague chat', 'Meeting notes', 'MRO workbench', 'Office Studio']) expect(screen.queryByRole('button', { name })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Agent Hub' })).toBeInTheDocument()
 })
 
 it('applies global Office menu switches immediately in both themes while keeping the MRO feature gate', async () => {
@@ -43,7 +44,8 @@ it('applies global Office menu switches immediately in both themes while keeping
   render(<App projects={projectBridge([])} sessions={sessionBridge()} providers={providers} messages={messages} chat={chat} />)
   await user.click(screen.getByRole('button', { name: 'Settings' }))
   await user.click(screen.getByRole('button', { name: 'Office menu' }))
-  for (const name of ['Colleague chat', 'Office Studio', 'Agent Hub', 'Meeting notes', 'MRO workbench']) {
+  expect(screen.getByRole('switch', { name: 'Agent Hub' })).toHaveAttribute('aria-checked', 'true')
+  for (const name of ['Colleague chat', 'Office Studio', 'Meeting notes', 'MRO workbench']) {
     const toggle = screen.getByRole('switch', { name })
     expect(toggle).toHaveAttribute('aria-checked', 'false')
     await user.click(toggle)
@@ -234,7 +236,7 @@ it('places 同事聊天 above the conversation group and opens an independent We
 
 it('shows people unread on the 同事聊天 item and opens 我 from the account chip',async()=>{localStorage.setItem('lunitide:office-menu',JSON.stringify({people:true,meetings:true,mro:true,office:true}));mockPeopleThreadList.mockResolvedValue({items:[{threadId:'01ARZ3NDEKTSV4RRFFQ69G5FAX',kind:'direct',title:'',ownerSubjectId:'01ARZ3NDEKTSV4RRFFQ69G5FAV',members:[],unreadCount:4,createdAt:now,updatedAt:now}]});const user=userEvent.setup();render(<App projects={projectBridge([])} sessions={sessionBridge()} providers={providers} messages={messages} chat={chat}/>);expect(await screen.findByLabelText('4 unread')).toBeInTheDocument();await user.click(screen.getByRole('button',{name:'Open my profile'}));expect(await screen.findByText('Let others on this LAN see me')).toBeInTheDocument();expect(screen.getByRole('navigation',{name:'同事工作区'}).querySelector('[aria-current="true"]')).toHaveTextContent('我')})
 
-it('switches sidebar chrome language without a product wordmark',async()=>{const user=userEvent.setup();render(<App projects={projectBridge([])} sessions={sessionBridge()} providers={providers} messages={messages} chat={chat}/>);expect(await screen.findByRole('heading',{name:'What would you like to do?'})).toBeInTheDocument();expect(screen.getByRole('button',{name:/New chat/})).toBeInTheDocument();expect(screen.queryByRole('button',{name:'Lunitide home'})).toBeNull();expect(screen.queryByText('LUNITIDE')).toBeNull();await user.click(screen.getByRole('button',{name:'Switch to Chinese'}));expect(await screen.findByRole('heading',{name:'今天想聊什么？'})).toBeInTheDocument();expect(screen.getByRole('button',{name:/新对话/})).toBeInTheDocument();expect(screen.queryByRole('button',{name:'月汐首页'})).toBeNull();expect(document.getElementById('launch-sidebar')?.textContent).not.toContain('月汐');expect(screen.getByRole('button',{name:'切换到英文'})).toHaveTextContent('中/EN')})
+it('switches sidebar chrome language without a product wordmark',async()=>{const user=userEvent.setup();render(<App projects={projectBridge([])} sessions={sessionBridge()} providers={providers} messages={messages} chat={chat}/>);expect(await screen.findByRole('heading',{name:'What would you like to do?'})).toBeInTheDocument();expect(screen.getByRole('button',{name:/New chat/})).toBeInTheDocument();expect(screen.queryByRole('button',{name:'Lunitide home'})).toBeNull();expect(screen.queryByText('LUNITIDE')).toBeNull();await user.click(screen.getByRole('button',{name:'Switch to Chinese'}));expect(await screen.findByRole('heading',{name:'今天想聊什么？'})).toBeInTheDocument();expect(screen.getByRole('button',{name:/新对话/})).toBeInTheDocument();expect(screen.queryByRole('button',{name:'月汐首页'})).toBeNull();expect(document.getElementById('launch-sidebar')?.textContent).not.toContain('LUNITIDE');expect(screen.getByRole('button',{name:'月汐'})).toBeInTheDocument();expect(screen.getByRole('button',{name:'外接 Agent'})).toBeInTheDocument();expect(screen.getByRole('button',{name:'切换到英文'})).toHaveTextContent('中/EN')})
 
 it('draws no horizontal sidebar splitter when the chat list is empty',async()=>{localStorage.setItem('lunitide:office-menu',JSON.stringify({people:true,meetings:true,mro:true,office:true}));render(<App projects={projectBridge([])} sessions={sessionBridge()} providers={providers} messages={messages} chat={chat}/>);await screen.findByRole('button',{name:/^Colleague chat$/});const rows=[...document.querySelectorAll('#launch-sidebar [role="separator"][aria-orientation="horizontal"]')];expect(rows).toHaveLength(0);expect(screen.queryByLabelText(/chats and projects|对话与项目/)).toBeNull();expect(screen.getByText('No chats yet')).toBeInTheDocument()})
 

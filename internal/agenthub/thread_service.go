@@ -36,6 +36,9 @@ func (s *Service) CreateThread(req ThreadCreateRequest) (ThreadDetail, error) {
 	}
 	id := ulid.Make().String()
 	workspace := strings.TrimSpace(req.WorkspaceRoot)
+	if workspace == "" && (req.Scene == "write_project" || req.Scene == "fix") {
+		return ThreadDetail{}, fmt.Errorf("请先选择项目目录")
+	}
 	if workspace == "" {
 		workspace = DefaultThreadDir(s.Root, id)
 	}

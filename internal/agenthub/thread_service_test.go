@@ -1,8 +1,11 @@
 package agenthub
 
 import (
+	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -28,8 +31,9 @@ func TestCreateThreadStoresExactSceneSystemMessage(t *testing.T) {
 		t.Run(tc.scene, func(t *testing.T) {
 			s := testThreadService(t)
 			detail, err := s.CreateThread(ThreadCreateRequest{
-				HarnessID: "loopback",
-				Scene:     tc.scene,
+				HarnessID:     "loopback",
+				Scene:         tc.scene,
+				WorkspaceRoot: t.TempDir(),
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -92,6 +96,16 @@ func TestCreateThreadClipsTitleToFirstLine200(t *testing.T) {
 	}
 }
 
+func TestCreateThreadWriteAndFixRequireWorkspace(t *testing.T) {
+	s := testThreadService(t)
+	for _, scene := range []string{"write_project", "fix"} {
+		_, err := s.CreateThread(ThreadCreateRequest{HarnessID: "loopback", Scene: scene})
+		if err == nil || !strings.Contains(err.Error(), "请先选择项目目录") {
+			t.Fatalf("%s empty workspace = %v, want 请先选择项目目录", scene, err)
+		}
+	}
+}
+
 func TestGetThreadReportsUsageTokens(t *testing.T) {
 	s := testThreadService(t)
 	created, err := s.CreateThread(ThreadCreateRequest{HarnessID: "loopback", Scene: "free"})
@@ -104,6 +118,13 @@ func TestGetThreadReportsUsageTokens(t *testing.T) {
 	got, err := s.GetThread(created.Thread.ID)
 	if err != nil || got.TokensUsed != 7 {
 		t.Fatalf("tokensUsed = %#v %v", got.TokensUsed, err)
+	}
+	if err = insertThreadEvent(s.Threads, created.Thread.ID, AgentEvent{Type: "usage", Tokens: 15}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.GetThread(created.Thread.ID)
+	if err != nil || got.TokensUsed != 15 {
+		t.Fatalf("tokensUsed after later snapshot = %#v %v, want latest 15 not sum 22", got.TokensUsed, err)
 	}
 }
 
@@ -230,6 +251,54 @@ func TestRecoverFaultsLiveThreadsKeepsIdleAndTaskSentence(t *testing.T) {
 	task, err := s.Store.GetTask("01ARZ3NDEKTSV4RRFFQ69G5FB4")
 	if err != nil || task.Status != "failed" || task.ErrorMsg != restartTaskNotice {
 		t.Fatalf("V1 task recover = %#v %v", task, err)
+	}
+}
+
+func TestRecoverClosesLiveCodexSession(t *testing.T) {
+	s := testService(t)
+	s.Threads = NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FB5", "codex", "Close", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := s.Threads.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	var closed atomic.Bool
+	adapter := NewCodexThread(s.Threads)
+	adapter.look = func(string) (string, error) { return filepath.Join(thread.WorkspaceRoot, "codex.exe"), nil }
+	adapter.startPersistent = func(context.Context, ProcSpec) (*PersistentProc, error) {
+		proc := fakeCodexPeer(t, func(msg map[string]any, write func(any)) {
+			switch msg["method"] {
+			case "initialize":
+				write(map[string]any{"id": msg["id"], "result": map[string]any{}})
+			case "thread/start":
+				write(map[string]any{"id": msg["id"], "result": map[string]any{"thread": map[string]any{"id": "thr_live"}}})
+			case "turn/start":
+				write(map[string]any{"id": msg["id"], "result": map[string]any{"turn": map[string]any{"status": "inProgress"}}})
+			}
+		})
+		orig := proc.closer
+		proc.closer = func() error {
+			closed.Store(true)
+			if orig != nil {
+				return orig()
+			}
+			return nil
+		}
+		return proc, nil
+	}
+	if err := adapter.Prompt(thread.ID, "run"); err != nil {
+		t.Fatal(err)
+	}
+	if err := setThreadStatus(s.Threads, thread.ID, "running"); err != nil {
+		t.Fatal(err)
+	}
+	s.Recover()
+	if !closed.Load() {
+		t.Fatal("Recover must Close the live Codex adapter")
+	}
+	got, err := s.Threads.Get(thread.ID)
+	if err != nil || got.Status != "faulted" {
+		t.Fatalf("after recover = %#v %v, want faulted", got, err)
 	}
 }
 

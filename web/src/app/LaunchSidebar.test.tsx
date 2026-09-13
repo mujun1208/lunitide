@@ -57,11 +57,15 @@ it('starts the sidebar at 新对话 and has no product wordmark', () => {
   expect(screen.getByRole('button', { name: '办公' })).not.toBeNull()
 })
 
-it('hides Agent Hub until the office menu switch is on, then navigates without activating Settings', async () => {
+it('shows Agent Hub by default and hides it when the office menu switch is off', () => {
+  render(<LaunchSidebar {...sidebarProps()} />)
+  expect(screen.getByRole('button', { name: 'Agent 调度台' })).toBeInTheDocument()
+  cleanup()
+  localStorage.setItem('lunitide:office-menu', JSON.stringify({ agentHub: false }))
   render(<LaunchSidebar {...sidebarProps()} />)
   expect(screen.queryByRole('button', { name: 'Agent 调度台' })).toBeNull()
-  localStorage.setItem('lunitide:office-menu', JSON.stringify({ agentHub: true }))
   cleanup()
+  localStorage.setItem('lunitide:office-menu', JSON.stringify({ agentHub: true }))
   const setPage = vi.fn()
   render(<LaunchSidebar {...sidebarProps({ setPage, page: 'agentHub' })} />)
   const button = screen.getByRole('button', { name: 'Agent 调度台' })
