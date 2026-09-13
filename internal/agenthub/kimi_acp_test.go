@@ -573,6 +573,38 @@ func TestKimiACPPromptSendFailureReturnsError(t *testing.T) {
 	}
 }
 
+func TestResolveKimiACPWindowsNpmShim(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows .cmd resolve")
+	}
+	root := t.TempDir()
+	bin := filepath.Join(root, "node_modules", ".bin")
+	js := filepath.Join(root, "node_modules", "@moonshot-ai", "kimi-code", "dist", "main.mjs")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(js), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(js, []byte("export {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := filepath.Join(bin, "kimi.cmd")
+	if err := os.WriteFile(cmd, []byte("@echo off\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exe, args, err := resolveKimiACP(func(string) (string, error) { return cmd, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.EqualFold(filepath.Base(exe), "node.exe") {
+		t.Fatalf("exe = %q, want node.exe", exe)
+	}
+	if len(args) != 2 || !strings.EqualFold(filepath.Base(args[0]), "main.mjs") || args[1] != "acp" {
+		t.Fatalf("args = %#v, want [main.mjs acp]", args)
+	}
+}
+
 func TestResolveKimiACPWindowsCmdUsesNode(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows .cmd resolve")

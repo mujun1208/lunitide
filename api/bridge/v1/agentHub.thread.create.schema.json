@@ -10,6 +10,7 @@
   "properties": {
     "harnessId": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9-]+$" },
     "scene": { "type": "string", "enum": ["write_project", "fix", "ppt", "free"] },
+    "projectId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
     "workspaceRoot": { "type": "string", "maxLength": 1024 },
     "exportDir": { "type": "string", "maxLength": 1024 },
     "title": { "type": "string", "minLength": 1, "maxLength": 200 },

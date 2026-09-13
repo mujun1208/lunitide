@@ -24,6 +24,13 @@ func (r *Runtime) SessionFolder(session string) (string, error) { return r.sessi
 // Full-access rides the user-selected workspace root when one resolves;
 // everything else (and any resolver failure) keeps the per-session sandbox.
 func (r *Runtime) effectiveRoot(mode Mode, session string) (string, error) {
+	if r.projectRoot != nil {
+		if root, err := r.projectRoot(session); err == nil && root != "" {
+			if info, statErr := os.Lstat(root); statErr == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
+				return root, nil
+			}
+		}
+	}
 	if mode == FullAccess && r.fullAccessRoot != nil {
 		if root, err := r.fullAccessRoot(); err == nil && root != "" {
 			if info, statErr := os.Lstat(root); statErr == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {

@@ -50,7 +50,7 @@ func TestPersonalChatEntryCreatesTypedAndVoiceSessionsWithoutDeletingData(t *tes
 	e := newEngine(store)
 	// Preserve an existing business project while bootstrapping the previously
 	// missing chat container. No production profile is opened by this test.
-	oldRequest := validRequest("project.create", validProjectCreateJSON)
+	oldRequest := validRequest("project.create", validProjectCreateJSON(t))
 	oldRequest.IdempotencyKey = "existing-business-project"
 	oldResponse := e.Handle(ctx, oldRequest)
 	var old projectDTO

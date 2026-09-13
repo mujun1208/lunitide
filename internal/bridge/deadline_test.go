@@ -57,6 +57,9 @@ func TestMaxDeadlineMSAgentHubPickers(t *testing.T) {
 	if MaxDeadlineMS("agentHub.dir.pick") != 600_000 {
 		t.Fatalf("dir.pick cap = %d", MaxDeadlineMS("agentHub.dir.pick"))
 	}
+	if MaxDeadlineMS("project.root.pick") != 600_000 {
+		t.Fatalf("project.root.pick cap = %d", MaxDeadlineMS("project.root.pick"))
+	}
 	if MaxDeadlineMS("agentHub.inbox") != 600_000 {
 		t.Fatalf("inbox cap = %d", MaxDeadlineMS("agentHub.inbox"))
 	}

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
@@ -82,8 +83,9 @@ func handleHttpRequest(e *Engine, ctx context.Context, r bridge.Request) bridge.
 func handleDbQuery(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		RunID     string `json:"runId"`
-		Target    string `json:"target"`
-		SQL       string `json:"sql"`
+		Target     string `json:"target"`
+		SqlitePath string `json:"sqlitePath"`
+		SQL        string `json:"sql"`
 		Params    []any  `json:"params"`
 		MaxRows   int64  `json:"maxRows"`
 		TimeoutMS int64  `json:"timeoutMs"`
@@ -100,7 +102,10 @@ func handleDbQuery(e *Engine, ctx context.Context, r bridge.Request) bridge.Resp
 	// registered connection, any other value is a workspace-relative sqlite
 	// file path.
 	connID := ""
-	sqlitePath := p.Target
+	sqlitePath := strings.TrimSpace(p.SqlitePath)
+	if sqlitePath == "" {
+		sqlitePath = p.Target
+	}
 	if len(p.Target) > 9 && p.Target[:9] == "external:" {
 		connID = p.Target[9:]
 		sqlitePath = ""

@@ -11,7 +11,7 @@ import (
 )
 
 func (s *Store) ListProjects(ctx context.Context, filter project.Filter) ([]project.Project, error) {
-	query := `SELECT id,name,project_code,project_type,description,summary,objective,client,contract_no,amount,budget,plan_start,plan_end,remark,close_reason,status_before_close,reopen_reason,status,created_at,updated_at,version,org_id,space_id FROM projects`
+	query := `SELECT ` + projectColumns + ` FROM projects`
 	args := []any{}
 	conditions := []string{`COALESCE(org_id,'')=?`}
 	args = append(args, filter.OrgID)
@@ -55,8 +55,8 @@ func (s *Store) GetProject(ctx context.Context, id string) (project.Project, err
 	var p project.Project
 	var created, updated string
 	var orgID, spaceID sql.NullString
-	row := s.db.QueryRowContext(ctx, `SELECT id,name,project_code,project_type,description,summary,objective,client,contract_no,amount,budget,plan_start,plan_end,remark,close_reason,status_before_close,reopen_reason,status,created_at,updated_at,version,org_id,space_id FROM projects WHERE id=?`, id)
-	if err := row.Scan(&p.ID, &p.Name, &p.ProjectCode, &p.Type, &p.Description, &p.Summary, &p.Objective, &p.Client, &p.ContractNo, &p.Amount, &p.Budget, &p.PlanStart, &p.PlanEnd, &p.Remark, &p.CloseReason, &p.StatusBeforeClose, &p.ReopenReason, &p.Status, &created, &updated, &p.Version, &orgID, &spaceID); err != nil {
+	row := s.db.QueryRowContext(ctx, `SELECT `+projectColumns+` FROM projects WHERE id=?`, id)
+	if err := row.Scan(&p.ID, &p.Name, &p.ProjectCode, &p.Type, &p.Description, &p.Summary, &p.Objective, &p.Client, &p.ContractNo, &p.Amount, &p.Budget, &p.PlanStart, &p.PlanEnd, &p.Remark, &p.CloseReason, &p.StatusBeforeClose, &p.ReopenReason, &p.Status, &created, &updated, &p.Version, &orgID, &spaceID, &p.RootPath, &p.TreeStatus, &p.TreeDigest, &p.TreeGeneratedAt, &p.DefaultExecutor, &p.RulesDigest, &p.RulesMaterializedAt, &p.DBStatus, &p.DBPath, &p.DBDigest, &p.DBVerifiedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return p, project.ErrNotFound
 		}
@@ -110,7 +110,7 @@ func scanProject(rows *sql.Rows) (project.Project, error) {
 	var p project.Project
 	var created, updated string
 	var orgID, spaceID sql.NullString
-	if err := rows.Scan(&p.ID, &p.Name, &p.ProjectCode, &p.Type, &p.Description, &p.Summary, &p.Objective, &p.Client, &p.ContractNo, &p.Amount, &p.Budget, &p.PlanStart, &p.PlanEnd, &p.Remark, &p.CloseReason, &p.StatusBeforeClose, &p.ReopenReason, &p.Status, &created, &updated, &p.Version, &orgID, &spaceID); err != nil {
+	if err := rows.Scan(&p.ID, &p.Name, &p.ProjectCode, &p.Type, &p.Description, &p.Summary, &p.Objective, &p.Client, &p.ContractNo, &p.Amount, &p.Budget, &p.PlanStart, &p.PlanEnd, &p.Remark, &p.CloseReason, &p.StatusBeforeClose, &p.ReopenReason, &p.Status, &created, &updated, &p.Version, &orgID, &spaceID, &p.RootPath, &p.TreeStatus, &p.TreeDigest, &p.TreeGeneratedAt, &p.DefaultExecutor, &p.RulesDigest, &p.RulesMaterializedAt, &p.DBStatus, &p.DBPath, &p.DBDigest, &p.DBVerifiedAt); err != nil {
 		return p, err
 	}
 	var err error

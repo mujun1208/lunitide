@@ -17,7 +17,7 @@ import {
   registryDefaultTab,
 } from './deliverableTypes'
 import { createProjectCrRevision, writeStoredCrRevision } from './crRevision'
-import { designPhaseForType, devPhaseForType } from './checklistTypes'
+import { designPhaseForType } from './checklistTypes'
 
 type EndpointRow = { method: string; path: string; operationId: string }
 type Tab = 'openapi' | 'db'
@@ -61,8 +61,8 @@ export function RegistryPanel({
   deliverables = defaultDeliverableBridge,
   attachments = defaultProjectAttachmentBridge,
   readOnly = false,
-  devGateReady = true,
-  onGoDevPhase,
+  registryReady = true,
+  onGoReqPhase,
 }: {
   project: ProjectDTO
   phase: number
@@ -70,8 +70,8 @@ export function RegistryPanel({
   deliverables?: DeliverableBridge
   attachments?: ProjectAttachmentBridge
   readOnly?: boolean
-  devGateReady?: boolean
-  onGoDevPhase?: () => void
+  registryReady?: boolean
+  onGoReqPhase?: () => void
 }): React.JSX.Element {
   const defaultTab = registryDefaultTab(phase, project.type)
   const [tab, setTab] = useState<Tab>(defaultTab)
@@ -103,7 +103,7 @@ export function RegistryPanel({
     }
   }, [attachments, deliverables, ifacePhase, project.id])
 
-  useEffect(() => { if (devGateReady && tab === 'openapi') void loadBoundSpec() }, [devGateReady, tab, loadBoundSpec])
+  useEffect(() => { if (registryReady && tab === 'openapi') void loadBoundSpec() }, [registryReady, tab, loadBoundSpec])
 
   const bindDeliverable = async (
     targetPhase: number,
@@ -150,7 +150,7 @@ export function RegistryPanel({
   }
 
   const parseOpenAPI = async () => {
-    if (readOnly || busy || !devGateReady || spec.trim().length < 100) return
+    if (readOnly || busy || !registryReady || spec.trim().length < 100) return
     setBusy(true)
     setError('')
     setParseResult(null)
@@ -167,17 +167,22 @@ export function RegistryPanel({
   }
 
   const bindOpenAPI = async () => {
-    if (!parseResult || readOnly || busy || !devGateReady) return
+    if (!parseResult || readOnly || busy || !registryReady) return
     await bindDeliverable(ifacePhase, 'interface_list', '接口清单', 'openapi.json', spec, parseResult.digest)
   }
 
   const queryDb = async () => {
-    if (readOnly || busy || !devGateReady || !sql.trim()) return
+    if (readOnly || busy || !registryReady || !sql.trim()) return
+    const sqlitePath = (project.dbPath ?? '').trim()
+    if (!sqlitePath) {
+      setError('请先物化并核齐项目 SQLite')
+      return
+    }
     setBusy(true)
     setError('')
     setDbResult(null)
     try {
-      const result = await bridge.queryDb({ runId, sql: sql.trim(), maxRows: 200, timeoutMs: 8000 })
+      const result = await bridge.queryDb({ runId, sql: sql.trim(), maxRows: 200, timeoutMs: 8000, sqlitePath })
       setDbResult(result)
     } catch (e) {
       setError(problem(e).message)
@@ -187,13 +192,13 @@ export function RegistryPanel({
   }
 
   const bindDb = async () => {
-    if (!dbResult || readOnly || busy || !devGateReady) return
+    if (!dbResult || readOnly || busy || !registryReady) return
     const summary = `sql:${sql.trim().slice(0, 80)}\nrows:${dbResult.rowCount}`
     await bindDeliverable(dbPhase, 'db_design', '数据库设计文档', 'db-query.txt', summary, dbResult.resultDigest)
   }
 
   const importApiListHint = async () => {
-    if (readOnly || busy || !devGateReady) return
+    if (readOnly || busy || !registryReady) return
     setBusy(true)
     setError('')
     try {
@@ -217,19 +222,18 @@ export function RegistryPanel({
   const phaseHint = project.type === 'operations'
     ? (phase === 3 ? '阶段 3 · 接口' : phase === 2 ? '阶段 2 · 数据库' : `阶段 ${phase}`)
     : (phase === 4 ? '阶段 4 · 接口' : phase === 3 ? '阶段 3 · 数据库' : `阶段 ${phase}`)
-  const devPhase = devPhaseForType(project.type)
   const showDbTab = phase === dbPhase
   const showApiTab = phase === ifacePhase
 
-  if (!devGateReady) {
+  if (!registryReady) {
     return (
       <aside className="pm-registry-panel" aria-label="注册表门禁">
         <header className="pm-deliverable-head">
-          <div><b>注册表暂不可用</b><small>需先完成开发阶段规范与检查清单</small></div>
+          <div><b>注册表暂不可用</b><small>需先确认需求并物化目录</small></div>
         </header>
         <div className="registry-gate">
-          <p>请先进入阶段 {devPhase}「开发」，保存并确认 <b>开发检查清单</b>，建立项目规范与目录结构后，再配置数据库与接口。</p>
-          {onGoDevPhase && <button type="button" className="primary" onClick={onGoDevPhase}>前往开发阶段</button>}
+          <p>请先在需求阶段确认并物化目录，再配置数据库与接口。</p>
+          {onGoReqPhase && <button type="button" className="primary" onClick={onGoReqPhase}>前往需求阶段</button>}
         </div>
       </aside>
     )

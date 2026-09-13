@@ -20,7 +20,42 @@ var (
 	ErrProjectCapacityReached = errors.New("project capacity reached")
 	ErrProjectVersionConflict = errors.New("project version conflict")
 	ErrInvalidTransition      = errors.New("project lifecycle transition is invalid")
+	ErrRootRequired           = errors.New("project root path is required")
+	ErrRootInvalid            = errors.New("project root path is invalid")
+	ErrRootBusy               = errors.New("project root path is busy")
+	ErrRootReadonly           = errors.New("project root path is not writable")
+	ErrTreeInvalid            = errors.New("project tree is invalid")
+	ErrTreeFailed             = errors.New("project tree materialize failed")
+	ErrTreeRequired           = errors.New("project tree is required")
+	ErrTaskNotFound           = errors.New("project task not found")
+	ErrTaskPhase              = errors.New("project task phase is invalid")
+	ErrExecutorUnavailable    = errors.New("project executor is unavailable")
+	ErrDevIncomplete          = errors.New("project development is incomplete")
+	ErrTestOpen               = errors.New("project test items remain open")
+	ErrTestReasonRequired     = errors.New("project test failure reason is required")
+	ErrTestNoSource           = errors.New("project test item has no source")
+	ErrGenerateEmpty          = errors.New("generated deliverable is empty")
+	ErrGenerateSkipApproved   = errors.New("approved deliverable cannot be overwritten")
+	ErrTemplateMissing        = errors.New("project template is missing")
+	ErrRulesFailed            = errors.New("project rules materialize failed")
+	ErrRulesStale             = errors.New("project rules are stale")
+	ErrSchemaInvalid          = errors.New("project database schema is invalid")
+	ErrDBBindInvalid          = errors.New("project database path is invalid")
+	ErrDBFailed               = errors.New("project database materialize failed")
+	ErrDBIncomplete           = errors.New("project database tables are incomplete")
+	ErrDBRequired             = errors.New("project database must be ready")
+	ErrInterfaceRequired      = errors.New("project interface phase must be confirmed")
+	ErrBoardSourceInvalid     = errors.New("project board source is invalid")
+	ErrBoardDirty             = errors.New("project board still has items to reprocess")
+	ErrSelfTestRequired       = errors.New("project item self-test is required")
+	ErrTestKindUnsupported    = errors.New("project test kind is unsupported")
+	ErrIntegrationNotReady    = errors.New("project integration scenario is not ready")
+	ErrSyncInvalid            = errors.New("project release sync destination is invalid")
+	ErrSyncRequired           = errors.New("project release sync is required")
+	ErrAttachmentRequired     = errors.New("project deliverable attachment is required")
 )
+
+func IsRootBusy(err error) bool { return errors.Is(err, ErrRootBusy) }
 
 type Tx interface {
 	CreateProject(context.Context, project.Project) (project.Project, error)
@@ -167,13 +202,24 @@ type projectReplayDTO struct {
 	OrgID             string         `json:"orgId,omitempty"`
 	SpaceID           string         `json:"spaceId,omitempty"`
 	Status            project.Status `json:"status"`
-	CreatedAt         time.Time      `json:"createdAt"`
-	UpdatedAt         time.Time      `json:"updatedAt"`
-	Version           int64          `json:"version"`
+	RootPath          string           `json:"rootPath,omitempty"`
+	TreeStatus        project.TreeStatus `json:"treeStatus,omitempty"`
+	TreeDigest        string           `json:"treeDigest,omitempty"`
+	TreeGeneratedAt   string           `json:"treeGeneratedAt,omitempty"`
+	DefaultExecutor      project.Executor   `json:"defaultExecutor,omitempty"`
+	RulesDigest          string             `json:"rulesDigest,omitempty"`
+	RulesMaterializedAt  string             `json:"rulesMaterializedAt,omitempty"`
+	DBStatus             project.DBStatus   `json:"dbStatus,omitempty"`
+	DBPath               string             `json:"dbPath,omitempty"`
+	DBDigest             string             `json:"dbDigest,omitempty"`
+	DBVerifiedAt         string             `json:"dbVerifiedAt,omitempty"`
+	CreatedAt            time.Time          `json:"createdAt"`
+	UpdatedAt            time.Time          `json:"updatedAt"`
+	Version              int64              `json:"version"`
 }
 
 func projectReplayDTOFrom(p project.Project) projectReplayDTO {
-	return projectReplayDTO{ID: p.ID, Name: p.Name, ProjectCode: p.ProjectCode, Type: p.Type, Description: p.Description, Summary: p.Summary, Objective: p.Objective, Client: p.Client, ContractNo: p.ContractNo, Amount: p.Amount, Budget: p.Budget, PlanStart: p.PlanStart, PlanEnd: p.PlanEnd, Remark: p.Remark, CloseReason: p.CloseReason, StatusBeforeClose: p.StatusBeforeClose, ReopenReason: p.ReopenReason, OrgID: p.OrgID, SpaceID: p.SpaceID, Status: p.Status, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Version: p.Version}
+	return projectReplayDTO{ID: p.ID, Name: p.Name, ProjectCode: p.ProjectCode, Type: p.Type, Description: p.Description, Summary: p.Summary, Objective: p.Objective, Client: p.Client, ContractNo: p.ContractNo, Amount: p.Amount, Budget: p.Budget, PlanStart: p.PlanStart, PlanEnd: p.PlanEnd, Remark: p.Remark, CloseReason: p.CloseReason, StatusBeforeClose: p.StatusBeforeClose, ReopenReason: p.ReopenReason, OrgID: p.OrgID, SpaceID: p.SpaceID, Status: p.Status, RootPath: p.RootPath, TreeStatus: p.TreeStatus, TreeDigest: p.TreeDigest, TreeGeneratedAt: p.TreeGeneratedAt, DefaultExecutor: p.DefaultExecutor, RulesDigest: p.RulesDigest, RulesMaterializedAt: p.RulesMaterializedAt, DBStatus: p.DBStatus, DBPath: p.DBPath, DBDigest: p.DBDigest, DBVerifiedAt: p.DBVerifiedAt, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Version: p.Version}
 }
 
 // Mutate applies an optimistic-locking lifecycle mutation (update / publish /

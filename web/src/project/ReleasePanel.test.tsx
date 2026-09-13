@@ -37,6 +37,7 @@ it('restores the server revision and completes preparation only after server ver
   const updated = vi.fn()
   render(<ReleasePanel project={project} bridge={release} deliverables={documents()} projects={{ advanceStatus } as unknown as ProjectBridge} onProjectUpdated={updated} />)
   await waitFor(() => expect(screen.getByLabelText('CR Revision ID')).toHaveValue(revisionId))
+  expect(screen.getByText(/同步是复制到你选的目录，不是外部生产发布/)).toBeInTheDocument()
   expect(screen.getByText(/当前发布生成本地制品/)).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '核验制品并完成发布准备' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('发布文件已改变')

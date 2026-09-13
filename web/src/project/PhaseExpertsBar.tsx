@@ -24,12 +24,14 @@ export function PhaseExpertsBar({
   phaseLabel,
   experts = expertBridge,
   revision,
+  onCountChange,
 }: {
   sessionId?: string
   projectId: string
   phaseLabel?: string
   experts?: ExpertBridge
   revision?: number | string
+  onCountChange?: (count: number) => void
 }): React.JSX.Element | null {
   const [ids, setIds] = useState<string[]>([])
   const [names, setNames] = useState<Record<string, string>>({})
@@ -42,6 +44,7 @@ export function PhaseExpertsBar({
       const got = await experts.sessionMountGet({ sessionId })
       const next = got?.expertIds ?? []
       setIds(next)
+      onCountChange?.(next.length)
       const listed = await experts.list?.().catch(() => undefined)
       const map: Record<string, string> = {}
       for (const id of next) {
@@ -52,7 +55,7 @@ export function PhaseExpertsBar({
     } catch {
       setIds([])
     }
-  }, [sessionId, experts])
+  }, [sessionId, experts, onCountChange])
 
   useEffect(() => { void load() }, [load, revision])
 

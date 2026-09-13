@@ -4,6 +4,7 @@ import {
   type DeliverableBridge,
   type ProjectAttachmentBridge,
 } from '../bridge/client'
+import { projectSpineApi } from './projectSpineApi'
 import type { ProjectDTO, ProjectType } from '../generated/bridge'
 import {
   dbRegistryPhase,
@@ -15,11 +16,11 @@ import {
   emptyChecklist,
   parseChecklist,
   serializeChecklist,
+  checklistFromBase64,
+  checklistToBase64,
   devPhaseForType,
   type ChecklistDoc,
 } from './checklistTypes'
-
-const toBase64 = (text: string) => btoa(unescape(encodeURIComponent(text)))
 
 export async function loadChecklistDoc(
   projectId: string,
@@ -33,7 +34,7 @@ export async function loadChecklistDoc(
   if (!saved?.attachmentId) return { doc: emptyChecklist(), deliverableId: saved?.id, status: saved?.status }
   const file = await attachments.get({ projectId, attachmentId: saved.attachmentId })
   return {
-    doc: parseChecklist(atob(file.contentBase64)),
+    doc: parseChecklist(checklistFromBase64(file.contentBase64)),
     deliverableId: saved.id,
     status: saved.status,
   }
@@ -55,7 +56,7 @@ export async function saveChecklistDoc(
     category: 'checklist',
     fileName: `${documentType}.json`,
     mimeType: 'application/json',
-    contentBase64: toBase64(serializeChecklist(doc)),
+    contentBase64: checklistToBase64(serializeChecklist(doc)),
   })
   await deliverables.upsert({
     projectId: project.id,
@@ -66,6 +67,19 @@ export async function saveChecklistDoc(
     status,
     digest: `items:${doc.items.length}`,
   })
+  const boardKind = documentType === 'api_list' || documentType === 'interface_list'
+    ? 'interface'
+    : documentType === 'feature_dev_list' || documentType === 'dev_checklist'
+      ? 'dev'
+      : documentType === 'test_checklist'
+        ? 'test'
+        : documentType === 'integration_test_list'
+          ? 'integration'
+          : ''
+  if (boardKind) {
+    const { projectFactoryApi } = await import('./projectFactoryApi')
+    await projectFactoryApi.boardSync({ projectId: project.id, boardKind })
+  }
 }
 
 export async function rollbackTestFailToDev(
@@ -76,24 +90,14 @@ export async function rollbackTestFailToDev(
   deliverables: DeliverableBridge = deliverableBridge,
   attachments: ProjectAttachmentBridge = projectAttachmentBridge,
 ): Promise<boolean> {
-  if (!sourceId) return false
-  const devPhase = devPhaseForType(project.type)
-  const { doc } = await loadChecklistDoc(project.id, devPhase, 'dev_checklist', deliverables, attachments)
-  if (!doc.items.some(i => i.id === sourceId)) return false
-  const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ')
-  const next: ChecklistDoc = {
-    version: 1,
-    items: doc.items.map(item =>
-      item.id === sourceId
-        ? {
-            ...item,
-            status: 'in_progress',
-            notes: `${item.notes ? `${item.notes}; ` : ''}[测试退回 ${testItemId} @ ${stamp}] ${reason}`.trim(),
-          }
-        : item,
-    ),
-  }
-  await saveChecklistDoc(project, devPhase, 'dev_checklist', '开发检查清单', next, 'review', deliverables, attachments)
+  if (!sourceId || !reason.trim()) return false
+  await projectSpineApi.returnFromTest({
+    projectId: project.id,
+    testItemId,
+    reason: reason.trim(),
+  })
+  void deliverables
+  void attachments
   return true
 }
 
@@ -120,7 +124,7 @@ export async function fetchIntegrationGateReady(
   if (!devChecklistReady(dev?.status)) blockers.push('开发检查清单未确认（需 review/approved）')
   if (dev?.attachmentId) {
     const file = await attachments.get({ projectId: project.id, attachmentId: dev.attachmentId })
-    const doc = parseChecklist(atob(file.contentBase64))
+    const doc = parseChecklist(checklistFromBase64(file.contentBase64))
     const open = doc.items.filter(i => i.status !== 'dev_done')
     if (open.length) blockers.push(`开发清单仍有 ${open.length} 条未完成`)
   } else {
@@ -132,7 +136,7 @@ export async function fetchIntegrationGateReady(
   }
   if (test?.attachmentId) {
     const file = await attachments.get({ projectId: project.id, attachmentId: test.attachmentId })
-    const doc = parseChecklist(atob(file.contentBase64))
+    const doc = parseChecklist(checklistFromBase64(file.contentBase64))
     const failed = doc.items.filter(i => i.status === 'test_fail')
     if (failed.length) blockers.push(`测试清单有 ${failed.length} 条不通过项需退回开发`)
     const pending = doc.items.filter(i => i.status === 'pending' || i.status === 'in_progress')

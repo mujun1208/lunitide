@@ -16,6 +16,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/projectattachment"
 	"github.com/lunitide/lunitide/internal/domain/stage"
 	"github.com/lunitide/lunitide/internal/projectapp"
+	"github.com/lunitide/lunitide/internal/projectgen"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/stageapp"
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
@@ -31,12 +32,17 @@ func seedProjectPhaseEvidence(t *testing.T, store *storage.Store, id string, pha
 		t.Fatal(err)
 	}
 	for _, key := range project.RequiredPhaseDocuments(project.TypeImplementation, phase) {
-		content := []byte("Evidence for " + key)
+		content := []byte("Evidence for " + key + " — phase document body")
+		name, mime := key+".txt", "text/plain"
+		if projectgen.IsChecklistType(key) {
+			content = []byte(`{"version":1,"items":[],"note":"Evidence for ` + key + `"}`)
+			name, mime = key+".json", "application/json"
+		}
 		if err = files.WriteFile(ctx, key, content); err != nil {
 			t.Fatal(err)
 		}
 		sum := sha256.Sum256(content)
-		att, err := store.CreateProjectAttachment(ctx, projectattachment.Attachment{ProjectID: id, Phase: phase, FileName: key + ".txt", FilePath: key, MimeType: "text/plain", Digest: hex.EncodeToString(sum[:])})
+		att, err := store.CreateProjectAttachment(ctx, projectattachment.Attachment{ProjectID: id, Phase: phase, FileName: name, FilePath: key, MimeType: mime, Digest: hex.EncodeToString(sum[:])})
 		if err != nil {
 			t.Fatal(err)
 		}

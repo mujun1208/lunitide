@@ -153,6 +153,7 @@ func handleDeliverableUpsert(e *Engine, ctx context.Context, r bridge.Request) b
 	if err != nil {
 		return deliverableFailure(r, err)
 	}
+	e.exportApprovedDeliverable(ctx, saved)
 	return r.Ok(newDeliverableDTO(saved))
 }
 
@@ -186,6 +187,10 @@ func deliverableFailure(r bridge.Request, err error) bridge.Response {
 		return r.Fail("DELIVERABLE_GATE_LOCKED", "交付物门禁已锁定", false)
 	case errors.Is(err, deliverable.ErrVersionConflict):
 		return r.Fail("DELIVERABLE_VERSION_CONFLICT", "交付物已被其他操作修改，请刷新后重试", false)
+	case errors.Is(err, projectapp.ErrAttachmentRequired):
+		return r.Fail("PROJECT_ATTACHMENT_REQUIRED", "请先写入不少于 32 字节的附件正文，不能只绑模版", false)
+	case errors.Is(err, projectapp.ErrBoardSourceInvalid):
+		return r.Fail("PROJECT_BOARD_SOURCE_INVALID", "源清单无法解析，请改成 JSON 或 OpenAPI", false)
 	default:
 		msg := strings.TrimSpace(err.Error())
 		if msg == "" || !peopleUserMessageHasHan(msg) {

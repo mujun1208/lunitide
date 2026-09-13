@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/project.task.open.schema.json",
+  "title": "project.task.open payload",
+  "x-method": "project.task.open",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "projectId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "itemId": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "executor": { "type": "string", "enum": ["lunitide", "cursor", "codex"] },
+    "workSessionId": { "type": "string", "maxLength": 26 },
+    "hubThreadId": { "type": "string", "maxLength": 26 }
+  },
+  "required": ["projectId", "itemId"],
+  "x-result": { "type": "object", "additionalProperties": true },
+  "x-examples": {
+    "positive": [{ "projectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "itemId": "F001", "executor": "lunitide" }],
+    "negative": [{ "projectId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }]
+  }
+}

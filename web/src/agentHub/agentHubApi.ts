@@ -168,6 +168,7 @@ export const agentHubApi = {
     harnessId: string
     scene: AgentHubThreadScene
     workspaceRoot: string
+    projectId?: string
     exportDir?: string
     title?: string
     accessMode?: 'approval' | 'auto-edit' | 'full-access'

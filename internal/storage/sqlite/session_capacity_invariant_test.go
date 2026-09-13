@@ -14,15 +14,38 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/session"
 	"github.com/lunitide/lunitide/internal/projectapp"
 	"github.com/lunitide/lunitide/internal/sessionapp"
+	"github.com/oklog/ulid/v2"
 )
 
 func createSessionProject(t *testing.T, store *Store, key, name string) string {
 	t.Helper()
-	p, err := projectapp.New(store, store).Create(context.Background(), key, "test", struct{ Name string }{name}, project.Project{Name: name})
-	if err != nil {
+	var hasRoot int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('projects') WHERE name='root_path'`).Scan(&hasRoot); err != nil {
 		t.Fatal(err)
 	}
-	return p.ID
+	if hasRoot > 0 {
+		p, err := projectapp.New(store, store).Create(context.Background(), key, "test", struct{ Name string }{name}, project.Project{Name: name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.ID
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	id := ulid.Make().String()
+	code := fmt.Sprintf("ITM%05d", time.Now().UnixNano()%100000)
+	if _, err := store.db.Exec(`INSERT INTO projects(id,name,project_code,status,created_at,updated_at,version) VALUES(?,?,?,?,?,?,1)`, id, name, code, "created", now, now); err != nil {
+		t.Fatal(err)
+	}
+	var hasUsage int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='message_project_usage'`).Scan(&hasUsage); err != nil {
+		t.Fatal(err)
+	}
+	if hasUsage > 0 {
+		if _, err := store.db.Exec(`INSERT INTO message_project_usage(project_id,text_bytes) VALUES(?,0)`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return id
 }
 
 func createSession(t *testing.T, service *sessionapp.Service, parent string, i int) {

@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -13,6 +15,40 @@ import (
 
 func kimiACPArgv() (string, []string) {
 	return "kimi", []string{"acp"}
+}
+
+func resolveNpmKimi(cmdPath string) (string, []string, bool) {
+	dir := filepath.Dir(cmdPath)
+	cands := []string{
+		filepath.Join(dir, "..", "@moonshot-ai", "kimi-code", "dist", "main.mjs"),
+		filepath.Join(dir, "node_modules", "@moonshot-ai", "kimi-code", "dist", "main.mjs"),
+	}
+	js := ""
+	for _, cand := range cands {
+		info, err := os.Stat(cand)
+		if err == nil && !info.IsDir() {
+			js = cand
+			break
+		}
+	}
+	if js == "" {
+		return "", nil, false
+	}
+	node := filepath.Join(dir, "node.exe")
+	if info, err := os.Stat(node); err != nil || info.IsDir() {
+		looked, lookErr := exec.LookPath("node")
+		if lookErr != nil {
+			return "", nil, false
+		}
+		node = looked
+	}
+	if abs, err := filepath.Abs(node); err == nil {
+		node = abs
+	}
+	if abs, err := filepath.Abs(js); err == nil {
+		js = abs
+	}
+	return node, []string{js, "acp"}, true
 }
 
 func resolveKimiACP(look LookPath) (string, []string, error) {
@@ -28,11 +64,13 @@ func resolveKimiACP(look LookPath) (string, []string, error) {
 		return "", nil, err
 	}
 	if runtime.GOOS == "windows" && strings.EqualFold(filepath.Ext(path), ".cmd") {
-		node, nodeArgs, ok := resolveCursorNodeACP(path)
-		if !ok {
-			return "", nil, fmt.Errorf("kimi 无法解析为 node")
+		if node, nodeArgs, ok := resolveCursorNodeACP(path); ok {
+			return node, nodeArgs, nil
 		}
-		return node, nodeArgs, nil
+		if node, nodeArgs, ok := resolveNpmKimi(path); ok {
+			return node, nodeArgs, nil
+		}
+		return "", nil, fmt.Errorf("kimi 无法解析为 node")
 	}
 	return path, args, nil
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
+	"github.com/lunitide/lunitide/internal/projectrules"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 	"github.com/oklog/ulid/v2"
 )
@@ -346,6 +347,11 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	if !p.Companion {
 		instruction += videoTaskInstruction(intent.Text)
 		instruction = appendTypedStableBlocks(instruction, bundledWorkflowInjectionForLane(laneIn.Goal, startLane), e.workspaceRepoGuidance())
+		if p.ProjectPhase >= 1 && p.ProjectID != "" && projectServiceAvailable(e.projects) {
+			if proj, perr := e.projects.Get(ctx, p.ProjectID); perr == nil && proj.RootPath != "" {
+				instruction += projectrules.Guidance(proj.RootPath)
+			}
+		}
 	}
 	if hint := projectPhaseWorkflowInjection(p.ProjectPhase, p.ProjectPhaseLabel); hint != "" {
 		instruction += hint

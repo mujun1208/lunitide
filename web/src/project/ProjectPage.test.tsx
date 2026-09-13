@@ -4,20 +4,22 @@ import{afterEach,expect,it,vi}from'vitest'
 import{BridgeClientError,type ProjectBridge}from'../bridge/client'
 import{ENGINE_RECOVERED_EVENT}from'../bridge/engineHealth'
 import type{ProjectDTO}from'../generated/bridge'
-import{normalizeProjectName,ProjectPage}from'./ProjectPage'
+import{normalizeProjectName,ProjectPage,validateProjectForm}from'./ProjectPage'
 
 afterEach(cleanup)
 const now='2025-01-01T00:00:00Z'
 const created:ProjectDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAV',name:'<img src=x onerror=alert(1)>',projectCode:'ITM00001',type:'implementation',status:'created',description:'demo',client:'Acme',createdAt:now,updatedAt:now,version:1,planStart:'2026-01-01',planEnd:'2026-06-30'}
 const active:ProjectDTO={...created,id:'01ARZ3NDEKTSV4RRFFQ69G5FAB',name:'Active',status:'active',version:2}
 const api=(overrides:Partial<ProjectBridge>={}):ProjectBridge=>({list:vi.fn().mockResolvedValue({items:[]}),create:vi.fn().mockResolvedValue(created),update:vi.fn(),publish:vi.fn().mockImplementation(async payload=>({...created,id:payload.id,status:'chartered' as const,version:2})),close:vi.fn(),reopen:vi.fn(),advanceStatus:vi.fn(),delete:vi.fn().mockResolvedValue({deleted:true,id:created.id}),...overrides})
-const fillRequired=async(user:ReturnType<typeof userEvent.setup>,container:HTMLElement)=>{
+const pickRoot=vi.fn(async()=>({canceled:false,path:'D:\\work\\mall'}))
+const fillRequired=async(user:ReturnType<typeof userEvent.setup>,container:HTMLElement,opts?:{skipRoot?:boolean})=>{
  await user.type(screen.getByLabelText('C 项目名称',{exact:false}),'  Moon   Tide  ')
  await user.type(screen.getByLabelText('D 项目描述',{exact:false}),'A demo project')
  await user.type(screen.getByLabelText('G 客户',{exact:false}),'Acme')
  const dates=container.querySelectorAll('input[type="date"]')
  fireEvent.change(dates[0],{target:{value:'2026-01-01'}})
  fireEvent.change(dates[1],{target:{value:'2026-06-30'}})
+ if(!opts?.skipRoot)await user.click(screen.getByRole('button',{name:'选择根目录'}))
 }
 
 it('does not show raw English list failures',async()=>{
@@ -49,7 +51,7 @@ it('normalizes Go-style whitespace and counts astral code points',()=>{expect(no
 
 it('shows the management table, validates required A–N fields, normalizes create, and renders names as inert text',async()=>{
  const bridge=api(),user=userEvent.setup()
- const{container}=render(<ProjectPage bridge={bridge}/>)
+ const{container}=render(<ProjectPage bridge={bridge} pickRoot={pickRoot}/>)
  expect(await screen.findByText('还没有项目')).toBeInTheDocument()
  expect(screen.getByRole('heading',{name:'项目管理'})).toBeInTheDocument()
  await user.click(screen.getByRole('button',{name:/创建项目/}))
@@ -60,7 +62,7 @@ it('shows the management table, validates required A–N fields, normalizes crea
  await fillRequired(user,container)
  await user.click(screen.getByRole('button',{name:'保存项目'}))
  await waitFor(()=>expect(bridge.create).toHaveBeenCalledOnce())
- expect(vi.mocked(bridge.create).mock.calls[0][0]).toEqual({name:'Moon Tide',type:'implementation',description:'A demo project',summary:'',objective:'',client:'Acme',contractNo:'',amount:0,budget:0,planStart:'2026-01-01',planEnd:'2026-06-30',remark:''})
+ expect(vi.mocked(bridge.create).mock.calls[0][0]).toEqual({name:'Moon Tide',type:'implementation',description:'A demo project',summary:'',objective:'',client:'Acme',contractNo:'',amount:0,budget:0,planStart:'2026-01-01',planEnd:'2026-06-30',remark:'',rootPath:'D:\\work\\mall'})
  expect(await screen.findByText('项目已创建，编号 ITM00001')).toBeInTheDocument()
  expect(screen.getByText(created.name)).toBeInTheDocument()
  expect(document.querySelector('img')).toBeNull()
@@ -69,7 +71,7 @@ it('shows the management table, validates required A–N fields, normalizes crea
 it('blocks busy re-entry and retains the same attempt for a retryable retry',async()=>{
  let reject!:(e:unknown)=>void
  const first=new Promise<ProjectDTO>((_,r)=>{reject=r}),create=vi.fn().mockReturnValueOnce(first).mockResolvedValue(created),bridge=api({create}),user=userEvent.setup()
- const{container}=render(<ProjectPage bridge={bridge}/>)
+ const{container}=render(<ProjectPage bridge={bridge} pickRoot={pickRoot}/>)
  await screen.findByText('还没有项目')
  await user.click(screen.getByRole('button',{name:/创建项目/}))
  await fillRequired(user,container)
@@ -124,7 +126,7 @@ it('saves an edited created project and publishes it into the workbench',async()
  expect(screen.getByText('修改项目 · ITM00001')).toBeInTheDocument()
  await user.click(screen.getByRole('button',{name:'保存项目'}))
  await waitFor(()=>expect(update).toHaveBeenCalledOnce())
- expect(vi.mocked(update).mock.calls[0][0]).toEqual({id:created.id,version:1,name:'<img src=x onerror=alert(1)>',type:'implementation',description:'demo',summary:'',objective:'',client:'Acme',contractNo:'',amount:0,budget:0,planStart:'2026-01-01',planEnd:'2026-06-30',remark:''})
+ expect(vi.mocked(update).mock.calls[0][0]).toEqual({id:created.id,version:1,name:'<img src=x onerror=alert(1)>',type:'implementation',description:'demo',summary:'',objective:'',client:'Acme',contractNo:'',amount:0,budget:0,planStart:'2026-01-01',planEnd:'2026-06-30',remark:'',rootPath:''})
  expect(await screen.findByText('项目已保存')).toBeInTheDocument()
 })
 
@@ -151,4 +153,19 @@ it('requires the application danger dialog before deleting a created project',as
  await user.click(screen.getByRole('button',{name:'确认删除'}))
  await waitFor(()=>expect(bridge.delete).toHaveBeenCalledOnce())
  expect(screen.queryByText(created.name)).not.toBeInTheDocument()
+})
+
+it('blocks create without a root and keeps the path empty when pick is canceled',async()=>{
+ const user=userEvent.setup()
+ const canceled=vi.fn(async()=>({canceled:true,path:''}))
+ const{container}=render(<ProjectPage bridge={api()} pickRoot={canceled}/>)
+ await screen.findByText('还没有项目')
+ await user.click(screen.getByRole('button',{name:/创建项目/}))
+ await fillRequired(user,container,{skipRoot:true})
+ await user.click(screen.getByRole('button',{name:'保存项目'}))
+ expect(await screen.findByText('请选择项目根目录')).toBeInTheDocument()
+ await user.click(screen.getByRole('button',{name:'选择根目录'}))
+ expect(canceled).toHaveBeenCalledOnce()
+ expect(screen.getByText('尚未选择')).toBeInTheDocument()
+ expect(validateProjectForm({name:'Mall',type:'implementation',description:'d',summary:'',objective:'',client:'c',contractNo:'',amount:'',budget:'',planStart:'2026-01-01',planEnd:'2026-06-30',remark:'',rootPath:''})).toBe('请选择项目根目录')
 })

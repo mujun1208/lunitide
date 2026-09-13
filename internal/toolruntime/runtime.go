@@ -63,6 +63,10 @@ type Runtime struct {
 	// read/write inside that root; every other mode stays sandboxed to
 	// <root>/<session>. nil or a resolver failure falls back to the sandbox.
 	fullAccessRoot func() (string, error)
+	// projectRoot resolves an ITM phase-session project disk root. When it
+	// returns a directory, file tools use it instead of the sandbox / global
+	// workspace-root.json. Personal chat sessions keep the existing roots.
+	projectRoot func(session string) (string, error)
 	// sessionStorageRoot overrides the per-session sandbox parent when the
 	// user configures a conversations directory in General settings.
 	sessionStorageRoot func() (string, error)
@@ -179,6 +183,12 @@ func (r *Runtime) SetIMAllowed(f func(channel string) bool) {
 // selection takes effect immediately; failures fall back to the sandbox.
 func (r *Runtime) SetFullAccessRootResolver(f func() (string, error)) {
 	r.fullAccessRoot = f
+}
+
+func (r *Runtime) SetProjectRootResolver(f func(session string) (string, error)) {
+	if r != nil {
+		r.projectRoot = f
+	}
 }
 
 func (r *Runtime) SetSessionStorageRoot(f func() (string, error)) { r.sessionStorageRoot = f }
