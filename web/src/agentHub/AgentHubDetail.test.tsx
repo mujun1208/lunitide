@@ -122,3 +122,26 @@ it('says honestly when a finished PPT task has no deck', async () => {
   render(<LanguageProvider value="zh-CN"><AgentHubDetail taskId="01ARZ3NDEKTSV4RRFFQ69G5FAE" /></LanguageProvider>)
   expect(await screen.findByText('没有文稿。打开目录查看本轮文件，或看时间线说明。')).toBeInTheDocument()
 })
+
+it('still says there is no deck when the only pptx is an inbox reference', async () => {
+  vi.mocked(agentHubApi.get).mockResolvedValue({
+    task: {
+      taskId: '01ARZ3NDEKTSV4RRFFQ69G5FAE',
+      agent: 'kimi',
+      prompt: '【场景：做 PPT】\n工作目录：C:/tmp\n只在本目录写文件。优先使用 kimi-slides。产出 pptx。\n\n用户任务：\n做两页',
+      workDir: 'C:/tmp',
+      sandbox: '',
+      status: 'success',
+      tokensUsed: 0,
+      errorMsg: '',
+      createdAt: '2026-09-12T00:00:00Z',
+    },
+    events: [],
+    artifacts: [
+      { name: '参考.pptx', path: '.agenthub-inbox/参考.pptx', size: 12, mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', source: 'inbox' },
+      { name: 'notes.md', path: 'notes.md', size: 4, mime: 'text/markdown', source: 'changed' },
+    ],
+  })
+  render(<LanguageProvider value="zh-CN"><AgentHubDetail taskId="01ARZ3NDEKTSV4RRFFQ69G5FAE" /></LanguageProvider>)
+  expect(await screen.findByText('没有文稿。打开目录查看本轮文件，或看时间线说明。')).toBeInTheDocument()
+})

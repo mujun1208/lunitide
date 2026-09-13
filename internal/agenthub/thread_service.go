@@ -1,0 +1,432 @@
+package agenthub
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/oklog/ulid/v2"
+)
+
+var (
+	ErrNoOpenPrompt   = errors.New("no open prompt")
+	ErrCallIDMismatch = errors.New("call id mismatch")
+)
+
+func (s *Service) CreateThread(req ThreadCreateRequest) (ThreadDetail, error) {
+	if s.Threads == nil {
+		return ThreadDetail{}, fmt.Errorf("thread store unavailable")
+	}
+	if !validThreadHarness(req.HarnessID) || !validThreadScene(req.Scene) {
+		return ThreadDetail{}, fmt.Errorf("参数无效")
+	}
+	access := req.AccessMode
+	if access == "" {
+		access = "approval"
+	}
+	if !validThreadAccess(access) {
+		return ThreadDetail{}, fmt.Errorf("参数无效")
+	}
+	title := titleFromPrompt(req.Title)
+	if title == "" {
+		title = "新会话"
+	}
+	id := ulid.Make().String()
+	workspace := strings.TrimSpace(req.WorkspaceRoot)
+	if workspace == "" {
+		workspace = DefaultThreadDir(s.Root, id)
+	}
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		return ThreadDetail{}, err
+	}
+	now := s.now().UTC().Format(time.RFC3339)
+	thread := ThreadRecord{
+		ID:            id,
+		HarnessID:     req.HarnessID,
+		Title:         title,
+		WorkspaceRoot: workspace,
+		ExportDir:     strings.TrimSpace(req.ExportDir),
+		Scene:         req.Scene,
+		Status:        "idle",
+		AccessMode:    access,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := s.Threads.Insert(thread); err != nil {
+		return ThreadDetail{}, err
+	}
+	if text := sceneSystemText(req.Scene); text != "" {
+		if err := insertThreadMessage(s.Threads, id, "system", text); err != nil {
+			return ThreadDetail{}, err
+		}
+	}
+	if adapter, err := s.threadAdapter(req.HarnessID); err == nil {
+		if openErr := adapter.Open(thread); openErr != nil {
+			_ = setThreadStatus(s.Threads, id, "faulted")
+			_ = insertThreadMessage(s.Threads, id, "notice", clip(openErr.Error(), 200))
+			_ = insertThreadEvent(s.Threads, id, AgentEvent{Type: "error", Title: "未能打开会话", Detail: clip(openErr.Error(), 200)})
+		}
+	}
+	return s.GetThread(id)
+}
+
+func (s *Service) GetThread(id string) (ThreadDetail, error) {
+	if s.Threads == nil {
+		return ThreadDetail{}, fmt.Errorf("thread store unavailable")
+	}
+	thread, err := s.Threads.Get(id)
+	if err != nil {
+		return ThreadDetail{}, err
+	}
+	messages, err := s.Threads.ListMessages(id)
+	if err != nil {
+		return ThreadDetail{}, err
+	}
+	events, err := s.Threads.ListEvents(id)
+	if err != nil {
+		return ThreadDetail{}, err
+	}
+	files, err := s.Threads.ListFiles(id)
+	if err != nil {
+		return ThreadDetail{}, err
+	}
+	files = mergeThreadFiles(files, scanThreadWorkspace(thread))
+	prompt, err := s.Threads.OpenPrompt(id)
+	if err != nil {
+		return ThreadDetail{}, err
+	}
+	tokens, err := s.Threads.TokensUsed(id)
+	if err != nil {
+		return ThreadDetail{}, err
+	}
+	return ThreadDetail{Thread: thread, Messages: messages, Events: events, Files: files, Prompt: prompt, TokensUsed: tokens}, nil
+}
+
+func (s *Service) ListThreads(harnessID string) ([]ThreadRecord, error) {
+	if s.Threads == nil {
+		return nil, fmt.Errorf("thread store unavailable")
+	}
+	items, err := s.Threads.List(ThreadFilter{HarnessID: harnessID})
+	if err != nil {
+		return nil, err
+	}
+	if items == nil {
+		items = []ThreadRecord{}
+	}
+	return items, nil
+}
+
+func (s *Service) UpdateThread(id, title string, pinned *bool) (ThreadDetail, error) {
+	if s.Threads == nil {
+		return ThreadDetail{}, fmt.Errorf("thread store unavailable")
+	}
+	thread, err := s.Threads.Get(id)
+	if err != nil {
+		return ThreadDetail{}, err
+	}
+	if clipped := titleFromPrompt(title); clipped != "" {
+		thread.Title = clipped
+	}
+	if pinned != nil {
+		thread.Pinned = *pinned
+	}
+	if err = s.Threads.Update(id, thread.Title, thread.Pinned); err != nil {
+		return ThreadDetail{}, err
+	}
+	return s.GetThread(id)
+}
+
+func (s *Service) DeleteThread(id string) error {
+	if s.Threads == nil {
+		return fmt.Errorf("thread store unavailable")
+	}
+	thread, err := s.Threads.Get(id)
+	if err != nil {
+		return err
+	}
+	if adapter, err := s.threadAdapter(thread.HarnessID); err == nil {
+		_ = adapter.Close(id)
+	}
+	return s.Threads.Delete(id)
+}
+
+func (s *Service) CancelThread(id string) (ThreadDetail, error) {
+	if s.Threads == nil {
+		return ThreadDetail{}, fmt.Errorf("thread store unavailable")
+	}
+	thread, err := s.Threads.Get(id)
+	if err != nil {
+		return ThreadDetail{}, err
+	}
+	if adapter, err := s.threadAdapter(thread.HarnessID); err == nil {
+		_ = adapter.Close(id)
+	}
+	if err = s.Threads.CancelOpenPrompts(id); err != nil {
+		return ThreadDetail{}, err
+	}
+	if err = setThreadStatus(s.Threads, id, "cancelled"); err != nil {
+		return ThreadDetail{}, err
+	}
+	return s.GetThread(id)
+}
+
+func (s *Service) PromptThread(id, text string) (ThreadDetail, error) {
+	if s.Threads == nil {
+		return ThreadDetail{}, fmt.Errorf("thread store unavailable")
+	}
+	thread, err := s.Threads.Get(id)
+	if err != nil {
+		return ThreadDetail{}, err
+	}
+	adapter, err := s.threadAdapter(thread.HarnessID)
+	if err != nil {
+		return ThreadDetail{}, err
+	}
+	if err = adapter.Prompt(id, text); err != nil {
+		return ThreadDetail{}, err
+	}
+	_ = applyFirstUserTitle(s.Threads, id, text)
+	_ = touchThread(s.Threads, id)
+	return s.GetThread(id)
+}
+
+func (s *Service) RespondThread(id, callID, optionID, text string) (ThreadDetail, error) {
+	if s.Threads == nil {
+		return ThreadDetail{}, fmt.Errorf("thread store unavailable")
+	}
+	detail, err := s.GetThread(id)
+	if err != nil {
+		return ThreadDetail{}, err
+	}
+	if detail.Prompt == nil || detail.Prompt.CallID == "" {
+		return ThreadDetail{}, ErrNoOpenPrompt
+	}
+	if callID != detail.Prompt.CallID {
+		return ThreadDetail{}, ErrCallIDMismatch
+	}
+	adapter, err := s.threadAdapter(detail.Thread.HarnessID)
+	if err != nil {
+		return ThreadDetail{}, err
+	}
+	if extra := strings.TrimSpace(text); extra != "" {
+		if err = insertThreadMessage(s.Threads, id, "user", extra); err != nil {
+			return ThreadDetail{}, err
+		}
+	}
+	if err = adapter.Respond(id, detail.Prompt.CallID, optionID, text); err != nil {
+		return ThreadDetail{}, err
+	}
+	return s.GetThread(id)
+}
+
+func (s *Service) ResolveThreadFile(threadID, rel string) (string, error) {
+	return s.threadPath(threadID, rel, false)
+}
+
+func (s *Service) OpenThreadPath(threadID, rel string) (string, error) {
+	return s.threadPath(threadID, rel, true)
+}
+
+func (s *Service) ListWorkspace(threadID, relativePath string) ([]WorkspaceEntry, error) {
+	if s.Threads == nil {
+		return nil, fmt.Errorf("thread store unavailable")
+	}
+	thread, err := s.Threads.Get(threadID)
+	if err != nil {
+		return nil, err
+	}
+	target := thread.WorkspaceRoot
+	rel := strings.TrimSpace(relativePath)
+	if rel != "" {
+		target = joinThreadPath(thread.WorkspaceRoot, rel)
+	}
+	if !PathAllowed(thread.WorkspaceRoot, thread.ExportDir, target) {
+		return nil, ErrPathOutside
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return []WorkspaceEntry{{Name: info.Name(), Path: slashRel(thread.WorkspaceRoot, target), Size: info.Size()}}, nil
+	}
+	entries, err := os.ReadDir(target)
+	if err != nil {
+		return nil, err
+	}
+	items := []WorkspaceEntry{}
+	for _, entry := range entries {
+		abs := filepath.Join(target, entry.Name())
+		if !PathAllowed(thread.WorkspaceRoot, thread.ExportDir, abs) {
+			continue
+		}
+		item := WorkspaceEntry{Name: entry.Name(), Path: slashRel(thread.WorkspaceRoot, abs), IsDir: entry.IsDir()}
+		if info, infoErr := entry.Info(); infoErr == nil {
+			item.Size = info.Size()
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func (s *Service) threadPath(threadID, rel string, allowRoot bool) (string, error) {
+	if s.Threads == nil {
+		return "", fmt.Errorf("thread store unavailable")
+	}
+	thread, err := s.Threads.Get(threadID)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(rel) == "" {
+		if allowRoot {
+			return thread.WorkspaceRoot, nil
+		}
+		return "", fmt.Errorf("参数无效")
+	}
+	abs := joinThreadPath(thread.WorkspaceRoot, rel)
+	if !PathAllowed(thread.WorkspaceRoot, thread.ExportDir, abs) {
+		return "", ErrPathOutside
+	}
+	return abs, nil
+}
+
+func (s *Service) threadAdapter(harness string) (ThreadAdapter, error) {
+	if s.Threads == nil {
+		return nil, fmt.Errorf("thread store unavailable")
+	}
+	if harness == "loopback" {
+		return NewLoopbackAdapter(s.Threads), nil
+	}
+	if harness == "cursor" {
+		a := NewCursorACP(s.Threads)
+		if s.Look != nil {
+			a.look = s.Look
+		}
+		return a, nil
+	}
+	if harness == "kimi" {
+		a := NewKimiACP(s.Threads)
+		if s.Look != nil {
+			a.look = s.Look
+		}
+		return a, nil
+	}
+	if harness == "codex" {
+		a := NewCodexThread(s.Threads)
+		if s.Look != nil {
+			a.look = s.Look
+		}
+		if s.Start != nil {
+			a.start = s.Start
+		}
+		return a, nil
+	}
+	return nil, fmt.Errorf("%w: 该 Agent 尚未接入会话", ErrNotAvailable)
+}
+
+func joinThreadPath(workspace, rel string) string {
+	clean := filepath.Clean(strings.ReplaceAll(rel, "/", string(filepath.Separator)))
+	if filepath.IsAbs(clean) {
+		return clean
+	}
+	return filepath.Join(workspace, clean)
+}
+
+func slashRel(root, target string) string {
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return filepath.ToSlash(filepath.Base(target))
+	}
+	return filepath.ToSlash(rel)
+}
+
+func scanThreadWorkspace(thread ThreadRecord) []ThreadFile {
+	entries, err := os.ReadDir(thread.WorkspaceRoot)
+	if err != nil {
+		return nil
+	}
+	var out []ThreadFile
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		abs := filepath.Join(thread.WorkspaceRoot, entry.Name())
+		if !PathAllowed(thread.WorkspaceRoot, thread.ExportDir, abs) {
+			continue
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			continue
+		}
+		out = append(out, ThreadFile{Name: entry.Name(), Path: filepath.ToSlash(entry.Name()), Size: info.Size(), Source: "scan"})
+	}
+	return out
+}
+
+func mergeThreadFiles(stored, live []ThreadFile) []ThreadFile {
+	seen := map[string]ThreadFile{}
+	for _, file := range stored {
+		seen[filepath.ToSlash(file.Path)] = file
+	}
+	for _, file := range live {
+		key := filepath.ToSlash(file.Path)
+		if _, ok := seen[key]; !ok {
+			seen[key] = file
+		}
+	}
+	out := make([]ThreadFile, 0, len(seen))
+	for _, file := range seen {
+		out = append(out, file)
+	}
+	if out == nil {
+		out = []ThreadFile{}
+	}
+	return out
+}
+
+func validThreadHarness(id string) bool {
+	if len(id) < 1 || len(id) > 64 {
+		return false
+	}
+	for _, r := range id {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validThreadScene(scene string) bool {
+	switch scene {
+	case "write_project", "fix", "ppt", "free":
+		return true
+	default:
+		return false
+	}
+}
+
+func sceneSystemText(scene string) string {
+	switch scene {
+	case "write_project":
+		return "在你选的文件夹里按你的规则创建子目录并写文件。不要把已有文件挪到别处。"
+	case "fix":
+		return "在此仓库根内检索和修改。已有文件保持原路径。新文件按已有结构和你的规则放置。"
+	case "ppt":
+		return "用 Kimi 自己的技能做文稿。pptx 写在工作区；指定了导出目录则完成时复制过去。"
+	default:
+		return ""
+	}
+}
+
+func validThreadAccess(mode string) bool {
+	switch mode {
+	case "approval", "auto-edit", "full-access":
+		return true
+	default:
+		return false
+	}
+}

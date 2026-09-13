@@ -1,7 +1,45 @@
 import type { AgentHubState } from './agentHubApi'
 
 export type HubScene = 'ppt' | 'write' | 'fix' | 'free'
+export type AgentHubThreadScene = 'write_project' | 'fix' | 'ppt' | 'free'
 export type InboxFile = { name: string; path: string; size: number }
+
+export const PICK_PROJECT_DIR = '请先选择项目目录'
+
+export const SCENE_BLURBS: Record<AgentHubThreadScene, string> = {
+  write_project: '在你选的文件夹里按你的规则创建子目录并写文件。不要把已有文件挪到别处。',
+  fix: '在此仓库根内检索和修改。已有文件保持原路径。新文件按已有结构和你的规则放置。',
+  ppt: '用 Kimi 自己的技能做文稿。pptx 写在工作区；指定了导出目录则完成时复制过去。',
+  free: '',
+}
+
+export const ACCESS_MODES = [
+  { id: 'approval' as const, zh: '手动', en: 'Manual' },
+  { id: 'auto-edit' as const, zh: '自动', en: 'Auto' },
+  { id: 'full-access' as const, zh: '完全访问', en: 'Full access' },
+] as const
+
+export const THREAD_SCENES = [
+  { id: 'write' as const, zh: '写项目', en: 'Write project' },
+  { id: 'fix' as const, zh: '改代码', en: 'Fix code' },
+  { id: 'ppt' as const, zh: '做 PPT', en: 'Make a PPT' },
+  { id: 'free' as const, zh: '自由', en: 'Free' },
+] as const
+
+export function sceneBlurb(scene: AgentHubThreadScene): string {
+  return SCENE_BLURBS[scene]
+}
+
+export function threadTitleFromPrompt(text: string): string {
+  const first = text.trim().split(/\r?\n/, 1)[0]?.trim() ?? ''
+  if (!first) return ''
+  const runes = Array.from(first)
+  return runes.length <= 200 ? first : runes.slice(0, 200).join('')
+}
+
+export function hubSceneToThreadScene(scene: HubScene): AgentHubThreadScene {
+  return scene === 'write' ? 'write_project' : scene
+}
 
 export const SCENE_KEY = 'lunitide:agent-hub-scene'
 export const workDirKey = (scene: HubScene) => `lunitide:agent-hub-workdir:${scene}`
@@ -43,9 +81,29 @@ export const HUB_SCENES = [
   { id: 'free' as const, agent: '' as const, zh: '其它任务', en: 'Other task', subZh: '自己选 Codex / Cursor / Kimi：写文档、总结资料、做小游戏…', subEn: 'Pick Codex, Cursor or Kimi yourself' },
 ] as const
 
-export function pptDeckMissing(agent: string, prompt: string, artifacts: { name: string; path: string }[]): boolean {
+export function parentWorkspacePath(path: string): string {
+  const parts = path.replace(/\\/g, '/').split('/').filter(Boolean)
+  return parts.slice(0, -1).join('/')
+}
+
+function producedPptx(item: { name: string; path: string; source?: string }): boolean {
+  const path = item.path.replace(/\\/g, '/')
+  if (path.includes('.agenthub-inbox/')) return false
+  if (item.source === 'inbox') return false
+  return /\.pptx$/i.test(item.name) || /\.pptx$/i.test(path)
+}
+
+export function threadPptMissing(scene: string, files: { name: string; path: string; source?: string }[]): boolean {
+  if (scene !== 'ppt') return false
+  return !files.some(producedPptx)
+}
+
+export function pptDeckMissing(agent: string, prompt: string, artifacts: { name: string; path: string; source?: string }[]): boolean {
   if (agent !== 'kimi' || !prompt.includes('【场景：做 PPT】')) return false
-  return !artifacts.some(item => /\.pptx$/i.test(item.name) || /\.pptx$/i.test(item.path))
+  return !artifacts.some(item => {
+    if (item.source && item.source !== 'changed' && item.source !== 'event') return false
+    return /\.pptx$/i.test(item.name) || /\.pptx$/i.test(item.path)
+  })
 }
 
 export function visibleHubArtifacts<T extends { source: string }>(items: T[], showScan: boolean): T[] {
@@ -71,6 +129,9 @@ export function statusLabel(status: string, zh: boolean): string {
     failed: ['失败', 'Failed'],
     timeout: ['超时', 'Timed out'],
     cancelled: ['已取消', 'Cancelled'],
+    idle: ['空闲', 'Idle'],
+    waiting_user: ['等你回答', 'Waiting for you'],
+    faulted: ['失败', 'Failed'],
   }
   const pair = map[status]
   return pair ? (zh ? pair[0] : pair[1]) : status

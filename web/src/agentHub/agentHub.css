@@ -117,6 +117,12 @@
 .agent-hub-actions button{border:1px solid var(--hub-line);background:transparent;color:inherit;border-radius:12px;padding:8px 14px;font:inherit;cursor:pointer}
 .agent-hub-hint{color:var(--hub-muted);font-size:13px}
 .agent-hub-error{color:var(--hub-bad)}
+.shell-mode-switch{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:0 0 6px}
+.shell-mode-switch button{min-height:32px;padding:0 8px;border:1px solid transparent;border-radius:8px;background:transparent;color:#91a2ba;font:inherit;cursor:pointer}
+.shell-mode-switch button[aria-pressed="true"]{color:var(--tide1);border-color:color-mix(in srgb,var(--tide1) 45%,transparent);background:color-mix(in srgb,var(--tide1) 14%,transparent)}
+.agent-hub-sidebar{display:flex;flex-direction:column;gap:10px;min-width:0}
+.agent-hub-sidebar-search input{width:100%;min-height:32px;padding:0 10px;border:1px solid rgba(137,160,198,.18);border-radius:8px;background:transparent;color:inherit;font:inherit}
+.agent-hub-sidebar .conversation-heading{margin:8px 0 4px;padding:0 10px;font-size:12px;font-weight:650;color:#91a2ba}
 @media (max-width:900px){
   .agent-hub-hero h2{font-size:28px}
   .agent-hub-stats,.agent-hub-detail-grid,.agent-hub-grid,.agent-hub-scenes{grid-template-columns:1fr 1fr}

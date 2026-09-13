@@ -1,17 +1,43 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useZh } from '../i18n/language'
-import { AgentHubArtifacts } from './AgentHubArtifacts'
 import { AgentHubDetail } from './AgentHubDetail'
+import { AgentHubHome } from './AgentHubHome'
 import { AgentHubTasks } from './AgentHubTasks'
-import { AgentHubWorkbench } from './AgentHubWorkbench'
+import { AgentHubThread } from './AgentHubThread'
 import './agentHub.css'
 import { agentHubApi, type AgentHubArtifact, type AgentHubCounts, type AgentHubStatus, type AgentHubTask } from './agentHubApi'
 
-type HubTab = 'workbench' | 'tasks' | 'detail' | 'artifacts'
+type HubTab = 'tasks' | 'detail'
 
-export function AgentHubPage(): React.JSX.Element {
+export function AgentHubPage({
+  selectedThreadId,
+  newThreadNonce = 0,
+  onOpenThread,
+}: {
+  selectedThreadId?: string
+  newThreadNonce?: number
+  onOpenThread?: (threadId: string) => void
+} = {}): React.JSX.Element {
   const zh = useZh()
-  const [tab, setTab] = useState<HubTab>('workbench')
+  const [legacy, setLegacy] = useState(false)
+  const [localThreadId, setLocalThreadId] = useState<string>()
+  const nonceSeen = useRef(newThreadNonce)
+  useEffect(() => {
+    if (newThreadNonce === nonceSeen.current) return
+    nonceSeen.current = newThreadNonce
+    setLocalThreadId(undefined)
+    setLegacy(false)
+  }, [newThreadNonce])
+  useEffect(() => {
+    if (selectedThreadId) setLegacy(false)
+  }, [selectedThreadId])
+  const threadId = onOpenThread ? selectedThreadId : (selectedThreadId ?? localThreadId)
+  const openThread = (id: string) => {
+    setLocalThreadId(id)
+    setLegacy(false)
+    onOpenThread?.(id)
+  }
+  const [tab, setTab] = useState<HubTab>('tasks')
   const [agents, setAgents] = useState<AgentHubStatus[]>([])
   const [tasks, setTasks] = useState<AgentHubTask[]>([])
   const [counts, setCounts] = useState<AgentHubCounts>({ queued: 0, running: 0, success: 0, failed: 0 })
@@ -74,8 +100,7 @@ export function AgentHubPage(): React.JSX.Element {
       }
     }
   }, [tasks])
-  const openTask = (id: string) => { setTaskId(id); setTab('detail') }
-  const live = tasks.filter(item => item.status === 'running' || item.status === 'queued')
+  const openTask = (id: string) => { setTaskId(id); setTab('detail'); setLegacy(true) }
   return (
     <div className="agent-hub">
       <header className="agent-hub-head">
@@ -83,16 +108,17 @@ export function AgentHubPage(): React.JSX.Element {
           <h1>{zh ? 'Agent 调度台' : 'Agent Hub'}</h1>
           <p className="agent-hub-quota">{zh ? '消耗的是该 CLI 自己的会员额度' : 'Usage is billed to that CLI subscription, not Lunitide.'}</p>
         </div>
-        <nav className="agent-hub-tabs" aria-label={zh ? '调度台页面' : 'Agent Hub pages'}>
-          {([
-            ['workbench', zh ? '工作台' : 'Workbench'],
-            ['tasks', zh ? '任务中心' : 'Tasks'],
-            ['detail', zh ? '任务详情' : 'Detail'],
-            ['artifacts', zh ? '产物中心' : 'Artifacts'],
-          ] as const).map(([id, label]) => (
-            <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>
-          ))}
-        </nav>
+        <button type="button" aria-pressed={legacy} onClick={() => setLegacy(value => !value)}>{zh ? '旧版任务' : 'Legacy tasks'}</button>
+        {legacy && !threadId && (
+          <nav className="agent-hub-tabs" aria-label={zh ? '调度台页面' : 'Agent Hub pages'}>
+            {([
+              ['tasks', zh ? '任务中心' : 'Tasks'],
+              ['detail', zh ? '任务详情' : 'Detail'],
+            ] as const).map(([id, label]) => (
+              <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>
+            ))}
+          </nav>
+        )}
       </header>
       {banner && (
         <button type="button" className="agent-hub-banner" onClick={() => openTask(banner.taskId)}>
@@ -102,10 +128,16 @@ export function AgentHubPage(): React.JSX.Element {
       )}
       {error && <p className="agent-hub-error" role="alert">{error}</p>}
       {agents.length === 0 && !error && <p className="agent-hub-hint" role="status">{zh ? '正在探测本机 CLI…' : 'Looking for local CLIs…'}</p>}
-      {tab === 'workbench' && <AgentHubWorkbench agents={agents} live={live} onOpened={openTask} />}
-      {tab === 'tasks' && <AgentHubTasks items={tasks} counts={counts} onOpened={openTask} onChanged={() => void refreshLists()} />}
-      {tab === 'detail' && <AgentHubDetail taskId={taskId || undefined} onBanner={(id, title) => setBanner({ taskId: id, title })} />}
-      {tab === 'artifacts' && <AgentHubArtifacts items={artifacts} />}
+      {threadId ? (
+        <AgentHubThread threadId={threadId} />
+      ) : legacy ? (
+        <>
+          {tab === 'tasks' && <AgentHubTasks items={tasks} counts={counts} onOpened={openTask} onChanged={() => void refreshLists()} />}
+          {tab === 'detail' && <AgentHubDetail taskId={taskId || undefined} onBanner={(id, title) => setBanner({ taskId: id, title })} />}
+        </>
+      ) : (
+        <AgentHubHome onOpened={openThread} />
+      )}
     </div>
   )
 }

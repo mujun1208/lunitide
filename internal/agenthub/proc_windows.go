@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -217,4 +218,193 @@ func closeHandle(h *windows.Handle) {
 
 func utf16Environment(env []string) []uint16 {
 	return utf16.Encode([]rune(strings.Join(env, "\x00") + "\x00\x00"))
+}
+
+func startPersistent(ctx context.Context, spec ProcSpec) (*PersistentProc, error) {
+	if spec.Exe == "" || !filepath.IsAbs(spec.Exe) || spec.Dir == "" || !filepath.IsAbs(spec.Dir) {
+		return nil, fmt.Errorf("进程路径无效")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	var inRead, inWrite, outRead, outWrite, errRead, errWrite windows.Handle
+	noInherit := &windows.SecurityAttributes{Length: uint32(unsafe.Sizeof(windows.SecurityAttributes{}))}
+	if err := windows.CreatePipe(&inRead, &inWrite, noInherit, 0); err != nil {
+		return nil, err
+	}
+	if err := windows.CreatePipe(&outRead, &outWrite, noInherit, 0); err != nil {
+		closeHandle(&inRead)
+		closeHandle(&inWrite)
+		return nil, err
+	}
+	if err := windows.CreatePipe(&errRead, &errWrite, noInherit, 0); err != nil {
+		closeHandle(&inRead)
+		closeHandle(&inWrite)
+		closeHandle(&outRead)
+		closeHandle(&outWrite)
+		return nil, err
+	}
+	for _, h := range []windows.Handle{inRead, outWrite, errWrite} {
+		if err := windows.SetHandleInformation(h, windows.HANDLE_FLAG_INHERIT, windows.HANDLE_FLAG_INHERIT); err != nil {
+			closeHandle(&inRead)
+			closeHandle(&inWrite)
+			closeHandle(&outRead)
+			closeHandle(&outWrite)
+			closeHandle(&errRead)
+			closeHandle(&errWrite)
+			return nil, err
+		}
+	}
+	r, _, e := procCreateJobObjectW.Call(0, 0)
+	if r == 0 {
+		closeHandle(&inRead)
+		closeHandle(&inWrite)
+		closeHandle(&outRead)
+		closeHandle(&outWrite)
+		closeHandle(&errRead)
+		closeHandle(&errWrite)
+		return nil, e
+	}
+	job := windows.Handle(r)
+	limits := jobExtendedLimit{}
+	limits.BasicLimitInformation.LimitFlags = limitKillOnJobClose | limitActiveProcess | limitJobMemory | limitDieOnUnhandledException
+	limits.BasicLimitInformation.ActiveProcessLimit = maxJobProcesses
+	limits.JobMemoryLimit = jobMemoryCapBytes
+	if r, _, e = procSetInformationJobObject.Call(uintptr(job), jobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), unsafe.Sizeof(limits)); r == 0 {
+		windows.CloseHandle(job)
+		closeHandle(&inRead)
+		closeHandle(&inWrite)
+		closeHandle(&outRead)
+		closeHandle(&outWrite)
+		closeHandle(&errRead)
+		closeHandle(&errWrite)
+		return nil, e
+	}
+	appName, err := windows.UTF16PtrFromString(spec.Exe)
+	if err != nil {
+		windows.CloseHandle(job)
+		closeHandle(&inRead)
+		closeHandle(&inWrite)
+		closeHandle(&outRead)
+		closeHandle(&outWrite)
+		closeHandle(&errRead)
+		closeHandle(&errWrite)
+		return nil, err
+	}
+	cmdline, err := windows.UTF16PtrFromString(windows.ComposeCommandLine(append([]string{spec.Exe}, spec.Args...)))
+	if err != nil {
+		windows.CloseHandle(job)
+		closeHandle(&inRead)
+		closeHandle(&inWrite)
+		closeHandle(&outRead)
+		closeHandle(&outWrite)
+		closeHandle(&errRead)
+		closeHandle(&errWrite)
+		return nil, err
+	}
+	cwd, err := windows.UTF16PtrFromString(spec.Dir)
+	if err != nil {
+		windows.CloseHandle(job)
+		closeHandle(&inRead)
+		closeHandle(&inWrite)
+		closeHandle(&outRead)
+		closeHandle(&outWrite)
+		closeHandle(&errRead)
+		closeHandle(&errWrite)
+		return nil, err
+	}
+	block := utf16Environment(os.Environ())
+	var envPtr *uint16
+	if len(block) > 0 {
+		envPtr = &block[0]
+	}
+	si := windows.StartupInfo{Flags: windows.STARTF_USESTDHANDLES, StdInput: inRead, StdOutput: outWrite, StdErr: errWrite}
+	si.Cb = uint32(unsafe.Sizeof(si))
+	var pi windows.ProcessInformation
+	if err = windows.CreateProcess(appName, cmdline, nil, nil, true, createSuspended|createNoWindow|createUnicodeEnvironment, envPtr, cwd, &si, &pi); err != nil {
+		windows.CloseHandle(job)
+		closeHandle(&inRead)
+		closeHandle(&inWrite)
+		closeHandle(&outRead)
+		closeHandle(&outWrite)
+		closeHandle(&errRead)
+		closeHandle(&errWrite)
+		return nil, err
+	}
+	assigned, _, assignErr := procAssignProcessToJobObject.Call(uintptr(job), uintptr(pi.Process))
+	if assigned == 0 {
+		_ = windows.TerminateProcess(pi.Process, 1)
+		_, _ = windows.WaitForSingleObject(pi.Process, 5000)
+		windows.CloseHandle(pi.Process)
+		if pi.Thread != 0 {
+			windows.CloseHandle(pi.Thread)
+		}
+		windows.CloseHandle(job)
+		closeHandle(&inRead)
+		closeHandle(&inWrite)
+		closeHandle(&outRead)
+		closeHandle(&outWrite)
+		closeHandle(&errRead)
+		closeHandle(&errWrite)
+		return nil, assignErr
+	}
+	if err = ctx.Err(); err != nil {
+		procTerminateJobObject.Call(uintptr(job), 1)
+		windows.CloseHandle(pi.Process)
+		if pi.Thread != 0 {
+			windows.CloseHandle(pi.Thread)
+		}
+		windows.CloseHandle(job)
+		closeHandle(&inRead)
+		closeHandle(&inWrite)
+		closeHandle(&outRead)
+		closeHandle(&outWrite)
+		closeHandle(&errRead)
+		closeHandle(&errWrite)
+		return nil, err
+	}
+	if r, _, e = procResumeThread.Call(uintptr(pi.Thread)); r == 0xffffffff {
+		procTerminateJobObject.Call(uintptr(job), 1)
+		windows.CloseHandle(pi.Process)
+		windows.CloseHandle(pi.Thread)
+		windows.CloseHandle(job)
+		closeHandle(&inRead)
+		closeHandle(&inWrite)
+		closeHandle(&outRead)
+		closeHandle(&outWrite)
+		closeHandle(&errRead)
+		closeHandle(&errWrite)
+		return nil, e
+	}
+	windows.CloseHandle(pi.Thread)
+	closeHandle(&inRead)
+	closeHandle(&outWrite)
+	closeHandle(&errWrite)
+	logs := &safeLogBuf{}
+	stderrFile := os.NewFile(uintptr(errRead), "agent-hub-acp-stderr")
+	go func() {
+		_, _ = io.Copy(logs, stderrFile)
+		_ = stderrFile.Close()
+	}()
+	stop := make(chan struct{})
+	proc := &PersistentProc{
+		stdin:  os.NewFile(uintptr(inWrite), "agent-hub-acp-stdin"),
+		stdout: os.NewFile(uintptr(outRead), "agent-hub-acp-stdout"),
+		logs:   logs,
+	}
+	proc.closer = func() error {
+		close(stop)
+		procTerminateJobObject.Call(uintptr(job), 1)
+		windows.CloseHandle(pi.Process)
+		windows.CloseHandle(job)
+		return nil
+	}
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = proc.Close()
+		case <-stop:
+		}
+	}()
+	return proc, nil
 }

@@ -142,5 +142,5 @@ function ArtifactPdfFrame({ path, content }: { path: string; content: string }):
   }, [content])
   useEffect(() => () => { if (url) URL.revokeObjectURL(url) }, [url])
   if (!url) return <pre className="artifact-inspector-text">无法解析 PDF 预览，请用本机软件打开</pre>
-  return <iframe className="artifact-inspector-frame" title={`产物预览 ${path}`} src={url} />
+  return <iframe className="artifact-inspector-frame" title={`产物预览 ${path}`} src={url} referrerPolicy="no-referrer" />
 }
