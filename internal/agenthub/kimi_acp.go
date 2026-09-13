@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 )
@@ -87,8 +86,8 @@ func NewKimiACP(store *ThreadStore) *KimiACP {
 }
 
 func (a *KimiACP) Open(thread ThreadRecord) error {
-	_, _ = a.ensure(thread)
-	return nil
+	_, err := a.ensure(thread)
+	return err
 }
 
 func (a *KimiACP) Close(threadID string) error {
@@ -162,7 +161,7 @@ func (a *KimiACP) Prompt(threadID, text string) error {
 	return nil
 }
 
-func (a *KimiACP) Respond(threadID, callID, option string) error {
+func (a *KimiACP) Respond(threadID, callID, option, text string) error {
 	a.mu.Lock()
 	sess := a.sessions[threadID]
 	a.mu.Unlock()
@@ -187,7 +186,7 @@ func (a *KimiACP) Respond(threadID, callID, option string) error {
 	body, err := json.Marshal(acpRPC{
 		JSONRPC: "2.0",
 		ID:      rawID,
-		Result:  json.RawMessage(fmt.Sprintf(`{"outcome":{"outcome":"selected","optionId":%s}}`, strconv.Quote(option))),
+		Result:  acpRespondResult(option, text),
 	})
 	if err != nil {
 		return err
@@ -441,7 +440,7 @@ func (s *kimiACPSession) flushAssistant(a *KimiACP) {
 }
 
 func (s *kimiACPSession) onAsk(a *KimiACP, msg acpRPC) {
-	if s.access == "full-access" && msg.Method == "session/request_permission" {
+	if acpAutoAllowPermission(s.access, msg.Method, msg.Params) {
 		id := msg.ID
 		body, _ := json.Marshal(acpRPC{
 			JSONRPC: "2.0",

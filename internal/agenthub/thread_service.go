@@ -30,7 +30,7 @@ func (s *Service) CreateThread(req ThreadCreateRequest) (ThreadDetail, error) {
 	if !validThreadAccess(access) {
 		return ThreadDetail{}, fmt.Errorf("参数无效")
 	}
-	title := strings.TrimSpace(req.Title)
+	title := titleFromPrompt(req.Title)
 	if title == "" {
 		title = "新会话"
 	}
@@ -64,7 +64,11 @@ func (s *Service) CreateThread(req ThreadCreateRequest) (ThreadDetail, error) {
 		}
 	}
 	if adapter, err := s.threadAdapter(req.HarnessID); err == nil {
-		_ = adapter.Open(thread)
+		if openErr := adapter.Open(thread); openErr != nil {
+			_ = setThreadStatus(s.Threads, id, "faulted")
+			_ = insertThreadMessage(s.Threads, id, "notice", clip(openErr.Error(), 200))
+			_ = insertThreadEvent(s.Threads, id, AgentEvent{Type: "error", Title: "未能打开会话", Detail: clip(openErr.Error(), 200)})
+		}
 	}
 	return s.GetThread(id)
 }
@@ -94,7 +98,11 @@ func (s *Service) GetThread(id string) (ThreadDetail, error) {
 	if err != nil {
 		return ThreadDetail{}, err
 	}
-	return ThreadDetail{Thread: thread, Messages: messages, Events: events, Files: files, Prompt: prompt}, nil
+	tokens, err := s.Threads.TokensUsed(id)
+	if err != nil {
+		return ThreadDetail{}, err
+	}
+	return ThreadDetail{Thread: thread, Messages: messages, Events: events, Files: files, Prompt: prompt, TokensUsed: tokens}, nil
 }
 
 func (s *Service) ListThreads(harnessID string) ([]ThreadRecord, error) {
@@ -119,8 +127,8 @@ func (s *Service) UpdateThread(id, title string, pinned *bool) (ThreadDetail, er
 	if err != nil {
 		return ThreadDetail{}, err
 	}
-	if trimmed := strings.TrimSpace(title); trimmed != "" {
-		thread.Title = trimmed
+	if clipped := titleFromPrompt(title); clipped != "" {
+		thread.Title = clipped
 	}
 	if pinned != nil {
 		thread.Pinned = *pinned
@@ -129,6 +137,20 @@ func (s *Service) UpdateThread(id, title string, pinned *bool) (ThreadDetail, er
 		return ThreadDetail{}, err
 	}
 	return s.GetThread(id)
+}
+
+func (s *Service) DeleteThread(id string) error {
+	if s.Threads == nil {
+		return fmt.Errorf("thread store unavailable")
+	}
+	thread, err := s.Threads.Get(id)
+	if err != nil {
+		return err
+	}
+	if adapter, err := s.threadAdapter(thread.HarnessID); err == nil {
+		_ = adapter.Close(id)
+	}
+	return s.Threads.Delete(id)
 }
 
 func (s *Service) CancelThread(id string) (ThreadDetail, error) {
@@ -171,7 +193,7 @@ func (s *Service) PromptThread(id, text string) (ThreadDetail, error) {
 	return s.GetThread(id)
 }
 
-func (s *Service) RespondThread(id, callID, optionID string) (ThreadDetail, error) {
+func (s *Service) RespondThread(id, callID, optionID, text string) (ThreadDetail, error) {
 	if s.Threads == nil {
 		return ThreadDetail{}, fmt.Errorf("thread store unavailable")
 	}
@@ -189,7 +211,12 @@ func (s *Service) RespondThread(id, callID, optionID string) (ThreadDetail, erro
 	if err != nil {
 		return ThreadDetail{}, err
 	}
-	if err = adapter.Respond(id, detail.Prompt.CallID, optionID); err != nil {
+	if extra := strings.TrimSpace(text); extra != "" {
+		if err = insertThreadMessage(s.Threads, id, "user", extra); err != nil {
+			return ThreadDetail{}, err
+		}
+	}
+	if err = adapter.Respond(id, detail.Prompt.CallID, optionID, text); err != nil {
 		return ThreadDetail{}, err
 	}
 	return s.GetThread(id)
@@ -274,13 +301,28 @@ func (s *Service) threadAdapter(harness string) (ThreadAdapter, error) {
 		return NewLoopbackAdapter(s.Threads), nil
 	}
 	if harness == "cursor" {
-		return NewCursorACP(s.Threads), nil
+		a := NewCursorACP(s.Threads)
+		if s.Look != nil {
+			a.look = s.Look
+		}
+		return a, nil
 	}
 	if harness == "kimi" {
-		return NewKimiACP(s.Threads), nil
+		a := NewKimiACP(s.Threads)
+		if s.Look != nil {
+			a.look = s.Look
+		}
+		return a, nil
 	}
 	if harness == "codex" {
-		return NewCodexThread(s.Threads), nil
+		a := NewCodexThread(s.Threads)
+		if s.Look != nil {
+			a.look = s.Look
+		}
+		if s.Start != nil {
+			a.start = s.Start
+		}
+		return a, nil
 	}
 	return nil, fmt.Errorf("%w: 该 Agent 尚未接入会话", ErrNotAvailable)
 }

@@ -2,6 +2,9 @@ package agenthub
 
 import (
 	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -14,7 +17,7 @@ var ErrThreadBusy = errors.New("thread is waiting for user")
 type ThreadAdapter interface {
 	Open(thread ThreadRecord) error
 	Prompt(threadID, text string) error
-	Respond(threadID, callID, option string) error
+	Respond(threadID, callID, option, text string) error
 	Close(threadID string) error
 }
 
@@ -44,7 +47,55 @@ func setThreadStatus(store *ThreadStore, threadID, status string) error {
 		return nil
 	}
 	_ = CopyThreadExport(thread.WorkspaceRoot, thread.ExportDir)
+	persistThreadFiles(store, thread)
 	return nil
+}
+
+func persistThreadFiles(store *ThreadStore, thread ThreadRecord) {
+	_ = filepath.WalkDir(thread.WorkspaceRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d == nil {
+			return nil
+		}
+		if d.IsDir() {
+			if path != thread.WorkspaceRoot && (skipScanDir(d.Name()) || d.Type()&os.ModeSymlink != 0) {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		info, infoErr := d.Info()
+		if infoErr != nil || !info.Mode().IsRegular() {
+			return nil
+		}
+		if !PathAllowed(thread.WorkspaceRoot, thread.ExportDir, path) {
+			return nil
+		}
+		_ = store.UpsertFile(thread.ID, slashRel(thread.WorkspaceRoot, path), path, info.Size(), "scan")
+		return nil
+	})
+	if thread.ExportDir == "" {
+		return
+	}
+	entries, err := os.ReadDir(thread.ExportDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		abs := filepath.Join(thread.ExportDir, entry.Name())
+		if !PathAllowed(thread.WorkspaceRoot, thread.ExportDir, abs) {
+			continue
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			continue
+		}
+		_ = store.UpsertFile(thread.ID, filepath.ToSlash(entry.Name()), abs, info.Size(), "export")
+	}
 }
 
 func insertThreadPrompt(store *ThreadStore, threadID, callID, prompt, optionsJSON string) error {

@@ -99,6 +99,7 @@ func (s *Service) recoverLiveThreads() {
 		if thread.Status != "running" && thread.Status != "waiting_user" {
 			continue
 		}
+		_ = s.Threads.CancelOpenPrompts(thread.ID)
 		_ = setThreadStatus(s.Threads, thread.ID, "faulted")
 		_ = insertThreadMessage(s.Threads, thread.ID, "notice", "应用重启后未能继续")
 		_ = insertThreadEvent(s.Threads, thread.ID, AgentEvent{

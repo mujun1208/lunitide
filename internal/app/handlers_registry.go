@@ -23,6 +23,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.Method("agentHub.file.open"):           handleAgentHub,
 	bridge.Method("agentHub.thread.cancel"):       handleAgentHub,
 	bridge.Method("agentHub.thread.create"):       handleAgentHub,
+	bridge.Method("agentHub.thread.delete"):       handleAgentHub,
 	bridge.Method("agentHub.thread.get"):          handleAgentHub,
 	bridge.Method("agentHub.thread.list"):         handleAgentHub,
 	bridge.Method("agentHub.thread.prompt"):       handleAgentHub,

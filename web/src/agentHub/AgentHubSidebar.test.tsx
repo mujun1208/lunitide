@@ -9,6 +9,7 @@ vi.mock('./agentHubApi', () => ({
     detect: vi.fn(),
     threadList: vi.fn(),
     threadUpdate: vi.fn(),
+    threadDelete: vi.fn(),
   },
 }))
 
@@ -103,6 +104,41 @@ it('reloads threads when selectedThreadId or newThreadNonce changes', async () =
     </LanguageProvider>,
   )
   expect(await screen.findByRole('button', { name: '新会话' })).toBeInTheDocument()
+})
+
+it('renames and deletes through thread.update / thread.delete', async () => {
+  vi.mocked(agentHubApi.detect).mockResolvedValue({
+    agents: [{ name: 'cursor', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用' }],
+  })
+  vi.mocked(agentHubApi.threadList).mockResolvedValue({ items: [thread('写项目会话')] })
+  vi.mocked(agentHubApi.threadUpdate).mockResolvedValue({
+    thread: { ...thread('新标题'), title: '新标题' },
+    messages: [],
+    events: [],
+    files: [],
+  })
+  vi.mocked(agentHubApi.threadDelete).mockResolvedValue({ ok: true })
+  vi.spyOn(window, 'confirm').mockReturnValue(true)
+  render(<LanguageProvider value="zh-CN"><AgentHubSidebar onOpenThread={vi.fn()} /></LanguageProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: '重命名 写项目会话' }))
+  fireEvent.change(screen.getByLabelText('会话标题'), { target: { value: '新标题' } })
+  fireEvent.click(screen.getByRole('button', { name: '保存标题' }))
+  await waitFor(() => expect(agentHubApi.threadUpdate).toHaveBeenCalledWith({ threadId: THREAD_ID, title: '新标题' }))
+  fireEvent.click(screen.getByRole('button', { name: '删除 新标题' }))
+  await waitFor(() => expect(agentHubApi.threadDelete).toHaveBeenCalledWith({ threadId: THREAD_ID }))
+  expect(screen.queryByRole('button', { name: '新标题' })).toBeNull()
+})
+
+it('does not delete when the confirm is cancelled', async () => {
+  vi.mocked(agentHubApi.detect).mockResolvedValue({
+    agents: [{ name: 'cursor', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用' }],
+  })
+  vi.mocked(agentHubApi.threadList).mockResolvedValue({ items: [thread('写项目会话')] })
+  vi.spyOn(window, 'confirm').mockReturnValue(false)
+  render(<LanguageProvider value="zh-CN"><AgentHubSidebar onOpenThread={vi.fn()} /></LanguageProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: '删除 写项目会话' }))
+  expect(agentHubApi.threadDelete).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: '写项目会话' })).toBeInTheDocument()
 })
 
 it('keeps listed threads when detect fails', async () => {

@@ -56,11 +56,12 @@ type ThreadOpenPrompt struct {
 }
 
 type ThreadDetail struct {
-	Thread   ThreadRecord      `json:"thread"`
-	Messages []ThreadMessage   `json:"messages"`
-	Events   []ThreadEvent     `json:"events"`
-	Files    []ThreadFile      `json:"files"`
-	Prompt   *ThreadOpenPrompt `json:"prompt"`
+	Thread     ThreadRecord      `json:"thread"`
+	Messages   []ThreadMessage   `json:"messages"`
+	Events     []ThreadEvent     `json:"events"`
+	Files      []ThreadFile      `json:"files"`
+	Prompt     *ThreadOpenPrompt `json:"prompt"`
+	TokensUsed int64             `json:"tokensUsed"`
 }
 
 type WorkspaceEntry struct {
@@ -235,6 +236,22 @@ func (s *ThreadStore) ListEvents(threadID string) ([]ThreadEvent, error) {
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (s *ThreadStore) TokensUsed(threadID string) (int64, error) {
+	var n int64
+	err := s.db.QueryRow(`SELECT COALESCE(SUM(json_extract(payload_json, '$.tokens')), 0) FROM agent_hub_thread_events WHERE thread_id=?`, threadID).Scan(&n)
+	return n, err
+}
+
+func (s *ThreadStore) UpsertFile(threadID, rel, abs string, size int64, source string) error {
+	rel = filepath.ToSlash(rel)
+	_, err := s.db.Exec(`INSERT INTO agent_hub_thread_files(thread_id, rel_path, abs_path, size, source)
+VALUES(?,?,?,?,?)
+ON CONFLICT(thread_id, rel_path) DO UPDATE SET abs_path=excluded.abs_path, size=excluded.size,
+source=CASE WHEN agent_hub_thread_files.source='export' OR excluded.source='export' THEN 'export' ELSE excluded.source END`,
+		threadID, rel, abs, size, source)
+	return err
 }
 
 func (s *ThreadStore) ListFiles(threadID string) ([]ThreadFile, error) {

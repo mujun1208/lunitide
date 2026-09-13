@@ -1,6 +1,7 @@
 package agenthub
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -64,6 +65,126 @@ func TestCreateThreadFreeHasNoSystemMessage(t *testing.T) {
 	}
 }
 
+func TestCreateThreadClipsTitleToFirstLine200(t *testing.T) {
+	s := testThreadService(t)
+	long := strings.Repeat("字", 220)
+	detail, err := s.CreateThread(ThreadCreateRequest{
+		HarnessID: "loopback",
+		Scene:     "free",
+		Title:     "第一行\n" + long,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Thread.Title != "第一行" {
+		t.Fatalf("title = %q, want first line", detail.Thread.Title)
+	}
+	clipped, err := s.CreateThread(ThreadCreateRequest{
+		HarnessID: "loopback",
+		Scene:     "free",
+		Title:     long,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := []rune(clipped.Thread.Title); len(got) != 200 || string(got) != strings.Repeat("字", 200) {
+		t.Fatalf("clipped title len = %d %q", len(got), clipped.Thread.Title)
+	}
+}
+
+func TestGetThreadReportsUsageTokens(t *testing.T) {
+	s := testThreadService(t)
+	created, err := s.CreateThread(ThreadCreateRequest{HarnessID: "loopback", Scene: "free"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = insertThreadEvent(s.Threads, created.Thread.ID, AgentEvent{Type: "usage", Tokens: 7}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetThread(created.Thread.ID)
+	if err != nil || got.TokensUsed != 7 {
+		t.Fatalf("tokensUsed = %#v %v", got.TokensUsed, err)
+	}
+}
+
+func TestRespondThreadKeepsOptionalText(t *testing.T) {
+	s := testThreadService(t)
+	created, err := s.CreateThread(ThreadCreateRequest{HarnessID: "loopback", Scene: "free", WorkspaceRoot: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.PromptThread(created.Thread.ID, "选哪个?"); err != nil {
+		t.Fatal(err)
+	}
+	waiting, err := s.GetThread(created.Thread.ID)
+	if err != nil || waiting.Prompt == nil {
+		t.Fatalf("prompt = %#v %v", waiting.Prompt, err)
+	}
+	got, err := s.RespondThread(created.Thread.ID, waiting.Prompt.CallID, "是", "补充一句")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawText bool
+	for _, msg := range got.Messages {
+		if msg.Role == "user" && msg.Content == "补充一句" {
+			sawText = true
+		}
+	}
+	if !sawText {
+		t.Fatalf("respond text missing from messages: %#v", got.Messages)
+	}
+}
+
+func TestCreateThreadFaultsWhenHarnessOpenFails(t *testing.T) {
+	s := testThreadService(t)
+	s.Look = func(string) (string, error) { return "", fmt.Errorf("未安装 Cursor CLI") }
+	detail, err := s.CreateThread(ThreadCreateRequest{HarnessID: "cursor", Scene: "free"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Thread.Status != "faulted" {
+		t.Fatalf("status = %q, want faulted", detail.Thread.Status)
+	}
+	var found bool
+	for _, msg := range detail.Messages {
+		if msg.Role == "notice" && strings.Contains(msg.Content, "未安装 Cursor CLI") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("missing open-fail notice: %#v", detail.Messages)
+	}
+}
+
+func TestDeleteThreadRemovesRow(t *testing.T) {
+	s := testThreadService(t)
+	created, err := s.CreateThread(ThreadCreateRequest{HarnessID: "loopback", Scene: "free", Title: "删我"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.DeleteThread(created.Thread.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.GetThread(created.Thread.ID); err == nil {
+		t.Fatal("expected deleted thread to be gone")
+	}
+}
+
+func TestUpdateThreadClipsTitleToFirstLine200(t *testing.T) {
+	s := testThreadService(t)
+	created, err := s.CreateThread(ThreadCreateRequest{HarnessID: "loopback", Scene: "free", Title: "旧标题"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := s.UpdateThread(created.Thread.ID, "新标题\n第二行"+strings.Repeat("x", 10), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Thread.Title != "新标题" {
+		t.Fatalf("title = %q, want first line", updated.Thread.Title)
+	}
+}
+
 func TestRecoverFaultsLiveThreadsKeepsIdleAndTaskSentence(t *testing.T) {
 	s := testService(t)
 	s.Threads = NewThreadStore(openThreadDB(t))
@@ -79,6 +200,9 @@ func TestRecoverFaultsLiveThreadsKeepsIdleAndTaskSentence(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := insertThreadPrompt(s.Threads, waiting.ID, "call-wait", "继续?", `[{"id":"是","label":"是"}]`); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Store.InsertTask(TaskRecord{
 		ID: "01ARZ3NDEKTSV4RRFFQ69G5FB4", Agent: "codex", Prompt: "stale",
 		WorkDir: t.TempDir(), Status: "running", CreatedAt: "2026-01-01T00:00:00Z",
@@ -91,6 +215,10 @@ func TestRecoverFaultsLiveThreadsKeepsIdleAndTaskSentence(t *testing.T) {
 
 	assertThreadFaultedWithRestart(t, s, running.ID)
 	assertThreadFaultedWithRestart(t, s, waiting.ID)
+	open, err := s.Threads.OpenPrompt(waiting.ID)
+	if err != nil || open != nil {
+		t.Fatalf("open prompt after recover = %#v %v", open, err)
+	}
 	idleGot, err := s.Threads.Get(idle.ID)
 	if err != nil || idleGot.Status != "idle" {
 		t.Fatalf("idle = %#v %v", idleGot, err)

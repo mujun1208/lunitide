@@ -17,7 +17,7 @@ export function artifactViewMode(kind: string, path: string): ArtifactViewMode {
 export function artifactLooksLikePdfBytes(content: string): boolean {
   const trimmed = content.trim()
   if (trimmed.length < 16 || trimmed.includes(' ') || trimmed.includes('\n')) return false
-  return /^[A-Za-z0-9+/]+=*$/.test(trimmed)
+  return /^[A-Za-z0-9+/]+=*$/.test(trimmed) && trimmed.startsWith('JVBERi')
 }
 
 export function previewKindFromPath(path: string): 'html' | 'xlsx' | 'docx' | 'pptx' | 'image' | 'pdf' | 'text' | 'file' {

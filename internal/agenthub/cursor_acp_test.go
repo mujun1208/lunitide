@@ -615,7 +615,7 @@ func TestCursorACPRespondDuringHandshakeDoesNotPanic(t *testing.T) {
 		t.Fatal("handshake did not reach StartPersistent")
 	}
 	defer close(release)
-	err := adapter.Respond(thread.ID, "call1", "是")
+	err := adapter.Respond(thread.ID, "call1", "是", "")
 	if err == nil {
 		t.Fatal("Respond during handshake must not treat the placeholder as open")
 	}

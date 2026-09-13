@@ -101,6 +101,22 @@ func TestExportOnSuccessCopiesAllowlisted(t *testing.T) {
 	if got.Status != "success" {
 		t.Fatalf("status = %q, want success", got.Status)
 	}
+	files, err := store.ListFiles(thread.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawExport, sawScan bool
+	for _, file := range files {
+		if file.Name == "deck.pptx" && file.Source == "export" {
+			sawExport = true
+		}
+		if file.Name == "deck.pptx" && file.Source == "scan" {
+			sawScan = true
+		}
+	}
+	if !sawExport && !sawScan {
+		t.Fatalf("success must persist deck.pptx in thread files: %#v", files)
+	}
 }
 
 func TestExportFailureDoesNotRevertSuccess(t *testing.T) {

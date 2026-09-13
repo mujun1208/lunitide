@@ -46,7 +46,7 @@ func TestLoopbackTwoStepWithoutCLI(t *testing.T) {
 	}
 	assertYesNoOptions(t, optionsJSON)
 
-	if err = adapter.Respond(thread.ID, callID, "是"); err != nil {
+	if err = adapter.Respond(thread.ID, callID, "是", ""); err != nil {
 		t.Fatal(err)
 	}
 

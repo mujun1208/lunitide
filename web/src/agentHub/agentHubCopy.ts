@@ -30,6 +30,13 @@ export function sceneBlurb(scene: AgentHubThreadScene): string {
   return SCENE_BLURBS[scene]
 }
 
+export function threadTitleFromPrompt(text: string): string {
+  const first = text.trim().split(/\r?\n/, 1)[0]?.trim() ?? ''
+  if (!first) return ''
+  const runes = Array.from(first)
+  return runes.length <= 200 ? first : runes.slice(0, 200).join('')
+}
+
 export function hubSceneToThreadScene(scene: HubScene): AgentHubThreadScene {
   return scene === 'write' ? 'write_project' : scene
 }
@@ -74,9 +81,29 @@ export const HUB_SCENES = [
   { id: 'free' as const, agent: '' as const, zh: '其它任务', en: 'Other task', subZh: '自己选 Codex / Cursor / Kimi：写文档、总结资料、做小游戏…', subEn: 'Pick Codex, Cursor or Kimi yourself' },
 ] as const
 
-export function pptDeckMissing(agent: string, prompt: string, artifacts: { name: string; path: string }[]): boolean {
+export function parentWorkspacePath(path: string): string {
+  const parts = path.replace(/\\/g, '/').split('/').filter(Boolean)
+  return parts.slice(0, -1).join('/')
+}
+
+function producedPptx(item: { name: string; path: string; source?: string }): boolean {
+  const path = item.path.replace(/\\/g, '/')
+  if (path.includes('.agenthub-inbox/')) return false
+  if (item.source === 'inbox') return false
+  return /\.pptx$/i.test(item.name) || /\.pptx$/i.test(path)
+}
+
+export function threadPptMissing(scene: string, files: { name: string; path: string; source?: string }[]): boolean {
+  if (scene !== 'ppt') return false
+  return !files.some(producedPptx)
+}
+
+export function pptDeckMissing(agent: string, prompt: string, artifacts: { name: string; path: string; source?: string }[]): boolean {
   if (agent !== 'kimi' || !prompt.includes('【场景：做 PPT】')) return false
-  return !artifacts.some(item => /\.pptx$/i.test(item.name) || /\.pptx$/i.test(item.path))
+  return !artifacts.some(item => {
+    if (item.source && item.source !== 'changed' && item.source !== 'event') return false
+    return /\.pptx$/i.test(item.name) || /\.pptx$/i.test(item.path)
+  })
 }
 
 export function visibleHubArtifacts<T extends { source: string }>(items: T[], showScan: boolean): T[] {
@@ -102,6 +129,9 @@ export function statusLabel(status: string, zh: boolean): string {
     failed: ['失败', 'Failed'],
     timeout: ['超时', 'Timed out'],
     cancelled: ['已取消', 'Cancelled'],
+    idle: ['空闲', 'Idle'],
+    waiting_user: ['等你回答', 'Waiting for you'],
+    faulted: ['失败', 'Failed'],
   }
   const pair = map[status]
   return pair ? (zh ? pair[0] : pair[1]) : status

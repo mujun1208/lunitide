@@ -69,6 +69,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'agentHub.task.start',
   'agentHub.thread.cancel',
   'agentHub.thread.create',
+  'agentHub.thread.delete',
   'agentHub.thread.get',
   'agentHub.thread.list',
   'agentHub.thread.prompt',

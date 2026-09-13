@@ -57,7 +57,7 @@ func (a *LoopbackAdapter) Prompt(threadID, text string) error {
 	return setThreadStatus(a.store, threadID, "waiting_user")
 }
 
-func (a *LoopbackAdapter) Respond(threadID, callID, option string) error {
+func (a *LoopbackAdapter) Respond(threadID, callID, option, _ string) error {
 	thread, err := a.store.Get(threadID)
 	if err != nil {
 		return err

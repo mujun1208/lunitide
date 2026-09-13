@@ -378,11 +378,7 @@ html[data-theme='light'] .os-alert {
 .office-studio.preview-expanded .os-file-rail,
 .office-studio.preview-expanded .os-inspector,
 .office-studio.preview-expanded .os-panel-resizer {
-  visibility: hidden;
-  pointer-events: none;
-  min-width: 0;
-  overflow: hidden;
-  overflow-anchor: none;
+  display: none;
 }
 .office-studio.preview-expanded .os-brief-strip {
   display: none;
@@ -1322,9 +1318,7 @@ html[data-theme='light'] .os-quality.is-stale {
 }
 @container (max-width:899px) {
   .os-workspace,
-  .inspector-open .os-workspace,
-  .preview-expanded .os-workspace,
-  .preview-expanded.inspector-open .os-workspace {
+  .inspector-open .os-workspace {
     grid-template-columns: minmax(0, 1fr) !important;
   }
   .os-file-rail {

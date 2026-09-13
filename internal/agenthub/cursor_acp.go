@@ -214,7 +214,7 @@ func (a *CursorACP) Prompt(threadID, text string) error {
 	return nil
 }
 
-func (a *CursorACP) Respond(threadID, callID, option string) error {
+func (a *CursorACP) Respond(threadID, callID, option, text string) error {
 	a.mu.Lock()
 	sess := a.sessions[threadID]
 	a.mu.Unlock()
@@ -239,7 +239,7 @@ func (a *CursorACP) Respond(threadID, callID, option string) error {
 	body, err := json.Marshal(acpRPC{
 		JSONRPC: "2.0",
 		ID:      rawID,
-		Result:  json.RawMessage(fmt.Sprintf(`{"outcome":{"outcome":"selected","optionId":%s}}`, strconv.Quote(option))),
+		Result:  acpRespondResult(option, text),
 	})
 	if err != nil {
 		return err
@@ -516,7 +516,7 @@ func (s *cursorACPSession) flushAssistant(a *CursorACP) {
 }
 
 func (s *cursorACPSession) onAsk(a *CursorACP, msg acpRPC) {
-	if s.access == "full-access" && msg.Method == "session/request_permission" {
+	if acpAutoAllowPermission(s.access, msg.Method, msg.Params) {
 		id := msg.ID
 		body, _ := json.Marshal(acpRPC{
 			JSONRPC: "2.0",

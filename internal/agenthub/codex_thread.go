@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -17,6 +18,8 @@ type CodexThread struct {
 	store *ThreadStore
 	look  LookPath
 	start StartFunc
+	mu    sync.Mutex
+	stops map[string]context.CancelFunc
 }
 
 func NewCodexThread(store *ThreadStore) *CodexThread {
@@ -24,6 +27,7 @@ func NewCodexThread(store *ThreadStore) *CodexThread {
 		store: store,
 		look:  defaultLookPath,
 		start: StartProcess,
+		stops: map[string]context.CancelFunc{},
 	}
 }
 
@@ -41,9 +45,18 @@ func codexThreadArgv(workspace, sandbox string) (string, []string) {
 
 func (a *CodexThread) Open(ThreadRecord) error { return nil }
 
-func (a *CodexThread) Close(string) error { return nil }
+func (a *CodexThread) Close(threadID string) error {
+	a.mu.Lock()
+	cancel := a.stops[threadID]
+	delete(a.stops, threadID)
+	a.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return nil
+}
 
-func (a *CodexThread) Respond(string, string, string) error {
+func (a *CodexThread) Respond(string, string, string, string) error {
 	return fmt.Errorf("%s", codexAvailableHint)
 }
 
@@ -79,8 +92,21 @@ func (a *CodexThread) Prompt(threadID, text string) error {
 	if start == nil {
 		start = StartProcess
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	a.mu.Lock()
+	if a.stops == nil {
+		a.stops = map[string]context.CancelFunc{}
+	}
+	a.stops[threadID] = cancel
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		delete(a.stops, threadID)
+		a.mu.Unlock()
+		cancel()
+	}()
 	var assistant strings.Builder
-	exit, timedOut, runErr := start(context.Background(), ProcSpec{
+	exit, timedOut, runErr := start(ctx, ProcSpec{
 		Exe:   looked,
 		Dir:   thread.WorkspaceRoot,
 		Args:  args,
@@ -98,6 +124,9 @@ func (a *CodexThread) Prompt(threadID, text string) error {
 			assistant.WriteString(ev.Detail)
 		}
 	})
+	if ctx.Err() != nil {
+		return nil
+	}
 	out := strings.TrimSpace(assistant.String())
 	if out == "" {
 		if body, readErr := os.ReadFile(filepath.Join(thread.WorkspaceRoot, "codex-last-message.md")); readErr == nil {
@@ -173,7 +202,11 @@ func insertThreadEvent(store *ThreadStore, threadID string, ev AgentEvent) error
 	if title == "" {
 		title = ev.Type
 	}
+	payload := "{}"
+	if ev.Tokens > 0 {
+		payload = fmt.Sprintf(`{"tokens":%d}`, ev.Tokens)
+	}
 	_, err = store.db.Exec(`INSERT INTO agent_hub_thread_events(thread_id, seq, type, title, detail, payload_json, ts)
-VALUES(?,?,?,?,?,?,?)`, threadID, last+1, ev.Type, title, ev.Detail, "{}", ts)
+VALUES(?,?,?,?,?,?,?)`, threadID, last+1, ev.Type, title, ev.Detail, payload, ts)
 	return err
 }

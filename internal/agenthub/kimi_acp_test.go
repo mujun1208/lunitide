@@ -181,8 +181,8 @@ func TestKimiACPInitializeFailureFaultsThread(t *testing.T) {
 			return map[string]any{}, ""
 		}), nil
 	}
-	if err := adapter.Open(thread); err != nil {
-		t.Fatalf("Open after persisted fault must return nil: %v", err)
+	if err := adapter.Open(thread); err == nil {
+		t.Fatal("Open must return initialize failure")
 	}
 	if err := adapter.Prompt(thread.ID, "hi"); err == nil {
 		t.Fatal("Prompt after ensure failure must return the error")
@@ -232,8 +232,8 @@ func TestKimiACPInitializeDeathUsesCLIHint(t *testing.T) {
 			return nil
 		}}, nil
 	}
-	if err := adapter.Open(thread); err != nil {
-		t.Fatalf("Open after persisted fault must return nil: %v", err)
+	if err := adapter.Open(thread); err == nil {
+		t.Fatal("Open must return initialize failure")
 	}
 	got, err := store.Get(thread.ID)
 	if err != nil {
@@ -404,6 +404,21 @@ func TestKimiACPPromptRehandshakesAfterProcessDeath(t *testing.T) {
 	defer mu.Unlock()
 	if starts < 2 {
 		t.Fatalf("ensure did not run again after death, starts=%d", starts)
+	}
+}
+
+func TestKimiOpenReturnsEnsureError(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "kimi", "ACP", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	adapter := NewKimiACP(store)
+	adapter.look = func(string) (string, error) { return "", errors.New("未安装 Kimi CLI") }
+	err := adapter.Open(thread)
+	if err == nil || !strings.Contains(err.Error(), "未安装 Kimi CLI") {
+		t.Fatalf("Open = %v, want ensure error", err)
 	}
 }
 
@@ -649,7 +664,7 @@ func TestKimiACPRespondDuringHandshakeDoesNotPanic(t *testing.T) {
 		t.Fatal("handshake did not reach StartPersistent")
 	}
 	defer close(release)
-	err := adapter.Respond(thread.ID, "call1", "是")
+	err := adapter.Respond(thread.ID, "call1", "是", "")
 	if err == nil {
 		t.Fatal("Respond during handshake must not treat the placeholder as open")
 	}

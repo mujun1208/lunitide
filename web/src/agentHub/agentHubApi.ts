@@ -59,6 +59,7 @@ export type AgentHubThreadDetail = {
   events: AgentHubEvent[]
   files: AgentHubThreadFile[]
   prompt?: AgentHubOpenPrompt | null
+  tokensUsed?: number
 }
 
 export type AgentHubWorkspaceItem = {
@@ -176,6 +177,7 @@ export const agentHubApi = {
     request<{ items: AgentHubThread[] }>('agentHub.thread.list', payload ?? {}),
   threadUpdate: (payload: { threadId: string; title?: string; pinned?: boolean }) =>
     request<AgentHubThreadDetail>('agentHub.thread.update', payload),
+  threadDelete: (payload: { threadId: string }) => request<{ ok: boolean }>('agentHub.thread.delete', payload),
   threadCancel: (payload: { threadId: string }) => request<AgentHubThreadDetail>('agentHub.thread.cancel', payload),
   threadPrompt: (payload: { threadId: string; text: string }) =>
     request<AgentHubThreadDetail>('agentHub.thread.prompt', payload),
