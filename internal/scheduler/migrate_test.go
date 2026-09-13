@@ -181,6 +181,8 @@ func TestSchedulerRecoverStaysOffAfterSQLiteCutover(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("executor was not invoked")
 	}
+	// launch clears running in a deferred call after the executor returns.
+	waitSchedulerIdle(t, s)
 
 	s.SetRecoverDecision("native_continue")
 	got2 := make(chan RunContext, 1)
@@ -199,6 +201,7 @@ func TestSchedulerRecoverStaysOffAfterSQLiteCutover(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("classified executor was not invoked")
 	}
+	waitSchedulerIdle(t, s)
 
 	jsonOnly, err := NewStore(t.TempDir())
 	if err != nil {
@@ -264,5 +267,16 @@ func TestOpenAutomationRepositoryFollowsWriterMarker(t *testing.T) {
 	}
 	if err := jsonStore.PutJob(job); err == nil {
 		t.Fatal("JSON must stay read-only after cutover")
+	}
+}
+
+func waitSchedulerIdle(t *testing.T, s *Scheduler) {
+	t.Helper()
+	snap := s.Snapshot()
+	for deadline := time.Now().Add(2 * time.Second); len(snap.RunningJobs) != 0 && time.Now().Before(deadline); snap = s.Snapshot() {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(snap.RunningJobs) != 0 {
+		t.Fatalf("running jobs leaked: %+v", snap.RunningJobs)
 	}
 }

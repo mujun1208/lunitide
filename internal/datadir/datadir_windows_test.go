@@ -115,6 +115,30 @@ func TestSecureRootCloseIsSharedAndIdempotent(t *testing.T) {
 	}
 }
 
+func TestPrepareProductionOverrideUsesAbsoluteDataRoot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "isolated")
+	t.Setenv("LUNITIDE_DATA_ROOT", path)
+	root, handled, err := prepareProductionOverride()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !handled {
+		t.Fatal("override must handle LUNITIDE_DATA_ROOT")
+	}
+	defer root.Close()
+	if root.Path() != path {
+		t.Fatalf("path = %q, want %q", root.Path(), path)
+	}
+	t.Setenv("LUNITIDE_DATA_ROOT", "relative")
+	if _, handled, err = prepareProductionOverride(); !handled || err == nil {
+		t.Fatal("relative LUNITIDE_DATA_ROOT must fail closed")
+	}
+	t.Setenv("LUNITIDE_DATA_ROOT", "")
+	if _, handled, err = prepareProductionOverride(); handled || err != nil {
+		t.Fatalf("empty override = handled=%v err=%v", handled, err)
+	}
+}
+
 func TestProtectRegularFileRejectsHardLinks(t *testing.T) {
 	root, err := PrepareForTest(filepath.Join(t.TempDir(), "data"))
 	if err != nil {

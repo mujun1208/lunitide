@@ -240,7 +240,7 @@ func (s *ThreadStore) ListEvents(threadID string) ([]ThreadEvent, error) {
 
 func (s *ThreadStore) TokensUsed(threadID string) (int64, error) {
 	var n int64
-	err := s.db.QueryRow(`SELECT COALESCE(SUM(json_extract(payload_json, '$.tokens')), 0) FROM agent_hub_thread_events WHERE thread_id=?`, threadID).Scan(&n)
+	err := s.db.QueryRow(`SELECT COALESCE((SELECT json_extract(payload_json, '$.tokens') FROM agent_hub_thread_events WHERE thread_id=? AND type='usage' ORDER BY seq DESC LIMIT 1), 0)`, threadID).Scan(&n)
 	return n, err
 }
 
@@ -275,7 +275,7 @@ func (s *ThreadStore) ListFiles(threadID string) ([]ThreadFile, error) {
 func (s *ThreadStore) OpenPrompt(threadID string) (*ThreadOpenPrompt, error) {
 	var item ThreadOpenPrompt
 	var optionsJSON string
-	err := s.db.QueryRow(`SELECT call_id, prompt, options_json, status FROM agent_hub_prompts WHERE thread_id=? AND status='open' LIMIT 1`, threadID).
+	err := s.db.QueryRow(`SELECT call_id, prompt, options_json, status FROM agent_hub_prompts WHERE thread_id=? AND status='open' ORDER BY rowid ASC LIMIT 1`, threadID).
 		Scan(&item.CallID, &item.Prompt, &optionsJSON, &item.Status)
 	if err == sql.ErrNoRows {
 		return nil, nil

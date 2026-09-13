@@ -38,10 +38,12 @@ export function AgentHubHome({
   const [exportDir, setExportDir] = useState('')
   const [accessMode, setAccessMode] = useState<'approval' | 'auto-edit' | 'full-access'>('approval')
   const [error, setError] = useState('')
-  const [agents, setAgents] = useState<AgentHubStatus[]>([])
+  const [agents, setAgents] = useState<AgentHubStatus[] | null>(null)
   useEffect(() => {
-    void agentHubApi.detect().then(got => setAgents(got.agents ?? [])).catch(() => undefined)
+    void agentHubApi.detect().then(got => setAgents(got.agents ?? [])).catch(() => setAgents([]))
   }, [])
+  const detecting = agents === null
+  const selectedAgent = agents?.find(item => item.name === agent)
   const blurb = scene ? sceneBlurb(hubSceneToThreadScene(scene)) : ''
   const selectScene = (next: HubScene) => {
     setScene(next)
@@ -91,12 +93,14 @@ export function AgentHubHome({
       setError(PICK_PROJECT_DIR)
       return
     }
-    if (agents.length > 0) {
-      const selected = agents.find(item => item.name === agent)
-      if (!selected || selected.state !== 'available') {
-        setError(zh ? '当前 Agent 不可用。' : 'This Agent is not available.')
-        return
-      }
+    if (agents === null) {
+      setError(zh ? '正在检测本机 Agent…' : 'Still looking for local Agents.')
+      return
+    }
+    const selected = agents.find(item => item.name === agent)
+    if (!selected || selected.state !== 'available') {
+      setError(zh ? '当前 Agent 不可用。' : 'This Agent is not available.')
+      return
     }
     setError('')
     try {
@@ -120,6 +124,7 @@ export function AgentHubHome({
   }
   return (
     <section>
+      <p className="agent-hub-hint">{zh ? '对话页就是月汐自己的界面，不嵌官方窗口。未接入的 CLI 不会出现。' : "This page is Lunitide's own UI. Official vendor windows are not embedded. CLIs that are not wired do not appear."}</p>
       <div className="agent-hub-scenes">
         {THREAD_SCENES.map(item => (
           <button
@@ -136,7 +141,7 @@ export function AgentHubHome({
       {blurb ? <p className="agent-hub-hint">{blurb}</p> : null}
       {scene && (
         <div className="agent-hub-pills">
-          {agents.map(item => (
+          {(agents ?? []).map(item => (
             <button
               key={item.name}
               type="button"
@@ -151,11 +156,10 @@ export function AgentHubHome({
         </div>
       )}
       {scene && (() => {
-        const selected = agents.find(item => item.name === agent)
-        if (!selected?.hint) return null
-        if (selected.state !== 'available') return <p className="agent-hub-hint">{selected.hint}</p>
-        if (selected.protocol !== 'exec' && selected.interactive !== false) return null
-        return <p className="agent-hub-hint">{selected.hint}</p>
+        if (!selectedAgent?.hint) return null
+        if (selectedAgent.state !== 'available') return <p className="agent-hub-hint">{selectedAgent.hint}</p>
+        if (selectedAgent.protocol !== 'exec' && selectedAgent.interactive !== false) return null
+        return <p className="agent-hub-hint">{selectedAgent.hint}</p>
       })()}
       <div className="agent-hub-console">
         <textarea
@@ -184,7 +188,7 @@ export function AgentHubHome({
               {zh ? item.zh : item.en}
             </button>
           ))}
-          <button type="button" className="agent-hub-run" onClick={() => void submit()}>
+          <button type="button" className="agent-hub-run" disabled={detecting} onClick={() => void submit()}>
             {zh ? '执行' : 'Run'}
           </button>
         </div>

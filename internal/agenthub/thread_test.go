@@ -51,6 +51,24 @@ func TestThreadPathAllowedRejectsOutsideBothRoots(t *testing.T) {
 	}
 }
 
+func TestOpenPromptReturnsOldestOpen(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "loopback", "Ask", false)
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	if err := insertThreadPrompt(store, thread.ID, "older", "先问", `[{"id":"a","label":"A"}]`); err != nil {
+		t.Fatal(err)
+	}
+	if err := insertThreadPrompt(store, thread.ID, "newer", "后问", `[{"id":"b","label":"B"}]`); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.OpenPrompt(thread.ID)
+	if err != nil || got == nil || got.CallID != "older" {
+		t.Fatalf("open prompt = %#v %v, want oldest call older", got, err)
+	}
+}
+
 func TestDefaultThreadDirJoinsThreadsID(t *testing.T) {
 	root := t.TempDir()
 	id := "01ARZ3NDEKTSV4RRFFQ69G5FAE"

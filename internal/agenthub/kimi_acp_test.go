@@ -83,6 +83,9 @@ func TestDetectKimiInteractiveACPWhenFound(t *testing.T) {
 		t.Fatalf("kimi detect = interactive=%v protocol=%q, want true/acp: %+v", st.Interactive, st.Protocol, st)
 	}
 
+	prev := probeCodexAppServer
+	probeCodexAppServer = func(LookPath) bool { return false }
+	t.Cleanup(func() { probeCodexAppServer = prev })
 	codex := detectOne("codex", func(string) (string, error) { return `C:\codex.exe`, nil }, func(string, time.Duration) (string, error) {
 		return "codex 1", nil
 	})
@@ -160,6 +163,86 @@ func TestKimiACPStartsWithAcpOnlyArgv(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(spec.Args, " "), "-p") || strings.Contains(strings.Join(spec.Args, " "), "stream-json") {
 		t.Fatalf("thread argv must not use V1 -p / stream-json: %v", spec.Args)
+	}
+}
+
+func TestKimiACPLoadsNativeSession(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "kimi", "Resume", false)
+	thread.WorkspaceRoot = t.TempDir()
+	thread.NativeSessionID = "sess_old"
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	var methods []string
+	adapter := NewKimiACP(store)
+	adapter.look = func(string) (string, error) { return filepath.Join(thread.WorkspaceRoot, "kimi.exe"), nil }
+	adapter.startPersistent = func(context.Context, ProcSpec) (*PersistentProc, error) {
+		return fakeACPPeer(t, func(msg map[string]any) (any, string) {
+			if method, _ := msg["method"].(string); method != "" {
+				methods = append(methods, method)
+			}
+			switch msg["method"] {
+			case "initialize":
+				return map[string]any{"protocolVersion": 1}, ""
+			case "session/load":
+				params, _ := msg["params"].(map[string]any)
+				if params["sessionId"] != "sess_old" {
+					t.Fatalf("load params = %#v", params)
+				}
+				return map[string]any{"sessionId": "sess_old"}, ""
+			case "session/new":
+				t.Fatal("load must not fall through to session/new")
+			}
+			return map[string]any{}, ""
+		}), nil
+	}
+	if err := adapter.Open(thread); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(methods, " ")
+	if !strings.Contains(joined, "session/load") || strings.Contains(joined, "session/new") {
+		t.Fatalf("methods = %v, want session/load", methods)
+	}
+}
+
+func TestKimiACPLoadFallsBackToNew(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "kimi", "ResumeFail", false)
+	thread.WorkspaceRoot = t.TempDir()
+	thread.NativeSessionID = "sess_dead"
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	var methods []string
+	adapter := NewKimiACP(store)
+	adapter.look = func(string) (string, error) { return filepath.Join(thread.WorkspaceRoot, "kimi.exe"), nil }
+	adapter.startPersistent = func(context.Context, ProcSpec) (*PersistentProc, error) {
+		return fakeACPPeer(t, func(msg map[string]any) (any, string) {
+			if method, _ := msg["method"].(string); method != "" {
+				methods = append(methods, method)
+			}
+			switch msg["method"] {
+			case "initialize":
+				return map[string]any{"protocolVersion": 1}, ""
+			case "session/load":
+				return nil, "unknown session"
+			case "session/new":
+				return map[string]any{"sessionId": "sess_new"}, ""
+			}
+			return map[string]any{}, ""
+		}), nil
+	}
+	if err := adapter.Open(thread); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Get(thread.ID)
+	if err != nil || got.NativeSessionID != "sess_new" {
+		t.Fatalf("native = %#v %v, want sess_new", got, err)
+	}
+	joined := strings.Join(methods, " ")
+	if !strings.Contains(joined, "session/load") || !strings.Contains(joined, "session/new") {
+		t.Fatalf("methods = %v, want load then new", methods)
 	}
 }
 

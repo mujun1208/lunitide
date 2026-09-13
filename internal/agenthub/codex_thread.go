@@ -12,23 +12,48 @@ import (
 
 var _ ThreadAdapter = (*CodexThread)(nil)
 
-const codexAvailableHint = "当前只能一把跑完，不能中途提问"
+const (
+	codexAvailableHint      = "当前只能一把跑完，不能中途提问"
+	codexExecFallbackNotice = "app-server 没接上，这轮改为一把跑完，不能中途提问"
+)
+
+var (
+	codexThreadMu sync.Mutex
+	codexThreads  = map[*ThreadStore]*CodexThread{}
+)
 
 type CodexThread struct {
-	store *ThreadStore
-	look  LookPath
-	start StartFunc
-	mu    sync.Mutex
-	stops map[string]context.CancelFunc
+	store           *ThreadStore
+	look            LookPath
+	start           StartFunc
+	startPersistent persistentStarter
+	mu              sync.Mutex
+	stops           map[string]context.CancelFunc
+	sessions        map[string]*codexAppSession
 }
 
 func NewCodexThread(store *ThreadStore) *CodexThread {
-	return &CodexThread{
-		store: store,
-		look:  defaultLookPath,
-		start: StartProcess,
-		stops: map[string]context.CancelFunc{},
+	codexThreadMu.Lock()
+	defer codexThreadMu.Unlock()
+	if a, ok := codexThreads[store]; ok {
+		return a
 	}
+	a := &CodexThread{
+		store:    store,
+		look:     defaultLookPath,
+		start:    StartProcess,
+		stops:    map[string]context.CancelFunc{},
+		sessions: map[string]*codexAppSession{},
+	}
+	codexThreads[store] = a
+	return a
+}
+
+func codexExecSandbox(access string) string {
+	if access == "full-access" {
+		return "danger-full-access"
+	}
+	return "workspace-write"
 }
 
 func codexThreadArgv(workspace, sandbox string) (string, []string) {
@@ -43,20 +68,37 @@ func codexThreadArgv(workspace, sandbox string) (string, []string) {
 	}
 }
 
-func (a *CodexThread) Open(ThreadRecord) error { return nil }
+func (a *CodexThread) Open(thread ThreadRecord) error {
+	return nil
+}
 
 func (a *CodexThread) Close(threadID string) error {
 	a.mu.Lock()
 	cancel := a.stops[threadID]
 	delete(a.stops, threadID)
+	sess := a.sessions[threadID]
+	delete(a.sessions, threadID)
 	a.mu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
+	if sess == nil {
+		return nil
+	}
+	select {
+	case <-sess.ready:
+	default:
+	}
+	if sess.proc != nil {
+		return sess.proc.Close()
+	}
 	return nil
 }
 
-func (a *CodexThread) Respond(string, string, string, string) error {
+func (a *CodexThread) Respond(threadID, callID, option, text string) error {
+	if sess := a.liveAppServer(threadID); sess != nil {
+		return a.respondAppServer(sess, threadID, callID, option, text)
+	}
 	return fmt.Errorf("%s", codexAvailableHint)
 }
 
@@ -68,6 +110,19 @@ func (a *CodexThread) Prompt(threadID, text string) error {
 	if thread.Status == "waiting_user" || thread.Status == "running" {
 		return ErrThreadBusy
 	}
+	if sess := a.liveAppServer(threadID); sess == nil {
+		if a.shouldTryAppServer(thread) {
+			if openErr := a.tryAppServer(thread); openErr == nil {
+				sess = a.liveAppServer(threadID)
+			}
+			if sess != nil {
+				return a.promptAppServer(sess, thread, text)
+			}
+			_ = insertThreadMessage(a.store, threadID, "notice", codexExecFallbackNotice)
+		}
+	} else {
+		return a.promptAppServer(sess, thread, text)
+	}
 	stdin := composeCodexExecPrompt(a.store, threadID, text)
 	if err = insertThreadMessage(a.store, threadID, "user", text); err != nil {
 		return err
@@ -75,7 +130,7 @@ func (a *CodexThread) Prompt(threadID, text string) error {
 	if err = setThreadStatus(a.store, threadID, "running"); err != nil {
 		return err
 	}
-	exe, args := codexThreadArgv(thread.WorkspaceRoot, "")
+	exe, args := codexThreadArgv(thread.WorkspaceRoot, codexExecSandbox(thread.AccessMode))
 	look := a.look
 	if look == nil {
 		look = defaultLookPath

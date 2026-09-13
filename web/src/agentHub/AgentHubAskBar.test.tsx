@@ -54,6 +54,25 @@ it('calls threadRespond with the clicked option id and call id', async () => {
   }))
 })
 
+it('shows an error when threadRespond fails', async () => {
+  vi.mocked(agentHubApi.threadRespond).mockRejectedValue(new Error('会话未打开'))
+  render(
+    <LanguageProvider value="zh-CN">
+      <AgentHubAskBar
+        threadId="01ARZ3NDEKTSV4RRFFQ69G5FAE"
+        prompt={{
+          callId: '01ARZ3NDEKTSV4RRFFQ69G5FAF',
+          prompt: '选哪个?',
+          options: [{ id: '是', label: '是' }, { id: '否', label: '否' }],
+          status: 'open',
+        }}
+      />
+    </LanguageProvider>,
+  )
+  fireEvent.click(screen.getByRole('button', { name: '是' }))
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('会话未打开'))
+})
+
 it('sends optional AskBar text only when filled', async () => {
   vi.mocked(agentHubApi.threadRespond).mockResolvedValue({
     thread: {

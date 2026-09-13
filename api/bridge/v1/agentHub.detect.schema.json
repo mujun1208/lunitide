@@ -25,7 +25,7 @@
             "streamJSON": { "type": "boolean" },
             "hint": { "type": "string" },
             "interactive": { "type": "boolean" },
-            "protocol": { "type": "string", "enum": ["acp", "exec", "none"] }
+            "protocol": { "type": "string", "enum": ["acp", "exec", "app-server", "none"] }
           },
           "required": ["name", "state", "version", "nonInteractive", "streamJSON", "hint", "interactive", "protocol"]
         }

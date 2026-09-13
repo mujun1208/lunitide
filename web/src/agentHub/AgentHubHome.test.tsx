@@ -24,17 +24,47 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+function availableAgents() {
+  return [
+    { name: 'codex', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用', interactive: true, protocol: 'app-server' },
+    { name: 'cursor', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用', interactive: true, protocol: 'acp' },
+    { name: 'kimi', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用', interactive: true, protocol: 'acp' },
+  ] as const
+}
+
 function stubHome() {
-  vi.mocked(agentHubApi.detect).mockResolvedValue({ agents: [] })
+  vi.mocked(agentHubApi.detect).mockResolvedValue({ agents: [...availableAgents()] })
 }
 
 it('shows 请先选择项目目录 and does not create a 写项目 thread without a folder', async () => {
   stubHome()
   render(<LanguageProvider value="zh-CN"><AgentHubHome /></LanguageProvider>)
   fireEvent.click(await screen.findByRole('button', { name: '写项目' }))
+  expect(await screen.findByRole('button', { name: 'cursor' })).toBeEnabled()
   fireEvent.click(screen.getByRole('button', { name: '执行' }))
   expect(screen.getByRole('alert')).toHaveTextContent('请先选择项目目录')
   expect(agentHubApi.threadCreate).not.toHaveBeenCalled()
+})
+
+it('does not create a thread before detect finishes', async () => {
+  vi.mocked(agentHubApi.detect).mockReturnValue(new Promise(() => undefined))
+  vi.mocked(agentHubApi.pickDir).mockResolvedValue({ canceled: false, path: 'E:/proj' })
+  render(<LanguageProvider value="zh-CN"><AgentHubHome /></LanguageProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: '写项目' }))
+  fireEvent.click(screen.getByRole('button', { name: '选择文件夹' }))
+  expect(await screen.findByRole('button', { name: 'E:/proj' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '执行' })).toBeDisabled()
+  expect(agentHubApi.threadCreate).not.toHaveBeenCalled()
+})
+
+it('says the thread page is 月汐 UI and later CLIs stay off the list', async () => {
+  stubHome()
+  render(<LanguageProvider value="zh-CN"><AgentHubHome /></LanguageProvider>)
+  expect(await screen.findByText('对话页就是月汐自己的界面，不嵌官方窗口。未接入的 CLI 不会出现。')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '写项目' }))
+  expect(await screen.findByRole('button', { name: 'cursor' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'pi' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'claude' })).toBeNull()
 })
 
 it('maps 写项目 to write_project after a folder is chosen', async () => {
@@ -62,6 +92,7 @@ it('maps 写项目 to write_project after a folder is chosen', async () => {
   render(<LanguageProvider value="zh-CN"><AgentHubHome /></LanguageProvider>)
   fireEvent.click(await screen.findByRole('button', { name: '写项目' }))
   expect(screen.getByText('在你选的文件夹里按你的规则创建子目录并写文件。不要把已有文件挪到别处。')).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: 'cursor' })).toBeEnabled()
   fireEvent.click(screen.getByRole('button', { name: '选择文件夹' }))
   expect(await screen.findByRole('button', { name: 'E:/proj' })).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '执行' }))
@@ -110,6 +141,7 @@ it('passes title, exportDir, and accessMode from Home', async () => {
   })
   render(<LanguageProvider value="zh-CN"><AgentHubHome /></LanguageProvider>)
   fireEvent.click(await screen.findByRole('button', { name: '写项目' }))
+  expect(await screen.findByRole('button', { name: 'cursor' })).toBeEnabled()
   fireEvent.click(screen.getByRole('button', { name: '选择文件夹' }))
   expect(await screen.findByRole('button', { name: 'E:/proj' })).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '导出目录' }))
@@ -194,6 +226,7 @@ it('copies inbox files into the chosen workspace and clips the title', async () 
   })
   render(<LanguageProvider value="zh-CN"><AgentHubHome /></LanguageProvider>)
   fireEvent.click(await screen.findByRole('button', { name: '写项目' }))
+  expect(await screen.findByRole('button', { name: 'cursor' })).toBeEnabled()
   fireEvent.click(screen.getByRole('button', { name: '选择文件夹' }))
   fireEvent.click(await screen.findByRole('button', { name: '添加文件' }))
   await waitFor(() => expect(agentHubApi.inbox).toHaveBeenCalledWith({ action: 'files', workDir: 'E:/proj' }))

@@ -17,6 +17,9 @@ func TestDetectMissing(t *testing.T) {
 }
 
 func TestDetectTimeoutStillAvailableWhenMatrixYes(t *testing.T) {
+	prev := probeCodexAppServer
+	probeCodexAppServer = func(LookPath) bool { return false }
+	t.Cleanup(func() { probeCodexAppServer = prev })
 	st := detectOne("codex", func(string) (string, error) { return `C:\codex.exe`, nil }, func(string, time.Duration) (string, error) {
 		return "", errors.New("timeout")
 	})
@@ -35,6 +38,9 @@ func TestDetectTimeoutStillAvailableForKimi(t *testing.T) {
 }
 
 func TestDetectAllRunsAdaptersInParallel(t *testing.T) {
+	prev := probeCodexAppServer
+	probeCodexAppServer = func(LookPath) bool { return false }
+	t.Cleanup(func() { probeCodexAppServer = prev })
 	started := time.Now()
 	DetectAll(func(string) (string, error) { return `C:\x.exe`, nil }, func(string, time.Duration) (string, error) {
 		time.Sleep(800 * time.Millisecond)
@@ -134,6 +140,9 @@ func TestLookFindsKimiCodePrefixBin(t *testing.T) {
 }
 
 func TestDetectAvailableWhenMatrixAndVersionOK(t *testing.T) {
+	prev := probeCodexAppServer
+	probeCodexAppServer = func(LookPath) bool { return false }
+	t.Cleanup(func() { probeCodexAppServer = prev })
 	st := detectOne("codex", func(string) (string, error) { return `C:\codex.exe`, nil }, func(string, time.Duration) (string, error) {
 		return "codex-cli 0.1.0", nil
 	})
