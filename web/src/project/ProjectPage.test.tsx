@@ -6,16 +6,21 @@ import{ENGINE_RECOVERED_EVENT}from'../bridge/engineHealth'
 import type{ProjectDTO}from'../generated/bridge'
 import{normalizeProjectName,ProjectPage}from'./ProjectPage'
 
-afterEach(cleanup)
+afterEach(()=>{cleanup();localStorage.clear()})
 const now='2025-01-01T00:00:00Z'
 const created:ProjectDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAV',name:'<img src=x onerror=alert(1)>',projectCode:'ITM00001',type:'implementation',status:'created',description:'demo',client:'Acme',createdAt:now,updatedAt:now,version:1,planStart:'2026-01-01',planEnd:'2026-06-30'}
 const active:ProjectDTO={...created,id:'01ARZ3NDEKTSV4RRFFQ69G5FAB',name:'Active',status:'active',version:2}
 const api=(overrides:Partial<ProjectBridge>={}):ProjectBridge=>({list:vi.fn().mockResolvedValue({items:[]}),create:vi.fn().mockResolvedValue(created),update:vi.fn(),publish:vi.fn().mockImplementation(async payload=>({...created,id:payload.id,status:'chartered' as const,version:2})),close:vi.fn(),reopen:vi.fn(),advanceStatus:vi.fn(),delete:vi.fn().mockResolvedValue({deleted:true,id:created.id}),...overrides})
-const fillRequired=async(user:ReturnType<typeof userEvent.setup>,container:HTMLElement)=>{
- await user.type(screen.getByLabelText('C 项目名称',{exact:false}),'  Moon   Tide  ')
- await user.type(screen.getByLabelText('D 项目描述',{exact:false}),'A demo project')
- await user.type(screen.getByLabelText('G 客户',{exact:false}),'Acme')
- const dates=container.querySelectorAll('input[type="date"]')
+const fillRequired=async(user:ReturnType<typeof userEvent.setup>)=>{
+ const dialog=await screen.findByRole('dialog')
+ const name=screen.getByLabelText('C 项目名称',{exact:false})
+ const description=screen.getByLabelText('D 项目描述',{exact:false})
+ const client=screen.getByLabelText('G 客户',{exact:false})
+ await user.clear(name);await user.type(name,'Moon Tide')
+ await user.clear(description);await user.type(description,'A demo project')
+ await user.clear(client);await user.type(client,'Acme')
+ const dates=dialog.querySelectorAll('input[type="date"]')
+ expect(dates.length).toBe(2)
  fireEvent.change(dates[0],{target:{value:'2026-01-01'}})
  fireEvent.change(dates[1],{target:{value:'2026-06-30'}})
 }
@@ -24,7 +29,7 @@ it('normalizes Go-style whitespace and counts astral code points',()=>{expect(no
 
 it('shows the management table, validates required A–N fields, normalizes create, and renders names as inert text',async()=>{
  const bridge=api(),user=userEvent.setup()
- const{container}=render(<ProjectPage bridge={bridge}/>)
+ render(<ProjectPage bridge={bridge}/>)
  expect(await screen.findByText('还没有项目')).toBeInTheDocument()
  expect(screen.getByRole('heading',{name:'项目管理'})).toBeInTheDocument()
  await user.click(screen.getByRole('button',{name:/创建项目/}))
@@ -32,7 +37,7 @@ it('shows the management table, validates required A–N fields, normalizes crea
  expect(screen.getByText('创建项目 · A–N')).toBeInTheDocument()
  await user.click(screen.getByRole('button',{name:'保存项目'}))
  expect(await screen.findByText('请输入项目名称（C）')).toBeInTheDocument()
- await fillRequired(user,container)
+ await fillRequired(user)
  await user.click(screen.getByRole('button',{name:'保存项目'}))
  await waitFor(()=>expect(bridge.create).toHaveBeenCalledOnce())
  expect(vi.mocked(bridge.create).mock.calls[0][0]).toEqual({name:'Moon Tide',type:'implementation',description:'A demo project',summary:'',objective:'',client:'Acme',contractNo:'',amount:0,budget:0,planStart:'2026-01-01',planEnd:'2026-06-30',remark:''})
@@ -44,12 +49,12 @@ it('shows the management table, validates required A–N fields, normalizes crea
 it('blocks busy re-entry and retains the same attempt for a retryable retry',async()=>{
  let reject!:(e:unknown)=>void
  const first=new Promise<ProjectDTO>((_,r)=>{reject=r}),create=vi.fn().mockReturnValueOnce(first).mockResolvedValue(created),bridge=api({create}),user=userEvent.setup()
- const{container}=render(<ProjectPage bridge={bridge}/>)
+ render(<ProjectPage bridge={bridge}/>)
  await screen.findByText('还没有项目')
  await user.click(screen.getByRole('button',{name:/创建项目/}))
- await fillRequired(user,container)
+ await fillRequired(user)
  await user.click(screen.getByRole('button',{name:'保存项目'}))
- expect(create).toHaveBeenCalledOnce()
+ await waitFor(()=>expect(create).toHaveBeenCalledOnce())
  expect(screen.getByRole('button',{name:'保存中…'})).toBeDisabled()
  reject(new BridgeClientError('uncertain','TIMEOUT',true,'trace'))
  expect(await screen.findByText('uncertain')).toBeInTheDocument()
