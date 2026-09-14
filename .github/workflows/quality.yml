@@ -13,6 +13,10 @@ jobs:
       # Go 1.26.6 Green Tea GC aborted coverage with
       # fatal error: index out of range in tryDeferToSpanScan
       # (Quality 34881416247). Opt out is the 1.26 escape hatch.
+      # A later PR Quality run (34894852667) still aborted internal/app
+      # with ACCESS_VIOLATION at PC=0x1 inside HashTrieMap.Load while
+      # encoding/json filled its sync.Map cache (golang/go#81189). That
+      # path is handled in Check-Coverage.ps1 (serialize + one retry).
       GOEXPERIMENT: nogreenteagc
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -35,13 +39,15 @@ jobs:
         run: ./release/Test-OmniExcluded.ps1
       - name: Test Go with coverage floor
         shell: pwsh
-        # One instrumented run both exercises the suite and enforces the
-        # coverage ratchet (see release/Check-Coverage.ps1). The 35m budget is
-        # generous because the per-package default is 10 minutes and
-        # internal/storage/sqlite alone runs a couple of minutes on a developer
-        # machine — most of its tests open a fresh database and replay every
-        # migration — and a hosted runner is several times slower. An explicit
-        # budget keeps a slow runner from being reported as a hang.
+        # Check-Coverage.ps1 exercises the suite and enforces the coverage
+        # ratchet. internal/app is isolated (parallel 1, one runtime-abort
+        # retry) so a Go 1.26.6 HashTrieMap crash does not fail the gate.
+        # The 35m budget is generous because the per-package default is 10
+        # minutes and internal/storage/sqlite alone runs a couple of minutes
+        # on a developer machine — most of its tests open a fresh database
+        # and replay every migration — and a hosted runner is several times
+        # slower. An explicit budget keeps a slow runner from being reported
+        # as a hang.
         run: ./release/Check-Coverage.ps1 -Floor 51 -Timeout 35m
       - name: Vet Go
         run: go vet ./...
