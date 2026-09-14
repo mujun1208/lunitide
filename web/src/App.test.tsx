@@ -98,14 +98,16 @@ it('opens Office home on every sidebar click instead of restoring the previous t
   localStorage.setItem(OFFICE_ARTIFACT_FOCUS_KEY, JSON.stringify({ taskId: task.id, path: 'old.docx' }))
   try {
     render(<App projects={projectBridge([personal])} sessions={sessionBridge()} providers={providers} messages={messages} chat={chat} />)
-    await user.click(screen.getByRole('button', { name: 'Office Studio' }))
-    expect(await screen.findByRole('heading', { name: '最近任务' })).toBeVisible()
+    await user.click(await screen.findByRole('button', { name: 'Office Studio' }))
+    // OfficeStudioRoute is lazy. Hosted Windows Quality (34881420494)
+    // missed the default 1s findBy while the chunk was still loading.
+    expect(await screen.findByRole('heading', { name: '最近任务' }, { timeout: 8000 })).toBeVisible()
     expect(localStorage.getItem(OFFICE_ARTIFACT_FOCUS_KEY)).toBeNull()
     expect(get).not.toHaveBeenCalled()
     await user.click(await screen.findByRole('button', { name: /历史办公任务/ }))
     await screen.findByText('原任务暂时无法读取')
     await user.click(screen.getByRole('button', { name: 'Office Studio' }))
-    expect(await screen.findByRole('heading', { name: '最近任务' })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: '最近任务' }, { timeout: 8000 })).toBeVisible()
     expect(screen.queryByText('正在读取任务对话…')).not.toBeInTheDocument()
     expect(get).toHaveBeenCalledExactlyOnceWith({ taskId: task.id })
   } finally {

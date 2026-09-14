@@ -10,6 +10,10 @@ jobs:
     runs-on: windows-latest
     env:
       CGO_ENABLED: "0"
+      # Go 1.26.6 Green Tea GC aborted coverage with
+      # fatal error: index out of range in tryDeferToSpanScan
+      # (Quality 34881416247). Opt out is the 1.26 escape hatch.
+      GOEXPERIMENT: nogreenteagc
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -32,13 +36,13 @@ jobs:
       - name: Test Go with coverage floor
         shell: pwsh
         # One instrumented run both exercises the suite and enforces the
-        # coverage ratchet (see release/Check-Coverage.ps1). The 25m budget is
+        # coverage ratchet (see release/Check-Coverage.ps1). The 35m budget is
         # generous because the per-package default is 10 minutes and
         # internal/storage/sqlite alone runs a couple of minutes on a developer
         # machine — most of its tests open a fresh database and replay every
         # migration — and a hosted runner is several times slower. An explicit
         # budget keeps a slow runner from being reported as a hang.
-        run: ./release/Check-Coverage.ps1 -Floor 51 -Timeout 25m
+        run: ./release/Check-Coverage.ps1 -Floor 51 -Timeout 35m
       - name: Vet Go
         run: go vet ./...
       - name: Build Go without CGO
@@ -79,6 +83,7 @@ jobs:
     runs-on: windows-latest
     env:
       CGO_ENABLED: "1"
+      GOEXPERIMENT: nogreenteagc
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
