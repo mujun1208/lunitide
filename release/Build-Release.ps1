@@ -38,6 +38,23 @@ function Invoke-ArtifactSigning([string]$Artifact) {
   }
   elseif ($RequireSignature) { throw 'Production signing is required; set LUNITIDE_SIGN_COMMAND with an {artifact} token, or use -AllowUnsignedDevelopment only for a non-publishable test candidate' }
 }
+function Publish-GitHubRelease([string]$Version, [string]$Installer, [string]$LatestJson) {
+  $gh = Get-Command gh -ErrorAction SilentlyContinue
+  if (-not $gh) { Write-Warning 'gh not found; skip GitHub release upload'; return }
+  & gh auth status 2>$null | Out-Null
+  if ($LASTEXITCODE) { Write-Warning 'gh not logged in; skip GitHub release upload'; return }
+  $tag = "v$Version"
+  $notes = Join-Path $PSScriptRoot ("notes-{0}.md" -f $Version)
+  $createArgs = @('release','create',$tag,$Installer,$LatestJson,'--title',("Lunitide {0}" -f $Version),'--latest')
+  if (Test-Path -LiteralPath $notes -PathType Leaf) { $createArgs += @('--notes-file',$notes) }
+  else { $createArgs += @('--notes','Desktop overlay installer and latest.json for in-app update.') }
+  & gh @createArgs
+  if ($LASTEXITCODE) {
+    & gh release upload $tag $Installer $LatestJson --clobber
+    if ($LASTEXITCODE) { Write-Warning ("GitHub release publish failed for {0}" -f $tag) }
+    else { & gh release edit $tag --latest }
+  }
+}
 function Assert-PublisherSignature([string]$Artifact) {
   if (-not $RequireSignature) { return }
   if (-not $ExpectedSignerThumbprint) { throw 'Production signing requires LUNITIDE_SIGNER_THUMBPRINT' }
@@ -193,6 +210,17 @@ if (-not $SkipInstaller) {
     "{0}  {1}" -f (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant(),$installerName
     "{0}  {1}" -f (Get-FileHash $manifest -Algorithm SHA256).Hash.ToLowerInvariant(),$stageManifestName
   ) | Set-Content $releaseManifest -Encoding ascii
+  $installerHash=(Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+  $latestJson='{"version":"'+$version+'","channel":"stable","sha256":"'+$installerHash+'","installer":"'+$installerName+'"}'
+  [System.IO.File]::WriteAllText((Join-Path $out 'latest.json'),$latestJson)
+  $updates=Join-Path $env:LOCALAPPDATA 'Lunitide\updates'
+  if ($env:LOCALAPPDATA) {
+    New-Item $updates -ItemType Directory -Force | Out-Null
+    Get-ChildItem -LiteralPath $updates -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'Lunitide-Setup-*-x64.exe' -and $_.Name -ne $installerName } | Remove-Item -Force
+    Copy-Item -LiteralPath $installer -Destination (Join-Path $updates $installerName) -Force
+    [System.IO.File]::WriteAllText((Join-Path $updates 'latest.json'),$latestJson)
+  }
+  Publish-GitHubRelease $version $installer (Join-Path $out 'latest.json')
 }
 Assert-ReleaseSourceUnchanged $sourceBefore (Get-ReleaseSourceSnapshot $root $out)
 Write-Host "Release stage: $stage"; if (-not $SkipInstaller) { Write-Host "Installer: $installer" }

@@ -71,6 +71,7 @@ try{
   foreach($name in @('Lunitide.exe','lunitide-engine.exe','lunitide-maintenance.exe','purge-user-data.exe')){
     if(-not $build.Contains($name) -or -not $layout.Contains($name)){throw "Incomplete executable inventory: $name"}
   }
+  if($build.IndexOf('Publish-GitHubRelease') -lt 0 -or $build.IndexOf('latest.json') -lt 0){throw 'Build-Release must publish Setup and latest.json to GitHub'}
   $engine=Get-Content -LiteralPath (Join-Path $repo 'cmd\engine\main.go') -Raw
   if($engine.IndexOf('doctext.RunWorker') -lt 0 -or $engine.IndexOf('doctext.RunWorker') -gt $engine.IndexOf('ipc.ReadLaunchBootstrap')){throw 'Parser worker must exit before bootstrap and credential access'}
   $oldCgo=$env:CGO_ENABLED

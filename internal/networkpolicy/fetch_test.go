@@ -269,3 +269,47 @@ func TestFetchBodyCapTruncates(t *testing.T) {
 		t.Fatalf("truncated=%v len=%d", result.Truncated, len(result.Body))
 	}
 }
+
+func TestCopyWritesBodyAndTruncatesAtCap(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte(strings.Repeat("y", 4096)))
+	}))
+	defer srv.Close()
+
+	r := resolverFunc(func(context.Context, string, string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("93.184.216.34")}, nil
+	})
+	opts := FetchOptions{
+		Policy:       fetchPolicy,
+		Resolver:     r,
+		DialContext:  dialTo(srv.Listener.Addr().String()),
+		MaxBodyBytes: 1024,
+	}
+	raw := "http://example.test:" + serverPort(t, srv) + "/"
+	var buf strings.Builder
+	written, result, err := Copy(context.Background(), raw, &buf, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if written != 1024 || !result.Truncated || buf.Len() != 1024 || result.Status != http.StatusOK {
+		t.Fatalf("written=%d truncated=%v len=%d status=%d", written, result.Truncated, buf.Len(), result.Status)
+	}
+	if result.Body != nil {
+		t.Fatalf("Copy must stream, not buffer Body")
+	}
+
+	var full strings.Builder
+	written, result, err = Copy(context.Background(), raw, &full, FetchOptions{
+		Policy:      fetchPolicy,
+		Resolver:    r,
+		DialContext: dialTo(srv.Listener.Addr().String()),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if written != 4096 || result.Truncated || full.String() != strings.Repeat("y", 4096) {
+		t.Fatalf("full written=%d truncated=%v len=%d", written, result.Truncated, full.Len())
+	}
+}

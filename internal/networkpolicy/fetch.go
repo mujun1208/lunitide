@@ -1,6 +1,7 @@
 package networkpolicy
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"io"
@@ -110,15 +111,7 @@ func defaultPort(scheme string) string {
 	return ""
 }
 
-// Fetch retrieves rawURL under the egress policy. Redirects are followed one
-// hop at a time with full re-validation: each Location is resolved against
-// the current URL, re-parsed, re-resolved through DNS and re-checked against
-// the IP policy before the next dial, so DNS rebinding across a redirect is
-// blocked like a direct request.
-func Fetch(ctx context.Context, rawURL string, o FetchOptions) (FetchResult, error) {
-	if err := validateFetchHeaders(o.UserAgent, o.IfModifiedSince); err != nil {
-		return FetchResult{}, err
-	}
+func normalizeFetchOptions(o FetchOptions) FetchOptions {
 	if o.Resolver == nil {
 		o.Resolver = SystemResolver{}
 	}
@@ -140,6 +133,35 @@ func Fetch(ctx context.Context, rawURL string, o FetchOptions) (FetchResult, err
 	if o.MaxBodyBytes <= 0 {
 		o.MaxBodyBytes = fetchDefaultMaxBody
 	}
+	return o
+}
+
+// Fetch retrieves rawURL under the egress policy. Redirects are followed one
+// hop at a time with full re-validation: each Location is resolved against
+// the current URL, re-parsed, re-resolved through DNS and re-checked against
+// the IP policy before the next dial, so DNS rebinding across a redirect is
+// blocked like a direct request.
+func Fetch(ctx context.Context, rawURL string, o FetchOptions) (FetchResult, error) {
+	var buf bytes.Buffer
+	_, result, err := Copy(ctx, rawURL, &buf, o)
+	if err != nil {
+		return FetchResult{}, err
+	}
+	result.Body = buf.Bytes()
+	return result, nil
+}
+
+// Copy streams rawURL into w under the same hop-validated policy as Fetch.
+// At most MaxBodyBytes are written; Truncated is set when the body is longer.
+// Result.Body is always nil so callers can stream installers without buffering.
+func Copy(ctx context.Context, rawURL string, w io.Writer, o FetchOptions) (int64, FetchResult, error) {
+	if w == nil {
+		return 0, FetchResult{}, &Error{Code: CodeSSRFBlocked, Op: "copy fetch body"}
+	}
+	if err := validateFetchHeaders(o.UserAgent, o.IfModifiedSince); err != nil {
+		return 0, FetchResult{}, err
+	}
+	o = normalizeFetchOptions(o)
 	ctx, cancel := context.WithTimeout(ctx, o.OverallTimeout)
 	defer cancel()
 
@@ -149,7 +171,7 @@ func Fetch(ctx context.Context, rawURL string, o FetchOptions) (FetchResult, err
 	for hop := 0; ; hop++ {
 		u, err := validateFetchURL(current, o.Policy)
 		if err != nil {
-			return FetchResult{}, err
+			return 0, FetchResult{}, err
 		}
 		origin := u.Scheme + "://" + u.Host
 		if initialOrigin == "" {
@@ -159,11 +181,11 @@ func Fetch(ctx context.Context, rawURL string, o FetchOptions) (FetchResult, err
 		}
 		ips, err := resolveAllowed(ctx, o.Resolver, u.Hostname(), o.Policy)
 		if err != nil {
-			return FetchResult{}, err
+			return 0, FetchResult{}, err
 		}
 		tlsConfig, err := secureTLSConfig(o.TLSConfig, u.Hostname())
 		if err != nil {
-			return FetchResult{}, err
+			return 0, FetchResult{}, err
 		}
 		authority := net.JoinHostPort(canonicalHost(u.Hostname()), effectivePortOrDefault(u))
 		dial := o.DialContext
@@ -186,7 +208,7 @@ func Fetch(ctx context.Context, rawURL string, o FetchOptions) (FetchResult, err
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 		if err != nil {
-			return FetchResult{}, &Error{Code: CodeSSRFBlocked, Op: "build fetch request", Err: err}
+			return 0, FetchResult{}, &Error{Code: CodeSSRFBlocked, Op: "build fetch request", Err: err}
 		}
 		req.Host = ""
 		req.Header.Set("User-Agent", "Lunitide/0.3 (local agent evidence fetch)")
@@ -201,7 +223,7 @@ func Fetch(ctx context.Context, rawURL string, o FetchOptions) (FetchResult, err
 		req.Header.Set("Accept", "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5")
 		resp, err := client.Do(req)
 		if err != nil {
-			return FetchResult{}, classifyError("fetch", err)
+			return 0, FetchResult{}, classifyError("fetch", err)
 		}
 		if isRedirect(resp.StatusCode) {
 			location := resp.Header.Get("Location")
@@ -209,24 +231,23 @@ func Fetch(ctx context.Context, rawURL string, o FetchOptions) (FetchResult, err
 			_ = resp.Body.Close()
 			next, err := u.Parse(location)
 			if err != nil || location == "" {
-				return FetchResult{}, &Error{Code: CodeRedirectBlocked, Op: "resolve redirect", Err: err}
+				return 0, FetchResult{}, &Error{Code: CodeRedirectBlocked, Op: "resolve redirect", Err: err}
 			}
 			if hop >= o.MaxRedirects {
-				return FetchResult{}, &Error{Code: CodeRedirectBlocked, Op: "redirect limit"}
+				return 0, FetchResult{}, &Error{Code: CodeRedirectBlocked, Op: "redirect limit"}
 			}
 			current = next.String()
 			continue
 		}
-		body, truncated, err := readCapped(resp.Body, o.MaxBodyBytes)
+		written, truncated, err := copyCapped(w, resp.Body, o.MaxBodyBytes)
 		_ = resp.Body.Close()
 		if err != nil {
-			return FetchResult{}, classifyError("read fetch body", err)
+			return 0, FetchResult{}, classifyError("read fetch body", err)
 		}
-		return FetchResult{
+		return written, FetchResult{
 			FinalURL:     u.String(),
 			Status:       resp.StatusCode,
 			ContentType:  resp.Header.Get("Content-Type"),
-			Body:         body,
 			Truncated:    truncated,
 			Expires:      resp.Header.Get("Expires"),
 			LastModified: resp.Header.Get("Last-Modified"),
@@ -268,14 +289,19 @@ func isRedirect(status int) bool {
 	return false
 }
 
-// readCapped reads up to limit bytes; a longer body is clipped and reported.
-func readCapped(r io.Reader, limit int64) ([]byte, bool, error) {
-	body, err := io.ReadAll(io.LimitReader(r, limit+1))
+// copyCapped writes at most limit bytes; a longer body is clipped and reported.
+func copyCapped(w io.Writer, r io.Reader, limit int64) (int64, bool, error) {
+	written, err := io.Copy(w, io.LimitReader(r, limit))
 	if err != nil {
-		return nil, false, err
+		return written, false, err
 	}
-	if int64(len(body)) > limit {
-		return body[:limit], true, nil
+	var extra [1]byte
+	n, rerr := r.Read(extra[:])
+	if n > 0 {
+		return written, true, nil
 	}
-	return body, false, nil
+	if rerr != nil && rerr != io.EOF {
+		return written, false, rerr
+	}
+	return written, false, nil
 }
