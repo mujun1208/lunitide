@@ -80,6 +80,9 @@ func officeCall(t *testing.T, e *Engine, method, key string, payload any) bridge
 	}
 	r := validRequest(method, string(b))
 	r.IdempotencyKey = key
+	// validRequest uses 3s. The CGO race detector makes SQLite office
+	// creates miss that on hosted Windows; the envelope still allows 30s.
+	r.DeadlineMS = bridge.DefaultMaxDeadlineMS
 	return e.Handle(context.Background(), r)
 }
 
