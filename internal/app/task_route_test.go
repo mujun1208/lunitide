@@ -142,11 +142,31 @@ func TestClassifyTaskRoute(t *testing.T) {
 			forbid: []string{},
 		},
 		{
-			id:     "weekly-in-word",
-			goal:   "打开Word写周报",
+			id:    "weekly-in-word",
+			goal:  "打开Word写周报",
+			cc:    true,
+			route: RouteR2,
+			must:  []string{"computer.act", "desktop.open", "docx.gen", "office.generate"},
+		},
+		{
+			id:    "weekly-plain",
+			goal:  "写周报",
+			route: RouteR4,
+			must:  []string{"office.generate", "docx.gen", "workspace.write", "user.ask"},
+		},
+		{
+			id:    "generate-word-spaced",
+			goal:  "生成 Word",
+			route: RouteR4,
+			must:  []string{"office.generate", "docx.gen"},
+		},
+		{
+			id:     "news-word-do-not-open",
+			goal:   "搜一下新闻生成 Word，不打开文件",
 			cc:     true,
-			route:  RouteR2,
-			must:   []string{"computer.act", "desktop.open", "docx.gen"},
+			route:  RouteR1,
+			must:   []string{"office.generate", "docx.gen", "workspace.read", "web.search"},
+			forbid: []string{"desktop.open", "computer.act", "browser.act"},
 		},
 	}
 	for _, tc := range cases {
@@ -290,6 +310,22 @@ func TestAssembleRoutedToolsCompanionWeather(t *testing.T) {
 	}
 	if !seen["web.search"] || !seen["kb.search"] {
 		t.Fatalf("expected search + mounted kb: %v", seen)
+	}
+}
+
+func TestApplyTaskRouteKeepsSkillTry(t *testing.T) {
+	t.Parallel()
+	all := append(engineToolDefinitions(), llmadapter.ToolDefinition{Name: "skill.try"})
+	route, allow := classifyTaskRoute("北京明天天气", false, false)
+	got := applyTaskRoute(all, route, allow)
+	seen := false
+	for _, d := range got {
+		if d.Name == "skill.try" {
+			seen = true
+		}
+	}
+	if !seen {
+		t.Fatal("applyTaskRoute must keep skill.try")
 	}
 }
 

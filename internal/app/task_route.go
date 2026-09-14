@@ -36,10 +36,12 @@ var (
 	}
 	siteActHints = []string{"登录", "登陆", "点"}
 	genHints     = []string{
-		"写一份", "写个报告", "写份", "生成ppt", "生成 ppt", "生成PPT",
+		"写一份", "写个报告", "写份", "写周报", "生成ppt", "生成 ppt", "生成PPT",
+		"生成 Word", "生成Word", "生成word",
 		"做一份", "画一张", "做视频", "生成表格", "生成报告", "生成文档",
 	}
 	openHints       = []string{"打开", "启动", "把开"}
+	openNegations   = []string{"不打开", "别打开", "不要打开", "无需打开", "不用打开"}
 	playHints       = []string{"播放", "暂停", "下一首", "上一首", "放首歌", "放歌", "播歌", "听歌", "来一首", "放一首"}
 	desktopActHints = []string{
 		"点击", "点一下", "点开", "点进", "第一条", "帮我点", "点按钮", "截图", "输入", "打字", "填写", "填表",
@@ -101,7 +103,7 @@ func detectTaskRoute(goal string) TaskRoute {
 	site := containsAnyFold(t, lower, siteHints)
 	gen := containsAnyFold(t, lower, genHints) || wantsOfficeGen(t) || mediaGenerationKind(t) != ""
 	play := containsAnyFold(t, lower, playHints)
-	open := containsAnyFold(t, lower, openHints)
+	open := hasOpenIntent(t, lower)
 	if open && containsAnyFold(t, lower, browserAppHints) && containsAnyFold(t, lower, []string{"桌面", "默认浏览器", "default browser", "desktop browser"}) {
 		return RouteR2
 	}
@@ -174,6 +176,7 @@ func routeAllow(route TaskRoute, ccEnabled bool) map[string]bool {
 			"pptx.gen": true, "pdf.gen": true, "html.gen": true,
 			"user.ask": true,
 		}
+		mergeAllow(allow, officeStudioAllow())
 		if ccEnabled {
 			allow["computer.act"] = true
 		}
@@ -183,7 +186,7 @@ func routeAllow(route TaskRoute, ccEnabled bool) map[string]bool {
 			"browser.act": true, "web.fetch": true, "user.ask": true,
 		}
 	case RouteR4:
-		return map[string]bool{
+		allow := map[string]bool{
 			"excel.gen": true, "excel.parse": true, "docx.gen": true,
 			"pptx.gen": true, "pdf.gen": true, "html.gen": true,
 			"workspace.list": true, "workspace.read": true, "workspace.write": true,
@@ -192,6 +195,8 @@ func routeAllow(route TaskRoute, ccEnabled bool) map[string]bool {
 			"web.search": true, "web.fetch": true, "weather.get": true,
 			"user.ask": true,
 		}
+		mergeAllow(allow, officeStudioAllow())
+		return allow
 	default:
 		return nil
 	}
@@ -213,7 +218,7 @@ func applyTaskRoute(defs []llmadapter.ToolDefinition, route TaskRoute, allow map
 		}
 		switch d.Name {
 		case "kb.search", "kb.cite", "graph.expand",
-			"skill.invoke", "skill.view", "skill.create", "skill.manage",
+			"skill.invoke", "skill.try", "skill.view", "skill.create", "skill.manage",
 			"plan.run":
 			keep[d.Name] = true
 		}
@@ -245,10 +250,36 @@ func explicitBrowserIntent(orig, lower string) bool {
 	if containsAnyFold(orig, lower, []string{"打开浏览器", "用浏览器", "在浏览器", "上网打开"}) {
 		return true
 	}
-	if containsAnyFold(orig, lower, browserAppHints) && containsAnyFold(orig, lower, openHints) {
+	if containsAnyFold(orig, lower, browserAppHints) && hasOpenIntent(orig, lower) {
 		return true
 	}
 	return containsAnyFold(orig, lower, []string{"登录", "登陆"})
+}
+
+func officeStudioAllow() map[string]bool {
+	return map[string]bool{
+		"office.generate":      true,
+		"office.inspect":       true,
+		"office.patch":         true,
+		"office.range.patch":   true,
+		"office.image.replace": true,
+		"office.chart.patch":   true,
+		"office.cache.refresh": true,
+		"office.deliver":       true,
+	}
+}
+
+func mergeAllow(dst, extra map[string]bool) {
+	for name, enabled := range extra {
+		dst[name] = enabled
+	}
+}
+
+func hasOpenIntent(orig, lower string) bool {
+	if containsAnyFold(orig, lower, openNegations) {
+		return false
+	}
+	return containsAnyFold(orig, lower, openHints)
 }
 
 func containsAnyFold(orig, lower string, hints []string) bool {

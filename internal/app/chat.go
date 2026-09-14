@@ -880,6 +880,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			}
 			req.Tools = applyTaskRoute(req.Tools, route, allow)
 			state.taskRoute = route
+			state.taskAllow = allow
 		}
 	}
 	if chatLanesEnabled() && !p.Companion {
