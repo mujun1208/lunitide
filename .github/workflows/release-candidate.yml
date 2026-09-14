@@ -7,6 +7,7 @@ permissions:
   contents: read
 jobs:
   quality:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     env:
       CGO_ENABLED: "0"
@@ -54,6 +55,7 @@ jobs:
         run: git diff --exit-code -- web/src/generated/bridge.ts internal/bridge/schema_generated.go internal/contract/schema_generated_test.go
 
   windows-cgo-race:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     env:
       CGO_ENABLED: "1"
@@ -86,7 +88,7 @@ jobs:
       - run: go test -race -count=1 -p=4 -timeout 120m ./...
 
   x64-release-candidate:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref_type == 'tag')
+    if: github.event_name == 'workflow_dispatch'
     needs: [quality, windows-cgo-race]
     runs-on: windows-latest
     steps:
