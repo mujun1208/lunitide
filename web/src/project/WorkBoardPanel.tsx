@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { asUserBridgeError } from '../bridge/bridgeUserError'
 import { BridgeClientError } from '../bridge/client'
 import type { ProjectDTO } from '../generated/bridge'
@@ -54,20 +54,41 @@ export function WorkBoardPanel({
   const [summary, setSummary] = useState<Record<string, string>>({})
   const [evidence, setEvidence] = useState<Record<string, string>>({})
   const [reason, setReason] = useState<Record<string, string>>({})
+  const [testItems, setTestItems] = useState<BoardItem[]>([])
+  const autoSynced = useRef(false)
 
   const load = useCallback(async () => {
     setError('')
     try {
-      const got = await projectFactoryApi.boardGet({ projectId: project.id, boardKind })
-      const next = (got.board ?? { version: 1, items: [] }) as BoardDoc
+      let got = await projectFactoryApi.boardGet({ projectId: project.id, boardKind })
+      let next = (got.board ?? { version: 1, items: [] }) as BoardDoc
       next.items = next.items ?? []
+      if (!readOnly && next.items.length === 0 && !autoSynced.current) {
+        autoSynced.current = true
+        try {
+          const synced = await projectFactoryApi.boardSync({ projectId: project.id, boardKind })
+          const again = await projectFactoryApi.boardGet({ projectId: project.id, boardKind })
+          next = (again.board ?? { version: 1, items: [] }) as BoardDoc
+          next.items = next.items ?? []
+          setStatsText(synced.statsText || again.statsText || formatBoardStats(summarizeBoardItems(next.items)))
+          setStats((synced.stats ?? again.stats) as BoardStats)
+        } catch {
+          setStatsText(got.statsText || formatBoardStats(summarizeBoardItems(next.items)))
+          setStats(got.stats as BoardStats)
+        }
+      } else {
+        setStatsText(got.statsText || formatBoardStats(summarizeBoardItems(next.items)))
+        setStats(got.stats as BoardStats)
+      }
       setBoard(next)
-      setStatsText(got.statsText || formatBoardStats(summarizeBoardItems(next.items)))
-      setStats(got.stats as BoardStats)
+      if (boardKind === 'integration') {
+        const tests = await projectFactoryApi.boardGet({ projectId: project.id, boardKind: 'test' })
+        setTestItems(((tests.board as BoardDoc | undefined)?.items ?? []) as BoardItem[])
+      }
     } catch (e) {
       setError(boardUserError(e, '无法读取工作台'))
     }
-  }, [project.id, boardKind])
+  }, [project.id, boardKind, readOnly])
 
   useEffect(() => { void load() }, [load])
 
@@ -147,6 +168,32 @@ export function WorkBoardPanel({
     }
   }
 
+  const sceneReady = (item: BoardItem) => {
+    const ids = item.memberIds ?? []
+    return ids.length > 0 && ids.every(id => testItems.some(t => t.id === id && t.status === 'test_pass'))
+  }
+
+  const toggleMember = async (sceneId: string, testId: string) => {
+    if (readOnly || busy) return
+    setBusy(true)
+    setError('')
+    try {
+      const items = board.items.map(item => {
+        if (item.id !== sceneId) return item
+        const ids = new Set(item.memberIds ?? [])
+        if (ids.has(testId)) ids.delete(testId)
+        else ids.add(testId)
+        return { ...item, memberIds: [...ids] }
+      })
+      await projectFactoryApi.boardPut({ projectId: project.id, boardKind, board: { ...board, items } })
+      await load()
+    } catch (e) {
+      setError(boardUserError(e, '无法更新场景成员'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const sendBack = async (id: string) => {
     if (readOnly || busy) return
     const why = (reason[id] ?? '').trim()
@@ -201,8 +248,20 @@ export function WorkBoardPanel({
             )}
             {testable && !readOnly && item.changeKind !== 'removed' && (
               <div className="board-item-actions">
+                {boardKind === 'integration' && (
+                  <fieldset className="board-members">
+                    <legend>场景成员</legend>
+                    {testItems.filter(t => t.status === 'test_pass' || item.memberIds?.includes(t.id)).map(t => (
+                      <label key={t.id}>
+                        <input type="checkbox" checked={!!item.memberIds?.includes(t.id)} onChange={() => void toggleMember(item.id, t.id)} />
+                        {t.id} {t.title}
+                      </label>
+                    ))}
+                    {!testItems.length && <small>没有可勾选的已通过测试条</small>}
+                  </fieldset>
+                )}
                 <input aria-label={`${item.id} 测试记录`} value={evidence[item.id] ?? ''} onChange={e => setEvidence(prev => ({ ...prev, [item.id]: e.target.value }))} placeholder="测试记录 / 证据" />
-                <button type="button" disabled={busy} onClick={() => void runUnit(item.id)}>记录通过</button>
+                <button type="button" disabled={busy || (boardKind === 'integration' && !sceneReady(item))} onClick={() => void runUnit(item.id)}>{boardKind === 'integration' ? '开始集成测试' : '记录通过'}</button>
                 <button type="button" disabled={busy} onClick={() => void runUnit(item.id, true)}>记录失败</button>
                 <input aria-label={`${item.id} 退回原因`} value={reason[item.id] ?? ''} onChange={e => setReason(prev => ({ ...prev, [item.id]: e.target.value }))} placeholder="退回原因" />
                 <button type="button" disabled={busy} onClick={() => void sendBack(item.id)}>退回</button>

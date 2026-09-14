@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { BridgeClientError, type DeliverableBridge, type ProjectAttachmentBridge, type ProjectBridge, type TemplateBridge } from '../bridge/client'
 import type { ProjectDTO } from '../generated/bridge'
 import { DeliverablePanel } from './DeliverablePanel'
+import { projectFactoryApi } from './projectFactoryApi'
 
 vi.mock('./projectSpineApi', () => ({
   projectSpineApi: {
@@ -16,10 +17,11 @@ vi.mock('./ProjectPlanPanel', () => ({ ProjectPlanPanel: () => null }))
 vi.mock('./projectFactoryApi', () => ({
   projectFactoryApi: {
     boardGet: vi.fn().mockResolvedValue({ board: { items: [] }, statsText: '' }),
-    boardSync: vi.fn(),
+    boardSync: vi.fn().mockResolvedValue({ board: { items: [] }, statsText: '' }),
     boardItemOpen: vi.fn(),
     schemaGet: vi.fn().mockResolvedValue({ schema: { version: 1, dialect: 'sqlite', tables: [] } }),
     generate: vi.fn(),
+    interviewGet: vi.fn().mockResolvedValue({ interview: { phases: {} } }),
     interviewSave: vi.fn(),
   },
 }))
@@ -147,6 +149,11 @@ it('requires an empty-interface ack before phase-4 三关 can finish', async () 
   await user.click(screen.getByLabelText('无接口任务'))
   expect(submit).toBeEnabled()
   expect(advanceStatus).not.toHaveBeenCalled()
+  await user.click(submit)
+  expect(advanceStatus).toHaveBeenCalledWith(
+    { id: project.id, version: project.version, phase: 4, emptyBoardAck: true },
+    expect.anything(),
+  )
 })
 
 it('refuses to confirm a card that only has a templateId', async () => {
@@ -170,4 +177,43 @@ it('refuses to confirm a card that only has a templateId', async () => {
   await user.click(await screen.findByRole('button', { name: /业务需求分析报告/ }))
   expect(await screen.findByRole('alert')).toHaveTextContent('不能只绑模版')
   expect(upsert).not.toHaveBeenCalled()
+})
+
+it('resyncs the work board when checklist upsert reports boardDirty', async () => {
+  const user = userEvent.setup()
+  vi.mocked(projectFactoryApi.boardSync).mockClear()
+  const upsert = vi.fn().mockResolvedValue({
+    id: '01ARZ3NDEKTSV4RRFFQ69G5FAW',
+    projectId: project.id,
+    phase: 2,
+    documentType: 'api_list',
+    title: '接口清单',
+    status: 'approved',
+    gateConfirmations: 0,
+    version: 1,
+    boardDirty: true,
+  })
+  render(
+    <DeliverablePanel
+      project={project}
+      phase={2}
+      bridge={{} as ProjectBridge}
+      deliverableBridge={{
+        list: vi.fn().mockResolvedValue({
+          items: [{ documentType: 'api_list', title: '接口清单', attachmentId: 'att-api', status: 'review' }],
+        }),
+        upsert,
+      } as unknown as DeliverableBridge}
+      projectAttachments={{
+        list: vi.fn().mockResolvedValue({ items: [] }),
+        get: vi.fn().mockResolvedValue({
+          contentBase64: encode({ version: 1, items: [{ id: 'I001', title: '登录', status: 'pending' }] }),
+        }),
+      } as unknown as ProjectAttachmentBridge}
+      templates={{ list: vi.fn().mockResolvedValue({ items: [] }) } as unknown as TemplateBridge}
+    />,
+  )
+  await user.click(await screen.findByRole('button', { name: '确认 接口清单' }))
+  await waitFor(() => expect(projectFactoryApi.boardSync).toHaveBeenCalledTimes(1))
+  expect(projectFactoryApi.boardSync).toHaveBeenCalledWith({ projectId: project.id, boardKind: 'interface' })
 })

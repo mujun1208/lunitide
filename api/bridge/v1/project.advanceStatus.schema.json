@@ -6,7 +6,8 @@
   "properties":{
     "id":{"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"},
     "version":{"type":"integer","minimum":1},
-    "phase":{"type":"integer","minimum":1,"maximum":9}
+    "phase":{"type":"integer","minimum":1,"maximum":9},
+    "emptyBoardAck":{"type":"boolean"}
   },
   "required":["id","version","phase"],
   "x-result":{"$ref":"https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ProjectDTO"},

@@ -193,6 +193,14 @@ if (-not $SkipInstaller) {
     "{0}  {1}" -f (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant(),$installerName
     "{0}  {1}" -f (Get-FileHash $manifest -Algorithm SHA256).Hash.ToLowerInvariant(),$stageManifestName
   ) | Set-Content $releaseManifest -Encoding ascii
+  $installerHash=(Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+  $latestJson='{"version":"'+$version+'","channel":"stable","sha256":"'+$installerHash+'","installer":"'+$installerName+'"}'
+  [System.IO.File]::WriteAllText((Join-Path $out 'latest.json'),$latestJson)
+  $updates=Join-Path $env:LOCALAPPDATA 'Lunitide\updates'
+  New-Item $updates -ItemType Directory -Force | Out-Null
+  Get-ChildItem -LiteralPath $updates -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'Lunitide-Setup-*-x64.exe' -and $_.Name -ne $installerName } | Remove-Item -Force
+  Copy-Item -LiteralPath $installer -Destination (Join-Path $updates $installerName) -Force
+  [System.IO.File]::WriteAllText((Join-Path $updates 'latest.json'),$latestJson)
 }
 Assert-ReleaseSourceUnchanged $sourceBefore (Get-ReleaseSourceSnapshot $root $out)
 Write-Host "Release stage: $stage"; if (-not $SkipInstaller) { Write-Host "Installer: $installer" }

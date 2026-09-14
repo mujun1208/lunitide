@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { bannersFromTurnState } from './sessionResume'
+import { bannersFromTurnState, historyUnverified } from './sessionResume'
 
 it('does not treat a trailing user message as resume', () => {
   expect(bannersFromTurnState({ live: false, storedPersist: undefined, localTurn: undefined })).toEqual({
@@ -39,6 +39,12 @@ it('restores a running draft without marking persist-failed', () => {
     live: false,
     server: { status: 'running', persistFailed: false, persistDraft: '流到一半还没写完' },
   })).toEqual({ persistFailed: false, persistDraft: '流到一半还没写完', resume: true })
+})
+
+it('keeps old sessions without TaskOutcome unverified', () => {
+  expect(historyUnverified(undefined)).toBe(true)
+  expect(historyUnverified(false)).toBe(true)
+  expect(historyUnverified(true)).toBe(false)
 })
 
 it('hides both banners while a live stream is attached', () => {

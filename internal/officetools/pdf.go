@@ -50,6 +50,12 @@ func pdfSupportsRune(r rune) bool {
 	return r >= 0 && r <= 0xffff && len(pdfFontCoverage) == 8192 && pdfFontCoverage[r/8]&(1<<uint(r%8)) != 0
 }
 
+// CheckPDFTextGlyphs reports missing-glyph text. It does not generate a file.
+func CheckPDFTextGlyphs(text string) error {
+	_, err := pdfNeedsUnicode(text)
+	return err
+}
+
 func pdfNeedsUnicode(text string) (bool, error) {
 	if !utf8.ValidString(text) {
 		return false, errors.New("PDF 内容不是有效的 UTF-8 文本")

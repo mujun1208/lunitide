@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/projectapp"
@@ -64,5 +66,28 @@ func TestManualKindNeedsEvidence(t *testing.T) {
 	res, err := Run(context.Background(), RunInput{Kind: KindStress, Evidence: "压测记录已上传"})
 	if err != nil || res.Status != "pass" {
 		t.Fatalf("%+v %v", res, err)
+	}
+}
+
+func TestCLICommandUsesPortableShell(t *testing.T) {
+	ctx := context.Background()
+	cmd := cliCommand(ctx, "echo portable-factory-cli", t.TempDir())
+	if cmd == nil {
+		t.Fatal("nil cmd")
+	}
+	if runtime.GOOS == "windows" {
+		if filepath.Base(cmd.Path) != "cmd.exe" && !strings.Contains(strings.ToLower(cmd.Path), "cmd") {
+			t.Fatalf("windows path %s", cmd.Path)
+		}
+		if len(cmd.Args) < 3 || cmd.Args[1] != "/c" {
+			t.Fatalf("windows args %#v", cmd.Args)
+		}
+		return
+	}
+	if filepath.Base(cmd.Path) != "sh" && !strings.HasSuffix(cmd.Path, "/sh") {
+		t.Fatalf("unix path %s", cmd.Path)
+	}
+	if len(cmd.Args) < 3 || cmd.Args[1] != "-c" {
+		t.Fatalf("unix args %#v", cmd.Args)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	domain "github.com/lunitide/lunitide/internal/domain/officestudio"
 	"github.com/lunitide/lunitide/internal/officerender"
 )
 
@@ -27,6 +28,41 @@ func TestOfficeFontEvidencePersistsWithoutOverclaimingNativeLayout(t *testing.T)
 	for _, check := range reports[0].Checks {
 		if check.ID == "font_actual_substitution" && check.Status == "passed" {
 			t.Fatal("font inventory fabricated real layout proof")
+		}
+		if check.ID == "font_actual_substitution" && check.Required {
+			t.Fatal("default persist path must stay Basic")
+		}
+	}
+}
+
+func TestFontPolicyDoesNotInheritLegacyRequired(t *testing.T) {
+	svc, _, _ := studioServiceFixture(t)
+	basic := domain.DeliveryPolicy{Tier: "basic", Revision: "v2-basic"}
+	checks, _ := svc.fontChecksForPolicy(context.Background(), "docx", []byte("PK"), basic)
+	var actual domain.Check
+	for _, c := range checks {
+		if c.ID == "font_actual_substitution" {
+			actual = c
+		}
+	}
+	if actual.ID == "" {
+		t.Fatal("missing font_actual_substitution")
+	}
+	if actual.Required {
+		t.Fatal("basic must not require font_actual_substitution")
+	}
+	if actual.Status == "passed" {
+		t.Fatal("inventory must not mint substitution proof")
+	}
+
+	assured := domain.DeliveryPolicy{Tier: "assured", Revision: "v2-assured"}
+	achecks, _ := svc.fontChecksForPolicy(context.Background(), "docx", []byte("PK"), assured)
+	for _, c := range achecks {
+		if c.ID == "font_actual_substitution" && !c.Required {
+			t.Fatal("assured must require font_actual_substitution")
+		}
+		if c.ID == "font_actual_substitution" && c.Status == "passed" {
+			t.Fatal("assured unsupported must not become passed")
 		}
 	}
 }

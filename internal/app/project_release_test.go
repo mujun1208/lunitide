@@ -11,9 +11,11 @@ import (
 	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/domain/deliverable"
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
+	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/domain/projectattachment"
 	"github.com/lunitide/lunitide/internal/m7app"
 	"github.com/lunitide/lunitide/internal/projectgen"
+	"github.com/lunitide/lunitide/internal/projectsync"
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
 )
 
@@ -121,6 +123,79 @@ func TestProjectReleaseChangedMissingUnapprovedOrWrongProjectCannotSeal(t *testi
 				t.Fatal("invalid source sealed")
 			}
 		})
+	}
+}
+
+func TestProjectReleaseIncludesTreeInventoryAndSkipsHugeBlobs(t *testing.T) {
+	ctx := context.Background()
+	e, store, _, projectID, crID := projectReleaseFixture(t)
+	p, err := store.GetProject(ctx, projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err = os.MkdirAll(filepath.Join(root, ".lunitide", "rules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(root, ".lunitide", "project-tree.json"), []byte(`{"version":1,"dirs":["src"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(root, ".lunitide", "schema.json"), []byte(`{"version":1,"dialect":"sqlite","tables":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(root, ".lunitide", "rules", "manifest.json"), []byte(`{"version":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(root, "app.go"), []byte("package app"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(root, "huge.bin"), make([]byte, 4*1024*1024+1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = e.projects.Mutate(ctx, "bind-root", "test", "project.update", p.ID, p.Version, map[string]string{"rootPath": root}, func(cur *project.Project) error {
+		cur.RootPath = root
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	revision, err := e.m7release.CreateRevision(ctx, crID, map[string]any{"authorId": "workbench", "summary": "Tree pack", "projectId": projectID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bound map[string]any
+	if err = json.Unmarshal([]byte(revision.ManifestJSON), &bound); err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, entry := range bound["members"].([]any) {
+		names[entry.(map[string]any)["name"].(string)] = true
+	}
+	if _, err = e.m7release.BuildPackage(ctx, revision.ID, revision.Digest); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"db_design.json", "interface_list.json", "dev_checklist.json", "tree-inventory.json", "project-tree.json", "schema.json", "rules-manifest.json"} {
+		if !names[want] {
+			t.Fatalf("missing member %s in %v", want, names)
+		}
+	}
+	if names["huge.bin"] || names["app.go"] || names[".lunitide/project-tree.json"] {
+		t.Fatal("tree files or huge blob copied as nested package members", names)
+	}
+	inv, err := projectsync.InventoryTree(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var huge, app bool
+	for _, file := range inv.Files {
+		if file.Rel == "huge.bin" && file.Skip == "skipped-too-large" {
+			huge = true
+		}
+		if file.Rel == "app.go" && file.Digest != "" {
+			app = true
+		}
+	}
+	if !huge || !app {
+		t.Fatalf("tree receipt incomplete: %+v", inv.Files)
 	}
 }
 

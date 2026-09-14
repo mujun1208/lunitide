@@ -37,7 +37,7 @@ func phaseGateError(reason string) error {
 	return fmt.Errorf("%w: %s", projectapp.ErrInvalidTransition, reason)
 }
 
-func (t *txAdapter) CompleteProjectPhase(ctx context.Context, id string, version int64, phase int) (project.Project, error) {
+func (t *txAdapter) CompleteProjectPhase(ctx context.Context, id string, version int64, phase int, emptyBoardAck bool) (project.Project, error) {
 	p, err := t.getProject(ctx, id)
 	if err != nil {
 		return p, err
@@ -105,7 +105,7 @@ func (t *txAdapter) CompleteProjectPhase(ctx context.Context, id string, version
 		}
 		evidence = append(evidence, receipt)
 	}
-	if err = t.enforceFactoryGates(ctx, p, phase); err != nil {
+	if err = t.enforceFactoryGates(ctx, p, phase, emptyBoardAck); err != nil {
 		return p, err
 	}
 	if phase == project.DevPhase(p.Type) {

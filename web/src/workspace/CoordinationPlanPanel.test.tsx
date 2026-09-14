@@ -19,3 +19,23 @@ it('does not show raw English plan list or run-tree failures',async()=>{
 })
 
 it('shows only the work-plan checklist and leaves orchestration to the system',async()=>{const b=api();render(<CoordinationPlanPanel projectId={P} bridge={b as unknown as PlanBridge}/>);expect(await screen.findByText('0/2 已完成')).toBeInTheDocument();expect(screen.getByText('工作计划清单')).toBeInTheDocument();expect(screen.getByText('子项').closest('li')).toHaveStyle({paddingLeft:'16px'});expect(screen.queryByText('高级管理')).toBeNull();expect(screen.queryByLabelText('协调节点')).toBeNull();expect(b.listNodes).not.toHaveBeenCalled();expect(b.createTodo).not.toHaveBeenCalled();expect(b.startRun).not.toHaveBeenCalled()})
+
+it('does not checkmark a succeeded run with no artifacts',async()=>{
+  const empty= {...root,status:'succeeded' as const,artifacts:[] as PlanRunDTO['artifacts']}
+  const omitted={...root,id:C,todo:{...root.todo,id:C,title:'无列表'},status:'succeeded' as const}
+  const b={...api(),runTree:vi.fn().mockResolvedValue({items:[empty,omitted]})}
+  const {container}=render(<CoordinationPlanPanel projectId={P} bridge={b as unknown as PlanBridge}/>)
+  expect(await screen.findByText('根项')).toBeInTheDocument()
+  expect(screen.getByText('无列表')).toBeInTheDocument()
+  const marks=[...container.querySelectorAll('.plan-summary-item > span[aria-hidden="true"]')].map(node=>node.textContent)
+  expect(marks).toEqual(['○','○'])
+})
+
+it('checkmarks a succeeded run that lists a real artifact path',async()=>{
+  const delivered={...root,status:'succeeded' as const,artifacts:[{path:'deck.pptx',sha256:'a'.repeat(64),bytes:12}]}
+  const b={...api(),runTree:vi.fn().mockResolvedValue({items:[delivered]})}
+  const {container}=render(<CoordinationPlanPanel projectId={P} bridge={b as unknown as PlanBridge}/>)
+  expect(await screen.findByText('根项')).toBeInTheDocument()
+  const marks=[...container.querySelectorAll('.plan-summary-item > span[aria-hidden="true"]')].map(node=>node.textContent)
+  expect(marks).toEqual(['✓'])
+})

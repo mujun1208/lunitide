@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { BridgeClientError } from '../bridge/client';
 import { OfficeStudioPage, type OfficeConversationOptions } from './OfficeStudioPage';
 import { OFFICE_STUDIO_HOME_EVENT } from './officeNavigation';
 import { OFFICE_PANEL_WIDTH_KEY } from './useOfficePanelResize';
@@ -851,6 +852,80 @@ describe('Office Studio production state', () => {
     expect(screen.queryByText('正文 v2')).not.toBeInTheDocument();
   });
 
+  it('TestModelFitAndOfficeOutcomeUI: formal export lists missing checks and keeps copy available', async () => {
+    const api = apiFor();
+    vi.mocked(api.exportArtifact).mockImplementation(async (payload) => {
+      if (payload.deliveryMode === 'formal' || payload.draft === false) {
+        throw new BridgeClientError(
+          '此版本检查未全部完成，所缺检查：actual-render。请选择导出草稿',
+          'OFFICE_DRAFT_REQUIRED',
+          false,
+          '01ARZ3NDEKTSV4RRFFQ69G5FAE',
+          {
+            decision: {
+              decisionId: '01ARZ3NDEKTSV4RRFFQ69G5FAD',
+              versionId: 'v2',
+              allowed: false,
+              state: 'needs_review',
+              missingChecks: ['actual-render'],
+            },
+          },
+        );
+      }
+      return { path: 'exports/季度汇报_v2.docx', decision: { decisionId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', versionId: 'v2', allowed: false, state: 'needs_review', missingChecks: ['actual-render'] } };
+    });
+    await open(api);
+    fireEvent.click(screen.getByRole('button', { name: '正式导出' }));
+    expect(await screen.findByText(/actual-render/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '切换到检查' }));
+    expect(screen.getByText('01ARZ3NDEKTSV4RRFFQ69G5FAD')).toBeVisible();
+    expect(screen.getByText('needs_review')).toBeVisible();
+    expect(screen.queryByText('verified')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '版本' }));
+    fireEvent.click(screen.getByRole('button', { name: 'v1' }));
+    fireEvent.click(screen.getByRole('button', { name: '切换到检查' }));
+    expect(screen.queryByText('01ARZ3NDEKTSV4RRFFQ69G5FAD')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '版本' }));
+    fireEvent.click(screen.getByRole('button', { name: /^v2/ }));
+    fireEvent.click(screen.getByRole('button', { name: '切换到检查' }));
+    expect(screen.getByText('01ARZ3NDEKTSV4RRFFQ69G5FAD')).toBeVisible();
+    expect(screen.getByRole('button', { name: '导出副本' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: '导出副本' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存副本' }));
+    await waitFor(() =>
+      expect(api.exportArtifact).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskId,
+          versionId: 'v2',
+          draft: true,
+        }),
+      ),
+    );
+    expect(screen.getByRole('button', { name: '导出副本' })).toBeEnabled();
+  });
+
+  it('TestModelFitAndOfficeOutcomeUI: formal accept uses FormalDecision and keeps draft accept', async () => {
+    const api = apiFor();
+    vi.mocked(api.exportArtifact).mockResolvedValue({
+      path: 'exports/季度汇报_v2.docx',
+      decision: { decisionId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', versionId: 'v2', allowed: true, state: 'verified' },
+    });
+    await open(api);
+    fireEvent.click(screen.getByRole('button', { name: '正式导出' }));
+    await waitFor(() => expect(api.exportArtifact).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: '版本' }));
+    const v2 = screen.getByRole('button', { name: /^v2/ }).closest('li')!;
+    const formal = within(v2).getByRole('button', { name: '作为正式交付' });
+    expect(formal).toBeEnabled();
+    expect(within(v2).getByRole('button', { name: '接受为草稿' })).toBeEnabled();
+    fireEvent.click(formal);
+    await waitFor(() =>
+      expect(api.accept).toHaveBeenCalledWith(
+        expect.objectContaining({ taskId, versionId: 'v2', formal: true }),
+      ),
+    );
+  });
+
   it('exports the selected historical version as a draft rather than exporting the latest', async () => {
     const api = apiFor();
     await open(api);
@@ -864,6 +939,7 @@ describe('Office Studio production state', () => {
         versionId: 'v1',
         name: '季度汇报_v1.docx',
         draft: true,
+        deliveryMode: 'copy',
       }),
     );
     expect(api.accept).not.toHaveBeenCalled();

@@ -298,7 +298,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			op = withLeaseRotate(op, p, rot, emitted)
 			purpose := continuityScopeFrom(op).Purpose
 			if purpose == "" {
-				purpose = "chat"
+				if officeTaskContextID(op) != "" {
+					purpose = "office"
+				} else {
+					purpose = "chat"
+				}
 			}
 			op = withContinuityScope(op, continuityScope{Owner: ownerScope(sessionID), Task: sessionID, Turn: id, Purpose: purpose})
 			// A panic anywhere in the streaming/tool loop must degrade to a

@@ -210,6 +210,20 @@ func TestServiceGenerateAndPatchRetryIdempotentAndConcurrentCAS(t *testing.T) {
 	if err != nil || len(versions) != 2 {
 		t.Fatalf("version count: %d %v", len(versions), err)
 	}
+
+	head := headOf(t, store, task.ID)
+	req := textPatchFor(t, first, "重放补丁")
+	published, err := svc.Patch(ctx, task.ID, first.ID, head.Revision, req, "replay-patch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := svc.Patch(ctx, task.ID, first.ID, head.Revision, req, "replay-patch")
+	if err != nil {
+		t.Fatalf("same idempotency key must return the published version, not conflict: %v", err)
+	}
+	if replayed.ID != published.ID {
+		t.Fatalf("replay created a new version: %s %s", replayed.ID, published.ID)
+	}
 }
 
 func TestServiceImportScopeAndCorruptBlobAreRejected(t *testing.T) {

@@ -1,5 +1,7 @@
 # Project Factory Implementation Plan
 
+> **Stale checkboxes.** Remaining factory 100% work is `docs/superpowers/plans/2026-09-13-factory-100-closeout.md`. Sequencing: `docs/superpowers/plans/2026-09-13-full-dev-closeout.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Land F1–F5 of `docs/design/PRD-project-factory-2026-09-13.md` on the existing spine (root/tree/executors stay).

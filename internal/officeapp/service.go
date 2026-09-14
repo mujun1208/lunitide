@@ -218,8 +218,8 @@ func (s *Service) Patch(ctx context.Context, taskID, versionID string, revision 
 	if err != nil {
 		return v, err
 	}
-	if req.BaseSHA256 != v.SHA256 || string(req.Kind) != v.Kind {
-		return v, domain.ErrConflict
+	if err = s.assertPatchBase(v, b, req); err != nil {
+		return v, err
 	}
 	result, err := content.Patch(b, req)
 	if err != nil {
@@ -250,7 +250,7 @@ func (s *Service) Check(ctx context.Context, taskID, versionID string, render bo
 	if err != nil {
 		return domain.Validation{}, err
 	}
-	checks := make([]domain.Check, 0, len(local.Checks)+4)
+	checks := make([]domain.Check, 0, len(local.Checks)+7)
 	design := content.DesignScopeCheck()
 	designStatus := design.Status
 	if designStatus == "missing" {
@@ -268,7 +268,11 @@ func (s *Service) Check(ctx context.Context, taskID, versionID string, render bo
 		checks = append(checks, domain.Check{ID: c.ID, Label: officeCheckLabel(c.ID), Status: status, Required: required, Detail: c.Message})
 	}
 	evidence := map[string]any{"issues": local.Issues, "sourceDigest": v.SHA256}
-	fontChecks, fontReport := s.fontChecks(ctx, v.Kind, b)
+	task, err := s.Store.GetOfficeTask(ctx, taskID)
+	if err != nil {
+		return domain.Validation{}, err
+	}
+	fontChecks, fontReport := s.fontChecksForPolicy(ctx, v.Kind, b, deliveryPolicyForTask(task))
 	if err := ctx.Err(); err != nil {
 		return domain.Validation{}, err
 	}
@@ -276,6 +280,11 @@ func (s *Service) Check(ctx context.Context, taskID, versionID string, render bo
 	if fontReport != nil {
 		evidence["fonts"] = fontReport
 	}
+	checks = append(checks,
+		domain.Check{ID: "file-integrity", Label: "文件完整性", Required: true, Status: fileIntegrityStatus(v, b), Detail: fileIntegrityDetail(v, b)},
+		domain.Check{ID: "source-content", Label: "源内容", Required: true, Status: sourceContentStatus(local), Detail: sourceContentDetail(local)},
+		domain.Check{ID: "locked-facts", Label: "锁定事实", Required: true, Status: lockedFactsStatus(v, local), Detail: lockedFactsDetail(v, local)},
+	)
 	nativeCacheChecks(v, checks)
 	var previewLease domain.BlobLease
 	var previewPDF []byte
@@ -549,4 +558,138 @@ func (s *Service) exportReceipt(ctx context.Context, v domain.Version, dir, name
 	}
 	receipt := domain.StepReceipt{TaskID: v.TaskID, RunID: runID, StepKey: "export", IdempotencyKey: "export-" + digest([]byte(filepath.Join(dir, name))), InputDigest: v.SHA256, State: "succeeded", Result: encode(map[string]string{"path": filepath.Join(dir, name), "sha256": v.SHA256}), CreatedAt: time.Now().UTC()}
 	return s.Store.AppendOfficeStepReceipt(ctx, receipt)
+}
+
+func fileIntegrityOK(v domain.Version, b []byte) bool {
+	return len(b) > 0 && v.SHA256 != "" && digest(b) == v.SHA256
+}
+
+func fileIntegrityStatus(v domain.Version, b []byte) string {
+	if fileIntegrityOK(v, b) {
+		return "passed"
+	}
+	return "failed"
+}
+
+func fileIntegrityDetail(v domain.Version, b []byte) string {
+	if fileIntegrityOK(v, b) {
+		return "文件摘要与已登记 SHA256 一致"
+	}
+	if len(b) == 0 {
+		return "文件为空，不能认定完整性通过"
+	}
+	return "文件摘要与已登记 SHA256 不一致"
+}
+
+func sourcePredicateID(id string) bool {
+	switch id {
+	case "package", "content_safety", "pdf_structure", "pdf-parse":
+		return true
+	default:
+		return false
+	}
+}
+
+func sourceContentStatus(local content.Validation) string {
+	if len(local.Checks) == 0 {
+		return "unsupported"
+	}
+	saw := false
+	status := "passed"
+	for _, c := range local.Checks {
+		if !sourcePredicateID(c.ID) {
+			continue
+		}
+		saw = true
+		switch c.Status {
+		case "blocked", "failed":
+			return "failed"
+		case "passed":
+		default:
+			if status == "passed" {
+				status = remapStudioStatus(c.ID, c.Status)
+				if status != "failed" && status != "unsupported" && status != "pending" {
+					status = "unsupported"
+				}
+			}
+		}
+	}
+	if !saw {
+		return "unsupported"
+	}
+	return status
+}
+
+func sourceContentDetail(local content.Validation) string {
+	if len(local.Checks) == 0 {
+		return "源内容扫描为空，不能认定通过"
+	}
+	for _, c := range local.Checks {
+		if !sourcePredicateID(c.ID) {
+			continue
+		}
+		if c.Status == "blocked" || c.Status == "failed" {
+			if c.Message != "" {
+				return c.Message
+			}
+			return "源内容未通过"
+		}
+	}
+	switch sourceContentStatus(local) {
+	case "passed":
+		return "源内容检查通过"
+	default:
+		return "源内容证据不足，不能认定通过"
+	}
+}
+
+func lockedFactsOnVersion(v domain.Version) []content.Fact {
+	var spec content.Spec
+	if json.Unmarshal(v.Spec, &spec) != nil {
+		return nil
+	}
+	var locked []content.Fact
+	for _, f := range content.FactsFromSpec(spec) {
+		if f.Locked {
+			locked = append(locked, f)
+		}
+	}
+	return locked
+}
+
+func lockedFactsInspection(v domain.Version) (content.Inspection, bool) {
+	var insp content.Inspection
+	if json.Unmarshal(v.Index, &insp) != nil || len(insp.Nodes) == 0 {
+		return insp, false
+	}
+	return insp, true
+}
+
+func lockedFactsStatus(v domain.Version, local content.Validation) string {
+	locked := lockedFactsOnVersion(v)
+	if len(locked) == 0 {
+		return "passed"
+	}
+	insp, ok := lockedFactsInspection(v)
+	if !ok || len(local.Checks) == 0 {
+		return "unsupported"
+	}
+	if err := content.AssertFactSetCoverage(locked, []content.Inspection{insp}); err != nil {
+		return "failed"
+	}
+	return "passed"
+}
+
+func lockedFactsDetail(v domain.Version, local content.Validation) string {
+	if len(lockedFactsOnVersion(v)) == 0 {
+		return "无锁定事实"
+	}
+	switch lockedFactsStatus(v, local) {
+	case "passed":
+		return "锁定事实已出现在提取内容中"
+	case "failed":
+		return "锁定事实未出现在提取内容中"
+	default:
+		return "未提取到内容，不能认定锁定事实通过"
+	}
 }

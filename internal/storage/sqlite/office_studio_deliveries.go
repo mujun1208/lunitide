@@ -71,7 +71,11 @@ func (s *Store) CreateOfficeMetric(ctx context.Context, m officestudio.Metric, k
 	for _, n := range index.Nodes {
 		if n.ID == m.SourceNodeID {
 			kind := strings.TrimPrefix(n.Kind, "cell:")
-			matched = n.Digest == m.SourceNodeDigest && n.Text == m.RawValue && kind == m.ValueType && kind != "formula" && kind != "error" && kind != "invalid"
+			if kind == "formula" {
+				matched = n.Digest == m.SourceNodeDigest && m.ValueType == "formula" && m.RawValue != "" && m.RawValue != n.Text
+			} else {
+				matched = n.Digest == m.SourceNodeDigest && n.Text == m.RawValue && kind == m.ValueType && kind != "error" && kind != "invalid"
+			}
 			break
 		}
 	}

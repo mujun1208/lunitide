@@ -5,6 +5,41 @@ import (
 	"testing"
 )
 
+func TestTaskOutcomeForcedSummarySequence(t *testing.T) {
+	group := MessageGroup{
+		Assistant: ProtocolMessage{
+			Role: "assistant",
+			ToolCalls: []ProtocolToolCall{
+				{ID: "c1", Name: "workspace.read", Arguments: json.RawMessage(`{"path":"a.md"}`)},
+				{ID: "c2", Name: "workspace.read", Arguments: json.RawMessage(`{"path":"b.md"}`)},
+			},
+		},
+		Tools: []ProtocolMessage{
+			{Role: "tool", ToolCallID: "c1", Content: "ok-a"},
+			{Role: "tool", ToolCallID: "c2", Content: "ok-b"},
+		},
+	}
+	if !MessageGroupComplete(group) {
+		t.Fatal("closed tool group required")
+	}
+	plan := PlanForcedSummary([]MessageGroup{group}, "after_tools")
+	if !plan.AppendSummary || plan.ReappendToolAssistant || plan.ExecuteTools {
+		t.Fatalf("closed group must summarize once without replaying tools: %+v", plan)
+	}
+	if len(plan.ToolCallIDs) != 2 || plan.ToolCallIDs[0] != "c1" || plan.ToolCallIDs[1] != "c2" {
+		t.Fatalf("server must see complete call IDs once: %v", plan.ToolCallIDs)
+	}
+	for _, event := range []string{"cancel", "restart", "lost_commit_ack"} {
+		again := PlanForcedSummary([]MessageGroup{group}, event)
+		if again.ExecuteTools || again.ReappendToolAssistant {
+			t.Fatalf("%s must not re-execute tools: %+v", event, again)
+		}
+		if len(again.ToolCallIDs) != 2 {
+			t.Fatalf("%s lost call IDs: %v", event, again.ToolCallIDs)
+		}
+	}
+}
+
 func TestMessageGroupCompleteRequiresPairedToolCalls(t *testing.T) {
 	g := MessageGroup{
 		Assistant: ProtocolMessage{

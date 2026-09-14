@@ -72,16 +72,22 @@ func TestApplyUsabilityChecksRunsConfiguredToolsOnPDF(t *testing.T) {
 	t.Setenv("LUNITIDE_PDFA_VALIDATOR", filepath.Join(t.TempDir(), "pdfa-validator"))
 	t.Setenv("LUNITIDE_OFFICE_VISION", filepath.Join(t.TempDir(), "vision"))
 	pdf := []byte("%PDF-1.4 usability")
-	var sawPDF, sawVision []byte
+	page0, page1 := []byte("png-page-0"), []byte("png-page-1")
+	var sawPDF []byte
+	var sawVision [][]byte
 	content.SetPDFARunnerForTest(t, func(_ string, data []byte) error {
 		sawPDF = append([]byte(nil), data...)
 		return nil
 	})
-	content.SetVisualReviewForTest(t, func(pages [][]byte) ([]content.Issue, string, error) {
-		if len(pages) > 0 {
-			sawVision = append([]byte(nil), pages[0]...)
+	content.SetVisualPageImagesForTest(t, func(data []byte) ([][]byte, error) {
+		if !bytes.Equal(data, pdf) {
+			t.Fatalf("page split got %q", data)
 		}
-		return nil, "已检查预览 PDF", nil
+		return [][]byte{page0, page1}, nil
+	})
+	content.SetVisualReviewForTest(t, func(pages [][]byte) ([]content.Issue, string, error) {
+		sawVision = append([][]byte(nil), pages...)
+		return nil, "已检查 2 页渲染图", nil
 	})
 	checks := applyUsabilityChecks([]domain.Check{
 		{ID: "pdfa", Status: "unsupported", Detail: "placeholder"},
@@ -96,8 +102,28 @@ func TestApplyUsabilityChecksRunsConfiguredToolsOnPDF(t *testing.T) {
 	if strings.Contains(findOfficeCheck(checks, "visual-model").Detail, "85") && !strings.Contains(findOfficeCheck(checks, "visual-model").Detail, "uncalibrated") {
 		t.Fatalf("visual passed must stay uncalibrated: %#v", findOfficeCheck(checks, "visual-model"))
 	}
-	if !bytes.Equal(sawPDF, pdf) || !bytes.Equal(sawVision, pdf) {
-		t.Fatalf("did not run on current file bytes pdf=%q vision=%q", sawPDF, sawVision)
+	if !bytes.Equal(sawPDF, pdf) {
+		t.Fatalf("did not run pdfa on current file bytes %q", sawPDF)
+	}
+	if len(sawVision) != 2 || bytes.Equal(sawVision[0], pdf) || !bytes.Equal(sawVision[0], page0) || !bytes.Equal(sawVision[1], page1) {
+		t.Fatalf("must pass per-page images, not whole PDF: %#v", sawVision)
+	}
+}
+
+func TestApplyUsabilityChecksDoesNotTreatPDFBytesAsOnePage(t *testing.T) {
+	t.Setenv("LUNITIDE_OFFICE_VISION", filepath.Join(t.TempDir(), "vision"))
+	pdf := []byte("%PDF-1.4 usability")
+	var saw [][]byte
+	content.SetVisualReviewForTest(t, func(pages [][]byte) ([]content.Issue, string, error) {
+		saw = pages
+		return nil, "ok", nil
+	})
+	checks := applyUsabilityChecks(nil, pdf)
+	if len(saw) == 1 && bytes.Equal(saw[0], pdf) {
+		t.Fatal("raw PDF must not be a visual page")
+	}
+	if findOfficeCheck(checks, "visual-model").Status == "passed" && len(saw) <= 1 {
+		t.Fatalf("cannot pass visual on unsplit PDF: %#v saw=%d", findOfficeCheck(checks, "visual-model"), len(saw))
 	}
 }
 
@@ -105,6 +131,9 @@ func TestApplyUsabilityChecksFailedStayFailed(t *testing.T) {
 	t.Setenv("LUNITIDE_PDFA_VALIDATOR", filepath.Join(t.TempDir(), "pdfa-validator"))
 	t.Setenv("LUNITIDE_OFFICE_VISION", filepath.Join(t.TempDir(), "vision"))
 	content.SetPDFARunnerForTest(t, func(string, []byte) error { return fmt.Errorf("not pdfa") })
+	content.SetVisualPageImagesForTest(t, func([]byte) ([][]byte, error) {
+		return [][]byte{[]byte("png-0"), []byte("png-1")}, nil
+	})
 	content.SetVisualReviewForTest(t, func([][]byte) ([]content.Issue, string, error) {
 		return []content.Issue{{Code: "overlap", Message: "重叠"}}, "重叠", nil
 	})

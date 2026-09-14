@@ -367,6 +367,9 @@ restore_failed:
 	Abort "Could not enable the new version or restore the previous version. The backup was kept."
 install_done:
   !insertmacro Log "event=success path=$INSTDIR version=${VERSION}"
+  ${If} ${Silent}
+    Exec '"$INSTDIR\Lunitide.exe"'
+  ${EndIf}
 SectionEnd
 Function un.onInit
   StrCpy $PurgeData 0

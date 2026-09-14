@@ -182,12 +182,25 @@ func (t *agentRuntimeTx) TransitionRun(id string, expectedVersion int64, to agen
 	return next, nil
 }
 
+func refuseV1BudgetMutation(b agentrun.Budget) error {
+	if b.IsV2Accounting() {
+		return agentrun.ErrV1MutatesV2Budget
+	}
+	return nil
+}
+
 func (t *agentRuntimeTx) ReplaceBudget(id string, expectedVersion int64, budget agentrun.Budget, at time.Time) (agentrun.AgentRun, error) {
 	if err := budget.Validate(); err != nil {
 		return agentrun.AgentRun{}, fmt.Errorf("%w: %v", agentrun.ErrInvalid, err)
 	}
+	if err := refuseV1BudgetMutation(budget); err != nil {
+		return agentrun.AgentRun{}, err
+	}
 	r, err := t.GetRun(id)
 	if err != nil {
+		return r, err
+	}
+	if err := refuseV1BudgetMutation(r.Budget); err != nil {
 		return r, err
 	}
 	if r.Version != expectedVersion {
@@ -228,6 +241,9 @@ func (t *agentRuntimeTx) ReserveUsage(runID, reservationID string, delta agentru
 	}
 	r, err := t.GetRun(runID)
 	if err != nil {
+		return r, err
+	}
+	if err := refuseV1BudgetMutation(r.Budget); err != nil {
 		return r, err
 	}
 	if r.Status.Terminal() {
@@ -275,6 +291,9 @@ func (t *agentRuntimeTx) CommitUsage(runID, reservationID string, actual agentru
 	}
 	r, err := t.GetRun(runID)
 	if err != nil {
+		return r, err
+	}
+	if err := refuseV1BudgetMutation(r.Budget); err != nil {
 		return r, err
 	}
 	if r.Status.Terminal() {

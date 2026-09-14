@@ -4,6 +4,11 @@ export type TurnInspectHint = {
   persistDraft?: string
 }
 
+/** Old sessions without a persisted TaskOutcome stay unverified; do not invent a pass. */
+export function historyUnverified(hasTaskOutcome: boolean | undefined): boolean {
+  return hasTaskOutcome !== true
+}
+
 export function bannersFromTurnState(opts: {
   live: boolean
   storedPersist?: { draft?: string }

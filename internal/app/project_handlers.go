@@ -224,9 +224,10 @@ type projectMutationMeta struct {
 }
 
 type projectAdvancePayload struct {
-	ID      string `json:"id"`
-	Version int64  `json:"version"`
-	Phase   int    `json:"phase"`
+	ID            string `json:"id"`
+	Version       int64  `json:"version"`
+	Phase         int    `json:"phase"`
+	EmptyBoardAck bool   `json:"emptyBoardAck"`
 }
 
 type projectUpdatePayload struct {
@@ -492,6 +493,8 @@ func projectFailure(r bridge.Request, err error) bridge.Response {
 		return r.Fail("PROJECT_SYNC_REQUIRED", "发布前请先同步到选定目录", false)
 	case errors.Is(err, projectapp.ErrAttachmentRequired):
 		return r.Fail("PROJECT_ATTACHMENT_REQUIRED", "请先写入不少于 32 字节的附件正文，不能只绑模版", false)
+	case errors.Is(err, projectapp.ErrEmptyBoardAck):
+		return r.Fail("PROJECT_EMPTY_BOARD_ACK", "空清单需要勾选无任务后再晋级", false)
 	default:
 		return r.Fail("STORAGE_UNAVAILABLE", "项目数据暂时不可用", true)
 	}
