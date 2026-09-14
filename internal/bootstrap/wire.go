@@ -23,6 +23,7 @@ import (
 	"github.com/lunitide/lunitide/internal/conversationsapp"
 	"github.com/lunitide/lunitide/internal/datadir"
 	"github.com/lunitide/lunitide/internal/datasourceapp"
+	"github.com/lunitide/lunitide/internal/desktopupdate"
 	"github.com/lunitide/lunitide/internal/domain/m8core"
 	"github.com/lunitide/lunitide/internal/governanceapp"
 	"github.com/lunitide/lunitide/internal/identity"
@@ -205,7 +206,19 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	promotionService.SetLocalPublication(publicationRoot.Path())
 	store.SetProjectPublicationRoot(publicationRoot.Path())
 	engine.SetM7PromotionServices(promotionService)
-	engine.SetM7UpdateServices(m7app.NewUpdateService(store.AgentRuntimeRepository()))
+	updateService := m7app.NewUpdateService(store.AgentRuntimeRepository())
+	updateFeed := desktopupdate.NewLocalFeed()
+	updateService.SetFeedLookup(func(channel string) (string, string, bool, error) {
+		return desktopupdate.CompositeLookup(updateFeed, desktopupdate.DefaultHTTPGet, channel)
+	})
+	installer := desktopupdate.NewNsisInstaller(updateFeed)
+	if dirs := desktopupdate.DefaultDirs(); len(dirs) > 0 {
+		installer.Store = dirs[0]
+	}
+	installer.Get = desktopupdate.DefaultHTTPGet
+	installer.GetFile = desktopupdate.DefaultHTTPGetFile
+	updateService.SetInstaller(installer)
+	engine.SetM7UpdateServices(updateService)
 	// W3: the general audit_events chain shares the M7-DR-001 promotion freeze.
 	engine.SetAuditChainVerifier(store)
 	// M7 slices 6-8: read-only subagent runtime, tool-gap runtime and the
