@@ -671,7 +671,8 @@ func (r *RedTeamRunner) runRevoke(ctx context.Context) (*RedTeamRecord, error) {
 				auditSeen = true
 			}
 		}
-		tree := pidsAlive([]int{run.proc.pid})
+		_, _, rootPID := run.proc.stdioHandles()
+		tree := pidsAlive([]int{rootPID})
 		rec.Attacks = []RedTeamAttack{
 			{Vector: "revoke-kills-tree", Attempt: "revoke a live forever-run", Blocked: run.State() == StateRevoked && len(tree) == 0, Detail: fmt.Sprintf("state=%s rootPidAlive=%v", run.State(), len(tree) > 0)},
 			{Vector: "late-result-freeze", Attempt: "deliver a RESULT after revocation", Blocked: lateFrozen, Detail: "result frozen nil, Wait returns ErrRevoked (M6-SBX-004)"},

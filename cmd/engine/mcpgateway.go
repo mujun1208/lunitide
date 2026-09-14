@@ -31,10 +31,30 @@ func mcpGatewaySetStdioWorkDir(dir string) { mcpStdioWorkDir = dir }
 // the caller's context so an already-expired registry deadline skips the
 // handshake instead of spawning a doomed worker for StdioHandshakeTimeout.
 func mcpStdioSession(ctx context.Context, e *mcp6.Endpoint) (*mcp.StdioSession, error) {
-	if mcpStdioWorkDir == "" {
-		return nil, fmt.Errorf("mcp6: stdio work dir not configured")
+	dir, err := mcpStdioSandboxDir(e.ID)
+	if err != nil {
+		return nil, err
 	}
-	return mcp.StdioDial(ctx, e.Command, e.Args, filepath.Join(mcpStdioWorkDir, e.ID), nil)
+	return mcp.StdioDial(ctx, e.Command, e.Args, dir, nil)
+}
+
+// mcpStdioSandboxDir joins the configured stdio work root with a safe
+// endpoint id. Rejects empty ids, path separators, and any result that
+// would escape the sandbox root via ".." segments.
+func mcpStdioSandboxDir(id string) (string, error) {
+	if mcpStdioWorkDir == "" {
+		return "", fmt.Errorf("mcp6: stdio work dir not configured")
+	}
+	id = strings.TrimSpace(id)
+	if id == "" || strings.ContainsAny(id, `/\`) || id == "." || id == ".." || strings.Contains(id, "..") {
+		return "", fmt.Errorf("mcp6: invalid endpoint id for stdio workdir")
+	}
+	dir := filepath.Join(mcpStdioWorkDir, id)
+	rel, err := filepath.Rel(mcpStdioWorkDir, dir)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("mcp6: stdio workdir escapes sandbox")
+	}
+	return dir, nil
 }
 
 // mcpClientFor builds the hardened GET client for one endpoint, allowing
@@ -149,7 +169,7 @@ func mcpGatewayInvoke(ctx context.Context, e *mcp6.Endpoint, tool string, args m
 	}
 	out, err := client.Invoke(ctx, mcp.InvokeInput{Tool: tool, ArgsJSON: argsJSON})
 	if err != nil {
-		if errors.Is(err, mcp.ErrHttpStatus) && strings.Contains(err.Error(), "401") {
+		if errors.Is(err, mcp.ErrUnauthorized) {
 			return nil, mcp6.ErrCredentialRevoked
 		}
 		return nil, err

@@ -222,9 +222,10 @@ func (m *Manager) launch(ctx context.Context, sp *SignedSpec) (*Run, error) {
 	m.seen[spec.EndpointID+"|"+spec.Nonce] = spec.SpecID
 	m.mu.Unlock()
 
+	_, _, launchPID := p.stdioHandles()
 	if err := m.journal.Append(JournalRecord{
 		RunID: runID, SpecID: spec.SpecID, Endpoint: spec.EndpointID,
-		SpecDigest: digest, Pid: p.pid, State: StateLaunched, AtMS: m.now().UnixMilli(),
+		SpecDigest: digest, Pid: launchPID, State: StateLaunched, AtMS: m.now().UnixMilli(),
 	}); err != nil {
 		p.kill()
 		p.close()
@@ -237,7 +238,7 @@ func (m *Manager) launch(ctx context.Context, sp *SignedSpec) (*Run, error) {
 		return nil, fmt.Errorf("stdioworker: journal launch: %w", err)
 	}
 	m.emitAudit(AuditLaunched, runID, map[string]any{
-		"endpointId": spec.EndpointID, "specDigest": digest, "pid": p.pid,
+		"endpointId": spec.EndpointID, "specDigest": digest, "pid": launchPID,
 		"quotas": spec.Quotas, "configDigest": spec.ConfigDigest,
 	})
 
@@ -268,8 +269,9 @@ func (m *Manager) monitor(r *Run) {
 	stream := make(chan envelope, 8)
 	go func() {
 		defer close(stream)
+		_, stdout, _ := r.proc.stdioHandles()
 		for {
-			env, err := ReadEnvelope(r.proc.stdout)
+			env, err := ReadEnvelope(stdout)
 			stream <- envelope{env: env, err: err}
 			if err != nil {
 				return
@@ -296,9 +298,10 @@ func (m *Manager) monitor(r *Run) {
 		_ = r.proc.kill()
 		// The journal is best-effort progress telemetry; emitAudit below is the
 		// authoritative record, so a failed append must not derail finalization.
+		_, _, pid := r.proc.stdioHandles()
 		_ = m.journal.Append(JournalRecord{
 			RunID: r.ID, SpecID: r.Spec.SpecID, Endpoint: r.Spec.EndpointID,
-			SpecDigest: r.SpecDigest, Pid: r.proc.pid, State: state,
+			SpecDigest: r.SpecDigest, Pid: pid, State: state,
 			Detail: detail, AtMS: m.now().UnixMilli(),
 		})
 		switch state {
@@ -403,9 +406,10 @@ func (m *Manager) Revoke(runID, reason string) error {
 	cancel()
 	close(r.waitCh)
 	// Best-effort telemetry; emitAudit below is the authoritative record.
+	_, _, pid := r.proc.stdioHandles()
 	_ = m.journal.Append(JournalRecord{
 		RunID: r.ID, SpecID: r.Spec.SpecID, Endpoint: r.Spec.EndpointID,
-		SpecDigest: r.SpecDigest, Pid: r.proc.pid, State: StateRevoked,
+		SpecDigest: r.SpecDigest, Pid: pid, State: StateRevoked,
 		Detail: reason, AtMS: m.now().UnixMilli(),
 	})
 	m.emitAudit(AuditRevoked, r.ID, map[string]any{"reason": reason, "exit": code})

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -95,6 +96,9 @@ func writeJSONRPC(w *bufio.Writer, id int64, result any) {
 // environment block, never the parent's).
 func dialFake(t *testing.T, mode string) *StdioSession {
 	t.Helper()
+	if runtime.GOOS != "windows" {
+		t.Skip("stdio MCP spawn requires Windows Job Object envelope")
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		t.Skipf("test binary path unavailable: %v", err)
@@ -141,6 +145,9 @@ func TestStdioSessionSurfacesErrorAnswers(t *testing.T) {
 }
 
 func TestStdioDialRejectsMuteServer(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("stdio MCP spawn requires Windows Job Object envelope")
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		t.Skipf("test binary path unavailable: %v", err)

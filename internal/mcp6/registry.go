@@ -326,6 +326,9 @@ func (r *Registry) Register(ctx context.Context, in EndpointInput) (*Endpoint, e
 
 	id := strings.TrimSpace(in.ID)
 	if id != "" {
+		if strings.ContainsAny(id, `/\`) || id == "." || id == ".." || strings.Contains(id, "..") {
+			return nil, fmt.Errorf("mcp6: endpoint id must be a path-safe token")
+		}
 		r.mu.Lock()
 		if existing, ok := r.endpoint[id]; ok {
 			if existing.State != StateRevoked {
