@@ -45,6 +45,9 @@ var (
 	ErrResponseTooLarge = errors.New("mcp: response exceeds the 4 MiB cap (MCP-002)")
 	// ErrHttpStatus is MCP-002: endpoint answered a non-2xx status.
 	ErrHttpStatus = errors.New("mcp: endpoint answered non-2xx (MCP-002)")
+	// ErrUnauthorized is MCP-002 specialised: HTTP 401. Callers map this to
+	// credential-revoked lifecycle without substring-matching error text.
+	ErrUnauthorized = errors.New("mcp: endpoint unauthorized (401)")
 	// ErrInvokeFailed is MCP-003: both the attempt and its single retry
 	// failed at the transport level.
 	ErrInvokeFailed = errors.New("mcp: invocation failed after retry (MCP-003)")
@@ -292,6 +295,9 @@ func (c *Client) attempt(ctx context.Context, target string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		if resp.StatusCode == http.StatusUnauthorized {
+			return nil, fmt.Errorf("%w: %w: %s", ErrHttpStatus, ErrUnauthorized, resp.Status)
+		}
 		return nil, fmt.Errorf("%w: %s", ErrHttpStatus, resp.Status)
 	}
 	if enc := resp.Header.Get("Content-Encoding"); enc != "" && !strings.EqualFold(enc, "identity") {
@@ -312,6 +318,7 @@ func (c *Client) attempt(ctx context.Context, target string) ([]byte, error) {
 func retryable(err error) bool {
 	switch {
 	case errors.Is(err, ErrHttpStatus),
+		errors.Is(err, ErrUnauthorized),
 		errors.Is(err, ErrResponseTooLarge),
 		errors.Is(err, ErrEncodingBlocked),
 		errors.Is(err, ErrRedirectBlocked):

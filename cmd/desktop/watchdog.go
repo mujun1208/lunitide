@@ -119,6 +119,23 @@ func desktopTakeoverArgs(args []string) []string {
 	return append(out, flagTakeover)
 }
 
+// waitHostReadyForEngineDeath returns true when the WebView host has marked
+// ready so a D11 relaunch is safe. It returns false when the host context is
+// cancelled first (startup failure or intentional shutdown) so we do not
+// spawn a takeover sibling against a never-started UI.
+//
+// The previous select used a non-blocking default on hostReady, which
+// swallowed engine death between watchEngineHealth start and close(hostReady)
+// and left a live window talking to a dead engine with no relaunch.
+func waitHostReadyForEngineDeath(hostReady <-chan struct{}, hostDone <-chan struct{}) bool {
+	select {
+	case <-hostReady:
+		return true
+	case <-hostDone:
+		return false
+	}
+}
+
 // releaseGatewayThenRelaunch is D11: drop Local\lunitide-gateway before the
 // sibling starts. The 0.4.43 failure was a dying WebView2 still holding the
 // mutex for longer than the child would wait, so --takeover timed out and

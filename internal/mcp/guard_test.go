@@ -171,4 +171,17 @@ func TestMcpGuard(t *testing.T) {
 			t.Fatalf("request shape mismatch: path %q args %q", gotPath, gotArgs)
 		}
 	})
+
+	t.Run("http 401 maps to ErrUnauthorized", func(t *testing.T) {
+		srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"revoked"}`))
+		}))
+		defer srv.Close()
+		c := tlsTestClient(t, srv)
+		_, err := c.Invoke(context.Background(), InvokeInput{Tool: "ping"})
+		if !errors.Is(err, ErrUnauthorized) || !errors.Is(err, ErrHttpStatus) {
+			t.Fatalf("want ErrUnauthorized+ErrHttpStatus, got %v", err)
+		}
+	})
 }
