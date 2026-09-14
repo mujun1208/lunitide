@@ -6,6 +6,7 @@ permissions:
 jobs:
   windows-quality:
     name: Windows quality and schema drift
+    if: github.ref_type != 'tag'
     runs-on: windows-latest
     env:
       CGO_ENABLED: "0"
@@ -74,6 +75,7 @@ jobs:
 
   windows-cgo-race:
     name: Windows CGO race detector
+    if: github.ref_type != 'tag'
     runs-on: windows-latest
     env:
       CGO_ENABLED: "1"
