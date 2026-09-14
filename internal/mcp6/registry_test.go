@@ -30,6 +30,22 @@ func newTestRegistry(probe ProbeFunc, invoke InvokeFunc) *Registry {
 	return r
 }
 
+func TestRegisterRejectsPathUnsafeID(t *testing.T) {
+	r := newTestRegistry(nil, nil)
+	for _, id := range []string{`..\escape`, `/abs`, `a/b`, `a\\b`, `..`, `.`} {
+		_, err := r.Register(context.Background(), EndpointInput{
+			ID:        id,
+			Transport: "https",
+			URL:       "https://example.com/mcp",
+			AuthRef:   "secretref:pool/a",
+			Pin:       validPin(),
+		})
+		if err == nil {
+			t.Fatalf("id %q must be rejected", id)
+		}
+	}
+}
+
 // M6-MCP-004 (gate opened 2026-08-16): stdio registers through the
 // whitelist — non-whitelisted commands and metacharacter args still
 // refuse; the happy shape reaches ready like any transport.

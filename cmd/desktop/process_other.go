@@ -10,18 +10,21 @@ import (
 func configureEngineProcess(_ *exec.Cmd) {}
 
 func processAlive(pid int) bool {
-	if pid < 1 {
-		return false
-	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	return proc != nil
+	// Unix FindProcess always succeeds for any pid; without a Wait/signal
+	// probe we cannot know liveness. Refuse to claim "alive" so D11 does
+	// not skip relaunch on stubs.
+	return false
 }
 
-func stopEnginePID(pid int, _ bool) {
+func isEngineImage(pid int) bool {
+	return pid > 0
+}
+
+func stopEnginePID(pid int, requireEngineImage bool) {
 	if pid < 1 {
+		return
+	}
+	if requireEngineImage && !isEngineImage(pid) {
 		return
 	}
 	if proc, err := os.FindProcess(pid); err == nil {

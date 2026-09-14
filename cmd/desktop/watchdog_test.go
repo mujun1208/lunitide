@@ -92,3 +92,34 @@ func TestReleaseGatewayThenRelaunchRequiresSelf(t *testing.T) {
 		t.Fatalf("empty self must fail without start, err=%v started=%v", err, started)
 	}
 }
+
+func TestWaitHostReadyForEngineDeath(t *testing.T) {
+	t.Run("ready", func(t *testing.T) {
+		ready := make(chan struct{})
+		done := make(chan struct{})
+		close(ready)
+		if !waitHostReadyForEngineDeath(ready, done) {
+			t.Fatal("closed hostReady must allow relaunch")
+		}
+	})
+	t.Run("cancelled before ready", func(t *testing.T) {
+		ready := make(chan struct{})
+		done := make(chan struct{})
+		close(done)
+		if waitHostReadyForEngineDeath(ready, done) {
+			t.Fatal("hostCtx cancel before ready must skip relaunch")
+		}
+	})
+	t.Run("death before ready then ready arrives", func(t *testing.T) {
+		ready := make(chan struct{})
+		done := make(chan struct{})
+		result := make(chan bool, 1)
+		go func() {
+			result <- waitHostReadyForEngineDeath(ready, done)
+		}()
+		close(ready)
+		if !<-result {
+			t.Fatal("engine death before hostReady must still relaunch once ready")
+		}
+	})
+}

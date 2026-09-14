@@ -119,10 +119,11 @@ func run() error {
 	if reconnectErr == nil && existing != nil {
 		command = nil
 	} else {
-		bootstrapReader, bootstrapWriter, _, bootErr := ipc.NewSessionBootstrap()
+		bootstrapReader, bootstrapWriter, unusedBootstrapSecret, bootErr := ipc.NewSessionBootstrap()
 		if bootErr != nil {
 			return bootErr
 		}
+		defer zeroBytes(unusedBootstrapSecret)
 		defer bootstrapReader.Close()
 		defer bootstrapWriter.Close()
 		command = exec.Command(*enginePath, "--pipe", *pipe, "--host-pid", fmt.Sprint(os.Getpid()))
@@ -135,7 +136,10 @@ func run() error {
 		if err := bootstrapReader.Close(); err != nil {
 			return err
 		}
-		if err := ipc.WriteLaunchBootstrap(bootstrapWriter, nonce, `\\.\pipe\lunitide-secret-local`); err != nil {
+		// Broker pipe name is protocol residue: Engine reads and discards it
+		// (in-process secretlease). Pass a non-empty placeholder so the wire
+		// format stays valid; do not invent a listening broker.
+		if err := ipc.WriteLaunchBootstrap(bootstrapWriter, nonce, `\\.\pipe\lunitide-secret-unused`); err != nil {
 			return fmt.Errorf("write Engine bootstrap secret: %w", err)
 		}
 		if err := bootstrapWriter.Close(); err != nil {
@@ -198,18 +202,18 @@ func run() error {
 	go func() {
 		select {
 		case <-engineDied:
-			select {
-			case <-hostReady:
-				hostLog("engine death detected after host ready; dropping gateway mutex then relaunching with --takeover")
-				fmt.Fprintln(os.Stderr, "engine process exited unexpectedly; relaunching desktop")
-				if self, err := os.Executable(); err == nil {
-					if err := releaseGatewayThenRelaunch(self, os.Args[1:], releaseInstance, nil); err != nil {
-						hostLog("engine death relaunch failed: %v", err)
-					}
-				}
-				stopHost()
-			default:
+			if !waitHostReadyForEngineDeath(hostReady, hostCtx.Done()) {
+				hostLog("engine death during startup or shutdown; skipping takeover relaunch")
+				return
 			}
+			hostLog("engine death detected after host ready; dropping gateway mutex then relaunching with --takeover")
+			fmt.Fprintln(os.Stderr, "engine process exited unexpectedly; relaunching desktop")
+			if self, err := os.Executable(); err == nil {
+				if err := releaseGatewayThenRelaunch(self, os.Args[1:], releaseInstance, nil); err != nil {
+					hostLog("engine death relaunch failed: %v", err)
+				}
+			}
+			stopHost()
 		case <-hostCtx.Done():
 		}
 	}()
@@ -226,7 +230,9 @@ func run() error {
 			stopEngine(command)
 		}
 		if pid := int(enginePID.Load()); pid > 0 {
-			stopEnginePID(pid, false)
+			// requireEngineImage: refuse to Kill a recycled PID that is no
+			// longer lunitide-engine (stale engine.pid after OS reuse).
+			stopEnginePID(pid, true)
 		}
 	}()
 	webViewDataRoot, err := dataRoot.PrepareSubdirectory("WebView2")
@@ -457,7 +463,10 @@ func runQuitEngine(pipe string) error {
 	if enginePID < 1 {
 		return errors.New("没有正在运行的引擎可退出")
 	}
-	stopEnginePID(enginePID, false)
+	if !isEngineImage(enginePID) {
+		return errors.New("引擎 PID 已失效或不是 lunitide-engine，已拒绝结束该进程")
+	}
+	stopEnginePID(enginePID, true)
 	fmt.Println("engine stopped")
 	return nil
 }

@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -92,7 +93,9 @@ func (e *Engine) saveInboundRoutes() {
 		}
 		return true
 	})
-	_ = writePersistJSON(e.persistPath(persistInboundFile), rows)
+	if err := writePersistJSON(e.persistPath(persistInboundFile), rows); err != nil {
+		log.Printf("persist inbound routes: %v", err)
+	}
 }
 
 func (e *Engine) loadMcpPresets() {
@@ -134,7 +137,9 @@ func (e *Engine) saveMcpPresets() {
 		rows[endpointID] = presetID
 		return true
 	})
-	_ = writePersistJSON(e.persistPath(persistMCPFile), rows)
+	if err := writePersistJSON(e.persistPath(persistMCPFile), rows); err != nil {
+		log.Printf("persist mcp presets: %v", err)
+	}
 }
 
 func writePersistJSON(path string, value any) error {
