@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/lunitide/lunitide/internal/canonpath"
 )
 
 const inboxDirName = ".agenthub-inbox"
@@ -180,35 +182,5 @@ func fileArtifact(path string) Artifact {
 }
 
 func insideDir(root, path string) bool {
-	root = filepath.Clean(root)
-	path = filepath.Clean(path)
-	rel, err := filepath.Rel(root, path)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return false
-	}
-	cursor := root
-	for _, part := range strings.Split(rel, string(filepath.Separator)) {
-		if part == "." || part == "" {
-			continue
-		}
-		cursor = filepath.Join(cursor, part)
-		step, stepErr := filepath.Rel(root, resolvedLocation(cursor))
-		if stepErr != nil || step == ".." || strings.HasPrefix(step, ".."+string(filepath.Separator)) {
-			return false
-		}
-	}
-	return true
-}
-
-func resolvedLocation(path string) string {
-	if target, err := os.Readlink(path); err == nil && strings.TrimSpace(target) != "" {
-		if !filepath.IsAbs(target) {
-			target = filepath.Join(filepath.Dir(path), target)
-		}
-		return filepath.Clean(target)
-	}
-	if eval, err := filepath.EvalSymlinks(path); err == nil {
-		return eval
-	}
-	return filepath.Clean(path)
+	return canonpath.Contained(root, path)
 }
