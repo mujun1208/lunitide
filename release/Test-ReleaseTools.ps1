@@ -17,6 +17,8 @@ try{
     [void][Management.Automation.Language.Parser]::ParseFile($script.FullName,[ref]$tokens,[ref]$parseErrors)
     if($parseErrors){throw "Invalid script $($script.Name): $parseErrors"}
   }
+  & (Join-Path $PSScriptRoot 'Check-Coverage.ps1') -SelfTest
+  if($LASTEXITCODE){throw 'Check-Coverage self-test failed'}
   Expect-Rejected {Assert-ReleaseChildPath $fixture $fixture} 'root is not its own child'
   Expect-Rejected {Assert-ReleaseChildPath (Join-Path $fixture '..\foreign') $fixture} 'parent traversal'
   $source=Join-Path $fixture 'source'; New-Item $source -ItemType Directory | Out-Null
