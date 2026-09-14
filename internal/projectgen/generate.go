@@ -1,12 +1,14 @@
 package projectgen
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
 )
 
 const MinGeneratedBytes = 32
+const IncompleteInterviewBanner = "本题库未答完，按已答 + 骨架生成，请人审。"
 
 var (
 	ErrGenerateEmpty         = errors.New("generated deliverable is empty")
@@ -28,6 +30,7 @@ type Input struct {
 	TemplateBody  string
 	OverwriteOK   bool
 	AlreadyApproved bool
+	IncompleteInterview bool
 }
 
 func Render(in Input) (string, error) {
@@ -43,10 +46,28 @@ func Render(in Input) (string, error) {
 		body = skel
 	}
 	out := applyTokens(body, in)
+	out = markIncompleteInterview(out, in.IncompleteInterview, IsChecklistType(in.DocumentType))
 	if len([]byte(out)) < MinGeneratedBytes {
 		return "", ErrGenerateEmpty
 	}
 	return out, nil
+}
+
+func markIncompleteInterview(out string, incomplete, checklist bool) string {
+	if !incomplete {
+		return out
+	}
+	if checklist {
+		var obj map[string]any
+		if json.Unmarshal([]byte(out), &obj) == nil {
+			obj["note"] = IncompleteInterviewBanner
+			if body, err := json.MarshalIndent(obj, "", "  "); err == nil {
+				return string(body) + "\n"
+			}
+		}
+		return out
+	}
+	return "> " + IncompleteInterviewBanner + "\n\n" + out
 }
 
 func applyTokens(body string, in Input) string {

@@ -80,8 +80,10 @@ type officePayload struct {
 	NodeID           string               `json:"nodeId"`
 	NodeDigest       string               `json:"nodeDigest"`
 	Text             string               `json:"text"`
-	Draft            bool                 `json:"draft"`
+	Draft            *bool                `json:"draft"`
 	Formal           bool                 `json:"formal"`
+	DeliveryMode     string               `json:"deliveryMode"`
+	PolicyRevision   string               `json:"policyRevision"`
 	Offset           int64                `json:"offset"`
 	Limit            int64                `json:"limit"`
 	Ranges           []content.RangePatch `json:"ranges"`
@@ -552,21 +554,40 @@ func handleOfficeStudio(e *Engine, ctx context.Context, r bridge.Request) bridge
 			return restoreErr
 		})
 	case "office.artifact.accept":
-		if p.Formal && v.Quality != "passed" {
-			return r.Fail("OFFICE_DRAFT_REQUIRED", "此版本检查未全部完成，请选择导出草稿或接受为草稿", false)
+		if p.Formal {
+			policy := officeDeliveryPolicy(task, p.PolicyRevision)
+			_, dec, acceptErr := s.AcceptFormal(ctx, p.TaskID, v.ArtifactID, vid, p.ExpectedRevision, policy)
+			if acceptErr != nil && !errors.Is(acceptErr, officeapp.ErrDraftRequired) {
+				return officeFailure(r, acceptErr)
+			}
+			if acceptErr != nil || !dec.Allowed {
+				return withFormalDecision(r.Fail("OFFICE_DRAFT_REQUIRED", formalDraftMessage(true, dec), false), dec)
+			}
+			return withFormalDecision(e.officeDetailResponse(ctx, r, task), dec)
 		}
 		_, err = s.Store.AcceptOfficeVersion(ctx, p.TaskID, v.ArtifactID, vid, p.ExpectedRevision)
 	case "office.artifact.validate":
 		err = e.officeExclusive(ctx, p.TaskID, "validating", func(run context.Context) error { _, checkErr := s.Check(run, p.TaskID, vid, true); return checkErr })
 	case "office.artifact.export":
-		if v.Quality != "passed" && !p.Draft {
-			return r.Fail("OFFICE_DRAFT_REQUIRED", "此版本检查未全部完成，请选择导出草稿", false)
+		mode, modeErr := officeapp.ResolveDeliveryMode(p.DeliveryMode, p.Draft)
+		if modeErr != nil {
+			return r.Fail("INVALID_ARGUMENT", "deliveryMode 与 draft 冲突", false)
 		}
 		dir := filepath.Join(s.Root, "exports", p.TaskID)
 		if err = os.MkdirAll(dir, 0700); err != nil {
 			return officeFailure(r, err)
 		}
-		path, exportErr := s.Export(ctx, p.TaskID, vid, dir, p.Name)
+		var path string
+		var exportErr error
+		var dec domain.FormalDecision
+		if mode == "formal" {
+			path, dec, exportErr = s.ExportFormal(ctx, p.TaskID, vid, dir, officeDeliveryPolicy(task, p.PolicyRevision), p.Name)
+			if errors.Is(exportErr, officeapp.ErrDraftRequired) {
+				return withFormalDecision(r.Fail("OFFICE_DRAFT_REQUIRED", formalDraftMessage(false, dec), false), dec)
+			}
+		} else {
+			path, exportErr = s.Export(ctx, p.TaskID, vid, dir, p.Name)
+		}
 		if exportErr != nil {
 			return officeFailure(r, exportErr)
 		}
@@ -578,7 +599,11 @@ func handleOfficeStudio(e *Engine, ctx context.Context, r bridge.Request) bridge
 		if v.Quality == "passed" {
 			notice += "；检查通过不是已接受为正式版"
 		}
-		return r.Ok(map[string]any{"path": filepath.ToSlash(path), "absolutePath": filepath.ToSlash(path), "notice": notice, "sameSource": sameSource})
+		resp := r.Ok(map[string]any{"path": filepath.ToSlash(path), "absolutePath": filepath.ToSlash(path), "notice": notice, "sameSource": sameSource})
+		if mode == "formal" {
+			return withFormalDecision(resp, dec)
+		}
+		return resp
 	default:
 		return officeFailure(r, domain.ErrInvalid)
 	}
@@ -607,6 +632,33 @@ func (e *Engine) officeTaskDTO(ctx context.Context, t domain.Task, projectIDs ..
 		o["brandId"] = brand.BrandID
 	}
 	return o
+}
+
+func officeDeliveryPolicy(task domain.Task, revision string) domain.DeliveryPolicy {
+	policy := officeapp.DeliveryPolicyFromCheckpoint(task.Checkpoint)
+	if revision != "" {
+		policy.Revision = revision
+	}
+	return policy
+}
+
+func withFormalDecision(resp bridge.Response, dec domain.FormalDecision) bridge.Response {
+	if !resp.OK {
+		if resp.Error != nil {
+			if resp.Error.Details == nil {
+				resp.Error.Details = map[string]any{}
+			}
+			resp.Error.Details["decision"] = dec
+		}
+		return resp
+	}
+	if payload, ok := resp.Payload.(map[string]any); ok {
+		payload["decision"] = dec
+		resp.Payload = payload
+		return resp
+	}
+	resp.Payload = map[string]any{"decision": dec, "result": resp.Payload}
+	return resp
 }
 
 func (e *Engine) officeDetailResponse(ctx context.Context, r bridge.Request, knownTask domain.Task) bridge.Response {

@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/lunitide/lunitide/internal/modelfit"
 )
 
 type Role string
@@ -64,6 +66,10 @@ type Request struct {
 	IdempotencyKey   string
 	Tools            []ToolDefinition
 	DisableReasoning bool // 月伴模式：跳过推理/思考内容，直接流式输出文本
+	Mode             string
+	StrictTools      bool
+	Target           modelfit.TargetIdentity
+	Effective        *modelfit.EffectiveParameters
 	// Efficiency is an observation-only snapshot of request preparation.
 	// Adapters must not serialize it to providers.
 	Efficiency EfficiencySnapshot

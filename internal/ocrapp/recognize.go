@@ -166,15 +166,17 @@ func (s *Service) RecognizePDF(ctx context.Context, raw []byte) (Result, error) 
 	needOCR := false
 	for _, p := range out {
 		has := strings.TrimSpace(p.Text) != ""
-		coverage = append(coverage, PageCoverage{Page: p.Page, Source: SourceTextLayer, HasText: has})
-		if !has {
+		coverage = append(coverage, PageCoverage{Page: p.Page, Source: SourceTextLayer, HasText: has, Uncertain: p.ParseFailed})
+		if doctext.PDFPageNeedsOCR(p) {
 			needOCR = true
 		}
 	}
 	if len(out) > 0 && !needOCR {
+		parseFailed := doctext.PDFPagesParseFailed(out)
 		return Result{
 			Text: strings.TrimSpace(doctext.JoinPDFPages(out)), Method: "text-layer",
-			Source: SourceTextLayer, Pages: len(out), Coverage: coverage, Complete: true,
+			Source: SourceTextLayer, Pages: len(out), Coverage: coverage,
+			Complete: !parseFailed, Uncertain: parseFailed,
 		}, nil
 	}
 	empty := make([]int, 0)

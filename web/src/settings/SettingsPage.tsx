@@ -851,7 +851,7 @@ function DiagnosticsPanel(): React.JSX.Element {
       <div className="setting-row">
         <div>
           <div className="setting-label">应用更新</div>
-          <div className="setting-desc">{update ? `新版本 ${update.version} · 摘要 ${update.digest.slice(0, 12)}…` : '检查本机应用版本与新版本可用性；安装失败自动回滚。'}</div>
+          <div className="setting-desc">{update ? `新版本 ${update.version} · 摘要 ${update.digest.slice(0, 12)}…` : '启动时会自动检查本机升级包。新安装包可直接覆盖，不必先卸载。'}</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button disabled={busy} onClick={() => void check()}>检查更新</button>

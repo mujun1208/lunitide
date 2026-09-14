@@ -46,6 +46,10 @@ VALUES(?,?,?,?,?,datetime('now'))`, ulid.Make().String(), threadID, last+1, role
 	return err
 }
 
+func MarkThreadSuccess(store *ThreadStore, threadID string) error {
+	return setThreadStatus(store, threadID, "success")
+}
+
 func setThreadStatus(store *ThreadStore, threadID, status string) error {
 	_, err := store.db.Exec(`UPDATE agent_hub_threads SET status=?, updated_at=? WHERE id=?`, status, threadNow(), threadID)
 	if err != nil || status != "success" {
@@ -55,7 +59,10 @@ func setThreadStatus(store *ThreadStore, threadID, status string) error {
 	if loadErr != nil {
 		return nil
 	}
-	_ = CopyThreadExport(thread.WorkspaceRoot, thread.ExportDir)
+	if copyErr := CopyThreadExport(thread.WorkspaceRoot, thread.ExportDir); copyErr != nil {
+		_ = insertThreadEvent(store, threadID, AgentEvent{Type: "export_error", Title: "export_failed", Detail: copyErr.Error()})
+	}
+	verifyThreadExports(store, thread)
 	persistThreadFiles(store, thread)
 	return nil
 }

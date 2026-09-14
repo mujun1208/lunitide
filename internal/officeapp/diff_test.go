@@ -278,14 +278,22 @@ func TestDiffScopeDifferentFormatsCancellationAndCorruptBlobs(t *testing.T) {
 	if _, err = svc.Diff(domain.WithScope(ctx, ulid.Make().String()), task.ID, b.ID, b.ID, DiffOptions{}); err == nil {
 		t.Fatal("cross-org comparison accepted")
 	}
-	pdf, err := svc.Import(ctx, task.ID, "", "纯文本.pdf", []byte("%PDF-1.7\n%%EOF"), "", 0, "pdf-base")
+	pdfBytes, err := content.Generate(content.Spec{SchemaVersion: 1, Kind: content.PDF, Title: "纯文本", Body: "digest-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pdf, err := svc.Import(ctx, task.ID, "", "纯文本.pdf", pdfBytes, "", 0, "pdf-base")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err = svc.Diff(ctx, task.ID, b.ID, pdf.ID, DiffOptions{}); !errors.Is(err, domain.ErrInvalid) {
 		t.Fatal("cross-format comparison accepted", err)
 	}
-	next, err := svc.Import(ctx, task.ID, "", "其他.pdf", []byte("%PDF-1.7\n% changed\n%%EOF"), "", 0, "pdf-next")
+	nextBytes, err := content.Generate(content.Spec{SchemaVersion: 1, Kind: content.PDF, Title: "其他", Body: "digest-b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := svc.Import(ctx, task.ID, "", "其他.pdf", nextBytes, "", 0, "pdf-next")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -98,20 +98,25 @@ type UpdateInstaller interface {
 type LocalUpdateInstaller struct{}
 
 func (LocalUpdateInstaller) Download(context.Context, string, string, string) error { return nil }
-func (LocalUpdateInstaller) Install(context.Context, string, string, string) error { return nil }
-func (LocalUpdateInstaller) Verify(context.Context, string, string) error         { return nil }
-func (LocalUpdateInstaller) Rollback(context.Context, string) error               { return nil }
+func (LocalUpdateInstaller) Install(context.Context, string, string, string) error  { return nil }
+func (LocalUpdateInstaller) Verify(context.Context, string, string) error           { return nil }
+func (LocalUpdateInstaller) Rollback(context.Context, string) error                 { return nil }
 
 // ── service ─────────────────────────────────────────────────────────────────
 
 // UpdateService implements appUpdate.check / appUpdate.install plus the
 // internal publish path that feeds the channel (bridge-visible methods stay
 // limited to the two read/install verbs per the wire contract).
+// FeedLookup returns a newer local Setup (version + installer SHA-256) when
+// one is sitting in the update drop folder. Empty ok means no local feed.
+type FeedLookup func(channel string) (version, digest string, ok bool, err error)
+
 type UpdateService struct {
 	uow       UpdateUnitOfWork
 	clock     Clock
 	signer    ReleaseSigner
 	installer UpdateInstaller
+	feed      FeedLookup
 }
 
 func NewUpdateService(uow UpdateUnitOfWork) *UpdateService {
@@ -125,6 +130,10 @@ func (s *UpdateService) SetSigner(sig ReleaseSigner) { s.signer = sig }
 
 // SetInstaller substitutes the install engine port (tests, real updater).
 func (s *UpdateService) SetInstaller(i UpdateInstaller) { s.installer = i }
+
+// SetFeedLookup attaches the local Setup feed used when the ledger is empty
+// or older than a verified drop-folder package.
+func (s *UpdateService) SetFeedLookup(fn FeedLookup) { s.feed = fn }
 
 // PublishInput is the internal publish command (management plane, not a
 // bridge method).
@@ -253,11 +262,24 @@ func (s *UpdateService) Check(ctx context.Context, channel, currentVersion strin
 			return fmt.Errorf("%w: channel retired", ErrUpdateChannelInvalid)
 		}
 		pkg, err := tx.FindLatestPublishedPackage(ch.ID, s.clock.Now().UTC())
-		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, m7flow.ErrNotFound) {
-			return nil // no in-window package: up to date
-		}
-		if err != nil {
+		if err != nil && !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, m7flow.ErrNotFound) {
 			return err
+		}
+		hasPkg := err == nil
+		if feedVersion, feedDigest, ok, ferr := s.lookupFeed(channel); ferr != nil {
+			return ferr
+		} else if ok && (currentVersion == "" || m7flow.CompareVersions(feedVersion, currentVersion) > 0) {
+			if !hasPkg || m7flow.CompareVersions(feedVersion, pkg.AppVersion) > 0 {
+				adopted, aerr := s.adoptFeedPackage(tx, ch, feedVersion, feedDigest)
+				if aerr != nil {
+					return aerr
+				}
+				out = CheckResult{UpdateID: adopted.ID, Version: adopted.AppVersion, Digest: adopted.PackageDigest}
+				return nil
+			}
+		}
+		if !hasPkg {
+			return nil // no in-window package: up to date
 		}
 		// A version at or below the device version is not an update.
 		if currentVersion != "" && m7flow.CompareVersions(pkg.AppVersion, currentVersion) <= 0 {
@@ -274,6 +296,46 @@ func (s *UpdateService) Check(ctx context.Context, channel, currentVersion strin
 		return CheckResult{}, err
 	}
 	return out, nil
+}
+
+func (s *UpdateService) lookupFeed(channel string) (string, string, bool, error) {
+	if s == nil || s.feed == nil {
+		return "", "", false, nil
+	}
+	return s.feed(channel)
+}
+
+func (s *UpdateService) adoptFeedPackage(tx UpdateTx, ch m7flow.UpdateChannel, version, digest string) (m7flow.UpdatePackage, error) {
+	if existing, err := tx.FindPackageByChannelVersion(ch.ID, version); err == nil {
+		return existing, nil
+	} else if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, m7flow.ErrNotFound) {
+		return m7flow.UpdatePackage{}, err
+	}
+	now := s.clock.Now().UTC()
+	nonceBytes := make([]byte, 16)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		return m7flow.UpdatePackage{}, err
+	}
+	pkg := m7flow.UpdatePackage{
+		ID: ulid.Make().String(), ChannelID: ch.ID,
+		AppVersion: version, MinVersion: "0.0.0",
+		PackageDigest: digest, Nonce: hex.EncodeToString(nonceBytes),
+		NotBefore: now.Add(-time.Minute), ExpiresAt: now.Add(365 * 24 * time.Hour),
+		KeyID: s.signer.KeyID(), State: m7flow.UpdPublished, CreatedAt: now,
+	}
+	pkg.Signature = s.signer.Sign(m7flow.ManifestOf(pkg).Canonical())
+	if err := tx.PutUpdatePackage(pkg); err != nil {
+		return m7flow.UpdatePackage{}, err
+	}
+	if _, err := s.recordAudit(tx, audit.Event{
+		ID: ulid.Make().String(), Action: "app_update.feed_adopted",
+		ResourceType: "update_package", ResourceID: pkg.ID,
+		Actor: "local-feed", AfterDigest: pkg.PackageDigest,
+		CorrelationID: pkg.ID, CreatedAt: m7RFC3339(now),
+	}); err != nil {
+		return m7flow.UpdatePackage{}, err
+	}
+	return pkg, nil
 }
 
 // InstallInput is the appUpdate.install command.

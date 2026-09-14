@@ -116,6 +116,9 @@ func pdfTextLayerComplete(kind string, data []byte, extractErr error) bool {
 	if err != nil || len(pages) == 0 {
 		return false
 	}
+	if doctext.PDFPagesParseFailed(pages) {
+		return false
+	}
 	for _, p := range pages {
 		if strings.TrimSpace(p.Text) == "" {
 			return false

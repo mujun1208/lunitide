@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { briefFieldLabel, briefLengthLabel, canFormalDeliver, capabilityUsabilityLabels, conceptPreviewLabel, deferredOfficeCapabilitiesNotice, draftQualityNotice, findFactRefs, formalDeliverBlockedReason, generateActionNotice, importLimitNotice, nextLocateFactOffset, nextLocatePreviewOffset, officeCheckStatusLabel, qualityPromiseLabels, trialScopeNotice, usabilityScopeNotice, visualScoreNotice } from './officeQualityUi'
+import { briefFieldLabel, briefLengthLabel, canFormalDeliver, capabilityUsabilityLabels, conceptPreviewLabel, deferredOfficeCapabilitiesNotice, draftQualityNotice, findFactRefs, formalDecisionFromCause, formalDeliverBlockedReason, generateActionNotice, importLimitNotice, nextLocateFactOffset, nextLocatePreviewOffset, officeCheckStatusLabel, presentFormalDecision, qualityPromiseLabels, trialScopeNotice, usabilityScopeNotice, visualScoreNotice } from './officeQualityUi'
+import { BridgeClientError } from '../bridge/client'
 
 describe('officeQualityUi', () => {
   it('disables formal deliver when blockers remain', () => {
@@ -9,7 +10,45 @@ describe('officeQualityUi', () => {
         validations: [{ id: 'native_render', label: '渲染', status: 'unavailable', severity: 'blocking', message: '缺组件' }],
       }),
     ).toBe(false)
-    expect(canFormalDeliver({ quality: 'passed', validations: [] })).toBe(true)
+    expect(canFormalDeliver({ quality: 'passed', validations: [] })).toBe(false)
+  })
+
+  it('TestModelFitAndOfficeOutcomeUI: only FormalDecision allows formal deliver', () => {
+    expect(canFormalDeliver({ quality: 'passed', validations: [] })).toBe(false)
+    expect(
+      canFormalDeliver(
+        { quality: 'passed', validations: [] },
+        { decisionId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', allowed: true, state: 'verified' },
+      ),
+    ).toBe(true)
+    expect(
+      canFormalDeliver(
+        { quality: 'passed', validations: [] },
+        { decisionId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', allowed: false, state: 'needs_review', missingChecks: ['actual-render'] },
+      ),
+    ).toBe(false)
+  })
+
+  it('TestModelFitAndOfficeOutcomeUI: reads FormalDecision from BridgeClientError details', () => {
+    const err = new BridgeClientError(
+      '此版本检查未全部完成，所缺检查：actual-render。请选择导出草稿',
+      'OFFICE_DRAFT_REQUIRED',
+      false,
+      '01ARZ3NDEKTSV4RRFFQ69G5FAE',
+      {
+        decision: {
+          decisionId: '01ARZ3NDEKTSV4RRFFQ69G5FAD',
+          versionId: 'v2',
+          allowed: false,
+          state: 'needs_review',
+          missingChecks: ['actual-render'],
+        },
+      },
+    )
+    const got = formalDecisionFromCause(err)
+    expect(got?.decisionId).toBe('01ARZ3NDEKTSV4RRFFQ69G5FAD')
+    expect(got?.state).toBe('needs_review')
+    expect(presentFormalDecision(undefined).label).toBe('尚未正式判定')
   })
 
   it('labels concept preview separately from rendered layout', () => {
@@ -120,7 +159,7 @@ describe('officeQualityUi', () => {
         validations: [{ id: 'native_render', label: '渲染', status: 'unavailable', severity: 'blocking', message: '缺组件' }],
       }),
     ).toContain('渲染')
-    expect(formalDeliverBlockedReason({ quality: 'passed', validations: [] })).toBe('')
+    expect(formalDeliverBlockedReason({ quality: 'passed', validations: [] })).toContain('正式决定')
   })
 
   it('states the trial scope without competitor claims', () => {

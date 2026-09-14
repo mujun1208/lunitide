@@ -1,5 +1,42 @@
 import type { OfficeQuality, OfficeVersion } from './officeStudioApi'
 
+export type FormalDecision = {
+  decisionId?: string
+  versionId?: string
+  allowed?: boolean
+  state?: string
+  missingChecks?: string[]
+}
+
+export function formalDecisionFromCause(cause: unknown): FormalDecision | undefined {
+  if (!cause || typeof cause !== 'object') return undefined
+  const rec = cause as { decision?: FormalDecision; details?: { decision?: FormalDecision } }
+  if (rec.decision && typeof rec.decision === 'object') return rec.decision
+  const nested = rec.details?.decision
+  if (nested && typeof nested === 'object') return nested
+  return undefined
+}
+
+export function presentFormalDecision(
+  decision?: FormalDecision,
+  _version?: Pick<OfficeVersion, 'quality' | 'validations'>,
+): { verified: boolean; allowed: boolean; state: string; missingChecks: string[]; decisionId: string; label: string } {
+  if (!decision) {
+    return { verified: false, allowed: false, state: '', missingChecks: [], decisionId: '', label: '尚未正式判定' }
+  }
+  const allowed = !!decision.allowed && decision.state === 'verified'
+  const missing = decision.missingChecks ?? []
+  const state = decision.state || 'needs_review'
+  return {
+    verified: allowed,
+    allowed,
+    state,
+    missingChecks: missing,
+    decisionId: decision.decisionId ?? '',
+    label: state,
+  }
+}
+
 export const OFFICE_STYLE_OPTIONS = [
   { id: 'ops-clear', label: '清晰经营' },
   { id: 'brand-pitch', label: '品牌方案' },
@@ -17,11 +54,11 @@ export function briefLengthLabel(targetLength?: number): string {
   return targetLength && targetLength > 0 ? `约 ${targetLength} 页` : '页数未填写'
 }
 
-export function canFormalDeliver(version?: Pick<OfficeVersion, 'quality' | 'validations'>): boolean {
-  if (!version || version.quality !== 'passed') return false
-  return !(version.validations ?? []).some(
-    (check) => check.status === 'failed' || (check.severity === 'blocking' && check.status !== 'passed'),
-  )
+export function canFormalDeliver(
+  _version?: Pick<OfficeVersion, 'quality' | 'validations'>,
+  decision?: FormalDecision,
+): boolean {
+  return !!decision?.allowed && decision.state === 'verified'
 }
 
 export function conceptPreviewLabel(layoutPreview: boolean): string {
@@ -152,9 +189,15 @@ export function qualityPromiseLabels(
   return out
 }
 
-export function formalDeliverBlockedReason(version?: Pick<OfficeVersion, 'quality' | 'validations'>): string {
+export function formalDeliverBlockedReason(
+  version?: Pick<OfficeVersion, 'quality' | 'validations'>,
+  decision?: FormalDecision,
+): string {
+  if (canFormalDeliver(version, decision)) return ''
+  if (decision?.missingChecks?.length) {
+    return `正式交付仍被阻断：${decision.missingChecks.join('、')}。检查通过不是正式决定。`
+  }
   if (!version) return '未选择版本，不能作为正式交付。'
-  if (canFormalDeliver(version)) return ''
   const blockers = (version.validations ?? []).filter(
     (check) => check.status === 'failed' || (check.severity === 'blocking' && check.status !== 'passed'),
   )
@@ -162,10 +205,10 @@ export function formalDeliverBlockedReason(version?: Pick<OfficeVersion, 'qualit
     const labels = blockers.map((check) => check.label || check.id).join('、')
     return `正式交付仍被阻断：${labels}。本机未验证的目标软件、视觉模型和 PDF/A 不单独算正式门槛。`
   }
-  if (version.quality !== 'passed') {
-    return '检查尚未全部通过，只能导出草稿，不能作为正式交付。'
+  if (version.quality === 'passed') {
+    return '检查通过不是正式决定，不能作为正式交付。'
   }
-  return '正式交付仍被阻断。'
+  return '检查尚未全部通过，只能导出草稿，不能作为正式交付。'
 }
 
 export function nextLocatePreviewOffset(

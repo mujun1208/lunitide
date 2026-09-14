@@ -89,3 +89,29 @@ func TestFilterCompanionDefaultToolsKeepsGovernedTaskCapabilities(t *testing.T) 
 		t.Fatal("voice must use the shared execution policy")
 	}
 }
+
+func TestChatTurnHidesDeliverableDraftOutsideProjectPhase(t *testing.T) {
+	e := &Engine{}
+	personal := e.chatTurnToolDefinitions(chatTurnToolBuild{Profile: toolProfileDefault})
+	for _, d := range personal {
+		if d.Name == "deliverable.draft" {
+			t.Fatal("personal chat must not advertise deliverable.draft")
+		}
+	}
+	phase := e.chatTurnToolDefinitions(chatTurnToolBuild{Profile: toolProfileDefault, ProjectPhase: 1})
+	found := false
+	for _, d := range phase {
+		if d.Name == "deliverable.draft" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("phase session must advertise deliverable.draft")
+	}
+	companion := e.chatTurnToolDefinitions(chatTurnToolBuild{Profile: toolProfileDefault, ProjectPhase: 1, Companion: true})
+	for _, d := range companion {
+		if d.Name == "deliverable.draft" {
+			t.Fatal("companion must not advertise deliverable.draft")
+		}
+	}
+}

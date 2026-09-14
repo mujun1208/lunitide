@@ -99,12 +99,13 @@ type BundleExportFile struct {
 }
 
 type BundleExport struct {
-	BundleID     string             `json:"bundleId"`
-	Directory    string             `json:"directory"`
-	ManifestPath string             `json:"manifestPath"`
-	Files        []BundleExportFile `json:"files"`
-	Complete     bool               `json:"complete"`
-	Notice       string             `json:"notice,omitempty"`
+	BundleID     string                `json:"bundleId"`
+	Directory    string                `json:"directory"`
+	ManifestPath string                `json:"manifestPath"`
+	Files        []BundleExportFile    `json:"files"`
+	Complete     bool                  `json:"complete"`
+	Notice       string                `json:"notice,omitempty"`
+	Decision     domain.FormalDecision `json:"decision,omitempty"`
 }
 
 // ExportBundle uses the saved manifest, never whichever versions happen to be

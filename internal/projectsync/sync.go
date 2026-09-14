@@ -122,6 +122,51 @@ func SyncTree(root, dest, projectID string) (Receipt, error) {
 	return receipt, nil
 }
 
+func InventoryTree(root string) (Receipt, error) {
+	absRoot, err := filepath.Abs(root)
+	if err != nil || strings.TrimSpace(root) == "" {
+		return Receipt{}, projectapp.ErrRootInvalid
+	}
+	inv := Receipt{Version: 1, SourceRoot: absRoot}
+	err = filepath.Walk(absRoot, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(absRoot, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if rel == "." {
+			return nil
+		}
+		if shouldSkip(rel) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if info.IsDir() {
+			return nil
+		}
+		entry := FileEntry{Rel: rel, Size: info.Size()}
+		sum, hashErr := hashFile(path)
+		if hashErr != nil {
+			return hashErr
+		}
+		entry.Digest = sum
+		if info.Size() > MaxCopyBytes {
+			entry.Skip = "skipped-too-large"
+		}
+		inv.Files = append(inv.Files, entry)
+		return nil
+	})
+	if err != nil {
+		return inv, err
+	}
+	return inv, nil
+}
+
 func LoadReceipt(root string) (Receipt, error) {
 	raw, err := os.ReadFile(filepath.Join(root, ".lunitide", "sync-receipt.json"))
 	if err != nil {
@@ -137,7 +182,8 @@ func LoadReceipt(root string) (Receipt, error) {
 func shouldSkip(rel string) bool {
 	rel = strings.ToLower(rel)
 	return strings.HasPrefix(rel, "node_modules/") || rel == "node_modules" ||
-		strings.HasPrefix(rel, ".git/") || rel == ".git"
+		strings.HasPrefix(rel, ".git/") || rel == ".git" ||
+		rel == ".lunitide/sync-receipt.json"
 }
 
 func hashFile(path string) (string, error) {

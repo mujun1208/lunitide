@@ -134,6 +134,19 @@ func Load(root string) (InterviewDoc, error) {
 	return doc, nil
 }
 
+func PhaseAnswersComplete(phase int, answers map[string]string) bool {
+	questions := QuestionsForPhase(phase)
+	if len(questions) == 0 {
+		return true
+	}
+	for _, q := range questions {
+		if strings.TrimSpace(answers[q.ID]) == "" {
+			return false
+		}
+	}
+	return true
+}
+
 func AnswerMap(phase PhaseInterview) map[string]string {
 	out := map[string]string{}
 	for _, a := range phase.Answers {

@@ -856,8 +856,21 @@ func TestOfficeClosedLoopProtocol(t *testing.T) {
 		t.Fatalf("presenton probe: %q", presenton)
 	}
 	pdf := seen["pdf"]
-	if pdf.Quality != "passed" {
-		t.Fatalf("independent PDF without Typst must be formally check-passed: %#v", pdf)
+	if pdf.Quality == "passed" {
+		t.Fatal("independent PDF without a per-page renderer must not invent formal passed")
+	}
+	if pdf.Quality != "partial" {
+		t.Fatalf("independent PDF without Typst stays structural-partial: %#v", pdf)
+	}
+	if _, err = store.AddOfficeValidation(ctx, domain.Validation{
+		VersionID: pdf.ID, SHA256: pdf.SHA256, Validator: "formal-decision-seed",
+		Checks: []domain.Check{
+			{ID: "file-integrity", Status: "passed"},
+			{ID: "source-content", Status: "passed"},
+			{ID: "locked-facts", Status: "passed"},
+		},
+	}); err != nil {
+		t.Fatal(err)
 	}
 	docx := seen["docx"]
 	formalDoc := officeCall(t, e, "office.artifact.accept", "cl-formal-docx", map[string]any{

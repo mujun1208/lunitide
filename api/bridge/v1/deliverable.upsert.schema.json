@@ -29,7 +29,8 @@
       "title": { "type": "string" },
       "status": { "enum": ["draft", "review", "approved", "immutable"] },
       "gateConfirmations": { "type": "integer", "minimum": 0, "maximum": 3 },
-      "version": { "type": "integer", "minimum": 1 }
+      "version": { "type": "integer", "minimum": 1 },
+      "boardDirty": { "type": "boolean" }
     },
     "required": ["id", "projectId", "phase", "documentType", "title", "status", "gateConfirmations", "version"]
   },

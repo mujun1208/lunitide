@@ -1,0 +1,918 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-09-14T00:44:50Z",
+  "liveQualified": false,
+  "layersQ": "ran",
+  "profileMismatch": [
+    {
+      "profileModelId": "deepseek-v4-flash",
+      "installedModelId": "deepseek-v4-pro",
+      "note": "profile testdata lists deepseek-v4-flash; installed DeepSeek default is not relabeled"
+    }
+  ],
+  "rejected": [
+    {
+      "providerId": "01M07ZQR5ZS4XJF6NMNN4DQT3Q",
+      "providerName": "LM Studio",
+      "reason": "lm_studio"
+    },
+    {
+      "providerId": "01M16BCGXMQY8ADNQZ2DV854T6",
+      "providerName": "LMStudio-sj",
+      "reason": "unauthorized_provider"
+    },
+    {
+      "providerId": "01M18JPPKGRY2B4V1SN2KE30E3",
+      "providerName": "hs-asr",
+      "reason": "volc_speech"
+    },
+    {
+      "providerId": "01M1DBRHC2V3D2SXR1E217QVDA",
+      "providerName": "hs-tts",
+      "reason": "volc_speech"
+    },
+    {
+      "providerId": "01M1RRXH9TECTQP1XD4X0C0HV4",
+      "providerName": "LM Studio",
+      "reason": "lm_studio"
+    },
+    {
+      "providerId": "01M1ZB9VV7G7T5YJGCH28Z01RP",
+      "providerName": "yiheAPI",
+      "reason": "media_kind"
+    },
+    {
+      "providerId": "01M1ZW7PJBRF4FN421V972Z377",
+      "providerName": "Deepseek-ocr",
+      "reason": "unauthorized_provider"
+    }
+  ],
+  "probes": [
+    {
+      "providerName": "DeepSeek",
+      "originHost": "api.deepseek.com",
+      "modelId": "deepseek-v4-pro",
+      "role": "suite",
+      "status": "ok",
+      "latencyMs": 134,
+      "httpClass": "2xx"
+    },
+    {
+      "providerName": "DeepSeek",
+      "originHost": "api.deepseek.com",
+      "modelId": "deepseek-flash",
+      "role": "probe",
+      "status": "ok",
+      "latencyMs": 83,
+      "httpClass": "2xx"
+    },
+    {
+      "providerName": "HSYQ",
+      "originHost": "ark.cn-beijing.volces.com",
+      "modelId": "glm-5.3",
+      "role": "suite",
+      "status": "ok",
+      "latencyMs": 830,
+      "httpClass": "2xx"
+    }
+  ],
+  "runs": [
+    {
+      "providerName": "DeepSeek",
+      "originHost": "api.deepseek.com",
+      "modelId": "deepseek-v4-pro",
+      "livePass": 4,
+      "liveFail": 15,
+      "skipped": 5,
+      "accounting": {
+        "LiveSuccess": 4,
+        "FixturePass": 0,
+        "FaultContractPass": 0,
+        "HostPass": 0,
+        "OracleFail": 20,
+        "HoldOutSeen": 0,
+        "EvalComplete": false,
+        "HoldOutComplete": false,
+        "LiveQualified": false
+      },
+      "cases": [
+        {
+          "caseId": "D01",
+          "scenarioId": "default",
+          "status": "needs_structured_output",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "needs_structured_output",
+          "latencyMs": 6536,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 625,
+            "outputTokens": 1024,
+            "totalTokens": 1649
+          },
+          "errorCode": "needs_structured_output",
+          "outputTokensCap": 1024,
+          "reasons": [
+            "needs_structured_output"
+          ]
+        },
+        {
+          "caseId": "D02",
+          "scenarioId": "default",
+          "status": "oracle_fail",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "oracle_fail",
+          "latencyMs": 16624,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 3148,
+            "outputTokens": 3610,
+            "totalTokens": 6758
+          },
+          "errorCode": "generate_failed",
+          "outputTokensCap": 4096,
+          "capRaised": true,
+          "reasons": [
+            "generate_failed"
+          ]
+        },
+        {
+          "caseId": "D03",
+          "scenarioId": "default",
+          "status": "oracle_fail",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "oracle_fail",
+          "latencyMs": 1478,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 197,
+            "outputTokens": 181,
+            "totalTokens": 378
+          },
+          "errorCode": "generate_failed",
+          "outputTokensCap": 1024,
+          "reasons": [
+            "generate_failed"
+          ]
+        },
+        {
+          "caseId": "P01",
+          "scenarioId": "default",
+          "status": "oracle_fail",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "oracle_fail",
+          "latencyMs": 7932,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 833,
+            "outputTokens": 1516,
+            "totalTokens": 2349
+          },
+          "errorCode": "generate_failed",
+          "outputTokensCap": 4096,
+          "capRaised": true,
+          "reasons": [
+            "generate_failed"
+          ]
+        },
+        {
+          "caseId": "P02",
+          "scenarioId": "default",
+          "status": "oracle_fail",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "oracle_fail",
+          "latencyMs": 3772,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 503,
+            "outputTokens": 649,
+            "totalTokens": 1152
+          },
+          "errorCode": "generate_failed",
+          "outputTokensCap": 4096,
+          "capRaised": true,
+          "reasons": [
+            "generate_failed"
+          ]
+        },
+        {
+          "caseId": "P03",
+          "scenarioId": "default",
+          "status": "oracle_fail",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "oracle_fail",
+          "latencyMs": 1847,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 195,
+            "outputTokens": 206,
+            "totalTokens": 401
+          },
+          "errorCode": "generate_failed",
+          "outputTokensCap": 1024,
+          "reasons": [
+            "generate_failed"
+          ]
+        },
+        {
+          "caseId": "X01",
+          "scenarioId": "default",
+          "status": "oracle_fail",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "oracle_fail",
+          "latencyMs": 2767,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 12446,
+            "outputTokens": 313,
+            "totalTokens": 12759
+          },
+          "errorCode": "generate_failed",
+          "outputTokensCap": 4096,
+          "capRaised": true,
+          "reasons": [
+            "generate_failed"
+          ]
+        },
+        {
+          "caseId": "X02",
+          "scenarioId": "default",
+          "status": "oracle_fail",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "oracle_fail",
+          "latencyMs": 4125,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 202,
+            "outputTokens": 635,
+            "totalTokens": 837
+          },
+          "errorCode": "generate_failed",
+          "outputTokensCap": 1024,
+          "reasons": [
+            "generate_failed"
+          ]
+        },
+        {
+          "caseId": "X03",
+          "scenarioId": "default",
+          "status": "oracle_fail",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "oracle_fail",
+          "latencyMs": 2866,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 166,
+            "outputTokens": 348,
+            "totalTokens": 514
+          },
+          "errorCode": "generate_failed",
+          "outputTokensCap": 1024,
+          "reasons": [
+            "generate_failed"
+          ]
+        },
+        {
+          "caseId": "F01",
+          "scenarioId": "default",
+          "status": "oracle_fail",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "oracle_fail",
+          "latencyMs": 2826,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 113,
+            "outputTokens": 352,
+            "totalTokens": 465
+          },
+          "errorCode": "generate_failed",
+          "outputTokensCap": 1024,
+          "reasons": [
+            "generate_failed"
+          ]
+        },
+        {
+          "caseId": "F02",
+          "scenarioId": "default",
+          "status": "needs_structured_output",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "needs_structured_output",
+          "latencyMs": 5900,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 195,
+            "outputTokens": 1024,
+            "totalTokens": 1219
+          },
+          "errorCode": "needs_structured_output",
+          "outputTokensCap": 1024,
+          "reasons": [
+            "needs_structured_output"
+          ]
+        },
+        {
+          "caseId": "F03",
+          "scenarioId": "supported-font",
+          "status": "oracle_fail",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "oracle_fail",
+          "latencyMs": 1022,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 134,
+            "outputTokens": 56,
+            "totalTokens": 190
+          },
+          "errorCode": "generate_failed",
+          "outputTokensCap": 1024,
+          "reasons": [
+            "generate_failed"
+          ]
+        },
+        {
+          "caseId": "R01",
+          "scenarioId": "live-observed-replay",
+          "status": "needs_host_runtime",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "needs_host_runtime",
+          "errorCode": "needs_host_runtime",
+          "outputTokensCap": 1024
+        },
+        {
+          "caseId": "R02",
+          "scenarioId": "default",
+          "fixtureOnly": true,
+          "status": "skipped_fixture_only",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "skipped_fixture_only",
+          "errorCode": "fixture_only",
+          "outputTokensCap": 1024
+        },
+        {
+          "caseId": "R03",
+          "scenarioId": "default",
+          "status": "needs_host_runtime",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "needs_host_runtime",
+          "errorCode": "needs_host_runtime",
+          "outputTokensCap": 1024
+        },
+        {
+          "caseId": "R04",
+          "scenarioId": "default",
+          "fixtureOnly": true,
+          "status": "skipped_fixture_only",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "skipped_fixture_only",
+          "errorCode": "fixture_only",
+          "outputTokensCap": 1024
+        },
+        {
+          "caseId": "L01",
+          "scenarioId": "default",
+          "status": "needs_host_runtime",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "needs_host_runtime",
+          "errorCode": "needs_host_runtime",
+          "outputTokensCap": 1024
+        },
+        {
+          "caseId": "L02",
+          "scenarioId": "default",
+          "fixtureOnly": true,
+          "status": "skipped_fixture_only",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "skipped_fixture_only",
+          "errorCode": "fixture_only",
+          "outputTokensCap": 1024
+        },
+        {
+          "caseId": "L03",
+          "scenarioId": "default",
+          "fixtureOnly": true,
+          "status": "skipped_fixture_only",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "skipped_fixture_only",
+          "errorCode": "fixture_only",
+          "outputTokensCap": 1024
+        },
+        {
+          "caseId": "L04",
+          "scenarioId": "default",
+          "fixtureOnly": true,
+          "status": "skipped_fixture_only",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "skipped_fixture_only",
+          "errorCode": "fixture_only",
+          "outputTokensCap": 1024
+        },
+        {
+          "caseId": "C01",
+          "scenarioId": "default",
+          "status": "oracle_pass",
+          "oraclePass": true,
+          "liveSuccessIncrement": true,
+          "evidenceKind": "oracle_pass",
+          "latencyMs": 797,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 95,
+            "outputTokens": 64,
+            "totalTokens": 159
+          },
+          "outputTokensCap": 1024
+        },
+        {
+          "caseId": "C02",
+          "scenarioId": "default",
+          "status": "oracle_pass",
+          "oraclePass": true,
+          "liveSuccessIncrement": true,
+          "evidenceKind": "oracle_pass",
+          "latencyMs": 8538,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 2469,
+            "outputTokens": 1919,
+            "totalTokens": 4388
+          },
+          "outputTokensCap": 4096,
+          "capRaised": true
+        },
+        {
+          "caseId": "C03",
+          "scenarioId": "default",
+          "status": "oracle_pass",
+          "oraclePass": true,
+          "liveSuccessIncrement": true,
+          "evidenceKind": "oracle_pass",
+          "latencyMs": 748,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 243,
+            "outputTokens": 27,
+            "totalTokens": 270
+          },
+          "outputTokensCap": 1024
+        },
+        {
+          "caseId": "C04",
+          "scenarioId": "all-formats-success",
+          "status": "oracle_pass",
+          "oraclePass": true,
+          "liveSuccessIncrement": true,
+          "evidenceKind": "oracle_pass",
+          "latencyMs": 3149,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 847,
+            "outputTokens": 536,
+            "totalTokens": 1383
+          },
+          "outputTokensCap": 4096,
+          "capRaised": true
+        }
+      ]
+    },
+    {
+      "providerName": "HSYQ",
+      "originHost": "ark.cn-beijing.volces.com",
+      "modelId": "glm-5.3",
+      "livePass": 2,
+      "liveFail": 17,
+      "skipped": 5,
+      "accounting": {
+        "LiveSuccess": 2,
+        "FixturePass": 0,
+        "FaultContractPass": 0,
+        "HostPass": 0,
+        "OracleFail": 22,
+        "HoldOutSeen": 0,
+        "EvalComplete": false,
+        "HoldOutComplete": false,
+        "LiveQualified": false
+      },
+      "cases": [
+        {
+          "caseId": "D01",
+          "scenarioId": "default",
+          "status": "needs_structured_output",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "needs_structured_output",
+          "latencyMs": 13172,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 619,
+            "outputTokens": 1024,
+            "totalTokens": 1643
+          },
+          "errorCode": "needs_structured_output",
+          "outputTokensCap": 1024,
+          "reasons": [
+            "needs_structured_output"
+          ]
+        },
+        {
+          "caseId": "D02",
+          "scenarioId": "default",
+          "status": "needs_structured_output",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "needs_structured_output",
+          "latencyMs": 44125,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 3217,
+            "outputTokens": 4096,
+            "totalTokens": 7313
+          },
+          "errorCode": "needs_structured_output",
+          "outputTokensCap": 4096,
+          "capRaised": true,
+          "reasons": [
+            "needs_structured_output"
+          ]
+        },
+        {
+          "caseId": "D03",
+          "scenarioId": "default",
+          "status": "needs_structured_output",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "needs_structured_output",
+          "latencyMs": 10641,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 199,
+            "outputTokens": 1024,
+            "totalTokens": 1223
+          },
+          "errorCode": "needs_structured_output",
+          "outputTokensCap": 1024,
+          "reasons": [
+            "needs_structured_output"
+          ]
+        },
+        {
+          "caseId": "P01",
+          "scenarioId": "default",
+          "status": "needs_structured_output",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "needs_structured_output",
+          "latencyMs": 41992,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 822,
+            "outputTokens": 4096,
+            "totalTokens": 4918
+          },
+          "errorCode": "needs_structured_output",
+          "outputTokensCap": 4096,
+          "capRaised": true,
+          "reasons": [
+            "needs_structured_output"
+          ]
+        },
+        {
+          "caseId": "P02",
+          "scenarioId": "default",
+          "status": "needs_structured_output",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "needs_structured_output",
+          "latencyMs": 48735,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 509,
+            "outputTokens": 4096,
+            "totalTokens": 4605
+          },
+          "errorCode": "needs_structured_output",
+          "outputTokensCap": 4096,
+          "capRaised": true,
+          "reasons": [
+            "needs_structured_output"
+          ]
+        },
+        {
+          "caseId": "P03",
+          "scenarioId": "default",
+          "status": "needs_structured_output",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "needs_structured_output",
+          "latencyMs": 10632,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 209,
+            "outputTokens": 1024,
+            "totalTokens": 1233
+          },
+          "errorCode": "needs_structured_output",
+          "outputTokensCap": 1024,
+          "reasons": [
+            "needs_structured_output"
+          ]
+        },
+        {
+          "caseId": "X01",
+          "scenarioId": "default",
+          "status": "oracle_fail",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "latencyMs": 60194,
+          "errorCode": "OUTCOME_UNKNOWN",
+          "outputTokensCap": 4096,
+          "capRaised": true
+        },
+        {
+          "caseId": "X02",
+          "scenarioId": "default",
+          "status": "needs_structured_output",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "needs_structured_output",
+          "latencyMs": 10906,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 207,
+            "outputTokens": 1024,
+            "totalTokens": 1231
+          },
+          "errorCode": "needs_structured_output",
+          "outputTokensCap": 1024,
+          "reasons": [
+            "needs_structured_output"
+          ]
+        },
+        {
+          "caseId": "X03",
+          "scenarioId": "default",
+          "status": "needs_structured_output",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "needs_structured_output",
+          "latencyMs": 14468,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 177,
+            "outputTokens": 1024,
+            "totalTokens": 1201
+          },
+          "errorCode": "needs_structured_output",
+          "outputTokensCap": 1024,
+          "reasons": [
+            "needs_structured_output"
+          ]
+        },
+        {
+          "caseId": "F01",
+          "scenarioId": "default",
+          "status": "needs_structured_output",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "needs_structured_output",
+          "latencyMs": 11020,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 119,
+            "outputTokens": 1024,
+            "totalTokens": 1143
+          },
+          "errorCode": "needs_structured_output",
+          "outputTokensCap": 1024,
+          "reasons": [
+            "needs_structured_output"
+          ]
+        },
+        {
+          "caseId": "F02",
+          "scenarioId": "default",
+          "status": "needs_structured_output",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "needs_structured_output",
+          "latencyMs": 16175,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 197,
+            "outputTokens": 1024,
+            "totalTokens": 1221
+          },
+          "errorCode": "needs_structured_output",
+          "outputTokensCap": 1024,
+          "reasons": [
+            "needs_structured_output"
+          ]
+        },
+        {
+          "caseId": "F03",
+          "scenarioId": "supported-font",
+          "status": "needs_structured_output",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "needs_structured_output",
+          "latencyMs": 12932,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 137,
+            "outputTokens": 1024,
+            "totalTokens": 1161
+          },
+          "errorCode": "needs_structured_output",
+          "outputTokensCap": 1024,
+          "reasons": [
+            "needs_structured_output"
+          ]
+        },
+        {
+          "caseId": "R01",
+          "scenarioId": "live-observed-replay",
+          "status": "needs_host_runtime",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "needs_host_runtime",
+          "errorCode": "needs_host_runtime",
+          "outputTokensCap": 1024
+        },
+        {
+          "caseId": "R02",
+          "scenarioId": "default",
+          "fixtureOnly": true,
+          "status": "skipped_fixture_only",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "skipped_fixture_only",
+          "errorCode": "fixture_only",
+          "outputTokensCap": 1024
+        },
+        {
+          "caseId": "R03",
+          "scenarioId": "default",
+          "status": "needs_host_runtime",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "needs_host_runtime",
+          "errorCode": "needs_host_runtime",
+          "outputTokensCap": 1024
+        },
+        {
+          "caseId": "R04",
+          "scenarioId": "default",
+          "fixtureOnly": true,
+          "status": "skipped_fixture_only",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "skipped_fixture_only",
+          "errorCode": "fixture_only",
+          "outputTokensCap": 1024
+        },
+        {
+          "caseId": "L01",
+          "scenarioId": "default",
+          "status": "needs_host_runtime",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "needs_host_runtime",
+          "errorCode": "needs_host_runtime",
+          "outputTokensCap": 1024
+        },
+        {
+          "caseId": "L02",
+          "scenarioId": "default",
+          "fixtureOnly": true,
+          "status": "skipped_fixture_only",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "skipped_fixture_only",
+          "errorCode": "fixture_only",
+          "outputTokensCap": 1024
+        },
+        {
+          "caseId": "L03",
+          "scenarioId": "default",
+          "fixtureOnly": true,
+          "status": "skipped_fixture_only",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "skipped_fixture_only",
+          "errorCode": "fixture_only",
+          "outputTokensCap": 1024
+        },
+        {
+          "caseId": "L04",
+          "scenarioId": "default",
+          "fixtureOnly": true,
+          "status": "skipped_fixture_only",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "skipped_fixture_only",
+          "errorCode": "fixture_only",
+          "outputTokensCap": 1024
+        },
+        {
+          "caseId": "C01",
+          "scenarioId": "default",
+          "status": "oracle_pass",
+          "oraclePass": true,
+          "liveSuccessIncrement": true,
+          "evidenceKind": "oracle_pass",
+          "latencyMs": 7491,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 104,
+            "outputTokens": 571,
+            "totalTokens": 675
+          },
+          "outputTokensCap": 1024
+        },
+        {
+          "caseId": "C02",
+          "scenarioId": "default",
+          "status": "oracle_fail",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "oracle_fail",
+          "latencyMs": 27495,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 2569,
+            "outputTokens": 4096,
+            "totalTokens": 6665
+          },
+          "errorCode": "record_on_line_74:_wrong_number_of_fields",
+          "outputTokensCap": 4096,
+          "capRaised": true,
+          "reasons": [
+            "record on line 74: wrong number of fields"
+          ]
+        },
+        {
+          "caseId": "C03",
+          "scenarioId": "default",
+          "status": "oracle_pass",
+          "oraclePass": true,
+          "liveSuccessIncrement": true,
+          "evidenceKind": "oracle_pass",
+          "latencyMs": 4515,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 248,
+            "outputTokens": 152,
+            "totalTokens": 400
+          },
+          "outputTokensCap": 1024
+        },
+        {
+          "caseId": "C04",
+          "scenarioId": "all-formats-success",
+          "status": "needs_structured_output",
+          "oraclePass": false,
+          "liveSuccessIncrement": false,
+          "evidenceKind": "needs_structured_output",
+          "latencyMs": 36470,
+          "httpClass": "2xx",
+          "tokenUsage": {
+            "inputTokens": 834,
+            "outputTokens": 4096,
+            "totalTokens": 4930
+          },
+          "errorCode": "needs_structured_output",
+          "outputTokensCap": 4096,
+          "capRaised": true,
+          "reasons": [
+            "needs_structured_output"
+          ]
+        }
+      ]
+    }
+  ],
+  "notes": [
+    "layers.Q is never live_qualified",
+    "profile testdata lists deepseek-v4-flash; installed DeepSeek default is deepseek-v4-pro and was not relabeled",
+    "fixtureOnly and missing-glyph do not increment LiveSuccess",
+    "thinking disabled so closeoutOutputTokens apply to the deliverable",
+    "glm-5.3 rerun after HTTP_400 thinking-disable retry"
+  ]
+}

@@ -19,8 +19,8 @@ import (
 
 	"github.com/lunitide/lunitide/internal/canonpath"
 	"github.com/lunitide/lunitide/internal/ccapp"
-	"github.com/lunitide/lunitide/internal/connectorapp"
 	"github.com/lunitide/lunitide/internal/commandworker"
+	"github.com/lunitide/lunitide/internal/connectorapp"
 	"github.com/lunitide/lunitide/internal/htmlapp"
 	"github.com/lunitide/lunitide/internal/jsonutil"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
@@ -108,6 +108,12 @@ type Runtime struct {
 	// drops every confirmation and forces a fresh one.
 	fullDiskMu       sync.Mutex
 	fullDiskSessions map[string]bool
+	// artifactCAS is the existing workspace CAS used by SnapshotWorkspaceArtifact.
+	// Snapshot writes raw file bytes only; it never pages workspace.read text.
+	artifactCAS interface {
+		Put([]byte) (string, error)
+		Get(string) ([]byte, error)
+	}
 }
 type Result struct {
 	Output     string    `json:"output"`

@@ -185,10 +185,11 @@ func TestExecuteUserToolDoesNotRunWhenIntentFails(t *testing.T) {
 }
 
 type memCalls struct {
-	mu    sync.Mutex
-	recs  []sqlite.CallAttemptRecord
-	fin   []sqlite.CallAttemptReceipt
-	byKey map[string]sqlite.CallAttemptRecord
+	mu      sync.Mutex
+	recs    []sqlite.CallAttemptRecord
+	fin     []sqlite.CallAttemptReceipt
+	byKey   map[string]sqlite.CallAttemptRecord
+	failPut bool
 }
 
 func (m *memCalls) MarkCallAttemptSent(_ context.Context, owner, callID, attemptID string) error {
@@ -206,6 +207,9 @@ func (m *memCalls) MarkCallAttemptSent(_ context.Context, owner, callID, attempt
 func (m *memCalls) PutCallAttemptIntent(_ context.Context, rec sqlite.CallAttemptRecord) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.failPut {
+		return errors.New("call attempt intent store unavailable")
+	}
 	m.recs = append(m.recs, rec)
 	if m.byKey == nil {
 		m.byKey = map[string]sqlite.CallAttemptRecord{}

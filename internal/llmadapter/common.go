@@ -31,14 +31,22 @@ func localTrustHost(host string) bool {
 }
 
 func marshalBounded(v any, max int) (*bytes.Reader, error) {
+	b, err := marshalBoundedBytes(v, max)
+	if err != nil {
+		return nil, err
+	}
+	return bytes.NewReader(b), nil
+}
+
+func marshalBoundedBytes(v any, max int) ([]byte, error) {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return nil, safeError("INVALID_REQUEST", StageDecode, 0, "invalid request")
 	}
-	if len(b) > max {
+	if max > 0 && len(b) > max {
 		return nil, safeError("REQUEST_TOO_LARGE", StageDecode, 0, "request exceeds size budget")
 	}
-	return bytes.NewReader(b), nil
+	return b, nil
 }
 
 func strictJSON(r io.Reader, dst any) error {

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,6 +36,8 @@ type officeDeliveryPayload struct {
 	BundleID         string   `json:"bundleId"`
 	SnapshotOffset   int      `json:"snapshotOffset"`
 	SnapshotDigest   string   `json:"snapshotDigest"`
+	DeliveryMode     string   `json:"deliveryMode"`
+	PolicyRevision   string   `json:"policyRevision"`
 }
 
 func handleOfficeDelivery(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
@@ -115,6 +118,16 @@ func handleOfficeDelivery(e *Engine, ctx context.Context, r bridge.Request) brid
 		dir := filepath.Join(s.Root, "exports", task.ID)
 		if err = os.MkdirAll(dir, 0700); err != nil {
 			return officeFailure(r, err)
+		}
+		if strings.TrimSpace(p.DeliveryMode) == "formal" {
+			out, exportErr := s.ExportBundleFormal(ctx, task.ID, p.BundleID, dir, officeDeliveryPolicy(task, p.PolicyRevision))
+			if errors.Is(exportErr, officeapp.ErrDraftRequired) {
+				return withFormalDecision(r.Fail("OFFICE_DRAFT_REQUIRED", formalDraftMessage(false, out.Decision), false), out.Decision)
+			}
+			if exportErr != nil {
+				return officeFailure(r, exportErr)
+			}
+			return r.Ok(out)
 		}
 		out, err := s.ExportBundle(ctx, task.ID, p.BundleID, dir)
 		if err != nil {

@@ -12,9 +12,11 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/deliverable"
 	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/projectapp"
+	"github.com/lunitide/lunitide/internal/projectboard"
 	"github.com/lunitide/lunitide/internal/projecttask"
 	"github.com/lunitide/lunitide/internal/projecttree"
 	"github.com/lunitide/lunitide/internal/providerapp"
+	"github.com/lunitide/lunitide/internal/stageapp"
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
 )
 
@@ -29,6 +31,7 @@ func factoryEngine(t *testing.T) (*Engine, *projectapp.Service, project.Project,
 	root := t.TempDir()
 	svc := projectapp.New(store, store)
 	e := NewEngineWithProjects(providerapp.New(store, store), svc, "test", nil)
+	e.stages = stageapp.New(store, store)
 	files := attachmentapp.NewDirFileStorage(t.TempDir())
 	store.SetProjectEvidenceFiles(files, files)
 	e.SetDeliverableStorage(store)
@@ -71,6 +74,9 @@ func TestProjectDeliverableGenerateWritesAttachments(t *testing.T) {
 		}
 		if len(raw) < 32 {
 			t.Fatalf("%s bytes=%d", item.DocumentType, len(raw))
+		}
+		if item.DocumentType == "biz_req_analysis" && !strings.Contains(string(raw), "本题库未答完，按已答 + 骨架生成，请人审。") {
+			t.Fatalf("incomplete interview banner missing: %s", raw)
 		}
 	}
 }
@@ -420,5 +426,212 @@ func TestProjectRulesGetCorruptManifestFails(t *testing.T) {
 	resp := handleProjectFactory(e, ctx, validRequest("project.rules.get", `{"projectId":"`+created.ID+`"}`))
 	if resp.OK || resp.Error == nil || resp.Error.Code != "PROJECT_RULES_FAILED" {
 		t.Fatalf("%#v", resp)
+	}
+}
+
+func TestPriorDeliverableTextUsesApprovedOnly(t *testing.T) {
+	ctx := context.Background()
+	e, _, created, _ := factoryEngine(t)
+	if err := e.writeDeliverableBody(ctx, created, 1, "biz_req_analysis", "草稿", []byte("DRAFT_ONLY_BODY_must_not_reach_phase_two")); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.writeDeliverableBody(ctx, created, 1, "impl_assessment", "已批", []byte("APPROVED_BODY_phase_one_for_phase_two")); err != nil {
+		t.Fatal(err)
+	}
+	items, err := e.deliverables.ListProjectDeliverables(ctx, deliverable.Filter{ProjectID: created.ID, Phase: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		if item.DocumentType != "impl_assessment" {
+			continue
+		}
+		item.Status = deliverable.StatusApproved
+		if _, err = e.deliverables.UpsertProjectDeliverable(ctx, item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	text := e.priorDeliverableText(ctx, created.ID, 1)
+	if strings.Contains(text, "DRAFT_ONLY_BODY") {
+		t.Fatalf("review draft leaked into phase 2 prior text: %s", text)
+	}
+	if !strings.Contains(text, "APPROVED_BODY") {
+		t.Fatalf("approved body missing: %s", text)
+	}
+}
+
+func TestProjectReturnFromTestInterfaceDoesNotTouchDev(t *testing.T) {
+	ctx := context.Background()
+	e, _, created, _ := factoryEngine(t)
+	iface := projecttask.Doc{Version: 1, Items: []projecttask.Item{{ID: "I001", Title: "登录接口", Status: "dev_done"}}}
+	codeBoard := projecttask.Doc{Version: 1, Items: []projecttask.Item{{ID: "F001", Title: "登录", Status: "dev_done"}}}
+	test := projecttask.Doc{Version: 1, Items: []projecttask.Item{{ID: "T-I001", Title: "测接口", Status: "pending", SourceID: "I001", SourceKind: "interface"}}}
+	if err := e.saveChecklist(ctx, created, project.InterfacePhase(created.Type), "interface_list", "接口清单", iface, deliverable.StatusApproved); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.saveChecklist(ctx, created, project.DevPhase(created.Type), "dev_checklist", "开发检查清单", codeBoard, deliverable.StatusReview); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.saveChecklist(ctx, created, project.TestPhase(created.Type), "test_checklist", "测试检查清单", test, deliverable.StatusReview); err != nil {
+		t.Fatal(err)
+	}
+	resp := handleProjectSpine(e, ctx, validRequest("project.task.returnFromTest", `{"projectId":"`+created.ID+`","testItemId":"T-I001","reason":"契约失败"}`))
+	if !resp.OK {
+		t.Fatalf("%#v", resp)
+	}
+	gotIface, _, err := e.loadChecklist(ctx, created.ID, project.InterfacePhase(created.Type), "interface_list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, item, ok := projecttask.Find(gotIface, "I001")
+	if !ok || item.Status == "dev_done" {
+		t.Fatalf("interface not returned: %+v", gotIface.Items)
+	}
+	gotDev, _, err := e.loadChecklist(ctx, created.ID, project.DevPhase(created.Type), "dev_checklist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, destItem, ok := projecttask.Find(gotDev, "F001")
+	if !ok || destItem.Status != "dev_done" {
+		t.Fatalf("dev board changed: %+v", gotDev.Items)
+	}
+}
+
+func TestProjectIntegrationFailReturnsMembersBySource(t *testing.T) {
+	ctx := context.Background()
+	e, _, created, _ := factoryEngine(t)
+	iface := projecttask.Doc{Version: 1, Items: []projecttask.Item{{ID: "I001", Title: "登录接口", Status: "dev_done"}}}
+	codeBoard := projecttask.Doc{Version: 1, Items: []projecttask.Item{{ID: "F001", Title: "登录", Status: "dev_done"}}}
+	test := projecttask.Doc{Version: 1, Items: []projecttask.Item{{
+		ID: "T-I001", Title: "测接口", Status: "test_pass", SourceID: "I001", SourceKind: "interface",
+		RequiredKinds: []string{"unit"}, KindResults: map[string]projecttask.KindResult{"unit": {Status: "pass"}},
+	}}}
+	scene := projecttask.Doc{Version: 1, Items: []projecttask.Item{{ID: "S001", Title: "登录场景", Status: "pending", MemberIDs: []string{"T-I001"}}}}
+	if err := e.saveChecklist(ctx, created, project.InterfacePhase(created.Type), "interface_list", "接口清单", iface, deliverable.StatusApproved); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.saveChecklist(ctx, created, project.DevPhase(created.Type), "dev_checklist", "开发检查清单", codeBoard, deliverable.StatusReview); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.saveChecklist(ctx, created, project.TestPhase(created.Type), "test_checklist", "测试检查清单", test, deliverable.StatusReview); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.saveChecklist(ctx, created, 7, "integration_test_list", "集成测试场景清单", scene, deliverable.StatusReview); err != nil {
+		t.Fatal(err)
+	}
+	resp := handleProjectFactory(e, ctx, validRequest("project.test.run", `{"projectId":"`+created.ID+`","itemId":"S001","kind":"unit","evidence":"fail: 集成失败"}`))
+	if !resp.OK {
+		t.Fatalf("%#v", resp)
+	}
+	gotScene, _, err := e.loadChecklist(ctx, created.ID, 7, "integration_test_list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, sceneItem, ok := projecttask.Find(gotScene, "S001")
+	if !ok || sceneItem.Status != "pending" {
+		t.Fatalf("scene %#v", gotScene.Items)
+	}
+	gotIface, _, err := e.loadChecklist(ctx, created.ID, project.InterfacePhase(created.Type), "interface_list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, item, ok := projecttask.Find(gotIface, "I001")
+	if !ok || item.Status == "dev_done" {
+		t.Fatalf("interface member not returned: %+v", gotIface.Items)
+	}
+	gotDev, _, err := e.loadChecklist(ctx, created.ID, project.DevPhase(created.Type), "dev_checklist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, destItem, ok := projecttask.Find(gotDev, "F001")
+	if !ok || destItem.Status != "dev_done" {
+		t.Fatalf("dev board changed: %+v", gotDev.Items)
+	}
+}
+
+func TestDeliverableUpsertChecklistReportsBoardDirty(t *testing.T) {
+	ctx := context.Background()
+	e, _, created, _ := factoryEngine(t)
+	source := projecttask.Doc{Version: 1, Items: []projecttask.Item{
+		{ID: "I001", Title: "登录接口", Status: "pending", Method: "POST", Path: "/login"},
+	}}
+	if err := e.saveChecklist(ctx, created, 2, "api_list", "接口清单", source, deliverable.StatusReview); err != nil {
+		t.Fatal(err)
+	}
+	items, err := e.deliverables.ListProjectDeliverables(ctx, deliverable.Filter{ProjectID: created.ID, Phase: 2})
+	if err != nil || len(items) != 1 {
+		t.Fatalf("items %+v %v", items, err)
+	}
+	resp := handleDeliverableUpsert(e, ctx, validRequest("deliverable.upsert", `{"projectId":"`+created.ID+`","phase":2,"documentType":"api_list","title":"接口清单","attachmentId":"`+items[0].AttachmentID+`","status":"review"}`))
+	if !resp.OK {
+		t.Fatalf("%#v", resp)
+	}
+	raw, _ := json.Marshal(resp.Payload)
+	var dto struct {
+		BoardDirty bool `json:"boardDirty"`
+	}
+	if err := json.Unmarshal(raw, &dto); err != nil || !dto.BoardDirty {
+		t.Fatalf("want boardDirty=true, got %s", raw)
+	}
+}
+
+func TestDeliverableUpsertIntegrationTestListOmitsBoardDirty(t *testing.T) {
+	ctx := context.Background()
+	e, _, created, _ := factoryEngine(t)
+	scene := projecttask.Doc{Version: 1, Items: []projecttask.Item{{ID: "S001", Title: "登录场景", Status: "pending", MemberIDs: []string{"T-1"}}}}
+	if err := e.saveChecklist(ctx, created, 7, "integration_test_list", "集成测试场景清单", scene, deliverable.StatusReview); err != nil {
+		t.Fatal(err)
+	}
+	items, err := e.deliverables.ListProjectDeliverables(ctx, deliverable.Filter{ProjectID: created.ID, Phase: 7})
+	if err != nil || len(items) != 1 {
+		t.Fatalf("items %+v %v", items, err)
+	}
+	resp := handleDeliverableUpsert(e, ctx, validRequest("deliverable.upsert", `{"projectId":"`+created.ID+`","phase":7,"documentType":"integration_test_list","title":"集成测试场景清单","attachmentId":"`+items[0].AttachmentID+`","status":"approved"}`))
+	if !resp.OK {
+		t.Fatalf("%#v", resp)
+	}
+	raw, _ := json.Marshal(resp.Payload)
+	if strings.Contains(string(raw), `"boardDirty":true`) {
+		t.Fatalf("want boardDirty omitted or false, got %s", raw)
+	}
+	board, _, err := e.loadBoard(ctx, created, projectboard.KindIntegration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(board.Items) == 0 {
+		t.Fatalf("scenes wiped: %+v", board)
+	}
+	for _, item := range board.Items {
+		if item.ChangeKind == "removed" {
+			t.Fatalf("scene marked removed: %+v", board.Items)
+		}
+	}
+}
+
+func TestDeliverableUpsertInterfaceListOmitsBoardDirtyWhenSelfBoard(t *testing.T) {
+	ctx := context.Background()
+	e, _, created, _ := factoryEngine(t)
+	source := projecttask.Doc{Version: 1, Items: []projecttask.Item{{ID: "I001", Title: "登录", Status: "pending", Method: "POST", Path: "/login"}}}
+	if err := e.saveChecklist(ctx, created, project.DesignPhase(created.Type), "api_list", "接口清单", source, deliverable.StatusReview); err != nil {
+		t.Fatal(err)
+	}
+	stale := projecttask.Doc{Version: 1, Items: []projecttask.Item{{
+		ID: "I001", Title: "登录", Status: "pending", Method: "POST", Path: "/login",
+		NeedsReprocess: true, ChangeKind: "modified",
+	}}}
+	if err := e.saveChecklist(ctx, created, project.InterfacePhase(created.Type), "interface_list", "接口清单", stale, deliverable.StatusReview); err != nil {
+		t.Fatal(err)
+	}
+	items, err := e.deliverables.ListProjectDeliverables(ctx, deliverable.Filter{ProjectID: created.ID, Phase: project.InterfacePhase(created.Type)})
+	if err != nil || len(items) != 1 {
+		t.Fatalf("items %+v %v", items, err)
+	}
+	resp := handleDeliverableUpsert(e, ctx, validRequest("deliverable.upsert", `{"projectId":"`+created.ID+`","phase":4,"documentType":"interface_list","title":"接口清单","attachmentId":"`+items[0].AttachmentID+`","status":"approved"}`))
+	if !resp.OK {
+		t.Fatalf("%#v", resp)
+	}
+	raw, _ := json.Marshal(resp.Payload)
+	if strings.Contains(string(raw), `"boardDirty":true`) {
+		t.Fatalf("want boardDirty omitted or false, got %s", raw)
 	}
 }

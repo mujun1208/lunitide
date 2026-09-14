@@ -174,7 +174,7 @@ import {
 } from '../generated/bridge'
 
 export class BridgeClientError extends Error {
-  constructor(message: string, public readonly code: string, public readonly retryable: boolean, public readonly correlationId: string) {
+  constructor(message: string, public readonly code: string, public readonly retryable: boolean, public readonly correlationId: string, public readonly details?: Record<string, unknown>) {
     super(message); this.name = 'BridgeClientError'
     if (code === 'ENGINE_UNAVAILABLE' && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('lunitide:engine-unavailable', { detail: { code, correlationId } }))
@@ -220,7 +220,7 @@ export interface ProviderBridge {
   backupAdd(payload: {providerId:string;credentialSubmissionId:string;expectedVersion:number}, options?:MutationOptions<{providerId:string;credentialSubmissionId:string;expectedVersion:number}>): Promise<ProviderCreateResult>
   backupRemove(payload: {providerId:string;index:number;expectedVersion:number}, options?:MutationOptions<{providerId:string;index:number;expectedVersion:number}>): Promise<ProviderCreateResult>
 }
-export type ProjectAdvanceStatusPayload = { id: string; version: number; phase: number }
+export type ProjectAdvanceStatusPayload = { id: string; version: number; phase: number; emptyBoardAck?: boolean }
 export type ProjectAdvanceStatusResult = ProjectCreateResult
 export interface ProjectBridge {
   list(payload?:ProjectListPayload):Promise<ProjectListResult>
@@ -705,7 +705,7 @@ function createSimpleBridge<TMethods extends Record<string, BridgeMethod>>(
       if (guard && !guard(waiting.method, raw.payload)) { waiting.reject(new BridgeClientError('Bridge 方法结果格式无效', 'INVALID_BRIDGE_RESULT', false, raw.id)); return }
       waiting.resolve(raw.payload)
     }
-    else waiting.reject(new BridgeClientError(raw.error.message, raw.error.code, raw.error.retryable, raw.error.correlationId))
+    else waiting.reject(new BridgeClientError(raw.error.message, raw.error.code, raw.error.retryable, raw.error.correlationId, isObj(raw.error.details) ? raw.error.details as Record<string, unknown> : undefined))
   })
   const request = <T>(method: BridgeMethod, payload: object, deadlineMs = defaultDeadlineMs, attempt?: MutationAttempt<object>): Promise<T> => {
     const id = ulid(), traceId = ulid()
@@ -1118,7 +1118,7 @@ export type StreamEvent =
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'tool_completed';tool:{callId:string;name:string;argsDigest:string;summary?:string;artifact?:StreamArtifact}}
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'approval_required';tool:{callId:string;name:string;argsDigest:string;summary?:string}}
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'tool_output';tool:{callId:string;name:string;argsDigest:string;summary?:string}}
- | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'completed';completed?:{messageId?:string;persistFailed?:boolean;memorySummary?:string}}
+ | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'completed';completed?:{messageId?:string;persistFailed?:boolean;memorySummary?:string;taskOutcome?:{taskId:string;goalRevision:number;version:number;state:string;completion:string;reasonCode?:string;requiredSteps?:string[];passedSteps?:string[];remainingSteps?:string[];evidenceRefs?:string[];artifactRefs?:string[]}}}
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'cancelled'}
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'failed';error:{code:string;message:string;retryable:boolean}}
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'guidance';guidance:{labels:string[];digest:string}}
@@ -1150,7 +1150,7 @@ const isStreamEvent=(v:unknown):v is StreamEvent=>{
   case'usage':return exact(v,[...base,'usage'])&&isObj(v.usage)&&exact(v.usage,['inputTokens','outputTokens','totalTokens'],['cachedInputTokens','cacheWriteInputTokens','cacheUsageReported'])&&nonnegativeInt(v.usage.inputTokens)&&nonnegativeInt(v.usage.outputTokens)&&nonnegativeInt(v.usage.totalTokens)&&(!('cachedInputTokens'in v.usage)||nonnegativeInt(v.usage.cachedInputTokens))&&(!('cacheWriteInputTokens'in v.usage)||nonnegativeInt(v.usage.cacheWriteInputTokens))&&Number(v.usage.cachedInputTokens??0)+Number(v.usage.cacheWriteInputTokens??0)<=Number(v.usage.inputTokens)&&(!('cacheUsageReported'in v.usage)||typeof v.usage.cacheUsageReported==='boolean')
   case'tool_started':case'approval_required':case'tool_output':return exact(v,[...base,'tool'])&&isObj(v.tool)&&exact(v.tool,['callId','name','argsDigest'],['summary'])&&typeof v.tool.callId==='string'&&v.tool.callId.length>0&&typeof v.tool.name==='string'&&v.tool.name.length>0&&typeof v.tool.argsDigest==='string'&&/^[0-9a-f]{64}$/.test(v.tool.argsDigest)&&(!('summary'in v.tool)||typeof v.tool.summary==='string')
   case'tool_completed':return exact(v,[...base,'tool'])&&isObj(v.tool)&&exact(v.tool,['callId','name','argsDigest'],['summary','artifact'])&&typeof v.tool.callId==='string'&&v.tool.callId.length>0&&typeof v.tool.name==='string'&&v.tool.name.length>0&&typeof v.tool.argsDigest==='string'&&/^[0-9a-f]{64}$/.test(v.tool.argsDigest)&&(!('summary'in v.tool)||typeof v.tool.summary==='string')&&(!('artifact'in v.tool)||isStreamArtifact(v.tool.artifact))
-  case'completed':{const body=v.completed;return exact(v,'completed'in v?[...base,'completed']:base)&&(!('completed'in v)||isObj(body)&&exact(body,[],['messageId','persistFailed','memorySummary'])&&(('messageId'in body)||('persistFailed'in body)||('memorySummary'in body))&&(!('messageId'in body)||body.messageId===''||isULID(body.messageId))&&(!('persistFailed'in body)||typeof body.persistFailed==='boolean')&&(!('memorySummary'in body)||typeof body.memorySummary==='string'))}
+  case'completed':{const body=v.completed;return exact(v,'completed'in v?[...base,'completed']:base)&&(!('completed'in v)||isObj(body)&&exact(body,[],['messageId','persistFailed','memorySummary','taskOutcome'])&&(('messageId'in body)||('persistFailed'in body)||('memorySummary'in body)||('taskOutcome'in body))&&(!('messageId'in body)||body.messageId===''||isULID(body.messageId))&&(!('persistFailed'in body)||typeof body.persistFailed==='boolean')&&(!('memorySummary'in body)||typeof body.memorySummary==='string')&&(!('taskOutcome'in body)||isObj(body.taskOutcome)&&typeof body.taskOutcome.taskId==='string'&&Number.isInteger(body.taskOutcome.goalRevision)&&Number.isInteger(body.taskOutcome.version)))}
   case'cancelled':return exact(v,base)
   case'failed':return exact(v,[...base,'error'])&&isObj(v.error)&&exact(v.error,['code','message','retryable'])&&typeof v.error.code==='string'&&v.error.code.length>0&&typeof v.error.message==='string'&&v.error.message.length>0&&typeof v.error.retryable==='boolean'
   case'guidance':return exact(v,[...base,'guidance'])&&isObj(v.guidance)&&exact(v.guidance,['labels','digest'])&&Array.isArray(v.guidance.labels)&&v.guidance.labels.length>=1&&v.guidance.labels.length<=8&&v.guidance.labels.every(label=>typeof label==='string'&&label.length>0&&label.length<=32)&&typeof v.guidance.digest==='string'&&/^[0-9a-f]{16}$/.test(v.guidance.digest)

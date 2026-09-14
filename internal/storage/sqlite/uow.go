@@ -403,7 +403,7 @@ func (t *txAdapter) UpdateStage(ctx context.Context, input stageapp.UpdateInput)
 		if err != nil {
 			return v, err
 		}
-		if _, err = t.CompleteProjectPhase(ctx, p.ID, p.Version, v.Phase); err != nil {
+		if _, err = t.CompleteProjectPhase(ctx, p.ID, p.Version, v.Phase, false); err != nil {
 			return v, err
 		}
 		return t.getStage(ctx, input.ProjectID, input.ID)

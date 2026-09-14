@@ -226,6 +226,9 @@ func (s *Store) deleteSession(ctx context.Context, id, actor string, reclaimProj
 	if _, err := tx.ExecContext(ctx, `DELETE FROM chat_turn_journal WHERE session_id=?`, id); err != nil {
 		return fmt.Errorf("delete chat turn journal: %w", err)
 	}
+	if err := deleteSessionProtocolLedgerTx(ctx, tx, id); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE id=?`, id); err != nil {
 		return fmt.Errorf("delete session: %w", err)
 	}
@@ -236,6 +239,25 @@ func (s *Store) deleteSession(ctx context.Context, id, actor string, reclaimProj
 		return fmt.Errorf("audit session delete: %w", err)
 	}
 	return tx.Commit()
+}
+
+func deleteSessionProtocolLedgerTx(ctx context.Context, tx *sql.Tx, sessionID string) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM protocol_legacy_imports WHERE epoch_id IN (SELECT id FROM protocol_epochs_v2 WHERE session_id=?)`, sessionID); err != nil {
+		return fmt.Errorf("delete protocol_legacy_imports: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM protocol_messages_v2 WHERE epoch_id IN (SELECT id FROM protocol_epochs_v2 WHERE session_id=?)`, sessionID); err != nil {
+		return fmt.Errorf("delete protocol_messages_v2: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM protocol_epochs_v2 WHERE session_id=?`, sessionID); err != nil {
+		return fmt.Errorf("delete protocol_epochs_v2: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM protocol_message_groups WHERE session_id=? OR owner_scope=?`, sessionID, sessionID); err != nil {
+		return fmt.Errorf("delete protocol_message_groups: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM protocol_private WHERE owner_scope=?`, sessionID); err != nil {
+		return fmt.Errorf("delete protocol_private: %w", err)
+	}
+	return nil
 }
 
 // DeleteProject deletes a project and all its dependent records (sessions,

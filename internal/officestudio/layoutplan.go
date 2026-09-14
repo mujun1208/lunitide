@@ -318,14 +318,19 @@ func SpecFromLayoutPlans(title string, plans []LayoutPlan) (Spec, error) {
 	spec := Spec{SchemaVersion: 2, Kind: PPTX, Title: title, BrandID: DefaultBrandID}
 	for _, p := range plans {
 		spec.Slides = append(spec.Slides, Slide{
-			Title:      p.Title,
-			Layout:     normalizeSemanticLayout(p.Layout),
-			Metrics:    p.Metrics,
-			Comparison: p.Comparison,
-			Bullets:    p.Bullets,
-			Notes:      p.Notes,
-			Purpose:    p.FitEvidence,
+			Title:       p.Title,
+			Layout:      normalizeSemanticLayout(p.Layout),
+			Metrics:     p.Metrics,
+			Comparison:  p.Comparison,
+			Bullets:     p.Bullets,
+			Notes:       p.Notes,
+			Purpose:     p.FitEvidence,
+			LayoutTrace: layoutTraceFromPlan(p, p.Layout, RuneMeasure{}, DefaultBrand()),
 		})
+	}
+	if len(spec.Slides) > 0 {
+		spec.LayoutTrace = spec.Slides[0].LayoutTrace
+		spec.LayoutTrace.FitEvidence = fmt.Sprintf("pages=%d; %s", len(spec.Slides), spec.Slides[0].LayoutTrace.FitEvidence)
 	}
 	return spec, nil
 }

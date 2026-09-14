@@ -55,6 +55,33 @@ func MessageGroupComplete(g MessageGroup) bool {
 	return true
 }
 
+type ForcedSummaryPlan struct {
+	AppendSummary         bool
+	ReappendToolAssistant bool
+	ExecuteTools          bool
+	ToolCallIDs           []string
+}
+
+func PlanForcedSummary(groups []MessageGroup, event string) ForcedSummaryPlan {
+	var ids []string
+	complete := false
+	for _, g := range groups {
+		if !MessageGroupComplete(g) {
+			continue
+		}
+		complete = true
+		for _, c := range g.Assistant.ToolCalls {
+			ids = append(ids, c.ID)
+		}
+	}
+	return ForcedSummaryPlan{
+		AppendSummary:         event == "after_tools" && complete,
+		ReappendToolAssistant: false,
+		ExecuteTools:          false,
+		ToolCallIDs:           ids,
+	}
+}
+
 func ExtractMessageGroups(messages []ProtocolMessage) []MessageGroup {
 	var out []MessageGroup
 	for i := 0; i < len(messages); i++ {
