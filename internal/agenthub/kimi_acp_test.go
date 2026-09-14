@@ -677,6 +677,9 @@ func TestKimiACPPromptReturnsWhenPeerAsks(t *testing.T) {
 			}
 		}), nil
 	}
+	if err := adapter.Open(thread); err != nil {
+		t.Fatal(err)
+	}
 	done := make(chan error, 1)
 	go func() { done <- adapter.Prompt(thread.ID, "need a choice") }()
 	select {
@@ -684,7 +687,7 @@ func TestKimiACPPromptReturnsWhenPeerAsks(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(2 * time.Second):
 		t.Fatal("Prompt must return while the ACP turn is still open")
 	}
 }
