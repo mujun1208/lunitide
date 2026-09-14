@@ -960,7 +960,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						continue
 					}
 					if planToolNames[call.Name] {
-						summary, invokeErr := e.invokePlanRunToolRouted(op, a, credential, req.Model, sessionID, mode, call.Arguments, state.taskRoute)
+						summary, invokeErr := e.invokePlanRunToolRouted(op, a, credential, req.Model, sessionID, mode, call.Arguments, state.taskRoute, state.taskAllow)
 						if invokeErr != nil {
 							summary = invokeErr.Error()
 						}

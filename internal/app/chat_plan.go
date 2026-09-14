@@ -68,12 +68,12 @@ func (e *Engine) invokePlanRunTool(ctx context.Context, a llmadapter.Adapter, cr
 	if err != nil {
 		return "", fmt.Errorf("plan phase failed: %w", err)
 	}
-	return e.runPlanCycle(ctx, a, credential, model, sessionID, mode, p.Objective, planResp.Message.Content, RouteUnspecified)
+	return e.runPlanCycle(ctx, a, credential, model, sessionID, mode, p.Objective, planResp.Message.Content, RouteUnspecified, nil)
 }
 
 // invokePlanRunToolRouted is invokePlanRunTool with the parent turn's route
 // so plan steps cannot widen R1 into computer.act.
-func (e *Engine) invokePlanRunToolRouted(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID string, mode executionMode, rawArgs json.RawMessage, route TaskRoute) (string, error) {
+func (e *Engine) invokePlanRunToolRouted(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID string, mode executionMode, rawArgs json.RawMessage, route TaskRoute, allow map[string]bool) (string, error) {
 	var p struct {
 		Objective string `json:"objective"`
 	}
@@ -92,13 +92,13 @@ func (e *Engine) invokePlanRunToolRouted(ctx context.Context, a llmadapter.Adapt
 	if err != nil {
 		return "", fmt.Errorf("plan phase failed: %w", err)
 	}
-	return e.runPlanCycle(ctx, a, credential, model, sessionID, mode, p.Objective, planResp.Message.Content, route)
+	return e.runPlanCycle(ctx, a, credential, model, sessionID, mode, p.Objective, planResp.Message.Content, route, allow)
 }
 
 // invokePlanRunToolWithPlanner runs the cycle with a fixed planner answer
 // (tests: malformed plan degradation).
 func (e *Engine) invokePlanRunToolWithPlanner(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID string, mode executionMode, objective, plannerAnswer string) (string, error) {
-	return e.runPlanCycle(ctx, a, credential, model, sessionID, mode, objective, plannerAnswer, RouteUnspecified)
+	return e.runPlanCycle(ctx, a, credential, model, sessionID, mode, objective, plannerAnswer, RouteUnspecified, nil)
 }
 
 type l0Observation struct {
@@ -218,12 +218,12 @@ func (e *Engine) completeJudge(ctx context.Context, a llmadapter.Adapter, creden
 }
 
 // runPlanCycle executes phases 2-3 against a prepared plan document.
-func (e *Engine) runPlanCycle(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID string, mode executionMode, objective, planDocument string, route TaskRoute) (string, error) {
+func (e *Engine) runPlanCycle(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID string, mode executionMode, objective, planDocument string, route TaskRoute, allow map[string]bool) (string, error) {
 	steps := parsePlanSteps(planDocument)
 	var log strings.Builder
 	var l0s []l0Observation
 	for i, step := range steps {
-		outcome := e.executePlanStep(ctx, a, credential, model, sessionID, mode, objective, step, i+1, len(steps), route)
+		outcome := e.executePlanStep(ctx, a, credential, model, sessionID, mode, objective, step, i+1, len(steps), route, allow)
 		if obs, ok := extractL0(outcome); ok {
 			l0s = append(l0s, obs)
 		}
@@ -309,7 +309,7 @@ func truncatePlanText(s string, n int) string {
 // executePlanStep runs one planned step: the model receives the objective,
 // the plan and the step under execution, and may use the session toolset
 // (bounded to one tool round; approval gating still applies).
-func (e *Engine) executePlanStep(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID string, mode executionMode, objective string, step planStep, index, total int, route TaskRoute) string {
+func (e *Engine) executePlanStep(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID string, mode executionMode, objective string, step planStep, index, total int, route TaskRoute, allow map[string]bool) string {
 	ctx = withCallPurpose(ctx, "plan")
 	req := llmadapter.Request{
 		Model: model, MaxTokens: 2048, MaxAttempts: 1,
@@ -317,7 +317,7 @@ func (e *Engine) executePlanStep(ctx context.Context, a llmadapter.Adapter, cred
 			{Role: llmadapter.RoleSystem, Content: "You are an execution agent. Execute exactly the assigned step using the available tools when needed, then answer with a concise outcome report (max 500 characters). Do not perform work belonging to other steps."},
 			{Role: llmadapter.RoleUser, Content: fmt.Sprintf("Objective: %s\nAssigned step %d/%d: %s — %s", objective, index, total, step.Action, step.Detail)},
 		},
-		Tools: planStepTools(e, route),
+		Tools: planStepTools(e, route, allow),
 	}
 	resp, err := a.Complete(ctx, credential, req)
 	if err != nil {
@@ -374,13 +374,22 @@ func attachPlanStepL0(coda string, summaries []string) string {
 	return out
 }
 
-func planStepTools(e *Engine, route TaskRoute) []llmadapter.ToolDefinition {
+func planStepTools(e *Engine, route TaskRoute, allow map[string]bool) []llmadapter.ToolDefinition {
 	defs := engineToolDefinitions()
-	if route == RouteUnspecified {
+	if e != nil {
+		defs = e.engineToolDefinitionsFor(executionModeFullAccess)
+	}
+	if route == RouteUnspecified && allow == nil {
 		return defs
 	}
-	allow := routeAllow(route, e.computerControlEnabled())
-	if e.computerControlEnabled() {
+	if allow == nil {
+		cc := false
+		if e != nil {
+			cc = e.computerControlEnabled()
+		}
+		allow = routeAllow(route, cc)
+	}
+	if e != nil && e.computerControlEnabled() {
 		defs = append(defs, e.ccToolDefinitions()...)
 	}
 	return applyTaskRoute(defs, route, allow)
