@@ -8,6 +8,53 @@ import (
 	"time"
 )
 
+// GitHub's Windows runners spell %TEMP% as C:\Users\RUNNER~1\... while
+// filepath.EvalSymlinks expands that to C:\Users\runneradmin\.... Comparing
+// those two spellings is the same class of bug as a symlink alias of the
+// workspace: the file is inside the root, but a one-sided resolve reports
+// an escape. The symlink case is what we can reproduce on every OS.
+func TestInsideDirAcceptsFileUnderAliasRoot(t *testing.T) {
+	real := t.TempDir()
+	if err := os.WriteFile(filepath.Join(real, "hello.txt"), []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "ws")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if !insideDir(alias, filepath.Join(alias, "hello.txt")) {
+		t.Fatal("file under an alias of the workspace must stay inside")
+	}
+	if !insideDir(alias, filepath.Join(real, "hello.txt")) {
+		t.Fatal("same file reached through the target must stay inside")
+	}
+	if !insideDir(alias, filepath.Join(alias, "missing.txt")) {
+		t.Fatal("a not-yet-created child under an alias root must stay inside")
+	}
+	outside := filepath.Join(t.TempDir(), "away.txt")
+	if err := os.WriteFile(outside, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if insideDir(alias, outside) {
+		t.Fatal("file outside the workspace must stay outside")
+	}
+}
+
+func TestInsideDirRejectsSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "out")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if insideDir(root, filepath.Join(link, "secret.txt")) {
+		t.Fatal("path through a symlink out of the workspace must stay outside")
+	}
+}
+
 func TestScanWorkDirCollectsInsideAndOutside(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "hello.txt"), []byte("ok"), 0o644); err != nil {

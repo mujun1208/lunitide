@@ -19,7 +19,12 @@
 - `latest.json` 字段仍只有 `version` / `channel` / `sha256` / `installer`。未知字段失败。摘要接受 A-F。
 - `Build-Release.ps1` 写出 `latest.json`，清理更新目录里的旧 Setup，并在 `gh` 已登录时上传到 `v{VERSION}` 且标为 Latest。
 
-## 3. 不做
+## 3. Windows CI 路径与竞态
+
+- 工作区包含检查对 root 和 child 两侧都做 `canonpath` 解析，GitHub runner 的 `RUNNER~1` 8.3 短路径不再被误判成逃逸。
+- Codex / Kimi / Cursor 假对端测试对 `methods` 切片加锁，消除 race 作业里的 DATA RACE。
+
+## 4. 不做
 
 - 不做 Memory Fabric / PaddleOCR / 媒体 PRD。
 - 回滚仍是空操作。不做后台预下载、强制更新、WinSparkle。
