@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/officetools"
 )
@@ -195,4 +196,87 @@ func TestDesktopPreviewPathStripsDrive(t *testing.T) {
 	if !strings.HasPrefix(got, "desktop/") || strings.Contains(got, `\`) {
 		t.Fatalf("preview = %q", got)
 	}
+}
+
+func TestGoTestDoesNotWriteOfficeFixturesToRealDesktop(t *testing.T) {
+	realDesktop, err := userDesktopDir()
+	if err != nil {
+		t.Skip(err)
+	}
+	leaks := []string{"weekly.docx", "介绍.pptx"}
+	type snap struct {
+		mod  time.Time
+		size int64
+	}
+	before := map[string]snap{}
+	for _, name := range leaks {
+		info, statErr := os.Stat(filepath.Join(realDesktop, name))
+		if statErr == nil {
+			before[name] = snap{mod: info.ModTime(), size: info.Size()}
+		}
+	}
+	wroteReal := func(name string) bool {
+		info, statErr := os.Stat(filepath.Join(realDesktop, name))
+		if statErr != nil {
+			return false
+		}
+		prev, existed := before[name]
+		return !existed || info.ModTime().After(prev.mod) || info.Size() != prev.size
+	}
+	t.Cleanup(func() {
+		for _, name := range leaks {
+			if wroteReal(name) {
+				_ = os.Remove(filepath.Join(realDesktop, name))
+			}
+		}
+	})
+
+	r, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if err = r.SetCommandPolicyJSON([]byte(`{"commands":[],"fullAccess":true}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err = r.ConfirmFullDiskSession(context.Background(), officeSession); err != nil {
+		t.Fatal(err)
+	}
+
+	docx := styledDocxArgs("weekly.docx", "Weekly report", map[string]any{"desktop": true})
+	if _, err = r.ExecuteUnconfined(context.Background(), officeSession, "docx.gen", docx, false); err != nil {
+		t.Fatal(err)
+	}
+	pptx, _ := json.Marshal(map[string]any{
+		"path": "介绍.pptx", "desktop": true, "title": "介绍",
+		"slides": []any{map[string]any{"title": "封面", "layout": "title"}},
+	})
+	if _, err = r.ExecuteUnconfined(context.Background(), officeSession, "pptx.gen", pptx, false); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range leaks {
+		if wroteReal(name) {
+			t.Errorf("go test wrote %s onto the real Desktop", name)
+		}
+	}
+	dir, err := r.desktopDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sameDesktopPath(dir, realDesktop) {
+		t.Fatalf("desktop=true resolved to the real Desktop %q", realDesktop)
+	}
+}
+
+func sameDesktopPath(got, want string) bool {
+	if filepath.Clean(got) == filepath.Clean(want) {
+		return true
+	}
+	ga, err := os.Stat(got)
+	if err != nil {
+		return false
+	}
+	wa, err := os.Stat(want)
+	return err == nil && os.SameFile(ga, wa)
 }

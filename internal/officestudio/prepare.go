@@ -130,6 +130,7 @@ func applyLayoutPlanning(spec Spec) (Spec, error) {
 		return spec, nil
 	}
 	brand := brandForSpec(spec)
+	measure := DefaultTextMeasure(brand.Fonts.East)
 	slides := make([]Slide, 0, len(spec.Slides))
 	for _, s := range spec.Slides {
 		aspect := ""
@@ -146,7 +147,7 @@ func applyLayoutPlanning(spec Spec) (Spec, error) {
 			Comparison:   s.Comparison,
 			Bullets:      s.Bullets,
 			ImageAspect:  aspect,
-		}, brand, DefaultTextMeasure(brand.Fonts.East), spec.TemplateID)
+		}, brand, measure, spec.TemplateID)
 		if err != nil {
 			return Spec{}, err
 		}
@@ -183,9 +184,37 @@ func applyLayoutPlanning(spec Spec) (Spec, error) {
 					}
 				}
 			}
+			next.LayoutTrace = layoutTraceFromPlan(p, s.Layout, measure, brand)
 			slides = append(slides, keepSlideNarrative(next))
 		}
 	}
 	spec.Slides = slides
+	if len(slides) > 0 {
+		spec.LayoutTrace = slides[0].LayoutTrace
+		spec.LayoutTrace.FitEvidence = fmt.Sprintf("pages=%d; %s", len(slides), slides[0].LayoutTrace.FitEvidence)
+	}
 	return spec, nil
+}
+
+func layoutTraceFromPlan(p LayoutPlan, requested string, measure TextMeasure, brand BrandProfile) LayoutTrace {
+	_, layout, density := parseVariantID(p.VariantID)
+	return LayoutTrace{
+		RequestedVariant: requested,
+		ResolvedVariant:  p.VariantID,
+		Density:          density,
+		ResolvedLayout:   firstNonEmpty(p.Layout, layout),
+		FontDigest:       fontDigest(brand),
+		MeasureRevision:  measureLabel(measure),
+		FitEvidence:      p.FitEvidence,
+	}
+}
+
+func fontDigest(brand BrandProfile) string {
+	raw := strings.Join([]string{
+		brand.Fonts.Latin, brand.Fonts.East,
+		fmt.Sprintf("%d", brand.Fonts.TitlePt),
+		fmt.Sprintf("%d", brand.Fonts.BodyPt),
+		fmt.Sprintf("%d", brand.Fonts.NotesPt),
+	}, "|")
+	return digest([]byte(raw))
 }

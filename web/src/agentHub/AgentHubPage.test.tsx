@@ -62,7 +62,7 @@ function stubLists() {
     agents: [
       { name: 'codex', state: 'available', version: '1.2.3', nonInteractive: true, streamJSON: true, hint: '可用' },
       { name: 'cursor', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装 Cursor CLI' },
-      { name: 'kimi', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装 Kimi Code CLI（kimi）。安装后重新打开调度台。' },
+      { name: 'kimi', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装 Kimi Code CLI（kimi）。安装后重新打开 AgentHub。' },
     ],
   })
   vi.mocked(agentHubApi.list).mockResolvedValue({ items: [], counts: { queued: 0, running: 0, success: 0, failed: 0 } })
@@ -72,15 +72,15 @@ function stubLists() {
   vi.mocked(agentHubApi.workspaceList).mockResolvedValue({ items: [] })
 }
 
-function openLegacy() {
-  fireEvent.click(screen.getByRole('button', { name: '旧版任务' }))
+function renderLegacy() {
+  return render(<LanguageProvider value="zh-CN"><AgentHubPage showLegacy /></LanguageProvider>)
 }
 
 function workbenchAgents(items?: AgentHubStatus[]): AgentHubStatus[] {
   return items ?? [
     { name: 'codex', state: 'available', version: '1.2.3', nonInteractive: true, streamJSON: true, hint: '可用' },
     { name: 'cursor', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装 Cursor CLI' },
-    { name: 'kimi', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装 Kimi Code CLI（kimi）。安装后重新打开调度台。' },
+    { name: 'kimi', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装 Kimi Code CLI（kimi）。安装后重新打开 AgentHub。' },
   ]
 }
 
@@ -116,33 +116,34 @@ it('shortens work dirs in the task list', async () => {
     }],
     counts: { queued: 0, running: 0, success: 1, failed: 0 },
   })
-  render(<LanguageProvider value="zh-CN"><AgentHubPage /></LanguageProvider>)
-  await openLegacy()
+  renderLegacy()
   expect(await screen.findByText('codex · Trae-Work-Projects/lunitide')).toBeInTheDocument()
 })
 
-it('renders Home by default and opens 旧版任务 instead of the four tabs', async () => {
+it('renders a conversational Home with the selected agent name', async () => {
   stubLists()
   render(<LanguageProvider value="zh-CN"><AgentHubPage /></LanguageProvider>)
-  expect(await screen.findByRole('heading', { name: 'Agent 调度台' })).toBeInTheDocument()
+  await screen.findByLabelText('任务类型')
+  expect(screen.getByRole('heading', { level: 1, name: 'AgentHub' })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { level: 1, name: 'codex' })).toBeNull()
   expect(screen.getByText('消耗的是该 CLI 自己的会员额度')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '写项目' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '改代码' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '做 PPT' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '自由' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '旧版任务' })).toBeInTheDocument()
+  expect(screen.getByLabelText('任务类型')).toBeInTheDocument()
+  expect(screen.getByLabelText('权限')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '添加上下文' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '写项目' })).toBeNull()
+  expect(screen.queryByRole('button', { name: '旧版任务' })).toBeNull()
   expect(screen.queryByText('生成周报')).toBeNull()
   expect(screen.queryByText(/Pro 已登录/)).toBeNull()
   expect(screen.queryByText(/AI 军团/)).toBeNull()
   for (const name of ['工作台', '任务中心', '任务详情', '产物中心']) {
     expect(screen.queryByRole('tab', { name })).toBeNull()
   }
-  await openLegacy()
-  expect(screen.getByRole('tab', { name: '任务中心' })).toBeInTheDocument()
+  cleanup()
+  renderLegacy()
+  expect(await screen.findByRole('tab', { name: '任务中心' })).toBeInTheDocument()
   expect(screen.getByRole('tab', { name: '任务详情' })).toBeInTheDocument()
   expect(screen.queryByRole('tab', { name: '工作台' })).toBeNull()
   expect(screen.queryByRole('tab', { name: '产物中心' })).toBeNull()
-  expect(screen.queryByRole('button', { name: /其它任务/ })).toBeNull()
 })
 
 it('does not re-detect every 400ms while a task is live', async () => {
@@ -187,9 +188,8 @@ it('shows a finish banner when a live workbench task completes', async () => {
   vi.mocked(agentHubApi.list)
     .mockResolvedValueOnce({ items: [live], counts: { queued: 0, running: 1, success: 0, failed: 0 } })
     .mockResolvedValue({ items: [{ ...live, status: 'success' }], counts: { queued: 0, running: 0, success: 1, failed: 0 } })
-  render(<LanguageProvider value="zh-CN"><AgentHubPage /></LanguageProvider>)
+  renderLegacy()
   await act(async () => { await vi.advanceTimersByTimeAsync(0) })
-  await openLegacy()
   expect(document.querySelector('.agent-hub-status.running')).toHaveTextContent('进行中')
   await act(async () => { await vi.advanceTimersByTimeAsync(400) })
   expect(screen.getByText('任务已结束')).toBeInTheDocument()
@@ -391,7 +391,7 @@ it('keeps ppt unselected and shows an in-page hint when kimi is unavailable', as
   fireEvent.click(await screen.findByRole('button', { name: /做 PPT/ }))
   expect(alert).not.toHaveBeenCalled()
   expect(screen.getByRole('button', { name: '执行' })).toBeDisabled()
-  expect(screen.getByText('未安装 Kimi Code CLI（kimi）。安装后重新打开调度台。')).toBeInTheDocument()
+  expect(screen.getByText('未安装 Kimi Code CLI（kimi）。安装后重新打开 AgentHub。')).toBeInTheDocument()
   expect(screen.queryByText('添加文件后，Agent 会在本目录的 .agenthub-inbox 里读副本。原文件不会被改。')).toBeNull()
 })
 
@@ -403,7 +403,7 @@ it('keeps the free agent and shows a hint when a grey capsule is clicked', async
   fireEvent.click(await screen.findByRole('button', { name: /其它任务/ }))
   fireEvent.click(screen.getByRole('button', { name: /Kimi 未安装/ }))
   expect(alert).not.toHaveBeenCalled()
-  expect(screen.getByText('未安装 Kimi Code CLI（kimi）。安装后重新打开调度台。')).toBeInTheDocument()
+  expect(screen.getByText('未安装 Kimi Code CLI（kimi）。安装后重新打开 AgentHub。')).toBeInTheDocument()
   fireEvent.change(screen.getByLabelText('任务说明'), { target: { value: '写说明' } })
   fireEvent.click(screen.getByRole('button', { name: '执行' }))
   await waitFor(() => expect(agentHubApi.start).toHaveBeenCalledWith(expect.objectContaining({ agent: 'codex' })))
@@ -434,9 +434,9 @@ it('opens a thread from selectedThreadId and returns to Home when newThreadNonce
   const view = render(<LanguageProvider value="zh-CN"><AgentHubPage selectedThreadId={threadId} newThreadNonce={0} /></LanguageProvider>)
   expect(await screen.findByLabelText('消息')).toBeInTheDocument()
   expect(screen.getByText('继续')).toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: '写项目' })).toBeNull()
+  expect(screen.queryByLabelText('任务类型')).toBeNull()
   view.rerender(<LanguageProvider value="zh-CN"><AgentHubPage selectedThreadId={undefined} newThreadNonce={1} /></LanguageProvider>)
-  expect(await screen.findByRole('button', { name: '写项目' })).toBeInTheDocument()
+  expect(await screen.findByLabelText('任务类型')).toBeInTheDocument()
   expect(screen.queryByLabelText('消息')).toBeNull()
 })
 
@@ -462,8 +462,7 @@ it('leaves 旧版任务 when selectedThreadId is set from the rail', async () =>
     events: [],
     files: [],
   })
-  const view = render(<LanguageProvider value="zh-CN"><AgentHubPage selectedThreadId={undefined} onOpenThread={vi.fn()} /></LanguageProvider>)
-  openLegacy()
+  const view = render(<LanguageProvider value="zh-CN"><AgentHubPage selectedThreadId={undefined} onOpenThread={vi.fn()} showLegacy /></LanguageProvider>)
   expect(screen.getByRole('tab', { name: '任务中心' })).toBeInTheDocument()
   view.rerender(<LanguageProvider value="zh-CN"><AgentHubPage selectedThreadId={threadId} onOpenThread={vi.fn()} /></LanguageProvider>)
   expect(await screen.findByLabelText('消息')).toBeInTheDocument()

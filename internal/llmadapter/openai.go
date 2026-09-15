@@ -1,6 +1,7 @@
 package llmadapter
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -8,6 +9,8 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+
+	"github.com/lunitide/lunitide/internal/modelfit"
 )
 
 type OpenAI struct {
@@ -26,11 +29,12 @@ type openAIRequest struct {
 		IncludeUsage bool `json:"include_usage"`
 	} `json:"stream_options,omitempty"`
 	Tools []openAITool `json:"tools,omitempty"`
-	// Disable-reasoning hints accepted by Volcengine/Qwen-compatible
-	// OpenAI endpoints. Unknown fields are ignored by strict OpenAI;
-	// a 400 strips them and retries once.
-	Thinking       *openAIThinking `json:"thinking,omitempty"`
-	EnableThinking *bool           `json:"enable_thinking,omitempty"`
+	// Profile-compiled thinking fields. *bool keeps explicit false
+	// (GLM clear_thinking) on the wire; nil omits the key.
+	Thinking        *openAIThinking `json:"thinking,omitempty"`
+	EnableThinking  *bool           `json:"enable_thinking,omitempty"`
+	ClearThinking   *bool           `json:"clear_thinking,omitempty"`
+	ReasoningEffort string          `json:"reasoning_effort,omitempty"`
 }
 type openAIThinking struct {
 	Type string `json:"type"`
@@ -113,10 +117,15 @@ func (a *OpenAI) TestConnection(ctx context.Context, secret []byte, in Request) 
 	return nil
 }
 
-func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool, emit func(Delta) error) (Response, error) {
-	in = attachEfficientRequest(in, a.o)
-	wn := buildWireNames(in.Tools, openAIToolNameMax)
-	p := openAIRequest{Model: in.Model, Messages: openAIMessages(in, wn, false), MaxTokens: in.MaxTokens, Stream: stream}
+func buildOpenAIRequest(in Request, wn *wireNames, stream bool, rawImageURL bool) openAIRequest {
+	maxTokens := in.MaxTokens
+	if in.Effective != nil && in.Effective.MaxTokens > 0 {
+		maxTokens = int(in.Effective.MaxTokens)
+	}
+	p := openAIRequest{Model: in.Model, Messages: openAIMessages(in, wn, rawImageURL), MaxTokens: maxTokens, Stream: stream}
+	if in.Effective != nil {
+		applyEffectiveParameters(&p, *in.Effective)
+	}
 	if in.DisableReasoning {
 		disabled := false
 		p.EnableThinking = &disabled
@@ -132,18 +141,40 @@ func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool
 			IncludeUsage bool `json:"include_usage"`
 		}{true}
 	}
+	return p
+}
+
+func applyEffectiveParameters(p *openAIRequest, eff modelfit.EffectiveParameters) {
+	if eff.ThinkingType != "" && eff.ThinkingType != "omitted" {
+		p.Thinking = &openAIThinking{Type: eff.ThinkingType}
+	}
+	if eff.Effort != "" && eff.Effort != "omitted" {
+		p.ReasoningEffort = eff.Effort
+	}
+	p.ClearThinking = eff.ClearThinking
+}
+
+func effectiveOf(in Request) modelfit.EffectiveParameters {
+	if in.Effective != nil {
+		return *in.Effective
+	}
+	return modelfit.EffectiveParameters{}
+}
+
+func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool, emit func(Delta) error) (Response, error) {
+	in = attachEfficientRequest(in, a.o)
+	wn := buildWireNames(in.Tools, openAIToolNameMax)
+	p := buildOpenAIRequest(in, wn, stream, false)
 	var last error
 	maxAttempts := attempts(a.o, in, stream)
 	sanitized := false
-	strippedEnableThinking := false
-	strippedThinking := false
 	rawImageURL := false
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		body, err := marshalBounded(p, a.o.MaxRequestBytes)
+		prepared, err := freezeOpenAIPayload(p, a.o.MaxRequestBytes, in.Target, effectiveOf(in), stream)
 		if err != nil {
 			return Response{}, err
 		}
-		req, err := a.c.NewRequest(ctx, http.MethodPost, "chat/completions", body)
+		req, err := a.c.NewRequest(ctx, http.MethodPost, "chat/completions", bytes.NewReader(prepared.Body))
 		if err != nil {
 			return Response{}, classify(err)
 		}
@@ -170,18 +201,8 @@ func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool
 			// ...). On a 400 with tools attached, retry exactly once with
 			// sanitized schemas before giving up; the chat layer then
 			// falls back to plain dialogue with this reason surfaced.
-			if resp.StatusCode == http.StatusBadRequest && in.DisableReasoning && !strippedEnableThinking && p.EnableThinking != nil {
-				strippedEnableThinking = true
-				p.EnableThinking = nil
-				attempt--
-				continue
-			}
-			if resp.StatusCode == http.StatusBadRequest && in.DisableReasoning && !strippedThinking && p.Thinking != nil {
-				strippedThinking = true
-				p.Thinking = nil
-				attempt--
-				continue
-			}
+			// Unknown thinking fields are not stripped: compiled parameters
+			// stay on the frozen body, and 400 is the attempt outcome.
 			if resp.StatusCode == http.StatusBadRequest && len(in.Images) > 0 && !rawImageURL && imageURLWantsRawBase64(reason) {
 				rawImageURL = true
 				p.Messages = openAIMessages(in, wn, true)

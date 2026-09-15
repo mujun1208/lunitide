@@ -64,33 +64,146 @@ func factNodeUsable(n Node) bool {
 	return kind != "formula" && kind != "error" && kind != "invalid"
 }
 
+type FactBinding struct {
+	FactID           string `json:"factId"`
+	Value            string `json:"value"`
+	Unit             string `json:"unit,omitempty"`
+	Currency         string `json:"currency,omitempty"`
+	Period           string `json:"period,omitempty"`
+	Rounding         string `json:"rounding,omitempty"`
+	SourceVersionSHA string `json:"sourceVersionSha,omitempty"`
+	SourceNodeDigest string `json:"sourceNodeDigest"`
+	TargetNodeDigest string `json:"targetNodeDigest,omitempty"`
+	Verification     string `json:"verification,omitempty"`
+}
+
 func LocateFactNode(insp Inspection, fact Fact) (Node, bool) {
-	for _, n := range insp.Nodes {
-		if factNodeUsable(n) && n.Text == fact.Value {
-			return n, true
-		}
+	b, ok := BindFact(insp, fact)
+	if !ok {
+		return Node{}, false
 	}
 	for _, n := range insp.Nodes {
-		if factNodeUsable(n) && factAppears(Inspection{Nodes: []Node{n}}, fact) {
+		if n.Digest == b.SourceNodeDigest {
 			return n, true
 		}
 	}
 	return Node{}, false
 }
 
+func BindFact(insp Inspection, fact Fact) (FactBinding, bool) {
+	var hits []Node
+	for _, n := range insp.Nodes {
+		if !factNodeUsable(n) || !typedValueEqual(n.Text, fact.Value) {
+			continue
+		}
+		if !factContextOK(insp, n, fact) {
+			continue
+		}
+		hits = append(hits, n)
+	}
+	if len(hits) == 0 {
+		return FactBinding{}, false
+	}
+	if strings.TrimSpace(fact.Currency) == "" && strings.TrimSpace(fact.Period) == "" && distinctFactContexts(insp, hits) > 1 {
+		return FactBinding{}, false
+	}
+	chosen := hits[0]
+	for _, n := range hits {
+		if n.Text == fact.Value {
+			chosen = n
+			break
+		}
+	}
+	return FactBinding{
+		FactID: fact.FactID, Value: fact.Value, Unit: fact.Unit, Currency: fact.Currency, Period: fact.Period,
+		SourceNodeDigest: chosen.Digest, Verification: "typed-node",
+	}, true
+}
+
 func factAppears(insp Inspection, f Fact) bool {
 	for _, n := range insp.Nodes {
-		if !factNodeUsable(n) {
+		if !factNodeUsable(n) || !typedValueEqual(n.Text, f.Value) {
 			continue
 		}
 		if n.Text == f.Value {
 			return true
 		}
-		if strings.Contains(n.Text, f.Value) && (f.Unit == "" || strings.Contains(n.Text, f.Unit)) {
+		if f.Unit == "" || strings.Contains(n.Text, f.Unit) {
 			return true
 		}
 	}
 	return false
+}
+
+func typedValueEqual(text, value string) bool {
+	if text == value || value == "" {
+		return text == value
+	}
+	for start := 0; start <= len(text)-len(value); start++ {
+		if text[start:start+len(value)] != value {
+			continue
+		}
+		if start > 0 && isASCIIDigit(text[start-1]) {
+			continue
+		}
+		if start+len(value) < len(text) && isASCIIDigit(text[start+len(value)]) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func isASCIIDigit(b byte) bool { return b >= '0' && b <= '9' }
+
+func factContextOK(insp Inspection, n Node, f Fact) bool {
+	ctx := nodeFactContext(insp, n)
+	if f.Unit != "" && !strings.Contains(ctx, f.Unit) {
+		return false
+	}
+	if f.Currency != "" && !strings.Contains(ctx, f.Currency) {
+		return false
+	}
+	if f.Period != "" && !strings.Contains(ctx, f.Period) {
+		return false
+	}
+	return true
+}
+
+func nodeFactContext(insp Inspection, n Node) string {
+	if !strings.HasPrefix(n.Locator, "cell:") {
+		return n.Text
+	}
+	_, row, ok := splitA1(strings.TrimPrefix(n.Locator, "cell:"))
+	if !ok {
+		return n.Text
+	}
+	var b strings.Builder
+	for _, o := range insp.Nodes {
+		if o.Part != n.Part {
+			continue
+		}
+		_, r, ok := splitA1(strings.TrimPrefix(o.Locator, "cell:"))
+		if ok && r == row {
+			if b.Len() > 0 {
+				b.WriteByte(' ')
+			}
+			b.WriteString(o.Text)
+		}
+	}
+	if b.Len() == 0 {
+		return n.Text
+	}
+	return b.String()
+}
+
+func distinctFactContexts(insp Inspection, nodes []Node) int {
+	seen := map[string]bool{}
+	for _, n := range nodes {
+		ctx := nodeFactContext(insp, n)
+		seen[ctx] = true
+	}
+	return len(seen)
 }
 
 type FactRef struct {

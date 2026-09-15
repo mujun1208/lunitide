@@ -285,7 +285,7 @@ func TestPlanVerifyUsesFlashWhenVendorHasPlusAndFlash(t *testing.T) {
 
 func TestPlanStepToolsInheritRoute(t *testing.T) {
 	e := NewEngine(nil, "test")
-	got := planStepTools(e, RouteR1, nil)
+	got := planStepTools(e, executionModeApproval, RouteR1, nil)
 	for _, d := range got {
 		if d.Name == "computer.act" || d.Name == "desktop.open" {
 			t.Fatalf("R1 plan step leaked %s", d.Name)
@@ -295,19 +295,20 @@ func TestPlanStepToolsInheritRoute(t *testing.T) {
 
 func TestPlanStepToolsKeepsMergedOfficeAllow(t *testing.T) {
 	e, _ := officeEngineFixture(t)
-	route, allow := classifyTaskRoute("写周报", false, false)
-	if route != RouteR4 || !allow["office.generate"] {
+	route, allow := classifyTaskRoute("根据新闻生成 Word 文档，不打开文件", false, false)
+	if route != RouteR1 || !allow["office.generate"] {
 		t.Fatalf("route=%q allow office.generate=%v", route, allow["office.generate"])
 	}
-	got := planStepTools(e, route, allow)
-	seen := false
+	got := planStepTools(e, executionModeApproval, route, allow)
+	seen := map[string]bool{}
 	for _, d := range got {
-		if d.Name == "office.generate" {
-			seen = true
-		}
+		seen[d.Name] = true
 	}
-	if !seen {
-		t.Fatal("merged office.generate must stay on plan steps")
+	if !seen["office.generate"] || !seen["workspace.read"] || !seen["web.search"] {
+		t.Fatalf("merged R1+R4 plan tools missing studio/read/search: %v", seen)
+	}
+	if seen["desktop.open"] || seen["computer.act"] {
+		t.Fatalf("negated-open plan must not keep desktop/computer.act: %v", seen)
 	}
 }
 

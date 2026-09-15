@@ -22,6 +22,9 @@ func TestLooksLikeReportAndNovelTasks(t *testing.T) {
 	if looksLikeReportTask("做一份介绍 PPT") || looksLikeNovelTask("打开桌面协议") {
 		t.Fatal("PPT and unrelated tasks must not start the docx pipeline")
 	}
+	if looksLikeReportTask("根据本工作目录材料写一份周报 Markdown，不要生成 Office 文档。") || wantsOfficeGen("根据本工作目录材料写一份周报 Markdown，不要生成 Office 文档。") || officeGenToolForGoal("根据本工作目录材料写一份周报 Markdown，不要生成 Office 文档。") != "" {
+		t.Fatal("explicit Markdown weekly must not start the Office pipeline")
+	}
 }
 
 func TestReportDocxGenBlockedUntilResearch(t *testing.T) {

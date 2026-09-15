@@ -247,6 +247,16 @@ func (fakeSQLQuerier) Query(_ context.Context, _ string, _ string, _ []any, _ in
 	return []string{"id", "name"}, [][]any{{int64(1), "alpha"}}, false, nil
 }
 
+func TestDbQueryWithoutTargetFails(t *testing.T) {
+	e, _, _ := newM7RuntimeEngineHarness(t)
+	ctx := context.Background()
+	resp := e.Handle(ctx, m7Request(bridge.MethodDbQuery,
+		`{"runId":"run-db-notarget","sql":"SELECT 1","maxRows":100,"timeoutMs":5000}`, ""))
+	if resp.OK || resp.Error == nil || resp.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+		t.Fatalf("no-target want BRIDGE_SCHEMA_INVALID, got %#v", resp)
+	}
+}
+
 func TestDbQueryWhitelistAndConnectionGuards(t *testing.T) {
 	e, svc, _ := newM7RuntimeEngineHarness(t)
 	ctx := context.Background()

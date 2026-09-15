@@ -153,6 +153,7 @@ type chatTurnToolBuild struct {
 	Companion      bool
 	Equip          turnEquipment
 	SubagentPolicy subagentChatPolicy
+	ProjectPhase   int
 }
 
 func resolveChatToolProfile(companion bool, trialSkillIDs []string, explicit, intentText string) toolProfile {
@@ -187,5 +188,19 @@ func (e *Engine) chatTurnToolDefinitions(b chatTurnToolBuild) []llmadapter.ToolD
 	if b.Companion {
 		tools = filterCompanionDefaultTools(tools)
 	}
-	return tools
+	return filterDeliverableDraft(tools, b.ProjectPhase, b.Companion)
+}
+
+func filterDeliverableDraft(tools []llmadapter.ToolDefinition, phase int, companion bool) []llmadapter.ToolDefinition {
+	if phase >= 1 && !companion {
+		return tools
+	}
+	out := make([]llmadapter.ToolDefinition, 0, len(tools))
+	for _, d := range tools {
+		if d.Name == "deliverable.draft" {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out
 }

@@ -6,6 +6,7 @@
 // persists it on completion, and a returning MessagePanel rehydrates
 // from the registry and continues rendering the live reply.
 import type { ChatStream, StreamArtifact, StreamEvent } from '../bridge/client'
+import { coerceTaskOutcome, type TaskOutcome } from './taskOutcome'
 
 const LOCAL_CANCEL_ID = '01ARZ3NDEKTSV4RRFFQ69G5FAZ'
 const CANCEL_WAIT_MS = 800
@@ -37,6 +38,7 @@ export interface LiveChatState {
   error?: { message: string; code: string; retryable: boolean }
   guidance?: { labels: string[]; digest: string }
   equip?: { experts: string[]; skills?: string[]; missingMcp?: string[] }
+  taskOutcome?: TaskOutcome
 }
 
 export interface LiveChatEntry {
@@ -189,6 +191,8 @@ export function applyLiveChatEvent(entry: LiveChatEntry, event: StreamEvent): vo
       }
       case 'completed':
         state.chatStatus = 'done'
+        const nextOutcome = coerceTaskOutcome(event.completed?.taskOutcome)
+        if (nextOutcome) state.taskOutcome = nextOutcome
         entry.terminal = true
         break
       case 'cancelled':

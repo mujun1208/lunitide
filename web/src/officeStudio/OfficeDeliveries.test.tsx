@@ -297,12 +297,12 @@ it('exports the accepted older version by default and accurately labels its miss
       onClose={vi.fn()}
     />,
   );
-  await screen.findByText(/其中 1 份尚未通过全部检查/);
+  await screen.findByText(/检查通过不是正式决定/);
   expect(screen.getByLabelText('报告.docx 导出版本')).toHaveProperty('value', 'v1');
   fireEvent.click(screen.getByRole('button', { name: '固定版本并导出' }));
   await screen.findByRole('heading', { name: '交付包已保存' });
   expect(actions.create).toHaveBeenCalledExactlyOnceWith({ title: '季度报告交付包', versionIds: ['v1'] });
-  expect(actions.export).toHaveBeenCalledWith({ bundleId: 'bundle-1' });
+  expect(actions.export).toHaveBeenCalledWith({ bundleId: 'bundle-1', deliveryMode: 'formal' });
   fireEvent.click(screen.getByRole('button', { name: '打开交付包所在文件夹' }));
   await waitFor(() => expect(actions.open).toHaveBeenCalledWith(exported.manifestPath));
 });
@@ -347,8 +347,47 @@ it('says a passed check is not a formal accept when every selected file passed',
       onClose={vi.fn()}
     />,
   );
-  expect(await screen.findByText(/检查通过不是已接受为正式版/)).toBeTruthy();
+  expect(await screen.findByText(/检查通过不是正式决定/)).toBeTruthy();
   expect(screen.queryByText(/尚未通过全部检查/)).toBeNull();
+});
+
+it('TestModelFitAndOfficeOutcomeUI: formal bundle shows FormalDecision and keeps copy', async () => {
+  const actions = bundleActions();
+  const decision = {
+    decisionId: '01ARZ3NDEKTSV4RRFFQ69G5FAD',
+    versionId: 'v1',
+    allowed: false,
+    state: 'needs_review',
+    missingChecks: ['actual-render'],
+  };
+  vi.mocked(actions.export).mockImplementation(async (input) => {
+    if (input.deliveryMode === 'formal') {
+      throw Object.assign(new Error('此版本检查未全部完成，所缺检查：actual-render。请选择导出草稿'), {
+        code: 'OFFICE_DRAFT_REQUIRED',
+        details: { decision },
+        decision,
+      });
+    }
+    return { ...exported, decision };
+  });
+  render(
+    <OfficeBundleDialog
+      open
+      taskId="task"
+      taskTitle="季度报告"
+      artifacts={[artifact]}
+      actions={actions}
+      onClose={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: '固定版本并导出' }));
+  expect(await screen.findByText('01ARZ3NDEKTSV4RRFFQ69G5FAD')).toBeVisible();
+  expect(screen.getByText('needs_review')).toBeVisible();
+  expect(screen.getByText('actual-render')).toBeVisible();
+  expect(screen.queryByText('verified')).toBeNull();
+  expect(screen.getByRole('button', { name: '导出草稿包' })).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', { name: '导出草稿包' }));
+  await waitFor(() => expect(actions.export).toHaveBeenCalledWith({ bundleId: 'bundle-1', deliveryMode: 'copy' }));
 });
 
 it('keeps explicit version choices through background polling and requires at least one file', async () => {

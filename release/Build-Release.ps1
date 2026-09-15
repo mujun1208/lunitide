@@ -3,6 +3,7 @@ param(
   [string]$OutputRoot = 'release/out',
   [switch]$SkipInstaller,
   [switch]$RequireSignature,
+  [switch]$Publish,
   [switch]$AllowUnsignedDevelopment,
   [string]$SignCommand = $env:LUNITIDE_SIGN_COMMAND,
   [string]$ExpectedSignerThumbprint = $env:LUNITIDE_SIGNER_THUMBPRINT
@@ -15,6 +16,7 @@ $root=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $version=(Get-Content (Join-Path $root 'VERSION') -Raw).Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$') { throw 'VERSION is invalid' }
 if (-not $SkipInstaller -and -not $AllowUnsignedDevelopment) { $RequireSignature=$true }
+if ($Publish -and -not $RequireSignature) { throw 'GitHub publish requires a signed installer; do not combine -Publish with -AllowUnsignedDevelopment' }
 $out=Assert-ReleaseChildPath (Join-Path $root $OutputRoot) (Join-Path $root 'release')
 $stage=Assert-ReleaseChildPath (Join-Path $out "Lunitide-$version-x64") $out
 $cache=Assert-ReleaseChildPath (Join-Path $root '.release-cache') $root
@@ -49,11 +51,7 @@ function Publish-GitHubRelease([string]$Version, [string]$Installer, [string]$La
   if (Test-Path -LiteralPath $notes -PathType Leaf) { $createArgs += @('--notes-file',$notes) }
   else { $createArgs += @('--notes','Desktop overlay installer and latest.json for in-app update.') }
   & gh @createArgs
-  if ($LASTEXITCODE) {
-    & gh release upload $tag $Installer $LatestJson --clobber
-    if ($LASTEXITCODE) { Write-Warning ("GitHub release publish failed for {0}" -f $tag) }
-    else { & gh release edit $tag --latest }
-  }
+  if ($LASTEXITCODE) { throw ("GitHub release create failed for {0}" -f $tag) }
 }
 function Assert-PublisherSignature([string]$Artifact) {
   if (-not $RequireSignature) { return }
@@ -220,7 +218,7 @@ if (-not $SkipInstaller) {
     Copy-Item -LiteralPath $installer -Destination (Join-Path $updates $installerName) -Force
     [System.IO.File]::WriteAllText((Join-Path $updates 'latest.json'),$latestJson)
   }
-  Publish-GitHubRelease $version $installer (Join-Path $out 'latest.json')
+  if ($Publish) { Publish-GitHubRelease $version $installer (Join-Path $out 'latest.json') }
 }
 Assert-ReleaseSourceUnchanged $sourceBefore (Get-ReleaseSourceSnapshot $root $out)
 Write-Host "Release stage: $stage"; if (-not $SkipInstaller) { Write-Host "Installer: $installer" }

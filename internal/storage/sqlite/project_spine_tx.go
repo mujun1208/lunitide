@@ -89,7 +89,7 @@ func (t *txAdapter) enforceDevChecklist(ctx context.Context, p project.Project) 
 	return nil
 }
 
-func (t *txAdapter) enforceFactoryGates(ctx context.Context, p project.Project, phase int) error {
+func (t *txAdapter) enforceFactoryGates(ctx context.Context, p project.Project, phase int, emptyBoardAck bool) error {
 	if phase == project.DBPhase(p.Type) && p.DBStatus != project.DBReady {
 		return projectapp.ErrDBIncomplete
 	}
@@ -101,12 +101,33 @@ func (t *txAdapter) enforceFactoryGates(ctx context.Context, p project.Project, 
 		if projectboard.Dirty(iface) {
 			return projectapp.ErrBoardDirty
 		}
-		for _, item := range iface.Items {
-			if item.ChangeKind == "removed" {
-				continue
+		if emptyBoardActiveCount(iface) == 0 {
+			if !emptyBoardAck {
+				return projectapp.ErrEmptyBoardAck
 			}
-			if item.Status != "dev_done" {
-				return phaseGateError("interface board is incomplete")
+		} else {
+			for _, item := range iface.Items {
+				if item.ChangeKind == "removed" {
+					continue
+				}
+				if item.Status != "dev_done" {
+					return phaseGateError("interface board is incomplete")
+				}
+			}
+		}
+	}
+	if phase == project.DevPhase(p.Type) {
+		dev, err := t.loadChecklistTx(ctx, p.ID, phase, "dev_checklist")
+		if err != nil {
+			return err
+		}
+		if projectboard.Dirty(dev) {
+			return projectapp.ErrBoardDirty
+		}
+		if emptyBoardActiveCount(dev) == 0 && !emptyBoardAck {
+			feat, ferr := t.loadChecklistTx(ctx, p.ID, project.DesignPhase(p.Type), "feature_dev_list")
+			if ferr == nil && emptyBoardActiveCount(feat) == 0 && p.Type != project.TypeOperations {
+				return projectapp.ErrEmptyBoardAck
 			}
 		}
 	}
@@ -157,6 +178,16 @@ func (t *txAdapter) enforceFactoryGates(ctx context.Context, p project.Project, 
 		}
 	}
 	return nil
+}
+
+func emptyBoardActiveCount(doc projecttask.Doc) int {
+	n := 0
+	for _, item := range doc.Items {
+		if item.ChangeKind != "removed" {
+			n++
+		}
+	}
+	return n
 }
 
 func (t *txAdapter) materializeRulesTx(ctx context.Context, p project.Project) (projectrules.Manifest, error) {
@@ -219,7 +250,7 @@ func (t *txAdapter) writeChecklistTx(ctx context.Context, p project.Project, pha
 		WriteFile(context.Context, string, []byte) error
 	})
 	if !ok {
-		return nil
+		return projectapp.ErrAttachmentRequired
 	}
 	body, err := json.Marshal(doc)
 	if err != nil {

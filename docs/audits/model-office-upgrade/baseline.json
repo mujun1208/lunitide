@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-09-13",
+  "applicationVersion": "0.4.81",
+  "commit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+  "traceabilityCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+  "sourcePack": "docs/design/feilunshengj",
+  "sourcePackBaseline": {
+    "applicationVersion": "0.4.79",
+    "commit": "c6517da0f54638b06b6cfd74668c9aff1404ecc3",
+    "latestMigrationClaimed": "0154_agent_hub_threads.sql"
+  },
+  "latestAppliedMigration": "0156_project_factory.sql",
+  "occupiedMigrations": [
+    "0155_project_root_tree.sql",
+    "0156_project_factory.sql"
+  ],
+  "reservedMigrations": {
+    "model_native": "0157_model_native_v2.sql",
+    "execution": "0158_execution_contract_v2.sql",
+    "office": "0159_office_delivery_v2.sql"
+  },
+  "toolchain": {
+    "go": "go1.26.6 windows/amd64",
+    "node": "v24.16.0",
+    "fonts": "windows-fonts",
+    "libreOffice": "missing"
+  },
+  "workspace": {
+    "dirtyPathsDigest": "c82acc2f81cf919b8a61c67212570be3fd7d3d0084ba017d4a96104a1794787d"
+  },
+  "caseDigests": {
+    "D01": "8d5d89f943d51172c5d6a7518ae7cd4db009f5b07b6af2301cc15897dc007637",
+    "D02": "cb6b7b6e6065317237bedf3b771105d317d978cd4bc97c941a64ac2c6de4dda1",
+    "D03": "03552d9b10f3046fba1ffd0db209214ebe00512165f1bc36c36f764046734950",
+    "P01": "0330863c5c24f09a7b6a99506e1130603505ba0fa7a34db167ac3b4f4ecae1b6",
+    "P02": "8be6dccd7df39869c5ff85d7a55098d9aca6f3ca61f8c2ffd72ba78ba842dd2a",
+    "P03": "68731ccdc4f9011cde6e51cc56de95f968e8a871d25b45079073d4a9c4889b9d",
+    "X01": "9c2dc32f12116e4bd206e67f4743fec6b3400a6d61a20a9a4a51380753cca54e",
+    "X02": "5f07922ac60ac67ee0b5570ecf1134be81bd8507c8081e1b5c38ab744b66e21b",
+    "X03": "2a4bbc583689767aa1da30f0d0f58d30defa0d505f84133aacade499ead634b6",
+    "F01": "ef3c06e41a483b5f96f4e0a131745dd4d3a2d534b66655fc01bbdb5d6902d31c",
+    "F02": "f14dcee2d488eaff7e03e775e3c015779e8b52bad720df8cc6cefaedf434b51b",
+    "F03": "3c0533c72ee6ef3c1f935c63a5f3fcf04542a3bb7a5a712387d9b6986c059d51",
+    "R01": "02ce3a5e6d5b0758d0e27b694944890b26ee976bf9d859c80276e92309a13033",
+    "R02": "40f8ccb5bdc1d0f55024ccf3b55e626226e1b21ffdce35712c1ef03bee9703cd",
+    "R03": "dd918b8704d49830ac368283aff484953ead18c82000fdabb5621fb2f38ecb95",
+    "R04": "3541aa3f78edc6b08ae0fe9980f889b9686f929b7fd562d1fc4313bc724bd2df",
+    "L01": "b8822b07e50c33a698955134eb3c0cfb51728f6c10c7adfa3239dedaf522e10e",
+    "L02": "c87ab54dd1454eb8768bc5644cb4a1a98674330026688176ee5442595be6fa9c",
+    "L03": "d7f5d8f678b762040d653babcaa0d621fbf4a047dc278f9622f786782237ed5e",
+    "L04": "d411aba12f57f6a601dd7ce62e79f5c65fca78c767d98a1e22bb4d97782c4b7d",
+    "C01": "6040df9555d9a0998d9d58007e63ac2e0bdf6b5f0ba4db612cedad5e8dc63fc1",
+    "C02": "25e4937d385e0ad4c7c2e643d9e8a903ad4a2b14f702edf34e85cbd8da7ec4d7",
+    "C03": "28182fca2d6be626772eea54be535413f31989c143263809e60d36137dc8bc43",
+    "C04": "ab47001335fd1f14e6ca9c74794366b4fadde9dbe770d444a6069025ca31ba61"
+  },
+  "scope": "T01 freeze after factory 0.4.81; repo/test journal now includes 0157-0159 and pack engineering first locks; latestAppliedMigration is not a user production database; layers.E stays pending",
+  "layers": {
+    "E": "pending",
+    "Q": "ran",
+    "D": "not_run"
+  }
+}

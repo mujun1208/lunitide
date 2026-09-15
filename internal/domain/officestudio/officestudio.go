@@ -190,6 +190,8 @@ type Store interface {
 	AcceptOfficeVersion(context.Context, string, string, string, int64) (Head, error)
 	AddOfficeValidation(context.Context, Validation) (Validation, error)
 	ListOfficeValidations(context.Context, string) ([]Validation, error)
+	FindOfficeDeliveryDecision(context.Context, string, string, string, string) (FormalDecision, bool, error)
+	SaveOfficeDeliveryDecision(context.Context, FormalDecision, string, string) (FormalDecision, error)
 	AppendOfficeStepReceipt(context.Context, StepReceipt) error
 	ListOfficeStepReceipts(context.Context, string, string) ([]StepReceipt, error)
 	AddOfficeEvidenceEdge(context.Context, EvidenceEdge) error

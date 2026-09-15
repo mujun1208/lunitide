@@ -1,7 +1,10 @@
 package officestudio
 
 import (
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -60,5 +63,65 @@ func TestVisualModelCheckReviewErrorIsMissing(t *testing.T) {
 	})
 	if c.Status != "missing" {
 		t.Fatalf("%#v", c)
+	}
+}
+
+func TestWriteVisualReviewWorkspaceWritesEveryPage(t *testing.T) {
+	dir := t.TempDir()
+	pages := [][]byte{[]byte("page-a"), []byte("page-b"), []byte("page-c")}
+	man, err := WriteVisualReviewWorkspace(dir, pages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(filepath.Join(dir, "page.bin")); err == nil {
+		t.Fatal("must not write only page.bin")
+	}
+	for i := range pages {
+		name := filepath.Join(dir, visualPageFileName(i))
+		got, readErr := os.ReadFile(name)
+		if readErr != nil || string(got) != string(pages[i]) {
+			t.Fatalf("page %d missing: %v %q", i, readErr, got)
+		}
+	}
+	if err = ValidateVisualManifest(man, 3); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored VisualManifest
+	if err = json.Unmarshal(raw, &stored); err != nil || stored.PageCount != 3 {
+		t.Fatalf("manifest: %v %#v", err, stored)
+	}
+}
+
+func TestRunConfiguredVisualReviewRejectsExitZeroEmptyJSON(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "vision.cmd")
+	if err := os.WriteFile(exe, []byte("@echo off\r\nexit /b 0\r\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LUNITIDE_OFFICE_VISION", exe)
+	_, _, err := RunConfiguredVisualReview([][]byte{[]byte("p0"), []byte("p1")})
+	if err == nil {
+		t.Fatal("exit 0 without JSON must fail")
+	}
+}
+
+func TestRunConfiguredVisualReviewRequiresAllReviewedPages(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "stdout.json")
+	if err := os.WriteFile(out, []byte(`{"reviewer":"fixture","version":"1","reviewedPages":[0],"issues":[]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(dir, "vision.cmd")
+	if err := os.WriteFile(exe, []byte("@echo off\r\ntype \""+out+"\"\r\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LUNITIDE_OFFICE_VISION", exe)
+	_, _, err := RunConfiguredVisualReview([][]byte{[]byte("p0"), []byte("p1")})
+	if err == nil {
+		t.Fatal("JSON that reviews only page 0 must fail")
 	}
 }

@@ -221,7 +221,13 @@ func LocalOCRReady() LocalReady {
 }
 
 func (s *Service) HealthSnapshot() HealthSnapshot {
-	snap := HealthSnapshot{Local: LocalOCRReady(), Pack: DetectPPOcrPack("")}
+	packRoot := ""
+	if s != nil {
+		if r, err := s.Routing(); err == nil {
+			packRoot = r.PackRoot
+		}
+	}
+	snap := HealthSnapshot{Local: LocalOCRReady(), Pack: DetectPPOcrPack(ResolvePPOcrRoot(packRoot))}
 	if s == nil {
 		return snap
 	}

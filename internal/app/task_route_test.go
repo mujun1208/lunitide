@@ -168,6 +168,11 @@ func TestClassifyTaskRoute(t *testing.T) {
 			must:   []string{"office.generate", "docx.gen", "workspace.read", "web.search"},
 			forbid: []string{"desktop.open", "computer.act", "browser.act"},
 		},
+		{
+			id:       "weekly-markdown-refuse-office",
+			goal:     "根据本工作目录材料写一份周报 Markdown，不要生成 Office 文档。",
+			nilAllow: true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.id, func(t *testing.T) {
@@ -337,6 +342,64 @@ func keysOf(m map[string]bool) []string {
 		}
 	}
 	return out
+}
+
+func officeStudioToolDefs() []llmadapter.ToolDefinition {
+	names := []string{
+		"office.generate", "office.inspect", "office.patch", "office.deliver",
+		"docx.gen", "excel.gen", "web.search", "workspace.read", "user.ask",
+		"skill.try", "skill.invoke",
+	}
+	out := make([]llmadapter.ToolDefinition, len(names))
+	for i, name := range names {
+		out[i] = llmadapter.ToolDefinition{Name: name}
+	}
+	return out
+}
+
+func routedLaneToolNames(goal string) map[string]bool {
+	route, allow := classifyTaskRoute(goal, false, false)
+	got := applyTaskRoute(officeStudioToolDefs(), route, allow)
+	in := LaneInput{Goal: goal}
+	lane := classifyChatLane(in)
+	_, contract := applyLaneOverrides(lane, in, route, CouncilOverlay{})
+	seen := map[string]bool{}
+	for _, d := range applyLaneTools(got, contract) {
+		seen[d.Name] = true
+	}
+	return seen
+}
+
+func TestWeeklyReportChatPipelineKeepsOfficeGenerate(t *testing.T) {
+	t.Parallel()
+	seen := routedLaneToolNames("写周报")
+	if !seen["office.generate"] || !seen["user.ask"] || !seen["skill.invoke"] {
+		t.Fatalf("写周报 L2-ask pipeline dropped studio tools: %v", seen)
+	}
+	if seen["docx.gen"] || seen["web.search"] {
+		t.Fatalf("写周报 L2-ask must not keep scrape/docx after lanes: %v", seen)
+	}
+}
+
+func TestGenerateWordNewsPipelineKeepsReadAndOfficeGenerate(t *testing.T) {
+	t.Parallel()
+	seen := routedLaneToolNames("根据新闻生成 Word 文档，不打开文件")
+	if !seen["office.generate"] || !seen["workspace.read"] {
+		t.Fatalf("news+Word+不打开 must keep office.generate and workspace.read: %v", seen)
+	}
+}
+
+func TestApplyTaskRouteKeepsSkillTryOnWeeklyR4(t *testing.T) {
+	t.Parallel()
+	route, allow := classifyTaskRoute("写周报", false, false)
+	got := applyTaskRoute(officeStudioToolDefs(), route, allow)
+	seen := map[string]bool{}
+	for _, d := range got {
+		seen[d.Name] = true
+	}
+	if !seen["skill.try"] || !seen["office.generate"] {
+		t.Fatalf("R4 must keep skill.try and office.generate: %v", seen)
+	}
 }
 
 func TestRoutedChatRetainsConnectedDirectAndDeferredMcpTools(t *testing.T) {

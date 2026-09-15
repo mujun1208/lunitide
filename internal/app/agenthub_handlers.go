@@ -14,7 +14,7 @@ import (
 
 func handleAgentHub(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	if e.agentHub == nil {
-		return r.Fail("FEATURE_DISABLED", "Agent 调度台尚未初始化", false)
+		return r.Fail("FEATURE_DISABLED", "AgentHub 尚未初始化", false)
 	}
 	switch r.Method {
 	case "agentHub.detect":
@@ -255,7 +255,7 @@ func handleAgentHub(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 	case "agentHub.file.open":
 		return handleAgentHubOpen(e, r)
 	default:
-		return r.Fail("BRIDGE_SCHEMA_INVALID", "未知的调度台方法", false)
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "未知的 AgentHub 方法", false)
 	}
 }
 
@@ -382,7 +382,7 @@ func agentHubFailure(r bridge.Request, err error) bridge.Response {
 	default:
 		msg := err.Error()
 		if !strings.Contains(msg, "工作目录不受支持") && !strings.Contains(msg, "路径不受支持") && !strings.ContainsAny(msg, "任务目录参数工作") {
-			msg = "调度台操作失败"
+			msg = "AgentHub 操作失败"
 		}
 		return r.Fail("AGENT_HUB_FAILED", msg, false)
 	}

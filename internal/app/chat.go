@@ -347,11 +347,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	if !p.Companion {
 		instruction += videoTaskInstruction(intent.Text)
 		instruction = appendTypedStableBlocks(instruction, bundledWorkflowInjectionForLane(laneIn.Goal, startLane), e.workspaceRepoGuidance())
-		if p.ProjectPhase >= 1 && p.ProjectID != "" && projectServiceAvailable(e.projects) {
-			if proj, perr := e.projects.Get(ctx, p.ProjectID); perr == nil && proj.RootPath != "" {
-				instruction += projectrules.Guidance(proj.RootPath)
-			}
-		}
+		instruction += e.projectFactoryGuidance(ctx, p.ProjectID, p.ProjectPhase)
 	}
 	if hint := projectPhaseWorkflowInjection(p.ProjectPhase, p.ProjectPhaseLabel); hint != "" {
 		instruction += hint
@@ -501,6 +497,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		turnTools = e.chatTurnToolDefinitions(chatTurnToolBuild{
 			Mode: mode, Profile: turnProfile, Companion: p.Companion,
 			Equip: equip, SubagentPolicy: subagentPolicy,
+			ProjectPhase: p.ProjectPhase,
 		})
 	}
 
@@ -1781,6 +1778,17 @@ func chatStreamError(err error) *bridge.StreamError {
 		}
 	}
 	return streamError("UPSTREAM_FAILED", "模型请求失败", true)
+}
+
+func (e *Engine) projectFactoryGuidance(ctx context.Context, projectID string, phase int) string {
+	if phase < 1 || projectID == "" || !projectServiceAvailable(e.projects) {
+		return ""
+	}
+	proj, err := e.projects.Get(ctx, projectID)
+	if err != nil || proj.RootPath == "" {
+		return ""
+	}
+	return projectrules.Guidance(proj.RootPath)
 }
 
 func ulidValid(s string) bool { _, err := ulid.ParseStrict(s); return err == nil }

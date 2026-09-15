@@ -64,6 +64,34 @@ func TestIsChecklistTypeIncludesJSONDocs(t *testing.T) {
 	}
 }
 
+func TestRenderPrefixesIncompleteInterviewBanner(t *testing.T) {
+	out, err := Render(Input{
+		ProjectName: "商场", DocumentType: "biz_req_analysis",
+		IncompleteInterview: true,
+		Answers:             map[string]string{"core_problem": "进销存"},
+	})
+	if err != nil || !strings.Contains(out, IncompleteInterviewBanner) || !strings.HasPrefix(strings.TrimSpace(out), ">") {
+		t.Fatalf("md banner: %q %v", out, err)
+	}
+	list, err := Render(Input{
+		DocumentType:        "req_task_list",
+		IncompleteInterview: true,
+		Answers:             map[string]string{"core_problem": "进销存"},
+	})
+	if err != nil || !strings.Contains(list, IncompleteInterviewBanner) || !strings.HasPrefix(strings.TrimSpace(list), "{") {
+		t.Fatalf("json note: %q %v", list, err)
+	}
+	if !PhaseAnswersComplete(1, map[string]string{
+		"core_problem": "进销存", "system_shape": "桌面", "stack": "Go",
+		"data_store": "SQLite", "tree_choice": "默认", "rule_strictness": "草稿",
+	}) {
+		t.Fatal("expected complete")
+	}
+	if PhaseAnswersComplete(1, map[string]string{"core_problem": "进销存"}) {
+		t.Fatal("partial interview must be incomplete")
+	}
+}
+
 func TestPhase1HasNineSkeletons(t *testing.T) {
 	if got := PhaseDocumentTypes(1); len(got) != 9 {
 		t.Fatalf("phase1=%d", len(got))

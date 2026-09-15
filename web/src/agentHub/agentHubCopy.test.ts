@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { ACCESS_MODES, composeHubPrompt, FREE_TEMPLATES, hubSceneToThreadScene, mergeEvents, parentWorkspacePath, pptDeckMissing, sceneBlurb, scenePrefix, shortWorkDir, statusLabel, taskElapsed, threadPptMissing, threadTitleFromPrompt, visibleHubArtifacts } from './agentHubCopy'
+import { ACCESS_MODES, composeHubPrompt, FREE_TEMPLATES, hubSceneToThreadScene, hubTemplatesForScene, mergeEvents, parentWorkspacePath, pptDeckMissing, sceneBlurb, scenePrefix, shortWorkDir, statusLabel, taskElapsed, threadPptMissing, threadTitleFromPrompt, visibleHubArtifacts } from './agentHubCopy'
 
 it('clips a create title to the first 200-rune line', () => {
   expect(threadTitleFromPrompt('第一行\n第二行')).toBe('第一行')
@@ -9,6 +9,14 @@ it('clips a create title to the first 200-rune line', () => {
 it('keeps the weekly-report Markdown template and never offers generating a weekly Office file', () => {
   expect(FREE_TEMPLATES.map(item => item.zh)).toContain('写周报 Markdown')
   expect(FREE_TEMPLATES.map(item => item.zh).join(' ')).not.toContain('生成周报')
+})
+
+it('keeps Markdown templates off PPT and code scenes', () => {
+  expect(hubTemplatesForScene('docs').map(item => item.zh)).toContain('写周报 Markdown')
+  expect(hubTemplatesForScene('free').map(item => item.zh)).toContain('写周报 Markdown')
+  expect(hubTemplatesForScene('ppt')).toEqual([])
+  expect(hubTemplatesForScene('write')).toEqual([])
+  expect(hubTemplatesForScene('fix')).toEqual([])
 })
 
 it('prefixes shortcuts but leaves free prompts clean until inbox files exist', () => {
@@ -53,10 +61,11 @@ it('maps the write home scene to write_project and keeps the other thread scenes
   expect(hubSceneToThreadScene('write')).toBe('write_project')
   expect(hubSceneToThreadScene('fix')).toBe('fix')
   expect(hubSceneToThreadScene('ppt')).toBe('ppt')
+  expect(hubSceneToThreadScene('docs')).toBe('free')
   expect(hubSceneToThreadScene('free')).toBe('free')
 })
 
-it('keeps the spec §8 permission chip labels', () => {
+it('keeps the spec §8 permission labels', () => {
   expect(ACCESS_MODES.map(item => [item.id, item.zh])).toEqual([
     ['approval', '手动'],
     ['auto-edit', '自动'],

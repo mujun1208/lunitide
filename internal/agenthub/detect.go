@@ -226,10 +226,10 @@ func looksLoggedOut(text string) bool {
 func installHint(name string) string {
 	switch name {
 	case "codex":
-		return "未安装 Codex CLI。安装后重新打开调度台。"
+		return "未安装 Codex CLI。安装后重新打开 AgentHub。"
 	case "cursor":
-		return "未安装 Cursor CLI（cursor-agent）。安装后重新打开调度台。"
+		return "未安装 Cursor CLI（cursor-agent）。安装后重新打开 AgentHub。"
 	default:
-		return "未安装 Kimi Code CLI（kimi）。安装后重新打开调度台。"
+		return "未安装 Kimi Code CLI（kimi）。安装后重新打开 AgentHub。"
 	}
 }

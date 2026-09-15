@@ -15,6 +15,7 @@ func sha256Sum(body []byte) []byte {
 	return sum[:]
 }
 
+
 func TestDefaultHTTPGetRejectsForeignHost(t *testing.T) {
 	if _, err := DefaultHTTPGet(context.Background(), "https://evil.example/latest.json"); err == nil {
 		t.Fatal("foreign host must fail closed")

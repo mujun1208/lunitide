@@ -157,6 +157,7 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	engine.SetStorageReadiness(store)
 	engine.SetToolOperationStore(store)
 	engine.SetCallAttemptStore(store)
+	app.AttachProductionExecutionBudget(engine, store.AgentRuntimeRepository())
 	engine.SetMessageGroupStore(store)
 	coordinator, err := agentorchestration.New(store.AgentOrchestrationRepository(), agentorchestration.Limits{MaxDepth: 8, MaxConcurrency: 64}, nil)
 	if err != nil {

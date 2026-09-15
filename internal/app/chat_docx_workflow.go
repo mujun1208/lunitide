@@ -80,7 +80,7 @@ func looksLikeReportTask(text string) bool {
 	}
 	t := strings.ToLower(strings.TrimSpace(text))
 	// A spoken closeout is not a request to create a report document.
-	if spokenResultReportOnly(t) {
+	if spokenResultReportOnly(t) || refusesOfficeGen(text) {
 		return false
 	}
 	if t == "" || officeExpertIntroduction(text) || looksLikeStatusFollowUp(t) || looksLikeResume(t) || looksLikePptTask(text) {

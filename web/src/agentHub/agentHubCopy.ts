@@ -1,6 +1,6 @@
 import type { AgentHubState } from './agentHubApi'
 
-export type HubScene = 'ppt' | 'write' | 'fix' | 'free'
+export type HubScene = 'ppt' | 'write' | 'fix' | 'docs' | 'free'
 export type AgentHubThreadScene = 'write_project' | 'fix' | 'ppt' | 'free'
 export type InboxFile = { name: string; path: string; size: number }
 
@@ -20,10 +20,11 @@ export const ACCESS_MODES = [
 ] as const
 
 export const THREAD_SCENES = [
-  { id: 'write' as const, zh: '写项目', en: 'Write project' },
-  { id: 'fix' as const, zh: '改代码', en: 'Fix code' },
-  { id: 'ppt' as const, zh: '做 PPT', en: 'Make a PPT' },
-  { id: 'free' as const, zh: '自由', en: 'Free' },
+  { id: 'write' as const, zh: '项目', en: 'Project' },
+  { id: 'fix' as const, zh: '代码', en: 'Code' },
+  { id: 'ppt' as const, zh: 'PPT', en: 'PPT' },
+  { id: 'docs' as const, zh: '文档', en: 'Docs' },
+  { id: 'free' as const, zh: '其他', en: 'Other' },
 ] as const
 
 export function sceneBlurb(scene: AgentHubThreadScene): string {
@@ -38,7 +39,9 @@ export function threadTitleFromPrompt(text: string): string {
 }
 
 export function hubSceneToThreadScene(scene: HubScene): AgentHubThreadScene {
-  return scene === 'write' ? 'write_project' : scene
+  if (scene === 'write') return 'write_project'
+  if (scene === 'docs') return 'free'
+  return scene
 }
 
 export const SCENE_KEY = 'lunitide:agent-hub-scene'
@@ -46,6 +49,9 @@ export const workDirKey = (scene: HubScene) => `lunitide:agent-hub-workdir:${sce
 
 export function scenePrefix(scene: HubScene, workDir: string, userText: string): string {
   if (scene === 'free') return userText
+  if (scene === 'docs') {
+    return `【场景：写文档】\n工作目录：${workDir}\n根据本目录已有材料写文档，只在本目录保存。\n\n用户任务：\n${userText}`
+  }
   if (scene === 'ppt') {
     return `【场景：做 PPT】\n工作目录：${workDir}\n只在本目录写文件。优先使用 kimi-slides。产出 pptx。参考文件在本目录或 .agenthub-inbox 时先读再做。\n\n用户任务：\n${userText}`
   }
@@ -73,6 +79,11 @@ export const FREE_TEMPLATES = [
 ] as const
 
 export const HUB_TEMPLATES = FREE_TEMPLATES
+
+export function hubTemplatesForScene(scene: HubScene): readonly typeof FREE_TEMPLATES[number][] {
+  if (scene === 'docs' || scene === 'free') return FREE_TEMPLATES
+  return []
+}
 
 export const HUB_SCENES = [
   { id: 'ppt' as const, agent: 'kimi' as const, zh: '做 PPT', en: 'Make a PPT', subZh: '固定交给 Kimi，用它自己的技能做演示文稿', subEn: 'Always Kimi, using its own slides skill' },

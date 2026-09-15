@@ -165,6 +165,7 @@ func handleProjectDeliverableGenerate(e *Engine, ctx context.Context, r bridge.R
 			Answers: answers, Prior: prior, Council: p.CouncilSynthesis,
 			AlreadyApproved: approved, OverwriteOK: p.OverwriteDrafts,
 			TemplateBody: e.templateBody(ctx, existing.TemplateID),
+			IncompleteInterview: !projectgen.PhaseAnswersComplete(p.Phase, answers),
 		})
 		if gerr != nil {
 			if gerr == projectgen.ErrGenerateSkipApproved {
@@ -439,6 +440,41 @@ func handleProjectBoardSync(e *Engine, ctx context.Context, r bridge.Request) br
 	return r.Ok(map[string]any{"board": next, "stats": st, "statsText": projectboard.FormatStats(st), "dirty": projectboard.Dirty(next)})
 }
 
+func checklistBoardKind(documentType string) projectboard.Kind {
+	switch documentType {
+	case "api_list", "interface_list":
+		return projectboard.KindInterface
+	case "feature_dev_list", "dev_checklist":
+		return projectboard.KindDev
+	case "test_checklist":
+		return projectboard.KindTest
+	case "integration_test_list":
+		return projectboard.KindIntegration
+	default:
+		return ""
+	}
+}
+
+func (e *Engine) checklistBoardDirty(ctx context.Context, proj project.Project, documentType string) bool {
+	switch documentType {
+	case "interface_list", "dev_checklist", "test_checklist", "integration_test_list":
+		return false
+	}
+	kind := checklistBoardKind(documentType)
+	if kind == "" || kind == projectboard.KindIntegration {
+		return false
+	}
+	board, _, err := e.loadBoard(ctx, proj, kind)
+	if err != nil {
+		return false
+	}
+	source, err := e.boardSource(ctx, proj, kind)
+	if err != nil {
+		return false
+	}
+	return projectboard.Dirty(projectboard.Sync(board, source))
+}
+
 func handleProjectBoardStats(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	kind, proj, err := e.decodeBoard(ctx, r)
 	if err != nil {
@@ -550,18 +586,30 @@ func handleProjectTestRun(e *Engine, ctx context.Context, r bridge.Request) brid
 		item.KindResults = map[string]projecttask.KindResult{}
 	}
 	item.KindResults[p.Kind] = res
+	scene := strings.HasPrefix(item.ID, "S") || len(item.MemberIDs) > 0
 	if projecttestkit.RequiredPassed(item) {
 		item.Status = "test_pass"
 	} else if res.Status == "fail" {
-		item.Status = "test_fail"
+		if scene {
+			item.Status = "pending"
+		} else {
+			item.Status = "test_fail"
+		}
 	}
 	test.Items[i] = item
 	phase, docType, title := project.TestPhase(proj.Type), "test_checklist", "测试检查清单"
-	if strings.HasPrefix(item.ID, "S") || len(item.MemberIDs) > 0 {
+	if scene {
 		phase, docType, title = 7, "integration_test_list", "集成测试场景清单"
 	}
 	if err = e.saveChecklist(ctx, proj, phase, docType, title, test, checklistWriteStatus(rec.Status)); err != nil {
 		return projectFailure(r, err)
+	}
+	if scene && res.Status == "fail" {
+		for _, mid := range item.MemberIDs {
+			if _, err = e.returnTestToSource(ctx, proj, mid, "集成场景失败，按来源退回"); err != nil {
+				return projectFailure(r, err)
+			}
+		}
 	}
 	return r.Ok(map[string]any{"result": res, "item": item})
 }
@@ -739,7 +787,7 @@ func (e *Engine) priorDeliverableText(ctx context.Context, projectID string, pha
 	}
 	var b strings.Builder
 	for _, item := range items {
-		if item.AttachmentID == "" {
+		if item.AttachmentID == "" || (item.Status != deliverable.StatusApproved && item.Status != deliverable.StatusImmutable) {
 			continue
 		}
 		att, err := e.projectAttachments.GetProjectAttachment(ctx, item.AttachmentID)

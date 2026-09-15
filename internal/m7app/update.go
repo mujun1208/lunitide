@@ -328,6 +328,14 @@ func (s *UpdateService) adoptFeedPackage(tx UpdateTx, ch m7flow.UpdateChannel, v
 	if err := tx.PutUpdatePackage(pkg); err != nil {
 		return m7flow.UpdatePackage{}, err
 	}
+	if _, err := s.recordAudit(tx, audit.Event{
+		ID: ulid.Make().String(), Action: "app_update.feed_adopted",
+		ResourceType: "update_package", ResourceID: pkg.ID,
+		Actor: "local-feed", AfterDigest: pkg.PackageDigest,
+		CorrelationID: pkg.ID, CreatedAt: m7RFC3339(now),
+	}); err != nil {
+		return m7flow.UpdatePackage{}, err
+	}
 	return pkg, nil
 }
 

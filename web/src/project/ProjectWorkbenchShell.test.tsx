@@ -185,3 +185,20 @@ it('asks history projects to pick a root before claiming the tree is ready', asy
   )
   expect(await screen.findByText('补选项目根')).toBeInTheDocument()
 })
+
+it('shows factory rule and database ready chips', async () => {
+  render(
+    <ProjectWorkbenchShell
+      project={{ ...project, rootPath: 'D:\\work\\mall', treeStatus: 'ready', rulesDigest: 'abc', dbStatus: 'ready' }}
+      projects={{} as ProjectBridge}
+      sessions={{ list: vi.fn().mockResolvedValue({ items: [phase1Session] }), create: vi.fn(), update: vi.fn(), delete: vi.fn() } as unknown as SessionBridge}
+      messages={{} as MessageBridge}
+      stages={{ list: vi.fn().mockResolvedValue({ items: [] }), create: vi.fn(), update: vi.fn() } as unknown as StageBridge}
+      chat={{} as ChatBridge}
+      providers={{} as ProviderBridge}
+      onBack={vi.fn()}
+    />,
+  )
+  expect(await screen.findByText(/规范已注入/)).toBeInTheDocument()
+  expect(screen.getByText(/库表 ready/)).toBeInTheDocument()
+})

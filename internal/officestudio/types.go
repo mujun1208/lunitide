@@ -69,23 +69,26 @@ type Structure struct {
 	TOCFields        int            `json:"tocFields,omitempty"`
 	PageFields       int            `json:"pageFields,omitempty"`
 	NeedsFieldUpdate bool           `json:"needsFieldUpdate,omitempty"`
+	PageCount        int            `json:"pageCount,omitempty"`
+	Pages            []int          `json:"pages,omitempty"`
 }
 
 type Spec struct {
-	SchemaVersion int              `json:"schemaVersion"`
-	Kind          Kind             `json:"kind"`
-	Title         string           `json:"title"`
-	BrandID       string           `json:"brandId,omitempty"`
-	TemplateID    string           `json:"templateId,omitempty"`
-	Slides        []Slide          `json:"slides,omitempty"`
-	Blocks        []Block          `json:"blocks,omitempty"`
-	Sheets        []Sheet          `json:"sheets,omitempty"`
-	Body          string           `json:"body,omitempty"`
+	SchemaVersion   int              `json:"schemaVersion"`
+	Kind            Kind             `json:"kind"`
+	Title           string           `json:"title"`
+	BrandID         string           `json:"brandId,omitempty"`
+	TemplateID      string           `json:"templateId,omitempty"`
+	Slides          []Slide          `json:"slides,omitempty"`
+	Blocks          []Block          `json:"blocks,omitempty"`
+	Sheets          []Sheet          `json:"sheets,omitempty"`
+	Body            string           `json:"body,omitempty"`
 	Audience        string           `json:"audience,omitempty"`
 	Purpose         string           `json:"purpose,omitempty"`
 	Confidentiality string           `json:"confidentiality,omitempty"`
-	Document      *DocumentOptions `json:"document,omitempty"`
-	Facts         []Fact           `json:"facts,omitempty"`
+	Document        *DocumentOptions `json:"document,omitempty"`
+	Facts           []Fact           `json:"facts,omitempty"`
+	LayoutTrace     LayoutTrace      `json:"layoutTrace,omitempty"`
 }
 
 type DocumentOptions struct {
@@ -114,6 +117,17 @@ type Slide struct {
 	Comparison   *ComparisonBlock `json:"comparison,omitempty"`
 	Metrics      []MetricBlock    `json:"metrics,omitempty"`
 	Evidence     []EvidenceItem   `json:"evidence,omitempty"`
+	LayoutTrace  LayoutTrace      `json:"layoutTrace,omitempty"`
+}
+
+type LayoutTrace struct {
+	RequestedVariant string `json:"requestedVariant,omitempty"`
+	ResolvedVariant  string `json:"resolvedVariant,omitempty"`
+	Density          string `json:"density,omitempty"`
+	ResolvedLayout   string `json:"resolvedLayout,omitempty"`
+	FontDigest       string `json:"fontDigest,omitempty"`
+	MeasureRevision  string `json:"measureRevision,omitempty"`
+	FitEvidence      string `json:"fitEvidence,omitempty"`
 }
 
 // Native charts contain editable DrawingML objects and an internal XLSX data
