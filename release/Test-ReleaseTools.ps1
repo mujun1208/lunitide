@@ -19,6 +19,8 @@ try{
   }
   & (Join-Path $PSScriptRoot 'Check-Coverage.ps1') -SelfTest
   if($LASTEXITCODE){throw 'Check-Coverage self-test failed'}
+  & (Join-Path $PSScriptRoot 'Check-Race.ps1') -SelfTest
+  if($LASTEXITCODE){throw 'Check-Race self-test failed'}
   Expect-Rejected {Assert-ReleaseChildPath $fixture $fixture} 'root is not its own child'
   Expect-Rejected {Assert-ReleaseChildPath (Join-Path $fixture '..\foreign') $fixture} 'parent traversal'
   $source=Join-Path $fixture 'source'; New-Item $source -ItemType Directory | Out-Null

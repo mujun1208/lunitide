@@ -90,6 +90,10 @@ jobs:
     env:
       CGO_ENABLED: "1"
       GOEXPERIMENT: nogreenteagc
+      # Push race 34907144926 aborted in runtime.adjustdefers during
+      # shrinkstack (golang/go#77955). Disabling stack shrink avoids that
+      # copystack path; Check-Race.ps1 still retries a leftover abort.
+      GODEBUG: gcshrinkstackoff=1
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -130,4 +134,7 @@ jobs:
         # linker, and lunitide.syso's .rsrc IMAGE_REL_AMD64_ADDR32 relocations
         # overflow in the race-inflated PE ("relocation truncated to fit").
         # Non-race Quality still builds and tests ./cmd/desktop.
-        run: go test -race -count=1 -p=4 -timeout 120m ./...
+        #
+        # Check-Race.ps1 isolates internal/app (parallel 1, one runtime-abort
+        # retry). 80b9d913 race jobs died in Go 1.26.6 GC/stack, not DATA RACE.
+        run: ./release/Check-Race.ps1 -Timeout 120m -AppTimeout 60m

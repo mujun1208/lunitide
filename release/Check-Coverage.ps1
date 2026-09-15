@@ -31,16 +31,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-
-function Test-GoRuntimeAbort {
-    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Text)
-    if ([string]::IsNullOrEmpty($Text)) { return $false }
-    return $Text -match 'fatal error: unexpected signal' -or
-        $Text -match 'unknown pc 0x' -or
-        $Text -match 'tryDeferToSpanScan' -or
-        $Text -match 'Exception 0xc0000005' -or
-        $Text -match 'fatal error: index out of range'
-}
+. (Join-Path $PSScriptRoot 'Go-TestHelpers.ps1')
 
 function Merge-CoverProfiles {
     param(
@@ -65,52 +56,8 @@ function Merge-CoverProfiles {
     @(, $mode) + $body | Set-Content -LiteralPath $Destination
 }
 
-function Invoke-GoTestCover {
-    param(
-        [Parameter(Mandatory = $true)][string[]]$GoArgs,
-        [int]$Attempts = 1
-    )
-    $nativePref = $null
-    if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
-        $nativePref = $PSNativeCommandUseErrorActionPreference
-        $PSNativeCommandUseErrorActionPreference = $false
-    }
-    try {
-        $attempt = 0
-        while ($true) {
-            $attempt++
-            $logPath = Join-Path ([IO.Path]::GetTempPath()) ('lunitide-cover-{0}.log' -f [guid]::NewGuid().ToString('N'))
-            Write-Host ("go {0} (attempt {1}/{2})" -f ($GoArgs -join ' '), $attempt, $Attempts)
-            & go @GoArgs 2>&1 | Tee-Object -FilePath $logPath | ForEach-Object { $_ }
-            $code = $LASTEXITCODE
-            if ($code -eq 0) { return }
-            $text = ''
-            if (Test-Path -LiteralPath $logPath) {
-                $text = Get-Content -LiteralPath $logPath -Raw
-            }
-            if ($attempt -lt $Attempts -and (Test-GoRuntimeAbort $text)) {
-                Write-Host 'Go runtime aborted coverage (Windows 1.26.6 HashTrieMap / Green Tea). Retrying once; assertion failures are not retried.'
-                continue
-            }
-            throw ("go test failed (exit {0})" -f $code)
-        }
-    } finally {
-        if ($null -ne $nativePref) {
-            $PSNativeCommandUseErrorActionPreference = $nativePref
-        }
-    }
-}
-
 if ($SelfTest) {
-    if (-not (Test-GoRuntimeAbort "fatal error: unexpected signal during runtime execution`nunknown pc 0x1`nException 0xc0000005")) {
-        throw 'expected ACCESS_VIOLATION dump to count as a runtime abort'
-    }
-    if (-not (Test-GoRuntimeAbort 'fatal error: index out of range in runtime.tryDeferToSpanScan')) {
-        throw 'expected Green Tea throw to count as a runtime abort'
-    }
-    if (Test-GoRuntimeAbort "--- FAIL: TestFoo (1.00s)`n    foo_test.go:1: index out of range") {
-        throw 'an assertion failure must not be retried as a runtime abort'
-    }
+    Assert-GoRuntimeAbortClassifier
     $scratch = Join-Path ([IO.Path]::GetTempPath()) ('lunitide-cover-selftest-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $scratch | Out-Null
     try {
@@ -151,7 +98,7 @@ $profiles = New-Object System.Collections.Generic.List[string]
 if ($appListed.Count -gt 0) {
     # Isolated so a HashTrieMap abort (Quality 34894852667) can retry without
     # re-running meetings (~9m) and the rest of the tree.
-    Invoke-GoTestCover -Attempts 2 -GoArgs @(
+    Invoke-GoLoggedTest -Attempts 2 -GoArgs @(
         'test',
         '-timeout', $Timeout,
         '-parallel', '1',
@@ -162,7 +109,7 @@ if ($appListed.Count -gt 0) {
 }
 
 if ($restListed.Count -gt 0) {
-    Invoke-GoTestCover -Attempts 1 -GoArgs (@(
+    Invoke-GoLoggedTest -Attempts 1 -GoArgs (@(
         'test',
         '-timeout', $Timeout,
         "-coverprofile=$restProfilePath"
