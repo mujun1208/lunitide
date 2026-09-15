@@ -41,6 +41,25 @@ func TestAgentHubKimiStartsWhenAvailable(t *testing.T) {
 	if !resp.OK {
 		t.Fatalf("%#v", resp)
 	}
+	var detail agenthub.TaskDetail
+	if err := json.Unmarshal(hubJSON(resp.Payload), &detail); err != nil {
+		t.Fatal(err)
+	}
+	// StartTask returns as soon as the task is queued; execute() still walks
+	// the allocated work dir. Returning here lets t.TempDir cleanup race that
+	// walk on Windows ("The process cannot access the file").
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		got := handleAgentHub(e, context.Background(), validRequest("agentHub.task.get", `{"taskId":"`+detail.Task.ID+`"}`))
+		if err := json.Unmarshal(hubJSON(got.Payload), &detail); err != nil {
+			t.Fatal(err)
+		}
+		if detail.Task.Status == "success" {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("kimi task did not finish: %+v", detail)
 }
 
 func TestAgentHubPreviewRejectsEscape(t *testing.T) {
