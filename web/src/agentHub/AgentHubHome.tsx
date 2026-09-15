@@ -3,7 +3,11 @@ import { SharedHubComposer, type HubAccessMode } from '../session/SharedHubCompo
 import { useZh } from '../i18n/language'
 import { agentHubApi, type AgentHubName, type AgentHubStatus } from './agentHubApi'
 import {
+  agentDisplayName,
+  agentInstall,
+  hubReadyState,
   hubTemplatesForScene,
+  latestThreadForHarness,
   PICK_PROJECT_DIR,
   SCENE_KEY,
   composeHubPrompt,
@@ -50,9 +54,10 @@ export function AgentHubHome({
   const [accessMode, setAccessMode] = useState<HubAccessMode>('approval')
   const [inboxFiles, setInboxFiles] = useState<InboxFile[]>([])
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [agents, setAgents] = useState<AgentHubStatus[] | null>(null)
   useEffect(() => {
-    void agentHubApi.detect().then(got => setAgents(got.agents ?? [])).catch(() => setAgents([]))
+    void agentHubApi.detect().then(got => setAgents(got.agents ?? [])).catch(() => setAgents(current => current ?? []))
   }, [])
   useEffect(() => {
     if (selectedAgent) {
@@ -63,6 +68,16 @@ export function AgentHubHome({
   }, [selectedAgent, onSelectAgent, agent])
   const detecting = agents === null
   const selected = agents?.find(item => item.name === agent)
+  const mode = hubReadyState(selected?.state)
+  const ready = mode === 'ready'
+  const install = agentInstall(agent)
+  const refreshDetect = async () => {
+    try {
+      setAgents((await agentHubApi.detect()).agents ?? [])
+    } catch {
+      setAgents(current => current ?? [])
+    }
+  }
   const blurb = scene === 'docs'
     ? (zh ? '根据本目录已有材料写文档，只在本目录保存。' : 'Write documents from this folder.')
     : sceneBlurb(hubSceneToThreadScene(scene))
@@ -127,6 +142,18 @@ export function AgentHubHome({
     setError('')
     try {
       const text = prompt.trim()
+      const listed = await agentHubApi.threadList({})
+      const existing = latestThreadForHarness(listed.items ?? [], agent)
+      if (existing) {
+        if (text) {
+          await agentHubApi.threadPrompt({
+            threadId: existing.threadId,
+            text: composeHubPrompt(scene, workDir || existing.workspaceRoot, text, inboxFiles),
+          })
+        }
+        onOpened?.(existing.threadId)
+        return
+      }
       const title = threadTitleFromPrompt(text)
       const created = await agentHubApi.threadCreate({
         harnessId: agent,
@@ -149,42 +176,93 @@ export function AgentHubHome({
   }
   return (
     <section className="hub-home">
-      <p className="agent-hub-hint">{zh ? '对话页就是月汐自己的界面，不嵌官方窗口。未接入的 CLI 不会出现。' : "This page is Lunitide's own UI. Official vendor windows are not embedded. CLIs that are not wired do not appear."}</p>
+      {agents && mode === 'missing' ? (
+        <article className="agent-hub-install">
+          <h2>{zh ? `${agentDisplayName(agent)} 还不能对话` : `${agentDisplayName(agent)} is not ready`}</h2>
+          <p>{selected?.hint || (zh ? '先安装，再点连接。' : 'Install it, then connect.')}</p>
+          <div className="agent-hub-install-row">
+            <a href={install.url} target="_blank" rel="noreferrer">{zh ? '打开安装说明' : 'Open install guide'}</a>
+            <button
+              type="button"
+              className="agent-hub-install-primary"
+              onClick={() => {
+                window.open(install.url, '_blank', 'noopener,noreferrer')
+                void navigator.clipboard?.writeText(install.command).catch(() => undefined)
+                setNotice(zh ? `已打开安装页，并复制了命令：${install.command}` : `Opened the install page and copied: ${install.command}`)
+                void refreshDetect()
+              }}
+            >
+              {zh ? '一键安装' : 'Install'}
+            </button>
+            <button type="button" className="agent-hub-install-ghost" onClick={() => void refreshDetect()}>
+              {zh ? '连接' : 'Connect'}
+            </button>
+          </div>
+          <p className="usage">{zh ? `安装命令：${install.command}` : `Install: ${install.command}`}</p>
+        </article>
+      ) : agents && mode === 'unsigned' ? (
+        <article className="agent-hub-install">
+          <h2>{zh ? `${agentDisplayName(agent)} 已安装，还没连上` : `${agentDisplayName(agent)} is installed, but not connected`}</h2>
+          <p>{selected?.hint || (zh ? '在该 CLI 里登录后，再点连接。' : 'Sign in to that CLI, then connect.')}</p>
+          <div className="agent-hub-install-row">
+            <button type="button" className="agent-hub-install-primary" onClick={() => void refreshDetect()}>
+              {zh ? '连接' : 'Connect'}
+            </button>
+          </div>
+        </article>
+      ) : agents && mode === 'unknown' ? (
+        <article className="agent-hub-install">
+          <h2>{zh ? `还没确认 ${agentDisplayName(agent)} 的状态` : `Still checking ${agentDisplayName(agent)}`}</h2>
+          <p>{zh ? '重新探测本机 CLI。' : 'Probe the local CLI again.'}</p>
+          <div className="agent-hub-install-row">
+            <button type="button" className="agent-hub-install-primary" onClick={() => void refreshDetect()}>
+              {zh ? '重新检测' : 'Retry'}
+            </button>
+          </div>
+        </article>
+      ) : (
+        <p className="agent-hub-hint">{zh ? `这是 ${agentDisplayName(agent)} 自己的对话窗。换到别的 Agent 不会带走这里的记忆。` : `This is ${agentDisplayName(agent)}'s own thread. Other Agents do not share this memory.`}</p>
+      )}
       {blurb ? <p className="agent-hub-hint">{blurb}</p> : null}
-      {selected?.hint && (selected.state !== 'available' || (selected.protocol === 'exec' && selected.interactive === false)) ? (
+      {selected?.hint && ready && selected.protocol === 'exec' && selected.interactive === false ? (
         <p className="agent-hub-hint">{selected.hint}</p>
       ) : null}
-      <SharedHubComposer
-        value={prompt}
-        onChange={setPrompt}
-        onSubmit={() => void submit()}
-        detecting={detecting}
-        placeholder={zh ? '向 Agent 描述任务…' : 'Describe the task for this Agent…'}
-        accessMode={accessMode}
-        onAccessMode={setAccessMode}
-        scene={scene}
-        onScene={selectScene}
-        showScene
-        workDir={workDir}
-        exportDir={exportDir}
-        onPickProject={() => void pickFolder()}
-        onPickExport={() => void pickExport()}
-        onPickFiles={() => void addInbox()}
-        inboxFiles={inboxFiles}
-        zh={zh}
-      />
-      <div className="agent-hub-templates">
-        {hubTemplatesForScene(scene).map(item => (
-          <button key={item.zh} type="button" onClick={() => setPrompt(item.prompt)}>
-            {zh ? item.zh : item.en}
-          </button>
-        ))}
-      </div>
-      {accessMode === 'auto-edit' ? (
-        <p className="agent-hub-hint">{zh ? '自动会放过改文件权限，执行和联网仍要你点。业务选项永远要人点。' : 'Auto allows file edits. Shell and network still need your click. Business choices always wait for you.'}</p>
-      ) : null}
-      {accessMode === 'full-access' ? (
-        <p className="agent-hub-hint">{zh ? '完全访问会自动放过该 CLI 的工具权限，并可能使用你本机已配的 MCP。业务选项仍要你点。' : 'Full access auto-allows this CLI tool permissions and may use MCP you already configured. Business choices still wait for you.'}</p>
+      {notice ? <p className="agent-hub-hint" role="status">{notice}</p> : null}
+      {ready || detecting ? (
+        <>
+          <SharedHubComposer
+            value={prompt}
+            onChange={setPrompt}
+            onSubmit={() => void submit()}
+            detecting={detecting}
+            placeholder={zh ? '向 Agent 描述任务…' : 'Describe the task for this Agent…'}
+            accessMode={accessMode}
+            onAccessMode={setAccessMode}
+            scene={scene}
+            onScene={selectScene}
+            showScene
+            workDir={workDir}
+            exportDir={exportDir}
+            onPickProject={() => void pickFolder()}
+            onPickExport={() => void pickExport()}
+            onPickFiles={() => void addInbox()}
+            inboxFiles={inboxFiles}
+            zh={zh}
+          />
+          <div className="agent-hub-templates">
+            {hubTemplatesForScene(scene).map(item => (
+              <button key={item.zh} type="button" onClick={() => setPrompt(item.prompt)}>
+                {zh ? item.zh : item.en}
+              </button>
+            ))}
+          </div>
+          {accessMode === 'auto-edit' ? (
+            <p className="agent-hub-hint">{zh ? '自动会放过改文件权限，执行和联网仍要你点。业务选项永远要人点。' : 'Auto allows file edits. Shell and network still need your click. Business choices always wait for you.'}</p>
+          ) : null}
+          {accessMode === 'full-access' ? (
+            <p className="agent-hub-hint">{zh ? '完全访问会自动放过该 CLI 的工具权限，并可能使用你本机已配的 MCP。业务选项仍要你点。' : 'Full access auto-allows this CLI tool permissions and may use MCP you already configured. Business choices still wait for you.'}</p>
+          ) : null}
+        </>
       ) : null}
       {error && <p className="agent-hub-error" role="alert">{error}</p>}
     </section>

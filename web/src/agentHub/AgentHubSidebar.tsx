@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useZh } from '../i18n/language'
-import { agentHubApi, type AgentHubName, type AgentHubStatus, type AgentHubTask, type AgentHubThread } from './agentHubApi'
-import { shortWorkDir, stateLabel } from './agentHubCopy'
+import { AgentHubMark } from './AgentHubMark'
+import { agentHubApi, type AgentHubName, type AgentHubStatus, type AgentHubThread } from './agentHubApi'
+import { agentDisplayName, HUB_AGENT_IDS, latestThreadForHarness, stateLabel } from './agentHubCopy'
 import './agentHub.css'
 
 export function AgentHubSidebar({
@@ -11,6 +12,7 @@ export function AgentHubSidebar({
   selectedAgent,
   onSelectAgent,
   onOpenLegacy,
+  onOpenHistory,
 }: {
   onOpenThread: (threadId: string) => void
   selectedThreadId?: string
@@ -18,14 +20,11 @@ export function AgentHubSidebar({
   selectedAgent?: string
   onSelectAgent?: (name: AgentHubName) => void
   onOpenLegacy?: (taskId: string) => void
+  onOpenHistory?: () => void
 }): React.JSX.Element {
   const zh = useZh()
   const [agents, setAgents] = useState<AgentHubStatus[]>([])
   const [threads, setThreads] = useState<AgentHubThread[]>([])
-  const [legacy, setLegacy] = useState<AgentHubTask[]>([])
-  const [query, setQuery] = useState('')
-  const [renameId, setRenameId] = useState('')
-  const [renameTitle, setRenameTitle] = useState('')
   const [connecting, setConnecting] = useState('')
   useEffect(() => {
     let alive = true
@@ -44,57 +43,30 @@ export function AgentHubSidebar({
       } catch {
         // Keep the last good detect result; a slow CLI --version must not blank the list.
       }
-      try {
-        const tasks = await agentHubApi.list()
-        if (!alive) return
-        setLegacy(tasks.items ?? [])
-      } catch {
-        if (alive) setLegacy([])
-      }
     }
     void load()
     return () => { alive = false }
   }, [selectedThreadId, newThreadNonce])
-  const groups = useMemo(() => {
-    const names = [...new Set([
-      ...agents.map(item => item.name),
-      ...threads.map(item => item.harnessId),
-    ])]
-    const q = query.trim().toLocaleLowerCase()
-    return names.map(name => ({
-      name,
-      agent: agents.find(item => item.name === name),
-      items: threads.filter(item => item.harnessId === name && (!q || item.title.toLocaleLowerCase().includes(q))),
-    }))
-  }, [agents, threads, query])
+  const rows = useMemo(() => HUB_AGENT_IDS.map(name => ({
+    name,
+    agent: agents.find(item => item.name === name),
+    thread: latestThreadForHarness(threads, name),
+  })), [agents, threads])
+  const openAgent = (name: AgentHubName, threadId?: string) => {
+    onSelectAgent?.(name)
+    onOpenThread(threadId ?? '')
+  }
   const connect = async (name: AgentHubName) => {
     setConnecting(name)
     try {
       const detected = await agentHubApi.detect()
       setAgents(detected.agents ?? [])
-      onSelectAgent?.(name)
+      openAgent(name, latestThreadForHarness(threads, name)?.threadId)
     } catch {
-      // Re-detect only; a failed probe must not become an unhandled rejection.
+      openAgent(name, latestThreadForHarness(threads, name)?.threadId)
     } finally {
       setConnecting('')
     }
-  }
-  const pin = async (item: AgentHubThread) => {
-    const next = await agentHubApi.threadUpdate({ threadId: item.threadId, pinned: !item.pinned })
-    setThreads(values => values.map(value => value.threadId === next.thread.threadId ? next.thread : value))
-  }
-  const saveTitle = async (item: AgentHubThread) => {
-    const title = renameTitle.trim()
-    if (!title) return
-    const next = await agentHubApi.threadUpdate({ threadId: item.threadId, title })
-    setThreads(values => values.map(value => value.threadId === next.thread.threadId ? next.thread : value))
-    setRenameId('')
-  }
-  const remove = async (item: AgentHubThread) => {
-    const ok = window.confirm(zh ? `删除会话「${item.title}」？` : `Delete thread “${item.title}”?`)
-    if (!ok) return
-    await agentHubApi.threadDelete({ threadId: item.threadId })
-    setThreads(values => values.filter(value => value.threadId !== item.threadId))
   }
   return (
     <nav
@@ -102,88 +74,50 @@ export function AgentHubSidebar({
       aria-label={zh ? 'AgentHub' : 'AgentHub'}
       style={{ flex: 1, minHeight: 0, overflow: 'auto' }}
     >
-      <label className="agent-hub-sidebar-search">
-        <input value={query} onChange={event => setQuery(event.target.value)} aria-label={zh ? '搜索会话' : 'Search threads'} />
-      </label>
-      {legacy.length > 0 && (
-        <section>
-          <h2 className="conversation-heading">{zh ? '旧版任务' : 'Legacy tasks'}</h2>
-          {legacy.map(item => (
-            <button
-              key={item.taskId}
-              type="button"
-              className="conversation-open"
-              onClick={() => onOpenLegacy?.(item.taskId)}
-            >
-              {item.agent} · {shortWorkDir(item.workDir || item.prompt)}
-            </button>
-          ))}
-        </section>
-      )}
-      {groups.map(group => (
-        <section key={group.name}>
-          <div className="agent-hub-agent-row">
+      <button
+        type="button"
+        className="agent-hub-history-btn"
+        onClick={() => {
+          if (onOpenHistory) onOpenHistory()
+          else onOpenLegacy?.('')
+        }}
+      >
+        <span>{zh ? '历史任务' : 'History'}</span>
+        <small>{zh ? '旧版任务中心' : 'Legacy tasks'}</small>
+      </button>
+      <div className="agent-hub-agents">
+        {rows.map(row => (
+          <div key={row.name} className={`agent-hub-agent-row${selectedAgent === row.name ? ' is-on' : ''}`}>
             <button
               type="button"
               className="agent-hub-agent-select"
-              aria-pressed={selectedAgent === group.name}
-              onClick={() => onSelectAgent?.(group.name as AgentHubName)}
+              aria-label={zh ? `打开 ${agentDisplayName(row.name)}` : `Open ${agentDisplayName(row.name)}`}
+              aria-pressed={selectedAgent === row.name}
+              onClick={() => openAgent(row.name, row.thread?.threadId)}
             >
-              <span className={`agent-hub-lamp ${group.agent?.state ?? 'unknown'}`} aria-hidden="true" />
-              <h2 className="conversation-heading">{group.name}</h2>
-              <small>{stateLabel(group.agent?.state ?? 'unknown', zh)}</small>
+              <span className="agent-hub-logo"><AgentHubMark name={row.name} /></span>
+              <span className="agent-hub-agent-copy">
+                <b>{agentDisplayName(row.name)}</b>
+                <em>{stateLabel(row.agent?.state ?? 'unknown', zh)}</em>
+              </span>
+              <span className={`agent-hub-lamp ${row.agent?.state ?? 'unknown'}`} aria-hidden="true" />
             </button>
             <button
               type="button"
               className="agent-hub-connect"
-              disabled={connecting === group.name}
-              onClick={() => void connect(group.name as AgentHubName)}
+              disabled={connecting === row.name}
+              aria-label={zh ? `连接 ${agentDisplayName(row.name)}` : `Connect ${agentDisplayName(row.name)}`}
+              onClick={() => void connect(row.name)}
             >
-              {zh ? '连接' : 'Connect'}
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="8" cy="12" r="3.2" />
+                <path d="M11.2 12h8.3M16.6 9.2v5.6" />
+              </svg>
             </button>
           </div>
-          {group.items.map(item => (
-            <div key={item.threadId} className={`conversation-row${item.pinned ? ' is-pinned' : ''}`}>
-              {renameId === item.threadId ? (
-                <>
-                  <input
-                    value={renameTitle}
-                    onChange={event => setRenameTitle(event.target.value)}
-                    aria-label={zh ? '会话标题' : 'Thread title'}
-                  />
-                  <button type="button" onClick={() => void saveTitle(item)}>{zh ? '保存标题' : 'Save title'}</button>
-                </>
-              ) : (
-                <button type="button" className="conversation-open" onClick={() => onOpenThread(item.threadId)}>{item.title}</button>
-              )}
-              <button
-                type="button"
-                className="conversation-more"
-                aria-label={`${item.pinned ? (zh ? '取消置顶' : 'Unpin') : (zh ? '置顶' : 'Pin')} ${item.title}`}
-                onClick={() => void pin(item)}
-              >
-                {item.pinned ? '⌃' : '📌'}
-              </button>
-              <button
-                type="button"
-                className="conversation-more"
-                aria-label={`${zh ? '重命名' : 'Rename'} ${item.title}`}
-                onClick={() => { setRenameId(item.threadId); setRenameTitle(item.title) }}
-              >
-                ✎
-              </button>
-              <button
-                type="button"
-                className="conversation-more"
-                aria-label={`${zh ? '删除' : 'Delete'} ${item.title}`}
-                onClick={() => void remove(item)}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </section>
-      ))}
+        ))}
+      </div>
+      <p className="agent-hub-side-foot">{zh ? '每个 Agent 各自记忆，互不串窗' : 'Each Agent keeps its own memory.'}</p>
     </nav>
   )
 }

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { ACCESS_MODES, composeHubPrompt, FREE_TEMPLATES, hubSceneToThreadScene, hubTemplatesForScene, mergeEvents, parentWorkspacePath, pptDeckMissing, sceneBlurb, scenePrefix, shortWorkDir, statusLabel, taskElapsed, threadPptMissing, threadTitleFromPrompt, visibleHubArtifacts } from './agentHubCopy'
+import { ACCESS_MODES, agentDisplayName, agentInstall, composeHubPrompt, FREE_TEMPLATES, HUB_AGENT_IDS, hubReadyState, hubSceneToThreadScene, hubTemplatesForScene, latestThreadForHarness, mergeEvents, parentWorkspacePath, pptDeckMissing, sceneBlurb, scenePrefix, shortWorkDir, stateLabel, statusLabel, taskElapsed, threadPptMissing, threadTitleFromPrompt, visibleHubArtifacts } from './agentHubCopy'
 
 it('clips a create title to the first 200-rune line', () => {
   expect(threadTitleFromPrompt('第一行\n第二行')).toBe('第一行')
@@ -84,6 +84,46 @@ it('says a thread PPT scene finished without a produced deck', () => {
   expect(threadPptMissing('ppt', [{ name: 'demo.pptx', path: 'demo.pptx', source: 'scan' }])).toBe(false)
   expect(threadPptMissing('ppt', [{ name: 'demo.pptx', path: 'demo.pptx', source: 'export' }])).toBe(false)
   expect(threadPptMissing('free', [])).toBe(false)
+})
+
+it('names the three rail agents and their official install pages', () => {
+  expect([...HUB_AGENT_IDS]).toEqual(['codex', 'cursor', 'kimi'])
+  expect(agentDisplayName('codex')).toBe('Codex')
+  expect(agentDisplayName('cursor')).toBe('Cursor')
+  expect(agentDisplayName('kimi')).toBe('Kimi')
+  expect(agentInstall('codex').url).toContain('openai/codex')
+  expect(agentInstall('codex').command).toContain('@openai/codex')
+  expect(agentInstall('cursor').url).toContain('cursor.com')
+  expect(agentInstall('kimi').url).toContain('kimi.com')
+})
+
+it('opens the newest thread for that harness, using pin only as a tie-break', () => {
+  const items = [
+    { harnessId: 'cursor', threadId: 'old', updatedAt: '2026-09-13T00:00:00Z', pinned: false },
+    { harnessId: 'cursor', threadId: 'fresh', updatedAt: '2026-09-14T00:00:00Z', pinned: false },
+    { harnessId: 'cursor', threadId: 'pin', updatedAt: '2026-09-12T00:00:00Z', pinned: true },
+    { harnessId: 'codex', threadId: 'other', updatedAt: '2026-09-15T00:00:00Z', pinned: true },
+  ]
+  expect(latestThreadForHarness(items, 'cursor')?.threadId).toBe('fresh')
+  expect(latestThreadForHarness([
+    { harnessId: 'cursor', threadId: 'a', updatedAt: '2026-09-14T00:00:00Z', pinned: false },
+    { harnessId: 'cursor', threadId: 'b', updatedAt: '2026-09-14T00:00:00Z', pinned: true },
+  ], 'cursor')?.threadId).toBe('b')
+  expect(latestThreadForHarness(items, 'kimi')).toBeUndefined()
+})
+
+it('maps CLI probe state to install, connect, or ready', () => {
+  expect(hubReadyState('available')).toBe('ready')
+  expect(hubReadyState('not_installed')).toBe('missing')
+  expect(hubReadyState('not_logged_in')).toBe('unsigned')
+  expect(hubReadyState('unknown')).toBe('unknown')
+  expect(hubReadyState(undefined)).toBe('unknown')
+})
+
+it('labels connect state the way the rail lamp reads', () => {
+  expect(stateLabel('available', true)).toBe('已连接')
+  expect(stateLabel('not_logged_in', true)).toBe('未连接')
+  expect(stateLabel('not_installed', true)).toBe('未安装')
 })
 
 it('labels thread statuses and keeps task labels', () => {

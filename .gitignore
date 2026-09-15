@@ -32,6 +32,8 @@ smoke-*/
 !.env.example
 coverage/
 coverage.out
+coverage-app.out
+coverage-rest.out
 .coverage
 # Local audit dumps: keep markdown/CSV, drop zips and raw gate logs.
 docs/audits/**/*.zip

@@ -9,7 +9,7 @@ import {
   type AgentHubThreadDetail,
   type AgentHubWorkspaceItem,
 } from './agentHubApi'
-import { parentWorkspacePath, statusLabel, threadPptMissing } from './agentHubCopy'
+import { agentDisplayName, parentWorkspacePath, statusLabel, threadPptMissing } from './agentHubCopy'
 
 function liveStatus(status: string | undefined): boolean {
   return status === 'running' || status === 'waiting_user'
@@ -136,7 +136,8 @@ export function AgentHubThread({
           <p className="agent-hub-hint" role="status">{zh ? '没有文稿。打开目录查看本轮文件，或看时间线说明。' : 'No deck was produced. Open the folder or read the timeline.'}</p>
         ) : null}
         {(detail?.messages ?? []).map(item => (
-          <div key={item.id} className="conversation-row" data-role={item.role}>
+          <div key={item.id} className={`hub-msg ${item.role === 'user' ? 'is-user' : 'is-bot'}`} data-role={item.role}>
+            {item.role !== 'user' ? <div className="hub-msg-meta">{agentDisplayName(detail?.thread.harnessId ?? '')}</div> : null}
             <p>{item.content}</p>
           </div>
         ))}

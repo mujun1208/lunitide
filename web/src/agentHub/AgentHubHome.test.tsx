@@ -10,6 +10,7 @@ vi.mock('./agentHubApi', () => ({
     pickDir: vi.fn(),
     threadCreate: vi.fn(),
     threadPrompt: vi.fn(),
+    threadList: vi.fn(),
     inbox: vi.fn(),
   },
 }))
@@ -35,6 +36,7 @@ function availableAgents() {
 
 function stubHome() {
   vi.mocked(agentHubApi.detect).mockResolvedValue({ agents: [...availableAgents()] })
+  vi.mocked(agentHubApi.threadList).mockResolvedValue({ items: [] })
 }
 
 function chooseProject() {
@@ -94,10 +96,10 @@ it('hides the weekly Markdown chip on the PPT scene', async () => {
   expect(screen.queryByRole('button', { name: '写周报 Markdown' })).toBeNull()
 })
 
-it('says the thread page is 月汐 UI and later CLIs stay off the list', async () => {
+it('says this window belongs to the selected Agent and later CLIs stay off the list', async () => {
   stubHome()
   render(<LanguageProvider value="zh-CN"><AgentHubHome selectedAgent="cursor" /></LanguageProvider>)
-  expect(await screen.findByText('对话页就是月汐自己的界面，不嵌官方窗口。未接入的 CLI 不会出现。')).toBeInTheDocument()
+  expect(await screen.findByText('这是 Cursor 自己的对话窗。换到别的 Agent 不会带走这里的记忆。')).toBeInTheDocument()
   expect(screen.getByLabelText('任务类型')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'pi' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'claude' })).toBeNull()
@@ -200,6 +202,7 @@ it('passes title, exportDir, and accessMode from Home', async () => {
 })
 
 it('uses the selected harness and shows the Codex one-shot hint', async () => {
+  vi.mocked(agentHubApi.threadList).mockResolvedValue({ items: [] })
   vi.mocked(agentHubApi.detect).mockResolvedValue({
     agents: [
       { name: 'cursor', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用', interactive: true, protocol: 'acp' },
@@ -290,15 +293,75 @@ it('does not start a thread when the selected harness is not available', async (
       { name: 'codex', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用', interactive: false, protocol: 'exec' },
     ],
   })
-  vi.mocked(agentHubApi.pickDir).mockResolvedValue({ canceled: false, path: 'E:/proj' })
   render(<LanguageProvider value="zh-CN"><AgentHubHome selectedAgent="cursor" /></LanguageProvider>)
   expect(await screen.findByText('未安装 Cursor CLI')).toBeInTheDocument()
-  chooseProject()
-  openPlus()
-  fireEvent.click(screen.getByRole('button', { name: /项目目录/ }))
-  expect(await screen.findByText(/E:\/proj/)).toBeInTheDocument()
-  fireEvent.change(screen.getByLabelText('任务说明'), { target: { value: '开始' } })
-  fireEvent.click(screen.getByRole('button', { name: '发送' }))
-  expect(screen.getByRole('alert')).toHaveTextContent('当前 Agent 不可用')
+  expect(screen.getByRole('heading', { name: 'Cursor 还不能对话' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: '打开安装说明' })).toHaveAttribute('href', 'https://cursor.com/docs/cli/overview')
+  expect(screen.getByRole('button', { name: '一键安装' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '连接' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '发送' })).toBeNull()
   expect(agentHubApi.threadCreate).not.toHaveBeenCalled()
+})
+
+it('asks a signed-out CLI to connect instead of installing again', async () => {
+  vi.mocked(agentHubApi.detect).mockResolvedValue({
+    agents: [
+      { name: 'cursor', state: 'not_logged_in', version: '1', nonInteractive: true, streamJSON: true, hint: 'Cursor CLI 未登录', interactive: true, protocol: 'acp' },
+    ],
+  })
+  render(<LanguageProvider value="zh-CN"><AgentHubHome selectedAgent="cursor" /></LanguageProvider>)
+  expect(await screen.findByRole('heading', { name: 'Cursor 已安装，还没连上' })).toBeInTheDocument()
+  expect(screen.getByText('Cursor CLI 未登录')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '连接' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '一键安装' })).toBeNull()
+  expect(screen.queryByRole('link', { name: '打开安装说明' })).toBeNull()
+  expect(screen.queryByRole('button', { name: '发送' })).toBeNull()
+})
+
+it('retries an unknown or failed probe instead of offering install', async () => {
+  vi.mocked(agentHubApi.detect).mockResolvedValue({
+    agents: [
+      { name: 'cursor', state: 'unknown', version: '', nonInteractive: true, streamJSON: true, hint: '', interactive: true, protocol: 'acp' },
+    ],
+  })
+  render(<LanguageProvider value="zh-CN"><AgentHubHome selectedAgent="cursor" /></LanguageProvider>)
+  expect(await screen.findByRole('heading', { name: '还没确认 Cursor 的状态' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '重新检测' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '一键安装' })).toBeNull()
+  cleanup()
+  vi.mocked(agentHubApi.detect).mockRejectedValue(new Error('timeout'))
+  render(<LanguageProvider value="zh-CN"><AgentHubHome selectedAgent="cursor" /></LanguageProvider>)
+  expect(await screen.findByRole('heading', { name: '还没确认 Cursor 的状态' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '一键安装' })).toBeNull()
+})
+
+it('continues the existing Cursor thread instead of creating a second memory', async () => {
+  stubHome()
+  vi.mocked(agentHubApi.threadList).mockResolvedValue({
+    items: [{
+      threadId: '01ARZ3NDEKTSV4RRFFQ69G5FAE',
+      harnessId: 'cursor',
+      nativeSessionId: '',
+      title: '旧会话',
+      pinned: false,
+      workspaceRoot: 'E:/proj',
+      exportDir: '',
+      scene: 'free',
+      status: 'idle',
+      accessMode: 'approval',
+      createdAt: '2026-09-13T00:00:00Z',
+      updatedAt: '2026-09-14T00:00:00Z',
+    }],
+  })
+  const onOpened = vi.fn()
+  render(<LanguageProvider value="zh-CN"><AgentHubHome selectedAgent="cursor" onOpened={onOpened} /></LanguageProvider>)
+  await screen.findByLabelText('任务说明')
+  fireEvent.change(screen.getByLabelText('任务说明'), { target: { value: '继续上次' } })
+  fireEvent.click(screen.getByRole('button', { name: '发送' }))
+  await waitFor(() => expect(agentHubApi.threadPrompt).toHaveBeenCalledWith(expect.objectContaining({
+    threadId: '01ARZ3NDEKTSV4RRFFQ69G5FAE',
+    text: expect.stringContaining('继续上次'),
+  })))
+  expect(agentHubApi.threadCreate).not.toHaveBeenCalled()
+  expect(onOpened).toHaveBeenCalledWith('01ARZ3NDEKTSV4RRFFQ69G5FAE')
 })

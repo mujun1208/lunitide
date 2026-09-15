@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import type { LocalWorkspaceBridge } from '../bridge/client'
 import { LocalExplorer } from './LocalExplorer'
 import type { WorkspaceToolActivity } from './Workspace'
@@ -54,17 +54,19 @@ export function CodePanel({
   onOpenPath?: (path: string) => void
 }): React.JSX.Element {
   const [file, setFile] = useState<OpenFile | undefined>()
-  const [recent, setRecent] = useState<string[]>([])
   const [openError, setOpenError] = useState('')
   const [treeOpen, setTreeOpen] = useState(true)
+  const [treeWidth, setTreeWidth] = useState(260)
+  const splitRef = useRef<HTMLDivElement>(null)
+  const dragCleanup = useRef<(() => void) | undefined>(undefined)
   const taskFiles = useMemo(() => extractTaskFiles(toolActivities), [toolActivities])
+  useEffect(() => () => dragCleanup.current?.(), [])
 
   const openFile = async (entry: TaskFileEntry) => {
     if (!bridge) return
     try {
       const read = await bridge.read(entry.path)
       setFile(read)
-      setRecent(prev => [entry.path, ...prev.filter(p => p !== entry.path)].slice(0, 8))
       onOpenPath?.(entry.path)
     } catch {
       setFile({ path: entry.path, content: entry.summary ?? `# ${entry.path}\n\n（无法读取文件内容，仅显示工具摘要）`, size: 0 })
@@ -81,10 +83,28 @@ export function CodePanel({
     void openFile(taskFiles[taskFiles.length - 1]!)
   }, [taskFiles.length, bridge])
 
+  const dragTree = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    const box = splitRef.current?.getBoundingClientRect()
+    if (!box) return
+    dragCleanup.current?.()
+    const onMove = (move: PointerEvent) => {
+      setTreeWidth(Math.min(480, Math.max(180, box.right - move.clientX)))
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      dragCleanup.current = undefined
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    dragCleanup.current = onUp
+  }
+
   return (
     <div className={`code-panel${treeOpen ? '' : ' is-tree-hidden'}`}>
       <header className="code-panel-toolbar">
-        <span className="code-panel-title">{file?.path.split(/[/\\]/).pop() || (projectRoot ? `代码 · ${projectRoot}` : '代码')}</span>
+        <span className="code-panel-title">{file?.path.split(/[/\\]/).pop() || '代码'}</span>
         <div className="workspace-chrome-tools">
           <button
             type="button"
@@ -113,69 +133,53 @@ export function CodePanel({
         </div>
       </header>
       {openError && <p className="code-panel-open-error" role="alert">{openError}</p>}
-      <div className="code-panel-split">
-        {treeOpen && <aside className="code-panel-tree" aria-label="任务相关文件">
-          <h3>任务相关文件</h3>
-          {taskFiles.length ? (
-            <ul className="code-task-files">
-              {taskFiles.map(entry => (
-                <li key={entry.path}>
-                  <button
-                    type="button"
-                    className={file?.path === entry.path ? 'on' : ''}
-                    onClick={() => void openFile(entry)}
-                  >
-                    <span className={`code-file-badge status-${entry.status}`} aria-hidden="true">
-                      {statusBadge(entry.status)}
-                    </span>
-                    <span className="code-file-path">{entry.path}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="code-panel-empty">本轮还没有代码变更；Agent 写入后会出现在这里。</p>
-          )}
-          {bridge ? (
-            <>
-              <h4>工作区目录</h4>
-              <LocalExplorer
-                bridge={bridge}
-                sessionId={sessionId}
-                isolateRoot={isolateRoot && !projectRoot}
-                projectRoot={projectRoot}
-                targetPath={targetPath ?? file?.path}
-                onPreview={next => {
-                  setFile(next)
-                  setRecent(prev => [next.path, ...prev.filter(p => p !== next.path)].slice(0, 8))
-                  onOpenPath?.(next.path)
-                }}
-              />
-            </>
-          ) : (
-            <p className="code-panel-empty">本地工作区暂不可用；代码浏览需要绑定本地文件夹。</p>
-          )}
-          {recent.length > 0 && (
-            <div className="code-recent">
-              <h4>最近打开</h4>
-              <ul>{recent.map(path => (
-                <li key={path}>
-                  <button type="button" onClick={() => void bridge?.read(path).then(setFile).catch(() => {})}>
-                    {path}
-                  </button>
-                </li>
-              ))}</ul>
-            </div>
-          )}
-        </aside>}
+      <div className="code-panel-split" ref={splitRef} style={{'--tree-width': `${treeWidth}px`} as React.CSSProperties}>
         <section className="code-panel-editor" aria-label="代码编辑器">
           {file ? <CodeEditorView file={file} /> : (
             <div className="code-panel-placeholder">
-              <b>选择左侧文件开始浏览</b>
-              <p>支持本地工作区只读预览；Agent 变更会标记 M/A/D 状态。</p>
+              <b>代码</b>
+              <p>从文件树选择文件即可在此处预览</p>
             </div>
           )}
         </section>
+        {treeOpen && (
+          <>
+            <button type="button" className="workspace-tree-resizer" role="separator" aria-orientation="vertical" aria-label="调整文件树宽度" onPointerDown={dragTree} />
+            <aside className="code-panel-tree" aria-label="文件树">
+              {taskFiles.length > 0 && (
+                <ul className="code-task-files">
+                  {taskFiles.map(entry => (
+                    <li key={entry.path}>
+                      <button
+                        type="button"
+                        className={file?.path === entry.path ? 'on' : ''}
+                        onClick={() => void openFile(entry)}
+                      >
+                        <span className={`code-file-badge status-${entry.status}`} aria-hidden="true">
+                          {statusBadge(entry.status)}
+                        </span>
+                        <span className="code-file-path" title={entry.path}>{entry.path.replace(/\\/g, '/')}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {bridge ? (
+                <LocalExplorer
+                  bridge={bridge}
+                  sessionId={sessionId}
+                  isolateRoot={isolateRoot && !projectRoot}
+                  projectRoot={projectRoot}
+                  targetPath={targetPath ?? file?.path}
+                  onPreview={next => {
+                  setFile(next)
+                  onOpenPath?.(next.path)
+                  }}
+                />
+              ) : null}
+            </aside>
+          </>
+        )}
       </div>
     </div>
   )
