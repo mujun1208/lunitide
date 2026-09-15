@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react'
 import { SharedHubComposer, type HubAccessMode } from '../session/SharedHubComposer'
 import { useZh } from '../i18n/language'
+import { AgentHubInstallActions } from './AgentHubInstallActions'
 import { agentHubApi, type AgentHubName, type AgentHubStatus } from './agentHubApi'
 import {
   agentDisplayName,
   agentInstall,
   hubReadyState,
   hubTemplatesForScene,
-  latestThreadForHarness,
   PICK_PROJECT_DIR,
   SCENE_KEY,
   composeHubPrompt,
@@ -142,18 +142,6 @@ export function AgentHubHome({
     setError('')
     try {
       const text = prompt.trim()
-      const listed = await agentHubApi.threadList({})
-      const existing = latestThreadForHarness(listed.items ?? [], agent)
-      if (existing) {
-        if (text) {
-          await agentHubApi.threadPrompt({
-            threadId: existing.threadId,
-            text: composeHubPrompt(scene, workDir || existing.workspaceRoot, text, inboxFiles),
-          })
-        }
-        onOpened?.(existing.threadId)
-        return
-      }
       const title = threadTitleFromPrompt(text)
       const created = await agentHubApi.threadCreate({
         harnessId: agent,
@@ -179,45 +167,29 @@ export function AgentHubHome({
       {agents && mode === 'missing' ? (
         <article className="agent-hub-install">
           <h2>{zh ? `${agentDisplayName(agent)} 还不能对话` : `${agentDisplayName(agent)} is not ready`}</h2>
-          <p>{selected?.hint || (zh ? '先安装，再点连接。' : 'Install it, then connect.')}</p>
+          <p>{selected?.hint || (zh ? '先检查本机 CLI，确认后再自动安装并连接。' : 'Check the local CLI, then install and connect here.')}</p>
           <div className="agent-hub-install-row">
-            <a href={install.url} target="_blank" rel="noreferrer">{zh ? '打开安装说明' : 'Open install guide'}</a>
-            <button
-              type="button"
-              className="agent-hub-install-primary"
-              onClick={() => {
-                window.open(install.url, '_blank', 'noopener,noreferrer')
-                void navigator.clipboard?.writeText(install.command).catch(() => undefined)
-                setNotice(zh ? `已打开安装页，并复制了命令：${install.command}` : `Opened the install page and copied: ${install.command}`)
-                void refreshDetect()
-              }}
-            >
-              {zh ? '一键安装' : 'Install'}
-            </button>
-            <button type="button" className="agent-hub-install-ghost" onClick={() => void refreshDetect()}>
-              {zh ? '连接' : 'Connect'}
-            </button>
+            <AgentHubInstallActions name={agent} zh={zh} onDone={next => { setAgents(next); setNotice('') }} />
           </div>
-          <p className="usage">{zh ? `安装命令：${install.command}` : `Install: ${install.command}`}</p>
+          <p className="usage">{zh ? `本机安装：${install.command}` : `Local install: ${install.command}`}</p>
         </article>
       ) : agents && mode === 'unsigned' ? (
         <article className="agent-hub-install">
           <h2>{zh ? `${agentDisplayName(agent)} 已安装，还没连上` : `${agentDisplayName(agent)} is installed, but not connected`}</h2>
-          <p>{selected?.hint || (zh ? '在该 CLI 里登录后，再点连接。' : 'Sign in to that CLI, then connect.')}</p>
+          <p>{selected?.hint || (zh ? '会自动登录该 CLI，再连上。不会打开网页。' : 'It will sign in to that CLI, then connect. No webpage will open.')}</p>
           <div className="agent-hub-install-row">
-            <button type="button" className="agent-hub-install-primary" onClick={() => void refreshDetect()}>
-              {zh ? '连接' : 'Connect'}
-            </button>
+            <AgentHubInstallActions name={agent} zh={zh} onDone={next => { setAgents(next); setNotice('') }} />
           </div>
         </article>
       ) : agents && mode === 'unknown' ? (
         <article className="agent-hub-install">
           <h2>{zh ? `还没确认 ${agentDisplayName(agent)} 的状态` : `Still checking ${agentDisplayName(agent)}`}</h2>
-          <p>{zh ? '重新探测本机 CLI。' : 'Probe the local CLI again.'}</p>
+          <p>{zh ? '重新探测本机 CLI，或直接安装并连接。' : 'Probe the local CLI again, or install and connect.'}</p>
           <div className="agent-hub-install-row">
-            <button type="button" className="agent-hub-install-primary" onClick={() => void refreshDetect()}>
+            <button type="button" className="agent-hub-install-ghost" onClick={() => void refreshDetect()}>
               {zh ? '重新检测' : 'Retry'}
             </button>
+            <AgentHubInstallActions name={agent} zh={zh} onDone={next => { setAgents(next); setNotice('') }} />
           </div>
         </article>
       ) : (
@@ -228,27 +200,29 @@ export function AgentHubHome({
         <p className="agent-hub-hint">{selected.hint}</p>
       ) : null}
       {notice ? <p className="agent-hub-hint" role="status">{notice}</p> : null}
+      <SharedHubComposer
+        value={prompt}
+        onChange={setPrompt}
+        onSubmit={() => void submit()}
+        detecting={detecting}
+        placeholder={zh ? '向 Agent 描述任务…' : 'Describe the task for this Agent…'}
+        accessMode={accessMode}
+        onAccessMode={setAccessMode}
+        scene={scene}
+        onScene={selectScene}
+        showScene
+        showAccess
+        showPlus
+        workDir={workDir}
+        exportDir={exportDir}
+        onPickProject={() => void pickFolder()}
+        onPickExport={() => void pickExport()}
+        onPickFiles={() => void addInbox()}
+        inboxFiles={inboxFiles}
+        zh={zh}
+      />
       {ready || detecting ? (
         <>
-          <SharedHubComposer
-            value={prompt}
-            onChange={setPrompt}
-            onSubmit={() => void submit()}
-            detecting={detecting}
-            placeholder={zh ? '向 Agent 描述任务…' : 'Describe the task for this Agent…'}
-            accessMode={accessMode}
-            onAccessMode={setAccessMode}
-            scene={scene}
-            onScene={selectScene}
-            showScene
-            workDir={workDir}
-            exportDir={exportDir}
-            onPickProject={() => void pickFolder()}
-            onPickExport={() => void pickExport()}
-            onPickFiles={() => void addInbox()}
-            inboxFiles={inboxFiles}
-            zh={zh}
-          />
           <div className="agent-hub-templates">
             {hubTemplatesForScene(scene).map(item => (
               <button key={item.zh} type="button" onClick={() => setPrompt(item.prompt)}>

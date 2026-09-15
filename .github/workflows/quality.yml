@@ -135,6 +135,7 @@ jobs:
         # overflow in the race-inflated PE ("relocation truncated to fit").
         # Non-race Quality still builds and tests ./cmd/desktop.
         #
-        # Check-Race.ps1 isolates internal/app (parallel 1, one runtime-abort
-        # retry). 80b9d913 race jobs died in Go 1.26.6 GC/stack, not DATA RACE.
+        # Check-Race.ps1 isolates internal/app (parallel 1) and retries both
+        # that process and the rest tree once on a runtime abort. 80b9d913
+        # race jobs died in Go 1.26.6 GC/stack, not DATA RACE.
         run: ./release/Check-Race.ps1 -Timeout 120m -AppTimeout 60m

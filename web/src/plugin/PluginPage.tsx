@@ -39,7 +39,6 @@ export function PluginPage({bridge=pluginBridge,skills=skillBridge,mcp=mcpBridge
  const byId=useMemo(()=>new Map(plugins.map(item=>[item.pluginId,item])),[plugins])
  const shelfPacks=useMemo(()=>{const extra=importedPacks.filter(pack=>!CAPABILITY_PACKS.some(item=>item.id===pack.id));return [...CAPABILITY_PACKS,...extra]},[importedPacks])
  const installedVisible=useMemo(()=>{const q=query.trim().toLowerCase();return plugins.filter(item=>item.state!=='uninstalled'&&!isFiller(item.pluginId)&&(!q||`${pluginTitle(item.pluginId)} ${item.pluginId} ${item.kind} ${item.state}`.toLowerCase().includes(q)))},[plugins,query])
- const chatPacks=useMemo(()=>installedVisible.filter(item=>isPackPluginId(item.pluginId)),[installedVisible])
  const failed=installedVisible.filter(item=>item.state==='quarantined').length
  const enabled=installedVisible.filter(item=>item.state==='enabled').length
  const categories=useMemo(()=>{const map=new Map<PluginCategory,number>();for(const item of PLUGIN_MARKET)map.set(item.category,(map.get(item.category)??0)+1);return[...map.entries()]},[])
@@ -97,16 +96,16 @@ export function PluginPage({bridge=pluginBridge,skills=skillBridge,mcp=mcpBridge
 
  return <main className="skill-center plugin-page">
   <header className="skill-center-header">
-   <div><h1>能力包</h1><p>组合包 {shelfPacks.length} 个 · 已启用门闸 {enabled} 个 · 失败 {failed} 个</p><small>能力包市场是本机捆绑目录，不是在线商店。组合包会安装技能和 MCP、打开门闸；MCP 启用时会启动其本地服务进程。要可调用技能去技能中心；要连服务器去 MCP。</small></div>
+   <div><h1>插件</h1><p>组合包 {shelfPacks.length} 个 · 已启用门闸 {enabled} 个 · 失败 {failed} 个</p><small>插件市场是本机捆绑目录，不是在线商店。组合包会安装技能和 MCP、打开门闸；MCP 启用时会启动其本地服务进程。要可调用技能去技能中心；要连服务器去 MCP。Codex / Cursor / Kimi 的安装和对话在 AgentHub，不是这里的组合包。</small></div>
    <div className="view-actions"><button type="button" className="ui-btn" onClick={()=>{const raw=window.prompt('粘贴能力包 JSON');if(!raw)return;try{const pack=parseCapabilityPackJSON(raw);setImportedPacks(current=>[...current.filter(item=>item.id!==pack.id),pack]);setNotice(`已读入「${pack.name}」，不会执行脚本。`);setView('market')}catch(e){setError(pluginUserError(e,'能力包 JSON 无效'))}}}>导入 JSON</button><button type="button" className="ui-btn" onClick={()=>setManualOpen(true)}>手动填写</button>{onCreateInChat&&<button type="button" className="ui-btn primary" onClick={onCreateInChat}>＋ 创建能力包</button>}</div>
   </header>
   <section className="skill-center-toolbar">
-   <div className="skill-status-tabs" role="tablist" aria-label="能力包视图">
+   <div className="skill-status-tabs" role="tablist" aria-label="插件视图">
     <button type="button" role="tab" aria-selected={view==='installed'} onClick={()=>setView('installed')}>已安装（{installedVisible.length}）</button>
-    <button type="button" role="tab" aria-selected={view==='market'} onClick={()=>setView('market')}>能力包市场</button>
+    <button type="button" role="tab" aria-selected={view==='market'} onClick={()=>setView('market')}>插件市场</button>
    </div>
-   <label className="skill-search">搜索<input value={query} onChange={e=>setQuery(e.target.value)} placeholder={view==='market'?'名称或分类':'已安装能力包'}/></label>
-   <button aria-label="刷新能力包" onClick={()=>void load()}>↻</button>
+   <label className="skill-search">搜索<input value={query} onChange={e=>setQuery(e.target.value)} placeholder={view==='market'?'名称或分类':'已安装插件'}/></label>
+   <button aria-label="刷新插件" onClick={()=>void load()}>↻</button>
   </section>
   {error&&<p className="skill-center-error" role="alert">{error}</p>}
   {notice&&<p role="status">{notice}</p>}
@@ -144,7 +143,7 @@ export function PluginPage({bridge=pluginBridge,skills=skillBridge,mcp=mcpBridge
       <p>{entry.description}</p>
       <footer><small>v{entry.semver} · {entry.publisher}</small></footer>
      </article>
-    })}</div>:<div className="empty"><b>没有匹配的能力包</b><span>换个分类或关键字再试。</span></div>}
+    })}</div>:<div className="empty"><b>没有匹配的插件</b><span>换个分类或关键字再试。</span></div>}
    </section>
   </>:<section className="skill-market-shelf" aria-label="已安装能力包">
    {packLedger.length?<div className="skill-market">{packLedger.map(entry=>{
@@ -159,10 +158,10 @@ export function PluginPage({bridge=pluginBridge,skills=skillBridge,mcp=mcpBridge
      </header>
      <p>{entry.failed?entry.failed:pack.description}</p>
      <footer>
-      <small>删除保留共享及手动接管的组件，不卸技能</small>
+      <small>{CAPABILITY_PACKS.some(item=>item.id===pack.id)?'撤下保留共享及手动接管的组件，不卸技能':'删除会撤下本包独占组件，不卸技能'}</small>
       <div className="expert-card-actions">
        {entry.desired==='installed'&&<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>void enable(pack.id)}>{entry.state==='installed'?'复核并修复':'继续安装'}</button>}
-       <button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>setRemovePackId(pack.id)}>删除</button>
+       <button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>setRemovePackId(pack.id)}>{CAPABILITY_PACKS.some(item=>item.id===pack.id)?'撤下':'删除'}</button>
       </div>
      </footer>
     </article>})}</div>:null}
@@ -180,10 +179,10 @@ export function PluginPage({bridge=pluginBridge,skills=skillBridge,mcp=mcpBridge
       <small>v{item.semver} · {pluginOriginLabel(item.origin)}</small>
       <div className="expert-card-actions">
        {(item.state==='enabled'||item.state==='disabled'||item.state==='installed')&&<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>void enable(item.pluginId)}>{isPackPluginId(item.pluginId)?'复核并安装':item.state==='enabled'?'停用':'启用'}</button>}
-       <button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>setRemoveTarget(item)}>删除</button>
+       {!PLUGIN_MARKET.some(entry=>entry.id===item.pluginId)&&!CAPABILITY_PACKS.some(pack=>pack.id===item.pluginId)&&<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>setRemoveTarget(item)}>删除</button>}
       </div>
      </footer>
-    </article>})}</div>:!packLedger.length?<div className="empty"><b>还没有启用的门闸</b><span>去「能力包市场」点加号启用内置能力。</span></div>:null}
+    </article>})}</div>:!packLedger.length?<div className="empty"><b>还没有启用的门闸</b><span>去「插件市场」点加号启用内置能力。</span></div>:null}
   </section>}
   <Dialog open={manualOpen} wide title="手动创建能力包" description="填写清单 JSON。保存后出现在已安装清单；校验失败会标成安装失败。不会执行外部脚本。" onClose={()=>{if(!busy)setManualOpen(false)}}>
    <form className="editor-dialog" onSubmit={e=>{e.preventDefault();void createManual()}}>
@@ -197,8 +196,8 @@ export function PluginPage({bridge=pluginBridge,skills=skillBridge,mcp=mcpBridge
   <Dialog open={!!removeTarget} title={`删除「${removeTarget?pluginTitle(removeTarget.pluginId):''}」`} description="删除后能力绑定一并撤销，可从市场重新安装。" onClose={()=>{if(!busy)setRemoveTarget(null)}}>
    <div className="dialog-actions"><button type="button" disabled={Boolean(busy)} onClick={()=>setRemoveTarget(null)}>取消</button><button className="danger" disabled={Boolean(busy)} onClick={()=>void remove()}>确认删除</button></div>
   </Dialog>
-  <Dialog open={!!removePackId} title={`撤下「${findPack(removePackId)?.name??'能力包'}」`} description="只关闭本包打开的门闸和本包新加的 MCP。技能留在技能中心，其他包还在用的绑定会保留。" onClose={()=>{if(!busy)setRemovePackId('')}}>
-   <div className="dialog-actions"><button type="button" disabled={Boolean(busy)} onClick={()=>setRemovePackId('')}>取消</button><button className="danger" disabled={Boolean(busy)} onClick={()=>void removePack()}>确认删除</button></div>
+  <Dialog open={!!removePackId} title={`${CAPABILITY_PACKS.some(item=>item.id===removePackId)?'撤下':'删除'}「${findPack(removePackId)?.name??'组合包'}」`} description="只关闭本包打开的门闸和本包新加的 MCP。技能留在技能中心，其他包还在用的绑定会保留。" onClose={()=>{if(!busy)setRemovePackId('')}}>
+   <div className="dialog-actions"><button type="button" disabled={Boolean(busy)} onClick={()=>setRemovePackId('')}>取消</button><button className="danger" disabled={Boolean(busy)} onClick={()=>void removePack()}>{CAPABILITY_PACKS.some(item=>item.id===removePackId)?'确认撤下':'确认删除'}</button></div>
   </Dialog>
  </main>
 }

@@ -63,6 +63,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'agentHub.file.open',
   'agentHub.file.preview',
   'agentHub.inbox',
+  'agentHub.install',
   'agentHub.task.cancel',
   'agentHub.task.get',
   'agentHub.task.list',

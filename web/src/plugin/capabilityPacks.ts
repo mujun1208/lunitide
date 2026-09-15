@@ -23,9 +23,9 @@ export const CAPABILITY_PACKS: CapabilityPackSpec[] = [
   {
     id: 'pack-research',
     name: '调研工作包',
-    description: '安装联网调研技能、Fetch/Time MCP，并打开搜索与抓取门闸。',
+    description: '安装联网调研技能，并打开搜索与抓取门闸。抓取走内置 web-search / web-fetch。',
     skills: ['web-researcher'],
-    mcpPresetIds: ['fetch', 'time'],
+    mcpPresetIds: [],
     toolGates: ['web-search', 'web-fetch'],
   },
   {
@@ -55,9 +55,9 @@ export const CAPABILITY_PACKS: CapabilityPackSpec[] = [
   {
     id: 'pack-report',
     name: '报告写作包',
-    description: '调研、长文和去 AI 味。成文走内置 docx.gen。',
+    description: '调研、长文和去 AI 味。成文走内置 docx.gen，抓取走内置门闸。',
     skills: ['docx-writer', 'web-researcher', 'anti-ai-prose'],
-    mcpPresetIds: ['fetch'],
+    mcpPresetIds: [],
     toolGates: ['web-search', 'web-fetch'],
   },
   {

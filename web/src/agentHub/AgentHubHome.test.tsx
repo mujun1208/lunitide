@@ -12,6 +12,7 @@ vi.mock('./agentHubApi', () => ({
     threadPrompt: vi.fn(),
     threadList: vi.fn(),
     inbox: vi.fn(),
+    install: vi.fn(),
   },
 }))
 
@@ -296,10 +297,13 @@ it('does not start a thread when the selected harness is not available', async (
   render(<LanguageProvider value="zh-CN"><AgentHubHome selectedAgent="cursor" /></LanguageProvider>)
   expect(await screen.findByText('未安装 Cursor CLI')).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: 'Cursor 还不能对话' })).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: '打开安装说明' })).toHaveAttribute('href', 'https://cursor.com/docs/cli/overview')
-  expect(screen.getByRole('button', { name: '一键安装' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '连接' })).toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: '发送' })).toBeNull()
+  expect(screen.queryByRole('link', { name: '打开安装说明' })).toBeNull()
+  expect(screen.getByRole('button', { name: '安装并连接' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '一键安装' })).toBeNull()
+  expect(screen.getByLabelText('权限')).toBeInTheDocument()
+  expect(screen.getByLabelText('任务类型')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '添加上下文' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
   expect(agentHubApi.threadCreate).not.toHaveBeenCalled()
 })
 
@@ -312,10 +316,13 @@ it('asks a signed-out CLI to connect instead of installing again', async () => {
   render(<LanguageProvider value="zh-CN"><AgentHubHome selectedAgent="cursor" /></LanguageProvider>)
   expect(await screen.findByRole('heading', { name: 'Cursor 已安装，还没连上' })).toBeInTheDocument()
   expect(screen.getByText('Cursor CLI 未登录')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '连接' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '安装并连接' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '连接' })).toBeNull()
   expect(screen.queryByRole('button', { name: '一键安装' })).toBeNull()
   expect(screen.queryByRole('link', { name: '打开安装说明' })).toBeNull()
-  expect(screen.queryByRole('button', { name: '发送' })).toBeNull()
+  expect(screen.getByLabelText('权限')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '添加上下文' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
 })
 
 it('retries an unknown or failed probe instead of offering install', async () => {
@@ -335,7 +342,7 @@ it('retries an unknown or failed probe instead of offering install', async () =>
   expect(screen.queryByRole('button', { name: '一键安装' })).toBeNull()
 })
 
-it('continues the existing Cursor thread instead of creating a second memory', async () => {
+it('creates a new thread so a new chat can still change directory', async () => {
   stubHome()
   vi.mocked(agentHubApi.threadList).mockResolvedValue({
     items: [{
@@ -353,15 +360,53 @@ it('continues the existing Cursor thread instead of creating a second memory', a
       updatedAt: '2026-09-14T00:00:00Z',
     }],
   })
+  vi.mocked(agentHubApi.threadCreate).mockResolvedValue({
+    thread: {
+      threadId: '01ARZ3NDEKTSV4RRFFQ69G5FAF',
+      harnessId: 'cursor',
+      nativeSessionId: '',
+      title: '继续上次',
+      pinned: false,
+      workspaceRoot: '',
+      exportDir: '',
+      scene: 'free',
+      status: 'idle',
+      accessMode: 'approval',
+      createdAt: '2026-09-13T00:00:00Z',
+      updatedAt: '2026-09-14T00:00:00Z',
+    },
+    messages: [],
+    events: [],
+    files: [],
+  })
   const onOpened = vi.fn()
   render(<LanguageProvider value="zh-CN"><AgentHubHome selectedAgent="cursor" onOpened={onOpened} /></LanguageProvider>)
   await screen.findByLabelText('任务说明')
   fireEvent.change(screen.getByLabelText('任务说明'), { target: { value: '继续上次' } })
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
-  await waitFor(() => expect(agentHubApi.threadPrompt).toHaveBeenCalledWith(expect.objectContaining({
-    threadId: '01ARZ3NDEKTSV4RRFFQ69G5FAE',
-    text: expect.stringContaining('继续上次'),
-  })))
-  expect(agentHubApi.threadCreate).not.toHaveBeenCalled()
-  expect(onOpened).toHaveBeenCalledWith('01ARZ3NDEKTSV4RRFFQ69G5FAE')
+  await waitFor(() => expect(agentHubApi.threadCreate).toHaveBeenCalled())
+  expect(onOpened).toHaveBeenCalledWith('01ARZ3NDEKTSV4RRFFQ69G5FAF')
+})
+
+it('confirms then installs Cursor locally without opening a page', async () => {
+  vi.mocked(agentHubApi.detect).mockResolvedValue({
+    agents: [
+      { name: 'cursor', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装 Cursor CLI', interactive: true, protocol: 'acp' },
+    ],
+  })
+  vi.mocked(agentHubApi.install).mockResolvedValue({
+    agents: [
+      { name: 'cursor', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用', interactive: true, protocol: 'acp' },
+    ],
+    installed: true,
+    connected: true,
+    hint: '',
+  })
+  const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+  render(<LanguageProvider value="zh-CN"><AgentHubHome selectedAgent="cursor" /></LanguageProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: '安装并连接' }))
+  fireEvent.click(screen.getByRole('button', { name: '确定安装' }))
+  await waitFor(() => expect(agentHubApi.install).toHaveBeenCalledWith({ name: 'cursor', confirmed: true }))
+  expect(open).not.toHaveBeenCalled()
+  open.mockRestore()
 })

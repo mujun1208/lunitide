@@ -20,6 +20,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.Method("agentHub.artifact.list"):       handleAgentHub,
 	bridge.Method("agentHub.file.preview"):        handleAgentHub,
 	bridge.Method("agentHub.inbox"):               handleAgentHub,
+	bridge.Method("agentHub.install"):             handleAgentHub,
 	bridge.Method("agentHub.file.open"):           handleAgentHub,
 	bridge.Method("agentHub.thread.cancel"):       handleAgentHub,
 	bridge.Method("agentHub.thread.create"):       handleAgentHub,

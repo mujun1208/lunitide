@@ -103,10 +103,10 @@ func commonBinDirs() []string {
 	roaming := os.Getenv("APPDATA")
 	var dirs []string
 	if home != "" {
-		dirs = append(dirs, filepath.Join(home, ".local", "bin"), filepath.Join(home, ".cargo", "bin"), filepath.Join(home, "bin"), filepath.Join(home, ".kimi-code", "bin"), filepath.Join(home, ".kimi-code", "node_modules", ".bin"), filepath.Join(home, ".npm-global"), filepath.Join(home, ".npm-global", "bin"))
+		dirs = append(dirs, filepath.Join(home, ".local", "bin"), filepath.Join(home, ".cargo", "bin"), filepath.Join(home, "bin"), filepath.Join(home, ".cursor", "bin"), filepath.Join(home, ".kimi-code", "bin"), filepath.Join(home, ".kimi-code", "node_modules", ".bin"), filepath.Join(home, ".npm-global"), filepath.Join(home, ".npm-global", "bin"))
 	}
 	if local != "" {
-		dirs = append(dirs, filepath.Join(local, "cursor-agent"), filepath.Join(local, "npm"), filepath.Join(local, "Programs"), filepath.Join(local, "Programs", "cursor"), filepath.Join(local, "Programs", "Cursor"), filepath.Join(local, "Microsoft", "WinGet", "Links"))
+		dirs = append(dirs, filepath.Join(local, "cursor-agent"), filepath.Join(local, "cursor-agent", "bin"), filepath.Join(local, "npm"), filepath.Join(local, "Programs"), filepath.Join(local, "Programs", "cursor"), filepath.Join(local, "Programs", "cursor", "resources", "app", "bin"), filepath.Join(local, "Programs", "Cursor"), filepath.Join(local, "Programs", "Cursor", "resources", "app", "bin"), filepath.Join(local, "Microsoft", "WinGet", "Links"))
 	}
 	if roaming != "" {
 		dirs = append(dirs, filepath.Join(roaming, "npm"))

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useZh } from '../i18n/language'
-import { SharedHubComposer } from '../session/SharedHubComposer'
+import { SharedHubComposer, type HubAccessMode } from '../session/SharedHubComposer'
 import { AgentHubAskBar } from './AgentHubAskBar'
 import { AgentHubFileInspector } from './AgentHubFileInspector'
 import {
@@ -9,7 +9,17 @@ import {
   type AgentHubThreadDetail,
   type AgentHubWorkspaceItem,
 } from './agentHubApi'
-import { agentDisplayName, parentWorkspacePath, statusLabel, threadPptMissing } from './agentHubCopy'
+import {
+  agentDisplayName,
+  displayUserFacingMessage,
+  hubSceneToThreadScene,
+  parentWorkspacePath,
+  threadPptMissing,
+  threadSceneToHub,
+  visibleWorkspaceEntry,
+  type HubScene,
+  type InboxFile,
+} from './agentHubCopy'
 
 function liveStatus(status: string | undefined): boolean {
   return status === 'running' || status === 'waiting_user'
@@ -27,18 +37,27 @@ export function AgentHubThread({
   const [preview, setPreview] = useState<AgentHubPreview>()
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
+  const [scene, setScene] = useState<HubScene>('free')
+  const [accessMode, setAccessMode] = useState<HubAccessMode>('approval')
+  const [inboxFiles, setInboxFiles] = useState<InboxFile[]>([])
+  const [exportDir, setExportDir] = useState('')
   const threadIdRef = useRef(threadId)
   threadIdRef.current = threadId
   const wasLive = useRef(false)
-  useEffect(() => { wasLive.current = false; setFolder('') }, [threadId])
+  useEffect(() => { wasLive.current = false; setFolder(''); setInboxFiles([]); setExportDir('') }, [threadId])
   const refreshFiles = async (id: string, relativePath = folder) => {
     const listed = await agentHubApi.workspaceList({ threadId: id, ...(relativePath ? { relativePath } : {}) })
     if (threadIdRef.current !== id) return
-    setFiles(listed.items ?? [])
+    setFiles((listed.items ?? []).filter(item => visibleWorkspaceEntry(item.name)))
   }
   const applyDetail = async (next: AgentHubThreadDetail) => {
     if (threadIdRef.current !== next.thread.threadId) return
     setDetail(next)
+    setScene(threadSceneToHub(next.thread.scene))
+    setExportDir(next.thread.exportDir)
+    if (next.thread.accessMode === 'approval' || next.thread.accessMode === 'auto-edit' || next.thread.accessMode === 'full-access') {
+      setAccessMode(next.thread.accessMode)
+    }
     await refreshFiles(next.thread.threadId)
   }
   useEffect(() => {
@@ -51,7 +70,12 @@ export function AgentHubThread({
         ])
         if (!alive) return
         setDetail(next)
-        setFiles(listed.items ?? [])
+        setScene(threadSceneToHub(next.thread.scene))
+        setExportDir(next.thread.exportDir)
+        if (next.thread.accessMode === 'approval' || next.thread.accessMode === 'auto-edit' || next.thread.accessMode === 'full-access') {
+          setAccessMode(next.thread.accessMode)
+        }
+        setFiles((listed.items ?? []).filter(item => visibleWorkspaceEntry(item.name)))
         setError('')
       } catch (err) {
         if (alive) setError(err instanceof Error && /[\u4e00-\u9fff]/.test(err.message) ? err.message : (zh ? '会话读取失败。' : 'Could not load this thread.'))
@@ -70,7 +94,9 @@ export function AgentHubThread({
       ]).then(([next, listed]) => {
         if (!alive) return
         setDetail(next)
-        setFiles(listed.items ?? [])
+        setScene(threadSceneToHub(next.thread.scene))
+        setExportDir(next.thread.exportDir)
+        setFiles((listed.items ?? []).filter(item => visibleWorkspaceEntry(item.name)))
       }).catch(() => undefined)
     }, live ? 400 : 4000)
     return () => { alive = false; window.clearInterval(timer) }
@@ -104,6 +130,58 @@ export function AgentHubThread({
       setError(err instanceof Error && /[\u4e00-\u9fff]/.test(err.message) ? err.message : (zh ? '没有取消。' : 'Could not cancel.'))
     }
   }
+  const pickFolder = async () => {
+    try {
+      const got = await agentHubApi.pickDir()
+      if (got.canceled || !got.path) return
+      const next = await agentHubApi.threadUpdate({ threadId, workspaceRoot: got.path })
+      await applyDetail(next)
+      setError('')
+    } catch (err) {
+      setError(err instanceof Error && /[\u4e00-\u9fff]/.test(err.message) ? err.message : (zh ? '没有选到工作目录。' : 'Could not choose a work folder.'))
+    }
+  }
+  const pickExport = async () => {
+    try {
+      const got = await agentHubApi.pickDir()
+      if (got.canceled || !got.path) return
+      await applyDetail(await agentHubApi.threadUpdate({ threadId, exportDir: got.path }))
+      setError('')
+    } catch (err) {
+      setError(err instanceof Error && /[\u4e00-\u9fff]/.test(err.message) ? err.message : (zh ? '没有选到导出目录。' : 'Could not choose an export folder.'))
+    }
+  }
+  const changeScene = async (next: HubScene) => {
+    setScene(next)
+    try {
+      await applyDetail(await agentHubApi.threadUpdate({ threadId, scene: hubSceneToThreadScene(next) }))
+    } catch (err) {
+      setError(err instanceof Error && /[\u4e00-\u9fff]/.test(err.message) ? err.message : (zh ? '任务类型没有改成。' : 'Could not change the task type.'))
+    }
+  }
+  const changeAccess = async (next: HubAccessMode) => {
+    setAccessMode(next)
+    try {
+      await applyDetail(await agentHubApi.threadUpdate({ threadId, accessMode: next }))
+    } catch (err) {
+      setError(err instanceof Error && /[\u4e00-\u9fff]/.test(err.message) ? err.message : (zh ? '权限没有改成。' : 'Could not change access.'))
+    }
+  }
+  const addInbox = async () => {
+    const workDir = detail?.thread.workspaceRoot
+    if (!workDir) {
+      setError(zh ? '请先选择项目目录' : 'Pick a project folder first')
+      return
+    }
+    try {
+      const got = await agentHubApi.inbox({ action: 'files', workDir })
+      if (got.canceled) return
+      setInboxFiles(got.files ?? [])
+      setError('')
+    } catch (err) {
+      setError(err instanceof Error && /[\u4e00-\u9fff]/.test(err.message) ? err.message : (zh ? '没有加入参考文件。' : 'Could not add reference files.'))
+    }
+  }
   const openPreview = async (path: string) => {
     setPreview(await agentHubApi.preview({ threadId, path }))
   }
@@ -120,22 +198,19 @@ export function AgentHubThread({
     setFolder(next)
     await refreshFiles(threadId, next)
   }
-  const tokens = (detail?.tokensUsed ?? 0) > 0
-    ? String(detail?.tokensUsed)
-    : (zh ? 'CLI 未回报' : 'CLI did not report tokens')
   const noDeck = detail?.thread.status === 'success' && threadPptMissing(detail.thread.scene, detail.files)
+  const visibleMessages = (detail?.messages ?? []).flatMap(item => {
+    const content = displayUserFacingMessage(item.content, item.role)
+    return content == null ? [] : [{ ...item, content }]
+  })
+  const showWorkspace = files.length > 0 || Boolean(folder) || Boolean(preview)
   return (
-    <div className="workspace-layout workspace-is-open">
+    <div className={`workspace-layout${showWorkspace ? ' workspace-is-open' : ''}`}>
       <section className="message-panel" aria-label={zh ? `${detail?.thread.title || '会话'} 消息` : 'messages'}>
-        {detail ? (
-          <p className="agent-hub-hint">
-            {statusLabel(detail.thread.status, zh)} · {tokens} · {zh ? '消耗的是该 CLI 自己的会员额度' : 'Usage comes from that CLI subscription'}
-          </p>
-        ) : null}
         {noDeck ? (
           <p className="agent-hub-hint" role="status">{zh ? '没有文稿。打开目录查看本轮文件，或看时间线说明。' : 'No deck was produced. Open the folder or read the timeline.'}</p>
         ) : null}
-        {(detail?.messages ?? []).map(item => (
+        {visibleMessages.map(item => (
           <div key={item.id} className={`hub-msg ${item.role === 'user' ? 'is-user' : 'is-bot'}`} data-role={item.role}>
             {item.role !== 'user' ? <div className="hub-msg-meta">{agentDisplayName(detail?.thread.harnessId ?? '')}</div> : null}
             <p>{item.content}</p>
@@ -152,33 +227,44 @@ export function AgentHubThread({
           live={live}
           placeholder={zh ? '继续这轮任务…' : 'Continue this thread…'}
           inputLabel={zh ? '消息' : 'Message'}
-          accessMode="approval"
-          onAccessMode={() => undefined}
-          showAccess={false}
-          showPlus={false}
+          accessMode={accessMode}
+          onAccessMode={next => { void changeAccess(next) }}
+          scene={scene}
+          onScene={next => { void changeScene(next) }}
+          showScene
+          showAccess
+          showPlus
           workDir={detail?.thread.workspaceRoot}
-          exportDir={detail?.thread.exportDir}
+          exportDir={exportDir || detail?.thread.exportDir}
+          inboxFiles={inboxFiles}
+          onPickProject={() => void pickFolder()}
+          onPickExport={() => void pickExport()}
+          onPickFiles={() => void addInbox()}
           zh={zh}
         />
         {error && <p className="agent-hub-error" role="alert">{error}</p>}
       </section>
-      <div className="workspace-resizer" />
-      <aside className="workspace-column">
-        <div className="workspace">
-          {folder ? (
-            <button type="button" className="agent-hub-art" onClick={() => void goUp()}>{zh ? '上一级' : 'Up'}</button>
-          ) : null}
-          {files.map(item => (
-            <button key={item.path} type="button" className="agent-hub-art" onClick={() => void openItem(item)}>
-              {item.name}
-            </button>
-          ))}
-          <AgentHubFileInspector
-            preview={preview}
-            onOpen={() => { if (preview) void agentHubApi.open({ threadId, path: preview.path }) }}
-          />
-        </div>
-      </aside>
+      {showWorkspace ? (
+        <>
+          <div className="workspace-resizer" />
+          <aside className="workspace-column">
+            <div className="workspace">
+              {folder ? (
+                <button type="button" className="agent-hub-art" onClick={() => void goUp()}>{zh ? '上一级' : 'Up'}</button>
+              ) : null}
+              {files.map(item => (
+                <button key={item.path} type="button" className="agent-hub-art" onClick={() => void openItem(item)}>
+                  {item.name}
+                </button>
+              ))}
+              <AgentHubFileInspector
+                preview={preview}
+                onOpen={() => { if (preview) void agentHubApi.open({ threadId, path: preview.path }) }}
+              />
+            </div>
+          </aside>
+        </>
+      ) : null}
     </div>
   )
 }

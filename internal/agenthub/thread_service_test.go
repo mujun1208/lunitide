@@ -197,12 +197,35 @@ func TestUpdateThreadClipsTitleToFirstLine200(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, err := s.UpdateThread(created.Thread.ID, "新标题\n第二行"+strings.Repeat("x", 10), nil)
+	updated, err := s.UpdateThread(created.Thread.ID, "新标题\n第二行"+strings.Repeat("x", 10), nil, "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if updated.Thread.Title != "新标题" {
 		t.Fatalf("title = %q, want first line", updated.Thread.Title)
+	}
+}
+
+func TestUpdateThreadPersistsWorkspaceExportAndScene(t *testing.T) {
+	s := testThreadService(t)
+	created, err := s.CreateThread(ThreadCreateRequest{HarnessID: "loopback", Scene: "free", Title: "改我"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := filepath.Join(t.TempDir(), "proj")
+	export := filepath.Join(t.TempDir(), "out")
+	updated, err := s.UpdateThread(created.Thread.ID, "", nil, workspace, "auto-edit", export, "ppt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(updated.Thread.WorkspaceRoot) != filepath.Clean(workspace) {
+		t.Fatalf("workspace = %q, want %q", updated.Thread.WorkspaceRoot, workspace)
+	}
+	if filepath.Clean(updated.Thread.ExportDir) != filepath.Clean(export) {
+		t.Fatalf("export = %q, want %q", updated.Thread.ExportDir, export)
+	}
+	if updated.Thread.Scene != "ppt" || updated.Thread.AccessMode != "auto-edit" {
+		t.Fatalf("%+v", updated.Thread)
 	}
 }
 
@@ -342,7 +365,7 @@ func TestPromptAndStatusAndUpdateBumpUpdatedAtAndTitle(t *testing.T) {
 	if err = stampThreadTime(s.Threads, created.Thread.ID, "2020-01-03T00:00:00Z"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.UpdateThread(created.Thread.ID, "Pinned", boolPtr(true)); err != nil {
+	if _, err = s.UpdateThread(created.Thread.ID, "Pinned", boolPtr(true), "", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	afterUpdate, err := s.GetThread(created.Thread.ID)

@@ -13,6 +13,9 @@ vi.mock('./agentHubApi', () => ({
     workspaceList: vi.fn(),
     preview: vi.fn(),
     open: vi.fn(),
+    pickDir: vi.fn(),
+    threadUpdate: vi.fn(),
+    inbox: vi.fn(),
   },
 }))
 
@@ -28,6 +31,8 @@ function threadDetail(status: string, extra: {
   messages?: { id: string; seq: number; role: string; content: string; createdAt: string }[]
   prompt?: { callId: string; prompt: string; options: { id: string; label: string }[]; status: string }
   scene?: 'write_project' | 'fix' | 'ppt' | 'free'
+  exportDir?: string
+  workspaceRoot?: string
   files?: { name: string; path: string; size: number; source: string }[]
   tokensUsed?: number
 } = {}) {
@@ -38,8 +43,8 @@ function threadDetail(status: string, extra: {
       nativeSessionId: '',
       title: '新会话',
       pinned: false,
-      workspaceRoot: 'C:/tmp',
-      exportDir: '',
+      workspaceRoot: extra.workspaceRoot ?? 'C:/tmp',
+      exportDir: extra.exportDir ?? '',
       scene: extra.scene ?? 'free' as const,
       status,
       accessMode: 'approval' as const,
@@ -225,7 +230,7 @@ it('previews a workspace file with threadId', async () => {
   await waitFor(() => expect(agentHubApi.open).toHaveBeenCalledWith({ threadId: THREAD_ID, path: 'loopback.txt' }))
 })
 
-it('renders system messages and drills into a workspace directory', async () => {
+it('hides system dump and still drills into a workspace directory', async () => {
   vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('idle', {
     messages: [{ id: '01ARZ3NDEKTSV4RRFFQ69G5FAA', seq: 1, role: 'system', content: '在此仓库根内检索和修改。已有文件保持原路径。新文件按已有结构和你的规则放置。', createdAt: '2026-09-13T00:00:00Z' }],
   }))
@@ -233,9 +238,9 @@ it('renders system messages and drills into a workspace directory', async () => 
     .mockResolvedValueOnce({ items: [{ name: 'src', path: 'src', size: 0, isDir: true }] })
     .mockResolvedValue({ items: [{ name: 'main.go', path: 'src/main.go', size: 8, isDir: false }] })
   render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
-  expect(await screen.findByText('在此仓库根内检索和修改。已有文件保持原路径。新文件按已有结构和你的规则放置。')).toBeInTheDocument()
-  expect(screen.getByText('在此仓库根内检索和修改。已有文件保持原路径。新文件按已有结构和你的规则放置。').closest('[data-role="system"]')).not.toBeNull()
-  fireEvent.click(await screen.findByRole('button', { name: 'src' }))
+  expect(await screen.findByRole('button', { name: 'src' })).toBeInTheDocument()
+  expect(screen.queryByText('在此仓库根内检索和修改。已有文件保持原路径。新文件按已有结构和你的规则放置。')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'src' }))
   await waitFor(() => expect(agentHubApi.workspaceList).toHaveBeenCalledWith({ threadId: THREAD_ID, relativePath: 'src' }))
   expect(await screen.findByRole('button', { name: 'main.go' })).toBeInTheDocument()
 })
@@ -255,7 +260,7 @@ it('goes up one workspace folder from a drilled-in directory', async () => {
   expect(vi.mocked(agentHubApi.workspaceList).mock.calls.at(-1)?.[0]).toEqual({ threadId: THREAD_ID })
 })
 
-it('shows running status, tokens, quota copy, and a missing PPT deck', async () => {
+it('keeps the missing PPT hint and hides quota dump', async () => {
   stubWorkspace()
   vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('success', {
     scene: 'ppt',
@@ -263,18 +268,73 @@ it('shows running status, tokens, quota copy, and a missing PPT deck', async () 
     files: [{ name: 'notes.md', path: 'notes.md', size: 4, source: 'scan' }],
   }))
   render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
-  expect(await screen.findByText(/已完成/)).toBeInTheDocument()
-  expect(screen.getByText(/12/)).toBeInTheDocument()
-  expect(screen.getByText(/消耗的是该 CLI 自己的会员额度/)).toBeInTheDocument()
-  expect(screen.getByText('没有文稿。打开目录查看本轮文件，或看时间线说明。')).toBeInTheDocument()
+  expect(await screen.findByText('没有文稿。打开目录查看本轮文件，或看时间线说明。')).toBeInTheDocument()
+  expect(screen.queryByText(/消耗的是该 CLI 自己的会员额度/)).toBeNull()
+  expect(screen.queryByText(/CLI 未回报/)).toBeNull()
+  expect(screen.getByLabelText('权限')).toBeInTheDocument()
+  expect(screen.getByLabelText('任务类型')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '添加上下文' })).toBeInTheDocument()
 })
 
-it('says CLI 未回报 when the thread has no token count', async () => {
+it('shows only the user task and hides restart notices', async () => {
   stubWorkspace()
-  vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('running'))
+  vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('faulted', {
+    messages: [
+      { id: '01ARZ3NDEKTSV4RRFFQ69G5FAA', seq: 1, role: 'user', content: '【场景：写新项目】\n项目根：E:/repo\n\n用户任务：\n帮我建目录', createdAt: '2026-09-13T00:00:00Z' },
+      { id: '01ARZ3NDEKTSV4RRFFQ69G5FAB', seq: 2, role: 'notice', content: '应用重启后未能继续', createdAt: '2026-09-13T00:00:01Z' },
+    ],
+  }))
   render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
-  expect(await screen.findByText(/进行中/)).toBeInTheDocument()
-  expect(screen.getByText(/CLI 未回报/)).toBeInTheDocument()
+  expect(await screen.findByText('帮我建目录')).toBeInTheDocument()
+  expect(screen.queryByText(/【场景：写新项目】/)).toBeNull()
+  expect(screen.queryByText('应用重启后未能继续')).toBeNull()
+})
+
+it('lets an existing thread change its project directory', async () => {
+  stubWorkspace()
+  vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('idle'))
+  vi.mocked(agentHubApi.pickDir).mockResolvedValue({ canceled: false, path: 'E:/other' })
+  vi.mocked(agentHubApi.threadUpdate).mockResolvedValue(threadDetail('idle'))
+  render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
+  await screen.findByLabelText('消息')
+  fireEvent.click(screen.getByRole('button', { name: '添加上下文' }))
+  fireEvent.click(screen.getByRole('button', { name: /项目目录/ }))
+  await waitFor(() => expect(agentHubApi.threadUpdate).toHaveBeenCalledWith({ threadId: THREAD_ID, workspaceRoot: 'E:/other' }))
+})
+
+it('persists export folder and scene on an existing thread', async () => {
+  stubWorkspace()
+  vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('idle'))
+  vi.mocked(agentHubApi.pickDir).mockResolvedValue({ canceled: false, path: 'E:/export' })
+  vi.mocked(agentHubApi.threadUpdate).mockImplementation(async payload => threadDetail('idle', {
+    exportDir: payload.exportDir,
+    scene: payload.scene,
+    workspaceRoot: payload.workspaceRoot,
+  }))
+  render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
+  await screen.findByLabelText('消息')
+  fireEvent.click(screen.getByRole('button', { name: '添加上下文' }))
+  fireEvent.click(screen.getByRole('button', { name: /产物目录/ }))
+  await waitFor(() => expect(agentHubApi.threadUpdate).toHaveBeenCalledWith({ threadId: THREAD_ID, exportDir: 'E:/export' }))
+  fireEvent.change(screen.getByLabelText('任务类型'), { target: { value: 'ppt' } })
+  await waitFor(() => expect(agentHubApi.threadUpdate).toHaveBeenCalledWith({ threadId: THREAD_ID, scene: 'ppt' }))
+  fireEvent.change(screen.getByLabelText('任务类型'), { target: { value: 'docs' } })
+  await waitFor(() => expect(agentHubApi.threadUpdate).toHaveBeenCalledWith({ threadId: THREAD_ID, scene: 'free' }))
+})
+
+it('hides junk workspace names from the right pane', async () => {
+  vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('idle'))
+  vi.mocked(agentHubApi.workspaceList).mockResolvedValue({
+    items: [
+      { name: '$null', path: '$null', size: 0, isDir: false },
+      { name: 'a700ef41599b8c25bd9bde3d', path: 'a700ef41599b8c25bd9bde3d', size: 0, isDir: true },
+      { name: 'src', path: 'src', size: 0, isDir: true },
+    ],
+  })
+  render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
+  expect(await screen.findByRole('button', { name: 'src' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '$null' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'a700ef41599b8c25bd9bde3d' })).toBeNull()
 })
 
 it('polls thread.get every 4s while idle', async () => {
