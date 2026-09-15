@@ -95,6 +95,15 @@ it('refreshes attachments when the upload revision changes',async()=>{const atta
   expect(await screen.findByText('notes.txt')).toBeInTheDocument()
   expect(screen.getByRole('button',{name:'下载文件'})).toBeEnabled()
  })
+ it('does not download extracted text under an office filename',async()=>{
+  const attachments=bridge()
+  attachments.list=vi.fn().mockResolvedValue({items:[{...item(),originalName:'notes.docx',mime:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',size:2048}]})
+  attachments.get=vi.fn().mockResolvedValue({...item(),originalName:'notes.docx',mime:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',size:2048,parsedText:'extracted paragraphs'})
+  render(<Workspace attachments={attachments} projectId={P} sessionId={S} onClose={vi.fn()}/>)
+  expect(await screen.findByText('notes.docx')).toBeInTheDocument()
+  await waitFor(()=>expect(attachments.get).toHaveBeenCalled())
+  expect(screen.getByRole('button',{name:'下载文件'})).toBeDisabled()
+ })
  it('lets the code tree collapse from a small chrome button',async()=>{
   const user=userEvent.setup()
   render(<Workspace attachments={bridge()} projectId={P} sessionId={S} targetTab="code" onClose={vi.fn()}/>)

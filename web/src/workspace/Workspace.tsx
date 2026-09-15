@@ -24,6 +24,7 @@ import { previewKindFromPath } from './artifactPreviewMode'
 import { SafeLinkedText } from './safeLinks'
 import { isBrowserAddress, latestBrowserAddress, parseSearchCards } from './browserAddress'
 import { extractTaskFiles, isChangeTool } from './codePanelUtils'
+import { workspaceDownloadEnabled } from './workspaceDownload'
 
 function workspaceUserError(err: unknown, fallback: string): string {
   const detail = err instanceof Error ? err.message.trim() : ''
@@ -322,19 +323,28 @@ export function Workspace({
   }
 
   const previewName = localDetail?.path.split(/[/\\]/).pop() || detail?.originalName || ''
+  const canDownload = Boolean(previewName) && workspaceDownloadEnabled({
+    name: previewName,
+    mime: detail?.mime,
+    contentBase64: detail?.contentBase64,
+    parsedText: detail?.parsedText,
+    localText: localDetail?.content,
+  })
   const downloadCurrent = () => {
+    if (!canDownload) return
     const name = previewName || 'file.txt'
-    const mime = detail?.mime || 'text/plain'
+    const mime = detail?.mime || 'application/octet-stream'
     let href = ''
     if (detail?.contentBase64) href = `data:${mime};base64,${detail.contentBase64}`
-    else if (detail?.parsedText !== undefined) href = URL.createObjectURL(new Blob([detail.parsedText], { type: 'text/plain;charset=utf-8' }))
-    else if (localDetail) href = URL.createObjectURL(new Blob([localDetail.content], { type: 'text/plain;charset=utf-8' }))
+    else if (workspaceDownloadEnabled({ name, mime: detail?.mime || 'text/plain', parsedText: detail?.parsedText, localText: localDetail?.content })) {
+      href = URL.createObjectURL(new Blob([detail?.parsedText ?? localDetail?.content ?? ''], { type: 'text/plain;charset=utf-8' }))
+    }
     if (!href) return
     const link = document.createElement('a')
     link.href = href
     link.download = name
     link.click()
-    if (href.startsWith('blob:')) URL.revokeObjectURL(href)
+    if (href.startsWith('blob:')) window.setTimeout(() => URL.revokeObjectURL(href), 1000)
   }
 
   return (
@@ -369,7 +379,7 @@ export function Workspace({
             <div className="workspace-preview-toolbar">
               <span className="workspace-file-name">{previewName || (items.length ? `${items.length} 个附件` : '从文件树选择即可预览')}</span>
               <div className="workspace-chrome-tools">
-                <button type="button" className="artifact-icon-btn" aria-label="下载文件" title="下载" disabled={!previewName} onClick={downloadCurrent}>↓</button>
+                <button type="button" className="artifact-icon-btn" aria-label="下载文件" title="下载" disabled={!canDownload} onClick={downloadCurrent}>↓</button>
                 <div className="workspace-zoom">
                   <button type="button" aria-label="缩小预览" disabled={zoom === MIN_ZOOM} onClick={() => setZoom(v => Math.max(MIN_ZOOM, v - ZOOM_STEP))}>−</button>
                   <output aria-label="预览缩放">{zoom}%</output>

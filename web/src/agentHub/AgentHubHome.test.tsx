@@ -79,6 +79,21 @@ it('offers 写周报 Markdown and never 生成周报', async () => {
   expect(screen.getByLabelText('任务说明')).toHaveValue('根据本工作目录材料写一份周报 Markdown，不要生成 Office 文档。')
 })
 
+it('publishes the composer default agent when the header has not chosen one', async () => {
+  stubHome()
+  const onSelectAgent = vi.fn()
+  render(<LanguageProvider value="zh-CN"><AgentHubHome onSelectAgent={onSelectAgent} /></LanguageProvider>)
+  await waitFor(() => expect(onSelectAgent).toHaveBeenCalledWith('cursor'))
+})
+
+it('hides the weekly Markdown chip on the PPT scene', async () => {
+  stubHome()
+  render(<LanguageProvider value="zh-CN"><AgentHubHome selectedAgent="kimi" /></LanguageProvider>)
+  await screen.findByLabelText('任务类型')
+  fireEvent.change(screen.getByLabelText('任务类型'), { target: { value: 'ppt' } })
+  expect(screen.queryByRole('button', { name: '写周报 Markdown' })).toBeNull()
+})
+
 it('says the thread page is 月汐 UI and later CLIs stay off the list', async () => {
   stubHome()
   render(<LanguageProvider value="zh-CN"><AgentHubHome selectedAgent="cursor" /></LanguageProvider>)
