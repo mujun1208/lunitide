@@ -124,12 +124,15 @@ func InstallAndConnect(ctx context.Context, name string, confirmed bool, look Lo
 			return installResult(name, look, version, current), err
 		}
 		runCtx, cancel := context.WithTimeout(ctx, installLoginTimeout)
-		_, err := run(runCtx, loginExe(name, look), "login")
+		_, loginErr := run(runCtx, loginExe(name, look), "login")
 		cancel()
-		if err != nil && ctx.Err() != nil {
+		if loginErr != nil && ctx.Err() != nil {
 			return installResult(name, look, version, current), ctx.Err()
 		}
 		current = detectOne(name, look, version)
+		if current.State == "not_logged_in" && loginErr != nil {
+			current.Hint = clip(loginErr.Error(), 200)
+		}
 	}
 	return installResult(name, look, version, current), nil
 }

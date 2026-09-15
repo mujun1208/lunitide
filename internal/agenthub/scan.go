@@ -80,7 +80,7 @@ func ScanWorkDir(workDir string, eventPaths []string, startedAt time.Time) []Art
 			}
 			return nil
 		}
-		if d.Name() == promptFileName {
+		if d.Name() == promptFileName || skipWorkspaceName(d.Name()) {
 			return nil
 		}
 		info, infoErr := d.Info()

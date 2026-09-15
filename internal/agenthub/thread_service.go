@@ -139,6 +139,7 @@ func (s *Service) UpdateThread(id, title string, pinned *bool, workspaceRoot, ac
 	if err = s.Threads.Update(id, thread.Title, thread.Pinned); err != nil {
 		return ThreadDetail{}, err
 	}
+	invalidateHarness := false
 	if root := strings.TrimSpace(workspaceRoot); root != "" {
 		if err = os.MkdirAll(root, 0o755); err != nil {
 			return ThreadDetail{}, err
@@ -146,6 +147,7 @@ func (s *Service) UpdateThread(id, title string, pinned *bool, workspaceRoot, ac
 		if err = s.Threads.SetWorkspace(id, root); err != nil {
 			return ThreadDetail{}, err
 		}
+		invalidateHarness = true
 	}
 	if access := strings.TrimSpace(accessMode); access != "" {
 		if !validThreadAccess(access) {
@@ -154,6 +156,7 @@ func (s *Service) UpdateThread(id, title string, pinned *bool, workspaceRoot, ac
 		if err = s.Threads.SetAccess(id, access); err != nil {
 			return ThreadDetail{}, err
 		}
+		invalidateHarness = true
 	}
 	if dest := strings.TrimSpace(exportDir); dest != "" {
 		if err = os.MkdirAll(dest, 0o755); err != nil {
@@ -169,6 +172,11 @@ func (s *Service) UpdateThread(id, title string, pinned *bool, workspaceRoot, ac
 		}
 		if err = s.Threads.SetScene(id, nextScene); err != nil {
 			return ThreadDetail{}, err
+		}
+	}
+	if invalidateHarness {
+		if adapter, adapterErr := s.threadAdapter(thread.HarnessID); adapterErr == nil {
+			_ = adapter.Close(id)
 		}
 	}
 	return s.GetThread(id)
@@ -388,7 +396,7 @@ func scanThreadWorkspace(thread ThreadRecord) []ThreadFile {
 	}
 	var out []ThreadFile
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if entry.IsDir() || skipWorkspaceName(entry.Name()) {
 			continue
 		}
 		abs := filepath.Join(thread.WorkspaceRoot, entry.Name())

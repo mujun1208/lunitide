@@ -81,6 +81,30 @@ func TestScanWorkDirCollectsInsideAndOutside(t *testing.T) {
 	}
 }
 
+func TestScanWorkDirSkipsJunkNames(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"$null", "abc123def456abc123def456ab", "keep.txt"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	arts := ScanWorkDir(root, nil, time.Time{})
+	for _, art := range arts {
+		if art.Name == "$null" || art.Name == "abc123def456abc123def456ab" {
+			t.Fatalf("junk leaked: %s", art.Name)
+		}
+	}
+	found := false
+	for _, art := range arts {
+		if art.Name == "keep.txt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("keep.txt missing")
+	}
+}
+
 func TestScanSkipsNodeModules(t *testing.T) {
 	root := t.TempDir()
 	hidden := filepath.Join(root, "node_modules")

@@ -57,7 +57,12 @@ it('shows three branded agents and opens that Agent’s latest thread', async ()
   })
   render(
     <LanguageProvider value="zh-CN">
-      <AgentHubSidebar onOpenThread={onOpenThread} onSelectAgent={onSelectAgent} selectedAgent="cursor" />
+      <AgentHubSidebar
+        onOpenThread={onOpenThread}
+        onSelectAgent={onSelectAgent}
+        selectedAgent="cursor"
+        selectedThreadId="01ARZ3NDEKTSV4RRFFQ69G5FAE"
+      />
     </LanguageProvider>,
   )
   const nav = await screen.findByRole('navigation', { name: 'AgentHub' })
@@ -76,6 +81,31 @@ it('shows three branded agents and opens that Agent’s latest thread', async ()
   const detectAtStart = vi.mocked(agentHubApi.detect).mock.calls.length
   fireEvent.click(screen.getByRole('button', { name: '连接 Cursor' }))
   await waitFor(() => expect(vi.mocked(agentHubApi.detect).mock.calls.length).toBeGreaterThan(detectAtStart))
+})
+
+it('keeps a blank home after 新对话 when the agent row is clicked', async () => {
+  const onOpenThread = vi.fn()
+  const onSelectAgent = vi.fn()
+  vi.mocked(agentHubApi.detect).mockResolvedValue({
+    agents: [{ name: 'cursor', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用' }],
+  })
+  vi.mocked(agentHubApi.threadList).mockResolvedValue({
+    items: [{ ...thread('仍可用的会话', 'cursor'), threadId: '01ARZ3NDEKTSV4RRFFQ69G5FAF' }],
+  })
+  render(
+    <LanguageProvider value="zh-CN">
+      <AgentHubSidebar
+        onOpenThread={onOpenThread}
+        onSelectAgent={onSelectAgent}
+        selectedAgent="cursor"
+        selectedThreadId={undefined}
+        newThreadNonce={1}
+      />
+    </LanguageProvider>,
+  )
+  fireEvent.click(await screen.findByRole('button', { name: '打开 Cursor' }))
+  expect(onSelectAgent).toHaveBeenCalledWith('cursor')
+  expect(onOpenThread).toHaveBeenCalledWith('')
 })
 
 it('opens the old task center from 历史任务', async () => {

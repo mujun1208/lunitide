@@ -137,6 +137,9 @@ it('skips faulted latest threads when choosing a usable conversation', () => {
   expect(usableLatestThreadForHarness([
     { harnessId: 'kimi', threadId: 'dead', updatedAt: '2026-09-15T00:00:00Z', status: 'faulted' },
   ], 'kimi')).toBeUndefined()
+  expect(usableLatestThreadForHarness([
+    { harnessId: 'kimi', threadId: 'late', updatedAt: '2026-09-15T00:00:00Z', status: 'timeout' },
+  ], 'kimi')).toBeUndefined()
 })
 
 it('maps CLI probe state to install, connect, or ready', () => {
