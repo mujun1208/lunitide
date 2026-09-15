@@ -93,9 +93,9 @@ export function SharedHubComposer({
     >
       {(workDir || exportDir || inboxFiles.length > 0) && (
         <p className="hub-composer-paths">
-          {workDir ? <small>{zh ? '项目' : 'Project'} {shortWorkDir(workDir)}</small> : null}
-          {exportDir ? <small>{zh ? '产物' : 'Export'} {shortWorkDir(exportDir)}</small> : null}
-          {inboxFiles.length > 0 ? <small>{zh ? '附件' : 'Files'} {inboxFiles.map(item => item.name).join(zh ? '、' : ', ')}</small> : null}
+          {workDir ? <span>{zh ? '项目' : 'Project'} {shortWorkDir(workDir)}</span> : null}
+          {exportDir ? <span>{zh ? '产物' : 'Export'} {shortWorkDir(exportDir)}</span> : null}
+          {inboxFiles.length > 0 ? <span>{zh ? '附件' : 'Files'} {inboxFiles.map(item => item.name).join(zh ? '、' : ', ')}</span> : null}
         </p>
       )}
       <textarea
@@ -126,7 +126,7 @@ export function SharedHubComposer({
           {menu && (
             <div className="launch-menu compact" role="menu" onClick={event => event.stopPropagation()}>
               <button type="button" onClick={() => { setMenu(false); onPickFiles?.() }}>
-                <span>{zh ? '附件' : 'Files'}<small>{zh ? '加入参考文件' : 'Add reference files'}</small></span>
+                <span>{zh ? '上传附件' : 'Upload files'}<small>{zh ? '加入参考文件' : 'Add reference files'}</small></span>
               </button>
               <button type="button" onClick={() => { setMenu(false); onPickProject?.() }}>
                 <span>{zh ? '项目目录' : 'Project folder'}<small>{workDir ? shortWorkDir(workDir) : (zh ? '选择项目根' : 'Choose a root')}</small></span>
@@ -167,22 +167,23 @@ export function SharedHubComposer({
             </select>
           </>
         ) : null}
-        <div className="composer-primary-actions">
+        <div className="composer-primary-actions composer-act">
           <button
             type="button"
+            className={`composer-act-btn${listening ? ' is-on' : ''}`}
             aria-label={listening ? (zh ? '停止语音输入' : 'Stop voice input') : (zh ? '语音输入' : 'Voice input')}
             aria-pressed={listening}
             onClick={toggleVoice}
           >
-            {listening ? '■' : '🎤'}
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.5" width="6" height="10.5" rx="3" /><path d="M6.5 11.5a5.5 5.5 0 0 0 11 0" /><path d="M12 17v3M9.5 20.5h5" /></svg>
           </button>
           {live ? (
-            <button type="button" className="composer-send" aria-label={zh ? '打断' : 'Interrupt'} onClick={onStop}>
-              {zh ? '打断' : 'Stop'}
+            <button type="button" className="composer-act-btn is-primary" aria-label={zh ? '打断' : 'Interrupt'} onClick={onStop}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.4" y="7.4" width="9.2" height="9.2" rx="1.6" fill="currentColor" stroke="none" /></svg>
             </button>
           ) : (
-            <button className="composer-send" aria-label={zh ? '发送' : 'Send'} disabled={detecting || !value.trim()}>
-              ↑
+            <button className="composer-act-btn is-primary" aria-label={zh ? '发送' : 'Send'} disabled={detecting || !value.trim()}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17.5V6.5" /><path d="M7.5 11 12 6.5 16.5 11" /></svg>
             </button>
           )}
         </div>

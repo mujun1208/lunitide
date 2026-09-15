@@ -61,7 +61,7 @@ function stubLists() {
   vi.mocked(agentHubApi.detect).mockResolvedValue({
     agents: [
       { name: 'codex', state: 'available', version: '1.2.3', nonInteractive: true, streamJSON: true, hint: '可用' },
-      { name: 'cursor', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装 Cursor CLI' },
+      { name: 'cursor', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用' },
       { name: 'kimi', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装 Kimi Code CLI（kimi）。安装后重新打开 AgentHub。' },
     ],
   })
@@ -79,7 +79,7 @@ function renderLegacy() {
 function workbenchAgents(items?: AgentHubStatus[]): AgentHubStatus[] {
   return items ?? [
     { name: 'codex', state: 'available', version: '1.2.3', nonInteractive: true, streamJSON: true, hint: '可用' },
-    { name: 'cursor', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装 Cursor CLI' },
+    { name: 'cursor', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用' },
     { name: 'kimi', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装 Kimi Code CLI（kimi）。安装后重新打开 AgentHub。' },
   ]
 }
@@ -95,6 +95,7 @@ it('shows a probe hint before detect returns', async () => {
   vi.mocked(agentHubApi.detect).mockReturnValue(new Promise(resolve => { finish = resolve }))
   vi.mocked(agentHubApi.list).mockResolvedValue({ items: [], counts: { queued: 0, running: 0, success: 0, failed: 0 } })
   vi.mocked(agentHubApi.listArtifacts).mockResolvedValue({ items: [] })
+  vi.mocked(agentHubApi.threadList).mockResolvedValue({ items: [] })
   render(<LanguageProvider value="zh-CN"><AgentHubPage /></LanguageProvider>)
   expect(await screen.findByText('正在探测本机 CLI…')).toBeInTheDocument()
   finish({ agents: [] })
@@ -124,7 +125,8 @@ it('renders a conversational Home with the selected agent name', async () => {
   stubLists()
   render(<LanguageProvider value="zh-CN"><AgentHubPage /></LanguageProvider>)
   await screen.findByLabelText('任务类型')
-  expect(screen.getByRole('heading', { level: 1, name: 'AgentHub' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { level: 1, name: 'Cursor' })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { level: 1, name: 'AgentHub' })).toBeNull()
   expect(screen.queryByRole('heading', { level: 1, name: 'codex' })).toBeNull()
   expect(screen.getByText('消耗的是该 CLI 自己的会员额度')).toBeInTheDocument()
   expect(screen.getByLabelText('任务类型')).toBeInTheDocument()
@@ -216,7 +218,7 @@ it('starts a cursor task from an available adapter', async () => {
     { name: 'kimi', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装' },
   ])
   fireEvent.click(await screen.findByRole('button', { name: /其它任务/ }))
-  fireEvent.click(await screen.findByRole('button', { name: /Cursor 可用/ }))
+  fireEvent.click(await screen.findByRole('button', { name: /Cursor 已连接/ }))
   fireEvent.change(screen.getByLabelText('任务说明'), { target: { value: '写 hello.txt' } })
   fireEvent.click(screen.getByRole('button', { name: '执行' }))
   await waitFor(() => expect(agentHubApi.start).toHaveBeenCalledWith(expect.objectContaining({ agent: 'cursor', prompt: '写 hello.txt' })))
@@ -242,7 +244,7 @@ it('starts a kimi task from an available adapter', async () => {
     { name: 'kimi', state: 'available', version: '0.42.0', nonInteractive: true, streamJSON: true, hint: '可用' },
   ])
   fireEvent.click(await screen.findByRole('button', { name: /其它任务/ }))
-  fireEvent.click(await screen.findByRole('button', { name: /Kimi 可用/ }))
+  fireEvent.click(await screen.findByRole('button', { name: /Kimi 已连接/ }))
   fireEvent.change(screen.getByLabelText('任务说明'), { target: { value: '写 hello.txt' } })
   fireEvent.click(screen.getByRole('button', { name: '执行' }))
   await waitFor(() => expect(agentHubApi.start).toHaveBeenCalledWith(expect.objectContaining({ agent: 'kimi', prompt: '写 hello.txt' })))
@@ -438,6 +440,76 @@ it('opens a thread from selectedThreadId and returns to Home when newThreadNonce
   view.rerender(<LanguageProvider value="zh-CN"><AgentHubPage selectedThreadId={undefined} newThreadNonce={1} /></LanguageProvider>)
   expect(await screen.findByLabelText('任务类型')).toBeInTheDocument()
   expect(screen.queryByLabelText('消息')).toBeNull()
+})
+
+it('opens that Agent’s latest thread on first visit instead of starting a second memory', async () => {
+  stubLists()
+  const threadId = '01ARZ3NDEKTSV4RRFFQ69G5FAE'
+  vi.mocked(agentHubApi.threadList).mockResolvedValue({
+    items: [{
+      threadId,
+      harnessId: 'cursor',
+      nativeSessionId: '',
+      title: '旧会话',
+      pinned: false,
+      workspaceRoot: 'C:/tmp',
+      exportDir: '',
+      scene: 'free',
+      status: 'idle',
+      accessMode: 'approval',
+      createdAt: '2026-09-13T00:00:00Z',
+      updatedAt: '2026-09-14T00:00:00Z',
+    }],
+  })
+  vi.mocked(agentHubApi.threadGet).mockResolvedValue({
+    thread: {
+      threadId,
+      harnessId: 'cursor',
+      nativeSessionId: '',
+      title: '旧会话',
+      pinned: false,
+      workspaceRoot: 'C:/tmp',
+      exportDir: '',
+      scene: 'free',
+      status: 'idle',
+      accessMode: 'approval',
+      createdAt: '2026-09-13T00:00:00Z',
+      updatedAt: '2026-09-14T00:00:00Z',
+    },
+    messages: [{ id: threadId, seq: 1, role: 'user', content: '上次还在', createdAt: '2026-09-13T00:00:00Z' }],
+    events: [],
+    files: [],
+  })
+  const onOpenThread = vi.fn()
+  render(<LanguageProvider value="zh-CN"><AgentHubPage selectedAgent="cursor" onOpenThread={onOpenThread} /></LanguageProvider>)
+  await waitFor(() => expect(onOpenThread).toHaveBeenCalledWith(threadId))
+})
+
+it('titles the bar from the open thread harness, not the default Cursor', async () => {
+  stubLists()
+  const threadId = '01ARZ3NDEKTSV4RRFFQ69G5FAE'
+  vi.mocked(agentHubApi.threadGet).mockResolvedValue({
+    thread: {
+      threadId,
+      harnessId: 'kimi',
+      nativeSessionId: '',
+      title: 'Kimi 会话',
+      pinned: false,
+      workspaceRoot: 'C:/tmp',
+      exportDir: '',
+      scene: 'free',
+      status: 'idle',
+      accessMode: 'approval',
+      createdAt: '2026-09-13T00:00:00Z',
+      updatedAt: '2026-09-13T00:00:00Z',
+    },
+    messages: [{ id: threadId, seq: 1, role: 'user', content: '做两页', createdAt: '2026-09-13T00:00:00Z' }],
+    events: [],
+    files: [],
+  })
+  render(<LanguageProvider value="zh-CN"><AgentHubPage selectedThreadId={threadId} /></LanguageProvider>)
+  expect(await screen.findByRole('heading', { level: 1, name: 'Kimi' })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { level: 1, name: 'Cursor' })).toBeNull()
 })
 
 it('leaves 旧版任务 when selectedThreadId is set from the rail', async () => {

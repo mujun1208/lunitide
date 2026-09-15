@@ -125,10 +125,46 @@ export function visibleHubArtifacts<T extends { source: string }>(items: T[], sh
   })
 }
 
+export const HUB_AGENT_IDS = ['codex', 'cursor', 'kimi'] as const
+
+export function agentDisplayName(name: string): string {
+  if (name === 'cursor') return 'Cursor'
+  if (name === 'kimi') return 'Kimi'
+  if (name === 'codex') return 'Codex'
+  return name
+}
+
+export function agentInstall(name: string): { url: string; command: string } {
+  if (name === 'cursor') return { url: 'https://cursor.com/docs/cli/overview', command: 'cursor-agent' }
+  if (name === 'kimi') return { url: 'https://www.kimi.com/coding', command: 'kimi' }
+  return { url: 'https://github.com/openai/codex', command: 'npm i -g @openai/codex' }
+}
+
+export function hubReadyState(state?: AgentHubState): 'ready' | 'missing' | 'unsigned' | 'unknown' {
+  if (state === 'available') return 'ready'
+  if (state === 'not_installed') return 'missing'
+  if (state === 'not_logged_in') return 'unsigned'
+  return 'unknown'
+}
+
+export function latestThreadForHarness<T extends { harnessId: string; updatedAt: string; pinned?: boolean }>(
+  items: T[],
+  harnessId: string,
+): T | undefined {
+  return items
+    .filter(item => item.harnessId === harnessId)
+    .sort((a, b) => {
+      const byTime = (b.updatedAt || '').localeCompare(a.updatedAt || '')
+      if (byTime !== 0) return byTime
+      if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1
+      return 0
+    })[0]
+}
+
 export function stateLabel(state: AgentHubState, zh: boolean): string {
-  if (state === 'available') return zh ? '可用' : 'Available'
+  if (state === 'available') return zh ? '已连接' : 'Connected'
   if (state === 'not_installed') return zh ? '未安装' : 'Not installed'
-  if (state === 'not_logged_in') return zh ? '未登录' : 'Not signed in'
+  if (state === 'not_logged_in') return zh ? '未连接' : 'Not connected'
   return zh ? '未知' : 'Unknown'
 }
 

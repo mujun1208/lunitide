@@ -5,6 +5,7 @@ import { AgentHubHome } from './AgentHubHome'
 import { AgentHubTasks } from './AgentHubTasks'
 import { AgentHubThread } from './AgentHubThread'
 import './agentHub.css'
+import { agentDisplayName, latestThreadForHarness, stateLabel } from './agentHubCopy'
 import { agentHubApi, type AgentHubCounts, type AgentHubName, type AgentHubStatus, type AgentHubTask } from './agentHubApi'
 
 type HubTab = 'tasks' | 'detail'
@@ -37,24 +38,52 @@ export function AgentHubPage({
     setLegacy(false)
   }, [newThreadNonce])
   useEffect(() => {
-    if (selectedThreadId) setLegacy(false)
-  }, [selectedThreadId])
-  useEffect(() => {
-    if (showLegacy) setLegacy(true)
-  }, [showLegacy])
-  useEffect(() => {
+    if (selectedThreadId) {
+      setLegacy(false)
+      return
+    }
     if (legacyTaskId) {
       setTaskId(legacyTaskId)
       setTab('detail')
       setLegacy(true)
+      return
     }
-  }, [legacyTaskId])
+    setLegacy(Boolean(showLegacy))
+    if (showLegacy) setTab('tasks')
+  }, [selectedThreadId, showLegacy, legacyTaskId])
   const threadId = onOpenThread ? selectedThreadId : (selectedThreadId ?? localThreadId)
   const openThread = (id: string) => {
     setLocalThreadId(id)
     setLegacy(false)
     onOpenThread?.(id)
   }
+  const [threadHarness, setThreadHarness] = useState<AgentHubName>()
+  useEffect(() => {
+    if (threadId || legacy) return
+    let alive = true
+    const name = selectedAgent ?? 'cursor'
+    void Promise.resolve(agentHubApi.threadList({}) ?? { items: [] }).then(got => {
+      if (!alive) return
+      const latest = latestThreadForHarness(got?.items ?? [], name)
+      if (latest) openThread(latest.threadId)
+    }).catch(() => undefined)
+    return () => { alive = false }
+  }, [selectedAgent, threadId, legacy])
+  useEffect(() => {
+    if (!threadId) {
+      setThreadHarness(undefined)
+      return
+    }
+    let alive = true
+    void agentHubApi.threadGet({ threadId }).then(got => {
+      if (!alive) return
+      const name = got.thread.harnessId
+      if (name !== 'codex' && name !== 'cursor' && name !== 'kimi' && name !== 'loopback') return
+      setThreadHarness(name)
+      onSelectAgent?.(name)
+    }).catch(() => undefined)
+    return () => { alive = false }
+  }, [threadId, onSelectAgent])
   const [tab, setTab] = useState<HubTab>('tasks')
   const [agents, setAgents] = useState<AgentHubStatus[]>([])
   const [tasks, setTasks] = useState<AgentHubTask[]>([])
@@ -114,14 +143,17 @@ export function AgentHubPage({
     }
   }, [tasks])
   const openTask = (id: string) => { setTaskId(id); setTab('detail'); setLegacy(true) }
-  const titleAgent = selectedAgent
+  const titleId = threadHarness ?? selectedAgent ?? 'cursor'
+  const current = agents.find(item => item.name === titleId)
   return (
     <div className="agent-hub">
       <header className="agent-hub-head">
-        <div>
-          <h1>{titleAgent || 'AgentHub'}</h1>
-          <p className="agent-hub-quota">{zh ? '消耗的是该 CLI 自己的会员额度' : 'Usage is billed to that CLI subscription, not Lunitide.'}</p>
+        <div className="agent-hub-title">
+          <span className={`agent-hub-lamp ${current?.state ?? 'unknown'}`} aria-hidden="true" />
+          <h1>{agentDisplayName(titleId)}</h1>
+          <small>{stateLabel(current?.state ?? 'unknown', zh)}</small>
         </div>
+        <p className="agent-hub-quota">{zh ? '消耗的是该 CLI 自己的会员额度' : 'Usage is billed to that CLI subscription, not Lunitide.'}</p>
         {legacy && !threadId && (
           <nav className="agent-hub-tabs" aria-label={zh ? 'AgentHub 页面' : 'AgentHub pages'}>
             {([
