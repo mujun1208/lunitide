@@ -13,6 +13,8 @@
     },
     "modelId": { "type": "string", "minLength": 1, "maxLength": 200 },
     "preferProvider": { "type": "boolean" },
+    "localEngine": { "enum": ["windows-ocr", "ppocr"] },
+    "packRoot": { "type": "string", "minLength": 1, "maxLength": 512 },
     "expectedRevision": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
   },
   "required": ["preferProvider", "expectedRevision"],
@@ -25,6 +27,18 @@
       },
       "modelId": { "type": "string", "minLength": 1, "maxLength": 200 },
       "preferProvider": { "type": "boolean" },
+      "localEngine": { "enum": ["windows-ocr", "ppocr"] },
+      "packRoot": { "type": "string", "minLength": 1, "maxLength": 512 },
+      "pack": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "available": { "type": "boolean" },
+          "status": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "backend": { "enum": ["ppocr-pack"] }
+        },
+        "required": ["available", "status", "backend"]
+      },
       "revision": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
       "appliedRevision": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
       "state": { "enum": ["applied"] },

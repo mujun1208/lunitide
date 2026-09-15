@@ -60,25 +60,24 @@ it('persists general settings and shows a save indicator', async () => {
   await waitFor(() => expect(JSON.parse(localStorage.getItem('lunitide:general') ?? '{}').restoreUnfinished).toBe(false))
 })
 
-it('searches 能力路由 and opens providers with routing above the catalog', async () => {
+it('searches 能力路由 and opens 路由管理 without the provider catalog', async () => {
   const user = userEvent.setup()
   const { roles } = open('general')
   await user.type(screen.getByLabelText('搜索设置'), '能力路由')
-  expect(screen.getByRole('button', { name: /模型与供应商/ })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /路由管理/ })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /模型与供应商/ })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /^常规$/ })).not.toBeInTheDocument()
-  await user.click(screen.getByRole('button', { name: /模型与供应商/ }))
+  await user.click(screen.getByRole('button', { name: /路由管理/ }))
   expect(await screen.findByRole('heading', { name: '能力路由' })).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: 'OCR 路由' })).toBeInTheDocument()
   expect(roles.get).toHaveBeenCalled()
-  expect(screen.getByRole('tab', { name: 'LLM' })).toBeInTheDocument()
-  expect(screen.getByRole('tab', { name: '向量模型' })).toBeInTheDocument()
-  expect(screen.getByRole('tab', { name: 'GUI 模型' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: /Demo/ })).toBeInTheDocument()
+  expect(screen.queryByRole('tab', { name: 'LLM' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /Demo/ })).not.toBeInTheDocument()
 })
 
-it('saves capability routing from the providers page', async () => {
+it('saves capability routing from the routing page', async () => {
   const user = userEvent.setup()
-  const { roles } = open('providers')
+  const { roles } = open('routing')
   await screen.findByRole('heading', { name: '能力路由' })
   await user.selectOptions(screen.getByLabelText('对话缺省'), `${provider.id}\u0000chat-l`)
   await user.click(screen.getByRole('button', { name: '保存能力路由' }))
@@ -87,4 +86,11 @@ it('saves capability routing from the providers page', async () => {
   expect(vi.mocked(roles.set).mock.calls[0][0].roles.find((row: { role: string }) => row.role === 'chat')).toMatchObject({
     providerId: provider.id, modelId: 'chat-l',
   })
+})
+
+it('keeps the provider catalog off the routing page', async () => {
+  open('providers')
+  expect(await screen.findByRole('button', { name: /Demo/ })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: '能力路由' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'OCR 路由' })).not.toBeInTheDocument()
 })

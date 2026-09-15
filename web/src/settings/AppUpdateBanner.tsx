@@ -35,7 +35,7 @@ export function AppUpdateBanner(): React.JSX.Element | null {
   const install = async () => {
     if (!offer || busy) return
     setBusy(true)
-    setStatus('正在安装更新…关闭应用后会自动覆盖安装，不必先卸载。')
+    setStatus('正在下载并安装更新…关闭应用后会自动覆盖安装，不必先卸载。')
     try {
       const payload = { updateId: offer.updateId, expectedDigest: offer.digest }
       await getAppUpdateBridge().install(payload, { attempt: createMutationAttempt('appUpdate.install', payload) })
@@ -50,7 +50,7 @@ export function AppUpdateBanner(): React.JSX.Element | null {
   return (
     <div className="app-update-banner" role="status">
       <span>{status || `发现新版本 ${offer?.version}，可以覆盖安装，不必先卸载。`}</span>
-      {offer && !status.startsWith('正在安装') && (
+      {offer && !status.startsWith('正在下载') && !status.startsWith('正在安装') && (
         <>
           <button type="button" disabled={busy} onClick={() => void install()}>立即升级</button>
           <button

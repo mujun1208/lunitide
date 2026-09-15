@@ -53,10 +53,11 @@ it('maps the write home scene to write_project and keeps the other thread scenes
   expect(hubSceneToThreadScene('write')).toBe('write_project')
   expect(hubSceneToThreadScene('fix')).toBe('fix')
   expect(hubSceneToThreadScene('ppt')).toBe('ppt')
+  expect(hubSceneToThreadScene('docs')).toBe('free')
   expect(hubSceneToThreadScene('free')).toBe('free')
 })
 
-it('keeps the spec §8 permission chip labels', () => {
+it('keeps the spec §8 permission labels', () => {
   expect(ACCESS_MODES.map(item => [item.id, item.zh])).toEqual([
     ['approval', '手动'],
     ['auto-edit', '自动'],

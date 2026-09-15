@@ -36,3 +36,26 @@ func TestNsisInstallerLaunchesSilentSetup(t *testing.T) {
 		t.Fatal("unknown digest must fail")
 	}
 }
+
+func TestNsisInstallerDownloadFetchesMissingLocal(t *testing.T) {
+	dir := t.TempDir()
+	body := []byte("setup-bytes")
+	sum := sha256.Sum256(body)
+	digest := hex.EncodeToString(sum[:])
+	name := "Lunitide-Setup-0.4.83-x64.exe"
+	feed := `{"version":"0.4.83","channel":"stable","sha256":"` + digest + `","installer":"` + name + `"}`
+	inst := NewNsisInstaller(&LocalFeed{Dirs: []string{dir}})
+	inst.Store = dir
+	inst.Get = func(context.Context, string) ([]byte, error) { return []byte(feed), nil }
+	inst.GetFile = func(_ context.Context, _, dest string) error { return os.WriteFile(dest, body, 0o644) }
+	if err := inst.Download(context.Background(), "inst", "pkg", digest); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyInstaller(filepath.Join(dir, name), digest); err != nil {
+		t.Fatal(err)
+	}
+	other := hex.EncodeToString(make([]byte, 32))
+	if err := inst.Download(context.Background(), "inst", "pkg", other); err == nil {
+		t.Fatal("changed remote digest must fail")
+	}
+}

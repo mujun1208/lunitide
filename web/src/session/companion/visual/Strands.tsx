@@ -256,12 +256,15 @@ export function Strands({
     const geometry = new Triangle(gl)
     if (geometry.attributes.uv) delete geometry.attributes.uv
 
+    // Match Orb: gl_FragCoord is in drawing-buffer pixels (CSS × dpr). Feeding
+    // CSS offsetWidth into uResolution centers the glass ball in the wrong
+    // quadrant on HiDPI — down and left relative to the CSS halo.
     const program = new Program(gl, {
       vertex: VERT,
       fragment: FRAG,
       uniforms: {
         uTime: { value: 0 },
-        uResolution: { value: [Math.max(1, ctn.offsetWidth), Math.max(1, ctn.offsetHeight)] },
+        uResolution: { value: [1, 1] },
         uColors: { value: buildPalette(propsRef.current.colors) },
         uColorCount: { value: Math.min(propsRef.current.colors.length, MAX_COLORS) },
         uStrandCount: { value: Math.min(propsRef.current.count, MAX_STRANDS) },
@@ -282,8 +285,8 @@ export function Strands({
     const mesh = new Mesh(gl, { geometry, program })
 
     const renderTarget = new RenderTarget(gl, {
-      width: Math.max(1, ctn.offsetWidth),
-      height: Math.max(1, ctn.offsetHeight),
+      width: 1,
+      height: 1,
     })
 
     const glassProgram = new Program(gl, {
@@ -291,7 +294,7 @@ export function Strands({
       fragment: GLASS_FRAG,
       uniforms: {
         uScene: { value: renderTarget.texture },
-        uResolution: { value: [Math.max(1, ctn.offsetWidth), Math.max(1, ctn.offsetHeight)] },
+        uResolution: { value: [1, 1] },
         uRadius: { value: 0.46 * glassSize },
         uRefraction: { value: refraction },
         uDispersion: { value: dispersion },
@@ -304,9 +307,9 @@ export function Strands({
       const width = Math.max(1, ctn.offsetWidth)
       const height = Math.max(1, ctn.offsetHeight)
       renderer.setSize(width, height)
-      program.uniforms.uResolution.value = [width, height]
-      renderTarget.setSize(width, height)
-      glassProgram.uniforms.uResolution.value = [width, height]
+      program.uniforms.uResolution.value = [gl.canvas.width, gl.canvas.height]
+      renderTarget.setSize(gl.canvas.width, gl.canvas.height)
+      glassProgram.uniforms.uResolution.value = [gl.canvas.width, gl.canvas.height]
     }
     const onResize = () => {
       cancelAnimationFrame(resizeRaf)

@@ -10,12 +10,14 @@ vi.mock('./agentHubApi', () => ({
     threadList: vi.fn(),
     threadUpdate: vi.fn(),
     threadDelete: vi.fn(),
+    list: vi.fn(),
   },
 }))
 
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  vi.mocked(agentHubApi.list).mockResolvedValue({ items: [], counts: { queued: 0, running: 0, success: 0, failed: 0 } })
 })
 
 const THREAD_ID = '01ARZ3NDEKTSV4RRFFQ69G5FAE'
@@ -48,8 +50,9 @@ it('groups threads under detect results, opens a thread, and fills the launch-na
   vi.mocked(agentHubApi.threadList).mockResolvedValue({
     items: [thread('写项目会话', 'cursor'), { ...thread('改代码会话', 'codex'), threadId: '01ARZ3NDEKTSV4RRFFQ69G5FAF' }],
   })
+  vi.mocked(agentHubApi.list).mockResolvedValue({ items: [], counts: { queued: 0, running: 0, success: 0, failed: 0 } })
   render(<LanguageProvider value="zh-CN"><AgentHubSidebar onOpenThread={onOpenThread} /></LanguageProvider>)
-  const nav = await screen.findByRole('navigation', { name: '外接 Agent' })
+  const nav = await screen.findByRole('navigation', { name: 'AgentHub' })
   expect(nav.getAttribute('style') ?? '').toMatch(/flex:\s*1/)
   expect(nav.getAttribute('style') ?? '').toMatch(/min-height:\s*0/)
   expect(nav.getAttribute('style') ?? '').toContain('overflow: auto')
@@ -57,12 +60,18 @@ it('groups threads under detect results, opens a thread, and fills the launch-na
   expect(screen.getByRole('heading', { name: 'codex' })).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '写项目会话' }))
   expect(onOpenThread).toHaveBeenCalledWith(THREAD_ID)
+  expect(document.querySelector('.agent-hub-lamp.available')).not.toBeNull()
+  expect(screen.getAllByRole('button', { name: '连接' }).length).toBeGreaterThan(0)
+  const detectAtStart = vi.mocked(agentHubApi.detect).mock.calls.length
+  fireEvent.click(screen.getAllByRole('button', { name: '连接' })[0])
+  await waitFor(() => expect(vi.mocked(agentHubApi.detect).mock.calls.length).toBeGreaterThan(detectAtStart))
 })
 
 it('filters thread titles locally and pins through thread.update', async () => {
   vi.mocked(agentHubApi.detect).mockResolvedValue({
     agents: [{ name: 'cursor', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用' }],
   })
+  vi.mocked(agentHubApi.list).mockResolvedValue({ items: [], counts: { queued: 0, running: 0, success: 0, failed: 0 } })
   vi.mocked(agentHubApi.threadList).mockResolvedValue({
     items: [
       thread('写项目会话', 'cursor'),

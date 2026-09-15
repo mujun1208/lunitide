@@ -176,7 +176,8 @@ export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabe
           {category === 'appearance' && <AppearancePanel settings={appearance} onChange={updateAppearance} />}
           {category === 'office-menu' && <OfficeMenuPanel onSaved={() => setSaved(true)} />}
           {category === 'profile' && <ProfilePanel />}
-          {category === 'providers' && (providers ? <><CapabilityRouting providers={providers} roles={roles} /><OCRRouting providers={providers} ocr={ocr} /><ProviderApp bridge={providers} embedded onPreferLLM={onPreferLLM} /></> : <p className="setting-desc">供应商列表需要 Host 桥接。</p>)}
+          {category === 'providers' && (providers ? <ProviderApp bridge={providers} embedded onPreferLLM={onPreferLLM} /> : <p className="setting-desc">供应商列表需要 Host 桥接。</p>)}
+          {category === 'routing' && (providers ? <><CapabilityRouting providers={providers} roles={roles} /><OCRRouting providers={providers} ocr={ocr} /></> : <p className="setting-desc">路由管理需要 Host 桥接。</p>)}
           {category === 'voice' && <VoicePanel />}
           {category === 'meetings' && <MeetingNotesPanel onSaved={() => setSaved(true)} recordingLock={recordingLock} />}
           {category === 'personal' && <PersonalIntelligencePage onNavigateExpert={onNavigateExpert} />}

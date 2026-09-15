@@ -19,6 +19,8 @@ type Routing struct {
 	ProviderID     string `json:"providerId,omitempty"`
 	ModelID        string `json:"modelId,omitempty"`
 	PreferProvider bool   `json:"preferProvider"`
+	LocalEngine    string `json:"localEngine,omitempty"`
+	PackRoot       string `json:"packRoot,omitempty"`
 	Revision       string `json:"revision"`
 	UpdatedAt      string `json:"updatedAt,omitempty"`
 }
@@ -32,8 +34,10 @@ func RoutingRevision(r Routing) string {
 		ProviderID     string `json:"providerId"`
 		ModelID        string `json:"modelId"`
 		PreferProvider bool   `json:"preferProvider"`
+		LocalEngine    string `json:"localEngine"`
+		PackRoot       string `json:"packRoot"`
 		UpdatedAt      string `json:"updatedAt"`
-	}{r.ProviderID, r.ModelID, r.PreferProvider, r.UpdatedAt})
+	}{r.ProviderID, r.ModelID, r.PreferProvider, r.LocalEngine, r.PackRoot, r.UpdatedAt})
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
 }
@@ -85,6 +89,15 @@ func (s *FileStore) CompareAndSet(next Routing, expected string) (Routing, error
 	}
 	if (next.ProviderID == "") != (next.ModelID == "") {
 		return cur, errors.New("providerId 与 modelId 必须同时填写")
+	}
+	if next.LocalEngine == "" {
+		next.LocalEngine = "windows-ocr"
+	}
+	if next.LocalEngine != "windows-ocr" && next.LocalEngine != "ppocr" {
+		return cur, errors.New("本机 OCR 引擎无效")
+	}
+	if next.LocalEngine == "ppocr" && !DetectPPOcrPack(ResolvePPOcrRoot(next.PackRoot)).Available {
+		return cur, errors.New("PP-OCR 尚未安装，请先选择已解压的目录")
 	}
 	next.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	next.Revision = RoutingRevision(next)

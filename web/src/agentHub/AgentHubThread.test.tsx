@@ -111,8 +111,8 @@ it('shows AskBar for an open prompt and disables Send while waiting_user', async
   render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
   expect(await screen.findByRole('button', { name: '是' })).toBeInTheDocument()
   fireEvent.change(screen.getByLabelText('消息'), { target: { value: '继续' } })
-  expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
-  fireEvent.click(screen.getByRole('button', { name: '发送' }))
+  expect(screen.queryByRole('button', { name: '发送' })).toBeNull()
+  expect(screen.getByRole('button', { name: '打断' })).toBeInTheDocument()
   expect(agentHubApi.threadPrompt).not.toHaveBeenCalled()
 })
 
@@ -120,15 +120,16 @@ it('disables Send while running', async () => {
   stubWorkspace()
   vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('running'))
   render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
-  expect(await screen.findByRole('button', { name: '发送' })).toBeDisabled()
+  expect(await screen.findByRole('button', { name: '打断' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '发送' })).toBeNull()
 })
 
-it('shows cancel while live and calls threadCancel', async () => {
+it('shows interrupt while live and calls threadCancel', async () => {
   stubWorkspace()
   vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('running'))
   vi.mocked(agentHubApi.threadCancel).mockResolvedValue(threadDetail('cancelled'))
   render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
-  fireEvent.click(await screen.findByRole('button', { name: '取消' }))
+  fireEvent.click(await screen.findByRole('button', { name: '打断' }))
   await waitFor(() => expect(agentHubApi.threadCancel).toHaveBeenCalledWith({ threadId: THREAD_ID }))
 })
 

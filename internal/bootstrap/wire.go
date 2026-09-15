@@ -210,13 +210,15 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	updateService := m7app.NewUpdateService(store.AgentRuntimeRepository())
 	updateFeed := desktopupdate.NewLocalFeed()
 	updateService.SetFeedLookup(func(channel string) (string, string, bool, error) {
-		offer, ok, err := updateFeed.Latest(channel)
-		if err != nil || !ok {
-			return "", "", ok, err
-		}
-		return offer.Version, offer.Digest, true, nil
+		return desktopupdate.CompositeLookup(updateFeed, desktopupdate.DefaultHTTPGet, channel)
 	})
-	updateService.SetInstaller(desktopupdate.NewNsisInstaller(updateFeed))
+	installer := desktopupdate.NewNsisInstaller(updateFeed)
+	if dirs := desktopupdate.DefaultDirs(); len(dirs) > 0 {
+		installer.Store = dirs[0]
+	}
+	installer.Get = desktopupdate.DefaultHTTPGet
+	installer.GetFile = desktopupdate.DefaultHTTPGetFile
+	updateService.SetInstaller(installer)
 	engine.SetM7UpdateServices(updateService)
 	// W3: the general audit_events chain shares the M7-DR-001 promotion freeze.
 	engine.SetAuditChainVerifier(store)

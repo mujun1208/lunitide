@@ -964,9 +964,16 @@ html[data-theme="light"] .modal-backdrop{background:rgba(25,55,80,.35)}html[data
 .workspace-layout.workspace-is-expanded>.workspace-resizer{display:none}
 .workspace-layout.workspace-is-expanded>.workspace-column{box-shadow:none;width:100%}
 .workspace-layout.workspace-is-expanded .workspace-side-menu{display:none}
-.workspace>header{min-height:32px;padding:4px 6px 4px 12px}
-.workspace>header strong{font-size:12px;font-weight:500}
-.workspace>header button{min-width:22px;height:22px;padding:0 6px;border:0;border-radius:5px;font-size:12px}
+.workspace>header,.workspace-chrome{min-height:32px;padding:4px 8px 4px 12px;gap:8px}
+.workspace>header strong,.workspace-chrome strong{font-size:12px;font-weight:500}
+.workspace>header button,.workspace-chrome button{min-width:22px;height:22px;padding:0 6px;border:0;border-radius:5px;font-size:12px}
+.workspace-chrome-tools{display:flex;align-items:center;gap:4px;margin-left:auto}
+.workspace-file-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.workspace-browser-status{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+.workspace-browser-chrome{box-shadow:none}
+.workspace-browser-toolbar{grid-template-columns:auto minmax(0,1fr) auto;padding:4px 6px}
+.workspace-browser-open,.workspace-browser-close{height:22px;padding:0 6px}
+.code-panel.is-tree-hidden .code-panel-split{grid-template-columns:minmax(0,1fr)}
 .workspace>nav button{padding:7px 4px;font-size:12px}
 .workspace-preview-toolbar{min-height:32px}
 .workspace-zoom button{width:22px;height:22px;padding:0;border-radius:5px}
