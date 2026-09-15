@@ -248,6 +248,14 @@ func (s *Service) Install(ctx context.Context, spec Spec, repair bool) (Record, 
 		operationCtx := WithOperation(ctx, Operation{PackID: spec.ID, Kind: component.Kind, Key: component.Key})
 		target, applyErr := s.executor.Ensure(operationCtx, component.Resource)
 		if applyErr != nil {
+			if component.Kind == "mcp" {
+				if skipErr := s.store.TransactPack(ctx, func(tx Tx) error {
+					return tx.SetReferenceState(spec.ID, component.Kind, component.Key, "skipped")
+				}); skipErr != nil {
+					return s.failed(ctx, record, skipErr)
+				}
+				continue
+			}
 			return s.failed(ctx, record, fmt.Errorf("%s %s: %w", component.Kind, component.Key, applyErr))
 		}
 		if err = s.store.TransactPack(ctx, func(tx Tx) error {

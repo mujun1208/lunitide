@@ -7,10 +7,12 @@
 .DESCRIPTION
     Hosted Windows + Go 1.26.6 + CGO race has aborted internal/app with
     runtime.adjustdefers during shrinkstack (Quality 34907144926) and
-    "found pointer to free object" during sweep (34907148326). Neither dump
-    contained WARNING: DATA RACE. This script serializes internal/app and
-    retries that process once on a runtime abort. Real races and assertion
-    failures still fail the job.
+    "found pointer to free object" during sweep (34907148326). The rest of
+    the tree has aborted the same way; Quality 34936008921 failed race on a
+    SHA whose coverage job passed because Check-Coverage already retries
+    that rest process. Neither dump class contained WARNING: DATA RACE.
+    This script serializes internal/app and retries both processes once on
+    a runtime abort. Real races and assertion failures still fail the job.
 #>
 [CmdletBinding()]
 param(
@@ -48,7 +50,8 @@ if ($appListed.Count -gt 0) {
 }
 
 if ($restListed.Count -gt 0) {
-    Invoke-GoLoggedTest -Attempts 1 -GoArgs (@(
+    # Same abort retry as coverage (Quality 34933672941 / 34936008921).
+    Invoke-GoLoggedTest -Attempts 2 -GoArgs (@(
         'test',
         '-race',
         '-count=1',

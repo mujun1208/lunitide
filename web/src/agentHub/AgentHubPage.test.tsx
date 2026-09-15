@@ -128,7 +128,7 @@ it('renders a conversational Home with the selected agent name', async () => {
   expect(screen.getByRole('heading', { level: 1, name: 'Cursor' })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { level: 1, name: 'AgentHub' })).toBeNull()
   expect(screen.queryByRole('heading', { level: 1, name: 'codex' })).toBeNull()
-  expect(screen.getByText('消耗的是该 CLI 自己的会员额度')).toBeInTheDocument()
+  expect(screen.queryByText('消耗的是该 CLI 自己的会员额度')).toBeNull()
   expect(screen.getByLabelText('任务类型')).toBeInTheDocument()
   expect(screen.getByLabelText('权限')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '添加上下文' })).toBeInTheDocument()
@@ -436,7 +436,9 @@ it('opens a thread from selectedThreadId and returns to Home when newThreadNonce
   const view = render(<LanguageProvider value="zh-CN"><AgentHubPage selectedThreadId={threadId} newThreadNonce={0} /></LanguageProvider>)
   expect(await screen.findByLabelText('消息')).toBeInTheDocument()
   expect(screen.getByText('继续')).toBeInTheDocument()
-  expect(screen.queryByLabelText('任务类型')).toBeNull()
+  expect(screen.getByLabelText('任务类型')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '返回' })).toBeInTheDocument()
+  expect(screen.getAllByRole('button', { name: '新对话' }).length).toBeGreaterThan(0)
   view.rerender(<LanguageProvider value="zh-CN"><AgentHubPage selectedThreadId={undefined} newThreadNonce={1} /></LanguageProvider>)
   expect(await screen.findByLabelText('任务类型')).toBeInTheDocument()
   expect(screen.queryByLabelText('消息')).toBeNull()
@@ -483,6 +485,58 @@ it('opens that Agent’s latest thread on first visit instead of starting a seco
   const onOpenThread = vi.fn()
   render(<LanguageProvider value="zh-CN"><AgentHubPage selectedAgent="cursor" onOpenThread={onOpenThread} /></LanguageProvider>)
   await waitFor(() => expect(onOpenThread).toHaveBeenCalledWith(threadId))
+})
+
+it('does not reopen the latest thread after 新对话', async () => {
+  stubLists()
+  const threadId = '01ARZ3NDEKTSV4RRFFQ69G5FAE'
+  vi.mocked(agentHubApi.threadList).mockResolvedValue({
+    items: [{
+      threadId,
+      harnessId: 'cursor',
+      nativeSessionId: '',
+      title: '旧会话',
+      pinned: false,
+      workspaceRoot: 'C:/tmp',
+      exportDir: '',
+      scene: 'free',
+      status: 'idle',
+      accessMode: 'approval',
+      createdAt: '2026-09-13T00:00:00Z',
+      updatedAt: '2026-09-14T00:00:00Z',
+    }],
+  })
+  const onOpenThread = vi.fn()
+  const view = render(<LanguageProvider value="zh-CN"><AgentHubPage selectedAgent="cursor" onOpenThread={onOpenThread} newThreadNonce={0} /></LanguageProvider>)
+  await waitFor(() => expect(onOpenThread).toHaveBeenCalledWith(threadId))
+  onOpenThread.mockClear()
+  view.rerender(<LanguageProvider value="zh-CN"><AgentHubPage selectedAgent="cursor" onOpenThread={onOpenThread} selectedThreadId={undefined} newThreadNonce={1} /></LanguageProvider>)
+  expect(await screen.findByLabelText('任务类型')).toBeInTheDocument()
+  expect(onOpenThread).not.toHaveBeenCalled()
+})
+
+it('does not auto-open a faulted latest thread', async () => {
+  stubLists()
+  vi.mocked(agentHubApi.threadList).mockResolvedValue({
+    items: [{
+      threadId: '01ARZ3NDEKTSV4RRFFQ69G5FAE',
+      harnessId: 'kimi',
+      nativeSessionId: '',
+      title: '卡住的会话',
+      pinned: false,
+      workspaceRoot: 'C:/tmp',
+      exportDir: '',
+      scene: 'write_project',
+      status: 'faulted',
+      accessMode: 'approval',
+      createdAt: '2026-09-13T00:00:00Z',
+      updatedAt: '2026-09-14T00:00:00Z',
+    }],
+  })
+  const onOpenThread = vi.fn()
+  render(<LanguageProvider value="zh-CN"><AgentHubPage selectedAgent="kimi" onOpenThread={onOpenThread} /></LanguageProvider>)
+  expect(await screen.findByLabelText('任务说明')).toBeInTheDocument()
+  expect(onOpenThread).not.toHaveBeenCalled()
 })
 
 it('titles the bar from the open thread harness, not the default Cursor', async () => {

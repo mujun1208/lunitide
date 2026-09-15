@@ -29,6 +29,22 @@ func skipScanDir(name string) bool {
 	return false
 }
 
+func skipWorkspaceName(name string) bool {
+	if skipScanDir(name) || name == "$null" || strings.HasPrefix(name, "$") {
+		return true
+	}
+	if len(name) < 24 {
+		return false
+	}
+	for _, r := range name {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func ScanWorkDir(workDir string, eventPaths []string, startedAt time.Time) []Artifact {
 	workDir = filepath.Clean(workDir)
 	seen := map[string]Artifact{}

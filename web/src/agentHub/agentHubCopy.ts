@@ -134,10 +134,35 @@ export function agentDisplayName(name: string): string {
   return name
 }
 
-export function agentInstall(name: string): { url: string; command: string } {
-  if (name === 'cursor') return { url: 'https://cursor.com/docs/cli/overview', command: 'cursor-agent' }
-  if (name === 'kimi') return { url: 'https://www.kimi.com/coding', command: 'kimi' }
-  return { url: 'https://github.com/openai/codex', command: 'npm i -g @openai/codex' }
+export function agentInstall(name: string): { command: string; opensPage: false } {
+  if (name === 'cursor') return { command: 'cursor-agent', opensPage: false }
+  if (name === 'kimi') return { command: 'kimi', opensPage: false }
+  return { command: 'npm i -g @openai/codex', opensPage: false }
+}
+
+const USER_TASK_MARK = '用户任务：'
+const SKIP_WORKSPACE_NAMES = new Set([
+  'node_modules', '.git', '.hg', '.svn', 'dist', 'build', 'out', 'coverage',
+  '.venv', 'venv', '__pycache__', '.cursor', '.kimi-code', '.codex', 'vendor', '.idea', '.vs',
+  '$null',
+])
+const HEX_JUNK = /^[0-9a-f]{24,}$/i
+
+export function displayUserFacingMessage(content: string, role: string): string | null {
+  if (role === 'notice' || role === 'system') return null
+  if (role !== 'user') return content
+  const index = content.lastIndexOf(USER_TASK_MARK)
+  if (index >= 0) return content.slice(index + USER_TASK_MARK.length).trim()
+  return content
+}
+
+export function visibleWorkspaceEntry(name: string): boolean {
+  const trimmed = name.trim()
+  if (!trimmed) return false
+  if (SKIP_WORKSPACE_NAMES.has(trimmed)) return false
+  if (trimmed.startsWith('$')) return false
+  if (HEX_JUNK.test(trimmed)) return false
+  return true
 }
 
 export function hubReadyState(state?: AgentHubState): 'ready' | 'missing' | 'unsigned' | 'unknown' {
@@ -146,6 +171,8 @@ export function hubReadyState(state?: AgentHubState): 'ready' | 'missing' | 'uns
   if (state === 'not_logged_in') return 'unsigned'
   return 'unknown'
 }
+
+const UNUSABLE_THREAD = new Set(['faulted', 'failed', 'cancelled'])
 
 export function latestThreadForHarness<T extends { harnessId: string; updatedAt: string; pinned?: boolean }>(
   items: T[],
@@ -159,6 +186,20 @@ export function latestThreadForHarness<T extends { harnessId: string; updatedAt:
       if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1
       return 0
     })[0]
+}
+
+export function usableLatestThreadForHarness<T extends { harnessId: string; updatedAt: string; pinned?: boolean; status?: string }>(
+  items: T[],
+  harnessId: string,
+): T | undefined {
+  return latestThreadForHarness(items.filter(item => !UNUSABLE_THREAD.has(item.status ?? '')), harnessId)
+}
+
+export function threadSceneToHub(scene: string): HubScene {
+  if (scene === 'write_project') return 'write'
+  if (scene === 'fix') return 'fix'
+  if (scene === 'ppt') return 'ppt'
+  return 'free'
 }
 
 export function stateLabel(state: AgentHubState, zh: boolean): string {

@@ -5,7 +5,7 @@ import { AgentHubHome } from './AgentHubHome'
 import { AgentHubTasks } from './AgentHubTasks'
 import { AgentHubThread } from './AgentHubThread'
 import './agentHub.css'
-import { agentDisplayName, latestThreadForHarness, stateLabel } from './agentHubCopy'
+import { agentDisplayName, stateLabel, usableLatestThreadForHarness } from './agentHubCopy'
 import { agentHubApi, type AgentHubCounts, type AgentHubName, type AgentHubStatus, type AgentHubTask } from './agentHubApi'
 
 type HubTab = 'tasks' | 'detail'
@@ -31,9 +31,11 @@ export function AgentHubPage({
   const [legacy, setLegacy] = useState(Boolean(legacyTaskId) || showLegacy)
   const [localThreadId, setLocalThreadId] = useState<string>()
   const nonceSeen = useRef(newThreadNonce)
+  const skipAutoOpen = useRef(false)
   useEffect(() => {
     if (newThreadNonce === nonceSeen.current) return
     nonceSeen.current = newThreadNonce
+    skipAutoOpen.current = true
     setLocalThreadId(undefined)
     setLegacy(false)
   }, [newThreadNonce])
@@ -53,18 +55,23 @@ export function AgentHubPage({
   }, [selectedThreadId, showLegacy, legacyTaskId])
   const threadId = onOpenThread ? selectedThreadId : (selectedThreadId ?? localThreadId)
   const openThread = (id: string) => {
-    setLocalThreadId(id)
+    if (!id) skipAutoOpen.current = true
+    setLocalThreadId(id || undefined)
     setLegacy(false)
     onOpenThread?.(id)
   }
   const [threadHarness, setThreadHarness] = useState<AgentHubName>()
   useEffect(() => {
     if (threadId || legacy) return
+    if (skipAutoOpen.current) {
+      skipAutoOpen.current = false
+      return
+    }
     let alive = true
     const name = selectedAgent ?? 'cursor'
     void Promise.resolve(agentHubApi.threadList({}) ?? { items: [] }).then(got => {
       if (!alive) return
-      const latest = latestThreadForHarness(got?.items ?? [], name)
+      const latest = usableLatestThreadForHarness(got?.items ?? [], name)
       if (latest) openThread(latest.threadId)
     }).catch(() => undefined)
     return () => { alive = false }
@@ -153,7 +160,12 @@ export function AgentHubPage({
           <h1>{agentDisplayName(titleId)}</h1>
           <small>{stateLabel(current?.state ?? 'unknown', zh)}</small>
         </div>
-        <p className="agent-hub-quota">{zh ? '消耗的是该 CLI 自己的会员额度' : 'Usage is billed to that CLI subscription, not Lunitide.'}</p>
+        {threadId ? (
+          <div className="agent-hub-thread-nav">
+            <button type="button" onClick={() => openThread('')}>{zh ? '返回' : 'Back'}</button>
+            <button type="button" onClick={() => openThread('')}>{zh ? '新对话' : 'New chat'}</button>
+          </div>
+        ) : null}
         {legacy && !threadId && (
           <nav className="agent-hub-tabs" aria-label={zh ? 'AgentHub 页面' : 'AgentHub pages'}>
             {([

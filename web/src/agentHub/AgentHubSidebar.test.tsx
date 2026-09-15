@@ -11,6 +11,7 @@ vi.mock('./agentHubApi', () => ({
     threadUpdate: vi.fn(),
     threadDelete: vi.fn(),
     list: vi.fn(),
+    install: vi.fn(),
   },
 }))
 
@@ -111,6 +112,53 @@ it('reloads the latest thread when selectedThreadId or newThreadNonce changes', 
   await waitFor(() => expect(vi.mocked(agentHubApi.threadList).mock.calls.length).toBeGreaterThan(1))
   fireEvent.click(screen.getByRole('button', { name: '打开 Cursor' }))
   expect(onOpenThread).toHaveBeenCalledWith(THREAD_ID)
+})
+
+it('opens a new chat instead of a faulted latest thread', async () => {
+  const onOpenThread = vi.fn()
+  vi.mocked(agentHubApi.detect).mockResolvedValue({
+    agents: [{ name: 'kimi', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用' }],
+  })
+  vi.mocked(agentHubApi.threadList).mockResolvedValue({
+    items: [{ ...thread('卡住的会话', 'kimi'), status: 'faulted' }],
+  })
+  render(
+    <LanguageProvider value="zh-CN">
+      <AgentHubSidebar onOpenThread={onOpenThread} onSelectAgent={vi.fn()} selectedAgent="kimi" />
+    </LanguageProvider>,
+  )
+  fireEvent.click(await screen.findByRole('button', { name: '打开 Kimi' }))
+  expect(onOpenThread).toHaveBeenCalledWith('')
+})
+
+it('asks before installing a missing CLI from the connect button', async () => {
+  vi.mocked(agentHubApi.detect).mockResolvedValue({
+    agents: [{ name: 'cursor', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装' }],
+  })
+  vi.mocked(agentHubApi.threadList).mockResolvedValue({ items: [] })
+  vi.mocked(agentHubApi.install).mockResolvedValue({
+    agents: [{ name: 'cursor', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用' }],
+    installed: true,
+    connected: true,
+    hint: '',
+  })
+  render(<LanguageProvider value="zh-CN"><AgentHubSidebar onOpenThread={vi.fn()} /></LanguageProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: '连接 Cursor' }))
+  fireEvent.click(screen.getByRole('button', { name: '确定安装' }))
+  await waitFor(() => expect(agentHubApi.install).toHaveBeenCalledWith({ name: 'cursor', confirmed: true }))
+})
+
+it('starts a new chat from the rail', async () => {
+  const onNewChat = vi.fn()
+  vi.mocked(agentHubApi.detect).mockResolvedValue({ agents: [] })
+  vi.mocked(agentHubApi.threadList).mockResolvedValue({ items: [] })
+  render(
+    <LanguageProvider value="zh-CN">
+      <AgentHubSidebar onOpenThread={vi.fn()} onNewChat={onNewChat} />
+    </LanguageProvider>,
+  )
+  fireEvent.click(await screen.findByRole('button', { name: '新对话' }))
+  expect(onNewChat).toHaveBeenCalled()
 })
 
 it('keeps the three agents when detect fails', async () => {

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { ACCESS_MODES, agentDisplayName, agentInstall, composeHubPrompt, FREE_TEMPLATES, HUB_AGENT_IDS, hubReadyState, hubSceneToThreadScene, hubTemplatesForScene, latestThreadForHarness, mergeEvents, parentWorkspacePath, pptDeckMissing, sceneBlurb, scenePrefix, shortWorkDir, stateLabel, statusLabel, taskElapsed, threadPptMissing, threadTitleFromPrompt, visibleHubArtifacts } from './agentHubCopy'
+import { ACCESS_MODES, agentDisplayName, agentInstall, composeHubPrompt, displayUserFacingMessage, FREE_TEMPLATES, HUB_AGENT_IDS, hubReadyState, hubSceneToThreadScene, hubTemplatesForScene, latestThreadForHarness, mergeEvents, parentWorkspacePath, pptDeckMissing, sceneBlurb, scenePrefix, shortWorkDir, stateLabel, statusLabel, taskElapsed, threadPptMissing, threadTitleFromPrompt, usableLatestThreadForHarness, visibleHubArtifacts, visibleWorkspaceEntry } from './agentHubCopy'
 
 it('clips a create title to the first 200-rune line', () => {
   expect(threadTitleFromPrompt('第一行\n第二行')).toBe('第一行')
@@ -86,15 +86,32 @@ it('says a thread PPT scene finished without a produced deck', () => {
   expect(threadPptMissing('free', [])).toBe(false)
 })
 
-it('names the three rail agents and their official install pages', () => {
+it('names the three rail agents and their local install commands, without sending the user to a docs page', () => {
   expect([...HUB_AGENT_IDS]).toEqual(['codex', 'cursor', 'kimi'])
   expect(agentDisplayName('codex')).toBe('Codex')
   expect(agentDisplayName('cursor')).toBe('Cursor')
   expect(agentDisplayName('kimi')).toBe('Kimi')
-  expect(agentInstall('codex').url).toContain('openai/codex')
   expect(agentInstall('codex').command).toContain('@openai/codex')
-  expect(agentInstall('cursor').url).toContain('cursor.com')
-  expect(agentInstall('kimi').url).toContain('kimi.com')
+  expect(agentInstall('cursor').command).toContain('cursor-agent')
+  expect(agentInstall('kimi').command).toContain('kimi')
+  expect(agentInstall('codex').opensPage).toBe(false)
+  expect(agentInstall('cursor').opensPage).toBe(false)
+})
+
+it('shows only the user sentence from a wrapped scene prompt and hides notices', () => {
+  expect(displayUserFacingMessage('你好', 'user')).toBe('你好')
+  expect(displayUserFacingMessage('【场景：写新项目】\n项目根：E:/repo\n\n用户任务：\n帮我建目录', 'user')).toBe('帮我建目录')
+  expect(displayUserFacingMessage('应用重启后未能继续', 'notice')).toBeNull()
+  expect(displayUserFacingMessage('在此仓库根内检索和修改。', 'system')).toBeNull()
+})
+
+it('hides junk workspace names that are not useful files', () => {
+  expect(visibleWorkspaceEntry('src')).toBe(true)
+  expect(visibleWorkspaceEntry('loopback.txt')).toBe(true)
+  expect(visibleWorkspaceEntry('$null')).toBe(false)
+  expect(visibleWorkspaceEntry('.git')).toBe(false)
+  expect(visibleWorkspaceEntry('node_modules')).toBe(false)
+  expect(visibleWorkspaceEntry('a700ef41599b8c25bd9bde3d')).toBe(false)
 })
 
 it('opens the newest thread for that harness, using pin only as a tie-break', () => {
@@ -110,6 +127,16 @@ it('opens the newest thread for that harness, using pin only as a tie-break', ()
     { harnessId: 'cursor', threadId: 'b', updatedAt: '2026-09-14T00:00:00Z', pinned: true },
   ], 'cursor')?.threadId).toBe('b')
   expect(latestThreadForHarness(items, 'kimi')).toBeUndefined()
+})
+
+it('skips faulted latest threads when choosing a usable conversation', () => {
+  expect(usableLatestThreadForHarness([
+    { harnessId: 'kimi', threadId: 'dead', updatedAt: '2026-09-15T00:00:00Z', status: 'faulted' },
+    { harnessId: 'kimi', threadId: 'ok', updatedAt: '2026-09-14T00:00:00Z', status: 'idle' },
+  ], 'kimi')?.threadId).toBe('ok')
+  expect(usableLatestThreadForHarness([
+    { harnessId: 'kimi', threadId: 'dead', updatedAt: '2026-09-15T00:00:00Z', status: 'faulted' },
+  ], 'kimi')).toBeUndefined()
 })
 
 it('maps CLI probe state to install, connect, or ready', () => {

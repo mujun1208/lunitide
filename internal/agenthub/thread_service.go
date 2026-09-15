@@ -122,7 +122,7 @@ func (s *Service) ListThreads(harnessID string) ([]ThreadRecord, error) {
 	return items, nil
 }
 
-func (s *Service) UpdateThread(id, title string, pinned *bool) (ThreadDetail, error) {
+func (s *Service) UpdateThread(id, title string, pinned *bool, workspaceRoot, accessMode, exportDir, scene string) (ThreadDetail, error) {
 	if s.Threads == nil {
 		return ThreadDetail{}, fmt.Errorf("thread store unavailable")
 	}
@@ -138,6 +138,38 @@ func (s *Service) UpdateThread(id, title string, pinned *bool) (ThreadDetail, er
 	}
 	if err = s.Threads.Update(id, thread.Title, thread.Pinned); err != nil {
 		return ThreadDetail{}, err
+	}
+	if root := strings.TrimSpace(workspaceRoot); root != "" {
+		if err = os.MkdirAll(root, 0o755); err != nil {
+			return ThreadDetail{}, err
+		}
+		if err = s.Threads.SetWorkspace(id, root); err != nil {
+			return ThreadDetail{}, err
+		}
+	}
+	if access := strings.TrimSpace(accessMode); access != "" {
+		if !validThreadAccess(access) {
+			return ThreadDetail{}, fmt.Errorf("参数无效")
+		}
+		if err = s.Threads.SetAccess(id, access); err != nil {
+			return ThreadDetail{}, err
+		}
+	}
+	if dest := strings.TrimSpace(exportDir); dest != "" {
+		if err = os.MkdirAll(dest, 0o755); err != nil {
+			return ThreadDetail{}, err
+		}
+		if err = s.Threads.SetExport(id, dest); err != nil {
+			return ThreadDetail{}, err
+		}
+	}
+	if nextScene := strings.TrimSpace(scene); nextScene != "" {
+		if !validThreadScene(nextScene) {
+			return ThreadDetail{}, fmt.Errorf("参数无效")
+		}
+		if err = s.Threads.SetScene(id, nextScene); err != nil {
+			return ThreadDetail{}, err
+		}
 	}
 	return s.GetThread(id)
 }
@@ -262,6 +294,9 @@ func (s *Service) ListWorkspace(threadID, relativePath string) ([]WorkspaceEntry
 	}
 	items := []WorkspaceEntry{}
 	for _, entry := range entries {
+		if skipWorkspaceName(entry.Name()) {
+			continue
+		}
 		abs := filepath.Join(target, entry.Name())
 		if !PathAllowed(thread.WorkspaceRoot, thread.ExportDir, abs) {
 			continue
