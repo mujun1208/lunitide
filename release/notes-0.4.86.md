@@ -32,6 +32,7 @@ AgentHub 按本机确认安装 CLI、浅色主题不再被强制成黑底，组�
 ## 5. 测试与 CI
 
 - Windows Quality 的 race 与 coverage 在运行时 abort 时各重试一次。真实 DATA RACE 或断言失败不重试。
+- Office 会话结束后台归档会先入队再发完成事件，测试关库/删 TempDir 不再和写入抢文件。
 
 ## 6. 不做
 
