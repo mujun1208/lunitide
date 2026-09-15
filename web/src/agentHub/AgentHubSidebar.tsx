@@ -62,6 +62,10 @@ export function AgentHubSidebar({
     onSelectAgent?.(name)
     onOpenThread(threadId ?? '')
   }
+  const resumeThreadId = (name: AgentHubName) => {
+    if (!selectedThreadId) return ''
+    return usableLatestThreadForHarness(threads, name)?.threadId
+  }
   const connect = async (name: AgentHubName) => {
     const current = agents.find(item => item.name === name)
     if (current?.state !== 'available') {
@@ -73,9 +77,9 @@ export function AgentHubSidebar({
     try {
       const detected = await agentHubApi.detect()
       setAgents(detected.agents ?? [])
-      openAgent(name, usableLatestThreadForHarness(threads, name)?.threadId)
+      openAgent(name, resumeThreadId(name))
     } catch {
-      openAgent(name, usableLatestThreadForHarness(threads, name)?.threadId)
+      openAgent(name, resumeThreadId(name))
     } finally {
       setConnecting('')
     }
@@ -93,7 +97,7 @@ export function AgentHubSidebar({
       }
       const name = installName
       setInstallName(undefined)
-      openAgent(name, usableLatestThreadForHarness(threads, name)?.threadId)
+      openAgent(name, resumeThreadId(name))
     } catch (err) {
       setInstallError(err instanceof Error && /[\u4e00-\u9fff]/.test(err.message) ? err.message : (zh ? '安装没有完成。' : 'Install did not finish.'))
     } finally {
@@ -130,7 +134,7 @@ export function AgentHubSidebar({
               className="agent-hub-agent-select"
               aria-label={zh ? `打开 ${agentDisplayName(row.name)}` : `Open ${agentDisplayName(row.name)}`}
               aria-pressed={selectedAgent === row.name}
-              onClick={() => openAgent(row.name, row.thread?.threadId)}
+              onClick={() => openAgent(row.name, resumeThreadId(row.name))}
             >
               <span className="agent-hub-logo"><AgentHubMark name={row.name} /></span>
               <span className="agent-hub-agent-copy">

@@ -172,7 +172,7 @@ export function hubReadyState(state?: AgentHubState): 'ready' | 'missing' | 'uns
   return 'unknown'
 }
 
-const UNUSABLE_THREAD = new Set(['faulted', 'failed', 'cancelled'])
+const UNUSABLE_THREAD = new Set(['faulted', 'failed', 'cancelled', 'timeout'])
 
 export function latestThreadForHarness<T extends { harnessId: string; updatedAt: string; pinned?: boolean }>(
   items: T[],
