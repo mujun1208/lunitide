@@ -56,6 +56,7 @@ export function CodePanel({
   const [file, setFile] = useState<OpenFile | undefined>()
   const [recent, setRecent] = useState<string[]>([])
   const [openError, setOpenError] = useState('')
+  const [treeOpen, setTreeOpen] = useState(true)
   const taskFiles = useMemo(() => extractTaskFiles(toolActivities), [toolActivities])
 
   const openFile = async (entry: TaskFileEntry) => {
@@ -81,28 +82,39 @@ export function CodePanel({
   }, [taskFiles.length, bridge])
 
   return (
-    <div className="code-panel">
+    <div className={`code-panel${treeOpen ? '' : ' is-tree-hidden'}`}>
       <header className="code-panel-toolbar">
-        <span className="code-panel-title">代码{projectRoot ? ` · ${projectRoot}` : ''}</span>
-        <button
-          type="button"
-          className="artifact-icon-btn code-panel-vscode"
-          disabled={!bridge}
-          aria-label="在 VS Code 中打开"
-          title="在 VS Code 中打开当前文件或工作区根目录"
-          onClick={() => {
-            if (!bridge) return
-            setOpenError('')
-            void openWorkspaceInEditor(bridge, file?.path)
-              .catch(() => setOpenError('无法在 VS Code 中打开；已尝试资源管理器回退'))
-          }}
-        >
-          ↗
-        </button>
+        <span className="code-panel-title">{file?.path.split(/[/\\]/).pop() || (projectRoot ? `代码 · ${projectRoot}` : '代码')}</span>
+        <div className="workspace-chrome-tools">
+          <button
+            type="button"
+            className="artifact-icon-btn"
+            aria-label={treeOpen ? '折叠文件树' : '显示文件树'}
+            title={treeOpen ? '折叠文件树' : '显示文件树'}
+            onClick={() => setTreeOpen(open => !open)}
+          >
+            {treeOpen ? '◧' : '◨'}
+          </button>
+          <button
+            type="button"
+            className="artifact-icon-btn code-panel-vscode"
+            disabled={!bridge}
+            aria-label="在 VS Code 中打开"
+            title="在 VS Code 中打开当前文件或工作区根目录"
+            onClick={() => {
+              if (!bridge) return
+              setOpenError('')
+              void openWorkspaceInEditor(bridge, file?.path)
+                .catch(() => setOpenError('无法在 VS Code 中打开；已尝试资源管理器回退'))
+            }}
+          >
+            ↗
+          </button>
+        </div>
       </header>
       {openError && <p className="code-panel-open-error" role="alert">{openError}</p>}
       <div className="code-panel-split">
-        <aside className="code-panel-tree" aria-label="任务相关文件">
+        {treeOpen && <aside className="code-panel-tree" aria-label="任务相关文件">
           <h3>任务相关文件</h3>
           {taskFiles.length ? (
             <ul className="code-task-files">
@@ -155,7 +167,7 @@ export function CodePanel({
               ))}</ul>
             </div>
           )}
-        </aside>
+        </aside>}
         <section className="code-panel-editor" aria-label="代码编辑器">
           {file ? <CodeEditorView file={file} /> : (
             <div className="code-panel-placeholder">

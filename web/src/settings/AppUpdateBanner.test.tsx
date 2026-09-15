@@ -51,5 +51,5 @@ it('offers one-click install when a newer package is available', async () => {
     { updateId: '01ARZ3NDEKTSV4RRFFQ69G5FAW', expectedDigest: 'aa'.repeat(32) },
     expect.objectContaining({ attempt: expect.anything() }),
   )
-  expect(await screen.findByText(/正在安装更新/)).toBeInTheDocument()
+  expect(await screen.findByText(/正在下载并安装更新/)).toBeInTheDocument()
 })

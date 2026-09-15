@@ -3,6 +3,22 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { moonVisualMode, strandsSpeaking, STRANDS_THINKING } from './moonVisual'
 
+// HiDPI regression: Strands shaders center with gl_FragCoord (device pixels).
+// If uResolution / the glass FBO stay in CSS pixels, the ball drifts down-left
+// relative to the CSS halo — the "speaking moon is off-center again" bug.
+describe('Strands binds resolution to the canvas drawing buffer', () => {
+  const strandsSrc = readFileSync(resolve(process.cwd(), 'src/session/companion/visual/Strands.tsx'), 'utf8')
+
+  it('sets uResolution and the glass FBO from gl.canvas after Renderer.setSize', () => {
+    expect(strandsSrc).toMatch(/renderer\.setSize\(width,\s*height\)/)
+    expect(strandsSrc).toMatch(/uResolution\.value\s*=\s*\[gl\.canvas\.width,\s*gl\.canvas\.height\]/)
+    expect(strandsSrc).toMatch(/renderTarget\.setSize\(gl\.canvas\.width,\s*gl\.canvas\.height\)/)
+    // Must not keep feeding CSS layout pixels into the shader center math.
+    expect(strandsSrc).not.toMatch(/uResolution\.value\s*=\s*\[width,\s*height\]/)
+    expect(strandsSrc).not.toMatch(/renderTarget\.setSize\(width,\s*height\)/)
+  })
+})
+
 // Speaking sits on the thinking seat. Only the inner mouth speeds up —
 // no zoom, no 46vmin grow, no CSS scale that pulls the wave off-center.
 describe('speaking moon stays on the thinking seat (mouth only)', () => {

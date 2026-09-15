@@ -116,6 +116,8 @@ func handleOCRRoutingSet(e *Engine, ctx context.Context, request bridge.Request)
 		ProviderID       string `json:"providerId"`
 		ModelID          string `json:"modelId"`
 		PreferProvider   bool   `json:"preferProvider"`
+		LocalEngine      string `json:"localEngine"`
+		PackRoot         string `json:"packRoot"`
 		ExpectedRevision string `json:"expectedRevision"`
 	}
 	if decodePayload(request.Payload, &p) != nil || len(p.ExpectedRevision) != 64 {
@@ -154,11 +156,14 @@ func handleOCRRoutingSet(e *Engine, ctx context.Context, request bridge.Request)
 	if e == nil || e.ocr == nil {
 		return request.Fail("CAPABILITY_NOT_READY", "OCR 路由尚未装配", false)
 	}
-	saved, err := e.ocr.SetRouting(ocrapp.Routing{ProviderID: p.ProviderID, ModelID: p.ModelID, PreferProvider: p.PreferProvider}, p.ExpectedRevision)
+	saved, err := e.ocr.SetRouting(ocrapp.Routing{ProviderID: p.ProviderID, ModelID: p.ModelID, PreferProvider: p.PreferProvider, LocalEngine: p.LocalEngine, PackRoot: p.PackRoot}, p.ExpectedRevision)
 	if errors.Is(err, ocrapp.ErrRevisionConflict) {
 		return request.Fail("SETTINGS_VERSION_CONFLICT", "OCR 路由已被修改，请载入最新版本", false)
 	}
 	if err != nil {
+		if strings.Contains(err.Error(), "PP-OCR") || strings.Contains(err.Error(), "本机 OCR") {
+			return request.Fail("BRIDGE_SCHEMA_INVALID", err.Error(), false)
+		}
 		return request.Fail("STORAGE_UNAVAILABLE", "OCR 路由写入失败", true)
 	}
 	return request.Ok(ocrRoutingResult(saved, e.ocr.HealthSnapshot()))
@@ -168,16 +173,28 @@ func ocrRoutingResult(r ocrapp.Routing, health ocrapp.HealthSnapshot) map[string
 	if health.Local.Backend == "" {
 		health.Local = ocrapp.LocalOCRReady()
 	}
+	if health.Pack.Backend == "" {
+		health.Pack = ocrapp.DetectPPOcrPack(ocrapp.ResolvePPOcrRoot(r.PackRoot))
+	}
+	engine := r.LocalEngine
+	if engine == "" {
+		engine = "windows-ocr"
+	}
 	out := map[string]any{
 		"preferProvider": r.PreferProvider, "revision": r.Revision,
 		"appliedRevision": r.Revision, "state": "applied",
-		"localReady": map[string]any{"pdf": health.Local.PDF, "image": health.Local.Image, "backend": health.Local.Backend},
+		"localEngine":    engine,
+		"localReady":     map[string]any{"pdf": health.Local.PDF, "image": health.Local.Image, "backend": health.Local.Backend},
+		"pack":           map[string]any{"available": health.Pack.Available, "status": health.Pack.Status, "backend": health.Pack.Backend},
 	}
 	if r.ProviderID != "" {
 		out["providerId"] = r.ProviderID
 	}
 	if r.ModelID != "" {
 		out["modelId"] = r.ModelID
+	}
+	if r.PackRoot != "" {
+		out["packRoot"] = r.PackRoot
 	}
 	if health.LastFailure != nil {
 		out["lastFailure"] = map[string]any{

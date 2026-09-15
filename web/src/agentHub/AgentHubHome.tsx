@@ -1,21 +1,28 @@
 import React, { useEffect, useState } from 'react'
+import { SharedHubComposer, type HubAccessMode } from '../session/SharedHubComposer'
 import { useZh } from '../i18n/language'
 import { agentHubApi, type AgentHubName, type AgentHubStatus } from './agentHubApi'
 import {
-  ACCESS_MODES,
+  FREE_TEMPLATES,
   PICK_PROJECT_DIR,
   SCENE_KEY,
-  THREAD_SCENES,
+  composeHubPrompt,
   hubSceneToThreadScene,
   sceneBlurb,
-  shortWorkDir,
   threadTitleFromPrompt,
   workDirKey,
   type HubScene,
+  type InboxFile,
 } from './agentHubCopy'
 
+function readScene(): HubScene {
+  const saved = localStorage.getItem(SCENE_KEY)
+  if (saved === 'write' || saved === 'fix' || saved === 'ppt' || saved === 'docs' || saved === 'free') return saved
+  return 'free'
+}
+
 function defaultHarness(scene: HubScene): AgentHubName {
-  if (scene === 'write') return 'cursor'
+  if (scene === 'write' || scene === 'docs') return 'cursor'
   if (scene === 'fix') return 'codex'
   if (scene === 'ppt') return 'kimi'
   return 'cursor'
@@ -27,37 +34,49 @@ function userError(err: unknown, fallback: string): string {
 
 export function AgentHubHome({
   onOpened,
+  selectedAgent,
+  onSelectAgent,
 }: {
   onOpened?: (threadId: string) => void
+  selectedAgent?: AgentHubName
+  onSelectAgent?: (name: AgentHubName) => void
 }): React.JSX.Element {
   const zh = useZh()
-  const [scene, setScene] = useState<HubScene | null>(null)
-  const [agent, setAgent] = useState<AgentHubName>('cursor')
-  const [workDir, setWorkDir] = useState('')
+  const [scene, setScene] = useState<HubScene>(readScene)
+  const [agent, setAgent] = useState<AgentHubName>(selectedAgent ?? 'cursor')
+  const [workDir, setWorkDir] = useState(() => localStorage.getItem(workDirKey(readScene())) ?? '')
   const [prompt, setPrompt] = useState('')
   const [exportDir, setExportDir] = useState('')
-  const [accessMode, setAccessMode] = useState<'approval' | 'auto-edit' | 'full-access'>('approval')
+  const [accessMode, setAccessMode] = useState<HubAccessMode>('approval')
+  const [inboxFiles, setInboxFiles] = useState<InboxFile[]>([])
   const [error, setError] = useState('')
   const [agents, setAgents] = useState<AgentHubStatus[] | null>(null)
   useEffect(() => {
     void agentHubApi.detect().then(got => setAgents(got.agents ?? [])).catch(() => setAgents([]))
   }, [])
+  useEffect(() => {
+    if (selectedAgent) setAgent(selectedAgent)
+  }, [selectedAgent])
   const detecting = agents === null
-  const selectedAgent = agents?.find(item => item.name === agent)
-  const blurb = scene ? sceneBlurb(hubSceneToThreadScene(scene)) : ''
+  const selected = agents?.find(item => item.name === agent)
+  const blurb = scene === 'docs'
+    ? (zh ? '根据本目录已有材料写文档，只在本目录保存。' : 'Write documents from this folder.')
+    : sceneBlurb(hubSceneToThreadScene(scene))
   const selectScene = (next: HubScene) => {
     setScene(next)
-    setAgent(defaultHarness(next))
+    const nextAgent = selectedAgent ?? defaultHarness(next)
+    setAgent(nextAgent)
+    onSelectAgent?.(nextAgent)
     setWorkDir(localStorage.getItem(workDirKey(next)) ?? '')
     setError('')
     localStorage.setItem(SCENE_KEY, next)
   }
   const pickFolder = async () => {
-    if (!scene) return
     try {
       const got = await agentHubApi.pickDir()
       if (got.canceled || !got.path) return
       setWorkDir(got.path)
+      setInboxFiles([])
       localStorage.setItem(workDirKey(scene), got.path)
       setError('')
     } catch (err) {
@@ -82,14 +101,14 @@ export function AgentHubHome({
     try {
       const got = await agentHubApi.inbox({ action: 'files', workDir })
       if (got.canceled) return
+      setInboxFiles(got.files ?? [])
       setError('')
     } catch (err) {
       setError(userError(err, zh ? '没有加入参考文件。' : 'Could not add reference files.'))
     }
   }
   const submit = async () => {
-    if (!scene) return
-    if ((scene === 'write' || scene === 'fix') && !workDir) {
+    if ((scene === 'write' || scene === 'fix' || scene === 'docs') && !workDir) {
       setError(PICK_PROJECT_DIR)
       return
     }
@@ -97,7 +116,6 @@ export function AgentHubHome({
       setError(zh ? '正在检测本机 Agent…' : 'Still looking for local Agents.')
       return
     }
-    const selected = agents.find(item => item.name === agent)
     if (!selected || selected.state !== 'available') {
       setError(zh ? '当前 Agent 不可用。' : 'This Agent is not available.')
       return
@@ -115,7 +133,10 @@ export function AgentHubHome({
         accessMode,
       })
       if (text) {
-        await agentHubApi.threadPrompt({ threadId: created.thread.threadId, text })
+        await agentHubApi.threadPrompt({
+          threadId: created.thread.threadId,
+          text: composeHubPrompt(scene, workDir, text, inboxFiles),
+        })
       }
       onOpened?.(created.thread.threadId)
     } catch (err) {
@@ -123,75 +144,37 @@ export function AgentHubHome({
     }
   }
   return (
-    <section>
+    <section className="hub-home">
       <p className="agent-hub-hint">{zh ? '对话页就是月汐自己的界面，不嵌官方窗口。未接入的 CLI 不会出现。' : "This page is Lunitide's own UI. Official vendor windows are not embedded. CLIs that are not wired do not appear."}</p>
-      <div className="agent-hub-scenes">
-        {THREAD_SCENES.map(item => (
-          <button
-            key={item.id}
-            type="button"
-            className="agent-hub-scene"
-            aria-pressed={scene === item.id}
-            onClick={() => selectScene(item.id)}
-          >
+      {blurb ? <p className="agent-hub-hint">{blurb}</p> : null}
+      {selected?.hint && (selected.state !== 'available' || (selected.protocol === 'exec' && selected.interactive === false)) ? (
+        <p className="agent-hub-hint">{selected.hint}</p>
+      ) : null}
+      <SharedHubComposer
+        value={prompt}
+        onChange={setPrompt}
+        onSubmit={() => void submit()}
+        detecting={detecting}
+        placeholder={zh ? '向 Agent 描述任务…' : 'Describe the task for this Agent…'}
+        accessMode={accessMode}
+        onAccessMode={setAccessMode}
+        scene={scene}
+        onScene={selectScene}
+        showScene
+        workDir={workDir}
+        exportDir={exportDir}
+        onPickProject={() => void pickFolder()}
+        onPickExport={() => void pickExport()}
+        onPickFiles={() => void addInbox()}
+        inboxFiles={inboxFiles}
+        zh={zh}
+      />
+      <div className="agent-hub-templates">
+        {FREE_TEMPLATES.map(item => (
+          <button key={item.zh} type="button" onClick={() => setPrompt(item.prompt)}>
             {zh ? item.zh : item.en}
           </button>
         ))}
-      </div>
-      {blurb ? <p className="agent-hub-hint">{blurb}</p> : null}
-      {scene && (
-        <div className="agent-hub-pills">
-          {(agents ?? []).map(item => (
-            <button
-              key={item.name}
-              type="button"
-              className={`agent-hub-pill${item.state === 'available' ? '' : ' is-off'}`}
-              aria-pressed={agent === item.name}
-              disabled={item.state !== 'available'}
-              onClick={() => { if (item.state === 'available') setAgent(item.name) }}
-            >
-              {item.name}
-            </button>
-          ))}
-        </div>
-      )}
-      {scene && (() => {
-        if (!selectedAgent?.hint) return null
-        if (selectedAgent.state !== 'available') return <p className="agent-hub-hint">{selectedAgent.hint}</p>
-        if (selectedAgent.protocol !== 'exec' && selectedAgent.interactive !== false) return null
-        return <p className="agent-hub-hint">{selectedAgent.hint}</p>
-      })()}
-      <div className="agent-hub-console">
-        <textarea
-          value={prompt}
-          onChange={event => setPrompt(event.target.value)}
-          aria-label={zh ? '任务说明' : 'Task prompt'}
-        />
-        <div className="agent-hub-console-bar">
-          <button type="button" className={`agent-hub-chip${workDir ? ' is-on' : ''}`} onClick={() => void pickFolder()}>
-            {workDir ? shortWorkDir(workDir) : (zh ? '选择文件夹' : 'Choose folder')}
-          </button>
-          <button type="button" className={`agent-hub-chip${exportDir ? ' is-on' : ''}`} onClick={() => void pickExport()}>
-            {exportDir ? shortWorkDir(exportDir) : (zh ? '导出目录' : 'Export folder')}
-          </button>
-          <button type="button" className="agent-hub-chip" onClick={() => void addInbox()}>
-            {zh ? '添加文件' : 'Add files'}
-          </button>
-          {ACCESS_MODES.map(item => (
-            <button
-              key={item.id}
-              type="button"
-              className={`agent-hub-chip${accessMode === item.id ? ' is-on' : ''}`}
-              aria-pressed={accessMode === item.id}
-              onClick={() => setAccessMode(item.id)}
-            >
-              {zh ? item.zh : item.en}
-            </button>
-          ))}
-          <button type="button" className="agent-hub-run" disabled={detecting} onClick={() => void submit()}>
-            {zh ? '执行' : 'Run'}
-          </button>
-        </div>
       </div>
       {accessMode === 'auto-edit' ? (
         <p className="agent-hub-hint">{zh ? '自动会放过改文件权限，执行和联网仍要你点。业务选项永远要人点。' : 'Auto allows file edits. Shell and network still need your click. Business choices always wait for you.'}</p>

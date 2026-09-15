@@ -5,6 +5,7 @@ describe('settings nav search and groups', () => {
   test('does not add a capability-routing category', () => {
     expect(filterSettingsNav('').map(c => c.id)).not.toContain('capability-routing')
     expect(filterSettingsNav('').map(c => c.id)).not.toContain('capability.roles')
+    expect(filterSettingsNav('').map(c => c.id)).toContain('routing')
   })
 
   test('groups cover every category once', () => {
@@ -22,8 +23,10 @@ describe('settings nav search and groups', () => {
     expect(filterSettingsNav('纪要').map(c => c.id)).toEqual(['meetings'])
     expect(filterSettingsNav('sherpa').map(c => c.id)).toEqual(['voice', 'meetings'])
     expect(filterSettingsNav('生图').map(c => c.id)).toEqual(['providers'])
-    expect(filterSettingsNav('能力路由').map(c => c.id)).toEqual(['providers'])
-    expect(filterSettingsNav('judge').map(c => c.id)).toEqual(['providers'])
+    expect(filterSettingsNav('能力路由').map(c => c.id)).toEqual(['routing'])
+    expect(filterSettingsNav('judge').map(c => c.id)).toEqual(['routing'])
+    expect(filterSettingsNav('OCR').map(c => c.id)).toEqual(['routing'])
+    expect(filterSettingsNav('路由管理').map(c => c.id)).toEqual(['routing'])
     expect(filterSettingsNav('飞书').map(c => c.id)).toEqual(['channels'])
     expect(filterSettingsNav('webhook').map(c => c.id)).toEqual(['channels'])
     expect(filterSettingsNav('没有这个设置项xyz').length).toBe(0)

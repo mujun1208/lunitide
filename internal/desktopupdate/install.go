@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 )
 
 // SilentUpgradeArgs is the NSIS in-place upgrade switch. The installer already
@@ -11,18 +12,52 @@ import (
 func SilentUpgradeArgs() []string { return []string{"/S"} }
 
 // NsisInstaller applies a verified local Setup. Missing files fail closed so a
-// feed-adopted digest cannot no-op.
+// feed-adopted digest cannot no-op. Store/Get/GetFile fill a missing local
+// file from the remote feed when the user clicks install.
 type NsisInstaller struct {
-	Feed  Feed
-	Start func(*exec.Cmd) error
+	Feed    Feed
+	Store   string
+	Start   func(*exec.Cmd) error
+	Get     HTTPGet
+	GetFile HTTPGetFile
 }
 
 func NewNsisInstaller(feed Feed) *NsisInstaller {
 	return &NsisInstaller{Feed: feed, Start: startDetached}
 }
 
-func (n *NsisInstaller) Download(_ context.Context, _, _, digest string) error {
-	return n.verify(digest)
+func (n *NsisInstaller) Download(ctx context.Context, _, _, digest string) error {
+	if err := n.verify(digest); err == nil {
+		return nil
+	}
+	get := n.Get
+	if get == nil {
+		get = DefaultHTTPGet
+	}
+	doc, ok, err := FetchRemoteLatest(ctx, get, "")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("desktopupdate: no local installer for digest")
+	}
+	if !strings.EqualFold(doc.SHA256, digest) {
+		return fmt.Errorf("desktopupdate: remote digest mismatch")
+	}
+	store := n.Store
+	if store == "" {
+		dirs := DefaultDirs()
+		if len(dirs) == 0 {
+			return fmt.Errorf("desktopupdate: update store missing")
+		}
+		store = dirs[0]
+	}
+	getFile := n.GetFile
+	if getFile == nil {
+		getFile = DefaultHTTPGetFile
+	}
+	_, err = EnsureLocalInstaller(ctx, store, doc, getFile)
+	return err
 }
 
 func (n *NsisInstaller) Install(_ context.Context, _, _, digest string) error {

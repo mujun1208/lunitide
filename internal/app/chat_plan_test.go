@@ -78,7 +78,7 @@ func TestPlanStepRecordsReceiptWithoutAutoApprove(t *testing.T) {
 	e := newSubagentChatEngine(t)
 	store := &memToolOps{}
 	e.SetToolOperationStore(store)
-	out := e.executePlanStep(context.Background(), &planStepToolAdapter{}, nil, "model-x", subTestSession, executionModeApproval, "inspect", planStep{Action: "write", Detail: "do not write"}, 1, 1, RouteUnspecified)
+	out := e.executePlanStep(context.Background(), &planStepToolAdapter{}, nil, "model-x", subTestSession, executionModeApproval, "inspect", planStep{Action: "write", Detail: "do not write"}, 1, 1, RouteUnspecified, nil)
 	if !strings.Contains(out, "approval required") && !strings.Contains(out, "step outcome") {
 		// The tool error is fed back to the model; the receipt is the contract.
 		t.Log(out)
@@ -285,11 +285,30 @@ func TestPlanVerifyUsesFlashWhenVendorHasPlusAndFlash(t *testing.T) {
 
 func TestPlanStepToolsInheritRoute(t *testing.T) {
 	e := NewEngine(nil, "test")
-	got := planStepTools(e, RouteR1)
+	got := planStepTools(e, executionModeApproval, RouteR1, nil)
 	for _, d := range got {
 		if d.Name == "computer.act" || d.Name == "desktop.open" {
 			t.Fatalf("R1 plan step leaked %s", d.Name)
 		}
+	}
+}
+
+func TestPlanStepToolsKeepsMergedOfficeAllow(t *testing.T) {
+	e, _ := officeEngineFixture(t)
+	route, allow := classifyTaskRoute("根据新闻生成 Word 文档，不打开文件", false, false)
+	if route != RouteR1 {
+		t.Fatalf("route=%q want R1", route)
+	}
+	got := planStepTools(e, executionModeApproval, route, allow)
+	seen := map[string]bool{}
+	for _, d := range got {
+		seen[d.Name] = true
+	}
+	if !seen["office.generate"] || !seen["workspace.read"] || !seen["web.search"] {
+		t.Fatalf("merged R1+R4 plan tools missing studio/read/search: %v", seen)
+	}
+	if seen["desktop.open"] || seen["computer.act"] {
+		t.Fatalf("negated-open plan must not keep desktop/computer.act: %v", seen)
 	}
 }
 

@@ -392,7 +392,7 @@ func looksLikeHtmlGenTask(text string) bool {
 }
 
 func wantsOfficeGen(text string) bool {
-	if spokenResultReportOnly(text) {
+	if refusesOfficeGen(text) || spokenResultReportOnly(text) {
 		return false
 	}
 	if capabilityWorkTask(text) || officeMaterialReview(text) || officeHowToQuestion(text) {

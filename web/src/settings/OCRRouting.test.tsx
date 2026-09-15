@@ -54,7 +54,8 @@ it('saves OCR routing with provider-first preference', async () => {
   } as unknown as OCRRoutingBridge
   render(<OCRRouting providers={providers} ocr={ocr} />)
   expect(await screen.findByRole('heading', { name: 'OCR 路由' })).toBeInTheDocument()
-  expect(screen.getByText(/本机 Windows OCR/)).toBeInTheDocument()
+  expect(screen.getAllByText(/引擎尚未接入/).length).toBeGreaterThan(0)
+  expect(screen.getAllByText(/Windows OCR/).length).toBeGreaterThan(0)
   await user.selectOptions(screen.getByLabelText('OCR 模型'), `${provider.id}\u0000vision-1`)
   await user.click(screen.getByRole('button', { name: '保存 OCR 路由' }))
   await waitFor(() => expect(ocr.set).toHaveBeenCalled())
@@ -80,6 +81,47 @@ it('shows last provider failure class and until without inventing zero counts', 
   expect(screen.queryByText(/0 次失败/)).toBeNull()
   expect(screen.getByText(/windows-ocr/)).toBeInTheDocument()
   expect(screen.getAllByText(/不是随包 PP-OCR/).length).toBeGreaterThan(0)
+})
+
+it('always lists Windows OCR and keeps PP-OCR disabled until a pack is installed', async () => {
+  const user = userEvent.setup()
+  const providers = { list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge
+  const ocr = {
+    get: vi.fn().mockResolvedValue({
+      preferProvider: true, revision: 'a'.repeat(64), appliedRevision: 'a'.repeat(64), state: 'applied',
+      localEngine: 'windows-ocr',
+      localReady: { pdf: true, image: true, backend: 'windows-ocr' },
+      pack: { available: false, status: 'missing_dependency', backend: 'ppocr-pack' },
+    }),
+    set: vi.fn().mockResolvedValue({
+      preferProvider: true, revision: 'b'.repeat(64), appliedRevision: 'b'.repeat(64), state: 'applied',
+      localEngine: 'windows-ocr',
+      packRoot: 'E:/ppocr',
+      localReady: { pdf: true, image: true, backend: 'windows-ocr' },
+      pack: { available: true, status: 'ready', backend: 'ppocr-pack' },
+    }),
+  } as unknown as OCRRoutingBridge
+  const pickPack = vi.fn().mockResolvedValue({ canceled: false, path: 'E:/ppocr' })
+  render(<OCRRouting providers={providers} ocr={ocr} pickPackDir={pickPack} />)
+  const engine = await screen.findByLabelText('本机 OCR 引擎')
+  expect(engine).toHaveDisplayValue('Windows OCR（内置）')
+  expect(screen.getByRole('option', { name: 'Windows OCR（内置）' })).toBeEnabled()
+  expect(screen.getByRole('option', { name: 'PP-OCR（未安装）' })).toBeDisabled()
+  expect(screen.getAllByText(/不是随包 PP-OCR/).length).toBeGreaterThan(0)
+  await user.click(screen.getByRole('button', { name: '安装 PP-OCR' }))
+  await waitFor(() => expect(pickPack).toHaveBeenCalled())
+  await waitFor(() => expect(ocr.set).toHaveBeenCalledWith(expect.objectContaining({
+    packRoot: 'E:/ppocr',
+    localEngine: 'windows-ocr',
+  }), expect.anything()))
+  expect(await screen.findByRole('status')).toHaveTextContent('识别仍走 Windows OCR')
+  expect(await screen.findByRole('option', { name: 'PP-OCR' })).toBeEnabled()
+  await user.selectOptions(screen.getByLabelText('本机 OCR 引擎'), 'ppocr')
+  await user.click(screen.getByRole('button', { name: '保存 OCR 路由' }))
+  await waitFor(() => expect(ocr.set).toHaveBeenLastCalledWith(expect.objectContaining({
+    localEngine: 'ppocr',
+    packRoot: 'E:/ppocr',
+  }), expect.anything()))
 })
 
 it('falls back unknown lastFailure class to Chinese', async () => {

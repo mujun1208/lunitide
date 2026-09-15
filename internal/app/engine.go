@@ -369,6 +369,7 @@ type streamState struct {
 	kbDiscarded    int
 	mroTurn        bool
 	taskRoute      TaskRoute
+	taskAllow      map[string]bool
 	lane           LaneContract
 	inviteLead     string
 }

@@ -25,6 +25,7 @@ const PLACEHOLDERS: Record<HubScene, { zh: string; en: string }> = {
   ppt: { zh: '根据本目录大纲做 12 页介绍 PPT，输出 pptx', en: 'Make a 12-page intro deck as pptx from this folder' },
   write: { zh: '在本目录按规则建文件夹并写最小可运行代码', en: 'Create folders and a minimal runnable project here' },
   fix: { zh: '说明缺陷，只改必要文件', en: 'Describe the defect; change only what is needed' },
+  docs: { zh: '根据本目录已有材料写文档，只在本目录保存', en: 'Write documents from this folder and keep them here' },
   free: { zh: '写下要做的事。材料用上面的「添加文件」', en: 'Describe the task. Use Add files above for materials.' },
 }
 
@@ -265,7 +266,9 @@ export function AgentHubWorkbench({
 }
 
 function sceneAgent(scene: Exclude<HubScene, 'free'>): AgentHubName {
-  return scene === 'ppt' ? 'kimi' : scene === 'write' ? 'cursor' : 'codex'
+  if (scene === 'ppt') return 'kimi'
+  if (scene === 'write' || scene === 'docs') return 'cursor'
+  return 'codex'
 }
 
 function userError(err: unknown, fallback: string): string {

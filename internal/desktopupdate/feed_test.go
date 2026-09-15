@@ -5,10 +5,25 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
 )
+
+func TestParseFeedAcceptsUppercaseDigest(t *testing.T) {
+	body := []byte("setup-bytes")
+	sum := sha256.Sum256(body)
+	digest := strings.ToUpper(hex.EncodeToString(sum[:]))
+	raw := []byte(`{"version":"0.4.82","channel":"stable","sha256":"` + digest + `","installer":"Lunitide-Setup-0.4.82-x64.exe"}`)
+	doc, err := ParseFeed(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.SHA256 != strings.ToLower(digest) {
+		t.Fatalf("digest %q", doc.SHA256)
+	}
+}
 
 func TestParseFeedRejectsUnknownFieldsAndBadDigest(t *testing.T) {
 	if _, err := ParseFeed([]byte(`{"version":"0.4.82","channel":"stable","sha256":"zz","installer":"Lunitide-Setup-0.4.82-x64.exe"}`)); err == nil {

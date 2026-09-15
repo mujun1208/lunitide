@@ -252,6 +252,7 @@ func (s *UpdateService) Check(ctx context.Context, channel, currentVersion strin
 			return CheckResult{}, fmt.Errorf("%w: currentVersion %q not numeric", ErrUpdateDowngrade, currentVersion)
 		}
 	}
+	feedVersion, feedDigest, feedOK, feedErr := s.lookupFeed(channel)
 	var out CheckResult
 	err := s.uow.TransactUpdate(ctx, func(tx UpdateTx) error {
 		ch, err := tx.GetChannelByName(channel)
@@ -266,9 +267,9 @@ func (s *UpdateService) Check(ctx context.Context, channel, currentVersion strin
 			return err
 		}
 		hasPkg := err == nil
-		if feedVersion, feedDigest, ok, ferr := s.lookupFeed(channel); ferr != nil {
-			return ferr
-		} else if ok && (currentVersion == "" || m7flow.CompareVersions(feedVersion, currentVersion) > 0) {
+		if feedErr != nil {
+			return feedErr
+		} else if feedOK && (currentVersion == "" || m7flow.CompareVersions(feedVersion, currentVersion) > 0) {
 			if !hasPkg || m7flow.CompareVersions(feedVersion, pkg.AppVersion) > 0 {
 				adopted, aerr := s.adoptFeedPackage(tx, ch, feedVersion, feedDigest)
 				if aerr != nil {

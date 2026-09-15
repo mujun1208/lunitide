@@ -90,9 +90,11 @@ func ParseFeed(raw []byte) (FeedDocument, error) {
 	if doc.Channel != m7flow.ChannelStable && doc.Channel != m7flow.ChannelBeta {
 		return FeedDocument{}, fmt.Errorf("desktopupdate: invalid channel %q", doc.Channel)
 	}
-	if !validDigest(doc.SHA256) {
+	digest, ok := normalizeDigest(doc.SHA256)
+	if !ok {
 		return FeedDocument{}, fmt.Errorf("desktopupdate: invalid sha256")
 	}
+	doc.SHA256 = digest
 	want := "Lunitide-Setup-" + doc.Version + "-x64.exe"
 	if doc.Installer != want || strings.ContainsAny(doc.Installer, `/\`) {
 		return FeedDocument{}, fmt.Errorf("desktopupdate: installer name %q must be %q", doc.Installer, want)
@@ -150,16 +152,27 @@ func IsNewer(candidate, current string) bool {
 }
 
 func validDigest(v string) bool {
+	_, ok := normalizeDigest(v)
+	return ok
+}
+
+func normalizeDigest(v string) (string, bool) {
 	if len(v) != 64 {
-		return false
+		return "", false
 	}
-	for _, c := range v {
-		if c >= '0' && c <= '9' || c >= 'a' && c <= 'f' {
-			continue
+	out := make([]byte, 64)
+	for i := 0; i < 64; i++ {
+		c := v[i]
+		switch {
+		case c >= '0' && c <= '9' || c >= 'a' && c <= 'f':
+			out[i] = c
+		case c >= 'A' && c <= 'F':
+			out[i] = c + ('a' - 'A')
+		default:
+			return "", false
 		}
-		return false
 	}
-	return true
+	return string(out), true
 }
 
 // VerifyInstaller requires path to be a regular file whose SHA-256 is want.
