@@ -41,6 +41,49 @@ func TestPPOcrPackMissingIsDependencyNotClaimedLocal(t *testing.T) {
 	}
 }
 
+func TestPPOcrPackEmptyFolderIsMissing(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "paddleocr")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	got := DetectPPOcrPack(root)
+	if got.Available || got.Status != "missing_dependency" {
+		t.Fatalf("empty named folder must not count as installed: %+v", got)
+	}
+}
+
+func TestPPOcrPackReadyAfterUserRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "paddleocr")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "ppocr.onnx"), []byte("onnx"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got := DetectPPOcrPack(root)
+	if !got.Available || got.Status != "ready" || got.Backend != "ppocr-pack" {
+		t.Fatalf("user-installed folder must be selectable: %+v", got)
+	}
+	store := NewFileStore(filepath.Join(t.TempDir(), "ocr-routing.json"))
+	svc := New(store)
+	cur, err := svc.Routing()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SetRouting(Routing{PreferProvider: true, LocalEngine: "ppocr"}, cur.Revision); err == nil {
+		t.Fatal("PP-OCR must stay unselectable until a pack root exists")
+	}
+	cur, _ = svc.Routing()
+	saved, err := svc.SetRouting(Routing{PreferProvider: true, LocalEngine: "ppocr", PackRoot: root}, cur.Revision)
+	if err != nil || saved.LocalEngine != "ppocr" || saved.PackRoot != root {
+		t.Fatalf("installed pack must persist: %+v %v", saved, err)
+	}
+	snap := svc.HealthSnapshot()
+	if !snap.Pack.Available || snap.Local.Backend == "ppocr" || snap.Local.Backend == "ppocr-pack" {
+		t.Fatalf("pack ready must not rewrite windows-ocr localReady: %+v", snap)
+	}
+}
+
 func TestRoutingRevisionConflictAndPairing(t *testing.T) {
 	store := NewFileStore(filepath.Join(t.TempDir(), "ocr-routing.json"))
 	cur, err := store.Get()

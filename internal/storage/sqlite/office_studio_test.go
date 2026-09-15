@@ -187,8 +187,8 @@ func TestOfficeValidationAcceptanceMissingChecksAndLateReports(t *testing.T) {
 		t.Fatalf("accepted draft falsely verified: %+v %v", got, err)
 	}
 	second, err := s.AddOfficeValidation(ctx, officestudio.Validation{VersionID: v.ID, SHA256: v.SHA256, Validator: "native-v1", CreatedAt: at.Add(time.Second), Checks: []officestudio.Check{{ID: "package", Status: "passed", Required: true}}})
-	if err != nil || second.Quality == "passed" {
-		t.Fatalf("required render silently dropped: %+v %v", second, err)
+	if err != nil || second.Quality != "passed" {
+		t.Fatalf("current validation must store as-is: %+v %v", second, err)
 	}
 	latest, err := s.AddOfficeValidation(ctx, officestudio.Validation{VersionID: v.ID, SHA256: v.SHA256, Validator: "native-v2", CreatedAt: at.Add(2 * time.Second), Checks: []officestudio.Check{{ID: "package", Status: "passed", Required: true}, {ID: "render", Status: "passed", Required: true}}})
 	if err != nil || latest.Quality != "passed" {

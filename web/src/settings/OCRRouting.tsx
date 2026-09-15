@@ -1,7 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { createMutationAttempt, getOCRRoutingBridge, getProviderBridge, type OCRRoutingBridge, type ProviderBridge } from '../bridge/client'
+import { createMutationAttempt, getOCRRoutingBridge, getProviderBridge, type OCRRoutingBridge, type OCRRoutingSnapshot, type OCRRoutingUpdate, type ProviderBridge } from '../bridge/client'
+import { agentHubApi } from '../agentHub/agentHubApi'
 import type { ProviderDTO } from '../generated/bridge'
 import { modelKind } from '../provider/modelKind'
+
+type LocalEngine = 'windows-ocr' | 'ppocr'
+type OCRPack = { available: boolean; status: string; backend: string }
+type OCRRoutingView = OCRRoutingSnapshot & {
+  localEngine?: LocalEngine
+  packRoot?: string
+  pack?: OCRPack
+}
+type OCRRoutingWrite = OCRRoutingUpdate & {
+  localEngine?: LocalEngine
+  packRoot?: string
+}
 
 type Option = { value: string; label: string; providerId: string; modelId: string }
 
@@ -40,9 +53,43 @@ function visionOptions(providers: ProviderDTO[]): Option[] {
   return out
 }
 
-export function OCRRouting({ providers, ocr }: { providers?: ProviderBridge; ocr?: OCRRoutingBridge }): React.JSX.Element {
+function applySnapshot(
+  got: OCRRoutingView,
+  set: {
+    setProviderId: (v: string) => void
+    setModelId: (v: string) => void
+    setPreferProvider: (v: boolean) => void
+    setRevision: (v: string) => void
+    setLastFailure: (v: {class: string; operation: string; until: string} | undefined) => void
+    setLocalReady: (v: {pdf: boolean; image: boolean; backend: string} | undefined) => void
+    setLocalEngine: (v: LocalEngine) => void
+    setPackRoot: (v: string) => void
+    setPack: (v: OCRPack | undefined) => void
+  },
+) {
+  set.setProviderId(got.providerId ?? '')
+  set.setModelId(got.modelId ?? '')
+  set.setPreferProvider(got.preferProvider)
+  set.setRevision(got.revision)
+  set.setLastFailure(got.lastFailure)
+  set.setLocalReady(got.localReady)
+  set.setLocalEngine(got.localEngine === 'ppocr' ? 'ppocr' : 'windows-ocr')
+  set.setPackRoot(got.packRoot ?? '')
+  set.setPack(got.pack)
+}
+
+export function OCRRouting({
+  providers,
+  ocr,
+  pickPackDir,
+}: {
+  providers?: ProviderBridge
+  ocr?: OCRRoutingBridge
+  pickPackDir?: () => Promise<{ canceled: boolean; path: string }>
+}): React.JSX.Element {
   const providerApi = providers ?? getProviderBridge()
   const ocrApi = ocr ?? getOCRRoutingBridge()
+  const pickDir = pickPackDir ?? (() => agentHubApi.pickDir())
   const [items, setItems] = useState<ProviderDTO[]>([])
   const [providerId, setProviderId] = useState('')
   const [modelId, setModelId] = useState('')
@@ -53,8 +100,12 @@ export function OCRRouting({ providers, ocr }: { providers?: ProviderBridge; ocr
   const [busy, setBusy] = useState(false)
   const [lastFailure, setLastFailure] = useState<{class: string; operation: string; until: string}>()
   const [localReady, setLocalReady] = useState<{pdf: boolean; image: boolean; backend: string}>()
+  const [localEngine, setLocalEngine] = useState<LocalEngine>('windows-ocr')
+  const [packRoot, setPackRoot] = useState('')
+  const [pack, setPack] = useState<OCRPack>()
   const saving = useRef(false)
   const generation = useRef(0)
+  const snapshotSetters = { setProviderId, setModelId, setPreferProvider, setRevision, setLastFailure, setLocalReady, setLocalEngine, setPackRoot, setPack }
 
   const load = async () => {
     const epoch = ++generation.current
@@ -62,12 +113,7 @@ export function OCRRouting({ providers, ocr }: { providers?: ProviderBridge; ocr
       const [listed, got] = await Promise.all([providerApi.list(), ocrApi.get()])
       if (epoch !== generation.current) return
       setItems(listed.items)
-      setProviderId(got.providerId ?? '')
-      setModelId(got.modelId ?? '')
-      setPreferProvider(got.preferProvider)
-      setRevision(got.revision)
-      setLastFailure(got.lastFailure)
-      setLocalReady(got.localReady)
+      applySnapshot(got as OCRRoutingView, snapshotSetters)
       setError('')
     } catch (e) {
       if (epoch === generation.current) setError(ocrUserError(e, 'OCR 路由载入失败'))
@@ -84,20 +130,19 @@ export function OCRRouting({ providers, ocr }: { providers?: ProviderBridge; ocr
     setNotice('')
     setError('')
     try {
-      const payload = {
+      const payload: OCRRoutingWrite = {
         expectedRevision: revision,
         preferProvider,
+        localEngine,
+        ...(packRoot ? { packRoot } : {}),
         ...(providerId && modelId ? { providerId, modelId } : {}),
       }
-      const saved = await ocrApi.set(payload, { attempt: createMutationAttempt('ocr.routing.set', payload) })
+      const saved = await ocrApi.set(payload as OCRRoutingUpdate, { attempt: createMutationAttempt('ocr.routing.set', payload) })
       if (epoch !== generation.current) return
-      setRevision(saved.revision)
-      setProviderId(saved.providerId ?? '')
-      setModelId(saved.modelId ?? '')
-      setPreferProvider(saved.preferProvider)
-      setLastFailure(saved.lastFailure)
-      setLocalReady(saved.localReady)
-      setNotice('OCR 路由已保存，下一次识别生效')
+      applySnapshot(saved as OCRRoutingView, snapshotSetters)
+      setNotice(localEngine === 'ppocr'
+        ? '已保存偏好。当前识别仍走 Windows OCR，PP-OCR 引擎尚未接入。'
+        : 'OCR 路由已保存，下一次识别生效')
     } catch (e) {
       if (epoch === generation.current) setError(ocrUserError(e, 'OCR 路由保存失败'))
     } finally {
@@ -106,13 +151,60 @@ export function OCRRouting({ providers, ocr }: { providers?: ProviderBridge; ocr
     }
   }
 
+  const installPack = async () => {
+    if (saving.current || !revision) return
+    setBusy(true)
+    setNotice('')
+    setError('')
+    try {
+      const got = await pickDir()
+      if (got.canceled || !got.path) return
+      const payload: OCRRoutingWrite = {
+        expectedRevision: revision,
+        preferProvider,
+        localEngine,
+        packRoot: got.path,
+        ...(providerId && modelId ? { providerId, modelId } : {}),
+      }
+      const saved = await ocrApi.set(payload as OCRRoutingUpdate, { attempt: createMutationAttempt('ocr.routing.set', payload) })
+      applySnapshot(saved as OCRRoutingView, snapshotSetters)
+      setNotice(saved && (saved as OCRRoutingView).pack?.available
+        ? '已记录 PP-OCR 目录。当前识别仍走 Windows OCR，引擎尚未接入。'
+        : '已记录目录，但未检测到 PP-OCR 可执行文件或模型。')
+    } catch (e) {
+      setError(ocrUserError(e, 'PP-OCR 安装失败'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const opts = visionOptions(items)
   const value = providerId && modelId ? `${providerId}\u0000${modelId}` : ''
+  const packReady = pack?.available === true
+  const engineValue = localEngine === 'ppocr' && packReady ? 'ppocr' : 'windows-ocr'
 
   return (
     <section className="capability-routing" aria-label="OCR 路由">
       <h3>OCR 路由</h3>
-      <p className="setting-desc">已配置供应商时优先走云端识别；失败、未配置或停用后自动本机兜底。图片与扫描 PDF 共用本机 Windows OCR（需系统语言包），不是随包 PP-OCR。这不是第七个能力角色。保存后从下一次识别开始生效。</p>
+      <p className="setting-desc">已配置供应商时优先走云端识别；失败、未配置或停用后自动本机兜底。本机识别目前只走内置 Windows OCR。可记录自备 PP-OCR 目录作为偏好，引擎尚未接入，不是随包提供。这不是第七个能力角色。保存后从下一次识别开始生效。</p>
+      <label className="capability-role-row">
+        <span>本机 OCR 引擎</span>
+        <select
+          aria-label="本机 OCR 引擎"
+          value={engineValue}
+          disabled={busy}
+          onChange={e => setLocalEngine(e.target.value === 'ppocr' ? 'ppocr' : 'windows-ocr')}
+        >
+          <option value="windows-ocr">Windows OCR（内置）</option>
+          <option value="ppocr" disabled={!packReady}>{packReady ? 'PP-OCR' : 'PP-OCR（未安装）'}</option>
+        </select>
+        <small>{packReady ? '目录已记录，识别仍走 Windows OCR' : '未安装，点下方安装'}</small>
+      </label>
+      <div className="capability-role-row">
+        <span>PP-OCR</span>
+        <button type="button" disabled={busy || !revision} onClick={() => void installPack()}>安装 PP-OCR</button>
+        <small>选择含 ppocr.onnx 或 ppocr.exe 的解压目录。不是随包，接入前识别仍走 Windows OCR</small>
+      </div>
       <label className="capability-role-row">
         <span>OCR 模型</span>
         <select

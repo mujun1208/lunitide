@@ -16,6 +16,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/lunitide/lunitide/internal/doctext"
+	"github.com/lunitide/lunitide/internal/officetools"
 )
 
 var (
@@ -494,6 +497,37 @@ func inspectPDF(out Inspection, data []byte) (Inspection, error) {
 		out.Issues = append(out.Issues, Issue{Code: "PDF_ACTIVE_OR_ENCRYPTED", Severity: "blocked", Message: "PDF 含活动内容或加密标记，禁止自动修改或原生渲染。"})
 		out.Editability = "blocked"
 	}
+	pages, err := doctext.ExtractPDFPages(data)
+	if err != nil || len(pages) == 0 {
+		if out.Editability == "blocked" {
+			return out, nil
+		}
+		if err != nil {
+			return out, fmt.Errorf("%w: pdf page tree: %v", ErrFormat, err)
+		}
+		return out, fmt.Errorf("%w: pdf page tree is empty", ErrFormat)
+	}
+	out.Structure = &Structure{PageCount: len(pages), Pages: make([]int, 0, len(pages))}
+	for _, page := range pages {
+		out.Structure.Pages = append(out.Structure.Pages, page.Page)
+		node := Node{
+			ID:      "page:" + strconv.Itoa(page.Page),
+			Part:    "page",
+			Kind:    "page",
+			Text:    page.Text,
+			Ordinal: page.Page,
+			Locator: fmt.Sprintf("page %d", page.Page),
+			Digest:  digest([]byte(page.Text)),
+		}
+		out.Nodes = append(out.Nodes, node)
+		if page.ParseFailed {
+			out.Issues = append(out.Issues, Issue{Code: "PDF_PAGE_PARSE", Severity: "error", Message: fmt.Sprintf("第 %d 页无法从页树解析", page.Page), NodeID: node.ID})
+		}
+	}
+	if glyphErr := officetools.CheckPDFTextGlyphs(pdfGlyphSourceText(data, pages)); glyphErr != nil {
+		out.Issues = append(out.Issues, Issue{Code: "PDF_MISSING_GLYPH", Severity: "error", Message: glyphErr.Error()})
+	}
+	out.Preview = fmt.Sprintf("PDF %d 页；只读预览。未执行脚本、嵌入文件或外部链接。", len(pages))
 	return out, nil
 }
 

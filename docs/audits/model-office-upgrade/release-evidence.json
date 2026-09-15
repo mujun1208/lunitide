@@ -1,0 +1,232 @@
+{
+  "schemaVersion": 1,
+  "commit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+  "scope": "Engineering named-test refresh for FR01–FR30. Engineering tests are not live 12×3, not designer certificates, not E 100%.",
+  "layers": {
+    "E": "pending",
+    "Q": "ran",
+    "D": "not_run"
+  },
+  "requirements": {
+    "FR01": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/modelfit -run TestModelProfileBindingAlias -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "b6d6840602f5059b1f3888004f74008c36b82f47b73716069f6c56a81e3c0ca4"
+    },
+    "FR02": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/modelfit ./internal/llmadapter -run TestCompileParametersMatrix -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "cc3a8f795cc46f2598ba9c6bea5d4cfce4681182a1d8d728fc8ab9606880db11"
+    },
+    "FR03": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/modelfit -run TestNativeHistoryExactRoundTrip -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "ad2019b1d40f6df66544a286cfce8638852c2f42a7d92f9529039c7a37736225"
+    },
+    "FR04": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/modelfit -run TestNativeTargetMismatchRebuild -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "840f476d61b3ff800af084d409914a6820bf4667026fe02c6d08ef675fb86901"
+    },
+    "FR05": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/storage/sqlite -run TestProtocolCipherAADAndLegacyMigration -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "88e9c72022f2f0404fa1a86e962b1a1ad2fb869f3ff41da6ee79bb3aa9987afe"
+    },
+    "FR06": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/llmadapter ./internal/modelfit -run \"Test(AttemptErrorMatrix|TaskOutcomeForcedSummarySequence)\" -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "d609e2c6738789e5943ce71ef82173646b047ee08c9b3243cba3fecba5847442"
+    },
+    "FR07": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/app -run TestFinalInputPreflightEveryAttempt -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "09463c1f2275cdcdbd172e4916230c45ecc7269446380bd014f99d4c927b243d"
+    },
+    "FR08": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/agentrunapp -run TestExecutionBudgetConcurrentParentChildReservation -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "3d1688a8a782f3f3f0a7690a50157389dde6faa345c1310ae646f100d9ba174e"
+    },
+    "FR09": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/domain/agentrun -run \"Test(TaskOutcomeRejectsModelAuthoredL0|TaskOutcomeMissingRequiredStep)\" -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "171015857dc5ad18492a1c76820cb3349c497a786399322d6b095ca8e1169141"
+    },
+    "FR10": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/agentrunapp ./internal/officeapp -run TestArtifactSnapshotRawTail -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "ef299df8b499a89018e8a7cd5742ad60e86983c4ba40191a3e1cdf0c92878450"
+    },
+    "FR11": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/agentrunapp -run TestExecutionResumeUnknownEffect -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "b18e450600bb749bf097e5230d5c7d014ce5fe403dba63dfcb220dba39ea8d3b"
+    },
+    "FR12": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/domain/agentrun -run TestOutcomeGoalRevisionOrder -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "0622d1d1e83812e97df9c20910e2c3b5e4bc62e46f5749b23884f8d736849112"
+    },
+    "FR13": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/llmadapter -run TestCompiledToolCatalogStable -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "a3650c7232ed72de489f7b7cc28b773ba2a8fd0a082608f805ed0edf812d4b32"
+    },
+    "FR14": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/modelfit ./internal/storage/sqlite -run TestQualificationFixtureCannotPromote -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "986bac6ad5b1c381bfbbcabd85438d003ead6b3b8d94b41f99e78df9ec0a9df5"
+    },
+    "FR15": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/modelquality -run TestEvalSuiteAllCasesHaveIndependentOracle -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "a56c4abc6ee0f8fd1187954220f07a6b7b39ca388362cddc9f0b7984777f42e6"
+    },
+    "FR16": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/modelfit -run TestActivationCASAndRollback -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "b714a948cc5c762716773074dc8f407f2570cd28e113fa516622b79df1f8c906"
+    },
+    "FR17": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/officestudio -run TestOfficeBriefBrandFactsAcrossFormats -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "612fcf1e72289993e3a9a6ac24841fad85e4f7ee42afb221eef9dced5a6fb0c4"
+    },
+    "FR18": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/officestudio -run TestLayoutFitPreservesLockedFacts -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "e4323d668afa06047ca9f4426d3b78de5fd74b8b861e003fea1017bce6be2618"
+    },
+    "FR19": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/officestudio -run TestPPTEditableObjectsAndCoverage -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "7c7491943efb57e761d8e2b8f3d11a1476363872a9a0dfa2e71883a3275ea6ff"
+    },
+    "FR20": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/officestudio -run TestDOCXLongTableAndFieldRefresh -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "9bfe2e6e8df9bbfb1b5af1e0b92f09f06ad6513e82f55645debe61da3ce31e26"
+    },
+    "FR21": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/officestudio -run TestXLSXIndependentOracleAndTypes -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "49916a94121fbd563838d5e7abeaba24bcff8107610045b74c1a000ede9d4b1e"
+    },
+    "FR22": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/officeapp -run TestPDFParseAllPagesAndSameSource -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "a108d21fa7ced44189e703b250e1a487954a3c5c89ca70ed88a9d711bd2be024"
+    },
+    "FR23": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/officeapp -run TestFormalDecisionRequiredCoverage -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "f4289d77fb525d4f3ae26edfa3b9e77e9410ad6c3e4c324bef9ca518dbd56e74"
+    },
+    "FR24": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/officeapp -run TestOfficePatchCASAndBundleAtomicity -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "ed680bacf569d3fa083ec1cd2ae74b2bc73f0d0321927614f5d5e8632062a9bb"
+    },
+    "FR25": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/app ./internal/agentrunapp -run TestModelFitAndOfficeOutcomeUI -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "5cc2164813e208f8ed07d092823e4b7fb7ba8ba2665c32338f595570e96b94d9"
+    },
+    "FR26": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/modelquality -run TestRuntimeEvidenceRedaction -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "d512ba378b247199a5e4714e50ff599ad500f5fa28d01c25f1d8e0500e6d79c3"
+    },
+    "FR27": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/storage/sqlite -run TestUpgradeMigrationBackupCompatibility -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "722b27a29474735d32f2db91ecafdc68736e8db8a8931add42f30a35510792c1"
+    },
+    "FR28": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/modelquality -run TestTemplateCertificationAndBenchmarkAccounting -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "c868b2617184f416e4a36e696091c0055e326667ad30ca4792c6b3ea49184fb9"
+    },
+    "FR29": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/app -run TestExternalExecutorArtifactVerification -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "e5ce84edd4f6227c51e92353e6b3d236f0a781f35fa4a9efac40586ce98f5e99"
+    },
+    "FR30": {
+      "status": "passed",
+      "implementationCommit": "c93dd3f37bc17f34cb828ded121a14e5c098ed4c",
+      "testCommand": "go test ./internal/modelquality -run TestUpgradeReleaseEvidenceComplete -count=1",
+      "testResult": "pass",
+      "runEvidenceDigest": "d512ba378b247199a5e4714e50ff599ad500f5fa28d01c25f1d8e0500e6d79c3"
+    }
+  },
+  "modelQualification": {
+    "status": "missing"
+  },
+  "templateCertificates": {
+    "status": "missing"
+  },
+  "migrationRecord": {
+    "status": "pending",
+    "latestAppliedMigration": "0156_project_factory.sql"
+  }
+}

@@ -1,7 +1,7 @@
 import React from 'react';
 import type { OfficeArtifact, OfficeSource, OfficeVersion } from './officeStudioApi';
 import { officeBytes, officeDate, officeQualityLabel } from './officePresentation';
-import { canFormalDeliver, capabilityUsabilityLabels, formalDeliverBlockedReason, officeCheckStatusLabel, qualityPromiseLabels } from './officeQualityUi';
+import { canFormalDeliver, capabilityUsabilityLabels, formalDeliverBlockedReason, officeCheckStatusLabel, qualityPromiseLabels, type FormalDecision } from './officeQualityUi';
 
 export type OfficeInspectorTab = 'conversation' | 'checks' | 'versions' | 'sources';
 export const officeInspectorLabels: Record<OfficeInspectorTab, string> = {
@@ -95,6 +95,7 @@ export function OfficeVersions({
   artifact,
   selectedVersionId,
   busy,
+  decision,
   onSelect,
   onAccept,
   onRestore,
@@ -103,6 +104,7 @@ export function OfficeVersions({
   artifact?: OfficeArtifact;
   selectedVersionId?: string;
   busy: boolean;
+  decision?: { versionId: string; decision: FormalDecision };
   onSelect: (versionId: string) => void;
   onAccept: (version: OfficeVersion, formal?: boolean) => void;
   onRestore: (version: OfficeVersion) => void;
@@ -114,7 +116,8 @@ export function OfficeVersions({
       {[...artifact.versions]
         .sort((a, b) => b.versionNo - a.versionNo)
         .map((version) => {
-          const formalReason = formalDeliverBlockedReason(version);
+          const rowDecision = decision?.versionId === version.id ? decision.decision : undefined;
+          const formalReason = formalDeliverBlockedReason(version, rowDecision);
           return (
           <li key={version.id} className={selectedVersionId === version.id ? 'is-selected' : ''}>
             <button className="os-version-select" onClick={() => onSelect(version.id)}>
@@ -138,7 +141,7 @@ export function OfficeVersions({
                 {version.quality === 'passed' ? '使用此版' : '接受为草稿'}
               </button>
               <button
-                disabled={busy || artifact.acceptedVersionId === version.id || !canFormalDeliver(version)}
+                disabled={busy || artifact.acceptedVersionId === version.id || !canFormalDeliver(version, rowDecision)}
                 onClick={() => onAccept(version, true)}
               >
                 作为正式交付

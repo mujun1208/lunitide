@@ -21,7 +21,8 @@ func TestUpgradeV26RemovesLegacyTokenLedgerUniqueConstraint(t *testing.T) {
 	// Recreate the exact pre-0027 table shape and migration boundary. This is
 	// deliberately test-only; historical migration bytes remain untouched.
 	// Every table added after 0026 must be dropped here, including 0092
-	// local_identity / people_*, or Open re-applies CREATE TABLE and fails.
+	// local_identity / people_* and 0157–0159 model/protocol/office tables,
+	// or Open re-applies CREATE TABLE and fails.
 	db := openRaw(t, path)
 	defer db.Close()
 	if _, err = db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
@@ -127,6 +128,8 @@ DROP TABLE office_blob_references;
 DROP TABLE office_blob_leases;
 DROP TABLE office_blobs;
 DROP TABLE office_storage_control;
+DROP TABLE office_delivery_decisions;
+DROP TABLE office_delivery_policies;
 DROP TABLE office_metrics;
 DROP TABLE office_bundles;
 DROP TABLE office_evidence_edges;
@@ -337,6 +340,21 @@ ALTER TABLE sessions DROP COLUMN revision;
 ALTER TABLE sessions DROP COLUMN metadata_json;
 DROP TABLE IF EXISTS skill_invocations;
 ALTER TABLE skills DROP COLUMN rev;
+DROP TRIGGER IF EXISTS trg_office_delivery_decisions_delete;
+DROP TRIGGER IF EXISTS trg_office_delivery_decisions_update;
+DROP TRIGGER IF EXISTS trg_office_delivery_policies_delete;
+DROP TRIGGER IF EXISTS trg_office_delivery_policies_update;
+DROP TABLE IF EXISTS office_delivery_decisions;
+DROP TABLE IF EXISTS office_delivery_policies;
+DROP TABLE IF EXISTS execution_step_outcomes;
+DROP TABLE IF EXISTS execution_run_bindings;
+DROP TABLE IF EXISTS execution_task_contracts;
+DROP TABLE IF EXISTS protocol_legacy_imports;
+DROP TABLE IF EXISTS protocol_migration_progress;
+DROP TABLE IF EXISTS protocol_messages_v2;
+DROP TABLE IF EXISTS protocol_epochs_v2;
+DROP TABLE IF EXISTS model_targets_v2;
+DROP TABLE IF EXISTS model_profiles_v2;
 DELETE FROM schema_migrations WHERE version >= '0027_token_ledger_remove_legacy_unique.sql';
 INSERT INTO projects(id,name,project_code,created_at,updated_at) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA0','project','ITM00001','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');
 INSERT INTO sessions(id,project_id,title,created_at,updated_at) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA1','01ARZ3NDEKTSV4RRFFQ69G5FA0','session','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');

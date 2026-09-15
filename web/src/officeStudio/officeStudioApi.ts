@@ -96,7 +96,7 @@ export interface OfficeStudioApi {
   applyMetric(payload: import('../generated/bridge').OfficeMetricApplyPayload): Promise<OfficeTaskDetail>
   createBundle(payload: {taskId:string;title:string;versionIds:string[]}): Promise<OfficeBundle>
   listBundles(payload: {taskId:string}): Promise<{items:OfficeBundle[]}>
-  exportBundle(payload: {taskId:string;bundleId:string}): Promise<OfficeBundleExport>
+  exportBundle(payload: {taskId:string;bundleId:string;deliveryMode?: 'copy' | 'formal'}): Promise<OfficeBundleExport>
   list(payload?: { query?: string; sessionId?: string }): Promise<{ items: OfficeTask[] }>
   create(payload: { title: string; goal?: string; sessionId?: string; includeHistory?: boolean }): Promise<OfficeTaskDetail>
   get(payload: { taskId: string }): Promise<OfficeTaskDetail>
@@ -108,7 +108,7 @@ export interface OfficeStudioApi {
   validate(payload: { taskId: string; versionId: string }): Promise<OfficeTaskDetail>
   accept(payload: { taskId: string; artifactId: string; versionId: string; expectedRevision: number; formal?: boolean }): Promise<OfficeTaskDetail>
   restore(payload: { taskId: string; artifactId: string; versionId: string; expectedRevision: number }): Promise<OfficeTaskDetail>
-  exportArtifact(payload: { taskId: string; versionId: string; name?: string; draft: boolean }): Promise<{ path: string; absolutePath?: string; notice?: string }>
+  exportArtifact(payload: { taskId: string; versionId: string; name?: string; draft: boolean; deliveryMode?: 'copy' | 'formal' }): Promise<{ path: string; absolutePath?: string; notice?: string; decision?: import('./officeQualityUi').FormalDecision }>
   probe(): Promise<OfficeRendererStatus>
   readChunk(payload: { taskId: string; versionId: string; offset: number; limit?: number }): Promise<{contentBase64:string; nextOffset:number; total:number; eof:boolean}>
   cancel(payload: {taskId:string}): Promise<OfficeTaskDetail>
@@ -165,4 +165,6 @@ const detail = (result: Promise<OfficeTaskDetail>) => collectOfficeDetail(result
 export type OfficeMetric = import('../generated/bridge').OfficeMetricDTO
 export type OfficeDiff = import('../generated/bridge').OfficeArtifactDiffResult
 export type OfficeBundle = import('../generated/bridge').OfficeBundleDTO
-export type OfficeBundleExport = import('../generated/bridge').OfficeBundleExportResult
+export type OfficeBundleExport = import('../generated/bridge').OfficeBundleExportResult & {
+  decision?: import('./officeQualityUi').FormalDecision
+}

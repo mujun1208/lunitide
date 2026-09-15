@@ -30,6 +30,7 @@ import (
 	"github.com/lunitide/lunitide/internal/contextapp"
 	"github.com/lunitide/lunitide/internal/conversationsapp"
 	"github.com/lunitide/lunitide/internal/datasourceapp"
+	"github.com/lunitide/lunitide/internal/domain/agentrun"
 	"github.com/lunitide/lunitide/internal/domain/attachment"
 	"github.com/lunitide/lunitide/internal/domain/compaction"
 	"github.com/lunitide/lunitide/internal/domain/handoff"
@@ -168,6 +169,8 @@ type Engine struct {
 	turnJournal        ChatTurnJournal
 	toolOps            ToolOperationStore
 	callAttempts       CallAttemptStore
+	executionBudget    agentrun.ExecutionBudget
+	compileProfile     modelfit.ModelProfile
 	messageGroups      MessageGroupStore
 	ocr                *ocrapp.Service
 	fileOps            *fileops.Service

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
 	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/m7app"
+	"github.com/lunitide/lunitide/internal/projectsync"
 	"github.com/lunitide/lunitide/internal/workspace"
 )
 
@@ -35,9 +37,9 @@ func (s *Store) projectReleaseContent(ctx context.Context, q phaseEvidenceQuery,
 	if !ok || projectID == "" {
 		return out, fmt.Errorf("%w: projectId required", m7app.ErrPackageInvalid)
 	}
-	var code string
+	var code, root string
 	var typ project.Type
-	if err := q.QueryRowContext(ctx, `SELECT project_code,project_type FROM projects WHERE id=? AND status NOT IN ('archived','closed')`, projectID).Scan(&code, &typ); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT project_code,project_type,root_path FROM projects WHERE id=? AND status NOT IN ('archived','closed')`, projectID).Scan(&code, &typ, &root); err != nil {
 		return out, fmt.Errorf("%w: project unavailable", m7app.ErrEvidenceMissing)
 	}
 	if crID != "CR-"+code {
@@ -94,9 +96,59 @@ func (s *Store) projectReleaseContent(ctx context.Context, q phaseEvidenceQuery,
 		out.sources = append(out.sources, projectReleaseSource{d.ID, d.Version, d.Phase, d.DocumentType})
 		out.bytes[sha] = data
 	}
+	if err := appendProjectTreePack(&out, root); err != nil {
+		return out, err
+	}
 	out.members = m7flow.SortMembers(out.members)
 	out.inventory, _ = json.Marshal(map[string]any{"format": "lunitide-source-inventory-v1", "projectId": projectID, "members": out.members, "sources": out.sources})
 	return out, nil
+}
+
+func appendProjectTreePack(out *projectReleaseContent, root string) error {
+	if strings.TrimSpace(root) == "" {
+		return nil
+	}
+	inv, err := projectsync.InventoryTree(root)
+	if err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, m := range out.members {
+		seen[m.Name] = true
+	}
+	for _, file := range []struct{ rel, name string }{
+		{".lunitide/project-tree.json", "project-tree.json"},
+		{".lunitide/schema.json", "schema.json"},
+		{".lunitide/rules/manifest.json", "rules-manifest.json"},
+	} {
+		if seen[file.name] {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file.rel)))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return err
+		}
+		if workspace.ValidateRelPath(file.name) != nil {
+			return m7app.ErrPackageInvalid
+		}
+		sha := m7flow.SHA256Hex(data)
+		out.members = append(out.members, m7flow.PackageMember{Name: file.name, Size: int64(len(data)), SHA256: sha, Algorithm: "sha256"})
+		out.bytes[sha] = data
+		seen[file.name] = true
+	}
+	body, err := json.Marshal(inv)
+	if err != nil {
+		return err
+	}
+	sha := m7flow.SHA256Hex(body)
+	if !seen["tree-inventory.json"] && workspace.ValidateRelPath("tree-inventory.json") == nil {
+		out.members = append(out.members, m7flow.PackageMember{Name: "tree-inventory.json", Size: int64(len(body)), SHA256: sha, Algorithm: "sha256"})
+		out.bytes[sha] = body
+	}
+	return nil
 }
 
 func (s *Store) BindReleaseContent(ctx context.Context, tx m7app.ReleaseTx, crID string, manifest map[string]any) error {

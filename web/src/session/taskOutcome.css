@@ -1,0 +1,11 @@
+.task-outcome-panel{margin:8px 0;padding:8px 10px;border:1px solid var(--rule);border-radius:8px;background:var(--bg2);font-size:12px}
+.task-outcome-panel.is-complete{border-color:var(--ok)}
+.task-outcome-panel.is-partial,.task-outcome-panel.is-unverified{border-color:var(--warn)}
+.task-outcome-panel.is-failed{border-color:var(--err)}
+.task-outcome-reply{margin:0 0 4px;color:var(--muted)}
+.task-outcome-task{margin:0;display:flex;align-items:center;gap:6px}
+.task-outcome-mark{color:var(--ok);font-weight:700}
+.task-outcome-spinner{margin:0 0 4px;color:var(--tide1)}
+.task-outcome-panel details{margin-top:6px}
+.task-outcome-panel ul{margin:4px 0 0;padding-left:18px}
+.task-outcome-panel button{margin-top:8px}

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/domain/agentrun"
 	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/modelfit"
 	"github.com/lunitide/lunitide/internal/storage/sqlite"
@@ -105,6 +106,18 @@ func (e *Engine) SetToolOperationStore(store ToolOperationStore) {
 func (e *Engine) SetCallAttemptStore(store CallAttemptStore) {
 	if e != nil {
 		e.callAttempts = store
+	}
+}
+
+func (e *Engine) SetExecutionBudget(budget agentrun.ExecutionBudget) {
+	if e != nil {
+		e.executionBudget = budget
+	}
+}
+
+func (e *Engine) SetCompileProfile(profile modelfit.ModelProfile) {
+	if e != nil {
+		e.compileProfile = profile
 	}
 }
 
@@ -307,17 +320,23 @@ func (r *toolOpRec) finish(out *toolruntime.Result, errp *error) {
 type meteredAdapter struct {
 	inner                llmadapter.Adapter
 	store                CallAttemptStore
+	budget               agentrun.ExecutionBudget
+	profile              modelfit.ModelProfile
 	provider, deployment string
 	credentialGeneration string
 	disableEfficiency    bool
 }
 
 func (e *Engine) withCallMeter(a llmadapter.Adapter, id, protocol, credentialGen string) llmadapter.Adapter {
-	if e == nil || e.callAttempts == nil || a == nil {
+	if e == nil || a == nil {
+		return a
+	}
+	if e.callAttempts == nil && e.executionBudget == nil {
 		return a
 	}
 	return meteredAdapter{
-		inner: a, store: e.callAttempts, provider: protocol, deployment: id,
+		inner: a, store: e.callAttempts, budget: e.executionBudget, profile: e.compileProfile,
+		provider: protocol, deployment: id,
 		credentialGeneration: strings.TrimSpace(credentialGen),
 		disableEfficiency:    e.gateway.DisableTokenEfficiency,
 	}
@@ -360,15 +379,15 @@ func (a meteredAdapter) Discover(ctx context.Context, secret []byte) (llmadapter
 
 func (a meteredAdapter) Complete(ctx context.Context, secret []byte, req llmadapter.Request) (llmadapter.Response, error) {
 	req = a.withEfficiency(req)
-	return a.observe(ctx, req, func(emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
-		return a.inner.Complete(ctx, secret, req)
+	return a.observe(ctx, req, false, func(compiled llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+		return a.inner.Complete(ctx, secret, compiled)
 	}, nil)
 }
 
 func (a meteredAdapter) Stream(ctx context.Context, secret []byte, req llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	req = a.withEfficiency(req)
-	return a.observe(ctx, req, func(wrap func(llmadapter.Delta) error) (llmadapter.Response, error) {
-		return a.inner.Stream(ctx, secret, req, wrap)
+	return a.observe(ctx, req, true, func(compiled llmadapter.Request, wrap func(llmadapter.Delta) error) (llmadapter.Response, error) {
+		return a.inner.Stream(ctx, secret, compiled, wrap)
 	}, emit)
 }
 
@@ -378,7 +397,7 @@ func (a meteredAdapter) Embed(ctx context.Context, secret []byte, model string, 
 		return nil, errors.New("adapter does not support embeddings")
 	}
 	var out [][]float32
-	_, err := a.observe(ctx, llmadapter.Request{Model: model}, func(func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	_, err := a.observe(ctx, llmadapter.Request{Model: model}, false, func(_ llmadapter.Request, _ func(llmadapter.Delta) error) (llmadapter.Response, error) {
 		var embedErr error
 		out, embedErr = emb.Embed(ctx, secret, model, texts)
 		return llmadapter.Response{}, embedErr
@@ -392,7 +411,7 @@ func (a meteredAdapter) GenerateImage(ctx context.Context, secret []byte, model,
 		return llmadapter.MediaResult{}, errors.New("adapter does not support image generation")
 	}
 	var out llmadapter.MediaResult
-	_, err := a.observe(withCallPurpose(ctx, "image"), llmadapter.Request{Model: model}, func(func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	_, err := a.observe(withCallPurpose(ctx, "image"), llmadapter.Request{Model: model}, false, func(_ llmadapter.Request, _ func(llmadapter.Delta) error) (llmadapter.Response, error) {
 		var genErr error
 		out, genErr = gen.GenerateImage(ctx, secret, model, prompt)
 		return llmadapter.Response{}, genErr
@@ -406,7 +425,7 @@ func (a meteredAdapter) GenerateVideo(ctx context.Context, secret []byte, model,
 		return llmadapter.MediaResult{}, errors.New("adapter does not support video generation")
 	}
 	var out llmadapter.MediaResult
-	_, err := a.observe(withCallPurpose(ctx, "video"), llmadapter.Request{Model: model}, func(func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	_, err := a.observe(withCallPurpose(ctx, "video"), llmadapter.Request{Model: model}, false, func(_ llmadapter.Request, _ func(llmadapter.Delta) error) (llmadapter.Response, error) {
 		var genErr error
 		out, genErr = gen.GenerateVideo(ctx, secret, model, prompt)
 		return llmadapter.Response{}, genErr
@@ -419,7 +438,7 @@ func (a meteredAdapter) TestConnection(ctx context.Context, secret []byte, req l
 	if !ok {
 		return errors.New("adapter does not support connection tests")
 	}
-	_, err := a.observe(ctx, req, func(func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	_, err := a.observe(ctx, req, false, func(_ llmadapter.Request, _ func(llmadapter.Delta) error) (llmadapter.Response, error) {
 		return llmadapter.Response{}, tester.TestConnection(ctx, secret, req)
 	}, nil)
 	return err
@@ -461,7 +480,11 @@ func generateVideoThrough(ctx context.Context, a llmadapter.Adapter, secret []by
 	return gen.GenerateVideo(ctx, secret, model, prompt)
 }
 
-func (a meteredAdapter) observe(ctx context.Context, req llmadapter.Request, run func(func(llmadapter.Delta) error) (llmadapter.Response, error), emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+func (a meteredAdapter) observe(ctx context.Context, req llmadapter.Request, stream bool, run func(llmadapter.Request, func(llmadapter.Delta) error) (llmadapter.Response, error), emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	prepared, req, err := compileFinalInput(req, a.profile, stream)
+	if err != nil {
+		return llmadapter.Response{}, err
+	}
 	scope := continuityScopeFrom(ctx)
 	now := time.Now().UTC()
 	rec := sqlite.CallAttemptRecord{
@@ -490,12 +513,46 @@ func (a meteredAdapter) observe(ctx context.Context, req llmadapter.Request, run
 	if rec.Purpose == "" {
 		rec.Purpose = "unknown"
 	}
-	if err := a.store.PutCallAttemptIntent(ctx, rec); err != nil {
-		log.Printf("model call intent not recorded: %v", err)
-		return run(emit)
+	profile := compileProfileOrDefault(a.profile)
+	var execScope agentrun.ExecutionScope
+	execScope, ctx, rec, err = a.bindExecutionScope(ctx, rec)
+	if err != nil {
+		return llmadapter.Response{}, err
 	}
-	if err := a.store.MarkCallAttemptSent(ctx, rec.OwnerScope, rec.CallID, rec.AttemptID); err != nil {
-		log.Printf("model call sent not recorded: %v", err)
+	var permit agentrun.CallPermit
+	if a.budget != nil {
+		permit, err = a.budget.AdmitCall(ctx, execScope, agentrun.CallEstimate{
+			CallID:            rec.CallID,
+			AttemptID:         rec.AttemptID,
+			RequestDigest:     prepared.Digest,
+			InputTokensUpper:  conservativeInputTokens(prepared.Body, profile),
+			OutputTokenCap:    prepared.Effective.MaxTokens,
+			ContextWindow:     profile.ContextWindow,
+			SafetyMargin:      agentrun.SafetyMargin(profile.ContextWindow),
+			Purpose:           rec.Purpose,
+			ProfileDigest:     profile.ProfileID,
+			TokenizerRevision: "bytes-div4-v1",
+		})
+		if err != nil {
+			return llmadapter.Response{}, err
+		}
+	}
+	if a.store != nil {
+		if err := a.store.PutCallAttemptIntent(ctx, rec); err != nil {
+			if a.budget != nil && permit.ReservationID != "" {
+				_ = a.budget.ReleaseUnsent(ctx, permit, "intent_failed")
+			}
+			return llmadapter.Response{}, err
+		}
+		if err := a.store.MarkCallAttemptSent(ctx, rec.OwnerScope, rec.CallID, rec.AttemptID); err != nil {
+			log.Printf("model call sent not recorded: %v", err)
+		}
+	}
+	if a.budget != nil && permit.ReservationID != "" {
+		if err := a.budget.MarkDispatched(ctx, permit); err != nil {
+			_ = a.budget.ReleaseUnsent(ctx, permit, "dispatch_failed")
+			return llmadapter.Response{}, err
+		}
 	}
 	acc := modelfit.UsageAccumulator{}
 	wrap := emit
@@ -507,7 +564,7 @@ func (a meteredAdapter) observe(ctx context.Context, req llmadapter.Request, run
 			return emit(d)
 		}
 	}
-	resp, err := run(wrap)
+	resp, err := run(req, wrap)
 	n := usageNumbers(resp.Usage)
 	if acc.Updates > 0 && n.InputTokens == 0 && n.OutputTokens == 0 && n.TotalTokens == 0 {
 		n = acc.Latest
@@ -524,19 +581,21 @@ func (a meteredAdapter) observe(ctx context.Context, req llmadapter.Request, run
 		OwnerScope: rec.OwnerScope, TaskID: rec.TaskID, TurnID: rec.TurnID,
 		CallID: rec.CallID, AttemptID: rec.AttemptID,
 	}, rec.Purpose).Receive(n, reported, status)
-	finishCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	if finErr := a.store.FinishCallAttempt(finishCtx, rec.OwnerScope, rec.CallID, rec.AttemptID, sqlite.CallAttemptReceipt{
-		Status:            string(attempt.Status),
-		Integrity:         string(attempt.UsageIntegrity),
-		InputTokens:       attempt.Usage.InputTokens,
-		OutputTokens:      attempt.Usage.OutputTokens,
-		CachedInputTokens: attempt.Usage.CachedInputTokens,
-		CacheWriteTokens:  attempt.Usage.CacheWriteTokens,
-		CostStatus:        "unknown",
-		EndedAt:           time.Now().UTC(),
-	}); finErr != nil {
-		log.Printf("model call receipt not recorded: %v", finErr)
+	if a.store != nil {
+		finishCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if finErr := a.store.FinishCallAttempt(finishCtx, rec.OwnerScope, rec.CallID, rec.AttemptID, sqlite.CallAttemptReceipt{
+			Status:            string(attempt.Status),
+			Integrity:         string(attempt.UsageIntegrity),
+			InputTokens:       attempt.Usage.InputTokens,
+			OutputTokens:      attempt.Usage.OutputTokens,
+			CachedInputTokens: attempt.Usage.CachedInputTokens,
+			CacheWriteTokens:  attempt.Usage.CacheWriteTokens,
+			CostStatus:        "unknown",
+			EndedAt:           time.Now().UTC(),
+		}); finErr != nil {
+			log.Printf("model call receipt not recorded: %v", finErr)
+		}
 	}
 	return resp, err
 }

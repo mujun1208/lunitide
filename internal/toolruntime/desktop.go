@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -68,6 +69,22 @@ func (r *Runtime) desktopDirectory() (string, error) {
 		return r.desktopRoot()
 	}
 	return userDesktopDir()
+}
+
+// sandboxDesktopDuringTest keeps desktop=true office/html writes inside the
+// runtime root. App-package tests cannot set the unexported desktopRoot, and
+// without this they overwrite the developer's real Desktop (weekly.docx,
+// 介绍.pptx) every time go test runs.
+func (r *Runtime) sandboxDesktopDuringTest() error {
+	if r == nil || r.desktopRoot != nil || !testing.Testing() {
+		return nil
+	}
+	dir := filepath.Join(r.root, ".testdesktop")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	r.desktopRoot = func() (string, error) { return dir, nil }
+	return nil
 }
 
 func userDesktopDir() (string, error) {

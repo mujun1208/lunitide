@@ -80,3 +80,46 @@ it('completes after self-test and stays off task.open', async () => {
   expect(put.board.items[0]?.status).toBe('dev_done')
   expect(put.board.items[0]?.selfTestPass).toBe(true)
 })
+
+it('auto-syncs an empty board on enter', async () => {
+  vi.mocked(projectFactoryApi.boardGet)
+    .mockResolvedValueOnce({ board: { version: 1, items: [] }, stats: { total: 0, done: 0, needsReprocess: 0 }, statsText: '共 0 条' })
+    .mockResolvedValueOnce({
+      board: { version: 1, items: [{ id: 'I001', title: '登录', status: 'pending', method: 'POST', path: '/login' }] },
+      stats: { total: 1, done: 0, needsReprocess: 1 },
+      statsText: '共 1 条',
+    })
+  vi.mocked(projectFactoryApi.boardSync).mockResolvedValue({
+    board: { version: 1, items: [{ id: 'I001', title: '登录', status: 'pending' }] },
+    stats: { total: 1, done: 0, needsReprocess: 1 },
+    statsText: '共 1 条 · 待再处理 1',
+    dirty: true,
+  })
+  render(<WorkBoardPanel project={project} boardKind="interface" title="接口工作台" />)
+  await waitFor(() => expect(projectFactoryApi.boardSync).toHaveBeenCalledWith({ projectId: project.id, boardKind: 'interface' }))
+  expect(await screen.findByText(/I001/)).toBeInTheDocument()
+})
+
+it('binds integration members and disables run until ready', async () => {
+  const user = userEvent.setup()
+  vi.mocked(projectFactoryApi.boardGet).mockImplementation(async ({ boardKind }: { boardKind: string }) => {
+    if (boardKind === 'test') {
+      return {
+        board: { version: 1, items: [{ id: 'T-I001', title: '测登录', status: 'test_pass' }] },
+        stats: { total: 1, done: 1, needsReprocess: 0 },
+        statsText: '共 1 条',
+      }
+    }
+    return {
+      board: { version: 1, items: [{ id: 'S001', title: '登录场景', status: 'pending', memberIds: [] }] },
+      stats: { total: 1, done: 0, needsReprocess: 0 },
+      statsText: '共 1 条',
+    }
+  })
+  render(<WorkBoardPanel project={project} boardKind="integration" title="集成工作台" />)
+  expect(await screen.findByRole('button', { name: '开始集成测试' })).toBeDisabled()
+  await user.click(screen.getByRole('checkbox', { name: /T-I001/ }))
+  await waitFor(() => expect(projectFactoryApi.boardPut).toHaveBeenCalled())
+  const put = vi.mocked(projectFactoryApi.boardPut).mock.calls[0]?.[0] as { board: { items: Array<{ memberIds?: string[] }> } }
+  expect(put.board.items[0]?.memberIds).toEqual(['T-I001'])
+})

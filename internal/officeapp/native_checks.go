@@ -54,6 +54,9 @@ func remapStudioStatus(id, status string) string {
 	if status == "blocked" {
 		return "failed"
 	}
+	if status == "unknown" {
+		return "unsupported"
+	}
 	if status == "missing" && !usabilityOptionalID(id) {
 		return "unsupported"
 	}
@@ -74,8 +77,10 @@ func applyUsabilityChecks(checks []domain.Check, pdf []byte) []domain.Check {
 	pdfa := content.IndependentPDFACheck(pdf)
 	visionReq := content.VisualModelRequest{Configured: content.VisionModelConfigured()}
 	if len(pdf) > 0 && visionReq.Configured {
-		visionReq.Pages = [][]byte{pdf}
-		visionReq.Review = content.RunConfiguredVisualReview
+		if pages, err := content.ExtractVisualPages(pdf); err == nil && len(pages) > 0 {
+			visionReq.Pages = pages
+			visionReq.Review = content.RunConfiguredVisualReview
+		}
 	}
 	vision := content.VisualModelCheck(visionReq)
 	checks = upsertOfficeCheck(checks, domain.Check{
@@ -121,6 +126,12 @@ func officeCheckLabel(id string) string {
 		"visual-model":         "视觉模型诊断",
 		"pdfa":                 "PDF/A 合规",
 		"independent_pdf":      "独立 PDF",
+		"pdf-parse":            "PDF 页树解析",
+		"page-coverage":        "页覆盖",
+		"page-render":          "逐页渲染",
+		"text-layer":           "文字层",
+		"font-coverage":        "字形覆盖",
+		"same-source":          "同源 PDF",
 	}
 	if label := labels[id]; label != "" {
 		return label

@@ -10,11 +10,11 @@ const DefaultBrandID = "lunitide-classic"
 var ErrFactConflict = errors.New("office: fact values conflict")
 
 type Brief struct {
-	Audience     string          `json:"audience,omitempty"`
-	Purpose      string          `json:"purpose,omitempty"`
-	Deliverables []Kind          `json:"deliverables,omitempty"`
-	Language     string          `json:"language,omitempty"`
-	TargetLength int             `json:"targetLength,omitempty"`
+	Audience        string          `json:"audience,omitempty"`
+	Purpose         string          `json:"purpose,omitempty"`
+	Deliverables    []Kind          `json:"deliverables,omitempty"`
+	Language        string          `json:"language,omitempty"`
+	TargetLength    int             `json:"targetLength,omitempty"`
 	Facts           []Fact          `json:"facts,omitempty"`
 	Outline         []NarrativeNode `json:"outline,omitempty"`
 	Confidentiality string          `json:"confidentiality,omitempty"`
@@ -29,6 +29,7 @@ type Fact struct {
 	FactID   string `json:"factId"`
 	Value    string `json:"value"`
 	Unit     string `json:"unit,omitempty"`
+	Currency string `json:"currency,omitempty"`
 	Period   string `json:"period,omitempty"`
 	SourceID string `json:"sourceId,omitempty"`
 	Locator  string `json:"locator,omitempty"`
@@ -150,7 +151,7 @@ func AdaptSpecV1(spec Spec) (Spec, error) {
 }
 
 func ValidateFactSet(facts []Fact) error {
-	type key struct{ id, period, unit string }
+	type key struct{ id, period, unit, currency string }
 	seen := map[key]string{}
 	for _, f := range facts {
 		id := strings.TrimSpace(f.FactID)
@@ -160,7 +161,7 @@ func ValidateFactSet(facts []Fact) error {
 		if strings.EqualFold(strings.TrimSpace(f.Status), "conflict") {
 			return ErrFactConflict
 		}
-		k := key{id, strings.TrimSpace(f.Period), strings.TrimSpace(f.Unit)}
+		k := key{id, strings.TrimSpace(f.Period), strings.TrimSpace(f.Unit), strings.TrimSpace(f.Currency)}
 		if prev, ok := seen[k]; ok && prev != f.Value {
 			return ErrFactConflict
 		}

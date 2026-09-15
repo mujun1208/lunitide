@@ -1,6 +1,7 @@
 package officestudio
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,11 +20,28 @@ func VisionModelConfigured() bool {
 }
 
 var visualReviewRunner func([][]byte) ([]Issue, string, error)
+var visualPageImages func([]byte) ([][]byte, error)
 
 func SetVisualReviewForTest(t interface{ Cleanup(func()) }, run func([][]byte) ([]Issue, string, error)) {
 	prev := visualReviewRunner
 	visualReviewRunner = run
 	t.Cleanup(func() { visualReviewRunner = prev })
+}
+
+func SetVisualPageImagesForTest(t interface{ Cleanup(func()) }, run func([]byte) ([][]byte, error)) {
+	prev := visualPageImages
+	visualPageImages = run
+	t.Cleanup(func() { visualPageImages = prev })
+}
+
+func ExtractVisualPages(pdf []byte) ([][]byte, error) {
+	if visualPageImages != nil {
+		return visualPageImages(pdf)
+	}
+	if len(pdf) == 0 {
+		return nil, fmt.Errorf("no pdf")
+	}
+	return nil, fmt.Errorf("per-page raster unavailable")
 }
 
 func RunConfiguredVisualReview(pages [][]byte) ([]Issue, string, error) {
@@ -42,16 +60,59 @@ func RunConfiguredVisualReview(pages [][]byte) ([]Issue, string, error) {
 		return nil, "", err
 	}
 	defer os.RemoveAll(dir)
-	src := filepath.Join(dir, "page.bin")
-	if err = os.WriteFile(src, pages[0], 0600); err != nil {
+	if _, err = WriteVisualReviewWorkspace(dir, pages); err != nil {
 		return nil, "", err
 	}
-	cmd := exec.Command(exe, src)
+	cmd := exec.Command(exe, filepath.Join(dir, "manifest.json"))
 	cmd.Dir = dir
-	if err = cmd.Run(); err != nil {
+	var stdout, stderr bytes.Buffer
+	outLimit := &limitWriter{buf: &stdout, max: VisualStdoutMaxBytes}
+	errLimit := &limitWriter{buf: &stderr, max: VisualStderrMaxBytes}
+	cmd.Stdout = outLimit
+	cmd.Stderr = errLimit
+	runErr := cmd.Run()
+	exit := 0
+	if runErr != nil {
+		if ee, ok := runErr.(*exec.ExitError); ok {
+			exit = ee.ExitCode()
+		} else {
+			return nil, "", runErr
+		}
+	}
+	if outLimit.n > VisualStdoutMaxBytes {
+		return nil, "", fmt.Errorf("visual: stdout exceeds 1 MiB")
+	}
+	out := stdout.String()
+	if err = ValidateVisualProcess(exit, out, stderr.Bytes()); err != nil {
 		return nil, "", err
 	}
-	return nil, "视觉模型已检查当前预览", nil
+	result, err := ParseVisualReview(out, len(pages))
+	if err != nil {
+		return nil, "", err
+	}
+	issues := make([]Issue, 0, len(result.Issues))
+	for _, item := range result.Issues {
+		issues = append(issues, Issue{Code: item.Code, Severity: item.Severity, Message: item.Message, NodeID: item.NodeID})
+	}
+	return issues, fmt.Sprintf("视觉模型已检查 %d 页渲染图", len(pages)), nil
+}
+
+type limitWriter struct {
+	buf *bytes.Buffer
+	max int
+	n   int
+}
+
+func (w *limitWriter) Write(p []byte) (int, error) {
+	w.n += len(p)
+	if w.buf.Len() < w.max {
+		take := len(p)
+		if remain := w.max - w.buf.Len(); take > remain {
+			take = remain
+		}
+		_, _ = w.buf.Write(p[:take])
+	}
+	return len(p), nil
 }
 
 func VisualModelCheck(req VisualModelRequest) Check {

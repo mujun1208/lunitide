@@ -493,32 +493,8 @@ func handleProjectTaskReturnFromTest(e *Engine, ctx context.Context, r bridge.Re
 	if err != nil {
 		return projectFailure(r, err)
 	}
-	devPhase := project.DevPhase(proj.Type)
-	testPhase := project.TestPhase(proj.Type)
-	ifacePhase := project.InterfacePhase(proj.Type)
-	test, _, err := e.loadChecklist(ctx, proj.ID, testPhase, "test_checklist")
+	testItem, err := e.returnTestToSource(ctx, proj, p.TestItemID, p.Reason)
 	if err != nil {
-		return projectFailure(r, err)
-	}
-	_, testItem, ok := projecttask.Find(test, p.TestItemID)
-	if !ok {
-		return projectFailure(r, projectapp.ErrTaskNotFound)
-	}
-	targetPhase, targetType, targetTitle := devPhase, "dev_checklist", "开发检查清单"
-	if testItem.SourceKind == "interface" {
-		targetPhase, targetType, targetTitle = ifacePhase, "interface_list", "接口清单"
-	}
-	target, _, err := e.loadChecklist(ctx, proj.ID, targetPhase, targetType)
-	if err != nil {
-		return projectFailure(r, err)
-	}
-	if err = projecttask.ReturnFromTest(&target, &test, p.TestItemID, p.Reason); err != nil {
-		return projectFailure(r, err)
-	}
-	if err = e.saveChecklist(ctx, proj, testPhase, "test_checklist", "测试检查清单", test, deliverable.StatusReview); err != nil {
-		return projectFailure(r, err)
-	}
-	if err = e.saveChecklist(ctx, proj, targetPhase, targetType, targetTitle, target, deliverable.StatusReview); err != nil {
 		return projectFailure(r, err)
 	}
 	scenes, sceneRec, serr := e.loadChecklist(ctx, proj.ID, 7, "integration_test_list")
@@ -532,6 +508,37 @@ func handleProjectTaskReturnFromTest(e *Engine, ctx context.Context, r bridge.Re
 		}
 	}
 	return r.Ok(map[string]any{"testItemId": p.TestItemID, "devItemId": testItem.SourceID, "returned": true, "targetKind": testItem.SourceKind})
+}
+
+func (e *Engine) returnTestToSource(ctx context.Context, proj project.Project, testItemID, reason string) (projecttask.Item, error) {
+	var empty projecttask.Item
+	testPhase := project.TestPhase(proj.Type)
+	test, _, err := e.loadChecklist(ctx, proj.ID, testPhase, "test_checklist")
+	if err != nil {
+		return empty, err
+	}
+	_, testItem, ok := projecttask.Find(test, testItemID)
+	if !ok {
+		return empty, projectapp.ErrTaskNotFound
+	}
+	targetPhase, targetType, targetTitle := project.DevPhase(proj.Type), "dev_checklist", "开发检查清单"
+	if testItem.SourceKind == "interface" {
+		targetPhase, targetType, targetTitle = project.InterfacePhase(proj.Type), "interface_list", "接口清单"
+	}
+	target, _, err := e.loadChecklist(ctx, proj.ID, targetPhase, targetType)
+	if err != nil {
+		return empty, err
+	}
+	if err = projecttask.ReturnFromTest(&target, &test, testItemID, reason); err != nil {
+		return empty, err
+	}
+	if err = e.saveChecklist(ctx, proj, testPhase, "test_checklist", "测试检查清单", test, deliverable.StatusReview); err != nil {
+		return empty, err
+	}
+	if err = e.saveChecklist(ctx, proj, targetPhase, targetType, targetTitle, target, deliverable.StatusReview); err != nil {
+		return empty, err
+	}
+	return testItem, nil
 }
 
 func checklistWriteStatus(current deliverable.Status) deliverable.Status {

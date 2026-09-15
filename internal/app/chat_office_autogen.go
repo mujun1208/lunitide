@@ -90,7 +90,7 @@ func officeExpertIntroduction(goal string) bool {
 }
 
 func officeGenToolForGoal(goal string) string {
-	if spokenResultReportOnly(goal) {
+	if refusesOfficeGen(goal) || spokenResultReportOnly(goal) {
 		return ""
 	}
 	if looksLikeSkillAuthoringTask(goal) || looksLikeExpertAuthoringTask(goal) || officeMaterialReview(goal) || officeHowToQuestion(goal) {

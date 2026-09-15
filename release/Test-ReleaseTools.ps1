@@ -78,6 +78,9 @@ try{
   if($build.IndexOf('Publish-GitHubRelease') -lt 0 -or $build.IndexOf('latest.json') -lt 0){throw 'Build-Release must publish Setup and latest.json to GitHub'}
   $feed=Get-Content -LiteralPath (Join-Path $repo '.github\workflows\publish-update-feed.yml') -Raw
   if($feed.IndexOf('latest.json') -lt 0 -or $feed.IndexOf('Build-Release.ps1') -lt 0 -or $feed.IndexOf('--latest') -lt 0){throw 'publish-update-feed must build Setup and mark GitHub Latest'}
+  if($build -notmatch 'if\s*\(\s*\$Publish\s*\)'){throw 'Build-Release must gate GitHub publish on -Publish'}
+  if($build -notmatch 'if\s*\(\s*\$Publish\s+-and\s+-not\s+\$RequireSignature\s*\)'){throw 'Build-Release must refuse unsigned GitHub publish'}
+  if($build.IndexOf('--clobber') -ge 0){throw 'Build-Release must not clobber an existing GitHub release'}
   $engine=Get-Content -LiteralPath (Join-Path $repo 'cmd\engine\main.go') -Raw
   if($engine.IndexOf('doctext.RunWorker') -lt 0 -or $engine.IndexOf('doctext.RunWorker') -gt $engine.IndexOf('ipc.ReadLaunchBootstrap')){throw 'Parser worker must exit before bootstrap and credential access'}
   $oldCgo=$env:CGO_ENABLED

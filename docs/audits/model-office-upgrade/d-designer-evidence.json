@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-09-14T01:42:32Z",
+  "designerReviewed": 0,
+  "certified": false,
+  "layersD": "not_run",
+  "system": "ops-clear",
+  "density": "standard",
+  "generateMethod": "officestudio.Generate",
+  "liveLLM": false,
+  "visualScore": "uncalibrated",
+  "combos": [
+    {
+      "variantId": "ops-clear/cover/standard",
+      "layout": "cover",
+      "sha256": "e912490395267ab80e7a78efa99197c80fe93aa4a1d9f5488fe51962f2d91939",
+      "generateOk": true,
+      "file": "docs/audits/model-office-upgrade/designer-samples/ops-clear_cover_standard.pptx"
+    },
+    {
+      "variantId": "ops-clear/section/standard",
+      "layout": "section",
+      "sha256": "e9894199077a27572cd9a005a4df88ead99b59d6127817ba6098168e4535e01a",
+      "generateOk": true,
+      "file": "docs/audits/model-office-upgrade/designer-samples/ops-clear_section_standard.pptx"
+    },
+    {
+      "variantId": "ops-clear/conclusion/standard",
+      "layout": "conclusion",
+      "sha256": "a4033804a133ce51a93d44443bd84b5ea02b17e9fe5e1039be63ab7045945fb3",
+      "generateOk": true,
+      "file": "docs/audits/model-office-upgrade/designer-samples/ops-clear_conclusion_standard.pptx"
+    },
+    {
+      "variantId": "ops-clear/two-column/standard",
+      "layout": "two-column",
+      "sha256": "252ca950d49b48bde9db82dad8f8aeed3344806a8dc6ddcf399bf0858471bc4f",
+      "generateOk": true,
+      "file": "docs/audits/model-office-upgrade/designer-samples/ops-clear_two-column_standard.pptx"
+    },
+    {
+      "variantId": "ops-clear/comparison/standard",
+      "layout": "comparison",
+      "sha256": "1755c0f48d8219e91246616162595bf9f7a6dfe9a34ec78cb086311db73ff87f",
+      "generateOk": true,
+      "file": "docs/audits/model-office-upgrade/designer-samples/ops-clear_comparison_standard.pptx"
+    },
+    {
+      "variantId": "ops-clear/metrics/standard",
+      "layout": "metrics",
+      "sha256": "fcee8522941bee2abcc5cbb2f18f1b36f32b45c0a7802ed4851f855f0d19f794",
+      "generateOk": true,
+      "file": "docs/audits/model-office-upgrade/designer-samples/ops-clear_metrics_standard.pptx"
+    },
+    {
+      "variantId": "ops-clear/trend/standard",
+      "layout": "trend",
+      "sha256": "36ba7dea1876e1a9a1cc99b53a0885f1c15712e8026c389277fd9968b550a109",
+      "generateOk": true,
+      "file": "docs/audits/model-office-upgrade/designer-samples/ops-clear_trend_standard.pptx"
+    },
+    {
+      "variantId": "ops-clear/structure/standard",
+      "layout": "structure",
+      "sha256": "e14443c1af3707f13f52ac2e5b2dd5dc5dd396c86cd9ad0f766a3f6bd470695c",
+      "generateOk": true,
+      "file": "docs/audits/model-office-upgrade/designer-samples/ops-clear_structure_standard.pptx"
+    },
+    {
+      "variantId": "ops-clear/process/standard",
+      "layout": "process",
+      "sha256": "c2f08b54a5fe6287834a974890996147655589ea0d9977b0b08a180b1ea46ddd",
+      "generateOk": true,
+      "file": "docs/audits/model-office-upgrade/designer-samples/ops-clear_process_standard.pptx"
+    },
+    {
+      "variantId": "ops-clear/timeline/standard",
+      "layout": "timeline",
+      "sha256": "55d98ccd1abe3ad3361a53afdc411eab69ec387948d409850852efd45d5c55d2",
+      "generateOk": true,
+      "file": "docs/audits/model-office-upgrade/designer-samples/ops-clear_timeline_standard.pptx"
+    },
+    {
+      "variantId": "ops-clear/evidence/standard",
+      "layout": "evidence",
+      "sha256": "01a8f4beac3e326708a37dd598d5ab4f50667831cda909b70ba2df740e83cbb4",
+      "generateOk": true,
+      "file": "docs/audits/model-office-upgrade/designer-samples/ops-clear_evidence_standard.pptx"
+    },
+    {
+      "variantId": "ops-clear/closing/standard",
+      "layout": "closing",
+      "sha256": "7ad09c6c3818e3d77ab8d22cafe5d84a9ed387eb2db2d4eeff1a50d5f4570bcd",
+      "generateOk": true,
+      "file": "docs/audits/model-office-upgrade/designer-samples/ops-clear_closing_standard.pptx"
+    }
+  ],
+  "generatedOk": 12,
+  "generatedTotal": 12
+}

@@ -53,6 +53,7 @@ var (
 	ErrSyncInvalid            = errors.New("project release sync destination is invalid")
 	ErrSyncRequired           = errors.New("project release sync is required")
 	ErrAttachmentRequired     = errors.New("project deliverable attachment is required")
+	ErrEmptyBoardAck          = errors.New("empty board requires explicit acknowledgement")
 )
 
 func IsRootBusy(err error) bool { return errors.Is(err, ErrRootBusy) }
@@ -72,7 +73,7 @@ type UnitOfWork interface {
 // PhaseCompletionTx performs evidence checks, freezes deliverables, completes
 // the stage and advances the project on the same project transaction.
 type PhaseCompletionTx interface {
-	CompleteProjectPhase(context.Context, string, int64, int) (project.Project, error)
+	CompleteProjectPhase(context.Context, string, int64, int, bool) (project.Project, error)
 }
 type Reader interface {
 	ListProjects(context.Context, project.Filter) ([]project.Project, error)
@@ -252,7 +253,8 @@ func (s *Service) Mutate(ctx context.Context, key, actor, action string, id stri
 		}
 		if action == "project.advanceStatus" {
 			var phaseRequest struct {
-				Phase int `json:"phase"`
+				Phase         int  `json:"phase"`
+				EmptyBoardAck bool `json:"emptyBoardAck"`
 			}
 			raw, marshalErr := json.Marshal(request)
 			if marshalErr != nil {
@@ -265,7 +267,7 @@ func (s *Service) Mutate(ctx context.Context, key, actor, action string, id stri
 			if !ok {
 				return ErrInvalidTransition
 			}
-			result, err = phaseTx.CompleteProjectPhase(ctx, id, version, phaseRequest.Phase)
+			result, err = phaseTx.CompleteProjectPhase(ctx, id, version, phaseRequest.Phase, phaseRequest.EmptyBoardAck)
 		} else {
 			result, err = tx.UpdateProject(ctx, id, version, mutate)
 		}

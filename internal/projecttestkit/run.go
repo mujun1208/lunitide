@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -104,6 +105,21 @@ func Run(ctx context.Context, in RunInput) (projecttask.KindResult, error) {
 	}
 }
 
+func cliCommand(ctx context.Context, command, dir string) *exec.Cmd {
+	var c *exec.Cmd
+	if strings.Contains(command, " ") {
+		if runtime.GOOS == "windows" {
+			c = exec.CommandContext(ctx, "cmd", "/c", command)
+		} else {
+			c = exec.CommandContext(ctx, "sh", "-c", command)
+		}
+	} else {
+		c = exec.CommandContext(ctx, command)
+	}
+	c.Dir = dir
+	return c
+}
+
 func runCLI(ctx context.Context, in RunInput, now string) (projecttask.KindResult, error) {
 	cmd := strings.TrimSpace(in.Command)
 	if cmd == "" || len(cmd) > 500 {
@@ -111,13 +127,7 @@ func runCLI(ctx context.Context, in RunInput, now string) (projecttask.KindResul
 	}
 	ctx, cancel := context.WithTimeout(ctx, in.Timeout)
 	defer cancel()
-	var c *exec.Cmd
-	if strings.Contains(cmd, " ") {
-		c = exec.CommandContext(ctx, "cmd", "/c", cmd)
-	} else {
-		c = exec.CommandContext(ctx, cmd)
-	}
-	c.Dir = in.RootPath
+	c := cliCommand(ctx, cmd, in.RootPath)
 	out, err := c.CombinedOutput()
 	summary := strings.TrimSpace(string(out))
 	if len(summary) > 2000 {

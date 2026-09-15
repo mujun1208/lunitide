@@ -33,7 +33,8 @@ import {
   type OfficeVersion,
 } from './officeStudioApi';
 import { defaultOfficeArtifact, isOfficeReference, officeDate, officeRunLabel, officeSyncSelection, visibleOfficeArtifact } from './officePresentation';
-import { OFFICE_GENERATE_STAGES, OFFICE_STYLE_OPTIONS, briefFieldLabel, briefLengthLabel, deferredOfficeCapabilitiesNotice, draftQualityNotice, generateActionNotice, importLimitNotice, nextLocateFactOffset, nextLocatePreviewOffset, trialScopeNotice, usabilityScopeNotice, visualScoreNotice } from './officeQualityUi';
+import { DeliveryStatus } from './DeliveryStatus';
+import { OFFICE_GENERATE_STAGES, OFFICE_STYLE_OPTIONS, briefFieldLabel, briefLengthLabel, deferredOfficeCapabilitiesNotice, draftQualityNotice, formalDecisionFromCause, generateActionNotice, importLimitNotice, nextLocateFactOffset, nextLocatePreviewOffset, trialScopeNotice, usabilityScopeNotice, visualScoreNotice, type FormalDecision } from './officeQualityUi';
 import { officePreviewPages, officePreviewThumb } from './officePreviewPages';
 import { resetOfficePaperScroll, scrollOfficeNodeIntoView } from './officePreviewScroll';
 import './officeStudio.css';
@@ -217,6 +218,7 @@ export function OfficeStudioPage({
   }>();
   const [exportName, setExportName] = useState('');
   const [exportedPath, setExportedPath] = useState('');
+  const [lastDecision, setLastDecision] = useState<{ versionId: string; decision: FormalDecision }>();
   const [styleId, setStyleId] = useState<(typeof OFFICE_STYLE_OPTIONS)[number]['id']>(() =>
     taskId ? readStoredStyle(taskId) : 'ops-clear',
   );
@@ -339,6 +341,7 @@ export function OfficeStudioPage({
     setChartTarget(undefined);
     setActivity(false);
     setError('');
+    setLastDecision(undefined);
     try {
       taskId ? localStorage.setItem(LAST_TASK, taskId) : localStorage.removeItem(LAST_TASK);
       if (taskId) setStyleId(readStoredStyle(taskId));
@@ -843,6 +846,30 @@ export function OfficeStudioPage({
       setExportOpen(true);
     }
   };
+  const bindDecision = (decision?: FormalDecision, versionId?: string) => {
+    if (!decision) return;
+    const id = decision.versionId || versionId || version?.id;
+    if (!id) return;
+    setLastDecision({ versionId: id, decision: { ...decision, versionId: decision.versionId || id } });
+  };
+  const exportFormal = () =>
+    run(async () => {
+      if (!version) return;
+      try {
+        const result = await api.exportArtifact({
+          taskId,
+          versionId: version.id,
+          name: `${artifact?.name.replace(/\.[^.]+$/, '') || 'export'}_v${version.versionNo}.${artifact?.kind || 'docx'}`,
+          draft: false,
+          deliveryMode: 'formal',
+        });
+        bindDecision(result.decision, version.id);
+        setNotice(result.notice || '正式导出已保存。');
+      } catch (cause) {
+        bindDecision(formalDecisionFromCause(cause), version.id);
+        throw cause;
+      }
+    });
 
   return (
     <div
@@ -890,6 +917,9 @@ export function OfficeStudioPage({
               {artifact && version && (artifact.kind === 'docx' || artifact.kind === 'xlsx') && <button disabled={mutationBusy} onClick={() => {setError('');setNativeStopRequested(false);setNativeTarget({taskId,artifactId:artifact.id,versionId:version.id,expectedRevision:artifact.revision,versionNo:version.versionNo,kind:artifact.kind as 'docx'|'xlsx'});}}>{artifact.kind === 'docx' ? '更新目录与页码' : '重新计算公式'}</button>}
               <button disabled={mutationBusy || !version} onClick={openExport}>
                 导出副本
+              </button>
+              <button disabled={mutationBusy || !version} onClick={() => void exportFormal()}>
+                正式导出
               </button>
               <button disabled={mutationBusy || !detail.artifacts.length} onClick={() => setBundleOpen(true)}>
                 成套导出
@@ -1763,20 +1793,26 @@ export function OfficeStudioPage({
             </div>
             <div className="os-inspector-scroll" hidden={tab === 'conversation' || !tab}>
               {tab === 'checks' && (
-                <OfficeChecks
-                  version={version}
-                  busy={mutationBusy}
-                  checking={checking}
-                  stopping={stopping}
-                  checkStopped={checkStopped}
-                  facts={detail?.task.brief?.facts}
-                  nodes={preview?.nodes}
-                  onStop={() => void stopCheck()}
-                  onValidate={() => void validate()}
-                  onLocate={(id) => {
-                    void locateNode(id);
-                  }}
-                />
+                <>
+                  <DeliveryStatus
+                    decision={lastDecision && lastDecision.versionId === version?.id ? lastDecision.decision : undefined}
+                    quality={version?.quality}
+                  />
+                  <OfficeChecks
+                    version={version}
+                    busy={mutationBusy}
+                    checking={checking}
+                    stopping={stopping}
+                    checkStopped={checkStopped}
+                    facts={detail?.task.brief?.facts}
+                    nodes={preview?.nodes}
+                    onStop={() => void stopCheck()}
+                    onValidate={() => void validate()}
+                    onLocate={(id) => {
+                      void locateNode(id);
+                    }}
+                  />
+                </>
               )}
               {tab === 'versions' && (
                 <OfficeVersions
@@ -1784,7 +1820,8 @@ export function OfficeStudioPage({
                   selectedVersionId={version?.id}
                   busy={mutationBusy}
                   onSelect={selectVersion}
-                  onAccept={(item) => void accept(item)}
+                  decision={lastDecision}
+                  onAccept={(item, formal) => void accept(item, formal)}
                   onRestore={(item) => void restore(item)}
                   onCompare={(item) => {
                     if (artifact && version)
@@ -1960,8 +1997,10 @@ export function OfficeStudioPage({
                 taskId,
                 versionId: version.id,
                 name: exportName.trim(),
-                draft: version.quality !== 'passed',
+                draft: true,
+                deliveryMode: 'copy',
               });
+              bindDecision(result.decision, version.id);
               setExportedPath(result.path);
               setNotice(result.notice || '副本已保存。');
             });
@@ -2015,7 +2054,20 @@ export function OfficeStudioPage({
           actions={{
             list: () => api.listBundles({ taskId }),
             create: (input) => api.createBundle({ taskId, ...input }),
-            export: (input) => api.exportBundle({ taskId, ...input }),
+            export: async (input) => {
+              try {
+                const exported = await api.exportBundle({
+                  taskId,
+                  ...input,
+                  deliveryMode: input.deliveryMode ?? 'formal',
+                });
+                bindDecision(exported.decision, exported.decision?.versionId || version?.id);
+                return exported;
+              } catch (cause) {
+                bindDecision(formalDecisionFromCause(cause), version?.id);
+                throw cause;
+              }
+            },
             open: async (path) => {
               await api.openExport({ taskId, path, reveal: true });
             },

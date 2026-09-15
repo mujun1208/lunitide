@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useZh } from '../i18n/language'
+import { SharedHubComposer } from '../session/SharedHubComposer'
 import { AgentHubAskBar } from './AgentHubAskBar'
 import { AgentHubFileInspector } from './AgentHubFileInspector'
 import {
@@ -142,19 +143,22 @@ export function AgentHubThread({
         {detail?.prompt ? (
           <AgentHubAskBar threadId={threadId} prompt={detail.prompt} onResponded={next => { void applyDetail(next) }} />
         ) : null}
-        <div className="agent-hub-console">
-          <textarea
-            value={draft}
-            onChange={event => setDraft(event.target.value)}
-            aria-label="消息"
-          />
-          <div className="agent-hub-console-bar">
-            {live ? (
-              <button type="button" className="agent-hub-chip" onClick={() => void cancel()}>{zh ? '取消' : 'Cancel'}</button>
-            ) : null}
-            <button type="button" className="agent-hub-run" disabled={live} onClick={() => void send()}>{zh ? '发送' : 'Send'}</button>
-          </div>
-        </div>
+        <SharedHubComposer
+          value={draft}
+          onChange={setDraft}
+          onSubmit={() => void send()}
+          onStop={() => void cancel()}
+          live={live}
+          placeholder={zh ? '继续这轮任务…' : 'Continue this thread…'}
+          inputLabel={zh ? '消息' : 'Message'}
+          accessMode="approval"
+          onAccessMode={() => undefined}
+          showAccess={false}
+          showPlus={false}
+          workDir={detail?.thread.workspaceRoot}
+          exportDir={detail?.thread.exportDir}
+          zh={zh}
+        />
         {error && <p className="agent-hub-error" role="alert">{error}</p>}
       </section>
       <div className="workspace-resizer" />

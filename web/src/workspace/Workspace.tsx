@@ -24,6 +24,7 @@ import { previewKindFromPath } from './artifactPreviewMode'
 import { SafeLinkedText } from './safeLinks'
 import { isBrowserAddress, latestBrowserAddress, parseSearchCards } from './browserAddress'
 import { extractTaskFiles, isChangeTool } from './codePanelUtils'
+import { workspaceDownloadEnabled } from './workspaceDownload'
 
 function workspaceUserError(err: unknown, fallback: string): string {
   const detail = err instanceof Error ? err.message.trim() : ''
@@ -102,6 +103,8 @@ export function Workspace({
   projectId,
   sessionId,
   onClose,
+  expanded = false,
+  onToggleExpand,
   browser = browserBridge,
   localWorkspace,
   targetTab,
@@ -124,6 +127,8 @@ export function Workspace({
   projectId: string
   sessionId: string
   onClose: () => void
+  expanded?: boolean
+  onToggleExpand?: () => void
   browser?: BrowserBridge
   localWorkspace?: LocalWorkspaceBridge
   targetTab?: LegacyWorkspaceTab
@@ -317,12 +322,42 @@ export function Workspace({
     return item.label
   }
 
+  const previewName = localDetail?.path.split(/[/\\]/).pop() || detail?.originalName || ''
+  const canDownload = Boolean(previewName) && workspaceDownloadEnabled({
+    name: previewName,
+    mime: detail?.mime,
+    contentBase64: detail?.contentBase64,
+    parsedText: detail?.parsedText,
+    localText: localDetail?.content,
+  })
+  const downloadCurrent = () => {
+    if (!canDownload) return
+    const name = previewName || 'file.txt'
+    const mime = detail?.mime || 'application/octet-stream'
+    let href = ''
+    if (detail?.contentBase64) href = `data:${mime};base64,${detail.contentBase64}`
+    else if (workspaceDownloadEnabled({ name, mime: detail?.mime || 'text/plain', parsedText: detail?.parsedText, localText: localDetail?.content })) {
+      href = URL.createObjectURL(new Blob([detail?.parsedText ?? localDetail?.content ?? ''], { type: 'text/plain;charset=utf-8' }))
+    }
+    if (!href) return
+    const link = document.createElement('a')
+    link.href = href
+    link.download = name
+    link.click()
+    if (href.startsWith('blob:')) window.setTimeout(() => URL.revokeObjectURL(href), 1000)
+  }
+
   return (
     <aside className="workspace" aria-label="统一工作区">
-      <header>
-        <strong>工作区</strong>
+      <header className="workspace-chrome">
+        <strong>{TABS.find(item => item.id === tab)?.label ?? '工作区'}</strong>
         {skillId&&onCloseSkill&&<button type="button" onClick={onCloseSkill}>返回会话文件</button>}
-        <button type="button" className="artifact-icon-btn" aria-label="关闭工作区" title="收起" onClick={onClose}>×</button>
+        <div className="workspace-chrome-tools">
+          {onToggleExpand && (
+            <button type="button" className="artifact-icon-btn" aria-label={expanded ? '恢复对话' : '放大工作区'} title={expanded ? '恢复对话' : '放大'} onClick={onToggleExpand}>{expanded ? '❐' : '⛶'}</button>
+          )}
+          <button type="button" className="artifact-icon-btn" aria-label="关闭工作区" title="收起" onClick={onClose}>×</button>
+        </div>
       </header>
       <nav aria-label="工作区标签">
         {TABS.map(x => (
@@ -342,11 +377,14 @@ export function Workspace({
           ))}
           <div className="workspace-preview workspace-files-preview">
             <div className="workspace-preview-toolbar">
-              <span>{items.length ? `${items.length} 个附件` : '附件预览'}</span>
-              <div className="workspace-zoom">
-                <button type="button" aria-label="缩小预览" disabled={zoom === MIN_ZOOM} onClick={() => setZoom(v => Math.max(MIN_ZOOM, v - ZOOM_STEP))}>−</button>
-                <output aria-label="预览缩放">{zoom}%</output>
-                <button type="button" aria-label="放大预览" disabled={zoom === MAX_ZOOM} onClick={() => setZoom(v => Math.min(MAX_ZOOM, v + ZOOM_STEP))}>＋</button>
+              <span className="workspace-file-name">{previewName || (items.length ? `${items.length} 个附件` : '从文件树选择即可预览')}</span>
+              <div className="workspace-chrome-tools">
+                <button type="button" className="artifact-icon-btn" aria-label="下载文件" title="下载" disabled={!canDownload} onClick={downloadCurrent}>↓</button>
+                <div className="workspace-zoom">
+                  <button type="button" aria-label="缩小预览" disabled={zoom === MIN_ZOOM} onClick={() => setZoom(v => Math.max(MIN_ZOOM, v - ZOOM_STEP))}>−</button>
+                  <output aria-label="预览缩放">{zoom}%</output>
+                  <button type="button" aria-label="放大预览" disabled={zoom === MAX_ZOOM} onClick={() => setZoom(v => Math.min(MAX_ZOOM, v + ZOOM_STEP))}>＋</button>
+                </div>
               </div>
             </div>
             {loading ? <p role="status">正在载入附件…</p> : items.length ? (
@@ -419,32 +457,22 @@ export function Workspace({
       {tab === 'browser' && (
         <div className="workspace-browser">
           <div className="workspace-browser-chrome">
-            <div className="workspace-browser-tabs" role="tablist" aria-label="浏览器页面">
-              <div className="workspace-browser-tab" role="tab" aria-selected="true">
-                <span aria-hidden="true">▣</span>
-                <b>{browserTabLabel}</b>
-              </div>
-            </div>
             <div className="workspace-browser-toolbar">
               <div className="workspace-browser-nav" aria-hidden="true">
                 <button type="button" tabIndex={-1} disabled>←</button>
                 <button type="button" tabIndex={-1} disabled>→</button>
-                <button type="button" tabIndex={-1} disabled>↻</button>
+                <button type="button" className="artifact-icon-btn" aria-label="刷新地址" disabled={browserBusy || !browserURL.startsWith('https://')} onClick={() => void openBrowser()}>↻</button>
               </div>
               <label className="workspace-browser-address">
-                <span aria-hidden="true">⌾</span>
-                <input aria-label="浏览器地址" type="text" inputMode="url" value={browserURL} onChange={e => setBrowserURL(e.target.value)} />
+                <input aria-label="浏览器地址" type="text" inputMode="url" value={browserURL} onChange={e => setBrowserURL(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void openBrowser() }} />
               </label>
               <div className="workspace-browser-actions">
-                <button className="workspace-browser-open" type="button" aria-label="打开独立浏览器" disabled={browserBusy || !browserURL.startsWith('https://')} onClick={() => void openBrowser()}>↗ 独立打开</button>
-                <button className="workspace-browser-close" type="button" aria-label="关闭浏览器" title="关闭独立浏览器" disabled={browserBusy} onClick={() => void closeBrowser()}>关闭</button>
+                <button className="artifact-icon-btn" type="button" aria-label="打开独立浏览器" title={browserTabLabel} disabled={browserBusy || !browserURL.startsWith('https://')} onClick={() => void openBrowser()}>↗</button>
+                <button className="artifact-icon-btn" type="button" aria-label="关闭浏览器" title="关闭独立浏览器" disabled={browserBusy} onClick={() => void closeBrowser()}>×</button>
               </div>
             </div>
           </div>
-          <div className="workspace-browser-meta">
-            <output aria-label="浏览器状态" role="status"><i aria-hidden="true" />{browserStatus}</output>
-            <small>隔离 WebView2 · 地址栏同步导航</small>
-          </div>
+          <output className="workspace-browser-status" aria-label="浏览器状态" role="status">{browserStatus}</output>
           <div className="workspace-browser-viewport">
             {searchCards.hits.length ? (
               <section className="workspace-search-results" aria-label="搜索结果">

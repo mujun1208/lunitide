@@ -74,18 +74,29 @@ func validRunTransition(from, to RunStatus) bool {
 // turns, tool calls, tokens, cost, wall-clock, output bytes, retries,
 // no-progress and a hard-ceiling flag must all be present.
 type Budget struct {
-	MaxModelTurns       int64 `json:"maxModelTurns"`
-	MaxToolCalls        int64 `json:"maxToolCalls"`
-	MaxTokens           int64 `json:"maxTokens"`
-	MaxCostMicros       int64 `json:"maxCostMicros"`
-	MaxWallClockSeconds int64 `json:"maxWallClockSeconds"`
-	MaxOutputBytes      int64 `json:"maxOutputBytes"`
-	MaxRetries          int64 `json:"maxRetries"`
-	MaxNoProgress       int64 `json:"maxNoProgress"`
-	HardCeiling         bool  `json:"hardCeiling"`
+	MaxModelTurns       int64  `json:"maxModelTurns"`
+	MaxToolCalls        int64  `json:"maxToolCalls"`
+	MaxTokens           int64  `json:"maxTokens"`
+	MaxCostMicros       int64  `json:"maxCostMicros"`
+	MaxWallClockSeconds int64  `json:"maxWallClockSeconds"`
+	MaxOutputBytes      int64  `json:"maxOutputBytes"`
+	MaxRetries          int64  `json:"maxRetries"`
+	MaxNoProgress       int64  `json:"maxNoProgress"`
+	HardCeiling         bool   `json:"hardCeiling"`
+	PolicyVersion       int    `json:"policyVersion,omitempty"`
+	ExecutionTaskID     string `json:"executionTaskId,omitempty"`
 }
 
 func (b Budget) Validate() error {
+	if b.PolicyVersion == 2 {
+		if !canonicalULID(b.ExecutionTaskID) {
+			return errors.New("v2 accounting budget must reference a canonical executionTaskId")
+		}
+		return nil
+	}
+	if b.PolicyVersion != 0 && b.PolicyVersion != 1 {
+		return errors.New("budget policyVersion must be 1 or 2")
+	}
 	if b.MaxModelTurns < 1 || b.MaxToolCalls < 1 || b.MaxTokens < 1 ||
 		b.MaxCostMicros < 1 || b.MaxWallClockSeconds < 1 || b.MaxOutputBytes < 1 {
 		return errors.New("budget must set positive limits for model turns, tool calls, tokens, cost, wall-clock and output bytes")

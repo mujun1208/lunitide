@@ -18,7 +18,7 @@ func pickWorkDirOS() (string, error) {
 		if ctx.Err() != nil {
 			return "", ErrPickCanceled
 		}
-		legacy := `$s=(New-Object -ComObject Shell.Application).BrowseForFolder(0,'选择 Agent 调度台工作目录',0,0);if($s){[Console]::OutputEncoding=[Text.Encoding]::UTF8;$s.Self.Path}`
+		legacy := `$s=(New-Object -ComObject Shell.Application).BrowseForFolder(0,'选择工作目录',0,0);if($s){[Console]::OutputEncoding=[Text.Encoding]::UTF8;$s.Self.Path}`
 		out, err = winexec.HiddenPowerShell(ctx, "-NoProfile", "-STA", "-Command", legacy).Output()
 		if err != nil {
 			if ctx.Err() != nil {
@@ -45,7 +45,7 @@ $form.Size = New-Object System.Drawing.Size(1, 1)
 $form.Show()
 $form.Activate()
 $d = New-Object System.Windows.Forms.FolderBrowserDialog
-$d.Description = '选择 Agent 调度台工作目录'
+$d.Description = '选择工作目录'
 $d.ShowNewFolderButton = $true
 $ok = $d.ShowDialog($form) -eq 'OK'
 $path = $d.SelectedPath

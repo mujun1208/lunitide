@@ -3,11 +3,13 @@ import { Dialog } from '../ui/Dialog';
 import type { OfficeArtifact, OfficeBundle, OfficeBundleExport } from './officeStudioApi';
 import { officeDate, officeQualityLabel } from './officePresentation';
 import { officeStudioUserError } from './officeUserError';
+import { DeliveryStatus } from './DeliveryStatus';
+import { formalDecisionFromCause, type FormalDecision } from './officeQualityUi';
 
 export interface OfficeBundleActions {
   list: () => Promise<{ items: OfficeBundle[] }>;
   create: (input: { title: string; versionIds: string[] }) => Promise<OfficeBundle>;
-  export: (input: { bundleId: string }) => Promise<OfficeBundleExport>;
+  export: (input: { bundleId: string; deliveryMode?: 'copy' | 'formal' }) => Promise<OfficeBundleExport>;
   open: (path: string) => Promise<void>;
 }
 export function OfficeBundleDialog({
@@ -33,6 +35,7 @@ export function OfficeBundleDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<OfficeBundleExport>();
+  const [decision, setDecision] = useState<FormalDecision>();
   const [loading, setLoading] = useState(false);
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
@@ -54,6 +57,7 @@ export function OfficeBundleDialog({
     setTitle(`${values.taskTitle}交付包`);
     setError('');
     setResult(undefined);
+    setDecision(undefined);
     retained.current = undefined;
     setSelected(
       Object.fromEntries(
@@ -77,11 +81,6 @@ export function OfficeBundleDialog({
     };
   }, [open, taskId]);
   const versionIds = Object.values(selected).filter(Boolean);
-  const draftCount = artifacts.filter(
-    (artifact) =>
-      selected[artifact.id] &&
-      artifact.versions.find((version) => version.id === selected[artifact.id])?.quality !== 'passed',
-  ).length;
   const run = async (work: () => Promise<void>) => {
     if (operation.current || readOnly) return;
     operation.current = true;
@@ -90,13 +89,17 @@ export function OfficeBundleDialog({
     try {
       await work();
     } catch (cause) {
-      if (mounted.current) setError(officeStudioUserError(cause, '成套导出失败，可重试同一交付包。'));
+      const next = formalDecisionFromCause(cause);
+      if (mounted.current) {
+        if (next) setDecision(next);
+        setError(officeStudioUserError(cause, '成套导出失败，可重试同一交付包。'));
+      }
     } finally {
       operation.current = false;
       if (mounted.current) setBusy(false);
     }
   };
-  const createAndExport = () =>
+  const exportBundle = (deliveryMode: 'copy' | 'formal') =>
     run(async () => {
       const signature = JSON.stringify({ title: title.trim(), versionIds: [...versionIds].sort() });
       const bundle =
@@ -105,8 +108,11 @@ export function OfficeBundleDialog({
           : await actions.create({ title: title.trim(), versionIds });
       retained.current = { signature, bundle };
       if (mounted.current) setBundles((items) => [bundle, ...items.filter((item) => item.id !== bundle.id)]);
-      const exported = await actions.export({ bundleId: bundle.id });
-      if (mounted.current) setResult(exported);
+      const exported = await actions.export({ bundleId: bundle.id, deliveryMode });
+      if (mounted.current) {
+        if (exported.decision) setDecision(exported.decision);
+        setResult(exported);
+      }
     });
   return (
     <Dialog
@@ -127,7 +133,7 @@ export function OfficeBundleDialog({
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            void createAndExport();
+            void exportBundle('formal');
           }}
         >
           <label>
@@ -174,11 +180,19 @@ export function OfficeBundleDialog({
           <p className="os-muted">
             {!versionIds.length
               ? '请选择需要放入交付包的文件。'
-              : `已选 ${versionIds.length} 份文件${draftCount ? `，其中 ${draftCount} 份尚未通过全部检查，将明确标为草稿。` : '，全部所需检查已通过。检查通过不是已接受为正式版。'}`}
+              : `已选 ${versionIds.length} 份文件。检查通过不是正式决定，正式成套导出以 FormalDecision 为准。`}
           </p>
+          {decision ? <DeliveryStatus decision={decision} /> : null}
           <div className="dialog-actions">
             <button type="button" disabled={busy} onClick={onClose}>
               关闭
+            </button>
+            <button
+              type="button"
+              disabled={busy || readOnly || !title.trim() || !versionIds.length}
+              onClick={() => void exportBundle('copy')}
+            >
+              导出草稿包
             </button>
             <button className="primary" disabled={busy || readOnly || !title.trim() || !versionIds.length}>
               {busy ? '正在保存交付包…' : '固定版本并导出'}
@@ -222,8 +236,11 @@ export function OfficeBundleDialog({
                   disabled={busy}
                   onClick={() =>
                     void run(async () => {
-                      const exported = await actions.export({ bundleId: bundle.id });
-                      if (mounted.current) setResult(exported);
+                      const exported = await actions.export({ bundleId: bundle.id, deliveryMode: 'formal' });
+                      if (mounted.current) {
+                        if (exported.decision) setDecision(exported.decision);
+                        setResult(exported);
+                      }
                     })
                   }
                 >

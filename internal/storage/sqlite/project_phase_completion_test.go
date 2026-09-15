@@ -15,6 +15,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/domain/projectattachment"
 	"github.com/lunitide/lunitide/internal/domain/stage"
+	"github.com/lunitide/lunitide/internal/m7app"
 	"github.com/lunitide/lunitide/internal/projectapp"
 	"github.com/lunitide/lunitide/internal/projectgen"
 	"github.com/lunitide/lunitide/internal/projecttask"
@@ -87,9 +88,18 @@ func completeTestPhase(svc *projectapp.Service, p project.Project, phase int) (p
 }
 
 func completeTestPhaseAs(svc *projectapp.Service, key string, p project.Project, phase int) (project.Project, error) {
+	return completeTestPhaseAckAs(svc, key, p, phase, true)
+}
+
+func completeTestPhaseAck(svc *projectapp.Service, p project.Project, phase int, ack bool) (project.Project, error) {
+	return completeTestPhaseAckAs(svc, fmt.Sprintf("phase-%d-ack-%v", phase, ack), p, phase, ack)
+}
+
+func completeTestPhaseAckAs(svc *projectapp.Service, key string, p project.Project, phase int, ack bool) (project.Project, error) {
 	return svc.Mutate(context.Background(), key, "test", "project.advanceStatus", p.ID, p.Version, struct {
-		Phase int `json:"phase"`
-	}{phase}, func(*project.Project) error { return nil })
+		Phase         int  `json:"phase"`
+		EmptyBoardAck bool `json:"emptyBoardAck"`
+	}{phase, ack}, func(*project.Project) error { return nil })
 }
 func TestProjectPhaseCompletesEveryDocumentPhaseAtomically(t *testing.T) {
 	for _, typ := range []project.Type{project.TypeImplementation, project.TypeEnhancement, project.TypeOperations} {
@@ -324,6 +334,22 @@ func TestProjectPhase7ReadsSameChecklistFacts(t *testing.T) {
 	}
 }
 
+func TestProjectPhaseRejectsEmptyInterfaceWithoutAck(t *testing.T) {
+	s, svc, p := phaseTestStore(t, project.TypeImplementation)
+	p = completePhases(t, s, svc, p, 3)
+	seedPhaseTestEvidence(t, s, p, 4)
+	if _, err := completeTestPhaseAck(svc, p, 4, false); !errors.Is(err, projectapp.ErrEmptyBoardAck) {
+		t.Fatalf("empty interface without ack: %v", err)
+	}
+	next, err := completeTestPhaseAck(svc, p, 4, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Version == p.Version {
+		t.Fatal("acked empty interface did not advance")
+	}
+}
+
 func TestProjectPhaseSeedsInterfaceAndDevTests(t *testing.T) {
 	s, svc, p := phaseTestStore(t, project.TypeImplementation)
 	p = completePhases(t, s, svc, p, 4)
@@ -370,6 +396,68 @@ func TestProjectPhaseSeedsInterfaceAndDevTests(t *testing.T) {
 		t.Fatalf("missing dev-derived test: %+v", doc.Items)
 	}
 }
+
+func TestProjectPhaseRejectsDirtyInterfaceBoard(t *testing.T) {
+	s, svc, p := phaseTestStore(t, project.TypeImplementation)
+	p = completePhases(t, s, svc, p, 3)
+	seedChecklistJSON(t, s, p, 4, "interface_list", []byte(`{"version":1,"items":[{"id":"I001","title":"登录","status":"dev_done","needsReprocess":true}]}`))
+	if _, err := completeTestPhase(svc, p, 4); !errors.Is(err, projectapp.ErrBoardDirty) {
+		t.Fatalf("dirty interface: %v", err)
+	}
+}
+
+func TestProjectPhaseRejectsDirtyDevBoard(t *testing.T) {
+	s, svc, p := phaseTestStore(t, project.TypeImplementation)
+	p = completePhases(t, s, svc, p, 4)
+	seedChecklistJSON(t, s, p, 5, "dev_checklist", []byte(`{"version":1,"items":[{"id":"F001","title":"登录","status":"dev_done","needsReprocess":true}]}`))
+	if _, err := completeTestPhase(svc, p, 5); !errors.Is(err, projectapp.ErrBoardDirty) {
+		t.Fatalf("dirty dest: %v", err)
+	}
+}
+
+func TestProjectReleasePhaseRequiresSyncReceipt(t *testing.T) {
+	s, svc, p := phaseTestStore(t, project.TypeImplementation)
+	p = completePhases(t, s, svc, p, 7)
+	seedPhaseTestEvidence(t, s, p, 8)
+	if err := os.Remove(filepath.Join(p.RootPath, ".lunitide", "sync-receipt.json")); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	s.SetProjectPublicationRoot(root)
+	release := m7app.NewReleaseService(s.AgentRuntimeRepository())
+	release.SetProjectContent(s)
+	revision, err := release.CreateRevision(context.Background(), "CR-"+p.ProjectCode, map[string]any{"projectId": p.ID, "authorId": "test", "summary": "sync gate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, err := release.BuildPackage(context.Background(), revision.ID, revision.Digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publisher := m7app.NewPromotionService(s.AgentRuntimeRepository())
+	publisher.SetLocalPublication(root)
+	for _, env := range []string{"dev", "stage"} {
+		if _, err = publisher.Promote(context.Background(), m7app.PromoteInput{PackageID: pkg.ID, TargetEnv: env, RequestID: "sync-" + env, PolicyContext: map[string]any{"requestedBy": "tester"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = completeTestPhase(svc, p, 8); !errors.Is(err, projectapp.ErrSyncRequired) {
+		t.Fatalf("missing sync: %v", err)
+	}
+}
+
+func TestWriteChecklistTxFailsWithoutWriter(t *testing.T) {
+	s, svc, p := phaseTestStore(t, project.TypeImplementation)
+	p = completePhases(t, s, svc, p, 4)
+	files := s.projectEvidenceFiles.attachments.(attachmentapp.FileStorage)
+	seedChecklistJSON(t, s, p, 5, "dev_checklist", []byte(`{"version":1,"items":[{"id":"F001","title":"登录","status":"dev_done"}]}`))
+	s.SetProjectEvidenceFiles(readOnlyPhaseFiles{files}, files)
+	if _, err := completeTestPhase(svc, p, 5); !errors.Is(err, projectapp.ErrAttachmentRequired) {
+		t.Fatalf("seed without writer: %v", err)
+	}
+}
+
+type readOnlyPhaseFiles struct{ PhaseFileReader }
 
 func TestProjectDeliverableApprovalBindsServerFileDigest(t *testing.T) {
 	s, _, p := phaseTestStore(t, project.TypeImplementation)

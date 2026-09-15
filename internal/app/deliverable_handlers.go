@@ -12,6 +12,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/deliverable"
 	"github.com/lunitide/lunitide/internal/domain/project"
 	"github.com/lunitide/lunitide/internal/projectapp"
+	"github.com/lunitide/lunitide/internal/projectgen"
 )
 
 type DeliverableStore interface {
@@ -63,6 +64,7 @@ type deliverableDTO struct {
 	CreatedAt         time.Time          `json:"createdAt"`
 	UpdatedAt         time.Time          `json:"updatedAt"`
 	Version           int64              `json:"version"`
+	BoardDirty        bool               `json:"boardDirty,omitempty"`
 }
 
 func newDeliverableDTO(d deliverable.ProjectDeliverable) deliverableDTO {
@@ -153,8 +155,14 @@ func handleDeliverableUpsert(e *Engine, ctx context.Context, r bridge.Request) b
 	if err != nil {
 		return deliverableFailure(r, err)
 	}
+	dto := newDeliverableDTO(saved)
+	if projectgen.IsChecklistType(saved.DocumentType) {
+		if proj, err := e.projects.Get(ctx, saved.ProjectID); err == nil {
+			dto.BoardDirty = e.checklistBoardDirty(ctx, proj, saved.DocumentType)
+		}
+	}
 	e.exportApprovedDeliverable(ctx, saved)
-	return r.Ok(newDeliverableDTO(saved))
+	return r.Ok(dto)
 }
 
 func handleDeliverableConfirmGate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {

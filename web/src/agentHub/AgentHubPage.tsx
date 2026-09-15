@@ -5,7 +5,7 @@ import { AgentHubHome } from './AgentHubHome'
 import { AgentHubTasks } from './AgentHubTasks'
 import { AgentHubThread } from './AgentHubThread'
 import './agentHub.css'
-import { agentHubApi, type AgentHubArtifact, type AgentHubCounts, type AgentHubStatus, type AgentHubTask } from './agentHubApi'
+import { agentHubApi, type AgentHubCounts, type AgentHubName, type AgentHubStatus, type AgentHubTask } from './agentHubApi'
 
 type HubTab = 'tasks' | 'detail'
 
@@ -13,13 +13,21 @@ export function AgentHubPage({
   selectedThreadId,
   newThreadNonce = 0,
   onOpenThread,
+  selectedAgent,
+  onSelectAgent,
+  legacyTaskId,
+  showLegacy = false,
 }: {
   selectedThreadId?: string
   newThreadNonce?: number
   onOpenThread?: (threadId: string) => void
+  selectedAgent?: AgentHubName
+  onSelectAgent?: (name: AgentHubName) => void
+  legacyTaskId?: string
+  showLegacy?: boolean
 } = {}): React.JSX.Element {
   const zh = useZh()
-  const [legacy, setLegacy] = useState(false)
+  const [legacy, setLegacy] = useState(Boolean(legacyTaskId) || showLegacy)
   const [localThreadId, setLocalThreadId] = useState<string>()
   const nonceSeen = useRef(newThreadNonce)
   useEffect(() => {
@@ -31,6 +39,16 @@ export function AgentHubPage({
   useEffect(() => {
     if (selectedThreadId) setLegacy(false)
   }, [selectedThreadId])
+  useEffect(() => {
+    if (showLegacy) setLegacy(true)
+  }, [showLegacy])
+  useEffect(() => {
+    if (legacyTaskId) {
+      setTaskId(legacyTaskId)
+      setTab('detail')
+      setLegacy(true)
+    }
+  }, [legacyTaskId])
   const threadId = onOpenThread ? selectedThreadId : (selectedThreadId ?? localThreadId)
   const openThread = (id: string) => {
     setLocalThreadId(id)
@@ -41,7 +59,6 @@ export function AgentHubPage({
   const [agents, setAgents] = useState<AgentHubStatus[]>([])
   const [tasks, setTasks] = useState<AgentHubTask[]>([])
   const [counts, setCounts] = useState<AgentHubCounts>({ queued: 0, running: 0, success: 0, failed: 0 })
-  const [artifacts, setArtifacts] = useState<AgentHubArtifact[]>([])
   const [taskId, setTaskId] = useState('')
   const [banner, setBanner] = useState<{ taskId: string; title: string }>()
   const [error, setError] = useState('')
@@ -51,16 +68,12 @@ export function AgentHubPage({
     if (listsBusy.current) return
     listsBusy.current = true
     try {
-      const [listed, files] = await Promise.all([
-        agentHubApi.list(),
-        agentHubApi.listArtifacts(),
-      ])
+      const listed = await agentHubApi.list()
       setTasks(listed.items ?? [])
       setCounts(listed.counts ?? { queued: 0, running: 0, success: 0, failed: 0 })
-      setArtifacts(files.items ?? [])
       setError('')
     } catch (err) {
-      setError(err instanceof Error && /[\u4e00-\u9fff]/.test(err.message) ? err.message : (zh ? '调度台暂时不可用。' : 'Agent Hub is unavailable.'))
+      setError(err instanceof Error && /[\u4e00-\u9fff]/.test(err.message) ? err.message : (zh ? 'AgentHub 暂时不可用。' : 'AgentHub is unavailable.'))
     } finally {
       listsBusy.current = false
     }
@@ -101,16 +114,16 @@ export function AgentHubPage({
     }
   }, [tasks])
   const openTask = (id: string) => { setTaskId(id); setTab('detail'); setLegacy(true) }
+  const titleAgent = selectedAgent
   return (
     <div className="agent-hub">
       <header className="agent-hub-head">
         <div>
-          <h1>{zh ? 'Agent 调度台' : 'Agent Hub'}</h1>
+          <h1>{titleAgent || 'AgentHub'}</h1>
           <p className="agent-hub-quota">{zh ? '消耗的是该 CLI 自己的会员额度' : 'Usage is billed to that CLI subscription, not Lunitide.'}</p>
         </div>
-        <button type="button" aria-pressed={legacy} onClick={() => setLegacy(value => !value)}>{zh ? '旧版任务' : 'Legacy tasks'}</button>
         {legacy && !threadId && (
-          <nav className="agent-hub-tabs" aria-label={zh ? '调度台页面' : 'Agent Hub pages'}>
+          <nav className="agent-hub-tabs" aria-label={zh ? 'AgentHub 页面' : 'AgentHub pages'}>
             {([
               ['tasks', zh ? '任务中心' : 'Tasks'],
               ['detail', zh ? '任务详情' : 'Detail'],
@@ -136,7 +149,7 @@ export function AgentHubPage({
           {tab === 'detail' && <AgentHubDetail taskId={taskId || undefined} onBanner={(id, title) => setBanner({ taskId: id, title })} />}
         </>
       ) : (
-        <AgentHubHome onOpened={openThread} />
+        <AgentHubHome onOpened={openThread} selectedAgent={selectedAgent} onSelectAgent={onSelectAgent} />
       )}
     </div>
   )

@@ -19,8 +19,8 @@ import (
 
 	"github.com/lunitide/lunitide/internal/canonpath"
 	"github.com/lunitide/lunitide/internal/ccapp"
-	"github.com/lunitide/lunitide/internal/connectorapp"
 	"github.com/lunitide/lunitide/internal/commandworker"
+	"github.com/lunitide/lunitide/internal/connectorapp"
 	"github.com/lunitide/lunitide/internal/htmlapp"
 	"github.com/lunitide/lunitide/internal/jsonutil"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
@@ -108,6 +108,12 @@ type Runtime struct {
 	// drops every confirmation and forces a fresh one.
 	fullDiskMu       sync.Mutex
 	fullDiskSessions map[string]bool
+	// artifactCAS is the existing workspace CAS used by SnapshotWorkspaceArtifact.
+	// Snapshot writes raw file bytes only; it never pages workspace.read text.
+	artifactCAS interface {
+		Put([]byte) (string, error)
+		Get(string) ([]byte, error)
+	}
 }
 type Result struct {
 	Output     string    `json:"output"`
@@ -137,6 +143,9 @@ func New(root string) (*Runtime, error) {
 		return nil, err
 	}
 	r := &Runtime{root: filepath.Clean(real), now: func() time.Time { return time.Now().UTC() }}
+	if err := r.sandboxDesktopDuringTest(); err != nil {
+		return nil, err
+	}
 	r.weatherClient = weather.New(func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error) {
 		if r.fetchWeb == nil {
 			return networkpolicy.FetchResult{}, errors.New("web tools unavailable")

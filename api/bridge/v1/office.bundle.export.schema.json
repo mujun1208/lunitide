@@ -13,6 +13,10 @@
     },
     "bundleId": {
       "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+    },
+    "deliveryMode": {
+      "type": "string",
+      "enum": ["copy", "formal"]
     }
   },
   "required": [
@@ -76,6 +80,21 @@
       },
       "complete": {
         "type": "boolean"
+      },
+      "decision": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "decisionId": { "type": "string", "minLength": 0, "maxLength": 128 },
+          "versionId": { "type": "string", "minLength": 0, "maxLength": 128 },
+          "allowed": { "type": "boolean" },
+          "state": { "type": "string", "minLength": 0, "maxLength": 64 },
+          "missingChecks": {
+            "type": "array",
+            "maxItems": 64,
+            "items": { "type": "string", "maxLength": 128 }
+          }
+        }
       }
     },
     "required": [

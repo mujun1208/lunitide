@@ -29,6 +29,20 @@ func TestExtractPDFPagesReportsTextLayerCoverage(t *testing.T) {
 	}
 }
 
+func TestPDFPagesNeedOCRIgnoresParseFailed(t *testing.T) {
+	pages := []doctext.PDFPageText{{Page: 1, ParseFailed: true}}
+	if doctext.PDFPagesNeedOCR(pages) {
+		t.Fatal("parse-failed pages must not be treated as blank OCR targets")
+	}
+	if !doctext.PDFPagesParseFailed(pages) {
+		t.Fatal("parse-failed flag must stay visible")
+	}
+	pages = append(pages, doctext.PDFPageText{Page: 2})
+	if !doctext.PDFPagesNeedOCR(pages) {
+		t.Fatal("a blank readable page still needs OCR")
+	}
+}
+
 func TestExtractPDFPagesRejectsNonPDF(t *testing.T) {
 	if _, err := doctext.ExtractPDFPages([]byte("not a pdf")); err != doctext.ErrUnsupportedFormat {
 		t.Fatalf("err = %v", err)

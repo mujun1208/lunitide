@@ -12,16 +12,24 @@ import (
 	content "github.com/lunitide/lunitide/internal/officestudio"
 )
 
+type RecalcEvidence struct {
+	SourceSHA     string `json:"sourceSha"`
+	FormulaDigest string `json:"formulaDigest"`
+	CachedValue   string `json:"cachedValue"`
+	OracleValue   string `json:"oracleValue"`
+}
+
 type MetricCapture struct {
-	SourceVersionID  string `json:"sourceVersionId"`
-	SourceNodeID     string `json:"sourceNodeId"`
-	SourceNodeDigest string `json:"sourceNodeDigest"`
-	FactID           string `json:"factId,omitempty"`
-	Name             string `json:"name"`
-	Unit             string `json:"unit"`
-	Currency         string `json:"currency"`
-	Period           string `json:"period"`
-	RoundingDigits   *int   `json:"roundingDigits,omitempty"`
+	SourceVersionID  string         `json:"sourceVersionId"`
+	SourceNodeID     string         `json:"sourceNodeId"`
+	SourceNodeDigest string         `json:"sourceNodeDigest"`
+	FactID           string         `json:"factId,omitempty"`
+	Name             string         `json:"name"`
+	Unit             string         `json:"unit"`
+	Currency         string         `json:"currency"`
+	Period           string         `json:"period"`
+	RoundingDigits   *int           `json:"roundingDigits,omitempty"`
+	Recalc           RecalcEvidence `json:"recalc,omitempty"`
 }
 
 type MetricApply struct {
@@ -82,8 +90,13 @@ func (s *Service) CaptureMetric(ctx context.Context, taskID string, r MetricCapt
 		return domain.Metric{}, domain.ErrConflict
 	}
 	valueType := strings.TrimPrefix(node.Kind, "cell:")
-	if valueType == "formula" || valueType == "error" || valueType == "invalid" {
+	if valueType == "error" || valueType == "invalid" {
 		return domain.Metric{}, errors.New("该节点是公式或错误值，未证明已重算，不能作为已核实指标")
+	}
+	if valueType == "formula" {
+		if err := formulaCaptureAllowed(v, *node, r); err != nil {
+			return domain.Metric{}, err
+		}
 	}
 	if v.Quality == "blocked" || v.Quality == "stale" {
 		return domain.Metric{}, errors.New("来源检查阻断或已过期，请先核对来源")
@@ -95,18 +108,22 @@ func (s *Service) CaptureMetric(ctx context.Context, taskID string, r MetricCapt
 	if name == "" {
 		name = "指标"
 	}
-	m := domain.Metric{TaskID: taskID, Name: name, SourceVersionID: v.ID, SourceSHA256: v.SHA256, SourceNodeID: node.ID, SourceNodeDigest: node.Digest, RawValue: node.Text, ValueType: valueType, Unit: r.Unit, Currency: r.Currency, Period: r.Period, Aggregation: "identity", DisplayValue: node.Text, RoundingDigits: r.RoundingDigits, RoundingPolicy: "none"}
+	raw := node.Text
+	if valueType == "formula" {
+		raw = strings.TrimSpace(r.Recalc.OracleValue)
+	}
+	m := domain.Metric{TaskID: taskID, Name: name, SourceVersionID: v.ID, SourceSHA256: v.SHA256, SourceNodeID: node.ID, SourceNodeDigest: node.Digest, RawValue: raw, ValueType: valueType, Unit: r.Unit, Currency: r.Currency, Period: r.Period, Aggregation: "identity", DisplayValue: raw, RoundingDigits: r.RoundingDigits, RoundingPolicy: "none"}
 	if r.RoundingDigits != nil {
-		if valueType != "number" || *r.RoundingDigits < 0 || *r.RoundingDigits > 12 || len(node.Text) > 128 || !metricNumber.MatchString(node.Text) {
+		if valueType != "number" && valueType != "formula" || *r.RoundingDigits < 0 || *r.RoundingDigits > 12 || len(raw) > 128 || !metricNumber.MatchString(raw) {
 			return m, domain.ErrInvalid
 		}
-		if exp := strings.IndexAny(node.Text, "eE"); exp >= 0 {
-			n, e := strconv.Atoi(node.Text[exp+1:])
+		if exp := strings.IndexAny(raw, "eE"); exp >= 0 {
+			n, e := strconv.Atoi(raw[exp+1:])
 			if e != nil || n > 308 || n < -308 {
 				return m, domain.ErrInvalid
 			}
 		}
-		value, ok := new(big.Rat).SetString(node.Text)
+		value, ok := new(big.Rat).SetString(raw)
 		if !ok {
 			return m, domain.ErrInvalid
 		}
@@ -138,8 +155,24 @@ func (s *Service) CaptureMetricByFact(ctx context.Context, taskID, versionID str
 	}
 	return s.CaptureMetric(ctx, taskID, MetricCapture{
 		SourceVersionID: versionID, SourceNodeID: node.ID, SourceNodeDigest: node.Digest,
-		FactID: fact.FactID, Name: name, Unit: fact.Unit, Period: fact.Period,
+		FactID: fact.FactID, Name: name, Unit: fact.Unit, Currency: fact.Currency, Period: fact.Period,
 	}, key)
+}
+
+func formulaCaptureAllowed(v domain.Version, node content.Node, r MetricCapture) error {
+	if v.Quality == "blocked" || v.Quality == "stale" {
+		return errors.New("来源检查阻断或已过期，请先核对来源")
+	}
+	if r.Recalc.SourceSHA == "" || r.Recalc.SourceSHA != v.SHA256 {
+		return errors.New("该节点是公式或错误值，未证明已重算，不能作为已核实指标")
+	}
+	if r.Recalc.FormulaDigest != node.Digest || strings.TrimSpace(r.Recalc.CachedValue) == "" || strings.TrimSpace(r.Recalc.OracleValue) == "" {
+		return errors.New("该节点是公式或错误值，未证明已重算，不能作为已核实指标")
+	}
+	if r.Recalc.CachedValue != r.Recalc.OracleValue {
+		return errors.New("公式缓存与独立判定不一致，不能作为已核实指标")
+	}
+	return nil
 }
 
 func (s *Service) AssertTaskFactSet(ctx context.Context, taskID string, facts []content.Fact, versionIDs []string) error {

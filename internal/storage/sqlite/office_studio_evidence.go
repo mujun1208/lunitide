@@ -52,46 +52,6 @@ func (s *Store) AddOfficeValidation(ctx context.Context, v officestudio.Validati
 	if version.SHA256 != v.SHA256 {
 		return v, officestudio.ErrConflict
 	}
-	// Once a required dimension is declared, later reports cannot silently drop it.
-	rows, err := tx.QueryContext(ctx, `SELECT checks_json FROM office_validation_runs WHERE version_id=?`, v.VersionID)
-	if err != nil {
-		return v, err
-	}
-	required := map[string]officestudio.Check{}
-	for rows.Next() {
-		var raw string
-		if err = rows.Scan(&raw); err != nil {
-			rows.Close()
-			return v, err
-		}
-		var previous []officestudio.Check
-		if err = json.Unmarshal([]byte(raw), &previous); err != nil {
-			rows.Close()
-			return v, err
-		}
-		for _, c := range previous {
-			if c.Required {
-				required[c.ID] = c
-			}
-		}
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return v, err
-	}
-	for i := range v.Checks {
-		if _, exists := required[v.Checks[i].ID]; exists {
-			v.Checks[i].Required = true
-		}
-	}
-	for id, c := range required {
-		if !seen[id] {
-			c.Status = "pending"
-			c.Detail = "This required check is missing from this validation run."
-			v.Checks = append(v.Checks, c)
-		}
-	}
 	v.Quality = officestudio.QualityFor(v.Checks)
 	checks, err := json.Marshal(v.Checks)
 	if err != nil {

@@ -317,7 +317,7 @@ func (e *Engine) executePlanStep(ctx context.Context, a llmadapter.Adapter, cred
 			{Role: llmadapter.RoleSystem, Content: "You are an execution agent. Execute exactly the assigned step using the available tools when needed, then answer with a concise outcome report (max 500 characters). Do not perform work belonging to other steps."},
 			{Role: llmadapter.RoleUser, Content: fmt.Sprintf("Objective: %s\nAssigned step %d/%d: %s — %s", objective, index, total, step.Action, step.Detail)},
 		},
-		Tools: planStepTools(e, route, allow),
+		Tools: planStepTools(e, mode, route, allow),
 	}
 	resp, err := a.Complete(ctx, credential, req)
 	if err != nil {
@@ -374,19 +374,18 @@ func attachPlanStepL0(coda string, summaries []string) string {
 	return out
 }
 
-func planStepTools(e *Engine, route TaskRoute, allow map[string]bool) []llmadapter.ToolDefinition {
+func planStepTools(e *Engine, mode executionMode, route TaskRoute, allow map[string]bool) []llmadapter.ToolDefinition {
 	defs := engineToolDefinitions()
 	if e != nil {
-		defs = e.engineToolDefinitionsFor(executionModeFullAccess)
+		defs = e.engineToolDefinitionsFor(mode)
+	} else {
+		defs = append(defs, officeToolDefinitions()...)
 	}
 	if route == RouteUnspecified && allow == nil {
 		return defs
 	}
 	if allow == nil {
-		cc := false
-		if e != nil {
-			cc = e.computerControlEnabled()
-		}
+		cc := e != nil && e.computerControlEnabled()
 		allow = routeAllow(route, cc)
 	}
 	if e != nil && e.computerControlEnabled() {

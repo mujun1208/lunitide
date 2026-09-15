@@ -38,3 +38,27 @@ export function interviewPack(phase: number, questions = questionsForPhase(phase
 }
 
 export const COUNCIL_PROMPT = '请就本阶段交付物互辩并给出可落盘的综合稿。讨论结束后由人点「生成本阶段交付物」。'
+export const INCOMPLETE_INTERVIEW_BANNER = '本题库未答完，按已答 + 骨架生成，请人审。'
+
+export function parseGuideAnswers(followUp: string, phase: number): Array<{ id: string; prompt: string; value: string }> {
+  const lines = followUp.split('\n')
+  return questionsForPhase(phase).map(q => {
+    const line = lines.find(item => item.includes(q.prompt) && item.includes('：'))
+    const value = line ? line.slice(line.indexOf('：') + 1).trim() : ''
+    return { id: q.id, prompt: q.prompt, value }
+  })
+}
+
+export function phaseAnswersComplete(phase: number, answers: Array<{ id: string; value?: string }>): boolean {
+  const byId = new Map(answers.map(item => [item.id, (item.value ?? '').trim()]))
+  const questions = questionsForPhase(phase)
+  return questions.length > 0 && questions.every(q => Boolean(byId.get(q.id)))
+}
+
+export function answersFromInterview(interview: unknown, phase: number): Array<{ id: string; value: string }> {
+  const doc = interview as { phases?: Record<string, { answers?: Array<{ id?: string; value?: string }> }> } | undefined
+  return (doc?.phases?.[String(phase)]?.answers ?? []).map(item => ({
+    id: item.id ?? '',
+    value: item.value ?? '',
+  }))
+}
