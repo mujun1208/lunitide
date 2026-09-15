@@ -19,8 +19,8 @@
     ACCESS_VIOLATION at PC=0x1 while encoding/json populated its sync.Map
     encoder cache (HashTrieMap.Load / golang/go#81189; Quality 34894852667).
     Serializing that package's tests, then retrying once on a runtime abort,
-    avoids treating a toolchain crash as a product failure. Assertion
-    failures are not retried.
+    avoids treating a toolchain crash as a product failure. The rest of the
+    tree gets the same one abort retry. Assertion failures are not retried.
 #>
 [CmdletBinding()]
 param(
@@ -109,7 +109,10 @@ if ($appListed.Count -gt 0) {
 }
 
 if ($restListed.Count -gt 0) {
-    Invoke-GoLoggedTest -Attempts 1 -GoArgs (@(
+    # Same abort retry as internal/app: a HashTrieMap / ACCESS_VIOLATION dump
+    # in the rest tree is a toolchain crash, not an assertion. Quality
+    # 34933672941 failed coverage on push while 34933676317 (same SHA) passed.
+    Invoke-GoLoggedTest -Attempts 2 -GoArgs (@(
         'test',
         '-timeout', $Timeout,
         "-coverprofile=$restProfilePath"
