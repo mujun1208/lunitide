@@ -33,7 +33,8 @@
 
 ## 安装包
 
-- `release/out/Lunitide-Setup-0.4.83-x64.exe`
+- `release/out/Lunitide-Setup-0.4.83-x64.exe`（本机没有 Windows SDK `signtool.exe`，按 `-AllowUnsignedDevelopment` 打出的未签名候选，不是生产签名版）
 - `release/out/SHA256SUMS.txt`
 - `release/out/latest.json`（给本机更新目录和 GitHub overlay 用，不进 SHA256SUMS）
 - 从 0.4.82 升级：直接运行 Setup，不必卸载。`release/out` 只保留本版本。
+- GitHub `v0.4.83` 上传需要本机 `gh` 已登录且网络能连 github.com；这次推送和 Release 上传被 443 连不上挡住。
