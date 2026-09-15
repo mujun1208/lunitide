@@ -3,7 +3,7 @@ import { SharedHubComposer, type HubAccessMode } from '../session/SharedHubCompo
 import { useZh } from '../i18n/language'
 import { agentHubApi, type AgentHubName, type AgentHubStatus } from './agentHubApi'
 import {
-  FREE_TEMPLATES,
+  hubTemplatesForScene,
   PICK_PROJECT_DIR,
   SCENE_KEY,
   composeHubPrompt,
@@ -55,8 +55,12 @@ export function AgentHubHome({
     void agentHubApi.detect().then(got => setAgents(got.agents ?? [])).catch(() => setAgents([]))
   }, [])
   useEffect(() => {
-    if (selectedAgent) setAgent(selectedAgent)
-  }, [selectedAgent])
+    if (selectedAgent) {
+      setAgent(selectedAgent)
+      return
+    }
+    onSelectAgent?.(agent)
+  }, [selectedAgent, onSelectAgent, agent])
   const detecting = agents === null
   const selected = agents?.find(item => item.name === agent)
   const blurb = scene === 'docs'
@@ -170,7 +174,7 @@ export function AgentHubHome({
         zh={zh}
       />
       <div className="agent-hub-templates">
-        {FREE_TEMPLATES.map(item => (
+        {hubTemplatesForScene(scene).map(item => (
           <button key={item.zh} type="button" onClick={() => setPrompt(item.prompt)}>
             {zh ? item.zh : item.en}
           </button>

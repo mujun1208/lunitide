@@ -123,7 +123,9 @@ it('shortens work dirs in the task list', async () => {
 it('renders a conversational Home with the selected agent name', async () => {
   stubLists()
   render(<LanguageProvider value="zh-CN"><AgentHubPage /></LanguageProvider>)
-  expect(await screen.findByRole('heading', { name: 'codex' })).toBeInTheDocument()
+  await screen.findByLabelText('任务类型')
+  expect(screen.getByRole('heading', { level: 1, name: 'AgentHub' })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { level: 1, name: 'codex' })).toBeNull()
   expect(screen.getByText('消耗的是该 CLI 自己的会员额度')).toBeInTheDocument()
   expect(screen.getByLabelText('任务类型')).toBeInTheDocument()
   expect(screen.getByLabelText('权限')).toBeInTheDocument()

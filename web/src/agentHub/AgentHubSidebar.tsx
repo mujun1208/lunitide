@@ -73,6 +73,8 @@ export function AgentHubSidebar({
       const detected = await agentHubApi.detect()
       setAgents(detected.agents ?? [])
       onSelectAgent?.(name)
+    } catch {
+      // Re-detect only; a failed probe must not become an unhandled rejection.
     } finally {
       setConnecting('')
     }

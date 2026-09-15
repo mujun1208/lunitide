@@ -115,13 +115,11 @@ export function AgentHubPage({
   }, [tasks])
   const openTask = (id: string) => { setTaskId(id); setTab('detail'); setLegacy(true) }
   const titleAgent = selectedAgent
-    || agents.find(item => item.state === 'available')?.name
-    || agents[0]?.name
   return (
     <div className="agent-hub">
       <header className="agent-hub-head">
         <div>
-          <h1>{titleAgent || (zh ? 'AgentHub' : 'AgentHub')}</h1>
+          <h1>{titleAgent || 'AgentHub'}</h1>
           <p className="agent-hub-quota">{zh ? '消耗的是该 CLI 自己的会员额度' : 'Usage is billed to that CLI subscription, not Lunitide.'}</p>
         </div>
         {legacy && !threadId && (

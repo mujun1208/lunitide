@@ -80,6 +80,11 @@ export const FREE_TEMPLATES = [
 
 export const HUB_TEMPLATES = FREE_TEMPLATES
 
+export function hubTemplatesForScene(scene: HubScene): readonly typeof FREE_TEMPLATES[number][] {
+  if (scene === 'docs' || scene === 'free') return FREE_TEMPLATES
+  return []
+}
+
 export const HUB_SCENES = [
   { id: 'ppt' as const, agent: 'kimi' as const, zh: '做 PPT', en: 'Make a PPT', subZh: '固定交给 Kimi，用它自己的技能做演示文稿', subEn: 'Always Kimi, using its own slides skill' },
   { id: 'write' as const, agent: 'cursor' as const, zh: '写新项目', en: 'New project', subZh: '先选项目根，固定交给 Cursor 建目录并写代码', subEn: 'Pick a root, then Cursor writes the project' },
