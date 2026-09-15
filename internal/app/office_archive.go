@@ -12,6 +12,23 @@ import (
 // Archive existing generator deliveries without making chat completion wait
 // for Office indexing. The session index is still retryable via task.sync.
 func (e *Engine) archiveOfficeTurn(ctx context.Context, sessionID string) {
+	e.officeArchive.Add(1)
+	e.startOfficeArchive(ctx, sessionID)
+}
+
+func (e *Engine) waitOfficeArchive() {
+	e.officeArchive.Wait()
+}
+
+// startOfficeArchive assumes the caller already reserved officeArchive.
+// Early returns must Done so Waiters cannot hang.
+func (e *Engine) startOfficeArchive(ctx context.Context, sessionID string) {
+	started := false
+	defer func() {
+		if !started {
+			e.officeArchive.Done()
+		}
+	}()
 	if e.officeStudio == nil || !e.officeCapabilities().Studio {
 		return
 	}
@@ -20,7 +37,9 @@ func (e *Engine) archiveOfficeTurn(ctx context.Context, sessionID string) {
 		return
 	}
 	taskID := officeTaskContextID(ctx)
+	started = true
 	go func() {
+		defer e.officeArchive.Done()
 		ctx, cancel := context.WithTimeout(domain.WithScope(context.Background(), org), 30*time.Second)
 		defer cancel()
 		if err := e.archiveOfficeTurnNow(ctx, sessionID, taskID); err != nil {

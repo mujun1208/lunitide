@@ -69,6 +69,10 @@ func officeEngineFixture(t *testing.T) (*Engine, *storage.Store) {
 	t.Cleanup(func() { _ = runtime.Close() })
 	e.SetToolRuntime(runtime) // Reverse wiring order must work as well.
 	e.attachmentService = attachmentapp.NewService(store, attachmentapp.NewDirFileStorage(t.TempDir()))
+	t.Cleanup(func() {
+		e.waitOfficeArchive()
+		e.StopChatMemoryWorkers()
+	})
 	return e, store
 }
 

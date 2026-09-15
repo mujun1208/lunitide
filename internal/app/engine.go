@@ -327,6 +327,7 @@ type Engine struct {
 	// P2-2: append-only artifact acceptance log (comment → revise → accept).
 	artifactReviews    *artifactreview.Store
 	officeStudio       *officeapp.Service
+	officeArchive      sync.WaitGroup
 	agentHub           *agenthub.Service
 	officeTexts        officeTextCache
 	sessionArtifactsMu sync.Mutex

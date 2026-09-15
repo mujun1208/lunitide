@@ -1582,12 +1582,19 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		sendMu.Unlock()
 		e.saveMessageProcess(sessionID, messageID, snapshot)
 	}
+	// Reserve before EventCompleted so tests waiting on the terminal cannot
+	// close TempDir/SQLite before this deferred write is counted. Windows
+	// then fails with "The directory is not empty".
+	willArchive := len(turnArtifacts) > 0 && messageID != "" && persistErr == nil
+	if willArchive {
+		e.officeArchive.Add(1)
+	}
 	if send(terminal) != nil {
 		state.cancel()
 	}
 	e.finishTerminal(id, state)
-	if len(turnArtifacts) > 0 && messageID != "" && persistErr == nil {
-		e.archiveOfficeTurn(ctx, sessionID)
+	if willArchive {
+		e.startOfficeArchive(ctx, sessionID)
 	}
 	if terminal.Type == bridge.EventCompleted && messageID != "" && persistErr == nil {
 		e.enqueueChatMemory(sessionID, turn.Goal, assistantText.String(), messageID, state != nil && state.companion)
