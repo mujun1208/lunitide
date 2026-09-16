@@ -641,3 +641,16 @@ it('maps Task Center panels to white under light theme', () => {
   expect(css).toMatch(/html\[data-theme="light"\]\s*\.agent-hub-filters\s+select/)
   expect(css).toMatch(/html\[data-theme="light"\]\s*\.agent-hub-tabs\s+button\[aria-selected="true"\]/)
 })
+
+it('centers the AgentHub composer like Work and keeps access chips on one line', () => {
+  const css = readFileSync(join(__dirname, 'agentHub.css'), 'utf8')
+  expect(css).toMatch(/\.hub-composer\{[^}]*width:min\(720px,calc\(100% - 48px\)\)/)
+  expect(css).toMatch(/\.hub-composer\{[^}]*margin:auto auto 22px/)
+  expect(css).toMatch(/\.hub-composer\{[^}]*align-self:center/)
+  expect(css).not.toMatch(/\.hub-composer\{[^}]*max-width:560px/)
+  expect(css).not.toMatch(/\.hub-composer\{[^}]*align-self:flex-start/)
+  expect(css).toMatch(/\.hub-access-chip\{[^}]*white-space:nowrap/)
+  expect(css).toMatch(/\.hub-access-chip\{[^}]*background:transparent/)
+  expect(css).toMatch(/\.hub-scene-select\{[^}]*white-space:nowrap/)
+  expect(css).not.toMatch(/\.hub-composer \.composer-attach\{width:26px/)
+})

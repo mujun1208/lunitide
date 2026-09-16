@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/agentrunapp"
 	"github.com/lunitide/lunitide/internal/modelfit"
 	"github.com/oklog/ulid/v2"
 )
@@ -603,5 +604,44 @@ func TestProtocolMessageGroupPersistsCompletePairsOnly(t *testing.T) {
 	opened, err := modelfit.OpenProtocolPrivate(gotBlob, bytes.Repeat([]byte{9}, 32))
 	if err != nil || string(opened) != "need file" {
 		t.Fatalf("private open: %q %v", opened, err)
+	}
+}
+
+func TestPutCallAttemptIntentFillsBudgetStub(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenTemplated(ctx, filepath.Join(t.TempDir(), "budget-stub.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	callID := ulid.Make().String()
+	attemptID := ulid.Make().String()
+	now := time.Date(2026, 9, 16, 5, 45, 15, 0, time.UTC)
+	if err := store.AgentRuntimeRepository().TransactExecutionBudget(ctx, func(tx agentrunapp.ExecutionBudgetTx) error {
+		return tx.InsertCallAttemptIntent(agentrunapp.CallAttemptIntentRow{
+			ID: ulid.Make().String(), OwnerScope: "diagnostic", TaskID: "diagnostic",
+			CallID: callID, AttemptID: attemptID, Purpose: "diagnostic", StartedAt: now,
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	filled := CallAttemptRecord{
+		ID: ulid.Make().String(), OwnerScope: "diagnostic", TaskID: "diagnostic",
+		CallID: callID, AttemptID: attemptID, Purpose: "diagnostic",
+		Provider: "openai_compatible", DeploymentRef: "prov-1", Model: "deepseek-flash",
+		Status: string(modelfit.CallIntent), Integrity: string(modelfit.UsageUnknown),
+		CostStatus: "unknown", StartedAt: now,
+	}
+	if err := store.PutCallAttemptIntent(ctx, filled); err != nil {
+		t.Fatalf("meter write after T06 stub must adopt the same attempt, got %v", err)
+	}
+	got, err := store.GetCallAttempt(ctx, "diagnostic", callID, attemptID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Model != "deepseek-flash" || got.Provider != "openai_compatible" || got.DeploymentRef != "prov-1" {
+		t.Fatalf("stub row not filled: %+v", got)
 	}
 }

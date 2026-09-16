@@ -23,7 +23,7 @@ const typeColor = (t: OntologyNodeType): string => {
 
 const inputStyle: React.CSSProperties = { width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: '4px', boxSizing: 'border-box' }
 const btnStyle: React.CSSProperties = { padding: '6px 12px', backgroundColor: 'var(--bg3)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: '4px', cursor: 'pointer' }
-const primaryBtnStyle: React.CSSProperties = { ...btnStyle, backgroundColor: '#2563eb', borderColor: '#3b82f6' }
+const primaryBtnStyle: React.CSSProperties = { ...btnStyle, backgroundColor: 'var(--tide1)', borderColor: 'var(--tide1)', color: '#fff' }
 const dangerBtnStyle: React.CSSProperties = { ...btnStyle, color: '#f87171' }
 function ontologyUserError(err: unknown, fallback: string): string {
   const detail = err instanceof Error ? err.message.trim() : ''

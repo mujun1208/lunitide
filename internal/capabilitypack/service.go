@@ -53,6 +53,7 @@ type Tx interface {
 	SavePack(Record, int64) error
 	PlanResource(Resource) (Resource, error)
 	PutReference(string, Component) error
+	ReplaceReferences(string, []Component) error
 	References(string) ([]Component, error)
 	SetReferenceState(string, string, string, string) error
 	SetResourceTarget(string, string, string) error
@@ -170,13 +171,19 @@ func (s *Service) Install(ctx context.Context, spec Spec, repair bool) (Record, 
 		return Record{}, ctx.Err()
 	}
 	record, err := s.get(ctx, spec.ID)
+	replaceSpec := false
 	if err == nil {
-		if record.Digest != digest(spec) || record.State == "uninstalling" || (record.State == "failed" && record.Desired == "uninstalled") {
+		digestChanged := record.Digest != digest(spec)
+		if record.State == "uninstalling" || (record.State == "failed" && record.Desired == "uninstalled") {
+			return record, ErrConflict
+		}
+		if digestChanged && record.State == "installed" && !repair {
 			return record, ErrConflict
 		}
 		if record.State == "installed" && !repair {
 			return record, nil
 		}
+		replaceSpec = digestChanged
 	} else if !errors.Is(err, ErrNotFound) {
 		return record, err
 	}
@@ -204,7 +211,10 @@ func (s *Service) Install(ctx context.Context, spec Spec, repair bool) (Record, 
 		current, readErr := tx.GetPack(spec.ID)
 		expected := int64(0)
 		if readErr == nil {
-			if current.Digest != digest(spec) || current.Version != observedVersion {
+			if current.Version != observedVersion {
+				return ErrConflict
+			}
+			if current.Digest != digest(spec) && !replaceSpec {
 				return ErrConflict
 			}
 			expected = current.Version
@@ -219,11 +229,17 @@ func (s *Service) Install(ctx context.Context, spec Spec, repair bool) (Record, 
 			if len(existing) >= 256 {
 				return fmt.Errorf("capability pack limit reached (256)")
 			}
-			record = Record{Spec: spec, Digest: digest(spec), CreatedAt: now}
+			record = Record{CreatedAt: now}
 		}
+		record.Spec, record.Digest = spec, digest(spec)
 		record.State, record.Desired, record.Error, record.UpdatedAt, record.Version = "installing", "installed", "", now, expected+1
 		if err := tx.SavePack(record, expected); err != nil {
 			return err
+		}
+		if replaceSpec {
+			if err := tx.ReplaceReferences(spec.ID, nil); err != nil {
+				return err
+			}
 		}
 		for _, component := range planned {
 			resource, err := tx.PlanResource(component.Resource)

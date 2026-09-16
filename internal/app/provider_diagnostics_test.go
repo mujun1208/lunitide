@@ -110,10 +110,13 @@ func TestProviderTestUsesSelectedMediaModelCapability(t *testing.T) {
 
 func TestProviderAdapterBaseURLAcceptsStoredFullMediaEndpoints(t *testing.T) {
 	cases := map[string]string{
-		"https://z.apiyihe.org/v1/images/generations":              "https://z.apiyihe.org/v1",
-		"https://z.apiyihe.org/volc/v1/contents/generations/tasks": "https://z.apiyihe.org/volc/v1",
-		"https://example.test/v1":                                  "https://example.test/v1",
-		"http://127.0.0.1:1234/v1/videos/generations/":             "http://127.0.0.1:1234/v1",
+		"https://z.apiyihe.org/v1/images/generations":               "https://z.apiyihe.org/v1",
+		"https://z.apiyihe.org/volc/v1/contents/generations/tasks":  "https://z.apiyihe.org/volc/v1",
+		"https://example.test/v1":                                   "https://example.test/v1",
+		"http://127.0.0.1:1234/v1/videos/generations/":              "http://127.0.0.1:1234/v1",
+		"https://ark.cn-beijing.volces.com/api/v3/chat/completions": "https://ark.cn-beijing.volces.com/api/v3",
+		"https://ark.cn-beijing.volces.com/api/plan/v3/responses":   "https://ark.cn-beijing.volces.com/api/plan/v3",
+		"https://api.openai.com/v1/responses/":                      "https://api.openai.com/v1",
 	}
 	for input, want := range cases {
 		if got := providerAdapterBaseURL(input); got != want {

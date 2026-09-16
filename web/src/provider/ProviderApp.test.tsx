@@ -348,3 +348,74 @@ it('deselects a provider that has no models of the switched kind',async()=>{
  expect(screen.getByText('选择供应商查看配置')).toBeInTheDocument()
 })
 
+it('labels a stored Responses provider instead of OpenAI-compatible',async()=>{
+ const ark:ProviderDTO={...provider,name:'Ark Plan',protocol:'openai_responses',baseUrl:'https://ark.cn-beijing.volces.com/api/plan/v3'}
+ const user=userEvent.setup()
+ render(<ProviderApp bridge={api({list:vi.fn().mockResolvedValue({items:[ark]}),get:vi.fn().mockResolvedValue(ark)})}/>)
+ await user.click(await screen.findByRole('button',{name:/Ark Plan/}))
+ expect(screen.getAllByText('Responses API').length).toBeGreaterThan(0)
+ expect(screen.queryByText('OpenAI-compatible')).toBeNull()
+})
+
+it('fills Volc Agent Plan Responses from the starter chip',async()=>{
+ const create=vi.fn().mockImplementation(async payload=>({...provider,name:payload.name,protocol:payload.protocol,baseUrl:payload.baseUrl,models:payload.models,version:1}))
+ const bridge=api({create}),user=userEvent.setup()
+ render(<ProviderApp bridge={bridge}/>)
+ await screen.findByText('还没有供应商')
+ await user.click(screen.getByRole('button',{name:/新建供应商/}))
+ expect(screen.getByLabelText('协议')).toHaveValue('openai_compatible')
+ await user.click(screen.getByRole('button',{name:'Agent Plan · Responses'}))
+ expect(screen.getByLabelText('协议')).toHaveValue('openai_responses')
+ expect(screen.getByLabelText('基础 URL')).toHaveValue('https://ark.cn-beijing.volces.com/api/plan/v3')
+ await user.type(screen.getByLabelText('模型 1 ID'),'glm-5.3')
+ await user.type(screen.getByLabelText('模型 1 显示名称'),'GLM')
+ await user.type(screen.getByLabelText(/API 凭据/),'test-only')
+ await user.click(screen.getByRole('button',{name:'安全保存'}))
+ await waitFor(()=>expect(create).toHaveBeenCalledOnce())
+ expect(vi.mocked(create).mock.calls[0][0]).toMatchObject({
+  name:'火山 Agent Plan',
+  protocol:'openai_responses',
+  baseUrl:'https://ark.cn-beijing.volces.com/api/plan/v3',
+ })
+})
+
+it('fills 智谱 GLM from the starter chip',async()=>{
+ const create=vi.fn().mockImplementation(async payload=>({...provider,name:payload.name,protocol:payload.protocol,baseUrl:payload.baseUrl,models:payload.models,version:1}))
+ const bridge=api({create}),user=userEvent.setup()
+ render(<ProviderApp bridge={bridge}/>)
+ await screen.findByText('还没有供应商')
+ await user.click(screen.getByRole('button',{name:/新建供应商/}))
+ await user.click(screen.getByRole('button',{name:'智谱 GLM'}))
+ expect(screen.getByLabelText('协议')).toHaveValue('openai_compatible')
+ expect(screen.getByLabelText('基础 URL')).toHaveValue('https://open.bigmodel.cn/api/paas/v4')
+ expect(screen.getByLabelText('模型 1 ID')).toHaveValue('glm-5.3')
+ await user.type(screen.getByLabelText(/API 凭据/),'test-only')
+ await user.click(screen.getByRole('button',{name:'安全保存'}))
+ await waitFor(()=>expect(create).toHaveBeenCalledOnce())
+ expect(vi.mocked(create).mock.calls[0][0]).toMatchObject({
+  name:'智谱 GLM',
+  protocol:'openai_compatible',
+  baseUrl:'https://open.bigmodel.cn/api/paas/v4',
+ })
+})
+
+it('fills DeepSeek chat completions from the starter chip',async()=>{
+ const create=vi.fn().mockImplementation(async payload=>({...provider,name:payload.name,protocol:payload.protocol,baseUrl:payload.baseUrl,models:payload.models,version:1}))
+ const bridge=api({create}),user=userEvent.setup()
+ render(<ProviderApp bridge={bridge}/>)
+ await screen.findByText('还没有供应商')
+ await user.click(screen.getByRole('button',{name:/新建供应商/}))
+ await user.click(screen.getByRole('button',{name:'DeepSeek'}))
+ expect(screen.getByLabelText('协议')).toHaveValue('openai_compatible')
+ expect(screen.getByLabelText('基础 URL')).toHaveValue('https://api.deepseek.com')
+ expect(screen.getByLabelText('模型 1 ID')).toHaveValue('deepseek-chat')
+ await user.type(screen.getByLabelText(/API 凭据/),'test-only')
+ await user.click(screen.getByRole('button',{name:'安全保存'}))
+ await waitFor(()=>expect(create).toHaveBeenCalledOnce())
+ expect(vi.mocked(create).mock.calls[0][0]).toMatchObject({
+  name:'DeepSeek',
+  protocol:'openai_compatible',
+  baseUrl:'https://api.deepseek.com',
+ })
+})
+

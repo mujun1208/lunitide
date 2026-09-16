@@ -50,7 +50,7 @@ export function PluginPage({bridge=pluginBridge,skills=skillBridge,mcp=mcpBridge
   if(pack){
    setBusy(pluginId);setError('');setNotice('')
    try{
-    const result=await installCapabilityPack(pack,{plugins:bridge,repair:packLedger.some(item=>item.packId===pack.id&&item.state==='installed')})
+    const result=await installCapabilityPack(pack,{plugins:bridge,repair:packLedger.some(item=>item.packId===pack.id)})
     setNotice(result.ok?`已安装「${pack.name}」：${result.notes.join('；')}`:`「${pack.name}」未装完：${result.notes.join('；')}`)
     await load();setView('installed')
    }catch(e){await load();setError(localizePackUserError(e instanceof Error?e.message:'')||'能力包安装失败')}finally{setBusy('')}

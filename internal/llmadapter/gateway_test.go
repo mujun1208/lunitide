@@ -74,6 +74,11 @@ func TestVersionPath(t *testing.T) {
 		{"https://ark.cn-beijing.volces.com/api/v3", ""},
 		{"https://ark.cn-beijing.volces.com/api/coding/v3", ""},
 		{"https://ark.cn-beijing.volces.com/api/plan", "v1"},
+		{"https://open.bigmodel.cn/api/paas/v4", ""},
+		{"https://dashscope.aliyuncs.com/compatible-mode/v1", ""},
+		{"https://api.deepseek.com", "v1"},
+		{"https://api.openai.com/v1", ""},
+		{"https://api.anthropic.com", "v1"},
 	} {
 		if got := versionPath(tc.in); got != tc.want {
 			t.Errorf("versionPath(%q)=%q want %q", tc.in, got, tc.want)

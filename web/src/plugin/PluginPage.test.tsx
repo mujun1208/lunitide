@@ -175,10 +175,27 @@ it('reloads unfinished operations and offers a real resume',async()=>{
  expect(screen.queryByText('probe failed')).toBeNull()
  fireEvent.click(await screen.findByRole('button',{name:'继续安装'}))
  await waitFor(()=>expect(bridge.packInstall).toHaveBeenCalledOnce())
+ expect(bridge.packInstall).toHaveBeenCalledWith(expect.objectContaining({spec:CAPABILITY_PACKS[0],repair:true,confirmed:true}))
  const alert=await screen.findByRole('alert')
  expect(alert).toHaveTextContent('能力包组件探测失败')
  expect(alert.textContent).not.toMatch(/probe failed/)
  expect(screen.getByRole('button',{name:'继续安装'})).toBeInTheDocument()
+})
+
+it('installs leftover research and report packs from the current catalog spec', async () => {
+  const research = CAPABILITY_PACKS.find(item => item.id === 'pack-research')
+  const report = CAPABILITY_PACKS.find(item => item.id === 'pack-report')
+  const leftover = {spec:{...research!,mcpPresetIds:['fetch']},digest:'c'.repeat(64),state:'failed',desired:'installed',version:2,error:'manifest or operation changed',createdAt:now,updatedAt:now,components:[]}
+  const bridge = api({
+    packList: vi.fn().mockResolvedValue({items:[leftover]}),
+    packInstall: vi.fn().mockResolvedValue({...leftover,spec:research!,state:'installed',error:'',version:3}),
+  })
+  render(<PluginPage bridge={bridge} />)
+  expect(await screen.findByRole('button', { name: '继续操作' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '安装 报告写作包' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '继续操作' }))
+  await waitFor(() => expect(bridge.packInstall).toHaveBeenCalledWith({spec:research,repair:true,confirmed:true}))
+  expect(report?.mcpPresetIds).toEqual([])
 })
 
 it('starts chat-based plugin creation', async () => {

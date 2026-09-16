@@ -161,19 +161,22 @@ html[data-theme="light"] .shell-drawer-toggle{border-color:#e4e4e4!important;bac
 .launch-content .agent-hub aside{background:transparent;backdrop-filter:none}
 .agent-hub>section:not(.hub-home){padding:16px 8% 24px}
 .hub-home{flex:1;display:flex;flex-direction:column;min-height:0;padding:18px 8% 22px}
-.hub-composer{max-width:560px;width:min(560px,100%);margin:auto 0 12px 0;align-self:flex-start}
+.hub-composer{width:min(720px,calc(100% - 48px));max-width:720px;margin:auto auto 22px;align-self:center}
 .agent-hub .message-panel{border:0;background:transparent;padding:16px 8% 24px}
-.agent-hub .message-panel .hub-composer{margin:12px 0 16px}
+.agent-hub .message-panel .hub-composer{margin:12px auto 16px}
 .hub-composer-paths{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
 .hub-composer-paths span{
   display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:999px;
   background:#1a1a1a;color:#cfcfcf;font-size:12px
 }
 .agent-hub .composer-tools select{min-height:28px;border:0;border-radius:8px;background:transparent;color:#c8c8c8;font:inherit;padding:0 6px}
-.hub-composer .composer-attach{width:26px;height:26px;min-height:26px!important;padding:0!important;border-radius:50%}
 .hub-access-chip{
-  display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;border:1px solid #2a2a2a;
-  border-radius:999px;background:#1a1a1a;color:#cfcfcf;font:inherit;font-size:12px;cursor:pointer
+  display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 8px;border:0;
+  background:transparent;color:var(--muted);font:inherit;font-size:12px;white-space:nowrap;flex-shrink:0;cursor:pointer
+}
+.hub-scene-select{
+  appearance:none;-webkit-appearance:none;height:28px;padding:0 8px;border:0;
+  background:transparent;color:inherit;font:inherit;font-size:12px;white-space:nowrap;flex-shrink:0;cursor:pointer
 }
 .hub-access-menu{min-width:220px}
 .hub-access-menu button{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;width:100%}
@@ -294,7 +297,7 @@ html[data-theme="light"] .agent-hub-thread-nav button{background:#fff;border-col
 html[data-theme="light"] .agent-hub-history-list button{background:#fff;border:1px solid var(--line);color:var(--ink)}
 html[data-theme="light"] .agent-hub-history-list button.is-on{background:#e8f2fb;border-color:var(--tide1)}
 html[data-theme="light"] .agent-hub-lamp.installing{background:var(--tide1);box-shadow:0 0 0 3px color-mix(in srgb,var(--tide1) 28%,transparent)}
-html[data-theme="light"] .hub-access-chip{background:#fff;border:1px solid var(--line);color:var(--ink)}
+html[data-theme="light"] .hub-access-chip,html[data-theme="light"] .hub-scene-select{background:transparent;border:0;color:var(--muted)}
 html[data-theme="light"] .hub-access-menu{background:#fff;border-color:var(--line);color:var(--ink)}
 @media (max-width:900px){
   .agent-hub-hero h2{font-size:28px}

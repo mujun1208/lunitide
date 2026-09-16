@@ -75,6 +75,25 @@ func TestValidateRejectsUnknownProtocol(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsOpenAIResponsesChatModelsOnly(t *testing.T) {
+	if !ValidProtocol(ProtocolOpenAIResponses) || !IsChatProtocol(ProtocolOpenAIResponses) || IsChatProtocol(ProtocolVolcSpeech) {
+		t.Fatal("openai_responses must be a valid chat protocol")
+	}
+	p := Provider{ID: "01K00000000000000000000000", Name: "Ark Agent Plan", Protocol: ProtocolOpenAIResponses, BaseURL: "https://ark.cn-beijing.volces.com/api/plan/v3", Models: []Model{
+		{ModelID: "doubao-seed-2.1", DisplayName: "Doubao", IsDefault: true, Kind: KindLLM},
+		{ModelID: "doubao-vision", DisplayName: "Vision", Kind: KindVision, KindDefault: true},
+	}}
+	if err := p.Validate(); err != nil {
+		t.Fatalf("responses llm+vision: %v", err)
+	}
+	for _, kind := range []Kind{KindEmbedding, KindImage, KindVideo, KindASR, KindTTS} {
+		p.Models[1].Kind = kind
+		if err := p.Validate(); err == nil {
+			t.Fatalf("responses provider must reject %s models", kind)
+		}
+	}
+}
+
 func TestValidateAcceptsVolcSpeechVoiceModels(t *testing.T) {
 	p := Provider{ID: "01K00000000000000000000000", Name: "Volc", Protocol: ProtocolVolcSpeech, BaseURL: "https://openspeech.bytedance.com", Models: []Model{
 		{ModelID: "seed-asr-2.0", DisplayName: "seed-asr 2.0", IsDefault: true, Kind: KindVoice},

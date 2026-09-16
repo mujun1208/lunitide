@@ -6,12 +6,11 @@ import { agentHubApi, type AgentHubName, type AgentHubStatus } from './agentHubA
 import {
   agentDisplayName,
   agentInstall,
+  composeHubPrompt,
   hubReadyState,
-  hubTemplatesForScene,
+  hubSceneToThreadScene,
   PICK_PROJECT_DIR,
   SCENE_KEY,
-  composeHubPrompt,
-  hubSceneToThreadScene,
   sceneBlurb,
   threadTitleFromPrompt,
   workDirKey,
@@ -223,13 +222,6 @@ export function AgentHubHome({
       />
       {ready || detecting ? (
         <>
-          <div className="agent-hub-templates">
-            {hubTemplatesForScene(scene).map(item => (
-              <button key={item.zh} type="button" onClick={() => setPrompt(item.prompt)}>
-                {zh ? item.zh : item.en}
-              </button>
-            ))}
-          </div>
           {accessMode === 'auto-edit' ? (
             <p className="agent-hub-hint">{zh ? '自动会放过改文件权限，执行和联网仍要你点。业务选项永远要人点。' : 'Auto allows file edits. Shell and network still need your click. Business choices always wait for you.'}</p>
           ) : null}

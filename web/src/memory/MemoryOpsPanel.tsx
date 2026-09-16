@@ -19,7 +19,7 @@ const GROWTH_LABELS: Record<string, string> = { observing: '观察中', promoted
 
 const panelStyle: React.CSSProperties = { border: '1px solid var(--rule)', borderRadius: '16px', background: 'var(--bg2)', padding: '20px' }
 const btnStyle: React.CSSProperties = { padding: '6px 12px', backgroundColor: 'var(--bg3)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: '4px', cursor: 'pointer' }
-const primaryBtnStyle: React.CSSProperties = { ...btnStyle, backgroundColor: '#2563eb', borderColor: '#3b82f6' }
+const primaryBtnStyle: React.CSSProperties = { ...btnStyle, backgroundColor: 'var(--tide1)', borderColor: 'var(--tide1)', color: '#fff' }
 const dangerBtnStyle: React.CSSProperties = { ...btnStyle, color: '#f87171', borderColor: '#7f1d1d' }
 const chipStyle: React.CSSProperties = { padding: '2px 8px', borderRadius: '999px', fontSize: '11px', border: '1px solid var(--line)', color: 'var(--muted)' }
 function memoryOpsUserError(err: unknown, fallback: string): string {

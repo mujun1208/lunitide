@@ -42,6 +42,10 @@ func (m *memStore) PutReference(_ string, c Component) error {
 	m.refs = append(m.refs, c)
 	return nil
 }
+func (m *memStore) ReplaceReferences(_ string, components []Component) error {
+	m.refs = append([]Component(nil), components...)
+	return nil
+}
 func (m *memStore) References(string) ([]Component, error) {
 	out := make([]Component, len(m.refs))
 	copy(out, m.refs)
@@ -79,8 +83,8 @@ func (skipMCPExecutor) Ensure(_ context.Context, r Resource) (string, error) {
 	return r.TargetID, nil
 }
 func (skipMCPExecutor) Release(context.Context, Resource) error { return nil }
-func (skipMCPExecutor) Mount(context.Context, Spec) error      { return nil }
-func (skipMCPExecutor) Unmount(context.Context, string) error  { return nil }
+func (skipMCPExecutor) Mount(context.Context, Spec) error       { return nil }
+func (skipMCPExecutor) Unmount(context.Context, string) error   { return nil }
 
 func TestInstallSkipsFailedMCPAndStillSucceeds(t *testing.T) {
 	store := &memStore{}
