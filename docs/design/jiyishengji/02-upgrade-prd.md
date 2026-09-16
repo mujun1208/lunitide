@@ -1,13 +1,13 @@
-# Lunitide Memory Fabric v2、PaddleOCR-VL 1.6 与媒体交互升级 PRD
+# Lunitide Memory Fabric v2、PaddleOCR-VL 1.6 与媒体交互升级 PRD（R3）
 
-> 文档状态：R2 三角复核修订版；文档交付，产品代码/模型包/实机播放尚未实施  
-> 最终交叉复核：2026-09-15；当前工作树 HEAD `5970012d`；迁移基线截止 0159  
-> 决策日期：2026-09-14  
-> 决策人：产品负责人授权由技术分析代为选择最佳方案  
-> 适用平台：Windows x64；现有 Go Engine、SQLite、React/WebView2 架构  
-> 配套实施计划：[记忆升级](03-memory-implementation-plan.md) · [可选 OCR 模型包](04-ocr-implementation-plan.md) · [媒体与活动 UI](05-media-ui-implementation-plan.md)
+> 文档状态：R3 代码/PRD/UI融合复核版；文档交付，产品代码/模型包/实机播放尚未实施
+> 最终交叉复核：2026-09-15；代码审计 HEAD `b1d58b0d8e4867bd5c5efd7048ce82b5daf07c09`；迁移基线截止 0159
+> 决策日期：2026-09-14
+> 决策人：产品负责人授权由技术分析代为选择最佳方案
+> 适用平台：Windows x64；现有 Go Engine、SQLite、React/WebView2 架构
+> 配套实施计划：[记忆升级](03-memory-implementation-plan.md) · [可选 OCR 模型包](04-ocr-implementation-plan.md) · [媒体与活动 UI](05-media-ui-implementation-plan.md) · [总实施计划](11-master-implementation-plan.md) · [需求追踪矩阵](12-requirements-traceability.md)
 
-本版与 [跨模块合同及实施计划](06-integration-contracts-plan.md)、[验收与五分标准](07-acceptance-and-scorecard.md) 共同构成完整开发基线。原始问题覆盖见 [需求与竞品复核](08-original-requirements-and-evidence.md)，旧版缺陷见 [复核报告](01-review-findings.md)。本目录是唯一现行版本；旧 superpowers 文档只作历史记录。
+本版与 [跨模块合同及实施计划](06-integration-contracts-plan.md)、[验收与五分标准](07-acceptance-and-scorecard.md)、[最终复核](10-final-audit-and-five-point-remediation.md) 共同构成完整开发基线。原始问题覆盖见 [需求与竞品复核](08-original-requirements-and-evidence.md)，R2 历史缺陷见 [复核报告](01-review-findings.md)。本目录是唯一现行版本；旧 superpowers 文档只作历史记录。
 
 ## 1. 文档用途与证据规则
 
@@ -163,7 +163,9 @@
 - `internal/ocrapp/recognize.go` 已有文本层优先、缺页 OCR、云端 provider、云端失败回退本地、页覆盖信息和取消检查。
 - `internal/ocrapp/route.go` 以 64 位小写十六进制 CAS revision 保存 `providerId/modelId/preferProvider`；该兼容合同不能被新数字 revision 静默替换。
 - `web/src/settings/OCRRouting.tsx` 已有 provider 选择、本地状态和最近失败显示。
-- `internal/ocrapp/pack.go` 只有粗粒度 PP-OCR 文件存在探测；`HealthSnapshot` 当前以空根目录调用它，不能代表任何模型包已安装。
+- `internal/ocrapp/pack.go` 只有粗粒度 PP-OCR 文件存在探测；当前 `HealthSnapshot` 会读取 routing 中的 `packRoot`，发现 `ppocr.exe/paddleocr.exe/ppocr.onnx` 即返回 `available/ready`，但 `recognize.go` **从不根据 `localEngine=ppocr` 执行该目录**。因此它只是“旧目录已登记”，不是可运行、已安装或已接线的 OCR 引擎。
+- `LocalOCRReady` 当前仅以 `runtime.GOOS == windows` 推断图片/PDF 可用，没有执行 WinRT 初始化、语言枚举或固定小图识别；正式 UI 不得把该值渲染为“健康通过”。
+- `OCRRouting.tsx` 以 `Promise.all(provider.list(), ocr.get())` 加载，provider 故障会连带遮蔽本地 OCR 状态；并且 `SettingsPage.tsx` 目前仍把 OCR 放在“路由管理”中。两者均是 R3 必修接线，不是现成的“两卡融合页”。
 
 ### 4.4 工具、媒体与 UI 基线
 
@@ -235,6 +237,22 @@
 权威仅表示来源和排序，不授予自动覆盖许可。明确用户纠正且同subject/scope/fact_key唯一匹配才CAS更新；其他冲突进入审阅。用户偏好不能覆盖工具实测环境事实；应分开事实键保留两者。
 
 ### 6.3 自动捕获流水线
+
+#### 6.3.0 用户模式、作用域与旧设置兼容的唯一真值表
+
+新 UI 只有一个模式字段和两个作用域字段；不得再把 `memoryEnabled` 与 `captureMode` 同时展示成两个相互矛盾的总开关。公开 wire/Go 字段固定为 `captureMode`、`personalMemoryEnabled`、`projectMemoryEnabled`；SQLite 字段固定为 `capture_mode`、`personal_memory_enabled`、`project_memory_enabled`。
+
+| 模式 | 自动捕获/候选/working/job/index | 用户明确“记住”/主动新增 | 已启用作用域召回与注入 | 管理、纠正、忘记 | 存量数据 |
+|---|---|---|---|---|---|
+| `auto` | 允许，但还须对应 scope=true 且内部发布 gate 开启 | 允许 | 允许 | 允许 | 保留 |
+| `manual` | 禁止；不生成自动 candidate/banner | 通过 `memory.item.create` 直接创建 canonical item | 允许 | 允许 | 保留 |
+| `off` | 全部禁止 | 禁止创建；UI 先提示开启 manual/auto | 禁止 | 允许 | 保留且不删除 |
+
+两个作用域开关同时控制该作用域的捕获、显式保存、working 写入、**面向回答的 `memory.search` 检索**、召回和注入；关闭后立即使相关缓存/snapshot 失效，但不删除存量。为了让用户仍能查看和删除已存数据，授权后的 `memory.item.list/get/history`、管理页关键词过滤、export、correct、forget 与 purge 继续可达，不属于回答注入搜索。`personalMemoryEnabled=false` 不影响项目作用域，`projectMemoryEnabled=false` 不影响个人作用域；两者均关闭时显示“当前无启用范围”。workspace/session/expert 等内部 scope 必须由 6.1 的归属规则映射到个人或项目用户开关，不能形成第三个绕过入口。
+
+0160 的确定性迁移规则：`memory_enabled=0 → capture_mode=off`；否则保留合法旧 `capture_mode`，空值按 `auto`；两个新 scope 字段对历史行置 true。为支持用户重新开启时恢复旧偏好，迁移另存 `last_non_off_capture_mode`（仅 `auto|manual`，无值默认 `auto`）。`auto_nominate`、`growth_days` 原值保留在 legacy adapter，一个兼容周期内可由旧客户端读写，但没有生产消费者，不进入新 UI，也不参与 v2 策略。
+
+`memory.settings.get/update` 固定为互斥 `oneOf` 两分支：legacy 分支保留 `version/expectedVersion` 64 位 SHA；R3 分支返回整数 `revision` 并只接受 `expectedRevision`。同一请求不得同时带两个 CAS token。任一分支省略不属于自身的兼容字段时，服务端必须在同一事务内保留数据库当前值，绝不能用零值覆盖；get 结果同时给旧投影 `version` 与 R3 `revision`，具体映射按 03 的兼容矩阵。修改其他既有 canonical 聚合使用对应 `expectedRevision` 与顶层 `idempotencyKey`；`memory.item.create` 是新建操作，只使用 `operationId` 和顶层幂等键，不携带不存在的旧 head revision。
 
 ```text
 persisted user turn
@@ -317,13 +335,15 @@ observation必须至少两条独立来源，固定derived_observation；先quiet
 
 ### 6.4 Canonical 数据模型
 
-新增迁移必须从当前未提交的 `0159` 之后顺延；本方案锁定以下编号以避免三个子项目冲突：
+审计快照的最大迁移为 `0159`；下列编号是 06-X0 待核验的连续候选，不在扫描前宣称永久锁定：
 
 - `0160_memory_fabric.sql`
 - `0161_memory_retrieval.sql`
 - `0162_memory_generations.sql`
 - `0163_ocr_model_packs.sql`
 - `0164_media_sessions.sql`
+
+X0 必须先扫描当前目标分支的 migration 文件、embed、store manifest 和发布 fixture，生成 `evidence/migration-allocation.json`。若候选号已被占用，只有集成人可在同一合同提交中整体重分配连续区间并同步 00、02–07、11–12、SQL 文件名、测试和 manifest；artifact 合入后号码冻结，子线不得自行顺延。
 
 #### 6.4.1 `memory_content_versions`
 
@@ -355,7 +375,7 @@ created_at                               UTC RFC3339Nano
 #### 6.4.2 关系与证据表
 
 - `memory_fact_candidate_links(candidate_id, fact_id, fact_version, relation, created_at)`：显式替代当前隐式关联。
-- `memory_evidence_spans(id, fact_id, fact_version, source_kind, source_ref, start_byte, end_byte, quote_digest, created_at)`：定位用户原文、工具回执或导入记录；不复制敏感原文。
+- `memory_evidence_spans(id, fact_id, fact_version, source_kind, source_ref, start_byte, end_byte, quote_digest, created_at)`：`source_kind` 只允许 `user_message|tool_receipt|import_record|user_direct_entry`；定位用户原文、工具回执、导入记录或主动输入，不复制敏感原文。`user_direct_entry` 使用 `source_ref=operation:<operationId>`、start/end 均 NULL、quote_digest 为提交正文 digest。
 - `memory_candidate_assessments(candidate_id, kind, decision, reason_codes_json, scope_kind, scope_id, novelty, conflict_fact_id, extractor_json, schema_version, created_at)`：保存自动筛选解释。
 - `memory_fact_supersessions(subject_id,scope_kind,scope_id,fact_id,old_version,new_version,effective_at,event_seq)`：同事实版本边与有效终点，FK确保同scope，禁止跨事实链取代。
 - `memory_migration_map(origin_plane, origin_id, fact_id, fact_version, state, source_digest, error_code, updated_at)`：支持断点续迁和回滚去重。
@@ -440,17 +460,19 @@ active generation G1
 
 当前事实召回集合为active generation members UNION post-cutoff delta overlay：event_seq>source_cutoff_seq的新事实/更正/墓碑/policy即时覆盖旧member。cutoff用单调序号防同时间戳遗漏。历史查询独立按canonical有效区间取版本，不让current head覆盖历史；两种查询均受当前授权及删除屏障。激活/回退后历史答案必须保持一致。
 
-### 6.8 记忆中心 UI
+### 6.8 智能能力入口与记忆中心 UI
 
-记忆页调整为五个视图：
+设置导航保留稳定 category id `personal`，显示名改为“智能能力”。该 category 的 overview **恰好只有两张同宽摘要卡**：`自动记忆`和`文字识别`；这就是“把现有配置融合到一起”的产品含义，不把两个后端设置揉成一个数据模型。现有聊天“打开记忆”深链直达 memory 详情；普通设置入口先到 overview。OCR 从“路由管理”移除，路由管理只保留模型能力路由。
 
-1. **现在记住的**：按 profile/preference/goal/constraint/decision/procedure 分组，支持搜索、隐藏、纠正、忘记、置顶。
-2. **近期自动保存**：默认 7 天，可批量撤销；显示“为什么记住”和来源句段。
-3. **待审阅**：只含冲突、作用域不明和 derived observation；无红色未读角标轰炸，不在聊天页弹横幅。
-4. **历史与整理**：事实时间线、generation diff、激活与回滚。
-5. **隐私与数据**：禁记类别、模型辅助开关、完整导出、导入预演、清空范围。
+记忆详情采用**单页极简、低频能力渐进展开**，不做五个常驻页签：
 
-聊天中的轻提示规则：每回合最多一条，2 秒后收起；同一批多个候选合并显示；提供“撤销”与“查看”，不提供逐条“确认”。不调用模型的 deterministic fast path 在回答正文和用户消息都已持久化后、chat terminal event 发出前执行，并通过现有 `completed` event 的 additive 字段 `memoryCapture={count,undoOperationId,expiresAt}` 通知当前页面；它不得延迟首 token。`internal/bridge/protocol.go` 和 `web/src/session/liveChat.ts` 同步扩展并做旧客户端兼容。后台 semantic batch 的结果不尝试向已关闭 stream 追加事件，静默出现在“近期自动保存/待审阅”。刷新后不补播旧 toast。撤销调用 `memory.capture.undo`，按 capture operation 原子 tombstone 本批事实。敏感拒绝只有用户明确要求“记住”时才提示“该内容因隐私规则未保存”。
+1. 页面头部只有当前状态摘要（例如“自动记忆已开启”）和一个“设置”按钮；三态与两个 scope 开关放进该按钮打开的设置抽屉。抽屉使用现有 Dialog/focus-trap 基础设施，Esc 关闭并把焦点还给按钮。模式与开关的行为只按 6.3.0 真值表，不再显示 `memoryEnabled`、`autoNominate`、`growthDays`。
+2. 正文首屏只有搜索与单列有效记忆列表，不放独立筛选按钮。每条只显示正文摘要、作用域和更新时间，右侧“…”提供查看来源、置顶/隐藏、纠正和忘记。类型、时间和来源筛选只在 `高级管理` 的同一抽屉 advanced 视图中按需展开。
+3. 冲突、近期变更、历史版本、generation diff、禁记类别、模型辅助/本地隐私选择、完整导出、导入预演和分范围清空统一收进 `高级管理`。只有确有冲突/作用域不明/derived observation 时显示一条克制提示；无待处理项时不显示角标。最近 7 天变更与 24 小时撤销可达，危险清空执行 prepare→明确确认→purge。
+
+overview 不得预加载项目、事实列表、provider 或 OCR 诊断；进入 memory 详情时先加载 identity/settings，只有列表可见时加载 canonical list，展开高级管理后才加载 stats/traces/growth/history。身份解析失败时 fail closed 显示“记忆暂不可用”，不得回退为字符串 `local-user`。个人设置无需先创建项目；只有查看/新增项目记忆时才要求选择项目。
+
+聊天中的轻提示规则：每回合最多一条，2 秒后收起；同一批多个候选合并显示；提供“撤销”与“查看”，不提供逐条“确认”。不调用模型的 deterministic fast path 在回答正文和用户消息都已持久化后、chat terminal event 发出前执行，并通过现有 `completed` event 的 additive 字段 `memoryCapture={count,undoOperationId,expiresAt}` 通知当前页面；它不得延迟首 token。`internal/bridge/protocol.go` 和 `web/src/session/liveChat.ts` 同步扩展并做旧客户端兼容。后台 semantic batch 的结果不尝试向已关闭 stream 追加事件；确定事实进入单列列表，冲突/作用域不明/derived observation 进入高级管理的待确认集合。刷新后不补播旧 toast。撤销调用 `memory.capture.undo`，按 capture operation 原子 tombstone 本批事实。敏感拒绝只有用户明确要求“记住”时才提示“该内容因隐私规则未保存”。
 
 ### 6.9 导出、导入和兼容迁移
 
@@ -464,12 +486,12 @@ active generation G1
 
 #### 导入
 
-导入固定两步：用户先把 archive 放入现有受授权、不可变的 attachment/artifact CAS；`memory.import.preview {sourceArtifactId}` 只写 `memory_import_previews` 元数据，不写 active fact，保存 `previewId + archive/manifest digest + subject + database revision + 24h expiry` 并统计冲突/敏感项。`memory.import.commit` 必须携带 `previewId`、两个 digest、expected database revision 和 envelope idempotency key，重新读取同一 immutable bytes；过期、换主体、source 消失或 digest 变化均拒绝。默认不覆盖 active 事实，冲突进入 review；成功/取消后删除 staged preview 引用。
+导入固定两步：用户先把 archive 放入现有受授权、不可变的 attachment/artifact CAS；mutation `memory.import.preview {sourceArtifactId,operationId}` 必须带顶层 idempotencyKey，只写 `memory_import_previews` 元数据而不写 active fact，保存 `previewId + archive/manifest digest + subject + database revision + 24h expiry` 并返回固定 counts/warnings。mutation `memory.import.commit` 必须携带 `previewId/archiveDigest/manifestDigest/expectedDatabaseRevision/operationId` 和新的顶层 idempotencyKey，重新读取同一 immutable bytes；过期、换主体、source 消失或 digest 变化均拒绝。默认不覆盖 active 事实，冲突进入 review；commit 后 preview 标 committed 并释放 source lease，关闭 UI 不等于提交，未提交 preview 由 24h expiry 清理。本期不提供第三个 cancel mutation。
 
 #### 存量迁移
 
 1. 只新增表，不修改/删除旧表。
-2. 在旧schema验证后、新migration执行前复用sqlite.Store.CreateBackup创建包含已提交WAL的一致数据库副本并验证。迁移后才生成v2 archive及往返测试，不要求尚未存在的v2导出作为迁移前置。
+2. 在旧 schema 验证后、新 migration 执行前创建包含已提交 WAL 的一致数据库副本并验证。当前 `Open/OpenSecure` 会在返回 `Store` 前执行 `initialize/migrate`，所以**不能**先正常 Open 再调用 `Store.CreateBackup`。实现必须增加 `OpenOptions.BeforeMigrate`（同一 raw connection、排他升级锁下调用 backup），或等价拆为 `openRaw → validate legacy → backup → initialize`；失败时不运行迁移并保持原库不变。`maintenance_backup.SnapshotDatabase` 只可作为经测试的实现构件，不得绕过 schema 校验/写窗口合同。迁移后才生成 v2 archive，不要求尚未存在的 v2 导出作为迁移前置。
 3. legacy `working` 迁移为 working，保留 TTL；不得自动升为长期事实。
 4. legacy semantic/procedural/episodic 生成 migration candidate；只有来源和作用域可验证的低风险记录才能映射，其他进入静默审阅。
 5. confirmed M8 candidate 补 content version、显式 link 与 evidence span；digest 不一致标记 migration failed，不猜测修复。
@@ -491,17 +513,22 @@ active generation G1
 | `paddleocr-vl-1.6` | 高级本地复杂文档解析 | 表格、公式、图表、印章、复杂阅读顺序、畸变页面 | 否，用户主动安装 |
 | `provider:<providerId>/<modelId>` | 用户配置的云端视觉/OCR | 按现有 provider 能力 | 取决于配置与健康状态 |
 
-路由不是简单的“首选模型”布尔值，而是 `OCRPolicy`：
+路由不是简单的“首选模型”布尔值。公开 `OCRPolicy` 只有下列 camelCase 字段，schema 必须 `additionalProperties=false`，`fallbackOrder` 必须 `uniqueItems=true,maxItems=3`：
 
-```text
-mode: auto | local_fast | local_document | provider_first
-complexDocumentEngine: paddleocr-vl-1.6 | none
-providerId/modelId: optional pair
-fallbackOrder: controlled enum list
-sendToCloud: never | configured_only
+```json
+{
+  "mode": "auto | local_fast | local_document | provider_first",
+  "complexDocumentEngine": "none | paddleocr-vl-1.6",
+  "providerId": "optional ULID; 与 modelId 同时出现或同时省略",
+  "modelId": "optional non-empty string <= 200 bytes; 与 providerId 同时出现或同时省略",
+  "fallbackOrder": ["windows-ocr | paddleocr-vl-1.6 | provider"],
+  "sendToCloud": "never | configured_only"
+}
 ```
 
-默认迁移行为必须兼容现有 `preferProvider`：旧值为 true 时迁移到 `provider_first`，false 时迁移到 `auto` 且 `sendToCloud=never`；不得因为安装了 Paddle 包而偷偷改变用户的云端隐私选择。
+额外的 schema/handler 约束固定如下：`mode=provider_first` 或 `fallbackOrder` 含 `provider` 时必须同时存在 providerId/modelId 且 `sendToCloud=configured_only`；`fallbackOrder` 含 `paddleocr-vl-1.6` 时 `complexDocumentEngine` 必须为同值。`complexDocumentEngine` 只是复杂页的期望能力，不是 readiness；即使值为 Paddle，resolver 仍须同时检查 pack ready、profile digest 和 `auto_route_enabled`，否则跳过它且绝不下载。只有显式 `mode=local_document` 才要求保存时 Paddle 已 ready。新用户默认值逐字为 `{"mode":"auto","complexDocumentEngine":"paddleocr-vl-1.6","fallbackOrder":["windows-ocr"],"sendToCloud":"never"}`。存量 `preferProvider=false` 迁为该默认；存量 true 且存在完整 provider/model 绑定时迁为 `provider_first + configured_only`，顺序为 `provider,windows-ocr`；绑定缺失时 fail closed 地迁为新用户默认并记录 `LEGACY_PROVIDER_BINDING_REQUIRED`，不得猜测一个 provider。不得因为安装了 Paddle 包而偷偷改变用户的云端隐私选择。
+
+当前 schema 中的 `localEngine=ppocr`、`packRoot` 和 `pack.backend=ppocr-pack` 是 **legacy registration**，不是第四个可执行器。迁移保留其登记信息一个兼容周期，状态固定映射为 `registered_unwired`、`available=false`；旧值的 effective engine 归一化为 `windows-ocr` 并返回 warning，新客户端不得再写 `localEngine=ppocr`。`packRoot` 只在 Engine 内保存，Renderer 不得接收布尔别名 `legacyPackRegistered` 或绝对路径；唯一公开投影是 `ocr.routing.get.legacy`：未登记为 `null`，已登记为 `{engineId:"ppocr",registered:true,state:"registered_unwired",available:false,markerDetected:boolean}`。它绝不自动映射为 `paddleocr-vl-1.6` 的 installed/ready；Paddle 必须通过独立签名 catalog、manifest、probe 和 operation 状态机安装。
 
 `auto` 路由顺序：
 
@@ -542,7 +569,7 @@ document
 
 Engine 从签名 manifest 读取固定相对入口 `runtime/python.exe -I worker/paddleocr_worker.py`，重算入口和关键 DLL digest 后，经 `internal/stdioworker.SpawnIsolatedWithStderr` 启动，使用 stdio JSONL 通信。禁止 pack 自行启动 HTTP 服务。上游首次运行可能自动下载模型，因此 worker 必须显式使用 pack 内本地模型目录并开启离线配置；自测期间发现任何缺失文件或网络下载尝试均判定 pack 不可发布。
 
-在实现下载入口前必须先完成 Windows x64 CPU 的 W0 可行性门：在干净、无系统 Python、无预热模型缓存的 CI/签名机上构建 pack，断网运行真实 `PaddleOCRVL(pipeline_version="v1.6", ...)` 完整 layout + VLM 冒烟和协议测试，并记录版本、digest、命令、耗时、峰值内存与结果。该门失败时 catalog 中该 runtime profile 保持 disabled，产品只保留 Windows OCR；不得用 fake worker、WSL、Docker 或开发机全局环境宣称“已内置”。
+在实现下载入口前必须先完成 P09/W0b 的 Windows x64 CPU 可行性门：在干净、无系统 Python、无预热模型缓存的 CI/签名机上构建 pack，断网运行真实 `PaddleOCRVL(pipeline_version="v1.6", ...)` 完整 layout + VLM 冒烟和协议测试，并记录版本、digest、命令、耗时、峰值内存与结果。该门失败时 catalog 中该 runtime profile 保持 disabled，产品只保留 Windows OCR；不得用 fake worker、WSL、Docker 或开发机全局环境宣称“已内置”。
 
 模型包目录：
 
@@ -605,31 +632,74 @@ pack availability独立：not_installed / ready / quarantined
 
 ### 7.6 数据表与 Bridge
 
-`0163_ocr_model_packs.sql` 新增并由 SQLite 保持唯一状态真相：
+OCR logical migration `ocr_model_packs`（P00 审计快照下的候选文件名为 `0163_ocr_model_packs.sql`，最终编号只取 `evidence/migration-allocation.json`）新增并由 SQLite 保持唯一状态真相：
 
 - `ocr_pack_state(pack_id, current_version, previous_version, state, active_operation_id, manifest_digest, device_kind, engine_version, installed_at, last_health_at, last_error_code, revision)`：每个 pack 恰好一行；未安装也有状态行；同一 pack 只能有一个 current。
 - `ocr_pack_versions(pack_id, version, manifest_digest, install_root_ref, state, installed_at, quarantined_at)`：已校验版本不可变；路径只存 Engine 内部引用。
+- `ocr_pack_notices(pack_id, manifest_digest, version, notice_digest, notice_bytes, notice_ref, verified_at, installed_at, uninstalled_at)`：`(pack_id,manifest_digest)` 主键；只有签名 manifest 与 NOTICE bytes 均校验通过后才能插入。`notice_ref` 是 Engine 私有 CAS 引用；catalog 换版或卸载只更新 installed/uninstalled 时间，绝不删除本表或 NOTICE bytes。它是设置/关于页断网查看已受信 NOTICE 的唯一索引。
 - `ocr_pack_operations(operation_id, owner_subject_id, pack_id, target_version, accepted_manifest_digest, action, phase, bytes_done, bytes_total, cancel_requested_at, terminal_result_json, error_code, created_at, updated_at, idempotency_key, request_digest, revision, lease_owner, lease_until, heartbeat_at, attempt, fence)`；partial unique index保证同pack至多一个非终态mutation，旧fence不得激活。
 - `ocr_version_leases`与`ocr_artifact_leases`按06-C4实现，分别保护加载中的版本与读取中的结果；同属0163，不留给隐式进程变量。
-- `ocr_settings(owner_subject_id, policy_json, policy_revision, updated_at)`：主体级路由策略，兼容现有 SHA revision 合同。
-- `ocr_pack_gates(singleton_id, install_enabled, auto_route_enabled, revision, updated_at)`：本地安装实例级发布开关，整数 revision；共享 pack 不随切换主体重复安装，文档结果和策略仍按主体隔离。
-- `ocr_document_runs(run_id, owner_subject_id, scope_kind, scope_id, document_digest, policy_revision, requested_engine, actual_engines_json, state, pages_total, pages_completed, warnings_json, created_at, updated_at, started_at, finished_at)`；created_at不可变且非空用于活动分页。
-- `ocr_page_results(run_id, page, engine_id, engine_version, source_digest, literal_text_ref, structured_ref, layout_ref, complete, uncertain, duration_ms)`；大结构只存artifact引用。
+- `ocr_settings(owner_subject_id, scope_kind, scope_id, policy_json, policy_revision, revision, legacy_imported_at, updated_at)`：`(owner_subject_id,scope_kind,scope_id)` 为复合主键；内部 `user` scope 的 `scope_id` 固定等于 `owner_subject_id`，`project` scope 固定等于已授权 project ID，公开响应对 user scope 只返回 `scopeId:null`；主体/范围级路由策略继续使用 SHA `policy_revision` 做 routing CAS，行自身 `revision` 为内部整数版本；`legacy_imported_at` 记录一次性兼容导入。
+- `ocr_pack_gates(pack_id, install_enabled, auto_route_enabled, verified_runtime_profile_digest, disabled_reason, revision, updated_at)`：`pack_id` 为主键；本地安装实例级发布开关默认均为 0，digest 默认空，`disabled_reason` 默认 `NO_VERIFIED_RUNTIME_PROFILE`，并使用整数 revision；共享 pack 不随切换主体重复安装，文档结果和策略仍按主体隔离。
+- `ocr_legacy_registrations(registration_id, owner_subject_id, scope_kind, scope_id, engine_id, root_ref, marker_detected, state, available, imported_at, revision)`：`engine_id` 固定 `ppocr`、state 固定 `registered_unwired`、available 固定 0；`UNIQUE(owner_subject_id,scope_kind,scope_id,engine_id)`。`root_ref` 仅 Engine 私有，任何 Bridge/result/log/activity 均不序列化。
+- `ocr_document_runs(run_id, request_id, owner_subject_id, scope_kind, scope_id, document_digest, policy_revision, gate_revision, mode, provider_id, provider_model_id, pack_manifest_digest, pack_runtime_profile_digest, pipeline_kind, allow_remote, request_snapshot_digest, requested_engine, actual_engines_json, state, pages_total, pages_completed, warnings_json, created_at, updated_at, started_at, finished_at)`；provider 两字段同空或同非空；`request_snapshot_digest` 是上述 immutable request 字段规范序列化后的 SHA-256，`UNIQUE(run_id,request_snapshot_digest)`；created_at 不可变且非空用于活动分页。凭据引用绝不持久化。
+- `ocr_page_results(run_id, page, request_snapshot_digest, engine_id, engine_version, actual_pack_manifest_digest, pipeline_kind, source_digest, literal_text_ref, structured_ref, layout_ref, complete, uncertain, warnings_json, duration_ms)`；`(run_id,page)` 主键，并以 `(run_id,request_snapshot_digest)` 外键绑定本次 run 的不可变请求快照；大结构只存 artifact 引用。这样每页通过 join 可证明相同 policy/gate/provider/pack/profile/allowRemote，实际 fallback engine 与 pack digest 仍逐页记录。
 - `ocr_artifacts(artifact_id, owner_subject_id, scope_kind, scope_id, run_id, content_ref, sha256, media_type, size, expires_at, created_at)`：正文/结构结果写入独立OCR CAS root的受控存储adapter（不对全局共享CAS做局部GC），本表负责作用域、大小上限、保留期与清理；Bridge 列表只返回有界摘要/引用，不内联整份文档。
 
-迁移实现必须更新 `internal/storage/sqlite/store.go` 的真实 migration `manifest`、`expectedSchemaSQL` 和 expected-column 清单；0163 的前置是已冻结的 0162。`current.json` 仅为可删除、可由 SQLite 重建的启动缓存；崩溃恢复以数据库 operation/state/revision 为准。
+迁移实现必须更新 `internal/storage/sqlite/store.go` 的真实 migration `manifest`、`expectedSchemaSQL` 和 expected-column 清单；OCR logical migration 的前置是 allocation 中已冻结的最后一个 Memory logical migration。`current.json` 仅为可删除、可由 SQLite 重建的启动缓存；崩溃恢复以数据库 operation/state/revision 为准。
 
-保留现有 `ocrapp.Result` 和调用者字段，向后兼容地追加 `RunID/PageResults`；需要不同返回形状时新增 `RecognizeDocumentV2`，旧方法只做明确映射，不能直接改坏 KB、模型目录与 Office 调用者。现有 `ocr.routing.get/set` 继续使用其 SHA revision/兼容字段，在此基础上扩展 policy，并新增 Bridge：
+保留现有 `ocrapp.Result` 和调用者字段，向后兼容地追加 `RunID/PageResults`；需要不同返回形状时新增 `RecognizeDocumentV2`，旧方法只做明确映射，不能直接改坏 KB、模型目录与 Office 调用者。现有 `ocr.routing.get/set` 继续使用其 SHA revision/兼容字段，在此基础上扩展 policy，并新增 Bridge。
+
+所有公开 OCR scope selector 使用同一严格 `oneOf`：`{scopeKind:"user"}` 分支禁止 `scopeId`，Engine 以认证 subject 派生内部 scope ID；`{scopeKind:"project",scopeId:<1..128 bytes>}` 分支必须给出 scopeId 并通过项目授权。`scopeKind` 不得省略，禁止从“当前页面/最后项目”隐式猜测。项目策略行不存在时只读地继承 user policy；`ocr.routing.get/set` 都返回 `requestedScope:{scopeKind,scopeId:null|string}` 与 `policySource:{scopeKind,scopeId:null|string,inherited:boolean}`。继承态 `revision` 是请求 scope、来源 scope、来源 policy revision 的规范摘要；project set 必须在同一事务确认该摘要和“仍无 project row”后创建 override，否则返回 CAS conflict。legacy registration 只读请求 scope 的精确记录，不跨 scope 继承。全局“设置 → 智能能力 → 文字识别”R3 页面固定请求 user scope；项目消费者由 Engine 传入 project scope，不允许 Renderer 自报 subject。
 
 ```text
-ocr.pack.get       { packId, refreshProbe? }
+ocr.routing.get    { scopeKind, scopeId?, refreshProbe? }
+ocr.routing.set    { scopeKind, scopeId?, policy, expectedRevision }
+ocr.pack.get       { packId }
 ocr.pack.install   { packId, catalogRevision, acceptedManifestDigest, expectedRevision, operationId }
 ocr.pack.cancel    { operationId, expectedRevision }
 ocr.pack.uninstall { packId, expectedRevision, confirmed, operationId }
+ocr.pack.notice.list { packId, cursor?, limit? } // limit 1..50；列出本机已验证/保留的 NOTICE 摘要
+ocr.pack.notice.read { packId, manifestDigest, offset, limit } // 原始byte偏移/长度，limit<=65536
 ocr.run.get        { runId, pageCursor?, limit? } // limit<=20，只返回metadata与artifact refs
-ocr.run.list       { scopeKind, scopeId, cursor?, limit? }
-ocr.artifact.read  { artifactId, offset, limit } // 原始byte偏移/长度，limit<=65536；返回base64,nextOffset,eof
+ocr.run.list       { scopeKind, scopeId?, cursor?, limit? }
+ocr.artifact.read  { artifactId, offset, limit } // 原始byte偏移/长度，limit<=65536；返回base64,nextOffset,eof,sha256,totalBytes
 ```
+
+`ocr.pack.get` 的 result 不得由实现者自行扁平化，固定为下列结构；所有对象（含 preflight/licenseSummary）均 `additionalProperties=false`，字段不得省略，可空字段显式返回 JSON `null`，不存在的 operation/release 也返回 `null`：
+
+```text
+pack: {
+  packId:string,
+  availability: not_installed|ready|quarantined,
+  currentVersion:string|null, previousVersion:string|null,
+  manifestDigest:string|null, engineVersion:string|null,
+  deviceKind:cpu|gpu|null, lastHealthAt:date-time|null,
+  lastErrorCode:string|null, revision:int>=1
+}
+gate: {
+  installAllowed:boolean, autoRouteAllowed:boolean,
+  reasonCode:string|null, verifiedRuntimeProfileDigest:string|null, revision:int>=1
+}
+operation: null | {
+  operationId:string, action:install|uninstall,
+  phase:requested|preflighting|downloading|verifying|installing|self_testing|succeeded|failed|cancelled,
+  completedBytes:int>=0, totalBytes:int>=0, cancelRequested:boolean,
+  terminal:boolean, cancelAllowed:boolean, errorCode:string|null,
+  retryable:boolean, revision:int>=1, createdAt:date-time, updatedAt:date-time
+}
+release: null | {
+  version:string, catalogRevision:string, manifestDigest:string, runtimeProfileDigest:string,
+  compressedBytes:int>=0, expandedBytes:int>=0, deviceProfile:cpu|gpu,
+  preflight:{state:not_run|compatible|incompatible,reasonCode:string|null,requiredDiskBytes:int>=0,availableDiskBytes:null|int>=0,deviceKind:cpu|gpu},
+  licenseSummary:{count:int>=0,spdxIds:string[],nonSpdxLicenseIds:string[]},
+  noticeDigest:string, noticeBytes:int>=0
+}
+```
+
+`terminal` 逐字等于 phase 属于 `succeeded|failed|cancelled`，`cancelAllowed` 逐字等于 phase 属于 `requested|preflighting|downloading` 且尚未请求取消；禁止分别持久化成可漂移真相。preflight schema 必须 `oneOf` 三分支：`not_run` 要求 `reasonCode=null,availableDiskBytes=null`；`compatible` 要求 `reasonCode=null,availableDiskBytes=int>=0`；`incompatible` 要求 `reasonCode=1..128 bytes,availableDiskBytes=int>=0`；三分支的 `deviceKind` 必须等于 release.deviceProfile。`licenseSummary.spdxIds/nonSpdxLicenseIds` 均须 `uniqueItems=true,maxItems=256`，每项 1..128 bytes，count 等于两数组元素总数。`pack.revision` 是 install/uninstall 的 `expectedRevision`；cancel 的 `expectedRevision` 只比较 `operation.revision`；`gate.revision` 只供快照/诊断，handler 每次仍原子重检 gate。没有签名 release/profile 时 `release=null`、`operation=null`、`pack.availability=not_installed`，gate 固定 `installAllowed=false,autoRouteAllowed=false,reasonCode=NO_VERIFIED_RUNTIME_PROFILE`。
+
+NOTICE 生命周期独立于 current pack：catalog verifier 只有在 manifest 签名、manifestDigest、NOTICE digest/bytes 全部通过后，才把 NOTICE bytes 写入受控 CAS 并事务写 `ocr_pack_notices`；安装成功补 `installed_at`，卸载成功补 `uninstalled_at`，均不删除记录。`ocr.pack.notice.list` 按 `verified_at DESC,manifest_digest ASC` 稳定分页，payload 为 `{packId,cursor?,limit?}`、`limit` 默认 20 且范围 1..50，result 固定 `{items,nextCursor}`；item 固定为 `{packId,manifestDigest,version,noticeDigest,noticeBytes,verifiedAt,installedAt,uninstalledAt}`，后两项显式可空，不含路径。`ocr.pack.notice.read` 只接受 list 返回的本机受信 `(packId,manifestDigest)`，result 固定 `{base64,nextOffset,eof,sha256,totalBytes}`，offset/limit 为原始 byte；它不接受路径、URL 或未登记 digest。当前 `release=null` 不影响历史受信 NOTICE 离线读取；只有本机没有该受信记录、NOTICE blob 缺失/损坏或 digest 不一致时才返回 `OCR_PACK_NOTICE_UNAVAILABLE`，不回退网络、不返回旧路径，且数据库、文件和网络 mutation 均为 0。关于页先 list 再 read，因此卸载、catalog 换版和断网后仍能定位所有本机曾验证的许可记录。
 
 下载/解压/校验/自测不能占用普通 Bridge deadline：mutation 仅事务写入 operation 并立即返回 acceptance；Engine 生命周期后台 runner 推进状态，启动时依据 phase 恢复、回滚或隔离 staging。取消只在 requested/preflighting/downloading 阶段设置持久 cancel request；verifying/atomic activation 返回稳定不可取消状态。首版 UI 每 750 ms（后台 3 s，窗口隐藏暂停）轮询 `ocr.pack.get`，终态后停止；不把 `ocr.pack.event` 伪装成普通请求方法。若以后需要推送，另加真实 watch stream 和 reconnect contract。
 
@@ -639,14 +709,14 @@ ocr.artifact.read  { artifactId, offset, limit } // 原始byte偏移/长度，li
 
 ### 7.7 设置 UI
 
-现有 OCR Routing 卡片拆成：
+OCR 入口只存在于“设置 → 智能能力 → 文字识别”详情；“路由管理”不再重复渲染 OCR。详情首屏只呈现两个用户概念：
 
-1. **识别策略**：自动、快速本机、复杂文档本机、云端优先；显示数据是否离开设备。
-2. **Windows OCR**：通过真实 WinRT 初始化和固定小图 self-test 返回 installed languages、初始化错误、图片/PDF 能力与最近测试；不能再用 `runtime.GOOS == windows` 直接显示“就绪”。
-3. **PaddleOCR-VL 1.6**：未安装时显示官方来源、许可证、精确下载/安装大小和硬件预检；安装中显示阶段、实际 bytes 和取消；ready 显示版本、设备、最近自测、更新/卸载。
-4. **最近运行**：按页显示文本层/Windows/Paddle/provider、耗时、失败和回退。
+1. **文字识别 · 自动**：这是当前确定性路由的只读状态摘要，不是总开关，也不能映射为 `preferProvider`。副文案说明系统按文本层、可用本地能力和既有云端授权选择；状态为 `可用 / 需要语言包 / 暂不可用 / 检查失败`，必须来自真实 WinRT 初始化、语言枚举和固定小图 self-test，不能只凭 `runtime.GOOS` 显示勾选。
+2. **复杂文档增强 · PaddleOCR-VL-1.6**：展示 `尚未发布可验证运行时 / 未安装 / 安装中 / 可用 / 需处理`。没有签名 catalog/runtime profile 时按钮禁用，原因码 `NO_VERIFIED_RUNTIME_PROFILE`，点击不得发送 mutation。只有 P09/W0b 通过后，安装确认才显示 manifest 的真实下载量、展开磁盘、设备结论、数据流向和许可；ready 必须来自完整 layout+VLM 自测。
 
-模型未安装时选择“复杂文档本机”应打开安装说明，不能把下拉值保存成不可用状态。磁盘、CPU/GPU、runtime 不满足时显示准确原因和可行回退，不显示“你的电脑不支持 OCR”这类泛化文案。
+“高级与诊断”默认折叠，承载数据是否离开设备、存量 provider/model 选择、Windows 语言、实际 engine/fallback、legacy PP-OCR “已登记但未接线”、签名 manifest/NOTICE、最近运行与故障恢复。`ocr.routing.get`、`ocr.pack.get` 与 `provider.list` 使用独立加载和独立错误；provider 只在展开高级区时请求，失败不得遮蔽 Windows/Paddle 状态。未安装时 policy 可保留 `complexDocumentEngine=paddleocr-vl-1.6` 这一期望值，但 resolver 必须跳过且 UI 不能宣称可用；只有显式 `mode=local_document` 不得在执行器未 ready 时保存。磁盘、CPU/GPU、runtime 不满足时显示准确原因和可行回退。
+
+本期设置融合不新增通用“截图识别/选择文件”工作台。早期视觉探索曾包含这两个按钮，现行 09 原型已移除；正式产品继续由现有文件/Office/附件入口触发识别。若未来增加 OCR 工作台，必须另行定义 Host 文件/屏幕授权、`ocr.run.start` 和结果生命周期，Renderer 不得直接传绝对路径。
 
 ### 7.8 OCR 验收基准
 
@@ -685,8 +755,9 @@ toolName
 intentSummary
 targetDisplay
 phase: requested|awaiting_approval|dispatching|verifying|succeeded|uncertain|failed|cancelled
-verification: none|process|window|uia|smtc|owned_runtime|artifact
-evidenceRef
+verificationStatus: not_applicable|not_started|pending|confirmed|unconfirmed
+verificationSource: none|process|window|uia|smtc|owned_runtime|artifact
+evidenceRef: null|string
 startedAt/updatedAt/finishedAt
 retryPolicy: never|safe_same_id|requires_user
 errorCode/userMessage/recoveryActions[]
@@ -708,9 +779,9 @@ id
 ownerSubjectId
 scopeKind/scopeId
 origin: owned|external
-sourceKind: local_file|generated_artifact|external_app
 phase: idle|playing|paused|stalled|ended|uncertain|failed|stopped
-verification: none|command_dispatched|verified_playing|verified_paused
+verificationStatus: none|command_dispatched|verified_playing|verified_paused|verified_ended|verified_stopped
+verificationSource: none|smtc|owned_runtime
 title/artist/album
 artworkArtifactId
 positionMs/durationMs
@@ -762,7 +833,7 @@ idle → resolving → awaiting_approval → dispatching → verifying
 
 #### 8.4.1 本地大文件登记与播放 URL
 
-现有 `desktop.files.pick/readChunk` 的 100 MiB 与 32 KiB 分块合同适合附件，不适合电影 seek；本功能不得用 Base64 Bridge 循环模拟流媒体。新增 host-owned `media.asset.pick`：Host 打开仅音视频类型的系统文件框，验证 regular file、拒绝 symlink/reparse point，读取大小、MIME、mtime 和 Windows volume/file identity；随后通过现有 authenticated private Engine pipe 调用**非 renderer 路由** `internal.media.asset.register`。绝对路径只在 Host↔Engine 私有通道和本地数据库出现，公开响应只含 `assetId/title/kind/mime/size/fingerprintRevision`。
+现有 `desktop.files.pick/readChunk` 的 100 MiB 与 32 KiB 分块合同适合附件，不适合电影 seek；本功能不得用 Base64 Bridge 循环模拟流媒体。新增 host-owned `media.asset.pick`：公开 payload 同时携带下述严格 MediaScope selector；Host 打开仅音视频类型的系统文件框，验证 regular file、拒绝 symlink/reparse point，读取大小、MIME、mtime 和 Windows volume/file identity；随后通过现有 authenticated private Engine pipe 调用**非 renderer 路由** `internal.media.asset.register`，把 selector 当作未信任业务参数传递。Engine 从认证连接派生 subject，并在登记前校验 project 授权；Host/Renderer 都不能自报 subject。绝对路径只在 Host↔Engine 私有通道和本地数据库出现，公开响应只含 `assetId/title/kind/mime/size/fingerprintRevision/scopeKind/scopeId`，其中 user scope 的 scopeId 固定为 JSON null。
 
 Renderer 通过 engine-owned `media.asset.open {assetId, mediaSessionId}` 请求播放，Engine 做 subject/scope/session/当前 fingerprint 授权后生成随机 opaque ticket，返回：
 
@@ -781,34 +852,39 @@ Lunitide 生成/工作区 artifact 先经同一 `media_assets` 注册和作用�
 `0164_media_sessions.sql` 新增：
 
 - `media_assets`：subject/scope、source_kind=user_selected|artifact|workspace、Engine 内部 source ref、title/kind/MIME/size、volume/file identity 或 artifact digest、state、revision；公开 DTO 永不返回 source ref。
-- `media_sessions`：上述session快照，含asset_id/playback_epoch/auto_advance（创建时从默认策略快照）；revision单调递增。
+- `media_sessions`：上述 session 快照；播放枚举列唯一命名为 `phase`，含 asset_id/playback_epoch/auto_advance（创建时从默认策略快照）；revision 单调递增。
 - `media_operations`：工具意图、阶段、验证、evidence、幂等键、错误与时间。
-- `media_queue_items`：session、position、artifact/path reference、显示元数据、状态；不保存未经授权的远端 URL。
+- `media_queue_items`：`item_id,media_session_id,asset_id,order_index,state,created_at,updated_at`；只引用已登记且同 subject/scope 的 `media_assets.asset_id`，`UNIQUE(media_session_id,order_index)`。不得另存 artifact/path/source_ref 或未经授权的远端 URL；显示元数据从 asset 的安全投影读取。
 - `media_bookmarks`：owned 资产的 position/duration/updated_at；播放结束可清理。
 - `media_settings`：本地 singleton 发布 gate 与首发 auto_advance=true 策略，整数 revision 并 CAS；不存用户播放历史，历史在按主体隔离的 sessions/bookmarks 中。
-- `media_player_leases`：session、可信 Host window identity、generation、token digest、expires_at；同session只有一个owner；另以应用级audio focus CAS保证至多一个owned audible session。
+- `media_player_leases`：`media_session_id,window_instance_id,navigation_epoch,generation,lease_token_digest,expires_at`；`lease_token_digest` 是 `leaseToken` 的唯一数据库命名，不再使用 nonce_digest/token_digest 同义列；同session只有一个owner；另以应用级audio focus CAS保证至多一个owned audible session。
 - `media_player_commands`：operation、session、generation、asset_id/playback_epoch及绝对desired state、claim/ack/expiry；Engine先提交指令再由owner消费。
 - `media_audio_focus`：singleton_id、owner_subject_id、media_session_id、playback_epoch、focus_token_digest、reason、revision、updated_at；CAS保护全应用单一owned发声，焦点规则见06-C5。
 
-Bridge：
+公开 Renderer Bridge（进入 envelope method enum/schema）。所有下列 MediaScope selector 使用同一 strict `oneOf`：user 分支 `{scopeKind:"user"}` 且禁止 scopeId，Engine 内部以 subject 作为 scope_id；project 分支 `{scopeKind:"project",scopeId:<1..128 bytes>}` 且必须授权。scopeKind 不得省略，也不允许从当前 route 或最后打开项目推断。Media Center 默认使用 user scope；从 project/workspace 的“在媒体中心打开”动作携带该已授权 project ID。所有 get-by-ID 方法仍由 Engine 反查 subject/scope，不接受重复 scope 参数：
 
 ```text
 media.session.get     { mediaSessionId }
-media.session.list    { scopeKind?, scopeId?, cursor?, limit? }
-media.session.watch   { scopeKind, scopeId }   // 真实 StreamingHandler
-media.session.create  { assetId, queueAssetIds?, scopeKind, scopeId, operationId }
+media.session.list    { scopeKind, scopeId?, cursor?, limit? }
+media.session.watch   { scopeKind, scopeId? }   // 真实 StreamingHandler
+media.session.create  { assetId, queueAssetIds?, scopeKind, scopeId?, operationId }
 media.session.command { mediaSessionId, action, positionMs?, volume?, expectedRevision, operationId }
 media.queue.command   { mediaSessionId, action, itemId?, beforeItemId?, expectedQueueRevision, operationId }
-media.asset.pick      { multiple? }   // x-owner=host；返回已私有登记的资产，不返回路径
-media.asset.list      { scopeKind, scopeId, mediaSessionId?, origin?, cursor?, limit? }
+media.asset.pick      { multiple?, scopeKind, scopeId? }   // x-owner=host；Host透传selector，Engine鉴权登记；不返回路径
+media.asset.list      { scopeKind, scopeId?, mediaSessionId?, sourceKind?, cursor?, limit? } // sourceKind=user_selected|artifact|workspace
 media.asset.open      { assetId, mediaSessionId }
 media.operation.get   { operationId }
-media.operation.list  { scopeKind, scopeId, cursor?, limit? }
-activity.list         { scopeKind, scopeId, domains?, cursor?, limit? }
-media.player.attach   { mediaSessionId, operationId }
-media.player.next     { mediaSessionId, leaseToken, generation }
-media.player.report   { mediaSessionId, leaseToken, generation, assetId, playbackEpoch, eventSeq, operationId?, event, positionMs?, durationMs?, errorCode? }
-media event payload   { mediaSessionId, revision, phase, verification, nowPlaying?, operation? }
+media.operation.list  { scopeKind, scopeId?, cursor?, limit? }
+activity.list         { scopeKind, scopeId?, domains?, cursor?, limit? }
+media event payload   { mediaSessionId, revision, phase, verificationStatus, verificationSource, nowPlaying?, operation? }
+```
+
+Host-private internal RPC（只进入 authenticated private pipe allowlist，不生成公开 schema，不得由 Renderer 调用）：
+
+```text
+internal.media.player.attach   { mediaSessionId, operationId, windowInstanceId, navigationEpoch }
+internal.media.player.next     { mediaSessionId, leaseToken, generation, windowInstanceId, navigationEpoch }
+internal.media.player.report   { mediaSessionId, leaseToken, generation, windowInstanceId, navigationEpoch, assetId, playbackEpoch, eventSeq, operationId?, event, positionMs?, durationMs?, errorCode? }
 ```
 
 `action` 限定为 play/pause/toggle/stop/previous/next/seek/set_volume/mute/unmute。参数不适用于动作时 schema fail-closed，例如 `seek` 必须有非负 `positionMs`，`play` 不接受 position。
@@ -817,19 +893,27 @@ media event payload   { mediaSessionId, revision, phase, verification, nowPlayin
 
 `media.session.watch` 必须走现有 StreamingHandler/streamId/sequence 机制；media event 是 `bridge.Event` 的 typed payload，不创建带 `x-method=media.event` 的普通请求 schema。event 只携带已提交 revision 的 invalidation/有界 patch，不能触发任何播放命令；断线、sequence gap 或 revision 跳号立即用 `media.session.list/get` 替换本地 snapshot。
 
-owned 播放闭环固定为 Engine command 事务 → player.next 领取绝对状态指令 → owner 执行 → player.report 回执 → 更新 session/watch。attach/next/report由x-owner=host代理，经既有internalRuntimeHandlers附加Host生成的windowInstanceId/navigationEpoch；Renderer不得指定owner。attach从可信上下文取得window ID，lease 30 秒、每 10 秒续租；同 owner 再次 attach 续租，换 owner 必须等过期并递增 generation。next 在未 ack 前可重放同指令，客户端按 operationId 去重；next/previous 的目标队列项由 Engine CAS 只计算一次，不能重放相对跳转。report只接受当前lease/generation、assetId/playbackEpoch、递增eventSeq；每次装载/重播增epoch，自然ended按session+epoch去重，命令回执operationId必填；客户端不得自报 verified=true。播放 Promise resolve 不构成成功证据，必须有实际 playing 事件；autoplay 被阻止显示手动播放按钮。timeupdate 最多每秒上报一次。刷新恢复快照但不自动出声。
+owned 播放闭环固定为 Engine command 事务 → player.next 领取绝对状态指令 → owner 执行 → player.report 回执 → 更新 session/watch。`internal.media.player.attach/next/report` 由 Host 经既有 `internalRuntimeHandlers` 私有调用并附加 Host 生成的 windowInstanceId/navigationEpoch；它们不使用公开 schema/x-owner 路由，Renderer 不得指定 owner。attach从可信上下文取得window ID，lease 30 秒、每 10 秒续租；同 owner 再次 attach 续租，换 owner 必须等过期并递增 generation。next 在未 ack 前可重放同指令，客户端按 operationId 去重；next/previous 的目标队列项由 Engine CAS 只计算一次，不能重放相对跳转。report只接受当前lease/generation、assetId/playbackEpoch、递增eventSeq；每次装载/重播增epoch，自然ended按session+epoch去重，命令回执operationId必填；客户端不得自报 verified=true。播放 Promise resolve 不构成成功证据，必须有实际 playing 事件；autoplay 被阻止显示手动播放按钮。timeupdate 最多每秒上报一次。刷新恢复快照但不自动出声。
 
-操作状态与播放状态分离：media_operations 使用 requested/awaiting_approval/dispatching/verifying/succeeded/uncertain/failed/cancelled；media_sessions 使用 idle/playing/paused/stalled/ended/uncertain/failed/stopped。上方时序图中的 resolving 表示 requested 阶段内的解析步骤，不是额外数据库枚举；两组状态不能合并。
+操作状态与播放状态分离：`media_operations.phase` 使用 requested/awaiting_approval/dispatching/verifying/succeeded/uncertain/failed/cancelled；`media_sessions.phase` 使用 idle/playing/paused/stalled/ended/uncertain/failed/stopped。上方时序图中的 resolving 表示 requested 阶段内的解析步骤，不是额外数据库枚举；两组状态不能合并，SQL、Go domain、Bridge DTO 与 React snapshot 都使用同名 `phase` 字段。
 
 现有 `media.play` 保持 Agent tool 名称和参数兼容：已登记 `assetId/sessionId` 走 owned/typed session；命名查询、用户明确 URL 和 browser/foreground/app 目标继续作为 `origin=external` 经过原 ToolRuntime/审批/急停路径。外部路径可以打开搜索页或外部播放器，但不下载、不抓取、不加入 owned queue；在匹配 SMTC 证据出现前最多为 `command_dispatched/uncertain`。外部调用方不需要同时理解两套工具。
 
-播放器挂在App共同根的持久MediaProvider，SessionPage仅订阅；切会话/设置/项目不卸载audio/video。整页刷新恢复暂停。TTS/麦克风音频焦点、同应用单一发声及外部媒体提示见06-C5，属于本期P0/P1而非后续优化。
+播放器挂在App共同根的持久MediaProvider，`MediaCenterPage`与条件式`MediaMiniPlayer`仅订阅同一 snapshot；切会话/设置/项目不卸载audio/video。整页刷新恢复暂停。TTS/麦克风音频焦点、同应用单一发声及外部媒体提示见06-C5，属于本期P0/P1而非后续优化。
 
 ### 8.6 UI 组件
 
-#### `MediaTray`
+#### `MediaCenterPage`、`MusicPlayerSurface` 与 `VideoPlayerSurface`
 
-全局底部轻量条，存在 active/paused session 时显示；包含封面、标题/艺术家、播放/暂停、上一首/下一首、进度和验证标记。点击展开，不遮挡输入框和系统审批。
+左侧“办公”分组新增一级入口“媒体中心”，不藏在设置或聊天工具轨迹中。媒体中心是完整播放界面：音乐与视频使用两个独立表面但共享同一 Engine snapshot、队列和权限合同。音乐表面突出封面、标题、播放控制、进度和队列；视频表面提供真实 16:9 画面、字幕/音量/进度及全屏入口。切换表面不得复制播放状态或启动第二个 audible session。
+
+无播放会话时，媒体中心显示选择本地合法资产/已登记 artifact 的空状态，应用其他页面不渲染任何播放器。创建 idle session 本身不等于开始播放；只有用户在媒体中心明确开始播放并得到 playing/paused 等有效 snapshot 后，才进入“当前播放会话”。
+
+#### `MediaMiniPlayer`
+
+用户从媒体中心开始播放后，离开媒体中心时在内容区右下显示约 60–66 px 高的迷你播放器；返回媒体中心时隐藏迷你层，避免同一控件重复。首发迷你播放器只保留封面、两行内标题、只读紧凑进度、播放/暂停和关闭；上一首、下一首、可拖动 seek、队列、音量、倍速、字幕等操作回到媒体中心完成。它不能横跨整个应用底部，也不能遮挡聊天输入框、审批或系统提示。
+
+暂停只改变 session 为 paused，保留会话、位置和迷你播放器；用户点击关闭才执行既有 `stop` command、释放当前 ticket/播放焦点并从活动 UI 中移除当前会话，历史 operation/bookmark 仍按数据策略保留。stopped/ended 且无可继续队列、failed 或不存在 active session 时不显示迷你播放器。整页刷新只恢复 paused snapshot，不自动出声。
 
 #### `MediaQueueDrawer`
 
@@ -839,34 +923,40 @@ owned 播放闭环固定为 Engine command 事务 → player.next 领取绝对�
 
 在聊天工具轨迹中显示“准备目标 → 等待授权 → 已发送 → 正在核验 → 已确认/无法确认/失败”，并提供依据，例如“Windows 媒体会话报告正在播放”。不显示底层脚本、密钥或用户绝对路径。
 
-#### `NowPlayingBadge`
+#### `PlaybackStatus`
 
-在 SessionPage、月伴舞台和媒体资产详情复用。verified 与 uncertain 使用文字+图标双编码，不能只靠颜色。
+verified 与 uncertain 的文字+图标双编码只在媒体中心、迷你播放器和相关操作卡片内复用，不在 SessionPage 再常驻一个重复播放组件。
 
-#### `ActivityCenter`
+#### `ActivityStatusButton` 与 `ActivityCenter`
 
-把长任务、OCR 安装、模型下载和媒体操作统一为可恢复活动列表；媒体播放控件仍由 MediaTray 负责，不把所有状态强塞进 ToolTrajectory。
+把长任务、OCR 安装、模型下载和媒体操作统一为可恢复活动列表；入口固定在应用顶部状态区，以按钮打开 ActivityCenter 弹层/抽屉，不占左侧主导航。无运行、失败或待处理活动时保持安静，不用持续数字角标制造负担；有进行中或需要恢复的活动时显示文字/图标状态，不能只靠颜色。媒体播放控件由媒体中心和条件式迷你播放器负责，不把所有状态强塞进 ToolTrajectory。
 
-首发不再造第四套活动数据库。现有operation.list没有跨scope/cursor/时间DTO，不能承担完整活动中心。新增activity.list聚合已有工具journal、OCR operations/runs、media_operations；前端通过下列DTO展示。稳定分页、授权、去重及真实后端文件在06文档C6/X3定义：
+首发不再造第四套活动数据库。现有operation.list没有跨scope/cursor/时间DTO，不能承担完整活动中心。新增 `activity.list` 聚合已有工具 journal、OCR operations/runs、media_operations；request 的 `domains` 是可选 unique array，元素只允许 `tool|ocr|media`、1..3 项，省略表示全部，空数组拒绝；scope 使用 8.5 的 strict oneOf，limit 默认 50、范围 1..100。前端只通过下列 exact DTO 展示，稳定分页、授权、去重及真实后端文件在06文档C6/X3定义：
 
 ```text
 ActivitySnapshot {
   activityId, domain: tool|ocr|media, kind,
-  phase, terminal, verification?, title,
-  completedUnits?, totalUnits?, errorCode?, retryable,
+  phase: queued|awaiting_approval|running|verifying|succeeded|uncertain|failed|cancelled,
+  terminal,
+  verificationStatus: not_applicable|not_started|pending|confirmed|unconfirmed,
+  verificationSource: none|process|window|uia|smtc|owned_runtime|artifact,
+  title, completedUnits: null|integer, totalUnits: null|integer,
+  errorCode: null|string, retryable,
   recoveryAction: none|retry|cancel|open_settings|open_player|select_asset,
-  scopeKind, scopeId, createdAt?, updatedAt?, rootOperationId?
+  scopeKind, scopeId: null|string,
+  createdAt: null|date-time, updatedAt: null|date-time, rootOperationId: null|string
 }
 ```
 
-DTO不含正文、OCR文本、路径、URL、歌词或底层异常。OCR安装靠snapshot轮询；media/tool事件触发刷新activity.list及详情get。活动分页与权限由后端聚合负责。web/src/activity/activitySnapshot.ts为唯一DTO归属；缺失旧时间显示未知，不编造时间。
+DTO 的上述字段全部 required；nullability 不得改成省略。`terminal` 只由 normalized phase 是否属于 `succeeded|uncertain|failed|cancelled` 派生。completedUnits/totalUnits 必须同为 null 或满足 `0<=completed<=total` 且 total>0。DTO不含正文、OCR文本、路径、URL、歌词或底层异常。OCR安装靠snapshot轮询；media/tool事件触发刷新activity.list及详情get。活动分页与权限由后端聚合负责。web/src/activity/activitySnapshot.ts为唯一DTO归属；缺失旧时间返回 null、UI 显示“未知”，不编造时间。
 
 ### 8.7 视觉与交互规范
 
 - 沿用 Lunitide 现有颜色、圆角、字体和层级 token，不复制白龙马品牌视觉。
-- Tray 高度：compact 56 px；expanded 最大占窗口高度 40%；窄屏进入两行布局。
+- 媒体中心可使用现有薄荷绿—蓝灰—电光紫品牌光场作为单一主视觉；普通设置和列表保持纯黑/近黑背景，不把渐变铺满所有卡片。
+- 迷你播放器桌面高度约 60 px、右下悬浮，宽度随标题有界；680–959 px 折叠次要信息，<680 px 可退化为带安全边距的底部浮层，但不得在桌面端横跨全宽或遮挡输入/审批。
 - 进度条需键盘可操作；按钮具备中文 aria-label、focus-visible、disabled 和 loading 状态。
-- 动画只用于 tray 展开/收起和状态过渡；遵守 `prefers-reduced-motion`。
+- 动画只用于迷你播放器出现/退出、面板展开和状态过渡；遵守 `prefers-reduced-motion`。
 - 封面缺失使用统一占位，不从未知域加载远程图片。
 - 歌词使用纯文本节点或严格消毒后的结构；搜索高亮不得使用未消毒 HTML。
 - 每个失败状态都给出一个真实恢复动作：重试核验、打开外部播放器、切换本地资产、查看设置或取消；没有可恢复动作时明确结束。
@@ -877,6 +967,8 @@ DTO不含正文、OCR文本、路径、URL、歌词或底层异常。OCR安装�
 - SMTC 标题与目标不匹配：不得把另一个应用的媒体会话算成功。
 - owned `<audio>/<video>` 触发 `playing` 后才能 verified；`error/stalled` 正确进入 failed/uncertain；大文件 seek 必须产生正确单段 Range 响应而不是 Base64 全量读入。
 - 页面刷新/离开/回到会话后，以 `media.session.get/list` 恢复同一 revision 和进度，不重复执行 play/next。
+- 无当前播放会话时，聊天/办公/设置/项目/AgentHub 页不渲染播放器；从媒体中心开始播放后离开该页显示右下约 60 px MiniPlayer，暂停后仍显示并保持位置，关闭后 stop、释放 ticket/焦点并隐藏。音乐/视频表面及 MiniPlayer 使用同一 snapshot，页面间不产生第二路声音；AgentHub 的替换侧栏与 44px shell header 不得遮挡 MiniPlayer、顶部 Activity 或焦点环。
+- 活动中心只能从顶部状态入口打开，不占左侧“办公”一级导航；长任务失败后从该入口仍能定位证据和真实恢复动作。
 - revision 冲突、重复 operationId、快速连点、急停、播放器退出、文件被移走、格式不支持均有确定终态。
 - 恶意标题、歌词、封面 URL、媒体路径不能执行脚本或越过工作区/用户选择授权。
 
@@ -886,7 +978,7 @@ DTO不含正文、OCR文本、路径、URL、歌词或底层异常。OCR安装�
 
 ### 9.1 通用写操作信封
 
-所有会改变记忆、模型包或媒体会话的 Bridge 调用统一使用现有 Request envelope 的顶层 `idempotencyKey`；业务 payload 携带 `operationId` 和目标聚合的 `expectedRevision`：
+所有会改变记忆、模型包或媒体会话的 Bridge 调用统一使用现有 Request envelope 的顶层 `idempotencyKey`。创建用户可见操作的方法在 payload 携带 `operationId`；只有修改已存在、具有 CAS 版本的目标聚合时才携带该方法定义的 `expectedRevision`。例如 `memory.item.create` 没有旧 head 可比较，明确不带 `expectedRevision`；每个方法仍以 9.2～9.4 的精确表为准。典型“修改既有聚合”信封为：
 
 ```json
 {
@@ -899,8 +991,9 @@ DTO不含正文、OCR文本、路径、URL、歌词或底层异常。OCR安装�
 ```
 
 - `operationId` 是一次用户可见操作的 ULID，用于审计与活动中心关联。
+- 异步 mutation 的 `activityId` 不生成第二个业务 ID，固定逐字等于已接受的 `operationId`；`ActivitySnapshot` 的稳定键是 `(domain,activityId)`。非 mutation 的 OCR run/工具 journal 投影使用各自稳定 run/journal ID 作为 `activityId`，并始终带 `domain`。
 - 同一个 `idempotencyKey`、同一主体、同一方法重复调用，返回第一次提交的终态；不得重复保存、重复安装或重复跳到下一首。
-- 有 revision 的聚合必须执行 CAS。Memory、pack 和 media 新聚合使用正整数 revision；兼容的 `ocr.routing.*` 与现有 Memory settings 接口继续使用当前 64 位小写十六进制 revision，由 adapter 映射新字段。冲突返回最新 snapshot；新方法用 `REVISION_CONFLICT`，现有接口保留其当前冲突码，不自动覆盖。
+- 有 revision 的聚合必须执行 CAS。Memory、pack 和 media 新聚合使用正整数 revision；兼容的 `ocr.routing.*` 与 `memory.settings.*` legacy 分支继续使用当前 64 位小写十六进制 revision，`memory.settings.*` R3 分支使用整数 revision，二者由 adapter 映射但不得在同一请求混用。冲突返回最新 snapshot；新方法用 `REVISION_CONFLICT`，现有接口保留其当前冲突码，不自动覆盖。
 - 每个响应都包含 `requestId`；异步操作另含 `activityId`。
 - 删除、取消、卸载等操作只有落库后才返回成功；排队成功使用 `accepted`，不能写 `completed`。
 
@@ -912,6 +1005,7 @@ DTO不含正文、OCR文本、路径、URL、歌词或底层异常。OCR安装�
 memory.item.list
 memory.item.get
 memory.item.history
+memory.item.create
 memory.item.correct
 memory.item.forget
 memory.capture.undo
@@ -926,7 +1020,20 @@ memory.import.commit
 memory.purge.prepare
 ```
 
+generation/import 的公开合同逐字如下；scopeId 对 generation.list 仍使用 user 禁止/project 必填的 strict oneOf，所有对象 `additionalProperties=false`，完整 DTO 和错误码以 06-C1 为唯一技术合同：
+
+| 方法 | payload | result |
+|---|---|---|
+| `memory.generation.list` | `scopeKind,scopeId?,cursor?,limit?` | `items,nextCursor,databaseRevision` |
+| `memory.generation.preview` | `generationId,cursor?,limit?` | `generation,changes,nextCursor` |
+| `memory.generation.activate` | `generationId,expectedRevision,operationId` + 顶层 idempotencyKey | `generation,databaseRevision,operationId` |
+| `memory.generation.discard` | `generationId,expectedRevision,operationId` + 顶层 idempotencyKey | `generation,databaseRevision,operationId` |
+| `memory.import.preview` | `sourceArtifactId,operationId` + 顶层 idempotencyKey | `previewId,sourceArtifactId,archiveDigest,manifestDigest,databaseRevision,expiresAt,counts,warnings,operationId` |
+| `memory.import.commit` | `previewId,archiveDigest,manifestDigest,expectedDatabaseRevision,operationId` + 顶层 idempotencyKey | `previewId,state,importedCount,reviewCount,skippedCount,conflictCount,databaseRevision,operationId` |
+
 关键请求：
+
+`memory.item.create` 是 manual 模式和记忆中心“主动新增”的唯一 canonical 写入口。公开 payload 不接受 `subjectId`、`expectedRevision`、kind、authority、confidence、validFrom 或 expiresAt；公共字段仅为 `scopeKind` (`user|project`)、项目作用域时的 `scopeId`、`operationId`，正文来源再做禁止额外字段的严格 `oneOf`：高级抽屉“手动新增”只传 `text` 且禁止 `sourceRef`；用户消息“保存为记忆”只传 `sourceRef` 且禁止 `text`。`sourceRef` 自身也是严格 `oneOf`：`{messageId}` 表示整条已持久化 user message，Engine 重读原文并解析为 `[0,len(UTF-8 bytes))`；`{messageId,startByte,endByte}` 表示该消息内显式半开 UTF-8 byte span。两个偏移必须同时出现，只出现一个或落在非 UTF-8 边界均以 `MEMORY_SOURCE_INVALID` 拒绝。sourceRef 分支的 canonical 正文只能由 Engine 解码该原始 span 得到，客户端无权另传正文，因此不存在“无关消息冒充证据”；当前用户消息旁入口固定使用整条消息形式，局部文本入口今后只能使用三字段形式，不得靠客户端显示文本反推偏移。Engine 从认证身份和真实 source receipt 解析 subject/evidence；直接 text 分支的 evidence `source_kind` 固定为 `user_direct_entry`，不得伪造聊天引用。实现计划中的 `explicit_ui` 是 operation receipt 的 `receipt_kind`，不是第二个 evidence source_kind，也不得写入 `memory_evidence_spans.source_kind`。服务端用本地确定性分类选择 kind，不能唯一判断时固定回退 `episode`，并以提交时间作为 `valid_from`、`expires_at=NULL`，不得依赖远端模型才能保存。服务端执行敏感过滤、scope 授权、去重和幂等后固定返回 `{item,databaseRevision,undoOperationId,undoExpiresAt}`；undo 窗口为 24 小时并遵守后续修改冲突规则。`off` 返回 `MEMORY_MODE_OFF`，对应 scope=false 返回 `MEMORY_SCOPE_DISABLED`，不得静默保存。
 
 ```json
 {
@@ -947,7 +1054,7 @@ memory.purge.prepare
 - `this_version`：必须带targetVersion与expectedRevision；删除该版本正文，若其为current则恢复未忘记的有效前版本，否则head为空；
 - `fact_history`：墓碑化该事实的全部版本；
 - `subject_rule`：删除命中项，并增加“此类信息不再保存”的 deny rule；
-- `scope_all`：不允许 `memory.item.forget` 执行；先调用 `memory.purge.prepare {scopeKind,scopeId,expectedDatabaseRevision}`，服务端返回 counts/snapshotDigest 和 5 分钟一次性 confirmation token。随后现有 `memory.purge` 必须携带 token、digest、revision、operationId 与顶层 idempotencyKey，原子 consume grant 后清理。空 payload 或只通过浏览器 `window.confirm` 的请求一律返回 `PURGE_CONFIRMATION_REQUIRED`，不得直接删除。
+- `scope_all`：不允许 `memory.item.forget` 执行；先调用 mutation `memory.purge.prepare {scopeKind,scopeId?,expectedDatabaseRevision,operationId}` 并携带顶层 `idempotencyKey`，scopeId 遵循 user 禁止/project 必填规则。服务端持久化 grant，返回 `{counts,snapshotDigest,confirmationToken,expiresAt,operationId}`；confirmation token 5 分钟、一次性且数据库只存 digest。同 key 同 payload 重放首次 receipt，同 key 变参返回 `OPERATION_REPLAY_MISMATCH`。随后现有 `memory.purge {confirmationToken,snapshotDigest,expectedDatabaseRevision,operationId}` 必须携带新的顶层 `idempotencyKey`，原子 consume grant 后清理并返回 deletion receipt。prepare 与 purge 使用两个不同的 operationId；空 payload 或只通过浏览器 `window.confirm` 的请求一律返回 `PURGE_CONFIRMATION_REQUIRED`，不得直接删除。
 
 memory.capture.undo在24小时内撤销capture operation仍拥有的版本；任一项已被后续修改则整批MEMORY_UNDO_CONFLICT、零删除。撤销纠正可恢复未被遗忘的前版本head；同幂等键重放原结果。
 
@@ -970,24 +1077,31 @@ ocr.pack.get
 ocr.pack.install
 ocr.pack.cancel
 ocr.pack.uninstall
+ocr.pack.notice.list
+ocr.pack.notice.read
 ocr.run.get
 ocr.run.list
 ocr.artifact.read
 ```
 
-`ocr.pack.install` 请求仅接受 catalog 中的 `packId=paddleocr-vl-1.6`、`catalogRevision` 和 `acceptedManifestDigest`，服务端从白名单选择版本；不接受任意 URL、任意 pip 参数或任意本地命令。响应为：
+`ocr.pack.install` 请求仅接受 catalog 中的 `packId=paddleocr-vl-1.6`、`catalogRevision`、`acceptedManifestDigest`、`expectedRevision` 和 `operationId`，服务端从白名单选择版本；不接受任意 URL、任意 pip 参数或任意本地命令。通过 gate 后的接受响应固定为（通用 envelope 外层仍按现有 Bridge 编码）：
 
 ```json
 {
+  "requestId": "d70133df-f677-4c14-9ea7-b46b8df92c78",
+  "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
   "activityId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "accepted": true,
   "packId": "paddleocr-vl-1.6",
-  "state": "preflighting",
-  "catalogRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "installedRevision": null
+  "phase": "requested",
+  "packRevision": 8,
+  "operationRevision": 1
 }
 ```
 
-首发安装进度由 `ocr.pack.get` 的 snapshot 轮询恢复；字段包括 `state/stage/completedBytes/totalBytes/errorCode/retryable/revision`，不把网络错误正文或本地绝对路径直接送往 UI。`ocr.run.list` 必须分页、有 scope，并且只返回有界摘要；大正文经授权 artifact 读取。
+这里 `activityId === operationId` 是强约束。uninstall 采用同形 receipt；cancel 不创建第二个 operation，固定返回 `{requestId,operationId,activityId,cancelRequested,phase,operationRevision}`，其中 activityId 仍等于目标 operationId。gate 未通过时返回稳定错误而非 receipt，并且 operation、activity、下载、staging 与 runner job 的新增数均为 0。
+
+首发安装进度由 7.6 节冻结的 `ocr.pack.get` 四段 snapshot 轮询恢复，UI 只读 `pack.availability`、`gate.*`、`operation.phase/completedBytes/totalBytes` 与 `release.*`，展示百分比只能由两个 byte 字段派生，不得再造扁平 `state/stage/progress` DTO。设置/关于页的 NOTICE 只能经有界 `ocr.pack.notice.list→ocr.pack.notice.read` 发现并读取；网络错误正文或本地绝对路径不得送往 UI。`ocr.run.list` 必须分页、有 scope，并且只返回有界摘要；大正文经授权 artifact 读取。
 
 OCR 识别结果统一返回：
 
@@ -1005,16 +1119,19 @@ fallbackChain, startedAt, finishedAt, confidenceAvailable
 
 ```json
 {
+  "requestId": "d70133df-f677-4c14-9ea7-b46b8df92c78",
   "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "activityId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
   "mediaSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
   "phase": "verifying",
-  "verification": "command_dispatched",
+  "verificationStatus": "pending",
+  "verificationSource": "none",
   "revision": 12,
   "acceptedAt": "2026-09-14T00:00:00Z"
 }
 ```
 
-终态经 `media.event` 或重新读取 snapshot 获得。外部播放器无法回读时，合法终态是 `uncertain`，不是失败也不是成功播放。
+异步媒体 command 同样满足 `activityId === operationId`。`phase=verifying` 已表达命令完成派发并等待证据；接受 receipt 不能把“已派发”塞进核验来源，所以固定为 `verificationStatus=pending,verificationSource=none`。终态经 `media.event` 或重新读取 snapshot 获得：有实际证据时 operation 变 `confirmed` 并填写来源；超时无证据时 operation 变 `unconfirmed` 且 phase=`uncertain`。外部播放器无法回读不是失败，也不是成功播放。MediaSession 自身使用 8.3 的播放专用 verificationStatus 闭集，不能与 operation/activity 的通用闭集互换。
 
 ### 9.5 稳定错误码
 
@@ -1023,11 +1140,31 @@ fallbackChain, startedAt, finishedAt, confidenceAvailable
 | 通用 | `REVISION_CONFLICT` | 先回读 | 刷新最新状态，保留用户尚未提交的输入。 |
 | 通用 | `SCOPE_DENIED` | 否 | 不显示受限正文；说明作用域不允许。 |
 | 通用 | `OPERATION_REPLAY_MISMATCH` | 否 | 同一幂等键参数不一致，要求重新发起。 |
+| 通用 | `PRE_MIGRATION_BACKUP_REQUIRED` | 修复配置后重试 | 已有库待升级但没有一致备份 hook；停止启动，不执行 migration。 |
+| 通用 | `SETTINGS_VERSION_CONFLICT` | 先回读 | 保留旧 OCR routing 的 SHA CAS 语义，刷新后让用户重试。 |
 | Memory | `MEMORY_EVIDENCE_MISMATCH` | 否 | 不晋升；进入隔离并显示“来源校验失败”。 |
+| Memory | `MEMORY_SOURCE_INVALID` | 否 | 不保存；来源不存在、角色错误、被修改或 span 不是合法 UTF-8 边界。 |
+| Memory | `MEMORY_SCOPE_DENIED` | 否 | 不泄露事实是否存在；客户端来源或目标 scope 未获授权。 |
+| Memory | `MEMORY_SCOPE_DISABLED` | 用户开启后可重试 | 对应个人/项目范围已关闭；零写入、零索引。 |
+| Memory | `MEMORY_MODE_OFF` | 用户开启后可重试 | 记忆模式关闭；显式保存和自动捕获均为零。 |
+| Memory | `MEMORY_SETTINGS_CONFLICT` | 先回读 | 设置 revision/version 冲突；保留本地草稿，不静默覆盖。 |
+| Memory | `MEMORY_UNDO_CONFLICT` | 否 | 批次中已有后续修改；整批不撤销，不做部分删除。 |
+| Memory | `PURGE_CONFIRMATION_REQUIRED` | 完成 prepare 后重试 | 必须使用未过期、同主体/范围/revision 的一次性确认 grant。 |
+| Memory | `EXPORT_TOO_LARGE` | 改用备份 | 超过 64 MiB 或 100000 行 portable archive 上限；不返回截断导出。 |
 | Memory | `MEMORY_CONFLICT_REVIEW_REQUIRED` | 否 | 对话不中断；送静默审阅箱。 |
 | Memory | `MEMORY_INDEX_UNAVAILABLE` | 是 | 回退 canonical recent/FTS；记录 degraded，不阻断聊天。 |
 | Memory | `MEMORY_IMPORT_DIGEST_MISMATCH` | 否 | 禁止 commit，列出受影响记录数。 |
 | OCR | `OCR_PACK_NOT_INSTALLED` | 否 | 路由到 Windows/云端并提示可选安装。 |
+| OCR | `OCR_PROBE_REQUIRED` | 是 | 仅用于 P01→P07 兼容窗口：显示“尚未检查”，绝不标 ready；P07 接线后以六态 probe 取代。 |
+| OCR | `NO_VERIFIED_RUNTIME_PROFILE` | 否 | 禁用 Paddle 安装；不得创建 operation、下载目录或 worker。 |
+| OCR | `OCR_LEGACY_ENGINE_UNWIRED` | 否 | 拒绝把 PP-OCR 登记保存为执行偏好；保留 Windows 可用路径。 |
+| OCR | `OCR_SCOPE_REQUIRED` | 否 | 内部旧调用缺可信作用域；不借用全局身份。 |
+| OCR | `OCR_SCOPE_FORBIDDEN` | 否 | run/artifact 不属于当前主体或范围；不泄露存在性。 |
+| OCR | `OCR_OPERATION_NOT_CANCELLABLE` | 否 | 正在校验/原子激活；显示当前阶段并等待终态。 |
+| OCR | `OCR_PACK_BUSY` | 是 | 当前版本仍有运行租约；不强删 DLL，稍后重试。 |
+| OCR | `OCR_PACK_NOTICE_UNAVAILABLE` | 否 | 本机无该受信 NOTICE 或保留 blob 校验失败；刷新 NOTICE 列表并保持该条许可入口禁用，不联网补取。 |
+| OCR | `OCR_ARTIFACT_MISSING` | 条件式 | 显示结果已过期/不存在，不返回半个正文。 |
+| OCR | `OCR_ARTIFACT_CORRUPT` | 否 | 隔离损坏结果，不进入上下文；允许重新识别源文档。 |
 | OCR | `OCR_MANIFEST_UNTRUSTED` | 否 | 删除 staging 引用，禁止启动 worker。 |
 | OCR | `OCR_HASH_MISMATCH` | 是 | 丢弃本次 staging；允许从零重试。 |
 | OCR | `OCR_DISK_INSUFFICIENT` | 条件式 | 显示所需与可用字节，不启动下载。 |
@@ -1038,6 +1175,7 @@ fallbackChain, startedAt, finishedAt, confidenceAvailable
 | Media | `MEDIA_CAPABILITY_UNAVAILABLE` | 否 | 禁用对应控件，不尝试模拟。 |
 | Media | `MEDIA_TARGET_MISMATCH` | 是 | 不报播放成功；重新解析目标。 |
 | Media | `MEDIA_UNVERIFIED` | 是 | 显示“命令已发送，无法确认”，提供重新核验。 |
+| Media | `MEDIA_AUTOPLAY_BLOCKED` | 用户手势后重试 | 不假报播放；显示明确“点击播放”。 |
 | Media | `MEDIA_SOURCE_GONE` | 否 | 标记队列项不可用并让用户重新选择。 |
 
 低价值记忆被硬过滤是正常决策，不是用户错误；只写聚合指标 `capture_drop_total{reason}`，不创建包含原文的错误记录。
@@ -1055,14 +1193,14 @@ fallbackChain, startedAt, finishedAt, confidenceAvailable
 | MEM-003 | P0 | 硬过滤问候、感谢、天气/价格等即时查询、一次性命令、纯助手文本和敏感正文。 | 固定负例集逐类通过；secret canary 0 条正文/embedding/事件 payload 落库。 |
 | MEM-004 | P0 | 明确稳定资料、偏好、目标、约束、纠正和可复用流程可自动保存。 | 固定正例集输出正确 kind、scope、authority 和来源；重复输入不制造当前事实副本。 |
 | MEM-005 | P0 | 每次晋升前真实读取来源并重算 digest。 | 修改/缺失源消息的测试必须失败为 `MEMORY_EVIDENCE_MISMATCH`。 |
-| MEM-006 | P0 | 用户/工作区/项目/会话作用域在查询、索引、导出和 UI 一致执行。 | 跨主体与跨项目隔离测试 100% 拒绝；缓存键包含主体与 scope。 |
+| MEM-006 | P0 | 用户/工作区/项目/会话作用域在查询、索引、导出和 UI 一致执行；个人/项目用户开关同时门控该归属范围的捕获、显式保存、working、搜索、召回和注入。 | 跨主体/全部 scope 隔离测试 100% 拒绝；个人关时个人全链调用为0且项目仍可用，项目关反之，两者关时捕获/注入均为0；缓存键含主体/scope/settings revision 并在切换后失效。 |
 | MEM-007 | P0 | 用户纠正创建新版本并关闭旧版本有效期。 | “我不再用 A，改用 B”后只注入 B；历史页可见 A 的有效期和替代关系。 |
 | MEM-008 | P0 | 单条遗忘、主题禁记与整库清理均可验证。 | 删除后 canonical、FTS、dense、缓存和当前生成均不可召回；导出只含墓碑元数据。 |
 | MEM-009 | P1 | 查询采用 FTS、dense、时间、关系与 pinned 多路候选，再统一重排和去冗余。 | 关闭任一路由时仍有可预期降级；同一 fact 不因多路命中重复注入。 |
 | MEM-010 | P1 | 使用模型可解析的精确 tokenizer；不支持时使用加 15% 裕量的 canonical estimator。 | 每次 trace 记录 tokenizerId/mode/margin、available/selected/dropped；unknown model 不标 exact，最终注入不越过 6.5.2 上限。 |
 | MEM-011 | P1 | 写入与召回反馈闭环但不自证。 | recall/citation/correction/dismiss 只影响排序或审阅；不能独立把 observation 晋升为直接事实。 |
 | MEM-012 | P1 | 后台整理为 copy-on-write generation。 | 取消/崩溃/校验失败不改变 active generation；激活是单事务 CAS。 |
-| MEM-013 | P1 | 记忆中心提供最近自动保存、搜索、来源、时间线、审阅、纠正、撤销和隐私设置。 | 页面刷新可由 snapshot 恢复；关键操作键盘和读屏可完成。 |
+| MEM-013 | P1 | “智能能力”两卡入口与记忆详情提供三态/双 scope 设置、主动新增、最近自动保存、搜索、来源、时间线、审阅、纠正、撤销和隐私设置。 | overview 恰好两卡；设置抽屉与单列列表按需加载；页面刷新可由 snapshot 恢复；关键操作键盘和读屏可完成。 |
 | MEM-014 | P0 | 完整 v2 导出、导入预演和提交。 | 存量 `memories` 和治理平面都被 manifest 覆盖；round-trip 后有效/current/删除语义一致。 |
 | MEM-015 | P0 | 存量迁移可重入、可审计、可安全降级。 | 同一迁移重复三次无新增副本；降级 hybrid 后 canonical 基础读取仍可见 v2-only 事实；旧接口不能复活已忘记数据。 |
 | MEM-016 | P1 | 明确离线退化行为。 | 无提取模型时确定性显式规则仍工作；其余进入不含敏感正文的 pending 计数，不阻断回答。 |
@@ -1073,15 +1211,15 @@ fallbackChain, startedAt, finishedAt, confidenceAvailable
 
 | ID | P | 需求 | 可验证验收 |
 |---|---:|---|---|
-| OCR-001 | P0 | Windows OCR 保持安装即用，Paddle 包默认未安装。 | 全新安装不下载模型；现有 Windows OCR 回归用例全过。 |
+| OCR-001 | P0 | Windows OCR 保持零额外模型下载的默认本地路径，但可用性必须实测；Paddle 包默认未安装。 | 全新安装不下载模型；真实 WinRT probe 覆盖 ready/缺语言包/初始化失败/超时/非Windows，UI 不凭平台名称假报 ready；现有识别回归全过。 |
 | OCR-002 | P0 | 模型包只能从签名 catalog 安装，并校验每个文件 digest。 | catalog/manifest/文件任一被篡改均不能进入 ready。 |
 | OCR-003 | P0 | 安装支持预检、可见进度、取消、失败清理和重试。 | 每个状态转移有持久化 snapshot；重启后不会把半包标记 ready。 |
 | OCR-004 | P0 | 运行完整 layout + VLM pipeline，并准确报告 pipelineKind/version。 | 缺少 layout 组件时健康检查失败；不得报告 `paddleocr_vl_full`。 |
 | OCR-005 | P0 | 签名一方 worker 采用应用级 offline policy，受超时/内存/进程/输出限制且协议只接受显式任务引用；不得把 Job Object 描述为网络/文件沙箱。 | URL/越权引用被协议拒绝，worker 不继承凭据/代理，断网干净机完整 pipeline 可运行；输出炸弹/挂死被终止；测试报告明确 OS egress 不在首发保证内。 |
-| OCR-006 | P0 | 路由按文本层、任务类型、安装健康和策略确定性选择。 | 同一输入与配置得到同一路由解释；结果包含完整 fallbackChain。 |
+| OCR-006 | P0 | 路由按主体请求快照、文本层、任务类型、安装健康和策略确定性选择；旧 PP-OCR 登记永不成为执行器。 | 同一输入与配置得到同一路由解释；识别中切主体/设置不改变本次快照；legacy marker 的执行调用数为0；结果包含完整 fallbackChain。 |
 | OCR-007 | P0 | 任一 Paddle 故障不得破坏 Windows/云端路径。 | 缺包、校验失败、启动失败、超时、崩溃分别通过故障注入。 |
 | OCR-008 | P1 | 输出区分纯文本、结构化 Markdown、layout blocks 和警告。 | 表格/公式/印章等无法可靠识别时显式 warning，不伪造置信度。 |
-| OCR-009 | P1 | 设置页说明下载、磁盘、预计设备要求、隐私和卸载影响。 | 数值来自当前签名 manifest/实机 preflight，不使用硬编码宣传数。 |
+| OCR-009 | P1 | “智能能力→文字识别”以只读自动状态+可选增强呈现；高级区说明云端授权、下载、磁盘、设备要求、legacy 登记、隐私和卸载影响。 | OCR 不再重复出现在路由页；provider 失败不遮蔽本地状态；数值来自签名 manifest/实机 preflight，不使用硬编码宣传数。 |
 | OCR-010 | P0 | 盲测决定自动路由，不以厂商指标代替。 | 7.8 节数据集和报告入库；未过 gate 时只提供手动使用。 |
 | OCR-011 | P1 | 卸载安全处理活动作业和历史结果。 | 有运行任务时先取消并等待终态；删除模型文件但保留结果元数据和 license notice。 |
 | OCR-012 | P1 | 安装包许可证/NOTICE 可离线查看。 | catalog、安装目录和关于页均能定位版本、来源、许可证与修改声明。 |
@@ -1097,33 +1235,33 @@ fallbackChain, startedAt, finishedAt, confidenceAvailable
 | MEDIA-001 | P0 | `MediaSession` 统一 owned 与 external，但能力分型。 | external 未声明的 seek/queue 控件不出现或 disabled。 |
 | MEDIA-002 | P0 | 修复“只发送媒体键即报成功”。 | 无 SMTC 回读时终态 `uncertain/MEDIA_UNVERIFIED`。 |
 | MEDIA-003 | P0 | owned 播放器仅处理被授权本地/生成资产。 | 路径越权、未知远端 URL、脚本型元数据和失效 artifact 被拒绝。 |
-| MEDIA-004 | P1 | owned 支持播放、暂停、seek、音量、队列、自动下一首和断点。 | 浏览器事件驱动状态；刷新后恢复但不未经手势自动出声。 |
+| MEDIA-004 | P1 | owned 支持播放、暂停、关闭、seek、音量、队列、自动下一首和断点。 | 浏览器事件驱动状态；暂停保留 active session/位置，关闭映射 stop 并释放资源；刷新后恢复但不未经手势自动出声。 |
 | MEDIA-005 | P1 | external 控制使用 SMTC 优先，全局键/UIA 是低置信兜底。 | 目标元数据不匹配不得 verified；播放器退出得到确定终态。 |
 | MEDIA-006 | P1 | 快速操作 CAS + 幂等。 | 双击 next、乱序 event、旧 revision command 不造成两次跳转。 |
-| MEDIA-007 | P1 | MediaTray/QueueDrawer/OperationCard/NowPlaying 共享同一 snapshot。 | 四处显示的 title/phase/revision 一致；无各自本地真相。 |
+| MEDIA-007 | P1 | MediaCenter/MiniPlayer/QueueDrawer/OperationCard 共享同一 snapshot。 | 音乐与视频为独立表面但 title/phase/revision 一致；无 session 时其他页面不显示播放器，paused 显示、close 后隐藏且无各自本地真相。 |
 | MEDIA-008 | P1 | 播放历史默认不写长期偏好。 | 单次播放不产生日志正文记忆；只有满足 MEM derived observation 规则才进入审阅。 |
 | MEDIA-009 | P0 | 不实现第三方受保护内容抓取/下载/绕过。 | 工具 schema 不存在相应动作；URL allowlist 测试 fail-closed。 |
 | MEDIA-010 | P0 | 本地歌曲/电影使用 host 私有登记和 WebView2 Range resource broker，不经 Base64 Bridge 暴露大文件。 | Renderer/API/日志拿不到绝对路径或 ticket 映射；GET/HEAD/单 Range 通过，multi-range、过期 ticket、换文件、跨 scope 和 traversal 得到确定拒绝。 |
-| UI-001 | P1 | ActivityCenter 汇总 OCR 安装、长工具和媒体操作。 | 支持 running/failed/uncertain 筛选，页面重开可恢复。 |
+| UI-001 | P1 | ActivityCenter 汇总 OCR 安装、长工具和媒体操作，并从顶部状态入口打开。 | 不占左侧主导航；支持 running/failed/uncertain 筛选，页面重开可恢复。 |
 | UI-002 | P1 | 状态不能只靠颜色。 | 图标、文字、ARIA live 与焦点行为通过 axe/键盘测试。 |
-| UI-003 | P1 | 沿用现有 design tokens 和中文文案规范。 | 不引入第二套全局 reset、字体或白龙马品牌资产。 |
+| UI-003 | P1 | 沿用现有纯黑/近黑 design tokens 和中文文案规范；智能能力 overview 恰好两卡，窄屏设置导航收进抽屉。 | 不引入第二套全局 reset、字体或白龙马品牌资产；390/1024/1440 三视口及 100/150/200% 缩放无横向滚动或主操作遮挡。 |
 | UI-004 | P1 | 不展示密钥、完整绝对路径和未消毒 HTML。 | 注入测试、快照测试和日志审计均通过。 |
 
 ## 11. 数据迁移、发布顺序与回滚
 
-### 11.1 固定迁移编号
+### 11.1 迁移分配与冻结
 
-为避免三个计划并行开发时争用编号，冻结如下：
+下表是审计 HEAD（当前最大 migration 为 0159）上的**候选分配**。X0 必须扫描 `migrations/`、`migrations/embed.go`、`store.go` manifest 和已发布数据库，生成并提交唯一 `docs/design/jiyishengji/evidence/migration-allocation.json`；只有该文件与 schema 测试同批通过后编号才冻结。若开工前已被占用，由集成人一次性重分配整个连续区间并机械更新 00、02–07、11–12、文件名、测试名和 manifest；子线不得自行顺延。
 
 | Migration | 所属 | 内容 |
 |---|---|---|
 | `0160_memory_fabric.sql` | Memory | canonical versions/bodies/heads、links、evidence、assessment、migration map、capture jobs/cursor/policy、usage、import preview/purge grant、settings、事件。 |
 | `0161_memory_retrieval.sql` | Memory | entities、relations、embeddings、recall hit detail、feedback。 |
 | `0162_memory_generations.sql` | Memory | consolidation generations、members、validation、active pointer。 |
-| `0163_ocr_model_packs.sql` | OCR | pack state/versions/operations、OCR settings gate、scoped runs/pages/artifacts。 |
+| `0163_ocr_model_packs.sql` | OCR | pack state/versions/operations、受信 NOTICE 索引、OCR settings gate、scoped runs/pages/artifacts。 |
 | `0164_media_sessions.sql` | Media | authorized assets、sessions、operations、queue items、bookmarks、media gates、player leases/commands。 |
 
-迁移只新增表、索引和可空列；首版不 drop/rename 旧表。每个 migration 必须加入 schema dump/upgrade/全新建库三类测试。
+迁移只新增表、索引和可空列；首版不 drop/rename 旧表。每个 migration 必须加入 schema dump/upgrade/全新建库三类测试。分配文件至少含 `logicalName/number/fileName/previous/maxObserved/head/trackedDiffDigest/untrackedManifestRelativePath/untrackedManifestDigest/baselineManifestRelativePath/allocatedAt`；`worktreeDiffDigest` 为废弃别名，新 artifact 禁止写入；CI 校验文档和 manifest 不存在第二套编号。
 
 ### 11.2 Feature flags
 
@@ -1145,16 +1283,17 @@ fallbackChain, startedAt, finishedAt, confidenceAvailable
 
 | 波次 | 工作 | 入口条件 | 退出门禁 |
 |---|---|---|---|
-| W0 真实性与基线 | 冻结评测集；修复媒体 false-success；修复 Memory 导出名称/范围；记录旧召回基线；在干净断网 Windows x64 CPU 上构建并跑真实 Paddle 完整 pack。 | 当前主干测试可运行。 | 基线可复现；Paddle runtime profile 有签名产物与真实 layout+VLM 证据，否则 install flag 保持 off。 |
-| W1 数据底座 | 执行 0160–0164；实现 typed storage 与 Bridge schema。 | W0。 | 新建/升级/重启/并发 CAS 测试通过。 |
-| W2 Memory 影子写与基础读 | canonical link、真实 evidence resolver、存量 backfill；先 shadow，再启用 canonical 基础 reader/删除屏障。 | 0160/0161。 | 迁移可重入；影子差异报告无 scope 泄漏；v2-only 事实可读。 |
+| W0a 通用真实性与冻结基线 | 生成 P00 的 HEAD/diff/untracked/migration allocation/升级前备份基线；冻结评测集；完成 P01 的媒体 false-success 与 OCR legacy 假 ready 修复；记录旧召回基线。 | 当前主干测试可运行。 | 通用基线可复现；allocation/备份证据落盘；真实性修复测试通过。此门不依赖 Paddle。 |
+| W1 数据底座与 Windows OCR 诚实基线 | 按 allocation 执行五个 logical migrations；实现 typed storage、Bridge schema、scoped OCR snapshot 与真实 Windows probe；Paddle gate 默认 disabled。 | W0a。 | 新建/升级/重启/并发 CAS 通过；Windows 六态真实；无 profile 的 Paddle mutation=0。 |
+| W0b Paddle 独立可行性门 | 在干净断网 Windows x64 CPU 上构建并运行完整 Paddle layout+VLM pack，形成签名、许可、资源与故障证据。 | W0a；W1 的 OCR scoped/gate 基线。可与 Memory/Media 后续波次并行。 | 通过则产生 `verifiedRuntimeProfileDigest` 并允许 W5；失败则记录 `BLOCKED/INCOMPLETE`，仅阻止 Paddle 专属工作，Windows OCR、Memory、Media 继续。 |
+| W2 Memory 影子写与基础读 | canonical link、真实 evidence resolver、存量 backfill；先 shadow，再启用 canonical 基础 reader/删除屏障。 | allocation 中 Memory Fabric/Retrieval logical migrations。 | 迁移可重入；影子差异报告无 scope 泄漏；v2-only 事实可读。 |
 | W3 Memory 自动捕获 | 硬过滤、批量提取、去重、审阅箱、撤销。 | W2；安全集完成。 | MEM-002～008、014～016 通过。 |
-| W4 Memory 新召回 | hybrid、token ledger、时间/关系、generation。 | W3；0161/0162。 | 离线评测过 gate，灰度 shadow recall 无越权。 |
-| W5 OCR 可选包 | catalog、异步安装器、Python worker launcher、手动路由、盲测。 | W0 对应 runtime profile 通过；0163；发布签名与 NOTICE 流程可用。 | OCR-001～012；自动路由仍 off。 |
-| W6 媒体与活动 UI | MediaSession、owned player、SMTC 验证、Tray/Activity。 | 0164；TOOL-001/002。 | MEDIA/UI 全部 P0/P1 验收。 |
+| W4 Memory 新召回 | hybrid、token ledger、时间/关系、generation。 | W3；allocation 中 Memory Retrieval/Generations logical migrations。 | 离线评测过 gate，灰度 shadow recall 无越权。 |
+| W5 OCR 可选包 | catalog、异步安装器、Python worker launcher、手动路由、盲测。 | W0b/P09 通过并产生匹配 digest；allocation 中 OCR logical migration；发布签名与 NOTICE 流程可用。 | OCR-002～005/007/010～012 的 Paddle 专属门通过；自动路由仍 off。 |
+| W6 媒体与活动 UI | MediaSession、owned player、SMTC 验证、独立媒体中心、条件式 MiniPlayer 与顶部 Activity 入口。 | allocation 中 Media logical migration；TOOL-001/002。 | MEDIA/UI 全部 P0/P1 验收。 |
 | W7 灰度与稳定 | 按主体灰度新读、自动路由、后台整理。 | 各子项目 gate 独立通过。 | 回滚演练、资源/隐私/长稳测试通过。 |
 
-W3 必须在 W2 基础读通过后开始；W5、W6 可按各自前置条件与 Memory 工作并行。W4 使用 W2/W3 的 canonical 数据和反馈，不能让自动记忆先于可读取的数据层上线。Paddle 自动路由只能在对应硬件档的盲测通过后单独开启。
+W3 必须在 W2 基础读通过后开始；W0b、W5、W6 可按各自前置条件与 Memory 工作并行。W0b 失败只阻止 W5/P10 和 Paddle 自动路由，不阻止 W1 的 Windows OCR 诚实基线或其他模块。W4 使用 W2/W3 的 canonical 数据和反馈，不能让自动记忆先于可读取的数据层上线。Paddle 自动路由只能在对应硬件档的盲测通过后单独开启。
 
 ### 11.4 回滚原则
 
@@ -1162,7 +1301,7 @@ W3 必须在 W2 基础读通过后开始；W5、W6 可按各自前置条件与 M
 - **Memory 写回滚**：关闭 `memory_v2_write` 后停止新 v2 写；已写内容只读保留。只有 v2 产生、且用户已在 v2 UI 修改的记录必须经显式 down-conversion 工具后才能回旧写，不静默丢失。
 - **Memory 读降级**：关闭 hybrid/consolidation 后保留 canonical 基础 read 与删除屏障。关闭 v2 read 前必须验证全部存量无损兼容映射；有 v2-only 事实则拒绝该切换。遗忘所需的旧正文清理不可逆转或复活。
 - **OCR 回滚**：关闭 auto-route，停止 worker；模型包可保留或由用户卸载，Windows OCR 不受影响。
-- **Media 回滚**：停止创建 v2 session；现有 `media.play` 回原路径，但 W0 的 truthfulness 修复不得回滚。
+- **Media 回滚**：停止创建 v2 session；现有 `media.play` 回原路径，但 W0a/P01 的 truthfulness 修复不得回滚。
 - **数据库恢复**：上线前对用户数据库做现有机制支持的备份；恢复演练验证 schema version、foreign key、FTS rebuild 和 digest。
 
 ## 12. 文件级实施边界
@@ -1180,7 +1319,8 @@ W3 必须在 W2 基础读通过后开始；W5、W6 可按各自前置条件与 M
 - `internal/storage/sqlite/m8_memory.go`、`m10_memory_ops.go`、`upgrade_schema.go`：canonical 存取、CAS、迁移。
 - `internal/contextapp/*`：接入 tokenizer 预算，不改变已有输出保留不变量。
 - `internal/domain/token/provider_tokenizer.go`：在现有 exact/fallback 行为上返回 tokenizer metadata；未知模型应用 1.15 保守裕量且不标 exact。
-- `web/src/memory/MemoryPage.tsx`、`MemoryOpsPanel.tsx`、`web/src/m8/PrivacyConsole.tsx`：统一记忆中心入口。
+- `web/src/memory/MemoryPage.tsx`、`MemoryOpsPanel.tsx`、`web/src/m8/PrivacyConsole.tsx`：收敛为单页记忆中心入口；低频管理能力由高级抽屉按需承载。
+- `web/src/settings/settingsNav.ts`、`SettingsPage.tsx`、`web/src/m8/PersonalIntelligencePage.tsx`、`web/src/app/navStore.ts`、`web/src/App.tsx`：保留 `personal` category/深链，落地“智能能力”两卡 overview 与 `overview|memory|ocr` 详情；OCR 从 routing 去重。修改前先隔离并合并用户当前 dirty 变更。
 
 新增：
 
@@ -1194,19 +1334,22 @@ W3 必须在 W2 基础读通过后开始；W5、W6 可按各自前置条件与 M
 - `internal/storage/sqlite/m8_memory_v2.go`
 - `internal/storage/sqlite/m8_memory_retrieval.go`
 - `internal/storage/sqlite/m8_memory_generations.go`
-- `web/src/memory/MemoryRecent.tsx`
-- `web/src/memory/MemoryReviewInbox.tsx`
-- `web/src/memory/MemoryTimeline.tsx`
+- `web/src/memory/MemoryList.tsx`
+- `web/src/memory/MemoryItemMenu.tsx`
+- `web/src/memory/MemoryAdvancedPanel.tsx`
+- `web/src/memory/MemorySettingsPanel.tsx`
+- `web/src/memory/memorySettings.ts`
+- `web/src/settings/SmartCapabilities.css`（组件作用域样式；不另建全局主题）
 
 ### 12.2 OCR
 
 修改：
 
-- `internal/ocrapp/recognize.go`、`route.go`、`health.go`、`pack.go`：完整路由、真实 pack health、结果和回退。
+- `internal/ocrapp/recognize.go`、`route.go`、`health.go`、`pack.go`：完整路由、真实 Windows health、legacy PP-OCR 只登记语义、结果和回退。
 - `internal/storage/sqlite/store.go`：把 0163 加入真实 migration manifest、`expectedSchemaSQL` 和 expected-column 校验。
 - `internal/bootstrap/wire.go`：装配 SQLite repository、catalog verifier、installer、后台 runner、CAS artifact store 和 worker launcher。
-- `internal/app/s1_bridge_handlers.go`、新增 `ocr_wire.go`：兼容 routing 合同并新增 pack/run Bridge。
-- `web/src/settings/OCRRouting.tsx`：安装、健康、手动/自动策略和最近运行。
+- `internal/app/s1_bridge_handlers.go`、新增 `ocr_wire.go`：兼容 routing 合同并新增 pack/NOTICE/run Bridge。
+- `web/src/settings/OCRRouting.tsx`：先作为兼容 adapter，随后收敛到 `OCRSettingsPanel`；核心状态独立加载，provider 只在高级区按需加载。
 - `internal/storage/sqlite/upgrade_schema.go`：注册 0163。
 
 新增：
@@ -1217,15 +1360,19 @@ W3 必须在 W2 基础读通过后开始；W5、W6 可按各自前置条件与 M
 - `internal/ocrapp/installer.go`
 - `internal/ocrapp/worker.go`
 - `internal/ocrapp/result.go`
+- `internal/doctext/ocr_probe_windows.go`、`internal/doctext/ocr_probe_other.go`
 - `workers/paddleocr-vl-1.6/paddleocr_worker.py`
 - `workers/paddleocr-vl-1.6/protocol.schema.json`
 - `workers/paddleocr-vl-1.6/requirements.lock`（发布构建时转为逐 wheel hash lock）
 - `scripts/build-paddleocr-vl-pack.ps1`、`scripts/test-paddleocr-vl-pack.ps1`
 - `web/src/settings/OCRModelPackCard.tsx`
+- `web/src/settings/OCRSettingsPanel.tsx`
+- `web/src/settings/OCRAdvancedPanel.tsx`
 - `web/src/settings/OCRRecentRuns.tsx`
+- `api/bridge/v1/ocr.pack.notice.list.schema.json`、`api/bridge/v1/ocr.pack.notice.read.schema.json`
 - `testdata/ocr-eval/README.md` 及不含版权受限内容的固定评测 manifest。
 
-Git 保存可审查的 worker 源、协议和构建锁；受管 CPython、wheel、DLL 与模型资产只进入签名 pack，不提交临时虚拟环境。若 W0 官方运行时验证证明所选 Windows 后端不可用，安装入口保持 flag off，并更换 catalog runtime profile；不得用未声明的 WSL/Docker 依赖冒充内置安装成功。
+Git 保存可审查的 worker 源、协议和构建锁；受管 CPython、wheel、DLL 与模型资产只进入签名 pack，不提交临时虚拟环境。若 P09/W0b 官方运行时验证证明所选 Windows 后端不可用，安装入口保持 flag off，并更换 catalog runtime profile；不得用未声明的 WSL/Docker 依赖冒充内置安装成功。
 
 ### 12.3 工具、媒体和 UI
 
@@ -1238,6 +1385,9 @@ Git 保存可审查的 worker 源、协议和构建锁；受管 CPython、wheel�
 - `internal/app/media_receipt_test.go` 对应的生产 handler：注册 Media Bridge 和 event。
 - `web/src/session/liveChat.ts`、`ToolTrajectory.tsx`、`SessionPage.tsx`：活动恢复和 OperationCard。
 - `web/src/settings/ComputerPanel.tsx`：显示共用权限和急停状态，不复制设置。
+- `web/src/app/appTypes.ts`、`web/src/app/navStore.ts`：把 `media` 加入唯一 `Page` union/route state，不另建媒体导航 store。
+- `web/src/app/LaunchSidebar.tsx`、`LaunchSidebar.test.tsx`：在现有“办公”折叠组加入常驻一级“媒体中心”，纳入 `officeOpen`/active 计算；不加入 `officeMenuSettings` 开关，也不把 AgentHub shell switch 放回办公组。
+- `web/src/App.tsx`、`App.test.tsx`、`web/src/styles.css`：在当前三条 early-return/root 装配外层接唯一 Media runtime，在主 route ternary 接 `page==='media'`，接入顶部 Activity/MiniPlayer 并验证 AgentHub replaceMainNav/header 避让。
 - `internal/storage/sqlite/upgrade_schema.go`：注册 0164。
 
 新增：
@@ -1249,10 +1399,14 @@ Git 保存可审查的 worker 源、协议和构建锁；受管 CPython、wheel�
 - `internal/app/media_handlers.go`
 - `internal/desktopmedia/handler_windows.go`、`handler_other.go`
 - `internal/webviewhost/media_resource_windows.go`、`media_resource_other.go`
-- `web/src/media/MediaTray.tsx`
+- `web/src/media/MediaCenterPage.tsx`
+- `web/src/media/MusicPlayerSurface.tsx`
+- `web/src/media/VideoPlayerSurface.tsx`
+- `web/src/media/MediaMiniPlayer.tsx`
 - `web/src/media/MediaQueueDrawer.tsx`
 - `web/src/media/MediaOperationCard.tsx`
 - `web/src/media/OwnedMediaPlayer.tsx`
+- `web/src/activity/ActivityStatusButton.tsx`
 - `web/src/activity/ActivityCenter.tsx`
 
 所有新增公开 Bridge 方法都必须：添加 `api/bridge/v1/*.schema.json`；同步 `api/bridge/v1/envelope.schema.json` 的 method enum；同步 `web/scripts/generate-bridge.mjs` 的 hard-coded enabled-method assertion；运行 `npm --prefix web run generate:bridge`，由它生成 `internal/bridge/schema_generated.go`、`web/src/generated/bridge.ts`、`internal/contract/schema_generated_test.go`；最后运行 `npm --prefix web run verify:bridge`。不得手改三个生成产物。`internal.*` Host↔Engine 方法不进入 renderer envelope，沿用 authenticated private pipe 并单独做 allowlist/协议测试。
@@ -1337,7 +1491,7 @@ npm --prefix web run build
 go test -count=1 ./...
 ```
 
-`internal/mediaapp` 在该包创建前不加入 W0 命令，创建后必须加入。仓库若已有统一 lint/typecheck 命令，开发以现有 `package.json`/CI 为准并在实施计划中写出实际命令，不臆造新脚本。
+`internal/mediaapp` 在该包创建前不加入 W0a 命令，创建后必须加入。仓库若已有统一 lint/typecheck 命令，开发以现有 `package.json`/CI 为准并在实施计划中写出实际命令，不臆造新脚本。
 
 ## 14. 安全、隐私、合规与可观测性
 
@@ -1376,7 +1530,7 @@ memory_generation_total{state}
 ocr_pack_activity_total{stage,outcome,error_code}
 ocr_run_total{engine_id,pipeline_kind,outcome,fallback}
 ocr_run_duration_ms{engine_id,device_profile}
-media_operation_total{origin,action,verification,outcome}
+media_operation_total{origin,action,verification_status,verification_source,outcome}
 media_verification_duration_ms{origin,action}
 activity_recovery_total{kind,outcome}
 ```
@@ -1408,7 +1562,7 @@ activity_recovery_total{kind,outcome}
 | Paddle 在部分 Windows 设备不可运行 | preflight/runtime crash/RSS 超预算 | 对应 profile 不发布/不自动路由；Windows OCR 常驻兜底。 |
 | 模型包供应链或体积失控 | 签名失败、catalog 字节异常、磁盘不足 | fail-closed；展示 manifest 实值；支持取消与安全清理。 |
 | 外部媒体状态不可验证 | SMTC 缺失/元数据不匹配 | 明确 uncertain；不宣称播放内容；提供打开外部播放器。 |
-| UI 状态源分裂 | Tray/卡片/后端 revision 不一致 | 后端 snapshot 唯一真相；event 仅 invalidation/增量；冲突强制回读。 |
+| UI 状态源分裂 | MediaCenter/MiniPlayer/卡片/后端 revision 不一致 | 后端 snapshot 唯一真相；event 仅 invalidation/增量；冲突强制回读。 |
 | 第三方内容版权风险 | 需求出现曲库、抓取、下载、DRM | 拒绝进入产品范围；只支持用户资产和合法生成 artifact。 |
 | Token 降低反而损害回答 | recall hit 提升但任务质量下降 | 将 answer correctness 与 token 同时评测；保留 pinned/constraint 槽，不只优化长度。 |
 
@@ -1459,16 +1613,16 @@ activity_recovery_total{kind,outcome}
 
 ## 19. 文档交付复核与开发起点（2026-09-15）
 
-上一版交付为一份总PRD和三份实施计划；本轮R2交付以本目录README为准，未实施新增产品功能。开发按总 PRD 的 W0–W7 发布顺序和各计划的 Task 依赖推进；任务编号不等于可以绕过依赖顺序。迁移编号基于当前 0159 冻结，开始实施时再次核对占号；若其他分支已占用，四份文档及三个实现一起顺延，不覆盖已发布迁移。
+R3 交付以本目录 README、11 总实施计划和 12 追踪矩阵为入口，未实施新增产品功能。开发按 W0a、W1～W7 及独立条件门 W0b 与 11 的依赖推进；任务编号不等于可以绕过依赖。候选迁移编号基于审计时最大 0159，只有 X0 生成 allocation artifact 后才冻结。
 
-本次已在当前工作树运行的**现有功能基线**：
+R2 曾在旧 HEAD `5970012d` 运行以下现有功能检查；当前 HEAD 已变化，因此状态均为 `STALE`：
 
 | 实际命令 | 结果 | 能证明什么 |
 |---|---|---|
-| `go test -count=1 ./internal/memoryapp ./internal/m8app ./internal/contextapp ./internal/compactionapp ./internal/ocrapp ./internal/doctext ./internal/toolruntime ./internal/winexec ./internal/tts ./internal/voice` | 本轮10个包通过，exit0 | 仅当前相关基线，不代表新记忆/模型包/播放器已实现。 |
-| `npm --prefix web run verify:bridge` | 通过，exit 0 | 当前 Bridge 生成产物与当前 schema 一致；新增接口仍须按计划实现并重新生成。 |
+| `go test -count=1 ./internal/memoryapp ./internal/m8app ./internal/contextapp ./internal/compactionapp ./internal/ocrapp ./internal/doctext ./internal/toolruntime ./internal/winexec ./internal/tts ./internal/voice` | 旧基线通过；STALE | 只能说明当时相关包，不证明当前或新增功能。 |
+| `npm --prefix web run verify:bridge` | 旧基线通过；STALE | 只能说明当时生成产物；新增接口仍须重新生成。 |
 
-上一版只编写上述四份文档，未修改产品源码、安装模型或变动用户现有数据；当前工作树其他修改不属于本 PRD 的实现成果。新功能测试、OCR 盲测、真实离线包、媒体实机验证、性能及 Token 收益均未在本次完成，计划中的相应任务保持未勾选。
+本次仍只改设计交付物，未安装模型或变动用户数据；当前工作树其他源码修改不属于本 PRD 成果。X0 必须重新运行基线并保存 `HEAD/trackedDiffDigest/untrackedManifestRelativePath/untrackedManifestDigest/baselineManifestRelativePath/command/start/end/exitCode/outputDigest/environment` 到 `evidence/baseline/`；不再生成 `worktreeDiffDigest`。新功能测试、OCR 盲测、真实离线包、媒体实机验证、性能及 Token 收益均未完成。
 
 特别保留的发布前验证条件：Windows CPU 完整 Paddle runtime 能否发布由真实构建/断网测试决定，不凭包名推定兼容；记忆与 OCR 的准确率提升必须由固定样本实测；用户粘贴纯文本若没有来源标注，系统无法完美识别其是否引用，必须保守进入静默审阅并通过误存集验收，不能声称绝对识别意图。
 
@@ -1494,6 +1648,6 @@ activity_recovery_total{kind,outcome}
 [^16]: BaiLongma 仓库许可证和固定源码只覆盖相应代码权利，不代表第三方媒体内容授权：[LICENSE](https://github.com/xiaoyuanda666-ship-it/BaiLongma/blob/b20f4ad5d16425be0520745d69048af11439d617/LICENSE)。
 [^17]: Anthropic Managed Agent Memory 官方文档，workspace 范围存储、版本和容量边界：[platform.claude.com/docs](https://platform.claude.com/docs/en/managed-agents/memory)。
 
-## 21. R2 规范性补充与执行入口
+## 21. R3 规范性补充与执行入口
 
-06文档C1–C6是本PRD规范性细化，03–05任务必须同时执行对应合同。新增activity.list及media.operation.get/list、memory.item.history、完整scoped OCR接口、source revision、source抑制策略、音频焦点、生产Host身份、页渲染与CAS租约都属于本期。07给出五分制与阻断门，08逐项回答原始需求。尚未实测的模型兼容性、质量、性能或用户评价不得写成已通过。
+06 的 C1–C6 是技术合同唯一来源，03–05 是子系统任务，11 是唯一总依赖顺序，12 是唯一需求状态源。新增 activity.list、media.operation.get/list、memory.item.create/history、完整 scoped OCR、source revision/抑制、音频焦点、生产 Host 身份、页渲染与 CAS 租约都属于本期。07 给出五分制与阻断门。任何尚未有 artifact 的模型兼容性、质量、性能或用户评价不得标 `VERIFIED`。
