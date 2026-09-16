@@ -199,3 +199,18 @@ it('keeps the three agents when detect fails', async () => {
   expect(screen.getByRole('img', { name: 'Cursor' })).toBeInTheDocument()
   expect(screen.getByRole('img', { name: 'Kimi' })).toBeInTheDocument()
 })
+
+it('keeps 历史对话 but does not list thread titles on the rail', async () => {
+  vi.mocked(agentHubApi.detect).mockResolvedValue({
+    agents: [{ name: 'cursor', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用' }],
+  })
+  vi.mocked(agentHubApi.threadList).mockResolvedValue({
+    items: [thread('今天上海的天气？ Kimi', 'kimi'), thread('写项目会话', 'cursor')],
+  })
+  render(<LanguageProvider value="zh-CN"><AgentHubSidebar onOpenThread={vi.fn()} selectedAgent="cursor" /></LanguageProvider>)
+  expect(await screen.findByRole('button', { name: /历史对话/ })).toBeInTheDocument()
+  expect(screen.queryByText('今天上海的天气？ Kimi')).toBeNull()
+  expect(screen.queryByText('写项目会话')).toBeNull()
+  expect(screen.queryByLabelText('最近对话')).toBeNull()
+  expect(screen.queryByText('还没有对话记录')).toBeNull()
+})

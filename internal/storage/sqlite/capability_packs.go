@@ -12,6 +12,8 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/agentrun"
 )
 
+var _ capabilitypack.Tx = (*agentRuntimeTx)(nil)
+
 func (r *AgentRuntimeRepository) TransactPack(ctx context.Context, fn func(capabilitypack.Tx) error) error {
 	return r.Transact(ctx, func(tx agentrun.Tx) error {
 		pack, ok := tx.(capabilitypack.Tx)
@@ -71,7 +73,7 @@ func (t *agentRuntimeTx) SavePack(record capabilitypack.Record, expected int64) 
 	if expected == 0 {
 		result, err = t.tx.ExecContext(t.ctx, `INSERT INTO capability_pack_operations(`+packColumns+`) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(pack_id) DO NOTHING`, record.Spec.ID, string(manifest), record.Digest, record.State, record.Desired, record.Version, record.Error, record.CreatedAt, record.UpdatedAt)
 	} else {
-		result, err = t.tx.ExecContext(t.ctx, `UPDATE capability_pack_operations SET state=?,desired=?,version=?,last_error=?,updated_at=? WHERE pack_id=? AND version=? AND manifest_digest=?`, record.State, record.Desired, record.Version, record.Error, record.UpdatedAt, record.Spec.ID, expected, record.Digest)
+		result, err = t.tx.ExecContext(t.ctx, `UPDATE capability_pack_operations SET manifest_json=?,manifest_digest=?,state=?,desired=?,version=?,last_error=?,updated_at=? WHERE pack_id=? AND version=?`, string(manifest), record.Digest, record.State, record.Desired, record.Version, record.Error, record.UpdatedAt, record.Spec.ID, expected)
 	}
 	if err != nil {
 		return t.fail(err)
@@ -133,6 +135,17 @@ func (t *agentRuntimeTx) PlanResource(resource capabilitypack.Resource) (capabil
 func (t *agentRuntimeTx) PutReference(id string, c capabilitypack.Component) error {
 	_, err := t.tx.ExecContext(t.ctx, `INSERT INTO capability_pack_references(pack_id,kind,resource_key,ordinal,state) VALUES(?,?,?,?,?) ON CONFLICT(pack_id,kind,resource_key) DO UPDATE SET state='planned',ordinal=excluded.ordinal`, id, c.Kind, c.Key, c.Ordinal, c.State)
 	return t.fail(err)
+}
+func (t *agentRuntimeTx) ReplaceReferences(id string, components []capabilitypack.Component) error {
+	if _, err := t.tx.ExecContext(t.ctx, `DELETE FROM capability_pack_references WHERE pack_id=?`, id); err != nil {
+		return t.fail(err)
+	}
+	for _, component := range components {
+		if err := t.PutReference(id, component); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 func (t *agentRuntimeTx) References(id string) ([]capabilitypack.Component, error) {
 	rows, err := t.tx.QueryContext(t.ctx, `SELECT r.kind,r.resource_key,r.target_id,r.managed,f.ordinal,f.state FROM capability_pack_references f JOIN capability_pack_resources r ON r.kind=f.kind AND r.resource_key=f.resource_key WHERE f.pack_id=? ORDER BY f.ordinal`, id)

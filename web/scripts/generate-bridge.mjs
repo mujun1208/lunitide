@@ -745,6 +745,7 @@ const protocolGoName = {
   openai_compatible: 'ProtocolOpenAICompatible',
   anthropic: 'ProtocolAnthropic',
   volc_speech: 'ProtocolVolcSpeech',
+  openai_responses: 'ProtocolOpenAIResponses',
 }
 const protocolGoConstants = values => values.map(value => {
   const name = protocolGoName[value]

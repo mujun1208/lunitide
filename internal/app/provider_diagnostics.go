@@ -320,6 +320,8 @@ func (e *Engine) newProductionAdapter(ctx context.Context, p provider.Provider) 
 	switch p.Protocol {
 	case provider.ProtocolOpenAICompatible:
 		return llmadapter.OpenAIEndpoint(ctx, providerAdapterBaseURL(p.BaseURL), network, e.gateway)
+	case provider.ProtocolOpenAIResponses:
+		return llmadapter.OpenAIResponsesEndpoint(ctx, providerAdapterBaseURL(p.BaseURL), network, e.gateway)
 	case provider.ProtocolAnthropic:
 		return llmadapter.AnthropicEndpoint(ctx, p.BaseURL, network, e.gateway)
 	default:
@@ -333,11 +335,15 @@ func providerAdapterBaseURL(raw string) string {
 		return raw
 	}
 	clean := strings.TrimSuffix(u.Path, "/")
+	// Users routinely paste the full endpoint from a provider console; the
+	// adapters append their own route, so strip a trailing operation path.
 	for _, suffix := range []string{
 		"/images/generations",
 		"/videos/generations",
 		"/video/generations",
 		"/contents/generations/tasks",
+		"/chat/completions",
+		"/responses",
 	} {
 		if strings.HasSuffix(strings.ToLower(clean), suffix) {
 			clean = clean[:len(clean)-len(suffix)]

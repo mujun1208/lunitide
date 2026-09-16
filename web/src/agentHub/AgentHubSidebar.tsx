@@ -66,14 +66,6 @@ export function AgentHubSidebar({
     agent: agents.find(item => item.name === name),
     thread: usableLatestThreadForHarness(threads, name),
   })), [agents, threads])
-  const recentThreads = useMemo(() => {
-    const name = selectedAgent
-    const items = (threads ?? [])
-      .filter(item => !name || item.harnessId === name)
-      .slice()
-      .sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''))
-    return items.slice(0, 24)
-  }, [threads, selectedAgent])
   const openAgent = (name: AgentHubName, threadId?: string) => {
     onSelectAgent?.(name)
     onOpenThread(threadId ?? '')
@@ -154,26 +146,6 @@ export function AgentHubSidebar({
         <span>{zh ? '历史对话' : 'History'}</span>
         <small>{zh ? '全部 Agent 的会话' : 'Threads from every Agent'}</small>
       </button>
-      {recentThreads.length > 0 ? (
-        <div className="agent-hub-thread-list" aria-label={zh ? '最近对话' : 'Recent threads'}>
-          {recentThreads.map(item => (
-            <button
-              key={item.threadId}
-              type="button"
-              className={`agent-hub-thread-row${selectedThreadId === item.threadId ? ' is-on' : ''}`}
-              onClick={() => {
-                onSelectAgent?.(item.harnessId as AgentHubName)
-                onOpenThread(item.threadId)
-              }}
-            >
-              <b>{item.title || (zh ? '未命名对话' : 'Untitled')}</b>
-              <small>{agentDisplayName(item.harnessId)}</small>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <p className="agent-hub-thread-empty">{zh ? '还没有对话记录' : 'No threads yet'}</p>
-      )}
       <div className="agent-hub-agents">
         {rows.map(row => (
           <div key={row.name} className={`agent-hub-agent-row${selectedAgent === row.name ? ' is-on' : ''}`}>

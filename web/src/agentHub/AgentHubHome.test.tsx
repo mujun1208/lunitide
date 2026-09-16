@@ -77,14 +77,15 @@ it('does not create a thread before detect finishes', async () => {
   expect(agentHubApi.threadCreate).not.toHaveBeenCalled()
 })
 
-it('offers 写周报 Markdown and never 生成周报', async () => {
+it('does not show composer template chips under the AgentHub input', async () => {
   stubHome()
   render(<LanguageProvider value="zh-CN"><AgentHubHome selectedAgent="cursor" /></LanguageProvider>)
   await screen.findByLabelText('任务类型')
-  expect(screen.getByRole('button', { name: '写周报 Markdown' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '写周报 Markdown' })).toBeNull()
+  expect(screen.queryByRole('button', { name: '写文档' })).toBeNull()
+  expect(screen.queryByRole('button', { name: '总结本目录' })).toBeNull()
+  expect(screen.queryByRole('button', { name: '做小游戏' })).toBeNull()
   expect(screen.queryByRole('button', { name: '生成周报' })).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: '写周报 Markdown' }))
-  expect(screen.getByLabelText('任务说明')).toHaveValue('根据本工作目录材料写一份周报 Markdown，不要生成 Office 文档。')
 })
 
 it('publishes the composer default agent when the header has not chosen one', async () => {
@@ -94,12 +95,13 @@ it('publishes the composer default agent when the header has not chosen one', as
   await waitFor(() => expect(onSelectAgent).toHaveBeenCalledWith('cursor'))
 })
 
-it('hides the weekly Markdown chip on the PPT scene', async () => {
+it('keeps the scene selector after switching to PPT without template chips', async () => {
   stubHome()
   render(<LanguageProvider value="zh-CN"><AgentHubHome selectedAgent="kimi" /></LanguageProvider>)
   await screen.findByLabelText('任务类型')
   fireEvent.change(screen.getByLabelText('任务类型'), { target: { value: 'ppt' } })
   expect(screen.queryByRole('button', { name: '写周报 Markdown' })).toBeNull()
+  expect(screen.getByLabelText('任务类型')).toHaveValue('ppt')
 })
 
 it('says this window belongs to the selected Agent and later CLIs stay off the list', async () => {

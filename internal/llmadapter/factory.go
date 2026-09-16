@@ -31,6 +31,17 @@ func AnthropicEndpoint(ctx context.Context, rawBase string, network networkpolic
 	return NewAnthropic(c, gateway), nil
 }
 
+// OpenAIResponsesEndpoint targets POST {base}/{version}/responses with the
+// same version-path rule: Ark's /api/v3 and /api/plan/v3 already carry the
+// version, OpenAI and Bailian bases (/v1, /compatible-mode/v1) do too.
+func OpenAIResponsesEndpoint(ctx context.Context, rawBase string, network networkpolicy.Options, gateway Options) (*OpenAIResponses, error) {
+	c, err := networkpolicy.New(ctx, rawBase, versionPath(rawBase), network)
+	if err != nil {
+		return nil, err
+	}
+	return NewOpenAIResponses(c, gateway), nil
+}
+
 func versionPath(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
