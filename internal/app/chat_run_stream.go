@@ -328,6 +328,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			var result llmadapter.Response
 			var streamErr error
 			toolsFallbackUsed := false
+			thinkingDisableRetryUsed := false
 			guiFallbackUsed := false
 			observedThisTurn := false
 			desktopTypeL0Passed := false
@@ -437,7 +438,18 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					imagesFallbackUsed = true
 					continue
 				}
-				if streamErr != nil && !toolsFallbackUsed && !unattended(op) && !skillTrialsActive(op, sessionID) && assistantText.Len() == 0 && thinkingText.Len() == 0 && len(req.Tools) > 0 && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 && gatewayErr.Stage != llmadapter.StageStream {
+				if streamErr != nil && !thinkingDisableRetryUsed && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 && thinkingParameterRejected(gatewayErr.Message) {
+					req.DisableReasoning = false
+					if req.Effective != nil {
+						eff := *req.Effective
+						eff.ThinkingType = "enabled"
+						eff.Effort = "low"
+						req.Effective = &eff
+					}
+					thinkingDisableRetryUsed = true
+					continue
+				}
+				if streamErr != nil && !toolsFallbackUsed && !unattended(op) && !skillTrialsActive(op, sessionID) && assistantText.Len() == 0 && thinkingText.Len() == 0 && len(req.Tools) > 0 && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 && gatewayErr.Stage != llmadapter.StageStream && !thinkingParameterRejected(gatewayErr.Message) {
 					// Some compatible text models reject function definitions. Retry once
 					// as plain chat while preserving messages and attachment context. The
 					// degradation is surfaced explicitly instead of silently dropping

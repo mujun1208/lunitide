@@ -129,6 +129,25 @@ func compileProfileOrDefault(p modelfit.ModelProfile) modelfit.ModelProfile {
 	return p
 }
 
+func thinkingDisableUnsupported(model string, profile modelfit.ModelProfile) bool {
+	if strings.Contains(strings.ToLower(model), "glm-5.3") {
+		return true
+	}
+	if !strings.EqualFold(strings.TrimSpace(profile.Family), "glm") {
+		return false
+	}
+	sawEnabled := false
+	for _, mode := range profile.Modes {
+		switch strings.ToLower(strings.TrimSpace(mode.ThinkingType)) {
+		case "disabled":
+			return false
+		case "enabled":
+			sawEnabled = true
+		}
+	}
+	return sawEnabled
+}
+
 func compileFinalInput(req llmadapter.Request, profile modelfit.ModelProfile, stream bool) (llmadapter.PreparedRequest, llmadapter.Request, error) {
 	if strings.TrimSpace(req.Mode) == "" {
 		req.Mode = "standard"
@@ -147,7 +166,14 @@ func compileFinalInput(req llmadapter.Request, profile modelfit.ModelProfile, st
 	}
 	eff := prepared.Effective
 	if req.DisableReasoning {
-		eff.ThinkingType = "disabled"
+		if thinkingDisableUnsupported(req.Model, profile) {
+			// GLM-5.3 rejects thinking.type=disabled. Map "don't think hard"
+			// onto the vendor's minimum: enabled + reasoning_effort=low.
+			eff.ThinkingType = "enabled"
+			eff.Effort = "low"
+		} else {
+			eff.ThinkingType = "disabled"
+		}
 		prepared.Effective = eff
 	}
 	req.Effective = &eff

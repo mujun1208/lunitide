@@ -170,7 +170,7 @@ it('lists loopback.txt after answering an open prompt', async () => {
     callId: '01ARZ3NDEKTSV4RRFFQ69G5FAF',
     optionId: '是',
   }))
-  expect(await screen.findByRole('button', { name: 'loopback.txt' })).toBeInTheDocument()
+  expect(await screen.findByRole('treeitem', { name: /loopback\.txt/ })).toBeInTheDocument()
 })
 
 it('ignores a late poll from a previous threadId', async () => {
@@ -223,11 +223,9 @@ it('previews a workspace file with threadId', async () => {
     content: 'yes',
   })
   render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
-  fireEvent.click(await screen.findByRole('button', { name: 'loopback.txt' }))
+  fireEvent.click(await screen.findByRole('treeitem', { name: /loopback\.txt/ }))
   await waitFor(() => expect(agentHubApi.preview).toHaveBeenCalledWith({ threadId: THREAD_ID, path: 'loopback.txt' }))
   expect(await screen.findByText('yes')).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: '用本机打开' }))
-  await waitFor(() => expect(agentHubApi.open).toHaveBeenCalledWith({ threadId: THREAD_ID, path: 'loopback.txt' }))
 })
 
 it('hides system dump and still drills into a workspace directory', async () => {
@@ -238,26 +236,23 @@ it('hides system dump and still drills into a workspace directory', async () => 
     .mockResolvedValueOnce({ items: [{ name: 'src', path: 'src', size: 0, isDir: true }] })
     .mockResolvedValue({ items: [{ name: 'main.go', path: 'src/main.go', size: 8, isDir: false }] })
   render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
-  expect(await screen.findByRole('button', { name: 'src' })).toBeInTheDocument()
+  expect(await screen.findByRole('treeitem', { name: /src/ })).toBeInTheDocument()
   expect(screen.queryByText('在此仓库根内检索和修改。已有文件保持原路径。新文件按已有结构和你的规则放置。')).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'src' }))
+  fireEvent.click(screen.getByRole('treeitem', { name: /src/ }))
   await waitFor(() => expect(agentHubApi.workspaceList).toHaveBeenCalledWith({ threadId: THREAD_ID, relativePath: 'src' }))
-  expect(await screen.findByRole('button', { name: 'main.go' })).toBeInTheDocument()
+  expect(await screen.findByRole('treeitem', { name: /main\.go/ })).toBeInTheDocument()
 })
 
-it('goes up one workspace folder from a drilled-in directory', async () => {
+it('collapses a workspace directory from the shared file tree', async () => {
   vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('idle'))
   vi.mocked(agentHubApi.workspaceList)
     .mockResolvedValueOnce({ items: [{ name: 'src', path: 'src', size: 0, isDir: true }] })
-    .mockResolvedValueOnce({ items: [{ name: 'main.go', path: 'src/main.go', size: 8, isDir: false }] })
-    .mockResolvedValue({ items: [{ name: 'src', path: 'src', size: 0, isDir: true }] })
+    .mockResolvedValue({ items: [{ name: 'main.go', path: 'src/main.go', size: 8, isDir: false }] })
   render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
-  fireEvent.click(await screen.findByRole('button', { name: 'src' }))
-  expect(await screen.findByRole('button', { name: '上一级' })).toBeInTheDocument()
-  const beforeUp = vi.mocked(agentHubApi.workspaceList).mock.calls.length
-  fireEvent.click(screen.getByRole('button', { name: '上一级' }))
-  await waitFor(() => expect(vi.mocked(agentHubApi.workspaceList).mock.calls.length).toBeGreaterThan(beforeUp))
-  expect(vi.mocked(agentHubApi.workspaceList).mock.calls.at(-1)?.[0]).toEqual({ threadId: THREAD_ID })
+  fireEvent.click(await screen.findByRole('treeitem', { name: /src/ }))
+  expect(await screen.findByRole('treeitem', { name: /main\.go/ })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('treeitem', { name: /src/ }))
+  await waitFor(() => expect(screen.queryByRole('treeitem', { name: /main\.go/ })).toBeNull())
 })
 
 it('keeps the missing PPT hint and hides quota dump', async () => {
@@ -316,9 +311,11 @@ it('persists export folder and scene on an existing thread', async () => {
   fireEvent.click(screen.getByRole('button', { name: '添加上下文' }))
   fireEvent.click(screen.getByRole('button', { name: /产物目录/ }))
   await waitFor(() => expect(agentHubApi.threadUpdate).toHaveBeenCalledWith({ threadId: THREAD_ID, exportDir: 'E:/export' }))
-  fireEvent.change(screen.getByLabelText('任务类型'), { target: { value: 'ppt' } })
+  fireEvent.click(screen.getByLabelText('任务类型'))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: /^PPT/ }))
   await waitFor(() => expect(agentHubApi.threadUpdate).toHaveBeenCalledWith({ threadId: THREAD_ID, scene: 'ppt' }))
-  fireEvent.change(screen.getByLabelText('任务类型'), { target: { value: 'docs' } })
+  fireEvent.click(screen.getByLabelText('任务类型'))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: /^文档/ }))
   await waitFor(() => expect(agentHubApi.threadUpdate).toHaveBeenCalledWith({ threadId: THREAD_ID, scene: 'free' }))
 })
 
@@ -332,9 +329,28 @@ it('hides junk workspace names from the right pane', async () => {
     ],
   })
   render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
-  expect(await screen.findByRole('button', { name: 'src' })).toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: '$null' })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'a700ef41599b8c25bd9bde3d' })).toBeNull()
+  expect(await screen.findByRole('treeitem', { name: /src/ })).toBeInTheDocument()
+  expect(screen.queryByRole('treeitem', { name: /\$null/ })).toBeNull()
+  expect(screen.queryByRole('treeitem', { name: /a700ef41599b8c25bd9bde3d/ })).toBeNull()
+})
+
+it('keeps the Work workspace tabs on the AgentHub thread pane', async () => {
+  stubWorkspace()
+  vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('idle'))
+  render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
+  await screen.findByRole('tab', { name: '文件' })
+  expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(
+    expect.arrayContaining(['文件', '代码', '终端', '浏览器', '变更', '计划']),
+  )
+  expect(screen.queryByRole('tab', { name: '预览' })).toBeNull()
+  fireEvent.click(screen.getByRole('tab', { name: '代码' }))
+  expect(screen.getByRole('region', { name: '本地工作区目录' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('tab', { name: '终端' }))
+  expect(screen.getByRole('button', { name: '启动交互终端' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('tab', { name: '浏览器' }))
+  expect(screen.getByLabelText('浏览器地址')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('tab', { name: '变更' }))
+  expect(screen.getByRole('region', { name: '变更记录' })).toBeInTheDocument()
 })
 
 it('polls thread.get every 4s while idle', async () => {

@@ -418,6 +418,9 @@ func (s *Store) initialize(ctx context.Context) (resultErr error) {
 	if err != nil {
 		return err
 	}
+	if err = backfillMissingProjectUsage(ctx, conn); err != nil {
+		return err
+	}
 	if err = validateDataInvariants(ctx, conn); err != nil {
 		return err
 	}
@@ -632,6 +635,15 @@ func (s *Store) migrateV1Data(ctx context.Context, q sqlRunner) error {
 	return err
 }
 
+func backfillMissingProjectUsage(ctx context.Context, q sqlRunner) error {
+	_, err := q.ExecContext(ctx, `INSERT INTO message_project_usage(project_id,text_bytes)
+		SELECT p.id, 0
+		FROM projects p
+		WHERE p.name='execution-accounting'
+		  AND NOT EXISTS (SELECT 1 FROM message_project_usage u WHERE u.project_id=p.id)`)
+	return err
+}
+
 func validateDataInvariants(ctx context.Context, q sqlRunner) error {
 	var bad int
 	err := q.QueryRowContext(ctx, `SELECT count(*) FROM providers p WHERE (SELECT count(*) FROM provider_models m WHERE m.provider_id=p.id) NOT BETWEEN 1 AND 50 OR (SELECT count(*) FROM provider_models m WHERE m.provider_id=p.id AND m.is_default=1)<>1 OR (credential_ref IS NOT NULL)<>(credential_state='configured')`).Scan(&bad)
@@ -792,11 +804,17 @@ func validateDataInvariants(ctx context.Context, q sqlRunner) error {
 	if badState != 0 {
 		return fmt.Errorf("message state invariant violation")
 	}
-	if err = q.QueryRowContext(ctx, `SELECT count(*) FROM message_project_usage u LEFT JOIN projects p ON p.id=u.project_id WHERE p.id IS NULL OR u.text_bytes>? OR u.text_bytes<>(SELECT COALESCE(sum(length(CAST(mp.text AS BLOB))),0) FROM sessions s JOIN messages m ON m.session_id=s.id JOIN message_parts mp ON mp.message_id=m.id WHERE s.project_id=u.project_id)`, message.ProjectTextQuotaBytes).Scan(&badState); err != nil || badState != 0 {
+	if err = q.QueryRowContext(ctx, `SELECT count(*) FROM message_project_usage u LEFT JOIN projects p ON p.id=u.project_id WHERE p.id IS NULL OR u.text_bytes>? OR u.text_bytes<>(SELECT COALESCE(sum(length(CAST(mp.text AS BLOB))),0) FROM sessions s JOIN messages m ON m.session_id=s.id JOIN message_parts mp ON mp.message_id=m.id WHERE s.project_id=u.project_id)`, message.ProjectTextQuotaBytes).Scan(&badState); err != nil {
 		return fmt.Errorf("message project usage invariant violation: %w", err)
 	}
-	if err = q.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM projects)<>(SELECT count(*) FROM message_project_usage)`).Scan(&badState); err != nil || badState != 0 {
+	if badState != 0 {
+		return fmt.Errorf("message project usage invariant violation")
+	}
+	if err = q.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM projects)<>(SELECT count(*) FROM message_project_usage)`).Scan(&badState); err != nil {
 		return fmt.Errorf("message project usage invariant violation: %w", err)
+	}
+	if badState != 0 {
+		return fmt.Errorf("message project usage invariant violation")
 	}
 	var workspaceActual, workspaceStored int64
 	if err = q.QueryRowContext(ctx, `SELECT COALESCE(sum(length(CAST(text AS BLOB))),0) FROM message_parts`).Scan(&workspaceActual); err != nil {

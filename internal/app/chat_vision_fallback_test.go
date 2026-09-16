@@ -172,6 +172,15 @@ func TestImageUnsupportedReason(t *testing.T) {
 	}
 }
 
+func TestThinkingParameterRejected(t *testing.T) {
+	if !thinkingParameterRejected("thinking type: disabled is not supported by this model") {
+		t.Fatal("glm-5.3 thinking.disabled must be recognized")
+	}
+	if thinkingParameterRejected("missing tool_call_id") {
+		t.Fatal("tool errors are not thinking rejections")
+	}
+}
+
 func TestChatStartKeepsImagesWhenLLMSupportsVision(t *testing.T) {
 	response, req, completeCalls, _ := startVisionFallbackChat(t, true)
 	if !response.OK {

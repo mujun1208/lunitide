@@ -568,6 +568,38 @@ func sanitizeOutgoingEvent(ev *bridge.Event) {
 	}
 }
 
+func looksLikeUnexecutedActPromise(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" || strings.Contains(t, "无法执行") {
+		return false
+	}
+	lower := strings.ToLower(t)
+	if strings.Contains(t, "已经") || strings.Contains(lower, "i've ") || strings.Contains(lower, "already ") {
+		return false
+	}
+	for _, n := range []string{
+		"我来创建", "我来建", "我去创建", "我去建", "我来新建",
+		"我来删除", "我来删", "我去删", "我帮你删", "我帮你创建",
+		"我来复制", "我来拷", "我来移动", "我来改名", "我来重命名",
+		"我来下载", "我来解压", "我来保存",
+	} {
+		if strings.Contains(t, n) {
+			return true
+		}
+	}
+	for _, n := range []string{
+		"i'll create", "i will create", "let me create", "i'll make", "i will make", "going to create",
+		"i'll delete", "i will delete", "let me delete", "i'll remove",
+		"i'll copy", "i'll move", "i'll rename", "i'll download", "i'll save", "i'll unzip",
+		"let me make", "let me copy", "let me move", "let me rename",
+	} {
+		if strings.Contains(lower, n) {
+			return true
+		}
+	}
+	return false
+}
+
 func looksLikeCompanionWaitPromise(text string) bool {
 	t := strings.TrimSpace(text)
 	if t == "" || strings.Contains(t, "无法执行") {

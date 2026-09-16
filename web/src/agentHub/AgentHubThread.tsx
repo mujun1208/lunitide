@@ -1,31 +1,27 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useZh } from '../i18n/language'
 import { SharedHubComposer, type HubAccessMode } from '../session/SharedHubComposer'
+import { usePanelResize } from '../ui/usePanelResize'
+import { Workspace } from '../workspace/Workspace'
 import { AgentHubAskBar } from './AgentHubAskBar'
-import { AgentHubFileInspector } from './AgentHubFileInspector'
 import {
   agentHubApi,
-  type AgentHubPreview,
   type AgentHubThreadDetail,
-  type AgentHubWorkspaceItem,
 } from './agentHubApi'
 import {
   agentDisplayName,
   displayUserFacingMessage,
   hubSceneToThreadScene,
-  parentWorkspacePath,
   threadPptMissing,
   threadSceneToHub,
-  visibleWorkspaceEntry,
   type HubScene,
   type InboxFile,
 } from './agentHubCopy'
+import { createAgentHubLocalWorkspace, HUB_ATTACHMENTS } from './agentHubWorkspace'
 
 function liveStatus(status: string | undefined): boolean {
   return status === 'running' || status === 'waiting_user'
 }
-
-type WorkspaceTab = 'files' | 'preview'
 
 export function AgentHubThread({
   threadId,
@@ -34,9 +30,6 @@ export function AgentHubThread({
 }): React.JSX.Element {
   const zh = useZh()
   const [detail, setDetail] = useState<AgentHubThreadDetail>()
-  const [files, setFiles] = useState<AgentHubWorkspaceItem[]>([])
-  const [folder, setFolder] = useState('')
-  const [preview, setPreview] = useState<AgentHubPreview>()
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
   const [pending, setPending] = useState(false)
@@ -44,19 +37,28 @@ export function AgentHubThread({
   const [accessMode, setAccessMode] = useState<HubAccessMode>('approval')
   const [inboxFiles, setInboxFiles] = useState<InboxFile[]>([])
   const [exportDir, setExportDir] = useState('')
-  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('files')
   const [workspaceOpen, setWorkspaceOpen] = useState(true)
+  const [workspaceExpanded, setWorkspaceExpanded] = useState(false)
+  const [workspaceRev, setWorkspaceRev] = useState(0)
+  const [workspaceWidth, startWorkspaceResize] = usePanelResize({
+    storageKey: 'lunitide:workspace-width',
+    initial: 520,
+    min: 300,
+    max: () => Math.min(800, window.innerWidth - 80),
+    reverse: true,
+  })
   const threadIdRef = useRef(threadId)
+  const rootRef = useRef('')
   threadIdRef.current = threadId
+  rootRef.current = detail?.thread.workspaceRoot ?? ''
+  const localWorkspace = useMemo(
+    () => createAgentHubLocalWorkspace({ threadId: () => threadIdRef.current, root: () => rootRef.current }),
+    [],
+  )
   const wasLive = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const pinBottom = useRef(true)
-  useEffect(() => { wasLive.current = false; setFolder(''); setInboxFiles([]); setExportDir(''); setPreview(undefined); setPending(false); pinBottom.current = true }, [threadId])
-  const refreshFiles = async (id: string, relativePath = folder) => {
-    const listed = await agentHubApi.workspaceList({ threadId: id, ...(relativePath ? { relativePath } : {}) })
-    if (threadIdRef.current !== id) return
-    setFiles((listed.items ?? []).filter(item => visibleWorkspaceEntry(item.name)))
-  }
+  useEffect(() => { wasLive.current = false; setInboxFiles([]); setExportDir(''); setPending(false); setWorkspaceRev(0); pinBottom.current = true }, [threadId])
   const applyDetail = async (next: AgentHubThreadDetail) => {
     if (threadIdRef.current !== next.thread.threadId) return
     setDetail(next)
@@ -65,16 +67,13 @@ export function AgentHubThread({
     if (next.thread.accessMode === 'approval' || next.thread.accessMode === 'auto-edit' || next.thread.accessMode === 'full-access') {
       setAccessMode(next.thread.accessMode)
     }
-    await refreshFiles(next.thread.threadId)
+    setWorkspaceRev(value => value + 1)
   }
   useEffect(() => {
     let alive = true
     const load = async () => {
       try {
-        const [next, listed] = await Promise.all([
-          agentHubApi.threadGet({ threadId }),
-          agentHubApi.workspaceList({ threadId }),
-        ])
+        const next = await agentHubApi.threadGet({ threadId })
         if (!alive) return
         setDetail(next)
         setScene(threadSceneToHub(next.thread.scene))
@@ -82,7 +81,6 @@ export function AgentHubThread({
         if (next.thread.accessMode === 'approval' || next.thread.accessMode === 'auto-edit' || next.thread.accessMode === 'full-access') {
           setAccessMode(next.thread.accessMode)
         }
-        setFiles((listed.items ?? []).filter(item => visibleWorkspaceEntry(item.name)))
         setError('')
       } catch (err) {
         if (alive) setError(err instanceof Error && /[\u4e00-\u9fff]/.test(err.message) ? err.message : (zh ? '会话读取失败。' : 'Could not load this thread.'))
@@ -95,24 +93,21 @@ export function AgentHubThread({
     const live = liveStatus(detail?.thread.status)
     let alive = true
     const timer = window.setInterval(() => {
-      void Promise.all([
-        agentHubApi.threadGet({ threadId }),
-        agentHubApi.workspaceList({ threadId, ...(folder ? { relativePath: folder } : {}) }),
-      ]).then(([next, listed]) => {
+      void agentHubApi.threadGet({ threadId }).then(next => {
         if (!alive) return
         setDetail(next)
         setScene(threadSceneToHub(next.thread.scene))
         setExportDir(next.thread.exportDir)
-        setFiles((listed.items ?? []).filter(item => visibleWorkspaceEntry(item.name)))
+        if (liveStatus(next.thread.status) || pending) setWorkspaceRev(value => value + 1)
         if (!liveStatus(next.thread.status)) setPending(false)
       }).catch(() => undefined)
     }, live || pending ? 400 : 4000)
     return () => { alive = false; window.clearInterval(timer) }
-  }, [threadId, detail?.thread.status, folder, pending])
+  }, [threadId, detail?.thread.status, pending])
   useEffect(() => {
     const live = liveStatus(detail?.thread.status)
     if (wasLive.current && !live && detail) {
-      void refreshFiles(detail.thread.threadId)
+      setWorkspaceRev(value => value + 1)
       setPending(false)
     }
     wasLive.current = live
@@ -204,28 +199,18 @@ export function AgentHubThread({
       setError(err instanceof Error && /[\u4e00-\u9fff]/.test(err.message) ? err.message : (zh ? '没有加入参考文件。' : 'Could not add reference files.'))
     }
   }
-  const openPreview = async (path: string) => {
-    setPreview(await agentHubApi.preview({ threadId, path }))
-    setWorkspaceTab('preview')
-    setWorkspaceOpen(true)
-  }
-  const openItem = async (item: AgentHubWorkspaceItem) => {
-    if (item.isDir) {
-      setFolder(item.path)
-      await refreshFiles(threadId, item.path)
-      return
-    }
-    await openPreview(item.path)
-  }
-  const goUp = async () => {
-    const next = parentWorkspacePath(folder)
-    setFolder(next)
-    await refreshFiles(threadId, next)
-  }
   const noDeck = detail?.thread.status === 'success' && threadPptMissing(detail.thread.scene, detail.files)
   return (
-    <div className={`workspace-layout${workspaceOpen ? ' workspace-is-open' : ''}`}>
-      <section className="message-panel personal-message-panel" aria-label={zh ? `${detail?.thread.title || '会话'} 消息` : 'messages'}>
+    <div
+      className={`workspace-layout${workspaceOpen ? ' workspace-is-open' : ''}${workspaceExpanded ? ' workspace-is-expanded' : ''}`}
+      style={{ '--workspace-width': `${workspaceWidth}px` } as React.CSSProperties}
+    >
+      <section
+        className="message-panel personal-message-panel"
+        aria-hidden={workspaceExpanded || undefined}
+        inert={workspaceExpanded || undefined}
+        aria-label={zh ? `${detail?.thread.title || '会话'} 消息` : 'messages'}
+      >
         <div
           className="conversation-scroll hub-conversation-scroll"
           ref={scrollRef}
@@ -277,36 +262,31 @@ export function AgentHubThread({
         />
         {error && <p className="agent-hub-error" role="alert">{error}</p>}
       </section>
-      {workspaceOpen ? <div className="workspace-resizer" /> : null}
+      {workspaceOpen ? (
+        <div
+          className="workspace-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={zh ? '调整工作区宽度' : 'Resize workspace'}
+          onPointerDown={startWorkspaceResize}
+        />
+      ) : null}
       <aside className="workspace-column" hidden={!workspaceOpen}>
-        <div className="workspace hub-workspace">
-          <header className="workspace-head">
-            <div className="workspace-tabs" role="tablist" aria-label={zh ? '工作区' : 'Workspace'}>
-              <button type="button" role="tab" aria-selected={workspaceTab === 'files'} className={workspaceTab === 'files' ? 'is-on' : undefined} onClick={() => setWorkspaceTab('files')}>{zh ? '文件' : 'Files'}</button>
-              <button type="button" role="tab" aria-selected={workspaceTab === 'preview'} className={workspaceTab === 'preview' ? 'is-on' : undefined} onClick={() => setWorkspaceTab('preview')}>{zh ? '预览' : 'Preview'}</button>
-            </div>
-            <button type="button" className="workspace-close" aria-label={zh ? '关闭工作区' : 'Close workspace'} onClick={() => setWorkspaceOpen(false)}>×</button>
-          </header>
-          {workspaceTab === 'files' ? (
-            <div className="hub-file-tree">
-              {folder ? (
-                <button type="button" className="agent-hub-art" onClick={() => void goUp()}>{zh ? '上一级' : 'Up'}</button>
-              ) : null}
-              {files.length === 0 ? (
-                <p className="agent-hub-hint">{zh ? '文件 从文件树选择文件即可在此处预览' : 'Pick a file from the tree to preview it here.'}</p>
-              ) : files.map(item => (
-                <button key={item.path} type="button" className="agent-hub-art" onClick={() => void openItem(item)}>
-                  {item.name}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <AgentHubFileInspector
-              preview={preview}
-              onOpen={() => { if (preview) void agentHubApi.open({ threadId, path: preview.path }) }}
-            />
-          )}
-        </div>
+        {detail ? (
+          <Workspace
+            attachments={HUB_ATTACHMENTS}
+            projectId={threadId}
+            sessionId={threadId}
+            onClose={() => setWorkspaceOpen(false)}
+            expanded={workspaceExpanded}
+            onToggleExpand={() => setWorkspaceExpanded(open => !open)}
+            localWorkspace={localWorkspace}
+            filesFocus="local"
+            projectRoot={detail.thread.workspaceRoot}
+            executionMode={accessMode}
+            refreshRevision={workspaceRev}
+          />
+        ) : null}
       </aside>
       {!workspaceOpen ? (
         <button type="button" className="workspace-toggle hub-workspace-toggle" onClick={() => setWorkspaceOpen(true)}>

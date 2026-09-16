@@ -458,8 +458,11 @@ func TestMeteredDisableReasoningSurvivesEffectiveCompile(t *testing.T) {
 	if _, err := a.Complete(ctx, []byte("k"), req); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), `"type":"disabled"`) || !strings.Contains(string(body), `"enable_thinking":false`) {
-		t.Fatalf("metered DisableReasoning lost after Effective compile: %s", body)
+	if strings.Contains(string(body), `"type":"disabled"`) || strings.Contains(string(body), `"enable_thinking":false`) {
+		t.Fatalf("glm-5.3 must not send thinking.disabled: %s", body)
+	}
+	if !strings.Contains(string(body), `"type":"enabled"`) || !strings.Contains(string(body), `"reasoning_effort":"low"`) {
+		t.Fatalf("glm-5.3 DisableReasoning must map to enabled+low: %s", body)
 	}
 }
 

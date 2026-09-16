@@ -59,6 +59,10 @@ func (t *agentRuntimeTx) EnsureAccountingSession() (string, error) {
 	} else if err != nil {
 		return "", t.fail(err)
 	}
+	_, err = t.tx.ExecContext(t.ctx, `INSERT OR IGNORE INTO message_project_usage(project_id,text_bytes) VALUES(?,0)`, projectID)
+	if err != nil {
+		return "", t.fail(err)
+	}
 	sessionID := ulid.Make().String()
 	now := rfc(time.Now().UTC())
 	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO sessions(id,project_id,title,status,created_at,updated_at,version) VALUES(?,?,?,'active',?,?,1)`,

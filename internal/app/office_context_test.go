@@ -27,6 +27,12 @@ func TestOfficeChatInstructionForbidsInventedMetricsAndSpecRebuild(t *testing.T)
 	if !strings.Contains(officeChatInstruction, "kind=pptx") || !strings.Contains(officeChatInstruction, "research-report") || !strings.Contains(officeChatInstruction, "ops-ledger") {
 		t.Fatal("chat must not copy PPT style ids onto Word/Excel")
 	}
+	if !strings.Contains(officeChatInstruction, "exactly") || !strings.Contains(officeChatInstruction, "targetLength") {
+		t.Fatal("chat must generate exactly the authored page count")
+	}
+	if !strings.Contains(officeChatInstruction, "web.search") || !strings.Contains(officeChatInstruction, "not the deliverable") {
+		t.Fatal("chat must not treat inspect/import as the PPT, and must not web-search 自己思考 attachments")
+	}
 }
 
 func TestOfficeChatEvidenceIncludesSelectedPptStyle(t *testing.T) {

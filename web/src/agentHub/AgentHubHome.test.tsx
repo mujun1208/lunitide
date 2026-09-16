@@ -40,13 +40,18 @@ function chooseAccess(name: RegExp) {
   fireEvent.click(screen.getByRole('menuitemradio', { name }))
 }
 
+function chooseScene(label: string) {
+  fireEvent.click(screen.getByLabelText('任务类型'))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: new RegExp(`^${label}`) }))
+}
+
 function stubHome() {
   vi.mocked(agentHubApi.detect).mockResolvedValue({ agents: [...availableAgents()] })
   vi.mocked(agentHubApi.threadList).mockResolvedValue({ items: [] })
 }
 
 function chooseProject() {
-  fireEvent.change(screen.getByLabelText('任务类型'), { target: { value: 'write' } })
+  chooseScene('项目')
 }
 
 function openPlus() {
@@ -77,6 +82,19 @@ it('does not create a thread before detect finishes', async () => {
   expect(agentHubApi.threadCreate).not.toHaveBeenCalled()
 })
 
+it('keeps send and voice beside compact scene and access chips', async () => {
+  stubHome()
+  render(<LanguageProvider value="zh-CN"><AgentHubHome selectedAgent="cursor" /></LanguageProvider>)
+  const scene = await screen.findByLabelText('任务类型')
+  const access = screen.getByLabelText('权限')
+  expect(scene.tagName).toBe('BUTTON')
+  expect(access.className).toContain('hub-access-chip')
+  expect(scene.className).toContain('hub-access-chip')
+  expect(screen.queryByRole('combobox', { name: '任务类型' })).toBeNull()
+  expect(screen.getByRole('button', { name: '语音输入' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '发送' })).toBeInTheDocument()
+})
+
 it('does not show composer template chips under the AgentHub input', async () => {
   stubHome()
   render(<LanguageProvider value="zh-CN"><AgentHubHome selectedAgent="cursor" /></LanguageProvider>)
@@ -99,9 +117,9 @@ it('keeps the scene selector after switching to PPT without template chips', asy
   stubHome()
   render(<LanguageProvider value="zh-CN"><AgentHubHome selectedAgent="kimi" /></LanguageProvider>)
   await screen.findByLabelText('任务类型')
-  fireEvent.change(screen.getByLabelText('任务类型'), { target: { value: 'ppt' } })
+  chooseScene('PPT')
   expect(screen.queryByRole('button', { name: '写周报 Markdown' })).toBeNull()
-  expect(screen.getByLabelText('任务类型')).toHaveValue('ppt')
+  expect(screen.getByLabelText('任务类型')).toHaveTextContent('PPT')
 })
 
 it('says this window belongs to the selected Agent and later CLIs stay off the list', async () => {
