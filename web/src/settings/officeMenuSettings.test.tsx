@@ -6,13 +6,11 @@ import { DEFAULT_OFFICE_MENU, loadOfficeMenu, OFFICE_MENU_KEY, saveOfficeMenu, u
 
 afterEach(() => { cleanup(); localStorage.removeItem(OFFICE_MENU_KEY); vi.restoreAllMocks() })
 
-it('defaults Agent Hub on, keeps other optional entries hidden, and honors an explicit stored false', () => {
+it('does not keep AgentHub as an office-menu toggle and ignores leftover stored agentHub', () => {
   expect(loadOfficeMenu()).toEqual(DEFAULT_OFFICE_MENU)
-  expect(DEFAULT_OFFICE_MENU.agentHub).toBe(true)
-  localStorage.setItem(OFFICE_MENU_KEY, JSON.stringify({ people: 'false', mro: 1, office: true, meetings: false }))
-  expect(loadOfficeMenu()).toEqual({ people: false, mro: false, office: true, meetings: false, agentHub: true })
-  localStorage.setItem(OFFICE_MENU_KEY, JSON.stringify({ office: true, agentHub: false }))
-  expect(loadOfficeMenu()).toEqual({ people: false, mro: false, office: true, meetings: false, agentHub: false })
+  expect('agentHub' in DEFAULT_OFFICE_MENU).toBe(false)
+  localStorage.setItem(OFFICE_MENU_KEY, JSON.stringify({ people: 'false', mro: 1, office: true, meetings: false, agentHub: false }))
+  expect(loadOfficeMenu()).toEqual({ people: false, mro: false, office: true, meetings: false })
   localStorage.setItem(OFFICE_MENU_KEY, '{bad')
   expect(loadOfficeMenu()).toEqual(DEFAULT_OFFICE_MENU)
 })
@@ -21,10 +19,11 @@ it('shares changes between mounted consumers and retains them after remount with
   function Consumer() { return <output>{JSON.stringify(useOfficeMenu())}</output> }
   localStorage.setItem('lunitide:test-retained-chat', 'keep history')
   const first = render(<><OfficeMenuPanel /><Consumer /></>)
+  expect(screen.queryByRole('switch', { name: 'AgentHub' })).toBeNull()
   fireEvent.click(screen.getByRole('switch', { name: '同事聊天' }))
   fireEvent.click(screen.getByRole('switch', { name: '办公工作台' }))
   expect(screen.getByRole('status')).toHaveTextContent('"people":true')
-  expect(screen.getByRole('status')).toHaveTextContent('"agentHub":true')
+  expect(screen.getByRole('status')).not.toHaveTextContent('agentHub')
   first.unmount()
   render(<OfficeMenuPanel />)
   expect(screen.getByRole('switch', { name: '同事聊天' })).toHaveAttribute('aria-checked', 'true')

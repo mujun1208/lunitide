@@ -410,3 +410,17 @@ func TestIgnoreOfficeBusyKeepsRealConflicts(t *testing.T) {
 		t.Fatal("real conflict must still fail")
 	}
 }
+
+func TestOfficeArchiveTurnDrainsBeforeWait(t *testing.T) {
+	e, store := officeEngineFixture(t)
+	a := officeCreatedTask(t, e, "drain-wait")
+	m := officeArchiveMessageForTest(t, e, a.SessionID, "drain-message")
+	officeArchiveFileForTest(t, e, a.SessionID, "drain.docx", "等归档结束再关库")
+	officeArchiveCardForTest(t, e, a.SessionID, m, "drain.docx", a.ID)
+	e.archiveOfficeTurn(withOfficeTask(context.Background(), a.ID), a.SessionID)
+	e.waitOfficeArchive()
+	officeArchiveVersionsForTest(t, e, a.ID, "drain.docx")
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+}

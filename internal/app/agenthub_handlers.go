@@ -23,6 +23,19 @@ func handleAgentHub(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 			return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.detect 参数无效", false)
 		}
 		return r.Ok(map[string]any{"agents": e.agentHub.Detect()})
+	case "agentHub.install":
+		var p struct {
+			Name      string `json:"name"`
+			Confirmed bool   `json:"confirmed"`
+		}
+		if decodePayload(r.Payload, &p) != nil || (p.Name != "codex" && p.Name != "cursor" && p.Name != "kimi") {
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.install 参数无效", false)
+		}
+		result, err := e.agentHub.Install(context.WithoutCancel(ctx), p.Name, p.Confirmed)
+		if err != nil {
+			return agentHubFailure(r, err)
+		}
+		return r.Ok(result)
 	case "agentHub.dir.pick":
 		var p struct{}
 		if decodePayload(r.Payload, &p) != nil {
@@ -174,14 +187,18 @@ func handleAgentHub(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 		return r.Ok(map[string]any{"items": items})
 	case "agentHub.thread.update":
 		var p struct {
-			ThreadID string `json:"threadId"`
-			Title    string `json:"title"`
-			Pinned   *bool  `json:"pinned"`
+			ThreadID      string `json:"threadId"`
+			Title         string `json:"title"`
+			Pinned        *bool  `json:"pinned"`
+			WorkspaceRoot string `json:"workspaceRoot"`
+			AccessMode    string `json:"accessMode"`
+			ExportDir     string `json:"exportDir"`
+			Scene         string `json:"scene"`
 		}
 		if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ThreadID) {
 			return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.thread.update 参数无效", false)
 		}
-		detail, err := e.agentHub.UpdateThread(p.ThreadID, p.Title, p.Pinned)
+		detail, err := e.agentHub.UpdateThread(p.ThreadID, p.Title, p.Pinned, p.WorkspaceRoot, p.AccessMode, p.ExportDir, p.Scene)
 		if err != nil {
 			return agentHubFailure(r, err)
 		}

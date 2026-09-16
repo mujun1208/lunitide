@@ -158,6 +158,66 @@ FROM agent_hub_threads`
 	return items, rows.Err()
 }
 
+func (s *ThreadStore) SetWorkspace(id, workspaceRoot string) error {
+	res, err := s.db.Exec(`UPDATE agent_hub_threads SET workspace_root=?, updated_at=? WHERE id=?`, workspaceRoot, threadNow(), id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *ThreadStore) SetAccess(id, accessMode string) error {
+	res, err := s.db.Exec(`UPDATE agent_hub_threads SET access_mode=?, updated_at=? WHERE id=?`, accessMode, threadNow(), id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *ThreadStore) SetExport(id, exportDir string) error {
+	res, err := s.db.Exec(`UPDATE agent_hub_threads SET export_dir=?, updated_at=? WHERE id=?`, exportDir, threadNow(), id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *ThreadStore) SetScene(id, scene string) error {
+	res, err := s.db.Exec(`UPDATE agent_hub_threads SET scene=?, updated_at=? WHERE id=?`, scene, threadNow(), id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *ThreadStore) Update(id, title string, pinned bool) error {
 	res, err := s.db.Exec(`UPDATE agent_hub_threads SET title=?, pinned=?, updated_at=? WHERE id=?`, title, boolToInt(pinned), threadNow(), id)
 	if err != nil {

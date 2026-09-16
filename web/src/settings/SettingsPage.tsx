@@ -827,7 +827,7 @@ function DiagnosticsPanel(): React.JSX.Element {
   }
   const install = async () => {
     if (!update) return
-    setBusy(true); setStatus('正在安装更新…')
+    setBusy(true); setStatus('正在下载并安装更新…')
     try {
       const r = await bridge.install({ updateId: update.updateId, expectedDigest: update.digest })
       setStatus(r.state === 'installed' ? '更新已安装。' : `更新已回滚（${r.state}），请查看诊断日志。`)

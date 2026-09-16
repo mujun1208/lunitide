@@ -36,12 +36,20 @@ const failed: Plugin = {
   kind: 'tool',
   state: 'quarantined',
 }
+const imported: Plugin = {
+  ...webSearch,
+  installId: '01ARZ3NDEKTSV4RRFFQ69G5FAD',
+  pluginId: 'my-imported-tool',
+  publisher: 'local',
+  kind: 'tool',
+  state: 'enabled',
+}
 
 function api(overrides: Partial<PluginBridge> = {}): PluginBridge {
   return {
     packList:vi.fn().mockResolvedValue({items:[]}),
     packInstall:vi.fn(),packUninstall:vi.fn().mockResolvedValue({state:'uninstalled'}),
-    list: vi.fn().mockResolvedValue({ plugins: [webSearch, filler, failed] }),
+    list: vi.fn().mockResolvedValue({ plugins: [webSearch, filler, failed, imported] }),
     install: vi.fn(),
     toggle: vi.fn().mockResolvedValue({ installId: webSearch.installId, state: 'enabled', bindings: [] }),
     uninstall: vi.fn().mockResolvedValue({ installId: webSearch.installId, state: 'uninstalled', revokedBindings: 0, tombstoneId: '01ARZ3NDEKTSV4RRFFQ69G5FAD' }),
@@ -77,7 +85,7 @@ it('does not show raw English plugin list, install or delete failures', async ()
 it('renders the plugin market and enables a catalog card', async () => {
   const bridge = api()
   render(<PluginPage bridge={bridge} />)
-  expect(await screen.findByRole('heading', { name: '能力包' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: '插件' })).toBeInTheDocument()
   expect(await screen.findByText('网页搜索')).toBeInTheDocument()
   expect(screen.getAllByText(/启动其本地服务进程/).length).toBeGreaterThan(0)
   expect(screen.getByText(/本机捆绑目录/)).toBeInTheDocument()
@@ -117,7 +125,7 @@ it('deletes an installed plugin after confirm', async () => {
   fireEvent.click(await screen.findByRole('button', { name: '确认删除' }))
   await waitFor(() => expect(bridge.uninstall).toHaveBeenCalledOnce())
   const payload = vi.mocked(bridge.uninstall).mock.calls[0][0]
-  expect(payload.installId).toBe(webSearch.installId)
+  expect(payload.installId).toBe(imported.installId)
   expect(payload.confirmToken).toMatch(/^[0-9a-f]{64}$/)
 })
 
@@ -155,7 +163,7 @@ it('removes a capability pack using the persisted version and keeps skills',asyn
  render(<PluginPage bridge={bridge} skills={skills}/>)
  fireEvent.click(await screen.findByRole('tab',{name:/已安装/}))
  expect(await screen.findByText('浏览器工作包')).toBeInTheDocument()
- fireEvent.click(screen.getAllByRole('button',{name:'删除'})[0]);fireEvent.click(await screen.findByRole('button',{name:'确认删除'}))
+ fireEvent.click(screen.getByRole('button',{name:'撤下'}));fireEvent.click(await screen.findByRole('button',{name:'确认撤下'}))
  await waitFor(()=>expect(bridge.packUninstall).toHaveBeenCalledWith({packId:'pack-browser',expectedVersion:4,confirmed:true}))
  expect(skills.delete).not.toHaveBeenCalled();expect(bridge.toggle).not.toHaveBeenCalled()
 })

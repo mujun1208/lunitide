@@ -306,7 +306,7 @@ button:disabled{opacity:.5}
 .engine-health-banner{position:sticky;top:0;z-index:40;display:flex;gap:12px;align-items:center;justify-content:center;padding:8px 14px;background:rgba(255,90,90,.16);border-bottom:1px solid rgba(255,90,90,.35);color:#ffd0d0;font-size:13px}
 .engine-health-banner.is-recovered{background:rgba(90,200,140,.16);border-bottom-color:rgba(90,200,140,.35);color:#c8f5d8}
 .engine-health-banner button{border:1px solid var(--line);background:var(--bg3);color:var(--ink);border-radius:6px;padding:4px 10px;cursor:pointer}
-.app-update-banner{position:sticky;top:0;z-index:39;display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;padding:8px 14px;background:rgba(86,160,255,.16);border-bottom:1px solid rgba(86,160,255,.35);color:#d7e8ff;font-size:13px}
+.app-update-banner{position:sticky;top:0;z-index:39;display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;padding:8px 14px;background:rgba(90,160,255,.14);border-bottom:1px solid rgba(90,160,255,.32);color:var(--ink);font-size:13px}
 .app-update-banner button{border:1px solid var(--line);background:var(--bg3);color:var(--ink);border-radius:6px;padding:4px 10px;cursor:pointer}
 .pm-phase-lock-warn{margin:10px 18px 0;padding:8px 12px;border:1px solid rgba(255,196,86,.35);border-radius:8px;background:rgba(255,196,86,.08);color:#ffd98a;font-size:12px;display:flex;gap:10px;align-items:center;justify-content:space-between}
 .pm-phase-lock-warn button{border:1px solid var(--line);background:var(--bg3);color:var(--ink);border-radius:6px;padding:4px 8px;cursor:pointer;flex:0 0 auto}
@@ -367,14 +367,30 @@ button.companion-memory-link{cursor:pointer;text-align:left}
 
 /* Workspace code / changes / DAG */
 .workspace>nav{grid-template-columns:repeat(6,minmax(0,1fr))}
-.workspace-files-preview{border-top:1px solid var(--rule);margin-top:8px;padding-top:8px}
+.workspace-files-preview{border-top:0;margin-top:0;padding-top:0}
+.workspace-files-stage{display:grid;grid-template-columns:minmax(0,1fr) 5px var(--tree-width,260px);flex:1;min-height:0}
+.workspace-files-stage.is-tree-hidden{grid-template-columns:minmax(0,1fr)}
+.workspace-files-empty{flex:1;display:grid;place-content:center;text-align:center;color:var(--muted);padding:32px 16px;gap:6px}
+.workspace-files-empty b{color:var(--ink);font-size:16px;font-weight:520}
+.workspace-files-empty p{margin:0}
+.workspace-file-tree,.code-panel-tree{min-width:0;min-height:0;overflow:auto;background:#000}
+.workspace-file-tree{border-left:1px solid var(--rule);padding:8px 6px}
+.workspace-tree-resizer{width:5px;min-width:5px;padding:0;border:0;border-radius:0;cursor:col-resize;background:transparent}
+.workspace-tree-resizer:hover,.workspace-tree-resizer:focus-visible{background:rgba(255,255,255,.16)}
+.workspace-file-tree .session-folder-panel,.workspace-file-tree .local-explorer,.code-panel-tree .local-explorer{border:0;border-radius:0;background:transparent;padding:8px 4px}
+.workspace-file-tree .workspace-attachments{display:grid;gap:2px;overflow:visible;padding:4px 0 8px}
+.workspace-file-tree .workspace-attachments button{min-width:0;width:100%;padding:6px 8px;border:0;border-radius:6px;background:transparent;color:var(--ink)}
+.workspace-file-tree .workspace-attachments button[aria-selected="true"]{background:rgba(255,255,255,.08)}
+html[data-theme="light"] .workspace-file-tree,html[data-theme="light"] .code-panel-tree{background:#fff}
+html[data-theme="light"] .workspace-tree-resizer:hover,html[data-theme="light"] .workspace-tree-resizer:focus-visible{background:rgba(0,0,0,.1)}
+html[data-theme="dark"] .workspace{background:#000}
 .code-panel,.changes-panel,.plan-dag-panel{display:flex;flex:1;min-height:0;flex-direction:column;overflow:hidden}
 .code-panel-toolbar,.changes-panel-head,.plan-dag-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:4px 8px;border-bottom:1px solid var(--rule);min-height:32px}
 .code-panel-title,.changes-panel-head strong,.plan-dag-head strong{font-size:12px;font-weight:500}
 .code-panel-vscode{width:22px;height:22px;padding:0;border:0;border-radius:5px;background:transparent;color:var(--ink);font-size:12px}
-.code-panel-split{display:grid;grid-template-columns:minmax(140px,38%) minmax(0,1fr);flex:1;min-height:0}
+.code-panel-split{display:grid;grid-template-columns:minmax(0,1fr) 5px var(--tree-width,260px);flex:1;min-height:0}
 .code-panel-tree,.code-panel-editor{min-height:0;overflow:auto}
-.code-panel-tree{padding:10px 12px;border-right:1px solid var(--rule)}
+.code-panel-tree{padding:10px 8px;border-left:1px solid var(--rule);border-right:0}
 .code-panel-tree h3,.code-panel-tree h4,.changes-files h4,.changes-log h4{margin:0 0 6px;font-size:11px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
 .code-task-files,.code-recent ul,.changes-files ul,.changes-log ol{margin:0 0 10px;padding:0;list-style:none}
 .code-task-files button,.code-recent button{display:flex;align-items:center;gap:6px;width:100%;padding:5px 6px;border:0;border-radius:6px;background:transparent;color:var(--ink);text-align:left;font-size:11px;cursor:pointer}
@@ -444,7 +460,7 @@ button.companion-memory-link{cursor:pointer;text-align:left}
 .appr-footnote{margin:8px 0 0;font-size:10px;color:var(--muted)}
 .approval-principles{margin-top:8px}
 .approval-empty{padding:28px 12px}
-@media(max-width:900px){.code-panel-split{grid-template-columns:1fr}.plan-dag-phases{grid-template-columns:1fr}}
+@media(max-width:900px){.plan-dag-phases{grid-template-columns:1fr}}
 
 
 /* ===== Chat Area ===== */

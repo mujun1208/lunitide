@@ -25,20 +25,27 @@ func TestChatLongInputFullDescriptionReachesProvider(t *testing.T) {
 		text := strings.Repeat("能力描述必须完整传递。", 2500) + "最终约束：原有功能必须保留。"
 		raw, _ := json.Marshal(map[string]any{"providerId": chatAttachmentProviderID, "modelId": "model", "sessionId": chatAttachmentSessionID, "messages": []map[string]string{{"role": "user", "content": text}}})
 		request := validRequest("chat.start", string(raw))
+		// validRequest uses 3s. Windows CGO -race makes assembling this
+		// legal long turn miss that before detached runStream reaches the
+		// provider (Quality 34868066240: "long description did not reach
+		// provider"). chat.start's product cap is ChatStartDeadlineMS.
+		request.DeadlineMS = bridge.ChatStartDeadlineMS
 		wire, _ := json.Marshal(request)
 		if len(wire) > hostbridge.MaxMessageBytes {
 			t.Fatal("legal long input exceeds host transport")
 		}
 		ctx, cancel := context.WithCancel(context.Background())
-		t.Cleanup(cancel)
 		response := e.HandleStreaming(ctx, request, func(bridge.Event) error { return nil })
 		if !response.OK {
+			cancel()
 			t.Fatalf("long input rejected by chat.start: %+v", response.Error)
 		}
 		var got llmadapter.Request
 		select {
 		case got = <-requests:
-		case <-time.After(30 * time.Second):
+			cancel()
+		case <-time.After(time.Duration(bridge.ChatStartDeadlineMS) * time.Millisecond):
+			cancel()
 			t.Fatal("long description did not reach provider")
 		}
 		found := false

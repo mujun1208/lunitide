@@ -143,6 +143,8 @@ async function request<T>(method: string, payload: object): Promise<T> {
 
 export const agentHubApi = {
   detect: () => request<{ agents: AgentHubStatus[] }>('agentHub.detect', {}),
+  install: (payload: { name: AgentHubName; confirmed: boolean }) =>
+    request<{ agents: AgentHubStatus[]; installed: boolean; connected: boolean; hint: string }>('agentHub.install', payload),
   pickDir: () => request<{ canceled: boolean; path: string }>('agentHub.dir.pick', {}),
   start: (payload: {
     taskId?: string
@@ -176,8 +178,15 @@ export const agentHubApi = {
   threadGet: (payload: { threadId: string }) => request<AgentHubThreadDetail>('agentHub.thread.get', payload),
   threadList: (payload?: { harnessId?: string }) =>
     request<{ items: AgentHubThread[] }>('agentHub.thread.list', payload ?? {}),
-  threadUpdate: (payload: { threadId: string; title?: string; pinned?: boolean }) =>
-    request<AgentHubThreadDetail>('agentHub.thread.update', payload),
+  threadUpdate: (payload: {
+    threadId: string
+    title?: string
+    pinned?: boolean
+    workspaceRoot?: string
+    accessMode?: 'approval' | 'auto-edit' | 'full-access'
+    exportDir?: string
+    scene?: AgentHubThreadScene
+  }) => request<AgentHubThreadDetail>('agentHub.thread.update', payload),
   threadDelete: (payload: { threadId: string }) => request<{ ok: boolean }>('agentHub.thread.delete', payload),
   threadCancel: (payload: { threadId: string }) => request<AgentHubThreadDetail>('agentHub.thread.cancel', payload),
   threadPrompt: (payload: { threadId: string; text: string }) =>

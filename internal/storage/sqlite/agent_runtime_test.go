@@ -33,13 +33,32 @@ const (
 	rtRevULID     = "01ARZ3NDEKTSV4RRFFQ69G5F19"
 )
 
+func closeTestStore(s *Store) {
+	if s == nil || s.db == nil {
+		return
+	}
+	// WAL Close on modernc+Windows hosted runners can sit in
+	// FlushFileBuffers until the coverage process timeout
+	// (Quality 34881416247, TestOfficeBlobSweepRetry cleanup).
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = s.db.Exec("PRAGMA journal_mode=DELETE")
+		_ = s.Close()
+	}()
+	select {
+	case <-done:
+	case <-time.After(8 * time.Second):
+	}
+}
+
 func openRuntimeStore(t *testing.T) *Store {
 	t.Helper()
 	store, err := OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { store.Close() })
+	t.Cleanup(func() { closeTestStore(store) })
 	now := rtAt.Format(time.RFC3339Nano)
 	if _, err = store.db.Exec(`INSERT INTO projects(id,name,project_code,status,created_at,updated_at,version) VALUES(?,?,?, 'active',?,?,1)`,
 		rtProjectULID, "Demo", "ITM00001", now, now); err != nil {

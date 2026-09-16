@@ -7,6 +7,10 @@ it('lets agentHub.dir.pick and agentHub.inbox wait for native dialogs', () => {
   expect(capBridgeDeadlineMs('agentHub.detect', AGENT_HUB_DIR_PICK_MS)).toBe(30_000)
 })
 
+it('lets agentHub.install wait as long as a native dialog', () => {
+  expect(capBridgeDeadlineMs('agentHub.install', AGENT_HUB_DIR_PICK_MS)).toBe(AGENT_HUB_DIR_PICK_MS)
+})
+
 it('lets project.root.pick wait for the same native dialog cap', () => {
   expect(capBridgeDeadlineMs('project.root.pick', AGENT_HUB_DIR_PICK_MS)).toBe(AGENT_HUB_DIR_PICK_MS)
 })

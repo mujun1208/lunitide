@@ -41,6 +41,14 @@ func TestAgentHubKimiStartsWhenAvailable(t *testing.T) {
 	if !resp.OK {
 		t.Fatalf("%#v", resp)
 	}
+	var detail agenthub.TaskDetail
+	if err := json.Unmarshal(hubJSON(resp.Payload), &detail); err != nil {
+		t.Fatal(err)
+	}
+	// StartTask returns as soon as the task is queued; execute() still walks
+	// the allocated work dir. Returning here lets t.TempDir cleanup race that
+	// walk on Windows ("The process cannot access the file").
+	waitHubTask(t, e, detail.Task.ID, func(got agenthub.TaskDetail) bool { return got.Task.Status == "success" })
 }
 
 func TestAgentHubPreviewRejectsEscape(t *testing.T) {
@@ -60,15 +68,7 @@ func TestAgentHubPreviewRejectsEscape(t *testing.T) {
 	if err := json.Unmarshal(raw, &detail); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		got := handleAgentHub(e, context.Background(), validRequest("agentHub.task.get", `{"taskId":"`+detail.Task.ID+`"}`))
-		_ = json.Unmarshal(hubJSON(got.Payload), &detail)
-		if detail.Task.Status == "success" {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	waitHubTask(t, e, detail.Task.ID, func(got agenthub.TaskDetail) bool { return got.Task.Status == "success" })
 	resp := handleAgentHub(e, context.Background(), validRequest("agentHub.file.preview", `{"taskId":"`+detail.Task.ID+`","path":"..\\Windows\\win.ini"}`))
 	if resp.OK || resp.Error == nil || resp.Error.Code != "PATH_OUTSIDE" {
 		t.Fatalf("%#v", resp)
@@ -97,18 +97,9 @@ func TestAgentHubGetAfterStartHasEvents(t *testing.T) {
 	if err := json.Unmarshal(hubJSON(start.Payload), &detail); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		got := handleAgentHub(e, context.Background(), validRequest("agentHub.task.get", `{"taskId":"`+detail.Task.ID+`"}`))
-		if err := json.Unmarshal(hubJSON(got.Payload), &detail); err != nil {
-			t.Fatal(err)
-		}
-		if detail.Task.Status == "success" && len(detail.Events) > 0 {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatalf("missing events: %+v", detail)
+	waitHubTask(t, e, detail.Task.ID, func(got agenthub.TaskDetail) bool {
+		return got.Task.Status == "success" && len(got.Events) > 0
+	})
 }
 
 func TestAgentHubOpenFolderIsNotTreatedAsFile(t *testing.T) {
@@ -127,17 +118,7 @@ func TestAgentHubOpenFolderIsNotTreatedAsFile(t *testing.T) {
 	if err := json.Unmarshal(hubJSON(start.Payload), &detail); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		got := handleAgentHub(e, context.Background(), validRequest("agentHub.task.get", `{"taskId":"`+detail.Task.ID+`"}`))
-		if err := json.Unmarshal(hubJSON(got.Payload), &detail); err != nil {
-			t.Fatal(err)
-		}
-		if detail.Task.Status == "success" {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	waitHubTask(t, e, detail.Task.ID, func(got agenthub.TaskDetail) bool { return got.Task.Status == "success" })
 	var opened string
 	var asFile bool
 	old := openArtifactTarget
@@ -215,11 +196,29 @@ func TestAgentHubInboxCopiesWithInjectedPicker(t *testing.T) {
 }
 
 func TestAgentHubMethodsAreNotDataScoped(t *testing.T) {
-	for _, method := range []string{"agentHub.detect", "agentHub.dir.pick", "agentHub.inbox", "agentHub.task.start", "agentHub.task.get", "agentHub.file.preview"} {
+	for _, method := range []string{"agentHub.detect", "agentHub.dir.pick", "agentHub.inbox", "agentHub.install", "agentHub.task.start", "agentHub.task.get", "agentHub.file.preview"} {
 		if dataScopedMethod(method) {
 			t.Fatalf("%s must stay out of dataScopedMethod", method)
 		}
 	}
+}
+
+func waitHubTask(t *testing.T, e *Engine, taskID string, ready func(agenthub.TaskDetail) bool) agenthub.TaskDetail {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	var detail agenthub.TaskDetail
+	for time.Now().Before(deadline) {
+		got := handleAgentHub(e, context.Background(), validRequest("agentHub.task.get", `{"taskId":"`+taskID+`"}`))
+		if err := json.Unmarshal(hubJSON(got.Payload), &detail); err != nil {
+			t.Fatal(err)
+		}
+		if ready(detail) {
+			return detail
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("agent hub task did not finish: %+v", detail)
+	return detail
 }
 
 func hubJSON(v any) []byte {
@@ -234,6 +233,9 @@ type threadHubDetail struct {
 	Thread struct {
 		ID            string `json:"threadId"`
 		WorkspaceRoot string `json:"workspaceRoot"`
+		ExportDir     string `json:"exportDir"`
+		Scene         string `json:"scene"`
+		AccessMode    string `json:"accessMode"`
 		Status        string `json:"status"`
 	} `json:"thread"`
 	Messages []struct {
@@ -303,6 +305,35 @@ func TestAgentHubThreadCreateEmptyWorkspaceUsesRootThreads(t *testing.T) {
 	info, err := os.Stat(detail.Thread.WorkspaceRoot)
 	if err != nil || !info.IsDir() {
 		t.Fatalf("workspace dir: %v", err)
+	}
+}
+
+func TestAgentHubThreadUpdatePersistsWorkspaceExportAndScene(t *testing.T) {
+	e, _ := newThreadHubEngine(t)
+	created := handleAgentHub(e, context.Background(), validRequest("agentHub.thread.create", `{"harnessId":"loopback","scene":"free","workspaceRoot":""}`))
+	if !created.OK {
+		t.Fatalf("%#v", created)
+	}
+	detail := decodeThreadHubDetail(t, created.Payload)
+	workspace := filepath.Join(t.TempDir(), "proj")
+	export := filepath.Join(t.TempDir(), "out")
+	body, err := json.Marshal(map[string]string{
+		"threadId":      detail.Thread.ID,
+		"workspaceRoot": workspace,
+		"exportDir":     export,
+		"scene":         "ppt",
+		"accessMode":    "full-access",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := handleAgentHub(e, context.Background(), validRequest("agentHub.thread.update", string(body)))
+	if !resp.OK {
+		t.Fatalf("%#v", resp)
+	}
+	got := decodeThreadHubDetail(t, resp.Payload)
+	if filepath.Clean(got.Thread.WorkspaceRoot) != filepath.Clean(workspace) || filepath.Clean(got.Thread.ExportDir) != filepath.Clean(export) || got.Thread.Scene != "ppt" || got.Thread.AccessMode != "full-access" {
+		t.Fatalf("%+v", got.Thread)
 	}
 }
 

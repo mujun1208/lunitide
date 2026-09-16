@@ -143,6 +143,9 @@ func New(root string) (*Runtime, error) {
 		return nil, err
 	}
 	r := &Runtime{root: filepath.Clean(real), now: func() time.Time { return time.Now().UTC() }}
+	if err := r.sandboxDesktopDuringTest(); err != nil {
+		return nil, err
+	}
 	r.weatherClient = weather.New(func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error) {
 		if r.fetchWeb == nil {
 			return networkpolicy.FetchResult{}, errors.New("web tools unavailable")

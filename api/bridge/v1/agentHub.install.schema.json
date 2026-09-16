@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/agentHub.install.schema.json",
+  "title": "agentHub.install payload",
+  "x-method": "agentHub.install",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "enum": ["codex", "cursor", "kimi"] },
+    "confirmed": { "type": "boolean" }
+  },
+  "required": ["name", "confirmed"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "agents": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string", "enum": ["codex", "cursor", "kimi", "loopback"] },
+            "state": { "type": "string", "enum": ["available", "not_installed", "not_logged_in", "unknown"] },
+            "version": { "type": "string" },
+            "nonInteractive": { "type": "boolean" },
+            "streamJSON": { "type": "boolean" },
+            "hint": { "type": "string" },
+            "interactive": { "type": "boolean" },
+            "protocol": { "type": "string", "enum": ["acp", "exec", "app-server", "none"] }
+          },
+          "required": ["name", "state", "version", "nonInteractive", "streamJSON", "hint", "interactive", "protocol"]
+        }
+      },
+      "installed": { "type": "boolean" },
+      "connected": { "type": "boolean" },
+      "hint": { "type": "string" }
+    },
+    "required": ["agents", "installed", "connected", "hint"]
+  },
+  "x-examples": {
+    "positive": [
+      { "name": "cursor", "confirmed": true }
+    ],
+    "negative": [
+      { "name": "loopback", "confirmed": true },
+      { "unexpected": true }
+    ]
+  }
+}

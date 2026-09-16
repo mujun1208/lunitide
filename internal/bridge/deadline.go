@@ -41,7 +41,7 @@ func MaxDeadlineMS(method string) int {
 		return McpSetupDeadlineMS
 	case MethodChatStart:
 		return ChatStartDeadlineMS
-	case MethodAgentHubDirPick, MethodAgentHubInbox, "project.root.pick":
+	case MethodAgentHubDirPick, MethodAgentHubInbox, MethodAgentHubInstall, "project.root.pick":
 		return AgentHubPickDeadlineMS
 	default:
 		return DefaultMaxDeadlineMS

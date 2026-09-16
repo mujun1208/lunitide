@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/lunitide/lunitide/internal/canonpath"
 )
 
 func TestEffectiveRootPrefersProjectRoot(t *testing.T) {
@@ -28,16 +30,31 @@ func TestEffectiveRootPrefersProjectRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != project {
-		t.Fatalf("effectiveRoot = %q, want project %q", got, project)
+	// Hosted Windows runners spell t.TempDir as RUNNER~1; effectiveRoot
+	// pins the OS long name so later Rel checks compare like with like.
+	want, err := canonpath.Canonical(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("effectiveRoot = %q, want canonical project %q (resolver %q)", got, want, project)
 	}
 	personal, err := rt.effectiveRoot(Approval, "01ARZ3NDEKTSV4RRFFQ69G5FAB")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if personal == project {
+	if sameExistingFile(personal, project) {
 		t.Fatal("personal chat must not inherit the project root")
 	}
+}
+
+func sameExistingFile(a, b string) bool {
+	ga, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	wa, err := os.Stat(b)
+	return err == nil && os.SameFile(ga, wa)
 }
 
 func TestWorkspaceWriteLandsInProjectRoot(t *testing.T) {

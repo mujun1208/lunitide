@@ -24,6 +24,7 @@ import { previewKindFromPath } from './artifactPreviewMode'
 import { SafeLinkedText } from './safeLinks'
 import { isBrowserAddress, latestBrowserAddress, parseSearchCards } from './browserAddress'
 import { extractTaskFiles, isChangeTool } from './codePanelUtils'
+import { workspaceDownloadEnabled } from './workspaceDownload'
 
 function workspaceUserError(err: unknown, fallback: string): string {
   const detail = err instanceof Error ? err.message.trim() : ''
@@ -162,6 +163,10 @@ export function Workspace({
   const [browserBusy, setBrowserBusy] = useState(false)
   const request = useRef(0)
   const local = useRef<LocalWorkspaceBridge | undefined>(localWorkspace)
+  const filesStageRef = useRef<HTMLDivElement>(null)
+  const filesDragCleanup = useRef<(() => void) | undefined>(undefined)
+  const [treeOpen, setTreeOpen] = useState(true)
+  const [treeWidth, setTreeWidth] = useState(260)
 
   const localBridge = () => {
     if (local.current) return local.current
@@ -218,6 +223,7 @@ export function Workspace({
     })
     return () => { request.current++ }
   }, [attachments, selectedId, projectId, sessionId])
+  useEffect(() => () => filesDragCleanup.current?.(), [])
 
   const openBrowser = async () => {
     if (!isBrowserAddress(browserURL) || browserURL.startsWith('file:')) {
@@ -298,7 +304,7 @@ export function Workspace({
     )
     : null
   const localFiles = localBridge()
-  const localTree = !catalogFocus && filesFocus !== 'session' && localFiles
+  const localTree = !catalogFocus && localFiles
     ? (
       <LocalExplorer
         bridge={localFiles}
@@ -309,11 +315,28 @@ export function Workspace({
         onPreview={file => {
           setLocalDetail(file)
           setDetail(undefined)
-          setTab('code')
         }}
       />
     )
     : null
+
+  const dragFilesTree = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    const box = filesStageRef.current?.getBoundingClientRect()
+    if (!box) return
+    filesDragCleanup.current?.()
+    const onMove = (move: PointerEvent) => {
+      setTreeWidth(Math.min(480, Math.max(180, box.right - move.clientX)))
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      filesDragCleanup.current = undefined
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    filesDragCleanup.current = onUp
+  }
 
   const tabLabel = (item: typeof TABS[number]) => {
     if (item.id === 'changes' && changeCount > 0) return `${item.label} · ${changeCount}`
@@ -322,19 +345,28 @@ export function Workspace({
   }
 
   const previewName = localDetail?.path.split(/[/\\]/).pop() || detail?.originalName || ''
+  const canDownload = Boolean(previewName) && workspaceDownloadEnabled({
+    name: previewName,
+    mime: detail?.mime,
+    contentBase64: detail?.contentBase64,
+    parsedText: detail?.parsedText,
+    localText: localDetail?.content,
+  })
   const downloadCurrent = () => {
+    if (!canDownload) return
     const name = previewName || 'file.txt'
-    const mime = detail?.mime || 'text/plain'
+    const mime = detail?.mime || 'application/octet-stream'
     let href = ''
     if (detail?.contentBase64) href = `data:${mime};base64,${detail.contentBase64}`
-    else if (detail?.parsedText !== undefined) href = URL.createObjectURL(new Blob([detail.parsedText], { type: 'text/plain;charset=utf-8' }))
-    else if (localDetail) href = URL.createObjectURL(new Blob([localDetail.content], { type: 'text/plain;charset=utf-8' }))
+    else if (workspaceDownloadEnabled({ name, mime: detail?.mime || 'text/plain', parsedText: detail?.parsedText, localText: localDetail?.content })) {
+      href = URL.createObjectURL(new Blob([detail?.parsedText ?? localDetail?.content ?? ''], { type: 'text/plain;charset=utf-8' }))
+    }
     if (!href) return
     const link = document.createElement('a')
     link.href = href
     link.download = name
     link.click()
-    if (href.startsWith('blob:')) URL.revokeObjectURL(href)
+    if (href.startsWith('blob:')) window.setTimeout(() => URL.revokeObjectURL(href), 1000)
   }
 
   return (
@@ -358,18 +390,27 @@ export function Workspace({
       </nav>
 
       {tab === 'files' && skillId && <SkillPackagePanel skillId={skillId} bridge={skills} refreshKey={skillRevision??refreshRevision}/>}
-      {tab === 'files' && !skillId && (
-        <>
-          {sessionFiles}
-          {catalogFocus ? catalogFiles : null}
-          {localTree ?? (catalogFocus || filesFocus === 'session' ? null : (
-            <p className="workspace-unavailable" role="status">本地工作区暂不可用。</p>
-          ))}
+      {tab === 'files' && !skillId && catalogFocus && catalogFiles}
+      {tab === 'files' && !skillId && !catalogFocus && (
+        <div
+          className={`workspace-files-stage${treeOpen ? '' : ' is-tree-hidden'}`}
+          ref={filesStageRef}
+          style={{'--tree-width': `${treeWidth}px`} as React.CSSProperties}
+        >
           <div className="workspace-preview workspace-files-preview">
             <div className="workspace-preview-toolbar">
-              <span className="workspace-file-name">{previewName || (items.length ? `${items.length} 个附件` : '从文件树选择即可预览')}</span>
+              <span className="workspace-file-name">{previewName || '文件'}</span>
               <div className="workspace-chrome-tools">
-                <button type="button" className="artifact-icon-btn" aria-label="下载文件" title="下载" disabled={!previewName} onClick={downloadCurrent}>↓</button>
+                <button type="button" className="artifact-icon-btn" aria-label="下载文件" title="下载" disabled={!canDownload} onClick={downloadCurrent}>↓</button>
+                <button
+                  type="button"
+                  className="artifact-icon-btn"
+                  aria-label={treeOpen ? '折叠文件树' : '显示文件树'}
+                  title={treeOpen ? '折叠文件树' : '显示文件树'}
+                  onClick={() => setTreeOpen(open => !open)}
+                >
+                  {treeOpen ? '◧' : '◨'}
+                </button>
                 <div className="workspace-zoom">
                   <button type="button" aria-label="缩小预览" disabled={zoom === MIN_ZOOM} onClick={() => setZoom(v => Math.max(MIN_ZOOM, v - ZOOM_STEP))}>−</button>
                   <output aria-label="预览缩放">{zoom}%</output>
@@ -377,28 +418,12 @@ export function Workspace({
                 </div>
               </div>
             </div>
-            {loading ? <p role="status">正在载入附件…</p> : items.length ? (
-              <div className="workspace-attachments" role="listbox" aria-label="当前会话附件">
-                {items.map(item => (
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={selectedId === item.attachmentId}
-                    key={item.attachmentId}
-                    onClick={() => setSelectedId(item.attachmentId)}
-                  >
-                    <b>{item.originalName}</b>
-                    <small>{item.mime} · {fmtSize(item.size)}</small>
-                  </button>
-                ))}
-              </div>
-            ) : <p>当前会话没有附件。</p>}
             {error && <p role="alert">{error}</p>}
             {localDetail ? (
               <div className="workspace-inline-preview" style={{ fontSize: `${zoom}%` }}>
                 <ArtifactPreviewContent preview={{ kind: previewKindFromPath(localDetail.path), path: localDetail.path, content: localDetail.content, size: localDetail.size }} />
               </div>
-            ) : detail && (
+            ) : detail ? (
               <article className="workspace-document" style={{ fontSize: `${zoom}%` }}>
                 <h3>{detail.originalName}</h3>
                 <dl>
@@ -425,10 +450,43 @@ export function Workspace({
                   </p>
                 )}
               </article>
+            ) : (
+              <div className="workspace-files-empty">
+                <b>文件</b>
+                <p>从文件树选择文件即可在此处预览</p>
+                {loading && <p role="status">正在载入附件…</p>}
+              </div>
             )}
-            <ArtifactPanel sessionId={sessionId} artifacts={artifactCards} onRevise={onRevise} />
+            {artifactCards.length > 0 && <ArtifactPanel sessionId={sessionId} artifacts={artifactCards} onRevise={onRevise} />}
           </div>
-        </>
+          {treeOpen && (
+            <>
+              <button type="button" className="workspace-tree-resizer" role="separator" aria-orientation="vertical" aria-label="调整文件树宽度" onPointerDown={dragFilesTree} />
+              <aside className="workspace-file-tree" aria-label="文件树">
+                {items.length > 0 && (
+                  <div className="workspace-attachments" role="listbox" aria-label="当前会话附件">
+                    {items.map(item => (
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={selectedId === item.attachmentId}
+                        key={item.attachmentId}
+                        onClick={() => {
+                          setLocalDetail(undefined)
+                          setSelectedId(item.attachmentId)
+                        }}
+                      >
+                        <b>{item.originalName}</b>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {sessionFiles}
+                {localTree}
+              </aside>
+            </>
+          )}
+        </div>
       )}
 
       {tab === 'code' && (

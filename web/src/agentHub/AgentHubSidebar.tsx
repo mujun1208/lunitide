@@ -1,8 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useZh } from '../i18n/language'
-import { agentHubApi, type AgentHubName, type AgentHubStatus, type AgentHubTask, type AgentHubThread } from './agentHubApi'
-import { shortWorkDir, stateLabel } from './agentHubCopy'
+import { ConfirmDialog } from '../ui/Dialog'
+import { AgentHubMark } from './AgentHubMark'
+import { agentHubApi, type AgentHubName, type AgentHubStatus, type AgentHubThread } from './agentHubApi'
+import { agentDisplayName, HUB_AGENT_IDS, stateLabel, usableLatestThreadForHarness } from './agentHubCopy'
+import { clearInstallJob, getInstallJob, startAgentInstall, subscribeInstallJobs } from './agentHubInstallStore'
 import './agentHub.css'
+
+function jobLabel(name: AgentHubName, agent: AgentHubStatus | undefined, zh: boolean): string {
+  const job = getInstallJob(name)
+  if (job?.status === 'running') return zh ? '安装中…' : 'Installing…'
+  return stateLabel(agent?.state ?? 'unknown', zh)
+}
 
 export function AgentHubSidebar({
   onOpenThread,
@@ -10,7 +19,8 @@ export function AgentHubSidebar({
   newThreadNonce = 0,
   selectedAgent,
   onSelectAgent,
-  onOpenLegacy,
+  onOpenHistory,
+  onNewChat,
 }: {
   onOpenThread: (threadId: string) => void
   selectedThreadId?: string
@@ -18,15 +28,18 @@ export function AgentHubSidebar({
   selectedAgent?: string
   onSelectAgent?: (name: AgentHubName) => void
   onOpenLegacy?: (taskId: string) => void
+  onOpenHistory?: () => void
+  onNewChat?: () => void
 }): React.JSX.Element {
   const zh = useZh()
   const [agents, setAgents] = useState<AgentHubStatus[]>([])
   const [threads, setThreads] = useState<AgentHubThread[]>([])
-  const [legacy, setLegacy] = useState<AgentHubTask[]>([])
-  const [query, setQuery] = useState('')
-  const [renameId, setRenameId] = useState('')
-  const [renameTitle, setRenameTitle] = useState('')
   const [connecting, setConnecting] = useState('')
+  const [installName, setInstallName] = useState<AgentHubName>()
+  const [installBusy, setInstallBusy] = useState(false)
+  const [installError, setInstallError] = useState('')
+  const [tick, setTick] = useState(0)
+  useEffect(() => subscribeInstallJobs(() => setTick(n => n + 1)), [])
   useEffect(() => {
     let alive = true
     const load = async () => {
@@ -42,146 +55,171 @@ export function AgentHubSidebar({
         if (!alive) return
         setAgents(detected.agents ?? [])
       } catch {
-        // Keep the last good detect result; a slow CLI --version must not blank the list.
-      }
-      try {
-        const tasks = await agentHubApi.list()
-        if (!alive) return
-        setLegacy(tasks.items ?? [])
-      } catch {
-        if (alive) setLegacy([])
+        // Keep the last good detect result.
       }
     }
     void load()
     return () => { alive = false }
-  }, [selectedThreadId, newThreadNonce])
-  const groups = useMemo(() => {
-    const names = [...new Set([
-      ...agents.map(item => item.name),
-      ...threads.map(item => item.harnessId),
-    ])]
-    const q = query.trim().toLocaleLowerCase()
-    return names.map(name => ({
-      name,
-      agent: agents.find(item => item.name === name),
-      items: threads.filter(item => item.harnessId === name && (!q || item.title.toLocaleLowerCase().includes(q))),
-    }))
-  }, [agents, threads, query])
+  }, [selectedThreadId, newThreadNonce, tick])
+  const rows = useMemo(() => HUB_AGENT_IDS.map(name => ({
+    name,
+    agent: agents.find(item => item.name === name),
+    thread: usableLatestThreadForHarness(threads, name),
+  })), [agents, threads])
+  const recentThreads = useMemo(() => {
+    const name = selectedAgent
+    const items = (threads ?? [])
+      .filter(item => !name || item.harnessId === name)
+      .slice()
+      .sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''))
+    return items.slice(0, 24)
+  }, [threads, selectedAgent])
+  const openAgent = (name: AgentHubName, threadId?: string) => {
+    onSelectAgent?.(name)
+    onOpenThread(threadId ?? '')
+  }
+  const resumeThreadId = (name: AgentHubName) => {
+    if (!selectedThreadId) return ''
+    return usableLatestThreadForHarness(threads, name)?.threadId
+  }
   const connect = async (name: AgentHubName) => {
+    if (getInstallJob(name)?.status === 'running') {
+      setInstallName(name)
+      setInstallBusy(true)
+      return
+    }
+    const current = agents.find(item => item.name === name)
+    if (current?.state !== 'available') {
+      setInstallError('')
+      setInstallName(name)
+      return
+    }
     setConnecting(name)
     try {
       const detected = await agentHubApi.detect()
       setAgents(detected.agents ?? [])
-      onSelectAgent?.(name)
+      openAgent(name, resumeThreadId(name))
+    } catch {
+      openAgent(name, resumeThreadId(name))
     } finally {
       setConnecting('')
     }
   }
-  const pin = async (item: AgentHubThread) => {
-    const next = await agentHubApi.threadUpdate({ threadId: item.threadId, pinned: !item.pinned })
-    setThreads(values => values.map(value => value.threadId === next.thread.threadId ? next.thread : value))
+  const confirmInstall = async () => {
+    if (!installName) return
+    setInstallBusy(true)
+    setInstallError('')
+    const name = installName
+    const job = await startAgentInstall(name)
+    if (job.agents) setAgents(job.agents)
+    if (job.status === 'done') {
+      setInstallName(undefined)
+      setInstallBusy(false)
+      clearInstallJob(name)
+      openAgent(name, resumeThreadId(name))
+      return
+    }
+    setInstallError(job.hint || job.error || (zh ? '安装没有完成。' : 'Install did not finish.'))
+    setInstallBusy(false)
   }
-  const saveTitle = async (item: AgentHubThread) => {
-    const title = renameTitle.trim()
-    if (!title) return
-    const next = await agentHubApi.threadUpdate({ threadId: item.threadId, title })
-    setThreads(values => values.map(value => value.threadId === next.thread.threadId ? next.thread : value))
-    setRenameId('')
-  }
-  const remove = async (item: AgentHubThread) => {
-    const ok = window.confirm(zh ? `删除会话「${item.title}」？` : `Delete thread “${item.title}”?`)
-    if (!ok) return
-    await agentHubApi.threadDelete({ threadId: item.threadId })
-    setThreads(values => values.filter(value => value.threadId !== item.threadId))
-  }
+  useEffect(() => {
+    if (!installName) return
+    const job = getInstallJob(installName)
+    if (job?.status === 'running') setInstallBusy(true)
+    if (job?.status === 'done') {
+      if (job.agents) setAgents(job.agents)
+      setInstallName(undefined)
+      setInstallBusy(false)
+      clearInstallJob(installName)
+      openAgent(installName, resumeThreadId(installName))
+    }
+  }, [tick, installName])
   return (
     <nav
       className="agent-hub-sidebar"
-      aria-label={zh ? 'AgentHub' : 'AgentHub'}
+      aria-label="AgentHub"
       style={{ flex: 1, minHeight: 0, overflow: 'auto' }}
     >
-      <label className="agent-hub-sidebar-search">
-        <input value={query} onChange={event => setQuery(event.target.value)} aria-label={zh ? '搜索会话' : 'Search threads'} />
-      </label>
-      {legacy.length > 0 && (
-        <section>
-          <h2 className="conversation-heading">{zh ? '旧版任务' : 'Legacy tasks'}</h2>
-          {legacy.map(item => (
+      {onNewChat ? (
+        <button type="button" className="new-chat agent-hub-new-chat" onClick={onNewChat}>
+          <span>＋&nbsp; {zh ? '新对话' : 'New chat'}</span>
+          <kbd>Ctrl N</kbd>
+        </button>
+      ) : null}
+      <button
+        type="button"
+        className="agent-hub-history-btn"
+        onClick={() => onOpenHistory?.()}
+      >
+        <span>{zh ? '历史对话' : 'History'}</span>
+        <small>{zh ? '全部 Agent 的会话' : 'Threads from every Agent'}</small>
+      </button>
+      {recentThreads.length > 0 ? (
+        <div className="agent-hub-thread-list" aria-label={zh ? '最近对话' : 'Recent threads'}>
+          {recentThreads.map(item => (
             <button
-              key={item.taskId}
+              key={item.threadId}
               type="button"
-              className="conversation-open"
-              onClick={() => onOpenLegacy?.(item.taskId)}
+              className={`agent-hub-thread-row${selectedThreadId === item.threadId ? ' is-on' : ''}`}
+              onClick={() => {
+                onSelectAgent?.(item.harnessId as AgentHubName)
+                onOpenThread(item.threadId)
+              }}
             >
-              {item.agent} · {shortWorkDir(item.workDir || item.prompt)}
+              <b>{item.title || (zh ? '未命名对话' : 'Untitled')}</b>
+              <small>{agentDisplayName(item.harnessId)}</small>
             </button>
           ))}
-        </section>
+        </div>
+      ) : (
+        <p className="agent-hub-thread-empty">{zh ? '还没有对话记录' : 'No threads yet'}</p>
       )}
-      {groups.map(group => (
-        <section key={group.name}>
-          <div className="agent-hub-agent-row">
+      <div className="agent-hub-agents">
+        {rows.map(row => (
+          <div key={row.name} className={`agent-hub-agent-row${selectedAgent === row.name ? ' is-on' : ''}`}>
             <button
               type="button"
               className="agent-hub-agent-select"
-              aria-pressed={selectedAgent === group.name}
-              onClick={() => onSelectAgent?.(group.name as AgentHubName)}
+              aria-label={zh ? `打开 ${agentDisplayName(row.name)}` : `Open ${agentDisplayName(row.name)}`}
+              aria-pressed={selectedAgent === row.name}
+              onClick={() => openAgent(row.name, resumeThreadId(row.name))}
             >
-              <span className={`agent-hub-lamp ${group.agent?.state ?? 'unknown'}`} aria-hidden="true" />
-              <h2 className="conversation-heading">{group.name}</h2>
-              <small>{stateLabel(group.agent?.state ?? 'unknown', zh)}</small>
+              <span className="agent-hub-logo"><AgentHubMark name={row.name} /></span>
+              <span className="agent-hub-agent-copy">
+                <b>{agentDisplayName(row.name)}</b>
+                <em>{jobLabel(row.name, row.agent, zh)}</em>
+              </span>
+              <span className={`agent-hub-lamp ${getInstallJob(row.name)?.status === 'running' ? 'installing' : (row.agent?.state ?? 'unknown')}`} aria-hidden="true" />
             </button>
             <button
               type="button"
               className="agent-hub-connect"
-              disabled={connecting === group.name}
-              onClick={() => void connect(group.name as AgentHubName)}
+              disabled={connecting === row.name || getInstallJob(row.name)?.status === 'running'}
+              aria-label={zh ? `连接 ${agentDisplayName(row.name)}` : `Connect ${agentDisplayName(row.name)}`}
+              onClick={() => void connect(row.name)}
             >
-              {zh ? '连接' : 'Connect'}
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="8" cy="12" r="3.2" />
+                <path d="M11.2 12h8.3M16.6 9.2v5.6" />
+              </svg>
             </button>
           </div>
-          {group.items.map(item => (
-            <div key={item.threadId} className={`conversation-row${item.pinned ? ' is-pinned' : ''}`}>
-              {renameId === item.threadId ? (
-                <>
-                  <input
-                    value={renameTitle}
-                    onChange={event => setRenameTitle(event.target.value)}
-                    aria-label={zh ? '会话标题' : 'Thread title'}
-                  />
-                  <button type="button" onClick={() => void saveTitle(item)}>{zh ? '保存标题' : 'Save title'}</button>
-                </>
-              ) : (
-                <button type="button" className="conversation-open" onClick={() => onOpenThread(item.threadId)}>{item.title}</button>
-              )}
-              <button
-                type="button"
-                className="conversation-more"
-                aria-label={`${item.pinned ? (zh ? '取消置顶' : 'Unpin') : (zh ? '置顶' : 'Pin')} ${item.title}`}
-                onClick={() => void pin(item)}
-              >
-                {item.pinned ? '⌃' : '📌'}
-              </button>
-              <button
-                type="button"
-                className="conversation-more"
-                aria-label={`${zh ? '重命名' : 'Rename'} ${item.title}`}
-                onClick={() => { setRenameId(item.threadId); setRenameTitle(item.title) }}
-              >
-                ✎
-              </button>
-              <button
-                type="button"
-                className="conversation-more"
-                aria-label={`${zh ? '删除' : 'Delete'} ${item.title}`}
-                onClick={() => void remove(item)}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </section>
-      ))}
+        ))}
+      </div>
+      <p className="agent-hub-side-foot">{zh ? '每个 Agent 各自记忆，互不串窗' : 'Each Agent keeps its own memory.'}</p>
+      <ConfirmDialog
+        open={Boolean(installName)}
+        danger={false}
+        busy={installBusy}
+        error={installError}
+        title={zh ? `安装并连接 ${installName ? agentDisplayName(installName) : ''}` : `Install and connect ${installName ? agentDisplayName(installName) : ''}`}
+        description={zh
+          ? '先检查本机是否已有该 CLI。没有就在本机自动安装，再登录并连接。切换页面不会中断安装。'
+          : 'Check for the local CLI first. Leaving this page will not stop the install.'}
+        confirmLabel={installBusy ? (zh ? '处理中…' : 'Working…') : (zh ? '确定安装' : 'Install')}
+        onCancel={() => { if (!installBusy) setInstallName(undefined) }}
+        onConfirm={() => { if (!installBusy) void confirmInstall() }}
+      />
     </nav>
   )
 }

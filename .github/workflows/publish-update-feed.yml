@@ -1,0 +1,76 @@
+name: Publish update feed
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  publish-github-latest:
+    runs-on: windows-latest
+    env:
+      CGO_ENABLED: "0"
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci
+      - name: Verify tag matches VERSION
+        shell: pwsh
+        run: |
+          $version=(Get-Content VERSION -Raw).Trim()
+          if($env:GITHUB_REF_NAME -cne "v$version"){throw "Tag $env:GITHUB_REF_NAME does not match VERSION $version"}
+      - name: Build Setup and latest.json
+        shell: pwsh
+        run: |
+          # Hosted CI has no publisher cert. This is the feed-enabling
+          # candidate so /releases/latest/download/latest.json exists.
+          # Re-sign on a machine with LUNITIDE_SIGN_COMMAND for production.
+          if($env:LUNITIDE_SIGN_COMMAND -and $env:LUNITIDE_SIGNER_THUMBPRINT){
+            ./release/Build-Release.ps1 -RequireSignature
+          }else{
+            ./release/Build-Release.ps1 -AllowUnsignedDevelopment -SignCommand '' -ExpectedSignerThumbprint ''
+          }
+        env:
+          LUNITIDE_SIGN_COMMAND: ${{ secrets.LUNITIDE_SIGN_COMMAND }}
+          LUNITIDE_SIGNER_THUMBPRINT: ${{ secrets.LUNITIDE_SIGNER_THUMBPRINT }}
+      - name: Publish GitHub Latest
+        shell: pwsh
+        run: |
+          $version=(Get-Content VERSION -Raw).Trim()
+          $installer="release/out/Lunitide-Setup-$version-x64.exe"
+          $latest="release/out/latest.json"
+          $sums="release/out/SHA256SUMS.txt"
+          foreach($p in @($installer,$latest,$sums)){
+            if(-not (Test-Path -LiteralPath $p -PathType Leaf)){throw "missing $p"}
+          }
+          $tag="v$version"
+          $notes="release/notes-$version.md"
+          $existing=$null
+          try{$existing=& gh release view $tag --json tagName,isLatest 2>$null}catch{}
+          if($existing){
+            Write-Host "Release $tag already exists; keeping published assets and marking Latest."
+            & gh release edit $tag --latest
+            if($LASTEXITCODE){throw "GitHub release --latest failed for $tag"}
+          }else{
+            $args=@('release','create',$tag,$installer,$latest,$sums,'--title',("Lunitide {0}" -f $version),'--latest')
+            if(Test-Path -LiteralPath $notes -PathType Leaf){$args+='--notes-file';$args+=$notes}
+            else{$args+='--notes';$args+='Desktop overlay installer and latest.json for in-app update.'}
+            & gh @args
+            if($LASTEXITCODE){throw "GitHub release create failed for $tag"}
+          }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: lunitide-update-feed-${{ github.ref_name }}
+          path: |
+            release/out/Lunitide-Setup-*-x64.exe
+            release/out/latest.json
+            release/out/SHA256SUMS.txt
+          if-no-files-found: error

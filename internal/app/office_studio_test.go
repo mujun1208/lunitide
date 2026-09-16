@@ -69,6 +69,10 @@ func officeEngineFixture(t *testing.T) (*Engine, *storage.Store) {
 	t.Cleanup(func() { _ = runtime.Close() })
 	e.SetToolRuntime(runtime) // Reverse wiring order must work as well.
 	e.attachmentService = attachmentapp.NewService(store, attachmentapp.NewDirFileStorage(t.TempDir()))
+	t.Cleanup(func() {
+		e.waitOfficeArchive()
+		e.StopChatMemoryWorkers()
+	})
 	return e, store
 }
 
@@ -80,6 +84,9 @@ func officeCall(t *testing.T, e *Engine, method, key string, payload any) bridge
 	}
 	r := validRequest(method, string(b))
 	r.IdempotencyKey = key
+	// validRequest uses 3s. The CGO race detector makes SQLite office
+	// creates miss that on hosted Windows; the envelope still allows 30s.
+	r.DeadlineMS = bridge.DefaultMaxDeadlineMS
 	return e.Handle(context.Background(), r)
 }
 

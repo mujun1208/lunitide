@@ -35,11 +35,16 @@ it('expands only bridge-provided paths and previews selected supported files',as
 it('starts a conversation unbound and only shows a folder after this session selects it',async()=>{const root=vi.fn().mockResolvedValue({name:'知域宫殿',path:'D:\\知域宫殿',bound:true}),clear=vi.fn().mockResolvedValue({cleared:true}),select=vi.fn().mockImplementation(async()=>{root.mockResolvedValue({name:'repo',path:'C:\\repo',bound:true});return{name:'repo',path:'C:\\repo'}}),bridge={root,select,clear,open:vi.fn(),list:vi.fn().mockResolvedValue({items:[]}),read:vi.fn()},user=userEvent.setup();render(<LocalExplorer bridge={bridge} sessionId="01ARZ3NDEKTSV4RRFFQ69G5FAW" isolateRoot onPreview={vi.fn()}/>);expect(await screen.findByText('这一轮对话还没有打开本地目录。需要时再选择文件夹。')).toBeInTheDocument();await waitFor(()=>expect(clear).toHaveBeenCalledOnce());expect(screen.queryByText('知域宫殿')).not.toBeInTheDocument();await user.click(screen.getByRole('button',{name:'选择文件夹'}));await waitFor(()=>expect(select).toHaveBeenCalledOnce());expect(await screen.findByText('repo')).toBeInTheDocument()})
 it('keeps a project workspace bound to the last selected folder',async()=>{const bridge={root:vi.fn().mockResolvedValue({name:'知域宫殿',path:'D:\\知域宫殿',bound:true}),select:vi.fn(),clear:vi.fn(),open:vi.fn(),list:vi.fn().mockResolvedValue({items:[]}),read:vi.fn()};render(<LocalExplorer bridge={bridge} sessionId="01ARZ3NDEKTSV4RRFFQ69G5FAW" onPreview={vi.fn()}/>);expect(await screen.findByText('知域宫殿')).toBeInTheDocument();expect(bridge.clear).not.toHaveBeenCalled()})
 
-it('does not list the global workspace when a project root is set',async()=>{
-  const list=vi.fn().mockResolvedValue({items:[{name:'other',path:'other',directory:false}]})
-  render(<LocalExplorer bridge={{root:vi.fn(),select:vi.fn(),clear:vi.fn(),open:vi.fn(),list,read:vi.fn()}} projectRoot="D:\\work\\mall" targetPath="src/auth" onPreview={vi.fn()}/>)
-  expect(await screen.findByText('项目根已选定。阶段会话写文件会落到这个目录。 当前任务目标：src/auth')).toBeInTheDocument()
-  expect(list).not.toHaveBeenCalled()
-  expect(screen.queryByText('other')).toBeNull()
+it('lists the project root tree instead of the global workspace name',async()=>{
+  const root=vi.fn().mockResolvedValue({name:'知域宫殿',path:'D:\\知域宫殿',bound:true})
+  const list=vi.fn().mockImplementation((path='')=>Promise.resolve({items:path==='src'?[{name:'auth.ts',path:'src/auth.ts',directory:false}]:[{name:'src',path:'src',directory:true}]}))
+  render(<LocalExplorer bridge={{root,select:vi.fn(),clear:vi.fn(),open:vi.fn(),list,read:vi.fn()}} projectRoot="D:\\work\\mall" targetPath="src/auth.ts" onPreview={vi.fn()}/>)
+  expect(await screen.findByText('mall')).toBeInTheDocument()
+  expect(await screen.findByRole('treeitem',{name:/src/})).toBeInTheDocument()
+  expect(await screen.findByRole('treeitem',{name:/auth.ts/})).toBeInTheDocument()
+  expect(root).not.toHaveBeenCalled()
+  expect(list).toHaveBeenCalled()
+  expect(screen.queryByText('知域宫殿')).toBeNull()
+  expect(screen.queryByText(/项目根已选定/)).toBeNull()
 })
 
