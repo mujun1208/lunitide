@@ -76,6 +76,9 @@ func TestCompanionPersonaForbidsTaskDonePhrases(t *testing.T) {
 			t.Fatalf("tools persona must mention %q", phrase)
 		}
 	}
+	if !strings.Contains(tools, "command.run") || !strings.Contains(tools, "桌面") || !strings.Contains(tools, "mkdir") {
+		t.Fatal("desktop folder create must tell the model to mkdir on the real Desktop via command.run")
+	}
 }
 
 func TestCompanionIdleChatOmitsDesktopCookbook(t *testing.T) {
@@ -175,6 +178,12 @@ func TestExpertPersonaHeaderAndClip(t *testing.T) {
 func TestSkipExpertCouncilOnSimpleComputerUse(t *testing.T) {
 	if !skipExpertCouncil("帮我在桌面创建一个文件夹，名字叫小宝") {
 		t.Fatal("create-folder must skip council")
+	}
+	if !skipExpertCouncil("帮我删掉桌面上的可可") {
+		t.Fatal("desktop delete must skip council")
+	}
+	if !skipExpertCouncil("copy this file to my desktop") {
+		t.Fatal("desktop copy must skip council")
 	}
 	if !skipExpertCouncil("帮我设计一个点球大战的网页小游戏，在桌面可以直接试玩") {
 		t.Fatal("desktop html game must skip council")

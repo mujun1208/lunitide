@@ -101,7 +101,7 @@ func laneLooksLikeAgentTurn(goal string) bool {
 	case RouteR2, RouteR3:
 		return true
 	}
-	if looksLikeComputerControlTurn(goal) {
+	if looksLikeComputerControlTurn(goal) || wantsAgentHostAct(goal) {
 		return true
 	}
 	lower := strings.ToLower(goal)

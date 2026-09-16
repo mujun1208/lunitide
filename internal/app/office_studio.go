@@ -285,7 +285,11 @@ func handleOfficeStudio(e *Engine, ctx context.Context, r bridge.Request) bridge
 				start = page.Items[0].ID
 			}
 		}
-		created, err := s.Store.CreateOfficeTask(ctx, domain.Task{SessionID: sid, Title: title, Goal: p.Goal, Status: "draft", StartMessageID: start}, r.IdempotencyKey)
+		createdTask := domain.Task{SessionID: sid, Title: title, Goal: p.Goal, Status: "draft", StartMessageID: start}
+		if seeded := officeapp.BriefFromGoal(p.Goal); seeded.TargetLength > 0 || len(seeded.Deliverables) > 0 {
+			createdTask.Checkpoint = officeapp.WithTaskBrief(nil, seeded)
+		}
+		created, err := s.Store.CreateOfficeTask(ctx, createdTask, r.IdempotencyKey)
 		if err != nil {
 			return officeFailure(r, err)
 		}

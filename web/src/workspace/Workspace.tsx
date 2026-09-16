@@ -290,7 +290,7 @@ export function Workspace({
     }))
 
   const catalogFocus = filesFocus === 'skills' || filesFocus === 'experts' || filesFocus === 'plugins' || filesFocus === 'assets'
-  const catalogFiles = <FilesPanel projectId={projectId} focus={filesFocus === 'session' ? undefined : filesFocus} />
+  const catalogFiles = catalogFocus ? <FilesPanel projectId={projectId} focus={filesFocus} /> : null
   const sessionFiles = filesFocus === 'session'
     ? (
       <SessionFolderPanel
@@ -312,6 +312,7 @@ export function Workspace({
         isolateRoot={isolateRoot && !projectRoot}
         projectRoot={projectRoot}
         targetPath={targetPath}
+        refreshKey={refreshRevision}
         onPreview={file => {
           setLocalDetail(file)
           setDetail(undefined)
@@ -497,6 +498,7 @@ export function Workspace({
           projectRoot={projectRoot}
           targetPath={targetPath}
           toolActivities={toolActivities}
+          refreshKey={refreshRevision}
         />
       )}
 

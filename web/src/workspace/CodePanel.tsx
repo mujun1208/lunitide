@@ -44,6 +44,7 @@ export function CodePanel({
   targetPath,
   toolActivities = [],
   onOpenPath,
+  refreshKey = 0,
 }: {
   bridge?: LocalWorkspaceBridge
   sessionId: string
@@ -52,6 +53,7 @@ export function CodePanel({
   targetPath?: string
   toolActivities?: WorkspaceToolActivity[]
   onOpenPath?: (path: string) => void
+  refreshKey?: number
 }): React.JSX.Element {
   const [file, setFile] = useState<OpenFile | undefined>()
   const [openError, setOpenError] = useState('')
@@ -171,6 +173,7 @@ export function CodePanel({
                   isolateRoot={isolateRoot && !projectRoot}
                   projectRoot={projectRoot}
                   targetPath={targetPath ?? file?.path}
+                  refreshKey={refreshKey}
                   onPreview={next => {
                   setFile(next)
                   onOpenPath?.(next.path)

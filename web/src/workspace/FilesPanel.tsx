@@ -7,7 +7,7 @@ function filesUserError(err: unknown, fallback: string): string {
   return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
 }
 
-export type FilesFocus='session'|'skills'|'experts'|'plugins'|'assets'
+export type FilesFocus='session'|'local'|'skills'|'experts'|'plugins'|'assets'
 
 type TreeNode={name:string;path:string;kind:'directory'|'file';children:TreeNode[];meta?:string}
 
@@ -31,7 +31,7 @@ function TreeItem({node,depth=0}:{node:TreeNode;depth?:number}):React.JSX.Elemen
  const[open,setOpen]=useState(depth===0),directory=node.kind==='directory'
  return <li className={directory?'directory':'file'}><button type="button" style={{paddingLeft:`${10+depth*16}px`}} aria-expanded={directory?open:undefined} onClick={()=>directory&&setOpen(value=>!value)}><span aria-hidden="true">{directory?(open?'⌄':'›'):'·'}</span><b>{node.name}</b>{node.meta&&<small>{node.meta}</small>}</button>{directory&&open&&<ul>{node.children.length?node.children.map(child=><TreeItem key={child.path} node={child} depth={depth+1}/>):<li className="tree-empty">目录为空</li>}</ul>}</li>
 }
-export function FilesPanel({projectId,ontology=ontologyBridge,skills=skillBridge,experts=expertBridge,plugins=pluginBridge,focus='skills',preferSkills}:{projectId:string;ontology?:OntologyBridge;skills?:SkillBridge;experts?:ExpertBridge;plugins?:PluginBridge;focus?:Exclude<FilesFocus,'session'>;preferSkills?:boolean}):React.JSX.Element{
+export function FilesPanel({projectId,ontology=ontologyBridge,skills=skillBridge,experts=expertBridge,plugins=pluginBridge,focus='skills',preferSkills}:{projectId:string;ontology?:OntologyBridge;skills?:SkillBridge;experts?:ExpertBridge;plugins?:PluginBridge;focus?:Exclude<FilesFocus,'session'|'local'>;preferSkills?:boolean}):React.JSX.Element{
  const mode=preferSkills?'skills':focus
  const[nodes,setNodes]=useState<OntologyNodeDTO[]>([]),[skillItems,setSkillItems]=useState<SkillDTO[]>([]),[expertItems,setExpertItems]=useState<Array<{name:string;meta:string}>>([]),[pluginItems,setPluginItems]=useState<Array<{name:string;meta:string}>>([]),[loading,setLoading]=useState(true),[error,setError]=useState('')
  useEffect(()=>{let active=true;setLoading(true);setError('');const tasks:Promise<void>[]=[]

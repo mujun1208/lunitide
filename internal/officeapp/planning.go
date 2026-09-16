@@ -3,11 +3,43 @@ package officeapp
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
 	domain "github.com/lunitide/lunitide/internal/domain/officestudio"
 	"github.com/lunitide/lunitide/internal/officestudio"
 )
+
+var goalPageCountRE = regexp.MustCompile(`(?i)(?:^|[^\d])(\d{1,2})\s*(?:页|pages?\b|slides?\b)`)
+
+func BriefFromGoal(goal string) officestudio.Brief {
+	var out officestudio.Brief
+	g := strings.TrimSpace(goal)
+	if g == "" {
+		return out
+	}
+	if m := goalPageCountRE.FindStringSubmatch(g); len(m) == 2 {
+		n, err := strconv.Atoi(m[1])
+		if err == nil && n >= 1 && n <= 30 {
+			out.TargetLength = n
+		}
+	}
+	lower := strings.ToLower(g)
+	switch {
+	case strings.Contains(lower, "pptx") || strings.Contains(lower, "ppt") || strings.Contains(g, "幻灯"):
+		out.Deliverables = []officestudio.Kind{officestudio.PPTX}
+	case strings.Contains(lower, "xlsx") || strings.Contains(lower, "excel"):
+		out.Deliverables = []officestudio.Kind{officestudio.XLSX}
+	case strings.Contains(g, "周报") || strings.Contains(g, "年报"):
+		out.Deliverables = []officestudio.Kind{officestudio.DOCX}
+	case strings.Contains(lower, "docx") || strings.Contains(lower, "word"):
+		out.Deliverables = []officestudio.Kind{officestudio.DOCX}
+	case strings.Contains(lower, "pdf"):
+		out.Deliverables = []officestudio.Kind{officestudio.PDF}
+	}
+	return out
+}
 
 func BriefFromCheckpoint(raw json.RawMessage) officestudio.Brief {
 	var fields map[string]json.RawMessage
@@ -95,6 +127,9 @@ func applyTaskBrief(task domain.Task, spec officestudio.Spec) officestudio.Spec 
 			}
 			break
 		}
+	}
+	if spec.Kind == officestudio.PPTX && raw.TargetLength > 0 && len(spec.Slides) > raw.TargetLength {
+		spec.Slides = spec.Slides[:raw.TargetLength]
 	}
 	return spec
 }

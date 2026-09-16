@@ -54,6 +54,88 @@ func TestClassifyChatLaneOpenWordWeeklyIsL4(t *testing.T) {
 	}
 }
 
+func TestClassifyChatLaneDesktopFolderIsL4(t *testing.T) {
+	goal := "帮我在桌面创建一个文件夹，名字叫可可"
+	if got := classifyChatLane(LaneInput{Goal: goal}); got != LaneL4 {
+		t.Fatalf("got %s want L4", got)
+	}
+	_, contract := applyLaneOverrides(LaneL4, LaneInput{Goal: goal}, RouteUnspecified, CouncilOverlay{})
+	if contract.DisableReasoning {
+		t.Fatal("desktop mkdir must keep thinking/tools, not L1 DisableReasoning")
+	}
+}
+
+func TestClassifyChatLaneHostActsAreL4(t *testing.T) {
+	goals := []string{
+		"帮我在桌面创建一个文件夹，名字叫可可",
+		"make a folder on my desktop named keke",
+		"new folder on the desktop called 可可",
+		"帮我删掉桌面上的可可",
+		"delete the folder 可可 on the desktop",
+		"帮我把桌面上的可可改名叫可可2",
+		"rename the desktop folder 可可 to 可可2",
+		"帮我把这个文件复制到桌面",
+		"copy this file to my desktop",
+		"把可可文件夹移到桌面",
+		"move the 可可 folder to the desktop",
+		"帮我在桌面新建一个 txt 文件",
+		"create a text file on my desktop",
+		"解压到桌面",
+		"下载这个到桌面",
+		"清空回收站",
+		"帮我在 D 盘建个目录叫 backup",
+	}
+	defs := []llmadapter.ToolDefinition{
+		{Name: "command.run"},
+		{Name: "workspace.read"},
+		{Name: "workspace.write"},
+		{Name: "skill.invoke"},
+		{Name: "computer.act"},
+	}
+	for _, goal := range goals {
+		if detectTaskRoute(goal) == RouteR2 || detectTaskRoute(goal) == RouteR3 {
+			t.Errorf("%q must stay unspecified/full-tool, not shrink to %s", goal, detectTaskRoute(goal))
+		}
+		got := classifyChatLane(LaneInput{Goal: goal})
+		if got != LaneL4 {
+			t.Errorf("%q => %s want L4", goal, got)
+			continue
+		}
+		_, contract := applyLaneOverrides(got, LaneInput{Goal: goal}, detectTaskRoute(goal), CouncilOverlay{})
+		if contract.DisableReasoning || !contract.ContinueNudges || contract.MaxMainToolSteps < 8 {
+			t.Errorf("%q contract DisableReasoning=%v ContinueNudges=%v steps=%d", goal, contract.DisableReasoning, contract.ContinueNudges, contract.MaxMainToolSteps)
+		}
+		kept := applyLaneTools(defs, contract)
+		hasRun := false
+		for _, d := range kept {
+			if d.Name == "command.run" {
+				hasRun = true
+			}
+		}
+		if !hasRun {
+			t.Errorf("%q L4 must keep command.run, kept=%v", goal, kept)
+		}
+	}
+	if got := classifyChatLane(LaneInput{Goal: "写一篇文章介绍光合作用"}); got != LaneL1 {
+		t.Fatalf("photosynthesis article => %s want L1", got)
+	}
+	if got := classifyChatLane(LaneInput{Goal: "写一篇关于创建文件夹的文章"}); got != LaneL1 {
+		t.Fatalf("article about folders => %s want L1", got)
+	}
+	if got := classifyChatLane(LaneInput{Goal: "写周报放到桌面"}); got == LaneL4 {
+		t.Fatal("写周报放到桌面 must stay office, not a desktop folder act")
+	}
+	if got := classifyChatLane(LaneInput{Goal: "生成 Word 周报，放到桌面。"}); got == LaneL4 {
+		t.Fatal("生成周报到桌面 must stay office")
+	}
+	if got := classifyChatLane(LaneInput{Goal: "生成周报保存到桌面"}); got == LaneL4 {
+		t.Fatal("保存到桌面 on a weekly report is still office.generate")
+	}
+	if got := classifyChatLane(LaneInput{Goal: "帮我删掉桌面上的周报.docx"}); got != LaneL4 {
+		t.Fatalf("delete weekly-report file on desktop => %s want L4", got)
+	}
+}
+
 func TestClassifyChatLaneVagueTaskIsL2Ask(t *testing.T) {
 	if got := classifyChatLane(LaneInput{Goal: "帮我做个任务"}); got != LaneL2Ask {
 		t.Fatalf("got %s want L2-ask", got)

@@ -112,6 +112,35 @@ func officeCreatedTask(t *testing.T, e *Engine, key string) domain.Task {
 	return task
 }
 
+func TestOfficeTaskCreateSeedsBriefFromTenPagePPTGoal(t *testing.T) {
+	e, _ := officeEngineFixture(t)
+	r := officeCall(t, e, "office.task.create", "ten-page-ppt", map[string]any{
+		"title": "帮我参考附件，自己思考做一个10页的PPT",
+		"goal":  "帮我参考附件，自己思考做一个10页的PPT",
+	})
+	if !r.OK {
+		t.Fatalf("create: %+v", r.Error)
+	}
+	var v struct {
+		Task struct {
+			ID    string
+			Brief struct {
+				TargetLength int      `json:"targetLength"`
+				Deliverables []string `json:"deliverables"`
+			}
+		}
+	}
+	if err := decodeResponsePayload(r.Payload, &v); err != nil {
+		t.Fatal(err)
+	}
+	if v.Task.Brief.TargetLength != 10 {
+		t.Fatalf("targetLength=%d want 10", v.Task.Brief.TargetLength)
+	}
+	if len(v.Task.Brief.Deliverables) != 1 || v.Task.Brief.Deliverables[0] != "pptx" {
+		t.Fatalf("deliverables=%v", v.Task.Brief.Deliverables)
+	}
+}
+
 func TestOfficeTaskCreatesItsHiddenSessionInsideTheBoundOrganization(t *testing.T) {
 	e, store := officeEngineFixture(t)
 	ctx := context.Background()

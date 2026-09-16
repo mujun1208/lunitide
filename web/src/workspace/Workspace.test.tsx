@@ -125,4 +125,18 @@ it('refreshes attachments when the upload revision changes',async()=>{const atta
   const stage=document.querySelector('.workspace-files-stage') as HTMLElement
   expect(stage.style.getPropertyValue('--tree-width')||getComputedStyle(stage).getPropertyValue('--tree-width')).toBeTruthy()
  })
+ it('can show only the local project tree without a session folder',async()=>{
+  const localWorkspace={
+    root:vi.fn().mockResolvedValue({name:'mall',path:'D:/mall',bound:true}),
+    select:vi.fn(),
+    clear:vi.fn(),
+    open:vi.fn(),
+    list:vi.fn().mockResolvedValue({items:[{name:'src',path:'src',directory:true}],truncated:false}),
+    read:vi.fn(),
+  }
+  render(<Workspace attachments={bridge()} projectId={P} sessionId={S} filesFocus="local" projectRoot="D:/mall" localWorkspace={localWorkspace} onClose={vi.fn()}/>)
+  expect(await screen.findByRole('treeitem',{name:/src/})).toBeInTheDocument()
+  expect(screen.getByRole('region',{name:'本地工作区目录'})).toBeInTheDocument()
+  expect(screen.queryByText('会话目录载入失败')).toBeNull()
+ })
 })

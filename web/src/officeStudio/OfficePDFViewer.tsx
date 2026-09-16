@@ -5,8 +5,10 @@ import type { OfficeStudioApi } from './officeStudioApi';
 import { readOfficePDF } from './officePDF';
 import { officeStudioUserError } from './officeUserError';
 
-export function OfficePDFViewer({ api, taskId, versionId, name }: {
+export function OfficePDFViewer({ api, taskId, versionId, name, page: pageProp, onPageChange }: {
   api: OfficeStudioApi; taskId: string; versionId: string; name: string;
+  page?: number;
+  onPageChange?: (page: number) => void;
 }): React.JSX.Element {
   const [document, setDocument] = useState<PDFDocumentProxy>();
   const [page, setPage] = useState(1);
@@ -17,6 +19,13 @@ export function OfficePDFViewer({ api, taskId, versionId, name }: {
   const [rendering, setRendering] = useState(true);
   const [retry, setRetry] = useState(0);
   const host = useRef<HTMLDivElement>(null);
+  const currentPage = pageProp ?? page;
+  const goTo = (next: number) => {
+    const max = document?.numPages ?? next;
+    const clamped = Math.min(Math.max(1, next), max);
+    if (onPageChange) onPageChange(clamped);
+    else setPage(clamped);
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -68,11 +77,11 @@ export function OfficePDFViewer({ api, taskId, versionId, name }: {
     let render: RenderTask | undefined;
     // Every render owns its canvas, so a cancelled page never paints the next one.
     const canvas = window.document.createElement('canvas');
-    canvas.setAttribute('aria-label', `${name} · 第 ${page} 页`);
+    canvas.setAttribute('aria-label', `${name} · 第 ${currentPage} 页`);
     canvas.setAttribute('role', 'img');
     setRendering(true);
     setError('');
-    void document.getPage(page).then(pdfPage => {
+    void document.getPage(currentPage).then(pdfPage => {
       if (disposed) return;
       const pageRotation = (pdfPage.rotate + rotation) % 360;
       const base = pdfPage.getViewport({ scale: 1, rotation: pageRotation });
@@ -95,20 +104,20 @@ export function OfficePDFViewer({ api, taskId, versionId, name }: {
       }
     });
     return () => { disposed = true; render?.cancel(); canvas.remove(); };
-  }, [document, page, width, zoom, rotation, name]);
+  }, [document, currentPage, width, zoom, rotation, name]);
 
   return <div className="os-pdf-view">
     <div className="os-pdf-toolbar" aria-label="PDF 翻页与缩放">
-      <button title="上一页" aria-label="上一页" disabled={!document || page <= 1} onClick={() => setPage(p => p - 1)}><ArrowLeft size={16} /></button>
-      <span>{page} / {document?.numPages ?? '…'}</span>
-      <button title="下一页" aria-label="下一页" disabled={!document || page >= document.numPages} onClick={() => setPage(p => p + 1)}><ArrowRight size={16} /></button>
+      <button title="上一页" aria-label="上一页" disabled={!document || currentPage <= 1} onClick={() => goTo(currentPage - 1)}><ArrowLeft size={16} /></button>
+      <span>{currentPage} / {document?.numPages ?? '…'}</span>
+      <button title="下一页" aria-label="下一页" disabled={!document || currentPage >= document.numPages} onClick={() => goTo(currentPage + 1)}><ArrowRight size={16} /></button>
       <button title="缩小" aria-label="缩小" disabled={zoom <= 0.5} onClick={() => setZoom(z => Math.max(0.5, z - 0.25))}><Minus size={16} /></button>
       <button title="适合宽度" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
       <button title="放大" aria-label="放大" disabled={zoom >= 2} onClick={() => setZoom(z => Math.min(2, z + 0.25))}><Plus size={16} /></button>
       <button title="旋转页面" aria-label="旋转页面" disabled={!document} onClick={() => setRotation(r => (r + 90) % 360)}><RotateCw size={16} /></button>
     </div>
     {error && <div className="os-alert" role="alert">{error}<button onClick={() => setRetry(r => r + 1)}>重试预览</button></div>}
-    {rendering && <p role="status">正在绘制第 {page} 页…</p>}
+    {rendering && <p role="status">正在绘制第 {currentPage} 页…</p>}
     <div className="os-pdf-canvas" ref={host} aria-busy={rendering} />
   </div>;
 }
