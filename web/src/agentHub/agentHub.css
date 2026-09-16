@@ -2,11 +2,12 @@
   --acc: var(--tide1);
   --acc-ink: #041018;
   --acc-dim: color-mix(in srgb, var(--tide1) 16%, transparent);
-  --hub-panel: color-mix(in srgb, var(--panel, #161618) 88%, transparent);
-  --hub-line: var(--line, rgba(255,255,255,.1));
-  --hub-ink: var(--ink, #f2f2f3);
-  --hub-muted: var(--ink-2, #a8a8ae);
-  --hub-faint: var(--ink-3, #63636b);
+  /* Use theme tokens — never hardcode a dark --panel fallback (breaks light Task Center). */
+  --hub-panel: var(--bg2);
+  --hub-line: var(--line);
+  --hub-ink: var(--ink);
+  --hub-muted: var(--muted);
+  --hub-faint: var(--muted);
   --hub-ok: #9fd69f;
   --hub-bad: #e0a49b;
   position: relative;
@@ -17,6 +18,12 @@
   padding: 0;
   background: var(--bg, #000);
   color: var(--hub-ink);
+}
+html[data-theme="light"] .agent-hub{
+  --hub-panel: #fff;
+  --hub-ok: #1a7a3c;
+  --hub-bad: #b42318;
+  --acc-ink: #fff;
 }
 .agent-hub *{box-sizing:border-box}
 .agent-hub-head{
@@ -87,6 +94,7 @@
 .agent-hub-lamp.not_logged_in{background:#e3c15a}
 .agent-hub-lamp.not_installed{background:#8b93a3}
 .agent-hub-lamp.unknown{background:transparent;border:1px dashed var(--hub-faint)}
+.agent-hub-lamp.installing{background:var(--tide1);box-shadow:0 0 0 3px color-mix(in srgb,var(--tide1) 28%,transparent)}
 .agent-hub-console{max-width:860px;margin:0 auto;border:1px solid var(--hub-line);border-radius:22px;background:var(--hub-panel);padding:8px}
 .agent-hub-console textarea{
   width:100%;min-height:88px;border:0;background:transparent;color:inherit;font:inherit;resize:vertical;padding:16px 18px
@@ -163,6 +171,15 @@ html[data-theme="light"] .shell-drawer-toggle{border-color:#e4e4e4!important;bac
 }
 .agent-hub .composer-tools select{min-height:28px;border:0;border-radius:8px;background:transparent;color:#c8c8c8;font:inherit;padding:0 6px}
 .hub-composer .composer-attach{width:26px;height:26px;min-height:26px!important;padding:0!important;border-radius:50%}
+.hub-access-chip{
+  display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;border:1px solid #2a2a2a;
+  border-radius:999px;background:#1a1a1a;color:#cfcfcf;font:inherit;font-size:12px;cursor:pointer
+}
+.hub-access-menu{min-width:220px}
+.hub-access-menu button{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;width:100%}
+.hub-access-menu button.is-active{color:var(--tide1)}
+.hub-access-menu small{display:block;margin-top:2px;color:var(--hub-muted);font-size:11px}
+.hub-access-menu em{font-style:normal;color:var(--tide1)}
 .composer-act{display:flex;align-items:center;gap:2px;margin-left:auto;padding:2px;border-radius:999px;background:#1c1c1c;box-shadow:inset 0 0 0 1px rgba(255,255,255,.07)}
 .composer-act-btn{width:24px;height:24px;min-height:24px!important;padding:0!important;display:grid;place-items:center;border-radius:50%;background:transparent;color:#cfcfcf}
 .composer-act-btn svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
@@ -193,6 +210,19 @@ html[data-theme="light"] .shell-drawer-toggle{border-color:#e4e4e4!important;bac
   height:36px;padding:0 12px;border:0;border-radius:10px;background:#141414;color:inherit;font:inherit;cursor:pointer
 }
 .agent-hub-history-btn small{color:#8a8a8a}
+.agent-hub-history{padding:16px 0}
+.agent-hub-history-filters{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px}
+.agent-hub-history-filters select{
+  border:1px solid var(--hub-line);background:var(--hub-panel);color:inherit;border-radius:12px;padding:8px 10px;font:inherit
+}
+.agent-hub-history-count{margin:0;color:var(--hub-muted);font-size:12px}
+.agent-hub-history-list{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
+.agent-hub-history-list button{
+  display:flex;flex-direction:column;align-items:flex-start;gap:4px;width:100%;
+  padding:12px 14px;border:1px solid var(--hub-line);border-radius:14px;
+  background:var(--hub-panel);color:inherit;font:inherit;cursor:pointer;text-align:left
+}
+.agent-hub-history-list button span{color:var(--hub-muted);font-size:12px}
 .agent-hub-agents{display:flex;flex-direction:column;gap:6px}
 .agent-hub-agent-row{display:grid;grid-template-columns:minmax(0,1fr) 28px;align-items:center;gap:4px;padding:4px;border-radius:12px}
 .agent-hub-agent-row.is-on{background:#1a1a1a;box-shadow:inset 0 0 0 1px #2a2a2a}
@@ -237,6 +267,35 @@ html[data-theme="light"] .agent-hub .launch-composer{background:#fff;border-colo
 html[data-theme="light"] .agent-hub .launch-composer textarea{color:var(--ink)}
 html[data-theme="light"] .agent-hub .workspace,html[data-theme="light"] .agent-hub .workspace-column{background:var(--bg2);color:var(--ink)}
 html[data-theme="light"] .agent-hub-art,html[data-theme="light"] .agent-hub-row,html[data-theme="light"] .agent-hub-panel,html[data-theme="light"] .agent-hub-card{background:#fff;border-color:var(--line);color:var(--ink)}
+/* 7. Task Center / legacy tabs follow light theme (no leftover charcoal panels). */
+html[data-theme="light"] .agent-hub-tabs button{color:var(--muted)}
+html[data-theme="light"] .agent-hub-tabs button[aria-selected="true"]{
+  color:var(--ink);background:#fff;border-color:var(--line);box-shadow:0 1px 4px rgba(44,93,135,.08)
+}
+html[data-theme="light"] .agent-hub-stat,
+html[data-theme="light"] .agent-hub-filters select,
+html[data-theme="light"] .agent-hub-filters input,
+html[data-theme="light"] .agent-hub-console,
+html[data-theme="light"] .agent-hub-live,
+html[data-theme="light"] .agent-hub-pill,
+html[data-theme="light"] .agent-hub-scene,
+html[data-theme="light"] .agent-hub-banner{
+  background:#fff;border-color:var(--line);color:var(--ink)
+}
+html[data-theme="light"] .agent-hub-stat small,
+html[data-theme="light"] .agent-hub-banner span,
+html[data-theme="light"] .agent-hub-pill small,
+html[data-theme="light"] .agent-hub-scene small{color:var(--muted)}
+html[data-theme="light"] .agent-hub-filters select,
+html[data-theme="light"] .agent-hub-filters input,
+html[data-theme="light"] .agent-hub-history-filters select{color:var(--ink);color-scheme:light;background:#fff;border-color:var(--line)}
+html[data-theme="light"] .agent-hub-status{border-color:var(--line);color:var(--ink)}
+html[data-theme="light"] .agent-hub-thread-nav button{background:#fff;border-color:var(--line);color:var(--ink)}
+html[data-theme="light"] .agent-hub-history-list button{background:#fff;border:1px solid var(--line);color:var(--ink)}
+html[data-theme="light"] .agent-hub-history-list button.is-on{background:#e8f2fb;border-color:var(--tide1)}
+html[data-theme="light"] .agent-hub-lamp.installing{background:var(--tide1);box-shadow:0 0 0 3px color-mix(in srgb,var(--tide1) 28%,transparent)}
+html[data-theme="light"] .hub-access-chip{background:#fff;border:1px solid var(--line);color:var(--ink)}
+html[data-theme="light"] .hub-access-menu{background:#fff;border-color:var(--line);color:var(--ink)}
 @media (max-width:900px){
   .agent-hub-hero h2{font-size:28px}
   .agent-hub-stats,.agent-hub-detail-grid,.agent-hub-grid,.agent-hub-scenes{grid-template-columns:1fr 1fr}

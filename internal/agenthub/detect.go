@@ -14,14 +14,19 @@ import (
 var (
 	defaultLookPath     LookPath = lookWithCommonPaths
 	versionProbeTimeout          = 8 * time.Second
+	// extraPathLook / vendorInstallLook are the Windows registry PATH and
+	// Uninstall-location fallbacks. Tests replace them so a developer
+	// machine that already has cursor-agent cannot leak into fixtures.
+	extraPathLook     = extraPathDirs
+	vendorInstallLook = vendorInstallDirs
 )
 
 func lookWithCommonPaths(name string) (string, error) {
 	if path, err := exec.LookPath(name); err == nil && strings.TrimSpace(path) != "" {
 		return preferRunnableCLI(path), nil
 	}
-	dirs := append(extraPathDirs(), commonBinDirs()...)
-	dirs = append(dirs, vendorInstallDirs()...)
+	dirs := append(extraPathLook(), commonBinDirs()...)
+	dirs = append(dirs, vendorInstallLook()...)
 	switch name {
 	case "cursor-agent":
 		dirs = append(dirs, dirsNearLauncher("cursor")...)

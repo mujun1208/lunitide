@@ -35,6 +35,11 @@ function availableAgents() {
   ] as const
 }
 
+function chooseAccess(name: RegExp) {
+  fireEvent.click(screen.getByLabelText('权限'))
+  fireEvent.click(screen.getByRole('menuitemradio', { name }))
+}
+
 function stubHome() {
   vi.mocked(agentHubApi.detect).mockResolvedValue({ agents: [...availableAgents()] })
   vi.mocked(agentHubApi.threadList).mockResolvedValue({ items: [] })
@@ -150,9 +155,9 @@ it('explains auto-edit and full-access from the permission dropdown', async () =
   stubHome()
   render(<LanguageProvider value="zh-CN"><AgentHubHome /></LanguageProvider>)
   await screen.findByLabelText('权限')
-  fireEvent.change(screen.getByLabelText('权限'), { target: { value: 'auto-edit' } })
+  chooseAccess(/自动审批/)
   expect(screen.getByText('自动会放过改文件权限，执行和联网仍要你点。业务选项永远要人点。')).toBeInTheDocument()
-  fireEvent.change(screen.getByLabelText('权限'), { target: { value: 'full-access' } })
+  chooseAccess(/完全访问/)
   expect(screen.getByText('完全访问会自动放过该 CLI 的工具权限，并可能使用你本机已配的 MCP。业务选项仍要你点。')).toBeInTheDocument()
 })
 
@@ -189,7 +194,7 @@ it('passes title, exportDir, and accessMode from Home', async () => {
   openPlus()
   fireEvent.click(screen.getByRole('button', { name: /产物目录/ }))
   expect(await screen.findByText(/E:\/export/)).toBeInTheDocument()
-  fireEvent.change(screen.getByLabelText('权限'), { target: { value: 'full-access' } })
+  chooseAccess(/完全访问/)
   fireEvent.change(screen.getByLabelText('任务说明'), { target: { value: '写一个 CLI' } })
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
   await waitFor(() => expect(agentHubApi.threadCreate).toHaveBeenCalledWith(expect.objectContaining({

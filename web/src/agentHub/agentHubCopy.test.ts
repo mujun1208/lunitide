@@ -67,8 +67,8 @@ it('maps the write home scene to write_project and keeps the other thread scenes
 
 it('keeps the spec §8 permission labels', () => {
   expect(ACCESS_MODES.map(item => [item.id, item.zh])).toEqual([
-    ['approval', '手动'],
-    ['auto-edit', '自动'],
+    ['approval', '手动审批'],
+    ['auto-edit', '自动审批'],
     ['full-access', '完全访问'],
   ])
 })

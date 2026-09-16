@@ -41,6 +41,12 @@ type FetchOptions struct {
 	// loopback fixtures and MUST be nil in production; URL validation and the
 	// IP egress policy still run before any dial.
 	DialContext func(ctx context.Context, network, address string) (net.Conn, error)
+	// Proxy, when set, is used for the transport. Destination hostnames are
+	// still validated and resolved against the IP egress policy before each
+	// hop; the dial itself goes to the proxy (so a local system proxy can
+	// reach hosts that time out on a direct connection). Nil keeps the
+	// historical direct, IP-pinned dial.
+	Proxy func(*http.Request) (*url.URL, error)
 }
 
 // FetchResult is the captured page. Body holds at most MaxBodyBytes bytes of
@@ -191,10 +197,16 @@ func Copy(ctx context.Context, rawURL string, w io.Writer, o FetchOptions) (int6
 		dial := o.DialContext
 		if dial == nil {
 			dialer := &net.Dialer{Timeout: o.ConnectTimeout}
-			dial = pinnedDial(dialer, ips, authority, 0)
+			if o.Proxy != nil {
+				// Proxy CONNECT dials the proxy address, not the destination
+				// IPs we just validated — pinning would reject 127.0.0.1.
+				dial = dialer.DialContext
+			} else {
+				dial = pinnedDial(dialer, ips, authority, 0)
+			}
 		}
 		tr := &http.Transport{
-			Proxy:                 nil,
+			Proxy:                 o.Proxy,
 			TLSClientConfig:       tlsConfig,
 			ResponseHeaderTimeout: o.ResponseHeaderTimeout,
 			DialContext:           dial,

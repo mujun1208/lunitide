@@ -4,7 +4,14 @@ import { ConfirmDialog } from '../ui/Dialog'
 import { AgentHubMark } from './AgentHubMark'
 import { agentHubApi, type AgentHubName, type AgentHubStatus, type AgentHubThread } from './agentHubApi'
 import { agentDisplayName, HUB_AGENT_IDS, stateLabel, usableLatestThreadForHarness } from './agentHubCopy'
+import { clearInstallJob, getInstallJob, startAgentInstall, subscribeInstallJobs } from './agentHubInstallStore'
 import './agentHub.css'
+
+function jobLabel(name: AgentHubName, agent: AgentHubStatus | undefined, zh: boolean): string {
+  const job = getInstallJob(name)
+  if (job?.status === 'running') return zh ? '安装中…' : 'Installing…'
+  return stateLabel(agent?.state ?? 'unknown', zh)
+}
 
 export function AgentHubSidebar({
   onOpenThread,
@@ -12,7 +19,6 @@ export function AgentHubSidebar({
   newThreadNonce = 0,
   selectedAgent,
   onSelectAgent,
-  onOpenLegacy,
   onOpenHistory,
   onNewChat,
 }: {
@@ -32,6 +38,8 @@ export function AgentHubSidebar({
   const [installName, setInstallName] = useState<AgentHubName>()
   const [installBusy, setInstallBusy] = useState(false)
   const [installError, setInstallError] = useState('')
+  const [tick, setTick] = useState(0)
+  useEffect(() => subscribeInstallJobs(() => setTick(n => n + 1)), [])
   useEffect(() => {
     let alive = true
     const load = async () => {
@@ -47,17 +55,25 @@ export function AgentHubSidebar({
         if (!alive) return
         setAgents(detected.agents ?? [])
       } catch {
-        // Keep the last good detect result; a slow CLI --version must not blank the list.
+        // Keep the last good detect result.
       }
     }
     void load()
     return () => { alive = false }
-  }, [selectedThreadId, newThreadNonce])
+  }, [selectedThreadId, newThreadNonce, tick])
   const rows = useMemo(() => HUB_AGENT_IDS.map(name => ({
     name,
     agent: agents.find(item => item.name === name),
     thread: usableLatestThreadForHarness(threads, name),
   })), [agents, threads])
+  const recentThreads = useMemo(() => {
+    const name = selectedAgent
+    const items = (threads ?? [])
+      .filter(item => !name || item.harnessId === name)
+      .slice()
+      .sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''))
+    return items.slice(0, 24)
+  }, [threads, selectedAgent])
   const openAgent = (name: AgentHubName, threadId?: string) => {
     onSelectAgent?.(name)
     onOpenThread(threadId ?? '')
@@ -67,6 +83,11 @@ export function AgentHubSidebar({
     return usableLatestThreadForHarness(threads, name)?.threadId
   }
   const connect = async (name: AgentHubName) => {
+    if (getInstallJob(name)?.status === 'running') {
+      setInstallName(name)
+      setInstallBusy(true)
+      return
+    }
     const current = agents.find(item => item.name === name)
     if (current?.state !== 'available') {
       setInstallError('')
@@ -88,44 +109,71 @@ export function AgentHubSidebar({
     if (!installName) return
     setInstallBusy(true)
     setInstallError('')
-    try {
-      const got = await agentHubApi.install({ name: installName, confirmed: true })
-      setAgents(got.agents ?? [])
-      if (!got.connected) {
-        setInstallError(got.hint || (zh ? '本机安装已跑完，但仍未连上。' : 'The local install finished, but it is still not connected.'))
-        return
-      }
-      const name = installName
+    const name = installName
+    const job = await startAgentInstall(name)
+    if (job.agents) setAgents(job.agents)
+    if (job.status === 'done') {
       setInstallName(undefined)
-      openAgent(name, resumeThreadId(name))
-    } catch (err) {
-      setInstallError(err instanceof Error && /[\u4e00-\u9fff]/.test(err.message) ? err.message : (zh ? '安装没有完成。' : 'Install did not finish.'))
-    } finally {
       setInstallBusy(false)
+      clearInstallJob(name)
+      openAgent(name, resumeThreadId(name))
+      return
     }
+    setInstallError(job.hint || job.error || (zh ? '安装没有完成。' : 'Install did not finish.'))
+    setInstallBusy(false)
   }
+  useEffect(() => {
+    if (!installName) return
+    const job = getInstallJob(installName)
+    if (job?.status === 'running') setInstallBusy(true)
+    if (job?.status === 'done') {
+      if (job.agents) setAgents(job.agents)
+      setInstallName(undefined)
+      setInstallBusy(false)
+      clearInstallJob(installName)
+      openAgent(installName, resumeThreadId(installName))
+    }
+  }, [tick, installName])
   return (
     <nav
       className="agent-hub-sidebar"
-      aria-label={zh ? 'AgentHub' : 'AgentHub'}
+      aria-label="AgentHub"
       style={{ flex: 1, minHeight: 0, overflow: 'auto' }}
     >
       {onNewChat ? (
-        <button type="button" className="agent-hub-new-chat" onClick={onNewChat}>
-          {zh ? '新对话' : 'New chat'}
+        <button type="button" className="new-chat agent-hub-new-chat" onClick={onNewChat}>
+          <span>＋&nbsp; {zh ? '新对话' : 'New chat'}</span>
+          <kbd>Ctrl N</kbd>
         </button>
       ) : null}
       <button
         type="button"
         className="agent-hub-history-btn"
-        onClick={() => {
-          if (onOpenHistory) onOpenHistory()
-          else onOpenLegacy?.('')
-        }}
+        onClick={() => onOpenHistory?.()}
       >
-        <span>{zh ? '历史任务' : 'History'}</span>
-        <small>{zh ? '旧版任务中心' : 'Legacy tasks'}</small>
+        <span>{zh ? '历史对话' : 'History'}</span>
+        <small>{zh ? '全部 Agent 的会话' : 'Threads from every Agent'}</small>
       </button>
+      {recentThreads.length > 0 ? (
+        <div className="agent-hub-thread-list" aria-label={zh ? '最近对话' : 'Recent threads'}>
+          {recentThreads.map(item => (
+            <button
+              key={item.threadId}
+              type="button"
+              className={`agent-hub-thread-row${selectedThreadId === item.threadId ? ' is-on' : ''}`}
+              onClick={() => {
+                onSelectAgent?.(item.harnessId as AgentHubName)
+                onOpenThread(item.threadId)
+              }}
+            >
+              <b>{item.title || (zh ? '未命名对话' : 'Untitled')}</b>
+              <small>{agentDisplayName(item.harnessId)}</small>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="agent-hub-thread-empty">{zh ? '还没有对话记录' : 'No threads yet'}</p>
+      )}
       <div className="agent-hub-agents">
         {rows.map(row => (
           <div key={row.name} className={`agent-hub-agent-row${selectedAgent === row.name ? ' is-on' : ''}`}>
@@ -139,14 +187,14 @@ export function AgentHubSidebar({
               <span className="agent-hub-logo"><AgentHubMark name={row.name} /></span>
               <span className="agent-hub-agent-copy">
                 <b>{agentDisplayName(row.name)}</b>
-                <em>{stateLabel(row.agent?.state ?? 'unknown', zh)}</em>
+                <em>{jobLabel(row.name, row.agent, zh)}</em>
               </span>
-              <span className={`agent-hub-lamp ${row.agent?.state ?? 'unknown'}`} aria-hidden="true" />
+              <span className={`agent-hub-lamp ${getInstallJob(row.name)?.status === 'running' ? 'installing' : (row.agent?.state ?? 'unknown')}`} aria-hidden="true" />
             </button>
             <button
               type="button"
               className="agent-hub-connect"
-              disabled={connecting === row.name}
+              disabled={connecting === row.name || getInstallJob(row.name)?.status === 'running'}
               aria-label={zh ? `连接 ${agentDisplayName(row.name)}` : `Connect ${agentDisplayName(row.name)}`}
               onClick={() => void connect(row.name)}
             >
@@ -165,10 +213,12 @@ export function AgentHubSidebar({
         busy={installBusy}
         error={installError}
         title={zh ? `安装并连接 ${installName ? agentDisplayName(installName) : ''}` : `Install and connect ${installName ? agentDisplayName(installName) : ''}`}
-        description={zh ? '先检查本机是否已有该 CLI。没有就在本机自动安装，再登录并连接。不会打开网页。' : 'Check for the local CLI first. If it is missing, install it here, then sign in and connect. No webpage will open.'}
-        confirmLabel={zh ? '确定安装' : 'Install'}
+        description={zh
+          ? '先检查本机是否已有该 CLI。没有就在本机自动安装，再登录并连接。切换页面不会中断安装。'
+          : 'Check for the local CLI first. Leaving this page will not stop the install.'}
+        confirmLabel={installBusy ? (zh ? '处理中…' : 'Working…') : (zh ? '确定安装' : 'Install')}
         onCancel={() => { if (!installBusy) setInstallName(undefined) }}
-        onConfirm={() => { void confirmInstall() }}
+        onConfirm={() => { if (!installBusy) void confirmInstall() }}
       />
     </nav>
   )

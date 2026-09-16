@@ -47,7 +47,10 @@ function Publish-GitHubRelease([string]$Version, [string]$Installer, [string]$La
   if ($LASTEXITCODE) { Write-Warning 'gh not logged in; skip GitHub release upload'; return }
   $tag = "v$Version"
   $notes = Join-Path $PSScriptRoot ("notes-{0}.md" -f $Version)
-  $createArgs = @('release','create',$tag,$Installer,$LatestJson,'--title',("Lunitide {0}" -f $Version),'--latest')
+  $assets = @($Installer, $LatestJson)
+  $sums = Join-Path (Split-Path -Parent $LatestJson) 'SHA256SUMS.txt'
+  if (Test-Path -LiteralPath $sums -PathType Leaf) { $assets += $sums }
+  $createArgs = @('release','create',$tag) + $assets + @('--title',("Lunitide {0}" -f $Version),'--latest')
   if (Test-Path -LiteralPath $notes -PathType Leaf) { $createArgs += @('--notes-file',$notes) }
   else { $createArgs += @('--notes','Desktop overlay installer and latest.json for in-app update.') }
   & gh @createArgs

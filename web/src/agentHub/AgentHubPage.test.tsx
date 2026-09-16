@@ -1,9 +1,14 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { LanguageProvider } from '../i18n/language'
 import { AgentHubPage } from './AgentHubPage'
 import { AgentHubWorkbench } from './AgentHubWorkbench'
 import { agentHubApi, type AgentHubStatus } from './agentHubApi'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 vi.mock('./agentHubApi', () => ({
   agentHubApi: {
@@ -76,6 +81,10 @@ function renderLegacy() {
   return render(<LanguageProvider value="zh-CN"><AgentHubPage showLegacy /></LanguageProvider>)
 }
 
+function openTaskCenter() {
+  fireEvent.click(screen.getByRole('tab', { name: '任务中心' }))
+}
+
 function workbenchAgents(items?: AgentHubStatus[]): AgentHubStatus[] {
   return items ?? [
     { name: 'codex', state: 'available', version: '1.2.3', nonInteractive: true, streamJSON: true, hint: '可用' },
@@ -118,6 +127,7 @@ it('shortens work dirs in the task list', async () => {
     counts: { queued: 0, running: 0, success: 1, failed: 0 },
   })
   renderLegacy()
+  openTaskCenter()
   expect(await screen.findByText('codex · Trae-Work-Projects/lunitide')).toBeInTheDocument()
 })
 
@@ -142,7 +152,8 @@ it('renders a conversational Home with the selected agent name', async () => {
   }
   cleanup()
   renderLegacy()
-  expect(await screen.findByRole('tab', { name: '任务中心' })).toBeInTheDocument()
+  expect(await screen.findByRole('tab', { name: '历史对话' })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: '任务中心' })).toBeInTheDocument()
   expect(screen.getByRole('tab', { name: '任务详情' })).toBeInTheDocument()
   expect(screen.queryByRole('tab', { name: '工作台' })).toBeNull()
   expect(screen.queryByRole('tab', { name: '产物中心' })).toBeNull()
@@ -191,6 +202,7 @@ it('shows a finish banner when a live workbench task completes', async () => {
     .mockResolvedValueOnce({ items: [live], counts: { queued: 0, running: 1, success: 0, failed: 0 } })
     .mockResolvedValue({ items: [{ ...live, status: 'success' }], counts: { queued: 0, running: 0, success: 1, failed: 0 } })
   renderLegacy()
+  openTaskCenter()
   await act(async () => { await vi.advanceTimersByTimeAsync(0) })
   expect(document.querySelector('.agent-hub-status.running')).toHaveTextContent('进行中')
   await act(async () => { await vi.advanceTimersByTimeAsync(400) })
@@ -593,4 +605,39 @@ it('leaves 旧版任务 when selectedThreadId is set from the rail', async () =>
   view.rerender(<LanguageProvider value="zh-CN"><AgentHubPage selectedThreadId={threadId} onOpenThread={vi.fn()} /></LanguageProvider>)
   expect(await screen.findByLabelText('消息')).toBeInTheDocument()
   expect(screen.queryByRole('tab', { name: '任务中心' })).toBeNull()
+})
+
+it('lists Kimi threads in 历史对话 even when the task center is empty', async () => {
+  stubLists()
+  vi.mocked(agentHubApi.threadList).mockResolvedValue({
+    items: [{
+      threadId: '01ARZ3NDEKTSV4RRFFQ69G5FAE',
+      harnessId: 'kimi',
+      nativeSessionId: '',
+      title: 'Kimi 周报会话',
+      pinned: false,
+      workspaceRoot: '',
+      exportDir: '',
+      scene: 'free',
+      status: 'idle',
+      accessMode: 'approval',
+      createdAt: '2026-09-13T00:00:00Z',
+      updatedAt: '2026-09-13T00:00:00Z',
+    }],
+  })
+  renderLegacy()
+  expect(await screen.findByText('Kimi 周报会话')).toBeInTheDocument()
+  expect(screen.getByText(/Kimi · idle/)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('tab', { name: '任务中心' }))
+  expect(screen.getByText('还没有匹配的任务。')).toBeInTheDocument()
+})
+
+it('maps Task Center panels to white under light theme', () => {
+  const css = readFileSync(join(__dirname, 'agentHub.css'), 'utf8')
+  expect(css).toMatch(/--hub-panel:\s*var\(--bg2\)/)
+  expect(css).not.toMatch(/var\(--panel,\s*#161618\)/)
+  expect(css).toMatch(/html\[data-theme="light"\]\s*\.agent-hub\s*\{[^}]*--hub-panel:\s*#fff/)
+  expect(css).toMatch(/html\[data-theme="light"\]\s*\.agent-hub-stat/)
+  expect(css).toMatch(/html\[data-theme="light"\]\s*\.agent-hub-filters\s+select/)
+  expect(css).toMatch(/html\[data-theme="light"\]\s*\.agent-hub-tabs\s+button\[aria-selected="true"\]/)
 })

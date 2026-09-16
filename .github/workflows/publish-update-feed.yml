@@ -53,15 +53,18 @@ jobs:
           }
           $tag="v$version"
           $notes="release/notes-$version.md"
-          $args=@('release','create',$tag,$installer,$latest,$sums,'--title',("Lunitide {0}" -f $version),'--latest')
-          if(Test-Path -LiteralPath $notes -PathType Leaf){$args+='--notes-file';$args+=$notes}
-          else{$args+='--notes';$args+='Desktop overlay installer and latest.json for in-app update.'}
-          & gh @args
-          if($LASTEXITCODE){
-            & gh release upload $tag $installer $latest $sums --clobber
-            if($LASTEXITCODE){throw "GitHub release publish failed for $tag"}
+          $existing=$null
+          try{$existing=& gh release view $tag --json tagName,isLatest 2>$null}catch{}
+          if($existing){
+            Write-Host "Release $tag already exists; keeping published assets and marking Latest."
             & gh release edit $tag --latest
             if($LASTEXITCODE){throw "GitHub release --latest failed for $tag"}
+          }else{
+            $args=@('release','create',$tag,$installer,$latest,$sums,'--title',("Lunitide {0}" -f $version),'--latest')
+            if(Test-Path -LiteralPath $notes -PathType Leaf){$args+='--notes-file';$args+=$notes}
+            else{$args+='--notes';$args+='Desktop overlay installer and latest.json for in-app update.'}
+            & gh @args
+            if($LASTEXITCODE){throw "GitHub release create failed for $tag"}
           }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
