@@ -31,7 +31,7 @@ func handleAgentHub(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 		if decodePayload(r.Payload, &p) != nil || (p.Name != "codex" && p.Name != "cursor" && p.Name != "kimi") {
 			return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.install 参数无效", false)
 		}
-		result, err := e.agentHub.Install(ctx, p.Name, p.Confirmed)
+		result, err := e.agentHub.Install(context.WithoutCancel(ctx), p.Name, p.Confirmed)
 		if err != nil {
 			return agentHubFailure(r, err)
 		}

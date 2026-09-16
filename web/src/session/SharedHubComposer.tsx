@@ -51,16 +51,21 @@ export function SharedHubComposer({
   zh: boolean
 }): React.JSX.Element {
   const [menu, setMenu] = useState(false)
+  const [accessOpen, setAccessOpen] = useState(false)
   const [listening, setListening] = useState(false)
   const recognition = useRef<{ stop: () => void } | undefined>(undefined)
   useEffect(() => {
-    const close = () => setMenu(false)
+    const close = () => {
+      setMenu(false)
+      setAccessOpen(false)
+    }
     window.addEventListener('click', close)
     return () => {
       window.removeEventListener('click', close)
       recognition.current?.stop()
     }
   }, [])
+  const access = ACCESS_MODES.find(item => item.id === accessMode) ?? ACCESS_MODES[0]
   const toggleVoice = () => {
     const Ctor = (window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike }).SpeechRecognition
       ?? (window as unknown as { webkitSpeechRecognition?: new () => SpeechRecognitionLike }).webkitSpeechRecognition
@@ -119,6 +124,7 @@ export function SharedHubComposer({
             onClick={event => {
               event.stopPropagation()
               setMenu(open => !open)
+              setAccessOpen(false)
             }}
           >
             ＋
@@ -138,25 +144,53 @@ export function SharedHubComposer({
           )}
         </div> : null}
         {showAccess ? (
-          <>
-            <label className="sr-only" htmlFor="hub-access">{zh ? '权限' : 'Access'}</label>
-            <select
-              id="hub-access"
+          <div className="menu-anchor hub-access-anchor">
+            <button
+              type="button"
+              className="hub-access-chip"
               aria-label={zh ? '权限' : 'Access'}
-              value={accessMode}
-              onChange={event => onAccessMode(event.target.value as HubAccessMode)}
+              aria-haspopup="menu"
+              aria-expanded={accessOpen}
+              onClick={event => {
+                event.stopPropagation()
+                setAccessOpen(open => !open)
+                setMenu(false)
+              }}
             >
-              {ACCESS_MODES.map(item => (
-                <option key={item.id} value={item.id}>{zh ? item.zh : item.en}</option>
-              ))}
-            </select>
-          </>
+              {zh ? access.zh : access.en}
+              <span aria-hidden="true">▾</span>
+            </button>
+            {accessOpen ? (
+              <div className="launch-menu compact hub-access-menu" role="menu" onClick={event => event.stopPropagation()}>
+                {ACCESS_MODES.map(item => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={item.id === accessMode}
+                    className={item.id === accessMode ? 'is-active' : undefined}
+                    onClick={() => {
+                      onAccessMode(item.id)
+                      setAccessOpen(false)
+                    }}
+                  >
+                    <span>
+                      {zh ? item.zh : item.en}
+                      <small>{zh ? item.zhDesc : item.enDesc}</small>
+                    </span>
+                    {item.id === accessMode ? <em aria-hidden="true">✓</em> : null}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         ) : null}
         {showScene && scene && onScene ? (
           <>
             <label className="sr-only" htmlFor="hub-scene">{zh ? '任务类型' : 'Task type'}</label>
             <select
               id="hub-scene"
+              className="hub-scene-select"
               aria-label={zh ? '任务类型' : 'Task type'}
               value={scene}
               onChange={event => onScene(event.target.value as HubScene)}

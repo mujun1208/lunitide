@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/egressproxy"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 )
 
@@ -244,8 +245,10 @@ func DefaultHTTPGet(ctx context.Context, rawURL string) ([]byte, error) {
 	res, err := networkpolicy.Fetch(ctx, rawURL, networkpolicy.FetchOptions{
 		Policy:         updateFetchPolicy(),
 		MaxBodyBytes:   maxFeedBytes,
-		OverallTimeout: 20 * time.Second,
+		OverallTimeout: 45 * time.Second,
+		ConnectTimeout: 20 * time.Second,
 		UserAgent:      "Lunitide/0.4 (app update feed)",
+		Proxy:          egressproxy.Resolver(),
 	})
 	if err != nil {
 		return nil, err
@@ -270,7 +273,9 @@ func DefaultHTTPGetFile(ctx context.Context, rawURL, dest string) error {
 		Policy:         updateFetchPolicy(),
 		MaxBodyBytes:   maxInstallerBytes,
 		OverallTimeout: 15 * time.Minute,
+		ConnectTimeout: 30 * time.Second,
 		UserAgent:      "Lunitide/0.4 (app update installer)",
+		Proxy:          egressproxy.Resolver(),
 	})
 	if err != nil {
 		return err

@@ -108,7 +108,7 @@ it('keeps a blank home after 新对话 when the agent row is clicked', async () 
   expect(onOpenThread).toHaveBeenCalledWith('')
 })
 
-it('opens the old task center from 历史任务', async () => {
+it('opens the old task center from 历史对话', async () => {
   const onOpenHistory = vi.fn()
   vi.mocked(agentHubApi.detect).mockResolvedValue({ agents: [] })
   vi.mocked(agentHubApi.threadList).mockResolvedValue({ items: [] })
@@ -117,7 +117,7 @@ it('opens the old task center from 历史任务', async () => {
       <AgentHubSidebar onOpenThread={vi.fn()} onOpenHistory={onOpenHistory} />
     </LanguageProvider>,
   )
-  fireEvent.click(await screen.findByRole('button', { name: /历史任务/ }))
+  fireEvent.click(await screen.findByRole('button', { name: /历史对话/ }))
   expect(onOpenHistory).toHaveBeenCalled()
 })
 
@@ -187,7 +187,7 @@ it('starts a new chat from the rail', async () => {
       <AgentHubSidebar onOpenThread={vi.fn()} onNewChat={onNewChat} />
     </LanguageProvider>,
   )
-  fireEvent.click(await screen.findByRole('button', { name: '新对话' }))
+  fireEvent.click(await screen.findByRole('button', { name: /新对话/ }))
   expect(onNewChat).toHaveBeenCalled()
 })
 

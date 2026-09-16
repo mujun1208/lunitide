@@ -14,9 +14,9 @@ export const SCENE_BLURBS: Record<AgentHubThreadScene, string> = {
 }
 
 export const ACCESS_MODES = [
-  { id: 'approval' as const, zh: '手动', en: 'Manual' },
-  { id: 'auto-edit' as const, zh: '自动', en: 'Auto' },
-  { id: 'full-access' as const, zh: '完全访问', en: 'Full access' },
+  { id: 'approval' as const, zh: '手动审批', en: 'Ask first', zhDesc: '工具和命令需要你审核后才能执行', enDesc: 'Tools and commands wait for your approval.' },
+  { id: 'auto-edit' as const, zh: '自动审批', en: 'Auto-approve', zhDesc: '自动执行常规操作，高风险操作仍需你确认', enDesc: 'Routine actions run automatically; high-risk ones still need you.' },
+  { id: 'full-access' as const, zh: '完全访问', en: 'Full access', zhDesc: '免审批，直接操作所有文件、命令和工具', enDesc: 'No approval gate; files, commands, and tools run directly.' },
 ] as const
 
 export const THREAD_SCENES = [
