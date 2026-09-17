@@ -10,7 +10,8 @@ function Test-GoRuntimeAbort {
         $Text -match 'tryDeferToSpanScan' -or
         $Text -match 'Exception 0xc0000005' -or
         $Text -match 'fatal error: index out of range' -or
-        $Text -match 'fatal error: found pointer to free object'
+        $Text -match 'fatal error: found pointer to free object' -or
+        $Text -match '\.test\.exe: Access is denied'
 }
 
 function Invoke-GoLoggedTest {
@@ -39,6 +40,9 @@ function Invoke-GoLoggedTest {
             }
             if ($attempt -lt $Attempts -and (Test-GoRuntimeAbort $text)) {
                 Write-Host $RetryReason
+                if ($text -match '\.test\.exe: Access is denied') {
+                    Start-Sleep -Seconds 3
+                }
                 continue
             }
             throw ("go test failed (exit {0})" -f $code)
@@ -65,5 +69,8 @@ function Assert-GoRuntimeAbortClassifier {
     }
     if (Test-GoRuntimeAbort "WARNING: DATA RACE`n--- FAIL: TestFoo") {
         throw 'a DATA RACE must not be retried as a runtime abort'
+    }
+    if (-not (Test-GoRuntimeAbort "fork/exec C:\Users\runner\AppData\Local\Temp\go-build1\b853\stdioworker.test.exe: Access is denied.`nFAIL`tgithub.com/lunitide/lunitide/internal/stdioworker`t0.305s")) {
+        throw 'expected Windows test-binary lock to count as a runtime abort'
     }
 }

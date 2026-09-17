@@ -353,6 +353,24 @@ it('keeps the Work workspace tabs on the AgentHub thread pane', async () => {
   expect(screen.getByRole('region', { name: '变更记录' })).toBeInTheDocument()
 })
 
+it('lets the AgentHub right rail drag and collapse like Work', async () => {
+  stubWorkspace()
+  vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('idle'))
+  render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
+  await screen.findByRole('tab', { name: '文件' })
+  const splitter = screen.getByRole('separator', { name: '调整右侧工作区宽度' })
+  expect(splitter.className).toContain('panel-resizer')
+  expect(splitter.className).toContain('workspace-resizer')
+  expect(screen.getByRole('button', { name: '收起右侧工作区' })).toHaveAttribute('aria-expanded', 'true')
+  fireEvent.click(screen.getByRole('button', { name: '收起右侧工作区' }))
+  expect(screen.queryByRole('tab', { name: '文件' })).toBeNull()
+  expect(screen.queryByRole('separator', { name: '调整右侧工作区宽度' })).toBeNull()
+  expect(screen.getByRole('button', { name: '展开右侧工作区' })).toHaveAttribute('aria-expanded', 'false')
+  fireEvent.click(screen.getByRole('button', { name: '展开右侧工作区' }))
+  expect(await screen.findByRole('tab', { name: '文件' })).toBeInTheDocument()
+  expect(screen.getByRole('separator', { name: '调整右侧工作区宽度' })).toBeInTheDocument()
+})
+
 it('polls thread.get every 4s while idle', async () => {
   vi.useFakeTimers()
   stubWorkspace()

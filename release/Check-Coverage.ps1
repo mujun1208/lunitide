@@ -83,16 +83,19 @@ if ($SelfTest) {
 $profilePath = Join-Path (Get-Location) 'coverage.out'
 $appProfilePath = Join-Path (Get-Location) 'coverage-app.out'
 $restProfilePath = Join-Path (Get-Location) 'coverage-rest.out'
-foreach ($path in @($profilePath, $appProfilePath, $restProfilePath)) {
+$stdioProfilePath = Join-Path (Get-Location) 'coverage-stdioworker.out'
+foreach ($path in @($profilePath, $appProfilePath, $restProfilePath, $stdioProfilePath)) {
     if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path }
 }
 
 $appImport = 'github.com/lunitide/lunitide/internal/app'
+$stdioImport = 'github.com/lunitide/lunitide/internal/stdioworker'
 $listed = @(go list ./...)
 if ($LASTEXITCODE -ne 0) { throw "go list failed (exit $LASTEXITCODE)" }
 
 $appListed = @($listed | Where-Object { $_ -eq $appImport })
-$restListed = @($listed | Where-Object { $_ -ne $appImport })
+$stdioListed = @($listed | Where-Object { $_ -eq $stdioImport })
+$restListed = @($listed | Where-Object { $_ -ne $appImport -and $_ -ne $stdioImport })
 $profiles = New-Object System.Collections.Generic.List[string]
 
 if ($appListed.Count -gt 0) {
@@ -118,6 +121,45 @@ if ($restListed.Count -gt 0) {
         "-coverprofile=$restProfilePath"
     ) + $restListed)
     $profiles.Add($restProfilePath)
+}
+
+if ($stdioListed.Count -gt 0) {
+    # Isolated compile-then-run: `go test` execs the binary the instant the
+    # compiler closes it, and Windows (Defender) then returns Access is denied.
+    # Building with -c, waiting, then running the same file avoids that race
+    # without re-running the rest of the tree.
+    $stdioExe = Join-Path (Get-Location) 'stdioworker.test.exe'
+    $stdioOk = $false
+    $stdioAttempt = 0
+    $nativePref = $null
+    if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+        $nativePref = $PSNativeCommandUseErrorActionPreference
+        $PSNativeCommandUseErrorActionPreference = $false
+    }
+    try {
+        while ($stdioAttempt -lt 3 -and -not $stdioOk) {
+            $stdioAttempt++
+            Write-Host ("go test -c ./internal/stdioworker (attempt {0}/3)" -f $stdioAttempt)
+            if (Test-Path -LiteralPath $stdioExe) { Remove-Item -LiteralPath $stdioExe -Force }
+            & go test -c -cover -o $stdioExe ./internal/stdioworker
+            if ($LASTEXITCODE -ne 0) {
+                Start-Sleep -Seconds 3
+                continue
+            }
+            Start-Sleep -Seconds 2
+            & $stdioExe "-test.coverprofile=$stdioProfilePath" "-test.timeout=$Timeout" "-test.count=1"
+            if ($LASTEXITCODE -eq 0) {
+                $stdioOk = $true
+                break
+            }
+            Start-Sleep -Seconds 3
+        }
+    } finally {
+        if ($null -ne $nativePref) { $PSNativeCommandUseErrorActionPreference = $nativePref }
+        if (Test-Path -LiteralPath $stdioExe) { Remove-Item -LiteralPath $stdioExe -Force -ErrorAction SilentlyContinue }
+    }
+    if (-not $stdioOk) { throw 'go test failed (exit 1) for ./internal/stdioworker' }
+    $profiles.Add($stdioProfilePath)
 }
 
 if ($profiles.Count -eq 0) { throw 'go list returned no packages to cover' }

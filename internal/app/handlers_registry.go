@@ -202,6 +202,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodFilesPlan:                        handleFilesPlan,
 	bridge.MethodFilesStatus:                      handleFilesStatus,
 	bridge.MethodFilesUndo:                        handleFilesUndo,
+	bridge.MethodOcrInstall:                       handleOCRInstall,
 	bridge.MethodOcrRoutingGet:                    handleOCRRoutingGet,
 	bridge.MethodOcrRoutingSet:                    handleOCRRoutingSet,
 	bridge.MethodOperationCancel:                  handleOperationCancel,

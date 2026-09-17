@@ -35,7 +35,7 @@ func (codexAdapter) BuildCommand(req TaskRequest) (string, []string, []byte, err
 	if sandbox == "" {
 		sandbox = "workspace-write"
 	}
-	return "codex", []string{"exec", "--json", "--skip-git-repo-check", "--ignore-user-config", "--sandbox", sandbox, "--cd", req.WorkDir, "-o", filepath.Join(req.WorkDir, "codex-last-message.md")}, []byte(req.Prompt), nil
+	return "codex", []string{"exec", "--json", "--skip-git-repo-check", "--ignore-user-config", "--sandbox", sandbox, "--cd", req.WorkDir, "-o", filepath.Join(req.WorkDir, "codex-last-message.md"), "-"}, []byte(req.Prompt), nil
 }
 
 func (codexAdapter) ParseLine(line string) (AgentEvent, bool) { return ParseLine("codex", line) }

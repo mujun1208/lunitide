@@ -21,11 +21,12 @@ vi.mock('./tideMermaid', async (importOriginal) => {
   return { ...actual, loadMermaidEngine: async () => mermaid }
 })
 
-import { MermaidBlock } from './MermaidBlock'
+import { MermaidBlock, resetMermaidSvgCacheForTests } from './MermaidBlock'
 
 afterEach(() => {
   cleanup()
   resetMermaidEngineForTests()
+  resetMermaidSvgCacheForTests()
   mermaid.initialize.mockReset()
   mermaid.render.mockReset()
 })
@@ -223,6 +224,16 @@ it('opens a larger diagram viewer from the preview without leaving a nested chat
   expect(svg.style.width).toBe('150%')
   fireEvent.click(screen.getByRole('button', { name: '关闭' }))
   expect(screen.queryByRole('dialog', { name: '查看图表' })).toBeNull()
+})
+
+it('does not flash 图表生成中 when the same mermaid source remounts', async () => {
+  mermaid.render.mockResolvedValue({ svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 40"/>' })
+  const { unmount } = render(<MermaidBlock source={'flowchart TD\nA-->B'} />)
+  await waitFor(() => expect(document.querySelector('.mermaid-host svg')).not.toBeNull())
+  unmount()
+  render(<MermaidBlock source={'flowchart TD\nA-->B'} />)
+  expect(screen.queryByText(/图表生成中/)).toBeNull()
+  expect(document.querySelector('.mermaid-host svg')).not.toBeNull()
 })
 
 it('does not call scrollTo on mermaid layout complete when follow is paused', async () => {

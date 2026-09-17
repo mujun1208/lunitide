@@ -162,7 +162,8 @@ html[data-theme="light"] .shell-drawer-toggle{border-color:#e4e4e4!important;bac
 .agent-hub>section:not(.hub-home){padding:16px 8% 24px}
 .hub-home{flex:1;display:flex;flex-direction:column;min-height:0;padding:18px 8% 22px}
 .hub-composer{width:min(720px,calc(100% - 48px));max-width:720px;margin:auto auto 22px;align-self:center}
-.agent-hub .message-panel{border:0;background:transparent;padding:16px 8% 24px}
+.agent-hub .message-panel{position:relative;border:0;background:transparent;padding:16px 8% 24px}
+.agent-hub .workspace-toggle{position:absolute;top:8px;right:8px}
 .agent-hub .message-panel .hub-composer{margin:12px auto 16px}
 .hub-composer-paths{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
 .hub-composer-paths span{

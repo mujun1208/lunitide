@@ -29,6 +29,9 @@ func TestCodexThreadArgvOmitsIgnoreUserConfig(t *testing.T) {
 	if strings.Contains(joined, "--ignore-user-config") {
 		t.Fatalf("thread argv must not include --ignore-user-config: %v", args)
 	}
+	if args[len(args)-1] != "-" {
+		t.Fatalf("thread argv must read prompt from stdin via -: %v", args)
+	}
 }
 
 func TestCodexThreadArgvDefaultsSandbox(t *testing.T) {
@@ -106,6 +109,7 @@ func TestCodexThreadPromptRunsExecWithoutIgnore(t *testing.T) {
 	adapter.look = func(string) (string, error) { return `C:\fake-codex.exe`, nil }
 	adapter.start = func(_ context.Context, spec ProcSpec, onLine func(string)) (int64, bool, error) {
 		got = spec
+		onLine("Reading prompt from stdin...")
 		onLine(`{"type":"agent.message","text":"done as-is"}`)
 		return 0, false, nil
 	}
@@ -135,6 +139,9 @@ func TestCodexThreadPromptRunsExecWithoutIgnore(t *testing.T) {
 	role, content := loadLastMessage(t, store.db, thread.ID)
 	if role != "assistant" || !strings.Contains(content, "done as-is") {
 		t.Fatalf("assistant = %s %q", role, content)
+	}
+	if strings.Contains(content, "Reading prompt from stdin") {
+		t.Fatalf("stdin banner leaked into assistant: %q", content)
 	}
 }
 

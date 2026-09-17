@@ -65,6 +65,7 @@ func codexThreadArgv(workspace, sandbox string) (string, []string) {
 		"--sandbox", sandbox,
 		"--cd", workspace,
 		"-o", filepath.Join(workspace, "codex-last-message.md"),
+		"-",
 	}
 }
 

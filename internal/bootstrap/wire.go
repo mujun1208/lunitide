@@ -505,7 +505,13 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 		return root, nil
 	})
 	engine.SetToolRuntime(tools)
-	engine.SetOCR(ocrapp.New(ocrapp.NewFileStore(filepath.Join(dataRoot.Path(), "ocr-routing.json"))))
+	ocrSvc := ocrapp.New(ocrapp.NewFileStore(filepath.Join(dataRoot.Path(), "ocr-routing.json")))
+	if ocrRoot, err := dataRoot.PrepareSubdirectory("ocr"); err != nil {
+		log.Printf("ocr directory unavailable; PP-OCR download stays off: %v", err)
+	} else {
+		ocrSvc.SetInstallRoot(ocrRoot.Path())
+	}
+	engine.SetOCR(ocrSvc)
 	engine.SetWidgetStore(widgetapp.NewFileStore(filepath.Join(dataRoot.Path(), "widgets.json")))
 	engine.SetConnectorStore(connectorapp.NewFileStore(filepath.Join(dataRoot.Path(), "connector-recipes.json")))
 	closers = append(closers, func() { _ = tools.Close() })

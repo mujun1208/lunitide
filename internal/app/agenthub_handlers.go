@@ -397,10 +397,35 @@ func agentHubFailure(r bridge.Request, err error) bridge.Response {
 	case errors.Is(err, agenthub.ErrThreadBusy):
 		return r.Fail("AGENT_HUB_FAILED", "当前对话正在等待回答", false)
 	default:
-		msg := err.Error()
-		if !strings.Contains(msg, "工作目录不受支持") && !strings.Contains(msg, "路径不受支持") && !strings.ContainsAny(msg, "任务目录参数工作") {
-			msg = "AgentHub 操作失败"
-		}
-		return r.Fail("AGENT_HUB_FAILED", msg, false)
+		return r.Fail("AGENT_HUB_FAILED", agentHubUserMessage(err), false)
 	}
+}
+
+func agentHubUserMessage(err error) string {
+	if err == nil {
+		return "AgentHub 操作失败"
+	}
+	msg := strings.TrimSpace(err.Error())
+	if msg == "" {
+		return "AgentHub 操作失败"
+	}
+	if strings.Contains(msg, "无法解析为 node") {
+		return "已安装 CLI，但还不能启动对话。需要本机 Node.js，或把 CLI 配成可直接运行的程序。"
+	}
+	if strings.Contains(msg, "会话未打开") {
+		return "会话还没打开，请再发一次。"
+	}
+	if containsHan(msg) {
+		return msg
+	}
+	return "AgentHub 操作失败"
+}
+
+func containsHan(s string) bool {
+	for _, r := range s {
+		if r >= 0x4e00 && r <= 0x9fff {
+			return true
+		}
+	}
+	return false
 }

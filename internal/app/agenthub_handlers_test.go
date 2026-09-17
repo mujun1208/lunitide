@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,19 @@ import (
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/storage/sqlite"
 )
+
+func TestAgentHubFailureKeepsCursorNodeHint(t *testing.T) {
+	resp := agentHubFailure(validRequest("agentHub.thread.prompt", `{"threadId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","text":"hi"}`), fmt.Errorf("cursor-agent 无法解析为 node"))
+	if resp.OK || resp.Error == nil || resp.Error.Code != "AGENT_HUB_FAILED" {
+		t.Fatalf("%#v", resp)
+	}
+	if resp.Error.Message == "AgentHub 操作失败" {
+		t.Fatal("must not swallow the node handshake failure")
+	}
+	if !strings.Contains(resp.Error.Message, "Node") {
+		t.Fatalf("got %q", resp.Error.Message)
+	}
+}
 
 func TestAgentHubStartUnavailableChinese(t *testing.T) {
 	s := agenthub.New(agenthub.NewMemoryStore(), t.TempDir(), nil)
