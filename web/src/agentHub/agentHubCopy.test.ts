@@ -103,6 +103,7 @@ it('shows only the user sentence from a wrapped scene prompt and hides notices',
   expect(displayUserFacingMessage('【场景：写新项目】\n项目根：E:/repo\n\n用户任务：\n帮我建目录', 'user')).toBe('帮我建目录')
   expect(displayUserFacingMessage('应用重启后未能继续', 'notice')).toBeNull()
   expect(displayUserFacingMessage('在此仓库根内检索和修改。', 'system')).toBeNull()
+  expect(displayUserFacingMessage('Reading prompt from stdin...', 'assistant')).toBeNull()
 })
 
 it('hides junk workspace names that are not useful files', () => {

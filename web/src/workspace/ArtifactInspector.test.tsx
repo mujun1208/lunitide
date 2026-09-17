@@ -80,7 +80,7 @@ it('rejects a remote URL disguised as an image preview',async()=>{
 it('uses a slim icon chrome and toggles expand without a second confirmation dialog',async()=>{
   const onToggleExpand=vi.fn()
   vi.mocked(artifactReviewBridge.preview).mockResolvedValue({kind:'html',path:'page.html',content:'<h1>页面</h1>',size:20})
-  render(<ArtifactInspector sessionId={sessionId} path="page.html" onClose={vi.fn()} onToggleExpand={onToggleExpand}/>)
+  const view=render(<ArtifactInspector sessionId={sessionId} path="page.html" onClose={vi.fn()} onToggleExpand={onToggleExpand}/>)
   await screen.findByTitle('产物预览 page.html')
   expect(document.querySelector('.artifact-inspector-chrome')).not.toBeNull()
   expect(document.querySelectorAll('.artifact-icon-btn').length).toBeGreaterThanOrEqual(3)
@@ -88,6 +88,21 @@ it('uses a slim icon chrome and toggles expand without a second confirmation dia
   fireEvent.click(screen.getByRole('button',{name:'放大预览'}))
   expect(onToggleExpand).toHaveBeenCalledOnce()
   expect(screen.queryByRole('dialog')).toBeNull()
+  view.rerender(<ArtifactInspector sessionId={sessionId} path="page.html" expanded onClose={vi.fn()} onToggleExpand={onToggleExpand}/>)
+  expect(screen.getByRole('button',{name:'恢复对话'})).toBeInTheDocument()
+  expect(screen.getByTitle('产物预览 page.html')).toBeInTheDocument()
+})
+
+it('keeps a screenshot preview and restore control after expand',async()=>{
+  const onToggleExpand=vi.fn()
+  vi.mocked(artifactReviewBridge.preview).mockResolvedValue({kind:'image',path:'screen-capture.png',content:'data:image/png;base64,iVBORw0KGgo=',size:20})
+  const view=render(<ArtifactInspector sessionId={sessionId} path="screen-capture.png" onClose={vi.fn()} onToggleExpand={onToggleExpand}/>)
+  expect(await screen.findByRole('img',{name:'screen-capture.png'})).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button',{name:'放大预览'}))
+  expect(onToggleExpand).toHaveBeenCalledOnce()
+  view.rerender(<ArtifactInspector sessionId={sessionId} path="screen-capture.png" expanded onClose={vi.fn()} onToggleExpand={onToggleExpand}/>)
+  expect(screen.getByRole('img',{name:'screen-capture.png'})).toBeInTheDocument()
+  expect(screen.getByRole('button',{name:'恢复对话'})).toBeInTheDocument()
 })
 
 it('renders markdown and source files instead of a raw dump',async()=>{

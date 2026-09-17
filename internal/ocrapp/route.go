@@ -91,13 +91,13 @@ func (s *FileStore) CompareAndSet(next Routing, expected string) (Routing, error
 		return cur, errors.New("providerId 与 modelId 必须同时填写")
 	}
 	if next.LocalEngine == "" {
-		next.LocalEngine = "windows-ocr"
+		next.LocalEngine = "auto"
 	}
-	if next.LocalEngine != "windows-ocr" && next.LocalEngine != "ppocr" {
+	if next.LocalEngine != "windows-ocr" && next.LocalEngine != "ppocr" && next.LocalEngine != "auto" {
 		return cur, errors.New("本机 OCR 引擎无效")
 	}
 	if next.LocalEngine == "ppocr" && !DetectPPOcrPack(ResolvePPOcrRoot(next.PackRoot)).Available {
-		return cur, errors.New("PP-OCR 尚未安装，请先选择已解压的目录")
+		return cur, errors.New("PP-OCR 尚未安装，请先下载安装")
 	}
 	next.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	next.Revision = RoutingRevision(next)

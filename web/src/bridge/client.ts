@@ -608,15 +608,18 @@ export function getCapabilityRolesBridge(): CapabilityRolesBridge { return capab
 
 export type OCRRoutingSnapshot = import('../generated/bridge').OcrRoutingGetResult
 export type OCRRoutingUpdate = import('../generated/bridge').OcrRoutingSetPayload
+export type OCRInstallSnapshot = import('../generated/bridge').OcrInstallResult
 export interface OCRRoutingBridge {
   get(): Promise<OCRRoutingSnapshot>
   set(payload: OCRRoutingUpdate, options?: MutationOptions<OCRRoutingUpdate>): Promise<OCRRoutingSnapshot>
+  install(): Promise<OCRInstallSnapshot>
 }
 export function createOCRRoutingBridge(transport: WebViewTransport = webview(), deadlineMs = 8_000): OCRRoutingBridge {
   const core = createSimpleBridge(transport, {}, deadlineMs)
   return {
     get: () => core.request('ocr.routing.get' as BridgeMethod, {}),
     set: (p, o) => core.request('ocr.routing.set' as BridgeMethod, p, deadlineMs, o?.attempt ?? createMutationAttempt('ocr.routing.set', p) as MutationAttempt<object>),
+    install: () => core.request('ocr.install' as BridgeMethod, {}),
   }
 }
 let ocrRoutingSingleton: OCRRoutingBridge | undefined

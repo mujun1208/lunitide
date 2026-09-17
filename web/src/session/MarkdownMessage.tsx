@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { MermaidBlock } from './markdown/MermaidBlock'
@@ -70,15 +70,28 @@ function markdownComponents(onCopy?: (value: string) => void | Promise<void>, on
   }
 }
 
-export function MarkdownMessage({ text, onCopy, onMermaidLayout, streaming = false }: { text: string; onCopy?: (value: string) => void | Promise<void>; onMermaidLayout?: () => void; streaming?: boolean }) {
+export const MarkdownMessage = memo(function MarkdownMessage({ text, onCopy, onMermaidLayout, streaming = false }: { text: string; onCopy?: (value: string) => void | Promise<void>; onMermaidLayout?: () => void; streaming?: boolean }) {
+  const onCopyRef = useRef(onCopy)
+  onCopyRef.current = onCopy
+  const onLayoutRef = useRef(onMermaidLayout)
+  onLayoutRef.current = onMermaidLayout
+  const waitMermaid = streaming && mermaidFenceStillOpen(text)
+  const components = useMemo(
+    () => markdownComponents(
+      value => onCopyRef.current?.(value),
+      () => onLayoutRef.current?.(),
+      waitMermaid,
+    ),
+    [waitMermaid],
+  )
   return <ReactMarkdown
     remarkPlugins={[remarkGfm, remarkTrimBareUrlPunctuation]}
     allowedElements={allowedElements}
     unwrapDisallowed
     urlTransform={safeMarkdownUrl}
-    components={markdownComponents(onCopy, onMermaidLayout, streaming && mermaidFenceStillOpen(text))}
+    components={components}
   >{text}</ReactMarkdown>
-}
+}, (prev, next) => prev.text === next.text && prev.streaming === next.streaming)
 
 export const PERSISTED_THINKING_MARK = '【思考过程】'
 

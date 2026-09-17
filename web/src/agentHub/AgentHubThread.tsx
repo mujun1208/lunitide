@@ -211,6 +211,18 @@ export function AgentHubThread({
         inert={workspaceExpanded || undefined}
         aria-label={zh ? `${detail?.thread.title || '会话'} 消息` : 'messages'}
       >
+        <button
+          type="button"
+          className="workspace-toggle"
+          aria-expanded={workspaceOpen}
+          aria-label={workspaceOpen ? (zh ? '收起右侧工作区' : 'Collapse workspace') : (zh ? '展开右侧工作区' : 'Expand workspace')}
+          onClick={() => {
+            if (workspaceOpen) setWorkspaceExpanded(false)
+            setWorkspaceOpen(open => !open)
+          }}
+        >
+          ◨
+        </button>
         <div
           className="conversation-scroll hub-conversation-scroll"
           ref={scrollRef}
@@ -264,10 +276,10 @@ export function AgentHubThread({
       </section>
       {workspaceOpen ? (
         <div
-          className="workspace-resizer"
+          className="panel-resizer workspace-resizer"
           role="separator"
           aria-orientation="vertical"
-          aria-label={zh ? '调整工作区宽度' : 'Resize workspace'}
+          aria-label={zh ? '调整右侧工作区宽度' : 'Resize workspace'}
           onPointerDown={startWorkspaceResize}
         />
       ) : null}
@@ -288,11 +300,6 @@ export function AgentHubThread({
           />
         ) : null}
       </aside>
-      {!workspaceOpen ? (
-        <button type="button" className="workspace-toggle hub-workspace-toggle" onClick={() => setWorkspaceOpen(true)}>
-          {zh ? '工作区' : 'Workspace'}
-        </button>
-      ) : null}
     </div>
   )
 }

@@ -114,11 +114,13 @@ export function AgentHubPage({
       setCounts(listed.counts ?? { queued: 0, running: 0, success: 0, failed: 0 })
       setError('')
     } catch (err) {
-      setError(err instanceof Error && /[\u4e00-\u9fff]/.test(err.message) ? err.message : (zh ? 'AgentHub 暂时不可用。' : 'AgentHub is unavailable.'))
+      if (legacy) {
+        setError(err instanceof Error && /[\u4e00-\u9fff]/.test(err.message) ? err.message : (zh ? 'AgentHub 暂时不可用。' : 'AgentHub is unavailable.'))
+      }
     } finally {
       listsBusy.current = false
     }
-  }, [zh])
+  }, [zh, legacy])
   const refreshDetect = useCallback(async () => {
     if (detectBusy.current) return
     detectBusy.current = true
@@ -194,7 +196,7 @@ export function AgentHubPage({
           <span>{banner.title}</span>
         </button>
       )}
-      {error && <p className="agent-hub-error" role="alert">{error}</p>}
+      {legacy && error && <p className="agent-hub-error" role="alert">{error}</p>}
       {agents.length === 0 && !error && <p className="agent-hub-hint" role="status">{zh ? '正在探测本机 CLI…' : 'Looking for local CLIs…'}</p>}
       {threadId ? (
         <AgentHubThread threadId={threadId} />

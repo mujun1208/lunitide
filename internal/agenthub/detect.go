@@ -167,6 +167,12 @@ func detectOne(name string, look LookPath, version VersionRunner) AgentStatus {
 		if name == "codex" {
 			applyCodexDetect(&st, look)
 		}
+		if name == "cursor" {
+			applyCursorDetect(&st, look, exe)
+		}
+		if name == "kimi" {
+			applyKimiDetect(&st, look, exe)
+		}
 		return st
 	}
 	st.Version = firstLine(text)
@@ -185,7 +191,33 @@ func detectOne(name string, look LookPath, version VersionRunner) AgentStatus {
 	if name == "codex" {
 		applyCodexDetect(&st, look)
 	}
+	if name == "cursor" {
+		applyCursorDetect(&st, look, exe)
+	}
+	if name == "kimi" {
+		applyKimiDetect(&st, look, exe)
+	}
 	return st
+}
+
+func applyCursorDetect(st *AgentStatus, look LookPath, exe string) {
+	if _, err := os.Stat(exe); err != nil {
+		return
+	}
+	if _, _, err := resolveCursorACP(look); err != nil {
+		st.State = "unknown"
+		st.Hint = "已安装 Cursor CLI，但还不能聊天。需要本机 Node.js，或把 cursor-agent 配成可直接运行的程序。"
+	}
+}
+
+func applyKimiDetect(st *AgentStatus, look LookPath, exe string) {
+	if _, err := os.Stat(exe); err != nil {
+		return
+	}
+	if _, _, err := resolveKimiACP(look); err != nil {
+		st.State = "unknown"
+		st.Hint = "已安装 Kimi CLI，但还不能聊天。需要本机 Node.js，或把 kimi 配成可直接运行的程序。"
+	}
 }
 
 func applyCodexDetect(st *AgentStatus, look LookPath) {

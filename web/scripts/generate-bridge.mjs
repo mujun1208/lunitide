@@ -352,6 +352,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'node.fail',
   'node.list',
   'node.start',
+  'ocr.install',
   'ocr.routing.get',
   'ocr.routing.set',
   'office.artifact.accept',

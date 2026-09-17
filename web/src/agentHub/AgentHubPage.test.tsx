@@ -159,6 +159,15 @@ it('renders a conversational Home with the selected agent name', async () => {
   expect(screen.queryByRole('tab', { name: '产物中心' })).toBeNull()
 })
 
+it('does not paint a task-list failure onto Home', async () => {
+  stubLists()
+  vi.mocked(agentHubApi.list).mockRejectedValue(new Error('AgentHub 操作失败'))
+  render(<LanguageProvider value="zh-CN"><AgentHubPage /></LanguageProvider>)
+  await screen.findByLabelText('任务类型')
+  expect(screen.queryByText('AgentHub 操作失败')).toBeNull()
+  expect(screen.queryByText('AgentHub 暂时不可用。')).toBeNull()
+})
+
 it('does not re-detect every 400ms while a task is live', async () => {
   vi.useFakeTimers()
   stubLists()

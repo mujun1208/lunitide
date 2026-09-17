@@ -162,10 +162,7 @@ export function ProfilePanel({
           <label>组织<input value={orgName} maxLength={128} onChange={e => setOrgName(e.target.value)} placeholder="公司或团队" /></label>
           <label>部门<input value={department} maxLength={128} onChange={e => setDepartment(e.target.value)} placeholder="研发 / 设计 / …" /></label>
           <label>职位<input value={title} maxLength={128} onChange={e => setTitle(e.target.value)} /></label>
-          <label className="wide">简介<textarea value={bio} maxLength={2000} rows={3} onChange={e => setBio(e.target.value)} placeholder="一句话介绍自己" /></label>
-        </div>
-        <div className="profile-actions">
-          <button type="button" className="primary" disabled={busy || !nickname.trim()} onClick={() => void save()}>{busy ? '保存中…' : '保存名片'}</button>
+          <label className="wide">简介<textarea className="profile-bio" value={bio} maxLength={2000} rows={3} onChange={e => setBio(e.target.value)} placeholder="一句话介绍自己" /></label>
         </div>
       </section>
 
@@ -222,6 +219,10 @@ export function ProfilePanel({
           </>
         )}
       </section>
+
+      <div className="profile-dock">
+        <button type="button" className="primary" disabled={busy || !nickname.trim()} onClick={() => void save()}>{busy ? '保存中…' : '保存名片'}</button>
+      </div>
     </div>
   )
 }

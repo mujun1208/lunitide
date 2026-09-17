@@ -20,6 +20,11 @@ function mermaidUserError(err: unknown, fallback: string): string {
 const SETTLE_MS = 280
 
 let mermaidQueue: Promise<unknown> = Promise.resolve()
+const mermaidSvgCache = new Map<string, string>()
+
+export function resetMermaidSvgCacheForTests() {
+  mermaidSvgCache.clear()
+}
 
 function withMermaidLock<T>(work: () => Promise<T>): Promise<T> {
   const run = mermaidQueue.then(work, work)
@@ -42,10 +47,11 @@ export function MermaidBlock({
   const onLayoutRef = useRef(onLayout)
   onLayoutRef.current = onLayout
   const id = useId().replace(/:/g, '')
+  const cached = mermaidSvgCache.get(source)
   const [error, setError] = useState('')
-  const [pending, setPending] = useState(true)
-  const [hasSvg, setHasSvg] = useState(false)
-  const hasSvgRef = useRef(false)
+  const [pending, setPending] = useState(!cached)
+  const [hasSvg, setHasSvg] = useState(!!cached)
+  const hasSvgRef = useRef(!!cached)
   const [copied, setCopied] = useState(false)
   const [open, setOpen] = useState(false)
   const [zoom, setZoom] = useState(1)
@@ -59,6 +65,15 @@ export function MermaidBlock({
     return () => obs.disconnect()
   }, [])
 
+  useLayoutEffect(() => {
+    const svg = mermaidSvgCache.get(source)
+    if (!svg || !hostRef.current || hostRef.current.querySelector('svg')) return
+    mountMermaidSvg(hostRef.current, svg)
+    hasSvgRef.current = true
+    setHasSvg(true)
+    setPending(false)
+  }, [source])
+
   useEffect(() => {
     let cancelled = false
     const budgetError = mermaidBudgetError(source)
@@ -69,13 +84,24 @@ export function MermaidBlock({
     }
     if (wait) {
       setError('')
-      if (!hasSvgRef.current) setPending(true)
+      if (!hasSvgRef.current && !mermaidSvgCache.has(source)) setPending(true)
       return
     }
     if (!mermaidSourceReady(source)) {
       setPending(false)
       setError('图表源码未闭合或未写完，源码仍保留')
       return
+    }
+    const cachedSvg = mermaidSvgCache.get(source)
+    if (cachedSvg) {
+      if (hostRef.current && !hostRef.current.querySelector('svg')) {
+        mountMermaidSvg(hostRef.current, cachedSvg)
+      }
+      hasSvgRef.current = true
+      setHasSvg(true)
+      setPending(false)
+      setError('')
+      if (themeEpoch === 0) return
     }
     const timer = window.setTimeout(() => {
       void run()
@@ -86,6 +112,7 @@ export function MermaidBlock({
       const { svg } = await engine.render(`tide-mermaid-${id}`, src)
       if (cancelled || !hostRef.current) return
       mountMermaidSvg(hostRef.current, svg)
+      mermaidSvgCache.set(source, svg)
       hasSvgRef.current = true
       setHasSvg(true)
       setPending(false)

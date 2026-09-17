@@ -222,12 +222,21 @@ func LocalOCRReady() LocalReady {
 
 func (s *Service) HealthSnapshot() HealthSnapshot {
 	packRoot := ""
+	localEngine := ""
 	if s != nil {
 		if r, err := s.Routing(); err == nil {
-			packRoot = r.PackRoot
+			packRoot = s.resolvePackRoot(r.PackRoot)
+			localEngine = r.LocalEngine
 		}
 	}
-	snap := HealthSnapshot{Local: LocalOCRReady(), Pack: DetectPPOcrPack(ResolvePPOcrRoot(packRoot))}
+	pack := DetectPPOcrPack(ResolvePPOcrRoot(packRoot))
+	local := LocalOCRReady()
+	if EffectiveLocalEngine(localEngine, pack) == "ppocr" && pack.Available {
+		local.Backend = "ppocr"
+		local.PDF = true
+		local.Image = true
+	}
+	snap := HealthSnapshot{Local: local, Pack: pack}
 	if s == nil {
 		return snap
 	}

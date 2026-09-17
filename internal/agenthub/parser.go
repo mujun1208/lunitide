@@ -12,6 +12,9 @@ func ParseLine(agent, line string) (AgentEvent, bool) {
 	if strings.TrimSpace(line) == "" {
 		return AgentEvent{}, false
 	}
+	if isHarnessNoise(line) {
+		return AgentEvent{}, false
+	}
 	var raw map[string]any
 	if json.Unmarshal([]byte(line), &raw) != nil {
 		return AgentEvent{Type: "message", Title: "输出", Detail: line}, true
@@ -46,6 +49,12 @@ func ParseLine(agent, line string) (AgentEvent, bool) {
 		ev.Title = typ
 	}
 	return ev, true
+}
+
+func isHarnessNoise(line string) bool {
+	s := strings.ToLower(strings.TrimSpace(line))
+	s = strings.Trim(s, ".…")
+	return strings.Contains(s, "reading prompt from stdin")
 }
 
 func knownEvent(typ string) bool {

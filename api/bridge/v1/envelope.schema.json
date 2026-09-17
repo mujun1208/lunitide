@@ -330,6 +330,7 @@
         "node.fail",
         "node.list",
         "node.start",
+        "ocr.install",
         "ocr.routing.get",
         "ocr.routing.set",
         "office.artifact.accept",

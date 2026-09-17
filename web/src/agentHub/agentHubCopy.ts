@@ -150,6 +150,7 @@ const HEX_JUNK = /^[0-9a-f]{24,}$/i
 
 export function displayUserFacingMessage(content: string, role: string): string | null {
   if (role === 'notice' || role === 'system') return null
+  if (/reading prompt from stdin/i.test(content)) return null
   if (role !== 'user') return content
   const index = content.lastIndexOf(USER_TASK_MARK)
   if (index >= 0) return content.slice(index + USER_TASK_MARK.length).trim()

@@ -79,8 +79,8 @@ func TestPPOcrPackReadyAfterUserRoot(t *testing.T) {
 		t.Fatalf("installed pack must persist: %+v %v", saved, err)
 	}
 	snap := svc.HealthSnapshot()
-	if !snap.Pack.Available || snap.Local.Backend == "ppocr" || snap.Local.Backend == "ppocr-pack" {
-		t.Fatalf("pack ready must not rewrite windows-ocr localReady: %+v", snap)
+	if !snap.Pack.Available || snap.Local.Backend != "ppocr" {
+		t.Fatalf("installed pack with ppocr selected must report localReady ppocr: %+v", snap)
 	}
 }
 

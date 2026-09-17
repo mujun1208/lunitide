@@ -138,5 +138,8 @@ describe('ProfilePanel', () => {
     expect(screen.getByRole('textbox', { name: '显示名' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: '组织' })).toBeInTheDocument()
     expect(document.querySelector('.profile-hero-name')).toHaveTextContent('月汐用户')
+    expect(document.querySelector('.profile-dock')).toBeTruthy()
+    expect(document.querySelector('.profile-dock')?.contains(screen.getByRole('button', { name: '保存名片' }))).toBe(true)
+    expect(document.querySelector('[data-profile-section="identity"]')?.contains(screen.getByRole('button', { name: '保存名片' }))).toBe(false)
   })
 })

@@ -171,7 +171,7 @@ export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabe
           </h2>
           {saved && <span className="save-indicator" role="status">✓ 已保存</span>}
         </div>
-        <div className={`settings-body${category === 'providers' ? ' settings-body-providers' : ''}${category === 'voice' ? ' settings-body-voice' : ''}`}>
+        <div className={`settings-body${category === 'providers' ? ' settings-body-providers' : ''}${category === 'voice' ? ' settings-body-voice' : ''}${category === 'profile' ? ' settings-body-profile' : ''}`}>
           {category === 'general' && <GeneralPanel settings={general} onChange={updateGeneral} />}
           {category === 'appearance' && <AppearancePanel settings={appearance} onChange={updateAppearance} />}
           {category === 'office-menu' && <OfficeMenuPanel onSaved={() => setSaved(true)} />}
