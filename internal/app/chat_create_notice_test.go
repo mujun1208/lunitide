@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -230,8 +231,66 @@ func TestShouldOfferSkillDraft(t *testing.T) {
 	if !shouldOfferSkillDraft([]string{"workspace.edit", "command.run", "workspace.write"}) {
 		t.Fatal("multi-step mutating turn should offer a skill draft")
 	}
+	if !shouldOfferSkillDraft([]string{"desktop.open", "computer.act", "desktop.type"}) {
+		t.Fatal("desktop open+act+type is a reusable trajectory")
+	}
 	if shouldOfferSkillDraft([]string{"workspace.edit", "command.run", "workspace.write", "skill.create"}) {
 		t.Fatal("already created a skill — do not offer again")
+	}
+}
+
+func TestShouldOfferDesktopSkillDraft(t *testing.T) {
+	if shouldOfferDesktopSkillDraft([]string{"computer.act"}, 1, verdictNotDone) {
+		t.Fatal("failed screen must not become a skill")
+	}
+	if shouldOfferDesktopSkillDraft([]string{"computer.act"}, 1, verdictBlocked) {
+		t.Fatal("blocked screen must not become a skill")
+	}
+	if !shouldOfferDesktopSkillDraft([]string{"computer.act"}, 1, verdictDone) {
+		t.Fatal("a finished GUI loop is already a multi-step recipe")
+	}
+	if !shouldOfferDesktopSkillDraft([]string{"desktop.open", "computer.act"}, 0, verdictDone) {
+		t.Fatal("verified native-open then act should be saved")
+	}
+	if shouldOfferDesktopSkillDraft([]string{"desktop.open"}, 0, verdictDone) {
+		t.Fatal("a single launch is not a recipe")
+	}
+	if shouldOfferDesktopSkillDraft([]string{"computer.act", "skill.create"}, 2, verdictDone) {
+		t.Fatal("already created a skill")
+	}
+}
+
+func TestShouldOfferAnySkillDraft(t *testing.T) {
+	if offer, _ := shouldOfferAnySkillDraft([]string{"computer.act", "desktop.type", "desktop.open"}, 0, verdictNotDone, false); offer {
+		t.Fatal("failed desktop must not fall through to a generic skill draft")
+	}
+	if offer, _ := shouldOfferAnySkillDraft([]string{"workspace.edit", "command.run", "workspace.write"}, 0, verdictBlocked, false); offer {
+		t.Fatal("blocked desktop must not offer a skill")
+	}
+	if offer, _ := shouldOfferAnySkillDraft([]string{"computer.act"}, 1, verdictDone, true); offer {
+		t.Fatal("companion turns never offer a skill draft")
+	}
+	offer, desktop := shouldOfferAnySkillDraft([]string{"computer.act"}, 1, verdictDone, false)
+	if !offer || !desktop {
+		t.Fatal("finished GUI loop should offer a desktop skill")
+	}
+	offer, desktop = shouldOfferAnySkillDraft([]string{"workspace.edit", "command.run", "workspace.write"}, 0, "", false)
+	if !offer || desktop {
+		t.Fatal("generic mutating turn should still offer a skill")
+	}
+}
+
+func TestDesktopSkillRecipeKeepsDesktopSteps(t *testing.T) {
+	recipe := formatDesktopSkillRecipe("打开蓝牙设置", []turnToolReceipt{
+		{Name: "desktop.open", Args: json.RawMessage(`{"name":"蓝牙设置"}`)},
+		{Name: "web.search", Args: json.RawMessage(`{"q":"x"}`)},
+	})
+	if !strings.Contains(recipe, "desktop.open") || strings.Contains(recipe, "web.search") {
+		t.Fatalf("recipe should keep desktop steps only: %q", recipe)
+	}
+	msg := desktopSkillDraftOfferMessage("打开蓝牙设置", []turnToolReceipt{{Name: "desktop.open", Args: json.RawMessage(`{"name":"蓝牙设置"}`)}})
+	if !strings.Contains(msg.Content, "skill.create") || !strings.Contains(msg.Content, "蓝牙设置") {
+		t.Fatalf("offer: %q", msg.Content)
 	}
 }
 

@@ -144,10 +144,6 @@ func (a *CodexThread) Prompt(threadID, text string) error {
 		a.fault(threadID, lookErr)
 		return nil
 	}
-	start := a.start
-	if start == nil {
-		start = StartProcess
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a.mu.Lock()
 	if a.stops == nil {
@@ -155,18 +151,27 @@ func (a *CodexThread) Prompt(threadID, text string) error {
 	}
 	a.stops[threadID] = cancel
 	a.mu.Unlock()
+	go a.runExecPrompt(ctx, cancel, threadID, looked, args, []byte(stdin), thread.WorkspaceRoot)
+	return nil
+}
+
+func (a *CodexThread) runExecPrompt(ctx context.Context, cancel context.CancelFunc, threadID, looked string, args []string, stdin []byte, workspace string) {
 	defer func() {
 		a.mu.Lock()
 		delete(a.stops, threadID)
 		a.mu.Unlock()
 		cancel()
 	}()
+	start := a.start
+	if start == nil {
+		start = StartProcess
+	}
 	var assistant strings.Builder
 	exit, timedOut, runErr := start(ctx, ProcSpec{
 		Exe:   looked,
-		Dir:   thread.WorkspaceRoot,
+		Dir:   workspace,
 		Args:  args,
-		Stdin: []byte(stdin),
+		Stdin: stdin,
 	}, func(line string) {
 		ev, ok := ParseLine("codex", line)
 		if !ok {
@@ -181,11 +186,11 @@ func (a *CodexThread) Prompt(threadID, text string) error {
 		}
 	})
 	if ctx.Err() != nil {
-		return nil
+		return
 	}
 	out := strings.TrimSpace(assistant.String())
 	if out == "" {
-		if body, readErr := os.ReadFile(filepath.Join(thread.WorkspaceRoot, "codex-last-message.md")); readErr == nil {
+		if body, readErr := os.ReadFile(filepath.Join(workspace, "codex-last-message.md")); readErr == nil {
 			out = strings.TrimSpace(string(body))
 		}
 	}
@@ -201,14 +206,12 @@ func (a *CodexThread) Prompt(threadID, text string) error {
 			_ = insertThreadMessage(a.store, threadID, "assistant", out)
 		}
 		a.fault(threadID, runErr)
-		return nil
+		return
 	}
 	if out != "" {
-		if err = insertThreadMessage(a.store, threadID, "assistant", out); err != nil {
-			return err
-		}
+		_ = insertThreadMessage(a.store, threadID, "assistant", out)
 	}
-	return setThreadStatus(a.store, threadID, "success")
+	_ = setThreadStatus(a.store, threadID, "success")
 }
 
 func composeCodexExecPrompt(store *ThreadStore, threadID, userText string) string {

@@ -40,8 +40,11 @@ func TestPickGUIFallbackTable(t *testing.T) {
 		{name: "D-D7 vision only with tree", in: guiFallbackIn{ccOn: true, route: RouteR2, nodeCount: 3, visionCatalog: true}, want: guiExecVision},
 		{name: "gui preferred over vision", in: base, want: guiExecGUI},
 		{name: "D-D8 no catalog with tree", in: guiFallbackIn{ccOn: true, route: RouteR2, nodeCount: 2}, want: guiExecNone},
-		{name: "D-D8 empty tree no gui", in: guiFallbackIn{ccOn: true, route: RouteR2, nodeCount: 0, visionCatalog: true}, want: guiExecNone},
+		{name: "empty tree + vision", in: guiFallbackIn{ccOn: true, route: RouteR2, nodeCount: 0, visionCatalog: true}, want: guiExecVision},
 		{name: "D-D9 empty tree + gui", in: guiFallbackIn{ccOn: true, route: RouteR2, nodeCount: 0, guiCatalog: true}, want: guiExecGUI},
+		{name: "R1 without screen tools", in: guiFallbackIn{ccOn: true, route: RouteR1, nodeCount: 2, guiCatalog: true}, want: guiExecNone},
+		{name: "R1 after screen tools already ran", in: guiFallbackIn{ccOn: true, route: RouteR1, nodeCount: 2, guiCatalog: true, usedScreenTools: true}, want: guiExecNone},
+		{name: "unspecified after screen tools", in: guiFallbackIn{ccOn: true, route: RouteUnspecified, nodeCount: 2, guiCatalog: true, usedScreenTools: true}, want: guiExecGUI},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -122,11 +125,17 @@ func TestNoteDesktopGUIFailKeepsPriorDesktopFailure(t *testing.T) {
 	if !noteDesktopGUIFail("web.search", "ok:true", nil, failed) {
 		t.Fatal("later web.search must not clear a desktop fail")
 	}
+	if !noteDesktopGUIFail("cc.mouse_click", "ok:false\n无法执行", nil, false) {
+		t.Fatal("host click failure must trigger the visual loop")
+	}
 	if noteDesktopGUIFail("computer.act", `clicked {"l0":{"kind":"click","passed":true}}`, nil, failed) {
 		t.Fatal("later successful computer.act must clear")
 	}
 	if !computerActIsObserve("computer.act", json.RawMessage(`{"action":"observe"}`)) {
 		t.Fatal("observe action")
+	}
+	if !computerActIsObserve("cc.observe_ui", json.RawMessage(`{}`)) {
+		t.Fatal("host observe_ui is an empty-tree trigger")
 	}
 	if computerActIsObserve("computer.act", json.RawMessage(`{"action":"click","id":"B1"}`)) {
 		t.Fatal("click is not observe")
@@ -137,6 +146,9 @@ func TestDesktopToolFailedForGUI(t *testing.T) {
 	t.Parallel()
 	if !desktopToolFailedForGUI("computer.act", "ok:false\n无法执行", nil) {
 		t.Fatal("ok:false computer.act must trigger")
+	}
+	if !desktopToolFailedForGUI("cc.mouse_click", "ok:false\n无法执行", nil) {
+		t.Fatal("cc.mouse_click failure must trigger")
 	}
 	if !desktopToolFailedForGUI("desktop.type", "field missing", errSentinel("boom")) {
 		t.Fatal("toolErr desktop.type must trigger")

@@ -43,6 +43,12 @@ func packMarkerReady(root string) bool {
 }
 
 func DetectPPOcrPack(root string) PackStatus {
+	return detectPPOcrPackDepth(root, 0)
+}
+
+const packSearchDepth = 4
+
+func detectPPOcrPackDepth(root string, depth int) PackStatus {
 	root = strings.TrimSpace(root)
 	if root == "" {
 		return PackStatus{Status: "missing_dependency", Backend: "ppocr-pack"}
@@ -50,27 +56,38 @@ func DetectPPOcrPack(root string) PackStatus {
 	if packMarkerReady(root) {
 		return PackStatus{Available: true, Status: "ready", Backend: "ppocr-pack"}
 	}
+	if depth >= packSearchDepth {
+		return PackStatus{Status: "missing_dependency", Backend: "ppocr-pack"}
+	}
 	entries, err := os.ReadDir(root)
-	if err == nil {
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			if packMarkerReady(filepath.Join(root, entry.Name())) {
-				return PackStatus{Available: true, Status: "ready", Backend: "ppocr-pack"}
-			}
+	if err != nil {
+		return PackStatus{Status: "missing_dependency", Backend: "ppocr-pack"}
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if got := detectPPOcrPackDepth(filepath.Join(root, entry.Name()), depth+1); got.Available {
+			return got
 		}
 	}
 	return PackStatus{Status: "missing_dependency", Backend: "ppocr-pack"}
 }
 
 func FindPackExecutable(root string) string {
+	return findPackExecutableDepth(root, 0)
+}
+
+func findPackExecutableDepth(root string, depth int) string {
 	root = strings.TrimSpace(root)
 	if root == "" {
 		return ""
 	}
 	if exe := findPackExecutableHere(root); exe != "" {
 		return exe
+	}
+	if depth >= packSearchDepth {
+		return ""
 	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -80,7 +97,7 @@ func FindPackExecutable(root string) string {
 		if !entry.IsDir() {
 			continue
 		}
-		if exe := findPackExecutableHere(filepath.Join(root, entry.Name())); exe != "" {
+		if exe := findPackExecutableDepth(filepath.Join(root, entry.Name()), depth+1); exe != "" {
 			return exe
 		}
 	}

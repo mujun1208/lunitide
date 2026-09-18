@@ -441,6 +441,19 @@ func TestClassifyChatLanePlaySongIsL4(t *testing.T) {
 	}
 }
 
+func TestClassifyChatLaneGenerateSongIsL3(t *testing.T) {
+	if got := classifyChatLane(LaneInput{Goal: "帮我生成一首可以听的歌"}); got != LaneL3 {
+		t.Fatalf("生成歌曲 => %s want L3", got)
+	}
+	lane, contract := applyLaneOverrides(LaneL1, LaneInput{Goal: "朗读这段：春风又绿江南岸"}, RouteUnspecified, CouncilOverlay{})
+	if lane != LaneL3 || contract.MaxMainToolSteps < 8 {
+		t.Fatalf("朗读 => lane=%s steps=%d", lane, contract.MaxMainToolSteps)
+	}
+	if companionShouldAutoMediaPlay("帮我生成一首可以听的歌") {
+		t.Fatal("generate-listen must not auto-start desktop media.play")
+	}
+}
+
 func TestHasTurnMaterialsAs上周IsNotMaterial(t *testing.T) {
 	if hasTurnMaterials("写周报，如上周一样", false, false) {
 		t.Fatal("如上周 must not count as 如上 materials")
@@ -485,5 +498,62 @@ func TestApplyLaneOverridesFlashRouteBecomesL4(t *testing.T) {
 	lane, _ = applyLaneOverrides(lane, in, RouteR2, CouncilOverlay{})
 	if lane != LaneL4 {
 		t.Fatalf("flash R2 => %s want L4", lane)
+	}
+}
+
+func TestClassifyChatLaneSkillCreateIsL3WithCreateTools(t *testing.T) {
+	goals := []string{
+		"创建歌曲技能",
+		"帮我创建一个技能，可以生成歌曲",
+		"[引用技能 skill-creator|01ARZ3NDEKTSV4RRFFQ69G5FAV]\n保存这个技能",
+	}
+	defs := []llmadapter.ToolDefinition{
+		{Name: "skill.create"}, {Name: "skill.manage"}, {Name: "skill.try"},
+		{Name: "skill.invoke"}, {Name: "web.search"}, {Name: "workspace.write"},
+	}
+	for _, goal := range goals {
+		in := LaneInput{Goal: goal}
+		lane := classifyChatLane(in)
+		if lane != LaneL3 {
+			t.Fatalf("%q => %s want L3", goal, lane)
+		}
+		lane, contract := applyLaneOverrides(lane, in, RouteUnspecified, CouncilOverlay{})
+		if lane != LaneL3 || contract.MaxMainToolSteps < 8 {
+			t.Fatalf("%q contract = %#v", goal, contract)
+		}
+		got := applyLaneTools(defs, contract)
+		if !hasLaneTool(got, "skill.create") || !hasLaneTool(got, "skill.manage") {
+			t.Fatalf("%q stripped create tools: %#v", goal, namesOf(got))
+		}
+	}
+}
+
+func TestClassifyChatLaneVideoURLIsL3KeepsUnderstand(t *testing.T) {
+	goals := []string{
+		"https://weixin.qq.com/sph/A1b2C3 帮我解读总结",
+		"https://v.douyin.com/ieFxxxx/ 总结这个视频",
+		"帮我解析 https://www.bilibili.com/video/BV1xx411c7mD",
+	}
+	defs := []llmadapter.ToolDefinition{
+		{Name: "video.understand"}, {Name: "web.fetch"}, {Name: "web.search"},
+		{Name: "skill.invoke"}, {Name: "office.generate"},
+	}
+	for _, goal := range goals {
+		in := LaneInput{Goal: goal}
+		lane := classifyChatLane(in)
+		if lane != LaneL3 {
+			t.Fatalf("%q => %s want L3", goal, lane)
+		}
+		lane, contract := applyLaneOverrides(lane, in, detectTaskRoute(goal), CouncilOverlay{})
+		if lane == LaneL1 || lane == LaneL2Ask {
+			t.Fatalf("%q stayed ask/talk: %s", goal, lane)
+		}
+		if !contract.AllowWebSearch {
+			t.Fatalf("%q must keep search: %#v", goal, contract)
+		}
+		got := applyLaneTools(defs, contract)
+		if !hasLaneTool(got, "video.understand") || !hasLaneTool(got, "web.fetch") {
+			t.Fatalf("%q stripped video tools: %#v", goal, namesOf(got))
+		}
 	}
 }

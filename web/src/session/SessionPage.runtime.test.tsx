@@ -1066,6 +1066,18 @@ it('opens project workbench chat with the home composer instead of the session l
  expect(document.querySelector('.personal-chat-page')).not.toBeNull()
  expect(screen.getByLabelText('向月汐提问，或描述你想完成的任务…')).toBeInTheDocument()
  expect(screen.getByRole('button',{name:'执行模式'})).toBeInTheDocument()
+ const box=document.querySelector('.personal-chat-page .message-input') as HTMLElement
+ const start=document.querySelector('.composer-toolbar-start') as HTMLElement
+ const primary=document.querySelector('.composer-primary-actions') as HTMLElement
+ const mic=screen.getByRole('button',{name:'语音输入'})
+ const save=screen.getByRole('button',{name:'仅保存'})
+ expect(box).toContainElement(start)
+ expect(box).toContainElement(primary)
+ expect(start).toContainElement(screen.getByRole('button',{name:'执行模式'}))
+ expect(primary).toContainElement(mic)
+ expect(box).toContainElement(save)
+ expect(start).not.toContainElement(mic)
+ expect(start).not.toContainElement(save)
 })
 
 it('does not auto-open the terminal workspace for project home-chat command activity',async()=>{

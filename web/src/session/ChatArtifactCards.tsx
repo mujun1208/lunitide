@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { sessionFolderBridge, type StreamArtifact } from '../bridge/client'
 import { focusOfficeArtifact, requestOfficeStudio } from '../officeStudio/officeNavigation'
+import { ChatAudioPlayer } from './ChatAudioPlayer'
 
 export type ChatArtifact = StreamArtifact & { callId: string; toolName: string }
 
@@ -18,7 +19,7 @@ export function isChatDeliverableArtifact(artifact: Pick<ChatArtifact, 'toolName
   if (['pptx.gen', 'docx.gen', 'excel.gen', 'pdf.gen', 'html.gen', 'office.generate'].includes(artifact.toolName)) return true
   const base = artifact.path.split(/[/\\]/).pop()?.toLowerCase() ?? ''
   if (artifact.kind === 'html' && (base === 'search.html' || base === 'fetch.html')) return false
-  if (artifact.kind === 'image' || artifact.kind === 'md' || artifact.kind === 'txt') return true
+  if (artifact.kind === 'image' || artifact.kind === 'md' || artifact.kind === 'txt' || artifact.kind === 'audio') return true
   if (OFFICE_KIND.has(artifact.kind) || OFFICE_EXT.test(base)) return true
   if (artifact.kind === 'html' && (artifact.toolName === 'workspace.write' || artifact.toolName === 'workspace.edit')) return true
   return false
@@ -33,8 +34,8 @@ function artifactCardUserError(err: unknown, fallback: string): string {
   return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
 }
 
-const KIND_LABEL: Record<string, string> = { html: 'HTML', xlsx: 'Excel', docx: 'Word', pptx: 'PPT', pdf: 'PDF', image: '截图', md: 'Markdown', txt: '文本' }
-const KIND_ICON: Record<string, string> = { html: '◧', xlsx: '▤', docx: '▤', pptx: '◫', pdf: '▦', image: '▣', md: '▤', txt: '▤' }
+const KIND_LABEL: Record<string, string> = { html: 'HTML', xlsx: 'Excel', docx: 'Word', pptx: 'PPT', pdf: 'PDF', image: '截图', md: 'Markdown', txt: '文本', audio: '朗读' }
+const KIND_ICON: Record<string, string> = { html: '◧', xlsx: '▤', docx: '▤', pptx: '◫', pdf: '▦', image: '▣', md: '▤', txt: '▤', audio: '♪' }
 
 export function ChatArtifactCards({
   sessionId,
@@ -68,6 +69,9 @@ export function ChatArtifactCards({
     <div className="chat-artifacts" role="list" aria-label="本次对话产物">
       {visible.map((artifact, index) => (
         <React.Fragment key={`${artifact.callId}:${artifact.path}`}>
+        {artifact.kind === 'audio' ? (
+          <ChatAudioPlayer sessionId={sessionId} path={artifact.path} onError={onError} />
+        ) : (
         <button
           type="button"
           className="chat-artifact-card"
@@ -83,6 +87,7 @@ export function ChatArtifactCards({
             <small><span>{artifact.path.split(/[/\\]/).pop() ?? artifact.path}</span> · {artifact.kind === 'image' && !artifact.toolName.startsWith('cc.') ? '图片' : KIND_LABEL[artifact.kind] ?? artifact.kind} · {onInspect ? '点击查看' : '点击打开'}</small>
           </span>
         </button>
+        )}
         {(OFFICE_KIND.has(artifact.kind) || OFFICE_EXT.test(artifact.path)) && <button type="button" disabled={openingOffice} title={`在办公工作台查看 ${artifact.path.split(/[/\\]/).pop()}`} onClick={() => {
           if (openingOffice) return
           if (officeTaskId) {

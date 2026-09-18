@@ -435,7 +435,7 @@ func TestCombineDurableProviderMessagesCountsToolCallPayloads(t *testing.T) {
 func TestCombineDurableProviderMessagesBudgetsCurrentRequest(t *testing.T) {
 	_, err := combineDurableProviderMessages(
 		[]contextapp.Message{{Role: "user", Content: "12345678901234567890123456789012", TokenCount: 1}}, // exact 8; stale count must not be trusted
-		[]llmadapter.Message{{Role: llmadapter.RoleUser, Content: "123456789012"}},                             // 3 tokens
+		[]llmadapter.Message{{Role: llmadapter.RoleUser, Content: "123456789012"}},                       // 3 tokens
 		contextapp.ProviderInfo{ContextWindow: 10, SafetyCeiling: 10},
 	)
 	if !errors.Is(err, errCombinedContextOverBudget) {

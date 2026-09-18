@@ -65,7 +65,8 @@ func ParseHTML(body string) Page {
 }
 
 func looksLikeLoginWall(body, lower string, hasMeta, hasPlayer bool) bool {
-	strong := strings.Contains(body, "请登录后") || strings.Contains(lower, "login required")
+	strong := strings.Contains(body, "请登录后") || strings.Contains(lower, "login required") ||
+		strings.Contains(body, "请使用微信扫码") || strings.Contains(body, "用微信扫描")
 	if strong && !hasPlayer {
 		return true
 	}

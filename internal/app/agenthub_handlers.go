@@ -418,7 +418,35 @@ func agentHubUserMessage(err error) string {
 	if containsHan(msg) {
 		return msg
 	}
-	return "AgentHub 操作失败"
+	mapped := mapAgentHubEnglish(msg)
+	if mapped != "" {
+		return mapped
+	}
+	return "对话没发出去：" + clipAgentHubDetail(msg)
+}
+
+func mapAgentHubEnglish(msg string) string {
+	lower := strings.ToLower(msg)
+	switch {
+	case strings.Contains(lower, "enoent"), strings.Contains(lower, "not found"), strings.Contains(msg, "未找到"):
+		return "对话没发出去：本机没找到对应的 Agent 程序。"
+	case strings.Contains(lower, "eacces"), strings.Contains(lower, "permission denied"):
+		return "对话没发出去：没有权限启动 Agent 程序。"
+	case strings.Contains(lower, "timed out"), strings.Contains(lower, "timeout"), strings.Contains(lower, "deadline"):
+		return "对话没发出去：Agent 启动或握手超时，请再试一次。"
+	case strings.Contains(lower, "spawn"), strings.Contains(lower, "exec format"):
+		return "对话没发出去：Agent 程序无法启动。"
+	}
+	return ""
+}
+
+func clipAgentHubDetail(msg string) string {
+	msg = strings.TrimSpace(msg)
+	runes := []rune(msg)
+	if len(runes) > 160 {
+		return string(runes[:160]) + "…"
+	}
+	return msg
 }
 
 func containsHan(s string) bool {

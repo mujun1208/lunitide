@@ -345,7 +345,7 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 		t.Fatal("desktop.type missing from engine tools")
 	}
 	for _, d := range readOnlyEngineToolDefinitions() {
-		if d.Name == "html.gen" || d.Name == "desktop.open" || d.Name == "desktop.type" || d.Name == "image.generate" || d.Name == "video.generate" || d.Name == "video.understand" {
+		if d.Name == "html.gen" || d.Name == "desktop.open" || d.Name == "desktop.type" || d.Name == "image.generate" || d.Name == "video.generate" || d.Name == "audio.generate" || d.Name == "video.understand" {
 			t.Fatal("subagents must not receive html.gen, desktop.open, media generation, or video.understand")
 		}
 	}
@@ -482,7 +482,7 @@ func TestEngineToolDefinitionsIncludeBrowserAct(t *testing.T) {
 	if !foundMedia {
 		t.Fatal("media.play missing from engine tools")
 	}
-	foundImage, foundVideo := false, false
+	foundImage, foundVideo, foundAudio := false, false, false
 	for _, d := range engineToolDefinitions() {
 		if d.Name == "image.generate" {
 			foundImage = true
@@ -490,9 +490,12 @@ func TestEngineToolDefinitionsIncludeBrowserAct(t *testing.T) {
 		if d.Name == "video.generate" {
 			foundVideo = true
 		}
+		if d.Name == "audio.generate" {
+			foundAudio = true
+		}
 	}
-	if !foundImage || !foundVideo {
-		t.Fatal("image.generate / video.generate missing from engine tools")
+	if !foundImage || !foundVideo || !foundAudio {
+		t.Fatal("image.generate / video.generate / audio.generate missing from engine tools")
 	}
 	foundUnderstand := false
 	for _, d := range engineToolDefinitions() {

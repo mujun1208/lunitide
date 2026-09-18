@@ -96,7 +96,7 @@ func hasActingComputerTool(tools []string) bool {
 	for _, name := range tools {
 		switch name {
 		case "workspace.write", "workspace.edit", "command.run", "web.fetch", "web.search", "browser.act", "browser.open",
-			"docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "html.gen", "desktop.open", "desktop.type", "media.play", "im.send", "image.generate", "video.generate", "data.process", "image.batch", "pdf.copy":
+			"docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "html.gen", "desktop.open", "desktop.type", "media.play", "im.send", "image.generate", "video.generate", "audio.generate", "data.process", "image.batch", "pdf.copy":
 			return true
 		}
 		if strings.HasPrefix(name, "cc.") || name == "computer.act" {
@@ -233,16 +233,6 @@ func skipExpertCouncil(text string) bool {
 	playMusic := (strings.Contains(t, "播") || strings.Contains(strings.ToLower(t), "play")) &&
 		(strings.Contains(t, "歌") || strings.Contains(t, "音乐") || strings.Contains(strings.ToLower(t), "music"))
 	return wantsAgentHostAct(t) || htmlOnDesktop || openWeb || playMusic
-}
-
-func wantsLocalFolderCreate(text string) bool {
-	t := strings.TrimSpace(text)
-	if t == "" || !wantsLocalHostAct(t) {
-		return false
-	}
-	lower := strings.ToLower(t)
-	return strings.Contains(t, "文件夹") || strings.Contains(t, "目录") ||
-		strings.Contains(lower, "folder") || strings.Contains(lower, "directory")
 }
 
 // wantsAgentHostAct is the L4 gate. Office deliverables that merely land on

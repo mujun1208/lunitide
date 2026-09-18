@@ -90,6 +90,29 @@ describe('vendor presets', () => {
     expect(next.models[0]).toMatchObject({ modelId: 'glm-5.3', kind: 'llm' })
   })
 
+  it('offers screen-grounding starters on the GUI tab and never a text model', () => {
+    const gui = presetsForTab('gui')
+    const ids = gui.map((preset) => preset.id)
+    expect(ids).toEqual(
+      expect.arrayContaining(['ark-ui-tars', 'glm', 'bailian', 'local-lmstudio-gui', 'local-vllm-gui', 'local-ollama-gui']),
+    )
+    // Plan / coding bundles and DeepSeek do not serve screenshot-grounded models.
+    expect(ids).not.toContain('deepseek')
+    expect(ids).not.toContain('ark-coding-plan')
+    expect(ids).not.toContain('glm-agent-plan')
+    const glm = VENDOR_PRESETS.find((item) => item.id === 'glm')
+    if (!glm) throw new Error('glm preset')
+    const guiDraft = { ...blank(), models: [{ modelId: '', displayName: '', isDefault: true, kind: 'gui' as const, kindDefault: true }] }
+    const next = applyVendorPreset(guiDraft, glm, 'gui')
+    expect(next.models[0]).toMatchObject({ modelId: 'glm-4.5v', kind: 'gui' })
+    expect(applyVendorPreset(blank(), glm, 'llm').models[0].modelId).toBe('glm-5.3')
+    const tars = VENDOR_PRESETS.find((item) => item.id === 'ark-ui-tars')
+    if (!tars) throw new Error('ui-tars preset')
+    expect(applyVendorPreset(guiDraft, tars, 'gui').models[0].modelId).toBe('doubao-1-5-ui-tars-250428')
+    const local = VENDOR_PRESETS.find((item) => item.id === 'local-lmstudio-gui')
+    expect(local?.baseUrl).toBe('http://127.0.0.1:1234/v1')
+  })
+
   it('drops media kinds when switching a draft to Responses API', () => {
     const models = modelsForProtocol(
       'openai_responses',

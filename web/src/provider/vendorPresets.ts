@@ -19,10 +19,26 @@ export type VendorPreset = {
   displayName: string
   tabs: readonly ModelKind[]
   urlHint: string
+  /**
+   * Per-tab starter model. A chat preset on the GUI tab must not fill a text
+   * model: the GUI loop sends screenshots and expects grounded actions, so
+   * each vendor names its screen-capable model here.
+   */
+  kindModels?: Partial<Record<ModelKind, { modelId: string; displayName: string }>>
 }
 
 const CHAT_TABS: readonly ModelKind[] = ['llm', 'vision', 'gui']
 const COMPAT_TABS: readonly ModelKind[] = ['llm', 'vision', 'image', 'video', 'embedding', 'gui']
+const GUI_TABS: readonly ModelKind[] = ['gui']
+/** Plan / coding bundles serve text-first models; they never ground screenshots. */
+const PLAN_TABS: readonly ModelKind[] = ['llm', 'vision']
+const TEXT_TABS: readonly ModelKind[] = ['llm']
+
+/** Screen-grounding models per vendor, shared by the vision and GUI tabs. */
+const GLM_VISUAL = { modelId: 'glm-4.5v', displayName: 'GLM-4.5V' }
+const QWEN_VISUAL = { modelId: 'qwen3-vl-plus', displayName: 'Qwen3-VL Plus' }
+const DOUBAO_UI_TARS = { modelId: 'doubao-1-5-ui-tars-250428', displayName: 'Doubao UI-TARS 1.5' }
+const DOUBAO_VISION = { modelId: 'doubao-seed-1-6-vision-250815', displayName: 'Doubao Seed 1.6 Vision' }
 
 export const VENDOR_PRESETS: readonly VendorPreset[] = [
   {
@@ -33,7 +49,7 @@ export const VENDOR_PRESETS: readonly VendorPreset[] = [
     baseUrl: 'https://api.deepseek.com',
     modelId: 'deepseek-chat',
     displayName: 'DeepSeek Chat',
-    tabs: CHAT_TABS,
+    tabs: TEXT_TABS,
     urlHint: 'Chat Completions。模型 ID 按控制台填写，例如 deepseek-chat / deepseek-flash。',
   },
   {
@@ -46,6 +62,7 @@ export const VENDOR_PRESETS: readonly VendorPreset[] = [
     displayName: 'GLM-5.3',
     tabs: CHAT_TABS,
     urlHint: '智谱开放平台 OpenAI 兼容（/api/paas/v4）。不要再拼 /v1。火山套餐请用 Agent Plan / Coding Plan。',
+    kindModels: { vision: GLM_VISUAL, gui: GLM_VISUAL },
   },
   {
     id: 'glm-agent-plan',
@@ -55,7 +72,7 @@ export const VENDOR_PRESETS: readonly VendorPreset[] = [
     baseUrl: 'https://ark.cn-beijing.volces.com/api/plan/v3',
     modelId: 'glm-5.3',
     displayName: 'GLM 5.3',
-    tabs: CHAT_TABS,
+    tabs: PLAN_TABS,
     urlHint: '火山 Agent Plan 的 Chat Completions。不要再拼 /v1 或 /chat/completions。',
   },
   {
@@ -68,6 +85,18 @@ export const VENDOR_PRESETS: readonly VendorPreset[] = [
     displayName: '',
     tabs: COMPAT_TABS,
     urlHint: '方舟标准推理。模型 ID 用接入点或模型名，按控制台粘贴。',
+    kindModels: { vision: DOUBAO_VISION, gui: DOUBAO_UI_TARS },
+  },
+  {
+    id: 'ark-ui-tars',
+    label: '豆包 UI-TARS',
+    name: '火山方舟 · UI-TARS',
+    protocol: 'openai_compatible',
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    modelId: DOUBAO_UI_TARS.modelId,
+    displayName: DOUBAO_UI_TARS.displayName,
+    tabs: GUI_TABS,
+    urlHint: '专用 GUI 接地模型：读截图直接给出点击位置。方舟控制台开通 Doubao-1.5-UI-TARS 后粘贴模型 ID 或接入点。',
   },
   {
     id: 'ark-agent-plan',
@@ -77,7 +106,7 @@ export const VENDOR_PRESETS: readonly VendorPreset[] = [
     baseUrl: 'https://ark.cn-beijing.volces.com/api/plan/v3',
     modelId: '',
     displayName: '',
-    tabs: CHAT_TABS,
+    tabs: PLAN_TABS,
     urlHint: 'Agent Plan Chat Completions（/api/plan/v3）。走 Responses 时请选「Agent Plan · Responses」。',
   },
   {
@@ -88,7 +117,7 @@ export const VENDOR_PRESETS: readonly VendorPreset[] = [
     baseUrl: 'https://ark.cn-beijing.volces.com/api/plan/v3',
     modelId: '',
     displayName: '',
-    tabs: CHAT_TABS,
+    tabs: PLAN_TABS,
     urlHint: '同一 Plan 地址，协议改成 Responses API，请求打到 POST /responses。',
   },
   {
@@ -99,7 +128,7 @@ export const VENDOR_PRESETS: readonly VendorPreset[] = [
     baseUrl: 'https://ark.cn-beijing.volces.com/api/coding/v3',
     modelId: '',
     displayName: '',
-    tabs: CHAT_TABS,
+    tabs: PLAN_TABS,
     urlHint: 'Coding Plan Chat Completions。地址已带 v3，不要再拼 /v1。',
   },
   {
@@ -110,7 +139,7 @@ export const VENDOR_PRESETS: readonly VendorPreset[] = [
     baseUrl: 'https://ark.cn-beijing.volces.com/api/coding/v3',
     modelId: '',
     displayName: '',
-    tabs: CHAT_TABS,
+    tabs: PLAN_TABS,
     urlHint: 'Coding Plan 的 Responses API。',
   },
   {
@@ -123,6 +152,7 @@ export const VENDOR_PRESETS: readonly VendorPreset[] = [
     displayName: 'Qwen Plus',
     tabs: COMPAT_TABS,
     urlHint: '百炼 OpenAI 兼容模式。Key 用阿里云 DashScope API-Key。',
+    kindModels: { vision: QWEN_VISUAL, gui: QWEN_VISUAL },
   },
   {
     id: 'bailian-responses',
@@ -134,6 +164,7 @@ export const VENDOR_PRESETS: readonly VendorPreset[] = [
     displayName: 'Qwen Plus',
     tabs: CHAT_TABS,
     urlHint: '百炼兼容模式走 POST /responses。生图/向量仍用 OpenAI-compatible。',
+    kindModels: { vision: QWEN_VISUAL, gui: QWEN_VISUAL },
   },
   {
     id: 'anthropic',
@@ -168,7 +199,47 @@ export const VENDOR_PRESETS: readonly VendorPreset[] = [
     tabs: CHAT_TABS,
     urlHint: 'OpenAI Responses API（POST /responses）。',
   },
+  {
+    id: 'local-lmstudio-gui',
+    label: '本机 LM Studio',
+    name: '本机 UI-TARS (LM Studio)',
+    protocol: 'openai_compatible',
+    baseUrl: 'http://127.0.0.1:1234/v1',
+    modelId: 'ui-tars-1.5-7b',
+    displayName: 'UI-TARS 1.5 7B (本机)',
+    tabs: GUI_TABS,
+    urlHint: '本机 LM Studio 加载 UI-TARS-1.5-7B / 2B GGUF 后开启本地服务；Key 填 lm-studio。产品不带权重，不联网。',
+  },
+  {
+    id: 'local-vllm-gui',
+    label: '本机 vLLM',
+    name: '本机 UI-TARS (vLLM)',
+    protocol: 'openai_compatible',
+    baseUrl: 'http://127.0.0.1:8000/v1',
+    modelId: 'ByteDance-Seed/UI-TARS-1.5-7B',
+    displayName: 'UI-TARS 1.5 7B (vLLM)',
+    tabs: GUI_TABS,
+    urlHint: 'vllm serve ByteDance-Seed/UI-TARS-1.5-7B --port 8000 后填 /v1；Key 任意非空。约需 16GB 显存。',
+  },
+  {
+    id: 'local-ollama-gui',
+    label: '本机 Ollama',
+    name: '本机 Qwen-VL (Ollama)',
+    protocol: 'openai_compatible',
+    baseUrl: 'http://127.0.0.1:11434/v1',
+    modelId: 'qwen3-vl',
+    displayName: 'Qwen3-VL (Ollama)',
+    tabs: GUI_TABS,
+    urlHint: 'ollama pull qwen3-vl 后即可；Key 填 ollama。通用视觉模型按截图千分位坐标点击，接地弱于 UI-TARS，够兜底。',
+  },
 ]
+
+/** The model a preset should fill on a given tab. */
+export function presetModelForTab(preset: VendorPreset, kind: ModelKind): { modelId: string; displayName: string } {
+  const specific = preset.kindModels?.[kind]
+  if (specific) return specific
+  return { modelId: preset.modelId, displayName: preset.displayName }
+}
 
 export function protocolLabel(protocol: ProviderProtocol): string {
   if (protocol === 'anthropic') return 'Anthropic'
@@ -198,12 +269,13 @@ export function modelsForProtocol(protocol: ProviderProtocol, models: ModelDTO[]
 
 export function applyVendorPreset(draft: ProviderDraft, preset: VendorPreset, catalogKind: ModelKind): ProviderDraft {
   const hasModel = draft.models.some((model) => model.modelId.trim())
+  const starter = presetModelForTab(preset, catalogKind)
   const models = hasModel
     ? draft.models
     : [
         {
-          modelId: preset.modelId,
-          displayName: preset.displayName,
+          modelId: starter.modelId,
+          displayName: starter.displayName,
           isDefault: true,
           kind: catalogKind === 'voice' ? 'llm' : catalogKind,
           kindDefault: true,

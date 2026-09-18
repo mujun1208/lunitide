@@ -450,6 +450,14 @@ func validRendererArtifact(a *bridge.ArtifactEvent) error {
 		if !strings.HasSuffix(lower, ".png") {
 			return errors.New("invalid tool artifact")
 		}
+	case "audio":
+		if a.Content != "" {
+			return errors.New("invalid tool artifact")
+		}
+		lower := strings.ToLower(a.Path)
+		if !strings.HasSuffix(lower, ".wav") && !strings.HasSuffix(lower, ".mp3") {
+			return errors.New("invalid tool artifact")
+		}
 	default:
 		return errors.New("invalid tool artifact")
 	}
@@ -663,6 +671,11 @@ func validStreamArtifact(a *bridge.ArtifactEvent) error {
 		}
 		return nil
 	case "image":
+		if a.Content != "" {
+			return errors.New("invalid tool artifact")
+		}
+		return nil
+	case "audio":
 		if a.Content != "" {
 			return errors.New("invalid tool artifact")
 		}

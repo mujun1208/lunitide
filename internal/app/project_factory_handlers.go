@@ -164,7 +164,7 @@ func handleProjectDeliverableGenerate(e *Engine, ctx context.Context, r bridge.R
 			RootPath: proj.RootPath, PhaseLabel: phaseLabel(proj.Type, p.Phase), DocumentType: key, Title: title,
 			Answers: answers, Prior: prior, Council: p.CouncilSynthesis,
 			AlreadyApproved: approved, OverwriteOK: p.OverwriteDrafts,
-			TemplateBody: e.templateBody(ctx, existing.TemplateID),
+			TemplateBody:        e.templateBody(ctx, existing.TemplateID),
 			IncompleteInterview: !projectgen.PhaseAnswersComplete(p.Phase, answers),
 		})
 		if gerr != nil {

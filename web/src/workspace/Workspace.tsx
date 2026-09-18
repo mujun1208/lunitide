@@ -422,7 +422,7 @@ export function Workspace({
             {error && <p role="alert">{error}</p>}
             {localDetail ? (
               <div className="workspace-inline-preview" style={{ fontSize: `${zoom}%` }}>
-                <ArtifactPreviewContent preview={{ kind: previewKindFromPath(localDetail.path), path: localDetail.path, content: localDetail.content, size: localDetail.size }} />
+                <ArtifactPreviewContent sessionId={sessionId} preview={{ kind: previewKindFromPath(localDetail.path), path: localDetail.path, content: localDetail.content, size: localDetail.size }} />
               </div>
             ) : detail ? (
               <article className="workspace-document" style={{ fontSize: `${zoom}%` }}>

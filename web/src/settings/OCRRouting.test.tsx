@@ -195,6 +195,23 @@ it('saves the local engine as soon as it is changed', async () => {
   }), expect.anything()))
 })
 
+it('does not mark PP-OCR installed when only the download receipt is ready', async () => {
+  const providers = { list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge
+  const ocr = {
+    get: vi.fn().mockResolvedValue({
+      preferProvider: true, revision: 'a'.repeat(64), appliedRevision: 'a'.repeat(64), state: 'applied',
+      localEngine: 'auto',
+      pack: { available: false, status: 'missing_dependency', backend: 'ppocr-pack' },
+    }),
+    set: vi.fn(),
+    install: vi.fn().mockResolvedValue({ state: 'ready', percent: 100, doneBytes: 28, totalBytes: 28 }),
+  } as unknown as OCRRoutingBridge
+  render(<OCRRouting providers={providers} ocr={ocr} />)
+  expect(await screen.findByRole('option', { name: 'PP-OCR（未安装）' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '下载安装' })).toBeEnabled()
+  expect(screen.queryByRole('button', { name: '已安装' })).toBeNull()
+})
+
 it('falls back unknown lastFailure class to Chinese', async () => {
   const providers = { list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge
   const ocr = {

@@ -58,7 +58,12 @@ func (s *Service) runInstall(bundle Bundle) {
 		s.installState, s.lastInstallErr = "failed", err.Error()
 		return
 	}
+	if s.installer != nil && !DetectPPOcrPack(s.installer.BundleDir(bundle.ID)).Available {
+		s.installState, s.lastInstallErr = "failed", "PP-OCR 已下载但还找不到可运行文件，请重试"
+		return
+	}
 	s.installState, s.lastInstallErr = "ready", ""
+	s.persistInstalledPackLocked()
 }
 
 func (s *Service) InstallSnapshot() map[string]any {
@@ -115,6 +120,35 @@ func installUserLastError(msg string) string {
 		}
 	}
 	return "下载失败，请检查网络后重试"
+}
+
+func (s *Service) persistInstalledPackLocked() {
+	if s == nil || s.store == nil {
+		return
+	}
+	root := ""
+	if s.installer != nil {
+		dir := s.installer.BundleDir(RuntimeID)
+		if DetectPPOcrPack(dir).Available {
+			root = dir
+		}
+	}
+	if root == "" {
+		return
+	}
+	cur, err := s.store.Get()
+	if err != nil {
+		return
+	}
+	if strings.TrimSpace(cur.PackRoot) == root {
+		return
+	}
+	next := cur
+	next.PackRoot = root
+	if strings.TrimSpace(next.LocalEngine) == "" {
+		next.LocalEngine = "auto"
+	}
+	_, _ = s.store.CompareAndSet(next, cur.Revision)
 }
 
 func containsHan(s string) bool {

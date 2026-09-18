@@ -46,7 +46,7 @@ func ConnectionDiagnostic(err error) Diagnostic {
 	case errors.As(err, &network):
 		code = "MCP_NETWORK_FAILED"
 	case errors.Is(err, ErrStdioLaunch):
-		code = "MCP_RUNTIME_UNAVAILABLE"
+		code = stdioLaunchDiagnosticCode(err)
 	case errors.Is(err, ErrStdioProtocol), errors.Is(err, ErrRemoteProtocol):
 		code = "MCP_PROTOCOL_FAILED"
 	}
@@ -58,7 +58,8 @@ func ConnectionDiagnostic(err error) Diagnostic {
 		"MCP_PACKAGE_VERSION":     "无法锁定软件包版本，请核对包名及版本，并检查 npm 或 PyPI 访问。",
 		"MCP_PACKAGE_NOT_FOUND":   "软件源中找不到此包或版本，请核对启动配置，或使用市场中对应的最新配置。",
 		"MCP_NETWORK_FAILED":      "软件源或服务器网络访问失败，请检查网络、代理及证书设置后重新连接。",
-		"MCP_RUNTIME_UNAVAILABLE": "无法启动本地运行环境，请检查 Node.js / npx 或 uv / uvx 是否可用。",
+		"MCP_RUNTIME_UNAVAILABLE": "未找到 Node.js / npx。请安装 Node.js 后重新连接；已连接的服务不受影响。",
+		"MCP_UV_UNAVAILABLE":      "未找到 uv / uvx。Fetch 等 Python 服务需要安装 uv；npx 服务不受影响。",
 		"MCP_DEPENDENCY_FAILED":   "本地 Python 或软件依赖未能准备完成，请检查运行环境版本及软件源后重新连接。",
 		"MCP_PROTOCOL_FAILED":     "服务器握手或工具目录响应不符合支持的 MCP 协议，请检查启动配置及服务器版本。",
 	}
@@ -68,6 +69,17 @@ func ConnectionDiagnostic(err error) Diagnostic {
 		message = messages[code]
 	}
 	return Diagnostic{Code: code, Message: message}
+}
+
+func stdioLaunchDiagnosticCode(err error) string {
+	msg := err.Error()
+	if strings.Contains(msg, "not on PATH") || strings.Contains(msg, "cmd.exe unavailable") {
+		if strings.Contains(msg, "uvx") || strings.Contains(msg, " uv ") {
+			return "MCP_UV_UNAVAILABLE"
+		}
+		return "MCP_RUNTIME_UNAVAILABLE"
+	}
+	return "MCP_CONNECT_FAILED"
 }
 
 // stderrClassifier remembers only a bounded rolling window and a category;

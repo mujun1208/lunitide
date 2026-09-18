@@ -223,10 +223,10 @@ func executePDFCopy(root string, args json.RawMessage) (toolruntime.Result, erro
 		return toolruntime.Result{}, errors.New("未知 PDF 操作")
 	}
 	body, _ := json.Marshal(map[string]any{
-		"lossy":   doctext.PDFCopyLossy,
-		"method":  doctext.PDFCopyMethod,
-		"files":   files,
-		"notice":  "仅保留可提取文本，版式与图片会丢失；表单或签名文件已拒绝。",
+		"lossy":  doctext.PDFCopyLossy,
+		"method": doctext.PDFCopyMethod,
+		"files":  files,
+		"notice": "仅保留可提取文本，版式与图片会丢失；表单或签名文件已拒绝。",
 	})
 	return toolruntime.Result{Output: string(body)}, nil
 }

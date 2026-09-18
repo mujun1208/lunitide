@@ -72,10 +72,10 @@ type CollabGateUnitOfWork interface {
 
 // CollabGateService owns the evaluation/decision runtime.
 type CollabGateService struct {
-	uow     CollabGateUnitOfWork
+	uow      CollabGateUnitOfWork
 	evidence EvidenceSource
-	binding m8core.CapabilityBinding
-	clock   Clock
+	binding  m8core.CapabilityBinding
+	clock    Clock
 }
 
 // NewCollabGateService wires the gate. The binding freezes the runtime

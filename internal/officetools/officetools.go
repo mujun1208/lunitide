@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/lunitide/lunitide/internal/xlsxrows"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -221,21 +222,17 @@ type SheetSummary struct {
 // ParseXLSX reads a workbook and answers sheet names, dimensions and a
 // bounded preview (stringified cells).
 func ParseXLSX(data []byte) (string, error) {
-	f, err := excelize.OpenReader(bytes.NewReader(data))
+	grids, err := xlsxrows.Grids(data)
 	if err != nil {
 		return "", fmt.Errorf("officetools: open xlsx: %w", err)
 	}
-	defer f.Close()
 	out := XLSXSummary{Sheets: []SheetSummary{}}
-	names := f.GetSheetList()
-	if len(names) > MaxSheets {
-		names = names[:MaxSheets]
+	if len(grids) > MaxSheets {
+		grids = grids[:MaxSheets]
 	}
-	for _, name := range names {
-		rows, err := f.GetRows(name)
-		if err != nil {
-			return "", err
-		}
+	for _, grid := range grids {
+		name := grid.Name
+		rows := grid.Rows
 		ss := SheetSummary{Name: name, Preview: [][]string{}}
 		ss.Rows = len(rows)
 		budget := MaxParseCells

@@ -155,6 +155,8 @@ func companionToolLeadIn(toolName string) string {
 		return "好，我来生成图片。"
 	case "video.generate":
 		return "好，我来生成视频。"
+	case "audio.generate":
+		return "好，我来生成可听语音。"
 	case "video.understand":
 		return "好，我先看下这个链接。"
 	case "skill.invoke":

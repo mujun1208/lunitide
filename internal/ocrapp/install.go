@@ -71,7 +71,7 @@ func (in *Installer) Installed(bundle Bundle) bool {
 			return false
 		}
 	}
-	return true
+	return DetectPPOcrPack(dir).Available
 }
 
 func (in *Installer) Install(ctx context.Context, bundle Bundle, progress func(Progress)) error {
@@ -105,7 +105,7 @@ func (in *Installer) Install(ctx context.Context, bundle Bundle, progress func(P
 
 func (in *Installer) present(dir string, d Download) bool {
 	if d.Archive != ArchiveNone {
-		return receiptMatches(dir, d)
+		return receiptMatches(dir, d) && DetectPPOcrPack(dir).Available
 	}
 	return fileMatches(filepath.Join(dir, d.Path), d)
 }

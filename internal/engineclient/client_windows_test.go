@@ -422,6 +422,14 @@ func TestValidateEventDiscriminatedUnion(t *testing.T) {
 			e.Type = bridge.EventToolCompleted
 			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "cc.screen_capture", ArgsDigest: strings.Repeat("b", 64), Summary: "captured desktop", Artifact: &bridge.ArtifactEvent{Kind: "image", Path: "screen-capture.png", Content: "binary"}}
 		}, false},
+		{"tool completed audio artifact", func(e *bridge.Event) {
+			e.Type = bridge.EventToolCompleted
+			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "audio.generate", ArgsDigest: strings.Repeat("b", 64), Summary: "synthesized speech", Artifact: &bridge.ArtifactEvent{Kind: "audio", Path: "song.wav"}}
+		}, true},
+		{"tool completed audio artifact with body", func(e *bridge.Event) {
+			e.Type = bridge.EventToolCompleted
+			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "audio.generate", ArgsDigest: strings.Repeat("b", 64), Summary: "synthesized speech", Artifact: &bridge.ArtifactEvent{Kind: "audio", Path: "song.wav", Content: "binary"}}
+		}, false},
 		{"approval required", func(e *bridge.Event) {
 			e.Type = bridge.EventApprovalRequired
 			e.Tool = &bridge.ToolEvent{CallID: "call-1", Name: "command.run", ArgsDigest: strings.Repeat("c", 64), Summary: "approval required"}

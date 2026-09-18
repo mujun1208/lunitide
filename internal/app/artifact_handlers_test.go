@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/officetools"
 	"github.com/lunitide/lunitide/internal/toolruntime"
+	"github.com/lunitide/lunitide/internal/tts"
 )
 
 const artifactSession = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
@@ -123,6 +125,24 @@ func TestArtifactPreviewKindAware(t *testing.T) {
 	}
 	if err := json.Unmarshal(pdfMeta, &pdfPayload); err != nil || pdfPayload.Content == "" {
 		t.Fatalf("PDF preview must embed bytes: %v %s", err, pdfMeta)
+	}
+	wav := tts.PCM16MonoWAV(16000, []byte{1, 0, 2, 0})
+	if _, err := e.tools.SaveGeneratedAudio(artifactSession, "song.wav", wav); err != nil {
+		t.Fatal(err)
+	}
+	audio := handleWorkspaceArtifactPreview(e, ctx, artifactRequest(`{"sessionId":"`+artifactSession+`","path":"song.wav"}`))
+	audioMeta, _ := json.Marshal(audio.Payload)
+	if !audio.OK || !strings.Contains(string(audioMeta), `"kind":"audio"`) {
+		t.Fatalf("audio preview failed: %+v", audio)
+	}
+	var audioPayload struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(audioMeta, &audioPayload); err != nil {
+		t.Fatal(err)
+	}
+	if decoded, err := base64.StdEncoding.DecodeString(audioPayload.Content); err != nil || string(decoded) != string(wav) {
+		t.Fatalf("audio preview must embed wav bytes: %v", err)
 	}
 	// escaping or missing paths fail closed.
 	escape := handleWorkspaceArtifactPreview(e, ctx, artifactRequest(`{"sessionId":"`+artifactSession+`","path":"../x.docx"}`))

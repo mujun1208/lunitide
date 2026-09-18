@@ -163,6 +163,9 @@ func fallbackMcpSearchArgs(goal string) json.RawMessage {
 }
 
 func mediaGenerationKind(text string) string {
+	if looksLikeSkillAuthoringTask(text) || looksLikeExpertAuthoringTask(text) {
+		return ""
+	}
 	for _, clause := range strings.FieldsFunc(strings.ToLower(chatRoutingText(text)), func(r rune) bool { return strings.ContainsRune("，,。；;\n", r) }) {
 		blocked := false
 		for _, blocker := range []string{"不要", "不用", "无需", "不需要", "先不", "别", "不能", "不支持", "配置", "供应商", "测试连接", "怎么", "如何", "do not", "don't", "without", "how to", "configure"} {
@@ -176,9 +179,15 @@ func mediaGenerationKind(text string) string {
 				return pair.tool
 			}
 		}
+		if audioGenerationIntent(clause) {
+			return "audio.generate"
+		}
 		if match := englishMediaGenerationRE.FindStringSubmatch(clause); len(match) > 1 {
-			if match[1] == "video" {
+			switch match[1] {
+			case "video":
 				return "video.generate"
+			case "song", "audio":
+				return "audio.generate"
 			}
 			return "image.generate"
 		}
@@ -192,12 +201,45 @@ func mediaGenerationKind(text string) string {
 	return ""
 }
 
-var englishMediaGenerationRE = regexp.MustCompile(`\b(?:generate|create|make|draw)\s+(?:(?:a|an|one|short)\s+){0,2}(video|image|picture)\b`)
+var englishMediaGenerationRE = regexp.MustCompile(`\b(?:generate|create|make|draw)\s+(?:(?:a|an|one|short)\s+){0,2}(video|image|picture|song|audio)\b`)
+
+func audioGenerationIntent(clause string) bool {
+	lower := strings.ToLower(clause)
+	if containsAnyFold(clause, lower, []string{"播放", "放首", "放一", "听周杰伦", "打开网易", "汽水音乐", "qq音乐", "网易云"}) {
+		return false
+	}
+	if !containsAnyFold(clause, lower, []string{"生成", "做一首", "做个歌", "制作", "合成", "朗读", "读出来", "读一遍", "generate", "synthesize", "read aloud", "text to speech"}) {
+		return false
+	}
+	return containsAnyFold(clause, lower, []string{"歌曲", "一首歌", "首歌", "语音", "朗读", "可听", "听的歌", "歌词", "song", "audio", "speech", "voiceover"})
+}
+
+func speechTextFromGoal(goal string) string {
+	for _, prefix := range []string{"朗读这段：", "朗读：", "读出来：", "把下面读出来：", "read this:"} {
+		i := strings.Index(strings.ToLower(goal), strings.ToLower(prefix))
+		if i < 0 {
+			continue
+		}
+		rest := strings.TrimSpace(goal[i+len(prefix):])
+		if rest != "" && utf8.RuneCountInString(rest) <= 4000 {
+			return rest
+		}
+	}
+	return ""
+}
 
 func fallbackMediaGenerationArgs(goal string) json.RawMessage {
 	goal = strings.TrimSpace(goal)
 	if goal == "" || utf8.RuneCountInString(goal) > 4000 {
 		return nil
+	}
+	if mediaGenerationKind(goal) == "audio.generate" {
+		text := speechTextFromGoal(goal)
+		if text == "" {
+			return nil
+		}
+		raw, _ := json.Marshal(map[string]string{"prompt": text})
+		return raw
 	}
 	raw, _ := json.Marshal(map[string]string{"prompt": goal})
 	return raw

@@ -117,13 +117,13 @@ func (s *ScenarioService) CreateScenario(ctx context.Context, in ScenarioCreateI
 		return ScenarioCreateResult{}, fmt.Errorf("%w: %v", ErrScenarioInvalid, err)
 	}
 	card := m8core.ScenarioCard{
-		ExpertID:     in.ExpertID,
-		Title:        in.Title,
-		Summary:      in.Summary,
-		PhaseKey:     in.PhaseKey,
-		ScenarioJSON: canonical,
+		ExpertID:       in.ExpertID,
+		Title:          in.Title,
+		Summary:        in.Summary,
+		PhaseKey:       in.PhaseKey,
+		ScenarioJSON:   canonical,
 		ScenarioDigest: digest,
-		State:        m8core.ScenarioActive,
+		State:          m8core.ScenarioActive,
 	}
 	if !m8core.ScenarioValidate(card) {
 		return ScenarioCreateResult{}, ErrScenarioInvalid

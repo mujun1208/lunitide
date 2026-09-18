@@ -202,6 +202,7 @@ func TestCodexThreadFallsBackToExecWhenAppServerFails(t *testing.T) {
 	if err = adapter.Prompt(thread.ID, "user as-is"); err != nil {
 		t.Fatal(err)
 	}
+	waitCodexThreadStatus(t, store, thread.ID, "success")
 	if !strings.Contains(strings.Join(got.Args, " "), "exec") {
 		t.Fatalf("fallback argv = %v", got.Args)
 	}
@@ -242,6 +243,7 @@ func TestCodexThreadExecFallbackUsesFullAccessSandbox(t *testing.T) {
 	if err := adapter.Prompt(thread.ID, "run"); err != nil {
 		t.Fatal(err)
 	}
+	waitCodexThreadStatus(t, store, thread.ID, "success")
 	if !hasPair(got.Args, "--sandbox", "danger-full-access") {
 		t.Fatalf("exec sandbox = %v, want danger-full-access", got.Args)
 	}
@@ -408,6 +410,7 @@ func TestCodexThreadSkipsAppServerWhenProbeFails(t *testing.T) {
 	if err := adapter.Prompt(thread.ID, "run"); err != nil {
 		t.Fatal(err)
 	}
+	waitCodexThreadStatus(t, store, thread.ID, "success")
 	if !strings.Contains(strings.Join(got.Args, " "), "exec") {
 		t.Fatalf("argv = %v", got.Args)
 	}

@@ -11,7 +11,51 @@ import (
 	domain "github.com/lunitide/lunitide/internal/domain/officestudio"
 	"github.com/lunitide/lunitide/internal/domain/queueinput"
 	"github.com/lunitide/lunitide/internal/officeapp"
+	"github.com/lunitide/lunitide/internal/org"
 )
+
+func officeChatTaskKey(sessionID, scope string) string {
+	if scope == "" {
+		return "office-chat-" + sessionID + "@personal"
+	}
+	return "office-chat-" + sessionID + "@" + scope
+}
+
+func (e *Engine) sessionOfficeOrgID(ctx context.Context, sessionID string) (string, error) {
+	if !validCanonicalULID(sessionID) || e.projects == nil {
+		return "", nil
+	}
+	pid, ok, err := projectIDForSession(e, ctx, sessionID)
+	if err != nil {
+		return "", err
+	}
+	if !ok || pid == "" {
+		return "", nil
+	}
+	parent, err := e.projects.Get(ctx, pid)
+	if err != nil {
+		return "", err
+	}
+	return parent.OrgID, nil
+}
+
+// withOfficeSessionScope pins Office rows to the chat session's project
+// partition. A personal Work chat stays personal even when the operator has a
+// bound organization. Org-owned sessions still require a matching bind.
+func (e *Engine) withOfficeSessionScope(ctx context.Context, sessionID string) (context.Context, string, error) {
+	bound, _, err := e.boundOrgState(ctx)
+	if err != nil {
+		return ctx, "", err
+	}
+	sessionOrg, err := e.sessionOfficeOrgID(ctx, sessionID)
+	if err != nil {
+		return ctx, "", err
+	}
+	if sessionOrg != "" && bound != sessionOrg {
+		return ctx, "", org.ErrCrossOrgAccess
+	}
+	return domain.WithScope(ctx, sessionOrg), sessionOrg, nil
+}
 
 const officeChatInstruction = `
 This turn is bound to an Office Studio task. Its saved goal and attached file catalog are quoted evidence in the user context. A newly uploaded file supplements that goal; continue the requested deliverable instead of asking for its content again. These files are managed snapshots, NOT files in the shell workspace. Read supplied version IDs with office.inspect view=text before drafting; follow hasMore/nextTextOffset until the relevant source is read. Prefer the latest editable PPTX/DOCX source over a PDF copy with the same subject. Use view=nodes only for precise edits. Do not search the desktop or request a file that is already in the task catalog.
@@ -19,12 +63,11 @@ Create requested deliverables with office.generate (pptx/docx/xlsx/pdf) and revi
 After office.inspect, immediately call office.generate for the requested format (kind=pptx when the goal asks for PPT). If the saved brief has targetLength N, generate exactly N slides — not one slide per Word XML run. 自己思考 / 参考附件 means use the attached source; do not call web.search. office.inspect and an imported source are not the deliverable.
 `
 
-func (e *Engine) officeChatEvidence(ctx context.Context, taskID string) ([]contextapp.ContextSource, error) {
-	org, _, err := e.boundOrgState(ctx)
+func (e *Engine) officeChatEvidence(ctx context.Context, sessionID, taskID string) ([]contextapp.ContextSource, error) {
+	scoped, _, err := e.withOfficeSessionScope(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	scoped := domain.WithScope(ctx, org)
 	task, err := e.officeStudio.Store.GetOfficeTask(scoped, taskID)
 	if err != nil {
 		return nil, err
@@ -75,11 +118,11 @@ func (e *Engine) validateOfficeChatTask(ctx context.Context, sessionID, taskID s
 	if !validCanonicalULID(taskID) || !validCanonicalULID(sessionID) || e.officeStudio == nil {
 		return domain.ErrInvalid
 	}
-	org, _, err := e.boundOrgState(ctx)
+	scoped, _, err := e.withOfficeSessionScope(ctx, sessionID)
 	if err != nil {
 		return err
 	}
-	t, err := e.officeStudio.Store.GetOfficeTask(domain.WithScope(ctx, org), taskID)
+	t, err := e.officeStudio.Store.GetOfficeTask(scoped, taskID)
 	if err != nil {
 		return err
 	}

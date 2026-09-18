@@ -256,6 +256,10 @@ func handleOfficeStudio(e *Engine, ctx context.Context, r bridge.Request) bridge
 		if !validCanonicalULID(sid) {
 			return officeFailure(r, domain.ErrInvalid)
 		}
+		ctx, _, scopeErr = e.withOfficeSessionScope(ctx, sid)
+		if scopeErr != nil {
+			return officeFailure(r, scopeErr)
+		}
 		if pid, ok, err := projectIDForSession(e, ctx, sid); err != nil {
 			return officeFailure(r, err)
 		} else if ok {

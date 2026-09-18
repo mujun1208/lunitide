@@ -30,6 +30,19 @@ func TestAgentHubFailureKeepsCursorNodeHint(t *testing.T) {
 	}
 }
 
+func TestAgentHubEnglishPromptErrorIsNotSwallowed(t *testing.T) {
+	resp := agentHubFailure(validRequest("agentHub.thread.prompt", `{"threadId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","text":"hi"}`), fmt.Errorf("spawn cursor-agent ENOENT"))
+	if resp.OK || resp.Error == nil {
+		t.Fatalf("%#v", resp)
+	}
+	if resp.Error.Message == "AgentHub 操作失败" {
+		t.Fatal("must not hide the English spawn error")
+	}
+	if !strings.Contains(resp.Error.Message, "对话没发出去") {
+		t.Fatalf("got %q", resp.Error.Message)
+	}
+}
+
 func TestAgentHubStartUnavailableChinese(t *testing.T) {
 	s := agenthub.New(agenthub.NewMemoryStore(), t.TempDir(), nil)
 	s.Look = func(string) (string, error) { return "", os.ErrNotExist }

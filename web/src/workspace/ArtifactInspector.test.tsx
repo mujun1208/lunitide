@@ -153,3 +153,14 @@ it('embeds compact PDF bytes instead of a native-open banner',async()=>{
   create.mockRestore()
   revoke.mockRestore()
 })
+
+it('plays compact audio bytes instead of dumping them as text',()=>{
+  const create=vi.spyOn(URL,'createObjectURL').mockReturnValue('blob:audio-preview')
+  const revoke=vi.spyOn(URL,'revokeObjectURL').mockImplementation(()=>{})
+  render(<ArtifactPreviewContent sessionId={sessionId} preview={{kind:'audio',path:'song.wav',content:btoa('RIFF____WAVE'),size:16}}/>)
+  expect(screen.getByLabelText('可听语音')).toBeInTheDocument()
+  expect(screen.getByText(/不是演唱成曲/)).toBeInTheDocument()
+  expect(screen.getByLabelText('播放朗读')).toBeInTheDocument()
+  create.mockRestore()
+  revoke.mockRestore()
+})

@@ -19,8 +19,8 @@ const (
 )
 
 type QualifyInput struct {
-	Family Family
-	Groups []MessageGroup
+	Family  Family
+	Groups  []MessageGroup
 	Private ProtocolCapture
 }
 
@@ -48,7 +48,7 @@ type familyCodec struct {
 	version string
 }
 
-func (c familyCodec) Family() Family { return c.family }
+func (c familyCodec) Family() Family  { return c.family }
 func (c familyCodec) Version() string { return c.version }
 
 func (c familyCodec) Qualify(in QualifyInput) bool {

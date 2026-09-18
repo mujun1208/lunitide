@@ -35,8 +35,13 @@ var specialistToolAllow = map[string]bool{
 	"pdf.gen": true, "html.gen": true,
 	"skill.invoke":     true,
 	"skill.view":       true,
+	"skill.create":     true,
+	"skill.manage":     true,
+	"skill.try":        true,
 	"image.generate":   true,
 	"video.generate":   true,
+	"audio.generate":   true,
+	"video.understand": true,
 	"datasource.query": true,
 }
 

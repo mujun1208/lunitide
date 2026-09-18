@@ -42,9 +42,9 @@ type ObtainedProtocol struct {
 }
 
 type ProtocolCapture struct {
-	ReasoningContent string `json:"reasoningContent,omitempty"`
+	ReasoningContent string         `json:"reasoningContent,omitempty"`
 	Source           ProtocolSource `json:"source,omitempty"`
-	Complete         bool   `json:"complete,omitempty"`
+	Complete         bool           `json:"complete,omitempty"`
 }
 
 func CaptureProtocolFields(in ObtainedProtocol) ProtocolCapture {

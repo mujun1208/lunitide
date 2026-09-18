@@ -329,7 +329,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			var streamErr error
 			toolsFallbackUsed := false
 			thinkingDisableRetryUsed := false
-			guiFallbackUsed := false
+			guiLoopRuns := 0
+			emptyObserves := 0
+			desktopVerified := false
+			lastDesktopVerdict := ""
 			observedThisTurn := false
 			desktopTypeL0Passed := false
 			imagesFallbackUsed := false
@@ -618,18 +621,70 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if (state.companion || computerTurn) && continueKind == "desktop" && computerReceiptCloseout(req.Messages, turn.Goal) != "" {
 						continueKind = ""
 					}
-					if continueKind == "" && !state.companion && !skillDraftOffered && shouldOfferSkillDraft(turn.LastTools) {
-						skillDraftOffered = true
-						msg := result.Message
-						if strings.TrimSpace(msg.Content) == "" {
-							msg.Role = llmadapter.RoleAssistant
-							msg.Content = stepText
+					// P0-4 task-level verifier: before a screen-manipulating
+					// turn closes, audit the final screenshot against the goal.
+					// Text heuristics above only judge the model's words; this
+					// judges the screen. One audit per turn.
+					if continueKind == "" && desktopVerifierApplies(turn.LastTools, state.companion, desktopVerified, usedDesktopTools) && laneAllowsDesktopContinue(state.lane) {
+						desktopVerified = true
+						if verdict, frames, ok := e.verifyDesktopOutcome(op, mode, sessionID, turn.Goal, stepText, state.companion); ok {
+							_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: desktopVerdictThinking(verdict)}})
+							for _, img := range frames {
+								req.Images = appendCaptureVision(req.Images, img.MIME, img.Data)
+							}
+							switch verdict.Verdict {
+							case verdictNotDone:
+								lastDesktopVerdict = verdictNotDone
+								if nudges < maxDesktopContinueNudges {
+									nudges++
+									msg := result.Message
+									if strings.TrimSpace(msg.Content) == "" {
+										msg.Role = llmadapter.RoleAssistant
+										msg.Content = stepText
+									}
+									req.Messages = append(req.Messages, msg, desktopVerdictNudge(verdict.Reason))
+									continue
+								}
+								line := "\n\n屏幕核验：未完成"
+								if verdict.Reason != "" {
+									line += " — " + verdict.Reason
+								}
+								assistantText.WriteString(line)
+								if err := sendDeltaChunks(send, line); err != nil {
+									return err
+								}
+							case verdictDone, verdictBlocked:
+								lastDesktopVerdict = verdict.Verdict
+								if line := desktopVerdictEvidenceLine(verdict); line != "" {
+									assistantText.WriteString(line)
+									if err := sendDeltaChunks(send, line); err != nil {
+										return err
+									}
+								}
+							case verdictUnclear:
+								lastDesktopVerdict = verdictUnclear
+							}
 						}
-						if msg.Role != "" {
-							req.Messages = append(req.Messages, msg)
+					}
+					if continueKind == "" && !skillDraftOffered {
+						offerAny, offerDesktop := shouldOfferAnySkillDraft(turn.LastTools, guiLoopRuns, lastDesktopVerdict, state.companion)
+						if offerAny {
+							skillDraftOffered = true
+							msg := result.Message
+							if strings.TrimSpace(msg.Content) == "" {
+								msg.Role = llmadapter.RoleAssistant
+								msg.Content = stepText
+							}
+							if msg.Role != "" {
+								req.Messages = append(req.Messages, msg)
+							}
+							offer := skillDraftOfferMessage()
+							if offerDesktop {
+								offer = desktopSkillDraftOfferMessage(turn.Goal, currentTurnReceipts(req.Messages))
+							}
+							req.Messages = append(req.Messages, offer)
+							continue
 						}
-						req.Messages = append(req.Messages, skillDraftOfferMessage())
-						continue
 					}
 					if continueKind != "" {
 						nudges++
@@ -1020,6 +1075,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						if call.Name == "image.generate" || call.Name == "video.generate" {
 							return e.invokeMediaGenerate(op, sessionID, call.Name, call.Arguments)
 						}
+						if call.Name == "audio.generate" {
+							return e.invokeAudioGenerate(op, sessionID, call.Arguments)
+						}
 						// Model-initiated skill invocation rides the governed
 						// skillapp pipeline (never the raw toolruntime switch).
 						if call.Name == "skill.invoke" {
@@ -1195,6 +1253,14 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 					if toolErr == nil && computerActIsObserve(call.Name, call.Arguments) {
 						observedThisTurn = true
+						// Two empty accessibility trees in a row mean the app
+						// (Electron/Chromium/game canvas) will never expose
+						// marks; the visual loop is the only way forward.
+						if observeReturnedEmptyTree(summary) {
+							emptyObserves++
+						} else {
+							emptyObserves = 0
+						}
 					}
 					if looksLikeFilePickerToolResult(summary) {
 						parkedFilePicker = true
@@ -1210,9 +1276,12 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 					lastGUIFail = noteDesktopGUIFail(call.Name, summary, toolErr, lastGUIFail)
 				}
-				if lastGUIFail && !guiFallbackUsed && !parkedFilePicker && !parkedUAC && parkedBrowserWall == "" {
-					if fb, fbArgs, used := e.tryGUIFallback(op, mode, sessionID, turn.Goal, req.Model, state, req.Images, guiFallbackUsed, desktopTypeL0Passed, observedThisTurn); used {
-						guiFallbackUsed = true
+				state.usedScreenTools = usedDesktopTools
+				guiTrigger := lastGUIFail || emptyObserves >= 2
+				if guiTrigger && guiLoopRuns < maxGUILoopRunsPerTurn && !parkedFilePicker && !parkedUAC && parkedBrowserWall == "" {
+					if fb, fbArgs, used := e.tryGUIFallback(op, mode, sessionID, turn.Goal, req.Model, state, req.Images, false, desktopTypeL0Passed, observedThisTurn); used {
+						guiLoopRuns++
+						emptyObserves = 0
 						if err := writeGUIFallbackResult(send, &req, completedDigests, &turn, &usedTools, &usedDesktopTools, fb, fbArgs); err != nil {
 							return err
 						}

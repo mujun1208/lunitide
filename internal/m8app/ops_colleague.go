@@ -13,12 +13,12 @@ var OpsColleagueIDs = []string{
 }
 
 var opsColleagueNames = map[string]string{
-	"航空机务维修专家":   "mro-expert",
-	"航空机务专家":     "mro-expert",
-	"低空适航专家":     "uas-airworthiness-expert",
+	"航空机务维修专家":  "mro-expert",
+	"航空机务专家":    "mro-expert",
+	"低空适航专家":    "uas-airworthiness-expert",
 	"航空工具化工品专家": "tooling-chemical-expert",
 	"工具化工品专家":   "tooling-chemical-expert",
-	"航空航材专家":     "parts-expert",
+	"航空航材专家":    "parts-expert",
 	"航空维修计划专家":  "mx-planning-expert",
 }
 

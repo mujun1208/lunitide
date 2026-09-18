@@ -32,7 +32,7 @@ func (e *Engine) startOfficeArchive(ctx context.Context, sessionID string) {
 	if e.officeStudio == nil || !e.officeCapabilities().Studio {
 		return
 	}
-	org, _, err := e.boundOrgState(ctx)
+	_, org, err := e.withOfficeSessionScope(ctx, sessionID)
 	if err != nil {
 		return
 	}
