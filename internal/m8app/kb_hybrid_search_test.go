@@ -200,4 +200,3 @@ func TestKBEmbedHappensAfterCommit(t *testing.T) {
 		t.Fatal("D-E5 second transaction must persist embedding")
 	}
 }
-

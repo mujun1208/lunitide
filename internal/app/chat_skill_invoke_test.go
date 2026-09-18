@@ -63,7 +63,9 @@ func runSkillInvokeChat(t *testing.T, stub *skillInvokeRecordingStub, mode execu
 	t.Helper()
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
 	e.skills = stub
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return &skillInvokeAdapter{}, nil })
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
+		return &skillInvokeAdapter{}, nil
+	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	state := &streamState{cancel: cancel, state: streamRunning}

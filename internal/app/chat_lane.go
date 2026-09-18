@@ -8,6 +8,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/llmadapter"
+	"github.com/lunitide/lunitide/internal/videounderstand"
 )
 
 type ChatLane string
@@ -74,6 +75,15 @@ func classifyChatLane(in LaneInput) ChatLane {
 	if laneLooksLikeAgentTurn(goal) {
 		return LaneL4
 	}
+	if capabilityWorkTask(goal) {
+		return LaneL3
+	}
+	if mediaGenerationKind(goal) != "" {
+		return LaneL3
+	}
+	if laneLooksLikeExternalUnderstand(goal) {
+		return LaneL3
+	}
 	if laneLooksLikeResearch(goal) {
 		return LaneL3
 	}
@@ -90,7 +100,7 @@ func classifyChatLane(in LaneInput) ChatLane {
 	if laneLooksLikeVagueTask(goal) {
 		return LaneL2Ask
 	}
-	if laneLooksLikeProse(goal) {
+	if laneLooksLikeInPlaceProse(goal) {
 		return LaneL1
 	}
 	return LaneL1
@@ -139,7 +149,42 @@ func laneLooksLikeVagueTask(goal string) bool {
 }
 
 func laneLooksLikeProse(goal string) bool {
-	for _, needle := range []string{"写", "润色", "总结", "扩写", "翻译", "改写"} {
+	return laneLooksLikeInPlaceProse(goal)
+}
+
+// In-place polish/translate of provided text. Creating skills, summarizing
+// URLs, and office deliverables are not L1 even if the sentence contains 写/总结.
+func laneLooksLikeInPlaceProse(goal string) bool {
+	if capabilityWorkTask(goal) || laneLooksLikeExternalUnderstand(goal) || mediaGenerationKind(goal) != "" {
+		return false
+	}
+	if laneLooksLikeOfficeDeliverable(goal) {
+		return false
+	}
+	for _, needle := range []string{"润色", "扩写", "翻译", "改写", "把这段"} {
+		if strings.Contains(goal, needle) {
+			return true
+		}
+	}
+	if strings.Contains(goal, "写一篇") || strings.Contains(goal, "写一段") {
+		return true
+	}
+	if strings.Contains(goal, "总结这段") || strings.Contains(goal, "总结一下这段") {
+		return true
+	}
+	return false
+}
+
+func laneLooksLikeExternalUnderstand(goal string) bool {
+	if _, _, ok := videounderstand.DetectShareURL(goal); ok {
+		return true
+	}
+	lower := strings.ToLower(goal)
+	hasURL := strings.Contains(lower, "http://") || strings.Contains(lower, "https://")
+	if !hasURL {
+		return false
+	}
+	for _, needle := range []string{"总结", "解读", "解析", "分析", "看看", "帮我看", "视频"} {
 		if strings.Contains(goal, needle) {
 			return true
 		}
@@ -268,6 +313,12 @@ func hasAsAbovePointer(t string) bool {
 func applyLaneOverrides(lane ChatLane, in LaneInput, route TaskRoute, overlay CouncilOverlay) (ChatLane, LaneContract) {
 	goal := chatRoutingText(in.Goal)
 	materials := in.HasTurnMaterials || hasTurnMaterials(goal, false, false)
+	if capabilityWorkTask(goal) && lane != LaneL4 && lane != LaneL0 {
+		lane = LaneL3
+	}
+	if laneLooksLikeExternalUnderstand(goal) && lane != LaneL4 && lane != LaneL0 {
+		lane = LaneL3
+	}
 	if route == RouteR2 || route == RouteR3 {
 		lane = LaneL4
 	}
@@ -281,6 +332,9 @@ func applyLaneOverrides(lane ChatLane, in LaneInput, route TaskRoute, overlay Co
 		} else {
 			lane = LaneL1
 		}
+	}
+	if mediaGenerationKind(goal) != "" && lane != LaneL4 && lane != LaneL0 {
+		lane = LaneL3
 	}
 	if laneWantsForcedSearch(goal) && lane != LaneL4 && lane != LaneL0 {
 		if laneLooksLikeOfficeDeliverable(goal) || laneLooksLikeProse(goal) {

@@ -15,8 +15,8 @@ import (
 )
 
 type guiStreamAdapter struct {
-	mu    sync.Mutex
-	round int
+	mu        sync.Mutex
+	round     int
 	failTwice bool
 }
 

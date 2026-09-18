@@ -231,8 +231,9 @@ export function OCRRouting({
   const value = providerId && modelId ? `${providerId}\u0000${modelId}` : ''
   const packReady = pack?.available === true
   const state = progress?.state
-  const ready = packReady || state === 'ready'
-  const failed = state === 'failed'
+  const ready = packReady
+  const incomplete = state === 'ready' && !packReady
+  const failed = state === 'failed' || incomplete
   const downloading = (busy || state === 'downloading') && !ready && !failed
   const sizeLabel = downloadBytes > 0 ? megabytes(downloadBytes) : '28 MB'
   const packDesc = packReady
@@ -240,7 +241,7 @@ export function OCRRouting({
     : downloading && progress && progress.totalBytes > 0
       ? `正在下载：${progress.percent}% · ${megabytes(progress.doneBytes)} / ${megabytes(progress.totalBytes)}${progress.file ? ` · ${progress.file}` : ''}`
       : failed
-        ? `下载失败：${progress?.lastError || '未知原因'}。可重试。`
+        ? `下载失败：${progress?.lastError || (incomplete ? '安装包还不能运行，请重试。' : '未知原因')}。可重试。`
         : `约 ${sizeLabel}，点按钮下载安装。不是随安装包附带。`
 
   const localHint = localReady

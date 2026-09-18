@@ -69,16 +69,14 @@ it('installs needsArgs presets with argDefault without a path picker', async () 
   expect(screen.queryByLabelText('Filesystem 参数')).not.toBeInTheDocument()
 })
 
-it('expands placeholder input before installing a needsArgs preset', async () => {
+it('refuses a needsArgs preset that cannot one-click install', async () => {
   const bridge = api()
   render(<McpPage bridge={bridge} />)
   await screen.findByText('Filesystem')
   fireEvent.click(screen.getByRole('button', { name: '安装 Filesystem' }))
   expect(bridge.add).not.toHaveBeenCalled()
-  fireEvent.change(await screen.findByLabelText('Filesystem 参数'), { target: { value: 'E:\\proj\\demo' } })
-  fireEvent.click(screen.getByRole('button', { name: '安装' }))
-  await waitFor(() => expect(bridge.add).toHaveBeenCalledOnce())
-  expect(vi.mocked(bridge.add).mock.calls[0][0].args).toEqual(['-y', '@modelcontextprotocol/server-filesystem', 'E:/proj/demo'])
+  expect(await screen.findByRole('alert')).toHaveTextContent('无法一键安装')
+  expect(screen.queryByLabelText('Filesystem 参数')).not.toBeInTheDocument()
 })
 
 it('labels a curated install with its preset id', async () => {
@@ -230,21 +228,20 @@ it('reports connection failure after registration and refreshes the actual endpo
  expect(bridge.list).toHaveBeenCalledTimes(2)
 })
 
-it('saves an authenticated remote preset before probing and opens local credential setup',async()=>{
- const remote={id:'juhe-query',name:'聚合日常查询',description:'官方接口',transport:'https' as const,command:'' as const,args:[],needsArgs:false,needsCredential:true,url:'https://mcp.juhe.cn/mcp?token={{credential}}',category:'网络'}
- const saved={endpointId:'mcp-1',transport:'https' as const,url:remote.url,state:'probe' as const,enabled:false,securityVersion:0,displayName:remote.name}
- const bridge=api({presets:vi.fn().mockResolvedValue({items:[remote]}),list:vi.fn().mockResolvedValueOnce({endpoints:[]}).mockResolvedValue({endpoints:[saved]}),credentialSet:vi.fn().mockResolvedValue({configured:true,securityVersion:1})})
- render(<McpPage bridge={bridge}/>);fireEvent.click(await screen.findByRole('button',{name:'安装 聚合日常查询'}))
+it('lets a leftover remote MCP configure credentials without staying in the market',async()=>{
+ const saved={endpointId:'mcp-1',transport:'https' as const,url:'https://mcp.juhe.cn/mcp?token={{credential}}',state:'probe' as const,enabled:false,securityVersion:0,displayName:'聚合日常查询'}
+ const bridge=api({list:vi.fn().mockResolvedValue({endpoints:[saved]}),credentialSet:vi.fn().mockResolvedValue({configured:true,securityVersion:1})})
+ render(<McpPage bridge={bridge}/>)
+ fireEvent.click(await screen.findByRole('tab',{name:'已安装（1）'}))
+ fireEvent.click(await screen.findByRole('button',{name:'凭据'}))
  await screen.findByRole('dialog',{name:'MCP 凭据'})
- expect(bridge.add).toHaveBeenCalledWith(expect.objectContaining({transport:'https',url:remote.url,configureOnly:true}))
- expect(bridge.toggle).not.toHaveBeenCalled();expect(bridge.health).not.toHaveBeenCalled()
  fireEvent.change(screen.getByLabelText('MCP 凭据值'),{target:{value:'fixture-token'}});fireEvent.click(screen.getByText('保存凭据'))
  await waitFor(()=>expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
  expect(bridge.credentialSet).toHaveBeenCalledWith(expect.objectContaining({endpointId:'mcp-1',credential:'fixture-token',expectedVersion:0}))
  fireEvent.click(screen.getByRole('button',{name:'重新连接'}))
  await waitFor(()=>expect(bridge.toggle).toHaveBeenCalledWith({endpointId:'mcp-1',enabled:true}))
  fireEvent.click(screen.getByRole('tab',{name:/MCP 市场/}))
- expect(screen.getByRole('button',{name:'卸载 聚合日常查询'})).toBeInTheDocument()
+ expect(screen.queryByText('聚合日常查询')).not.toBeInTheDocument()
 })
 
 it('manual remote JSON saves configuration even when the server needs credentials',async()=>{
@@ -260,7 +257,7 @@ it('shows the reconnect diagnostic instead of treating a degraded probe as a suc
  const bridge=api({list:vi.fn().mockResolvedValue({endpoints:[{...memoryEndpoint,state:'degraded'}]}),health:vi.fn().mockResolvedValue({state:'degraded',driftDetected:false,checkedAt:'2026-09-07T00:00:00Z',diagnosticCode:'MCP_DEPENDENCY_FAILED',diagnosticMessage:'本地 Python 或软件依赖未能准备完成，请检查运行环境。'})})
  render(<McpPage bridge={bridge}/>);fireEvent.click(await screen.findByRole('tab',{name:'已安装（1）'}))
  fireEvent.click(await screen.findByRole('button',{name:'重新连接'}))
- expect(await screen.findByRole('alert')).toHaveTextContent('本地 Python 或软件依赖未能准备完成')
+ expect(await screen.findByRole('alert')).toHaveTextContent('Memory：本地 Python 或软件依赖未能准备完成')
  expect(screen.queryByText('Memory：连接异常')).not.toBeInTheDocument()
 })
 it('does not show raw English list failures',async()=>{
@@ -269,9 +266,16 @@ it('does not show raw English list failures',async()=>{
  expect(screen.queryByText('Failed to fetch')).toBeNull()
 })
 
-it('explains the OAuth requirement on a legacy Google Drive installation and links official setup',async()=>{
- const bridge=api({presets:vi.fn().mockResolvedValue({items:[{id:'gdrive',name:'Google Drive',description:'文件检索',transport:'stdio',command:'npx',args:['-y','@modelcontextprotocol/server-gdrive'],needsArgs:false,category:'文件',needsCredential:true,credentialEnvs:['GDRIVE_CREDENTIALS_PATH'],setupUrl:'https://github.com/modelcontextprotocol/servers-archived/tree/main/src/gdrive'}]}),list:vi.fn().mockResolvedValue({endpoints:[{...memoryEndpoint,displayName:'Google Drive',args:['-y','@modelcontextprotocol/server-gdrive','C:/old/folder'],state:'degraded',credentialConfigured:false}]})})
+it('explains the OAuth requirement on a leftover Google Drive installation',async()=>{
+ const bridge=api({list:vi.fn().mockResolvedValue({endpoints:[{...memoryEndpoint,displayName:'Google Drive',args:['-y','@modelcontextprotocol/server-gdrive','C:/old/folder'],state:'degraded',credentialConfigured:false}]})})
  render(<McpPage bridge={bridge}/>);fireEvent.click(await screen.findByRole('tab',{name:'已安装（1）'}))
  expect(await screen.findByText(/普通文件目录不能代替授权/)).toBeInTheDocument()
  expect(screen.getByRole('link',{name:'官方配置说明'})).toHaveAttribute('href','https://github.com/modelcontextprotocol/servers-archived/tree/main/src/gdrive')
+})
+
+it('names a broken install when displayName is empty',async()=>{
+ const bridge=api({list:vi.fn().mockResolvedValue({endpoints:[{...memoryEndpoint,displayName:'',command:'',args:[],endpointId:'',state:'degraded'}]})})
+ render(<McpPage bridge={bridge}/>)
+ fireEvent.click(await screen.findByRole('tab',{name:'已安装（1）'}))
+ expect(await screen.findByText('未命名 MCP')).toBeInTheDocument()
 })

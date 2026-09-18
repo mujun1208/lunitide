@@ -1,3 +1,5 @@
+import { skillSourceDirectory } from './githubSkillSource'
+
 export interface RemoteSkillSource {
   id: string
   name: string
@@ -67,6 +69,42 @@ export interface RemoteSkillHit {
   slug: string
   title: string
   summary: string
+  directory: string
+}
+
+function enrichListedSkills(source: RemoteSkillSource, listed: Array<{ slug: string; title: string; summary: string; path?: string }>) {
+  const known = new Map(source.skills.map(skill => [skill.slug, skill]))
+  const seen = new Set<string>()
+  const out = listed.map(skill => {
+    seen.add(skill.slug)
+    const bundled = known.get(skill.slug)
+    return bundled ? { ...skill, title: bundled.title, summary: bundled.summary } : skill
+  })
+  for (const skill of source.skills) {
+    if (seen.has(skill.slug)) continue
+    out.push({ slug: skill.slug, title: skill.title, summary: skill.summary, path: skill.slug })
+  }
+  return out
+}
+
+function skillMatchesQuery(q: string, source: RemoteSkillSource, skill: { slug: string; title: string; summary: string }): boolean {
+  return source.name.toLowerCase().includes(q)
+    || source.description.toLowerCase().includes(q)
+    || skill.slug.toLowerCase().includes(q)
+    || skill.title.toLowerCase().includes(q)
+    || skill.summary.toLowerCase().includes(q)
+}
+
+function toHit(source: RemoteSkillSource, skill: { slug: string; title: string; summary: string; path?: string }): RemoteSkillHit {
+  return {
+    sourceId: source.id,
+    sourceName: source.name,
+    repo: source.repo,
+    slug: skill.slug,
+    title: skill.title,
+    summary: skill.summary,
+    directory: skillSourceDirectory(source.contentsUrl, skill.slug, skill.path),
+  }
 }
 
 export function searchLocalRemoteSkills(query: string): RemoteSkillHit[] {
@@ -74,11 +112,8 @@ export function searchLocalRemoteSkills(query: string): RemoteSkillHit[] {
   if (!q) return []
   const hits: RemoteSkillHit[] = []
   for (const source of REMOTE_SKILL_SOURCES) {
-    const sourceHit = source.name.toLowerCase().includes(q) || source.description.toLowerCase().includes(q)
     for (const skill of source.skills) {
-      if (sourceHit || skill.slug.toLowerCase().includes(q) || skill.title.toLowerCase().includes(q) || skill.summary.toLowerCase().includes(q)) {
-        hits.push({ sourceId: source.id, sourceName: source.name, repo: source.repo, slug: skill.slug, title: skill.title, summary: skill.summary })
-      }
+      if (skillMatchesQuery(q, source, skill)) hits.push(toHit(source, skill))
     }
   }
   return hits
@@ -105,15 +140,15 @@ interface GitHubContent {
   path?: string
 }
 
-async function listRepoSkills(source: RemoteSkillSource): Promise<Array<{ slug: string; title: string; summary: string }>> {
+async function listRepoSkills(source: RemoteSkillSource): Promise<Array<{ slug: string; title: string; summary: string; path?: string }>> {
   const response = await fetch(source.contentsUrl, { headers: { Accept: 'application/vnd.github+json' } })
   if (!response.ok) throw new Error(String(response.status))
   const rows = await response.json() as GitHubContent[]
   if (!Array.isArray(rows)) throw new Error('not a directory listing')
-  const skills: Array<{ slug: string; title: string; summary: string }> = []
+  const skills: Array<{ slug: string; title: string; summary: string; path?: string }> = []
   for (const row of rows) {
     if (row.type !== 'dir' || !row.name || row.name.startsWith('.')) continue
-    skills.push({ slug: row.name, title: row.name, summary: `${source.name} / ${row.path || row.name}` })
+    skills.push({ slug: row.name, title: row.name, summary: `${source.name} / ${row.path || row.name}`, path: row.path || row.name })
   }
   if (skills.length === 0) throw new Error('empty listing')
   return skills
@@ -121,7 +156,7 @@ async function listRepoSkills(source: RemoteSkillSource): Promise<Array<{ slug: 
 
 const SKILL_INDEX_CACHE = 'lunitide:remote-skill-index'
 
-type CachedSkillListing = { sourceId: string; skills: Array<{ slug: string; title: string; summary: string }> }
+type CachedSkillListing = { sourceId: string; skills: Array<{ slug: string; title: string; summary: string; path?: string }> }
 
 function saveSkillIndexCache(listings: CachedSkillListing[]): void {
   try {
@@ -149,11 +184,8 @@ function searchCachedSkills(query: string): RemoteSkillHit[] {
   for (const listing of cached) {
     const source = byId.get(listing.sourceId)
     if (!source) continue
-    const sourceHit = source.name.toLowerCase().includes(q) || source.description.toLowerCase().includes(q)
-    for (const skill of listing.skills) {
-      if (sourceHit || skill.slug.toLowerCase().includes(q) || skill.title.toLowerCase().includes(q) || skill.summary.toLowerCase().includes(q)) {
-        hits.push({ sourceId: source.id, sourceName: source.name, repo: source.repo, slug: skill.slug, title: skill.title, summary: skill.summary })
-      }
+    for (const skill of enrichListedSkills(source, listing.skills)) {
+      if (skillMatchesQuery(q, source, skill)) hits.push(toHit(source, skill))
     }
   }
   return hits
@@ -163,15 +195,12 @@ export async function searchRemoteSkillsLive(query: string): Promise<RemoteSkill
   const q = query.trim().toLowerCase()
   if (!q) return { hits: [], fallback: false }
   try {
-    const listings = await Promise.all(REMOTE_SKILL_SOURCES.map(async source => ({ source, skills: await listRepoSkills(source) })))
+    const listings = await Promise.all(REMOTE_SKILL_SOURCES.map(async source => ({ source, skills: enrichListedSkills(source, await listRepoSkills(source)) })))
     saveSkillIndexCache(listings.map(item => ({ sourceId: item.source.id, skills: item.skills })))
     const hits: RemoteSkillHit[] = []
     for (const { source, skills } of listings) {
-      const sourceHit = source.name.toLowerCase().includes(q) || source.description.toLowerCase().includes(q)
       for (const skill of skills) {
-        if (sourceHit || skill.slug.toLowerCase().includes(q) || skill.title.toLowerCase().includes(q) || skill.summary.toLowerCase().includes(q)) {
-          hits.push({ sourceId: source.id, sourceName: source.name, repo: source.repo, slug: skill.slug, title: skill.title, summary: skill.summary })
-        }
+        if (skillMatchesQuery(q, source, skill)) hits.push(toHit(source, skill))
       }
     }
     return { hits, fallback: false }

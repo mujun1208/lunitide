@@ -47,6 +47,40 @@ it('renders empty state initially', async () => {
   expect(bridge.list).toHaveBeenCalled()
 })
 
+it('opens GitHub import without a SHA field and enables reading from a repository URL', async () => {
+  render(<SkillPage bridge={api({ catalogList: vi.fn().mockResolvedValue({ items: [catalogEntry] }) })} />)
+  fireEvent.click(screen.getByRole('button', { name: '添加技能' }))
+  fireEvent.click(screen.getByRole('button', { name: /从 GitHub 导入/ }))
+  expect(await screen.findByRole('dialog', { name: '从 GitHub 导入技能' })).toBeInTheDocument()
+  expect(screen.queryByLabelText(/SHA/i)).toBeNull()
+  expect(screen.getByRole('button', { name: '读取技能' })).toBeDisabled()
+  fireEvent.change(screen.getByLabelText('GitHub 仓库或技能目录 URL'), { target: { value: 'https://github.com/mattpocock/skills' } })
+  expect(screen.getByRole('button', { name: '读取技能' })).toBeEnabled()
+})
+
+it('opens import approval with the remote skill directory and no SHA field', async () => {
+  vi.stubGlobal('fetch', () => Promise.reject(new Error('offline')))
+  render(<SkillPage bridge={api({ catalogList: vi.fn().mockResolvedValue({ items: [catalogEntry] }) })} />)
+  fireEvent.change(screen.getByPlaceholderText('名称、分类或来源'), { target: { value: 'review' } })
+  fireEvent.click(await screen.findByRole('button', { name: '导入 Review' }))
+  expect(screen.getByRole('dialog', { name: '从 GitHub 导入技能' })).toBeInTheDocument()
+  expect(screen.getByLabelText('GitHub 仓库或技能目录 URL')).toHaveValue('https://github.com/mattpocock/skills')
+  expect(screen.getByLabelText('技能子目录')).toHaveValue('review')
+  expect(screen.queryByLabelText(/SHA/i)).toBeNull()
+  expect(screen.getByRole('button', { name: '读取技能' })).toBeEnabled()
+})
+
+it('opens weekly-report import approval with the skill subdirectory', async () => {
+  vi.stubGlobal('fetch', () => Promise.reject(new Error('offline')))
+  render(<SkillPage bridge={api({ catalogList: vi.fn().mockResolvedValue({ items: [catalogEntry] }) })} />)
+  fireEvent.change(screen.getByPlaceholderText('名称、分类或来源'), { target: { value: '周报' } })
+  fireEvent.click(await screen.findByRole('button', { name: '导入 周报' }))
+  expect(screen.getByLabelText('GitHub 仓库或技能目录 URL')).toHaveValue('https://github.com/anbeime/skill')
+  expect(screen.getByLabelText('技能子目录')).toHaveValue('weekly-report')
+  expect(screen.queryByLabelText(/SHA/i)).toBeNull()
+  expect(screen.getByRole('button', { name: '读取技能' })).toBeEnabled()
+})
+
 it('keeps the file input alive after closing the add menu and uploads a real ZIP as a draft', async () => {
   vi.stubGlobal('crypto', webcrypto)
   let imported = false

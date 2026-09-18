@@ -62,8 +62,11 @@ func putFrame(m map[string]any, frameID string) {
 }
 
 // MaxComputerActSteps is the longest named sequence one computer.act call
-// may run without another model turn. Longer work stays step-by-step.
-const MaxComputerActSteps = 5
+// may run without another model turn. Every step still passes the risk gate
+// and is verified by screen change, and the chain stops at the first failed
+// step, so a longer budget only removes model round-trips on routine
+// focus→click→type→click→verify flows. Longer work stays step-by-step.
+const MaxComputerActSteps = 8
 
 // ComputerActSteps returns the inner payloads when action=run (or batch)
 // carries steps. A single action with no steps returns nil, nil.

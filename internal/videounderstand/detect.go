@@ -13,33 +13,35 @@ const (
 	PlatformDouyin   Platform = "douyin"
 	PlatformTencent  Platform = "tencent"
 	PlatformYouTube  Platform = "youtube"
+	PlatformWeixin   Platform = "weixin"
 	PlatformDirect   Platform = "direct_video"
 )
 
 const Disclaimer = "这不是逐帧看完视频。根据公开字幕/页面简介整理。"
 
 var shareHosts = map[string]Platform{
-	"bilibili.com":      PlatformBilibili,
-	"www.bilibili.com":  PlatformBilibili,
-	"m.bilibili.com":    PlatformBilibili,
-	"b23.tv":            PlatformBilibili,
-	"douyin.com":        PlatformDouyin,
-	"www.douyin.com":    PlatformDouyin,
-	"v.douyin.com":      PlatformDouyin,
-	"iesdouyin.com":     PlatformDouyin,
-	"www.iesdouyin.com": PlatformDouyin,
-	"v.qq.com":          PlatformTencent,
-	"video.qq.com":      PlatformTencent,
-	"m.v.qq.com":        PlatformTencent,
-	"youtube.com":       PlatformYouTube,
-	"www.youtube.com":   PlatformYouTube,
-	"m.youtube.com":     PlatformYouTube,
-	"youtu.be":          PlatformYouTube,
+	"bilibili.com":           PlatformBilibili,
+	"www.bilibili.com":       PlatformBilibili,
+	"m.bilibili.com":         PlatformBilibili,
+	"b23.tv":                 PlatformBilibili,
+	"douyin.com":             PlatformDouyin,
+	"www.douyin.com":         PlatformDouyin,
+	"v.douyin.com":           PlatformDouyin,
+	"iesdouyin.com":          PlatformDouyin,
+	"www.iesdouyin.com":      PlatformDouyin,
+	"v.qq.com":               PlatformTencent,
+	"video.qq.com":           PlatformTencent,
+	"m.v.qq.com":             PlatformTencent,
+	"youtube.com":            PlatformYouTube,
+	"www.youtube.com":        PlatformYouTube,
+	"m.youtube.com":          PlatformYouTube,
+	"youtu.be":               PlatformYouTube,
+	"channels.weixin.qq.com": PlatformWeixin,
 }
 
 var (
 	httpURLRe = regexp.MustCompile(`(?i)https?://[^\s<>"'，。；、]+`)
-	bareURLRe = regexp.MustCompile(`(?i)(?:^|[\s])((?:b23\.tv|v\.douyin\.com|youtu\.be|(?:www\.|m\.)?bilibili\.com|(?:www\.)?douyin\.com|(?:www\.)?iesdouyin\.com|v\.qq\.com|video\.qq\.com|m\.v\.qq\.com|(?:www\.|m\.)?youtube\.com)/[^\s<>"'，。；、]+)`)
+	bareURLRe = regexp.MustCompile(`(?i)(?:^|[\s])((?:b23\.tv|v\.douyin\.com|youtu\.be|(?:www\.|m\.)?bilibili\.com|(?:www\.)?douyin\.com|(?:www\.)?iesdouyin\.com|v\.qq\.com|video\.qq\.com|m\.v\.qq\.com|(?:www\.|m\.)?youtube\.com|(?:www\.)?weixin\.qq\.com|channels\.weixin\.qq\.com)/[^\s<>"'，。；、]+)`)
 )
 
 // DetectShareURL finds the first allowlisted video share URL in goal.
@@ -106,7 +108,10 @@ func ClassifyShareURL(raw string) (canonical string, platform Platform, ok bool)
 	if err != nil {
 		return "", "", false
 	}
-	plat, ok := SharePlatform(u.Hostname())
+	plat, ok := weixinShare(u)
+	if !ok {
+		plat, ok = SharePlatform(u.Hostname())
+	}
 	if !ok {
 		return "", "", false
 	}
@@ -147,6 +152,20 @@ func SharePlatform(host string) (Platform, bool) {
 	return plat, ok
 }
 
+func weixinShare(u *url.URL) (Platform, bool) {
+	host := canonicalHost(u.Hostname())
+	path := strings.ToLower(u.Path)
+	if host == "channels.weixin.qq.com" {
+		return PlatformWeixin, true
+	}
+	if host == "weixin.qq.com" || host == "www.weixin.qq.com" {
+		if strings.Contains(path, "/sph/") || strings.HasPrefix(path, "/sph") {
+			return PlatformWeixin, true
+		}
+	}
+	return "", false
+}
+
 func canonicalHost(host string) string {
 	host = strings.ToLower(strings.TrimSpace(host))
 	if h, _, ok := strings.Cut(host, ":"); ok && h != "" {
@@ -162,6 +181,9 @@ func canonicalHost(host string) string {
 func CaptionHostOK(host string) bool {
 	host = canonicalHost(host)
 	if _, ok := SharePlatform(host); ok {
+		return true
+	}
+	if host == "weixin.qq.com" || host == "www.weixin.qq.com" {
 		return true
 	}
 	return strings.HasSuffix(host, ".hdslb.com")

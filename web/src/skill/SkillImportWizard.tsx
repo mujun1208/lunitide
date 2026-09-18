@@ -3,18 +3,29 @@ import { asUserBridgeError } from '../bridge/bridgeUserError'
 import { BridgeClientError, createMutationAttempt, skillImportBridge as defaultSkillImportBridge, type SkillImportBridge, type MutationAttempt, type MutationMethod } from '../bridge/client'
 import type { SkillImportDiscoverResult } from '../generated/bridge'
 import { Dialog } from '../ui/Dialog'
+import { parseGithubSkillSource, pinGithubSkillUrl, resolveGithubCommit } from './githubSkillSource'
 
 function skillImportUserError(err: unknown, fallback: string): string {
   const detail = err instanceof Error ? err.message.trim() : ''
   return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
 }
 const problem = (e: unknown) => e instanceof BridgeClientError ? asUserBridgeError(e, '请求失败') : new BridgeClientError(skillImportUserError(e, '请求失败'), 'CLIENT_ERROR', false, 'renderer')
-type Props = { open: boolean; onClose: () => void; onApproved?: (skillId?: string) => void; bridge?: SkillImportBridge; initialUrl?: string }
+type Props = {
+  open: boolean
+  onClose: () => void
+  onApproved?: (skillId?: string) => void
+  bridge?: SkillImportBridge
+  initialUrl?: string
+  initialDirectory?: string
+  resolveCommit?: typeof resolveGithubCommit
+}
 
-export function SkillImportWizard({ open, onClose, onApproved, bridge = defaultSkillImportBridge, initialUrl = '' }: Props): React.JSX.Element {
+export function SkillImportWizard({
+  open, onClose, onApproved, bridge = defaultSkillImportBridge, initialUrl = '', initialDirectory = '', resolveCommit = resolveGithubCommit,
+}: Props): React.JSX.Element {
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1)
   const [sourceUrl, setSourceUrl] = useState(initialUrl)
-  const [commit, setCommit] = useState('')
+  const [directory, setDirectory] = useState(initialDirectory)
   const [candidate, setCandidate] = useState<SkillImportDiscoverResult | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -27,11 +38,16 @@ export function SkillImportWizard({ open, onClose, onApproved, bridge = defaultS
     return attempt
   }
 
-  useEffect(() => { if (open) setSourceUrl(initialUrl) }, [open, initialUrl])
+  useEffect(() => {
+    if (!open) return
+    setSourceUrl(initialUrl)
+    const parsed = parseGithubSkillSource(initialUrl)
+    setDirectory(initialDirectory || parsed?.directory || '')
+  }, [open, initialUrl, initialDirectory])
   const close = () => {
     if (busy) return
     attempts.current.clear()
-    setStep(1); setSourceUrl(initialUrl); setCommit(''); setCandidate(null); setError(''); onClose()
+    setStep(1); setSourceUrl(initialUrl); setDirectory(initialDirectory); setCandidate(null); setError(''); onClose()
   }
   const perform = async (action: () => Promise<void>) => {
     if (busy) return
@@ -39,10 +55,13 @@ export function SkillImportWizard({ open, onClose, onApproved, bridge = defaultS
     try { await action() } catch (e) { setError(problem(e).message) } finally { setBusy(false) }
   }
   const discover = () => perform(async () => {
-    const payload = { assetType: 'skill' as const, sourceUrl: sourceUrl.trim(), immutableCommit: commit.trim() }
+    const parsed = parseGithubSkillSource(sourceUrl)
+    if (!parsed) throw new Error('请提供 GitHub HTTPS 仓库或技能目录地址')
+    const dir = (directory.trim() || parsed.directory).replace(/^\/+|\/+$/g, '')
+    const sha = parsed.commit || await resolveCommit(parsed.owner, parsed.repo, parsed.ref)
+    const payload = { assetType: 'skill' as const, sourceUrl: pinGithubSkillUrl(parsed.owner, parsed.repo, sha, dir), immutableCommit: sha }
     const result = await bridge.discover(payload, { attempt: attemptFor('skill.import.discover', payload) })
     setCandidate(result)
-    // Reopening an unfinished import resumes the committed step.
     setStep(result.state === 'approved' ? 5 : result.state === 'awaiting_approval' ? 4 : result.state === 'inspected' ? 3 : 2)
     if (result.state === 'approved') onApproved?.(result.skillId)
   })
@@ -65,20 +84,19 @@ export function SkillImportWizard({ open, onClose, onApproved, bridge = defaultS
     setCandidate({ ...candidate, ...result }); setStep(5); onApproved?.(result.skillId)
   })
 
-  return <Dialog open={open} title="从 GitHub 导入技能" description="读取固定提交 → 校验文件 → 静态检查 → 导入草稿" onClose={close} wide>
+  return <Dialog open={open} title="从 GitHub 导入技能" description="读取仓库 → 校验文件 → 静态检查 → 导入草稿" onClose={close} wide>
     <div className="skill-import-wizard">
       <p className="gate-note">支持公开仓库中的标准 SKILL.md（含 name、description 和正文）。只导入说明正文，不安装或执行仓库脚本；导入后先保存为只读权限的草稿。</p>
       {step === 1 && <>
         <label>GitHub 仓库或技能目录 URL<input value={sourceUrl} onChange={e => setSourceUrl(e.target.value)} placeholder="https://github.com/org/repo" /></label>
-        <label>固定提交 SHA<input value={commit} onChange={e => setCommit(e.target.value)} placeholder="40 位小写提交 SHA" /></label>
-        <p className="gate-note">子目录使用 /tree/同一提交SHA/目录。归档最多 8 MiB，解压内容最多 32 MiB，SKILL.md 最多 48 KiB。未完成的导入可用相同地址和提交继续。</p>
-        <div className="dialog-actions"><button disabled={busy} onClick={close}>取消</button><button className="primary" disabled={busy || !sourceUrl.trim() || !/^[0-9a-f]{40}$/.test(commit.trim())} onClick={() => void discover()}>{busy ? '读取中…' : '读取技能'}</button></div>
+        <label>技能子目录<input value={directory} onChange={e => setDirectory(e.target.value)} placeholder="例如 review，可留空" /></label>
+        <p className="gate-note">读取时会自动锁定仓库当前提交。技能在子目录中时填写目录名。归档最多 8 MiB，解压内容最多 32 MiB，SKILL.md 最多 48 KiB。未完成的导入可用相同地址继续。</p>
+        <div className="dialog-actions"><button disabled={busy} onClick={close}>取消</button><button className="primary" disabled={busy || !sourceUrl.trim()} onClick={() => void discover()}>{busy ? '读取中…' : '读取技能'}</button></div>
       </>}
       {candidate?.summary && <div className="gate-note">
         <b>{candidate.summary.name}</b><p>{candidate.summary.description}</p>
         <p>许可证：{candidate.summary.license === 'unknown' ? '未知（仓库未提供可识别的许可证文件）' : candidate.summary.license}</p>
         <p>未导入的其他文件：{candidate.summary.skippedFiles} 个</p>
-        <details><summary>源文件校验值</summary><code>{candidate.summary.archiveHash}</code></details>
       </div>}
       {step === 2 && <div className="dialog-actions"><button disabled={busy} onClick={close}>稍后继续</button><button className="primary" disabled={busy} onClick={() => void inspect()}>{busy ? '校验中…' : '校验固定文件'}</button></div>}
       {step === 3 && <><p className="gate-note">固定文件校验通过。下一步检查正文中的已知指令覆盖和权限绕过标记。</p><div className="dialog-actions"><button disabled={busy} onClick={close}>稍后继续</button><button className="primary" disabled={busy} onClick={() => void submit()}>{busy ? '检查中…' : '运行静态检查'}</button></div></>}

@@ -419,8 +419,8 @@ func TestMcp6PresetsList(t *testing.T) {
 		Items []mcp6.Preset `json:"items"`
 	}
 	m6Payload(t, resp, &out)
-	if len(out.Items) < 30 || len(out.Items) > 48 {
-		t.Fatalf("want curated ~40 live presets, got %d", len(out.Items))
+	if len(out.Items) < 16 || len(out.Items) > 22 {
+		t.Fatalf("want one-click ~18 live presets, got %d", len(out.Items))
 	}
 	byID := make(map[string]mcp6.Preset, len(out.Items))
 	for _, it := range out.Items {
@@ -431,7 +431,7 @@ func TestMcp6PresetsList(t *testing.T) {
 			t.Fatalf("preset %s missing from bridge answer", id)
 		}
 	}
-	for _, archived := range []string{"git", "github", "puppeteer", "sqlite"} {
+	for _, archived := range []string{"git", "github", "puppeteer", "sqlite", "postgres", "gdrive", "tushare", "juhe-query"} {
 		if _, ok := byID[archived]; ok {
 			t.Fatalf("archived preset %s must not appear in bridge catalog", archived)
 		}
@@ -439,14 +439,13 @@ func TestMcp6PresetsList(t *testing.T) {
 	if fs := byID["filesystem"]; !fs.NeedsArgs || fs.ArgPlaceholder != "{{dir}}" || fs.ArgHint == "" || fs.ArgDefault == "" || strings.Contains(fs.ArgDefault, `\`) {
 		t.Fatalf("filesystem preset placeholder contract broken: %+v", fs)
 	}
-	if pg := byID["postgres"]; !pg.NeedsArgs || pg.ArgDefault != "" {
-		t.Fatalf("secret/url presets must not receive a sandbox path default: %+v", pg)
-	}
-	if maps := byID["google-maps"]; !maps.NeedsCredential || maps.NeedsArgs || len(maps.CredentialEnvs) != 1 || maps.CredentialEnvs[0] != "GOOGLE_MAPS_API_KEY" || maps.ArgDefault != "" {
-		t.Fatalf("API-key presets must not receive a sandbox path default: %+v", maps)
-	}
-	if drive := byID["gdrive"]; !drive.NeedsCredential || drive.NeedsArgs || drive.ArgDefault != "" || len(drive.CredentialEnvs) != 1 || drive.CredentialEnvs[0] != "GDRIVE_CREDENTIALS_PATH" {
-		t.Fatalf("gdrive must use an authorized credential file, not an empty sandbox: %+v", drive)
+	for _, it := range out.Items {
+		if it.NeedsCredential || len(it.CredentialEnvs) > 0 {
+			t.Fatalf("one-click catalog leaked credential preset %s", it.ID)
+		}
+		if it.NeedsArgs && it.ID != "filesystem" {
+			t.Fatalf("only filesystem may need a sandbox path, got %s", it.ID)
+		}
 	}
 
 	// End-to-end: each catalog row (placeholder resolved to a benign path)

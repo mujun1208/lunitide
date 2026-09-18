@@ -196,19 +196,19 @@ func ConversationExpertsMatchingIntent(text string) []string {
 }
 
 var conversationIntentAliases = map[string][]string{
-	"ppt-expert":       {"ppt", "pptx", "幻灯片", "演示稿", "路演", "做ppt"},
-	"report-writer":    {"写报告", "工作报告", "说明书", "周报", "调研报告"},
-	"novel-writer":     {"写小说", "写一章", "小说", "剧本", "编剧", "写剧本", "对白"},
-	"excel-maker":      {"excel", "xlsx", "表格", "做表"},
-	"ui-designer":      {"界面设计", "设计稿"},
-	"pm-expert":        {"prd", "用户故事", "产品经理"},
-	"architect-expert": {"系统架构", "c4"},
-	"db-expert":        {"数据库", "schema", "建表"},
-	"mro-expert":                {"机务", "维修手册", "amm", "飞机维修"},
-	"uas-airworthiness-expert":  {"低空", "无人机", "evtol", "适航证", "ccar-92", "实名登记"},
-	"tooling-chemical-expert":   {"扭矩扳手", "校准", "sds", "密封剂", "货架期", "套件备妥"},
-	"parts-expert":              {"航材", "aog", "替代件", "8130", "库存", "采购"},
-	"mx-planning-expert":        {"维修计划", "定检窗口", "c检", "c 检", "工作包", "mpd", "msg-3"},
+	"ppt-expert":               {"ppt", "pptx", "幻灯片", "演示稿", "路演", "做ppt"},
+	"report-writer":            {"写报告", "工作报告", "说明书", "周报", "调研报告"},
+	"novel-writer":             {"写小说", "写一章", "小说", "剧本", "编剧", "写剧本", "对白"},
+	"excel-maker":              {"excel", "xlsx", "表格", "做表"},
+	"ui-designer":              {"界面设计", "设计稿"},
+	"pm-expert":                {"prd", "用户故事", "产品经理"},
+	"architect-expert":         {"系统架构", "c4"},
+	"db-expert":                {"数据库", "schema", "建表"},
+	"mro-expert":               {"机务", "维修手册", "amm", "飞机维修"},
+	"uas-airworthiness-expert": {"低空", "无人机", "evtol", "适航证", "ccar-92", "实名登记"},
+	"tooling-chemical-expert":  {"扭矩扳手", "校准", "sds", "密封剂", "货架期", "套件备妥"},
+	"parts-expert":             {"航材", "aog", "替代件", "8130", "库存", "采购"},
+	"mx-planning-expert":       {"维修计划", "定检窗口", "c检", "c 检", "工作包", "mpd", "msg-3"},
 }
 
 func conversationExpertIntentScore(item CatalogItem, query string) int {

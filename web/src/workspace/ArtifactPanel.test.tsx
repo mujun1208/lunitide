@@ -2,6 +2,10 @@ import{cleanup,fireEvent,render,screen,waitFor}from'@testing-library/react'
 import{afterEach,expect,it,vi}from'vitest'
 import type{ArtifactReviewBridge}from'../bridge/client'
 import{ArtifactPanel,type ArtifactCard}from'./ArtifactPanel'
+
+vi.mock('../session/ChatAudioPlayer',()=>({
+  ChatAudioPlayer:(props:{path:string})=> <article aria-label="可听语音">{props.path}</article>,
+}))
 const P='01ARZ3NDEKTSV4RRFFQ69G5FAV',emptyList={items:[],acceptedPaths:[]}
 afterEach(cleanup)
 const card=(kind:ArtifactCard['kind']='xlsx',path='reports/q3.xlsx'):ArtifactCard=>({callId:`call-${path}`,toolName:'excel.gen',kind,path,content:''})
@@ -47,6 +51,12 @@ expect(await screen.findByText(/完成闭环/)).toBeInTheDocument()
 const fail=bridge(emptyList);render(<ArtifactPanel sessionId={P} artifacts={[card('pptx','deck.pptx')]} bridge={fail.b}/>)
 fireEvent.click(await screen.findByRole('button',{name:'预览'}))
 expect(await screen.findByRole('alert')).toBeInTheDocument()})
+it('plays generated speech in the workspace panel instead of dumping bytes',async()=>{
+  render(<ArtifactPanel sessionId={P} artifacts={[card('audio','song.wav')]} bridge={bridge().b}/>)
+  expect(screen.getByText('朗读')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button',{name:'预览'}))
+  expect(await screen.findByLabelText('可听语音')).toHaveTextContent('song.wav')
+})
 it('exports artifacts to the selected target and validates custom dirs',async()=>{const exportArtifact=vi.fn().mockResolvedValue({exportedPath:'C:/Users/u/Desktop/q3.xlsx',size:1024});const b={list:vi.fn().mockResolvedValue(emptyList),append:vi.fn().mockResolvedValue({ok:true}),preview:vi.fn(),exportArtifact}as unknown as ArtifactReviewBridge
 render(<ArtifactPanel sessionId={P} artifacts={[card()]} bridge={b}/>)
 fireEvent.click(screen.getByRole('button',{name:'导出'}))

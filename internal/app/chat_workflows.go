@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/llmadapter"
@@ -37,7 +38,8 @@ const workflowDesktopOpenClause = "- 打开桌面文件：必须用 desktop.open
 const workflowDesktopTypeClause = "- 在已打开的对话框里填写：有命名输入框时用 desktop.type（after=界面上真实字段名如身份证号码或证件号码，text=要写的内容，需要发送时 submit=true，window=窗口标题）。Word 正文没有命名输入框时改 computer.act：先截图，记下 frameId，再点输入位置后 type，verifyAfter。找不到字段必须对用户说无法执行和原因。写完不要关窗口。\n"
 
 const workflowMediaClause = "- 播放音乐/视频：用 media.play target=foreground（没说歌名或要随机播放时 query=random，不要搜索热门；说了歌手如周杰伦则 query=周杰伦）。工具会启动指定播放器。禁止点收藏或点赞开关。成功以正在播放为准，收到 verified 且 passed=true 后直接报告，不要重复操作。用户说换一种方式/换个播放器时仍用 media.play，改用本机另一个已安装播放器，禁止改用网页或 computer.act。禁止默认打开 music.163.com / YouTube。仅当用户明确要网页版时才用 target=browser。\n" +
-	"- 暂停/下一首：media.play action=pause|next|prev。已打开的播放器暂停后再继续：media.play action=play，不要带歌名或应用名当 query，不要 computer.act 找播放按钮。\n"
+	"- 暂停/下一首：media.play action=pause|next|prev。已打开的播放器暂停后再继续：media.play action=play，不要带歌名或应用名当 query，不要 computer.act 找播放按钮。\n" +
+	"- 生成可听语音/朗读歌词/做一首能在对话里点播放的歌：用 audio.generate。lyrics 或 prompt 必须是要读出的正文或歌词；不要把「帮我生成一首歌」整句送进去。用户没给歌词时先写出歌词再调用。产物会在对话里出现播放器。这是语音合成朗读，不是演唱成曲；产品没有作曲引擎，不要声称已经唱出来。播放本机已有歌曲用 media.play，不要 audio.generate。\n"
 
 const workflowIMClause = "- 发飞书/企微/钉钉/微信/QQ：设置 → 消息通道启用后用 im.send。\n"
 
@@ -169,7 +171,9 @@ func selectWorkflowClauses(text string, lane ChatLane) []string {
 		needDesktopHand = true
 		out = append(out, workflowDesktopTypeClause)
 	}
-	if has("播放", "播歌", "media.play", "暂停", "下一首", "播一", "一首歌", "随便放", "放一首", "放首歌") {
+	if mediaGenerationKind(text) == "audio.generate" || has("朗读这段", "合成语音", "audio.generate") {
+		out = append(out, workflowMediaClause)
+	} else if has("播放", "播歌", "media.play", "暂停", "下一首", "播一", "一首歌", "随便放", "放一首", "放首歌") {
 		needDesktopHand = true
 		out = append(out, workflowMediaClause)
 	}
@@ -194,6 +198,39 @@ func skillDraftOfferMessage() llmadapter.Message {
 	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: "这次多步操作已经跑通。如果值得下次复用，可以调用 skill.create 写成草稿；不会自动上架，用户仍要在技能中心安装。不必每次都创建。"}
 }
 
+func desktopSkillDraftOfferMessage(goal string, receipts []turnToolReceipt) llmadapter.Message {
+	body := "这次桌面操作已经在屏幕上跑通。如果值得下次复用，调用 skill.create 写成草稿（status=draft，不会自动上架）。把下列步骤写进 SKILL.md 操作清单，下次同类任务 skill.invoke 按清单走 desktop.open / computer.act / desktop.type，不要凭记忆重演。"
+	if recipe := formatDesktopSkillRecipe(goal, receipts); recipe != "" {
+		body += "\n\n" + recipe
+	}
+	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: body}
+}
+
+func formatDesktopSkillRecipe(goal string, receipts []turnToolReceipt) string {
+	var b strings.Builder
+	g := strings.TrimSpace(goal)
+	if r := []rune(g); len(r) > 120 {
+		g = string(r[:120]) + "…"
+	}
+	if g != "" {
+		b.WriteString("目标：")
+		b.WriteString(g)
+	}
+	n := 0
+	for _, rec := range receipts {
+		switch rec.Name {
+		case "desktop.open", "computer.act", "desktop.type", "browser.act", "media.play", "im.send", "desktop.quit", "desktop.browse":
+			n++
+			args := strings.TrimSpace(string(rec.Args))
+			if r := []rune(args); len(r) > 160 {
+				args = string(r[:160]) + "…"
+			}
+			fmt.Fprintf(&b, "\n%d. %s %s", n, rec.Name, args)
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
 func shouldOfferSkillDraft(tools []string) bool {
 	created := false
 	mutating := 0
@@ -202,7 +239,7 @@ func shouldOfferSkillDraft(tools []string) bool {
 			created = true
 		}
 		switch name {
-		case "workspace.edit", "workspace.write", "browser.act", "computer.act", "desktop.type", "command.run":
+		case "workspace.edit", "workspace.write", "browser.act", "computer.act", "desktop.type", "desktop.open", "command.run":
 			mutating++
 		default:
 			if strings.HasPrefix(name, "cc.") {
@@ -211,6 +248,63 @@ func shouldOfferSkillDraft(tools []string) bool {
 		}
 	}
 	return !created && mutating >= 3
+}
+
+func desktopMutatingToolCount(tools []string) int {
+	n := 0
+	for _, name := range tools {
+		switch name {
+		case "computer.act", "desktop.type", "desktop.open", "desktop.quit", "desktop.browse", "browser.act", "media.play", "im.send":
+			n++
+		default:
+			if strings.HasPrefix(name, "cc.") {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+func skillCreateAlreadyUsed(tools []string) bool {
+	for _, name := range tools {
+		if name == "skill.create" {
+			return true
+		}
+	}
+	return false
+}
+
+// shouldOfferDesktopSkillDraft remembers a successful GUI / desktop trajectory
+// as a draft skill. A single GUI loop is already a multi-step see→act→verify
+// recipe even if LastTools only shows one computer.act. Failed or blocked
+// screens must not be saved.
+func shouldOfferDesktopSkillDraft(tools []string, guiLoopRuns int, verdict string) bool {
+	if skillCreateAlreadyUsed(tools) {
+		return false
+	}
+	switch verdict {
+	case verdictNotDone, verdictBlocked:
+		return false
+	}
+	if guiLoopRuns >= 1 && (verdict == verdictDone || verdict == "" || verdict == verdictUnclear) {
+		return desktopMutatingToolCount(tools) >= 1
+	}
+	return verdict == verdictDone && desktopMutatingToolCount(tools) >= 2
+}
+
+// shouldOfferAnySkillDraft is the turn-close gate. Failed or blocked desktop
+// work must not fall through to the generic "write a skill" nudge.
+func shouldOfferAnySkillDraft(tools []string, guiLoopRuns int, verdict string, companion bool) (offer, desktop bool) {
+	if companion || skillCreateAlreadyUsed(tools) {
+		return false, false
+	}
+	if verdict == verdictNotDone || verdict == verdictBlocked {
+		return false, false
+	}
+	if shouldOfferDesktopSkillDraft(tools, guiLoopRuns, verdict) {
+		return true, true
+	}
+	return shouldOfferSkillDraft(tools), false
 }
 
 // chatRichMarkdownInstruction tells the model how to format answers the UI can

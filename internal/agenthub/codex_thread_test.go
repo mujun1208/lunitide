@@ -116,6 +116,7 @@ func TestCodexThreadPromptRunsExecWithoutIgnore(t *testing.T) {
 	if err := adapter.Prompt(thread.ID, "user as-is"); err != nil {
 		t.Fatal(err)
 	}
+	waitCodexThreadStatus(t, store, thread.ID, "success")
 	if string(got.Stdin) != "user as-is" {
 		t.Fatalf("stdin = %q, want user text as-is", got.Stdin)
 	}
@@ -166,6 +167,7 @@ func TestCodexThreadPromptStdinIncludesStoredSystem(t *testing.T) {
 	if err := adapter.Prompt(thread.ID, "user as-is"); err != nil {
 		t.Fatal(err)
 	}
+	waitCodexThreadStatus(t, store, thread.ID, "success")
 	stdin := string(got.Stdin)
 	if !strings.Contains(stdin, sceneFix) {
 		t.Fatalf("stdin missing system text: %q", stdin)
@@ -193,6 +195,7 @@ func TestCodexThreadPromptReadsLastMessageFile(t *testing.T) {
 	if err := adapter.Prompt(thread.ID, "hi"); err != nil {
 		t.Fatal(err)
 	}
+	waitCodexThreadStatus(t, store, thread.ID, "success")
 	role, content := loadLastMessage(t, store.db, thread.ID)
 	if role != "assistant" || content != "from last-message" {
 		t.Fatalf("assistant = %s %q", role, content)
@@ -239,6 +242,7 @@ func TestCodexThreadPromptFaultsOnRunError(t *testing.T) {
 	if err := adapter.Prompt(thread.ID, "run me"); err != nil {
 		t.Fatalf("persisted fault must return nil so GetThread can load it: %v", err)
 	}
+	waitCodexThreadStatus(t, store, thread.ID, "faulted")
 	got, err := store.Get(thread.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -297,6 +301,56 @@ func TestCodexThreadCloseCancelsInFlightPrompt(t *testing.T) {
 	if err != nil || got.Status != "cancelled" {
 		t.Fatalf("status = %#v %v", got, err)
 	}
+}
+
+func waitCodexThreadStatus(t *testing.T, store *ThreadStore, id, want string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	var last string
+	for time.Now().Before(deadline) {
+		got, err := store.Get(id)
+		if err == nil {
+			last = got.Status
+			if last == want {
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("thread status=%q want %s", last, want)
+}
+
+func TestCodexThreadPromptReturnsBeforeExecFinishes(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "codex", "Exec", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	adapter := NewCodexThread(store)
+	adapter.look = func(string) (string, error) { return `C:\fake-codex.exe`, nil }
+	adapter.start = func(ctx context.Context, spec ProcSpec, onLine func(string)) (int64, bool, error) {
+		close(started)
+		<-ctx.Done()
+		return 0, false, ctx.Err()
+	}
+	done := make(chan error, 1)
+	go func() { done <- adapter.Prompt(thread.ID, "long") }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("prompt must return once the turn is running: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("prompt blocked until exec finished")
+	}
+	<-started
+	got, err := store.Get(thread.ID)
+	if err != nil || got.Status != "running" {
+		t.Fatalf("status = %#v %v", got, err)
+	}
+	_ = adapter.Close(thread.ID)
 }
 
 func TestCodexThreadRespondErrors(t *testing.T) {

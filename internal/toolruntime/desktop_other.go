@@ -9,3 +9,5 @@ func pickStartMenuShortcut(string) (string, []string, error) {
 }
 
 func lookupUninstallExecutables(knownLaunchApp) []string { return nil }
+
+func listStartMenuShortcutNames() []string { return nil }

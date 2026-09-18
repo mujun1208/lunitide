@@ -114,11 +114,10 @@ func (e *Engine) executeOfficeTool(ctx context.Context, sessionID, name string, 
 	if decodePayload(args, &p) != nil {
 		return nil, "", "", domain.ErrInvalid
 	}
-	orgID, _, err := e.boundOrgState(ctx)
+	ctx, orgID, err := e.withOfficeSessionScope(ctx, sessionID)
 	if err != nil {
 		return nil, "", "", err
 	}
-	ctx = domain.WithScope(ctx, orgID)
 	s := e.officeStudio
 	if s == nil || (!e.officeCapabilities().Studio && name != "office.inspect") {
 		return nil, "", "", fmt.Errorf("FEATURE_DISABLED: 办公文件生成和修改已关闭")
@@ -143,7 +142,7 @@ func (e *Engine) executeOfficeTool(ctx context.Context, sessionID, name string, 
 				b, _ := json.Marshal(map[string]any{"taskId": "", "heads": []domain.Head{}, "versions": []domain.Version{}, "notice": "当前会话尚无办公任务或文件；检查不会自动创建任务。"})
 				return nil, "", string(b), nil
 			}
-			task, err = s.Store.CreateOfficeTask(ctx, domain.Task{SessionID: sessionID, Title: "办公文件", Status: "draft"}, "office-chat-"+sessionID)
+			task, err = s.Store.CreateOfficeTask(ctx, domain.Task{SessionID: sessionID, Title: "办公文件", Status: "draft"}, officeChatTaskKey(sessionID, orgID))
 		}
 	}
 	if err != nil {

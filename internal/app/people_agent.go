@@ -698,6 +698,8 @@ func (e *Engine) runPeopleAgentTool(ctx context.Context, sessionID string, agent
 		r, err = e.invokeBrowserAct(ctx, peopleAgentExecutionMode(), sessionID, call.Arguments)
 	case "image.generate", "video.generate":
 		r, err = e.invokeMediaGenerate(ctx, sessionID, call.Name, call.Arguments)
+	case "audio.generate":
+		r, err = e.invokeAudioGenerate(ctx, sessionID, call.Arguments)
 	default:
 		if call.Name == "mcp.search" {
 			out, sErr := e.searchMcpToolsFiltered(call.Arguments, eq.McpIDs, true)

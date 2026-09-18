@@ -176,9 +176,14 @@ func TestComputerActStepsParse(t *testing.T) {
 	if _, err := ComputerActSteps([]byte(`{"action":"click","name":"保存","steps":[{"action":"type","text":"x"}]}`)); !errors.Is(err, ErrCcInputFiltered) {
 		t.Fatalf("steps mixed with a real action: %v", err)
 	}
-	tooMany := `{"action":"run","steps":[{"action":"list"},{"action":"list"},{"action":"list"},{"action":"list"},{"action":"list"},{"action":"list"}]}`
+	one := `{"action":"list"}`
+	atLimit := `{"action":"run","steps":[` + strings.Repeat(one+",", MaxComputerActSteps-1) + one + `]}`
+	if steps, err := ComputerActSteps([]byte(atLimit)); err != nil || len(steps) != MaxComputerActSteps {
+		t.Fatalf("exactly %d steps must parse: %d %v", MaxComputerActSteps, len(steps), err)
+	}
+	tooMany := `{"action":"run","steps":[` + strings.Repeat(one+",", MaxComputerActSteps) + one + `]}`
 	if _, err := ComputerActSteps([]byte(tooMany)); !errors.Is(err, ErrCcInputFiltered) {
-		t.Fatalf("max 5 steps: %v", err)
+		t.Fatalf("max %d steps: %v", MaxComputerActSteps, err)
 	}
 	if _, err := ComputerActSteps([]byte(`{"action":"run","steps":[{"action":"run","steps":[{"action":"list"}]}]}`)); !errors.Is(err, ErrCcInputFiltered) {
 		t.Fatalf("nested steps: %v", err)

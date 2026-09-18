@@ -81,6 +81,12 @@ func TestComputerActSharedExecutionInstruction(t *testing.T) {
 	if !strings.Contains(inst, "command.run") || !strings.Contains(inst, "mkdir") {
 		t.Fatal("shared contract must mkdir on the real Desktop via command.run")
 	}
+	if !strings.Contains(inst, "蓝牙") || !strings.Contains(inst, "desktop.open") {
+		t.Fatal("shared contract must send Settings pages through desktop.open, not click-through")
+	}
+	if !strings.Contains(inst, "粘贴") && !strings.Contains(strings.ToLower(inst), "paste") {
+		t.Fatal("shared contract must paste long/CJK text instead of per-key typing")
+	}
 	if !strings.Contains(inst, "删除") && !strings.Contains(strings.ToLower(inst), "delete") {
 		t.Fatal("shared contract must cover desktop delete/rename/copy, not only mkdir")
 	}

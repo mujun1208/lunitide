@@ -7,9 +7,7 @@ import (
 	"math"
 	"strings"
 
-	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/llmadapter"
-	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
@@ -34,6 +32,7 @@ type guiFallbackIn struct {
 	guiCatalog          bool
 	visionCatalog       bool
 	alreadyUsed         bool
+	usedScreenTools     bool
 }
 
 type somPick struct {
@@ -62,6 +61,10 @@ func shouldAttemptGUIFallback(in guiFallbackIn) bool {
 	switch in.route {
 	case RouteR2, RouteR3:
 		return true
+	case RouteUnspecified:
+		// Flash/table miss: the model already drove the screen, so the
+		// visual loop is still the recovery path. R1 stays out (D-D5).
+		return in.usedScreenTools
 	default:
 		return false
 	}
@@ -71,14 +74,11 @@ func pickGUIFallback(in guiFallbackIn) guiExecutor {
 	if !shouldAttemptGUIFallback(in) {
 		return guiExecNone
 	}
-	if in.nodeCount > 0 && in.guiCatalog {
+	if in.guiCatalog {
 		return guiExecGUI
 	}
-	if in.nodeCount > 0 && in.visionCatalog {
+	if in.visionCatalog {
 		return guiExecVision
-	}
-	if in.nodeCount == 0 && in.guiCatalog {
-		return guiExecGUI
 	}
 	return guiExecNone
 }
@@ -91,8 +91,18 @@ func guiFallbackFailResult(reason string) toolruntime.Result {
 	return toolruntime.Result{Output: "ok:false\n无法执行：" + reason + "\n请根据观察再试，或请用户指出要点哪里。"}
 }
 
+func isGUIActTool(name string) bool {
+	switch name {
+	case "desktop.type", "computer.act",
+		"cc.mouse_click", "cc.keyboard_type", "cc.paste",
+		"cc.mouse_drag", "cc.mouse_scroll", "cc.menu_click", "cc.set_value":
+		return true
+	}
+	return false
+}
+
 func desktopToolFailedForGUI(name, summary string, toolErr error) bool {
-	if name != "desktop.type" && name != "computer.act" {
+	if !isGUIActTool(name) {
 		return false
 	}
 	if toolErr == nil && !strings.Contains(summary, "ok:false") {
@@ -104,16 +114,27 @@ func desktopToolFailedForGUI(name, summary string, toolErr error) bool {
 	return true
 }
 
-// noteDesktopGUIFail keeps the last desktop.type / computer.act outcome.
-// Later web.search (or any non-desktop tool) must not clear a failed click.
+// noteDesktopGUIFail keeps the last screen-act outcome. Later web.search
+// (or any non-desktop tool) must not clear a failed click.
 func noteDesktopGUIFail(name, summary string, toolErr error, prev bool) bool {
-	if name != "desktop.type" && name != "computer.act" {
+	if !isGUIActTool(name) {
 		return prev
 	}
 	return desktopToolFailedForGUI(name, summary, toolErr)
 }
 
+// observeReturnedEmptyTree reports a computer.act observe whose accessibility
+// tree came back with zero actionable nodes (Electron/Chromium canvases,
+// games, remote desktops). Two in a row trigger the visual loop.
+func observeReturnedEmptyTree(summary string) bool {
+	s := strings.ReplaceAll(summary, " ", "")
+	return strings.Contains(s, `"count":0`)
+}
+
 func computerActIsObserve(name string, args json.RawMessage) bool {
+	if name == "cc.observe_ui" || name == "cc.observe_dialog" {
+		return true
+	}
 	if name != "computer.act" {
 		return false
 	}
@@ -399,88 +420,14 @@ func runGUIFallback(in guiFallbackIn, rt guiFallbackRuntime) (toolruntime.Result
 	return res, args, true
 }
 
-func (e *Engine) guiFallbackCatalogFlags(ctx context.Context, skipModel string) (gui, vision bool) {
-	if e == nil || e.providers == nil {
-		return false, false
-	}
-	items, err := e.providers.List(ctx, provider.Filter{})
-	if err != nil {
-		return false, false
-	}
-	return len(e.preferBoundCatalog(ctx, "gui", provider.CatalogForKind(items, provider.KindGUI))) > 0,
-		len(e.preferBoundCatalog(ctx, "vision", provider.VisionDescribeCatalog(items, skipModel))) > 0
-}
-
-func (e *Engine) completeSOMPick(ctx context.Context, exec guiExecutor, images []llmadapter.Image, prompt, skipModel string) (string, error) {
-	if e == nil || e.providers == nil {
-		return "", fmt.Errorf("no providers")
-	}
-	if len(images) == 0 {
-		return "", fmt.Errorf("no screenshot")
-	}
-	items, err := e.providers.List(ctx, provider.Filter{})
-	if err != nil {
-		return "", err
-	}
-	var catalog []provider.CatalogEntry
-	switch exec {
-	case guiExecGUI:
-		catalog = e.preferBoundCatalog(ctx, "gui", provider.CatalogForKind(items, provider.KindGUI))
-	case guiExecVision:
-		catalog = e.preferBoundCatalog(ctx, "vision", provider.VisionDescribeCatalog(items, skipModel))
-	default:
-		return "", fmt.Errorf("no som executor")
-	}
-	if len(catalog) == 0 {
-		return "", fmt.Errorf("empty som catalog")
-	}
-	req := llmadapter.Request{
-		Messages:         []llmadapter.Message{{Role: llmadapter.RoleUser, Content: prompt}},
-		Images:           images,
-		MaxTokens:        128,
-		MaxAttempts:      1,
-		DisableReasoning: true,
-	}
-	var last error
-	for _, entry := range catalog {
-		req.Model = entry.Model.ModelID
-		var text string
-		leaseErr := e.withProviderLease(ctx, entry.Provider, secretlease.OperationChat, func(op context.Context, secret []byte) error {
-			op = withCallPurpose(op, "gui")
-			a, adapterErr := e.adapterForModel(op, entry.Provider, entry.Model)
-			if adapterErr != nil {
-				return adapterErr
-			}
-			out, completeErr := a.Complete(op, secret, req)
-			if completeErr != nil {
-				return completeErr
-			}
-			if out.FinishReason == "length" || out.FinishReason == "content_filter" {
-				return fmt.Errorf("incomplete GUI target response: %s", out.FinishReason)
-			}
-			text = strings.TrimSpace(out.Message.Content)
-			if text == "" {
-				return fmt.Errorf("empty som pick")
-			}
-			return nil
-		})
-		if leaseErr == nil && text != "" {
-			return text, nil
-		}
-		last = leaseErr
-	}
-	if last == nil {
-		last = fmt.Errorf("som complete failed")
-	}
-	return "", last
-}
-
 func (e *Engine) tryGUIFallback(ctx context.Context, mode executionMode, sessionID, goal, chatModel string, state *streamState, images []llmadapter.Image, alreadyUsed, desktopTypeL0Passed, observedThisTurn bool) (toolruntime.Result, json.RawMessage, bool) {
 	if e == nil || state == nil {
 		return toolruntime.Result{}, nil, false
 	}
+	usedScreen := state != nil && state.usedScreenTools
 	if !shouldAttemptGUIFallback(guiFallbackIn{
 		ccOn: true, route: state.taskRoute, alreadyUsed: alreadyUsed, desktopTypeL0Passed: desktopTypeL0Passed,
+		usedScreenTools: usedScreen,
 	}) {
 		return toolruntime.Result{}, nil, false
 	}
@@ -490,12 +437,13 @@ func (e *Engine) tryGUIFallback(ctx context.Context, mode executionMode, session
 	if !e.computerControlEnabled() {
 		return toolruntime.Result{}, nil, false
 	}
-	gui, vision := e.guiFallbackCatalogFlags(ctx, chatModel)
+	gui, vision := e.guiLoopCatalogFlags(ctx)
 	in := guiFallbackIn{
 		ccOn:                true,
 		isSubagent:          false,
 		route:               state.taskRoute,
 		desktopTypeL0Passed: desktopTypeL0Passed,
+		usedScreenTools:     usedScreen,
 		guiCatalog:          gui,
 		visionCatalog:       vision,
 		alreadyUsed:         alreadyUsed,
@@ -522,19 +470,20 @@ func (e *Engine) tryGUIFallback(ctx context.Context, mode executionMode, session
 			return frameID, nodes, visW, visH, images, nil
 		},
 		Complete: func(exec guiExecutor, imgs []llmadapter.Image, prompt string) (string, error) {
-			return e.completeSOMPick(ctx, exec, imgs, prompt, chatModel)
+			return e.completeGUIStep(ctx, exec, imgs, prompt)
 		},
 		HasHit: func(id string) bool {
 			return e.ccctrl != nil && e.ccctrl.HasObservedID(id)
 		},
-		Click: func(args json.RawMessage, allowPixels bool) (toolruntime.Result, error) {
-			if allowPixels && e.ccctrl != nil {
-				e.ccctrl.SetAllowGUIPixels(true)
-				defer e.ccctrl.SetAllowGUIPixels(false)
-			}
-			return e.executeUserToolWithCompanion(ctx, mode, sessionID, "computer.act", args, nil, state.companion)
-		},
 	}
+	act := func(args json.RawMessage, allowPixels bool) (toolruntime.Result, error) {
+		if allowPixels && e.ccctrl != nil {
+			e.ccctrl.SetAllowGUIPixels(true)
+			defer e.ccctrl.SetAllowGUIPixels(false)
+		}
+		return e.executeUserToolWithCompanion(ctx, mode, sessionID, "computer.act", args, nil, state.companion)
+	}
+	rt.Click = act
 	if e.ccctrl != nil {
 		rt.FrameID, rt.Nodes = e.ccctrl.ObservedSnapshot()
 		rt.VisW, rt.VisH = e.ccctrl.VisionSize()
@@ -544,5 +493,6 @@ func (e *Engine) tryGUIFallback(ctx context.Context, mode executionMode, session
 		rt.FrameID = ""
 		rt.Nodes = 0
 	}
-	return runGUIFallback(in, rt)
+	_ = chatModel
+	return runGUILoop(in, guiLoopRuntime{guiFallbackRuntime: rt, Exec: act})
 }

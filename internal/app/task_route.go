@@ -33,6 +33,7 @@ var (
 	siteHints = []string{
 		"http://", "https://", "网站", "网页",
 		"12306", "知乎", "淘宝", "taobao", "bilibili", "B站", "youtube", "抖音",
+		"weixin.qq.com", "微信视频号", "视频号",
 	}
 	siteActHints = []string{"登录", "登陆", "点"}
 	genHints     = []string{
@@ -195,7 +196,7 @@ func routeAllow(route TaskRoute, ccEnabled bool) map[string]bool {
 			"office.image.replace": true, "office.chart.patch": true, "office.cache.refresh": true, "office.deliver": true,
 			"workspace.list": true, "workspace.read": true, "workspace.write": true,
 			"workspace.search": true, "workspace.edit": true,
-			"image.generate": true, "video.generate": true,
+			"image.generate": true, "video.generate": true, "audio.generate": true,
 			"web.search": true, "web.fetch": true, "weather.get": true,
 			"user.ask": true,
 		}

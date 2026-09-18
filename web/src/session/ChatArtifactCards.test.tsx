@@ -5,6 +5,7 @@ import { OFFICE_STUDIO_OPEN_EVENT, type OfficeOpenRequest } from '../officeStudi
 
 vi.mock('../bridge/client', () => ({
   sessionFolderBridge: { open: vi.fn() },
+  artifactReviewBridge: { preview: vi.fn() },
 }))
 afterEach(cleanup)
 
@@ -46,6 +47,7 @@ it('hides intermediate web search and fetch HTML from deliverable cards', () => 
   expect(isChatDeliverableArtifact({ toolName: 'workspace.write', kind: 'pptx', path: 'desktop/介绍.pptx' })).toBe(true)
   expect(isChatDeliverableArtifact({ toolName: 'workspace.write', kind: 'md', path: '周报/周报_2026-W37.md' })).toBe(true)
   expect(isChatDeliverableArtifact({ toolName: 'workspace.edit', kind: 'txt', path: 'notes.txt' })).toBe(true)
+  expect(isChatDeliverableArtifact({ toolName: 'audio.generate', kind: 'audio', path: 'song.wav' })).toBe(true)
   expect(artifactOpenRelativePath(String.raw`C:\Users\mujun\Desktop\介绍.pptx`)).toBe('C:/Users/mujun/Desktop/介绍.pptx')
   expect(artifactOpenRelativePath(String.raw`E:\项目\介绍.pptx`)).toBe('E:/项目/介绍.pptx')
   const visible = filterChatDeliverables([
@@ -119,4 +121,21 @@ it('opens Office artifacts in the workbench with the original session and report
   await vi.waitFor(() => expect(onError).toHaveBeenCalledWith('办公工作台暂未启用'))
   expect(requested?.sessionId).toBe('same-session')
   expect(requested?.path).toBe('报告.docx')
+})
+
+it('plays generated speech in-chat instead of a file chip', async () => {
+  const { artifactReviewBridge } = await import('../bridge/client')
+  vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:audio'), revokeObjectURL: vi.fn() })
+  vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+  vi.mocked(artifactReviewBridge.preview).mockResolvedValue({
+    kind: 'audio', path: 'song.wav', content: btoa('RIFF____WAVEfmt '), size: 16, notice: '',
+  })
+  render(<ChatArtifactCards sessionId="01ARZ3NDEKTSV4RRFFQ69G5FAV" artifacts={[{
+    kind: 'audio', path: 'song.wav', content: '', callId: 'audio-1', toolName: 'audio.generate',
+  }]} />)
+  expect(await screen.findByLabelText('可听语音')).toBeInTheDocument()
+  expect(screen.getByText(/不是演唱成曲/)).toBeInTheDocument()
+  expect(screen.getByLabelText('播放朗读')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '1×' })).toHaveAttribute('aria-pressed', 'true')
+  vi.unstubAllGlobals()
 })

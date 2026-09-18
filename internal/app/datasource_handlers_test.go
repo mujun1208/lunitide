@@ -115,4 +115,3 @@ func TestDatasourceQueryRejectsUnverifiedAndDelete(t *testing.T) {
 	}
 	_ = svc
 }
-

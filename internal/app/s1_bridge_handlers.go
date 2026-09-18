@@ -183,10 +183,10 @@ func ocrRoutingResult(r ocrapp.Routing, health ocrapp.HealthSnapshot) map[string
 	out := map[string]any{
 		"preferProvider": r.PreferProvider, "revision": r.Revision,
 		"appliedRevision": r.Revision, "state": "applied",
-		"localEngine":    engine,
-		"downloadBytes":  ocrapp.Runtime().TotalBytes(),
-		"localReady":     map[string]any{"pdf": health.Local.PDF, "image": health.Local.Image, "backend": health.Local.Backend},
-		"pack":           map[string]any{"available": health.Pack.Available, "status": health.Pack.Status, "backend": health.Pack.Backend},
+		"localEngine":   engine,
+		"downloadBytes": ocrapp.Runtime().TotalBytes(),
+		"localReady":    map[string]any{"pdf": health.Local.PDF, "image": health.Local.Image, "backend": health.Local.Backend},
+		"pack":          map[string]any{"available": health.Pack.Available, "status": health.Pack.Status, "backend": health.Pack.Backend},
 	}
 	if r.ProviderID != "" {
 		out["providerId"] = r.ProviderID

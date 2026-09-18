@@ -887,6 +887,18 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if err := requireDesktopAction(approved); err != nil {
 			return Result{}, err
 		}
+		// Native-first: a Settings page or shell folder opens through its
+		// URI in one process start instead of launching Settings and
+		// clicking through it. Verified by foreground window like an app.
+		if native, ok := resolveNativeLaunch(a.Name); ok {
+			if e := openNativeLaunch(native); e != nil {
+				return Result{}, fmt.Errorf("无法执行：打不开（%v）", e)
+			}
+			if e := confirmNativeOpened(native); e != nil {
+				return Result{}, e
+			}
+			return result(appendL0JSON("opened "+native.Label+" ("+native.URI+")", "foreground", true, false, native.URI)), nil
+		}
 		path, others, e := pickLaunchTarget(a.Name)
 		if e != nil {
 			if strings.Contains(e.Error(), "无法执行") {

@@ -119,6 +119,7 @@ export function SharedHubComposer({
         }}
       />
       <div className="composer-tools">
+        <div className="composer-toolbar-start">
         {showPlus ? <div className="menu-anchor">
           <button
             type="button"
@@ -230,6 +231,7 @@ export function SharedHubComposer({
             ) : null}
           </div>
         ) : null}
+        </div>
         <div className="composer-primary-actions composer-act">
           <button
             type="button"

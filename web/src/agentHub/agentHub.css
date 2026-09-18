@@ -161,7 +161,7 @@ html[data-theme="light"] .shell-drawer-toggle{border-color:#e4e4e4!important;bac
 .launch-content .agent-hub aside{background:transparent;backdrop-filter:none}
 .agent-hub>section:not(.hub-home){padding:16px 8% 24px}
 .hub-home{flex:1;display:flex;flex-direction:column;min-height:0;padding:18px 8% 22px}
-.hub-composer{width:min(720px,calc(100% - 48px));max-width:720px;margin:auto auto 22px;align-self:center}
+.hub-composer{width:min(720px,calc(100% - 48px));max-width:100%;box-sizing:border-box;margin:auto auto 22px;align-self:center}
 .agent-hub .message-panel{position:relative;border:0;background:transparent;padding:16px 8% 24px}
 .agent-hub .workspace-toggle{position:absolute;top:8px;right:8px}
 .agent-hub .message-panel .hub-composer{margin:12px auto 16px}
@@ -170,7 +170,8 @@ html[data-theme="light"] .shell-drawer-toggle{border-color:#e4e4e4!important;bac
   display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:999px;
   background:#1a1a1a;color:#cfcfcf;font-size:12px
 }
-.hub-composer .composer-tools{flex-wrap:nowrap;min-width:0;overflow:visible}
+.hub-composer .composer-tools{flex-wrap:nowrap;width:100%;max-width:100%;min-width:0;overflow:visible}
+.hub-composer .composer-toolbar-start{display:flex;align-items:center;flex:1 1 0;min-width:0;flex-wrap:wrap;gap:8px}
 .hub-composer .hub-access-anchor{flex:0 0 auto;width:auto}
 .hub-access-chip{
   display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 8px;border:0;

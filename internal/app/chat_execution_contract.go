@@ -5,11 +5,15 @@ import (
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/llmadapter"
+	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
 // Input modality changes presentation and consent, not desktop execution rules.
 func computerExecutionTurn(goal string) bool {
 	if detectTaskRoute(goal) == RouteR2 {
+		return true
+	}
+	if detectAppActRoute(goal, toolruntime.KnownLaunchAppNames()) == RouteR2 {
 		return true
 	}
 	if wantsAgentHostAct(goal) {
@@ -27,7 +31,7 @@ func computerExecutionTurn(goal string) bool {
 
 func desktopExecutionInstruction() string {
 	return "\n[电脑执行约定：语音与文字共用]\n" +
-		"先按目标选专用工具：桌面浏览器/搜索页用 desktop.browse，文件/应用用 desktop.open，播放/切歌用 media.play，命名字段输入用 desktop.type，彻底退出用 desktop.quit。网页内操作用 browser.act，通用桌面操作才用 computer.act；不为同一个目标换工具重复操作。用户要在桌面/本机创建、删除、改名、移动、复制文件夹或文件，或解压/下载到桌面时，立刻 command.run mkdir/删除等到真实 Desktop 或用户指定路径（Windows 建目录用 New-Item -ItemType Directory），不要只说 I'll create / 我来创建就结束，也不要用 workspace 代替桌面。\n" +
+		"先按目标选专用工具：桌面浏览器/搜索页用 desktop.browse，文件/应用用 desktop.open，播放/切歌用 media.play，命名字段输入用 desktop.type，彻底退出用 desktop.quit。系统设置页和系统文件夹（蓝牙/Wi-Fi/显示/声音/壁纸/默认应用/Windows 更新/回收站/下载文件夹/控制面板等）直接 desktop.open 该页名称一步到页，不要先开设置再逐级点击。网页内操作用 browser.act，通用桌面操作才用 computer.act；长文本或中文输入交给工具自动走剪贴板粘贴，不要逐字敲；不为同一个目标换工具重复操作。用户要在桌面/本机创建、删除、改名、移动、复制文件夹或文件，或解压/下载到桌面时，立刻 command.run mkdir/删除等到真实 Desktop 或用户指定路径（Windows 建目录用 New-Item -ItemType Directory），不要只说 I'll create / 我来创建就结束，也不要用 workspace 代替桌面。\n" +
 		"打开浏览器搜索并报告内容时，搜索入口只打开一次，后续检索用查询工具；不要每换一个检索词就再启动搜索页。用户明确要求打开具体结果页或多个页面时按要求执行。\n" +
 		"专用工具已经成功就使用原回执；不再启动、切歌、打字或发送一次。失败先读取具体错误并重新观察，只在目标或参数得到纠正后重试；相同失败不得循环。截图或像素变化仅证明观察/画面变化，不证明已输入、已保存、已发送或已播放。\n" +
 		"操作必须遵循当前会话权限，不绕过确认，不覆盖未保存内容。电脑控制需要最新 frameId；优先实际控件名称/ID，坐标只能来自当前截图。\n" +

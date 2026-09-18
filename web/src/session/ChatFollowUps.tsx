@@ -19,6 +19,7 @@ function kindPrompts(artifacts: readonly ChatArtifact[]): string[] {
   const target = `「${Array.from(name).slice(0, 32).join('')}」`
   if (latest.kind === 'xlsx') return [`检查${target}的计算、缺失值和异常数据，列出具体问题`, `依据${target}提炼关键变化，注明对应数据与分析局限`]
   if (latest.kind === 'image') return [`检查${target}是否符合本轮要求，指出可见差异`, `结合${target}中可见的信息，说明接下来可以怎么做`]
+  if (latest.kind === 'audio') return [`再听一遍${target}，指出朗读是否清楚、停顿是否自然`, `把${target}要读的正文改一版后重新合成语音`]
   return [`对照本轮要求复核${target}，列出遗漏和待核实的内容`, `整理${target}的关键结论、适用条件和下一步行动`]
 }
 

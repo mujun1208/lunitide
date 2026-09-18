@@ -18,8 +18,8 @@ func TestPresetCatalogPassesWhitelist(t *testing.T) {
 		t.Fatalf("preset catalog invalid: %v", err)
 	}
 	all := Presets()
-	if len(all) < 30 || len(all) > 48 {
-		t.Fatalf("expected a curated ~40 live presets, got %d", len(all))
+	if len(all) < 16 || len(all) > 22 {
+		t.Fatalf("expected a one-click catalog of ~18 live presets, got %d", len(all))
 	}
 	for _, p := range all {
 		if p.Transport == "https" {
@@ -115,7 +115,7 @@ func TestPresetNeedsArgsContract(t *testing.T) {
 	wantNeedsArgs := map[string]bool{
 		"everything": false, "filesystem": true, "fetch": false, "memory": false,
 		"sequentialthinking": false, "playwright": false, "time": false, "context7": false,
-		"chrome-devtools": false, "postgres": true, "tavily": false,
+		"chrome-devtools": false, "duckduckgo": false, "calculator": false,
 	}
 	for id, want := range wantNeedsArgs {
 		p, ok := PresetByID(id)
@@ -136,9 +136,20 @@ func TestPresetNeedsArgsContract(t *testing.T) {
 	if resolved[len(resolved)-1] != "E:/repos/lunitide" {
 		t.Fatalf("filesystem resolve produced %v", resolved)
 	}
-	for _, archived := range []string{"git", "github", "puppeteer", "sqlite"} {
+	for _, archived := range []string{
+		"git", "github", "puppeteer", "sqlite", "postgres", "redis", "gdrive",
+		"google-maps", "tushare", "juhe-query", "browsermcp", "markdownify",
+	} {
 		if _, ok := PresetByID(archived); ok {
 			t.Fatalf("archived preset %s must not ship", archived)
+		}
+	}
+	for _, p := range Presets() {
+		if p.NeedsCredential || len(p.CredentialEnvs) > 0 {
+			t.Fatalf("one-click catalog must not ship credential preset %s", p.ID)
+		}
+		if p.NeedsArgs && p.ID != "filesystem" {
+			t.Fatalf("only filesystem may need a sandbox path, got %s", p.ID)
 		}
 	}
 	// defensive copies: mutating the returned rows must not corrupt the catalog

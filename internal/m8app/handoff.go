@@ -119,12 +119,12 @@ func (s *HandoffService) SetPropagator(p Propagator) { s.propagate = p }
 // OfferHandoffInput feeds the internal send-side offer path (redaction
 // happens before the offer is stored; the log records the difference).
 type OfferHandoffInput struct {
-	HandoffID string
-	Sender    string
-	Receiver  string
-	Manifest  string
+	HandoffID    string
+	Sender       string
+	Receiver     string
+	Manifest     string
 	RedactionLog string
-	TTL       time.Duration
+	TTL          time.Duration
 }
 
 // OfferHandoff stores one sent offer with expiry (internal path; the
@@ -270,18 +270,18 @@ func (s *HandoffService) AcceptHandoff(ctx context.Context, in HandoffAcceptInpu
 
 // TombstoneDeleteInput is the tombstone.delete command.
 type TombstoneDeleteInput struct {
-	RootRef            string
-	ScopeID            string
-	ConfirmationToken  string
-	Actor              string
+	RootRef           string
+	ScopeID           string
+	ConfirmationToken string
+	Actor             string
 }
 
 // TombstoneDeleteResult is the tombstone.delete outcome.
 type TombstoneDeleteResult struct {
-	TombstoneID  string   `json:"tombstoneId"`
-	State        string   `json:"state"`
-	CascadeCursor string  `json:"cascadeCursor"`
-	AckSet       []string `json:"ackSet"`
+	TombstoneID   string   `json:"tombstoneId"`
+	State         string   `json:"state"`
+	CascadeCursor string   `json:"cascadeCursor"`
+	AckSet        []string `json:"ackSet"`
 }
 
 // DeleteWithTombstone enacts FR-07: the read face hides immediately (facts
@@ -391,8 +391,8 @@ type SyncPushInput struct {
 
 // SyncPushResult is the sync.push outcome.
 type SyncPushResult struct {
-	AckWatermark int64                    `json:"ackWatermark"`
-	Conflicts    []SyncPushConflictView   `json:"conflicts"`
+	AckWatermark int64                  `json:"ackWatermark"`
+	Conflicts    []SyncPushConflictView `json:"conflicts"`
 }
 
 // SyncPushConflictView mirrors the x-result conflict item.
