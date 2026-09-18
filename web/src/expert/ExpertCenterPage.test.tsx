@@ -432,6 +432,33 @@ it('lets an agent specialist pick a local Codex or Claude Code brain', async () 
   expect(vi.mocked(bridge.skillsSet!).mock.calls[0][0].skillKeys).toContain('brain:codex')
 })
 
+it('does not lock preferred MCP or reseed known-empty bindings', async () => {
+  const ppt = { ...expertList.experts[0], name: 'PPT专家', division: 'product' as const, catalogItemId: 'ppt-expert', kind: 'agent' as const }
+  const bridge = expertApi({
+    list: vi.fn().mockResolvedValue({ experts: [ppt], total: 1 }),
+    detail: vi.fn().mockResolvedValue({
+      ...expertDetail,
+      expert: { ...expertDetail.expert, name: 'PPT专家', division: 'product', catalogItemId: 'ppt-expert', boundSkills: [], boundSkillsKnown: true },
+    }),
+    skillsSet: vi.fn().mockResolvedValue({ expertId, skillKeys: [] }),
+  })
+  const mcp = {
+    presets: vi.fn().mockResolvedValue({ items: [{ id: 'playwright', name: 'Playwright', description: '浏览器自动化', transport: 'stdio', command: 'npx', args: [], needsArgs: false, category: '浏览器' }] }),
+    list: vi.fn().mockResolvedValue({ endpoints: [] }),
+    add: vi.fn(), toggle: vi.fn(), health: vi.fn(), marketSearch: vi.fn(),
+  }
+  render(<ExpertCenterPage bridge={bridge} projects={projects} mcp={mcp} />)
+  const box = await screen.findByRole('checkbox', { name: /^Playwright/ })
+  expect(box).not.toBeChecked()
+  expect(box).not.toBeDisabled()
+  expect(screen.queryByLabelText('已授权 MCP')).not.toBeInTheDocument()
+  const save = screen.getByRole('button', { name: '保存运行时绑定' })
+  await waitFor(() => expect(save).toBeEnabled())
+  fireEvent.click(save)
+  await waitFor(() => expect(bridge.skillsSet).toHaveBeenCalled())
+  expect(vi.mocked(bridge.skillsSet!).mock.calls[0][0].skillKeys ?? []).not.toContain('mcp:playwright')
+})
+
 it('saves expert skill bindings from the detail pane', async () => {
   const skillsSet = vi.fn().mockResolvedValue({ expertId, skillKeys: ['slide-builder'] })
   const skills = {

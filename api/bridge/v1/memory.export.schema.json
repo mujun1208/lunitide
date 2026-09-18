@@ -1,1 +1,69 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://lunitide.local/schema/bridge/v1/memory.export.schema.json","title":"memory.export payload","x-method":"memory.export","x-owner":"engine","x-enabled":true,"type":"object","additionalProperties":false,"properties":{},"x-result":{"type":"object","additionalProperties":false,"properties":{"facts":{"type":"array","items":{"type":"object"}},"leaves":{"type":"array","items":{"type":"object"}},"candidates":{"type":"array","items":{"type":"object"}},"traces":{"type":"array","items":{"type":"object"}},"growth":{"type":"array","items":{"type":"object"}},"flags":{"type":"array","items":{"type":"object"}},"settings":{"type":"array","items":{"type":"object"}}},"required":["facts","leaves","candidates","traces","growth","flags","settings"]},"x-examples":{"positive":[{}],"negative":[{"unexpected":1}]}}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/memory.export.schema.json",
+  "title": "memory.export payload",
+  "x-method": "memory.export",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "format": { "type": "string", "enum": ["fabric_v2"] }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "format": { "const": "fabric_v2" } }, "required": ["format"] },
+      "then": { "properties": { "format": {} } }
+    }
+  ],
+  "x-result": {
+    "oneOf": [
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["facts", "leaves", "candidates", "traces", "growth", "flags", "settings"],
+        "properties": {
+          "facts": { "type": "array", "items": { "type": "object" } },
+          "leaves": { "type": "array", "items": { "type": "object" } },
+          "candidates": { "type": "array", "items": { "type": "object" } },
+          "traces": { "type": "array", "items": { "type": "object" } },
+          "growth": { "type": "array", "items": { "type": "object" } },
+          "flags": { "type": "array", "items": { "type": "object" } },
+          "settings": { "type": "array", "items": { "type": "object" } }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["format", "artifactId", "archiveDigest", "manifestDigest", "databaseRevision", "counts"],
+        "properties": {
+          "format": { "const": "fabric_v2" },
+          "artifactId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+          "archiveDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "manifestDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "databaseRevision": { "type": "integer", "minimum": 1 },
+          "counts": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["records", "current", "tombstones"],
+            "properties": {
+              "records": { "type": "integer", "minimum": 0 },
+              "current": { "type": "integer", "minimum": 0 },
+              "tombstones": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {},
+      { "format": "fabric_v2" }
+    ],
+    "negative": [
+      { "unexpected": 1 },
+      { "format": "legacy" }
+    ]
+  }
+}

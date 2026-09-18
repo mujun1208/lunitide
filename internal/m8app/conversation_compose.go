@@ -63,6 +63,59 @@ func BindKeysFromCatalog(item CatalogItem) []string {
 	return out
 }
 
+// CanonicalDeclaredKey normalizes a stored or catalog bind key so
+// tpl-slide-builder, builtin://slide-builder and slide-builder compare equal.
+func CanonicalDeclaredKey(key string) string {
+	key = strings.TrimSpace(key)
+	if rest, ok := strings.CutPrefix(key, BoundMcpPrefix); ok {
+		return BoundMcpPrefix + strings.TrimSpace(rest)
+	}
+	if rest, ok := strings.CutPrefix(key, BoundBrainPrefix); ok {
+		return BoundBrainPrefix + strings.ToLower(strings.TrimSpace(rest))
+	}
+	key = strings.TrimPrefix(key, "tpl-")
+	if i := strings.LastIndex(key, "://"); i >= 0 {
+		key = key[i+3:]
+		key = strings.TrimPrefix(key, "tpl-")
+	}
+	return key
+}
+
+func bindKeysEqual(a, b string) bool {
+	return CanonicalDeclaredKey(a) == CanonicalDeclaredKey(b)
+}
+
+// RemoveBoundKeys drops every stored key that matches a declared skill or MCP key.
+func RemoveBoundKeys(keys, remove []string) []string {
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		drop := false
+		for _, raw := range remove {
+			if bindKeysEqual(key, raw) {
+				drop = true
+				break
+			}
+		}
+		if !drop {
+			out = append(out, key)
+		}
+	}
+	return out
+}
+
+func catalogDeclaresKey(item CatalogItem, key string) bool {
+	for _, declared := range BindKeysFromCatalog(item) {
+		if bindKeysEqual(declared, key) {
+			return true
+		}
+	}
+	return false
+}
+
 // SkillMatchesPreferred answers whether a published skill (name / entryPoint)
 // is one of the conversation-expert preferred catalog template IDs.
 // Template IDs are catalog ids (slide-builder); stored names are often tpl-*.

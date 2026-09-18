@@ -258,5 +258,28 @@ it('marks installed templates in the market', async () => {
   const install = vi.fn()
   render(<SkillPage bridge={api({ catalogList, install })} />)
   expect(await screen.findByText('已安装')).toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: /安装/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /安装 会议纪要助手/ })).not.toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: '卸载 会议纪要助手' })).toBeInTheDocument()
+})
+
+it('uninstalls an installed market template from the matching library skill', async () => {
+  const published = { ...skill, name: 'tpl-meeting-minutes', displayName: '会议纪要助手', status: 'published' as const, version: '1.0.0' }
+  const del = vi.fn().mockResolvedValue({ deleted: true })
+  const catalogList = vi.fn().mockResolvedValue({ items: [{ ...catalogEntry, installed: true }] })
+  const list = vi.fn().mockResolvedValue({ items: [published] })
+  render(<SkillPage bridge={api({ list, catalogList, delete: del })} />)
+  vi.spyOn(window, 'confirm').mockReturnValue(true)
+  fireEvent.click(await screen.findByRole('button', { name: '卸载 会议纪要助手' }))
+  await waitFor(() => expect(del).toHaveBeenCalledWith({ id: published.id, expectedVersion: published.rev }))
+})
+
+it('deletes a published skill from the library', async () => {
+  const published = { ...skill, status: 'published' as const }
+  const del = vi.fn().mockResolvedValue({ deleted: true })
+  render(<SkillPage bridge={api({ list: vi.fn().mockResolvedValue({ items: [published] }), delete: del })} />)
+  fireEvent.click(screen.getByRole('tab', { name: '技能库' }))
+  await screen.findAllByText('代码审查')
+  vi.spyOn(window, 'confirm').mockReturnValue(true)
+  fireEvent.click(screen.getByRole('button', { name: '删除' }))
+  await waitFor(() => expect(del).toHaveBeenCalledWith({ id: published.id, expectedVersion: published.rev }))
 })

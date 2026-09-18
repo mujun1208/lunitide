@@ -52,6 +52,7 @@ const ulidRef = schema => refEndsWith(schema, '#/$defs/ULID')
 const modelArray = schema => schema?.type === 'array' && schema.minItems === 1 && schema.maxItems === 50 && refEndsWith(schema.items, '#/$defs/ModelDTO')
 const enabled = methodSchemas.filter(schema => schema['x-enabled']).map(schema => schema['x-method'])
 assert(JSON.stringify(enabled) === JSON.stringify([
+  'activity.list',
   'agent.run.cancel',
   'agent.run.get',
   'agent.run.reconcile',
@@ -254,10 +255,23 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'mcp.market.search',
   'mcp.security.review',
   'mcp.toggle',
+  'mcp.uv.install',
   'mcp6.invoke',
   'mcp6.presets.list',
   'mcp6.register',
   'mcp6.revoke',
+  'media.asset.list',
+  'media.asset.open',
+  'media.asset.pick',
+  'media.element.report',
+  'media.operation.get',
+  'media.operation.list',
+  'media.queue.command',
+  'media.session.command',
+  'media.session.create',
+  'media.session.get',
+  'media.session.list',
+  'media.session.watch',
   'meetings.append',
   'meetings.audio.append',
   'meetings.catchup',
@@ -274,20 +288,36 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'meetings.summary.source.get',
   'meetings.transcript.get',
   'meetings.update',
+  'memory.capture.undo',
   'memory.confirmCandidate',
   'memory.create',
   'memory.delete',
   'memory.export',
   'memory.facts.flag',
   'memory.facts.list',
+  'memory.generation.activate',
+  'memory.generation.discard',
+  'memory.generation.list',
+  'memory.generation.preview',
   'memory.get',
   'memory.growth.decide',
   'memory.growth.list',
+  'memory.import.commit',
+  'memory.import.preview',
+  'memory.item.correct',
+  'memory.item.create',
+  'memory.item.forget',
+  'memory.item.get',
+  'memory.item.history',
+  'memory.item.list',
   'memory.list',
   'memory.nominate',
   'memory.nomination.list',
   'memory.nomination.withdraw',
   'memory.purge',
+  'memory.purge.prepare',
+  'memory.review.list',
+  'memory.review.resolve',
   'memory.search',
   'memory.settings.get',
   'memory.settings.update',
@@ -352,9 +382,18 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'node.fail',
   'node.list',
   'node.start',
+  'ocr.artifact.read',
   'ocr.install',
+  'ocr.pack.cancel',
+  'ocr.pack.get',
+  'ocr.pack.install',
+  'ocr.pack.notice.list',
+  'ocr.pack.notice.read',
+  'ocr.pack.uninstall',
   'ocr.routing.get',
   'ocr.routing.set',
+  'ocr.run.get',
+  'ocr.run.list',
   'office.artifact.accept',
   'office.artifact.chart',
   'office.artifact.diff',
@@ -654,7 +693,7 @@ for (const method of ['stage.create', 'stage.list', 'stage.update']) assert(ulid
 assert(required(methodSchema('stage.create')).has('phase') && required(methodSchema('stage.create')).has('title') && refEndsWith(methodSchema('stage.create')['x-result'], '#/$defs/StageDTO'), 'stage.create contract drift')
 assert(required(methodSchema('stage.update')).has('id') && required(methodSchema('stage.update')).has('status') && required(methodSchema('stage.update')).has('expectedVersion') && refEndsWith(methodSchema('stage.update')['x-result'], '#/$defs/StageDTO'), 'stage.update contract drift')
 assert(required(methodSchema('stage.list')).has('projectId') && methodSchema('stage.list')['x-result']?.properties?.items?.maxItems === 9, 'stage.list contract drift')
-assert(methodSchemas.every(schema => schema['x-owner'] === (['diagram.render', 'browser.close', 'browser.open', 'conversations.root.select', 'desktop.files.pick', 'desktop.files.readChunk', 'mcp.credential.set', 'provider.credential.reveal', 'provider.credential.submit', 'diagnostics.export', 'system.settings.open', 'ui.theme.set', 'workspace.list', 'workspace.open', 'workspace.read', 'workspace.root.clear', 'workspace.root.get', 'workspace.root.select'].includes(schema['x-method']) ? 'host' : 'engine')), 'method ownership drift')
+assert(methodSchemas.every(schema => schema['x-owner'] === (['diagram.render', 'browser.close', 'browser.open', 'conversations.root.select', 'desktop.files.pick', 'desktop.files.readChunk', 'mcp.credential.set', 'media.asset.pick', 'media.element.report', 'provider.credential.reveal', 'provider.credential.submit', 'diagnostics.export', 'system.settings.open', 'ui.theme.set', 'workspace.list', 'workspace.open', 'workspace.read', 'workspace.root.clear', 'workspace.root.get', 'workspace.root.select'].includes(schema['x-method']) ? 'host' : 'engine')), 'method ownership drift')
 assert(refEndsWith(props(providerList).protocol, '#/$defs/ProviderProtocol'), 'provider.list protocol must explicitly reference ProviderProtocol')
 assert(props(methodSchema('system.health')['x-result']).protocol?.const === bridgeVersion, 'system.health result protocol must be the Bridge version')
 for (const method of ['provider.create', 'provider.update']) {
@@ -702,6 +741,7 @@ const refName = ref => ref.endsWith('#/x-result')
 const tsType = (schema, name = '') => {
   if (!schema) return 'unknown'
   if (Array.isArray(schema.type)) return schema.type.map(type => type === 'null' ? 'null' : tsType({ ...schema, type })).join(' | ')
+  if (schema.type === 'null') return 'null'
   if (schema.$ref) return schema.$ref.includes('#/$defs/') ? pascal(schema.$ref.split('/').at(-1)) : schema.$ref.includes('/x-result') ? 'AttachmentIngestResult' : refName(schema.$ref)
   if ('const' in schema) return json(schema.const)
   if (name === 'method') return 'BridgeMethod'
@@ -722,7 +762,7 @@ const interfaceBody = schema => Object.entries(props(schema)).map(([name, value]
 const publicTypes = Object.entries(publicSchema?.$defs ?? {}).filter(([name]) => !['CredentialState', 'ProviderProtocol'].includes(name)).map(([name, schema]) => `export type ${name} = ${tsType(schema)}\n`).join('')
 const publicDefNames = new Set(Object.keys(publicSchema?.$defs ?? {}).map(pascal))
 const sharedDefSeen = new Set()
-const sharedDefTypes = methodSchemas.flatMap(schema => Object.entries(schema.$defs ?? {}).flatMap(([defName, defSchema]) => {
+const sharedDefTypes = schemas.flatMap(schema => Object.entries(schema.$defs ?? {}).flatMap(([defName, defSchema]) => {
   const typeName = pascal(defName)
   if (publicDefNames.has(typeName) || sharedDefSeen.has(typeName)) return []
   sharedDefSeen.add(typeName)

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/ocr.pack.get.schema.json",
+  "title": "ocr.pack.get payload",
+  "x-method": "ocr.pack.get",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["packId"],
+  "properties": {
+    "packId": { "type": "string", "const": "paddleocr-vl-1.6" }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["pack", "gate", "operation", "release"],
+    "properties": {
+      "pack": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["packId", "availability", "currentVersion", "previousVersion", "manifestDigest", "engineVersion", "deviceKind", "lastHealthAt", "lastErrorCode", "revision"],
+        "properties": {
+          "packId": { "type": "string", "const": "paddleocr-vl-1.6" },
+          "availability": { "type": "string", "enum": ["not_installed", "ready", "quarantined"] },
+          "currentVersion": { "type": ["string", "null"] },
+          "previousVersion": { "type": ["string", "null"] },
+          "manifestDigest": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+          "engineVersion": { "type": ["string", "null"] },
+          "deviceKind": { "type": ["string", "null"], "enum": ["cpu", "gpu", null] },
+          "lastHealthAt": { "type": ["string", "null"], "format": "date-time" },
+          "lastErrorCode": { "type": ["string", "null"] },
+          "revision": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "gate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["installAllowed", "autoRouteAllowed", "reasonCode", "verifiedRuntimeProfileDigest", "revision"],
+        "properties": {
+          "installAllowed": { "type": "boolean" },
+          "autoRouteAllowed": { "type": "boolean" },
+          "reasonCode": { "type": ["string", "null"], "minLength": 1, "maxLength": 128 },
+          "verifiedRuntimeProfileDigest": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+          "revision": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "operation": { "type": "null" },
+      "release": { "type": "null" }
+    }
+  },
+  "x-examples": {
+    "positive": [{ "packId": "paddleocr-vl-1.6" }],
+    "negative": [{}, { "packId": "rapidocr-json" }, { "packId": "paddleocr-vl-1.6", "path": "C:\\\\ocr" }]
+  }
+}

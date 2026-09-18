@@ -26,6 +26,28 @@ func TestSplitBoundKeysAndCatalogSeed(t *testing.T) {
 	}
 }
 
+func TestCanonicalDeclaredKeyAndRemoveBoundKeys(t *testing.T) {
+	if got := m8app.CanonicalDeclaredKey("tpl-slide-builder"); got != "slide-builder" {
+		t.Fatalf("tpl alias = %q", got)
+	}
+	if got := m8app.CanonicalDeclaredKey("builtin://slide-builder"); got != "slide-builder" {
+		t.Fatalf("entry alias = %q", got)
+	}
+	if got := m8app.CanonicalDeclaredKey("mcp:playwright"); got != "mcp:playwright" {
+		t.Fatalf("mcp key = %q", got)
+	}
+	got := m8app.RemoveBoundKeys(
+		[]string{"tpl-slide-builder", "mcp:playwright", "web-researcher"},
+		[]string{"slide-builder", "mcp:playwright"},
+	)
+	if containsStr(got, "tpl-slide-builder") || containsStr(got, "mcp:playwright") {
+		t.Fatalf("remove left declared keys: %#v", got)
+	}
+	if !containsStr(got, "web-researcher") {
+		t.Fatalf("remove dropped unrelated key: %#v", got)
+	}
+}
+
 func TestConversationExpertsCatalogAndRules(t *testing.T) {
 	items := m8app.ConversationExperts()
 	if len(items) != len(m8app.ConversationExpertIDs) {

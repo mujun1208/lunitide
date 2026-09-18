@@ -813,9 +813,10 @@ it('puts token and tool receipts on the composer hint line instead of a dump abo
  })
  const hint=document.querySelector('.msg-hint')
  expect(hint?.textContent).toContain('发送')
- expect(hint?.textContent).toContain('换行')
- expect(hint?.textContent).toContain('输入 12930')
- expect(hint?.textContent).toContain('字符')
+ expect(hint?.textContent).toContain('1.3万/8704')
+ expect(hint?.textContent).not.toContain('输入 12930')
+ expect(hint?.textContent).not.toContain('合计 21634')
+ expect(hint?.textContent).not.toContain('字节')
  expect(document.querySelector('.conversation-scroll + .chat-usage')).toBeNull()
  expect(screen.queryByText(/只作用于请求结构与同源去重/)).toBeNull()
  expect(screen.queryByRole('group',{name:'下一步建议'})).toBeNull()
@@ -1131,6 +1132,23 @@ it('prefixes only selected PM chips on rethink and never the conversation catalo
  expect(sent).not.toContain('PPT专家')
  expect(sent).not.toContain('小说编写专家')
  expect(sent).not.toContain('报告编写专家')
+})
+
+it('keeps send and voice inside the composer and hides idle 0% context text',async()=>{
+ const status=vi.fn().mockResolvedValue({canonicalLogicalTokens:0,canonicalTokenizerId:'lunitide-canonical-v1',canonicalTokenizerRevision:'v1.0.0',modelContextWindow:100000,activeCheckpointVersion:0,budgetUsage:0,isCompacting:false})
+ const context={status,compactPreview:vi.fn(),compactCommit:vi.fn(),compactCancel:vi.fn(),handoffCreate:vi.fn(),handoffImport:vi.fn(),handoffInspect:vi.fn(),handoffList:vi.fn(),handoffListImports:vi.fn(),handoffRevoke:vi.fn()} as unknown as ContextBridge
+ await open({personal:true,providers,initialSession:session,context,chat:{start:vi.fn(),approve:vi.fn(),dispose:vi.fn()}})
+ const box=document.querySelector('.personal-chat-page .message-input') as HTMLElement
+ const mic=screen.getByRole('button',{name:'语音输入'})
+ const send=screen.getByRole('button',{name:'↑ 发送并对话'})
+ expect(box).toContainElement(mic)
+ expect(box).toContainElement(send)
+ expect(box).toContainElement(document.querySelector('.composer-primary-actions') as HTMLElement)
+ expect(screen.queryByLabelText('上下文用量 0%')).toBeNull()
+ expect(document.querySelector('.composer-primary-actions')?.textContent).not.toMatch(/0%/)
+ const hint=document.querySelector('.msg-hint')
+ expect(hint?.textContent).not.toContain('字符')
+ expect(hint?.textContent).not.toContain('字节')
 })
 
 it('shows a compact chip when context usage is high and commits the preview',async()=>{

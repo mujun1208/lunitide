@@ -420,6 +420,11 @@ func (s *Service) Create(ctx context.Context, sk skill.Skill) (skill.Skill, erro
 	if sk.MinEngineVersion != nil && len(*sk.MinEngineVersion) > 32 {
 		return skill.Skill{}, errors.New("skill min_engine_version too long")
 	}
+	if s.read != nil {
+		if existing, err := s.GetByNameVersion(ctx, sk.Name, sk.Version); err == nil && existing != nil {
+			return *existing, nil
+		}
+	}
 	now := s.clock.Now()
 	sk.ID = ""
 	sk.Status = skill.SkillStatusDraft
@@ -634,7 +639,7 @@ func (s *Service) Disable(ctx context.Context, id string) error {
 	return s.write.UpdateSkillStatus(ctx, id, string(skill.SkillStatusDisabled), sk.Rev)
 }
 
-// Delete removes a skill. Only draft or disabled skills can be deleted.
+// Delete removes a skill of any lifecycle status.
 func (s *Service) Delete(ctx context.Context, id string) error {
 	if s == nil || s.write == nil {
 		return errors.New("skill writer unavailable")
@@ -645,9 +650,6 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	}
 	if sk == nil {
 		return ErrSkillNotFound
-	}
-	if sk.Status != skill.SkillStatusDraft && sk.Status != skill.SkillStatusDisabled {
-		return ErrInvalidTransition
 	}
 	return s.write.DeleteSkill(ctx, id)
 }

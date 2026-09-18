@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/media.session.list.schema.json",
+  "title": "media.session.list payload",
+  "x-method": "media.session.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scopeKind"],
+  "properties": {
+    "scopeKind": { "type": "string", "enum": ["user", "project"] },
+    "scopeId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "cursor": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+  },
+  "allOf": [
+    { "if": { "properties": { "scopeKind": { "const": "user" } } }, "then": { "properties": { "scopeId": false } } },
+    { "if": { "properties": { "scopeKind": { "const": "project" } } }, "then": { "required": ["scopeId"], "properties": { "scopeId": {} } } }
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["items", "nextCursor"],
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 100,
+        "items": { "$ref": "https://lunitide.local/schema/bridge/v1/media.dto.schema.json#/$defs/MediaSnapshotDTO" }
+      },
+      "nextCursor": { "type": ["string", "null"] }
+    }
+  },
+  "x-examples": {
+    "positive": [{ "scopeKind": "user", "limit": 10 }, { "scopeKind": "project", "scopeId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }],
+    "negative": [{}, { "scopeKind": "user", "scopeId": "x" }, { "scopeKind": "project" }]
+  }
+}

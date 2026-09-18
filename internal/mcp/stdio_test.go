@@ -93,6 +93,12 @@ func fakeStdioMcpServer(mode string) {
 		if strings.HasPrefix(mode, "version:") && req.Method == "initialize" {
 			result.(map[string]any)["protocolVersion"] = strings.TrimPrefix(mode, "version:")
 		}
+		if mode == "empty-version" && req.Method == "initialize" {
+			result.(map[string]any)["serverInfo"] = map[string]any{"name": "fake-stdio", "version": ""}
+		}
+		if mode == "garbage" && req.Method == "initialize" {
+			_, _ = out.WriteString("starting server...\nnot json-rpc\n")
+		}
 		if mode == "notifications" || mode == "flood" {
 			count := 1
 			if mode == "flood" {
@@ -248,8 +254,36 @@ func TestStdioWindowsShimPathWithSpaces(t *testing.T) {
 	}
 }
 
+func TestStdioLookPathFindsUvOutsidePATH(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(bin, 0700); err != nil {
+		t.Fatal(err)
+	}
+	name := "uvx"
+	if runtime.GOOS == "windows" {
+		name = "uvx.exe"
+	}
+	target := filepath.Join(bin, name)
+	if err := os.WriteFile(target, []byte("fake"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("LOCALAPPDATA", t.TempDir())
+	t.Setenv("LUNITIDE_UV_HOME", filepath.Join(t.TempDir(), "missing-uv"))
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", home)
+	} else {
+		t.Setenv("HOME", home)
+	}
+	got, err := stdioLookPath("uvx")
+	if err != nil || got != target {
+		t.Fatalf("uv extra path: %q %v want %q", got, err, target)
+	}
+}
+
 func TestStdioNegotiatesInstalledServerVersionsAndInterleaving(t *testing.T) {
-	for _, mode := range []string{"notifications", "requests", "version:2024-11-05", "version:2025-06-18", "version:2025-11-25"} {
+	for _, mode := range []string{"notifications", "requests", "version:2024-11-05", "version:2025-06-18", "version:2025-11-25", "version:2026-07-28", "empty-version", "garbage"} {
 		t.Run(mode, func(t *testing.T) {
 			s := dialFake(t, mode)
 			tools, err := s.ListTools(context.Background())

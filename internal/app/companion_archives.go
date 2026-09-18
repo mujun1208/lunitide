@@ -12,6 +12,7 @@ import (
 	"github.com/lunitide/lunitide/internal/compactionapp"
 	"github.com/lunitide/lunitide/internal/contextapp"
 	"github.com/lunitide/lunitide/internal/domain/compaction"
+	"github.com/lunitide/lunitide/internal/domain/m8core"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 )
 
@@ -31,8 +32,10 @@ func (e *Engine) RunCompanionArchives(ctx context.Context, now time.Time) error 
 	if a.store == nil || e.compactionTrigger == nil || e.compactionExecutor == nil || e.providers == nil {
 		return nil
 	}
-	if e.memoryOps != nil && !e.chatMemorySettings(ctx).MemoryEnabled {
-		return nil
+	if e.memoryOps != nil {
+		if !m8core.ResolveMemoryBehavior(e.chatMemoryV2(ctx), "user", m8core.CurrentProductFlags()).AllowAutoCapture {
+			return nil
+		}
 	}
 	if !a.mu.TryLock() {
 		return nil
@@ -137,8 +140,10 @@ func (e *Engine) companionArchiveEvidence(ctx context.Context, sessionID, query 
 	if e.companionArchives.store == nil || !wantsCompanionArchiveRecall(query) {
 		return nil
 	}
-	if e.memoryOps != nil && !e.chatMemorySettings(ctx).MemoryEnabled {
-		return nil
+	if e.memoryOps != nil {
+		if !m8core.ResolveMemoryBehavior(e.chatMemoryV2(ctx), "user", m8core.CurrentProductFlags()).AllowRecall {
+			return nil
+		}
 	}
 	archives, err := e.companionArchives.store.SearchCompanionArchives(ctx, sessionID, query, 3)
 	if err != nil {

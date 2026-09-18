@@ -40,6 +40,14 @@ func (e *Engine) capabilityReadiness(ctx context.Context, id string) CapabilityR
 		if err != nil {
 			return CapabilityReadiness{ID: "ocr", Availability: "unavailable", Detail: "OCR 路由暂时不可用", Code: "STORAGE_UNAVAILABLE"}
 		}
+		if !(routing.Bound() && ocrapp.EffectivePolicy(routing).SendToCloud != "never") {
+			routing.ProviderID, routing.ModelID = "", ""
+			routing.PreferProvider = false
+			if pid, mid, ok := e.ocrVisionBinding(ctx); ok {
+				routing.ProviderID, routing.ModelID = pid, mid
+				routing.PreferProvider = true
+			}
+		}
 		return ocrCapabilityFrom(routing, e.ocr.HealthSnapshot().Local)
 	case "files":
 		if e == nil || (e.fileOps == nil && e.tools == nil) {
@@ -83,10 +91,29 @@ func (e *Engine) capabilityReadiness(ctx context.Context, id string) CapabilityR
 	}
 }
 
+func ocrProbeDetail(state string) string {
+	switch state {
+	case "ready":
+		return "本机识别可用"
+	case "unsupported_os":
+		return "当前系统暂不支持 Windows OCR"
+	case "initialization_failed":
+		return "Windows OCR 初始化失败，可重试检查"
+	case "language_unavailable":
+		return "需要安装 Windows OCR 语言包"
+	case "sample_failed":
+		return "Windows OCR 自检失败，可重试检查"
+	case "timed_out":
+		return "Windows OCR 检查超时，可重试检查"
+	default:
+		return "请先配置 OCR 供应商或安装本机识别"
+	}
+}
+
 func ocrCapabilityFrom(routing ocrapp.Routing, local ocrapp.LocalReady) CapabilityReadiness {
 	localOK := local.PDF || local.Image
 	if !localOK && !routing.Bound() {
-		return CapabilityReadiness{ID: "ocr", Availability: "needs_config", Detail: "请先配置 OCR 供应商或安装本机识别", Code: "CAPABILITY_NOT_READY"}
+		return CapabilityReadiness{ID: "ocr", Availability: "needs_config", Detail: ocrProbeDetail(local.ProbeState), Code: "CAPABILITY_NOT_READY"}
 	}
 	if routing.Bound() && !localOK {
 		return CapabilityReadiness{ID: "ocr", Availability: "ready", Detail: "仅供应商，本机不可用"}

@@ -1,27 +1,43 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import { PersonalIntelligencePage } from './PersonalIntelligencePage'
 
 afterEach(cleanup)
-vi.mock('../bridge/client', () => ({ projectBridge: { list: vi.fn().mockRejectedValue(new Error('unavailable')) } }))
 vi.mock('../memory/MemoryPage', () => ({ MemoryPage: () => <div data-testid="memory-page-stub" /> }))
 vi.mock('./PrivacyConsole', () => ({ PrivacyConsole: () => <div data-testid="privacy-console-stub" /> }))
+vi.mock('../settings/OCRSettingsPanel', () => ({ OCRSettingsPanel: () => <div data-testid="ocr-settings-stub" /> }))
+vi.mock('../settings/SmartCapabilitiesPanel', () => ({
+  SmartCapabilitiesPanel: ({ onOpenMemory, onOpenOCR }: { onOpenMemory?: () => void; onOpenOCR?: () => void }) => (
+    <div className="smart-cap">
+      <section className="smart-cap-card" aria-labelledby="smart-mem-title">
+        <h3 id="smart-mem-title">自动记忆</h3>
+        <button type="button" onClick={onOpenMemory}>管理已保存记忆与隐私</button>
+      </section>
+      <section className="smart-cap-card" aria-labelledby="smart-ocr-title">
+        <h3 id="smart-ocr-title">文字识别</h3>
+        <button type="button" onClick={onOpenOCR}>打开文字识别</button>
+      </section>
+    </div>
+  ),
+}))
 
-it('keeps memory and privacy as user-facing tabs and hides ontology', () => {
-  render(<PersonalIntelligencePage />)
-  expect(screen.getByRole('heading', { name: '个人智能' })).toBeInTheDocument()
-  expect(screen.getByText(/专家跨会话工作摘要要你点确认/)).toBeInTheDocument()
-  expect(screen.getByRole('tab', { name: '记忆确认' })).toBeInTheDocument()
-  expect(screen.getByRole('tab', { name: '隐私' })).toBeInTheDocument()
-  expect(screen.queryByRole('tab', { name: '本体' })).toBeNull()
-  expect(screen.queryByRole('button', { name: /KnowledgeBase/ })).toBeNull()
-  expect(screen.queryByRole('button', { name: /^Handoff$/ })).toBeNull()
-  expect(screen.queryByRole('button', { name: /^自动化$/ })).toBeNull()
-  expect(screen.queryByRole('button', { name: /专家中心/ })).toBeNull()
-})
-
-it('switches to the privacy panel', () => {
-  render(<PersonalIntelligencePage />)
-  fireEvent.click(screen.getByRole('tab', { name: '隐私' }))
-  expect(screen.getByTestId('privacy-console-stub')).toBeInTheDocument()
+it('renders exactly two overview cards and one OCR detail', async () => {
+  const user = userEvent.setup()
+  const onViewChange = vi.fn()
+  render(<PersonalIntelligencePage onViewChange={onViewChange} />)
+  expect(screen.getByRole('heading', { name: '智能能力' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '自动记忆' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '文字识别' })).toBeInTheDocument()
+  expect(document.querySelectorAll('.smart-cap-card')).toHaveLength(2)
+  expect(screen.queryByTestId('ocr-settings-stub')).toBeNull()
+  await user.click(screen.getByRole('button', { name: '打开文字识别' }))
+  expect(onViewChange).toHaveBeenCalledWith('ocr')
+  expect(screen.getByTestId('ocr-settings-stub')).toBeInTheDocument()
+  expect(screen.getAllByTestId('ocr-settings-stub')).toHaveLength(1)
+  expect(screen.queryByRole('heading', { name: 'OCR 路由' })).toBeNull()
+  expect(screen.getByRole('button', { name: '返回智能能力' })).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: '返回智能能力' }))
+  expect(screen.getByRole('heading', { name: '自动记忆' })).toBeInTheDocument()
+  expect(document.querySelectorAll('.smart-cap-card')).toHaveLength(2)
 })

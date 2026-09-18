@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { AssistantMessageBody, MarkdownMessage, ThinkingPanel, compressThinking, formatTaskElapsed, safeMarkdownUrl, splitPersistedThinking } from './MarkdownMessage'
@@ -28,6 +30,26 @@ it('renders GFM structures and secure HTTPS links', () => {
   expect(screen.getByText('粗体').tagName).toBe('STRONG')
   expect(screen.getByRole('table')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: '安全' })).toHaveAttribute('rel', 'noopener noreferrer')
+})
+
+it('puts GFM table cells inside the framed wrap so the box is never empty', () => {
+  const { container } = render(<MarkdownMessage text={'| 项 | 定位 |\n| --- | --- |\n| 曲风 | 流行 |'} />)
+  const wrap = container.querySelector('.md-table-wrap')
+  expect(wrap?.querySelector('table.md-table')?.textContent).toContain('流行')
+  expect(wrap?.textContent?.replace(/\s+/g, '')).not.toBe('')
+})
+
+it('keeps framed markdown tables in table layout instead of a hollow block box', () => {
+  const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
+  expect(css).toMatch(/\.message-body \.md-table\{display:table/)
+  expect(css).not.toMatch(/\.message-body table\{display:block/)
+  expect(css).not.toMatch(/\.mermaid-host\{[^}]*min-height:120px/)
+  expect(css).toMatch(/\.mermaid-host:empty\{display:none/)
+})
+
+it('does not draw a framed wrap around an empty table', () => {
+  const { container } = render(<MarkdownMessage text={'|   |\n|---|\n|   |'} />)
+  expect(container.querySelector('.md-table-wrap')).toBeNull()
 })
 
 it('keeps raw HTML inert and blocks unsafe URLs and images', () => {

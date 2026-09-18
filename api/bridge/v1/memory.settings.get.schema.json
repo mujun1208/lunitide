@@ -14,8 +14,14 @@
       "maxLength": 128
     }
   },
-  "required": [
-    "subjectId"
+  "oneOf": [
+    {
+      "required": ["subjectId"],
+      "properties": { "subjectId": {} }
+    },
+    {
+      "properties": { "subjectId": false }
+    }
   ],
   "x-result": {
     "type": "object",
@@ -47,11 +53,17 @@
       },
       "captureMode": {
         "type": "string",
-        "enum": [
-          "auto",
-          "manual",
-          "off"
-        ]
+        "enum": ["auto", "manual", "off"]
+      },
+      "revision": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "personalMemoryEnabled": {
+        "type": "boolean"
+      },
+      "projectMemoryEnabled": {
+        "type": "boolean"
       }
     },
     "required": [
@@ -60,14 +72,19 @@
       "autoNominate",
       "growthDays",
       "updatedAt",
-      "version"
+      "version",
+      "captureMode",
+      "revision",
+      "personalMemoryEnabled",
+      "projectMemoryEnabled"
     ]
   },
   "x-examples": {
     "positive": [
       {
         "subjectId": "user-1"
-      }
+      },
+      {}
     ],
     "negative": [
       {

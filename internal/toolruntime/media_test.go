@@ -51,8 +51,8 @@ func TestGenericForegroundPlaySendsKeyWithoutUIHunt(t *testing.T) {
 	if err != nil || !played || !strings.Contains(res.Output, "started playing") {
 		t.Fatalf("got %+v %v played=%v", res, err, played)
 	}
-	if !strings.Contains(res.Output, `"passed":true`) || strings.Contains(res.Output, `"uncertain":true`) {
-		t.Fatalf("generic play must close as passed: %s", res.Output)
+	if strings.Contains(res.Output, `"passed":true`) || !strings.Contains(res.Output, `"uncertain":true`) || !strings.Contains(res.Output, "MEDIA_UNVERIFIED") {
+		t.Fatalf("key-only play must stay unverified: %s", res.Output)
 	}
 }
 

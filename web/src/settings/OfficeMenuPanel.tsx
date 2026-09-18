@@ -15,7 +15,7 @@ export function OfficeMenuPanel({ onSaved }: { onSaved?: () => void }): React.JS
   const zh = useZh(), settings = useOfficeMenu()
   const [error, setError] = useState('')
   return <section className="setting-group office-menu-settings">
-    <p className="setting-desc">{zh ? '选择办公菜单显示的功能。本机全局生效，切换模型和对话后仍保留。关闭只隐藏导航，已有任务、对话和文件都保留。自动化始终显示。' : 'Choose which features appear in Office. These preferences apply throughout this app and persist across chats and models. Hidden features retain their tasks, conversations and files. Automation stays visible.'}</p>
+    <p className="setting-desc">{zh ? '选择办公菜单显示的功能。本机全局生效，切换模型和对话后仍保留。关闭只隐藏导航，已有任务、对话和文件都保留。自动化和媒体中心始终显示。' : 'Choose which features appear in Office. These preferences apply throughout this app and persist across chats and models. Hidden features retain their tasks, conversations and files. Automation and Media Center stay visible.'}</p>
     {ITEMS.map(item => <Toggle key={item.key} label={zh ? item.zh : item.en} desc={zh ? item.description : item.descriptionEn} on={settings[item.key]} onChange={enabled => {
       try { saveOfficeMenu(item.key, enabled); setError(''); onSaved?.() }
       catch { setError(zh ? '设置未保存，请重试。' : 'Could not save this preference. Please retry.') }

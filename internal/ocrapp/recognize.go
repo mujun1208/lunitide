@@ -45,6 +45,7 @@ type LocalImageFunc func(ctx context.Context, raw []byte) (doctext.PDFOCRResult,
 type PackImageFunc func(ctx context.Context, packRoot string, raw []byte) (doctext.PDFOCRResult, error)
 type RenderPDFFunc func(ctx context.Context, raw []byte, pages []int) ([]doctext.RenderedPDFPage, error)
 type CredentialFunc func(providerID string) string
+type CloudBindingFunc func(ctx context.Context) (providerID, modelID string, ok bool)
 
 type ocrFill struct {
 	Page   int
@@ -54,16 +55,17 @@ type ocrFill struct {
 }
 
 type Service struct {
-	store      *FileStore
-	provider   ProviderFunc
-	localPDF   LocalPDFFunc
-	localImage LocalImageFunc
-	packImage  PackImageFunc
-	renderPDF  RenderPDFFunc
-	credential CredentialFunc
-	now        func() time.Time
-	healthMu   sync.Mutex
-	health     map[string]healthNote
+	store        *FileStore
+	provider     ProviderFunc
+	localPDF     LocalPDFFunc
+	localImage   LocalImageFunc
+	packImage    PackImageFunc
+	renderPDF    RenderPDFFunc
+	credential   CredentialFunc
+	cloudBinding CloudBindingFunc
+	now          func() time.Time
+	healthMu     sync.Mutex
+	health       map[string]healthNote
 
 	installRoot    string
 	installer      *Installer
@@ -90,6 +92,11 @@ func New(store *FileStore) *Service {
 }
 
 func (s *Service) SetProvider(fn ProviderFunc) { s.provider = fn }
+func (s *Service) SetCloudBinding(fn CloudBindingFunc) {
+	if s != nil {
+		s.cloudBinding = fn
+	}
+}
 func (s *Service) SetLocalPDF(fn LocalPDFFunc) {
 	if s != nil {
 		s.localPDF = fn
@@ -133,21 +140,34 @@ func (s *Service) SetCredential(fn CredentialFunc) {
 
 func (s *Service) Routing() (Routing, error) {
 	if s == nil || s.store == nil {
-		return Routing{PreferProvider: true, Revision: RoutingRevision(Routing{PreferProvider: true})}, nil
+		return defaultRouting(), nil
 	}
 	return s.store.Get()
+}
+
+func (s *Service) ScopedRouting(scopeKind, scopeID string) (ScopedRouting, error) {
+	if s == nil || s.store == nil {
+		return scopedFrom(defaultRouting(), scopeKind, scopeID), nil
+	}
+	return s.store.GetScoped(scopeKind, scopeID)
 }
 
 func (s *Service) SetRouting(next Routing, expected string) (Routing, error) {
 	if s == nil || s.store == nil {
 		return Routing{}, errors.New("OCR 路由存储不可用")
 	}
-	if strings.TrimSpace(next.PackRoot) == "" {
-		if root := s.installedPackRoot(); root != "" {
-			next.PackRoot = root
-		}
-	}
 	saved, err := s.store.CompareAndSet(next, expected)
+	if err == nil {
+		s.clearHealth()
+	}
+	return saved, err
+}
+
+func (s *Service) SetScopedRouting(scopeKind, scopeID string, policy Policy, packRoot, localEngine, expected string) (ScopedRouting, error) {
+	if s == nil || s.store == nil {
+		return ScopedRouting{}, errors.New("OCR 路由存储不可用")
+	}
+	saved, err := s.store.CompareAndSetScoped(scopeKind, scopeID, policy, packRoot, localEngine, expected)
 	if err == nil {
 		s.clearHealth()
 	}
@@ -188,14 +208,11 @@ func (s *Service) runLocalImage(ctx context.Context, raw []byte) (doctext.PDFOCR
 			fn = runRapidOCR
 		}
 		got, err := fn(ctx, packRoot, raw)
-		if err == nil {
+		if err == nil && strings.TrimSpace(firstLocalImageText(got)) != "" {
 			if strings.TrimSpace(got.Method) == "" {
 				got.Method = "ppocr"
 			}
 			return got, nil
-		}
-		if routing.LocalEngine == "ppocr" {
-			return doctext.PDFOCRResult{}, err
 		}
 	}
 	if s.localImage == nil {

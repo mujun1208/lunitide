@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/ocr.run.get.schema.json",
+  "title": "ocr.run.get payload",
+  "x-method": "ocr.run.get",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["runId"],
+  "properties": {
+    "runId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "pageCursor": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 20 }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["runId", "pages", "nextCursor"],
+    "properties": {
+      "runId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+      "pages": {
+        "type": "array",
+        "maxItems": 20,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["page", "complete", "uncertain"],
+          "properties": {
+            "page": { "type": "integer", "minimum": 1 },
+            "complete": { "type": "boolean" },
+            "uncertain": { "type": "boolean" }
+          }
+        }
+      },
+      "nextCursor": { "type": ["string", "null"] }
+    }
+  },
+  "x-examples": {
+    "positive": [
+      { "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+      { "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "limit": 20 }
+    ],
+    "negative": [
+      {},
+      { "runId": "not-a-ulid" },
+      { "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "limit": 0 },
+      { "runId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "path": "C:\\\\ocr\\\\run.json" }
+    ]
+  }
+}

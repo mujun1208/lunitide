@@ -70,6 +70,10 @@ func (m *mockSkillWriter) DeleteSkill(_ context.Context, id string) error {
 	m.deletedID = id
 	return m.err
 }
+func (m *mockSkillWriter) DeleteSkillVersion(_ context.Context, id string, _ int64) error {
+	m.deletedID = id
+	return m.err
+}
 
 func skNow() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) }
 
@@ -117,6 +121,27 @@ func TestGetByNameVersionNotFound(t *testing.T) {
 	s := New(r, &mockSkillWriter{})
 	if _, err := s.GetByNameVersion(context.Background(), "search-web", "1.0.0"); err != ErrSkillNotFound {
 		t.Fatalf("expected ErrSkillNotFound, got %v", err)
+	}
+}
+
+func TestCreateSameNameVersionReturnsExisting(t *testing.T) {
+	existing := makeSkill("01ARZ3NDEKTSV4RRFFQ69G5FAV", skill.SkillStatusPublished, nil)
+	existing.Name = "dup-skill"
+	writer := &mockSkillWriter{}
+	s := New(&mockSkillReader{byNameVer: existing}, writer)
+	got, err := s.Create(context.Background(), skill.Skill{
+		Name: "dup-skill", DisplayName: "Dup", Description: "same version", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},
+		EntryPoint:  "SKILL.md", ManifestJSON: `{"prompt":"x"}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != existing.ID {
+		t.Fatalf("Create = %+v, want existing %s", got, existing.ID)
+	}
+	if writer.createdSkill.ID != "" {
+		t.Fatalf("Create wrote a duplicate: %+v", writer.createdSkill)
 	}
 }
 
@@ -258,11 +283,28 @@ func TestDeleteAllowsDisabled(t *testing.T) {
 	}
 }
 
-func TestDeleteRejectsPublished(t *testing.T) {
+func TestDeleteAllowsPublished(t *testing.T) {
 	r := &mockSkillReader{skill: makeSkill("01ARZ3NDEKTSV4RRFFQ69G5FAV", skill.SkillStatusPublished, nil)}
-	s := New(r, &mockSkillWriter{})
-	if err := s.Delete(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAV"); err != ErrInvalidTransition {
-		t.Fatalf("expected ErrInvalidTransition, got %v", err)
+	w := &mockSkillWriter{}
+	s := New(r, w)
+	if err := s.Delete(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAV"); err != nil {
+		t.Fatal(err)
+	}
+	if w.deletedID != "01ARZ3NDEKTSV4RRFFQ69G5FAV" {
+		t.Fatalf("expected published skill deleted, got %s", w.deletedID)
+	}
+}
+
+func TestDeleteVersionAllowsPublished(t *testing.T) {
+	sk := makeSkill("01ARZ3NDEKTSV4RRFFQ69G5FAV", skill.SkillStatusPublished, nil)
+	sk.Rev = 3
+	w := &mockSkillWriter{}
+	s := New(&mockSkillReader{skill: sk}, w)
+	if err := s.DeleteVersion(context.Background(), sk.ID, 3); err != nil {
+		t.Fatal(err)
+	}
+	if w.deletedID != sk.ID {
+		t.Fatalf("expected published version deleted, got %s", w.deletedID)
 	}
 }
 

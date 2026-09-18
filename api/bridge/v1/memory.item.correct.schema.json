@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/memory.item.correct.schema.json",
+  "title": "memory.item.correct payload",
+  "x-method": "memory.item.correct",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["factId", "replacementText", "reason", "operationId", "expectedRevision"],
+  "properties": {
+    "factId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "replacementText": { "type": "string", "minLength": 1, "maxLength": 8192 },
+    "validFrom": { "type": "string", "format": "date-time" },
+    "reason": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "operationId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "expectedRevision": { "type": "integer", "minimum": 1 }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["item", "databaseRevision"],
+    "properties": {
+      "item": { "$ref": "https://lunitide.local/schema/bridge/v1/memory.item.create.schema.json#/$defs/MemoryItemDTO" },
+      "databaseRevision": { "type": "integer", "minimum": 0 }
+    }
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "factId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "replacementText": "我喜欢简洁的中文回答",
+        "reason": "更准确",
+        "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "expectedRevision": 1
+      },
+      {
+        "factId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "replacementText": "我喜欢简洁的中文回答",
+        "validFrom": "2026-09-18T00:00:00Z",
+        "reason": "更准确",
+        "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+        "expectedRevision": 2
+      }
+    ],
+    "negative": [
+      {
+        "factId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "replacementText": "我喜欢简洁的中文回答",
+        "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "expectedRevision": 1
+      },
+      {
+        "factId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "replacementText": "",
+        "reason": "更准确",
+        "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "expectedRevision": 1
+      },
+      {
+        "factId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "replacementText": "我喜欢简洁的中文回答",
+        "reason": "更准确",
+        "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+      }
+    ]
+  }
+}

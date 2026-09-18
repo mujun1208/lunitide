@@ -40,9 +40,9 @@ func TestPlaybackClaimsRequireThisTurnsMatchingToolReceipt(t *testing.T) {
 			t.Fatalf("unverified output accepted: %q", out)
 		}
 	}
-	started := `started playing in 汽水音乐 (media key)` + "\n" + `{"l0":{"kind":"foreground","passed":true,"uncertain":false,"detail":"汽水音乐"}}`
-	if unverifiedMediaPlay("media.play", started, "还没有确认开始播放") {
-		t.Fatal("started playing with passed foreground l0 must close the play loop")
+	started := `started playing in 汽水音乐 (media key)` + "\n" + `{"l0":{"kind":"foreground","passed":false,"uncertain":true,"detail":"MEDIA_UNVERIFIED"}}`
+	if !unverifiedMediaPlay("media.play", started, "还没有确认开始播放") {
+		t.Fatal("key-only started playing must stay unverified")
 	}
 	verified := `verified playing in 汽水音乐; title="x"; artist=""; shuffle=false` + "\n" + `{"l0":{"kind":"media-session","passed":true,"uncertain":false}}`
 	if unverifiedMediaPlay("media.play", verified, "") {

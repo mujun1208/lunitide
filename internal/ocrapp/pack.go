@@ -12,19 +12,31 @@ type PackStatus struct {
 	Backend   string
 }
 
-var packExecutables = []string{
+var rapidOCRExecutables = []string{
 	"RapidOCR-json.exe",
 	"RapidOCR_json.exe",
-	"ppocr.exe",
-	"paddleocr.exe",
 }
 
-func packMarkerReady(root string) bool {
+func packRapidOCRReady(root string) bool {
 	root = strings.TrimSpace(root)
 	if root == "" {
 		return false
 	}
-	for _, name := range packExecutables {
+	for _, name := range rapidOCRExecutables {
+		info, err := os.Stat(filepath.Join(root, name))
+		if err == nil && !info.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+func packUnwiredMarker(root string) bool {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return false
+	}
+	for _, name := range []string{"ppocr.exe", "paddleocr.exe"} {
 		info, err := os.Stat(filepath.Join(root, name))
 		if err == nil && !info.IsDir() {
 			return true
@@ -53,23 +65,41 @@ func detectPPOcrPackDepth(root string, depth int) PackStatus {
 	if root == "" {
 		return PackStatus{Status: "missing_dependency", Backend: "ppocr-pack"}
 	}
-	if packMarkerReady(root) {
+	if packRapidOCRReady(root) {
 		return PackStatus{Available: true, Status: "ready", Backend: "ppocr-pack"}
 	}
+	unwired := packUnwiredMarker(root)
+	if unwired {
+		return PackStatus{Status: "registered_unwired", Backend: "ppocr-pack"}
+	}
 	if depth >= packSearchDepth {
+		if unwired {
+			return PackStatus{Status: "registered_unwired", Backend: "ppocr-pack"}
+		}
 		return PackStatus{Status: "missing_dependency", Backend: "ppocr-pack"}
 	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
+		if unwired {
+			return PackStatus{Status: "registered_unwired", Backend: "ppocr-pack"}
+		}
 		return PackStatus{Status: "missing_dependency", Backend: "ppocr-pack"}
 	}
+	foundUnwired := unwired
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		if got := detectPPOcrPackDepth(filepath.Join(root, entry.Name()), depth+1); got.Available {
+		got := detectPPOcrPackDepth(filepath.Join(root, entry.Name()), depth+1)
+		if got.Available {
 			return got
 		}
+		if got.Status == "registered_unwired" {
+			foundUnwired = true
+		}
+	}
+	if foundUnwired {
+		return PackStatus{Status: "registered_unwired", Backend: "ppocr-pack"}
 	}
 	return PackStatus{Status: "missing_dependency", Backend: "ppocr-pack"}
 }
@@ -105,7 +135,7 @@ func findPackExecutableDepth(root string, depth int) string {
 }
 
 func findPackExecutableHere(root string) string {
-	for _, name := range packExecutables {
+	for _, name := range rapidOCRExecutables {
 		path := filepath.Join(root, name)
 		info, err := os.Stat(path)
 		if err == nil && !info.IsDir() {
@@ -123,18 +153,11 @@ func ResolvePPOcrRoot(stored string) string {
 }
 
 func EffectiveLocalEngine(localEngine string, pack PackStatus) string {
-	switch strings.TrimSpace(localEngine) {
-	case "windows-ocr":
-		return "windows-ocr"
-	case "ppocr":
-		if pack.Available {
-			return "ppocr"
-		}
-		return "windows-ocr"
-	default:
-		if pack.Available {
-			return "ppocr"
-		}
+	if strings.TrimSpace(localEngine) == "windows-ocr" {
 		return "windows-ocr"
 	}
+	if pack.Available {
+		return "ppocr"
+	}
+	return "windows-ocr"
 }

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/ocr.pack.notice.read.schema.json",
+  "title": "ocr.pack.notice.read payload",
+  "x-method": "ocr.pack.notice.read",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["packId", "manifestDigest", "offset", "limit"],
+  "properties": {
+    "packId": { "type": "string", "const": "paddleocr-vl-1.6" },
+    "manifestDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "offset": { "type": "integer", "minimum": 0 },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 65536 }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["base64", "nextOffset", "eof", "sha256", "totalBytes"],
+    "properties": {
+      "base64": { "type": "string" },
+      "nextOffset": { "type": "integer", "minimum": 0 },
+      "eof": { "type": "boolean" },
+      "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+      "totalBytes": { "type": "integer", "minimum": 0 }
+    }
+  },
+  "x-examples": {
+    "positive": [{
+      "packId": "paddleocr-vl-1.6",
+      "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "offset": 0,
+      "limit": 4096
+    }],
+    "negative": [
+      { "packId": "paddleocr-vl-1.6", "manifestDigest": "aa", "offset": 0, "limit": 4096 },
+      { "packId": "paddleocr-vl-1.6", "offset": 0, "limit": 4096 },
+      { "packId": "paddleocr-vl-1.6", "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "offset": 0, "limit": 0 }
+    ]
+  }
+}

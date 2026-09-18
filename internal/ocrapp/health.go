@@ -7,9 +7,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
+
+	"github.com/lunitide/lunitide/internal/doctext"
 )
 
 const (
@@ -202,9 +203,10 @@ type FailureNote struct {
 }
 
 type LocalReady struct {
-	PDF     bool
-	Image   bool
-	Backend string
+	PDF        bool
+	Image      bool
+	Backend    string
+	ProbeState string
 }
 
 type HealthSnapshot struct {
@@ -214,10 +216,17 @@ type HealthSnapshot struct {
 }
 
 func LocalOCRReady() LocalReady {
-	if runtime.GOOS == "windows" {
-		return LocalReady{PDF: true, Image: true, Backend: "windows-ocr"}
+	return localReadyFromProbe(doctext.CachedWindowsOCRProbe())
+}
+
+func localReadyFromProbe(p doctext.WindowsOCRProbe) LocalReady {
+	out := LocalReady{Backend: "unavailable", ProbeState: string(p.State)}
+	if p.Available {
+		out.PDF = true
+		out.Image = true
+		out.Backend = "windows-ocr"
 	}
-	return LocalReady{Backend: "unavailable"}
+	return out
 }
 
 func (s *Service) HealthSnapshot() HealthSnapshot {
@@ -287,8 +296,17 @@ func (s *Service) tryProvider(ctx context.Context, raw []byte, hint string) (str
 		return "", errRawPDFProvider
 	}
 	routing, _ := s.Routing()
-	if !routing.PreferProvider || !routing.Bound() {
-		return "", errProviderSkipped
+	policy := EffectivePolicy(routing)
+	if !(routing.Bound() && policy.SendToCloud != "never") {
+		if s.cloudBinding == nil {
+			return "", errProviderSkipped
+		}
+		pid, mid, ok := s.cloudBinding(ctx)
+		if !ok || strings.TrimSpace(pid) == "" || strings.TrimSpace(mid) == "" {
+			return "", errProviderSkipped
+		}
+		routing.ProviderID = strings.TrimSpace(pid)
+		routing.ModelID = strings.TrimSpace(mid)
 	}
 	if s.cooling(routing, hint) {
 		return "", errProviderCooling

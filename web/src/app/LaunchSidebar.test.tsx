@@ -117,3 +117,13 @@ it('hides Lunitide message search when replaceMainNav is set', () => {
   expect(screen.queryByRole('button', { name: /搜索/ })).toBeNull()
   expect(search).not.toHaveBeenCalled()
 })
+
+it('TestMediaCenterOfficeNavigation: keeps Media Center in Office even when optional office items are hidden', () => {
+  render(<LaunchSidebar {...sidebarProps({ page: 'media' })} />)
+  const media = screen.getByRole('button', { name: '媒体中心' })
+  expect(media.className).toMatch(/active/)
+  expect(document.getElementById('office-list')).toContainElement(media)
+  expect(screen.getByRole('button', { name: '自动化' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '办公工作台' })).toBeNull()
+  expect(screen.getByRole('button', { name: '办公' })).toHaveClass('is-current')
+})

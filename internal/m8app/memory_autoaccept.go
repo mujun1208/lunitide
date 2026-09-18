@@ -49,6 +49,7 @@ func (s *MemoryService) AutoAcceptCandidate(ctx context.Context, candidateID, so
 		return AutoAcceptResult{}, fmt.Errorf("%w: candidateId malformed", ErrConfirmTokenInvalid)
 	}
 	var out AutoAcceptResult
+	var acceptedText, acceptedSubject string
 	err := s.uow.TransactMemory(ctx, func(tx MemoryTx) error {
 		cand, err := tx.GetCandidate(candidateID)
 		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, m8core.ErrNotFound) {
@@ -149,6 +150,8 @@ func (s *MemoryService) AutoAcceptCandidate(ctx context.Context, candidateID, so
 		if err != nil {
 			return err
 		}
+		acceptedText = strings.TrimSpace(doc.Content)
+		acceptedSubject = cand.SubjectID
 		out = AutoAcceptResult{
 			CandidateID: cand.CandidateID, Risk: m8core.RiskLow, Accepted: true,
 			Fact: &FactRef{FactID: factID, Version: 1},
@@ -157,6 +160,11 @@ func (s *MemoryService) AutoAcceptCandidate(ctx context.Context, candidateID, so
 	})
 	if err != nil {
 		return AutoAcceptResult{}, err
+	}
+	if out.Accepted && acceptedText != "" && acceptedSubject != "" {
+		if err := s.mirrorCanonical(ctx, acceptedSubject, out.CandidateID, acceptedText); err != nil {
+			return out, err
+		}
 	}
 	return out, nil
 }

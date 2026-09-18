@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/media.queue.command.schema.json",
+  "title": "media.queue.command payload",
+  "x-method": "media.queue.command",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mediaSessionId", "action", "expectedQueueRevision", "operationId"],
+  "properties": {
+    "mediaSessionId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "action": { "enum": ["move", "remove", "clear", "jump"] },
+    "itemId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "beforeItemId": { "oneOf": [{ "type": "null" }, { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }] },
+    "expectedQueueRevision": { "type": "integer", "minimum": 1 },
+    "operationId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
+  },
+  "allOf": [
+    { "if": { "properties": { "action": { "const": "move" } } }, "then": { "required": ["itemId", "beforeItemId"], "properties": { "itemId": {}, "beforeItemId": {} } } },
+    { "if": { "properties": { "action": { "enum": ["remove", "jump"] } } }, "then": { "required": ["itemId"], "properties": { "itemId": {}, "beforeItemId": false } } },
+    { "if": { "properties": { "action": { "const": "clear" } } }, "then": { "properties": { "itemId": false, "beforeItemId": false } } }
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["snapshot", "operation"],
+    "properties": {
+      "snapshot": { "$ref": "https://lunitide.local/schema/bridge/v1/media.dto.schema.json#/$defs/MediaSnapshotDTO" },
+      "operation": { "$ref": "https://lunitide.local/schema/bridge/v1/media.dto.schema.json#/$defs/MediaOperationDTO" }
+    }
+  },
+  "x-examples": {
+    "positive": [
+      { "mediaSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "action": "clear", "expectedQueueRevision": 1, "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FB0" },
+      { "mediaSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "action": "remove", "itemId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "expectedQueueRevision": 2, "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FB0" },
+      { "mediaSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "action": "move", "itemId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "beforeItemId": null, "expectedQueueRevision": 3, "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FB0" }
+    ],
+    "negative": [
+      { "mediaSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "action": "clear", "expectedQueueRevision": 1 },
+      { "mediaSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "action": "remove", "expectedQueueRevision": 1, "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FB0" },
+      { "mediaSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "action": "clear", "itemId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "expectedQueueRevision": 1, "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FB0" }
+    ]
+  }
+}

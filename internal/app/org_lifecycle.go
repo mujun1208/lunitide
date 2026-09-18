@@ -43,10 +43,19 @@ func dataScopedMethod(method string) bool {
 	// These are project memories. The separate local facts/settings catalog
 	// does not acquire organization ownership merely by sharing the prefix.
 	switch method {
-	case "memory.get", "memory.list", "memory.search", "memory.create", "memory.update", "memory.delete":
+	case "memory.get", "memory.list", "memory.search", "memory.create", "memory.update", "memory.delete",
+		"memory.item.create", "memory.item.forget", "memory.item.get", "memory.item.list",
+		"memory.item.history", "memory.item.correct", "memory.capture.undo",
+		"memory.review.list", "memory.review.resolve", "memory.purge.prepare", "memory.purge",
+		"memory.generation.list", "memory.generation.preview", "memory.generation.activate", "memory.generation.discard",
+		"memory.import.preview", "memory.import.commit":
+		return true
+	case "ocr.routing.get", "ocr.routing.set", "ocr.run.list":
+		return true
+	case "activity.list":
 		return true
 	}
-	return false
+	return strings.HasPrefix(method, "media.")
 }
 
 // New organization work fails closed. Explicit read and finalization methods
@@ -71,8 +80,10 @@ func organizationWriteAllowed(state, method string) bool {
 		"agent.run.get", "command.get", "evidence.list", "review.list", "release.getRevision", "release.getPackage", "release.getPromotion",
 		"context.status", "context.handoff.inspect", "context.handoff.list", "context.handoff.list-imports", "chat.turn.get", "chat.usage.get",
 		"operation.list", "operation.get", "files.status", "ocr.routing.get",
+		"ocr.pack.get", "ocr.pack.notice.list", "ocr.pack.notice.read", "ocr.run.list", "ocr.run.get", "ocr.artifact.read",
+		"activity.list", "media.session.list", "media.session.get", "media.session.watch", "media.asset.list", "media.operation.get", "media.operation.list",
 		"workspace.list", "workspace.read", "workspace.open", "workspace.root.get", "workspace.artifact.preview", "workspace.artifactReview.list",
-		"memory.get", "memory.list", "memory.search", "ontology.node.get", "ontology.node.list", "ontology.node.search", "ontology.edge.list", "trace.query",
+		"memory.get", "memory.list", "memory.search", "memory.item.get", "memory.item.list", "memory.item.history", "memory.review.list", "memory.generation.list", "memory.generation.preview", "ontology.node.get", "ontology.node.list", "ontology.node.search", "ontology.edge.list", "trace.query",
 		"automation.job.list", "automation.run.list", "automation.status", "run.queueList", "subagent.tree":
 		return true
 	case "chat.persist", "chat.checkpoint", "talk.persist", "talk.cancel", "agent.run.cancel", "agent.run.reconcile", "command.cancel", "run.cancel", "plan.run.cancel", "plan.pause", "run.queue.withdraw", "run.queueWithdraw", "context.compact.cancel", "context.handoff.revoke", "attachment.upload.abort", "evidence.attachTest", "evidence.attachScan", "node.complete", "node.fail", "plan.complete", "plan.run.join", "subagent.join", "barrier.arrive", "delegation.settle":

@@ -12,8 +12,7 @@ import (
 func (s *Store) DeleteSkillVersion(ctx context.Context, id string, expectedRev int64) error {
 	return s.execWithAudit(ctx, "skill.deleted", id, "engine", map[string]any{"rev": expectedRev}, func(tx *sql.Tx) error {
 		var rev int64
-		var status string
-		if err := tx.QueryRowContext(ctx, `SELECT rev,status FROM skills WHERE id=?`, id).Scan(&rev, &status); err == sql.ErrNoRows {
+		if err := tx.QueryRowContext(ctx, `SELECT rev FROM skills WHERE id=?`, id).Scan(&rev); err == sql.ErrNoRows {
 			return skillapp.ErrSkillNotFound
 		} else if err != nil {
 			return err
@@ -21,13 +20,10 @@ func (s *Store) DeleteSkillVersion(ctx context.Context, id string, expectedRev i
 		if rev != expectedRev {
 			return skillapp.ErrSkillVersionConflict
 		}
-		if status != "draft" && status != "disabled" {
-			return skillapp.ErrInvalidTransition
-		}
 		if err := s.DeleteSkillCategoryRow(ctx, tx, id); err != nil {
 			return err
 		}
-		result, err := tx.ExecContext(ctx, `DELETE FROM skills WHERE id=? AND rev=? AND status IN ('draft','disabled')`, id, expectedRev)
+		result, err := tx.ExecContext(ctx, `DELETE FROM skills WHERE id=? AND rev=?`, id, expectedRev)
 		if err != nil {
 			return err
 		}

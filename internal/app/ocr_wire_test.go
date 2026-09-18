@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/ocrapp"
+	"github.com/lunitide/lunitide/internal/storage/sqlite"
 )
 
 func TestOCRProviderCallRecordsOCRPurpose(t *testing.T) {
@@ -58,6 +60,56 @@ func TestWorkspaceDocumentTextImageWithoutLocalUsesChinese(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "not packaged") {
 		t.Fatalf("must not leak English image-OCR gap: %v", err)
+	}
+}
+
+func TestOCRProviderCallUsesCapabilityVisionWhenOCRRoutingUnbound(t *testing.T) {
+	p := videoTestProvider()
+	p.Models = []provider.Model{{ModelID: "ocr-v1", Kind: provider.KindVision, KindDefault: true, SupportsVision: true}}
+	e := NewEngineWithGateway(videoTestProviders{items: []provider.Provider{p}}, "test", streamTestLease{})
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
+		return completeMeterAdapter{usage: llmadapter.Usage{InputTokens: 2, OutputTokens: 1, TotalTokens: 3}, content: "发票 88"}, nil
+	})
+	svc := ocrapp.New(ocrapp.NewFileStore(filepath.Join(t.TempDir(), "ocr-routing.json")))
+	e.SetOCR(svc)
+	e.SetCapabilityRoleStore(&memoryRoleStore{rows: []sqlite.CapabilityRoleBinding{{
+		Role: "vision", ProviderID: p.ID, ModelID: "ocr-v1",
+	}}})
+	png := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}
+	text, err := e.ocrProviderCall(context.Background(), png, "image-ocr")
+	if err != nil || !strings.Contains(text, "发票") {
+		t.Fatalf("vision role must satisfy OCR without OCR routing bind: %q %v", text, err)
+	}
+	got, recErr := svc.RecognizeImage(context.Background(), png)
+	if recErr != nil || got.Source != ocrapp.SourceProvider || !strings.Contains(got.Text, "发票") {
+		t.Fatalf("recognize must use vision first: %+v %v", got, recErr)
+	}
+}
+
+func TestOCRProviderCallIgnoresStoredNeverRoutingWhenVisionBound(t *testing.T) {
+	p := videoTestProvider()
+	p.Models = []provider.Model{{ModelID: "ocr-v1", Kind: provider.KindVision, KindDefault: true, SupportsVision: true}}
+	e := NewEngineWithGateway(videoTestProviders{items: []provider.Provider{p}}, "test", streamTestLease{})
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
+		return completeMeterAdapter{usage: llmadapter.Usage{InputTokens: 2, OutputTokens: 1, TotalTokens: 3}, content: "发票 88"}, nil
+	})
+	path := filepath.Join(t.TempDir(), "ocr-routing.json")
+	if err := os.WriteFile(path, []byte(`{"providerId":"01ARZ3NDEKTSV4RRFFQ69G5FZZ","modelId":"stale-ocr","policy":{"mode":"auto","complexDocumentEngine":"paddleocr-vl-1.6","fallbackOrder":["ppocr","windows-ocr"],"sendToCloud":"never"},"revision":"legacy"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	svc := ocrapp.New(ocrapp.NewFileStore(path))
+	e.SetOCR(svc)
+	e.SetCapabilityRoleStore(&memoryRoleStore{rows: []sqlite.CapabilityRoleBinding{{
+		Role: "vision", ProviderID: p.ID, ModelID: "ocr-v1",
+	}}})
+	png := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}
+	text, err := e.ocrProviderCall(context.Background(), png, "image-ocr")
+	if err != nil || !strings.Contains(text, "发票") {
+		t.Fatalf("stored never routing must not block vision: %q %v", text, err)
+	}
+	got, recErr := svc.RecognizeImage(context.Background(), png)
+	if recErr != nil || got.Source != ocrapp.SourceProvider || !strings.Contains(got.Text, "发票") {
+		t.Fatalf("recognize must skip leftover never routing: %+v %v", got, recErr)
 	}
 }
 

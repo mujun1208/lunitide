@@ -28,6 +28,7 @@ import (
 	"github.com/lunitide/lunitide/internal/hostbridge"
 	"github.com/lunitide/lunitide/internal/ipc"
 	"github.com/lunitide/lunitide/internal/maintenance"
+	"github.com/lunitide/lunitide/internal/mediahost"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/systemsettings"
 	"github.com/lunitide/lunitide/internal/uitheme"
@@ -335,6 +336,8 @@ func run() error {
 	workspaceHandler := workspaceapp.New(workspaceConfig)
 	conversationsHandler := conversationsapp.NewHostHandler()
 	desktopFilesHandler := desktopfiles.New()
+	mediaPlayer := &mediahost.Player{Engine: client, WindowInstanceID: "desktop-main"}
+	mediaPickHandler := &mediahost.Handler{Pick: desktopFilesHandler.Pick, Engine: client, Player: mediaPlayer}
 	gateway, err := hostbridge.New(webviewhost.TrustedOrigin, client, map[bridge.Method]hostbridge.Handler{
 		bridge.MethodBrowserOpen:                 browserManager,
 		bridge.Method("diagram.render"):          diagramrender.New(rendererDir),
@@ -352,6 +355,8 @@ func run() error {
 		bridge.MethodConversationsRootSelect:     conversationsHandler,
 		bridge.MethodDesktopFilesPick:            desktopFilesHandler,
 		bridge.MethodDesktopFilesReadChunk:       desktopFilesHandler,
+		bridge.Method("media.asset.pick"):        mediaPickHandler,
+		bridge.Method("media.element.report"):    mediaPickHandler,
 		bridge.MethodWorkspaceRootSelect:         workspaceHandler,
 		bridge.MethodWorkspaceRootClear:          workspaceHandler,
 		bridge.MethodWorkspaceRootGet:            workspaceHandler,
@@ -372,6 +377,36 @@ func run() error {
 		return err
 	}
 	host.SetStartHidden(*startHidden)
+	host.MediaTicketResolve = func(ctx context.Context, token string) (string, string, error) {
+		payload, _ := json.Marshal(map[string]string{"token": token})
+		resp, callErr := client.Call(ctx, bridge.Request{
+			Version: bridge.Version, Kind: "request", ID: ulid.Make().String(), TraceID: ulid.Make().String(),
+			Method: "internal.media.asset.resolve", SentAt: time.Now().UTC(), Payload: payload, DeadlineMS: 8000,
+		})
+		if callErr != nil {
+			return "", "", callErr
+		}
+		if !resp.OK {
+			code := "MEDIA_TICKET_EXPIRED"
+			if resp.Error != nil && (resp.Error.Code == "MEDIA_ASSET_CHANGED" || resp.Error.Code == "MEDIA_ASSET_NOT_FOUND") {
+				code = resp.Error.Code
+			}
+			return "", "", errors.New(code)
+		}
+		raw, _ := json.Marshal(resp.Payload)
+		var out struct {
+			Path string `json:"path"`
+			MIME string `json:"mime"`
+		}
+		if json.Unmarshal(raw, &out) != nil || out.Path == "" {
+			return "", "", errors.New("MEDIA_TICKET_EXPIRED")
+		}
+		return out.Path, out.MIME, nil
+	}
+	mediaPlayer.StartRenew(hostCtx)
+	host.OnMediaSnapshot = func(ctx context.Context, sessionID string) {
+		_ = mediaPlayer.Attach(ctx, sessionID)
+	}
 	themeHandler.Bind(host.SetTheme)
 	fmt.Printf("Lunitide %s: Engine health check passed; starting WebView2 host\n", buildinfo.Version)
 	close(hostReady)

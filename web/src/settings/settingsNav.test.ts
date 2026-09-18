@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { SETTINGS_NAV_GROUPS, filterSettingsNav } from './settingsNav'
+import { SETTINGS_CATEGORIES, SETTINGS_NAV_GROUPS, filterSettingsNav } from './settingsNav'
 
 describe('settings nav search and groups', () => {
   test('does not add a capability-routing category', () => {
@@ -25,10 +25,16 @@ describe('settings nav search and groups', () => {
     expect(filterSettingsNav('生图').map(c => c.id)).toEqual(['providers'])
     expect(filterSettingsNav('能力路由').map(c => c.id)).toEqual(['routing'])
     expect(filterSettingsNav('judge').map(c => c.id)).toEqual(['routing'])
-    expect(filterSettingsNav('OCR').map(c => c.id)).toEqual(['routing'])
+    expect(filterSettingsNav('OCR').map(c => c.id)).toEqual(['personal'])
+    expect(filterSettingsNav('Windows OCR').map(c => c.id)).toEqual(['personal'])
+    expect(filterSettingsNav('文字识别').map(c => c.id)).toEqual(['personal'])
+    expect(filterSettingsNav('PP-OCR').map(c => c.id)).toEqual(['personal'])
+    expect(filterSettingsNav('智能能力').map(c => c.id)).toEqual(['personal'])
     expect(filterSettingsNav('路由管理').map(c => c.id)).toEqual(['routing'])
     expect(filterSettingsNav('飞书').map(c => c.id)).toEqual(['channels'])
     expect(filterSettingsNav('webhook').map(c => c.id)).toEqual(['channels'])
     expect(filterSettingsNav('没有这个设置项xyz').length).toBe(0)
+    const routing = SETTINGS_CATEGORIES.find(c => c.id === 'routing')
+    expect(routing?.keywords).not.toMatch(/OCR|PP-OCR|文字识别/i)
   })
 })

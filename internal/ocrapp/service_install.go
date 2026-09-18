@@ -5,6 +5,33 @@ import (
 	"strings"
 )
 
+func (s *Service) RefreshInstallState() {
+	if s == nil {
+		return
+	}
+	s.installMu.Lock()
+	if s.installing {
+		s.installMu.Unlock()
+		return
+	}
+	s.installMu.Unlock()
+	packRoot := ""
+	if r, err := s.Routing(); err == nil {
+		packRoot = s.resolvePackRoot(r.PackRoot)
+	}
+	if packRoot == "" && s.installer != nil {
+		packRoot = s.installer.BundleDir(RuntimeID)
+	}
+	if !DetectPPOcrPack(packRoot).Available {
+		return
+	}
+	s.installMu.Lock()
+	defer s.installMu.Unlock()
+	if !s.installing {
+		s.installState, s.lastInstallErr = "ready", ""
+	}
+}
+
 func (s *Service) BeginInstall() {
 	if s == nil {
 		return
@@ -24,7 +51,12 @@ func (s *Service) BeginInstall() {
 		return
 	}
 	if !outstanding {
-		s.installState, s.lastInstallErr = "ready", ""
+		pack := DetectPPOcrPack(s.installer.BundleDir(bundle.ID))
+		if pack.Available {
+			s.installState, s.lastInstallErr = "ready", ""
+			return
+		}
+		s.installState, s.lastInstallErr = "failed", "PP-OCR 仅登记未接线，不能作为可执行引擎"
 		return
 	}
 	s.installing, s.installState, s.lastInstallErr = true, "downloading", ""
@@ -59,7 +91,7 @@ func (s *Service) runInstall(bundle Bundle) {
 		return
 	}
 	if s.installer != nil && !DetectPPOcrPack(s.installer.BundleDir(bundle.ID)).Available {
-		s.installState, s.lastInstallErr = "failed", "PP-OCR 已下载但还找不到可运行文件，请重试"
+		s.installState, s.lastInstallErr = "failed", "PP-OCR 仅登记未接线，不能作为可执行引擎"
 		return
 	}
 	s.installState, s.lastInstallErr = "ready", ""

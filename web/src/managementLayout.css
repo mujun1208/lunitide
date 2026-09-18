@@ -111,3 +111,27 @@ html[data-theme="light"] :is(.skill-page, .expert-center-page, .mcp-page, .plugi
     opacity: .2;
   }
 }
+@media (max-width: 679px) {
+  .settings-shell {
+    grid-template-columns: minmax(0, 1fr);
+    margin: 0;
+  }
+  .settings-nav {
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-width: 100%;
+  }
+  .settings-menu {
+    display: flex;
+    flex-direction: row;
+    gap: 8px;
+    min-width: max-content;
+  }
+  .settings-content,
+  .settings-body {
+    min-width: 0;
+  }
+  .settings-shell :is(button, .ocr-disclose, .smart-cap-disclose, .pi-back) {
+    min-height: 44px;
+  }
+}

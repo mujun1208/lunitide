@@ -6,6 +6,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/m7app"
+	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/mcapp"
 	"github.com/lunitide/lunitide/internal/mcp6"
 )
@@ -149,6 +150,10 @@ func handleMcConnectorInstall(e *Engine, ctx context.Context, r bridge.Request) 
 	if err != nil {
 		return mcFailure(r, err)
 	}
+	if id := presetIDFromTarget(p.Command, p.Args, p.URL); id != "" {
+		e.rememberMcpPreset(out.EndpointID, id)
+		e.attachDeclaredBindKeys(ctx, m8app.BoundMcpPrefix+id)
+	}
 	return r.Ok(struct {
 		EndpointID       string                 `json:"endpointId"`
 		State            string                 `json:"state"`
@@ -172,11 +177,15 @@ func handleMcConnectorUninstall(e *Engine, ctx context.Context, r bridge.Request
 	if e.mcmarket == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "MCP 市场服务暂时不可用", true)
 	}
+	preset := e.endpointPresetID(p.EndpointID)
 	state, err := e.mcmarket.Uninstall(ctx, p.EndpointID, p.ConfirmToken, p.Actor)
 	if err != nil {
 		return mcFailure(r, err)
 	}
 	e.dropSettingsMcp(p.EndpointID)
+	if preset != "" {
+		e.detachDeclaredBindKeys(ctx, m8app.BoundMcpPrefix+preset)
+	}
 	return r.Ok(struct {
 		EndpointID string `json:"endpointId"`
 		State      string `json:"state"`

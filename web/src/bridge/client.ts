@@ -33,6 +33,21 @@ import {
   type MemoryGetPayload, type MemoryGetResult, type MemoryListPayload, type MemoryListResult,
   type MemorySearchPayload, type MemorySearchResult, type MemoryUpdatePayload, type MemoryUpdateResult,
   type MemoryDeletePayload, type MemoryDeleteResult, type MemoryCreatePayload, type MemoryCreateResult,
+  type MemoryItemCreatePayload, type MemoryItemCreateResult,
+  type MemoryItemForgetPayload, type MemoryItemForgetResult,
+  type MemoryItemGetPayload, type MemoryItemGetResult,
+  type MemoryItemListPayload, type MemoryItemListResult,
+  type MemoryItemHistoryPayload, type MemoryItemHistoryResult,
+  type MemoryItemCorrectPayload, type MemoryItemCorrectResult,
+  type MemoryGenerationListPayload, type MemoryGenerationListResult,
+  type MemoryGenerationPreviewPayload, type MemoryGenerationPreviewResult,
+  type MemoryGenerationActivatePayload, type MemoryGenerationActivateResult,
+  type MemoryGenerationDiscardPayload, type MemoryGenerationDiscardResult,
+  type MemoryImportPreviewPayload, type MemoryImportPreviewResult,
+  type MemoryImportCommitPayload, type MemoryImportCommitResult,
+  type MemoryCaptureUndoPayload, type MemoryCaptureUndoResult,
+  type MemoryReviewListPayload, type MemoryReviewListResult,
+  type MemoryReviewResolvePayload, type MemoryReviewResolveResult,
   type MemoryConfirmCandidatePayload, type MemoryConfirmCandidateResult,
   type MemoryNominatePayload, type MemoryNominateResult,
   type MemoryNominationListPayload, type MemoryNominationListResult,
@@ -47,6 +62,7 @@ import {
   type MemorySettingsUpdatePayload, type MemorySettingsUpdateResult,
   type MemoryExportPayload, type MemoryExportResult,
   type MemoryPurgePayload, type MemoryPurgeResult,
+  type MemoryPurgePreparePayload, type MemoryPurgePrepareResult,
   type RunQueueInputPayload, type RunQueueInputResult,
   type RunQueueListPayload, type RunQueueListResult,
   type RunQueueWithdrawPayload, type RunQueueWithdrawResult,
@@ -193,13 +209,14 @@ export type TerminalEvent={type:'output';data:string}|{type:'exit';exitCode:numb
 export interface TerminalSession{terminalId:string;input(data:string):Promise<boolean>;resize(cols:number,rows:number):Promise<boolean>;close():Promise<boolean>;dispose():void}
 export interface TerminalBridge{start(payload:TerminalStartPayload,onEvent:(event:TerminalEvent)=>void):Promise<TerminalSession>;dispose():void}
 
-export type MutationMethod = 'automation.job.set'|'project.create'|'project.delete'|'project.update'|'project.publish'|'project.close'|'project.reopen'|'project.advanceStatus'|'session.create'|'session.update'|'session.delete'|'session.metadata.set'|'session.experts.set'|'mro.aircraft.upsert'|'mro.manual.register'|'mro.tool.checkout'|'mro.plan.publish'|'mro.tool.upsert'|'mro.tool.return'|'mro.due.upsert'|'mro.util.record'|'mro.lot.upsert'|'mro.lot.use'|'mro.kit.upsert'|'mro.parts.stock.upsert'|'mro.alternate.upsert'|'mro.workpackage.build'|'mro.interval.upsert'|'mro.interval.propose'|'mro.schedule.upsert'|'mro.capacity.upsert'|'mro.component.upsert'|'mro.life.event'|'mro.pirep.draft'|'mro.pirep.confirm'|'mro.aog.intake'|'mro.aog.confirm'|'mro.po.draft'|'mro.po.confirm'|'mro.chem.issue'|'mro.ops.todo.add'|'datasource.create'|'datasource.probe'|'datasource.bind'|'datasource.disable'|'people.thread.send'|'datasource.write.prepare'|'datasource.write.commit'|'message.append'|'message.rewind'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'|'provider.credential.backup.add'|'provider.credential.backup.remove'|'capability.roles.set'|'ocr.routing.set'|'files.plan'|'files.apply'|'files.undo'|'operation.cancel'|'operation.resume'|'stage.create'|'stage.update'|'deliverable.upsert'|'deliverable.confirmGate'|'template.create'|'template.delete'|'template.enable'|'template.restore'|'template.void'|'release.buildPackage'|'release.createRevision'|'release.promote'|'release.rollback'|'skill.import.discover'|'skill.import.inspect'|'skill.import.submit'|'skill.import.approve'|'skill.import.reject'|'skill.import.revoke'|'plan.create'|'node.create'|'memory.create'|'memory.confirmCandidate'|'ontology.node.create'|'ontology.node.update'|'ontology.node.delete'|'ontology.edge.create'|'ontology.edge.update'|'ontology.edge.delete'|'skill.create'|'skill.update'|'skill.delete'|'skill.category.set'|'attachment.ingest'|'attachment.delete'|'agent.run.start'|'agent.run.cancel'|'agent.run.resume'|'agent.run.reconcile'|'workspace.register'|'workspace.grant'|'workspace.lease'|'review.decide'|'changeset.preview'|'changeset.apply'|'changeset.revert'|'command.review.request'|'command.start'|'command.cancel'|'web.fetch'|'web.search'|'run.plan.put'|'mcp.add'|'mcp.toggle'|'plugin.install'|'plugin.toggle'|'plugin.uninstall'|'plugin.upgrade'|'plugin.dev.create'|'expert.create'|'expert.update'|'expert.toggle'|'expert.delete'|'expert.archive'|'expert.mount'|'expert.scenario.create'|'expert.scenario.delete'|'expert.skills.set'|'appUpdate.install'|'subagent.spawn'|'org.create'|'org.switch'|'org.selectPersonal'|'org.activate'|'org.suspend'|'org.space.create'|'org.member.invite'|'org.member.revoke'|'mc.confirm.token'|'mc.connector.install'|'mc.connector.uninstall'|'mc.connector.update'|'im.inbound.deliver'
+export type MutationMethod = 'automation.job.set'|'project.create'|'project.delete'|'project.update'|'project.publish'|'project.close'|'project.reopen'|'project.advanceStatus'|'session.create'|'session.update'|'session.delete'|'session.metadata.set'|'session.experts.set'|'mro.aircraft.upsert'|'mro.manual.register'|'mro.tool.checkout'|'mro.plan.publish'|'mro.tool.upsert'|'mro.tool.return'|'mro.due.upsert'|'mro.util.record'|'mro.lot.upsert'|'mro.lot.use'|'mro.kit.upsert'|'mro.parts.stock.upsert'|'mro.alternate.upsert'|'mro.workpackage.build'|'mro.interval.upsert'|'mro.interval.propose'|'mro.schedule.upsert'|'mro.capacity.upsert'|'mro.component.upsert'|'mro.life.event'|'mro.pirep.draft'|'mro.pirep.confirm'|'mro.aog.intake'|'mro.aog.confirm'|'mro.po.draft'|'mro.po.confirm'|'mro.chem.issue'|'mro.ops.todo.add'|'datasource.create'|'datasource.probe'|'datasource.bind'|'datasource.disable'|'people.thread.send'|'datasource.write.prepare'|'datasource.write.commit'|'message.append'|'message.rewind'|'provider.create'|'provider.update'|'provider.delete'|'provider.model.sync'|'provider.credential.backup.add'|'provider.credential.backup.remove'|'capability.roles.set'|'ocr.routing.set'|'ocr.pack.install'|'ocr.pack.cancel'|'ocr.pack.uninstall'|'files.plan'|'files.apply'|'files.undo'|'operation.cancel'|'operation.resume'|'stage.create'|'stage.update'|'deliverable.upsert'|'deliverable.confirmGate'|'template.create'|'template.delete'|'template.enable'|'template.restore'|'template.void'|'release.buildPackage'|'release.createRevision'|'release.promote'|'release.rollback'|'skill.import.discover'|'skill.import.inspect'|'skill.import.submit'|'skill.import.approve'|'skill.import.reject'|'skill.import.revoke'|'plan.create'|'node.create'|'memory.create'|'memory.confirmCandidate'|'memory.generation.activate'|'memory.generation.discard'|'memory.import.preview'|'memory.import.commit'|'memory.item.create'|'memory.item.forget'|'memory.item.correct'|'memory.capture.undo'|'memory.review.resolve'|'memory.purge.prepare'|'memory.purge'|'memory.settings.update'|'ontology.node.create'|'ontology.node.update'|'ontology.node.delete'|'ontology.edge.create'|'ontology.edge.update'|'ontology.edge.delete'|'skill.create'|'skill.update'|'skill.delete'|'skill.category.set'|'attachment.ingest'|'attachment.delete'|'agent.run.start'|'agent.run.cancel'|'agent.run.resume'|'agent.run.reconcile'|'workspace.register'|'workspace.grant'|'workspace.lease'|'review.decide'|'changeset.preview'|'changeset.apply'|'changeset.revert'|'command.review.request'|'command.start'|'command.cancel'|'web.fetch'|'web.search'|'run.plan.put'|'mcp.add'|'mcp.toggle'|'plugin.install'|'plugin.toggle'|'plugin.uninstall'|'plugin.upgrade'|'plugin.dev.create'|'expert.create'|'expert.update'|'expert.toggle'|'expert.delete'|'expert.archive'|'expert.mount'|'expert.scenario.create'|'expert.scenario.delete'|'expert.skills.set'|'appUpdate.install'|'subagent.spawn'|'org.create'|'org.switch'|'org.selectPersonal'|'org.activate'|'org.suspend'|'org.space.create'|'org.member.invite'|'org.member.revoke'|'mc.confirm.token'|'mc.connector.install'|'mc.connector.uninstall'|'mc.connector.update'|'im.inbound.deliver'|'media.session.create'|'media.session.command'|'media.queue.command'
 export type MutationOptions<T extends object> = { attempt?: MutationAttempt<T> }
 export interface MutationAttempt<T extends object> { readonly method: MutationMethod; readonly payload: Readonly<T>; readonly idempotencyKey: string; readonly fingerprint: string }
 const stable = (value: unknown): string => value === null || typeof value !== 'object' ? JSON.stringify(value) : Array.isArray(value) ? `[${value.map(stable).join(',')}]` : `{${Object.keys(value as object).sort().map(k=>`${JSON.stringify(k)}:${stable((value as Record<string,unknown>)[k])}`).join(',')}}`
 const clone = <T>(value:T):T => structuredClone(value)
 const freeze = <T>(value:T):T => { if(value && typeof value==='object'){Object.freeze(value);Object.values(value as object).forEach(freeze)}return value }
 export function createMutationAttempt<T extends object>(method: MutationMethod, payload: T): MutationAttempt<T> { const copy=freeze(clone(payload)); return Object.freeze({method,payload:copy,idempotencyKey:ulid(),fingerprint:stable(copy)}) }
+export function newBridgeULID(): string { return ulid() }
 const deeplyFrozen=(value:unknown):boolean=>!value||typeof value!=='object'||Object.isFrozen(value)&&Object.values(value).every(deeplyFrozen)
 function checkedAttempt<T extends object>(method:MutationMethod,payload:T,attempt?:MutationAttempt<T>):{payload:T;key:string} {
  if(!attempt)return{payload:clone(payload),key:ulid()}
@@ -237,7 +254,7 @@ export interface MessageBridge { process?(payload:MessageProcessPayload):Promise
 export interface UIThemeBridge { set(payload:UiThemeSetPayload):Promise<UiThemeSetResult> }
 export interface SystemSettingsBridge { open(payload:SystemSettingsOpenPayload):Promise<SystemSettingsOpenResult> }
 export interface BrowserBridge { open(payload:BrowserOpenPayload):Promise<BrowserOpenResult>; close():Promise<BrowserCloseResult> }
-const mutationMethods = new Set<BridgeMethod>(['automation.job.set','project.create','project.delete','project.update','project.publish','project.close','project.reopen','project.advanceStatus' as BridgeMethod,'session.create','session.update','session.delete','session.metadata.set' as BridgeMethod,'session.experts.set','mro.aircraft.upsert' as BridgeMethod,'mro.manual.register' as BridgeMethod,'mro.tool.checkout' as BridgeMethod,'mro.plan.publish' as BridgeMethod,'mro.tool.upsert' as BridgeMethod,'mro.tool.return' as BridgeMethod,'mro.due.upsert' as BridgeMethod,'mro.util.record' as BridgeMethod,'mro.lot.upsert' as BridgeMethod,'mro.lot.use' as BridgeMethod,'mro.kit.upsert' as BridgeMethod,'mro.parts.stock.upsert' as BridgeMethod,'mro.alternate.upsert' as BridgeMethod,'mro.workpackage.build' as BridgeMethod,'mro.interval.upsert' as BridgeMethod,'mro.interval.propose' as BridgeMethod,'mro.schedule.upsert' as BridgeMethod,'mro.capacity.upsert' as BridgeMethod,'mro.component.upsert' as BridgeMethod,'mro.life.event' as BridgeMethod,'mro.pirep.draft' as BridgeMethod,'mro.pirep.confirm' as BridgeMethod,'mro.aog.intake' as BridgeMethod,'mro.aog.confirm' as BridgeMethod,'mro.po.draft' as BridgeMethod,'mro.po.confirm' as BridgeMethod,'mro.chem.issue' as BridgeMethod,'mro.ops.todo.add' as BridgeMethod,'datasource.create' as BridgeMethod,'datasource.probe' as BridgeMethod,'datasource.bind' as BridgeMethod,'datasource.disable' as BridgeMethod,'datasource.write.prepare','datasource.write.commit','people.thread.send','message.append','message.rewind','provider.create','provider.update','provider.delete','provider.model.sync','stage.create','stage.update' as BridgeMethod,'deliverable.upsert','deliverable.confirmGate','template.create','template.delete','template.enable','template.restore','template.void','release.buildPackage','release.createRevision','release.promote','release.rollback','skill.import.discover','skill.import.inspect','skill.import.submit','skill.import.approve','skill.import.reject','skill.import.revoke','plan.create','node.create','memory.create','memory.confirmCandidate','ontology.node.create','ontology.node.update','ontology.node.delete','ontology.edge.create','ontology.edge.update','ontology.edge.delete','skill.create','skill.update','skill.delete','skill.category.set','attachment.ingest','attachment.delete','agent.run.start','agent.run.cancel','agent.run.resume','agent.run.reconcile','workspace.register','workspace.grant','workspace.lease','review.decide','changeset.preview','changeset.apply','changeset.revert','command.review.request','command.start','command.cancel','web.fetch','web.search','run.plan.put','mcp.add','mcp.toggle','plugin.install','plugin.toggle','plugin.uninstall','plugin.upgrade','plugin.dev.create','expert.create','expert.update','expert.toggle','expert.delete','expert.archive','expert.mount','expert.scenario.create','expert.scenario.delete','expert.skills.set','appUpdate.install','subagent.spawn','org.create','org.switch','org.selectPersonal','org.activate','org.suspend','org.space.create','org.member.invite','org.member.revoke','mc.confirm.token','mc.connector.install','mc.connector.uninstall','mc.connector.update','im.inbound.deliver','provider.credential.backup.add' as BridgeMethod,'provider.credential.backup.remove' as BridgeMethod,'capability.roles.set' as BridgeMethod,'ocr.routing.set' as BridgeMethod,'files.plan' as BridgeMethod,'files.apply' as BridgeMethod,'files.undo' as BridgeMethod,'operation.cancel' as BridgeMethod,'operation.resume' as BridgeMethod])
+const mutationMethods = new Set<BridgeMethod>(['automation.job.set','project.create','project.delete','project.update','project.publish','project.close','project.reopen','project.advanceStatus' as BridgeMethod,'session.create','session.update','session.delete','session.metadata.set' as BridgeMethod,'session.experts.set','mro.aircraft.upsert' as BridgeMethod,'mro.manual.register' as BridgeMethod,'mro.tool.checkout' as BridgeMethod,'mro.plan.publish' as BridgeMethod,'mro.tool.upsert' as BridgeMethod,'mro.tool.return' as BridgeMethod,'mro.due.upsert' as BridgeMethod,'mro.util.record' as BridgeMethod,'mro.lot.upsert' as BridgeMethod,'mro.lot.use' as BridgeMethod,'mro.kit.upsert' as BridgeMethod,'mro.parts.stock.upsert' as BridgeMethod,'mro.alternate.upsert' as BridgeMethod,'mro.workpackage.build' as BridgeMethod,'mro.interval.upsert' as BridgeMethod,'mro.interval.propose' as BridgeMethod,'mro.schedule.upsert' as BridgeMethod,'mro.capacity.upsert' as BridgeMethod,'mro.component.upsert' as BridgeMethod,'mro.life.event' as BridgeMethod,'mro.pirep.draft' as BridgeMethod,'mro.pirep.confirm' as BridgeMethod,'mro.aog.intake' as BridgeMethod,'mro.aog.confirm' as BridgeMethod,'mro.po.draft' as BridgeMethod,'mro.po.confirm' as BridgeMethod,'mro.chem.issue' as BridgeMethod,'mro.ops.todo.add' as BridgeMethod,'datasource.create' as BridgeMethod,'datasource.probe' as BridgeMethod,'datasource.bind' as BridgeMethod,'datasource.disable' as BridgeMethod,'datasource.write.prepare','datasource.write.commit','people.thread.send','message.append','message.rewind','provider.create','provider.update','provider.delete','provider.model.sync','stage.create','stage.update' as BridgeMethod,'deliverable.upsert','deliverable.confirmGate','template.create','template.delete','template.enable','template.restore','template.void','release.buildPackage','release.createRevision','release.promote','release.rollback','skill.import.discover','skill.import.inspect','skill.import.submit','skill.import.approve','skill.import.reject','skill.import.revoke','plan.create','node.create','memory.create','memory.confirmCandidate','memory.generation.activate','memory.generation.discard','memory.import.preview','memory.import.commit','memory.item.create','memory.item.forget','memory.item.correct','memory.capture.undo','memory.review.resolve','memory.purge.prepare','memory.purge','memory.settings.update','ontology.node.create','ontology.node.update','ontology.node.delete','ontology.edge.create','ontology.edge.update','ontology.edge.delete','skill.create','skill.update','skill.delete','skill.category.set','attachment.ingest','attachment.delete','agent.run.start','agent.run.cancel','agent.run.resume','agent.run.reconcile','workspace.register','workspace.grant','workspace.lease','review.decide','changeset.preview','changeset.apply','changeset.revert','command.review.request','command.start','command.cancel','web.fetch','web.search','run.plan.put','mcp.add','mcp.toggle','plugin.install','plugin.toggle','plugin.uninstall','plugin.upgrade','plugin.dev.create','expert.create','expert.update','expert.toggle','expert.delete','expert.archive','expert.mount','expert.scenario.create','expert.scenario.delete','expert.skills.set','appUpdate.install','subagent.spawn','org.create','org.switch','org.selectPersonal','org.activate','org.suspend','org.space.create','org.member.invite','org.member.revoke','mc.confirm.token','mc.connector.install','mc.connector.uninstall','mc.connector.update','im.inbound.deliver','provider.credential.backup.add' as BridgeMethod,'provider.credential.backup.remove' as BridgeMethod,'capability.roles.set' as BridgeMethod,'ocr.routing.set' as BridgeMethod,'ocr.pack.install' as BridgeMethod,'ocr.pack.cancel' as BridgeMethod,'ocr.pack.uninstall' as BridgeMethod,'files.plan' as BridgeMethod,'files.apply' as BridgeMethod,'files.undo' as BridgeMethod,'operation.cancel' as BridgeMethod,'operation.resume' as BridgeMethod,'media.session.create' as BridgeMethod,'media.session.command' as BridgeMethod,'media.queue.command' as BridgeMethod])
 function ulid(): string { const a='0123456789ABCDEFGHJKMNPQRSTVWXYZ',b=crypto.getRandomValues(new Uint8Array(10));let v=(BigInt(Date.now())<<80n)|b.reduce((n,x)=>(n<<8n)|BigInt(x),0n),r='';for(let i=0;i<26;i++){r=a[Number(v&31n)]+r;v>>=5n}return r }
 const isObj=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const exact=(v:Record<string,unknown>,required:string[],optional:string[]=[])=>required.every(k=>k in v)&&Object.keys(v).every(k=>required.includes(k)||optional.includes(k))
@@ -523,7 +540,7 @@ export function capBridgeDeadlineMs(method: string, deadlineMs: number): number 
   let cap = BRIDGE_DEADLINE_CAP_MS
   if (method === 'meetings.summarize' || method === 'meetings.catchup') cap = MEETING_SUMMARIZE_DEADLINE_MS
   else if (method === 'meetings.append' || method === 'meetings.audio.append' || method === 'meetings.stop' || method === 'meetings.heartbeat' || method === 'meetings.get' || method === 'meetings.export') cap = MEETING_APPEND_DEADLINE_MS
-  else if (method === 'people.file.stage' || method === 'people.file.pick' || method === 'people.thread.send' || method === 'people.screen.capture' || method === 'desktop.files.pick') cap = method === 'people.screen.capture' ? PEOPLE_CAPTURE_DEADLINE_MS : PEOPLE_FILE_DEADLINE_MS
+  else if (method === 'people.file.stage' || method === 'people.file.pick' || method === 'people.thread.send' || method === 'people.screen.capture' || method === 'desktop.files.pick' || method === 'media.asset.pick') cap = method === 'people.screen.capture' ? PEOPLE_CAPTURE_DEADLINE_MS : PEOPLE_FILE_DEADLINE_MS
   else if (method === 'template.file.stage' || method === 'template.create') cap = TEMPLATE_FILE_DEADLINE_MS
   else if (method === 'appUpdate.install') cap = 120_000
   else if (method === 'office.artifact.validate' || method === 'office.artifact.refresh') cap = 120_000
@@ -612,20 +629,129 @@ export type OCRRoutingSnapshot = import('../generated/bridge').OcrRoutingGetResu
 export type OCRRoutingUpdate = import('../generated/bridge').OcrRoutingSetPayload
 export type OCRInstallSnapshot = import('../generated/bridge').OcrInstallResult
 export interface OCRRoutingBridge {
-  get(): Promise<OCRRoutingSnapshot>
+  get(payload?: import('../generated/bridge').OcrRoutingGetPayload): Promise<OCRRoutingSnapshot>
   set(payload: OCRRoutingUpdate, options?: MutationOptions<OCRRoutingUpdate>): Promise<OCRRoutingSnapshot>
-  install(): Promise<OCRInstallSnapshot>
+  install(payload?: import('../generated/bridge').OcrInstallPayload): Promise<OCRInstallSnapshot>
 }
 export function createOCRRoutingBridge(transport: WebViewTransport = webview(), deadlineMs = 8_000): OCRRoutingBridge {
   const core = createSimpleBridge(transport, {}, deadlineMs)
+  const installCore = createSimpleBridge(transport, {}, 120_000)
   return {
-    get: () => core.request('ocr.routing.get' as BridgeMethod, {}),
+    get: (p = { scopeKind: 'user' }) => core.request('ocr.routing.get' as BridgeMethod, p),
     set: (p, o) => core.request('ocr.routing.set' as BridgeMethod, p, deadlineMs, o?.attempt ?? createMutationAttempt('ocr.routing.set', p) as MutationAttempt<object>),
-    install: () => core.request('ocr.install' as BridgeMethod, {}),
+    install: (p = {}) => installCore.request('ocr.install' as BridgeMethod, p),
   }
 }
 let ocrRoutingSingleton: OCRRoutingBridge | undefined
 export function getOCRRoutingBridge(): OCRRoutingBridge { return ocrRoutingSingleton ??= createOCRRoutingBridge() }
+
+export type OCRPackSnapshot = import('../generated/bridge').OcrPackGetResult
+export interface OCRPackBridge {
+  get(payload: import('../generated/bridge').OcrPackGetPayload): Promise<OCRPackSnapshot>
+  install(payload: import('../generated/bridge').OcrPackInstallPayload, options?: MutationOptions<import('../generated/bridge').OcrPackInstallPayload>): Promise<import('../generated/bridge').OcrPackInstallResult>
+  cancel(payload: import('../generated/bridge').OcrPackCancelPayload, options?: MutationOptions<import('../generated/bridge').OcrPackCancelPayload>): Promise<import('../generated/bridge').OcrPackCancelResult>
+  uninstall(payload: import('../generated/bridge').OcrPackUninstallPayload, options?: MutationOptions<import('../generated/bridge').OcrPackUninstallPayload>): Promise<import('../generated/bridge').OcrPackUninstallResult>
+  noticeList(payload: import('../generated/bridge').OcrPackNoticeListPayload): Promise<import('../generated/bridge').OcrPackNoticeListResult>
+  noticeRead(payload: import('../generated/bridge').OcrPackNoticeReadPayload): Promise<import('../generated/bridge').OcrPackNoticeReadResult>
+}
+export function createOCRPackBridge(transport: WebViewTransport = webview(), deadlineMs = 8_000): OCRPackBridge {
+  const core = createSimpleBridge(transport, {}, deadlineMs)
+  return {
+    get: p => core.request('ocr.pack.get' as BridgeMethod, p),
+    install: (p, o) => core.request('ocr.pack.install' as BridgeMethod, p, deadlineMs, o?.attempt),
+    cancel: (p, o) => core.request('ocr.pack.cancel' as BridgeMethod, p, deadlineMs, o?.attempt),
+    uninstall: (p, o) => core.request('ocr.pack.uninstall' as BridgeMethod, p, deadlineMs, o?.attempt),
+    noticeList: p => core.request('ocr.pack.notice.list' as BridgeMethod, p),
+    noticeRead: p => core.request('ocr.pack.notice.read' as BridgeMethod, p),
+  }
+}
+let ocrPackSingleton: OCRPackBridge | undefined
+export function getOCRPackBridge(): OCRPackBridge { return ocrPackSingleton ??= createOCRPackBridge() }
+
+export interface OCRRunBridge {
+  list(payload: import('../generated/bridge').OcrRunListPayload): Promise<import('../generated/bridge').OcrRunListResult>
+  get(payload: import('../generated/bridge').OcrRunGetPayload): Promise<import('../generated/bridge').OcrRunGetResult>
+  readArtifact(payload: import('../generated/bridge').OcrArtifactReadPayload): Promise<import('../generated/bridge').OcrArtifactReadResult>
+}
+export function createOCRRunBridge(transport: WebViewTransport = webview(), deadlineMs = 8_000): OCRRunBridge {
+  const core = createSimpleBridge(transport, {}, deadlineMs)
+  return {
+    list: p => core.request('ocr.run.list' as BridgeMethod, p),
+    get: p => core.request('ocr.run.get' as BridgeMethod, p),
+    readArtifact: p => core.request('ocr.artifact.read' as BridgeMethod, p),
+  }
+}
+let ocrRunSingleton: OCRRunBridge | undefined
+export function getOCRRunBridge(): OCRRunBridge { return ocrRunSingleton ??= createOCRRunBridge() }
+
+export type MediaWatchEvent = { mediaSessionId: string; revision: number; sequence: number; gap: boolean }
+export type MediaWatchHandle = import('../generated/bridge').MediaSessionWatchResult & { dispose(): void }
+export interface MediaBridge {
+  list(payload: import('../generated/bridge').MediaSessionListPayload): Promise<import('../generated/bridge').MediaSessionListResult>
+  get(payload: import('../generated/bridge').MediaSessionGetPayload): Promise<import('../generated/bridge').MediaSnapshotDTO>
+  create(payload: import('../generated/bridge').MediaSessionCreatePayload, options?: MutationOptions<import('../generated/bridge').MediaSessionCreatePayload>): Promise<import('../generated/bridge').MediaSessionCreateResult>
+  command(payload: import('../generated/bridge').MediaSessionCommandPayload, options?: MutationOptions<import('../generated/bridge').MediaSessionCommandPayload>): Promise<import('../generated/bridge').MediaSessionCommandResult>
+  watch(payload: import('../generated/bridge').MediaSessionWatchPayload, onInvalidate?: (event: MediaWatchEvent) => void): Promise<MediaWatchHandle>
+  listAssets(payload: import('../generated/bridge').MediaAssetListPayload): Promise<import('../generated/bridge').MediaAssetListResult>
+  openAsset(payload: import('../generated/bridge').MediaAssetOpenPayload): Promise<import('../generated/bridge').MediaAssetOpenResult>
+  pick(payload: import('../generated/bridge').MediaAssetPickPayload): Promise<import('../generated/bridge').MediaAssetPickResult>
+  queueCommand(payload: import('../generated/bridge').MediaQueueCommandPayload, options?: MutationOptions<import('../generated/bridge').MediaQueueCommandPayload>): Promise<import('../generated/bridge').MediaQueueCommandResult>
+  getOperation(payload: import('../generated/bridge').MediaOperationGetPayload): Promise<import('../generated/bridge').MediaOperationDTO>
+  listOperations(payload: import('../generated/bridge').MediaOperationListPayload): Promise<import('../generated/bridge').MediaOperationListResult>
+  reportElement?(payload: import('../generated/bridge').MediaElementReportPayload): Promise<import('../generated/bridge').MediaElementReportResult>
+}
+const isMediaSnapshotEvent=(v:unknown):v is {v:string;kind:'event';id:string;streamId:string;sequence:number;type:'media_snapshot';media:{kind:'invalidate';mediaSessionId:string;revision:number}}=>{
+  return isObj(v)&&v.v===BRIDGE_VERSION&&v.kind==='event'&&isULID(v.id)&&isULID(v.streamId)&&Number.isInteger(v.sequence)&&Number(v.sequence)>=1&&v.type==='media_snapshot'&&isObj(v.media)&&exact(v.media,['kind','mediaSessionId','revision'])&&v.media.kind==='invalidate'&&isULID(v.media.mediaSessionId)&&Number.isInteger(v.media.revision)&&Number(v.media.revision)>=1
+}
+export function createMediaBridge(transport: WebViewTransport = webview(), deadlineMs = 8_000): MediaBridge {
+  const core = createSimpleBridge(transport, {}, deadlineMs)
+  return {
+    list: p => core.request('media.session.list' as BridgeMethod, p),
+    get: p => core.request('media.session.get' as BridgeMethod, p),
+    create: (p, o) => core.request('media.session.create' as BridgeMethod, p, deadlineMs, o?.attempt ?? createMutationAttempt('media.session.create', p)),
+    command: (p, o) => core.request('media.session.command' as BridgeMethod, p, deadlineMs, o?.attempt ?? createMutationAttempt('media.session.command', p)),
+    async watch(p, onInvalidate) {
+      const result = await core.request<import('../generated/bridge').MediaSessionWatchResult>('media.session.watch' as BridgeMethod, p)
+      if (!isObj(result) || !isULID(result.streamId)) throw new BridgeClientError('Bridge 方法结果格式无效', 'INVALID_BRIDGE_RESULT', false, 'renderer')
+      if (!onInvalidate) return { streamId: result.streamId, dispose() {} }
+      let next = 1
+      const route = (event: MessageEvent) => {
+        const value: unknown = event.data
+        if (!isMediaSnapshotEvent(value) || value.streamId !== result.streamId) return
+        const gap = value.sequence !== next
+        next = value.sequence + 1
+        onInvalidate({ mediaSessionId: value.media.mediaSessionId, revision: value.media.revision, sequence: value.sequence, gap })
+      }
+      transport.addEventListener('message', route)
+      return {
+        streamId: result.streamId,
+        dispose() {
+          transport.removeEventListener('message', route)
+          void core.request('stream.cancel' as BridgeMethod, { streamId: result.streamId }).catch(() => {})
+        },
+      }
+    },
+    listAssets: p => core.request('media.asset.list' as BridgeMethod, p),
+    openAsset: p => core.request('media.asset.open' as BridgeMethod, p),
+    pick: p => core.request('media.asset.pick' as BridgeMethod, p, PEOPLE_FILE_DEADLINE_MS),
+    reportElement: p => core.request('media.element.report' as BridgeMethod, p),
+    queueCommand: (p, o) => core.request('media.queue.command' as BridgeMethod, p, deadlineMs, o?.attempt ?? createMutationAttempt('media.queue.command', p)),
+    getOperation: p => core.request('media.operation.get' as BridgeMethod, p),
+    listOperations: p => core.request('media.operation.list' as BridgeMethod, p),
+  }
+}
+let mediaSingleton: MediaBridge | undefined
+export function getMediaBridge(): MediaBridge { return mediaSingleton ??= createMediaBridge() }
+
+export interface ActivityBridge {
+  list(payload: import('../generated/bridge').ActivityListPayload): Promise<import('../generated/bridge').ActivityListResult>
+}
+export function createActivityBridge(transport: WebViewTransport = webview(), deadlineMs = 8_000): ActivityBridge {
+  const core = createSimpleBridge(transport, {}, deadlineMs)
+  return { list: p => core.request('activity.list' as BridgeMethod, p) }
+}
+let activitySingleton: ActivityBridge | undefined
+export function getActivityBridge(): ActivityBridge { return activitySingleton ??= createActivityBridge() }
 
 export type ChatUsageSnapshot = import('../generated/bridge').ChatUsageGetResult
 export interface ChatUsageBridge {
@@ -833,14 +959,75 @@ export interface MemoryBridge {
   update(payload: MemoryUpdatePayload): Promise<MemoryUpdateResult>
   delete(payload: MemoryDeletePayload): Promise<MemoryDeleteResult>
   confirmCandidate?(payload: MemoryConfirmCandidatePayload): Promise<MemoryConfirmCandidateResult>
+  itemCreate?(payload: MemoryItemCreatePayload, options?: MutationOptions<MemoryItemCreatePayload>): Promise<MemoryItemCreateResult>
+  itemList?(payload: MemoryItemListPayload): Promise<MemoryItemListResult>
+  itemGet?(payload: MemoryItemGetPayload): Promise<MemoryItemGetResult>
+  itemForget?(payload: MemoryItemForgetPayload, options?: MutationOptions<MemoryItemForgetPayload>): Promise<MemoryItemForgetResult>
+  itemHistory?(payload: MemoryItemHistoryPayload): Promise<MemoryItemHistoryResult>
+  itemCorrect?(payload: MemoryItemCorrectPayload, options?: MutationOptions<MemoryItemCorrectPayload>): Promise<MemoryItemCorrectResult>
+  captureUndo?(payload: MemoryCaptureUndoPayload, options?: MutationOptions<MemoryCaptureUndoPayload>): Promise<MemoryCaptureUndoResult>
+  reviewList?(payload: MemoryReviewListPayload): Promise<MemoryReviewListResult>
+  reviewResolve?(payload: MemoryReviewResolvePayload, options?: MutationOptions<MemoryReviewResolvePayload>): Promise<MemoryReviewResolveResult>
+  generationList?(payload: MemoryGenerationListPayload): Promise<MemoryGenerationListResult>
+  generationPreview?(payload: MemoryGenerationPreviewPayload): Promise<MemoryGenerationPreviewResult>
+  generationActivate?(payload: MemoryGenerationActivatePayload, options?: MutationOptions<MemoryGenerationActivatePayload>): Promise<MemoryGenerationActivateResult>
+  generationDiscard?(payload: MemoryGenerationDiscardPayload, options?: MutationOptions<MemoryGenerationDiscardPayload>): Promise<MemoryGenerationDiscardResult>
+  importPreview?(payload: MemoryImportPreviewPayload, options?: MutationOptions<MemoryImportPreviewPayload>): Promise<MemoryImportPreviewResult>
+  importCommit?(payload: MemoryImportCommitPayload, options?: MutationOptions<MemoryImportCommitPayload>): Promise<MemoryImportCommitResult>
 }
 export function createMemoryBridge(transport: WebViewTransport, defaultDeadlineMs = 8_000): MemoryBridge {
   const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
-  return { get: p => core.request('memory.get', p), list: p => core.request('memory.list', p), create: (p, o) => core.request('memory.create', p, defaultDeadlineMs, o?.attempt), search: p => core.request('memory.search', p), update: p => core.request('memory.update', p), delete: p => core.request('memory.delete', p), confirmCandidate: p => core.request('memory.confirmCandidate', p) }
+  return {
+    get: p => core.request('memory.get', p),
+    list: p => core.request('memory.list', p),
+    create: (p, o) => core.request('memory.create', p, defaultDeadlineMs, o?.attempt),
+    search: p => core.request('memory.search', p),
+    update: p => core.request('memory.update', p),
+    delete: p => core.request('memory.delete', p),
+    confirmCandidate: p => core.request('memory.confirmCandidate', p),
+    itemCreate: (p, o) => core.request('memory.item.create', p, defaultDeadlineMs, o?.attempt),
+    itemList: p => core.request('memory.item.list', p),
+    itemGet: p => core.request('memory.item.get', p),
+    itemForget: (p, o) => core.request('memory.item.forget', p, defaultDeadlineMs, o?.attempt),
+    itemHistory: p => core.request('memory.item.history', p),
+    itemCorrect: (p, o) => core.request('memory.item.correct', p, defaultDeadlineMs, o?.attempt),
+    captureUndo: (p, o) => core.request('memory.capture.undo', p, defaultDeadlineMs, o?.attempt),
+    reviewList: p => core.request('memory.review.list', p),
+    reviewResolve: (p, o) => core.request('memory.review.resolve', p, defaultDeadlineMs, o?.attempt),
+    generationList: p => core.request('memory.generation.list', p),
+    generationPreview: p => core.request('memory.generation.preview', p),
+    generationActivate: (p, o) => core.request('memory.generation.activate', p, defaultDeadlineMs, o?.attempt),
+    generationDiscard: (p, o) => core.request('memory.generation.discard', p, defaultDeadlineMs, o?.attempt),
+    importPreview: (p, o) => core.request('memory.import.preview', p, defaultDeadlineMs, o?.attempt),
+    importCommit: (p, o) => core.request('memory.import.commit', p, defaultDeadlineMs, o?.attempt),
+  }
 }
 let memorySingleton: MemoryBridge | undefined
 export function getMemoryBridge(): MemoryBridge { return memorySingleton ??= createMemoryBridge(webview()) }
-export const memoryBridge: MemoryBridge = { get: p => getMemoryBridge().get(p), list: p => getMemoryBridge().list(p), create: (p, o) => getMemoryBridge().create(p, o), search: p => getMemoryBridge().search(p), update: p => getMemoryBridge().update(p), delete: p => getMemoryBridge().delete(p), confirmCandidate: p => getMemoryBridge().confirmCandidate!(p) }
+export const memoryBridge: MemoryBridge = {
+  get: p => getMemoryBridge().get(p),
+  list: p => getMemoryBridge().list(p),
+  create: (p, o) => getMemoryBridge().create(p, o),
+  search: p => getMemoryBridge().search(p),
+  update: p => getMemoryBridge().update(p),
+  delete: p => getMemoryBridge().delete(p),
+  confirmCandidate: p => getMemoryBridge().confirmCandidate!(p),
+  itemCreate: (p, o) => getMemoryBridge().itemCreate!(p, o),
+  itemList: p => getMemoryBridge().itemList!(p),
+  itemGet: p => getMemoryBridge().itemGet!(p),
+  itemForget: (p, o) => getMemoryBridge().itemForget!(p, o),
+  itemHistory: p => getMemoryBridge().itemHistory!(p),
+  itemCorrect: (p, o) => getMemoryBridge().itemCorrect!(p, o),
+  captureUndo: (p, o) => getMemoryBridge().captureUndo!(p, o),
+  reviewList: p => getMemoryBridge().reviewList!(p),
+  reviewResolve: (p, o) => getMemoryBridge().reviewResolve!(p, o),
+  generationList: p => getMemoryBridge().generationList!(p),
+  generationPreview: p => getMemoryBridge().generationPreview!(p),
+  generationActivate: (p, o) => getMemoryBridge().generationActivate!(p, o),
+  generationDiscard: (p, o) => getMemoryBridge().generationDiscard!(p, o),
+  importPreview: (p, o) => getMemoryBridge().importPreview!(p, o),
+  importCommit: (p, o) => getMemoryBridge().importCommit!(p, o),
+}
 
 export interface FeedbackBridge {
   record(payload: FeedbackRecordPayload): Promise<FeedbackRecordResult>
@@ -877,6 +1064,7 @@ export interface MemoryOpsBridge {
   getSettings(payload: MemorySettingsGetPayload): Promise<MemorySettingsGetResult>
   updateSettings(payload: MemorySettingsUpdatePayload, options?: MutationOptions<MemorySettingsUpdatePayload>): Promise<MemorySettingsUpdateResult>
   export(payload: MemoryExportPayload): Promise<MemoryExportResult>
+  purgePrepare(payload: MemoryPurgePreparePayload, options?: MutationOptions<MemoryPurgePreparePayload>): Promise<MemoryPurgePrepareResult>
   purge(payload: MemoryPurgePayload, options?: MutationOptions<MemoryPurgePayload>): Promise<MemoryPurgeResult>
 }
 export function createMemoryOpsBridge(transport: WebViewTransport, defaultDeadlineMs = 8_000): MemoryOpsBridge {
@@ -891,6 +1079,7 @@ export function createMemoryOpsBridge(transport: WebViewTransport, defaultDeadli
     getSettings: p => core.request('memory.settings.get', p),
     updateSettings: (p, o) => core.request('memory.settings.update', p, defaultDeadlineMs, o?.attempt),
     export: p => core.request('memory.export', p),
+    purgePrepare: (p, o) => core.request('memory.purge.prepare', p, defaultDeadlineMs, o?.attempt),
     purge: (p, o) => core.request('memory.purge', p, defaultDeadlineMs, o?.attempt),
   }
 }
@@ -906,6 +1095,7 @@ export const memoryOpsBridge: MemoryOpsBridge = {
   getSettings: p => getMemoryOpsBridge().getSettings(p),
   updateSettings: (p, o) => getMemoryOpsBridge().updateSettings(p, o),
   export: p => getMemoryOpsBridge().export(p),
+  purgePrepare: (p, o) => getMemoryOpsBridge().purgePrepare(p, o),
   purge: (p, o) => getMemoryOpsBridge().purge(p, o),
 }
 
@@ -1146,6 +1336,7 @@ const isStreamArtifact=(artifact:unknown):artifact is StreamArtifact=>{
   default:return false
  }
 }
+const isForeignBridgeEvent=(v:unknown)=>isObj(v)&&typeof v.type==='string'&&['media_snapshot','talk_audio','talk_transcript','talk_tool','talk_error','talk_ended','tts_chunk','terminal_output','terminal_exit'].includes(v.type)
 const isStreamEvent=(v:unknown):v is StreamEvent=>{
  if(!isObj(v)||v.v!==BRIDGE_VERSION||v.kind!=='event'||!isULID(v.id)||!isULID(v.streamId)||!Number.isInteger(v.sequence)||Number(v.sequence)<1||typeof v.type!=='string')return false
  const base=['v','kind','id','streamId','sequence','type']
@@ -1171,7 +1362,7 @@ export function createChatBridge(transport:WebViewTransport,deadlineMs=30_000):C
  const failStream=(id:string)=>{active.delete(id);early.delete(id);tombstone(id)}
  const failActive=(id:string,state:Active,code:string,message:string)=>{if(state.terminal)return;state.terminal=true;const sequence=state.next;failStream(id);state.listener({v:BRIDGE_VERSION,kind:'event',id:ulid(),streamId:id,sequence,type:'failed',error:{code,message,retryable:false}})}
  const deliver=(state:Active,event:StreamEvent)=>{if(state.terminal)return;if(event.sequence!==state.next){failActive(event.streamId,state,'BRIDGE_EVENT_SEQUENCE_INVALID','流事件顺序无效，已安全终止');return}state.next++;if(['completed','cancelled','failed'].includes(event.type)){state.terminal=true;failStream(event.streamId)}try{state.listener(event)}catch(err){console.error('[lunitide] chat stream listener',err);if(!state.terminal){try{failActive(event.streamId,state,'RENDERER_STREAM_LISTENER','界面处理流事件失败')}catch{failStream(event.streamId)}}}}
- const route=(event:MessageEvent<BridgeResponse>)=>{const value:unknown=event.data;if(disposed)return;if(isObj(value)&&typeof value.requestId==='string'&&pending.has(value.requestId)){const p=pending.get(value.requestId)!;pending.delete(value.requestId);clearTimeout(p.timer);if(!validEnvelope(value))p.reject(new BridgeClientError('Bridge 响应格式无效','INVALID_BRIDGE_RESPONSE',false,value.requestId));else if(value.ok)p.resolve(value.payload);else p.reject(new BridgeClientError(value.error.message,value.error.code,value.error.retryable,value.error.correlationId));return}const candidateId=isObj(value)&&typeof value.streamId==='string'&&isULID(value.streamId)?value.streamId:undefined;if(!isStreamEvent(value)){if(candidateId){const state=active.get(candidateId);if(state)failActive(candidateId,state,'INVALID_BRIDGE_EVENT','流事件格式无效，已安全终止');else{early.delete(candidateId);tombstone(candidateId)}}return}if(tombstones.has(value.streamId))return;const state=active.get(value.streamId);if(state){deliver(state,value);return}const buffered=early.get(value.streamId)??[];if(buffered.length>=32||early.size>=32&&!early.has(value.streamId)){early.delete(value.streamId);tombstone(value.streamId);return}if(value.sequence!==buffered.length+1||buffered.some(e=>['completed','cancelled','failed'].includes(e.type))){early.delete(value.streamId);tombstone(value.streamId);return}buffered.push(value);early.set(value.streamId,buffered)}
+ const route=(event:MessageEvent<BridgeResponse>)=>{const value:unknown=event.data;if(disposed)return;if(isObj(value)&&typeof value.requestId==='string'&&pending.has(value.requestId)){const p=pending.get(value.requestId)!;pending.delete(value.requestId);clearTimeout(p.timer);if(!validEnvelope(value))p.reject(new BridgeClientError('Bridge 响应格式无效','INVALID_BRIDGE_RESPONSE',false,value.requestId));else if(value.ok)p.resolve(value.payload);else p.reject(new BridgeClientError(value.error.message,value.error.code,value.error.retryable,value.error.correlationId));return}const candidateId=isObj(value)&&typeof value.streamId==='string'&&isULID(value.streamId)?value.streamId:undefined;if(!isStreamEvent(value)){if(candidateId){if(isForeignBridgeEvent(value))return;const state=active.get(candidateId);if(state)failActive(candidateId,state,'INVALID_BRIDGE_EVENT','流事件格式无效，已安全终止');else{early.delete(candidateId);tombstone(candidateId)}}return}if(tombstones.has(value.streamId))return;const state=active.get(value.streamId);if(state){deliver(state,value);return}const buffered=early.get(value.streamId)??[];if(buffered.length>=32||early.size>=32&&!early.has(value.streamId)){early.delete(value.streamId);tombstone(value.streamId);return}if(value.sequence!==buffered.length+1||buffered.some(e=>['completed','cancelled','failed'].includes(e.type))){early.delete(value.streamId);tombstone(value.streamId);return}buffered.push(value);early.set(value.streamId,buffered)}
  transport.addEventListener('message',route)
  const request=<T>(method:BridgeMethod,payload:object)=>new Promise<T>((resolve,reject)=>{if(disposed){reject(new BridgeClientError('Chat Bridge 已释放','BRIDGE_UNAVAILABLE',false,'renderer'));return}const id=ulid(),traceId=ulid(),ms=Math.min(30_000,Math.max(1,deadlineMs)),timer=window.setTimeout(()=>{pending.delete(id);reject(new BridgeClientError('Bridge 请求超时','REQUEST_DEADLINE_EXCEEDED',true,traceId))},ms+250);pending.set(id,{resolve,reject,timer});try{transport.postMessage({v:BRIDGE_VERSION,kind:'request',id,traceId,method,sentAt:new Date().toISOString(),payload,deadlineMs:ms})}catch{clearTimeout(timer);pending.delete(id);reject(new BridgeClientError('WebView2 Bridge 当前不可用','BRIDGE_UNAVAILABLE',true,traceId))}})
  const cancelLocal=(id:string)=>{if(!active.has(id)&&!early.has(id))return;failStream(id);try{void request<StreamCancelResult>('stream.cancel',{streamId:id}).catch(()=>{})}catch{/* best effort */}}
@@ -1609,14 +1800,15 @@ export interface McpBridge{
   health(payload:McpHealthPayload):Promise<McpHealthResult>
   marketSearch(payload:McpMarketSearchPayload):Promise<McpMarketSearchResult>
   presets(payload?:Mcp6PresetsListPayload):Promise<Mcp6PresetsListResult>
+  uvInstall?():Promise<import('../generated/bridge').McpUvInstallResult>
 }
 export function createMcpBridge(transport:WebViewTransport=webview(),deadlineMs=10_000):McpBridge{
   const core=createSimpleBridge(transport,{},deadlineMs)
-  return{securityReview:p=>core.request('mcp.security.review',p,30_000),credentialSet:p=>core.request('mcp.credential.set',p,30_000),list:p=>core.request('mcp.list',p??{}),add:(p,o)=>core.request('mcp.add',p,p.configureOnly?deadlineMs:MCP_SETUP_DEADLINE_MS,o?.attempt),toggle:(p,o)=>core.request('mcp.toggle',p,p.enabled?MCP_SETUP_DEADLINE_MS:deadlineMs,o?.attempt),health:p=>core.request('mcp.health',p,MCP_SETUP_DEADLINE_MS),marketSearch:p=>core.request('mcp.market.search',p,15_000),presets:p=>core.request('mcp6.presets.list',p??{})}
+  return{securityReview:p=>core.request('mcp.security.review',p,30_000),credentialSet:p=>core.request('mcp.credential.set',p,30_000),list:p=>core.request('mcp.list',p??{}),add:(p,o)=>core.request('mcp.add',p,p.configureOnly?deadlineMs:MCP_SETUP_DEADLINE_MS,o?.attempt),toggle:(p,o)=>core.request('mcp.toggle',p,p.enabled?MCP_SETUP_DEADLINE_MS:deadlineMs,o?.attempt),health:p=>core.request('mcp.health',p,MCP_SETUP_DEADLINE_MS),marketSearch:p=>core.request('mcp.market.search',p,15_000),presets:p=>core.request('mcp6.presets.list',p??{}),uvInstall:()=>core.request('mcp.uv.install' as BridgeMethod,{})}
 }
 let mcpSingleton:McpBridge|undefined
 export function getMcpBridge():McpBridge{return mcpSingleton??=createMcpBridge()}
-export const mcpBridge:McpBridge={securityReview:p=>getMcpBridge().securityReview!(p),credentialSet:p=>getMcpBridge().credentialSet!(p),list:p=>getMcpBridge().list(p),add:(p,o)=>getMcpBridge().add(p,o),toggle:(p,o)=>getMcpBridge().toggle(p,o),health:p=>getMcpBridge().health(p),marketSearch:p=>getMcpBridge().marketSearch(p),presets:p=>getMcpBridge().presets(p)}
+export const mcpBridge:McpBridge={securityReview:p=>getMcpBridge().securityReview!(p),credentialSet:p=>getMcpBridge().credentialSet!(p),list:p=>getMcpBridge().list(p),add:(p,o)=>getMcpBridge().add(p,o),toggle:(p,o)=>getMcpBridge().toggle(p,o),health:p=>getMcpBridge().health(p),marketSearch:p=>getMcpBridge().marketSearch(p),presets:p=>getMcpBridge().presets(p),uvInstall:()=>getMcpBridge().uvInstall!()}
 
 // M8 plugin system bridge — install / list / toggle / uninstall / upgrade +
 // market browse + dev bundles (T-8.9.7 settings page data source).

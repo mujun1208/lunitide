@@ -320,6 +320,7 @@ func (s *MemoryService) ConfirmCandidateFor(ctx context.Context, subject string,
 	}
 	var out ConfirmResult
 	var outcomeErr error
+	var confirmedText string
 	err := s.uow.TransactMemory(ctx, func(tx MemoryTx) error {
 		cand, err := tx.GetCandidate(in.CandidateID)
 		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, m8core.ErrNotFound) {
@@ -465,6 +466,7 @@ func (s *MemoryService) ConfirmCandidateFor(ctx context.Context, subject string,
 		if err != nil {
 			return err
 		}
+		confirmedText = strings.TrimSpace(finalDoc.Content)
 		out = ConfirmResult{
 			CandidateID: cand.CandidateID,
 			State:       m8core.CandConfirmed,
@@ -475,7 +477,15 @@ func (s *MemoryService) ConfirmCandidateFor(ctx context.Context, subject string,
 	if err != nil {
 		return ConfirmResult{}, err
 	}
-	return out, outcomeErr
+	if outcomeErr != nil {
+		return out, outcomeErr
+	}
+	if out.State == m8core.CandConfirmed && confirmedText != "" {
+		if err := s.mirrorCanonical(ctx, subject, out.CandidateID, confirmedText); err != nil {
+			return out, err
+		}
+	}
+	return out, nil
 }
 
 // AutoPromote is the explicit refusal path required by FR-11: frequency,

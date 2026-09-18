@@ -32,7 +32,7 @@ function PackageNode({node,selected,onSelect}:{node:FileNode;selected:string;onS
   return node.directory?<li><details open><summary>{node.name}</summary><ul>{node.children.map(child=><PackageNode key={child.path} node={child} selected={selected} onSelect={onSelect}/>)}</ul></details></li>:<li><button type="button" title={node.path} aria-pressed={selected===node.path} onClick={()=>onSelect(node.path)}><span>{node.name}</span><small>{node.size<1024?`${node.size} B`:`${(node.size/1024).toFixed(1)} KB`}</small></button></li>
 }
 
-export function SkillPackagePanel({skillId,bridge=skillBridge,refreshKey=0}:{skillId:string;bridge?:SkillBridge;refreshKey?:number}) {
+export function SkillPackagePanel({skillId,bridge=skillBridge,refreshKey=0,layout='stack'}:{skillId:string;bridge?:SkillBridge;refreshKey?:number;layout?:'stack'|'split'}) {
   const [listing,setListing]=useState<SkillPackageListResult>()
   const [path,setPath]=useState('')
   const [content,setContent]=useState<SkillPackageReadResult>()
@@ -69,7 +69,7 @@ export function SkillPackagePanel({skillId,bridge=skillBridge,refreshKey=0}:{ski
     finally{if(gen===generation.current)setLoading(false)}
   }
   const tree=useMemo(()=>skillPackageTree(listing?.entries??[]),[listing?.entries])
-  return <section className="skill-package-panel" aria-label="技能包文件">
+  return <section className={`skill-package-panel${layout==='split'?' skill-package-split':''}`} aria-label="技能包文件">
     <header><b>目录与文件</b><button type="button" disabled={loading} onClick={()=>setReload(value=>value+1)}>刷新目录</button></header>
     {listing&&<code className="skill-package-root" title={listing.rootPath}>{listing.rootPath}</code>}
     {error&&<p role="alert">{error}</p>}

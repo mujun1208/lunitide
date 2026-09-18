@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/memory.capture.undo.schema.json",
+  "title": "memory.capture.undo payload",
+  "x-method": "memory.capture.undo",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["undoOperationId", "operationId"],
+  "properties": {
+    "undoOperationId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "operationId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["undone", "forgottenFactIds", "databaseRevision"],
+    "properties": {
+      "undone": { "type": "boolean", "const": true },
+      "forgottenFactIds": {
+        "type": "array",
+        "maxItems": 32,
+        "items": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
+      },
+      "databaseRevision": { "type": "integer", "minimum": 0 }
+    }
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "undoOperationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+      }
+    ],
+    "negative": [
+      { "undoOperationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+      { "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAW" },
+      {
+        "undoOperationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "expectedRevision": 1
+      }
+    ]
+  }
+}

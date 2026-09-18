@@ -128,6 +128,27 @@ func (e *Engine) authorizeDataRequest(ctx context.Context, method string, payloa
 		add("attachmentId", "project-attachment")
 	case strings.HasPrefix(method, "attachment."):
 		add("attachmentId", "attachment")
+	case strings.HasPrefix(method, "ocr.routing."), method == "ocr.run.list", method == "activity.list", strings.HasPrefix(method, "media."):
+		var scopeKind string
+		if json.Unmarshal(fields["scopeKind"], &scopeKind) == nil && scopeKind == "project" {
+			add("scopeId", "project")
+		}
+	case strings.HasPrefix(method, "memory.item."):
+		var scopeKind string
+		if json.Unmarshal(fields["scopeKind"], &scopeKind) == nil && scopeKind == "project" {
+			add("scopeId", "project")
+		}
+	case method == "memory.generation.list" || method == "memory.generation.preview" || method == "memory.generation.activate" || method == "memory.generation.discard":
+		var scopeKind string
+		if json.Unmarshal(fields["scopeKind"], &scopeKind) == nil && scopeKind == "project" {
+			add("scopeId", "project")
+		}
+	case method == "memory.import.preview" || method == "memory.import.commit":
+	case method == "memory.review.list" || method == "memory.purge.prepare":
+		var scopeKind string
+		if json.Unmarshal(fields["scopeKind"], &scopeKind) == nil && scopeKind == "project" {
+			add("scopeId", "project")
+		}
 	case strings.HasPrefix(method, "memory."):
 		add("id", "memory")
 	case strings.HasPrefix(method, "ontology.node."):

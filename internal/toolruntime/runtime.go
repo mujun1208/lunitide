@@ -116,11 +116,21 @@ type Runtime struct {
 	}
 }
 type Result struct {
-	Output     string    `json:"output"`
-	Digest     string    `json:"digest"`
-	Artifact   *Artifact `json:"artifact,omitempty"`
-	VisionMIME string    `json:"-"`
-	VisionData []byte    `json:"-"`
+	Output     string             `json:"output"`
+	Digest     string             `json:"digest"`
+	Artifact   *Artifact          `json:"artifact,omitempty"`
+	Receipt    *OperationReceipt  `json:"receipt,omitempty"`
+	VisionMIME string             `json:"-"`
+	VisionData []byte             `json:"-"`
+}
+
+// OperationReceipt is the truthful playback/command receipt. Key-only
+// dispatch stays phase=uncertain with unconfirmed verification.
+type OperationReceipt struct {
+	Phase              string `json:"phase"`
+	VerificationStatus string `json:"verificationStatus"`
+	VerificationSource string `json:"verificationSource"`
+	ErrorCode          string `json:"errorCode,omitempty"`
 }
 
 type Artifact struct {

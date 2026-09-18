@@ -7,57 +7,112 @@
   "x-enabled": true,
   "type": "object",
   "additionalProperties": false,
-  "properties": {},
+  "required": ["scopeKind"],
+  "properties": {
+    "scopeKind": { "type": "string", "enum": ["user", "project"] },
+    "scopeId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "refreshProbe": { "type": "boolean" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "scopeKind": { "const": "user" } } },
+      "then": { "properties": { "scopeId": false } }
+    },
+    {
+      "if": { "properties": { "scopeKind": { "const": "project" } } },
+      "then": { "required": ["scopeId"], "properties": { "scopeId": {} } }
+    }
+  ],
   "x-result": {
     "type": "object",
     "additionalProperties": false,
+    "required": ["requestedScope", "policySource", "policy", "revision", "windowsProbe", "legacy"],
     "properties": {
-      "providerId": {
-        "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
-      },
-      "modelId": { "type": "string", "minLength": 1, "maxLength": 200 },
-      "preferProvider": { "type": "boolean" },
-      "localEngine": { "enum": ["auto", "windows-ocr", "ppocr"] },
-      "downloadBytes": { "type": "integer", "minimum": 0 },
-      "packRoot": { "type": "string", "minLength": 1, "maxLength": 512 },
-      "pack": {
+      "requestedScope": {
         "type": "object",
         "additionalProperties": false,
+        "required": ["scopeKind", "scopeId"],
         "properties": {
-          "available": { "type": "boolean" },
-          "status": { "type": "string", "minLength": 1, "maxLength": 64 },
-          "backend": { "enum": ["ppocr-pack"] }
-        },
-        "required": ["available", "status", "backend"]
+          "scopeKind": { "enum": ["user", "project"] },
+          "scopeId": { "type": ["string", "null"] }
+        }
+      },
+      "policySource": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scopeKind", "scopeId", "inherited"],
+        "properties": {
+          "scopeKind": { "enum": ["user", "project"] },
+          "scopeId": { "type": ["string", "null"] },
+          "inherited": { "type": "boolean" }
+        }
+      },
+      "policy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["mode", "complexDocumentEngine", "fallbackOrder", "sendToCloud"],
+        "properties": {
+          "mode": { "enum": ["auto", "local_fast", "local_document", "provider_first"] },
+          "complexDocumentEngine": { "enum": ["none", "paddleocr-vl-1.6"] },
+          "fallbackOrder": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "uniqueItems": true,
+            "items": { "enum": ["windows-ocr", "paddleocr-vl-1.6", "provider", "ppocr"] }
+          },
+          "sendToCloud": { "enum": ["never", "configured_only"] },
+          "providerId": {
+            "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID"
+          },
+          "modelId": { "type": "string", "minLength": 1, "maxLength": 200 }
+        }
       },
       "revision": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-      "appliedRevision": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-      "state": { "enum": ["applied"] },
-      "lastFailure": {
+      "windowsProbe": {
         "type": "object",
         "additionalProperties": false,
+        "required": ["state", "available", "languages", "checkedAt"],
         "properties": {
-          "class": { "type": "string", "minLength": 1, "maxLength": 32 },
-          "operation": { "type": "string", "minLength": 1, "maxLength": 32 },
-          "until": { "type": "string", "format": "date-time" }
-        },
-        "required": ["class", "operation", "until"]
+          "state": { "enum": ["ready", "unsupported_os", "initialization_failed", "language_unavailable", "sample_failed", "timed_out"] },
+          "available": { "type": "boolean" },
+          "languages": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+          },
+          "checkedAt": { "type": "string", "format": "date-time" }
+        }
       },
-      "localReady": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "pdf": { "type": "boolean" },
-          "image": { "type": "boolean" },
-          "backend": { "enum": ["windows-ocr", "ppocr", "unavailable"] }
-        },
-        "required": ["pdf", "image", "backend"]
+      "legacy": {
+        "oneOf": [
+          { "type": "null" },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["engineId", "registered", "state", "available", "markerDetected"],
+            "properties": {
+              "engineId": { "const": "ppocr" },
+              "registered": { "const": true },
+              "state": { "const": "registered_unwired" },
+              "available": { "const": false },
+              "markerDetected": { "type": "boolean" }
+            }
+          }
+        ]
       }
-    },
-    "required": ["preferProvider", "revision", "appliedRevision", "state", "localReady"]
+    }
   },
   "x-examples": {
-    "positive": [{}],
-    "negative": [{ "unexpected": true }]
+    "positive": [
+      { "scopeKind": "user" },
+      { "scopeKind": "user", "refreshProbe": true },
+      { "scopeKind": "project", "scopeId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }
+    ],
+    "negative": [
+      {},
+      { "scopeKind": "user", "scopeId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+      { "scopeKind": "project" },
+      { "unexpected": true }
+    ]
   }
 }

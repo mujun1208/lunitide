@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/memory.item.list.schema.json",
+  "title": "memory.item.list payload",
+  "x-method": "memory.item.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scopeKind"],
+  "properties": {
+    "scopeKind": { "type": "string", "enum": ["user", "project"] },
+    "scopeId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "kind": { "type": "string", "enum": ["profile", "preference", "goal", "constraint", "decision", "procedure", "episode", "observation", "working"] },
+    "since": { "type": "string", "format": "date-time" },
+    "cursor": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "scopeKind": { "const": "user" } } },
+      "then": { "properties": { "scopeId": false } }
+    },
+    {
+      "if": { "properties": { "scopeKind": { "const": "project" } } },
+      "then": { "required": ["scopeId"], "properties": { "scopeId": {} } }
+    }
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["items", "databaseRevision"],
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 100,
+        "items": { "$ref": "https://lunitide.local/schema/bridge/v1/memory.item.create.schema.json#/$defs/MemoryItemDTO" }
+      },
+      "nextCursor": { "type": ["string", "null"] },
+      "databaseRevision": { "type": "integer", "minimum": 0 }
+    }
+  },
+  "x-examples": {
+    "positive": [
+      { "scopeKind": "user", "limit": 20 },
+      { "scopeKind": "project", "scopeId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "kind": "preference" }
+    ],
+    "negative": [
+      { "scopeKind": "user", "scopeId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+      { "scopeKind": "project" },
+      { "scopeKind": "session" }
+    ]
+  }
+}

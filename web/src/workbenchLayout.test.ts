@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
 const inspectorCss = readFileSync(resolve(process.cwd(), 'src/workspace/artifactInspector.css'), 'utf8')
 const app = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8')
+const indexHtml = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8')
 
 describe('project workbench native-frame stability', () => {
   it('does not wrap the workbench in the 3-column app-shell grid with Atmosphere as a sibling row', () => {
@@ -47,6 +48,8 @@ describe('project workbench native-frame stability', () => {
     expect(css).toMatch(/\.mermaid-host\{[^}]*max-height:min\(40vh,360px\)/)
     expect(css).toMatch(/\.mermaid-host\{[^}]*overflow:hidden/)
     expect(css).not.toMatch(/\.mermaid-host\{[^}]*overflow:auto/)
+    expect(css).not.toMatch(/\.mermaid-host\{[^}]*min-height:120px/)
+    expect(css).toMatch(/\.mermaid-host:empty\{display:none/)
     expect(css).toMatch(/\.mermaid-lightbox\{[^}]*overflow:auto/)
     expect(css).toMatch(/\.mermaid-skin/)
     expect(css).toMatch(/\.moon-dialog\{[^}]*overflow-anchor:none/)
@@ -106,7 +109,7 @@ describe('project workbench native-frame stability', () => {
   })
 
   it('paints sibling launch pages black instead of navy overlays', () => {
-    expect(css).toMatch(/\.launch-content \.skill-center,.launch-content \.expert-center-page,.launch-content \.asset-center,.launch-content \.org-console\{[^}]*background:#000/)
+    expect(css).toMatch(/\.launch-content \.skill-center,.launch-content \.expert-center-page,.launch-content \.asset-center,.launch-content \.org-console,.launch-content \.media-center\{[^}]*background:#000/)
     expect(css).toMatch(/\.skill-center\{[^}]*background:#000/)
     expect(css).toMatch(/\.expert-center-page\{[^}]*background:#000/)
     expect(css).toMatch(/\.org-console-page\{[^}]*background:#000/)
@@ -154,5 +157,17 @@ describe('project workbench native-frame stability', () => {
     expect(css).not.toMatch(/html\[data-theme="light"\] \.atmosphere \.sky\{background:linear-gradient\(180deg,#79caff/)
     expect(css).toMatch(/html\[data-theme="light"\] \.project-hero\{background:#fff/)
     expect(css).toMatch(/html\[data-theme="light"\] \.session-shell>\.main/)
+  })
+
+  it('keeps aurora on launch home/media and paints Media Center black/white', () => {
+    expect(app).toMatch(/aurora=\{page==='home'\|\|page==='media'\}/)
+    expect(app).toMatch(/page==='media'\?<PageErrorBoundary label="media">/)
+    expect(css).toMatch(/\.media-center,.media-music-surface,.media-video-surface,.media-queue-drawer,.media-op-card,.activity-center\{background:#000/)
+    expect(css).toMatch(/\.media-mini-player\{[^}]*z-index:35/)
+    expect(css).toMatch(/\.activity-status-btn.is-hub\{top:52px\}/)
+    expect(css).toMatch(/html\[data-theme="light"\] \.media-center/)
+    expect(css).toMatch(/html\[data-theme="light"\] \.media-center,html\[data-theme="light"\] \.media-music-surface/)
+    expect(indexHtml).toMatch(/media-src 'self' blob: https:\/\/media\.lunitide\.local/)
+    expect(indexHtml).not.toMatch(/connect-src[^"]*https:\/\/media\.lunitide\.local/)
   })
 })

@@ -20,6 +20,31 @@ import (
 // ErrNotFound answers any missing memory-core row.
 var ErrNotFound = errors.New("m8core: not found")
 
+// ErrRevisionConflict answers a stale canonical head CAS.
+var ErrRevisionConflict = errors.New("m8core: revision conflict")
+
+// ErrOperationReplayMismatch answers a reused idempotency key with a different payload.
+var ErrOperationReplayMismatch = errors.New("m8core: operation replay mismatch")
+
+// ErrUndoConflict answers a capture undo after a later correction or forget.
+var ErrUndoConflict = errors.New("m8core: undo conflict")
+
+// ErrPurgeGrantInvalid answers an expired, consumed, or mismatched purge grant.
+var ErrPurgeGrantInvalid = errors.New("m8core: purge grant invalid")
+
+var (
+	ErrGenerationNotFound      = errors.New("MEMORY_GENERATION_NOT_FOUND")
+	ErrGenerationNotReady      = errors.New("MEMORY_GENERATION_NOT_READY")
+	ErrGenerationActive        = errors.New("MEMORY_GENERATION_ACTIVE")
+	ErrGenerationStateInvalid  = errors.New("MEMORY_GENERATION_STATE_INVALID")
+	ErrImportSourceMissing     = errors.New("MEMORY_IMPORT_SOURCE_MISSING")
+	ErrImportTooLarge          = errors.New("MEMORY_IMPORT_TOO_LARGE")
+	ErrImportSchemaUnsupported = errors.New("MEMORY_IMPORT_SCHEMA_UNSUPPORTED")
+	ErrImportDigestMismatch    = errors.New("MEMORY_IMPORT_DIGEST_MISMATCH")
+	ErrImportPreviewExpired    = errors.New("MEMORY_IMPORT_PREVIEW_EXPIRED")
+	ErrImportScopeDenied       = errors.New("MEMORY_IMPORT_SCOPE_DENIED")
+)
+
 // Candidate states (migration 0061 CHECK).
 const (
 	CandPending   = "pending"

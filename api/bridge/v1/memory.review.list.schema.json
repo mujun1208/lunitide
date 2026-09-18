@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/memory.review.list.schema.json",
+  "title": "memory.review.list payload",
+  "x-method": "memory.review.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scopeKind"],
+  "properties": {
+    "scopeKind": { "type": "string", "enum": ["user", "project"] },
+    "scopeId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "cursor": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "scopeKind": { "const": "user" } } },
+      "then": { "properties": { "scopeId": false } }
+    },
+    {
+      "if": { "properties": { "scopeKind": { "const": "project" } } },
+      "then": { "required": ["scopeId"], "properties": { "scopeId": {} } }
+    }
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["items", "databaseRevision"],
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 100,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reviewId", "kind", "novelty", "reasonCodes", "createdAt"],
+          "properties": {
+            "reviewId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+            "kind": { "type": "string", "enum": ["profile", "preference", "goal", "constraint", "decision", "procedure", "episode", "observation", "working"] },
+            "novelty": { "type": "string", "enum": ["new", "duplicate", "conflict", "unknown"] },
+            "reasonCodes": {
+              "type": "array",
+              "maxItems": 16,
+              "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+            },
+            "conflictFactId": { "type": ["string", "null"] },
+            "text": { "type": ["string", "null"], "maxLength": 8192 },
+            "createdAt": { "type": "string", "format": "date-time" }
+          }
+        }
+      },
+      "nextCursor": { "type": ["string", "null"] },
+      "databaseRevision": { "type": "integer", "minimum": 0 }
+    }
+  },
+  "x-examples": {
+    "positive": [
+      { "scopeKind": "user" },
+      { "scopeKind": "project", "scopeId": "01ARZ3NDEKTSV4RRFFQ69G5FAX", "limit": 20 }
+    ],
+    "negative": [
+      { "scopeKind": "user", "scopeId": "01ARZ3NDEKTSV4RRFFQ69G5FAX" },
+      { "scopeKind": "project" },
+      { "scopeKind": "workspace" },
+      { "limit": 20 }
+    ]
+  }
+}

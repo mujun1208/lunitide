@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest'
-import { createChatBridge, createMutationAttempt, createProjectBridge, createProviderBridge, createSessionBridge, type MutationAttempt, type WebViewTransport } from './client'
+import { createChatBridge, createMediaBridge, createMutationAttempt, createProjectBridge, createProviderBridge, createSessionBridge, type MutationAttempt, type WebViewTransport } from './client'
 const U='01ARZ3NDEKTSV4RRFFQ69G5FAV'
 const list={items:[]}
 function harness(result:unknown=list){let listener:(e:MessageEvent)=>void=()=>{};const sent:any[]=[];const transport:WebViewTransport={addEventListener:(_t,l)=>{listener=l},removeEventListener:vi.fn(),postMessage:m=>{sent.push(m);queueMicrotask(()=>listener(new MessageEvent('message',{data:{v:'1.0',kind:'response',id:U,requestId:(m as any).id,ok:true,payload:result}})))} };return{sent,bridge:createProviderBridge(transport)}}
@@ -45,3 +45,33 @@ it('sends exact parent-bound session requests, reuses attempts, and rejects forg
 it('accepts a session updated after it was created',async()=>{let listener:(e:MessageEvent)=>void=()=>{};const transport:WebViewTransport={addEventListener:(_t,l)=>{listener=l},removeEventListener:vi.fn(),postMessage:m=>queueMicrotask(()=>listener(new MessageEvent('message',{data:{v:'1.0',kind:'response',id:U,requestId:(m as any).id,ok:true,payload:{items:[{id:U,projectId:U,title:'Session',pinned:false,status:'active',createdAt:'2025-01-01T00:00:00Z',updatedAt:'2025-01-02T00:00:00Z',version:1}]}}})))};await expect(createSessionBridge(transport).list({projectId:U})).resolves.toMatchObject({items:[{updatedAt:'2025-01-02T00:00:00Z'}]})})
 
 it('sends session.update with a stable idempotency attempt and validates pinned/version',async()=>{let listener:(e:MessageEvent)=>void=()=>{};const sent:any[]=[];const transport:WebViewTransport={addEventListener:(_t,l)=>{listener=l},removeEventListener:vi.fn(),postMessage:m=>{sent.push(m);queueMicrotask(()=>listener(new MessageEvent('message',{data:{v:'1.0',kind:'response',id:U,requestId:(m as any).id,ok:true,payload:{id:U,projectId:U,title:'Renamed',pinned:true,status:'active',createdAt:'2025-01-01T00:00:00Z',updatedAt:'2025-01-02T00:00:00Z',version:2}}})))}};const bridge=createSessionBridge(transport),payload={id:U,title:'Renamed',pinned:true,version:1},attempt=createMutationAttempt('session.update',payload);await bridge.update(payload,{attempt});await bridge.update(payload,{attempt});expect(sent[0]).toMatchObject({method:'session.update',payload,idempotencyKey:sent[1].idempotencyKey});expect(sent[0].idempotencyKey).toBe(sent[1].idempotencyKey)})
+
+it('TestMediaBridge: delivers media_snapshot invalidation and flags sequence gaps', async () => {
+  const h = chatHarness()
+  const seen: { mediaSessionId: string; revision: number; sequence: number; gap: boolean }[] = []
+  const pending = createMediaBridge(h.transport).watch({ scopeKind: 'user' }, event => { seen.push(event) })
+  h.emit({ v: '1.0', kind: 'response', id: U, requestId: h.sent[0].id, ok: true, payload: { streamId: U } })
+  const handle = await pending
+  expect(handle.streamId).toBe(U)
+  h.emit({ v: '1.0', kind: 'event', id: U, streamId: U, sequence: 1, type: 'media_snapshot', media: { kind: 'invalidate', mediaSessionId: U, revision: 2 } })
+  h.emit({ v: '1.0', kind: 'event', id: U, streamId: U, sequence: 3, type: 'media_snapshot', media: { kind: 'invalidate', mediaSessionId: U, revision: 4 } })
+  expect(seen).toEqual([
+    { mediaSessionId: U, revision: 2, sequence: 1, gap: false },
+    { mediaSessionId: U, revision: 4, sequence: 3, gap: true },
+  ])
+  handle.dispose()
+})
+
+it('TestMediaBridge: chat ignores foreign media_snapshot events on its own and other streams', async () => {
+  const h = chatHarness()
+  const seen: any[] = []
+  const p = createChatBridge(h.transport).start({ providerId: U, modelId: 'm', messages: [{ role: 'user', content: 'x' }] }, e => seen.push(e))
+  h.emit({ v: '1.0', kind: 'response', id: U, requestId: h.sent[0].id, ok: true, payload: { streamId: U } })
+  await p
+  const other = '01ARZ3NDEKTSV4RRFFQ69G5FAW'
+  h.emit({ v: '1.0', kind: 'event', id: U, streamId: other, sequence: 1, type: 'media_snapshot', media: { kind: 'invalidate', mediaSessionId: other, revision: 1 } })
+  h.emit({ v: '1.0', kind: 'event', id: U, streamId: U, sequence: 1, type: 'media_snapshot', media: { kind: 'invalidate', mediaSessionId: U, revision: 1 } })
+  h.emit(event(1))
+  expect(seen.map(e => e.type)).toEqual(['delta'])
+})
+

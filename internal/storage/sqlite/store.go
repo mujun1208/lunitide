@@ -7,8 +7,10 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -58,7 +60,22 @@ func (s *Store) WithIdentitySecrets(store secret.Service) *Store {
 }
 
 // OpenSecure is the only production open API. A caller cannot supply a DSN.
+var ErrPreMigrationBackupRequired = errors.New("PRE_MIGRATION_BACKUP_REQUIRED")
+
+type PreMigrationInfo struct {
+	CurrentVersion    string
+	PendingMigrations []string
+}
+
+type OpenOptions struct {
+	BeforeMigrate func(context.Context, PreMigrationInfo, func(destination string) error) error
+}
+
 func OpenSecure(ctx context.Context, root SecureRoot, name string) (*Store, error) {
+	return OpenSecureWithOptions(ctx, root, name, OpenOptions{})
+}
+
+func OpenSecureWithOptions(ctx context.Context, root SecureRoot, name string, opts OpenOptions) (*Store, error) {
 	if filepath.Base(name) != name || !strings.HasSuffix(strings.ToLower(name), ".db") {
 		return nil, fmt.Errorf("unsafe database filename %q", name)
 	}
@@ -72,24 +89,57 @@ func OpenSecure(ctx context.Context, root SecureRoot, name string) (*Store, erro
 			return nil, err
 		}
 	}
-	return open(ctx, path, root, names)
+	return openWithOptions(ctx, path, root, names, opts, true)
 }
 
 // Open is retained for isolated non-Windows tests; production must use OpenSecure.
 func Open(ctx context.Context, path string) (*Store, error) {
+	return OpenWithOptions(ctx, path, OpenOptions{})
+}
+
+func OpenWithOptions(ctx context.Context, path string, opts OpenOptions) (*Store, error) {
 	if path == "" || !filepath.IsAbs(path) || filepath.Ext(path) != ".db" || strings.ContainsAny(path, "\x00\r\n") {
 		return nil, fmt.Errorf("unsafe SQLite path %q", path)
 	}
-	return open(ctx, filepath.Clean(path), nil, nil)
+	return openWithOptions(ctx, filepath.Clean(path), nil, nil, opts, false)
 }
 
 func open(ctx context.Context, path string, root SecureRoot, names []string) (*Store, error) {
+	return openWithOptions(ctx, path, root, names, OpenOptions{}, false)
+}
+
+func openWithOptions(ctx context.Context, path string, root SecureRoot, names []string, opts OpenOptions, production bool) (*Store, error) {
+	existed := false
+	if st, err := os.Stat(path); err == nil {
+		existed = st.Size() > 0
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
 	// The driver receives a filename, not a URI/DSN; special characters remain data.
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 	db.SetMaxOpenConns(1)
+	info, needBackup, err := inspectPreMigration(ctx, db, existed)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	if needBackup {
+		if opts.BeforeMigrate != nil {
+			backupFn := func(destination string) error {
+				return createBackupImage(ctx, db, path, destination)
+			}
+			if err := opts.BeforeMigrate(ctx, info, backupFn); err != nil {
+				db.Close()
+				return nil, err
+			}
+		} else if production {
+			db.Close()
+			return nil, ErrPreMigrationBackupRequired
+		}
+	}
 	s := &Store{db: db, path: path, root: root, names: names, idEntropy: rand.Reader}
 	if err := s.initialize(ctx); err != nil {
 		db.Close()
@@ -104,6 +154,67 @@ func open(ctx context.Context, path string, root SecureRoot, names []string) (*S
 		}
 	}
 	return s, nil
+}
+
+func isR3LogicalMigration(name string) bool {
+	return strings.HasSuffix(name, "_memory_fabric.sql") ||
+		strings.HasSuffix(name, "_memory_retrieval.sql") ||
+		strings.HasSuffix(name, "_memory_generations.sql") ||
+		strings.HasSuffix(name, "_ocr_model_packs.sql") ||
+		strings.HasSuffix(name, "_media_sessions.sql")
+}
+
+func inspectPreMigration(ctx context.Context, db *sql.DB, existed bool) (PreMigrationInfo, bool, error) {
+	info := PreMigrationInfo{}
+	if !existed {
+		return info, false, nil
+	}
+	var integrity string
+	if err := db.QueryRowContext(ctx, `PRAGMA quick_check`).Scan(&integrity); err != nil || integrity != "ok" {
+		return info, false, fmt.Errorf("pre-migration integrity check: %q: %w", integrity, err)
+	}
+	var n int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='schema_migrations'`).Scan(&n); err != nil {
+		return info, false, err
+	}
+	if n == 0 {
+		return info, false, nil
+	}
+	rows, err := db.QueryContext(ctx, `SELECT version FROM schema_migrations ORDER BY rowid`)
+	if err != nil {
+		return info, false, err
+	}
+	defer rows.Close()
+	applied := map[string]bool{}
+	var last string
+	for rows.Next() {
+		var version string
+		if err := rows.Scan(&version); err != nil {
+			return info, false, err
+		}
+		applied[version] = true
+		last = version
+	}
+	if err := rows.Err(); err != nil {
+		return info, false, err
+	}
+	if last == "" {
+		return info, false, nil
+	}
+	info.CurrentVersion = last
+	for _, m := range manifest {
+		if !applied[m.name] {
+			info.PendingMigrations = append(info.PendingMigrations, m.name)
+		}
+	}
+	need := false
+	for _, name := range info.PendingMigrations {
+		if isR3LogicalMigration(name) {
+			need = true
+			break
+		}
+	}
+	return info, need, nil
 }
 
 func (s *Store) Close() error {
@@ -311,6 +422,11 @@ var manifest = []struct{ name, checksum string }{
 	{"0158_execution_contract_v2.sql", "2d288735c6a644f10f861af1cefe3f98f588b124221e8b0bf5ef4f52ce941994"},
 	{"0159_office_delivery_v2.sql", "b6f4f7c402da7b7fb5d74f9a2be7c6e7572a74a25902ae237f15db5cb5393d87"},
 	{"0160_openai_responses_protocol.sql", "662b54c49d2bdb64d96fe7415503101c71b7cff68de5cede980ae5769e5fa73f"},
+	{"0161_memory_fabric.sql", "8deb4f7f8b23608a91ff49fa2c135c128146cf7572cca99841b45798cdb64dc4"},
+	{"0162_memory_retrieval.sql", "bb744dbafc0728cb413990b13d91dc09aa8ff643d57b2155bd30088833131d5e"},
+	{"0163_memory_generations.sql", "f616db3dfea67f931750b7cb3f81cd39f399bb393b0329171708763606b1c3a4"},
+	{"0164_ocr_model_packs.sql", "bc5b1c9f7c348ce83ad33364ed5f65c2eee090b0d654551e40103cb4aa883b57"},
+	{"0165_media_sessions.sql", "d1aae4c98a4e826c5245b0bc68869244e9167db9c6a20fb9640f1484b1a89ea0"},
 }
 
 const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"
@@ -979,7 +1095,8 @@ func skipMessageFTSSchema(name string) bool {
 	return name == "message_fts" || strings.HasPrefix(name, "message_fts_") || strings.HasPrefix(name, "trg_message_fts") ||
 		name == "memory_fact_fts" || strings.HasPrefix(name, "memory_fact_fts_") || strings.HasPrefix(name, "trg_memory_fact_fts") ||
 		name == "kb_chunk_fts" || strings.HasPrefix(name, "kb_chunk_fts_") || strings.HasPrefix(name, "trg_kb_chunk_fts") ||
-		name == "memory_fts" || strings.HasPrefix(name, "memory_fts_") || strings.HasPrefix(name, "trg_memory_fts")
+		name == "memory_fts" || strings.HasPrefix(name, "memory_fts_") || strings.HasPrefix(name, "trg_memory_fts") ||
+		name == "memory_search_fts" || strings.HasPrefix(name, "memory_search_fts_") || strings.HasPrefix(name, "trg_memory_search_fts")
 }
 
 var expectedSchemaSQL = map[string]string{
@@ -1829,6 +1946,12 @@ func validateSchema(ctx context.Context, q sqlRunner) (int64, string, error) {
 		key := typ + ":" + name
 		want, ok := expectedSchemaSQL[key]
 		if !ok {
+			// Extra user tables (pre-migration canaries, operator leftovers)
+			// stay on disk through upgrade. Hostile triggers/views/indexes
+			// are still refused.
+			if typ == "table" {
+				continue
+			}
 			return 0, "", fmt.Errorf("unknown schema object %s", key)
 		}
 		if sqlText != want {

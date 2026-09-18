@@ -1,5 +1,5 @@
 import React,{useState}from'react'
-import{diagnosticsBridge,memoryOpsBridge,type DiagnosticsBridge,type MemoryOpsBridge}from'../bridge/client'
+import{createMutationAttempt,diagnosticsBridge,memoryOpsBridge,newBridgeULID,type DiagnosticsBridge,type MemoryBridge,type MemoryOpsBridge}from'../bridge/client'
 
 function privacyUserError(err:unknown,fallback:string):string{
  const detail=err instanceof Error?err.message.trim():''
@@ -9,10 +9,12 @@ function privacyUserError(err:unknown,fallback:string):string{
 export function PrivacyConsole({
  diagnostics=diagnosticsBridge,
  memory=memoryOpsBridge,
-}:{diagnostics?:DiagnosticsBridge;memory?:MemoryOpsBridge}):React.JSX.Element{
+ items,
+}:{diagnostics?:DiagnosticsBridge;memory?:MemoryOpsBridge;items?:MemoryBridge}):React.JSX.Element{
  const[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('')
  const[includeLogs,setIncludeLogs]=useState(false),[redactPaths,setRedactPaths]=useState(true)
- const[exportPath,setExportPath]=useState(''),[confirmPurge,setConfirmPurge]=useState(false)
+ const[exportPath,setExportPath]=useState('')
+ const[grant,setGrant]=useState<{confirmationToken:string;snapshotDigest:string;expectedDatabaseRevision:number;facts:number;candidates:number}|null>(null)
 
  const exportPack=async()=>{
   setBusy(true);setError('');setNotice('')
@@ -26,6 +28,7 @@ export function PrivacyConsole({
   setBusy(true);setError('');setNotice('')
   try{
    const r=await memory.export({})
+   if(!('facts' in r)){setError('记忆导出失败');return}
    const blob=new Blob([JSON.stringify(r,null,2)],{type:'application/json'})
    const url=URL.createObjectURL(blob)
    const a=document.createElement('a')
@@ -34,11 +37,34 @@ export function PrivacyConsole({
    setNotice(`已导出记忆快照：事实 ${r.facts.length} · 候选 ${r.candidates.length} · 痕迹 ${r.traces.length}`)
   }catch(e){setError(privacyUserError(e,'记忆导出失败'))}finally{setBusy(false)}
  }
- const purge=async()=>{
+ const preparePurge=async()=>{
   setBusy(true);setError('');setNotice('')
   try{
-   const r=await memory.purge({})
-   setConfirmPurge(false)
+   const listed=items?.itemList?await items.itemList({scopeKind:'user'}):{databaseRevision:0}
+   const payload={scopeKind:'user' as const,expectedDatabaseRevision:listed.databaseRevision,operationId:newBridgeULID()}
+   const prepared=await memory.purgePrepare(payload,{attempt:createMutationAttempt('memory.purge.prepare',payload)})
+   setGrant({
+    confirmationToken:prepared.confirmationToken,
+    snapshotDigest:prepared.snapshotDigest,
+    expectedDatabaseRevision:listed.databaseRevision,
+    facts:prepared.counts.facts,
+    candidates:prepared.counts.candidates,
+   })
+   setNotice(`已准备清除：事实 ${prepared.counts.facts} · 候选 ${prepared.counts.candidates}`)
+  }catch(e){setError(privacyUserError(e,'准备清除失败'))}finally{setBusy(false)}
+ }
+ const purge=async()=>{
+  if(!grant)return
+  setBusy(true);setError('');setNotice('')
+  try{
+   const payload={
+    confirmationToken:grant.confirmationToken,
+    snapshotDigest:grant.snapshotDigest,
+    expectedDatabaseRevision:grant.expectedDatabaseRevision,
+    operationId:newBridgeULID(),
+   }
+   const r=await memory.purge(payload,{attempt:createMutationAttempt('memory.purge',payload)})
+   setGrant(null)
    setNotice(`已清除本机记忆：事实 ${r.factsTombstoned} · 候选 ${r.candidates} · 记忆 ${r.memories}`)
   }catch(e){setError(privacyUserError(e,'记忆清除失败'))}finally{setBusy(false)}
  }
@@ -65,7 +91,7 @@ export function PrivacyConsole({
    </div>
    <div className="org-card org-bound" style={{marginTop:8}}>
     <div><b>清除本机记忆</b><small>tombstone 事实与候选，不可恢复。</small></div>
-    <div className="org-bound-actions">{confirmPurge?<><button className="danger" disabled={busy} onClick={()=>void purge()}>确认清除</button><button disabled={busy} onClick={()=>setConfirmPurge(false)}>取消</button></>:<button disabled={busy} onClick={()=>setConfirmPurge(true)}>清除记忆…</button>}</div>
+    <div className="org-bound-actions">{grant?<><button className="danger" disabled={busy} onClick={()=>void purge()}>确认清除</button><button disabled={busy} onClick={()=>setGrant(null)}>取消</button></>:<button disabled={busy} onClick={()=>void preparePurge()}>清除记忆…</button>}</div>
    </div>
   </div>
  </div>

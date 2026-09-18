@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/media.session.create.schema.json",
+  "title": "media.session.create payload",
+  "x-method": "media.session.create",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["assetId", "scopeKind", "operationId"],
+  "properties": {
+    "assetId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "queueAssetIds": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "uniqueItems": true,
+      "items": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
+    },
+    "scopeKind": { "type": "string", "enum": ["user", "project"] },
+    "scopeId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "operationId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
+  },
+  "allOf": [
+    { "if": { "properties": { "scopeKind": { "const": "user" } } }, "then": { "properties": { "scopeId": false } } },
+    { "if": { "properties": { "scopeKind": { "const": "project" } } }, "then": { "required": ["scopeId"], "properties": { "scopeId": {} } } }
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["snapshot", "operation"],
+    "properties": {
+      "snapshot": { "$ref": "https://lunitide.local/schema/bridge/v1/media.dto.schema.json#/$defs/MediaSnapshotDTO" },
+      "operation": { "$ref": "https://lunitide.local/schema/bridge/v1/media.dto.schema.json#/$defs/MediaOperationDTO" }
+    }
+  },
+  "x-examples": {
+    "positive": [
+      { "assetId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "scopeKind": "user", "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FB0" },
+      { "assetId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "queueAssetIds": ["01ARZ3NDEKTSV4RRFFQ69G5FAV"], "scopeKind": "project", "scopeId": "proj-media-1", "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FB0" }
+    ],
+    "negative": [
+      { "scopeKind": "user", "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FB0" },
+      { "assetId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "scopeKind": "user", "scopeId": "x", "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FB0" },
+      { "assetId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "scopeKind": "project", "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FB0" }
+    ]
+  }
+}

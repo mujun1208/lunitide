@@ -38,6 +38,20 @@ func TestCapabilityReadinessSeparatesConfigAndDependency(t *testing.T) {
 	}
 }
 
+func TestOCRReadinessRequiresSuccessfulWindowsProbe(t *testing.T) {
+	failed := ocrCapabilityFrom(ocrapp.Routing{}, ocrapp.LocalReady{Backend: "unavailable", ProbeState: "language_unavailable"})
+	if failed.Availability == "ready" {
+		t.Fatalf("failed Windows probe must not be ready: %+v", failed)
+	}
+	if !strings.Contains(failed.Detail, "语言包") {
+		t.Fatalf("language probe must stay honest: %+v", failed)
+	}
+	ready := ocrCapabilityFrom(ocrapp.Routing{}, ocrapp.LocalReady{PDF: true, Image: true, Backend: "windows-ocr", ProbeState: "ready"})
+	if ready.Availability != "ready" {
+		t.Fatalf("successful probe: %+v", ready)
+	}
+}
+
 func TestOCRReadinessRequiresLocalOrBoundProvider(t *testing.T) {
 	none := ocrCapabilityFrom(ocrapp.Routing{}, ocrapp.LocalReady{Backend: "unavailable"})
 	if none.Availability == "ready" {

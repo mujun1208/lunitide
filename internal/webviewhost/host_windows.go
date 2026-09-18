@@ -117,6 +117,7 @@ type Host struct {
 	newWindowHandler   *wv2.ICoreWebView2NewWindowRequestedEventHandler
 	permissionHandler  *wv2.ICoreWebView2PermissionRequestedEventHandler
 	downloadHandler    *wv2.ICoreWebView2DownloadStartingEventHandler
+	resourceHandler    *wv2.ICoreWebView2WebResourceRequestedEventHandler
 	messageToken       wv2.EventRegistrationToken
 	frameToken         wv2.EventRegistrationToken
 	navStartToken      wv2.EventRegistrationToken
@@ -124,6 +125,7 @@ type Host struct {
 	newWindowToken     wv2.EventRegistrationToken
 	permissionToken    wv2.EventRegistrationToken
 	downloadToken      wv2.EventRegistrationToken
+	resourceToken      wv2.EventRegistrationToken
 	frames             []*frameRegistration
 	runCtx             context.Context
 	runCancel          context.CancelFunc
@@ -155,6 +157,10 @@ type Host struct {
 	lastNotifyX     int32
 	lastNotifyY     int32
 	hasNotifyPos    bool
+
+	MediaTicketResolve func(ctx context.Context, token string) (path, contentType string, err error)
+	OnMediaSnapshot    func(ctx context.Context, sessionID string)
+	mediaInflight      chan struct{}
 }
 
 // windowPos matches Win32 WINDOWPOS on pointer-sized HWND platforms.
@@ -248,7 +254,7 @@ func New(gateway *hostbridge.Gateway, rendererFolder, userDataFolder string) (*H
 	if err != nil || info.IsDir() {
 		return nil, fmt.Errorf("renderer index is unavailable at %s", abs)
 	}
-	return &Host{gateway: gateway, folder: abs, userDataFolder: filepath.Clean(userDataFolder), uiQueue: NewBoundedQueue[func()](MaxUIQueue), postMessage: win32.PostMessage}, nil
+	return &Host{gateway: gateway, folder: abs, userDataFolder: filepath.Clean(userDataFolder), uiQueue: NewBoundedQueue[func()](MaxUIQueue), postMessage: win32.PostMessage, mediaInflight: make(chan struct{}, 4)}, nil
 }
 
 // Run owns the locked OS thread, COM STA, window, and Win32 message pump.
@@ -321,6 +327,10 @@ func (h *Host) Run(ctx context.Context) error {
 				case routed, ok := <-events:
 					if !ok {
 						return
+					}
+					if routed.Event.Type == "media_snapshot" && routed.Event.Media != nil && h.OnMediaSnapshot != nil {
+						sessionID := routed.Event.Media.MediaSessionID
+						go h.OnMediaSnapshot(h.runCtx, sessionID)
 					}
 					DeliverRoutedEvent(routed, json.Marshal, func(raw []byte) bool {
 						return h.dispatchAndWait(func() bool {
@@ -599,6 +609,9 @@ func (h *Host) registerCoreEvents() error {
 		h.downloadHandler.Release()
 		h.downloadHandler = nil
 		return fmt.Errorf("DownloadStarting registration failed: 0x%x", uint32(r))
+	}
+	if err := h.registerMediaResourceBroker(); err != nil {
+		return fmt.Errorf("media resource broker registration failed: %w", err)
 	}
 	return nil
 }
@@ -965,6 +978,12 @@ func (h *Host) closeSTA() {
 		h.downloadHandler.Release()
 	}
 	if h.core != nil {
+		if h.resourceHandler != nil {
+			h.core.Remove_WebResourceRequested(h.resourceToken)
+			h.core.RemoveWebResourceRequestedFilter(MediaResourceFilterURI, wv2.COREWEBVIEW2_WEB_RESOURCE_CONTEXT.COREWEBVIEW2_WEB_RESOURCE_CONTEXT_MEDIA)
+			h.resourceHandler.Release()
+			h.resourceHandler = nil
+		}
 		if h.permissionHandler != nil {
 			h.core.Remove_PermissionRequested(h.permissionToken)
 			h.permissionHandler.Release()

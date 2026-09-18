@@ -117,3 +117,22 @@ func CountTokensForModel(model, text string) int64 {
 	tokens := enc.EncodeOrdinary(normalized)
 	return max64(1, int64(len(tokens)))
 }
+
+// TokenCount reports tokens plus whether the count is exact or estimated.
+type TokenCount struct {
+	Tokens int64
+	Mode   string
+}
+
+// CountTokensWithMode is CountTokensForModel plus an honest mode label.
+func CountTokensWithMode(model, text string) TokenCount {
+	enc := encoderForModel(model)
+	mode := "estimated"
+	if enc != nil {
+		mode = "exact"
+	}
+	if len(text) == 0 {
+		return TokenCount{Mode: mode}
+	}
+	return TokenCount{Tokens: CountTokensForModel(model, text), Mode: mode}
+}

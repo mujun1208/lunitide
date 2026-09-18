@@ -156,10 +156,21 @@ func TestInstallFromCatalogUnknownAndDuplicate(t *testing.T) {
 	if _, err := svc.InstallFromCatalog(context.Background(), "no-such-template"); !errors.Is(err, ErrTemplateUnknown) {
 		t.Fatalf("unknown template: %v", err)
 	}
-	// Second install with the name+version already persisted must refuse.
-	dupe := New(&mockSkillReader{byNameVer: &skill.Skill{Name: "tpl-meeting-minutes"}}, &mockSkillWriter{})
-	if _, err := dupe.InstallFromCatalog(context.Background(), "meeting-minutes"); !errors.Is(err, ErrTemplateInstalled) {
-		t.Fatalf("duplicate install: %v", err)
+	existing := &skill.Skill{
+		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Name: "tpl-meeting-minutes", Version: "1.0.0",
+		Status: skill.SkillStatusPublished,
+	}
+	writer := &mockSkillWriter{}
+	dupe := New(&mockSkillReader{byNameVer: existing}, writer)
+	got, err := dupe.InstallFromCatalog(context.Background(), "meeting-minutes")
+	if err != nil {
+		t.Fatalf("same-version install should skip: %v", err)
+	}
+	if got.ID != existing.ID {
+		t.Fatalf("same-version install = %+v, want existing %s", got, existing.ID)
+	}
+	if writer.createdSkill.ID != "" {
+		t.Fatalf("same-version install wrote a duplicate: %+v", writer.createdSkill)
 	}
 }
 
@@ -240,6 +251,17 @@ func (m *memSkillStore) UpdateSkillStatus(_ context.Context, id, status string, 
 	return nil
 }
 func (m *memSkillStore) DeleteSkill(_ context.Context, id string) error {
+	delete(m.byID, id)
+	return nil
+}
+func (m *memSkillStore) DeleteSkillVersion(_ context.Context, id string, expectedRev int64) error {
+	sk, ok := m.byID[id]
+	if !ok {
+		return ErrSkillNotFound
+	}
+	if sk.Rev != expectedRev {
+		return ErrSkillVersionConflict
+	}
 	delete(m.byID, id)
 	return nil
 }

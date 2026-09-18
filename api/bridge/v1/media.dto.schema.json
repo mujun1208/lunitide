@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/media.dto.schema.json",
+  "title": "Media and activity public DTOs",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "MediaSnapshotDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mediaSessionId", "scopeKind", "scopeId", "origin", "phase", "verificationStatus", "verificationSource", "assetId", "playbackEpoch", "autoAdvance", "positionMs", "durationMs", "volume", "muted", "queueRevision", "revision", "updatedAt"],
+      "properties": {
+        "mediaSessionId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+        "scopeKind": { "enum": ["user", "project"] },
+        "scopeId": { "type": ["string", "null"], "minLength": 1, "maxLength": 128 },
+        "origin": { "enum": ["owned", "external"] },
+        "phase": { "enum": ["idle", "playing", "paused", "stalled", "ended", "uncertain", "failed", "stopped"] },
+        "verificationStatus": { "enum": ["none", "command_dispatched", "verified_playing", "verified_paused", "verified_ended", "verified_stopped"] },
+        "verificationSource": { "enum": ["none", "smtc", "owned_runtime"] },
+        "assetId": { "oneOf": [{ "type": "null" }, { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }] },
+        "playbackEpoch": { "type": "integer", "minimum": 0 },
+        "autoAdvance": { "type": "boolean" },
+        "positionMs": { "type": "integer", "minimum": 0 },
+        "durationMs": { "type": "integer", "minimum": 0 },
+        "volume": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "muted": { "type": "boolean" },
+        "queueRevision": { "type": "integer", "minimum": 1 },
+        "revision": { "type": "integer", "minimum": 1 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "MediaOperationDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operationId", "mediaSessionId", "parentOperationId", "rootOperationId", "action", "phase", "verificationStatus", "verificationSource", "errorCode", "revision"],
+      "properties": {
+        "operationId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+        "mediaSessionId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+        "parentOperationId": { "oneOf": [{ "type": "null" }, { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }] },
+        "rootOperationId": { "oneOf": [{ "type": "null" }, { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }] },
+        "action": { "enum": ["play", "pause", "toggle", "stop", "previous", "next", "seek", "set_volume", "mute", "unmute", "create", "move", "remove", "clear", "jump"] },
+        "phase": { "enum": ["requested", "awaiting_approval", "dispatching", "verifying", "succeeded", "uncertain", "failed", "cancelled"] },
+        "verificationStatus": { "enum": ["not_applicable", "not_started", "pending", "confirmed", "unconfirmed"] },
+        "verificationSource": { "enum": ["none", "process", "window", "uia", "smtc", "owned_runtime", "artifact"] },
+        "errorCode": { "type": ["string", "null"], "minLength": 1, "maxLength": 128 },
+        "revision": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "MediaAssetDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assetId", "sourceKind", "kind", "title", "mime", "size", "state", "revision"],
+      "properties": {
+        "assetId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+        "sourceKind": { "enum": ["user_selected", "artifact", "workspace"] },
+        "kind": { "enum": ["audio", "video"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "mime": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "size": { "type": "integer", "minimum": 0 },
+        "state": { "enum": ["ready", "missing", "changed", "revoked"] },
+        "revision": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "ActivitySnapshotDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["activityId", "domain", "kind", "phase", "terminal", "verificationStatus", "verificationSource", "title", "completedUnits", "totalUnits", "errorCode", "retryable", "recoveryAction", "scopeKind", "scopeId", "createdAt", "updatedAt", "rootOperationId"],
+      "properties": {
+        "activityId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "domain": { "enum": ["tool", "ocr", "media"] },
+        "kind": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "phase": { "enum": ["queued", "awaiting_approval", "running", "verifying", "succeeded", "uncertain", "failed", "cancelled"] },
+        "terminal": { "type": "boolean" },
+        "verificationStatus": { "enum": ["not_applicable", "not_started", "pending", "confirmed", "unconfirmed"] },
+        "verificationSource": { "enum": ["none", "process", "window", "uia", "smtc", "owned_runtime", "artifact"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "completedUnits": { "type": ["integer", "null"], "minimum": 0 },
+        "totalUnits": { "type": ["integer", "null"], "minimum": 1 },
+        "errorCode": { "type": ["string", "null"], "minLength": 1, "maxLength": 128 },
+        "retryable": { "type": "boolean" },
+        "recoveryAction": { "enum": ["none", "retry", "cancel", "open_settings", "open_player", "select_asset"] },
+        "scopeKind": { "enum": ["user", "project"] },
+        "scopeId": { "type": ["string", "null"], "minLength": 1, "maxLength": 128 },
+        "createdAt": { "type": ["string", "null"], "format": "date-time" },
+        "updatedAt": { "type": ["string", "null"], "format": "date-time" },
+        "rootOperationId": { "oneOf": [{ "type": "null" }, { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }] }
+      }
+    }
+  },
+  "x-examples": {
+    "positive": [{}],
+    "negative": [{ "unexpected": true }]
+  }
+}

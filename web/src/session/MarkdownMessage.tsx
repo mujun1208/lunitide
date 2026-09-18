@@ -51,6 +51,16 @@ export const safeMarkdownUrl = (url: string): string => {
   }
 }
 
+function markdownNodeText(node: React.ReactNode): string {
+  if (node == null || typeof node === 'boolean') return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(markdownNodeText).join('')
+  if (typeof node === 'object' && node !== null && 'props' in node) {
+    return markdownNodeText((node as {props?: {children?: React.ReactNode}}).props?.children)
+  }
+  return ''
+}
+
 function markdownComponents(onCopy?: (value: string) => void | Promise<void>, onMermaidLayout?: () => void, waitMermaid = false): Components {
   return {
     a: ({ children, href, ...props }) => {
@@ -59,7 +69,10 @@ function markdownComponents(onCopy?: (value: string) => void | Promise<void>, on
     },
     input: ({ type, ...props }) => type === 'checkbox' ? <input {...props} type="checkbox" disabled readOnly /> : null,
     pre: ({ children }) => <>{children}</>,
-    table: ({ children }) => <div className="md-table-wrap"><table className="md-table">{children}</table></div>,
+    table: ({ children }) => {
+      if (!markdownNodeText(children).replace(/\s+/g, '')) return null
+      return <div className="md-table-wrap"><table className="md-table">{children}</table></div>
+    },
     code: ({ className, children, ...props }) => {
       const lang = codeBlockLanguage(className)
       const text = String(children).replace(/\n$/, '')

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/media.session.command.schema.json",
+  "title": "media.session.command payload",
+  "x-method": "media.session.command",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mediaSessionId", "action", "expectedRevision", "operationId"],
+  "properties": {
+    "mediaSessionId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "action": { "enum": ["play", "pause", "toggle", "stop", "previous", "next", "seek", "set_volume", "mute", "unmute"] },
+    "positionMs": { "type": "integer", "minimum": 0 },
+    "volume": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "expectedRevision": { "type": "integer", "minimum": 1 },
+    "operationId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
+  },
+  "allOf": [
+    { "if": { "properties": { "action": { "const": "seek" } } }, "then": { "required": ["positionMs"], "properties": { "positionMs": {}, "volume": false } } },
+    { "if": { "properties": { "action": { "const": "set_volume" } } }, "then": { "required": ["volume"], "properties": { "volume": {}, "positionMs": false } } },
+    { "if": { "not": { "properties": { "action": { "enum": ["seek", "set_volume"] } } } }, "then": { "properties": { "positionMs": false, "volume": false } } }
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["snapshot", "operation"],
+    "properties": {
+      "snapshot": { "$ref": "https://lunitide.local/schema/bridge/v1/media.dto.schema.json#/$defs/MediaSnapshotDTO" },
+      "operation": { "$ref": "https://lunitide.local/schema/bridge/v1/media.dto.schema.json#/$defs/MediaOperationDTO" }
+    }
+  },
+  "x-examples": {
+    "positive": [
+      { "mediaSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "action": "play", "expectedRevision": 1, "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FB0" },
+      { "mediaSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "action": "seek", "positionMs": 1200, "expectedRevision": 2, "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FB0" },
+      { "mediaSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "action": "set_volume", "volume": 40, "expectedRevision": 3, "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FB0" }
+    ],
+    "negative": [
+      { "mediaSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "action": "play", "expectedRevision": 1 },
+      { "mediaSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "action": "play", "positionMs": 1, "expectedRevision": 1, "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FB0" },
+      { "mediaSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "action": "seek", "expectedRevision": 1, "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FB0" }
+    ]
+  }
+}

@@ -71,7 +71,8 @@ func (in *Installer) Installed(bundle Bundle) bool {
 			return false
 		}
 	}
-	return DetectPPOcrPack(dir).Available
+	pack := DetectPPOcrPack(dir)
+	return pack.Available || pack.Status == "registered_unwired"
 }
 
 func (in *Installer) Install(ctx context.Context, bundle Bundle, progress func(Progress)) error {

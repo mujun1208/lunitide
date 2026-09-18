@@ -18,6 +18,7 @@ describe('navStore',()=>{
   expect(s.drawer).toBe(false)
   expect(s.sidebarCollapsed).toBe(false)
   expect(s.settingsCategory).toBe('general')
+  expect(s.settingsIntelligenceView).toBe('overview')
   expect(s.catalogFocus).toBeUndefined()
  })
 
@@ -40,6 +41,14 @@ describe('navStore',()=>{
   expect(useNavStore.getState().drawer).toBe(true)
  })
 
+ it('resets intelligence view when leaving personal settings',()=>{
+  useNavStore.getState().setSettingsCategory('personal')
+  useNavStore.getState().setSettingsIntelligenceView('ocr')
+  expect(useNavStore.getState().settingsIntelligenceView).toBe('ocr')
+  useNavStore.getState().setSettingsCategory('general')
+  expect(useNavStore.getState().settingsIntelligenceView).toBe('overview')
+ })
+
  it('resets every field back to initial navigation state',()=>{
   const s=useNavStore.getState()
   s.setPage('mcp');s.setTarget(fakeTarget('01ARZ3NDEKTSV4RRFFQ69G5FAW'));s.setDrawer(true);s.setSidebarCollapsed(true);s.setSettingsCategory('meetings');s.setCatalogFocus({kind:'skill'})
@@ -50,6 +59,7 @@ describe('navStore',()=>{
   expect(after.drawer).toBe(false)
   expect(after.sidebarCollapsed).toBe(false)
   expect(after.settingsCategory).toBe('general')
+  expect(after.settingsIntelligenceView).toBe('overview')
   expect(after.catalogFocus).toBeUndefined()
  })
 })

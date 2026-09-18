@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/media.session.watch.schema.json",
+  "title": "media.session.watch payload",
+  "x-method": "media.session.watch",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scopeKind"],
+  "properties": {
+    "scopeKind": { "type": "string", "enum": ["user", "project"] },
+    "scopeId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "mediaSessionId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
+  },
+  "allOf": [
+    { "if": { "properties": { "scopeKind": { "const": "user" } } }, "then": { "properties": { "scopeId": false } } },
+    { "if": { "properties": { "scopeKind": { "const": "project" } } }, "then": { "required": ["scopeId"], "properties": { "scopeId": {} } } }
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["streamId"],
+    "properties": {
+      "streamId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
+    }
+  },
+  "x-examples": {
+    "positive": [
+      { "scopeKind": "user" },
+      { "scopeKind": "user", "mediaSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+      { "scopeKind": "project", "scopeId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }
+    ],
+    "negative": [{}, { "scopeKind": "user", "scopeId": "x" }, { "scopeKind": "project" }]
+  }
+}

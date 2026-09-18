@@ -357,6 +357,11 @@ func TestValidateEventDiscriminatedUnion(t *testing.T) {
 			e.Talk = &bridge.TalkEvent{Text: "x"}
 		}, false},
 		{"talk ended", func(e *bridge.Event) { e.Type = bridge.EventTalkEnded }, true},
+		{"media snapshot", func(e *bridge.Event) {
+			e.Type = bridge.EventMediaSnapshot
+			e.Media = &bridge.MediaEvent{Kind: "invalidate", MediaSessionID: ulid.Make().String(), Revision: 2}
+		}, true},
+		{"media snapshot empty", func(e *bridge.Event) { e.Type = bridge.EventMediaSnapshot; e.Media = &bridge.MediaEvent{Kind: "invalidate"} }, false},
 		{"thinking", func(e *bridge.Event) { e.Type = bridge.EventThinking; e.Thinking = &bridge.ThinkingEvent{Text: "x"} }, true},
 		{"empty thinking", func(e *bridge.Event) { e.Type = bridge.EventThinking; e.Thinking = &bridge.ThinkingEvent{} }, false},
 		{"thinking with delta", func(e *bridge.Event) {

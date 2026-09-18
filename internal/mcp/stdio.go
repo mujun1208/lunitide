@@ -10,6 +10,7 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -66,10 +67,43 @@ type StdioSession struct {
 // directly, so they run through cmd.exe /d (AutoRun disabled) with the
 // shim's absolute path; args are already metacharacter-free (registry
 // admission), so the cmd.exe parsing surface carries no injections.
+func stdioLookPath(command string) (string, error) {
+	if resolved, err := exec.LookPath(command); err == nil {
+		return resolved, nil
+	} else if command != "uvx" && command != "uv" {
+		return "", fmt.Errorf("%w: %s not on PATH: %v", ErrStdioLaunch, command, err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return "", fmt.Errorf("%w: %s not on PATH: missing", ErrStdioLaunch, command)
+	}
+	names := []string{command}
+	if runtime.GOOS == "windows" {
+		names = []string{command + ".exe", command + ".cmd", command}
+	}
+	for _, root := range []string{
+		ProductUvDir(),
+		filepath.Join(home, ".local", "bin"),
+		filepath.Join(home, ".cargo", "bin"),
+		filepath.Join(home, "AppData", "Local", "Programs", "uv"),
+	} {
+		if strings.TrimSpace(root) == "" {
+			continue
+		}
+		for _, name := range names {
+			candidate := filepath.Join(root, name)
+			if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
+				return candidate, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("%w: %s not on PATH: missing", ErrStdioLaunch, command)
+}
+
 func stdioResolveCommand(command string, args []string) (string, []string, error) {
-	resolved, err := exec.LookPath(command)
+	resolved, err := stdioLookPath(command)
 	if err != nil {
-		return "", nil, fmt.Errorf("%w: %s not on PATH: %v", ErrStdioLaunch, command, err)
+		return "", nil, err
 	}
 	if runtime.GOOS != "windows" {
 		return resolved, args, nil
@@ -193,8 +227,11 @@ func (s *StdioSession) initialize(ctx context.Context) error {
 	}, &answer); err != nil {
 		return err
 	}
-	if !stdioProtocolSupported(answer.ProtocolVersion) || strings.TrimSpace(answer.ServerInfo.Name) == "" || strings.TrimSpace(answer.ServerInfo.Version) == "" || len(answer.ServerInfo.Name) > 512 || len(answer.ServerInfo.Version) > 128 {
+	if !stdioProtocolSupported(answer.ProtocolVersion) || !stdioIdentityOK(answer.ServerInfo.Name, answer.ServerInfo.Version) {
 		return fmt.Errorf("%w: unsupported protocol or missing server identity", ErrStdioProtocol)
+	}
+	if strings.TrimSpace(answer.ServerInfo.Version) == "" {
+		answer.ServerInfo.Version = "0"
 	}
 	identity, _ := json.Marshal(answer)
 	s.identity = string(identity)
@@ -346,20 +383,29 @@ func (s *StdioSession) Close() {
 // 2024-11-05 instead of echoing our preferred version.
 func stdioProtocolSupported(version string) bool {
 	switch version {
-	case "2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25":
+	case "2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25", "2026-07-28":
 		return true
 	default:
 		return false
 	}
 }
 
+func stdioIdentityOK(name, version string) bool {
+	name = strings.TrimSpace(name)
+	version = strings.TrimSpace(version)
+	return name != "" && len(name) <= 512 && len(version) <= 128
+}
+
 func (s *StdioSession) readResponse(id int64, method string, into any) error {
 	var ancillaryBytes int
-	for frames := 0; frames < 257; frames++ {
+	for frames := 0; frames < 257; {
 		if !s.stdout.Scan() {
 			return fmt.Errorf("%w: read %s: stream closed", ErrStdioProtocol, method)
 		}
-		raw := s.stdout.Bytes()
+		raw := bytes.TrimSpace(s.stdout.Bytes())
+		if len(raw) == 0 {
+			continue
+		}
 		var env struct {
 			JSONRPC string          `json:"jsonrpc"`
 			ID      json.RawMessage `json:"id"`
@@ -368,8 +414,13 @@ func (s *StdioSession) readResponse(id int64, method string, into any) error {
 			Error   *jsonrpcError   `json:"error"`
 		}
 		if json.Unmarshal(raw, &env) != nil || env.JSONRPC != "2.0" {
-			return fmt.Errorf("%w: %s answer not JSON-RPC", ErrStdioProtocol, method)
+			ancillaryBytes += len(raw)
+			if ancillaryBytes > 8<<20 {
+				return fmt.Errorf("%w: %s answer not JSON-RPC", ErrStdioProtocol, method)
+			}
+			continue
 		}
+		frames++
 		if env.Method != "" {
 			ancillaryBytes += len(raw)
 			if ancillaryBytes > 8<<20 || len(env.Result) != 0 || env.Error != nil {

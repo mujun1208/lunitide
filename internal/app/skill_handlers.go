@@ -211,6 +211,7 @@ func handleSkillCreate(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if err != nil {
 		return skillFailure(r, err)
 	}
+	e.attachDeclaredBindKeys(ctx, s.Name)
 	return r.Ok(newSkillDTO(s, e.skillCategoryFor(ctx, s)))
 }
 
@@ -249,6 +250,10 @@ func handleSkillDelete(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if !skillServiceAvailable(e.skills) {
 		return r.Fail("STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
 	}
+	sk, err := e.skills.Get(ctx, p.ID)
+	if err != nil {
+		return skillFailure(r, err)
+	}
 	versioned, ok := e.skills.(interface {
 		DeleteVersion(context.Context, string, int64) error
 	})
@@ -258,6 +263,7 @@ func handleSkillDelete(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if err := versioned.DeleteVersion(ctx, p.ID, *p.ExpectedVersion); err != nil {
 		return skillFailure(r, err)
 	}
+	e.detachDeclaredBindKeys(ctx, sk.Name, sk.EntryPoint)
 	return r.Ok(map[string]any{"deleted": true})
 }
 
@@ -508,11 +514,13 @@ func handleSkillInstall(e *Engine, ctx context.Context, r bridge.Request) bridge
 			}
 			status = string(skill.SkillStatusPublished)
 		}
+		e.attachDeclaredBindKeys(ctx, s.Name, p.TemplateID)
 		return r.Ok(map[string]any{"skillId": s.ID, "name": s.Name, "status": status})
 	case errors.Is(err, skillapp.ErrTemplateUnknown):
 		return r.Fail("SKILL_TEMPLATE_NOT_FOUND", "模板不存在", false)
 	case errors.Is(err, skillapp.ErrTemplateInstalled):
-		return r.Fail("SKILL_TEMPLATE_INSTALLED", "该模板版本已安装", false)
+		e.attachDeclaredBindKeys(ctx, p.TemplateID)
+		return r.Ok(map[string]any{"skillId": "", "name": p.TemplateID, "status": "published"})
 	default:
 		return skillFailure(r, err)
 	}

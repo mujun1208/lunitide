@@ -1,5 +1,6 @@
 import type {StreamEvent} from '../bridge/client'
 import type {ChatUsageSnapshot} from '../bridge/client'
+import {tokenUsageCompactLine} from './composerHint'
 
 export type TokenUsageValue = Extract<StreamEvent, {type: 'usage'}>['usage']
 
@@ -103,7 +104,7 @@ export function TokenUsage({usage, enabled, zh, ledger, compact}: {usage?: Token
   const uncollected = !!ledger && !collected && !usage
   if (!display && enabled === undefined && !uncollected) return null
   const reported = display?.cacheUsageReported === true
-  const summary = display ? tokenUsageLine(display, zh) : uncollected ? (zh ? '旧记录未采集' : 'Not collected for this turn') : ''
+  const summary = display ? (compact ? tokenUsageCompactLine(display) : tokenUsageLine(display, zh)) : uncollected ? (zh ? '旧记录未采集' : 'Not collected for this turn') : ''
   const details = <>
     {enabled !== undefined && <span>{zh ? '上下文精简' : 'Context trimming'}: {enabled ? (zh ? '已开启' : 'On') : (zh ? '已关闭' : 'Off')}{zh ? '（只作用于请求结构与同源去重，不含独立摘要或供应商缓存；改环境变量后需重启，进行中的任务不改版）' : ' (JSON/dedup only; not independent summaries or provider caches; restart required; in-flight tasks keep their version)'}</span>}
     {uncollected && !summary && <span>{zh ? '旧记录未采集' : 'Not collected for this turn'}</span>}

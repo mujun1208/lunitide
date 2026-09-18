@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,6 +19,7 @@ import (
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/memoryapp"
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
+	"github.com/oklog/ulid/v2"
 )
 
 func openAppMemory(t *testing.T) (*m8app.MemoryService, *m8app.MemoryOpsService, *m8app.NominationService) {
@@ -630,8 +632,8 @@ func TestMaybeAutoNominateOnlyDirectStableUserMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	pending, _ = mem.ListPendingCandidates(ctx, 20)
-	if len(pending) != 1 || pending[0].SourceSessionID != sessionID {
-		t.Fatalf("manual candidate=%v", pending)
+	if len(pending) != 0 {
+		t.Fatalf("manual must not auto-create candidates: %v", pending)
 	}
 	if err := ops.SettingsUpdate(ctx, m8core.MemorySettings{SubjectID: "local-user", MemoryEnabled: true, CaptureMode: "off", GrowthDays: 14}); err != nil {
 		t.Fatal(err)
@@ -640,7 +642,7 @@ func TestMaybeAutoNominateOnlyDirectStableUserMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	pending, _ = mem.ListPendingCandidates(ctx, 20)
-	if len(pending) != 1 {
+	if len(pending) != 0 {
 		t.Fatalf("off mode saved candidate: %v", pending)
 	}
 }
@@ -841,5 +843,172 @@ func TestMemoryGetIsolatesIdentitySubject(t *testing.T) {
 	hidden, err := e.invokeMemoryGet(ctx, []byte(`{"id":"`+prop.Candidate.CandidateID+`"}`))
 	if err != nil || hidden.Output != "confirmed memory not found" {
 		t.Fatalf("foreign get = %q err=%v", hidden.Output, err)
+	}
+}
+
+func TestMemoryModePolicy(t *testing.T) {
+	mem, ops, _ := openAppMemory(t)
+	store := &layerMemoryStub{}
+	e := NewEngine(nil, "test")
+	e.SetM8MemoryServices(mem)
+	e.SetMemoryOpsService(ops)
+	e.sessions = sessionGetStub{projectID: "01ARZ3NDEKTSV4RRFFQ69G5FAY"}
+	e.memories = store
+	ctx := context.Background()
+	sessionID := "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	messageID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	user := "以后回答请默认用中文，并且封面用深色"
+	asst := strings.Repeat("好的，封面继续用深色。", 8)
+
+	if err := ops.SettingsUpdate(ctx, m8core.MemorySettings{SubjectID: "local-user", MemoryEnabled: true, CaptureMode: "off", GrowthDays: 14}); err != nil {
+		t.Fatal(err)
+	}
+	e.persistCaptureJob(sessionID, user, asst, messageID, false)
+	if n, err := ops.CountActiveCaptureJobs(ctx); err != nil || n != 0 {
+		t.Fatalf("off jobs=%d err=%v", n, err)
+	}
+	offPack := e.prepareChatMemory(ctx, chatMemoryRequest{Query: user, SessionID: sessionID})
+	if offPack.Enabled {
+		t.Fatalf("off must not inject: %+v", offPack)
+	}
+	if err := e.maybeAutoNominateTurn(ctx, sessionID, user, asst, messageID, false); err != nil {
+		t.Fatal(err)
+	}
+	e.writeSessionLastMemory(ctx, sessionID, user, asst)
+	if prefs, _ := mem.PersonalPreferenceSnapshot(ctx, "local-user", m8app.LearningScope, 8, 4096); len(prefs) != 0 {
+		t.Fatalf("off captured prefs: %v", prefs)
+	}
+	if len(store.items) != 0 {
+		t.Fatalf("off wrote working memory: %#v", store.items)
+	}
+	if err := e.saveExplicitUserMemory(ctx, "我喜欢简洁的回答"); !errors.Is(err, m8app.ErrMemoryModeOff) {
+		t.Fatalf("off explicit save: %v", err)
+	}
+
+	if err := ops.SettingsUpdate(ctx, m8core.MemorySettings{SubjectID: "local-user", MemoryEnabled: true, CaptureMode: "manual", GrowthDays: 14}); err != nil {
+		t.Fatal(err)
+	}
+	manualPack := e.prepareChatMemory(ctx, chatMemoryRequest{Query: user, SessionID: sessionID})
+	if !manualPack.Enabled {
+		t.Fatal("manual must still recall")
+	}
+	if err := e.maybeAutoNominateTurn(ctx, sessionID, user, asst, messageID, false); err != nil {
+		t.Fatal(err)
+	}
+	e.writeSessionLastMemory(ctx, sessionID, user, asst)
+	pending, _ := mem.ListPendingCandidates(ctx, 20)
+	if len(pending) != 0 {
+		t.Fatalf("manual auto candidate: %v", pending)
+	}
+	if len(store.items) != 0 {
+		t.Fatalf("manual wrote working memory: %#v", store.items)
+	}
+	if err := e.saveExplicitUserMemory(ctx, "我喜欢简洁的回答"); err != nil {
+		t.Fatal(err)
+	}
+	prefs, err := mem.PersonalPreferenceSnapshot(ctx, "local-user", m8app.LearningScope, 8, 4096)
+	if err != nil || len(prefs) != 1 || prefs[0] != "我喜欢简洁的回答" {
+		t.Fatalf("manual explicit save=%v err=%v", prefs, err)
+	}
+
+	if err := ops.SettingsUpdate(ctx, m8core.MemorySettings{SubjectID: "local-user", MemoryEnabled: true, CaptureMode: "auto", GrowthDays: 14}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.maybeAutoNominateTurn(ctx, sessionID, user, asst, messageID, false); err != nil {
+		t.Fatal(err)
+	}
+	prefs, err = mem.PersonalPreferenceSnapshot(ctx, "local-user", m8app.LearningScope, 8, 4096)
+	if err != nil || len(prefs) != 2 {
+		t.Fatalf("auto capture=%v err=%v", prefs, err)
+	}
+	e.persistCaptureJob(sessionID, user, asst, ulid.Make().String(), false)
+	if n, err := ops.CountActiveCaptureJobs(ctx); err != nil || n != 1 {
+		t.Fatalf("auto jobs=%d err=%v", n, err)
+	}
+	_, v2, err := ops.SettingsGetBundle(ctx, "local-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2.PersonalMemoryEnabled = false
+	if _, _, err = ops.SettingsUpdateV2(ctx, v2, v2.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.maybeAutoNominateTurn(ctx, sessionID, "我住在合肥", asst, ulid.Make().String(), false); err != nil {
+		t.Fatal(err)
+	}
+	if prefs, _ = mem.PersonalPreferenceSnapshot(ctx, "local-user", m8app.LearningScope, 8, 4096); memoryTextsContain(prefs, "我住在合肥") {
+		t.Fatalf("closed personal scope saved %v", prefs)
+	}
+}
+
+func TestMemoryScopeTogglesGateAllPaths(t *testing.T) {
+	TestMemoryModePolicy(t)
+}
+
+func TestMemoryScopeFinalMessages(t *testing.T) {
+	TestMemoryModePolicy(t)
+}
+
+func TestMemoryItemCreateManual(t *testing.T) {
+	mem, ops, _ := openAppMemory(t)
+	e := NewEngine(nil, "test")
+	e.SetM8MemoryServices(mem)
+	e.SetMemoryOpsService(ops)
+	ctx := context.Background()
+	if err := ops.SettingsUpdate(ctx, m8core.MemorySettings{SubjectID: "local-user", MemoryEnabled: true, CaptureMode: "manual", GrowthDays: 14}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.saveExplicitUserMemory(ctx, "我喜欢简洁的回答"); err != nil {
+		t.Fatal(err)
+	}
+	prefs, err := mem.PersonalPreferenceSnapshot(ctx, "local-user", m8app.LearningScope, 8, 4096)
+	if err != nil || len(prefs) != 1 || prefs[0] != "我喜欢简洁的回答" {
+		t.Fatalf("manual create=%v err=%v", prefs, err)
+	}
+}
+
+func memoryTextsContain(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestPrepareChatMemoryInjectsCanonicalOnly(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.OpenTemplated(ctx, filepath.Join(t.TempDir(), "canonical-inject.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	mem := m8app.NewMemoryService(store.AgentRuntimeRepository(), "local-user")
+	if _, err := store.CreateCanonicalMemoryItem(ctx, m8core.CanonicalMemoryWrite{
+		SubjectID: "local-user", Text: "只存在于fabric的偏好", OperationID: "op-canonical-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e := NewEngine(nil, "test")
+	e.SetM8MemoryServices(mem)
+	pack := e.prepareChatMemory(ctx, chatMemoryRequest{Query: "怎么写注释"})
+	if !pack.Enabled {
+		t.Fatal("expected recall")
+	}
+	found := false
+	for _, pref := range pack.Prefs {
+		if pref == "只存在于fabric的偏好" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("prefs=%v", pack.Prefs)
+	}
+}
+
+func TestMergeUniqueMemoryTexts(t *testing.T) {
+	got := mergeUniqueMemoryTexts([]string{"喜欢中文", "喜欢中文"}, []string{" 喜欢中文 ", "新的一条"}, 8, 4096)
+	if len(got) != 2 || got[0] != "喜欢中文" || got[1] != "新的一条" {
+		t.Fatalf("got=%v", got)
 	}
 }
