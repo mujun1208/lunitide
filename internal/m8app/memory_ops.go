@@ -222,6 +222,14 @@ func (s *MemoryOpsService) GrowthDecide(ctx context.Context, factID, decision st
 	return err
 }
 
+type memoryV2SettingsReader interface {
+	GetMemoryV2Settings(ctx context.Context, subjectID string) (m8core.MemoryV2Settings, error)
+}
+
+type memoryV2SettingsWriter interface {
+	CompareAndSwapMemoryV2Settings(ctx context.Context, next m8core.MemoryV2Settings, expectedRevision int64) (m8core.MemoryV2Settings, error)
+}
+
 // SettingsGet returns the subject profile (implicit defaults when absent).
 func (s *MemoryOpsService) SettingsGet(ctx context.Context, subjectID string) (m8core.MemorySettings, error) {
 	if s == nil || s.store == nil {
@@ -231,6 +239,46 @@ func (s *MemoryOpsService) SettingsGet(ctx context.Context, subjectID string) (m
 		return m8core.MemorySettings{}, ErrOpsSettingsInvalid
 	}
 	return s.store.GetMemorySettings(ctx, subjectID)
+}
+
+// SettingsGetBundle returns the legacy projection plus the R3 policy row.
+func (s *MemoryOpsService) SettingsGetBundle(ctx context.Context, subjectID string) (m8core.MemorySettings, m8core.MemoryV2Settings, error) {
+	legacy, err := s.SettingsGet(ctx, subjectID)
+	if err != nil {
+		return m8core.MemorySettings{}, m8core.MemoryV2Settings{}, err
+	}
+	reader, ok := s.store.(memoryV2SettingsReader)
+	if !ok {
+		return legacy, m8core.SettingsToV2(legacy), nil
+	}
+	v2, err := reader.GetMemoryV2Settings(ctx, subjectID)
+	if err != nil {
+		return m8core.MemorySettings{}, m8core.MemoryV2Settings{}, err
+	}
+	return legacy, v2, nil
+}
+
+// SettingsUpdateV2 CAS-updates user-visible R3 columns.
+func (s *MemoryOpsService) SettingsUpdateV2(ctx context.Context, next m8core.MemoryV2Settings, expectedRevision int64) (m8core.MemorySettings, m8core.MemoryV2Settings, error) {
+	if s == nil || s.store == nil {
+		return m8core.MemorySettings{}, m8core.MemoryV2Settings{}, ErrServiceUnavailable
+	}
+	writer, ok := s.store.(memoryV2SettingsWriter)
+	if !ok {
+		return m8core.MemorySettings{}, m8core.MemoryV2Settings{}, ErrServiceUnavailable
+	}
+	if next.CaptureMode != "auto" && next.CaptureMode != "manual" && next.CaptureMode != "off" {
+		return m8core.MemorySettings{}, m8core.MemoryV2Settings{}, ErrOpsSettingsInvalid
+	}
+	v2, err := writer.CompareAndSwapMemoryV2Settings(ctx, next, expectedRevision)
+	if err != nil {
+		return m8core.MemorySettings{}, m8core.MemoryV2Settings{}, err
+	}
+	legacy, err := s.SettingsGet(ctx, next.SubjectID)
+	if err != nil {
+		return m8core.MemorySettings{}, m8core.MemoryV2Settings{}, err
+	}
+	return legacy, v2, nil
 }
 
 // SettingsUpdate validates and persists the profile.

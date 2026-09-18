@@ -26,14 +26,16 @@ it('summarizes receipts on one line and keeps stop controls outside hidden detai
   render(<SessionOperationsBar sessionId="01ARZ3NDEKTSV4RRFFQ69G5FAW" zh opsApi={opsApi} />)
   const status = await screen.findByRole('status')
   const summary = [...status.querySelectorAll(':scope > span')].map(node => node.textContent).join(' · ')
-  expect(summary).toContain('office.generate · 失败')
-  expect(summary).toContain('skill.try · 已完成')
+  expect(summary).toBe('files.apply 执行中 · +2')
+  expect(summary).not.toContain('office.generate')
+  expect(summary).not.toContain('skill.try')
   expect(summary).not.toContain('文件批次')
   expect(summary).not.toContain('查看已有结果')
   expect(status.querySelector('details')?.textContent).toContain('文件批次')
-  const stop = await screen.findByRole('button', {name: '停止'})
-  expect(stop).toBeInTheDocument()
-  expect(status.querySelector('details')?.contains(stop)).toBe(false)
+  expect(status.querySelector('details')?.textContent).toContain('office.generate')
+  const stops = await screen.findAllByRole('button', {name: '停止'})
+  expect(stops).toHaveLength(1)
+  expect(status.querySelector('details')?.contains(stops[0])).toBe(false)
 })
 
 it('labels pending as 待执行 and unknown as 待核实', async () => {
@@ -57,10 +59,9 @@ it('labels pending as 待执行 and unknown as 待核实', async () => {
   render(<SessionOperationsBar sessionId="01ARZ3NDEKTSV4RRFFQ69G5FAW" zh opsApi={opsApi} />)
   const status = await screen.findByRole('status')
   const summary = [...status.querySelectorAll(':scope > span')].map(node => node.textContent).join(' · ')
-  expect(summary).toContain('待执行')
-  expect(summary).toContain('待核实')
-  expect(summary).toContain('部分完成')
-  expect(summary.split('待核实').length - 1).toBe(1)
+  expect(summary).toBe('files.apply 待执行 · +2')
+  expect(status.textContent).toContain('待核实')
+  expect(status.textContent).toContain('部分完成')
 })
 
 it('lists tool operations in Chinese and never invents a resume execution', async () => {
@@ -97,7 +98,7 @@ it('offers stop for unknown and partial so cancel can freeze late receipts', asy
   })
   const opsApi = {list, get: vi.fn(), cancel: vi.fn(), resume: vi.fn()} as unknown as OperationBridge
   render(<SessionOperationsBar sessionId="01ARZ3NDEKTSV4RRFFQ69G5FAX" zh opsApi={opsApi} />)
-  expect(await screen.findAllByRole('button', {name: '停止'})).toHaveLength(2)
+  expect(await screen.findAllByRole('button', {name: '停止'})).toHaveLength(1)
   expect(screen.queryByRole('button', {name: '继续执行'})).toBeNull()
 })
 

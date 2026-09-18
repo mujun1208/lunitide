@@ -16,6 +16,7 @@ import (
 	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/modelfit"
 	"github.com/lunitide/lunitide/internal/ocrapp"
+	"github.com/lunitide/lunitide/internal/org"
 	"github.com/lunitide/lunitide/internal/storage/sqlite"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 	"github.com/oklog/ulid/v2"
@@ -209,7 +210,7 @@ func TestChatUsageGetDurationAfterMeteredComplete(t *testing.T) {
 	}
 }
 
-func TestOCRRoutingGetIncludesLastFailureAndLocalReady(t *testing.T) {
+func TestOCRRoutingGetIncludesWindowsProbeAndOmitsHealthExtras(t *testing.T) {
 	e := NewEngineWithGateway(roleCatalog{}, "test", streamTestLease{})
 	svc := ocrapp.New(ocrapp.NewFileStore(filepath.Join(t.TempDir(), "ocr-routing.json")))
 	e.SetOCR(svc)
@@ -226,55 +227,69 @@ func TestOCRRoutingGetIncludesLastFailureAndLocalReady(t *testing.T) {
 	if _, err := svc.RecognizeImage(context.Background(), []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}); err != nil {
 		t.Fatal(err)
 	}
-	got := e.Handle(context.Background(), validRequest("ocr.routing.get", `{}`))
+	got := e.Handle(context.Background(), validRequest("ocr.routing.get", `{"scopeKind":"user"}`))
 	if !got.OK {
 		t.Fatalf("get %#v", got.Error)
 	}
 	raw, _ := json.Marshal(got.Payload)
-	if strings.Contains(string(raw), `"failures":0`) {
-		t.Fatalf("do not invent zero failures: %s", raw)
+	if strings.Contains(string(raw), `"failures":0`) || strings.Contains(string(raw), "packRoot") || strings.Contains(string(raw), "preferProvider") {
+		t.Fatalf("routing snapshot must not leak health extras or packRoot: %s", raw)
 	}
 	out := mustDecodePayload[struct {
-		LastFailure *struct {
-			Class     string `json:"class"`
-			Operation string `json:"operation"`
-			Until     string `json:"until"`
-		} `json:"lastFailure"`
-		LocalReady struct {
-			PDF     bool   `json:"pdf"`
-			Image   bool   `json:"image"`
-			Backend string `json:"backend"`
-		} `json:"localReady"`
+		Revision     string `json:"revision"`
+		WindowsProbe struct {
+			State     string `json:"state"`
+			Available bool   `json:"available"`
+		} `json:"windowsProbe"`
+		Legacy *struct{} `json:"legacy"`
 	}](t, got.Payload)
-	if out.LastFailure == nil || out.LastFailure.Class != "auth" || out.LastFailure.Operation != "image-ocr" || out.LastFailure.Until == "" {
-		t.Fatalf("lastFailure %+v", out)
+	if out.Revision == "" {
+		t.Fatal("revision")
 	}
-	if out.LocalReady.Backend != "windows-ocr" && out.LocalReady.Backend != "unavailable" {
-		t.Fatalf("localReady %+v", out.LocalReady)
+	switch out.WindowsProbe.State {
+	case "ready", "unsupported_os", "initialization_failed", "language_unavailable", "sample_failed", "timed_out":
+	default:
+		t.Fatalf("windowsProbe %+v", out.WindowsProbe)
+	}
+	if out.WindowsProbe.State != "ready" && out.WindowsProbe.Available {
+		t.Fatalf("available only when ready %+v", out.WindowsProbe)
+	}
+	if out.Legacy != nil {
+		t.Fatalf("unregistered legacy must be null")
+	}
+	health := svc.HealthSnapshot()
+	if health.LastFailure == nil || health.LastFailure.Class != "auth" {
+		t.Fatalf("health lastFailure still recorded %+v", health.LastFailure)
 	}
 }
 
 func TestOCRRoutingGetSetAndConflict(t *testing.T) {
 	e := NewEngineWithGateway(roleCatalog{}, "test", streamTestLease{})
 	e.SetOCR(ocrapp.New(ocrapp.NewFileStore(filepath.Join(t.TempDir(), "ocr-routing.json"))))
-	got := e.Handle(context.Background(), validRequest("ocr.routing.get", `{}`))
+	got := e.Handle(context.Background(), validRequest("ocr.routing.get", `{"scopeKind":"user"}`))
 	if !got.OK {
 		t.Fatalf("get %#v", got.Error)
 	}
+	if raw, _ := json.Marshal(got.Payload); strings.Contains(string(raw), "packRoot") {
+		t.Fatalf("ocr.routing must not expose packRoot: %s", raw)
+	}
 	snap := mustDecodePayload[struct {
-		Revision       string `json:"revision"`
-		PreferProvider bool   `json:"preferProvider"`
+		Revision string `json:"revision"`
+		Policy   struct {
+			Mode        string `json:"mode"`
+			SendToCloud string `json:"sendToCloud"`
+		} `json:"policy"`
 	}](t, got.Payload)
-	if snap.Revision == "" || !snap.PreferProvider {
+	if snap.Revision == "" || snap.Policy.Mode != "auto" || snap.Policy.SendToCloud != "never" {
 		t.Fatalf("default %+v", snap)
 	}
-	set := validRequest("ocr.routing.set", `{"preferProvider":false,"expectedRevision":"`+snap.Revision+`"}`)
+	set := validRequest("ocr.routing.set", `{"scopeKind":"user","expectedRevision":"`+snap.Revision+`","policy":{"mode":"local_fast","complexDocumentEngine":"paddleocr-vl-1.6","fallbackOrder":["windows-ocr"],"sendToCloud":"never"}}`)
 	set.IdempotencyKey = ulid.Make().String()
 	saved := e.Handle(context.Background(), set)
 	if !saved.OK {
 		t.Fatalf("set %#v", saved.Error)
 	}
-	stale := validRequest("ocr.routing.set", `{"preferProvider":true,"expectedRevision":"`+snap.Revision+`"}`)
+	stale := validRequest("ocr.routing.set", `{"scopeKind":"user","preferProvider":true,"expectedRevision":"`+snap.Revision+`"}`)
 	stale.IdempotencyKey = ulid.Make().String()
 	if resp := e.Handle(context.Background(), stale); resp.OK || resp.Error == nil || resp.Error.Code != "SETTINGS_VERSION_CONFLICT" {
 		t.Fatalf("conflict %#v", resp)
@@ -861,5 +876,232 @@ func TestFilesApplyUndonePlanFailsClosed(t *testing.T) {
 	}
 	if !strings.Contains(resp.Error.Message, "已撤销的计划不能再次执行") {
 		t.Fatalf("re-apply undone must be Chinese: %#v", resp.Error)
+	}
+}
+
+func routingContractEngine(t *testing.T) *Engine {
+	t.Helper()
+	e := NewEngineWithGateway(roleCatalog{}, "test", streamTestLease{})
+	e.SetOCR(ocrapp.New(ocrapp.NewFileStore(filepath.Join(t.TempDir(), "ocr-routing.json"))))
+	return e
+}
+
+func TestOCRRoutingScopeContract(t *testing.T) {
+	e := routingContractEngine(t)
+	const defaultPolicy = `{"mode":"auto","complexDocumentEngine":"none","fallbackOrder":["ppocr","windows-ocr"],"sendToCloud":"never"}`
+	t.Run("user 正例", func(t *testing.T) {
+		got := e.Handle(context.Background(), validRequest("ocr.routing.get", `{"scopeKind":"user"}`))
+		if !got.OK {
+			t.Fatalf("%#v", got.Error)
+		}
+		raw, _ := json.Marshal(got.Payload)
+		if strings.Contains(string(raw), "packRoot") || strings.Contains(string(raw), "preferProvider") {
+			t.Fatalf("unexpected fields %s", raw)
+		}
+		snap := mustDecodePayload[struct {
+			RequestedScope struct {
+				ScopeKind string  `json:"scopeKind"`
+				ScopeID   *string `json:"scopeId"`
+			} `json:"requestedScope"`
+			PolicySource struct {
+				ScopeKind string  `json:"scopeKind"`
+				ScopeID   *string `json:"scopeId"`
+				Inherited bool    `json:"inherited"`
+			} `json:"policySource"`
+			Policy struct {
+				Mode string `json:"mode"`
+			} `json:"policy"`
+			Revision string `json:"revision"`
+			Legacy   *struct {
+				EngineID string `json:"engineId"`
+			} `json:"legacy"`
+		}](t, got.Payload)
+		if snap.RequestedScope.ScopeKind != "user" || snap.RequestedScope.ScopeID != nil {
+			t.Fatalf("requested %+v", snap.RequestedScope)
+		}
+		if snap.PolicySource.Inherited || snap.PolicySource.ScopeKind != "user" || snap.Policy.Mode != "auto" || len(snap.Revision) != 64 {
+			t.Fatalf("source %+v", snap)
+		}
+		if snap.Legacy != nil {
+			t.Fatalf("legacy %+v", snap.Legacy)
+		}
+	})
+	t.Run("project 正例", func(t *testing.T) {
+		id := ulid.Make().String()
+		got := e.Handle(context.Background(), validRequest("ocr.routing.get", `{"scopeKind":"project","scopeId":"`+id+`"}`))
+		if !got.OK {
+			t.Fatalf("%#v", got.Error)
+		}
+		snap := mustDecodePayload[struct {
+			RequestedScope struct {
+				ScopeKind string  `json:"scopeKind"`
+				ScopeID   *string `json:"scopeId"`
+			} `json:"requestedScope"`
+			PolicySource struct {
+				ScopeKind string `json:"scopeKind"`
+				Inherited bool   `json:"inherited"`
+			} `json:"policySource"`
+			Revision string `json:"revision"`
+		}](t, got.Payload)
+		if snap.RequestedScope.ScopeKind != "project" || snap.RequestedScope.ScopeID == nil || *snap.RequestedScope.ScopeID != id {
+			t.Fatalf("requested %+v", snap.RequestedScope)
+		}
+		if !snap.PolicySource.Inherited || snap.PolicySource.ScopeKind != "user" || len(snap.Revision) != 64 {
+			t.Fatalf("inherit %+v", snap)
+		}
+	})
+	t.Run("user 带 scopeId", func(t *testing.T) {
+		got := e.Handle(context.Background(), validRequest("ocr.routing.get", `{"scopeKind":"user","scopeId":"`+ulid.Make().String()+`"}`))
+		if got.OK || got.Error == nil || got.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+			t.Fatalf("%#v", got)
+		}
+	})
+	t.Run("project 缺 scopeId", func(t *testing.T) {
+		got := e.Handle(context.Background(), validRequest("ocr.routing.get", `{"scopeKind":"project"}`))
+		if got.OK || got.Error == nil || got.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+			t.Fatalf("%#v", got)
+		}
+	})
+	t.Run("缺 scopeKind", func(t *testing.T) {
+		got := e.Handle(context.Background(), validRequest("ocr.routing.get", `{}`))
+		if got.OK || got.Error == nil || got.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+			t.Fatalf("%#v", got)
+		}
+	})
+	t.Run("越权", func(t *testing.T) {
+		denied := routingContractEngine(t)
+		denied.SetDataScopeStore(denyConversationScope{org.ErrCrossOrgAccess})
+		got := denied.Handle(context.Background(), validRequest("ocr.routing.get", `{"scopeKind":"project","scopeId":"`+ulid.Make().String()+`"}`))
+		if got.OK || got.Error == nil || got.Error.Code != "DATA_SCOPE_DENIED" {
+			t.Fatalf("project routing must deny before read %#v", got)
+		}
+	})
+	t.Run("继承 revision CAS", func(t *testing.T) {
+		id := ulid.Make().String()
+		got := e.Handle(context.Background(), validRequest("ocr.routing.get", `{"scopeKind":"project","scopeId":"`+id+`"}`))
+		if !got.OK {
+			t.Fatalf("%#v", got.Error)
+		}
+		snap := mustDecodePayload[struct {
+			Revision     string `json:"revision"`
+			PolicySource struct {
+				Inherited bool `json:"inherited"`
+			} `json:"policySource"`
+		}](t, got.Payload)
+		if !snap.PolicySource.Inherited {
+			t.Fatal("expected inherit before override")
+		}
+		set := validRequest("ocr.routing.set", `{"scopeKind":"project","scopeId":"`+id+`","expectedRevision":"`+snap.Revision+`","policy":{"mode":"local_fast","complexDocumentEngine":"paddleocr-vl-1.6","fallbackOrder":["windows-ocr"],"sendToCloud":"never"}}`)
+		set.IdempotencyKey = ulid.Make().String()
+		saved := e.Handle(context.Background(), set)
+		if !saved.OK {
+			t.Fatalf("create override %#v", saved.Error)
+		}
+		out := mustDecodePayload[struct {
+			PolicySource struct {
+				ScopeKind string  `json:"scopeKind"`
+				ScopeID   *string `json:"scopeId"`
+				Inherited bool    `json:"inherited"`
+			} `json:"policySource"`
+			Policy struct {
+				Mode string `json:"mode"`
+			} `json:"policy"`
+		}](t, saved.Payload)
+		if out.PolicySource.Inherited || out.PolicySource.ScopeKind != "project" || out.PolicySource.ScopeID == nil || *out.PolicySource.ScopeID != id || out.Policy.Mode != "local_fast" {
+			t.Fatalf("override %+v", out)
+		}
+		stale := validRequest("ocr.routing.set", `{"scopeKind":"project","scopeId":"`+id+`","expectedRevision":"`+snap.Revision+`","policy":`+defaultPolicy+`}`)
+		stale.IdempotencyKey = ulid.Make().String()
+		if resp := e.Handle(context.Background(), stale); resp.OK || resp.Error == nil || resp.Error.Code != "SETTINGS_VERSION_CONFLICT" {
+			t.Fatalf("inherited CAS %#v", resp)
+		}
+	})
+}
+
+func TestOCRRoutingLegacyFieldsDecodeForOneRelease(t *testing.T) {
+	e := routingContractEngine(t)
+	got := e.Handle(context.Background(), validRequest("ocr.routing.get", `{"scopeKind":"user"}`))
+	if !got.OK {
+		t.Fatalf("%#v", got.Error)
+	}
+	rev := mustDecodePayload[struct {
+		Revision string `json:"revision"`
+	}](t, got.Payload).Revision
+	set := validRequest("ocr.routing.set", `{"scopeKind":"user","preferProvider":false,"expectedRevision":"`+rev+`"}`)
+	set.IdempotencyKey = ulid.Make().String()
+	saved := e.Handle(context.Background(), set)
+	if !saved.OK {
+		t.Fatalf("%#v", saved.Error)
+	}
+	raw, _ := json.Marshal(saved.Payload)
+	if strings.Contains(string(raw), "preferProvider") || strings.Contains(string(raw), "packRoot") {
+		t.Fatalf("legacy decode must still return C3 snapshot: %s", raw)
+	}
+	out := mustDecodePayload[struct {
+		Policy struct {
+			Mode        string `json:"mode"`
+			SendToCloud string `json:"sendToCloud"`
+		} `json:"policy"`
+	}](t, saved.Payload)
+	if out.Policy.Mode != "auto" || out.Policy.SendToCloud != "never" {
+		t.Fatalf("%+v", out.Policy)
+	}
+}
+
+func TestOCRRoutingSetRejectsPPOCRExecutionPreference(t *testing.T) {
+	e := routingContractEngine(t)
+	got := e.Handle(context.Background(), validRequest("ocr.routing.get", `{"scopeKind":"user"}`))
+	if !got.OK {
+		t.Fatalf("%#v", got.Error)
+	}
+	rev := mustDecodePayload[struct {
+		Revision string `json:"revision"`
+	}](t, got.Payload).Revision
+	set := validRequest("ocr.routing.set", `{"scopeKind":"user","preferProvider":false,"localEngine":"ppocr","expectedRevision":"`+rev+`"}`)
+	set.IdempotencyKey = ulid.Make().String()
+	resp := e.Handle(context.Background(), set)
+	if resp.OK || resp.Error == nil || resp.Error.Code != "OCR_LEGACY_ENGINE_UNWIRED" || resp.Error.Retryable {
+		t.Fatalf("%#v", resp)
+	}
+	again := e.Handle(context.Background(), validRequest("ocr.routing.get", `{"scopeKind":"user"}`))
+	if !again.OK {
+		t.Fatalf("%#v", again.Error)
+	}
+	policy := mustDecodePayload[struct {
+		Policy struct {
+			Mode string `json:"mode"`
+		} `json:"policy"`
+	}](t, again.Payload)
+	if policy.Policy.Mode != "auto" {
+		t.Fatalf("ppocr write must not change execution preference %+v", policy)
+	}
+}
+
+func TestOCRRunBridgeRejectsCrossScope(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	project := e.Handle(context.Background(), validRequest("ocr.run.list", `{"scopeKind":"project","scopeId":"`+ulid.Make().String()+`"}`))
+	if project.OK || project.Error == nil || project.Error.Code != "OCR_SCOPE_FORBIDDEN" {
+		t.Fatalf("list %#v", project)
+	}
+	got := e.Handle(context.Background(), validRequest("ocr.run.get", `{"runId":"`+ulid.Make().String()+`"}`))
+	if got.OK || got.Error == nil || got.Error.Code != "OCR_RUN_NOT_FOUND" {
+		t.Fatalf("get %#v", got)
+	}
+}
+
+func TestOCRArtifactReadIsBounded(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	id := ulid.Make().String()
+	tooBig := e.Handle(context.Background(), validRequest("ocr.artifact.read", `{"artifactId":"`+id+`","offset":0,"limit":65537}`))
+	if tooBig.OK || tooBig.Error == nil || tooBig.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+		t.Fatalf("limit %#v", tooBig)
+	}
+	path := e.Handle(context.Background(), validRequest("ocr.artifact.read", `{"artifactId":"`+id+`","offset":0,"limit":4096,"path":"C:\\\\ocr\\\\out.txt"}`))
+	if path.OK || path.Error == nil || path.Error.Code != "BRIDGE_SCHEMA_INVALID" {
+		t.Fatalf("path %#v", path)
+	}
+	missing := e.Handle(context.Background(), validRequest("ocr.artifact.read", `{"artifactId":"`+id+`","offset":0,"limit":4096}`))
+	if missing.OK || missing.Error == nil || missing.Error.Code != "OCR_ARTIFACT_MISSING" {
+		t.Fatalf("missing %#v", missing)
 	}
 }

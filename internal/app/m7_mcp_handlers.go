@@ -9,6 +9,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
 	"github.com/lunitide/lunitide/internal/m7app"
+	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/mcp"
 	"github.com/lunitide/lunitide/internal/mcp6"
 )
@@ -68,6 +69,7 @@ func handleMcpAdd(e *Engine, ctx context.Context, r bridge.Request) bridge.Respo
 
 	if id := presetIDFromTarget(p.Command, p.Args, p.URL); id != "" {
 		e.rememberMcpPreset(res.EndpointID, id)
+		e.attachDeclaredBindKeys(ctx, m8app.BoundMcpPrefix+id)
 	}
 	return r.Ok(struct {
 		EndpointID       string `json:"endpointId"`

@@ -24,10 +24,8 @@ var mediaSessionScript string
 // MediaSessionAction targets a single exact app identity, never the global media key.
 func MediaSessionAction(ctx context.Context, aliases []string, action string, shuffle bool) (MediaSessionResult, error) {
 	var result MediaSessionResult
-	switch action {
-	case "status", "play", "pause", "next", "prev", "stop":
-	default:
-		return result, errors.New("unsupported media session action")
+	if err := ValidateMediaSessionAction(action); err != nil {
+		return result, err
 	}
 	if len(aliases) == 0 {
 		return result, errors.New("media app identity required")
@@ -57,6 +55,13 @@ func MediaSessionAction(ctx context.Context, aliases []string, action string, sh
 	}
 	if err := json.Unmarshal(bytes.TrimPrefix(out, []byte{0xef, 0xbb, 0xbf}), &result); err != nil {
 		return result, errors.New("invalid media session response")
+	}
+	result.Capabilities = sanitizeSMTCCapabilities(result.Capabilities)
+	if result.SessionKey == "" {
+		result.SessionKey = result.App
+	}
+	if action != "status" && len(result.Capabilities) > 0 && !SMTCCapabilityAllowed(result.Capabilities, action) {
+		result.Verified = false
 	}
 	return result, nil
 }

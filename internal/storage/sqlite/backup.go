@@ -18,10 +18,14 @@ import (
 // the application to stop. The destination is published only after a full
 // integrity check and fsync.
 func (s *Store) CreateBackup(ctx context.Context, destination string) error {
+	return createBackupImage(ctx, s.db, s.path, destination)
+}
+
+func createBackupImage(ctx context.Context, db *sql.DB, sourcePath, destination string) error {
 	if err := safeBackupPath(destination); err != nil {
 		return err
 	}
-	if filepath.Clean(destination) == filepath.Clean(s.path) {
+	if filepath.Clean(destination) == filepath.Clean(sourcePath) {
 		return errors.New("backup destination must differ from live database")
 	}
 	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
@@ -32,7 +36,7 @@ func (s *Store) CreateBackup(ctx context.Context, destination string) error {
 		return err
 	}
 	defer os.Remove(tmp)
-	if _, err = s.db.ExecContext(ctx, `VACUUM INTO ?`, tmp); err != nil {
+	if _, err = db.ExecContext(ctx, `VACUUM INTO ?`, tmp); err != nil {
 		return fmt.Errorf("create consistent backup: %w", err)
 	}
 	if err = validateSQLiteImage(ctx, tmp); err != nil {

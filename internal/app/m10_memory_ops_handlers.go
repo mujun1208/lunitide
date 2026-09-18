@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/m8core"
@@ -170,55 +171,117 @@ func handleMemoryGrowthDecide(e *Engine, ctx context.Context, r bridge.Request) 
 
 func handleMemorySettingsGet(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		SubjectID string `json:"subjectId"`
+		SubjectID *string `json:"subjectId"`
 	}
-	if decodePayload(r.Payload, &p) != nil || len(p.SubjectID) < 1 || len(p.SubjectID) > m8core.MaxSubjectID {
+	if decodePayload(r.Payload, &p) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.settings.get 参数无效", false)
 	}
 	if e.memoryOps == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
 	}
-	if p.SubjectID != e.memorySubjectID() {
-		return m8MemoryFailure(r, m8app.ErrRecallScopeDenied)
+	subject := e.memorySubjectID()
+	legacy := p.SubjectID != nil
+	if legacy {
+		if len(*p.SubjectID) < 1 || len(*p.SubjectID) > m8core.MaxSubjectID {
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.settings.get 参数无效", false)
+		}
+		if *p.SubjectID != subject {
+			return m8MemoryFailure(r, m8app.ErrRecallScopeDenied)
+		}
+		subject = *p.SubjectID
 	}
-	st, err := e.memoryOps.SettingsGet(ctx, p.SubjectID)
+	st, v2, err := e.memoryOps.SettingsGetBundle(ctx, subject)
 	if err != nil {
 		return memoryOpsFailure(r, err)
 	}
-	return r.Ok(settingsDTO(st))
+	return r.Ok(settingsBundleDTO(st, v2, legacy))
 }
 
 func handleMemorySettingsUpdate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		SubjectID       string `json:"subjectId"`
-		ExpectedVersion string `json:"expectedVersion"`
-		MemoryEnabled   bool   `json:"memoryEnabled"`
-		AutoNominate    bool   `json:"autoNominate"`
-		CaptureMode     string `json:"captureMode"`
-		GrowthDays      int    `json:"growthDays"`
+		SubjectID             *string `json:"subjectId"`
+		ExpectedVersion       *string `json:"expectedVersion"`
+		ExpectedRevision      *int64  `json:"expectedRevision"`
+		MemoryEnabled         *bool   `json:"memoryEnabled"`
+		AutoNominate          *bool   `json:"autoNominate"`
+		CaptureMode           *string `json:"captureMode"`
+		GrowthDays            *int    `json:"growthDays"`
+		PersonalMemoryEnabled *bool   `json:"personalMemoryEnabled"`
+		ProjectMemoryEnabled  *bool   `json:"projectMemoryEnabled"`
 	}
-	if decodePayload(r.Payload, &p) != nil || len(p.SubjectID) < 1 || len(p.SubjectID) > m8core.MaxSubjectID || !m8core.ValidHexDigest(p.ExpectedVersion) {
+	if decodePayload(r.Payload, &p) != nil {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.settings.update 参数无效", false)
 	}
 	if e.memoryOps == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
 	}
-	if p.SubjectID != e.memorySubjectID() {
+	subject := e.memorySubjectID()
+	if p.ExpectedRevision != nil {
+		if p.SubjectID != nil || p.ExpectedVersion != nil || p.MemoryEnabled != nil || p.AutoNominate != nil || p.GrowthDays != nil {
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.settings.update 参数无效", false)
+		}
+		if p.CaptureMode == nil || p.PersonalMemoryEnabled == nil || p.ProjectMemoryEnabled == nil {
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.settings.update 参数无效", false)
+		}
+		st, v2, err := e.memoryOps.SettingsUpdateV2(ctx, m8core.MemoryV2Settings{
+			SubjectID:             subject,
+			CaptureMode:           *p.CaptureMode,
+			PersonalMemoryEnabled: *p.PersonalMemoryEnabled,
+			ProjectMemoryEnabled:  *p.ProjectMemoryEnabled,
+		}, *p.ExpectedRevision)
+		if err != nil {
+			return memoryOpsFailure(r, err)
+		}
+		return r.Ok(settingsBundleDTO(st, v2, false))
+	}
+	if p.SubjectID == nil || p.ExpectedVersion == nil || p.MemoryEnabled == nil || p.AutoNominate == nil || p.GrowthDays == nil {
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.settings.update 参数无效", false)
+	}
+	if len(*p.SubjectID) < 1 || len(*p.SubjectID) > m8core.MaxSubjectID || !m8core.ValidHexDigest(*p.ExpectedVersion) {
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.settings.update 参数无效", false)
+	}
+	if *p.SubjectID != subject {
 		return m8MemoryFailure(r, m8app.ErrRecallScopeDenied)
 	}
+	captureMode := ""
+	if p.CaptureMode != nil {
+		captureMode = *p.CaptureMode
+	}
 	st, err := e.memoryOps.SettingsUpdateVersioned(ctx, m8core.MemorySettings{
-		SubjectID: p.SubjectID, MemoryEnabled: p.MemoryEnabled,
-		AutoNominate: p.AutoNominate, CaptureMode: p.CaptureMode, GrowthDays: p.GrowthDays,
-	}, p.ExpectedVersion)
+		SubjectID: *p.SubjectID, MemoryEnabled: *p.MemoryEnabled,
+		AutoNominate: *p.AutoNominate, CaptureMode: captureMode, GrowthDays: *p.GrowthDays,
+	}, *p.ExpectedVersion)
 	if err != nil {
 		return memoryOpsFailure(r, err)
 	}
-	return r.Ok(settingsDTO(st))
+	_, v2, bundleErr := e.memoryOps.SettingsGetBundle(ctx, *p.SubjectID)
+	if bundleErr != nil {
+		return memoryOpsFailure(r, bundleErr)
+	}
+	return r.Ok(settingsBundleDTO(st, v2, true))
 }
 
 func handleMemoryExport(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	var p struct{}
+	var p struct {
+		Format string `json:"format"`
+	}
 	if decodePayload(r.Payload, &p) != nil {
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.export 参数无效", false)
+	}
+	if p.Format == "fabric_v2" {
+		if e.m8memory == nil {
+			return r.Fail("STORAGE_UNAVAILABLE", "记忆服务暂时不可用", true)
+		}
+		out, err := e.m8memory.ExportCanonicalMemoryArchive(ctx, e.memorySubjectID())
+		if err != nil {
+			return memoryV2Failure(r, err)
+		}
+		if out.DatabaseRevision < 1 {
+			out.DatabaseRevision = 1
+		}
+		return r.Ok(out)
+	}
+	if p.Format != "" {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.export 参数无效", false)
 	}
 	if e.memoryOps == nil {
@@ -292,16 +355,37 @@ func handleMemoryExport(e *Engine, ctx context.Context, r bridge.Request) bridge
 }
 
 func handleMemoryPurge(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
-	var p struct{}
-	if decodePayload(r.Payload, &p) != nil {
+	if emptyObject(r.Payload) {
+		return r.Fail("PURGE_CONFIRMATION_REQUIRED", "需要先准备清除确认令牌", false)
+	}
+	var p struct {
+		ConfirmationToken        string `json:"confirmationToken"`
+		SnapshotDigest           string `json:"snapshotDigest"`
+		ExpectedDatabaseRevision int64  `json:"expectedDatabaseRevision"`
+		OperationID              string `json:"operationId"`
+	}
+	if decodePayload(r.Payload, &p) != nil || len(p.ConfirmationToken) != 64 || len(p.SnapshotDigest) != 64 ||
+		!validCanonicalULID(p.OperationID) || p.ExpectedDatabaseRevision < 0 || strings.TrimSpace(r.IdempotencyKey) == "" {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "memory.purge 参数无效", false)
 	}
-	if e.memoryOps == nil {
-		return r.Fail("STORAGE_UNAVAILABLE", "记忆运营服务暂时不可用", true)
+	if e.m8memory == nil {
+		return r.Fail("STORAGE_UNAVAILABLE", "记忆内核服务暂时不可用", true)
 	}
-	counts, err := e.memoryOps.Purge(ctx)
+	counts, scopeKind, err := e.m8memory.ConsumeMemoryPurge(ctx, e.memorySubjectID(), p.ConfirmationToken, p.SnapshotDigest, p.OperationID, r.IdempotencyKey, p.ExpectedDatabaseRevision)
 	if err != nil {
-		return memoryOpsFailure(r, err)
+		return memoryV2Failure(r, err)
+	}
+	if scopeKind != "project" && e.memoryOps != nil {
+		legacy, err := e.memoryOps.Purge(ctx)
+		if err != nil {
+			return memoryOpsFailure(r, err)
+		}
+		counts.FactsTombstoned += legacy.FactsTombstoned
+		counts.Candidates += legacy.Candidates
+		counts.GrowthRows += legacy.GrowthRows
+		counts.Flags += legacy.Flags
+		counts.Traces += legacy.Traces
+		counts.Memories += legacy.Memories
 	}
 	return r.Ok(struct {
 		FactsTombstoned int64 `json:"factsTombstoned"`
@@ -354,21 +438,52 @@ type growthDTO struct {
 }
 
 type memorySettingsDTO struct {
-	SubjectID     string `json:"subjectId"`
-	MemoryEnabled bool   `json:"memoryEnabled"`
-	AutoNominate  bool   `json:"autoNominate"`
-	CaptureMode   string `json:"captureMode"`
-	GrowthDays    int    `json:"growthDays"`
-	UpdatedAt     string `json:"updatedAt"`
-	Version       string `json:"version"`
+	SubjectID             string `json:"subjectId"`
+	MemoryEnabled         bool   `json:"memoryEnabled"`
+	AutoNominate          bool   `json:"autoNominate"`
+	CaptureMode           string `json:"captureMode"`
+	GrowthDays            int    `json:"growthDays"`
+	UpdatedAt             string `json:"updatedAt"`
+	Version               string `json:"version"`
+	Revision              int64  `json:"revision"`
+	PersonalMemoryEnabled bool   `json:"personalMemoryEnabled"`
+	ProjectMemoryEnabled  bool   `json:"projectMemoryEnabled"`
 }
 
-func settingsDTO(st m8core.MemorySettings) memorySettingsDTO {
+func settingsBundleDTO(st m8core.MemorySettings, v2 m8core.MemoryV2Settings, legacyGet bool) memorySettingsDTO {
 	updated := st.UpdatedAt
 	if updated == "" {
 		updated = "1970-01-01T00:00:00Z"
 	}
-	return memorySettingsDTO{st.SubjectID, st.MemoryEnabled, st.AutoNominate, st.CaptureMode, st.GrowthDays, updated, m8core.SettingsVersion(st)}
+	mode := v2.CaptureMode
+	if mode == "" {
+		mode = st.CaptureMode
+	}
+	if mode == "" {
+		mode = "auto"
+	}
+	if legacyGet && mode == "off" {
+		mode = v2.LastNonOffCaptureMode
+		if mode != "auto" && mode != "manual" {
+			mode = "auto"
+		}
+	}
+	revision := v2.Revision
+	if revision < 1 {
+		revision = 1
+	}
+	return memorySettingsDTO{
+		SubjectID:             st.SubjectID,
+		MemoryEnabled:         v2.CaptureMode != "off",
+		AutoNominate:          st.AutoNominate,
+		CaptureMode:           mode,
+		GrowthDays:            st.GrowthDays,
+		UpdatedAt:             updated,
+		Version:               m8core.SettingsVersion(st),
+		Revision:              revision,
+		PersonalMemoryEnabled: v2.PersonalMemoryEnabled,
+		ProjectMemoryEnabled:  v2.ProjectMemoryEnabled,
+	}
 }
 
 func statsDTO(stats m8app.MemoryOpsStats) struct {

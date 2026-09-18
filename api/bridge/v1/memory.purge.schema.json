@@ -1,1 +1,72 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://lunitide.local/schema/bridge/v1/memory.purge.schema.json","title":"memory.purge payload","x-method":"memory.purge","x-owner":"engine","x-enabled":true,"type":"object","additionalProperties":false,"properties":{},"x-result":{"type":"object","additionalProperties":false,"properties":{"factsTombstoned":{"type":"integer","minimum":0},"candidates":{"type":"integer","minimum":0},"growthRows":{"type":"integer","minimum":0},"flags":{"type":"integer","minimum":0},"traces":{"type":"integer","minimum":0},"memories":{"type":"integer","minimum":0}},"required":["factsTombstoned","candidates","growthRows","flags","traces","memories"]},"x-examples":{"positive":[{}],"negative":[{"unexpected":1}]}}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/memory.purge.schema.json",
+  "title": "memory.purge payload",
+  "x-method": "memory.purge",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "confirmationToken": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "snapshotDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "expectedDatabaseRevision": { "type": "integer", "minimum": 0 },
+    "operationId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "confirmationToken": false,
+        "snapshotDigest": false,
+        "expectedDatabaseRevision": false,
+        "operationId": false
+      }
+    },
+    {
+      "required": ["confirmationToken", "snapshotDigest", "expectedDatabaseRevision", "operationId"],
+      "properties": {
+        "confirmationToken": {},
+        "snapshotDigest": {},
+        "expectedDatabaseRevision": {},
+        "operationId": {}
+      }
+    }
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "factsTombstoned": { "type": "integer", "minimum": 0 },
+      "candidates": { "type": "integer", "minimum": 0 },
+      "growthRows": { "type": "integer", "minimum": 0 },
+      "flags": { "type": "integer", "minimum": 0 },
+      "traces": { "type": "integer", "minimum": 0 },
+      "memories": { "type": "integer", "minimum": 0 }
+    },
+    "required": ["factsTombstoned", "candidates", "growthRows", "flags", "traces", "memories"]
+  },
+  "x-examples": {
+    "positive": [
+      {},
+      {
+        "confirmationToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "snapshotDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "expectedDatabaseRevision": 0,
+        "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ],
+    "negative": [
+      { "unexpected": 1 },
+      {
+        "confirmationToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      },
+      {
+        "confirmationToken": "not-a-digest",
+        "snapshotDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "expectedDatabaseRevision": 0,
+        "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    ]
+  }
+}

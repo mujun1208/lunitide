@@ -64,10 +64,10 @@ func TestMemoryPendingScopedAndNoExpertLeak(t *testing.T) {
 	const sid = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
 	const other = "01ARZ3NDEKTSV4RRFFQ69G5FAX"
 	const mid = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-	if err := ops.SettingsUpdate(ctx, m8core.MemorySettings{SubjectID: "local-user", MemoryEnabled: true, CaptureMode: "manual", GrowthDays: 14}); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.maybeAutoNominateTurn(ctx, sid, "我喜欢爵士音乐", "", mid, false); err != nil {
+	if _, err := mem.ProposeUserMemory(ctx, "local-user", m8core.PayloadDoc{
+		Content: "我喜欢爵士音乐", ScopeID: m8app.LearningScope, Sensitivity: m8core.SensPrivate,
+		Leaves: []m8core.SourceLeafClaim{{JSONPointer: "/content", EvidenceRef: "chat-user://" + sid + "/" + mid, Digest: m8core.DigestOf("我喜欢爵士音乐")}},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	count := func(sessionID string) int {

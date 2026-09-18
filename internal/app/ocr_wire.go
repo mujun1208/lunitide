@@ -9,6 +9,7 @@ import (
 	"github.com/lunitide/lunitide/internal/doctext"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/llmadapter"
+	"github.com/lunitide/lunitide/internal/ocrapp"
 	"github.com/lunitide/lunitide/internal/secretlease"
 )
 
@@ -28,6 +29,29 @@ func (e *Engine) ocrCredentialRef(providerID string) string {
 	return ""
 }
 
+func (e *Engine) ocrVisionBinding(ctx context.Context) (providerID, modelID string, ok bool) {
+	if e == nil {
+		return "", "", false
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	pid, mid := e.resolveRole(ctx, "vision")
+	pid, mid = strings.TrimSpace(pid), strings.TrimSpace(mid)
+	return pid, mid, pid != "" && mid != ""
+}
+
+func (e *Engine) ocrCloudBinding(ctx context.Context) (providerID, modelID string, ok bool) {
+	if e == nil || e.ocr == nil {
+		return e.ocrVisionBinding(ctx)
+	}
+	routing, err := e.ocr.Routing()
+	if err == nil && routing.Bound() && ocrapp.EffectivePolicy(routing).SendToCloud != "never" {
+		return routing.ProviderID, routing.ModelID, true
+	}
+	return e.ocrVisionBinding(ctx)
+}
+
 func (e *Engine) ocrProviderCall(ctx context.Context, raw []byte, hint string) (string, error) {
 	if e == nil || e.ocr == nil || e.providers == nil {
 		return "", errors.New("OCR 供应商不可用")
@@ -35,8 +59,8 @@ func (e *Engine) ocrProviderCall(ctx context.Context, raw []byte, hint string) (
 	if bytes.HasPrefix(raw, []byte("%PDF-")) {
 		return "", errors.New("供应商 OCR 不处理原始 PDF，改走本地分页识别")
 	}
-	routing, err := e.ocr.Routing()
-	if err != nil || !routing.Bound() {
+	providerID, modelID, ok := e.ocrCloudBinding(ctx)
+	if !ok {
 		return "", errors.New("OCR 路由未绑定")
 	}
 	items, err := e.providers.List(ctx, provider.Filter{})
@@ -47,11 +71,11 @@ func (e *Engine) ocrProviderCall(ctx context.Context, raw []byte, hint string) (
 	var model provider.Model
 	found := false
 	for _, p := range items {
-		if p.ID != routing.ProviderID {
+		if p.ID != providerID {
 			continue
 		}
 		for _, m := range p.Models {
-			if m.ModelID == routing.ModelID {
+			if m.ModelID == modelID {
 				hit, model, found = p, m, true
 				break
 			}
@@ -124,5 +148,15 @@ func (e *Engine) workspaceDocumentText(ctx context.Context, name string, raw []b
 			method += " incomplete-coverage"
 		}
 	}
+	e.persistOCRRun(ctx, raw, got.Text, method, got.Pages, got.Complete, got.Uncertain)
 	return got.Text, kind, method, got.Pages, nil
+}
+
+func (e *Engine) persistOCRRun(ctx context.Context, raw []byte, text, method string, pages int, complete, uncertain bool) {
+	store := e.ocrSQLite()
+	if store == nil {
+		return
+	}
+	owner := e.memorySubjectID()
+	_, _, _ = store.OCRPersistRecognition(ctx, owner, "user", owner, raw, []byte(text), method, pages, complete, uncertain)
 }

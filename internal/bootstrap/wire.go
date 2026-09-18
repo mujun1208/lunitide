@@ -2,6 +2,8 @@ package bootstrap
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
@@ -34,7 +36,9 @@ import (
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/m9app"
 	"github.com/lunitide/lunitide/internal/mcapp"
+	"github.com/lunitide/lunitide/internal/mcp"
 	"github.com/lunitide/lunitide/internal/mcp6"
+	"github.com/lunitide/lunitide/internal/mediaapp"
 	"github.com/lunitide/lunitide/internal/meetings"
 	"github.com/lunitide/lunitide/internal/memoryapp"
 	"github.com/lunitide/lunitide/internal/messageapp"
@@ -106,11 +110,34 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	leaseClient := deps.LeaseClient
 	cursorKey := deps.CursorKey
 
-	store, err := storage.OpenSecure(ctx, dataRoot, "lunitide.db")
+	backupRoot, err := dataRoot.PrepareSubdirectory("memory-upgrade-backups")
+	if err != nil {
+		return fail(err)
+	}
+	store, err := storage.OpenSecureWithOptions(ctx, dataRoot, "lunitide.db", storage.OpenOptions{
+		BeforeMigrate: func(_ context.Context, _ storage.PreMigrationInfo, backupFn func(string) error) error {
+			var nonce [8]byte
+			if _, nerr := rand.Read(nonce[:]); nerr != nil {
+				return nerr
+			}
+			name := fmt.Sprintf("pre-memory-v2-%s-%s.db", time.Now().UTC().Format("20060102T150405.000000000Z"), hex.EncodeToString(nonce[:]))
+			dest, ferr := backupRoot.FilePath(name)
+			if ferr != nil {
+				return ferr
+			}
+			if berr := backupFn(dest); berr != nil {
+				return berr
+			}
+			return backupRoot.ProtectRegularFile(name)
+		},
+	})
 	if err != nil {
 		return fail(err)
 	}
 	closers = append(closers, func() { _ = store.Close() })
+	if err := store.EnableMediaSessionV2(ctx); err != nil {
+		return fail(fmt.Errorf("enable media session: %w", err))
+	}
 	if err := store.RecoverInterruptedToolOperations(ctx); err != nil {
 		return fail(fmt.Errorf("tool operation recovery failed: %w", err))
 	}
@@ -512,6 +539,13 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 		ocrSvc.SetInstallRoot(ocrRoot.Path())
 	}
 	engine.SetOCR(ocrSvc)
+	engine.SetSQLStore(store)
+	engine.SetMedia(mediaapp.New(store))
+	if runtimeRoot, err := dataRoot.PrepareSubdirectory("runtime"); err != nil {
+		log.Printf("uv runtime directory unavailable; in-product uv install stays off: %v", err)
+	} else {
+		engine.SetMcpUv(mcp.NewUvInstaller(filepath.Join(runtimeRoot.Path(), "uv")))
+	}
 	engine.SetWidgetStore(widgetapp.NewFileStore(filepath.Join(dataRoot.Path(), "widgets.json")))
 	engine.SetConnectorStore(connectorapp.NewFileStore(filepath.Join(dataRoot.Path(), "connector-recipes.json")))
 	closers = append(closers, func() { _ = tools.Close() })

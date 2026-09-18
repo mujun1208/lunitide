@@ -68,6 +68,7 @@ const (
 	EventTalkTool       EventType = "talk_tool"
 	EventTalkError      EventType = "talk_error"
 	EventTalkEnded      EventType = "talk_ended"
+	EventMediaSnapshot  EventType = "media_snapshot"
 )
 
 type Event struct {
@@ -88,6 +89,13 @@ type Event struct {
 	Equip     *EquipEvent     `json:"equip,omitempty"`
 	Tts       *TtsChunkEvent  `json:"tts,omitempty"`
 	Talk      *TalkEvent      `json:"talk,omitempty"`
+	Media     *MediaEvent     `json:"media,omitempty"`
+}
+
+type MediaEvent struct {
+	Kind           string `json:"kind"`
+	MediaSessionID string `json:"mediaSessionId"`
+	Revision       int64  `json:"revision"`
 }
 
 // EquipEvent is the structured half of auto-equip (see EventEquip): the chip

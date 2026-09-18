@@ -70,8 +70,16 @@ function open(category: ComponentProps<typeof SettingsPage>['initialCategory']) 
     set: vi.fn(),
   } as unknown as CapabilityRolesBridge
   const ocr = {
-    get: vi.fn().mockResolvedValue({ preferProvider: true, revision: 'a'.repeat(64), appliedRevision: 'a'.repeat(64), state: 'applied' }),
+    get: vi.fn().mockResolvedValue({
+      requestedScope: { scopeKind: 'user', scopeId: null },
+      policySource: { scopeKind: 'user', scopeId: null, inherited: false },
+      policy: { mode: 'auto', complexDocumentEngine: 'paddleocr-vl-1.6', fallbackOrder: ['ppocr', 'windows-ocr'], sendToCloud: 'never' },
+      revision: 'a'.repeat(64),
+      windowsProbe: { state: 'ready', available: true, languages: ['zh-Hans-CN'], checkedAt: '2026-09-18T12:00:00.000Z' },
+      legacy: { engineId: 'ppocr', registered: true, state: 'registered_unwired', available: false, markerDetected: false },
+    }),
     set: vi.fn(),
+    install: vi.fn().mockResolvedValue({ state: 'idle', percent: 0, doneBytes: 0, totalBytes: 1 }),
   } as unknown as OCRRoutingBridge
   render(
     <LanguageProvider value="zh-CN">

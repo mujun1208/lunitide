@@ -27,6 +27,16 @@ describe('TokenUsage', () => {
     expect(details?.textContent).toContain('上下文精简: 已开启')
     expect(status.textContent).not.toContain('%')
   })
+
+  it('compresses the composer compact line to key token counts only', () => {
+    render(<TokenUsage compact zh enabled usage={{inputTokens: 12930, outputTokens: 8704, totalTokens: 21634}} />)
+    const status = screen.getByRole('status')
+    expect(status.textContent).toContain('1.3万/8704')
+    expect(status.textContent).not.toContain('输入 12930')
+    expect(status.textContent).not.toContain('合计 21634')
+    expect(status.textContent).not.toContain('只作用于请求结构与同源去重')
+    expect(status.querySelector('details')).toBeNull()
+  })
   it('keeps full input totals and distinguishes partial cache accounting', () => {
     const usage = {inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: 30, cacheWriteInputTokens: 10}
     const view = render(<TokenUsage zh usage={usage} />)

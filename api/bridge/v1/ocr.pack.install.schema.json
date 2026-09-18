@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/ocr.pack.install.schema.json",
+  "title": "ocr.pack.install payload",
+  "x-method": "ocr.pack.install",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["packId", "catalogRevision", "acceptedManifestDigest", "expectedRevision", "operationId"],
+  "properties": {
+    "packId": { "type": "string", "const": "paddleocr-vl-1.6" },
+    "catalogRevision": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "acceptedManifestDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "expectedRevision": { "type": "integer", "minimum": 1 },
+    "operationId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["requestId", "operationId", "activityId", "accepted", "packId", "phase", "packRevision", "operationRevision"],
+    "properties": {
+      "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
+      "operationId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+      "activityId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+      "accepted": { "type": "boolean" },
+      "packId": { "type": "string", "const": "paddleocr-vl-1.6" },
+      "phase": { "type": "string", "enum": ["requested", "preflighting", "downloading", "verifying", "installing", "self_testing", "succeeded", "failed", "cancelled"] },
+      "packRevision": { "type": "integer", "minimum": 1 },
+      "operationRevision": { "type": "integer", "minimum": 1 }
+    }
+  },
+  "x-examples": {
+    "positive": [{
+      "packId": "paddleocr-vl-1.6",
+      "catalogRevision": "1",
+      "acceptedManifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expectedRevision": 1,
+      "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    }],
+    "negative": [
+      { "packId": "paddleocr-vl-1.6", "catalogRevision": "1", "acceptedManifestDigest": "aa", "expectedRevision": 1, "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+      { "packId": "paddleocr-vl-1.6", "expectedRevision": 1, "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+      { "packId": "rapidocr-json", "catalogRevision": "1", "acceptedManifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "expectedRevision": 1, "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }
+    ]
+  }
+}

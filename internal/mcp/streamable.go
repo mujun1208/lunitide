@@ -90,8 +90,11 @@ func (s *RemoteSession) initialize(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if (answer.ProtocolVersion != "2025-11-25" && answer.ProtocolVersion != "2025-06-18" && answer.ProtocolVersion != "2025-03-26") || strings.TrimSpace(answer.ServerInfo.Name) == "" || strings.TrimSpace(answer.ServerInfo.Version) == "" || len(answer.ServerInfo.Name) > 512 || len(answer.ServerInfo.Version) > 128 {
+	if !stdioProtocolSupported(answer.ProtocolVersion) || !stdioIdentityOK(answer.ServerInfo.Name, answer.ServerInfo.Version) {
 		return ErrRemoteProtocol
+	}
+	if strings.TrimSpace(answer.ServerInfo.Version) == "" {
+		answer.ServerInfo.Version = "0"
 	}
 	s.protocol = answer.ProtocolVersion
 	identity, _ := json.Marshal(answer)

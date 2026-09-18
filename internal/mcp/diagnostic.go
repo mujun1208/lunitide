@@ -59,7 +59,7 @@ func ConnectionDiagnostic(err error) Diagnostic {
 		"MCP_PACKAGE_NOT_FOUND":   "软件源中找不到此包或版本，请核对启动配置，或使用市场中对应的最新配置。",
 		"MCP_NETWORK_FAILED":      "软件源或服务器网络访问失败，请检查网络、代理及证书设置后重新连接。",
 		"MCP_RUNTIME_UNAVAILABLE": "未找到 Node.js / npx。请安装 Node.js 后重新连接；已连接的服务不受影响。",
-		"MCP_UV_UNAVAILABLE":      "未找到 uv / uvx。Fetch 等 Python 服务需要安装 uv；npx 服务不受影响。",
+		"MCP_UV_UNAVAILABLE":      "未找到 uv。可在本页点「安装 uv」自动下载；npx 服务不受影响。",
 		"MCP_DEPENDENCY_FAILED":   "本地 Python 或软件依赖未能准备完成，请检查运行环境版本及软件源后重新连接。",
 		"MCP_PROTOCOL_FAILED":     "服务器握手或工具目录响应不符合支持的 MCP 协议，请检查启动配置及服务器版本。",
 	}

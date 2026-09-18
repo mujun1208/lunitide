@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { BridgeClientError, type ChatBridge, type FeedbackBridge, type MemoryBridge, type MessageBridge, type ProviderBridge, type SessionBridge, type StreamEvent } from '../bridge/client'
+import { BridgeClientError, type ChatBridge, type MessageBridge, type ProviderBridge, type SessionBridge, type StreamEvent } from '../bridge/client'
 import type { ProjectDTO, ProviderDTO, SessionDTO } from '../generated/bridge'
 import type { CompanionSpeechHandle } from './companion/speech'
 import { SessionPage, TURN_RESUME_PROMPT } from './SessionPage'
@@ -495,39 +495,41 @@ it('keeps UAC clarification spoken and accepts the next voice round without a ch
   await waitFor(() => expect(start).toHaveBeenCalledTimes(2))
 })
 
-it('keeps the pending preference banner above the companion stage', async () => {
-  const confirmCandidate = vi.fn().mockResolvedValue({ candidateId: '01ARZ3NDEKTSV4RRFFQ69G5FAC', state: 'confirmed' })
-  const feedback = {
-    record: vi.fn(),
-    candidates: vi.fn().mockResolvedValue({
-      items: [{ candidateId: '01ARZ3NDEKTSV4RRFFQ69G5FAC', content: '以后回答默认用中文', scopeId: 'learning', confirmationToken: 'tok', createdAt: NOW, expiresAt: NOW }],
+it('keeps the uncontrolled-manual banner above the companion stage', async () => {
+  const listed = {
+    list: vi.fn().mockResolvedValue({
+      items: [{
+        id: '01ARZ3NDEKTSV4RRFFQ69G5FAD',
+        sessionId: session.id,
+        role: 'assistant',
+        status: 'completed',
+        sequence: 1,
+        createdAt: NOW,
+        text: '辅助建议，不构成放行。\n<!--mro-cite:{"cites":[{"revision":"42","locator":"{\\"status\\":\\"uncontrolled\\"}","quote":"Gear isolation","expertName":"航空机务专家"}]}-->',
+      }],
+      hasMore: false,
+      nextCursor: null,
+      snapshotSequence: 1,
     }),
-  } as unknown as FeedbackBridge
-  const memory = { confirmCandidate } as unknown as MemoryBridge
+    append: vi.fn(),
+  } as unknown as MessageBridge
   render(
     <SessionPage
       project={project}
       bridge={sessionBridge}
-      messages={{ list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append: vi.fn() } as MessageBridge}
+      messages={listed}
       onBack={vi.fn()}
       personal
       initialSession={session}
       initialCompanion
       chat={{ start: vi.fn(), approve: vi.fn(), dispose: vi.fn() }}
       providers={{ list: vi.fn().mockResolvedValue({ items: [provider] }) } as unknown as ProviderBridge}
-      feedback={feedback}
-      memory={memory}
     />,
   )
   await waitFor(() => expect(document.querySelector('.companion-stage')).toBeTruthy())
-  const banner = await screen.findByRole('status', { name: '待确认偏好' })
+  const banner = await screen.findByRole('status', { name: '待确认' })
   expect(banner).toHaveClass('companion-float')
-  fireEvent.click(screen.getByRole('button', { name: '确认沉淀' }))
-  await waitFor(() => expect(confirmCandidate).toHaveBeenCalledWith(expect.objectContaining({
-    candidateId: '01ARZ3NDEKTSV4RRFFQ69G5FAC',
-    confirmationToken: 'tok',
-    action: 'confirm',
-  })))
+  expect(banner).toHaveTextContent('待确认：将使用未受控手册回答')
 })
 
 it('does not delete a companion session after a spoken turn on exit', async () => {

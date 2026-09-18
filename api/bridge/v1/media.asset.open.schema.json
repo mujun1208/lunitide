@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/media.asset.open.schema.json",
+  "title": "media.asset.open payload",
+  "x-method": "media.asset.open",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["assetId", "mediaSessionId"],
+  "properties": {
+    "assetId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "mediaSessionId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["playbackUrl", "expiresAt"],
+    "properties": {
+      "playbackUrl": { "type": "string", "format": "uri", "pattern": "^https://media\\.lunitide\\.local/v1/assets/" },
+      "expiresAt": { "type": "string", "format": "date-time" }
+    }
+  },
+  "x-examples": {
+    "positive": [{ "assetId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "mediaSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FB0" }],
+    "negative": [{}, { "assetId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }, { "assetId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "mediaSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FB0", "path": "C:\\\\secret.mp3" }]
+  }
+}

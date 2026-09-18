@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/memory.item.create.schema.json",
+  "title": "memory.item.create payload",
+  "x-method": "memory.item.create",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scopeKind", "operationId"],
+  "properties": {
+    "scopeKind": { "type": "string", "enum": ["user", "project"] },
+    "scopeId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "text": { "type": "string", "minLength": 1, "maxLength": 8192 },
+    "sourceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["messageId"],
+      "properties": {
+        "messageId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+        "startByte": { "type": "integer", "minimum": 0 },
+        "endByte": { "type": "integer", "minimum": 0 }
+      },
+      "oneOf": [
+        { "properties": { "startByte": false, "endByte": false } },
+        { "required": ["startByte", "endByte"], "properties": { "startByte": {}, "endByte": {} } }
+      ]
+    },
+    "operationId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
+  },
+  "oneOf": [
+    { "required": ["text"], "properties": { "text": {}, "sourceRef": false } },
+    { "required": ["sourceRef"], "properties": { "sourceRef": {}, "text": false } }
+  ],
+  "allOf": [
+    {
+      "if": { "properties": { "scopeKind": { "const": "user" } } },
+      "then": { "properties": { "scopeId": false } }
+    },
+    {
+      "if": { "properties": { "scopeKind": { "const": "project" } } },
+      "then": { "required": ["scopeId"], "properties": { "scopeId": {} } }
+    }
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["item", "databaseRevision", "undoOperationId", "undoExpiresAt"],
+    "properties": {
+      "item": { "$ref": "#/$defs/MemoryItemDTO" },
+      "databaseRevision": { "type": "integer", "minimum": 0 },
+      "undoOperationId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+      "undoExpiresAt": { "type": "string", "format": "date-time" }
+    }
+  },
+  "$defs": {
+    "MemoryItemDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["factId", "version", "revision", "scopeKind", "kind", "forgotten", "updatedAt"],
+      "properties": {
+        "factId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+        "version": { "type": "integer", "minimum": 1 },
+        "revision": { "type": "integer", "minimum": 1 },
+        "scopeKind": { "type": "string", "enum": ["user", "project"] },
+        "scopeId": { "type": ["string", "null"] },
+        "kind": { "type": "string", "enum": ["profile", "preference", "goal", "constraint", "decision", "procedure", "episode", "observation", "working"] },
+        "text": { "type": ["string", "null"], "maxLength": 8192 },
+        "forgotten": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "x-examples": {
+    "positive": [
+      { "scopeKind": "user", "text": "我喜欢简洁的回答", "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+      { "scopeKind": "user", "sourceRef": { "messageId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }, "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAW" },
+      { "scopeKind": "project", "scopeId": "01ARZ3NDEKTSV4RRFFQ69G5FAX", "sourceRef": { "messageId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "startByte": 0, "endByte": 12 }, "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAY" }
+    ],
+    "negative": [
+      { "scopeKind": "user", "text": "x", "sourceRef": { "messageId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }, "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+      { "scopeKind": "user", "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+      { "scopeKind": "user", "scopeId": "01ARZ3NDEKTSV4RRFFQ69G5FAX", "text": "x", "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+      { "scopeKind": "project", "text": "x", "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+      { "scopeKind": "user", "text": "x", "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "subjectId": "local-user" },
+      { "scopeKind": "user", "sourceRef": { "messageId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "startByte": 0 }, "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+      { "scopeKind": "user", "sourceRef": { "messageId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "extra": true }, "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }
+    ]
+  }
+}

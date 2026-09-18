@@ -249,3 +249,24 @@ func TestMcpConfigureBeforeCredentialsPersistsDisabledWithoutProbe(t *testing.T)
 		t.Fatal("invalid config partially persisted")
 	}
 }
+
+func TestMcpAddReprobesDegradedEndpoint(t *testing.T) {
+	e, failing, _ := newMcpLifecycleFixture(t)
+	ctx := context.Background()
+	failing.Store(true)
+	first, err := e.m7mcp.Add(ctx, m7app.McpAddInput{Origin: "manual", Transport: "stdio", Command: "npx", Args: []string{"fixture-retry"}, RiskConfirmed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.State != m7flow.McpStateDegraded {
+		t.Fatalf("first probe should park degraded, got %s", first.State)
+	}
+	failing.Store(false)
+	again, err := e.m7mcp.Add(ctx, m7app.McpAddInput{Origin: "manual", Transport: "stdio", Command: "npx", Args: []string{"fixture-retry"}, RiskConfirmed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.EndpointID != first.EndpointID || again.State != m7flow.McpStateReady {
+		t.Fatalf("retry add must re-probe the parked endpoint: %+v", again)
+	}
+}

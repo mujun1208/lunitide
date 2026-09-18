@@ -33,8 +33,16 @@ function bridges() {
     set: vi.fn().mockResolvedValue({ roles: emptyRoles, revision: 'a'.repeat(64), appliedRevision: 'a'.repeat(64), state: 'applied' }),
   } as unknown as CapabilityRolesBridge
   const ocr = {
-    get: vi.fn().mockResolvedValue({ preferProvider: true, revision: 'a'.repeat(64), appliedRevision: 'a'.repeat(64), state: 'applied' }),
-    set: vi.fn().mockResolvedValue({ preferProvider: true, revision: 'a'.repeat(64), appliedRevision: 'a'.repeat(64), state: 'applied' }),
+    get: vi.fn().mockResolvedValue({
+      requestedScope: { scopeKind: 'user', scopeId: null },
+      policySource: { scopeKind: 'user', scopeId: null, inherited: false },
+      policy: { mode: 'auto', complexDocumentEngine: 'paddleocr-vl-1.6', fallbackOrder: ['ppocr', 'windows-ocr'], sendToCloud: 'never' },
+      revision: 'a'.repeat(64),
+      windowsProbe: { state: 'ready', available: true, languages: ['zh-Hans-CN'], checkedAt: '2026-09-18T12:00:00.000Z' },
+      legacy: { engineId: 'ppocr', registered: true, state: 'registered_unwired', available: false, markerDetected: false },
+    }),
+    set: vi.fn(),
+    install: vi.fn().mockResolvedValue({ state: 'idle', percent: 0, doneBytes: 0, totalBytes: 1 }),
   } as unknown as OCRRoutingBridge
   return { providers, roles, ocr }
 }
@@ -69,7 +77,7 @@ it('searches 能力路由 and opens 路由管理 without the provider catalog', 
   expect(screen.queryByRole('button', { name: /^常规$/ })).not.toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: /路由管理/ }))
   expect(await screen.findByRole('heading', { name: '能力路由' })).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: 'OCR 路由' })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: '文字识别' })).not.toBeInTheDocument()
   expect(roles.get).toHaveBeenCalled()
   expect(screen.queryByRole('tab', { name: 'LLM' })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /Demo/ })).not.toBeInTheDocument()
@@ -88,9 +96,29 @@ it('saves capability routing from the routing page', async () => {
   })
 })
 
+it('labels personal settings as 智能能力', () => {
+  open('general')
+  expect(screen.getByRole('button', { name: /智能能力/ })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /个人智能/ })).not.toBeInTheDocument()
+})
+
 it('keeps the provider catalog off the routing page', async () => {
   open('providers')
   expect(await screen.findByRole('button', { name: /Demo/ })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: '能力路由' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'OCR 路由' })).not.toBeInTheDocument()
+})
+
+it('routing contains no OCR and personal owns it', async () => {
+  const user = userEvent.setup()
+  open('routing')
+  expect(await screen.findByRole('heading', { name: '能力路由' })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'OCR 路由' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: '文字识别' })).not.toBeInTheDocument()
+  expect(screen.queryByText(/截图识别|选择文件/)).toBeNull()
+  await user.click(screen.getByRole('button', { name: /智能能力/ }))
+  expect(await screen.findByRole('heading', { name: '自动记忆' })).toBeInTheDocument()
+  expect(screen.getAllByRole('heading', { name: '文字识别' })).toHaveLength(1)
+  expect(document.querySelectorAll('.smart-cap-card')).toHaveLength(2)
   expect(screen.queryByRole('heading', { name: 'OCR 路由' })).not.toBeInTheDocument()
 })

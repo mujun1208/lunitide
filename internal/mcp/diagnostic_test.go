@@ -37,7 +37,7 @@ func TestMcpDiagnosticsNeverExposeRawErrorOrStderr(t *testing.T) {
 
 func TestStdioLaunchDiagnosticDistinguishesMissingRuntime(t *testing.T) {
 	uv := ConnectionDiagnostic(fmt.Errorf("%w: uvx not on PATH: missing", ErrStdioLaunch))
-	if uv.Code != "MCP_UV_UNAVAILABLE" || !strings.Contains(uv.Message, "uv / uvx") {
+	if uv.Code != "MCP_UV_UNAVAILABLE" || !strings.Contains(uv.Message, "安装 uv") {
 		t.Fatalf("uvx miss = %+v", uv)
 	}
 	node := ConnectionDiagnostic(fmt.Errorf("%w: npx not on PATH: missing", ErrStdioLaunch))

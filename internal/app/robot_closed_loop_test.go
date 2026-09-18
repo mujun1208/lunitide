@@ -346,7 +346,7 @@ func TestRobotClosedLoopSafetyGates(t *testing.T) {
 				t.Fatalf("official pack must not be vendored: %s", rel)
 			}
 		}
-		ocr := e.Handle(ctx, validRequest("ocr.routing.get", `{}`))
+		ocr := e.Handle(ctx, validRequest("ocr.routing.get", `{"scopeKind":"user"}`))
 		if !ocr.OK {
 			t.Fatalf("%#v", ocr.Error)
 		}

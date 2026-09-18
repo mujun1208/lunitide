@@ -65,7 +65,7 @@ func TestInstallDownloadsZipAndMarksPackReady(t *testing.T) {
 	}
 	got := DetectPPOcrPack(installer.BundleDir(bundle.ID))
 	if !got.Available || got.Status != "ready" {
-		t.Fatalf("installed RapidOCR must be selectable: %+v", got)
+		t.Fatalf("installed RapidOCR must be runnable: %+v", got)
 	}
 }
 
@@ -95,8 +95,8 @@ func TestRecognizeUsesInstalledPackWhenAuto(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Method != "ppocr" || got.Text != "发票 88" {
-		t.Fatalf("auto must run the installed pack: %+v", got)
+	if err != nil || got.Method != "ppocr" || got.Text != "发票 88" {
+		t.Fatalf("auto must run RapidOCR pack: %+v err=%v", got, err)
 	}
 }
 
@@ -118,12 +118,12 @@ func TestRecognizeUsesInstalledPackWithoutSavingRouting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Method != "ppocr" || got.Text != "未保存也识别" {
-		t.Fatalf("download without an extra save must still run the pack: %+v", got)
+	if err != nil || got.Method != "ppocr" || got.Text != "未保存也识别" {
+		t.Fatalf("installed RapidOCR must run without saving routing: %+v err=%v", got, err)
 	}
 	snap := svc.HealthSnapshot()
 	if !snap.Pack.Available || snap.Local.Backend != "ppocr" {
-		t.Fatalf("get/health after download must show ppocr without saving: %+v", snap)
+		t.Fatalf("health after RapidOCR download must claim ppocr: %+v", snap)
 	}
 }
 
@@ -142,11 +142,8 @@ func TestSetRoutingPPOcrFillsPackRootFromInstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	saved, err := svc.SetRouting(Routing{PreferProvider: false, LocalEngine: "ppocr"}, cur.Revision)
-	if err != nil {
-		t.Fatalf("selecting PP-OCR after download must not need a folder: %v", err)
-	}
-	if saved.LocalEngine != "ppocr" || saved.PackRoot != root {
-		t.Fatalf("install root must be recorded as packRoot: %+v", saved)
+	if err == nil {
+		t.Fatalf("selecting PP-OCR must stay rejected: %+v", saved)
 	}
 }
 

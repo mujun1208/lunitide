@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/doctext"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/fileops"
 	"github.com/lunitide/lunitide/internal/modelfit"
@@ -92,33 +93,51 @@ func handleChatUsageGet(e *Engine, ctx context.Context, request bridge.Request) 
 }
 
 func handleOCRRoutingGet(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
-	if len(request.Payload) > 0 && string(request.Payload) != "{}" && string(request.Payload) != "null" {
-		var empty map[string]any
-		if decodePayload(request.Payload, &empty) != nil || len(empty) > 0 {
-			return request.Fail("BRIDGE_SCHEMA_INVALID", "ocr.routing.get 参数无效", false)
-		}
+	kind, id, ok := parseOCRPublicScope(request.Payload)
+	if !ok {
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "ocr.routing.get 参数无效", false)
 	}
-	_ = ctx
-	if e == nil || e.ocr == nil {
-		r := ocrapp.Routing{PreferProvider: true}
-		r.Revision = ocrapp.RoutingRevision(r)
-		return request.Ok(ocrRoutingResult(r, ocrapp.HealthSnapshot{Local: ocrapp.LocalOCRReady()}))
+	var extra struct {
+		ScopeKind    string  `json:"scopeKind"`
+		ScopeID      *string `json:"scopeId"`
+		RefreshProbe bool    `json:"refreshProbe"`
 	}
-	r, err := e.ocr.Routing()
+	if decodePayload(request.Payload, &extra) != nil {
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "ocr.routing.get 参数无效", false)
+	}
+	var svc *ocrapp.Service
+	if e != nil {
+		svc = e.ocr
+	}
+	scoped, err := svc.ScopedRouting(kind, id)
 	if err != nil {
 		return request.Fail("STORAGE_UNAVAILABLE", "OCR 路由暂时不可用", true)
 	}
-	return request.Ok(ocrRoutingResult(r, e.ocr.HealthSnapshot()))
+	return request.Ok(ocrRoutingSnapshot(ctx, kind, id, scoped, extra.RefreshProbe))
 }
 
 func handleOCRRoutingSet(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {
+	kind, id, ok := parseOCRPublicScope(request.Payload)
+	if !ok {
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "ocr.routing.set 参数无效", false)
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(request.Payload, &fields) != nil {
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "ocr.routing.set 参数无效", false)
+	}
+	if _, hasOp := fields["operationId"]; hasOp {
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "ocr.routing.set 参数无效", false)
+	}
 	var p struct {
-		ProviderID       string `json:"providerId"`
-		ModelID          string `json:"modelId"`
-		PreferProvider   bool   `json:"preferProvider"`
-		LocalEngine      string `json:"localEngine"`
-		PackRoot         string `json:"packRoot"`
-		ExpectedRevision string `json:"expectedRevision"`
+		ScopeKind        string         `json:"scopeKind"`
+		ScopeID          *string        `json:"scopeId"`
+		Policy           *ocrapp.Policy `json:"policy"`
+		PreferProvider   *bool          `json:"preferProvider"`
+		LocalEngine      string         `json:"localEngine"`
+		PackRoot         string         `json:"packRoot"`
+		ProviderID       string         `json:"providerId"`
+		ModelID          string         `json:"modelId"`
+		ExpectedRevision string         `json:"expectedRevision"`
 	}
 	if decodePayload(request.Payload, &p) != nil || len(p.ExpectedRevision) != 64 {
 		return request.Fail("BRIDGE_SCHEMA_INVALID", "ocr.routing.set 参数无效", false)
@@ -126,24 +145,34 @@ func handleOCRRoutingSet(e *Engine, ctx context.Context, request bridge.Request)
 	if failure := requireIdempotency(request); failure != nil {
 		return *failure
 	}
-	if (p.ProviderID == "") != (p.ModelID == "") {
-		return request.Fail("BRIDGE_SCHEMA_INVALID", "providerId 与 modelId 必须同时填写", false)
+	if p.LocalEngine == "ppocr" {
+		return request.Fail("OCR_LEGACY_ENGINE_UNWIRED", "PP-OCR 仅登记未接线，不能作为可执行引擎", false)
 	}
-	if p.ProviderID != "" {
-		if e.providers == nil {
+	policy, err := routingSetPolicy(p.Policy, p.PreferProvider, p.ProviderID, p.ModelID)
+	if err != nil {
+		if errors.Is(err, ocrapp.ErrDocumentEngineUnready) {
+			return request.Fail("NO_VERIFIED_RUNTIME_PROFILE", err.Error(), false)
+		}
+		if strings.Contains(err.Error(), "必须同时填写") || strings.Contains(err.Error(), "OCR 策略无效") {
+			return request.Fail("BRIDGE_SCHEMA_INVALID", err.Error(), false)
+		}
+		return request.Fail("BRIDGE_SCHEMA_INVALID", "ocr.routing.set 参数无效", false)
+	}
+	if policy.ProviderID != "" {
+		if e == nil || e.providers == nil {
 			return request.Fail("STORAGE_UNAVAILABLE", "供应商数据暂时不可用", true)
 		}
-		items, err := e.providers.List(ctx, provider.Filter{})
-		if err != nil {
+		items, listErr := e.providers.List(ctx, provider.Filter{})
+		if listErr != nil {
 			return request.Fail("STORAGE_UNAVAILABLE", "供应商数据暂时不可用", true)
 		}
 		found := false
 		for _, item := range items {
-			if item.ID != p.ProviderID {
+			if item.ID != policy.ProviderID {
 				continue
 			}
 			for _, m := range item.Models {
-				if m.ModelID == p.ModelID {
+				if m.ModelID == policy.ModelID {
 					found = true
 					break
 				}
@@ -156,54 +185,116 @@ func handleOCRRoutingSet(e *Engine, ctx context.Context, request bridge.Request)
 	if e == nil || e.ocr == nil {
 		return request.Fail("CAPABILITY_NOT_READY", "OCR 路由尚未装配", false)
 	}
-	saved, err := e.ocr.SetRouting(ocrapp.Routing{ProviderID: p.ProviderID, ModelID: p.ModelID, PreferProvider: p.PreferProvider, LocalEngine: p.LocalEngine, PackRoot: p.PackRoot}, p.ExpectedRevision)
+	saved, err := e.ocr.SetScopedRouting(kind, id, policy, p.PackRoot, p.LocalEngine, p.ExpectedRevision)
 	if errors.Is(err, ocrapp.ErrRevisionConflict) {
 		return request.Fail("SETTINGS_VERSION_CONFLICT", "OCR 路由已被修改，请载入最新版本", false)
 	}
+	if errors.Is(err, ocrapp.ErrLegacyEngineUnwired) {
+		return request.Fail("OCR_LEGACY_ENGINE_UNWIRED", err.Error(), false)
+	}
+	if errors.Is(err, ocrapp.ErrDocumentEngineUnready) {
+		return request.Fail("NO_VERIFIED_RUNTIME_PROFILE", err.Error(), false)
+	}
 	if err != nil {
-		if strings.Contains(err.Error(), "PP-OCR") || strings.Contains(err.Error(), "本机 OCR") {
+		if strings.Contains(err.Error(), "必须同时填写") || strings.Contains(err.Error(), "本机 OCR") || strings.Contains(err.Error(), "OCR 策略无效") {
 			return request.Fail("BRIDGE_SCHEMA_INVALID", err.Error(), false)
 		}
 		return request.Fail("STORAGE_UNAVAILABLE", "OCR 路由写入失败", true)
 	}
-	return request.Ok(ocrRoutingResult(saved, e.ocr.HealthSnapshot()))
+	return request.Ok(ocrRoutingSnapshot(ctx, kind, id, saved, false))
 }
 
-func ocrRoutingResult(r ocrapp.Routing, health ocrapp.HealthSnapshot) map[string]any {
-	if health.Local.Backend == "" {
-		health.Local = ocrapp.LocalOCRReady()
-	}
-	if health.Pack.Backend == "" {
-		health.Pack = ocrapp.DetectPPOcrPack(ocrapp.ResolvePPOcrRoot(r.PackRoot))
-	}
-	engine := r.LocalEngine
-	if engine == "" {
-		engine = "auto"
-	}
-	out := map[string]any{
-		"preferProvider": r.PreferProvider, "revision": r.Revision,
-		"appliedRevision": r.Revision, "state": "applied",
-		"localEngine":   engine,
-		"downloadBytes": ocrapp.Runtime().TotalBytes(),
-		"localReady":    map[string]any{"pdf": health.Local.PDF, "image": health.Local.Image, "backend": health.Local.Backend},
-		"pack":          map[string]any{"available": health.Pack.Available, "status": health.Pack.Status, "backend": health.Pack.Backend},
-	}
-	if r.ProviderID != "" {
-		out["providerId"] = r.ProviderID
-	}
-	if r.ModelID != "" {
-		out["modelId"] = r.ModelID
-	}
-	if r.PackRoot != "" {
-		out["packRoot"] = r.PackRoot
-	}
-	if health.LastFailure != nil {
-		out["lastFailure"] = map[string]any{
-			"class": health.LastFailure.Class, "operation": health.LastFailure.Operation,
-			"until": health.LastFailure.Until.UTC().Format(time.RFC3339),
+func routingSetPolicy(policy *ocrapp.Policy, preferProvider *bool, providerID, modelID string) (ocrapp.Policy, error) {
+	if policy != nil {
+		out := *policy
+		if out.ProviderID == "" {
+			out.ProviderID = providerID
 		}
+		if out.ModelID == "" {
+			out.ModelID = modelID
+		}
+		return out, ocrapp.ValidatePolicy(out)
+	}
+	if preferProvider == nil {
+		return ocrapp.Policy{}, errors.New("ocr.routing.set 参数无效")
+	}
+	out := ocrapp.DefaultPolicy()
+	if *preferProvider && providerID != "" && modelID != "" {
+		out.Mode = "provider_first"
+		out.SendToCloud = "configured_only"
+		out.FallbackOrder = []string{"provider", "ppocr", "windows-ocr"}
+		out.ProviderID = providerID
+		out.ModelID = modelID
+	}
+	return out, ocrapp.ValidatePolicy(out)
+}
+
+func ocrRoutingSnapshot(ctx context.Context, kind, id string, scoped ocrapp.ScopedRouting, refreshProbe bool) map[string]any {
+	var reqID any
+	if kind == "project" {
+		reqID = id
+	}
+	var srcID any
+	if scoped.SourceKind == "project" {
+		srcID = scoped.SourceID
+	}
+	return map[string]any{
+		"requestedScope": map[string]any{"scopeKind": kind, "scopeId": reqID},
+		"policySource": map[string]any{
+			"scopeKind": scoped.SourceKind, "scopeId": srcID, "inherited": scoped.Inherited,
+		},
+		"policy":       ocrPolicyDTO(scoped.Policy),
+		"revision":     scoped.Revision,
+		"windowsProbe": windowsProbeDTO(ctx, refreshProbe),
+		"legacy":       ocrLegacyDTO(scoped.PackRoot),
+	}
+}
+
+func ocrPolicyDTO(p ocrapp.Policy) map[string]any {
+	out := map[string]any{
+		"mode":                  p.Mode,
+		"complexDocumentEngine": p.ComplexDocumentEngine,
+		"fallbackOrder":         p.FallbackOrder,
+		"sendToCloud":           p.SendToCloud,
+	}
+	if p.ProviderID != "" {
+		out["providerId"] = p.ProviderID
+		out["modelId"] = p.ModelID
 	}
 	return out
+}
+
+func windowsProbeDTO(ctx context.Context, refresh bool) map[string]any {
+	var probe doctext.WindowsOCRProbe
+	if refresh {
+		probe = doctext.RefreshWindowsOCRProbe(ctx)
+	} else {
+		probe = doctext.ProbeWindowsOCR(ctx)
+	}
+	langs := probe.Languages
+	if langs == nil {
+		langs = []string{}
+	}
+	return map[string]any{
+		"state":     string(probe.State),
+		"available": probe.Available,
+		"languages": langs,
+		"checkedAt": probe.CheckedAt.UTC().Format(time.RFC3339),
+	}
+}
+
+func ocrLegacyDTO(packRoot string) any {
+	pack := ocrapp.DetectPPOcrPack(packRoot)
+	if pack.Status != "registered_unwired" {
+		return nil
+	}
+	return map[string]any{
+		"engineId":       "ppocr",
+		"registered":     true,
+		"state":          "registered_unwired",
+		"available":      false,
+		"markerDetected": true,
+	}
 }
 
 func handleOperationList(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {

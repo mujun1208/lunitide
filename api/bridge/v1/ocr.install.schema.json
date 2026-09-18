@@ -7,7 +7,9 @@
   "x-enabled": true,
   "type": "object",
   "additionalProperties": false,
-  "properties": {},
+  "properties": {
+    "probe": { "type": "boolean" }
+  },
   "x-result": {
     "type": "object",
     "additionalProperties": false,
@@ -22,7 +24,7 @@
     "required": ["state", "percent", "doneBytes", "totalBytes"]
   },
   "x-examples": {
-    "positive": [{}],
+    "positive": [{}, { "probe": true }],
     "negative": [{ "unexpected": true }]
   }
 }

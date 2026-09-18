@@ -84,8 +84,9 @@ func (e *Engine) prepareChatMemory(ctx context.Context, req chatMemoryRequest) (
 		pack.Enabled = false
 		return pack
 	}
-	settings := e.chatMemorySettings(ctx)
-	pack.Enabled = settings.MemoryEnabled
+	flags := m8core.CurrentProductFlags()
+	behavior := m8core.ResolveMemoryBehavior(e.chatMemoryV2(ctx), "user", flags)
+	pack.Enabled = behavior.AllowRecall
 	if !pack.Enabled {
 		return pack
 	}
@@ -95,6 +96,11 @@ func (e *Engine) prepareChatMemory(ctx context.Context, req chatMemoryRequest) (
 			pack.Prefs = snapshot
 		} else {
 			log.Printf("chat memory: preference snapshot skipped: %v", err)
+		}
+		if extra, err := e.m8memory.ListCanonicalUserFacts(ctx, e.memorySubjectID(), preferenceInjectMaxItems); err == nil {
+			pack.Prefs = mergeUniqueMemoryTexts(pack.Prefs, extra, preferenceInjectMaxItems, preferenceInjectMaxBytes)
+		} else {
+			log.Printf("chat memory: canonical facts skipped: %v", err)
 		}
 	}
 	if !pack.Enabled {
@@ -112,7 +118,51 @@ func (e *Engine) prepareChatMemory(ctx context.Context, req chatMemoryRequest) (
 		pinnedMaxItems, pinnedMaxBytes = companionPinnedMaxItems, companionPinnedMaxBytes
 	}
 
-	if query != "" && e.m8memory != nil {
+	if query != "" && e.m8memory != nil && !m8core.SkipGenericRecall(query) {
+		used := 0
+		if flags.HybridRecall {
+			hybrid, err := e.m8memory.HybridRecall(ctx, m8core.HybridRecallQuery{
+				SubjectID:    e.memorySubjectID(),
+				ScopeKind:    "user",
+				ScopeID:      e.memorySubjectID(),
+				Query:        clipRunes(query, 2048),
+				TopK:         pinnedMaxItems,
+				BudgetTokens: m8core.MemoryTotalBudget(4000, req.Companion),
+				Companion:    req.Companion,
+			})
+			if err != nil {
+				log.Printf("chat memory: hybrid recall skipped: %v", err)
+			} else {
+				pack.TraceID = hybrid.TraceID
+				for _, hit := range hybrid.Hits {
+					if !hit.Adopted {
+						continue
+					}
+					content := strings.TrimSpace(hit.SerializedText)
+					if content == "" {
+						content = strings.TrimSpace(hit.Text)
+					}
+					if content == "" {
+						continue
+					}
+					if _, dup := prefSet[hit.Text]; dup {
+						continue
+					}
+					if len(pack.Pinned) >= pinnedMaxItems || used+len(content) > pinnedMaxBytes {
+						break
+					}
+					pack.Pinned = append(pack.Pinned, contextapp.ContextSource{
+						Type:       contextapp.SourcePinnedFacts,
+						ID:         hit.FactID,
+						Authority:  contextapp.AuthorityPinned,
+						Content:    content,
+						Provenance: "memory:canonical:" + hit.FactID,
+					})
+					prefSet[hit.Text] = struct{}{}
+					used += len(content)
+				}
+			}
+		}
 		res, err := e.m8memory.RecallForInject(ctx, m8app.RecallInput{
 			ScopeID:   m8app.LearningScope,
 			Query:     clipRunes(query, 2048),
@@ -122,8 +172,9 @@ func (e *Engine) prepareChatMemory(ctx context.Context, req chatMemoryRequest) (
 		if err != nil {
 			log.Printf("chat memory: recall inject skipped: %v", err)
 		} else {
-			pack.TraceID = res.TraceID
-			used := 0
+			if pack.TraceID == "" {
+				pack.TraceID = res.TraceID
+			}
 			for _, hit := range res.Hits {
 				content := strings.TrimSpace(hit.Content)
 				if content == "" {
@@ -272,17 +323,55 @@ func (e *Engine) ensureChatMemorySubject(ctx context.Context) string {
 func (e *Engine) chatMemorySettings(ctx context.Context) m8core.MemorySettings {
 	subject := e.ensureChatMemorySubject(ctx)
 	defaults := m8core.DefaultMemorySettings(subject)
+	v2 := e.chatMemoryV2(ctx)
+	defaults.CaptureMode = v2.CaptureMode
+	defaults.MemoryEnabled = v2.CaptureMode != "off"
 	if e == nil || e.memoryOps == nil {
 		return defaults
 	}
-	st, err := e.memoryOps.SettingsGet(ctx, subject)
+	st, _, err := e.memoryOps.SettingsGetBundle(ctx, subject)
 	if err != nil {
 		log.Printf("chat memory: settings read skipped: %v", err)
 		defaults.MemoryEnabled = false
 		defaults.CaptureMode = "off"
 		return defaults
 	}
+	st.CaptureMode = v2.CaptureMode
+	st.MemoryEnabled = v2.CaptureMode != "off"
 	return st
+}
+
+func (e *Engine) chatMemoryV2(ctx context.Context) m8core.MemoryV2Settings {
+	subject := ""
+	if e != nil {
+		subject = e.ensureChatMemorySubject(ctx)
+	}
+	defaults := m8core.SettingsToV2(m8core.DefaultMemorySettings(subject))
+	if e == nil || e.memoryOps == nil {
+		return defaults
+	}
+	_, v2, err := e.memoryOps.SettingsGetBundle(ctx, subject)
+	if err != nil {
+		log.Printf("chat memory: v2 settings read skipped: %v", err)
+		defaults.CaptureMode = "off"
+		return defaults
+	}
+	return v2
+}
+
+func (e *Engine) saveExplicitUserMemory(ctx context.Context, text string) error {
+	if e == nil || e.m8memory == nil {
+		return m8app.ErrServiceUnavailable
+	}
+	settings := e.chatMemorySettings(ctx)
+	if !m8core.ResolveMemoryBehavior(e.chatMemoryV2(ctx), "user", m8core.CurrentProductFlags()).AllowExplicitSave {
+		if settings.CaptureMode == "off" || !settings.MemoryEnabled {
+			return m8app.ErrMemoryModeOff
+		}
+		return m8app.ErrMemoryExplicitDenied
+	}
+	_, err := e.m8memory.SaveExplicitMemory(ctx, e.memorySubjectID(), text)
+	return err
 }
 
 func (e *Engine) peopleLocalBrainMemoryHint(ctx context.Context, sessionID, userText string, expertIDs ...string) string {
@@ -609,7 +698,7 @@ func (e *Engine) maybeAutoNominateTurn(ctx context.Context, sessionID, userText,
 		return nil
 	}
 	settings := e.chatMemorySettings(ctx)
-	if !settings.MemoryEnabled || settings.CaptureMode == "off" || e.m8memory == nil {
+	if !m8core.ResolveMemoryBehavior(e.chatMemoryV2(ctx), "user", m8core.CurrentProductFlags()).AllowAutoCapture || e.m8memory == nil {
 		return nil
 	}
 	content := m8core.StableUserMemory(userText)
@@ -681,8 +770,7 @@ func (e *Engine) writeSessionLastMemory(ctx context.Context, sessionID, userText
 	if e == nil || !memoryServiceAvailable(e.memories) || sessionID == "" {
 		return
 	}
-	settings := e.chatMemorySettings(ctx)
-	if !settings.MemoryEnabled {
+	if !m8core.ResolveMemoryBehavior(e.chatMemoryV2(ctx), "project", m8core.CurrentProductFlags()).AllowWorking {
 		return
 	}
 	userText = strings.TrimSpace(userText)
@@ -718,8 +806,7 @@ func (e *Engine) writeExpertLastMemory(ctx context.Context, sessionID, expertID,
 	if expertID == "" {
 		return
 	}
-	settings := e.chatMemorySettings(ctx)
-	if !settings.MemoryEnabled {
+	if !m8core.ResolveMemoryBehavior(e.chatMemoryV2(ctx), "project", m8core.CurrentProductFlags()).AllowWorking {
 		return
 	}
 	userText = strings.TrimSpace(userText)
@@ -784,6 +871,37 @@ func relevantSessionSummary(items []memory.Memory, query string) []memory.Memory
 		if item.Key != sessionLastMemoryKey {
 			out = append(out, item)
 		}
+	}
+	return out
+}
+
+func mergeUniqueMemoryTexts(base, extra []string, maxItems, maxBytes int) []string {
+	if maxItems <= 0 {
+		return nil
+	}
+	out := make([]string, 0, maxItems)
+	seen := make(map[string]struct{}, len(base)+len(extra))
+	used := 0
+	appendOne := func(text string) {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return
+		}
+		if _, ok := seen[text]; ok {
+			return
+		}
+		if len(out) >= maxItems || used+len(text) > maxBytes {
+			return
+		}
+		seen[text] = struct{}{}
+		out = append(out, text)
+		used += len(text)
+	}
+	for _, text := range base {
+		appendOne(text)
+	}
+	for _, text := range extra {
+		appendOne(text)
 	}
 	return out
 }

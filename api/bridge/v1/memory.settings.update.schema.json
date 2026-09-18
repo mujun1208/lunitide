@@ -30,19 +30,48 @@
     },
     "captureMode": {
       "type": "string",
-      "enum": [
-        "auto",
-        "manual",
-        "off"
-      ]
+      "enum": ["auto", "manual", "off"]
+    },
+    "personalMemoryEnabled": {
+      "type": "boolean"
+    },
+    "projectMemoryEnabled": {
+      "type": "boolean"
+    },
+    "expectedRevision": {
+      "type": "integer",
+      "minimum": 1
     }
   },
-  "required": [
-    "subjectId",
-    "memoryEnabled",
-    "autoNominate",
-    "growthDays",
-    "expectedVersion"
+  "oneOf": [
+    {
+      "required": ["subjectId", "memoryEnabled", "autoNominate", "growthDays", "expectedVersion"],
+      "properties": {
+        "subjectId": {},
+        "memoryEnabled": {},
+        "autoNominate": {},
+        "growthDays": {},
+        "expectedVersion": {},
+        "captureMode": {},
+        "personalMemoryEnabled": false,
+        "projectMemoryEnabled": false,
+        "expectedRevision": false
+      }
+    },
+    {
+      "required": ["captureMode", "personalMemoryEnabled", "projectMemoryEnabled", "expectedRevision"],
+      "properties": {
+        "captureMode": {},
+        "personalMemoryEnabled": {},
+        "projectMemoryEnabled": {},
+        "expectedRevision": {},
+        "subjectId": false,
+        "memoryEnabled": false,
+        "autoNominate": false,
+        "growthDays": false,
+        "expectedVersion": false
+      }
+    }
   ],
   "x-result": {
     "type": "object",
@@ -74,11 +103,17 @@
       },
       "captureMode": {
         "type": "string",
-        "enum": [
-          "auto",
-          "manual",
-          "off"
-        ]
+        "enum": ["auto", "manual", "off"]
+      },
+      "revision": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "personalMemoryEnabled": {
+        "type": "boolean"
+      },
+      "projectMemoryEnabled": {
+        "type": "boolean"
       }
     },
     "required": [
@@ -87,7 +122,11 @@
       "autoNominate",
       "growthDays",
       "updatedAt",
-      "version"
+      "version",
+      "captureMode",
+      "revision",
+      "personalMemoryEnabled",
+      "projectMemoryEnabled"
     ]
   },
   "x-examples": {
@@ -98,6 +137,12 @@
         "autoNominate": false,
         "growthDays": 14,
         "expectedVersion": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "captureMode": "manual",
+        "personalMemoryEnabled": true,
+        "projectMemoryEnabled": false,
+        "expectedRevision": 1
       }
     ],
     "negative": [
@@ -126,6 +171,17 @@
         "memoryEnabled": true,
         "autoNominate": false,
         "growthDays": 14
+      },
+      {
+        "subjectId": "user-1",
+        "memoryEnabled": true,
+        "autoNominate": false,
+        "growthDays": 14,
+        "expectedVersion": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expectedRevision": 1,
+        "captureMode": "auto",
+        "personalMemoryEnabled": true,
+        "projectMemoryEnabled": true
       }
     ]
   }

@@ -34,6 +34,9 @@ func controlMusicSession(ctx context.Context, app, action string, shuffle bool) 
 	}
 	state, err := mediaSessionAction(ctx, aliases, action, shuffle)
 	if err != nil {
+		if errors.Is(err, winexec.ErrSMTCSeekVolumeDisabled) || strings.Contains(err.Error(), "seek/volume") {
+			return result(appendL0JSON("external player does not expose seek/volume", "media-session", false, true, "MEDIA_UNSUPPORTED")), true
+		}
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			return result(appendL0JSON("media session request timed out; playback is unconfirmed; do not repeat the action automatically", "media-session", false, true, "timeout")), true
 		}
@@ -41,6 +44,9 @@ func controlMusicSession(ctx context.Context, app, action string, shuffle bool) 
 	}
 	if !state.Verified {
 		return result(appendL0JSON(fmt.Sprintf("media session action=%s; status=%s; result unconfirmed", action, state.Status), "media-session", false, true, state.Title)), true
+	}
+	if len(state.Capabilities) > 0 && !winexec.SMTCCapabilityAllowed(state.Capabilities, action) {
+		return result(appendL0JSON("external player capability missing; result unconfirmed", "media-session", false, true, "MEDIA_UNSUPPORTED")), true
 	}
 	detail := fmt.Sprintf("verified %s in %s; status=%s; title=%q; artist=%q; shuffle=%t", action, known.Canonical, state.Status, state.Title, state.Artist, state.Shuffle)
 	if action == "play" {
@@ -428,7 +434,14 @@ func genericPlaybackStarted(app, opened, how string) Result {
 	if opened != "" {
 		detail = "opened " + opened + "; " + detail
 	}
-	return result(appendL0JSON(detail, "foreground", true, false, label))
+	res := result(appendL0JSON(detail, "foreground", false, true, "MEDIA_UNVERIFIED"))
+	res.Receipt = &OperationReceipt{
+		Phase:              "uncertain",
+		VerificationStatus: "unconfirmed",
+		VerificationSource: "none",
+		ErrorCode:          "MEDIA_UNVERIFIED",
+	}
+	return res
 }
 
 func attachMediaL0(res Result) Result {

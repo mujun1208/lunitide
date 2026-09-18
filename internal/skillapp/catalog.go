@@ -917,8 +917,7 @@ var catalogTemplates = []CatalogTemplate{
 
 // InstallFromCatalog materializes one catalog template as a local draft
 // skill. Market install (skill.install) then publishes it so chat can
-// skill.invoke. Install is idempotent per template version: an existing
-// name+version answers ErrTemplateInstalled instead of a duplicate.
+// skill.invoke. Same name+version returns the existing skill without writing.
 func (s *Service) InstallFromCatalog(ctx context.Context, templateID string) (skill.Skill, error) {
 	if s == nil || s.write == nil {
 		return skill.Skill{}, errors.New("skill writer unavailable")
@@ -933,8 +932,8 @@ func (s *Service) InstallFromCatalog(ctx context.Context, templateID string) (sk
 	if tpl == nil {
 		return skill.Skill{}, fmt.Errorf("%w: %s", ErrTemplateUnknown, templateID)
 	}
-	if _, err := s.GetByNameVersion(ctx, tpl.Name, tpl.Version); err == nil {
-		return skill.Skill{}, fmt.Errorf("%w: %s@%s", ErrTemplateInstalled, tpl.Name, tpl.Version)
+	if existing, err := s.GetByNameVersion(ctx, tpl.Name, tpl.Version); err == nil && existing != nil {
+		return *existing, nil
 	}
 	return s.Create(ctx, skill.Skill{
 		Name: tpl.Name, DisplayName: tpl.DisplayName, Description: tpl.Description,

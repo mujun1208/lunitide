@@ -95,7 +95,7 @@ it('Message Renderer accepts exact flat Unicode boundaries and rejects rune/byte
   for (const text of ['a'.repeat(32768), '😀'.repeat(32768)]) {
     await user.clear(input)
     await fireEvent.change(input, { target: { value: text } })
-    expect(screen.getByText('32768/32768 字符 ·', { exact: false })).toBeInTheDocument()
+    expect(screen.getByText('32768字')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '仅保存' }))
     await waitFor(() => expect(append).toHaveBeenCalledWith({ sessionId: S1, text }, expect.anything()))
   }

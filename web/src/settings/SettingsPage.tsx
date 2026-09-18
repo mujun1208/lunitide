@@ -6,7 +6,7 @@ import{microphoneConstraints,saveMicrophoneId,selectedMicrophoneId}from'./microp
 import{ChoiceTiles}from'./ChoiceTiles'
 import{VoicePathPicker}from'./VoicePathPicker'
 import{VoicePersonaGrid}from'./VoicePersonaGrid'
-import{filterSettingsNav,SETTINGS_NAV_GROUPS,SETTINGS_CATEGORIES,type SettingsCategory}from'./settingsNav'
+import{filterSettingsNav,SETTINGS_NAV_GROUPS,SETTINGS_CATEGORIES,type SettingsCategory,type SettingsIntelligenceView}from'./settingsNav'
 import{MeetingNotesPanel}from'./MeetingNotesPanel'
 import { OfficeMenuPanel } from './OfficeMenuPanel'
 import{REPLY_STYLE_OPTIONS,STRUCTURED_TEMPLATE_OPTIONS}from'./replySettings'
@@ -22,7 +22,6 @@ import{AsrCorrectionRow}from'./AsrCorrectionRow'
 import{SubagentsPanel}from'./SubagentsPanel'
 import{ProviderApp}from'../provider/ProviderApp'
 import{CapabilityRouting}from'./CapabilityRouting'
-import{OCRRouting}from'./OCRRouting'
 import{PlanPage}from'../plan/PlanPage'
 import{ReviewPage}from'../review/ReviewPage'
 import{PersonalIntelligencePage}from'../m8/PersonalIntelligencePage'
@@ -102,13 +101,17 @@ function saveSettings<T>(key: string, value: T): void {
   } catch { /* ignore */ }
 }
 
-export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabel, initialCategory = 'general', providers, roles, ocr, onPreferLLM, embedded = false, recordingLock = false }: { onNavigateExpert?: () => void; onNavigateMcp?: () => void; onBack?: () => void; backLabel?: string; initialCategory?: SettingsCategory; providers?: ProviderBridge; roles?: CapabilityRolesBridge; ocr?: OCRRoutingBridge; onPreferLLM?: (providerId: string, modelId: string) => void; embedded?: boolean; recordingLock?: boolean }): React.JSX.Element {
+export function SettingsPage({ onNavigateExpert: _onNavigateExpert, onNavigateMcp, onBack, backLabel, initialCategory = 'general', intelligenceView = 'overview', onIntelligenceViewChange, providers, roles, ocr, onPreferLLM, embedded = false, recordingLock = false }: { onNavigateExpert?: () => void; onNavigateMcp?: () => void; onBack?: () => void; backLabel?: string; initialCategory?: SettingsCategory; intelligenceView?: SettingsIntelligenceView; onIntelligenceViewChange?: (view: SettingsIntelligenceView) => void; providers?: ProviderBridge; roles?: CapabilityRolesBridge; ocr?: OCRRoutingBridge; onPreferLLM?: (providerId: string, modelId: string) => void; embedded?: boolean; recordingLock?: boolean }): React.JSX.Element {
   const zh = useZh()
   const [category, setCategory] = useState<SettingsCategory>(initialCategory)
   const [search, setSearch] = useState('')
   const [general, setGeneral] = useState<GeneralSettings>(() => loadSettings('general', DEFAULT_GENERAL))
   const [appearance, setAppearance] = useState<AppearanceSettings>(() => loadSettings('appearance', DEFAULT_APPEARANCE))
   const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    setCategory(initialCategory)
+  }, [initialCategory])
 
   useEffect(() => {
     if (saved) { const t = setTimeout(() => setSaved(false), 2000); return () => clearTimeout(t) }
@@ -150,7 +153,10 @@ export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabe
                     <button
                       key={c.id}
                       className={`settings-item ${category === c.id ? 'on' : ''}`}
-                      onClick={() => setCategory(c.id)}
+                      onClick={() => {
+                        setCategory(c.id)
+                        if (c.id !== 'personal') onIntelligenceViewChange?.('overview')
+                      }}
                       aria-current={category === c.id ? 'page' : undefined}
                     >
                       <span className="ic" aria-hidden="true">{item.icon}</span>
@@ -177,10 +183,10 @@ export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabe
           {category === 'office-menu' && <OfficeMenuPanel onSaved={() => setSaved(true)} />}
           {category === 'profile' && <ProfilePanel />}
           {category === 'providers' && (providers ? <ProviderApp bridge={providers} embedded onPreferLLM={onPreferLLM} /> : <p className="setting-desc">供应商列表需要 Host 桥接。</p>)}
-          {category === 'routing' && (providers ? <><CapabilityRouting providers={providers} roles={roles} /><OCRRouting providers={providers} ocr={ocr} /></> : <p className="setting-desc">路由管理需要 Host 桥接。</p>)}
+          {category === 'routing' && (providers ? <CapabilityRouting providers={providers} roles={roles} /> : <p className="setting-desc">路由管理需要 Host 桥接。</p>)}
           {category === 'voice' && <VoicePanel />}
           {category === 'meetings' && <MeetingNotesPanel onSaved={() => setSaved(true)} recordingLock={recordingLock} />}
-          {category === 'personal' && <PersonalIntelligencePage onNavigateExpert={onNavigateExpert} />}
+          {category === 'personal' && <PersonalIntelligencePage view={intelligenceView} onViewChange={onIntelligenceViewChange} providers={providers} ocr={ocr} />}
           {category === 'datasources' && <DataSourcePanel api={{
             writes: datasourceBridge,
             list: () => datasourceBridge.list({}),

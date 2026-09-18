@@ -1,7 +1,7 @@
 import React,{useCallback,useEffect,useMemo,useRef,useState}from'react'
 import{mcBridge,mcpBridge,type McpBridge}from'../bridge/client'
 import type{Mcp6PresetsListResult,McpListResult}from'../generated/bridge'
-import{leftoverArchivedMcp,leftoverArchivedNames}from'../settings/leftoverMcp'
+import{leftoverArchivedMcp,leftoverArchivedNames,mcpCountsAsInstalled}from'../settings/leftoverMcp'
 import{Dialog}from'../ui/Dialog'
 import{McpCredentialDialog}from'./McpCredentialDialog'
 import{McpSecurityReviewDialog}from'./McpSecurityReviewDialog'
@@ -29,6 +29,8 @@ const statusOf=(item:Endpoint)=>{
 }
 const packageName=(args?:string[])=>args?.find(item=>item.startsWith('@')||item.includes('mcp'))??''
 const leftoverGdrive=(args?:string[])=>(args??[]).some(item=>item.includes('server-gdrive'))
+const needsUv=(code?:string,message?:string)=>code==='MCP_UV_UNAVAILABLE'||/未找到 uv/.test(message??'')
+const UV_POLL_MS=400
 const installedKey=(item:Endpoint)=>item.transport==='https'?`https|${item.url}`:`${item.command??''}|${packageName(item.args)||item.args?.[0]||''}`
 const presetKey=(preset:Preset)=>preset.transport==='https'?`https|${preset.url}`:`${preset.command}|${packageName(preset.args)||preset.args[0]||''}`
 const presetIdForEndpoint=(item:Endpoint,presets:readonly Preset[])=>presets.find(preset=>presetKey(preset)===installedKey(item))?.id??''
@@ -78,8 +80,10 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
  const[json,setJson]=useState(MANUAL_TEMPLATE)
  const[riskConfirmed,setRiskConfirmed]=useState(false)
  const[removeTarget,setRemoveTarget]=useState<Endpoint|null>(null)
+ const[cleanupOpen,setCleanupOpen]=useState(false)
  const[credentialTarget,setCredentialTarget]=useState<Endpoint|null>(null)
  const[reviewTarget,setReviewTarget]=useState<Endpoint|null>(null)
+ const[uvProgress,setUvProgress]=useState<{state:'idle'|'downloading'|'ready'|'failed';percent:number;lastError?:string}|undefined>()
  const leftoverRedirected=useRef(false)
 
  const load=useCallback(async()=>{
@@ -96,10 +100,11 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
  useEffect(()=>{void load()},[load])
 
  const leftoverNames=useMemo(()=>leftoverArchivedNames(endpoints),[endpoints])
- const installedKeys=useMemo(()=>new Set(endpoints.filter(item=>item.state!=='revoked').map(installedKey)),[endpoints])
+ const leftoverEndpoints=useMemo(()=>endpoints.filter(item=>item.state!=='revoked'&&leftoverArchivedMcp(item.args,item.url).length>0),[endpoints])
+ const installedKeys=useMemo(()=>new Set(endpoints.filter(mcpCountsAsInstalled).map(installedKey)),[endpoints])
  const categories=useMemo(()=>{const map=new Map<string,number>();for(const preset of presets)map.set(preset.category,(map.get(preset.category)??0)+1);return[...map.entries()]},[presets])
  const visiblePresets=useMemo(()=>{const q=query.trim().toLowerCase();return presets.filter(preset=>(!category||preset.category===category)&&(!q||`${preset.name} ${preset.description} ${preset.category} ${preset.args.join(' ')}`.toLowerCase().includes(q)))},[category,presets,query])
- const visibleInstalled=useMemo(()=>{const q=query.trim().toLowerCase();return endpoints.filter(item=>item.state!=='revoked'&&(!q||`${item.displayName??''} ${item.command??''} ${item.endpointId} ${leftoverArchivedMcp(item.args).join(' ')}`.toLowerCase().includes(q))).sort((a,b)=>(leftoverArchivedMcp(a.args).length?0:1)-(leftoverArchivedMcp(b.args).length?0:1))},[endpoints,query])
+ const visibleInstalled=useMemo(()=>{const q=query.trim().toLowerCase();return endpoints.filter(item=>item.state!=='revoked'&&(!q||`${item.displayName??''} ${item.command??''} ${item.endpointId} ${item.url??''} ${leftoverArchivedMcp(item.args,item.url).join(' ')}`.toLowerCase().includes(q))).sort((a,b)=>(leftoverArchivedMcp(a.args,a.url).length?0:1)-(leftoverArchivedMcp(b.args,b.url).length?0:1))},[endpoints,query])
  const connected=visibleInstalled.filter(item=>item.enabled&&item.state==='ready').length
  const failed=visibleInstalled.filter(item=>item.state==='quarantined'||item.state==='degraded').length
 
@@ -110,6 +115,12 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
   setBusy(preset.id);setError('');setNotice('')
   try{
    const added=await bridge.add({origin:'manual',transport:preset.transport,...(preset.transport==='https'?{url:preset.url}:{command:preset.command,args:resolveArgs(preset,resolved)}),riskConfirmed:true,configureOnly:Boolean(preset.needsCredential),requestId:crypto.randomUUID()})
+   if(!preset.needsCredential && added.state!=='ready'){
+    const refreshed=await load()
+    const row=refreshed?.find(item=>item.endpointId===added.endpointId)
+    setError(`「${preset.name}」${row?.diagnosticMessage||'未能完成连接。请检查 uv / Node 运行环境及服务器版本后重试。'}`)
+    return
+   }
    if(!preset.needsCredential)await bridge.toggle({endpointId:added.endpointId,enabled:true})
    setView('installed')
    const refreshed=await load()
@@ -139,6 +150,33 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
    await mcBridge.uninstall({endpointId:removeTarget.endpointId,confirmToken:token.confirmToken})
    setNotice(`已删除「${endpointTitle(removeTarget,presets)}」`);setRemoveTarget(null);await load()
   }catch(e){setError(mcpUserError(e,'删除失败'))}finally{setBusy('')}
+ }
+ const cleanupLeftovers=async()=>{
+  if(!leftoverEndpoints.length)return
+  setBusy('cleanup');setError('');setNotice('')
+  try{
+   for(const item of leftoverEndpoints){
+    const token=await mcBridge.confirmToken({method:'mc.connector.uninstall',target:item.endpointId})
+    await mcBridge.uninstall({endpointId:item.endpointId,confirmToken:token.confirmToken})
+   }
+   setNotice(`已卸载 ${leftoverEndpoints.length} 个无法使用的下架 MCP`);setCleanupOpen(false);await load()
+  }catch(e){setError(mcpUserError(e,'卸载下架 MCP 失败'))}finally{setBusy('')}
+ }
+ const installUv=async()=>{
+  if(!bridge.uvInstall||busy==='uv')return
+  setBusy('uv');setError('');setNotice('')
+  const pump=async()=>{
+   try{
+    const snap=await bridge.uvInstall!()
+    setUvProgress({state:snap.state,percent:snap.percent,lastError:snap.lastError})
+    if(snap.state==='downloading'){window.setTimeout(()=>{void pump()},UV_POLL_MS);return}
+    if(snap.state==='failed'){setError(snap.lastError||'uv 安装失败');setBusy('');return}
+    setNotice('uv 已安装，可重新连接 Python MCP')
+    await load()
+    setBusy('')
+   }catch(e){setError(mcpUserError(e,'uv 安装失败'));setBusy('')}
+  }
+  await pump()
  }
  const saveManual=async()=>{
   setBusy('manual');setError('');setNotice('')
@@ -171,8 +209,8 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
    <label className="skill-search">搜索<input value={query} onChange={e=>setQuery(e.target.value)} placeholder={view==='market'?'名称或分类':'已安装 MCP'}/></label>
    <button aria-label="刷新 MCP" onClick={()=>void load()}>↻</button>
   </section>
-  {error&&<p className="skill-center-error" role="alert">{error}</p>}
-  {leftoverNames.length>0&&<p role="status" className="notice" style={{color:'var(--err)'}}>检测到已下架 MCP（{leftoverNames.join('、')}）。请在本页卸载，设置里不再做第二套卸载。</p>}
+  {error&&<p className="skill-center-error" role="alert">{error}{needsUv('',error)&&bridge.uvInstall?<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>void installUv()}>{uvProgress?.state==='downloading'?`下载中 ${uvProgress.percent}%`:'安装 uv'}</button>:null}</p>}
+  {leftoverNames.length>0&&<p role="status" className="notice" style={{color:'var(--err)'}}>检测到已下架且无法继续使用的 MCP（{leftoverNames.join('、')}）。<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>setCleanupOpen(true)}>一键卸载</button></p>}
   {notice&&<p role="status">{notice}</p>}
   {view==='market'?<>
    <nav className="skill-market-cats" aria-label="MCP 分类">
@@ -196,7 +234,7 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
     })}</div>:<div className="empty"><b>没有匹配的 MCP</b><span>换个分类或关键字再试。</span></div>}
    </section>
   </>:<section className="expert-card-list" aria-label="已安装 MCP">
-   {visibleInstalled.length?visibleInstalled.map(item=>{const status=statusOf(item);const presetId=presetIdForEndpoint(item,presets);const preset=presets.find(entry=>entry.id===presetId);const gdrive=leftoverGdrive(item.args);const needsCredential=Boolean((preset?.needsCredential||gdrive)&&!item.credentialConfigured);const leftover=leftoverArchivedMcp(item.args);const title=endpointTitle(item,presets);return <article className="expert-card mcp-card" key={item.endpointId||title}>
+   {visibleInstalled.length?visibleInstalled.map(item=>{const status=statusOf(item);const presetId=presetIdForEndpoint(item,presets);const preset=presets.find(entry=>entry.id===presetId);const leftover=leftoverArchivedMcp(item.args,item.url);const gdrive=leftover.includes('Google Drive')||leftoverGdrive(item.args);const needsCredential=Boolean((preset?.needsCredential||gdrive)&&!item.credentialConfigured);const title=endpointTitle(item,presets);return <article className="expert-card mcp-card" key={item.endpointId||title}>
     <div className="expert-card-main">
      <b>{title}</b>
      {leftover.length>0&&<small>已下架 · {leftover.join('、')}</small>}
@@ -204,6 +242,7 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
      {item.lockedArgs?.length? <small>已锁定：{item.lockedArgs.join(' ')}</small>:null}
      {needsCredential&&<p className="setting-desc">此服务需要凭据。{gdrive?'Google Drive 需要先完成 OAuth 授权，再填写 GDRIVE_CREDENTIALS_PATH；普通文件目录不能代替授权。':'请先完成服务授权，再配置凭据并重新连接。'}</p>}
      {item.state!=='ready'&&item.diagnosticMessage&&<p className="setting-desc" role="status">{item.diagnosticMessage}</p>}
+     {needsUv(item.diagnosticCode,item.diagnosticMessage)&&bridge.uvInstall&&<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>void installUv()}>{busy==='uv'||uvProgress?.state==='downloading'?`下载 uv ${uvProgress?.percent??0}%`:'安装 uv'}</button>}
      {(preset?.setupUrl||gdrive)&&<a href={preset?.setupUrl||GDRIVE_SETUP} target="_blank" rel="noreferrer">官方配置说明</a>}
     </div>
     <i className={`skill-status status-${status.id==='ready'?'published':status.id==='off'||status.id==='degraded'?'disabled':status.id==='quarantined'?'deprecated':'draft'}`}>{status.label}</i>
@@ -226,6 +265,9 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
   </Dialog>
   {credentialTarget&&bridge.credentialSet&&<McpCredentialDialog endpoint={credentialTarget} suggestedEnvs={presets.find(preset=>presetKey(preset)===installedKey(credentialTarget))?.credentialEnvs??(leftoverGdrive(credentialTarget.args)?['GDRIVE_CREDENTIALS_PATH']:undefined)} save={bridge.credentialSet} onClose={()=>setCredentialTarget(null)} onSaved={()=>{setNotice('凭据已更新，请重新连接以验证');void load()}}/>}
   {reviewTarget&&bridge.securityReview&&<McpSecurityReviewDialog endpoint={reviewTarget} review={bridge.securityReview} onClose={()=>setReviewTarget(null)} onSaved={()=>{setNotice('变更已确认，请重新连接');void load()}}/>}
+  <Dialog open={cleanupOpen} title="卸载无法使用的 MCP" description={`将删除 ${leftoverNames.join('、')}。这些服务已下架或必须单独授权，无法在一键市场中继续使用。`} onClose={()=>{if(!busy)setCleanupOpen(false)}}>
+   <div className="dialog-actions"><button type="button" disabled={Boolean(busy)} onClick={()=>setCleanupOpen(false)}>取消</button><button className="danger" disabled={Boolean(busy)} onClick={()=>void cleanupLeftovers()}>{busy==='cleanup'?'卸载中…':'确认卸载'}</button></div>
+  </Dialog>
   <Dialog open={!!removeTarget} title={`删除「${removeTarget?endpointTitle(removeTarget,presets):''}」`} description="删除后需重新从市场或 JSON 安装才能再用。" onClose={()=>{if(!busy)setRemoveTarget(null)}}>
    <div className="dialog-actions"><button type="button" disabled={Boolean(busy)} onClick={()=>setRemoveTarget(null)}>取消</button><button className="danger" disabled={Boolean(busy)} onClick={()=>void remove()}>{busy===removeTarget?.endpointId?'删除中…':'确认删除'}</button></div>
   </Dialog>

@@ -21,8 +21,8 @@ func TestUpgradeV26RemovesLegacyTokenLedgerUniqueConstraint(t *testing.T) {
 	// Recreate the exact pre-0027 table shape and migration boundary. This is
 	// deliberately test-only; historical migration bytes remain untouched.
 	// Every table added after 0026 must be dropped here, including 0092
-	// local_identity / people_* and 0157–0159 model/protocol/office tables,
-	// or Open re-applies CREATE TABLE and fails.
+	// local_identity / people_* and 0157–0165 model/protocol/office/memory/ocr/media
+	// tables, or Open re-applies CREATE TABLE and fails.
 	db := openRaw(t, path)
 	defer db.Close()
 	if _, err = db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
@@ -355,6 +355,60 @@ DROP TABLE IF EXISTS protocol_messages_v2;
 DROP TABLE IF EXISTS protocol_epochs_v2;
 DROP TABLE IF EXISTS model_targets_v2;
 DROP TABLE IF EXISTS model_profiles_v2;
+DROP TABLE IF EXISTS memory_generation_members;
+DROP TABLE IF EXISTS memory_generation_heads;
+DROP TABLE IF EXISTS memory_consolidation_jobs;
+DROP TABLE IF EXISTS memory_generations;
+DROP TABLE IF EXISTS memory_search_fts;
+DROP TABLE IF EXISTS memory_search_documents;
+DROP TABLE IF EXISTS memory_embeddings;
+DROP TABLE IF EXISTS memory_embedding_jobs;
+DROP TABLE IF EXISTS memory_recall_hit_details;
+DROP TABLE IF EXISTS memory_feedback_events;
+DROP TABLE IF EXISTS memory_relations;
+DROP TABLE IF EXISTS memory_entities;
+DROP TABLE IF EXISTS memory_archive_leases;
+DROP TABLE IF EXISTS memory_archive_artifacts;
+DROP TABLE IF EXISTS memory_budget_reservations;
+DROP TABLE IF EXISTS memory_budget_days;
+DROP TABLE IF EXISTS memory_source_suppressions;
+DROP TABLE IF EXISTS memory_purge_grants;
+DROP TABLE IF EXISTS memory_import_previews;
+DROP TABLE IF EXISTS memory_model_usage;
+DROP TABLE IF EXISTS memory_capture_policies;
+DROP TABLE IF EXISTS memory_capture_cursor;
+DROP TABLE IF EXISTS memory_capture_jobs;
+DROP TABLE IF EXISTS memory_event_log;
+DROP TABLE IF EXISTS memory_migration_map;
+DROP TABLE IF EXISTS memory_candidate_assessments;
+DROP TABLE IF EXISTS memory_evidence_spans;
+DROP TABLE IF EXISTS memory_fact_candidate_links;
+DROP TABLE IF EXISTS memory_fact_supersessions;
+DROP TABLE IF EXISTS memory_content_bodies;
+DROP TABLE IF EXISTS memory_content_versions;
+DROP TABLE IF EXISTS memory_fact_heads;
+DROP TABLE IF EXISTS memory_v2_settings;
+DROP TABLE IF EXISTS ocr_artifact_leases;
+DROP TABLE IF EXISTS ocr_artifacts;
+DROP TABLE IF EXISTS ocr_page_results;
+DROP TABLE IF EXISTS ocr_document_runs;
+DROP TABLE IF EXISTS ocr_version_leases;
+DROP TABLE IF EXISTS ocr_legacy_registrations;
+DROP TABLE IF EXISTS ocr_pack_notices;
+DROP TABLE IF EXISTS ocr_pack_operations;
+DROP TABLE IF EXISTS ocr_pack_versions;
+DROP TABLE IF EXISTS ocr_pack_gates;
+DROP TABLE IF EXISTS ocr_pack_state;
+DROP TABLE IF EXISTS ocr_settings;
+DROP TABLE IF EXISTS media_player_commands;
+DROP TABLE IF EXISTS media_player_leases;
+DROP TABLE IF EXISTS media_queue_items;
+DROP TABLE IF EXISTS media_operations;
+DROP TABLE IF EXISTS media_bookmarks;
+DROP TABLE IF EXISTS media_audio_focus;
+DROP TABLE IF EXISTS media_sessions;
+DROP TABLE IF EXISTS media_assets;
+DROP TABLE IF EXISTS media_settings;
 DELETE FROM schema_migrations WHERE version >= '0027_token_ledger_remove_legacy_unique.sql';
 INSERT INTO projects(id,name,project_code,created_at,updated_at) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA0','project','ITM00001','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');
 INSERT INTO sessions(id,project_id,title,created_at,updated_at) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA1','01ARZ3NDEKTSV4RRFFQ69G5FA0','session','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');

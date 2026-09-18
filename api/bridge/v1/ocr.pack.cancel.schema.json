@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/ocr.pack.cancel.schema.json",
+  "title": "ocr.pack.cancel payload",
+  "x-method": "ocr.pack.cancel",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["operationId", "expectedRevision"],
+  "properties": {
+    "operationId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "expectedRevision": { "type": "integer", "minimum": 1 }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["requestId", "operationId", "activityId", "cancelRequested", "phase", "operationRevision"],
+    "properties": {
+      "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
+      "operationId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+      "activityId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+      "cancelRequested": { "type": "boolean" },
+      "phase": { "type": "string", "enum": ["requested", "preflighting", "downloading", "verifying", "installing", "self_testing", "succeeded", "failed", "cancelled"] },
+      "operationRevision": { "type": "integer", "minimum": 1 }
+    }
+  },
+  "x-examples": {
+    "positive": [{ "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "expectedRevision": 1 }],
+    "negative": [{ "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "expectedRevision": 0 }, { "expectedRevision": 1 }]
+  }
+}

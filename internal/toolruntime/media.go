@@ -192,7 +192,7 @@ func executeMediaPlayWithCC(ctx context.Context, invoke ccInvoker, session strin
 			return Result{}, err
 		}
 		if u != "" {
-			return result(appendL0JSON("opened "+u+" and sent play", "url", true, false, u)), nil
+			return result(appendL0JSON("opened "+u+" and sent play", "url", false, true, "MEDIA_UNVERIFIED")), nil
 		}
 		return result(appendL0JSON("sent play to the active media app", "foreground", false, true, "no now-playing")), nil
 	case "pause", "toggle":
@@ -243,7 +243,7 @@ func executeMediaPlayWithCC(ctx context.Context, invoke ccInvoker, session strin
 		if err := openMediaURL(u); err != nil {
 			return Result{}, err
 		}
-		return result(appendL0JSON("opened "+u, "url", true, false, u)), nil
+		return result(appendL0JSON("opened "+u, "url", false, true, "MEDIA_UNVERIFIED")), nil
 	default:
 		return Result{}, fmt.Errorf("unknown media.play action %q", action)
 	}

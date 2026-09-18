@@ -149,7 +149,11 @@ func TestOfficeVersionTextCacheFollowsOCRRoutingRevision(t *testing.T) {
 	}
 	label = "after-reroute"
 	cur, _ := svc.Routing()
-	if _, err := svc.SetRouting(ocrapp.Routing{PreferProvider: false}, cur.Revision); err != nil {
+	if _, err := svc.SetRouting(ocrapp.Routing{
+		PreferProvider: true,
+		ProviderID:     "01ARZ3NDEKTSV4RRFFQ69G5FAA",
+		ModelID:        "ocr-v1",
+	}, cur.Revision); err != nil {
 		t.Fatal(err)
 	}
 	second, err := e.officeVersionText(context.Background(), v, data)

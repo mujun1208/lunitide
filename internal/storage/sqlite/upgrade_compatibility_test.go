@@ -72,7 +72,7 @@ func TestUpgradeMigrationBackupCompatibility(t *testing.T) {
 	if !containsName(applied, "0159_office_delivery_v2.sql") {
 		t.Fatal("0159_office_delivery_v2.sql must be applied")
 	}
-	if err = RefuseUnknownUpgradeSchema([]string{"0160_future.sql"}); !errors.Is(err, ErrUnknownSchema) {
+	if err = RefuseUnknownUpgradeSchema([]string{"0166_future.sql"}); !errors.Is(err, ErrUnknownSchema) {
 		t.Fatalf("legacy writer must refuse unknown schema, got %v", err)
 	}
 

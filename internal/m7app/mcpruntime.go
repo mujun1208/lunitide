@@ -283,8 +283,10 @@ func (s *McpRuntimeService) Add(ctx context.Context, in McpAddInput) (McpAddResu
 	if err != nil {
 		return McpAddResult{}, err
 	}
-	// probe outside the write tx: failure parks degraded (M7-MCP-004)
-	if out.State == m7flow.McpStateProbe && !in.ConfigureOnly {
+	// probe outside the write tx: failure parks degraded (M7-MCP-004).
+	// Retrying add for a parked endpoint must probe again — otherwise a failed
+	// first handshake permanently looks "installed" and never recovers.
+	if !in.ConfigureOnly && (out.State == m7flow.McpStateProbe || out.State == m7flow.McpStateDegraded) {
 		hm, herr := s.Health(ctx, out.EndpointID)
 		if herr != nil {
 			return McpAddResult{EndpointID: out.EndpointID, State: m7flow.McpStateProbe}, herr

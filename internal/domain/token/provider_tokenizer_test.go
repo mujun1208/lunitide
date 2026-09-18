@@ -103,3 +103,18 @@ func TestCountTokensForModel_Deterministic(t *testing.T) {
 		}
 	}
 }
+
+func TestProviderTokenizerMetadata(t *testing.T) {
+	gpt := EstimateForDeployment("gpt-4o", "hello world")
+	if gpt.Method != "exact" || gpt.Confidence != "high" || gpt.TokenizerRevision == "" || gpt.Count != 2 {
+		t.Fatalf("openai exact metadata: %+v", gpt)
+	}
+	ds := EstimateForDeployment("deepseek-chat", "hello world")
+	if ds.Method != "family_calibrated" || ds.Confidence != "medium" || ds.TokenizerRevision != "deepseek-offline-v1" {
+		t.Fatalf("deepseek metadata: %+v", ds)
+	}
+	unknown := EstimateForDeployment("totally-unknown-model", "hello world")
+	if unknown.Method != "canonical_fallback" || unknown.Confidence != "low" || unknown.TokenizerRevision != CanonicalTokenizerRevision {
+		t.Fatalf("fallback metadata: %+v", unknown)
+	}
+}

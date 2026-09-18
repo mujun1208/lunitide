@@ -62,8 +62,8 @@ func TestPPOcrPackReadyInNestedFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := DetectPPOcrPack(root)
-	if !got.Available {
-		t.Fatalf("nested RapidOCR must be selectable: %+v", got)
+	if !got.Available || got.Status != "ready" || got.Backend != "ppocr-pack" {
+		t.Fatalf("nested RapidOCR must be a runnable pack: %+v", got)
 	}
 	if exe := FindPackExecutable(root); exe == "" {
 		t.Fatal("nested RapidOCR executable must be found")
@@ -87,7 +87,7 @@ func TestInstallerReceiptWithoutExeIsNotInstalled(t *testing.T) {
 	}
 }
 
-func TestPPOcrPackReadyAfterUserRoot(t *testing.T) {
+func TestPPOcrOnnxMarkerIsRegisteredUnwired(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "paddleocr")
 	if err := os.MkdirAll(root, 0700); err != nil {
 		t.Fatal(err)
@@ -96,8 +96,38 @@ func TestPPOcrPackReadyAfterUserRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := DetectPPOcrPack(root)
-	if !got.Available || got.Status != "ready" || got.Backend != "ppocr-pack" {
-		t.Fatalf("user-installed folder must be selectable: %+v", got)
+	if got.Available || got.Status != "registered_unwired" || got.Backend != "ppocr-pack" {
+		t.Fatalf("onnx/ppocr markers must stay unwired: %+v", got)
+	}
+	if exe := FindPackExecutable(root); exe != "" {
+		t.Fatalf("unwired marker must not be executable: %s", exe)
+	}
+	store := NewFileStore(filepath.Join(t.TempDir(), "ocr-routing.json"))
+	svc := New(store)
+	cur, err := svc.Routing()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SetRouting(Routing{PreferProvider: true, LocalEngine: "ppocr", PackRoot: root}, cur.Revision); err == nil {
+		t.Fatal("unwired marker must not unlock localEngine=ppocr")
+	}
+	snap := svc.HealthSnapshot()
+	if snap.Pack.Available || snap.Local.Backend == "ppocr" {
+		t.Fatalf("health must not claim ppocr from onnx marker: %+v", snap)
+	}
+}
+
+func TestRapidOCRPackIsRunnable(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "rapidocr")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "RapidOCR-json.exe"), []byte("MZ"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	got := DetectPPOcrPack(root)
+	if !got.Available || got.Status != "ready" {
+		t.Fatalf("RapidOCR exe must be runnable: %+v", got)
 	}
 	store := NewFileStore(filepath.Join(t.TempDir(), "ocr-routing.json"))
 	svc := New(store)
@@ -106,23 +136,25 @@ func TestPPOcrPackReadyAfterUserRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := svc.SetRouting(Routing{PreferProvider: true, LocalEngine: "ppocr"}, cur.Revision); err == nil {
-		t.Fatal("PP-OCR must stay unselectable until a pack root exists")
+		t.Fatal("new writes must still reject localEngine=ppocr without a pack root")
 	}
-	cur, _ = svc.Routing()
-	saved, err := svc.SetRouting(Routing{PreferProvider: true, LocalEngine: "ppocr", PackRoot: root}, cur.Revision)
-	if err != nil || saved.LocalEngine != "ppocr" || saved.PackRoot != root {
-		t.Fatalf("installed pack must persist: %+v %v", saved, err)
+	saved, err := svc.SetRouting(Routing{PreferProvider: false, LocalEngine: "auto", PackRoot: root}, cur.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.PackRoot != root {
+		t.Fatalf("auto write must keep RapidOCR pack root: %+v", saved)
 	}
 	snap := svc.HealthSnapshot()
 	if !snap.Pack.Available || snap.Local.Backend != "ppocr" {
-		t.Fatalf("installed pack with ppocr selected must report localReady ppocr: %+v", snap)
+		t.Fatalf("health must claim ppocr from RapidOCR exe: %+v", snap)
 	}
 }
 
 func TestRoutingRevisionConflictAndPairing(t *testing.T) {
 	store := NewFileStore(filepath.Join(t.TempDir(), "ocr-routing.json"))
 	cur, err := store.Get()
-	if err != nil || !cur.PreferProvider || cur.Revision == "" {
+	if err != nil || cur.PreferProvider || cur.Revision == "" {
 		t.Fatalf("default routing %+v %v", cur, err)
 	}
 	_, pairErr := store.CompareAndSet(Routing{ProviderID: "p"}, cur.Revision)
@@ -136,8 +168,11 @@ func TestRoutingRevisionConflictAndPairing(t *testing.T) {
 	if !errors.Is(err, ErrRevisionConflict) || got.Revision != cur.Revision {
 		t.Fatalf("stale set = %+v %v", got, err)
 	}
-	next, err := store.CompareAndSet(Routing{PreferProvider: false}, cur.Revision)
-	if err != nil || next.PreferProvider || next.Revision == cur.Revision {
+	next, err := store.CompareAndSet(Routing{Policy: Policy{
+		Mode: "local_fast", ComplexDocumentEngine: "paddleocr-vl-1.6",
+		FallbackOrder: []string{"windows-ocr"}, SendToCloud: "never",
+	}}, cur.Revision)
+	if err != nil || next.Policy.Mode != "local_fast" || next.Revision == cur.Revision {
 		t.Fatalf("apply %+v %v", next, err)
 	}
 }
@@ -267,6 +302,62 @@ func TestRecognizeImageUsesLocalWhenProviderUnbound(t *testing.T) {
 	got, err := svc.RecognizeImage(context.Background(), []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a})
 	if err != nil || got.Source != SourceLocal || got.Text != "仅本机" || calls != 0 {
 		t.Fatalf("unbound routing must stay local: %+v %v calls=%d", got, err, calls)
+	}
+}
+
+func TestRecognizeImageUsesCloudBindingWhenOCRRoutingUnbound(t *testing.T) {
+	svc := New(NewFileStore(filepath.Join(t.TempDir(), "ocr-routing.json")))
+	calls := 0
+	svc.SetCloudBinding(func(context.Context) (string, string, bool) {
+		return "01ARZ3NDEKTSV4RRFFQ69G5FAA", "ocr-v1", true
+	})
+	svc.SetProvider(func(context.Context, []byte, string) (string, error) {
+		calls++
+		return "能力路由视觉", nil
+	})
+	svc.SetLocalImage(localImageOK("仅本机"))
+	got, err := svc.RecognizeImage(context.Background(), []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a})
+	if err != nil || got.Source != SourceProvider || got.Text != "能力路由视觉" || calls != 1 {
+		t.Fatalf("bound vision role must run before local: %+v %v calls=%d", got, err, calls)
+	}
+}
+
+func TestRecognizeImageUsesCloudBindingWhenStoredRoutingForbidsCloud(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ocr-routing.json")
+	if err := os.WriteFile(path, []byte(`{"providerId":"01ARZ3NDEKTSV4RRFFQ69G5FAA","modelId":"ocr-v1","policy":{"mode":"auto","complexDocumentEngine":"paddleocr-vl-1.6","fallbackOrder":["ppocr","windows-ocr"],"sendToCloud":"never"},"revision":"legacy"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(NewFileStore(path))
+	calls := 0
+	svc.SetCloudBinding(func(context.Context) (string, string, bool) {
+		return "01ARZ3NDEKTSV4RRFFQ69G5FBB", "vision-1", true
+	})
+	svc.SetProvider(func(context.Context, []byte, string) (string, error) {
+		calls++
+		return "能力路由视觉", nil
+	})
+	svc.SetLocalImage(localImageOK("仅本机"))
+	got, err := svc.RecognizeImage(context.Background(), []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a})
+	if err != nil || got.Source != SourceProvider || got.Text != "能力路由视觉" || calls != 1 {
+		t.Fatalf("stored never must still use vision binding: %+v %v calls=%d", got, err, calls)
+	}
+}
+
+func TestRecognizeImageSkipsProviderWhenStoredNeverAndNoVision(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ocr-routing.json")
+	if err := os.WriteFile(path, []byte(`{"providerId":"01ARZ3NDEKTSV4RRFFQ69G5FAA","modelId":"ocr-v1","policy":{"mode":"auto","complexDocumentEngine":"paddleocr-vl-1.6","fallbackOrder":["ppocr","windows-ocr"],"sendToCloud":"never"},"revision":"legacy"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(NewFileStore(path))
+	calls := 0
+	svc.SetProvider(func(context.Context, []byte, string) (string, error) {
+		calls++
+		return "should not run", nil
+	})
+	svc.SetLocalImage(localImageOK("仅本机"))
+	got, err := svc.RecognizeImage(context.Background(), []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a})
+	if err != nil || got.Source != SourceLocal || got.Text != "仅本机" || calls != 0 {
+		t.Fatalf("stored never without vision must stay local: %+v %v calls=%d", got, err, calls)
 	}
 }
 
@@ -665,4 +756,118 @@ func TestRecognizePDFWithoutLocalUsesChineseFailClosed(t *testing.T) {
 	if strings.Contains(err.Error(), "local OCR is unavailable") || strings.Contains(err.Error(), "PDF text layer unavailable") {
 		t.Fatalf("must not leak English PDF-OCR gap: %v", err)
 	}
+}
+
+func TestOCRCatalog(t *testing.T) {
+	bundle := Runtime()
+	if bundle.ID != RuntimeID || len(bundle.Downloads) != 1 || bundle.Downloads[0].SHA256 == "" {
+		t.Fatalf("catalog must stay a pinned RapidOCR receipt, not an executable claim: %+v", bundle)
+	}
+	root := filepath.Join(t.TempDir(), "rapidocr")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "RapidOCR-json.exe"), []byte("MZ"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	got := DetectPPOcrPack(root)
+	if !got.Available || got.Status != "ready" {
+		t.Fatalf("RapidOCR catalog presence must mark pack available: %+v", got)
+	}
+	if EffectiveLocalEngine("auto", got) != "ppocr" {
+		t.Fatalf("catalog must unlock ppocr execution: %q", EffectiveLocalEngine("auto", got))
+	}
+	if EffectiveLocalEngine("windows-ocr", got) != "windows-ocr" {
+		t.Fatalf("explicit windows-ocr must skip pack: %q", EffectiveLocalEngine("windows-ocr", got))
+	}
+}
+
+func TestOCRRoute(t *testing.T) {
+	if err := ValidatePolicy(Policy{Mode: "local_document", ComplexDocumentEngine: "paddleocr-vl-1.6", FallbackOrder: []string{"windows-ocr"}, SendToCloud: "never"}); !errors.Is(err, ErrDocumentEngineUnready) {
+		t.Fatalf("local_document must stay unready: %v", err)
+	}
+	if EffectiveLocalEngine("", PackStatus{Available: true, Status: "ready"}) != "ppocr" {
+		t.Fatal("auto engine must use RapidOCR when the pack is ready")
+	}
+	p := DefaultPolicy()
+	if p.Mode != "auto" || p.ComplexDocumentEngine != "none" || len(p.FallbackOrder) != 2 || p.FallbackOrder[0] != "ppocr" || p.FallbackOrder[1] != "windows-ocr" || p.SendToCloud != "never" {
+		t.Fatalf("default route %+v", p)
+	}
+	if err := ValidatePolicy(Policy{Mode: "auto", ComplexDocumentEngine: "paddleocr-vl-1.6", FallbackOrder: []string{"ppocr", "windows-ocr"}, SendToCloud: "never"}); err != nil {
+		t.Fatalf("ppocr fallback must be valid: %v", err)
+	}
+	bound := EffectivePolicy(Routing{ProviderID: "01ARZ3NDEKTSV4RRFFQ69G5FAA", ModelID: "ocr-v1"})
+	if bound.Mode != "provider_first" || bound.ComplexDocumentEngine != "none" || bound.SendToCloud != "configured_only" || strings.Join(bound.FallbackOrder, ",") != "provider,ppocr,windows-ocr" {
+		t.Fatalf("bound route %+v", bound)
+	}
+}
+
+func TestOCROrderProviderThenPPThenWindows(t *testing.T) {
+	png := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}
+	root := filepath.Join(t.TempDir(), "rapidocr")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "RapidOCR-json.exe"), []byte("MZ"), 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("provider first when bound", func(t *testing.T) {
+		svc := New(NewFileStore(filepath.Join(t.TempDir(), "ocr.json")))
+		cur, _ := svc.Routing()
+		if _, err := svc.SetRouting(Routing{ProviderID: "01ARZ3NDEKTSV4RRFFQ69G5FAA", ModelID: "ocr-v1", PackRoot: root}, cur.Revision); err != nil {
+			t.Fatal(err)
+		}
+		packCalls, winCalls := 0, 0
+		svc.SetProvider(func(context.Context, []byte, string) (string, error) { return "云端识别", nil })
+		svc.SetPackImage(func(context.Context, string, []byte) (doctext.PDFOCRResult, error) {
+			packCalls++
+			return doctext.PDFOCRResult{Method: "ppocr", Pages: []doctext.OCRPage{{Page: 1, Text: "PP"}}}, nil
+		})
+		svc.SetLocalImage(func(context.Context, []byte) (doctext.PDFOCRResult, error) {
+			winCalls++
+			return localImageOK("windows")(context.Background(), nil)
+		})
+		got, err := svc.RecognizeImage(context.Background(), png)
+		if err != nil || got.Method != "provider-ocr" || got.Text != "云端识别" || packCalls != 0 || winCalls != 0 {
+			t.Fatalf("bound provider must run first: %+v err=%v pack=%d win=%d", got, err, packCalls, winCalls)
+		}
+	})
+
+	t.Run("RapidOCR after provider failure", func(t *testing.T) {
+		svc := New(NewFileStore(filepath.Join(t.TempDir(), "ocr.json")))
+		cur, _ := svc.Routing()
+		if _, err := svc.SetRouting(Routing{ProviderID: "01ARZ3NDEKTSV4RRFFQ69G5FAA", ModelID: "ocr-v1", PackRoot: root}, cur.Revision); err != nil {
+			t.Fatal(err)
+		}
+		winCalls := 0
+		svc.SetProvider(func(context.Context, []byte, string) (string, error) { return "", errors.New("503 unavailable") })
+		svc.SetPackImage(func(context.Context, string, []byte) (doctext.PDFOCRResult, error) {
+			return doctext.PDFOCRResult{Method: "ppocr", Pages: []doctext.OCRPage{{Page: 1, Text: "PP识别"}}}, nil
+		})
+		svc.SetLocalImage(func(context.Context, []byte) (doctext.PDFOCRResult, error) {
+			winCalls++
+			return localImageOK("windows")(context.Background(), nil)
+		})
+		got, err := svc.RecognizeImage(context.Background(), png)
+		if err != nil || got.Method != "ppocr" || got.Text != "PP识别" || winCalls != 0 {
+			t.Fatalf("PP must follow a failed provider: %+v err=%v win=%d", got, err, winCalls)
+		}
+	})
+
+	t.Run("Windows last when RapidOCR fails", func(t *testing.T) {
+		svc := New(NewFileStore(filepath.Join(t.TempDir(), "ocr.json")))
+		svc.SetPackImage(func(context.Context, string, []byte) (doctext.PDFOCRResult, error) {
+			return doctext.PDFOCRResult{}, errors.New("pack exploded")
+		})
+		svc.SetLocalImage(localImageOK("windows兜底"))
+		cur, _ := svc.Routing()
+		if _, err := svc.SetRouting(Routing{PackRoot: root, LocalEngine: "auto"}, cur.Revision); err != nil {
+			t.Fatal(err)
+		}
+		got, err := svc.RecognizeImage(context.Background(), png)
+		if err != nil || got.Text != "windows兜底" || got.Method != "windows-ocr" {
+			t.Fatalf("Windows must be last fallback: %+v err=%v", got, err)
+		}
+	})
 }

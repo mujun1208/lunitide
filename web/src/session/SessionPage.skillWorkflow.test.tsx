@@ -137,7 +137,7 @@ it('counts selected references in the full long description and never clips a va
   await screen.findByRole('button', { name: '已配置模型' });
   const raw = '创建专家，完整能力要求。'.repeat(220);
   fireEvent.change(input(), { target: { value: raw } });
-  expect(screen.getByText(/含引用.*字节/)).toBeInTheDocument();
+  expect(screen.getByText('+引用')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '↑ 发送并对话' }));
   await waitFor(() => expect(start).toHaveBeenCalledOnce());
   expect(vi.mocked(props.messages.append).mock.calls[0][0].text).toBe(`[引用技能 报告助手|${skill.id}]\n${raw}`);

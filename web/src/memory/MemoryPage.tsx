@@ -1,345 +1,514 @@
-import React, { useEffect, useState, useCallback } from 'react'
-import { feedbackBridge, getIdentityBridge, memoryBridge, nominationBridge, type FeedbackBridge, type MemoryBridge, type NominationBridge } from '../bridge/client'
-import type { MemoryDTO, MemoryLayer, MemoryScope, MemoryNominationListResult } from '../generated/bridge'
-import { MemoryOpsPanel } from './MemoryOpsPanel'
+import React, { useCallback, useEffect, useState } from 'react'
+import { createMutationAttempt, getMemoryBridge, getMemoryOpsBridge, newBridgeULID, type MemoryBridge, type MemoryOpsBridge } from '../bridge/client'
+import type { GenerationSummary, MemoryExportResult, MemoryGenerationPreviewResult, MemoryImportPreviewResult, MemoryItemDTO, MemoryPurgePrepareResult, MemoryReviewListResult } from '../generated/bridge'
+import { isFabricExport, MemoryAdvancedPanel } from './MemoryAdvancedPanel'
+import { MemoryDrawer, type MemoryDrawerState } from './MemoryDrawer'
+import { MemoryList } from './MemoryList'
+import { MemorySettingsPanel } from './MemorySettingsPanel'
+import { MemoryStatusHeader } from './MemoryStatusHeader'
+import { loadMemorySettings, saveMemorySettings, type MemorySettingsDraft } from './memorySettings'
 
-type PendingCandidate = { candidateId: string; content: string; scopeId: string; confirmationToken: string; createdAt: string; expiresAt: string }
-type NominationItem = MemoryNominationListResult['items'][number]
-
-type MemoryTab = 'overview' | 'inbox' | 'history' | 'ops'
-
-const TAB_LABELS: Record<MemoryTab, string> = { overview: '记忆中心', inbox: '偏好与提名', history: '处理历史', ops: '记忆运营' }
-const NOM_STATE_LABELS: Record<string, string> = { nominated: '待处理', decided: '已处理', withdrawn: '已撤回' }
-
-const SCOPE_LABELS: Record<MemoryScope, string> = { workspace: '工作区', project: '项目', session: '会话' }
-const SCOPE_OPTIONS: MemoryScope[] = ['workspace', 'project', 'session']
-
-// 四层记忆（对齐设计原型 05 · 记忆中心）：图标、中文名与后端 layer 的映射
-const LAYERS: Array<{ key: MemoryLayer; icon: string; name: string; tag: string; grad: string }> = [
-  { key: 'working', icon: 'W', name: '当前任务', tag: 'run 临时状态', grad: 'linear-gradient(135deg,var(--tide1),var(--glow))' },
-  { key: 'episodic', icon: 'S', name: '会话记忆', tag: '会话摘要', grad: 'linear-gradient(135deg,var(--glow),var(--tide2))' },
-  { key: 'procedural', icon: 'L', name: '长期记忆', tag: '已确认事实', grad: 'linear-gradient(135deg,var(--tide3),var(--tide1))' },
-  { key: 'semantic', icon: 'Σ', name: '项目知识', tag: '结构化知识', grad: 'linear-gradient(135deg,var(--tide2),var(--glow2))' },
-]
-const layerMeta = (key: MemoryLayer) => LAYERS.find(l => l.key === key)!
-const LAYER_ORDER: MemoryLayer[] = LAYERS.map(l => l.key)
-
-const inputStyle: React.CSSProperties = { width: '100%', padding: '6px 8px', backgroundColor: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: '4px', boxSizing: 'border-box' }
-const btnStyle: React.CSSProperties = { padding: '6px 12px', backgroundColor: 'var(--bg3)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: '4px', cursor: 'pointer' }
-const primaryBtnStyle: React.CSSProperties = { ...btnStyle, backgroundColor: 'var(--tide1)', borderColor: 'var(--tide1)', color: '#fff' }
-const ttlText = (m: MemoryDTO) => m.expiresAt ? `TTL: ${new Date(m.expiresAt).toLocaleDateString()}` : 'TTL: 长期'
-function memoryUserError(err: unknown, fallback: string): string {
+function userError(err: unknown, fallback: string): string {
   const detail = err instanceof Error ? err.message.trim() : ''
   return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
 }
 
-export function MemoryPage({ projectId, bridge = memoryBridge, feedback = feedbackBridge, nominations = nominationBridge }: { projectId: string; bridge?: MemoryBridge; feedback?: FeedbackBridge; nominations?: NominationBridge }): React.JSX.Element {
-  const [tab, setTab] = useState<MemoryTab>('overview')
-  const [memories, setMemories] = useState<MemoryDTO[]>([])
-  const [selected, setSelected] = useState<MemoryDTO | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string>()
+export function MemoryPage({
+  projectId,
+  bridge = getMemoryBridge(),
+  ops = getMemoryOpsBridge(),
+}: {
+  projectId?: string
+  bridge?: MemoryBridge
+  ops?: MemoryOpsBridge
+}): React.JSX.Element {
+  const [draft, setDraft] = useState<MemorySettingsDraft | null>(null)
+  const [items, setItems] = useState<MemoryItemDTO[]>([])
+  const [query, setQuery] = useState('')
+  const [drawer, setDrawer] = useState<MemoryDrawerState>({ kind: 'closed' })
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [layerTab, setLayerTab] = useState<MemoryLayer | ''>('')
-  const [editContent, setEditContent] = useState<string | null>(null)
-  const [pending, setPending] = useState<PendingCandidate[]>([])
-  const [pendingBusy, setPendingBusy] = useState('')
-  const [inbox, setInbox] = useState<NominationItem[]>([])
-  const [history, setHistory] = useState<NominationItem[]>([])
-  const [nomBusy, setNomBusy] = useState('')
-  const [opsSubject, setOpsSubject] = useState('')
+  const [createText, setCreateText] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [forgetBusy, setForgetBusy] = useState(false)
+  const [correctText, setCorrectText] = useState('')
+  const [correctBusy, setCorrectBusy] = useState(false)
+  const [reviews, setReviews] = useState<MemoryReviewListResult['items']>([])
+  const [reviewRevision, setReviewRevision] = useState(0)
+  const [reviewBusy, setReviewBusy] = useState(false)
+  const [purgePreview, setPurgePreview] = useState<MemoryPurgePrepareResult | null>(null)
+  const [purgeBusy, setPurgeBusy] = useState(false)
+  const [databaseRevision, setDatabaseRevision] = useState(0)
+  const [artifactId, setArtifactId] = useState('')
+  const [fabricExport, setFabricExport] = useState<Extract<MemoryExportResult, { format: 'fabric_v2' }> | null>(null)
+  const [importPreview, setImportPreview] = useState<MemoryImportPreviewResult | null>(null)
+  const [archiveBusy, setArchiveBusy] = useState(false)
+  const [itemHistory, setItemHistory] = useState<MemoryItemDTO[]>([])
+  const [detailItem, setDetailItem] = useState<MemoryItemDTO | null>(null)
+  const [undoOperationId, setUndoOperationId] = useState('')
+  const [generations, setGenerations] = useState<GenerationSummary[]>([])
+  const [generationPreview, setGenerationPreview] = useState<MemoryGenerationPreviewResult | null>(null)
+  const [generationBusy, setGenerationBusy] = useState(false)
 
-  const [showCreate, setShowCreate] = useState(false)
-  const [newLayer, setNewLayer] = useState<MemoryLayer>('working')
-  const [newScope, setNewScope] = useState<MemoryScope>('project')
-  const [newKey, setNewKey] = useState('')
-  const [newContent, setNewContent] = useState('')
+  const showNotice = (value: string, undoId = '') => {
+    setNotice(value)
+    setUndoOperationId(undoId)
+  }
 
-  const load = useCallback(async () => {
-    if (!projectId) { setLoading(false); return }
-    setLoading(true); setError(undefined)
+  const loadSettings = useCallback(async () => {
     try {
-      const r = await bridge.list({ projectId })
-      setMemories(r.items)
-    } catch (e) { setError(memoryUserError(e, '加载失败')) }
-    finally { setLoading(false) }
-  }, [projectId, bridge])
+      setDraft(await loadMemorySettings(ops))
+    } catch (err) {
+      setError(userError(err, '记忆设置载入失败'))
+    }
+  }, [ops])
 
-  useEffect(() => { load() }, [load])
+  const loadItems = useCallback(async () => {
+    if (!bridge.itemList) return
+    try {
+      const listed = await bridge.itemList({ scopeKind: 'user' })
+      let merged = listed.items
+      if (projectId && projectId.length === 26 && bridge.itemList) {
+        try {
+          const project = await bridge.itemList({ scopeKind: 'project', scopeId: projectId })
+          merged = [...listed.items, ...project.items]
+        } catch {
+          /* keep personal items when project scope is unavailable */
+        }
+      }
+      setItems(merged.filter(item => !item.forgotten))
+      setDatabaseRevision(listed.databaseRevision)
+    } catch (err) {
+      setError(userError(err, '记忆列表载入失败'))
+    }
+  }, [bridge, projectId])
+
+  const loadReviews = useCallback(async () => {
+    if (!bridge.reviewList) return
+    try {
+      const listed = await bridge.reviewList({ scopeKind: 'user' })
+      setReviews(listed.items)
+      setReviewRevision(listed.databaseRevision)
+    } catch (err) {
+      setError(userError(err, '待审记忆载入失败'))
+    }
+  }, [bridge])
+
+  const loadGenerations = useCallback(async () => {
+    if (!bridge.generationList) return
+    try {
+      const listed = await bridge.generationList({ scopeKind: 'user' })
+      setGenerations(listed.items)
+    } catch (err) {
+      setError(userError(err, '记忆世代载入失败'))
+    }
+  }, [bridge])
+
   useEffect(() => {
-    let alive = true
-    getIdentityBridge().get().then(value => { if (alive && value.subjectId) setOpsSubject(value.subjectId) }).catch(() => {})
-    return () => { alive = false }
-  }, [])
+    void loadSettings()
+    void loadItems()
+    void loadReviews()
+  }, [loadSettings, loadItems, loadReviews])
 
-  const doSearch = async () => {
-    if (!projectId || !searchQuery.trim()) return
-    setLoading(true); setError(undefined)
-    try { const r = await bridge.search({ projectId, query: searchQuery.trim() }); setMemories(r.items) }
-    catch (e) { setError(memoryUserError(e, '搜索失败')) }
-    finally { setLoading(false) }
-  }
+  useEffect(() => {
+    if (drawer.kind === 'advanced') void loadGenerations()
+  }, [drawer.kind, loadGenerations])
 
-  const doCreate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!projectId || !newKey.trim() || !newContent.trim()) return
-    setBusy(true); setError(undefined)
+  useEffect(() => {
+    if (drawer.kind !== 'item') {
+      setItemHistory([])
+      setDetailItem(null)
+      return
+    }
+    let cancelled = false
+    if (bridge.itemGet) {
+      void bridge.itemGet({ factId: drawer.factId }).then(item => {
+        if (cancelled) return
+        setDetailItem(item)
+        if (item.text) setCorrectText(item.text)
+      }).catch(err => {
+        if (!cancelled) setError(userError(err, '记忆详情载入失败'))
+      })
+    }
+    if (bridge.itemHistory) {
+      void bridge.itemHistory({ factId: drawer.factId, limit: 20 }).then(listed => {
+        if (!cancelled) setItemHistory(listed.items)
+      }).catch(err => {
+        if (!cancelled) setError(userError(err, '记忆历史载入失败'))
+      })
+    }
+    return () => { cancelled = true }
+  }, [bridge, drawer])
+
+  const selected = drawer.kind === 'item' ? (detailItem ?? items.find(item => item.factId === drawer.factId)) : undefined
+
+  const createItem = async (text: string) => {
+    const trimmed = text.trim()
+    if (!trimmed || !bridge.itemCreate) return
+    setCreating(true)
+    setError('')
     try {
-      await bridge.create({ projectId, layer: newLayer, scope: newScope, key: newKey.trim(), content: newContent })
-      setNewKey(''); setNewContent(''); setShowCreate(false)
-      await load()
-    } catch (e) { setError(memoryUserError(e, '创建失败')) }
-    finally { setBusy(false) }
+      const payload = { scopeKind: 'user' as const, text: trimmed, operationId: newBridgeULID() }
+      const created = await bridge.itemCreate(payload, { attempt: createMutationAttempt('memory.item.create', payload) })
+      setCreateText('')
+      showNotice('已保存为记忆', bridge.captureUndo ? created.undoOperationId : '')
+      await loadItems()
+    } catch (err) {
+      setError(userError(err, '保存记忆失败'))
+    } finally {
+      setCreating(false)
+    }
   }
 
-  const doUpdate = async (id: string) => {
-    if (editContent === null) return
-    setBusy(true); setError(undefined)
-    try { await bridge.update({ id, content: editContent }); setEditContent(null); await load() }
-    catch (e) { setError(memoryUserError(e, '更新失败')) }
-    finally { setBusy(false) }
-  }
-
-  const doDelete = async (id: string) => {
-    setBusy(true); setError(undefined)
-    try { await bridge.delete({ id }); if (selected?.id === id) setSelected(null); await load() }
-    catch (e) { setError(memoryUserError(e, '删除失败')) }
-    finally { setBusy(false) }
-  }
-
-  const loadPending = useCallback(async () => {
+  const undoCapture = async () => {
+    if (!bridge.captureUndo || !undoOperationId) return
+    setCreating(true)
+    setError('')
     try {
-      const r = await feedback.candidates({ limit: 50 })
-      setPending(r.items)
-    } catch { setPending([]) }
-  }, [feedback])
-
-  useEffect(() => { void loadPending() }, [loadPending])
-
-  const decideCandidate = async (item: PendingCandidate, action: 'confirm' | 'reject') => {
-    if (!bridge.confirmCandidate || pendingBusy) return
-    setPendingBusy(item.candidateId); setError(undefined)
-    try {
-      await bridge.confirmCandidate({ candidateId: item.candidateId, confirmationToken: item.confirmationToken, action, requestId: `ui-${Date.now()}` })
-      setPending(values => values.filter(v => v.candidateId !== item.candidateId))
-    } catch (e) { setError(memoryUserError(e, '偏好确认失败')) }
-    finally { setPendingBusy('') }
+      const payload = { undoOperationId, operationId: newBridgeULID() }
+      await bridge.captureUndo(payload, { attempt: createMutationAttempt('memory.capture.undo', payload) })
+      showNotice('已撤销这次记忆')
+      await loadItems()
+    } catch (err) {
+      setError(userError(err, '撤销记忆失败'))
+    } finally {
+      setCreating(false)
+    }
   }
 
-  const loadNominations = useCallback(async () => {
+  const previewGeneration = async (generationId: string) => {
+    if (!bridge.generationPreview) return
+    setGenerationBusy(true)
+    setError('')
     try {
-      const [nominated, decided, withdrawn] = await Promise.all([
-        nominations.list({ state: 'nominated', limit: 50 }),
-        nominations.list({ state: 'decided', limit: 50 }),
-        nominations.list({ state: 'withdrawn', limit: 50 }),
-      ])
-      setInbox(nominated.items)
-      setHistory([...decided.items, ...withdrawn.items].sort((a, b) => b.createdAt.localeCompare(a.createdAt)))
-    } catch { setInbox([]); setHistory([]) }
-  }, [nominations])
-
-  useEffect(() => { void loadNominations() }, [loadNominations])
-
-  const decideNomination = async (item: NominationItem, action: 'confirm' | 'reject') => {
-    if (!bridge.confirmCandidate || nomBusy) return
-    setNomBusy(item.nominationId); setError(undefined)
-    try {
-      await bridge.confirmCandidate({ candidateId: item.candidateId, confirmationToken: item.confirmationToken, action, requestId: `ui-${Date.now()}` })
-      await loadNominations()
-    } catch (e) { setError(memoryUserError(e, '提名处理失败')) }
-    finally { setNomBusy('') }
+      const preview = await bridge.generationPreview({ generationId })
+      setGenerationPreview(preview)
+    } catch (err) {
+      setError(userError(err, '世代预览失败'))
+    } finally {
+      setGenerationBusy(false)
+    }
   }
 
-  const withdrawNomination = async (item: NominationItem) => {
-    if (nomBusy) return
-    setNomBusy(item.nominationId); setError(undefined)
+  const activateGeneration = async (generationId: string, revision: number) => {
+    if (!bridge.generationActivate) return
+    setGenerationBusy(true)
+    setError('')
     try {
-      await nominations.withdraw({ nominationId: item.nominationId })
-      await loadNominations()
-    } catch (e) { setError(memoryUserError(e, '撤回提名失败')) }
-    finally { setNomBusy('') }
+      const payload = { generationId, expectedRevision: Math.max(1, revision), operationId: newBridgeULID() }
+      await bridge.generationActivate(payload, { attempt: createMutationAttempt('memory.generation.activate', payload) })
+      setGenerationPreview(null)
+      showNotice('已启用这个记忆世代')
+      await Promise.all([loadGenerations(), loadItems()])
+    } catch (err) {
+      setError(userError(err, '启用记忆世代失败'))
+    } finally {
+      setGenerationBusy(false)
+    }
   }
 
-  if (!projectId) {
-    return <div className="shell"><div className="empty"><b>请先选择项目</b><span>在项目总览中选择一个项目后即可管理记忆。</span></div></div>
+  const discardGeneration = async (generationId: string, revision: number) => {
+    if (!bridge.generationDiscard) return
+    setGenerationBusy(true)
+    setError('')
+    try {
+      const payload = { generationId, expectedRevision: Math.max(1, revision), operationId: newBridgeULID() }
+      await bridge.generationDiscard(payload, { attempt: createMutationAttempt('memory.generation.discard', payload) })
+      setGenerationPreview(null)
+      showNotice('已丢弃这个记忆世代')
+      await loadGenerations()
+    } catch (err) {
+      setError(userError(err, '丢弃记忆世代失败'))
+    } finally {
+      setGenerationBusy(false)
+    }
   }
 
-  const panelStyle: React.CSSProperties = { border: '1px solid var(--rule)', borderRadius: '16px', background: 'var(--bg2)', padding: '20px' }
+  const forgetItem = async (item: MemoryItemDTO) => {
+    if (!bridge.itemForget) return
+    setForgetBusy(true)
+    setError('')
+    try {
+      const payload = {
+        factId: item.factId,
+        mode: 'fact_history' as const,
+        expectedRevision: item.revision,
+        operationId: newBridgeULID(),
+      }
+      await bridge.itemForget(payload, { attempt: createMutationAttempt('memory.item.forget', payload) })
+      setDrawer({ kind: 'closed' })
+      showNotice('已忘记这条记忆')
+      await loadItems()
+    } catch (err) {
+      setError(userError(err, '忘记记忆失败'))
+    } finally {
+      setForgetBusy(false)
+    }
+  }
 
-  const grouped = memories.reduce<Record<string, MemoryDTO[]>>((acc, m) => {
-    (acc[m.layer] ??= []).push(m); return acc
-  }, {})
-  const visibleLayers = layerTab ? LAYERS.filter(l => l.key === layerTab) : LAYERS
-  const layerCount = (key: MemoryLayer) => grouped[key]?.length ?? 0
+  const correctItem = async (item: MemoryItemDTO) => {
+    const trimmed = correctText.trim()
+    if (!trimmed || !bridge.itemCorrect) return
+    setCorrectBusy(true)
+    setError('')
+    try {
+      const payload = {
+        factId: item.factId,
+        replacementText: trimmed,
+        reason: '更准确',
+        expectedRevision: item.revision,
+        operationId: newBridgeULID(),
+      }
+      await bridge.itemCorrect(payload, { attempt: createMutationAttempt('memory.item.correct', payload) })
+      setCorrectText('')
+      setDrawer({ kind: 'closed' })
+      showNotice('已更正这条记忆')
+      await loadItems()
+    } catch (err) {
+      setError(userError(err, '更正记忆失败'))
+    } finally {
+      setCorrectBusy(false)
+    }
+  }
+
+  const resolveReview = async (reviewId: string, decision: 'accept' | 'reject') => {
+    if (!bridge.reviewResolve) return
+    setReviewBusy(true)
+    setError('')
+    try {
+      const payload = { reviewId, decision, expectedRevision: Math.max(1, reviewRevision), operationId: newBridgeULID() }
+      await bridge.reviewResolve(payload, { attempt: createMutationAttempt('memory.review.resolve', payload) })
+      showNotice(decision === 'accept' ? '已接受待审记忆' : '已拒绝待审记忆')
+      await Promise.all([loadReviews(), loadItems()])
+    } catch (err) {
+      setError(userError(err, '处理待审记忆失败'))
+    } finally {
+      setReviewBusy(false)
+    }
+  }
+
+  const preparePurge = async () => {
+    setPurgeBusy(true)
+    setError('')
+    try {
+      const payload = { scopeKind: 'user' as const, expectedDatabaseRevision: databaseRevision, operationId: newBridgeULID() }
+      const grant = await ops.purgePrepare(payload, { attempt: createMutationAttempt('memory.purge.prepare', payload) })
+      setPurgePreview(grant)
+    } catch (err) {
+      setError(userError(err, '准备清除失败'))
+    } finally {
+      setPurgeBusy(false)
+    }
+  }
+
+  const confirmPurge = async () => {
+    if (!purgePreview) return
+    setPurgeBusy(true)
+    setError('')
+    try {
+      const payload = {
+        confirmationToken: purgePreview.confirmationToken,
+        snapshotDigest: purgePreview.snapshotDigest,
+        expectedDatabaseRevision: databaseRevision,
+        operationId: newBridgeULID(),
+      }
+      await ops.purge(payload, { attempt: createMutationAttempt('memory.purge', payload) })
+      setPurgePreview(null)
+      setDrawer({ kind: 'closed' })
+      showNotice('已清除本机记忆')
+      await Promise.all([loadItems(), loadReviews()])
+    } catch (err) {
+      setError(userError(err, '记忆清除失败'))
+    } finally {
+      setPurgeBusy(false)
+    }
+  }
+
+  const exportFabric = async () => {
+    setArchiveBusy(true)
+    setError('')
+    try {
+      const result = await ops.export({ format: 'fabric_v2' })
+      if (!isFabricExport(result)) {
+        setError('完整档案导出失败')
+        return
+      }
+      setFabricExport(result)
+      setArtifactId(result.artifactId)
+      showNotice(`已生成本机档案 ${result.artifactId}`)
+    } catch (err) {
+      setError(userError(err, '完整档案导出失败'))
+    } finally {
+      setArchiveBusy(false)
+    }
+  }
+
+  const exportLegacy = async () => {
+    setArchiveBusy(true)
+    setError('')
+    try {
+      const bundle = await ops.export({})
+      if (isFabricExport(bundle) || !('facts' in bundle)) {
+        setError('旧格式导出失败')
+        return
+      }
+      const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), ...bundle }, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `lunitide-memory-export-${Date.now()}.json`
+      link.click()
+      URL.revokeObjectURL(url)
+      showNotice('已下载旧格式记忆数据')
+    } catch (err) {
+      setError(userError(err, '旧格式导出失败'))
+    } finally {
+      setArchiveBusy(false)
+    }
+  }
+
+  const previewImport = async () => {
+    if (!bridge.importPreview || !artifactId) return
+    setArchiveBusy(true)
+    setError('')
+    try {
+      const payload = { sourceArtifactId: artifactId, operationId: newBridgeULID() }
+      const preview = await bridge.importPreview(payload, { attempt: createMutationAttempt('memory.import.preview', payload) })
+      setImportPreview(preview)
+      showNotice('导入预览未写入正式记忆')
+    } catch (err) {
+      setError(userError(err, '导入预览失败'))
+    } finally {
+      setArchiveBusy(false)
+    }
+  }
+
+  const commitImport = async () => {
+    if (!bridge.importCommit || !importPreview) return
+    setArchiveBusy(true)
+    setError('')
+    try {
+      const payload = {
+        previewId: importPreview.previewId,
+        archiveDigest: importPreview.archiveDigest,
+        manifestDigest: importPreview.manifestDigest,
+        expectedDatabaseRevision: importPreview.databaseRevision,
+        operationId: newBridgeULID(),
+      }
+      await bridge.importCommit(payload, { attempt: createMutationAttempt('memory.import.commit', payload) })
+      setImportPreview(null)
+      showNotice('已导入记忆档案')
+      await loadItems()
+    } catch (err) {
+      setError(userError(err, '导入提交失败'))
+    } finally {
+      setArchiveBusy(false)
+    }
+  }
 
   return (
-    <div className="memory-center">
-      <header className="expert-view-head">
-        <div><div className="view-title">记忆中心</div><div className="view-meta">🔒 仅当前项目 · 四层记忆可检索注入对话 · 已确认偏好始终遵守 · 模型推断不会自动升级为已确认事实</div></div>
-        <div className="view-actions">
-          <button type="button" className="ui-btn" onClick={() => void load()} disabled={loading}>↻ 刷新</button>
-          <button type="button" className="ui-btn primary" onClick={() => setShowCreate(v => !v)}>＋ 添加记忆</button>
-        </div>
-      </header>
-      <div className="memory-tabs" role="tablist" aria-label="记忆面板分区">
-        {(Object.keys(TAB_LABELS) as MemoryTab[]).map(key => (
-          <button key={key} type="button" role="tab" className={`memory-tab ${tab === key ? 'on' : ''}`} aria-selected={tab === key} onClick={() => setTab(key)}>
-            {TAB_LABELS[key]}{key === 'inbox' && (inbox.length + pending.length) > 0 ? ` · ${inbox.length + pending.length}` : ''}
-          </button>
-        ))}
-      </div>
-      {error && <div className="error" role="alert"><b>{error}</b></div>}
-      {tab === 'overview' && (<>
+    <div className="memory-center memory-center-v2">
+      <MemoryStatusHeader draft={draft} onOpenSettings={() => setDrawer({ kind: 'settings' })} />
       <div className="memory-toolbar">
-        <input type="search" aria-label="搜索记忆" placeholder="搜索记忆内容、键名…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void doSearch() }}/>
-        <div className="memory-tabs">
-          <button type="button" className={`memory-tab ${layerTab === '' ? 'on' : ''}`} onClick={() => { setLayerTab(''); void load() }}>全部</button>
-          {LAYERS.map(l => <button key={l.key} type="button" className={`memory-tab ${layerTab === l.key ? 'on' : ''}`} onClick={() => setLayerTab(l.key)}>{l.name}</button>)}
-        </div>
-        <button className="ui-btn" onClick={() => void doSearch()} disabled={loading}>搜索</button>
+        <input type="search" aria-label="搜索记忆" placeholder="搜索记忆…" value={query} onChange={event => setQuery(event.target.value)} />
       </div>
-      {showCreate && (
-        <form onSubmit={e => void doCreate(e)} className="mem-create">
-          <label>层级
-            <select style={inputStyle} value={newLayer} onChange={e => setNewLayer(e.target.value as MemoryLayer)} aria-label="层级">
-              {LAYER_ORDER.map(l => <option key={l} value={l}>{layerMeta(l).name}</option>)}
-            </select>
-          </label>
-          <label>作用域
-            <select style={inputStyle} value={newScope} onChange={e => setNewScope(e.target.value as MemoryScope)} aria-label="作用域">
-              {SCOPE_OPTIONS.map(s => <option key={s} value={s}>{SCOPE_LABELS[s]}</option>)}
-            </select>
-          </label>
-          <label>键名
-            <input style={inputStyle} value={newKey} onChange={e => setNewKey(e.target.value)} aria-label="键名" placeholder="输入记忆键名" />
-          </label>
-          <label className="wide">内容
-            <textarea style={{ ...inputStyle, resize: 'vertical', minHeight: '64px' }} value={newContent} onChange={e => setNewContent(e.target.value)} aria-label="内容" placeholder="输入记忆内容" />
-          </label>
-          <div className="wide" style={{ display: 'flex', gap: '8px' }}>
-            <button type="submit" style={primaryBtnStyle} disabled={busy || !newKey.trim() || !newContent.trim()}>{busy ? '创建中…' : '创建记忆'}</button>
-            <button type="button" style={btnStyle} onClick={() => setShowCreate(false)}>取消</button>
-          </div>
-        </form>
-      )}
-      {selected && (
-        <section className="mem-detail" aria-label="记忆详情">
-          <div className="mem-detail-head">
-            <div>
-              <b>{selected.key}</b>
-              <span className="me-meta" style={{ marginTop: 4 }}>
-                <span>{layerMeta(selected.layer).name}</span><span>{SCOPE_LABELS[selected.scope]}</span>
-                <span className="conf">conf {selected.confidence.toFixed(2)}</span><span>访问 {selected.accessCount} 次</span>
-              </span>
-            </div>
-            <button type="button" className="ui-btn" onClick={() => { setSelected(null); setEditContent(null) }} aria-label="关闭详情">×</button>
-          </div>
-          {editContent !== null ? (
-            <div style={{ display: 'grid', gap: 10 }}>
-              <textarea value={editContent} onChange={e => setEditContent(e.target.value)} rows={4} style={{ width: '100%', resize: 'vertical' }} aria-label="编辑记忆内容"/>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="ui-btn primary" disabled={busy} onClick={() => void doUpdate(selected.id)}>保存修改</button>
-                <button className="ui-btn" disabled={busy} onClick={() => setEditContent(null)}>取消</button>
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="me-content" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{selected.content}</div>
-              <div className="me-meta" style={{ margin: '8px 0' }}>
-                <span>创建: {new Date(selected.createdAt).toLocaleDateString()}</span>
-                <span>更新: {new Date(selected.updatedAt).toLocaleDateString()}</span>
-                <span>{ttlText(selected)}</span>
-                {selected.lastAccessed && <span>最后访问: {new Date(selected.lastAccessed).toLocaleDateString()}</span>}
-              </div>
-              <div className="appr-actions">
-                <button className="ui-btn" disabled={busy} onClick={() => setEditContent(selected.content)}>编辑</button>
-                <button className="ui-btn danger" disabled={busy} onClick={() => void doDelete(selected.id)}>删除</button>
-              </div>
-            </>
-          )}
-        </section>
-      )}
-      {loading ? <p role="status">正在载入记忆…</p> : (
-      <div className={`mem-grid ${layerTab ? 'single' : ''}`}>
-        {visibleLayers.map(l => (
-          <div className="mem-layer" key={l.key}>
-            <div className="ml-head">
-              <div className="ml-ic" style={{ background: l.grad }}>{l.icon}</div>
-              <div className="ml-name">{l.name}</div>
-              <span className="ml-tag">{l.tag} · {layerCount(l.key)} 条</span>
-            </div>
-            {layerCount(l.key) === 0 ? <p className="mem-empty">暂无{ l.name }条目</p> : grouped[l.key]!.map(m => (
-              <button type="button" className={`mem-entry ${selected?.id === m.id ? 'on' : ''}`} key={m.id} onClick={() => { setSelected(m); setEditContent(null) }}>
-                <div className="me-content">{m.content}</div>
-                <div className="me-meta"><span>{m.key}</span><span>{SCOPE_LABELS[m.scope]}</span><span className="conf">conf {m.confidence.toFixed(2)}</span><span>{ttlText(m)}</span></div>
-              </button>
-            ))}
-          </div>
-        ))}
-      </div>
-      )}
-      <div className="callout"><b>管理方式</b>：选择记忆后可查看来源、修订、编辑或删除；偏好候选与助手提名需人工确认后才会沉淀为长期记忆。召回策略可在「记忆运营」中调整。</div>
-      </>)}
-      {tab === 'inbox' && (
-        <section aria-label="偏好与提名" style={panelStyle}>
-          {pending.length > 0 && (<>
-            <h2 style={{ margin: '0 0 6px', fontSize: '15px' }}>偏好确认（{pending.length}）</h2>
-            <p style={{ margin: '0 0 10px', color: 'var(--muted)', fontSize: '12px' }}>来自会话反馈的偏好候选。仅在你显式确认后才会沉淀为长期偏好并注入后续对话。</p>
-            <div style={{ display: 'grid', gap: '8px', marginBottom: '18px' }}>
-              {pending.map(item => (
-                <div key={item.candidateId} style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between', padding: '10px', border: '1px solid var(--rule)', borderRadius: '8px', background: 'var(--bg3)' }}>
-                  <span style={{ flex: 1, fontSize: '13px', overflowWrap: 'anywhere' }}>{item.content}</span>
-                  <span style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-                    <button style={primaryBtnStyle} disabled={pendingBusy === item.candidateId} onClick={() => void decideCandidate(item, 'confirm')}>{pendingBusy === item.candidateId ? '处理中…' : '确认沉淀'}</button>
-                    <button style={btnStyle} disabled={pendingBusy === item.candidateId} onClick={() => void decideCandidate(item, 'reject')}>拒绝</button>
-                  </span>
-                </div>
-              ))}
-            </div>
-          </>)}
-          <h2 style={{ margin: '0 0 6px', fontSize: '15px' }}>提名收件箱</h2>
-          <p style={{ margin: '0 0 14px', color: 'var(--muted)', fontSize: '12px' }}>助手从会话中提名的记忆候选。确认后沉淀为长期记忆，处理与撤回都会记入历史。</p>
-          {inbox.length === 0 ? <div className="empty"><b>暂无待处理提名</b><span>新的提名会出现在这里等待你的确认。</span></div> : (
-            <div style={{ display: 'grid', gap: '10px' }}>
-              {inbox.map(item => (
-                <div key={item.nominationId} style={{ padding: '14px', border: '1px solid var(--rule)', borderRadius: '10px', background: 'var(--bg3)' }}>
-                  <div style={{ fontSize: '14px', overflowWrap: 'anywhere', marginBottom: '8px' }}>{item.content}</div>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', fontSize: '12px', color: 'var(--muted)', marginBottom: '10px' }}>
-                    <span>提名理由：{item.reason}</span>
-                    <span>· {item.nominator}</span>
-                    <span>· {new Date(item.createdAt).toLocaleString()}</span>
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button style={primaryBtnStyle} disabled={nomBusy === item.nominationId} onClick={() => void decideNomination(item, 'confirm')}>{nomBusy === item.nominationId ? '处理中…' : '确认沉淀'}</button>
-                    <button style={btnStyle} disabled={nomBusy === item.nominationId} onClick={() => void decideNomination(item, 'reject')}>拒绝</button>
-                    <button style={btnStyle} disabled={nomBusy === item.nominationId} onClick={() => void withdrawNomination(item)}>撤回提名</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-      {tab === 'history' && (
-        <section aria-label="处理历史" style={panelStyle}>
-          <h2 style={{ margin: '0 0 6px', fontSize: '15px' }}>处理历史</h2>
-          <p style={{ margin: '0 0 14px', color: 'var(--muted)', fontSize: '12px' }}>已处理与已撤回的提名记录（最近 50 条）。</p>
-          {history.length === 0 ? <div className="empty"><b>暂无历史记录</b><span>处理过的提名会归档在这里。</span></div> : (
-            <div style={{ display: 'grid', gap: '8px' }}>
-              {history.map(item => (
-                <div key={item.nominationId} style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', border: '1px solid var(--rule)', borderRadius: '8px', background: 'var(--bg3)' }}>
-                  <span style={{ flex: 1, fontSize: '13px', overflowWrap: 'anywhere' }}>{item.content}</span>
-                  <span style={{ fontSize: '12px', color: item.state === 'decided' ? '#34d399' : 'var(--muted)', flexShrink: 0 }}>
-                    {NOM_STATE_LABELS[item.state] ?? item.state} · {new Date(item.decidedAt || item.createdAt).toLocaleString()}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-      {tab === 'ops' && <MemoryOpsPanel subjectId={opsSubject || undefined} />}
+      {error ? <p role="alert">{error}</p> : null}
+      {notice ? (
+        <p role="status">
+          {notice}
+          {undoOperationId ? <button type="button" className="ui-btn" onClick={() => void undoCapture()}>撤销</button> : null}
+        </p>
+      ) : null}
+      <MemoryList
+        items={items}
+        query={query}
+        onOpen={factId => setDrawer({ kind: 'item', factId })}
+        onForget={factId => {
+          const target = items.find(item => item.factId === factId)
+          if (target) void forgetItem(target)
+        }}
+      />
+      <button type="button" className="smart-cap-disclose" onClick={() => setDrawer({ kind: 'advanced', section: 'recent' })}>高级管理</button>
+      <MemoryDrawer state={drawer} onClose={() => setDrawer({ kind: 'closed' })}>
+        {drawer.kind === 'settings' && draft ? (
+          <MemorySettingsPanel
+            draft={draft}
+            busy={busy}
+            error={error}
+            onChange={setDraft}
+            onSave={() => {
+              if (!draft || busy) return
+              setBusy(true)
+              setError('')
+              void saveMemorySettings(ops, draft).then(next => {
+                setDraft(next)
+                showNotice('记忆设置已保存')
+                setDrawer({ kind: 'closed' })
+              }).catch(err => {
+                setError(userError(err, '记忆设置保存失败'))
+              }).finally(() => setBusy(false))
+            }}
+          />
+        ) : null}
+        {drawer.kind === 'item' ? (
+          selected ? (
+            <section className="memory-item-detail">
+              <p>{selected.text}</p>
+              <label>
+                更正正文
+                <textarea aria-label="更正正文" rows={3} value={correctText} onChange={event => setCorrectText(event.target.value)} />
+              </label>
+              <button type="button" className="ui-btn" disabled={correctBusy || !correctText.trim()} onClick={() => void correctItem(selected)}>更正</button>
+              <button type="button" className="ui-btn danger" disabled={forgetBusy} onClick={() => void forgetItem(selected)}>忘记</button>
+              <p className="setting-desc">忘记会擦除记忆正文和检索索引，不会删除原来的对话。</p>
+              {itemHistory.length > 0 ? (
+                <section aria-label="版本历史">
+                  <h3>版本历史</h3>
+                  <ol>
+                    {itemHistory.map(row => (
+                      <li key={`${row.factId}-${row.version}`}>v{row.version} · {row.updatedAt.slice(0, 10)}{row.text ? ` · ${row.text}` : ''}</li>
+                    ))}
+                  </ol>
+                </section>
+              ) : null}
+            </section>
+          ) : <p>这条记忆已不存在。</p>
+        ) : null}
+        {drawer.kind === 'advanced' ? (
+          <MemoryAdvancedPanel
+            section={drawer.section}
+            createText={createText}
+            onCreateText={setCreateText}
+            creating={creating}
+            error={error}
+            onCreate={() => void createItem(createText)}
+            reviews={reviews}
+            reviewBusy={reviewBusy}
+            onAcceptReview={reviewId => void resolveReview(reviewId, 'accept')}
+            onRejectReview={reviewId => void resolveReview(reviewId, 'reject')}
+            purgePreview={purgePreview}
+            purgeBusy={purgeBusy}
+            onPreparePurge={() => void preparePurge()}
+            onConfirmPurge={() => void confirmPurge()}
+            fabricExport={fabricExport}
+            importPreview={importPreview}
+            artifactId={artifactId}
+            onArtifactId={setArtifactId}
+            archiveBusy={archiveBusy}
+            onExportFabric={() => void exportFabric()}
+            onExportLegacy={() => void exportLegacy()}
+            onPreviewImport={() => void previewImport()}
+            onCommitImport={() => void commitImport()}
+            generations={generations}
+            generationPreview={generationPreview}
+            generationBusy={generationBusy}
+            onPreviewGeneration={generationId => void previewGeneration(generationId)}
+            onActivateGeneration={(generationId, revision) => void activateGeneration(generationId, revision)}
+            onDiscardGeneration={(generationId, revision) => void discardGeneration(generationId, revision)}
+          />
+        ) : null}
+      </MemoryDrawer>
     </div>
   )
 }

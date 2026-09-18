@@ -1,6 +1,7 @@
 import {useEffect, useState} from 'react'
 import {getOperationBridge, type OperationBridge} from '../bridge/client'
 import type {OperationListResult} from '../generated/bridge'
+import {operationCompactSummary} from './composerHint'
 
 type OperationItem = OperationListResult['items'][number]
 
@@ -72,13 +73,12 @@ export function SessionOperationsBar({sessionId, zh, opsApi}: {sessionId: string
       setBusyId(undefined)
     }
   }
-  const summary = items.map(item => `${item.toolName} · ${operationStateLabel(item.state, zh)}`).join(' · ')
+  const summary = operationCompactSummary(items, state => operationStateLabel(state, zh))
   const cancellable = items.filter(item => canCancel(item.state))
+  const stopTarget = cancellable.find(item => item.state === 'running') ?? cancellable[0]
   return <div className="chat-usage token-usage token-usage-compact" role="status" aria-label={zh ? '本会话操作回执' : 'Session operations'}>
     <span>{summary}</span>
-    {cancellable.map(item => (
-      <button key={item.id} type="button" disabled={busyId === item.id} onClick={() => void cancelRunning(item)}>{zh ? '停止' : 'Stop'}</button>
-    ))}
+    {stopTarget ? <button type="button" disabled={busyId === stopTarget.id} onClick={() => void cancelRunning(stopTarget)}>{zh ? '停止' : 'Stop'}</button> : null}
     <details>
       <summary>{zh ? '文件批次 / 工具回执' : 'File batches / tool receipts'} ({items.length})</summary>
       {items.map(item => (

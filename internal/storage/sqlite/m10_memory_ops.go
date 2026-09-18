@@ -98,10 +98,14 @@ func (s *Store) CompareAndSwapMemorySettings(ctx context.Context, settings m8cor
 				`INSERT INTO memory_settings(subject_id,memory_enabled,auto_nominate,growth_days,created_at,updated_at,capture_mode) VALUES(?,?,?,?,?,?,?)
      ON CONFLICT(subject_id) DO UPDATE SET memory_enabled=excluded.memory_enabled,auto_nominate=excluded.auto_nominate,growth_days=excluded.growth_days,updated_at=excluded.updated_at,capture_mode=excluded.capture_mode`,
 				settings.SubjectID, boolInt(settings.MemoryEnabled), boolInt(settings.AutoNominate), settings.GrowthDays, settings.CreatedAt, settings.UpdatedAt, settings.CaptureMode)
-			if err == nil {
-				out = settings
+			if err != nil {
+				return err
 			}
-			return err
+			if err = syncMemoryV2FromLegacy(ctx, tx, settings); err != nil {
+				return err
+			}
+			out = settings
+			return nil
 		})
 	if err != nil {
 		return m8core.MemorySettings{}, err

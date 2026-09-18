@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/memory.item.get.schema.json",
+  "title": "memory.item.get payload",
+  "x-method": "memory.item.get",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["factId"],
+  "properties": {
+    "factId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "version": { "type": "integer", "minimum": 1 },
+    "asOf": { "type": "string", "format": "date-time" }
+  },
+  "not": { "required": ["version", "asOf"], "properties": { "version": {}, "asOf": {} } },
+  "x-result": {
+    "$ref": "https://lunitide.local/schema/bridge/v1/memory.item.create.schema.json#/$defs/MemoryItemDTO"
+  },
+  "x-examples": {
+    "positive": [
+      { "factId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+      { "factId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "version": 1 }
+    ],
+    "negative": [
+      { "factId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "version": 1, "asOf": "2026-09-18T00:00:00Z" },
+      { "factId": "not-a-ulid" },
+      {}
+    ]
+  }
+}

@@ -50,7 +50,9 @@ import (
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/m9app"
 	"github.com/lunitide/lunitide/internal/mcapp"
+	"github.com/lunitide/lunitide/internal/mcp"
 	"github.com/lunitide/lunitide/internal/mcp6"
+	"github.com/lunitide/lunitide/internal/mediaapp"
 	"github.com/lunitide/lunitide/internal/meetings"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/modelfit"
@@ -66,6 +68,7 @@ import (
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/stageapp"
+	"github.com/lunitide/lunitide/internal/storage/sqlite"
 	"github.com/lunitide/lunitide/internal/talk"
 	"github.com/lunitide/lunitide/internal/terminalruntime"
 	"github.com/lunitide/lunitide/internal/toolruntime"
@@ -173,6 +176,9 @@ type Engine struct {
 	compileProfile     modelfit.ModelProfile
 	messageGroups      MessageGroupStore
 	ocr                *ocrapp.Service
+	media              *mediaapp.Service
+	sqlStore           *sqlite.Store
+	mcpUv              *mcp.UvInstaller
 	fileOps            *fileops.Service
 	widgets            *widgetapp.FileStore
 	connectors         *connectorapp.FileStore
@@ -480,8 +486,27 @@ func (e *Engine) SetOCR(s *ocrapp.Service) {
 	if s != nil {
 		s.SetProvider(e.ocrProviderCall)
 		s.SetCredential(e.ocrCredentialRef)
+		s.SetCloudBinding(e.ocrVisionBinding)
 	}
 	e.wireDocumentText()
+}
+
+func (e *Engine) SetMedia(s *mediaapp.Service) {
+	if e != nil {
+		e.media = s
+	}
+}
+
+func (e *Engine) SetSQLStore(store *sqlite.Store) {
+	if e != nil {
+		e.sqlStore = store
+	}
+}
+
+func (e *Engine) SetMcpUv(installer *mcp.UvInstaller) {
+	if e != nil {
+		e.mcpUv = installer
+	}
 }
 
 func (e *Engine) SetFileOps(s *fileops.Service) {
@@ -1322,6 +1347,9 @@ func (e *Engine) SetM8PluginService(pluginSvc *m8app.PluginService) {
 // SetM8ExpertService wires the M8 FR-19 expert center.
 func (e *Engine) SetM8ExpertService(expertSvc *m8app.ExpertService) {
 	e.m8expert = expertSvc
+	if expertSvc != nil {
+		expertSvc.SetBindKeyPresence(e.bindKeyPresent)
+	}
 }
 
 type sessionExpertStore interface {

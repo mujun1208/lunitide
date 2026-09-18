@@ -100,12 +100,17 @@ type ExpertSkillStore interface {
 	MergeExpertSkillKeys(ctx context.Context, expertID string, keys []string) error
 }
 
+// BindKeyPresence reports whether a catalog floor key still has a live asset.
+// A nil checker keeps the historical "always present" floor.
+type BindKeyPresence func(ctx context.Context, key string) bool
+
 type ExpertService struct {
-	uow     ExpertUnitOfWork
-	clock   Clock
-	subject string
-	persona PersonaBodyStore
-	skills  ExpertSkillStore
+	uow            ExpertUnitOfWork
+	clock          Clock
+	subject        string
+	persona        PersonaBodyStore
+	skills         ExpertSkillStore
+	bindKeyPresent BindKeyPresence
 }
 
 // NewExpertService wires the FR-19 service. Publishing a version requires a
@@ -123,6 +128,14 @@ func (s *ExpertService) SetPersonaStore(p PersonaBodyStore) { s.persona = p }
 
 // SetSkillStore wires the optional expert skill binder.
 func (s *ExpertService) SetSkillStore(store ExpertSkillStore) { s.skills = store }
+
+// SetBindKeyPresence gates catalog floor keys on live Skill/MCP assets.
+func (s *ExpertService) SetBindKeyPresence(fn BindKeyPresence) {
+	if s == nil {
+		return
+	}
+	s.bindKeyPresent = fn
+}
 
 func (s *ExpertService) storeBody(ref string, body []byte) error {
 	if s.persona == nil {
@@ -501,10 +514,98 @@ func (s *ExpertService) applySkillFloor(ctx context.Context, expertID string, ke
 		if key == "" || seen[key] {
 			continue
 		}
+		if s.bindKeyPresent != nil && !s.bindKeyPresent(ctx, key) {
+			continue
+		}
 		seen[key] = true
 		out = append(out, key)
 	}
 	return out
+}
+
+func uniqueCanonicalKeys(keys []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		key = CanonicalDeclaredKey(key)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	return out
+}
+
+func sameBoundKeys(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// AttachDeclaredKeys merges canonical keys onto catalog experts that declared them.
+func (s *ExpertService) AttachDeclaredKeys(ctx context.Context, keys []string) error {
+	if s == nil || s.skills == nil {
+		return nil
+	}
+	canonical := uniqueCanonicalKeys(keys)
+	if len(canonical) == 0 {
+		return nil
+	}
+	listed, err := s.List(ctx, ExpertFilter{})
+	if err != nil {
+		return err
+	}
+	for _, exp := range listed.Experts {
+		item, ok := ResolveConversationExpert(exp.Name, exp.CatalogItemID)
+		if !ok {
+			continue
+		}
+		var add []string
+		for _, key := range canonical {
+			if catalogDeclaresKey(item, key) {
+				add = append(add, key)
+			}
+		}
+		if len(add) == 0 {
+			continue
+		}
+		if err := s.skills.MergeExpertSkillKeys(ctx, exp.ExpertID, add); err != nil {
+			return mapSkillBindError(err)
+		}
+	}
+	return nil
+}
+
+// DetachBoundKeys removes matching keys from every expert without re-applying the floor.
+func (s *ExpertService) DetachBoundKeys(ctx context.Context, keys []string) error {
+	if s == nil || s.skills == nil || len(keys) == 0 {
+		return nil
+	}
+	listed, err := s.List(ctx, ExpertFilter{})
+	if err != nil {
+		return err
+	}
+	for _, exp := range listed.Experts {
+		current, err := s.skills.ListExpertSkillKeys(ctx, exp.ExpertID)
+		if err != nil {
+			return err
+		}
+		next := RemoveBoundKeys(current, keys)
+		if sameBoundKeys(current, next) {
+			continue
+		}
+		if err := s.skills.ReplaceExpertSkillKeys(ctx, exp.ExpertID, next); err != nil {
+			return mapSkillBindError(err)
+		}
+	}
+	return nil
 }
 
 func mapSkillBindError(err error) error {

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,6 +62,53 @@ func TestOCRInstallMissingServiceIsChinese(t *testing.T) {
 	}
 }
 
+func TestOCRInstallProbeDoesNotStartDownload(t *testing.T) {
+	root := t.TempDir()
+	svc := ocrapp.New(ocrapp.NewFileStore(filepath.Join(root, "ocr-routing.json")))
+	svc.SetInstallRoot(root)
+	svc.SetInstallBundle(func(context.Context, ocrapp.Bundle, func(ocrapp.Progress)) error {
+		t.Fatal("probe must not start a RapidOCR download")
+		return nil
+	})
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.SetOCR(svc)
+	resp := e.Handle(context.Background(), validRequest("ocr.install", `{"probe":true}`))
+	if !resp.OK {
+		t.Fatalf("probe %#v", resp.Error)
+	}
+	got := resp.Payload.(map[string]any)
+	if got["state"] != "idle" {
+		t.Fatalf("absent pack probe must stay idle: %+v", got)
+	}
+}
+
+func TestOCRInstallProbeReportsReadyPack(t *testing.T) {
+	root := t.TempDir()
+	bundleDir := filepath.Join(root, ocrapp.RuntimeID)
+	if err := os.MkdirAll(bundleDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bundleDir, "RapidOCR-json.exe"), []byte("MZ"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	svc := ocrapp.New(ocrapp.NewFileStore(filepath.Join(root, "ocr-routing.json")))
+	svc.SetInstallRoot(root)
+	svc.SetInstallBundle(func(context.Context, ocrapp.Bundle, func(ocrapp.Progress)) error {
+		t.Fatal("ready pack probe must not download")
+		return nil
+	})
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.SetOCR(svc)
+	resp := e.Handle(context.Background(), validRequest("ocr.install", `{"probe":true}`))
+	if !resp.OK {
+		t.Fatalf("probe %#v", resp.Error)
+	}
+	got := resp.Payload.(map[string]any)
+	if got["state"] != "ready" {
+		t.Fatalf("RapidOCR on disk must probe ready: %+v", got)
+	}
+}
+
 func TestOCRInstallReadyUsesPackWithoutFolderPick(t *testing.T) {
 	root := t.TempDir()
 	bundleDir := filepath.Join(root, ocrapp.RuntimeID)
@@ -74,13 +122,19 @@ func TestOCRInstallReadyUsesPackWithoutFolderPick(t *testing.T) {
 	svc.SetInstallRoot(root)
 	e := NewEngine(providerRepositoryStub{}, "test")
 	e.SetOCR(svc)
-	got := e.Handle(context.Background(), validRequest("ocr.routing.get", `{}`))
+	got := e.Handle(context.Background(), validRequest("ocr.routing.get", `{"scopeKind":"user"}`))
 	if !got.OK {
 		t.Fatalf("get %#v", got.Error)
 	}
-	payload := got.Payload.(map[string]any)
-	pack, _ := payload["pack"].(map[string]any)
-	if pack["available"] != true {
-		t.Fatalf("downloaded pack must be ready without a folder pick: %+v", payload)
+	raw, _ := json.Marshal(got.Payload)
+	if strings.Contains(string(raw), `"state":"registered_unwired"`) {
+		t.Fatalf("RapidOCR executable must not stay registered_unwired: %s", raw)
+	}
+	if !strings.Contains(string(raw), `"ppocr"`) {
+		t.Fatalf("routing must include RapidOCR in fallback order: %s", raw)
+	}
+	pack := ocrapp.DetectPPOcrPack(bundleDir)
+	if !pack.Available || pack.Status != "ready" {
+		t.Fatalf("RapidOCR exe under install root must be runnable: %+v", pack)
 	}
 }

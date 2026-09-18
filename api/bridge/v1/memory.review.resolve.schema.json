@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/memory.review.resolve.schema.json",
+  "title": "memory.review.resolve payload",
+  "x-method": "memory.review.resolve",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reviewId", "decision", "operationId", "expectedRevision"],
+  "properties": {
+    "reviewId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "decision": { "type": "string", "enum": ["accept", "reject", "correct"] },
+    "text": { "type": "string", "minLength": 1, "maxLength": 8192 },
+    "operationId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "expectedRevision": { "type": "integer", "minimum": 1 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "decision": { "const": "correct" } } },
+      "then": { "required": ["text"], "properties": { "text": {} } }
+    },
+    {
+      "if": { "properties": { "decision": { "enum": ["accept", "reject"] } } },
+      "then": { "properties": { "text": false } }
+    }
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["reviewId", "decision", "databaseRevision"],
+    "properties": {
+      "reviewId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+      "decision": { "type": "string", "enum": ["accept", "reject", "correct"] },
+      "item": { "$ref": "https://lunitide.local/schema/bridge/v1/memory.item.create.schema.json#/$defs/MemoryItemDTO" },
+      "databaseRevision": { "type": "integer", "minimum": 0 }
+    }
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "reviewId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "decision": "accept",
+        "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "expectedRevision": 1
+      },
+      {
+        "reviewId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "decision": "correct",
+        "text": "我喜欢简洁的中文回答",
+        "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+        "expectedRevision": 2
+      },
+      {
+        "reviewId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "decision": "reject",
+        "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+        "expectedRevision": 3
+      }
+    ],
+    "negative": [
+      {
+        "reviewId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "decision": "correct",
+        "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "expectedRevision": 1
+      },
+      {
+        "reviewId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "decision": "accept",
+        "text": "多余正文",
+        "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "expectedRevision": 1
+      },
+      {
+        "reviewId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "decision": "keep",
+        "operationId": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        "expectedRevision": 1
+      }
+    ]
+  }
+}

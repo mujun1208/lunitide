@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/memory.generation.list.schema.json",
+  "title": "memory.generation.list payload",
+  "x-method": "memory.generation.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scopeKind"],
+  "properties": {
+    "scopeKind": { "type": "string", "enum": ["user", "project"] },
+    "scopeId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "cursor": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "scopeKind": { "const": "user" } } },
+      "then": { "properties": { "scopeId": false } }
+    },
+    {
+      "if": { "properties": { "scopeKind": { "const": "project" } } },
+      "then": { "required": ["scopeId"], "properties": { "scopeId": {} } }
+    }
+  ],
+  "$defs": {
+    "GenerationSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generationId", "parentGenerationId", "scopeKind", "scopeId", "state", "sourceCutoffSeq", "builderVersion", "memberCount", "revision", "createdAt", "readyAt", "activatedAt", "errorCode"],
+      "properties": {
+        "generationId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+        "parentGenerationId": { "type": ["string", "null"] },
+        "scopeKind": { "type": "string", "enum": ["user", "project"] },
+        "scopeId": { "type": ["string", "null"] },
+        "state": { "type": "string", "enum": ["building", "ready", "active", "discarded", "failed", "archived"] },
+        "sourceCutoffSeq": { "type": "integer", "minimum": 0 },
+        "builderVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "memberCount": { "type": "integer", "minimum": 0 },
+        "revision": { "type": "integer", "minimum": 1 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "readyAt": { "type": ["string", "null"], "format": "date-time" },
+        "activatedAt": { "type": ["string", "null"], "format": "date-time" },
+        "errorCode": { "type": ["string", "null"] }
+      }
+    }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["items", "databaseRevision"],
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 100,
+        "items": { "$ref": "#/$defs/GenerationSummary" }
+      },
+      "nextCursor": { "type": ["string", "null"] },
+      "databaseRevision": { "type": "integer", "minimum": 1 }
+    }
+  },
+  "x-examples": {
+    "positive": [
+      { "scopeKind": "user", "limit": 20 },
+      { "scopeKind": "project", "scopeId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }
+    ],
+    "negative": [
+      { "scopeKind": "user", "scopeId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+      { "scopeKind": "project" },
+      { "scopeKind": "session" }
+    ]
+  }
+}

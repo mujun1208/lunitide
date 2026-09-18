@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/domain/m8core"
 	"github.com/lunitide/lunitide/internal/m8app"
 )
 
@@ -88,8 +89,7 @@ func handleFeedbackCandidates(e *Engine, ctx context.Context, r bridge.Request) 
 	}
 	if p.SessionID != "" {
 		filtered := make([]m8app.PendingCandidateView, 0)
-		settings := e.chatMemorySettings(ctx)
-		if settings.MemoryEnabled && settings.CaptureMode == "manual" {
+		if m8core.ResolveMemoryBehavior(e.chatMemoryV2(ctx), "user", m8core.CurrentProductFlags()).AllowAutoCapture {
 			for _, item := range items {
 				if item.SourceSessionID == p.SessionID {
 					filtered = append(filtered, item)

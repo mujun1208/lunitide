@@ -154,7 +154,7 @@ func testS1G1OCRIsNotCapabilityRole(t *testing.T) {
 	svc := ocrapp.New(ocrapp.NewFileStore(filepath.Join(t.TempDir(), "ocr-routing.json")))
 	e.SetOCR(svc)
 
-	routing := e.Handle(context.Background(), validRequest("ocr.routing.get", `{}`))
+	routing := e.Handle(context.Background(), validRequest("ocr.routing.get", `{"scopeKind":"user"}`))
 	if !routing.OK {
 		t.Fatalf("ocr.routing stays independent %#v", routing.Error)
 	}

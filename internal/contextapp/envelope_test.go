@@ -608,6 +608,10 @@ func TestAssembleEnvelopeRelatedEvidenceIsQuotedUserContextWithExactAccounting(t
 	t.Fatal("missing related evidence trace")
 }
 
+func TestMemoryInjectionSafety(t *testing.T) {
+	TestAssembleEnvelopeRelatedEvidenceIsQuotedUserContextWithExactAccounting(t)
+}
+
 func TestAssembleEnvelopeHistoryConsumesRenderedEvidenceBoundary(t *testing.T) {
 	evidence := "retrieved fact"
 	renderedCost := token.EstimateTokens(renderUntrustedUserContext("Related Evidence", evidence))

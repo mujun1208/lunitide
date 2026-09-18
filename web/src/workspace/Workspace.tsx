@@ -14,7 +14,7 @@ import { ChangesPanel } from './ChangesPanel'
 import { CodePanel } from './CodePanel'
 import { CoordinationPlanPanel } from './CoordinationPlanPanel'
 import { PlanDagPanel } from './PlanDagPanel'
-import { FilesPanel, type FilesFocus } from './FilesPanel'
+import { FilesPanel, type FilesFocus, type SkillFilePreview } from './FilesPanel'
 import { SkillPackagePanel } from '../skill/SkillPackagePanel'
 import { LocalExplorer } from './LocalExplorer'
 import { SessionFolderPanel } from './SessionFolderPanel'
@@ -167,6 +167,7 @@ export function Workspace({
   const filesDragCleanup = useRef<(() => void) | undefined>(undefined)
   const [treeOpen, setTreeOpen] = useState(true)
   const [treeWidth, setTreeWidth] = useState(260)
+  const [skillDetail, setSkillDetail] = useState<SkillFilePreview>()
 
   const localBridge = () => {
     if (local.current) return local.current
@@ -290,7 +291,8 @@ export function Workspace({
     }))
 
   const catalogFocus = filesFocus === 'skills' || filesFocus === 'experts' || filesFocus === 'plugins' || filesFocus === 'assets'
-  const catalogFiles = catalogFocus ? <FilesPanel projectId={projectId} focus={filesFocus} /> : null
+  const skillsCatalog = filesFocus === 'skills'
+  const catalogFiles = catalogFocus && !skillsCatalog ? <FilesPanel projectId={projectId} focus={filesFocus} /> : null
   const sessionFiles = filesFocus === 'session'
     ? (
       <SessionFolderPanel
@@ -390,7 +392,60 @@ export function Workspace({
         ))}
       </nav>
 
-      {tab === 'files' && skillId && <SkillPackagePanel skillId={skillId} bridge={skills} refreshKey={skillRevision??refreshRevision}/>}
+      {tab === 'files' && skillId && <SkillPackagePanel skillId={skillId} bridge={skills} refreshKey={skillRevision??refreshRevision} layout="split"/>}
+      {tab === 'files' && !skillId && skillsCatalog && (
+        <div
+          className={`workspace-files-stage${treeOpen ? '' : ' is-tree-hidden'}`}
+          ref={filesStageRef}
+          style={{'--tree-width': `${treeWidth}px`} as React.CSSProperties}
+        >
+          <div className="workspace-preview workspace-files-preview">
+            <div className="workspace-preview-toolbar">
+              <span className="workspace-file-name">{skillDetail?.path || '文件'}</span>
+              <div className="workspace-chrome-tools">
+                <button
+                  type="button"
+                  className="artifact-icon-btn"
+                  aria-label={treeOpen ? '折叠文件树' : '显示文件树'}
+                  title={treeOpen ? '折叠文件树' : '显示文件树'}
+                  onClick={() => setTreeOpen(open => !open)}
+                >
+                  {treeOpen ? '◧' : '◨'}
+                </button>
+              </div>
+            </div>
+            {skillDetail ? (
+              skillDetail.encoding === 'binary' ? (
+                <p className="workspace-files-empty">这是二进制文件（{skillDetail.size} 字节），无法作为文本展示。</p>
+              ) : (
+                <div className="workspace-inline-preview" style={{ fontSize: `${zoom}%` }}>
+                  <ArtifactPreviewContent sessionId={sessionId} preview={{ kind: previewKindFromPath(skillDetail.path), path: skillDetail.path, content: skillDetail.content, size: skillDetail.size }} />
+                </div>
+              )
+            ) : (
+              <div className="workspace-files-empty">
+                <b>技能文件</b>
+                <p>从右侧技能目录展开技能并选择文件即可预览</p>
+              </div>
+            )}
+          </div>
+          {treeOpen && (
+            <>
+              <button type="button" className="workspace-tree-resizer" role="separator" aria-orientation="vertical" aria-label="调整文件树宽度" onPointerDown={dragFilesTree} />
+              <aside className="workspace-file-tree" aria-label="文件树">
+                <FilesPanel
+                  projectId={projectId}
+                  focus="skills"
+                  skills={skills}
+                  refreshKey={skillRevision ?? refreshRevision}
+                  onPreview={setSkillDetail}
+                  selectedPath={skillDetail ? `skills/${skillDetail.skillId}/${skillDetail.path}` : undefined}
+                />
+              </aside>
+            </>
+          )}
+        </div>
+      )}
       {tab === 'files' && !skillId && catalogFocus && catalogFiles}
       {tab === 'files' && !skillId && !catalogFocus && (
         <div

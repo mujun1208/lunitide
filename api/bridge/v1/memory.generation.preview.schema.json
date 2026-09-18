@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/memory.generation.preview.schema.json",
+  "title": "memory.generation.preview payload",
+  "x-method": "memory.generation.preview",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["generationId"],
+  "properties": {
+    "generationId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "cursor": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["generation", "changes"],
+    "properties": {
+      "generation": { "$ref": "https://lunitide.local/schema/bridge/v1/memory.generation.list.schema.json#/$defs/GenerationSummary" },
+      "changes": {
+        "type": "array",
+        "maxItems": 100,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["change", "factId", "fromVersion", "toVersion", "beforeText", "afterText", "reasonCodes"],
+          "properties": {
+            "change": { "type": "string", "enum": ["add", "remove", "replace"] },
+            "factId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+            "fromVersion": { "type": ["integer", "null"], "minimum": 1 },
+            "toVersion": { "type": ["integer", "null"], "minimum": 1 },
+            "beforeText": { "type": ["string", "null"], "maxLength": 8192 },
+            "afterText": { "type": ["string", "null"], "maxLength": 8192 },
+            "reasonCodes": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 64 } }
+          }
+        }
+      },
+      "nextCursor": { "type": ["string", "null"] }
+    }
+  },
+  "x-examples": {
+    "positive": [
+      { "generationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "limit": 50 },
+      { "generationId": "01ARZ3NDEKTSV4RRFFQ69G5FAW", "cursor": "01ARZ3NDEKTSV4RRFFQ69G5FAX" }
+    ],
+    "negative": [
+      { "generationId": "not-a-ulid" },
+      { "limit": 50 },
+      { "generationId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "limit": 0 }
+    ]
+  }
+}

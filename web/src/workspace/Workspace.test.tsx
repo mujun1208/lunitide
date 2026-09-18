@@ -36,6 +36,24 @@ describe('Workspace',()=>{
  it('linkifies only HTTPS text and leaves unsafe schemes inert',async()=>{render(<Workspace attachments={bridge()} projectId={P} sessionId={S} onClose={vi.fn()}/>);const link=await screen.findByRole('link',{name:'https://safe.example/path'});expect(link).toHaveAttribute('href','https://safe.example/path');expect(link).toHaveAttribute('rel',expect.stringContaining('noopener'));expect(screen.queryByRole('link',{name:/javascript|http:\/\/plain/})).toBeNull();expect(screen.getByText(/javascript:alert/)).toBeInTheDocument()})
  it('opens and closes only through the isolated browser bridge and reports opening',async()=>{const browser={open:vi.fn().mockResolvedValue({status:'opening',url:'https://example.com/'}),close:vi.fn().mockResolvedValue({status:'closed'})}as BrowserBridge,user=userEvent.setup();render(<Workspace attachments={bridge()} browser={browser} projectId={P} sessionId={S} onClose={vi.fn()}/>);await user.click(screen.getByRole('tab',{name:'浏览器'}));expect(screen.queryByRole('tab',{name:'安全浏览器'})).toBeNull();const input=screen.getByLabelText('浏览器地址');await user.clear(input);await user.type(input,'http://unsafe.example');expect(screen.getByRole('button',{name:'打开独立浏览器'})).toBeDisabled();await user.clear(input);await user.type(input,'https://example.com/');await user.click(screen.getByRole('button',{name:'打开独立浏览器'}));await waitFor(()=>expect(browser.open).toHaveBeenCalledWith({url:'https://example.com/'}));expect(screen.getByLabelText('浏览器状态')).toHaveTextContent('已接受，正在打开');expect(document.querySelector('iframe')).toBeNull();await user.click(screen.getByRole('button',{name:'关闭浏览器'}));await waitFor(()=>expect(browser.close).toHaveBeenCalledOnce())})
  it('opens skill creation on the files tab with the installed skill catalog',async()=>{render(<Workspace attachments={bridge()} projectId={P} sessionId={S} targetTab="files" filesFocus="skills" isolateRoot onClose={vi.fn()}/>);expect(screen.getByRole('tab',{name:'文件'})).toHaveAttribute('aria-selected','true');expect(await screen.findByRole('region',{name:'技能包目录'})).toBeInTheDocument()})
+ it('lets the skill catalog expand and previews a package file beside the tree',async()=>{
+  const skillId='01ARZ3NDEKTSV4RRFFQ69G5FAB'
+  const skills={
+    list:vi.fn().mockResolvedValue({items:[{id:skillId,name:'review',displayName:'审查',description:'',version:'1.0.0',status:'published',permissions:['read_only'],entryPoint:'skills/review/SKILL.md',manifestJson:'{}',createdAt:NOW,updatedAt:NOW}]}),
+    packageList:vi.fn().mockResolvedValue({skillId,revision:'rev-1',rootPath:'C:/skills/review',entries:[{path:'SKILL.md',kind:'file',size:20},{path:'scripts/check.py',kind:'file',size:8}]}),
+    packageRead:vi.fn().mockResolvedValue({skillId,path:'SKILL.md',content:'# 审查规则正文',encoding:'utf8',size:20,nextOffset:20,eof:true,digest:'d',revision:'rev-1'}),
+  }
+  const user=userEvent.setup()
+  render(<Workspace attachments={bridge()} projectId={P} sessionId={S} targetTab="files" filesFocus="skills" skills={skills as never} onClose={vi.fn()}/>)
+  expect(await screen.findByRole('region',{name:'技能包目录'})).toBeInTheDocument()
+  expect(screen.getByLabelText('文件树')).toBeInTheDocument()
+  expect(screen.getByRole('separator',{name:'调整文件树宽度'})).toBeInTheDocument()
+  expect(screen.getByText('从右侧技能目录展开技能并选择文件即可预览')).toBeInTheDocument()
+  await user.click(await screen.findByRole('button',{name:/审查/}))
+  await user.click(await screen.findByRole('button',{name:/SKILL.md/}))
+  expect(await screen.findByText('审查规则正文')).toBeInTheDocument()
+  expect(skills.packageRead).toHaveBeenCalledWith(expect.objectContaining({skillId,path:'SKILL.md'}))
+ })
  it('renders image bytes from attachment.get and does not claim the workspace lacks them',async()=>{
  const jpeg='aaaa'
  const attachments=bridge()

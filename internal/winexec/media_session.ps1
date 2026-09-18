@@ -49,4 +49,31 @@ for ($i = 0; $i -lt 8; $i++) {
     if ($verified -or -not $accepted) { break }
     Start-Sleep -Milliseconds 250
 }
-[ordered]@{ app = $session.SourceAppUserModelId; status = $status; title = $properties.Title; artist = $properties.Artist; verified = [bool]$verified; shuffle = ($info.IsShuffleActive -eq $true) } | ConvertTo-Json -Compress
+$capabilities = @()
+try {
+    $controls = $info.Controls
+    if ($controls.IsPlayEnabled) { $capabilities += 'play' }
+    if ($controls.IsPauseEnabled) { $capabilities += 'pause' }
+    if ($controls.IsStopEnabled) { $capabilities += 'stop' }
+    if ($controls.IsSkipNextEnabled) { $capabilities += 'next' }
+    if ($controls.IsSkipPreviousEnabled) { $capabilities += 'previous' }
+} catch {}
+$positionMs = 0
+$durationMs = 0
+try {
+    $timeline = $session.GetTimelineProperties()
+    if ($timeline.Position) { $positionMs = [int64]$timeline.Position.TotalMilliseconds }
+    if ($timeline.EndTime) { $durationMs = [int64]$timeline.EndTime.TotalMilliseconds }
+} catch {}
+[ordered]@{
+    app = $session.SourceAppUserModelId
+    status = $status
+    title = $properties.Title
+    artist = $properties.Artist
+    verified = [bool]$verified
+    shuffle = ($info.IsShuffleActive -eq $true)
+    sessionKey = [string]$session.SourceAppUserModelId
+    capabilities = @($capabilities)
+    positionMs = $positionMs
+    durationMs = $durationMs
+} | ConvertTo-Json -Compress

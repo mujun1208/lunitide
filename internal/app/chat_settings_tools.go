@@ -129,6 +129,7 @@ func (e *Engine) invokeMcpInstallPreset(ctx context.Context, raw json.RawMessage
 		return "", err
 	}
 	e.rememberMcpPreset(res.EndpointID, preset.ID)
+	e.attachDeclaredBindKeys(ctx, m8app.BoundMcpPrefix+preset.ID)
 	b, _ := json.Marshal(map[string]any{"endpointId": res.EndpointID, "state": ep.State, "presetId": preset.ID})
 	return string(b), nil
 }

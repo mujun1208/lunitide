@@ -62,3 +62,18 @@ func TestMusicSessionUnsupportedAppDoesNotControlAnotherPlayer(t *testing.T) {
 		t.Fatal("unknown app was controlled")
 	}
 }
+
+func TestExternalSeekStaysUncertain(t *testing.T) {
+	original := mediaSessionAction
+	t.Cleanup(func() { mediaSessionAction = original })
+	mediaSessionAction = func(context.Context, []string, string, bool) (winexec.MediaSessionResult, error) {
+		return winexec.MediaSessionResult{}, winexec.ErrSMTCSeekVolumeDisabled
+	}
+	res, ok := controlMusicSession(context.Background(), "汽水", "seek", false)
+	if !ok || strings.Contains(res.Output, `"passed":true`) || !strings.Contains(res.Output, `"uncertain":true`) {
+		t.Fatalf("seek must stay unverified: %+v %v", res, ok)
+	}
+	if strings.Contains(res.Output, "verified playing") || strings.Contains(res.Output, "已播放") {
+		t.Fatalf("must not claim played: %s", res.Output)
+	}
+}

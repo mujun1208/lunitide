@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/media.element.report.schema.json",
+  "title": "media.element.report payload",
+  "x-method": "media.element.report",
+  "x-owner": "host",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mediaSessionId", "event"],
+  "properties": {
+    "mediaSessionId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "event": { "type": "string", "enum": ["playing", "pause", "ended", "stalled", "error", "position"] },
+    "positionMs": { "type": "integer", "minimum": 0, "maximum": 86400000 },
+    "durationMs": { "type": "integer", "minimum": 0, "maximum": 86400000 }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["accepted"],
+    "properties": {
+      "accepted": { "type": "boolean" }
+    }
+  },
+  "x-examples": {
+    "positive": [
+      { "mediaSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "event": "playing", "positionMs": 0, "durationMs": 180000 },
+      { "mediaSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "event": "pause", "positionMs": 1200, "durationMs": 180000 }
+    ],
+    "negative": [
+      {},
+      { "mediaSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+      { "mediaSessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "event": "play" }
+    ]
+  }
+}

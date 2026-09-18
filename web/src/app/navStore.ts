@@ -1,5 +1,5 @@
 import{create}from'zustand'
-import type{SettingsCategory}from'../settings/settingsNav'
+import type{SettingsCategory,SettingsIntelligenceView}from'../settings/settingsNav'
 import type{LaunchTarget,Page}from'./appTypes'
 
 // A-02.2 navStore (F-07 §3): single source of truth for the navigation state
@@ -27,19 +27,21 @@ export interface NavState{
  drawer:boolean
  sidebarCollapsed:boolean
  settingsCategory:SettingsCategory
+ settingsIntelligenceView:SettingsIntelligenceView
  catalogFocus:CatalogFocus
  setPage:(next:SetState<Page>)=>void
  setTarget:(next:SetState<LaunchTarget|undefined>)=>void
  setDrawer:(next:SetState<boolean>)=>void
  setSidebarCollapsed:(next:SetState<boolean>)=>void
  setSettingsCategory:(next:SetState<SettingsCategory>)=>void
+ setSettingsIntelligenceView:(next:SetState<SettingsIntelligenceView>)=>void
  setCatalogFocus:(next:SetState<CatalogFocus>)=>void
 }
 
-type NavData=Pick<NavState,'page'|'target'|'drawer'|'sidebarCollapsed'|'settingsCategory'|'catalogFocus'>
+type NavData=Pick<NavState,'page'|'target'|'drawer'|'sidebarCollapsed'|'settingsCategory'|'settingsIntelligenceView'|'catalogFocus'>
 
 function initialNav():NavData{
- return{page:'home',target:undefined,drawer:false,sidebarCollapsed:false,settingsCategory:'general',catalogFocus:undefined}
+ return{page:'home',target:undefined,drawer:false,sidebarCollapsed:false,settingsCategory:'general',settingsIntelligenceView:'overview',catalogFocus:undefined}
 }
 
 export const useNavStore=create<NavState>((set,get)=>({
@@ -48,7 +50,11 @@ export const useNavStore=create<NavState>((set,get)=>({
  setTarget:next=>set({target:resolve(next,get().target)}),
  setDrawer:next=>set({drawer:resolve(next,get().drawer)}),
  setSidebarCollapsed:next=>set({sidebarCollapsed:resolve(next,get().sidebarCollapsed)}),
- setSettingsCategory:next=>set({settingsCategory:resolve(next,get().settingsCategory)}),
+ setSettingsCategory:next=>{
+  const settingsCategory=resolve(next,get().settingsCategory)
+  set(settingsCategory==='personal'?{settingsCategory}:{settingsCategory,settingsIntelligenceView:'overview'})
+ },
+ setSettingsIntelligenceView:next=>set({settingsIntelligenceView:resolve(next,get().settingsIntelligenceView)}),
  setCatalogFocus:next=>set({catalogFocus:resolve(next,get().catalogFocus)}),
 }))
 

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/memory.item.history.schema.json",
+  "title": "memory.item.history payload",
+  "x-method": "memory.item.history",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["factId"],
+  "properties": {
+    "factId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "cursor": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["items"],
+    "properties": {
+      "items": {
+        "type": "array",
+        "maxItems": 100,
+        "items": { "$ref": "https://lunitide.local/schema/bridge/v1/memory.item.create.schema.json#/$defs/MemoryItemDTO" }
+      },
+      "nextCursor": { "type": ["string", "null"] }
+    }
+  },
+  "x-examples": {
+    "positive": [
+      { "factId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+      { "factId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "limit": 20, "cursor": "2" }
+    ],
+    "negative": [
+      { "factId": "not-a-ulid" },
+      { "factId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "limit": 0 },
+      { "factId": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "limit": 101 },
+      {}
+    ]
+  }
+}

@@ -492,13 +492,16 @@ func validateEvent(e bridge.Event) error {
 	if !talkEventType(e.Type) && e.Talk != nil {
 		return errors.New("talk payload on non-talk event")
 	}
+	if e.Type != bridge.EventMediaSnapshot && e.Media != nil {
+		return errors.New("media payload on non-media event")
+	}
 	if e.Type != bridge.EventToolStarted && e.Type != bridge.EventToolCompleted && e.Type != bridge.EventApprovalRequired && e.Type != bridge.EventToolOutput && e.Tool != nil {
 		return errors.New("tool payload on non-tool event")
 	}
 	const maxText = 16 * 1024
 	switch e.Type {
 	case bridge.EventGuidance, bridge.EventEquip:
-		if e.Delta != nil || e.Thinking != nil || e.Usage != nil || e.Completed != nil || e.Error != nil || e.Tool != nil || e.Terminal != nil || e.Tts != nil || e.Talk != nil {
+		if e.Delta != nil || e.Thinking != nil || e.Usage != nil || e.Completed != nil || e.Error != nil || e.Tool != nil || e.Terminal != nil || e.Tts != nil || e.Talk != nil || e.Media != nil {
 			return errors.New("invalid guidance/equip event payload")
 		}
 		if e.Type == bridge.EventGuidance {
@@ -575,7 +578,7 @@ func validateEvent(e bridge.Event) error {
 			}
 		}
 	case bridge.EventCompleted, bridge.EventCancelled:
-		if e.Delta != nil || e.Thinking != nil || e.Usage != nil || e.Error != nil {
+		if e.Delta != nil || e.Thinking != nil || e.Usage != nil || e.Error != nil || e.Media != nil {
 			return errors.New("invalid terminal event")
 		}
 	case bridge.EventFailed:
@@ -626,6 +629,13 @@ func validateEvent(e bridge.Event) error {
 	case bridge.EventTalkEnded:
 		if e.Delta != nil || e.Tts != nil || e.Error != nil {
 			return errors.New("invalid talk ended event")
+		}
+	case bridge.EventMediaSnapshot:
+		if e.Media == nil || e.Delta != nil || e.Thinking != nil || e.Usage != nil || e.Completed != nil || e.Error != nil || e.Tool != nil || e.Terminal != nil || e.Tts != nil || e.Talk != nil {
+			return errors.New("invalid media snapshot event")
+		}
+		if e.Media.Kind != "invalidate" || !ulidValid(e.Media.MediaSessionID) || e.Media.Revision < 1 {
+			return errors.New("invalid media snapshot fields")
 		}
 	default:
 		return errors.New("unknown event type")

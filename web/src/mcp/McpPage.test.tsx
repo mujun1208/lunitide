@@ -24,8 +24,8 @@ const memoryEndpoint = {
 function api(overrides: Partial<McpBridge> = {}): McpBridge {
   return {
     list: vi.fn().mockResolvedValue({ endpoints: [] }),
-    add: vi.fn().mockResolvedValue({ endpointId: 'mcp-1', state: 'probe' }),
-    toggle: vi.fn().mockResolvedValue({ endpointId: 'mcp-1', enabled: true, state: 'probe' }),
+    add: vi.fn().mockResolvedValue({ endpointId: 'mcp-1', state: 'ready' }),
+    toggle: vi.fn().mockResolvedValue({ endpointId: 'mcp-1', enabled: true, state: 'ready' }),
     health: vi.fn().mockResolvedValue({ state: 'ready', driftDetected: false, checkedAt: '2026-01-01T00:00:00Z', latencyMs: 12 }),
     marketSearch: vi.fn(),
     presets: vi.fn().mockResolvedValue({ items: catalog }),
@@ -190,7 +190,7 @@ it('opens installed view and marks leftover archived MCP', async () => {
   }
   const bridge = api({ list: vi.fn().mockResolvedValue({ endpoints: [memoryEndpoint, leftover] }) })
   render(<McpPage bridge={bridge} />)
-  expect(await screen.findByText(/已下架 MCP（GitHub）/)).toBeInTheDocument()
+  expect(await screen.findByText(/已下架且无法继续使用的 MCP（GitHub）/)).toBeInTheDocument()
   expect(await screen.findByText(/已下架 · GitHub/)).toBeInTheDocument()
   expect(screen.getByRole('tab', { name: /已安装/ })).toHaveAttribute('aria-selected', 'true')
   expect(screen.getByText('Memory')).toBeInTheDocument()
@@ -278,4 +278,71 @@ it('names a broken install when displayName is empty',async()=>{
  render(<McpPage bridge={bridge}/>)
  fireEvent.click(await screen.findByRole('tab',{name:'已安装（1）'}))
  expect(await screen.findByText('未命名 MCP')).toBeInTheDocument()
+})
+
+it('does not treat a failed handshake as a market install', async () => {
+  const failed = {
+    ...memoryEndpoint,
+    endpointId: 'mcp-1',
+    displayName: 'Everything',
+    args: catalog[0].args,
+    state: 'degraded' as const,
+    enabled: false,
+    diagnosticMessage: '服务器握手或工具目录响应不符合支持的 MCP 协议，请检查启动配置及服务器版本。',
+  }
+  const bridge = api({
+    add: vi.fn().mockResolvedValue({ endpointId: 'mcp-1', state: 'degraded' }),
+    list: vi.fn().mockResolvedValueOnce({ endpoints: [] }).mockResolvedValue({ endpoints: [failed] }),
+  })
+  render(<McpPage bridge={bridge} />)
+  fireEvent.click(await screen.findByRole('button', { name: '安装 Everything' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('不符合支持的 MCP 协议')
+  expect(bridge.toggle).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: '安装 Everything' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '卸载 Everything' })).not.toBeInTheDocument()
+  expect(screen.queryByText('已安装「Everything」')).not.toBeInTheDocument()
+})
+
+it('uninstalls leftover Google Drive, Linear and Lark in one click', async () => {
+  const leftover = [
+    { ...memoryEndpoint, endpointId: 'mcp-gdrive', displayName: 'Google Drive', args: ['-y', '@modelcontextprotocol/server-gdrive'], state: 'degraded' as const },
+    { ...memoryEndpoint, endpointId: 'mcp-linear', displayName: 'Linear', transport: 'https' as const, url: 'https://mcp.linear.app/mcp', command: '', args: [], state: 'degraded' as const, enabled: false },
+    { ...memoryEndpoint, endpointId: 'mcp-lark', displayName: '飞书', args: ['-y', '@larksuite/lark-mcp'], state: 'degraded' as const },
+  ]
+  const confirmToken = vi.spyOn(mcBridge, 'confirmToken').mockResolvedValue({ confirmToken: 'a'.repeat(64), expiresAt: '2026-01-01T00:00:00Z' })
+  const uninstall = vi.spyOn(mcBridge, 'uninstall').mockResolvedValue({ endpointId: 'mcp-gdrive', state: 'revoked' })
+  const bridge = api({ list: vi.fn().mockResolvedValueOnce({ endpoints: leftover }).mockResolvedValue({ endpoints: [] }) })
+  render(<McpPage bridge={bridge} />)
+  expect(await screen.findByText(/Google Drive、Linear、飞书/)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '一键卸载' }))
+  fireEvent.click(await screen.findByRole('button', { name: '确认卸载' }))
+  await waitFor(() => expect(uninstall).toHaveBeenCalledTimes(3))
+  expect(confirmToken).toHaveBeenCalledWith({ method: 'mc.connector.uninstall', target: 'mcp-gdrive' })
+  expect(confirmToken).toHaveBeenCalledWith({ method: 'mc.connector.uninstall', target: 'mcp-linear' })
+  expect(confirmToken).toHaveBeenCalledWith({ method: 'mc.connector.uninstall', target: 'mcp-lark' })
+  confirmToken.mockRestore()
+  uninstall.mockRestore()
+})
+
+it('offers one-click uv install when a Python MCP is missing uv', async () => {
+  const uvInstall = vi.fn().mockResolvedValue({ state: 'ready', percent: 100, doneBytes: 1, totalBytes: 1 })
+  const bridge = api({
+    uvInstall,
+    list: vi.fn().mockResolvedValue({
+      endpoints: [{
+        ...memoryEndpoint,
+        displayName: 'Fetch',
+        command: 'uvx',
+        args: ['mcp-server-fetch'],
+        state: 'degraded',
+        diagnosticCode: 'MCP_UV_UNAVAILABLE',
+        diagnosticMessage: '未找到 uv。可在本页点「安装 uv」自动下载；npx 服务不受影响。',
+      }],
+    }),
+  })
+  render(<McpPage bridge={bridge} />)
+  fireEvent.click(await screen.findByRole('tab', { name: '已安装（1）' }))
+  fireEvent.click(await screen.findByRole('button', { name: '安装 uv' }))
+  await waitFor(() => expect(uvInstall).toHaveBeenCalled())
+  expect(await screen.findByText(/uv 已安装/)).toBeInTheDocument()
 })
