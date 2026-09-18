@@ -55,6 +55,69 @@ func ProtectedDesktopProcess(process string) bool {
 	return false
 }
 
+// OpenWindowHints returns process stems and title fragments of the
+// currently visible top-level windows. Routing uses it as a live app
+// vocabulary ("在 Obsidian 里…" routes to desktop control when Obsidian is
+// open even if no static table knows it). Read-only: it never enters the
+// execution fence, never mutates capture state, and is safe before arming.
+func (s *Service) OpenWindowHints() []string {
+	if s == nil || s.host == nil || !s.host.Available() {
+		return nil
+	}
+	wins, err := s.host.ListWindows()
+	if err != nil {
+		return nil
+	}
+	return WindowVocabulary(wins)
+}
+
+// WindowVocabulary extracts routing hints from a window list. Pure so tests
+// can pin it without a host.
+func WindowVocabulary(wins []WindowInfo) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(raw string) {
+		v := strings.TrimSpace(raw)
+		if v == "" {
+			return
+		}
+		n := len([]rune(v))
+		if n < 2 || n > 40 {
+			return
+		}
+		key := strings.ToLower(v)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, v)
+	}
+	for _, w := range wins {
+		if ProtectedDesktopProcess(w.Process) {
+			continue
+		}
+		stem := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(w.Process)), ".exe")
+		if stem != "" && len(stem) >= 3 {
+			add(stem)
+		}
+		split := false
+		for _, sep := range []string{" - ", " – ", " — ", " | ", "｜"} {
+			if strings.Contains(w.Title, sep) {
+				parts := strings.Split(w.Title, sep)
+				// The app name is conventionally the trailing fragment
+				// ("文档1 - Word", "Inbox - Outlook", "GitHub - Chrome").
+				add(parts[len(parts)-1])
+				split = true
+			}
+		}
+		// Short bare titles are the app itself ("微信", "飞书", "钉钉").
+		if !split && len([]rune(strings.TrimSpace(w.Title))) <= 12 {
+			add(w.Title)
+		}
+	}
+	return out
+}
+
 func chromeCloseName(name string) bool {
 	n := strings.ToLower(strings.TrimSpace(name))
 	n = strings.TrimRight(n, "….")

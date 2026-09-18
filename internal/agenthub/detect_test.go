@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -52,7 +53,19 @@ func TestDetectAllRunsAdaptersInParallel(t *testing.T) {
 	}
 }
 
+func isolateRegistryLook(t *testing.T) {
+	t.Helper()
+	prevExtra, prevVendor := extraPathLook, vendorInstallLook
+	extraPathLook = func() []string { return nil }
+	vendorInstallLook = func() []string { return nil }
+	t.Cleanup(func() {
+		extraPathLook = prevExtra
+		vendorInstallLook = prevVendor
+	})
+}
+
 func TestLookPrefersCmdShimOverBareName(t *testing.T) {
+	isolateRegistryLook(t)
 	home := t.TempDir()
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("HOME", home)
@@ -79,6 +92,7 @@ func TestLookPrefersCmdShimOverBareName(t *testing.T) {
 }
 
 func TestLookWithCommonPathsFindsUserLocalBin(t *testing.T) {
+	isolateRegistryLook(t)
 	home := t.TempDir()
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("HOME", home)
@@ -98,6 +112,7 @@ func TestLookWithCommonPathsFindsUserLocalBin(t *testing.T) {
 }
 
 func TestLookFindsCursorAgentLocalAppData(t *testing.T) {
+	isolateRegistryLook(t)
 	home := t.TempDir()
 	local := filepath.Join(home, "local")
 	t.Setenv("USERPROFILE", home)
@@ -120,6 +135,7 @@ func TestLookFindsCursorAgentLocalAppData(t *testing.T) {
 }
 
 func TestLookFindsCursorAgentBesideCursorIDE(t *testing.T) {
+	isolateRegistryLook(t)
 	root := t.TempDir()
 	t.Setenv("USERPROFILE", filepath.Join(root, "home"))
 	t.Setenv("HOME", filepath.Join(root, "home"))
@@ -145,6 +161,7 @@ func TestLookFindsCursorAgentBesideCursorIDE(t *testing.T) {
 }
 
 func TestDetectCursorHintWhenOnlyIDEInstalled(t *testing.T) {
+	isolateRegistryLook(t)
 	root := t.TempDir()
 	t.Setenv("USERPROFILE", filepath.Join(root, "home"))
 	t.Setenv("HOME", filepath.Join(root, "home"))
@@ -171,6 +188,7 @@ func TestDetectCursorHintWhenOnlyIDEInstalled(t *testing.T) {
 }
 
 func TestLookFindsKimiCodePrefixBin(t *testing.T) {
+	isolateRegistryLook(t)
 	home := t.TempDir()
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("HOME", home)
@@ -200,5 +218,45 @@ func TestDetectAvailableWhenMatrixAndVersionOK(t *testing.T) {
 	})
 	if st.State != "available" || !st.NonInteractive {
 		t.Fatalf("%+v", st)
+	}
+}
+
+func TestDetectCursorCmdWithoutNodeIsNotReady(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("ACP node pair is a Windows .cmd concern")
+	}
+	dir := t.TempDir()
+	cmd := filepath.Join(dir, "cursor-agent.cmd")
+	if err := os.WriteFile(cmd, []byte("@echo off\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := detectOne("cursor", func(string) (string, error) { return cmd, nil }, func(string, time.Duration) (string, error) {
+		return "2026.09.10", nil
+	})
+	if st.State == "available" {
+		t.Fatalf("cmd without node must not look ready: %+v", st)
+	}
+	if !strings.Contains(st.Hint, "聊天") {
+		t.Fatalf("hint = %q", st.Hint)
+	}
+}
+
+func TestDetectKimiCmdWithoutNodeIsNotReady(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("ACP node pair is a Windows .cmd concern")
+	}
+	dir := t.TempDir()
+	cmd := filepath.Join(dir, "kimi.cmd")
+	if err := os.WriteFile(cmd, []byte("@echo off\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := detectOne("kimi", func(string) (string, error) { return cmd, nil }, func(string, time.Duration) (string, error) {
+		return "kimi 1.0.0", nil
+	})
+	if st.State == "available" {
+		t.Fatalf("cmd without node must not look ready: %+v", st)
+	}
+	if !strings.Contains(st.Hint, "聊天") {
+		t.Fatalf("hint = %q", st.Hint)
 	}
 }

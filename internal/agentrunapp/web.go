@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/agentrun"
+	"github.com/lunitide/lunitide/internal/egressproxy"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/webfetch"
@@ -41,6 +42,7 @@ type WebFetcher func(ctx context.Context, rawURL string) (networkpolicy.FetchRes
 func defaultWebFetch(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error) {
 	return networkpolicy.Fetch(ctx, rawURL, networkpolicy.FetchOptions{
 		Policy: networkpolicy.Policy{AllowHTTP: true},
+		Proxy:  egressproxy.Resolver(),
 	})
 }
 

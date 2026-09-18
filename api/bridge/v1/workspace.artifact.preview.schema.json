@@ -33,6 +33,7 @@
           "pptx",
           "image",
           "pdf",
+          "audio",
           "text",
           "file"
         ]
@@ -47,7 +48,7 @@
       },
       "content": {
         "type": "string",
-        "maxLength": 3000000
+        "maxLength": 12000000
       },
       "absolutePath": {
         "type": "string",

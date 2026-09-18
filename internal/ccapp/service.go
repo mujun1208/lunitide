@@ -166,6 +166,7 @@ type Service struct {
 	capOriginX, capOriginY               int
 	capGeom                              DisplayGeometry
 	capHash                              [32]byte
+	capRawHash                           [32]byte
 	capFrameID                           string
 	capWide                              bool
 	obsHits                              map[string]uiHit
@@ -176,6 +177,8 @@ type Service struct {
 	mutateSettle                         time.Duration
 	lastMu                               sync.Mutex
 	lastTitle, lastProc                  string
+	browserHintMu                        sync.Mutex
+	browserHintAt                        time.Time
 	holdMu                               sync.Mutex
 	heldKeys                             []string
 	holdTimer                            *time.Timer
@@ -261,7 +264,25 @@ func (s *Service) rememberCapture(png []byte, originX, originY int, wide bool) {
 	s.capWide = wide
 	if len(png) > 0 {
 		s.capHash = sha256.Sum256(png)
+		s.capRawHash = s.capHash
 		s.capFrameID = FrameIDFromCapture(s.capHash, geom)
+	}
+	s.capMu.Unlock()
+}
+
+// rememberAnnotatedCapture publishes a SoM-annotated frame (new frameId,
+// vision geometry) while keeping the raw-pixel hash of the frame it was
+// drawn from. verifyAfter compares raw frames: without this, the first
+// action after every observe would "change the screen" merely because the
+// badges are gone, and an ineffective click would pass verification.
+func (s *Service) rememberAnnotatedCapture(annotated []byte, originX, originY int) {
+	s.capMu.Lock()
+	raw := s.capRawHash
+	s.capMu.Unlock()
+	s.rememberCapture(annotated, originX, originY, true)
+	s.capMu.Lock()
+	if raw != [32]byte{} {
+		s.capRawHash = raw
 	}
 	s.capMu.Unlock()
 }
@@ -360,6 +381,10 @@ func (s *Service) verifyCapture() ([]byte, error) {
 	return s.host.ScreenCapture()
 }
 
+// mutateSettleWait is the total time verifyAfter is willing to wait for the
+// screen to react to an action. The wait is adaptive: it polls in short
+// slices and returns as soon as a frame differs, so a fast native control
+// costs one slice while a slow Electron/web view gets the whole budget.
 func (s *Service) mutateSettleWait() time.Duration {
 	if s.mutateSettle > 0 {
 		return s.mutateSettle
@@ -367,8 +392,12 @@ func (s *Service) mutateSettleWait() time.Duration {
 	if s.mutateSettle < 0 {
 		return 0
 	}
-	return 700 * time.Millisecond
+	return 1200 * time.Millisecond
 }
+
+// settlePollSlice bounds one settle poll. 120ms keeps the fast path near
+// one frame while still giving slow UIs several chances inside the budget.
+const settlePollSlice = 120 * time.Millisecond
 
 func (s *Service) verifyAfter(summary string) (string, []byte, error) {
 	png, err := s.verifyCapture()
@@ -377,18 +406,34 @@ func (s *Service) verifyAfter(summary string) (string, []byte, error) {
 	}
 	sum := sha256.Sum256(png)
 	s.capMu.Lock()
-	prev := s.capHash
+	prev := s.capRawHash
+	if prev == [32]byte{} {
+		prev = s.capHash
+	}
 	s.capMu.Unlock()
 	unchanged := prev != [32]byte{} && prev == sum
 	if unchanged {
-		if wait := s.mutateSettleWait(); wait > 0 {
-			if err := s.waitExecution(wait); err != nil {
-				return summary, nil, err
-			}
-			if recap, recapErr := s.verifyCapture(); recapErr == nil {
-				png = recap
-				sum = sha256.Sum256(png)
-				unchanged = prev != [32]byte{} && prev == sum
+		if budget := s.mutateSettleWait(); budget > 0 {
+			// Wall clock on purpose: waitExecution sleeps in real time and
+			// a frozen test clock must not turn this into a spin.
+			deadline := time.Now().Add(budget)
+			for unchanged {
+				remain := time.Until(deadline)
+				if remain <= 0 {
+					break
+				}
+				slice := settlePollSlice
+				if remain < slice {
+					slice = remain
+				}
+				if err := s.waitExecution(slice); err != nil {
+					return summary, nil, err
+				}
+				if recap, recapErr := s.verifyCapture(); recapErr == nil {
+					png = recap
+					sum = sha256.Sum256(png)
+					unchanged = prev != [32]byte{} && prev == sum
+				}
 			}
 		}
 	}
@@ -602,8 +647,59 @@ func (s *Service) ExecuteTool(ctx context.Context, session, tool string, args js
 		}
 		return Outcome{}, fmt.Errorf("%w: %w", ErrCcExecFailed, execErr)
 	}
+	summary = s.appendBrowserHint(summary, execTool)
 	out := Outcome{Tool: tool, Summary: summary, CapturePNG: capture}
 	return out, nil
+}
+
+// browserProcesses are the desktop browsers whose page content browser.act
+// drives through the DOM. Pixel-clicking inside them works but is slower and
+// blind to the page, so the receipt points the model at the native tool.
+var browserProcesses = []string{"msedge", "chrome", "firefox", "brave", "opera", "vivaldi", "360se", "360chrome", "qqbrowser", "sogouexplorer", "arc"}
+
+func isBrowserProcess(process string) bool {
+	p := strings.ToLower(strings.TrimSpace(process))
+	p = strings.TrimSuffix(p, ".exe")
+	if i := strings.LastIndexAny(p, `\/`); i >= 0 {
+		p = p[i+1:]
+	}
+	for _, b := range browserProcesses {
+		if p == b {
+			return true
+		}
+	}
+	return false
+}
+
+// browserHintTools are the page-manipulating cc.* tools worth redirecting;
+// window/app lifecycle and screenshots stay on computer.act.
+var browserHintTools = map[string]bool{
+	ToolMouseClick: true, ToolKeyboardType: true, ToolPaste: true,
+	ToolObserveUI: true, ToolMouseDrag: true,
+}
+
+const browserHintText = " | 提示：前台是浏览器窗口，网页内的点击/输入/读取请改用 browser.act（navigate/snapshot/click/type/read），比像素操作更快更准；只有浏览器 UI 本身（标签页、地址栏之外的窗口操作）才用 computer.act。"
+
+// appendBrowserHint adds browserHintText at most once per minute per
+// service so a long browser session does not drown receipts in advice.
+func (s *Service) appendBrowserHint(summary, execTool string) string {
+	if s == nil || !browserHintTools[execTool] {
+		return summary
+	}
+	s.lastMu.Lock()
+	proc := s.lastProc
+	s.lastMu.Unlock()
+	if !isBrowserProcess(proc) {
+		return summary
+	}
+	now := s.clock.Now()
+	s.browserHintMu.Lock()
+	defer s.browserHintMu.Unlock()
+	if !s.browserHintAt.IsZero() && now.Sub(s.browserHintAt) < time.Minute {
+		return summary
+	}
+	s.browserHintAt = now
+	return summary + browserHintText
 }
 
 func (s *Service) executeComputerActSteps(ctx context.Context, session string, steps []json.RawMessage, approved bool) (Outcome, error) {

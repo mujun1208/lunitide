@@ -598,6 +598,9 @@ func (e *Engine) resolveMediaPlayArgs(sessionID string, args json.RawMessage) js
 }
 
 func companionShouldAutoMediaPlay(goal string) bool {
+	if mediaGenerationKind(goal) != "" {
+		return false
+	}
 	if action, _ := companionMediaCommand(goal); action != "" {
 		return true
 	}

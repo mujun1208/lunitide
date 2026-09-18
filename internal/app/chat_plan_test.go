@@ -296,8 +296,8 @@ func TestPlanStepToolsInheritRoute(t *testing.T) {
 func TestPlanStepToolsKeepsMergedOfficeAllow(t *testing.T) {
 	e, _ := officeEngineFixture(t)
 	route, allow := classifyTaskRoute("根据新闻生成 Word 文档，不打开文件", false, false)
-	if route != RouteR1 {
-		t.Fatalf("route=%q want R1", route)
+	if route != RouteR1 || !allow["office.generate"] {
+		t.Fatalf("route=%q allow office.generate=%v", route, allow["office.generate"])
 	}
 	got := planStepTools(e, executionModeApproval, route, allow)
 	seen := map[string]bool{}

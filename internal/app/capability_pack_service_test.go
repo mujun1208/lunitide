@@ -294,3 +294,88 @@ func TestPluginPackListLocalizesStoredEnglishError(t *testing.T) {
 		t.Fatalf("stored pack error must stay Chinese, got %q", got)
 	}
 }
+
+func TestInstallAdoptsUninstalledCatalogSpec(t *testing.T) {
+	e, _ := packFixture(t)
+	ctx := context.Background()
+	old := capabilitypack.Spec{
+		ID:           "pack-research",
+		Name:         "调研工作包",
+		McpPresetIDs: []string{"fetch"},
+		ToolGates:    []string{"web-search", "web-fetch"},
+	}
+	got, err := e.capabilityPacks.Install(ctx, old, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = e.capabilityPacks.Uninstall(ctx, old.ID, got.Version); err != nil {
+		t.Fatal(err)
+	}
+	next := capabilitypack.Spec{
+		ID:           "pack-research",
+		Name:         "调研工作包",
+		Description:  "抓取走内置门闸",
+		McpPresetIDs: []string{},
+		ToolGates:    []string{"web-search", "web-fetch"},
+	}
+	got, err = e.capabilityPacks.Install(ctx, next, false)
+	if err != nil {
+		t.Fatalf("catalog reinstall after leftover: %v", err)
+	}
+	if got.State != "installed" {
+		t.Fatalf("state=%s error=%s", got.State, got.Error)
+	}
+	for _, item := range got.Components {
+		if item.Kind == "mcp" {
+			t.Fatalf("stale mcp kept: %+v", got.Components)
+		}
+	}
+}
+
+func TestInstallAdoptsFailedCatalogSpec(t *testing.T) {
+	e, store := packFixture(t)
+	ctx := context.Background()
+	old := capabilitypack.Spec{
+		ID:           "pack-report",
+		Name:         "报告写作包",
+		McpPresetIDs: []string{"fetch"},
+		ToolGates:    []string{"web-search", "web-fetch"},
+	}
+	seed := capabilitypack.Record{
+		Spec:      old,
+		Digest:    strings.Repeat("c", 64),
+		State:     "failed",
+		Desired:   "installed",
+		Version:   2,
+		Error:     "manifest or operation changed",
+		CreatedAt: "2026-09-16T00:00:00Z",
+		UpdatedAt: "2026-09-16T00:00:00Z",
+	}
+	if err := store.AgentRuntimeRepository().TransactPack(ctx, func(tx capabilitypack.Tx) error {
+		return tx.SavePack(seed, 0)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	next := capabilitypack.Spec{
+		ID:           "pack-report",
+		Name:         "报告写作包",
+		Description:  "抓取走内置门闸",
+		McpPresetIDs: []string{},
+		ToolGates:    []string{"web-search", "web-fetch"},
+	}
+	got, err := e.capabilityPacks.Install(ctx, next, true)
+	if err != nil {
+		t.Fatalf("catalog repair after failed leftover: %v", err)
+	}
+	if got.State != "installed" {
+		t.Fatalf("state=%s error=%s", got.State, got.Error)
+	}
+	if got.Digest == seed.Digest {
+		t.Fatalf("digest not adopted: %s", got.Digest)
+	}
+	for _, item := range got.Components {
+		if item.Kind == "mcp" {
+			t.Fatalf("stale mcp kept: %+v", got.Components)
+		}
+	}
+}

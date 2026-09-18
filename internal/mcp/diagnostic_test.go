@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -31,5 +32,20 @@ func TestMcpDiagnosticsNeverExposeRawErrorOrStderr(t *testing.T) {
 	}
 	if d := ConnectionDiagnostic(errors.New(secret)); strings.Contains(d.Message, secret) {
 		t.Fatal(d)
+	}
+}
+
+func TestStdioLaunchDiagnosticDistinguishesMissingRuntime(t *testing.T) {
+	uv := ConnectionDiagnostic(fmt.Errorf("%w: uvx not on PATH: missing", ErrStdioLaunch))
+	if uv.Code != "MCP_UV_UNAVAILABLE" || !strings.Contains(uv.Message, "uv / uvx") {
+		t.Fatalf("uvx miss = %+v", uv)
+	}
+	node := ConnectionDiagnostic(fmt.Errorf("%w: npx not on PATH: missing", ErrStdioLaunch))
+	if node.Code != "MCP_RUNTIME_UNAVAILABLE" || !strings.Contains(node.Message, "Node.js") {
+		t.Fatalf("npx miss = %+v", node)
+	}
+	spawn := ConnectionDiagnostic(fmt.Errorf("%w: spawn failed", ErrStdioLaunch))
+	if spawn.Code != "MCP_CONNECT_FAILED" {
+		t.Fatalf("spawn fail must not look like missing Node: %+v", spawn)
 	}
 }

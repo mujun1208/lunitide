@@ -183,7 +183,10 @@ func mcpEndpointDisplayName(ep m7flow.McpEndpointConfig, args []string) string {
 	if ep.Command != "" {
 		return ep.Command
 	}
-	return ep.EndpointID
+	if strings.TrimSpace(ep.EndpointID) != "" {
+		return ep.EndpointID
+	}
+	return "未命名 MCP"
 }
 
 func mcpArgsMatchPreset(template, actual []string) bool {

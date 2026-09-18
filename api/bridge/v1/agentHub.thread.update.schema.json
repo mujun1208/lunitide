@@ -10,12 +10,19 @@
   "properties": {
     "threadId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
     "title": { "type": "string", "minLength": 1, "maxLength": 200 },
-    "pinned": { "type": "boolean" }
+    "pinned": { "type": "boolean" },
+    "workspaceRoot": { "type": "string", "minLength": 1, "maxLength": 1024 },
+    "accessMode": { "type": "string", "enum": ["approval", "auto-edit", "full-access"] },
+    "exportDir": { "type": "string", "minLength": 1, "maxLength": 1024 },
+    "scene": { "type": "string", "enum": ["write_project", "fix", "ppt", "free"] }
   },
   "required": ["threadId"],
   "x-result": { "type": "object", "additionalProperties": true },
   "x-examples": {
-    "positive": [{ "threadId": "01ARZ3NDEKTSV4RRFFQ69G5FAE", "title": "置顶会话", "pinned": true }],
+    "positive": [
+      { "threadId": "01ARZ3NDEKTSV4RRFFQ69G5FAE", "title": "置顶会话", "pinned": true },
+      { "threadId": "01ARZ3NDEKTSV4RRFFQ69G5FAE", "workspaceRoot": "C:\\proj\\demo", "exportDir": "C:\\export", "scene": "ppt" }
+    ],
     "negative": [{}, { "unexpected": true }]
   }
 }

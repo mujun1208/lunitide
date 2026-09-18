@@ -23,15 +23,15 @@ const (
 
 // CatalogItem is one installable agency-agents role.
 type CatalogItem struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	DisplayName string            `json:"displayName"`
-	Description string            `json:"description"`
-	Category    string            `json:"category"`
-	Division    string            `json:"division"`
-	Origin      string            `json:"origin"`
-	Usage       string            `json:"usage"`
-	Scene       string            `json:"scene"`
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	DisplayName     string            `json:"displayName"`
+	Description     string            `json:"description"`
+	Category        string            `json:"category"`
+	Division        string            `json:"division"`
+	Origin          string            `json:"origin"`
+	Usage           string            `json:"usage"`
+	Scene           string            `json:"scene"`
 	Emoji           string            `json:"emoji"`
 	Version         string            `json:"version"`
 	PreferredSkills []string          `json:"preferredSkills,omitempty"`

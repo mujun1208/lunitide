@@ -25,8 +25,8 @@ func wavFixture(byteRate, dataSize int) []byte {
 	copy(out[8:], "WAVE")
 	copy(out[12:], "fmt ")
 	binary.LittleEndian.PutUint32(out[16:], 16)
-	binary.LittleEndian.PutUint16(out[20:], 1)  // PCM
-	binary.LittleEndian.PutUint16(out[22:], 1)  // mono
+	binary.LittleEndian.PutUint16(out[20:], 1) // PCM
+	binary.LittleEndian.PutUint16(out[22:], 1) // mono
 	binary.LittleEndian.PutUint32(out[24:], uint32(byteRate))
 	binary.LittleEndian.PutUint32(out[28:], uint32(byteRate))
 	binary.LittleEndian.PutUint16(out[32:], 2)

@@ -199,10 +199,27 @@ func (s *Store) RecoverInterruptedCallAttempts(ctx context.Context) error {
 	return mapWriteError(err)
 }
 
+// PutCallAttemptIntent records a metered attempt. AdmitCall may already have
+// inserted the same (owner_scope, call_id, attempt_id) stub in the reservation
+// transaction; adopt that row instead of failing UNIQUE and blocking HTTP.
 func (s *Store) PutCallAttemptIntent(ctx context.Context, rec CallAttemptRecord) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO model_call_attempts(
 		id,owner_scope,task_id,turn_id,call_id,parent_call_id,attempt_id,purpose,provider,deployment_ref,model,protocol_revision,credential_generation,policy_version,status,started_at,ended_at,input_tokens,output_tokens,cached_input_tokens,cache_write_tokens,usage_integrity,provider_request_id,price_revision,currency,cost_status,bytes_before,bytes_after)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(owner_scope, call_id, attempt_id) DO UPDATE SET
+			task_id=excluded.task_id,
+			turn_id=excluded.turn_id,
+			parent_call_id=excluded.parent_call_id,
+			purpose=excluded.purpose,
+			provider=excluded.provider,
+			deployment_ref=excluded.deployment_ref,
+			model=excluded.model,
+			protocol_revision=excluded.protocol_revision,
+			credential_generation=excluded.credential_generation,
+			policy_version=excluded.policy_version,
+			bytes_before=excluded.bytes_before,
+			bytes_after=excluded.bytes_after
+		WHERE model_call_attempts.status='intent'`,
 		rec.ID, rec.OwnerScope, rec.TaskID, rec.TurnID, rec.CallID, rec.ParentCallID, rec.AttemptID, rec.Purpose, rec.Provider, rec.DeploymentRef, rec.Model, rec.ProtocolRevision, rec.CredentialGeneration, rec.PolicyVersion, rec.Status, formatTime(rec.StartedAt), endedAtSQL(rec.EndedAt), rec.InputTokens, rec.OutputTokens, rec.CachedInputTokens, rec.CacheWriteTokens, rec.Integrity, rec.ProviderRequestID, rec.PriceRevision, rec.Currency, rec.CostStatus, rec.BytesBefore, rec.BytesAfter)
 	return mapWriteError(err)
 }

@@ -42,6 +42,9 @@ func TestChatDeliverableArtifact(t *testing.T) {
 	if !chatDeliverableArtifact("workspace.edit", "txt", "notes.txt") {
 		t.Fatal("edited text files must be chat deliverables")
 	}
+	if !chatDeliverableArtifact("audio.generate", "audio", "song.wav") {
+		t.Fatal("generated speech must be a chat deliverable")
+	}
 }
 
 func TestAppendAndLoadSessionArtifacts(t *testing.T) {

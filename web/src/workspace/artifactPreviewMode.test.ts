@@ -8,6 +8,8 @@ it('picks a Trae-style viewer for each artifact kind', () => {
   expect(artifactViewMode('pdf', '说明.pdf')).toBe('pdf')
   expect(artifactViewMode('xlsx', '表.xlsx')).toBe('sheet')
   expect(artifactViewMode('image', 'shot.png')).toBe('image')
+  expect(artifactViewMode('audio', 'song.wav')).toBe('audio')
+  expect(artifactViewMode('file', 'clip.mp3')).toBe('audio')
   expect(artifactViewMode('text', '填报信息.md')).toBe('markdown')
   expect(artifactViewMode('text', 'project.config.json')).toBe('code')
   expect(artifactViewMode('text', 'notes.txt')).toBe('text')
@@ -25,10 +27,13 @@ it('maps a file path to the same preview kind the inspector uses', () => {
   expect(previewKindFromPath('project.config.json')).toBe('text')
   expect(previewKindFromPath('周报.docx')).toBe('docx')
   expect(previewKindFromPath('说明.pdf')).toBe('pdf')
+  expect(previewKindFromPath('song.wav')).toBe('audio')
 })
 
 it('hides the native-open notice once a rendered preview is ready', () => {
   expect(artifactPreviewIsReady('pdf', '说明.pdf', 'JVBERi0xLjQKMTAw')).toBe(true)
   expect(artifactPreviewIsReady('pdf', '说明.pdf', '')).toBe(false)
   expect(artifactPreviewIsReady('text', '填报信息.md', '# 标题')).toBe(true)
+  expect(artifactPreviewIsReady('audio', 'song.wav', 'UklGRgAAAABXQVZF')).toBe(true)
+  expect(artifactPreviewIsReady('audio', 'song.wav', '')).toBe(false)
 })

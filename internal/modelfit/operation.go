@@ -8,11 +8,11 @@ import (
 type EffectClass string
 
 const (
-	EffectReadOnly            EffectClass = "read_only"
-	EffectLocalReversible     EffectClass = "local_reversible"
-	EffectRemoteTrackable     EffectClass = "remote_trackable"
-	EffectRemoteUnknown       EffectClass = "remote_unknown"
-	EffectDesktopInteractive  EffectClass = "desktop_interactive"
+	EffectReadOnly           EffectClass = "read_only"
+	EffectLocalReversible    EffectClass = "local_reversible"
+	EffectRemoteTrackable    EffectClass = "remote_trackable"
+	EffectRemoteUnknown      EffectClass = "remote_unknown"
+	EffectDesktopInteractive EffectClass = "desktop_interactive"
 )
 
 type OperationState string
@@ -155,6 +155,8 @@ func EffectClassForTool(name string) EffectClass {
 		return EffectLocalReversible
 	case "media.generate", "image.generate", "video.generate":
 		return EffectRemoteTrackable
+	case "audio.generate":
+		return EffectLocalReversible
 	case "desktop.open", "desktop.quit", "desktop.browse", "desktop.type",
 		"media.play", "computer.act":
 		return EffectDesktopInteractive

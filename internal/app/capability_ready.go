@@ -72,9 +72,12 @@ func (e *Engine) capabilityReadiness(ctx context.Context, id string) CapabilityR
 		gui := e.preferBoundCatalog(ctx, "gui", provider.CatalogForKind(items, provider.KindGUI))
 		vision := e.preferBoundCatalog(ctx, "vision", provider.VisionDescribeCatalog(items, ""))
 		if len(gui)+len(vision) == 0 {
-			return CapabilityReadiness{ID: "gui", Availability: "needs_config", Detail: "请先配置 GUI 或视觉模型", Code: "CAPABILITY_NOT_READY"}
+			return CapabilityReadiness{ID: "gui", Availability: "needs_config", Detail: "请先配置 GUI 模型（推荐 UI-TARS / GLM-4.5V / Qwen3-VL）或任一视觉模型", Code: "CAPABILITY_NOT_READY"}
 		}
-		return CapabilityReadiness{ID: "gui", Availability: "ready", Detail: "已配置 GUI 或视觉模型"}
+		if len(gui) > 0 {
+			return CapabilityReadiness{ID: "gui", Availability: "ready", Detail: "已配置专用 GUI 模型，屏幕执行按截图逐步进行"}
+		}
+		return CapabilityReadiness{ID: "gui", Availability: "ready", Detail: "未配 GUI 模型，屏幕执行由视觉模型兜底（接地精度略低）"}
 	default:
 		return CapabilityReadiness{ID: id, Availability: "unverified", Detail: "未检查该能力", Code: "CAPABILITY_NOT_READY"}
 	}

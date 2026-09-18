@@ -79,6 +79,77 @@ func TestToolsFallbackEmitsExplicitNotice(t *testing.T) {
 	}
 }
 
+type thinkingDisableFallbackAdapter struct {
+	attempts int
+	lastReq  llmadapter.Request
+}
+
+func (a *thinkingDisableFallbackAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
+}
+func (a *thinkingDisableFallbackAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
+}
+func (a *thinkingDisableFallbackAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	a.attempts++
+	a.lastReq = req
+	if a.attempts == 1 {
+		return llmadapter.Response{}, &llmadapter.Error{Code: "HTTP_400", Stage: llmadapter.StageHTTP, HTTPStatus: 400, Message: "thinking type: disabled is not supported by this model"}
+	}
+	if err := emit(llmadapter.Delta{Text: "ok with tools"}); err != nil {
+		return llmadapter.Response{}, err
+	}
+	return llmadapter.Response{Usage: llmadapter.Usage{OutputTokens: 2, TotalTokens: 2}}, nil
+}
+
+func TestThinkingDisable400DoesNotStripTools(t *testing.T) {
+	adapter := &thinkingDisableFallbackAdapter{}
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	state := &streamState{cancel: cancel, state: streamRunning}
+	id := "stream-thinking-disable"
+	e.streams[id] = state
+	events := make(chan bridge.Event, 16)
+	done := make(chan struct{})
+	var deltas []string
+	go func() {
+		for ev := range events {
+			if ev.Type == bridge.EventDelta && ev.Delta != nil {
+				deltas = append(deltas, ev.Delta.Text)
+			}
+			if ev.Type == bridge.EventCompleted || ev.Type == bridge.EventFailed {
+				close(done)
+				return
+			}
+		}
+	}()
+	req := llmadapter.Request{Model: "glm-5.3", DisableReasoning: true, Tools: engineToolDefinitions()}
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, req, func(event bridge.Event) error { events <- event; return nil }, "")
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for terminal event")
+	}
+	joined := strings.Join(deltas, "")
+	if strings.Contains(joined, "拒绝了工具定义") || strings.Contains(joined, "纯对话模式") {
+		t.Fatalf("thinking.disabled 400 must not be labeled a tool reject: %q", joined)
+	}
+	if !strings.Contains(joined, "ok with tools") {
+		t.Fatalf("retry answer missing: %q", joined)
+	}
+	if adapter.attempts != 2 {
+		t.Fatalf("attempts = %d", adapter.attempts)
+	}
+	if adapter.lastReq.DisableReasoning {
+		t.Fatal("retry must clear DisableReasoning instead of stripping tools")
+	}
+	if len(adapter.lastReq.Tools) == 0 {
+		t.Fatal("retry must keep tool definitions")
+	}
+}
+
 func TestMcpToolNameRoundtrip(t *testing.T) {
 	endpoint := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	name, ok := mcpToolName(endpoint, "get_weather")
@@ -274,7 +345,7 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 		t.Fatal("desktop.type missing from engine tools")
 	}
 	for _, d := range readOnlyEngineToolDefinitions() {
-		if d.Name == "html.gen" || d.Name == "desktop.open" || d.Name == "desktop.type" || d.Name == "image.generate" || d.Name == "video.generate" || d.Name == "video.understand" {
+		if d.Name == "html.gen" || d.Name == "desktop.open" || d.Name == "desktop.type" || d.Name == "image.generate" || d.Name == "video.generate" || d.Name == "audio.generate" || d.Name == "video.understand" {
 			t.Fatal("subagents must not receive html.gen, desktop.open, media generation, or video.understand")
 		}
 	}
@@ -411,7 +482,7 @@ func TestEngineToolDefinitionsIncludeBrowserAct(t *testing.T) {
 	if !foundMedia {
 		t.Fatal("media.play missing from engine tools")
 	}
-	foundImage, foundVideo := false, false
+	foundImage, foundVideo, foundAudio := false, false, false
 	for _, d := range engineToolDefinitions() {
 		if d.Name == "image.generate" {
 			foundImage = true
@@ -419,9 +490,12 @@ func TestEngineToolDefinitionsIncludeBrowserAct(t *testing.T) {
 		if d.Name == "video.generate" {
 			foundVideo = true
 		}
+		if d.Name == "audio.generate" {
+			foundAudio = true
+		}
 	}
-	if !foundImage || !foundVideo {
-		t.Fatal("image.generate / video.generate missing from engine tools")
+	if !foundImage || !foundVideo || !foundAudio {
+		t.Fatal("image.generate / video.generate / audio.generate missing from engine tools")
 	}
 	foundUnderstand := false
 	for _, d := range engineToolDefinitions() {

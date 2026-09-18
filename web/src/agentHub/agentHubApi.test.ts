@@ -11,7 +11,8 @@ it('sends thread and workspace methods and accepts threadId on file preview', as
   await agentHubApi.threadCreate({ harnessId: 'cursor', scene: 'write_project', workspaceRoot: 'C:/proj' })
   await agentHubApi.threadGet({ threadId: '01ARZ3NDEKTSV4RRFFQ69G5FAE' })
   await agentHubApi.threadList({})
-  await agentHubApi.threadUpdate({ threadId: '01ARZ3NDEKTSV4RRFFQ69G5FAE', title: '置顶会话', pinned: true })
+  await agentHubApi.install({ name: 'cursor', confirmed: true })
+  await agentHubApi.threadUpdate({ threadId: '01ARZ3NDEKTSV4RRFFQ69G5FAE', title: '置顶会话', pinned: true, workspaceRoot: 'C:/proj', exportDir: 'C:/export', scene: 'ppt' })
   await agentHubApi.threadDelete({ threadId: '01ARZ3NDEKTSV4RRFFQ69G5FAE' })
   await agentHubApi.threadCancel({ threadId: '01ARZ3NDEKTSV4RRFFQ69G5FAE' })
   await agentHubApi.threadPrompt({ threadId: '01ARZ3NDEKTSV4RRFFQ69G5FAE', text: '选哪个?' })
@@ -23,6 +24,7 @@ it('sends thread and workspace methods and accepts threadId on file preview', as
     'agentHub.thread.create',
     'agentHub.thread.get',
     'agentHub.thread.list',
+    'agentHub.install',
     'agentHub.thread.update',
     'agentHub.thread.delete',
     'agentHub.thread.cancel',
@@ -33,4 +35,13 @@ it('sends thread and workspace methods and accepts threadId on file preview', as
     'agentHub.file.open',
   ])
   expect(request).toHaveBeenCalledWith('agentHub.file.preview', { threadId: '01ARZ3NDEKTSV4RRFFQ69G5FAE', path: 'loopback.txt' })
+  expect(request).toHaveBeenCalledWith('agentHub.install', { name: 'cursor', confirmed: true })
+  expect(request).toHaveBeenCalledWith('agentHub.thread.update', {
+    threadId: '01ARZ3NDEKTSV4RRFFQ69G5FAE',
+    title: '置顶会话',
+    pinned: true,
+    workspaceRoot: 'C:/proj',
+    exportDir: 'C:/export',
+    scene: 'ppt',
+  })
 })

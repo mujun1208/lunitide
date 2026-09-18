@@ -91,6 +91,7 @@ it('renders only the active PPT slide and does not keep a viewer-side page rail'
   expect(screen.getByText('封面标题')).toBeTruthy();
   expect(screen.getByText('副标题')).toBeTruthy();
   expect(screen.queryByText('目录')).toBeNull();
+  expect(screen.queryByText('段落')).toBeNull();
   rerender(
     <OfficeArtifactViewer
       api={api}

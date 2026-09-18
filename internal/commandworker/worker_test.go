@@ -233,6 +233,9 @@ func pidAlive(t *testing.T, pidFile string) bool {
 	t.Helper()
 	data, err := os.ReadFile(pidFile)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return false
+		}
 		t.Fatalf("pid file: %v", err)
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))

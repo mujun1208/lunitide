@@ -1,7 +1,7 @@
 // Package doctext extracts a plain-text body from the office and PDF formats
 // the KB ingest path accepts. Every extractor is pure Go (CGO_ENABLED=0 safe):
-// DOCX/PPTX are OOXML zip+XML parsed with the stdlib, XLSX rides the already
-// vendored excelize reader, and PDF uses the pure-Go ledongthuc/pdf text
+// DOCX/PPTX/XLSX are OOXML zip+XML parsed with the stdlib, and PDF uses the
+// pure-Go ledongthuc/pdf text
 // layer. A binary input with no recoverable text fails closed so a manual is
 // never ingested as garbage bytes.
 package doctext
@@ -21,7 +21,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/ledongthuc/pdf"
-	"github.com/xuri/excelize/v2"
+	"github.com/lunitide/lunitide/internal/xlsxrows"
 )
 
 // MaxExtractRunes caps any single extraction so a pathological file cannot
@@ -228,17 +228,13 @@ func pptxText(raw []byte) (string, error) {
 }
 
 func xlsxText(raw []byte) (string, error) {
-	f, err := excelize.OpenReader(bytes.NewReader(raw))
+	grids, err := xlsxrows.Grids(raw)
 	if err != nil {
 		return "", fmt.Errorf("doctext: xlsx: %w", err)
 	}
-	defer f.Close()
 	var b strings.Builder
-	for _, sheet := range f.GetSheetList() {
-		rows, err := f.GetRows(sheet)
-		if err != nil {
-			return "", err
-		}
+	for _, grid := range grids {
+		rows := grid.Rows
 		for _, row := range rows {
 			line := strings.TrimSpace(strings.Join(row, "\t"))
 			if line == "" {

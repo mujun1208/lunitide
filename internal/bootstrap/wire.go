@@ -25,6 +25,7 @@ import (
 	"github.com/lunitide/lunitide/internal/datasourceapp"
 	"github.com/lunitide/lunitide/internal/desktopupdate"
 	"github.com/lunitide/lunitide/internal/domain/m8core"
+	"github.com/lunitide/lunitide/internal/egressproxy"
 	"github.com/lunitide/lunitide/internal/governanceapp"
 	"github.com/lunitide/lunitide/internal/identity"
 	"github.com/lunitide/lunitide/internal/imapp"
@@ -477,7 +478,7 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	// Web tools ride the same SSRF-pinned transport as the agent-run web
 	// fetch (plain HTTP allowed for public read-only content).
 	tools.SetWebFetcher(func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error) {
-		return networkpolicy.Fetch(ctx, rawURL, networkpolicy.FetchOptions{Policy: networkpolicy.Policy{AllowHTTP: true}})
+		return networkpolicy.Fetch(ctx, rawURL, networkpolicy.FetchOptions{Policy: networkpolicy.Policy{AllowHTTP: true}, Proxy: egressproxy.Resolver()})
 	})
 	tools.SetWeatherFetcher(fetchWeather)
 	// Full-access file tools read/write inside the user-selected workspace
@@ -504,7 +505,13 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 		return root, nil
 	})
 	engine.SetToolRuntime(tools)
-	engine.SetOCR(ocrapp.New(ocrapp.NewFileStore(filepath.Join(dataRoot.Path(), "ocr-routing.json"))))
+	ocrSvc := ocrapp.New(ocrapp.NewFileStore(filepath.Join(dataRoot.Path(), "ocr-routing.json")))
+	if ocrRoot, err := dataRoot.PrepareSubdirectory("ocr"); err != nil {
+		log.Printf("ocr directory unavailable; PP-OCR download stays off: %v", err)
+	} else {
+		ocrSvc.SetInstallRoot(ocrRoot.Path())
+	}
+	engine.SetOCR(ocrSvc)
 	engine.SetWidgetStore(widgetapp.NewFileStore(filepath.Join(dataRoot.Path(), "widgets.json")))
 	engine.SetConnectorStore(connectorapp.NewFileStore(filepath.Join(dataRoot.Path(), "connector-recipes.json")))
 	closers = append(closers, func() { _ = tools.Close() })

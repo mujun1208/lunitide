@@ -300,4 +300,3 @@ func formatCommandOutput(ok bool, output string) string {
 func commandFailure(output string) error {
 	return fmt.Errorf("%s", formatCommandOutput(false, output))
 }
-

@@ -10,27 +10,80 @@ import (
 	"unicode/utf8"
 )
 
-func observeUIPayload(mapped []UINode, maxNodes int, frameID string) map[string]any {
-	visible := append([]UINode(nil), mapped...)
-	for i := range visible {
-		// Embedded application URLs can contain kilobytes of internal configuration.
-		// Keep input values, but do not let link metadata hide actionable controls.
-		if strings.Contains(visible[i].Value, "://") && visible[i].Role != "edit" && visible[i].Role != "combobox" {
-			visible[i].Value = ""
-		}
-		if r := []rune(visible[i].Value); len(r) > 240 {
-			visible[i].Value = string(r[:240]) + "..."
-		}
+// observeNameRunes caps a node name in the receipt. UIA exposes whole
+// paragraphs as the Name of a text/list item; the model only needs enough to
+// pick the control, and the SoM badge on the screenshot carries the ID.
+const observeNameRunes = 80
+
+// observeDuplicateKeep is how many nodes with an identical role+name+value
+// survive compaction. Long lists of "listitem / (empty)" rows or repeated
+// "关闭" buttons add tokens without adding choices; the first few keep their
+// IDs so the model can still click one, the rest are counted.
+const observeDuplicateKeep = 3
+
+// compactObserveNodes trims the observe receipt to what the model needs to
+// act: shorter names, no nameless non-actionable nodes, duplicate rows
+// collapsed. SoM IDs are kept as assigned so every remaining ID is still
+// clickable; the dropped count is reported. Bounds (not empties) the set.
+func sanitizeObserveNode(n UINode) UINode {
+	// Embedded application URLs can contain kilobytes of internal configuration.
+	// Keep input values, but do not let link metadata hide actionable controls.
+	if strings.Contains(n.Value, "://") && n.Role != "edit" && n.Role != "combobox" {
+		n.Value = ""
 	}
-	return map[string]any{
+	if r := []rune(n.Value); len(r) > 240 {
+		n.Value = string(r[:240]) + "..."
+	}
+	if r := []rune(n.Name); len(r) > observeNameRunes {
+		n.Name = string(r[:observeNameRunes]) + "…"
+	}
+	return n
+}
+
+func compactObserveNodes(mapped []UINode) (visible []UINode, dropped int) {
+	cleaned := make([]UINode, 0, len(mapped))
+	for _, n := range mapped {
+		cleaned = append(cleaned, sanitizeObserveNode(n))
+	}
+	visible = make([]UINode, 0, len(cleaned))
+	dupes := map[string]int{}
+	for _, n := range cleaned {
+		if n.Role == "other" && strings.TrimSpace(n.Name) == "" && strings.TrimSpace(n.Value) == "" {
+			dropped++
+			continue
+		}
+		key := n.Role + "\x00" + n.Name + "\x00" + n.Value
+		dupes[key]++
+		if dupes[key] > observeDuplicateKeep {
+			dropped++
+			continue
+		}
+		visible = append(visible, n)
+	}
+	if len(visible) == 0 && len(cleaned) > 0 {
+		// Never compact a tree into nothing: a page of unnamed panes is
+		// still more than an empty tree, which would trigger the GUI loop.
+		// Return the truncated copies, never the raw tree with huge URLs.
+		return cleaned, 0
+	}
+	return visible, dropped
+}
+
+func observeUIPayload(mapped []UINode, maxNodes int, frameID string) map[string]any {
+	visible, dropped := compactObserveNodes(mapped)
+	payload := map[string]any{
 		"count":     len(mapped),
 		"space":     "image",
 		"nodes":     visible,
 		"frameId":   frameID,
 		"truncated": maxNodes > 0 && len(mapped) >= maxNodes,
 		"maxNodes":  maxNodes,
-		"returned":  len(mapped),
+		"returned":  len(visible),
 	}
+	if dropped > 0 {
+		payload["compacted"] = dropped
+	}
+	return payload
 }
 
 // runHost dispatches one validated call onto the OS host.
@@ -376,7 +429,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		if annotated, aerr := AnnotateCapture(png, mapped, vw, vh); aerr == nil && len(annotated) > 0 {
 			png = annotated
 			ox, oy := s.host.ScreenOrigin()
-			s.rememberCapture(png, ox, oy, true)
+			s.rememberAnnotatedCapture(png, ox, oy)
 		}
 		payload := observeUIPayload(mapped, a.MaxNodes, s.CurrentFrameID())
 		if handoff := s.filePickerHandoff(nodeNames(mapped)); handoff != "" {

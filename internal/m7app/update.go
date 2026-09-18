@@ -107,8 +107,8 @@ func (LocalUpdateInstaller) Rollback(context.Context, string) error             
 // UpdateService implements appUpdate.check / appUpdate.install plus the
 // internal publish path that feeds the channel (bridge-visible methods stay
 // limited to the two read/install verbs per the wire contract).
-// FeedLookup returns a newer local Setup (version + installer SHA-256) when
-// one is sitting in the update drop folder. Empty ok means no local feed.
+// FeedLookup returns a newer Setup (version + installer SHA-256) from the
+// local drop folder or the remote GitHub latest.json. Empty ok means no feed.
 type FeedLookup func(channel string) (version, digest string, ok bool, err error)
 
 type UpdateService struct {
@@ -131,8 +131,8 @@ func (s *UpdateService) SetSigner(sig ReleaseSigner) { s.signer = sig }
 // SetInstaller substitutes the install engine port (tests, real updater).
 func (s *UpdateService) SetInstaller(i UpdateInstaller) { s.installer = i }
 
-// SetFeedLookup attaches the local Setup feed used when the ledger is empty
-// or older than a verified drop-folder package.
+// SetFeedLookup attaches the Setup feed used when the ledger is empty
+// or older than a verified drop-folder / GitHub package.
 func (s *UpdateService) SetFeedLookup(fn FeedLookup) { s.feed = fn }
 
 // PublishInput is the internal publish command (management plane, not a

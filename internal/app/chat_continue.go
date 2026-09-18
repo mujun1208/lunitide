@@ -149,6 +149,17 @@ func lastToolName(tools []string) string {
 	return tools[len(tools)-1]
 }
 
+func officeInspectedWithoutDeliverable(lastTools []string, userGoal string) bool {
+	if !usedAnyTool(lastTools, "office.inspect") {
+		return false
+	}
+	if usedAnyTool(lastTools, "office.generate", "pptx.gen", "docx.gen", "excel.gen", "pdf.gen") {
+		return false
+	}
+	return officeExplicitCreationRE.MatchString(userGoal) || explicitOfficeOutputTool(userGoal) != "" ||
+		looksLikeReportTask(userGoal) || wantsOfficeGen(userGoal)
+}
+
 func shouldContinueIncompleteWork(text, lastToolOut string, lastTools []string, usedTools bool, nudges int) bool {
 	if !usedTools || nudges >= maxContinueNudges {
 		return false
@@ -352,6 +363,9 @@ func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []st
 	if shouldContinueIncompleteWork(stepText, toolOut, lastTools, usedTools, nudges) {
 		return "incomplete"
 	}
+	if usedTools && officeInspectedWithoutDeliverable(lastTools, userGoal) && nudges < maxContinueNudges {
+		return "incomplete"
+	}
 	if computerTask && playbackOnlyGoal(userGoal) && usedAnyTool(lastTools, "media.play") {
 		return ""
 	}
@@ -372,7 +386,7 @@ func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []st
 		return "leadin"
 	}
 	if toolsAttached && !usedTools && nudges < maxContinueNudges &&
-		(looksLikeCompanionWaitPromise(stepText) || (companion && isCompanionLeadInOnly(stepText))) {
+		(looksLikeCompanionWaitPromise(stepText) || looksLikeUnexecutedActPromise(stepText) || (companion && isCompanionLeadInOnly(stepText))) {
 		return "wait"
 	}
 	// A buffered final reply is not in assistantAll yet. The current step was
@@ -418,17 +432,18 @@ func companionWantsDesktopControl(text string) bool {
 		"填表", "再点", "帮我点", "打字", "点一下", "点按钮", "记事本",
 		"回车", "按一下", "按回车", "快捷键", "粘贴", "全选", "热键", "ctrl+",
 		"点确定", "点保存", "点取消",
-		"word", "notepad",
+		"notepad",
 		"打开", "点开", "点进", "第一条", "播放", "播一首", "播歌", "听歌", "放一首", "网易云", "汽水", "网页", "浏览器",
 	} {
 		if strings.Contains(t, needle) || strings.Contains(lower, needle) {
 			return true
 		}
 	}
-	if strings.Contains(t, "桌面") && (strings.Contains(t, "点") || strings.Contains(t, "填") || strings.Contains(t, "写") || strings.Contains(t, "操作")) {
+	if strings.Contains(t, "桌面") && (strings.Contains(t, "点") || strings.Contains(t, "填") || strings.Contains(t, "写") || strings.Contains(t, "操作")) &&
+		!laneLooksLikeOfficeDeliverable(t) {
 		return true
 	}
-	return false
+	return wantsAgentHostAct(t)
 }
 
 func companionDesktopToolLoop(e *Engine, sessionID, goal string) bool {

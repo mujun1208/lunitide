@@ -27,6 +27,12 @@ func TestOfficeChatInstructionForbidsInventedMetricsAndSpecRebuild(t *testing.T)
 	if !strings.Contains(officeChatInstruction, "kind=pptx") || !strings.Contains(officeChatInstruction, "research-report") || !strings.Contains(officeChatInstruction, "ops-ledger") {
 		t.Fatal("chat must not copy PPT style ids onto Word/Excel")
 	}
+	if !strings.Contains(officeChatInstruction, "exactly") || !strings.Contains(officeChatInstruction, "targetLength") {
+		t.Fatal("chat must generate exactly the authored page count")
+	}
+	if !strings.Contains(officeChatInstruction, "web.search") || !strings.Contains(officeChatInstruction, "not the deliverable") {
+		t.Fatal("chat must not treat inspect/import as the PPT, and must not web-search 自己思考 attachments")
+	}
 }
 
 func TestOfficeChatEvidenceIncludesSelectedPptStyle(t *testing.T) {
@@ -38,7 +44,7 @@ func TestOfficeChatEvidenceIncludesSelectedPptStyle(t *testing.T) {
 	if !r.OK {
 		t.Fatalf("update: %+v", r.Error)
 	}
-	sources, err := e.officeChatEvidence(context.Background(), task.ID)
+	sources, err := e.officeChatEvidence(context.Background(), task.SessionID, task.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +84,7 @@ func TestOfficeChatEvidenceIncludesBriefFacts(t *testing.T) {
 	if err := decodeResponsePayload(r.Payload, &page); err != nil || page.Task.Brief.Audience != "客户" || page.Task.Brief.TargetLength != 8 {
 		t.Fatalf("snapshot brief: %+v %v", page.Task.Brief, err)
 	}
-	sources, err := e.officeChatEvidence(context.Background(), task.ID)
+	sources, err := e.officeChatEvidence(context.Background(), task.SessionID, task.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +102,7 @@ func TestOfficeChatEvidenceIncludesBriefFacts(t *testing.T) {
 func TestOfficeChatEvidenceDoesNotInventBriefDefaults(t *testing.T) {
 	e, _ := officeEngineFixture(t)
 	task := officeCreatedTask(t, e, "brief-evidence-raw")
-	sources, err := e.officeChatEvidence(context.Background(), task.ID)
+	sources, err := e.officeChatEvidence(context.Background(), task.SessionID, task.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +123,7 @@ func TestOfficeChatEvidenceDoesNotInventBriefDefaults(t *testing.T) {
 	if !r.OK {
 		t.Fatalf("update: %+v", r.Error)
 	}
-	sources, err = e.officeChatEvidence(context.Background(), task.ID)
+	sources, err = e.officeChatEvidence(context.Background(), task.SessionID, task.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +216,7 @@ func TestOfficeChatEvidenceIncludesTaskBrand(t *testing.T) {
 	if err := decodeResponsePayload(r.Payload, &page); err != nil || page.Task.BrandID != "task-teal" {
 		t.Fatalf("snapshot brand: %+v %v", page.Task, err)
 	}
-	sources, err := e.officeChatEvidence(context.Background(), task.ID)
+	sources, err := e.officeChatEvidence(context.Background(), task.SessionID, task.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

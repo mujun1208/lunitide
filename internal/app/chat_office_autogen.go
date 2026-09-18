@@ -16,7 +16,7 @@ import (
 
 // Specialist labels are equipment, not an instruction to create a document.
 var officeExpertRefRE = regexp.MustCompile(`\[引用专家[^\]]+\]`)
-var officeExplicitCreationRE = regexp.MustCompile(`(?:制作|做|生成|创建|写|输出|保存|做成).{0,40}(?:ppt|word|docx|excel|xlsx|pdf|html|报告|小说|演示|表格)`)
+var officeExplicitCreationRE = regexp.MustCompile(`(?:制作|做|生成|创建|写|输出|保存|做成).{0,40}(?:ppt|word|docx|excel|xlsx|pdf|html|报告|周报|年报|小说|演示|表格)`)
 
 // Match output instructions, not format names in source attachments or roles.
 var officeOutputFormatRE = regexp.MustCompile(`(?i)(?:生成|制作|输出|导出|保存为|另存为|转成|转换成|做成|写成|做一个|做一份|做个|做份|create\b|generate\b|export\b|save as\b|convert to\b)[^，。；;\n]{0,24}?(pdf|docx|word|pptx|ppt|xlsx|excel|html)`)

@@ -18,7 +18,7 @@ type InboxFile struct {
 }
 
 const (
-	maxIngestFiles      = 20
+	maxIngestFiles            = 20
 	maxIngestFileBytes  int64 = 104857600
 	maxIngestTotalBytes int64 = 209715200
 )

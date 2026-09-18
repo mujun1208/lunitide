@@ -19,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/domain/skill"
+	"github.com/lunitide/lunitide/internal/egressproxy"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"gopkg.in/yaml.v3"
 )
@@ -89,7 +90,7 @@ func (l Loader) Load(ctx context.Context, raw, commit string) (Package, error) {
 	if fetch == nil {
 		fetch = networkpolicy.Fetch
 	}
-	res, err := fetch(ctx, src.ArchiveURL, networkpolicy.FetchOptions{MaxBodyBytes: MaxArchiveBytes, OverallTimeout: 12 * time.Second})
+	res, err := fetch(ctx, src.ArchiveURL, networkpolicy.FetchOptions{MaxBodyBytes: MaxArchiveBytes, OverallTimeout: 12 * time.Second, Proxy: egressproxy.Resolver()})
 	if err != nil {
 		return Package{}, fmt.Errorf("%w: %v", ErrFetch, err)
 	}

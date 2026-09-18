@@ -46,37 +46,20 @@ type Preset struct {
 // puppeteer/sqlite) stay off the catalog even if the npm name still
 // resolves.
 var extraPresetPackages = map[string]bool{
-	"mcp-server-fetch":                  true,
-	"mcp-server-time":                   true,
-	"markitdown-mcp":                    true,
-	"@playwright/mcp":                   true,
-	"@upstash/context7-mcp":             true,
-	"chrome-devtools-mcp":               true,
-	"@agent360/browser-mcp":             true,
-	"@antv/mcp-server-chart":            true,
-	"@amap/amap-maps-mcp-server":        true,
-	"tavily-mcp":                        true,
-	"firecrawl-mcp":                     true,
-	"@notionhq/notion-mcp-server":       true,
-	"excel-mcp-server":                  true,
-	"office-word-mcp-server":            true,
-	"office-powerpoint-mcp-server":      true,
-	"office-ppt-mcp-server":             true,
-	"ppt-mcp":                           true,
-	"pdfnative-mcp":                     true,
-	"@larksuiteoapi/lark-mcp":           true,
-	"@sentry/mcp-server":                true,
-	"@microsoft/markitdown-mcp":         true,
-	"@neondatabase/mcp-server-neon":     true,
-	"@supabase/mcp-server-supabase":     true,
-	"mcp-server-qdrant":                 true,
-	"@elastic/mcp-server-elasticsearch": true,
-	"mcp-server-calculator":             true,
-	"duckduckgo-mcp-server":             true,
-	"youtube-transcript-mcp":            true,
-	"markdownify-mcp":                   true,
-	"linear-mcp-server":                 true,
-	"mcp-mongo-server":                  true,
+	"mcp-server-fetch":       true,
+	"mcp-server-time":        true,
+	"markitdown-mcp":         true,
+	"@playwright/mcp":        true,
+	"@upstash/context7-mcp":  true,
+	"chrome-devtools-mcp":    true,
+	"@antv/mcp-server-chart": true,
+	"excel-mcp-server":       true,
+	"office-word-mcp-server": true,
+	"office-ppt-mcp-server":  true,
+	"pdfnative-mcp":          true,
+	"mcp-server-calculator":  true,
+	"duckduckgo-mcp-server":  true,
+	"youtube-transcript-mcp": true,
 }
 
 // PresetPackageAllowed reports whether the executable package is curated.
@@ -109,11 +92,11 @@ func PresetLaunchPackage(p Preset) string {
 	return ""
 }
 
-// presets is the curated catalog. Official reference servers plus a
-// reviewed community shelf (LobeHub / awesome-mcp). Archived 2025
-// packages (GitHub / Puppeteer / SQLite / Git) are not listed.
-// Credentials are configured in the host vault via CredentialEnvs / bearer.
-// NeedsArgs is reserved for non-secret launch arguments. Order is display order.
+// presets is the one-click free catalog. Every row installs without a
+// token, API key, or typed path. Filesystem still uses NeedsArgs so the
+// sandbox directory can be substituted, but the client never asks for it.
+// Paid, OAuth, and connection-string servers stay off the market.
+// Order is display order.
 var presets = []Preset{
 	{
 		ID:          "everything",
@@ -190,41 +173,16 @@ var presets = []Preset{
 		Args:        []string{"-y", "@upstash/context7-mcp"},
 		Category:    "开发",
 	},
-	{ID: "postgres", Name: "Postgres", Description: "只连你填的 Postgres URL，密钥留在本机", Transport: "stdio", Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-postgres", "{{url}}"}, NeedsArgs: true, ArgPlaceholder: "{{url}}", ArgHint: "本机 Postgres 连接串，不会上传", Category: "数据"},
-	{ID: "redis", Name: "Redis", Description: "只连你填的 Redis URL，密钥留在本机", Transport: "stdio", Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-redis", "{{url}}"}, NeedsArgs: true, ArgPlaceholder: "{{url}}", ArgHint: "本机 Redis 连接串，不会上传", Category: "数据"},
-	{ID: "google-maps", Name: "Google Maps", Description: "地理编码与地点查询；配置 Google Maps API Key（旧版参考服务器）", Transport: "stdio", Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-google-maps"}, Category: "网络", NeedsCredential: true, CredentialEnvs: []string{"GOOGLE_MAPS_API_KEY"}},
-	{ID: "brave-search", Name: "Brave Search", Description: "Brave 搜索，API Key 本地填写", Transport: "stdio", Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-brave-search"}, NeedsCredential: true, CredentialEnvs: []string{"BRAVE_API_KEY"}, Category: "网络"},
-	{ID: "gitlab", Name: "GitLab", Description: "GitLab 项目与议题；配置访问令牌，自建实例再配置 API URL", Transport: "stdio", Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-gitlab"}, NeedsCredential: true, CredentialEnvs: []string{"GITLAB_PERSONAL_ACCESS_TOKEN", "GITLAB_API_URL"}, Category: "开发"},
-	{ID: "sentry", Name: "Sentry", Description: "官方 Sentry 问题查询；配置 SENTRY_ACCESS_TOKEN，AI 搜索还需模型凭据", Transport: "stdio", Command: "npx", Args: []string{"-y", "@sentry/mcp-server"}, Category: "开发", NeedsCredential: true, CredentialEnvs: []string{"SENTRY_ACCESS_TOKEN"}},
-	{ID: "gdrive", Name: "Google Drive", Description: "Google Drive 文件检索；先完成上游 OAuth，再配置凭据文件路径", Transport: "stdio", Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-gdrive"}, NeedsCredential: true, CredentialEnvs: []string{"GDRIVE_CREDENTIALS_PATH"}, SetupURL: "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/gdrive", Category: "文件"},
-	{ID: "everart", Name: "EverArt", Description: "图像生成 MCP，API Key 本地填写", Transport: "stdio", Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-everart"}, NeedsCredential: true, CredentialEnvs: []string{"EVERART_API_KEY"}, Category: "内容"},
-	{ID: "aws-kb", Name: "AWS KB", Description: "AWS Bedrock 知识库检索；配置账号凭据和区域", Transport: "stdio", Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-aws-kb-retrieval"}, NeedsCredential: true, CredentialEnvs: []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION", "AWS_SESSION_TOKEN"}, Category: "数据"},
 	{ID: "chrome-devtools", Name: "Chrome DevTools", Description: "官方 Chrome DevTools MCP。人装才生效，不是默认电脑控制，月伴不会自动安装。默认网页自动化请用 Playwright。", Transport: "stdio", Command: "npx", Args: []string{"-y", "chrome-devtools-mcp"}, Category: "浏览器"},
-	{ID: "browsermcp", Name: "Browser MCP", Description: "使用已登录的本机 Chrome（需扩展）。人装才生效，不是默认电脑控制，也不是引擎劫持用户 Chrome。默认网页自动化请用 Playwright。", Transport: "stdio", Command: "npx", Args: []string{"-y", "@agent360/browser-mcp"}, Category: "浏览器"},
 	{ID: "antv-chart", Name: "AntV Chart", Description: "按描述生成图表，默认走公开图表服务", Transport: "stdio", Command: "npx", Args: []string{"-y", "@antv/mcp-server-chart"}, Category: "开发"},
-	{ID: "amap", Name: "高德地图", Description: "地理编码与路线，Key 本地填写", Transport: "stdio", Command: "npx", Args: []string{"-y", "@amap/amap-maps-mcp-server"}, NeedsCredential: true, CredentialEnvs: []string{"AMAP_MAPS_API_KEY"}, Category: "网络"},
-	{ID: "tavily", Name: "Tavily", Description: "联网检索；通过凭据配置 Tavily API Key", Transport: "stdio", Command: "npx", Args: []string{"-y", "tavily-mcp"}, Category: "网络", NeedsCredential: true, CredentialEnvs: []string{"TAVILY_API_KEY"}},
-	{ID: "firecrawl", Name: "Firecrawl", Description: "网页搜索与抓取；通过凭据配置 Firecrawl API Key", Transport: "stdio", Command: "npx", Args: []string{"-y", "firecrawl-mcp"}, Category: "网络", NeedsCredential: true, CredentialEnvs: []string{"FIRECRAWL_API_KEY"}},
-	{ID: "notion", Name: "Notion", Description: "Notion 工作区；先配置集成令牌并在 Notion 授权相关页面", Transport: "stdio", Command: "npx", Args: []string{"-y", "@notionhq/notion-mcp-server"}, Category: "效率", NeedsCredential: true, CredentialEnvs: []string{"NOTION_TOKEN"}},
 	{ID: "excel-mcp", Name: "Excel MCP", Description: "本机表格读写（无需安装 Excel）。新建工作簿仍优先用月汐 excel.gen / office.generate", Transport: "stdio", Command: "uvx", Args: []string{"excel-mcp-server", "stdio"}, Category: "办公", SetupURL: "https://github.com/haris-musa/excel-mcp-server"},
 	{ID: "word-mcp", Name: "Word MCP", Description: "深度编辑已有 Word：段落、表格、样式。新建文档仍优先用月汐 docx.gen / office.generate", Transport: "stdio", Command: "uvx", Args: []string{"--from", "office-word-mcp-server", "word_mcp_server"}, Category: "办公", SetupURL: "https://github.com/GongRzhe/Office-Word-MCP-Server"},
 	{ID: "ppt-mcp", Name: "PPT MCP", Description: "深度编辑已有演示：增删页与布局。新建演示仍优先用月汐 pptx.gen / office.generate，不走 Office COM", Transport: "stdio", Command: "uvx", Args: []string{"office-ppt-mcp-server"}, Category: "办公", SetupURL: "https://pypi.org/project/office-ppt-mcp-server/"},
 	{ID: "pdf-mcp", Name: "PDF MCP", Description: "本机生成/批注/书签等 PDF 操作。简单文本 PDF 仍优先用月汐 pdf.gen / office.generate", Transport: "stdio", Command: "npx", Args: []string{"-y", "pdfnative-mcp"}, Category: "办公", SetupURL: "https://github.com/Nizoka/pdfnative-mcp"},
-	{ID: "lark", Name: "飞书", Description: "飞书开放平台；配置应用 ID、密钥，用户身份接口还需用户授权", Transport: "stdio", Command: "npx", Args: []string{"-y", "@larksuiteoapi/lark-mcp", "mcp", "-l", "zh"}, NeedsCredential: true, CredentialEnvs: []string{"APP_ID", "APP_SECRET", "USER_ACCESS_TOKEN"}, Category: "效率"},
-	{ID: "huggingface", Name: "Hugging Face", Description: "官方远程模型、数据集与论文检索；配置 HF Token 后连接", Transport: "https", URL: "https://huggingface.co/mcp", Args: []string{}, Category: "开发", NeedsCredential: true, SetupURL: "https://huggingface.co/docs/hub/en/agents-mcp"},
 	{ID: "markitdown", Name: "MarkItDown", Description: "Office/PDF 转 Markdown，本机转换；需要 Python 3.10+，首次启动会准备依赖", Transport: "stdio", Command: "uvx", Args: []string{"markitdown-mcp"}, Category: "办公", SetupURL: "https://github.com/microsoft/markitdown/tree/main/packages/markitdown-mcp"},
-	{ID: "neon", Name: "Neon", Description: "官方远程 Postgres 服务；配置 Neon API Key", Transport: "https", URL: "https://mcp.neon.tech/mcp", Args: []string{}, NeedsCredential: true, Category: "数据", SetupURL: "https://neon.tech/docs/ai/neon-mcp-server"},
-	{ID: "supabase", Name: "Supabase", Description: "Supabase 项目管理；通过凭据配置 Personal Access Token", Transport: "stdio", Command: "npx", Args: []string{"-y", "@supabase/mcp-server-supabase"}, NeedsCredential: true, CredentialEnvs: []string{"SUPABASE_ACCESS_TOKEN"}, Category: "数据"},
-	{ID: "qdrant", Name: "Qdrant", Description: "官方向量库记忆存取；先填 QDRANT_URL，云端实例再填 QDRANT_API_KEY", Transport: "stdio", Command: "uvx", Args: []string{"mcp-server-qdrant"}, Category: "数据", NeedsCredential: true, CredentialEnvs: []string{"QDRANT_URL", "QDRANT_API_KEY"}},
-	{ID: "elasticsearch", Name: "Elasticsearch", Description: "Elasticsearch 检索；旧版 npm 接入，配置集群地址与凭据", Transport: "stdio", Command: "npx", Args: []string{"-y", "@elastic/mcp-server-elasticsearch"}, NeedsCredential: true, CredentialEnvs: []string{"ES_URL", "ES_API_KEY", "ES_USERNAME", "ES_PASSWORD"}, SetupURL: "https://github.com/elastic/mcp-server-elasticsearch", Category: "数据"},
 	{ID: "calculator", Name: "Calculator", Description: "精确算术，无网络、无密钥", Transport: "stdio", Command: "uvx", Args: []string{"mcp-server-calculator"}, Category: "效率"},
 	{ID: "duckduckgo", Name: "DuckDuckGo", Description: "无密钥网页搜索；调用时需要网络可访问 DuckDuckGo", Transport: "stdio", Command: "npx", Args: []string{"-y", "duckduckgo-mcp-server"}, Category: "网络", SetupURL: "https://github.com/zhsama/duckduckgo-mcp-server"},
 	{ID: "youtube-transcript", Name: "YouTube Transcript", Description: "拉取公开字幕，无密钥", Transport: "stdio", Command: "npx", Args: []string{"-y", "youtube-transcript-mcp"}, Category: "内容"},
-	{ID: "markdownify", Name: "Markdownify", Description: "网页、文件与音频转 Markdown；上游需从源码构建后接入本地入口", Transport: "stdio", Command: "node", Args: []string{"{{entry}}"}, NeedsArgs: true, ArgPlaceholder: "{{entry}}", ArgHint: "已构建的 Markdownify dist/index.js 绝对路径", Category: "效率", SetupURL: "https://github.com/zcaceres/markdownify-mcp"},
-	{ID: "linear", Name: "Linear", Description: "官方远程议题与项目管理；配置 Linear API Key", Transport: "https", URL: "https://mcp.linear.app/mcp", Args: []string{}, NeedsCredential: true, Category: "效率", SetupURL: "https://linear.app/docs/mcp"},
-	{ID: "mongodb", Name: "MongoDB", Description: "通过凭据配置 MongoDB 连接串，支持查询和文档操作", Transport: "stdio", Command: "npx", Args: []string{"-y", "mcp-mongo-server"}, NeedsCredential: true, CredentialEnvs: []string{"MCP_MONGODB_URI"}, Category: "数据"},
-	{ID: "juhe-query", Name: "聚合日常查询", Description: "直连聚合数据 MCP；按账号开通天气、火车、航班等接口，先配置平台 MCP Token", Transport: "https", URL: "https://mcp.juhe.cn/mcp?token={{credential}}", Args: []string{}, Category: "网络", NeedsCredential: true, SetupURL: "https://www.juhe.cn/docs/api/id/817"},
-	{ID: "tushare", Name: "Tushare 股票数据", Description: "官方金融数据 MCP，先配置个人 Token；免费基础权限仅非复权日线，实时行情及其他数据按账号权限开通", Transport: "https", URL: "https://api.tushare.pro/mcp/token={{credential}}", Args: []string{}, Category: "数据", NeedsCredential: true, SetupURL: "https://tushare.pro/document/1?doc_id=463"},
 }
 
 // Presets returns a copy of the preset catalog in display order.

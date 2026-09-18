@@ -78,6 +78,18 @@ func TestComputerActSharedExecutionInstruction(t *testing.T) {
 	if !strings.Contains(inst, "computer.act") {
 		t.Fatal("shared contract must name computer.act")
 	}
+	if !strings.Contains(inst, "command.run") || !strings.Contains(inst, "mkdir") {
+		t.Fatal("shared contract must mkdir on the real Desktop via command.run")
+	}
+	if !strings.Contains(inst, "蓝牙") || !strings.Contains(inst, "desktop.open") {
+		t.Fatal("shared contract must send Settings pages through desktop.open, not click-through")
+	}
+	if !strings.Contains(inst, "粘贴") && !strings.Contains(strings.ToLower(inst), "paste") {
+		t.Fatal("shared contract must paste long/CJK text instead of per-key typing")
+	}
+	if !strings.Contains(inst, "删除") && !strings.Contains(strings.ToLower(inst), "delete") {
+		t.Fatal("shared contract must cover desktop delete/rename/copy, not only mkdir")
+	}
 	wf := workflowComputerClause
 	if !strings.Contains(wf, "computer.act") || !strings.Contains(wf, "frameId") {
 		t.Fatal("desktop workflow must stay on computer.act")
@@ -96,5 +108,18 @@ func TestComputerActVoiceKeyboardAndClickNeedles(t *testing.T) {
 		if !companionWantsDesktopControl(goal) {
 			t.Fatalf("desktop-control follow-through must keep %q", goal)
 		}
+	}
+}
+
+func TestWeeklyReportToDesktopIsOfficeNotComputerAct(t *testing.T) {
+	t.Parallel()
+	for _, goal := range []string{"写周报放到桌面", "生成 Word 周报，放到桌面。", "生成周报保存到桌面"} {
+		if companionWantsDesktopControl(goal) || computerExecutionTurn(goal) || wantsAgentHostAct(goal) {
+			t.Fatalf("%q must stay office, not a desktop folder act", goal)
+		}
+	}
+	del := "帮我删掉桌面上的周报.docx"
+	if !wantsAgentHostAct(del) {
+		t.Fatalf("%q must stay a desktop delete even though it mentions 周报", del)
 	}
 }

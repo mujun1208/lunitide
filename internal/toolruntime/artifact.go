@@ -32,6 +32,8 @@ func writeArtifactForPath(relPath, content string) *Artifact {
 		return &Artifact{Kind: strings.TrimPrefix(strings.ToLower(filepath.Ext(base)), "."), Path: path}
 	case ".png":
 		return &Artifact{Kind: "image", Path: path}
+	case ".wav", ".mp3":
+		return &Artifact{Kind: "audio", Path: path}
 	default:
 		return nil
 	}

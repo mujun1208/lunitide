@@ -14,9 +14,9 @@ export const SCENE_BLURBS: Record<AgentHubThreadScene, string> = {
 }
 
 export const ACCESS_MODES = [
-  { id: 'approval' as const, zh: '手动', en: 'Manual' },
-  { id: 'auto-edit' as const, zh: '自动', en: 'Auto' },
-  { id: 'full-access' as const, zh: '完全访问', en: 'Full access' },
+  { id: 'approval' as const, zh: '手动审批', en: 'Ask first', zhDesc: '工具和命令需要你审核后才能执行', enDesc: 'Tools and commands wait for your approval.' },
+  { id: 'auto-edit' as const, zh: '自动审批', en: 'Auto-approve', zhDesc: '自动执行常规操作，高风险操作仍需你确认', enDesc: 'Routine actions run automatically; high-risk ones still need you.' },
+  { id: 'full-access' as const, zh: '完全访问', en: 'Full access', zhDesc: '免审批，直接操作所有文件、命令和工具', enDesc: 'No approval gate; files, commands, and tools run directly.' },
 ] as const
 
 export const THREAD_SCENES = [
@@ -80,6 +80,11 @@ export const FREE_TEMPLATES = [
 
 export const HUB_TEMPLATES = FREE_TEMPLATES
 
+export function hubTemplatesForScene(scene: HubScene): readonly typeof FREE_TEMPLATES[number][] {
+  if (scene === 'docs' || scene === 'free') return FREE_TEMPLATES
+  return []
+}
+
 export const HUB_SCENES = [
   { id: 'ppt' as const, agent: 'kimi' as const, zh: '做 PPT', en: 'Make a PPT', subZh: '固定交给 Kimi，用它自己的技能做演示文稿', subEn: 'Always Kimi, using its own slides skill' },
   { id: 'write' as const, agent: 'cursor' as const, zh: '写新项目', en: 'New project', subZh: '先选项目根，固定交给 Cursor 建目录并写代码', subEn: 'Pick a root, then Cursor writes the project' },
@@ -120,10 +125,88 @@ export function visibleHubArtifacts<T extends { source: string }>(items: T[], sh
   })
 }
 
+export const HUB_AGENT_IDS = ['codex', 'cursor', 'kimi'] as const
+
+export function agentDisplayName(name: string): string {
+  if (name === 'cursor') return 'Cursor'
+  if (name === 'kimi') return 'Kimi'
+  if (name === 'codex') return 'Codex'
+  return name
+}
+
+export function agentInstall(name: string): { command: string; opensPage: false } {
+  if (name === 'cursor') return { command: 'cursor-agent', opensPage: false }
+  if (name === 'kimi') return { command: 'kimi', opensPage: false }
+  return { command: 'npm i -g @openai/codex', opensPage: false }
+}
+
+const USER_TASK_MARK = '用户任务：'
+const SKIP_WORKSPACE_NAMES = new Set([
+  'node_modules', '.git', '.hg', '.svn', 'dist', 'build', 'out', 'coverage',
+  '.venv', 'venv', '__pycache__', '.cursor', '.kimi-code', '.codex', 'vendor', '.idea', '.vs',
+  '$null',
+])
+const HEX_JUNK = /^[0-9a-f]{24,}$/i
+
+export function displayUserFacingMessage(content: string, role: string): string | null {
+  if (role === 'notice' || role === 'system') return null
+  if (/reading prompt from stdin/i.test(content)) return null
+  if (role !== 'user') return content
+  const index = content.lastIndexOf(USER_TASK_MARK)
+  if (index >= 0) return content.slice(index + USER_TASK_MARK.length).trim()
+  return content
+}
+
+export function visibleWorkspaceEntry(name: string): boolean {
+  const trimmed = name.trim()
+  if (!trimmed) return false
+  if (SKIP_WORKSPACE_NAMES.has(trimmed)) return false
+  if (trimmed.startsWith('$')) return false
+  if (HEX_JUNK.test(trimmed)) return false
+  return true
+}
+
+export function hubReadyState(state?: AgentHubState): 'ready' | 'missing' | 'unsigned' | 'unknown' {
+  if (state === 'available') return 'ready'
+  if (state === 'not_installed') return 'missing'
+  if (state === 'not_logged_in') return 'unsigned'
+  return 'unknown'
+}
+
+const UNUSABLE_THREAD = new Set(['faulted', 'failed', 'cancelled', 'timeout'])
+
+export function latestThreadForHarness<T extends { harnessId: string; updatedAt: string; pinned?: boolean }>(
+  items: T[],
+  harnessId: string,
+): T | undefined {
+  return items
+    .filter(item => item.harnessId === harnessId)
+    .sort((a, b) => {
+      const byTime = (b.updatedAt || '').localeCompare(a.updatedAt || '')
+      if (byTime !== 0) return byTime
+      if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1
+      return 0
+    })[0]
+}
+
+export function usableLatestThreadForHarness<T extends { harnessId: string; updatedAt: string; pinned?: boolean; status?: string }>(
+  items: T[],
+  harnessId: string,
+): T | undefined {
+  return latestThreadForHarness(items.filter(item => !UNUSABLE_THREAD.has(item.status ?? '')), harnessId)
+}
+
+export function threadSceneToHub(scene: string): HubScene {
+  if (scene === 'write_project') return 'write'
+  if (scene === 'fix') return 'fix'
+  if (scene === 'ppt') return 'ppt'
+  return 'free'
+}
+
 export function stateLabel(state: AgentHubState, zh: boolean): string {
-  if (state === 'available') return zh ? '可用' : 'Available'
+  if (state === 'available') return zh ? '已连接' : 'Connected'
   if (state === 'not_installed') return zh ? '未安装' : 'Not installed'
-  if (state === 'not_logged_in') return zh ? '未登录' : 'Not signed in'
+  if (state === 'not_logged_in') return zh ? '未连接' : 'Not connected'
   return zh ? '未知' : 'Unknown'
 }
 

@@ -120,7 +120,7 @@ func (s *Store) CreateOfficeTask(ctx context.Context, t officestudio.Task, key s
 	}
 	defer tx.Rollback()
 	var existingID, existingDigest string
-	err = tx.QueryRowContext(ctx, `SELECT id,request_digest FROM office_tasks WHERE session_id=? AND idempotency_key=?`, t.SessionID, key).Scan(&existingID, &existingDigest)
+	err = tx.QueryRowContext(ctx, `SELECT id,request_digest FROM office_tasks WHERE session_id=? AND idempotency_key=? AND owner_org_id=?`, t.SessionID, key, officestudio.Scope(ctx)).Scan(&existingID, &existingDigest)
 	if err == nil {
 		if err = officeAuthorize(ctx, tx, "office-task", existingID); err != nil {
 			return t, err

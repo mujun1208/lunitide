@@ -251,7 +251,7 @@ const isProject=(v:unknown)=>isObj(v)&&exact(v,['id','name','projectCode','type'
 const isSession=(v:unknown,projectId?:string)=>isObj(v)&&exact(v,['id','projectId','title','pinned','status','createdAt','updatedAt','version'])&&isULID(v.id)&&(!projectId||v.projectId===projectId)&&typeof v.title==='string'&&v.title===normalizedProjectName(v.title)&&Array.from(v.title).length>=1&&Array.from(v.title).length<=200&&typeof v.pinned==='boolean'&&v.status==='active'&&isTime(v.createdAt)&&isTime(v.updatedAt)&&Date.parse(String(v.updatedAt))>=Date.parse(String(v.createdAt))&&Number.isInteger(v.version)&&Number(v.version)>=1
 const isModel=(v:unknown)=>isObj(v)&&exact(v,['modelId','displayName','isDefault'],['contextWindow','kind','supportsVision','kindDefault'])&&typeof v.modelId==='string'&&/^[\x21-\x7E]{1,200}$/.test(v.modelId)&&typeof v.displayName==='string'&&v.displayName===v.displayName.trim()&&v.displayName.length>0&&new TextEncoder().encode(v.displayName).length<=200&&typeof v.isDefault==='boolean'&&(!('contextWindow'in v)||(Number.isSafeInteger(v.contextWindow)&&Number(v.contextWindow)>=0&&Number(v.contextWindow)<=100_000_000))&&(!('kind'in v)||['llm','vision','image','video','voice','asr','tts','embedding','gui'].includes(String(v.kind)))&&(!('supportsVision'in v)||typeof v.supportsVision==='boolean')&&(!('kindDefault'in v)||typeof v.kindDefault==='boolean')
 const isModels=(v:unknown)=>Array.isArray(v)&&v.length>=1&&v.length<=50&&v.every(isModel)&&new Set(v.map(x=>(x as {modelId:string}).modelId)).size===v.length&&v.filter(x=>(x as {isDefault:boolean}).isDefault).length===1
-const isProvider=(v:unknown)=>isObj(v)&&exact(v,['id','name','protocol','baseUrl','models','status','credentialState','createdAt','updatedAt','version','credentialBackupCount'])&&isULID(v.id)&&typeof v.name==='string'&&v.name===v.name.trim()&&v.name.length>0&&['openai_compatible','anthropic','volc_speech'].includes(String(v.protocol))&&typeof v.baseUrl==='string'&&isModels(v.models)&&['enabled','disabled'].includes(String(v.status))&&['configured','missing','unavailable','requires_reentry'].includes(String(v.credentialState))&&isTime(v.createdAt)&&isTime(v.updatedAt)&&Number.isInteger(v.version)&&Number(v.version)>=1&&Number.isInteger(v.credentialBackupCount)&&Number(v.credentialBackupCount)>=0&&Number(v.credentialBackupCount)<=4
+const isProvider=(v:unknown)=>isObj(v)&&exact(v,['id','name','protocol','baseUrl','models','status','credentialState','createdAt','updatedAt','version','credentialBackupCount'])&&isULID(v.id)&&typeof v.name==='string'&&v.name===v.name.trim()&&v.name.length>0&&['openai_compatible','anthropic','volc_speech','openai_responses'].includes(String(v.protocol))&&typeof v.baseUrl==='string'&&isModels(v.models)&&['enabled','disabled'].includes(String(v.status))&&['configured','missing','unavailable','requires_reentry'].includes(String(v.credentialState))&&isTime(v.createdAt)&&isTime(v.updatedAt)&&Number.isInteger(v.version)&&Number(v.version)>=1&&Number.isInteger(v.credentialBackupCount)&&Number(v.credentialBackupCount)>=0&&Number(v.credentialBackupCount)<=4
 const guards:Partial<Record<BridgeMethod|(typeof PROJECT_ADVANCE_METHOD),(v:unknown)=>boolean>>={
  'project.create':isProject,'project.update':isProject,'project.publish':isProject,'project.close':isProject,'project.reopen':isProject,[PROJECT_ADVANCE_METHOD]:isProject,
  'project.list':v=>isObj(v)&&exact(v,['items'])&&Array.isArray(v.items)&&v.items.length<=100&&v.items.every(isProject),
@@ -340,7 +340,7 @@ export const sessionBridge:SessionBridge={list:p=>getSessionBridge().list(p),cre
 const textValid=(v:unknown)=>typeof v==='string'&&v.length>0&&!v.includes('\0')&&Array.from(v).length<=2048&&new TextEncoder().encode(v).length<=8192
 const dtoTextValid=(v:unknown)=>typeof v==='string'&&v.length>=1&&v.length<=65536
 const messageArtifactPathValid=(path:unknown)=>typeof path==='string'&&path.length>0&&path.length<=512&&!path.startsWith('/')&&!path.includes('\\')&&!path.split('/').includes('..')
-const messageArtifactKindValid=(kind:unknown)=>kind==='html'||kind==='xlsx'||kind==='docx'||kind==='pptx'||kind==='pdf'||kind==='image'||kind==='md'||kind==='txt'
+const messageArtifactKindValid=(kind:unknown)=>kind==='html'||kind==='xlsx'||kind==='docx'||kind==='pptx'||kind==='pdf'||kind==='image'||kind==='md'||kind==='txt'||kind==='audio'
 const isMessageArtifact=(v:unknown)=>isObj(v)&&exact(v,['kind','path','callId','toolName'])&&typeof v.callId==='string'&&v.callId.length>0&&v.callId.length<=128&&typeof v.toolName==='string'&&v.toolName.length>0&&messageArtifactPathValid(v.path)&&messageArtifactKindValid(v.kind)
 const isMessage=(v:unknown,sessionId:string)=>{
  if(!isObj(v)||!exact(v,['id','sessionId','role','status','sequence','text','createdAt'],['artifacts','hasProcess'])||!isULID(v.id)||v.sessionId!==sessionId||(v.role!=='user'&&v.role!=='assistant'&&v.role!=='tool')||v.status!=='completed'||!Number.isSafeInteger(v.sequence)||Number(v.sequence)<=0||!dtoTextValid(v.text)||!isTime(v.createdAt))return false
@@ -508,6 +508,7 @@ export const automationBridge:AutomationBridge={listJobs:()=>{try{return getAuto
 // This-PC meeting notes — microphone transcript, then 摘要/待办/逐字稿. Never mixes into session.* or people P2P.
 export const BRIDGE_DEADLINE_CAP_MS = 30_000
 export const AGENT_HUB_DIR_PICK_MS = 600_000
+export const AGENT_HUB_PROMPT_MS = 180_000
 export const PROVIDER_TEST_DEADLINE_MS = 360_000
 export const MEETING_APPEND_DEADLINE_MS = 120_000
 export const MEETING_STOP_DEADLINE_MS = 120_000
@@ -528,7 +529,8 @@ export function capBridgeDeadlineMs(method: string, deadlineMs: number): number 
   else if (method === 'office.artifact.validate' || method === 'office.artifact.refresh') cap = 120_000
   else if (method === 'mcp.add' || method === 'mcp.toggle' || method === 'mcp.health') cap = MCP_SETUP_DEADLINE_MS
   else if (method === 'provider.test') cap = PROVIDER_TEST_DEADLINE_MS
-  else if (method === 'agentHub.dir.pick' || method === 'agentHub.inbox' || method === 'project.root.pick') cap = AGENT_HUB_DIR_PICK_MS
+  else if (method === 'agentHub.dir.pick' || method === 'agentHub.inbox' || method === 'agentHub.install' || method === 'project.root.pick') cap = AGENT_HUB_DIR_PICK_MS
+  else if (method === 'agentHub.thread.prompt' || method === 'agentHub.thread.respond' || method === 'agentHub.thread.cancel') cap = AGENT_HUB_PROMPT_MS
   return Math.min(cap, Math.max(1, deadlineMs))
 }
 const isRetryableBridgeError = (error: unknown) => error instanceof BridgeClientError && error.retryable
@@ -608,15 +610,18 @@ export function getCapabilityRolesBridge(): CapabilityRolesBridge { return capab
 
 export type OCRRoutingSnapshot = import('../generated/bridge').OcrRoutingGetResult
 export type OCRRoutingUpdate = import('../generated/bridge').OcrRoutingSetPayload
+export type OCRInstallSnapshot = import('../generated/bridge').OcrInstallResult
 export interface OCRRoutingBridge {
   get(): Promise<OCRRoutingSnapshot>
   set(payload: OCRRoutingUpdate, options?: MutationOptions<OCRRoutingUpdate>): Promise<OCRRoutingSnapshot>
+  install(): Promise<OCRInstallSnapshot>
 }
 export function createOCRRoutingBridge(transport: WebViewTransport = webview(), deadlineMs = 8_000): OCRRoutingBridge {
   const core = createSimpleBridge(transport, {}, deadlineMs)
   return {
     get: () => core.request('ocr.routing.get' as BridgeMethod, {}),
     set: (p, o) => core.request('ocr.routing.set' as BridgeMethod, p, deadlineMs, o?.attempt ?? createMutationAttempt('ocr.routing.set', p) as MutationAttempt<object>),
+    install: () => core.request('ocr.install' as BridgeMethod, {}),
   }
 }
 let ocrRoutingSingleton: OCRRoutingBridge | undefined
@@ -1109,7 +1114,7 @@ let skillSingleton: SkillBridge | undefined
 export function getSkillBridge(): SkillBridge { return skillSingleton ??= createSkillBridge(webview()) }
 export const skillBridge: SkillBridge = { uploadBegin:p=>getSkillBridge().uploadBegin!(p), uploadChunk:p=>getSkillBridge().uploadChunk!(p), uploadCommit:p=>getSkillBridge().uploadCommit!(p), uploadAbort:p=>getSkillBridge().uploadAbort!(p), packageList:p=>getSkillBridge().packageList!(p), packageRead:p=>getSkillBridge().packageRead!(p), get: p => getSkillBridge().get(p), list: p => getSkillBridge().list(p), create: (p, o) => getSkillBridge().create(p, o), update: (p, o) => getSkillBridge().update(p, o), delete: (p, o) => getSkillBridge().delete(p, o), match: p => getSkillBridge().match(p), publish: p => getSkillBridge().publish(p), deprecate: p => getSkillBridge().deprecate(p), disable: p => getSkillBridge().disable(p),invoke:p=>getSkillBridge().invoke!(p),execute:p=>getSkillBridge().execute!(p),catalogList:p=>getSkillBridge().catalogList!(p),install:p=>getSkillBridge().install!(p),categorySet:p=>getSkillBridge().categorySet!(p) }
 
-export type StreamArtifact={kind:'html'|'xlsx'|'docx'|'pptx'|'pdf'|'image'|'md'|'txt';path:string;content:string}
+export type StreamArtifact={kind:'html'|'xlsx'|'docx'|'pptx'|'pdf'|'image'|'md'|'txt'|'audio';path:string;content:string}
 export type StreamEvent =
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'delta';delta:{text:string}}
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'thinking';thinking:{text:string}}
@@ -1984,7 +1989,9 @@ export function createAgentHubBridge(transport: WebViewTransport = webview(), de
     request: (method, payload) => core.request(
       method as BridgeMethod,
       payload,
-      method === 'agentHub.dir.pick' || method === 'agentHub.inbox' || method === 'project.root.pick' ? AGENT_HUB_DIR_PICK_MS : deadlineMs,
+      method === 'agentHub.dir.pick' || method === 'agentHub.inbox' || method === 'agentHub.install' || method === 'project.root.pick' ? AGENT_HUB_DIR_PICK_MS :
+      method === 'agentHub.thread.prompt' || method === 'agentHub.thread.respond' || method === 'agentHub.thread.cancel' ? AGENT_HUB_PROMPT_MS :
+      deadlineMs,
     ),
   }
 }

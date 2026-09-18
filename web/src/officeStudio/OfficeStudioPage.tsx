@@ -1193,8 +1193,12 @@ export function OfficeStudioPage({
                 <small className="os-muted">单个文件不超过 10 MiB</small>
               </>
             )}
-            {artifact && preview && previewPages.length > 0 && (
-              <nav className="os-page-rail" aria-label={artifact.kind === 'pptx' ? '幻灯片页' : '内容目录'}>
+            {artifact && preview && previewPages.length > 0 && artifact.kind === 'pptx' && (
+              <>
+                <div className="os-section-heading">
+                  <h3>幻灯片</h3>
+                </div>
+                <nav className="os-page-rail" aria-label="幻灯片页">
                 {previewPages.map((page, index) => {
                   const thumb = officePreviewThumb(page);
                   return (
@@ -1209,18 +1213,17 @@ export function OfficeStudioPage({
                       if (node) locate(node);
                     }}
                   >
-                    {artifact.kind === 'pptx' ? (
-                      <span className="os-page-thumb" aria-hidden="true">
-                        <b>{thumb.title}</b>
-                        <small>{thumb.excerpt}</small>
-                      </span>
-                    ) : null}
+                    <span className="os-page-thumb" aria-hidden="true">
+                      <b>{thumb.title}</b>
+                      <small>{thumb.excerpt}</small>
+                    </span>
                     <span>{String(index + 1).padStart(2, '0')}</span>
-                    <b>{artifact.kind === 'pptx' ? thumb.title : page.label}</b>
+                    <b>{thumb.title}</b>
                   </button>
                   );
                 })}
-              </nav>
+                </nav>
+              </>
             )}
             <details className="os-task-switcher">
               <summary>其他任务</summary>
@@ -1646,7 +1649,7 @@ export function OfficeStudioPage({
                 </button>
               </nav>
             )}
-            {version && preview && typeof preview.totalNodes === 'number' && preview.totalNodes > 0 && (artifact?.kind !== 'pptx' || previousNodeOffsets.length > 0 || (preview.nextNodeOffset !== undefined && preview.nextNodeOffset < preview.totalNodes)) && (
+            {version && preview && artifact && !isOfficeReference(artifact) && typeof preview.totalNodes === 'number' && preview.totalNodes > 0 && (artifact.kind !== 'pptx' || previousNodeOffsets.length > 0 || (preview.nextNodeOffset !== undefined && preview.nextNodeOffset < preview.totalNodes)) && (
               <nav className="os-preview-pages" aria-label="结构内容翻页">
                 <button
                   disabled={previewLoading || !previousNodeOffsets.length}

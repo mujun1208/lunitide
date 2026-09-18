@@ -226,7 +226,7 @@ func TestTombstoneDeleteHidesReadFaceAndVerifies(t *testing.T) {
 		Doc: m8core.PayloadDoc{
 			Content: "stale preference", ScopeID: "scope-a",
 			Sensitivity: m8core.SensPrivate,
-			Leaves: []m8core.SourceLeafClaim{{JSONPointer: "/content", EvidenceRef: "artifact://e", Digest: sha64("d")}},
+			Leaves:      []m8core.SourceLeafClaim{{JSONPointer: "/content", EvidenceRef: "artifact://e", Digest: sha64("d")}},
 		},
 		Trust: m8core.TrustUntrusted,
 	})

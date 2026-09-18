@@ -5,8 +5,8 @@ import (
 
 	"github.com/lunitide/lunitide/internal/compactionapp"
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/handoffapp"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 // CompactionStore combines the storage interfaces needed by the compaction

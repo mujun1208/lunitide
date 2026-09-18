@@ -20,7 +20,7 @@ afterEach(() => {
 it('stays hidden when the installed version is current', async () => {
   const check = vi.fn().mockResolvedValue({ updateId: '', version: '', digest: '', mandatory: false })
   vi.mocked(getSystemHealthBridge).mockReturnValue({
-    health: vi.fn().mockResolvedValue({ version: '0.4.82' }),
+    health: vi.fn().mockResolvedValue({ version: '0.4.84' }),
     diagnostics: vi.fn(),
   })
   vi.mocked(getAppUpdateBridge).mockReturnValue({ check, install: vi.fn() })
@@ -38,14 +38,14 @@ it('offers one-click install when a newer package is available', async () => {
   vi.mocked(getAppUpdateBridge).mockReturnValue({
     check: vi.fn().mockResolvedValue({
       updateId: '01ARZ3NDEKTSV4RRFFQ69G5FAW',
-      version: '0.4.82',
+      version: '0.4.84',
       digest: 'aa'.repeat(32),
       mandatory: false,
     }),
     install,
   })
   render(<AppUpdateBanner />)
-  expect(await screen.findByText('发现新版本 0.4.82，可以覆盖安装，不必先卸载。')).toBeInTheDocument()
+  expect(await screen.findByText('发现新版本 0.4.84，可以覆盖安装，不必先卸载。')).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: '立即升级' }))
   expect(install).toHaveBeenCalledWith(
     { updateId: '01ARZ3NDEKTSV4RRFFQ69G5FAW', expectedDigest: 'aa'.repeat(32) },

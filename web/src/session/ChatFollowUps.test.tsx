@@ -32,6 +32,12 @@ it('falls back to file-specific review requests without inventing style changes'
   expect(chips.join(' ')).not.toMatch(/联系方式|深色|主题|精简一页|需要我/)
 })
 
+it('treats audio follow-ups as speech revision, not songwriting',()=>{
+  const chips=suggestChatFollowUps('朗读已生成。',[{kind:'audio',path:'speech.wav',content:'',callId:'a1',toolName:'audio.generate'}])
+  expect(chips.join(' ')).toMatch(/朗读|语音/)
+  expect(chips.join(' ')).not.toMatch(/歌词|作曲|演唱|歌曲/)
+})
+
 it('does not invent generic next-step chips when the answer has no structured suggestions',()=>{
   expect(suggestChatFollowUps('已读取周报草稿并按本周范围写了摘要。')).toEqual([])
   expect(suggestChatFollowUps('无法读取文件，任务未完成。')).toEqual([])

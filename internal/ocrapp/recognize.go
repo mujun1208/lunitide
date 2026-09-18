@@ -42,6 +42,7 @@ type Result struct {
 type ProviderFunc func(ctx context.Context, raw []byte, hint string) (text string, err error)
 type LocalPDFFunc func(ctx context.Context, raw []byte) (doctext.PDFOCRResult, error)
 type LocalImageFunc func(ctx context.Context, raw []byte) (doctext.PDFOCRResult, error)
+type PackImageFunc func(ctx context.Context, packRoot string, raw []byte) (doctext.PDFOCRResult, error)
 type RenderPDFFunc func(ctx context.Context, raw []byte, pages []int) ([]doctext.RenderedPDFPage, error)
 type CredentialFunc func(providerID string) string
 
@@ -57,15 +58,33 @@ type Service struct {
 	provider   ProviderFunc
 	localPDF   LocalPDFFunc
 	localImage LocalImageFunc
+	packImage  PackImageFunc
 	renderPDF  RenderPDFFunc
 	credential CredentialFunc
 	now        func() time.Time
 	healthMu   sync.Mutex
 	health     map[string]healthNote
+
+	installRoot    string
+	installer      *Installer
+	installBundle  func(context.Context, Bundle, func(Progress)) error
+	installMu      sync.Mutex
+	progress       Progress
+	installState   string
+	lastInstallErr string
+	installing     bool
 }
 
 func New(store *FileStore) *Service {
-	s := &Service{store: store, localPDF: doctext.ExtractPDFOCR, localImage: doctext.ExtractImageOCR, renderPDF: doctext.RenderPDFPages, now: time.Now}
+	s := &Service{
+		store:        store,
+		localPDF:     doctext.ExtractPDFOCR,
+		localImage:   doctext.ExtractImageOCR,
+		renderPDF:    doctext.RenderPDFPages,
+		now:          time.Now,
+		installer:    &Installer{},
+		installState: "idle",
+	}
 	s.loadHealth()
 	return s
 }
@@ -79,6 +98,26 @@ func (s *Service) SetLocalPDF(fn LocalPDFFunc) {
 func (s *Service) SetLocalImage(fn LocalImageFunc) {
 	if s != nil {
 		s.localImage = fn
+	}
+}
+func (s *Service) SetPackImage(fn PackImageFunc) {
+	if s != nil {
+		s.packImage = fn
+	}
+}
+func (s *Service) SetInstallRoot(root string) {
+	if s == nil {
+		return
+	}
+	s.installRoot = root
+	if s.installer == nil {
+		s.installer = &Installer{}
+	}
+	s.installer.Root = root
+}
+func (s *Service) SetInstallBundle(fn func(context.Context, Bundle, func(Progress)) error) {
+	if s != nil {
+		s.installBundle = fn
 	}
 }
 func (s *Service) SetRenderPDF(fn RenderPDFFunc) {
@@ -103,11 +142,66 @@ func (s *Service) SetRouting(next Routing, expected string) (Routing, error) {
 	if s == nil || s.store == nil {
 		return Routing{}, errors.New("OCR 路由存储不可用")
 	}
+	if strings.TrimSpace(next.PackRoot) == "" {
+		if root := s.installedPackRoot(); root != "" {
+			next.PackRoot = root
+		}
+	}
 	saved, err := s.store.CompareAndSet(next, expected)
 	if err == nil {
 		s.clearHealth()
 	}
 	return saved, err
+}
+
+func (s *Service) installedPackRoot() string {
+	if s == nil || s.installer == nil || s.installRoot == "" {
+		return ""
+	}
+	dir := s.installer.BundleDir(RuntimeID)
+	if DetectPPOcrPack(dir).Available {
+		return dir
+	}
+	return ""
+}
+
+func (s *Service) resolvePackRoot(stored string) string {
+	if root := ResolvePPOcrRoot(stored); DetectPPOcrPack(root).Available {
+		return root
+	}
+	if dir := s.installedPackRoot(); dir != "" {
+		return dir
+	}
+	return ResolvePPOcrRoot(stored)
+}
+
+var errLocalImageMissing = errors.New("本地图片识别未装配，请配置 OCR 路由或改用视觉模型")
+
+func (s *Service) runLocalImage(ctx context.Context, raw []byte) (doctext.PDFOCRResult, error) {
+	routing, _ := s.Routing()
+	packRoot := s.resolvePackRoot(routing.PackRoot)
+	pack := DetectPPOcrPack(packRoot)
+	engine := EffectiveLocalEngine(routing.LocalEngine, pack)
+	if engine == "ppocr" {
+		fn := s.packImage
+		if fn == nil {
+			fn = runRapidOCR
+		}
+		got, err := fn(ctx, packRoot, raw)
+		if err == nil {
+			if strings.TrimSpace(got.Method) == "" {
+				got.Method = "ppocr"
+			}
+			return got, nil
+		}
+		if routing.LocalEngine == "ppocr" {
+			return doctext.PDFOCRResult{}, err
+		}
+	}
+	if s.localImage == nil {
+		return doctext.PDFOCRResult{}, errLocalImageMissing
+	}
+	return s.localImage(ctx, raw)
 }
 
 func providerErrorClass(err error) string {
@@ -317,10 +411,10 @@ func (s *Service) recognizeRenderedPages(ctx context.Context, rendered []doctext
 		if ctx.Err() != nil {
 			return nil, "", SourceUnknown, ctx.Err()
 		}
-		if s.localImage == nil {
+		got, localErr := s.runLocalImage(ctx, page.PNG)
+		if errors.Is(localErr, errLocalImageMissing) {
 			continue
 		}
-		got, localErr := s.localImage(ctx, page.PNG)
 		if ctx.Err() != nil {
 			return nil, "", SourceUnknown, ctx.Err()
 		}
@@ -373,10 +467,7 @@ func (s *Service) RecognizeImage(ctx context.Context, raw []byte) (Result, error
 	if ctx.Err() != nil {
 		return Result{}, ctx.Err()
 	}
-	if s.localImage == nil {
-		return Result{}, errors.New("本地图片识别未装配，请配置 OCR 路由或改用视觉模型")
-	}
-	got, localErr := s.localImage(ctx, raw)
+	got, localErr := s.runLocalImage(ctx, raw)
 	if ctx.Err() != nil {
 		return Result{}, ctx.Err()
 	}

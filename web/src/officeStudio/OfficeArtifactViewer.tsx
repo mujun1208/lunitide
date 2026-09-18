@@ -3,7 +3,7 @@ import type { OfficeArtifact, OfficeNode, OfficePreview, OfficeStudioApi, Office
 import { officeQualityLabel } from './officePresentation';
 import { conceptPreviewLabel } from './officeQualityUi';
 import { OfficePDFViewer } from './OfficePDFViewer';
-import { officePreviewPages } from './officePreviewPages';
+import { officeNodeHeading, officePreviewPages } from './officePreviewPages';
 
 export function OfficeArtifactViewer({
   api,
@@ -34,8 +34,9 @@ export function OfficeArtifactViewer({
 }): React.JSX.Element {
   const [layout, setLayout] = useState(false);
   const pages = artifact && preview ? officePreviewPages(artifact.kind, preview.nodes) : [];
-  const visiblePages =
-    artifact?.kind === 'pptx' ? pages.filter((page) => page.id === (activePageId ?? pages[0]?.id)) : pages;
+  const currentPageId = pages.some((page) => page.id === activePageId) ? activePageId : pages[0]?.id;
+  const visiblePages = artifact?.kind === 'pptx' ? pages.filter((page) => page.id === currentPageId) : pages;
+  const pptPageNumber = Math.max(1, pages.findIndex((page) => page.id === currentPageId) + 1);
   useEffect(() => {
     setLayout(!!preview?.pdfReady);
   }, [preview?.versionId, preview?.pdfReady]);
@@ -92,7 +93,21 @@ export function OfficeArtifactViewer({
         </p>
       )}
       {layout && !loading && (
-        <OfficePDFViewer api={api} taskId={taskId} versionId={version.id} name={artifact.name} />
+        <OfficePDFViewer
+          api={api}
+          taskId={taskId}
+          versionId={version.id}
+          name={artifact.name}
+          page={artifact.kind === 'pptx' ? pptPageNumber : undefined}
+          onPageChange={
+            artifact.kind === 'pptx'
+              ? (next) => {
+                  const page = pages[next - 1];
+                  if (page?.nodes[0]) onSelectNode(page.nodes[0]);
+                }
+              : undefined
+          }
+        />
       )}
       {preview && !loading && !layout && (
         <div className="os-preview-layout">
@@ -106,15 +121,48 @@ export function OfficeArtifactViewer({
                     id={`office-page-${page.id}`}
                   >
                     <h3 className="os-page-heading">{page.label}</h3>
-                    {page.nodes.map((node) => (
+                    {artifact.kind === 'pptx'
+                      ? page.nodes.map((node, index) => (
+                          <div key={node.id} id={`office-node-${node.id}`}>
+                            {node.valueType === 'image' && node.image ? (
+                              <button
+                                type="button"
+                                className="os-slide-block"
+                                onClick={() => onSelectNode(node)}
+                                aria-label={`选择 ${officeNodeHeading(node)}`}
+                              >
+                                <p>{node.text || '图片'}</p>
+                              </button>
+                            ) : node.valueType === 'chart' && node.chart ? (
+                              <button
+                                type="button"
+                                className="os-slide-block"
+                                onClick={() => onSelectNode(node)}
+                                aria-label={`选择 ${officeNodeHeading(node)}`}
+                              >
+                                <p>{node.text || '图表'}</p>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className={index === 0 ? 'os-slide-title' : 'os-slide-text'}
+                                onClick={() => onSelectNode(node)}
+                                aria-label={`选择 ${officeNodeHeading(node)}`}
+                              >
+                                {node.text || '此处没有可提取的文字。'}
+                              </button>
+                            )}
+                          </div>
+                        ))
+                      : page.nodes.map((node) => (
                       <div key={node.id} id={`office-node-${node.id}`}>
                         <button
                           className="os-node-heading"
                           onClick={() => onSelectNode(node)}
-                          aria-label={`选择 ${node.label}`}
+                          aria-label={`选择 ${officeNodeHeading(node)}`}
                         >
-                          <b>{node.label}</b>
-                          {node.location && <small>{node.location}</small>}
+                          <b>{officeNodeHeading(node)}</b>
+                          {node.location && !/\.xml/i.test(node.location) ? <small>{node.location}</small> : null}
                         </button>
                         {node.valueType === 'image' && node.image ? (
                           <div className="os-image-node">

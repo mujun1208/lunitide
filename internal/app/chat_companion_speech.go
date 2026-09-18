@@ -39,7 +39,7 @@ func companionPersonaToolsInstruction() string {
 		"- 在文档或对话框里填写：有可点的输入框时用 desktop.type（text=要写的内容，after=界面上真实的字段名如身份证号码或证件号码，window=对话框标题，需要发送时 submit=true）。Word 正文没有命名输入框：先 computer.act observe，能对上名字/id 就按名字点，再 type，verifyAfter 确认数字已写入。找不到字段必须说无法执行。写完不要关窗口，不要 cc.window_action op=close\n" +
 		"- 发消息：使用已配置通道的 im.send；需要桌面应用时，desktop.open 后用 computer.act 识别实际联系人和输入框，核对收件人和内容后按用户指令发送。缺少联系人或内容时直接口头问一句并等待下一轮回复。不能把打开聊天窗口或填入草稿说成已发送\n" +
 		"- 播歌/播放：用 media.play target=foreground app=用户指定播放器 query=歌名或歌手；没说具体歌曲时 query=random，不要编歌名或搜索热门。工具会启动播放器并发送一次播放。回执 verified 或 started playing 就直接报告，不要 computer.act 补点，不要再次 media.play。shuffle=false 不代表播放失败。用户说换一种方式/换个播放器：仍用 media.play target=foreground，改用本机另一个已安装播放器；不要改用网页或 computer.act，除非用户明确要求\n" +
-		"- 建文件夹/写文件：优先用 workspace 工具；需要处理代码、转换或运行程序时使用已授权的命令工具，完成后核对文件\n" +
+		"- 建文件夹/写文件：用户要在桌面/本机创建、删除、改名、移动、复制文件夹或文件，或解压/下载到桌面时，立刻用 command.run 在真实 Desktop 或指定路径执行 mkdir（Windows 建目录用 New-Item -ItemType Directory），不要只口头答应；普通工作区文件才用 workspace 工具；需要处理代码、转换或运行程序时使用已授权的命令工具，完成后核对文件\n" +
 		"- 用户要求在已打开窗口打字时，必须操作并核验该窗口。workspace.edit/write 修改磁盘文件，不等于记事本/Word 的未保存编辑缓冲区已更新；不能凭文件写入回执或截图操作成功声称窗口文字已经改变。不要关闭、重载或覆盖未保存内容。直接改磁盘后要回读验证，并明确窗口是否同步\n" +
 		"- 桌面手只选一把：打开未运行的应用或桌面文件用 desktop.open；已聚焦窗口打字用 desktop.type；播歌用 media.play；网页用 browser.act；看屏/点控件/截图用 computer.act。同一轮不要 desktop.open 和 computer.act 各试一遍「打开」\n" +
 		"- 操作电脑：电脑控制开启时只用 computer.act。先 action=observe 读名字/id，再 click name= 或 id=，不要猜像素。短序列用 action=run steps（2–5 步）。截图只用于稀疏/画布界面，像素必须回传 frameId。同一失败不要连点超过两次。禁止点 UAC。遇到打开/保存文件对话框时停下来，runtime 会请用户去点。用户没说关闭时禁止 window_action close。启动未打开的应用用 desktop.open。多步做到完成再停。代码或终端任务可用 command.run，沿用本会话的执行权限；不要为了桌面操作猜测路径或盲跑脚本\n" +
@@ -155,6 +155,8 @@ func companionToolLeadIn(toolName string) string {
 		return "好，我来生成图片。"
 	case "video.generate":
 		return "好，我来生成视频。"
+	case "audio.generate":
+		return "好，我来生成可听语音。"
 	case "video.understand":
 		return "好，我先看下这个链接。"
 	case "skill.invoke":
@@ -297,6 +299,9 @@ func companionWantsTools(text string) bool {
 		return false
 	}
 	if looksLikeCurrentLookupTurn(text) {
+		return true
+	}
+	if wantsAgentHostAct(text) {
 		return true
 	}
 	lower := strings.ToLower(text)

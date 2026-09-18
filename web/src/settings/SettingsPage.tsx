@@ -171,7 +171,7 @@ export function SettingsPage({ onNavigateExpert, onNavigateMcp, onBack, backLabe
           </h2>
           {saved && <span className="save-indicator" role="status">✓ 已保存</span>}
         </div>
-        <div className={`settings-body${category === 'providers' ? ' settings-body-providers' : ''}${category === 'voice' ? ' settings-body-voice' : ''}`}>
+        <div className={`settings-body${category === 'providers' ? ' settings-body-providers' : ''}${category === 'voice' ? ' settings-body-voice' : ''}${category === 'profile' ? ' settings-body-profile' : ''}`}>
           {category === 'general' && <GeneralPanel settings={general} onChange={updateGeneral} />}
           {category === 'appearance' && <AppearancePanel settings={appearance} onChange={updateAppearance} />}
           {category === 'office-menu' && <OfficeMenuPanel onSaved={() => setSaved(true)} />}
@@ -827,7 +827,7 @@ function DiagnosticsPanel(): React.JSX.Element {
   }
   const install = async () => {
     if (!update) return
-    setBusy(true); setStatus('正在安装更新…')
+    setBusy(true); setStatus('正在下载并安装更新…')
     try {
       const r = await bridge.install({ updateId: update.updateId, expectedDigest: update.digest })
       setStatus(r.state === 'installed' ? '更新已安装。' : `更新已回滚（${r.state}），请查看诊断日志。`)

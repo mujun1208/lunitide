@@ -169,6 +169,46 @@ func uninstallExeCandidates(icon, install string, processes []string) []string {
 	return out
 }
 
+// listStartMenuShortcutNames returns the display names (without extension)
+// of every Start Menu shortcut on this PC. Used as the dynamic app vocabulary
+// for routing so "在飞书里发一句" routes to desktop control even when 飞书 is
+// not in the static hint table. Depth is capped so a huge Programs tree
+// cannot stall a chat turn.
+func listStartMenuShortcutNames() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, root := range startMenuRoots() {
+		rootDepth := strings.Count(filepath.Clean(root), string(filepath.Separator))
+		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				if strings.Count(filepath.Clean(path), string(filepath.Separator))-rootDepth > 3 {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			ext := strings.ToLower(filepath.Ext(d.Name()))
+			if ext != ".lnk" && ext != ".exe" && ext != ".url" {
+				return nil
+			}
+			name := strings.TrimSpace(strings.TrimSuffix(d.Name(), filepath.Ext(d.Name())))
+			if !usefulAppVocabularyName(name) {
+				return nil
+			}
+			key := strings.ToLower(name)
+			if seen[key] {
+				return nil
+			}
+			seen[key] = true
+			out = append(out, name)
+			return nil
+		})
+	}
+	return out
+}
+
 func pickStartMenuShortcut(query string) (string, []string, error) {
 	var hits []desktopHit
 	for _, root := range startMenuRoots() {

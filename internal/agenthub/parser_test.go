@@ -50,6 +50,15 @@ func TestParseCursorAssistantContentArray(t *testing.T) {
 	}
 }
 
+func TestParseStdinBannerIsDropped(t *testing.T) {
+	if _, ok := ParseLine("codex", "Reading prompt from stdin..."); ok {
+		t.Fatal("stdin banner must not become a message")
+	}
+	if _, ok := ParseLine("codex", "Reading prompt from stdin…"); ok {
+		t.Fatal("ellipsis stdin banner must not become a message")
+	}
+}
+
 func TestParseGarbageIsMessage(t *testing.T) {
 	ev, ok := ParseLine("codex", "not-json {{{")
 	if !ok || ev.Type != "message" {

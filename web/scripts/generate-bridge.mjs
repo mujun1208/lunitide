@@ -63,6 +63,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'agentHub.file.open',
   'agentHub.file.preview',
   'agentHub.inbox',
+  'agentHub.install',
   'agentHub.task.cancel',
   'agentHub.task.get',
   'agentHub.task.list',
@@ -351,6 +352,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'node.fail',
   'node.list',
   'node.start',
+  'ocr.install',
   'ocr.routing.get',
   'ocr.routing.set',
   'office.artifact.accept',
@@ -744,6 +746,7 @@ const protocolGoName = {
   openai_compatible: 'ProtocolOpenAICompatible',
   anthropic: 'ProtocolAnthropic',
   volc_speech: 'ProtocolVolcSpeech',
+  openai_responses: 'ProtocolOpenAIResponses',
 }
 const protocolGoConstants = values => values.map(value => {
   const name = protocolGoName[value]

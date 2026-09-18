@@ -276,7 +276,7 @@ func TestApplyTaskBriefWritesPPTAndExcelConfidentialityWithoutInventing(t *testi
 	}
 
 	xlsx := applyTaskBrief(task, officestudio.Spec{
-		Kind: officestudio.XLSX,
+		Kind:  officestudio.XLSX,
 		Title: "经营簿",
 		Sheets: []officestudio.Sheet{
 			{Name: "说明", Rows: [][]officestudio.Cell{{{Type: "text", Value: "输入在原始数据"}}}},
@@ -290,7 +290,7 @@ func TestApplyTaskBriefWritesPPTAndExcelConfidentialityWithoutInventing(t *testi
 		t.Fatalf("xlsx raw sheet invented confidentiality: %#v", xlsx.Sheets[1])
 	}
 	emptyXLSX := applyTaskBrief(domain.Task{}, officestudio.Spec{
-		Kind: officestudio.XLSX,
+		Kind:  officestudio.XLSX,
 		Title: "经营簿",
 		Sheets: []officestudio.Sheet{
 			{Name: "说明", Rows: [][]officestudio.Cell{{{Type: "text", Value: "输入在原始数据"}}}},
@@ -348,5 +348,39 @@ func TestWithTaskBriefSurvivesStyleUpdate(t *testing.T) {
 	}
 	if StyleFromCheckpoint(next) != "brand-pitch" {
 		t.Fatalf("style missing after brief write: %s", next)
+	}
+}
+
+func TestBriefFromGoalParsesTenPagePPTWithoutInventingSalesReport(t *testing.T) {
+	got := BriefFromGoal("帮我参考附件，自己思考做一个10页的PPT")
+	if got.TargetLength != 10 {
+		t.Fatalf("10-page PPT targetLength=%d", got.TargetLength)
+	}
+	if len(got.Deliverables) != 1 || got.Deliverables[0] != officestudio.PPTX {
+		t.Fatalf("10-page PPT deliverables=%v", got.Deliverables)
+	}
+	empty := BriefFromGoal("生成销售汇报")
+	if empty.TargetLength != 0 || len(empty.Deliverables) != 0 {
+		t.Fatalf("sales report invented brief: %#v", empty)
+	}
+	weekly := BriefFromGoal("写周报")
+	if weekly.TargetLength != 0 || len(weekly.Deliverables) != 1 || weekly.Deliverables[0] != officestudio.DOCX {
+		t.Fatalf("weekly report brief: %#v", weekly)
+	}
+}
+
+func TestApplyTaskBriefClipsPPTSlidesToAuthoredLength(t *testing.T) {
+	slides := make([]officestudio.Slide, 0, 20)
+	for i := 0; i < 20; i++ {
+		slides = append(slides, officestudio.Slide{Title: "页"})
+	}
+	task := domain.Task{Checkpoint: WithTaskBrief(nil, officestudio.Brief{TargetLength: 10, Deliverables: []officestudio.Kind{officestudio.PPTX}})}
+	got := applyTaskBrief(task, officestudio.Spec{Kind: officestudio.PPTX, Title: "调研", Slides: slides})
+	if len(got.Slides) != 10 {
+		t.Fatalf("clipped slides=%d want 10", len(got.Slides))
+	}
+	uncapped := applyTaskBrief(domain.Task{}, officestudio.Spec{Kind: officestudio.PPTX, Title: "调研", Slides: slides})
+	if len(uncapped.Slides) != 20 {
+		t.Fatalf("empty brief must not invent a 12-page clip: %d", len(uncapped.Slides))
 	}
 }

@@ -82,13 +82,13 @@ func handleHttpRequest(e *Engine, ctx context.Context, r bridge.Request) bridge.
 
 func handleDbQuery(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		RunID     string `json:"runId"`
+		RunID      string `json:"runId"`
 		Target     string `json:"target"`
 		SqlitePath string `json:"sqlitePath"`
 		SQL        string `json:"sql"`
-		Params    []any  `json:"params"`
-		MaxRows   int64  `json:"maxRows"`
-		TimeoutMS int64  `json:"timeoutMs"`
+		Params     []any  `json:"params"`
+		MaxRows    int64  `json:"maxRows"`
+		TimeoutMS  int64  `json:"timeoutMs"`
 	}
 	if decodePayload(r.Payload, &p) != nil || len(p.RunID) < 1 || len(p.RunID) > 128 ||
 		len(p.SQL) < 1 || len(p.SQL) > 16384 || p.MaxRows < 1 || p.TimeoutMS < 1 ||

@@ -52,6 +52,41 @@ func TestPPOcrPackEmptyFolderIsMissing(t *testing.T) {
 	}
 }
 
+func TestPPOcrPackReadyInNestedFolder(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "rapidocr-json")
+	nested := filepath.Join(root, "RapidOCR-json_v0.9.0", "win64")
+	if err := os.MkdirAll(nested, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "RapidOCR-json.exe"), []byte("MZ"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	got := DetectPPOcrPack(root)
+	if !got.Available {
+		t.Fatalf("nested RapidOCR must be selectable: %+v", got)
+	}
+	if exe := FindPackExecutable(root); exe == "" {
+		t.Fatal("nested RapidOCR executable must be found")
+	}
+}
+
+func TestInstallerReceiptWithoutExeIsNotInstalled(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "rapidocr-json")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	d := Download{Path: ".", SHA256: "abc", Archive: ArchiveZip}
+	if err := os.WriteFile(receiptPath(dir, d), []byte("abc"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	in := &Installer{Root: root}
+	bundle := Bundle{ID: "rapidocr-json", Downloads: []Download{d}}
+	if in.Installed(bundle) {
+		t.Fatal("receipt without RapidOCR.exe must not count as installed")
+	}
+}
+
 func TestPPOcrPackReadyAfterUserRoot(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "paddleocr")
 	if err := os.MkdirAll(root, 0700); err != nil {
@@ -79,8 +114,8 @@ func TestPPOcrPackReadyAfterUserRoot(t *testing.T) {
 		t.Fatalf("installed pack must persist: %+v %v", saved, err)
 	}
 	snap := svc.HealthSnapshot()
-	if !snap.Pack.Available || snap.Local.Backend == "ppocr" || snap.Local.Backend == "ppocr-pack" {
-		t.Fatalf("pack ready must not rewrite windows-ocr localReady: %+v", snap)
+	if !snap.Pack.Available || snap.Local.Backend != "ppocr" {
+		t.Fatalf("installed pack with ppocr selected must report localReady ppocr: %+v", snap)
 	}
 }
 

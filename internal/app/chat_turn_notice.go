@@ -96,7 +96,7 @@ func hasActingComputerTool(tools []string) bool {
 	for _, name := range tools {
 		switch name {
 		case "workspace.write", "workspace.edit", "command.run", "web.fetch", "web.search", "browser.act", "browser.open",
-			"docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "html.gen", "desktop.open", "desktop.type", "media.play", "im.send", "image.generate", "video.generate", "data.process", "image.batch", "pdf.copy":
+			"docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "html.gen", "desktop.open", "desktop.type", "media.play", "im.send", "image.generate", "video.generate", "audio.generate", "data.process", "image.batch", "pdf.copy":
 			return true
 		}
 		if strings.HasPrefix(name, "cc.") || name == "computer.act" {
@@ -226,16 +226,102 @@ func skipExpertCouncil(text string) bool {
 	if t == "" {
 		return false
 	}
+	htmlOnDesktop := (strings.Contains(strings.ToLower(t), "html") || strings.Contains(t, "网页") || strings.Contains(t, "小游戏")) &&
+		(strings.Contains(t, "桌面") || strings.Contains(strings.ToLower(t), "desktop"))
+	openWeb := (strings.Contains(t, "打开") || strings.Contains(t, "访问") || strings.Contains(strings.ToLower(t), "open")) &&
+		(strings.Contains(t, "网站") || strings.Contains(t, "网页") || strings.Contains(t, "页面") || strings.Contains(strings.ToLower(t), "http"))
+	playMusic := (strings.Contains(t, "播") || strings.Contains(strings.ToLower(t), "play")) &&
+		(strings.Contains(t, "歌") || strings.Contains(t, "音乐") || strings.Contains(strings.ToLower(t), "music"))
+	return wantsAgentHostAct(t) || htmlOnDesktop || openWeb || playMusic
+}
+
+// wantsAgentHostAct is the L4 gate. Office deliverables that merely land on
+// the desktop (写周报保存到桌面) stay L2; deleting/renaming/mkdir still
+// override even when the filename mentions 周报.
+func wantsAgentHostAct(text string) bool {
+	if !wantsLocalHostAct(text) {
+		return false
+	}
+	if laneLooksLikeOfficeDeliverable(text) && !localHostFolderOrDeleteAct(text) {
+		return false
+	}
+	return true
+}
+
+func localHostFolderOrDeleteAct(text string) bool {
+	t := strings.TrimSpace(text)
 	lower := strings.ToLower(t)
-	createFolder := (strings.Contains(t, "文件夹") || strings.Contains(lower, "folder") || strings.Contains(t, "目录")) &&
-		(strings.Contains(t, "创建") || strings.Contains(t, "新建") || strings.Contains(t, "建一个") || strings.Contains(t, "建个"))
-	htmlOnDesktop := (strings.Contains(lower, "html") || strings.Contains(t, "网页") || strings.Contains(t, "小游戏")) &&
-		(strings.Contains(t, "桌面") || strings.Contains(lower, "desktop"))
-	openWeb := (strings.Contains(t, "打开") || strings.Contains(t, "访问") || strings.Contains(lower, "open")) &&
-		(strings.Contains(t, "网站") || strings.Contains(t, "网页") || strings.Contains(t, "页面") || strings.Contains(lower, "http"))
-	playMusic := (strings.Contains(t, "播") || strings.Contains(lower, "play")) &&
-		(strings.Contains(t, "歌") || strings.Contains(t, "音乐") || strings.Contains(lower, "music"))
-	return createFolder || htmlOnDesktop || openWeb || playMusic
+	return containsAnyFold(t, lower, []string{
+		"文件夹", "目录", "folder", "directory", "mkdir",
+		"删除", "删掉", "删了", "remove", "delete",
+		"重命名", "改名", "rename",
+		"清空",
+	})
+}
+
+// wantsLocalHostAct is the L4 gate for local disk/process side effects.
+// L1 would strip command.run and kill continue nudges, so mkdir/delete/rename
+// must not fall through the default prose lane.
+func wantsLocalHostAct(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	lower := strings.ToLower(t)
+	host := localHostLocation(t, lower)
+	dest := localHostDestination(t, lower)
+	if laneLooksLikeProse(t) && !host && !dest {
+		return false
+	}
+	if localFSMutate(t, lower) && (host || dest || localFSTarget(t, lower)) {
+		return true
+	}
+	return dest && containsAnyFold(t, lower, []string{
+		"下载", "解压", "复制", "拷贝", "移动", "download", "unzip", "copy", "move", "extract",
+	})
+}
+
+func localHostLocation(t, lower string) bool {
+	return containsAnyFold(t, lower, []string{
+		"桌面", "desktop", "本机", "这台电脑", "电脑上",
+		"回收站", "recycle bin", "recyclebin",
+		"下载文件夹", "downloads", "我的文档",
+		`:\\`, `:\`, "/users/", "/home/", "~/",
+		"d盘", "c盘", "e盘", "d 盘", "c 盘",
+	})
+}
+
+func localHostDestination(t, lower string) bool {
+	return containsAnyFold(t, lower, []string{
+		"到桌面", "至桌面", "to the desktop", "to my desktop", "onto the desktop",
+		"on my desktop", "on the desktop",
+		"到回收站",
+	})
+}
+
+func localFSTarget(t, lower string) bool {
+	if strings.Contains(t, "文件夹") || strings.Contains(t, "目录") || strings.Contains(t, "文件") {
+		return true
+	}
+	return containsAnyFold(t, lower, []string{
+		"folder", "directory", ".txt", ".md", ".zip",
+		" text file", "a file", "the file", "this file",
+	})
+}
+
+func localFSMutate(t, lower string) bool {
+	return containsAnyFold(t, lower, []string{
+		"创建", "新建", "建一个", "建个", "mkdir",
+		"create", "make a folder", "make a directory", "make a file",
+		"new folder", "new directory", "new file",
+		"删除", "删掉", "删了", "remove", "delete",
+		"重命名", "改名", "rename",
+		"移动", "移到", "move the", "move this",
+		"复制", "拷贝", "copy this", "copy the", "copy to",
+		"解压", "unzip", "extract",
+		"下载到", "download to", "保存到", "save to", "save on",
+		"写到", "清空",
+	})
 }
 
 func turnOutcomeNotice(cancelling bool, err error, goal string, tools []string) string {
@@ -263,6 +349,14 @@ func turnFailureCause(err error, goal string, tools []string) string {
 		return "这次操作没成功，请再说具体一点让我重试。"
 	}
 	return "模型结果不完整，请重试。"
+}
+
+func thinkingParameterRejected(reason string) bool {
+	lower := strings.ToLower(reason)
+	if !strings.Contains(lower, "thinking") {
+		return false
+	}
+	return strings.Contains(lower, "disabled") || strings.Contains(lower, "not supported") || strings.Contains(lower, "enable_thinking")
 }
 
 func imageUnsupportedReason(reason string) bool {

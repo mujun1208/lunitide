@@ -145,7 +145,7 @@ func (p settingsGatewayProber) Probe(ctx context.Context, ep m7flow.McpEndpointC
 	// Older Google Drive presets supplied a work directory as a positional
 	// argument. The upstream server ignores that and requires an OAuth token
 	// file. Do not launch it or an interactive auth browser without that binding.
-	if presetIDFromCommandArgs(input.Command, input.Args) == "gdrive" && input.EnvSecretRefs["GDRIVE_CREDENTIALS_PATH"] == "" {
+	if leftoverGdriveArgs(input.Command, input.Args) && input.EnvSecretRefs["GDRIVE_CREDENTIALS_PATH"] == "" {
 		return "", mcp.ErrCredentialRequired
 	}
 	ctx, release, err := p.engine.AcquireCapability(ctx, mcpPluginIDs(input.Command, input.Args)...)
@@ -225,6 +225,18 @@ func (e *Engine) syncSettingsMcp(ctx context.Context, endpointID string) error {
 	}
 	e.dropSettingsMcp(endpointID)
 	return m7app.ErrMcpNotFound
+}
+
+func leftoverGdriveArgs(command string, args []string) bool {
+	if command != "npx" {
+		return false
+	}
+	for _, a := range args {
+		if strings.Contains(a, "server-gdrive") {
+			return true
+		}
+	}
+	return false
 }
 
 func mcpAdmissionError(err error) error {

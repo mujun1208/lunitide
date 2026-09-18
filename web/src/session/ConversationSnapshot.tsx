@@ -16,7 +16,7 @@ export function ConversationSnapshot({open,title,items,onClose}:{open:boolean;ti
  const zh=useZh()
  const node=useRef<HTMLDivElement>(null),[busy,setBusy]=useState(false),[notice,setNotice]=useState('')
  if(!open)return null
- const make=async()=>{if(!node.current)throw new Error('快照内容尚未就绪');setBusy(true);setNotice('正在生成图片…');try{await document.fonts?.ready;const blob=await toBlob(node.current,{backgroundColor:'#080d16',pixelRatio:2,cacheBust:true});if(!blob)throw new Error('图片生成失败');return blob}finally{setBusy(false)}}
+ const make=async()=>{if(!node.current)throw new Error('快照内容尚未就绪');setBusy(true);setNotice('正在生成图片…');try{await document.fonts?.ready;const light=document.documentElement.getAttribute('data-theme')==='light';const blob=await toBlob(node.current,{backgroundColor:light?'#fff':'#000',pixelRatio:2,cacheBust:true});if(!blob)throw new Error('图片生成失败');return blob}finally{setBusy(false)}}
  const save=async()=>{try{const blob=await make();download(blob,`${safeName(title)}.png`);setNotice('图片已下载。')}catch(e){setNotice(snapshotUserError(e,'图片生成失败'))}}
  const copy=async()=>{try{const blob=await make();if(!navigator.clipboard?.write||typeof ClipboardItem==='undefined')throw new Error('当前环境不支持复制图片，请使用“下载图片”');await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);setNotice('图片已复制到剪贴板。')}catch(e){setNotice(snapshotUserError(e,'复制图片失败'))}}
  const share=async()=>{try{const blob=await make(),file=new File([blob],`${safeName(title)}.png`,{type:'image/png'});if(!navigator.share||!navigator.canShare?.({files:[file]}))throw new Error('当前环境不支持分享图片，请先下载图片');await navigator.share({title,files:[file]});setNotice('已打开系统分享。')}catch(e){if(e instanceof DOMException&&e.name==='AbortError')return;setNotice(snapshotUserError(e,'分享图片失败'))}}

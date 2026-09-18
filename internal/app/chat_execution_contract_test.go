@@ -272,6 +272,11 @@ func TestDesktopToolRoutesHaveTypedVoiceParity(t *testing.T) {
 			t.Error("desktop contract missing", goal)
 		}
 	}
+	for _, goal := range []string{"打开蓝牙", "换壁纸", "在飞书里发一句今晚上线"} {
+		if !computerExecutionTurn(goal) {
+			t.Errorf("semantic desktop turn must buffer: %s", goal)
+		}
+	}
 }
 
 func TestDesktopCapabilityDeniedIsNotRetried(t *testing.T) {

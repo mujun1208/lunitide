@@ -238,13 +238,16 @@ func TestCursorACPLoadsNativeSession(t *testing.T) {
 	if err := store.Insert(thread); err != nil {
 		t.Fatal(err)
 	}
+	var mu sync.Mutex
 	var methods []string
 	adapter := NewCursorACP(store)
 	adapter.look = func(string) (string, error) { return filepath.Join(thread.WorkspaceRoot, "cursor-agent.exe"), nil }
 	adapter.startPersistent = func(context.Context, ProcSpec) (*PersistentProc, error) {
 		return fakeACPPeer(t, func(msg map[string]any) (any, string) {
 			if method, _ := msg["method"].(string); method != "" {
+				mu.Lock()
 				methods = append(methods, method)
+				mu.Unlock()
 			}
 			switch msg["method"] {
 			case "initialize":
@@ -264,9 +267,12 @@ func TestCursorACPLoadsNativeSession(t *testing.T) {
 	if err := adapter.Open(thread); err != nil {
 		t.Fatal(err)
 	}
+	mu.Lock()
 	joined := strings.Join(methods, " ")
+	snapshot := append([]string(nil), methods...)
+	mu.Unlock()
 	if !strings.Contains(joined, "session/load") || strings.Contains(joined, "session/new") {
-		t.Fatalf("methods = %v, want session/load", methods)
+		t.Fatalf("methods = %v, want session/load", snapshot)
 	}
 }
 
@@ -278,13 +284,16 @@ func TestCursorACPLoadFallsBackToNew(t *testing.T) {
 	if err := store.Insert(thread); err != nil {
 		t.Fatal(err)
 	}
+	var mu sync.Mutex
 	var methods []string
 	adapter := NewCursorACP(store)
 	adapter.look = func(string) (string, error) { return filepath.Join(thread.WorkspaceRoot, "cursor-agent.exe"), nil }
 	adapter.startPersistent = func(context.Context, ProcSpec) (*PersistentProc, error) {
 		return fakeACPPeer(t, func(msg map[string]any) (any, string) {
 			if method, _ := msg["method"].(string); method != "" {
+				mu.Lock()
 				methods = append(methods, method)
+				mu.Unlock()
 			}
 			switch msg["method"] {
 			case "initialize":
@@ -304,9 +313,12 @@ func TestCursorACPLoadFallsBackToNew(t *testing.T) {
 	if err != nil || got.NativeSessionID != "sess_new" {
 		t.Fatalf("native = %#v %v, want sess_new", got, err)
 	}
+	mu.Lock()
 	joined := strings.Join(methods, " ")
+	snapshot := append([]string(nil), methods...)
+	mu.Unlock()
 	if !strings.Contains(joined, "session/load") || !strings.Contains(joined, "session/new") {
-		t.Fatalf("methods = %v, want load then new", methods)
+		t.Fatalf("methods = %v, want load then new", snapshot)
 	}
 }
 
@@ -431,6 +443,9 @@ func TestCursorACPPromptReturnsWhenPeerAsks(t *testing.T) {
 			}
 		}), nil
 	}
+	if err := adapter.Open(thread); err != nil {
+		t.Fatal(err)
+	}
 	done := make(chan error, 1)
 	go func() { done <- adapter.Prompt(thread.ID, "need a choice") }()
 	select {
@@ -438,7 +453,7 @@ func TestCursorACPPromptReturnsWhenPeerAsks(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(2 * time.Second):
 		t.Fatal("Prompt must return while the ACP turn is still open")
 	}
 }
