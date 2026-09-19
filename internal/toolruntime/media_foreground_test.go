@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/winexec"
 )
@@ -50,5 +51,44 @@ func TestMediaKeyWithoutReadbackIsUncertain(t *testing.T) {
 	}
 	if res.Receipt.ErrorCode != "MEDIA_UNVERIFIED" {
 		t.Fatalf("error code %q", res.Receipt.ErrorCode)
+	}
+}
+
+func TestMediaKeyConfirmedByLaterSession(t *testing.T) {
+	origActivate := activateWindow
+	origSession := mediaSessionAction
+	origPlay := sendForegroundPlay
+	origSleep := mediaSleep
+	t.Cleanup(func() {
+		activateWindow = origActivate
+		mediaSessionAction = origSession
+		sendForegroundPlay = origPlay
+		mediaSleep = origSleep
+	})
+	activateWindow = func(string) error { return nil }
+	mediaSleep = func(time.Duration) {}
+	calls := 0
+	mediaSessionAction = func(context.Context, []string, string, bool) (winexec.MediaSessionResult, error) {
+		calls++
+		if calls == 1 {
+			return winexec.MediaSessionResult{}, errors.New("no smtc yet")
+		}
+		return winexec.MediaSessionResult{Verified: true, Status: "Playing", Title: "随机歌曲", Artist: "汽水"}, nil
+	}
+	played := false
+	sendForegroundPlay = func(string) error {
+		played = true
+		return nil
+	}
+	invoke := func(context.Context, string, string, json.RawMessage, bool) (Result, error) {
+		t.Fatal("session confirm must not hunt the UI")
+		return Result{}, errors.New("unexpected")
+	}
+	res, err := executeMediaPlayForeground(context.Background(), invoke, "s1", "随机播放", "汽水音乐", true, true)
+	if err != nil || !played {
+		t.Fatalf("got %+v %v played=%v", res, err, played)
+	}
+	if !strings.Contains(res.Output, "verified playing") || !strings.Contains(res.Output, `"passed":true`) {
+		t.Fatalf("play key then session must verify: %s", res.Output)
 	}
 }

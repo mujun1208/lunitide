@@ -111,3 +111,21 @@ func TestDesktopFallbackExtractsTargetBeforeEditTail(t *testing.T) {
 		t.Fatalf("open args = %s", got)
 	}
 }
+
+func TestDesktopOpenTargetStripsBookTitleAndJoinsAsrComma(t *testing.T) {
+	target, ok := desktopOpenTargetFromGoal("打开桌面的《企业AI智能助手》txt文件")
+	if !ok || target != "企业AI智能助手" {
+		t.Fatalf("book title txt = %q ok=%v", target, ok)
+	}
+	target, ok = desktopOpenTargetFromGoal("打开桌面周报，建议txt文件")
+	if !ok || target != "周报建议" {
+		t.Fatalf("asr comma filename = %q ok=%v", target, ok)
+	}
+	if got := string(fallbackDesktopOpenArgs("打开桌面周报，建议txt文件")); !strings.Contains(got, "周报建议") || strings.Contains(got, "周报，") {
+		t.Fatalf("comma must not stay in open args: %s", got)
+	}
+	target, ok = desktopOpenTargetFromGoal("打开记事本，然后写你好")
+	if !ok || target != "记事本" {
+		t.Fatalf("real second clause must stay split: %q ok=%v", target, ok)
+	}
+}

@@ -397,9 +397,17 @@ func executeMediaPlayForeground(ctx context.Context, invoke ccInvoker, session, 
 			if strings.Contains(res.Output, "verified playing") {
 				return res, nil
 			}
-			return genericPlaybackStarted(app, opened, "media session"), nil
 		}
 		_ = sendForegroundPlay("play")
+		mediaSleep(700 * time.Millisecond)
+		if res, ok := controlMusicSession(ctx, app, "play", shuffle); ok {
+			if strings.Contains(res.Output, "verified playing") {
+				if opened != "" {
+					res.Output = "opened " + opened + "; " + res.Output
+				}
+				return res, nil
+			}
+		}
 		return genericPlaybackStarted(app, opened, "media key"), nil
 	}
 	focus := app

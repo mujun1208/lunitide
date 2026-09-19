@@ -25,6 +25,8 @@ export const FIRST_SPEAK_STALL_MS = 350
 export const COMPANION_FIRST_TOKEN_STREAMING_MS = 12_000
 export const COMPANION_FIRST_TOKEN_CONNECTING_MS = 6_000
 export const COMPANION_AFTER_TOKEN_MS = 45_000
+/** First empty-thinking hint. 2s fired during a normal first-turn connect. */
+export const COMPANION_CONNECTING_HINT_MS = 4_500
 
 export function companionInstantAck(userText: string): string {
   const text = userText.trim()
@@ -317,7 +319,7 @@ export function repairOpenCommandTranscript(text: string): string {
 
 /** Whole greetings / acknowledgements — commit quickly even without punctuation. */
 const COMPLETE_SHORT_UTTERANCE =
-  /^(?:你好(?:月汐|啊|呀)?|嗨(?:我在呢|我在)?|嘿|在吗|在不在|听到了|谢谢|再见|拜拜|早上好|晚上好|下午好|好的|好啊|嗯嗯|月汐|停|停下|别说了|继续)$/
+  /^(?:你好(?:月汐|啊|呀)?|嗨(?:我在呢|我在)?|嘿|在吗|在不在|听到了|谢谢|再见|拜拜|早上好|晚上好|下午好|好的|好啊|行了|好了|可以了|嗯嗯|月汐|停|停下|别说了|继续)$/
 
 /** True when the recognizer likely stopped mid-thought — wait longer before commit. */
 /** Incomplete「打开桌面上的…文档/文件」must not commit on the hard ceiling alone. */
@@ -741,7 +743,17 @@ export function cleanUserTranscript(raw: string): string {
   }
   text = correctAsrText(text)
   text = repairOpenCommandTranscript(text)
+  text = repairClippedAckTranscript(text)
   return stripOralFillers(text)
+}
+
+/** TTS / echo hold often eats the first syllable of a short stop phrase. */
+export function repairClippedAckTranscript(text: string): string {
+  const t = text.trim()
+  if (/^了[，,]\s*可以了$/.test(t) || /^了可以了$/.test(t)) {
+    return '行了，可以了'
+  }
+  return t
 }
 
 /** Levenshtein distance for short zh crumbs — bounded so echo checks stay cheap. */

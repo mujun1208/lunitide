@@ -25,7 +25,7 @@ import {
   saveCompanionSettings,
   voiceIdForEngineSwitch,
 } from './companionSettings'
-import { alreadySpokenCloseout, cleanForSpeech, cleanUserTranscript, clipAssistantToSpoken, clipCompanionPrompt, clipCompanionSpokenTurn, compactSpeech, companionCancelRemainder, companionCannotExecuteSpeech, companionCaptionFromStream, companionDeafHasVisibleText, companionExecutingSpeech, companionHasFreshAssistantText, companionPadSpeech, companionReplyStallMs, companionShouldHoldBusyTurn, companionSpokenCancel, companionTaskCompleteSpeech, companionToolCloseoutSpeech, companionToolPhaseCaption, COMPANION_TOOL_PROGRESS_MS, companionToolProgressSpeech, companionToolsExecuting, FIRST_SPEAK_STALL_MS, handsFreeRetryDelayMs, isCompanionLeadInOnly, looksLikeAsrHallucination, looksLikeBargeInSpeech, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, shouldQueueBusyUserTranscript, stripTaskDonePhrases, takeSpeakableChunk, type CompanionToolPhase } from './companionText'
+import { alreadySpokenCloseout, cleanForSpeech, cleanUserTranscript, clipAssistantToSpoken, clipCompanionPrompt, clipCompanionSpokenTurn, compactSpeech, companionCancelRemainder, companionCannotExecuteSpeech, companionCaptionFromStream, companionDeafHasVisibleText, companionExecutingSpeech, companionHasFreshAssistantText, companionPadSpeech, companionReplyStallMs, companionShouldHoldBusyTurn, companionSpokenCancel, companionTaskCompleteSpeech, companionToolCloseoutSpeech, companionToolPhaseCaption, COMPANION_CONNECTING_HINT_MS, COMPANION_TOOL_PROGRESS_MS, companionToolProgressSpeech, companionToolsExecuting, FIRST_SPEAK_STALL_MS, handsFreeRetryDelayMs, isCompanionLeadInOnly, looksLikeAsrHallucination, looksLikeBargeInSpeech, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, shouldQueueBusyUserTranscript, stripTaskDonePhrases, takeSpeakableChunk, type CompanionToolPhase } from './companionText'
 import { companionAsrPathLabel, companionListenFailover, companionListenKind, companionListenLightLabel, companionVolcDeafGiveUp, withDeadline, type AsrRoute } from './asrPath'
 import { isCompanionInfraBusy } from './companionBusy'
 import { localAsrStatus, LOCAL_ASR_DECISION_MS, readyWithin } from './localAsr'
@@ -1309,7 +1309,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       setConnectingHint(false)
       return
     }
-    const timer = window.setTimeout(() => setConnectingHint(true), 2000)
+    const timer = window.setTimeout(() => setConnectingHint(true), COMPANION_CONNECTING_HINT_MS)
     return () => window.clearTimeout(timer)
   }, [machine.state, assistantText])
 
@@ -2729,7 +2729,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
             </p>
           )}
           {connectingHint && !engineHint && (
-            <p className="companion-subtitle-hint">正在接，还没开口</p>
+            <p className="companion-subtitle-hint">正在接，请稍等</p>
           )}
           {engineHint && (
             <p className="companion-subtitle-hint warn">{engineHint}</p>

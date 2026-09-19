@@ -134,6 +134,7 @@ func desktopNameScore(base, query string) int {
 	if strings.EqualFold(stem, q) || strings.EqualFold(base, q) {
 		return 100
 	}
+	q = NormalizeDesktopNameQuery(q)
 	// ASR inserts spaces around Latin words; keep the real filename intact.
 	fold := func(s string) string {
 		return strings.Map(func(r rune) rune {

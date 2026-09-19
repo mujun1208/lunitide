@@ -8,6 +8,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/llmadapter"
+	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
 var typeAfterWriteRe = regexp.MustCompile(`(?:.*?(?:在|对))?([^，,。！？]+?)(?:后面|之后)(?:写上|写入|写|填|输入)(.+)`)
@@ -248,6 +249,9 @@ func fallbackMediaGenerationArgs(goal string) json.RawMessage {
 func desktopOpenTargetFromGoal(goal string) (string, bool) {
 	// Only an imperative clause may trigger a host-side action. Descriptions
 	// such as "a document that can be opened" and negations are not commands.
+	if target, ok := desktopOpenTargetFromClause(joinAsrFilenameClauses(goal)); ok {
+		return target, true
+	}
 	for _, clause := range strings.FieldsFunc(goal, func(r rune) bool {
 		return strings.ContainsRune("，,。；;\n", r)
 	}) {
@@ -256,6 +260,48 @@ func desktopOpenTargetFromGoal(goal string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func joinAsrFilenameClauses(goal string) string {
+	parts := strings.FieldsFunc(goal, func(r rune) bool { return r == '，' || r == ',' })
+	if len(parts) < 2 {
+		return goal
+	}
+	var b strings.Builder
+	b.WriteString(parts[0])
+	for _, part := range parts[1:] {
+		t := strings.TrimSpace(part)
+		if t == "" {
+			continue
+		}
+		if asrFilenameFragment(t) {
+			b.WriteString(t)
+			continue
+		}
+		b.WriteString("，")
+		b.WriteString(t)
+	}
+	return b.String()
+}
+
+func asrFilenameFragment(t string) bool {
+	for _, verb := range []string{"打开", "启动", "运行", "然后", "接着", "再", "请", "帮我", "输入", "填写", "填入", "写入", "点击", "播放", "搜索", "搜"} {
+		if strings.HasPrefix(t, verb) {
+			return false
+		}
+	}
+	return true
+}
+
+func websiteFirstResultGoal(goal string) bool {
+	t := strings.TrimSpace(goal)
+	if t == "" {
+		return false
+	}
+	if !strings.Contains(t, "网站") && !strings.Contains(t, "网页") {
+		return false
+	}
+	return strings.Contains(t, "第一个") || strings.Contains(t, "第一条")
 }
 
 func desktopOpenTargetFromClause(clause string) (string, bool) {
@@ -290,6 +336,9 @@ func desktopOpenTargetFromClause(clause string) (string, bool) {
 	t = strings.Trim(strings.TrimSpace(t), "，,。！？?!的")
 	if t == "" || t == "文件" || t == "文档" {
 		return "", false
+	}
+	if cleaned := toolruntime.NormalizeDesktopNameQuery(t); cleaned != "" {
+		t = cleaned
 	}
 	return t, true
 }

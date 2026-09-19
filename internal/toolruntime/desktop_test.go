@@ -8,6 +8,23 @@ import (
 	"testing"
 )
 
+func TestPickDesktopNamedFileVoiceTitleAndAsrComma(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"企业AI智能助手.txt", "周报建议.txt", "周报.xlsx"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path, _, err := pickDesktopNamedFile(dir, "《企业AI智能助手》txt文件")
+	if err != nil || filepath.Base(path) != "企业AI智能助手.txt" {
+		t.Fatalf("book title opened %q err=%v", path, err)
+	}
+	path, _, err = pickDesktopNamedFile(dir, "周报，建议txt文件")
+	if err != nil || filepath.Base(path) != "周报建议.txt" {
+		t.Fatalf("comma query opened %q err=%v", path, err)
+	}
+}
+
 func TestPickDesktopNamedFileExactWins(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"云枢ERP产品介绍.pptx", "周报.xlsx", "协议.docx", "会议纪要.txt"} {
@@ -67,6 +84,12 @@ func TestDesktopNameScoreSkipsLockfiles(t *testing.T) {
 	}
 	if desktopNameScore("网易云音乐.lnk", "网") != 0 {
 		t.Fatal("single-rune query must not substring-match")
+	}
+	if desktopNameScore("企业AI智能助手.txt", "《企业AI智能助手》txt文件") < 70 {
+		t.Fatal("book-title plus txt文件 must match the desktop stem")
+	}
+	if desktopNameScore("周报建议.txt", "周报，建议txt文件") < 70 {
+		t.Fatal("ASR comma inside a filename must still match")
 	}
 	if !strings.Contains("协议.docx", "协议") {
 		t.Fatal("sanity")

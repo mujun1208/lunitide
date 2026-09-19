@@ -6,6 +6,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   COMPANION_AFTER_TOKEN_MS,
+  COMPANION_CONNECTING_HINT_MS,
   COMPANION_FIRST_TOKEN_CONNECTING_MS,
   COMPANION_FIRST_TOKEN_STREAMING_MS,
   MAX_SEGMENT_CHARS,
@@ -289,6 +290,9 @@ describe('cleanUserTranscript', () => {
     expect(cleanUserTranscript('用 gpt so vits 克隆')).toBe('用 GPT-SoVITS 克隆')
     expect(cleanUserTranscript('播放没有成功，在点击播放一下。')).toBe('播放没有成功，再点击播放一下。')
     expect(cleanUserTranscript('再点击放一下')).toBe('再点击播放一下')
+    expect(cleanUserTranscript('了，可以了')).toBe('行了，可以了')
+    expect(cleanUserTranscript('了可以了')).toBe('行了，可以了')
+    expect(cleanUserTranscript('行了，可以了')).toBe('行了，可以了')
   })
 })
 
@@ -385,6 +389,8 @@ describe('companionReplyStallMs', () => {
     expect(companionReplyStallMs(false, false)).toBe(COMPANION_FIRST_TOKEN_CONNECTING_MS)
     expect(companionReplyStallMs(true, true)).toBe(COMPANION_AFTER_TOKEN_MS)
     expect(COMPANION_FIRST_TOKEN_STREAMING_MS).toBeGreaterThanOrEqual(8_000)
+    expect(COMPANION_CONNECTING_HINT_MS).toBeGreaterThanOrEqual(4_000)
+    expect(COMPANION_CONNECTING_HINT_MS).toBeLessThanOrEqual(COMPANION_FIRST_TOKEN_CONNECTING_MS)
   })
 })
 
@@ -514,6 +520,8 @@ describe('shouldAcceptUserTranscript', () => {
     expect(shouldAcceptUserTranscript({ ...base, text: '好，我帮你查一下' })).toBe(false)
     expect(shouldAcceptUserTranscript({ ...base, echoGuardActive: true, text: '南山' })).toBe(false)
     expect(shouldAcceptUserTranscript({ ...base, echoGuardActive: true, text: '那明天呢' })).toBe(true)
+    expect(shouldAcceptUserTranscript({ ...base, echoGuardActive: true, text: '行了' })).toBe(true)
+    expect(shouldAcceptUserTranscript({ ...base, echoGuardActive: true, text: '行了，可以了' })).toBe(true)
   })
 
   test('never treats her reply as the next user turn', () => {
