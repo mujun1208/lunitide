@@ -232,7 +232,7 @@ func TestMeetingsHandlersUpdateAndDelete(t *testing.T) {
 }
 
 func TestMeetingNotesSystemAsksForActionsAndConclusions(t *testing.T) {
-	for _, needle := range []string{"待办", "结论", "背景", "讨论要点", "不要编造", "不要漏", "内容零散"} {
+	for _, needle := range []string{"待办", "结论", "背景", "讨论要点", "不要编造", "不要漏", "内容零散", "topics", "decisions"} {
 		if !strings.Contains(meetingNotesSystem, needle) {
 			t.Fatalf("prompt missing %q:\n%s", needle, meetingNotesSystem)
 		}
@@ -263,9 +263,9 @@ func TestMeetingsHandlersHeartbeatAndLongDeadline(t *testing.T) {
 	}
 	health := validRequest("system.health", `{}`)
 	health.DeadlineMS = 120_000
-	denied := e.Handle(context.Background(), health)
-	if denied.OK || denied.Error == nil || denied.Error.Code != "BRIDGE_SCHEMA_INVALID" {
-		t.Fatalf("health must keep the 30s cap: %+v", denied)
+	clamped := e.Handle(context.Background(), health)
+	if clamped.Error != nil && clamped.Error.Message == "请求超时参数无效" {
+		t.Fatalf("health deadline must clamp, not reject: %+v", clamped.Error)
 	}
 }
 

@@ -346,3 +346,123 @@ it('offers one-click uv install when a Python MCP is missing uv', async () => {
   await waitFor(() => expect(uvInstall).toHaveBeenCalled())
   expect(await screen.findByText(/uv 已安装/)).toBeInTheDocument()
 })
+
+const youtubePreset = {
+  id: 'youtube-transcript',
+  name: 'YouTube Transcript',
+  description: '读取公开视频字幕',
+  transport: 'stdio' as const,
+  command: 'npx' as const,
+  args: ['-y', '@sinco-lab/mcp-youtube-transcript'],
+  needsArgs: false,
+  category: '内容',
+}
+
+it('repairs a handshake-failed MCP by remounting the current market package', async () => {
+  const broken = {
+    ...memoryEndpoint,
+    displayName: 'YouTube Transcript',
+    args: ['-y', 'youtube-transcript-mcp'],
+    state: 'quarantined' as const,
+    diagnosticMessage: '服务器握手或工具目录响应不符合支持的 MCP 协议，请检查启动配置及服务器版本。',
+  }
+  const confirmToken = vi.spyOn(mcBridge, 'confirmToken').mockResolvedValue({ confirmToken: 'a'.repeat(64), expiresAt: '2026-01-01T00:00:00Z' })
+  const uninstall = vi.spyOn(mcBridge, 'uninstall').mockResolvedValue({ endpointId: broken.endpointId, state: 'revoked' })
+  const bridge = api({
+    presets: vi.fn().mockResolvedValue({ items: [youtubePreset] }),
+    list: vi.fn()
+      .mockResolvedValueOnce({ endpoints: [broken] })
+      .mockResolvedValue({ endpoints: [{ ...broken, endpointId: 'mcp-2', args: youtubePreset.args, state: 'ready' }] }),
+    add: vi.fn().mockResolvedValue({ endpointId: 'mcp-2', state: 'ready' }),
+    health: vi.fn()
+      .mockResolvedValueOnce({ state: 'quarantined', diagnosticMessage: broken.diagnosticMessage })
+      .mockResolvedValue({ state: 'ready', latencyMs: 20 }),
+  })
+  render(<McpPage bridge={bridge} />)
+  fireEvent.click(await screen.findByRole('tab', { name: /已安装/ }))
+  fireEvent.click(await screen.findByRole('button', { name: '检查并修复' }))
+  await waitFor(() => expect(uninstall).toHaveBeenCalled())
+  expect(bridge.add).toHaveBeenCalledWith(expect.objectContaining({ args: ['-y', '@sinco-lab/mcp-youtube-transcript'] }))
+  expect(await screen.findByRole('status')).toHaveTextContent('已用当前市场版本修复并连接')
+  confirmToken.mockRestore()
+  uninstall.mockRestore()
+})
+
+it('remounts even when the first health probe refuses a quarantined endpoint', async () => {
+  const broken = {
+    ...memoryEndpoint,
+    displayName: 'YouTube Transcript',
+    args: ['-y', 'youtube-transcript-mcp'],
+    state: 'quarantined' as const,
+    diagnosticMessage: '服务器握手或工具目录响应不符合支持的 MCP 协议，请检查启动配置及服务器版本。',
+  }
+  const confirmToken = vi.spyOn(mcBridge, 'confirmToken').mockResolvedValue({ confirmToken: 'a'.repeat(64), expiresAt: '2026-01-01T00:00:00Z' })
+  const uninstall = vi.spyOn(mcBridge, 'uninstall').mockResolvedValue({ endpointId: broken.endpointId, state: 'revoked' })
+  const bridge = api({
+    presets: vi.fn().mockResolvedValue({ items: [youtubePreset] }),
+    list: vi.fn()
+      .mockResolvedValueOnce({ endpoints: [broken] })
+      .mockResolvedValue({ endpoints: [{ ...broken, endpointId: 'mcp-2', args: youtubePreset.args, state: 'ready' }] }),
+    add: vi.fn().mockResolvedValue({ endpointId: 'mcp-2', state: 'ready' }),
+    health: vi.fn()
+      .mockRejectedValueOnce(new Error('找不到该 MCP'))
+      .mockResolvedValue({ state: 'ready', latencyMs: 20 }),
+  })
+  render(<McpPage bridge={bridge} />)
+  fireEvent.click(await screen.findByRole('tab', { name: /已安装/ }))
+  fireEvent.click(await screen.findByRole('button', { name: '检查并修复' }))
+  await waitFor(() => expect(uninstall).toHaveBeenCalled())
+  expect(bridge.add).toHaveBeenCalled()
+  expect(await screen.findByRole('status')).toHaveTextContent('已用当前市场版本修复并连接')
+  confirmToken.mockRestore()
+  uninstall.mockRestore()
+})
+
+it('offers uninstall when repair still cannot handshake', async () => {
+  const broken = {
+    ...memoryEndpoint,
+    displayName: 'DuckDuckGo',
+    args: ['-y', 'duckduckgo-mcp-server'],
+    state: 'quarantined' as const,
+    diagnosticMessage: '服务器握手或工具目录响应不符合支持的 MCP 协议，请检查启动配置及服务器版本。',
+  }
+  const confirmToken = vi.spyOn(mcBridge, 'confirmToken').mockResolvedValue({ confirmToken: 'a'.repeat(64), expiresAt: '2026-01-01T00:00:00Z' })
+  const uninstall = vi.spyOn(mcBridge, 'uninstall').mockResolvedValue({ endpointId: broken.endpointId, state: 'revoked' })
+  const duck = {
+    id: 'duckduckgo',
+    name: 'DuckDuckGo',
+    description: '搜索',
+    transport: 'stdio' as const,
+    command: 'npx' as const,
+    args: ['-y', '@nickclyde/duckduckgo-mcp-server'],
+    needsArgs: false,
+    category: '网络',
+  }
+  const bridge = api({
+    presets: vi.fn().mockResolvedValue({ items: [duck] }),
+    list: vi.fn().mockResolvedValue({ endpoints: [broken] }),
+    add: vi.fn().mockResolvedValue({ endpointId: 'mcp-2', state: 'quarantined' }),
+    health: vi.fn().mockResolvedValue({ state: 'quarantined', diagnosticMessage: broken.diagnosticMessage }),
+  })
+  render(<McpPage bridge={bridge} />)
+  fireEvent.click(await screen.findByRole('tab', { name: /已安装/ }))
+  fireEvent.click(await screen.findByRole('button', { name: '检查并修复' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('建议卸载')
+  expect(await screen.findByRole('dialog', { name: /卸载「DuckDuckGo」/ })).toBeInTheDocument()
+  confirmToken.mockRestore()
+  uninstall.mockRestore()
+})
+
+it('marks Hermes-style free servers as recommended', async () => {
+  const bridge = api({
+    presets: vi.fn().mockResolvedValue({
+      items: [{
+        id: 'duckduckgo', name: 'DuckDuckGo', description: '搜索',
+        transport: 'stdio' as const, command: 'npx' as const, args: ['-y', '@modelcontextprotocol/server-duckduckgo'],
+        needsArgs: false, category: '网络',
+      }],
+    }),
+  })
+  render(<McpPage bridge={bridge} />)
+  expect(await screen.findByText(/推荐 · 免密钥/)).toBeInTheDocument()
+})

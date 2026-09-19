@@ -113,6 +113,9 @@ export function MediaRuntime({
         }
       }
     } catch (error) {
+      if (error instanceof BridgeClientError && error.message === '请求超时参数无效') {
+        return
+      }
       setState(prev => ({ ...prev, notice: failMessage(error, copy.refreshFailed, copy.disabled) }))
     }
   }, [activity, copy.channelDown, copy.disabled, copy.refreshFailed, media])

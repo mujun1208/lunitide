@@ -197,6 +197,7 @@ func (g *Gateway) HandleGeneration(ctx context.Context, generation uint64, messa
 	if err := decodeStrict(message.JSON, &request); err != nil {
 		return failureFor(request, "BRIDGE_SCHEMA_INVALID", "请求格式无效", false), true
 	}
+	request.DeadlineMS = bridge.InnerDeadlineMS(request.Method, request.DeadlineMS)
 	if err := validateEnvelope(request, time.Now().UTC()); err != nil {
 		return failureFor(request, "BRIDGE_SCHEMA_INVALID", envelopeErrorMessage(err), false), true
 	}
@@ -576,7 +577,10 @@ func validateEnvelope(request bridge.Request, now time.Time) error {
 	if _, err := ulid.ParseStrict(request.TraceID); err != nil {
 		return errInvalidTraceID
 	}
-	if request.DeadlineMS < 1 || request.DeadlineMS > bridge.MaxDeadlineMS(request.Method) || len(request.IdempotencyKey) > 128 {
+	if len(request.IdempotencyKey) > 128 {
+		return errInvalidDeadline
+	}
+	if request.DeadlineMS < 1 {
 		return errInvalidDeadline
 	}
 	if request.SentAt.IsZero() || request.SentAt.Before(now.Add(-5*time.Minute)) || request.SentAt.After(now.Add(5*time.Minute)) {

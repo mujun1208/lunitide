@@ -5,6 +5,7 @@ import{leftoverArchivedMcp,leftoverArchivedNames,mcpCountsAsInstalled}from'../se
 import{Dialog}from'../ui/Dialog'
 import{McpCredentialDialog}from'./McpCredentialDialog'
 import{McpSecurityReviewDialog}from'./McpSecurityReviewDialog'
+import{mcpNeedsRepair,mcpPackageName,recommendedPreset,repairPresetFor}from'./mcpRepair'
 
 type Preset=Mcp6PresetsListResult['items'][number]
 type Endpoint=McpListResult['endpoints'][number]
@@ -27,7 +28,7 @@ const statusOf=(item:Endpoint)=>{
  if(!item.enabled)return{id:'off',label:'未连接'}
  return{id:item.state,label:STATE_LABEL[item.state]??item.state}
 }
-const packageName=(args?:string[])=>args?.find(item=>item.startsWith('@')||item.includes('mcp'))??''
+const packageName=mcpPackageName
 const leftoverGdrive=(args?:string[])=>(args??[]).some(item=>item.includes('server-gdrive'))
 const needsUv=(code?:string,message?:string)=>code==='MCP_UV_UNAVAILABLE'||/未找到 uv/.test(message??'')
 const UV_POLL_MS=400
@@ -131,6 +132,10 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
    }else setNotice(`已安装「${preset.name}」`)
   }catch(e){await load();setError(mcpUserError(e,`${preset.name} 安装失败`))}finally{setBusy('')}
  }
+ const uninstallEndpoint=async(item:Endpoint)=>{
+  const token=await mcBridge.confirmToken({method:'mc.connector.uninstall',target:item.endpointId})
+  await mcBridge.uninstall({endpointId:item.endpointId,confirmToken:token.confirmToken})
+ }
  const reconnect=async(item:Endpoint)=>{
   const title=endpointTitle(item,presets)
   setBusy(item.endpointId);setError('');setNotice('')
@@ -141,6 +146,28 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
    else setError(`${title}：${health.diagnosticMessage||'未能建立连接，请检查启动配置后重试。'}`)
    await load()
   }catch(e){setError(`${title}：${mcpUserError(e,'重新连接失败')}`)}finally{await load();setBusy('')}
+ }
+ const repair=async(item:Endpoint)=>{
+  const title=endpointTitle(item,presets)
+  setBusy(item.endpointId);setError('');setNotice('')
+  try{
+   if(!item.enabled)await bridge.toggle({endpointId:item.endpointId,enabled:true})
+   try{
+    const first=await bridge.health({endpointId:item.endpointId})
+    if(first.state==='ready'){setNotice(`${title}：已连接${first.latencyMs?` · ${first.latencyMs}ms`:''}`);await load();return}
+   }catch{/* quarantined health used to refuse; remount anyway */}
+   const preset=repairPresetFor(item,presets)
+   if(!preset){setError(`${title}：无法自动修复。请卸载后从市场重装。`);setRemoveTarget(item);await load();return}
+   await uninstallEndpoint(item)
+   const resolved=preset.argDefault||''
+   const added=await bridge.add({origin:'manual',transport:preset.transport,...(preset.transport==='https'?{url:preset.url}:{command:preset.command,args:resolveArgs(preset,resolved)}),riskConfirmed:true,requestId:crypto.randomUUID()})
+   if(!preset.needsCredential)await bridge.toggle({endpointId:added.endpointId,enabled:true})
+   const health=await bridge.health({endpointId:added.endpointId})
+   if(health.state==='ready'){setNotice(`${title}：已用当前市场版本修复并连接`);await load();return}
+   setError(`${title}：${health.diagnosticMessage||'修复后仍无法握手。'} 此服务当前不可用，建议卸载。`)
+   setRemoveTarget({...item,...added,displayName:title})
+   await load()
+  }catch(e){setError(`${title}：${mcpUserError(e,'检查修复失败')} 此服务当前不可用，建议卸载。`);setRemoveTarget(item)}finally{await load();setBusy('')}
  }
  const remove=async()=>{
   if(!removeTarget)return
@@ -211,6 +238,7 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
   </section>
   {error&&<p className="skill-center-error" role="alert">{error}{needsUv('',error)&&bridge.uvInstall?<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>void installUv()}>{uvProgress?.state==='downloading'?`下载中 ${uvProgress.percent}%`:'安装 uv'}</button>:null}</p>}
   {leftoverNames.length>0&&<p role="status" className="notice" style={{color:'var(--err)'}}>检测到已下架且无法继续使用的 MCP（{leftoverNames.join('、')}）。<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>setCleanupOpen(true)}>一键卸载</button></p>}
+  {failed>0&&<p role="status" className="notice mcp-repair-banner">有 {failed} 个 MCP 无法握手。点「检查并修复」自动对照当前市场版本重装；仍不可用则提示卸载。</p>}
   {notice&&<p role="status">{notice}</p>}
   {view==='market'?<>
    <nav className="skill-market-cats" aria-label="MCP 分类">
@@ -223,7 +251,7 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
      return <article className={`skill-market-card ${installed?'is-installed':''}`} key={preset.id}>
       <header>
        <span className="skill-market-glyph" aria-hidden="true">{preset.name.slice(0,1)}</span>
-       <div><b>{preset.name}</b><small>{preset.category} · {preset.transport==='https'?'远程服务':preset.command}</small></div>
+       <div><b>{preset.name}</b><small>{preset.category} · {preset.transport==='https'?'远程服务':preset.command}{recommendedPreset(preset)?' · 推荐 · 免密钥':''}</small></div>
        {installed?<span className="skill-market-installed-row"><span className="skill-market-installed">已安装</span><button type="button" className="skill-market-remove" aria-label={`卸载 ${preset.name}`} disabled={Boolean(busy)} onClick={()=>{const item=endpoints.find(endpoint=>endpoint.state!=='revoked'&&installedKey(endpoint)===presetKey(preset));if(item)setRemoveTarget(item)}}>卸载</button></span>:<button type="button" className="skill-market-add" aria-label={`安装 ${preset.name}`} disabled={Boolean(busy)} onClick={()=>void installPreset(preset)}>{busy===preset.id?'…':'＋'}</button>}
       </header>
       <p>{preset.description}</p>
@@ -242,6 +270,7 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
      {item.lockedArgs?.length? <small>已锁定：{item.lockedArgs.join(' ')}</small>:null}
      {needsCredential&&<p className="setting-desc">此服务需要凭据。{gdrive?'Google Drive 需要先完成 OAuth 授权，再填写 GDRIVE_CREDENTIALS_PATH；普通文件目录不能代替授权。':'请先完成服务授权，再配置凭据并重新连接。'}</p>}
      {item.state!=='ready'&&item.diagnosticMessage&&<p className="setting-desc" role="status">{item.diagnosticMessage}</p>}
+     {mcpNeedsRepair(item)&&<div className="mcp-repair-actions"><button type="button" className="ui-btn primary" disabled={Boolean(busy)} onClick={()=>void repair(item)}>{busy===item.endpointId?'修复中…':'检查并修复'}</button><button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>setRemoveTarget(item)}>卸载</button></div>}
      {needsUv(item.diagnosticCode,item.diagnosticMessage)&&bridge.uvInstall&&<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>void installUv()}>{busy==='uv'||uvProgress?.state==='downloading'?`下载 uv ${uvProgress?.percent??0}%`:'安装 uv'}</button>}
      {(preset?.setupUrl||gdrive)&&<a href={preset?.setupUrl||GDRIVE_SETUP} target="_blank" rel="noreferrer">官方配置说明</a>}
     </div>
@@ -268,7 +297,7 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
   <Dialog open={cleanupOpen} title="卸载无法使用的 MCP" description={`将删除 ${leftoverNames.join('、')}。这些服务已下架或必须单独授权，无法在一键市场中继续使用。`} onClose={()=>{if(!busy)setCleanupOpen(false)}}>
    <div className="dialog-actions"><button type="button" disabled={Boolean(busy)} onClick={()=>setCleanupOpen(false)}>取消</button><button className="danger" disabled={Boolean(busy)} onClick={()=>void cleanupLeftovers()}>{busy==='cleanup'?'卸载中…':'确认卸载'}</button></div>
   </Dialog>
-  <Dialog open={!!removeTarget} title={`删除「${removeTarget?endpointTitle(removeTarget,presets):''}」`} description="删除后需重新从市场或 JSON 安装才能再用。" onClose={()=>{if(!busy)setRemoveTarget(null)}}>
+  <Dialog open={!!removeTarget} title={`卸载「${removeTarget?endpointTitle(removeTarget,presets):''}」`} description={removeTarget&&mcpNeedsRepair(removeTarget)?'此服务当前无法握手，建议卸载。卸载后可从市场重装。':'删除后需重新从市场或 JSON 安装才能再用。'} onClose={()=>{if(!busy)setRemoveTarget(null)}}>
    <div className="dialog-actions"><button type="button" disabled={Boolean(busy)} onClick={()=>setRemoveTarget(null)}>取消</button><button className="danger" disabled={Boolean(busy)} onClick={()=>void remove()}>{busy===removeTarget?.endpointId?'删除中…':'确认删除'}</button></div>
   </Dialog>
  </main>

@@ -1,14 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { getOCRPackBridge, getOCRRoutingBridge, type OCRPackBridge, type OCRRoutingBridge, type OCRRunBridge, type ProviderBridge } from '../bridge/client'
-import type { OcrPackGetResult, OcrRoutingGetResult } from '../generated/bridge'
+import { getOCRRoutingBridge, type OCRPackBridge, type OCRRoutingBridge, type OCRRunBridge, type ProviderBridge } from '../bridge/client'
+import type { OcrRoutingGetResult } from '../generated/bridge'
 import { OCRAdvancedPanel } from './OCRAdvancedPanel'
-import { OCRModelPackCard } from './OCRModelPackCard'
 import { OCRRapidPackCard } from './OCRRapidPackCard'
-import { OCR_PACK_ID, formatCheckedAt, ocrUserError, windowsProbeSummary } from './ocrCopy'
+import { formatCheckedAt, ocrUserError, windowsProbeCanRepair, windowsProbeHint, windowsProbeSummary } from './ocrCopy'
 
 export function OCRSettingsPanel({
   ocr = getOCRRoutingBridge(),
-  packApi = getOCRPackBridge(),
+  packApi: _packApi,
   providers,
   runs,
 }: {
@@ -18,33 +17,39 @@ export function OCRSettingsPanel({
   runs?: OCRRunBridge
 }): React.JSX.Element {
   const [routing, setRouting] = useState<OcrRoutingGetResult | null>(null)
-  const [pack, setPack] = useState<OcrPackGetResult | null>(null)
   const [coreError, setCoreError] = useState('')
+  const [busy, setBusy] = useState('')
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const coreGeneration = useRef(0)
 
-  const loadCore = async (refreshProbe = false) => {
+  const loadCore = async (opts: { refreshProbe?: boolean; repairWindows?: boolean } = {}) => {
     const epoch = ++coreGeneration.current
-    const routingReq = ocr.get({ scopeKind: 'user', ...(refreshProbe ? { refreshProbe: true } : {}) })
-    const packReq = packApi.get({ packId: OCR_PACK_ID })
-    const [routingResult, packResult] = await Promise.allSettled([routingReq, packReq])
+    const repairing = opts.repairWindows === true
+    setBusy(repairing ? 'repair' : opts.refreshProbe ? 'refresh' : '')
+    const routingResult = await ocr.get({
+      scopeKind: 'user',
+      ...(opts.refreshProbe || repairing ? { refreshProbe: true } : {}),
+      ...(repairing ? { repairWindows: true } : {}),
+    }).then(value => ({ status: 'fulfilled' as const, value }), reason => ({ status: 'rejected' as const, reason }))
     if (epoch !== coreGeneration.current) return
+    setBusy('')
     if (routingResult.status === 'fulfilled') {
       setRouting(routingResult.value)
       setCoreError('')
     } else {
-      setCoreError(ocrUserError(routingResult.reason, 'OCR 状态载入失败'))
+      setCoreError(ocrUserError(routingResult.reason, repairing ? 'Windows OCR 修复失败' : 'OCR 状态载入失败'))
     }
-    if (packResult.status === 'fulfilled') setPack(packResult.value)
   }
 
   useEffect(() => {
-    void loadCore(false)
+    void loadCore()
     return () => { coreGeneration.current++ }
-  }, [ocr, packApi])
+  }, [ocr])
 
   const probe = routing?.windowsProbe
   const probeFailed = probe ? probe.state !== 'ready' : false
+  const hint = windowsProbeHint(probe?.state)
+  const canRepair = windowsProbeCanRepair(probe?.state)
 
   return (
     <div className="ocr-settings">
@@ -53,11 +58,22 @@ export function OCRSettingsPanel({
       {coreError ? <p role="alert">{coreError}</p> : null}
       <section className="ocr-probe" aria-label="Windows OCR">
         <p>{windowsProbeSummary(probe?.state)}</p>
+        {hint ? <p className="ocr-muted">{hint}</p> : null}
         {probe?.checkedAt ? <p className="ocr-muted">检查时间 {formatCheckedAt(probe.checkedAt)}</p> : null}
-        {probeFailed ? <button type="button" onClick={() => void loadCore(true)}>重新检查</button> : null}
+        {probeFailed ? (
+          <div className="ocr-probe-actions">
+            <button type="button" disabled={busy !== ''} onClick={() => void loadCore({ refreshProbe: true })}>
+              {busy === 'refresh' ? '正在检查…' : '重新检查'}
+            </button>
+            {canRepair ? (
+              <button type="button" disabled={busy !== ''} onClick={() => void loadCore({ repairWindows: true })}>
+                {busy === 'repair' ? '正在修复…' : '一键修复'}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </section>
       <OCRRapidPackCard ocr={ocr} />
-      <OCRModelPackCard pack={pack} api={packApi} />
       <OCRAdvancedPanel
         open={advancedOpen}
         onToggle={() => setAdvancedOpen(value => !value)}

@@ -115,3 +115,24 @@ func TestHandlerPanicLogIncludesStack(t *testing.T) {
 		t.Fatalf("missing method/reason/stack: %q", got)
 	}
 }
+
+func TestEngineAcceptsAgentHubPromptDeadline(t *testing.T) {
+	req := validRequest("agentHub.thread.prompt", `{"threadId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","text":"hi"}`)
+	req.DeadlineMS = bridge.AgentHubPromptDeadlineMS
+	resp := NewEngine(providerRepositoryStub{}, "test").Handle(context.Background(), req)
+	if resp.Error != nil && resp.Error.Message == "请求超时参数无效" {
+		t.Fatalf("cursor prompt deadline rejected: %+v", resp.Error)
+	}
+	created := validRequest("agentHub.thread.create", `{"harnessId":"cursor","scene":"free","workspaceRoot":""}`)
+	created.DeadlineMS = bridge.AgentHubPromptDeadlineMS
+	createdResp := NewEngine(providerRepositoryStub{}, "test").Handle(context.Background(), created)
+	if createdResp.Error != nil && createdResp.Error.Message == "请求超时参数无效" {
+		t.Fatalf("cursor create deadline rejected: %+v", createdResp.Error)
+	}
+	denied := validRequest("system.health", `{}`)
+	denied.DeadlineMS = bridge.AgentHubPromptDeadlineMS
+	blocked := NewEngine(providerRepositoryStub{}, "test").Handle(context.Background(), denied)
+	if blocked.Error != nil && blocked.Error.Message == "请求超时参数无效" {
+		t.Fatalf("health deadline must clamp, not reject: %+v", blocked.Error)
+	}
+}

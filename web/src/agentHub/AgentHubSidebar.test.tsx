@@ -65,8 +65,8 @@ it('shows three branded agents and opens that Agent’s latest thread', async ()
       />
     </LanguageProvider>,
   )
-  const nav = await screen.findByRole('navigation', { name: 'AgentHub' })
-  expect(nav.getAttribute('style') ?? '').toMatch(/flex:\s*1/)
+  const nav = await screen.findByRole('navigation', { name: 'Work' })
+  expect(nav.className).toContain('agent-hub-sidebar')
   expect(screen.getByRole('img', { name: 'Codex' })).toBeInTheDocument()
   expect(screen.getByRole('img', { name: 'Cursor' })).toBeInTheDocument()
   expect(screen.getByRole('img', { name: 'Kimi' })).toBeInTheDocument()

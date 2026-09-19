@@ -67,7 +67,7 @@ function stubLists() {
     agents: [
       { name: 'codex', state: 'available', version: '1.2.3', nonInteractive: true, streamJSON: true, hint: '可用' },
       { name: 'cursor', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用' },
-      { name: 'kimi', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装 Kimi Code CLI（kimi）。安装后重新打开 AgentHub。' },
+      { name: 'kimi', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装 Kimi Code CLI（kimi）。安装后重新打开 Work。' },
     ],
   })
   vi.mocked(agentHubApi.list).mockResolvedValue({ items: [], counts: { queued: 0, running: 0, success: 0, failed: 0 } })
@@ -89,7 +89,7 @@ function workbenchAgents(items?: AgentHubStatus[]): AgentHubStatus[] {
   return items ?? [
     { name: 'codex', state: 'available', version: '1.2.3', nonInteractive: true, streamJSON: true, hint: '可用' },
     { name: 'cursor', state: 'available', version: '1', nonInteractive: true, streamJSON: true, hint: '可用' },
-    { name: 'kimi', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装 Kimi Code CLI（kimi）。安装后重新打开 AgentHub。' },
+    { name: 'kimi', state: 'not_installed', version: '', nonInteractive: true, streamJSON: true, hint: '未安装 Kimi Code CLI（kimi）。安装后重新打开 Work。' },
   ]
 }
 
@@ -414,7 +414,7 @@ it('keeps ppt unselected and shows an in-page hint when kimi is unavailable', as
   fireEvent.click(await screen.findByRole('button', { name: /做 PPT/ }))
   expect(alert).not.toHaveBeenCalled()
   expect(screen.getByRole('button', { name: '执行' })).toBeDisabled()
-  expect(screen.getByText('未安装 Kimi Code CLI（kimi）。安装后重新打开 AgentHub。')).toBeInTheDocument()
+  expect(screen.getByText('未安装 Kimi Code CLI（kimi）。安装后重新打开 Work。')).toBeInTheDocument()
   expect(screen.queryByText('添加文件后，Agent 会在本目录的 .agenthub-inbox 里读副本。原文件不会被改。')).toBeNull()
 })
 
@@ -426,7 +426,7 @@ it('keeps the free agent and shows a hint when a grey capsule is clicked', async
   fireEvent.click(await screen.findByRole('button', { name: /其它任务/ }))
   fireEvent.click(screen.getByRole('button', { name: /Kimi 未安装/ }))
   expect(alert).not.toHaveBeenCalled()
-  expect(screen.getByText('未安装 Kimi Code CLI（kimi）。安装后重新打开 AgentHub。')).toBeInTheDocument()
+  expect(screen.getByText('未安装 Kimi Code CLI（kimi）。安装后重新打开 Work。')).toBeInTheDocument()
   fireEvent.change(screen.getByLabelText('任务说明'), { target: { value: '写说明' } })
   fireEvent.click(screen.getByRole('button', { name: '执行' }))
   await waitFor(() => expect(agentHubApi.start).toHaveBeenCalledWith(expect.objectContaining({ agent: 'codex' })))

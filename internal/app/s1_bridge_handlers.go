@@ -98,9 +98,10 @@ func handleOCRRoutingGet(e *Engine, ctx context.Context, request bridge.Request)
 		return request.Fail("BRIDGE_SCHEMA_INVALID", "ocr.routing.get 参数无效", false)
 	}
 	var extra struct {
-		ScopeKind    string  `json:"scopeKind"`
-		ScopeID      *string `json:"scopeId"`
-		RefreshProbe bool    `json:"refreshProbe"`
+		ScopeKind     string  `json:"scopeKind"`
+		ScopeID       *string `json:"scopeId"`
+		RefreshProbe  bool    `json:"refreshProbe"`
+		RepairWindows bool    `json:"repairWindows"`
 	}
 	if decodePayload(request.Payload, &extra) != nil {
 		return request.Fail("BRIDGE_SCHEMA_INVALID", "ocr.routing.get 参数无效", false)
@@ -113,7 +114,12 @@ func handleOCRRoutingGet(e *Engine, ctx context.Context, request bridge.Request)
 	if err != nil {
 		return request.Fail("STORAGE_UNAVAILABLE", "OCR 路由暂时不可用", true)
 	}
-	return request.Ok(ocrRoutingSnapshot(ctx, kind, id, scoped, extra.RefreshProbe))
+	refresh := extra.RefreshProbe
+	if extra.RepairWindows {
+		doctext.RepairWindowsOCR(ctx)
+		refresh = false
+	}
+	return request.Ok(ocrRoutingSnapshot(ctx, kind, id, scoped, refresh))
 }
 
 func handleOCRRoutingSet(e *Engine, ctx context.Context, request bridge.Request) bridge.Response {

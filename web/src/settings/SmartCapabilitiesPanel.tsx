@@ -175,17 +175,19 @@ export function SmartCapabilitiesPanel({
 }): React.JSX.Element {
   return (
     <div className="smart-cap">
-      <p className="setting-desc">首页只保留两张能力卡。色调沿用现有黑白界面，青绿仅用于焦点。</p>
-      <section className="smart-cap-card" aria-labelledby="smart-mem-title">
-        <h3 id="smart-mem-title">自动记忆</h3>
-        <MemoryCaptureCard ops={memoryOps} identity={identity} memory={memory} onOpenMemory={onOpenMemory} />
-      </section>
-      <section className="smart-cap-card" aria-labelledby="smart-ocr-title">
-        <h3 id="smart-ocr-title">文字识别</h3>
-        <p className="setting-desc">已配置的视觉模型能用就先用，然后走本机 RapidOCR，最后用 Windows OCR 兜底。复杂文档增强当前不可用，不会在首页安装可选包。</p>
-        <p>文字识别：自动</p>
-        <button type="button" className="smart-cap-disclose" onClick={onOpenOCR}>打开文字识别</button>
-      </section>
+      <p className="setting-desc smart-cap-intro">自动记忆和文字识别各占一张卡。识别顺序是视觉模型（能力路由）→ RapidOCR → Windows OCR。</p>
+      <div className="smart-cap-cards">
+        <section className="smart-cap-card" aria-labelledby="smart-mem-title">
+          <h3 id="smart-mem-title">自动记忆</h3>
+          <MemoryCaptureCard ops={memoryOps} identity={identity} memory={memory} onOpenMemory={onOpenMemory} />
+        </section>
+        <section className="smart-cap-card" aria-labelledby="smart-ocr-title">
+          <h3 id="smart-ocr-title">文字识别</h3>
+          <p className="setting-desc">已配置的视觉模型能用就先用，然后走本机 RapidOCR，最后用 Windows OCR 兜底。</p>
+          <p>文字识别：自动</p>
+          <button type="button" className="smart-cap-disclose" onClick={onOpenOCR}>打开文字识别</button>
+        </section>
+      </div>
     </div>
   )
 }

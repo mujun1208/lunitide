@@ -1440,7 +1440,8 @@ func (e *Engine) Handle(ctx context.Context, request bridge.Request) bridge.Resp
 	if len(request.IdempotencyKey) > 128 {
 		return request.Fail("BRIDGE_SCHEMA_INVALID", "请求标识过长，请重试", false)
 	}
-	if request.DeadlineMS < 1 || request.DeadlineMS > bridge.MaxDeadlineMS(request.Method) {
+	request.DeadlineMS = bridge.InnerDeadlineMS(request.Method, request.DeadlineMS)
+	if request.DeadlineMS < 1 {
 		return request.Fail("BRIDGE_SCHEMA_INVALID", "请求超时参数无效", false)
 	}
 	now := time.Now().UTC()

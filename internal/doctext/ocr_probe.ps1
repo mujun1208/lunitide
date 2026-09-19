@@ -25,6 +25,11 @@ if ($null -eq $operation) {
   exit 0
 }
 function AwaitResult($async, [Type]$type) {
+  if ($null -eq $type) {
+    $iface = @($async.GetType().GetInterfaces()) | Where-Object { $_.IsGenericType -and $_.Name -eq 'IAsyncOperation`1' } | Select-Object -First 1
+    if ($null -ne $iface) { $type = $iface.GenericTypeArguments[0] }
+  }
+  if ($null -eq $type) { throw 'OCR_WINRT_ASYNC_TYPE' }
   $task = $operation.MakeGenericMethod($type).Invoke($null, @($async))
   $task.GetAwaiter().GetResult()
 }
@@ -48,8 +53,25 @@ if ($null -eq $engine -or $languages.Count -eq 0) {
   exit 0
 }
 try {
+  Add-Type -AssemblyName System.Drawing
+  $bitmap = New-Object System.Drawing.Bitmap 640, 200
+  $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+  $font = New-Object System.Drawing.Font 'Segoe UI', 56, ([System.Drawing.FontStyle]::Bold)
+  try {
+    $graphics.Clear([System.Drawing.Color]::White)
+    $graphics.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::ClearTypeGridFit
+    $graphics.DrawString('OK 测试', $font, [System.Drawing.Brushes]::Black, 24, 40)
+    $bitmap.Save($InputPath, [System.Drawing.Imaging.ImageFormat]::Png)
+  } finally {
+    $font.Dispose()
+    $graphics.Dispose()
+    $bitmap.Dispose()
+  }
+} catch {
+}
+try {
   $file = AwaitResult ([Windows.Storage.StorageFile]::GetFileFromPathAsync($InputPath)) ([Windows.Storage.StorageFile])
-  $stream = AwaitResult ($file.OpenReadAsync()) ([Windows.Storage.Streams.IRandomAccessStream])
+  $stream = AwaitResult ($file.OpenReadAsync()) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
   $bitmap = $null
   try {
     $decoder = AwaitResult ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])

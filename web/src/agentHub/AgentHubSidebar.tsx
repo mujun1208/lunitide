@@ -127,11 +127,7 @@ export function AgentHubSidebar({
     }
   }, [tick, installName])
   return (
-    <nav
-      className="agent-hub-sidebar"
-      aria-label="AgentHub"
-      style={{ flex: 1, minHeight: 0, overflow: 'auto' }}
-    >
+    <nav className="agent-hub-sidebar" aria-label="Work">
       {onNewChat ? (
         <button type="button" className="new-chat agent-hub-new-chat" onClick={onNewChat}>
           <span>＋&nbsp; {zh ? '新对话' : 'New chat'}</span>
@@ -178,7 +174,6 @@ export function AgentHubSidebar({
           </div>
         ))}
       </div>
-      <p className="agent-hub-side-foot">{zh ? '每个 Agent 各自记忆，互不串窗' : 'Each Agent keeps its own memory.'}</p>
       <ConfirmDialog
         open={Boolean(installName)}
         danger={false}

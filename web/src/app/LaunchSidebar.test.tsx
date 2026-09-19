@@ -9,6 +9,8 @@ vi.mock('../bridge/client', async (importOriginal) => {
     ...actual,
     getIdentityBridge: () => ({ get: vi.fn().mockResolvedValue(undefined) }),
     getPeopleBridge: () => ({ threadList: vi.fn().mockResolvedValue({ items: [] }) }),
+    getMcpBridge: () => ({ list: vi.fn().mockResolvedValue({ endpoints: [] }) }),
+    mcpBridge: { list: vi.fn().mockResolvedValue({ endpoints: [] }) },
   }
 })
 
@@ -105,7 +107,9 @@ it('shows replaceMainNav and hides the 对话 heading', () => {
   expect(slot).not.toBeNull()
   expect(screen.queryByRole('button', { name: '对话' })).toBeNull()
   expect(slot.closest('.primary-actions')).toBeNull()
-  expect(slot.parentElement).toBe(document.getElementById('launch-sidebar'))
+  expect(slot.closest('.hub-sidebar-stack')).not.toBeNull()
+  expect(screen.getByRole('button', { name: '项目' })).toBeInTheDocument()
+  expect(screen.getByLabelText('调整 Agent 与项目')).toBeInTheDocument()
 })
 
 it('hides Lunitide message search when replaceMainNav is set', () => {
@@ -116,6 +120,28 @@ it('hides Lunitide message search when replaceMainNav is set', () => {
   })} />)
   expect(screen.queryByRole('button', { name: /搜索/ })).toBeNull()
   expect(search).not.toHaveBeenCalled()
+})
+
+it('hides Media Center and Automation when office-menu turns them off', () => {
+  localStorage.setItem('lunitide:office-menu', JSON.stringify({ media: false, automation: false }))
+  render(<LaunchSidebar {...sidebarProps()} />)
+  expect(screen.getByRole('button', { name: '办公' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '媒体中心' })).toBeNull()
+  expect(screen.queryByRole('button', { name: '自动化' })).toBeNull()
+  expect(screen.queryByRole('button', { name: '项目' })).toBeNull()
+  expect(screen.queryByRole('button', { name: '项目管理' })).toBeNull()
+})
+
+it('keeps project tools off Work and on AgentHub', () => {
+  render(<LaunchSidebar {...sidebarProps()} />)
+  expect(screen.queryByRole('button', { name: '项目' })).toBeNull()
+  expect(screen.getByRole('button', { name: '办公' })).toBeInTheDocument()
+  cleanup()
+  render(<LaunchSidebar {...sidebarProps({ replaceMainNav: <div>agents</div> })} />)
+  expect(screen.getByRole('button', { name: '项目' })).toBeInTheDocument()
+  expect(screen.getByText('绿可用 · 黄异常 · 红失败 · 灰未用')).toBeInTheDocument()
+  expect(screen.getByLabelText('调整 Agent 与项目')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '对话' })).toBeNull()
 })
 
 it('TestMediaCenterOfficeNavigation: keeps Media Center in Office even when optional office items are hidden', () => {

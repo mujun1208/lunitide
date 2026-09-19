@@ -198,6 +198,32 @@ func TestOfficeDocumentPresetsAreCurated(t *testing.T) {
 	}
 }
 
+func TestDuckDuckGoPresetUsesHermesPackage(t *testing.T) {
+	p, ok := PresetByID("duckduckgo")
+	if !ok {
+		t.Fatal("duckduckgo missing")
+	}
+	if PresetLaunchPackage(p) != "@nickclyde/duckduckgo-mcp-server" {
+		t.Fatalf("duckduckgo package = %q", PresetLaunchPackage(p))
+	}
+	if !PresetPackageAllowed("duckduckgo-mcp-server") {
+		t.Fatal("legacy duckduckgo package must stay allowed so repair can remount it")
+	}
+}
+
+func TestYoutubeTranscriptPresetUsesHandshakeCompatiblePackage(t *testing.T) {
+	p, ok := PresetByID("youtube-transcript")
+	if !ok {
+		t.Fatal("youtube-transcript missing")
+	}
+	if PresetLaunchPackage(p) != "@sinco-lab/mcp-youtube-transcript" {
+		t.Fatalf("youtube package = %q", PresetLaunchPackage(p))
+	}
+	if !PresetPackageAllowed("youtube-transcript-mcp") {
+		t.Fatal("legacy youtube package must stay allowed so repair can uninstall it")
+	}
+}
+
 func officePresetLockFetch(_ context.Context, target string) ([]byte, error) {
 	switch {
 	case strings.Contains(target, "excel-mcp-server"):

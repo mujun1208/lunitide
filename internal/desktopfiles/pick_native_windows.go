@@ -12,11 +12,15 @@ var (
 	modComdlg32              = syscall.NewLazyDLL("comdlg32.dll")
 	modShell32               = syscall.NewLazyDLL("shell32.dll")
 	modOle32                 = syscall.NewLazyDLL("ole32.dll")
+	modUser32                = syscall.NewLazyDLL("user32.dll")
 	procGetOpenFileNameW     = modComdlg32.NewProc("GetOpenFileNameW")
+	procCommDlgExtendedError = modComdlg32.NewProc("CommDlgExtendedError")
 	procSHBrowseForFolderW   = modShell32.NewProc("SHBrowseForFolderW")
 	procSHGetPathFromIDListW = modShell32.NewProc("SHGetPathFromIDListW")
 	procCoTaskMemFree        = modOle32.NewProc("CoTaskMemFree")
 	procCoInitializeEx       = modOle32.NewProc("CoInitializeEx")
+	procFindWindowW          = modUser32.NewProc("FindWindowW")
+	procGetForegroundWindow  = modUser32.NewProc("GetForegroundWindow")
 )
 
 type openFileName struct {
@@ -77,6 +81,19 @@ func pickOSNative(folder, multiple bool) ([]Item, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	return itemsFromPaths(paths)
+}
+
+func pickMediaNative(multiple bool) ([]Item, []string, error) {
+	_, _, _ = procCoInitializeEx.Call(0, uintptr(coInitApartmentThreaded))
+	paths, err := openFileDialogFilter(multiple, MediaFilterNative, mediaDialogTitle)
+	if err != nil {
+		return nil, nil, err
+	}
+	return itemsFromPaths(paths)
+}
+
+func itemsFromPaths(paths []string) ([]Item, []string, error) {
 	var items []Item
 	for _, path := range paths {
 		item, itemErr := itemFromPath(path)
@@ -95,15 +112,38 @@ func pickOSNative(folder, multiple bool) ([]Item, []string, error) {
 }
 
 func openFileDialog(multiple bool) ([]string, error) {
+	return openFileDialogFilter(multiple, "支持的文件\x00*.txt;*.md;*.json;*.csv;*.html;*.xml;*.js;*.ts;*.py;*.go;*.java;*.c;*.cpp;*.rs;*.yaml;*.yml;*.sh;*.sql;*.png;*.jpg;*.jpeg;*.webp\x00所有文件\x00*.*\x00", "选择要附加的文件")
+}
+
+func dialogOwnerHWND() syscall.Handle {
+	class, _ := syscall.UTF16PtrFromString("LunitideWebView2Host")
+	title, _ := syscall.UTF16PtrFromString("Lunitide")
+	hwnd, _, _ := procFindWindowW.Call(uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(title)))
+	if hwnd != 0 {
+		return syscall.Handle(hwnd)
+	}
+	fg, _, _ := procGetForegroundWindow.Call()
+	return syscall.Handle(fg)
+}
+
+func dialogCanceled() error {
+	code, _, _ := procCommDlgExtendedError.Call()
+	if code != 0 {
+		return ErrUnavailable
+	}
+	return ErrCanceled
+}
+
+func openFileDialogFilter(multiple bool, filterText, titleText string) ([]string, error) {
 	buf := make([]uint16, 32768)
-	title, _ := syscall.UTF16PtrFromString("选择要附加的文件")
-	filter, _ := syscall.UTF16PtrFromString("支持的文件\x00*.txt;*.md;*.json;*.csv;*.html;*.xml;*.js;*.ts;*.py;*.go;*.java;*.c;*.cpp;*.rs;*.yaml;*.yml;*.sh;*.sql;*.png;*.jpg;*.jpeg;*.webp\x00所有文件\x00*.*\x00")
+	title, _ := syscall.UTF16PtrFromString(titleText)
+	filter, _ := syscall.UTF16PtrFromString(filterText)
 	flags := uint32(ofnExplorer | ofnFileMustExist | ofnPathMustExist | ofnHideReadOnly)
 	if multiple {
 		flags |= ofnAllowMultiSelect
 	}
 	ofn := openFileName{
-		hwndOwner:    0,
+		hwndOwner:    dialogOwnerHWND(),
 		lpstrFilter:  filter,
 		nFilterIndex: 1,
 		lpstrFile:    &buf[0],
@@ -114,7 +154,7 @@ func openFileDialog(multiple bool) ([]string, error) {
 	ofn.lStructSize = uint32(unsafe.Sizeof(ofn))
 	r, _, _ := procGetOpenFileNameW.Call(uintptr(unsafe.Pointer(&ofn)))
 	if r == 0 {
-		return nil, ErrCanceled
+		return nil, dialogCanceled()
 	}
 	return joinPickedNames(splitUTF16Z(buf)), nil
 }
@@ -123,6 +163,7 @@ func browseFolder() (string, error) {
 	display := make([]uint16, 260)
 	title, _ := syscall.UTF16PtrFromString("选择要导入的文件夹")
 	bi := browseInfo{
+		hwndOwner:      dialogOwnerHWND(),
 		pszDisplayName: &display[0],
 		lpszTitle:      title,
 		ulFlags:        bifReturnOnlyFSDirs | bifNewDialogStyle,

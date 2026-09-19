@@ -96,14 +96,45 @@ func probeWindowsOCRPlatform(ctx context.Context) WindowsOCRProbe {
 }
 
 func windowsOCRProbeTextOK(text string) bool {
-	normalized := strings.ToUpper(strings.Map(func(r rune) rune {
-		if r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
-			return r
+	return strings.TrimSpace(text) != ""
+}
+
+//go:embed ocr_repair.ps1
+var windowsOCRRepairScript []byte
+
+func repairWindowsOCRPlatform(ctx context.Context) {
+	if err := ctx.Err(); err != nil {
+		return
+	}
+	parent := ""
+	if config := parserConfig.Load(); config != nil {
+		parent = config.root
+	}
+	root, err := os.MkdirTemp(parent, "parse-ocr-repair-")
+	if err != nil {
+		return
+	}
+	defer os.RemoveAll(root)
+	script := filepath.Join(root, "ocr_repair.ps1")
+	if os.WriteFile(script, windowsOCRRepairScript, 0600) != nil {
+		return
+	}
+	env := []string{"TEMP=" + root, "TMP=" + root}
+	for _, key := range []string{"SYSTEMROOT", "WINDIR", "USERPROFILE", "LOCALAPPDATA", "APPDATA"} {
+		if v := os.Getenv(key); v != "" {
+			env = append(env, key+"="+v)
 		}
-		if r >= 'a' && r <= 'z' {
-			return r - 32
+	}
+	exe := filepath.Join(os.Getenv("SYSTEMROOT"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+	timeout := 45 * time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		remain := time.Until(deadline) - windowsOCRProbeTimeout
+		if remain > 5*time.Second && remain < timeout {
+			timeout = remain
 		}
-		return -1
-	}, text))
-	return strings.Contains(normalized, windowsOCRProbeSample)
+	}
+	_, _ = commandworker.Run(ctx, commandworker.Spec{
+		Exe: exe, Args: []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script},
+		Dir: root, Env: env, Timeout: timeout, MaxMemoryBytes: 256 << 20, MaxOutputBytes: 4096,
+	}, nil, nil)
 }

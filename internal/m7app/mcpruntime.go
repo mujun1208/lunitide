@@ -375,7 +375,9 @@ type HealthResult struct {
 
 // Health probes one endpoint and drives the state machine: success ->
 // ready (pin recorded), failure -> degraded; a capability digest that
-// differs from the pin quarantines fail-closed (M7-MCP-003).
+// differs from the pin quarantines fail-closed (M7-MCP-003). Quarantined
+// endpoints are probed again so one-click repair can recover after a
+// handshake fix; revoked remains refuse-closed.
 func (s *McpRuntimeService) Health(ctx context.Context, endpointID string) (HealthResult, error) {
 	var ep m7flow.McpEndpointConfig
 	err := s.uow.TransactMcp(ctx, func(tx McpTx) error {
@@ -389,7 +391,7 @@ func (s *McpRuntimeService) Health(ctx context.Context, endpointID string) (Heal
 	if err != nil {
 		return HealthResult{}, err
 	}
-	if ep.State == m7flow.McpStateRevoked || ep.State == m7flow.McpStateQuarantined {
+	if ep.State == m7flow.McpStateRevoked {
 		return HealthResult{}, fmt.Errorf("%w: revoked", ErrMcpNotFound)
 	}
 	start := s.clock.Now().UTC()
@@ -411,7 +413,11 @@ func (s *McpRuntimeService) Health(ctx context.Context, endpointID string) (Heal
 		return result, perr
 	}
 	if perr != nil {
-		result.State = m7flow.McpStateDegraded
+		next := m7flow.McpStateDegraded
+		if ep.State == m7flow.McpStateQuarantined {
+			next = m7flow.McpStateQuarantined
+		}
+		result.State = next
 		err = s.uow.TransactMcp(ctx, func(tx McpTx) error {
 			current, readErr := tx.GetMcpEndpoint(ep.EndpointID)
 			if readErr != nil {
@@ -420,7 +426,7 @@ func (s *McpRuntimeService) Health(ctx context.Context, endpointID string) (Heal
 			if current.State != ep.State || canonicalMcpTarget(current) != canonicalMcpTarget(ep) {
 				return ErrIllegalTransition
 			}
-			return tx.UpdateMcpEndpointState(ep.EndpointID, ep.State, m7flow.McpStateDegraded, nil, now)
+			return tx.UpdateMcpEndpointState(ep.EndpointID, ep.State, next, nil, now)
 		})
 		return result, err
 	}

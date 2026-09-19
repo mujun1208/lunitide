@@ -46,20 +46,22 @@ type Preset struct {
 // puppeteer/sqlite) stay off the catalog even if the npm name still
 // resolves.
 var extraPresetPackages = map[string]bool{
-	"mcp-server-fetch":       true,
-	"mcp-server-time":        true,
-	"markitdown-mcp":         true,
-	"@playwright/mcp":        true,
-	"@upstash/context7-mcp":  true,
-	"chrome-devtools-mcp":    true,
-	"@antv/mcp-server-chart": true,
-	"excel-mcp-server":       true,
-	"office-word-mcp-server": true,
-	"office-ppt-mcp-server":  true,
-	"pdfnative-mcp":          true,
-	"mcp-server-calculator":  true,
-	"duckduckgo-mcp-server":  true,
-	"youtube-transcript-mcp": true,
+	"mcp-server-fetch":                  true,
+	"mcp-server-time":                   true,
+	"markitdown-mcp":                    true,
+	"@playwright/mcp":                   true,
+	"@upstash/context7-mcp":             true,
+	"chrome-devtools-mcp":               true,
+	"@antv/mcp-server-chart":            true,
+	"excel-mcp-server":                  true,
+	"office-word-mcp-server":            true,
+	"office-ppt-mcp-server":             true,
+	"pdfnative-mcp":                     true,
+	"mcp-server-calculator":             true,
+	"duckduckgo-mcp-server":             true,
+	"@nickclyde/duckduckgo-mcp-server":  true,
+	"youtube-transcript-mcp":            true,
+	"@sinco-lab/mcp-youtube-transcript": true,
 }
 
 // PresetPackageAllowed reports whether the executable package is curated.
@@ -181,8 +183,8 @@ var presets = []Preset{
 	{ID: "pdf-mcp", Name: "PDF MCP", Description: "本机生成/批注/书签等 PDF 操作。简单文本 PDF 仍优先用月汐 pdf.gen / office.generate", Transport: "stdio", Command: "npx", Args: []string{"-y", "pdfnative-mcp"}, Category: "办公", SetupURL: "https://github.com/Nizoka/pdfnative-mcp"},
 	{ID: "markitdown", Name: "MarkItDown", Description: "Office/PDF 转 Markdown，本机转换；需要 Python 3.10+，首次启动会准备依赖", Transport: "stdio", Command: "uvx", Args: []string{"markitdown-mcp"}, Category: "办公", SetupURL: "https://github.com/microsoft/markitdown/tree/main/packages/markitdown-mcp"},
 	{ID: "calculator", Name: "Calculator", Description: "精确算术，无网络、无密钥", Transport: "stdio", Command: "uvx", Args: []string{"mcp-server-calculator"}, Category: "效率"},
-	{ID: "duckduckgo", Name: "DuckDuckGo", Description: "无密钥网页搜索；调用时需要网络可访问 DuckDuckGo", Transport: "stdio", Command: "npx", Args: []string{"-y", "duckduckgo-mcp-server"}, Category: "网络", SetupURL: "https://github.com/zhsama/duckduckgo-mcp-server"},
-	{ID: "youtube-transcript", Name: "YouTube Transcript", Description: "拉取公开字幕，无密钥", Transport: "stdio", Command: "npx", Args: []string{"-y", "youtube-transcript-mcp"}, Category: "内容"},
+	{ID: "duckduckgo", Name: "DuckDuckGo", Description: "无密钥网页搜索；调用时需要网络可访问 DuckDuckGo。与 Hermes / OpenClaw 引导安装的搜索 MCP 同类，无需密钥。", Transport: "stdio", Command: "npx", Args: []string{"-y", "@nickclyde/duckduckgo-mcp-server"}, Category: "网络", SetupURL: "https://www.npmjs.com/package/@nickclyde/duckduckgo-mcp-server"},
+	{ID: "youtube-transcript", Name: "YouTube Transcript", Description: "拉取公开字幕，无密钥。与 Hermes / OpenClaw 引导安装的字幕 MCP 同类。", Transport: "stdio", Command: "npx", Args: []string{"-y", "@sinco-lab/mcp-youtube-transcript"}, Category: "内容", SetupURL: "https://www.npmjs.com/package/@sinco-lab/mcp-youtube-transcript"},
 }
 
 // Presets returns a copy of the preset catalog in display order.

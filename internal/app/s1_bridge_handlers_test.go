@@ -1089,6 +1089,36 @@ func TestOCRRunBridgeRejectsCrossScope(t *testing.T) {
 	}
 }
 
+func TestOCRRoutingGetRepairWindowsInvokesRepair(t *testing.T) {
+	repaired := 0
+	t.Cleanup(func() {
+		doctext.SetWindowsOCRRepairForTest(nil)
+		doctext.SetWindowsOCRProbeRunnerForTest(nil)
+		doctext.ResetWindowsOCRProbeCacheForTest()
+	})
+	doctext.SetWindowsOCRRepairForTest(func(context.Context) { repaired++ })
+	doctext.SetWindowsOCRProbeRunnerForTest(func(context.Context) doctext.WindowsOCRProbe {
+		return doctext.WindowsOCRProbe{State: doctext.WindowsOCRReady, Languages: []string{"zh-Hans-CN"}}
+	})
+	e := routingContractEngine(t)
+	got := e.Handle(context.Background(), validRequest("ocr.routing.get", `{"scopeKind":"user","refreshProbe":true,"repairWindows":true}`))
+	if !got.OK {
+		t.Fatalf("%#v", got.Error)
+	}
+	if repaired != 1 {
+		t.Fatalf("repairWindows must run once, got %d", repaired)
+	}
+	out := mustDecodePayload[struct {
+		WindowsProbe struct {
+			State     string `json:"state"`
+			Available bool   `json:"available"`
+		} `json:"windowsProbe"`
+	}](t, got.Payload)
+	if out.WindowsProbe.State != "ready" || !out.WindowsProbe.Available {
+		t.Fatalf("%+v", out.WindowsProbe)
+	}
+}
+
 func TestOCRArtifactReadIsBounded(t *testing.T) {
 	e := NewEngine(providerRepositoryStub{}, "test")
 	id := ulid.Make().String()

@@ -11,7 +11,8 @@
   "properties": {
     "scopeKind": { "type": "string", "enum": ["user", "project"] },
     "scopeId": { "type": "string", "minLength": 1, "maxLength": 128 },
-    "refreshProbe": { "type": "boolean" }
+    "refreshProbe": { "type": "boolean" },
+    "repairWindows": { "type": "boolean" }
   },
   "allOf": [
     {
@@ -106,6 +107,7 @@
     "positive": [
       { "scopeKind": "user" },
       { "scopeKind": "user", "refreshProbe": true },
+      { "scopeKind": "user", "refreshProbe": true, "repairWindows": true },
       { "scopeKind": "project", "scopeId": "01ARZ3NDEKTSV4RRFFQ69G5FAV" }
     ],
     "negative": [

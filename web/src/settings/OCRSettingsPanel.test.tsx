@@ -83,7 +83,7 @@ function renderPanel(overrides: {
 }
 
 it('TestWindowsOCRTruthfulStates: renders automatic as read only and omits demo actions', async () => {
-  renderPanel()
+  const { packApi } = renderPanel()
   expect(await screen.findByRole('status')).toHaveTextContent('文字识别：自动')
   expect(await screen.findByText('Windows OCR 可用')).toBeInTheDocument()
   expect(screen.queryByRole('switch')).toBeNull()
@@ -91,7 +91,9 @@ it('TestWindowsOCRTruthfulStates: renders automatic as read only and omits demo 
   expect(document.querySelector('input[type=file]')).toBeNull()
   expect(screen.queryByRole('button', { name: '保存 OCR 路由' })).toBeNull()
   expect(screen.queryByText(/截图识别|选择文件/)).toBeNull()
-  expect(screen.getByRole('button', { name: '安装（不可用）' })).toBeDisabled()
+  expect(screen.queryByRole('heading', { name: 'PaddleOCR-VL-1.6' })).toBeNull()
+  expect(screen.queryByRole('button', { name: '安装（不可用）' })).toBeNull()
+  expect(packApi.get).not.toHaveBeenCalled()
 })
 
 it('TestWindowsOCRTruthfulStates: maps every probe state to a real reason and retry', async () => {
@@ -110,10 +112,28 @@ it('TestWindowsOCRTruthfulStates: maps every probe state to a real reason and re
     expect(screen.queryByText('Windows OCR 就绪')).toBeNull()
     if (retry) {
       expect(screen.getByRole('button', { name: '重新检查' })).toBeInTheDocument()
+      if (state === 'unsupported_os') {
+        expect(screen.queryByRole('button', { name: '一键修复' })).toBeNull()
+      } else {
+        expect(screen.getByRole('button', { name: '一键修复' })).toBeInTheDocument()
+      }
     } else {
       expect(screen.queryByRole('button', { name: '重新检查' })).toBeNull()
+      expect(screen.queryByRole('button', { name: '一键修复' })).toBeNull()
     }
   }
+})
+
+it('repairs Windows OCR through routing get', async () => {
+  const user = userEvent.setup()
+  const get = vi.fn()
+    .mockResolvedValueOnce(routing('sample_failed'))
+    .mockResolvedValueOnce(routing('ready'))
+  renderPanel({ get })
+  expect(await screen.findByText('Windows OCR 自检失败')).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: '一键修复' }))
+  await waitFor(() => expect(get).toHaveBeenCalledWith({ scopeKind: 'user', refreshProbe: true, repairWindows: true }))
+  expect(await screen.findByText('Windows OCR 可用')).toBeInTheDocument()
 })
 
 it('provider failure does not block core OCR snapshot', async () => {
@@ -122,8 +142,8 @@ it('provider failure does not block core OCR snapshot', async () => {
     list: vi.fn().mockRejectedValue(new Error('Failed to fetch')),
   })
   expect(await screen.findByText('Windows OCR 可用')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '安装（不可用）' })).toBeDisabled()
-  expect(screen.getByText('尚无经验证的 Windows 运行包')).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'PaddleOCR-VL-1.6' })).toBeNull()
+  expect(screen.queryByText('尚无经验证的 Windows 运行包')).toBeNull()
   expect(list).not.toHaveBeenCalled()
   await user.click(screen.getByRole('button', { name: '高级' }))
   expect(screen.getByText('回退顺序：视觉模型（能力路由） → RapidOCR → Windows OCR')).toBeInTheDocument()
@@ -131,7 +151,6 @@ it('provider failure does not block core OCR snapshot', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent('云端识别目录载入失败')
   expect(screen.queryByText('Failed to fetch')).toBeNull()
   expect(screen.getByText('Windows OCR 可用')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '安装（不可用）' })).toBeDisabled()
   expect(screen.getByText('已登记，尚未接入')).toBeInTheDocument()
 })
 

@@ -17,11 +17,13 @@ type playerEngine struct {
 	mu      sync.Mutex
 	methods []string
 	nextOp  string
+	last    bridge.Request
 }
 
 func (e *playerEngine) Call(_ context.Context, r bridge.Request) (bridge.Response, error) {
 	e.mu.Lock()
 	e.methods = append(e.methods, r.Method)
+	e.last = r
 	e.mu.Unlock()
 	switch r.Method {
 	case "internal.media.player.attach":
@@ -44,6 +46,23 @@ func (e *playerEngine) listed() []string {
 	out := make([]string, len(e.methods))
 	copy(out, e.methods)
 	return out
+}
+
+func TestPlayerAttachStampsSentAtAndKeepsShortDeadline(t *testing.T) {
+	engine := &playerEngine{}
+	p := &Player{Engine: engine, WindowInstanceID: "window-a"}
+	if err := p.Attach(context.Background(), ulid.Make().String()); err != nil {
+		t.Fatal(err)
+	}
+	if engine.last.SentAt.IsZero() {
+		t.Fatal("attach must stamp SentAt")
+	}
+	if engine.last.DeadlineMS != 8000 {
+		t.Fatalf("deadline %d", engine.last.DeadlineMS)
+	}
+	if engine.last.Method != "internal.media.player.attach" {
+		t.Fatalf("method %s", engine.last.Method)
+	}
 }
 
 func TestPlayerDoesNotReportPlayingWithoutObservedEvent(t *testing.T) {

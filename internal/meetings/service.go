@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"html"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1005,10 +1004,19 @@ func RenderMarkdown(m Meeting) string {
 }
 
 func RenderHTML(m Meeting) string {
-	md := RenderMarkdown(m)
-	return "<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>" +
-		html.EscapeString(m.Title) +
-		"</title></head><body><pre>" + html.EscapeString(md) + "</pre></body></html>\n"
+	summary := strings.TrimSpace(m.Summary)
+	if summary == "" {
+		summary = "尚未生成摘要。"
+		if m.SummaryError != "" {
+			summary = m.SummaryError
+		}
+	}
+	meta := "开始：" + m.StartedAt + " · 时长：" + formatDuration(m.DurationMS) + " · " + audioSourceLabel(m.AudioSource)
+	transcript := strings.TrimSpace(m.Transcript)
+	if transcript == "" {
+		transcript = "（空）"
+	}
+	return notesExportHTML(m.Title, summary, strings.TrimSpace(m.Actions), transcript, meta)
 }
 
 func RenderText(m Meeting) string {

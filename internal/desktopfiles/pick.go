@@ -12,3 +12,11 @@ func pickOS(folder, multiple bool) ([]Item, []string, error) {
 	}
 	return pickNative(folder, multiple)
 }
+
+func PickMedia(multiple bool) ([]Item, []string, error) {
+	items, skipped, err := pickMediaNative(multiple)
+	if err == nil || errors.Is(err, ErrCanceled) {
+		return items, skipped, err
+	}
+	return pickMediaForms(multiple)
+}

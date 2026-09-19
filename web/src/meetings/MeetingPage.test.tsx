@@ -700,7 +700,7 @@ describe('MeetingPage', () => {
     render(<MeetingPage meetings={meetings} />)
     await user.click(await screen.findByText('周会'))
     expect(await screen.findByRole('button', { name: '重试生成摘要' })).toBeInTheDocument()
-    expect(within(screen.getByRole('region', { name: '会议工作台' })).getByText(/尚未生成摘要/)).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: '会议工作台' })).getAllByText(/尚未生成摘要/).length).toBeGreaterThan(0)
   })
 
   test('vertical splitter, delete confirm, and in-place edit persist before export', async () => {

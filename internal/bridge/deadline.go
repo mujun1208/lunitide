@@ -12,10 +12,12 @@ const (
 	PeopleFileDeadlineMS    = 120_000
 	PeopleCaptureDeadlineMS = 180_000
 	TemplateFileDeadlineMS  = 120_000
-	ChatStartDeadlineMS     = 120_000
-	McpSetupDeadlineMS      = 80_000
-	ProviderTestDeadlineMS  = 360_000
-	AgentHubPickDeadlineMS  = 600_000
+	ChatStartDeadlineMS        = 120_000
+	McpSetupDeadlineMS         = 80_000
+	ProviderTestDeadlineMS     = 360_000
+	AgentHubPickDeadlineMS     = 600_000
+	AgentHubPromptDeadlineMS   = 180_000
+	OcrRoutingRepairDeadlineMS = 180_000
 )
 
 // MaxDeadlineMS is the largest deadlineMs the Host/Engine accept for method.
@@ -43,7 +45,29 @@ func MaxDeadlineMS(method string) int {
 		return ChatStartDeadlineMS
 	case MethodAgentHubDirPick, MethodAgentHubInbox, MethodAgentHubInstall, "project.root.pick":
 		return AgentHubPickDeadlineMS
+	case MethodAgentHubThreadCreate, MethodAgentHubThreadPrompt, MethodAgentHubThreadRespond, MethodAgentHubThreadCancel:
+		return AgentHubPromptDeadlineMS
+	case MethodMediaAssetPick:
+		return PeopleFileDeadlineMS
+	case MethodOcrRoutingGet:
+		return OcrRoutingRepairDeadlineMS
 	default:
 		return DefaultMaxDeadlineMS
 	}
+}
+
+// InnerDeadlineMS clamps a host-forwarded outer deadline to the inner method's
+// own ceiling. Picker RPCs may wait minutes; register/attach must not inherit that.
+func InnerDeadlineMS(method string, outer int) int {
+	cap := MaxDeadlineMS(method)
+	if outer < 1 {
+		if cap < DefaultMaxDeadlineMS {
+			return cap
+		}
+		return DefaultMaxDeadlineMS
+	}
+	if outer > cap {
+		return cap
+	}
+	return outer
 }

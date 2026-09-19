@@ -9,6 +9,7 @@ export function MusicPlayerSurface({
   snapshot,
   title,
   busy,
+  idle,
   onPlayPause,
   onPrevious,
   onNext,
@@ -19,6 +20,7 @@ export function MusicPlayerSurface({
   snapshot: MediaSnapshotDTO
   title: string
   busy: boolean
+  idle?: boolean
   onPlayPause: () => void
   onPrevious: () => void
   onNext: () => void
@@ -31,26 +33,33 @@ export function MusicPlayerSurface({
   const playing = snapshot.phase === 'playing'
   return (
     <section className="media-music-surface" aria-label={copy.music}>
-      <div className="media-cover" aria-hidden="true" />
-      <h2 title={title}>{title}</h2>
-      <p role="status">{playbackStatusText(zh, snapshot.phase, snapshot.verificationStatus)}</p>
-      <p className="media-clock">{formatClock(snapshot.positionMs)} / {formatClock(snapshot.durationMs)}</p>
-      <MediaTransportControls
-        zh={zh}
-        busy={busy}
-        playing={playing}
-        positionMs={snapshot.positionMs}
-        durationMs={snapshot.durationMs}
-        volume={snapshot.volume}
-        onPlayPause={onPlayPause}
-        onPrevious={onPrevious}
-        onNext={onNext}
-        onQueue={onQueue}
-        onSeek={onSeek}
-        onVolume={onVolume}
-        allowSeek={snapshot.origin === 'owned'}
-        allowVolume={snapshot.origin === 'owned'}
-      />
+      <div className="media-stage">
+        <div className="media-content">
+          <div className="album-art" aria-hidden="true" />
+          <div className="media-copy">
+            <div className="media-kicker">{playbackStatusText(zh, snapshot.phase, snapshot.verificationStatus)}</div>
+            <h2 title={title}>{title}</h2>
+            <p>{idle ? copy.idleHint : copy.intro}</p>
+            <MediaTransportControls
+              zh={zh}
+              busy={busy}
+              playing={playing}
+              positionMs={snapshot.positionMs}
+              durationMs={snapshot.durationMs}
+              volume={snapshot.volume}
+              onPlayPause={onPlayPause}
+              onPrevious={onPrevious}
+              onNext={onNext}
+              onQueue={onQueue}
+              onSeek={onSeek}
+              onVolume={onVolume}
+              allowSeek={!idle && snapshot.origin === 'owned'}
+              allowVolume={!idle && snapshot.origin === 'owned'}
+            />
+            <p className="media-clock">{formatClock(snapshot.positionMs)} / {formatClock(snapshot.durationMs)}</p>
+          </div>
+        </div>
+      </div>
     </section>
   )
 }
