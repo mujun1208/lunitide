@@ -106,9 +106,13 @@ func inventoryLookupBlocksPublicWeb(goal string) bool {
 }
 
 func guardCurrentTurnTool(goal, name string) error {
+	if websiteFirstResultGoal(goal) && name == "computer.act" {
+		return errors.New("本轮要打开网页里的第一条结果，请用 browser.act，不要用电脑像素点击。")
+	}
 	if companionGoalIsOpenOnly(goal) || companionDesktopFilenameFragment(goal) {
 		switch name {
-		case "workspace.list", "workspace.search", "workspace.read", "workspace.write", "command.run":
+		case "workspace.list", "workspace.search", "workspace.read", "workspace.write", "command.run",
+			"computer.act", "desktop.type", "browser.act", "desktop.browse", "media.play":
 			return errors.New("本轮只要打开桌面文件或应用，不得浏览工作区或跑命令。请只用 desktop.open。")
 		}
 	}

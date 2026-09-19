@@ -199,6 +199,21 @@ func TestGuardOpenOnlyBlocksWorkspaceAndCommand(t *testing.T) {
 	if guardCurrentTurnTool(goal, "desktop.open") != nil {
 		t.Fatal("desktop.open blocked for open-only")
 	}
+	for _, name := range []string{"computer.act", "desktop.type", "browser.act", "desktop.browse"} {
+		if err := guardCurrentTurnTool("打开桌面的《企业AI智能助手》txt文件", name); err == nil {
+			t.Fatal("open-only allowed extra hand", name)
+		}
+	}
+}
+
+func TestGuardWebsiteFirstResultBlocksComputerAct(t *testing.T) {
+	goal := "打开网站第一个新闻"
+	if err := guardCurrentTurnTool(goal, "computer.act"); err == nil {
+		t.Fatal("in-page first news must not use computer.act")
+	}
+	if guardCurrentTurnTool(goal, "browser.act") != nil {
+		t.Fatal("browser.act blocked for website first result")
+	}
 }
 
 func TestCapabilityAuthoringDoesNotConsumeSpecialistNames(t *testing.T) {

@@ -295,6 +295,9 @@ func companionGoalIsOpenOnly(text string) bool {
 	if !open {
 		return false
 	}
+	if websiteFirstResultGoal(t) || strings.Contains(t, "网站") || strings.Contains(t, "网页") || strings.Contains(t, "浏览器") {
+		return false
+	}
 	for _, follow := range []string{
 		"填写", "填一下", "填入", "填上", "填",
 		"输入",
@@ -360,6 +363,9 @@ func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []st
 	if shouldContinueTurn(stepText, usedTools, nudges, disableReasoning) {
 		return "ask"
 	}
+	if computerTask && companionGoalIsOpenOnly(userGoal) && desktopOpenSucceeded(toolOut, lastTools) && !strings.Contains(stepText+assistantAll+toolOut, "无法执行") {
+		return ""
+	}
 	if shouldContinueIncompleteWork(stepText, toolOut, lastTools, usedTools, nudges) {
 		return "incomplete"
 	}
@@ -367,9 +373,6 @@ func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []st
 		return "incomplete"
 	}
 	if computerTask && playbackOnlyGoal(userGoal) && usedAnyTool(lastTools, "media.play") {
-		return ""
-	}
-	if computerTask && companionGoalIsOpenOnly(userGoal) && desktopOpenSucceeded(toolOut, lastTools) && !strings.Contains(stepText+assistantAll+toolOut, "无法执行") {
 		return ""
 	}
 	if computerTask && companionCloseResultSettled(stepText, userGoal, toolOut) {

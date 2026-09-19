@@ -112,6 +112,9 @@ func detectTaskRoute(goal string) TaskRoute {
 		return RouteR2
 	}
 
+	if websiteFirstResultGoal(t) {
+		return RouteR3
+	}
 	if info && namedApp {
 		return RouteR2
 	}

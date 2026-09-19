@@ -304,6 +304,10 @@ func TestOpenOnlyStopsAfterSuccessfulDesktopOpenEvenIfLaterTool(t *testing.T) {
 	if got := pickTurnContinueKind("已经打开记事本。", "已经打开记事本。", out, tools, true, true, true, true, 0, goal, true); got != "" {
 		t.Fatalf("open-only must stop after opened receipt, got %q", got)
 	}
+	stale := "opened notepad\nok:false\nCOMPUTER_STALE_FRAME"
+	if got := pickTurnContinueKind("好，我来操作电脑。", "好，我来操作电脑。", stale, []string{"desktop.open", "computer.act"}, true, true, true, true, 0, "打开桌面的《企业AI智能助手》txt文件", true); got != "" {
+		t.Fatalf("open-only must not keep looping after a later stale click, got %q", got)
+	}
 }
 
 type continueAdapter struct {

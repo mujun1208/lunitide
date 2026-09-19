@@ -142,6 +142,14 @@ func TestClassifyTaskRoute(t *testing.T) {
 			forbid: []string{},
 		},
 		{
+			id:     "open-site-first-news",
+			goal:   "打开网站第一个新闻",
+			cc:     true,
+			route:  RouteR3,
+			must:   []string{"browser.act"},
+			forbid: []string{"computer.act", "desktop.open"},
+		},
+		{
 			id:    "weekly-in-word",
 			goal:  "打开Word写周报",
 			cc:    true,
