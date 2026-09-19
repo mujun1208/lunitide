@@ -43,7 +43,12 @@ export function MemoryNominationQueue({
       if (action === 'withdraw') {
         await nominations.withdraw({ nominationId: item.nominationId, actor: 'settings' })
       } else {
-        await memory.confirmCandidate({
+        const confirm = memory.confirmCandidate
+        if (!confirm) {
+          setError('确认失败')
+          return
+        }
+        await confirm({
           candidateId: item.candidateId,
           confirmationToken: item.confirmationToken,
           action: 'confirm',
