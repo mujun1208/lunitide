@@ -43,6 +43,7 @@ import{isHubOwnedPage}from'./app/appTypes'
 import{useThemeStore,hydrateThemeStore}from'./app/themeStore'
 import{useNavStore,resetNavStore}from'./app/navStore'
 import{OFFICE_STUDIO_OPEN_EVENT,OFFICE_LAST_TASK_KEY,OFFICE_ARTIFACT_FOCUS_KEY,type OfficeOpenRequest}from'./officeStudio/officeNavigation'
+import{OPEN_CHAT_SESSION_EVENT}from'./session/openChatSession'
 import{officeStudioUserError as officeOpenUserError}from'./officeStudio/officeUserError'
 import{useSessionStore,resetSessionStore}from'./app/sessionStore'
 import{useMroStore,resetMroStore}from'./app/mroStore'
@@ -83,6 +84,7 @@ function AppRoutes({projects=projectBridge,providers=providerBridge,sessions=ses
  const officeOpening=useRef(false)
  const[officeRouteRevision,setOfficeRouteRevision]=useState(0)
  useEffect(()=>{const openOffice=(event:Event)=>{const request=(event as CustomEvent<OfficeOpenRequest>).detail;if(!request||typeof request.sessionId!=='string'||typeof request.path!=='string'||typeof request.finish!=='function'||typeof request.cancelled!=='function')return;if(officeOpening.current){request.finish('办公工作台正在打开，请稍候。');return}officeOpening.current=true;void(async()=>{try{const{officeStudioApi}=await import('./officeStudio/officeStudioApi');const existing=(await officeStudioApi.list({sessionId:request.sessionId})).items.find(item=>item.sessionId===request.sessionId);const task=existing??(await officeStudioApi.create({sessionId:request.sessionId,title:request.path.split(/[/\\]/).pop()||'办公文件',includeHistory:true})).task;await officeStudioApi.sync({taskId:task.id,artifactPath:request.path});if(request.cancelled())return;localStorage.setItem(OFFICE_LAST_TASK_KEY,task.id);localStorage.setItem(OFFICE_ARTIFACT_FOCUS_KEY,JSON.stringify({taskId:task.id,path:request.path}));setOfficeRouteRevision(value=>value+1);setTarget(undefined);setPage('office');setDrawer(false);request.finish()}catch(error){request.finish(officeOpenUserError(error,'办公工作台暂不可用，原对话仍可继续。'))}finally{officeOpening.current=false}})()};window.addEventListener(OFFICE_STUDIO_OPEN_EVENT,openOffice);return()=>window.removeEventListener(OFFICE_STUDIO_OPEN_EVENT,openOffice)},[setTarget,setPage,setDrawer])
+ useEffect(()=>{const openChat=(event:Event)=>{const sessionId=(event as CustomEvent<{sessionId?:string}>).detail?.sessionId;if(!sessionId)return;void(async()=>{try{const project=await ensurePersonalProject(projects);const listed=await sessions.list({projectId:project.id});const session=listed.items.find(item=>item.id===sessionId);if(!session)return;setTarget({project,session,personal:true,noAutoSend:true});setPage('home');setDrawer(false)}catch{/* Hub thread stays open if the projection session is not listed yet. */}})()};window.addEventListener(OPEN_CHAT_SESSION_EVENT,openChat);return()=>window.removeEventListener(OPEN_CHAT_SESSION_EVENT,openChat)},[projects,sessions,setTarget,setPage,setDrawer])
  const zh=language==='zh-CN'
  const[sidebarWidth,startSidebarResize]=usePanelResize({storageKey:'lunitide:sidebar-width',initial:288,min:210,max:()=>Math.min(420,window.innerWidth-520)})
  const shellStyle={'--sidebar-expanded-width':`${sidebarWidth}px`}as React.CSSProperties

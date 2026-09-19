@@ -1,0 +1,67 @@
+package app
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/lunitide/lunitide/internal/llmadapter"
+)
+
+func TestIsWindowOverflowError(t *testing.T) {
+	if !isWindowOverflowError(&llmadapter.Error{Code: "CONTEXT_WINDOW_EXCEEDED"}) {
+		t.Fatal("window code")
+	}
+	if !isWindowOverflowError(&llmadapter.Error{Code: "REQUEST_TOO_LARGE"}) {
+		t.Fatal("too large")
+	}
+	if !isWindowOverflowError(&llmadapter.Error{Code: "HTTP_413", HTTPStatus: 413}) {
+		t.Fatal("http 413")
+	}
+	if isWindowOverflowError(&llmadapter.Error{Code: "RESPONSE_TRUNCATED"}) {
+		t.Fatal("output truncation is not a window retry")
+	}
+	if err := chatModelFinishError(llmadapter.FinishReasonWindow); !isWindowOverflowError(err) {
+		t.Fatal("window finish must retry")
+	}
+	if err := chatModelFinishError(llmadapter.FinishReasonLength); isWindowOverflowError(err) {
+		t.Fatal("length finish must stay fail-closed")
+	}
+}
+
+func TestShrinkMessagesForWindowRetryKeepsSystemAndTail(t *testing.T) {
+	req := &llmadapter.Request{Messages: []llmadapter.Message{
+		{Role: llmadapter.RoleSystem, Content: "rules"},
+		{Role: llmadapter.RoleUser, Content: "old-1"},
+		{Role: llmadapter.RoleAssistant, Content: "old-2"},
+		{Role: llmadapter.RoleUser, Content: "old-3"},
+		{Role: llmadapter.RoleAssistant, Content: "old-4"},
+		{Role: llmadapter.RoleUser, Content: "old-5"},
+		{Role: llmadapter.RoleAssistant, Content: "old-6"},
+		{Role: llmadapter.RoleUser, Content: "old-7"},
+		{Role: llmadapter.RoleAssistant, Content: "old-8"},
+		{Role: llmadapter.RoleUser, Content: "current"},
+	}}
+	shrinkMessagesForWindowRetry(req)
+	if req.Messages[0].Content != "rules" {
+		t.Fatal("lost system")
+	}
+	if !strings.Contains(req.Messages[1].Content, "检查点") {
+		t.Fatal("missing checkpoint note")
+	}
+	if req.Messages[2].Content == "old-1" {
+		t.Fatal("should drop the oldest user turn")
+	}
+	last := req.Messages[len(req.Messages)-1]
+	if last.Role != llmadapter.RoleUser || last.Content != "current" {
+		t.Fatalf("lost current user: %+v", last)
+	}
+}
+
+func TestCompanionColdMaxMessages(t *testing.T) {
+	if companionColdMaxMessages(true) != companionMaxMessages {
+		t.Fatal("checkpoint should keep the voice window")
+	}
+	if companionColdMaxMessages(false) != companionMaxMessages/2 {
+		t.Fatal("no checkpoint should tighten")
+	}
+}

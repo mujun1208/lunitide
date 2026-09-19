@@ -69,6 +69,19 @@ func (e *Engine) capabilityReadiness(ctx context.Context, id string) CapabilityR
 			return CapabilityReadiness{ID: "desktop", Availability: "needs_config", Detail: "请先在设置中启用电脑控制", Code: "CAPABILITY_NOT_READY"}
 		}
 		return CapabilityReadiness{ID: "desktop", Availability: "ready", Detail: "电脑控制已启用"}
+	case "vision":
+		if e == nil || e.providers == nil {
+			return CapabilityReadiness{ID: "vision", Availability: "missing_dependency", Detail: "模型供应商服务未装配", Code: "DEPENDENCY_MISSING"}
+		}
+		items, err := e.providers.List(ctx, provider.Filter{})
+		if err != nil {
+			return CapabilityReadiness{ID: "vision", Availability: "unavailable", Detail: "供应商目录暂时不可用", Code: "STORAGE_UNAVAILABLE"}
+		}
+		vision := e.preferBoundCatalog(ctx, "vision", provider.VisionDescribeCatalog(items, ""))
+		if len(vision) == 0 {
+			return CapabilityReadiness{ID: "vision", Availability: "needs_config", Detail: "未配置视觉能力", Code: "CAPABILITY_NOT_READY"}
+		}
+		return CapabilityReadiness{ID: "vision", Availability: "ready", Detail: "已配置视觉模型"}
 	case "gui":
 		if e == nil || e.providers == nil {
 			return CapabilityReadiness{ID: "gui", Availability: "missing_dependency", Detail: "模型供应商服务未装配", Code: "DEPENDENCY_MISSING"}

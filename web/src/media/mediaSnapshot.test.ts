@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import type { MediaOperationDTO, MediaSnapshotDTO } from '../generated/bridge'
-import { formatClock, miniPlayerPhase } from './mediaSnapshot'
+import { formatClock, miniPlayerPhase, needsPlaybackOpen } from './mediaSnapshot'
 
 const snap = (phase: MediaSnapshotDTO['phase']): MediaSnapshotDTO => ({
   mediaSessionId: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
@@ -50,4 +50,19 @@ it('keeps pause visible off-page and does not hide while stop is unverified', ()
 
 it('formats clocks without claiming duration', () => {
   expect(formatClock(65000)).toBe('1:05')
+})
+
+it('does not mint a new playback ticket while the same asset is already open', () => {
+  const playing = snap('playing')
+  expect(needsPlaybackOpen(playing, 'https://media.lunitide.local/v1/assets/tok', playing.assetId, true)).toBe(false)
+  expect(needsPlaybackOpen(playing, null, null, true)).toBe(true)
+  expect(needsPlaybackOpen({ ...playing, assetId: '01ARZ3NDEKTSV4RRFFQ69G5FAZ' }, 'https://media.lunitide.local/v1/assets/tok', playing.assetId, true)).toBe(true)
+  expect(needsPlaybackOpen({ ...playing, playbackEpoch: 2 }, 'https://media.lunitide.local/v1/assets/tok', playing.assetId, true, 1)).toBe(true)
+  expect(needsPlaybackOpen({ ...playing, playbackEpoch: 2 }, 'https://media.lunitide.local/v1/assets/tok', playing.assetId, true, 2)).toBe(false)
+  expect(needsPlaybackOpen(snap('idle'), null, null, true)).toBe(false)
+})
+
+it('does not open local media on launch until the user plays', () => {
+  expect(needsPlaybackOpen(snap('playing'), null, null, false)).toBe(false)
+  expect(needsPlaybackOpen(snap('paused'), null, null, false)).toBe(false)
 })

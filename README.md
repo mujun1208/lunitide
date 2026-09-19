@@ -1,6 +1,6 @@
 # Lunitide
 
-本地优先的 AI 桌面工作台。生产架构为 **Go Core Engine + Windows WebView2 Host + React/TypeScript Renderer**。
+月汐是这台 Windows 电脑上的本地优先办公助手——对话、工具、记忆、办公、语音、审批，在这一台机器上做完。生产架构为 **Go Core Engine + Windows WebView2 Host + React/TypeScript Renderer**。
 
 `0.2.1` 的 Electron 原型已在 `0.4.01` 移除：它从未发布，唯一一台装过它的机器上的凭据也已迁入 DPAPI 存储，因此原型本体、迁移代码与其 npm 工具链一并删除。需要查阅时见 tag `m1-pre-audit` 之前的历史。
 

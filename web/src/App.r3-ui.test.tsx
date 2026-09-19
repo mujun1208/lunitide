@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { LanguageProvider } from './i18n/language'
 import type { CapabilityRolesBridge, IdentityBridge, MemoryBridge, MemoryOpsBridge, OCRPackBridge, OCRRoutingBridge, OCRRunBridge, ProviderBridge } from './bridge/client'
 import type { OcrPackGetResult, OcrRoutingGetResult, ProviderDTO } from './generated/bridge'
-import { ActivityStatusButton } from './activity/ActivityStatusButton'
+import { SettingsRunStatus } from './settings/SettingsRunStatus'
 import { MediaCenterPage } from './media/MediaCenterPage'
 import { MediaMiniPlayer } from './media/MediaMiniPlayer'
 import { MemoryPage } from './memory/MemoryPage'
@@ -101,13 +101,13 @@ it('TestR3InformationArchitecture: two cards, one drawer, truthful OCR, media em
     <LanguageProvider value="zh-CN">
       <MediaCenterPage snapshot={null} assets={[]} operation={null} playbackUrl={null} notice="" disabledReason="媒体会话未启用。当前只能选择文件，还不能创建播放会话。" busy={false} onPick={() => {}} onPlayPause={() => {}} onPrevious={() => {}} onNext={() => {}} onJump={() => {}} onRemove={() => {}} onClear={() => {}} onSeek={() => {}} onVolume={() => {}} />
       <MediaMiniPlayer phase="hidden" snapshot={null} title="" error="" onOpen={() => {}} onPlayPause={() => {}} onClose={() => {}} onRetryClose={() => {}} />
-      <ActivityStatusButton items={[]} open={false} onToggle={() => {}} />
+      <SettingsRunStatus items={[]} />
     </LanguageProvider>,
   )
   expect(screen.getByRole('heading', { name: '媒体中心' })).toBeInTheDocument()
   expect(screen.getByLabelText('空状态')).toBeInTheDocument()
   expect(screen.queryByLabelText('迷你播放器')).toBeNull()
-  expect(screen.getByRole('button', { name: '运行状态' })).toHaveClass('is-quiet')
+  expect(screen.getByRole('button', { name: /运行状态/ })).toBeDisabled()
   cleanup()
 
   const provider: ProviderDTO = {

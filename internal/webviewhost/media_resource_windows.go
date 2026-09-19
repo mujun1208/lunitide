@@ -26,10 +26,11 @@ func (h *Host) registerMediaResourceBroker() error {
 	if h.core == nil || h.environment == nil {
 		return nil
 	}
-	if r := h.core.AddWebResourceRequestedFilter(MediaResourceFilterURI, wv2.COREWEBVIEW2_WEB_RESOURCE_CONTEXT.COREWEBVIEW2_WEB_RESOURCE_CONTEXT_MEDIA); failed(win32.HRESULT(r)) {
+	if r := h.core.AddWebResourceRequestedFilter(MediaResourceFilterURI, wv2.COREWEBVIEW2_WEB_RESOURCE_CONTEXT.COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL); failed(win32.HRESULT(r)) {
 		return fmt.Errorf("media resource filter failed: 0x%x", uint32(r))
 	}
 	h.resourceHandler = wv2.NewICoreWebView2WebResourceRequestedEventHandlerByFunc(func(_ *wv2.ICoreWebView2, args *wv2.ICoreWebView2WebResourceRequestedEventArgs) com.Error {
+		defer func() { _ = recover() }()
 		h.handleMediaResourceRequested(args)
 		return com.Error(win32.S_OK)
 	}, false)
@@ -76,11 +77,10 @@ func (h *Host) handleMediaResourceRequested(args *wv2.ICoreWebView2WebResourceRe
 }
 
 func (h *Host) serveMediaResource(args *wv2.ICoreWebView2WebResourceRequestedEventArgs, deferral *wv2.ICoreWebView2Deferral, token, method, rangeHeader string) {
-	defer args.Release()
-	defer deferral.Release()
 	result := mediaDenied(http.StatusForbidden)
 	var body []byte
 	func() {
+		defer func() { _ = recover() }()
 		h.mediaInflight <- struct{}{}
 		defer func() { <-h.mediaInflight }()
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -109,15 +109,20 @@ func (h *Host) serveMediaResource(args *wv2.ICoreWebView2WebResourceRequestedEve
 		result = served
 		body = served.Body
 	}()
-	if !h.dispatch(func() {
+	deliverMediaResponse(h.dispatchAndWait, func() {
 		h.completeMediaResponse(args, deferral, result, body)
-	}) {
-		deferral.Complete()
-	}
+	}, func() {
+		if deferral != nil {
+			deferral.Release()
+		}
+		if args != nil {
+			args.Release()
+		}
+	})
 }
 
 func (h *Host) completeMediaResponse(args *wv2.ICoreWebView2WebResourceRequestedEventArgs, deferral *wv2.ICoreWebView2Deferral, result mediaapp.RangeResult, body []byte) {
-	if args == nil {
+	if args == nil || h == nil || h.environment == nil {
 		if deferral != nil {
 			deferral.Complete()
 		}

@@ -62,6 +62,7 @@ type ThreadDetail struct {
 	Files      []ThreadFile      `json:"files"`
 	Prompt     *ThreadOpenPrompt `json:"prompt"`
 	TokensUsed int64             `json:"tokensUsed"`
+	SessionID  string            `json:"sessionId,omitempty"`
 }
 
 type WorkspaceEntry struct {

@@ -13,6 +13,16 @@ import (
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
+func TestRunIdempotentRecoveryScanIsFailOpen(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.runIdempotentRecoveryScan(context.Background())
+	r := validRequest("system.diagnostics", `{}`)
+	resp := e.Handle(context.Background(), r)
+	if !resp.OK {
+		t.Fatalf("%+v", resp.Error)
+	}
+}
+
 func TestSystemDiagnosticsTextChatAndGUIFollowReadiness(t *testing.T) {
 	e := NewEngine(providerRepositoryStub{}, "test")
 	r := validRequest("system.diagnostics", `{}`)

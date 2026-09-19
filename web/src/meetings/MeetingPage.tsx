@@ -18,6 +18,7 @@ import { MeetingNotesDoc } from './MeetingNotesDoc'
 import { MeetingSummarySource } from './MeetingSummarySource'
 import { MeetingTranscriptEditor, type MeetingTranscriptEditorHandle } from './MeetingTranscriptEditor'
 import { MeetingSegments } from './MeetingSegments'
+import { MeetingScreenshotButton } from './MeetingScreenshotButton'
 
 const SUMMARIZE_POLL_MS = 4_000
 const SYSTEM_AUDIO_RECOVER_MS = 15_000
@@ -1009,6 +1010,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
               ? <button type="button" className="meeting-start" disabled={busy || stopping} onClick={() => void start()}>{busy || stopping ? '处理中…' : '开始录制'}</button>
               : <button type="button" className="meeting-new-inline" onClick={composeNew}>新纪要</button>}
           <span>{recording ? audioSourceLabel(systemAudioMissing ? 'microphone' : current?.audioSource, true) : ((busy || stopping) && current ? '录音已停止，正在整理纪要。' : current ? '可编辑、保存或导出这场纪要。' : '麦克风 + 系统声音 · 点击停止后结束录制')}</span>
+          <MeetingScreenshotButton />
           <button type="button" className="meeting-settings-link" onClick={() => setSettingsOpen(true)}>听写与纪要设置</button>
         </div>
         {systemAudioMissing && (

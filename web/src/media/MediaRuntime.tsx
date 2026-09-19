@@ -2,13 +2,10 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { BridgeClientError, createMutationAttempt, getActivityBridge, getMediaBridge, newBridgeULID, type ActivityBridge, type MediaBridge } from '../bridge/client'
 import type { ActivitySnapshotDTO, MediaAssetDTO, MediaOperationDTO, MediaSessionCommandPayload, MediaSnapshotDTO } from '../generated/bridge'
 import { useNavStore } from '../app/navStore'
-import { OCR_SETTINGS_TARGET } from '../settings/ocrActivityAdapter'
-import { ActivityCenter } from '../activity/ActivityCenter'
-import { ActivityStatusButton } from '../activity/ActivityStatusButton'
 import { MediaCenterPage } from './MediaCenterPage'
 import { MediaMiniPlayer } from './MediaMiniPlayer'
 import { OwnedMediaPlayer } from './OwnedMediaPlayer'
-import { miniPlayerPhase } from './mediaSnapshot'
+import { miniPlayerPhase, needsPlaybackOpen } from './mediaSnapshot'
 import { mediaText } from './mediaCopy'
 import { useZh } from '../i18n/language'
 
@@ -70,14 +67,15 @@ export function MediaRuntime({
 }): React.JSX.Element {
   const page = useNavStore(s => s.page)
   const setPage = useNavStore(s => s.setPage)
-  const setSettingsCategory = useNavStore(s => s.setSettingsCategory)
-  const setSettingsIntelligenceView = useNavStore(s => s.setSettingsIntelligenceView)
   const setTarget = useNavStore(s => s.setTarget)
   const [state, setState] = useState<MediaState>(EMPTY)
-  const [activityOpen, setActivityOpen] = useState(false)
   const [wantPlay, setWantPlay] = useState(false)
   const snapshotRef = useRef(state.snapshot)
+  const openedAssetIdRef = useRef<string | null>(null)
+  const openedEpochRef = useRef<number | null>(null)
+  const playbackUrlRef = useRef<string | null>(null)
   snapshotRef.current = state.snapshot
+  playbackUrlRef.current = state.playbackUrl
   const zh = useZh()
   const copy = mediaText(zh)
 
@@ -104,11 +102,22 @@ export function MediaRuntime({
         disabledReason: 'disabled' in sessions && sessions.disabled ? copy.disabled : '',
         notice: prev.notice,
       }))
-      if (current?.origin === 'owned' && current.assetId && (current.phase === 'playing' || current.phase === 'paused' || current.verificationStatus === 'command_dispatched')) {
+      if (!current || current.phase === 'stopped' || current.phase === 'idle') {
+        openedAssetIdRef.current = null
+        openedEpochRef.current = null
+        playbackUrlRef.current = null
+        setState(prev => prev.playbackUrl ? { ...prev, playbackUrl: null } : prev)
+      } else if (needsPlaybackOpen(current, playbackUrlRef.current, openedAssetIdRef.current, wantPlay, openedEpochRef.current) && current.assetId) {
         try {
           const opened = await media.openAsset({ assetId: current.assetId, mediaSessionId: current.mediaSessionId })
+          openedAssetIdRef.current = current.assetId
+          openedEpochRef.current = current.playbackEpoch
+          playbackUrlRef.current = opened.playbackUrl
           setState(prev => ({ ...prev, playbackUrl: opened.playbackUrl }))
         } catch {
+          openedAssetIdRef.current = null
+          openedEpochRef.current = null
+          playbackUrlRef.current = null
           setState(prev => ({ ...prev, playbackUrl: null, notice: prev.notice || copy.channelDown }))
         }
       }
@@ -118,7 +127,7 @@ export function MediaRuntime({
       }
       setState(prev => ({ ...prev, notice: failMessage(error, copy.refreshFailed, copy.disabled) }))
     }
-  }, [activity, copy.channelDown, copy.disabled, copy.refreshFailed, media])
+  }, [activity, copy.channelDown, copy.disabled, copy.refreshFailed, media, wantPlay])
 
   useEffect(() => {
     void refresh()
@@ -218,7 +227,7 @@ export function MediaRuntime({
   const value = useMemo<MediaStoreValue>(() => ({
     ...state,
     pick,
-    playPause: () => runCommand(state.snapshot?.phase === 'playing' || wantPlay ? 'pause' : 'play'),
+    playPause: () => runCommand(wantPlay ? 'pause' : 'play'),
     previous: () => runCommand('previous'),
     next: () => runCommand('next'),
     stop: () => runCommand('stop', { asStop: true }),
@@ -232,32 +241,9 @@ export function MediaRuntime({
   const phase = miniPlayerPhase(page, state.snapshot, state.stopOperation)
   const current = state.assets.find(item => item.assetId === state.snapshot?.assetId)
   const title = current?.title || copy.untitled
-  const recover = (item: ActivitySnapshotDTO) => {
-    if (item.recoveryAction === 'open_settings') {
-      setTarget(undefined)
-      setSettingsCategory(OCR_SETTINGS_TARGET.settingsCategory)
-      setSettingsIntelligenceView(OCR_SETTINGS_TARGET.settingsIntelligenceView)
-      setPage('settings')
-      setActivityOpen(false)
-      return
-    }
-    if (item.recoveryAction === 'open_player') {
-      setTarget(undefined)
-      setPage('media')
-      setActivityOpen(false)
-      return
-    }
-    if (item.recoveryAction === 'retry' && item.retryable) {
-      void runCommand('play')
-      setActivityOpen(false)
-    }
-  }
-
   return (
     <MediaStoreContext.Provider value={value}>
       {children}
-      <ActivityStatusButton items={state.activities} hub={page === 'agentHub'} open={activityOpen} onToggle={() => setActivityOpen(open => !open)} />
-      <ActivityCenter items={state.activities} open={activityOpen} onClose={() => setActivityOpen(false)} onRecover={recover} />
       <MediaMiniPlayer
         phase={phase}
         snapshot={state.snapshot}
@@ -275,7 +261,12 @@ export function MediaRuntime({
         kind={current?.kind ?? null}
         wantPlay={wantPlay}
         onEnded={() => { void runCommand('next') }}
-        onError={message => setState(prev => ({ ...prev, notice: message }))}
+        onError={message => {
+          openedAssetIdRef.current = null
+          openedEpochRef.current = null
+          playbackUrlRef.current = null
+          setState(prev => ({ ...prev, notice: message, playbackUrl: null }))
+        }}
         onObserved={(event, positionMs, durationMs) => {
           const snapshot = snapshotRef.current
           if (!snapshot || snapshot.origin !== 'owned') return

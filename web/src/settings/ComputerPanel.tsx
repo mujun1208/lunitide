@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
-import { ccBridge, type CcBridge } from '../bridge/client'
+import { ccBridge, getCapabilityRolesBridge, type CapabilityRolesBridge, type CcBridge } from '../bridge/client'
+import { computerControlGate } from './capabilityGate'
 import type { CcGetAuditLogResult, CcGetConfigResult, CcUpdateConfigPayload } from '../generated/bridge'
 import { Toggle } from './settingsControls'
 import { notifyCcConfigChanged } from '../session/companion/ensureCompanionCapabilities'
@@ -32,8 +33,9 @@ function ccUserError(err: unknown, fallback: string): string {
   return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
 }
 
-export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): React.JSX.Element {
+export function ComputerPanel({ bridge = ccBridge, roles }: { bridge?: CcBridge; roles?: CapabilityRolesBridge }): React.JSX.Element {
   const [settings, setSettings] = useState<CcGetConfigResult | null>(null)
+  const [guiGate, setGuiGate] = useState({ ready: true, reason: '' })
   const [entries, setEntries] = useState<CcAuditRow[]>([])
   const [statusFilter, setStatusFilter] = useState('')
   const [status, setStatus] = useState('')
@@ -68,6 +70,19 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
     setBusy(false)
   }
   useEffect(() => { void refresh(); return () => { refreshGeneration.current++ } }, [])
+  useEffect(() => {
+    let alive = true
+    try {
+      void (roles ?? getCapabilityRolesBridge()).get().then(got => {
+        if (alive) setGuiGate(computerControlGate(got.roles))
+      }).catch(() => {
+        if (alive) setGuiGate({ ready: true, reason: '' })
+      })
+    } catch {
+      setGuiGate({ ready: true, reason: '' })
+    }
+    return () => { alive = false }
+  }, [roles])
 
   const showSaveError = async (error: unknown, fallback: string) => {
     const message = error instanceof Error ? error.message : ''
@@ -167,8 +182,9 @@ export function ComputerPanel({ bridge = ccBridge }: { bridge?: CcBridge }): Rea
         {settings?.emergencyStopped && (
           <p role="alert" className="notice" style={{ color: 'var(--red)' }}>紧急停止已激活（{settings.emergencyStoppedAt ? new Date(settings.emergencyStoppedAt).toLocaleString() : ''}）：所有电脑控制操作一律拒绝，需重新走启用流程。</p>
         )}
+        {!guiGate.ready ? <p role="status" className="notice">{guiGate.reason}，请先在「路由管理」绑定 GUI 模型。</p> : null}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {settings && !settings.enabled && !wizard && <button disabled={busy} onClick={() => setWizard({ step: 1, agreed: false, level: 'standard', allowCritical: false, timedArm: false })}>三步启用…</button>}
+          {settings && !settings.enabled && !wizard && <button disabled={busy || !guiGate.ready} title={!guiGate.ready ? guiGate.reason : undefined} onClick={() => setWizard({ step: 1, agreed: false, level: 'standard', allowCritical: false, timedArm: false })}>三步启用…</button>}
           {settings?.enabled && settings.armedUntil && <button disabled={busy} onClick={() => void patch({ armMinutes: 0 }, '已改为持续启用，所有对话共用')}>改为持续启用</button>}
           {settings?.enabled && <button disabled={busy} onClick={() => void patch({ enabled: false }, '电脑控制已停用')}>停用</button>}
           {settings?.enabled && !settings.emergencyStopped && <button disabled={busy} onClick={() => void emergencyStop()} style={{ color: 'var(--red)' }}>紧急停止</button>}

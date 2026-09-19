@@ -2,7 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, expect, it } from 'vitest'
 import type { MediaOperationDTO, MediaSnapshotDTO } from '../generated/bridge'
 import { MediaCenterPage } from '../media/MediaCenterPage'
-import { ActivityStatusButton } from '../activity/ActivityStatusButton'
+import { SettingsRunStatus } from '../settings/SettingsRunStatus'
 
 afterEach(() => cleanup())
 
@@ -43,12 +43,12 @@ it('TestR3StateAccessibility: failed and unverified states keep text, status, an
   render(
     <>
       <MediaCenterPage snapshot={snapshot} assets={[]} operation={operation} playbackUrl={null} notice="" disabledReason="" busy={false} onPick={() => {}} onPlayPause={() => {}} onPrevious={() => {}} onNext={() => {}} onJump={() => {}} onRemove={() => {}} onClear={() => {}} onSeek={() => {}} onVolume={() => {}} />
-      <ActivityStatusButton items={[]} open={false} onToggle={() => {}} />
+      <SettingsRunStatus items={[]} />
     </>,
   )
   expect(screen.getByText('命令已发送，待核验')).toBeInTheDocument()
   expect(screen.getByLabelText('媒体操作')).toHaveTextContent('未确认')
   expect(screen.getByLabelText('媒体操作')).not.toHaveTextContent('已确认')
-  expect(screen.getByRole('button', { name: '运行状态' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /运行状态/ })).toBeInTheDocument()
   expect(screen.getByText('MEDIA_UNVERIFIED')).toBeInTheDocument()
 })

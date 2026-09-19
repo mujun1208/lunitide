@@ -42,6 +42,8 @@ func handleSystemDiagnostics(e *Engine, ctx context.Context, r bridge.Request) b
 		return r.Fail("DIAGNOSTICS_BUSY", "系统检查正在进行，请稍后重试", true)
 	}
 	defer e.diagnosticsRunning.Store(false)
+	_ = e.runMemoryHygieneThrottled(ctx)
+	e.runIdempotentRecoveryScan(ctx)
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	items := []diagnosticComponent{}
@@ -99,6 +101,9 @@ func handleSystemDiagnostics(e *Engine, ctx context.Context, r bridge.Request) b
 	add("gui", "GUI / 视觉", true, func(ctx context.Context) (string, string, string) {
 		return readinessDiagnostic(e.capabilityReadiness(ctx, "gui"))
 	})
+	add("vision", "视觉模型", true, func(ctx context.Context) (string, string, string) {
+		return readinessDiagnostic(e.capabilityReadiness(ctx, "vision"))
+	})
 	add("voice_local", "语音：本地识别", e.voice != nil && e.voice.backend != nil, func(ctx context.Context) (string, string, string) {
 		if e.voice.ready(ctx) {
 			return "configured", "本地语音资源已就绪，录音设备尚未测试", ""
@@ -122,7 +127,31 @@ func handleSystemDiagnostics(e *Engine, ctx context.Context, r bridge.Request) b
 		_, err := e.m8plugin.List(ctx, "", "")
 		return readResult(err, "安装及停用状态可读取；各能力在执行前仍单独检查授权")
 	})
-	add("mcp", "MCP", e.m7mcp != nil && e.mcp6Registry != nil, nil)
+	add("mcp", "MCP", e.m7mcp != nil && e.mcp6Registry != nil, func(ctx context.Context) (string, string, string) {
+		if e.m7mcp == nil {
+			return "not_configured", "MCP 未装配", ""
+		}
+		items, err := e.m7mcp.List(ctx, "")
+		if err != nil {
+			return "degraded", "MCP 目录暂时不可用", "STORAGE_UNAVAILABLE"
+		}
+		quarantined, ready := 0, 0
+		for _, ep := range items {
+			if ep.State == "quarantined" {
+				quarantined++
+			}
+			if ep.Enabled && ep.State == "ready" {
+				ready++
+			}
+		}
+		if quarantined > 0 {
+			return "degraded", "有 MCP 已被检疫，需人工复核后才能恢复", "MCP_QUARANTINED"
+		}
+		if ready > 0 {
+			return "configured", "已有可用 MCP 端点；检疫项不会自动解封", ""
+		}
+		return "configured", "MCP 入口可用；尚未启用端点", ""
+	})
 	add("experts", "专家中心", e.m8expert != nil, nil)
 	add("knowledge", "知识查新", e.m8kb != nil, nil)
 	add("memory", "记忆", e.m8memory != nil, nil)
@@ -211,4 +240,23 @@ func handleSystemDiagnostics(e *Engine, ctx context.Context, r bridge.Request) b
 		}
 	}
 	return r.Ok(map[string]any{"state": state, "checkedAt": time.Now().UTC().Format(time.RFC3339Nano), "traceId": r.TraceID, "components": items})
+}
+
+// runIdempotentRecoveryScan re-runs process-owned recoveries when Settings
+// opens diagnostics. Fail-open: a scanner error must not hide lamps.
+// It must not auto-unseal MCP, confirm memory, or delete user data.
+func (e *Engine) runIdempotentRecoveryScan(ctx context.Context) {
+	if e == nil {
+		return
+	}
+	scanCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if e.agentRuns != nil {
+		if _, err := e.agentRuns.RunRecoveryScanner(scanCtx); err != nil {
+			log.Printf("diagnostics recovery scanner skipped: %v", err)
+		}
+	}
+	if _, err := e.RecoverCompaction(scanCtx); err != nil {
+		log.Printf("diagnostics compaction recover skipped: %v", err)
+	}
 }

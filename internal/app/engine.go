@@ -358,28 +358,33 @@ type terminalOwner struct {
 }
 
 type streamState struct {
-	equipEvent      *bridge.EquipEvent
-	sessionID       string
-	cancel          context.CancelFunc
-	state           streamLifecycle
-	companion       bool
-	spokenPersist   string
-	tts             bool
-	talk            bool
-	subagentPolicy  subagentChatPolicy
-	council         *expertCouncilConfig
-	mcpRestrict     bool
-	mcpAllowed      []string
-	brain           string
-	memorySummary   string
-	kbCites         []CitationBlock
-	kbDiscarded     int
-	mroTurn         bool
-	taskRoute       TaskRoute
-	taskAllow       map[string]bool
-	lane            LaneContract
-	inviteLead      string
-	usedScreenTools bool
+	equipEvent          *bridge.EquipEvent
+	sessionID           string
+	cancel              context.CancelFunc
+	state               streamLifecycle
+	companion           bool
+	spokenPersist       string
+	tts                 bool
+	talk                bool
+	subagentPolicy      subagentChatPolicy
+	council             *expertCouncilConfig
+	mcpRestrict         bool
+	mcpAllowed          []string
+	brain               string
+	memorySummary       string
+	kbCites             []CitationBlock
+	kbDiscarded         int
+	mroTurn             bool
+	taskRoute           TaskRoute
+	taskAllow           map[string]bool
+	lane                LaneContract
+	inviteLead          string
+	usedScreenTools     bool
+	fullTools           []llmadapter.ToolDefinition
+	widened             bool
+	windowRetried       bool
+	prevWasToolGoal     bool
+	prevSuccessfulTools int
 }
 
 type streamLifecycle uint8
@@ -1498,6 +1503,7 @@ func (e *Engine) Handle(ctx context.Context, request bridge.Request) bridge.Resp
 		if strings.HasPrefix(request.Method, "mro.") {
 			return e.handleScopedMRO(opCtx, request, handler)
 		}
+		e.noteEngineActivityAndMaybeHygiene(opCtx)
 		return handler(e, opCtx, request)
 	}()
 }
