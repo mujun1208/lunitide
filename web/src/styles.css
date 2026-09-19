@@ -694,6 +694,14 @@ input,select,textarea{width:100%;border:1px solid var(--line);border-radius:10px
 .settings-nav{background:#000;border-right:1px solid var(--rule);
   padding:16px 12px;display:flex;flex-direction:column}
 .settings-back{margin:0 0 12px;padding:8px 10px;border:0;background:transparent;text-align:left;color:var(--ink)}
+.settings-run-status{margin:0 0 12px}
+.settings-run-status-toggle{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;width:100%;padding:8px 8px 6px;border:1px solid var(--rule);border-radius:8px;background:var(--bg2);color:var(--ink);text-align:left;cursor:pointer}
+.settings-run-status-toggle:disabled{cursor:default;opacity:1}
+.settings-run-status-title{width:100%;font-size:11px;letter-spacing:.04em;color:var(--muted)}
+.settings-run-lamp{display:inline-flex;align-items:center;gap:4px}
+.settings-run-status .activity-center{position:relative;top:auto;right:auto;inset:auto;z-index:1;margin-top:8px;max-height:280px;overflow:auto}
+.hub-open-chat{position:fixed;z-index:70;right:52px;top:8px;height:30px;padding:0 10px;border:1px solid rgba(143,163,191,.16);border-radius:7px;background:rgba(18,22,30,.88);color:#dbe6f5;font-size:12px}
+html[data-theme="light"] .hub-open-chat{background:#fff;color:var(--ink);border-color:var(--rule)}
 .settings-search{width:100%;margin-bottom:12px}
 .settings-search input{width:100%;border:1px solid var(--line);border-radius:8px;
   background:var(--bg2);color:var(--ink);padding:8px 10px;font-size:12px}
@@ -789,6 +797,11 @@ html[data-theme="light"] .ocr-status,html[data-theme="light"] .ocr-probe,html[da
 }
 .memory-status{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .memory-status-summary{margin:6px 0 0;color:var(--muted);font-size:13px}
+.memory-nomination-queue{display:grid;gap:10px;margin:0 0 16px}
+.memory-nomination-queue h2{margin:0;font-size:15px}
+.memory-nomination-queue p{margin:0;color:var(--muted);font-size:13px}
+.memory-nomination-empty{color:var(--muted)}
+.memory-nomination-actions{display:grid;gap:6px;align-content:center}
 .memory-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
 .memory-list-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:stretch}
 .memory-list-item{display:grid;gap:4px;width:100%;padding:12px 14px;border:1px solid var(--rule);border-radius:12px;background:var(--bg2);color:var(--ink);text-align:left}

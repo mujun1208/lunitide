@@ -499,13 +499,16 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 
 	equip := e.turnEquipmentFor(ctx, boundSessionID, intent.Text, intent.Companion)
 	turnProfile := resolveChatToolProfile(p.Companion, p.TrialSkillIDs, p.ToolProfile, intent.Text)
-	var turnTools []llmadapter.ToolDefinition
-	if e.tools != nil && wantsTools {
-		turnTools = e.chatTurnToolDefinitions(chatTurnToolBuild{
+	var fullTools, turnTools []llmadapter.ToolDefinition
+	if e.tools != nil {
+		fullTools = e.chatTurnToolDefinitions(chatTurnToolBuild{
 			Mode: mode, Profile: turnProfile, Companion: p.Companion,
 			Equip: equip, SubagentPolicy: subagentPolicy,
 			ProjectPhase: p.ProjectPhase,
 		})
+		if wantsTools {
+			turnTools = fullTools
+		}
 	}
 
 	var messages []llmadapter.Message
@@ -564,6 +567,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			log.Printf("chat preturn path=%s session=%s", preturnContextWaitKind(true), boundSessionID)
 		}
 		if !p.Companion && e.compactionTrigger != nil && e.compactionExecutor != nil {
+			e.flushMemoryBeforeCompaction(ctx, boundSessionID, turnText, "")
 			compactionResult := e.TriggerPreTurnCompaction(ctx, boundSessionID, item.ID, p.ModelID, tokenizerRevision, providerInfo.ContextWindow)
 			if compactionResult.Err != nil {
 				if errors.Is(compactionResult.Err, context.Canceled) || errors.Is(compactionResult.Err, context.DeadlineExceeded) {
@@ -597,7 +601,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		// that answer coverage (P2-2 hierarchical context) also tell the
 		// assembler which durable sequence the summary covers, so covered
 		// messages are projected once (as the summary) instead of twice.
-		if !p.Companion && e.summaryReader != nil {
+		// Companion reuses the last activated checkpoint (cold path) without
+		// running a new LLM compaction on the hot path.
+		if e.summaryReader != nil {
 			var priorSummary string
 			var coverageEnd int64
 			var summaryErr error
@@ -619,6 +625,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 					CoverageEndSequence: coverageEnd,
 				}
 			}
+		}
+		if p.Companion {
+			envelope.MaxMessages = companionColdMaxMessages(envelope.AcceptedCheckpoint != nil)
 		}
 		if !p.Companion {
 			log.Printf("chat preturn path=%s session=%s waited=%s", preturnContextWaitKind(false), boundSessionID, time.Since(preturnStarted).Round(time.Millisecond))
@@ -856,9 +865,15 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	streamCtx, cancel := context.WithCancel(parent)
 	streamCtx = withOfficeTask(streamCtx, p.OfficeTaskID)
 	streamCtx = withSkillTrials(streamCtx, boundSessionID, p.TrialSkillIDs)
-	state := &streamState{cancel: cancel, companion: p.Companion, subagentPolicy: subagentPolicy, council: councilCfg, mcpRestrict: equip.RestrictMCP(), mcpAllowed: equip.McpIDs, brain: equip.Brain, memorySummary: formatChatMemorySummary(memPack), kbCites: append([]CitationBlock(nil), memPack.KBCites...), kbDiscarded: memPack.KBDiscarded, mroTurn: memPack.MROTurn || turnHasMROName(equip.Names), inviteLead: inviteLead}
+	state := &streamState{cancel: cancel, companion: p.Companion, subagentPolicy: subagentPolicy, council: councilCfg, mcpRestrict: equip.RestrictMCP(), mcpAllowed: equip.McpIDs, brain: equip.Brain, memorySummary: formatChatMemorySummary(memPack), kbCites: append([]CitationBlock(nil), memPack.KBCites...), kbDiscarded: memPack.KBDiscarded, mroTurn: memPack.MROTurn || turnHasMROName(equip.Names), inviteLead: inviteLead, fullTools: fullTools}
 	state.sessionID = boundSessionID
 	state.equipEvent = equipEvent
+	if prev := e.loadTurnCheckpoint(boundSessionID); strings.TrimSpace(prev.Goal) != "" {
+		state.prevWasToolGoal = len(prev.LastTools) > 0 || goalLooksLikeToolTarget(prev.Goal)
+		if state.prevWasToolGoal && !prev.ToolFailed && len(prev.LastTools) > 0 {
+			state.prevSuccessfulTools = 1
+		}
+	}
 	e.streams[streamID] = state
 	e.streamsMu.Unlock()
 	if text, ok := e.maybeDescribeImages(ctx, modelByID(item, p.ModelID), images, lastUserContent(messages)); ok {

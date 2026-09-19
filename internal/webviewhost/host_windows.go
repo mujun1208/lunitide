@@ -980,7 +980,7 @@ func (h *Host) closeSTA() {
 	if h.core != nil {
 		if h.resourceHandler != nil {
 			h.core.Remove_WebResourceRequested(h.resourceToken)
-			h.core.RemoveWebResourceRequestedFilter(MediaResourceFilterURI, wv2.COREWEBVIEW2_WEB_RESOURCE_CONTEXT.COREWEBVIEW2_WEB_RESOURCE_CONTEXT_MEDIA)
+			h.core.RemoveWebResourceRequestedFilter(MediaResourceFilterURI, wv2.COREWEBVIEW2_WEB_RESOURCE_CONTEXT.COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL)
 			h.resourceHandler.Release()
 			h.resourceHandler = nil
 		}

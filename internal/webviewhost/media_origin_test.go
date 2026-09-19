@@ -33,6 +33,45 @@ func TestParseMediaAssetTicket(t *testing.T) {
 	}
 }
 
+func TestDeliverMediaResponseCompletesAndReleasesInsideWait(t *testing.T) {
+	var inside bool
+	var leaked []string
+	wait := func(fn func() bool) bool {
+		inside = true
+		defer func() { inside = false }()
+		return fn()
+	}
+	deliverMediaResponse(wait, func() {
+		if !inside {
+			leaked = append(leaked, "complete")
+		}
+	}, func() {
+		if !inside {
+			leaked = append(leaked, "release")
+		}
+	})
+	if len(leaked) > 0 {
+		t.Fatalf("COM work escaped UI wait: %v", leaked)
+	}
+}
+
+func TestDeliverMediaResponseStillFinishesWhenWaitRejected(t *testing.T) {
+	var completed, released bool
+	deliverMediaResponse(func(func() bool) bool { return false }, func() { completed = true }, func() { released = true })
+	if !completed || !released {
+		t.Fatal("shutdown path must still complete and release")
+	}
+}
+
+func TestMediaResourceFilterInterceptsAllContexts(t *testing.T) {
+	if MediaResourceContextAll != 0 {
+		t.Fatalf("ALL context must be 0, got %d", MediaResourceContextAll)
+	}
+	if MediaResourceContextMedia == MediaResourceContextAll {
+		t.Fatal("media context must stay distinct from ALL")
+	}
+}
+
 func TestMediaResourceAllowedRequiresAppDocumentAndMediaContext(t *testing.T) {
 	token := strings.Repeat("cd", 16)
 	req := PlaybackURL(token)

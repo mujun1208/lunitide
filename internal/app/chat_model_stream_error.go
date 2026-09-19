@@ -28,6 +28,8 @@ func chatModelStreamError(err error) *bridge.StreamError {
 		set("UPSTREAM_MALFORMED_RESPONSE", "模型返回格式不完整，已保留收到的内容，请重试", true)
 	case "REQUEST_TOO_LARGE":
 		set("REQUEST_TOO_LARGE", "请求内容过大，请减少附件或上下文后重试", false)
+	case "CONTEXT_WINDOW_EXCEEDED":
+		set("CONTEXT_WINDOW_EXCEEDED", windowOverflowUserMessage(), false)
 	case "OUTCOME_UNKNOWN":
 		set("UPSTREAM_OUTCOME_UNKNOWN", "模型请求结果尚无法确认，请先检查任务状态和已生成文件，避免重复执行", false)
 	case "MODEL_CHANNEL_UNAVAILABLE":
@@ -81,6 +83,8 @@ func chatModelFinishError(reason llmadapter.FinishReason) error {
 	switch reason {
 	case llmadapter.FinishReasonLength:
 		code = "RESPONSE_TRUNCATED"
+	case llmadapter.FinishReasonWindow:
+		code = "CONTEXT_WINDOW_EXCEEDED"
 	case llmadapter.FinishReasonContentFilter:
 		code = "RESPONSE_FILTERED"
 	default:

@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { CcBridge } from '../bridge/client'
+import type { CapabilityRolesBridge, CcBridge } from '../bridge/client'
 import type { CcGetConfigResult } from '../generated/bridge'
 import { ComputerPanel } from './SettingsPage'
 
@@ -111,4 +111,19 @@ it('keeps authoritative configuration usable when audit loading fails without mu
  await user.click(screen.getByRole('button',{name:'停用'}))
  expect(updateConfig).toHaveBeenCalledWith({expectedRevision:1,enabled:false})
  expect(await screen.findByText('已停用')).toBeInTheDocument()
+})
+
+it('disables enable when GUI capability is not configured', async () => {
+  const roles = {
+    get: vi.fn().mockResolvedValue({
+      roles: ['chat', 'flash', 'vision', 'embed', 'judge', 'gui'].map(role => ({ role, allowJudgeEqChat: false })),
+      revision: 'a'.repeat(64),
+      appliedRevision: 'a'.repeat(64),
+      state: 'applied',
+    }),
+    set: vi.fn(),
+  } as unknown as CapabilityRolesBridge
+  render(<ComputerPanel bridge={api()} roles={roles} />)
+  expect(await screen.findByRole('button', { name: '三步启用…' })).toBeDisabled()
+  expect(screen.getByText(/未配置 GUI 能力/)).toBeInTheDocument()
 })

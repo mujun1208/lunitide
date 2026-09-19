@@ -30,7 +30,7 @@ export function OwnedMediaPlayer({
   const onObservedRef = useRef(onObserved)
   onObservedRef.current = onObserved
   const owned = snapshot?.origin === 'owned'
-  const playing = owned && (wantPlay || snapshot?.phase === 'playing')
+  const playing = owned && wantPlay
   const paused = owned && !playing
   const video = kind === 'video'
 
@@ -69,7 +69,7 @@ export function OwnedMediaPlayer({
   useEffect(() => {
     const node = nodeRef.current
     if (!node || !snapshot) return
-    if (!src) {
+    if (!src || !wantPlay) {
       node.removeAttribute('src')
       node.load()
       return
@@ -94,7 +94,7 @@ export function OwnedMediaPlayer({
     } else if (paused || !owned) {
       node.pause()
     }
-  }, [src, playing, paused, owned, onError, video, snapshot, copy.channelDown])
+  }, [src, playing, paused, owned, onError, video, snapshot, copy.channelDown, wantPlay])
 
   if (!owned || !snapshot) return null
   return (

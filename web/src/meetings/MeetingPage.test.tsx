@@ -38,6 +38,15 @@ vi.mock('../bridge/client', async importOriginal => {
   const actual = await importOriginal<typeof import('../bridge/client')>()
   return {
     ...actual,
+    getCapabilityRolesBridge: () => ({
+      get: () => Promise.resolve({
+        roles: ['chat', 'flash', 'vision', 'embed', 'judge', 'gui'].map(role => ({ role, allowJudgeEqChat: false })),
+        revision: 'a'.repeat(64),
+        appliedRevision: 'a'.repeat(64),
+        state: 'applied',
+      }),
+      set: () => Promise.resolve({ roles: [], revision: 'a'.repeat(64), appliedRevision: 'a'.repeat(64), state: 'applied' }),
+    }),
     getProviderBridge: () => ({
       list: () => Promise.resolve({
         items: [{

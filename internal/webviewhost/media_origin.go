@@ -12,12 +12,13 @@ import (
 )
 
 const (
-	MediaVirtualHost             = "media.lunitide.local"
-	MediaAssetPathPrefix         = "/v1/assets/"
-	MediaResourceFilterURI       = "https://media.lunitide.local/v1/assets/*"
-	MediaResourceContextMedia    = int32(4) // COREWEBVIEW2_WEB_RESOURCE_CONTEXT_MEDIA
-	mediaTicketMinLen            = 16
-	mediaTicketMaxLen            = 64
+	MediaVirtualHost          = "media.lunitide.local"
+	MediaAssetPathPrefix      = "/v1/assets/"
+	MediaResourceFilterURI    = "https://media.lunitide.local/v1/assets/*"
+	MediaResourceContextAll   = int32(0) // COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL
+	MediaResourceContextMedia = int32(4) // COREWEBVIEW2_WEB_RESOURCE_CONTEXT_MEDIA
+	mediaTicketMinLen         = 16
+	mediaTicketMaxLen         = 64
 )
 
 // ParseMediaAssetTicket accepts only https://media.lunitide.local/v1/assets/<token>
@@ -48,6 +49,26 @@ func ParseMediaAssetTicket(raw string) (token string, ok bool) {
 
 // MediaResourceAllowed is COM-free so the origin/context policy can be tested
 // without WebView2. Only the trusted app document may request media context.
+// deliverMediaResponse must Complete and Release the WebView2 request on the
+// UI wait callback. Releasing after wait returns is a COM use-after-free.
+func deliverMediaResponse(wait func(fn func() bool) bool, complete, release func()) {
+	done := false
+	run := func() {
+		if done {
+			return
+		}
+		done = true
+		complete()
+		release()
+	}
+	if !wait(func() bool {
+		run()
+		return true
+	}) {
+		run()
+	}
+}
+
 func MediaResourceAllowed(sourceURL string, resourceContext int32, requestURL string) bool {
 	if resourceContext != MediaResourceContextMedia || !NavigationAllowed(sourceURL) {
 		return false

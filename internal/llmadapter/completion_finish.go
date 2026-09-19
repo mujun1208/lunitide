@@ -7,6 +7,7 @@ type FinishReason string
 const (
 	FinishReasonStop          FinishReason = "stop"
 	FinishReasonLength        FinishReason = "length"
+	FinishReasonWindow        FinishReason = "window"
 	FinishReasonContentFilter FinishReason = "content_filter"
 	FinishReasonToolCalls     FinishReason = "tool_calls"
 	FinishReasonOther         FinishReason = "other"
@@ -19,8 +20,10 @@ func normalizeFinishReason(raw *string) FinishReason {
 	switch *raw {
 	case "stop", "end_turn", "stop_sequence":
 		return FinishReasonStop
-	case "length", "max_tokens", "model_context_window_exceeded":
+	case "length", "max_tokens":
 		return FinishReasonLength
+	case "model_context_window_exceeded":
+		return FinishReasonWindow
 	case "content_filter", "refusal":
 		return FinishReasonContentFilter
 	case "tool_calls", "function_call", "tool_use":
@@ -33,7 +36,7 @@ func normalizeFinishReason(raw *string) FinishReason {
 func (r *Response) recordFinishReason(raw *string) {
 	// Usage-only/empty frames cannot erase a terminal reason. Once explicitly
 	// incomplete, a later conflicting stop must not turn partial text into success.
-	if r.FinishReason == FinishReasonLength || r.FinishReason == FinishReasonContentFilter {
+	if r.FinishReason == FinishReasonLength || r.FinishReason == FinishReasonWindow || r.FinishReason == FinishReasonContentFilter {
 		return
 	}
 	if reason := normalizeFinishReason(raw); reason != "" {

@@ -34,6 +34,11 @@ it('owns exactly one media element for the current asset kind', () => {
   expect(document.querySelectorAll('video')).toHaveLength(1)
 })
 
+it('does not attach a media source until the user plays', () => {
+  render(<OwnedMediaPlayer snapshot={snapshot} src="https://media.lunitide.local/v1/assets/t" kind="audio" wantPlay={false} onEnded={() => {}} onError={() => {}} />)
+  expect(document.querySelector('audio')?.getAttribute('src')).toBeNull()
+})
+
 it('reports native playing and never treats play() as verified', () => {
   const onObserved = vi.fn()
   render(<OwnedMediaPlayer snapshot={snapshot} src="https://media.lunitide.local/v1/assets/t" kind="audio" wantPlay onEnded={() => {}} onError={() => {}} onObserved={onObserved} />)

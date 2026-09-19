@@ -160,7 +160,7 @@ func handleAgentHub(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 		if err != nil {
 			return agentHubFailure(r, err)
 		}
-		return r.Ok(detail)
+		return r.Ok(e.ensureHubSession(ctx, detail))
 	case "agentHub.thread.get":
 		var p struct {
 			ThreadID string `json:"threadId"`
@@ -172,7 +172,7 @@ func handleAgentHub(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 		if err != nil {
 			return agentHubFailure(r, err)
 		}
-		return r.Ok(detail)
+		return r.Ok(e.ensureHubSession(ctx, detail))
 	case "agentHub.thread.list":
 		var p struct {
 			HarnessID string `json:"harnessId"`
@@ -238,6 +238,8 @@ func handleAgentHub(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 		if err != nil {
 			return agentHubFailure(r, err)
 		}
+		detail = e.ensureHubSession(ctx, detail)
+		e.projectHubThread(ctx, detail)
 		return r.Ok(detail)
 	case "agentHub.thread.respond":
 		var p struct {
@@ -253,6 +255,8 @@ func handleAgentHub(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 		if err != nil {
 			return agentHubFailure(r, err)
 		}
+		detail = e.ensureHubSession(ctx, detail)
+		e.projectHubThread(ctx, detail)
 		return r.Ok(detail)
 	case "agentHub.workspace.list":
 		var p struct {

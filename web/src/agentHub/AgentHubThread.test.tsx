@@ -35,6 +35,7 @@ function threadDetail(status: string, extra: {
   workspaceRoot?: string
   files?: { name: string; path: string; size: number; source: string }[]
   tokensUsed?: number
+  sessionId?: string
 } = {}) {
   return {
     thread: {
@@ -56,6 +57,7 @@ function threadDetail(status: string, extra: {
     files: extra.files ?? [],
     prompt: extra.prompt,
     tokensUsed: extra.tokensUsed,
+    sessionId: extra.sessionId,
   }
 }
 
@@ -384,4 +386,18 @@ it('polls thread.get every 4s while idle', async () => {
   expect(vi.mocked(agentHubApi.threadGet).mock.calls.length).toBe(afterLoad)
   await act(async () => { await vi.advanceTimersByTimeAsync(4000) })
   expect(vi.mocked(agentHubApi.threadGet).mock.calls.length).toBeGreaterThan(afterLoad)
+})
+
+it('opens the bound chat session without rewriting Hub as Chat', async () => {
+  stubWorkspace()
+  const seen: string[] = []
+  const onOpen = (event: Event) => {
+    seen.push((event as CustomEvent<{ sessionId?: string }>).detail.sessionId ?? '')
+  }
+  window.addEventListener('lunitide:open-chat-session', onOpen)
+  vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('idle', { sessionId: '01ARZ3NDEKTSV4RRFFQ69G5FAV' }))
+  render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: '在对话中打开' }))
+  window.removeEventListener('lunitide:open-chat-session', onOpen)
+  expect(seen).toEqual(['01ARZ3NDEKTSV4RRFFQ69G5FAV'])
 })

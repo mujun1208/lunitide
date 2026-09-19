@@ -21,7 +21,7 @@ func TestCompletionFinishReasonIsBounded(t *testing.T) {
 		{"stop_sequence", FinishReasonStop},
 		{"length", FinishReasonLength},
 		{"max_tokens", FinishReasonLength},
-		{"model_context_window_exceeded", FinishReasonLength},
+		{"model_context_window_exceeded", FinishReasonWindow},
 		{"content_filter", FinishReasonContentFilter},
 		{"refusal", FinishReasonContentFilter},
 		{"tool_calls", FinishReasonToolCalls},
@@ -42,7 +42,7 @@ func TestCompletionFinishReasonIsBounded(t *testing.T) {
 	if normalizeFinishReason(nil) != "" {
 		t.Fatal("missing reason invented completion")
 	}
-	for _, reason := range []FinishReason{FinishReasonStop, FinishReasonLength, FinishReasonContentFilter} {
+	for _, reason := range []FinishReason{FinishReasonStop, FinishReasonLength, FinishReasonWindow, FinishReasonContentFilter} {
 		out := Response{FinishReason: reason}
 		empty, stop := "", "stop"
 		out.recordFinishReason(nil)

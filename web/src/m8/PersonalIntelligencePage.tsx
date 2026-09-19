@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { getMemoryBridge, type OCRPackBridge, type OCRRoutingBridge, type OCRRunBridge, type ProviderBridge } from '../bridge/client'
+import { MemoryNominationQueue } from '../memory/MemoryNominationQueue'
 import { MemoryPage } from '../memory/MemoryPage'
 import { PrivacyConsole } from './PrivacyConsole'
 import { OCRSettingsPanel } from '../settings/OCRSettingsPanel'
@@ -42,10 +43,11 @@ export function PersonalIntelligencePage({
           <button type="button" className="pi-back" onClick={() => open('overview')}>返回智能能力</button>
           <div>
             <h1>记忆</h1>
-            <p>查看、纠正和忘记已保存记忆。显式保存不会生成待确认横幅。</p>
+            <p>待确认提名先列在上面；确认后才进长期记忆。已保存的记忆可在下面纠正或忘记。</p>
           </div>
           <button type="button" className="ocr-disclose" aria-expanded={privacyOpen} onClick={() => setPrivacyOpen(value => !value)}>隐私</button>
         </header>
+        <section className="pi-panel" aria-label="待确认提名"><MemoryNominationQueue /></section>
         <section className="pi-panel" aria-label="记忆"><MemoryPage /></section>
         {privacyOpen ? <section className="pi-panel" aria-label="隐私"><PrivacyConsole items={getMemoryBridge()} /></section> : null}
       </main>

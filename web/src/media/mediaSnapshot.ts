@@ -17,6 +17,13 @@ export function miniPlayerPhase(page: Page, snapshot: MediaSnapshotDTO | null, s
   return 'hidden'
 }
 
+export function needsPlaybackOpen(snapshot: MediaSnapshotDTO | null, playbackUrl: string | null, openedAssetId: string | null, wantPlay: boolean, openedEpoch?: number | null): boolean {
+  if (!wantPlay || !snapshot || snapshot.origin !== 'owned' || !snapshot.assetId) return false
+  if (snapshot.phase !== 'playing' && snapshot.phase !== 'paused' && snapshot.verificationStatus !== 'command_dispatched') return false
+  if (playbackUrl && openedAssetId === snapshot.assetId && (openedEpoch == null || openedEpoch === snapshot.playbackEpoch)) return false
+  return true
+}
+
 export function formatClock(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000))
   const m = Math.floor(total / 60)

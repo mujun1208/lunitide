@@ -60,6 +60,7 @@ export type AgentHubThreadDetail = {
   files: AgentHubThreadFile[]
   prompt?: AgentHubOpenPrompt | null
   tokensUsed?: number
+  sessionId?: string
 }
 
 export type AgentHubWorkspaceItem = {

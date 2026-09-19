@@ -9,6 +9,7 @@ import{VoicePersonaGrid}from'./VoicePersonaGrid'
 import{filterSettingsNav,SETTINGS_NAV_GROUPS,SETTINGS_CATEGORIES,type SettingsCategory,type SettingsIntelligenceView}from'./settingsNav'
 import{MeetingNotesPanel}from'./MeetingNotesPanel'
 import { OfficeMenuPanel } from './OfficeMenuPanel'
+import { SettingsRunStatus } from './SettingsRunStatus'
 import{REPLY_STYLE_OPTIONS,STRUCTURED_TEMPLATE_OPTIONS}from'./replySettings'
 import{applyLocalEngine,applyVoicePath,defaultCompanionSettings,formatInterruptHotkey,interruptHotkeyFromEvent,loadCompanionSettings,saveCompanionSettings,type CompanionSettings,type InterruptHotkey}from'../session/companion/companionSettings'
 import{setVoicePrewarmPref,voicePrewarmPref,prewarmDefaultForEngine}from'../session/companion/voicePrewarm'
@@ -136,6 +137,7 @@ export function SettingsPage({ onNavigateExpert: _onNavigateExpert, onNavigateMc
     <div className={`settings-shell${embedded ? ' is-embedded' : ''}`}>
       <nav className="settings-nav" aria-label={zh ? '设置导航' : 'Settings'}>
         <button className="settings-back" onClick={onBack}>← {backLabel ?? (zh ? '返回主页' : 'Home')}</button>
+        <SettingsRunStatus />
         <div className="settings-search" role="search">
           <input type="search" placeholder={zh ? '搜索设置…' : 'Search settings…'} aria-label={zh ? '搜索设置' : 'Search settings'} value={search} onChange={e => setSearch(e.target.value)} />
         </div>
@@ -208,7 +210,7 @@ export function SettingsPage({ onNavigateExpert: _onNavigateExpert, onNavigateMc
             <ProjectScopedTabs tabs={[{ id: 'review', label: '审批', render: pid => <ReviewPage projectId={pid} embedded /> }, { id: 'plans', label: '计划', render: pid => <PlanPage projectId={pid} /> }]} />
           </div>}
           {category === 'browser' && <BrowserPanel />}
-          {category === 'computer' && <ComputerPanel />}
+          {category === 'computer' && <ComputerPanel roles={roles} />}
           {category === 'channels' && <ChannelsPanel />}
           {category === 'subagents' && <SubagentsPanel onSaved={() => setSaved(true)} />}
           {category === 'collab' && <CollabGatePanel />}
@@ -558,7 +560,7 @@ function AboutPanel(): React.JSX.Element {
           <div className="moon-logo" aria-hidden="true" />
           <div>
             <h3 style={{ margin: 0, fontFamily: 'var(--serif)', fontSize: '22px' }}>{zh ? '月汐' : 'Lunitide'}</h3>
-            <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '13px' }}>{zh ? '本地优先 · BYOK · AI 软件生命周期工作台' : 'Local-first · BYOK · AI software lifecycle workbench'}</p>
+            <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '13px' }}>{zh ? '这台 Windows 电脑上的本地优先办公助手' : 'A local-first office assistant on this Windows PC'}</p>
           </div>
         </div>
         <dl className="about-info">
@@ -567,7 +569,7 @@ function AboutPanel(): React.JSX.Element {
           <div><dt>{zh ? '运行' : 'Runtime'}</dt><dd>{zh ? '关窗口 ≠ 退出助手，助手在托盘运行' : 'Closing the window keeps the tray assistant'}</dd></div>
         </dl>
         <div className="about-links">
-          <span>{zh ? '产品定位：不只是一个“更好的界面”，而是一个理解项目语义、记得历史、可扩展、能规划、且有治理边界的 AI 开发伙伴。' : 'A local-first AI workbench that keeps project context, history, and governance boundaries — not just a prettier chat box.'}</span>
+          <span>{zh ? '月汐是这台 Windows 电脑上的本地优先办公助手——对话、工具、记忆、办公、语音、审批，在这一台机器上做完。' : 'Lunitide is a local-first office assistant on this Windows PC: chat, tools, memory, office, voice, and approvals, finished on this machine.'}</span>
         </div>
       </div>
     </div>

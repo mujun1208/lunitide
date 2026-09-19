@@ -8,6 +8,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/message"
 	"github.com/lunitide/lunitide/internal/domain/provider"
+	"github.com/lunitide/lunitide/internal/domain/token"
 	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/modelfit"
@@ -485,6 +486,20 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					toolsFallbackUsed = true
 					continue
 				}
+				if streamErr != nil && state != nil && isWindowOverflowError(streamErr) && !state.windowRetried {
+					e.flushMemoryBeforeCompaction(op, sessionID, turn.Goal, assistantText.String())
+					if e.compactionTrigger != nil && e.compactionExecutor != nil {
+						_ = e.TriggerPreTurnCompaction(op, sessionID, p.ID, req.Model, token.CanonicalTokenizerRevision, 128000)
+					}
+					shrinkMessagesForWindowRetry(&req)
+					state.windowRetried = true
+					discardStepText(&assistantText, stepTextStart)
+					if bufferReply {
+						stepReply.Reset()
+					}
+					_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: windowRetryThinkingNotice()}})
+					continue
+				}
 				if streamErr != nil {
 					log.Printf("chat stream %s model_call=%d failed: %s received_text_bytes=%d received_thinking_bytes=%d", id, step+1, chatModelFailureDiagnostic(streamErr), assistantText.Len()-stepTextStart+stepReply.Len(), thinkingText.Len()-stepThinkingStart)
 					if bufferReply && stepReply.Len() > 0 {
@@ -593,6 +608,25 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						}}
 						autoDesktopObserveDone = true
 					}
+				}
+				if len(result.Message.ToolCalls) == 0 && state != nil && shouldWidenAndRetry(widenInput{
+					AlreadyWidened:      state.widened,
+					Goal:                turn.Goal,
+					TaskRoute:           state.taskRoute,
+					AssistantText:       strings.TrimSpace(result.Message.Content + " " + assistantText.String()),
+					SuccessfulTools:     map[bool]int{true: 1}[usedTools],
+					PrevWasToolGoal:     state.prevWasToolGoal,
+					PrevSuccessfulTools: state.prevSuccessfulTools,
+				}) && len(state.fullTools) > 0 {
+					req.Tools = applyWidenedTools(state.fullTools)
+					state.widened = true
+					state.taskRoute = RouteUnspecified
+					discardStepText(&assistantText, stepTextStart)
+					if bufferReply {
+						stepReply.Reset()
+					}
+					_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "改用完整工具面再试一次"}})
+					continue
 				}
 				if mediaTurn && len(result.Message.ToolCalls) == 0 {
 					text := mediaTurnResultSpeech(req.Messages)
@@ -1679,5 +1713,13 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	}
 	if terminal.Type == bridge.EventCompleted && messageID != "" && persistErr == nil {
 		e.enqueueChatMemory(sessionID, turn.Goal, assistantText.String(), messageID, state != nil && state.companion)
+	}
+	if state != nil && state.companion && e.compactionTrigger != nil && e.compactionExecutor != nil {
+		go func() {
+			bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+			defer cancel()
+			e.flushMemoryBeforeCompaction(bg, sessionID, turn.Goal, assistantText.String())
+			_ = e.TriggerPreTurnCompaction(bg, sessionID, p.ID, req.Model, token.CanonicalTokenizerRevision, 128000)
+		}()
 	}
 }
