@@ -19,6 +19,7 @@ var (
 	// machine that already has cursor-agent cannot leak into fixtures.
 	extraPathLook     = extraPathDirs
 	vendorInstallLook = vendorInstallDirs
+	loginProbe        = defaultLoginProbe
 )
 
 func lookWithCommonPaths(name string) (string, error) {
@@ -197,6 +198,12 @@ func detectOne(name string, look LookPath, version VersionRunner) AgentStatus {
 	if name == "kimi" {
 		applyKimiDetect(&st, look, exe)
 	}
+	if (st.State == "available" || st.State == "unknown") && (name == "cursor" || name == "kimi") {
+		if looksLoggedOut(loginProbe(name, exe)) {
+			st.State = "not_logged_in"
+			st.Hint = "已安装但未登录。桌面软件已登录时，请在 Agent Hub 再点一次“连接”完成本机 CLI 授权。"
+		}
+	}
 	return st
 }
 
@@ -230,6 +237,18 @@ func applyCodexDetect(st *AgentStatus, look LookPath) {
 	st.Interactive = false
 	st.Protocol = "exec"
 	st.Hint = codexAvailableHint
+}
+
+func defaultLoginProbe(name, exe string) string {
+	if name != "cursor" && name != "kimi" {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), versionProbeTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, exe, "status")
+	hideVersionCmd(cmd)
+	out, _ := cmd.CombinedOutput()
+	return string(out)
 }
 
 func defaultVersion(exe string, timeout time.Duration) (string, error) {

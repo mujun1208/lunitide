@@ -30,6 +30,16 @@ func TestAgentHubFailureKeepsCursorNodeHint(t *testing.T) {
 	}
 }
 
+func TestAgentHubAuthenticationRequiredMapsToLogin(t *testing.T) {
+	resp := agentHubFailure(validRequest("agentHub.thread.prompt", `{"threadId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","text":"hi"}`), fmt.Errorf("Authentication required"))
+	if resp.OK || resp.Error == nil {
+		t.Fatalf("%#v", resp)
+	}
+	if !strings.Contains(resp.Error.Message, "还没登录") {
+		t.Fatalf("got %q", resp.Error.Message)
+	}
+}
+
 func TestAgentHubEnglishPromptErrorIsNotSwallowed(t *testing.T) {
 	resp := agentHubFailure(validRequest("agentHub.thread.prompt", `{"threadId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","text":"hi"}`), fmt.Errorf("spawn cursor-agent ENOENT"))
 	if resp.OK || resp.Error == nil {

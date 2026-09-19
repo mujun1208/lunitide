@@ -69,9 +69,26 @@ func (e *Engine) dropSettingsMcp(endpointID string) {
 	}
 }
 
+func leftoverPaidOrCredentialMcp(ep m7flow.McpEndpointConfig) bool {
+	blob := strings.ToLower(ep.ArgsJSON + " " + ep.URL + " " + ep.Command)
+	if strings.Contains(ep.URL, "token=") || strings.Contains(ep.URL, "{{credential}}") {
+		return true
+	}
+	for _, marker := range []string{
+		"server-github", "puppeteer", "server-sqlite", "server-gdrive",
+		"mcp.linear.app", "lark-mcp", "server-docker", "docker-mcp",
+		"juhe.cn", "mcp.juhe", "tavily", "firecrawl", "brave-search",
+	} {
+		if strings.Contains(blob, marker) {
+			return true
+		}
+	}
+	return strings.Contains(blob, "server-git") && !strings.Contains(blob, "server-github")
+}
+
 // HydrateMcpGatewayFromSettings loads enabled settings-plane endpoints into
-// the chat registry after a restart. Runs in the background so npx probes
-// never block engine listen.
+// the chat registry after a restart. Paid or leftover credential servers
+// are revoked first. Runs in the background so npx probes never block listen.
 func (e *Engine) HydrateMcpGatewayFromSettings(ctx context.Context) {
 	if e == nil || e.m7mcp == nil || e.mcp6Registry == nil {
 		return
@@ -81,6 +98,20 @@ func (e *Engine) HydrateMcpGatewayFromSettings(ctx context.Context) {
 		log.Printf("mcp gateway hydrate: %v", err)
 		return
 	}
+	kept := eps[:0]
+	for _, ep := range eps {
+		if ep.State == m7flow.McpStateRevoked || !leftoverPaidOrCredentialMcp(ep) {
+			kept = append(kept, ep)
+			continue
+		}
+		if err := e.m7mcp.RevokeGatewayEndpoint(ctx, ep.EndpointID); err != nil {
+			log.Printf("mcp leftover revoke %s: %v", ep.EndpointID, err)
+			kept = append(kept, ep)
+			continue
+		}
+		e.dropSettingsMcp(ep.EndpointID)
+	}
+	eps = kept
 	for _, ep := range eps {
 		if !ep.Enabled || ep.State == m7flow.McpStateRevoked || ep.State == m7flow.McpStateQuarantined {
 			continue

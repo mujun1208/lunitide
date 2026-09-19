@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -68,6 +69,11 @@ func chatModelStreamError(err error) *bridge.StreamError {
 		set("UPSTREAM_CONNECTION_BLOCKED", "模型服务连接被网络安全策略阻止，请检查服务地址", false)
 	case "CANCELLED":
 		set("UPSTREAM_CANCELLED", "模型请求已取消，任务未完成", true)
+	case "TIMEOUT":
+		set("UPSTREAM_TIMEOUT", "模型请求超时，请稍后重试", true)
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		set("UPSTREAM_TIMEOUT", "模型请求超时，请稍后重试", true)
 	}
 	if upstream != nil && upstream.HTTPStatus == 404 {
 		set("UPSTREAM_NOT_FOUND", "模型服务或模型不存在，请检查服务地址和模型名称", false)

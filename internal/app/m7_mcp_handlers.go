@@ -248,7 +248,18 @@ func handleMcpHealth(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 		return r.Fail("STORAGE_UNAVAILABLE", "MCP 服务暂时不可用", true)
 	}
 	res, err := e.m7mcp.Health(ctx, p.EndpointID)
-	if err != nil {
+	if err != nil && !errors.Is(err, m7app.ErrIllegalTransition) {
+		if res.Diagnostic.Code != "" && !errors.Is(err, m7app.ErrMcpNotFound) {
+			return r.Ok(struct {
+				State             string `json:"state"`
+				LatencyMS         int64  `json:"latencyMs"`
+				DriftDetected     bool   `json:"driftDetected"`
+				CapabilityDigest  string `json:"capabilityDigest,omitempty"`
+				CheckedAt         string `json:"checkedAt"`
+				DiagnosticCode    string `json:"diagnosticCode,omitempty"`
+				DiagnosticMessage string `json:"diagnosticMessage,omitempty"`
+			}{res.State, res.LatencyMS, res.DriftDetected, res.CapabilityDigest, res.CheckedAt, res.Diagnostic.Code, res.Diagnostic.Message})
+		}
 		return m7McpFailure(r, err, "mcp.health")
 	}
 	return r.Ok(struct {

@@ -13,6 +13,8 @@ describe('leftoverArchivedMcp', () => {
     expect(leftoverArchivedMcp(['-y', '@modelcontextprotocol/server-gdrive'])).toEqual(['Google Drive'])
     expect(leftoverArchivedMcp(['-y', '@larksuite/lark-mcp'])).toEqual(['飞书'])
     expect(leftoverArchivedMcp(undefined, 'https://mcp.linear.app/mcp')).toEqual(['Linear'])
+    expect(leftoverArchivedMcp(['-y', '@modelcontextprotocol/server-docker'])).toEqual(['Docker'])
+    expect(leftoverArchivedMcp(undefined, 'https://mcp.juhe.cn/sse?token=paid')).toEqual(['聚合查询', '付费凭据'])
   })
 
   test('ignores revoked leftovers so settings stop nagging after MCP-page uninstall', () => {

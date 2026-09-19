@@ -90,6 +90,36 @@ func (e *Engine) mcpToolDefinitions() []llmadapter.ToolDefinition {
 	return defs
 }
 
+func collapseOversizedMcpTools(defs []llmadapter.ToolDefinition) []llmadapter.ToolDefinition {
+	mcpN := 0
+	for _, d := range defs {
+		if strings.HasPrefix(d.Name, mcpToolPrefix) {
+			mcpN++
+		}
+	}
+	if mcpN <= mcpDirectToolCap {
+		return defs
+	}
+	out := make([]llmadapter.ToolDefinition, 0, len(defs))
+	hasSearch, hasCall := false, false
+	for _, d := range defs {
+		if strings.HasPrefix(d.Name, mcpToolPrefix) {
+			continue
+		}
+		switch d.Name {
+		case "mcp.search":
+			hasSearch = true
+		case "mcp.call":
+			hasCall = true
+		}
+		out = append(out, d)
+	}
+	if !hasSearch || !hasCall {
+		out = append(out, mcpGatewayToolDefinitions(mcpN)...)
+	}
+	return out
+}
+
 func mcpGatewayToolDefinitions(n int) []llmadapter.ToolDefinition {
 	return []llmadapter.ToolDefinition{
 		{Name: "mcp.search", Description: fmt.Sprintf("Search the %d connected MCP tools by name or description; then call mcp.call with the returned name", n), Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":200}},"required":["query"],"additionalProperties":false}`)},

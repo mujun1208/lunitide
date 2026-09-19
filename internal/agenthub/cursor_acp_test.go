@@ -17,6 +17,80 @@ import (
 	"unicode/utf8"
 )
 
+func TestCursorACPAuthenticatesBeforeSessionNew(t *testing.T) {
+	store := NewThreadStore(openThreadDB(t))
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAE", "cursor", "Auth", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var methods []string
+	adapter := NewCursorACP(store)
+	adapter.look = func(string) (string, error) { return filepath.Join(thread.WorkspaceRoot, "cursor-agent.exe"), nil }
+	adapter.startPersistent = func(context.Context, ProcSpec) (*PersistentProc, error) {
+		return fakeACPPeer(t, func(msg map[string]any) (any, string) {
+			if method, _ := msg["method"].(string); method != "" {
+				mu.Lock()
+				methods = append(methods, method)
+				mu.Unlock()
+			}
+			switch msg["method"] {
+			case "initialize":
+				return map[string]any{
+					"protocolVersion": 1,
+					"authMethods":     []map[string]any{{"id": "cursor_login"}},
+				}, ""
+			case "authenticate":
+				params, _ := msg["params"].(map[string]any)
+				if params["methodId"] != "cursor_login" {
+					t.Fatalf("authenticate params = %#v", params)
+				}
+				return map[string]any{}, ""
+			case "session/new":
+				return map[string]any{"sessionId": "sess_authed"}, ""
+			case "session/prompt":
+				return map[string]any{"stopReason": "end_turn"}, ""
+			default:
+				return map[string]any{}, ""
+			}
+		}), nil
+	}
+	if err := adapter.Prompt(thread.ID, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(methods)
+		mu.Unlock()
+		if n >= 3 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(methods) < 3 || methods[0] != "initialize" || methods[1] != "authenticate" || methods[2] != "session/new" {
+		t.Fatalf("handshake order = %v", methods)
+	}
+}
+
+func TestACPAuthMethodIDPrefersCursorLogin(t *testing.T) {
+	raw, err := json.Marshal(map[string]any{
+		"authMethods": []map[string]any{{"id": "api-key-auth"}, {"id": "cursor_login"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := acpAuthMethodID(&acpRPC{Result: raw}); got != "cursor_login" {
+		t.Fatalf("got %q", got)
+	}
+	if acpAuthMethodID(&acpRPC{}) != "" {
+		t.Fatal("empty initialize must skip authenticate")
+	}
+}
+
 func TestACPFrameRoundTripHelloFixture(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("testdata", "cursor-acp-hello.jsonl"))
 	if err != nil {

@@ -316,7 +316,7 @@ func (a *CursorACP) handshake(thread ThreadRecord, sess *cursorACPSession) error
 	sess.proc = proc
 	sess.reader = bufio.NewReader(proc.stdout)
 	go sess.pump(a)
-	_, err = sess.call("initialize", map[string]any{
+	initResp, err := sess.call("initialize", map[string]any{
 		"protocolVersion": 1,
 		"clientCapabilities": map[string]any{
 			"fs": map[string]any{"readTextFile": false, "writeTextFile": false},
@@ -324,6 +324,10 @@ func (a *CursorACP) handshake(thread ThreadRecord, sess *cursorACPSession) error
 		"clientInfo": map[string]any{"name": "lunitide", "version": "0.1.0"},
 	})
 	if err != nil {
+		a.fault(thread.ID, proc, sess, err)
+		return err
+	}
+	if err = acpAuthenticateIfNeeded(sess.call, initResp); err != nil {
 		a.fault(thread.ID, proc, sess, err)
 		return err
 	}
@@ -426,7 +430,7 @@ func waitACPReply(method string, ch <-chan *acpRPC, done func(*acpRPC, error)) {
 		done(resp, nil)
 	}
 	switch method {
-	case "initialize", "session/new", "session/load":
+	case "initialize", "authenticate", "session/new", "session/load":
 		timer := time.NewTimer(20 * time.Second)
 		defer timer.Stop()
 		select {

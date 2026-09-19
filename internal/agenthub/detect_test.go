@@ -11,6 +11,30 @@ import (
 	"time"
 )
 
+func init() {
+	loginProbe = func(string, string) string { return "" }
+}
+
+func TestDetectCursorStatusNotLoggedIn(t *testing.T) {
+	prev := loginProbe
+	loginProbe = func(name, _ string) string {
+		if name != "cursor" {
+			return ""
+		}
+		return "Not logged in"
+	}
+	t.Cleanup(func() { loginProbe = prev })
+	st := detectOne("cursor", func(string) (string, error) { return `C:\cursor-agent.exe`, nil }, func(string, time.Duration) (string, error) {
+		return "2026.09.10-fd3934a", nil
+	})
+	if st.State != "not_logged_in" {
+		t.Fatalf("version-only detect must not look connected: %+v", st)
+	}
+	if !strings.Contains(st.Hint, "未登录") {
+		t.Fatalf("hint = %q", st.Hint)
+	}
+}
+
 func TestDetectMissing(t *testing.T) {
 	st := DetectAll(func(string) (string, error) { return "", exec.ErrNotFound }, nil)
 	if len(st) != 3 || st[0].State != "not_installed" {

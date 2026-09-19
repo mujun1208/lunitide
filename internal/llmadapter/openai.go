@@ -231,7 +231,7 @@ func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool
 			err = compatibleJSON(resp.Body, &out)
 			resp.Body.Close()
 			if err != nil {
-				return Response{}, err
+				return Response{}, safeError("MALFORMED_RESPONSE", StageDecode, resp.StatusCode, "upstream returned invalid json")
 			}
 			if len(out.Choices) == 0 {
 				return Response{}, safeError("MALFORMED_RESPONSE", StageDecode, resp.StatusCode, "upstream success omitted choices")
@@ -323,7 +323,7 @@ func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error, wn *wire
 		}
 		var chunk openAIResponse
 		if e := compatibleJSON(strings.NewReader(data), &chunk); e != nil {
-			return out, e
+			return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "upstream returned invalid json")
 		}
 		if !validUsage(usageCount(chunk.Usage.Prompt), chunk.Usage.Completion, chunk.Usage.Total) {
 			return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "upstream returned invalid usage")
