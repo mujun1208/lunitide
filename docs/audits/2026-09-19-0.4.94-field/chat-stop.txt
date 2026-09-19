@@ -1,0 +1,1 @@
+﻿sawStop=False afterHasStop=False

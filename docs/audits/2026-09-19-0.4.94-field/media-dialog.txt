@@ -1,0 +1,2 @@
+﻿afterDialogConfirm host=True
+afterPlay host=True

@@ -1,0 +1,26 @@
+﻿hubHost=True openInChat=False sample=收起左侧栏
+Chat
+Work
+＋  新对话Ctrl N
+历史对话 全部 Agent 的会话
+打开 Codex
+连接 Codex
+打开 Cursor
+连接 Cursor
+打开 Kimi
+连接 Kimi
+项目
+项目管理
+技能中心
+专家中心
+MCP
+插件
+资产管理
+设置
+打开我的资料
+切换到白天模式
+切换到英文
+添加上下文
+权限
+任务类型
+

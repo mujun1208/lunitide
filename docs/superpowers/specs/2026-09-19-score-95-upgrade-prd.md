@@ -1,10 +1,10 @@
 # 月汐本职 9.5–10 分升级 PRD
 
 日期：2026-09-19  
-状态：源码工作包已写入 `0.4.94`（含 WP0 媒体 COM、WP1 设置灯、WP8 Recover/扫描、WP4 提名列表）。本职 9.5 **未到**：须签名安装含 WP0 的 Host，并跑场验矩阵全绿；P3 14 天 soak / 本机 CGO race 不能在本会话报 10。复核纠正仍有效：WP3 只对窗口溢出重试，`length`/`max_tokens` 保持 fail-closed；WP8 不重复 reconcile、不自动解封 MCP。已装 0.4.93 Host 仍不含媒体 COM 修复。  
+状态：`0.4.94` 已签名安装。本机场验大半绿（见 `2026-09-19-score-95-field-matrix.md`）。已装本职约 **9.0**，综合均权约 **8.7**。本职 9.5 **未到**：已装 Host 仍钉 Chat 迷你条（源码已隐藏）、打开记事本未专跑、Cursor Hub 新建要登录。P3 14 天 soak / 本机 CGO race 不能报 10。复核纠正仍有效：WP3 只对窗口溢出重试；WP8 不重复 reconcile、不自动解封 MCP。  
 产品：月汐（Lunitide）Go Engine + Windows WebView2 Host + React renderer + SQLite  
 对照报告：Cursor 画布 `lunitide-peer-10-score.canvas.tsx`（2026-09-19 十三维打分）  
-现码基线：`VERSION` = `0.4.94`（待签）  
+现码基线：`VERSION` = `0.4.95`（源码已藏 Chat 迷你条；已装仍是 `0.4.94` Host `5acd8668…4140`，装新包前红框还在）  
 冻结原则：**不换核、不扩面、不抄五家岗位。** 继续 ADR-001 三层；内核永远 SQLite；记忆晋升永远要人确认；Agent Hub 永远是 PATH 子代理，不是第二套大脑。
 
 本文件是「把 13 维全部做到本职 9.5–10」的**唯一事实源**：尺子、每维 9.5/10 定义、工作包、文件、失败行为、验收、禁做项。画布里的 wave-1 `AFTER`（均权约 8.4、本职 8.8–9.2）是第一波可达值；**本 PRD 是收口程序**，每维按下面的本职定义验收到 ≥9.5。

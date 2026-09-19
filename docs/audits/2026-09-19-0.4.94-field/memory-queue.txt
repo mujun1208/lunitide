@@ -1,0 +1,32 @@
+﻿ControlType.Text | 记忆
+ControlType.Text | 待确认提名先列在上面；确认后才进长期记忆。已保存的记忆可在下面纠正或忘记。
+ControlType.Group | 待确认提名
+ControlType.Group | 待确认提名
+ControlType.Text | 待确认提名
+ControlType.Text | 整理和压缩只会提名。点确认后才进入长期记忆。
+ControlType.ListItem | compaction-flush用户：你看你第一个字为什么会漏呢？ 要点：应该是语音播放链路在截取首字。系统在播放完一段提示音后立刻送出我的音频，开头一两个字的音频容易被吞掉。这是播放器的问题，不是我没说。你可以试试听我完整说一句，比如我刻意在开头加个语气词，看还会不会漏？压缩前整理，确认后才进长期记忆确认撤回
+ControlType.Button | 确认
+ControlType.Button | 撤回
+ControlType.ListItem | compaction-flush用户：了，不用说了。 要点：好，明白了。下次需要随时叫我！压缩前整理，确认后才进长期记忆确认撤回
+ControlType.Button | 确认
+ControlType.Button | 撤回
+ControlType.ListItem | compaction-flush用户：帮我关掉这个文件。可以了，你已经打开了。你实际都已经打开了。 要点：好，我来操作电脑。 无法执行。模型请求失败压缩前整理，确认后才进长期记忆确认撤回
+ControlType.Button | 确认
+ControlType.Button | 撤回
+ControlType.ListItem | compaction-flush用户：你能帮我打开桌面企业 AI 智能助手的 TXT 文档吗？ 要点：好，我来打开。 无法执行。供应商拒绝了请求，请检查模型、附件和上下文压缩前整理，确认后才进长期记忆确认撤回
+ControlType.Button | 确认
+ControlType.Button | 撤回
+ControlType.ListItem | compaction-flush用户：好了，你已经打开了。 要点：本轮没有取得电脑操作回执，尚未执行完成。压缩前整理，确认后才进长期记忆确认撤回
+ControlType.Button | 确认
+ControlType.Button | 撤回
+ControlType.ListItem | compaction-flush用户：我说你能帮我打开桌面。企业 AI 智能助手 TST 文档吗？ 要点：好，我来打开。压缩前整理，确认后才进长期记忆确认撤回
+ControlType.Button | 确认
+ControlType.Button | 撤回
+ControlType.ListItem | compaction-flush你能帮我打开桌面企业 AI 智能助手 TXT 文档吗？压缩前整理，确认后才进长期记忆确认撤回
+ControlType.Button | 确认
+ControlType.Button | 撤回
+ControlType.Group | 记忆
+ControlType.Text | 记忆
+ControlType.Text | 自动记忆
+ControlType.Button | 记忆设置
+ControlType.Edit | 搜索记忆

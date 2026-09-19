@@ -1,0 +1,36 @@
+﻿收起左侧栏
+Chat
+Work
+＋  新对话Ctrl N
+历史对话 全部 Agent 的会话
+打开 Codex
+连接 Codex
+打开 Cursor
+连接 Cursor
+打开 Kimi
+连接 Kimi
+项目
+项目管理
+技能中心
+专家中心
+MCP
+插件
+资产管理
+设置
+打开我的资料
+切换到白天模式
+切换到英文
+只回复 ok，不要改文件 Cursor · faulted
+你可以帮我写代码吗？ Cursor · faulted
+你可以帮我写代码吗？ Cursor · faulted
+你能帮我做什么 Codex · success
+你能帮我找代码问题？ Cursor · faulted
+你能帮我找代码问题？ Cursor · faulted
+你能帮我做什么 Cursor · faulted
+你能帮我做什么 Codex · success
+你能帮我做什么 Cursor · faulted
+你能帮我做什么 Cursor · faulted
+今天上海的天气？ Kimi · success
+你可以帮我做什么 Kimi · success
+您看可以帮我做什么 Kimi · success
+你可以帮我做什么 Kimi · faulted
