@@ -295,7 +295,7 @@ func companionGoalIsOpenOnly(text string) bool {
 	if !open {
 		return false
 	}
-	if websiteFirstResultGoal(t) || strings.Contains(t, "网站") || strings.Contains(t, "网页") || strings.Contains(t, "浏览器") {
+	if websiteFirstResultGoal(t) {
 		return false
 	}
 	for _, follow := range []string{
@@ -303,7 +303,7 @@ func companionGoalIsOpenOnly(text string) bool {
 		"输入",
 		"写入", "写上", "写一", "写进", "写好", "帮我写", "然后写", "并写",
 		"播放", "播一",
-		"点击", "点开", "点一下", "点保存", "点确定",
+		"点击", "点开", "点一下", "点保存", "点确定", "点登", "登录",
 		"搜索", "搜一", "查",
 		"发消息", "发送", "提交", "保存", "生成", "制作", "编辑",
 		"下载", "上传", "关闭", "退出", "朗读",
