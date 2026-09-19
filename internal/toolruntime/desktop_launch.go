@@ -135,11 +135,13 @@ var knownLaunchApps = []knownLaunchApp{
 var launchOpenPrefix = regexp.MustCompile(`^(?:你)?(?:请)?(?:可以)?(?:帮我)?(?:给我)?(?:把开了?|打开了?|打开|启动|运行)`)
 var desktopLocPrefix = regexp.MustCompile(`^(?:一下)?(?:的)?(?:桌面上的|桌面的|桌面上|桌面里的|桌面里)`)
 var desktopDocSuffix = regexp.MustCompile(`(?:的)?(?:文档|文件|图片|照片)$`)
-var desktopExtSpokenSuffix = regexp.MustCompile(`(?i)(?:的)?(?:txt|docx?|xlsx?|pptx?|pdf)(?:文件|文档)?$`)
+var desktopExtSpokenWord = regexp.MustCompile(`(?i)(?:的)?(?:txt|docx?|xlsx?|pptx?|pdf)(?:文件|文档)$`)
+var desktopExtBareSpoken = regexp.MustCompile(`(?i)(?:txt|docx?|xlsx?|pptx?|pdf)$`)
 var desktopBookMarks = strings.NewReplacer("《", "", "》", "", "〈", "", "〉", "", "「", "", "」", "", "『", "", "』", "", "“", "", "”", "", "\"", "", "'", "")
 
 // NormalizeDesktopNameQuery strips voice wrappers (book titles, ASR commas,
-// spoken "txt文件") so desktop scoring can see the real stem.
+// spoken "txt文件") so desktop scoring can see the real stem. A real ".txt"
+// suffix stays; only a glued spoken extension without a dot is removed.
 func NormalizeDesktopNameQuery(query string) string {
 	q := desktopBookMarks.Replace(strings.TrimSpace(query))
 	q = strings.Map(func(r rune) rune {
@@ -152,8 +154,11 @@ func NormalizeDesktopNameQuery(query string) string {
 		}
 		return r
 	}, q)
-	q = desktopExtSpokenSuffix.ReplaceAllString(q, "")
-	return strings.Trim(q, "的.。")
+	q = desktopExtSpokenWord.ReplaceAllString(q, "")
+	if !strings.Contains(q, ".") {
+		q = desktopExtBareSpoken.ReplaceAllString(q, "")
+	}
+	return strings.Trim(q, "的。")
 }
 
 func foldLaunchQuery(raw string) string {
