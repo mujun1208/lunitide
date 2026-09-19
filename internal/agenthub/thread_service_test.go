@@ -232,6 +232,7 @@ func TestUpdateThreadPersistsWorkspaceExportAndScene(t *testing.T) {
 
 func TestUpdateThreadClosesCachedCursorSessionOnWorkspaceChange(t *testing.T) {
 	s := testThreadService(t)
+	s.Look = func(string) (string, error) { return "", os.ErrNotExist }
 	created, err := s.CreateThread(ThreadCreateRequest{HarnessID: "cursor", Scene: "free", Title: "目录"})
 	if err != nil {
 		t.Fatal(err)

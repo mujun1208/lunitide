@@ -301,7 +301,7 @@ func (a *KimiACP) handshake(thread ThreadRecord, sess *kimiACPSession) error {
 	sess.proc = proc
 	sess.reader = bufio.NewReader(proc.stdout)
 	go sess.pump(a)
-	_, err = sess.call("initialize", map[string]any{
+	initResp, err := sess.call("initialize", map[string]any{
 		"protocolVersion": 1,
 		"clientCapabilities": map[string]any{
 			"fs": map[string]any{"readTextFile": false, "writeTextFile": false},
@@ -309,6 +309,10 @@ func (a *KimiACP) handshake(thread ThreadRecord, sess *kimiACPSession) error {
 		"clientInfo": map[string]any{"name": "lunitide", "version": "0.1.0"},
 	})
 	if err != nil {
+		a.fault(thread.ID, proc, sess, err)
+		return err
+	}
+	if err = acpAuthenticateIfNeeded(sess.call, initResp); err != nil {
 		a.fault(thread.ID, proc, sess, err)
 		return err
 	}

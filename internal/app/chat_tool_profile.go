@@ -188,7 +188,7 @@ func (e *Engine) chatTurnToolDefinitions(b chatTurnToolBuild) []llmadapter.ToolD
 	if b.Companion {
 		tools = filterCompanionDefaultTools(tools)
 	}
-	return filterDeliverableDraft(tools, b.ProjectPhase, b.Companion)
+	return collapseOversizedMcpTools(filterDeliverableDraft(tools, b.ProjectPhase, b.Companion))
 }
 
 func filterDeliverableDraft(tools []llmadapter.ToolDefinition, phase int, companion bool) []llmadapter.ToolDefinition {

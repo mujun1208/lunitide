@@ -6,6 +6,13 @@ const ARCHIVED: Array<{ marker: string; label: string }> = [
   { marker: 'server-gdrive', label: 'Google Drive' },
   { marker: 'mcp.linear.app', label: 'Linear' },
   { marker: 'lark-mcp', label: '飞书' },
+  { marker: 'server-docker', label: 'Docker' },
+  { marker: 'docker-mcp', label: 'Docker' },
+  { marker: 'juhe.cn', label: '聚合查询' },
+  { marker: 'mcp.juhe', label: '聚合查询' },
+  { marker: 'tavily', label: 'Tavily' },
+  { marker: 'firecrawl', label: 'Firecrawl' },
+  { marker: 'brave-search', label: 'Brave Search' },
 ]
 // Playwright (@playwright/mcp) is the current browser.act backend, not leftover.
 
@@ -17,8 +24,9 @@ export function leftoverArchivedMcp(args: readonly string[] | undefined, url?: s
       if (blob.includes('server-git') && !blob.includes('server-github')) hits.push(item.label)
       continue
     }
-    if (blob.includes(item.marker)) hits.push(item.label)
+    if (blob.includes(item.marker) && !hits.includes(item.label)) hits.push(item.label)
   }
+  if (/token=|{{credential}}/i.test(blob) && !hits.includes('付费凭据')) hits.push('付费凭据')
   return hits
 }
 

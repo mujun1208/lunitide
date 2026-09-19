@@ -419,30 +419,16 @@ func (s *McpRuntimeService) Health(ctx context.Context, endpointID string) (Heal
 		}
 		result.State = next
 		err = s.uow.TransactMcp(ctx, func(tx McpTx) error {
-			current, readErr := tx.GetMcpEndpoint(ep.EndpointID)
-			if readErr != nil {
-				return readErr
-			}
-			if current.State != ep.State || canonicalMcpTarget(current) != canonicalMcpTarget(ep) {
-				return ErrIllegalTransition
-			}
-			return tx.UpdateMcpEndpointState(ep.EndpointID, ep.State, next, nil, now)
+			return applyMcpHealthState(tx, ep, next, nil, now)
 		})
-		return result, err
+		return result, ignoreMcpHealthRace(err)
 	}
 	// drift: pinned digest recorded at first ready; mismatch quarantines
 	if ep.PinnedDigest != "" && ep.PinnedDigest != digest {
 		result.State = m7flow.McpStateQuarantined
 		result.DriftDetected = true
 		err = s.uow.TransactMcp(ctx, func(tx McpTx) error {
-			current, readErr := tx.GetMcpEndpoint(ep.EndpointID)
-			if readErr != nil {
-				return readErr
-			}
-			if current.State != ep.State || canonicalMcpTarget(current) != canonicalMcpTarget(ep) {
-				return ErrIllegalTransition
-			}
-			if err := tx.UpdateMcpEndpointState(ep.EndpointID, ep.State, m7flow.McpStateQuarantined, &digest, now); err != nil {
+			if err := applyMcpHealthState(tx, ep, m7flow.McpStateQuarantined, &digest, now); err != nil {
 				return err
 			}
 			_, aerr := tx.AppendAuditEvent(audit.Event{
@@ -453,7 +439,7 @@ func (s *McpRuntimeService) Health(ctx context.Context, endpointID string) (Heal
 			})
 			return aerr
 		})
-		return result, err
+		return result, ignoreMcpHealthRace(err)
 	}
 	result.State = m7flow.McpStateReady
 	pin := digest
@@ -461,16 +447,39 @@ func (s *McpRuntimeService) Health(ctx context.Context, endpointID string) (Heal
 		pin = ep.PinnedDigest
 	}
 	err = s.uow.TransactMcp(ctx, func(tx McpTx) error {
-		current, readErr := tx.GetMcpEndpoint(ep.EndpointID)
-		if readErr != nil {
-			return readErr
-		}
-		if current.State != ep.State || canonicalMcpTarget(current) != canonicalMcpTarget(ep) {
-			return ErrIllegalTransition
-		}
-		return tx.UpdateMcpEndpointState(ep.EndpointID, ep.State, m7flow.McpStateReady, &pin, now)
+		return applyMcpHealthState(tx, ep, m7flow.McpStateReady, &pin, now)
 	})
-	return result, err
+	return result, ignoreMcpHealthRace(err)
+}
+
+// applyMcpHealthState writes the probe outcome from the committed row, not
+// the stale snapshot taken before Probe. A concurrent hydrate/reconnect
+// that already recorded the same class of outcome must not fail the RPC.
+func applyMcpHealthState(tx McpTx, observed m7flow.McpEndpointConfig, next string, digest *string, now time.Time) error {
+	current, err := tx.GetMcpEndpoint(observed.EndpointID)
+	if err != nil {
+		return err
+	}
+	if canonicalMcpTarget(current) != canonicalMcpTarget(observed) {
+		return ErrIllegalTransition
+	}
+	if current.State == m7flow.McpStateRevoked {
+		return fmt.Errorf("%w: revoked", ErrMcpNotFound)
+	}
+	if current.State == m7flow.McpStateQuarantined && next == m7flow.McpStateDegraded {
+		next = m7flow.McpStateQuarantined
+	}
+	if !m7flow.McpTransitionAllowed(current.State, next) {
+		return nil
+	}
+	return tx.UpdateMcpEndpointState(observed.EndpointID, current.State, next, digest, now)
+}
+
+func ignoreMcpHealthRace(err error) error {
+	if errors.Is(err, ErrIllegalTransition) {
+		return nil
+	}
+	return err
 }
 
 // ── mcp.market.search ───────────────────────────────────────────────────────

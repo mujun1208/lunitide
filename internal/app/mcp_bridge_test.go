@@ -9,6 +9,21 @@ import (
 	"github.com/lunitide/lunitide/internal/modelfit"
 )
 
+func TestLeftoverPaidOrCredentialMcp(t *testing.T) {
+	if leftoverPaidOrCredentialMcp(m7flow.McpEndpointConfig{ArgsJSON: `["-y","@playwright/mcp"]`}) {
+		t.Fatal("playwright is the current browser backend")
+	}
+	if leftoverPaidOrCredentialMcp(m7flow.McpEndpointConfig{ArgsJSON: `["-y","@modelcontextprotocol/server-memory"]`}) {
+		t.Fatal("memory kit must stay")
+	}
+	if !leftoverPaidOrCredentialMcp(m7flow.McpEndpointConfig{ArgsJSON: `["-y","@modelcontextprotocol/server-docker"]`}) {
+		t.Fatal("docker leftover")
+	}
+	if !leftoverPaidOrCredentialMcp(m7flow.McpEndpointConfig{URL: "https://mcp.juhe.cn/sse?token=paid"}) {
+		t.Fatal("paid juhe token")
+	}
+}
+
 func TestChatMcpEndpointIDStripsSettingsPrefix(t *testing.T) {
 	const ulid = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	if got := chatMcpEndpointID("mcp-" + ulid); got != ulid {

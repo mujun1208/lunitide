@@ -537,6 +537,18 @@ func TestEngineToolDefinitionsIncludeBrowserAct(t *testing.T) {
 	}
 }
 
+func TestCollapseOversizedMcpToolsAfterMerge(t *testing.T) {
+	defs := make([]llmadapter.ToolDefinition, 0, mcpDirectToolCap+3)
+	defs = append(defs, llmadapter.ToolDefinition{Name: "desktop.open"})
+	for i := 0; i < mcpDirectToolCap+1; i++ {
+		defs = append(defs, llmadapter.ToolDefinition{Name: mcpToolPrefix + "tool_" + string(rune('a'+i))})
+	}
+	got := collapseOversizedMcpTools(defs)
+	if len(got) != 3 || got[0].Name != "desktop.open" || got[1].Name != "mcp.search" || got[2].Name != "mcp.call" {
+		t.Fatalf("want desktop + gateway, got %+v", got)
+	}
+}
+
 func TestMcpToolDefinitionsSwitchToSearchWhenCatalogIsLarge(t *testing.T) {
 	digests := map[string]string{}
 	schemas := map[string]mcp6.ToolSchema{}

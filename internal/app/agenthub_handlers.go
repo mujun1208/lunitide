@@ -440,6 +440,8 @@ func mapAgentHubEnglish(msg string) string {
 		return "对话没发出去：Agent 启动或握手超时，请再试一次。"
 	case strings.Contains(lower, "spawn"), strings.Contains(lower, "exec format"):
 		return "对话没发出去：Agent 程序无法启动。"
+	case strings.Contains(lower, "authentication required"), strings.Contains(lower, "not logged"), strings.Contains(lower, "unauthenticated"):
+		return "对话没发出去：Cursor CLI 还没登录。桌面 Cursor 已登录时，请在 Agent Hub 点一次“连接”完成 CLI 授权，不要只看“已连接”。"
 	}
 	return ""
 }
