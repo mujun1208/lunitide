@@ -1,6 +1,6 @@
 // MCP stdio transport (M6-MCP-004 gate opened 2026-08-16): one isolated
-// child process per session, newline-delimited JSON-RPC 2.0 over the
-// pipes, then the whole tree is killed. The child runs under the 5B/5C
+// child process per session, Content-Length JSON-RPC 2.0 (with newline JSON
+// accepted on read) over the pipes, then the whole tree is killed. The child runs under the 5B/5C
 // spawn engine (fresh Job Object, explicit environment block, process /
 // commit quotas), so a hostile server cannot escape its process envelope
 // or inherit host secrets. Command admission is the registry's job
@@ -57,7 +57,7 @@ type StdioSession struct {
 	stderr   *os.File
 	proc     *stdioworker.IsolatedProc
 	stdin    *bufio.Writer
-	stdout   *bufio.Scanner
+	stdout   *bufio.Reader
 	nextID   atomic.Int64
 	identity string
 }
@@ -183,9 +183,8 @@ func StdioDial(ctx context.Context, command string, args []string, workDir strin
 		stderr: stderrRead,
 		proc:   proc,
 		stdin:  bufio.NewWriter(proc.Stdin()),
-		stdout: bufio.NewScanner(proc.Stdout()),
+		stdout: bufio.NewReaderSize(proc.Stdout(), 64*1024),
 	}
-	s.stdout.Buffer(make([]byte, 64*1024), StdioMaxLineBytes)
 	hctx, cancel := context.WithTimeout(ctx, stdioHandshakeBudget(ctx))
 	defer cancel()
 	if err := s.initialize(hctx); err != nil {
@@ -213,13 +212,7 @@ type jsonrpcError struct {
 
 // initialize performs the MCP initialize handshake.
 func (s *StdioSession) initialize(ctx context.Context) error {
-	var answer struct {
-		ProtocolVersion string `json:"protocolVersion"`
-		ServerInfo      struct {
-			Name    string `json:"name"`
-			Version string `json:"version"`
-		} `json:"serverInfo"`
-	}
+	var answer mcpInitializeResult
 	if err := s.roundtrip(ctx, "initialize", map[string]any{
 		"protocolVersion": StdioProtocolVersion,
 		"capabilities":    map[string]any{},
@@ -227,13 +220,17 @@ func (s *StdioSession) initialize(ctx context.Context) error {
 	}, &answer); err != nil {
 		return err
 	}
-	if !stdioProtocolSupported(answer.ProtocolVersion) || !stdioIdentityOK(answer.ServerInfo.Name, answer.ServerInfo.Version) {
+	name, version, protocol := answer.name(), answer.version(), answer.protocol()
+	if !stdioProtocolSupported(protocol) || !stdioIdentityOK(name, version) {
 		return fmt.Errorf("%w: unsupported protocol or missing server identity", ErrStdioProtocol)
 	}
-	if strings.TrimSpace(answer.ServerInfo.Version) == "" {
-		answer.ServerInfo.Version = "0"
+	if version == "" {
+		version = "0"
 	}
-	identity, _ := json.Marshal(answer)
+	identity, _ := json.Marshal(map[string]any{
+		"protocolVersion": protocol,
+		"serverInfo":      map[string]any{"name": name, "version": version},
+	})
 	s.identity = string(identity)
 	// notifications/initialized carries no id and expects no answer.
 	return s.notify("notifications/initialized")
@@ -331,12 +328,8 @@ func (s *StdioSession) roundtrip(ctx context.Context, method string, params any,
 	}
 	done := make(chan error, 1)
 	go func() {
-		if _, err := s.stdin.Write(append(line, '\n')); err != nil {
+		if err := writeJSONRPCFrame(s.stdin, line); err != nil {
 			done <- fmt.Errorf("%w: write %s: %w", ErrStdioProtocol, method, err)
-			return
-		}
-		if err := s.stdin.Flush(); err != nil {
-			done <- fmt.Errorf("%w: flush %s: %w", ErrStdioProtocol, method, err)
 			return
 		}
 		done <- s.readResponse(id, method, into)
@@ -361,10 +354,10 @@ func (s *StdioSession) notify(method string) error {
 	if err != nil {
 		return fmt.Errorf("%w: notify marshal: %v", ErrStdioProtocol, err)
 	}
-	if _, err := s.stdin.Write(append(line, '\n')); err != nil {
+	if err := writeJSONRPCFrame(s.stdin, line); err != nil {
 		return fmt.Errorf("%w: notify write: %v", ErrStdioProtocol, err)
 	}
-	return s.stdin.Flush()
+	return nil
 }
 
 // Close kills the whole process tree and releases the handles.
@@ -382,8 +375,8 @@ func (s *StdioSession) Close() {
 // A server selects a version it implements; old installed servers may reply
 // 2024-11-05 instead of echoing our preferred version.
 func stdioProtocolSupported(version string) bool {
-	switch version {
-	case "2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25", "2026-07-28":
+	switch strings.TrimSpace(version) {
+	case "", "2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25", "2026-07-28":
 		return true
 	default:
 		return false
@@ -393,16 +386,20 @@ func stdioProtocolSupported(version string) bool {
 func stdioIdentityOK(name, version string) bool {
 	name = strings.TrimSpace(name)
 	version = strings.TrimSpace(version)
-	return name != "" && len(name) <= 512 && len(version) <= 128
+	if name == "" {
+		name = "mcp"
+	}
+	return len(name) <= 512 && len(version) <= 128
 }
 
 func (s *StdioSession) readResponse(id int64, method string, into any) error {
 	var ancillaryBytes int
 	for frames := 0; frames < 257; {
-		if !s.stdout.Scan() {
+		raw, err := readJSONRPCFrame(s.stdout)
+		if err != nil {
 			return fmt.Errorf("%w: read %s: stream closed", ErrStdioProtocol, method)
 		}
-		raw := bytes.TrimSpace(s.stdout.Bytes())
+		raw = bytes.TrimSpace(raw)
 		if len(raw) == 0 {
 			continue
 		}
@@ -446,16 +443,12 @@ func (s *StdioSession) readResponse(id int64, method string, into any) error {
 				reply["error"] = jsonrpcError{Code: -32601, Message: "Method not supported by this client"}
 			}
 			data, _ := json.Marshal(reply)
-			if _, err := s.stdin.Write(append(data, '\n')); err != nil {
+			if err := writeJSONRPCFrame(s.stdin, data); err != nil {
 				return fmt.Errorf("%w: reply write", ErrStdioProtocol)
-			}
-			if err := s.stdin.Flush(); err != nil {
-				return fmt.Errorf("%w: reply flush", ErrStdioProtocol)
 			}
 			continue
 		}
-		var responseID int64
-		if len(env.ID) == 0 || string(env.ID) == "null" || json.Unmarshal(env.ID, &responseID) != nil || responseID != id {
+		if !jsonRPCIDMatches(env.ID, id) {
 			return fmt.Errorf("%w: %s id mismatch", ErrStdioProtocol, method)
 		}
 		if env.Error != nil {

@@ -7,7 +7,7 @@ afterEach(() => {
   cleanup()
 })
 
-it('shows Work / AgentHub and calls onAgents without setting a personal target', () => {
+it('shows Chat / Work and calls onAgents without setting a personal target', () => {
   const onLunitide = vi.fn()
   const onAgents = vi.fn()
   const onToggleDrawer = vi.fn()
@@ -16,15 +16,15 @@ it('shows Work / AgentHub and calls onAgents without setting a personal target',
       <AgentHubShellSwitch mode="lunitide" onLunitide={onLunitide} onAgents={onAgents} onToggleDrawer={onToggleDrawer} drawerOpen />
     </LanguageProvider>,
   )
-  expect(screen.getByRole('group', { name: 'Work / AgentHub' })).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'AgentHub' }))
+  expect(screen.getByRole('group', { name: 'Chat / Work' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Work' }))
   expect(onAgents).toHaveBeenCalledTimes(1)
   expect(onLunitide).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: '收起左侧栏' }))
   expect(onToggleDrawer).toHaveBeenCalledTimes(1)
 })
 
-it('shows Work / AgentHub and calls onLunitide from the agentHub mode', () => {
+it('shows Chat / Work and calls onLunitide from the agentHub mode', () => {
   const onLunitide = vi.fn()
   const onAgents = vi.fn()
   render(
@@ -32,8 +32,8 @@ it('shows Work / AgentHub and calls onLunitide from the agentHub mode', () => {
       <AgentHubShellSwitch mode="agentHub" onLunitide={onLunitide} onAgents={onAgents} />
     </LanguageProvider>,
   )
-  expect(screen.getByRole('group', { name: 'Work / AgentHub' })).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Work' }))
+  expect(screen.getByRole('group', { name: 'Chat / Work' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Chat' }))
   expect(onLunitide).toHaveBeenCalledTimes(1)
   expect(onAgents).not.toHaveBeenCalled()
 })

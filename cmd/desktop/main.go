@@ -337,7 +337,7 @@ func run() error {
 	conversationsHandler := conversationsapp.NewHostHandler()
 	desktopFilesHandler := desktopfiles.New()
 	mediaPlayer := &mediahost.Player{Engine: client, WindowInstanceID: "desktop-main"}
-	mediaPickHandler := &mediahost.Handler{Pick: desktopFilesHandler.Pick, Engine: client, Player: mediaPlayer}
+	mediaPickHandler := &mediahost.Handler{Pick: desktopFilesHandler.Pick, PickMedia: desktopfiles.PickMedia, Engine: client, Player: mediaPlayer}
 	gateway, err := hostbridge.New(webviewhost.TrustedOrigin, client, map[bridge.Method]hostbridge.Handler{
 		bridge.MethodBrowserOpen:                 browserManager,
 		bridge.Method("diagram.render"):          diagramrender.New(rendererDir),

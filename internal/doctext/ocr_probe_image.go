@@ -11,7 +11,7 @@ import (
 const windowsOCRProbeSample = "OK"
 
 func windowsOCRProbePNG() []byte {
-	const scale = 8
+	const scale = 24
 	glyph := []string{
 		"01110 01110",
 		"10001 10001",

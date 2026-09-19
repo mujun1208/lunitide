@@ -92,7 +92,8 @@ it('TestR3InformationArchitecture: two cards, one drawer, truthful OCR, media em
   )
   expect(await screen.findByRole('status')).toHaveTextContent('文字识别：自动')
   expect(screen.queryByRole('switch')).toBeNull()
-  expect(screen.getByRole('button', { name: '安装（不可用）' })).toBeDisabled()
+  expect(screen.queryByRole('heading', { name: 'PaddleOCR-VL-1.6' })).toBeNull()
+  expect(screen.queryByRole('button', { name: '安装（不可用）' })).toBeNull()
   expect(screen.queryByRole('heading', { name: 'OCR 路由' })).toBeNull()
   cleanup()
 

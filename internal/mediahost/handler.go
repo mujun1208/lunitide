@@ -16,9 +16,20 @@ type EngineCaller interface {
 }
 
 type Handler struct {
-	Pick   func(folder, multiple bool) ([]desktopfiles.Item, []string, error)
-	Engine EngineCaller
-	Player *Player
+	Pick      func(folder, multiple bool) ([]desktopfiles.Item, []string, error)
+	PickMedia func(multiple bool) ([]desktopfiles.Item, []string, error)
+	Engine    EngineCaller
+	Player    *Player
+}
+
+func (h *Handler) pickFiles(multiple bool) ([]desktopfiles.Item, []string, error) {
+	if h.PickMedia != nil {
+		return h.PickMedia(multiple)
+	}
+	if h.Pick != nil {
+		return h.Pick(false, multiple)
+	}
+	return nil, nil, desktopfiles.ErrUnavailable
 }
 
 func (h *Handler) HandleHost(ctx context.Context, r bridge.Request) bridge.Response {
@@ -75,10 +86,10 @@ func (h *Handler) handlePick(ctx context.Context, r bridge.Request) bridge.Respo
 	if p.ScopeKind == "project" && strings.TrimSpace(p.ScopeID) == "" {
 		return bridge.Failure(r.ID, r.TraceID, "BRIDGE_SCHEMA_INVALID", "media.asset.pick 参数无效", false)
 	}
-	if h.Pick == nil {
+	if h.PickMedia == nil && h.Pick == nil {
 		return bridge.Failure(r.ID, r.TraceID, "DESKTOP_PICK_UNAVAILABLE", "系统没打开文件框，请再试一次。", false)
 	}
-	items, _, err := h.Pick(false, p.Multiple)
+	items, _, err := h.pickFiles(p.Multiple)
 	if errors.Is(err, desktopfiles.ErrCanceled) {
 		return bridge.Success(r.ID, map[string]any{"canceled": true, "assets": []any{}})
 	}
@@ -118,10 +129,7 @@ func (h *Handler) handlePick(ctx context.Context, r bridge.Request) bridge.Respo
 				"size":       item.Size,
 			})
 		}
-		resp, callErr := h.Engine.Call(ctx, bridge.Request{
-			Version: bridge.Version, Kind: "request", ID: r.ID, TraceID: r.TraceID,
-			Method: "internal.media.asset.register", Payload: payload, DeadlineMS: r.DeadlineMS,
-		})
+		resp, callErr := engineCall(ctx, h.Engine, "internal.media.asset.register", payload, r.DeadlineMS)
 		if callErr != nil {
 			return bridge.Failure(r.ID, r.TraceID, "ENGINE_UNAVAILABLE", "核心引擎暂时不可用", true)
 		}

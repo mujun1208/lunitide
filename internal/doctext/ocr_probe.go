@@ -33,11 +33,13 @@ type WindowsOCRProbe struct {
 }
 
 type windowsOCRProbeFn func(context.Context) WindowsOCRProbe
+type windowsOCRRepairFn func(context.Context)
 
 var (
-	windowsOCRProbeTest atomic.Value
-	windowsOCRProbeMu   sync.Mutex
-	windowsOCRProbeLast WindowsOCRProbe
+	windowsOCRProbeTest  atomic.Value
+	windowsOCRRepairTest atomic.Value
+	windowsOCRProbeMu    sync.Mutex
+	windowsOCRProbeLast  WindowsOCRProbe
 	windowsOCRProbeUntil time.Time
 )
 
@@ -56,6 +58,24 @@ func windowsOCRProbeTestRunner() windowsOCRProbeFn {
 		return nil
 	}
 	fn, _ := v.(windowsOCRProbeFn)
+	return fn
+}
+
+// SetWindowsOCRRepairForTest injects the language-pack repair step. Pass nil to restore.
+func SetWindowsOCRRepairForTest(fn windowsOCRRepairFn) {
+	if fn == nil {
+		windowsOCRRepairTest.Store(windowsOCRRepairFn(nil))
+		return
+	}
+	windowsOCRRepairTest.Store(fn)
+}
+
+func windowsOCRRepairTestRunner() windowsOCRRepairFn {
+	v := windowsOCRRepairTest.Load()
+	if v == nil {
+		return nil
+	}
+	fn, _ := v.(windowsOCRRepairFn)
 	return fn
 }
 
@@ -78,6 +98,27 @@ func ProbeWindowsOCR(ctx context.Context) WindowsOCRProbe {
 // RefreshWindowsOCRProbe drops the 5-minute cache and probes again.
 func RefreshWindowsOCRProbe(ctx context.Context) WindowsOCRProbe {
 	return probeWindowsOCR(ctx, true)
+}
+
+// RepairWindowsOCR refreshes the probe, then best-effort installs zh-CN/en-US
+// OCR language packs when the engine is still not ready.
+func RepairWindowsOCR(ctx context.Context) WindowsOCRProbe {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if fn := windowsOCRRepairTestRunner(); fn != nil {
+		fn(ctx)
+		return RefreshWindowsOCRProbe(ctx)
+	}
+	first := RefreshWindowsOCRProbe(ctx)
+	if first.State == WindowsOCRReady || first.State == WindowsOCRUnsupportedOS {
+		return first
+	}
+	if testing.Testing() && os.Getenv("LUNITIDE_OCR_LIVE_PROBE") == "" {
+		return first
+	}
+	repairWindowsOCRPlatform(ctx)
+	return RefreshWindowsOCRProbe(ctx)
 }
 
 func probeWindowsOCR(ctx context.Context, refresh bool) WindowsOCRProbe {

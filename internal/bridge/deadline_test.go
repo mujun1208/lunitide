@@ -68,6 +68,54 @@ func TestMaxDeadlineMSAgentHubPickers(t *testing.T) {
 	}
 }
 
+func TestMaxDeadlineMSAllowsCursorPromptAndMediaPick(t *testing.T) {
+	if MaxDeadlineMS("agentHub.thread.create") != AgentHubPromptDeadlineMS {
+		t.Fatalf("create cap = %d", MaxDeadlineMS("agentHub.thread.create"))
+	}
+	if MaxDeadlineMS("agentHub.thread.prompt") != AgentHubPromptDeadlineMS {
+		t.Fatalf("prompt cap = %d", MaxDeadlineMS("agentHub.thread.prompt"))
+	}
+	if MaxDeadlineMS("agentHub.thread.respond") != AgentHubPromptDeadlineMS {
+		t.Fatalf("respond cap = %d", MaxDeadlineMS("agentHub.thread.respond"))
+	}
+	if MaxDeadlineMS("agentHub.thread.cancel") != AgentHubPromptDeadlineMS {
+		t.Fatalf("cancel cap = %d", MaxDeadlineMS("agentHub.thread.cancel"))
+	}
+	if MaxDeadlineMS("media.asset.pick") != PeopleFileDeadlineMS {
+		t.Fatalf("media pick cap = %d", MaxDeadlineMS("media.asset.pick"))
+	}
+	if MaxDeadlineMS("ocr.routing.get") != OcrRoutingRepairDeadlineMS {
+		t.Fatalf("ocr routing cap = %d", MaxDeadlineMS("ocr.routing.get"))
+	}
+	if AgentHubPromptDeadlineMS <= DefaultMaxDeadlineMS {
+		t.Fatalf("Cursor prompt must outlast the 30s default: %d", AgentHubPromptDeadlineMS)
+	}
+}
+
+func TestInnerDeadlineMSClampsOversizedHealth(t *testing.T) {
+	if got := InnerDeadlineMS("system.health", AgentHubPromptDeadlineMS); got != DefaultMaxDeadlineMS {
+		t.Fatalf("health clamp = %d", got)
+	}
+	if got := InnerDeadlineMS("agentHub.thread.prompt", AgentHubPromptDeadlineMS); got != AgentHubPromptDeadlineMS {
+		t.Fatalf("prompt must keep 180s, got %d", got)
+	}
+}
+
+func TestInnerDeadlineMSDoesNotForwardPickerCeilings(t *testing.T) {
+	if got := InnerDeadlineMS("internal.media.asset.register", PeopleFileDeadlineMS); got != DefaultMaxDeadlineMS {
+		t.Fatalf("register must stay at 30s, got %d", got)
+	}
+	if got := InnerDeadlineMS("internal.media.player.attach", 8000); got != 8000 {
+		t.Fatalf("attach must keep a short deadline, got %d", got)
+	}
+	if got := InnerDeadlineMS("media.asset.pick", PeopleFileDeadlineMS); got != PeopleFileDeadlineMS {
+		t.Fatalf("pick itself may use the picker ceiling, got %d", got)
+	}
+	if got := InnerDeadlineMS("internal.media.asset.register", 0); got != DefaultMaxDeadlineMS {
+		t.Fatalf("zero outer must still be a valid register deadline, got %d", got)
+	}
+}
+
 func TestMcpSetupDeadlineOutlastsColdStartupWithoutExtendingCalls(t *testing.T) {
 	for _, method := range []string{"mcp.add", "mcp.toggle", "mcp.health"} {
 		if MaxDeadlineMS(method) != 80000 {

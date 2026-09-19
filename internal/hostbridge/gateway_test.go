@@ -346,12 +346,82 @@ func TestGatewayAcceptsLongMeetingDeadline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	denied, handledHealth := gateway.Handle(context.Background(), Message{SourceURL: "https://app.lunitide.local/", TopFrame: true, JSON: healthRaw})
-	if !handledHealth || denied.OK || denied.Error == nil || denied.Error.Code != "BRIDGE_SCHEMA_INVALID" {
-		t.Fatalf("health must keep the 30s cap: %+v", denied)
+	clamped, handledHealth := gateway.Handle(context.Background(), Message{SourceURL: "https://app.lunitide.local/", TopFrame: true, JSON: healthRaw})
+	if !handledHealth || !clamped.OK || caller.calls != 2 {
+		t.Fatalf("health deadline must clamp and forward: handled=%v resp=%#v calls=%d", handledHealth, clamped, caller.calls)
 	}
-	if denied.Error.Message != "请求超时参数无效" {
-		t.Fatalf("deadline mismatch message = %q", denied.Error.Message)
+	if clamped.Error != nil && clamped.Error.Message == "请求超时参数无效" {
+		t.Fatal("health must not reject a longer deadline after clamp")
+	}
+}
+
+type pickHostStub struct{}
+
+func (pickHostStub) HandleHost(_ context.Context, r bridge.Request) bridge.Response {
+	return bridge.Success(r.ID, map[string]any{"canceled": true, "assets": []any{}})
+}
+
+func TestGatewayAcceptsCursorPromptAndMediaPick(t *testing.T) {
+	caller := &callerStub{}
+	gateway, _ := New("https://app.lunitide.local", caller, map[bridge.Method]Handler{
+		bridge.MethodMediaAssetPick: pickHostStub{},
+	})
+	prompt := bridge.Request{
+		Version: bridge.Version, Kind: "request", ID: ulid.Make().String(), TraceID: ulid.Make().String(),
+		Method: "agentHub.thread.prompt", SentAt: time.Now().UTC(),
+		Payload: json.RawMessage(`{"threadId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","text":"hi"}`), DeadlineMS: bridge.AgentHubPromptDeadlineMS,
+	}
+	raw, err := json.Marshal(prompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, handled := gateway.Handle(context.Background(), Message{SourceURL: "https://app.lunitide.local/", TopFrame: true, JSON: raw})
+	if !handled || !response.OK || caller.calls != 1 {
+		t.Fatalf("cursor prompt deadline rejected: handled=%v resp=%#v calls=%d", handled, response, caller.calls)
+	}
+	create := bridge.Request{
+		Version: bridge.Version, Kind: "request", ID: ulid.Make().String(), TraceID: ulid.Make().String(),
+		Method: "agentHub.thread.create", SentAt: time.Now().UTC(),
+		Payload: json.RawMessage(`{"harnessId":"cursor","scene":"free","workspaceRoot":""}`), DeadlineMS: bridge.AgentHubPromptDeadlineMS,
+	}
+	createRaw, err := json.Marshal(create)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, handledCreate := gateway.Handle(context.Background(), Message{SourceURL: "https://app.lunitide.local/", TopFrame: true, JSON: createRaw})
+	if !handledCreate || !created.OK {
+		t.Fatalf("cursor create deadline rejected: handled=%v resp=%#v", handledCreate, created)
+	}
+	pick := bridge.Request{
+		Version: bridge.Version, Kind: "request", ID: ulid.Make().String(), TraceID: ulid.Make().String(),
+		Method: "media.asset.pick", SentAt: time.Now().UTC(),
+		Payload: json.RawMessage(`{"scopeKind":"user","multiple":true}`), DeadlineMS: bridge.PeopleFileDeadlineMS,
+	}
+	pickRaw, err := json.Marshal(pick)
+	if err != nil {
+		t.Fatal(err)
+	}
+	picked, handledPick := gateway.Handle(context.Background(), Message{SourceURL: "https://app.lunitide.local/", TopFrame: true, JSON: pickRaw})
+	if !handledPick || !picked.OK {
+		t.Fatalf("media pick deadline rejected: handled=%v resp=%#v", handledPick, picked)
+	}
+	if picked.Error != nil && picked.Error.Message == "请求超时参数无效" {
+		t.Fatal("media pick must accept the 120s picker ceiling")
+	}
+	health := bridge.Request{
+		Version: bridge.Version, Kind: "request", ID: ulid.Make().String(), TraceID: ulid.Make().String(),
+		Method: "system.health", SentAt: time.Now().UTC(), Payload: json.RawMessage(`{}`), DeadlineMS: bridge.AgentHubPromptDeadlineMS,
+	}
+	healthRaw, err := json.Marshal(health)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clamped, handledHealth := gateway.Handle(context.Background(), Message{SourceURL: "https://app.lunitide.local/", TopFrame: true, JSON: healthRaw})
+	if !handledHealth || !clamped.OK {
+		t.Fatalf("health deadline must clamp and forward: handled=%v resp=%#v", handledHealth, clamped)
+	}
+	if clamped.Error != nil && clamped.Error.Message == "请求超时参数无效" {
+		t.Fatal("health must not reject a longer deadline after clamp")
 	}
 }
 

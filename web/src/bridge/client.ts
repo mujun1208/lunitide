@@ -536,9 +536,11 @@ export const PEOPLE_FILE_DEADLINE_MS = 120_000
 export const PEOPLE_CAPTURE_DEADLINE_MS = 180_000
 export const TEMPLATE_FILE_DEADLINE_MS = 120_000
 export const MCP_SETUP_DEADLINE_MS = 80_000
+export const OCR_ROUTING_REPAIR_DEADLINE_MS = 180_000
 export function capBridgeDeadlineMs(method: string, deadlineMs: number): number {
   let cap = BRIDGE_DEADLINE_CAP_MS
-  if (method === 'meetings.summarize' || method === 'meetings.catchup') cap = MEETING_SUMMARIZE_DEADLINE_MS
+  if (method === 'ocr.routing.get') cap = OCR_ROUTING_REPAIR_DEADLINE_MS
+  else if (method === 'meetings.summarize' || method === 'meetings.catchup') cap = MEETING_SUMMARIZE_DEADLINE_MS
   else if (method === 'meetings.append' || method === 'meetings.audio.append' || method === 'meetings.stop' || method === 'meetings.heartbeat' || method === 'meetings.get' || method === 'meetings.export') cap = MEETING_APPEND_DEADLINE_MS
   else if (method === 'people.file.stage' || method === 'people.file.pick' || method === 'people.thread.send' || method === 'people.screen.capture' || method === 'desktop.files.pick' || method === 'media.asset.pick') cap = method === 'people.screen.capture' ? PEOPLE_CAPTURE_DEADLINE_MS : PEOPLE_FILE_DEADLINE_MS
   else if (method === 'template.file.stage' || method === 'template.create') cap = TEMPLATE_FILE_DEADLINE_MS
@@ -547,8 +549,11 @@ export function capBridgeDeadlineMs(method: string, deadlineMs: number): number 
   else if (method === 'mcp.add' || method === 'mcp.toggle' || method === 'mcp.health') cap = MCP_SETUP_DEADLINE_MS
   else if (method === 'provider.test') cap = PROVIDER_TEST_DEADLINE_MS
   else if (method === 'agentHub.dir.pick' || method === 'agentHub.inbox' || method === 'agentHub.install' || method === 'project.root.pick') cap = AGENT_HUB_DIR_PICK_MS
-  else if (method === 'agentHub.thread.prompt' || method === 'agentHub.thread.respond' || method === 'agentHub.thread.cancel') cap = AGENT_HUB_PROMPT_MS
-  return Math.min(cap, Math.max(1, deadlineMs))
+  else if (method === 'agentHub.thread.create' || method === 'agentHub.thread.prompt' || method === 'agentHub.thread.respond' || method === 'agentHub.thread.cancel') cap = AGENT_HUB_PROMPT_MS
+  else if (method === 'chat.start') cap = 120_000
+  const n = Number(deadlineMs)
+  if (!Number.isFinite(n)) return Math.min(cap, BRIDGE_DEADLINE_CAP_MS)
+  return Math.min(cap, Math.max(1, Math.trunc(n)))
 }
 const isRetryableBridgeError = (error: unknown) => error instanceof BridgeClientError && error.retryable
 async function retryBridgeRequest<T>(op: () => Promise<T>, attempts = 4): Promise<T> {
@@ -637,7 +642,7 @@ export function createOCRRoutingBridge(transport: WebViewTransport = webview(), 
   const core = createSimpleBridge(transport, {}, deadlineMs)
   const installCore = createSimpleBridge(transport, {}, 120_000)
   return {
-    get: (p = { scopeKind: 'user' }) => core.request('ocr.routing.get' as BridgeMethod, p),
+    get: (p = { scopeKind: 'user' }) => core.request('ocr.routing.get' as BridgeMethod, p, p.repairWindows ? OCR_ROUTING_REPAIR_DEADLINE_MS : deadlineMs),
     set: (p, o) => core.request('ocr.routing.set' as BridgeMethod, p, deadlineMs, o?.attempt ?? createMutationAttempt('ocr.routing.set', p) as MutationAttempt<object>),
     install: (p = {}) => installCore.request('ocr.install' as BridgeMethod, p),
   }
@@ -838,7 +843,7 @@ function createSimpleBridge<TMethods extends Record<string, BridgeMethod>>(
     }
     else waiting.reject(new BridgeClientError(raw.error.message, raw.error.code, raw.error.retryable, raw.error.correlationId, isObj(raw.error.details) ? raw.error.details as Record<string, unknown> : undefined))
   })
-  const request = <T>(method: BridgeMethod, payload: object, deadlineMs = defaultDeadlineMs, attempt?: MutationAttempt<object>): Promise<T> => {
+  const send = <T>(method: BridgeMethod, payload: object, deadlineMs: number, attempt?: MutationAttempt<object>): Promise<T> => {
     const id = ulid(), traceId = ulid()
     const mutation = mutationMethods.has(method) ? checkedAttempt(method as MutationMethod, payload, attempt) : undefined
     const secretSubmission=method==='mcp.credential.set'
@@ -847,6 +852,15 @@ function createSimpleBridge<TMethods extends Record<string, BridgeMethod>>(
       const timer = window.setTimeout(() => { pending.delete(id); reject(new BridgeClientError('Bridge 请求超时', 'REQUEST_DEADLINE_EXCEEDED', true, traceId)) }, message.deadlineMs + 250)
       pending.set(id, { method, resolve, reject, timer })
       try { transport.postMessage(message) } catch { clearTimeout(timer); pending.delete(id); reject(new BridgeClientError('WebView2 Bridge 当前不可用', 'BRIDGE_UNAVAILABLE', true, traceId)) } finally {if(secretSubmission&&isObj(message.payload)&&typeof message.payload.credential==='string')message.payload.credential=''}
+    })
+  }
+  const request = <T>(method: BridgeMethod, payload: object, deadlineMs = defaultDeadlineMs, attempt?: MutationAttempt<object>): Promise<T> => {
+    return send<T>(method, payload, deadlineMs, attempt).catch(error => {
+      const asked = capBridgeDeadlineMs(method, deadlineMs)
+      if (error instanceof BridgeClientError && error.message === '请求超时参数无效' && asked > BRIDGE_DEADLINE_CAP_MS) {
+        return send<T>(method, payload, BRIDGE_DEADLINE_CAP_MS, attempt)
+      }
+      throw error
     })
   }
   return { request }
@@ -2182,7 +2196,7 @@ export function createAgentHubBridge(transport: WebViewTransport = webview(), de
       method as BridgeMethod,
       payload,
       method === 'agentHub.dir.pick' || method === 'agentHub.inbox' || method === 'agentHub.install' || method === 'project.root.pick' ? AGENT_HUB_DIR_PICK_MS :
-      method === 'agentHub.thread.prompt' || method === 'agentHub.thread.respond' || method === 'agentHub.thread.cancel' ? AGENT_HUB_PROMPT_MS :
+      method === 'agentHub.thread.create' || method === 'agentHub.thread.prompt' || method === 'agentHub.thread.respond' || method === 'agentHub.thread.cancel' ? AGENT_HUB_PROMPT_MS :
       deadlineMs,
     ),
   }

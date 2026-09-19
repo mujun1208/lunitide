@@ -137,6 +137,63 @@ func TestElementReportPlayingWithCommandIsAccepted(t *testing.T) {
 	}
 }
 
+func TestPickClampsRegisterDeadlineAndStampsSentAt(t *testing.T) {
+	engine := &stubEngine{}
+	audio := filepath.Join(t.TempDir(), "song.mp3")
+	h := &Handler{
+		Engine: engine,
+		Pick: func(bool, bool) ([]desktopfiles.Item, []string, error) {
+			return []desktopfiles.Item{{Path: audio, FileName: "song.mp3", MIME: "audio/mpeg", Size: 12}}, nil, nil
+		},
+	}
+	req := pickReq(`{"scopeKind":"user","multiple":true}`)
+	req.DeadlineMS = bridge.PeopleFileDeadlineMS
+	resp := h.HandleHost(context.Background(), req)
+	if !resp.OK {
+		t.Fatalf("%+v", resp)
+	}
+	if len(engine.calls) != 1 {
+		t.Fatalf("calls %d", len(engine.calls))
+	}
+	got := engine.calls[0]
+	if got.Method != "internal.media.asset.register" {
+		t.Fatalf("method %s", got.Method)
+	}
+	if got.DeadlineMS != bridge.DefaultMaxDeadlineMS {
+		t.Fatalf("register deadline %d", got.DeadlineMS)
+	}
+	if got.SentAt.IsZero() {
+		t.Fatal("register must stamp SentAt")
+	}
+	if got.ID == req.ID {
+		t.Fatal("inner register must use a new request id")
+	}
+}
+
+func TestPickUsesMediaPickerWhenPresent(t *testing.T) {
+	used := false
+	h := &Handler{
+		Pick: func(bool, bool) ([]desktopfiles.Item, []string, error) {
+			t.Fatal("attachment picker must not run")
+			return nil, nil, nil
+		},
+		PickMedia: func(multiple bool) ([]desktopfiles.Item, []string, error) {
+			used = true
+			if !multiple {
+				t.Fatal("expected multiple")
+			}
+			return nil, nil, desktopfiles.ErrCanceled
+		},
+	}
+	resp := h.HandleHost(context.Background(), pickReq(`{"scopeKind":"user","multiple":true}`))
+	if !resp.OK {
+		t.Fatalf("%+v", resp)
+	}
+	if !used {
+		t.Fatal("media picker unused")
+	}
+}
+
 func pickReq(payload string) bridge.Request {
 	return bridge.Request{ID: "req", TraceID: "tr", Method: "media.asset.pick", Payload: json.RawMessage(payload)}
 }

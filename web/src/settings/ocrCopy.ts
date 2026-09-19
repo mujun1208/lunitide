@@ -20,6 +20,25 @@ export function windowsProbeSummary(state: string | undefined): string {
   }
 }
 
+export function windowsProbeCanRepair(state: string | undefined): boolean {
+  return state === 'initialization_failed' || state === 'language_unavailable' || state === 'sample_failed' || state === 'timed_out'
+}
+
+export function windowsProbeHint(state: string | undefined): string {
+  switch (state) {
+    case 'sample_failed':
+      return '本机已经有 Windows OCR 时，多半是自检读图失败。一键修复会重新接通，并补齐中文和英文识别语言包。'
+    case 'language_unavailable':
+      return '系统还没有 OCR 语言包。一键修复会安装中文和英文识别包，可能弹出系统权限确认。'
+    case 'initialization_failed':
+      return 'Windows OCR 组件没有就绪。一键修复会补语言包并重新检查。'
+    case 'timed_out':
+      return '上次检查超时。可以重新检查，或一键修复后再测。'
+    default:
+      return ''
+  }
+}
+
 export function formatCheckedAt(iso: string | undefined): string {
   if (!iso) return ''
   const date = new Date(iso)

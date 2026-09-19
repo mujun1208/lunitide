@@ -17,7 +17,7 @@ export function AgentHubShellSwitch({
 }): React.JSX.Element {
   const zh = useZh()
   return (
-    <div className="shell-mode-switch" role="group" aria-label="Work / AgentHub">
+    <div className="shell-mode-switch" role="group" aria-label="Chat / Work">
       {onToggleDrawer ? (
         <button
           type="button"
@@ -30,8 +30,8 @@ export function AgentHubShellSwitch({
         </button>
       ) : null}
       <div className="shell-mode-pills">
-        <button type="button" aria-pressed={mode === 'lunitide'} onClick={onLunitide}>Work</button>
-        <button type="button" aria-pressed={mode === 'agentHub'} onClick={onAgents}>AgentHub</button>
+        <button type="button" aria-pressed={mode === 'lunitide'} onClick={onLunitide}>Chat</button>
+        <button type="button" aria-pressed={mode === 'agentHub'} onClick={onAgents}>Work</button>
       </div>
     </div>
   )

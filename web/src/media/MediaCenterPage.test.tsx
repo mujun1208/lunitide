@@ -36,12 +36,14 @@ const asset = (kind: MediaAssetDTO['kind'], title: string): MediaAssetDTO => ({
   revision: 1,
 })
 
-it('TestNoSessionEmptyState: shows an empty state before any session exists', () => {
+it('TestNoSessionEmptyState: shows the player chrome before any session exists', () => {
   render(<MediaCenterPage snapshot={null} assets={[]} operation={null} playbackUrl={null} notice="" disabledReason="媒体会话未启用。当前只能选择文件，还不能创建播放会话。" busy={false} onPick={() => {}} onPlayPause={() => {}} onPrevious={() => {}} onNext={() => {}} onJump={() => {}} onRemove={() => {}} onClear={() => {}} onSeek={() => {}} onVolume={() => {}} />)
   expect(screen.getByRole('heading', { name: '媒体中心' })).toBeInTheDocument()
-  expect(screen.getByLabelText('空状态')).toHaveTextContent('还没有播放会话')
+  expect(screen.getByLabelText('空状态')).toHaveTextContent('选择本地文件后开始播放')
   expect(screen.getByRole('status')).toHaveTextContent('媒体会话未启用')
-  expect(screen.queryByLabelText('音乐')).toBeNull()
+  expect(screen.getByLabelText('音乐')).toBeInTheDocument()
+  expect(document.querySelector('.album-art')).not.toBeNull()
+  expect(document.querySelector('video')).toBeNull()
 })
 
 it('TestOwnedExternalCapabilities: hides seek and volume for external origin', () => {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -33,13 +34,15 @@ func fakeStdioMcpServer(mode string) {
 		_, _ = os.Stderr.WriteString(strings.Repeat("package installer progress\n", 8192))
 	}
 	out := bufio.NewWriter(os.Stdout)
-	sc := bufio.NewScanner(os.Stdin)
-	sc.Buffer(make([]byte, 64*1024), 1<<20)
-	for sc.Scan() {
+	in := bufio.NewReader(os.Stdin)
+	for {
 		if mode == "mute" {
 			return
 		}
-		line := sc.Bytes()
+		line, err := readJSONRPCFrame(in)
+		if err != nil {
+			return
+		}
 		if len(line) == 0 {
 			continue
 		}
@@ -96,6 +99,13 @@ func fakeStdioMcpServer(mode string) {
 		if mode == "empty-version" && req.Method == "initialize" {
 			result.(map[string]any)["serverInfo"] = map[string]any{"name": "fake-stdio", "version": ""}
 		}
+		if mode == "empty-protocol" && req.Method == "initialize" {
+			delete(result.(map[string]any), "protocolVersion")
+			result.(map[string]any)["serverInfo"] = map[string]any{"name": "", "version": ""}
+		}
+		if mode == "numeric-version" && req.Method == "initialize" {
+			result.(map[string]any)["serverInfo"] = map[string]any{"name": "fake-stdio", "version": 1.2}
+		}
 		if mode == "garbage" && req.Method == "initialize" {
 			_, _ = out.WriteString("starting server...\nnot json-rpc\n")
 		}
@@ -112,7 +122,11 @@ func fakeStdioMcpServer(mode string) {
 			_, _ = out.WriteString(`{"jsonrpc":"2.0","id":"server-ping","method":"ping"}` + "\n")
 			_, _ = out.WriteString(`{"jsonrpc":"2.0","id":"roots","method":"roots/list"}` + "\n")
 		}
-		writeJSONRPC(out, *req.ID, result)
+		if mode == "string-id" {
+			writeJSONRPCAny(out, strconv.FormatInt(*req.ID, 10), result)
+		} else {
+			writeJSONRPC(out, *req.ID, result)
+		}
 		out.Flush()
 		if mode == "stop-reading" && req.Method == "initialize" {
 			// Keep the pipe open but never consume initialized or tools/call bytes.
@@ -125,8 +139,12 @@ func fakeStdioMcpServer(mode string) {
 }
 
 func writeJSONRPC(w *bufio.Writer, id int64, result any) {
+	writeJSONRPCAny(w, id, result)
+}
+
+func writeJSONRPCAny(w *bufio.Writer, id any, result any) {
 	line, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
-	_, _ = w.Write(append(line, '\n'))
+	_ = writeJSONRPCFrame(w, line)
 }
 
 // dialFake spawns the re-exec'd fake server under the isolation engine.
@@ -283,7 +301,7 @@ func TestStdioLookPathFindsUvOutsidePATH(t *testing.T) {
 }
 
 func TestStdioNegotiatesInstalledServerVersionsAndInterleaving(t *testing.T) {
-	for _, mode := range []string{"notifications", "requests", "version:2024-11-05", "version:2025-06-18", "version:2025-11-25", "version:2026-07-28", "empty-version", "garbage"} {
+	for _, mode := range []string{"notifications", "requests", "version:2024-11-05", "version:2025-06-18", "version:2025-11-25", "version:2026-07-28", "empty-version", "empty-protocol", "garbage", "string-id", "numeric-version"} {
 		t.Run(mode, func(t *testing.T) {
 			s := dialFake(t, mode)
 			tools, err := s.ListTools(context.Background())
@@ -331,21 +349,26 @@ func TestStdioSetupBudgetRetainsParentCancellation(t *testing.T) {
 
 func TestStdioRepliesToServerRequestsWithoutGrantingRoots(t *testing.T) {
 	var written bytes.Buffer
-	s := &StdioSession{stdin: bufio.NewWriter(&written), stdout: bufio.NewScanner(strings.NewReader(`{"jsonrpc":"2.0","id":"p","method":"ping"}` + "\n" + `{"jsonrpc":"2.0","id":"r","method":"roots/list"}` + "\n" + `{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}` + "\n"))}
+	s := &StdioSession{stdin: bufio.NewWriter(&written), stdout: bufio.NewReader(strings.NewReader(`{"jsonrpc":"2.0","id":"p","method":"ping"}` + "\n" + `{"jsonrpc":"2.0","id":"r","method":"roots/list"}` + "\n" + `{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}` + "\n"))}
 	var result map[string]any
 	if err := s.readResponse(1, "tools/list", &result); err != nil {
 		t.Fatal(err)
 	}
-	lines := strings.Split(strings.TrimSpace(written.String()), "\n")
-	if len(lines) != 2 {
+	reader := bufio.NewReader(bytes.NewReader(written.Bytes()))
+	pingRaw, err := readJSONRPCFrame(reader)
+	if err != nil {
+		t.Fatal(written.String())
+	}
+	rootsRaw, err := readJSONRPCFrame(reader)
+	if err != nil {
 		t.Fatal(written.String())
 	}
 	var ping, roots map[string]json.RawMessage
-	if json.Unmarshal([]byte(lines[0]), &ping) != nil || string(ping["id"]) != `"p"` || string(ping["result"]) != `{}` {
-		t.Fatal(lines[0])
+	if json.Unmarshal(pingRaw, &ping) != nil || string(ping["id"]) != `"p"` || string(ping["result"]) != `{}` {
+		t.Fatal(string(pingRaw))
 	}
-	if json.Unmarshal([]byte(lines[1]), &roots) != nil || string(roots["id"]) != `"r"` || !strings.Contains(string(roots["error"]), "-32601") || roots["result"] != nil {
-		t.Fatal(lines[1])
+	if json.Unmarshal(rootsRaw, &roots) != nil || string(roots["id"]) != `"r"` || !strings.Contains(string(roots["error"]), "-32601") || roots["result"] != nil {
+		t.Fatal(string(rootsRaw))
 	}
 }
 

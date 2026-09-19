@@ -10,6 +10,7 @@ export function VideoPlayerSurface({
   title,
   src,
   busy,
+  idle,
   onPlayPause,
   onPrevious,
   onNext,
@@ -21,6 +22,7 @@ export function VideoPlayerSurface({
   title: string
   src: string | null
   busy: boolean
+  idle?: boolean
   onPlayPause: () => void
   onPrevious: () => void
   onNext: () => void
@@ -33,12 +35,21 @@ export function VideoPlayerSurface({
   const playing = snapshot.phase === 'playing'
   return (
     <section className="media-video-surface" aria-label={copy.video}>
-      <div className="media-video-stage">
-        {src ? <div className="media-video-empty">{copy.videoStage}</div> : <div className="media-video-empty">{copy.videoEmpty}</div>}
+      <div className="video-heading">
+        <h2 title={title}>{title}</h2>
+        <p role="status">{playbackStatusText(zh, snapshot.phase, snapshot.verificationStatus)}</p>
       </div>
-      <h2 title={title}>{title}</h2>
-      <p role="status">{playbackStatusText(zh, snapshot.phase, snapshot.verificationStatus)}</p>
-      <p className="media-clock">{formatClock(snapshot.positionMs)} / {formatClock(snapshot.durationMs)}</p>
+      <div className="video-theatre">
+        <button type="button" className="video-play" disabled={busy} onClick={onPlayPause} aria-hidden="true" tabIndex={-1}>
+          {playing ? '❚❚' : '▶'}
+        </button>
+        <div className="video-controls" aria-hidden="true">
+          <span>{playing ? '❚❚' : '▶'}</span>
+          <i />
+          <span className="small">{formatClock(snapshot.positionMs)} / {formatClock(snapshot.durationMs)}</span>
+        </div>
+        <p className="media-video-empty">{src ? copy.videoStage : (idle ? copy.idleHint : copy.videoEmpty)}</p>
+      </div>
       <MediaTransportControls
         zh={zh}
         busy={busy}
@@ -52,8 +63,8 @@ export function VideoPlayerSurface({
         onQueue={onQueue}
         onSeek={onSeek}
         onVolume={onVolume}
-        allowSeek={snapshot.origin === 'owned'}
-        allowVolume={snapshot.origin === 'owned'}
+        allowSeek={!idle && snapshot.origin === 'owned'}
+        allowVolume={!idle && snapshot.origin === 'owned'}
       />
     </section>
   )

@@ -10,9 +10,16 @@ it('does not keep AgentHub as an office-menu toggle and ignores leftover stored 
   expect(loadOfficeMenu()).toEqual(DEFAULT_OFFICE_MENU)
   expect('agentHub' in DEFAULT_OFFICE_MENU).toBe(false)
   localStorage.setItem(OFFICE_MENU_KEY, JSON.stringify({ people: 'false', mro: 1, office: true, meetings: false, agentHub: false }))
-  expect(loadOfficeMenu()).toEqual({ people: false, mro: false, office: true, meetings: false })
+  expect(loadOfficeMenu()).toEqual({ people: false, mro: false, office: true, meetings: false, media: true, automation: true })
   localStorage.setItem(OFFICE_MENU_KEY, '{bad')
   expect(loadOfficeMenu()).toEqual(DEFAULT_OFFICE_MENU)
+})
+
+it('lets Media Center and Automation be hidden without changing other keys', () => {
+  expect(DEFAULT_OFFICE_MENU.media).toBe(true)
+  expect(DEFAULT_OFFICE_MENU.automation).toBe(true)
+  localStorage.setItem(OFFICE_MENU_KEY, JSON.stringify({ media: false, automation: false, office: true }))
+  expect(loadOfficeMenu()).toEqual({ people: false, mro: false, office: true, meetings: false, media: false, automation: false })
 })
 
 it('shares changes between mounted consumers and retains them after remount without changing other keys', () => {

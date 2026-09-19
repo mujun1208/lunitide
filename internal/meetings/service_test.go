@@ -122,6 +122,36 @@ func TestParseNotesJSONAndMarkdown(t *testing.T) {
 	}
 }
 
+func TestParseNotesStructuredJSONAndHTML(t *testing.T) {
+	raw := `{
+		"title":"知识库评审",
+		"attendees":["敏民","绍辉"],
+		"background":"确认个人知识库定位。",
+		"topics":[{
+			"heading":"个人与组织知识库",
+			"points":["个人知识库对个人开放","组织库需审核"],
+			"table":{"caption":"对照","headers":["个人","组织"],"rows":[["可上传","需审核"]]}
+		}],
+		"decisions":["个人库先上线"],
+		"actions":[{"owner":"绍辉","task":"补齐报价","due":"周五"}],
+		"openQuestions":["收费口径"]
+	}`
+	got := meetings.ParseNotes(raw, "fallback")
+	if got.Title != "知识库评审" || !strings.Contains(got.Summary, "参会：敏民、绍辉") || !strings.Contains(got.Summary, "## 议题：个人与组织知识库") {
+		t.Fatalf("structured summary = %#v", got)
+	}
+	if !strings.Contains(got.Summary, "| 个人 | 组织 |") || !strings.Contains(got.Summary, "可上传") {
+		t.Fatalf("structured table = %#v", got.Summary)
+	}
+	if !strings.Contains(got.Actions, "绍辉：补齐报价") || !strings.Contains(got.Actions, "周五") {
+		t.Fatalf("structured actions = %#v", got.Actions)
+	}
+	htmlBody := meetings.RenderHTML(meetings.Meeting{Title: got.Title, Summary: got.Summary, Actions: got.Actions, StartedAt: "2026-09-19T11:16:00Z", DurationMS: 3600000, AudioSource: meetings.AudioMicrophone})
+	if !strings.Contains(htmlBody, "notes-doc-card") || !strings.Contains(htmlBody, "<table") || strings.Contains(htmlBody, "<pre>") {
+		t.Fatalf("html export = %s", htmlBody)
+	}
+}
+
 func TestStartSystemAudioAndExportLabel(t *testing.T) {
 	svc := testMeetings(t)
 	ctx := context.Background()

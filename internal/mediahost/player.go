@@ -8,8 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/oklog/ulid/v2"
-
 	"github.com/lunitide/lunitide/internal/bridge"
 )
 
@@ -42,10 +40,7 @@ func (p *Player) Attach(ctx context.Context, sessionID string) error {
 		"windowInstanceId": p.window(),
 		"navigationEpoch":  p.NavigationEpoch,
 	})
-	resp, err := p.Engine.Call(ctx, bridge.Request{
-		Version: bridge.Version, Kind: "request", ID: ulid.Make().String(), TraceID: ulid.Make().String(),
-		Method: "internal.media.player.attach", Payload: payload, DeadlineMS: 8000,
-	})
+	resp, err := engineCall(ctx, p.Engine, "internal.media.player.attach", payload, 8000)
 	if err != nil {
 		return err
 	}
@@ -80,10 +75,7 @@ func (p *Player) Next(ctx context.Context) (operationID, desiredState string, er
 		"windowInstanceId": p.window(),
 		"navigationEpoch":  p.NavigationEpoch,
 	})
-	resp, err := p.Engine.Call(ctx, bridge.Request{
-		Version: bridge.Version, Kind: "request", ID: ulid.Make().String(), TraceID: ulid.Make().String(),
-		Method: "internal.media.player.next", Payload: payload, DeadlineMS: 8000,
-	})
+	resp, err := engineCall(ctx, p.Engine, "internal.media.player.next", payload, 8000)
 	if err != nil {
 		return "", "", err
 	}
@@ -140,10 +132,7 @@ func (p *Player) ReportObserved(ctx context.Context, event string, positionMs, d
 		"positionMs":       positionMs,
 		"durationMs":       durationMs,
 	})
-	resp, err := p.Engine.Call(ctx, bridge.Request{
-		Version: bridge.Version, Kind: "request", ID: ulid.Make().String(), TraceID: ulid.Make().String(),
-		Method: "internal.media.player.report", Payload: payload, DeadlineMS: 8000,
-	})
+	resp, err := engineCall(ctx, p.Engine, "internal.media.player.report", payload, 8000)
 	if err != nil {
 		return err
 	}

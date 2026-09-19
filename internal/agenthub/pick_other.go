@@ -5,5 +5,5 @@ package agenthub
 import "fmt"
 
 func pickWorkDirOS() (string, error) {
-	return "", fmt.Errorf("AgentHub 仅支持 Windows")
+	return "", fmt.Errorf("Work 仅支持 Windows")
 }

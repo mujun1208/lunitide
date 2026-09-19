@@ -76,13 +76,7 @@ func (s *RemoteSession) Identity() string { return s.identity }
 func (s *RemoteSession) IsLegacy() bool   { return s.legacy }
 
 func (s *RemoteSession) initialize(ctx context.Context) error {
-	var answer struct {
-		ProtocolVersion string `json:"protocolVersion"`
-		ServerInfo      struct {
-			Name    string `json:"name"`
-			Version string `json:"version"`
-		} `json:"serverInfo"`
-	}
+	var answer mcpInitializeResult
 	err := s.roundtrip(ctx, "initialize", map[string]any{
 		"protocolVersion": "2025-11-25", "capabilities": map[string]any{},
 		"clientInfo": map[string]any{"name": "lunitide", "version": buildinfo.Version},
@@ -90,14 +84,18 @@ func (s *RemoteSession) initialize(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !stdioProtocolSupported(answer.ProtocolVersion) || !stdioIdentityOK(answer.ServerInfo.Name, answer.ServerInfo.Version) {
+	name, version, protocol := answer.name(), answer.version(), answer.protocol()
+	if !stdioProtocolSupported(protocol) || !stdioIdentityOK(name, version) {
 		return ErrRemoteProtocol
 	}
-	if strings.TrimSpace(answer.ServerInfo.Version) == "" {
-		answer.ServerInfo.Version = "0"
+	if version == "" {
+		version = "0"
 	}
-	s.protocol = answer.ProtocolVersion
-	identity, _ := json.Marshal(answer)
+	s.protocol = protocol
+	identity, _ := json.Marshal(map[string]any{
+		"protocolVersion": protocol,
+		"serverInfo":      map[string]any{"name": name, "version": version},
+	})
 	s.identity = "streamable-http|" + s.client.BaseURL + "|" + string(identity)
 	_, err = s.post(ctx, map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"}, 0, true)
 	return err
@@ -351,8 +349,7 @@ func remoteRPCResult(raw []byte, id int64) (json.RawMessage, bool, error) {
 	if len(answer.ID) == 0 && answer.Method != "" {
 		return nil, false, nil
 	} // server notification
-	var received int64
-	if json.Unmarshal(answer.ID, &received) != nil || received != id || answer.Method != "" {
+	if !jsonRPCIDMatches(answer.ID, id) || answer.Method != "" {
 		return nil, false, ErrRemoteProtocol
 	}
 	if answer.Error != nil {

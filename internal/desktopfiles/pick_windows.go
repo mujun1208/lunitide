@@ -12,14 +12,27 @@ import (
 )
 
 func pickOSForms(folder, multiple bool) ([]Item, []string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
 	script := openFilesScript
 	if folder {
 		script = folderScript
 	} else if !multiple {
 		script = openFileScript
 	}
+	return runPickForms(folder, multiple, script)
+}
+
+func pickMediaForms(multiple bool) ([]Item, []string, error) {
+	script := openMediaFilesScript
+	if !multiple {
+		script = openMediaFileScript
+	}
+	return runPickForms(false, multiple, script)
+}
+
+func runPickForms(folder, multiple bool, script string) ([]Item, []string, error) {
+	_ = multiple
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
 	out, err := winexec.HiddenPowerShell(ctx, "-NoProfile", "-STA", "-Command", script).Output()
 	if err != nil {
 		if os.IsTimeout(err) {
@@ -89,5 +102,31 @@ $d.ShowNewFolderButton = $true
 if ($d.ShowDialog() -eq 'OK') {
     [Console]::OutputEncoding = [Text.Encoding]::UTF8
     $d.SelectedPath
+}
+`
+
+const openMediaFileScript = `
+Add-Type -AssemblyName System.Windows.Forms
+$d = New-Object System.Windows.Forms.OpenFileDialog
+$d.Title = '` + mediaDialogTitle + `'
+$d.Filter = '` + MediaFilterPS + `'
+$d.CheckFileExists = $true
+$d.Multiselect = $false
+if ($d.ShowDialog() -eq 'OK') {
+    [Console]::OutputEncoding = [Text.Encoding]::UTF8
+    $d.FileName
+}
+`
+
+const openMediaFilesScript = `
+Add-Type -AssemblyName System.Windows.Forms
+$d = New-Object System.Windows.Forms.OpenFileDialog
+$d.Title = '` + mediaDialogTitle + `'
+$d.Filter = '` + MediaFilterPS + `'
+$d.CheckFileExists = $true
+$d.Multiselect = $true
+if ($d.ShowDialog() -eq 'OK') {
+    [Console]::OutputEncoding = [Text.Encoding]::UTF8
+    $d.FileNames -join [Environment]::NewLine
 }
 `

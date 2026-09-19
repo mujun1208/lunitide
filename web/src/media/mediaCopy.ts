@@ -6,7 +6,9 @@ export function mediaText(zh: boolean) {
     music: zh ? '音乐' : 'Music',
     video: zh ? '视频' : 'Video',
     pick: zh ? '选择本地媒体' : 'Choose local media',
-    empty: zh ? '还没有播放会话。选择本地文件后，从这里开始播放。' : 'No playback session yet. Choose a local file to start.',
+    empty: zh ? '选择本地文件后开始播放。' : 'Choose a local file to start.',
+    idle: zh ? '已就绪，等待播放' : 'Ready, waiting to play',
+    idleHint: zh ? '只播放你授权的本机文件 · 无曲库' : 'Local files you authorize · no catalog',
     emptyLabel: zh ? '空状态' : 'Empty state',
     untitled: zh ? '未选择媒体' : 'No media selected',
     play: zh ? '播放' : 'Play',
@@ -64,6 +66,7 @@ export function playbackStatusText(zh: boolean, phase: string, verificationStatu
   }
   if (phase === 'playing' && verificationStatus === 'verified_playing') return copy.playing
   if (phase === 'paused' && verificationStatus === 'verified_paused') return copy.paused
+  if (phase === 'idle' || phase === 'stopped') return copy.idle
   if (phase === 'playing' || phase === 'paused' || phase === 'stalled') return copy.dispatched
   return phase
 }

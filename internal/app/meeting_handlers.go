@@ -408,18 +408,18 @@ func publicSegment(seg meetings.Segment) map[string]any {
 	}
 }
 
-const meetingNotesSystem = `你是月汐的会议纪要助手。根据本机转写的逐字稿生成中文会议文档。
+const meetingNotesSystem = `你是月汐的会议纪要助手。根据本机转写的逐字稿生成一份可直接阅读的中文会议文档。
 只输出一个 JSON 对象，不要 Markdown 围栏：
-{"title":"简短标题","summary":"会议摘要","actions":["待办1","待办2"]}
+{"title":"简短标题","attendees":["仅当逐字稿出现的人名"],"background":"开会目的或实际讨论主题","topics":[{"heading":"议题名","points":["该议题的事实、数字、系统/产品名、时间点"],"table":{"caption":"对照表标题","headers":["列1","列2"],"rows":[["",""]]}}],"decisions":["已拍板的决议"],"actions":[{"owner":"仅当出现人名或角色","task":"做什么","due":"仅当提到截止"}],"openQuestions":["未决或待确认"]}
 
-会议摘要（summary）必须写清三块，用换行和分点；宁可多写，不要漏：
-- 背景：开会目的、场景或起因。逐字稿没写目的时，用会中实际讨论的主题概括，不要写「未说明背景」。
-- 讨论要点：按发言先后，覆盖逐字稿里出现的每一个议题、人名、数字、系统/产品名和时间点；每点一行。不要把内容概括成「内容零散」或「信息不足」而省略。口语、歌词式、重复句也要从中抽出可辨认的事实。
-- 结论：达成的共识、明确下一步或未决问题；没有共识就写「未形成明确结论」，并列出仍待确认的点。
+讨论要点必须拆成 topics：2～6 张议题卡片，按发言先后覆盖逐字稿里的每一个议题、人名、数字、系统/产品名和时间点。不要把内容概括成「内容零散」或「信息不足」而省略。口语、歌词式、重复句也要从中抽出可辨认的事实。
+background 写开会目的、场景或起因；逐字稿没写目的时，用会中实际讨论的主题概括，不要写「未说明背景」。
+出现方案对比、价格、权限、范围或角色差异时必须出 table，不要用散文代替表格。没有对照信息就省略 table 字段。
 
-决议/待办（actions）：
-- 每条必须可执行：做什么；谁来做（仅当逐字稿出现人名或角色）；截止时间（仅当逐字稿提到）
-- 写成「谁 + 做什么 + 截止（若有）」；没有责任人就写事项本身
+决议（decisions）和待办（actions）必须分开：
+- 决议是已经定下来的结论；没有共识就不要编决议，把分歧放进 openQuestions，并写「未形成明确结论」
+- 待办每条必须可执行：做什么；谁来做（仅当逐字稿出现人名或角色）；截止时间（仅当逐字稿提到）
+- 写成「谁 + 做什么 + 截止（若有）」；没有责任人就只写事项
 - 从讨论中能抽出的行动都写上；没有明确待办时返回空数组，不要编造
 
 规则：
@@ -428,7 +428,8 @@ const meetingNotesSystem = `你是月汐的会议纪要助手。根据本机转�
 - 字母缩写按常见写法还原（如 brd / b r d → BRD）
 - 全文逐字稿由系统另行保存，不要在 JSON 里重复逐字稿
 - 逐字稿可能混有本机麦克风与扬声器对面的声音，不要臆测发言人
-- 宁可多列要点，也不要用一句「内容零散」打发整场会议`
+- 宁可多列要点，也不要用一句「内容零散」打发整场会议
+- 不要漏：议题、人名、数字、系统/产品名、时间点都要落到对应卡片`
 
 func meetingSummarySlow(modelID string) bool {
 	id := strings.ToLower(modelID)
@@ -496,7 +497,7 @@ func (e *Engine) completeMeeting(ctx context.Context, title, transcript string) 
 	if len(candidates) == 0 {
 		return meetings.Notes{}, errors.New("没有已启用的模型")
 	}
-	user := "会议标题：" + title + "\n\n以下是本机转写（已去掉部分语气词）。请按系统要求输出 JSON。摘要必须覆盖逐字稿里的议题、人名、数字和结论，不要写成「内容零散」或「未说明背景」一笔带过。决议/待办要可执行。\n\n逐字稿：\n" + transcript
+	user := "会议标题：" + title + "\n\n以下是本机转写（已去掉部分语气词）。请按系统要求输出 JSON。用议题卡片、对照表、决议和待办覆盖逐字稿里的议题、人名、数字和结论，不要写成「内容零散」或「未说明背景」一笔带过。决议是已拍板事项，待办要可执行。\n\n逐字稿：\n" + transcript
 	var last error
 	for _, entry := range candidates {
 		var content string
@@ -511,7 +512,7 @@ func (e *Engine) completeMeeting(ctx context.Context, title, transcript string) 
 					{Role: llmadapter.RoleSystem, Content: meetingNotesSystem},
 					{Role: llmadapter.RoleUser, Content: user},
 				},
-				MaxTokens:        4096,
+				MaxTokens:        6144,
 				MaxAttempts:      2,
 				DisableReasoning: true,
 			}

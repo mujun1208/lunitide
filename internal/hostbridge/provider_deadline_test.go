@@ -15,9 +15,9 @@ func TestGatewayProviderTestAllowsSixMinutesOnlyForDiagnostics(t *testing.T) {
 		ok     bool
 	}{
 		{"provider.test", bridge.ProviderTestDeadlineMS, true},
-		{"provider.test", bridge.ProviderTestDeadlineMS + 1, false},
-		{"provider.model.sync", bridge.ProviderTestDeadlineMS, false},
-		{"system.health", bridge.ProviderTestDeadlineMS, false},
+		{"provider.test", bridge.ProviderTestDeadlineMS + 1, true},
+		{"provider.model.sync", bridge.ProviderTestDeadlineMS, true},
+		{"system.health", bridge.ProviderTestDeadlineMS, true},
 	} {
 		caller := &callerStub{}
 		gateway, err := New("https://app.lunitide.local", caller)

@@ -14,6 +14,7 @@ import { ASR_INTERRUPTED_NOTICE, startMeetingAudioRecorder, verifyMeetingAudioAc
 import { watchCaptureTracksEnded } from './meetingCapture'
 import type { CompanionSpeechHandle } from '../session/companion/speech'
 import { MeetingLoopbackQueue } from './meetingLoopbackQueue'
+import { MeetingNotesDoc } from './MeetingNotesDoc'
 import { MeetingSummarySource } from './MeetingSummarySource'
 import { MeetingTranscriptEditor, type MeetingTranscriptEditorHandle } from './MeetingTranscriptEditor'
 import { MeetingSegments } from './MeetingSegments'
@@ -1034,9 +1035,19 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
         </details>
         {current && current.status !== 'recording' && (
           <article className="meeting-doc">
+            <MeetingNotesDoc
+              startedAt={current.startedAt}
+              durationLabel={formatMeetingDuration(current.durationMs)}
+              summary={draftSummary}
+              actions={draftActions}
+              emptySummaryHint="尚未生成摘要。"
+              emptyActionsHint={current.status === 'ready' ? '这场没有抽出可执行待办。' : '尚未生成待办。摘要成功后会一起写出。'}
+            />
+            <section className="meeting-card meeting-summary-source-card">
+              <MeetingSummarySource meeting={current} load={meetings.summarySource} />
+            </section>
             <section className="meeting-card meeting-summary-card">
               <h3>会议摘要</h3>
-              <MeetingSummarySource meeting={current} load={meetings.summarySource} />
               <textarea aria-label="会议摘要" rows={8} value={draftSummary} onChange={e => edit('summary', e.target.value)} placeholder="尚未生成摘要。" />
             </section>
             <section className="meeting-card meeting-actions-card">
