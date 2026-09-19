@@ -1,0 +1,1 @@
+﻿killHostGone=True engineAlive=True relaunch=False autoPauseBtn=False hostNow=False engBefore=22512

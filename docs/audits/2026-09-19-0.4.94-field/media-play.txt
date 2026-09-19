@@ -1,0 +1,1 @@
+﻿afterPlay=True afterReplay=True

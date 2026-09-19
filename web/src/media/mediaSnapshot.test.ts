@@ -41,10 +41,12 @@ it('hides the mini player on Media Center and before any session exists', () => 
   expect(miniPlayerPhase('home', snap('idle'), null)).toBe('hidden')
 })
 
-it('keeps pause visible off-page and does not hide while stop is unverified', () => {
-  expect(miniPlayerPhase('home', snap('paused'), null)).toBe('active')
-  expect(miniPlayerPhase('settings', snap('playing'), op('verifying'))).toBe('closing')
-  expect(miniPlayerPhase('home', snap('playing'), op('uncertain'))).toBe('close_error')
+it('does not pin a floating bar on Chat, Settings, or Hub; media center is the only control surface', () => {
+  expect(miniPlayerPhase('home', snap('paused'), null)).toBe('hidden')
+  expect(miniPlayerPhase('home', snap('playing'), null)).toBe('hidden')
+  expect(miniPlayerPhase('settings', snap('playing'), op('verifying'))).toBe('hidden')
+  expect(miniPlayerPhase('home', snap('playing'), op('uncertain'))).toBe('hidden')
+  expect(miniPlayerPhase('agentHub', snap('playing'), null)).toBe('hidden')
   expect(miniPlayerPhase('home', snap('stopped'), op('succeeded'))).toBe('hidden')
 })
 

@@ -25,7 +25,7 @@ const snapshot: MediaSnapshotDTO = {
   updatedAt: '2026-01-01T00:00:00Z',
 }
 
-it('stays hidden until a session is off-page', () => {
+it('stays hidden when the overlay is not requested', () => {
   const { container } = render(<MediaMiniPlayer phase="hidden" snapshot={snapshot} title="夜曲" error="" onOpen={() => {}} onPlayPause={() => {}} onClose={() => {}} onRetryClose={() => {}} />)
   expect(container).toBeEmptyDOMElement()
 })
@@ -41,7 +41,7 @@ it('TestMediaMiniPlayerContract: keeps pause visible and does not hide while clo
   expect(screen.getByLabelText('迷你播放器').className).toMatch(/is-hub/)
 })
 
-it('TestMediaMiniPlayer: keeps the bar visible off-page', () => {
+it('TestMediaMiniPlayer: still renders chrome if a caller asks for active', () => {
   render(<MediaMiniPlayer phase="active" snapshot={snapshot} title="夜曲" error="" onOpen={() => {}} onPlayPause={() => {}} onClose={() => {}} onRetryClose={() => {}} />)
   expect(screen.getByLabelText('迷你播放器')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '暂停' })).toBeInTheDocument()

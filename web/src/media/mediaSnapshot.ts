@@ -3,17 +3,8 @@ import type { Page } from '../app/appTypes'
 
 export type MiniPlayerPhase = 'hidden' | 'active' | 'closing' | 'close_error'
 
-const STOP_PENDING = new Set(['requested', 'awaiting_approval', 'dispatching', 'verifying'])
-
-export function miniPlayerPhase(page: Page, snapshot: MediaSnapshotDTO | null, stopOp: MediaOperationDTO | null): MiniPlayerPhase {
-  if (stopOp) {
-    if (STOP_PENDING.has(stopOp.phase)) return 'closing'
-    if ((stopOp.phase === 'failed' || stopOp.phase === 'uncertain') && snapshot?.phase !== 'stopped') return 'close_error'
-    if (stopOp.phase === 'succeeded' && snapshot?.phase === 'stopped') return 'hidden'
-    if (stopOp.phase === 'cancelled' && (snapshot?.phase === 'playing' || snapshot?.phase === 'paused')) return page === 'media' ? 'hidden' : 'active'
-  }
-  if (page === 'media' || !snapshot) return 'hidden'
-  if (snapshot.phase === 'playing' || snapshot.phase === 'paused') return 'active'
+export function miniPlayerPhase(_page: Page, _snapshot: MediaSnapshotDTO | null, _stopOp: MediaOperationDTO | null): MiniPlayerPhase {
+  // Chat / Settings / Hub must not pin a floating bar. Playback chrome lives on Media Center.
   return 'hidden'
 }
 

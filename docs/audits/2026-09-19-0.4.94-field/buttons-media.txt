@@ -1,0 +1,56 @@
+﻿收起左侧栏
+Chat
+Work
+＋  新对话Ctrl N
+历史对话 全部 Agent 的会话
+打开 Codex
+连接 Codex
+打开 Cursor
+连接 Cursor
+打开 Kimi
+连接 Kimi
+项目
+项目管理
+技能中心
+专家中心
+MCP
+插件
+资产管理
+设置
+打开我的资料
+切换到白天模式
+切换到英文
+＋ 创建 MCP
+刷新 MCP
+全部 18
+测试 1
+文件 1
+网络 2
+记忆 1
+推理 1
+浏览器 2
+效率 2
+开发 2
+办公 5
+内容 1
+卸载 Everything
+卸载 Filesystem
+卸载 Fetch
+卸载 Memory
+卸载 Sequential Thinking
+卸载 Playwright
+卸载 Time
+卸载 Context7
+卸载 Chrome DevTools
+卸载 AntV Chart
+卸载 Excel MCP
+卸载 Word MCP
+卸载 PPT MCP
+卸载 PDF MCP
+卸载 MarkItDown
+卸载 Calculator
+安装 DuckDuckGo
+安装 YouTube Transcript
+ringing_short.mp3命令已发送，待核验 · 0:00
+暂停
+关闭

@@ -1,0 +1,9 @@
+﻿ControlType.Button | 媒体中心
+ControlType.Button | 运行状态 总览 总览 正常 工具 工具 正常 OCR OCR 正常 媒体 媒体 正常
+ControlType.Button | 诊断与更新
+ControlType.Text | 恢复未完成运行
+ControlType.Button | 恢复未完成运行
+ControlType.Text | 工具剖面
+ControlType.Text | 默认保持现有全部工具。精简=检索与记忆；编程=工作区与命令；同事=专家工具集（不含电脑控制）。
+ControlType.Text | 关窗口 ≠ 退出助手。助手在托盘继续运行；从托盘退出才会停工作台。引擎可在关掉窗口后继续接回。
+ControlType.Text | C:\Users\mujun\AppData\Local\Lunitide\tool-workspaces

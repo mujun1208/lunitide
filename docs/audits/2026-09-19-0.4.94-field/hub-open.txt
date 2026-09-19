@@ -1,0 +1,1 @@
+﻿hubOpenChat=False host=True

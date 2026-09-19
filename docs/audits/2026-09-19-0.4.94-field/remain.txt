@@ -1,0 +1,1 @@
+﻿installedMini=False companionStage=True hasStop=True host=True
