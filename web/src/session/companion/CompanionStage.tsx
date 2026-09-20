@@ -2757,41 +2757,20 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         </div>
       </div>
       </div>
-      <div className="companion-chrome">
-        <button type="button" className="companion-exit" aria-label={zh ? '退出月伴对话（Esc）' : 'Exit companion talk (Esc)'} onClick={exit}>
-          {zh ? '退出' : 'Exit'}
+      <div className="companion-chrome companion-chrome-compact">
+        <button type="button" className="companion-exit" aria-label={zh ? '返回（Esc）' : 'Back (Esc)'} onClick={exit}>
+          {zh ? '← 返回' : '← Back'}
         </button>
-        <button
-          type="button"
-          className="companion-interrupt"
-          aria-label={zh ? `打断月汐（${formatInterruptHotkey(settings.interruptHotkey)}）` : `Interrupt (${formatInterruptHotkey(settings.interruptHotkey)})`}
-          disabled={surfaceState !== 'thinking' && surfaceState !== 'speaking'}
-          onClick={interruptAssistant}
-        >
-          {zh ? '打断' : 'Interrupt'}
-          <span className="companion-interrupt-key">{formatInterruptHotkey(settings.interruptHotkey)}</span>
-        </button>
-        <button
-          type="button"
-          className="companion-pause"
-          aria-label={
-            machine.state === 'thinking' || machine.state === 'speaking'
-              ? (zh ? '停止这一轮' : 'Stop this turn')
-              : machine.state === 'idle' ? (zh ? '继续聆听' : 'Resume listening') : (zh ? '暂停聆听' : 'Pause listening')
-          }
-          disabled={!entryReady && machine.state === 'idle'}
-          onClick={() => {
-            if (machine.state === 'idle') { startListening(false); return }
-            if (machine.state === 'thinking' || machine.state === 'speaking') {
-              interruptAssistant()
-              return
-            }
-            pauseListening()
-          }}
-        >
-          {machine.state === 'thinking' || machine.state === 'speaking' ? (zh ? '停止' : 'Stop') : machine.state === 'idle' ? (zh ? '继续' : 'Resume') : (zh ? '暂停' : 'Pause')}
-        </button>
-        <CompanionSkinSwitch compact zh={zh} value={visualSkin} onChange={applyVisualSkin} />
+        {(surfaceState === 'thinking' || surfaceState === 'speaking') ? (
+          <button
+            type="button"
+            className="companion-interrupt"
+            aria-label={zh ? `打断（${formatInterruptHotkey(settings.interruptHotkey)}）` : `Interrupt (${formatInterruptHotkey(settings.interruptHotkey)})`}
+            onClick={interruptAssistant}
+          >
+            {zh ? '打断' : 'Stop'}
+          </button>
+        ) : null}
         <CompanionEntryLights lights={entryLights} thinkReady={chatReady && !entryBlock.includes('对话模型')} />
       </div>
     </div>

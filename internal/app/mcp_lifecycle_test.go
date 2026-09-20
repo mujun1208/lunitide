@@ -270,3 +270,53 @@ func TestMcpAddReprobesDegradedEndpoint(t *testing.T) {
 		t.Fatalf("retry add must re-probe the parked endpoint: %+v", again)
 	}
 }
+
+func TestMcpRecoverHealthDoesNotPersistDegrade(t *testing.T) {
+	e, failing, _ := newMcpLifecycleFixture(t)
+	ctx := context.Background()
+	id := addLifecycleEndpoint(t, e)
+	if res := handleMcpToggle(e, ctx, lifecyclePayload(t, map[string]any{"endpointId": id, "enabled": true})); !res.OK {
+		t.Fatalf("enable: %+v", res.Error)
+	}
+	ep, err := e.m7mcp.Endpoint(ctx, id)
+	if err != nil || ep.State != m7flow.McpStateReady {
+		t.Fatalf("ready after enable: %+v %v", ep, err)
+	}
+	failing.Store(true)
+	if _, err := e.m7mcp.RecoverHealth(ctx, id); err == nil {
+		t.Fatal("recover probe should fail")
+	}
+	ep, err = e.m7mcp.Endpoint(ctx, id)
+	if err != nil || ep.State != m7flow.McpStateReady {
+		t.Fatalf("startup recover must not persist degrade: %+v %v", ep, err)
+	}
+	result, err := e.m7mcp.Health(ctx, id)
+	if err != nil {
+		t.Fatalf("explicit health persist: %v", err)
+	}
+	if result.State != m7flow.McpStateDegraded {
+		t.Fatalf("explicit reconnect result=%+v", result)
+	}
+	ep, err = e.m7mcp.Endpoint(ctx, id)
+	if err != nil || ep.State != m7flow.McpStateDegraded {
+		t.Fatalf("explicit reconnect persists degrade: %+v %v", ep, err)
+	}
+}
+
+func TestHandleMcpHealthDoesNotPersistDegrade(t *testing.T) {
+	e, failing, _ := newMcpLifecycleFixture(t)
+	ctx := context.Background()
+	id := addLifecycleEndpoint(t, e)
+	if res := handleMcpToggle(e, ctx, lifecyclePayload(t, map[string]any{"endpointId": id, "enabled": true})); !res.OK {
+		t.Fatalf("enable: %+v", res.Error)
+	}
+	failing.Store(true)
+	res := handleMcpHealth(e, ctx, lifecyclePayload(t, map[string]any{"endpointId": id}))
+	if !res.OK {
+		t.Fatalf("user health should return a diagnostic, got %+v", res.Error)
+	}
+	ep, err := e.m7mcp.Endpoint(ctx, id)
+	if err != nil || ep.State != m7flow.McpStateReady {
+		t.Fatalf("user check must not park degrade: %+v %v", ep, err)
+	}
+}

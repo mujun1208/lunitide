@@ -57,7 +57,7 @@ func TestChatEmitsTurnEquipEvent(t *testing.T) {
 		return chatAttachmentAdapter{requests: requests}, nil
 	})
 	events := make(chan bridge.Event, 128)
-	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","messages":[{"role":"user","content":"帮我做一份路演PPT"}]}`
+	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","messages":[{"role":"user","content":"请 PPT专家做一份路演PPT"}]}`
 	resp := e.HandleStreaming(context.Background(), validRequest("chat.start", payload), func(ev bridge.Event) error {
 		events <- ev
 		return nil

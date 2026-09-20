@@ -222,8 +222,8 @@ it('shows runtime tools and opens a conversation specialist as a colleague', asy
     }),
   })
   const mcp = {
-    presets: vi.fn().mockResolvedValue({ items: [{ id: 'playwright', name: 'Playwright', description: '浏览器自动化', transport: 'stdio', command: 'npx', args: [], needsArgs: false, category: '浏览器' }] }),
-    list: vi.fn().mockResolvedValue({ endpoints: [] }),
+    presets: vi.fn().mockResolvedValue({ items: [{ id: 'playwright', name: 'Playwright', description: '浏览器自动化', transport: 'stdio', command: 'npx', args: ['-y', '@playwright/mcp'], needsArgs: false, category: '浏览器' }] }),
+    list: vi.fn().mockResolvedValue({ endpoints: [{ endpointId: 'mcp-playwright', state: 'ready', enabled: true, args: ['-y', '@playwright/mcp'] }] }),
     add: vi.fn(), toggle: vi.fn(), health: vi.fn(), marketSearch: vi.fn(),
   }
   render(<ExpertCenterPage bridge={bridge} projects={projects} mcp={mcp} onOpenExpert={onOpenExpert} />)
@@ -457,6 +457,51 @@ it('does not lock preferred MCP or reseed known-empty bindings', async () => {
   fireEvent.click(save)
   await waitFor(() => expect(bridge.skillsSet).toHaveBeenCalled())
   expect(vi.mocked(bridge.skillsSet!).mock.calls[0][0].skillKeys ?? []).not.toContain('mcp:playwright')
+})
+
+it('auto-matches published skills and installed MCP for the selected expert', async () => {
+  const skillsSet = vi.fn().mockResolvedValue({ expertId, skillKeys: ['slide-builder', 'mcp:playwright'] })
+  const ppt = { ...expertList.experts[0], name: 'PPT专家', division: 'product' as const, catalogItemId: 'ppt-expert', kind: 'agent' as const }
+  const skills = {
+    list: vi.fn().mockResolvedValue({
+      items: [{
+        id: '01ARZ3NDEKTSV4RRFFQ69G5FA1',
+        name: 'tpl-slide-builder',
+        displayName: '演示文稿',
+        description: 'slides',
+        version: '1.0.0',
+        status: 'published',
+        permissions: ['read_write'],
+        entryPoint: 'builtin://slide-builder',
+        manifestJson: '{}',
+        category: 'writing',
+        categorySource: 'keyword',
+        createdAt: now,
+        updatedAt: now,
+      }],
+    }),
+  } as unknown as SkillBridge
+  const mcp = {
+    presets: vi.fn().mockResolvedValue({ items: [{ id: 'playwright', name: 'Playwright', description: '浏览器自动化', transport: 'stdio', command: 'npx', args: ['-y', '@playwright/mcp'], needsArgs: false, category: '浏览器' }] }),
+    list: vi.fn().mockResolvedValue({ endpoints: [{ endpointId: 'mcp-playwright', state: 'ready', enabled: true, args: ['-y', '@playwright/mcp'] }] }),
+    add: vi.fn(), toggle: vi.fn(), health: vi.fn(), marketSearch: vi.fn(),
+  }
+  render(<ExpertCenterPage bridge={expertApi({
+    list: vi.fn().mockResolvedValue({ experts: [ppt], total: 1 }),
+    detail: vi.fn().mockResolvedValue({
+      ...expertDetail,
+      expert: { ...expertDetail.expert, name: 'PPT专家', division: 'product', catalogItemId: 'ppt-expert', boundSkills: [], boundSkillsKnown: true },
+    }),
+    skillsSet,
+  })} projects={projects} skills={skills} mcp={mcp} />)
+  expect(await screen.findByLabelText('已授权 MCP')).toHaveTextContent('Playwright')
+  const match = screen.getByRole('button', { name: '自动匹配并保存' })
+  await waitFor(() => expect(match).toBeEnabled())
+  fireEvent.click(match)
+  expect(await screen.findByText('已按岗位底线补齐技能与 MCP，保存后生效')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '保存运行时绑定' }))
+  await waitFor(() => expect(skillsSet).toHaveBeenCalled())
+  expect(skillsSet.mock.calls[0][0].skillKeys).toEqual(expect.arrayContaining(['slide-builder', 'mcp:playwright']))
 })
 
 it('saves expert skill bindings from the detail pane', async () => {

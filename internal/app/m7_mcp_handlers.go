@@ -247,7 +247,7 @@ func handleMcpHealth(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 	if e.m7mcp == nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "MCP 服务暂时不可用", true)
 	}
-	res, err := e.m7mcp.Health(ctx, p.EndpointID)
+	res, err := e.m7mcp.RecoverHealth(ctx, p.EndpointID)
 	if err != nil && !errors.Is(err, m7app.ErrIllegalTransition) {
 		if res.Diagnostic.Code != "" && !errors.Is(err, m7app.ErrMcpNotFound) {
 			return r.Ok(struct {
@@ -321,6 +321,8 @@ type m7McpMarketItemDTO struct {
 // m7McpFailure maps m7app slice-8 errors onto the M7 wire family.
 func m7McpFailure(r bridge.Request, err error, method string) bridge.Response {
 	switch {
+	case errors.Is(err, m8app.ErrBindingInactive):
+		return r.Fail("MCP_PLUGIN_DISABLED", "对应能力包已关闭。请打开能力包后再重新连接。", false)
 	case errors.Is(err, mcp6.ErrCredentialRevoked):
 		return r.Fail("MCP_AUTH_REVOKED", "MCP 凭据失效或服务拒绝认证，请更新凭据后重新连接", false)
 	case errors.Is(err, m7app.ErrMcpSecurityConflict):

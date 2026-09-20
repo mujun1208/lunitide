@@ -491,7 +491,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if e.compactionTrigger != nil && e.compactionExecutor != nil {
 						_ = e.TriggerPreTurnCompaction(op, sessionID, p.ID, req.Model, token.CanonicalTokenizerRevision, 128000)
 					}
-					shrinkMessagesForWindowRetry(&req)
+					applyWindowRetryMessages(&req, e.latestCheckpointSummary(op, sessionID))
 					state.windowRetried = true
 					discardStepText(&assistantText, stepTextStart)
 					if bufferReply {

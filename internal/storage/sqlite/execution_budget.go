@@ -192,7 +192,9 @@ func (t *agentRuntimeTx) ActiveExecutionUsage(taskID, scopeID string) (agentrun.
 		if err = rows.Scan(&status, &reservedRaw, &settledRaw, &isolatedRaw, &integrityRaw); err != nil {
 			return roll, t.fail(err)
 		}
-		roll.Attempts++
+		if status == "reserved" || status == "isolated" {
+			roll.Attempts++
+		}
 		var reserved struct {
 			InputTokensUpper int64 `json:"inputTokensUpper"`
 			OutputTokenCap   int64 `json:"outputTokenCap"`

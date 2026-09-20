@@ -23,9 +23,21 @@ const BULLET = /^(?:[-*•□]|[0-9]+[.)])\s+(.+)$/
 const NUMBERED_CN = /^(?:[一二三四五六七八九十]+、|\d+[、.．]\s*)(.+)$/
 const LABELED = /^(背景|讨论要点|结论|决议|待办|未决|待确认)[：:]\s*(.*)$/
 
+function looksLikeRawJSON(s: string): boolean {
+  const t = s.trim()
+  if (t.startsWith('{') && t.endsWith('}')) return true
+  if (t.startsWith('[') && t.endsWith(']')) return true
+  if (/^\{[\s\S]*"title"\s*:/.test(t)) return true
+  if (/^\{[\s\S]*"topics"\s*:/.test(t)) return true
+  return false
+}
+
 export function parseMeetingNotesDoc(summary: string, actions: string): NotesDoc {
   const attendees: string[] = []
   let text = (summary || '').replace(/\r\n/g, '\n').trim()
+  if (looksLikeRawJSON(text)) {
+    text = '（会议纪要解析中，数据格式异常，请稍后刷新或手动编辑。）'
+  }
   const att = text.match(ATTENDEE_LINE)
   if (att?.[1]) {
     attendees.push(...splitNames(att[1]))

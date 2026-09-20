@@ -18,6 +18,8 @@ func TestDesktopExecutionParityAcrossTypedAndVoice(t *testing.T) {
 			duplicate                                    bool
 		}{
 			{"open", "打开记事本", "desktop.open", `{"name":"记事本"}`, "opened notepad\n" + `{"l0":{"kind":"foreground","passed":true,"uncertain":false}}`, "打开失败。", "已打开目标", false},
+			{"open-process", "打开记事本", "desktop.open", `{"name":"记事本"}`, "opened notepad\n" + `{"l0":{"kind":"process","passed":true,"uncertain":false}}`, "打开失败。", "已打开目标", false},
+			{"open-page", "打开网页百度", "desktop.browse", `{"query":"百度"}`, "已打开桌面浏览器：https://www.bing.com/search?q=%E7%99%BE%E5%BA%A6\n" + `{"l0":{"kind":"process","passed":true,"uncertain":false}}`, "打开失败。", "已打开目标", false},
 			{"type", "在记事本的号码字段输入123", "desktop.type", `{"text":"123","after":"号码","window":"记事本"}`, `typed "123"` + "\n" + `{"l0":{"kind":"field","passed":true,"uncertain":false}}`, "这次写入失败。", "写入并核对", false},
 			{"type-unverified", "在记事本输入123", "computer.act", `{"action":"type","text":"123","frameId":"fresh"}`, "typed 3 character(s); screen updated 100x100", "已经写好并确认了。", "未确认目标输入框", false},
 			{"observe-only", "在记事本输入123", "computer.act", `{"action":"observe"}`, `{"nodes":[],"frameId":"fresh"}`, "已经写好并确认了。", "尚未取得文字写入", false},

@@ -85,5 +85,9 @@ func executeDesktopBrowse(raw json.RawMessage, approved bool) (Result, error) {
 	if err := openDesktopURL(u.String()); err != nil {
 		return Result{}, err
 	}
-	return result("已向系统默认桌面浏览器发送打开请求：" + u.String() + "；页面加载结果需通过 computer.act 核对"), nil
+	proof := confirmBrowserOpened()
+	if proof.Kind != "" {
+		return result(appendL0JSON("已打开桌面浏览器："+u.String(), proof.Kind, true, false, u.String())), nil
+	}
+	return result(appendL0JSON("已向系统默认桌面浏览器发送打开请求："+u.String()+"；页面加载结果需通过 computer.act 核对", "process", false, true, "BROWSER_UNVERIFIED")), nil
 }

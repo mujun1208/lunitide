@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"log"
 	"strings"
+	"sync"
 
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
 	"github.com/lunitide/lunitide/internal/m7app"
@@ -49,8 +50,10 @@ func (e *Engine) admitSettingsMcp(ctx context.Context, ep m7flow.McpEndpointConf
 	if err != nil {
 		return err
 	}
-	if err := e.checkMcpPlugin(ctx, input.Command, input.Args); err != nil {
-		return err
+	if !recommendedSettingsMcp(input.Command, input.Args) {
+		if err := e.checkMcpPlugin(ctx, input.Command, input.Args); err != nil {
+			return mcpPluginDiagnostic(err)
+		}
 	}
 	if e.m7mcp != nil && e.mcp6Registry.SecurityEnabled() {
 		_, err = (settingsGatewayProber{e}).Probe(ctx, ep)
@@ -87,8 +90,9 @@ func leftoverPaidOrCredentialMcp(ep m7flow.McpEndpointConfig) bool {
 }
 
 // HydrateMcpGatewayFromSettings loads enabled settings-plane endpoints into
-// the chat registry after a restart. Paid or leftover credential servers
-// are revoked first. Runs in the background so npx probes never block listen.
+// the chat registry after a restart. Leftover paid/credential servers stay
+// in storage but are not probed or revoked. Startup probes never persist a
+// degrade so a temporary npx timeout cannot paint every card red.
 func (e *Engine) HydrateMcpGatewayFromSettings(ctx context.Context) {
 	if e == nil || e.m7mcp == nil || e.mcp6Registry == nil {
 		return
@@ -98,32 +102,38 @@ func (e *Engine) HydrateMcpGatewayFromSettings(ctx context.Context) {
 		log.Printf("mcp gateway hydrate: %v", err)
 		return
 	}
-	kept := eps[:0]
+	var pending []m7flow.McpEndpointConfig
 	for _, ep := range eps {
-		if ep.State == m7flow.McpStateRevoked || !leftoverPaidOrCredentialMcp(ep) {
-			kept = append(kept, ep)
+		if leftoverPaidOrCredentialMcp(ep) {
+			e.dropSettingsMcp(ep.EndpointID)
 			continue
 		}
-		if err := e.m7mcp.RevokeGatewayEndpoint(ctx, ep.EndpointID); err != nil {
-			log.Printf("mcp leftover revoke %s: %v", ep.EndpointID, err)
-			kept = append(kept, ep)
-			continue
-		}
-		e.dropSettingsMcp(ep.EndpointID)
-	}
-	eps = kept
-	for _, ep := range eps {
 		if !ep.Enabled || ep.State == m7flow.McpStateRevoked || ep.State == m7flow.McpStateQuarantined {
 			continue
 		}
-		if _, err := e.m7mcp.Health(ctx, ep.EndpointID); err != nil {
-			log.Printf("mcp gateway hydrate %s: %v", ep.EndpointID, err)
-		}
+		pending = append(pending, ep)
 	}
+	sem := make(chan struct{}, 6)
+	var wg sync.WaitGroup
+	for _, ep := range pending {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(ep m7flow.McpEndpointConfig) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if _, err := e.m7mcp.RecoverHealth(ctx, ep.EndpointID); err != nil {
+				log.Printf("mcp gateway hydrate %s: %v", ep.EndpointID, err)
+			}
+		}(ep)
+	}
+	wg.Wait()
 }
 
 func mcpEndpointHasPackage(eps []m7flow.McpEndpointConfig, pkg string) bool {
 	for _, ep := range eps {
+		if ep.State == m7flow.McpStateRevoked || leftoverPaidOrCredentialMcp(ep) {
+			continue
+		}
 		if strings.Contains(ep.ArgsJSON, pkg) {
 			return true
 		}
@@ -156,7 +166,7 @@ func (e *Engine) SeedRecommendedMcpKit(ctx context.Context) {
 		res, err := e.m7mcp.Add(ctx, m7app.McpAddInput{
 			Origin: m7flow.McpOriginManual, Transport: m7flow.McpTransportStdio,
 			Command: p.Command, Args: p.Args, RiskConfirmed: true,
-			Actor: "system", IdempotencyKey: "seed-" + id,
+			ConfigureOnly: true, Actor: "system", IdempotencyKey: "seed-" + id,
 		})
 		if err != nil {
 			log.Printf("mcp kit seed %s: %v", id, err)
@@ -166,6 +176,9 @@ func (e *Engine) SeedRecommendedMcpKit(ctx context.Context) {
 		if err != nil {
 			log.Printf("mcp kit enable %s: %v", id, err)
 			continue
+		}
+		if _, recErr := e.m7mcp.RecoverHealth(ctx, res.EndpointID); recErr != nil {
+			log.Printf("mcp kit recover %s: %v", id, recErr)
 		}
 		eps = append(eps, ep)
 	}

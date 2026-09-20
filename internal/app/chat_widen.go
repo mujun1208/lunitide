@@ -61,6 +61,14 @@ func inferredWidenRoute(goal string, stated TaskRoute) TaskRoute {
 	return RouteUnspecified
 }
 
+func toolGoalMissedWithoutRefusal(goal, assistant string) bool {
+	if strings.TrimSpace(assistant) != "" {
+		return false
+	}
+	route := inferredWidenRoute(goal, RouteUnspecified)
+	return route == RouteR2 || route == RouteR4 || looksLikeReportTask(goal) || companionWantsDesktopControl(goal)
+}
+
 func shouldWidenAndRetry(in widenInput) bool {
 	if in.AlreadyWidened || in.SuccessfulTools > 0 {
 		return false
@@ -68,7 +76,11 @@ func shouldWidenAndRetry(in widenInput) bool {
 	if isShortIdleGreeting(in.Goal) {
 		return false
 	}
-	if inferredWidenRoute(in.Goal, in.TaskRoute) != RouteUnspecified && looksLikeToolRefusal(in.AssistantText) {
+	route := inferredWidenRoute(in.Goal, in.TaskRoute)
+	if route != RouteUnspecified && (looksLikeToolRefusal(in.AssistantText) || toolGoalMissedWithoutRefusal(in.Goal, in.AssistantText)) {
+		return true
+	}
+	if route == RouteUnspecified && toolGoalMissedWithoutRefusal(in.Goal, in.AssistantText) {
 		return true
 	}
 	if looksLikeShortNudge(in.Goal) && in.PrevWasToolGoal && in.PrevSuccessfulTools == 0 {

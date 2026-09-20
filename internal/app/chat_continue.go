@@ -316,6 +316,14 @@ func companionGoalIsOpenOnly(text string) bool {
 	return true
 }
 
+func companionGoalIsOpenPage(goal string) bool {
+	if !companionGoalIsOpenOnly(goal) {
+		return false
+	}
+	t := strings.TrimSpace(goal)
+	return strings.Contains(t, "网页") || strings.Contains(t, "浏览器") || strings.Contains(t, "网站")
+}
+
 func companionDesktopFilenameFragment(text string) bool {
 	t := strings.TrimSpace(text)
 	if t == "" {

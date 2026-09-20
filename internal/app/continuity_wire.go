@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log"
@@ -521,7 +523,7 @@ func (a meteredAdapter) observe(ctx context.Context, req llmadapter.Request, str
 	}
 	var permit agentrun.CallPermit
 	if a.budget != nil {
-		permit, err = a.budget.AdmitCall(ctx, execScope, agentrun.CallEstimate{
+		estimate := agentrun.CallEstimate{
 			CallID:            rec.CallID,
 			AttemptID:         rec.AttemptID,
 			RequestDigest:     prepared.Digest,
@@ -532,7 +534,18 @@ func (a meteredAdapter) observe(ctx context.Context, req llmadapter.Request, str
 			Purpose:           rec.Purpose,
 			ProfileDigest:     profile.ProfileID,
 			TokenizerRevision: "bytes-div4-v1",
-		})
+		}
+		permit, err = a.budget.AdmitCall(ctx, execScope, estimate)
+		if err != nil && errors.Is(err, agentrun.ErrExecutionBudget) && rec.TaskID != "" {
+			if recov, ok := a.store.(interface {
+				RecoverOrphanedReservationsForTask(context.Context, string) (int, error)
+			}); ok {
+				if n, recErr := recov.RecoverOrphanedReservationsForTask(ctx, rec.TaskID); recErr == nil && n > 0 {
+					log.Printf("released %d leaked reservations for task %s", n, rec.TaskID)
+					permit, err = a.budget.AdmitCall(ctx, execScope, estimate)
+				}
+			}
+		}
 		if err != nil {
 			return llmadapter.Response{}, err
 		}
@@ -596,6 +609,31 @@ func (a meteredAdapter) observe(ctx context.Context, req llmadapter.Request, str
 		}); finErr != nil {
 			log.Printf("model call receipt not recorded: %v", finErr)
 		}
+	}
+	if a.budget != nil && permit.ReservationID != "" {
+		sum := sha256.Sum256([]byte(permit.ReservationID + "|" + rec.CallID + "|" + rec.AttemptID + "|" + string(status)))
+		settleCtx, settleCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		settle := agentrun.CallSettlement{
+			ReservationID:      permit.ReservationID,
+			ReceiptID:          rec.CallID + ":" + rec.AttemptID,
+			PayloadDigest:      hex.EncodeToString(sum[:]),
+			SettlementRevision: 1,
+			Usage: agentrun.UsageTotals{
+				InputTokens:       int64(n.InputTokens),
+				OutputTokens:      int64(n.OutputTokens),
+				CachedInputTokens: int64(n.CachedInputTokens),
+			},
+			Integrity:  "reported",
+			Dispatched: true,
+			Outcome:    string(status),
+		}
+		if setErr := a.budget.SettleCall(settleCtx, settle); setErr != nil {
+			log.Printf("model call settlement not recorded: %v", setErr)
+			if retryErr := a.budget.SettleCall(settleCtx, settle); retryErr != nil {
+				log.Printf("model call settlement retry failed: %v", retryErr)
+			}
+		}
+		settleCancel()
 	}
 	return resp, err
 }

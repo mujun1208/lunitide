@@ -198,22 +198,29 @@ func openNativeLaunch(t nativeLaunchTarget) error {
 // confirmNativeOpened waits for the target page's window like
 // confirmDesktopOpened does for apps, but keyed on the page's own window
 // fragments (Settings host, Explorer title) instead of the user's phrasing.
-func confirmNativeOpened(t nativeLaunchTarget) error {
+func confirmNativeOpened(t nativeLaunchTarget) (desktopOpenProof, error) {
 	queries := append([]string{}, t.Window...)
 	if len(queries) == 0 {
 		queries = []string{t.Label}
 	}
+	sawProcess := false
 	for i := 0; i < openVerifyTries; i++ {
 		for _, q := range queries {
 			_ = activateWindowFn(q)
 		}
 		fgTitle, fgProcess, _ := readForegroundFn()
 		if openedWindowConfirmed(fgTitle, fgProcess, queries) {
-			return nil
+			return desktopOpenProof{Kind: "foreground"}, nil
+		}
+		if openedVisibleOrProcess(t.Label, queries) {
+			sawProcess = true
 		}
 		if i+1 < openVerifyTries {
 			openVerifySleep()
 		}
 	}
-	return errors.New("无法执行：启动了但窗口没到前台")
+	if sawProcess {
+		return desktopOpenProof{Kind: "process"}, nil
+	}
+	return desktopOpenProof{}, errors.New("无法执行：启动了但未确认目标窗口")
 }

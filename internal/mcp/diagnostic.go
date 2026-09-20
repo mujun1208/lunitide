@@ -10,6 +10,23 @@ import (
 
 var ErrCredentialRequired = errors.New("mcp: configure required credentials before connecting")
 
+type persistFailureKey struct{}
+
+// WithPersistFailure tells security hooks whether a failed handshake may
+// rewrite durable MCP state. Startup recover uses false so a transient
+// npx flake or pin drift cannot paint every card red.
+func WithPersistFailure(ctx context.Context, persist bool) context.Context {
+	return context.WithValue(ctx, persistFailureKey{}, persist)
+}
+
+func PersistFailure(ctx context.Context) bool {
+	v, ok := ctx.Value(persistFailureKey{}).(bool)
+	if !ok {
+		return true
+	}
+	return v
+}
+
 type Diagnostic struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
@@ -52,6 +69,7 @@ func ConnectionDiagnostic(err error) Diagnostic {
 	}
 	messages := map[string]string{
 		"MCP_CONNECT_FAILED":      "未能建立连接。请重新连接查看当前结果；检查服务器启动配置及所需凭据。",
+		"MCP_PLUGIN_DISABLED":     "对应能力包已关闭。请打开能力包后再重新连接。",
 		"MCP_CREDENTIAL_REQUIRED": "尚未配置此服务所需凭据。请先完成官方授权，再通过“凭据”配置后重新连接。",
 		"MCP_CONNECT_TIMEOUT":     "连接超时。首次启动可能仍在下载运行环境或依赖；请检查网络后重新连接。",
 		"MCP_CONNECT_CANCELED":    "连接已取消，可以重新连接。",

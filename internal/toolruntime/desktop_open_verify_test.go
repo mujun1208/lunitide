@@ -1,6 +1,9 @@
 package toolruntime
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestLaunchVerifyQueriesIncludeSodaProcess(t *testing.T) {
 	got := launchVerifyQueries("汽水")
@@ -28,21 +31,28 @@ func TestOpenedWindowConfirmedSodaBehindCompanion(t *testing.T) {
 	}
 }
 
-func TestConfirmDesktopOpenedRequiresForeground(t *testing.T) {
-	origFG, origList, origAct, origSleep, origTries := readForegroundFn, listWindowsFn, activateWindowFn, openVerifySleep, openVerifyTries
+func TestConfirmDesktopOpenedAcceptsProcessWhenNotForeground(t *testing.T) {
+	origFG, origList, origAct, origSleep, origTries, origProc := readForegroundFn, listWindowsFn, activateWindowFn, openVerifySleep, openVerifyTries, lookupProcessImagesFn
 	t.Cleanup(func() {
-		readForegroundFn, listWindowsFn, activateWindowFn, openVerifySleep, openVerifyTries = origFG, origList, origAct, origSleep, origTries
+		readForegroundFn, listWindowsFn, activateWindowFn, openVerifySleep, openVerifyTries, lookupProcessImagesFn = origFG, origList, origAct, origSleep, origTries, origProc
 	})
 	openVerifyTries = 1
 	openVerifySleep = func() {}
 	activateWindowFn = func(string) error { return nil }
+	lookupProcessImagesFn = func([]string) []string { return nil }
 	listWindowsFn = func() []windowHint { return []windowHint{{Title: "Soda Music", Process: "sodamusic.exe"}} }
 	readForegroundFn = func() (string, string, error) { return "Lunitide", "lunitide.exe", nil }
-	if err := confirmDesktopOpened("汽水"); err == nil || err.Error() != "无法执行：启动了但窗口没到前台" {
-		t.Fatalf("soda behind Lunitide must keep polling / fail, got %v", err)
+	proof, err := confirmDesktopOpened("汽水")
+	if err != nil || proof.Kind != "process" {
+		t.Fatalf("soda behind Lunitide must count as process open, got %+v %v", proof, err)
+	}
+	listWindowsFn = func() []windowHint { return nil }
+	if _, err := confirmDesktopOpened("汽水"); err == nil || !strings.Contains(err.Error(), "未确认目标进程") {
+		t.Fatalf("no window and no process must fail, got %v", err)
 	}
 	readForegroundFn = func() (string, string, error) { return "汽水音乐", "sodamusic.exe", nil }
-	if err := confirmDesktopOpened("汽水"); err != nil {
-		t.Fatal(err)
+	proof, err = confirmDesktopOpened("汽水")
+	if err != nil || proof.Kind != "foreground" {
+		t.Fatalf("foreground soda must confirm: %+v %v", proof, err)
 	}
 }

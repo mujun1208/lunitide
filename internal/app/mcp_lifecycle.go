@@ -9,6 +9,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
 	"github.com/lunitide/lunitide/internal/m7app"
+	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/mcp"
 	"github.com/lunitide/lunitide/internal/mcp6"
 )
@@ -127,6 +128,22 @@ func mcpPluginIDs(command string, args []string) []string {
 	return plugins
 }
 
+func recommendedSettingsMcp(command string, args []string) bool {
+	switch presetIDFromCommandArgs(command, args) {
+	case "everything", "filesystem", "fetch", "memory", "sequentialthinking",
+		"playwright", "time", "context7", "calculator", "duckduckgo", "youtube-transcript":
+		return true
+	}
+	return false
+}
+
+func mcpPluginDiagnostic(err error) error {
+	if errors.Is(err, m8app.ErrBindingInactive) {
+		return &mcp.DiagnosticError{Code: "MCP_PLUGIN_DISABLED", Cause: err}
+	}
+	return err
+}
+
 type settingsGatewayProber struct{ engine *Engine }
 
 func (p settingsGatewayProber) Probe(ctx context.Context, ep m7flow.McpEndpointConfig) (result string, probeErr error) {
@@ -148,11 +165,14 @@ func (p settingsGatewayProber) Probe(ctx context.Context, ep m7flow.McpEndpointC
 	if leftoverGdriveArgs(input.Command, input.Args) && input.EnvSecretRefs["GDRIVE_CREDENTIALS_PATH"] == "" {
 		return "", mcp.ErrCredentialRequired
 	}
-	ctx, release, err := p.engine.AcquireCapability(ctx, mcpPluginIDs(input.Command, input.Args)...)
-	if err != nil {
-		return "", err
+	if plugins := mcpPluginIDs(input.Command, input.Args); len(plugins) > 0 && !recommendedSettingsMcp(input.Command, input.Args) {
+		var release func()
+		ctx, release, err = p.engine.AcquireCapability(ctx, plugins...)
+		if err != nil {
+			return "", mcpPluginDiagnostic(err)
+		}
+		defer release()
 	}
-	defer release()
 	var observed *mcp6.Endpoint
 	if ep.Enabled && ep.State != m7flow.McpStateQuarantined {
 		// A target update invalidates the previous generation before connecting
@@ -165,11 +185,7 @@ func (p settingsGatewayProber) Probe(ctx context.Context, ep m7flow.McpEndpointC
 		observed, err = p.engine.mcp6Registry.CheckEndpoint(ctx, input)
 	}
 	if err != nil {
-		if errors.Is(err, mcp6.ErrCapabilityDrift) || errors.Is(err, mcp6.ErrCredentialRevoked) {
-			persistErr := p.engine.m7mcp.SecurityFailure(ctx, ep.EndpointID, ep.Security.Version, errors.Is(err, mcp6.ErrCapabilityDrift))
-			p.engine.dropSettingsMcp(ep.EndpointID)
-			return "", errors.Join(err, persistErr)
-		}
+		p.engine.dropSettingsMcp(ep.EndpointID)
 		return "", err
 	}
 	if p.engine.mcp6Registry.SecurityEnabled() {
@@ -177,8 +193,7 @@ func (p settingsGatewayProber) Probe(ctx context.Context, ep m7flow.McpEndpointC
 		if persistErr != nil {
 			p.engine.dropSettingsMcp(ep.EndpointID)
 			if errors.Is(persistErr, m7app.ErrMcpDrift) {
-				stateErr := p.engine.m7mcp.SecurityFailure(ctx, ep.EndpointID, ep.Security.Version, true)
-				return "", errors.Join(mcp6.ErrCapabilityDrift, persistErr, stateErr)
+				return "", errors.Join(mcp6.ErrCapabilityDrift, persistErr)
 			}
 			return "", persistErr
 		}
@@ -195,7 +210,7 @@ func (p settingsGatewayProber) Probe(ctx context.Context, ep m7flow.McpEndpointC
 }
 
 func (e *Engine) persistMcpSecurityFailure(ctx context.Context, runtime *mcp6.Endpoint, drift bool) error {
-	if e.m7mcp == nil {
+	if e.m7mcp == nil || !mcp.PersistFailure(ctx) {
 		return nil
 	}
 	eps, err := e.m7mcp.List(ctx, "")

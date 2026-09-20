@@ -1,24 +1,47 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
+func (e *Engine) latestCheckpointSummary(ctx context.Context, sessionID string) string {
+	if e == nil || e.summaryReader == nil || sessionID == "" {
+		return ""
+	}
+	if cr, ok := e.summaryReader.(compactionCoverageReader); ok {
+		summary, _, err := cr.GetLatestCompactionCheckpoint(ctx, sessionID)
+		if err == nil && strings.TrimSpace(summary) != "" {
+			return summary
+		}
+	}
+	summary, err := e.summaryReader.GetLatestCompactionSummary(ctx, sessionID)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(summary)
+}
+
 func isWindowOverflowError(err error) bool {
 	var upstream *llmadapter.Error
 	if !errors.As(err, &upstream) {
 		return false
 	}
-	if upstream.Code == "CONTEXT_WINDOW_EXCEEDED" || upstream.Code == "REQUEST_TOO_LARGE" {
+	switch upstream.Code {
+	case "CONTEXT_WINDOW_EXCEEDED", "REQUEST_TOO_LARGE", "RESPONSE_TRUNCATED":
 		return true
 	}
 	return upstream.HTTPStatus == 413
 }
 
 func shrinkMessagesForWindowRetry(req *llmadapter.Request) {
+	applyWindowRetryMessages(req, "")
+}
+
+func applyWindowRetryMessages(req *llmadapter.Request, checkpointSummary string) {
 	if req == nil || len(req.Messages) == 0 {
 		return
 	}
@@ -34,8 +57,11 @@ func shrinkMessagesForWindowRetry(req *llmadapter.Request) {
 	if len(rest) > keep {
 		rest = rest[len(rest)-keep:]
 	}
-	note := llmadapter.Message{Role: llmadapter.RoleSystem, Content: "较早的对话已写入检查点摘要。不要声称记得未出现的细节。继续完成当前用户请求。"}
-	req.Messages = append(append([]llmadapter.Message{}, systems...), note)
+	note := "较早的对话已写入检查点摘要。不要声称记得未出现的细节。继续完成当前用户请求。"
+	if summary := strings.TrimSpace(checkpointSummary); summary != "" {
+		note = "较早的对话已写入检查点摘要：\n" + summary + "\n不要声称记得未出现的细节。继续完成当前用户请求。"
+	}
+	req.Messages = append(append([]llmadapter.Message{}, systems...), llmadapter.Message{Role: llmadapter.RoleSystem, Content: note})
 	req.Messages = append(req.Messages, rest...)
 }
 

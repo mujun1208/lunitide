@@ -116,12 +116,12 @@ type Runtime struct {
 	}
 }
 type Result struct {
-	Output     string             `json:"output"`
-	Digest     string             `json:"digest"`
-	Artifact   *Artifact          `json:"artifact,omitempty"`
-	Receipt    *OperationReceipt  `json:"receipt,omitempty"`
-	VisionMIME string             `json:"-"`
-	VisionData []byte             `json:"-"`
+	Output     string            `json:"output"`
+	Digest     string            `json:"digest"`
+	Artifact   *Artifact         `json:"artifact,omitempty"`
+	Receipt    *OperationReceipt `json:"receipt,omitempty"`
+	VisionMIME string            `json:"-"`
+	VisionData []byte            `json:"-"`
 }
 
 // OperationReceipt is the truthful playback/command receipt. Key-only
@@ -904,10 +904,15 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			if e := openNativeLaunch(native); e != nil {
 				return Result{}, fmt.Errorf("无法执行：打不开（%v）", e)
 			}
-			if e := confirmNativeOpened(native); e != nil {
+			proof, e := confirmNativeOpened(native)
+			if e != nil {
 				return Result{}, e
 			}
-			return result(appendL0JSON("opened "+native.Label+" ("+native.URI+")", "foreground", true, false, native.URI)), nil
+			kind := proof.Kind
+			if kind == "" {
+				kind = "foreground"
+			}
+			return result(appendL0JSON("opened "+native.Label+" ("+native.URI+")", kind, true, false, native.URI)), nil
 		}
 		path, others, e := pickLaunchTarget(a.Name)
 		if e != nil {
@@ -922,10 +927,15 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if e = openWithDefaultApp(path); e != nil {
 			return Result{}, fmt.Errorf("无法执行：打不开（%v）", e)
 		}
-		if e = confirmDesktopOpened(a.Name); e != nil {
+		proof, e := confirmDesktopOpened(a.Name)
+		if e != nil {
 			return Result{}, e
 		}
-		return result(appendL0JSON("opened "+path, "foreground", true, false, path)), nil
+		kind := proof.Kind
+		if kind == "" {
+			kind = "foreground"
+		}
+		return result(appendL0JSON("opened "+path, kind, true, false, path)), nil
 	case "desktop.type":
 		invoke := func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (Result, error) {
 			return r.runCcTool(ctx, mode, session, tool, args, approved, unconfined)

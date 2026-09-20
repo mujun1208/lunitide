@@ -70,6 +70,8 @@ export function MediaRuntime({
   const setTarget = useNavStore(s => s.setTarget)
   const [state, setState] = useState<MediaState>(EMPTY)
   const [wantPlay, setWantPlay] = useState(false)
+  const wantPlayRef = useRef(wantPlay)
+  wantPlayRef.current = wantPlay
   const snapshotRef = useRef(state.snapshot)
   const openedAssetIdRef = useRef<string | null>(null)
   const openedEpochRef = useRef<number | null>(null)
@@ -107,7 +109,7 @@ export function MediaRuntime({
         openedEpochRef.current = null
         playbackUrlRef.current = null
         setState(prev => prev.playbackUrl ? { ...prev, playbackUrl: null } : prev)
-      } else if (needsPlaybackOpen(current, playbackUrlRef.current, openedAssetIdRef.current, wantPlay, openedEpochRef.current) && current.assetId) {
+      } else if (needsPlaybackOpen(current, playbackUrlRef.current, openedAssetIdRef.current, wantPlayRef.current, openedEpochRef.current) && current.assetId) {
         try {
           const opened = await media.openAsset({ assetId: current.assetId, mediaSessionId: current.mediaSessionId })
           openedAssetIdRef.current = current.assetId
@@ -127,7 +129,7 @@ export function MediaRuntime({
       }
       setState(prev => ({ ...prev, notice: failMessage(error, copy.refreshFailed, copy.disabled) }))
     }
-  }, [activity, copy.channelDown, copy.disabled, copy.refreshFailed, media, wantPlay])
+  }, [activity, copy.channelDown, copy.disabled, copy.refreshFailed, media])
 
   useEffect(() => {
     void refresh()
@@ -160,8 +162,8 @@ export function MediaRuntime({
         : { mediaSessionId: snapshot.mediaSessionId, action, expectedRevision: snapshot.revision, operationId: newBridgeULID() }
     try {
       const result = await media.command(payload, { attempt: createMutationAttempt('media.session.command', payload) })
-      if (action === 'play' || (action === 'toggle' && snapshot.phase !== 'playing')) setWantPlay(true)
-      if (action === 'pause' || action === 'stop') setWantPlay(false)
+      if (action === 'play' || (action === 'toggle' && snapshot.phase !== 'playing')) { wantPlayRef.current = true; setWantPlay(true) }
+      if (action === 'pause' || action === 'stop') { wantPlayRef.current = false; setWantPlay(false) }
       setState(prev => ({
         ...prev,
         snapshot: result.snapshot,

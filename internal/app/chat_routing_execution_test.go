@@ -172,7 +172,7 @@ func TestTypedAutomaticExpertEquipmentInvokesMatchingSkill(t *testing.T) {
 	}
 	t.Cleanup(func() { runtime.Close() })
 	e.SetToolRuntime(runtime)
-	const goal = "分析 Excel 表格的异常值，先用相应技能处理"
+	const goal = "请 Excel表格制作专家分析 Excel 表格的异常值，先用相应技能处理"
 	const skillID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	stub := &skillInvokeRecordingStub{skillCatalogStub: skillCatalogStub{items: []skill.Skill{{ID: skillID, Name: "tpl-excel-analyst", DisplayName: "表格分析师", EntryPoint: "builtin://excel-analyst", Description: "分析 Excel 数据", Status: skill.SkillStatusPublished}}}}
 	e.skills = stub
@@ -229,8 +229,8 @@ func TestMountedExpertAndVisibleEquipmentUseSameResolver(t *testing.T) {
 		t.Fatalf("explicit chip lost: %+v", got)
 	}
 	e.sessionExperts = stubSessionExperts{}
-	if got := e.turnEquipmentFor(ctx, session, goal, false); len(got.Names) == 0 || got.Names[0] != "Excel表格制作专家" {
-		t.Fatalf("automatic routing lost: %+v", got)
+	if got := e.turnEquipmentFor(ctx, session, goal, false); len(got.Names) != 0 {
+		t.Fatalf("ordinary chat must not fuzzy-route experts: %+v", got)
 	}
 }
 

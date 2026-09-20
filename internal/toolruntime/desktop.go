@@ -87,7 +87,11 @@ func (r *Runtime) sandboxDesktopDuringTest() error {
 	return nil
 }
 
-func userDesktopDir() (string, error) {
+var userDesktopDirFunc = defaultUserDesktopDir
+
+func userDesktopDir() (string, error) { return userDesktopDirFunc() }
+
+func defaultUserDesktopDir() (string, error) {
 	candidates := desktopDirCandidates()
 	if len(candidates) == 0 {
 		var legacy []string
@@ -172,6 +176,9 @@ func desktopNameScore(base, query string) int {
 }
 
 // pickBestDesktopHit returns the unique best match from scored hits.
+// Duplicate base filenames (same shortcut in user and system Start
+// Menu) are collapsed so the user is never asked to disambiguate
+// between identical names.
 func pickBestDesktopHit(hits []desktopHit, query string) (string, []string, error) {
 	if len(hits) == 0 {
 		return "", nil, errors.New("no match for " + strings.TrimSpace(query))
@@ -182,11 +189,43 @@ func pickBestDesktopHit(hits []desktopHit, query string) (string, []string, erro
 		}
 		return hits[i].base < hits[j].base
 	})
+	// Deduplicate by lowercase base filename, keeping the first (highest-score) entry.
+	seen := map[string]bool{}
+	deduped := hits[:0:0]
+	for _, h := range hits {
+		key := strings.ToLower(h.base)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		deduped = append(deduped, h)
+	}
+	hits = deduped
 	names := make([]string, len(hits))
 	for i, h := range hits {
 		names[i] = h.base
 	}
-	if len(hits) > 1 && hits[0].score == hits[1].score {
+	if len(hits) == 1 {
+		return hits[0].path, names, nil
+	}
+	// When top scores are tied, try to break the tie by preferring the
+	// entry whose base name (sans extension) exactly equals the query.
+	// This handles "网易云音乐" picking "网易云音乐.lnk" over "简版网易云音乐.lnk".
+	if hits[0].score == hits[1].score {
+		qLower := strings.ToLower(strings.TrimSpace(query))
+		for _, h := range hits {
+			if h.score != hits[0].score {
+				break
+			}
+			base := strings.ToLower(h.base)
+			ext := strings.ToLower(filepath.Ext(h.base))
+			stem := strings.TrimSuffix(base, ext)
+			if stem == qLower {
+				return h.path, names, nil
+			}
+		}
+		// Still tied and no exact stem match — genuinely ambiguous.
+		// Return empty path so the caller can ask the user.
 		return "", names, nil
 	}
 	return hits[0].path, names, nil
@@ -266,6 +305,27 @@ func pickLaunchTarget(query string) (string, []string, error) {
 			}
 		}
 		return "", nil, errors.New("无法执行：桌面上没有文档")
+	}
+	// Known apps (汽水音乐, 微信, 飞书 etc.) are checked BEFORE the Desktop
+	// folder so that a stray file with a similar name on the Desktop never
+	// shadows the real executable/shortcut.
+	knownApp, isKnownApp := matchKnownLaunchApp(query)
+	if isKnownApp {
+		for _, q := range searches {
+			if path, ok := pickKnownAppExecutable(q); ok {
+				return path, nil, nil
+			}
+		}
+		for _, q := range searches {
+			path, others, err := pickStartMenuShortcut(q)
+			if path != "" || len(others) > 0 {
+				return path, others, err
+			}
+		}
+		// Known app recognised but executable/shortcut not found — do NOT
+		// fall through to the Desktop file search, which would open a stray
+		// .txt / .docx that happens to contain similar characters.
+		return "", nil, errors.New("无法执行：已识别应用「" + knownApp.Canonical + "」，但在安装目录和开始菜单里均未找到。请确认它已安装，或把它的快捷方式放到桌面后再试")
 	}
 	if dir, err := userDesktopDir(); err == nil {
 		for _, q := range searches {

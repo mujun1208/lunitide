@@ -38,7 +38,7 @@ export function AgentHubThread({
   const [accessMode, setAccessMode] = useState<HubAccessMode>('approval')
   const [inboxFiles, setInboxFiles] = useState<InboxFile[]>([])
   const [exportDir, setExportDir] = useState('')
-  const [workspaceOpen, setWorkspaceOpen] = useState(true)
+  const [workspaceOpen, setWorkspaceOpen] = useState(false)
   const [workspaceExpanded, setWorkspaceExpanded] = useState(false)
   const [workspaceRev, setWorkspaceRev] = useState(0)
   const [workspaceWidth, startWorkspaceResize] = usePanelResize({
