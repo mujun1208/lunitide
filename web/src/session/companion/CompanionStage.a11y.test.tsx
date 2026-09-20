@@ -227,7 +227,7 @@ describe('MC-06 a11y skeleton', () => {
     expect(container.querySelector('.companion-ask')).toBeNull()
     // Ghost exit stays reachable for assistive tech.
     const exit = container.querySelector('.companion-exit') as HTMLButtonElement
-    expect(exit.getAttribute('aria-label')).toBe('退出月伴对话（Esc）')
+    expect(exit.getAttribute('aria-label')).toBe('返回（Esc）')
   })
 
   test('focus lands on the stage root on mount and returns to the entry element on unmount', async () => {
