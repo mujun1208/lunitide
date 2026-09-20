@@ -10,7 +10,11 @@ func TestShouldWidenAndRetryTable(t *testing.T) {
 	}{
 		{name: "问候", in: widenInput{Goal: "你好", AssistantText: "你好呀"}, want: false},
 		{name: "天气", in: widenInput{Goal: "今天天气怎么样", TaskRoute: RouteUnspecified, AssistantText: "今天多云，大约二十度。"}, want: false},
+		{name: "天气空答", in: widenInput{Goal: "今天天气怎么样", TaskRoute: RouteUnspecified, AssistantText: ""}, want: false},
 		{name: "无动词办公", in: widenInput{Goal: "把桌面上的报告弄好", AssistantText: "我没有这个工具"}, want: true},
+		{name: "无动词空答", in: widenInput{Goal: "把桌面上的报告弄好", AssistantText: ""}, want: true},
+		{name: "打开记事本空答", in: widenInput{Goal: "打开记事本", AssistantText: ""}, want: true},
+		{name: "打开网页空答", in: widenInput{Goal: "打开网页百度", AssistantText: ""}, want: true},
 		{name: "催促", in: widenInput{Goal: "你没做", PrevWasToolGoal: true, PrevSuccessfulTools: 0}, want: true},
 	} {
 		if got := shouldWidenAndRetry(tc.in); got != tc.want {

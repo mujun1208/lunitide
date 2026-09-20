@@ -342,16 +342,15 @@ func (e *Engine) SeedPlaywrightMcp(ctx context.Context) {
 	res, err := e.m7mcp.Add(ctx, m7app.McpAddInput{
 		Origin: m7flow.McpOriginManual, Transport: m7flow.McpTransportStdio,
 		Command: p.Command, Args: p.Args, RiskConfirmed: true,
-		Actor: "system", IdempotencyKey: "seed-playwright",
+		ConfigureOnly: true, Actor: "system", IdempotencyKey: "seed-playwright",
 	})
 	if err != nil {
 		return
 	}
-	ep, err := e.m7mcp.Toggle(ctx, res.EndpointID, true, "system")
-	if err != nil {
+	if _, err := e.m7mcp.Toggle(ctx, res.EndpointID, true, "system"); err != nil {
 		return
 	}
-	if err := e.admitSettingsMcp(ctx, ep); err != nil {
-		log.Printf("Playwright MCP admission failed: %v", err)
+	if _, recErr := e.m7mcp.RecoverHealth(ctx, res.EndpointID); recErr != nil {
+		log.Printf("Playwright MCP recover: %v", recErr)
 	}
 }

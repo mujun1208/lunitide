@@ -17,14 +17,17 @@ func TestIsWindowOverflowError(t *testing.T) {
 	if !isWindowOverflowError(&llmadapter.Error{Code: "HTTP_413", HTTPStatus: 413}) {
 		t.Fatal("http 413")
 	}
-	if isWindowOverflowError(&llmadapter.Error{Code: "RESPONSE_TRUNCATED"}) {
-		t.Fatal("output truncation is not a window retry")
+	if !isWindowOverflowError(&llmadapter.Error{Code: "RESPONSE_TRUNCATED"}) {
+		t.Fatal("length finish must retry the current user step")
 	}
 	if err := chatModelFinishError(llmadapter.FinishReasonWindow); !isWindowOverflowError(err) {
 		t.Fatal("window finish must retry")
 	}
-	if err := chatModelFinishError(llmadapter.FinishReasonLength); isWindowOverflowError(err) {
-		t.Fatal("length finish must stay fail-closed")
+	if err := chatModelFinishError(llmadapter.FinishReasonLength); !isWindowOverflowError(err) {
+		t.Fatal("length finish must retry via checkpoint")
+	}
+	if isWindowOverflowError(&llmadapter.Error{Code: "RESPONSE_FILTERED"}) {
+		t.Fatal("content filter is not a window retry")
 	}
 }
 
@@ -50,6 +53,26 @@ func TestShrinkMessagesForWindowRetryKeepsSystemAndTail(t *testing.T) {
 	}
 	if req.Messages[2].Content == "old-1" {
 		t.Fatal("should drop the oldest user turn")
+	}
+	last := req.Messages[len(req.Messages)-1]
+	if last.Role != llmadapter.RoleUser || last.Content != "current" {
+		t.Fatalf("lost current user: %+v", last)
+	}
+}
+
+func TestApplyWindowRetryMessagesUsesCheckpointSummary(t *testing.T) {
+	req := &llmadapter.Request{Messages: []llmadapter.Message{
+		{Role: llmadapter.RoleSystem, Content: "rules"},
+		{Role: llmadapter.RoleUser, Content: "old-1"},
+		{Role: llmadapter.RoleAssistant, Content: "old-2"},
+		{Role: llmadapter.RoleUser, Content: "current"},
+	}}
+	applyWindowRetryMessages(req, "先前约定：继续写周报")
+	if req.Messages[0].Content != "rules" {
+		t.Fatal("lost system")
+	}
+	if !strings.Contains(req.Messages[1].Content, "先前约定：继续写周报") {
+		t.Fatalf("missing checkpoint summary: %+v", req.Messages)
 	}
 	last := req.Messages[len(req.Messages)-1]
 	if last.Role != llmadapter.RoleUser || last.Content != "current" {

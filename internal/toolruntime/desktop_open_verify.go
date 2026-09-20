@@ -11,12 +11,17 @@ import (
 
 type windowHint = winexec.WindowHint
 
+type desktopOpenProof struct {
+	Kind string
+}
+
 var (
-	readForegroundFn = winexec.ForegroundWindow
-	listWindowsFn    = winexec.ListVisibleWindows
-	activateWindowFn = winexec.ActivateWindowMatching
-	openVerifySleep  = func() { time.Sleep(200 * time.Millisecond) }
-	openVerifyTries  = 20
+	readForegroundFn      = winexec.ForegroundWindow
+	listWindowsFn         = winexec.ListVisibleWindows
+	activateWindowFn      = winexec.ActivateWindowMatching
+	lookupProcessImagesFn = winexec.LookupProcessImages
+	openVerifySleep       = func() { time.Sleep(200 * time.Millisecond) }
+	openVerifyTries       = 20
 )
 
 func launchVerifyQueries(name string) []string {
@@ -77,23 +82,68 @@ func openedWindowConfirmed(fgTitle, fgProcess string, queries []string) bool {
 	return windowHitsLaunch(fgTitle, fgProcess, queries)
 }
 
-func confirmDesktopOpened(name string) error {
+func openedVisibleOrProcess(name string, queries []string) bool {
+	for _, w := range listWindowsFn() {
+		if windowHitsLaunch(w.Title, w.Process, queries) {
+			return true
+		}
+	}
+	var names []string
+	if known, ok := matchKnownLaunchApp(name); ok {
+		names = append(names, known.Processes...)
+	}
+	for _, q := range queries {
+		if strings.HasSuffix(strings.ToLower(strings.TrimSpace(q)), ".exe") {
+			names = append(names, q)
+		}
+	}
+	return len(lookupProcessImagesFn(names)) > 0
+}
+
+func confirmDesktopOpened(name string) (desktopOpenProof, error) {
 	queries := launchVerifyQueries(name)
 	if len(queries) == 0 {
 		queries = []string{strings.TrimSpace(name)}
 	}
+	sawProcess := false
 	for i := 0; i < openVerifyTries; i++ {
 		for _, q := range queries {
 			_ = activateWindowFn(q)
 		}
 		fgTitle, fgProcess, _ := readForegroundFn()
-		_ = listWindowsFn()
 		if openedWindowConfirmed(fgTitle, fgProcess, queries) {
-			return nil
+			return desktopOpenProof{Kind: "foreground"}, nil
+		}
+		if openedVisibleOrProcess(name, queries) {
+			sawProcess = true
 		}
 		if i+1 < openVerifyTries {
 			openVerifySleep()
 		}
 	}
-	return errors.New("无法执行：启动了但窗口没到前台")
+	if sawProcess {
+		return desktopOpenProof{Kind: "process"}, nil
+	}
+	return desktopOpenProof{}, errors.New("无法执行：启动了但未确认目标进程")
+}
+
+func confirmBrowserOpened() desktopOpenProof {
+	queries := []string{"msedge.exe", "chrome.exe", "firefox.exe", "iexplore.exe", "Microsoft Edge", "Google Chrome", "Edge", "Firefox"}
+	tries := openVerifyTries
+	if tries > 8 {
+		tries = 8
+	}
+	for i := 0; i < tries; i++ {
+		fgTitle, fgProcess, _ := readForegroundFn()
+		if openedWindowConfirmed(fgTitle, fgProcess, queries) {
+			return desktopOpenProof{Kind: "foreground"}
+		}
+		if openedVisibleOrProcess("浏览器", queries) {
+			return desktopOpenProof{Kind: "process"}
+		}
+		if i+1 < tries {
+			openVerifySleep()
+		}
+	}
+	return desktopOpenProof{}
 }

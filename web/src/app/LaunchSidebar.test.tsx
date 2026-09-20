@@ -129,17 +129,16 @@ it('hides Media Center and Automation when office-menu turns them off', () => {
   expect(screen.queryByRole('button', { name: '媒体中心' })).toBeNull()
   expect(screen.queryByRole('button', { name: '自动化' })).toBeNull()
   expect(screen.queryByRole('button', { name: '项目' })).toBeNull()
-  expect(screen.queryByRole('button', { name: '项目管理' })).toBeNull()
 })
 
-it('keeps project tools off Work and on AgentHub', () => {
+it('shows 项目 group only on AgentHub, not Chat', () => {
   render(<LaunchSidebar {...sidebarProps()} />)
   expect(screen.queryByRole('button', { name: '项目' })).toBeNull()
   expect(screen.getByRole('button', { name: '办公' })).toBeInTheDocument()
   cleanup()
   render(<LaunchSidebar {...sidebarProps({ replaceMainNav: <div>agents</div> })} />)
   expect(screen.getByRole('button', { name: '项目' })).toBeInTheDocument()
-  expect(screen.getByText('绿可用 · 黄异常 · 红失败 · 灰未用')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '项目' })).toHaveAttribute('title', expect.stringMatching(/绿灯|Green/))
   expect(screen.getByLabelText('调整 Agent 与项目')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '对话' })).toBeNull()
 })

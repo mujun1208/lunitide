@@ -156,6 +156,10 @@ func reuseBrowserSearchEntry(goal string, args json.RawMessage, messages []llmad
 	return ""
 }
 
+func desktopOpenProofAccepted(kind string) bool {
+	return kind == "foreground" || kind == "process"
+}
+
 func clipExecutionToolSummary(name, output string) string {
 	if !isDesktopControlTool(name) {
 		return clipToolSummary(output)
@@ -238,14 +242,23 @@ func computerReceiptCloseout(messages []llmadapter.Message, goal string) string 
 		}
 	}
 	if companionGoalIsOpenOnly(goal) {
-		out := lastNamedToolOutput(messages, "desktop.open")
-		if out != "" {
+		for _, name := range []string{"desktop.open", "desktop.browse"} {
+			out := lastNamedToolOutput(messages, name)
+			if out == "" {
+				continue
+			}
 			proof, ok := extractL0(out)
-			if ok && proof.Passed && !proof.Uncertain && proof.Kind == "foreground" && !companionToolResultFailed(out) {
+			if ok && proof.Passed && !proof.Uncertain && desktopOpenProofAccepted(proof.Kind) && !companionToolResultFailed(out) {
+				if name == "desktop.browse" {
+					return "已打开目标页面。"
+				}
 				return "已打开目标文件或应用。"
 			}
 			if companionToolResultFailed(out) {
-				return companionToolResultSpeech("desktop.open", out)
+				return companionToolResultSpeech(name, out)
+			}
+			if name == "desktop.browse" {
+				return "已向默认浏览器发送打开请求，尚未核对页面。"
 			}
 			return "已发送打开操作，但未确认目标窗口。"
 		}

@@ -199,6 +199,39 @@ func (s *Store) RecoverInterruptedCallAttempts(ctx context.Context) error {
 	return mapWriteError(err)
 }
 
+func (s *Store) RecoverOrphanedReservations(ctx context.Context) (int, error) {
+	return s.recoverOrphanedReservations(ctx, "")
+}
+
+func (s *Store) RecoverOrphanedReservationsForTask(ctx context.Context, taskID string) (int, error) {
+	if taskID == "" {
+		return 0, nil
+	}
+	return s.recoverOrphanedReservations(ctx, taskID)
+}
+
+func (s *Store) recoverOrphanedReservations(ctx context.Context, taskID string) (int, error) {
+	now := formatTime(time.Now().UTC())
+	var (
+		res sql.Result
+		err error
+	)
+	if taskID == "" {
+		res, err = s.db.ExecContext(ctx, `UPDATE run_usage_reservation
+			SET status='released', updated_at=?
+			WHERE status IN ('reserved','isolated')`, now)
+	} else {
+		res, err = s.db.ExecContext(ctx, `UPDATE run_usage_reservation
+			SET status='released', updated_at=?
+			WHERE task_id=? AND status IN ('reserved','isolated')`, now, taskID)
+	}
+	if err != nil {
+		return 0, mapWriteError(err)
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
 // PutCallAttemptIntent records a metered attempt. AdmitCall may already have
 // inserted the same (owner_scope, call_id, attempt_id) stub in the reservation
 // transaction; adopt that row instead of failing UNIQUE and blocking HTTP.

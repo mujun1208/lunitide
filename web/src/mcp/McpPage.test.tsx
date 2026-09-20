@@ -191,8 +191,9 @@ it('opens installed view and marks leftover archived MCP', async () => {
   const bridge = api({ list: vi.fn().mockResolvedValue({ endpoints: [memoryEndpoint, leftover] }) })
   render(<McpPage bridge={bridge} />)
   expect(await screen.findByText(/已下架且无法继续使用的 MCP（GitHub）/)).toBeInTheDocument()
-  expect(await screen.findByText(/已下架 · GitHub/)).toBeInTheDocument()
-  expect(screen.getByRole('tab', { name: /已安装/ })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.queryByText(/已下架 · GitHub/)).toBeNull()
+  expect(screen.queryByText('@modelcontextprotocol/server-github')).toBeNull()
+  expect(screen.getByRole('tab', { name: '已安装（1）' })).toHaveAttribute('aria-selected', 'true')
   expect(screen.getByText('Memory')).toBeInTheDocument()
 })
 
@@ -228,18 +229,14 @@ it('reports connection failure after registration and refreshes the actual endpo
  expect(bridge.list).toHaveBeenCalledTimes(2)
 })
 
-it('lets a leftover remote MCP configure credentials without staying in the market',async()=>{
+it('hides leftover remote MCP cards so they cannot be reconnected',async()=>{
  const saved={endpointId:'mcp-1',transport:'https' as const,url:'https://mcp.juhe.cn/mcp?token={{credential}}',state:'probe' as const,enabled:false,securityVersion:0,displayName:'聚合日常查询'}
- const bridge=api({list:vi.fn().mockResolvedValue({endpoints:[saved]}),credentialSet:vi.fn().mockResolvedValue({configured:true,securityVersion:1})})
+ const bridge=api({list:vi.fn().mockResolvedValue({endpoints:[saved]})})
  render(<McpPage bridge={bridge}/>)
- fireEvent.click(await screen.findByRole('tab',{name:'已安装（1）'}))
- fireEvent.click(await screen.findByRole('button',{name:'凭据'}))
- await screen.findByRole('dialog',{name:'MCP 凭据'})
- fireEvent.change(screen.getByLabelText('MCP 凭据值'),{target:{value:'fixture-token'}});fireEvent.click(screen.getByText('保存凭据'))
- await waitFor(()=>expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
- expect(bridge.credentialSet).toHaveBeenCalledWith(expect.objectContaining({endpointId:'mcp-1',credential:'fixture-token',expectedVersion:0}))
- fireEvent.click(screen.getByRole('button',{name:'重新连接'}))
- await waitFor(()=>expect(bridge.toggle).toHaveBeenCalledWith({endpointId:'mcp-1',enabled:true}))
+ expect(await screen.findByText(/已下架且无法继续使用的 MCP（聚合查询、付费凭据）/)).toBeInTheDocument()
+ expect(screen.getByRole('tab',{name:'已安装（0）'})).toBeInTheDocument()
+ expect(screen.queryByText('聚合日常查询')).toBeNull()
+ expect(screen.queryByRole('button',{name:'凭据'})).toBeNull()
  fireEvent.click(screen.getByRole('tab',{name:/MCP 市场/}))
  expect(screen.queryByText('聚合日常查询')).not.toBeInTheDocument()
 })
@@ -266,11 +263,12 @@ it('does not show raw English list failures',async()=>{
  expect(screen.queryByText('Failed to fetch')).toBeNull()
 })
 
-it('explains the OAuth requirement on a leftover Google Drive installation',async()=>{
+it('hides leftover Google Drive from the installed list',async()=>{
  const bridge=api({list:vi.fn().mockResolvedValue({endpoints:[{...memoryEndpoint,displayName:'Google Drive',args:['-y','@modelcontextprotocol/server-gdrive','C:/old/folder'],state:'degraded',credentialConfigured:false}]})})
- render(<McpPage bridge={bridge}/>);fireEvent.click(await screen.findByRole('tab',{name:'已安装（1）'}))
- expect(await screen.findByText(/普通文件目录不能代替授权/)).toBeInTheDocument()
- expect(screen.getByRole('link',{name:'官方配置说明'})).toHaveAttribute('href','https://github.com/modelcontextprotocol/servers-archived/tree/main/src/gdrive')
+ render(<McpPage bridge={bridge}/>)
+ expect(await screen.findByText(/已下架且无法继续使用的 MCP（Google Drive）/)).toBeInTheDocument()
+ expect(screen.getByRole('tab',{name:'已安装（0）'})).toBeInTheDocument()
+ expect(screen.queryByText(/普通文件目录不能代替授权/)).toBeNull()
 })
 
 it('names a broken install when displayName is empty',async()=>{

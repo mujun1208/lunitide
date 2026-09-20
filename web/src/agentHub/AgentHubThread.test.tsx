@@ -4,6 +4,11 @@ import { LanguageProvider } from '../i18n/language'
 import { AgentHubThread } from './AgentHubThread'
 import { agentHubApi } from './agentHubApi'
 
+function expandWorkspace() {
+  const toggle = screen.queryByRole('button', { name: '展开右侧工作区' })
+  if (toggle) fireEvent.click(toggle)
+}
+
 vi.mock('./agentHubApi', () => ({
   agentHubApi: {
     threadGet: vi.fn(),
@@ -162,6 +167,7 @@ it('lists loopback.txt after answering an open prompt', async () => {
   vi.mocked(agentHubApi.workspaceList).mockResolvedValue({ items: [] })
   vi.mocked(agentHubApi.threadRespond).mockResolvedValue(threadDetail('success'))
   render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
+  expandWorkspace()
   expect(await screen.findByRole('button', { name: '是' })).toBeInTheDocument()
   vi.mocked(agentHubApi.workspaceList).mockResolvedValue({
     items: [{ name: 'loopback.txt', path: 'loopback.txt', size: 2, isDir: false }],
@@ -225,6 +231,7 @@ it('previews a workspace file with threadId', async () => {
     content: 'yes',
   })
   render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
+  expandWorkspace()
   fireEvent.click(await screen.findByRole('treeitem', { name: /loopback\.txt/ }))
   await waitFor(() => expect(agentHubApi.preview).toHaveBeenCalledWith({ threadId: THREAD_ID, path: 'loopback.txt' }))
   expect(await screen.findByText('yes')).toBeInTheDocument()
@@ -238,6 +245,7 @@ it('hides system dump and still drills into a workspace directory', async () => 
     .mockResolvedValueOnce({ items: [{ name: 'src', path: 'src', size: 0, isDir: true }] })
     .mockResolvedValue({ items: [{ name: 'main.go', path: 'src/main.go', size: 8, isDir: false }] })
   render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
+  expandWorkspace()
   expect(await screen.findByRole('treeitem', { name: /src/ })).toBeInTheDocument()
   expect(screen.queryByText('在此仓库根内检索和修改。已有文件保持原路径。新文件按已有结构和你的规则放置。')).toBeNull()
   fireEvent.click(screen.getByRole('treeitem', { name: /src/ }))
@@ -251,6 +259,7 @@ it('collapses a workspace directory from the shared file tree', async () => {
     .mockResolvedValueOnce({ items: [{ name: 'src', path: 'src', size: 0, isDir: true }] })
     .mockResolvedValue({ items: [{ name: 'main.go', path: 'src/main.go', size: 8, isDir: false }] })
   render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
+  expandWorkspace()
   fireEvent.click(await screen.findByRole('treeitem', { name: /src/ }))
   expect(await screen.findByRole('treeitem', { name: /main\.go/ })).toBeInTheDocument()
   fireEvent.click(screen.getByRole('treeitem', { name: /src/ }))
@@ -331,6 +340,7 @@ it('hides junk workspace names from the right pane', async () => {
     ],
   })
   render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
+  expandWorkspace()
   expect(await screen.findByRole('treeitem', { name: /src/ })).toBeInTheDocument()
   expect(screen.queryByRole('treeitem', { name: /\$null/ })).toBeNull()
   expect(screen.queryByRole('treeitem', { name: /a700ef41599b8c25bd9bde3d/ })).toBeNull()
@@ -340,6 +350,7 @@ it('keeps the Work workspace tabs on the AgentHub thread pane', async () => {
   stubWorkspace()
   vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('idle'))
   render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
+  expandWorkspace()
   await screen.findByRole('tab', { name: '文件' })
   expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(
     expect.arrayContaining(['文件', '代码', '终端', '浏览器', '变更', '计划']),
@@ -359,6 +370,8 @@ it('lets the AgentHub right rail drag and collapse like Work', async () => {
   stubWorkspace()
   vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('idle'))
   render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
+  expect(screen.getByRole('button', { name: '展开右侧工作区' })).toHaveAttribute('aria-expanded', 'false')
+  expandWorkspace()
   await screen.findByRole('tab', { name: '文件' })
   const splitter = screen.getByRole('separator', { name: '调整右侧工作区宽度' })
   expect(splitter.className).toContain('panel-resizer')

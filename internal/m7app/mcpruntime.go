@@ -379,6 +379,14 @@ type HealthResult struct {
 // endpoints are probed again so one-click repair can recover after a
 // handshake fix; revoked remains refuse-closed.
 func (s *McpRuntimeService) Health(ctx context.Context, endpointID string) (HealthResult, error) {
+	return s.health(ctx, endpointID, true)
+}
+
+func (s *McpRuntimeService) RecoverHealth(ctx context.Context, endpointID string) (HealthResult, error) {
+	return s.health(ctx, endpointID, false)
+}
+
+func (s *McpRuntimeService) health(ctx context.Context, endpointID string, persistFailure bool) (HealthResult, error) {
 	var ep m7flow.McpEndpointConfig
 	err := s.uow.TransactMcp(ctx, func(tx McpTx) error {
 		e, err := tx.GetMcpEndpoint(endpointID)
@@ -395,7 +403,7 @@ func (s *McpRuntimeService) Health(ctx context.Context, endpointID string) (Heal
 		return HealthResult{}, fmt.Errorf("%w: revoked", ErrMcpNotFound)
 	}
 	start := s.clock.Now().UTC()
-	digest, perr := s.prober.Probe(ctx, ep)
+	digest, perr := s.prober.Probe(mcp.WithPersistFailure(ctx, persistFailure), ep)
 	diagnostic := mcp.ConnectionDiagnostic(perr)
 	s.RecordDiagnostic(endpointID, perr)
 	latency := s.clock.Now().UTC().Sub(start).Milliseconds()
@@ -406,6 +414,9 @@ func (s *McpRuntimeService) Health(ctx context.Context, endpointID string) (Heal
 		result.State = m7flow.McpStateDegraded
 		if result.DriftDetected {
 			result.State = m7flow.McpStateQuarantined
+		}
+		if !persistFailure {
+			return result, perr
 		}
 		if err = s.SecurityFailure(ctx, ep.EndpointID, ep.Security.Version, result.DriftDetected); err != nil {
 			return result, err
@@ -418,6 +429,9 @@ func (s *McpRuntimeService) Health(ctx context.Context, endpointID string) (Heal
 			next = m7flow.McpStateQuarantined
 		}
 		result.State = next
+		if !persistFailure {
+			return result, perr
+		}
 		err = s.uow.TransactMcp(ctx, func(tx McpTx) error {
 			return applyMcpHealthState(tx, ep, next, nil, now)
 		})
@@ -427,6 +441,9 @@ func (s *McpRuntimeService) Health(ctx context.Context, endpointID string) (Heal
 	if ep.PinnedDigest != "" && ep.PinnedDigest != digest {
 		result.State = m7flow.McpStateQuarantined
 		result.DriftDetected = true
+		if !persistFailure {
+			return result, mcp6.ErrCapabilityDrift
+		}
 		err = s.uow.TransactMcp(ctx, func(tx McpTx) error {
 			if err := applyMcpHealthState(tx, ep, m7flow.McpStateQuarantined, &digest, now); err != nil {
 				return err

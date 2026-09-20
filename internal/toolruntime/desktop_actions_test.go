@@ -37,9 +37,18 @@ func TestDesktopQuitRequiresExactNameAndApproval(t *testing.T) {
 
 func TestDesktopBrowseUsesRealBrowserAndEscapesQuery(t *testing.T) {
 	old := openDesktopURL
+	origFG, origList, origProc, origSleep, origTries := readForegroundFn, listWindowsFn, lookupProcessImagesFn, openVerifySleep, openVerifyTries
 	var opened string
 	openDesktopURL = func(address string) error { opened = address; return nil }
-	t.Cleanup(func() { openDesktopURL = old })
+	openVerifyTries = 1
+	openVerifySleep = func() {}
+	readForegroundFn = func() (string, string, error) { return "", "", nil }
+	listWindowsFn = func() []windowHint { return nil }
+	lookupProcessImagesFn = func([]string) []string { return nil }
+	t.Cleanup(func() {
+		openDesktopURL = old
+		readForegroundFn, listWindowsFn, lookupProcessImagesFn, openVerifySleep, openVerifyTries = origFG, origList, origProc, origSleep, origTries
+	})
 	for _, raw := range []string{`{"url":"file:///C:/secret.txt"}`, `{"url":"javascript:alert(1)"}`, `{"url":"https://user:pass@example.com"}`, `{"url":"https://example.com","query":"x"}`} {
 		if _, err := executeDesktopBrowse(json.RawMessage(raw), true); err == nil {
 			t.Fatalf("allowed %s", raw)

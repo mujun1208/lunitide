@@ -150,7 +150,7 @@ export function OrgAdminPage({bridge=orgBridge}:{bridge?:OrgBridge}):React.JSX.E
  return <main className="org-console-page"><header className="org-console-header"><div><h1>组织治理</h1><p>{summary?`${summary.orgs.length} 个组织 · 当前绑定 ${summary.boundOrgId?`「${summary.org?.name??summary.boundOrgId}」`:'无'}`:'加载中'} · 组织、空间与身份隔离遵循 ADR-011。</p></div><button className="primary" aria-label="新建组织" onClick={()=>{setCreating(true);setOrgName('')}}>＋ 新建组织</button></header>
   <div className="org-console">
    <aside className="org-nav" aria-label="组织治理导航">
-    <div className="org-nav-logo"><span className="real-moon small" aria-hidden="true"><i/><b/><em/></span><b title={bound?.name??'未绑定组织'}>{bound?.name??'未绑定组织'}</b></div>
+    <div className="org-nav-logo"><b title={bound?.name??'未绑定组织'}>{bound?.name??'未绑定组织'}</b></div>
     {NAV.map(item=><button type="button" key={item.id} className={tab===item.id?'on':''} onClick={()=>setTab(item.id)}><i aria-hidden="true">{item.icon}</i>{item.label}{!item.live&&<em aria-label="规划能力">规划</em>}</button>)}
    </aside>
    <main className="org-main">

@@ -233,8 +233,21 @@ func TestLegacyMcpDegradedRecoveryAndRestartPinDrift(t *testing.T) {
 	e.SetM6Services(nil, legacyRegistryFixture(catalog, nil), nil)
 	e.HydrateMcpGatewayFromSettings(ctx)
 	actual, err = e.m7mcp.Endpoint(ctx, rows[0].EndpointID)
-	if err != nil || actual.State != "quarantined" || len(e.mcp6Registry.ReadyToolSnapshot()) != 0 {
-		t.Fatalf("drift rehydrated: %+v %v", actual, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actual.State == "quarantined" {
+		t.Fatalf("startup hydrate must not persist quarantine: %+v", actual)
+	}
+	if len(e.mcp6Registry.ReadyToolSnapshot()) != 0 {
+		t.Fatal("drift must not stay registered after hydrate")
+	}
+	if result, herr := e.m7mcp.Health(ctx, actual.EndpointID); herr == nil && result.State != "quarantined" {
+		t.Fatalf("explicit health must persist drift: %+v", result)
+	}
+	actual, err = e.m7mcp.Endpoint(ctx, actual.EndpointID)
+	if err != nil || actual.State != "quarantined" {
+		t.Fatalf("explicit reconnect persists quarantine: %+v %v", actual, err)
 	}
 }
 

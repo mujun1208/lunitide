@@ -62,7 +62,7 @@ func (e *Engine) turnEquipmentFor(ctx context.Context, sessionID, turnText strin
 	mounted := e.sessionMountedExpertIDs(ctx, sessionID)
 	texts := e.priorTurnTexts(ctx, sessionID, turnText)
 	eq.ExpertIDs = selectedTurnExpertIDs(mounted, texts...)
-	eq.Names = e.namesForTurn(ctx, sessionID, eq.ExpertIDs, texts...)
+	eq.Names = e.namesForTurn(ctx, sessionID, eq.ExpertIDs, companion, texts...)
 	if e.m8expert != nil && len(eq.Names) > 0 {
 		eq.BindKeys = e.m8expert.ComposeSkillsForNames(ctx, eq.Names)
 	} else if len(eq.Names) > 0 {
@@ -89,7 +89,7 @@ func (e *Engine) equipmentForNames(ctx context.Context, names []string) turnEqui
 	return eq
 }
 
-func (e *Engine) namesForTurn(ctx context.Context, sessionID string, expertIDs []string, turnTexts ...string) []string {
+func (e *Engine) namesForTurn(ctx context.Context, sessionID string, expertIDs []string, companion bool, turnTexts ...string) []string {
 	seen := map[string]bool{}
 	var names []string
 	add := func(name string) {
@@ -149,6 +149,11 @@ func (e *Engine) namesForTurn(ctx context.Context, sessionID string, expertIDs [
 		}
 	}
 	if len(turnTexts) > 0 {
+		for _, name := range m8app.ConversationExpertNamesInText(turnTexts[0]) {
+			add(name)
+		}
+	}
+	if companion && len(names) == 0 && len(turnTexts) > 0 {
 		for _, name := range m8app.ConversationExpertsMatchingIntent(turnTexts[0]) {
 			add(name)
 		}

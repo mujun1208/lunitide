@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { artifactReviewBridge, BridgeClientError, runQueueBridge, type AttachmentBridge, type ChatBridge, type ChatStream, type ContextBridge, type MessageBridge, type ProviderBridge, type SessionBridge, type SkillBridge, type StreamEvent } from '../bridge/client'
@@ -36,6 +36,8 @@ it('maps stream failure codes to a safe cause without leaking UPSTREAM_FAILED',(
  expect(turnFailureNotice({code:'UPSTREAM_FAILED'})).not.toContain('UPSTREAM_FAILED')
  expect(turnFailureNotice({code:'UPSTREAM_FAILED'})).not.toContain('模型请求失败')
  expect(turnFailureNotice({code:'UPSTREAM_TIMEOUT'})).toContain('请求超时')
+ expect(turnFailureNotice({code:'BUDGET_EXHAUSTED'})).toContain('执行额度已满')
+ expect(turnFailureNotice({code:'UPSTREAM_UNAVAILABLE'})).toContain('供应商暂时不可用')
  expect(turnFailureNotice({code:'ASSISTANT_RESPONSE_TOO_LARGE'})).toContain('过大')
  for (const code of ['UPSTREAM_FAILED','UPSTREAM_TIMEOUT','ASSISTANT_RESPONSE_TOO_LARGE','REQUEST_TOO_LARGE'] as const) {
   expect(turnFailureNotice({code})).not.toMatch(/写到桌面请用对应 \*\.gen/)
@@ -316,6 +318,20 @@ it('keeps multiple mounted experts on the conversation after send',async()=>{
  expect(sent).toContain('请协作审查')
  expect(sent).not.toContain('PPT专家')
  expect(sent).not.toContain('小说编写专家')
+})
+
+it('keeps mounted experts off the @ 上下文 menu',async()=>{
+ const expertA={expertId:'01ARZ3NDEKTSV4RRFFQ69G5FAC',name:'安全工程师',division:'security' as const,source:'local' as const,semver:'1.0.0',state:'enabled' as const,versionCount:1,mountedPhaseCount:0}
+ const experts={list:vi.fn().mockResolvedValue({experts:[expertA]}),sessionMountGet:vi.fn().mockResolvedValue({expertIds:[]}),sessionMountSet:vi.fn().mockImplementation(async(payload:{expertIds:string[]})=>({expertIds:payload.expertIds})),detail:vi.fn(),create:vi.fn(),update:vi.fn(),toggle:vi.fn(),archive:vi.fn(),mount:vi.fn(),mountingGet:vi.fn(),scenarioCreate:vi.fn(),scenarioList:vi.fn(),scenarioDelete:vi.fn()} as unknown as import('../bridge/client').ExpertBridge
+ const user=await open({personal:true,providers,initialSession:session,experts})
+ await user.click(screen.getByRole('button',{name:'添加上下文'}))
+ await user.click(screen.getByRole('button',{name:/选专家/}))
+ await user.click(await screen.findByRole('option',{name:/安全工程师/}))
+ expect(screen.getByLabelText('已挂载专家')).toHaveTextContent('安全工程师')
+ await user.click(screen.getByRole('button',{name:'添加上下文'}))
+ await user.click(screen.getByRole('button',{name:/@ 上下文/}))
+ const atBox=await screen.findByRole('listbox',{name:'上下文候选'})
+ expect(within(atBox).queryByRole('option',{name:/安全工程师/})).toBeNull()
 })
 
 it('does not show 继续上次 just because the last durable message is the user',async()=>{
@@ -913,7 +929,7 @@ it('keeps an icon retry action on the completed live response',async()=>{
  const actions=screen.getByLabelText('当前助手回复操作');expect(actions.querySelector('button[aria-label="重试"] svg')).not.toBeNull();expect(actions).not.toHaveTextContent('重试')
 })
 
-it('automatically opens a sandboxed browser preview only after a completed HTML artifact',async()=>{
+it('does not auto-open the workspace for an HTML artifact; expand then shows the browser preview',async()=>{
  let onEvent!:(event:StreamEvent)=>void
  const stream:ChatStream={streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn().mockResolvedValue(true),dispose:vi.fn()}
  const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return stream})
@@ -922,6 +938,8 @@ it('automatically opens a sandboxed browser preview only after a completed HTML 
  await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
  await waitFor(()=>expect(start).toHaveBeenCalledOnce())
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'tool_completed',tool:{callId:'call-html',name:'workspace.write',argsDigest:'a'.repeat(64),summary:'wrote index.html',artifact:{kind:'html',path:'index.html',content:'<h1>网页</h1>'}}}))
+ expect(screen.queryByLabelText('统一工作区')).toBeNull()
+ await user.click(screen.getByRole('button',{name:'展开右侧工作区'}))
  expect(screen.getByRole('tab',{name:'浏览器'})).toHaveAttribute('aria-selected','true')
  expect(screen.getByTitle('HTML 预览 index.html')).toHaveAttribute('sandbox','')
 })

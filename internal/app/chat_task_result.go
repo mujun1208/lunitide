@@ -112,7 +112,12 @@ func guardCurrentTurnTool(goal, name string) error {
 	if companionGoalIsOpenOnly(goal) || companionDesktopFilenameFragment(goal) {
 		switch name {
 		case "workspace.list", "workspace.search", "workspace.read", "workspace.write", "command.run",
-			"computer.act", "desktop.type", "browser.act", "desktop.browse", "media.play":
+			"computer.act", "desktop.type", "browser.act", "media.play":
+			return errors.New("本轮只要打开桌面文件、应用或页面，不得浏览工作区或跑命令。")
+		case "desktop.browse":
+			if companionGoalIsOpenPage(goal) {
+				return nil
+			}
 			return errors.New("本轮只要打开桌面文件或应用，不得浏览工作区或跑命令。请只用 desktop.open。")
 		}
 	}

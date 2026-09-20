@@ -1077,7 +1077,22 @@ func ParseNotes(raw, fallbackTitle string) Notes {
 	notes.Summary = sectionBetween(raw, []string{"会议摘要", "摘要", "Summary"}, []string{"决议", "待办", "行动项", "Action"})
 	notes.Actions = sectionBetween(raw, []string{"决议", "待办", "行动项", "Action"}, []string{"逐字稿", "全文", "Transcript"})
 	if notes.Summary == "" {
-		notes.Summary = raw
+		if looksLikeJSON(raw) {
+			notes.Summary = "（会议纪要正在处理中，请稍后重试或手动编辑）"
+		} else {
+			notes.Summary = raw
+		}
 	}
 	return notes
+}
+
+func looksLikeJSON(s string) bool {
+	t := strings.TrimSpace(s)
+	if strings.HasPrefix(t, "{") || strings.HasPrefix(t, "[") {
+		return true
+	}
+	if strings.Contains(t, `"title"`) && strings.Contains(t, `"topics"`) {
+		return true
+	}
+	return false
 }

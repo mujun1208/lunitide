@@ -99,8 +99,12 @@ func TestChatIncompleteFinishKeepsPartialAndNeverGeneratesArtifact(t *testing.T)
 					llmadapter.Request{Model: "model", Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "生成文档：将提供的内容转为 Word"}}, Tools: []llmadapter.ToolDefinition{{Name: "workspace.write", Schema: []byte(`{"type":"object"}`)}}},
 					func(event bridge.Event) error { events = append(events, event); return nil }, sid, executionModeFullAccess)
 				terminal := events[len(events)-1]
-				if terminal.Type != bridge.EventFailed || terminal.Error.Code != tc.code || len(adapter.requests) != 1 {
-					t.Fatalf("terminal=%+v requests=%d", terminal, len(adapter.requests))
+				wantCalls := 1
+				if tc.reason == llmadapter.FinishReasonLength {
+					wantCalls = 2
+				}
+				if terminal.Type != bridge.EventFailed || terminal.Error.Code != tc.code || len(adapter.requests) != wantCalls {
+					t.Fatalf("terminal=%+v requests=%d want=%d", terminal, len(adapter.requests), wantCalls)
 				}
 				page, err := e.messages.List(ctx, messageapp.PageRequest{SessionID: sid})
 				if err != nil || len(page.Items) != 1 || !strings.Contains(page.Items[0].Text, adapter.partial) || !strings.Contains(page.Items[0].Text, "任务未完成") {

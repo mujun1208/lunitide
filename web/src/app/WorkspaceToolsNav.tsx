@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { mcpBridge } from '../bridge/client'
+import { leftoverArchivedMcp } from '../settings/leftoverMcp'
 import { readProjectsOpen, SIDEBAR_PROJECTS_OPEN_KEY, writeSidebarFlag } from '../sidebarSplit'
 import type { Page } from './appTypes'
 
@@ -43,7 +44,7 @@ export function WorkspaceToolsNav({
     const load = () => {
       void mcpBridge.list({}).then(result => {
         if (!alive) return
-        const live = (result.endpoints ?? []).filter(item => item.state !== 'revoked')
+        const live = (result.endpoints ?? []).filter(item => item.state !== 'revoked' && leftoverArchivedMcp(item.args, item.url).length === 0)
         const failed = live.filter(item => item.state === 'quarantined' || item.state === 'degraded')
         const ready = live.filter(item => item.enabled && item.state === 'ready')
         if (failed.length && ready.length) setMcpLamp('warn')
@@ -60,11 +61,11 @@ export function WorkspaceToolsNav({
   }, [page])
   const current = TOOLS.some(item => item.page === page)
   return (
-    <section className={`project-group workspace-tools-group ${open ? 'is-open' : 'is-closed'}`}>
+    <section className={`office-group workspace-tools-group ${open ? 'is-open' : 'is-closed'}`}>
       <div className="conversation-directory">
         <button
           type="button"
-          className={`conversation-heading${current ? ' is-current' : ''}`}
+          className={`office-heading${current ? ' is-current' : ''}`}
           aria-expanded={open}
           aria-controls="project-list"
           title={zh ? '绿灯可用，黄灯部分异常，红灯失败，灰灯未用' : 'Green ready, amber partial, red failed, gray idle'}
@@ -77,9 +78,8 @@ export function WorkspaceToolsNav({
           <span aria-hidden="true">›</span>
           {zh ? '项目' : 'Projects'}
         </button>
-        <p className="nav-lamp-legend">{zh ? '绿可用 · 黄异常 · 红失败 · 灰未用' : 'green ready · amber warn · red fail · gray idle'}</p>
         {open ? (
-          <div id="project-list" className="project-nav-list workspace-tools-list">
+          <div id="project-list" className="office-nav-list workspace-tools-list">
             {TOOLS.map(item => {
               const tone: WorkspaceLamp = page === item.page
                 ? 'current'

@@ -9,12 +9,37 @@ import (
 	"github.com/lunitide/lunitide/internal/modelfit"
 )
 
+func TestMcpEndpointHasPackageSkipsRevokedAndLeftover(t *testing.T) {
+	const pkg = "@modelcontextprotocol/server-memory"
+	if mcpEndpointHasPackage([]m7flow.McpEndpointConfig{{
+		State: m7flow.McpStateRevoked, ArgsJSON: `["-y","` + pkg + `"]`,
+	}}, pkg) {
+		t.Fatal("revoked kit must not block a new seed")
+	}
+	if mcpEndpointHasPackage([]m7flow.McpEndpointConfig{{
+		State: m7flow.McpStateReady, ArgsJSON: `["-y","@modelcontextprotocol/server-docker"]`,
+	}}, "@modelcontextprotocol/server-docker") {
+		t.Fatal("leftover must not count as an installed kit")
+	}
+	if !mcpEndpointHasPackage([]m7flow.McpEndpointConfig{{
+		State: m7flow.McpStateReady, ArgsJSON: `["-y","` + pkg + `"]`,
+	}}, pkg) {
+		t.Fatal("live kit must count")
+	}
+}
+
 func TestLeftoverPaidOrCredentialMcp(t *testing.T) {
 	if leftoverPaidOrCredentialMcp(m7flow.McpEndpointConfig{ArgsJSON: `["-y","@playwright/mcp"]`}) {
 		t.Fatal("playwright is the current browser backend")
 	}
 	if leftoverPaidOrCredentialMcp(m7flow.McpEndpointConfig{ArgsJSON: `["-y","@modelcontextprotocol/server-memory"]`}) {
 		t.Fatal("memory kit must stay")
+	}
+	if leftoverPaidOrCredentialMcp(m7flow.McpEndpointConfig{ArgsJSON: `["-y","@nickclyde/duckduckgo-mcp-server"]`}) {
+		t.Fatal("recommended duckduckgo must stay")
+	}
+	if leftoverPaidOrCredentialMcp(m7flow.McpEndpointConfig{ArgsJSON: `["-y","@sinco-lab/mcp-youtube-transcript"]`}) {
+		t.Fatal("recommended youtube transcript must stay")
 	}
 	if !leftoverPaidOrCredentialMcp(m7flow.McpEndpointConfig{ArgsJSON: `["-y","@modelcontextprotocol/server-docker"]`}) {
 		t.Fatal("docker leftover")

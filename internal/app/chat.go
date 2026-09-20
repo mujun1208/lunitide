@@ -16,6 +16,7 @@ import (
 	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/contextapp"
+	"github.com/lunitide/lunitide/internal/domain/agentrun"
 	"github.com/lunitide/lunitide/internal/domain/message"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/token"
@@ -1780,8 +1781,15 @@ func chatStreamError(err error) *bridge.StreamError {
 	if errors.Is(err, messageapp.ErrMessageStorageQuotaReached) {
 		return streamError("MESSAGE_STORAGE_QUOTA_REACHED", "消息存储配额已满", false)
 	}
+	if errors.Is(err, agentrun.ErrExecutionBudget) {
+		return streamError("BUDGET_EXHAUSTED", "执行额度已满，请新开对话后再试。", false)
+	}
 	if errors.Is(err, context.DeadlineExceeded) || networkpolicy.ErrorCode(err) == networkpolicy.CodeTimeout {
 		return streamError("UPSTREAM_TIMEOUT", "模型请求超时，请稍后重试", true)
+	}
+	switch networkpolicy.ErrorCode(err) {
+	case networkpolicy.CodeConnectionRefused, networkpolicy.CodeDNSError, networkpolicy.CodeTLSError:
+		return streamError("UPSTREAM_UNAVAILABLE", "供应商连接失败，请稍后重试", true)
 	}
 
 	var gatewayErr *llmadapter.Error
@@ -1789,11 +1797,26 @@ func chatStreamError(err error) *bridge.StreamError {
 		if gatewayErr.Code == "REQUEST_TOO_LARGE" || gatewayErr.HTTPStatus == 413 {
 			return streamError("REQUEST_TOO_LARGE", "请求内容过大，请减少附件或上下文后重试", false)
 		}
-		if gatewayErr.Code == "TIMEOUT" || gatewayErr.Code == "OUTCOME_UNKNOWN" {
+		if gatewayErr.Code == "TIMEOUT" || gatewayErr.Code == "OUTCOME_UNKNOWN" || gatewayErr.Code == "STREAM_INCOMPLETE" {
 			return streamError("UPSTREAM_TIMEOUT", "模型请求超时，请稍后重试", true)
+		}
+		if gatewayErr.Code == "CONNECTION_FAILED" || gatewayErr.Code == "CONNECTION_REFUSED" || gatewayErr.Code == "MODEL_CHANNEL_UNAVAILABLE" {
+			return streamError("UPSTREAM_UNAVAILABLE", "供应商连接失败，请稍后重试", true)
 		}
 		if gatewayErr.Code == "MALFORMED_RESPONSE" {
 			return streamError("UPSTREAM_MALFORMED_RESPONSE", "模型返回格式不完整，已保留收到的内容，请重试", true)
+		}
+		switch gatewayErr.Code {
+		case "STREAM_BAD_REQUEST":
+			return streamError("UPSTREAM_BAD_REQUEST", "供应商拒绝了请求，请检查模型、附件和上下文", false)
+		case "STREAM_AUTHENTICATION_FAILED":
+			return streamError("PROVIDER_AUTHENTICATION_FAILED", "供应商身份验证失败，请检查凭据", false)
+		case "STREAM_ACCESS_DENIED":
+			return streamError("PROVIDER_ACCESS_DENIED", "供应商拒绝访问，请检查模型权限", false)
+		case "STREAM_RATE_LIMITED":
+			return streamError("PROVIDER_RATE_LIMITED", "供应商请求过于频繁，请稍后重试", true)
+		case "STREAM_UNAVAILABLE", "STREAM_OVERLOADED", "UPSTREAM_STREAM_FAILED":
+			return streamError("UPSTREAM_UNAVAILABLE", "供应商服务暂时不可用，请稍后重试", true)
 		}
 		switch gatewayErr.HTTPStatus {
 		case 400:

@@ -144,6 +144,11 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	if err := store.RecoverInterruptedCallAttempts(ctx); err != nil {
 		return fail(fmt.Errorf("call attempt recovery failed: %w", err))
 	}
+	if n, err := store.RecoverOrphanedReservations(ctx); err != nil {
+		return fail(fmt.Errorf("reservation recovery failed: %w", err))
+	} else if n > 0 {
+		log.Printf("released %d orphaned execution reservations", n)
+	}
 	// Inspect persisted ownership before any startup seeder can add rows.
 	personalData, organizationData, err := store.DesktopScopePresence(ctx)
 	if err != nil {
@@ -585,9 +590,9 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 		} else if n > 0 {
 			log.Printf("compose skills published: %d", n)
 		}
+		engine.HydrateMcpGatewayFromSettings(ctx)
 		engine.SeedRecommendedMcpKit(ctx)
 		engine.SeedPlaywrightMcp(ctx)
-		engine.HydrateMcpGatewayFromSettings(ctx)
 	}()
 	// P2-2 artifact acceptance log lives beside the tool workspaces
 	// (single-user, low-volume, atomic file persistence).

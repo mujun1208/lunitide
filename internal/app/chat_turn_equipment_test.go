@@ -26,11 +26,12 @@ func (priorUserReader) SumTokens(context.Context, string, string, string, string
 func TestTurnEquipmentForIntentAndCompanion(t *testing.T) {
 	e := NewEngine(nil, "test")
 	eq := e.turnEquipmentFor(context.Background(), "", "帮我做一份路演 PPT", false)
-	if len(eq.Names) == 0 || eq.Names[0] != "PPT专家" {
-		t.Fatalf("text intent names=%v keys=%v", eq.Names, eq.BindKeys)
+	if len(eq.Names) != 0 {
+		t.Fatalf("ordinary chat must not fuzzy-match experts: names=%v keys=%v", eq.Names, eq.BindKeys)
 	}
-	if len(eq.BindKeys) == 0 {
-		t.Fatalf("intent should bind PPT skills, keys=%v", eq.BindKeys)
+	named := e.turnEquipmentFor(context.Background(), "", "请 PPT专家做一份路演 PPT", false)
+	if len(named.Names) == 0 || named.Names[0] != "PPT专家" {
+		t.Fatalf("precise expert name names=%v keys=%v", named.Names, named.BindKeys)
 	}
 	idle := e.turnEquipmentFor(context.Background(), "", "你好", true)
 	if len(idle.Names) != 0 || len(idle.BindKeys) != 0 {
@@ -72,8 +73,8 @@ func TestTurnEquipmentCurrentScriptIgnoresPriorAviationText(t *testing.T) {
 		{Role: "user", Sequence: 2, Content: "帮我改一版对白"},
 	}}
 	eq := e.turnEquipmentFor(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAA", "帮我改一版对白", false)
-	if len(eq.Names) == 0 || eq.Names[0] != "小说编写专家" {
-		t.Fatalf("current script text must not inherit prior aviation: %+v", eq)
+	if len(eq.Names) != 0 {
+		t.Fatalf("ordinary chat must not inherit prior aviation or fuzzy script experts: %+v", eq)
 	}
 }
 
@@ -206,6 +207,12 @@ func TestPresetIDFromCommandArgs(t *testing.T) {
 	}
 	if got := presetIDFromCommandArgs("npx", []string{"-y", "@modelcontextprotocol/server-filesystem", "C:/data"}); got != "filesystem" {
 		t.Fatalf("filesystem = %q", got)
+	}
+	if !recommendedSettingsMcp("npx", []string{"-y", "@playwright/mcp"}) {
+		t.Fatal("playwright is a recommended kit")
+	}
+	if recommendedSettingsMcp("npx", []string{"-y", "@modelcontextprotocol/server-github"}) {
+		t.Fatal("github leftover must still require the capability pack")
 	}
 	if got := presetIDFromCommandArgs("npx", []string{"-y", "@not-a-preset/mcp"}); got != "" {
 		t.Fatalf("unknown package = %q", got)

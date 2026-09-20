@@ -2,6 +2,7 @@ package agentrunapp_test
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -139,5 +140,95 @@ func TestExecutionBudgetConcurrentParentChildReservation(t *testing.T) {
 	}
 	if parentSnap.ReservedTotal != 0 || childSnap.ReservedTotal != 0 {
 		t.Fatalf("reserved after settle parent=%d child=%d, want 0", parentSnap.ReservedTotal, childSnap.ReservedTotal)
+	}
+}
+
+func TestRecoverOrphanedReservationsFreesLeakedDispatch(t *testing.T) {
+	ctx := context.Background()
+	budget, store, sessionID := executionBudgetHarness(t)
+	taskID := ulid.Make().String()
+	policy := executionBudgetPolicy(1000)
+	scope, err := budget.EnsureExecutionBinding(ctx, "owner", sessionID, taskID, "task_root", taskID, "", policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	permit, err := budget.AdmitCall(ctx, scope, agentrun.CallEstimate{
+		CallID: ulid.Make().String(), AttemptID: ulid.Make().String(), RequestDigest: ulid.Make().String(),
+		InputTokensUpper: 400, OutputTokenCap: 300, OutputBytesCap: 4096,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = budget.MarkDispatched(ctx, permit); err != nil {
+		t.Fatal(err)
+	}
+	_, err = budget.AdmitCall(ctx, scope, agentrun.CallEstimate{
+		CallID: ulid.Make().String(), AttemptID: ulid.Make().String(), RequestDigest: ulid.Make().String(),
+		InputTokensUpper: 400, OutputTokenCap: 300, OutputBytesCap: 4096,
+	})
+	if !errors.Is(err, agentrun.ErrExecutionBudget) {
+		t.Fatalf("leaked reserved+dispatched must block the next admit: %v", err)
+	}
+	n, err := store.RecoverOrphanedReservations(ctx)
+	if err != nil || n != 1 {
+		t.Fatalf("recover n=%d err=%v", n, err)
+	}
+	if _, err = budget.AdmitCall(ctx, scope, agentrun.CallEstimate{
+		CallID: ulid.Make().String(), AttemptID: ulid.Make().String(), RequestDigest: ulid.Make().String(),
+		InputTokensUpper: 400, OutputTokenCap: 300, OutputBytesCap: 4096,
+	}); err != nil {
+		t.Fatalf("admit after orphan recover: %v", err)
+	}
+}
+
+func TestRecoverOrphanedReservationsForTaskFreesOnlyThatTask(t *testing.T) {
+	ctx := context.Background()
+	budget, store, sessionID := executionBudgetHarness(t)
+	taskA := ulid.Make().String()
+	taskB := ulid.Make().String()
+	policy := executionBudgetPolicy(1000)
+	scopeA, err := budget.EnsureExecutionBinding(ctx, "owner", sessionID, taskA, "task_root", taskA, "", policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scopeB, err := budget.EnsureExecutionBinding(ctx, "owner", sessionID, taskB, "task_root", taskB, "", policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	permitA, err := budget.AdmitCall(ctx, scopeA, agentrun.CallEstimate{
+		CallID: ulid.Make().String(), AttemptID: ulid.Make().String(), RequestDigest: ulid.Make().String(),
+		InputTokensUpper: 400, OutputTokenCap: 300, OutputBytesCap: 4096,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = budget.MarkDispatched(ctx, permitA); err != nil {
+		t.Fatal(err)
+	}
+	permitB, err := budget.AdmitCall(ctx, scopeB, agentrun.CallEstimate{
+		CallID: ulid.Make().String(), AttemptID: ulid.Make().String(), RequestDigest: ulid.Make().String(),
+		InputTokensUpper: 400, OutputTokenCap: 300, OutputBytesCap: 4096,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = budget.MarkDispatched(ctx, permitB); err != nil {
+		t.Fatal(err)
+	}
+	n, err := store.RecoverOrphanedReservationsForTask(ctx, taskA)
+	if err != nil || n != 1 {
+		t.Fatalf("recover task A n=%d err=%v", n, err)
+	}
+	if _, err = budget.AdmitCall(ctx, scopeA, agentrun.CallEstimate{
+		CallID: ulid.Make().String(), AttemptID: ulid.Make().String(), RequestDigest: ulid.Make().String(),
+		InputTokensUpper: 400, OutputTokenCap: 300, OutputBytesCap: 4096,
+	}); err != nil {
+		t.Fatalf("task A admit after scoped recover: %v", err)
+	}
+	if _, err = budget.AdmitCall(ctx, scopeB, agentrun.CallEstimate{
+		CallID: ulid.Make().String(), AttemptID: ulid.Make().String(), RequestDigest: ulid.Make().String(),
+		InputTokensUpper: 400, OutputTokenCap: 300, OutputBytesCap: 4096,
+	}); !errors.Is(err, agentrun.ErrExecutionBudget) {
+		t.Fatalf("task B leak must remain: %v", err)
 	}
 }

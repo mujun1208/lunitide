@@ -3,6 +3,7 @@ package meetings
 import (
 	"encoding/json"
 	"html"
+	"regexp"
 	"strings"
 )
 
@@ -37,6 +38,7 @@ func parseJSONNotes(raw string) (Notes, bool) {
 		rest := trimmed[i+3:]
 		rest = strings.TrimPrefix(rest, "json")
 		rest = strings.TrimPrefix(rest, "JSON")
+		rest = strings.TrimPrefix(rest, "\n")
 		if end := strings.Index(rest, "```"); end >= 0 {
 			trimmed = strings.TrimSpace(rest[:end])
 		}
@@ -50,7 +52,10 @@ func parseJSONNotes(raw string) (Notes, bool) {
 	}
 	var payload notesPayload
 	if json.Unmarshal([]byte(trimmed), &payload) != nil {
-		return Notes{}, false
+		cleaned := cleanLLMJSON(trimmed)
+		if json.Unmarshal([]byte(cleaned), &payload) != nil {
+			return Notes{}, false
+		}
 	}
 	summary := composeStructuredSummary(payload)
 	if summary == "" {
@@ -62,6 +67,45 @@ func parseJSONNotes(raw string) (Notes, bool) {
 	}
 	return Notes{Title: strings.TrimSpace(payload.Title), Summary: summary, Actions: actions}, true
 }
+
+func cleanLLMJSON(raw string) string {
+	out := raw
+	out = strings.ReplaceAll(out, "\r\n", "\n")
+	out = strings.ReplaceAll(out, "\t", " ")
+	out = strings.ReplaceAll(out, "\xEF\xBB\xBF", "")
+	out = controlCharRe.ReplaceAllStringFunc(out, func(m string) string {
+		if m == "\n" {
+			return m
+		}
+		return " "
+	})
+	lines := strings.Split(out, "\n")
+	var cleaned []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "/*") {
+			continue
+		}
+		cleaned = append(cleaned, line)
+	}
+	out = strings.Join(cleaned, "\n")
+	for {
+		next := trailingCommaRe.ReplaceAllString(out, "$1")
+		if next == out {
+			break
+		}
+		out = next
+	}
+	out = unescapedNewlineInStringRe.ReplaceAllString(out, `$1\n$2`)
+	return out
+}
+
+var trailingCommaRe = regexp.MustCompile(`,\s*([}\]])`)
+var controlCharRe = regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F]`)
+var unescapedNewlineInStringRe = regexp.MustCompile(`("(?:[^"\\]|\\.)*)` + "\n" + `((?:[^"\\]|\\.)*")`)
 
 func composeStructuredSummary(payload notesPayload) string {
 	var b strings.Builder

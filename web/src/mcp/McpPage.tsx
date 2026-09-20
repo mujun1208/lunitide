@@ -90,7 +90,7 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
  const load=useCallback(async()=>{
   try{
    const[presetResult,list]=await Promise.all([bridge.presets(),bridge.list({})])
-   setPresets(presetResult.items);setEndpoints(list.endpoints)
+   setPresets((presetResult.items??[]).filter(item=>leftoverArchivedMcp(item.args,item.url).length===0));setEndpoints(list.endpoints)
    if(!leftoverRedirected.current&&leftoverArchivedNames(list.endpoints).length){
     leftoverRedirected.current=true
     setView('installed')
@@ -102,12 +102,13 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
 
  const leftoverNames=useMemo(()=>leftoverArchivedNames(endpoints),[endpoints])
  const leftoverEndpoints=useMemo(()=>endpoints.filter(item=>item.state!=='revoked'&&leftoverArchivedMcp(item.args,item.url).length>0),[endpoints])
- const installedKeys=useMemo(()=>new Set(endpoints.filter(mcpCountsAsInstalled).map(installedKey)),[endpoints])
+ const liveInstalled=useMemo(()=>endpoints.filter(item=>item.state!=='revoked'&&leftoverArchivedMcp(item.args,item.url).length===0),[endpoints])
+ const installedKeys=useMemo(()=>new Set(liveInstalled.filter(item=>mcpCountsAsInstalled(item)).map(installedKey)),[liveInstalled])
  const categories=useMemo(()=>{const map=new Map<string,number>();for(const preset of presets)map.set(preset.category,(map.get(preset.category)??0)+1);return[...map.entries()]},[presets])
  const visiblePresets=useMemo(()=>{const q=query.trim().toLowerCase();return presets.filter(preset=>(!category||preset.category===category)&&(!q||`${preset.name} ${preset.description} ${preset.category} ${preset.args.join(' ')}`.toLowerCase().includes(q)))},[category,presets,query])
- const visibleInstalled=useMemo(()=>{const q=query.trim().toLowerCase();return endpoints.filter(item=>item.state!=='revoked'&&(!q||`${item.displayName??''} ${item.command??''} ${item.endpointId} ${item.url??''} ${leftoverArchivedMcp(item.args,item.url).join(' ')}`.toLowerCase().includes(q))).sort((a,b)=>(leftoverArchivedMcp(a.args,a.url).length?0:1)-(leftoverArchivedMcp(b.args,b.url).length?0:1))},[endpoints,query])
- const connected=visibleInstalled.filter(item=>item.enabled&&item.state==='ready').length
- const failed=visibleInstalled.filter(item=>item.state==='quarantined'||item.state==='degraded').length
+ const visibleInstalled=useMemo(()=>{const q=query.trim().toLowerCase();return liveInstalled.filter(item=>!q||`${item.displayName??''} ${item.command??''} ${item.endpointId} ${item.url??''}`.toLowerCase().includes(q))},[liveInstalled,query])
+ const connected=liveInstalled.filter(item=>item.enabled&&item.state==='ready').length
+ const failed=liveInstalled.filter(item=>item.state==='quarantined'||item.state==='degraded').length
 
  const resolveArgs=(preset:Preset,value:string)=>preset.args.map(item=>item===preset.argPlaceholder?value.trim().replaceAll('\\','/'):item)
  const installPreset=async(preset:Preset,value?:string)=>{
@@ -169,6 +170,18 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
    await load()
   }catch(e){setError(`${title}：${mcpUserError(e,'检查修复失败')} 此服务当前不可用，建议卸载。`);setRemoveTarget(item)}finally{await load();setBusy('')}
  }
+ const repairAll=async()=>{
+  const targets=liveInstalled.filter(mcpNeedsRepair)
+  if(!targets.length)return
+  setBusy('__repair_all__');setError('');setNotice('')
+  let ok=0,fail=0
+  for(const item of targets){
+   try{await repair(item);ok++}catch{fail++}
+  }
+  setNotice(`批量修复完成：${ok} 个成功${fail?`，${fail} 个失败`:''}`)
+  await load()
+  setBusy('')
+ }
  const remove=async()=>{
   if(!removeTarget)return
   setBusy(removeTarget.endpointId);setError('');setNotice('')
@@ -225,12 +238,12 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
 
  return <main className="skill-center mcp-page">
   <header className="skill-center-header">
-   <div><h1>MCP</h1><p>已安装 {endpoints.filter(item=>item.state!=='revoked').length} 个 · 市场 {presets.length} 个可点选安装 · 已连接 {connected} · 失败 {failed}</p><small>市场只保留一键安装的免费服务，点加号即可，不用填密钥或路径。需要 Token、付费或自备连接串的服务已下架。也可以手动填写 JSON。Chrome DevTools 要人点安装，不是默认电脑控制。</small></div>
+   <div><h1>MCP</h1><p>已安装 {liveInstalled.length} 个 · 市场 {presets.length} 个可点选安装 · 已连接 {connected} · 失败 {failed}</p><small>市场只保留一键安装的免费服务，点加号即可，不用填密钥或路径。需要 Token、付费或自备连接串的服务已下架。也可以手动填写 JSON。Chrome DevTools 要人点安装，不是默认电脑控制。</small></div>
    <button className="primary skill-chat-create" onClick={()=>setCreateOpen(true)}>＋ 创建 MCP</button>
   </header>
   <section className="skill-center-toolbar">
    <div className="skill-status-tabs" role="tablist" aria-label="MCP 视图">
-    <button type="button" role="tab" aria-selected={view==='installed'} onClick={()=>setView('installed')}>已安装（{endpoints.filter(item=>item.state!=='revoked').length}）</button>
+    <button type="button" role="tab" aria-selected={view==='installed'} onClick={()=>setView('installed')}>已安装（{liveInstalled.length}）</button>
     <button type="button" role="tab" aria-selected={view==='market'} onClick={()=>setView('market')}>MCP 市场</button>
    </div>
    <label className="skill-search">搜索<input value={query} onChange={e=>setQuery(e.target.value)} placeholder={view==='market'?'名称或分类':'已安装 MCP'}/></label>
@@ -238,7 +251,7 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
   </section>
   {error&&<p className="skill-center-error" role="alert">{error}{needsUv('',error)&&bridge.uvInstall?<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>void installUv()}>{uvProgress?.state==='downloading'?`下载中 ${uvProgress.percent}%`:'安装 uv'}</button>:null}</p>}
   {leftoverNames.length>0&&<p role="status" className="notice" style={{color:'var(--err)'}}>检测到已下架且无法继续使用的 MCP（{leftoverNames.join('、')}）。<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>setCleanupOpen(true)}>一键卸载</button></p>}
-  {failed>0&&<p role="status" className="notice mcp-repair-banner">有 {failed} 个 MCP 无法握手。点「检查并修复」自动对照当前市场版本重装；仍不可用则提示卸载。</p>}
+  {failed>0&&<p role="status" className="notice mcp-repair-banner">有 {failed} 个 MCP 无法握手。点「检查并修复」自动对照当前市场版本重装；仍不可用则提示卸载。{failed>1&&<button type="button" className="ui-btn primary" disabled={Boolean(busy)} onClick={()=>void repairAll()}>{busy==='__repair_all__'?'批量修复中…':'修复全部'}</button>}</p>}
   {notice&&<p role="status">{notice}</p>}
   {view==='market'?<>
    <nav className="skill-market-cats" aria-label="MCP 分类">

@@ -153,6 +153,42 @@ func TestDesktopQueryCandidatesFromOpenUtterance(t *testing.T) {
 	}
 }
 
+func TestPickLaunchTargetKnownAppBeatsDesktopFile(t *testing.T) {
+	// Simulate a Desktop with a txt file that fuzzy-matches "汽水音乐".
+	dir := t.TempDir()
+	for _, name := range []string{"汽水音乐推广方案.txt", "企业AI智能助手.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Override userDesktopDir so pickLaunchTarget searches our temp dir.
+	origDesktopDir := userDesktopDirFunc
+	userDesktopDirFunc = func() (string, error) { return dir, nil }
+	// Provide a fake known-app executable so pickKnownAppExecutable succeeds.
+	origLookup := lookupKnownAppExecutables
+	fakeExe := filepath.Join(dir, "SodaMusic.exe")
+	if err := os.WriteFile(fakeExe, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lookupKnownAppExecutables = func(app knownLaunchApp) []string {
+		if app.Canonical == "汽水音乐" {
+			return []string{fakeExe}
+		}
+		return nil
+	}
+	defer func() {
+		userDesktopDirFunc = origDesktopDir
+		lookupKnownAppExecutables = origLookup
+	}()
+	path, _, err := pickLaunchTarget("汽水音乐")
+	if err != nil {
+		t.Fatalf("pickLaunchTarget failed: %v", err)
+	}
+	if filepath.Base(path) != "SodaMusic.exe" {
+		t.Fatalf("known app must win over Desktop file, got %q", path)
+	}
+}
+
 func TestDesktopQueryCandidatesRecoversBaKai(t *testing.T) {
 	got := desktopQueryCandidates("把开了我把它桌面上的协议文档")
 	joined := strings.Join(got, ",")

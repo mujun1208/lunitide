@@ -206,6 +206,19 @@ func TestGuardOpenOnlyBlocksWorkspaceAndCommand(t *testing.T) {
 	}
 }
 
+func TestGuardOpenPageAllowsDesktopBrowse(t *testing.T) {
+	goal := "打开网页百度"
+	if !companionGoalIsOpenPage(goal) {
+		t.Fatal("page-open goal")
+	}
+	if err := guardCurrentTurnTool(goal, "desktop.browse"); err != nil {
+		t.Fatal(err)
+	}
+	if guardCurrentTurnTool("打开记事本", "desktop.browse") == nil {
+		t.Fatal("app-open must not browse")
+	}
+}
+
 func TestGuardWebsiteFirstResultBlocksComputerAct(t *testing.T) {
 	goal := "打开网站第一个新闻"
 	if err := guardCurrentTurnTool(goal, "computer.act"); err == nil {

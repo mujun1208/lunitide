@@ -33,6 +33,16 @@ func TestMcpDiagnosticsNeverExposeRawErrorOrStderr(t *testing.T) {
 	if d := ConnectionDiagnostic(errors.New(secret)); strings.Contains(d.Message, secret) {
 		t.Fatal(d)
 	}
+	plugin := ConnectionDiagnostic(&DiagnosticError{Code: "MCP_PLUGIN_DISABLED", Cause: errors.New(secret)})
+	if plugin.Code != "MCP_PLUGIN_DISABLED" || strings.Contains(plugin.Message, secret) {
+		t.Fatalf("plugin diagnostic %+v", plugin)
+	}
+	if !PersistFailure(context.Background()) {
+		t.Fatal("user-initiated health must persist by default")
+	}
+	if PersistFailure(WithPersistFailure(context.Background(), false)) {
+		t.Fatal("startup recover must not persist")
+	}
 }
 
 func TestStdioLaunchDiagnosticDistinguishesMissingRuntime(t *testing.T) {

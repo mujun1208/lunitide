@@ -54,6 +54,7 @@ it('shows the management table, validates required A–N fields, normalizes crea
  const{container}=render(<ProjectPage bridge={bridge} pickRoot={pickRoot}/>)
  expect(await screen.findByText('还没有项目')).toBeInTheDocument()
  expect(screen.getByRole('heading',{name:'项目管理'})).toBeInTheDocument()
+ expect(container.querySelector('.project-hero-art')).toBeNull()
  await user.click(screen.getByRole('button',{name:/创建项目/}))
  expect(screen.getByRole('button',{name:/创建项目/})).toHaveClass('primary')
  expect(screen.getByText('创建项目 · A–N')).toBeInTheDocument()

@@ -353,6 +353,19 @@ func TestRecoverInterruptedToolOperationsLeavesCancelled(t *testing.T) {
 	}
 }
 
+func TestRecoverOrphanedReservationsEmpty(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenTemplated(ctx, filepath.Join(t.TempDir(), "reservations-recover.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	n, err := store.RecoverOrphanedReservations(ctx)
+	if err != nil || n != 0 {
+		t.Fatalf("empty recover n=%d err=%v", n, err)
+	}
+}
+
 func TestRecoverInterruptedCallAttempts(t *testing.T) {
 	ctx := context.Background()
 	store, err := OpenTemplated(ctx, filepath.Join(t.TempDir(), "calls-recover.db"))

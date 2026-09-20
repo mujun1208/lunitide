@@ -90,18 +90,24 @@ func TestConfirmNativeOpenedUsesPageWindowNotPhrase(t *testing.T) {
 	activateWindowFn = func(string) error { return nil }
 	target := nativeLaunchTarget{URI: "ms-settings:bluetooth", Label: "蓝牙设置", Window: settingsWindow}
 
+	origList, origProc := listWindowsFn, lookupProcessImagesFn
+	defer func() {
+		listWindowsFn, lookupProcessImagesFn = origList, origProc
+	}()
+	listWindowsFn = func() []windowHint { return nil }
+	lookupProcessImagesFn = func([]string) []string { return nil }
 	readForegroundFn = func() (string, string, error) {
 		return "设置", `C:\Windows\ImmersiveControlPanel\SystemSettings.exe`, nil
 	}
-	if err := confirmNativeOpened(target); err != nil {
-		t.Fatalf("Settings host in front must confirm: %v", err)
+	if proof, err := confirmNativeOpened(target); err != nil || proof.Kind != "foreground" {
+		t.Fatalf("Settings host in front must confirm: %+v %v", proof, err)
 	}
 	readForegroundFn = func() (string, string, error) { return "Lunitide", `lunitide.exe`, nil }
-	if err := confirmNativeOpened(target); err == nil {
+	if _, err := confirmNativeOpened(target); err == nil {
 		t.Fatal("companion in front must not count as the page opening")
 	}
 	readForegroundFn = func() (string, string, error) { return "微信", `WeChat.exe`, nil }
-	if err := confirmNativeOpened(target); err == nil {
+	if _, err := confirmNativeOpened(target); err == nil {
 		t.Fatal("unrelated foreground must fail the launch receipt")
 	}
 }
