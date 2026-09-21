@@ -176,8 +176,17 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
    await uninstallEndpoint(item)
    const added=await bridge.add({origin:'manual',transport:preset.transport,...(preset.transport==='https'?{url:preset.url}:{command:preset.command,args:mcpRepairArgs(preset)}),riskConfirmed:true,requestId:crypto.randomUUID()})
    if(!preset.needsCredential)await bridge.toggle({endpointId:added.endpointId,enabled:true})
+   // First health check: may timeout while npx/uvx downloads dependencies.
    const health=await bridge.health({endpointId:added.endpointId})
    if(health.state==='ready'){if(!opts?.holdBusy)setNotice(`${title}：已用当前市场版本修复并连接`);return true}
+   // Retry once after a short delay — first-time installs need download time.
+   if(health.diagnosticCode==='MCP_CONNECT_TIMEOUT'||health.diagnosticCode==='MCP_CONNECT_FAILED'||health.diagnosticCode==='MCP_DEPENDENCY_FAILED'){
+    await new Promise(resolve=>window.setTimeout(resolve,3000))
+    try{
+     const retry=await bridge.health({endpointId:added.endpointId})
+     if(retry.state==='ready'){if(!opts?.holdBusy)setNotice(`${title}：已用当前市场版本修复并连接`);return true}
+    }catch{/* retry failed, fall through */}
+   }
    return fail(`${title}：${health.diagnosticMessage||'修复后仍无法握手。'} 此服务当前不可用，建议卸载。`,{...item,...added,displayName:title})
   }catch(e){return fail(`${title}：${mcpUserError(e,'检查修复失败')} 此服务当前不可用，建议卸载。`,item)}
   finally{await load();if(!opts?.holdBusy)setBusy('')}

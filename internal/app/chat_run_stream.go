@@ -897,6 +897,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				parkedUAC := false
 				parkedBrowserWall := ""
 				lastGUIFail := false
+				guardBlockedCalls := 0
+				totalCallsThisStep := len(result.Message.ToolCalls)
 				for _, call := range result.Message.ToolCalls {
 					if seen[call.ID] {
 						return errors.New("duplicate tool call id")
@@ -1104,6 +1106,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							return toolruntime.Result{}, errors.New("无法执行：相同目标和参数已失败，未重复操作。请重新核对目标或改用已验证的路径。")
 						}
 						if err := guardCurrentTurnToolHistory(turn.Goal, call.Name, req.Messages); err != nil {
+							guardBlockedCalls++
 							return toolruntime.Result{}, err
 						}
 						if future, ok := parallelFutures[call.ID]; ok {
@@ -1333,6 +1336,36 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					lastGUIFail = noteDesktopGUIFail(call.Name, summary, toolErr, lastGUIFail)
 				}
 				state.usedScreenTools = usedDesktopTools
+				// When every tool call in this model response was blocked
+				// by the turn guard (e.g. "本轮只要打开桌面文件…"), the
+				// model is stuck. Give the step back so the budget isn't
+				// drained by unproductive iterations, and break out of
+				// the tool loop to produce a final spoken reply.
+				if guardBlockedCalls > 0 && guardBlockedCalls >= totalCallsThisStep {
+					if step > 0 {
+						step-- // reclaim the wasted iteration
+					}
+					break
+				}
+				// Early settle: when the primary goal tool already
+				// succeeded (e.g. media.play for a playback goal, or
+				// desktop.open for an open-only goal) stop the turn
+				// immediately rather than letting the model attempt
+				// further screen interactions that waste budget.
+				// Only settle when the tool's own output shows real
+				// success — a failed media.play must keep trying the
+				// desktop method ladder.
+				if state.companion || computerExecutionTurn(turn.Goal) {
+					if playbackOnlyGoal(turn.Goal) && usedAnyTool(turn.LastTools, "media.play") {
+						playOut := lastNamedToolOutput(req.Messages, "media.play")
+						if playOut != "" && !companionToolResultFailed(playOut) && !strings.Contains(playOut, "ok:false") {
+							break
+						}
+					}
+					if companionGoalIsOpenOnly(turn.Goal) && desktopOpenSucceeded(lastToolOutput(req.Messages), turn.LastTools) {
+						break
+					}
+				}
 				guiTrigger := lastGUIFail || emptyObserves >= 2 || desktopLadderWantsGUIAfterObserve(turn.Goal, req.Messages, emptyObserves)
 				if guiTrigger && guiLoopRuns < maxGUILoopRunsPerTurn && !parkedFilePicker && !parkedUAC && parkedBrowserWall == "" {
 					if fb, fbArgs, used := e.tryGUIFallback(op, mode, sessionID, turn.Goal, req.Model, state, req.Images, false, desktopTypeL0Passed, observedThisTurn); used {

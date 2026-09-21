@@ -77,7 +77,18 @@ func (s *Store) RepairLegacyMcpPresetLaunches(ctx context.Context) error {
 }
 
 func plannedMcpLaunchRewrite(ep m7flow.McpEndpointConfig, npxToUvx, npxPackage map[string]string) (mcpLaunchRewrite, bool) {
-	if ep.State == m7flow.McpStateRevoked || ep.State == m7flow.McpStateQuarantined || ep.Security.PinJSON != "" || ep.Security.AuthRef != "" || (ep.Security.EnvRefsJSON != "" && ep.Security.EnvRefsJSON != "{}") {
+	// Revoked: permanently removed, never rewrite.
+	// Credential-bearing (AuthRef/EnvRefsJSON) or pin-locked (PinJSON): user
+	// or security system controls these; never auto-rewrite.
+	// Quarantined with a pin: capability drift detected; the security review
+	// flow owns recovery, not auto-rewrite.
+	// Quarantined WITHOUT a pin: likely caused by timeout/network/env issues
+	// during the initial probe — safe to rewrite so the next health check can
+	// use the correct package coordinates.
+	if ep.State == m7flow.McpStateRevoked || ep.Security.PinJSON != "" || ep.Security.AuthRef != "" || (ep.Security.EnvRefsJSON != "" && ep.Security.EnvRefsJSON != "{}") {
+		return mcpLaunchRewrite{}, false
+	}
+	if ep.State == m7flow.McpStateQuarantined && ep.PinnedDigest != "" {
 		return mcpLaunchRewrite{}, false
 	}
 	var args []string

@@ -52,6 +52,13 @@ const HANDSHAKE_REPAIR_CODES = new Set([
   'MCP_PACKAGE_NOT_FOUND',
   'MCP_PROTOCOL_FAILED',
   'MCP_CONNECT_FAILED',
+  'MCP_CONNECT_TIMEOUT',
+  'MCP_CONNECT_CANCELED',
+  'MCP_NETWORK_FAILED',
+  'MCP_UV_UNAVAILABLE',
+  'MCP_RUNTIME_UNAVAILABLE',
+  'MCP_DEPENDENCY_FAILED',
+  'MCP_PACKAGE_VERSION',
 ])
 
 export function mcpDriftQuarantined(item: McpEndpoint): boolean {
@@ -59,8 +66,11 @@ export function mcpDriftQuarantined(item: McpEndpoint): boolean {
   const pkg = mcpPackageName(item.args)
   if (pkg && PACKAGE_REMAP[pkg]) return false
   if (HANDSHAKE_REPAIR_CODES.has(item.diagnosticCode ?? '')) return false
+  // No diagnostic code at all means diagnostic was lost on restart — treat
+  // as repairable so the repair button shows and a fresh probe runs.
+  if (!item.diagnosticCode) return false
   const message = `${item.diagnosticMessage ?? ''} ${item.diagnosticCode ?? ''}`
-  if (/握手|协议|handshake|connect failed|package not found/i.test(message)) return false
+  if (/握手|协议|超时|网络|依赖|环境|运行|下载|handshake|connect|timeout|network|unavailable|dependency|package|failed|launch/i.test(message)) return false
   return true
 }
 

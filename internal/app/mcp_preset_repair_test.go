@@ -109,7 +109,44 @@ func TestMcpLegacyPresetRepairRemapsNickclydeDuckduckgo(t *testing.T) {
 	}
 }
 
-func TestMcpLegacyPresetRepairSkipsQuarantined(t *testing.T) {
+func TestMcpLegacyPresetRepairSkipsQuarantinedWithSecurityPin(t *testing.T) {
+	e, store := packFixture(t)
+	ctx := context.Background()
+	e.m7mcp.SetProber(m7app.LocalMcpProber{})
+	id := "mcp-" + ulid.Make().String()
+	if err := store.AgentRuntimeRepository().TransactMcp(ctx, func(tx m7app.McpTx) error {
+		if err := tx.PutMcpEndpoint(m7flow.McpEndpointConfig{
+			EndpointID:  id,
+			Transport:   m7flow.McpTransportStdio,
+			Command:     "npx",
+			ArgsJSON:    `["-y","youtube-transcript-mcp"]`,
+			Origin:      m7flow.McpOriginManual,
+			SourceTrust: m7flow.McpTrustVerified,
+			Enabled:     true,
+			State:       m7flow.McpStateQuarantined,
+			CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+		}); err != nil {
+			return err
+		}
+		if secure, ok := tx.(interface {
+			PutMcpSecurity(string, int64, m7flow.McpEndpointSecurity) error
+		}); ok {
+			return secure.PutMcpSecurity(id, 0, m7flow.McpEndpointSecurity{PinJSON: `{"tools":["test"]}`, UpdatedAt: time.Now().UTC().Format(time.RFC3339)})
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RepairLegacyMcpPresetLaunches(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ep, err := e.m7mcp.Endpoint(ctx, id)
+	if err != nil || ep.State != m7flow.McpStateQuarantined || ep.ArgsJSON != `["-y","youtube-transcript-mcp"]` {
+		t.Fatalf("quarantined launch with security pin must stay sealed: %+v %v", ep, err)
+	}
+}
+
+func TestMcpLegacyPresetRepairRewritesQuarantinedWithoutPin(t *testing.T) {
 	e, store := packFixture(t)
 	ctx := context.Background()
 	e.m7mcp.SetProber(m7app.LocalMcpProber{})
@@ -133,8 +170,13 @@ func TestMcpLegacyPresetRepairSkipsQuarantined(t *testing.T) {
 		t.Fatal(err)
 	}
 	ep, err := e.m7mcp.Endpoint(ctx, id)
-	if err != nil || ep.State != m7flow.McpStateQuarantined || ep.ArgsJSON != `["-y","youtube-transcript-mcp"]` {
-		t.Fatalf("quarantined launch must stay sealed: %+v %v", ep, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Quarantined without a pin should be rewritten (likely quarantined due
+	// to timeout/network during initial probe, not real capability drift).
+	if ep.ArgsJSON == `["-y","youtube-transcript-mcp"]` {
+		t.Fatalf("quarantined launch WITHOUT pin should be remapped: %+v", ep)
 	}
 }
 

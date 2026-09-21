@@ -64,6 +64,21 @@ func handleMcpAdd(e *Engine, ctx context.Context, r bridge.Request) bridge.Respo
 		IdempotencyKey: p.RequestID,
 	})
 	if err != nil {
+		// The endpoint was created but the initial probe failed (timeout,
+		// network, dependency download in progress). Return OK with the
+		// endpoint ID so the frontend can continue its repair/toggle/health
+		// flow. Without this, the repair cycle loses the ID and can never
+		// enable + retry the newly installed endpoint.
+		if res.EndpointID != "" {
+			diagnostic := mcp.ConnectionDiagnostic(err)
+			return r.Ok(struct {
+				EndpointID        string `json:"endpointId"`
+				State             string `json:"state"`
+				CapabilityDigest  string `json:"capabilityDigest,omitempty"`
+				DiagnosticCode    string `json:"diagnosticCode,omitempty"`
+				DiagnosticMessage string `json:"diagnosticMessage,omitempty"`
+			}{res.EndpointID, res.State, res.CapabilityDigest, diagnostic.Code, diagnostic.Message})
+		}
 		return m7McpFailure(r, err, "mcp.add")
 	}
 
