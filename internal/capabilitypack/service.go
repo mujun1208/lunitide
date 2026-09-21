@@ -265,9 +265,7 @@ func (s *Service) Install(ctx context.Context, spec Spec, repair bool) (Record, 
 		target, applyErr := s.executor.Ensure(operationCtx, component.Resource)
 		if applyErr != nil {
 			if component.Kind == "mcp" {
-				if skipErr := s.store.TransactPack(ctx, func(tx Tx) error {
-					return tx.SetReferenceState(spec.ID, component.Kind, component.Key, "skipped")
-				}); skipErr != nil {
+				if skipErr := s.markSkipped(ctx, spec.ID, component); skipErr != nil {
 					return s.failed(ctx, record, skipErr)
 				}
 				continue
@@ -359,6 +357,17 @@ func (s *Service) finish(ctx context.Context, r Record, state string) (Record, e
 	r.State, r.Error = state, ""
 	return s.save(ctx, r)
 }
+// markSkipped records an optional MCP as skipped. A cold MCP handshake can
+// consume the caller's deadline, so the write runs detached: a slow probe must
+// degrade to one skipped component, never to a failed pack.
+func (s *Service) markSkipped(ctx context.Context, packID string, c Component) error {
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	return s.store.TransactPack(writeCtx, func(tx Tx) error {
+		return tx.SetReferenceState(packID, c.Kind, c.Key, "skipped")
+	})
+}
+
 func (s *Service) failed(ctx context.Context, r Record, cause error) (Record, error) {
 	r.State = "failed"
 	r.Error = cause.Error()

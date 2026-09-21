@@ -4,7 +4,16 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob: https://media.lunitide.local; connect-src 'self' ws://127.0.0.1:* ws://localhost:* ws://[::1]:* wss://127.0.0.1:* wss://localhost:*; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <!-- srcdoc preview frames inherit THIS policy, and CSP composes by
+         intersection: a child can never allow what the embedder forbids. The
+         artifact previews carry their own default-src 'none' policy (see
+         src/workspace/isolatedHTML.ts) and run under sandbox="", so they stay
+         inert regardless. What they also need is to LOOK like the document the
+         model wrote: inline <style>, data: fonts, blob: images. With
+         style-src 'self' here, every HTML artifact rendered as raw unstyled
+         markup. Scripts are deliberately still 'self' only, so widening this
+         cannot make a preview executable. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob: https://media.lunitide.local; connect-src 'self' ws://127.0.0.1:* ws://localhost:* ws://[::1]:* wss://127.0.0.1:* wss://localhost:*; frame-src 'self' https://preview.lunitide.local; object-src 'none'; base-uri 'none'; form-action 'none'" />
     <title>Lunitide</title>
   </head>
   <body>

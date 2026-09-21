@@ -169,17 +169,20 @@ it('removes a capability pack using the persisted version and keeps skills',asyn
 })
 it('reloads unfinished operations and offers a real resume',async()=>{
  const record={spec:CAPABILITY_PACKS[0],digest:'b'.repeat(64),state:'failed',desired:'installed',version:3,error:'probe failed',createdAt:now,updatedAt:now,components:[]}
- const bridge=api({packList:vi.fn().mockResolvedValue({items:[record]}),packInstall:vi.fn().mockRejectedValue(new Error('probe failed again'))})
+ const installed={...record,state:'installed',error:'',version:4}
+ const packInstall=vi.fn().mockRejectedValueOnce(new Error('probe failed again')).mockResolvedValueOnce(installed)
+ const packUninstall=vi.fn().mockResolvedValue({state:'uninstalled'})
+ const packList=vi.fn().mockResolvedValue({items:[record]})
+ const bridge=api({packList,packInstall,packUninstall})
  render(<PluginPage bridge={bridge}/>);fireEvent.click(await screen.findByRole('tab',{name:/已安装/}))
  expect(await screen.findByText('能力包组件探测失败')).toBeInTheDocument()
  expect(screen.queryByText('probe failed')).toBeNull()
- fireEvent.click(await screen.findByRole('button',{name:'继续安装'}))
- await waitFor(()=>expect(bridge.packInstall).toHaveBeenCalledOnce())
- expect(bridge.packInstall).toHaveBeenCalledWith(expect.objectContaining({spec:CAPABILITY_PACKS[0],repair:true,confirmed:true}))
- const alert=await screen.findByRole('alert')
- expect(alert).toHaveTextContent('能力包组件探测失败')
- expect(alert.textContent).not.toMatch(/probe failed/)
- expect(screen.getByRole('button',{name:'继续安装'})).toBeInTheDocument()
+ fireEvent.click(await screen.findByRole('button',{name:'复核并修复'}))
+ await waitFor(()=>expect(packUninstall).toHaveBeenCalledWith({packId:'pack-browser',expectedVersion:3,confirmed:true}))
+ await waitFor(()=>expect(packInstall).toHaveBeenCalledTimes(2))
+ expect(packInstall).toHaveBeenNthCalledWith(1,expect.objectContaining({spec:CAPABILITY_PACKS[0],repair:true,confirmed:true}))
+ expect(packInstall).toHaveBeenNthCalledWith(2,expect.objectContaining({spec:CAPABILITY_PACKS[0],repair:false,confirmed:true}))
+ expect(await screen.findByText(/已安装「浏览器工作包」/)).toBeInTheDocument()
 })
 
 it('installs leftover research and report packs from the current catalog spec', async () => {

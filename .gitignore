@@ -5,6 +5,11 @@ dist/
 /build/
 /release/out/
 /release/out-final/
+# Version-stamped copies of a finished out/ tree (release/out-0.5.4, ...).
+/release/out-*/
+# Dev-build binaries staged for local smoke runs. Rebuilt on demand; keeping
+# them tracked made every rebuild a 180 MB dirty diff at ship time.
+/release/bin/
 /release/matrix-evidence-*.json
 /release/Lunitide-Setup-*.exe
 /release/Lunitide-Setup-*.exe.blockmap
@@ -58,3 +63,6 @@ lint-full.txt
 errcheck-*.txt
 # Isolated, disposable browser profile used for local layout verification.
 /.tmp-edge-visual/
+# Scratch written by local gate and audit runs (lint dumps, skill census, one-off
+# POC pages). Disposable by construction; none of it may reach a release.
+/.tmp-*

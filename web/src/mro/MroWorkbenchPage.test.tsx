@@ -1,12 +1,19 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { LanguageProvider } from '../i18n/language'
 import { MroWorkbenchPage, manualMediaType, type MroOpsTodo } from './MroWorkbenchPage'
 
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
+/** Publishing asks inside an in-app dialog, not window.confirm: the desktop
+ *  shell disables script dialogs, so the confirm-gated publish button did
+ *  nothing there. Tests click through the dialog the user actually sees. */
+async function confirmPublish(): Promise<void> {
+  const dialog = await screen.findByRole('dialog')
+  fireEvent.click(within(dialog).getByRole('button', { name: '生成待办' }))
+}
+
 it('does not show raw English audit, import or publish failures', async () => {
-  vi.spyOn(window, 'confirm').mockReturnValue(true)
   render(
     <LanguageProvider value="zh-CN">
       <MroWorkbenchPage enabled auditList={async () => { throw new Error('Failed to fetch') }} aircraftList={async () => ({ items: [] })} manualList={async () => ({ items: [] })} />
@@ -38,6 +45,7 @@ it('does not show raw English audit, import or publish failures', async () => {
     </LanguageProvider>,
   )
   fireEvent.click(await screen.findByRole('button', { name: '发布' }))
+  await confirmPublish()
   expect(await screen.findByRole('alert')).toHaveTextContent('发布失败，请复查当前约束与来源')
   expect(screen.queryByText('Failed to fetch')).toBeNull()
 })
@@ -349,7 +357,6 @@ it('shows publish todos and opens bulletin Ask with lot and two experts', async 
   })
   const onBulletinChain = vi.fn().mockResolvedValue({ tails: ['B-9'], note: 'draft' })
   const openChat = vi.fn().mockResolvedValue({ sessionId: 's1', project: {}, session: {}, prompt: '' })
-  vi.spyOn(window, 'confirm').mockReturnValue(true)
   render(
     <LanguageProvider value="zh-CN">
       <MroWorkbenchPage
@@ -371,6 +378,7 @@ it('shows publish todos and opens bulletin Ask with lot and two experts', async 
     </LanguageProvider>,
   )
   fireEvent.click(await screen.findByRole('button', { name: '发布' }))
+  await confirmPublish()
   await waitFor(() => expect(onPublishSchedule).toHaveBeenCalledWith('wp1'))
   fireEvent.click(screen.getByRole('button', { name: '工具化工品' }))
   expect(await screen.findByText(/套件待办/)).toBeInTheDocument()
@@ -638,10 +646,10 @@ it('keeps existing todos, disables repeated publication and refreshes current ev
   let finish!: (value: { todos: MroOpsTodo[] }) => void
   const onPublishSchedule = vi.fn(() => new Promise<{ todos: MroOpsTodo[] }>(resolve => { finish = resolve }))
   const planList = vi.fn().mockResolvedValue({ items: [{ id: 'wp1', title: 'C检', sources: ['标准卡'], evidenceState: 'current' }] })
-  vi.spyOn(window, 'confirm').mockReturnValue(true)
   render(<LanguageProvider value="zh-CN"><MroWorkbenchPage enabled initialRail="plan" workPackages={[{ id: 'wp1', title: 'C检', sources: ['标准卡'], evidenceState: 'draft' }]} opsTodos={[{ id: 'existing', kind: 'parts_request', ref: 'other-kit', status: 'open', detail: '先前待办' }]} planList={planList} onPublishSchedule={onPublishSchedule} /></LanguageProvider>)
   fireEvent.click(screen.getByRole('button', { name: '发布' }))
-  expect(screen.getByRole('button', { name: '核验中…' })).toBeDisabled()
+  await confirmPublish()
+  await waitFor(() => expect(screen.getByRole('button', { name: '核验中…' })).toBeDisabled())
   fireEvent.click(screen.getByRole('button', { name: '核验中…' }))
   expect(onPublishSchedule).toHaveBeenCalledTimes(1)
   await act(async () => { finish({ todos: [{ id: 'new', kind: 'parts_request', ref: 'wp1', status: 'open', detail: '新增待办' }] }) })
@@ -653,11 +661,11 @@ it('keeps existing todos, disables repeated publication and refreshes current ev
 })
 
 it('shows failed publication and stale evidence without dropping previous todos', async () => {
-  vi.spyOn(window, 'confirm').mockReturnValue(true)
   const onPublishSchedule = vi.fn().mockRejectedValue(new Error('来源手册已过期'))
   const planList = vi.fn().mockResolvedValue({ items: [{ id: 'wp1', title: 'C检', sources: ['标准卡'], evidenceState: 'blocked' }] })
   render(<LanguageProvider value="zh-CN"><MroWorkbenchPage enabled initialRail="plan" workPackages={[{ id: 'wp1', title: 'C检', sources: ['标准卡'] }]} opsTodos={[{ id: 'existing', kind: 'parts_request', ref: 'other-kit', status: 'open', detail: '保留待办' }]} planList={planList} onPublishSchedule={onPublishSchedule} /></LanguageProvider>)
   fireEvent.click(screen.getByRole('button', { name: '发布' }))
+  await confirmPublish()
   await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('来源手册已过期'))
   await waitFor(() => expect(screen.getByRole('button', { name: '发布' })).toBeDisabled())
   expect(screen.getByText('当前约束未满足，请复查后重新组装')).toBeInTheDocument()

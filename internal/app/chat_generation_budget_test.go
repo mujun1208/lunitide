@@ -30,7 +30,7 @@ func (a budgetAdapter) Stream(ctx context.Context, _ []byte, _ llmadapter.Reques
 func TestGenerationBudgetSpansPassesAndRejectsUnstreamedArguments(t *testing.T) {
 	b := turnGenerationBudget{}
 	a := budgetAdapter{run: func(_ context.Context, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
-		return llmadapter.Response{}, emit(llmadapter.Delta{Reasoning: strings.Repeat("r", turnGenerationMaxBytes/2)})
+		return llmadapter.Response{}, emit(llmadapter.Delta{Text: strings.Repeat("t", turnGenerationMaxBytes/2)})
 	}}
 	for range 2 {
 		if _, err := b.stream(context.Background(), a, nil, llmadapter.Request{}, func(llmadapter.Delta) error { return nil }); err != nil {

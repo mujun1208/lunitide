@@ -57,6 +57,12 @@
       "notice": {
         "type": "string",
         "maxLength": 512
+      },
+      "interactiveUrl": {
+        "description": "Preview-origin URL for an HTML artifact that may run its own scripts. Present only for html kind; the ticket in it expires.",
+        "type": "string",
+        "pattern": "^https://preview\\.lunitide\\.local/p/[A-Za-z0-9_-]{22,64}/",
+        "maxLength": 1024
       }
     },
     "required": [

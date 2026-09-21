@@ -2,7 +2,8 @@ import React,{useCallback,useEffect,useMemo,useState}from'react'
 import{BridgeClientError,createMutationAttempt,expertBridge,getMcpBridge,projectBridge,skillBridge as defaultSkillBridge,type ExpertBridge,type McpBridge,type ProjectBridge,type SkillBridge}from'../bridge/client'
 import{ENGINE_RECOVERED_EVENT,formatBridgeFailure}from'../bridge/engineHealth'
 import type{ExpertCatalogListResult,ExpertCreatePayload,ExpertDetailResult,ExpertListResult,ExpertScenarioListResult,McpListResult,ProjectDTO,SkillDTO}from'../generated/bridge'
-import{brainBindKey,CONVERSATION_EXPERTS,conversationExpertByNameOrID,conversationExpertEmoji,conversationExpertKind,conversationExpertRole,expertCatalogKey,expertKitCounts,expertKindOf,inferPreferredFromText,isOpsColleague,matchMcpPresets,matchPublishedSkills,mcpBindKey,mcpFallbackForExpert,missingPreferredSkills,preferredMcpForExperts,preferredSkillsForExperts,requiredToolsForExperts,shouldOpenExpertAsColleague,skillMatchesPreferred,splitBoundKeys,type ExpertBrain}from'./conversationExperts'
+import{brainBindKey,CONVERSATION_EXPERTS,conversationExpertByNameOrID,conversationExpertEmoji,conversationExpertKind,conversationExpertRole,expertCatalogKey,expertKitCounts,expertKindOf,isOpsColleague,matchMcpPresets,matchPublishedSkills,mcpBindKey,mcpFallbackForExpert,missingPreferredSkills,preferredMcpForExperts,preferredSkillsForExperts,requiredToolsForExperts,shouldOpenExpertAsColleague,skillBindKey,skillMatchesPreferred,splitBoundKeys,type ExpertBrain}from'./conversationExperts'
+import{matchByDescription}from'./expertMatch'
 import{skillNameKey}from'../skill/skillVersion'
 import{useZh}from'../i18n/language'
 import{ExpertDetailTabs}from'./ExpertDetailTabs'
@@ -12,6 +13,7 @@ import{ExpertLifecycleActions}from'./ExpertLifecycleActions'
 import{leftoverArchivedMcp}from'../settings/leftoverMcp'
 import{IMPLEMENTATION_PHASES}from'../project/projectPhases'
 import{ConfirmDialog,Dialog}from'../ui/Dialog'
+import{useConfirmDialog}from'../ui/useAskDialog'
 import{usePanelResize}from'../ui/usePanelResize'
 
 function expertUserError(err: unknown, fallback: string): string {
@@ -45,6 +47,18 @@ const displayName=(item:ExpertItem)=>item.name?.trim()||'未命名专家'
 const isMroColleague=(item:ExpertItem)=>isOpsColleague(expertCatalogKey(item))||isOpsColleague(item.name??'')
 const displayDivision=(item:ExpertItem)=>DIVISIONS[item.division]??item.division??'未分类'
 const kindLabel=(kind:'agent'|'prompt_skill')=>kind==='agent'?'同事专家':'技能包'
+/** What this expert actually carries into a turn. The engine reports stored
+ *  bindings, falling back to the factory kit when nothing was ever saved; an
+ *  older engine that predates the counts leaves them undefined, and there the
+ *  kit size is the only honest answer we have. */
+const boundCounts=(item:ExpertItem):{skills:number;mcp:number;configured:boolean}=>{
+ const row=item as ExpertItem&{boundSkillCount?:number;boundMcpCount?:number;boundConfigured?:boolean}
+ if(row.boundConfigured===true&&typeof row.boundSkillCount==='number'&&typeof row.boundMcpCount==='number'){
+  return{skills:row.boundSkillCount,mcp:row.boundMcpCount,configured:true}
+ }
+ const kit=expertKitCounts({name:item.name,id:expertCatalogKey(item),catalogItemId:item.catalogItemId,division:item.division})
+ return{skills:Math.max(kit.skills,row.boundSkillCount??0),mcp:Math.max(kit.mcp,row.boundMcpCount??0),configured:false}
+}
 const boundSkillKeys=(value:object)=>{const raw=asRecord(value).boundSkills;return Array.isArray(raw)?raw.filter((item):item is string=>typeof item==='string'&&item.trim().length>0):[]}
 const boundSkillsKnown=(value:object)=>asRecord(value).boundSkillsKnown===true
 const mcpEndpointMatchesPreset=(ep:McpListResult['endpoints'][number],id:string)=>{
@@ -68,6 +82,7 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,ski
  const[publishedSkills,setPublishedSkills]=useState<SkillDTO[]>([]),[skillCatalog,setSkillCatalog]=useState<Array<{id:string;name:string}>>([]),[skillDraft,setSkillDraft]=useState<string[]>([]),[mcpDraft,setMcpDraft]=useState<string[]>([]),[brainDraft,setBrainDraft]=useState<ExpertBrain>('lunitide'),[mcpPresets,setMcpPresets]=useState<Array<{id:string;name:string;description:string}>>([]),[mcpEndpoints,setMcpEndpoints]=useState<McpListResult['endpoints']>([]),[skillsReady,setSkillsReady]=useState(false),[mcpReady,setMcpReady]=useState(false)
  const[view,setView]=useState<'library'|'market'>('library'),[catalog,setCatalog]=useState<CatalogEntry[]>([]),[marketQuery,setMarketQuery]=useState(''),[marketCategory,setMarketCategory]=useState(''),[marketBusy,setMarketBusy]=useState(''),[marketError,setMarketError]=useState(''),[marketLoading,setMarketLoading]=useState(false)
  const[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('')
+ const[askNode,askConfirm]=useConfirmDialog()
  const[addOpen,setAddOpen]=useState(false),[editing,setEditing]=useState<'create'|'edit'|null>(null),[archiving,setArchiving]=useState<ExpertItem|null>(null)
  const[form,setForm]=useState(EMPTY_FORM)
  const[manualOnly,setManualOnly]=useState(false)
@@ -125,7 +140,7 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,ski
   }catch(e){setError(expertUserError(e,'挂载操作失败'))}finally{setBusy(false)}}
  const submitScenario=async()=>{if(!selected)return;const title=scenarioForm.title.trim(),summary=scenarioForm.summary.trim();if(title.length<1||title.length>128){setError('场景标题需为 1–128 个字符');return}if(summary.length<1||summary.length>2048){setError('场景摘要需为 1–2048 个字符');return}let scenario:object;try{scenario=JSON.parse(scenarioForm.body)as object}catch{setError('场景 JSON 无法解析');return}if(!scenario||typeof scenario!=='object'||Array.isArray(scenario)||!Object.keys(scenario).length){setError('场景 JSON 需为至少一个字段的对象');return}
   setBusy(true);setError('');setNotice('');try{const base={expertId:selected.expertId,title,summary,phaseKey:scenarioForm.phaseKey,scenario},attempt=createMutationAttempt('expert.scenario.create',base);await bridge.scenarioCreate(base,{attempt});setNotice(`已添加场景卡「${title}」`);setScenarioForm(EMPTY_SCENARIO);setDetailEpoch(value=>value+1)}catch(e){setError(expertUserError(e,'场景卡创建失败'))}finally{setBusy(false)}}
- const removeScenario=async(card:ScenarioItem)=>{if(!window.confirm(`归档场景卡「${card.title}」？`))return;setBusy(true);setError('');try{const base={scenarioCardId:card.scenarioCardId},attempt=createMutationAttempt('expert.scenario.delete',base);await bridge.scenarioDelete(base,{attempt});setNotice(`已归档场景卡「${card.title}」`);setDetailEpoch(value=>value+1)}catch(e){setError(expertUserError(e,'场景卡归档失败'))}finally{setBusy(false)}}
+ const removeScenario=async(card:ScenarioItem)=>{if(!await askConfirm({title:`归档场景卡「${card.title}」？`,description:'归档后该场景卡不再参与匹配，历史记录保留。',confirmLabel:'归档'}))return;setBusy(true);setError('');try{const base={scenarioCardId:card.scenarioCardId},attempt=createMutationAttempt('expert.scenario.delete',base);await bridge.scenarioDelete(base,{attempt});setNotice(`已归档场景卡「${card.title}」`);setDetailEpoch(value=>value+1)}catch(e){setError(expertUserError(e,'场景卡归档失败'))}finally{setBusy(false)}}
  const skillFloor=selected&&expertKindOf(selected)==='agent'?preferredSkillsForExperts([{name:displayName(selected),id:expertCatalogKey(selected)}]):[]
  const mcpFloor=selected&&expertKindOf(selected)==='agent'?preferredMcpForExperts([{name:displayName(selected),id:expertCatalogKey(selected)}]):[]
  const installedMcpIds=useMemo(()=>new Set(mcpPresets.filter(item=>mcpEndpoints.some(ep=>mcpEndpointMatchesPreset(ep,item.id))).map(item=>item.id)),[mcpEndpoints,mcpPresets])
@@ -137,8 +152,30 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,ski
  const mcpFallback=selected?mcpFallbackForExpert(displayName(selected)):''
  const missingSkills=missingPreferredSkills(skillFloor,publishedSkills)
  const installMissing=async(templateId:string)=>{setBusy(true);setError('');setNotice('');try{const catalogId=skillCatalog.find(item=>item.id===templateId||skillNameKey(item.name)===skillNameKey(templateId))?.id??templateId;await skills.install?.({templateId:catalogId});const listed=await skills.list({status:'published'});setPublishedSkills(listed.items.filter(item=>item.status==='published'));setNotice(`已安装「${templateId}」，保存运行时后即可使用`)}catch(e){setError(expertUserError(e,`安装 ${templateId} 失败，请去技能中心`))}finally{setBusy(false)}}
- const saveSkills=async(nextSkills?:string[],nextMcp?:string[])=>{if(!selected||!detail||!bridge.skillsSet)return;const expectedVersionId=expertMeta(detail.expert).currentVersionId;if(!expectedVersionId){setError('当前版本不可用，无法保存装备');return};const skillsToSave=nextSkills??skillDraft;const mcpToSave=nextMcp??mcpDraft;setBusy(true);setError('');setNotice('');try{const merged=[...new Set([...presentSkillFloor,...skillsToSave,...[...new Set([...presentMcpFloor,...mcpToSave])].map(mcpBindKey),...(brainDraft!=='lunitide'?[brainBindKey(brainDraft)]:[])])];const base={expertId:selected.expertId,expectedVersionId,skillKeys:merged},attempt=createMutationAttempt('expert.skills.set',base);const result=await bridge.skillsSet(base,{attempt});const split=splitBoundKeys(result.skillKeys??merged);setSkillDraft(split.skills);setMcpDraft(split.mcp);setBrainDraft(split.brain);setNotice(`已更新「${displayName(selected)}」的运行时绑定`);setDetailEpoch(value=>value+1)}catch(e){setError(expertUserError(e,'运行时绑定失败'))}finally{setBusy(false)}}
- const autoMatch=()=>{if(!selected||!detailReady||!detail)return;const factorySkills=preferredSkillsForExperts([{name:displayName(selected),id:expertCatalogKey(selected)}]);const factoryMcp=preferredMcpForExperts([{name:displayName(selected),id:expertCatalogKey(selected)}]);const six=sixOf(detail.sixSection);const inferred=inferPreferredFromText([displayName(selected),selected.division,six.identity,six.mission,six.rules,six.workflow,six.deliverableTemplate,six.successMetrics].join('\n'));const nextSkills=matchPublishedSkills(factorySkills.length?factorySkills:inferred.skills,publishedSkills);const nextMcp=matchMcpPresets(factoryMcp.length?factoryMcp:inferred.mcp,mcpPresets.filter(item=>installedMcpIds.has(item.id)));if(!nextSkills.length&&!nextMcp.length){setNotice('岗位描述里没有匹配到已安装的技能或 MCP，不会全选。');return}setSkillDraft(nextSkills);setMcpDraft(nextMcp);setNotice('已按岗位描述匹配技能与 MCP，正在保存…');void saveSkills(nextSkills,nextMcp)}
+ const saveSkills=async(nextSkills?:string[],nextMcp?:string[])=>{if(!selected||!detail||!bridge.skillsSet)return;const expectedVersionId=expertMeta(detail.expert).currentVersionId;if(!expectedVersionId){setError('当前版本不可用，无法保存装备');return};const skillsToSave=nextSkills??skillDraft;const mcpToSave=nextMcp??mcpDraft;setBusy(true);setError('');setNotice('');try{const merged=[...new Set([...presentSkillFloor,...skillsToSave,...[...new Set([...presentMcpFloor,...mcpToSave])].map(mcpBindKey),...(brainDraft!=='lunitide'?[brainBindKey(brainDraft)]:[])])];const base={expertId:selected.expertId,expectedVersionId,skillKeys:merged},attempt=createMutationAttempt('expert.skills.set',base);const result=await bridge.skillsSet(base,{attempt});const split=splitBoundKeys(result.skillKeys??merged);setSkillDraft(split.skills);setMcpDraft(split.mcp);setBrainDraft(split.brain);setNotice(`已更新「${displayName(selected)}」的运行时绑定：技能 ${split.skills.length} 个 · MCP ${split.mcp.length} 个`);await load(selected.expertId);setDetailEpoch(value=>value+1)}catch(e){setError(expertUserError(e,'运行时绑定失败'))}finally{setBusy(false)}}
+ /** Auto-match reads the six-section brief against what each installed skill and
+  *  MCP preset says about itself, so a skill that fits the job is found whether
+  *  or not anyone put its name in a keyword table. The curated factory kit still
+  *  wins where one exists; description matches extend it rather than replace it,
+  *  and a candidate that only shares filler with the brief is left off. */
+ const autoMatch=()=>{if(!selected||!detailReady||!detail)return
+  const who=[{name:displayName(selected),id:expertCatalogKey(selected)}]
+  const six=sixOf(detail.sixSection)
+  const brief=[displayName(selected),selected.division,six.identity,six.mission,six.rules,six.workflow,six.deliverableTemplate,six.successMetrics].filter(Boolean).join('\n')
+  const factorySkills=matchPublishedSkills(preferredSkillsForExperts(who),publishedSkills)
+  const availableMcp=mcpPresets.filter(item=>installedMcpIds.has(item.id))
+  const factoryMcp=matchMcpPresets(preferredMcpForExperts(who),availableMcp)
+  const skillCandidates=publishedSkills.map(item=>({key:skillBindKey(item),text:`${item.displayName??''} ${item.name} ${item.description??''}`}))
+  const mcpCandidates=availableMcp.map(item=>({key:item.id,text:`${item.name} ${item.description??''}`}))
+  const skillHits=matchByDescription(brief,skillCandidates)
+  const mcpHits=matchByDescription(brief,mcpCandidates,4)
+  const nextSkills=[...new Set([...factorySkills,...skillHits.map(hit=>hit.key)])]
+  const nextMcp=[...new Set([...factoryMcp,...mcpHits.map(hit=>hit.key)])]
+  if(!nextSkills.length&&!nextMcp.length){setNotice('岗位描述里没有匹配到已安装的技能或 MCP，不会全选。可以手动勾选，或去技能中心安装。');return}
+  const why=[...skillHits,...mcpHits].flatMap(hit=>hit.hits).slice(0,5)
+  setSkillDraft(nextSkills);setMcpDraft(nextMcp)
+  setNotice(`已按岗位描述匹配：技能 ${nextSkills.length} 个 · MCP ${nextMcp.length} 个${why.length?`（命中「${[...new Set(why)].join('、')}」）`:''}，正在保存…`)
+  void saveSkills(nextSkills,nextMcp)}
  const toggleSkillKey=(key:string)=>{if(presentSkillFloor.includes(key))return;setSkillDraft(current=>current.includes(key)?current.filter(item=>item!==key):[...current,key])}
  const toggleMcpKey=(id:string)=>{if(presentMcpFloor.includes(id))return;setMcpDraft(current=>current.includes(id)?current.filter(item=>item!==id):[...current,id])}
  const installCatalog=async(entry:CatalogEntry)=>{if(!bridge.install||marketBusy)return;setMarketBusy(entry.id);setError('');setNotice('');try{const result=await bridge.install({id:entry.id});setNotice(`已安装「${entry.displayName}」${result.usage==='chat'?'为对话技能':result.usage==='project'?'为项目专家':'（对话技能+项目专家）'}`);await Promise.all([loadCatalog(),refresh()]);setView('library')}catch(e){setError(expertUserError(e,'安装失败'))}finally{setMarketBusy('')}}
@@ -152,6 +189,7 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,ski
  const projectNameOf=(id:string)=>projectItems.find(project=>project.id===id)?.name??id.slice(0,8)
 
  return <main className="skill-center expert-center-page">
+  {askNode}
   <header className="skill-center-header"><div><h1 className="view-title">专家中心</h1><p>{items.length} 名已安装{showMarket?` · 市场 ${catalog.length} 个，内嵌改编，不是上游全量`:''}</p><small>技能包把技能挂在专家身上，不钉对话输入框。同事专家是同一月汐引擎上的人设和工具，不是独立进程；点「打开专家」进同事聊天。{showMarket?'缺的用 expert.create。':''}</small></div><button className="primary skill-chat-create" aria-label="添加专家" onClick={()=>setAddOpen(true)}>+ 添加专家</button></header>
   <Dialog open={addOpen} title="添加专家" description="选择创建专家的方式" onClose={()=>setAddOpen(false)}><div className="skill-add-options"><button type="button" className="skill-add-option" onClick={()=>{setAddOpen(false);onCreateInChat?.()}}><span className="skill-add-option-icon">💬</span><span className="skill-add-option-title">通过对话创建</span><small>在对话中描述岗位，AI 引导你完成六段说明书，确认后生成专家</small></button><button type="button" className="skill-add-option" onClick={beginCreate}><span className="skill-add-option-icon">✎</span><span className="skill-add-option-title">手动填写</span><small>填写名称、条线和六段岗位说明书后直接创建</small></button></div></Dialog>
   <section className="skill-center-toolbar">
@@ -180,7 +218,7 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,ski
     <section className="skill-market-shelf" aria-label="可安装专家"><header><b>{marketCategory||'人设卡与其他角色'}</b><small>{listedCatalog.length} 个</small></header>{listedCatalog.length?<div className="skill-market">{listedCatalog.map(entry=><article className={`skill-market-card ${entry.installed?'is-installed':''}`} key={entry.id}><header><span className="skill-market-glyph" aria-hidden="true">{entry.emoji||entry.displayName.slice(0,1)}</span><div><b>{entry.displayName}</b><small>{catalogUsage(entry)} · {entry.category}</small></div>{entry.installed?<span className="skill-market-installed">已安装</span>:<button type="button" className="skill-market-add" aria-label={`安装 ${entry.displayName}`} disabled={Boolean(marketBusy)} onClick={()=>void installCatalog(entry)}>{marketBusy===entry.id?'…':'＋'}</button>}</header><p>{entry.description}</p><footer><small>v{entry.version}</small></footer></article>)}</div>:<div className="empty"><b>没有匹配的专家</b><span>换个分类或关键字再试。</span></div>}</section>
    </>}</div>
   :<div className="skill-center-layout" style={{'--detail-width':`${detailWidth}px`} as React.CSSProperties}>
-   <section className="skill-table expert-list" aria-label="已安装专家"><div className="skill-table-inner"><div className="skill-table-head"><span>专家</span><span>版本</span><span>状态</span><span>条线</span></div>{loading?<p role="status">正在载入专家…</p>:visible.length?visible.map(item=>{const key=expertCatalogKey(item);const kit=expertKitCounts({name:displayName(item),id:key,catalogItemId:item.catalogItemId,division:item.division});return <button type="button" className={`skill-row ${selected?.expertId===item.expertId?'active':''}`} key={item.expertId} onClick={()=>{setSelectedId(item.expertId);setEditing(null)}}><span><b>{displayName(item)}</b><small>{kindLabel(expertKindOf(item))} · 技能 {kit.skills} · MCP {kit.mcp} · 挂载 {item.mountedPhaseCount} 处 · {item.creationOrigin==='manual'&&item.isOwn?'我创建的':SOURCE[item.source]??item.source}</small></span><code>v{item.semver||'—'}</code><i className={`skill-status ${STATUS_CLASS[item.state]}`}>{STATES[item.state]??item.state}</i><code>{displayDivision(item)}</code></button>}):<div className="empty"><b>暂无专家</b><span>{query||stateFilter||kindFilter||divisionFilter||manualOnly?'没有匹配的专家。':showMarket?'去「专家市场」安装，或点击「添加专家」用对话生成。':'点击「添加专家」用对话生成。'}</span></div>}</div></section>
+   <section className="skill-table expert-list" aria-label="已安装专家"><div className="skill-table-inner"><div className="skill-table-head"><span>专家</span><span>版本</span><span>状态</span><span>条线</span></div>{loading?<p role="status">正在载入专家…</p>:visible.length?visible.map(item=>{const kit=boundCounts(item);return <button type="button" className={`skill-row ${selected?.expertId===item.expertId?'active':''}`} key={item.expertId} onClick={()=>{setSelectedId(item.expertId);setEditing(null)}}><span><b>{displayName(item)}</b><small>{kindLabel(expertKindOf(item))} · 技能 {kit.skills} · MCP {kit.mcp}{kit.configured?'':' · 默认装备'} · 挂载 {item.mountedPhaseCount} 处 · {item.creationOrigin==='manual'&&item.isOwn?'我创建的':SOURCE[item.source]??item.source}</small></span><code>v{item.semver||'—'}</code><i className={`skill-status ${STATUS_CLASS[item.state]}`}>{STATES[item.state]??item.state}</i><code>{displayDivision(item)}</code></button>}):<div className="empty"><b>暂无专家</b><span>{query||stateFilter||kindFilter||divisionFilter||manualOnly?'没有匹配的专家。':showMarket?'去「专家市场」安装，或点击「添加专家」用对话生成。':'点击「添加专家」用对话生成。'}</span></div>}</div></section>
    <div className="panel-resizer split-resizer" role="separator" aria-label="调整详情栏宽度" aria-orientation="vertical" onPointerDown={startDetailResize}/>
    <aside className="skill-detail expert-detail" aria-label="专家详情">{selected?<>
     <div className="skill-detail-title"><div><h2>{displayName(selected)}</h2><code>{selected.creationOrigin==='manual'&&selected.isOwn?'我创建的':SOURCE[selected.source]??selected.source} · v{selected.semver||'—'} · {selected.versionCount} 个版本</code></div><span className={`skill-status ${STATUS_CLASS[selected.state]}`}>{STATES[selected.state]??selected.state}</span></div>
@@ -209,7 +247,7 @@ export function ExpertCenterPage({bridge=expertBridge,projects=projectBridge,ski
     <h3>可用 MCP</h3>
     {mcpDraft.length?<div className="expert-mount-chips skill-permissions" aria-label="已授权 MCP">{mcpDraft.map(id=><span key={id}>{mcpPresets.find(item=>item.id===id)?.name??id}</span>)}</div>:<p>尚未授权 MCP。未连接时走上面的回退。</p>}
     {selected.state!=='archived'&&bridge.skillsSet?<form className="scenario-create" onSubmit={e=>{e.preventDefault();void saveSkills()}}>
-     {publishedSkills.length?<fieldset className="expert-mount-steps"><legend>已发布技能{presentSkillFloor.length?'（岗位底线不能卸完）':''}</legend>{publishedSkills.map(item=>{const key=item.entryPoint?.replace(/^builtin:\/\//,'')||item.name.replace(/^tpl-/,'');const locked=presentSkillFloor.includes(key);return <label key={item.id} className="expert-mount-step"><input type="checkbox" checked={skillDraft.includes(key)||skillDraft.includes(item.name)||locked} disabled={locked} onChange={()=>toggleSkillKey(key)}/><span><b>{item.displayName||item.name}</b>{locked?' · 底线':''}</span></label>})}</fieldset>:null}
+     {publishedSkills.length?<fieldset className="expert-mount-steps"><legend>已发布技能{presentSkillFloor.length?'（岗位底线不能卸完）':''}</legend>{publishedSkills.map(item=>{const key=skillBindKey(item);const locked=presentSkillFloor.includes(key);return <label key={item.id} className="expert-mount-step"><input type="checkbox" checked={skillDraft.includes(key)||skillDraft.includes(item.name)||locked} disabled={locked} onChange={()=>toggleSkillKey(key)}/><span><b>{item.displayName||item.name}</b>{locked?' · 底线':''}</span></label>})}</fieldset>:null}
      {mcpPresets.length?<fieldset className="expert-mount-steps"><legend>MCP 预置{presentMcpFloor.length?'（岗位底线不能卸完）':''}</legend>{mcpPresets.map(item=>{const locked=presentMcpFloor.includes(item.id);return <label key={item.id} className="expert-mount-step"><input type="checkbox" checked={mcpDraft.includes(item.id)||locked} disabled={locked} onChange={()=>toggleMcpKey(item.id)}/><span><b>{item.name}</b>{locked?' · 底线':''}<small> {item.description}</small></span></label>})}</fieldset>:null}
      <div className="dialog-actions"><button type="button" disabled={busy||!detailReady} onClick={autoMatch}>自动匹配并保存</button><button type="button" className="primary" disabled={busy||!detailReady} onClick={()=>void saveSkills()}>保存运行时绑定</button></div>
     </form>:null}

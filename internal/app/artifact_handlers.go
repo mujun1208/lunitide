@@ -157,7 +157,18 @@ func handleWorkspaceArtifactPreview(e *Engine, ctx context.Context, r bridge.Req
 		content = string(runes[:keep]) + "…"
 		notice = "仅展示部分内容，本机打开可查看全文"
 	}
-	return r.Ok(map[string]any{"kind": kind, "path": filepath.ToSlash(p.Path), "absolutePath": filepath.ToSlash(target), "size": info.Size(), "content": content, "notice": notice})
+	out := map[string]any{"kind": kind, "path": filepath.ToSlash(p.Path), "absolutePath": filepath.ToSlash(target), "size": info.Size(), "content": content, "notice": notice}
+	// An HTML artifact is a page: its menus and its saved data are JavaScript, so
+	// a script-free render of it looks finished and then ignores every click. Hand
+	// the renderer a ticket on the isolated preview origin instead, where it runs
+	// as a real document. Failure here is not an error for the caller — the
+	// renderer still has the static preview above to fall back on.
+	if kind == "html" && content != "" {
+		if url, mintErr := e.MintPreviewTicket(p.SessionID, filepath.ToSlash(p.Path)); mintErr == nil {
+			out["interactiveUrl"] = url
+		}
+	}
+	return r.Ok(out)
 }
 
 // resolveExportDir maps a user-authorized export target to an absolute

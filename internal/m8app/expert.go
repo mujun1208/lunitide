@@ -303,6 +303,13 @@ type ExpertListItem struct {
 	OriginBundleID    string `json:"originBundleId,omitempty"`
 	CatalogItemID     string `json:"catalogItemId,omitempty"`
 	Kind              string `json:"kind,omitempty"`
+	// How many skills and MCP presets this expert actually carries into a turn.
+	// Stored bindings when there are any; otherwise the factory kit, because
+	// that is what ComposeSkillsForNames falls back to. A roster row that
+	// advertises a kit size nobody bound is the reason these counts exist.
+	BoundSkillCount int  `json:"boundSkillCount"`
+	BoundMcpCount   int  `json:"boundMcpCount"`
+	BoundConfigured bool `json:"boundConfigured"`
 }
 
 // ExpertListResult is the expert.list outcome.
@@ -345,11 +352,27 @@ func (s *ExpertService) List(ctx context.Context, filter ExpertFilter) (ExpertLi
 		for i := range items {
 			items[i].IsOwn = items[i].SubjectID == s.subject
 			items[i].Kind = ExpertKindForExpert(items[i].Name, items[i].CatalogItemID)
+			applyKitCountFloor(&items[i])
 		}
 		out.Experts = items
 		return nil
 	})
 	return out, err
+}
+
+// applyKitCountFloor fills in what an unconfigured specialist will actually
+// carry. The store reports zero bindings for a freshly installed expert, but
+// compose seeds the factory kit for it, so zero would be a lie on the roster.
+func applyKitCountFloor(item *ExpertListItem) {
+	if item.BoundConfigured {
+		return
+	}
+	catalog, ok := ResolveConversationExpert(item.Name, item.CatalogItemID)
+	if !ok {
+		return
+	}
+	skills, mcp := SplitBoundKeys(BindKeysFromCatalog(catalog))
+	item.BoundSkillCount, item.BoundMcpCount = len(skills), len(mcp)
 }
 
 // DetailInput is the expert.detail command.

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useZh } from '../i18n/language'
+import { useConfirmDialog } from '../ui/useAskDialog'
 import { agentHubApi, type AgentHubName, type AgentHubStatus, type AgentHubTask } from './agentHubApi'
 import {
   agentMark,
@@ -48,6 +49,7 @@ export function AgentHubWorkbench({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [hint, setHint] = useState('')
+  const [askNode, askConfirm] = useConfirmDialog()
   const lockedAgent = scene && scene !== 'free' ? sceneAgent(scene) : agent
   const selected = agents.find(item => item.name === lockedAgent)
   const available = selected?.state === 'available' && selected.nonInteractive
@@ -98,7 +100,7 @@ export function AgentHubWorkbench({
     if (scene !== 'free' && !dir) {
       const picked = await agentHubApi.pickDir()
       if (picked.canceled || !picked.path) return
-      if (!window.confirm(zh ? '将在此目录执行 CLI，可能改文件。确定继续？' : 'The CLI may edit files in this folder. Continue?')) return
+      if (!await askWorkDir(zh, askConfirm)) return
       dir = picked.path
       setWorkDir(dir)
       localStorage.setItem(workDirKey(scene), dir)
@@ -130,7 +132,11 @@ export function AgentHubWorkbench({
   const submit = async () => {
     const text = prompt.trim()
     if (!scene || !canRun || !text) return
-    if (scene === 'free' && sandbox === 'full-access' && !window.confirm(zh ? '完全访问会尽量少限制该 CLI。确定继续？' : 'Full access relaxes CLI limits. Continue?')) return
+    if (scene === 'free' && sandbox === 'full-access' && !await askConfirm({
+      title: zh ? '以完全访问运行？' : 'Run with full access?',
+      description: zh ? '完全访问几乎不限制这个 CLI，它可以读写它能到达的任何文件。' : 'Full access barely limits this CLI: it can read and write any file it can reach.',
+      confirmLabel: zh ? '继续' : 'Continue',
+    })) return
     setBusy(true)
     setError('')
     try {
@@ -151,6 +157,7 @@ export function AgentHubWorkbench({
   }
   return (
     <section>
+      {askNode}
       <div className="agent-hub-hero">
         <div className="eyebrow">Agent Hub</div>
         <h2>{zh ? '常用三件事一键开始' : 'Start the three common jobs in one click'}</h2>
@@ -209,7 +216,7 @@ export function AgentHubWorkbench({
         />
         <div className="agent-hub-console-bar">
           {scene === 'free' && <span className="agent-hub-chip is-on">⬡ {agent === 'codex' ? 'Codex' : agent === 'cursor' ? 'Cursor' : 'Kimi'}</span>}
-          <button type="button" className={`agent-hub-chip${workDir ? ' is-on' : ''}`} aria-label={zh ? '工作目录' : 'Work folder'} onClick={() => void pickWorkDir(zh, scene, setWorkDir, setError)}>
+          <button type="button" className={`agent-hub-chip${workDir ? ' is-on' : ''}`} aria-label={zh ? '工作目录' : 'Work folder'} onClick={() => void pickWorkDir(zh, scene, setWorkDir, setError, askConfirm)}>
             {workDir ? shortWorkDir(workDir) : scene && scene !== 'free' ? (zh ? '选择文件夹' : 'Choose folder') : (zh ? '默认目录 agent-hub' : 'Default agent-hub folder')}
           </button>
           {scene === 'free' && workDir && (
@@ -275,17 +282,31 @@ function userError(err: unknown, fallback: string): string {
   return err instanceof Error && /[\u4e00-\u9fff]/.test(err.message) ? err.message : fallback
 }
 
+type AskConfirm = (ask: { title: string; description: string; confirmLabel?: string }) => Promise<boolean>
+
+/** The CLI writes into whatever folder it is pointed at, so the folder choice
+ *  needs a real confirmation. window.confirm is inert in this shell, so it used
+ *  to read as "denied" and picking a folder silently did nothing. */
+function askWorkDir(zh: boolean, askConfirm: AskConfirm): Promise<boolean> {
+  return askConfirm({
+    title: zh ? '在此目录执行 CLI？' : 'Run the CLI in this folder?',
+    description: zh ? 'CLI 可能新增、修改或删除这个目录里的文件。' : 'The CLI may add, change, or delete files in this folder.',
+    confirmLabel: zh ? '继续' : 'Continue',
+  })
+}
+
 async function pickWorkDir(
   zh: boolean,
   scene: HubScene | null,
   setWorkDir: (value: string) => void,
   setError: (value: string) => void,
+  askConfirm: AskConfirm,
 ): Promise<void> {
   if (!scene) return
   try {
     const got = await agentHubApi.pickDir()
     if (got.canceled || !got.path) return
-    if (!window.confirm(zh ? '将在此目录执行 CLI，可能改文件。确定继续？' : 'The CLI may edit files in this folder. Continue?')) return
+    if (!await askWorkDir(zh, askConfirm)) return
     localStorage.setItem(workDirKey(scene), got.path)
     setWorkDir(got.path)
     setError('')

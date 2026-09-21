@@ -2,7 +2,7 @@ import type{ProjectDTO,SessionDTO,SkillDTO}from'../generated/bridge'
 import type{ExecutionMode}from'../session/SessionPage'
 import type{FilesFocus}from'../workspace/FilesPanel'
 
-export type Page='home'|'projects'|'providers'|'settings'|'skill'|'expert'|'mcp'|'plugins'|'assets'|'office'|'automation'|'media'|'meetings'|'people'|'mro'|'agentHub'
+export type Page='home'|'projects'|'providers'|'settings'|'skill'|'expert'|'mcp'|'plugins'|'assets'|'office'|'automation'|'media'|'meetings'|'people'|'mro'|'agentHub'|'productHub'
 
 export function isHubOwnedPage(page: Page): boolean {
   return page==='agentHub'||page==='projects'||page==='skill'||page==='expert'||page==='mcp'||page==='plugins'||page==='assets'

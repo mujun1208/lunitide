@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/productHub.tags.schema.json",
+  "title": "productHub.tags payload",
+  "x-method": "productHub.tags",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionToken": { "type": "string", "minLength": 1, "maxLength": 128 }
+  },
+  "required": ["sessionToken"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "tags": { "type": "array", "items": { "type": "string" } }
+    },
+    "required": ["tags"]
+  },
+  "x-examples": {
+    "positive": [{ "sessionToken": "ab" }],
+    "negative": [{ "unexpected": true }]
+  }
+}

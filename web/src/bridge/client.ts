@@ -103,6 +103,21 @@ import {
   type OntologyNodeDeletePayload, type OntologyNodeDeleteResult,
   type OntologyEdgeCreatePayload, type OntologyEdgeCreateResult, type OntologyEdgeUpdatePayload, type OntologyEdgeUpdateResult,
   type OntologyEdgeDeletePayload, type OntologyEdgeDeleteResult,
+  type ProductHubApplyPayload, type ProductHubApplyResult,
+  type ProductHubAuthChangePasswordPayload, type ProductHubAuthChangePasswordResult,
+  type ProductHubAuthStatusPayload, type ProductHubAuthStatusResult,
+  type ProductHubAuthUnlockPayload, type ProductHubAuthUnlockResult,
+  type ProductHubChangelogPayload, type ProductHubChangelogResult,
+  type ProductHubDiagnosticsPayload, type ProductHubDiagnosticsResult,
+  type ProductHubExportPayload, type ProductHubExportResult,
+  type ProductHubFeatureCardPayload, type ProductHubFeatureCardResult,
+  type ProductHubGraphPayload, type ProductHubGraphResult,
+  type ProductHubNodePayload, type ProductHubNodeResult,
+  type ProductHubOverviewPayload, type ProductHubOverviewResult,
+  type ProductHubRefreshPayload, type ProductHubRefreshResult,
+  type ProductHubStatusPayload, type ProductHubStatusResult,
+  type ProductHubTagSetPayload, type ProductHubTagSetResult,
+  type ProductHubTagsPayload, type ProductHubTagsResult,
   type SkillGetPayload, type SkillGetResult, type SkillListPayload, type SkillListResult,
   type SkillMatchPayload, type SkillMatchResult, type SkillPublishPayload, type SkillPublishResult,
   type SkillDeprecatePayload, type SkillDeprecateResult, type SkillDisablePayload, type SkillDisableResult,
@@ -536,6 +551,7 @@ export const PEOPLE_FILE_DEADLINE_MS = 120_000
 export const PEOPLE_CAPTURE_DEADLINE_MS = 180_000
 export const TEMPLATE_FILE_DEADLINE_MS = 120_000
 export const MCP_SETUP_DEADLINE_MS = 80_000
+export const PACK_INSTALL_DEADLINE_MS = 180_000
 export const OCR_ROUTING_REPAIR_DEADLINE_MS = 180_000
 export function capBridgeDeadlineMs(method: string, deadlineMs: number): number {
   let cap = BRIDGE_DEADLINE_CAP_MS
@@ -547,6 +563,7 @@ export function capBridgeDeadlineMs(method: string, deadlineMs: number): number 
   else if (method === 'appUpdate.install') cap = 120_000
   else if (method === 'office.artifact.validate' || method === 'office.artifact.refresh') cap = 120_000
   else if (method === 'mcp.add' || method === 'mcp.toggle' || method === 'mcp.health') cap = MCP_SETUP_DEADLINE_MS
+  else if (method === 'plugin.pack.install' || method === 'plugin.pack.uninstall') cap = PACK_INSTALL_DEADLINE_MS
   else if (method === 'provider.test') cap = PROVIDER_TEST_DEADLINE_MS
   else if (method === 'agentHub.dir.pick' || method === 'agentHub.inbox' || method === 'agentHub.install' || method === 'project.root.pick') cap = AGENT_HUB_DIR_PICK_MS
   else if (method === 'agentHub.thread.create' || method === 'agentHub.thread.prompt' || method === 'agentHub.thread.respond' || method === 'agentHub.thread.cancel') cap = AGENT_HUB_PROMPT_MS
@@ -1288,6 +1305,64 @@ let ontologySingleton: OntologyBridge | undefined
 export function getOntologyBridge(): OntologyBridge { return ontologySingleton ??= createOntologyBridge(webview()) }
 export const ontologyBridge: OntologyBridge = { getNode: p => getOntologyBridge().getNode(p), listNodes: p => getOntologyBridge().listNodes(p), searchNodes: p => getOntologyBridge().searchNodes(p), createNode: p => getOntologyBridge().createNode(p), updateNode: p => getOntologyBridge().updateNode(p), deleteNode: p => getOntologyBridge().deleteNode(p), listEdges: p => getOntologyBridge().listEdges(p), createEdge: p => getOntologyBridge().createEdge(p), updateEdge: p => getOntologyBridge().updateEdge(p), deleteEdge: p => getOntologyBridge().deleteEdge(p) }
 
+export interface ProductHubBridge {
+  authStatus(payload: ProductHubAuthStatusPayload): Promise<ProductHubAuthStatusResult>
+  unlock(payload: ProductHubAuthUnlockPayload): Promise<ProductHubAuthUnlockResult>
+  changePassword(payload: ProductHubAuthChangePasswordPayload): Promise<ProductHubAuthChangePasswordResult>
+  status(payload: ProductHubStatusPayload): Promise<ProductHubStatusResult>
+  overview(payload: ProductHubOverviewPayload): Promise<ProductHubOverviewResult>
+  refresh(payload: ProductHubRefreshPayload): Promise<ProductHubRefreshResult>
+  featureCard(payload: ProductHubFeatureCardPayload): Promise<ProductHubFeatureCardResult>
+  graph(payload: ProductHubGraphPayload): Promise<ProductHubGraphResult>
+  node(payload: ProductHubNodePayload): Promise<ProductHubNodeResult>
+  changelog(payload: ProductHubChangelogPayload): Promise<ProductHubChangelogResult>
+  diagnostics(payload: ProductHubDiagnosticsPayload): Promise<ProductHubDiagnosticsResult>
+  apply(payload: ProductHubApplyPayload): Promise<ProductHubApplyResult>
+  tags(payload: ProductHubTagsPayload): Promise<ProductHubTagsResult>
+  tagSet(payload: ProductHubTagSetPayload): Promise<ProductHubTagSetResult>
+  exportDoc(payload: ProductHubExportPayload): Promise<ProductHubExportResult>
+}
+export function createProductHubBridge(transport: WebViewTransport = webview(), defaultDeadlineMs = 12_000): ProductHubBridge {
+  const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
+  return {
+    authStatus: p => core.request('productHub.auth.status', p),
+    unlock: p => core.request('productHub.auth.unlock', p),
+    changePassword: p => core.request('productHub.auth.changePassword', p),
+    status: p => core.request('productHub.status', p),
+    overview: p => core.request('productHub.overview', p),
+    refresh: p => core.request('productHub.refresh', p, 30_000),
+    featureCard: p => core.request('productHub.featureCard', p),
+    graph: p => core.request('productHub.graph', p),
+    node: p => core.request('productHub.node', p),
+    changelog: p => core.request('productHub.changelog', p),
+    diagnostics: p => core.request('productHub.diagnostics', p),
+    apply: p => core.request('productHub.apply', p, 30_000),
+    tags: p => core.request('productHub.tags', p),
+    tagSet: p => core.request('productHub.tagSet', p),
+    exportDoc: p => core.request('productHub.export', p),
+  }
+}
+let productHubSingleton: ProductHubBridge | undefined
+export function getProductHubBridge(): ProductHubBridge { return productHubSingleton ??= createProductHubBridge() }
+export function installProductHubBridge(bridge?: ProductHubBridge): void { productHubSingleton = bridge }
+export const productHubBridge: ProductHubBridge = {
+  authStatus: p => getProductHubBridge().authStatus(p),
+  unlock: p => getProductHubBridge().unlock(p),
+  changePassword: p => getProductHubBridge().changePassword(p),
+  status: p => getProductHubBridge().status(p),
+  overview: p => getProductHubBridge().overview(p),
+  refresh: p => getProductHubBridge().refresh(p),
+  featureCard: p => getProductHubBridge().featureCard(p),
+  graph: p => getProductHubBridge().graph(p),
+  node: p => getProductHubBridge().node(p),
+  changelog: p => getProductHubBridge().changelog(p),
+  diagnostics: p => getProductHubBridge().diagnostics(p),
+  apply: p => getProductHubBridge().apply(p),
+  tags: p => getProductHubBridge().tags(p),
+  tagSet: p => getProductHubBridge().tagSet(p),
+  exportDoc: p => getProductHubBridge().exportDoc(p),
+}
+
 export interface SkillBridge {
   uploadBegin?(payload:SkillPackageUploadBeginPayload):Promise<SkillPackageUploadBeginResult>
   uploadChunk?(payload:SkillPackageUploadChunkPayload):Promise<SkillPackageUploadChunkResult>
@@ -1842,7 +1917,7 @@ export interface PluginBridge{
 }
 export function createPluginBridge(transport:WebViewTransport=webview(),deadlineMs=12_000):PluginBridge{
   const core=createSimpleBridge(transport,{},deadlineMs)
-  return{packList:()=>core.request('plugin.pack.list',{}),packInstall:p=>core.request('plugin.pack.install',p,120_000),packUninstall:p=>core.request('plugin.pack.uninstall',p,60_000),list:p=>core.request('plugin.list',p??{}),install:(p,o)=>core.request('plugin.install',p,30_000,o?.attempt),toggle:(p,o)=>core.request('plugin.toggle',p,deadlineMs,o?.attempt),uninstall:(p,o)=>core.request('plugin.uninstall',p,deadlineMs,o?.attempt),confirmToken:(p,o)=>core.request('plugin.confirmToken',p,deadlineMs,o?.attempt),upgrade:(p,o)=>core.request('plugin.upgrade',p,30_000,o?.attempt),marketSearch:p=>core.request('plugin.market.search',p,15_000),marketDetail:p=>core.request('plugin.market.detail',p,15_000),devCreate:(p,o)=>core.request('plugin.dev.create',p,30_000,o?.attempt)}
+  return{packList:()=>core.request('plugin.pack.list',{}),packInstall:p=>core.request('plugin.pack.install',p,PACK_INSTALL_DEADLINE_MS),packUninstall:p=>core.request('plugin.pack.uninstall',p,PACK_INSTALL_DEADLINE_MS),list:p=>core.request('plugin.list',p??{}),install:(p,o)=>core.request('plugin.install',p,30_000,o?.attempt),toggle:(p,o)=>core.request('plugin.toggle',p,deadlineMs,o?.attempt),uninstall:(p,o)=>core.request('plugin.uninstall',p,deadlineMs,o?.attempt),confirmToken:(p,o)=>core.request('plugin.confirmToken',p,deadlineMs,o?.attempt),upgrade:(p,o)=>core.request('plugin.upgrade',p,30_000,o?.attempt),marketSearch:p=>core.request('plugin.market.search',p,15_000),marketDetail:p=>core.request('plugin.market.detail',p,15_000),devCreate:(p,o)=>core.request('plugin.dev.create',p,30_000,o?.attempt)}
 }
 let pluginSingleton:PluginBridge|undefined
 export function getPluginBridge():PluginBridge{return pluginSingleton??=createPluginBridge()}

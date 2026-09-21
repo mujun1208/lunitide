@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/productHub.export.schema.json",
+  "title": "productHub.export payload",
+  "x-method": "productHub.export",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionToken": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "format": { "type": "string", "enum": ["html", "poster", "report"] }
+  },
+  "required": ["sessionToken", "format"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "content": { "type": "string" },
+      "mime": { "type": "string" }
+    },
+    "required": ["content", "mime"]
+  },
+  "x-examples": {
+    "positive": [{ "sessionToken": "ab", "format": "html" }],
+    "negative": [{ "sessionToken": "ab", "format": "pdf" }]
+  }
+}

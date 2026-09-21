@@ -1,0 +1,11 @@
+.product-hub-preview-shell .launch-content {
+  overflow: auto;
+  background: #0a0a14;
+}
+.product-hub-preview-shell .product-hub {
+  min-height: 100%;
+  padding-bottom: 32px;
+}
+.launch-shell.product-hub-preview-shell > .companion-preview-dock {
+  display: none;
+}

@@ -61,6 +61,13 @@ func TestGatewayRejectsUntrustedOriginAndChildFrameBeforeRPC(t *testing.T) {
 		{SourceURL: "https://evil.example/", TopFrame: true, JSON: request},
 		{SourceURL: "https://app.lunitide.local/", TopFrame: false, JSON: request},
 		{SourceURL: "data:text/html,test", TopFrame: true, JSON: request},
+		// Interactive HTML previews run real scripts on their own origin, framed
+		// inside the application. Two independent refusals have to hold: it is not
+		// the top frame, and it is not the trusted origin. Either alone is enough;
+		// both are named here because this is now a live attack surface, not a
+		// hypothetical one.
+		{SourceURL: "https://preview.lunitide.local/p/PzQ1c2VydGlja2V0MDAwMDAx/index.html", TopFrame: false, JSON: request},
+		{SourceURL: "https://preview.lunitide.local/p/PzQ1c2VydGlja2V0MDAwMDAx/index.html", TopFrame: true, JSON: request},
 	} {
 		if _, handled := gateway.Handle(context.Background(), message); handled {
 			t.Fatalf("untrusted message was handled: %#v", message)

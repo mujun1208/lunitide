@@ -712,6 +712,27 @@ describe('MeetingPage', () => {
     expect(within(screen.getByRole('region', { name: '会议工作台' })).getAllByText(/尚未生成摘要/).length).toBeGreaterThan(0)
   })
 
+  test('partial notes published mid-stream render before summarize returns', async () => {
+    const started: MeetingDTO = { ...base, status: 'recording', endedAt: '', durationMs: 0 }
+    const stopped: MeetingDTO = { ...started, status: 'transcribed', transcript: '先对齐范围再谈排期' }
+    // What the backend saves once the model finishes its first topic, while the
+    // summarize call is still streaming the rest.
+    const partial: MeetingDTO = { ...stopped, revision: 2, status: 'summarizing', summary: '## 范围\n先对齐范围', actions: '' }
+    const meetings = bridge({
+      start: vi.fn().mockResolvedValue(started),
+      stop: vi.fn().mockResolvedValue(stopped),
+      summarize: vi.fn().mockReturnValue(new Promise<MeetingDTO>(() => {})),
+      get: vi.fn().mockResolvedValue(partial),
+    })
+    speech.start.mockResolvedValue(speech.handle())
+    const user = userEvent.setup()
+    render(<MeetingPage meetings={meetings} />)
+    await user.click(await screen.findByRole('button', { name: '开始录制' }))
+    await user.click(await screen.findByRole('button', { name: '停止' }))
+    const board = screen.getByRole('region', { name: '会议工作台' })
+    expect(await within(board).findByText('先对齐范围')).toBeInTheDocument()
+  })
+
   test('vertical splitter, delete confirm, and in-place edit persist before export', async () => {
     const past = { ...base, title: '评审会', status: 'ready' as const, summary: '对齐范围', actions: '- 导出安装包', transcript: '大家好' }
     const updated = { ...past, summary: '改过的摘要', actions: '- 新待办', transcript: '改过的稿' }

@@ -36,6 +36,37 @@ func init() {
 		}
 	}
 	catalogTemplates = append(catalogTemplates, nativeCommunityAlternatives()...)
+	catalogTemplates = dedupeCatalogByNameKey(catalogTemplates)
+}
+
+// dedupeCatalogByNameKey leaves one market card per skill name. The product
+// catalog and the community bundle both ship some skills (grill-me is both
+// "tpl-grill-me" v1.0.0 and "grill-me" v2.0.0), and two cards for one name is
+// not just clutter: install writes by name+version while the library keeps one
+// row per name, so the loser's card can never reach "installed" and every click
+// on it is silently undone. Newest version wins; the survivor inherits the
+// group's bundled/compose/featured duty so startup still publishes it.
+func dedupeCatalogByNameKey(entries []CatalogTemplate) []CatalogTemplate {
+	winner := map[string]int{}
+	out := make([]CatalogTemplate, 0, len(entries))
+	for _, tpl := range entries {
+		key := SkillNameKey(tpl.Name)
+		at, seen := winner[key]
+		if !seen {
+			winner[key] = len(out)
+			out = append(out, tpl)
+			continue
+		}
+		keep, drop := out[at], tpl
+		if compareSkillVersions(drop.Version, keep.Version) > 0 {
+			keep, drop = drop, keep
+		}
+		keep.Bundled = keep.Bundled || drop.Bundled
+		keep.Compose = keep.Compose || drop.Compose
+		keep.Featured = keep.Featured || drop.Featured
+		out[at] = keep
+	}
+	return out
 }
 
 func communityTemplate(pkg CommunityPackage) (CatalogTemplate, error) {

@@ -905,11 +905,14 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 				return Result{}, fmt.Errorf("无法执行：打不开（%v）", e)
 			}
 			proof, e := confirmNativeOpened(native)
-			if e != nil {
-				return Result{}, e
-			}
 			kind := proof.Kind
-			if kind == "" {
+			if e != nil {
+				// The launch itself went through; only the window probe
+				// timed out. Reporting a failure here sends the model off
+				// climbing the ladder for something already on screen, so
+				// the same soft success the file path uses applies.
+				kind = "unverified"
+			} else if kind == "" {
 				kind = "foreground"
 			}
 			return result(appendL0JSON("opened "+native.Label+" ("+native.URI+")", kind, true, false, native.URI)), nil

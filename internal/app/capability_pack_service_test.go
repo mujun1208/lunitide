@@ -10,6 +10,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/capabilitypack"
+	"github.com/lunitide/lunitide/internal/domain/skill"
 	"github.com/lunitide/lunitide/internal/m7app"
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/mcp"
@@ -377,5 +378,77 @@ func TestInstallAdoptsFailedCatalogSpec(t *testing.T) {
 		if item.Kind == "mcp" {
 			t.Fatalf("stale mcp kept: %+v", got.Components)
 		}
+	}
+}
+
+func TestInstallBrowserPackSucceedsWhenPlaywrightProbeFails(t *testing.T) {
+	e, _ := packFixture(t)
+	ctx := context.Background()
+	spec := capabilitypack.Spec{
+		ID:           "pack-browser",
+		Name:         "浏览器工作包",
+		Description:  "安装浏览器技能、Playwright MCP，并打开浏览器/抓取门闸。",
+		Skills:       []string{"browser-automation", "e2e-browser"},
+		McpPresetIDs: []string{"playwright"},
+		ToolGates:    []string{"browser", "web-fetch"},
+	}
+	got, err := e.capabilityPacks.Install(ctx, spec, false)
+	if err != nil {
+		t.Fatalf("browser pack: %v", err)
+	}
+	if got.State != "installed" {
+		t.Fatalf("state=%s error=%s", got.State, got.Error)
+	}
+	var playwright capabilitypack.Component
+	for _, item := range got.Components {
+		if item.Kind == "mcp" && item.Key == "playwright" {
+			playwright = item
+		}
+	}
+	if playwright.Key == "" {
+		t.Fatal("missing playwright component")
+	}
+	if playwright.State != "skipped" && playwright.State != "ready" {
+		t.Fatalf("playwright state=%s components=%+v", playwright.State, got.Components)
+	}
+	removed, err := e.capabilityPacks.Uninstall(ctx, spec.ID, got.Version)
+	if err != nil {
+		t.Fatalf("uninstall after browser pack: %v", err)
+	}
+	if removed.State != "uninstalled" {
+		t.Fatalf("uninstall state=%s error=%s", removed.State, removed.Error)
+	}
+}
+
+func TestInstallPackAdoptsLocallyChangedSkill(t *testing.T) {
+	e, _ := packFixture(t)
+	ctx := context.Background()
+	svc, ok := e.skills.(*skillapp.Service)
+	if !ok {
+		t.Fatal("skills service")
+	}
+	created, err := svc.Create(ctx, skill.Skill{
+		Name: "browser-automation", DisplayName: "local browser", Description: "fork",
+		Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadWrite},
+		EntryPoint: "builtin://browser-automation", ManifestJSON: `{"prompt":"local fork"}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = svc.Publish(ctx, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	spec := capabilitypack.Spec{
+		ID:        "pack-browser-local",
+		Name:      "本地浏览器包",
+		Skills:    []string{"browser-automation"},
+		ToolGates: []string{"browser"},
+	}
+	got, err := e.capabilityPacks.Install(ctx, spec, false)
+	if err != nil {
+		t.Fatalf("adopt local skill: %v", err)
+	}
+	if got.State != "installed" {
+		t.Fatalf("state=%s error=%s", got.State, got.Error)
 	}
 }

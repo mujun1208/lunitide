@@ -10,6 +10,7 @@ import { parseAogPaste } from './aogPaste'
 import { QuickForm, type QuickFormSpec } from './MroForms'
 import {bindMroPage, useMroPagination, type MroPageRequest, type MroPageMeta} from './pagination'
 import {localizeKBFailReason} from '../expert/kbFailReason'
+import {useConfirmDialog} from '../ui/useAskDialog'
 
 function mroUserError(err: unknown, fallback: string): string {
   const detail = err instanceof Error ? err.message.trim() : ''
@@ -281,6 +282,7 @@ export function MroWorkbenchPage({
   const [planRows, setPlanRows] = useState<MroWorkPackageRow[]>(workPackages ?? [])
   const [publishing, setPublishing] = useState('')
   const publishPending = useRef(false)
+  const [askNode, askConfirm] = useConfirmDialog()
   const [constraintChecked, setConstraintChecked] = useState(false)
   const [todoRows, setTodoRows] = useState<MroOpsTodo[]>(opsTodos ?? [])
   const [violations, setViolations] = useState<Array<{ code: string; detail: string }>>([])
@@ -520,7 +522,7 @@ export function MroWorkbenchPage({
   const refetchParts = () => pagination.refresh('parts')
   const publishPackage = async (id: string) => {
     if (!onPublishSchedule || publishPending.current) return
-    if (!window.confirm(zh ? '确认检查当前证据并生成此工作包的套件和航材待办？' : 'Check current evidence and create kit and parts todos for this package?')) return
+    if (!await askConfirm({ title: zh ? '生成此工作包的套件与航材待办？' : 'Create kit and parts todos?', description: zh ? '将检查当前已引用的证据，再生成待办草稿；不会直接放行或下单。' : 'Checks the evidence cited so far, then drafts todos. Nothing is released or ordered.', confirmLabel: zh ? '生成待办' : 'Create todos', danger: false })) return
     publishPending.current = true
     setPublishing(id); setError('')
     try {
@@ -828,6 +830,7 @@ export function MroWorkbenchPage({
 
   return (
     <main className="skill-center mro-workbench-page">
+      {askNode}
       <header className="mro-top">
         <div>
           <h1 className="view-title">{zh ? '机务工作台' : 'MRO workbench'}</h1>

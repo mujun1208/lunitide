@@ -2,8 +2,9 @@ package bridge
 
 // Envelope and method deadline ceilings. Most RPCs stay at 30s so a stuck
 // handler cannot pin the Engine. Long-running meeting notes, people file
-// transfer, people region snip (180s), app updates, and provider diagnostics
-// (which may wait for asynchronous video generation) are exceptions.
+// transfer, people region snip (180s), app updates, capability pack install
+// (which nests MCP setup), and provider diagnostics (which may wait for
+// asynchronous video generation) are exceptions.
 const (
 	DefaultMaxDeadlineMS    = 30_000
 	MeetingLiveDeadlineMS   = 120_000
@@ -14,6 +15,7 @@ const (
 	TemplateFileDeadlineMS  = 120_000
 	ChatStartDeadlineMS        = 120_000
 	McpSetupDeadlineMS         = 80_000
+	PackInstallDeadlineMS      = 180_000
 	ProviderTestDeadlineMS     = 360_000
 	AgentHubPickDeadlineMS     = 600_000
 	AgentHubPromptDeadlineMS   = 180_000
@@ -41,6 +43,10 @@ func MaxDeadlineMS(method string) int {
 		return TemplateFileDeadlineMS
 	case MethodMcpAdd, MethodMcpToggle, MethodMcpHealth:
 		return McpSetupDeadlineMS
+	case MethodPluginPackInstall, MethodPluginPackUninstall:
+		// A pack drives several gate/skill/MCP steps in one call; a single cold
+		// MCP handshake alone may need McpSetupDeadlineMS.
+		return PackInstallDeadlineMS
 	case MethodChatStart:
 		return ChatStartDeadlineMS
 	case MethodAgentHubDirPick, MethodAgentHubInbox, MethodAgentHubInstall, "project.root.pick":

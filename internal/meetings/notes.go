@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"html"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -20,16 +21,159 @@ type notesPayload struct {
 }
 
 type notesTopic struct {
-	Heading string      `json:"heading"`
-	Body    string      `json:"body"`
-	Points  []string    `json:"points"`
-	Table   *notesTable `json:"table"`
+	Heading string        `json:"heading"`
+	Body    string        `json:"body"`
+	Points  []string      `json:"points"`
+	Reasoning []string    `json:"reasoning"`
+	Table   *notesTable   `json:"table"`
+	Diagram *notesDiagram `json:"diagram"`
 }
 
 type notesTable struct {
 	Caption string     `json:"caption"`
 	Headers []string   `json:"headers"`
 	Rows    [][]string `json:"rows"`
+}
+
+// notesDiagram is a process the meeting described, not free-form mermaid: the
+// model supplies ordered steps plus optional side branches, and we emit the
+// mermaid ourselves. Letting the model write mermaid directly produces syntax
+// errors that render as a red error box inside the notes.
+type notesDiagram struct {
+	Caption  string        `json:"caption"`
+	Steps    []string      `json:"steps"`
+	Branches []notesBranch `json:"branches"`
+}
+
+type notesBranch struct {
+	From  string `json:"from"`
+	Label string `json:"label"`
+	To    string `json:"to"`
+}
+
+const reasoningHeading = "思考"
+
+// Notes are read while the meeting is still fresh, and every extra item the
+// model writes is latency the user waits through before the first card appears.
+// The prompt asks for restraint; these caps make it true regardless of model.
+const (
+	maxTopicReasoning  = 3
+	maxDiagramSteps    = 6
+	maxDiagramBranches = 3
+	maxDiagramLabel    = 24
+)
+
+func clampNotesPayload(p *notesPayload) {
+	for i := range p.Topics {
+		topic := &p.Topics[i]
+		if len(topic.Reasoning) > maxTopicReasoning {
+			topic.Reasoning = topic.Reasoning[:maxTopicReasoning]
+		}
+		if topic.Diagram == nil {
+			continue
+		}
+		d := topic.Diagram
+		if len(d.Steps) > maxDiagramSteps {
+			d.Steps = d.Steps[:maxDiagramSteps]
+		}
+		if len(d.Branches) > maxDiagramBranches {
+			d.Branches = d.Branches[:maxDiagramBranches]
+		}
+		for j, step := range d.Steps {
+			d.Steps[j] = truncateRunes(step, maxDiagramLabel)
+		}
+		for j := range d.Branches {
+			// From has to be truncated the same way Steps were, or a clamped step
+			// no longer matches its branch origin and the flow sprouts a second,
+			// disconnected copy of that box.
+			d.Branches[j].From = truncateRunes(d.Branches[j].From, maxDiagramLabel)
+			d.Branches[j].Label = truncateRunes(d.Branches[j].Label, maxDiagramLabel)
+			d.Branches[j].To = truncateRunes(d.Branches[j].To, maxDiagramLabel)
+		}
+	}
+}
+
+// truncateRunes keeps a diagram box readable. A paragraph in a node label makes
+// mermaid lay out one enormous box and the flow stops communicating anything.
+func truncateRunes(s string, limit int) string {
+	s = strings.TrimSpace(s)
+	runes := []rune(s)
+	if len(runes) <= limit {
+		return s
+	}
+	return strings.TrimSpace(string(runes[:limit])) + "…"
+}
+
+// mermaidFlowchart renders steps as a left-to-right chain and branches as
+// labelled edges off it. Node ids are positional so a label repeated in two
+// places still collapses onto one box, which is what a reader expects.
+func mermaidFlowchart(d notesDiagram) string {
+	ids := make(map[string]string)
+	var order []string
+	idFor := func(label string) (string, bool) {
+		label = flattenDiagramLabel(label)
+		if label == "" {
+			return "", false
+		}
+		if id, ok := ids[label]; ok {
+			return id, true
+		}
+		id := "n" + strconv.Itoa(len(order)+1)
+		ids[label] = id
+		order = append(order, label)
+		return id, true
+	}
+	var chain []string
+	for _, step := range d.Steps {
+		if id, ok := idFor(step); ok {
+			chain = append(chain, id)
+		}
+	}
+	if len(chain) == 0 {
+		return ""
+	}
+	type edge struct{ from, label, to string }
+	var edges []edge
+	for i := 1; i < len(chain); i++ {
+		if chain[i-1] != chain[i] {
+			edges = append(edges, edge{from: chain[i-1], to: chain[i]})
+		}
+	}
+	for _, branch := range d.Branches {
+		from, okFrom := idFor(branch.From)
+		to, okTo := idFor(branch.To)
+		if !okFrom || !okTo || from == to {
+			continue
+		}
+		edges = append(edges, edge{from: from, label: flattenDiagramLabel(branch.Label), to: to})
+	}
+	if len(edges) == 0 {
+		// One box is not a process. Drawing it anyway turns a stray step into a
+		// diagram that says nothing.
+		return ""
+	}
+	// Declare every node first (branches may have added some), then the edges.
+	var b strings.Builder
+	b.WriteString("flowchart LR\n")
+	for _, label := range order {
+		b.WriteString("  " + ids[label] + `["` + label + "\"]\n")
+	}
+	for _, e := range edges {
+		b.WriteString("  " + e.from + " -->")
+		if e.label != "" {
+			b.WriteString(`|"` + e.label + `"|`)
+		}
+		b.WriteString(" " + e.to + "\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// flattenDiagramLabel keeps a label on one line and out of mermaid's way. Double
+// quotes close the label early and brackets start a new shape, so both go.
+func flattenDiagramLabel(label string) string {
+	label = strings.TrimSpace(label)
+	label = strings.NewReplacer("\n", " ", "\r", " ", `"`, "'", "[", "(", "]", ")", "|", "/").Replace(label)
+	return strings.TrimSpace(strings.Join(strings.Fields(label), " "))
 }
 
 func parseJSONNotes(raw string) (Notes, bool) {
@@ -57,6 +201,7 @@ func parseJSONNotes(raw string) (Notes, bool) {
 			return Notes{}, false
 		}
 	}
+	clampNotesPayload(&payload)
 	summary := composeStructuredSummary(payload)
 	if summary == "" {
 		summary = strings.TrimSpace(payload.Summary)
@@ -149,10 +294,16 @@ func composeStructuredSummary(payload notesPayload) string {
 		if wrotePoints {
 			b.WriteByte('\n')
 		}
+		// Order matters and mirrors how the notes are meant to be read: what the
+		// conversation said, then what we make of it, then the table or flow that
+		// the reasoning called for. A table or diagram placed before the reasoning
+		// reads like decoration.
+		writeNoteReasoning(&b, topic.Reasoning)
 		if topic.Table != nil && len(topic.Table.Headers) > 0 {
 			writeMarkdownTable(&b, *topic.Table)
 			b.WriteByte('\n')
 		}
+		writeNoteDiagram(&b, topic.Diagram)
 	}
 	decisions := payload.Decisions
 	if len(decisions) == 0 {
@@ -161,6 +312,45 @@ func composeStructuredSummary(payload notesPayload) string {
 	writeNoteList(&b, "决议", decisions)
 	writeNoteList(&b, "未决", payload.OpenQuestions)
 	return strings.TrimSpace(b.String())
+}
+
+// writeNoteReasoning emits the thinking record under its own subheading so the
+// renderer can style it apart from the transcript facts above it.
+func writeNoteReasoning(b *strings.Builder, reasoning []string) {
+	var kept []string
+	for _, line := range reasoning {
+		if line = strings.TrimSpace(line); line != "" {
+			kept = append(kept, line)
+		}
+	}
+	if len(kept) == 0 {
+		return
+	}
+	b.WriteString("### " + reasoningHeading + "\n\n")
+	for _, line := range kept {
+		b.WriteString(normalizeNoteBullet(line))
+		b.WriteByte('\n')
+	}
+	b.WriteByte('\n')
+}
+
+// writeNoteDiagram emits a mermaid fence. The chat renderer already draws these,
+// and the HTML export turns the same fence into a static box chain, so one
+// carrier serves both without shipping a script into the exported file.
+func writeNoteDiagram(b *strings.Builder, diagram *notesDiagram) {
+	if diagram == nil {
+		return
+	}
+	code := mermaidFlowchart(*diagram)
+	if code == "" {
+		return
+	}
+	if caption := flattenDiagramLabel(diagram.Caption); caption != "" {
+		b.WriteString("### " + caption + "\n\n")
+	}
+	b.WriteString("```mermaid\n")
+	b.WriteString(code)
+	b.WriteString("\n```\n\n")
 }
 
 func normalizeNoteBullet(item string) string {
@@ -413,6 +603,13 @@ const notesExportCSS = `body{margin:0;background:#f4f5f7;color:#1f2329;font:15px
 .notes-doc-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
 .notes-doc-table th,.notes-doc-table td{border:1px solid #dee0e3;padding:8px 10px;text-align:left;vertical-align:top}
 .notes-doc-table th{background:#f5f6f7;color:#646a73}
+.notes-doc-subhead{margin:14px 0 6px;color:#646a73;font-size:13px;font-weight:600}
+.notes-doc-reasoning{margin-top:12px;padding:12px 14px;border-left:3px solid #b8c4d9;border-radius:0 8px 8px 0;background:#f7f9fc}
+.notes-doc-reasoning .notes-doc-subhead{margin-top:0}
+.notes-doc-flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px 6px;margin-top:8px}
+.notes-doc-flow-node{padding:7px 12px;border:1px solid #c9d2e3;border-radius:8px;background:#fff;font-size:13px;white-space:nowrap}
+.notes-doc-flow-arrow{color:#8a9099;font-size:12px;white-space:nowrap}
+.notes-doc-flow-break{flex-basis:100%;height:0}
 .notes-doc-todos{border-left:3px solid #3370ff}`
 
 func writeNotesHTMLFromMarkdown(b *strings.Builder, raw string) {
@@ -547,14 +744,35 @@ func writeNotesHTMLBlocks(b *strings.Builder, raw string) {
 		b.WriteString(`</tbody></table>`)
 		table = table[:0]
 	}
+	var fence []string
+	inFence := false
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			if inFence {
+				// The exported file carries no scripts, so the flow is drawn with
+				// boxes and arrows instead of handing mermaid source to a reader.
+				writeNotesHTMLFlow(b, fence)
+				fence, inFence = nil, false
+				continue
+			}
+			flushTable()
+			flushBullets()
+			flushPara()
+			inFence = true
+			continue
+		}
+		if inFence {
+			fence = append(fence, trimmed)
+			continue
+		}
 		if strings.HasPrefix(trimmed, "### ") {
 			flushTable()
 			flushBullets()
 			flushPara()
-			b.WriteString(`<p>`)
-			b.WriteString(html.EscapeString(strings.TrimSpace(strings.TrimPrefix(trimmed, "### "))))
+			heading := strings.TrimSpace(strings.TrimPrefix(trimmed, "### "))
+			b.WriteString(`<p class="notes-doc-subhead">`)
+			b.WriteString(html.EscapeString(heading))
 			b.WriteString(`</p>`)
 			continue
 		}
@@ -581,9 +799,64 @@ func writeNotesHTMLBlocks(b *strings.Builder, raw string) {
 		flushBullets()
 		para = append(para, trimmed)
 	}
+	if inFence {
+		writeNotesHTMLFlow(b, fence)
+	}
 	flushTable()
 	flushBullets()
 	flushPara()
+}
+
+var mermaidNodeRe = regexp.MustCompile(`^(\w+)\["(.*)"\]$`)
+var mermaidEdgeRe = regexp.MustCompile(`^(\w+)\s*-->\s*(?:\|"([^"]*)"\|\s*)?(\w+)$`)
+
+// writeNotesHTMLFlow turns the mermaid we generated in writeNoteDiagram back
+// into inert HTML. It only understands our own emitted shape; anything else is
+// dropped rather than dumped as source, because raw mermaid in an exported
+// document reads as a broken artifact.
+func writeNotesHTMLFlow(b *strings.Builder, fence []string) {
+	labels := map[string]string{}
+	type edge struct{ from, label, to string }
+	var edges []edge
+	for _, line := range fence {
+		if node := mermaidNodeRe.FindStringSubmatch(line); node != nil {
+			labels[node[1]] = node[2]
+			continue
+		}
+		if e := mermaidEdgeRe.FindStringSubmatch(line); e != nil {
+			edges = append(edges, edge{from: e[1], label: e[2], to: e[3]})
+		}
+	}
+	if len(edges) == 0 {
+		return
+	}
+	// Walk the edges in order so the reader sees the same path the notes claim,
+	// repeating a node label when a branch re-enters it.
+	b.WriteString(`<div class="notes-doc-flow">`)
+	for i, e := range edges {
+		if i == 0 || edges[i-1].to != e.from {
+			if i > 0 {
+				b.WriteString(`<span class="notes-doc-flow-break"></span>`)
+			}
+			writeFlowNode(b, labels[e.from], e.from)
+		}
+		b.WriteString(`<span class="notes-doc-flow-arrow">`)
+		if e.label != "" {
+			b.WriteString(html.EscapeString(e.label))
+		}
+		b.WriteString(`</span>`)
+		writeFlowNode(b, labels[e.to], e.to)
+	}
+	b.WriteString(`</div>`)
+}
+
+func writeFlowNode(b *strings.Builder, label, fallback string) {
+	if label == "" {
+		label = fallback
+	}
+	b.WriteString(`<span class="notes-doc-flow-node">`)
+	b.WriteString(html.EscapeString(label))
+	b.WriteString(`</span>`)
 }
 
 func writeNotesHTMLList(b *strings.Builder, raw string) {

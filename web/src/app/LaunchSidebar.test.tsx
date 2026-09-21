@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { MessageBridge, ProjectBridge, SessionBridge } from '../bridge/client'
 import { LaunchSidebar } from './LaunchSidebar'
@@ -44,6 +44,18 @@ function sidebarProps(overrides: Record<string, unknown> = {}) {
     ...overrides,
   }
 }
+
+it('shows 产品总览 in Office like other menu items and hides it when the toggle is off', () => {
+  const setPage = vi.fn()
+  render(<LaunchSidebar {...sidebarProps({ page: 'media', setPage })} />)
+  fireEvent.click(screen.getByRole('button', { name: '产品总览' }))
+  expect(setPage).toHaveBeenCalledWith('productHub')
+  cleanup()
+  localStorage.setItem('lunitide:office-menu', JSON.stringify({ productHub: false }))
+  render(<LaunchSidebar {...sidebarProps({ page: 'media' })} />)
+  expect(screen.queryByRole('button', { name: '产品总览' })).toBeNull()
+  expect(screen.getByRole('button', { name: '媒体中心' })).toBeInTheDocument()
+})
 
 it('starts the sidebar at 新对话 and has no product wordmark', () => {
   render(<LaunchSidebar {...sidebarProps()} />)

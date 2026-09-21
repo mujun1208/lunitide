@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/bridge"
@@ -410,11 +411,18 @@ func publicSegment(seg meetings.Segment) map[string]any {
 
 const meetingNotesSystem = `你是月汐的会议纪要助手。根据本机转写的逐字稿生成一份可直接阅读的中文会议文档。
 只输出一个 JSON 对象，不要 Markdown 围栏：
-{"title":"简短标题","attendees":["仅当逐字稿出现的人名"],"background":"开会目的或实际讨论主题","topics":[{"heading":"议题名","points":["该议题的事实、数字、系统/产品名、时间点"],"table":{"caption":"对照表标题","headers":["列1","列2"],"rows":[["",""]]}}],"decisions":["已拍板的决议"],"actions":[{"owner":"仅当出现人名或角色","task":"做什么","due":"仅当提到截止"}],"openQuestions":["未决或待确认"]}
+{"title":"简短标题","attendees":["仅当逐字稿出现的人名"],"background":"开会目的或实际讨论主题","topics":[{"heading":"议题名","points":["该议题的事实、数字、系统/产品名、时间点"],"reasoning":["基于上面事实的推断、影响、风险或口径收敛"],"table":{"caption":"对照表标题","headers":["列1","列2"],"rows":[["",""]]},"diagram":{"caption":"流程图标题","steps":["步骤1","步骤2"],"branches":[{"from":"步骤2","label":"分支条件","to":"分支结果"}]}}],"decisions":["已拍板的决议"],"actions":[{"owner":"仅当出现人名或角色","task":"做什么","due":"仅当提到截止"}],"openQuestions":["未决或待确认"]}
 
 讨论要点必须拆成 topics：2～6 张议题卡片，按发言先后覆盖逐字稿里的每一个议题、人名、数字、系统/产品名和时间点。不要把内容概括成「内容零散」或「信息不足」而省略。口语、歌词式、重复句也要从中抽出可辨认的事实。
 background 写开会目的、场景或起因；逐字稿没写目的时，用会中实际讨论的主题概括，不要写「未说明背景」。
-出现方案对比、价格、权限、范围或角色差异时必须出 table，不要用散文代替表格。没有对照信息就省略 table 字段。
+
+每张议题卡片按「先记录、后思考、再按需成图成表」的顺序写：
+1. points 只写逐字稿里说过的事实，原话可辨认的数字、人名、系统名都落在这里
+2. reasoning 是基于这些事实的思考记录：为什么这样定、影响到谁、风险在哪、分歧如何收敛、下一步取决于什么。最多 3 条（超出的会被丢弃），只从 points 推得出来，不要引入逐字稿没有的事实；没有可推的就省略 reasoning 字段
+3. 思考完再判断要不要出表、要不要出图，不需要就两个字段都省略，不要为了好看硬造
+
+table：出现方案对比、价格、权限、范围、角色或标准差异时必须出，至少两个被比较对象、两个比较维度；只有一行或只有一列的内容用 points 写，不要塞进表格
+diagram：议题里出现先后顺序、流转、审批/上线/排查步骤、状态变化时出流程图。steps 按先后顺序写 2～6 个短标签（每个不超过 12 字）；有条件分叉时用 branches 写清「从哪一步、什么条件、到什么结果」，最多 3 条，branches 里的 from 必须是 steps 里出现过的原文。只是并列罗列、没有先后关系的内容不要出流程图，用 points 或 table
 
 决议（decisions）和待办（actions）必须分开：
 - 决议是已经定下来的结论；没有共识就不要编决议，把分歧放进 openQuestions，并写「未形成明确结论」
@@ -480,6 +488,11 @@ func meetingSummaryCandidates(items []provider.Provider) []provider.CatalogEntry
 	return out
 }
 
+// notesStreamParseInterval bounds how often a stream delta is re-parsed. The
+// repair scans the whole buffer, so parsing per token would burn CPU the live
+// transcript needs; a few hundred milliseconds is invisible to a reader.
+const notesStreamParseInterval = 600 * time.Millisecond
+
 func (e *Engine) completeMeeting(ctx context.Context, title, transcript string) (meetings.Notes, error) {
 	owner := "meeting"
 	if id := meetings.MeetingIDFrom(ctx); looksLikeULID(id) {
@@ -516,23 +529,38 @@ func (e *Engine) completeMeeting(ctx context.Context, title, transcript string) 
 				MaxAttempts:      2,
 				DisableReasoning: true,
 			}
-			resp, completeErr := adapter.Complete(ctx, secret, req)
-			if completeErr == nil {
-				content = strings.TrimSpace(resp.Message.Content)
-			}
-			if completeErr != nil || content == "" {
-				var streamed strings.Builder
-				resp, completeErr = adapter.Stream(ctx, secret, req, func(d llmadapter.Delta) error {
-					streamed.WriteString(d.Text)
+			// Stream first, not last: the notes document is long, and waiting for
+			// the closing brace before showing anything reads as a hang. Finished
+			// topics are published as they arrive; Complete stays as the fallback
+			// for providers whose stream fails outright.
+			var streamed strings.Builder
+			publish := meetings.InterimPublisherFrom(ctx)
+			publishedTopics, lastParse := 0, time.Time{}
+			resp, completeErr := adapter.Stream(ctx, secret, req, func(d llmadapter.Delta) error {
+				streamed.WriteString(d.Text)
+				if time.Since(lastParse) < notesStreamParseInterval {
 					return nil
-				})
-				if completeErr != nil {
-					return completeErr
 				}
+				lastParse = time.Now()
+				notes, ready, ok := meetings.ParsePartialNotes(streamed.String(), title)
+				if ok && ready > publishedTopics {
+					publishedTopics = ready
+					publish(notes)
+				}
+				return nil
+			})
+			if completeErr == nil {
 				content = strings.TrimSpace(resp.Message.Content)
 				if content == "" {
 					content = strings.TrimSpace(streamed.String())
 				}
+			}
+			if completeErr != nil || content == "" {
+				resp, completeErr = adapter.Complete(ctx, secret, req)
+				if completeErr != nil {
+					return completeErr
+				}
+				content = strings.TrimSpace(resp.Message.Content)
 			}
 			return nil
 		})

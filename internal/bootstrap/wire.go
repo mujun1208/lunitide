@@ -50,6 +50,7 @@ import (
 	"github.com/lunitide/lunitide/internal/org"
 	"github.com/lunitide/lunitide/internal/people"
 	"github.com/lunitide/lunitide/internal/planningapp"
+	"github.com/lunitide/lunitide/internal/producthub"
 	"github.com/lunitide/lunitide/internal/projectapp"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/queueapp"
@@ -545,6 +546,7 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	}
 	engine.SetOCR(ocrSvc)
 	engine.SetSQLStore(store)
+	engine.SetProductHub(producthub.New(store))
 	engine.SetMedia(mediaapp.New(store))
 	if runtimeRoot, err := dataRoot.PrepareSubdirectory("runtime"); err != nil {
 		log.Printf("uv runtime directory unavailable; in-product uv install stays off: %v", err)
@@ -580,6 +582,9 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	closers = append(closers, func() { _ = mcpStdioRoot.Close() })
 	deps.SetStdioWorkDir(mcpStdioRoot.Path())
 	go func() {
+		// Duplicate rows left by older builds are retired when the skill center
+		// opens, where the user is told what was removed. Startup deliberately
+		// deletes nothing: the version someone is using has to survive a launch.
 		if n, err := skillService.EnsureBundledSkills(ctx); err != nil {
 			log.Printf("bundled skills: %v", err)
 		} else if n > 0 {

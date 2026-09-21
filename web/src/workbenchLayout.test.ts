@@ -109,7 +109,7 @@ describe('project workbench native-frame stability', () => {
   })
 
   it('paints sibling launch pages black instead of navy overlays', () => {
-    expect(css).toMatch(/\.launch-content \.skill-center,.launch-content \.expert-center-page,.launch-content \.asset-center,.launch-content \.org-console,.launch-content \.media-center\{[^}]*background:#000/)
+    expect(css).toMatch(/\.launch-content \.skill-center,.launch-content \.expert-center-page,.launch-content \.asset-center,.launch-content \.org-console,.launch-content \.media-center,.launch-content \.product-hub\{[^}]*background:#000/)
     expect(css).toMatch(/\.skill-center\{[^}]*background:#000/)
     expect(css).toMatch(/\.expert-center-page\{[^}]*background:#000/)
     expect(css).toMatch(/\.org-console-page\{[^}]*background:#000/)
@@ -162,6 +162,7 @@ describe('project workbench native-frame stability', () => {
   it('keeps aurora on launch home/media and paints Media Center black/white', () => {
     expect(app).toMatch(/aurora=\{page==='home'\|\|page==='media'\}/)
     expect(app).toMatch(/page==='media'\?<PageErrorBoundary label="media">/)
+    expect(app).toMatch(/page==='productHub'\?<PageErrorBoundary label="productHub">/)
     expect(css).toMatch(/\.media-center,.media-music-surface,.media-video-surface,.media-queue-drawer,.media-op-card,.activity-center\{background:#000/)
     expect(css).toMatch(/\.media-mini-player\{[^}]*z-index:35/)
     expect(css).toMatch(/\.activity-status-btn.is-hub\{top:52px\}/)

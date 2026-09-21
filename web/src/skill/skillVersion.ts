@@ -52,6 +52,34 @@ export function olderDuplicates<T extends {id: string; name: string; version: st
   return extras
 }
 
+export type MarketCardState<T> =
+  | {kind: 'fresh'}
+  | {kind: 'same'; installed: T}
+  | {kind: 'upgrade'; installed: T}
+  | {kind: 'superseded'; installed: T}
+  | {kind: 'unresolved'}
+
+/** What a market card may do, judged by skill name (not name+version). The
+ *  engine's installed flag used to be an exact name+version match, so a skill
+ *  already in the library at another version rendered a plain install button
+ *  that then refused the click — a dead button. Every state here is either
+ *  actionable or self-explaining.
+ *
+ *  'unresolved' is the engine saying installed while the library list has no
+ *  matching row (still loading, or its load failed). The card must still say
+ *  installed — offering "install" there is the dead button again — but nothing
+ *  can act on the row until the library arrives. */
+export function marketCardState<T extends {name: string; version: string}>(entry: {name: string; version: string; installed?: boolean}, library: readonly T[]): MarketCardState<T> {
+  const key = skillNameKey(entry.name)
+  const matches = library.filter(item => skillNameKey(item.name) === key)
+  if (!matches.length) return entry.installed ? {kind: 'unresolved'} : {kind: 'fresh'}
+  const installed = rankSkills(matches)[0]
+  const cmp = compareSemver(entry.version, installed.version)
+  if (cmp > 0) return {kind: 'upgrade', installed}
+  if (cmp < 0) return {kind: 'superseded', installed}
+  return {kind: 'same', installed}
+}
+
 export function skillCreateExistingHint(existing: ReadonlyArray<{name: string; displayName?: string; version: string}>): string {
   const others = existing.filter(item => skillNameKey(item.name) !== 'skill-creator')
   if (!others.length) return ''

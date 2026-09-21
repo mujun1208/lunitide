@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/productHub.apply.schema.json",
+  "title": "productHub.apply payload",
+  "x-method": "productHub.apply",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionToken": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "errorCode": { "type": "string", "minLength": 1, "maxLength": 16 },
+    "stableKey": { "type": "string", "minLength": 1, "maxLength": 160 }
+  },
+  "required": ["sessionToken"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": { "type": "boolean" },
+      "applied": { "type": "boolean" },
+      "count": { "type": "integer", "minimum": 0 },
+      "status": { "type": "string", "minLength": 1, "maxLength": 32 },
+      "plan": { "type": "string", "maxLength": 20000 },
+      "skillId": { "type": "string", "maxLength": 64 },
+      "skillName": { "type": "string", "maxLength": 128 },
+      "skillOutput": { "type": "string", "maxLength": 20000 },
+      "errorCode": { "type": "string", "maxLength": 16 },
+      "stableKey": { "type": "string", "maxLength": 160 }
+    },
+    "required": ["ok", "applied", "count", "status", "plan"]
+  },
+  "x-examples": {
+    "positive": [
+      { "sessionToken": "ab" },
+      { "sessionToken": "ab", "errorCode": "PH_014", "stableKey": "feature.dialog.music.play" }
+    ],
+    "negative": [{ "unexpected": true }]
+  }
+}

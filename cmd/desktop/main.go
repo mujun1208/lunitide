@@ -403,6 +403,31 @@ func run() error {
 		}
 		return out.Path, out.MIME, nil
 	}
+	// Interactive HTML previews are served from their own origin; the host can only
+	// turn a ticket into a file by asking the engine, which enforces session
+	// containment. A refusal here is always "this preview is over" — never a path.
+	host.PreviewTicketResolve = func(ctx context.Context, token, rel string) (string, int64, error) {
+		payload, _ := json.Marshal(map[string]string{"token": token, "rel": rel})
+		resp, callErr := client.Call(ctx, bridge.Request{
+			Version: bridge.Version, Kind: "request", ID: ulid.Make().String(), TraceID: ulid.Make().String(),
+			Method: "internal.preview.asset.resolve", SentAt: time.Now().UTC(), Payload: payload, DeadlineMS: 8000,
+		})
+		if callErr != nil {
+			return "", 0, callErr
+		}
+		if !resp.OK {
+			return "", 0, errors.New("PREVIEW_TICKET_EXPIRED")
+		}
+		raw, _ := json.Marshal(resp.Payload)
+		var out struct {
+			Path string `json:"path"`
+			Size int64  `json:"size"`
+		}
+		if json.Unmarshal(raw, &out) != nil || out.Path == "" {
+			return "", 0, errors.New("PREVIEW_TICKET_EXPIRED")
+		}
+		return out.Path, out.Size, nil
+	}
 	mediaPlayer.StartRenew(hostCtx)
 	host.OnMediaSnapshot = func(ctx context.Context, sessionID string) {
 		_ = mediaPlayer.Attach(ctx, sessionID)

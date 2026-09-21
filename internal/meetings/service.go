@@ -636,7 +636,10 @@ func (s *Service) Summarize(ctx context.Context, meetingID string, expectedRevis
 	workCtx, workCancel := context.WithTimeout(lifetime, summarizeJobDeadline)
 	defer workCancel()
 	sourceTitle, sourceTranscript := m.Title, CleanTranscript(m.Transcript)
-	notes, err := SummarizeLong(WithMeetingID(workCtx, meetingID), s.complete, sourceTitle, sourceTranscript)
+	// Publish finished topics while the model is still writing. Waiting for the
+	// closing brace means the reader watches a spinner for the whole generation.
+	summarizeCtx := WithInterimPublisher(WithMeetingID(workCtx, meetingID), s.interimPublisher(&m))
+	notes, err := SummarizeLong(summarizeCtx, s.complete, sourceTitle, sourceTranscript)
 	if workCtx.Err() != nil {
 		err = workCtx.Err()
 	}
@@ -680,6 +683,54 @@ func (s *Service) Summarize(ctx context.Context, meetingID string, expectedRevis
 	// segment. Public bridge replies omit these derived document copies.
 	result.Docs, err = s.store.ListDocs(persist, meetingID)
 	return result, err
+}
+
+// interimNotesInterval keeps the live document moving without turning every
+// delta into a database write.
+const interimNotesInterval = 900 * time.Millisecond
+
+// interimPublisher writes partial notes while the model streams, advancing the
+// same compare-and-swap chain the final save uses. It updates m in place so the
+// final save still swaps against the row it just wrote; publishing out-of-band
+// would make that swap look like a concurrent edit and throw the notes away.
+func (s *Service) interimPublisher(m *Meeting) InterimPublisher {
+	var mu sync.Mutex
+	var lastAt time.Time
+	lastSummary := ""
+	stopped := false
+	return func(notes Notes) {
+		summary := clipRunes(strings.TrimSpace(notes.Summary), maxSummary)
+		if summary == "" {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if stopped || summary == lastSummary {
+			return
+		}
+		if !lastAt.IsZero() && time.Since(lastAt) < interimNotesInterval {
+			return
+		}
+		s.mutationMu.Lock()
+		defer s.mutationMu.Unlock()
+		// Write a copy: a failed swap must leave m exactly as the final save
+		// expects to find it.
+		next := *m
+		next.Summary = summary
+		next.Actions = clipRunes(strings.TrimSpace(notes.Actions), maxActions)
+		next.Status = StatusSummarizing
+		previousUpdatedAt := m.UpdatedAt
+		next.UpdatedAt = nextMeetingTime(previousUpdatedAt)
+		if err := s.persistMeetingVersion(next, previousUpdatedAt); err != nil {
+			// The meeting moved under us (a manual edit, a delete). Stop
+			// publishing rather than fight the writer that owns it now.
+			stopped = true
+			return
+		}
+		*m = next
+		m.Revision++
+		lastAt, lastSummary = time.Now(), summary
+	}
 }
 
 func (s *Service) persistMeetingVersion(m Meeting, previousUpdatedAt string) error {

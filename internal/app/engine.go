@@ -62,6 +62,7 @@ import (
 	"github.com/lunitide/lunitide/internal/officeapp"
 	"github.com/lunitide/lunitide/internal/org"
 	"github.com/lunitide/lunitide/internal/people"
+	"github.com/lunitide/lunitide/internal/producthub"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/queueapp"
 	"github.com/lunitide/lunitide/internal/scheduler"
@@ -169,6 +170,7 @@ type Engine struct {
 	preferredChat      atomic.Value
 	streamEngine
 	tools              *toolruntime.Runtime
+	previewTickets     *previewTicketStore
 	turnJournal        ChatTurnJournal
 	toolOps            ToolOperationStore
 	callAttempts       CallAttemptStore
@@ -177,6 +179,7 @@ type Engine struct {
 	messageGroups      MessageGroupStore
 	ocr                *ocrapp.Service
 	media              *mediaapp.Service
+	productHub         *producthub.Service
 	sqlStore           *sqlite.Store
 	mcpUv              *mcp.UvInstaller
 	fileOps            *fileops.Service
@@ -418,6 +421,7 @@ type providerDTO struct {
 
 func NewEngine(providers ProviderService, version string) *Engine {
 	return &Engine{providers: providers, version: version, streamEngine: streamEngine{streams: make(map[string]*streamState), maxStreams: 32}, adapterCache: make(map[string]llmadapter.Adapter),
+		previewTickets: newPreviewTicketStore(),
 		gateway: llmadapter.Options{DisableTokenEfficiency: !config.TokenEfficiencyEnabled()}}
 }
 
@@ -499,6 +503,15 @@ func (e *Engine) SetOCR(s *ocrapp.Service) {
 func (e *Engine) SetMedia(s *mediaapp.Service) {
 	if e != nil {
 		e.media = s
+	}
+}
+
+func (e *Engine) SetProductHub(s *producthub.Service) {
+	if e != nil {
+		e.productHub = s
+		if s != nil {
+			s.SetCollaborator(e)
+		}
 	}
 }
 

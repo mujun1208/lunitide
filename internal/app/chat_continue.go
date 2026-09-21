@@ -46,6 +46,22 @@ func extendToolLoopLimit(current, step int) int {
 	return next
 }
 
+// turnMayEarnMoreSteps reports whether a turn that is still productively
+// calling tools is allowed to grow its step ceiling (E4) rather than being cut
+// off mid-batch.
+//
+// A spoken turn earns the same room as a typed one once it is driving the
+// desktop. The "keep a voice reply short" rule is about how much the assistant
+// says, not how many steps the job takes, so capping a spoken turn lower than
+// a typed one only meant the same task stopped halfway when asked out loud.
+// Inventory lookups stay pinned: those turns are supposed to be two steps.
+func turnMayEarnMoreSteps(companion, usedDesktopTools bool, goal string, lane LaneContract) bool {
+	if companion && !usedDesktopTools {
+		return false
+	}
+	return !inventoryLookupBlocksPublicWeb(goal) && laneMayExtendToolLoop(lane)
+}
+
 // assistantPausedMidTask reports whether the model clearly stopped to ASK the
 // user (confirm / shall I / waiting for) instead of finishing the job.
 // Progress phrases such as 「接下来」「先看一下」「下一步」 must not extra-loop
@@ -99,6 +115,20 @@ const forceSummaryNudgeText = "本轮工具调用步数已达上限，工具已�
 
 func forceSummaryNudgeMessage() llmadapter.Message {
 	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: forceSummaryNudgeText}
+}
+
+// budgetSummaryNudgeText closes a turn whose generation allowance ran out
+// mid-job. The tools already ran, so the user is owed a report on the work,
+// not a bare limit message.
+const budgetSummaryNudgeText = "本轮生成预算已用完，不能再调用任何工具，也不要再输出思考过程。请只用自然语言，基于以上已经执行完的工具结果，简短地告诉用户：已经完成了什么、文件或结果在哪里、还剩哪些没做完。不要重复工具原始输出，不要说「稍等」。"
+
+// budgetPartialTurnNotice marks the reply above as the report of a turn that
+// stopped early. The turn ends normally because the work is real, but the
+// notice keeps the partial state visible instead of passing it off as done.
+const budgetPartialTurnNotice = "\n（本轮生成预算已用完，上面是已完成部分的小结。发送“继续”可以接着做完剩下的。）\n"
+
+func budgetSummaryNudgeMessage() llmadapter.Message {
+	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: budgetSummaryNudgeText}
 }
 
 func lastToolOutput(messages []llmadapter.Message) string {

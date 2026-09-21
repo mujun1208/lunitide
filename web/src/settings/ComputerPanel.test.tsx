@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { CapabilityRolesBridge, CcBridge } from '../bridge/client'
@@ -25,11 +25,13 @@ function api(overrides: Partial<CcBridge> = {}): CcBridge {
 }
 
 it('does not show raw English emergency stop failures', async () => {
-  vi.spyOn(window, 'confirm').mockReturnValue(true)
   const emergencyStop = vi.fn().mockRejectedValue(new Error('Failed to fetch'))
   const user = userEvent.setup()
   render(<ComputerPanel bridge={api({ getConfig: vi.fn().mockResolvedValue(cfg({ enabled: true })), emergencyStop })} />)
   await user.click(await screen.findByRole('button', { name: '紧急停止' }))
+  // The confirmation is an in-app dialog, not window.confirm: the desktop shell
+  // disables script dialogs, so a confirm-gated stop button did nothing there.
+  await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '紧急停止' }))
   expect(await screen.findByText('紧急停止失败')).toBeInTheDocument()
   expect(screen.queryByText('Failed to fetch')).toBeNull()
 })

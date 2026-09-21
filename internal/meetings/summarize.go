@@ -112,21 +112,26 @@ func SummarizeLong(ctx context.Context, complete Completer, title, transcript st
 	var parts []Notes
 	var lastErr error
 	total := len(chunks)
+	// Each segment's stream sees only its own slice, so let the segments publish
+	// as a growing stitch instead: the document only ever gains text.
+	publish := InterimPublisherFrom(ctx)
+	segmentCtx := WithoutInterimPublisher(ctx)
 	for i, chunk := range chunks {
 		if err := ctx.Err(); err != nil {
 			lastErr = err
 			break
 		}
 		labeled := fmt.Sprintf("（长会分段 %d/%d）\n%s", i+1, total, chunk)
-		notes, err := runComplete(ctx, complete, title, labeled)
+		notes, err := runComplete(segmentCtx, complete, title, labeled)
 		if err != nil {
-			notes, err = runComplete(ctx, complete, title, clipRunes(chunk, SummarizeChunkRunes/2))
+			notes, err = runComplete(segmentCtx, complete, title, clipRunes(chunk, SummarizeChunkRunes/2))
 		}
 		if err != nil {
 			lastErr = err
 			continue
 		}
 		parts = append(parts, notes)
+		publish(stitchNotes(title, parts))
 	}
 	if len(parts) == 0 {
 		if lastErr == nil {
@@ -145,7 +150,9 @@ func SummarizeLong(ctx context.Context, complete Completer, title, transcript st
 	if utf8.RuneCountInString(merged) > SummarizeChunkRunes {
 		return stitchNotes(title, parts), nil
 	}
-	reduced, err := runComplete(ctx, complete, title, "以下是分段纪要，请合并为一份完整纪要 JSON。不要重复逐字稿。\n\n"+merged)
+	// The merge rewrites the whole document from the top, so its partials would
+	// undercut the stitch already on screen. Keep the stitch until it lands.
+	reduced, err := runComplete(segmentCtx, complete, title, "以下是分段纪要，请合并为一份完整纪要 JSON。不要重复逐字稿。\n\n"+merged)
 	if err != nil {
 		return stitchNotes(title, parts), nil
 	}

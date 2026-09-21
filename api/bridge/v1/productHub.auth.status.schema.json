@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/productHub.auth.status.schema.json",
+  "title": "productHub.auth.status payload",
+  "x-method": "productHub.auth.status",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionToken": { "type": "string", "maxLength": 128 }
+  },
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "username": { "type": "string", "minLength": 1 },
+      "unlocked": { "type": "boolean" },
+      "visible": { "type": "boolean" }
+    },
+    "required": ["username", "unlocked", "visible"]
+  },
+  "x-examples": {
+    "positive": [{}],
+    "negative": [{ "unexpected": true }]
+  }
+}

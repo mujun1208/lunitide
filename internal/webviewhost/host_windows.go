@@ -60,6 +60,7 @@ type notifyIconData struct {
 var (
 	shell32             = syscall.NewLazyDLL("shell32.dll")
 	shellNotifyIcon     = shell32.NewProc("Shell_NotifyIconW")
+	extractIconEx       = shell32.NewProc("ExtractIconExW")
 	user32Menu          = syscall.NewLazyDLL("user32.dll")
 	createPopupMenu     = user32Menu.NewProc("CreatePopupMenu")
 	appendMenuW         = user32Menu.NewProc("AppendMenuW")
@@ -138,10 +139,11 @@ type Host struct {
 	generation  uint64
 	postMessage func(win32.HWND, uint32, win32.WPARAM, win32.LPARAM) (win32.BOOL, win32.WIN32_ERROR)
 
-	appIcon     win32.HICON
-	trayAdded   bool
-	forceQuit   bool
-	startHidden bool
+	appIcon      win32.HICON
+	appIconSmall win32.HICON
+	trayAdded    bool
+	forceQuit    bool
+	startHidden  bool
 
 	surfaceHidden        bool
 	reloadIfRendererDead bool
@@ -161,6 +163,12 @@ type Host struct {
 	MediaTicketResolve func(ctx context.Context, token string) (path, contentType string, err error)
 	OnMediaSnapshot    func(ctx context.Context, sessionID string)
 	mediaInflight      chan struct{}
+
+	// PreviewTicketResolve turns a preview ticket plus a relative asset path into
+	// a file on disk, or refuses. It is the only route from the preview origin to
+	// the file system.
+	PreviewTicketResolve func(ctx context.Context, token, rel string) (path string, size int64, err error)
+	previewInflight      chan struct{}
 }
 
 // windowPos matches Win32 WINDOWPOS on pointer-sized HWND platforms.
@@ -199,6 +207,21 @@ func setDarkTitleBar(hwnd win32.HWND, dark bool) bool {
 	return false
 }
 
+// checkNestedRendererDeploy catches the one deploy mistake that fails silently:
+// copying the built web/dist onto an existing web/dist creates web/dist/dist and
+// leaves the previous release's index.html in place. The window then opens on a
+// months-old bundle — every fix looks unshipped, and stale renderer code shows
+// symptoms (unstyled HTML previews, missing pages) that read like new bugs. A
+// correct deployment never has index.html one level deeper, so refuse to start.
+func checkNestedRendererDeploy(folder string) error {
+	nested := filepath.Join(folder, "dist", "index.html")
+	info, err := os.Stat(nested)
+	if err != nil || info.IsDir() {
+		return nil
+	}
+	return fmt.Errorf("renderer deployment nested at %s: %s holds a stale bundle. Remove %s and copy the contents of web/dist (not the folder) into it", nested, folder, folder)
+}
+
 // DefaultRendererFolder resolves the production renderer beside the executable.
 func DefaultRendererFolder() (string, error) {
 	exe, err := os.Executable()
@@ -208,10 +231,34 @@ func DefaultRendererFolder() (string, error) {
 	return filepath.Join(filepath.Dir(exe), "web", "dist"), nil
 }
 
-// loadAppIcon loads the Lunitide application icon from the executable directory
-// (production) or the project resources directory (development). Returns 0 if
-// the icon cannot be found, allowing the window to fall back to the system default.
-func loadAppIcon() win32.HICON {
+// loadEmbeddedAppIcon pulls the icon group the linker embedded from
+// cmd/desktop/lunitide.syso straight out of the running executable. The loose
+// .ico fallbacks below depend on the process working directory, so a launch from
+// anywhere other than the project root (bin\lunitide.exe, a shortcut, the
+// watchdog respawn) used to drop the title bar and tray icon entirely.
+func loadEmbeddedAppIcon() (big, small win32.HICON) {
+	exe, err := os.Executable()
+	if err != nil {
+		return 0, 0
+	}
+	path, err := syscall.UTF16PtrFromString(exe)
+	if err != nil {
+		return 0, 0
+	}
+	extractIconEx.Call(uintptr(unsafe.Pointer(path)), 0, uintptr(unsafe.Pointer(&big)), uintptr(unsafe.Pointer(&small)), 1)
+	return big, small
+}
+
+// loadAppIcon returns the title bar icon and the smaller variant Windows draws
+// in the caption and tray. Embedded resources win; the executable directory and
+// the project resources directory stay as fallbacks for unpacked dev trees.
+func loadAppIcon() (big, small win32.HICON) {
+	if big, small = loadEmbeddedAppIcon(); big != 0 {
+		if small == 0 {
+			small = big
+		}
+		return big, small
+	}
 	candidates := make([]string, 0, 2)
 	if exe, err := os.Executable(); err == nil {
 		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "lunitide-icon.ico"))
@@ -223,20 +270,27 @@ func loadAppIcon() win32.HICON {
 		if _, err := os.Stat(p); err != nil {
 			continue
 		}
-		cx, _ := win32.GetSystemMetrics(win32.SM_CXICON)
-		cy, _ := win32.GetSystemMetrics(win32.SM_CYICON)
-		if cx <= 0 {
-			cx = 32
+		handle, _ := win32.LoadImageW(0, win32.StrToPwstr(p), win32.IMAGE_ICON, iconMetric(win32.SM_CXICON), iconMetric(win32.SM_CYICON), win32.LR_LOADFROMFILE)
+		if handle == 0 {
+			continue
 		}
-		if cy <= 0 {
-			cy = 32
+		smallHandle, _ := win32.LoadImageW(0, win32.StrToPwstr(p), win32.IMAGE_ICON, iconMetric(win32.SM_CXSMICON), iconMetric(win32.SM_CYSMICON), win32.LR_LOADFROMFILE)
+		if smallHandle == 0 {
+			smallHandle = handle
 		}
-		handle, _ := win32.LoadImageW(0, win32.StrToPwstr(p), win32.IMAGE_ICON, cx, cy, win32.LR_LOADFROMFILE)
-		if handle != 0 {
-			return win32.HICON(handle)
-		}
+		return win32.HICON(handle), win32.HICON(smallHandle)
 	}
-	return 0
+	return 0, 0
+}
+
+func iconMetric(index win32.SYSTEM_METRICS_INDEX) int32 {
+	if value, _ := win32.GetSystemMetrics(index); value > 0 {
+		return value
+	}
+	if index == win32.SM_CXSMICON || index == win32.SM_CYSMICON {
+		return 16
+	}
+	return 32
 }
 
 func New(gateway *hostbridge.Gateway, rendererFolder, userDataFolder string) (*Host, error) {
@@ -254,7 +308,10 @@ func New(gateway *hostbridge.Gateway, rendererFolder, userDataFolder string) (*H
 	if err != nil || info.IsDir() {
 		return nil, fmt.Errorf("renderer index is unavailable at %s", abs)
 	}
-	return &Host{gateway: gateway, folder: abs, userDataFolder: filepath.Clean(userDataFolder), uiQueue: NewBoundedQueue[func()](MaxUIQueue), postMessage: win32.PostMessage, mediaInflight: make(chan struct{}, 4)}, nil
+	if err := checkNestedRendererDeploy(abs); err != nil {
+		return nil, err
+	}
+	return &Host{gateway: gateway, folder: abs, userDataFolder: filepath.Clean(userDataFolder), uiQueue: NewBoundedQueue[func()](MaxUIQueue), postMessage: win32.PostMessage, mediaInflight: make(chan struct{}, 4), previewInflight: make(chan struct{}, 6)}, nil
 }
 
 // Run owns the locked OS thread, COM STA, window, and Win32 message pump.
@@ -280,10 +337,11 @@ func (h *Host) Run(ctx context.Context) error {
 	enableHighResolutionRendering()
 	wc := win32.WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(win32.WNDCLASSEX{})), Style: win32.CS_HREDRAW | win32.CS_VREDRAW, LpfnWndProc: syscall.NewCallback(windowProc), HInstance: instance, HbrBackground: win32.HBRUSH(win32.GetStockObject(win32.BLACK_BRUSH)), LpszClassName: win32.StrToPwstr(windowClass)}
 	wc.HCursor, _ = win32.LoadCursor(0, win32.IDC_ARROW)
-	if hIcon := loadAppIcon(); hIcon != 0 {
-		wc.HIcon = hIcon
-		wc.HIconSm = hIcon
-		h.appIcon = hIcon
+	if bigIcon, smallIcon := loadAppIcon(); bigIcon != 0 {
+		wc.HIcon = bigIcon
+		wc.HIconSm = smallIcon
+		h.appIcon = bigIcon
+		h.appIconSmall = smallIcon
 	}
 	if atom, _ := win32.RegisterClassEx(&wc); atom == 0 {
 		return errors.New("RegisterClassEx failed")
@@ -296,7 +354,7 @@ func (h *Host) Run(ctx context.Context) error {
 	setDarkTitleBar(h.hwnd, false)
 	if hIcon := wc.HIcon; hIcon != 0 {
 		win32.SendMessageW(h.hwnd, win32.WM_SETICON, win32.WPARAM(win32.ICON_BIG), win32.LPARAM(hIcon))
-		win32.SendMessageW(h.hwnd, win32.WM_SETICON, win32.WPARAM(win32.ICON_SMALL), win32.LPARAM(hIcon))
+		win32.SendMessageW(h.hwnd, win32.WM_SETICON, win32.WPARAM(win32.ICON_SMALL), win32.LPARAM(wc.HIconSm))
 	}
 	hosts.Store(h.hwnd, h)
 	if h.startHidden {
@@ -981,6 +1039,7 @@ func (h *Host) closeSTA() {
 		if h.resourceHandler != nil {
 			h.core.Remove_WebResourceRequested(h.resourceToken)
 			h.core.RemoveWebResourceRequestedFilter(MediaResourceFilterURI, wv2.COREWEBVIEW2_WEB_RESOURCE_CONTEXT.COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL)
+			h.core.RemoveWebResourceRequestedFilter(PreviewResourceFilterURI, wv2.COREWEBVIEW2_WEB_RESOURCE_CONTEXT.COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL)
 			h.resourceHandler.Release()
 			h.resourceHandler = nil
 		}
@@ -1050,6 +1109,13 @@ func (h *Host) closeSTA() {
 	}
 }
 
+func (h *Host) trayIcon() win32.HICON {
+	if h.appIconSmall != 0 {
+		return h.appIconSmall
+	}
+	return h.appIcon
+}
+
 // addTrayIcon adds a notification area (system tray) icon.
 func (h *Host) addTrayIcon() {
 	if h.appIcon == 0 {
@@ -1061,7 +1127,9 @@ func (h *Host) addTrayIcon() {
 		uID:              trayIconID,
 		uFlags:           nifIcon | nifMessage | nifTip,
 		uCallbackMessage: trayMessage,
-		hIcon:            h.appIcon,
+		// The notification area draws at small-icon size; handing it the 32px
+		// handle leaves a downscaled, fuzzy tray icon.
+		hIcon: h.trayIcon(),
 	}
 	if tip, err := syscall.UTF16FromString("Lunitide"); err == nil {
 		copy(nid.szTip[:], tip)

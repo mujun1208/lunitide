@@ -427,6 +427,9 @@ var manifest = []struct{ name, checksum string }{
 	{"0163_memory_generations.sql", "f616db3dfea67f931750b7cb3f81cd39f399bb393b0329171708763606b1c3a4"},
 	{"0164_ocr_model_packs.sql", "bc5b1c9f7c348ce83ad33364ed5f65c2eee090b0d654551e40103cb4aa883b57"},
 	{"0165_media_sessions.sql", "d1aae4c98a4e826c5245b0bc68869244e9167db9c6a20fb9640f1484b1a89ea0"},
+	{"0166_capability_pack_skip.sql", "c3c9594d17672be007bc38637647053c3d0182f28bc7e0feb687d575a5407d73"},
+	{"0167_product_knowledge_hub.sql", "c4f4e1e455bfcb028ecae2db28abf3fb8c4e3e105d37a8d5f4bbe6639e2ce47f"},
+	{"0168_product_hub_apply.sql", "4236e234629f031c8c4c7cd5a12e12da0ff3564b7022bfd3a3717fe0d6da748f"},
 }
 
 const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"
@@ -1274,7 +1277,7 @@ var expectedSchemaSQL = map[string]string{
  kind TEXT NOT NULL,
  resource_key TEXT NOT NULL,
  ordinal INTEGER NOT NULL,
- state TEXT NOT NULL CHECK(state IN ('planned','ready','released')),
+ state TEXT NOT NULL CHECK(state IN ('planned','ready','released','skipped')),
  PRIMARY KEY(pack_id,kind,resource_key),
  FOREIGN KEY(kind,resource_key) REFERENCES capability_pack_resources(kind,resource_key) ON DELETE RESTRICT
 )`,

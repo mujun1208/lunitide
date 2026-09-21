@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { BridgeClientError, type SkillBridge } from '../bridge/client'
 import { ENGINE_RECOVERED_EVENT } from '../bridge/engineHealth'
@@ -7,6 +7,14 @@ import { SkillPage } from './SkillPage'
 import { webcrypto } from 'node:crypto'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+
+/** Destructive actions ask inside an in-app dialog, not window.confirm: the
+ *  desktop shell disables script dialogs, so a confirm-gated action was a dead
+ *  button there. Tests must click through the same dialog the user sees. */
+async function confirmInDialog(label: string): Promise<void> {
+  const dialog = await screen.findByRole('dialog')
+  fireEvent.click(within(dialog).getByRole('button', { name: label }))
+}
 const now = '2025-01-01T00:00:00Z'
 const skill: SkillDTO = {
   id: '01ARZ3NDEKTSV4RRFFQ69G5FAA', name: 'code-review', displayName: '代码审查', description: '审查代码',
@@ -150,8 +158,8 @@ it('deletes a skill from the list', async () => {
   render(<SkillPage bridge={bridge} />)
   fireEvent.click(screen.getByRole('tab', { name: '技能库' }))
   await screen.findAllByText('代码审查')
-  vi.spyOn(window,'confirm').mockReturnValue(true)
   fireEvent.click(screen.getByRole('button', { name: '删除' }))
+  await confirmInDialog('删除')
   await waitFor(() => expect(del).toHaveBeenCalledOnce())
   expect(del.mock.calls[0][0]).toEqual({ id: skill.id, expectedVersion: 7 })
 })
@@ -268,8 +276,8 @@ it('uninstalls an installed market template from the matching library skill', as
   const catalogList = vi.fn().mockResolvedValue({ items: [{ ...catalogEntry, installed: true }] })
   const list = vi.fn().mockResolvedValue({ items: [published] })
   render(<SkillPage bridge={api({ list, catalogList, delete: del })} />)
-  vi.spyOn(window, 'confirm').mockReturnValue(true)
   fireEvent.click(await screen.findByRole('button', { name: '卸载 会议纪要助手' }))
+  await confirmInDialog('卸载')
   await waitFor(() => expect(del).toHaveBeenCalledWith({ id: published.id, expectedVersion: published.rev }))
 })
 
@@ -279,7 +287,7 @@ it('deletes a published skill from the library', async () => {
   render(<SkillPage bridge={api({ list: vi.fn().mockResolvedValue({ items: [published] }), delete: del })} />)
   fireEvent.click(screen.getByRole('tab', { name: '技能库' }))
   await screen.findAllByText('代码审查')
-  vi.spyOn(window, 'confirm').mockReturnValue(true)
   fireEvent.click(screen.getByRole('button', { name: '删除' }))
+  await confirmInDialog('删除')
   await waitFor(() => expect(del).toHaveBeenCalledWith({ id: published.id, expectedVersion: published.rev }))
 })
