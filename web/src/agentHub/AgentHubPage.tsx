@@ -170,14 +170,9 @@ export function AgentHubPage({
           <h1>{agentDisplayName(titleId)}</h1>
           <small>{installing ? (zh ? '安装中…' : 'Installing…') : stateLabel(current?.state ?? 'unknown', zh)}</small>
         </div>
-        {threadId ? (
-          <div className="agent-hub-thread-nav">
-            <button type="button" onClick={() => openThread('')}>{zh ? '返回' : 'Back'}</button>
-            {onNewChat ? <button type="button" onClick={onNewChat}>{zh ? '新对话' : 'New chat'}</button> : (
-              <button type="button" onClick={() => openThread('')}>{zh ? '新对话' : 'New chat'}</button>
-            )}
-          </div>
-        ) : null}
+        {/* Thread nav (back/new-chat) is handled by the sidebar and shell-mode-switch,
+           so we no longer render duplicate buttons here — they overlapped with the
+           title row on narrow headers (user feedback #1). */}
         {legacy && !threadId && (
           <nav className="agent-hub-tabs" aria-label={zh ? 'AgentHub 页面' : 'AgentHub pages'}>
             {([

@@ -458,8 +458,8 @@ it('opens a thread from selectedThreadId and returns to Home when newThreadNonce
   expect(await screen.findByLabelText('消息')).toBeInTheDocument()
   expect(screen.getByText('继续')).toBeInTheDocument()
   expect(screen.getByLabelText('任务类型')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '返回' })).toBeInTheDocument()
-  expect(screen.getAllByRole('button', { name: '新对话' }).length).toBeGreaterThan(0)
+  // Thread nav (back/new-chat) buttons were removed from the header to fix
+  // overlap (user feedback #1), so we no longer assert their presence here.
   view.rerender(<LanguageProvider value="zh-CN"><AgentHubPage selectedThreadId={undefined} newThreadNonce={1} /></LanguageProvider>)
   expect(await screen.findByLabelText('任务类型')).toBeInTheDocument()
   expect(screen.queryByLabelText('消息')).toBeNull()
