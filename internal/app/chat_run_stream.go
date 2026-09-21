@@ -830,13 +830,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					break
 				}
 				usedTools = true
-				// E4 adaptive ceiling: a non-companion turn that keeps making
-				// real tool calls near its limit gets more room instead of a
-				// silent mid-batch truncation. Companion (voice) turns keep
-				// their fixed budget so a spoken reply never runs long.
-				if !state.companion && !inventoryLookupBlocksPublicWeb(turn.Goal) && laneMayExtendToolLoop(state.lane) {
-					toolLoopLimit = extendToolLoopLimit(toolLoopLimit, step)
-				}
+				// The generation allowance grows with the same evidence: this
+				// turn is spending its budget on tool work, not on talking to
+				// itself, so running out mid-job would abandon real progress.
+				generationBudget.noteToolProgress()
 				for _, call := range result.Message.ToolCalls {
 					if isDesktopControlTool(call.Name) {
 						usedDesktopTools = true
@@ -845,6 +842,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						}
 						break
 					}
+				}
+				if turnMayEarnMoreSteps(state.companion, usedDesktopTools, turn.Goal, state.lane) {
+					toolLoopLimit = extendToolLoopLimit(toolLoopLimit, step)
 				}
 				if state.companion && shouldInjectCompanionToolLeadIn(assistantText.String(), leadInInjected) && len(result.Message.ToolCalls) > 0 && len(turn.LastTools) == 0 {
 					lead := companionToolLeadIn(result.Message.ToolCalls[0].Name)
@@ -1338,13 +1338,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				state.usedScreenTools = usedDesktopTools
 				// When every tool call in this model response was blocked
 				// by the turn guard (e.g. "本轮只要打开桌面文件…"), the
-				// model is stuck. Give the step back so the budget isn't
-				// drained by unproductive iterations, and break out of
-				// the tool loop to produce a final spoken reply.
+				// model is stuck: another iteration would replay the same
+				// refusal. Leave the tool loop and let the turn produce a
+				// final spoken reply instead of draining the step budget.
 				if guardBlockedCalls > 0 && guardBlockedCalls >= totalCallsThisStep {
-					if step > 0 {
-						step-- // reclaim the wasted iteration
-					}
 					break
 				}
 				// Early settle: when the primary goal tool already
@@ -1558,6 +1555,40 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 					assistantText.WriteString(notice)
 					if sendErr := send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: notice}}); sendErr != nil {
+						return sendErr
+					}
+				}
+			}
+			// Running out of allowance part-way through real work used to end
+			// the turn as a bare failure: the tools had already run, the files
+			// were already written, and the user was told only that a limit was
+			// hit. Spend the closing reserve on one no-tools summary so the
+			// answer reports what landed and what is left, then let the turn end
+			// normally — the budget notice still says the allowance ran out, so
+			// nothing is passed off as a complete job.
+			if errors.Is(streamErr, errTurnGenerationBudget) && usedTools && generationBudget.openClosingReserve() {
+				sumReq := req
+				sumReq.Tools = nil
+				sumReq.Messages = append(append([]llmadapter.Message{}, req.Messages...), budgetSummaryNudgeMessage())
+				before := assistantText.Len()
+				_, sumErr := generationBudget.stream(op, a, credential, sumReq, func(d llmadapter.Delta) error {
+					if d.Text == "" {
+						return nil
+					}
+					assistantText.WriteString(d.Text)
+					if err := e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt); err != nil {
+						return err
+					}
+					return sendDeltaChunks(send, d.Text)
+				})
+				if sumErr == nil && assistantText.Len() > before {
+					streamErr = nil
+					notice := budgetPartialTurnNotice
+					if !strings.HasSuffix(assistantText.String(), "\n") {
+						notice = "\n" + notice
+					}
+					assistantText.WriteString(notice)
+					if sendErr := sendDeltaChunks(send, notice); sendErr != nil {
 						return sendErr
 					}
 				}

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/productHub.changelog.schema.json",
+  "title": "productHub.changelog payload",
+  "x-method": "productHub.changelog",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionToken": { "type": "string", "minLength": 1, "maxLength": 128 }
+  },
+  "required": ["sessionToken"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "changes": { "type": "array" }
+    },
+    "required": ["changes"]
+  },
+  "x-examples": {
+    "positive": [{ "sessionToken": "ab" }],
+    "negative": [{ "unexpected": true }]
+  }
+}

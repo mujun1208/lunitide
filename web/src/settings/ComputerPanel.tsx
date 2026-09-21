@@ -4,6 +4,7 @@ import { computerControlGate } from './capabilityGate'
 import type { CcGetAuditLogResult, CcGetConfigResult, CcUpdateConfigPayload } from '../generated/bridge'
 import { Toggle } from './settingsControls'
 import { notifyCcConfigChanged } from '../session/companion/ensureCompanionCapabilities'
+import { useConfirmDialog } from '../ui/useAskDialog'
 
 // M10 wave-4 — 电脑控制设置：三步启用流（风险告知 → 安全级别 → 确认）、
 // 安全级别 / 高危操作 / 进程黑名单（操作范围）/ 频率与确认超时、
@@ -40,6 +41,7 @@ export function ComputerPanel({ bridge = ccBridge, roles }: { bridge?: CcBridge;
   const [statusFilter, setStatusFilter] = useState('')
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
+  const [askNode, askConfirm] = useConfirmDialog()
   // 三步启用向导：1 风险告知 → 2 安全级别 → 3 确认启用。
   const [wizard, setWizard] = useState<{ step: 1 | 2; agreed: boolean; level: 'standard' | 'strict'; allowCritical: boolean; timedArm: boolean } | null>(null)
   const [blockDraft, setBlockDraft] = useState('')
@@ -122,7 +124,7 @@ export function ComputerPanel({ bridge = ccBridge, roles }: { bridge?: CcBridge;
   }
 
   const emergencyStop = async () => {
-    if (!window.confirm('确认锁存紧急停止？后续动作将被阻止；已提交的系统动作仍需核对。')) return
+    if (!await askConfirm({ title: '锁存紧急停止？', description: '后续电脑控制动作将被阻止；已提交的系统动作仍需你自己核对。', confirmLabel: '紧急停止' })) return
     setBusy(true); setStatus('')
     try {
       const cfg = await bridge.emergencyStop({ actor: 'renderer', reason: '设置页手动急停' })
@@ -165,6 +167,7 @@ export function ComputerPanel({ bridge = ccBridge, roles }: { bridge?: CcBridge;
 
   return (
     <div className="setting-group">
+      {askNode}
       <div className="setting-group-title">电脑控制</div>
       <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
           <div className="setting-desc">全局配置：启用一次，所有对话、模型和语音模式共用，重启后保留。默认持续启用，直到你手动停用。允许模型操作本机：截图 / 界面节点 / 对话框 / 窗口列表与聚焦 / 鼠标（点击、拖拽、滚轮）/ 键盘（对指定应用先聚焦再输入）/ 剪贴板（纯文本）。点击坐标与截图像素一致；点按钮优先用界面节点或对话框观察，不要盲点。所有操作经过意图识别、输入过滤、进程监控三层拦截，并写入不可篡改的审计台账。紧急停止后月伴不会自动重新打开。</div>

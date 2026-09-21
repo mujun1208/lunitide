@@ -37,6 +37,9 @@ func handlePluginPackInstall(e *Engine, ctx context.Context, r bridge.Request) b
 	}
 	record, err := e.capabilityPacks.Install(ctx, p.Spec, p.Repair)
 	if err != nil {
+		if record.State == "failed" && record.Spec.ID != "" && !errors.Is(err, capabilitypack.ErrConflict) && !errors.Is(err, capabilitypack.ErrNotFound) && !errors.Is(err, capabilitypack.ErrUnavailable) {
+			return r.Ok(localizePackRecord(record))
+		}
 		return packFailure(r, err)
 	}
 	return r.Ok(localizePackRecord(record))
@@ -109,6 +112,12 @@ func localizePackRecordError(msg string) string {
 		return "未知的 MCP 预设"
 	case strings.HasPrefix(msg, "MCP ") && strings.Contains(msg, " needs "):
 		return "MCP 需要先配置参数"
+	case strings.Contains(msg, "skill changed since read") || strings.Contains(msg, "optimistic concurrency"):
+		return "技能库已有同名技能，已尝试沿用现有版本"
+	case strings.Contains(msg, "plugin install state transition"):
+		return "能力包卡片状态异常，请撤下后重装"
+	case strings.Contains(msg, "plugin probe failed"):
+		return "能力包组件探测失败"
 	case strings.Contains(msg, "probe failed"):
 		return "能力包组件探测失败"
 	case strings.Contains(msg, "capability pack not found"):

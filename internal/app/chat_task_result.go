@@ -190,12 +190,62 @@ func currentTurnBrowserActFailed(messages []llmadapter.Message) bool {
 	return false
 }
 
+// openOnlyFallbackTools are the rungs the desktop ladder climbs to when the
+// dedicated open tool could not finish the job. The open-only guard keeps them
+// out of an untouched turn — opening a file never needs a screen click — but
+// once the dedicated attempt has failed they are the only way left to honour
+// the request, so blocking them turns one failure into a wall of them.
+func openOnlyFallbackTools(name string) bool {
+	return name == "computer.act" || strings.HasPrefix(name, "cc.")
+}
+
+// currentTurnDedicatedOpenFailed reports whether this turn already asked a
+// dedicated open tool to do the job and got a failure back.
+func currentTurnDedicatedOpenFailed(messages []llmadapter.Message) bool {
+	start := 0
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == llmadapter.RoleUser {
+			start = i + 1
+			break
+		}
+	}
+	results := map[string]string{}
+	for i := start; i < len(messages); i++ {
+		if messages[i].Role == llmadapter.RoleTool {
+			results[messages[i].ToolCallID] = messages[i].Content
+		}
+	}
+	for i := start; i < len(messages); i++ {
+		for _, call := range messages[i].ToolCalls {
+			switch call.Name {
+			case "desktop.open", "desktop.browse", "media.play", "skill.invoke", "mcp.call":
+			default:
+				continue
+			}
+			out, ok := results[call.ID]
+			if !ok {
+				continue
+			}
+			if companionToolResultFailed(out) && !desktopLadderBlocked(out) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func guardCurrentTurnToolHistory(goal, name string, messages []llmadapter.Message) error {
 	if err := guardCurrentTurnTool(goal, name); err != nil {
 		// When the guard says "use browser.act instead of computer.act"
 		// but browser.act has already failed this turn, allow
 		// computer.act as the fallback rather than blocking everything.
 		if name == "computer.act" && websiteFirstResultGoal(goal) && currentTurnBrowserActFailed(messages) {
+			return nil
+		}
+		// Same reasoning for an open-only turn: the dedicated tool has had
+		// its go and failed, so let the ladder reach for the screen instead
+		// of reporting a second refusal the user can do nothing about.
+		if openOnlyFallbackTools(name) && (companionGoalIsOpenOnly(goal) || companionDesktopFilenameFragment(goal)) && currentTurnDedicatedOpenFailed(messages) {
 			return nil
 		}
 		return err

@@ -11,6 +11,10 @@
 .artifact-inspector-notice{color:var(--muted)}
 .artifact-inspector-image{display:block;flex:1;min-height:0;width:100%;height:100%;object-fit:contain;background:#000}
 .artifact-inspector-frame{flex:1;width:100%;min-height:0;border:0;background:#fff}
+.artifact-inspector-html{display:flex;flex:1;min-height:0;flex-direction:column}
+.artifact-inspector-static{display:flex;align-items:center;gap:10px;margin:0;padding:8px 12px;border-bottom:1px solid var(--line);background:rgba(148,163,184,.1);color:var(--muted);font-size:12px;line-height:1.5}
+.artifact-inspector-static span{flex:1;min-width:0}
+.artifact-inspector-static button{flex:none;padding:4px 10px;font-size:12px}
 .artifact-inspector-text{flex:1;min-height:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;margin:0;padding:16px 18px;font-size:13px;line-height:1.7;user-select:text}
 .artifact-inspector-paper{flex:1;min-height:0;overflow:auto;padding:22px 16px 36px;background:#d8dde4}
 .artifact-inspector-paper pre{margin:0 auto;max-width:780px;min-height:calc(100% - 8px);padding:48px 56px;background:#fff;box-shadow:0 8px 28px rgba(15,23,42,.16);white-space:pre-wrap;overflow-wrap:anywhere;color:#1b1b1b;font:15px/1.8 "Iowan Old Style","Palatino Linotype",Georgia,"Songti SC","SimSun",serif;user-select:text}

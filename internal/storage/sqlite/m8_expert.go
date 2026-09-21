@@ -168,6 +168,11 @@ func (t *agentRuntimeTx) ListExperts(filter m8app.ExpertFilter) ([]m8app.ExpertL
 			(SELECT COUNT(*) FROM expert_versions ev WHERE ev.expert_id = e.expert_id) AS version_count,
 			(SELECT COUNT(*) FROM project_phase_expert_mounting m
 			 WHERE m.expert_id = e.expert_id AND m.state = 'mounted') AS mounted_phase_count,
+			(SELECT COUNT(*) FROM expert_skill_bindings b WHERE b.expert_id = e.expert_id
+			 AND b.skill_key NOT LIKE 'mcp:%' AND b.skill_key NOT LIKE 'brain:%') AS bound_skill_count,
+			(SELECT COUNT(*) FROM expert_skill_bindings b WHERE b.expert_id = e.expert_id
+			 AND b.skill_key LIKE 'mcp:%') AS bound_mcp_count,
+			EXISTS(SELECT 1 FROM expert_skill_bindings b WHERE b.expert_id = e.expert_id) AS bound_configured,
 			e.origin_bundle_id, e.catalog_item_id, e.creation_origin, e.subject_id
 		FROM expert_catalog e JOIN expert_versions v ON v.version_id = e.current_version_id
 		WHERE e.deleted_at = ''`
@@ -208,7 +213,9 @@ func (t *agentRuntimeTx) ListExperts(filter m8app.ExpertFilter) ([]m8app.ExpertL
 		var it m8app.ExpertListItem
 		var origin, catalog *string
 		if err := rows.Scan(&it.ExpertID, &it.Name, &it.Division, &it.Source,
-			&it.Semver, &it.State, &it.VersionCount, &it.MountedPhaseCount, &origin, &catalog, &it.CreationOrigin, &it.SubjectID); err != nil {
+			&it.Semver, &it.State, &it.VersionCount, &it.MountedPhaseCount,
+			&it.BoundSkillCount, &it.BoundMcpCount, &it.BoundConfigured,
+			&origin, &catalog, &it.CreationOrigin, &it.SubjectID); err != nil {
 			return nil, t.fail(err)
 		}
 		if origin != nil {

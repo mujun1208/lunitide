@@ -178,7 +178,7 @@ func (t *agentRuntimeTx) SetResourceTarget(kind, key, target string) error {
 }
 func (t *agentRuntimeTx) MayRelease(kind, key, packID string) (bool, error) {
 	var managed, others int
-	err := t.tx.QueryRowContext(t.ctx, `SELECT managed,(SELECT count(*) FROM capability_pack_references f WHERE f.kind=r.kind AND f.resource_key=r.resource_key AND f.pack_id<>? AND f.state<>'released') FROM capability_pack_resources r WHERE kind=? AND resource_key=?`, packID, kind, key).Scan(&managed, &others)
+	err := t.tx.QueryRowContext(t.ctx, `SELECT managed,(SELECT count(*) FROM capability_pack_references f WHERE f.kind=r.kind AND f.resource_key=r.resource_key AND f.pack_id<>? AND f.state NOT IN ('released','skipped')) FROM capability_pack_resources r WHERE kind=? AND resource_key=?`, packID, kind, key).Scan(&managed, &others)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}

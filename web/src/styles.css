@@ -1059,9 +1059,9 @@ html[data-theme="light"] .model-manager-overlay .shell,html[data-theme="light"] 
 
 /* Existing routes inherit the same black glass language. */
 .launch-content>.shell{min-height:100%;margin:0;background:transparent}.launch-content>.settings-shell{min-height:100%;margin:0;background:#000}.launch-content .shell{width:100%;padding:30px}.launch-content .brand,.launch-content .project-create,.launch-content .project-list,.launch-content main,.launch-content aside{background:#000;backdrop-filter:none}
-.launch-content .skill-center,.launch-content .expert-center-page,.launch-content .asset-center,.launch-content .org-console,.launch-content .media-center{background:#000;backdrop-filter:none}
+.launch-content .skill-center,.launch-content .expert-center-page,.launch-content .asset-center,.launch-content .org-console,.launch-content .media-center,.launch-content .product-hub{background:#000;backdrop-filter:none}
 .launch-content .skill-detail,.launch-content .asset-detail,.launch-content .skill-table{background:#000;backdrop-filter:none}
-html[data-theme="light"] .launch-content .org-console-page,html[data-theme="light"] .launch-content .org-console,html[data-theme="light"] .launch-content .skill-center,html[data-theme="light"] .launch-content .expert-center-page,html[data-theme="light"] .launch-content .asset-center{background:var(--bg);backdrop-filter:none}
+html[data-theme="light"] .launch-content .org-console-page,html[data-theme="light"] .launch-content .org-console,html[data-theme="light"] .launch-content .skill-center,html[data-theme="light"] .launch-content .expert-center-page,html[data-theme="light"] .launch-content .asset-center,html[data-theme="light"] .launch-content .product-hub{background:var(--bg);backdrop-filter:none}
 html[data-theme="light"] .launch-content .skill-detail,html[data-theme="light"] .launch-content .asset-detail,html[data-theme="light"] .launch-content .skill-table{background:var(--bg)}
 html[data-theme="light"] .launch-content .brand,html[data-theme="light"] .launch-content .project-create,html[data-theme="light"] .launch-content .project-list,html[data-theme="light"] .launch-content main,html[data-theme="light"] .launch-content aside{background:var(--bg2);backdrop-filter:none}
 html[data-theme="light"] .meeting-shell,html[data-theme="light"] .meeting-list,html[data-theme="light"] .meeting-main{background:var(--bg2)}
@@ -2337,6 +2337,12 @@ html[data-theme="light"] .notes-doc-card,html[data-theme="light"] .meeting-card{
 .notes-doc-table th,.notes-doc-table td{padding:10px 12px;text-align:left;vertical-align:top;border-top:1px solid var(--rule)}
 .notes-doc-table th{background:color-mix(in srgb,var(--ink) 6%,var(--bg));color:var(--muted);font-weight:600;border-top:0}
 .notes-doc-table td{background:transparent}
+.notes-doc-subhead{margin:14px 0 6px;color:var(--muted);font-size:13px;font-weight:600}
+.notes-doc-reasoning{margin-top:12px;padding:12px 14px;border-left:3px solid color-mix(in srgb,var(--tide3) 45%,var(--line));border-radius:0 8px 8px 0;background:color-mix(in srgb,var(--ink) 4%,var(--bg))}
+.notes-doc-reasoning .notes-doc-subhead{margin-top:0}
+.notes-doc-reasoning ul{font-size:13px}
+.notes-doc-diagram{margin-top:12px;min-width:0;overflow:auto}
+.notes-doc-diagram .notes-doc-subhead{margin-top:0}
 .notes-doc-todos .notes-doc-todo{list-style:none;padding:0;display:grid;gap:10px}
 .notes-doc-todo li{display:grid;grid-template-columns:18px minmax(0,1fr);gap:10px;align-items:start;padding:10px 12px;border-radius:10px;background:var(--bg);border:1px solid var(--rule)}
 .notes-doc-mark{width:16px;height:16px;margin-top:3px;border-radius:4px;border:1.5px solid var(--line);background:transparent}

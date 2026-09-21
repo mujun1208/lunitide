@@ -119,6 +119,13 @@ func catalogDeclaresKey(item CatalogItem, key string) bool {
 // SkillMatchesPreferred answers whether a published skill (name / entryPoint)
 // is one of the conversation-expert preferred catalog template IDs.
 // Template IDs are catalog ids (slide-builder); stored names are often tpl-*.
+// nameKey mirrors skillapp.SkillNameKey. It is copied rather than imported
+// because skillapp already imports this package for the preferred template ids,
+// so depending back on it would close an import cycle. Keep the two in step.
+func nameKey(name string) string {
+	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(name)), "tpl-")
+}
+
 func SkillMatchesPreferred(name, entryPoint string, preferred []string) bool {
 	name = strings.TrimSpace(name)
 	entry := strings.TrimSpace(entryPoint)
@@ -127,10 +134,14 @@ func SkillMatchesPreferred(name, entryPoint string, preferred []string) bool {
 		if p == "" {
 			continue
 		}
-		if name == p || name == "tpl-"+p || strings.TrimPrefix(name, "tpl-") == p {
+		// Compare name identities: the catalog ships some skills as "tpl-x" and
+		// others as "x", and after same-name deduplication either spelling can be
+		// the survivor. Matching only one direction dropped a kit's skill.
+		if nameKey(name) == nameKey(p) {
 			return true
 		}
-		if strings.HasSuffix(entry, "://"+p) || strings.HasSuffix(entry, "://tpl-"+p) {
+		if strings.HasSuffix(entry, "://"+p) || strings.HasSuffix(entry, "://tpl-"+p) ||
+			strings.HasSuffix(entry, "://"+strings.TrimPrefix(p, "tpl-")) {
 			return true
 		}
 	}

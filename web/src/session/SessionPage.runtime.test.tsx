@@ -1290,14 +1290,14 @@ it('does not delete 月伴对话 after removing its last round', async () => {
 
 it('asks before saving a finished personal chat as a skill', async () => {
   const onSaveAsSkill = vi.fn()
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
   const userMsg: MessageDTO = {id:'01ARZ3NDEKTSV4RRFFQ69G5FA1',sessionId:S,role:'user',status:'completed',sequence:1,text:'整理成周报技能',createdAt:NOW}
   const agentMsg: MessageDTO = {...userMsg,id:'01ARZ3NDEKTSV4RRFFQ69G5FA2',role:'assistant',sequence:2,text:'可以按这个结构沉淀。'}
   render(<SessionPage project={project} bridge={sessionBridge} messages={{list:vi.fn().mockResolvedValue(page([userMsg,agentMsg])),append:vi.fn()} as MessageBridge} onBack={vi.fn()} personal initialSession={session} onSaveAsSkill={onSaveAsSkill}/>)
   fireEvent.click(await screen.findByRole('button',{name:'存为技能'}))
-  expect(confirm).toHaveBeenCalled()
-  expect(onSaveAsSkill).toHaveBeenCalledWith(expect.stringContaining('整理成周报技能'))
-  confirm.mockRestore()
+  // The ask is an in-app dialog: window.confirm answers false without drawing
+  // anything in the desktop shell, which made this button do nothing there.
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button',{name:'整理'}))
+  await waitFor(()=>expect(onSaveAsSkill).toHaveBeenCalledWith(expect.stringContaining('整理成周报技能')))
 })
 
 it('keeps this round’s message references selectable while attachment discovery is stuck',async()=>{

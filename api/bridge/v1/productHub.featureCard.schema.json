@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/productHub.featureCard.schema.json",
+  "title": "productHub.featureCard payload",
+  "x-method": "productHub.featureCard",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionToken": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "stableKey": { "type": "string", "minLength": 1, "maxLength": 160 }
+  },
+  "required": ["sessionToken", "stableKey"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "card": { "type": "object" }
+    },
+    "required": ["card"]
+  },
+  "x-examples": {
+    "positive": [{ "sessionToken": "ab", "stableKey": "feature.dialog.music.play" }],
+    "negative": [{ "sessionToken": "ab", "stableKey": "" }]
+  }
+}

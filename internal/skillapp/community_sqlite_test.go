@@ -60,6 +60,61 @@ func TestCommunityUpgradePreservesUserVersionsAndUnreviewedDraft(t *testing.T) {
 	}
 }
 
+// The two catalog entry points differ on purpose. Startup may never delete: the
+// version the user is running has to survive an app launch. An explicit market
+// click must delete: two rows for one skill leave the card unable to reach
+// "installed", so every later click on it reads as a dead button.
+func TestExplicitInstallRetiresOlderRowWhileStartupKeepsIt(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.OpenTemplated(ctx, filepath.Join(t.TempDir(), "replace.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	service := skillapp.New(store, store)
+	// "meeting-minutes" and "tpl-meeting-minutes" are one skill under the two
+	// naming conventions this product ships (community bundle vs built-in
+	// catalog); treating them as two is what allowed duplicate rows.
+	older := skill.Skill{Name: "meeting-minutes", DisplayName: "Old minutes", Description: "Older row from a previous build", Version: "0.9.0", Status: skill.SkillStatusPublished, Permissions: []skill.PermissionLevel{skill.PermissionReadOnly}, EntryPoint: "SKILL.md", ManifestJSON: `{"prompt":"old","triggers":["minutes"]}`}
+	old, err := store.CreateSkill(ctx, older)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.InstallFromCatalog(ctx, "meeting-minutes"); err != nil {
+		t.Fatal(err)
+	}
+	if kept, err := store.GetSkill(ctx, old.ID); err != nil || kept == nil {
+		t.Fatalf("startup install deleted the running version: %+v %v", kept, err)
+	}
+	if err = store.DeleteSkill(ctx, old.ID); err != nil {
+		t.Fatal(err)
+	}
+	old, err = store.CreateSkill(ctx, older)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaced, err := service.ReplaceFromCatalog(ctx, "meeting-minutes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gone, err := store.GetSkill(ctx, old.ID); err == nil && gone != nil {
+		t.Fatalf("explicit install left a second row for one skill: %+v", gone)
+	}
+	if replaced.ID == old.ID {
+		t.Fatalf("explicit install did not write the new version: %+v", replaced)
+	}
+	// Installing the version already superseded must say so, not silently no-op.
+	if err = store.DeleteSkill(ctx, replaced.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.CreateSkill(ctx, skill.Skill{Name: "meeting-minutes", DisplayName: "Newer", Description: "Newer than the catalog", Version: "99.0.0", Status: skill.SkillStatusPublished, Permissions: []skill.PermissionLevel{skill.PermissionReadOnly}, EntryPoint: "SKILL.md", ManifestJSON: `{"prompt":"newer","triggers":["minutes"]}`}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.ReplaceFromCatalog(ctx, "meeting-minutes"); !errors.Is(err, skillapp.ErrTemplateSuperseded) {
+		t.Fatalf("stale template install = %v, want ErrTemplateSuperseded", err)
+	}
+}
+
 func TestCommunityPausedInstallPreservesOldVersionsAndDoesNotReinstall(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlite.OpenTemplated(ctx, filepath.Join(t.TempDir(), "paused.db"))

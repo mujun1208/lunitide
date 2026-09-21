@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/productHub.graph.schema.json",
+  "title": "productHub.graph payload",
+  "x-method": "productHub.graph",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionToken": { "type": "string", "minLength": 1, "maxLength": 128 }
+  },
+  "required": ["sessionToken"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "nodes": { "type": "array" },
+      "edges": { "type": "array" }
+    },
+    "required": ["nodes", "edges"]
+  },
+  "x-examples": {
+    "positive": [{ "sessionToken": "ab" }],
+    "negative": [{ "unexpected": true }]
+  }
+}

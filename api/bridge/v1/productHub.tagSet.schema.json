@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/productHub.tagSet.schema.json",
+  "title": "productHub.tagSet payload",
+  "x-method": "productHub.tagSet",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionToken": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "stableKey": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "vocab": { "type": "string", "minLength": 1, "maxLength": 32 },
+    "value": { "type": "string", "minLength": 1, "maxLength": 64 }
+  },
+  "required": ["sessionToken", "stableKey", "vocab", "value"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": { "type": "boolean" }
+    },
+    "required": ["ok"]
+  },
+  "x-examples": {
+    "positive": [{ "sessionToken": "ab", "stableKey": "feature.dialog.music.play", "vocab": "status", "value": "核心" }],
+    "negative": [{ "sessionToken": "ab", "stableKey": "", "vocab": "status", "value": "核心" }]
+  }
+}

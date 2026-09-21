@@ -23,6 +23,32 @@ func (e *Engine) SetCapabilityPackStore(store capabilitypack.Store) {
 
 type enginePackExecutor struct{ e *Engine }
 
+const (
+	// packMcpBudget matches the standalone mcp.add/mcp.toggle ceiling: one cold
+	// stdio handshake may download a runtime before it answers.
+	packMcpBudget = 80 * time.Second
+	// packBookkeepingReserve is held back from every MCP step so the pack can
+	// still journal the outcome (ready or skipped) after the step returns.
+	packBookkeepingReserve = 8 * time.Second
+)
+
+// packMcpContext bounds one MCP step inside a pack install. Without it a single
+// unreachable MCP consumes the whole request deadline and the pack reports a
+// failure instead of one skipped component.
+func packMcpContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	budget := packMcpBudget
+	if deadline, ok := ctx.Deadline(); ok {
+		if spare := time.Until(deadline) - packBookkeepingReserve; spare < budget {
+			budget = spare
+		}
+	}
+	if budget <= 0 {
+		// Out of budget: fail fast so the reserve stays available for journaling.
+		budget = time.Millisecond
+	}
+	return context.WithTimeout(ctx, budget)
+}
+
 func (x enginePackExecutor) preset(key string) (mcp6.Preset, []string, error) {
 	p, ok := mcp6.PresetByID(key)
 	if !ok {
@@ -67,9 +93,13 @@ func (x enginePackExecutor) Describe(ctx context.Context, kind, key string) (cap
 			return r, capabilitypack.ErrUnavailable
 		}
 		if _, ok := x.e.skills.(interface {
-			EnsureCatalogPublished(context.Context, string) (skill.Skill, error)
+			EnsureCatalogAvailable(context.Context, string) (skill.Skill, error)
 		}); !ok {
-			return r, capabilitypack.ErrUnavailable
+			if _, ok = x.e.skills.(interface {
+				EnsureCatalogPublished(context.Context, string) (skill.Skill, error)
+			}); !ok {
+				return r, capabilitypack.ErrUnavailable
+			}
 		}
 		for _, tpl := range skillapp.Catalog() {
 			if tpl.ID == key {
@@ -109,6 +139,12 @@ func (x enginePackExecutor) Ensure(ctx context.Context, r capabilitypack.Resourc
 		out, err := x.e.m8plugin.Toggle(ctx, m8app.ToggleInput{InstallID: r.TargetID, Enabled: true, Actor: "capability-pack"})
 		return out.InstallID, err
 	case "skill":
+		if svc, ok := x.e.skills.(interface {
+			EnsureCatalogAvailable(context.Context, string) (skill.Skill, error)
+		}); ok {
+			sk, err := svc.EnsureCatalogAvailable(ctx, r.Key)
+			return sk.ID, err
+		}
 		svc, ok := x.e.skills.(interface {
 			EnsureCatalogPublished(context.Context, string) (skill.Skill, error)
 		})
@@ -118,6 +154,8 @@ func (x enginePackExecutor) Ensure(ctx context.Context, r capabilitypack.Resourc
 		sk, err := svc.EnsureCatalogPublished(ctx, r.Key)
 		return sk.ID, err
 	case "mcp":
+		ctx, cancel := packMcpContext(ctx)
+		defer cancel()
 		p, args, err := x.preset(r.Key)
 		if err != nil {
 			return "", err
@@ -165,8 +203,22 @@ func (x enginePackExecutor) Release(ctx context.Context, r capabilitypack.Resour
 		return capabilitypack.ErrConflict
 	}
 }
+func packManifest(s capabilitypack.Spec) m8app.DevCreateInput {
+	return m8app.DevCreateInput{WorkspaceID: "capability-packs", Entrypoint: "pack://manifest", Manifest: map[string]any{"id": s.ID, "kind": "workflow", "publisher": "lunitide", "semver": "1.0.0", "name": s.Name, "description": s.Description, "skills": s.Skills, "mcpPresetIds": s.McpPresetIDs, "toolGates": s.ToolGates}}
+}
+
 func (x enginePackExecutor) Mount(ctx context.Context, s capabilitypack.Spec) error {
-	_, err := x.e.m8plugin.CreateAndMount(ctx, m8app.DevCreateInput{WorkspaceID: "capability-packs", Entrypoint: "pack://manifest", Manifest: map[string]any{"id": s.ID, "kind": "workflow", "publisher": "lunitide", "semver": "1.0.0", "name": s.Name, "description": s.Description, "skills": s.Skills, "mcpPresetIds": s.McpPresetIDs, "toolGates": s.ToolGates}})
+	_, err := x.e.m8plugin.CreateAndMount(ctx, packManifest(s))
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, m8app.ErrInstallStateInvalid) && !errors.Is(err, m8app.ErrPluginManifestInvalid) {
+		return err
+	}
+	if unmountErr := x.Unmount(ctx, s.ID); unmountErr != nil {
+		return err
+	}
+	_, err = x.e.m8plugin.CreateAndMount(ctx, packManifest(s))
 	return err
 }
 func (x enginePackExecutor) Unmount(ctx context.Context, id string) error {

@@ -25,6 +25,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm --prefix web ci
       - run: npm --prefix web run verify:bridge
+      - run: npm --prefix web run verify:catalog
       - name: Reject MiniCPM-o / Comni in Setup layout
         shell: pwsh
         run: ./release/Test-OmniExcluded.ps1
@@ -53,7 +54,7 @@ jobs:
       - run: npm --prefix web test -- --run
       - run: npm --prefix web run build
       - name: Reject generated-file drift
-        run: git diff --exit-code -- web/src/generated/bridge.ts internal/bridge/schema_generated.go internal/contract/schema_generated_test.go
+        run: git diff --exit-code -- web/src/generated/bridge.ts internal/bridge/schema_generated.go internal/contract/schema_generated_test.go web/src/generated/productCatalog.ts internal/producthub/generated/catalog.go
 
   windows-cgo-race:
     if: github.event_name == 'workflow_dispatch'

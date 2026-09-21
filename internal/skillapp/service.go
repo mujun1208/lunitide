@@ -553,7 +553,10 @@ func (s *Service) List(ctx context.Context, status skill.SkillStatus) ([]skill.S
 	if status != "" {
 		statusStr = string(status)
 	}
-	return s.read.ListSkills(ctx, statusStr, 100)
+	// Every row, not a page. This list is the library: it answers "is this
+	// installed?" for market cards and feeds skill matching. A page would hide
+	// the oldest skills, which are exactly the ones installed at first launch.
+	return s.read.ListSkills(ctx, statusStr, 0)
 }
 
 // ListPublished returns all published skills (the invocable set).
@@ -704,7 +707,9 @@ func (s *Service) Match(ctx context.Context, query string) ([]skill.SkillMatch, 
 	if query == "" {
 		return nil, nil
 	}
-	published, err := s.read.ListSkills(ctx, string(skill.SkillStatusPublished), 100)
+	// Search the whole published set: capping it made the earliest-installed
+	// skills unfindable, which reads as "this skill does nothing".
+	published, err := s.read.ListSkills(ctx, string(skill.SkillStatusPublished), 0)
 	if err != nil {
 		return nil, err
 	}

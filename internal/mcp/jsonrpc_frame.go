@@ -9,15 +9,20 @@ import (
 	"strings"
 )
 
-// Official MCP SDKs speak LSP-style Content-Length frames and often write
-// the JSON body with no trailing newline. Line scanners then stall or treat
-// the header as protocol garbage. Read both frames and newline JSON; write
-// Content-Length so curated stdio servers can complete initialize.
+// The MCP stdio transport is newline-delimited JSON: one message per line, no
+// embedded newlines, no framing headers. Writing LSP-style Content-Length
+// headers instead leaves every line-reading server (every official
+// @modelcontextprotocol server) waiting forever, because the header line is not
+// JSON and the body never ends in a newline — the handshake then dies on the
+// client deadline. Reads stay tolerant of both shapes; writes must be newlines.
 func writeJSONRPCFrame(w *bufio.Writer, payload []byte) error {
-	if _, err := fmt.Fprintf(w, "Content-Length: %d\r\n\r\n", len(payload)); err != nil {
-		return err
+	if i := bytes.IndexAny(payload, "\r\n"); i >= 0 {
+		return fmt.Errorf("%w: embedded newline at %d", ErrStdioProtocol, i)
 	}
 	if _, err := w.Write(payload); err != nil {
+		return err
+	}
+	if err := w.WriteByte('\n'); err != nil {
 		return err
 	}
 	return w.Flush()

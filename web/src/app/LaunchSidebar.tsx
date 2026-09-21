@@ -20,7 +20,7 @@ function sidebarUserError(err: unknown, fallback: string): string {
 }
 
 function officePage(page: Page): boolean {
-  return page === 'office' || page === 'automation' || page === 'media' || page === 'people' || page === 'meetings' || page === 'mro'
+  return page === 'office' || page === 'automation' || page === 'media' || page === 'people' || page === 'meetings' || page === 'mro' || page === 'productHub'
 }
 
 export function LaunchSidebar({
@@ -235,6 +235,7 @@ export function LaunchSidebar({
           {officeMenu.people ? <button className={page === 'people' ? 'active' : ''} onClick={() => onOpenPeople('chats')} aria-label={zh ? '同事聊天' : 'Colleague chat'}><span>☻&nbsp; {zh ? '同事聊天' : 'Colleague chat'}</span>{peopleUnread > 0 ? <em className="people-unread" aria-label={zh ? `${peopleUnread} 条未读` : `${peopleUnread} unread`}>{peopleUnread > 99 ? '99+' : peopleUnread}</em> : null}</button> : null}
           {officeMenu.mro && mroEnabled ? <button className={page === 'mro' ? 'active' : ''} onClick={() => setPage('mro')} aria-label={zh ? '机务工作台' : 'MRO workbench'}><span>🛠&nbsp; {zh ? '机务工作台' : 'MRO workbench'}</span></button> : null}
           {officeMenu.meetings ? <button className={page === 'meetings' ? 'active' : ''} onClick={() => setPage('meetings')} aria-label={zh ? '会议记录' : 'Meeting notes'}><span>◎&nbsp; {zh ? '会议记录' : 'Meeting notes'}</span></button> : null}
+          {officeMenu.productHub ? <button className={page === 'productHub' ? 'active' : ''} onClick={() => setPage('productHub')} aria-label={zh ? '产品总览' : 'Product Hub'}><span>◈&nbsp; {zh ? '产品总览' : 'Product Hub'}</span></button> : null}
         </div>
       ) : null}
     </section>

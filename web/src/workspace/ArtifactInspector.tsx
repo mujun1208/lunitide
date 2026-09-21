@@ -3,6 +3,7 @@ import { artifactReviewBridge, sessionFolderBridge } from '../bridge/client'
 import type { WorkspaceArtifactPreviewResult } from '../generated/bridge'
 import { MarkdownMessage } from '../session/MarkdownMessage'
 import { isolatedHTML } from './isolatedHTML'
+import { previewNeedsScripts } from './previewInteractivity'
 import { artifactLooksLikePdfBytes, artifactPreviewIsReady, artifactViewMode } from './artifactPreviewMode'
 import { ChatAudioPlayer } from '../session/ChatAudioPlayer'
 import { languageFromPath } from './codePanelUtils'
@@ -68,11 +69,11 @@ export function ArtifactInspector({ sessionId, path, onClose, expanded = false, 
     {error && <p role="alert">{error}</p>}
     {loading && <p role="status">正在读取文件…</p>}
     {preview?.notice && !previewReady && <p className="artifact-inspector-notice" role="status">{preview.notice}</p>}
-    {preview && <ArtifactPreviewContent sessionId={sessionId} preview={preview} />}
+    {preview && <ArtifactPreviewContent sessionId={sessionId} preview={preview} onOpenExternally={() => void open(false)} />}
   </section>
 }
 
-export function ArtifactPreviewContent({ sessionId, preview }: { sessionId?: string; preview: WorkspaceArtifactPreviewResult }): React.JSX.Element | null {
+export function ArtifactPreviewContent({ sessionId, preview, onOpenExternally }: { sessionId?: string; preview: WorkspaceArtifactPreviewResult; onOpenExternally?: () => void }): React.JSX.Element | null {
   const mode = artifactViewMode(preview.kind, preview.path)
   if (mode === 'image') {
     if (/^data:image\/(png|jpeg|gif);base64,[A-Za-z0-9+/=]+$/.test(preview.content)) {
@@ -85,7 +86,33 @@ export function ArtifactPreviewContent({ sessionId, preview }: { sessionId?: str
   }
   if (mode === 'html') {
     if (!preview.content) return null
-    return <iframe className="artifact-inspector-frame" title={`产物预览 ${preview.path}`} sandbox="" referrerPolicy="no-referrer" srcDoc={isolatedHTML(preview.content)} />
+    // A generated page is meant to be used: menus switch views, buttons filter,
+    // data it saved earlier is still there. The engine mints a URL on its own
+    // origin for exactly that, and the host sends the policy that keeps it there —
+    // it can run scripts and keep its own storage, but it cannot reach the network,
+    // this application's data, or the bridge. allow-same-origin here means "keep
+    // your own origin" (which is not ours), so storage works; without
+    // allow-top-navigation the page still cannot navigate the app away.
+    if (preview.interactiveUrl) {
+      return <div className="artifact-inspector-html">
+        <iframe
+          className="artifact-inspector-frame"
+          title={`产物预览 ${preview.path}`}
+          src={preview.interactiveUrl}
+          sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
+          referrerPolicy="no-referrer"
+        />
+      </div>
+    }
+    // No ticket (an older engine, or a preview that could not be addressed): fall
+    // back to the inert snapshot and say plainly that it is inert.
+    return <div className="artifact-inspector-html">
+      {previewNeedsScripts(preview.content) && <p className="artifact-inspector-static" role="status">
+        <span>静态预览：为安全起见不执行页面脚本，所以菜单、按钮和本地保存的数据都不会响应。</span>
+        {onOpenExternally && <button type="button" onClick={onOpenExternally}>用本机浏览器打开</button>}
+      </p>}
+      <iframe className="artifact-inspector-frame" title={`产物预览 ${preview.path}`} sandbox="" referrerPolicy="no-referrer" srcDoc={isolatedHTML(preview.content)} />
+    </div>
   }
   if (mode === 'sheet') {
     if (!preview.content) return null

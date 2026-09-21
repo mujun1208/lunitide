@@ -70,6 +70,11 @@ var mxPlanningAdvisorSkillMD []byte
 var (
 	ErrTemplateUnknown   = errors.New("skillapp: template unknown")
 	ErrTemplateInstalled = errors.New("skillapp: template already installed")
+	// ErrTemplateSuperseded answers an install of a template whose skill is
+	// already in the library at a newer version. Writing it would create a
+	// second row for one skill, which the library then quietly prunes — the
+	// card never flips to installed and the button looks dead.
+	ErrTemplateSuperseded = errors.New("skillapp: newer version already installed")
 )
 
 // CatalogTemplate is one installable entry in the product catalog.
@@ -942,6 +947,62 @@ func (s *Service) InstallFromCatalog(ctx context.Context, templateID string) (sk
 	})
 }
 
+// ReplaceFromCatalog is the user-initiated install: it materializes the
+// template and then retires the older same-name rows it supersedes, so the
+// library keeps one row per skill. Two rows for one skill is not cosmetic — the
+// market card compares against one of them and can never reach "installed", so
+// the install button reads as dead.
+//
+// Startup uses InstallFromCatalog instead, which never deletes: whatever
+// version the user is running has to survive an app launch untouched.
+func (s *Service) ReplaceFromCatalog(ctx context.Context, templateID string) (skill.Skill, error) {
+	tpl := catalogTemplateByID(templateID)
+	if tpl == nil {
+		return skill.Skill{}, fmt.Errorf("%w: %s", ErrTemplateUnknown, templateID)
+	}
+	stale, err := s.staleSameNameSkills(ctx, tpl.Name, tpl.Version)
+	if err != nil {
+		return skill.Skill{}, err
+	}
+	created, err := s.InstallFromCatalog(ctx, templateID)
+	if err != nil {
+		return created, err
+	}
+	// Retire only after the replacement exists: a failed create must leave the
+	// user's working skill in place.
+	for _, old := range stale {
+		if old.ID == created.ID {
+			continue
+		}
+		_ = s.Delete(ctx, old.ID)
+	}
+	return created, nil
+}
+
+// staleSameNameSkills answers the rows this template supersedes, or
+// ErrTemplateSuperseded when the library already holds something newer.
+func (s *Service) staleSameNameSkills(ctx context.Context, name, version string) ([]skill.Skill, error) {
+	if s.read == nil {
+		return nil, nil
+	}
+	all, err := s.List(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	key := SkillNameKey(name)
+	var stale []skill.Skill
+	for _, sk := range all {
+		if SkillNameKey(sk.Name) != key {
+			continue
+		}
+		if compareSkillVersions(sk.Version, version) > 0 {
+			return nil, fmt.Errorf("%w: %s v%s", ErrTemplateSuperseded, sk.Name, sk.Version)
+		}
+		stale = append(stale, sk)
+	}
+	return stale, nil
+}
+
 // EnsureBundledSkills installs and publishes only Bundled templates so
 // product flows (skill-creator, expert-manager) work on a fresh engine.
 // Market-only templates stay uninstalled until the user clicks install.
@@ -965,17 +1026,25 @@ func (s *Service) EnsureBundledSkills(ctx context.Context) (int, error) {
 	return published, nil
 }
 
+// composeTemplateWanted answers the name keys conversation specialists invoke.
+// Keyed by name, not template id: same-name deduplication can leave a survivor
+// whose id differs from the kit's spelling (kits say "grill-me"; the survivor
+// may be the community package "matt-grill-me" carrying skill name "grill-me").
 func composeTemplateWanted() map[string]bool {
 	want := map[string]bool{}
 	for _, id := range m8app.PreferredComposeTemplateIDs() {
-		want[id] = true
+		want[SkillNameKey(id)] = true
 	}
 	for _, tpl := range catalogTemplates {
 		if tpl.Compose {
-			want[tpl.ID] = true
+			want[SkillNameKey(tpl.Name)] = true
 		}
 	}
 	return want
+}
+
+func composeWanted(want map[string]bool, tpl CatalogTemplate) bool {
+	return want[SkillNameKey(tpl.Name)] || want[SkillNameKey(tpl.ID)]
 }
 
 func (s *Service) publishCatalogTemplate(ctx context.Context, tpl CatalogTemplate) (bool, error) {
@@ -1028,7 +1097,7 @@ func (s *Service) EnsureComposeSkills(ctx context.Context) (int, error) {
 	want := composeTemplateWanted()
 	published := 0
 	for _, tpl := range catalogTemplates {
-		if !want[tpl.ID] {
+		if !composeWanted(want, tpl) {
 			continue
 		}
 		ok, err := s.publishCatalogTemplate(ctx, tpl)

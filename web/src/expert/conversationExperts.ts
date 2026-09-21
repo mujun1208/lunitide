@@ -310,6 +310,13 @@ export function inferPreferredFromText(text: string): {skills: string[]; mcp: st
   return {skills: [...skills], mcp: [...mcp]}
 }
 
+/** The key a published skill is stored under when bound to an expert. The
+ *  equipment checkboxes and the auto-matcher must derive it the same way, or a
+ *  matched skill comes back unchecked. */
+export function skillBindKey(skill: {name: string; entryPoint?: string | null}): string {
+  return skill.entryPoint?.replace(/^builtin:\/\//, '') || skill.name.replace(/^tpl-/, '')
+}
+
 export function matchPublishedSkills(preferred: readonly string[], published: ReadonlyArray<{name: string; entryPoint?: string}>): string[] {
   return preferred.filter(key => published.some(item => skillMatchesPreferred(item, [key])))
 }

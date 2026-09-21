@@ -202,7 +202,8 @@
               "enum": [
                 "planned",
                 "ready",
-                "released"
+                "released",
+                "skipped"
               ]
             }
           },

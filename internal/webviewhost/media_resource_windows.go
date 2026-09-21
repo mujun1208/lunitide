@@ -29,6 +29,12 @@ func (h *Host) registerMediaResourceBroker() error {
 	if r := h.core.AddWebResourceRequestedFilter(MediaResourceFilterURI, wv2.COREWEBVIEW2_WEB_RESOURCE_CONTEXT.COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL); failed(win32.HRESULT(r)) {
 		return fmt.Errorf("media resource filter failed: 0x%x", uint32(r))
 	}
+	// One handler, two origins. The preview origin answers documents, scripts,
+	// stylesheets and images, so it cannot be narrowed to a resource context the
+	// way media can.
+	if r := h.core.AddWebResourceRequestedFilter(PreviewResourceFilterURI, wv2.COREWEBVIEW2_WEB_RESOURCE_CONTEXT.COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL); failed(win32.HRESULT(r)) {
+		return fmt.Errorf("preview resource filter failed: 0x%x", uint32(r))
+	}
 	h.resourceHandler = wv2.NewICoreWebView2WebResourceRequestedEventHandlerByFunc(func(_ *wv2.ICoreWebView2, args *wv2.ICoreWebView2WebResourceRequestedEventArgs) com.Error {
 		defer func() { _ = recover() }()
 		h.handleMediaResourceRequested(args)
@@ -58,6 +64,13 @@ func (h *Host) handleMediaResourceRequested(args *wv2.ICoreWebView2WebResourceRe
 	method, _ := argumentString(request.GetMethod)
 	rangeHeader, cookie := mediaRequestHeaders(request)
 	request.Release()
+	// Interactive HTML previews share this broker but not its policy: they are
+	// documents and page subresources rather than media elements, and a preview
+	// page is allowed its own cookies because they live on its own origin.
+	if uriErr == nil && strings.HasPrefix(uri, PreviewOrigin+PreviewPathPrefix) {
+		h.handlePreviewResourceRequested(args, source, uri, method)
+		return
+	}
 	if uriErr != nil || cookie != "" || !MediaResourceAllowed(source, context, uri) {
 		h.completeMediaResponse(args, nil, mediaDenied(http.StatusForbidden), nil)
 		return

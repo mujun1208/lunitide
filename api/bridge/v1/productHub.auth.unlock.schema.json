@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/productHub.auth.unlock.schema.json",
+  "title": "productHub.auth.unlock payload",
+  "x-method": "productHub.auth.unlock",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "username": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "password": { "type": "string", "minLength": 1, "maxLength": 128 }
+  },
+  "required": ["username", "password"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "sessionToken": { "type": "string", "minLength": 1 },
+      "username": { "type": "string", "minLength": 1 },
+      "unlocked": { "type": "boolean" }
+    },
+    "required": ["sessionToken", "username", "unlocked"]
+  },
+  "x-examples": {
+    "positive": [{ "username": "mujun", "password": "x" }],
+    "negative": [{ "username": "", "password": "x" }]
+  }
+}

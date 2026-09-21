@@ -7,6 +7,11 @@ web/src/generated/bridge.ts text eol=lf
 internal/bridge/schema_generated.go text eol=lf
 internal/contract/schema_generated_test.go text eol=lf
 
+# Same rule for the product catalog: `npm run verify:catalog` byte-compares the
+# generator's LF output against these files.
+web/src/generated/productCatalog.ts text eol=lf
+internal/producthub/generated/catalog.go text eol=lf
+
 # Same rule, different reader. These fixtures are fingerprinted byte for byte
 # and their goldens are compared exactly against json.MarshalIndent output,
 # which always writes LF. Normalizing them on checkout makes every line of

@@ -10,6 +10,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/skill"
+	"github.com/lunitide/lunitide/internal/ipc"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/skillapp"
 )
@@ -20,6 +21,10 @@ type SkillService interface {
 	Match(context.Context, string) ([]skill.SkillMatch, error)
 	Create(context.Context, skill.Skill) (skill.Skill, error)
 	InstallFromCatalog(context.Context, string) (skill.Skill, error)
+	// ReplaceFromCatalog is the user-initiated install: same as
+	// InstallFromCatalog, and it retires the older same-name rows it supersedes
+	// so the library keeps one row per skill.
+	ReplaceFromCatalog(context.Context, string) (skill.Skill, error)
 	UpdateFields(context.Context, string, *string, *string, *string, *string, []skill.PermissionLevel, *string, int64) (*skill.Skill, error)
 	Delete(context.Context, string) error
 	Publish(context.Context, string) error
@@ -306,18 +311,45 @@ func handleSkillList(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 			for i := range views {
 				dtos[i] = newSkillDTO(views[i].Skill, skillapp.CategoryResolution{Category: views[i].Category, Source: views[i].Source})
 			}
-			return r.Ok(struct {
-				Items []skillDTO `json:"items"`
-			}{Items: dtos})
+			return skillListResponse(r, dtos)
 		}
 	}
 	for i := range items {
 		dtos[i] = newSkillDTO(items[i], e.skillCategoryFor(ctx, items[i]))
 	}
-	return r.Ok(struct {
-		Items []skillDTO `json:"items"`
-	}{Items: dtos})
+	return skillListResponse(r, dtos)
 }
+
+// skillListResponse answers with every skill in the library, shedding weight
+// rather than rows if the payload approaches the IPC frame limit.
+//
+// Dropping a row is never acceptable here: the renderer uses this list to decide
+// whether a skill is installed, so a missing row becomes a market card stuck on
+// "+" that does nothing when clicked. Manifest text is the only large field and
+// the only one the list view does not read — the editor loads a single skill
+// when it needs it — so that is what gives way. manifestTrimmed tells the client
+// the text was withheld, not that it is empty.
+func skillListResponse(r bridge.Request, dtos []skillDTO) bridge.Response {
+	type payload struct {
+		Items           []skillDTO `json:"items"`
+		ManifestTrimmed bool       `json:"manifestTrimmed,omitempty"`
+	}
+	full := payload{Items: dtos}
+	if raw, err := json.Marshal(full); err == nil && len(raw) <= skillListPayloadBudget {
+		return r.Ok(full)
+	}
+	light := make([]skillDTO, len(dtos))
+	copy(light, dtos)
+	for i := range light {
+		light[i].ManifestJSON = ""
+	}
+	return r.Ok(payload{Items: light, ManifestTrimmed: true})
+}
+
+// skillListPayloadBudget leaves room for the response envelope inside one IPC
+// frame. A frame over the limit is rejected outright, not truncated: the library
+// would simply never arrive.
+const skillListPayloadBudget = ipc.MaxFrameSize - (256 << 10)
 
 func handleSkillMatch(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
@@ -459,9 +491,13 @@ func handleSkillCatalogList(e *Engine, ctx context.Context, r bridge.Request) br
 	if err != nil {
 		return skillFailure(r, err)
 	}
+	// Key on the name identity, not the literal name: the built-in catalog uses
+	// "tpl-grill-me" where the community bundle uses "grill-me". Keying on the
+	// raw name reported a card as not-installed while its skill sat in the
+	// library, so install rewrote a row the library then pruned — a dead button.
 	have := make(map[string]bool, len(existing))
 	for _, s := range existing {
-		have[s.Name+"@"+s.Version] = true
+		have[skillapp.SkillNameKey(s.Name)+"@"+s.Version] = true
 	}
 	type entry struct {
 		ID          string   `json:"id"`
@@ -487,7 +523,7 @@ func handleSkillCatalogList(e *Engine, ctx context.Context, r bridge.Request) br
 		}
 		items = append(items, entry{ID: t.ID, Name: t.Name, DisplayName: t.DisplayName,
 			Description: t.Description, Category: t.Category, Version: t.Version,
-			Permissions: perms, Installed: have[t.Name+"@"+t.Version], Featured: t.Featured, Source: source})
+			Permissions: perms, Installed: have[skillapp.SkillNameKey(t.Name)+"@"+t.Version], Featured: t.Featured, Source: source})
 	}
 	return r.Ok(map[string]any{"items": items})
 }
@@ -504,7 +540,10 @@ func handleSkillInstall(e *Engine, ctx context.Context, r bridge.Request) bridge
 	if !skillServiceAvailable(e.skills) {
 		return r.Fail("STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
 	}
-	s, err := e.skills.InstallFromCatalog(ctx, p.TemplateID)
+	// Replace, not plain install: the user clicked one card, so the older
+	// same-name rows it supersedes are retired. Leaving both makes the card
+	// unable to reach "installed" and every later click on it looks dead.
+	s, err := e.skills.ReplaceFromCatalog(ctx, p.TemplateID)
 	switch {
 	case err == nil:
 		status := string(s.Status)
@@ -518,6 +557,8 @@ func handleSkillInstall(e *Engine, ctx context.Context, r bridge.Request) bridge
 		return r.Ok(map[string]any{"skillId": s.ID, "name": s.Name, "status": status})
 	case errors.Is(err, skillapp.ErrTemplateUnknown):
 		return r.Fail("SKILL_TEMPLATE_NOT_FOUND", "模板不存在", false)
+	case errors.Is(err, skillapp.ErrTemplateSuperseded):
+		return r.Fail("SKILL_TEMPLATE_SUPERSEDED", chinesePrefixedDetail("已安装更新版本，无需安装这一版", err.Error()), false)
 	case errors.Is(err, skillapp.ErrTemplateInstalled):
 		e.attachDeclaredBindKeys(ctx, p.TemplateID)
 		return r.Ok(map[string]any{"skillId": "", "name": p.TemplateID, "status": "published"})

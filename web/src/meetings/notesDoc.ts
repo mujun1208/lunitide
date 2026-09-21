@@ -1,11 +1,17 @@
 export type NotesTable = { caption: string; headers: string[]; rows: string[][] }
 
+export type NotesDiagram = { caption: string; code: string }
+
 export type NotesSection = {
   kind: 'background' | 'topic' | 'decision' | 'open' | 'summary'
   heading: string
   paragraphs: string[]
   bullets: string[]
+  /** The thinking record the backend writes under `### 思考`, kept apart from
+   * the transcript facts in `bullets` so the two can be styled differently. */
+  reasoning: string[]
   table?: NotesTable
+  diagram?: NotesDiagram
 }
 
 export type NotesAction = { owner: string; task: string; due: string }
@@ -177,17 +183,27 @@ function classifyHeading(raw: string): [NotesSection['kind'], string] {
   return ['topic', heading || '讨论要点']
 }
 
+const REASONING_HEADING = /^思考/
+const FENCE = /^```(\w*)\s*$/
+
 function sectionFromBody(kind: NotesSection['kind'], heading: string, raw: string): NotesSection {
   const lines = raw.replace(/\r\n/g, '\n').split('\n')
   const paragraphs: string[] = []
   const bullets: string[] = []
+  const reasoning: string[] = []
   let table: NotesTable | undefined
+  let diagram: NotesDiagram | undefined
   let caption = ''
+  let inReasoning = false
+  let fence: string[] | undefined
+  let fenceLang = ''
   let para: string[] = []
   const flushPara = () => {
     const text = para.join('\n').trim()
     para = []
-    if (text) paragraphs.push(text)
+    if (!text) return
+    if (inReasoning) reasoning.push(text)
+    else paragraphs.push(text)
   }
   let tableLines: string[] = []
   const flushTable = () => {
@@ -200,11 +216,35 @@ function sectionFromBody(kind: NotesSection['kind'], heading: string, raw: strin
   }
   for (const line of lines) {
     const trimmed = line.trim()
+    const fenceEdge = trimmed.match(FENCE)
+    if (fenceEdge) {
+      if (fence) {
+        const code = fence.join('\n').trim()
+        if (fenceLang === 'mermaid' && code) diagram = { caption, code }
+        else if (code) paragraphs.push(code)
+        fence = undefined
+        caption = ''
+        continue
+      }
+      flushTable()
+      flushPara()
+      fence = []
+      fenceLang = fenceEdge[1]!.toLowerCase()
+      continue
+    }
+    if (fence) {
+      fence.push(line)
+      continue
+    }
     const sub = trimmed.match(SUBHEADING)
     if (sub) {
       flushTable()
       flushPara()
-      caption = sub[1]!.trim()
+      const label = sub[1]!.trim()
+      // `### 思考` opens the thinking record; any other subheading captions the
+      // table or diagram that follows it and closes the thinking record.
+      inReasoning = REASONING_HEADING.test(label)
+      caption = inReasoning ? '' : label
       continue
     }
     if (trimmed.startsWith('|')) {
@@ -216,7 +256,8 @@ function sectionFromBody(kind: NotesSection['kind'], heading: string, raw: strin
     const bullet = trimmed.match(BULLET)
     if (bullet) {
       flushPara()
-      bullets.push(bullet[1]!.trim())
+      if (inReasoning) reasoning.push(bullet[1]!.trim())
+      else bullets.push(bullet[1]!.trim())
       continue
     }
     if (!trimmed) {
@@ -225,9 +266,10 @@ function sectionFromBody(kind: NotesSection['kind'], heading: string, raw: strin
     }
     para.push(trimmed)
   }
+  if (fence?.length) paragraphs.push(fence.join('\n').trim())
   flushTable()
   flushPara()
-  return { kind, heading, paragraphs, bullets, table }
+  return { kind, heading, paragraphs, bullets, reasoning, table, diagram }
 }
 
 function parseMarkdownTable(lines: string[], caption: string): NotesTable | undefined {

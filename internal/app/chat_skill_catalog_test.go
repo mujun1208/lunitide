@@ -43,6 +43,9 @@ func (s *skillCatalogStub) Create(context.Context, skill.Skill) (skill.Skill, er
 func (s *skillCatalogStub) InstallFromCatalog(context.Context, string) (skill.Skill, error) {
 	return skill.Skill{}, nil
 }
+func (s *skillCatalogStub) ReplaceFromCatalog(context.Context, string) (skill.Skill, error) {
+	return skill.Skill{}, nil
+}
 func (s *skillCatalogStub) UpdateFields(context.Context, string, *string, *string, *string, *string, []skill.PermissionLevel, *string, int64) (*skill.Skill, error) {
 	return nil, nil
 }

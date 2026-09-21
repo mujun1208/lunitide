@@ -49,13 +49,36 @@ it('discards a late preview after switching to a different artifact',async()=>{
   expect(screen.getByText('最新文件')).toBeInTheDocument()
 })
 
-it('isolates generated HTML from scripts and network access',async()=>{
+it('isolates generated HTML from scripts and network access when there is no preview origin',async()=>{
+  // No interactiveUrl: the snapshot path, which must stay inert.
   vi.mocked(artifactReviewBridge.preview).mockResolvedValue({kind:'html',path:'page.html',content:'<script>fetch("https://external.invalid")</script><h1>页面</h1>',size:20})
   render(<ArtifactInspector sessionId={sessionId} path="page.html" onClose={vi.fn()}/> )
   const frame=await screen.findByTitle('产物预览 page.html')
   expect(frame).toHaveAttribute('sandbox','')
   expect(frame).toHaveAttribute('referrerpolicy','no-referrer')
   expect(frame.getAttribute('srcdoc')).toContain("connect-src 'none'")
+  // And it says so, rather than looking broken.
+  expect(screen.getByRole('status')).toHaveTextContent('静态预览')
+})
+
+it('runs a generated page for real when the engine mints a preview origin',async()=>{
+  const interactiveUrl='https://preview.lunitide.local/p/PzQ1c2VydGlja2V0MDAwMDAx/index.html'
+  vi.mocked(artifactReviewBridge.preview).mockResolvedValue({kind:'html',path:'index.html',content:'<nav onclick="go()">菜单</nav>',size:20,interactiveUrl})
+  render(<ArtifactInspector sessionId={sessionId} path="index.html" onClose={vi.fn()}/> )
+  const frame=await screen.findByTitle('产物预览 index.html')
+  // Framed from its own origin, not inlined: that is what lets its scripts run
+  // and its saved data persist.
+  expect(frame).toHaveAttribute('src',interactiveUrl)
+  expect(frame).not.toHaveAttribute('srcdoc')
+  const sandbox=frame.getAttribute('sandbox')||''
+  expect(sandbox.split(' ')).toContain('allow-scripts')
+  // allow-same-origin keeps the frame on preview.lunitide.local (cross-origin to
+  // us), which is what makes localStorage work without exposing our data.
+  expect(sandbox.split(' ')).toContain('allow-same-origin')
+  // It must never be able to navigate the application away from itself.
+  expect(sandbox).not.toContain('allow-top-navigation')
+  // No "this is inert" notice, because it isn't.
+  expect(screen.queryByText(/静态预览/)).toBeNull()
 })
 
 it('keeps PDF native opening available and recovers from opening failures',async()=>{

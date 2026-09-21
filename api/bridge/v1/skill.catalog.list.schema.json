@@ -15,7 +15,7 @@
       "items": {
         "type": "array",
         "minItems": 0,
-        "maxItems": 128,
+        "maxItems": 512,
         "items": {
           "type": "object",
           "additionalProperties": false,

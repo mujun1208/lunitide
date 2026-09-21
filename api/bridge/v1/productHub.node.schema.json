@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/productHub.node.schema.json",
+  "title": "productHub.node payload",
+  "x-method": "productHub.node",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionToken": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "id": { "type": "string", "minLength": 1, "maxLength": 160 }
+  },
+  "required": ["sessionToken", "id"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "id": { "type": "string" },
+      "stable_key": { "type": "string" },
+      "type": { "type": "string" },
+      "name": { "type": "string" },
+      "domain": { "type": "string" }
+    },
+    "required": ["id", "stable_key", "type", "name"]
+  },
+  "x-examples": {
+    "positive": [{ "sessionToken": "ab", "id": "product.lunitide" }],
+    "negative": [{ "sessionToken": "ab", "id": "" }]
+  }
+}

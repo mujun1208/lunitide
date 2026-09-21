@@ -11,6 +11,7 @@ const ITEMS: { key: keyof OfficeMenuSettings; zh: string; en: string; descriptio
   { key: 'people', zh: '同事聊天', en: 'Colleague chat', description: '与同事和已启用的专家交流。', descriptionEn: 'Talk with colleagues and enabled experts.' },
   { key: 'mro', zh: '机务工作台', en: 'MRO workbench', description: '启用相关机务专家后，在办公菜单显示工作台。', descriptionEn: 'Show the workbench when its operations expert is enabled.' },
   { key: 'meetings', zh: '会议记录', en: 'Meeting notes', description: '录制麦克风与电脑声音，整理会议纪要。', descriptionEn: 'Record microphone and system audio and organize meeting notes.' },
+  { key: 'productHub', zh: '产品总览', en: 'Product Hub', description: '产品知识中枢。关闭只隐藏导航；打开后先输入管理员用户名和密码。', descriptionEn: 'Product knowledge hub. Hiding this only removes the navigation item. Opening it asks for the admin username and password.' },
 ]
 
 export function OfficeMenuPanel({ onSaved }: { onSaved?: () => void }): React.JSX.Element {

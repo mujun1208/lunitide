@@ -149,11 +149,17 @@ func (s *Store) GetSkillByNameVersion(ctx context.Context, name, version string)
 	return &sk, nil
 }
 
-// ListSkills returns skills optionally filtered by status, ordered by created_at descending.
+// ListSkills returns skills optionally filtered by status, ordered by created_at
+// descending. limit <= 0 means every row.
+//
+// A cap here is not a harmless safety net: the rows are ordered newest-first, so
+// a cap silently hides the OLDEST skills — which are the ones installed at first
+// launch. A hidden row is worse than a missing feature, because callers use this
+// list to answer "is this skill installed?" and "which skills can be matched?".
+// Truncation made the earliest-installed skills unmatchable in chat and left
+// their market cards stuck on "+" with no way to ever flip. Callers that want a
+// page must ask for one explicitly.
 func (s *Store) ListSkills(ctx context.Context, status string, limit int) ([]skill.Skill, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 100
-	}
 	query := `SELECT id, name, display_name, description, version, status,
 	 permissions_json, entry_point, manifest_json, signature, publisher_id,
 	 min_engine_version, created_at, updated_at, rev
@@ -163,8 +169,11 @@ func (s *Store) ListSkills(ctx context.Context, status string, limit int) ([]ski
 		query += ` WHERE status=?`
 		args = append(args, status)
 	}
-	query += ` ORDER BY created_at DESC, id LIMIT ?`
-	args = append(args, limit)
+	query += ` ORDER BY created_at DESC, id`
+	if limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, limit)
+	}
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err

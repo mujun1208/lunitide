@@ -143,6 +143,9 @@ export function localizePackUserError(msg?: string): string {
   if (/template unknown/i.test(text)) return '技能模板不存在'
   if (/unknown MCP preset/i.test(text)) return '未知的 MCP 预设'
   if (/^MCP .+ needs /i.test(text)) return 'MCP 需要先配置参数'
+  if (/skill changed since read|optimistic concurrency/i.test(text)) return '技能库已有同名技能，会沿用现有版本'
+  if (/plugin install state transition/i.test(text)) return '能力包卡片状态异常，请撤下后重装'
+  if (/plugin probe failed/i.test(text)) return '能力包组件探测失败'
   if (/probe failed/i.test(text)) return '能力包组件探测失败'
   if (/capability pack not found/i.test(text)) return '能力包不存在'
   if (/manifest or operation changed/i.test(text)) return '能力包清单或操作已变化，请刷新后再试'
@@ -189,7 +192,9 @@ export async function installCapabilityPack(pack:CapabilityPackSpec,deps:{plugin
  const result=await deps.plugins.packInstall({spec:pack,repair:deps.repair??false,confirmed:true})
  const error=localizePackUserError(result.error)
  const record={...result,packId:result.spec.id,error,failed:result.state==='installed'?undefined:error}
- return {ok:result.state==='installed',notes:result.state==='installed'?['已复核技能、MCP 与权限开关']: [error||'操作尚未完成'],record}
+ const skipped=result.components.filter(item=>item.state==='skipped').map(item=>item.key)
+ const installedNotes=skipped.length?[`已安装技能与权限开关；${skipped.join('、')} 本机探测失败已跳过，可稍后在 MCP 页单独修好`]:['已复核技能、MCP 与权限开关']
+ return {ok:result.state==='installed',notes:result.state==='installed'?installedNotes:[error||'操作尚未完成'],record}
 }
 export async function uninstallCapabilityPack(pack:CapabilityPackSpec,deps:{plugins?:PluginBridge;record?:PackLedgerEntry}):Promise<{ok:boolean;notes:string[]}>{
  if(!deps.plugins?.packUninstall||!deps.record)throw new Error('缺少服务端安装记录，请刷新后重试')

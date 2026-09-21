@@ -55,3 +55,54 @@ func (s *Service) EnsureCatalogPublished(ctx context.Context, templateID string)
 	}
 	return *updated, nil
 }
+
+func catalogTemplateByID(templateID string) *CatalogTemplate {
+	for i := range catalogTemplates {
+		if catalogTemplates[i].ID == templateID {
+			return &catalogTemplates[i]
+		}
+	}
+	return nil
+}
+
+func skillUsableForPack(sk skill.Skill) bool {
+	return sk.Status == skill.SkillStatusPublished || sk.Status == skill.SkillStatusDraft
+}
+
+func (s *Service) adoptExistingSkill(ctx context.Context, tpl CatalogTemplate) (skill.Skill, error) {
+	if existing, err := s.GetByNameVersion(ctx, tpl.Name, tpl.Version); err == nil && existing != nil && skillUsableForPack(*existing) {
+		return *existing, nil
+	}
+	listed, err := s.List(ctx, "")
+	if err != nil {
+		return skill.Skill{}, err
+	}
+	key := SkillNameKey(tpl.Name)
+	for _, item := range listed {
+		if SkillNameKey(item.Name) != key {
+			continue
+		}
+		if skillUsableForPack(item) {
+			return item, nil
+		}
+	}
+	return skill.Skill{}, ErrSkillNotFound
+}
+
+// EnsureCatalogAvailable publishes the catalog template when possible, but a
+// pack must still succeed when the library already has the same skill with a
+// local or imported revision.
+func (s *Service) EnsureCatalogAvailable(ctx context.Context, templateID string) (skill.Skill, error) {
+	sk, err := s.EnsureCatalogPublished(ctx, templateID)
+	if err == nil {
+		return sk, nil
+	}
+	tpl := catalogTemplateByID(templateID)
+	if tpl == nil {
+		return sk, err
+	}
+	if adopted, adoptErr := s.adoptExistingSkill(ctx, *tpl); adoptErr == nil {
+		return adopted, nil
+	}
+	return sk, err
+}

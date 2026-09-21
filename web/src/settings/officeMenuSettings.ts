@@ -9,6 +9,7 @@ export type OfficeMenuSettings = {
   meetings: boolean
   media: boolean
   automation: boolean
+  productHub: boolean
 }
 export const DEFAULT_OFFICE_MENU: Readonly<OfficeMenuSettings> = {
   people: false,
@@ -17,6 +18,7 @@ export const DEFAULT_OFFICE_MENU: Readonly<OfficeMenuSettings> = {
   meetings: false,
   media: true,
   automation: true,
+  productHub: true,
 }
 
 export function loadOfficeMenu(): OfficeMenuSettings {
@@ -31,6 +33,7 @@ export function loadOfficeMenu(): OfficeMenuSettings {
         meetings: saved.meetings === true,
         media: saved.media !== false,
         automation: saved.automation !== false,
+        productHub: saved.productHub !== false,
       }
     }
   } catch { /* Missing or invalid preferences use the same defaults. */ }

@@ -503,6 +503,53 @@ it('auto-matches published skills and installed MCP for the selected expert', as
   expect(skillsSet.mock.calls[0][0].skillKeys).toEqual(expect.arrayContaining(['slide-builder', 'mcp:playwright']))
 })
 
+it('shows what each expert actually carries, and says so when it is only the default kit', async () => {
+  const equipped = { ...expertList.experts[0], name: '安全工程师', boundSkillCount: 3, boundMcpCount: 1, boundConfigured: true }
+  const untouched = { ...expertList.experts[0], expertId: manualId, name: 'PPT专家', division: 'product' as const, catalogItemId: 'ppt-expert', boundSkillCount: 0, boundMcpCount: 0, boundConfigured: false }
+  render(<ExpertCenterPage bridge={expertApi({ list: vi.fn().mockResolvedValue({ experts: [equipped, untouched], total: 2 }) })} projects={projects} />)
+  const list = within(await screen.findByLabelText('已安装专家'))
+  expect(list.getByRole('button', { name: /安全工程师/ })).toHaveTextContent('技能 3 · MCP 1')
+  expect(list.getByRole('button', { name: /安全工程师/ })).not.toHaveTextContent('默认装备')
+  // Nothing saved yet, so the row must show the factory kit and label it as such
+  // rather than claiming the expert is carrying equipment it never got.
+  const fresh = list.getByRole('button', { name: /PPT专家/ })
+  expect(fresh).toHaveTextContent('默认装备')
+  expect(fresh).not.toHaveTextContent('技能 0 · MCP 0')
+})
+
+it('auto-matches a skill whose own description answers the brief, and leaves unrelated ones off', async () => {
+  const skillsSet = vi.fn().mockResolvedValue({ expertId, skillKeys: [] })
+  const analyst = { ...expertList.experts[0], name: '周报分析师', division: 'product' as const, kind: 'agent' as const }
+  const row = (id: string, name: string, displayName: string, description: string) => ({
+    id, name, displayName, description, version: '1.0.0', status: 'published', permissions: ['read_write'],
+    entryPoint: `builtin://${name}`, manifestJson: '{}', category: 'writing', categorySource: 'keyword', createdAt: now, updatedAt: now,
+  })
+  const skills = {
+    list: vi.fn().mockResolvedValue({
+      items: [
+        row('01ARZ3NDEKTSV4RRFFQ69G5FB2', 'weekly-digest', '周报汇总', '把一周的进展汇总成周报草稿'),
+        row('01ARZ3NDEKTSV4RRFFQ69G5FB3', 'fridge-inventory', '冰箱盘点', '统计冰箱里的食材保质期'),
+      ],
+    }),
+  } as unknown as SkillBridge
+  render(<ExpertCenterPage bridge={expertApi({
+    list: vi.fn().mockResolvedValue({ experts: [analyst], total: 1 }),
+    detail: vi.fn().mockResolvedValue({
+      ...expertDetail,
+      expert: { ...expertDetail.expert, name: '周报分析师', division: 'product', boundSkills: [], boundSkillsKnown: true },
+      sixSection: { identity: '周报分析师', mission: '每周把团队进展汇总成周报草稿', rules: '只写已确认的进展', workflow: '收集-汇总-成稿', deliverableTemplate: '周报草稿', successMetrics: '周报按时交付' },
+    }),
+    skillsSet,
+  })} projects={projects} skills={skills} />)
+  const match = await screen.findByRole('button', { name: '自动匹配并保存' })
+  await waitFor(() => expect(match).toBeEnabled())
+  fireEvent.click(match)
+  await waitFor(() => expect(skillsSet).toHaveBeenCalled())
+  const saved: string[] = skillsSet.mock.calls[0][0].skillKeys
+  expect(saved).toContain('weekly-digest')
+  expect(saved).not.toContain('fridge-inventory')
+})
+
 it('saves expert skill bindings from the detail pane', async () => {
   const skillsSet = vi.fn().mockResolvedValue({ expertId, skillKeys: ['slide-builder'] })
   const skills = {

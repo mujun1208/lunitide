@@ -415,7 +415,8 @@ func TestCompleteMeetingLedgersOwnerScope(t *testing.T) {
 	}
 }
 
-func TestCompleteMeetingStreamsWhenCompleteIsEmpty(t *testing.T) {
+// Notes come from the stream now; Complete is only a fallback.
+func TestCompleteMeetingTakesNotesFromTheStream(t *testing.T) {
 	e := NewEngineWithGateway(meetingNotesProvider{}, "test", streamTestLease{})
 	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return notesStreamAdapter{streamed: `{"title":"评审","summary":"结论","actions":["跟进"]}`}, nil
@@ -425,6 +426,6 @@ func TestCompleteMeetingStreamsWhenCompleteIsEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	if notes.Summary != "结论" {
-		t.Fatalf("empty complete should stream: %#v", notes)
+		t.Fatalf("stream notes = %#v", notes)
 	}
 }

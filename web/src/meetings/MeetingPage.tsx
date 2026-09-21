@@ -20,7 +20,11 @@ import { MeetingTranscriptEditor, type MeetingTranscriptEditorHandle } from './M
 import { MeetingSegments } from './MeetingSegments'
 import { MeetingScreenshotButton } from './MeetingScreenshotButton'
 
-const SUMMARIZE_POLL_MS = 4_000
+/** The summarizer publishes finished topics roughly once a second while it
+ *  streams, so poll at that cadence: a 4s poll made the first card look late
+ *  even after it was already saved. The read is a local SQLite row, and the
+ *  revision guard in the poll skips re-renders on empty ticks. */
+const SUMMARIZE_POLL_MS = 1_000
 const SYSTEM_AUDIO_RECOVER_MS = 15_000
 const LOOPBACK_POLL_MS = 80
 /** Web Speech and sherpa both go quiet after a long un-endpointed clip. Restart ASR, keep the WAV. */
@@ -593,11 +597,24 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
       return
     }
     const id = current.meetingId
+    let shownRevision = -1
     const pulse = () => {
       void meetings.get({ meetingId: id }).then(next => {
         if (!mountedRef.current || currentIdRef.current !== id) return
-        if (next.status !== 'summarizing') adopt(honestNotes(next))
-        else setItems(values => values.map(item => item.meetingId === id ? { ...item, status: next.status, updatedAt: next.updatedAt } : item))
+        if (next.status !== 'summarizing') { adopt(honestNotes(next)); return }
+        // Nothing written yet: keep the row's clock moving, leave the previous
+        // notes of a meeting being regenerated alone.
+        if (!next.summary && !next.actions) {
+          setItems(values => values.map(item => item.meetingId === id ? { ...item, status: next.status, updatedAt: next.updatedAt } : item))
+          return
+        }
+        // The model publishes finished topics while it is still writing, so show
+        // them as they land instead of holding a spinner until the last brace.
+        // The revision guard keeps this fast poll from re-rendering the whole
+        // document on the ticks where the model wrote nothing new.
+        if (next.revision === shownRevision) return
+        shownRevision = next.revision
+        adopt(next)
       }).catch(() => undefined)
     }
     pulse()
@@ -1042,6 +1059,7 @@ export function MeetingPage({ meetings = getMeetingsBridge(), onOpenSettings }: 
               durationLabel={formatMeetingDuration(current.durationMs)}
               summary={draftSummary}
               actions={draftActions}
+              deferDiagrams={current.status === 'summarizing'}
               emptySummaryHint="尚未生成摘要。"
               emptyActionsHint={current.status === 'ready' ? '这场没有抽出可执行待办。' : '尚未生成待办。摘要成功后会一起写出。'}
             />

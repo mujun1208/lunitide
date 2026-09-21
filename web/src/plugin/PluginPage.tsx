@@ -2,6 +2,7 @@ import React,{useCallback,useEffect,useMemo,useState}from'react'
 import{mcpBridge,pluginBridge,skillBridge,type McpBridge,type PluginBridge,type SkillBridge}from'../bridge/client'
 import type{PluginListResult}from'../generated/bridge'
 import{Dialog}from'../ui/Dialog'
+import{usePromptDialog}from'../ui/useAskDialog'
 import{CAPABILITY_PACKS,capabilityPack,exportCapabilityPackJSON,installCapabilityPack,isPackPluginId,loadPackLedger,localizePackUserError,parseCapabilityPackJSON,uninstallCapabilityPack,type CapabilityPackSpec,type PackLedgerEntry}from'./capabilityPacks'
 import{FILLER_PLUGIN,PLUGIN_MARKET,pluginHonestyLabel,pluginLogo,pluginOriginLabel,pluginTitle,type PluginCategory}from'./pluginMarket'
 
@@ -28,6 +29,7 @@ export function PluginPage({bridge=pluginBridge,skills=skillBridge,mcp=mcpBridge
  const[manifest,setManifest]=useState('{\n  "pluginId": "my-plugin",\n  "semver": "1.0.0",\n  "publisher": "local",\n  "kind": "tool",\n  "permissions": {}\n}')
  const[entrypoint,setEntrypoint]=useState('pack://manifest')
  const[importedPacks,setImportedPacks]=useState<CapabilityPackSpec[]>([])
+ const[askTextNode,askText]=usePromptDialog()
  const[workspaceId,setWorkspaceId]=useState('chat')
  const[removeTarget,setRemoveTarget]=useState<Plugin|null>(null)
  const[removePackId,setRemovePackId]=useState('')
@@ -49,21 +51,36 @@ export function PluginPage({bridge=pluginBridge,skills=skillBridge,mcp=mcpBridge
   const pack=findPack(pluginId)
   if(pack){
    setBusy(pluginId);setError('');setNotice('')
+   const apply=async(repair:boolean)=>installCapabilityPack(pack,{plugins:bridge,repair})
+   const wipeAndInstall=async(record?:PackLedgerEntry)=>{
+    setNotice(`「${pack.name}」未装完，正在撤下后重装…`)
+    if(record){
+     try{await uninstallCapabilityPack(pack,{plugins:bridge,record})}catch{/* leftover may already be gone */}
+    }
+    return apply(false)
+   }
    try{
     const isRepair=packLedger.some(item=>item.packId===pack.id)
-    const result=await installCapabilityPack(pack,{plugins:bridge,repair:isRepair})
+    let result=await apply(isRepair)
+    if(!result.ok){
+     const leftover=(await loadPackLedger(bridge)).find(item=>item.packId===pack.id)??result.record
+     result=await wipeAndInstall(leftover?.version?leftover:undefined)
+    }
     if(result.ok){setNotice(`已安装「${pack.name}」：${result.notes.join('；')}`);await load();setView('installed');return}
-    if(isRepair){
-     setNotice(`「${pack.name}」修复未成功，正在尝试卸载后重装…`)
-     try{
-      const record=packLedger.find(item=>item.packId===pack.id)
-      if(record)await uninstallCapabilityPack(pack,{plugins:bridge,record})
-      const retry=await installCapabilityPack(pack,{plugins:bridge,repair:false})
-      setNotice(retry.ok?`「${pack.name}」重装成功：${retry.notes.join('；')}`:`「${pack.name}」重装未完成：${retry.notes.join('；')}`)
-     }catch{setNotice(`「${pack.name}」修复失败：${result.notes.join('；')}。请手动撤下后重新安装。`)}
-    }else{setNotice(`「${pack.name}」未装完：${result.notes.join('；')}`)}
+    setNotice(`「${pack.name}」未装完：${result.notes.join('；')}`)
     await load();setView('installed')
-   }catch(e){await load();setError(localizePackUserError(e instanceof Error?e.message:'')||'能力包安装失败')}finally{setBusy('')}
+   }catch(e){
+    try{
+     const leftover=(await loadPackLedger(bridge)).find(item=>item.packId===pack.id)
+     if(leftover){
+      const retry=await wipeAndInstall(leftover)
+      if(retry.ok){setNotice(`已安装「${pack.name}」：${retry.notes.join('；')}`);await load();setView('installed');return}
+      setNotice(`「${pack.name}」未装完：${retry.notes.join('；')}`)
+      await load();setView('installed');return
+     }
+    }catch{/* surface the original install error */}
+    await load();setError(localizePackUserError(e instanceof Error?e.message:'')||'能力包安装失败')
+   }finally{setBusy('')}
    return
   }
   const hit=byId.get(pluginId)
@@ -105,9 +122,10 @@ export function PluginPage({bridge=pluginBridge,skills=skillBridge,mcp=mcpBridge
  }
 
  return <main className="skill-center plugin-page">
+  {askTextNode}
   <header className="skill-center-header">
    <div><h1>插件</h1><p>组合包 {shelfPacks.length} 个 · 已启用门闸 {enabled} 个 · 失败 {failed} 个</p><small>插件市场是本机捆绑目录，不是在线商店。组合包会安装技能和 MCP、打开门闸；MCP 启用时会启动其本地服务进程。要可调用技能去技能中心；要连服务器去 MCP。Codex / Cursor / Kimi 的安装和对话在 AgentHub，不是这里的组合包。</small></div>
-   <div className="view-actions"><button type="button" className="ui-btn" onClick={()=>{const raw=window.prompt('粘贴能力包 JSON');if(!raw)return;try{const pack=parseCapabilityPackJSON(raw);setImportedPacks(current=>[...current.filter(item=>item.id!==pack.id),pack]);setNotice(`已读入「${pack.name}」，不会执行脚本。`);setView('market')}catch(e){setError(pluginUserError(e,'能力包 JSON 无效'))}}}>导入 JSON</button><button type="button" className="ui-btn" onClick={()=>setManualOpen(true)}>手动填写</button>{onCreateInChat&&<button type="button" className="ui-btn primary" onClick={onCreateInChat}>＋ 创建能力包</button>}</div>
+   <div className="view-actions"><button type="button" className="ui-btn" onClick={()=>{void (async()=>{const raw=await askText({title:'导入能力包 JSON',description:'只读取清单内容，不会执行其中的脚本。',label:'能力包 JSON',multiline:true,placeholder:'{ "id": "...", "name": "...", "components": [...] }',confirmLabel:'读入'});if(!raw)return;try{const pack=parseCapabilityPackJSON(raw);setImportedPacks(current=>[...current.filter(item=>item.id!==pack.id),pack]);setNotice(`已读入「${pack.name}」，不会执行脚本。`);setView('market')}catch(e){setError(pluginUserError(e,'能力包 JSON 无效'))}})()}}>导入 JSON</button><button type="button" className="ui-btn" onClick={()=>setManualOpen(true)}>手动填写</button>{onCreateInChat&&<button type="button" className="ui-btn primary" onClick={onCreateInChat}>＋ 创建能力包</button>}</div>
   </header>
   <section className="skill-center-toolbar">
    <div className="skill-status-tabs" role="tablist" aria-label="插件视图">
@@ -170,7 +188,7 @@ export function PluginPage({bridge=pluginBridge,skills=skillBridge,mcp=mcpBridge
      <footer>
       <small>{CAPABILITY_PACKS.some(item=>item.id===pack.id)?'撤下保留共享及手动接管的组件，不卸技能':'删除会撤下本包独占组件，不卸技能'}</small>
       <div className="expert-card-actions">
-       {entry.desired==='installed'&&<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>void enable(pack.id)}>{entry.state==='installed'?'复核并修复':'继续安装'}</button>}
+       {entry.desired==='installed'&&<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>void enable(pack.id)}>复核并修复</button>}
        <button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>setRemovePackId(pack.id)}>{CAPABILITY_PACKS.some(item=>item.id===pack.id)?'撤下':'删除'}</button>
       </div>
      </footer>

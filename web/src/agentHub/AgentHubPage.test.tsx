@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { LanguageProvider } from '../i18n/language'
 import { AgentHubPage } from './AgentHubPage'
@@ -290,13 +290,15 @@ it('starts a task from an available adapter', async () => {
 it('sends a picked work directory with the task', async () => {
   stubLists()
   vi.mocked(agentHubApi.pickDir).mockResolvedValue({ canceled: false, path: 'E:/repo' })
-  vi.stubGlobal('confirm', () => true)
   const started = startedFixture('codex', 'hi')
   vi.mocked(agentHubApi.start).mockResolvedValue(started)
   vi.mocked(agentHubApi.get).mockResolvedValue(started)
   renderWorkbench()
   fireEvent.click(await screen.findByRole('button', { name: /其它任务/ }))
   fireEvent.click(screen.getByRole('button', { name: '工作目录' }))
+  // The folder warning is an in-app dialog: window.confirm is inert in the
+  // desktop shell, so picking a folder used to silently do nothing there.
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '继续' }))
   await waitFor(() => expect(screen.getByRole('button', { name: '工作目录' })).toHaveTextContent('repo'))
   fireEvent.change(screen.getByLabelText('任务说明'), { target: { value: 'hi' } })
   fireEvent.click(screen.getByRole('button', { name: '执行' }))
