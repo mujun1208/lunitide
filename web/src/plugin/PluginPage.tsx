@@ -50,8 +50,18 @@ export function PluginPage({bridge=pluginBridge,skills=skillBridge,mcp=mcpBridge
   if(pack){
    setBusy(pluginId);setError('');setNotice('')
    try{
-    const result=await installCapabilityPack(pack,{plugins:bridge,repair:packLedger.some(item=>item.packId===pack.id)})
-    setNotice(result.ok?`已安装「${pack.name}」：${result.notes.join('；')}`:`「${pack.name}」未装完：${result.notes.join('；')}`)
+    const isRepair=packLedger.some(item=>item.packId===pack.id)
+    const result=await installCapabilityPack(pack,{plugins:bridge,repair:isRepair})
+    if(result.ok){setNotice(`已安装「${pack.name}」：${result.notes.join('；')}`);await load();setView('installed');return}
+    if(isRepair){
+     setNotice(`「${pack.name}」修复未成功，正在尝试卸载后重装…`)
+     try{
+      const record=packLedger.find(item=>item.packId===pack.id)
+      if(record)await uninstallCapabilityPack(pack,{plugins:bridge,record})
+      const retry=await installCapabilityPack(pack,{plugins:bridge,repair:false})
+      setNotice(retry.ok?`「${pack.name}」重装成功：${retry.notes.join('；')}`:`「${pack.name}」重装未完成：${retry.notes.join('；')}`)
+     }catch{setNotice(`「${pack.name}」修复失败：${result.notes.join('；')}。请手动撤下后重新安装。`)}
+    }else{setNotice(`「${pack.name}」未装完：${result.notes.join('；')}`)}
     await load();setView('installed')
    }catch(e){await load();setError(localizePackUserError(e instanceof Error?e.message:'')||'能力包安装失败')}finally{setBusy('')}
    return

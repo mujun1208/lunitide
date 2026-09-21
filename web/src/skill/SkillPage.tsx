@@ -10,6 +10,10 @@ import{searchRemoteSkillsLive,type RemoteSkillHit}from'./remoteSkillIndex'
 import{usePanelResize}from'../ui/usePanelResize'
 
 type CatalogEntry=SkillCatalogListResult['items'][number]
+
+function compareSemver(a:string,b:string):number{const pa=a.split('.').map(Number),pb=b.split('.').map(Number);for(let i=0;i<Math.max(pa.length,pb.length);i++){const va=pa[i]??0,vb=pb[i]??0;if(va!==vb)return va>vb?1:-1}return 0}
+
+function deduplicateCatalog(entries:CatalogEntry[]):CatalogEntry[]{const map=new Map<string,CatalogEntry>();for(const entry of entries){const prev=map.get(entry.name);if(!prev||compareSemver(entry.version,prev.version)>0)map.set(entry.name,entry)}return[...map.values()]}
 const STATUS:Record<SkillStatus,string>={draft:'草稿',published:'已发布',deprecated:'已弃用',disabled:'已禁用'}
 const PERMISSION:Record<SkillPermission,string>={read_only:'只读',read_write:'读写',network:'网络',file_system:'文件系统',shell:'Shell',admin:'管理员'}
 const CATEGORY:Record<SkillCategory,string>={efficiency:'效率',writing:'写作',development:'开发',data:'数据',design:'设计',research:'研究',lifestyle:'生活',education:'教育',business:'商业',automation:'自动化',security:'安全',other:'其他'}
@@ -32,12 +36,12 @@ export function SkillPage({bridge=skillBridge,onCreateInChat,onViewInWorkspace,o
  useEffect(()=>()=>uploadController.current?.abort(),[])
  const[detailWidth,startDetailResize]=usePanelResize({storageKey:'lunitide:skill-detail-width',initial:380,min:280,max:()=>Math.min(560,Math.max(320,window.innerWidth-360)),reverse:true})
  const load=useCallback(async()=>{setLoading(true);setError('');try{const result=await bridge.list({});setItems(result.items);setSelectedId(current=>result.items.some(item=>item.id===current)?current:(result.items[0]?.id??''))}catch(e){setError(skillUserError(e,'技能载入失败'))}finally{setLoading(false)}},[bridge])
- const loadCatalog=useCallback(async()=>{if(!bridge.catalogList){setMarketError('当前版本未提供技能模板目录。');return}setMarketLoading(true);setMarketError('');try{const result=await bridge.catalogList({});setCatalog(result.items??[])}catch(e){setMarketError(e instanceof BridgeClientError?formatBridgeFailure(e,'技能市场加载失败'):skillUserError(e,'技能市场加载失败'))}finally{setMarketLoading(false)}},[bridge])
+ const loadCatalog=useCallback(async()=>{if(!bridge.catalogList){setMarketError('当前版本未提供技能模板目录。');return}setMarketLoading(true);setMarketError('');try{const result=await bridge.catalogList({});setCatalog(deduplicateCatalog(result.items??[]))}catch(e){setMarketError(e instanceof BridgeClientError?formatBridgeFailure(e,'技能市场加载失败'):skillUserError(e,'技能市场加载失败'))}finally{setMarketLoading(false)}},[bridge])
  useEffect(()=>{void load()},[load])
  useEffect(()=>{void loadCatalog()},[loadCatalog])
  useEffect(()=>{const reload=()=>{void loadCatalog();void load()};window.addEventListener(ENGINE_RECOVERED_EVENT,reload);return()=>window.removeEventListener(ENGINE_RECOVERED_EVENT,reload)},[load,loadCatalog])
  useEffect(()=>{if(!highlightId)return;setView('library');setSelectedId(current=>items.some(item=>item.id===highlightId)?highlightId:current)},[highlightId,items])
- const install=async(entry:CatalogEntry)=>{if(!bridge.install||marketBusy)return;setMarketBusy(entry.id);setError('');try{await bridge.install({templateId:entry.id});await Promise.all([loadCatalog(),load()])}catch(e){setError(skillUserError(e,'安装失败'))}finally{setMarketBusy('')}}
+ const install=async(entry:CatalogEntry)=>{if(!bridge.install||marketBusy)return;const existing=items.find(item=>item.name===entry.name);if(existing){const cmp=compareSemver(entry.version,existing.version);if(cmp<0){setError(`技能「${entry.displayName}」已安装 v${existing.version}，不允许安装更旧的 v${entry.version}。`);return}if(cmp===0){setError(`技能「${entry.displayName}」v${existing.version} 已安装。`);return}if(!window.confirm(`技能「${entry.displayName}」已安装 v${existing.version}，是否自动升级到 v${entry.version}？`))return}setMarketBusy(entry.id);setError('');try{await bridge.install({templateId:entry.id});await Promise.all([loadCatalog(),load()])}catch(e){setError(skillUserError(e,'安装失败'))}finally{setMarketBusy('')}}
  const uninstallMarket=async(entry:CatalogEntry)=>{const skill=items.find(item=>item.name===entry.name&&item.version===entry.version);if(!skill){setError('找不到已安装的技能，请刷新后重试');return}if(!Number.isInteger(skill.rev)||skill.rev<0){setError('技能版本信息缺失，请刷新后重试');return}if(!window.confirm(`卸载技能「${entry.displayName}」？`))return;setMarketBusy(entry.id);setError('');try{await bridge.delete({id:skill.id,expectedVersion:skill.rev});await Promise.all([loadCatalog(),load()])}catch(e){setError(skillUserError(e,'卸载失败'))}finally{setMarketBusy('')}}
  const counts=useMemo(()=>Object.fromEntries(FILTERS.map(tab=>[tab.id,tab.id?items.filter(item=>item.status===tab.id).length:items.length])),[items])as Record<SkillStatus|'',number>
  const categoryCounts=useMemo(()=>Object.fromEntries(CATEGORY_FILTERS.map(tab=>[tab.id,tab.id?items.filter(item=>item.category===tab.id).length:items.length])),[items])as Record<SkillCategory|'',number>
