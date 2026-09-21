@@ -18,7 +18,6 @@ import {
   type InboxFile,
 } from './agentHubCopy'
 import { createAgentHubLocalWorkspace, HUB_ATTACHMENTS } from './agentHubWorkspace'
-import { openChatSession } from '../session/openChatSession'
 
 function liveStatus(status: string | undefined): boolean {
   return status === 'running' || status === 'waiting_user'
@@ -212,15 +211,6 @@ export function AgentHubThread({
         inert={workspaceExpanded || undefined}
         aria-label={zh ? `${detail?.thread.title || '会话'} 消息` : 'messages'}
       >
-        {detail?.sessionId ? (
-          <button
-            type="button"
-            className="hub-open-chat"
-            onClick={() => openChatSession(detail.sessionId!)}
-          >
-            {zh ? '在对话中打开' : 'Open in chat'}
-          </button>
-        ) : null}
         <button
           type="button"
           className="workspace-toggle"

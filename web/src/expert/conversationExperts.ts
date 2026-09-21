@@ -28,7 +28,7 @@ export type ExpertKind = 'agent' | 'prompt_skill'
 /** Factory kit catalog IDs owned by the specialist. Hang on the expert, never on the composer. */
 export const CONVERSATION_EXPERT_PREFERRED_SKILLS: Record<ConversationExpertID, readonly string[]> = {
   'ppt-expert': ['slide-builder', 'web-researcher', 'mermaid-diagrams'],
-  'report-writer': ['web-researcher', 'docx-writer', 'anti-ai-prose', 'mermaid-diagrams'],
+  'report-writer': ['web-researcher', 'docx-writer', 'anti-ai-prose', 'mermaid-diagrams', 'weekly-report'],
   'novel-writer': ['docx-writer', 'anti-ai-prose', 'content-brief', 'fiction-continuity'],
   'excel-maker': ['excel-analyst', 'csv-workbook'],
   'ui-designer': ['frontend-design', 'ui-components', 'design-system'],
@@ -275,6 +275,56 @@ export type OpsColleagueID = typeof OPS_COLLEAGUE_IDS[number]
 export function isOpsColleague(idOrName: string): boolean {
   const hit = conversationExpertByNameOrID(idOrName)
   return hit ? (OPS_COLLEAGUE_IDS as readonly string[]).includes(hit.id) : false
+}
+
+const SKILL_HINTS: Array<{keys: string[]; skills: string[]}> = [
+  {keys: ['周报', 'weekly', 'weekly-report'], skills: ['weekly-report']},
+  {keys: ['会议纪要', '纪要', 'meeting-minutes'], skills: ['meeting-minutes']},
+  {keys: ['日报', 'daily-brief'], skills: ['daily-brief']},
+  {keys: ['ppt', '幻灯', '演示', 'slide'], skills: ['slide-builder']},
+  {keys: ['excel', '表格', 'csv'], skills: ['excel-analyst', 'csv-workbook']},
+  {keys: ['小说', 'fiction'], skills: ['docx-writer', 'anti-ai-prose', 'fiction-continuity']},
+  {keys: ['报告', 'report', 'docx', '长文'], skills: ['docx-writer', 'anti-ai-prose', 'web-researcher']},
+  {keys: ['检索', '调研', 'research'], skills: ['web-researcher']},
+  {keys: ['图', 'mermaid', '架构图'], skills: ['mermaid-diagrams']},
+]
+
+const MCP_HINTS: Array<{keys: string[]; mcp: string[]}> = [
+  {keys: ['浏览器', 'ppt', '幻灯', 'playwright', 'e2e'], mcp: ['playwright']},
+  {keys: ['抓取', 'fetch', '报告', '调研'], mcp: ['fetch']},
+]
+
+export function inferPreferredFromText(text: string): {skills: string[]; mcp: string[]} {
+  const hay = text.toLowerCase()
+  const skills = new Set<string>()
+  const mcp = new Set<string>()
+  for (const row of SKILL_HINTS) {
+    if (row.keys.some(key => {
+      if (key === '报告' && hay.includes('周报') && !hay.replaceAll('周报', '').includes('报告')) return false
+      return hay.includes(key.toLowerCase())
+    })) row.skills.forEach(id => skills.add(id))
+  }
+  for (const row of MCP_HINTS) {
+    if (row.keys.some(key => hay.includes(key.toLowerCase()))) row.mcp.forEach(id => mcp.add(id))
+  }
+  return {skills: [...skills], mcp: [...mcp]}
+}
+
+export function matchPublishedSkills(preferred: readonly string[], published: ReadonlyArray<{name: string; entryPoint?: string}>): string[] {
+  return preferred.filter(key => published.some(item => skillMatchesPreferred(item, [key])))
+}
+
+export function matchMcpPresets(preferred: readonly string[], presets: ReadonlyArray<{id: string}>): string[] {
+  const ids = new Set(presets.map(item => item.id))
+  return preferred.filter(id => ids.has(id))
+}
+
+export function expertKitCounts(item: {name?: string; id?: string; catalogItemId?: string; division?: string; description?: string}): {skills: number; mcp: number} {
+  const factorySkills = preferredSkillsForExperts([item])
+  const factoryMcp = preferredMcpForExperts([item])
+  if (factorySkills.length || factoryMcp.length) return {skills: factorySkills.length, mcp: factoryMcp.length}
+  const inferred = inferPreferredFromText([item.name, item.id, item.catalogItemId, item.division, item.description].filter(Boolean).join(' '))
+  return {skills: inferred.skills.length, mcp: inferred.mcp.length}
 }
 
 export function conversationExpertDivision(id: string): ConversationExpertDivision {

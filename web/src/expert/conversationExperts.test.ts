@@ -7,7 +7,9 @@ import {
   conversationExpertKind,
   conversationExpertRole,
   expertCatalogKey,
+  expertKitCounts,
   expertKindOf,
+  inferPreferredFromText,
   mcpBindKey,
   missingPreferredSkills,
   preferredMcpForExperts,
@@ -54,7 +56,7 @@ it('registers the conversation specialists for Expert Center and 对话 picker',
 it('keeps a factory kit preferredSkills list for each of the 18 specialists', () => {
   const want: Record<string, string[]> = {
     'ppt-expert': ['slide-builder', 'web-researcher', 'mermaid-diagrams'],
-    'report-writer': ['web-researcher', 'docx-writer', 'anti-ai-prose'],
+    'report-writer': ['web-researcher', 'docx-writer', 'anti-ai-prose', 'weekly-report'],
     'novel-writer': ['docx-writer', 'anti-ai-prose', 'fiction-continuity'],
     'excel-maker': ['excel-analyst', 'csv-workbook'],
     'ui-designer': ['frontend-design', 'ui-components', 'design-system'],
@@ -116,4 +118,17 @@ it('opens conversation specialists as colleagues and stores MCP bindings beside 
     mcp: ['playwright'],
     brain: 'lunitide',
   })
+})
+
+it('infers weekly-report from 周报 without treating 报告 as a second match', () => {
+  expect(inferPreferredFromText('周报')).toEqual({skills: ['weekly-report'], mcp: []})
+  expect(inferPreferredFromText('写一份报告和周报')).toEqual(expect.objectContaining({
+    skills: expect.arrayContaining(['weekly-report', 'docx-writer']),
+  }))
+})
+
+it('counts factory kit sizes for specialists and inferred kits for others', () => {
+  expect(expertKitCounts({name: '报告编写专家', id: 'report-writer'})).toEqual({skills: 5, mcp: 1})
+  expect(expertKitCounts({name: 'PPT专家', catalogItemId: 'ppt-expert'})).toEqual({skills: 3, mcp: 1})
+  expect(expertKitCounts({name: '周报助手'})).toEqual({skills: 1, mcp: 0})
 })

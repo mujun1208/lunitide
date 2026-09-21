@@ -55,8 +55,8 @@ export const CAPABILITY_PACKS: CapabilityPackSpec[] = [
   {
     id: 'pack-report',
     name: '报告写作包',
-    description: '调研、长文和去 AI 味。成文走内置 docx.gen，抓取走内置门闸。',
-    skills: ['docx-writer', 'web-researcher', 'anti-ai-prose'],
+    description: '调研、长文、周报和去 AI 味。成文走内置 docx.gen，抓取走内置门闸。',
+    skills: ['docx-writer', 'web-researcher', 'anti-ai-prose', 'weekly-report'],
     mcpPresetIds: [],
     toolGates: ['web-search', 'web-fetch'],
   },
