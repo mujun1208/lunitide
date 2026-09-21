@@ -148,6 +148,30 @@ func TestPlayerObservePlayingWithoutCommandDoesNotReport(t *testing.T) {
 	}
 }
 
+func TestPlayerObservePositionDoesNotClaimPendingCommand(t *testing.T) {
+	op := ulid.Make().String()
+	engine := &playerEngine{nextOp: op}
+	p := &Player{Engine: engine, WindowInstanceID: "window-a"}
+	accepted, err := p.Observe(context.Background(), ulid.Make().String(), "position", 10, 100)
+	if err != nil || accepted {
+		t.Fatalf("position must not claim a play command: accepted=%v err=%v", accepted, err)
+	}
+	listed := engine.listed()
+	for _, method := range listed {
+		if method == "internal.media.player.next" || method == "internal.media.player.report" {
+			t.Fatalf("position must not next/report before playing: %v", listed)
+		}
+	}
+	playing, err := p.Observe(context.Background(), ulid.Make().String(), "playing", 10, 100)
+	if err != nil || !playing {
+		t.Fatalf("later playing must still claim: accepted=%v err=%v", playing, err)
+	}
+	tick, err := p.Observe(context.Background(), ulid.Make().String(), "position", 20, 100)
+	if err != nil || !tick {
+		t.Fatalf("position after a claimed play may update the clock: accepted=%v err=%v", tick, err)
+	}
+}
+
 func TestPlayerObservePlayingReportsAfterNext(t *testing.T) {
 	op := ulid.Make().String()
 	engine := &playerEngine{nextOp: op}

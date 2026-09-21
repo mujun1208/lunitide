@@ -232,13 +232,15 @@ func companionFinalResult(messages []llmadapter.Message, reply, goal string) str
 	if computerExecutionTurn(goal) && len(currentTurnReceipts(messages)) == 0 {
 		return "本轮没有取得电脑操作回执，尚未执行完成。"
 	}
-	if out := lastNamedToolOutput(messages, "desktop.browse"); strings.HasPrefix(out, "已向系统默认桌面浏览器发送打开请求") {
-		observed := lastNamedToolOutput(messages, "computer.act")
-		if observed == "" || companionToolResultFailed(observed) {
-			if !companionGoalIsOpenOnly(goal) && strings.TrimSpace(reply) != "" && !looksLikeCompanionWaitPromise(reply) && !isCompanionLeadInOnly(reply) {
-				return strings.TrimSpace(reply) + " 浏览器页面尚未核验。"
+	if !browserLookupOnlyGoal(goal) {
+		if out := lastNamedToolOutput(messages, "desktop.browse"); strings.HasPrefix(out, "已向系统默认桌面浏览器发送打开请求") {
+			observed := lastNamedToolOutput(messages, "computer.act")
+			if observed == "" || companionToolResultFailed(observed) {
+				if !companionGoalIsOpenOnly(goal) && strings.TrimSpace(reply) != "" && !looksLikeCompanionWaitPromise(reply) && !isCompanionLeadInOnly(reply) {
+					return strings.TrimSpace(reply) + " 浏览器页面尚未核验。"
+				}
+				return "已向默认浏览器发送打开请求，尚未核对页面。"
 			}
-			return "已向默认浏览器发送打开请求，尚未核对页面。"
 		}
 	}
 	results := map[string]string{}

@@ -1,9 +1,18 @@
 import { cleanup, render } from '@testing-library/react'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { createRef } from 'react'
 import type { MediaSnapshotDTO } from '../generated/bridge'
-import { OwnedMediaPlayer } from './OwnedMediaPlayer'
+import { OwnedMediaPlayer, type OwnedMediaPlayerHandle } from './OwnedMediaPlayer'
 
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
+
+beforeEach(() => {
+  vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+  vi.spyOn(window.HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+})
 
 const snapshot: MediaSnapshotDTO = {
   mediaSessionId: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
@@ -34,9 +43,23 @@ it('owns exactly one media element for the current asset kind', () => {
   expect(document.querySelectorAll('video')).toHaveLength(1)
 })
 
-it('does not attach a media source until the user plays', () => {
-  render(<OwnedMediaPlayer snapshot={snapshot} src="https://media.lunitide.local/v1/assets/t" kind="audio" wantPlay={false} onEnded={() => {}} onError={() => {}} />)
-  expect(document.querySelector('audio')?.getAttribute('src')).toBeNull()
+it('keeps the media source attached while paused so the next play click can start immediately', () => {
+  const { rerender } = render(<OwnedMediaPlayer snapshot={snapshot} src="https://media.lunitide.local/v1/assets/t" kind="audio" wantPlay={false} onEnded={() => {}} onError={() => {}} />)
+  expect(document.querySelector('audio')?.getAttribute('src')).toBe('https://media.lunitide.local/v1/assets/t')
+  rerender(<OwnedMediaPlayer snapshot={{ ...snapshot, phase: 'paused' }} src="https://media.lunitide.local/v1/assets/t" kind="audio" wantPlay={false} onEnded={() => {}} onError={() => {}} />)
+  expect(document.querySelector('audio')?.getAttribute('src')).toBe('https://media.lunitide.local/v1/assets/t')
+})
+
+it('starts playback from the click handle without treating play() rejection as a dead channel', () => {
+  const ref = createRef<OwnedMediaPlayerHandle>()
+  const onError = vi.fn()
+  render(<OwnedMediaPlayer ref={ref} snapshot={snapshot} src="https://media.lunitide.local/v1/assets/t" kind="audio" wantPlay={false} onEnded={() => {}} onError={onError} />)
+  const audio = document.querySelector('audio')
+  const play = vi.fn().mockRejectedValue(new Error('autoplay'))
+  if (audio) audio.play = play
+  ref.current?.playNow()
+  expect(play).toHaveBeenCalled()
+  expect(onError).not.toHaveBeenCalled()
 })
 
 it('reports native playing and never treats play() as verified', () => {

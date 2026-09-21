@@ -54,6 +54,13 @@ it('TestOwnedExternalCapabilities: hides seek and volume for external origin', (
   expect(screen.getByRole('button', { name: '播放' })).toBeInTheDocument()
 })
 
+it('keeps the Play button after pick so a second click retries play, not pause', () => {
+  render(<MediaCenterPage snapshot={{ ...snapshot, phase: 'idle', verificationStatus: 'command_dispatched', durationMs: 0, positionMs: 0 }} assets={[asset('audio', 'ringing_shortest.mp3')]} operation={null} playbackUrl={null} notice="" disabledReason="" busy={false} onPick={() => {}} onPlayPause={() => {}} onPrevious={() => {}} onNext={() => {}} onJump={() => {}} onRemove={() => {}} onClear={() => {}} onSeek={() => {}} onVolume={() => {}} />)
+  expect(screen.getByRole('heading', { name: 'ringing_shortest.mp3' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '播放' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '暂停' })).toBeNull()
+})
+
 it('splits music and video surfaces without a second media element', () => {
   const { rerender } = render(<MediaCenterPage snapshot={snapshot} assets={[asset('audio', '夜曲')]} operation={null} playbackUrl={null} notice="" disabledReason="" busy={false} onPick={() => {}} onPlayPause={() => {}} onPrevious={() => {}} onNext={() => {}} onJump={() => {}} onRemove={() => {}} onClear={() => {}} onSeek={() => {}} onVolume={() => {}} />)
   expect(screen.getByLabelText('音乐')).toBeInTheDocument()

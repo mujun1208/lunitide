@@ -1,6 +1,6 @@
 import React from 'react'
 import type { MediaSnapshotDTO } from '../generated/bridge'
-import { formatClock, type MiniPlayerPhase } from './mediaSnapshot'
+import { formatClock, mediaTransportPlaying, type MiniPlayerPhase } from './mediaSnapshot'
 import { mediaText, playbackStatusText } from './mediaCopy'
 import { useZh } from '../i18n/language'
 
@@ -28,7 +28,7 @@ export function MediaMiniPlayer({
   const zh = useZh()
   const copy = mediaText(zh)
   if (phase === 'hidden' || !snapshot) return null
-  const playing = snapshot.phase === 'playing'
+  const playing = mediaTransportPlaying(false, snapshot)
   const closing = phase === 'closing'
   const status = closing ? copy.closing : playbackStatusText(zh, snapshot.phase, snapshot.verificationStatus)
   return (

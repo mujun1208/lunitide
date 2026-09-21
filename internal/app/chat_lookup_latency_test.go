@@ -189,7 +189,7 @@ func TestCompanionBrowserNewsKeepsSummaryWithoutExtraDesktopNudges(t *testing.T)
 		}
 		return nil
 	})
-	if calls != 3 || terminals != 1 || !strings.Contains(spoken.String(), summary) || !strings.Contains(spoken.String(), "尚未核验") {
+	if calls != 3 || terminals != 1 || !strings.Contains(spoken.String(), summary) || strings.Contains(spoken.String(), "尚未核验") {
 		t.Fatalf("calls=%d terminal=%d spoken=%s", calls, terminals, spoken.String())
 	}
 	messages := receiptMessages("desktop.browse", `{}`, browse)

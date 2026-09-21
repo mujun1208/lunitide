@@ -643,6 +643,11 @@ func (s *Store) NextMediaPlayerCommand(ctx context.Context, sessionID string, ge
 
 func (s *Store) AckMediaPlayerCommand(ctx context.Context, sessionID, operationID, event string, positionMs, durationMs int64) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if event == "position" {
+		_, err := s.db.ExecContext(ctx, `UPDATE media_sessions SET position_ms=?, duration_ms=?, updated_at=? WHERE media_session_id=?`,
+			positionMs, durationMs, now, sessionID)
+		return err
+	}
 	phase := "uncertain"
 	verify := "unconfirmed"
 	source := "owned_runtime"

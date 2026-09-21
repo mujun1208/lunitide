@@ -260,7 +260,7 @@ func computerControlManifest() map[string]any {
 	return bundledManifest(computerControlSkillMD, []string{
 		"操作电脑", "电脑控制", "computer control", "computer-control", "点一下", "帮我点",
 		"截个屏", "切窗口", "按回车", "粘贴", "桌面操作", "peekaboo",
-	}, "\n\n--- Lunitide 集成 ---\n模型只能调用 computer.act（以及 desktop.open / desktop.type / media.play / browser.act）。不要调用 cc.* 工具名——它们不在工具列表里。启动未运行应用用 desktop.open；播歌用 media.play；网页用 browser.act。禁止确认 UAC/提权/打开保存对话框。用中文短报进度。")
+	}, "\n\n--- Lunitide 集成 ---\n模型只能调用 computer.act（以及 desktop.open / desktop.type / media.play / browser.act）。不要调用 cc.*。按 1-2-3 每步一次、成功即停：①专用工具 ②observe 后按名字点一次 ③屏幕读号。不要退回上一步，未走完不要报失败。禁止确认 UAC/提权/打开保存对话框。用中文短报进度。")
 }
 
 func browserAutomationManifest() map[string]any {

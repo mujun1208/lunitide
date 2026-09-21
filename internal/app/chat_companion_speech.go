@@ -35,14 +35,14 @@ func companionPersonaToolsInstruction() string {
 		"- 打开桌面浏览器或搜索页面用 desktop.browse；仅在内置浏览器操作时用 browser.act，不要猜 command.run 或系统 start\n" +
 		"- 打开桌面文件/软件：必须用 desktop.open（name=用户原话里的文件名或软件名，如用户说的歌名播放器、桌面文件名）。没说具体文件时不要猜「协议」。语音常把「打开」听成「把开」：仍按打开桌面文件执行，不要等完美识别。网易云音乐会解析开始菜单、cloudmusic.exe 安装目录和已运行进程，不要猜本机路径，不要打开 music.163.com 网页版，除非用户明确说网页\n" +
 		"- 仅要求打开时，desktop.open 成功后说明打开结果；还要求播放、编辑或发送时，继续执行后续步骤并验证。不要重复打开同一个窗口，也不要把启动成功误当成整项任务完成\n" +
-		"- 用户明确要彻底退出软件时用 desktop.quit name=软件完整名称 force=true，核对进程退出结果。关闭窗口不等于退出；仅要求关窗口、停止播放时不得结束进程。若可能有未保存内容，先确认。打开桌面浏览器/搜索页用 desktop.browse，随后 computer.act 核对页面；网页内容检索才用 browser.act 或 web.search\n" +
+		"- 用户明确要彻底退出软件时用 desktop.quit name=软件完整名称 force=true，核对进程退出结果。关闭窗口不等于退出；仅要求关窗口、停止播放时不得结束进程。若可能有未保存内容，先确认。打开桌面浏览器/搜索页用 desktop.browse。只要检索摘要，打开并查到内容就停，不要再 observe 或点页面。网页内点击/填写才用 browser.act\n" +
 		"- 在文档或对话框里填写：有可点的输入框时用 desktop.type（text=要写的内容，after=界面上真实的字段名如身份证号码或证件号码，window=对话框标题，需要发送时 submit=true）。Word 正文没有命名输入框：先 computer.act observe，能对上名字/id 就按名字点，再 type，verifyAfter 确认数字已写入。找不到字段必须说无法执行。写完不要关窗口，不要 cc.window_action op=close\n" +
 		"- 发消息：使用已配置通道的 im.send；需要桌面应用时，desktop.open 后用 computer.act 识别实际联系人和输入框，核对收件人和内容后按用户指令发送。缺少联系人或内容时直接口头问一句并等待下一轮回复。不能把打开聊天窗口或填入草稿说成已发送\n" +
-		"- 播歌/播放：用 media.play target=foreground app=用户指定播放器 query=歌名或歌手；没说具体歌曲时 query=random，不要编歌名或搜索热门。工具会启动播放器并发送一次播放。只有回执含 verified 且 passed=true 才能报告已播放；started playing / MEDIA_UNVERIFIED / uncertain 不得声称成功，也不要用 computer.act 补点或再次 media.play。shuffle=false 不代表播放失败。用户说换一种方式/换个播放器：仍用 media.play target=foreground，改用本机另一个已安装播放器；不要改用网页或 computer.act，除非用户明确要求\n" +
+		"- 播歌/播放：第1步只打一次 media.play target=foreground app=用户指定播放器 query=歌名或歌手；没说具体歌曲时 query=random。verified 且 passed=true 立刻报成功并停。失败立刻第2步 observe。树上已有暂停/正在播放就报成功，不要点播放。没有再按名字点一次。第2步失败立刻第3步屏幕读号。三步走完才说播不了。shuffle=false 不代表失败。用户说换播放器：仍先 media.play 换本机另一个已安装播放器。电脑控制未开时说明原因并停，不要改网页版，除非用户明确要求\n" +
 		"- 建文件夹/写文件：用户要在桌面/本机创建、删除、改名、移动、复制文件夹或文件，或解压/下载到桌面时，立刻用 command.run 在真实 Desktop 或指定路径执行 mkdir（Windows 建目录用 New-Item -ItemType Directory），不要只口头答应；普通工作区文件才用 workspace 工具；需要处理代码、转换或运行程序时使用已授权的命令工具，完成后核对文件\n" +
 		"- 用户要求在已打开窗口打字时，必须操作并核验该窗口。workspace.edit/write 修改磁盘文件，不等于记事本/Word 的未保存编辑缓冲区已更新；不能凭文件写入回执或截图操作成功声称窗口文字已经改变。不要关闭、重载或覆盖未保存内容。直接改磁盘后要回读验证，并明确窗口是否同步\n" +
-		"- 桌面手只选一把：打开未运行的应用或桌面文件用 desktop.open；已聚焦窗口打字用 desktop.type；播歌用 media.play；网页用 browser.act；看屏/点控件/截图用 computer.act。同一轮不要 desktop.open 和 computer.act 各试一遍「打开」\n" +
-		"- 操作电脑：电脑控制开启时只用 computer.act。先 action=observe 读名字/id，再 click name= 或 id=，不要猜像素。短序列用 action=run steps（2–5 步）。截图只用于稀疏/画布界面，像素必须回传 frameId。同一失败不要连点超过两次。禁止点 UAC。遇到打开/保存文件对话框时停下来，runtime 会请用户去点。用户没说关闭时禁止 window_action close。启动未打开的应用用 desktop.open。多步做到完成再停。代码或终端任务可用 command.run，沿用本会话的执行权限；不要为了桌面操作猜测路径或盲跑脚本\n" +
+		"- 桌面手按 1-2-3，每步一次、成功即停：①专用工具 ②observe 后按名字点一次 ③屏幕读号。不要退回上一步，未走完不要报失败\n" +
+		"- 操作电脑：第2步才用 computer.act。先 action=observe 读名字/id，再 click name= 或 id=，不要猜像素。短序列用 action=run steps（2–5 步）。截图只用于稀疏/画布界面，像素必须回传 frameId。同一失败不要连点超过两次。禁止点 UAC。遇到打开/保存文件对话框时停下来，runtime 会请用户去点。用户没说关闭时禁止 window_action close。启动未打开的应用用 desktop.open。多步做到完成再停。代码或终端任务可用 command.run，沿用本会话的执行权限；不要为了桌面操作猜测路径或盲跑脚本\n" +
 		"- 调用技能：skill.invoke；安装 MCP：mcp.presets 再 mcp.install；安装插件：plugin.search 后 plugin.install\n" +
 		"- 对话里贴了抖音/B站/腾讯视频/YouTube 或视频文件直链：调用 video.understand 获取真实来源，不要 browser.act 或 media.play 代替分析。分享页面无字幕时只能按简介；直链仅按实际音轨识别和抽样画面及覆盖范围回答，禁止声称看完全部画面\n" +
 		"- 多次调用工具或经过多轮执行后，最后一句必须用自然语言把这次做完的结果讲清楚收尾（例如做了什么、结果如何），禁止在中途工具反馈后就沉默停住，也禁止只说「好的」「稍等」而不给最终结果"

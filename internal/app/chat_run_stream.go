@@ -508,6 +508,15 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 					break
 				}
+				if desktopLadderApplies(turn.Goal) && len(result.Message.ToolCalls) > 0 {
+					result.Message.ToolCalls = desktopLadderKeepCalls(result.Message.ToolCalls, req.Messages, turn.Goal)
+				}
+				if desktopLadderQuiet(req.Messages, turn.Goal) && desktopLadderLooksLikeFailureTalk(result.Message.Content) {
+					result.Message.Content = ""
+					if bufferReply {
+						stepReply.Reset()
+					}
+				}
 				if state.companion {
 					for _, call := range result.Message.ToolCalls {
 						if call.Name != "user.ask" {
@@ -570,7 +579,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							}
 						}
 					}
-					if len(result.Message.ToolCalls) == 0 && !autoMediaPlayDone && toolDefinitionsHave(req.Tools, "media.play") && !usedAnyTool(turn.LastTools, "media.play") && (companionShouldAutoMediaPlay(turn.Goal) || companionRetryActionTurn(spokenGoal)) {
+					if len(result.Message.ToolCalls) == 0 && !autoMediaPlayDone && toolDefinitionsHave(req.Tools, "media.play") && !usedAnyTool(turn.LastTools, "media.play") && desktopLadderAllowsDedicated(turn.Goal, req.Messages) && (companionShouldAutoMediaPlay(turn.Goal) || companionRetryActionTurn(spokenGoal)) {
 						if playArgs, ok := e.companionAutoMediaPlayArgsForTurn(sessionID, turn.Goal, spokenGoal); ok {
 							result.Message.ToolCalls = []llmadapter.ToolCall{{
 								ID:        "auto-" + ulid.Make().String(),
@@ -580,7 +589,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							autoMediaPlayDone = true
 						}
 					}
-					if len(result.Message.ToolCalls) == 0 && !autoDesktopOpenDone && toolDefinitionsHave(req.Tools, "desktop.open") && !turnAttemptedAction(req.Messages, "open") {
+					if len(result.Message.ToolCalls) == 0 && !autoDesktopOpenDone && toolDefinitionsHave(req.Tools, "desktop.open") && !turnAttemptedAction(req.Messages, "open") && desktopLadderAllowsDedicated(turn.Goal, req.Messages) && !(usedAnyTool(turn.LastTools, "media.play") && (playbackOnlyGoal(turn.Goal) || companionTurnWantsMusicPlay(turn.Goal))) {
 						if openArgs := fallbackDesktopOpenArgs(turn.Goal); len(openArgs) > 0 {
 							result.Message.ToolCalls = []llmadapter.ToolCall{{
 								ID:        "auto-" + ulid.Make().String(),
@@ -600,7 +609,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							autoDesktopTypeDone = true
 						}
 					}
-					if len(result.Message.ToolCalls) == 0 && !autoDesktopObserveDone && toolDefinitionsHave(req.Tools, "computer.act") && !turnAttemptedAction(req.Messages, "observe") && looksLikeDesktopObserveTurn(turn.Goal) {
+					if len(result.Message.ToolCalls) == 0 && !autoDesktopObserveDone && toolDefinitionsHave(req.Tools, "computer.act") && !turnAttemptedAction(req.Messages, "observe") && (looksLikeDesktopObserveTurn(turn.Goal) || desktopLadderWantsNamedObserve(turn.Goal, req.Messages)) {
 						result.Message.ToolCalls = []llmadapter.ToolCall{{
 							ID:        "auto-" + ulid.Make().String(),
 							Name:      "computer.act",
@@ -629,8 +638,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					continue
 				}
 				if mediaTurn && len(result.Message.ToolCalls) == 0 {
-					text := mediaTurnResultSpeech(req.Messages)
-					result.Message.Content = text
+					if text := computerReceiptCloseout(req.Messages, turn.Goal); text != "" {
+						result.Message.Content = text
+					}
 				}
 				stepText := ""
 				if assistantText.Len() > stepTextStart {
@@ -643,13 +653,19 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				if len(result.Message.ToolCalls) == 0 {
 					toolOut := lastToolOutput(req.Messages)
 					continueKind := pickTurnContinueKind(stepText, assistantText.String(), toolOut, turn.LastTools, usedTools, usedDesktopTools, state.companion, req.DisableReasoning, nudges, turn.Goal, len(req.Tools) > 0)
-					if !laneAllowsContinueNudges(state.lane) && !(continueKind == "desktop" && laneAllowsDesktopContinue(state.lane)) {
+					if !laneAllowsContinueNudges(state.lane) && !((continueKind == "desktop" || continueKind == "ladder") && laneAllowsDesktopContinue(state.lane)) {
 						continueKind = ""
+					}
+					if continueKind == "ladder" && !toolDefinitionsHave(req.Tools, "computer.act") {
+						continueKind = ""
+						text := "电脑控制未启用。第一次控桌面请到设置里打开。"
+						result.Message.Content = text
+						stepText = text
 					}
 					if state.lane.Lane == LaneL2 && continueKind != "" && continueKind != "incomplete" {
 						continueKind = ""
 					}
-					if continueKind == "desktop" && companionBrowserLookupSettled(turn.Goal, stepText, req.Messages) {
+					if (continueKind == "desktop" || continueKind == "ladder") && companionBrowserLookupSettled(turn.Goal, stepText, req.Messages) {
 						continueKind = ""
 					}
 					if (state.companion || computerTurn) && continueKind == "desktop" && computerReceiptCloseout(req.Messages, turn.Goal) != "" {
@@ -721,6 +737,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						}
 					}
 					if continueKind != "" {
+						if desktopLadderQuiet(req.Messages, turn.Goal) && desktopLadderLooksLikeFailureTalk(stepText) {
+							result.Message.Content = ""
+							stepText = ""
+						}
 						nudges++
 						msg := result.Message
 						if strings.TrimSpace(msg.Content) == "" {
@@ -735,6 +755,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							nudge = desktopContinueNudgeMessage()
 						case "incomplete":
 							nudge = incompleteContinueNudgeMessage()
+						case "ladder":
+							nudge = desktopLadderNudgeMessage(req.Messages, turn.Goal)
 						case "wait":
 							nudge = llmadapter.Message{Role: llmadapter.RoleSystem, Content: "立刻调用本轮已装备的工具执行。不要再承诺稍等。下一句必须是结果或无法执行。"}
 						}
@@ -1311,7 +1333,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					lastGUIFail = noteDesktopGUIFail(call.Name, summary, toolErr, lastGUIFail)
 				}
 				state.usedScreenTools = usedDesktopTools
-				guiTrigger := lastGUIFail || emptyObserves >= 2
+				guiTrigger := lastGUIFail || emptyObserves >= 2 || desktopLadderWantsGUIAfterObserve(turn.Goal, req.Messages, emptyObserves)
 				if guiTrigger && guiLoopRuns < maxGUILoopRunsPerTurn && !parkedFilePicker && !parkedUAC && parkedBrowserWall == "" {
 					if fb, fbArgs, used := e.tryGUIFallback(op, mode, sessionID, turn.Goal, req.Model, state, req.Images, false, desktopTypeL0Passed, observedThisTurn); used {
 						guiLoopRuns++
@@ -1340,14 +1362,14 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					return nil
 				}
 				if companionShouldAutoMediaPlay(turn.Goal) || companionRetryActionTurn(spokenGoal) {
-					hasMediaPlay := autoMediaPlayDone
+					hasMediaPlay := autoMediaPlayDone || usedAnyTool(turn.LastTools, "media.play")
 					for _, call := range result.Message.ToolCalls {
 						if call.Name == "media.play" {
 							hasMediaPlay = true
 							break
 						}
 					}
-					if !hasMediaPlay {
+					if !hasMediaPlay && desktopLadderAllowsDedicated(turn.Goal, req.Messages) {
 						if playArgs, ok := e.companionAutoMediaPlayArgsForTurn(sessionID, turn.Goal, spokenGoal); ok {
 							autoMediaPlayDone = true
 							callID := "auto-" + ulid.Make().String()
@@ -1389,7 +1411,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							break
 						}
 					}
-					if !hasDesktopType {
+					if !hasDesktopType && desktopLadderAllowsDedicated(turn.Goal, req.Messages) && !turnAttemptedAction(req.Messages, "type") {
 						if typeArgs, ok := e.companionAutoDesktopTypeArgs(sessionID, turn.Goal); ok {
 							autoDesktopTypeDone = true
 							callID := "auto-" + ulid.Make().String()
@@ -1446,8 +1468,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				// notice). Run one more pass WITHOUT tools so the model must wrap
 				// up in natural language; fall through to the static notice only
 				// if that pass also yields nothing.
-				if assistantText.Len() == 0 && len(result.Message.ToolCalls) > 0 && (companionShouldAutoMediaPlay(turn.Goal) || companionRetryActionTurn(spokenGoal)) {
+				if assistantText.Len() == 0 && len(result.Message.ToolCalls) > 0 && (companionShouldAutoMediaPlay(turn.Goal) || companionRetryActionTurn(spokenGoal)) && !desktopLadderQuiet(req.Messages, turn.Goal) {
 					text := mediaTurnResultSpeech(req.Messages)
+					if desktopLadderSucceeded(req.Messages, turn.Goal) {
+						text = desktopLadderSuccessSpeech(turn.Goal)
+					}
 					assistantText.WriteString(text)
 					if err := sendDeltaChunks(send, text); err != nil {
 						return err

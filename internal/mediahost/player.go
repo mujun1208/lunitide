@@ -151,10 +151,20 @@ func (p *Player) Observe(ctx context.Context, sessionID, event string, positionM
 	if err := p.Attach(ctx, sessionID); err != nil {
 		return false, err
 	}
-	if event != "position" {
-		if _, _, err := p.Next(ctx); err != nil {
+	if event == "position" {
+		p.mu.Lock()
+		op := p.operation
+		p.mu.Unlock()
+		if !validPlayerULID(op) {
+			return false, nil
+		}
+		if err := p.ReportObserved(ctx, event, positionMs, durationMs); err != nil {
 			return false, err
 		}
+		return true, nil
+	}
+	if _, _, err := p.Next(ctx); err != nil {
+		return false, err
 	}
 	p.mu.Lock()
 	op := p.operation

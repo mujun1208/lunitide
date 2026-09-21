@@ -31,9 +31,9 @@ func computerExecutionTurn(goal string) bool {
 
 func desktopExecutionInstruction() string {
 	return "\n[电脑执行约定：语音与文字共用]\n" +
-		"先按目标选专用工具：桌面浏览器/搜索页用 desktop.browse，文件/应用用 desktop.open，播放/切歌用 media.play，命名字段输入用 desktop.type，彻底退出用 desktop.quit。系统设置页和系统文件夹（蓝牙/Wi-Fi/显示/声音/壁纸/默认应用/Windows 更新/回收站/下载文件夹/控制面板等）直接 desktop.open 该页名称一步到页，不要先开设置再逐级点击。网页内操作用 browser.act，通用桌面操作才用 computer.act；长文本或中文输入交给工具自动走剪贴板粘贴，不要逐字敲；不为同一个目标换工具重复操作。用户要在桌面/本机创建、删除、改名、移动、复制文件夹或文件，或解压/下载到桌面时，立刻 command.run mkdir/删除等到真实 Desktop 或用户指定路径（Windows 建目录用 New-Item -ItemType Directory），不要只说 I'll create / 我来创建就结束，也不要用 workspace 代替桌面。\n" +
+		"先按目标选专用工具：桌面浏览器/搜索页用 desktop.browse，文件/应用用 desktop.open，播放/切歌用 media.play，命名字段输入用 desktop.type，彻底退出用 desktop.quit。系统设置页和系统文件夹（蓝牙/Wi-Fi/显示/声音/壁纸/默认应用/Windows 更新/回收站/下载文件夹/控制面板等）直接 desktop.open 该页名称一步到页，不要先开设置再逐级点击。网页内操作用 browser.act，通用桌面操作才用 computer.act；长文本或中文输入交给工具自动走剪贴板粘贴，不要逐字敲。电脑任务只走 1-2-3，每步一次、成功即停：①专用工具/技能/MCP；失败立刻②observe 后按名字点一次；再失败立刻③屏幕读号。不要退回上一步。未走完三步不要对用户报失败。不要用 computer.act 重复已经成功的 desktop.open。用户要在桌面/本机创建、删除、改名、移动、复制文件夹或文件，或解压/下载到桌面时，立刻 command.run mkdir/删除等到真实 Desktop 或用户指定路径（Windows 建目录用 New-Item -ItemType Directory），不要只说 I'll create / 我来创建就结束，也不要用 workspace 代替桌面。\n" +
 		"打开浏览器搜索并报告内容时，搜索入口只打开一次，后续检索用查询工具；不要每换一个检索词就再启动搜索页。用户明确要求打开具体结果页或多个页面时按要求执行。\n" +
-		"专用工具已经成功就使用原回执；不再启动、切歌、打字或发送一次。失败先读取具体错误并重新观察，只在目标或参数得到纠正后重试；相同失败不得循环。截图或像素变化仅证明观察/画面变化，不证明已输入、已保存、已发送或已播放。\n" +
+		"专用工具已经成功就使用原回执并立刻报成功，不再走第2、第3步。同一档失败不得重试，直接进下一档。截图或像素变化仅证明观察/画面变化，不证明已输入、已保存、已发送或已播放。\n" +
 		"操作必须遵循当前会话权限，不绕过确认，不覆盖未保存内容。电脑控制需要最新 frameId；优先实际控件名称/ID，坐标只能来自当前截图。\n" +
 		"最终按本轮实际证据简短报告已做的事和未完成部分。打开不等于播放，写磁盘不等于窗口更新，关闭窗口不等于退出进程。失败后成功应采用最新成功证据；只有观察或命令回执时不能说任务完成。草稿并不代表用户已经看到结果。\n"
 }
@@ -191,9 +191,18 @@ func typedFieldOnlyGoal(goal string) bool {
 
 func computerReceiptCloseout(messages []llmadapter.Message, goal string) string {
 	if playbackOnlyGoal(goal) && lastNamedToolOutput(messages, "media.play") != "" {
-		out := lastNamedToolOutput(messages, "media.play")
-		if proof, ok := extractL0(out); ok && proof.Passed && !proof.Uncertain && strings.Contains(goal, "随机") && strings.Contains(out, "shuffle=false") {
-			return "已开始播放，但未确认随机模式。"
+		if desktopLadderSucceeded(messages, goal) {
+			out := lastNamedToolOutput(messages, "media.play")
+			if proof, ok := extractL0(out); ok && proof.Passed && !proof.Uncertain && strings.Contains(goal, "随机") && strings.Contains(out, "shuffle=false") {
+				return "已开始播放，但未确认随机模式。"
+			}
+			if !companionToolResultFailed(out) && !unverifiedMediaPlay("media.play", out, "") {
+				return mediaTurnResultSpeech(messages)
+			}
+			return desktopLadderSuccessSpeech(goal)
+		}
+		if !desktopLadderSettled(messages, goal) {
+			return ""
 		}
 		return mediaTurnResultSpeech(messages)
 	}

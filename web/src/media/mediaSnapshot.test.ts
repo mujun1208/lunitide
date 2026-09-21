@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import type { MediaOperationDTO, MediaSnapshotDTO } from '../generated/bridge'
-import { formatClock, miniPlayerPhase, needsPlaybackOpen } from './mediaSnapshot'
+import { formatClock, mediaTransportCommand, mediaTransportPlaying, miniPlayerPhase, needsPlaybackOpen, playbackTicketStale, shouldDetachPlayback } from './mediaSnapshot'
 
 const snap = (phase: MediaSnapshotDTO['phase']): MediaSnapshotDTO => ({
   mediaSessionId: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
@@ -56,15 +56,38 @@ it('formats clocks without claiming duration', () => {
 
 it('does not mint a new playback ticket while the same asset is already open', () => {
   const playing = snap('playing')
-  expect(needsPlaybackOpen(playing, 'https://media.lunitide.local/v1/assets/tok', playing.assetId, true)).toBe(false)
-  expect(needsPlaybackOpen(playing, null, null, true)).toBe(true)
-  expect(needsPlaybackOpen({ ...playing, assetId: '01ARZ3NDEKTSV4RRFFQ69G5FAZ' }, 'https://media.lunitide.local/v1/assets/tok', playing.assetId, true)).toBe(true)
-  expect(needsPlaybackOpen({ ...playing, playbackEpoch: 2 }, 'https://media.lunitide.local/v1/assets/tok', playing.assetId, true, 1)).toBe(true)
-  expect(needsPlaybackOpen({ ...playing, playbackEpoch: 2 }, 'https://media.lunitide.local/v1/assets/tok', playing.assetId, true, 2)).toBe(false)
-  expect(needsPlaybackOpen(snap('idle'), null, null, true)).toBe(false)
+  expect(needsPlaybackOpen(playing, 'https://media.lunitide.local/v1/assets/tok', playing.assetId)).toBe(false)
+  expect(needsPlaybackOpen(playing, null, null)).toBe(true)
+  expect(needsPlaybackOpen({ ...playing, assetId: '01ARZ3NDEKTSV4RRFFQ69G5FAZ' }, 'https://media.lunitide.local/v1/assets/tok', playing.assetId)).toBe(true)
+  expect(needsPlaybackOpen({ ...playing, playbackEpoch: 2 }, 'https://media.lunitide.local/v1/assets/tok', playing.assetId, 1)).toBe(true)
+  expect(needsPlaybackOpen({ ...playing, playbackEpoch: 2 }, 'https://media.lunitide.local/v1/assets/tok', playing.assetId, 2)).toBe(false)
 })
 
-it('does not open local media on launch until the user plays', () => {
-  expect(needsPlaybackOpen(snap('playing'), null, null, false)).toBe(false)
-  expect(needsPlaybackOpen(snap('paused'), null, null, false)).toBe(false)
+it('preloads an owned asset after pick even while the session is still idle', () => {
+  expect(needsPlaybackOpen(snap('idle'), null, null)).toBe(true)
+  expect(needsPlaybackOpen(snap('paused'), null, null)).toBe(true)
+  expect(needsPlaybackOpen({ ...snap('idle'), verificationStatus: 'command_dispatched' }, null, null)).toBe(true)
+  expect(shouldDetachPlayback(snap('idle'))).toBe(false)
+  expect(shouldDetachPlayback(snap('stopped'))).toBe(true)
+  expect(shouldDetachPlayback({ ...snap('idle'), assetId: null })).toBe(true)
+})
+
+it('sends play while the button still says play, never pause for an unverified idle session', () => {
+  const idle: MediaSnapshotDTO = { ...snap('idle'), verificationStatus: 'command_dispatched' }
+  expect(mediaTransportPlaying(true, idle)).toBe(false)
+  expect(mediaTransportCommand(idle)).toBe('play')
+  expect(mediaTransportCommand(snap('playing'))).toBe('pause')
+  expect(mediaTransportCommand(snap('paused'))).toBe('play')
+})
+
+it('remints a stale idle ticket, but never swaps src while audio is attached', () => {
+  const soon = new Date(Date.now() + 3_000).toISOString()
+  const later = new Date(Date.now() + 60_000).toISOString()
+  const url = 'https://media.lunitide.local/v1/assets/tok'
+  expect(playbackTicketStale(soon)).toBe(true)
+  expect(playbackTicketStale(later)).toBe(false)
+  expect(playbackTicketStale(undefined)).toBe(false)
+  expect(needsPlaybackOpen(snap('idle'), url, snap('idle').assetId, 0, soon)).toBe(true)
+  expect(needsPlaybackOpen(snap('playing'), url, snap('playing').assetId, 0, soon)).toBe(false)
+  expect(needsPlaybackOpen(snap('paused'), url, snap('paused').assetId, 0, soon)).toBe(false)
 })

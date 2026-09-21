@@ -31,14 +31,14 @@ const workflowWindowsPathClause = "- Windows 中文路径：command.run 以 UTF-
 
 const workflowHtmlClause = "- 桌面 HTML 小游戏、计时器或清单：必须用 html.gen（template=penalty-shootout、timer 或 checklist；用户要放到桌面时 desktop=true）。禁止把整页 HTML 塞进 workspace.write 或 command.run，否则工具调用会被截断并报「出错了，无法完成」。用户提到网页或要求预览时，工作区浏览器会打开该文件；桌面文件可双击用系统浏览器试玩。\n"
 
-const workflowDesktopHandClause = "- 桌面手（按意图选一把，不要四套里轮流赌）：未运行的应用或桌面文件用 desktop.open；已聚焦窗口打字用 desktop.type；播歌用 media.play；网页用 browser.act；看屏/点控件/截图用 computer.act。同一轮不要 desktop.open 和 computer.act 各试一遍「打开」。\n"
+const workflowDesktopHandClause = "- 电脑操作只走 1-2-3，每步一次、成功即停：①desktop.open / desktop.type / media.play / browser.act / 技能 / MCP；失败立刻②observe 后按名字点一次；再失败立刻③屏幕读号。不要退回上一步。未走完三步不要报失败。\n"
 
 const workflowDesktopOpenClause = "- 打开桌面文件：必须用 desktop.open，name=用户原话里的文件名。只打开最匹配的那一个。用户只说「打开文档」时列出桌面候选，不要默认打开协议。语音把「打开」听成「把开」时同样执行。禁止把桌面上其它无关文件一起打开。网易云音乐走 cloudmusic.exe，汽水音乐走 sodamusic.exe / Soda Music，都从开始菜单或本机安装路径解析，不要打开网页版。\n"
 
 const workflowDesktopTypeClause = "- 在已打开的对话框里填写：有命名输入框时用 desktop.type（after=界面上真实字段名如身份证号码或证件号码，text=要写的内容，需要发送时 submit=true，window=窗口标题）。Word 正文没有命名输入框时改 computer.act：先截图，记下 frameId，再点输入位置后 type，verifyAfter。找不到字段必须对用户说无法执行和原因。写完不要关窗口。\n"
 
-const workflowMediaClause = "- 播放音乐/视频：用 media.play target=foreground（没说歌名或要随机播放时 query=random，不要搜索热门；说了歌手如周杰伦则 query=周杰伦）。工具会启动指定播放器。禁止点收藏或点赞开关。成功以正在播放为准，收到 verified 且 passed=true 后直接报告，不要重复操作。用户说换一种方式/换个播放器时仍用 media.play，改用本机另一个已安装播放器，禁止改用网页或 computer.act。禁止默认打开 music.163.com / YouTube。仅当用户明确要网页版时才用 target=browser。\n" +
-	"- 暂停/下一首：media.play action=pause|next|prev。已打开的播放器暂停后再继续：media.play action=play，不要带歌名或应用名当 query，不要 computer.act 找播放按钮。\n" +
+const workflowMediaClause = "- 播放音乐/视频：第1步只打一次 media.play target=foreground（没说歌名或要随机播放时 query=random，不要搜索热门；说了歌手如周杰伦则 query=周杰伦）。verified 且 passed=true 立刻报成功，停止。失败立刻第2步 computer.act observe。树上已有暂停/正在播放就报成功，不要点播放。没有再按名字点一次。第2步失败立刻第3步屏幕读号。三步走完或电脑控制未开才报失败。禁止点收藏。用户说换播放器时仍先 media.play 换本机另一个已安装播放器。禁止默认打开 music.163.com / YouTube。仅当用户明确要网页版时才用 target=browser。\n" +
+	"- 暂停/下一首：先 media.play action=pause|next|prev。已打开的播放器暂停后再继续：media.play action=play，不要带歌名或应用名当 query。媒体键失败后再 computer.act 点暂停/下一首，不要反复打同一 media.play。\n" +
 	"- 生成可听语音/朗读歌词/做一首能在对话里点播放的歌：用 audio.generate。lyrics 或 prompt 必须是要读出的正文或歌词；不要把「帮我生成一首歌」整句送进去。用户没给歌词时先写出歌词再调用。产物会在对话里出现播放器。这是语音合成朗读，不是演唱成曲；产品没有作曲引擎，不要声称已经唱出来。播放本机已有歌曲用 media.play，不要 audio.generate。\n"
 
 const workflowIMClause = "- 发飞书/企微/钉钉/微信/QQ：设置 → 消息通道启用后用 im.send。\n"
@@ -187,7 +187,7 @@ func selectWorkflowClauses(text string, lane ChatLane) []string {
 	if len(out) == 0 {
 		return nil
 	}
-	if needDesktopHand {
+	if needDesktopHand && !officeDeliverableSkipsDesktopLadder(text) && !browserLookupOnlyGoal(text) {
 		out = append([]string{workflowDesktopHandClause}, out...)
 	}
 	out = append(out, workflowStructuredClause, workflowSkillInstallClause, workflowWindowsPathClause)

@@ -4,8 +4,8 @@ import type { ActivitySnapshotDTO, MediaAssetDTO, MediaOperationDTO, MediaSessio
 import { useNavStore } from '../app/navStore'
 import { MediaCenterPage } from './MediaCenterPage'
 import { MediaMiniPlayer } from './MediaMiniPlayer'
-import { OwnedMediaPlayer } from './OwnedMediaPlayer'
-import { miniPlayerPhase, needsPlaybackOpen } from './mediaSnapshot'
+import { OwnedMediaPlayer, type OwnedMediaPlayerHandle } from './OwnedMediaPlayer'
+import { mediaTransportCommand, miniPlayerPhase, needsPlaybackOpen, shouldDetachPlayback } from './mediaSnapshot'
 import { mediaText } from './mediaCopy'
 import { useZh } from '../i18n/language'
 
@@ -34,6 +34,7 @@ const EMPTY: MediaState = {
 }
 
 type MediaStoreValue = MediaState & {
+  wantPlay: boolean
   pick: () => Promise<void>
   playPause: () => Promise<void>
   previous: () => Promise<void>
@@ -75,11 +76,37 @@ export function MediaRuntime({
   const snapshotRef = useRef(state.snapshot)
   const openedAssetIdRef = useRef<string | null>(null)
   const openedEpochRef = useRef<number | null>(null)
+  const openedExpiresAtRef = useRef<string | null>(null)
   const playbackUrlRef = useRef<string | null>(null)
+  const playerRef = useRef<OwnedMediaPlayerHandle>(null)
   snapshotRef.current = state.snapshot
   playbackUrlRef.current = state.playbackUrl
   const zh = useZh()
   const copy = mediaText(zh)
+
+  const dropPlayback = useCallback(() => {
+    openedAssetIdRef.current = null
+    openedEpochRef.current = null
+    openedExpiresAtRef.current = null
+    playbackUrlRef.current = null
+    setState(prev => prev.playbackUrl ? { ...prev, playbackUrl: null } : prev)
+  }, [])
+
+  const openPlayback = useCallback(async (current: MediaSnapshotDTO) => {
+    if (!current.assetId) return
+    if (!needsPlaybackOpen(current, playbackUrlRef.current, openedAssetIdRef.current, openedEpochRef.current, openedExpiresAtRef.current)) return
+    try {
+      const opened = await media.openAsset({ assetId: current.assetId, mediaSessionId: current.mediaSessionId })
+      openedAssetIdRef.current = current.assetId
+      openedEpochRef.current = current.playbackEpoch
+      openedExpiresAtRef.current = opened.expiresAt
+      playbackUrlRef.current = opened.playbackUrl
+      setState(prev => ({ ...prev, playbackUrl: opened.playbackUrl }))
+    } catch {
+      dropPlayback()
+      setState(prev => ({ ...prev, notice: prev.notice || copy.channelDown }))
+    }
+  }, [copy.channelDown, dropPlayback, media])
 
   const refresh = useCallback(async () => {
     try {
@@ -104,24 +131,14 @@ export function MediaRuntime({
         disabledReason: 'disabled' in sessions && sessions.disabled ? copy.disabled : '',
         notice: prev.notice,
       }))
-      if (!current || current.phase === 'stopped' || current.phase === 'idle') {
-        openedAssetIdRef.current = null
-        openedEpochRef.current = null
-        playbackUrlRef.current = null
-        setState(prev => prev.playbackUrl ? { ...prev, playbackUrl: null } : prev)
-      } else if (needsPlaybackOpen(current, playbackUrlRef.current, openedAssetIdRef.current, wantPlayRef.current, openedEpochRef.current) && current.assetId) {
-        try {
-          const opened = await media.openAsset({ assetId: current.assetId, mediaSessionId: current.mediaSessionId })
-          openedAssetIdRef.current = current.assetId
-          openedEpochRef.current = current.playbackEpoch
-          playbackUrlRef.current = opened.playbackUrl
-          setState(prev => ({ ...prev, playbackUrl: opened.playbackUrl }))
-        } catch {
-          openedAssetIdRef.current = null
-          openedEpochRef.current = null
-          playbackUrlRef.current = null
-          setState(prev => ({ ...prev, playbackUrl: null, notice: prev.notice || copy.channelDown }))
+      if (shouldDetachPlayback(current)) {
+        dropPlayback()
+        if (current?.phase === 'stopped') {
+          wantPlayRef.current = false
+          setWantPlay(false)
         }
+      } else if (current) {
+        await openPlayback(current)
       }
     } catch (error) {
       if (error instanceof BridgeClientError && error.message === '请求超时参数无效') {
@@ -129,7 +146,7 @@ export function MediaRuntime({
       }
       setState(prev => ({ ...prev, notice: failMessage(error, copy.refreshFailed, copy.disabled) }))
     }
-  }, [activity, copy.channelDown, copy.disabled, copy.refreshFailed, media])
+  }, [activity, copy.disabled, copy.refreshFailed, dropPlayback, media, openPlayback])
 
   useEffect(() => {
     void refresh()
@@ -162,8 +179,14 @@ export function MediaRuntime({
         : { mediaSessionId: snapshot.mediaSessionId, action, expectedRevision: snapshot.revision, operationId: newBridgeULID() }
     try {
       const result = await media.command(payload, { attempt: createMutationAttempt('media.session.command', payload) })
-      if (action === 'play' || (action === 'toggle' && snapshot.phase !== 'playing')) { wantPlayRef.current = true; setWantPlay(true) }
-      if (action === 'pause' || action === 'stop') { wantPlayRef.current = false; setWantPlay(false) }
+      if (action === 'play' || action === 'next' || action === 'previous' || (action === 'toggle' && snapshot.phase !== 'playing')) {
+        wantPlayRef.current = true
+        setWantPlay(true)
+      }
+      if (action === 'pause' || action === 'stop') {
+        wantPlayRef.current = false
+        setWantPlay(false)
+      }
       setState(prev => ({
         ...prev,
         snapshot: result.snapshot,
@@ -178,6 +201,23 @@ export function MediaRuntime({
       setState(prev => ({ ...prev, busy: false, notice: failMessage(error, copy.commandFailed, copy.disabled) }))
     }
   }, [copy.commandFailed, copy.disabled, media, refresh])
+
+  const playPause = useCallback(async () => {
+    const snapshot = snapshotRef.current
+    if (!snapshot) return
+    const action = mediaTransportCommand(snapshot)
+    if (action === 'play') {
+      wantPlayRef.current = true
+      setWantPlay(true)
+      await openPlayback(snapshot)
+      playerRef.current?.playNow(playbackUrlRef.current)
+    } else {
+      wantPlayRef.current = false
+      setWantPlay(false)
+      playerRef.current?.pauseNow()
+    }
+    await runCommand(action)
+  }, [openPlayback, runCommand])
 
   const pick = useCallback(async () => {
     setState(prev => ({ ...prev, busy: true, notice: '' }))
@@ -200,7 +240,9 @@ export function MediaRuntime({
       }
       try {
         const created = await media.create(createPayload, { attempt: createMutationAttempt('media.session.create', createPayload) })
+        snapshotRef.current = created.snapshot
         setState(prev => ({ ...prev, snapshot: created.snapshot, operation: created.operation, assets: picked.assets, busy: false }))
+        await openPlayback(created.snapshot)
         await refresh()
       } catch (error) {
         setState(prev => ({ ...prev, assets: picked.assets, busy: false, notice: failMessage(error, copy.createFailed, copy.disabled) }))
@@ -208,7 +250,7 @@ export function MediaRuntime({
     } catch (error) {
       setState(prev => ({ ...prev, busy: false, notice: failMessage(error, copy.pickFailed, copy.disabled) }))
     }
-  }, [copy.createFailed, copy.disabled, copy.noFile, copy.pickFailed, media, refresh])
+  }, [copy.createFailed, copy.disabled, copy.noFile, copy.pickFailed, media, openPlayback, refresh])
 
   const queue = useCallback(async (action: 'jump' | 'remove' | 'clear', itemId?: string) => {
     const snapshot = snapshotRef.current
@@ -219,6 +261,10 @@ export function MediaRuntime({
       : { mediaSessionId: snapshot.mediaSessionId, action, itemId: itemId!, expectedQueueRevision: snapshot.queueRevision, operationId: newBridgeULID() }
     try {
       const result = await media.queueCommand(payload, { attempt: createMutationAttempt('media.queue.command', payload) })
+      if (action === 'jump') {
+        wantPlayRef.current = true
+        setWantPlay(true)
+      }
       setState(prev => ({ ...prev, snapshot: result.snapshot, operation: result.operation, busy: false }))
       await refresh()
     } catch (error) {
@@ -228,8 +274,9 @@ export function MediaRuntime({
 
   const value = useMemo<MediaStoreValue>(() => ({
     ...state,
+    wantPlay,
     pick,
-    playPause: () => runCommand(wantPlay ? 'pause' : 'play'),
+    playPause,
     previous: () => runCommand('previous'),
     next: () => runCommand('next'),
     stop: () => runCommand('stop', { asStop: true }),
@@ -238,7 +285,7 @@ export function MediaRuntime({
     clear: () => queue('clear'),
     seek: positionMs => runCommand('seek', { positionMs }),
     volume: volume => runCommand('set_volume', { volume }),
-  }), [pick, queue, runCommand, state, wantPlay])
+  }), [pick, playPause, queue, runCommand, state, wantPlay])
 
   const phase = miniPlayerPhase(page, state.snapshot, state.stopOperation)
   const current = state.assets.find(item => item.assetId === state.snapshot?.assetId)
@@ -258,6 +305,7 @@ export function MediaRuntime({
         onRetryClose={() => { void value.stop() }}
       />
       <OwnedMediaPlayer
+        ref={playerRef}
         snapshot={state.snapshot}
         src={state.playbackUrl}
         kind={current?.kind ?? null}
@@ -266,6 +314,7 @@ export function MediaRuntime({
         onError={message => {
           openedAssetIdRef.current = null
           openedEpochRef.current = null
+          openedExpiresAtRef.current = null
           playbackUrlRef.current = null
           setState(prev => ({ ...prev, notice: message, playbackUrl: null }))
         }}
@@ -283,6 +332,7 @@ export function useMediaStore(): MediaStoreValue {
   const value = useContext(MediaStoreContext)
   if (!value) return {
     ...EMPTY,
+    wantPlay: false,
     pick: async () => {},
     playPause: async () => {},
     previous: async () => {},

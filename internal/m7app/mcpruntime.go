@@ -175,6 +175,7 @@ func (s *McpRuntimeService) Add(ctx context.Context, in McpAddInput) (McpAddResu
 			transport = m7flow.McpTransportHTTPS
 		}
 	}
+	in.Args = resolveMcpStdioPlaceholders(in.Args)
 	// schema validation per transport (scenario 46)
 	switch transport {
 	case m7flow.McpTransportStdio:
@@ -551,6 +552,26 @@ func canonicalMcpTarget(ep m7flow.McpEndpointConfig) string {
 		return ep.Command + "|" + ep.ArgsJSON
 	}
 	return ep.URL
+}
+
+// resolveMcpStdioPlaceholders fills the filesystem sandbox so a leftover
+// "{{dir}}" never reaches spawn. Other placeholders stay untouched.
+func resolveMcpStdioPlaceholders(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
+	out := append([]string(nil), args...)
+	changed := false
+	for i, a := range out {
+		if a == "{{dir}}" {
+			out[i] = mcp6.PrepareSandbox("filesystem")
+			changed = true
+		}
+	}
+	if !changed {
+		return args
+	}
+	return out
 }
 
 // LastDiagnostic is refreshed by startup hydration and explicit health checks.

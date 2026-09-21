@@ -85,7 +85,7 @@ func shouldContinueTurn(text string, usedTools bool, nudges int, disableReasonin
 	return assistantPausedMidTask(text)
 }
 
-const incompleteContinueNudgeText = "上一步工具结果未闭环（画面过期、控件引用失效、或播放未确认正在播放）。立刻根据最新结果继续调用工具，不要停下来询问。"
+const incompleteContinueNudgeText = "上一步工具结果未闭环（画面过期、控件引用失效、材料已读但交付未生成、或播放未确认正在播放）。立刻根据最新结果继续调用本轮该用的工具，不要改去做看屏点按钮，不要停下来询问。"
 
 func incompleteContinueNudgeMessage() llmadapter.Message {
 	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: incompleteContinueNudgeText}
@@ -165,6 +165,7 @@ func shouldContinueIncompleteWork(text, lastToolOut string, lastTools []string, 
 		return false
 	}
 	if lastToolName(lastTools) == "media.play" && companionToolResultFailed(lastToolOut) {
+		// Failed play is a method switch, not another media.play retry.
 		return false
 	}
 	blob := strings.ToUpper(text + "\n" + lastToolOut)
@@ -373,6 +374,9 @@ func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []st
 	}
 	if computerTask && companionGoalIsOpenOnly(userGoal) && desktopOpenSucceeded(toolOut, lastTools) && !strings.Contains(stepText+assistantAll+toolOut, "无法执行") {
 		return ""
+	}
+	if computerTask && desktopLadderShouldContinue(userGoal, toolOut, lastTools, nudges) {
+		return "ladder"
 	}
 	if shouldContinueIncompleteWork(stepText, toolOut, lastTools, usedTools, nudges) {
 		return "incomplete"

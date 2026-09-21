@@ -69,13 +69,13 @@ it('installs needsArgs presets with argDefault without a path picker', async () 
   expect(screen.queryByLabelText('Filesystem 参数')).not.toBeInTheDocument()
 })
 
-it('refuses a needsArgs preset that cannot one-click install', async () => {
+it('installs filesystem with the leftover placeholder when argDefault is missing', async () => {
   const bridge = api()
   render(<McpPage bridge={bridge} />)
   await screen.findByText('Filesystem')
   fireEvent.click(screen.getByRole('button', { name: '安装 Filesystem' }))
-  expect(bridge.add).not.toHaveBeenCalled()
-  expect(await screen.findByRole('alert')).toHaveTextContent('无法一键安装')
+  await waitFor(() => expect(bridge.add).toHaveBeenCalledOnce())
+  expect(vi.mocked(bridge.add).mock.calls[0][0].args).toEqual(['-y', '@modelcontextprotocol/server-filesystem', '{{dir}}'])
   expect(screen.queryByLabelText('Filesystem 参数')).not.toBeInTheDocument()
 })
 
@@ -432,7 +432,7 @@ it('offers uninstall when repair still cannot handshake', async () => {
     description: '搜索',
     transport: 'stdio' as const,
     command: 'npx' as const,
-    args: ['-y', '@nickclyde/duckduckgo-mcp-server'],
+    args: ['-y', 'duckduckgo-mcp-server'],
     needsArgs: false,
     category: '网络',
   }
@@ -447,6 +447,92 @@ it('offers uninstall when repair still cannot handshake', async () => {
   fireEvent.click(await screen.findByRole('button', { name: '检查并修复' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('建议卸载')
   expect(await screen.findByRole('dialog', { name: /卸载「DuckDuckGo」/ })).toBeInTheDocument()
+  confirmToken.mockRestore()
+  uninstall.mockRestore()
+})
+
+it('repairs filesystem by substituting the sandbox path', async () => {
+  const broken = {
+    ...memoryEndpoint,
+    displayName: 'Filesystem',
+    args: ['-y', '@modelcontextprotocol/server-filesystem', '{{dir}}'],
+    state: 'degraded' as const,
+    diagnosticCode: 'MCP_CONNECT_FAILED',
+    diagnosticMessage: '未能建立连接。',
+  }
+  const filesystemPreset = {
+    ...catalog[1],
+    argDefault: 'C:/Users/demo/AppData/Local/Lunitide/mcp/filesystem',
+  }
+  const confirmToken = vi.spyOn(mcBridge, 'confirmToken').mockResolvedValue({ confirmToken: 'a'.repeat(64), expiresAt: '2026-01-01T00:00:00Z' })
+  const uninstall = vi.spyOn(mcBridge, 'uninstall').mockResolvedValue({ endpointId: broken.endpointId, state: 'revoked' })
+  const bridge = api({
+    presets: vi.fn().mockResolvedValue({ items: [filesystemPreset] }),
+    list: vi.fn()
+      .mockResolvedValueOnce({ endpoints: [broken] })
+      .mockResolvedValue({ endpoints: [{ ...broken, endpointId: 'mcp-2', args: ['-y', '@modelcontextprotocol/server-filesystem', filesystemPreset.argDefault], state: 'ready' }] }),
+    add: vi.fn().mockResolvedValue({ endpointId: 'mcp-2', state: 'ready' }),
+    health: vi.fn()
+      .mockResolvedValueOnce({ state: 'degraded', diagnosticMessage: broken.diagnosticMessage })
+      .mockResolvedValue({ state: 'ready', latencyMs: 20 }),
+  })
+  render(<McpPage bridge={bridge} />)
+  fireEvent.click(await screen.findByRole('tab', { name: /已安装/ }))
+  fireEvent.click(await screen.findByRole('button', { name: '检查并修复' }))
+  await waitFor(() => expect(bridge.add).toHaveBeenCalledWith(expect.objectContaining({
+    args: ['-y', '@modelcontextprotocol/server-filesystem', 'C:/Users/demo/AppData/Local/Lunitide/mcp/filesystem'],
+  })))
+  confirmToken.mockRestore()
+  uninstall.mockRestore()
+})
+
+it('batch repair installs uv, remounts remapped packages, and restores a deleted recommended server', async () => {
+  const oldYoutube = {
+    ...memoryEndpoint,
+    displayName: 'YouTube Transcript',
+    args: ['-y', 'youtube-transcript-mcp'],
+    state: 'degraded' as const,
+    diagnosticCode: 'MCP_PROTOCOL_FAILED',
+  }
+  const fetchBroken = {
+    ...memoryEndpoint,
+    endpointId: 'mcp-fetch',
+    displayName: 'Fetch',
+    command: 'uvx',
+    args: ['mcp-server-fetch'],
+    state: 'degraded' as const,
+    diagnosticCode: 'MCP_UV_UNAVAILABLE',
+    diagnosticMessage: '未找到 uv。可在本页点「安装 uv」自动下载；npx 服务不受影响。',
+  }
+  const confirmToken = vi.spyOn(mcBridge, 'confirmToken').mockResolvedValue({ confirmToken: 'a'.repeat(64), expiresAt: '2026-01-01T00:00:00Z' })
+  const uninstall = vi.spyOn(mcBridge, 'uninstall').mockResolvedValue({ endpointId: oldYoutube.endpointId, state: 'revoked' })
+  const uvInstall = vi.fn().mockResolvedValue({ state: 'ready', percent: 100, doneBytes: 1, totalBytes: 1 })
+  const add = vi.fn()
+    .mockResolvedValueOnce({ endpointId: 'mcp-yt', state: 'ready' })
+    .mockResolvedValueOnce({ endpointId: 'mcp-fetch-2', state: 'ready' })
+  const health = vi.fn()
+    .mockResolvedValueOnce({ state: 'degraded' })
+    .mockResolvedValueOnce({ state: 'ready', latencyMs: 12 })
+    .mockResolvedValueOnce({ state: 'degraded' })
+    .mockResolvedValue({ state: 'ready', latencyMs: 9 })
+  const list = vi.fn()
+    .mockResolvedValueOnce({ endpoints: [oldYoutube, fetchBroken] })
+    .mockResolvedValue({ endpoints: [{ ...oldYoutube, endpointId: 'mcp-yt', args: youtubePreset.args, state: 'ready' }, { ...fetchBroken, endpointId: 'mcp-fetch-2', state: 'ready' }] })
+  const bridge = api({
+    uvInstall,
+    presets: vi.fn().mockResolvedValue({ items: [youtubePreset, { id: 'fetch', name: 'Fetch', description: '抓取网页', transport: 'stdio' as const, command: 'uvx' as const, args: ['mcp-server-fetch'], needsArgs: false, category: '网络' }] }),
+    list,
+    add,
+    health,
+  })
+  render(<McpPage bridge={bridge} />)
+  fireEvent.click(await screen.findByRole('tab', { name: /已安装/ }))
+  fireEvent.click(await screen.findByRole('button', { name: '修复全部' }))
+  await waitFor(() => expect(uvInstall).toHaveBeenCalled())
+  await waitFor(() => expect(add).toHaveBeenCalled())
+  expect(add).toHaveBeenCalledWith(expect.objectContaining({ args: ['-y', '@sinco-lab/mcp-youtube-transcript'] }))
+  expect(screen.queryByRole('dialog', { name: /卸载/ })).not.toBeInTheDocument()
+  expect(await screen.findByRole('status')).toHaveTextContent('批量修复完成')
   confirmToken.mockRestore()
   uninstall.mockRestore()
 })
