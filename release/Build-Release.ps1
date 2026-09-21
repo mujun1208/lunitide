@@ -50,7 +50,9 @@ function Publish-GitHubRelease([string]$Version, [string]$Installer, [string]$La
   $assets = @($Installer, $LatestJson)
   $sums = Join-Path (Split-Path -Parent $LatestJson) 'SHA256SUMS.txt'
   if (Test-Path -LiteralPath $sums -PathType Leaf) { $assets += $sums }
-  $createArgs = @('release','create',$tag) + $assets + @('--title',("Lunitide {0}" -f $Version),'--latest')
+  $target = (& git -C $root rev-parse HEAD).Trim()
+  if (-not $target) { throw 'Could not resolve HEAD for GitHub release target' }
+  $createArgs = @('release','create',$tag) + $assets + @('--title',("Lunitide {0}" -f $Version),'--latest','--target',$target)
   if (Test-Path -LiteralPath $notes -PathType Leaf) { $createArgs += @('--notes-file',$notes) }
   else { $createArgs += @('--notes','Desktop overlay installer and latest.json for in-app update.') }
   & gh @createArgs
