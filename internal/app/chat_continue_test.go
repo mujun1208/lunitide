@@ -114,11 +114,11 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	if !shouldContinueIncompleteWork("正在播放周杰伦", "media.play started player", []string{"media.play"}, true, 0) {
 		t.Fatal("assistant claim is not playback evidence")
 	}
-	if pickTurnContinueKind("这次没有完成。", "这次没有完成。", "ok:false\nnot found", []string{"media.play"}, true, true, true, false, 0, "放一首复古公路风", true) != "" {
-		t.Fatal("failed media.play must not desktop-continue")
+	if got := pickTurnContinueKind("这次没有完成。", "这次没有完成。", "ok:false\nnot found", []string{"media.play"}, true, true, true, false, 0, "放一首复古公路风", true); got != "ladder" {
+		t.Fatalf("failed media.play must escalate to named computer control, got %q", got)
 	}
 	if pickTurnContinueKind("好，我再点一下。", "好，我再点一下。", "clicked 播放", []string{"media.play", "computer.act"}, true, true, true, false, 0, "打开汽水音乐随机播放一首歌曲", true) != "" {
-		t.Fatal("playback-only turns must stop after media.play even if computer.act followed")
+		t.Fatal("named click already ran; do not keep looping the same desktop act")
 	}
 	if shouldContinueIncompleteWork("文件写好了，下一步打开网页。", "ok:true\nwritten", []string{"workspace.write"}, true, 0) {
 		t.Fatal("successful write plus 下一步 must not extra-loop")

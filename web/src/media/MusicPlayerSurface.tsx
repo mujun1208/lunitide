@@ -1,6 +1,6 @@
 import React from 'react'
 import type { MediaSnapshotDTO } from '../generated/bridge'
-import { formatClock } from './mediaSnapshot'
+import { formatClock, mediaTransportPlaying } from './mediaSnapshot'
 import { mediaText, playbackStatusText } from './mediaCopy'
 import { MediaTransportControls } from './MediaTransportControls'
 import { useZh } from '../i18n/language'
@@ -30,7 +30,7 @@ export function MusicPlayerSurface({
 }): React.JSX.Element {
   const zh = useZh()
   const copy = mediaText(zh)
-  const playing = snapshot.phase === 'playing'
+  const playing = mediaTransportPlaying(false, snapshot)
   return (
     <section className="media-music-surface" aria-label={copy.music}>
       <div className="media-stage">

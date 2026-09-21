@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { mcpNeedsRepair, recommendedPreset, repairPresetFor } from './mcpRepair'
+import { mcpExistingMarketInstall, mcpNeedsRepair, mcpRepairArgs, mcpRepairTargets, missingRecommendedPresets, recommendedPreset, repairPresetFor } from './mcpRepair'
 
 const youtube = {
   id: 'youtube-transcript',
@@ -12,7 +12,7 @@ const youtube = {
   category: '内容',
 }
 
-it('maps the zhsama duckduckgo install onto the Hermes package', () => {
+it('maps the unpublished nickclyde duckduckgo install onto the published package', () => {
   const preset = repairPresetFor({
     endpointId: 'mcp-2',
     transport: 'stdio',
@@ -20,20 +20,20 @@ it('maps the zhsama duckduckgo install onto the Hermes package', () => {
     enabled: true,
     origin: 'manual',
     command: 'npx',
-    args: ['-y', 'duckduckgo-mcp-server'],
-    diagnosticCode: 'MCP_PROTOCOL_FAILED',
+    args: ['-y', '@nickclyde/duckduckgo-mcp-server'],
+    diagnosticCode: 'MCP_PACKAGE_NOT_FOUND',
   }, [{
     id: 'duckduckgo',
     name: 'DuckDuckGo',
     description: '搜索',
     transport: 'stdio',
     command: 'npx',
-    args: ['-y', '@nickclyde/duckduckgo-mcp-server'],
+    args: ['-y', 'duckduckgo-mcp-server'],
     needsArgs: false,
     category: '网络',
   }])
   expect(preset?.id).toBe('duckduckgo')
-  expect(preset?.args).toContain('@nickclyde/duckduckgo-mcp-server')
+  expect(preset?.args).toContain('duckduckgo-mcp-server')
 })
 
 it('maps the broken youtube-transcript-mcp install onto the curated handshake package', () => {
@@ -67,4 +67,93 @@ it('treats handshake failures as repairable', () => {
     origin: 'manual',
     diagnosticCode: 'MCP_PROTOCOL_FAILED',
   })).toBe(true)
+})
+
+it('does not auto-repair capability-drift quarantines', () => {
+  expect(mcpNeedsRepair({
+    endpointId: 'mcp-1',
+    transport: 'stdio',
+    state: 'quarantined',
+    enabled: true,
+    origin: 'manual',
+    command: 'npx',
+    args: ['-y', '@sinco-lab/mcp-youtube-transcript'],
+  })).toBe(false)
+})
+
+it('still repairs remappable handshake quarantines', () => {
+  expect(mcpNeedsRepair({
+    endpointId: 'mcp-1',
+    transport: 'stdio',
+    state: 'quarantined',
+    enabled: true,
+    origin: 'manual',
+    command: 'npx',
+    args: ['-y', 'youtube-transcript-mcp'],
+    diagnosticCode: 'MCP_PROTOCOL_FAILED',
+  })).toBe(true)
+  expect(mcpNeedsRepair({
+    endpointId: 'mcp-2',
+    transport: 'stdio',
+    state: 'quarantined',
+    enabled: true,
+    origin: 'manual',
+    command: 'npx',
+    args: ['-y', 'duckduckgo-mcp-server'],
+    diagnosticMessage: '服务器握手或工具目录响应不符合支持的 MCP 协议，请检查启动配置及服务器版本。',
+  })).toBe(true)
+})
+
+it('skips leftover credential servers and keeps remapped recommended installs', () => {
+  const live = [
+    { endpointId: 'mcp-old', transport: 'stdio' as const, state: 'degraded' as const, enabled: true, origin: 'manual' as const, command: 'npx', args: ['-y', 'youtube-transcript-mcp'] },
+    { endpointId: 'mcp-gdrive', transport: 'stdio' as const, state: 'degraded' as const, enabled: true, origin: 'manual' as const, command: 'npx', args: ['-y', '@modelcontextprotocol/server-gdrive'] },
+  ]
+  expect(mcpRepairTargets(live).map(item => item.endpointId)).toEqual(['mcp-old'])
+  expect(missingRecommendedPresets([youtube], live).map(item => item.id)).toEqual([])
+})
+
+it('restores a deleted recommended youtube when no live remount remains', () => {
+  expect(missingRecommendedPresets([youtube], [
+    { endpointId: 'mcp-revoked', transport: 'stdio', state: 'revoked', enabled: false, origin: 'manual', command: 'npx', args: ['-y', '@sinco-lab/mcp-youtube-transcript'] },
+  ]).map(item => item.id)).toEqual(['youtube-transcript'])
+})
+
+it('reuses an already-installed remapped package instead of adding a second row', () => {
+  const current = {
+    endpointId: 'mcp-new',
+    transport: 'stdio' as const,
+    state: 'degraded' as const,
+    enabled: true,
+    origin: 'manual' as const,
+    command: 'npx',
+    args: ['-y', '@sinco-lab/mcp-youtube-transcript'],
+  }
+  expect(mcpExistingMarketInstall({
+    endpointId: 'mcp-old',
+    transport: 'stdio',
+    state: 'degraded',
+    enabled: true,
+    origin: 'manual',
+    command: 'npx',
+    args: ['-y', 'youtube-transcript-mcp'],
+  }, [current], [youtube])?.endpointId).toBe('mcp-new')
+})
+
+it('fills the filesystem sandbox and keeps leftover {{dir}} only when no default exists', () => {
+  expect(mcpRepairArgs({
+    ...youtube,
+    id: 'filesystem',
+    args: ['-y', '@modelcontextprotocol/server-filesystem', '{{dir}}'],
+    needsArgs: true,
+    argPlaceholder: '{{dir}}',
+    argDefault: 'C:/Users/demo/AppData/Local/Lunitide/mcp/filesystem',
+  })).toEqual(['-y', '@modelcontextprotocol/server-filesystem', 'C:/Users/demo/AppData/Local/Lunitide/mcp/filesystem'])
+  expect(mcpRepairArgs({
+    ...youtube,
+    id: 'filesystem',
+    args: ['-y', '@modelcontextprotocol/server-filesystem', '{{dir}}'],
+    needsArgs: true,
+    argPlaceholder: '{{dir}}',
+  })).toEqual(['-y', '@modelcontextprotocol/server-filesystem', '{{dir}}'])
 })

@@ -362,7 +362,7 @@ func TestEngineToolDefinitionsIncludeHTMLGen(t *testing.T) {
 	if !strings.Contains(wf, "desktop.open") || !strings.Contains(wf, "闭环") {
 		t.Fatal("desktop open and closed-loop workflow missing")
 	}
-	if !strings.Contains(wf, "选一把") || !strings.Contains(wf, "不要四套里轮流赌") {
+	if !strings.Contains(wf, "1-2-3") || !strings.Contains(wf, "每步一次") || !strings.Contains(wf, "成功即停") {
 		t.Fatal("desktop-hand routing clause missing")
 	}
 	if !strings.Contains(wf, "desktop.type") || !strings.Contains(wf, "证件号码") {

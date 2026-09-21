@@ -8,11 +8,35 @@ export function miniPlayerPhase(_page: Page, _snapshot: MediaSnapshotDTO | null,
   return 'hidden'
 }
 
-export function needsPlaybackOpen(snapshot: MediaSnapshotDTO | null, playbackUrl: string | null, openedAssetId: string | null, wantPlay: boolean, openedEpoch?: number | null): boolean {
-  if (!wantPlay || !snapshot || snapshot.origin !== 'owned' || !snapshot.assetId) return false
-  if (snapshot.phase !== 'playing' && snapshot.phase !== 'paused' && snapshot.verificationStatus !== 'command_dispatched') return false
-  if (playbackUrl && openedAssetId === snapshot.assetId && (openedEpoch == null || openedEpoch === snapshot.playbackEpoch)) return false
+const ticketRenewAheadMs = 10_000
+
+export function shouldDetachPlayback(snapshot: MediaSnapshotDTO | null): boolean {
+  return !snapshot || snapshot.origin !== 'owned' || !snapshot.assetId || snapshot.phase === 'stopped'
+}
+
+export function playbackTicketStale(expiresAt: string | null | undefined, nowMs = Date.now()): boolean {
+  if (expiresAt == null || expiresAt === '') return false
+  const exp = Date.parse(expiresAt)
+  if (!Number.isFinite(exp)) return false
+  return exp - nowMs < ticketRenewAheadMs
+}
+
+export function needsPlaybackOpen(snapshot: MediaSnapshotDTO | null, playbackUrl: string | null, openedAssetId: string | null, openedEpoch?: number | null, expiresAt?: string | null): boolean {
+  if (shouldDetachPlayback(snapshot) || !snapshot) return false
+  const sameAsset = Boolean(playbackUrl && openedAssetId === snapshot.assetId && (openedEpoch == null || openedEpoch === snapshot.playbackEpoch))
+  if (sameAsset) {
+    if (snapshot.phase === 'playing' || snapshot.phase === 'paused') return false
+    return playbackTicketStale(expiresAt)
+  }
   return true
+}
+
+export function mediaTransportPlaying(_wantPlay: boolean, snapshot: MediaSnapshotDTO | null): boolean {
+  return snapshot?.phase === 'playing'
+}
+
+export function mediaTransportCommand(snapshot: MediaSnapshotDTO | null): 'play' | 'pause' {
+  return mediaTransportPlaying(false, snapshot) ? 'pause' : 'play'
 }
 
 export function formatClock(ms: number): string {

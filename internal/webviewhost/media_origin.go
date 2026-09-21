@@ -15,8 +15,11 @@ const (
 	MediaVirtualHost          = "media.lunitide.local"
 	MediaAssetPathPrefix      = "/v1/assets/"
 	MediaResourceFilterURI    = "https://media.lunitide.local/v1/assets/*"
-	MediaResourceContextAll   = int32(0) // COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL
-	MediaResourceContextMedia = int32(4) // COREWEBVIEW2_WEB_RESOURCE_CONTEXT_MEDIA
+	MediaResourceContextAll      = int32(0)  // COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL
+	MediaResourceContextDocument = int32(1)  // COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT
+	MediaResourceContextMedia    = int32(4)  // COREWEBVIEW2_WEB_RESOURCE_CONTEXT_MEDIA
+	MediaResourceContextFetch    = int32(8)  // COREWEBVIEW2_WEB_RESOURCE_CONTEXT_FETCH
+	MediaResourceContextOther    = int32(16) // COREWEBVIEW2_WEB_RESOURCE_CONTEXT_OTHER
 	mediaTicketMinLen         = 16
 	mediaTicketMaxLen         = 64
 )
@@ -69,8 +72,17 @@ func deliverMediaResponse(wait func(fn func() bool) bool, complete, release func
 	}
 }
 
+func mediaElementResourceContext(resourceContext int32) bool {
+	switch resourceContext {
+	case MediaResourceContextMedia, MediaResourceContextFetch, MediaResourceContextOther:
+		return true
+	default:
+		return false
+	}
+}
+
 func MediaResourceAllowed(sourceURL string, resourceContext int32, requestURL string) bool {
-	if resourceContext != MediaResourceContextMedia || !NavigationAllowed(sourceURL) {
+	if !mediaElementResourceContext(resourceContext) || !NavigationAllowed(sourceURL) {
 		return false
 	}
 	_, ok := ParseMediaAssetTicket(requestURL)

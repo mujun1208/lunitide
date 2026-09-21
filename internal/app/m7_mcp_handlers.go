@@ -249,7 +249,8 @@ func handleMcpHealth(e *Engine, ctx context.Context, r bridge.Request) bridge.Re
 	}
 	res, err := e.m7mcp.RecoverHealth(ctx, p.EndpointID)
 	if err != nil && !errors.Is(err, m7app.ErrIllegalTransition) {
-		if res.Diagnostic.Code != "" && !errors.Is(err, m7app.ErrMcpNotFound) {
+		if !errors.Is(err, m7app.ErrMcpNotFound) && (res.Diagnostic.Code != "" || res.DriftDetected ||
+			res.State == m7flow.McpStateQuarantined || res.State == m7flow.McpStateDegraded) {
 			return r.Ok(struct {
 				State             string `json:"state"`
 				LatencyMS         int64  `json:"latencyMs"`

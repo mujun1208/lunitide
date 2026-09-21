@@ -5,7 +5,7 @@ import{leftoverArchivedMcp,leftoverArchivedNames,mcpCountsAsInstalled}from'../se
 import{Dialog}from'../ui/Dialog'
 import{McpCredentialDialog}from'./McpCredentialDialog'
 import{McpSecurityReviewDialog}from'./McpSecurityReviewDialog'
-import{mcpNeedsRepair,mcpPackageName,recommendedPreset,repairPresetFor}from'./mcpRepair'
+import{mcpExistingMarketInstall,mcpNeedsRepair,mcpPackageName,mcpRepairArgs,mcpRepairTargets,mcpUsesUv,missingRecommendedPresets,recommendedPreset,repairPresetFor}from'./mcpRepair'
 
 type Preset=Mcp6PresetsListResult['items'][number]
 type Endpoint=McpListResult['endpoints'][number]
@@ -112,11 +112,11 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
 
  const resolveArgs=(preset:Preset,value:string)=>preset.args.map(item=>item===preset.argPlaceholder?value.trim().replaceAll('\\','/'):item)
  const installPreset=async(preset:Preset,value?:string)=>{
-  const resolved=value?.trim()||preset.argDefault||''
+  const resolved=value?.trim()||preset.argDefault||(preset.argPlaceholder==='{{dir}}'?preset.argPlaceholder:'')
   if(preset.needsArgs&&!resolved){setError(`「${preset.name}」无法一键安装。`);return}
   setBusy(preset.id);setError('');setNotice('')
   try{
-   const added=await bridge.add({origin:'manual',transport:preset.transport,...(preset.transport==='https'?{url:preset.url}:{command:preset.command,args:resolveArgs(preset,resolved)}),riskConfirmed:true,configureOnly:Boolean(preset.needsCredential),requestId:crypto.randomUUID()})
+   const added=await bridge.add({origin:'manual',transport:preset.transport,...(preset.transport==='https'?{url:preset.url}:{command:preset.command,args:value?.trim()?resolveArgs(preset,value):mcpRepairArgs(preset)}),riskConfirmed:true,configureOnly:Boolean(preset.needsCredential),requestId:crypto.randomUUID()})
    if(!preset.needsCredential && added.state!=='ready'){
     const refreshed=await load()
     const row=refreshed?.find(item=>item.endpointId===added.endpointId)
@@ -148,39 +148,75 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
    await load()
   }catch(e){setError(`${title}：${mcpUserError(e,'重新连接失败')}`)}finally{await load();setBusy('')}
  }
- const repair=async(item:Endpoint)=>{
+ const repair=async(item:Endpoint,opts?:{promptUninstall?:boolean;holdBusy?:boolean}):Promise<boolean>=>{
   const title=endpointTitle(item,presets)
-  setBusy(item.endpointId);setError('');setNotice('')
+  const prompt=opts?.promptUninstall!==false
+  if(!opts?.holdBusy){setBusy(item.endpointId);setError('');setNotice('')}
+  const fail=(message:string,target?:Endpoint|null)=>{
+   if(prompt){setError(message);if(target)setRemoveTarget(target)}
+   else if(!opts?.holdBusy)setError(message)
+   return false
+  }
   try{
+   const existing=mcpExistingMarketInstall(item,liveInstalled,presets)
+   if(existing){
+    await uninstallEndpoint(item)
+    if(!existing.enabled)await bridge.toggle({endpointId:existing.endpointId,enabled:true})
+    const health=await bridge.health({endpointId:existing.endpointId})
+    if(health.state==='ready'){if(!opts?.holdBusy)setNotice(`${title}：已连接到当前市场版本`);return true}
+    return fail(`${title}：${health.diagnosticMessage||'当前市场版本仍无法握手。'} 此服务当前不可用，建议卸载。`,existing)
+   }
    if(!item.enabled)await bridge.toggle({endpointId:item.endpointId,enabled:true})
    try{
     const first=await bridge.health({endpointId:item.endpointId})
-    if(first.state==='ready'){setNotice(`${title}：已连接${first.latencyMs?` · ${first.latencyMs}ms`:''}`);await load();return}
+    if(first.state==='ready'){if(!opts?.holdBusy)setNotice(`${title}：已连接${first.latencyMs?` · ${first.latencyMs}ms`:''}`);return true}
    }catch{/* quarantined health used to refuse; remount anyway */}
    const preset=repairPresetFor(item,presets)
-   if(!preset){setError(`${title}：无法自动修复。请卸载后从市场重装。`);setRemoveTarget(item);await load();return}
+   if(!preset)return fail(`${title}：无法自动修复。请卸载后从市场重装。`,item)
    await uninstallEndpoint(item)
-   const resolved=preset.argDefault||''
-   const added=await bridge.add({origin:'manual',transport:preset.transport,...(preset.transport==='https'?{url:preset.url}:{command:preset.command,args:resolveArgs(preset,resolved)}),riskConfirmed:true,requestId:crypto.randomUUID()})
+   const added=await bridge.add({origin:'manual',transport:preset.transport,...(preset.transport==='https'?{url:preset.url}:{command:preset.command,args:mcpRepairArgs(preset)}),riskConfirmed:true,requestId:crypto.randomUUID()})
    if(!preset.needsCredential)await bridge.toggle({endpointId:added.endpointId,enabled:true})
    const health=await bridge.health({endpointId:added.endpointId})
-   if(health.state==='ready'){setNotice(`${title}：已用当前市场版本修复并连接`);await load();return}
-   setError(`${title}：${health.diagnosticMessage||'修复后仍无法握手。'} 此服务当前不可用，建议卸载。`)
-   setRemoveTarget({...item,...added,displayName:title})
-   await load()
-  }catch(e){setError(`${title}：${mcpUserError(e,'检查修复失败')} 此服务当前不可用，建议卸载。`);setRemoveTarget(item)}finally{await load();setBusy('')}
+   if(health.state==='ready'){if(!opts?.holdBusy)setNotice(`${title}：已用当前市场版本修复并连接`);return true}
+   return fail(`${title}：${health.diagnosticMessage||'修复后仍无法握手。'} 此服务当前不可用，建议卸载。`,{...item,...added,displayName:title})
+  }catch(e){return fail(`${title}：${mcpUserError(e,'检查修复失败')} 此服务当前不可用，建议卸载。`,item)}
+  finally{await load();if(!opts?.holdBusy)setBusy('')}
+ }
+ const waitForUv=async():Promise<boolean>=>{
+  if(!bridge.uvInstall)return false
+  for(;;){
+   const snap=await bridge.uvInstall()
+   setUvProgress({state:snap.state,percent:snap.percent,lastError:snap.lastError})
+   if(snap.state==='downloading'){await new Promise(resolve=>window.setTimeout(resolve,UV_POLL_MS));continue}
+   if(snap.state==='failed'){setError(snap.lastError||'uv 安装失败');return false}
+   return snap.state==='ready'
+  }
  }
  const repairAll=async()=>{
-  const targets=liveInstalled.filter(mcpNeedsRepair)
-  if(!targets.length)return
+  const targets=mcpRepairTargets(liveInstalled)
+  const missing=missingRecommendedPresets(presets,liveInstalled)
+  if(!targets.length&&!missing.length)return
   setBusy('__repair_all__');setError('');setNotice('')
   let ok=0,fail=0
-  for(const item of targets){
-   try{await repair(item);ok++}catch{fail++}
-  }
-  setNotice(`批量修复完成：${ok} 个成功${fail?`，${fail} 个失败`:''}`)
-  await load()
-  setBusy('')
+  try{
+   if((targets.some(mcpUsesUv)||missing.some(mcpUsesUv))&&bridge.uvInstall)await waitForUv()
+   for(const item of targets){
+    if(await repair(item,{promptUninstall:false,holdBusy:true}))ok++
+    else fail++
+   }
+   const refreshed=await load()??[]
+   const live=refreshed.filter(item=>item.state!=='revoked'&&leftoverArchivedMcp(item.args,item.url).length===0)
+   for(const preset of missingRecommendedPresets(presets,live)){
+    try{
+     const added=await bridge.add({origin:'manual',transport:preset.transport,...(preset.transport==='https'?{url:preset.url}:{command:preset.command,args:mcpRepairArgs(preset)}),riskConfirmed:true,configureOnly:Boolean(preset.needsCredential),requestId:crypto.randomUUID()})
+     if(!preset.needsCredential)await bridge.toggle({endpointId:added.endpointId,enabled:true})
+     const health=preset.needsCredential?{state:'ready' as const}:await bridge.health({endpointId:added.endpointId})
+     if(health.state==='ready')ok++
+     else fail++
+    }catch{fail++}
+   }
+   setNotice(`批量修复完成：${ok} 个成功${fail?`，${fail} 个失败`:''}`)
+  }finally{await load();setBusy('')}
  }
  const remove=async()=>{
   if(!removeTarget)return
@@ -205,18 +241,9 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
  const installUv=async()=>{
   if(!bridge.uvInstall||busy==='uv')return
   setBusy('uv');setError('');setNotice('')
-  const pump=async()=>{
-   try{
-    const snap=await bridge.uvInstall!()
-    setUvProgress({state:snap.state,percent:snap.percent,lastError:snap.lastError})
-    if(snap.state==='downloading'){window.setTimeout(()=>{void pump()},UV_POLL_MS);return}
-    if(snap.state==='failed'){setError(snap.lastError||'uv 安装失败');setBusy('');return}
-    setNotice('uv 已安装，可重新连接 Python MCP')
-    await load()
-    setBusy('')
-   }catch(e){setError(mcpUserError(e,'uv 安装失败'));setBusy('')}
-  }
-  await pump()
+  try{
+   if(await waitForUv()){setNotice('uv 已安装，可重新连接 Python MCP');await load()}
+  }catch(e){setError(mcpUserError(e,'uv 安装失败'))}finally{setBusy('')}
  }
  const saveManual=async()=>{
   setBusy('manual');setError('');setNotice('')

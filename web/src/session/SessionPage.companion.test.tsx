@@ -561,7 +561,7 @@ it('does not delete a companion session after a spoken turn on exit', async () =
     speech.callbacks!.onFinal('今天天气怎么样')
   })
   await waitFor(() => expect(start).toHaveBeenCalled())
-  fireEvent.click(screen.getByRole('button', { name: /退出月伴对话/ }))
+  fireEvent.click(screen.getByRole('button', { name: /返回（Esc）|退出月伴对话/ }))
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 80)) })
   expect(del).not.toHaveBeenCalled()
 })

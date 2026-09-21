@@ -1,11 +1,18 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useImperativeHandle, useRef } from 'react'
 import type { MediaAssetDTO, MediaSnapshotDTO } from '../generated/bridge'
 import { mediaText } from './mediaCopy'
 import { useZh } from '../i18n/language'
 
 export type OwnedMediaEvent = 'playing' | 'pause' | 'ended' | 'stalled' | 'error' | 'position'
 
+export type OwnedMediaPlayerHandle = {
+  playNow: (nextSrc?: string | null) => void
+  pauseNow: () => void
+  syncObserved: () => void
+}
+
 export function OwnedMediaPlayer({
+  ref,
   snapshot,
   src,
   kind,
@@ -14,6 +21,7 @@ export function OwnedMediaPlayer({
   onError,
   onObserved,
 }: {
+  ref?: React.Ref<OwnedMediaPlayerHandle>
   snapshot: MediaSnapshotDTO | null
   src: string | null
   kind: MediaAssetDTO['kind'] | null
@@ -28,11 +36,39 @@ export function OwnedMediaPlayer({
   const lastSeek = useRef<number | null>(null)
   const lastPositionAt = useRef(0)
   const onObservedRef = useRef(onObserved)
+  const onErrorRef = useRef(onError)
+  const srcRef = useRef(src)
   onObservedRef.current = onObserved
+  onErrorRef.current = onError
+  srcRef.current = src
   const owned = snapshot?.origin === 'owned'
   const playing = owned && wantPlay
   const paused = owned && !playing
   const video = kind === 'video'
+
+  const attachSrc = (node: HTMLAudioElement | HTMLVideoElement, next: string) => {
+    if (node.getAttribute('src') !== next) node.src = next
+  }
+
+  useImperativeHandle(ref, () => ({
+    playNow(nextSrc) {
+      const node = nodeRef.current
+      const next = nextSrc || srcRef.current
+      if (!node || !next) return
+      attachSrc(node, next)
+      void Promise.resolve(node.play()).catch(() => {})
+    },
+    pauseNow() {
+      nodeRef.current?.pause()
+    },
+    syncObserved() {
+      const node = nodeRef.current
+      if (!node) return
+      const positionMs = Number.isFinite(node.currentTime) ? Math.max(0, Math.round(node.currentTime * 1000)) : 0
+      const durationMs = Number.isFinite(node.duration) ? Math.max(0, Math.round(node.duration * 1000)) : 0
+      onObservedRef.current?.(node.paused ? 'pause' : 'playing', positionMs, durationMs)
+    },
+  }))
 
   useEffect(() => {
     const node = nodeRef.current
@@ -69,12 +105,12 @@ export function OwnedMediaPlayer({
   useEffect(() => {
     const node = nodeRef.current
     if (!node || !snapshot) return
-    if (!src || !wantPlay) {
+    if (!src) {
       node.removeAttribute('src')
       node.load()
       return
     }
-    if (node.getAttribute('src') !== src) node.src = src
+    attachSrc(node, src)
     node.volume = Math.min(1, Math.max(0, snapshot.volume / 100))
     node.muted = snapshot.muted
     if (lastSeek.current !== snapshot.positionMs) {
@@ -86,23 +122,23 @@ export function OwnedMediaPlayer({
     }
     if (playing) {
       try {
-        void Promise.resolve(node.play()).catch(() => onError(copy.channelDown))
+        void Promise.resolve(node.play()).catch(() => {})
       } catch {
         // jsdom has no media engine; browsers return a Promise from play().
-        // play() fulfillment is not evidence of playing.
+        // play() fulfillment or rejection is not evidence of playing.
       }
     } else if (paused || !owned) {
       node.pause()
     }
-  }, [src, playing, paused, owned, onError, video, snapshot, copy.channelDown, wantPlay])
+  }, [src, playing, paused, owned, video, snapshot])
 
   if (!owned || !snapshot) return null
   return (
     <div className="owned-media-player" hidden>
       {video ? (
-        <video ref={nodeRef as React.RefObject<HTMLVideoElement>} onEnded={onEnded} onError={() => onError(copy.channelDown)} />
+        <video ref={nodeRef as React.RefObject<HTMLVideoElement>} onEnded={onEnded} onError={() => onErrorRef.current(copy.channelDown)} />
       ) : (
-        <audio ref={nodeRef as React.RefObject<HTMLAudioElement>} onEnded={onEnded} onError={() => onError(copy.channelDown)} />
+        <audio ref={nodeRef as React.RefObject<HTMLAudioElement>} onEnded={onEnded} onError={() => onErrorRef.current(copy.channelDown)} />
       )}
     </div>
   )

@@ -78,7 +78,13 @@ func TestMediaResourceAllowedRequiresAppDocumentAndMediaContext(t *testing.T) {
 	if !MediaResourceAllowed(TrustedOrigin+"/index.html", MediaResourceContextMedia, req) {
 		t.Fatal("trusted media request rejected")
 	}
-	if MediaResourceAllowed(TrustedOrigin+"/index.html", 1, req) {
+	if !MediaResourceAllowed(TrustedOrigin+"/index.html", MediaResourceContextOther, req) {
+		t.Fatal("WebView2 other-context media element request rejected")
+	}
+	if !MediaResourceAllowed(TrustedOrigin+"/index.html", MediaResourceContextFetch, req) {
+		t.Fatal("range/fetch media request rejected")
+	}
+	if MediaResourceAllowed(TrustedOrigin+"/index.html", MediaResourceContextDocument, req) {
 		t.Fatal("document context must fail closed")
 	}
 	if MediaResourceAllowed("https://evil.example/", MediaResourceContextMedia, req) {

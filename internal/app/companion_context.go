@@ -470,7 +470,7 @@ func (e *Engine) companionSessionInjection(sessionID, turnText string) string {
 	}
 	b.WriteString("。")
 	if ctx.Kind == "music_app" || looksLikeMusicAppName(ctx.ActiveAppName) {
-		b.WriteString("这是音乐类软件：点名歌手/歌名时 media.play target=foreground query=歌名；要随机或没说歌时 query=random；暂停后再继续或只说「播放」且不换歌时 media.play action=play，不要带 query，不要 computer.act。禁止 cc.screen_capture、cc.mouse_click 等看屏操作，禁止 browser、netease、qqmusic 或网页搜索。")
+		b.WriteString("这是音乐类软件：第1步只打一次 media.play target=foreground；点名歌手/歌名用 query=歌名，随机或没说歌用 query=random；暂停后再继续用 action=play 不要带 query。成功立刻报成功。失败立刻第2步 observe。树上已有暂停/正在播放就报成功，不要点播放。没有再按名字点一次，再失败第3步屏幕读号。不要退回 media.play。禁止直接调用 cc.*，禁止改网页搜索。")
 	} else {
 		b.WriteString("用户后续要在该软件里继续操作时，优先在该前台窗口内完成，不要另开网页或无关程序。")
 	}

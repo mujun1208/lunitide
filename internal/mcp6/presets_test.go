@@ -198,16 +198,16 @@ func TestOfficeDocumentPresetsAreCurated(t *testing.T) {
 	}
 }
 
-func TestDuckDuckGoPresetUsesHermesPackage(t *testing.T) {
+func TestDuckDuckGoPresetUsesPublishedPackage(t *testing.T) {
 	p, ok := PresetByID("duckduckgo")
 	if !ok {
 		t.Fatal("duckduckgo missing")
 	}
-	if PresetLaunchPackage(p) != "@nickclyde/duckduckgo-mcp-server" {
+	if PresetLaunchPackage(p) != "duckduckgo-mcp-server" {
 		t.Fatalf("duckduckgo package = %q", PresetLaunchPackage(p))
 	}
-	if !PresetPackageAllowed("duckduckgo-mcp-server") {
-		t.Fatal("legacy duckduckgo package must stay allowed so repair can remount it")
+	if !PresetPackageAllowed("@nickclyde/duckduckgo-mcp-server") {
+		t.Fatal("retired nickclyde package must stay allowed so repair can remount it")
 	}
 }
 
