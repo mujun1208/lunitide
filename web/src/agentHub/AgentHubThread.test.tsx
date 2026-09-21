@@ -401,16 +401,10 @@ it('polls thread.get every 4s while idle', async () => {
   expect(vi.mocked(agentHubApi.threadGet).mock.calls.length).toBeGreaterThan(afterLoad)
 })
 
-it('opens the bound chat session without rewriting Hub as Chat', async () => {
+it('does not overlay a 在对话中打开 button on the workspace toggle', async () => {
   stubWorkspace()
-  const seen: string[] = []
-  const onOpen = (event: Event) => {
-    seen.push((event as CustomEvent<{ sessionId?: string }>).detail.sessionId ?? '')
-  }
-  window.addEventListener('lunitide:open-chat-session', onOpen)
   vi.mocked(agentHubApi.threadGet).mockResolvedValue(threadDetail('idle', { sessionId: '01ARZ3NDEKTSV4RRFFQ69G5FAV' }))
   render(<LanguageProvider value="zh-CN"><AgentHubThread threadId={THREAD_ID} /></LanguageProvider>)
-  fireEvent.click(await screen.findByRole('button', { name: '在对话中打开' }))
-  window.removeEventListener('lunitide:open-chat-session', onOpen)
-  expect(seen).toEqual(['01ARZ3NDEKTSV4RRFFQ69G5FAV'])
+  await screen.findByRole('button', { name: /右侧工作区/ })
+  expect(screen.queryByRole('button', { name: '在对话中打开' })).toBeNull()
 })

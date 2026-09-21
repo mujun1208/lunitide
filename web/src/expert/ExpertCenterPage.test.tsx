@@ -404,10 +404,10 @@ it('prompts to install missing preferred factory kits for a conversation special
     skillsSet,
   })
   render(<ExpertCenterPage bridge={bridge} projects={projects} skills={skills} />)
-  expect(await screen.findByText('岗位需要但技能库还没有：')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '去技能中心安装 slide-builder' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '去技能中心安装 web-researcher' })).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: '去技能中心安装 slide-builder' }))
+  expect(await screen.findByText(/岗位需要但技能库还没有/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '安装 slide-builder' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '安装 web-researcher' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '安装 slide-builder' }))
   await waitFor(() => expect(install).toHaveBeenCalledWith({ templateId: 'slide-builder' }))
 })
 
@@ -498,8 +498,8 @@ it('auto-matches published skills and installed MCP for the selected expert', as
   const match = screen.getByRole('button', { name: '自动匹配并保存' })
   await waitFor(() => expect(match).toBeEnabled())
   fireEvent.click(match)
-  expect(await screen.findByText(/已勾选全部已安装的技能与 MCP，正在保存|已按岗位底线补齐技能与 MCP，正在保存/)).toBeInTheDocument()
   await waitFor(() => expect(skillsSet).toHaveBeenCalled())
+  expect(screen.getByText(/已按岗位描述匹配技能与 MCP，正在保存|已更新「PPT专家」的运行时绑定/)).toBeInTheDocument()
   expect(skillsSet.mock.calls[0][0].skillKeys).toEqual(expect.arrayContaining(['slide-builder', 'mcp:playwright']))
 })
 

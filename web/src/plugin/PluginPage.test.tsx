@@ -191,9 +191,9 @@ it('installs leftover research and report packs from the current catalog spec', 
     packInstall: vi.fn().mockResolvedValue({...leftover,spec:research!,state:'installed',error:'',version:3}),
   })
   render(<PluginPage bridge={bridge} />)
-  expect(await screen.findByRole('button', { name: '继续操作' })).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: '复核并修复' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '安装 报告写作包' })).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: '继续操作' }))
+  fireEvent.click(screen.getByRole('button', { name: '复核并修复' }))
   await waitFor(() => expect(bridge.packInstall).toHaveBeenCalledWith({spec:research,repair:true,confirmed:true}))
   expect(report?.mcpPresetIds).toEqual([])
 })

@@ -134,7 +134,7 @@ export function PluginPage({bridge=pluginBridge,skills=skillBridge,mcp=mcpBridge
       <header>
        <span className="plugin-logo" style={{'--plugin-tint':logo.tint} as React.CSSProperties} aria-hidden="true">{logo.glyph}</span>
        <div><b>{pack.name}</b><small>技能 {pack.skills.length} · MCP {pack.mcpPresetIds.length} · 门闸 {pack.toolGates.length}{record?.failed?' · 安装失败':''}</small></div>
-       {installed?<span className="skill-market-installed">已安装</span>:record?.failed?<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>void (record?.desired==='uninstalled'?setRemovePackId(pack.id):enable(pack.id))}>继续操作</button>:<button type="button" className="skill-market-add" aria-label={`安装 ${pack.name}`} disabled={Boolean(busy)} onClick={()=>void enable(pack.id)}>{busy===pack.id?'…':'＋'}</button>}
+       {installed?<span className="skill-market-installed">已安装</span>:record?.failed?<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>void (record?.desired==='uninstalled'?setRemovePackId(pack.id):enable(pack.id))}>复核并修复</button>:<button type="button" className="skill-market-add" aria-label={`安装 ${pack.name}`} disabled={Boolean(busy)} onClick={()=>void enable(pack.id)}>{busy===pack.id?'…':'＋'}</button>}
        <button type="button" className="ui-btn" onClick={()=>void navigator.clipboard.writeText(exportCapabilityPackJSON(pack)).then(()=>setNotice(`已复制「${pack.name}」JSON`))}>导出</button>
       </header>
       <p>{pack.description}</p>

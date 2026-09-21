@@ -36,4 +36,5 @@ it('research and report packs use builtin search/fetch gates without MCP',()=>{
  expect(report?.mcpPresetIds).toEqual([])
  expect(research?.toolGates).toEqual(['web-search','web-fetch'])
  expect(report?.toolGates).toEqual(['web-search','web-fetch'])
+ expect(report?.skills).toEqual(expect.arrayContaining(['weekly-report','docx-writer','web-researcher']))
 })
