@@ -1782,7 +1782,7 @@ func chatStreamError(err error) *bridge.StreamError {
 		return streamError("MESSAGE_STORAGE_QUOTA_REACHED", "消息存储配额已满", false)
 	}
 	if errors.Is(err, agentrun.ErrExecutionBudget) {
-		return streamError("BUDGET_EXHAUSTED", "执行额度已满，请新开对话后再试。", false)
+		return streamError("BUDGET_EXHAUSTED", "本轮操作步骤较多，已达上限。请新开对话继续。", false)
 	}
 	if errors.Is(err, context.DeadlineExceeded) || networkpolicy.ErrorCode(err) == networkpolicy.CodeTimeout {
 		return streamError("UPSTREAM_TIMEOUT", "模型请求超时，请稍后重试", true)

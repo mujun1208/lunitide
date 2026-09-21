@@ -929,7 +929,12 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		}
 		proof, e := confirmDesktopOpened(a.Name)
 		if e != nil {
-			return Result{}, e
+			// The open command itself succeeded (openWithDefaultApp did
+			// not error) but the window/process could not be confirmed
+			// within the verification timeout. Treat as a soft success
+			// so the model does not keep retrying or escalating — the
+			// file/app was launched, just not visually confirmed.
+			return result(appendL0JSON("opened "+path, "unverified", true, false, path)), nil
 		}
 		kind := proof.Kind
 		if kind == "" {

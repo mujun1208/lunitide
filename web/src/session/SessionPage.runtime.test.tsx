@@ -36,7 +36,7 @@ it('maps stream failure codes to a safe cause without leaking UPSTREAM_FAILED',(
  expect(turnFailureNotice({code:'UPSTREAM_FAILED'})).not.toContain('UPSTREAM_FAILED')
  expect(turnFailureNotice({code:'UPSTREAM_FAILED'})).not.toContain('模型请求失败')
  expect(turnFailureNotice({code:'UPSTREAM_TIMEOUT'})).toContain('请求超时')
- expect(turnFailureNotice({code:'BUDGET_EXHAUSTED'})).toContain('执行额度已满')
+ expect(turnFailureNotice({code:'BUDGET_EXHAUSTED'})).toContain('已达上限')
  expect(turnFailureNotice({code:'UPSTREAM_UNAVAILABLE'})).toContain('供应商暂时不可用')
  expect(turnFailureNotice({code:'ASSISTANT_RESPONSE_TOO_LARGE'})).toContain('过大')
  for (const code of ['UPSTREAM_FAILED','UPSTREAM_TIMEOUT','ASSISTANT_RESPONSE_TOO_LARGE','REQUEST_TOO_LARGE'] as const) {

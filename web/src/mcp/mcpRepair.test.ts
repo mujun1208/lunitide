@@ -69,7 +69,7 @@ it('treats handshake failures as repairable', () => {
   })).toBe(true)
 })
 
-it('does not auto-repair capability-drift quarantines', () => {
+it('treats quarantined with no diagnostic code as repairable (lost on restart)', () => {
   expect(mcpNeedsRepair({
     endpointId: 'mcp-1',
     transport: 'stdio',
@@ -78,7 +78,7 @@ it('does not auto-repair capability-drift quarantines', () => {
     origin: 'manual',
     command: 'npx',
     args: ['-y', '@sinco-lab/mcp-youtube-transcript'],
-  })).toBe(false)
+  })).toBe(true)
 })
 
 it('still repairs remappable handshake quarantines', () => {

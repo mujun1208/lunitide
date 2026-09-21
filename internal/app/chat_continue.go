@@ -299,6 +299,13 @@ func companionGoalIsOpenOnly(text string) bool {
 	if websiteFirstResultGoal(t) {
 		return false
 	}
+	// "打开网页里的第一个链接" / "点开第一个结果" is NOT "open only" — it
+	// requires clicking inside an already-open page.
+	if strings.Contains(t, "链接") || strings.Contains(t, "结果") {
+		if strings.Contains(t, "第一") || strings.Contains(t, "第二") || strings.Contains(t, "第三") {
+			return false
+		}
+	}
 	for _, follow := range []string{
 		"填写", "填一下", "填入", "填上", "填",
 		"输入",
@@ -345,6 +352,7 @@ func desktopOpenSucceeded(toolOut string, lastTools []string) bool {
 	}
 	out := strings.TrimSpace(toolOut)
 	if strings.Contains(out, "opened ") {
+		// Both fully-confirmed and soft-success ("unverified") count.
 		return !strings.Contains(out, "无法执行")
 	}
 	// Open ran earlier this turn; a later tool's output is not the receipt.

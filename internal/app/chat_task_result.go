@@ -156,8 +156,48 @@ func currentTurnHasBrowserMCPNotReady(messages []llmadapter.Message) bool {
 	return false
 }
 
+// currentTurnBrowserActFailed checks whether any browser.act call in the
+// current turn returned an error, indicating that the Playwright-based
+// browser interaction is not available.
+func currentTurnBrowserActFailed(messages []llmadapter.Message) bool {
+	if currentTurnHasBrowserMCPNotReady(messages) {
+		return true
+	}
+	start := 0
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == llmadapter.RoleUser {
+			start = i + 1
+			break
+		}
+	}
+	// Look for assistant tool calls to browser.act followed by a
+	// tool-result containing ok:false.
+	for i := start; i < len(messages); i++ {
+		m := messages[i]
+		if m.Role == llmadapter.RoleAssistant {
+			for _, tc := range m.ToolCalls {
+				if tc.Name == "browser.act" {
+					// Find the corresponding tool result.
+					for j := i + 1; j < len(messages); j++ {
+						if messages[j].Role == llmadapter.RoleTool && messages[j].ToolCallID == tc.ID && strings.Contains(messages[j].Content, "ok:false") {
+							return true
+						}
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
 func guardCurrentTurnToolHistory(goal, name string, messages []llmadapter.Message) error {
 	if err := guardCurrentTurnTool(goal, name); err != nil {
+		// When the guard says "use browser.act instead of computer.act"
+		// but browser.act has already failed this turn, allow
+		// computer.act as the fallback rather than blocking everything.
+		if name == "computer.act" && websiteFirstResultGoal(goal) && currentTurnBrowserActFailed(messages) {
+			return nil
+		}
 		return err
 	}
 	if name == "browser.act" && currentTurnHasBrowserMCPNotReady(messages) {

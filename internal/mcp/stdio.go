@@ -119,14 +119,23 @@ func stdioResolveCommand(command string, args []string) (string, []string, error
 	return resolved, args, nil
 }
 
-// stdioLaunchEnv is the explicit child block. Host secrets stay out; proxy
-// and cache roots are the minimum npx/uvx need to finish a first download.
+// stdioLaunchEnv is the explicit child block. Host secrets stay out; proxy,
+// cache roots, and registry mirrors are the minimum npx/uvx need to finish a
+// first download. HOME/USERPROFILE are required so npx can find .npmrc
+// (registry mirrors) and uvx can find its config — without them packages
+// are fetched from the default registries which may be slow or blocked.
 func stdioLaunchEnv(extraEnv []string) []string {
 	env := []string{
 		"STDIOMCP_SESSION=1",
 		"PATH=" + os.Getenv("PATH"),
 	}
-	for _, key := range []string{"HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "UV_CACHE_DIR"} {
+	for _, key := range []string{
+		"HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY",
+		"UV_CACHE_DIR", "UV_INDEX_URL", "UV_DEFAULT_INDEX",
+		"PIP_INDEX_URL", "PIP_TRUSTED_HOST",
+		"npm_config_registry", "npm_config_cache",
+		"NODE_OPTIONS",
+	} {
 		if v := os.Getenv(key); v != "" && !strings.ContainsAny(v, "\x00\r\n") {
 			env = append(env, key+"="+v)
 		}
@@ -136,8 +145,18 @@ func stdioLaunchEnv(extraEnv []string) []string {
 			env = append(env, kv)
 		}
 	}
-	if root := os.Getenv("SystemRoot"); root != "" && runtime.GOOS == "windows" {
-		env = append(env, "SystemRoot="+root)
+	if home := os.Getenv("HOME"); home != "" {
+		env = append(env, "HOME="+home)
+	}
+	if runtime.GOOS == "windows" {
+		if root := os.Getenv("SystemRoot"); root != "" {
+			env = append(env, "SystemRoot="+root)
+		}
+		for _, key := range []string{"USERPROFILE", "APPDATA", "LOCALAPPDATA"} {
+			if v := os.Getenv(key); v != "" {
+				env = append(env, key+"="+v)
+			}
+		}
 	}
 	if tv := os.Getenv("TEMP"); tv != "" {
 		env = append(env, "TEMP="+tv, "TMP="+tv)
