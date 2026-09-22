@@ -247,8 +247,7 @@ func attachContinuation(sessionID string, writerVersion string, cp *chatTurnChec
 }
 
 func (c *chatTurnCheckpoint) UnmarshalJSON(raw []byte) error {
-	type alias chatTurnCheckpoint
-	var known alias
+	var known chatTurnCheckpointBody
 	if err := json.Unmarshal(raw, &known); err != nil {
 		return err
 	}
@@ -378,9 +377,14 @@ func continuationExport(env *modelfit.ContinuationEnvelope) *modelfit.Continuati
 	return &out
 }
 
+// chatTurnCheckpointBody is the JSON shape without MarshalJSON, so encoding a
+// checkpoint does not recurse. It stays at package scope: a function-local
+// alias makes encoding/json build a bad field index under the race detector
+// on Go 1.26.6 and panics with "reflect: Field index out of range".
+type chatTurnCheckpointBody chatTurnCheckpoint
+
 func (c chatTurnCheckpoint) MarshalJSON() ([]byte, error) {
-	type alias chatTurnCheckpoint
-	body, err := json.Marshal(alias(c))
+	body, err := json.Marshal(chatTurnCheckpointBody(c))
 	if err != nil {
 		return nil, err
 	}
@@ -404,6 +408,6 @@ func knownCheckpointKeys() []string {
 		"status", "goal", "streamId", "injected", "queueDeliveries", "lastTools", "toolFailed",
 		"capabilityWork", "pptActive", "pptStage", "pptTools", "pptNudges", "pptGenerated",
 		"docxActive", "docxKind", "docxStage", "docxTools", "docxNudges", "docxGenerated",
-		"docxChars", "persistDraft", "persistFailed", "persistUsage", "updatedAt", "continuation",
+		"docxChars", "skipOfficeResearch", "persistDraft", "persistFailed", "persistUsage", "updatedAt", "continuation",
 	}
 }
