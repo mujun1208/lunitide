@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/audit"
@@ -13,8 +14,9 @@ import (
 )
 
 type mcpLaunchRewrite struct {
-	command string
-	args    []string
+	command  string
+	args     []string
+	clearPin bool
 }
 
 // RepairLegacyMcpPresetLaunches preserves endpoint IDs, pack references and
@@ -60,6 +62,9 @@ func (s *Store) RepairLegacyMcpPresetLaunches(ctx context.Context) error {
 			if ep.Security.Version > 0 {
 				security := ep.Security
 				security.LaunchArgsJSON = ""
+				if next.clearPin {
+					security.PinJSON = ""
+				}
 				security.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 				if err = native.PutMcpSecurity(ep.EndpointID, security.Version, security); err != nil {
 					return err
@@ -85,10 +90,13 @@ func plannedMcpLaunchRewrite(ep m7flow.McpEndpointConfig, npxToUvx, npxPackage m
 	// Quarantined WITHOUT a pin: likely caused by timeout/network/env issues
 	// during the initial probe — safe to rewrite so the next health check can
 	// use the correct package coordinates.
-	if ep.State == m7flow.McpStateRevoked || ep.Security.PinJSON != "" || ep.Security.AuthRef != "" || (ep.Security.EnvRefsJSON != "" && ep.Security.EnvRefsJSON != "{}") {
+	if ep.State == m7flow.McpStateRevoked || ep.Security.AuthRef != "" || (ep.Security.EnvRefsJSON != "" && ep.Security.EnvRefsJSON != "{}") {
 		return mcpLaunchRewrite{}, false
 	}
-	if ep.State == m7flow.McpStateQuarantined && ep.PinnedDigest != "" {
+	if next, ok := playwrightInstalledBrowserRewrite(ep); ok {
+		return next, true
+	}
+	if ep.Security.PinJSON != "" || (ep.State == m7flow.McpStateQuarantined && ep.PinnedDigest != "") {
 		return mcpLaunchRewrite{}, false
 	}
 	var args []string
@@ -118,6 +126,39 @@ func plannedMcpLaunchRewrite(ep m7flow.McpEndpointConfig, npxToUvx, npxPackage m
 		return mcpLaunchRewrite{}, false
 	}
 	return next, true
+}
+
+// The bundled Playwright preset used to launch its own Chromium. Existing
+// installs keep working by switching that one preset onto the installed Edge
+// channel. Other pinned servers stay untouched.
+func playwrightInstalledBrowserRewrite(ep m7flow.McpEndpointConfig) (mcpLaunchRewrite, bool) {
+	if ep.Command != "npx" {
+		return mcpLaunchRewrite{}, false
+	}
+	var args []string
+	if json.Unmarshal([]byte(ep.ArgsJSON), &args) != nil || len(args) == 0 {
+		return mcpLaunchRewrite{}, false
+	}
+	pkg := ""
+	for _, arg := range args {
+		if strings.Contains(arg, "@playwright/mcp") {
+			pkg = arg
+			break
+		}
+	}
+	if pkg == "" {
+		return mcpLaunchRewrite{}, false
+	}
+	for _, arg := range args {
+		if arg == "--browser" || arg == "--executable-path" {
+			return mcpLaunchRewrite{}, false
+		}
+	}
+	return mcpLaunchRewrite{
+		command:  ep.Command,
+		args:     append(append([]string(nil), args...), "--browser", "msedge"),
+		clearPin: ep.Security.PinJSON != "",
+	}, true
 }
 
 func mcpLaunchAlreadyLive(rows []m7flow.McpEndpointConfig, skipID, command string, args []string) bool {

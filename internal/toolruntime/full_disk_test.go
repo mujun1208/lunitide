@@ -145,6 +145,39 @@ func TestFullDiskConfinementHoldsOnConfinedEntry(t *testing.T) {
 	}
 }
 
+func TestFullAccessReadsAbsolutePathWithoutFullDisk(t *testing.T) {
+	r, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if r.FullDiskEnabled() {
+		t.Fatal("full-disk must stay off")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "AI 销售助手.md")
+	if err := os.WriteFile(path, []byte("# 需求\n必须支持 PDF"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	args, _ := json.Marshal(map[string]string{"path": path})
+	out, err := r.Execute(context.Background(), FullAccess, s, "workspace.read", args, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Output, "必须支持 PDF") {
+		t.Fatalf("absolute read = %q", out.Output)
+	}
+	missing, _ := json.Marshal(map[string]string{"path": filepath.Join(dir, "missing.md")})
+	if _, err := r.Execute(context.Background(), FullAccess, s, "workspace.read", missing, true); err == nil || !strings.Contains(err.Error(), "系统找不到这个路径") {
+		t.Fatalf("missing path = %v", err)
+	}
+	writeArgs, _ := json.Marshal(map[string]any{"path": filepath.Join(dir, "out.md"), "content": "x"})
+	if _, err := r.Execute(context.Background(), FullAccess, s, "workspace.write", writeArgs, true); err == nil || !strings.Contains(err.Error(), "relative path required") {
+		t.Fatalf("absolute write must stay confined: %v", err)
+	}
+}
+
 func TestFullDiskOffKeepsRelativeOnly(t *testing.T) {
 	r, err := New(t.TempDir())
 	if err != nil {

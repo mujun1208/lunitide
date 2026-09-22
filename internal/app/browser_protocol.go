@@ -147,5 +147,9 @@ func browserMCPResultError(raw string) error {
 	if strings.TrimSpace(detail) == "" {
 		detail = "浏览器工具返回执行失败，未确认操作成功"
 	}
-	return fmt.Errorf("BROWSER_ACT_FAILED: %s", truncateUTF8Bytes(strings.TrimSpace(detail), 512))
+	detail = truncateUTF8Bytes(strings.TrimSpace(detail), 512)
+	if browserLaunchFailedOutput(detail) {
+		return fmt.Errorf("BROWSER_LAUNCH_FAILED: %s", detail)
+	}
+	return fmt.Errorf("BROWSER_ACT_FAILED: %s", detail)
 }

@@ -191,8 +191,13 @@ func typedFieldOnlyGoal(goal string) bool {
 
 func computerReceiptCloseout(messages []llmadapter.Message, goal string) string {
 	if playbackOnlyGoal(goal) && lastNamedToolOutput(messages, "media.play") != "" {
+		out := lastNamedToolOutput(messages, "media.play")
+		if mediaKeyDelivered(out) {
+			if speech := mediaKeyDeliveredSpeech(out); speech != "" {
+				return speech
+			}
+		}
 		if desktopLadderSucceeded(messages, goal) {
-			out := lastNamedToolOutput(messages, "media.play")
 			if proof, ok := extractL0(out); ok && proof.Passed && !proof.Uncertain && strings.Contains(goal, "随机") && strings.Contains(out, "shuffle=false") {
 				return "已开始播放，但未确认随机模式。"
 			}

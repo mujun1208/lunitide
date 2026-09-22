@@ -20,10 +20,43 @@ func (s *Service) Apply(ctx context.Context, errorCode, stableKey string) (Apply
 	if err != nil {
 		return ApplyResult{}, err
 	}
+	if errorCode == "wont_fix" {
+		code, key, ok := strings.Cut(stableKey, "|")
+		if !ok || code == "" || key == "" {
+			return ApplyResult{}, ErrNotFound
+		}
+		return s.markWontFix(ctx, &ed, code, key)
+	}
 	if strings.TrimSpace(errorCode) == "" && strings.TrimSpace(stableKey) == "" {
 		return s.applyAll(ctx, ed)
 	}
 	return s.applyOne(ctx, &ed, errorCode, stableKey)
+}
+
+func (s *Service) markWontFix(ctx context.Context, ed *Edition, errorCode, stableKey string) (ApplyResult, error) {
+	if _, ok := findFinding(ed.Findings, errorCode, stableKey); !ok {
+		return ApplyResult{}, ErrNotFound
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	for i := range ed.Findings {
+		if ed.Findings[i].ErrorCode == errorCode && ed.Findings[i].StableKey == stableKey {
+			ed.Findings[i].Status = "wont_fix"
+			ed.Findings[i].AppliedAt = now
+			ed.Findings[i].Plan = "人工标记 wont_fix。不调用技能，不改 Go/TS。"
+		}
+	}
+	findings, _, score := refreshFindings(*ed)
+	ed.Findings = findings
+	ed.HealthScore = score
+	ed.ReportMarkdown, ed.ReportHTML = RenderReport(*ed)
+	if err := s.persist.ProductHubSaveEdition(ctx, *ed); err != nil {
+		return ApplyResult{}, err
+	}
+	return ApplyResult{
+		OK: true, Applied: true, Count: 1, Status: "wont_fix",
+		Plan:      "已记为 wont_fix。下次打开仍对照活源，但这条不再当成未处理。",
+		ErrorCode: errorCode, StableKey: stableKey,
+	}, nil
 }
 
 func (s *Service) applyAll(ctx context.Context, ed Edition) (ApplyResult, error) {
@@ -125,7 +158,9 @@ func (s *Service) applyFinding(ctx context.Context, ed *Edition, f Finding, advi
 			ed.Findings[i].ApplyPrompt = applyPrompt(ed.Findings[i])
 		}
 	}
-	ed.HealthScore = healthScore(ed.Findings, ed.CardCount)
+	findings, _, score := refreshFindings(*ed)
+	ed.Findings = findings
+	ed.HealthScore = score
 	ed.ReportMarkdown, ed.ReportHTML = RenderReport(*ed)
 	if err := s.persist.ProductHubSaveEdition(ctx, *ed); err != nil {
 		return ApplyResult{}, err
@@ -166,6 +201,8 @@ func localPlan(f Finding, card Card) string {
 		b.WriteString("中枢动作：保留弃用标记，记为已处理，不删除种子讲解。\n")
 	case "PH_000":
 		b.WriteString("中枢动作：无需改代码。\n")
+	case "PH_019", "PH_020":
+		b.WriteString("中枢动作：只提示重新检测。不生成新卡，不改 Go/TS，不循环调用生成。\n")
 	default:
 		b.WriteString("中枢动作：打 status:待修复，把任务书交给内部技能/模型，不自动改 Go/TS。\n")
 	}

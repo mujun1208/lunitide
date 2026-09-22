@@ -87,12 +87,14 @@ func (r *Runtime) sessionRoot(session string) (string, error) {
 }
 
 func (r *Runtime) path(mode Mode, session, rel string, write, unconfined bool) (string, error) {
-	// Full-disk opt-in lifts the confinement for user conversations: absolute
-	// paths on any drive resolve to themselves (still cleaned and
-	// length-bounded), so the model can touch Desktop, other drives and any
-	// user-writable location. Subagent paths pass unconfined=false and stay
-	// confined to the workspace root.
-	if unconfined && r.FullDiskEnabled() && rel != "" && (filepath.IsAbs(rel) || filepath.VolumeName(rel) != "") {
+	// Full-access reads resolve an absolute path the user gave (Desktop,
+	// Documents, other drives) to itself. Writes still require the separate
+	// full-disk opt-in; a confined call (subagent, approval replay) cannot
+	// write outside the workspace even when that opt-in is on.
+	absolute := rel != "" && (filepath.IsAbs(rel) || filepath.VolumeName(rel) != "")
+	readAnywhere := absolute && !write && (mode == FullAccess || (unconfined && r.FullDiskEnabled()))
+	writeAnywhere := absolute && write && unconfined && r.FullDiskEnabled()
+	if readAnywhere || writeAnywhere {
 		clean := filepath.Clean(rel)
 		if len(clean) > 4096 || strings.ContainsRune(clean, 0) {
 			return "", errors.New("invalid path")

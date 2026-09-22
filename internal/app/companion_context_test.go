@@ -172,6 +172,8 @@ func TestCompanionMediaCommandTransport(t *testing.T) {
 		{"切歌", "next"},
 		{"播放汽水音乐下一周", "next"},
 		{"上一首", "prev"},
+		{"上一曲", "prev"},
+		{"下一曲", "next"},
 		{"停止播放", "stop"},
 		{"别放了", "stop"},
 		{"别放了吧", "stop"},

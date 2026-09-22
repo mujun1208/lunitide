@@ -105,6 +105,13 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	if !shouldContinueIncompleteWork("", "stale ref e12; snapshot again", []string{"browser.act"}, true, 0) {
 		t.Fatal("stale browser ref must continue")
 	}
+	delivered := "started playing in 汽水音乐 (media key)\n" + `{"l0":{"kind":"foreground","passed":false,"uncertain":true,"detail":"MEDIA_UNVERIFIED"}}`
+	if shouldContinueIncompleteWork("好，我来播放。", delivered, []string{"media.play"}, true, 0) {
+		t.Fatal("delivered media key must not continue into another tool")
+	}
+	if got := pickTurnContinueKind("好，我来播放。", "好，我来播放。", delivered, []string{"media.play"}, true, true, true, false, 0, "播放一首歌", true); got != "" {
+		t.Fatalf("delivered media key settled, got %q", got)
+	}
 	if !shouldContinueIncompleteWork("好，我来播放。", "media.play started player", []string{"media.play"}, true, 0) {
 		t.Fatal("unverified media.play must continue")
 	}

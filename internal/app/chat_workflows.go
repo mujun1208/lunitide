@@ -37,8 +37,8 @@ const workflowDesktopOpenClause = "- 打开桌面文件：必须用 desktop.open
 
 const workflowDesktopTypeClause = "- 在已打开的对话框里填写：有命名输入框时用 desktop.type（after=界面上真实字段名如身份证号码或证件号码，text=要写的内容，需要发送时 submit=true，window=窗口标题）。Word 正文没有命名输入框时改 computer.act：先截图，记下 frameId，再点输入位置后 type，verifyAfter。找不到字段必须对用户说无法执行和原因。写完不要关窗口。\n"
 
-const workflowMediaClause = "- 播放音乐/视频：第1步只打一次 media.play target=foreground（没说歌名或要随机播放时 query=random，不要搜索热门；说了歌手如周杰伦则 query=周杰伦）。verified 且 passed=true 立刻报成功，停止。失败立刻第2步 computer.act observe。树上已有暂停/正在播放就报成功，不要点播放。没有再按名字点一次。第2步失败立刻第3步屏幕读号。三步走完或电脑控制未开才报失败。禁止点收藏。用户说换播放器时仍先 media.play 换本机另一个已安装播放器。禁止默认打开 music.163.com / YouTube。仅当用户明确要网页版时才用 target=browser。\n" +
-	"- 暂停/下一首：先 media.play action=pause|next|prev。已打开的播放器暂停后再继续：media.play action=play，不要带歌名或应用名当 query。媒体键失败后再 computer.act 点暂停/下一首，不要反复打同一 media.play。\n" +
+const workflowMediaClause = "- 播放、暂停、上一曲、下一曲：只打一次 media.play target=foreground（没说歌名或要随机播放时 query=random，不要搜索热门；说了歌手如周杰伦则 query=周杰伦；上一曲/上一首 action=prev，下一曲/下一首 action=next，暂停 action=pause）。返回 started playing、sent next、sent previous、sent pause、sent stop 或 verified 时，用一句话收尾并停止。不要 computer.act，不要把工具 JSON 说给用户，不要再说没播放成功。只有 ok:false 才允许一次 computer.act observe。禁止点收藏。用户说换播放器时仍先 media.play。禁止默认打开 music.163.com / YouTube。仅当用户明确要网页版时才用 target=browser。\n" +
+	"- 已打开的播放器暂停后再继续：media.play action=play，不要带歌名或应用名当 query。关闭汽水音乐这类已命名软件用 desktop.quit，不要用暂停，不要用 computer.act 去关窗口。\n" +
 	"- 生成可听语音/朗读歌词/做一首能在对话里点播放的歌：用 audio.generate。lyrics 或 prompt 必须是要读出的正文或歌词；不要把「帮我生成一首歌」整句送进去。用户没给歌词时先写出歌词再调用。产物会在对话里出现播放器。这是语音合成朗读，不是演唱成曲；产品没有作曲引擎，不要声称已经唱出来。播放本机已有歌曲用 media.play，不要 audio.generate。\n"
 
 const workflowIMClause = "- 发飞书/企微/钉钉/微信/QQ：设置 → 消息通道启用后用 im.send。\n"

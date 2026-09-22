@@ -26,15 +26,16 @@ func pageCandidates() []Candidate {
 	out := make([]Candidate, 0, len(generated.Pages))
 	for _, p := range generated.Pages {
 		out = append(out, Candidate{
-			StableKey:  "feature." + p.Domain + ".page." + p.ID,
-			Name:       "进入" + p.Name,
-			NameEN:     "Open " + p.NameEN,
-			Domain:     p.Domain,
-			Module:     p.Module,
-			Summary:    "打开「" + p.Name + "」页面。",
-			Source:     "pages",
-			ChainClass: "page-enter",
-			Scaffold:   Scaffold{Pages: []string{p.ID}},
+			StableKey:   "feature." + p.Domain + ".page." + p.ID,
+			Name:        "进入" + p.Name,
+			NameEN:      "Open " + p.NameEN,
+			Domain:      p.Domain,
+			Module:      p.Module,
+			Summary:     "从导航打开「" + p.Name + "」。这一卡只说明怎么进入该页，页内动作看同一页的其他功能卡。",
+			Description: "从侧栏或导航进入「" + p.Name + "」。打开之后能做什么，看挂在 page." + p.ID + " 上的功能卡。",
+			Source:      "pages",
+			ChainClass:  "page-enter",
+			Scaffold:    Scaffold{Pages: []string{p.ID}},
 		})
 	}
 	return out
@@ -44,15 +45,16 @@ func settingsCandidates() []Candidate {
 	var out []Candidate
 	for _, it := range generated.Settings {
 		out = append(out, Candidate{
-			StableKey:  "feature.foundation.settings." + it.ID,
-			Name:       it.Name + "设置",
-			NameEN:     it.NameEN,
-			Domain:     "foundation",
-			Module:     "settings",
-			Summary:    "调整「" + it.Name + "」设置。",
-			Source:     "settings",
-			ChainClass: "settings-toggle",
-			Scaffold:   Scaffold{Pages: []string{"settings"}, Settings: []string{it.ID}},
+			StableKey:   "feature.foundation.settings." + it.ID,
+			Name:        it.Name + "设置",
+			NameEN:      it.NameEN,
+			Domain:      "foundation",
+			Module:      "settings",
+			Summary:     "在设置里调整「" + it.Name + "」。改动作用于这项能力。",
+			Description: "打开设置，找到「" + it.Name + "」。这里只改这项配置，不改业务代码。",
+			Source:      "settings",
+			ChainClass:  "settings-toggle",
+			Scaffold:    Scaffold{Pages: []string{"settings"}, Settings: []string{it.ID}},
 		})
 	}
 	return out
@@ -69,16 +71,17 @@ func mediaActionCandidates() []Candidate {
 	var out []Candidate
 	for _, a := range actions {
 		out = append(out, Candidate{
-			StableKey:  "feature.office.media." + a,
-			Name:       "媒体中心" + names[a],
-			NameEN:     "Media " + a,
-			Domain:     "office",
-			Module:     "media",
-			Summary:    "对媒体会话执行 " + names[a] + "。",
-			Source:     "media-actions",
-			ChainClass: "media-transport",
-			Scaffold:   Scaffold{Pages: []string{"media"}, Bridge: []string{"media." + a}, Runtime: []string{"smtc", "owned_runtime"}},
-			Attributes: Attributes{Operations: []string{"媒体控制"}, Tools: []string{"media." + a}, Capabilities: []string{"capability.media.smtc"}},
+			StableKey:   "feature.office.media." + a,
+			Name:        "媒体中心" + names[a],
+			NameEN:      "Media " + a,
+			Domain:      "office",
+			Module:      "media",
+			Summary:     "在媒体中心对当前播放会话执行「" + names[a] + "」，调用 media." + a + "。",
+			Description: "媒体中心或对话里对正在播放的会话执行「" + names[a] + "」。成功以播放核验为准，不把按键已发出当成已经播了。",
+			Source:      "media-actions",
+			ChainClass:  "media-transport",
+			Scaffold:    Scaffold{Pages: []string{"media"}, Bridge: []string{"media." + a}, Runtime: []string{"smtc", "owned_runtime"}},
+			Attributes:  Attributes{Operations: []string{"媒体控制"}, Tools: []string{"media." + a}, Capabilities: []string{"capability.media.smtc"}},
 		})
 	}
 	out = append(out, Candidate{
@@ -105,9 +108,11 @@ func pluginCandidates() []Candidate {
 	for _, p := range plugins {
 		out = append(out, Candidate{
 			StableKey: "feature.assets.plugin." + p.id, Name: "插件：" + p.title, NameEN: p.id,
-			Domain: "assets", Module: "plugins", Summary: "启用或使用「" + p.title + "」插件。",
-			Source: "plugins", ChainClass: "asset-invoke",
-			Scaffold: Scaffold{Pages: []string{"plugins"}, Runtime: []string{"harness:" + p.id}},
+			Domain: "assets", Module: "plugins",
+			Summary:     "在插件页启用或使用「" + p.title + "」。",
+			Description: "插件中心里的「" + p.title + "」。启用后，对话和对应工作台才能调用它。",
+			Source:      "plugins", ChainClass: "asset-invoke",
+			Scaffold:   Scaffold{Pages: []string{"plugins"}, Runtime: []string{"harness:" + p.id}},
 			Attributes: Attributes{Operations: []string{"插件"}, Tools: []string{p.id}},
 		})
 	}

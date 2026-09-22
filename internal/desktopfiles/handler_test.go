@@ -173,6 +173,31 @@ func TestPickFolderNamesSkippedExeAlongsideTxt(t *testing.T) {
 	}
 }
 
+func TestPickFolderKeepsDocumentsAndImages(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"需求.md", "需求.pdf", "表.xlsx", "图.gif", "setup.exe"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, skipped, err := listFolder(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, item := range items {
+		got[item.FileName] = true
+	}
+	for _, name := range []string{"需求.md", "需求.pdf", "表.xlsx", "图.gif"} {
+		if !got[name] {
+			t.Fatalf("missing %s in %#v", name, items)
+		}
+	}
+	if len(skipped) != 1 || skipped[0] != "setup.exe" {
+		t.Fatalf("skipped = %#v", skipped)
+	}
+}
+
 func TestPickFallsBackWhenFormsUnavailable(t *testing.T) {
 	origForms, origNative := pickForms, pickNative
 	t.Cleanup(func() {

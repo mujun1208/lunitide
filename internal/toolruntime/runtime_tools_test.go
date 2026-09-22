@@ -256,6 +256,24 @@ const ddgLiteBody = `<html><body><table>
 <tr><td class="result-snippet">An open-source programming language.</td></tr>
 </table></body></html>`
 
+func TestWebFetchFailureKeepsTheURLAndPreview(t *testing.T) {
+	r, _ := New(t.TempDir())
+	s := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	r.SetWebFetcher(func(context.Context, string) (networkpolicy.FetchResult, error) {
+		return networkpolicy.FetchResult{}, errors.New("redirect limit REDIRECT_BLOCKED")
+	})
+	out, err := r.Execute(context.Background(), Approval, s, "web.fetch", json.RawMessage(`{"url":"https://example.com/wiki"}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Output, "ok:false") || !strings.Contains(out.Output, "url: https://example.com/wiki") {
+		t.Fatalf("failure output = %q", out.Output)
+	}
+	if out.Artifact == nil || out.Artifact.Path != "fetch.html" || !strings.Contains(out.Artifact.Content, "https://example.com/wiki") {
+		t.Fatalf("failure preview = %+v", out.Artifact)
+	}
+}
+
 func TestWebToolsUnavailableWithoutFetcher(t *testing.T) {
 	r, _ := New(t.TempDir())
 	s := "01ARZ3NDEKTSV4RRFFQ69G5FAV"

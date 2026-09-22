@@ -198,6 +198,9 @@ func shouldContinueIncompleteWork(text, lastToolOut string, lastTools []string, 
 		// Failed play is a method switch, not another media.play retry.
 		return false
 	}
+	if mediaKeyDelivered(lastToolOut) {
+		return false
+	}
 	blob := strings.ToUpper(text + "\n" + lastToolOut)
 	if strings.Contains(blob, "STALE_FRAME") || strings.Contains(blob, "COMPUTER_STALE_FRAME") {
 		return true
@@ -261,6 +264,36 @@ func mediaTurnResultSpeech(messages []llmadapter.Message) string {
 		return companionToolResultSpeech("media.play", out)
 	}
 	return companionToolResultSpeech("media.play", out)
+}
+
+// mediaKeyDelivered is a transport command that already reached the player.
+// The turn stops there. A later screen click would toggle or skip again.
+func mediaKeyDelivered(out string) bool {
+	if mediaControlReceiptSpeech(out) != "" {
+		return true
+	}
+	line, _, _ := strings.Cut(strings.TrimSpace(out), "\n")
+	return strings.HasPrefix(line, "started playing in ") && strings.Contains(out, "MEDIA_UNVERIFIED")
+}
+
+func mediaKeyDeliveredSpeech(out string) string {
+	if speech := mediaControlReceiptSpeech(out); speech != "" {
+		return speech
+	}
+	line, _, _ := strings.Cut(strings.TrimSpace(out), "\n")
+	const prefix = "started playing in "
+	if !strings.HasPrefix(line, prefix) {
+		return ""
+	}
+	app := strings.TrimPrefix(line, prefix)
+	if i := strings.LastIndex(app, " ("); i > 0 {
+		app = app[:i]
+	}
+	app = strings.TrimSpace(app)
+	if app == "" {
+		return "已经发送播放了。"
+	}
+	return "已经让" + app + "播放了。"
 }
 
 // A transport acknowledgement proves the command was sent, not the player's

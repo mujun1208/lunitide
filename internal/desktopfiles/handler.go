@@ -215,8 +215,13 @@ var folderExt = map[string]string{
 	".html": "text/html", ".xml": "application/xml", ".js": "text/javascript", ".ts": "text/plain",
 	".py": "text/plain", ".go": "text/plain", ".java": "text/plain", ".c": "text/plain",
 	".cpp": "text/plain", ".rs": "text/plain", ".yaml": "text/yaml", ".yml": "text/yaml",
-	".sh": "text/plain", ".sql": "text/plain",
+	".sh": "text/plain", ".sql": "text/plain", ".log": "text/plain",
 	".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
+	".gif": "image/gif", ".bmp": "image/bmp",
+	".pdf":  "application/pdf",
+	".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 }
 
 func itemFromPath(path string) (Item, error) {

@@ -313,8 +313,14 @@ export function createProductHubPreviewBridge(): ProductHubBridge {
       requireAuth(sessionToken)
       return { findings: previewAuth.findings, reportMarkdown, reportHtml }
     },
-    apply: async ({ sessionToken, errorCode }) => {
+    apply: async ({ sessionToken, errorCode, stableKey }) => {
       requireAuth(sessionToken)
+      if (errorCode === 'wont_fix') {
+        const [code, key] = (stableKey ?? '').split('|')
+        const marked = previewAuth.findings.find(finding => finding.error_code === code && finding.stable_key === key)
+        if (marked) marked.status = 'wont_fix'
+        return { ok: true, applied: true, count: marked ? 1 : 0, status: 'wont_fix', plan: '已记为 wont_fix。不调用技能，不改业务代码。' }
+      }
       const item = previewAuth.findings.find(finding => !errorCode || finding.error_code === errorCode)
       if (item) {
         item.status = 'applied'

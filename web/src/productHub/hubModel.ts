@@ -241,7 +241,7 @@ export function matchesQuery(node: HubNode, query: string): boolean {
   const q = query.trim().toLocaleLowerCase()
   if (!q) return true
   if (q === '放歌' && node.stable_key.includes('music')) return true
-  return node.name.toLocaleLowerCase().includes(q) || node.stable_key.toLocaleLowerCase().includes(q)
+  return node.name.toLocaleLowerCase().includes(q) || node.stable_key.toLocaleLowerCase().includes(q) || (node.summary ?? '').toLocaleLowerCase().includes(q)
 }
 
 const SEARCHABLE = new Set(['Feature', 'Scenario', 'Module', 'Expert', 'Skill', 'Plugin', 'Domain', 'Mcp', 'Capability'])

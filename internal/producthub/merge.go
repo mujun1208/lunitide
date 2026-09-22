@@ -123,7 +123,9 @@ func overlay(seed Card, live Candidate) Card {
 		out.Analysis = seed.Analysis
 		out.Provenance = "seed+live"
 	} else {
-		if out.Summary == "" {
+		if thinSummary(out.Summary, out.Name) && !thinSummary(seed.Summary, seed.Name) {
+			out.Summary = seed.Summary
+		} else if out.Summary == "" {
 			out.Summary = seed.Summary
 		}
 		if out.Description == "" {
@@ -219,6 +221,15 @@ func cardDigest(c Card) string {
 	raw, _ := json.Marshal(copy)
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
+}
+
+func thinSummary(summary, name string) bool {
+	s := strings.TrimSpace(summary)
+	n := strings.TrimSpace(name)
+	if s == "" || s == n || s == n+"。" || s == n+"." {
+		return true
+	}
+	return strings.HasPrefix(s, "打开「") && strings.HasSuffix(s, "」页面。")
 }
 
 func clip(s string, n int) string {

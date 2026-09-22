@@ -43,6 +43,9 @@ func (r *Runtime) readWorkspace(ctx context.Context, mode Mode, session string, 
 	}
 	file, err := os.Open(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return Result{}, fmt.Errorf("系统找不到这个路径：%s", path)
+		}
 		return Result{}, err
 	}
 	defer file.Close()

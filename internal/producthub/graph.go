@@ -38,7 +38,7 @@ func BuildGraph(cards []Card) Graph {
 			add(GraphNode{ID: modKey, StableKey: modKey, Type: "Module", Name: c.Module, Domain: domain})
 			link("domain."+domain, modKey, "contains")
 		}
-		add(GraphNode{ID: c.StableKey, StableKey: c.StableKey, Type: featureType(c), Name: c.Name, Domain: domain})
+		add(GraphNode{ID: c.StableKey, StableKey: c.StableKey, Type: featureType(c), Name: c.Name, Domain: domain, Summary: c.Summary})
 		if c.Module != "" {
 			link(modKey, c.StableKey, "contains")
 		} else {

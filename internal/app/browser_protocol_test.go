@@ -115,6 +115,10 @@ func TestBrowserMCPErrorIsNotReportedAsSuccessfulAction(t *testing.T) {
 			t.Fatalf("empty/failed response accepted: %s", raw)
 		}
 	}
+	err = browserMCPResultError(`{"isError":true,"text":"async initializeServer: Chromium download failed"}`)
+	if err == nil || !strings.Contains(err.Error(), "BROWSER_LAUNCH_FAILED") {
+		t.Fatalf("chromium init must be a terminal launch failure: %v", err)
+	}
 }
 
 func TestBrowserReadinessAndDispatchRespectCancellation(t *testing.T) {

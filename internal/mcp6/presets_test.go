@@ -111,6 +111,20 @@ func TestPresetHostilePlaceholderStillRefused(t *testing.T) {
 
 // The needsArgs contract: only filesystem still needs a sandbox path.
 // Archived git/sqlite presets were removed. Presets() hands out copies.
+func TestPlaywrightPresetUsesInstalledEdge(t *testing.T) {
+	preset, ok := PresetByID("playwright")
+	if !ok {
+		t.Fatal("playwright preset missing")
+	}
+	joined := strings.Join(preset.Args, " ")
+	if !strings.Contains(joined, "@playwright/mcp") || !strings.Contains(joined, "--browser msedge") {
+		t.Fatalf("playwright still launches its own Chromium: %v", preset.Args)
+	}
+	if PresetLaunchPackage(preset) != "@playwright/mcp" {
+		t.Fatalf("package = %q", PresetLaunchPackage(preset))
+	}
+}
+
 func TestPresetNeedsArgsContract(t *testing.T) {
 	wantNeedsArgs := map[string]bool{
 		"everything": false, "filesystem": true, "fetch": false, "memory": false,

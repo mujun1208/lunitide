@@ -13,7 +13,26 @@ function Await($operation, $type) {
     return $task.Result
 }
 $manager = Await ($managerType::RequestAsync()) $managerType
-$sessions = @($manager.GetSessions() | Where-Object { $request.aliases -icontains $_.SourceAppUserModelId })
+function Test-MediaAlias([string]$aumid, $aliases) {
+    if ([string]::IsNullOrWhiteSpace($aumid)) { return $false }
+    foreach ($alias in @($aliases)) {
+        $name = [string]$alias
+        if ([string]::IsNullOrWhiteSpace($name)) { continue }
+        if ($aumid.IndexOf($name, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+        $compact = ($name -replace '\s', '')
+        if ($compact.Length -ge 3 -and $aumid.IndexOf($compact, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+        $stem = [IO.Path]::GetFileNameWithoutExtension($name)
+        if ($stem -and $stem -ne $name -and $stem.Length -ge 3 -and $aumid.IndexOf($stem, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+    }
+    return $false
+}
+$currentId = ''
+try { $currentId = [string]$manager.GetCurrentSession().SourceAppUserModelId } catch {}
+$sessions = @($manager.GetSessions() | Where-Object { Test-MediaAlias $_.SourceAppUserModelId $request.aliases })
+if ($sessions.Count -gt 1 -and $currentId) {
+    $preferred = @($sessions | Where-Object { $_.SourceAppUserModelId -eq $currentId })
+    if ($preferred.Count -eq 1) { $sessions = $preferred }
+}
 if ($sessions.Count -ne 1) { throw 'No unique matching media session' }
 $session = $sessions[0]
 $beforeTitle = ''
