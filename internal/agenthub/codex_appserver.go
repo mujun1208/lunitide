@@ -404,10 +404,7 @@ func (a *CodexThread) promptAppServer(sess *codexAppSession, thread ThreadRecord
 			}
 		}
 	}
-	if err := insertThreadMessage(a.store, thread.ID, "user", text); err != nil {
-		return err
-	}
-	if err := setThreadStatus(a.store, thread.ID, "running"); err != nil {
+	if err := claimUserTurn(a.store, thread.ID, text); err != nil {
 		return err
 	}
 	blocks = append(blocks, map[string]any{"type": "text", "text": text})
@@ -577,6 +574,11 @@ func (s *codexAppSession) failPending(err error) {
 func (s *codexAppSession) pump(a *CodexThread) {
 	defer func() {
 		s.failPending(fmt.Errorf("app-server closed"))
+		thread, err := a.store.Get(s.threadID)
+		if err == nil && thread.Status == "running" {
+			a.faultApp(s.threadID, s, fmt.Errorf("codex 连接中断，这一轮没有收到回复"))
+			return
+		}
 		a.dropAppSession(s.threadID, s)
 	}()
 	for {
@@ -586,6 +588,10 @@ func (s *codexAppSession) pump(a *CodexThread) {
 		}
 		var msg acpRPC
 		if json.Unmarshal(body, &msg) != nil {
+			continue
+		}
+		if msg.Method == "turn/completed" || msg.Method == "turn/failed" || msg.Method == "error" {
+			s.onTurnDone(a, msg)
 			continue
 		}
 		if id, ok := rpcID(msg.ID); ok && (len(msg.Result) > 0 || msg.Error != nil) {
@@ -611,8 +617,6 @@ func (s *codexAppSession) pump(a *CodexThread) {
 			if n := extractAppServerTokens(msg.Params); n > 0 {
 				_ = insertThreadEvent(a.store, s.threadID, AgentEvent{Type: "usage", Tokens: n})
 			}
-		case "turn/completed", "error":
-			s.onTurnDone(a, msg)
 		}
 	}
 }

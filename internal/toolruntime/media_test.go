@@ -48,7 +48,7 @@ func TestGenericForegroundPlaySendsKeyWithoutUIHunt(t *testing.T) {
 		return Result{}, errors.New("unexpected")
 	}
 	res, err := executeMediaPlayForeground(context.Background(), invoke, "s1", "随机播放", "汽水音乐", true, true)
-	if err != nil || !played || !strings.Contains(res.Output, "started playing") {
+	if err != nil || !played || !strings.Contains(res.Output, "playback not confirmed") || strings.Contains(res.Output, "started playing") {
 		t.Fatalf("got %+v %v played=%v", res, err, played)
 	}
 	if strings.Contains(res.Output, `"passed":true`) || !strings.Contains(res.Output, `"uncertain":true`) || !strings.Contains(res.Output, "MEDIA_UNVERIFIED") {

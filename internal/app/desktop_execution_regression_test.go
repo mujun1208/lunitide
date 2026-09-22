@@ -75,6 +75,9 @@ func TestDesktopCloseoutMatchesObservedResults(t *testing.T) {
 	if got := companionFinalResult(browse, "页面正常", "打开默认浏览器"); got != "已在系统浏览器打开。" {
 		t.Fatal(got)
 	}
+	if got := companionFinalResult(browse, "好，我马上处理。", "打开桌面浏览器搜索今天的新闻"); got != "已经在桌面浏览器打开搜索页。" {
+		t.Fatal(got)
+	}
 	media := receiptMessages("media.play", `{}`, "verified playing in player; shuffle=false\n"+`{"l0":{"kind":"media-session","passed":true,"uncertain":false}}`)
 	if got := companionFinalResult(media, "随机播放成功", "随机播放歌曲"); got != "已开始播放，但未确认随机模式。" {
 		t.Fatal(got)

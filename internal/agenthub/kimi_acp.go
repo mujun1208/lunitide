@@ -175,10 +175,7 @@ func (a *KimiACP) Prompt(threadID, text string) error {
 			}
 		}
 	}
-	if err = insertThreadMessage(a.store, threadID, "user", text); err != nil {
-		return err
-	}
-	if err = setThreadStatus(a.store, threadID, "running"); err != nil {
+	if err = claimUserTurn(a.store, threadID, text); err != nil {
 		return err
 	}
 	blocks = append(blocks, map[string]any{"type": "text", "text": text})

@@ -47,6 +47,23 @@ func TestPrepareToolArgumentsMissingRequired(t *testing.T) {
 	}
 }
 
+func TestPrepareUserAskMarksOneRecommendation(t *testing.T) {
+	var schema json.RawMessage
+	for _, d := range engineToolDefinitions() {
+		if d.Name == "user.ask" {
+			schema = d.Schema
+		}
+	}
+	raw := json.RawMessage(`{"questions":[{"prompt":"部署方式","options":[{"label":"容器化","description":"今晚就能发布"},{"label":"虚拟机","recommended":true,"detail":"要先准备环境"}]}]}`)
+	prepared, hint := prepareToolArguments("user.ask", raw, schema)
+	if hint != "" {
+		t.Fatalf("hint = %q prepared = %s", hint, prepared)
+	}
+	if strings.Count(string(prepared), `"recommended":true`) != 1 || !strings.Contains(string(prepared), "今晚就能发布") || strings.Contains(string(prepared), "description") {
+		t.Fatalf("prepared = %s", prepared)
+	}
+}
+
 func TestReplyStyleKeepsLunitideIdentity(t *testing.T) {
 	got := replyStyleInstruction("teacher", false)
 	if !strings.Contains(got, "保持月汐身份") || !strings.Contains(got, "老师") {

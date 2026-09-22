@@ -8,6 +8,24 @@ import (
 	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
+func TestPlayFollowUpKeepsMediaCenterAndSkipsDesktopCheck(t *testing.T) {
+	messages := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "帮我找到一个爱情电影再媒体中心可以播放出来"},
+		{Role: llmadapter.RoleAssistant, Content: "好"},
+		{Role: llmadapter.RoleUser, Content: "你随便找个适配播放一下我看看"},
+	}
+	goal := carryMediaCenterGoal(messages)
+	if !ownedMediaCenterGoal(goal) {
+		t.Fatal(goal)
+	}
+	if err := guardCurrentTurnTool(goal, "browser.act"); err == nil {
+		t.Fatal("follow-up playback must stay in the media center")
+	}
+	if !mediaCenterSkipsDesktopVerifier(goal, nil) {
+		t.Fatal("in-app playback must not be judged from the desktop screenshot")
+	}
+}
+
 func TestOwnedMediaCenterRewritesPlaybackAndBlocksOtherTools(t *testing.T) {
 	goal := "帮我从网上找个电影，再我的媒体中心播放"
 	raw := mediaArgsForGoal(goal, json.RawMessage(`{"target":"foreground","app":"汽水音乐","query":""}`))

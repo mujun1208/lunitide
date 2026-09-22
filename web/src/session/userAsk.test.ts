@@ -42,6 +42,24 @@ describe('user.ask pack', () => {
     expect(pack?.title).toBe('需求边界')
     expect(pack?.questions).toHaveLength(2)
     expect(pack?.questions[0].options.map(o => o.label)).toEqual(['容器化', '虚拟机'])
+    expect(pack?.questions[0].options[0].recommended).toBe(true)
+    expect(pack?.questions[0].options[1].recommended).toBe(false)
+  })
+
+  it('keeps one recommended option and a one-line consequence', () => {
+    const pack = parseUserAskSummary(JSON.stringify({
+      questions: [{
+        prompt: '部署方式',
+        options: [
+          {label: '容器化', description: '今晚就能发布'},
+          {label: '虚拟机', recommended: true, detail: '要先准备环境'},
+          {label: '再推荐一次', recommended: true},
+        ],
+      }],
+    }))
+    expect(pack?.questions[0].options.map(o => o.recommended)).toEqual([false, true, false])
+    expect(pack?.questions[0].options[0].detail).toBe('今晚就能发布')
+    expect(pack?.questions[0].options[1].detail).toBe('要先准备环境')
   })
 
   it('rejects summaries without at least two options', () => {
@@ -62,7 +80,7 @@ describe('user.ask pack', () => {
       db: {optionId: USER_ASK_OTHER_ID, otherText: '已有 TiDB'},
     })
     expect(text).toContain('【决策提交】需求边界')
-    expect(text).toContain('1. 部署方式：容器化')
+    expect(text).toContain('1. 部署方式：容器化（推荐）')
     expect(text).toContain('2. 数据库：其他 — 已有 TiDB')
   })
 

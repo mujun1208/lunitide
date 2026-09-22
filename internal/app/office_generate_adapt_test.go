@@ -84,6 +84,39 @@ func TestOfficeGenerateAcceptsExcelGenShapedArgs(t *testing.T) {
 	}
 }
 
+func TestPrepareOfficeGenerateFillsSchemaVersionBeforeSchemaCheck(t *testing.T) {
+	var schema json.RawMessage
+	for _, def := range officeToolDefinitions() {
+		if def.Name == "office.generate" {
+			schema = def.Schema
+		}
+	}
+	raw := json.RawMessage(`{"name":"方案.pptx","spec":{"kind":"pptx","title":"方案","templateId":"ops-clear","theme":"清晰经营","slides":[{"title":"封面","bullets":["场景一"]}]}}`)
+	prepared, hint := prepareToolArguments("office.generate", raw, schema)
+	if hint != "" {
+		t.Fatalf("complete deck without schemaVersion must not be sent back for a retry: %s", hint)
+	}
+	var p struct {
+		Spec content.Spec `json:"spec"`
+	}
+	if err := json.Unmarshal(prepared, &p); err != nil || p.Spec.SchemaVersion != 1 || p.Spec.Kind != content.PPTX {
+		t.Fatalf("prepared spec: %+v %v %s", p.Spec, err, prepared)
+	}
+}
+
+func TestOfficeGenerateWritesPptxWhenSchemaVersionOmitted(t *testing.T) {
+	e, _ := officeEngineFixture(t)
+	task := officeCreatedTask(t, e, "pptx-no-schema-version")
+	args := json.RawMessage(`{"name":"方案.pptx","spec":{"kind":"pptx","title":"方案","templateId":"ops-clear","theme":"清晰经营","slides":[{"title":"封面","bullets":["参数问答","素材检索"]}]}}`)
+	data, name, output, err := e.executeOfficeTool(context.Background(), task.SessionID, "office.generate", args)
+	if err != nil || len(data) == 0 {
+		t.Fatalf("pptx without schemaVersion must still be written: name=%q output=%q err=%v", name, output, err)
+	}
+	if !strings.Contains(output, "文件已存档") || !strings.Contains(name, ".pptx") {
+		t.Fatalf("delivery: name=%q output=%q", name, output)
+	}
+}
+
 func TestOfficeGenerateAcceptsDocxGenShapedArgs(t *testing.T) {
 	e, _ := officeEngineFixture(t)
 	task := officeCreatedTask(t, e, "weekly-docx-shape")

@@ -272,13 +272,21 @@ func mediaKeyDelivered(out string) bool {
 	if mediaControlReceiptSpeech(out) != "" {
 		return true
 	}
+	if !strings.Contains(out, "MEDIA_UNVERIFIED") {
+		return false
+	}
 	line, _, _ := strings.Cut(strings.TrimSpace(out), "\n")
-	return strings.HasPrefix(line, "started playing in ") && strings.Contains(out, "MEDIA_UNVERIFIED")
+	// The key was sent. That stops a second click, which would toggle pause.
+	// It is not evidence that audio started.
+	return strings.HasPrefix(line, "started playing in ") || strings.Contains(line, "playback not confirmed")
 }
 
 func mediaKeyDeliveredSpeech(out string) string {
 	if speech := mediaControlReceiptSpeech(out); speech != "" {
 		return speech
+	}
+	if strings.Contains(out, "MEDIA_UNVERIFIED") || strings.Contains(out, "playback not confirmed") {
+		return "已发送播放操作，但还没有确认音乐开始播放。"
 	}
 	line, _, _ := strings.Cut(strings.TrimSpace(out), "\n")
 	const prefix = "started playing in "

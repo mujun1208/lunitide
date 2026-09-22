@@ -1,7 +1,7 @@
 export const USER_ASK_TOOL = 'user.ask'
 export const USER_ASK_OTHER_ID = '__other__'
 
-export type UserAskOption = {id: string; label: string}
+export type UserAskOption = {id: string; label: string; recommended?: boolean; detail?: string}
 export type UserAskQuestion = {id: string; prompt: string; options: UserAskOption[]}
 export type UserAskReason = 'login' | '2fa' | 'captcha' | 'pay' | 'uac' | 'file_picker' | 'decision'
 export type UserAskPack = {title: string; questions: UserAskQuestion[]; reason?: UserAskReason}
@@ -35,6 +35,7 @@ function parseQuestion(raw: unknown, index: number): UserAskQuestion | undefined
   const id = typeof row.id === 'string' && row.id.trim() ? row.id.trim() : `q${index + 1}`
   const optionsIn = Array.isArray(row.options) ? row.options : []
   const options: UserAskOption[] = []
+  let recommendedSeen = false
   for (const [i, item] of optionsIn.entries()) {
     if (options.length >= 5) break
     const opt = asRecord(item)
@@ -43,9 +44,15 @@ function parseQuestion(raw: unknown, index: number): UserAskQuestion | undefined
     if (!label) continue
     const optId = typeof opt.id === 'string' && opt.id.trim() ? opt.id.trim() : `opt${i + 1}`
     if (optId === USER_ASK_OTHER_ID) continue
-    options.push({id: optId, label})
+    const rawDetail = typeof opt.detail === 'string' ? opt.detail : typeof opt.description === 'string' ? opt.description : ''
+    const detail = rawDetail.trim().slice(0, 160)
+    let recommended = opt.recommended === true
+    if (recommended && recommendedSeen) recommended = false
+    if (recommended) recommendedSeen = true
+    options.push({id: optId, label, recommended, ...(detail ? {detail} : {})})
   }
   if (options.length < 2) return undefined
+  if (!recommendedSeen) options[0] = {...options[0], recommended: true}
   return {id, prompt, options}
 }
 
@@ -89,8 +96,9 @@ export function formatUserAskFollowUp(pack: UserAskPack, answers: UserAskAnswers
     if (choice.optionId === USER_ASK_OTHER_ID) {
       return `${n}. ${question.prompt}：其他 — ${choice.otherText?.trim() || '（空）'}`
     }
-    const label = question.options.find(option => option.id === choice.optionId)?.label ?? choice.optionId
-    return `${n}. ${question.prompt}：${label}`
+    const picked = question.options.find(option => option.id === choice.optionId)
+    const label = picked?.label ?? choice.optionId
+    return `${n}. ${question.prompt}：${label}${picked?.recommended ? '（推荐）' : ''}`
   })
   const head = pack.title ? `【决策提交】${pack.title}` : '【决策提交】'
   return [head, ...lines].join('\n')

@@ -3,9 +3,12 @@ package agenthub
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -189,5 +192,55 @@ func assertYesNoOptions(t *testing.T, optionsJSON string) {
 	}
 	if len(options) != 2 || options[0].Label != "是" || options[1].Label != "否" {
 		t.Fatalf("options = %#v, want labels 是 then 否", options)
+	}
+}
+
+func TestConcurrentMessageSeqDoesNotCollide(t *testing.T) {
+	db := openThreadDB(t)
+	db.SetMaxOpenConns(4)
+	store := NewThreadStore(db)
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAV", "cursor", "Cursor", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	errCh := make(chan error, 8)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errCh <- insertThreadMessage(store, thread.ID, "user", fmt.Sprintf("m%d", i))
+		}(i)
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(DISTINCT seq) FROM agent_hub_messages WHERE thread_id=?`, thread.ID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 8 {
+		t.Fatalf("distinct seq = %d, want 8", n)
+	}
+}
+
+func TestSecondSendWhileRunningIsBusy(t *testing.T) {
+	db := openThreadDB(t)
+	store := NewThreadStore(db)
+	thread := sampleThread("01ARZ3NDEKTSV4RRFFQ69G5FAW", "cursor", "Cursor", false)
+	thread.WorkspaceRoot = t.TempDir()
+	if err := store.Insert(thread); err != nil {
+		t.Fatal(err)
+	}
+	if err := claimUserTurn(store, thread.ID, "今天星期几"); err != nil {
+		t.Fatal(err)
+	}
+	if err := claimUserTurn(store, thread.ID, "再问一次"); !errors.Is(err, ErrThreadBusy) {
+		t.Fatalf("second send = %v, want busy", err)
 	}
 }

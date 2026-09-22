@@ -358,7 +358,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		instruction = appendTypedStableBlocks(instruction, bundledWorkflowInjectionForLane(laneIn.Goal, startLane), e.workspaceRepoGuidance())
 		instruction += e.projectFactoryGuidance(ctx, p.ProjectID, p.ProjectPhase)
 	}
-	if hint := projectPhaseWorkflowInjection(p.ProjectPhase, p.ProjectPhaseLabel); hint != "" {
+	if hint := projectPhaseWorkflowInjectionMode(p.ProjectPhase, p.ProjectPhaseLabel, !p.Companion); hint != "" {
 		instruction += hint
 	}
 	instruction = appendCurrentTurnBoundary(instruction, turnText, time.Now())
@@ -1696,6 +1696,8 @@ func approvalRequiredSummary(name string, args json.RawMessage) string {
 
 func toolStartedSummary(name string, args json.RawMessage) string {
 	switch name {
+	case "todo.write":
+		return toolruntime.PreviewTodoChecklist(args)
 	case "user.ask":
 		var a struct {
 			Title string `json:"title"`

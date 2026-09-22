@@ -125,10 +125,7 @@ func (a *CodexThread) Prompt(threadID, text string) error {
 		return a.promptAppServer(sess, thread, text)
 	}
 	stdin := composeCodexExecPrompt(a.store, threadID, text)
-	if err = insertThreadMessage(a.store, threadID, "user", text); err != nil {
-		return err
-	}
-	if err = setThreadStatus(a.store, threadID, "running"); err != nil {
+	if err = claimUserTurn(a.store, threadID, text); err != nil {
 		return err
 	}
 	exe, args := codexThreadArgv(thread.WorkspaceRoot, codexExecSandbox(thread.AccessMode))

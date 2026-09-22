@@ -55,6 +55,22 @@ test('mode resync after interruption never replaces the recognizer holding the n
   handle.stop()
 })
 
+test('one Windows event whose resultIndex points at the tail still keeps the city', async () => {
+  vi.useFakeTimers()
+  const onFinal = vi.fn()
+  const handle = await startCompanionSpeech({ duplex: true, meterless: true, onFinal, onInterim: vi.fn(), onError: vi.fn() })
+  recognition.onresult?.({
+    resultIndex: 1,
+    results: Object.assign([
+      { 0: { transcript: '今天上海', confidence: 0.9 }, length: 1, isFinal: false },
+      { 0: { transcript: '的天气怎么样？', confidence: 0.92 }, length: 1, isFinal: true },
+    ], { length: 2 }),
+  })
+  await vi.advanceTimersByTimeAsync(TURN_END_SILENCE_MS + 600)
+  expect(onFinal).toHaveBeenCalledExactlyOnceWith('今天上海的天气怎么样？')
+  handle.stop()
+})
+
 beforeEach(() => {
   recognition = {
     lang: '',

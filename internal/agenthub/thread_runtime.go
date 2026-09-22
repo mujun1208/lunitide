@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -35,15 +36,48 @@ type ThreadPromptOption struct {
 	Label string `json:"label"`
 }
 
+var threadWriteMu sync.Mutex
+
 func insertThreadMessage(store *ThreadStore, threadID, role, content string) error {
-	var last int
-	err := store.db.QueryRow(`SELECT COALESCE(MAX(seq), 0) FROM agent_hub_messages WHERE thread_id=?`, threadID).Scan(&last)
+	threadWriteMu.Lock()
+	defer threadWriteMu.Unlock()
+	return insertThreadMessageLocked(store, threadID, role, content)
+}
+
+// claimUserTurn stores the user line and marks the thread running as one
+// critical section. Two sends can no longer read the same seq, and the second
+// send is refused while the first is still running.
+func claimUserTurn(store *ThreadStore, threadID, text string) error {
+	threadWriteMu.Lock()
+	defer threadWriteMu.Unlock()
+	thread, err := store.Get(threadID)
 	if err != nil {
 		return err
 	}
-	_, err = store.db.Exec(`INSERT INTO agent_hub_messages(id, thread_id, seq, role, content, created_at)
-VALUES(?,?,?,?,?,datetime('now'))`, ulid.Make().String(), threadID, last+1, role, content)
-	return err
+	if thread.Status == "waiting_user" || thread.Status == "running" {
+		return ErrThreadBusy
+	}
+	if err = insertThreadMessageLocked(store, threadID, "user", text); err != nil {
+		return err
+	}
+	return setThreadStatus(store, threadID, "running")
+}
+
+func insertThreadMessageLocked(store *ThreadStore, threadID, role, content string) error {
+	res, err := store.db.Exec(`INSERT INTO agent_hub_messages(id, thread_id, seq, role, content, created_at)
+VALUES(?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM agent_hub_messages WHERE thread_id = ?), ?, ?, datetime('now'))`,
+		ulid.Make().String(), threadID, threadID, role, content)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return errors.New("message was not stored")
+	}
+	return nil
 }
 
 func MarkThreadSuccess(store *ThreadStore, threadID string) error {

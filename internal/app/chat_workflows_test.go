@@ -36,4 +36,11 @@ func TestProjectPhaseWorkflowInjectionAsksDecisions(t *testing.T) {
 	if !strings.Contains(ops, "user.ask") || !strings.Contains(ops, "先自行判断") {
 		t.Fatalf("default phase must keep ask-only-if-needed, got %q", ops)
 	}
+	voice := projectPhaseWorkflowInjectionMode(1, "需求架构规范", false)
+	if strings.Contains(voice, "user.ask") || strings.Contains(voice, "决策卡") {
+		t.Fatalf("voice phase must not open a decision card: %q", voice)
+	}
+	if !strings.Contains(voice, "grill-me") {
+		t.Fatalf("voice phase still needs its skills: %q", voice)
+	}
 }

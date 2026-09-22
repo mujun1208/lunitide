@@ -39,8 +39,15 @@ export function VideoPlayerSurface({
   const playing = mediaTransportPlaying(false, snapshot)
   const videoRef = useRef<HTMLVideoElement>(null)
   useEffect(() => {
-    if (videoRef.current && rate) videoRef.current.playbackRate = rate
-  }, [rate, src])
+    const node = videoRef.current
+    if (!showFile || !src || !node) return
+    if (rate) node.playbackRate = rate
+    const pending = node.play()
+    void pending?.catch(() => {
+      node.muted = true
+      void node.play()?.catch(() => {})
+    })
+  }, [rate, showFile, src])
   return (
     <section className="media-video-surface" aria-label={copy.video}>
       <div className="video-heading">

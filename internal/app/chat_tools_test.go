@@ -522,7 +522,7 @@ func TestEngineToolDefinitionsIncludeBrowserAct(t *testing.T) {
 	for _, d := range engineToolDefinitions() {
 		if d.Name == "user.ask" {
 			foundAsk = true
-			if !strings.Contains(string(d.Schema), `"questions"`) || !strings.Contains(d.Description, "选项") || !strings.Contains(d.Description, "不要为了显得全面") {
+			if !strings.Contains(string(d.Schema), `"recommended"`) || !strings.Contains(d.Description, "recommended=true") || !strings.Contains(d.Description, "不要为确认") {
 				t.Fatalf("user.ask schema/description incomplete: %s", d.Description)
 			}
 		}

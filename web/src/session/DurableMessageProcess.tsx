@@ -3,6 +3,7 @@ import {useEffect, useState} from 'react'
 import type {MessageBridge} from '../bridge/client'
 import type {MessageProcessResult} from '../generated/bridge'
 import {ThinkingPanel} from './MarkdownMessage'
+import {parseTaskSteps, TaskStepsFromSummary} from './TaskSteps'
 import {TOOL_LABELS} from './toolLabels'
 
 function processUserError(err: unknown, fallback: string): string {
@@ -45,7 +46,7 @@ export function DurableMessageProcess({sessionId,messageId,bridge,onCopy}:{
           {tool.name==='subagent.spawn'||tool.name==='subagent.join'?<SubagentActivityRow activity={tool}/>:<>
           <b>{TOOL_LABELS[tool.name]??tool.name}</b>
           <span> · {tool.status==='tool_completed'?'已返回':tool.status==='approval_required'?'当时等待确认':'已开始'}</span>
-          {tool.summary&&<pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{tool.summary}</pre>}
+          {tool.name==='todo.write'&&parseTaskSteps(tool.summary).length?<TaskStepsFromSummary summary={tool.summary}/>:tool.summary&&<pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{tool.summary}</pre>}
           </>}
         </li>)}
       </ol>}

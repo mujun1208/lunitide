@@ -144,8 +144,8 @@ func TestDesktopLadderCloseoutWaitsForNextMethod(t *testing.T) {
 		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "p1", Name: "media.play", Arguments: json.RawMessage(`{"query":"random"}`)}}},
 		{Role: llmadapter.RoleTool, ToolCallID: "p1", Content: `started playing in 汽水音乐 (media key)` + "\n" + `{"l0":{"kind":"foreground","passed":false,"uncertain":true,"detail":"MEDIA_UNVERIFIED"}}`},
 	}
-	if got := computerReceiptCloseout(messages, goal); got != "已经让汽水音乐播放了。" {
-		t.Fatalf("delivered media key must close the turn: %q", got)
+	if got := computerReceiptCloseout(messages, goal); got != "已发送播放操作，但还没有确认音乐开始播放。" {
+		t.Fatalf("unconfirmed media key must not claim playback: %q", got)
 	}
 	if desktopLadderShouldContinue(goal, messages[2].Content, []string{"media.play"}, 0) {
 		t.Fatal("delivered media key must not climb to computer.act")

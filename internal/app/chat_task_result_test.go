@@ -71,12 +71,37 @@ func TestOpenedDesktopBrowserStopsLaterBrowserTools(t *testing.T) {
 	messages := receiptMessages("desktop.browse", `{"query":"古天乐 最新新闻"}`, "已向系统默认桌面浏览器发送打开请求：https://www.bing.com/search?q=news")
 	goal := "打开网页搜索古天乐最新新闻"
 	for _, name := range []string{"computer.act", "browser.act"} {
+		if _, ok := browseAlreadyOpenReceipt(goal, name, messages); !ok {
+			t.Fatal("open search must settle without another desktop tool", name)
+		}
 		if err := guardCurrentTurnToolHistory(goal, name, messages); err == nil {
 			t.Fatal("continued after the page was open", name)
 		}
 	}
 	if err := guardCurrentTurnToolHistory("打开网站第一个新闻", "browser.act", messages); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestOpenedDesktopSearchIsNotSpokenAsFailure(t *testing.T) {
+	goal := "打开桌面浏览器，搜索周杰伦的最新新闻"
+	opened := "已打开桌面浏览器：https://www.bing.com/search?q=jay\n" + `{"l0":{"kind":"process","passed":true,"uncertain":false}}`
+	messages := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: goal},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "browse", Name: "desktop.browse", Arguments: json.RawMessage(`{"query":"周杰伦 最新新闻"}`)}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "browse", Content: opened},
+	}
+	settled, ok := browseAlreadyOpenReceipt(goal, "computer.act", messages)
+	if !ok || strings.Contains(settled, "ok:false") || strings.Contains(settled, "失败") {
+		t.Fatalf("settled = %q ok=%v", settled, ok)
+	}
+	messages = append(messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: "act", Content: settled})
+	got := companionFinalResult(messages, "好，我马上处理。", goal)
+	if strings.Contains(got, "没成功") || strings.Contains(got, "未完成") || strings.Contains(got, "重试") {
+		t.Fatal(got)
+	}
+	if !strings.Contains(got, "桌面浏览器") {
+		t.Fatal(got)
 	}
 }
 
@@ -129,6 +154,18 @@ func TestFreshLookupCannotExecuteOldFileOrMusicTask(t *testing.T) {
 	composed := appendCurrentTurnBoundary(stable, "查今天车票", now)
 	if !strings.HasPrefix(composed, stable) || strings.Index(composed, "当前本地时间") < len(stable) {
 		t.Fatal("current-turn boundary must follow the stable prefix")
+	}
+}
+
+func TestTypedAssistStaysOutOfVoice(t *testing.T) {
+	typed := appendTypedStableBlocks("", "", "")
+	for _, needle := range []string{"[打字协助]", "todo.write", "recommended=true", "不要弹确认卡"} {
+		if !strings.Contains(typed, needle) {
+			t.Fatalf("typed assist missing %q", needle)
+		}
+	}
+	if strings.Contains(companionPersonaChatInstruction(), "[打字协助]") || strings.Contains(companionPersonaChatInstruction(), "recommended=true") {
+		t.Fatal("voice persona picked up the typed decision card")
 	}
 }
 

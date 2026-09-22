@@ -25,6 +25,7 @@ import {
   STALL_RESTART_AFTER_MS,
   overlayTranscript,
   recognitionResultStart,
+  sameUtteranceSplit,
   absorbRecognitionFinal,
   collapseTandemRepeats,
   pickRecognitionTranscript,
@@ -289,6 +290,22 @@ describe('recognitionResultStart', () => {
     expect(recognitionResultStart(2, 0, 3)).toBe(2)
     expect(recognitionResultStart(2, 2, 4)).toBe(2)
     expect(recognitionResultStart(5, 0, 3)).toBe(0)
+  })
+
+  test('still reads an unconsumed prefix when resultIndex points at the tail', () => {
+    expect(recognitionResultStart(0, 1, 2)).toBe(0)
+  })
+})
+
+describe('sameUtteranceSplit', () => {
+  test('joins a city prefix with the grammatical tail of the same question', () => {
+    expect(sameUtteranceSplit('今天上海', '的天气怎么样？')).toBe(true)
+    expect(absorbRecognitionFinal('今天上海', '的天气怎么样？')).toBe('今天上海的天气怎么样？')
+  })
+
+  test('does not glue a finished sentence onto the next one or onto a trailing syllable', () => {
+    expect(sameUtteranceSplit('今天合肥的天气怎么样？', '打开浏览器。')).toBe(false)
+    expect(sameUtteranceSplit('今天合肥市的天气怎么样？', '呢？')).toBe(false)
   })
 })
 

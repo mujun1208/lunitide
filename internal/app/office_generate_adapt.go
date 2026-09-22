@@ -16,7 +16,12 @@ func adaptOfficeGenerateArgs(raw json.RawMessage) json.RawMessage {
 		return raw
 	}
 	if spec, ok := m["spec"]; ok {
-		out := map[string]json.RawMessage{"spec": spec}
+		name := jsonRawString(m["name"])
+		if name == "" {
+			name = jsonRawString(m["path"])
+		}
+		filled, specChanged := normalizeOfficeSpec(spec, name)
+		out := map[string]json.RawMessage{"spec": filled}
 		if v, ok := m["taskId"]; ok {
 			out["taskId"] = v
 		}
@@ -25,7 +30,7 @@ func adaptOfficeGenerateArgs(raw json.RawMessage) json.RawMessage {
 		} else if v, ok := m["path"]; ok {
 			out["name"] = v
 		}
-		changed := false
+		changed := specChanged
 		if _, hasName := m["name"]; !hasName {
 			if _, hasPath := m["path"]; hasPath {
 				changed = true
@@ -213,6 +218,163 @@ func adaptExcelGenSheets(raw json.RawMessage) ([]content.Sheet, bool) {
 
 func officeSheetTyped(sheet content.Sheet) bool {
 	return len(sheet.Rows) > 0 && len(sheet.Rows[0]) > 0 && sheet.Rows[0][0].Type != ""
+}
+
+// normalizeOfficeSpec fills schemaVersion (and title/kind when the filename
+// or content already says what they are) and drops spec fields the file
+// writer does not read. A missing schemaVersion used to stop the call before
+// any file was written.
+func normalizeOfficeSpec(spec json.RawMessage, name string) (json.RawMessage, bool) {
+	var loose map[string]any
+	if json.Unmarshal(spec, &loose) != nil || loose == nil {
+		return spec, false
+	}
+	changed := false
+	if officeJSONNumber(loose["schemaVersion"]) == 0 {
+		loose["schemaVersion"] = defaultOfficeSchemaVersion(loose)
+		changed = true
+	}
+	if strings.TrimSpace(officeJSONString(loose["title"])) == "" {
+		if title := officeTitleFromName(name); title != "" {
+			loose["title"] = title
+			changed = true
+		}
+	}
+	if strings.TrimSpace(officeJSONString(loose["kind"])) == "" {
+		kind := officeKindFromName(name, "")
+		switch {
+		case kind != "":
+		case loose["slides"] != nil:
+			kind = string(content.PPTX)
+		case loose["blocks"] != nil:
+			kind = string(content.DOCX)
+		case loose["sheets"] != nil:
+			kind = string(content.XLSX)
+		case loose["body"] != nil:
+			kind = string(content.PDF)
+		}
+		if kind != "" {
+			loose["kind"] = kind
+			changed = true
+		}
+	}
+	if pruned := pruneOfficeSpecToToolSchema(loose); pruned {
+		changed = true
+	}
+	if !changed {
+		return spec, false
+	}
+	body, err := json.Marshal(loose)
+	if err != nil {
+		return spec, false
+	}
+	return body, true
+}
+
+func pruneOfficeSpecToToolSchema(spec map[string]any) bool {
+	schema := officeGenerateSpecSchema()
+	if schema == nil {
+		return false
+	}
+	_, changed := pruneToSchema(spec, schema)
+	return changed
+}
+
+func officeGenerateSpecSchema() map[string]any {
+	for _, def := range officeToolDefinitions() {
+		if def.Name != "office.generate" {
+			continue
+		}
+		var schema map[string]any
+		if json.Unmarshal(def.Schema, &schema) != nil {
+			return nil
+		}
+		props, _ := schema["properties"].(map[string]any)
+		specSchema, _ := props["spec"].(map[string]any)
+		return specSchema
+	}
+	return nil
+}
+
+func pruneToSchema(value any, schema map[string]any) (any, bool) {
+	if schema == nil {
+		return value, false
+	}
+	props, _ := schema["properties"].(map[string]any)
+	if obj, ok := value.(map[string]any); ok && len(props) > 0 {
+		changed := false
+		for key, child := range obj {
+			childSchema, ok := props[key].(map[string]any)
+			if !ok {
+				delete(obj, key)
+				changed = true
+				continue
+			}
+			next, childChanged := pruneToSchema(child, childSchema)
+			obj[key] = next
+			if childChanged {
+				changed = true
+			}
+		}
+		return obj, changed
+	}
+	items, _ := schema["items"].(map[string]any)
+	if arr, ok := value.([]any); ok && items != nil {
+		changed := false
+		for i, item := range arr {
+			next, childChanged := pruneToSchema(item, items)
+			arr[i] = next
+			if childChanged {
+				changed = true
+			}
+		}
+		return arr, changed
+	}
+	return value, false
+}
+
+func defaultOfficeSchemaVersion(spec map[string]any) int {
+	slides, _ := spec["slides"].([]any)
+	for _, item := range slides {
+		slide, _ := item.(map[string]any)
+		if slide == nil {
+			continue
+		}
+		if slide["metrics"] != nil || slide["comparison"] != nil {
+			return 2
+		}
+	}
+	return 1
+}
+
+func officeTitleFromName(name string) string {
+	base := strings.TrimSuffix(filepath.Base(strings.TrimSpace(name)), filepath.Ext(name))
+	if base == "." || base == "" {
+		return ""
+	}
+	return base
+}
+
+func officeJSONString(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+func officeJSONNumber(v any) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case json.Number:
+		i, err := n.Int64()
+		if err != nil {
+			return 0
+		}
+		return int(i)
+	default:
+		return 0
+	}
 }
 
 func excelGenCell(raw json.RawMessage) content.Cell {
