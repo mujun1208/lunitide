@@ -111,7 +111,7 @@ const apiFor = (
   exportBundle: vi.fn(),
   diff: vi.fn(),
 });
-const chooseOption = (name: '简报' | '风格' | '品牌' | '说明') => {
+const chooseOption = (name: '简报') => {
   fireEvent.click(screen.getByRole('button', { name }));
 };
 
@@ -273,9 +273,9 @@ it('collapses brief controls once a deliverable exists and lists PPT pages under
   expect(screen.queryByRole('radio', { name: '清晰经营' })).toBeNull();
   fireEvent.click(within(options).getByRole('button', { name: '简报' }));
   expect(screen.getByLabelText('受众')).toBeVisible();
-  fireEvent.click(within(options).getByRole('button', { name: '风格' }));
-  expect(screen.queryByLabelText('受众')).toBeNull();
-  expect(screen.getByRole('radio', { name: '清晰经营' })).toBeVisible();
+  expect(within(options).queryByRole('button', { name: '风格' })).toBeNull();
+  expect(within(options).queryByRole('button', { name: '品牌' })).toBeNull();
+  expect(within(options).queryByRole('button', { name: '说明' })).toBeNull();
 });
 
 it('keeps backend batch navigation when a PPT preview is truncated', async () => {
@@ -985,139 +985,23 @@ describe('Office Studio production state', () => {
     expect(await screen.findByText(/不保证分页/)).toBeVisible();
   });
 
-  it('restores style from the task snapshot when local storage is empty', async () => {
+  it('does not ask for style or brand on the generate strip', async () => {
     const detail = fixture();
     detail.task.styleId = 'editorial-report';
-    await open(apiFor(detail));
-    chooseOption('风格');
-    expect(screen.getByRole('radio', { name: '编辑式报告' })).toBeChecked();
-    expect(screen.getByLabelText('任务概要')).toHaveTextContent('编辑式报告');
-  });
-
-  it('restores and persists the selected style per task', async () => {
-    localStorage.setItem(`lunitide:office-studio:style:${taskId}`, 'brand-pitch');
-    const api = apiFor();
-    await open(api);
-    chooseOption('风格');
-    expect(screen.getByRole('radio', { name: '品牌方案' })).toBeChecked();
-    fireEvent.click(screen.getByRole('radio', { name: '编辑式报告' }));
-    expect(localStorage.getItem(`lunitide:office-studio:style:${taskId}`)).toBe('editorial-report');
-    expect(screen.getByLabelText('任务概要')).toHaveTextContent('编辑式报告');
-    await waitFor(() =>
-      expect(api.update).toHaveBeenCalledWith({
-        taskId,
-        expectedRevision: 42,
-        title: '季度汇报',
-        goal: '根据已提供的数据整理季度汇报',
-        styleId: 'editorial-report',
-      }),
-    );
-  });
-
-  it('renders persisted brand id without inventing colors', async () => {
-    const detail = fixture();
     detail.task.brandId = 'task-teal';
     await open(apiFor(detail));
-    expect(screen.getByLabelText('任务概要')).toHaveTextContent('品牌：task-teal');
-    expect(screen.getByLabelText('任务概要')).not.toHaveTextContent('112233');
-  });
-
-  it('clears brand draft when switching tasks so the previous license is not reused', async () => {
-    const otherId = '01ARZ3NDEKTSV4RRFFQ69G5FA9';
-    const current = fixture();
-    const other = fixture();
-    other.task = { ...other.task, id: otherId, title: '另一任务', revision: 3 };
-    const api = apiFor(current);
-    api.list = vi.fn(async () => ({ items: [current.task, other.task] }));
-    api.get = vi.fn(async (payload) => (payload.taskId === otherId ? other : current));
-    await open(api);
-    chooseOption('品牌');
-    fireEvent.change(screen.getByLabelText('品牌编号'), { target: { value: 'task-teal' } });
-    fireEvent.change(screen.getByLabelText('许可'), { target: { value: 'client-granted' } });
-    fireEvent.click(screen.getByRole('button', { name: '另一任务' }));
-    await screen.findByRole('heading', { name: '另一任务' });
-    chooseOption('品牌');
-    expect(screen.getByLabelText('品牌编号')).toHaveValue('');
-    expect(screen.getByLabelText('许可')).toHaveValue('');
-  });
-
-  it('registers optional navy and logo digest without showing hex in the strip', async () => {
-    const api = apiFor();
-    await open(api);
-    chooseOption('品牌');
-    fireEvent.change(screen.getByLabelText('品牌编号'), { target: { value: 'task-teal' } });
-    fireEvent.change(screen.getByLabelText('主色'), { target: { value: '112233' } });
-    fireEvent.change(screen.getByLabelText('来源'), { target: { value: 'https://example.invalid/brand' } });
-    fireEvent.change(screen.getByLabelText('许可'), { target: { value: 'client-granted' } });
-    fireEvent.change(screen.getByLabelText('摘要'), { target: { value: 'ab'.repeat(32) } });
-    fireEvent.change(screen.getByLabelText('标识摘要'), { target: { value: 'cd'.repeat(32) } });
-    fireEvent.click(screen.getByRole('button', { name: '登记品牌' }));
-    await waitFor(() =>
-      expect(api.update).toHaveBeenCalledWith({
-        taskId,
-        expectedRevision: 42,
-        title: '季度汇报',
-        goal: '根据已提供的数据整理季度汇报',
-        brand: {
-          brandId: 'task-teal',
-          colors: { navy: '112233' },
-          fonts: { latin: '', east: '' },
-          asset: {
-            sourceUrl: 'https://example.invalid/brand',
-            license: 'client-granted',
-            digest: 'ab'.repeat(32),
-            logoDigest: 'cd'.repeat(32),
-          },
-        },
-      }),
-    );
-    expect(screen.getByLabelText('任务概要')).not.toHaveTextContent('112233');
-  });
-
-  it('refuses L1 brand when navy is not six hex digits', async () => {
-    const api = apiFor();
-    await open(api);
-    chooseOption('品牌');
-    fireEvent.change(screen.getByLabelText('品牌编号'), { target: { value: 'task-teal' } });
-    fireEvent.change(screen.getByLabelText('主色'), { target: { value: 'navy' } });
-    fireEvent.change(screen.getByLabelText('来源'), { target: { value: 'https://example.invalid/brand' } });
-    fireEvent.change(screen.getByLabelText('许可'), { target: { value: 'client-granted' } });
-    fireEvent.change(screen.getByLabelText('摘要'), { target: { value: 'ab'.repeat(32) } });
-    fireEvent.click(screen.getByRole('button', { name: '登记品牌' }));
-    expect(api.update).not.toHaveBeenCalled();
-  });
-
-  it('registers L1 brand through task update and refuses missing license', async () => {
-    const api = apiFor();
-    await open(api);
-    chooseOption('品牌');
-    expect(screen.getByLabelText('任务品牌')).toHaveTextContent('不还原');
-    fireEvent.change(screen.getByLabelText('品牌编号'), { target: { value: 'task-teal' } });
-    fireEvent.change(screen.getByLabelText('西文字体'), { target: { value: 'Georgia' } });
-    fireEvent.change(screen.getByLabelText('中文字体'), { target: { value: 'SimSun' } });
-    fireEvent.change(screen.getByLabelText('来源'), { target: { value: 'https://example.invalid/brand' } });
-    fireEvent.click(screen.getByRole('button', { name: '登记品牌' }));
-    expect(api.update).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText('许可'), { target: { value: 'client-granted' } });
-    fireEvent.change(screen.getByLabelText('摘要'), { target: { value: 'ab'.repeat(32) } });
-    fireEvent.click(screen.getByRole('button', { name: '登记品牌' }));
-    await waitFor(() =>
-      expect(api.update).toHaveBeenCalledWith({
-        taskId,
-        expectedRevision: 42,
-        title: '季度汇报',
-        goal: '根据已提供的数据整理季度汇报',
-        brand: {
-          brandId: 'task-teal',
-          fonts: { latin: 'Georgia', east: 'SimSun' },
-          asset: {
-            sourceUrl: 'https://example.invalid/brand',
-            license: 'client-granted',
-            digest: 'ab'.repeat(32),
-          },
-        },
-      }),
-    );
+    const options = screen.getByRole('navigation', { name: '可选设置' });
+    expect(within(options).getByRole('button', { name: '简报' })).toBeVisible();
+    expect(within(options).queryByRole('button', { name: '风格' })).toBeNull();
+    expect(within(options).queryByRole('button', { name: '品牌' })).toBeNull();
+    expect(within(options).queryByRole('button', { name: '说明' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '登记品牌' })).toBeNull();
+    expect(screen.queryByText(/工程变体，非设计师已检/)).toBeNull();
+    const summary = screen.getByLabelText('任务概要');
+    expect(summary).not.toHaveTextContent('风格');
+    expect(summary).not.toHaveTextContent('品牌');
+    expect(screen.getByRole('button', { name: '生成演示' })).toBeVisible();
+    expect(screen.getByText(/有合适模板就按页选用/)).toBeVisible();
   });
 
   it('renders persisted brief instead of inventing audience', async () => {
@@ -1152,10 +1036,20 @@ describe('Office Studio production state', () => {
         }),
       ),
     );
-    chooseOption('说明');
-    expect(screen.getByText(/不是生成按钮/)).toBeInTheDocument();
-    expect(screen.getByText(/预览只来自当前任务/)).toBeInTheDocument();
-    expect(screen.getByLabelText('当前任务预览')).not.toHaveTextContent('精美示例');
+    expect(screen.queryByRole('button', { name: '说明' })).toBeNull();
+  });
+
+  it('sends a template fill request into the conversation', async () => {
+    const conversation = vi.fn((_task: OfficeTaskDetail['task'], options: OfficeConversationOptions) => (
+      <div>{options.promptEpoch ?? 0}</div>
+    ));
+    await open(apiFor(), conversation);
+    fireEvent.click(screen.getByRole('button', { name: '生成演示' }));
+    const last = conversation.mock.calls.at(-1)?.[1];
+    expect(last?.promptEpoch).toBe(1);
+    expect(last?.initialPrompt).toContain('pptx.gen');
+    expect(last?.initialPrompt).toContain('根据已提供的数据整理季度汇报');
+    expect(last?.initialPrompt).toContain('不要使用 PowerPoint COM');
   });
 
   it('persists two outline pages and does not save a blank extra page', async () => {
@@ -1234,8 +1128,7 @@ describe('Office Studio production state', () => {
     );
     expect(api.update).not.toHaveBeenCalledWith(expect.objectContaining({ styleId: '' }));
     expect(api.update).not.toHaveBeenCalledWith(expect.objectContaining({ brand: expect.anything() }));
-    expect(screen.getByLabelText('任务概要')).toHaveTextContent('品牌方案');
-    expect(screen.getByLabelText('任务概要')).toHaveTextContent('品牌：task-teal');
+    expect(screen.getByLabelText('任务概要')).not.toHaveTextContent('品牌');
   });
 
   it('clears brief draft when switching tasks so the previous audience is not reused', async () => {
@@ -1258,7 +1151,7 @@ describe('Office Studio production state', () => {
     expect(screen.getByLabelText('目标页数')).toHaveValue(null);
   });
 
-  it('shows cover body and chart previews from the current task only', async () => {
+  it('shows the current deck on the page instead of a separate preview card', async () => {
     const rich = (versionId: string): OfficePreview => ({
       ...preview(versionId),
       nodes: [
@@ -1285,20 +1178,9 @@ describe('Office Studio production state', () => {
     );
     await screen.findByRole('heading', { name: '季度汇报' });
     await screen.findByText('Q3 封面');
-    chooseOption('说明');
-    expect(screen.getByLabelText('封面预览')).toHaveTextContent('Q3 封面');
-    expect(screen.getByLabelText('正文预览')).toHaveTextContent('收入 1200');
-    expect(screen.getByLabelText('图表预览')).toHaveTextContent('趋势图');
-    expect(screen.getByLabelText('当前任务预览')).not.toHaveTextContent('库存样图');
-    expect(screen.getByLabelText('当前任务预览')).not.toHaveTextContent('示例图');
-  });
-
-  it('says the current task has no chart page instead of showing stock art', async () => {
-    await open(apiFor());
-    chooseOption('说明');
-    expect(screen.getByLabelText('封面预览')).toHaveTextContent('经营总结');
-    expect(screen.getByLabelText('图表预览')).toHaveTextContent('当前任务尚无该页');
-    expect(screen.getByLabelText('图表预览')).not.toHaveTextContent('示例图');
+    expect(screen.queryByLabelText('封面预览')).toBeNull();
+    expect(screen.queryByText('库存样图')).toBeNull();
+    expect(screen.queryByText('示例图')).toBeNull();
   });
 
   it('saves authored confidentiality without inventing a classification', async () => {
@@ -1327,19 +1209,10 @@ describe('Office Studio production state', () => {
     expect(screen.getByLabelText('任务概要')).toHaveTextContent('未填写');
     expect(screen.getByLabelText('任务概要')).toHaveTextContent('页数未填写');
     expect(screen.getByLabelText('任务概要')).not.toHaveTextContent('管理层');
-    chooseOption('风格');
-    expect(screen.getByRole('radio', { name: '清晰经营' })).toBeChecked();
-    expect(screen.getByText(/工程变体，非设计师已检 36/)).toBeVisible();
-    chooseOption('说明');
-    expect(screen.getByLabelText('生成流程说明')).toHaveTextContent('整理');
-    expect(screen.getByText(/未校准/)).toBeVisible();
-    expect(screen.getByText(/本期不做/)).toBeVisible();
-    expect(screen.getByText(/试验范围/)).toBeVisible();
-    expect(screen.getByText(/可用范围/)).toBeVisible();
-    expect(screen.getByText(/外部生成器未进生产主链/)).toBeVisible();
-    expect(screen.getByText(/不能从成稿反推/)).toBeVisible();
-    expect(screen.getByText(/不是生成按钮/)).toBeVisible();
-    expect(screen.getByText(/概念预览/)).toBeVisible();
+    expect(screen.queryByRole('radio', { name: '清晰经营' })).toBeNull();
+    expect(screen.queryByText(/工程变体，非设计师已检 36/)).toBeNull();
+    expect(screen.getByText(/有合适模板就按页选用/)).toBeVisible();
+    expect(screen.getByRole('button', { name: '生成演示' })).toBeVisible();
     expect(screen.getByRole('button', { name: '查看本机排版与检查组件' })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '版本' }));
     expect(screen.getAllByText(/只能导出草稿|正式交付仍被阻断/).length).toBeGreaterThan(0);
@@ -1428,15 +1301,4 @@ describe('Office Studio production state', () => {
     expect(screen.getByLabelText('受众')).toHaveValue('客户');
   });
 
-  it('disables brand register until required fields are valid', async () => {
-    const api = apiFor();
-    await open(api);
-    chooseOption('品牌');
-    expect(screen.getByRole('button', { name: '登记品牌' })).toBeDisabled();
-    fireEvent.change(screen.getByLabelText('品牌编号'), { target: { value: 'task-teal' } });
-    fireEvent.change(screen.getByLabelText('来源'), { target: { value: 'https://example.invalid/brand' } });
-    fireEvent.change(screen.getByLabelText('许可'), { target: { value: 'client-granted' } });
-    fireEvent.change(screen.getByLabelText('摘要'), { target: { value: 'ab'.repeat(32) } });
-    expect(screen.getByRole('button', { name: '登记品牌' })).toBeEnabled();
-  });
 });

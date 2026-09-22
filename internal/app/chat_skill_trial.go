@@ -33,6 +33,33 @@ func withSkillTrials(ctx context.Context, session string, ids []string) context.
 	return context.WithValue(ctx, skillTrialKey{}, scope)
 }
 
+// draftTrialSkillID maps a skill.invoke id or display name onto a draft the
+// user already selected for this turn. Skill Center hides drafts, so a trial
+// page must not be reported as a missing install.
+func (e *Engine) draftTrialSkillID(ctx context.Context, session, raw string) (string, bool) {
+	scope, ok := ctx.Value(skillTrialKey{}).(skillTrialScope)
+	if !ok || scope.session != session || len(scope.ids) == 0 || !skillServiceAvailable(e.skills) {
+		return "", false
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", false
+	}
+	if scope.ids[raw] {
+		return raw, true
+	}
+	for id := range scope.ids {
+		sk, err := e.skills.Get(ctx, id)
+		if err != nil || sk == nil {
+			continue
+		}
+		if strings.EqualFold(sk.ID, raw) || strings.EqualFold(sk.Name, raw) || strings.EqualFold(sk.DisplayName, raw) || strings.EqualFold(skillViewLabel(*sk), raw) {
+			return id, true
+		}
+	}
+	return "", false
+}
+
 func skillTrialsActive(ctx context.Context, session string) bool {
 	scope, ok := ctx.Value(skillTrialKey{}).(skillTrialScope)
 	return ok && scope.session == session && len(scope.ids) > 0

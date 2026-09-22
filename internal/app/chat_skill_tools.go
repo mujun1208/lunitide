@@ -28,10 +28,14 @@ func (e *Engine) skillToolDefinitions() []llmadapter.ToolDefinition {
 		return nil
 	}
 	return []llmadapter.ToolDefinition{
-		{Name: "skill.invoke", Description: "Invoke one published skill by skillId (ULID or catalog template id such as slide-builder). input is a concise task instruction; the full user request remains in this chat's context and must not be discarded.", Schema: []byte(`{"type":"object","properties":{"skillId":{"type":"string","description":"published skill ULID or catalog template id"},"input":{"type":"string","minLength":1,"maxLength":2048,"description":"concise task instruction, up to 2048 Unicode characters; use the complete user request already in this chat"}},"required":["skillId","input"],"additionalProperties":false}`)},
+		{Name: "skill.invoke", Description: "Invoke one published skill by skillId (ULID or catalog template id such as slide-builder). If this chat already selected that skill as a draft trial, the same call runs the trial and must not be described as a missing install. input is a concise task instruction; the full user request remains in this chat's context and must not be discarded.", Schema: []byte(`{"type":"object","properties":{"skillId":{"type":"string","description":"published skill ULID or catalog template id"},"input":{"type":"string","minLength":1,"maxLength":2048,"description":"concise task instruction, up to 2048 Unicode characters; use the complete user request already in this chat"}},"required":["skillId","input"],"additionalProperties":false}`)},
 		{Name: "skill.view", Description: "Read one complete skill source in bounded pages. Optional path selects a reference file. If hasMore, continue with offset=nextOffset and expectedDigest=digest until complete; never execute a partial agreement. A changed source rejects continuation.", Schema: []byte(`{"type":"object","properties":{"skillId":{"type":"string","minLength":1,"maxLength":128,"description":"installed skill ULID or catalog template id"},"path":{"type":"string","maxLength":256,"description":"optional reference file path"},"offset":{"type":"integer","minimum":0,"description":"Unicode rune offset; default 0"},"expectedDigest":{"type":"string","pattern":"^[0-9a-f]{64}$","description":"previous page digest; required for offset>0"}},"required":["skillId"],"additionalProperties":false}`)},
 		{Name: "skill.create", Description: "Create one local skill from a SKILL.md-style folder (name, displayName, permissions, entryPoint, manifestJson). Call once per skill. After it succeeds, write a short Chinese confirmation naming the skill and telling the user to install/publish it in Skill Center. Then continue any remaining user work.", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":128,"description":"stable skill id slug"},"displayName":{"type":"string","maxLength":200,"description":"human title; defaults to name"},"description":{"type":"string","maxLength":4096},"version":{"type":"string","maxLength":32,"description":"semver, default 1.0.0"},"permissions":{"type":"array","minItems":1,"items":{"type":"string","enum":["read_only","read_write","network","file_system","shell","admin"]}},"entryPoint":{"type":"string","maxLength":512,"description":"SKILL.md path or builtin:// entry"},"manifestJson":{"type":"string","minLength":2,"maxLength":65536,"description":"JSON manifest with prompt and triggers"}},"required":["name","permissions","manifestJson"],"additionalProperties":false}`)},
 		{Name: "skill.manage", Description: "Create or patch a local skill draft. create stays draft until the user publishes in Skill Center (write approval). patch updates displayName/description/entryPoint/manifestJson of an existing skill.", Schema: []byte(`{"type":"object","properties":{"action":{"type":"string","enum":["create","patch"]},"skillId":{"type":"string","description":"required for patch"},"name":{"type":"string","maxLength":128},"displayName":{"type":"string","maxLength":200},"description":{"type":"string","maxLength":4096},"version":{"type":"string","maxLength":32},"permissions":{"type":"array","items":{"type":"string","enum":["read_only","read_write","network","file_system","shell","admin"]}},"entryPoint":{"type":"string","maxLength":512},"manifestJson":{"type":"string","maxLength":65536}},"required":["action"],"additionalProperties":false}`)},
+		{Name: "skill.catalog.list", Description: "List shipped skill-market templates (id, display name, one-line description). Optional query filters by id, name, or description. Use this to find a skill. It does not install.", Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","maxLength":200}},"additionalProperties":false}`)},
+		{Name: "skill.list", Description: "List skills already in the library. status=published (default) or draft or all.", Schema: []byte(`{"type":"object","properties":{"status":{"type":"string","enum":["published","draft","all"]}},"additionalProperties":false}`)},
+		{Name: "skill.install", Description: "Install one shipped catalog template by templateId (catalog id such as slide-builder). Leaves it as a draft until skill.publish. Do not invent a template id; use skill.catalog.list first.", Schema: []byte(`{"type":"object","properties":{"templateId":{"type":"string","minLength":1,"maxLength":128}},"required":["templateId"],"additionalProperties":false}`)},
+		{Name: "skill.publish", Description: "Publish one library skill so skill.invoke can run the installed copy. id may be the skill ULID or a catalog template id. Publishing a catalog id installs it first.", Schema: []byte(`{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128},"skillId":{"type":"string","maxLength":128}},"additionalProperties":false}`)},
 	}
 }
 
@@ -61,6 +65,20 @@ func (e *Engine) runSkillTool(ctx context.Context, mode executionMode, session s
 	}
 	skillID, resolveErr := e.resolvePublishedSkillID(ctx, a.SkillID)
 	if resolveErr != nil {
+		if trialID, ok := e.draftTrialSkillID(ctx, session, a.SkillID); ok {
+			trialArgs, err := json.Marshal(map[string]string{"skillId": trialID, "input": strings.TrimSpace(a.Input)})
+			if err != nil {
+				return toolruntime.Result{}, err
+			}
+			return e.runSkillTrialTool(ctx, mode, session, trialArgs)
+		}
+		if sid, label, prompt, ok := shippedCatalogPrompt(a.SkillID); ok && strings.Contains(resolveErr.Error(), "还没发布") {
+			return toolruntime.Result{Output: fmt.Sprintf("[技能来源 catalog=%s %s 按随产品发布的正文执行，尚未写入技能库]\n%s", sid, label, prompt)}, nil
+		}
+		msg := resolveErr.Error()
+		if msg == "skill is not published" || strings.Contains(msg, "还没发布") {
+			return toolruntime.Result{}, errors.New("这个技能还是草稿。技能中心只列出已发布技能，所以搜索不到，也不是没安装。请在当前对话打开「试用技能」后再做，不要自动发布。")
+		}
 		return toolruntime.Result{}, resolveErr
 	}
 	a.SkillID = skillID

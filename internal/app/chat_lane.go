@@ -460,6 +460,7 @@ func applyLaneTools(defs []llmadapter.ToolDefinition, c LaneContract) []llmadapt
 			if d.Name == "workspace.read" || d.Name == "office.inspect" ||
 				d.Name == "kb.search" || d.Name == "kb.cite" || d.Name == "graph.expand" ||
 				d.Name == "skill.invoke" || d.Name == "skill.try" ||
+				d.Name == "skill.catalog.list" || d.Name == "skill.list" || d.Name == "skill.install" || d.Name == "skill.publish" ||
 				strings.HasPrefix(d.Name, "office.") {
 				keep[d.Name] = true
 			}
@@ -473,6 +474,7 @@ func applyLaneTools(defs []llmadapter.ToolDefinition, c LaneContract) []llmadapt
 		for _, d := range defs {
 			if d.Name == "user.ask" || d.Name == "kb.search" || d.Name == "kb.cite" || d.Name == "graph.expand" ||
 				d.Name == "skill.invoke" || d.Name == "skill.try" ||
+				d.Name == "skill.catalog.list" || d.Name == "skill.list" || d.Name == "skill.install" || d.Name == "skill.publish" ||
 				strings.HasPrefix(d.Name, "office.") {
 				keep[d.Name] = true
 			}

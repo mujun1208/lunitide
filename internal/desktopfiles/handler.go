@@ -244,35 +244,75 @@ func itemFromPath(path string) (Item, error) {
 	return Item{Path: abs, FileName: filepath.Base(abs), MIME: mime, Size: info.Size()}, nil
 }
 
-func listFolder(dir string) ([]Item, []string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, nil, err
+const folderWalkDepth = 4
+
+func skipFolderName(name string) bool {
+	switch strings.ToLower(name) {
+	case "node_modules", ".git", ".svn", "__pycache__", "$recycle.bin", "system volume information":
+		return true
+	default:
+		return false
 	}
+}
+
+// listFolder imports allowlisted files in this folder and up to three levels
+// of subfolders. A folder that only contains more folders used to return
+// nothing, which the composer showed as DESKTOP_FOLDER_EMPTY.
+func listFolder(dir string) ([]Item, []string, error) {
 	var items []Item
 	var skipped []string
-	for _, entry := range entries {
-		if entry.IsDir() || !entry.Type().IsRegular() {
-			continue
-		}
-		ext := strings.ToLower(filepath.Ext(entry.Name()))
-		if _, ok := folderExt[ext]; !ok {
-			if len(skipped) < maxSkipped {
-				skipped = append(skipped, entry.Name())
-			}
-			continue
-		}
-		if len(items) >= maxItems {
-			continue
-		}
-		item, err := itemFromPath(filepath.Join(dir, entry.Name()))
-		if err != nil {
-			if len(skipped) < maxSkipped {
-				skipped = append(skipped, entry.Name())
-			}
-			continue
-		}
-		items = append(items, item)
+	if err := walkFolder(dir, 0, &items, &skipped); err != nil {
+		return nil, nil, err
 	}
 	return items, skipped, nil
+}
+
+func walkFolder(dir string, depth int, items *[]Item, skipped *[]string) error {
+	if len(*items) >= maxItems {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if depth == 0 {
+			return err
+		}
+		return nil
+	}
+	for _, entry := range entries {
+		if len(*items) >= maxItems {
+			return nil
+		}
+		name := entry.Name()
+		if entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+		if entry.IsDir() {
+			if depth+1 >= folderWalkDepth || skipFolderName(name) {
+				continue
+			}
+			if err := walkFolder(filepath.Join(dir, name), depth+1, items, skipped); err != nil {
+				return err
+			}
+			continue
+		}
+		if !entry.Type().IsRegular() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(name))
+		if _, ok := folderExt[ext]; !ok {
+			if len(*skipped) < maxSkipped {
+				*skipped = append(*skipped, name)
+			}
+			continue
+		}
+		item, err := itemFromPath(filepath.Join(dir, name))
+		if err != nil {
+			if len(*skipped) < maxSkipped {
+				*skipped = append(*skipped, name)
+			}
+			continue
+		}
+		*items = append(*items, item)
+	}
+	return nil
 }

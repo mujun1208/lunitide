@@ -149,9 +149,19 @@ func playwrightInstalledBrowserRewrite(ep m7flow.McpEndpointConfig) (mcpLaunchRe
 	if pkg == "" {
 		return mcpLaunchRewrite{}, false
 	}
-	for _, arg := range args {
-		if arg == "--browser" || arg == "--executable-path" {
+	for i, arg := range args {
+		if arg == "--executable-path" {
 			return mcpLaunchRewrite{}, false
+		}
+		if arg == "--browser" && i+1 < len(args) {
+			switch strings.ToLower(args[i+1]) {
+			case "chromium", "chrome":
+				next := append([]string(nil), args...)
+				next[i+1] = "msedge"
+				return mcpLaunchRewrite{command: ep.Command, args: next, clearPin: ep.Security.PinJSON != ""}, true
+			default:
+				return mcpLaunchRewrite{}, false
+			}
 		}
 	}
 	return mcpLaunchRewrite{

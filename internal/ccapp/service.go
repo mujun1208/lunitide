@@ -446,8 +446,8 @@ func (s *Service) verifyAfter(summary string) (string, []byte, error) {
 		visW, visH = deskW, deskH
 	}
 	if unchanged {
-		msg := appendFrameID(fmt.Sprintf("%s; screen unchanged after wait (mutation unverified)", summary), id)
-		return msg, png, fmt.Errorf("%w: screen unchanged after action", ErrCcExecFailed)
+		msg := appendFrameID(fmt.Sprintf("%s; 已点击，画面没有明显变化。不要用相同位置再点一次。 screen unchanged after wait (mutation unverified)", summary), id)
+		return msg, png, fmt.Errorf("%w: 已点击，画面没有明显变化。不要用相同位置再点一次。 screen unchanged after action", ErrCcExecFailed)
 	}
 	return appendFrameID(fmt.Sprintf("%s; screen updated %dx%d (use image %dx%d)", summary, deskW, deskH, visW, visH), id), png, nil
 }
@@ -736,18 +736,27 @@ func companionWindowTitle(title string) bool {
 	return strings.Contains(title, "Lunitide") || strings.Contains(title, "月伴") || strings.Contains(title, "月汐")
 }
 
-func (s *Service) refuseSelfWindowPixels() error {
+func (s *Service) foregroundIsCompanion() bool {
 	if s == nil || s.host == nil {
-		return nil
+		return false
 	}
 	title, process, err := s.host.ActiveWindow()
 	if err != nil {
+		return false
+	}
+	return isCompanionProcess(process) || companionWindowTitle(title)
+}
+
+func (s *Service) refuseSelfWindowPixels() error {
+	if s == nil || s.host == nil || !s.foregroundIsCompanion() {
 		return nil
 	}
-	if isCompanionProcess(process) || companionWindowTitle(title) {
-		return fmt.Errorf("%w: 前台是 Lunitide/月伴，禁止像素动作", ErrCcExecFailed)
+	// 月伴对话时前台就是自己。能切回上一个用户窗口就继续操作那个窗口；
+	// 切不走就停，避免 InvokeUI / 像素点到月伴自己的按钮。
+	if err := s.restoreNonCompanionForeground(); err == nil && !s.foregroundIsCompanion() {
+		return nil
 	}
-	return nil
+	return fmt.Errorf("%w: 前台是 Lunitide/月伴，禁止像素动作", ErrCcExecFailed)
 }
 
 func (s *Service) noteForeground(title, process string) {
@@ -779,10 +788,13 @@ func (s *Service) focusIfNamed(window string) error {
 // companion stole focus, re-asserting the current foreground would type
 // into Lunitide itself.
 func (s *Service) restoreNonCompanionForeground() error {
+	if s == nil || s.host == nil {
+		return fmt.Errorf("%w: 前台仍是月伴，没有其它窗口可操作", ErrCcExecFailed)
+	}
 	title, process, err := s.host.ActiveWindow()
 	if err == nil {
 		s.noteForeground(title, process)
-		if !isCompanionProcess(process) {
+		if !isCompanionProcess(process) && !companionWindowTitle(title) {
 			return s.controlHost().EnsureForeground()
 		}
 	}
@@ -793,29 +805,32 @@ func (s *Service) restoreNonCompanionForeground() error {
 	}
 	s.lastMu.Unlock()
 	if q != "" {
-		info, err := s.controlHost().FocusWindow(q)
-		if err == nil {
+		info, focusErr := s.controlHost().FocusWindow(q)
+		if focusErr == nil && !s.foregroundIsCompanion() {
 			s.noteForeground(info.Title, info.Process)
 			return nil
 		}
 	}
-	if wins, err := s.host.ListWindows(); err == nil {
+	if wins, listErr := s.host.ListWindows(); listErr == nil {
 		for _, w := range wins {
-			if isCompanionProcess(w.Process) || strings.TrimSpace(w.Title) == "" {
+			if isCompanionProcess(w.Process) || companionWindowTitle(w.Title) || strings.TrimSpace(w.Title) == "" {
 				continue
 			}
 			query := w.ID
 			if query == "" {
 				query = w.Title
 			}
-			info, err := s.controlHost().FocusWindow(query)
-			if err == nil {
+			info, focusErr := s.controlHost().FocusWindow(query)
+			if focusErr == nil && !s.foregroundIsCompanion() {
 				s.noteForeground(info.Title, info.Process)
 				return nil
 			}
 		}
 	}
-	return nil
+	if !s.foregroundIsCompanion() {
+		return nil
+	}
+	return fmt.Errorf("%w: 前台仍是月伴，没有其它窗口可操作", ErrCcExecFailed)
 }
 
 func (s *Service) captureSpace() (ox, oy, visW, visH, deskW, deskH int, space string) {

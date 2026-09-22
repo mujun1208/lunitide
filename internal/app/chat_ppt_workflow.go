@@ -34,9 +34,9 @@ const (
 		"4) 收集素材：必须 web.search，需要原文再 web.fetch；可选用 image.generate 做封面图。禁止编造数据与出处。\n" +
 		"5) 再思考：对照网上素材改结构，删空话页。\n" +
 		"6) 再收集素材：第二次 web.search 或 web.fetch 补缺口。\n" +
-		"7) 思考创作：定 layout=title/section/content，深色页必须浅色字。\n" +
+		"7) 思考创作：每页选 cover、section、agenda、content、metrics、comparison、quote、timeline 或 closing。深色底必须浅色字。不要整本都是要点列表，不要问风格或品牌。\n" +
 		"8) 写完整 PPT：每一页都有可见标题和正文，禁止空画布。\n" +
-		"9) 最后生成：只有正文齐了才 pptx.gen（桌面则 desktop=true；slides[].notes 写演讲备注）。生成不完整不要写空文件冒充成功。\n" +
+		"9) 最后生成：正文齐了才 pptx.gen。先 catalog=true。模板版式合适才用 pages 按形状改字；不合适不要传 pages，每页用 cover、section、agenda、content、metrics、comparison、quote、timeline 或 closing。数字放 metrics，对照放 comparison，引用放 quote，出处放 source。桌面则 desktop=true；slides[].notes 写演讲备注。不要问风格或品牌。生成不完整不要写空文件冒充成功。\n" +
 		"用户问进度时继续本流水线，不要重开一稿。\n"
 
 	pptGenBlockedMsg = "ok:false\npptx.gen 被流水线拦住：还没做完素材收集与正文撰写。先 web.search（必要时 web.fetch）至少两轮，写好每页标题+要点，再调用 pptx.gen。空页或只铺深色底的文件会被拒绝。\n"

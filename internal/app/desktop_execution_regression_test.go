@@ -72,7 +72,7 @@ func TestDesktopCloseoutMatchesObservedResults(t *testing.T) {
 		}
 	}
 	browse := receiptMessages("desktop.browse", `{}`, "已向系统默认桌面浏览器发送打开请求：https://www.bing.com")
-	if got := companionFinalResult(browse, "页面正常", "打开默认浏览器"); got != "已向默认浏览器发送打开请求，尚未核对页面。" {
+	if got := companionFinalResult(browse, "页面正常", "打开默认浏览器"); got != "已在系统浏览器打开。" {
 		t.Fatal(got)
 	}
 	media := receiptMessages("media.play", `{}`, "verified playing in player; shuffle=false\n"+`{"l0":{"kind":"media-session","passed":true,"uncertain":false}}`)

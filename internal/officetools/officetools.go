@@ -332,8 +332,9 @@ type SlideSpec struct {
 	Bullets    []string         `json:"bullets"`
 	Layout     string           `json:"layout,omitempty"`
 	Notes      string           `json:"notes,omitempty"`
-	Metrics    []SlideMetric    `json:"-"`
-	Comparison *SlideComparison `json:"-"`
+	Source     string           `json:"source,omitempty"`
+	Metrics    []SlideMetric    `json:"metrics,omitempty"`
+	Comparison *SlideComparison `json:"comparison,omitempty"`
 }
 
 // GenPptx writes a minimal-but-valid PowerPoint deck (OOXML zip:

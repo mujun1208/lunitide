@@ -102,6 +102,7 @@ type cursorACPSession struct {
 	serverReq map[string]json.RawMessage
 	reader    *bufio.Reader
 	assist    strings.Builder
+	capture   bool
 	rejected  strings.Builder
 	ready     chan struct{}
 	readyErr  error
@@ -196,8 +197,14 @@ func (a *CursorACP) Prompt(threadID, text string) error {
 		return err
 	}
 	blocks = append(blocks, map[string]any{"type": "text", "text": text})
+	sess.mu.Lock()
+	beginAssistantCapture(&sess.assist, &sess.capture)
+	sess.mu.Unlock()
 	if err = sess.send("session/prompt", map[string]any{"sessionId": sess.sessionID, "prompt": blocks}, func(resp *acpRPC, callErr error) {
 		if callErr != nil {
+			sess.mu.Lock()
+			_ = takeAssistantCapture(&sess.assist, &sess.capture)
+			sess.mu.Unlock()
 			a.fault(threadID, sess.proc, sess, callErr)
 			return
 		}
@@ -499,16 +506,16 @@ func (s *cursorACPSession) onUpdate(params json.RawMessage) {
 	}
 	if payload.Update.SessionUpdate == "agent_message_chunk" && payload.Update.Content.Text != "" {
 		s.mu.Lock()
-		s.assist.WriteString(payload.Update.Content.Text)
+		pushAssistantChunk(&s.assist, &s.capture, payload.Update.Content.Text)
 		s.mu.Unlock()
 	}
 }
 
 func (s *cursorACPSession) flushAssistant(a *CursorACP) {
 	s.mu.Lock()
-	text := s.assist.String()
-	s.assist.Reset()
+	text := takeAssistantCapture(&s.assist, &s.capture)
 	s.mu.Unlock()
+	text = stripCarriedTurn(a.store, s.threadID, text)
 	if strings.TrimSpace(text) == "" {
 		return
 	}

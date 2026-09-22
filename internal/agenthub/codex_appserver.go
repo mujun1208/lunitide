@@ -227,6 +227,7 @@ type codexAppSession struct {
 	serverReq map[string]codexServerReq
 	reader    *bufio.Reader
 	assist    strings.Builder
+	capture   bool
 	ready     chan struct{}
 	readyErr  error
 	mu        sync.Mutex
@@ -410,6 +411,9 @@ func (a *CodexThread) promptAppServer(sess *codexAppSession, thread ThreadRecord
 		return err
 	}
 	blocks = append(blocks, map[string]any{"type": "text", "text": text})
+	sess.mu.Lock()
+	beginAssistantCapture(&sess.assist, &sess.capture)
+	sess.mu.Unlock()
 	params := map[string]any{
 		"threadId": sess.nativeID,
 		"input":    blocks,
@@ -420,9 +424,15 @@ func (a *CodexThread) promptAppServer(sess *codexAppSession, thread ThreadRecord
 	}
 	if err := sess.send("turn/start", params, func(_ *acpRPC, callErr error) {
 		if callErr != nil {
+			sess.mu.Lock()
+			_ = takeAssistantCapture(&sess.assist, &sess.capture)
+			sess.mu.Unlock()
 			a.faultApp(thread.ID, sess, callErr)
 		}
 	}); err != nil {
+		sess.mu.Lock()
+		_ = takeAssistantCapture(&sess.assist, &sess.capture)
+		sess.mu.Unlock()
 		a.dropAppSession(thread.ID, sess)
 		a.faultApp(thread.ID, sess, err)
 		return err
@@ -613,7 +623,7 @@ func (s *codexAppSession) appendDelta(params json.RawMessage) {
 		return
 	}
 	s.mu.Lock()
-	s.assist.WriteString(text)
+	pushAssistantChunk(&s.assist, &s.capture, text)
 	s.mu.Unlock()
 }
 
@@ -654,16 +664,16 @@ func (s *codexAppSession) onItemCompleted(params json.RawMessage) {
 	}
 	s.mu.Lock()
 	if s.assist.Len() == 0 {
-		s.assist.WriteString(payload.Item.Text)
+		pushAssistantChunk(&s.assist, &s.capture, payload.Item.Text)
 	}
 	s.mu.Unlock()
 }
 
 func (s *codexAppSession) flushAssistant(a *CodexThread) {
 	s.mu.Lock()
-	text := s.assist.String()
-	s.assist.Reset()
+	text := takeAssistantCapture(&s.assist, &s.capture)
 	s.mu.Unlock()
+	text = stripCarriedTurn(a.store, s.threadID, text)
 	if strings.TrimSpace(text) == "" {
 		return
 	}

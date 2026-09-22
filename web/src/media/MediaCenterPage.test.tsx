@@ -70,3 +70,10 @@ it('splits music and video surfaces without a second media element', () => {
   expect(document.querySelector('video')).toBeNull()
   expect(screen.getByText('画面由本机唯一播放器输出')).toBeInTheDocument()
 })
+
+it('shows a public-domain file inside the video theatre', () => {
+  render(<MediaCenterPage snapshot={null} assets={[]} operation={null} playbackUrl={null} stageSrc="https://archive.org/download/night/Night.mp4" stageTitle="Night of the Living Dead" stageKind="video" notice="" disabledReason="" busy={false} onPick={() => {}} onPlayPause={() => {}} onPrevious={() => {}} onNext={() => {}} onJump={() => {}} onRemove={() => {}} onClear={() => {}} onSeek={() => {}} onVolume={() => {}} />)
+  expect(screen.getByLabelText('视频')).toBeInTheDocument()
+  expect(document.querySelector('video')).toHaveAttribute('src', 'https://archive.org/download/night/Night.mp4')
+  expect(screen.getByRole('heading', { name: 'Night of the Living Dead' })).toBeInTheDocument()
+})

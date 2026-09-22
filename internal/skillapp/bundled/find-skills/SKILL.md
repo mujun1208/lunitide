@@ -5,7 +5,7 @@ description: Helps users discover and install agent skills when they ask how to 
 
 # Find Skills
 
-Help users discover skills already shipped with Lunitide or installable from the built-in skill market.
+Help users discover skills already shipped with Lunitide and install one from the built-in skill market.
 
 ## When to Use
 
@@ -24,10 +24,10 @@ Identify:
 2. Specific task (write PRD, polish UI, split tickets, review code)
 3. Whether a bundled or market template likely exists
 
-## Step 2: Search Lunitide Skill Catalog (Primary)
+## Step 2: Search the shipped catalog
 
-1. Call `skill.catalog.list` (or guide the user to **技能中心 → 市场**).
-2. Match by triggers, display name, description, and category.
+1. Call `skill.catalog.list` with a short query.
+2. Match by id, display name, and description.
 3. Prefer these bundled essentials when relevant:
    - `skill-creator` — create or refine custom skills
    - `brainstorming` — explore product/design before building
@@ -43,24 +43,26 @@ For each match, explain in Chinese:
 
 1. What the skill does
 2. When to use it vs alternatives
-3. How to install: `skill.install({ templateId })` then publish in Skill Center
+3. How to install: `skill.install` with `templateId`, then `skill.publish`
 
-Ask which one to install; do not install without confirmation unless the user already asked to install.
+Ask which one to install. Do not install until the user asks.
+
+To do the task immediately without writing it into the library, call `skill.invoke` with that catalog id.
 
 ## Step 4: Install and Verify
 
-1. `skill.install({ templateId: "<id>" })`
-2. `skill.publish({ id: "<skillId>" })` if still draft
+1. `skill.install` with `{"templateId":"<id>"}`
+2. `skill.publish` with `{"id":"<id>"}` — a catalog id installs first, then publishes
 3. Confirm with `skill.list` that status is `published`
 
 ## Step 5: If Nothing Fits
 
 1. Say no good built-in match was found
-2. Offer to help directly or use `skill-creator` to author a new skill
+2. Offer to help directly or use `skill-creator` via `skill.invoke`
 3. Optionally use `web.search` for public skill ideas — do not blindly run external CLIs
 
 ## Tips
 
 - Prefer Chinese display names when talking to the user
 - One recommendation first, then 2–3 alternatives
-- Never claim a skill is installed until publish succeeded
+- Never claim a skill is in the library until `skill.publish` succeeded

@@ -3,11 +3,13 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 
 	domain "github.com/lunitide/lunitide/internal/domain/officestudio"
+	"github.com/lunitide/lunitide/internal/org"
 	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/officeapp"
 	content "github.com/lunitide/lunitide/internal/officestudio"
@@ -116,6 +118,9 @@ func (e *Engine) executeOfficeTool(ctx context.Context, sessionID, name string, 
 	}
 	ctx, orgID, err := e.withOfficeSessionScope(ctx, sessionID)
 	if err != nil {
+		if errors.Is(err, org.ErrCrossOrgAccess) {
+			return nil, "", "", fmt.Errorf("当前对话所属组织和已绑定的组织不一致，文件没有写入。请到组织页切换到这个对话的组织后再生成，不要用相同参数再调用 office.generate: %w", err)
+		}
 		return nil, "", "", err
 	}
 	s := e.officeStudio

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 func acpAuthMethodID(init *acpRPC) string {
@@ -49,6 +50,102 @@ func keepNativeID(returned, stored string) string {
 		return id
 	}
 	return strings.TrimSpace(stored)
+}
+
+func beginAssistantCapture(buf *strings.Builder, capture *bool) {
+	*capture = true
+	buf.Reset()
+}
+
+func takeAssistantCapture(buf *strings.Builder, capture *bool) string {
+	*capture = false
+	text := buf.String()
+	buf.Reset()
+	return text
+}
+
+func pushAssistantChunk(buf *strings.Builder, capture *bool, chunk string) {
+	if chunk == "" || capture == nil || !*capture {
+		return
+	}
+	next := absorbAssistantChunk(buf.String(), chunk)
+	buf.Reset()
+	buf.WriteString(next)
+}
+
+func absorbAssistantChunk(have, chunk string) string {
+	if have == "" || chunk == "" {
+		if chunk == "" {
+			return have
+		}
+		return chunk
+	}
+	if strings.HasPrefix(chunk, have) || strings.HasPrefix(have, chunk) {
+		if len(chunk) >= len(have) {
+			return chunk
+		}
+		return have
+	}
+	return have + chunk
+}
+
+func stripCarriedTurn(store *ThreadStore, threadID, next string) string {
+	text := strings.TrimSpace(next)
+	if text == "" || store == nil {
+		return text
+	}
+	msgs, err := store.ListMessages(threadID)
+	if err != nil {
+		return text
+	}
+	var prevAssistant, prevUser string
+	seenCurrentUser := false
+	for i := len(msgs) - 1; i >= 0; i-- {
+		switch msgs[i].Role {
+		case "user":
+			if !seenCurrentUser {
+				seenCurrentUser = true
+				continue
+			}
+			if prevUser == "" {
+				prevUser = strings.TrimSpace(msgs[i].Content)
+			}
+		case "assistant":
+			if prevAssistant == "" {
+				prevAssistant = strings.TrimSpace(msgs[i].Content)
+			}
+		}
+		if prevAssistant != "" && prevUser != "" {
+			break
+		}
+	}
+	return stripCarriedPrefix(prevUser, prevAssistant, text)
+}
+
+func stripCarriedPrefix(prevUser, prevAssistant, text string) string {
+	var prefixes []string
+	if prevUser != "" && prevAssistant != "" {
+		prefixes = append(prefixes,
+			prevUser+"\n"+prevAssistant,
+			prevUser+"\n\n"+prevAssistant,
+			prevAssistant+"\n"+prevUser,
+			prevAssistant+"\n\n"+prevUser,
+		)
+	}
+	if prevAssistant != "" {
+		prefixes = append(prefixes, prevAssistant)
+	}
+	for _, prefix := range prefixes {
+		prefix = strings.TrimSpace(prefix)
+		if prefix == "" || utf8.RuneCountInString(prefix) < 40 || len(prefix) >= len(text) || !strings.HasPrefix(text, prefix) {
+			continue
+		}
+		rest := strings.TrimSpace(text[len(prefix):])
+		if rest != "" {
+			return rest
+		}
+	}
+	return text
 }
 
 func acpOpenNativeSession(call func(string, any) (*acpRPC, error), cwd, nativeID string) (string, error) {

@@ -21,6 +21,7 @@ import (
 	"github.com/lunitide/lunitide/internal/ccapp"
 	"github.com/lunitide/lunitide/internal/commandworker"
 	"github.com/lunitide/lunitide/internal/connectorapp"
+	"github.com/lunitide/lunitide/internal/deckfill"
 	"github.com/lunitide/lunitide/internal/htmlapp"
 	"github.com/lunitide/lunitide/internal/jsonutil"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
@@ -816,12 +817,77 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		return r.finishOfficeGen(mode, session, outPath, data, len(a.Blocks), unconfined, a.Desktop, "document.docx")
 	case "pptx.gen":
 		var a struct {
-			Path    string                  `json:"path"`
-			Desktop bool                    `json:"desktop"`
-			Title   string                  `json:"title"`
-			Slides  []officetools.SlideSpec `json:"slides"`
+			Path     string                  `json:"path"`
+			Desktop  bool                    `json:"desktop"`
+			Title    string                  `json:"title"`
+			Slides   []officetools.SlideSpec `json:"slides"`
+			Catalog  bool                    `json:"catalog"`
+			Template string                  `json:"template"`
+			Pages    []struct {
+				From  int `json:"from"`
+				Texts []struct {
+					ID   string `json:"id"`
+					Text string `json:"text"`
+				} `json:"texts"`
+			} `json:"pages"`
 		}
-		if strict(args, &a) != nil || (a.Path == "" && !a.Desktop) {
+		if strict(args, &a) != nil {
+			return Result{}, errors.New("invalid arguments")
+		}
+		if a.Catalog {
+			root := deckfill.DefaultRoot()
+			if root == "" {
+				return result("模板库未启用"), nil
+			}
+			var text string
+			var err error
+			if strings.TrimSpace(a.Template) == "" {
+				text, err = deckfill.ListLibrary(root)
+			} else {
+				text, err = deckfill.DescribeTemplate(root, a.Template)
+			}
+			if err != nil {
+				return Result{}, err
+			}
+			return result(text), nil
+		}
+		if len(a.Pages) > 0 {
+			if strings.TrimSpace(a.Template) == "" || (a.Path == "" && !a.Desktop) {
+				return Result{}, errors.New("invalid arguments")
+			}
+			if !a.Desktop && strings.ToLower(filepath.Ext(a.Path)) != ".pptx" {
+				return Result{}, errors.New("pptx.gen path must end with .pptx")
+			}
+			outPath, e := r.desktopWritePath(a.Path, "deck.pptx", ".pptx", a.Desktop, unconfined)
+			if e != nil {
+				return Result{}, e
+			}
+			uses := make([]deckfill.PageUse, 0, len(a.Pages))
+			for _, page := range a.Pages {
+				use := deckfill.PageUse{From: page.From}
+				for _, text := range page.Texts {
+					use.Texts = append(use.Texts, deckfill.TextPut{ID: text.ID, Text: text.Text})
+				}
+				uses = append(uses, use)
+			}
+			root := deckfill.DefaultRoot()
+			data, notes, e := deckfill.ApplyFile(root, a.Template, uses)
+			if e != nil {
+				return Result{}, e
+			}
+			if len(data) > maxPPTXGeneratedBytes {
+				return Result{}, errors.New("generated file exceeds limit")
+			}
+			written, e := r.finishOfficeGen(mode, session, outPath, data, len(a.Pages), unconfined, a.Desktop, "deck.pptx")
+			if e != nil {
+				return Result{}, e
+			}
+			if len(notes) > 0 {
+				written.Output += "\n" + strings.Join(notes, "；")
+			}
+			return written, nil
+		}
+		if a.Path == "" && !a.Desktop {
 			return Result{}, errors.New("invalid arguments")
 		}
 		if !a.Desktop && strings.ToLower(filepath.Ext(a.Path)) != ".pptx" {
@@ -831,11 +897,15 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if e != nil {
 			return Result{}, e
 		}
-		data, e := officetools.GenPptx(a.Title, a.Slides)
+		data, e := officetools.GenQuietPptx(a.Title, a.Slides)
 		if e != nil {
 			return Result{}, e
 		}
-		return r.finishOfficeGen(mode, session, outPath, data, len(a.Slides), unconfined, a.Desktop, "deck.pptx")
+		written, e := r.finishOfficeGen(mode, session, outPath, data, len(a.Slides), unconfined, a.Desktop, "deck.pptx")
+		if e != nil {
+			return Result{}, e
+		}
+		return written, nil
 	case "html.gen":
 		var a struct {
 			Path     string `json:"path"`
@@ -950,6 +1020,9 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		}
 		return executeDesktopType(ctx, invoke, session, args, approved, unconfined)
 	case "media.play":
+		if mediaCenterRequested(args) {
+			return r.executeMediaCenter(ctx, args)
+		}
 		invoke := func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (Result, error) {
 			return r.runCcTool(ctx, mode, session, tool, args, approved, unconfined)
 		}

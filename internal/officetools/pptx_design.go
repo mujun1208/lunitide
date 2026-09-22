@@ -60,7 +60,17 @@ func pptxRect(id int, name, fill string, x, y, cx, cy int) string {
 }
 
 func pptxTextBox(id int, name string, x, y, cx, cy int, paras string) string {
-	return fmt.Sprintf(`<p:sp><p:nvSpPr><p:cNvPr id="%d" name="%s"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="%d" y="%d"/><a:ext cx="%d" cy="%d"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr><p:txBody><a:bodyPr wrap="square" lIns="0" tIns="0" rIns="0" bIns="0"><a:spAutoFit/></a:bodyPr><a:lstStyle/>%s</p:txBody></p:sp>`, id, xmlEscape(name), x, y, cx, cy, paras)
+	return pptxTextBoxBody(id, name, x, y, cx, cy, paras, `<a:spAutoFit/>`)
+}
+
+// pptxTextBoxFixed keeps the font size written in the run. spAutoFit grows
+// short strings until they fill the box and collides with the next line.
+func pptxTextBoxFixed(id int, name string, x, y, cx, cy int, paras string) string {
+	return pptxTextBoxBody(id, name, x, y, cx, cy, paras, `<a:noAutofit/>`)
+}
+
+func pptxTextBoxBody(id int, name string, x, y, cx, cy int, paras, fit string) string {
+	return fmt.Sprintf(`<p:sp><p:nvSpPr><p:cNvPr id="%d" name="%s"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="%d" y="%d"/><a:ext cx="%d" cy="%d"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr><p:txBody><a:bodyPr wrap="square" lIns="0" tIns="0" rIns="0" bIns="0" anchor="t">%s</a:bodyPr><a:lstStyle/>%s</p:txBody></p:sp>`, id, xmlEscape(name), x, y, cx, cy, fit, paras)
 }
 
 func pptxPara(align, run string) string {

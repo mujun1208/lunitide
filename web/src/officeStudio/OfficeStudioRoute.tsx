@@ -158,7 +158,7 @@ export function OfficeStudioRoute(props: OfficeRouteProps): React.JSX.Element {
       api={api}
       initialTaskId={props.initialTaskId}
       renderConversation={(task, options) => (
-        <OfficeConversationHost key={task.id} task={task} options={options} route={props} />
+        <OfficeConversationHost key={`${task.id}:${options.promptEpoch ?? 0}`} task={task} options={options} route={props} />
       )}
       onOpenSession={async (task) => {
         const binding = await resolveOfficeBinding(task, props.projects, props.sessions);

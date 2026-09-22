@@ -47,6 +47,9 @@ var designSystemSkillMD []byte
 //go:embed bundled/computer-control/SKILL.md
 var computerControlSkillMD []byte
 
+//go:embed bundled/media-center/SKILL.md
+var mediaCenterSkillMD []byte
+
 //go:embed bundled/browser-automation/SKILL.md
 var browserAutomationSkillMD []byte
 
@@ -222,7 +225,7 @@ func mxPlanningAdvisorManifest() map[string]any {
 func findSkillsManifest() map[string]any {
 	return bundledManifest(findSkillsSkillMD, []string{
 		"find skill", "find-skills", "找技能", "有没有技能", "安装技能", "发现技能", "skill 推荐",
-	}, "\n\n--- Lunitide 集成 ---\n优先 skill.catalog.list 浏览内置市场；匹配时用 skill.install({ templateId })，draft 需 skill.publish。\n用 skill.list 确认已发布。用中文向用户说明推荐与安装结果。")
+	}, "\n\n--- Lunitide 集成 ---\n先 skill.catalog.list 浏览随产品发布的技能。用户确认要安装时再 skill.install，然后 skill.publish。用 skill.list 核对已发布。要直接按正文做，用 skill.invoke，skillId 写目录 id。用中文说明推荐与安装结果。")
 }
 
 func brainstormingManifest() map[string]any {
@@ -259,6 +262,12 @@ func designSystemManifest() map[string]any {
 	return bundledManifest(designSystemSkillMD, []string{
 		"design system", "design-system", "设计系统", "风格统一", "设计规范", "视觉一致", "design tokens",
 	}, "\n\n--- Lunitide 集成 ---\n审计现有 CSS/Tailwind 变量；token 与规范写入工作区文档。重构时小步提交。用中文输出检查清单。")
+}
+
+func mediaCenterManifest() map[string]any {
+	return bundledManifest(mediaCenterSkillMD, []string{
+		"媒体中心", "自带媒体中心", "在媒体中心播放", "media center", "media-center",
+	}, "\n\n--- Lunitide 集成 ---\n只调用一次 media.play，target=center。返回 MEDIA_CENTER 后停止。不要 web.fetch，不要 computer.act，不要打开其它播放器。")
 }
 
 func computerControlManifest() map[string]any {
@@ -417,6 +426,15 @@ var catalogTemplates = []CatalogTemplate{
 		Featured:    true, Bundled: true, Source: "月汐",
 	},
 	{
+		ID: "media-center", Name: "media-center", DisplayName: "媒体中心播放",
+		Description: "Find a public-domain movie or song and play the direct file inside this product's media center.",
+		Category:    "办公协作", Version: "1.0.0",
+		Permissions: []skill.PermissionLevel{skill.PermissionReadWrite, skill.PermissionNetwork},
+		EntryPoint:  "builtin://media-center",
+		Manifest:    mediaCenterManifest(),
+		Featured:    true, Bundled: true, Source: "月汐",
+	},
+	{
 		ID: "browser-automation", Name: "browser-automation", DisplayName: "browser-automation",
 		Description: "Fill forms, scrape, and click in the managed browser with browser.act. Snapshot before act; this PC only.",
 		Category:    "办公协作", Version: "1.0.0",
@@ -493,7 +511,7 @@ var catalogTemplates = []CatalogTemplate{
 		EntryPoint: "builtin://slide-builder",
 		Manifest: map[string]any{
 			"triggers": []string{"做 ppt", "演示文稿", "幻灯片", "pptx"},
-			"prompt":   "你是演示文稿助手。先锁定听众、文类、语气、密度、是否封面/目录。按九步做：思考受众→定义结构（mermaid）→写每页要点与演讲备注→web.search 收集素材→再思考→再检索→定版式→写完整页→最后才 office.generate（kind=pptx）或本轮仍有的 pptx.gen。大纲须确认后再生成。每页一句主张标题+3-5 条要点+slides[].notes 演讲备注，禁止空页或只有深色底没有文字。",
+			"prompt":   "你是演示文稿助手。先锁定听众、文类、语气、密度、是否封面/目录。按九步做：思考受众→定义结构（mermaid）→写每页要点与演讲备注→web.search 收集素材→再思考→再检索→定版式→写完整页→最后才 pptx.gen，或当前 Office 任务里的 office.generate（kind=pptx）。大纲须确认后再生成。每页一句主张标题+3-5 条要点+slides[].notes 演讲备注，禁止空页或只有深色底没有文字。没有合适模板就不要套页：每页用 cover、section、agenda、content、metrics、comparison、quote、timeline、closing 之一，数字放 metrics，对照放 comparison，引用放 quote，出处放 source。不要问风格或品牌。",
 		},
 	},
 	{

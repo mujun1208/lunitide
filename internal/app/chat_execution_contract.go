@@ -178,6 +178,9 @@ func clipExecutionToolSummary(name, output string) string {
 }
 
 func playbackOnlyGoal(goal string) bool {
+	if ownedMediaCenterGoal(goal) {
+		return false
+	}
 	if !companionTurnWantsMusicPlay(goal) && !companionPlayFollowUp(goal) {
 		return false
 	}
@@ -190,6 +193,9 @@ func typedFieldOnlyGoal(goal string) bool {
 }
 
 func computerReceiptCloseout(messages []llmadapter.Message, goal string) string {
+	if strings.Contains(lastNamedToolOutput(messages, "media.play"), "MEDIA_CENTER") {
+		return "已经在媒体中心开始播放。"
+	}
 	if playbackOnlyGoal(goal) && lastNamedToolOutput(messages, "media.play") != "" {
 		out := lastNamedToolOutput(messages, "media.play")
 		if mediaKeyDelivered(out) {
@@ -272,7 +278,7 @@ func computerReceiptCloseout(messages []llmadapter.Message, goal string) string 
 				return companionToolResultSpeech(name, out)
 			}
 			if name == "desktop.browse" {
-				return "已向默认浏览器发送打开请求，尚未核对页面。"
+				return "已在系统浏览器打开。"
 			}
 			return "已发送打开操作，但未确认目标窗口。"
 		}

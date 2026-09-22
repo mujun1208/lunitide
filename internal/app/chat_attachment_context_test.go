@@ -216,30 +216,50 @@ func TestChatStartExplicitAttachmentRefReadsAndInjectsOnlySelectedAttachment(t *
 	}
 }
 
-func TestChatStartExplicitAttachmentRefRejectsCrossSessionAndUnreadable(t *testing.T) {
-	tests := []struct {
-		name string
-		att  attachment.Attachment
-		code string
-	}{
-		{name: "cross session", att: readableChatAttachment(chatAttachmentOtherID), code: "CONTEXT_REF_SCOPE_MISMATCH"},
-		{name: "unreadable", att: func() attachment.Attachment {
-			a := readableChatAttachment(chatAttachmentSessionID)
-			a.ParseStatus = attachment.StatusPending
-			return a
-		}(), code: "CONTEXT_REF_NOT_READABLE"},
+func TestChatStartExplicitAttachmentRefRejectsCrossSession(t *testing.T) {
+	att := readableChatAttachment(chatAttachmentOtherID)
+	store := &chatAttachmentStore{byID: map[string]*attachment.Attachment{chatAttachmentID: &att}}
+	response, _ := startAttachmentChat(t, store, `,"contextRefs":[{"type":"attachment","id":"`+chatAttachmentID+`"}]`)
+	if response.OK || response.Error == nil || response.Error.Code != "CONTEXT_REF_SCOPE_MISMATCH" {
+		t.Fatalf("response = %#v, want CONTEXT_REF_SCOPE_MISMATCH", response)
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			store := &chatAttachmentStore{byID: map[string]*attachment.Attachment{chatAttachmentID: &test.att}}
-			response, _ := startAttachmentChat(t, store, `,"contextRefs":[{"type":"attachment","id":"`+chatAttachmentID+`"}]`)
-			if response.OK || response.Error == nil || response.Error.Code != test.code {
-				t.Fatalf("response = %#v, want %s", response, test.code)
-			}
-			if calls := store.calls(); calls != 0 {
-				t.Fatalf("attachment list calls = %d, want 0", calls)
-			}
-		})
+	if calls := store.calls(); calls != 0 {
+		t.Fatalf("attachment list calls = %d, want 0", calls)
+	}
+}
+
+func TestChatStartUnreadableAttachmentStillRuns(t *testing.T) {
+	att := readableChatAttachment(chatAttachmentSessionID)
+	att.ParseStatus = attachment.StatusPending
+	att.ParsedText = ""
+	att.ParseErrorCode = "PARSE_FAILED"
+	store := &chatAttachmentStore{byID: map[string]*attachment.Attachment{chatAttachmentID: &att}}
+	response, requests := startAttachmentChat(t, store, `,"contextRefs":[{"type":"attachment","id":"`+chatAttachmentID+`"}]`)
+	if !response.OK {
+		t.Fatalf("unreadable attachment aborted the turn: %#v", response)
+	}
+	var combined strings.Builder
+	for _, message := range capturedChatRequest(t, requests).Messages {
+		combined.WriteString(message.Content)
+	}
+	if !strings.Contains(combined.String(), "notes.txt") || !strings.Contains(combined.String(), "没有抽出正文") {
+		t.Fatalf("missing saved-file note: %q", combined.String())
+	}
+}
+
+func TestChatStartUnreadImageStillRuns(t *testing.T) {
+	image := attachment.Attachment{ID: chatAttachmentID, ProjectID: chatAttachmentProjectID, SessionID: chatAttachmentSessionID, FileRef: "missing-image", OriginalName: "shot.png", MIME: "image/png", ParseStatus: attachment.StatusFailed}
+	store := &chatAttachmentStore{byID: map[string]*attachment.Attachment{image.ID: &image}}
+	response, requests := startAttachmentChat(t, store, `,"contextRefs":[{"type":"attachment","id":"`+chatAttachmentID+`"}]`)
+	if !response.OK {
+		t.Fatalf("unread image aborted the turn: %#v", response)
+	}
+	var combined strings.Builder
+	for _, message := range capturedChatRequest(t, requests).Messages {
+		combined.WriteString(message.Content)
+	}
+	if !strings.Contains(combined.String(), "shot.png") || !strings.Contains(combined.String(), "没有读出画面") {
+		t.Fatalf("missing image note: %q", combined.String())
 	}
 }
 

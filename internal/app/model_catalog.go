@@ -17,6 +17,32 @@ import (
 
 const visionDescribePrompt = "Describe the image(s) completely and transcribe all visible text (OCR). Be factual. Reply in the user's language if it is clear, otherwise Chinese."
 
+func (e *Engine) attachedImageOCRText(ctx context.Context, images []llmadapter.Image) string {
+	if e.ocr == nil {
+		return ""
+	}
+	var b strings.Builder
+	for i, img := range images {
+		got, err := e.ocr.RecognizeImage(ctx, img.Data)
+		if err != nil {
+			continue
+		}
+		text := strings.TrimSpace(got.Text)
+		if text == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		if len(images) > 1 {
+			fmt.Fprintf(&b, "图片%d：%s", i+1, text)
+			continue
+		}
+		b.WriteString(text)
+	}
+	return b.String()
+}
+
 func looksLikeOCRRequest(text string) bool {
 	t := strings.ToLower(strings.TrimSpace(text))
 	if t == "" {
@@ -72,12 +98,12 @@ func (e *Engine) maybeDescribeImages(ctx context.Context, llm provider.Model, im
 	if len(images) == 0 {
 		return "", false
 	}
-	if e.ocr != nil && looksLikeOCRRequest(userText) {
-		for _, img := range images {
-			got, err := e.ocr.RecognizeImage(ctx, img.Data)
-			if err == nil && strings.TrimSpace(got.Text) != "" {
-				return strings.TrimSpace(got.Text), true
-			}
+	// A vision chat model sees the pixels itself. Every other model uses the
+	// product OCR stack (configured provider, then local windows-ocr / ppocr)
+	// even when the user only asked whether the picture has content.
+	if !llm.SupportsVision {
+		if text := e.attachedImageOCRText(ctx, images); text != "" {
+			return text, true
 		}
 	}
 	if llm.SupportsVision || e.providers == nil {

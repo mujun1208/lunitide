@@ -99,6 +99,8 @@ func toolProfileAllow(profile toolProfile) map[string]bool {
 			"web.search": true, "web.fetch": true, "weather.get": true,
 			"memory.search": true, "memory.get": true,
 			"skill.invoke": true, "skill.view": true,
+			"skill.catalog.list": true, "skill.list": true, "skill.install": true, "skill.publish": true,
+			"kb.search": true, "kb.cite": true, "graph.expand": true,
 			"todo.write": true,
 		}
 	case toolProfileColleague:

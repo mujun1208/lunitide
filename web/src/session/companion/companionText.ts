@@ -67,9 +67,21 @@ export function clipCompanionPrompt(text: string, maxChars = COMPANION_PROMPT_MA
   return chars.slice(0, maxChars).join('')
 }
 
-export function companionReplyStallMs(chatStreaming: boolean, hasAssistantText: boolean): number {
+export function companionReplyStallMs(chatStreaming: boolean, hasAssistantText: boolean, toolTurn = false): number {
   if (hasAssistantText) return COMPANION_AFTER_TOKEN_MS
+  // After a tool returns, the model is still in the same stream. A 12s cap
+  // cancelled the spoken answer while the page or player had already succeeded.
+  if (chatStreaming && toolTurn) return COMPANION_AFTER_TOKEN_MS
   return chatStreaming ? COMPANION_FIRST_TOKEN_STREAMING_MS : COMPANION_FIRST_TOKEN_CONNECTING_MS
+}
+
+/** Tool JSON and error codes must not be spoken or shown as the moon's reply. */
+export function looksLikeToolMachineText(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+  if (/"frameId"/.test(t) || /"count"\s*:/.test(t) || /\bok\s*:\s*false\b/.test(t)) return true
+  if (t.startsWith('{') && t.endsWith('}')) return true
+  return /^(?:M\d+-\d+|BROWSER_[A-Z0-9_]+|COMPANION_[A-Z0-9_]+|DESKTOP_[A-Z0-9_]+|CROSS_ORG_[A-Z0-9_]+)\b/.test(t)
 }
 
 /** Leftover previous-turn captions are not this turn's first token. */
@@ -82,7 +94,7 @@ export function companionHasFreshAssistantText(assistantText: string, staleReply
 const TRUNCATION_NOTICE = '后续内容请看字幕'
 
 export function cleanForSpeech(raw: string): string {
-  let text = raw
+  let text = raw.replace(/\{[^{}]*"(?:frameId|count)"[^{}]*\}/g, '')
   // Code fences first (their bodies must never be read aloud).
   text = text.replace(/```[\s\S]*?```/g, '代码已省略')
   text = text.replace(/`[^`\n]*`/g, '代码已省略')
@@ -459,9 +471,10 @@ export function companionToolPhaseCaption(phase: CompanionToolPhase, detail?: st
   if (phase === 'returned') return '操作已返回'
   if (phase === 'succeeded' && /\bok\s*:\s*false\b|"ok"\s*:\s*false|COMPUTER_STALE_FRAME|M10-CC-008|无法执行/.test(detail ?? '')) phase = 'failed'
   const label = phase === 'running' ? '执行中…' : phase === 'succeeded' ? '执行完成' : '执行失败'
-  const text = stripTaskDonePhrases(detail ?? '')
+  const raw = stripTaskDonePhrases(detail ?? '')
     .replace(/中[….…]+$/u, '')
     .trim()
+  const text = looksLikeToolMachineText(raw) ? '' : raw
   if (phase === 'running') return label
   return text ? `${label} · ${text}` : label
 }
@@ -517,6 +530,7 @@ export function companionToolCloseoutSpeech(summary?: string): string {
   if (browser) return browser
   const line = stripTaskDonePhrases(summary ?? '').trim()
   if (!line) return '这次执行已结束，但没有收到可确认的结果。'
+  if (looksLikeToolMachineText(line)) return '这一步已经返回。'
   return companionTaskCompleteSpeech(line)
 }
 

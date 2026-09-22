@@ -122,6 +122,9 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		mods, _ := normalizeModifiers(a.Modifiers)
 		click := func() error { return s.controlHost().MouseClick(a.Button, a.Clicks) }
 		if name := strings.TrimSpace(a.Name); name != "" || strings.TrimSpace(a.ID) != "" {
+			if err := s.refuseSelfWindowPixels(); err != nil {
+				return "", nil, err
+			}
 			query := strings.TrimSpace(a.ID)
 			if query == "" {
 				query = name
@@ -394,6 +397,27 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		_ = json.Unmarshal(args, &a)
 		if a.MaxNodes <= 0 {
 			a.MaxNodes = CcDefaultObserveUINodes
+		}
+		if s.foregroundIsCompanion() {
+			_ = s.restoreNonCompanionForeground()
+		}
+		if s.foregroundIsCompanion() {
+			// Mint a frame so a later pixel click can be refused as "this is
+			// 月伴", but do not hand the companion's own pixels back.
+			if _, capErr := s.captureDesktop(); capErr != nil {
+				return "", nil, capErr
+			}
+			raw, err := json.Marshal(map[string]any{
+				"count":   0,
+				"nodes":   []UINode{},
+				"space":   "image",
+				"frameId": s.CurrentFrameID(),
+				"hint":    "前台是月伴，没有其它窗口可操作。请说出要操作的软件，不要再对月伴自己截图或点击。",
+			})
+			if err != nil {
+				return "", nil, err
+			}
+			return string(raw), nil, nil
 		}
 		png, err := s.captureDesktop()
 		if err != nil {

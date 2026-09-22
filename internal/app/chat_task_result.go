@@ -109,6 +109,10 @@ func browserLaunchFailedOutput(out string) bool {
 	return strings.Contains(out, "BROWSER_LAUNCH_FAILED") || strings.Contains(out, "initializeServer")
 }
 
+func ownedMediaCenterGoal(goal string) bool {
+	return containsAnyFold(goal, strings.ToLower(goal), []string{"媒体中心", "自带媒体", "自带的媒体中心", "自带播放"})
+}
+
 func guardCurrentTurnTool(goal, name string) error {
 	if quitOnlyGoal(goal) && (name == "computer.act" || strings.HasPrefix(name, "cc.") || name == "media.play") {
 		return errors.New("关闭这个软件请用 desktop.quit，不要点屏幕，也不要暂停。")
@@ -126,6 +130,12 @@ func guardCurrentTurnTool(goal, name string) error {
 				return nil
 			}
 			return errors.New("本轮只要打开桌面文件或应用，不得浏览工作区或跑命令。请只用 desktop.open。")
+		}
+	}
+	if ownedMediaCenterGoal(goal) {
+		switch name {
+		case "web.search", "web.fetch", "browser.act", "computer.act", "desktop.open", "desktop.browse", "desktop.type":
+			return errors.New("在自带媒体中心播放时只调用 media.play，target=center。不要检索网页，也不要操作其它软件。")
 		}
 	}
 	if inventoryLookupGoal(goal) {
@@ -157,6 +167,25 @@ func currentTurnBrowserLaunchFailed(messages []llmadapter.Message) bool {
 	}
 	for _, m := range messages[start:] {
 		if m.Role == llmadapter.RoleTool && browserLaunchFailedOutput(m.Content) {
+			return true
+		}
+	}
+	return false
+}
+
+func currentTurnCompanionWindowBlocked(messages []llmadapter.Message) bool {
+	start := 0
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == llmadapter.RoleUser {
+			start = i + 1
+			break
+		}
+	}
+	for _, m := range messages[start:] {
+		if m.Role != llmadapter.RoleTool {
+			continue
+		}
+		if strings.Contains(m.Content, "前台是月伴") || strings.Contains(m.Content, "禁止像素动作") || strings.Contains(m.Content, "前台仍是月伴") {
 			return true
 		}
 	}
@@ -273,9 +302,43 @@ func currentTurnMediaKeyDelivered(messages []llmadapter.Message) bool {
 	return false
 }
 
+func currentTurnDesktopBrowserOpened(messages []llmadapter.Message) bool {
+	out := strings.TrimSpace(lastNamedToolOutput(messages, "desktop.browse"))
+	return strings.HasPrefix(out, "已向系统默认桌面浏览器发送打开请求") || strings.HasPrefix(out, "已打开桌面浏览器：")
+}
+
+func currentTurnOfficeOrgDenied(messages []llmadapter.Message) bool {
+	out := lastNamedToolOutput(messages, "office.generate")
+	return strings.Contains(out, "CROSS_ORG") || strings.Contains(out, "组织和已绑定的组织不一致")
+}
+
+func browseOpenStopsFurtherDesktop(goal string) bool {
+	if websiteFirstResultGoal(goal) {
+		return false
+	}
+	for _, verb := range []string{"点击", "点开", "点一下", "填写", "登录", "输入", "保存", "写入", "生成", "下载"} {
+		if strings.Contains(goal, verb) {
+			return false
+		}
+	}
+	return true
+}
+
 func guardCurrentTurnToolHistory(goal, name string, messages []llmadapter.Message) error {
+	if strings.Contains(lastNamedToolOutput(messages, "media.play"), "MEDIA_CENTER") {
+		return errors.New("媒体中心已经开始播放，不要再调用工具。")
+	}
+	if name == "office.generate" && currentTurnOfficeOrgDenied(messages) {
+		return errors.New("这一轮已经因为组织不一致没有写入，不要再调用 office.generate。")
+	}
+	if (name == "computer.act" || name == "browser.act" || strings.HasPrefix(name, "cc.")) && currentTurnDesktopBrowserOpened(messages) && browseOpenStopsFurtherDesktop(goal) {
+		return errors.New("系统浏览器已经打开。用已有检索结果直接回答，不要再点页面，也不要再启动自动化浏览器。")
+	}
 	if (name == "computer.act" || strings.HasPrefix(name, "cc.")) && currentTurnMediaKeyDelivered(messages) {
 		return errors.New("播放已经送到播放器，不要再点屏幕。")
+	}
+	if (name == "computer.act" || strings.HasPrefix(name, "cc.")) && currentTurnCompanionWindowBlocked(messages) {
+		return errors.New("前台是月伴，请先说出要操作的软件。")
 	}
 	if err := guardCurrentTurnTool(goal, name); err != nil {
 		// When the guard says "use browser.act instead of computer.act"
@@ -372,6 +435,12 @@ func companionFinalResult(messages []llmadapter.Message, reply, goal string) str
 	}
 	if !browserLookupOnlyGoal(goal) {
 		if out := lastNamedToolOutput(messages, "desktop.browse"); strings.HasPrefix(out, "已向系统默认桌面浏览器发送打开请求") {
+			if browseOpenStopsFurtherDesktop(goal) {
+				if text := strings.TrimSpace(reply); text != "" && !looksLikeCompanionWaitPromise(reply) && !isCompanionLeadInOnly(reply) {
+					return text
+				}
+				return "已在系统浏览器打开。"
+			}
 			observed := lastNamedToolOutput(messages, "computer.act")
 			if observed == "" || companionToolResultFailed(observed) {
 				if !companionGoalIsOpenOnly(goal) && strings.TrimSpace(reply) != "" && !looksLikeCompanionWaitPromise(reply) && !isCompanionLeadInOnly(reply) {

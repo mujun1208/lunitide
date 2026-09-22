@@ -144,7 +144,7 @@ export function importLimitNotice(): string {
 }
 
 export function generateActionNotice(): string {
-  return '生成在右侧对话里进行；上方预览和工作台阶段不是生成按钮。'
+  return '生成演示：有合适模板就按页选用；没有就按封面、目录、数字、对照、引用这些版式直接成稿。'
 }
 
 export function capabilityUsabilityLabels(checks: Array<{ id: string; status: string }>): string[] {

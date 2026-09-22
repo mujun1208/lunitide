@@ -144,8 +144,41 @@ func TestSkillInvokeToolDefinitionsWithAndWithoutService(t *testing.T) {
 	}
 	e.skills = &skillInvokeRecordingStub{}
 	defs := e.skillToolDefinitions()
-	if len(defs) != 4 || defs[0].Name != "skill.invoke" || defs[1].Name != "skill.view" || defs[2].Name != "skill.create" || defs[3].Name != "skill.manage" {
-		t.Fatalf("definitions = %#v, want skill.invoke, skill.view, skill.create, skill.manage", defs)
+	want := []string{"skill.invoke", "skill.view", "skill.create", "skill.manage", "skill.catalog.list", "skill.list", "skill.install", "skill.publish"}
+	if len(defs) != len(want) {
+		t.Fatalf("definitions = %d, want %d", len(defs), len(want))
+	}
+	for i, name := range want {
+		if defs[i].Name != name {
+			t.Fatalf("definitions[%d] = %s, want %s", i, defs[i].Name, name)
+		}
+	}
+}
+
+func TestSkillInvokeUnpublishedCatalogReturnsBody(t *testing.T) {
+	e := NewEngine(nil, "test")
+	e.skills = &skillCatalogStub{}
+	out, err := e.runSkillTool(context.Background(), executionModeFullAccess, "sess", []byte(`{"skillId":"computer-control","input":"打开记事本"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Output, "computer.act") || !strings.Contains(out.Output, "尚未写入技能库") {
+		t.Fatalf("catalog invoke = %s", out.Output)
+	}
+}
+
+func TestSkillCatalogListFindsShippedTemplate(t *testing.T) {
+	e := NewEngine(nil, "test")
+	e.skills = &skillCatalogStub{}
+	out, err := e.executeSkillMarketTool(context.Background(), "skill.catalog.list", []byte(`{"query":"computer-control"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Output, "computer-control") {
+		t.Fatalf("catalog = %s", out.Output)
+	}
+	if _, err := e.executeSkillMarketTool(context.Background(), "skill.install", []byte(`{"templateId":"no-such-template"}`)); err == nil || !strings.Contains(err.Error(), "没有这个模板") {
+		t.Fatalf("unknown template err = %v", err)
 	}
 }
 
