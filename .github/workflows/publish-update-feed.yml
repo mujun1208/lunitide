@@ -34,6 +34,12 @@ jobs:
           }else{
             Write-Host "Release $tag is missing; building the update feed."
             Add-Content -Path $env:GITHUB_OUTPUT -Value 'exists=false'
+            # A missing release is the normal first publish of a tag, not an
+            # error. Actions appends `exit $LASTEXITCODE` to every pwsh step, so
+            # leaving the failed `gh release view` code in place failed this step
+            # and skipped the build that was supposed to create the release —
+            # every brand-new tag published nothing.
+            $global:LASTEXITCODE = 0
           }
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         if: steps.release.outputs.exists != 'true'
