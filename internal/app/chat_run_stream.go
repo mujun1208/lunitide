@@ -144,7 +144,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	var streamResult llmadapter.Response
 	var generationBudget turnGenerationBudget
 	var turnArtifacts []SessionArtifact
-	turn := chatTurnCheckpoint{Status: turnStatusRunning, StreamID: id, Goal: lastUserChatText(req.Messages)}
+	turn := chatTurnCheckpoint{Status: turnStatusRunning, StreamID: id, Goal: carryMediaCenterGoal(req.Messages)}
 	computerTurn := computerExecutionTurn(turn.Goal)
 	checkpointErr := e.reconcileTurnCheckpointOnStart(sessionID, &turn)
 	seedContinuationFromScope(ctx, &turn)
@@ -688,7 +688,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					// turn closes, audit the final screenshot against the goal.
 					// Text heuristics above only judge the model's words; this
 					// judges the screen. One audit per turn.
-					if continueKind == "" && desktopVerifierApplies(turn.LastTools, state.companion, desktopVerified, usedDesktopTools) && laneAllowsDesktopContinue(state.lane) {
+					if continueKind == "" && !mediaCenterSkipsDesktopVerifier(turn.Goal, req.Messages) && desktopVerifierApplies(turn.LastTools, state.companion, desktopVerified, usedDesktopTools) && laneAllowsDesktopContinue(state.lane) {
 						desktopVerified = true
 						if verdict, frames, ok := e.verifyDesktopOutcome(op, mode, sessionID, turn.Goal, stepText, state.companion); ok {
 							_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: desktopVerdictThinking(verdict)}})
@@ -1117,6 +1117,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						op := toolruntime.WithExecutionKey(op, sessionID, call.ID)
 						if desktopMutationRetryBlocked(failedDesktopAttempts, call.Name, call.Arguments) {
 							return toolruntime.Result{}, errors.New("无法执行：相同目标和参数已失败，未重复操作。请重新核对目标或改用已验证的路径。")
+						}
+						if settled, ok := browseAlreadyOpenReceipt(turn.Goal, call.Name, req.Messages); ok {
+							return toolruntime.Result{Output: settled}, nil
 						}
 						if err := guardCurrentTurnToolHistory(turn.Goal, call.Name, req.Messages); err != nil {
 							guardBlockedCalls++

@@ -47,3 +47,26 @@ it('walks questions one at a time, lets the user go back, and submits once', asy
   expect(onSubmit.mock.calls[0][0]).toContain('1. 部署方式：容器化')
   expect(onSubmit.mock.calls[0][0]).toContain('2. 数据库：其他 — 已有 TiDB')
 })
+
+it('preselects the recommended option and keeps the other field', async () => {
+  const user = userEvent.setup()
+  const onSubmit = vi.fn()
+  const decided: UserAskPack = {
+    title: '交付方式',
+    questions: [{
+      id: 'ship',
+      prompt: '这份周报怎么交',
+      options: [
+        {id: 'mail', label: '发邮件', detail: '今晚就能送到'},
+        {id: 'deck', label: '做成演示', recommended: true, detail: '适合会上讲'},
+      ],
+    }],
+  }
+  render(<UserAskWizard pack={decided} onSubmit={onSubmit} />)
+  expect(screen.getByText('推荐')).toBeInTheDocument()
+  expect(screen.getByText('适合会上讲')).toBeInTheDocument()
+  expect(screen.getByRole('radio', {name: /做成演示/})).toHaveAttribute('aria-checked', 'true')
+  await user.click(screen.getByRole('button', {name: '提交决策'}))
+  expect(onSubmit).toHaveBeenCalledOnce()
+  expect(onSubmit.mock.calls[0][0]).toContain('1. 这份周报怎么交：做成演示（推荐）')
+})

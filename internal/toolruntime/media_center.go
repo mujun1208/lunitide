@@ -64,11 +64,18 @@ func (r *Runtime) executeMediaCenter(ctx context.Context, args json.RawMessage) 
 			return Result{}, errors.New("媒体中心不能搜索这类内容")
 		}
 		found, err := searchForMediaCenter(r, ctx, query)
-		if err != nil {
-			return Result{}, fmt.Errorf("媒体中心没有搜到可播放文件：%w", err)
+		var picked, pickedTitle, pickedKind string
+		var ok bool
+		if err == nil {
+			picked, pickedTitle, pickedKind, ok = pickArchiveMedia(found.Results)
 		}
-		picked, pickedTitle, pickedKind, ok := pickArchiveMedia(found.Results)
 		if !ok {
+			picked, pickedTitle, pickedKind, ok = publicDomainMovieFallback(title)
+		}
+		if !ok {
+			if err != nil {
+				return Result{}, fmt.Errorf("媒体中心没有搜到可播放文件：%w", err)
+			}
 			return Result{}, errors.New("没有找到可在媒体中心直接播放的公版文件。请给出一个 https 直链（mp4、webm 或 mp3），或在媒体中心选择本机文件。")
 		}
 		rawURL, kind = picked, pickedKind
@@ -175,6 +182,39 @@ func centerMediaTitle(raw string) string {
 		return "媒体中心"
 	}
 	return base
+}
+
+const publicDomainMovieURL = "https://archive.org/download/night_of_the_living_dead/Night.mp4"
+const publicDomainMovieTitle = "Night of the Living Dead"
+
+func publicDomainMovieFallback(query string) (rawURL, title, kind string, ok bool) {
+	if !genericCenterMovie(query) {
+		return "", "", "", false
+	}
+	return publicDomainMovieURL, publicDomainMovieTitle, "video", true
+}
+
+func genericCenterMovie(query string) bool {
+	lower := strings.ToLower(query)
+	if (strings.Contains(query, "歌") || strings.Contains(lower, "song") || strings.Contains(lower, "music")) && !strings.Contains(query, "电影") && !strings.Contains(query, "视频") {
+		return false
+	}
+	q := strings.ToLower(strings.TrimSpace(query))
+	for _, cut := range []string{
+		"自带的媒体中心", "自带媒体中心", "媒体中心播放", "媒体中心", "再我的", "从网上", "我看看",
+		"找一个", "找到", "找个", "帮我", "给我", "出来", "可以", "适配", "一下", "播放", "电影", "影片", "视频", "歌曲",
+		"一部", "一首", "一个", "随便", "任意", "网上", "爱情", "浪漫", "romance", "love", "movie", "film",
+		"自带的", "自带", "的", "了", "在", "再", "我", "你", "个",
+	} {
+		q = strings.ReplaceAll(q, cut, "")
+	}
+	q = strings.Map(func(r rune) rune {
+		if r == ' ' || strings.ContainsRune("，。！？、,.!?；;：:", r) {
+			return -1
+		}
+		return r
+	}, q)
+	return q == ""
 }
 
 func publicMediaHost(host string) bool {

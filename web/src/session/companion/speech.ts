@@ -396,12 +396,28 @@ export function companionRecognitionLang(navigatorLanguage = typeof navigator !=
   return lang
 }
 
-/** Skip finals already consumed so a continuous Windows session cannot replay history. */
+/** Skip finals already folded into the buffer.
+ * Windows often sets resultIndex at the latest piece while the prefix of the
+ * same utterance is still earlier in this event and has not been stored.
+ * Skipping to resultIndex is what left only 「的天气怎么样？」. A result list
+ * shorter than the watermark is a new session, so the old watermark does not apply. */
 export function recognitionResultStart(consumed: number, resultIndex: number, resultCount: number): number {
-  if (!Number.isFinite(resultCount) || resultCount < 0) return 0
-  if (consumed > resultCount) return Math.max(0, resultIndex)
-  const index = Number.isFinite(resultIndex) ? resultIndex : 0
-  return Math.max(0, consumed, index)
+  if (!Number.isFinite(resultCount) || resultCount <= 0) return 0
+  if (!Number.isFinite(consumed) || consumed <= 0) return 0
+  if (consumed > resultCount) return Math.max(0, Number.isFinite(resultIndex) ? Math.min(resultIndex, resultCount - 1) : 0)
+  return consumed
+}
+
+/** 「今天上海」+「的天气怎么样？」 is one utterance the recognizer split.
+ * Only a grammatical tail (的/了/着/过) joins. A new sentence, or a trailing
+ * syllable after a finished sentence, must not be glued on. */
+export function sameUtteranceSplit(held: string, incoming: string): boolean {
+  const prior = held.trim()
+  const next = incoming.trim()
+  if (!prior || !next) return false
+  if (/[。？！?!…]$/.test(prior)) return false
+  if (next.startsWith(prior) || prior.startsWith(next) || next.includes(prior)) return true
+  return /^[的了着过]/.test(next)
 }
 
 const MIN_TANDEM_UNIT = 8
@@ -1041,6 +1057,9 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         for (let i = start; i < event.results.length; i++) {
           let piece = pickRecognitionTranscript(event.results[i])
           if (event.results[i].isFinal) {
+            if (interimResultIndex >= 0 && interimResultIndex !== i && sameUtteranceSplit(interim, piece)) {
+              piece = absorbRecognitionFinal(interim, piece)
+            }
             if (interimResultIndex === i) piece = pickTranscriptRevision(interim, piece)
             finals = absorbRecognitionFinal(finals, piece)
             interim = ''

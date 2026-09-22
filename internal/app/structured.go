@@ -166,6 +166,17 @@ func prepareToolArguments(name string, args json.RawMessage, schema json.RawMess
 	if toolruntime.Digest(name, repaired) == "" {
 		return repaired, jsonutil.RetryMessage(name, "arguments are not valid JSON; resend a JSON object matching the tool schema")
 	}
+	if name == "office.generate" {
+		// Schema checks run before the tool. Models omit spec.schemaVersion
+		// on an otherwise complete deck; fill it here so the file is written
+		// instead of ending the turn on a retry hint.
+		repaired = adaptOfficeGenerateArgs(repaired)
+	}
+	if name == "user.ask" {
+		if next, err := toolruntime.NormalizeUserAsk(repaired); err == nil {
+			repaired = next
+		}
+	}
 	if len(schema) > 0 {
 		if err := jsonutil.Validate(schema, repaired); err != nil {
 			return repaired, jsonutil.RetryMessage(name, err.Error())

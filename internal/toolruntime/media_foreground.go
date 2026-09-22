@@ -397,16 +397,19 @@ func executeMediaPlayForeground(ctx context.Context, invoke ccInvoker, session, 
 			if strings.Contains(res.Output, "verified playing") {
 				return res, nil
 			}
+			// The session accepted play. A media key here would toggle it back off.
+			if strings.Contains(res.Output, "media session action=play") {
+				mediaSleep(700 * time.Millisecond)
+				if playing, ok := confirmedMusicPlaying(ctx, app); ok {
+					return withOpenedPlayer(opened, playing), nil
+				}
+				return genericPlaybackStarted(app, opened, "media session"), nil
+			}
 		}
 		_ = sendForegroundPlay("play")
 		mediaSleep(700 * time.Millisecond)
-		if res, ok := controlMusicSession(ctx, app, "play", shuffle); ok {
-			if strings.Contains(res.Output, "verified playing") {
-				if opened != "" {
-					res.Output = "opened " + opened + "; " + res.Output
-				}
-				return res, nil
-			}
+		if playing, ok := confirmedMusicPlaying(ctx, app); ok {
+			return withOpenedPlayer(opened, playing), nil
 		}
 		return genericPlaybackStarted(app, opened, "media key"), nil
 	}
@@ -430,6 +433,24 @@ func executeMediaPlayForeground(ctx context.Context, invoke ccInvoker, session, 
 	return attachMediaL0(res), nil
 }
 
+func withOpenedPlayer(opened string, res Result) Result {
+	if opened != "" && !strings.Contains(res.Output, "opened ") {
+		res.Output = "opened " + opened + "; " + res.Output
+	}
+	return res
+}
+
+// confirmedMusicPlaying reads the session. It does not send play or pause.
+func confirmedMusicPlaying(ctx context.Context, app string) (Result, bool) {
+	res, ok := controlMusicSession(ctx, app, "status", false)
+	if !ok || !strings.Contains(res.Output, "status=Playing") || !strings.Contains(res.Output, `"passed":true`) || strings.Contains(res.Output, `"uncertain":true`) {
+		return Result{}, false
+	}
+	res.Output = strings.Replace(res.Output, "verified status ", "verified playing ", 1)
+	res.Receipt = nil
+	return res, true
+}
+
 func genericPlaybackStarted(app, opened, how string) Result {
 	label := strings.TrimSpace(app)
 	if known, ok := matchKnownLaunchApp(app); ok {
@@ -438,7 +459,7 @@ func genericPlaybackStarted(app, opened, how string) Result {
 	if label == "" {
 		label = "foreground app"
 	}
-	detail := fmt.Sprintf("started playing in %s (%s)", label, how)
+	detail := fmt.Sprintf("sent play to %s (%s); playback not confirmed", label, how)
 	if opened != "" {
 		detail = "opened " + opened + "; " + detail
 	}

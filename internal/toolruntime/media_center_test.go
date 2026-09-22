@@ -60,6 +60,32 @@ func TestMediaCenterPicksArchiveDownloadAndSkipsHTML(t *testing.T) {
 	}
 }
 
+func TestMediaCenterGenericMovieFallsBackWhenSearchHasNoFile(t *testing.T) {
+	prev := searchForMediaCenter
+	searchForMediaCenter = func(*Runtime, context.Context, string) (webSearchResponse, error) {
+		return webSearchResponse{Results: []webfetch.SearchResult{{Title: "page", URL: "https://archive.org/details/romance"}}}, nil
+	}
+	t.Cleanup(func() { searchForMediaCenter = prev })
+	out, err := (&Runtime{}).executeMediaCenter(context.Background(), json.RawMessage(`{"target":"center","query":"帮我找到一个爱情电影再媒体中心可以播放出来"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Output, "MEDIA_CENTER") || !strings.Contains(out.Output, publicDomainMovieURL) || !strings.Contains(out.Output, "kind: video") {
+		t.Fatal(out.Output)
+	}
+}
+
+func TestMediaCenterNamedTitleDoesNotUseMovieFallback(t *testing.T) {
+	prev := searchForMediaCenter
+	searchForMediaCenter = func(*Runtime, context.Context, string) (webSearchResponse, error) {
+		return webSearchResponse{}, nil
+	}
+	t.Cleanup(func() { searchForMediaCenter = prev })
+	if _, err := (&Runtime{}).executeMediaCenter(context.Background(), json.RawMessage(`{"target":"center","query":"夜访吸血鬼"}`)); err == nil {
+		t.Fatal("a named title with no file must not be replaced by the default movie")
+	}
+}
+
 func TestMediaCenterSearchQueryUsesAPublicDomainDefault(t *testing.T) {
 	if got := mediaCenterSearchQuery("帮我在媒体中心播放一部电影"); !strings.Contains(got, "Night of the Living Dead") {
 		t.Fatal(got)

@@ -25,6 +25,30 @@ const snapshot: MediaSnapshotDTO = {
   updatedAt: '2026-01-01T00:00:00Z',
 }
 
+it('plays a handed-off file in the theatre', () => {
+  const play = vi.fn().mockResolvedValue(undefined)
+  Object.defineProperty(HTMLMediaElement.prototype, 'play', { configurable: true, value: play })
+  render(
+    <VideoPlayerSurface
+      snapshot={snapshot}
+      title="Night of the Living Dead"
+      src="https://archive.org/download/night_of_the_living_dead/Night.mp4"
+      showFile
+      busy={false}
+      onPlayPause={() => {}}
+      onPrevious={() => {}}
+      onNext={() => {}}
+      onQueue={() => {}}
+      onSeek={() => {}}
+      onVolume={() => {}}
+    />,
+  )
+  const video = document.querySelector('video')
+  expect(video).not.toBeNull()
+  expect(video?.getAttribute('src')).toBe('https://archive.org/download/night_of_the_living_dead/Night.mp4')
+  expect(play).toHaveBeenCalled()
+})
+
 it('TestVideoCoreControls: exposes play, seek and volume without a second video element', () => {
   const onPlayPause = vi.fn()
   const onSeek = vi.fn()

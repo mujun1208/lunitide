@@ -1,4 +1,4 @@
-import React, {useMemo, useState} from 'react'
+import React, {useEffect, useMemo, useState} from 'react'
 import {
   formatUserAskFollowUp,
   USER_ASK_OTHER_ID,
@@ -20,6 +20,11 @@ export function UserAskWizard({
   const [step, setStep] = useState(0)
   const [answers, setAnswers] = useState<UserAskAnswers>({})
   const question = pack.questions[Math.min(step, pack.questions.length - 1)]
+  const recommendedId = question.options.find(option => option.recommended)?.id
+  useEffect(() => {
+    if (!recommendedId) return
+    setAnswers(current => current[question.id] ? current : {...current, [question.id]: {optionId: recommendedId}})
+  }, [question.id, recommendedId])
   const choice = answers[question.id]
   const last = step === pack.questions.length - 1
   const ready = userAskChoiceReady(question, choice)
@@ -45,6 +50,17 @@ export function UserAskWizard({
         if (last) submit()
         else if (ready) setStep(value => Math.min(pack.questions.length - 1, value + 1))
       }}
+      onKeyDown={e => {
+        if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return
+        const n = Number(e.key)
+        if (!Number.isInteger(n) || n < 1 || n > question.options.length + 1) return
+        e.preventDefault()
+        if (n === question.options.length + 1) {
+          select({optionId: USER_ASK_OTHER_ID, otherText: choice?.optionId === USER_ASK_OTHER_ID ? choice.otherText : ''})
+        } else {
+          select({optionId: question.options[n - 1].id})
+        }
+      }}
     >
       <header>
         <b>{pack.title || '需要你决策'}</b>
@@ -63,7 +79,13 @@ export function UserAskWizard({
             onClick={() => select({optionId: option.id})}
           >
             <i>{index + 1}</i>
-            <span>{option.label}</span>
+            <span>
+              <strong>
+                {option.label}
+                {option.recommended ? <em className="ask-recommend">推荐</em> : null}
+              </strong>
+              {option.detail ? <small>{option.detail}</small> : null}
+            </span>
           </button>
         ))}
         <button

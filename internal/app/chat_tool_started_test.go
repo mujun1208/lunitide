@@ -20,6 +20,9 @@ func TestToolStartedSummary(t *testing.T) {
 	if got := toolStartedSummary("workspace.read", json.RawMessage(`{}`)); got != "" {
 		t.Fatalf("other: %q", got)
 	}
+	if got := toolStartedSummary("todo.write", json.RawMessage(`{"todos":[{"content":"确认读者","status":"completed"},{"content":"写出大纲","status":"in_progress"}]}`)); !strings.Contains(got, "[x] (completed|medium) 确认读者") || !strings.Contains(got, "[ ] (in_progress|medium) 写出大纲") {
+		t.Fatalf("todo preview: %q", got)
+	}
 	if got := toolStartedSummary("user.ask", json.RawMessage(`{"title":"需求边界","questions":[{"prompt":"部署","options":[{"label":"A"},{"label":"B"}]}]}`)); got != "需要你决策：需求边界" {
 		t.Fatalf("user.ask started: %q", got)
 	}

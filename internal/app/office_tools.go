@@ -9,10 +9,10 @@ import (
 	"strings"
 
 	domain "github.com/lunitide/lunitide/internal/domain/officestudio"
-	"github.com/lunitide/lunitide/internal/org"
 	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/officeapp"
 	content "github.com/lunitide/lunitide/internal/officestudio"
+	"github.com/lunitide/lunitide/internal/org"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 	"github.com/oklog/ulid/v2"
 )
@@ -112,8 +112,10 @@ func (e *Engine) executeOfficeTool(ctx context.Context, sessionID, name string, 
 	}
 	if name == "office.generate" {
 		args = adaptOfficeGenerateArgs(args)
-	}
-	if decodePayload(args, &p) != nil {
+		if err := json.Unmarshal(args, &p); err != nil {
+			return nil, "", "", fmt.Errorf("office.generate 参数和规范对不上，文件没有写入：%s", err.Error())
+		}
+	} else if decodePayload(args, &p) != nil {
 		return nil, "", "", domain.ErrInvalid
 	}
 	ctx, orgID, err := e.withOfficeSessionScope(ctx, sessionID)

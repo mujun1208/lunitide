@@ -324,6 +324,19 @@ func chatRichMarkdownInstruction() string {
 // projectPhaseWorkflowInjection tells the model which Matt Pocock-style workflow
 // skills to prefer for the active project workbench phase.
 func projectPhaseWorkflowInjection(phase int, label string) string {
+	return projectPhaseWorkflowInjectionMode(phase, label, true)
+}
+
+func phaseDecisionCardLine(decisionCards bool, line string) string {
+	if !decisionCards {
+		return ""
+	}
+	return line
+}
+
+// projectPhaseWorkflowInjectionMode keeps phase skills on every surface.
+// decisionCards is typed chat only; voice asks out loud and never opens a card.
+func projectPhaseWorkflowInjectionMode(phase int, label string, decisionCards bool) string {
 	if phase <= 0 || label == "" {
 		return ""
 	}
@@ -340,7 +353,7 @@ func projectPhaseWorkflowInjection(phase int, label string) string {
 		return "\n\n[项目阶段 · " + label + "]\n" +
 			"对齐需求与边界时优先 skill.invoke：grill-me、to-spec；拆票用 to-tickets；架构审视用 improve-architecture。\n" +
 			"形成规范/设计后给出完整交付物正文，并提示用户在右侧「交付物」面板保存为草稿；需要可保存文件时用 structured.output 或 docx.gen 生成到工作区。\n" +
-			"先把范围和取舍想清楚并给出你的判断。只有想完后仍存在用户必须拍板、且不同选择会改变交付的分叉时，才调用 user.ask（每题 2–5 个选项，界面有「其他」）。能自行决定的不要弹卡。\n"
+			phaseDecisionCardLine(decisionCards, "先把范围和取舍想清楚并给出你的判断。只有想完后仍存在用户必须拍板、且不同选择会改变交付的分叉时，才调用 user.ask（每题 2–5 个选项，界面有「其他」）。能自行决定的不要弹卡。\n")
 	case "测试":
 		return "\n\n[项目阶段 · " + label + "]\n" +
 			"测试阶段优先 skill.invoke：test-writer、code-reviewer、pm-phase-6（或 pm-phase-5 运维型项目）。\n"
@@ -348,6 +361,6 @@ func projectPhaseWorkflowInjection(phase int, label string) string {
 		return "\n\n[项目阶段 · " + label + "]\n" +
 			"按阶段交付物推进；匹配场景时用 skill.invoke 调用已发布技能，不要只口头描述流程。\n" +
 			"产出规格/设计/清单等交付物时给出完整正文，并提示用户在右侧「交付物」面板保存为草稿再逐关确认；需要可保存文件时用 structured.output 或 docx.gen/excel.gen 生成到工作区。\n" +
-			"先自行判断并推进。只有想完后仍有用户必须拍板、且选项会改变交付的分叉时，才调用 user.ask。\n"
+			phaseDecisionCardLine(decisionCards, "先自行判断并推进。只有想完后仍有用户必须拍板、且选项会改变交付的分叉时，才调用 user.ask。\n")
 	}
 }

@@ -95,6 +95,48 @@ func (r *Runtime) writeTodos(session string, todos []struct {
 	return b.String(), nil
 }
 
+// PreviewTodoChecklist renders the same checklist text writeTodos stores,
+// without touching disk. The typed chat shows it as soon as the call starts.
+func PreviewTodoChecklist(args json.RawMessage) string {
+	var a struct {
+		Todos []struct {
+			Content  string `json:"content"`
+			Status   string `json:"status"`
+			Priority string `json:"priority"`
+		} `json:"todos"`
+	}
+	if json.Unmarshal(args, &a) != nil || len(a.Todos) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d todo(s) stored", len(a.Todos))
+	n := 0
+	for _, t := range a.Todos {
+		content := strings.TrimSpace(t.Content)
+		if content == "" {
+			continue
+		}
+		status := t.Status
+		if status == "" {
+			status = "pending"
+		}
+		priority := t.Priority
+		if priority == "" {
+			priority = "medium"
+		}
+		mark := " "
+		if status == "completed" {
+			mark = "x"
+		}
+		n++
+		fmt.Fprintf(&b, "\n%d. [%s] (%s|%s) %s", n, mark, status, priority, content)
+	}
+	if n == 0 {
+		return ""
+	}
+	return b.String()
+}
+
 type editHunk struct {
 	OldText    string
 	NewText    string
