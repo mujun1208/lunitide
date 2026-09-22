@@ -31,6 +31,7 @@ func TestTurnJournalSurvivesRestartAndLostCommitAckWithoutDuplicates(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = store.Close() })
 	e.SetChatTurnJournal(store)
 	usage := messageapp.AssistantUsage{Provider: "openai_compatible", Model: "test-model", OutputTokens: 7}
 	for i, id := range []string{"01ARZ3NDEKTSV4RRFFQ69G5FAA", "01ARZ3NDEKTSV4RRFFQ69G5FAB"} {
