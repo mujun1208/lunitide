@@ -275,14 +275,16 @@ function OverviewPane({
   const score = overview?.healthScore ?? 0
   const openWarn = findings.filter(item => item.status === 'open' && (item.severity === 'error' || item.severity === 'warn')).length
   const timeouts = findings.filter(item => item.status === 'open' && /超时|timeout/i.test(`${item.title} ${item.evidence}`)).length
-  const passed = Math.max(0, (overview?.cardCount ?? 0) - openWarn)
+  const probeTotal = overview?.probeTotal ?? 0
+  const probePassed = overview?.probePassed ?? 0
+  const coverage = probeTotal > 0 ? `${probePassed}/${probeTotal}` : '—'
   return (
     <div>
       <section className="ph-health">
         <HealthRing score={score} label={zh ? '健康度' : 'Health'} />
         <div>
-          <strong>{zh ? '探针' : 'Probes'} {passed}/{overview?.cardCount ?? 0} · {openWarn} {zh ? '警告' : 'warn'} · {timeouts} {zh ? '超时' : 'timeout'} · {zh ? '健康' : 'ok'} {domains.length} {zh ? '域' : 'domains'}</strong>
-          <p>{zh ? '健康分忽略已解决项。点击详情看未闭合诊断。' : 'Resolved findings are ignored by the health score.'}</p>
+          <strong>{zh ? '活源覆盖' : 'Live coverage'} {coverage} · {openWarn} {zh ? '未闭合' : 'open'} · {timeouts} {zh ? '超时' : 'timeout'} · {zh ? '较上次快照 新增' : 'since last snapshot added'} {overview?.added ?? 0} · {zh ? '更新' : 'updated'} {overview?.updated ?? 0} · {zh ? '退役' : 'removed'} {overview?.removed ?? 0}</strong>
+          <p>{zh ? '打开本页会对照当前活源重算覆盖。点「重新检测」才写入新快照，不改业务代码。' : 'Opening this page recounts the live catalog. Re-scan writes a snapshot and does not edit product code.'}</p>
         </div>
         <button type="button" className="ph-detail" onClick={onDetail}>{zh ? '详情' : 'Details'}</button>
       </section>
@@ -353,7 +355,8 @@ function ModuleBlock({
         <div className="ph-children">
           {row.features.length === 0 ? <p className="ph-dim">{zh ? '该模块功能卡编排中' : 'No cards yet'}</p> : row.features.map(node => (
             <button key={node.id} type="button" className="ph-feature-row" onClick={() => onOpen(node.stable_key)}>
-              <span>{node.name}</span>
+              <span className="ph-feature-name">{node.name}</span>
+              <span className="ph-feature-sum">{node.summary || (zh ? '打开卡片看这一步做什么' : 'Open the card')}</span>
               <span>{node.stable_key}</span>
             </button>
           ))}
@@ -365,13 +368,14 @@ function ModuleBlock({
 
 
 function DiagnosticsPane({
-  findings, overview, zh, busy, onApply, onRefresh, onExport,
+  findings, overview, zh, busy, onApply, onWont, onRefresh, onExport,
 }: {
   findings: HubFinding[]
   overview?: HubOverview
   zh: boolean
   busy: boolean
   onApply: (item?: HubFinding) => void
+  onWont: (item: HubFinding) => void
   onRefresh: () => void
   onExport: () => void
 }): React.JSX.Element {
@@ -382,13 +386,12 @@ function DiagnosticsPane({
   const errors = active.filter(item => item.severity === 'error').length
   const warns = active.filter(item => item.severity === 'warn' || item.severity === 'warning').length
   const infos = active.filter(item => item.severity === 'info').length
-  const [wont, setWont] = useState<string[]>([])
   return (
     <div>
       <section className="ph-health">
         <div>
           <strong>{zh ? '诊断报告' : 'Diagnostics'} {reportId(overview?.generatedAt)}</strong>
-          <p>{zh ? '快照' : 'snap'} {formatSnapshot(overview?.generatedAt)} · {versionLabel(overview?.editionId)} · {zh ? '触发 upgrade · 信号源' : 'trigger upgrade · signals'} {active.length}/{findings.length}</p>
+          <p>{zh ? '快照' : 'snap'} {formatSnapshot(overview?.generatedAt)} · {versionLabel(overview?.editionId)} · {zh ? '打开即对照活源 · 条目' : 'live recount · items'} {active.length}/{findings.length}</p>
         </div>
         <HealthRing score={overview?.healthScore ?? 0} label={zh ? '诊断健康' : 'Diag health'} />
         <div className="ph-actions">
@@ -403,9 +406,9 @@ function DiagnosticsPane({
         <article className="ph-stat"><b className="is-ok">{resolved.length}</b><span>{zh ? '较上版已解决' : 'Resolved'}</span></article>
       </div>
       <div className="ph-loop">
-        <span>v2.4.0 → {versionLabel(overview?.editionId)}</span>
-        <span className="ph-dim">{zh ? '新增 2 · 解决 3 · 未解决' : 'added 2 · fixed 3 · open'} {active.length}</span>
-        <span className="ph-dim">{zh ? '自检 → 修复 → 复核 → 升级' : 'scan → fix → verify → ship'}</span>
+        <span>{zh ? '本轮快照' : 'This snapshot'} {versionLabel(overview?.editionId)}</span>
+        <span className="ph-dim">{zh ? '新增' : 'added'} {overview?.added ?? 0} · {zh ? '更新' : 'updated'} {overview?.updated ?? 0} · {zh ? '退役' : 'removed'} {overview?.removed ?? 0} · {zh ? '未闭合' : 'open'} {errors + warns}</span>
+        <span className="ph-dim">{zh ? '重新检测写入快照 · 执行净化只改目录标签 · 不改业务代码' : 'Re-scan writes a snapshot. Apply only retags the catalog.'}</span>
       </div>
       <div className="ph-actions">
         <button className="primary" type="button" disabled={busy} onClick={() => onApply()}>{zh ? '执行全部净化' : 'Apply all'}</button>
@@ -424,7 +427,7 @@ function DiagnosticsPane({
               <span className="ph-sev">{item.severity.toUpperCase()}</span>
               <strong>{item.error_code} {item.title}</strong>
               <span className="ph-dim">{item.stable_key}</span>
-              <span className="ph-pill">{wont.includes(key) ? 'wont_fix' : item.status}</span>
+              <span className="ph-pill">{item.status}</span>
             </button>
             {expanded ? (
               <div className="ph-finding-body">
@@ -452,7 +455,7 @@ function DiagnosticsPane({
                     const text = item.apply_prompt || [item.error_code, item.title, item.evidence, item.root_cause, item.fix, item.verify].join('\n')
                     void navigator.clipboard?.writeText(text)
                   }}>{zh ? '复制给内部模型 / 技能' : 'Copy for model / skill'}</button>
-                  <button type="button" onClick={() => setWont(curr => curr.includes(key) ? curr.filter(id => id !== key) : [...curr, key])}>{zh ? '标记 wont_fix' : 'Mark wont_fix'}</button>
+                  <button type="button" disabled={busy || item.status === 'wont_fix'} onClick={() => onWont(item)}>{zh ? '标记 wont_fix' : 'Mark wont_fix'}</button>
                 </div>
               </div>
             ) : null}
@@ -616,6 +619,21 @@ export function ProductHubPage({ onUnlocked, language = 'zh-CN' }: { onUnlocked?
     }).catch(err => setError(hubUserError(err, zh ? '净化失败' : 'Apply failed'))).finally(() => setBusy(false))
   }
 
+  const markWont = (item: HubFinding) => {
+    if (!token) return
+    setBusy(true)
+    setError('')
+    setApplyNote('')
+    void getProductHubBridge().apply({
+      sessionToken: token,
+      errorCode: 'wont_fix',
+      stableKey: `${item.error_code}|${item.stable_key}`,
+    }).then(result => {
+      setApplyNote(`${result.status} · ${result.plan}`)
+      return load(token)
+    }).catch(err => setError(hubUserError(err, zh ? '标记失败' : 'Could not mark wont_fix'))).finally(() => setBusy(false))
+  }
+
   const generate = () => {
     if (!token) return
     setBusy(true)
@@ -747,6 +765,7 @@ export function ProductHubPage({ onUnlocked, language = 'zh-CN' }: { onUnlocked?
               zh={zh}
               busy={busy}
               onApply={applyFinding}
+              onWont={markWont}
               onRefresh={generate}
               onExport={() => exportDoc('report')}
             />

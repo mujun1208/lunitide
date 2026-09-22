@@ -214,12 +214,20 @@ func companionToolResultSpeech(name, out string) string {
 			return receipt
 		}
 	}
+	if name == "media.play" && !companionToolResultFailed(out) && mediaKeyDelivered(out) {
+		if speech := mediaKeyDeliveredSpeech(out); speech != "" {
+			return speech
+		}
+	}
 	if name == "media.play" && !companionToolResultFailed(out) && unverifiedMediaPlay(name, out, "") {
 		return "已发送播放操作，但还没有确认音乐开始播放。"
 	}
 	if companionToolResultFailed(out) {
 		if strings.Contains(out, "BROWSER_MCP_NOT_READY") {
 			return companionBrowserMCPSpeech
+		}
+		if browserLaunchFailedOutput(out) {
+			return "浏览器没能启动，这一步停在这里。"
 		}
 		if strings.Contains(out, "M10-CC-012") || strings.Contains(out, "电脑控制未启用") || capabilityDeniedOutput(out) {
 			return "电脑控制未启用。第一次控桌面请到设置里打开。"

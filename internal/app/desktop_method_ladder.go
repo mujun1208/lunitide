@@ -16,11 +16,11 @@ import (
 // the last available rung. Never go back to a finished rung.
 
 const (
-	ladderStepNone      = 0
-	ladderStep1         = 1
-	ladderStep2Observe  = 2
-	ladderStep2Click    = 3
-	ladderStep3         = 4
+	ladderStepNone     = 0
+	ladderStep1        = 1
+	ladderStep2Observe = 2
+	ladderStep2Click   = 3
+	ladderStep3        = 4
 )
 
 func desktopLadderNudgeTextFor(next int) string {
@@ -149,6 +149,9 @@ func (r desktopLadderReceipt) succeeded(goal string) bool {
 		return false
 	}
 	if r.Name == "media.play" {
+		if mediaKeyDelivered(r.Output) {
+			return true
+		}
 		return !unverifiedMediaPlay("media.play", r.Output, "")
 	}
 	if r.Name == "desktop.open" || r.Name == "desktop.browse" {
@@ -268,6 +271,9 @@ func desktopLadderDedicatedUnresolved(goal, toolOut string, lastTools []string) 
 		if !usedAnyTool(lastTools, "media.play") {
 			return false
 		}
+		if mediaKeyDelivered(toolOut) {
+			return false
+		}
 		return companionToolResultFailed(toolOut) || unverifiedMediaPlay(lastToolName(lastTools), toolOut, "")
 	}
 	if companionGoalIsOpenOnly(goal) {
@@ -323,7 +329,53 @@ func desktopLadderWantsGUIAfterObserve(goal string, messages []llmadapter.Messag
 }
 
 func quitOnlyGoal(goal string) bool {
-	return strings.Contains(goal, "退出") && !containsAnyFold(goal, strings.ToLower(goal), []string{"然后", "之后", "打开", "启动", "写入", "输入", "播放", "搜索", "查询"})
+	if containsAnyFold(goal, strings.ToLower(goal), []string{"然后", "之后", "打开", "启动", "写入", "输入", "播放", "搜索", "查询", "暂停", "窗口", "标签"}) {
+		return false
+	}
+	if strings.Contains(goal, "退出") || strings.Contains(goal, "关闭软件") || strings.Contains(goal, "关掉软件") || strings.Contains(goal, "退出软件") {
+		return true
+	}
+	if strings.Contains(goal, "关闭") || strings.Contains(goal, "关掉") {
+		return quitTargetName(goal) != ""
+	}
+	return false
+}
+
+func quitTargetName(goal string) string {
+	t := strings.TrimSpace(goal)
+	for _, prefix := range []string{"请你帮我", "请帮我", "帮我", "麻烦", "请", "彻底", "完全", "马上"} {
+		t = strings.TrimPrefix(strings.TrimSpace(t), prefix)
+	}
+	for _, verb := range []string{"关闭软件", "关掉软件", "退出软件", "关闭", "关掉", "退出"} {
+		if strings.Contains(t, verb) {
+			t = strings.Replace(t, verb, "", 1)
+			break
+		}
+	}
+	t = strings.Trim(t, " 。.吧了啊呀呢")
+	switch t {
+	case "", "软件", "程序", "应用", "窗口", "这个", "它", "他":
+		return ""
+	}
+	if strings.Contains(t, "窗口") || strings.Contains(t, "标签") {
+		return ""
+	}
+	return t
+}
+
+func fallbackDesktopQuitArgs(goal string) json.RawMessage {
+	if !quitOnlyGoal(goal) {
+		return nil
+	}
+	name := quitTargetName(goal)
+	if name == "" {
+		return nil
+	}
+	out, err := json.Marshal(map[string]any{"name": name, "force": true})
+	if err != nil {
+		return nil
+	}
+	return out
 }
 
 func desktopLadderWantsDedicated(goal string) bool {

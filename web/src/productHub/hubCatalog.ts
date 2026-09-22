@@ -288,7 +288,7 @@ function pageEnterFeatures(): FeatureSpec[] {
       pages: [id],
       source: 'pages',
       chainClass: 'page-enter',
-      summary: `打开「${page.name}」页面。`,
+      summary: `从导航打开「${page.name}」。这一卡只说明怎么进入该页，页内动作看同一页的其他功能卡。`,
     }
   })
 }
@@ -303,7 +303,7 @@ function settingFeatures(): FeatureSpec[] {
     pages: ['settings' as Page],
     source: 'settings',
     chainClass: 'settings-toggle',
-    summary: `调整「${item.label}」设置。`,
+    summary: `在设置里调整「${item.label}」。改动作用于这项能力。`,
     settings: [item.id],
   }))
 }
@@ -318,7 +318,7 @@ function mediaFeatures(): FeatureSpec[] {
     pages: ['media' as Page],
     source: 'media-actions',
     chainClass: 'media-transport',
-    summary: `对媒体会话执行${MEDIA_NAMES[action] ?? action}。`,
+    summary: `在媒体中心对当前播放会话执行「${MEDIA_NAMES[action] ?? action}」，调用 media.${action}。`,
     bridge: [`media.${action}`],
   })).concat([{
     key: 'feature.office.media.asset-open',
@@ -344,7 +344,7 @@ function pluginFeatures(): FeatureSpec[] {
     pages: ['plugins' as Page],
     source: 'plugins',
     chainClass: 'asset-invoke',
-    summary: `启用或使用「${item.title}」插件。`,
+    summary: `在插件页启用或使用「${item.title}」。`,
   }))
 }
 
@@ -478,6 +478,7 @@ export function buildCatalogGraph(extraNodes: HubNode[] = [], extraEdges: HubEdg
       name: feature.name,
       domain: feature.domain,
       module: feature.module,
+      summary: feature.summary,
     })
     link(modId, feature.key)
   }
@@ -527,6 +528,8 @@ export function catalogOverview(nodes: HubNode[], changes: HubChange[]): HubOver
     added: changes.filter(item => item.kind === 'added').length,
     updated: changes.filter(item => item.kind === 'updated').length,
     removed: changes.filter(item => item.kind === 'removed').length,
+    probePassed: features.length,
+    probeTotal: features.length,
     domains: [
       { id: 'dialog', name: '对话体验', modules: 0, cards: 0 },
       { id: 'office', name: '业务工作台', modules: 0, cards: 0 },

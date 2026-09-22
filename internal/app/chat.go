@@ -339,9 +339,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 				}
 			}
 		} else {
-			instruction += " File tools operate inside a per-session sandbox directory; the user's real folders (Desktop, Documents) are not reachable in this configuration."
+			instruction += " File tools read and write inside the session workspace. workspace.read also accepts an absolute path the user wrote, including Desktop and Documents, and returns the text of Markdown, TXT, CSV, PDF, Word, Excel, and PowerPoint. Answer from that text. Do not ask the user to paste the body, rename the file, or guess invisible characters."
 			if p.Companion {
-				instruction += " Tell the user to enable 全盘完全访问 in Settings → Command policy so desktop.open and media.play can run."
+				instruction += " Writes outside the workspace still need 全盘完全访问 in Settings → Command policy."
 			}
 		}
 	}
@@ -472,6 +472,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		instruction += officeChatInstruction
 	}
 	trustedMessages := append([]llmadapter.Message{{Role: llmadapter.RoleSystem, Content: instruction}}, p.Messages...)
+	if mode == executionModeFullAccess {
+		trustedMessages = appendLocalFileReads(trustedMessages)
+	}
 
 	if getErr != nil {
 		return providerFailure(request, getErr)

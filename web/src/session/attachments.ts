@@ -13,10 +13,16 @@ export const ATTACHMENT_BATCH_MAX=20
 export const VISION_IMAGE_MAX=4
 export const ATTACHMENT_BATCH_BYTES=20*1024*1024
 export const VISION_IMAGE_BYTES=180*1024
-export const TEXT_EXTENSIONS=['.txt','.md','.json','.csv','.html','.xml','.js','.ts','.py','.go','.java','.c','.cpp','.rs','.yaml','.yml','.sh','.sql'] as const
-export const IMAGE_MIME_BY_EXTENSION:Record<string,string>={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp'}
-export const ALLOWED_EXTENSIONS=[...TEXT_EXTENSIONS,...Object.keys(IMAGE_MIME_BY_EXTENSION)]
-export const ATTACHMENT_ACCEPT=[...ALLOWED_EXTENSIONS,'image/png','image/jpeg','image/webp'].join(',')
+export const TEXT_EXTENSIONS=['.txt','.md','.json','.csv','.html','.xml','.js','.ts','.py','.go','.java','.c','.cpp','.rs','.yaml','.yml','.sh','.sql','.log'] as const
+export const IMAGE_MIME_BY_EXTENSION:Record<string,string>={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif','.bmp':'image/bmp'}
+export const DOCUMENT_MIME_BY_EXTENSION:Record<string,string>={
+ '.pdf':'application/pdf',
+ '.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+ '.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+ '.pptx':'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+}
+export const ALLOWED_EXTENSIONS=[...TEXT_EXTENSIONS,...Object.keys(IMAGE_MIME_BY_EXTENSION),...Object.keys(DOCUMENT_MIME_BY_EXTENSION)]
+export const ATTACHMENT_ACCEPT=[...ALLOWED_EXTENSIONS,'image/png','image/jpeg','image/webp','image/gif','image/bmp',...Object.values(DOCUMENT_MIME_BY_EXTENSION)].join(',')
 
 const extension=(name:string)=>{const dot=name.lastIndexOf('.');return dot<0?'':name.slice(dot).toLowerCase()}
 const imageExtensionByMIME=(mime:string)=>mime==='image/png'?'.png':mime==='image/jpeg'?'.jpg':mime==='image/webp'?'.webp':''
@@ -25,8 +31,13 @@ export const fileToBase64=async(file:File):Promise<string>=>{const bytes=new Uin
 const bytesToBase64=(bytes:Uint8Array)=>{let binary='';for(let i=0;i<bytes.length;i+=0x8000)binary+=String.fromCharCode(...bytes.subarray(i,i+0x8000));return btoa(binary)}
 const hex=(bytes:ArrayBuffer)=>Array.from(new Uint8Array(bytes),x=>x.toString(16).padStart(2,'0')).join('')
 
-async function compressVisionImage(file:File,signal?:AbortSignal):Promise<File>{
- if(file.size<=VISION_IMAGE_BYTES)return file
+function withDocumentType(file:File):File{
+ const mime=DOCUMENT_MIME_BY_EXTENSION[extension(file.name)]
+ if(!mime||(file.type&&file.type!=='application/octet-stream'))return file
+ return new File([file],file.name,{type:mime,lastModified:file.lastModified})
+}
+async function compressVisionImage(file:File,signal?:AbortSignal,force=false):Promise<File>{
+ if(!force&&file.size<=VISION_IMAGE_BYTES)return file
  let expired=false
  const decoding=createImageBitmap(file).then(bitmap=>{if(expired){bitmap.close();throw attachmentCancelled()}return bitmap})
  const bitmap=await attachmentOperation(decoding,signal,10_000,'图片解码超时，请重试').catch(error=>{expired=true;throw error});try{let width=bitmap.width,height=bitmap.height
@@ -47,7 +58,7 @@ export async function prepareAttachmentFiles(files:readonly File[],signal?:Abort
   if(!ALLOWED_EXTENSIONS.includes(ext)){failed.push(`${file.name}（不支持的类型）`);continue}
   if(file.size>ATTACHMENT_FILE_MAX){failed.push(`${file.name}（超过 10 MiB）`);continue}
   if((total+=file.size)>ATTACHMENT_BATCH_BYTES){failed.push(`${file.name}（本批原文件合计超过 20 MiB）`);continue}
-  try{prepared.push(imageMIME?await compressVisionImage(file,signal):file)}catch(e){if(signal?.aborted)throw e;failed.push(attachmentUserError(e,`${file.name}（图片处理失败）`))}
+  try{prepared.push(imageMIME?await compressVisionImage(file,signal,ext==='.gif'||ext==='.bmp'):withDocumentType(file))}catch(e){if(signal?.aborted)throw e;failed.push(attachmentUserError(e,`${file.name}（图片处理失败）`))}
  }
  if(files.length>ATTACHMENT_BATCH_MAX)failed.push(`超过 20 个的 ${files.length-ATTACHMENT_BATCH_MAX} 个文件`)
  return{files:prepared,failed}

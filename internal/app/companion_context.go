@@ -306,10 +306,10 @@ func companionMediaCommand(text string) (action string, resume bool) {
 	if strings.Contains(t, "暂停") {
 		return "pause", false
 	}
-	if strings.Contains(t, "上一首") {
+	if strings.Contains(t, "上一曲") || strings.Contains(t, "上一首") {
 		return "prev", false
 	}
-	if strings.Contains(t, "下一首") || strings.Contains(t, "切歌") ||
+	if strings.Contains(t, "下一曲") || strings.Contains(t, "下一首") || strings.Contains(t, "切歌") ||
 		(strings.Contains(t, "下一周") && (strings.Contains(t, "播放") || strings.Contains(t, "音乐"))) {
 		return "next", false
 	}
@@ -352,7 +352,7 @@ func companionPlayFollowUp(text string) bool {
 		return true
 	}
 	for _, needle := range []string{
-		"播放", "播一首", "播歌", "放一首", "来一首", "随便", "任意", "随机", "暂停", "下一首", "上一首", "切歌",
+		"播放", "播一首", "播歌", "放一首", "来一首", "随便", "任意", "随机", "暂停", "下一首", "上一首", "下一曲", "上一曲", "切歌",
 		"play", "pause", "next", "skip",
 	} {
 		if strings.Contains(t, needle) {

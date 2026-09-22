@@ -23,6 +23,8 @@
       "added": { "type": "integer" },
       "updated": { "type": "integer" },
       "removed": { "type": "integer" },
+      "probePassed": { "type": "integer", "minimum": 0 },
+      "probeTotal": { "type": "integer", "minimum": 0 },
       "domains": { "type": "array" },
       "tags": { "type": "array", "items": { "type": "string" } }
     },

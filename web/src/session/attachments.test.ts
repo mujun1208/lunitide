@@ -4,6 +4,40 @@ import{clipboardImages,ingestAttachments,normalizePastedImages,validateAttachmen
 
 const bytes=(values:number[],name:string,type:string)=>{const data=new Uint8Array(values),file=new File([data],name,{type});Object.defineProperty(file,'arrayBuffer',{value:async()=>data.buffer,configurable:true});return file}
 
+it('accepts pdf word excel powerpoint and markdown as reference files',async()=>{
+ const prepared=await prepareAttachmentFiles([
+  new File([new Uint8Array([0x25,0x50,0x44,0x46])],'需求.pdf',{type:'application/pdf'}),
+  new File(['# 需求'],'需求.md',{type:'text/markdown'}),
+  new File([new Uint8Array([1])],'表.xlsx',{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),
+  new File([new Uint8Array([1])],'稿.docx',{type:''}),
+  new File([new Uint8Array([1])],'页.pptx',{type:'application/octet-stream'}),
+ ])
+ expect(prepared.failed).toEqual([])
+ expect(prepared.files.map(file=>file.name)).toEqual(['需求.pdf','需求.md','表.xlsx','稿.docx','页.pptx'])
+ expect(prepared.files[3].type).toContain('wordprocessingml')
+ expect(prepared.files[4].type).toContain('presentationml')
+ const {accepted,skipped}=validateAttachmentBatch(prepared.files)
+ expect(skipped).toEqual([])
+ expect(accepted).toHaveLength(5)
+})
+
+it('converts a gif into a webp the vision path can read',async()=>{
+ const bitmap={width:8,height:8,close:vi.fn()}
+ vi.stubGlobal('createImageBitmap',vi.fn().mockResolvedValue(bitmap))
+ const orig=document.createElement.bind(document)
+ const spy=vi.spyOn(document,'createElement').mockImplementation((tag:string)=>{
+  if(tag!=='canvas')return orig(tag)
+  const canvas={width:0,height:0,getContext:()=>({fillStyle:'',fillRect(){},drawImage(){}}),toBlob:(cb:(blob:Blob|null)=>void)=>cb(new Blob([new Uint8Array([1,2,3])],{type:'image/webp'}))}
+  return canvas as unknown as HTMLElement
+ })
+ try{
+  const prepared=await prepareAttachmentFiles([new File([new Uint8Array([0x47,0x49,0x46])],'动图.gif',{type:'image/gif'})])
+  expect(prepared.failed).toEqual([])
+  expect(prepared.files[0].name).toBe('动图.webp')
+  expect(prepared.files[0].type).toBe('image/webp')
+ }finally{spy.mockRestore()}
+})
+
 it('normalizes pasted screenshots and accepts only four matching images',()=>{
  const pasted=bytes([0x89,0x50,0x4e,0x47],'image.png','image/png')
  expect(normalizePastedImages([pasted],new Date('2025-01-02T03:04:05Z'))[0].name).toBe('clipboard-20250102-030405Z-1.png')

@@ -168,6 +168,54 @@ func TestInventoryFlightLookupFailsClosedWithoutTicketAPI(t *testing.T) {
 	}
 }
 
+func TestGuardBrowserLaunchFailureStopsTheTurn(t *testing.T) {
+	goal := "打开网页第一条动态新闻"
+	messages := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: goal},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "b1", Name: "browser.act"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "b1", Content: "ok:false\nBROWSER_LAUNCH_FAILED: async initializeServer: Chromium download failed"},
+	}
+	if err := guardCurrentTurnToolHistory(goal, "browser.act", messages); err == nil {
+		t.Fatal("second browser.act after Chromium launch failure")
+	}
+	if err := guardCurrentTurnToolHistory(goal, "computer.act", messages); err == nil {
+		t.Fatal("screen click allowed after the browser failed to start")
+	}
+	if got := companionToolResultSpeech("browser.act", messages[2].Content); got != "浏览器没能启动，这一步停在这里。" {
+		t.Fatalf("speech = %q", got)
+	}
+}
+
+func TestPlaybackTransportBlocksScreenClick(t *testing.T) {
+	goal := "播放一首歌"
+	delivered := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: goal},
+		{Role: llmadapter.RoleTool, Content: "started playing in 汽水音乐 (media key)\n" + `{"l0":{"kind":"foreground","passed":false,"uncertain":true,"detail":"MEDIA_UNVERIFIED"}}`},
+	}
+	if err := guardCurrentTurnToolHistory(goal, "computer.act", delivered); err == nil {
+		t.Fatal("screen click allowed after the play command was delivered")
+	}
+	if err := guardCurrentTurnToolHistory("下一曲", "computer.act", []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "下一曲"},
+		{Role: llmadapter.RoleTool, Content: "sent next track"},
+	}); err == nil {
+		t.Fatal("screen click allowed after next track was sent")
+	}
+	if err := guardCurrentTurnTool(goal, "computer.act"); err != nil {
+		t.Fatal("a failed play may still look at the screen once")
+	}
+	if !quitOnlyGoal("关闭汽水音乐") {
+		t.Fatal("named app close must be a quit")
+	}
+	args := fallbackDesktopQuitArgs("关闭汽水音乐")
+	if !strings.Contains(string(args), "汽水音乐") || !strings.Contains(string(args), `"force":true`) {
+		t.Fatalf("quit args = %s", args)
+	}
+	if fallbackDesktopQuitArgs("关闭窗口") != nil {
+		t.Fatal("closing a window must not quit a process")
+	}
+}
+
 func TestGuardBrowserActAfterMCPNotReady(t *testing.T) {
 	goal := "打开这个网页点登录"
 	if err := guardCurrentTurnToolHistory(goal, "browser.act", nil); err != nil {

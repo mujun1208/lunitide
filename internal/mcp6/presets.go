@@ -151,10 +151,10 @@ var presets = []Preset{
 	{
 		ID:          "playwright",
 		Name:        "Playwright",
-		Description: "微软开源浏览器自动化（免费直连，首次会拉取 Chromium）",
+		Description: "微软开源浏览器自动化。使用本机已安装的 Edge，不单独下载 Chromium。",
 		Transport:   "stdio",
 		Command:     "npx",
-		Args:        []string{"-y", "@playwright/mcp"},
+		Args:        []string{"-y", "@playwright/mcp", "--browser", "msedge"},
 		Category:    "浏览器",
 	},
 	{

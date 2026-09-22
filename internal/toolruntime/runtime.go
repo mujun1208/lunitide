@@ -656,7 +656,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		}
 		page, e := r.fetchWeb(ctx, a.URL)
 		if e != nil {
-			return Result{}, e
+			return webFetchFailure(a.URL, e), nil
 		}
 		extracted, ok := webfetch.ExtractText(page.ContentType, page.Body, webfetch.MaxTextBytes)
 		if !ok {
@@ -1042,6 +1042,16 @@ func strict(b []byte, v any) error {
 	}
 	return nil
 }
+func webFetchFailure(rawURL string, err error) Result {
+	reason := err.Error()
+	if strings.Contains(reason, "REDIRECT") || strings.Contains(strings.ToLower(reason), "redirect") {
+		reason = "这个链接跳转过多，没有读到正文。" + reason
+	}
+	out := result("ok:false\nurl: " + rawURL + "\n" + reason)
+	out.Artifact = &Artifact{Kind: "html", Path: "fetch.html", Content: webfetch.RenderExtractHTML("没有读到网页", rawURL, reason)}
+	return out
+}
+
 func result(s string) Result {
 	h := sha256.Sum256([]byte(s))
 	return Result{Output: s, Digest: hex.EncodeToString(h[:])}

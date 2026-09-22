@@ -65,7 +65,7 @@ func (s *Service) Generate(ctx context.Context, trigger string) (Edition, error)
 	manual, _ := s.persist.ProductHubLoadTags(ctx)
 	cards = applyTags(cards, manual)
 	ch := Changelog(previous, cards)
-	findings := Diagnose(cards, live)
+	findings, probe, cards := diagnoseCatalog(cards, live)
 	if prev != nil {
 		findings = mergeFindingStatus(prev.Findings, findings)
 	}
@@ -85,7 +85,7 @@ func (s *Service) Generate(ctx context.Context, trigger string) (Edition, error)
 		Findings:    findings,
 		Graph:       BuildGraph(cards),
 	}
-	ed.HealthScore = healthScore(findings, ed.CardCount)
+	ed.HealthScore = healthScore(findings, probe)
 	ed.ReportMarkdown, ed.ReportHTML = RenderReport(ed)
 	ed.Digest = digestEdition(ed)
 	if err := s.persist.ProductHubSaveEdition(ctx, ed); err != nil {
@@ -99,13 +99,43 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	if err != nil {
 		return Overview{}, err
 	}
-	added, updated, removed := countKinds(ed.Changes)
+	cards, findings, probe, err := s.view(ctx, ed)
+	if err != nil {
+		return Overview{}, err
+	}
+	added, updated, removed := countKinds(Changelog(ed.Features, cards))
 	return Overview{
 		Product: "Lunitide", EditionID: ed.EditionID, GeneratedAt: ed.GeneratedAt,
-		CardCount: ed.CardCount, HealthScore: ed.HealthScore,
+		CardCount: len(cards), HealthScore: healthScore(findings, probe),
 		Added: added, Updated: updated, Removed: removed,
-		Domains: domainStats(ed.Features), Tags: collectTagValues(ed.Features),
+		ProbePassed: probe.Passed, ProbeTotal: probe.Total,
+		Domains: domainStats(cards), Tags: collectTagValues(cards),
 	}, nil
+}
+
+// view rebuilds the booklet from the current live catalog without writing an edition
+// and without calling a skill or model.
+func (s *Service) view(ctx context.Context, ed Edition) ([]Card, []Finding, ProbeScore, error) {
+	live := LiveCatalog()
+	cards := Merge(Seed(), live, ed.Features)
+	for i := range cards {
+		cards[i] = enrichCard(cards[i])
+		if len(cards[i].Methods) == 0 {
+			cards[i].Methods = defaultMethods(emptyText(cards[i].ChainClass, "crud-bridge"))
+		}
+	}
+	if ens, err := s.persist.ProductHubLoadEnrichments(ctx); err == nil {
+		cards = applyEnrichments(cards, ens)
+	}
+	if manual, err := s.persist.ProductHubLoadTags(ctx); err == nil {
+		cards = applyTags(cards, manual)
+	}
+	findings, probe, cards := diagnoseCatalog(cards, live)
+	findings = mergeFindingStatus(ed.Findings, findings)
+	if logs, err := s.persist.ProductHubLoadApplies(ctx); err == nil {
+		findings = attachApplies(findings, logs)
+	}
+	return cards, findings, probe, nil
 }
 
 func (s *Service) FeatureCard(ctx context.Context, key string) (Card, bool, error) {
@@ -113,7 +143,11 @@ func (s *Service) FeatureCard(ctx context.Context, key string) (Card, bool, erro
 	if err != nil {
 		return Card{}, false, err
 	}
-	for _, c := range ed.Features {
+	cards, _, _, err := s.view(ctx, ed)
+	if err != nil {
+		return Card{}, false, err
+	}
+	for _, c := range cards {
 		if c.StableKey == key {
 			return c, true, nil
 		}
@@ -126,7 +160,11 @@ func (s *Service) Graph(ctx context.Context) (Graph, error) {
 	if err != nil {
 		return Graph{}, err
 	}
-	return ed.Graph, nil
+	cards, _, _, err := s.view(ctx, ed)
+	if err != nil {
+		return Graph{}, err
+	}
+	return BuildGraph(cards), nil
 }
 
 func (s *Service) Node(ctx context.Context, id string) (GraphNode, bool, error) {
@@ -147,7 +185,11 @@ func (s *Service) Changelog(ctx context.Context) ([]Change, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ed.Changes, nil
+	cards, _, _, err := s.view(ctx, ed)
+	if err != nil {
+		return nil, err
+	}
+	return Changelog(ed.Features, cards), nil
 }
 
 func (s *Service) Diagnostics(ctx context.Context) ([]Finding, string, string, error) {
@@ -155,7 +197,16 @@ func (s *Service) Diagnostics(ctx context.Context) ([]Finding, string, string, e
 	if err != nil {
 		return nil, "", "", err
 	}
-	return ed.Findings, ed.ReportMarkdown, ed.ReportHTML, nil
+	cards, findings, probe, err := s.view(ctx, ed)
+	if err != nil {
+		return nil, "", "", err
+	}
+	ed.Features = cards
+	ed.Findings = findings
+	ed.HealthScore = healthScore(findings, probe)
+	ed.Graph = BuildGraph(cards)
+	md, pageHTML := RenderReport(ed)
+	return findings, md, pageHTML, nil
 }
 
 func (s *Service) Tags(ctx context.Context) ([]string, error) {
@@ -191,15 +242,21 @@ func (s *Service) Export(ctx context.Context, format string) (content, mime stri
 	if err != nil {
 		return "", "", err
 	}
+	cards, findings, probe, err := s.view(ctx, ed)
+	if err != nil {
+		return "", "", err
+	}
+	ed.Features = cards
+	ed.Findings = findings
+	ed.HealthScore = healthScore(findings, probe)
+	md, pageHTML := RenderReport(ed)
 	switch format {
 	case "html":
-		return ed.ReportHTML, "text/html", nil
-	case "report":
-		return ed.ReportMarkdown, "text/markdown", nil
+		return pageHTML, "text/html", nil
 	case "poster":
 		return "", "", ErrNotImplemented
 	default:
-		return ed.ReportMarkdown, "text/markdown", nil
+		return md, "text/markdown", nil
 	}
 }
 

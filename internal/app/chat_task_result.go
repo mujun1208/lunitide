@@ -105,7 +105,14 @@ func inventoryLookupBlocksPublicWeb(goal string) bool {
 	return inventoryLookupGoal(goal)
 }
 
+func browserLaunchFailedOutput(out string) bool {
+	return strings.Contains(out, "BROWSER_LAUNCH_FAILED") || strings.Contains(out, "initializeServer")
+}
+
 func guardCurrentTurnTool(goal, name string) error {
+	if quitOnlyGoal(goal) && (name == "computer.act" || strings.HasPrefix(name, "cc.") || name == "media.play") {
+		return errors.New("关闭这个软件请用 desktop.quit，不要点屏幕，也不要暂停。")
+	}
 	if websiteFirstResultGoal(goal) && name == "computer.act" {
 		return errors.New("本轮要打开网页里的第一条结果，请用 browser.act，不要用电脑像素点击。")
 	}
@@ -138,6 +145,22 @@ func guardCurrentTurnTool(goal, name string) error {
 		return errors.New("本轮只要求查询信息；不得执行历史任务中的打开文件、播放或写入操作。请继续本轮查询。")
 	}
 	return nil
+}
+
+func currentTurnBrowserLaunchFailed(messages []llmadapter.Message) bool {
+	start := 0
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == llmadapter.RoleUser {
+			start = i + 1
+			break
+		}
+	}
+	for _, m := range messages[start:] {
+		if m.Role == llmadapter.RoleTool && browserLaunchFailedOutput(m.Content) {
+			return true
+		}
+	}
+	return false
 }
 
 func currentTurnHasBrowserMCPNotReady(messages []llmadapter.Message) bool {
@@ -234,12 +257,34 @@ func currentTurnDedicatedOpenFailed(messages []llmadapter.Message) bool {
 	return false
 }
 
+func currentTurnMediaKeyDelivered(messages []llmadapter.Message) bool {
+	start := 0
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == llmadapter.RoleUser {
+			start = i + 1
+			break
+		}
+	}
+	for _, m := range messages[start:] {
+		if m.Role == llmadapter.RoleTool && mediaKeyDelivered(m.Content) {
+			return true
+		}
+	}
+	return false
+}
+
 func guardCurrentTurnToolHistory(goal, name string, messages []llmadapter.Message) error {
+	if (name == "computer.act" || strings.HasPrefix(name, "cc.")) && currentTurnMediaKeyDelivered(messages) {
+		return errors.New("播放已经送到播放器，不要再点屏幕。")
+	}
 	if err := guardCurrentTurnTool(goal, name); err != nil {
 		// When the guard says "use browser.act instead of computer.act"
 		// but browser.act has already failed this turn, allow
 		// computer.act as the fallback rather than blocking everything.
 		if name == "computer.act" && websiteFirstResultGoal(goal) && currentTurnBrowserActFailed(messages) {
+			if currentTurnBrowserLaunchFailed(messages) || currentTurnHasBrowserMCPNotReady(messages) {
+				return errors.New("浏览器没能启动，不要改用屏幕点击。")
+			}
 			return nil
 		}
 		// Same reasoning for an open-only turn: the dedicated tool has had
@@ -250,8 +295,11 @@ func guardCurrentTurnToolHistory(goal, name string, messages []llmadapter.Messag
 		}
 		return err
 	}
-	if name == "browser.act" && currentTurnHasBrowserMCPNotReady(messages) {
-		return errors.New("本轮 Playwright 未就绪，不得再调用 browser.act。请说明无法点页面并结束。")
+	if name == "browser.act" && (currentTurnHasBrowserMCPNotReady(messages) || currentTurnBrowserLaunchFailed(messages)) {
+		return errors.New("本轮浏览器没能启动，不得再调用 browser.act。请说明没打开页面并结束。")
+	}
+	if name == "computer.act" && websiteFirstResultGoal(goal) && currentTurnBrowserLaunchFailed(messages) {
+		return errors.New("浏览器没能启动，不要改用屏幕点击。")
 	}
 	return nil
 }

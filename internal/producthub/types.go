@@ -4,27 +4,27 @@ import "context"
 
 // Card is one atomic product function after merge.
 type Card struct {
-	StableKey   string            `json:"stable_key"`
-	Name        string            `json:"name"`
-	NameEN      string            `json:"name_en"`
-	Domain      string            `json:"domain"`
-	Module      string            `json:"module"`
-	Summary     string            `json:"summary"`
-	Description string            `json:"description"`
-	Attributes  Attributes        `json:"attributes"`
-	Methods     []Method          `json:"methods"`
-	Chain       Chain             `json:"chain"`
-	ChainClass  string            `json:"chain_class,omitempty"`
-	Scaffold    Scaffold          `json:"scaffold"`
-	Principle   string            `json:"principle,omitempty"`
-	Logic       string            `json:"logic,omitempty"`
-	Tech        string            `json:"tech,omitempty"`
-	Analysis    string            `json:"analysis,omitempty"`
-	Tags        []string          `json:"tags,omitempty"`
-	Provenance  string            `json:"provenance"`
-	Source      string            `json:"source"`
-	Probe       ProbeScore        `json:"probe"`
-	Version     string            `json:"version"`
+	StableKey   string     `json:"stable_key"`
+	Name        string     `json:"name"`
+	NameEN      string     `json:"name_en"`
+	Domain      string     `json:"domain"`
+	Module      string     `json:"module"`
+	Summary     string     `json:"summary"`
+	Description string     `json:"description"`
+	Attributes  Attributes `json:"attributes"`
+	Methods     []Method   `json:"methods"`
+	Chain       Chain      `json:"chain"`
+	ChainClass  string     `json:"chain_class,omitempty"`
+	Scaffold    Scaffold   `json:"scaffold"`
+	Principle   string     `json:"principle,omitempty"`
+	Logic       string     `json:"logic,omitempty"`
+	Tech        string     `json:"tech,omitempty"`
+	Analysis    string     `json:"analysis,omitempty"`
+	Tags        []string   `json:"tags,omitempty"`
+	Provenance  string     `json:"provenance"`
+	Source      string     `json:"source"`
+	Probe       ProbeScore `json:"probe"`
+	Version     string     `json:"version"`
 }
 
 type Attributes struct {
@@ -193,6 +193,7 @@ type GraphNode struct {
 	Type      string `json:"type"`
 	Name      string `json:"name"`
 	Domain    string `json:"domain,omitempty"`
+	Summary   string `json:"summary,omitempty"`
 }
 
 type GraphEdge struct {
@@ -224,6 +225,8 @@ type Overview struct {
 	Added       int          `json:"added"`
 	Updated     int          `json:"updated"`
 	Removed     int          `json:"removed"`
+	ProbePassed int          `json:"probePassed"`
+	ProbeTotal  int          `json:"probeTotal"`
 	Domains     []DomainStat `json:"domains"`
 	Tags        []string     `json:"tags"`
 }

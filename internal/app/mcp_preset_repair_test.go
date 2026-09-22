@@ -63,7 +63,7 @@ func TestMcpAddResolvesFilesystemPlaceholder(t *testing.T) {
 	e.m7mcp.SetProber(m7app.LocalMcpProber{})
 	out, err := e.m7mcp.Add(context.Background(), m7app.McpAddInput{
 		Origin: "manual", Transport: "stdio", Command: "npx",
-		Args: []string{"-y", "@modelcontextprotocol/server-filesystem", "{{dir}}"},
+		Args:          []string{"-y", "@modelcontextprotocol/server-filesystem", "{{dir}}"},
 		RiskConfirmed: true,
 	})
 	if err != nil {
@@ -230,5 +230,41 @@ func TestMcpLegacyPresetRepairSubstitutesFilesystemPlaceholder(t *testing.T) {
 	ep, err := e.m7mcp.Endpoint(ctx, id)
 	if err != nil || strings.Contains(ep.ArgsJSON, "{{dir}}") || !strings.Contains(ep.ArgsJSON, "mcp/filesystem") {
 		t.Fatalf("filesystem placeholder not repaired: %+v %v", ep, err)
+	}
+}
+
+func TestMcpLegacyPresetRepairPointsPlaywrightAtInstalledEdge(t *testing.T) {
+	e, store := packFixture(t)
+	ctx := context.Background()
+	id := "mcp-" + ulid.Make().String()
+	if err := store.AgentRuntimeRepository().TransactMcp(ctx, func(tx m7app.McpTx) error {
+		return tx.PutMcpEndpoint(m7flow.McpEndpointConfig{
+			EndpointID:  id,
+			Transport:   m7flow.McpTransportStdio,
+			Command:     "npx",
+			ArgsJSON:    `["-y","@playwright/mcp"]`,
+			Origin:      m7flow.McpOriginManual,
+			SourceTrust: m7flow.McpTrustVerified,
+			Enabled:     true,
+			State:       m7flow.McpStateReady,
+			CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+			Security:    m7flow.McpEndpointSecurity{PinJSON: `{"tools":[]}`, Version: 1},
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RepairLegacyMcpPresetLaunches(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ep, err := e.m7mcp.Endpoint(ctx, id)
+	if err != nil || !strings.Contains(ep.ArgsJSON, `"--browser"`) || !strings.Contains(ep.ArgsJSON, `"msedge"`) || ep.Security.PinJSON != "" {
+		t.Fatalf("playwright still downloads Chromium: %+v %v", ep, err)
+	}
+	if err := store.RepairLegacyMcpPresetLaunches(ctx); err != nil {
+		t.Fatal(err)
+	}
+	again, err := e.m7mcp.Endpoint(ctx, id)
+	if err != nil || again.ArgsJSON != ep.ArgsJSON {
+		t.Fatalf("second repair changed args: %s -> %s", ep.ArgsJSON, again.ArgsJSON)
 	}
 }

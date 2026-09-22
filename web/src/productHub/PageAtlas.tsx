@@ -96,7 +96,8 @@ function PageDossierPane({ item, zh, onOpen }: { item: PageDossier; zh: boolean;
           <div className="ph-children">
             {item.features.length === 0 ? <p className="ph-dim">{zh ? '本页功能卡尚未挂上。' : 'No cards on this page yet.'}</p> : item.features.map(node => (
               <button key={node.id} type="button" className="ph-feature-row" onClick={() => onOpen(node.stable_key)}>
-                <span>{node.name}</span>
+                <span className="ph-feature-name">{node.name}</span>
+                <span className="ph-feature-sum">{node.summary || (zh ? '打开卡片看这一步做什么' : 'Open the card')}</span>
                 <span>{node.stable_key}</span>
               </button>
             ))}

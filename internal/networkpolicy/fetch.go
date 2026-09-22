@@ -25,7 +25,7 @@ type FetchOptions struct {
 	ResponseHeaderTimeout time.Duration
 	// OverallTimeout bounds the whole redirect chain, not a single hop.
 	OverallTimeout time.Duration
-	// MaxRedirects bounds the hop count (default 5, hard cap 10).
+	// MaxRedirects bounds the hop count (default 10, hard cap 10).
 	MaxRedirects int
 	// MaxBodyBytes caps the (decompressed) response body (default 1 MiB).
 	// The body is truncated at the cap and FetchResult.Truncated is set;
@@ -62,7 +62,7 @@ type FetchResult struct {
 }
 
 const (
-	fetchDefaultMaxRedirects = 5
+	fetchDefaultMaxRedirects = 10
 	fetchMaxRedirectsCap     = 10
 	fetchDefaultMaxBody      = 1 << 20
 	fetchDefaultOverall      = 30 * time.Second

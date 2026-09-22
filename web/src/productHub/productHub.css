@@ -315,6 +315,8 @@
 .ph-module b { font-size: 14px; }
 .ph-module span,
 .ph-feature-row span { color: var(--ph-dim); font-size: 12px; }
+.ph-feature-row .ph-feature-name { color: var(--ph-text); font-size: 13px; flex: 0 0 auto; }
+.ph-feature-row .ph-feature-sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ph-chevron {
   width: 8px;
   height: 8px;

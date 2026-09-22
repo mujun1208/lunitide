@@ -342,6 +342,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			usedTools := false
 			usedDesktopTools := false
 			autoMediaPlayDone := false
+			autoDesktopQuitDone := false
 			autoDesktopTypeDone := false
 			autoLookupDone := false
 			autoMediaGenerationDone := false
@@ -579,6 +580,16 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 									autoMediaGenerationDone = true
 								}
 							}
+						}
+					}
+					if len(result.Message.ToolCalls) == 0 && !autoDesktopQuitDone && toolDefinitionsHave(req.Tools, "desktop.quit") && !usedAnyTool(turn.LastTools, "desktop.quit") && quitOnlyGoal(turn.Goal) {
+						if quitArgs := fallbackDesktopQuitArgs(turn.Goal); len(quitArgs) > 0 {
+							result.Message.ToolCalls = []llmadapter.ToolCall{{
+								ID:        "auto-" + ulid.Make().String(),
+								Name:      "desktop.quit",
+								Arguments: quitArgs,
+							}}
+							autoDesktopQuitDone = true
 						}
 					}
 					if len(result.Message.ToolCalls) == 0 && !autoMediaPlayDone && toolDefinitionsHave(req.Tools, "media.play") && !usedAnyTool(turn.LastTools, "media.play") && desktopLadderAllowsDedicated(turn.Goal, req.Messages) && (companionShouldAutoMediaPlay(turn.Goal) || companionRetryActionTurn(spokenGoal)) {
