@@ -105,10 +105,11 @@ const TURN_ERROR_NOTICE='无法执行。'
 const TURN_ERROR_TIMEOUT_CAUSE='请求超时，请稍后重试。'
 const TURN_ERROR_TOO_LARGE_CAUSE='回复或工具参数过大，请减少内容后重试。'
 const TURN_ERROR_INCOMPLETE_CAUSE='模型结果不完整，请重试。'
-export const isChatStreamFailure=(code:string)=>/^(UPSTREAM_|PROVIDER_|REQUEST_TOO_LARGE|ASSISTANT_RESPONSE_TOO_LARGE|MESSAGE_STORAGE|HOST_BUSY|ENGINE_BUSY|BUDGET_EXHAUSTED)/.test(code)
+export const isChatStreamFailure=(code:string)=>/^(UPSTREAM_|PROVIDER_|REQUEST_TOO_LARGE|ASSISTANT_RESPONSE_TOO_LARGE|MESSAGE_STORAGE|HOST_BUSY|ENGINE_BUSY|BUDGET_EXHAUSTED|CONTEXT_WINDOW_EXCEEDED)/.test(code)
 export function turnFailureNotice(err?: {code?: string} | null): string {
   const code=err?.code??''
-  if(code==='BUDGET_EXHAUSTED')return TURN_ERROR_NOTICE+'本轮操作步骤较多，已达上限。请新开对话继续。'
+  if(code==='CONTEXT_WINDOW_EXCEEDED')return TURN_ERROR_NOTICE+'当前请求超出模型上下文窗口，请减少附件或历史后重试。'
+  if(code==='BUDGET_EXHAUSTED')return TURN_ERROR_NOTICE+'本轮执行额度已用完，请再试一次。'
   if(code==='UPSTREAM_UNAVAILABLE'||code==='PROVIDER_RATE_LIMITED')return TURN_ERROR_NOTICE+'供应商暂时不可用，请稍后重试。'
   if(code==='UPSTREAM_TIMEOUT'||code.includes('TIMEOUT'))return TURN_ERROR_NOTICE+TURN_ERROR_TIMEOUT_CAUSE
   if(code==='ASSISTANT_RESPONSE_TOO_LARGE'||code==='REQUEST_TOO_LARGE')return TURN_ERROR_NOTICE+TURN_ERROR_TOO_LARGE_CAUSE

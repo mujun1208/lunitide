@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
@@ -77,6 +78,16 @@ func TestApplyWindowRetryMessagesUsesCheckpointSummary(t *testing.T) {
 	last := req.Messages[len(req.Messages)-1]
 	if last.Role != llmadapter.RoleUser || last.Content != "current" {
 		t.Fatalf("lost current user: %+v", last)
+	}
+}
+
+func TestProviderModelContextWindow(t *testing.T) {
+	p := provider.Provider{Models: []provider.Model{{ModelID: "glm-5.3", ContextWindow: 1000000}, {ModelID: "other", ContextWindow: 32000}}}
+	if window, explicit := providerModelContextWindow(p, "glm-5.3"); window != 1000000 || !explicit {
+		t.Fatalf("configured window = %d explicit=%v", window, explicit)
+	}
+	if window, explicit := providerModelContextWindow(p, "missing"); window != 128000 || explicit {
+		t.Fatalf("fallback window = %d explicit=%v", window, explicit)
 	}
 }
 

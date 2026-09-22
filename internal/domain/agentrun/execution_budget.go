@@ -10,6 +10,7 @@ import (
 
 var (
 	ErrExecutionBudget          = errors.New("execution budget rejected")
+	ErrContextWindow            = errors.New("context window rejected")
 	ErrExecutionPolicy          = errors.New("execution budget policy invalid")
 	ErrExecutionBinding         = errors.New("execution binding invalid")
 	ErrExecutionReservation     = errors.New("execution reservation invalid")
@@ -149,7 +150,7 @@ func (e CallEstimate) CheckContextWindow() error {
 		margin = SafetyMargin(e.ContextWindow)
 	}
 	if e.InputTokensUpper+margin > e.ContextWindow {
-		return fmt.Errorf("%w: safety margin %d makes window %d unusable for input %d", ErrExecutionBudget, margin, e.ContextWindow, e.InputTokensUpper)
+		return fmt.Errorf("%w: safety margin %d makes window %d unusable for input %d", ErrContextWindow, margin, e.ContextWindow, e.InputTokensUpper)
 	}
 	return nil
 }

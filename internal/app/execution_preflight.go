@@ -10,6 +10,7 @@ import (
 	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/modelfit"
 	"github.com/lunitide/lunitide/internal/storage/sqlite"
+	"github.com/oklog/ulid/v2"
 )
 
 var errExecutionUnbound = errors.New("execution budget unbound")
@@ -30,10 +31,19 @@ func AttachProductionExecutionBudget(e *Engine, uow agentrunapp.ExecutionBudgetU
 }
 
 func defaultChatExecutionPolicy() agentrun.ExecutionBudgetPolicy {
+	// One ledger per typed user turn. The turn already stops at
+	// maxToolLoopStepsHard model steps. This ceiling sits above that loop
+	// when every step spends a full chatMaxTokens reply plus one thinking
+	// window, with room for nested calls (council, subagent). It is a runaway
+	// backstop. Voice does not use it.
+	const thinkingHeadroom int64 = 65_536
+	const nestedCalls int64 = 2
+	calls := int64(maxToolLoopStepsHard) * nestedCalls
+	ceiling := calls * (int64(chatMaxTokens) + thinkingHeadroom)
 	return agentrun.ExecutionBudgetPolicy{
-		MaxTotalTokens:   int64ptr(1_000_000),
-		MaxOutputTokens:  int64ptr(65_536),
-		MaxModelAttempts: int64ptr(64),
+		MaxTotalTokens:   int64ptr(ceiling),
+		MaxOutputTokens:  int64ptr(ceiling),
+		MaxModelAttempts: int64ptr(calls),
 		MaxActiveMillis:  int64ptr(1_800_000),
 		MaxOutputBytes:   int64ptr(2 << 20),
 	}
@@ -65,6 +75,33 @@ func isDedicatedExecutionTask(taskID string) bool {
 	return taskID == "meeting" || taskID == "expert" || strings.HasPrefix(taskID, "meeting:") || strings.HasPrefix(taskID, "expert:")
 }
 
+// executionBudgetExempt keeps two surfaces off the runaway ledger.
+// Voice is one lifelong dialogue: a quota there becomes a permanent refusal,
+// and the spoken turn already has its own step cap and a short context window.
+// The flag sticks across nested calls (council, desktop verify) that replace
+// Purpose. Compaction is housekeeping on the same session and would otherwise
+// fill a ledger that never resets.
+func executionBudgetExempt(scope continuityScope) bool {
+	if scope.SkipExecutionBudget {
+		return true
+	}
+	switch strings.TrimSpace(scope.Purpose) {
+	case "companion", "compaction":
+		return true
+	}
+	return false
+}
+
+// chatWorkUnitTaskID names the ledger. A named turn shares one allowance
+// across every model call in that turn. A call with no turn is its own unit,
+// so a long-lived session cannot accumulate into a permanent refusal.
+func chatWorkUnitTaskID(scope continuityScope, _ string) string {
+	if looksLikeULID(scope.Turn) {
+		return scope.Turn
+	}
+	return ulid.Make().String()
+}
+
 func (a meteredAdapter) bindExecutionScope(ctx context.Context, rec sqlite.CallAttemptRecord) (agentrun.ExecutionScope, context.Context, sqlite.CallAttemptRecord, error) {
 	scope := continuityScopeFrom(ctx)
 	if key, ok := dedicatedExecutionTaskID(scope); ok {
@@ -84,12 +121,13 @@ func (a meteredAdapter) bindExecutionScope(ctx context.Context, rec sqlite.CallA
 	if !looksLikeULID(sessionID) {
 		sessionID = scope.Owner
 	}
+	taskID := chatWorkUnitTaskID(scope, sessionID)
 	binder, hasBinder := a.budget.(executionScopeBinder)
 	if a.budget != nil && hasBinder {
 		if !looksLikeULID(sessionID) {
 			return agentrun.ExecutionScope{}, ctx, rec, errExecutionUnbound
 		}
-		bound, err := binder.EnsureExecutionBinding(ctx, rec.OwnerScope, sessionID, sessionID, "task_root", sessionID, "", defaultChatExecutionPolicy())
+		bound, err := binder.EnsureExecutionBinding(ctx, rec.OwnerScope, sessionID, taskID, "task_root", taskID, "", defaultChatExecutionPolicy())
 		if err != nil {
 			return agentrun.ExecutionScope{}, ctx, rec, err
 		}
@@ -181,13 +219,10 @@ func compileFinalInput(req llmadapter.Request, profile modelfit.ModelProfile, st
 	return prepared, req, nil
 }
 
-func conservativeInputTokens(body []byte, profile modelfit.ModelProfile) int64 {
+func conservativeInputTokens(body []byte, _ modelfit.ModelProfile) int64 {
 	n := int64((len(body) + 3) / 4)
 	if n < 1 {
 		n = 1
-	}
-	if profile.ContextWindow > 0 && n > profile.ContextWindow {
-		return profile.ContextWindow
 	}
 	return n
 }

@@ -34,7 +34,8 @@ func TestChatStreamErrorMapsProviderFailureClasses(t *testing.T) {
 		{"stream unavailable", &llmadapter.Error{Code: "STREAM_UNAVAILABLE", Stage: llmadapter.StageHTTP, Message: canary}, "UPSTREAM_UNAVAILABLE", "供应商服务暂时不可用，请稍后重试", true},
 		{"malformed response", &llmadapter.Error{Code: "MALFORMED_RESPONSE", Stage: llmadapter.StageDecode, Message: canary}, "UPSTREAM_MALFORMED_RESPONSE", "模型返回格式不完整，已保留收到的内容，请重试", true},
 		{"unknown", errors.New(canary), "UPSTREAM_FAILED", "模型请求失败", true},
-		{"execution budget", agentrun.ErrExecutionBudget, "BUDGET_EXHAUSTED", "本轮操作步骤较多，已达上限。请新开对话继续。", false},
+		{"execution budget", agentrun.ErrExecutionBudget, "BUDGET_EXHAUSTED", "本轮执行额度已用完，请再试一次。", false},
+		{"context window", agentrun.ErrContextWindow, "CONTEXT_WINDOW_EXCEEDED", "当前请求超出模型上下文窗口，请减少附件或历史后重试。", false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

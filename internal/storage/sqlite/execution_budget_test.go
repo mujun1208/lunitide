@@ -41,6 +41,9 @@ func TestExecutionBudgetConcurrentSchemaPresent(t *testing.T) {
 	if !bytes.Contains([]byte(statusSQL), []byte("isolated")) {
 		t.Fatalf("run_usage_reservation CHECK must allow isolated: %s", statusSQL)
 	}
+	if !bytes.Contains([]byte(statusSQL), []byte("overrun")) || !bytes.Contains([]byte(statusSQL), []byte("receipt_conflict")) {
+		t.Fatalf("run_usage_reservation CHECK must allow settlement overrun: %s", statusSQL)
+	}
 }
 
 func TestEnsureAccountingSessionKeepsProjectUsageInvariant(t *testing.T) {

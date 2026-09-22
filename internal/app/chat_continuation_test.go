@@ -343,7 +343,13 @@ func TestNativeReplaySurvivesEngineReload(t *testing.T) {
 	e2.SetToolRuntime(runtime)
 	e2.SetMessageGroupStore(db)
 	e2.sessions = e1.sessions
-	got := e2.nativeReplayMessages(sessionID)
+	got := e2.nativeReplayMessages(sessionID, "deepseek-chat", "openai_compatible")
+	if crossed := e2.nativeReplayMessages(sessionID, "glm-5.3", "openai_compatible"); len(crossed) != 0 {
+		t.Fatalf("glm target must not inherit deepseek private replay: %#v", crossed)
+	}
+	if generic := e2.nativeReplayMessages(sessionID, "gpt-4.1", "openai_compatible"); len(generic) != 0 {
+		t.Fatalf("generic target must not inherit deepseek private replay: %#v", generic)
+	}
 	if len(got) < 2 {
 		t.Fatalf("reload must replay native pair: %#v", got)
 	}
