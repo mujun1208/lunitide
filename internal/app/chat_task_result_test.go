@@ -37,6 +37,49 @@ func TestMediaControlReceiptsDoNotBecomePlaybackFailures(t *testing.T) {
 	}
 }
 
+func TestUnconfirmedMediaSessionStopsScreenClicks(t *testing.T) {
+	out := `media session action=pause; status=Paused; result unconfirmed`
+	if speech := mediaControlReceiptSpeech(out); speech != "已暂停播放。" {
+		t.Fatal(speech)
+	}
+	if !mediaKeyDelivered(out) {
+		t.Fatal("pause receipt must count as delivered")
+	}
+	messages := receiptMessages("media.play", `{"action":"pause"}`, out)
+	if err := guardCurrentTurnToolHistory("暂停歌曲", "computer.act", messages); err == nil {
+		t.Fatal("computer.act followed a delivered pause")
+	}
+	if shouldContinueIncompleteWork("已暂停播放。", out, []string{"media.play"}, true, 0) {
+		t.Fatal("must not continue after the pause key")
+	}
+}
+
+func TestCompanionForegroundStopsAnotherComputerAct(t *testing.T) {
+	messages := receiptMessages("computer.act", `{"action":"observe"}`, `{"count":0,"hint":"前台是月伴，没有其它窗口可操作。"}`)
+	if err := guardCurrentTurnToolHistory("帮我点保存", "computer.act", messages); err == nil {
+		t.Fatal("a second computer.act must stop when the foreground is still 月伴")
+	}
+	if speech := companionDesktopResultSpeech(`{"count":3,"frameId":"frm_1","nodes":[{"name":"保存"}]}`); speech != "先看了一下。" {
+		t.Fatalf("observe json speech: %s", speech)
+	}
+	if speech := companionDesktopResultSpeech("clicked \"保存\"; 已点击，画面没有明显变化。 screen unchanged"); speech != "点过了，画面没有变化。" {
+		t.Fatalf("unchanged speech: %s", speech)
+	}
+}
+
+func TestOpenedDesktopBrowserStopsLaterBrowserTools(t *testing.T) {
+	messages := receiptMessages("desktop.browse", `{"query":"古天乐 最新新闻"}`, "已向系统默认桌面浏览器发送打开请求：https://www.bing.com/search?q=news")
+	goal := "打开网页搜索古天乐最新新闻"
+	for _, name := range []string{"computer.act", "browser.act"} {
+		if err := guardCurrentTurnToolHistory(goal, name, messages); err == nil {
+			t.Fatal("continued after the page was open", name)
+		}
+	}
+	if err := guardCurrentTurnToolHistory("打开网站第一个新闻", "browser.act", messages); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDiskEditDoesNotProveEditorUpdated(t *testing.T) {
 	messages := receiptMessages("workspace.edit", `{"path":"C:\\Users\\test\\Desktop\\notes.txt"}`, "edited notes.txt (1 replacement(s))")
 	messages = append(messages,

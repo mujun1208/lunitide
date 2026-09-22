@@ -616,6 +616,9 @@ func (e *Engine) companionAutoMediaPlayArgsForTurn(sessionID, goal, spoken strin
 	if hint == "" {
 		hint = goal
 	}
+	if ownedMediaCenterGoal(goal) || ownedMediaCenterGoal(hint) {
+		return forceMediaCenterArgs(goal, nil), true
+	}
 	mediaAction, mediaResume := companionMediaCommand(hint)
 	if mediaAction == "" {
 		mediaAction, mediaResume = companionMediaCommand(goal)
@@ -680,7 +683,31 @@ func (e *Engine) companionAutoMediaPlayArgsForTurn(sessionID, goal, spoken strin
 	return e.resolveMediaPlayArgs(sessionID, raw), true
 }
 
+func forceMediaCenterArgs(goal string, args json.RawMessage) json.RawMessage {
+	fields := map[string]any{}
+	if len(args) > 0 && json.Unmarshal(args, &fields) != nil {
+		fields = map[string]any{}
+	}
+	fields["target"] = "center"
+	fields["action"] = "play"
+	delete(fields, "app")
+	if url, _ := fields["url"].(string); strings.TrimSpace(url) == "" {
+		delete(fields, "url")
+	}
+	if query, _ := fields["query"].(string); strings.TrimSpace(query) == "" {
+		fields["query"] = strings.TrimSpace(goal)
+	}
+	out, err := json.Marshal(fields)
+	if err != nil {
+		return args
+	}
+	return out
+}
+
 func mediaArgsForGoal(goal string, args json.RawMessage) json.RawMessage {
+	if ownedMediaCenterGoal(goal) {
+		return forceMediaCenterArgs(goal, args)
+	}
 	app := companionNamedMusicApp(goal)
 	if app == "" || strings.Contains(goal, "网页版") {
 		return args

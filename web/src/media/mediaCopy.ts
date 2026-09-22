@@ -1,7 +1,7 @@
 export function mediaText(zh: boolean) {
   return {
     title: zh ? '媒体中心' : 'Media Center',
-    intro: zh ? '只播放本机已授权的音频和视频，没有曲库，也不会把发送当成成功。' : 'Play only local files you authorize. There is no catalog, and sending a command is not treated as success.',
+    intro: zh ? '播放本机已授权的文件，以及可直接打开的公版 https 直链。没有曲库，发送命令也不等于已经在播。' : 'Play local files you authorize, plus a public-domain file that can open directly over https. There is no catalog, and sending a command is not playback.',
     views: zh ? '媒体视图' : 'Media views',
     music: zh ? '音乐' : 'Music',
     video: zh ? '视频' : 'Video',

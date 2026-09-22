@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useRef } from 'react'
 import type { MediaSnapshotDTO } from '../generated/bridge'
 import { formatClock, mediaTransportPlaying } from './mediaSnapshot'
 import { mediaText, playbackStatusText } from './mediaCopy'
@@ -8,6 +8,9 @@ import { useZh } from '../i18n/language'
 export function MusicPlayerSurface({
   snapshot,
   title,
+  src,
+  showFile,
+  rate,
   busy,
   idle,
   onPlayPause,
@@ -19,6 +22,9 @@ export function MusicPlayerSurface({
 }: {
   snapshot: MediaSnapshotDTO
   title: string
+  src?: string | null
+  showFile?: boolean
+  rate?: number
   busy: boolean
   idle?: boolean
   onPlayPause: () => void
@@ -31,6 +37,10 @@ export function MusicPlayerSurface({
   const zh = useZh()
   const copy = mediaText(zh)
   const playing = mediaTransportPlaying(false, snapshot)
+  const audioRef = useRef<HTMLAudioElement>(null)
+  useEffect(() => {
+    if (audioRef.current && rate) audioRef.current.playbackRate = rate
+  }, [rate, src])
   return (
     <section className="media-music-surface" aria-label={copy.music}>
       <div className="media-stage">
@@ -39,6 +49,7 @@ export function MusicPlayerSurface({
           <div className="media-copy">
             <div className="media-kicker">{playbackStatusText(zh, snapshot.phase, snapshot.verificationStatus)}</div>
             <h2 title={title}>{title}</h2>
+            {showFile && src ? <audio ref={audioRef} className="media-stage-audio" src={src} autoPlay controls /> : null}
             <p>{idle ? copy.idleHint : copy.intro}</p>
             <MediaTransportControls
               zh={zh}

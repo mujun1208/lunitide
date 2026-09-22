@@ -7,6 +7,7 @@ import { MediaMiniPlayer } from './MediaMiniPlayer'
 import { OwnedMediaPlayer, type OwnedMediaPlayerHandle } from './OwnedMediaPlayer'
 import { mediaTransportCommand, miniPlayerPhase, needsPlaybackOpen, shouldDetachPlayback } from './mediaSnapshot'
 import { mediaText } from './mediaCopy'
+import { MEDIA_CENTER_PLAY_EVENT, handoffPageMedia, pageMediaFromElement, type MediaCenterPlay } from './mediaCenterPlay'
 import { useZh } from '../i18n/language'
 
 type MediaState = {
@@ -34,6 +35,7 @@ const EMPTY: MediaState = {
 }
 
 type MediaStoreValue = MediaState & {
+  centerPlay: MediaCenterPlay | null
   wantPlay: boolean
   pick: () => Promise<void>
   playPause: () => Promise<void>
@@ -70,6 +72,7 @@ export function MediaRuntime({
   const setPage = useNavStore(s => s.setPage)
   const setTarget = useNavStore(s => s.setTarget)
   const [state, setState] = useState<MediaState>(EMPTY)
+  const [centerPlay, setCenterPlay] = useState<MediaCenterPlay | null>(null)
   const [wantPlay, setWantPlay] = useState(false)
   const wantPlayRef = useRef(wantPlay)
   wantPlayRef.current = wantPlay
@@ -83,6 +86,30 @@ export function MediaRuntime({
   playbackUrlRef.current = state.playbackUrl
   const zh = useZh()
   const copy = mediaText(zh)
+  useEffect(() => {
+    const onPlay = (event: Event) => {
+      const detail = (event as CustomEvent<MediaCenterPlay>).detail
+      if (!detail?.url) return
+      setCenterPlay(detail)
+      setPage('media')
+      playerRef.current?.pauseNow()
+    }
+    window.addEventListener(MEDIA_CENTER_PLAY_EVENT, onPlay)
+    return () => window.removeEventListener(MEDIA_CENTER_PLAY_EVENT, onPlay)
+  }, [setPage])
+  useEffect(() => {
+    const onElementPlay = (event: Event) => {
+      const node = event.target
+      if (!(node instanceof HTMLMediaElement)) return
+      const play = pageMediaFromElement(node)
+      if (!play) return
+      node.pause()
+      playerRef.current?.pauseNow()
+      if (handoffPageMedia(play)) setPage('media')
+    }
+    document.addEventListener('play', onElementPlay, true)
+    return () => document.removeEventListener('play', onElementPlay, true)
+  }, [setPage])
 
   const dropPlayback = useCallback(() => {
     openedAssetIdRef.current = null
@@ -220,6 +247,7 @@ export function MediaRuntime({
   }, [openPlayback, runCommand])
 
   const pick = useCallback(async () => {
+    setCenterPlay(null)
     setState(prev => ({ ...prev, busy: true, notice: '' }))
     try {
       const picked = await media.pick({ scopeKind: 'user', multiple: true })
@@ -274,6 +302,7 @@ export function MediaRuntime({
 
   const value = useMemo<MediaStoreValue>(() => ({
     ...state,
+    centerPlay,
     wantPlay,
     pick,
     playPause,
@@ -285,7 +314,7 @@ export function MediaRuntime({
     clear: () => queue('clear'),
     seek: positionMs => runCommand('seek', { positionMs }),
     volume: volume => runCommand('set_volume', { volume }),
-  }), [pick, playPause, queue, runCommand, state, wantPlay])
+  }), [centerPlay, pick, playPause, queue, runCommand, state, wantPlay])
 
   const phase = miniPlayerPhase(page, state.snapshot, state.stopOperation)
   const current = state.assets.find(item => item.assetId === state.snapshot?.assetId)
@@ -332,6 +361,7 @@ export function useMediaStore(): MediaStoreValue {
   const value = useContext(MediaStoreContext)
   if (!value) return {
     ...EMPTY,
+    centerPlay: null,
     wantPlay: false,
     pick: async () => {},
     playPause: async () => {},
@@ -355,6 +385,10 @@ export function MediaCenterRoute(): React.JSX.Element {
       assets={media.assets}
       operation={media.operation}
       playbackUrl={media.playbackUrl}
+      stageSrc={media.centerPlay?.url ?? null}
+      stageTitle={media.centerPlay?.title}
+      stageKind={media.centerPlay?.kind}
+      stageRate={media.centerPlay?.rate}
       notice={media.notice}
       disabledReason={media.disabledReason}
       busy={media.busy}

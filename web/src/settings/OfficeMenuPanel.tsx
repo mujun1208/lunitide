@@ -7,7 +7,7 @@ import './officeMenu.css'
 const ITEMS: { key: keyof OfficeMenuSettings; zh: string; en: string; description: string; descriptionEn: string }[] = [
   { key: 'office', zh: '办公工作台', en: 'Office Studio', description: '制作文档、表格和演示文稿，查看版本与产物。', descriptionEn: 'Create documents, spreadsheets and presentations; review versions and outputs.' },
   { key: 'automation', zh: '自动化', en: 'Automation', description: '定时任务与执行历史。关闭只隐藏导航。', descriptionEn: 'Scheduled jobs and execution history. Hiding this only removes the navigation item.' },
-  { key: 'media', zh: '媒体中心', en: 'Media Center', description: '播放本机已授权的音频和视频。关闭只隐藏导航。', descriptionEn: 'Play local audio and video you authorize. Hiding this only removes the navigation item.' },
+  { key: 'media', zh: '媒体中心', en: 'Media Center', description: '播放本机已授权的音频和视频，以及可直接打开的公版直链。关闭只隐藏导航。', descriptionEn: 'Play local audio and video you authorize, plus a public-domain file that opens directly. Hiding this only removes the navigation item.' },
   { key: 'people', zh: '同事聊天', en: 'Colleague chat', description: '与同事和已启用的专家交流。', descriptionEn: 'Talk with colleagues and enabled experts.' },
   { key: 'mro', zh: '机务工作台', en: 'MRO workbench', description: '启用相关机务专家后，在办公菜单显示工作台。', descriptionEn: 'Show the workbench when its operations expert is enabled.' },
   { key: 'meetings', zh: '会议记录', en: 'Meeting notes', description: '录制麦克风与电脑声音，整理会议纪要。', descriptionEn: 'Record microphone and system audio and organize meeting notes.' },

@@ -2788,6 +2788,9 @@ html[data-theme="light"] .people-ava-badge{background:var(--tide1);color:#fff}
 .video-heading h2{margin:0 0 6px;font-size:28px}
 .video-theatre{position:relative;aspect-ratio:16/9;max-height:640px;border:1px solid var(--line);border-radius:22px;background:radial-gradient(circle at 52% 34%,rgba(136,244,160,.55),transparent 22%),radial-gradient(circle at 74% 35%,rgba(61,0,255,.85),transparent 42%),linear-gradient(120deg,#122c29,#253340 50%,#16009c);overflow:hidden;display:grid;place-items:center}
 .video-theatre:before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 55%,rgba(0,0,0,.7))}
+.video-theatre.is-live:before,.video-theatre.is-live .video-play,.video-theatre.is-live .video-controls{display:none}
+.media-theatre-video,.media-stage-audio{position:relative;z-index:3;width:100%;height:100%;object-fit:contain;background:#000}
+.media-stage-audio{height:auto;margin-top:12px;background:transparent}
 .video-play{position:relative;z-index:2;width:72px;height:72px;border:0;border-radius:50%;background:rgba(255,255,255,.92);color:#10141a;font-size:22px}
 .video-controls{position:absolute;z-index:2;left:28px;right:28px;bottom:22px;display:flex;align-items:center;gap:13px;color:#fff}
 .video-controls i{height:3px;flex:1;background:rgba(255,255,255,.35);border-radius:3px}

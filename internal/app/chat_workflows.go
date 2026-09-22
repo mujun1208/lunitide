@@ -37,6 +37,8 @@ const workflowDesktopOpenClause = "- 打开桌面文件：必须用 desktop.open
 
 const workflowDesktopTypeClause = "- 在已打开的对话框里填写：有命名输入框时用 desktop.type（after=界面上真实字段名如身份证号码或证件号码，text=要写的内容，需要发送时 submit=true，window=窗口标题）。Word 正文没有命名输入框时改 computer.act：先截图，记下 frameId，再点输入位置后 type，verifyAfter。找不到字段必须对用户说无法执行和原因。写完不要关窗口。\n"
 
+const workflowOwnedMediaClause = "- 自带媒体中心：用户要在产品里的媒体中心播放电影或歌曲时，只调用一次 media.play，target=center，query=片名或歌名。用户给了 mp4/webm/mp3 的 https 直链就放进 url。返回 MEDIA_CENTER 后用一句话说明已经在媒体中心播放并停止。不要 web.search、web.fetch、computer.act，也不要找本机其它播放器。没有可直接播放的公版文件时说明原因并停止。\n"
+
 const workflowMediaClause = "- 播放、暂停、上一曲、下一曲：只打一次 media.play target=foreground（没说歌名或要随机播放时 query=random，不要搜索热门；说了歌手如周杰伦则 query=周杰伦；上一曲/上一首 action=prev，下一曲/下一首 action=next，暂停 action=pause）。返回 started playing、sent next、sent previous、sent pause、sent stop 或 verified 时，用一句话收尾并停止。不要 computer.act，不要把工具 JSON 说给用户，不要再说没播放成功。只有 ok:false 才允许一次 computer.act observe。禁止点收藏。用户说换播放器时仍先 media.play。禁止默认打开 music.163.com / YouTube。仅当用户明确要网页版时才用 target=browser。\n" +
 	"- 已打开的播放器暂停后再继续：media.play action=play，不要带歌名或应用名当 query。关闭汽水音乐这类已命名软件用 desktop.quit，不要用暂停，不要用 computer.act 去关窗口。\n" +
 	"- 生成可听语音/朗读歌词/做一首能在对话里点播放的歌：用 audio.generate。lyrics 或 prompt 必须是要读出的正文或歌词；不要把「帮我生成一首歌」整句送进去。用户没给歌词时先写出歌词再调用。产物会在对话里出现播放器。这是语音合成朗读，不是演唱成曲；产品没有作曲引擎，不要声称已经唱出来。播放本机已有歌曲用 media.play，不要 audio.generate。\n"
@@ -95,7 +97,7 @@ func companionTaskWorkflowInjection(text string) string {
 	return "\n\n[月伴办公流水线] 生成文档别一步到位，按顺序做完再收尾：\n" +
 		"1) 先想清目标/受众/页数，列出结构（PPT 列封面·目录·分节·结尾；报告列章节；表格列字段）。\n" +
 		"2) 逐页/逐节写完整内容：每页要有可见标题和 3-5 条要点，深色底配浅色字；缺事实用 web.search 收集，禁止编造。\n" +
-		"3) 内容齐了最后一步才生成文件：PPT 用 pptx.gen、Word 报告/小说用 docx.gen、表格用 excel.gen、PDF 用 pdf.gen，写进工作区并报出路径；用户要放桌面加 desktop=true（path 只填文件名）。\n" +
+		"3) 内容齐了最后一步才生成文件：PPT 先 pptx.gen catalog。只有模板版式真的合适才用 pages 按形状 id 改字、同一页可克隆；不合适就不要传 pages，每页用 cover、section、agenda、content、metrics、comparison、quote、timeline 或 closing，数字放 metrics，对照放 comparison，引用放 quote，出处放 source，缺事实先 web.search。不要问用户选风格或品牌。Word 报告/小说用 docx.gen、表格用 excel.gen、PDF 用 pdf.gen，写进工作区并报出路径；用户要放桌面加 desktop=true（path 只填文件名）。\n" +
 		"禁止跳步直接生成空页、只有深色底没有文字、或只有提纲的文件——pptx.gen/docx.gen 会拒绝空标题与空文档。本轮连续做到出文件再停，不要勘查后就停下等确认。\n"
 }
 
@@ -171,7 +173,9 @@ func selectWorkflowClauses(text string, lane ChatLane) []string {
 		needDesktopHand = true
 		out = append(out, workflowDesktopTypeClause)
 	}
-	if mediaGenerationKind(text) == "audio.generate" || has("朗读这段", "合成语音", "audio.generate") {
+	if has("媒体中心", "自带媒体") {
+		out = append(out, workflowOwnedMediaClause)
+	} else if mediaGenerationKind(text) == "audio.generate" || has("朗读这段", "合成语音", "audio.generate") {
 		out = append(out, workflowMediaClause)
 	} else if has("播放", "播歌", "media.play", "暂停", "下一首", "播一", "一首歌", "随便放", "放一首", "放首歌") {
 		needDesktopHand = true

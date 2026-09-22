@@ -954,7 +954,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     if (machine.state !== 'thinking') return
     if (companionToolsExecuting(chatStatus, activityStatus)) return
     const waitingForFirstToken = !companionHasFreshAssistantText(assistantText, staleReplyRef.current)
-    const ms = companionReplyStallMs(chatStatus === 'streaming', !waitingForFirstToken)
+    const ms = companionReplyStallMs(chatStatus === 'streaming', !waitingForFirstToken, Boolean(activityStatus?.trim()))
     const timer = window.setTimeout(() => {
       if (stateRef.current !== 'thinking') return
       if (companionHasFreshAssistantText(assistantTextRef.current, staleReplyRef.current)) return

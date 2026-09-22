@@ -198,6 +198,33 @@ func TestPickFolderKeepsDocumentsAndImages(t *testing.T) {
 	}
 }
 
+func TestPickFolderReadsDocumentsInsideSubfolders(t *testing.T) {
+	dir := t.TempDir()
+	nested := filepath.Join(dir, "营销活动", "AI 销售助手")
+	if err := os.MkdirAll(nested, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "需求.md"), []byte("# 需求"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "node_modules", "pkg"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "node_modules", "pkg", "skip.md"), []byte("no"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	items, skipped, err := listFolder(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].FileName != "需求.md" {
+		t.Fatalf("items = %#v skipped = %#v", items, skipped)
+	}
+	if len(skipped) != 0 {
+		t.Fatalf("skipped = %#v", skipped)
+	}
+}
+
 func TestPickFallsBackWhenFormsUnavailable(t *testing.T) {
 	origForms, origNative := pickForms, pickNative
 	t.Cleanup(func() {

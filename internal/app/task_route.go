@@ -227,6 +227,7 @@ func applyTaskRoute(defs []llmadapter.ToolDefinition, route TaskRoute, allow map
 		switch d.Name {
 		case "kb.search", "kb.cite", "graph.expand",
 			"skill.invoke", "skill.try", "skill.view", "skill.create", "skill.manage",
+			"skill.catalog.list", "skill.list", "skill.install", "skill.publish",
 			"plan.run":
 			keep[d.Name] = true
 		}

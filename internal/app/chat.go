@@ -17,6 +17,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/contextapp"
 	"github.com/lunitide/lunitide/internal/domain/agentrun"
+	"github.com/lunitide/lunitide/internal/domain/attachment"
 	"github.com/lunitide/lunitide/internal/domain/message"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/token"
@@ -684,7 +685,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 				}
 			}
 		}
-		var imageRefs []string
+		var imageRefs []attachment.Attachment
 		for _, refID := range orderedAttachmentRefs {
 			candidate, getErr := e.GetAttachment(ctx, refID)
 			if getErr != nil {
@@ -697,13 +698,17 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 				return request.Fail("CONTEXT_REF_SCOPE_MISMATCH", "显式上下文引用不属于当前会话", false)
 			}
 			if strings.HasPrefix(candidate.MIME, "image/") {
-				imageRefs = append(imageRefs, candidate.ID)
+				imageRefs = append(imageRefs, *candidate)
 				continue
 			}
-			if !candidate.IsReadable() || candidate.ParsedText == "" {
-				return request.Fail("CONTEXT_REF_NOT_READABLE", "显式上下文引用尚未解析成功", false)
+			content := candidate.OriginalName + "\n" + candidate.ParsedText
+			if !candidate.IsReadable() {
+				content = candidate.OriginalName + "\n这份附件已保存，但没有抽出正文。"
+				if candidate.ParseErrorCode != "" {
+					content += "（" + candidate.ParseErrorCode + "）"
+				}
 			}
-			envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, contextapp.ContextSource{Type: contextapp.SourceAttachmentExcerpt, ID: candidate.ID, Authority: contextapp.AuthorityEvidence, Content: candidate.OriginalName + "\n" + candidate.ParsedText, Provenance: "attachment:" + candidate.ID + ":project:" + candidate.ProjectID})
+			envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, contextapp.ContextSource{Type: contextapp.SourceAttachmentExcerpt, ID: candidate.ID, Authority: contextapp.AuthorityEvidence, Content: content, Provenance: "attachment:" + candidate.ID + ":project:" + candidate.ProjectID})
 		}
 		// Images are expensive and model-dependent. Unlike parsed text, do not
 		// silently resend every historical image on every turn: only explicitly
@@ -714,11 +719,27 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 				return request.Fail("ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
 			}
 			total := 0
-			for _, imageID := range imageRefs {
-				image, visionErr := e.GetVisionImage(ctx, imageID, boundSessionID)
+			for _, imageRef := range imageRefs {
+				image, visionErr := e.GetVisionImage(ctx, imageRef.ID, boundSessionID)
 				if visionErr != nil {
-					retryable := !errors.Is(visionErr, attachmentapp.ErrAttachmentNotFound) && !errors.Is(visionErr, attachmentapp.ErrScopeMismatch) && !errors.Is(visionErr, attachmentapp.ErrUnsupportedMIME) && !errors.Is(visionErr, attachmentapp.ErrImageIntegrity) && !errors.Is(visionErr, attachmentapp.ErrImageBudget)
-					return internalBridgeFailure(request, "ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", retryable, visionErr)
+					if errors.Is(visionErr, attachmentapp.ErrAttachmentNotFound) {
+						return request.Fail("CONTEXT_REF_NOT_FOUND", "显式上下文引用不存在或已删除", false)
+					}
+					if errors.Is(visionErr, attachmentapp.ErrScopeMismatch) {
+						return request.Fail("CONTEXT_REF_SCOPE_MISMATCH", "显式上下文引用不属于当前会话", false)
+					}
+					if errors.Is(visionErr, attachmentapp.ErrImageBudget) {
+						return request.Fail("ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
+					}
+					if errors.Is(visionErr, attachmentapp.ErrUnsupportedMIME) {
+						return request.Fail("ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
+					}
+					name := strings.TrimSpace(imageRef.OriginalName)
+					if name == "" {
+						name = "图片"
+					}
+					envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, contextapp.ContextSource{Type: contextapp.SourceAttachmentExcerpt, ID: imageRef.ID, Authority: contextapp.AuthorityEvidence, Content: name + "\n已附图片，但没有读出画面。请按文件名说明，不要猜测画面内容。", Provenance: "attachment:" + imageRef.ID + ":project:" + imageRef.ProjectID})
+					continue
 				}
 				total += len(image.Data)
 				if total > attachmentapp.MaxVisionBatchBytes {
@@ -881,7 +902,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		images = nil
 	} else if len(images) > 0 && !modelByID(item, p.ModelID).SupportsVision {
 		images = nil
-		messages = injectVisionDescription(messages, "已附图片，但视觉模型未能识别。请在设置中确认已启用视觉模型后重试。")
+		messages = injectVisionDescription(messages, "已附图片，但 OCR 和视觉模型都没有读出内容。请确认本机 OCR 可用，或在设置里启用视觉模型后再上传。")
 	}
 	req := llmadapter.Request{Model: p.ModelID, Messages: messages, Images: images, MaxTokens: chatMaxTokens, MaxAttempts: 1, DisableReasoning: p.Companion || isShortIdleGreeting(intent.Text)}
 	if p.Companion {

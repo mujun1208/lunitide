@@ -143,7 +143,7 @@ func TestChatStartStripsImagesWhenVisionDescribeFails(t *testing.T) {
 	for _, message := range req.Messages {
 		combined.WriteString(message.Content)
 	}
-	if !strings.Contains(combined.String(), "视觉模型未能识别") {
+	if !strings.Contains(combined.String(), "OCR 和视觉模型都没有读出内容") {
 		t.Fatalf("honest vision failure missing: %q", combined.String())
 	}
 }

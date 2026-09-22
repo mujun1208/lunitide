@@ -34,7 +34,7 @@ import {
 } from './officeStudioApi';
 import { defaultOfficeArtifact, isOfficeReference, officeDate, officeRunLabel, officeSyncSelection, visibleOfficeArtifact } from './officePresentation';
 import { DeliveryStatus } from './DeliveryStatus';
-import { OFFICE_GENERATE_STAGES, OFFICE_STYLE_OPTIONS, briefFieldLabel, briefLengthLabel, deferredOfficeCapabilitiesNotice, draftQualityNotice, formalDecisionFromCause, generateActionNotice, importLimitNotice, nextLocateFactOffset, nextLocatePreviewOffset, trialScopeNotice, usabilityScopeNotice, visualScoreNotice, type FormalDecision } from './officeQualityUi';
+import { briefFieldLabel, briefLengthLabel, draftQualityNotice, formalDecisionFromCause, generateActionNotice, importLimitNotice, nextLocateFactOffset, nextLocatePreviewOffset, type FormalDecision } from './officeQualityUi';
 import { officePreviewPages, officePreviewThumb } from './officePreviewPages';
 import { resetOfficePaperScroll, scrollOfficeNodeIntoView } from './officePreviewScroll';
 import './officeStudio.css';
@@ -43,6 +43,7 @@ import { OfficeReferences } from './OfficeReferences';
 
 export interface OfficeConversationOptions {
   initialPrompt?: string;
+  promptEpoch?: number;
   onReady: () => void;
   onActivityChange: (active: boolean) => void;
 }
@@ -62,68 +63,9 @@ interface Props {
   onOpenExport?: (task: OfficeTask, path: string, reveal: boolean) => Promise<void>;
 }
 const LAST_TASK = 'lunitide:office-studio:last-task';
-const STYLE_PREFIX = 'lunitide:office-studio:style:';
-
-function readStoredStyle(taskId: string): (typeof OFFICE_STYLE_OPTIONS)[number]['id'] {
-  try {
-    const raw = localStorage.getItem(STYLE_PREFIX + taskId);
-    if (OFFICE_STYLE_OPTIONS.some((option) => option.id === raw)) {
-      return raw as (typeof OFFICE_STYLE_OPTIONS)[number]['id'];
-    }
-  } catch {
-    /* ignore */
-  }
-  return 'ops-clear';
-}
-
-function styleFromTask(styleId?: string): (typeof OFFICE_STYLE_OPTIONS)[number]['id'] | undefined {
-  if (OFFICE_STYLE_OPTIONS.some((option) => option.id === styleId)) {
-    return styleId as (typeof OFFICE_STYLE_OPTIONS)[number]['id'];
-  }
-  return undefined;
-}
-
-const emptyBrandDraft = { brandId: '', latin: '', east: '', navy: '', sourceUrl: '', license: '', digest: '', logoDigest: '' };
-
-function officeBrandNavy(value: string): string | undefined {
-  const hex = value.trim().replace(/^#/, '');
-  return /^[0-9a-fA-F]{6}$/.test(hex) ? hex.toLowerCase() : undefined;
-}
-
-function officeBrandLogoDigest(value: string): string | undefined {
-  const digest = value.trim().toLowerCase();
-  return /^[0-9a-f]{64}$/.test(digest) ? digest : undefined;
-}
 const emptyOutlineRow = { title: '', purpose: '', claim: '' };
 const emptyBriefDraft = { audience: '', purpose: '', targetLength: '', confidentiality: '', outline: [emptyOutlineRow] };
 
-function canRegisterOfficeBrand(draft: typeof emptyBrandDraft): boolean {
-  if (
-    draft.brandId.trim() === '' ||
-    draft.sourceUrl.trim() === '' ||
-    draft.license.trim() === '' ||
-    draft.digest.trim().length !== 64
-  ) {
-    return false;
-  }
-  if (draft.navy.trim() !== '' && !officeBrandNavy(draft.navy)) return false;
-  if (draft.logoDigest.trim() !== '' && !officeBrandLogoDigest(draft.logoDigest)) return false;
-  return true;
-}
-
-function taskPreviewSlots(nodes: OfficeNode[] | undefined) {
-  const list = nodes ?? [];
-  const cover = list.find((node) => /封面|cover/i.test(node.label)) ?? list[0];
-  const chart = list.find((node) => node.valueType === 'chart' || Boolean(node.chart));
-  const body = list.find((node) => node.id !== cover?.id && node.id !== chart?.id);
-  return { cover, body, chart };
-}
-
-function previewSlotText(node: OfficeNode | undefined) {
-  if (!node) return '当前任务尚无该页';
-  const text = [node.label, node.text].filter((part) => part.trim()).join(' · ');
-  return text || '当前任务尚无该页';
-}
 const message = (error: unknown): string => officeStudioUserError(error, '操作没有完成，请重试。');
 const SAVED_READ_NOTICE = '操作已保存，最新记录暂时读不到。当前保留上次已读内容，请重新读取完整记录，无需再次提交。';
 function visibleDetail(previous: OfficeTaskDetail | undefined, next: OfficeTaskDetail): OfficeTaskDetail {
@@ -219,12 +161,9 @@ export function OfficeStudioPage({
   const [exportName, setExportName] = useState('');
   const [exportedPath, setExportedPath] = useState('');
   const [lastDecision, setLastDecision] = useState<{ versionId: string; decision: FormalDecision }>();
-  const [styleId, setStyleId] = useState<(typeof OFFICE_STYLE_OPTIONS)[number]['id']>(() =>
-    taskId ? readStoredStyle(taskId) : 'ops-clear',
-  );
-  const [brandDraft, setBrandDraft] = useState(emptyBrandDraft);
   const [briefDraft, setBriefDraft] = useState(emptyBriefDraft);
-  const [briefOption, setBriefOption] = useState<'brief' | 'style' | 'brand' | 'notes' | null>(null);
+  const [briefOption, setBriefOption] = useState<'brief' | null>(null);
+  const [deckRun, setDeckRun] = useState(0);
   const [components, setComponents] = useState<OfficeRendererStatus>();
   const [componentsOpen, setComponentsOpen] = useState(false);
   const operation = useRef(false);
@@ -344,7 +283,6 @@ export function OfficeStudioPage({
     setLastDecision(undefined);
     try {
       taskId ? localStorage.setItem(LAST_TASK, taskId) : localStorage.removeItem(LAST_TASK);
-      if (taskId) setStyleId(readStoredStyle(taskId));
     } catch {
       /* view state is optional */
     }
@@ -353,8 +291,6 @@ export function OfficeStudioPage({
         .then(async (next) => {
           if (!active) return;
           setDetail((previous) => visibleDetail(previous, next));
-          const checkpointStyle = styleFromTask(next.task.styleId);
-          if (checkpointStyle) setStyleId(checkpointStyle);
           setTaskLoading(false);
           try {
             const synced = await requestSync(taskId, { selectHead: true });
@@ -400,7 +336,6 @@ export function OfficeStudioPage({
     };
   }, [api, taskId, taskLoadRevision, requestSync]);
   useEffect(() => {
-    setBrandDraft(emptyBrandDraft);
     setBriefDraft(emptyBriefDraft);
     setBriefOption(null);
   }, [taskId]);
@@ -641,6 +576,26 @@ export function OfficeStudioPage({
       setNotice('');
       setTab('conversation');
     }, false);
+  const generateFromLibrary = () => {
+    if (!detail) return;
+    const lines = (detail.task.brief?.outline ?? []).flatMap((row) => {
+      const title = row.title?.trim();
+      if (!title) return [];
+      const extra = [row.purpose, row.claim].map((item) => item?.trim()).filter(Boolean).join('；');
+      return [extra ? `- ${title}：${extra}` : `- ${title}`];
+    });
+    const title = detail.task.goal?.trim() || detail.task.title;
+    const prompt = [
+      `请做一份演示文稿，标题用「${title}」。`,
+      lines.length ? `大纲：\n${lines.join('\n')}` : '按这个目标自己安排页数和每页要点。',
+      '先 pptx.gen catalog=true 看本机模板库。只有版式真的合适时，才再读该 template，用 pages 决定用哪些页、同一页克隆几次，并按形状 id 改字。纯图页不要改字。',
+      '没有合适模板就不要套。缺事实先 web.search。然后每页用一种版式：cover、section、agenda、content、metrics、comparison、quote、timeline、closing。数字放 metrics，对照放 comparison，引用放 quote，出处放 source。不要整本都是要点列表。',
+      'path 用 汇报.pptx。不要自己画坐标，不要使用 PowerPoint COM，不要再问风格或品牌。',
+    ].join('\n');
+    startup.current = { taskId: detail.task.id, prompt };
+    setDeckRun((value) => value + 1);
+    setTab('conversation');
+  };
   const reload = () => run(async () => {
     applyDetail(await officeRead(api.get({ taskId })));
     setTaskLoadError('');
@@ -1275,28 +1230,22 @@ export function OfficeStudioPage({
               <p>
                 {`受众：${briefFieldLabel(detail?.task.brief?.audience)} · 用途：${briefFieldLabel(detail?.task.brief?.purpose)} · ${briefLengthLabel(detail?.task.brief?.targetLength)}`}
                 {detail?.task.brief?.confidentiality?.trim() ? ` · 密级：${detail.task.brief.confidentiality.trim()}` : ''}
-                {` · 风格：${OFFICE_STYLE_OPTIONS.find((option) => option.id === styleId)?.label ?? styleId}`}
-                {detail?.task.brandId ? ` · 品牌：${detail.task.brandId}` : ''}
                 {detail?.task.goal ? ` · ${detail.task.goal}` : ''}
               </p>
+              <div className="os-row-actions">
+                <button type="button" className="os-primary" onClick={generateFromLibrary}>
+                  生成演示
+                </button>
+              </div>
+              <p className="os-generate-choice">{generateActionNotice()}</p>
               <nav className="os-brief-options" aria-label="可选设置">
-                {(
-                  [
-                    ['brief', '简报'],
-                    ['style', '风格'],
-                    ['brand', '品牌'],
-                    ['notes', '说明'],
-                  ] as const
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    aria-pressed={briefOption === id}
-                    onClick={() => setBriefOption((current) => (current === id ? null : id))}
-                  >
-                    {label}
-                  </button>
-                ))}
+                <button
+                  type="button"
+                  aria-pressed={briefOption === 'brief'}
+                  onClick={() => setBriefOption((current) => (current === 'brief' ? null : 'brief'))}
+                >
+                  简报
+                </button>
               </nav>
               {briefOption === 'brief' ? (
               <fieldset className="os-brief-editor" aria-label="任务简报">
@@ -1436,172 +1385,6 @@ export function OfficeStudioPage({
                   保存概要
                 </button>
               </fieldset>
-              ) : null}
-              {briefOption === 'style' ? (
-              <fieldset className="os-style-picker">
-                <legend>风格</legend>
-                <p className="os-muted">工程变体，非设计师已检 36</p>
-                {OFFICE_STYLE_OPTIONS.map((option) => (
-                  <label key={option.id}>
-                    <input
-                      type="radio"
-                      name="office-style"
-                      value={option.id}
-                      checked={styleId === option.id}
-                      onChange={() => {
-                        setStyleId(option.id);
-                        if (!taskId) return;
-                        try {
-                          localStorage.setItem(STYLE_PREFIX + taskId, option.id);
-                        } catch {
-                          /* view state is optional */
-                        }
-                        if (!detail || detail.task.id !== taskId) return;
-                        void officeRead(
-                          api.update({
-                            taskId,
-                            expectedRevision: detail.task.revision,
-                            title: detail.task.title,
-                            goal: detail.task.goal ?? '',
-                            styleId: option.id,
-                          }),
-                        )
-                          .then((next) => setDetail((previous) => visibleDetail(previous, next)))
-                          .catch((cause) => {
-                            setError(message(cause));
-                          });
-                      }}
-                    />
-                    {option.label}
-                  </label>
-                ))}
-              </fieldset>
-              ) : null}
-              {briefOption === 'brand' ? (
-              <fieldset className="os-brand-import" aria-label="任务品牌">
-                <legend>任务品牌</legend>
-                <p className="os-brand-notice">一级导入只登记颜色、字体与授权记录，不还原 PPT 母版。</p>
-                <label>
-                  品牌编号
-                  <input
-                    value={brandDraft.brandId}
-                    onChange={(event) => setBrandDraft((current) => ({ ...current, brandId: event.target.value }))}
-                  />
-                </label>
-                <label>
-                  西文字体
-                  <input
-                    value={brandDraft.latin}
-                    onChange={(event) => setBrandDraft((current) => ({ ...current, latin: event.target.value }))}
-                  />
-                </label>
-                <label>
-                  中文字体
-                  <input
-                    value={brandDraft.east}
-                    onChange={(event) => setBrandDraft((current) => ({ ...current, east: event.target.value }))}
-                  />
-                </label>
-                <label>
-                  主色
-                  <input
-                    value={brandDraft.navy}
-                    onChange={(event) => setBrandDraft((current) => ({ ...current, navy: event.target.value }))}
-                  />
-                </label>
-                <label>
-                  来源
-                  <input
-                    value={brandDraft.sourceUrl}
-                    onChange={(event) => setBrandDraft((current) => ({ ...current, sourceUrl: event.target.value }))}
-                  />
-                </label>
-                <label>
-                  许可
-                  <input
-                    value={brandDraft.license}
-                    onChange={(event) => setBrandDraft((current) => ({ ...current, license: event.target.value }))}
-                  />
-                </label>
-                <label>
-                  摘要
-                  <input
-                    value={brandDraft.digest}
-                    onChange={(event) => setBrandDraft((current) => ({ ...current, digest: event.target.value }))}
-                  />
-                </label>
-                <label>
-                  标识摘要
-                  <input
-                    value={brandDraft.logoDigest}
-                    onChange={(event) => setBrandDraft((current) => ({ ...current, logoDigest: event.target.value }))}
-                  />
-                </label>
-                <button
-                  type="button"
-                  disabled={!canRegisterOfficeBrand(brandDraft)}
-                  onClick={() => {
-                    if (!taskId || !detail || detail.task.id !== taskId || !canRegisterOfficeBrand(brandDraft)) return;
-                    const navy = officeBrandNavy(brandDraft.navy);
-                    const logoDigest = officeBrandLogoDigest(brandDraft.logoDigest);
-                    void officeRead(
-                      api.update({
-                        taskId,
-                        expectedRevision: detail.task.revision,
-                        title: detail.task.title,
-                        goal: detail.task.goal ?? '',
-                        brand: {
-                          brandId: brandDraft.brandId.trim(),
-                          ...(navy ? { colors: { navy } } : {}),
-                          fonts: { latin: brandDraft.latin.trim(), east: brandDraft.east.trim() },
-                          asset: {
-                            sourceUrl: brandDraft.sourceUrl.trim(),
-                            license: brandDraft.license.trim(),
-                            digest: brandDraft.digest.trim(),
-                            ...(logoDigest ? { logoDigest } : {}),
-                          },
-                        },
-                      }),
-                    )
-                      .then((next) => setDetail((previous) => visibleDetail(previous, next)))
-                      .catch((cause) => {
-                        setError(message(cause));
-                      });
-                  }}
-                >
-                  登记品牌
-                </button>
-                {!canRegisterOfficeBrand(brandDraft) ? (
-                  <p className="os-muted">登记品牌需要编号、来源、许可和 64 位摘要。</p>
-                ) : null}
-              </fieldset>
-              ) : null}
-              {briefOption === 'notes' ? (
-              <>
-              <section className="os-task-previews" aria-label="当前任务预览">
-                {(['封面', '正文', '图表'] as const).map((slot) => {
-                  const nodes = taskPreviewSlots(preview?.nodes);
-                  const node = slot === '封面' ? nodes.cover : slot === '正文' ? nodes.body : nodes.chart;
-                  return (
-                    <article key={slot} className="os-task-preview" aria-label={`${slot}预览`}>
-                      <h3>{slot}</h3>
-                      <p>{previewSlotText(node)}</p>
-                    </article>
-                  );
-                })}
-              </section>
-              <p className="os-generate-choice">{generateActionNotice()} 预览只来自当前任务。</p>
-              <p className="os-import-limit-notice">{importLimitNotice()}</p>
-              <ol className="os-generate-stages" aria-label="生成流程说明">
-                {OFFICE_GENERATE_STAGES.map((stage) => (
-                  <li key={stage}>{stage}</li>
-                ))}
-              </ol>
-              <p className="os-visual-score-notice">{visualScoreNotice()}</p>
-              <p className="os-deferred-notice">{deferredOfficeCapabilitiesNotice()}</p>
-              <p className="os-trial-notice">{trialScopeNotice()}</p>
-              <p className="os-usability-notice">{usabilityScopeNotice()}</p>
-              </>
               ) : null}
             </section>
             <OfficeArtifactViewer
@@ -1777,6 +1560,7 @@ export function OfficeStudioPage({
               {detail && (!snapshotIncomplete || !startup.current) ? (
                 renderConversation(detail.task, {
                   initialPrompt: startup.current?.taskId === detail.task.id ? startup.current.prompt : undefined,
+                  promptEpoch: deckRun,
                   onReady: () => {
                     if (startup.current?.taskId === detail.task.id) startup.current = undefined;
                   },

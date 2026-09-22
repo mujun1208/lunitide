@@ -16,19 +16,21 @@ import (
 // chainHost records one OpenClaw-shaped computer.act session.
 type chainHost struct {
 	nativeStubHost
-	png        []byte
-	captures   int
-	typed      []string
-	shortcuts  [][]string
-	clicks     []string
-	scrolls    []int
-	pasted     []string
-	menus      []string
-	values     [][2]string
-	invokes    []string
-	invokeFail error
-	clip       string
-	hitName    string
+	png           []byte
+	captures      int
+	typed         []string
+	shortcuts     [][]string
+	clicks        []string
+	scrolls       []int
+	pasted        []string
+	menus         []string
+	values        [][2]string
+	invokes       []string
+	invokeFail    error
+	extraWindows  []WindowInfo
+	focusSwitches bool
+	clip          string
+	hitName       string
 }
 
 func (h *chainHost) ScreenCapture() ([]byte, error) {
@@ -91,12 +93,23 @@ func (h *chainHost) HitTest(int, int) (string, error) {
 	return h.hit, nil
 }
 func (h *chainHost) ListWindows() ([]WindowInfo, error) {
+	if len(h.extraWindows) > 0 {
+		return h.extraWindows, nil
+	}
 	return []WindowInfo{{
 		ID: "0x1", Title: h.title, Process: h.process, Foreground: true,
 		W: 1280, H: 800,
 	}}, nil
 }
 func (h *chainHost) FocusWindow(query string) (WindowInfo, error) {
+	if h.focusSwitches {
+		for _, w := range h.extraWindows {
+			if w.Title == query || w.ID == query || w.Process == query {
+				h.title, h.process = w.Title, w.Process
+				return w, nil
+			}
+		}
+	}
 	return WindowInfo{Title: h.title, Process: h.process, Foreground: true}, nil
 }
 
@@ -295,6 +308,34 @@ func TestComputerActChainXYRequiresCurrentFrame(t *testing.T) {
 	raw, _ := json.Marshal(map[string]any{"action": "click", "x": 8, "y": 8, "frameId": "frm_stale"})
 	if _, _, err := computerAct(svc, string(raw)); err == nil || !strings.Contains(err.Error(), "COMPUTER_STALE_FRAME") {
 		t.Fatalf("wrong frameId must fail: %v", err)
+	}
+}
+
+func TestObserveCompanionDoesNotDumpOwnTree(t *testing.T) {
+	t.Parallel()
+	svc, host := newChainService(t, []UINode{{Role: "button", Name: "发送", X: 10, Y: 10, W: 40, H: 20}})
+	host.title, host.process = "月伴对话 - Lunitide", "lunitide.exe"
+	summary, png, err := computerAct(svc, `{"action":"observe"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(png) != 0 || strings.Contains(summary, "发送") || !strings.Contains(summary, "前台是月伴") {
+		t.Fatalf("companion observe must not return its own controls: png=%d %s", len(png), summary)
+	}
+}
+
+func TestObserveCompanionRestoresTheOtherWindow(t *testing.T) {
+	t.Parallel()
+	svc, host := newChainService(t, []UINode{{Role: "button", Name: "保存", X: 10, Y: 10, W: 40, H: 20}})
+	host.title, host.process = "月伴对话 - Lunitide", "lunitide.exe"
+	host.focusSwitches = true
+	host.extraWindows = []WindowInfo{{ID: "n1", Title: "记事本", Process: "notepad.exe"}}
+	summary, _, err := computerAct(svc, `{"action":"observe"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host.process != "notepad.exe" || !strings.Contains(summary, "保存") || strings.Contains(summary, "前台是月伴") {
+		t.Fatalf("observe should land on the restored app: proc=%s %s", host.process, summary)
 	}
 }
 

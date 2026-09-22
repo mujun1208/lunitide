@@ -203,13 +203,13 @@ func (a *CodexThread) runExecPrompt(ctx context.Context, cancel context.CancelFu
 			}
 		}
 		if out != "" {
-			_ = insertThreadMessage(a.store, threadID, "assistant", out)
+			_ = insertThreadMessage(a.store, threadID, "assistant", stripCarriedTurn(a.store, threadID, out))
 		}
 		a.fault(threadID, runErr)
 		return
 	}
 	if out != "" {
-		_ = insertThreadMessage(a.store, threadID, "assistant", out)
+		_ = insertThreadMessage(a.store, threadID, "assistant", stripCarriedTurn(a.store, threadID, out))
 	}
 	_ = setThreadStatus(a.store, threadID, "success")
 }

@@ -322,7 +322,32 @@ func mediaControlReceiptSpeech(out string) string {
 	case "sent stop":
 		return "已发送停止播放的操作。"
 	}
+	if speech := mediaSessionTransportSpeech(line); speech != "" {
+		return speech
+	}
 	return ""
+}
+
+// An unconfirmed media-session receipt still means the key reached the player.
+// Pausing and then clicking the screen toggles playback again and leaks frame JSON.
+func mediaSessionTransportSpeech(line string) string {
+	if !strings.Contains(line, "media session action=") {
+		return ""
+	}
+	switch {
+	case strings.Contains(line, "action=pause"):
+		return "已暂停播放。"
+	case strings.Contains(line, "action=next"):
+		return "已切换到下一首。"
+	case strings.Contains(line, "action=prev"):
+		return "已切换到上一首。"
+	case strings.Contains(line, "action=stop"):
+		return "已停止播放。"
+	case strings.Contains(line, "action=toggle"):
+		return "已切换播放或暂停。"
+	default:
+		return "播放操作已经送到播放器。"
+	}
 }
 
 func continueNudgeMessage() llmadapter.Message {

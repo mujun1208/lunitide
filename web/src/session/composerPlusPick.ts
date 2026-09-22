@@ -61,6 +61,10 @@ export async function readPickedFile(bridge: DesktopFilesBridge, item: DesktopPi
   return new File([bytes], item.fileName, {type: item.mime})
 }
 
+export function composerPickNotice(code: string): boolean {
+  return code === 'DESKTOP_FOLDER_EMPTY' || code === 'DESKTOP_PICK_FAILED' || code === 'DESKTOP_FILE_READ_FAILED' || code === 'ATTACHMENT_SKIPPED'
+}
+
 export async function pickComposerFiles(bridge: DesktopFilesBridge | undefined, folder: boolean, signal?:AbortSignal): Promise<ComposerPickResult> {
   if (!bridge) return {kind: 'fallback'}
   try {
@@ -71,7 +75,7 @@ export async function pickComposerFiles(bridge: DesktopFilesBridge | undefined, 
     if (!picked.items?.length) {
       if (folder) {
         const extra = skipped.length ? ` ${skipped.join('、')}` : ''
-        return {kind: 'error', error: new BridgeClientError(`这个文件夹里没有可导入的文件。${extra}`.trim(), 'DESKTOP_FOLDER_EMPTY', false, 'renderer')}
+        return {kind: 'error', error: new BridgeClientError(`这个文件夹里没有可导入的文件。支持 txt、md、csv、pdf、图片、docx、xlsx、pptx，子文件夹里的这些文件也会带上。${extra}`.trim(), 'DESKTOP_FOLDER_EMPTY', false, 'renderer')}
       }
       return {kind: 'error', error: new BridgeClientError('系统没打开文件框，请再试一次。', 'DESKTOP_PICK_FAILED', true, 'renderer')}
     }

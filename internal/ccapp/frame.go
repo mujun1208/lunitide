@@ -87,15 +87,15 @@ func (s *Service) requireFrameID(got string) error {
 	if stored.Width > 0 && stored.Height > 0 && s.host != nil {
 		live := snapshotTopology(s.host)
 		if !stored.TopologyEqual(live) {
-			return fmt.Errorf("%w: COMPUTER_STALE_FRAME: display topology changed %s → %s — screenshot again", ErrCcInputFiltered, stored.topology(), live.topology())
+			return fmt.Errorf("%w: 屏幕布局变了，请重新 observe 后再按名字点击，不要沿用旧坐标。 COMPUTER_STALE_FRAME: display topology changed %s → %s — screenshot again", ErrCcInputFiltered, stored.topology(), live.topology())
 		}
 	}
 	got = strings.TrimSpace(got)
 	if got == "" {
-		return fmt.Errorf("%w: COMPUTER_STALE_FRAME: echo frameId %s from the latest screenshot", ErrCcInputFiltered, current)
+		return fmt.Errorf("%w: 这次点击缺少当前画面编号。请重新 observe，用 name= 点击，不要猜像素。 COMPUTER_STALE_FRAME: echo frameId %s from the latest screenshot", ErrCcInputFiltered, current)
 	}
 	if !strings.EqualFold(got, current) {
-		return fmt.Errorf("%w: COMPUTER_STALE_FRAME: coordinates referenced %s, current is %s — screenshot again", ErrCcInputFiltered, got, current)
+		return fmt.Errorf("%w: 坐标对应的画面已过期。请重新 observe 后再按名字点击。 COMPUTER_STALE_FRAME: coordinates referenced %s, current is %s — screenshot again", ErrCcInputFiltered, got, current)
 	}
 	return nil
 }

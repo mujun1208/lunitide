@@ -38,6 +38,7 @@ func companionPersonaToolsInstruction() string {
 		"- 用户明确要彻底退出软件时用 desktop.quit name=软件完整名称 force=true，核对进程退出结果。关闭窗口不等于退出；仅要求关窗口、停止播放时不得结束进程。若可能有未保存内容，先确认。打开桌面浏览器/搜索页用 desktop.browse。只要检索摘要，打开并查到内容就停，不要再 observe 或点页面。网页内点击/填写才用 browser.act\n" +
 		"- 在文档或对话框里填写：有可点的输入框时用 desktop.type（text=要写的内容，after=界面上真实的字段名如身份证号码或证件号码，window=对话框标题，需要发送时 submit=true）。Word 正文没有命名输入框：先 computer.act observe，能对上名字/id 就按名字点，再 type，verifyAfter 确认数字已写入。找不到字段必须说无法执行。写完不要关窗口，不要 cc.window_action op=close\n" +
 		"- 发消息：使用已配置通道的 im.send；需要桌面应用时，desktop.open 后用 computer.act 识别实际联系人和输入框，核对收件人和内容后按用户指令发送。缺少联系人或内容时直接口头问一句并等待下一轮回复。不能把打开聊天窗口或填入草稿说成已发送\n" +
+		"- 自带媒体中心：用户要在产品里的媒体中心播放电影或歌曲时，只调用一次 media.play，target=center，query=片名或歌名。不要 web.search、web.fetch、computer.act，也不要找本机其它播放软件。返回 MEDIA_CENTER 就说已经在媒体中心播放并停止。没有可直接播放的公版文件时说明原因并停止。\n" +
 		"- 播歌/播放：第1步只打一次 media.play target=foreground app=用户指定播放器 query=歌名或歌手；没说具体歌曲时 query=random。verified 且 passed=true 立刻报成功并停。失败立刻第2步 observe。树上已有暂停/正在播放就报成功，不要点播放。没有再按名字点一次。第2步失败立刻第3步屏幕读号。三步走完才说播不了。shuffle=false 不代表失败。用户说换播放器：仍先 media.play 换本机另一个已安装播放器。电脑控制未开时说明原因并停，不要改网页版，除非用户明确要求\n" +
 		"- 建文件夹/写文件：用户要在桌面/本机创建、删除、改名、移动、复制文件夹或文件，或解压/下载到桌面时，立刻用 command.run 在真实 Desktop 或指定路径执行 mkdir（Windows 建目录用 New-Item -ItemType Directory），不要只口头答应；普通工作区文件才用 workspace 工具；需要处理代码、转换或运行程序时使用已授权的命令工具，完成后核对文件\n" +
 		"- 用户要求在已打开窗口打字时，必须操作并核验该窗口。workspace.edit/write 修改磁盘文件，不等于记事本/Word 的未保存编辑缓冲区已更新；不能凭文件写入回执或截图操作成功声称窗口文字已经改变。不要关闭、重载或覆盖未保存内容。直接改磁盘后要回读验证，并明确窗口是否同步\n" +
@@ -289,11 +290,17 @@ func companionDesktopResultSpeech(out string) string {
 		return "已经写入了 " + text + "。"
 	}
 	lower := strings.ToLower(out)
-	if strings.Contains(lower, "screenshot") || strings.Contains(lower, "observe") {
-		return "先看了一下。"
+	if strings.Contains(out, "前台是月伴") || strings.Contains(out, "禁止像素动作") {
+		return "前台是月伴，请说出要操作的软件。"
+	}
+	if strings.Contains(lower, "screen unchanged") || strings.Contains(out, "画面没有明显变化") {
+		return "点过了，画面没有变化。"
 	}
 	if strings.Contains(lower, "clicked") || strings.Contains(out, "点了") {
 		return "点了一下。"
+	}
+	if strings.Contains(lower, "screenshot") || strings.Contains(lower, "observe") || strings.Contains(out, "frameId") || strings.Contains(out, `"count"`) {
+		return "先看了一下。"
 	}
 	return "还在处理。"
 }

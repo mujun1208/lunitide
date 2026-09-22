@@ -40,7 +40,7 @@ func desktopLadderNudgeMessage(messages []llmadapter.Message, goal string) llmad
 
 func desktopLadderApplies(goal string) bool {
 	goal = strings.TrimSpace(goal)
-	if goal == "" || lookupOnlyTurn(goal) || typedFieldOnlyGoal(goal) || companionGoalIsOpenOnly(goal) || quitOnlyGoal(goal) {
+	if goal == "" || ownedMediaCenterGoal(goal) || lookupOnlyTurn(goal) || typedFieldOnlyGoal(goal) || companionGoalIsOpenOnly(goal) || quitOnlyGoal(goal) {
 		return false
 	}
 	if officeDeliverableSkipsDesktopLadder(goal) || browserLookupOnlyGoal(goal) {
@@ -91,6 +91,7 @@ func desktopLadderDedicatedTool(name string) bool {
 
 func desktopLadderBlocked(out string) bool {
 	return capabilityDeniedOutput(out) || strings.Contains(out, "电脑控制未启用") || strings.Contains(out, "M10-CC-012") ||
+		strings.Contains(out, "前台是月伴") || strings.Contains(out, "禁止像素动作") ||
 		looksLikeUACToolResult(out) || looksLikeFilePickerToolResult(out)
 }
 

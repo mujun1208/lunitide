@@ -66,10 +66,10 @@ func TestMROCatalogSkillsPresent(t *testing.T) {
 
 func TestOfficeCatalogPromptsPreferOfficeGenerate(t *testing.T) {
 	want := map[string][]string{
-		"weekly-report":    {"office.generate", "docx.gen", "excel.gen"},
-		"meeting-minutes":  {"office.generate", "docx.gen"},
-		"docx-writer":      {"office.generate", "docx.gen"},
-		"slide-builder":    {"office.generate", "pptx.gen"},
+		"weekly-report":   {"office.generate", "docx.gen", "excel.gen"},
+		"meeting-minutes": {"office.generate", "docx.gen"},
+		"docx-writer":     {"office.generate", "docx.gen"},
+		"slide-builder":   {"office.generate", "pptx.gen"},
 	}
 	found := map[string]string{}
 	for _, tpl := range Catalog() {
@@ -104,7 +104,7 @@ func TestCatalogTemplatesWellFormed(t *testing.T) {
 		}
 		if !community && !native && !strings.HasPrefix(tpl.Name, "tpl-") && tpl.ID != "skill-creator" && tpl.ID != "expert-manager" && tpl.ID != "plugin-creator" &&
 			tpl.ID != "find-skills" && tpl.ID != "brainstorming" && tpl.ID != "pm-skill" && tpl.ID != "super-coders" &&
-			tpl.ID != "frontend-design" && tpl.ID != "ui-components" && tpl.ID != "design-system" && tpl.ID != "computer-control" && tpl.ID != "browser-automation" {
+			tpl.ID != "frontend-design" && tpl.ID != "ui-components" && tpl.ID != "design-system" && tpl.ID != "computer-control" && tpl.ID != "media-center" && tpl.ID != "browser-automation" {
 			t.Fatalf("template name must use tpl- prefix: %q", tpl.Name)
 		}
 		if seen[tpl.ID] {
@@ -475,5 +475,29 @@ func TestComposeSkillPromptsCarryRecipes(t *testing.T) {
 	}
 	if len(want) > 0 {
 		t.Fatalf("missing catalog templates: %v", want)
+	}
+}
+
+func TestFindSkillsNamesOnlyLiveTools(t *testing.T) {
+	n := 0
+	for _, tpl := range Catalog() {
+		if tpl.ID != "find-skills" && tpl.Name != "find-skills" {
+			continue
+		}
+		n++
+		prompt, _ := tpl.Manifest["prompt"].(string)
+		for _, dead := range []string{"skill.install({", "skill.publish({", "skill.catalog.list (`"} {
+			if strings.Contains(prompt, dead) {
+				t.Fatalf("%s still names a tool shape that is not the live schema: %s", tpl.ID, dead)
+			}
+		}
+		for _, live := range []string{"skill.catalog.list", "skill.install", "skill.publish", "skill.list", "skill.invoke"} {
+			if !strings.Contains(prompt, live) {
+				t.Fatalf("%s prompt missing %s", tpl.ID, live)
+			}
+		}
+	}
+	if n == 0 {
+		t.Fatal("find-skills missing")
 	}
 }

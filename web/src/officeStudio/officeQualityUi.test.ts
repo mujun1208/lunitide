@@ -242,8 +242,8 @@ describe('officeQualityUi', () => {
     expect(importLimitNotice()).toContain('不能从成稿反推')
     expect(importLimitNotice()).toContain('简报')
     expect(importLimitNotice()).not.toContain('已超过')
-    expect(generateActionNotice()).toContain('对话')
-    expect(generateActionNotice()).toContain('不是生成按钮')
+    expect(generateActionNotice()).toContain('按页选用')
+    expect(generateActionNotice()).toContain('封面')
     expect(generateActionNotice()).not.toContain('已超过')
   })
 
