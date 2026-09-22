@@ -283,7 +283,19 @@ func adapterMessagesFromProtocol(msgs []modelfit.ProtocolMessage) []llmadapter.M
 	return out
 }
 
-func (e *Engine) nativeReplayMessages(sessionID string) []llmadapter.Message {
+func replayCodecMatchesTarget(savedCodec, model, protocol string) bool {
+	if strings.TrimSpace(model) == "" {
+		return true
+	}
+	saved := modelfit.LookupCodec(savedCodec)
+	current := modelfit.LookupCodec(modelfit.CodecForModel(model, protocol))
+	if saved == nil || current == nil {
+		return false
+	}
+	return saved.Family() == current.Family()
+}
+
+func (e *Engine) nativeReplayMessages(sessionID, model, protocol string) []llmadapter.Message {
 	if e == nil || sessionID == "" {
 		return nil
 	}
@@ -293,7 +305,7 @@ func (e *Engine) nativeReplayMessages(sessionID string) []llmadapter.Message {
 		return nil
 	}
 	codec := modelfit.LookupCodec(env.CodecVersion)
-	if codec == nil {
+	if codec == nil || !replayCodecMatchesTarget(env.CodecVersion, model, protocol) {
 		return nil
 	}
 	var groups []modelfit.MessageGroup

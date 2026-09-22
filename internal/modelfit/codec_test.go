@@ -59,6 +59,36 @@ func TestDeepSeekAndGLMOfflineRoundTrip(t *testing.T) {
 	}
 }
 
+func TestEncodeReplayFillsOnlyTheLatestEmptyAssistant(t *testing.T) {
+	group := func(content, reasoning, id string) MessageGroup {
+		return MessageGroup{
+			Assistant: ProtocolMessage{
+				Role: "assistant", Content: content, ReasoningContent: reasoning,
+				ToolCalls: []ProtocolToolCall{{ID: id, Name: "workspace.read", Arguments: json.RawMessage(`{}`)}},
+			},
+			Tools:    []ProtocolMessage{{Role: "tool", ToolCallID: id, Content: "ok"}},
+			Complete: true,
+		}
+	}
+	groups := []MessageGroup{group("first", "own thought", "c1"), group("second", "", "c2")}
+	msgs, err := LookupCodec(CodecDeepSeekV1).EncodeReplay(groups, ProtocolCapture{ReasoningContent: "latest", Source: SourceProvider})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msgs[0].ReasoningContent != "own thought" {
+		t.Fatalf("earlier turn must keep its own reasoning: %#v", msgs[0])
+	}
+	var second string
+	for _, m := range msgs {
+		if m.Content == "second" {
+			second = m.ReasoningContent
+		}
+	}
+	if second != "latest" {
+		t.Fatalf("latest empty assistant must receive the obtained chain, got %q", second)
+	}
+}
+
 func TestUnknownCodecDoesNotQualify(t *testing.T) {
 	if LookupCodec("") != nil || LookupCodec("invented") != nil {
 		t.Fatal("unknown codec must be nil")

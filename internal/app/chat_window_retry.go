@@ -3,10 +3,39 @@ package app
 import (
 	"context"
 	"errors"
+	"log"
 	"strings"
 
+	"github.com/lunitide/lunitide/internal/domain/provider"
+	"github.com/lunitide/lunitide/internal/domain/token"
 	"github.com/lunitide/lunitide/internal/llmadapter"
 )
+
+// providerModelContextWindow reads the configured window for this model.
+// Missing configuration keeps the historical 128000 fallback. The bool is
+// true only when the provider row itself supplied a positive window.
+func providerModelContextWindow(p provider.Provider, modelID string) (int64, bool) {
+	for _, m := range p.Models {
+		if m.ModelID == modelID && m.ContextWindow > 0 {
+			return m.ContextWindow, true
+		}
+	}
+	return 128000, false
+}
+
+func (e *Engine) compactSession(ctx context.Context, sessionID string, p provider.Provider, modelID, tokenizerRevision string) {
+	if e == nil || e.compactionTrigger == nil || e.compactionExecutor == nil {
+		return
+	}
+	window, _ := providerModelContextWindow(p, modelID)
+	if strings.TrimSpace(tokenizerRevision) == "" {
+		tokenizerRevision = token.CanonicalTokenizerRevision
+	}
+	result := e.TriggerPreTurnCompaction(ctx, sessionID, p.ID, modelID, tokenizerRevision, window)
+	if result.Err != nil {
+		log.Printf("session compaction: session=%s model=%s window=%d: %s", sessionID, modelID, window, result.Reason)
+	}
+}
 
 func (e *Engine) latestCheckpointSummary(ctx context.Context, sessionID string) string {
 	if e == nil || e.summaryReader == nil || sessionID == "" {

@@ -298,14 +298,16 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		err = e.withRotatingProviderLease(ctx, p, secretlease.OperationChat, rot, emitted, func(op context.Context, credential []byte) (cbErr error) {
 			op = withLeaseRotate(op, p, rot, emitted)
 			purpose := continuityScopeFrom(op).Purpose
-			if purpose == "" {
+			if state.companion {
+				purpose = "companion"
+			} else if purpose == "" {
 				if officeTaskContextID(op) != "" {
 					purpose = "office"
 				} else {
 					purpose = "chat"
 				}
 			}
-			op = withContinuityScope(op, continuityScope{Owner: ownerScope(sessionID), Task: sessionID, Turn: id, Purpose: purpose})
+			op = withContinuityScope(op, continuityScope{Owner: ownerScope(sessionID), Task: sessionID, Turn: id, Purpose: purpose, SkipExecutionBudget: state.companion})
 			// A panic anywhere in the streaming/tool loop must degrade to a
 			// failed stream, never take down the Engine process (which would
 			// sever the event pipe for every active session).
@@ -489,7 +491,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				if streamErr != nil && state != nil && isWindowOverflowError(streamErr) && !state.windowRetried {
 					e.flushMemoryBeforeCompaction(op, sessionID, turn.Goal, assistantText.String())
 					if e.compactionTrigger != nil && e.compactionExecutor != nil {
-						_ = e.TriggerPreTurnCompaction(op, sessionID, p.ID, req.Model, token.CanonicalTokenizerRevision, 128000)
+						e.compactSession(op, sessionID, p, req.Model, token.CanonicalTokenizerRevision)
 					}
 					applyWindowRetryMessages(&req, e.latestCheckpointSummary(op, sessionID))
 					state.windowRetried = true
@@ -1808,7 +1810,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
 			defer cancel()
 			e.flushMemoryBeforeCompaction(bg, sessionID, turn.Goal, assistantText.String())
-			_ = e.TriggerPreTurnCompaction(bg, sessionID, p.ID, req.Model, token.CanonicalTokenizerRevision, 128000)
+			e.compactSession(bg, sessionID, p, req.Model, token.CanonicalTokenizerRevision)
 		}()
 	}
 }

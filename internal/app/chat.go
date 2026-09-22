@@ -517,16 +517,12 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	if hasSession && (e.messageReader != nil || len(p.ContextRefs) > 0 || p.OfficeTaskID != "") {
 		// Durable session path: assemble context from session history.
 		// Dynamic context window: read from provider model config, fallback to 128000.
-		contextWindow := int64(128000)
+		contextWindow, explicitWindow := providerModelContextWindow(item, p.ModelID)
 		safetyCeiling := int64(120000)
-		tokenizerRevision := token.CanonicalTokenizerRevision
-		for _, m := range item.Models {
-			if m.ModelID == p.ModelID && m.ContextWindow > 0 {
-				contextWindow = m.ContextWindow
-				safetyCeiling = int64(float64(contextWindow) * 0.9375) // 93.75% safety ceiling
-				break
-			}
+		if explicitWindow {
+			safetyCeiling = int64(float64(contextWindow) * 0.9375) // 93.75% safety ceiling
 		}
+		tokenizerRevision := token.CanonicalTokenizerRevision
 		// Explicit messages sit outside restored durable history, so reserve the
 		// current user/tool turn as well as authoritative system instructions.
 		var explicitTokens int64
@@ -805,18 +801,18 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			}
 			log.Printf("chat.start assembling explicit turn after durable assembly failed: %v", assembleErr)
 			usedFallback = true
-			messages, assembleErr = assembleExplicitChat(ctx, boundSessionID, envelope, trustedMessages, e.nativeReplayMessages(boundSessionID))
+			messages, assembleErr = assembleExplicitChat(ctx, boundSessionID, envelope, trustedMessages, e.nativeReplayMessages(boundSessionID, p.ModelID, string(item.Protocol)))
 			if assembleErr != nil {
 				return internalBridgeFailure(request, "CONTEXT_ASSEMBLY_FAILED", "当前模型上下文预算不足或引用不可用，请减少材料或选择更大上下文模型；已选技能与专家不会被移除", false, assembleErr)
 			}
 		} else {
 			var combineErr error
-			messages, combineErr = combineProviderMessages(result.Messages, trustedMessages, providerInfo, images, e.nativeReplayMessages(boundSessionID))
+			messages, combineErr = combineProviderMessages(result.Messages, trustedMessages, providerInfo, images, e.nativeReplayMessages(boundSessionID, p.ModelID, string(item.Protocol)))
 			if combineErr != nil {
 				if useExplicitChatFallback(p.Companion, trustedMessages, combineErr) {
 					log.Printf("chat.start using explicit turn after context combine failed: %v", combineErr)
 					usedFallback = true
-					messages, combineErr = assembleExplicitChat(ctx, boundSessionID, envelope, trustedMessages, e.nativeReplayMessages(boundSessionID))
+					messages, combineErr = assembleExplicitChat(ctx, boundSessionID, envelope, trustedMessages, e.nativeReplayMessages(boundSessionID, p.ModelID, string(item.Protocol)))
 					if combineErr != nil {
 						return internalBridgeFailure(request, "CONTEXT_ASSEMBLY_FAILED", "当前模型上下文预算不足或引用不可用，请减少材料或选择更大上下文模型；已选技能与专家不会被移除", false, combineErr)
 					}
@@ -1781,8 +1777,11 @@ func chatStreamError(err error) *bridge.StreamError {
 	if errors.Is(err, messageapp.ErrMessageStorageQuotaReached) {
 		return streamError("MESSAGE_STORAGE_QUOTA_REACHED", "消息存储配额已满", false)
 	}
+	if errors.Is(err, agentrun.ErrContextWindow) {
+		return streamError("CONTEXT_WINDOW_EXCEEDED", "当前请求超出模型上下文窗口，请减少附件或历史后重试。", false)
+	}
 	if errors.Is(err, agentrun.ErrExecutionBudget) {
-		return streamError("BUDGET_EXHAUSTED", "本轮操作步骤较多，已达上限。请新开对话继续。", false)
+		return streamError("BUDGET_EXHAUSTED", "本轮执行额度已用完，请再试一次。", false)
 	}
 	if errors.Is(err, context.DeadlineExceeded) || networkpolicy.ErrorCode(err) == networkpolicy.CodeTimeout {
 		return streamError("UPSTREAM_TIMEOUT", "模型请求超时，请稍后重试", true)

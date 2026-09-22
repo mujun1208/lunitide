@@ -16,6 +16,7 @@ import (
 	"github.com/lunitide/lunitide/internal/people"
 	"github.com/lunitide/lunitide/internal/secretlease"
 	"github.com/lunitide/lunitide/internal/toolruntime"
+	"github.com/oklog/ulid/v2"
 )
 
 const (
@@ -590,7 +591,7 @@ func (e *Engine) completePeopleAgentWithTools(ctx context.Context, agent people.
 	allowed := toolNameSet(tools)
 	var text string
 	leaseErr := e.withProviderLease(ctx, entry.Provider, secretlease.OperationChat, func(op context.Context, secret []byte) error {
-		op = withContinuityScope(op, continuityScope{Owner: ownerScope(sessionID), Task: sessionID, Purpose: "people"})
+		op = withContinuityScope(op, continuityScope{Owner: ownerScope(sessionID), Task: sessionID, Turn: ulid.Make().String(), Purpose: "people"})
 		a, aErr := e.adapter(op, entry.Provider)
 		if aErr != nil {
 			return aErr
@@ -785,7 +786,7 @@ func (e *Engine) completePeopleAgentText(ctx context.Context, agent people.Conta
 	}
 	var text string
 	leaseErr := e.withProviderLease(ctx, entry.Provider, secretlease.OperationChat, func(op context.Context, secret []byte) error {
-		op = withContinuityScope(op, continuityScope{Owner: ownerScope(sessionID), Task: sessionID, Purpose: "people"})
+		op = withContinuityScope(op, continuityScope{Owner: ownerScope(sessionID), Task: sessionID, Turn: ulid.Make().String(), Purpose: "people"})
 		a, aErr := e.adapter(op, entry.Provider)
 		if aErr != nil {
 			return aErr

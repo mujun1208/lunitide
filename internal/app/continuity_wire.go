@@ -42,6 +42,9 @@ type continuityScopeKey struct{}
 type continuityScope struct {
 	Owner, Task, Turn, Purpose   string
 	AutomationRunID, DispatchKey string
+	// SkipExecutionBudget marks a voice turn. Nested model calls keep it
+	// when they replace Purpose, so the whole spoken task stays off the ledger.
+	SkipExecutionBudget bool
 }
 
 func withContinuityScope(ctx context.Context, scope continuityScope) context.Context {
@@ -517,12 +520,15 @@ func (a meteredAdapter) observe(ctx context.Context, req llmadapter.Request, str
 	}
 	profile := compileProfileOrDefault(a.profile)
 	var execScope agentrun.ExecutionScope
-	execScope, ctx, rec, err = a.bindExecutionScope(ctx, rec)
-	if err != nil {
-		return llmadapter.Response{}, err
-	}
 	var permit agentrun.CallPermit
-	if a.budget != nil {
+	budgeted := a.budget != nil && !executionBudgetExempt(scope)
+	if budgeted {
+		execScope, ctx, rec, err = a.bindExecutionScope(ctx, rec)
+		if err != nil {
+			return llmadapter.Response{}, err
+		}
+	}
+	if budgeted {
 		estimate := agentrun.CallEstimate{
 			CallID:            rec.CallID,
 			AttemptID:         rec.AttemptID,

@@ -74,13 +74,22 @@ func (c familyCodec) RejectCrossFamily(src Family) error {
 }
 
 func (c familyCodec) EncodeReplay(groups []MessageGroup, private ProtocolCapture) ([]ProtocolMessage, error) {
-	var out []ProtocolMessage
-	for _, g := range groups {
+	lastEmpty := -1
+	for i, g := range groups {
 		if !MessageGroupComplete(g) {
 			return nil, fmt.Errorf("incomplete message group")
 		}
+		if g.Assistant.ReasoningContent == "" {
+			lastEmpty = i
+		}
+	}
+	var out []ProtocolMessage
+	for i, g := range groups {
 		asst := g.Assistant
-		if private.Source == SourceProvider && private.ReasoningContent != "" && asst.ReasoningContent == "" {
+		// The envelope holds one obtained chain. It may fill only the latest
+		// assistant that did not store its own. Earlier turns keep their own
+		// text, or stay empty, instead of inheriting a later thought.
+		if i == lastEmpty && private.Source == SourceProvider && private.ReasoningContent != "" {
 			asst.ReasoningContent = private.ReasoningContent
 		}
 		out = append(out, asst)
