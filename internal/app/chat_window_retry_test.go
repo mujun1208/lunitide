@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lunitide/lunitide/internal/domain/agentrun"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/llmadapter"
 )
@@ -18,17 +19,20 @@ func TestIsWindowOverflowError(t *testing.T) {
 	if !isWindowOverflowError(&llmadapter.Error{Code: "HTTP_413", HTTPStatus: 413}) {
 		t.Fatal("http 413")
 	}
-	if !isWindowOverflowError(&llmadapter.Error{Code: "RESPONSE_TRUNCATED"}) {
-		t.Fatal("length finish must retry the current user step")
+	if isWindowOverflowError(&llmadapter.Error{Code: "RESPONSE_TRUNCATED"}) {
+		t.Fatal("length finish must continue the write, not shrink history")
 	}
 	if err := chatModelFinishError(llmadapter.FinishReasonWindow); !isWindowOverflowError(err) {
 		t.Fatal("window finish must retry")
 	}
-	if err := chatModelFinishError(llmadapter.FinishReasonLength); !isWindowOverflowError(err) {
-		t.Fatal("length finish must retry via checkpoint")
+	if err := chatModelFinishError(llmadapter.FinishReasonLength); !isReplyTruncatedError(err) {
+		t.Fatal("length finish must be a truncated reply")
 	}
 	if isWindowOverflowError(&llmadapter.Error{Code: "RESPONSE_FILTERED"}) {
 		t.Fatal("content filter is not a window retry")
+	}
+	if !isWindowOverflowError(agentrun.ErrContextWindow) {
+		t.Fatal("admission window rejection must compact and retry")
 	}
 }
 
@@ -78,6 +82,33 @@ func TestApplyWindowRetryMessagesUsesCheckpointSummary(t *testing.T) {
 	last := req.Messages[len(req.Messages)-1]
 	if last.Role != llmadapter.RoleUser || last.Content != "current" {
 		t.Fatalf("lost current user: %+v", last)
+	}
+}
+
+func TestWindowRetryShrinksHarderOnLaterAttempts(t *testing.T) {
+	msgs := []llmadapter.Message{{Role: llmadapter.RoleSystem, Content: "rules"}}
+	for i := 0; i < 10; i++ {
+		msgs = append(msgs, llmadapter.Message{Role: llmadapter.RoleUser, Content: "u"})
+		msgs = append(msgs, llmadapter.Message{Role: llmadapter.RoleAssistant, Content: strings.Repeat("很长", 3000)})
+	}
+	msgs = append(msgs, llmadapter.Message{Role: llmadapter.RoleUser, Content: "current"})
+	req := &llmadapter.Request{Messages: msgs}
+	applyWindowRetryMessagesKeep(req, "摘要", windowRetryKeep(3))
+	clipWindowRetryPayloads(req, 3)
+	nonSystem := 0
+	for _, m := range req.Messages {
+		if m.Role != llmadapter.RoleSystem {
+			nonSystem++
+		}
+		if m.Role == llmadapter.RoleAssistant && len([]rune(m.Content)) > 1600 {
+			t.Fatalf("assistant payload not clipped: %d", len([]rune(m.Content)))
+		}
+	}
+	if nonSystem != 2 {
+		t.Fatalf("third retry kept %d non-system messages", nonSystem)
+	}
+	if req.Messages[len(req.Messages)-1].Content != "current" {
+		t.Fatal("lost the current request")
 	}
 }
 

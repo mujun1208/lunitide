@@ -84,10 +84,10 @@ func fallbackDesktopTypeArgs(goal string) json.RawMessage {
 	return raw
 }
 
-// officeGenInternalHint is the model-only reminder for writing Office
-// files onto the Desktop. It must never appear in assistant deltas,
-// 无法执行 banners, or mid-markdown fences.
-const officeGenInternalHint = "写到桌面请用对应 *.gen 工具并设 desktop=true，不要用 command.run。"
+// officeGenInternalHint is the model-only reminder for where generated
+// files go. The conversation folder is the default. It must never appear
+// in assistant deltas, 无法执行 banners, or mid-markdown fences.
+const officeGenInternalHint = "生成文件写入当前对话文件夹，用对应 *.gen 工具，不要设 desktop=true，不要用 command.run。只有用户明确说放到桌面时才设 desktop=true。"
 
 func looksLikePlayOrOpenTurn(text string) bool {
 	t := strings.TrimSpace(text)
@@ -620,12 +620,20 @@ func userVisibleToolSummary(summary string) string {
 	if json.Valid([]byte(summary)) {
 		return summary
 	}
-	if strings.Contains(summary, officeGenInternalHint) ||
+	lecture := strings.Contains(summary, officeGenInternalHint) ||
 		(strings.Contains(summary, "*.gen") && strings.Contains(summary, "desktop=true")) ||
-		strings.Contains(summary, "写到桌面请用对应") {
-		return "正在生成到桌面…"
+		strings.Contains(summary, "写到桌面请用对应")
+	if !lecture {
+		return summary
 	}
-	return summary
+	// Keep the real tool result. Replacing the whole summary with a desktop
+	// echo hid failures and blocked the next step from confirming the file.
+	cleaned := strings.TrimSpace(stripOfficeGenLecture(summary))
+	cleaned = strings.TrimSpace(strings.ReplaceAll(cleaned, "写到桌面请用对应", ""))
+	if cleaned == "" || cleaned == "ok:false" {
+		return "ok:false\n写入当前对话文件夹后继续，不要停在桌面。"
+	}
+	return cleaned
 }
 
 func hasComputerControlTool(tools []string) bool {

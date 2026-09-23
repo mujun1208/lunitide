@@ -260,8 +260,8 @@ func TestApplyTaskRoute(t *testing.T) {
 	if seen["desktop.open"] || seen["computer.act"] || seen["browser.act"] {
 		t.Fatalf("R1 leaked mutating tools: %v", seen)
 	}
-	if !seen["web.search"] || !seen["user.ask"] || !seen["video.understand"] {
-		t.Fatalf("R1 dropped search/ask/video.understand: %v", seen)
+	if !seen["web.search"] || !seen["user.ask"] || !seen["todo.write"] || !seen["video.understand"] {
+		t.Fatalf("R1 dropped search/ask/steps/video.understand: %v", seen)
 	}
 	routePlay, allowPlay := classifyTaskRoute("播放七里香", false, false)
 	if routePlay != RouteR2 || allowPlay["video.understand"] {

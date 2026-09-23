@@ -211,15 +211,19 @@ func routeAllow(route TaskRoute, ccEnabled bool) map[string]bool {
 }
 
 // applyTaskRoute shrinks defs to allow. nil allow leaves defs unchanged.
-// user.ask is always kept. kb.search / kb.cite / graph.expand already on
-// defs stay (expert mount); they are never added by the allow map.
+// user.ask stays on every routed surface. todo.write stays on real tasks so a
+// typed checklist can be written; a greeting (R0) matches the minimal profile
+// and does not grow a checklist tool. kb.search / kb.cite / graph.expand already
+// on defs stay (expert mount); they are never added by the allow map.
 func applyTaskRoute(defs []llmadapter.ToolDefinition, route TaskRoute, allow map[string]bool) []llmadapter.ToolDefinition {
-	_ = route
 	if allow == nil {
 		return defs
 	}
 	keep := copyAllow(allow)
 	keep["user.ask"] = true
+	if route != RouteR0 {
+		keep["todo.write"] = true
+	}
 	for _, d := range defs {
 		if strings.HasPrefix(d.Name, mcpToolPrefix) || d.Name == "mcp.search" || d.Name == "mcp.call" {
 			keep[d.Name] = true

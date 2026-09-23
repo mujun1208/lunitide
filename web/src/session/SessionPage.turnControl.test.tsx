@@ -77,6 +77,31 @@ it('sends follow-ups while streaming instead of stopping', async () => {
   expect(start).toHaveBeenCalledOnce()
 })
 
+it('keeps a second question in the waiting area, then sends it with the first when confirmed', async () => {
+  const { onEvent, cancel, start, chat } = chatHarness()
+  const user = userEvent.setup()
+  const queued = { queuedId: '01ARZ3NDEKTSV4RRFFQ69G5FA01', seq: 1, text: '再追加一个问题，界面做得更有科技感', status: 'queued' as const, mark: 'turn_boundary' as const, createdAt: NOW }
+  vi.mocked(runQueueBridge.withdraw).mockResolvedValue({ queuedId: queued.queuedId, status: 'withdrawn' })
+  render(<SessionPage project={project} bridge={sessionBridge} personal initialSession={session} providers={providers} messages={{ list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append: vi.fn().mockResolvedValue({ id: USER_MSG }) } as MessageBridge} chat={chat} onBack={vi.fn()} />)
+  const input = await screen.findByLabelText('向月汐提问，或描述你想完成的任务…')
+  fireEvent.change(input, { target: { value: '先把这个 POC 改进一下' } })
+  await user.click(screen.getByRole('button', { name: '↑ 发送并对话' }))
+  await waitFor(() => expect(start).toHaveBeenCalledOnce())
+  await act(async () => onEvent()({ v: '1.0', kind: 'event', id: '01ARZ3NDEKTSV4RRFFQ69G5FAE', streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', sequence: 1, type: 'thinking', thinking: { text: '列目录…' } }))
+  vi.mocked(runQueueBridge.list).mockResolvedValue({ items: [queued] })
+  fireEvent.change(input, { target: { value: queued.text } })
+  await user.click(screen.getByRole('button', { name: '↑ 发送' }))
+  await waitFor(() => expect(runQueueBridge.input).toHaveBeenCalledWith(expect.objectContaining({ sessionId: S, text: queued.text })))
+  expect(cancel).not.toHaveBeenCalled()
+  expect(start).toHaveBeenCalledOnce()
+  expect(await screen.findByText('1 条等待')).toBeInTheDocument()
+  expect(screen.getByText(queued.text)).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: '立即发送' }))
+  await waitFor(() => expect(runQueueBridge.withdraw).toHaveBeenCalledWith(expect.objectContaining({ sessionId: S, queuedId: queued.queuedId })))
+  await waitFor(() => expect(cancel).toHaveBeenCalledOnce())
+  await waitFor(() => expect(start).toHaveBeenCalledTimes(2))
+})
+
 it('shows segment stop controls for multiple active turns and cancels only one', async () => {
   const cancel1 = vi.fn().mockResolvedValue(true)
   const cancel2 = vi.fn().mockResolvedValue(true)

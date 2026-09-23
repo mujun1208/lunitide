@@ -1,7 +1,7 @@
 // M10 queued-input hook and strip coverage: idempotent enqueue projection,
 // queue-full notice mapping, withdraw refresh, and flushAfterStream replay
 // (single passthrough or multi-item merge) per FR-28/FR-34.
-import { act, cleanup, render, renderHook, waitFor } from '@testing-library/react'
+import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import { BridgeClientError, runQueueBridge, type RunQueueBridge } from '../bridge/client'
@@ -131,6 +131,11 @@ it('renders the strip with pending items, withdrawal, and failure notices', asyn
   expect(document.querySelector('.input-queue-text')?.textContent).toBe('等待注入的补充')
   await user.click(document.querySelector('.input-queue-item button')!)
   expect(onWithdraw).toHaveBeenCalledWith('01ARZ3NDEKTSV4RRFFQ69G5FA03')
+  const onSendNow = vi.fn()
+  rerender(<QueueStrip items={[item(3, '等待注入的补充')]} notice="" onWithdraw={onWithdraw} onSendNow={onSendNow} />)
+  expect(document.querySelector('.input-queue-count')?.textContent).toBe('1 条等待')
+  await user.click(screen.getByRole('button', { name: '立即发送' }))
+  expect(onSendNow).toHaveBeenCalledWith(expect.objectContaining({ text: '等待注入的补充' }))
   rerender(<QueueStrip items={[]} notice="队列已满（5 条），请先撤回或等待注入" onWithdraw={onWithdraw} />)
   expect(document.querySelector('.input-queue-notice')?.getAttribute('role')).toBe('alert')
   rerender(<QueueStrip items={[]} notice="" onWithdraw={onWithdraw} />)
@@ -224,7 +229,7 @@ it('does not apply a late withdrawal failure to another selected session', async
   let reject!: (error: unknown) => void
   vi.mocked(bridge.withdraw).mockImplementationOnce(() => new Promise((_r, fail) => { reject = fail }))
   const { result, rerender } = renderHook(({ id }) => useInputQueue(id), { initialProps: { id: MESSAGE_ID } })
-  let pending!: Promise<void>
+  let pending!: Promise<boolean>
   act(() => { pending = result.current.withdraw(MESSAGE_ID) })
   rerender({ id: DELIVERY_ID })
   vi.mocked(bridge.input).mockRejectedValue(new BridgeClientError('full', 'M10-QI-005', false, 'renderer'))

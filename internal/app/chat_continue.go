@@ -22,8 +22,9 @@ const (
 	// calls near the ceiling earns more room, up to this hard cap. A turn
 	// that stalls, loops, or stops calling tools never reaches the extension
 	// and stays at the base limit.
-	maxToolLoopStepsHard = 48
+	maxToolLoopStepsHard = 72
 	toolLoopExtendChunk  = 8
+	maxToolBudgetWaves   = 3
 )
 
 // extendToolLoopLimit grows the per-turn step ceiling when the model is still
@@ -56,10 +57,57 @@ func extendToolLoopLimit(current, step int) int {
 // a typed one only meant the same task stopped halfway when asked out loud.
 // Inventory lookups stay pinned: those turns are supposed to be two steps.
 func turnMayEarnMoreSteps(companion, usedDesktopTools bool, goal string, lane LaneContract) bool {
+	if inventoryLookupBlocksPublicWeb(goal) {
+		return false
+	}
+	// A skill trial or other capability job is one task. A one-step lane
+	// used to stop after the catalog lookup and report the budget as spent.
+	if capabilityWorkTask(goal) {
+		return !companion || usedDesktopTools
+	}
 	if companion && !usedDesktopTools {
 		return false
 	}
-	return !inventoryLookupBlocksPublicWeb(goal) && laneMayExtendToolLoop(lane)
+	return laneMayExtendToolLoop(lane)
+}
+
+// turnAdmitsUnfinishedToolBudget is the model stopping because it believes
+// this round's tool allowance is gone while the task is still open.
+func turnAdmitsUnfinishedToolBudget(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	for _, done := range []string{"任务已完成", "已全部完成", "all done", "task complete"} {
+		if strings.Contains(strings.ToLower(t), strings.ToLower(done)) {
+			return false
+		}
+	}
+	for _, marker := range []string{
+		"工具额度", "额度耗尽", "步数已达上限", "步数限制", "工具耗尽", "只完成了",
+		"未取得可靠", "没做完", "尚未完成", "还没做完", "待验证",
+		"尚未落盘", "未落盘", "没有落盘", "无法落盘", "没能落盘",
+		"尚未写入", "还没写入", "未能写入", "没有写入文件",
+	} {
+		if strings.Contains(t, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+const toolBudgetContinueText = "上一轮工具步数用完了，任务还没完成。这是自动衔接的下一轮：继续调用工具把剩下的事做完。生成的文件写入当前对话文件夹，不要写到桌面，除非用户明确要求放到桌面。不要再说额度耗尽或尚未落盘后停下来。"
+
+const maxLengthContinueWaves = 2
+
+const lengthContinueText = "上一轮输出被长度截断，不完整的工具调用已经丢弃，文件还没落盘。这是自动衔接的下一轮：用一次完整的工具调用把剩余内容写入当前对话文件夹。文件大就拆成几次写入。不要重复长说明，不要停在截断处。"
+
+func lengthContinueMessage() llmadapter.Message {
+	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: lengthContinueText}
+}
+
+func toolBudgetContinueMessage() llmadapter.Message {
+	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: toolBudgetContinueText}
 }
 
 // assistantPausedMidTask reports whether the model clearly stopped to ASK the

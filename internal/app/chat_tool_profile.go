@@ -101,7 +101,7 @@ func toolProfileAllow(profile toolProfile) map[string]bool {
 			"skill.invoke": true, "skill.view": true,
 			"skill.catalog.list": true, "skill.list": true, "skill.install": true, "skill.publish": true,
 			"kb.search": true, "kb.cite": true, "graph.expand": true,
-			"todo.write": true,
+			"todo.write": true, "user.ask": true,
 		}
 	case toolProfileColleague:
 		allow := map[string]bool{}

@@ -385,7 +385,7 @@ type streamState struct {
 	usedScreenTools     bool
 	fullTools           []llmadapter.ToolDefinition
 	widened             bool
-	windowRetried       bool
+	windowRetryCount    int
 	prevWasToolGoal     bool
 	prevSuccessfulTools int
 }
@@ -422,7 +422,7 @@ type providerDTO struct {
 func NewEngine(providers ProviderService, version string) *Engine {
 	return &Engine{providers: providers, version: version, streamEngine: streamEngine{streams: make(map[string]*streamState), maxStreams: 32}, adapterCache: make(map[string]llmadapter.Adapter),
 		previewTickets: newPreviewTicketStore(),
-		gateway: llmadapter.Options{DisableTokenEfficiency: !config.TokenEfficiencyEnabled()}}
+		gateway:        llmadapter.Options{DisableTokenEfficiency: !config.TokenEfficiencyEnabled()}}
 }
 
 func NewEngineWithProjects(providers ProviderService, projects ProjectService, version string, leases LeaseClient) *Engine {

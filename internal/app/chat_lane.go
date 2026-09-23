@@ -405,7 +405,10 @@ func laneMayExtendToolLoop(lane LaneContract) bool {
 	if !chatLanesEnabled() || lane.Lane == "" {
 		return true
 	}
-	return lane.MaxMainToolSteps >= maxToolLoopSteps
+	if lane.Lane == LaneL0 || lane.Lane == LaneL1 || lane.Lane == LaneL2Ask {
+		return false
+	}
+	return lane.ContinueNudges || lane.MaxMainToolSteps >= maxToolLoopSteps
 }
 
 func laneAllowsDesktopContinue(c LaneContract) bool {
@@ -461,18 +464,19 @@ func applyLaneTools(defs []llmadapter.ToolDefinition, c LaneContract) []llmadapt
 				d.Name == "kb.search" || d.Name == "kb.cite" || d.Name == "graph.expand" ||
 				d.Name == "skill.invoke" || d.Name == "skill.try" ||
 				d.Name == "skill.catalog.list" || d.Name == "skill.list" || d.Name == "skill.install" || d.Name == "skill.publish" ||
+				d.Name == "user.ask" ||
 				strings.HasPrefix(d.Name, "office.") {
 				keep[d.Name] = true
 			}
 			if c.AllowWebSearch && (d.Name == "web.search" || d.Name == "web.fetch" ||
 				d.Name == "weather.get" || d.Name == "video.understand" ||
-				d.Name == "memory.search" || d.Name == "memory.get" || d.Name == "user.ask") {
+				d.Name == "memory.search" || d.Name == "memory.get") {
 				keep[d.Name] = true
 			}
 		}
 	case LaneL2Ask:
 		for _, d := range defs {
-			if d.Name == "user.ask" || d.Name == "kb.search" || d.Name == "kb.cite" || d.Name == "graph.expand" ||
+			if d.Name == "user.ask" || d.Name == "todo.write" || d.Name == "kb.search" || d.Name == "kb.cite" || d.Name == "graph.expand" ||
 				d.Name == "skill.invoke" || d.Name == "skill.try" ||
 				d.Name == "skill.catalog.list" || d.Name == "skill.list" || d.Name == "skill.install" || d.Name == "skill.publish" ||
 				strings.HasPrefix(d.Name, "office.") {

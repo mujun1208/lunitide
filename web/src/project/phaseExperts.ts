@@ -32,6 +32,19 @@ export function phaseSeedExpertIds(row?: ExpertMountingGetResult['matrix'][numbe
   return row.mountings.filter(m => m.state === 'mounted').map(m => m.expertId).slice(0, 4)
 }
 
+/** Explicit 推荐: mounted experts, otherwise the phase's advisory defaults. */
+export function phaseRecommendExpertIds(row?: ExpertMountingGetResult['matrix'][number]): string[] {
+  const mounted = phaseSeedExpertIds(row)
+  if (mounted.length) return mounted
+  const ids: string[] = []
+  for (const item of row?.defaults ?? []) {
+    if (!item.expertId || ids.includes(item.expertId)) continue
+    ids.push(item.expertId)
+    if (ids.length === 4) break
+  }
+  return ids
+}
+
 export function sessionExpertsAfterPhaseSeed(existing: readonly string[], seed: readonly string[]): string[] {
   if (existing.length) return [...existing]
   return [...seed]
@@ -47,6 +60,18 @@ export async function resolvePhaseExpertIds(
   const mounting = await experts.mountingGet({ projectId, phaseKey })
   const row = mounting.matrix.find(m => m.phaseKey === phaseKey)
   return phaseSeedExpertIds(row)
+}
+
+export async function resolvePhaseRecommendIds(
+  projectId: string,
+  phaseLabel?: string,
+  experts: ExpertBridge = expertBridge,
+): Promise<string[]> {
+  const phaseKey = phaseKeyFromLabel(phaseLabel)
+  if (!phaseKey) return []
+  const mounting = await experts.mountingGet({ projectId, phaseKey })
+  const row = mounting.matrix.find(m => m.phaseKey === phaseKey)
+  return phaseRecommendExpertIds(row)
 }
 
 export async function applySessionPhaseExperts(

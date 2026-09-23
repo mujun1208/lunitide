@@ -274,8 +274,8 @@ func looksLikeIndependentRequest(text string) bool {
 	return true
 }
 
-// looksLikeTaskChange detects a pivot away from the in-flight goal (negation or a
-// clearly independent new ask). Supplements and progress checks must stay false.
+// looksLikeTaskChange detects an explicit pivot (别做 / 换话题). An extra question
+// asked while the turn is still running stays a supplement and is merged in.
 func looksLikeTaskChange(text string) bool {
 	t := strings.TrimSpace(text)
 	if t == "" || looksLikeResume(t) || looksLikeStatusFollowUp(t) {
@@ -289,7 +289,7 @@ func looksLikeTaskChange(text string) bool {
 			return true
 		}
 	}
-	return looksLikeIndependentRequest(text)
+	return false
 }
 
 func followUpIntent(text string) string {

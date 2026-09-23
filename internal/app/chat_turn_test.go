@@ -39,10 +39,10 @@ func TestLooksLikeResume(t *testing.T) {
 	if looksLikeTaskChange("做好了没有") || looksLikeTaskChange("封面先做出来") || looksLikeTaskChange("改方案用深色封面") {
 		t.Fatal("status, supplement and steer must not start a new task")
 	}
-	if !looksLikeTaskChange("别做PPT了帮我查天气") || !looksLikeTaskChange("帮我打开桌面协议的文件") {
-		t.Fatal("explicit pivots must start a new task")
+	if !looksLikeTaskChange("别做PPT了帮我查天气") || looksLikeTaskChange("帮我打开桌面协议的文件") || looksLikeTaskChange("再追加一个问题，界面做得更有科技感") {
+		t.Fatal("only explicit pivots start a new task; extra questions stay with the current turn")
 	}
-	if followUpIntent("做好了吗") != "progress" || followUpIntent("封面先做出来") != "supplement" || followUpIntent("别做PPT了") != "task_change" {
+	if followUpIntent("做好了吗") != "progress" || followUpIntent("封面先做出来") != "supplement" || followUpIntent("别做PPT了") != "task_change" || followUpIntent("再追加一个问题") != "supplement" {
 		t.Fatal("follow-up intent classification mismatch")
 	}
 	if looksLikeIndependentRequest("做好了没有") || looksLikeIndependentRequest("改方案用深色封面") {
@@ -183,7 +183,7 @@ func TestRunStreamInjectsStatusFollowUp(t *testing.T) {
 	}
 }
 
-func TestRunStreamDoesNotMergeIndependentQueuedRequest(t *testing.T) {
+func TestRunStreamMergesQueuedFollowUpIntoCurrentTurn(t *testing.T) {
 	store := &memQueueStore{}
 	adapter := &dropUIAdapter{}
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
@@ -192,9 +192,9 @@ func TestRunStreamDoesNotMergeIndependentQueuedRequest(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	state := &streamState{cancel: cancel, state: streamRunning}
-	id := "stream-queue-independent"
+	id := "stream-queue-follow-up"
 	e.streams[id] = state
-	store.push("帮我打开桌面协议的文件我要查看")
+	store.push("再追加一个问题，界面做得更有科技感")
 	var sawMerge bool
 	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, llmadapter.Request{Model: "m"}, func(event bridge.Event) error {
 		if event.Delta != nil && strings.Contains(event.Delta.Text, "已并入你刚才补充的说明") {
@@ -202,12 +202,12 @@ func TestRunStreamDoesNotMergeIndependentQueuedRequest(t *testing.T) {
 		}
 		return nil
 	}, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
-	if sawMerge {
-		t.Fatal("independent queued task must not merge into the current turn")
+	if !sawMerge {
+		t.Fatal("a follow-up asked while the turn is running must merge into the current turn")
 	}
 	left, err := store.ListQueued(context.Background(), "01ARZ3NDEKTSV4RRFFQ69G5FAV")
-	if err != nil || len(left) != 1 || !strings.Contains(left[0].Payload, "协议") {
-		t.Fatalf("independent request should remain queued: %+v err=%v", left, err)
+	if err != nil || len(left) != 0 {
+		t.Fatalf("merged follow-up should be consumed: %+v err=%v", left, err)
 	}
 }
 
