@@ -278,6 +278,29 @@ func TestCancelAndRequestBudget(t *testing.T) {
 	_, _ = url.Parse("https://unused")
 }
 
+func TestScreenshotImageFollowsToolResult(t *testing.T) {
+	in := Request{
+		Model: "vision",
+		Messages: []Message{
+			{Role: RoleUser, Content: "点开第一个链接"},
+			{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "c1", Name: "computer.act", Arguments: []byte(`{"action":"screenshot"}`)}}},
+			{Role: RoleTool, ToolCallID: "c1", Content: "nodes"},
+		},
+		Images: []Image{{MIME: "image/png", Data: []byte{1, 2, 3}}},
+	}
+	msgs := openAIMessages(in, nil, false)
+	if len(msgs) != 4 || msgs[3].Role != RoleUser {
+		t.Fatalf("screenshot must follow the tool result: %#v", msgs)
+	}
+	if _, ok := msgs[0].Content.(string); !ok {
+		t.Fatal("the original user turn must stay text")
+	}
+	body, err := json.Marshal(msgs[3].Content)
+	if err != nil || !strings.Contains(string(body), `"type":"image_url"`) || strings.Contains(string(body), "点开第一个链接") {
+		t.Fatalf("trailing screenshot payload=%s err=%v", body, err)
+	}
+}
+
 func TestVisionPayloadContracts(t *testing.T) {
 	in := Request{Model: "vision", Messages: []Message{{Role: RoleUser, Content: "inspect"}}, Images: []Image{{MIME: "image/png", Data: []byte{1, 2, 3}}}}
 	openBody, err := json.Marshal(openAIRequest{Model: in.Model, Messages: openAIMessages(in, nil, false)})

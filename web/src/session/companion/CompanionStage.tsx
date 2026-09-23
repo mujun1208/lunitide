@@ -1497,47 +1497,46 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     beginUserTurn(text)
   }, [beginUserTurn, seedPrompt, sessionId, entryReady, talkLive])
 
+  const [pendingFlush, setPendingFlush] = useState(0)
   useEffect(() => {
     if (!chatReady || !pendingSendRef.current) return
-    if (machine.state === 'thinking' || machine.state === 'speaking') return
-    let cancelled = false
+    if (machine.state === 'thinking' || machine.state === 'speaking' || chatStatus === 'streaming') return
     let attempts = 0
+    let timer = 0
     const flush = () => {
-      if (cancelled || !chatReadyRef.current || !pendingSendRef.current) return
+      if (!chatReadyRef.current || !pendingSendRef.current) return
       if (userInterruptedRef.current) {
         pendingSendRef.current = null
         setEngineHint('')
         return
       }
-      if (stateRef.current === 'thinking' || stateRef.current === 'speaking') return
+      if (stateRef.current === 'thinking' || stateRef.current === 'speaking' || chatStatusRef.current === 'streaming') return
       const text = pendingSendRef.current
       pendingSendRef.current = null
       const persistedID = pendingPersistedMessageRef.current?.text === text ? pendingPersistedMessageRef.current.id : undefined
       const sent = persistedID ? onSendRef.current(text, persistedID) : onSendRef.current(text)
       void Promise.resolve(sent).then(ok => {
-        if (cancelled) return
-        if (ok === false) {
+        if (ok !== true) {
           if (userInterruptedRef.current) {
-            pendingSendRef.current = null
             setEngineHint('')
             return
           }
-          pendingSendRef.current = text
+          if (pendingSendRef.current == null) pendingSendRef.current = text
           setEngineHint('上一句还在发送，这轮说完再回')
           if (attempts++ >= 6) return
-          window.setTimeout(flush, 450)
+          timer = window.setTimeout(() => setPendingFlush(n => n + 1), 450)
           return
         }
+        setEngineHint('')
+        if (stateRef.current === 'thinking' || stateRef.current === 'speaking') return
         if (stateRef.current === 'idle') applyEvent({ type: 'MIC_ACTIVATE' })
         applyEvent({ type: 'RECOGNIZED_FINAL' })
         speakCompanionPad()
       })
     }
     flush()
-    return () => {
-      cancelled = true
-    }
-  }, [chatReady, chatStatus, machine, applyEvent])
+    return () => window.clearTimeout(timer)
+  }, [chatReady, chatStatus, machine, applyEvent, pendingFlush])
 
   const acceptBargeIn = useCallback(
     (transcript: string) => {

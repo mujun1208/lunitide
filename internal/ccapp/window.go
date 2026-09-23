@@ -159,6 +159,52 @@ func processStem(process string) string {
 	return strings.TrimSuffix(strings.TrimSuffix(name, ".lnk"), ".exe")
 }
 
+func browserProcessStem(process string) bool {
+	switch processStem(process) {
+	case "chrome", "msedge", "firefox":
+		return true
+	}
+	return false
+}
+
+// pickUserFacingWindow chooses a window the user can see that is not Lunitide.
+// A browser close only matches Chrome, Edge, or Firefox. A document close only
+// matches an editor. WebView hosts are skipped so the companion window stays up.
+func pickUserFacingWindow(wins []WindowInfo, browser bool) (WindowInfo, bool) {
+	var fallback WindowInfo
+	found := false
+	for _, w := range wins {
+		if ProtectedDesktopProcess(w.Process) || strings.Contains(processStem(w.Process), "webview") {
+			continue
+		}
+		title := strings.ToLower(w.Title)
+		if strings.Contains(title, "lunitide") || strings.Contains(w.Title, "月伴") {
+			continue
+		}
+		if browser {
+			if browserProcessStem(w.Process) {
+				if w.Foreground {
+					return w, true
+				}
+				if !found {
+					fallback, found = w, true
+				}
+			}
+			continue
+		}
+		if !documentEditorProcess(w.Process) {
+			continue
+		}
+		if w.Foreground {
+			return w, true
+		}
+		if !found {
+			fallback, found = w, true
+		}
+	}
+	return fallback, found
+}
+
 // windowFocusQuery resolves cc.window_focus args: title substring or process
 // fragment (either field may be set; title wins when both are present).
 func windowFocusQuery(title, process string) string {

@@ -157,7 +157,38 @@ func mediaCenterSkipsDesktopVerifier(goal string, messages []llmadapter.Message)
 	return strings.Contains(lastNamedToolOutput(messages, "media.play"), "MEDIA_CENTER")
 }
 
+func closeCurrentBrowserGoal(goal string) bool {
+	if !strings.Contains(goal, "关闭") && !strings.Contains(goal, "关掉") {
+		return false
+	}
+	return strings.Contains(goal, "浏览器") || strings.Contains(goal, "浏览区") || strings.Contains(goal, "网页")
+}
+
+func closeOpenDocumentGoal(goal string) bool {
+	if quitOnlyGoal(goal) {
+		return false
+	}
+	if !strings.Contains(goal, "关闭") && !strings.Contains(goal, "关掉") {
+		return false
+	}
+	return strings.Contains(goal, "文档") || strings.Contains(goal, "这个文件")
+}
+
+func directUserWindowClose(goal, name string) bool {
+	if !closeCurrentBrowserGoal(goal) && !closeOpenDocumentGoal(goal) {
+		return false
+	}
+	switch name {
+	case "browser.act", "mcp.search", "mcp.call", "computer.act", "desktop.quit":
+		return true
+	}
+	return false
+}
+
 func guardCurrentTurnTool(goal, name string) error {
+	if closeCurrentBrowserGoal(goal) && (name == "browser.act" || name == "mcp.search" || name == "mcp.call") {
+		return errors.New("关闭当前浏览器请用 computer.act 关掉已经打开的窗口，不要启动 browser.act 或 MCP。")
+	}
 	if quitOnlyGoal(goal) && (name == "computer.act" || strings.HasPrefix(name, "cc.") || name == "media.play") {
 		return errors.New("关闭这个软件请用 desktop.quit，不要点屏幕，也不要暂停。")
 	}

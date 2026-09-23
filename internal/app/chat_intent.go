@@ -72,6 +72,134 @@ func parseDesktopTypeArgsFromGoal(goal string) (after, text string, ok bool) {
 	return after, text, true
 }
 
+// composerSendGoal is a follow-up that types into the open app's input and sends.
+// "你好发，然后发送" keeps 你好: the extra 发 is the send verb split by speech recognition.
+func composerSendGoal(goal string) (string, bool) {
+	box := ""
+	for _, name := range []string{"输入框", "对话框", "聊天框"} {
+		if strings.Contains(goal, name) {
+			box = name
+			break
+		}
+	}
+	if box == "" || (!strings.Contains(goal, "发送") && !strings.Contains(goal, "回车")) {
+		return "", false
+	}
+	rest := goal
+	if i := strings.Index(goal, box); i >= 0 {
+		rest = goal[i+len(box):]
+	}
+	verbAt, verbLen := -1, 0
+	for _, verb := range []string{"输入", "填写", "写入"} {
+		if j := strings.Index(rest, verb); j >= 0 && (verbAt < 0 || j < verbAt) {
+			verbAt, verbLen = j, len(verb)
+		}
+	}
+	if verbAt < 0 {
+		return "", false
+	}
+	body := rest[verbAt+verbLen:]
+	marker := ""
+	for _, candidate := range []string{"然后发送", "并发送", "再发送", "然后回车", "发送", "回车"} {
+		if strings.Contains(body, candidate) {
+			marker = candidate
+			break
+		}
+	}
+	if marker == "" {
+		return "", false
+	}
+	text := strings.Trim(strings.TrimSpace(body[:strings.Index(body, marker)]), "，,。！？?!、 ")
+	if (marker == "然后发送" || marker == "并发送" || marker == "再发送") && strings.HasSuffix(text, "发") {
+		text = strings.Trim(strings.TrimSuffix(text, "发"), "，,。！？?!、 ")
+	}
+	if text == "" || strings.Contains(text, "输入框") {
+		return "", false
+	}
+	return text, true
+}
+
+func openedAppName(text string) string {
+	i := strings.Index(text, "打开")
+	if i < 0 {
+		i = strings.Index(text, "启动")
+	}
+	if i < 0 {
+		return ""
+	}
+	t := strings.TrimSpace(text[i:])
+	for _, verb := range []string{"打开", "启动"} {
+		if strings.HasPrefix(t, verb) {
+			t = strings.TrimSpace(strings.TrimPrefix(t, verb))
+			break
+		}
+	}
+	for _, prefix := range []string{"我桌面上的", "我桌面的", "我桌面上", "我桌面", "桌面上的", "桌面的", "桌面上", "桌面"} {
+		if strings.HasPrefix(t, prefix) {
+			t = strings.TrimSpace(strings.TrimPrefix(t, prefix))
+			break
+		}
+	}
+	t = strings.TrimPrefix(t, "的")
+	for _, cut := range []string{"软件", "应用", "程序", "，", ",", "。", "然后", "接着"} {
+		if j := strings.Index(t, cut); j > 0 {
+			t = t[:j]
+		}
+	}
+	t = strings.Trim(strings.TrimSpace(t), "，,。！？?!的 ")
+	switch t {
+	case "", "这个", "它", "软件", "应用", "程序", "文件", "文档":
+		return ""
+	}
+	if strings.Contains(t, "输入") {
+		return ""
+	}
+	return t
+}
+
+func composerSendWindow(goal string, messages []llmadapter.Message) string {
+	if name := openedAppName(goal); name != "" {
+		return name
+	}
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != llmadapter.RoleUser {
+			continue
+		}
+		if name := openedAppName(messages[i].Content); name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
+func composerSendTypeArgs(goal string, messages []llmadapter.Message) json.RawMessage {
+	text, ok := composerSendGoal(goal)
+	if !ok {
+		return nil
+	}
+	window := composerSendWindow(goal, messages)
+	if window == "" {
+		return nil
+	}
+	raw, err := json.Marshal(map[string]any{"text": text, "submit": true, "window": window})
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
+func composerSendSettled(goal string, messages []llmadapter.Message) bool {
+	if _, ok := composerSendGoal(goal); !ok {
+		return false
+	}
+	out := strings.TrimSpace(lastToolOutput(messages))
+	if out == "" || companionToolResultFailed(out) {
+		return false
+	}
+	lower := strings.ToLower(out)
+	return strings.Contains(lower, "typed ") && strings.Contains(lower, "submitted")
+}
+
 func fallbackDesktopTypeArgs(goal string) json.RawMessage {
 	after, text, ok := parseDesktopTypeArgsFromGoal(goal)
 	if !ok {
@@ -108,6 +236,9 @@ func looksLikeTypeAfterLabelTurn(text string) bool {
 	t := strings.TrimSpace(text)
 	if t == "" {
 		return false
+	}
+	if _, ok := composerSendGoal(t); ok {
+		return true
 	}
 	if _, _, ok := parseDesktopTypeArgsFromGoal(t); ok {
 		return true

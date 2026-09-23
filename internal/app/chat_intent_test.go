@@ -3,6 +3,8 @@ package app
 import (
 	"strings"
 	"testing"
+
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 func TestParseDesktopTypeArgsFromGoal(t *testing.T) {
@@ -28,6 +30,42 @@ func TestFallbackDesktopTypeArgs(t *testing.T) {
 	s := string(raw)
 	if !strings.Contains(s, `"text":"204040"`) || !strings.Contains(s, `"after":"身份证号码"`) {
 		t.Fatalf("args = %s", raw)
+	}
+}
+
+func TestComposerSendGoalTypesHelloIntoOpenedApp(t *testing.T) {
+	goal := "在软件的输入框内输入，你好发，然后发送。"
+	text, ok := composerSendGoal(goal)
+	if !ok || text != "你好" {
+		t.Fatalf("composer text=%q ok=%v", text, ok)
+	}
+	plain, ok := composerSendGoal("在输入框输入你好发送")
+	if !ok || plain != "你好" {
+		t.Fatalf("plain text=%q ok=%v", plain, ok)
+	}
+	if _, ok := composerSendGoal("身份证号码后面写204040"); ok {
+		t.Fatal("a labeled field fill is not a composer send")
+	}
+	if !looksLikeTypeAfterLabelTurn(goal) {
+		t.Fatal("composer send should use the type path")
+	}
+	messages := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "我说打开我桌面的豆包软件。"},
+		{Role: llmadapter.RoleAssistant, Content: "好，我来打开。已打开目标文件或应用。"},
+		{Role: llmadapter.RoleUser, Content: goal},
+	}
+	raw := composerSendTypeArgs(goal, messages)
+	got := string(raw)
+	if !strings.Contains(got, `"text":"你好"`) || !strings.Contains(got, `"window":"豆包"`) || !strings.Contains(got, `"submit":true`) {
+		t.Fatalf("args=%s", raw)
+	}
+	settled := append(messages, llmadapter.Message{Role: llmadapter.RoleTool, Content: `typed "你好" and submitted in 豆包`})
+	if !composerSendSettled(goal, settled) {
+		t.Fatal("a submitted type should settle the turn")
+	}
+	failed := append(messages, llmadapter.Message{Role: llmadapter.RoleTool, Content: "ok:false\n无法执行"})
+	if composerSendSettled(goal, failed) {
+		t.Fatal("a failed type must not settle")
 	}
 }
 

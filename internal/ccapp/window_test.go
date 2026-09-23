@@ -89,6 +89,26 @@ func TestWindowFocusQueryPrefersTitle(t *testing.T) {
 	}
 }
 
+func TestPickUserFacingWindowSkipsCompanion(t *testing.T) {
+	wins := []WindowInfo{
+		{ID: "app", Title: "月伴对话 - Lunitide", Process: "lunitide.exe", Foreground: true},
+		{ID: "wv", Title: "Lunitide", Process: "msedgewebview2.exe"},
+		{ID: "edge", Title: "新闻 - Microsoft Edge", Process: "msedge.exe"},
+		{ID: "word", Title: "周报.docx - Word", Process: "winword.exe"},
+	}
+	browser, ok := pickUserFacingWindow(wins, true)
+	if !ok || browser.ID != "edge" {
+		t.Fatalf("browser = %+v ok=%v", browser, ok)
+	}
+	doc, ok := pickUserFacingWindow(wins, false)
+	if !ok || doc.ID != "word" {
+		t.Fatalf("document = %+v ok=%v", doc, ok)
+	}
+	if _, ok := pickUserFacingWindow([]WindowInfo{{ID: "app", Title: "Lunitide", Process: "lunitide.exe", Foreground: true}}, true); ok {
+		t.Fatal("companion window must not count as a browser")
+	}
+}
+
 func TestClampClipboardCapsRunes(t *testing.T) {
 	long := strings.Repeat("月", CcMaxClipboardRunes+50)
 	got := clampClipboard(long)
