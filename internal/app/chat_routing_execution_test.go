@@ -257,8 +257,11 @@ func TestTypedWeeklyReportAskOmitsSearchTools(t *testing.T) {
 		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "好的，请补充本周完成和风险。"}}, nil
 	}}
 	_ = runRoutedExecution(t, e, "写周报", adapter)
-	if routedRequestHasTool(captured, "web.search") || routedRequestHasTool(captured, "docx.gen") {
-		t.Fatalf("写周报 kept scrape/gen: %#v", captured.Tools)
+	if routedRequestHasTool(captured, "web.search") {
+		t.Fatalf("写周报 kept search: %#v", captured.Tools)
+	}
+	if !routedRequestHasTool(captured, "workspace.write") || !routedRequestHasTool(captured, "docx.gen") {
+		t.Fatal("写周报 must keep write and docx.gen so the file can land")
 	}
 	sys := ""
 	if len(captured.Messages) > 0 {

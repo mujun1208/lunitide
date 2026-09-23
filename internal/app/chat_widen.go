@@ -86,6 +86,27 @@ func shouldWidenAndRetry(in widenInput) bool {
 	if looksLikeShortNudge(in.Goal) && in.PrevWasToolGoal && in.PrevSuccessfulTools == 0 {
 		return true
 	}
+	// The model described a paste instead of calling write. Retry once on the
+	// full tool surface so the file lands in this turn.
+	if looksLikePasteRefusal(in.AssistantText) {
+		return true
+	}
+	return false
+}
+
+func looksLikePasteRefusal(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	for _, n := range []string{
+		"无法自动落盘", "未提供文件写入", "没有文件写入", "没有写盘",
+		"请复制", "复制粘贴", "保存为",
+	} {
+		if strings.Contains(t, n) {
+			return true
+		}
+	}
 	return false
 }
 
