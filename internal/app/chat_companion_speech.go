@@ -190,6 +190,35 @@ func companionTypedText(out string) string {
 	return strings.TrimSpace(rest[:j])
 }
 
+// companionSucceededBeforeModelError is the speech for a close or open that
+// already landed, when the next model call is rejected. The rejection must
+// not be spoken as 无法执行 over a finished action.
+func companionSucceededBeforeModelError(companion bool, goal string, tools []string, messages []llmadapter.Message) string {
+	if !companion || len(tools) == 0 {
+		return ""
+	}
+	name := lastToolName(tools)
+	out := strings.TrimSpace(lastToolOutput(messages))
+	if out == "" || companionToolResultFailed(out) {
+		return ""
+	}
+	g := strings.TrimSpace(goal)
+	closing := strings.Contains(g, "关闭") || strings.Contains(g, "关掉") || strings.HasPrefix(strings.ToLower(g), "close ")
+	if closing && (name == "computer.act" || name == "desktop.quit" || name == "browser.act" || strings.HasPrefix(name, "cc.")) {
+		lower := strings.ToLower(out)
+		closed := strings.Contains(lower, "closed") || strings.Contains(out, "已关闭") || strings.Contains(out, "已彻底退出") || strings.Contains(lower, "window close")
+		clicked := strings.Contains(lower, "clicked") || strings.Contains(out, "点了")
+		updated := strings.Contains(lower, "screen updated") || strings.Contains(out, "画面")
+		if closed || (clicked && updated) {
+			return "已经关掉了。"
+		}
+	}
+	if name == "desktop.open" && (strings.Contains(g, "打开") || strings.Contains(g, "点开")) && !closing && strings.Contains(strings.ToLower(out), "opened ") {
+		return "已经打开了。"
+	}
+	return ""
+}
+
 func companionToolResultFailed(out string) bool {
 	lower := strings.ToLower(out)
 	return strings.HasPrefix(out, "ok:false") ||

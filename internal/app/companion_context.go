@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
@@ -732,7 +733,10 @@ func mediaArgsForGoal(goal string, args json.RawMessage) json.RawMessage {
 	return out
 }
 
-func (e *Engine) companionAutoDesktopTypeArgs(sessionID, goal string) (json.RawMessage, bool) {
+func (e *Engine) companionAutoDesktopTypeArgs(sessionID, goal string, messages []llmadapter.Message) (json.RawMessage, bool) {
+	if args := composerSendTypeArgs(goal, messages); len(args) > 0 {
+		return args, true
+	}
 	args := fallbackDesktopTypeArgs(goal)
 	if len(args) == 0 {
 		return nil, false

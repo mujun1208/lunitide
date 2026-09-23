@@ -294,6 +294,35 @@ func TestPlaybackTransportBlocksScreenClick(t *testing.T) {
 	if fallbackDesktopQuitArgs("关闭窗口") != nil {
 		t.Fatal("closing a window must not quit a process")
 	}
+	if quitOnlyGoal("关掉这个文档") || fallbackDesktopQuitArgs("关掉这个文档") != nil {
+		t.Fatal("closing the open document must stay on the window, not a process name")
+	}
+	if quitOnlyGoal("帮我关闭当前浏览器网页") {
+		t.Fatal("closing the current browser page is not an app quit")
+	}
+	if err := guardCurrentTurnTool("帮我关闭当前浏览器网页", "browser.act"); err == nil {
+		t.Fatal("closing the browser must not start browser.act")
+	}
+	if err := guardCurrentTurnTool("帮我关闭当前浏览器网页", "computer.act"); err != nil {
+		t.Fatal("closing the browser may use the open window", err)
+	}
+	messages := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "关掉这个文档"},
+		{Role: llmadapter.RoleTool, ToolCallID: "c1", Content: `clicked "关闭"; screen updated 100x100`},
+	}
+	if speech := companionSucceededBeforeModelError(true, "关掉这个文档", []string{"computer.act"}, messages); speech != "已经关掉了。" {
+		t.Fatalf("settled close speech = %q", speech)
+	}
+	if speech := companionSucceededBeforeModelError(true, "关掉这个文档", []string{"computer.act"}, []llmadapter.Message{
+		{Role: llmadapter.RoleTool, Content: "ok:false\n无法执行"},
+	}); speech != "" {
+		t.Fatal("a failed close must stay a failure")
+	}
+	if speech := companionSucceededBeforeModelError(true, "打开豆包", []string{"desktop.open"}, []llmadapter.Message{
+		{Role: llmadapter.RoleTool, Content: `opened "豆包"`},
+	}); speech != "已经打开了。" {
+		t.Fatalf("settled open speech = %q", speech)
+	}
 }
 
 func TestGuardBrowserActAfterMCPNotReady(t *testing.T) {

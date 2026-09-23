@@ -343,6 +343,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			usedDesktopTools := false
 			autoMediaPlayDone := false
 			autoDesktopQuitDone := false
+			autoUserWindowCloseDone := false
 			autoDesktopTypeDone := false
 			autoLookupDone := false
 			autoMediaGenerationDone := false
@@ -440,11 +441,13 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 				}
 				var gatewayErr *llmadapter.Error
-				if streamErr != nil && !imagesFallbackUsed && assistantText.Len() == stepTextStart && thinkingText.Len() == stepThinkingStart && len(req.Images) > 0 && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 && imageUnsupportedReason(gatewayErr.Message) {
+				if streamErr != nil && !imagesFallbackUsed && assistantText.Len() == stepTextStart && thinkingText.Len() == stepThinkingStart && len(req.Images) > 0 && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 {
 					if text, ok := e.maybeDescribeImages(op, provider.Model{ModelID: req.Model}, req.Images, chatRoutingText(lastUserContent(req.Messages))); ok {
 						req.Messages = injectVisionDescription(req.Messages, text)
-					} else {
+					} else if imageUnsupportedReason(gatewayErr.Message) {
 						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: "当前模型拒绝图片，配置的 OCR/视觉模型也未能完成识别。画面未被读取，不得猜测图片或视频帧内容。请简洁说明识别失败。"})
+					} else {
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: "屏幕截图未被模型接受，已去掉图片。请根据上一条工具返回的文字和节点继续完成操作，不要停下来。"})
 					}
 					req.Images = nil
 					imagesFallbackUsed = true
@@ -635,6 +638,14 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							}
 						}
 					}
+					if len(result.Message.ToolCalls) == 0 && state.companion && !autoUserWindowCloseDone && e.ccctrl != nil && (closeCurrentBrowserGoal(turn.Goal) || closeOpenDocumentGoal(turn.Goal)) {
+						result.Message.ToolCalls = []llmadapter.ToolCall{{
+							ID:        "auto-" + ulid.Make().String(),
+							Name:      "computer.act",
+							Arguments: []byte(`{"action":"observe"}`),
+						}}
+						autoUserWindowCloseDone = true
+					}
 					if len(result.Message.ToolCalls) == 0 && !autoDesktopQuitDone && toolDefinitionsHave(req.Tools, "desktop.quit") && !usedAnyTool(turn.LastTools, "desktop.quit") && quitOnlyGoal(turn.Goal) {
 						if quitArgs := fallbackDesktopQuitArgs(turn.Goal); len(quitArgs) > 0 {
 							result.Message.ToolCalls = []llmadapter.ToolCall{{
@@ -666,7 +677,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						}
 					}
 					if len(result.Message.ToolCalls) == 0 && !autoDesktopTypeDone && toolDefinitionsHave(req.Tools, "desktop.type") && !turnAttemptedAction(req.Messages, "type") && looksLikeTypeAfterLabelTurn(turn.Goal) {
-						if typeArgs, ok := e.companionAutoDesktopTypeArgs(sessionID, turn.Goal); ok {
+						if typeArgs, ok := e.companionAutoDesktopTypeArgs(sessionID, turn.Goal, req.Messages); ok {
 							result.Message.ToolCalls = []llmadapter.ToolCall{{
 								ID:        "auto-" + ulid.Make().String(),
 								Name:      "desktop.type",
@@ -1196,6 +1207,24 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						if settled, ok := browseAlreadyOpenReceipt(turn.Goal, call.Name, req.Messages); ok {
 							return toolruntime.Result{Output: settled}, nil
 						}
+						if _, ok := composerSendGoal(turn.Goal); ok && !autoDesktopTypeDone && (call.Name == "computer.act" || strings.HasPrefix(call.Name, "cc.")) {
+							if raw := composerSendTypeArgs(turn.Goal, req.Messages); len(raw) > 0 {
+								res, typeErr := e.executeUserToolWithCompanion(op, mode, sessionID, "desktop.type", raw, nil, state.companion)
+								if typeErr == nil && !companionToolResultFailed(res.Output) {
+									autoDesktopTypeDone = true
+									return res, nil
+								}
+							}
+						}
+						if directUserWindowClose(turn.Goal, call.Name) && e.ccctrl != nil {
+							if info, cerr := e.ccctrl.CloseUserFacingWindow(closeCurrentBrowserGoal(turn.Goal)); cerr == nil {
+								title := strings.TrimSpace(info.Title)
+								if title == "" {
+									title = "窗口"
+								}
+								return toolruntime.Result{Output: "window close " + title + "; screen updated"}, nil
+							}
+						}
 						if err := guardCurrentTurnToolHistory(turn.Goal, call.Name, req.Messages); err != nil {
 							guardBlockedCalls++
 							return toolruntime.Result{}, err
@@ -1456,6 +1485,26 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if companionGoalIsOpenOnly(turn.Goal) && desktopOpenSucceeded(lastToolOutput(req.Messages), turn.LastTools) {
 						break
 					}
+					if composerSendSettled(turn.Goal, req.Messages) {
+						speech := "已经发出去了。"
+						if !strings.Contains(assistantText.String(), speech) {
+							assistantText.WriteString(speech)
+							if err := sendDeltaChunks(send, speech); err != nil {
+								return err
+							}
+						}
+						break
+					}
+					if (closeCurrentBrowserGoal(turn.Goal) || closeOpenDocumentGoal(turn.Goal)) && companionSucceededBeforeModelError(true, turn.Goal, turn.LastTools, req.Messages) != "" {
+						speech := "已经关掉了。"
+						if !strings.Contains(assistantText.String(), speech) {
+							assistantText.WriteString(speech)
+							if err := sendDeltaChunks(send, speech); err != nil {
+								return err
+							}
+						}
+						break
+					}
 				}
 				guiTrigger := lastGUIFail || emptyObserves >= 2 || desktopLadderWantsGUIAfterObserve(turn.Goal, req.Messages, emptyObserves)
 				if guiTrigger && guiLoopRuns < maxGUILoopRunsPerTurn && !parkedFilePicker && !parkedUAC && parkedBrowserWall == "" {
@@ -1536,7 +1585,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						}
 					}
 					if !hasDesktopType && desktopLadderAllowsDedicated(turn.Goal, req.Messages) && !turnAttemptedAction(req.Messages, "type") {
-						if typeArgs, ok := e.companionAutoDesktopTypeArgs(sessionID, turn.Goal); ok {
+						if typeArgs, ok := e.companionAutoDesktopTypeArgs(sessionID, turn.Goal, req.Messages); ok {
 							autoDesktopTypeDone = true
 							callID := "auto-" + ulid.Make().String()
 							name := "desktop.type"
@@ -1743,6 +1792,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: delta}})
 			}
 		} else if outcome := chatModelOutcomeNotice(e.isStreamCancelling(state), err); outcome != "" {
+			if speech := companionSucceededBeforeModelError(state.companion, turn.Goal, turn.LastTools, req.Messages); speech != "" {
+				outcome = speech
+				err = nil
+			}
 			if next, delta := appendAssistantNotice(assistantText.String(), outcome); delta != "" {
 				assistantText.Reset()
 				assistantText.WriteString(next)

@@ -358,7 +358,7 @@ func quitTargetName(goal string) string {
 	case "", "软件", "程序", "应用", "窗口", "这个", "它", "他":
 		return ""
 	}
-	if strings.Contains(t, "窗口") || strings.Contains(t, "标签") {
+	if strings.Contains(t, "窗口") || strings.Contains(t, "标签") || strings.Contains(t, "文档") || strings.Contains(t, "网页") || strings.Contains(t, "浏览器") || strings.Contains(t, "浏览") || strings.Contains(t, "页面") {
 		return ""
 	}
 	return t

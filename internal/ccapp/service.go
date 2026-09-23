@@ -196,6 +196,33 @@ func (s *Service) SetClock(c Clock) { s.clock = c }
 // SetHost substitutes the control host (tests).
 func (s *Service) SetHost(h Host) { s.host = h }
 
+// CloseUserFacingWindow closes the open browser or document editor.
+// browser selects Chrome, Edge, or Firefox. Otherwise it selects an editor.
+func (s *Service) CloseUserFacingWindow(browser bool) (WindowInfo, error) {
+	if s == nil || s.host == nil || !s.host.Available() {
+		return WindowInfo{}, errors.New("电脑控制未启用")
+	}
+	wins, err := s.host.ListWindows()
+	if err != nil {
+		return WindowInfo{}, err
+	}
+	target, ok := pickUserFacingWindow(wins, browser)
+	if !ok {
+		if browser {
+			return WindowInfo{}, errors.New("没有找到已打开的浏览器窗口")
+		}
+		return WindowInfo{}, errors.New("没有找到已打开的文档窗口")
+	}
+	info, err := s.host.WindowAction(target.ID, "close", 0, 0, 0, 0)
+	if err != nil {
+		return WindowInfo{}, err
+	}
+	if info.Title == "" {
+		info = target
+	}
+	return info, nil
+}
+
 // SetMutateSettleForTest shortens the post-mutation wait (tests).
 func (s *Service) SetMutateSettleForTest(d time.Duration) { s.mutateSettle = d }
 

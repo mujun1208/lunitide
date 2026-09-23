@@ -269,11 +269,28 @@ func openAIMessages(in Request, wn *wireNames, rawImageURL bool) []openAIMessage
 			lastUser = len(out) - 1
 		}
 	}
-	if lastUser < 0 || len(in.Images) == 0 {
+	if len(in.Images) == 0 {
 		return out
 	}
-	parts := []openAIContentPart{{Type: "text", Text: in.Messages[lastUser].Content}}
-	for _, image := range in.Images {
+	parts := openAIImageParts(in.Images, rawImageURL)
+	// A screenshot taken after a tool call must ride on a trailing user
+	// turn. Rewriting an earlier user message leaves the image behind
+	// tool results, and compatible providers answer that shape with 400.
+	if lastUser >= 0 && lastUser == len(out)-1 {
+		text, _ := out[lastUser].Content.(string)
+		out[lastUser].Content = append([]openAIContentPart{{Type: "text", Text: text}}, parts...)
+		return out
+	}
+	out = append(out, openAIMessage{
+		Role:    RoleUser,
+		Content: append([]openAIContentPart{{Type: "text", Text: "这是刚截到的屏幕。"}}, parts...),
+	})
+	return out
+}
+
+func openAIImageParts(images []Image, rawImageURL bool) []openAIContentPart {
+	parts := make([]openAIContentPart, 0, len(images))
+	for _, image := range images {
 		encoded := base64.StdEncoding.EncodeToString(image.Data)
 		url := encoded
 		if !rawImageURL {
@@ -288,8 +305,7 @@ func openAIMessages(in Request, wn *wireNames, rawImageURL bool) []openAIMessage
 		}{URL: url}
 		parts = append(parts, openAIContentPart{Type: "image_url", ImageURL: imageURL})
 	}
-	out[lastUser].Content = parts
-	return out
+	return parts
 }
 
 func imageURLWantsRawBase64(reason string) bool {

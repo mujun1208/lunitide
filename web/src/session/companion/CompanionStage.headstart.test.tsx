@@ -40,6 +40,7 @@ const speech = vi.hoisted(() => ({
 
 const tts = vi.hoisted(() => ({
   enqueueCalls: [] as Array<{ segments: string[]; callbacks: TtsPlayerCallbacks }>,
+  flushCalls: [] as Array<{ onFinished?: () => void }>,
   playing: false,
 }))
 
@@ -96,7 +97,9 @@ vi.mock('./ttsPlayer', () => ({
       tts.enqueueCalls.push({ segments, callbacks })
       tts.playing = true
     }
-    async flush(): Promise<void> {}
+    async flush(callbacks?: { onFinished?: () => void }): Promise<void> {
+      tts.flushCalls.push({ onFinished: callbacks?.onFinished })
+    }
     isBusy() {
       return tts.playing
     }
@@ -137,6 +140,7 @@ beforeEach(() => {
   speech.setAssistantPlayback.mockReset()
   speech.start.mockResolvedValue(speech.handle())
   tts.enqueueCalls = []
+  tts.flushCalls = []
   tts.playing = false
   localStorage.clear()
 })
@@ -464,6 +468,22 @@ test('a follow-up during a tool lead-in waits instead of cancelling the turn', a
   expect(onCancel).not.toHaveBeenCalled()
   expect(onSend).toHaveBeenCalledTimes(1)
   expect(utils.container.textContent).toContain('下一句已记下，这轮说完就回')
+
+  await act(async () => {
+    utils.rerender(<CompanionStage {...props} chatStatus="done" assistantText="好，我来播放。这次操作没成功，请再说具体一点让我重试。" />)
+  })
+  await flush(0)
+  const finish = [...tts.flushCalls].reverse().find(call => call.onFinished)?.onFinished
+    ?? lastReplyCall()?.callbacks.onFinished
+  tts.playing = false
+  if (finish) {
+    await act(async () => {
+      finish('completed')
+    })
+  }
+  await flush(0)
+  expect(onSend).toHaveBeenCalledTimes(2)
+  expect(onSend).toHaveBeenLastCalledWith('播放没有成功，再点击播放一下。')
 })
 
 test('Space and moon while listening do not cancel the microphone', async () => {
