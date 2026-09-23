@@ -310,3 +310,19 @@ func TestDeclinedDocumentTaskDoesNotOverrideExpertIntroduction(t *testing.T) {
 		t.Fatal("declined report started workflow")
 	}
 }
+
+func TestOfficeGenerateIsMisroutedWhenTheUserSaysStartThePythonPOC(t *testing.T) {
+	messages := []llmadapter.Message{
+		{Role: llmadapter.RoleAssistant, Content: "源码已在对话中给出：ai_sales_poc.py\npython ai_sales_poc.py test"},
+		{Role: llmadapter.RoleUser, Content: "已经可以落盘了啊，你开始干啊"},
+	}
+	if !officeToolMisroutedToCode("office.generate", messages[1].Content, messages, json.RawMessage(`{"name":"说明.docx","spec":{}}`)) {
+		t.Fatal("python POC follow-up must not go through office.generate")
+	}
+	if officeToolMisroutedToCode("office.generate", "做一份周报", messages, json.RawMessage(`{"name":"周报.docx","spec":{}}`)) {
+		t.Fatal("an explicit report request must still use office.generate")
+	}
+	if !officeToolMisroutedToCode("docx.gen", "写一下", nil, json.RawMessage(`{"path":"ai_sales_poc.py"}`)) {
+		t.Fatal("a .py target must not use an office generator")
+	}
+}

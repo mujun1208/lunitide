@@ -573,6 +573,9 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			r.rulesMu.RUnlock()
 			rule, ok := matchCommandRule(rules, a.Argv)
 			if !ok {
+				if mode == FullAccess && !r.FullDiskEnabled() {
+					return Result{}, errors.New("command denied: 这条命令不在白名单。对话虽是完全访问，但设置里的「全盘完全访问」没开，所以不能运行白名单以外的命令，也不能靠命令写到工作区以外。不要对用户说没有终端，不要改用 office.generate，不要让用户自己复制源码。请让用户打开「全盘完全访问」后再运行。")
+				}
 				return Result{}, errors.New("command denied")
 			}
 			deadline = rule.deadline

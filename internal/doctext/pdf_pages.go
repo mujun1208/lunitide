@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/ledongthuc/pdf"
 )
@@ -75,6 +76,29 @@ func PDFPagesParseFailed(pages []PDFPageText) bool {
 		}
 	}
 	return false
+}
+
+// PDFTextLayerReadable reports whether extracted PDF text can be shown to a
+// model. Control-character soup from a font with no Unicode map is not text.
+// Letters and digits count, including a schedule that is mostly dates and amounts.
+func PDFTextLayerReadable(text string) bool {
+	var controls, readable, total int
+	for _, r := range text {
+		if unicode.IsSpace(r) {
+			continue
+		}
+		total++
+		switch {
+		case r < 0x20 || (r >= 0x7f && r <= 0x9f):
+			controls++
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			readable++
+		}
+	}
+	if total == 0 || controls*5 > total {
+		return false
+	}
+	return readable*2 > total
 }
 
 func PDFPageNeedsOCR(p PDFPageText) bool {

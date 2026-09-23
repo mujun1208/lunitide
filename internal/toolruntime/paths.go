@@ -107,6 +107,9 @@ func (r *Runtime) path(mode Mode, session, rel string, write, unconfined bool) (
 		return clean, nil
 	}
 	if rel == "" || filepath.IsAbs(rel) || filepath.VolumeName(rel) != "" {
+		if write && mode == FullAccess && !r.FullDiskEnabled() {
+			return "", errors.New("relative path required：当前是完全访问，但没开「全盘完全访问」，不能写到工作区以外的路径。请到设置打开后再写。不要改用 office.generate，也不要让用户自己复制。")
+		}
 		return "", errors.New("relative path required")
 	}
 	clean := filepath.Clean(rel)

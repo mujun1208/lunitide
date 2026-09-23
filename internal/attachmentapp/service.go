@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/lunitide/lunitide/internal/doctext"
 	"github.com/lunitide/lunitide/internal/domain/attachment"
 	"github.com/oklog/ulid/v2"
 )
@@ -385,6 +386,8 @@ func (s *Service) IngestFile(ctx context.Context, req IngestFileRequest) (attach
 			errCode = "UNSUPPORTED_MIME"
 		} else if errors.Is(parseErr, ErrInvalidContent) {
 			errCode = "INVALID_CONTENT"
+		} else if errors.Is(parseErr, doctext.ErrUnreadableTextLayer) {
+			errCode = "TEXT_LAYER_UNREADABLE"
 		}
 		_ = s.store.UpdateParseResult(ctx, id, attachment.StatusFailed, errCode, "", 0)
 		att.ParseStatus = attachment.StatusFailed

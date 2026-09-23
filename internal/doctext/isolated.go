@@ -130,6 +130,8 @@ func ExtractContext(ctx context.Context, name string, raw []byte, media string) 
 			return Result{}, ErrBudgetExceeded
 		case ErrNoTextLayer.Error():
 			return Result{}, ErrNoTextLayer
+		case ErrUnreadableTextLayer.Error():
+			return Result{}, ErrUnreadableTextLayer
 		case ErrUnsupportedFormat.Error():
 			return Result{}, ErrUnsupportedFormat
 		}
