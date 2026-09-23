@@ -90,10 +90,10 @@ func classifyChatLane(in LaneInput) ChatLane {
 	if looksLikeNovelTask(goal) {
 		return LaneL3
 	}
-	// A source revision (overwrite index.html / README / v1 产物) is not an
-	// office-template turn. Classifying it as L2-ask drops workspace.write
-	// and command.run, so the model can only paste the next version.
-	if laneLooksLikeFileRevision(goal) {
+	// Any later pass over an existing deliverable — page, source, report,
+	// sheet, or slides — stays on the full tool surface. A read-only or
+	// one-step ask lane drops the write, so the model can only paste.
+	if laneLooksLikeArtifactRevision(goal) {
 		return LaneL3
 	}
 	materials := in.HasTurnMaterials || hasTurnMaterials(goal, false, false)
@@ -112,33 +112,53 @@ func classifyChatLane(in LaneInput) ChatLane {
 	return LaneL1
 }
 
-// laneLooksLikeFileRevision is a follow-up that changes an existing
-// deliverable (v1 → v2, overwrite index.html). That turn still needs
-// workspace.write and command.run. In-place prose stays on L1.
-func laneLooksLikeFileRevision(goal string) bool {
+// laneLooksLikeArtifactRevision is a follow-up that changes an existing
+// deliverable in place: another version of a page, source file, report,
+// spreadsheet, or deck. In-place prose stays on L1. A fresh “写周报”
+// is not a revision.
+func laneLooksLikeArtifactRevision(goal string) bool {
 	if laneLooksLikeInPlaceProse(goal) {
 		return false
 	}
 	if strings.Contains(goal, "写一篇") || strings.Contains(goal, "写一段") {
 		return false
 	}
-	t := strings.ToLower(goal)
-	verb := false
-	for _, needle := range []string{"修改", "覆盖", "改成", "落盘", "保存为", "第二版", "2.0", "v2", "v1"} {
+	// Bullet lines are the report's content ("修复支付超时"), not a request
+	// to revise an existing file.
+	t := strings.ToLower(revisionInstructionText(goal))
+	for _, needle := range []string{"改版", "在原来", "原文件", "原稿", "上一版", "下一版", "再改一版", "再修一版", "原来的产物", "原来产物"} {
 		if strings.Contains(t, needle) {
-			verb = true
-			break
+			return true
 		}
 	}
-	if !verb {
+	if !laneHasRevisionVerb(t) {
 		return false
 	}
-	for _, needle := range []string{"覆盖", "落盘", "保存为", "第二版", "2.0", "v2", "v1", "产物", "文件", "版本", ".html", ".md", "readme", "源码"} {
+	if laneLooksLikeOfficeDeliverable(t) {
+		return true
+	}
+	for _, needle := range []string{"覆盖", "落盘", "保存为", "第二版", "2.0", "v2", "v1", "产物", "文件", "版本", "页面", "源码", "交付", ".html", ".md", "readme", "docx", "xlsx", "pptx", "pdf"} {
 		if strings.Contains(t, needle) {
 			return true
 		}
 	}
 	return false
+}
+
+func revisionInstructionText(goal string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(goal, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "-") || strings.HasPrefix(line, "•") || strings.HasPrefix(line, "*") || numberedPointRE.MatchString(line) {
+			continue
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 // promoteLaneForSkillTrial keeps a draft-skill follow-up on the full tool
@@ -175,6 +195,16 @@ func laneLooksLikeResearch(goal string) bool {
 		"先搜索", "你先搜", "先搜",
 	} {
 		if strings.Contains(goal, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func laneHasRevisionVerb(goal string) bool {
+	t := strings.ToLower(goal)
+	for _, needle := range []string{"修改", "修复", "升级", "改版", "调整", "改进", "迭代", "覆盖", "改成", "落盘", "保存为", "第二版", "2.0", "v2", "v1"} {
+		if strings.Contains(t, needle) {
 			return true
 		}
 	}

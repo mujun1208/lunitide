@@ -70,6 +70,45 @@ func TestSkillTrialFollowUpPromotesReadOnlyLane(t *testing.T) {
 	}
 }
 
+func TestArtifactRevisionKeepsWriteOnEveryDeliverable(t *testing.T) {
+	defs := []llmadapter.ToolDefinition{
+		{Name: "docx.gen"}, {Name: "pptx.gen"}, {Name: "excel.gen"}, {Name: "pdf.gen"},
+		{Name: "office.generate"}, {Name: "workspace.write"}, {Name: "command.run"},
+		{Name: "user.ask"},
+	}
+	cases := []string{
+		"修改上周的周报",
+		"把演示文稿升级一版",
+		"调整表格里的数字，改原文件",
+		"修复这个页面，在原文件上再改一版",
+		"把已有 PDF 改版",
+	}
+	for _, goal := range cases {
+		lane := classifyChatLane(LaneInput{Goal: goal})
+		if lane != LaneL3 {
+			t.Fatalf("%q => %s want L3", goal, lane)
+		}
+		seen := map[string]bool{}
+		for _, d := range applyLaneTools(defs, buildLaneContract(lane, RouteUnspecified, CouncilOverlay{})) {
+			seen[d.Name] = true
+		}
+		for _, name := range []string{"docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "office.generate", "workspace.write", "command.run"} {
+			if !seen[name] {
+				t.Fatalf("%q dropped %s", goal, name)
+			}
+		}
+	}
+	if got := classifyChatLane(LaneInput{Goal: "写周报"}); got != LaneL2Ask {
+		t.Fatalf("fresh weekly report => %s want L2-ask", got)
+	}
+	if got := classifyChatLane(LaneInput{Goal: "写一篇关于修改周报的文章"}); got == LaneL3 {
+		t.Fatal("an article about revising a report must stay off the write lane")
+	}
+	if got := classifyChatLane(LaneInput{Goal: "调整这段话的语气"}); got == LaneL3 {
+		t.Fatal("prose polish must stay off the write lane")
+	}
+}
+
 func TestClassifyChatLaneT03WeeklyReportNoMaterialIsL2Ask(t *testing.T) {
 	if detectTaskRoute("写周报") != RouteR4 {
 		t.Fatalf("写周报 route=%s want R4", detectTaskRoute("写周报"))
