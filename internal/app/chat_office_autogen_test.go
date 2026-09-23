@@ -326,3 +326,22 @@ func TestOfficeGenerateIsMisroutedWhenTheUserSaysStartThePythonPOC(t *testing.T)
 		t.Fatal("a .py target must not use an office generator")
 	}
 }
+
+func TestRunnableDemoSystemIsNotASlideDeck(t *testing.T) {
+	goal := "我要让为直接生成一个可以演示的系统，要求结果可以直接看到并在页面原子操作，有数据交互，数据存储。"
+	if wantsOfficeGen(goal) || wantsOfficeDeliverableDuringTrial(goal) || officeGenToolForGoal(goal) != "" || includeOfficeGenWorkflow(goal) {
+		t.Fatalf("runnable system classified as office: wants=%v trial=%v tool=%q workflow=%v", wantsOfficeGen(goal), wantsOfficeDeliverableDuringTrial(goal), officeGenToolForGoal(goal), includeOfficeGenWorkflow(goal))
+	}
+	if !officeToolMisroutedToCode("pptx.gen", goal, nil, json.RawMessage(`{"path":"介绍.pptx"}`)) {
+		t.Fatal("pptx.gen on a runnable system must be refused")
+	}
+	turn := &chatTurnCheckpoint{Goal: goal, CapabilityWork: true, LastTools: []string{"command.run", "workspace.write"}}
+	if shouldAutoOfficeGen(turn, errors.New("command failed")) {
+		t.Fatal("a failed command.run must not fall back to a PPT")
+	}
+	for _, slides := range []string{"做一份产品介绍演示文稿", "用 PPT 技能做一份介绍公司的演示文稿", "生成一份汇报PPT"} {
+		if officeGenToolForGoal(slides) != "pptx.gen" {
+			t.Fatalf("%q should stay a slide deck, got %q", slides, officeGenToolForGoal(slides))
+		}
+	}
+}

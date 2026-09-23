@@ -85,6 +85,9 @@ func TestConcurrentArtifactPersistenceKeepsAllMessageCards(t *testing.T) {
 func TestArtifactAppendPreservesUnreadableExistingIndex(t *testing.T) {
 	e := newArtifactEngine(t)
 	path := e.sessionArtifactsPath(artifactSession)
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
 	for _, original := range []string{`{"messages":{"old":[`, `{"unexpected":"retain this data"}`} {
 		if err := os.WriteFile(path, []byte(original), 0600); err != nil {
 			t.Fatal(err)

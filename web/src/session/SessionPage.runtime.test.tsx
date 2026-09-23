@@ -177,7 +177,16 @@ it('preserves near-limit user text and sends auto-edit mode through chat.start',
  expect(localStorage.getItem(`lunitide:execution-mode:${S}`)).toBe('auto-edit')
  const raw='界'.repeat(32768);fireEvent.change(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),{target:{value:raw}})
  await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
- await waitFor(()=>expect(start).toHaveBeenCalled());expect(vi.mocked(append).mock.calls[0][0].text).toBe(raw);expect(start.mock.calls[0][0]).toMatchObject({sessionId:S,executionMode:'auto-edit'})
+ await waitFor(()=>expect(start).toHaveBeenCalled());expect(vi.mocked(append).mock.calls[0][0].text).toBe(raw);expect(start.mock.calls[0][0]).toMatchObject({sessionId:S,executionMode:'auto-edit',reasoningLevel:'high'})
+ expect(screen.queryByText('Git 只读')).toBeNull()
+ expect(screen.queryByText('Shell 完全访问')).toBeNull()
+ expect(screen.getByLabelText('模型使用强度')).toBeInTheDocument()
+})
+
+it('shows an open button for this conversation folder',async()=>{
+ const user=await open({personal:true,providers,initialSession:session})
+ expect(await screen.findByRole('button',{name:'打开对话文件夹'})).toBeInTheDocument()
+ expect(user).toBeTruthy()
 })
 
 it('offers personal composer context actions',async()=>{

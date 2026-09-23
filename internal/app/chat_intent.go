@@ -482,8 +482,35 @@ func looksLikeHtmlGenTask(text string) bool {
 		(strings.Contains(t, "清单") && !strings.Contains(t, "硬件"))
 }
 
+// runnableSystemRequest is a system the user can open and operate
+// (page actions, data, a local server). The word 演示 in that sentence
+// is "show me a running thing", not a slide deck.
+func runnableSystemRequest(text string) bool {
+	t := strings.ToLower(capabilityRequestBody(text))
+	if t == "" {
+		return false
+	}
+	for _, format := range []string{"pptx", "ppt", "幻灯", "演示文稿", "演示稿", "powerpoint", "docx", "word", "xlsx", "excel", "周报", "报告"} {
+		if strings.Contains(t, format) {
+			return false
+		}
+	}
+	for _, k := range []string{"数据交互", "数据存储", "原子操作", "poc"} {
+		if strings.Contains(t, k) {
+			return true
+		}
+	}
+	if strings.Contains(t, "系统") && (strings.Contains(t, "演示") || strings.Contains(t, "页面") || strings.Contains(t, "运行") || strings.Contains(t, "跑起来")) {
+		return true
+	}
+	return strings.Contains(t, "页面") && (strings.Contains(t, "操作") || strings.Contains(t, "演示"))
+}
+
 func wantsOfficeGen(text string) bool {
 	if refusesOfficeGen(text) || spokenResultReportOnly(text) {
+		return false
+	}
+	if runnableSystemRequest(text) {
 		return false
 	}
 	if capabilityWorkTask(text) || officeMaterialReview(text) || officeHowToQuestion(text) {

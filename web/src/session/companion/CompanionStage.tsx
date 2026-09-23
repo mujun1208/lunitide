@@ -25,7 +25,7 @@ import {
   saveCompanionSettings,
   voiceIdForEngineSwitch,
 } from './companionSettings'
-import { alreadySpokenCloseout, cleanForSpeech, cleanUserTranscript, clipAssistantToSpoken, clipCompanionPrompt, clipCompanionSpokenTurn, compactSpeech, companionCancelRemainder, companionCannotExecuteSpeech, companionCaptionFromStream, companionDeafHasVisibleText, companionExecutingSpeech, companionHasFreshAssistantText, companionPadSpeech, companionReplyStallMs, companionShouldHoldBusyTurn, companionSpokenCancel, companionTaskCompleteSpeech, companionToolCloseoutSpeech, companionToolPhaseCaption, COMPANION_CONNECTING_HINT_MS, COMPANION_TOOL_PROGRESS_MS, companionToolProgressSpeech, companionToolsExecuting, FIRST_SPEAK_STALL_MS, handsFreeRetryDelayMs, isCompanionLeadInOnly, looksLikeAsrHallucination, looksLikeBargeInSpeech, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, shouldQueueBusyUserTranscript, stripTaskDonePhrases, takeSpeakableChunk, type CompanionToolPhase } from './companionText'
+import { alreadySpokenCloseout, cleanForSpeech, cleanUserTranscript, clipAssistantToSpoken, clipCompanionPrompt, clipCompanionSpokenTurn, compactSpeech, companionCancelRemainder, companionCannotExecuteSpeech, companionCaptionFromStream, companionDeafHasVisibleText, companionExecutingSpeech, companionHasFreshAssistantText, companionPadSpeech, companionReplyStallMs, companionShouldHoldBusyTurn, companionSpokenCancel, companionTaskCompleteSpeech, companionToolCloseoutSpeech, companionToolPhaseCaption, COMPANION_CONNECTING_HINT_MS, COMPANION_TOOL_PROGRESS_MS, companionToolProgressSpeech, companionToolsExecuting, FIRST_SPEAK_STALL_MS, handsFreeRetryDelayMs, isCompanionLeadInOnly, looksLikeAsrHallucination, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, shouldQueueBusyUserTranscript, stripTaskDonePhrases, takeSpeakableChunk, type CompanionToolPhase } from './companionText'
 import { companionAsrPathLabel, companionListenFailover, companionListenKind, companionListenLightLabel, companionVolcDeafGiveUp, withDeadline, type AsrRoute } from './asrPath'
 import { isCompanionInfraBusy } from './companionBusy'
 import { localAsrStatus, LOCAL_ASR_DECISION_MS, readyWithin } from './localAsr'
@@ -1368,7 +1368,18 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
         }
       }
       if (companionShouldHoldBusyTurn(chatStatusRef.current, cancelKind, userInterruptedRef.current)) {
-        setEngineHint('上一句还在做，要停下就说撤了或点打断')
+        const lastAssistant = [...roundsRef.current].reverse().find(round => round.role === 'assistant')?.text ?? ''
+        if (
+          looksLikePlaybackEcho(text, lastSpokenRef.current) ||
+          looksLikePlaybackEcho(text, lastAssistant) ||
+          looksLikePlaybackEcho(text, assistantTextRef.current)
+        ) {
+          discardEchoCaption(transcript)
+          return
+        }
+        pendingSendRef.current = text
+        setInterimText(text)
+        setEngineHint('下一句已记下，这轮说完就回')
         return
       }
       pendingPersistedMessageRef.current = persistedMessageId ? {text, id: persistedMessageId} : undefined
@@ -1391,10 +1402,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       }
       if (!transcriptAcceptance(text, { commit: true }) && !userInterruptedRef.current) {
         const lastAssistant = [...roundsRef.current].reverse().find(round => round.role === 'assistant')?.text ?? ''
-        if (settingsRef.current.voicePath === 'volc' && looksLikeBargeInSpeech(text, lastSpokenRef.current)) {
-          userInterruptedRef.current = true
-          cancelReply()
-        } else if (shouldQueueBusyUserTranscript({
+        if (shouldQueueBusyUserTranscript({
           state: stateRef.current,
           text,
           lastSpoken: lastSpokenRef.current,
@@ -1403,12 +1411,12 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
           voicePath: settingsRef.current.voicePath,
         })) {
           pendingSendRef.current = text
+          setInterimText(text)
           setEngineHint('下一句已记下，这轮说完就回')
           return
-        } else {
-          discardEchoCaption(transcript)
-          return
         }
+        discardEchoCaption(transcript)
+        return
       }
       if (talkHandleRef.current && !talkHandoffRef.current) {
         cancelCaptionFade()
@@ -1529,15 +1537,26 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
     return () => {
       cancelled = true
     }
-  }, [chatReady, machine, applyEvent])
+  }, [chatReady, chatStatus, machine, applyEvent])
 
   const acceptBargeIn = useCallback(
     (transcript: string) => {
       const text = cleanUserTranscript(transcript)
       if (!text) return
-      if (looksLikePlaybackEcho(text, lastSpokenRef.current)) return
+      if (looksLikePlaybackEcho(text, lastSpokenRef.current) || looksLikePlaybackEcho(text, assistantTextRef.current)) return
       const state = stateRef.current
       if (state !== 'thinking' && state !== 'speaking') return
+      if (
+        !companionSpokenCancel(text) &&
+        (state === 'thinking' ||
+          companionToolsExecuting(chatStatusRef.current, activityStatusRef.current) ||
+          isCompanionLeadInOnly(assistantTextRef.current))
+      ) {
+        pendingSendRef.current = text
+        setInterimText(text)
+        setEngineHint('下一句已记下，这轮说完就回')
+        return
+      }
       staleReplyRef.current = assistantTextRef.current
       userInterruptedRef.current = true
       handledReplyRef.current = true

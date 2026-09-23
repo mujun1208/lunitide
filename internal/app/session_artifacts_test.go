@@ -47,6 +47,22 @@ func TestChatDeliverableArtifact(t *testing.T) {
 	}
 }
 
+func TestLoadSessionArtifactsDoesNotCreateAnEmptyFolder(t *testing.T) {
+	root := t.TempDir()
+	tools, err := toolruntime.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &Engine{tools: tools}
+	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	if got := e.loadSessionArtifactsByMessage(session); len(got) != 0 {
+		t.Fatalf("artifacts = %#v", got)
+	}
+	if _, err := os.Stat(filepath.Join(root, session)); !os.IsNotExist(err) {
+		t.Fatal("reading artifact cards created the conversation folder")
+	}
+}
+
 func TestAppendAndLoadSessionArtifacts(t *testing.T) {
 	tools, err := toolruntime.New(t.TempDir())
 	if err != nil {

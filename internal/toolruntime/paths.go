@@ -20,6 +20,43 @@ func (r *Runtime) effectiveSessionsRoot() string {
 
 func (r *Runtime) SessionFolder(session string) (string, error) { return r.sessionRoot(session) }
 
+// SessionFolderPath is the conversation folder under the artifact root.
+// Looking it up does not create the directory.
+func (r *Runtime) SessionFolderPath(session string) (string, error) { return r.sessionPath(session) }
+
+// sessionArtifactFile is where a generated product file is written.
+// Relative paths stay inside this conversation's folder, even when
+// full-access file tools are pointed at a project workspace.
+func (r *Runtime) sessionArtifactFile(session, relPath string) (string, error) {
+	if relPath == "" || filepath.IsAbs(relPath) || filepath.VolumeName(relPath) != "" {
+		return "", errors.New("relative path required")
+	}
+	clean := filepath.Clean(relPath)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return "", errors.New("path traversal")
+	}
+	root, err := r.sessionRoot(session)
+	if err != nil {
+		return "", err
+	}
+	if realRoot, canonErr := canonpath.Canonical(root); canonErr == nil {
+		root = realRoot
+	}
+	parent := filepath.Dir(filepath.Join(root, clean))
+	if err = os.MkdirAll(parent, 0700); err != nil {
+		return "", err
+	}
+	realParent, err := canonpath.Canonical(parent)
+	if err != nil {
+		return "", err
+	}
+	relCheck, err := filepath.Rel(root, realParent)
+	if err != nil || relCheck == ".." || strings.HasPrefix(relCheck, ".."+string(os.PathSeparator)) {
+		return "", errors.New("path escape")
+	}
+	return filepath.Join(root, clean), nil
+}
+
 // effectiveRoot returns the directory file tools operate in for this call.
 // Full-access rides the user-selected workspace root when one resolves;
 // everything else (and any resolver failure) keeps the per-session sandbox.

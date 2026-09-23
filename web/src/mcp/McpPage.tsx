@@ -6,6 +6,7 @@ import{Dialog}from'../ui/Dialog'
 import{McpCredentialDialog}from'./McpCredentialDialog'
 import{McpSecurityReviewDialog}from'./McpSecurityReviewDialog'
 import{mcpExistingMarketInstall,mcpNeedsRepair,mcpPackageName,mcpRepairArgs,mcpRepairTargets,mcpUsesUv,missingRecommendedPresets,recommendedPreset,repairPresetFor}from'./mcpRepair'
+import{MarketMark}from'../market/marketIcon'
 
 type Preset=Mcp6PresetsListResult['items'][number]
 type Endpoint=McpListResult['endpoints'][number]
@@ -299,7 +300,7 @@ export function McpPage({bridge=mcpBridge}:{bridge?:McpBridge}):React.JSX.Elemen
      const installed=installedKeys.has(presetKey(preset))
      return <article className={`skill-market-card ${installed?'is-installed':''}`} key={preset.id}>
       <header>
-       <span className="skill-market-glyph" aria-hidden="true">{preset.name.slice(0,1)}</span>
+       <span className="skill-market-glyph" aria-hidden="true"><MarketMark label={preset.name} fallback={preset.name.slice(0,1)} /></span>
        <div><b>{preset.name}</b><small>{preset.category} · {preset.transport==='https'?'远程服务':preset.command}{recommendedPreset(preset)?' · 推荐 · 免密钥':''}</small></div>
        {installed?<span className="skill-market-installed-row"><span className="skill-market-installed">已安装</span><button type="button" className="skill-market-remove" aria-label={`卸载 ${preset.name}`} disabled={Boolean(busy)} onClick={()=>{const item=endpoints.find(endpoint=>endpoint.state!=='revoked'&&installedKey(endpoint)===presetKey(preset));if(item)setRemoveTarget(item)}}>卸载</button></span>:<button type="button" className="skill-market-add" aria-label={`安装 ${preset.name}`} disabled={Boolean(busy)} onClick={()=>void installPreset(preset)}>{busy===preset.id?'…':'＋'}</button>}
       </header>

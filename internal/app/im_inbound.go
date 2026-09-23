@@ -299,9 +299,6 @@ func (e *Engine) ensureInboundSession(ctx context.Context, projectID, title stri
 	if err != nil {
 		return "", err
 	}
-	if _, dirErr := e.sessionOutputDir(created.ID); dirErr != nil {
-		_ = dirErr
-	}
 	return created.ID, nil
 }
 

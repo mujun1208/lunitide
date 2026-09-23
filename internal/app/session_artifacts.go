@@ -30,7 +30,7 @@ func (e *Engine) sessionArtifactsPath(sessionID string) string {
 	if e == nil || e.tools == nil || sessionID == "" {
 		return ""
 	}
-	dir, err := e.tools.SessionFolder(sessionID)
+	dir, err := e.tools.SessionFolderPath(sessionID)
 	if err != nil || dir == "" {
 		return ""
 	}

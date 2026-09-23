@@ -552,8 +552,5 @@ func (e *Engine) isolatedAutomationSession(ctx context.Context, boundSessionID s
 	if err != nil {
 		return ""
 	}
-	if _, dirErr := e.sessionOutputDir(created.ID); dirErr != nil {
-		_ = dirErr
-	}
 	return created.ID
 }

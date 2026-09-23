@@ -176,6 +176,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		SubagentPolicy        json.RawMessage `json:"subagentPolicy"`
 		ToolProfile           string          `json:"toolProfile"`
 		OfficeTaskID          string          `json:"officeTaskId"`
+		ReasoningLevel        string          `json:"reasoningLevel"`
 	}
 	if decodePayload(request.Payload, &p) != nil || !ulidValid(p.ProviderID) || len(p.ModelID) < 1 || len(p.ModelID) > 128 {
 		return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.start 参数无效", false)
@@ -1016,6 +1017,14 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		req.Tools = applyLaneTools(req.Tools, contract)
 		req.DisableReasoning = contract.DisableReasoning || isShortIdleGreeting(intent.Text)
 		state.lane = contract
+	}
+	if !p.Companion {
+		if level := normalizeReasoningLevel(p.ReasoningLevel); level != "" {
+			req.ReasoningLevel = level
+			if level != "low" && !isShortIdleGreeting(intent.Text) {
+				req.DisableReasoning = false
+			}
+		}
 	}
 	if len(p.TrialSkillIDs) > 0 {
 		req.Tools = append(req.Tools, skillTrialToolDefinition())

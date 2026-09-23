@@ -224,7 +224,13 @@ func (r *Runtime) writeGenerated(mode Mode, session, relPath string, data []byte
 	if len(data) > generatedByteLimit(relPath) {
 		return Result{}, errors.New("generated file exceeds limit")
 	}
-	p, e := r.path(mode, session, relPath, true, unconfined)
+	var p string
+	var e error
+	if filepath.IsAbs(relPath) || filepath.VolumeName(relPath) != "" {
+		p, e = r.path(mode, session, relPath, true, unconfined)
+	} else {
+		p, e = r.sessionArtifactFile(session, relPath)
+	}
 	if e != nil {
 		return Result{}, e
 	}

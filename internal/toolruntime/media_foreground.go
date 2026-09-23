@@ -411,6 +411,9 @@ func executeMediaPlayForeground(ctx context.Context, invoke ccInvoker, session, 
 		if playing, ok := confirmedMusicPlaying(ctx, app); ok {
 			return withOpenedPlayer(opened, playing), nil
 		}
+		if res, ok := trySparseTreePlay(ctx, invoke, session, app, approved); ok {
+			return withOpenedPlayer(opened, res), nil
+		}
 		return genericPlaybackStarted(app, opened, "media key"), nil
 	}
 	focus := app

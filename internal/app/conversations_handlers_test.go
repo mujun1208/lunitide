@@ -31,6 +31,27 @@ func TestConversationsRootSetMissingDirUsesChinese(t *testing.T) {
 	}
 }
 
+func TestSessionFolderGetDoesNotCreateTheDirectory(t *testing.T) {
+	root := t.TempDir()
+	sessionID := ulid.Make().String()
+	e := NewEngine(nil, "test")
+	rt, err := toolruntime.New(filepath.Join(root, "legacy"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	e.SetToolRuntime(rt)
+	rt.SetSessionStorageRoot(func() (string, error) { return root, nil })
+	raw, _ := json.Marshal(map[string]string{"sessionId": sessionID})
+	resp := e.Handle(context.Background(), validRequest("session.folder.get", string(raw)))
+	if !resp.OK {
+		t.Fatalf("get %#v", resp)
+	}
+	if _, err := os.Stat(filepath.Join(root, sessionID)); !os.IsNotExist(err) {
+		t.Fatal("looking up the conversation folder created it")
+	}
+}
+
 func TestSessionFolderGetUnwiredUsesChinese(t *testing.T) {
 	e := NewEngine(nil, "test")
 	resp := e.Handle(context.Background(), validRequest("session.folder.get", `{"sessionId":"`+ulid.Make().String()+`"}`))

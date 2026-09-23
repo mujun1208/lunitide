@@ -1,5 +1,5 @@
 .product-hub {
-  --ph-bg: #0a0a14;
+  --ph-bg: #0c0e12;
   --ph-card: #12121f;
   --ph-card-2: #171728;
   --ph-text: #e8e8f2;
@@ -24,7 +24,7 @@
   color: var(--ph-text);
   color-scheme: dark;
   font-family: var(--ph-font);
-  -webkit-font-smoothing: antialiased;
+  -webkit-font-smoothing: subpixel-antialiased;
   text-rendering: optimizeLegibility;
 }
 .product-hub *,

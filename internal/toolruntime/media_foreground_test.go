@@ -15,12 +15,15 @@ func TestMediaKeyWithoutReadbackIsUncertain(t *testing.T) {
 	origActivate := activateWindow
 	origSession := mediaSessionAction
 	origPlay := sendForegroundPlay
+	origSleep := mediaSleep
 	t.Cleanup(func() {
 		activateWindow = origActivate
 		mediaSessionAction = origSession
 		sendForegroundPlay = origPlay
+		mediaSleep = origSleep
 	})
 	activateWindow = func(string) error { return nil }
+	mediaSleep = func(time.Duration) {}
 	mediaSessionAction = func(context.Context, []string, string, bool) (winexec.MediaSessionResult, error) {
 		return winexec.MediaSessionResult{}, errors.New("no smtc")
 	}
@@ -30,8 +33,7 @@ func TestMediaKeyWithoutReadbackIsUncertain(t *testing.T) {
 		return nil
 	}
 	invoke := func(context.Context, string, string, json.RawMessage, bool) (Result, error) {
-		t.Fatal("generic play must not hunt the UI")
-		return Result{}, errors.New("unexpected")
+		return Result{Output: `{"count":0,"nodes":[]}`}, nil
 	}
 	res, err := executeMediaPlayForeground(context.Background(), invoke, "s1", "随机播放", "汽水音乐", true, true)
 	if err != nil || !played {

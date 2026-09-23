@@ -45,9 +45,6 @@ func (e *Engine) ensurePeopleBoundSession(ctx context.Context, threadID, titleHi
 	if err != nil {
 		return "", err
 	}
-	if _, dirErr := e.sessionOutputDir(created.ID); dirErr != nil {
-		_ = dirErr
-	}
 	if err := e.people.BindThreadSession(ctx, threadID, created.ID); err != nil {
 		if existing, ok, lookErr := e.people.ThreadSession(ctx, threadID); lookErr == nil && ok {
 			return existing, nil

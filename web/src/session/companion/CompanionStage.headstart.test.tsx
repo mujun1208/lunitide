@@ -439,6 +439,33 @@ test('barge-in stops playback but waits for the full utterance before sending', 
   expect(stateOf(utils.container)).toBe('thinking')
 })
 
+test('a follow-up during a tool lead-in waits instead of cancelling the turn', async () => {
+  const onSend = vi.fn()
+  const onCancel = vi.fn()
+  const props = { ...baseProps, onSend, onCancel }
+  const utils = render(<CompanionStage {...props} />)
+  await flush(600)
+  await act(async () => {
+    speech.callbacks!.onFinal('帮我打开汽水音乐，随机播放一首歌曲。')
+  })
+  await flush(0)
+  await act(async () => {
+    utils.rerender(<CompanionStage {...props} chatStatus="streaming" assistantText="好，我来播放。" />)
+  })
+  await flush(0)
+  expect(onSend).toHaveBeenCalledTimes(1)
+
+  await act(async () => {
+    speech.callbacks!.onBargeIn?.('播放没有成功，再点击播放一下。')
+    speech.callbacks!.onFinal('播放没有成功，再点击播放一下。')
+  })
+  await flush(0)
+
+  expect(onCancel).not.toHaveBeenCalled()
+  expect(onSend).toHaveBeenCalledTimes(1)
+  expect(utils.container.textContent).toContain('下一句已记下，这轮说完就回')
+})
+
 test('Space and moon while listening do not cancel the microphone', async () => {
   const utils = render(<CompanionStage {...baseProps} />)
   await flush(600)

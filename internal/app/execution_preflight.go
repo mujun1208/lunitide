@@ -167,6 +167,39 @@ func compileProfileOrDefault(p modelfit.ModelProfile) modelfit.ModelProfile {
 	return p
 }
 
+func normalizeReasoningLevel(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "low", "high", "max":
+		return strings.ToLower(strings.TrimSpace(raw))
+	case "medium":
+		// GLM-5.3 folds medium into high. Keep the wire value on a real effort.
+		return "high"
+	default:
+		return ""
+	}
+}
+
+// applyUserReasoningLevel is the typed-chat intensity slider. It runs after
+// the lane's DisableReasoning default so 极高 still sends reasoning_effort=max.
+func applyUserReasoningLevel(eff *modelfit.EffectiveParameters, model string, profile modelfit.ModelProfile, level string) {
+	switch level {
+	case "low":
+		if thinkingDisableUnsupported(model, profile) {
+			eff.ThinkingType = "enabled"
+			eff.Effort = "low"
+			return
+		}
+		eff.ThinkingType = "disabled"
+		eff.Effort = "low"
+	case "high":
+		eff.ThinkingType = "enabled"
+		eff.Effort = "high"
+	case "max":
+		eff.ThinkingType = "enabled"
+		eff.Effort = "max"
+	}
+}
+
 func thinkingDisableUnsupported(model string, profile modelfit.ModelProfile) bool {
 	if strings.Contains(strings.ToLower(model), "glm-5.3") {
 		return true
@@ -212,6 +245,10 @@ func compileFinalInput(req llmadapter.Request, profile modelfit.ModelProfile, st
 		} else {
 			eff.ThinkingType = "disabled"
 		}
+		prepared.Effective = eff
+	}
+	if level := normalizeReasoningLevel(req.ReasoningLevel); level != "" {
+		applyUserReasoningLevel(&eff, req.Model, profile, level)
 		prepared.Effective = eff
 	}
 	req.Effective = &eff

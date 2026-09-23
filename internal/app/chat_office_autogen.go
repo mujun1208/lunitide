@@ -103,6 +103,9 @@ func officeToolMisroutedToCode(name, goal string, messages []llmadapter.Message,
 	if officeGenerateTargetsCode(args) {
 		return true
 	}
+	if runnableSystemRequest(goal) {
+		return true
+	}
 	if wantsOfficeGen(goal) {
 		return false
 	}
@@ -143,6 +146,9 @@ func officeGenToolForGoal(goal string) string {
 		return ""
 	}
 	if looksLikeSkillAuthoringTask(goal) || looksLikeExpertAuthoringTask(goal) || officeMaterialReview(goal) || officeHowToQuestion(goal) {
+		return ""
+	}
+	if runnableSystemRequest(goal) {
 		return ""
 	}
 	if capabilityWorkTask(goal) && !wantsOfficeDeliverableDuringTrial(goal) {
@@ -199,6 +205,9 @@ func officeGenToolForTurn(turn *chatTurnCheckpoint) string {
 	if turn == nil || officeMaterialReview(turn.Goal) {
 		return ""
 	}
+	if runnableSystemRequest(turn.Goal) {
+		return ""
+	}
 	if (turn.CapabilityWork || capabilityWorkTask(turn.Goal)) && !wantsOfficeDeliverableDuringTrial(turn.Goal) {
 		return ""
 	}
@@ -225,7 +234,7 @@ func skipOfficeAutogen(ctx context.Context, sessionID, goal string) bool {
 }
 
 func wantsOfficeDeliverableDuringTrial(goal string) bool {
-	if looksLikeSkillAuthoringTask(goal) || looksLikeExpertAuthoringTask(goal) {
+	if looksLikeSkillAuthoringTask(goal) || looksLikeExpertAuthoringTask(goal) || runnableSystemRequest(goal) {
 		return false
 	}
 	t := strings.ToLower(capabilityRequestBody(goal))
@@ -241,7 +250,7 @@ func wantsOfficeDeliverableDuringTrial(goal string) bool {
 }
 
 func shouldAutoOfficeGen(turn *chatTurnCheckpoint, streamErr error) bool {
-	if turn == nil || errors.Is(streamErr, errSkillContextBudget) {
+	if turn == nil || errors.Is(streamErr, errSkillContextBudget) || runnableSystemRequest(turn.Goal) {
 		return false
 	}
 	if turn.PptGenerated || turn.DocxGenerated {

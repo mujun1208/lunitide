@@ -89,7 +89,7 @@ func (s *Store) EffectiveRoot() (string, bool, error) {
 	return cfg.Path, true, nil
 }
 
-func (s *Store) SessionDir(sessionID string) (string, error) {
+func (s *Store) SessionDirPath(sessionID string) (string, error) {
 	if err := validSessionID(sessionID); err != nil {
 		return "", err
 	}
@@ -97,7 +97,14 @@ func (s *Store) SessionDir(sessionID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(root, sessionID)
+	return filepath.Join(root, sessionID), nil
+}
+
+func (s *Store) SessionDir(sessionID string) (string, error) {
+	dir, err := s.SessionDirPath(sessionID)
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}

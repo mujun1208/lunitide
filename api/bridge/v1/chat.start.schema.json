@@ -59,6 +59,10 @@
       ],
       "description": "Force the model to deliver via structured.output (event=calendar, form=labeled fields, kv=pairs). Ignored when companion=true or off."
     },
+    "reasoningLevel": {
+      "enum": ["low", "high", "max"],
+      "description": "Typed-chat model intensity. Sent as reasoning_effort. Omitted keeps the lane default. Ignored for companion voice."
+    },
     "toolProfile": {
       "enum": [
         "minimal",
@@ -265,7 +269,8 @@
         "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
         "modelId": "x",
         "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAA",
-        "executionMode": "plan"
+        "executionMode": "plan",
+        "reasoningLevel": "max"
       },
       {
         "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -304,6 +309,12 @@
         "modelId": "x",
         "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAA",
         "executionMode": "unrestricted"
+      },
+      {
+        "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "modelId": "x",
+        "sessionId": "01ARZ3NDEKTSV4RRFFQ69G5FAA",
+        "reasoningLevel": "turbo"
       },
       {
         "providerId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
