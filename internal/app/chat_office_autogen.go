@@ -4,13 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/lunitide/lunitide/internal/toolruntime"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/officetools"
+	"github.com/lunitide/lunitide/internal/toolruntime"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -83,6 +85,53 @@ func officeExpertIntroduction(goal string) bool {
 	}
 	for _, phrase := range []string{"介绍自己", "介绍下自己", "介绍一下自己", "介绍你的能力", "介绍下你的", "你能做什么", "你可以做什么", "你可以帮我什么", "你可以帮我做什么", "你在吗", "你是谁"} {
 		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// officeToolMisroutedToCode is true when a code/POC turn is being sent through
+// an Office generator. "开始干 / 落盘" after a Python POC must write and run the
+// source file, not call office.generate.
+func officeToolMisroutedToCode(name, goal string, messages []llmadapter.Message, args json.RawMessage) bool {
+	switch name {
+	case "office.generate", "excel.gen", "docx.gen", "pptx.gen", "pdf.gen", "html.gen":
+	default:
+		return false
+	}
+	if officeGenerateTargetsCode(args) {
+		return true
+	}
+	if wantsOfficeGen(goal) {
+		return false
+	}
+	blob := strings.ToLower(goal)
+	seen := 0
+	for i := len(messages) - 1; i >= 0 && seen < 8; i-- {
+		role := messages[i].Role
+		if role != llmadapter.RoleUser && role != llmadapter.RoleAssistant {
+			continue
+		}
+		blob += "\n" + strings.ToLower(messages[i].Content)
+		seen++
+	}
+	code := strings.Contains(blob, ".py") || strings.Contains(blob, "python") || strings.Contains(blob, "poc") || strings.Contains(blob, "源码")
+	act := strings.Contains(blob, "落盘") || strings.Contains(blob, "开始干") || strings.Contains(blob, "运行") || strings.Contains(blob, "跑一下") || strings.Contains(blob, "跑起来")
+	return code && act
+}
+
+func officeGenerateTargetsCode(args json.RawMessage) bool {
+	var p struct {
+		Name string `json:"name"`
+		Path string `json:"path"`
+	}
+	if json.Unmarshal(args, &p) != nil {
+		return false
+	}
+	for _, item := range []string{p.Name, p.Path} {
+		switch strings.ToLower(filepath.Ext(item)) {
+		case ".py", ".go", ".ts", ".js", ".sh", ".ps1":
 			return true
 		}
 	}

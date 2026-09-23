@@ -803,6 +803,10 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		// Assemble the context envelope with full priority ordering and
 		// selection trace (ADR-005 §3). Companion now awaits message.append
 		// before chat.start, but the assembly fallback remains for empty sessions.
+		// A dropped folder can be several parsed excerpts, each up to 1 MiB.
+		// Those preambles are mandatory, so an oversized folder used to reject
+		// the whole send. Keep every file name, keep short files whole, and
+		// shrink the long ones until this turn fits the model window.
 		history := chatHistoryReader{Reader: e.messageReader}
 		if p.Companion {
 			history.afterSequence = p.CompanionHistoryAfter
@@ -811,52 +815,108 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		if e.messageReader == nil {
 			assemblyReader = explicitChatReader{messages: trustedMessages}
 		}
-		result, assembleErr := contextapp.AssembleEnvelope(ctx, assemblyReader, boundSessionID, envelope)
-		assembled := assembleErr == nil
+		rawExcerpts := append([]contextapp.ContextSource(nil), envelope.AttachmentExcerpts...)
+		allowance := attachmentAllowance(providerInfo)
+		nativeReplay := e.nativeReplayMessages(boundSessionID, p.ModelID, string(item.Protocol))
+		assembled := false
 		usedFallback := false
 		usedExplicitReader := e.messageReader == nil
 		usedCheckpoint := envelope.AcceptedCheckpoint != nil
-		if assembleErr != nil {
-			if errors.Is(assembleErr, contextapp.ErrEnvelopeBudgetTooSmall) {
-				return request.Fail("CONTEXT_BUDGET_EXCEEDED", "当前模型上下文预算不足，请减少材料或选择更大上下文模型；已选技能与专家不会被移除", false)
+		fitted := false
+		for attempt := 0; attempt < 8; attempt++ {
+			if len(rawExcerpts) > 0 {
+				envelope.AttachmentExcerpts, _ = contextapp.FitAttachmentExcerpts(p.ModelID, rawExcerpts, allowance)
 			}
-			if !useExplicitChatFallback(p.Companion, trustedMessages, assembleErr) {
-				return internalBridgeFailure(request, "CONTEXT_ASSEMBLY_FAILED", "上下文装配暂时不可用", true, assembleErr)
-			}
-			log.Printf("chat.start assembling explicit turn after durable assembly failed: %v", assembleErr)
-			usedFallback = true
-			messages, assembleErr = assembleExplicitChat(ctx, boundSessionID, envelope, trustedMessages, e.nativeReplayMessages(boundSessionID, p.ModelID, string(item.Protocol)))
+			result, assembleErr := contextapp.AssembleEnvelope(ctx, assemblyReader, boundSessionID, envelope)
+			assembled = assembleErr == nil
 			if assembleErr != nil {
-				return internalBridgeFailure(request, "CONTEXT_ASSEMBLY_FAILED", "当前模型上下文预算不足或引用不可用，请减少材料或选择更大上下文模型；已选技能与专家不会被移除", false, assembleErr)
+				if errors.Is(assembleErr, contextapp.ErrEnvelopeBudgetTooSmall) && (allowance > 0 || len(rawExcerpts) > 0) {
+					if allowance > 0 {
+						allowance = shrinkAttachmentAllowance(allowance)
+					} else {
+						rawExcerpts = nil
+						envelope.AttachmentExcerpts = nil
+					}
+					continue
+				}
+				if !useExplicitChatFallback(p.Companion, trustedMessages, assembleErr) {
+					return internalBridgeFailure(request, "CONTEXT_ASSEMBLY_FAILED", "上下文装配暂时不可用", true, assembleErr)
+				}
+				log.Printf("chat.start assembling explicit turn after durable assembly failed: %v", assembleErr)
+				usedFallback = true
+				messages, assembleErr = assembleExplicitChat(ctx, boundSessionID, envelope, trustedMessages, nativeReplay)
+				if assembleErr != nil {
+					return internalBridgeFailure(request, "CONTEXT_ASSEMBLY_FAILED", "当前模型上下文预算不足或引用不可用，请减少材料或选择更大上下文模型；已选技能与专家不会被移除", false, assembleErr)
+				}
+				fitted = true
+				break
 			}
-		} else {
 			var combineErr error
-			messages, combineErr = combineProviderMessages(result.Messages, trustedMessages, providerInfo, images, e.nativeReplayMessages(boundSessionID, p.ModelID, string(item.Protocol)))
+			messages, combineErr = combineProviderMessages(result.Messages, trustedMessages, providerInfo, images, nativeReplay)
 			if combineErr != nil {
+				if errors.Is(combineErr, errCombinedContextOverBudget) && (nativeReplay != nil || allowance > 0 || len(rawExcerpts) > 0) {
+					if nativeReplay != nil {
+						nativeReplay = nil
+						continue
+					}
+					if allowance > 0 {
+						allowance = shrinkAttachmentAllowance(allowance)
+						continue
+					}
+					rawExcerpts = nil
+					envelope.AttachmentExcerpts = nil
+					continue
+				}
 				if useExplicitChatFallback(p.Companion, trustedMessages, combineErr) {
 					log.Printf("chat.start using explicit turn after context combine failed: %v", combineErr)
 					usedFallback = true
-					messages, combineErr = assembleExplicitChat(ctx, boundSessionID, envelope, trustedMessages, e.nativeReplayMessages(boundSessionID, p.ModelID, string(item.Protocol)))
+					messages, combineErr = assembleExplicitChat(ctx, boundSessionID, envelope, trustedMessages, nativeReplay)
 					if combineErr != nil {
 						return internalBridgeFailure(request, "CONTEXT_ASSEMBLY_FAILED", "当前模型上下文预算不足或引用不可用，请减少材料或选择更大上下文模型；已选技能与专家不会被移除", false, combineErr)
 					}
 					assembled = false
-				} else if errors.Is(combineErr, errCombinedContextOverBudget) {
-					return request.Fail("CONTEXT_BUDGET_EXCEEDED", "最终上下文超过模型输入预算", false)
-				} else {
-					return internalBridgeFailure(request, "CONTEXT_SEQUENCE_INVALID", "上下文序列无效", true, combineErr)
+					fitted = true
+					break
 				}
+				if errors.Is(combineErr, errCombinedContextOverBudget) {
+					return request.Fail("CONTEXT_BUDGET_EXCEEDED", "最终上下文超过模型输入预算", false)
+				}
+				return internalBridgeFailure(request, "CONTEXT_SEQUENCE_INVALID", "上下文序列无效", true, combineErr)
 			}
+			if assembled && !p.Companion {
+				// P1-3 complexity.decide wiring after images attach so the hint
+				// cannot push a previously-fitting request over the final budget.
+				messages = applyComplexityTierHint(messages, images, providerInfo)
+			}
+			if err := errIfRequestOverBudget(countVisibleRequestTokens(p.ModelID, messages, images), providerInfo); err != nil {
+				if nativeReplay != nil || allowance > 0 || len(rawExcerpts) > 0 {
+					if nativeReplay != nil {
+						nativeReplay = nil
+						continue
+					}
+					if allowance > 0 {
+						allowance = shrinkAttachmentAllowance(allowance)
+						continue
+					}
+					rawExcerpts = nil
+					envelope.AttachmentExcerpts = nil
+					continue
+				}
+				return request.Fail("CONTEXT_BUDGET_EXCEEDED", "最终上下文超过模型输入预算", false)
+			}
+			fitted = true
+			break
 		}
-		logChatContextPath(boundSessionID, contextAssemblyPath(assembled, usedFallback, usedExplicitReader, usedCheckpoint))
-		if assembled && !p.Companion {
-			// P1-3 complexity.decide wiring after images attach so the hint
-			// cannot push a previously-fitting request over the final budget.
-			messages = applyComplexityTierHint(messages, images, providerInfo)
+		if !fitted {
+			return request.Fail("CONTEXT_BUDGET_EXCEEDED", "最终上下文超过模型输入预算", false)
 		}
 		if err := errIfRequestOverBudget(countVisibleRequestTokens(p.ModelID, messages, images), providerInfo); err != nil {
 			return request.Fail("CONTEXT_BUDGET_EXCEEDED", "最终上下文超过模型输入预算", false)
 		}
+		if len(rawExcerpts) > 0 && allowance < attachmentAllowance(providerInfo) {
+			log.Printf("chat.start fitted attachments session=%s allowance=%d files=%d", boundSessionID, allowance, len(rawExcerpts))
+		}
+		logChatContextPath(boundSessionID, contextAssemblyPath(assembled, usedFallback, usedExplicitReader, usedCheckpoint))
 	} else {
 		// Legacy path: use directly provided messages.
 		if !hasMessages {
@@ -1211,6 +1271,31 @@ func applyComplexityTierHint(messages []llmadapter.Message, images []llmadapter.
 		return messages
 	}
 	return next
+}
+
+// attachmentAllowance is the token budget for this turn's file excerpts.
+// A quarter of the input window stays available for the current turn and
+// recent history, so a dropped folder cannot consume the whole request.
+func attachmentAllowance(info contextapp.ProviderInfo) int64 {
+	budget := info.EffectiveInputBudget()
+	if budget <= 0 {
+		return 0
+	}
+	reserve := budget / 4
+	if reserve < 4096 {
+		reserve = 4096
+	}
+	if reserve > budget {
+		return 0
+	}
+	return budget - reserve
+}
+
+func shrinkAttachmentAllowance(allowance int64) int64 {
+	if allowance <= 1 {
+		return 0
+	}
+	return allowance / 2
 }
 
 func errIfRequestOverBudget(used int64, info contextapp.ProviderInfo) error {

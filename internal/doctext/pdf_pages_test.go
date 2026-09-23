@@ -8,6 +8,22 @@ import (
 	"github.com/lunitide/lunitide/internal/officetools"
 )
 
+func TestPDFTextLayerReadableRejectsControlSoup(t *testing.T) {
+	if !doctext.PDFTextLayerReadable("销售助手需求：客户跟进、报价和下一步。") {
+		t.Fatal("chinese text must stay readable")
+	}
+	if !doctext.PDFTextLayerReadable("Night of the Living Dead is a public-domain film.") {
+		t.Fatal("english text must stay readable")
+	}
+	if !doctext.PDFTextLayerReadable("2026-09-23 09:00 100") {
+		t.Fatal("a dated schedule must stay readable")
+	}
+	soup := strings.Repeat("\x01", 40) + "FMJSD" + strings.Repeat("\x02", 40)
+	if doctext.PDFTextLayerReadable(soup) {
+		t.Fatal("control-character text layer must not be treated as readable")
+	}
+}
+
 func TestExtractPDFPagesReportsTextLayerCoverage(t *testing.T) {
 	data, err := officetools.GenPDF("Title page", "Body of the only page with a real text layer.")
 	if err != nil {

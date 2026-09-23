@@ -263,6 +263,63 @@ func TestChatStartUnreadImageStillRuns(t *testing.T) {
 	}
 }
 
+type folderFitReader struct{ content string }
+
+func (r folderFitReader) ListMessages(context.Context, string, string, int) ([]contextapp.Message, error) {
+	return []contextapp.Message{{ID: "message", Role: "user", Content: r.content, Sequence: 1}}, nil
+}
+
+func (r folderFitReader) SumTokens(context.Context, string, string, string, string) (int64, error) {
+	return 0, nil
+}
+
+func readableNamedAttachment(id, name, text string) attachment.Attachment {
+	return attachment.Attachment{
+		ID: id, ProjectID: chatAttachmentProjectID, SessionID: chatAttachmentSessionID,
+		OriginalName: name, MIME: "text/plain", ParseStatus: attachment.StatusSucceeded, ParsedText: text,
+	}
+}
+
+func TestChatStartFolderSendFitsLongFileAndKeepsShortOnes(t *testing.T) {
+	prior := strings.Repeat("先前对话。", 2500)
+	longBody := strings.Repeat("项目日程里的一天安排。", 8000)
+	files := []attachment.Attachment{
+		readableNamedAttachment(chatAttachmentID, "AI 销售助手 1.1版本需求", "需求很短，保留全文。"),
+		readableNamedAttachment("01ARZ3NDEKTSV4RRFFQ69G5FA0", "FAQ-Geekvape&Gec", "常见问题也很短。"),
+		readableNamedAttachment("01ARZ3NDEKTSV4RRFFQ69G5FA1", "JACK 访谈总结.md", "访谈纪要很短。"),
+		readableNamedAttachment("01ARZ3NDEKTSV4RRFFQ69G5FA2", "Ai 业务助手项目日程", longBody),
+	}
+	byID := make(map[string]*attachment.Attachment, len(files))
+	refs := `,"contextRefs":[`
+	for i, file := range files {
+		item := file
+		byID[item.ID] = &item
+		if i > 0 {
+			refs += ","
+		}
+		refs += `{"type":"attachment","id":"` + item.ID + `"}`
+	}
+	refs += `]`
+	response, requests := startAttachmentChatUsingReader(t, &chatAttachmentStore{byID: byID}, nil, refs, folderFitReader{content: prior})
+	if !response.OK {
+		t.Fatalf("folder send failed: %#v", response)
+	}
+	var combined strings.Builder
+	for _, message := range capturedChatRequest(t, requests).Messages {
+		combined.WriteString(message.Content)
+		combined.WriteByte('\n')
+	}
+	text := combined.String()
+	for _, want := range []string{"需求很短，保留全文。", "常见问题也很短。", "访谈纪要很短。", "Ai 业务助手项目日程", "正文过长"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in fitted turn", want)
+		}
+	}
+	if strings.Contains(text, longBody) {
+		t.Fatal("long schedule was pasted into the prompt whole")
+	}
+}
+
 func TestChatStartExplicitAttachmentInternalReadErrorIsRetryable(t *testing.T) {
 	store := &chatAttachmentStore{getErr: errors.New("temporary database failure")}
 	response, _ := startAttachmentChat(t, store, `,"contextRefs":[{"type":"attachment","id":"`+chatAttachmentID+`"}]`)

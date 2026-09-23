@@ -42,6 +42,10 @@ var (
 	// ErrNoTextLayer is returned when a recognised container held no
 	// extractable text — most often a scanned / image-only PDF.
 	ErrNoTextLayer = errors.New("doctext: no extractable text layer")
+	// ErrUnreadableTextLayer means bytes came out, but they are not Unicode
+	// text. A PDF can still draw the right glyphs from an embedded font
+	// while its text layer has no ToUnicode map.
+	ErrUnreadableTextLayer = errors.New("doctext: text layer is not readable unicode")
 )
 
 // Result is one extraction outcome.
@@ -286,7 +290,11 @@ func pdfText(raw []byte) (text string, err error) {
 		}
 		buf.WriteString(text)
 	}
-	return buf.String(), nil
+	body := buf.String()
+	if strings.TrimSpace(body) != "" && !PDFTextLayerReadable(body) {
+		return "", ErrUnreadableTextLayer
+	}
+	return body, nil
 }
 
 func zipPart(raw []byte, name string, max int64) (string, error) {

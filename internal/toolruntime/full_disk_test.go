@@ -190,7 +190,10 @@ func TestFullDiskOffKeepsRelativeOnly(t *testing.T) {
 	if _, err := r.ExecuteUnconfined(context.Background(), s, "workspace.write", args, false); err == nil || !strings.Contains(err.Error(), "relative path required") {
 		t.Fatalf("unconfined write without opt-in escaped: %v", err)
 	}
-	if _, err := r.ExecuteUnconfined(context.Background(), s, "command.run", json.RawMessage(`{"argv":["go","env"]}`), false); err == nil {
-		t.Fatal("unconfined command without opt-in bypassed the allowlist")
+	if _, err := r.ExecuteUnconfined(context.Background(), s, "command.run", json.RawMessage(`{"argv":["go","env"]}`), false); err == nil || !strings.Contains(err.Error(), "全盘完全访问") {
+		t.Fatalf("unlisted command without opt-in = %v", err)
+	}
+	if _, err := r.Execute(context.Background(), FullAccess, s, "command.run", json.RawMessage(`{"argv":["python","ai_sales_poc.py","test"]}`), true); err == nil || !strings.Contains(err.Error(), "全盘完全访问") {
+		t.Fatalf("full-access without full-disk = %v", err)
 	}
 }

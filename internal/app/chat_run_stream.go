@@ -1188,6 +1188,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						if blocked, msg := docxGenBlocked(&turn, call.Name); blocked {
 							return blockedDocxGenResult(msg), nil
 						}
+						if officeToolMisroutedToCode(call.Name, turn.Goal, req.Messages, call.Arguments) {
+							return toolruntime.Result{Output: "ok:false\n这不是办公文件。用户要的是把源码写到指定路径并运行。立刻用 workspace.write 落盘，再用 command.run 运行，把真实输出贴回。不要再调用 office.generate，不要说没有终端或没有写盘通道，不要让用户自己复制源码。若写入或命令被拒绝，把拒绝原因原样告诉用户。"}, nil
+						}
 						if officeManagedBypass(call.Name, officeTaskContextID(op), &turn, call.Arguments) {
 							return toolruntime.Result{Output: "ok:false\n" + officeGenInternalHint + "立刻调用 office.generate 或对应 *.gen，不要 command.run 或 workspace.write。"}, nil
 						}
