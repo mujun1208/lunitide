@@ -27,6 +27,10 @@ type LaneInput struct {
 	HasTurnMaterials bool
 	Companion        bool
 	OfficeTaskID     string
+	// PriorDeliverable is true when this session already wrote, ran, or
+	// invoked a skill to produce a file. The next turn keeps write and run
+	// even when the user does not repeat 修改 or 覆盖.
+	PriorDeliverable bool
 }
 
 type CouncilOverlay struct {
@@ -96,6 +100,20 @@ func classifyChatLane(in LaneInput) ChatLane {
 	if laneLooksLikeArtifactRevision(goal) {
 		return LaneL3
 	}
+	// A skill chip, or any later turn after a file was already being produced,
+	// stays on the full surface. Wording like "继续完成输出产物" or "把按钮改成蓝色"
+	// does not have to repeat 修改/覆盖.
+	if strings.Contains(goal, "[引用技能") {
+		return LaneL3
+	}
+	if in.PriorDeliverable && !laneLooksLikeInPlaceProse(goal) {
+		return LaneL3
+	}
+	// A page, HTML file, or POC has to be written and then run. One ask step
+	// cannot do both, so the first output stays on the full tool surface.
+	if fileNeedsRun(goal) || laneLooksLikeFirstFile(goal) {
+		return LaneL3
+	}
 	materials := in.HasTurnMaterials || hasTurnMaterials(goal, false, false)
 	if laneLooksLikeOfficeDeliverable(goal) {
 		if materials {
@@ -126,7 +144,10 @@ func laneLooksLikeArtifactRevision(goal string) bool {
 	// Bullet lines are the report's content ("修复支付超时"), not a request
 	// to revise an existing file.
 	t := strings.ToLower(revisionInstructionText(goal))
-	for _, needle := range []string{"改版", "在原来", "原文件", "原稿", "上一版", "下一版", "再改一版", "再修一版", "原来的产物", "原来产物"} {
+	for _, needle := range []string{
+		"改版", "在原来", "原文件", "原稿", "上一版", "下一版", "再改一版", "再修一版", "原来的产物", "原来产物",
+		"继续完成", "输出产物", "完成产物", "完成输出", "写出产物",
+	} {
 		if strings.Contains(t, needle) {
 			return true
 		}
@@ -588,4 +609,115 @@ func applyLaneTools(defs []llmadapter.ToolDefinition, c LaneContract) []llmadapt
 		}
 	}
 	return out
+}
+
+// checkpointWasDeliverable reports that an earlier turn in this session was
+// already producing a file. The follow-up must be able to overwrite it.
+func checkpointWasDeliverable(cp chatTurnCheckpoint) bool {
+	if cp.CapabilityWork || cp.DocxGenerated || cp.PptGenerated || cp.DocxActive || cp.PptActive {
+		return true
+	}
+	goal := chatRoutingText(cp.Goal)
+	if goal != "" && !isShortIdleGreeting(goal) && !laneLooksLikeInPlaceProse(goal) {
+		if laneLooksLikeOfficeDeliverable(goal) || laneLooksLikeArtifactRevision(goal) || fileNeedsRun(goal) || laneLooksLikeFirstFile(goal) || strings.Contains(goal, "[引用技能") || capabilityWorkTask(goal) {
+			return true
+		}
+	}
+	for _, name := range cp.LastTools {
+		switch name {
+		case "workspace.write", "workspace.edit", "command.run", "run_terminal_cmd",
+			"html.gen", "docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "office.generate",
+			"skill.invoke", "skill.try":
+			return true
+		}
+	}
+	return false
+}
+
+// restoreFileLandingTools puts write, and run when the file has to execute,
+// back onto a list that a route or a narrow lane removed. The catalog is the
+// tool list from before that stripping. In-place prose and greetings stay narrow.
+func restoreFileLandingTools(filtered, catalog []llmadapter.ToolDefinition, goal string, prior bool, lane ChatLane) []llmadapter.ToolDefinition {
+	if lane == LaneL0 || lane == "" || len(catalog) == 0 {
+		return filtered
+	}
+	write, run := false, false
+	switch lane {
+	case LaneL2, LaneL3, LaneL4:
+		write, run = true, true
+	default:
+		write, run = fileLandingNeed(goal, prior)
+	}
+	if !write && !run {
+		return filtered
+	}
+	want := map[string]bool{}
+	if write {
+		for _, name := range []string{
+			"workspace.write", "workspace.edit",
+			"html.gen", "docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "office.generate",
+		} {
+			want[name] = true
+		}
+	}
+	if run {
+		want["workspace.write"] = true
+		want["workspace.edit"] = true
+		want["command.run"] = true
+		want["html.gen"] = true
+	}
+	have := map[string]bool{}
+	for _, d := range filtered {
+		have[d.Name] = true
+	}
+	for _, d := range catalog {
+		if want[d.Name] && !have[d.Name] {
+			filtered = append(filtered, d)
+			have[d.Name] = true
+		}
+	}
+	return filtered
+}
+
+func fileLandingNeed(goal string, prior bool) (write bool, run bool) {
+	g := chatRoutingText(goal)
+	if g == "" || isShortIdleGreeting(g) || laneLooksLikeInPlaceProse(g) {
+		return false, false
+	}
+	if prior || laneLooksLikeArtifactRevision(g) || strings.Contains(g, "[引用技能") || capabilityWorkTask(g) || runnableSystemRequest(g) || laneLooksLikeFirstFile(g) {
+		return true, true
+	}
+	if laneLooksLikeOfficeDeliverable(g) {
+		return true, fileNeedsRun(g)
+	}
+	return false, false
+}
+
+func fileNeedsRun(goal string) bool {
+	g := chatRoutingText(goal)
+	if g == "" || isShortIdleGreeting(g) || laneLooksLikeInPlaceProse(g) {
+		return false
+	}
+	lower := strings.ToLower(g)
+	if strings.Contains(lower, "html") || strings.Contains(g, "源码") || strings.Contains(lower, "poc") || strings.Contains(g, "小游戏") {
+		return true
+	}
+	if strings.Contains(g, "页面") && (strings.Contains(g, "运行") || strings.Contains(g, "代码") || strings.Contains(g, "做") || strings.Contains(g, "写") || strings.Contains(g, "生成") || strings.Contains(g, "输出")) {
+		return true
+	}
+	return runnableSystemRequest(g)
+}
+
+func laneLooksLikeFirstFile(goal string) bool {
+	g := chatRoutingText(goal)
+	if g == "" || isShortIdleGreeting(g) || laneLooksLikeInPlaceProse(g) {
+		return false
+	}
+	lower := strings.ToLower(g)
+	for _, n := range []string{"readme", "说明文档", "交付物", "写到文件", "写成文件", "生成文件", "输出文件", "保存成文件", "保存为文件"} {
+		if strings.Contains(lower, n) || strings.Contains(g, n) {
+			return true
+		}
+	}
+	return false
 }

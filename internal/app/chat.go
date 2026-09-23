@@ -286,15 +286,17 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			break
 		}
 	}
+	prevTurn := e.loadTurnCheckpoint(boundSessionID)
 	prevGoal := ""
 	if looksLikeResume(chatRoutingText(intent.Text)) {
-		prevGoal = e.loadTurnCheckpoint(boundSessionID).Goal
+		prevGoal = prevTurn.Goal
 	}
 	laneIn := LaneInput{
 		Goal:             resolveLaneGoal(intent.Text, prevGoal),
 		HasTurnMaterials: hasTurnMaterials(resolveLaneGoal(intent.Text, prevGoal), hasAtt, false),
 		Companion:        p.Companion,
 		OfficeTaskID:     p.OfficeTaskID,
+		PriorDeliverable: checkpointWasDeliverable(prevTurn),
 	}
 	startLane := classifyChatLane(laneIn)
 	// Live app vocabulary (launch table + Start Menu + open windows) so a
@@ -1018,7 +1020,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		if len(p.TrialSkillIDs) > 0 && contract.MaxMainToolSteps < 8 {
 			contract.MaxMainToolSteps = 8
 		}
-		req.Tools = applyLaneTools(req.Tools, contract)
+		req.Tools = restoreFileLandingTools(applyLaneTools(req.Tools, contract), turnTools, laneIn.Goal, laneIn.PriorDeliverable, contract.Lane)
 		req.DisableReasoning = contract.DisableReasoning || isShortIdleGreeting(intent.Text)
 		state.lane = contract
 	}

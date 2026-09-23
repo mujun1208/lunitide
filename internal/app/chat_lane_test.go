@@ -107,6 +107,109 @@ func TestArtifactRevisionKeepsWriteOnEveryDeliverable(t *testing.T) {
 	if got := classifyChatLane(LaneInput{Goal: "调整这段话的语气"}); got == LaneL3 {
 		t.Fatal("prose polish must stay off the write lane")
 	}
+	finish := "继续完成输出产物"
+	if route := detectTaskRoute(finish); route == RouteR0 || route == RouteR1 || route == RouteR3 {
+		t.Fatalf("%q route %s drops workspace.write before the lane runs", finish, route)
+	}
+	if got := classifyChatLane(LaneInput{Goal: finish}); got != LaneL3 {
+		t.Fatalf("%q => %s want L3", finish, got)
+	}
+	seen := map[string]bool{}
+	for _, d := range applyLaneTools(defs, buildLaneContract(LaneL3, RouteUnspecified, CouncilOverlay{})) {
+		seen[d.Name] = true
+	}
+	if !seen["workspace.write"] || !seen["command.run"] {
+		t.Fatalf("finish-the-deliverable must keep write and run, got %v", seen)
+	}
+	readonly := applyLaneTools(defs, buildLaneContract(LaneL1, RouteUnspecified, CouncilOverlay{}))
+	for _, d := range readonly {
+		if d.Name == "workspace.write" || d.Name == "command.run" {
+			t.Fatalf("read-only lane must not keep %s", d.Name)
+		}
+	}
+}
+
+func TestFirstAndLaterDeliverablesKeepFileTools(t *testing.T) {
+	for _, goal := range []string{
+		"继续完成输出产物",
+		"把按钮改成蓝色",
+		"优化一下",
+		"再出一版",
+		"[引用技能 POC|abc]\n接着做",
+	} {
+		if got := classifyChatLane(LaneInput{Goal: goal, PriorDeliverable: true}); got != LaneL3 {
+			t.Fatalf("follow-up %q => %s want L3", goal, got)
+		}
+	}
+	if got := classifyChatLane(LaneInput{Goal: "[引用技能 POC|abc]\n做一个可运行页面"}); got != LaneL3 {
+		t.Fatalf("first skill output => %s want L3", got)
+	}
+	if got := classifyChatLane(LaneInput{Goal: "做一个可运行的销售页面"}); got != LaneL3 {
+		t.Fatalf("first runnable page => %s want L3", got)
+	}
+	if got := classifyChatLane(LaneInput{Goal: "写一个 html 小游戏"}); got != LaneL3 {
+		t.Fatalf("first html => %s want L3", got)
+	}
+	if got := classifyChatLane(LaneInput{Goal: "把按钮改成蓝色"}); got == LaneL3 {
+		t.Fatal("a button tweak with no open file must stay off the deliverable lane")
+	}
+	if got := classifyChatLane(LaneInput{Goal: "写一篇关于光合作用的文章", PriorDeliverable: true}); got == LaneL3 {
+		t.Fatal("in-place prose must stay off the file lane")
+	}
+	if got := classifyChatLane(LaneInput{Goal: "你好", PriorDeliverable: true}); got != LaneL0 {
+		t.Fatalf("greeting => %s want L0", got)
+	}
+	if got := classifyChatLane(LaneInput{Goal: "写周报"}); got != LaneL2Ask {
+		t.Fatalf("fresh weekly report => %s want L2-ask", got)
+	}
+	if !checkpointWasDeliverable(chatTurnCheckpoint{LastTools: []string{"skill.invoke"}}) {
+		t.Fatal("a skill trial counts as an open deliverable")
+	}
+	if !checkpointWasDeliverable(chatTurnCheckpoint{Goal: "写周报", LastTools: []string{"user.ask"}}) {
+		t.Fatal("a report that only asked must still leave the file writable")
+	}
+	if checkpointWasDeliverable(chatTurnCheckpoint{Goal: "写一篇关于光合作用的文章"}) {
+		t.Fatal("prose is not a file")
+	}
+	if got := classifyChatLane(LaneInput{Goal: "本周修了支付超时", PriorDeliverable: true}); got != LaneL3 {
+		t.Fatalf("content after a report ask => %s want L3", got)
+	}
+	if got := classifyChatLane(LaneInput{Goal: "写一份说明文档"}); got != LaneL3 {
+		t.Fatalf("first readme => %s want L3", got)
+	}
+	if !shouldWidenAndRetry(widenInput{Goal: "继续完成输出产物", AssistantText: "本环境未提供文件写入，请复制保存为 index.html"}) {
+		t.Fatal("a paste refusal must retry with the full tool surface")
+	}
+	if checkpointWasDeliverable(chatTurnCheckpoint{LastTools: []string{"user.ask"}}) {
+		t.Fatal("asking a question is not a file")
+	}
+
+	catalog := []llmadapter.ToolDefinition{
+		{Name: "workspace.write"}, {Name: "workspace.edit"}, {Name: "command.run"},
+		{Name: "docx.gen"}, {Name: "html.gen"}, {Name: "office.generate"}, {Name: "user.ask"},
+	}
+	weekly := restoreFileLandingTools(
+		applyLaneTools(catalog, buildLaneContract(LaneL2Ask, RouteUnspecified, CouncilOverlay{})),
+		catalog, "写周报", false, LaneL2Ask,
+	)
+	seen := map[string]bool{}
+	for _, d := range weekly {
+		seen[d.Name] = true
+	}
+	if !seen["workspace.write"] || !seen["docx.gen"] || !seen["office.generate"] || seen["command.run"] {
+		t.Fatalf("first weekly report must be writable without a shell, got %v", seen)
+	}
+	landed := restoreFileLandingTools(
+		[]llmadapter.ToolDefinition{{Name: "workspace.read"}, {Name: "user.ask"}},
+		catalog, "继续完成输出产物", true, LaneL3,
+	)
+	seen = map[string]bool{}
+	for _, d := range landed {
+		seen[d.Name] = true
+	}
+	if !seen["workspace.write"] || !seen["command.run"] {
+		t.Fatalf("later overwrite must get write and run back, got %v", seen)
+	}
 }
 
 func TestClassifyChatLaneT03WeeklyReportNoMaterialIsL2Ask(t *testing.T) {
