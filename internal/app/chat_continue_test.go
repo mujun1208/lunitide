@@ -34,6 +34,25 @@ func TestExtendToolLoopLimit(t *testing.T) {
 	}
 }
 
+func TestUnfinishedToolBudgetContinuesAndCapabilityWorkEarnsSteps(t *testing.T) {
+	if !turnAdmitsUnfinishedToolBudget("本轮工具额度耗尽，只完成了技能列表查询") {
+		t.Fatal("budget excuse must start another round")
+	}
+	if !turnAdmitsUnfinishedToolBudget("2.0 重写被工具步数限制打断，尚未落盘") {
+		t.Fatal("unlanded file must start another round")
+	}
+	if !turnAdmitsUnfinishedToolBudget("周报还没写入文件") {
+		t.Fatal("unwritten deliverable must start another round")
+	}
+	if turnAdmitsUnfinishedToolBudget("任务已完成，文件在对话文件夹里") {
+		t.Fatal("finished turn must not start another round")
+	}
+	lane := buildLaneContract(LaneL1, RouteUnspecified, CouncilOverlay{})
+	if !turnMayEarnMoreSteps(false, false, "试用技能: POC 快速构建", lane) {
+		t.Fatal("skill trial on a one-step lane cannot continue")
+	}
+}
+
 func TestPlaybackClaimsRequireThisTurnsMatchingToolReceipt(t *testing.T) {
 	for _, out := range []string{"", "ok:true", "opened player and sent play", `opened https://music.example\n{"l0":{"passed":true,"uncertain":false}}`} {
 		if !unverifiedMediaPlay("media.play", out, "音乐已经在播放") {

@@ -12,6 +12,7 @@ import { findPersonalProject, isOrdinarySidebarChat, PERSONAL_CHAT_PROJECT_ID_KE
 import type { ChatTarget, Page, Theme } from './appTypes'
 import { useOfficeMenu } from '../settings/officeMenuSettings'
 import { openOfficeHome } from '../officeStudio/officeNavigation'
+import { NavIcon } from './navIcons'
 import { WorkspaceToolsNav } from './WorkspaceToolsNav'
 
 function sidebarUserError(err: unknown, fallback: string): string {
@@ -229,23 +230,23 @@ export function LaunchSidebar({
       </button>
       {officeOpen ? (
         <div id="office-list" className="office-nav-list">
-          {officeMenu.office ? <button className={page === 'office' ? 'active' : ''} onClick={() => setPage('office')} aria-label={zh ? '办公工作台' : 'Office Studio'}><span>▤&nbsp; {zh ? '办公工作台' : 'Office Studio'}</span></button> : null}
-          {officeMenu.automation ? <button className={page === 'automation' ? 'active' : ''} onClick={() => setPage('automation')} aria-label={zh ? '自动化' : 'Automation'}><span>⏱&nbsp; {zh ? '自动化' : 'Automation'}</span></button> : null}
-          {officeMenu.media ? <button className={page === 'media' ? 'active' : ''} onClick={() => setPage('media')} aria-label={zh ? '媒体中心' : 'Media Center'}><span>♪&nbsp; {zh ? '媒体中心' : 'Media Center'}</span></button> : null}
-          {officeMenu.people ? <button className={page === 'people' ? 'active' : ''} onClick={() => onOpenPeople('chats')} aria-label={zh ? '同事聊天' : 'Colleague chat'}><span>☻&nbsp; {zh ? '同事聊天' : 'Colleague chat'}</span>{peopleUnread > 0 ? <em className="people-unread" aria-label={zh ? `${peopleUnread} 条未读` : `${peopleUnread} unread`}>{peopleUnread > 99 ? '99+' : peopleUnread}</em> : null}</button> : null}
-          {officeMenu.mro && mroEnabled ? <button className={page === 'mro' ? 'active' : ''} onClick={() => setPage('mro')} aria-label={zh ? '机务工作台' : 'MRO workbench'}><span>🛠&nbsp; {zh ? '机务工作台' : 'MRO workbench'}</span></button> : null}
-          {officeMenu.meetings ? <button className={page === 'meetings' ? 'active' : ''} onClick={() => setPage('meetings')} aria-label={zh ? '会议记录' : 'Meeting notes'}><span>◎&nbsp; {zh ? '会议记录' : 'Meeting notes'}</span></button> : null}
-          {officeMenu.productHub ? <button className={page === 'productHub' ? 'active' : ''} onClick={() => setPage('productHub')} aria-label={zh ? '产品总览' : 'Product Hub'}><span>◈&nbsp; {zh ? '产品总览' : 'Product Hub'}</span></button> : null}
+          {officeMenu.office ? <button className={page === 'office' ? 'active' : ''} onClick={() => setPage('office')} aria-label={zh ? '办公工作台' : 'Office Studio'}><NavIcon name="office" /><span>{zh ? '办公工作台' : 'Office Studio'}</span></button> : null}
+          {officeMenu.automation ? <button className={page === 'automation' ? 'active' : ''} onClick={() => setPage('automation')} aria-label={zh ? '自动化' : 'Automation'}><NavIcon name="automation" /><span>{zh ? '自动化' : 'Automation'}</span></button> : null}
+          {officeMenu.media ? <button className={page === 'media' ? 'active' : ''} onClick={() => setPage('media')} aria-label={zh ? '媒体中心' : 'Media Center'}><NavIcon name="media" /><span>{zh ? '媒体中心' : 'Media Center'}</span></button> : null}
+          {officeMenu.people ? <button className={page === 'people' ? 'active' : ''} onClick={() => onOpenPeople('chats')} aria-label={zh ? '同事聊天' : 'Colleague chat'}><NavIcon name="people" /><span>{zh ? '同事聊天' : 'Colleague chat'}</span>{peopleUnread > 0 ? <em className="people-unread" aria-label={zh ? `${peopleUnread} 条未读` : `${peopleUnread} unread`}>{peopleUnread > 99 ? '99+' : peopleUnread}</em> : null}</button> : null}
+          {officeMenu.mro && mroEnabled ? <button className={page === 'mro' ? 'active' : ''} onClick={() => setPage('mro')} aria-label={zh ? '机务工作台' : 'MRO workbench'}><NavIcon name="mro" /><span>{zh ? '机务工作台' : 'MRO workbench'}</span></button> : null}
+          {officeMenu.meetings ? <button className={page === 'meetings' ? 'active' : ''} onClick={() => setPage('meetings')} aria-label={zh ? '会议记录' : 'Meeting notes'}><NavIcon name="meetings" /><span>{zh ? '会议记录' : 'Meeting notes'}</span></button> : null}
+          {officeMenu.productHub ? <button className={page === 'productHub' ? 'active' : ''} onClick={() => setPage('productHub')} aria-label={zh ? '产品总览' : 'Product Hub'}><NavIcon name="productHub" /><span>{zh ? '产品总览' : 'Product Hub'}</span></button> : null}
         </div>
       ) : null}
     </section>
   )
   return (
-    <aside id="launch-sidebar" className={`launch-sidebar ${open ? 'drawer-open' : ''}`} aria-label={zh ? '主导航' : 'Main navigation'} aria-hidden={collapsed && !open ? true : undefined}>
+    <aside id="launch-sidebar" className={`launch-sidebar ${open ? 'drawer-open' : ''} ${topSlot ? 'has-shell-head' : ''}`} aria-label={zh ? '主导航' : 'Main navigation'} aria-hidden={collapsed && !open ? true : undefined}>
       <div className="primary-actions">
         {topSlot}
-        {replaceMainNav ? null : <button className="new-chat" onClick={onNew}><span>＋&nbsp; {zh ? '新对话' : 'New chat'}</span><kbd>Ctrl N</kbd></button>}
-        {replaceMainNav ? null : <button onClick={() => setSearchOpen(true)}><span>⌕&nbsp; {zh ? '搜索' : 'Search'}</span><kbd>Ctrl K</kbd></button>}
+        {replaceMainNav ? null : <button className="new-chat" onClick={onNew}><NavIcon name="new" /><span>{zh ? '新对话' : 'New chat'}</span><kbd>Ctrl N</kbd></button>}
+        {replaceMainNav ? null : <button onClick={() => setSearchOpen(true)}><NavIcon name="search" /><span>{zh ? '搜索' : 'Search'}</span><kbd>Ctrl K</kbd></button>}
       </div>
       {replaceMainNav ? (
         <div className="hub-sidebar-stack" style={{ '--hub-agents-height': `${hubAgentsHeight}px` } as React.CSSProperties}>
@@ -264,9 +265,11 @@ export function LaunchSidebar({
                 <>
                   {actionError ? <p className="sidebar-action-error" role="alert">{actionError}</p> : null}
                   <div id="conversation-list" className="conversation-list">
-                    {recent.length ? recent.map(item => (
-                      <div className={`conversation-row ${item.session.pinned ? 'is-pinned' : ''}`} key={item.session.id}>
-                        <button className="conversation-open" onClick={() => onSelect(item)} title={localizedSessionTitle(item.session.title, zh)} aria-busy={item.pending || liveSessionIds.includes(item.session.id) || undefined}>
+                    {recent.length ? recent.map(item => {
+                      const current = item.session.id === visibleDraftId
+                      return (
+                      <div className={`conversation-row ${item.session.pinned ? 'is-pinned' : ''} ${current ? 'is-current' : ''}`} key={item.session.id}>
+                        <button className="conversation-open" onClick={() => onSelect(item)} title={localizedSessionTitle(item.session.title, zh)} aria-current={current ? 'true' : undefined} aria-busy={item.pending || liveSessionIds.includes(item.session.id) || undefined}>
                           {(item.pending || liveSessionIds.includes(item.session.id)) ? <span className="session-pending" aria-hidden="true" /> : null}
                           {item.session.pinned ? <span aria-hidden="true">⌃</span> : null}
                           {localizedSessionTitle(item.session.title, zh)}
@@ -282,7 +285,8 @@ export function LaunchSidebar({
                           ) : null}
                         </div>
                       </div>
-                    )) : <p>{zh ? '还没有对话' : 'No chats yet'}</p>}
+                      )
+                    }) : <p>{zh ? '还没有对话' : 'No chats yet'}</p>}
                   </div>
                 </>
               ) : null}
@@ -293,7 +297,7 @@ export function LaunchSidebar({
         </nav>
       )}
       <div className="launch-bottom">
-        <button className={page === 'settings' || page === 'providers' ? 'active' : ''} onClick={() => setPage('settings')} aria-label={zh ? '设置' : 'Settings'}><span>⚙</span>{zh ? '设置' : 'Settings'}</button>
+        <button className={page === 'settings' || page === 'providers' ? 'active' : ''} onClick={() => setPage('settings')} aria-label={zh ? '设置' : 'Settings'}><NavIcon name="settings" /><span>{zh ? '设置' : 'Settings'}</span></button>
         <div className="account-controls">
           <button className="account-placeholder" onClick={() => onOpenPeople('me')} aria-label={zh ? '打开我的资料' : 'Open my profile'}><span className="account-avatar">{identity?.avatar ? <img src={identity.avatar} alt="" /> : initials(identity?.nickname || '月')}</span><b>{identity?.nickname || (zh ? '我' : 'Me')}</b></button>
           <button onClick={onToggleTheme} aria-label={theme === 'dark' ? (zh ? '切换到白天模式' : 'Switch to light mode') : (zh ? '切换到黑夜模式' : 'Switch to dark mode')} title={theme === 'dark' ? (zh ? '白天模式' : 'Light mode') : (zh ? '黑夜模式' : 'Dark mode')}>{theme === 'dark' ? '☀' : '☾'}</button>

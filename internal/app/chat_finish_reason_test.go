@@ -101,7 +101,7 @@ func TestChatIncompleteFinishKeepsPartialAndNeverGeneratesArtifact(t *testing.T)
 				terminal := events[len(events)-1]
 				wantCalls := 1
 				if tc.reason == llmadapter.FinishReasonLength {
-					wantCalls = 2
+					wantCalls = 1 + maxLengthContinueWaves
 				}
 				if terminal.Type != bridge.EventFailed || terminal.Error.Code != tc.code || len(adapter.requests) != wantCalls {
 					t.Fatalf("terminal=%+v requests=%d want=%d", terminal, len(adapter.requests), wantCalls)

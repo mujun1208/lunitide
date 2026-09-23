@@ -124,6 +124,76 @@ func officeToolMisroutedToCode(name, goal string, messages []llmadapter.Message,
 	return code && act
 }
 
+// confineSessionArtifactArgs keeps a generated file in this conversation's
+// folder unless the user explicitly asked for the Desktop.
+func confineSessionArtifactArgs(goal, name string, args json.RawMessage) json.RawMessage {
+	switch name {
+	case "excel.gen", "docx.gen", "pptx.gen", "pdf.gen", "html.gen":
+	default:
+		return args
+	}
+	if wantsOfficeFileOnDesktop(goal) {
+		return args
+	}
+	var m map[string]any
+	if len(args) == 0 || json.Unmarshal(args, &m) != nil || m == nil {
+		return args
+	}
+	changed := false
+	if desktop, _ := m["desktop"].(bool); desktop {
+		m["desktop"] = false
+		changed = true
+	}
+	if catalog, _ := m["catalog"].(bool); catalog {
+		if !changed {
+			return args
+		}
+		raw, err := json.Marshal(m)
+		if err != nil {
+			return args
+		}
+		return raw
+	}
+	path, _ := m["path"].(string)
+	path = strings.TrimSpace(path)
+	lower := strings.ToLower(filepath.ToSlash(path))
+	needsName := path == "" || strings.Contains(lower, "desktop") || strings.Contains(path, "桌面") || filepath.IsAbs(path) || filepath.VolumeName(path) != ""
+	if needsName {
+		base := filepath.Base(path)
+		baseLower := strings.ToLower(base)
+		if base == "." || base == "" || strings.Contains(baseLower, "desktop") || strings.Contains(base, "桌面") {
+			base = defaultSessionArtifactName(name)
+		}
+		if base != path {
+			m["path"] = base
+			changed = true
+		}
+	}
+	if !changed {
+		return args
+	}
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return args
+	}
+	return raw
+}
+
+func defaultSessionArtifactName(tool string) string {
+	switch tool {
+	case "excel.gen":
+		return "workbook.xlsx"
+	case "docx.gen":
+		return "document.docx"
+	case "pptx.gen":
+		return "deck.pptx"
+	case "pdf.gen":
+		return "document.pdf"
+	default:
+		return "preview.html"
+	}
+}
+
 func officeGenerateTargetsCode(args json.RawMessage) bool {
 	var p struct {
 		Name string `json:"name"`

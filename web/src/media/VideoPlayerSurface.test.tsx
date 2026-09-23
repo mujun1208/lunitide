@@ -72,8 +72,14 @@ it('TestVideoCoreControls: exposes play, seek and volume without a second video 
   expect(screen.getByRole('button', { name: '上一首' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '下一首' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '队列' })).toBeInTheDocument()
-  fireEvent.change(screen.getByLabelText('进度'), { target: { value: '2000' } })
-  fireEvent.change(screen.getByLabelText('音量'), { target: { value: '10' } })
+  const seek = screen.getByLabelText('进度')
+  fireEvent.pointerDown(seek)
+  ;(seek as HTMLInputElement).value = '2000'
+  fireEvent.pointerUp(seek)
+  const volume = screen.getByLabelText('音量')
+  fireEvent.pointerDown(volume)
+  ;(volume as HTMLInputElement).value = '10'
+  fireEvent.pointerUp(volume)
   expect(onSeek).toHaveBeenCalledWith(2000)
   expect(onVolume).toHaveBeenCalledWith(10)
   fireEvent.click(screen.getByRole('button', { name: '播放' }))

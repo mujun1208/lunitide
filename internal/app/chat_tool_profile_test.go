@@ -58,7 +58,7 @@ func TestApplyToolProfileKeepsDefaultAndFilters(t *testing.T) {
 	for _, d := range coding {
 		seen[d.Name] = true
 	}
-	if !seen["workspace.write"] || !seen["command.run"] || seen["im.send"] {
+	if !seen["workspace.write"] || !seen["command.run"] || !seen["todo.write"] || !seen["user.ask"] || seen["im.send"] {
 		t.Fatalf("coding=%v", seen)
 	}
 	colleague := applyToolProfile(append(all, specialistToolDefinitions(all)...), toolProfileColleague)

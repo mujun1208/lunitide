@@ -4,6 +4,7 @@ import {CONVERSATION_EXPERTS} from '../expert/conversationExperts'
 import {
   applySessionPhaseExperts,
   isConversationSpecialistName,
+  phaseRecommendExpertIds,
   phaseSeedExpertIds,
   resolvePhaseExpertIds,
   sessionExpertsAfterPhaseSeed,
@@ -40,6 +41,16 @@ describe('PM phase expert seed', () => {
   it('never overwrites composer chips with catalog defaults', () => {
     expect(sessionExpertsAfterPhaseSeed([AI, ARCH], [PPT, NOVEL, PM, REPORT])).toEqual([AI, ARCH])
     expect(sessionExpertsAfterPhaseSeed([], [])).toEqual([])
+  })
+
+  it('recommends advisory defaults only for an explicit recommend, not the silent seed', () => {
+    const row = {
+      phaseKey: 'ARCHITECTURE_PLAN' as const,
+      defaults: [{expertId: AI, division: 'product' as const}],
+      mountings: [] as Array<{state: string; expertId: string}>,
+    }
+    expect(phaseSeedExpertIds(row as never)).toEqual([])
+    expect(phaseRecommendExpertIds(row as never)).toEqual([AI])
   })
 
   it('seeds only confirmed phase mounts when the session is empty', () => {

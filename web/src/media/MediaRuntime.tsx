@@ -236,14 +236,19 @@ export function MediaRuntime({
     if (action === 'play') {
       wantPlayRef.current = true
       setWantPlay(true)
-      await openPlayback(snapshot)
       playerRef.current?.playNow(playbackUrlRef.current)
-    } else {
-      wantPlayRef.current = false
-      setWantPlay(false)
-      playerRef.current?.pauseNow()
+      await openPlayback(snapshot)
+      if (!playbackUrlRef.current) return
+      playerRef.current?.playNow(playbackUrlRef.current)
+      await runCommand(action)
+      playerRef.current?.syncObserved()
+      return
     }
+    wantPlayRef.current = false
+    setWantPlay(false)
+    playerRef.current?.pauseNow()
     await runCommand(action)
+    playerRef.current?.syncObserved()
   }, [openPlayback, runCommand])
 
   const pick = useCallback(async () => {
@@ -312,8 +317,14 @@ export function MediaRuntime({
     jump: assetId => queue('jump', assetId),
     remove: assetId => queue('remove', assetId),
     clear: () => queue('clear'),
-    seek: positionMs => runCommand('seek', { positionMs }),
-    volume: volume => runCommand('set_volume', { volume }),
+    seek: async positionMs => {
+      await runCommand('seek', { positionMs })
+      playerRef.current?.syncObserved()
+    },
+    volume: async volume => {
+      await runCommand('set_volume', { volume })
+      playerRef.current?.syncObserved()
+    },
   }), [centerPlay, pick, playPause, queue, runCommand, state, wantPlay])
 
   const phase = miniPlayerPhase(page, state.snapshot, state.stopOperation)

@@ -42,7 +42,7 @@ export interface InputQueueState {
   notice: string
   delivery?: QueueDelivery
   enqueue: (text: string) => Promise<boolean>
-  withdraw: (queuedId: string) => Promise<void>
+  withdraw: (queuedId: string) => Promise<boolean>
   refresh: () => Promise<void>
   flushAfterStream: (send: QueueSender) => Promise<void>
   recoverDelivery: (send: QueueSender, action: 'resume' | 'dismiss') => Promise<void>
@@ -129,10 +129,13 @@ export function useInputQueue(sessionId: string, streaming = false, officeTaskId
     try {
       await runQueueBridge.withdraw({ sessionId: id, queuedId, ...(task ? { officeTaskId: task } : {}) })
       if (current()) setNotice('')
+      if (current()) await refresh()
+      return true
     } catch (e) {
       if (current()) setNotice(queueNotice(e))
+      if (current()) await refresh()
+      return false
     }
-    if (current()) await refresh()
   }, [refresh])
 
   const deliver = useCallback(async (send: QueueSender, action?: 'resume' | 'dismiss') => {
@@ -195,10 +198,11 @@ function queueNotice(e: unknown): string {
   }
 }
 
-export function QueueStrip({ items, notice, onWithdraw, disabled, delivery, onResume, onDismiss }: {
+export function QueueStrip({ items, notice, onWithdraw, onSendNow, disabled, delivery, onResume, onDismiss }: {
   items: QueuedItem[]
   notice: string
   onWithdraw: (queuedId: string) => void
+  onSendNow?: (item: QueuedItem) => void
   disabled?: boolean
   delivery?: QueueDelivery
   onResume?: () => void
@@ -213,14 +217,15 @@ export function QueueStrip({ items, notice, onWithdraw, disabled, delivery, onRe
       {delivery.state !== 'started' && <button type="button" disabled={disabled} onClick={onResume}>{delivery.state === 'unknown' ? '核对后重新执行' : '继续发送已保存说明'}</button>}
       {delivery.state !== 'started' && <button type="button" disabled={disabled} onClick={onDismiss}>{delivery.state === 'unknown' ? '已核对，不再执行' : '取消这批说明'}</button>}
     </div>}
+    {items.length > 0 && <div className="input-queue-count">{items.length} 条等待</div>}
     <div className="input-queue" role="list" aria-label="排队中的补充输入">
       {items.map(m => <div className="input-queue-item" role="listitem" key={m.queuedId}>
         <span className="input-queue-badge" aria-hidden="true">⏳</span>
-        <span className="input-queue-badge">#{m.seq} 等待插入</span>
         <span className="input-queue-text">{m.text}</span>
-        <button type="button" disabled={disabled} onClick={() => onWithdraw(m.queuedId)}>撤回</button>
+        {onSendNow && <button type="button" className="input-queue-send" title="立即发送，打断当前思考，并和上一个问题一起考虑" onClick={() => onSendNow(m)}>立即发送</button>}
+        <button type="button" onClick={() => onWithdraw(m.queuedId)}>撤回</button>
       </div>)}
     </div>
-    <span className="sr-only" aria-live="polite">{items.length ? `${items.length} 条补充排队中，将在合适时机并入当前任务` : notice}</span>
+    <span className="sr-only" aria-live="polite">{items.length ? `${items.length} 条等待，将在合适时机并入当前问题` : notice}</span>
   </div>
 }

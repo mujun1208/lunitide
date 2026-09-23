@@ -28,11 +28,34 @@ func (r *Runtime) desktopWritePath(requested, fallback, requiredExt string, desk
 		}
 		return requested, nil
 	}
+	sessionFallback := func() (string, error) {
+		base := filepath.Base(requested)
+		if base == "." || base == "" {
+			base = fallback
+		}
+		ext := strings.ToLower(requiredExt)
+		if ext != "" && !strings.HasPrefix(ext, ".") {
+			ext = "." + ext
+		}
+		if ext != "" && strings.ToLower(filepath.Ext(base)) != ext {
+			base += ext
+		}
+		return base, nil
+	}
+	// A confined runtime must not escape to the real Desktop. When the
+	// desktop itself cannot be used, the file still has to land so the
+	// task can finish: the conversation folder is that place.
 	if r == nil || !unconfined || !r.FullDiskEnabled() {
-		return "", errors.New("desktop=true requires full-disk full-access")
+		if !unconfined {
+			return "", errors.New("desktop=true requires full-disk full-access")
+		}
+		return sessionFallback()
 	}
 	dir, err := r.desktopDirectory()
 	if err != nil {
+		if unconfined {
+			return sessionFallback()
+		}
 		return "", err
 	}
 	base := filepath.Base(requested)

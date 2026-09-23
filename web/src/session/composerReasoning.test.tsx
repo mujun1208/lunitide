@@ -20,7 +20,12 @@ describe('composer reasoning intensity', () => {
         <ComposerReasoningSlider level="high" onChange={onChange} />
       </LanguageProvider>,
     )
-    fireEvent.change(screen.getByLabelText('模型使用强度'), { target: { value: '2' } })
+    expect(screen.queryByRole('slider')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '模型使用强度' }))
+    expect(screen.getByText('更快')).toBeInTheDocument()
+    expect(screen.getByText('更聪明')).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('slider', { name: '调整模型使用强度' }), { target: { value: '2' } })
     expect(onChange).toHaveBeenCalledWith('max')
+    expect(localStorage.getItem('lunitide:reasoning-level')).toBe('max')
   })
 })

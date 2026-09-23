@@ -145,18 +145,20 @@ html[data-theme="light"] .agent-hub{
 .agent-hub-actions button{border:1px solid var(--hub-line);background:transparent;color:inherit;border-radius:12px;padding:8px 14px;font:inherit;cursor:pointer}
 .agent-hub-hint{color:var(--hub-muted);font-size:13px}
 .agent-hub-error{color:var(--hub-bad)}
-.shell-mode-switch{display:flex;align-items:center;gap:8px;margin:0 0 8px}
+.shell-mode-switch{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin:0 0 12px}
 .shell-product-moon{flex:0 0 auto;display:flex;align-items:center}
 .shell-product-moon .real-moon,.shell-product-moon .real-moon.small{width:20px;height:20px;margin:0}
-.shell-mode-pills{flex:1;display:grid;grid-template-columns:1fr 1fr;padding:3px;border-radius:999px;background:#141414;gap:2px}
-.shell-mode-pills button{min-height:32px;padding:0 10px;border:0;border-radius:999px;background:transparent;color:#8a8a8a;font:inherit;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.shell-mode-pills{flex:none;width:100%;display:grid;grid-template-columns:1fr 1fr;padding:2px;border-radius:10px;background:#141414;gap:2px}
+.shell-mode-pills button{min-height:30px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:#8a8a8a;font:inherit;font-size:12.5px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;line-height:16px}
 .shell-mode-pills button svg{flex:0 0 auto}
 .shell-mode-pills button[aria-pressed="true"]{color:#f4f4f4;background:#1a1a1a;box-shadow:inset 0 0 0 1px #2a2a2a}
-.shell-drawer-toggle{width:32px;min-width:32px;height:32px;min-height:32px!important;padding:0!important;display:grid;place-items:center;border:1px solid #3a3a3a!important;border-radius:10px!important;background:#171717!important;color:#f4f4f4}
+.shell-drawer-toggle{align-self:flex-start;width:28px;min-width:28px;height:28px;min-height:28px!important;padding:0!important;display:grid;place-items:center;border:0!important;border-radius:6px!important;background:transparent!important;color:#d5d5d5}
 html[data-theme="light"] .shell-mode-pills{background:#ececec}
 html[data-theme="light"] .shell-mode-pills button{color:#6a6a6a}
 html[data-theme="light"] .shell-mode-pills button[aria-pressed="true"]{color:#111;background:#fff;box-shadow:inset 0 0 0 1px #e4e4e4}
-html[data-theme="light"] .shell-drawer-toggle{border-color:#e4e4e4!important;background:#fff!important;color:#111}
+html[data-theme="light"] .shell-drawer-toggle{color:#222!important;background:transparent!important}
+.shell-drawer-toggle:hover{background:rgba(255,255,255,.06)!important}
+html[data-theme="light"] .shell-drawer-toggle:hover{background:rgba(0,0,0,.05)!important}
 .agent-hub .workspace-layout{flex:1;min-height:0}
 .agent-hub .workspace-layout:not(.workspace-is-open) .workspace-resizer,
 .agent-hub .workspace-layout:not(.workspace-is-open) .workspace-column{display:none}

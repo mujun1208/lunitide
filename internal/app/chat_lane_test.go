@@ -163,14 +163,14 @@ func TestApplyLaneOverridesT20NoWebStaysL2Ask(t *testing.T) {
 
 func TestApplyLaneToolsT17StripsSearchOnWeeklyReport(t *testing.T) {
 	defs := []llmadapter.ToolDefinition{
-		{Name: "web.search"}, {Name: "web.fetch"}, {Name: "docx.gen"}, {Name: "user.ask"}, {Name: "workspace.read"},
+		{Name: "web.search"}, {Name: "web.fetch"}, {Name: "docx.gen"}, {Name: "user.ask"}, {Name: "todo.write"}, {Name: "workspace.read"},
 	}
 	ask := applyLaneTools(defs, buildLaneContract(LaneL2Ask, RouteR4, CouncilOverlay{}))
 	if hasLaneTool(ask, "web.search") || hasLaneTool(ask, "web.fetch") || hasLaneTool(ask, "docx.gen") {
 		t.Fatalf("L2-ask kept scrape/gen: %#v", namesOf(ask))
 	}
-	if !hasLaneTool(ask, "user.ask") {
-		t.Fatal("L2-ask dropped user.ask")
+	if !hasLaneTool(ask, "user.ask") || !hasLaneTool(ask, "todo.write") {
+		t.Fatal("L2-ask dropped the typed decision card or checklist")
 	}
 	l2 := applyLaneTools(defs, buildLaneContract(LaneL2, RouteR4, CouncilOverlay{}))
 	if hasLaneTool(l2, "web.search") || hasLaneTool(l2, "web.fetch") {

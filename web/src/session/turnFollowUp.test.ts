@@ -21,7 +21,8 @@ it('classifies supplements vs task changes during in-flight work', () => {
   expect(classifyFollowUp('封面先做出来', '请 PPT专家做一份介绍')).toBe('supplement')
   expect(classifyFollowUp('改方案用深色封面', '请 PPT专家做一份介绍')).toBe('supplement')
   expect(classifyFollowUp('别做PPT了帮我查天气', '请 PPT专家做一份介绍')).toBe('task_change')
-  expect(classifyFollowUp('帮我打开桌面协议的文件', '请 PPT专家做一份介绍')).toBe('task_change')
+  expect(classifyFollowUp('帮我打开桌面协议的文件', '请 PPT专家做一份介绍')).toBe('supplement')
+  expect(classifyFollowUp('再追加一个问题，界面做得更有科技感', '改进这个 POC')).toBe('supplement')
 })
 
 it('detects task-change negation and independent asks', () => {

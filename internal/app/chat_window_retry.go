@@ -5,11 +5,15 @@ import (
 	"errors"
 	"log"
 	"strings"
+	"unicode/utf8"
 
+	"github.com/lunitide/lunitide/internal/domain/agentrun"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/token"
 	"github.com/lunitide/lunitide/internal/llmadapter"
 )
+
+const maxWindowRetries = 3
 
 // providerModelContextWindow reads the configured window for this model.
 // Missing configuration keeps the historical 128000 fallback. The bool is
@@ -54,25 +58,58 @@ func (e *Engine) latestCheckpointSummary(ctx context.Context, sessionID string) 
 	return strings.TrimSpace(summary)
 }
 
-func isWindowOverflowError(err error) bool {
+// isContextOverflowError is a request that does not fit. Those retry by
+// compacting history. A truncated reply is not a window overflow: the
+// partial stays, and the turn continues so the file can still be written.
+func isContextOverflowError(err error) bool {
+	if errors.Is(err, agentrun.ErrContextWindow) {
+		return true
+	}
 	var upstream *llmadapter.Error
 	if !errors.As(err, &upstream) {
 		return false
 	}
 	switch upstream.Code {
-	case "CONTEXT_WINDOW_EXCEEDED", "REQUEST_TOO_LARGE", "RESPONSE_TRUNCATED":
+	case "CONTEXT_WINDOW_EXCEEDED", "REQUEST_TOO_LARGE":
 		return true
 	}
 	return upstream.HTTPStatus == 413
+}
+
+func isWindowOverflowError(err error) bool {
+	return isContextOverflowError(err)
+}
+
+func isReplyTruncatedError(err error) bool {
+	var upstream *llmadapter.Error
+	return errors.As(err, &upstream) && upstream.Code == "RESPONSE_TRUNCATED"
 }
 
 func shrinkMessagesForWindowRetry(req *llmadapter.Request) {
 	applyWindowRetryMessages(req, "")
 }
 
+func windowRetryKeep(attempt int) int {
+	switch attempt {
+	case 1:
+		return 8
+	case 2:
+		return 4
+	default:
+		return 2
+	}
+}
+
 func applyWindowRetryMessages(req *llmadapter.Request, checkpointSummary string) {
+	applyWindowRetryMessagesKeep(req, checkpointSummary, 8)
+}
+
+func applyWindowRetryMessagesKeep(req *llmadapter.Request, checkpointSummary string, keep int) {
 	if req == nil || len(req.Messages) == 0 {
 		return
+	}
+	if keep < 1 {
+		keep = 1
 	}
 	var systems, rest []llmadapter.Message
 	for _, m := range req.Messages {
@@ -82,7 +119,6 @@ func applyWindowRetryMessages(req *llmadapter.Request, checkpointSummary string)
 		}
 		rest = append(rest, m)
 	}
-	const keep = 8
 	if len(rest) > keep {
 		rest = rest[len(rest)-keep:]
 	}
@@ -92,6 +128,25 @@ func applyWindowRetryMessages(req *llmadapter.Request, checkpointSummary string)
 	}
 	req.Messages = append(append([]llmadapter.Message{}, systems...), llmadapter.Message{Role: llmadapter.RoleSystem, Content: note})
 	req.Messages = append(req.Messages, rest...)
+}
+
+func clipWindowRetryPayloads(req *llmadapter.Request, attempt int) {
+	if req == nil || attempt < 2 {
+		return
+	}
+	limit := 4000
+	if attempt >= 3 {
+		limit = 1500
+	}
+	for i := range req.Messages {
+		if req.Messages[i].Role != llmadapter.RoleTool && req.Messages[i].Role != llmadapter.RoleAssistant {
+			continue
+		}
+		if utf8.RuneCountInString(req.Messages[i].Content) <= limit {
+			continue
+		}
+		req.Messages[i].Content = string([]rune(req.Messages[i].Content)[:limit]) + "\n…（已压缩）"
+	}
 }
 
 func windowOverflowUserMessage() string {

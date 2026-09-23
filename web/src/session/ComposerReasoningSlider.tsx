@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useId, useRef, useState } from 'react'
 import { useZh } from '../i18n/language'
 import {
   REASONING_LABELS,
@@ -8,6 +8,17 @@ import {
   saveReasoningLevel,
   type ReasoningLevel,
 } from './composerReasoning'
+
+function IntensityIcon(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+      <path fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" d="M2.6 4.2h10.8M2.6 8h10.8M2.6 11.8h10.8" />
+      <circle cx="6" cy="4.2" r="1.15" fill="currentColor" />
+      <circle cx="10.2" cy="8" r="1.15" fill="currentColor" />
+      <circle cx="7.2" cy="11.8" r="1.15" fill="currentColor" />
+    </svg>
+  )
+}
 
 export function ComposerReasoningSlider({
   level,
@@ -19,23 +30,64 @@ export function ComposerReasoningSlider({
   const zh = useZh()
   const label = REASONING_LABELS[level]
   const word = zh ? label.zh : label.en
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const popId = useId()
+  useEffect(() => {
+    if (!open) return
+    const onPointer = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointer)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onPointer)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+  const commit = (next: ReasoningLevel) => {
+    saveReasoningLevel(next)
+    onChange(next)
+  }
   return (
-    <label className="composer-reasoning">
-      <span>{word}</span>
-      <input
-        type="range"
-        min={0}
-        max={REASONING_LEVELS.length - 1}
-        step={1}
-        value={reasoningLevelIndex(level)}
+    <div className="composer-reasoning" ref={rootRef}>
+      <button
+        type="button"
+        className="composer-reasoning-trigger"
         aria-label={zh ? '模型使用强度' : 'Model intensity'}
-        aria-valuetext={word}
-        onChange={event => {
-          const next = reasoningLevelAt(Number(event.target.value))
-          saveReasoningLevel(next)
-          onChange(next)
-        }}
-      />
-    </label>
+        aria-expanded={open}
+        aria-controls={popId}
+        onClick={() => setOpen(value => !value)}
+      >
+        <IntensityIcon />
+        <span>{word}</span>
+        <i aria-hidden="true">▾</i>
+      </button>
+      {open ? (
+        <div className="composer-reasoning-pop" id={popId} role="dialog" aria-label={zh ? '模型使用强度' : 'Model intensity'}>
+          <header>
+            <b>{zh ? '模型使用强度' : 'Model intensity'}</b>
+            <strong>{word}</strong>
+          </header>
+          <input
+            type="range"
+            min={0}
+            max={REASONING_LEVELS.length - 1}
+            step={1}
+            value={reasoningLevelIndex(level)}
+            aria-label={zh ? '调整模型使用强度' : 'Adjust model intensity'}
+            aria-valuetext={word}
+            onChange={event => commit(reasoningLevelAt(Number(event.target.value)))}
+          />
+          <footer>
+            <span>{zh ? '更快' : 'Faster'}</span>
+            <span>{zh ? '更聪明' : 'Smarter'}</span>
+          </footer>
+        </div>
+      ) : null}
+    </div>
   )
 }

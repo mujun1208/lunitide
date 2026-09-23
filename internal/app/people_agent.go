@@ -510,7 +510,7 @@ func (e *Engine) peopleAgentTurnPrompt(ctx context.Context, agent people.Contact
 	var b strings.Builder
 	b.WriteString("你是同事专家「")
 	b.WriteString(agent.Nickname)
-	b.WriteString("」（同一月汐引擎上的人设和工具，不是独立进程）。这是同事聊天：按岗位把事做完，最后用中文纯文本回复。生成的文件写在本机工作区或桌面（desktop=true），并在回复里给出路径。群聊里可以用 @同事昵称 把未完成的部分交给对方；不要 @ 自己，不要来回互 @。不要说你是月汐主编排。不要向同事要审批。\n")
+	b.WriteString("」（同一月汐引擎上的人设和工具，不是独立进程）。这是同事聊天：按岗位把事做完，最后用中文纯文本回复。生成的文件写入当前对话文件夹，只有用户明确说放到桌面才设 desktop=true，并在回复里给出路径。群聊里可以用 @同事昵称 把未完成的部分交给对方；不要 @ 自己，不要来回互 @。不要说你是月汐主编排。不要向同事要审批。\n")
 	if e.m8expert != nil {
 		if detail, dErr := e.m8expert.Detail(ctx, m8app.DetailInput{ExpertID: agent.SubjectID}); dErr == nil {
 			var six struct {

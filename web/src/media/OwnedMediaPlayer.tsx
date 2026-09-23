@@ -134,7 +134,7 @@ export function OwnedMediaPlayer({
 
   if (!owned || !snapshot) return null
   return (
-    <div className="owned-media-player" hidden>
+    <div className="owned-media-player">
       {video ? (
         <video ref={nodeRef as React.RefObject<HTMLVideoElement>} onEnded={onEnded} onError={() => onErrorRef.current(copy.channelDown)} />
       ) : (

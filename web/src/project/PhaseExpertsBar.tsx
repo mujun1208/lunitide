@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { expertBridge, type ExpertBridge } from '../bridge/client'
 import { conversationExpertByNameOrID } from '../expert/conversationExperts'
 import { resolveInstalledExpertIds } from '../expert/expertIds'
-import { resolvePhaseExpertIds } from './phaseExperts'
+import { resolvePhaseRecommendIds } from './phaseExperts'
 
 const MAX_MOUNTS = 4
 const SESSION_EXPERTS_EVENT = 'lunitide:session-experts'
@@ -87,13 +87,18 @@ export function PhaseExpertsBar({
 
   const reseed = async () => {
     if (busy || !sessionId) return
-    const seed = await resolvePhaseExpertIds(projectId, phaseLabel, experts).catch(() => [] as string[])
+    setError('')
+    const seed = await resolvePhaseRecommendIds(projectId, phaseLabel, experts).catch(() => [] as string[])
     const listed = await experts.list?.().catch(() => undefined)
     const resolved = listed?.experts
       ? resolveInstalledExpertIds(seed, listed.experts)
       : { ids: seed, missing: [] as string[] }
     const next = (resolved.ids.length ? resolved.ids : seed.filter(id => !resolved.missing.includes(id))).slice(0, MAX_MOUNTS)
-    if (next.length) void persist(next)
+    if (!next.length) {
+      setError('这一阶段还没有可推荐的专家')
+      return
+    }
+    void persist(next)
   }
 
   if (!sessionId) return null

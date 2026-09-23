@@ -326,7 +326,7 @@ func expertDeliberateSystemPromptForTools(name, body string, tools bool) string 
 	if !tools {
 		return base + "本轮不要调用任何工具，不要建议 web.search 或 *.gen。不要倾倒 200 页全书。"
 	}
-	return base + "需要事实或素材时先调用 web.search（必要时 web.fetch）；需要成文时调用对应 *.gen（桌面 desktop=true）；结构图用 mermaid；匹配技能立刻 skill.invoke。不要倾倒 200 页全书。"
+	return base + "需要事实或素材时先调用 web.search（必要时 web.fetch）；需要成文时调用对应 *.gen，文件写入当前对话文件夹，只有用户明确说放到桌面才设 desktop=true；结构图用 mermaid；匹配技能立刻 skill.invoke。不要倾倒 200 页全书。"
 }
 
 func expertDeliberateUserPrompt(question, phaseLabel, priorFindings string) string {
@@ -506,7 +506,7 @@ func councilChairInstructionForLane(brief string, companion bool, lane ChatLane)
 		"## 主要分歧\n（列出专家间冲突点及你的取舍理由）\n\n" +
 		"## 待你拍板\n（仍需用户决定的问题，若无写“无”）\n\n" +
 		"## 各专家要点\n（每位专家 1-3 行摘要，不要全文粘贴）\n\n" +
-		"综合后必须把交付做完：需要网上事实就 web.search / web.fetch；结构图画 mermaid；成文用 office.generate 或 docx.gen / excel.gen / pptx.gen / html.gen（桌面 desktop=true）；匹配技能立刻 skill.invoke。不要只给口头结论交差。\n"
+		"综合后必须把交付做完：需要网上事实就 web.search / web.fetch；结构图画 mermaid；成文用 office.generate 或 docx.gen / excel.gen / pptx.gen / html.gen，写入当前对话文件夹，只有用户明确说放到桌面才设 desktop=true；匹配技能立刻 skill.invoke。不要只给口头结论交差。\n"
 }
 
 func injectCouncilChairBrief(req *llmadapter.Request, brief string, companion bool, lane ChatLane) {

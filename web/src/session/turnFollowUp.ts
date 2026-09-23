@@ -85,7 +85,7 @@ function looksLikeResume(text: string): boolean {
   return t === '继续' || t.startsWith('继续上次') || t.includes('未完成的工作')
 }
 
-/** New unrelated work that should cancel the in-flight turn. */
+/** Explicit pivot away from the in-flight turn. Extra questions wait in the queue. */
 export function looksLikeTaskChange(text: string, activeGoal?: string): boolean {
   const t = text.trim()
   if (!t || !activeGoal?.trim() || isStatusFollowUp(t) || isStopCommand(t) || looksLikeResume(t)) return false
@@ -98,19 +98,7 @@ export function looksLikeTaskChange(text: string, activeGoal?: string): boolean 
   for (const p of taskChangeNegations) {
     if (t.includes(p)) return true
   }
-  return looksLikeIndependentTask(t)
-}
-
-function looksLikeIndependentTask(text: string): boolean {
-  const t = text.trim()
-  if (!t) return false
-  for (const p of supplementPrefixes) {
-    if (t.startsWith(p)) return false
-  }
-  for (const p of steerPatterns) {
-    if (t.includes(p)) return false
-  }
-  return true
+  return false
 }
 
 /** Classify an in-flight follow-up: merge (supplement), attach progress, or pivot task. */

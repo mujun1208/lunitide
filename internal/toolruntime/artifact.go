@@ -212,7 +212,7 @@ func (r *Runtime) finishOfficeGen(mode Mode, session, outPath string, data []byt
 	if err != nil {
 		return Result{}, err
 	}
-	if desktop && written.Artifact != nil {
+	if desktop && written.Artifact != nil && (filepath.IsAbs(outPath) || filepath.VolumeName(outPath) != "") {
 		written.Artifact.Path = desktopPreviewPath(outPath, true, fallback)
 	}
 	return written, nil

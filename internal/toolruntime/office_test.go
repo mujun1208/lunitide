@@ -155,6 +155,29 @@ func TestOfficeGenDesktopNeedsUnconfined(t *testing.T) {
 	}
 }
 
+func TestOfficeGenDesktopWithoutFullDiskLandsInSession(t *testing.T) {
+	r, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	args := json.RawMessage(`{"path":"半年财报.xlsx","desktop":true,"sheets":[{"name":"S","headers":["月"],"rows":[["1月", 10]]}]}`)
+	out, err := r.ExecuteUnconfined(context.Background(), officeSession, "excel.gen", args, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Artifact == nil || out.Artifact.Path != "半年财报.xlsx" {
+		t.Fatalf("artifact = %+v", out.Artifact)
+	}
+	folder, err := r.SessionFolder(officeSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(folder, "半年财报.xlsx")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestOfficeGenDesktopArtifactPath(t *testing.T) {
 	r, err := New(t.TempDir())
 	if err != nil {

@@ -279,7 +279,7 @@ func (s *queuePivotBetweenReadAndClaim) ListQueued(ctx context.Context, id strin
 	items, err := s.Store.ListQueued(ctx, id)
 	if err == nil && s.inject {
 		s.inject = false
-		_, err = queueapp.New(s.Store).Enqueue(ctx, id, "", "帮我打开桌面协议的文件", "", "pivot-between-read-and-claim")
+		_, err = queueapp.New(s.Store).Enqueue(ctx, id, "", "别做了，帮我查天气", "", "pivot-between-read-and-claim")
 	}
 	return items, err
 }

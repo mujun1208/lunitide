@@ -30,14 +30,14 @@ const (
 	// more allowance up to these hard ceilings. This mirrors the adaptive
 	// step limit (extendToolLoopLimit): the cap still exists, it just stops
 	// cutting off long legitimate jobs midway.
-	turnGenerationHardBytes   = 2 << 20
-	turnReasoningHardBytes    = 8 << 20
-	turnGenerationHardTokens  = 4 * turnGenerationMaxTokens
-	turnGenerationHardTime    = 30 * time.Minute
-	turnGenerationByteChunk   = 512 << 10
-	turnReasoningByteChunk    = 2 << 20
-	turnGenerationTokenChunk  = turnGenerationMaxTokens
-	turnGenerationTimeChunk   = 10 * time.Minute
+	turnGenerationHardBytes  = 2 << 20
+	turnReasoningHardBytes   = 8 << 20
+	turnGenerationHardTokens = 4 * turnGenerationMaxTokens
+	turnGenerationHardTime   = 30 * time.Minute
+	turnGenerationByteChunk  = 512 << 10
+	turnReasoningByteChunk   = 2 << 20
+	turnGenerationTokenChunk = turnGenerationMaxTokens
+	turnGenerationTimeChunk  = 10 * time.Minute
 
 	// Closing reserve: once the allowance is spent, the turn still owes the
 	// user an answer about the work it already did. The reserve funds exactly
@@ -50,12 +50,13 @@ const (
 // The budget covers every model pass in this turn, including reasoning and
 // tool arguments. Provider time excludes time waiting for human approval.
 type turnGenerationBudget struct {
-	mu              sync.Mutex
-	bytes, tokens   int
-	reasoning       int
-	elapsed         time.Duration
-	exhausted       bool
-	reserveOpened   bool
+	mu            sync.Mutex
+	bytes, tokens int
+	reasoning     int
+	elapsed       time.Duration
+	exhausted     bool
+	reserveOpened bool
+	continueWaves int
 	// Ceilings start at 0 meaning "the default"; a productive turn raises
 	// them in place so the zero value is still a usable budget.
 	byteCap, reasoningCap, tokenCap int
@@ -129,6 +130,34 @@ func (b *turnGenerationBudget) noteToolProgress() {
 // out, so the user learns what got done instead of only that a limit was hit.
 // It opens once per turn and grants deliverable bytes only — the reserve must
 // not pay for more thinking or more tool calls.
+// reopenForNextWave funds another tool round after the allowance ran out
+// mid-task. It is separate from the one-shot no-tools closing reserve.
+func (b *turnGenerationBudget) reopenForNextWave() bool {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.reserveOpened || b.continueWaves >= 2 {
+		return false
+	}
+	b.continueWaves++
+	b.exhausted = false
+	b.byteCap = b.byteLimit() + turnGenerationByteChunk
+	if b.byteCap > turnGenerationHardBytes+turnGenerationByteChunk {
+		b.byteCap = turnGenerationHardBytes + turnGenerationByteChunk
+	}
+	b.tokenCap = b.tokenLimit() + turnGenerationTokenChunk
+	if b.tokenCap > turnGenerationHardTokens+turnGenerationTokenChunk {
+		b.tokenCap = turnGenerationHardTokens + turnGenerationTokenChunk
+	}
+	b.timeCap = b.timeLimit() + turnGenerationTimeChunk
+	if b.timeCap > turnGenerationHardTime+turnGenerationTimeChunk {
+		b.timeCap = turnGenerationHardTime + turnGenerationTimeChunk
+	}
+	return true
+}
+
 func (b *turnGenerationBudget) openClosingReserve() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()

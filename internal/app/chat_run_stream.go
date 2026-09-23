@@ -368,6 +368,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				toolLoopLimit = 2
 			}
 			toolLoopLimit = capToolLoopLimit(toolLoopLimit, state.lane)
+			if turn.CapabilityWork && !state.companion && !inventoryLookupBlocksPublicWeb(turn.Goal) && toolLoopLimit < maxToolLoopSteps {
+				toolLoopLimit = maxToolLoopSteps
+			}
+			toolBudgetWaves := 0
+			lengthContinueWaves := 0
 			for step := 0; step < toolLoopLimit; step++ {
 				turn.liveProtocol = req.Messages
 				if err := e.CheckCapability(op, "llm", "session"); err != nil {
@@ -489,18 +494,66 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					toolsFallbackUsed = true
 					continue
 				}
-				if streamErr != nil && state != nil && isWindowOverflowError(streamErr) && !state.windowRetried {
+				windowRetryLimit := 1
+				if isContextOverflowError(streamErr) {
+					windowRetryLimit = maxWindowRetries
+				}
+				if streamErr != nil && state != nil && isWindowOverflowError(streamErr) && state.windowRetryCount < windowRetryLimit {
+					state.windowRetryCount++
 					e.flushMemoryBeforeCompaction(op, sessionID, turn.Goal, assistantText.String())
 					if e.compactionTrigger != nil && e.compactionExecutor != nil {
 						e.compactSession(op, sessionID, p, req.Model, token.CanonicalTokenizerRevision)
 					}
-					applyWindowRetryMessages(&req, e.latestCheckpointSummary(op, sessionID))
-					state.windowRetried = true
+					applyWindowRetryMessagesKeep(&req, e.latestCheckpointSummary(op, sessionID), windowRetryKeep(state.windowRetryCount))
+					clipWindowRetryPayloads(&req, state.windowRetryCount)
 					discardStepText(&assistantText, stepTextStart)
 					if bufferReply {
 						stepReply.Reset()
 					}
+					if step+1 >= toolLoopLimit && toolLoopLimit < maxToolLoopStepsHard {
+						toolLoopLimit = step + 2
+					}
 					_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: windowRetryThinkingNotice()}})
+					streamErr = nil
+					continue
+				}
+				if streamErr != nil && isReplyTruncatedError(streamErr) && lengthContinueWaves < maxLengthContinueWaves && step+1 < maxToolLoopStepsHard {
+					lengthContinueWaves++
+					partial := ""
+					if bufferReply && stepReply.Len() > 0 {
+						partial = stepReply.String()
+						assistantText.WriteString(partial)
+						if err := sendDeltaChunks(send, partial); err != nil {
+							return err
+						}
+					} else {
+						partial = assistantText.String()
+						if stepTextStart > 0 && stepTextStart <= len(partial) {
+							partial = partial[stepTextStart:]
+						}
+					}
+					if strings.TrimSpace(partial) != "" {
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleAssistant, Content: partial})
+					}
+					req.Messages = append(req.Messages, lengthContinueMessage())
+					if step+1 >= toolLoopLimit && toolLoopLimit < maxToolLoopStepsHard {
+						toolLoopLimit = step + 2
+					}
+					_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "输出被长度截断，不完整的工具没有执行。自动接着写，把文件落到当前对话文件夹。\n"}})
+					streamErr = nil
+					continue
+				}
+				if streamErr != nil && errors.Is(streamErr, errTurnGenerationBudget) && usedTools && step+1 < maxToolLoopStepsHard && generationBudget.reopenForNextWave() {
+					next := step + 1 + toolLoopExtendChunk
+					if next > maxToolLoopStepsHard {
+						next = maxToolLoopStepsHard
+					}
+					if next > toolLoopLimit {
+						toolLoopLimit = next
+					}
+					req.Messages = append(req.Messages, toolBudgetContinueMessage())
+					_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "生成额度用完，自动开始下一轮，接着把任务做完。\n"}})
+					streamErr = nil
 					continue
 				}
 				if streamErr != nil {
@@ -840,6 +893,27 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							continue
 						}
 					}
+					if usedTools && toolBudgetWaves < maxToolBudgetWaves && turnAdmitsUnfinishedToolBudget(assistantText.String()) && step+1 < maxToolLoopStepsHard {
+						toolBudgetWaves++
+						msg := result.Message
+						if strings.TrimSpace(msg.Content) == "" && stepText != "" {
+							msg.Role = llmadapter.RoleAssistant
+							msg.Content = stepText
+						}
+						if msg.Role != "" {
+							req.Messages = append(req.Messages, msg)
+						}
+						req.Messages = append(req.Messages, toolBudgetContinueMessage())
+						next := step + 1 + toolLoopExtendChunk
+						if next > maxToolLoopStepsHard {
+							next = maxToolLoopStepsHard
+						}
+						if next > toolLoopLimit {
+							toolLoopLimit = next
+						}
+						_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "工具步数用完，自动开始下一轮，接着把任务做完。\n"}})
+						continue
+					}
 					break
 				}
 				usedTools = true
@@ -856,7 +930,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						break
 					}
 				}
-				if turnMayEarnMoreSteps(state.companion, usedDesktopTools, turn.Goal, state.lane) {
+				if turnMayEarnMoreSteps(state.companion, usedDesktopTools, turn.Goal, state.lane) || (turn.CapabilityWork && !state.companion && !inventoryLookupBlocksPublicWeb(turn.Goal)) {
 					toolLoopLimit = extendToolLoopLimit(toolLoopLimit, step)
 				}
 				if state.companion && shouldInjectCompanionToolLeadIn(assistantText.String(), leadInInjected) && len(result.Message.ToolCalls) > 0 && len(turn.LastTools) == 0 {
@@ -918,6 +992,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 					seen[call.ID] = true
 					call.Arguments = officeBoundToolArgs(op, call.Name, call.Arguments)
+					call.Arguments = confineSessionArtifactArgs(turn.Goal, call.Name, call.Arguments)
 					if call.Name == "media.play" {
 						call.Arguments = mediaArgsForGoal(turn.Goal, call.Arguments)
 					}
@@ -1191,8 +1266,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						if officeToolMisroutedToCode(call.Name, turn.Goal, req.Messages, call.Arguments) {
 							return toolruntime.Result{Output: "ok:false\n这不是办公文件。用户要的是把源码写到指定路径并运行。立刻用 workspace.write 落盘，再用 command.run 运行，把真实输出贴回。不要再调用 office.generate，不要说没有终端或没有写盘通道，不要让用户自己复制源码。若写入或命令被拒绝，把拒绝原因原样告诉用户。"}, nil
 						}
-						if officeManagedBypass(call.Name, officeTaskContextID(op), &turn, call.Arguments) {
-							return toolruntime.Result{Output: "ok:false\n" + officeGenInternalHint + "立刻调用 office.generate 或对应 *.gen，不要 command.run 或 workspace.write。"}, nil
+						if officeManagedBypass(call.Name, officeTaskContextID(op), &turn, call.Arguments) && !turn.CapabilityWork && !runnableSystemRequest(turn.Goal) {
+							return toolruntime.Result{Output: "ok:false\n生成文件写入当前对话文件夹。立刻调用 office.generate 或对应 *.gen，不要 command.run 或 workspace.write，不要设 desktop=true，除非用户明确说放到桌面。"}, nil
 						}
 						if call.Name == "command.run" || call.Name == "run_terminal_cmd" {
 							progress := func(chunk string) {

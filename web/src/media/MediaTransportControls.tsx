@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useRef } from 'react'
 import { mediaText } from './mediaCopy'
 
 export function MediaTransportControls({
@@ -33,6 +33,8 @@ export function MediaTransportControls({
   onVolume: (volume: number) => void
 }): React.JSX.Element {
   const copy = mediaText(zh)
+  const seekDrag = useRef(false)
+  const volumeDrag = useRef(false)
   return (
     <div className="media-controls">
       <button type="button" disabled={busy} onClick={onPrevious}>{copy.previous}</button>
@@ -49,7 +51,16 @@ export function MediaTransportControls({
             max={Math.max(durationMs, positionMs, 1)}
             value={positionMs}
             disabled={busy}
-            onChange={event => onSeek(Number(event.target.value))}
+            onPointerDown={() => { seekDrag.current = true }}
+            onPointerUp={event => {
+              if (!seekDrag.current) return
+              seekDrag.current = false
+              onSeek(Number(event.currentTarget.value))
+            }}
+            onKeyUp={event => {
+              if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') return
+              onSeek(Number(event.currentTarget.value))
+            }}
           />
         </label>
       ) : null}
@@ -63,7 +74,16 @@ export function MediaTransportControls({
             max={100}
             value={volume}
             disabled={busy}
-            onChange={event => onVolume(Number(event.target.value))}
+            onPointerDown={() => { volumeDrag.current = true }}
+            onPointerUp={event => {
+              if (!volumeDrag.current) return
+              volumeDrag.current = false
+              onVolume(Number(event.currentTarget.value))
+            }}
+            onKeyUp={event => {
+              if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') return
+              onVolume(Number(event.currentTarget.value))
+            }}
           />
         </label>
       ) : null}

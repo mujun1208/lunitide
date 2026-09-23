@@ -67,6 +67,20 @@ func TestOfficeGenNeverForMusicPlayOrWeather(t *testing.T) {
 	}
 }
 
+func TestConfineSessionArtifactArgsStayInConversationFolder(t *testing.T) {
+	raw := confineSessionArtifactArgs("试用技能: POC 快速构建", "html.gen", []byte(`{"path":"C:/Users/a/Desktop/点球大战.html","desktop":true,"template":"penalty-shootout"}`))
+	if strings.Contains(string(raw), `"desktop":true`) || strings.Contains(string(raw), "Users") {
+		t.Fatalf("unrequested desktop write kept: %s", raw)
+	}
+	if !strings.Contains(string(raw), "点球大战.html") {
+		t.Fatalf("filename dropped: %s", raw)
+	}
+	asked := confineSessionArtifactArgs("把介绍PPT放到桌面", "pptx.gen", []byte(`{"path":"介绍.pptx","desktop":true}`))
+	if !strings.Contains(string(asked), `"desktop":true`) {
+		t.Fatalf("explicit desktop request was rewritten: %s", asked)
+	}
+}
+
 func TestFallbackOfficeGenArgsDesktopAndKind(t *testing.T) {
 	novel := fallbackOfficeGenArgs("docx.gen", "写一份12星座爱情小说输出到桌面", "白羊座的人把戒指藏进袖口。")
 	if !strings.Contains(string(novel), `"desktop":true`) || !strings.Contains(string(novel), `"kind":"novel"`) {
@@ -134,8 +148,12 @@ func TestStripOfficeGenLectureNeverUserVisible(t *testing.T) {
 	if got := stripOfficeGenLecture(leaked); strings.Contains(got, "写到桌面请用") || strings.Contains(got, "*.gen") {
 		t.Fatalf("strip left lecture: %q", got)
 	}
-	if userVisibleToolSummary("ok:false\n"+officeGenInternalHint) != "正在生成到桌面…" {
-		t.Fatal("tool summary must hide the lecture")
+	visible := userVisibleToolSummary("ok:false\n" + officeGenInternalHint)
+	if strings.Contains(visible, "写到桌面请用") || strings.Contains(visible, officeGenInternalHint) || visible == "正在生成到桌面…" {
+		t.Fatalf("tool summary hid the real result behind a desktop echo: %q", visible)
+	}
+	if !strings.Contains(visible, "ok:false") && !strings.Contains(visible, "当前对话文件夹") {
+		t.Fatalf("tool summary dropped the failure: %q", visible)
 	}
 	ev := bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: leaked}}
 	sanitizeOutgoingEvent(&ev)

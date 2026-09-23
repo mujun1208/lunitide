@@ -3,6 +3,7 @@ import { mcpBridge } from '../bridge/client'
 import { leftoverArchivedMcp } from '../settings/leftoverMcp'
 import { readProjectsOpen, SIDEBAR_PROJECTS_OPEN_KEY, writeSidebarFlag } from '../sidebarSplit'
 import type { Page } from './appTypes'
+import { NavIcon } from './navIcons'
 
 export type WorkspaceLamp = 'ready' | 'current' | 'warn' | 'error' | 'off'
 
@@ -93,8 +94,9 @@ export function WorkspaceToolsNav({
                   onClick={() => setPage(item.page)}
                   aria-label={label}
                 >
-                  <StatusLamp tone={tone} zh={zh} />
+                  <NavIcon name={item.page} />
                   <em className="nav-lamp-label">{label}</em>
+                  <StatusLamp tone={tone} zh={zh} />
                 </button>
               )
             })}

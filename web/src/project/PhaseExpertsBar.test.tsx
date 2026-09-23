@@ -42,6 +42,39 @@ it('shows the composer-only empty copy', async () => {
   expect(await screen.findByText('未挂载 · 在下方输入框添加')).toBeInTheDocument()
 })
 
+it('recommends phase defaults when nothing is mounted yet', async () => {
+  const set = vi.fn().mockResolvedValue({ expertIds: [AI] })
+  const bridge = experts({
+    sessionMountGet: vi.fn().mockResolvedValue({ expertIds: [] }),
+    sessionMountSet: set,
+    mountingGet: vi.fn().mockResolvedValue({
+      matrix: [{
+        phaseKey: 'ARCHITECTURE_PLAN',
+        defaults: [{ expertId: AI, division: 'engineering' }],
+        mountings: [],
+      }],
+    }),
+  })
+  render(<PhaseExpertsBar sessionId={SESSION} projectId={PROJECT} phaseLabel="接口" experts={bridge} />)
+  fireEvent.click(await screen.findByRole('button', { name: '推荐' }))
+  await waitFor(() => expect(set).toHaveBeenCalledWith({ sessionId: SESSION, expertIds: [AI] }))
+})
+
+it('tells the user when this phase has nothing to recommend', async () => {
+  const set = vi.fn()
+  const bridge = experts({
+    sessionMountGet: vi.fn().mockResolvedValue({ expertIds: [] }),
+    sessionMountSet: set,
+    mountingGet: vi.fn().mockResolvedValue({
+      matrix: [{ phaseKey: 'ARCHITECTURE_PLAN', defaults: [], mountings: [] }],
+    }),
+  })
+  render(<PhaseExpertsBar sessionId={SESSION} projectId={PROJECT} phaseLabel="接口" experts={bridge} />)
+  fireEvent.click(await screen.findByRole('button', { name: '推荐' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('这一阶段还没有可推荐的专家')
+  expect(set).not.toHaveBeenCalled()
+})
+
 it('writes recommended mounts through session.experts.set as ULIDs', async () => {
   const set = vi.fn().mockResolvedValue({ expertIds: [AI] })
   const bridge = experts({
