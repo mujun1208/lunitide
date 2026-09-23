@@ -997,6 +997,10 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			overlay.Run = true
 		}
 		lane, contract := applyLaneOverrides(lane, laneIn, state.taskRoute, overlay)
+		if promoted := promoteLaneForSkillTrial(lane, len(p.TrialSkillIDs) > 0); promoted != lane {
+			lane = promoted
+			contract = buildLaneContract(lane, state.taskRoute, overlay)
+		}
 		if councilCfg != nil {
 			councilCfg.Lane = lane
 			councilCfg.MaxSteps = councilStepsForLane(lane)

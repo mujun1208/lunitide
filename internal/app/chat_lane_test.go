@@ -21,6 +21,53 @@ func TestClassifyChatLaneT05ArticleWithoutFileIsL1(t *testing.T) {
 	if got := classifyChatLane(LaneInput{Goal: "把这段话润色得更顺：今天开会很顺利"}); got != LaneL1 {
 		t.Fatalf("润色 => %s want L1", got)
 	}
+	if got := classifyChatLane(LaneInput{Goal: "写一篇关于修改 v1 版本的文章"}); got != LaneL1 {
+		t.Fatalf("article about a revision => %s want L1", got)
+	}
+}
+
+func TestFileRevisionKeepsWriteAndRun(t *testing.T) {
+	goal := "修改 v1 版本的产物，覆盖 index.html 和 README.md"
+	lane := classifyChatLane(LaneInput{Goal: goal})
+	if lane != LaneL3 {
+		t.Fatalf("revision of an existing deliverable => %s want L3", lane)
+	}
+	defs := []llmadapter.ToolDefinition{
+		{Name: "workspace.write"}, {Name: "workspace.read"}, {Name: "command.run"},
+		{Name: "skill.try"}, {Name: "user.ask"},
+	}
+	got := applyLaneTools(defs, buildLaneContract(lane, RouteUnspecified, CouncilOverlay{}))
+	seen := map[string]bool{}
+	for _, d := range got {
+		seen[d.Name] = true
+	}
+	if !seen["workspace.write"] || !seen["command.run"] || !seen["workspace.read"] {
+		t.Fatalf("revision must keep write and run, got %v", seen)
+	}
+	prose := applyLaneTools(defs, buildLaneContract(LaneL1, RouteUnspecified, CouncilOverlay{}))
+	for _, d := range prose {
+		if d.Name == "workspace.write" || d.Name == "command.run" {
+			t.Fatalf("plain prose lane must not gain %s", d.Name)
+		}
+	}
+}
+
+func TestSkillTrialFollowUpPromotesReadOnlyLane(t *testing.T) {
+	if got := promoteLaneForSkillTrial(LaneL1, true); got != LaneL3 {
+		t.Fatalf("trial follow-up => %s want L3", got)
+	}
+	if got := promoteLaneForSkillTrial(LaneL2Ask, true); got != LaneL3 {
+		t.Fatalf("trial ask lane => %s want L3", got)
+	}
+	if got := promoteLaneForSkillTrial(LaneL0, true); got != LaneL0 {
+		t.Fatalf("greeting trial => %s", got)
+	}
+	if got := promoteLaneForSkillTrial(LaneL4, true); got != LaneL4 {
+		t.Fatalf("desktop trial => %s", got)
+	}
+	if got := promoteLaneForSkillTrial(LaneL1, false); got != LaneL1 {
+		t.Fatalf("no trial => %s", got)
+	}
 }
 
 func TestClassifyChatLaneT03WeeklyReportNoMaterialIsL2Ask(t *testing.T) {
