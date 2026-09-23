@@ -622,9 +622,9 @@ describe('shouldQueueBusyUserTranscript', () => {
     expect(shouldQueueBusyUserTranscript({ ...base, state: 'listening', assistantBusy: false })).toBe(false)
   })
 
-  test('volc never queues — latest utterance barges in', () => {
-    expect(shouldQueueBusyUserTranscript({ ...base, voicePath: 'volc' })).toBe(false)
-    expect(shouldQueueBusyUserTranscript({ ...base, state: 'thinking', assistantBusy: true, voicePath: 'volc' })).toBe(false)
+  test('volc keeps a follow-up said while the previous turn is still running', () => {
+    expect(shouldQueueBusyUserTranscript({ ...base, voicePath: 'volc' })).toBe(true)
+    expect(shouldQueueBusyUserTranscript({ ...base, state: 'thinking', assistantBusy: true, voicePath: 'volc' })).toBe(true)
   })
 })
 

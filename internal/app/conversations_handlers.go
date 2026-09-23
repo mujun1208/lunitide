@@ -51,7 +51,7 @@ func handleSessionFolderGet(e *Engine, _ context.Context, r bridge.Request) brid
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.SessionID) {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "session.folder.get 参数无效", false)
 	}
-	path, err := e.sessionOutputDir(p.SessionID)
+	path, err := e.sessionOutputPath(p.SessionID)
 	if err != nil {
 		return r.Fail("SESSION_FOLDER_UNAVAILABLE", "会话目录暂时不可用", false)
 	}
@@ -131,6 +131,16 @@ func (e *Engine) resolveSessionArtifactTarget(sessionID, relativePath string) (s
 		return "", errors.New("path denied")
 	}
 	return filepath.Join(dir, rel), nil
+}
+
+func (e *Engine) sessionOutputPath(sessionID string) (string, error) {
+	if e.tools != nil {
+		return e.tools.SessionFolderPath(sessionID)
+	}
+	if e.conversations != nil {
+		return e.conversations.SessionDirPath(sessionID)
+	}
+	return "", errors.New("会话目录暂时不可用")
 }
 
 func (e *Engine) sessionOutputDir(sessionID string) (string, error) {

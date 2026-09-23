@@ -466,6 +466,36 @@ func TestMeteredDisableReasoningSurvivesEffectiveCompile(t *testing.T) {
 	}
 }
 
+func TestUserReasoningLevelOverridesLaneDisable(t *testing.T) {
+	var body []byte
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			return nil, err
+		}
+		body = raw
+		return okChatResponse(), nil
+	})
+	a := preflightAdapter(t, transport, &memCalls{}, &recordingBudget{})
+	ctx := withContinuityScope(context.Background(), continuityScope{Owner: "diagnostic", Task: ulid.Make().String(), Purpose: "chat"})
+	req := llmadapter.Request{
+		Model:            "glm-5.3",
+		Mode:             "standard",
+		DisableReasoning: true,
+		ReasoningLevel:   "max",
+		Messages:         []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "帮我找一部电影"}},
+	}
+	if _, err := a.Complete(ctx, []byte("k"), req); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"reasoning_effort":"max"`) || strings.Contains(string(body), `"reasoning_effort":"low"`) {
+		t.Fatalf("typed intensity must win over the lane low default: %s", body)
+	}
+	if !strings.Contains(string(body), `"type":"enabled"`) {
+		t.Fatalf("glm intensity must keep thinking enabled: %s", body)
+	}
+}
+
 func TestProviderDiagnosticOnSharedSqliteStoreReachesUpstream(t *testing.T) {
 	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "diag-shared.db"))
 	if err != nil {

@@ -6,6 +6,7 @@ import { ConfirmDialog, Dialog } from '../ui/Dialog'
 import { bytesToBase64, stageTemplateFile, TEMPLATE_INLINE_MAX } from './assetStage'
 import { readBoundedFile } from '../files/readBoundedFile'
 import { ExternalLink } from 'lucide-react'
+import { AssetHeroArt } from '../shell/heroArt'
 
 type TemplateDTO = TemplateListResult['items'][number]
 
@@ -234,6 +235,7 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
           <h1>资产管理</h1>
           <p>维护各阶段交付物模版：上传、启用、作废、恢复与彻底删除。</p>
         </div>
+        <div className="project-hero-art" aria-hidden="true"><AssetHeroArt /></div>
       </header>
       <section className="pm-body">
         <div className="pm-toolbar">

@@ -66,7 +66,10 @@ type Request struct {
 	IdempotencyKey   string
 	Tools            []ToolDefinition
 	DisableReasoning bool // 月伴模式：跳过推理/思考内容，直接流式输出文本
-	Mode             string
+	// ReasoningLevel is the typed-chat intensity: low, high, max.
+	// Empty keeps the lane default. It is not a provider field by itself.
+	ReasoningLevel string
+	Mode           string
 	StrictTools      bool
 	Target           modelfit.TargetIdentity
 	Effective        *modelfit.EffectiveParameters

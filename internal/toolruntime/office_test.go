@@ -64,6 +64,28 @@ func TestOfficeGenToolsApprovalGating(t *testing.T) {
 	}
 }
 
+func TestGeneratedOfficeStaysInTheConversationFolder(t *testing.T) {
+	legacy := t.TempDir()
+	artifactRoot := t.TempDir()
+	workspace := t.TempDir()
+	r, err := New(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	r.SetSessionStorageRoot(func() (string, error) { return artifactRoot, nil })
+	r.SetFullAccessRootResolver(func() (string, error) { return workspace, nil })
+	if _, err := r.Execute(context.Background(), FullAccess, officeSession, "docx.gen", styledDocxArgs("介绍.docx", "介绍", nil), false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(artifactRoot, officeSession, "介绍.docx")); err != nil {
+		t.Fatalf("conversation folder missing the document: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "介绍.docx")); !os.IsNotExist(err) {
+		t.Fatal("generated document landed in the workspace root")
+	}
+}
+
 func TestOfficeGenWritesRealFilesAndParseRoundTrips(t *testing.T) {
 	r, _ := New(t.TempDir())
 	defer r.Close()

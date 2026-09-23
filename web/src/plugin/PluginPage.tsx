@@ -5,6 +5,7 @@ import{Dialog}from'../ui/Dialog'
 import{usePromptDialog}from'../ui/useAskDialog'
 import{CAPABILITY_PACKS,capabilityPack,exportCapabilityPackJSON,installCapabilityPack,isPackPluginId,loadPackLedger,localizePackUserError,parseCapabilityPackJSON,uninstallCapabilityPack,type CapabilityPackSpec,type PackLedgerEntry}from'./capabilityPacks'
 import{FILLER_PLUGIN,PLUGIN_MARKET,pluginHonestyLabel,pluginLogo,pluginOriginLabel,pluginTitle,type PluginCategory}from'./pluginMarket'
+import{MarketMark}from'../market/marketIcon'
 
 type Plugin=PluginListResult['plugins'][number]
 type View='installed'|'market'
@@ -150,7 +151,7 @@ export function PluginPage({bridge=pluginBridge,skills=skillBridge,mcp=mcpBridge
      const installed=record?.state==='installed'
      return <article className={`skill-market-card ${highlightId===pack.id?'is-highlight':''} ${installed?'is-installed':''}`} key={pack.id}>
       <header>
-       <span className="plugin-logo" style={{'--plugin-tint':logo.tint} as React.CSSProperties} aria-hidden="true">{logo.glyph}</span>
+       <span className="plugin-logo" style={{'--plugin-tint':logo.tint} as React.CSSProperties} aria-hidden="true"><MarketMark label={pack.name} fallback={logo.glyph} /></span>
        <div><b>{pack.name}</b><small>技能 {pack.skills.length} · MCP {pack.mcpPresetIds.length} · 门闸 {pack.toolGates.length}{record?.failed?' · 安装失败':''}</small></div>
        {installed?<span className="skill-market-installed">已安装</span>:record?.failed?<button type="button" className="ui-btn" disabled={Boolean(busy)} onClick={()=>void (record?.desired==='uninstalled'?setRemovePackId(pack.id):enable(pack.id))}>复核并修复</button>:<button type="button" className="skill-market-add" aria-label={`安装 ${pack.name}`} disabled={Boolean(busy)} onClick={()=>void enable(pack.id)}>{busy===pack.id?'…':'＋'}</button>}
        <button type="button" className="ui-btn" onClick={()=>void navigator.clipboard.writeText(exportCapabilityPackJSON(pack)).then(()=>setNotice(`已复制「${pack.name}」JSON`))}>导出</button>
@@ -164,7 +165,7 @@ export function PluginPage({bridge=pluginBridge,skills=skillBridge,mcp=mcpBridge
      const logo=pluginLogo(entry.id)
      return <article className={`skill-market-card ${on?'is-installed':''}`} key={entry.id}>
       <header>
-       <span className="plugin-logo" style={{'--plugin-tint':logo.tint} as React.CSSProperties} aria-hidden="true">{logo.glyph}</span>
+       <span className="plugin-logo" style={{'--plugin-tint':logo.tint} as React.CSSProperties} aria-hidden="true"><MarketMark label={entry.name} fallback={logo.glyph} /></span>
        <div><b>{entry.name}</b><small>{entry.category} · {KIND_LABEL[entry.kind]}{failedInstall?' · 安装失败':''}</small></div>
        {on?<span className="skill-market-installed">{pluginHonestyLabel(entry.id)}</span>:<button type="button" className="skill-market-add" aria-label={`启用 ${entry.name}`} disabled={Boolean(busy)} onClick={()=>void enable(entry.id)}>{busy===entry.id?'…':'＋'}</button>}
       </header>
@@ -180,7 +181,7 @@ export function PluginPage({bridge=pluginBridge,skills=skillBridge,mcp=mcpBridge
     const logo=pluginLogo(pack.id)
     return <article className={`skill-market-card ${entry.failed?'':'is-installed'}`} key={pack.id}>
      <header>
-      <span className="plugin-logo" style={{'--plugin-tint':logo.tint} as React.CSSProperties} aria-hidden="true">{logo.glyph}</span>
+      <span className="plugin-logo" style={{'--plugin-tint':logo.tint} as React.CSSProperties} aria-hidden="true"><MarketMark label={pack.name} fallback={logo.glyph} /></span>
       <div><b>{pack.name}</b><small>组合包{entry.failed?' · 安装失败':''}</small></div>
       <i className={`skill-status status-${entry.failed?'deprecated':'published'}`}>{entry.failed?'安装失败':'已安装'}</i>
      </header>
@@ -198,7 +199,7 @@ export function PluginPage({bridge=pluginBridge,skills=skillBridge,mcp=mcpBridge
     const market=PLUGIN_MARKET.find(entry=>entry.id===item.pluginId)
     return <article className={`skill-market-card ${item.state==='enabled'?'is-installed':''}`} key={item.installId}>
      <header>
-      <span className="plugin-logo" style={{'--plugin-tint':logo.tint} as React.CSSProperties} aria-hidden="true">{logo.glyph}</span>
+      <span className="plugin-logo" style={{'--plugin-tint':logo.tint} as React.CSSProperties} aria-hidden="true"><MarketMark label={findPack(item.pluginId)?.name??pluginTitle(item.pluginId)} fallback={logo.glyph} /></span>
       <div><b>{findPack(item.pluginId)?.name??pluginTitle(item.pluginId)}</b><small>{KIND_LABEL[item.kind]??item.kind} · {item.publisher||'local'} · 绑定 {item.bindingCount} 项</small></div>
       <i className={`skill-status status-${item.state==='enabled'?'published':item.state==='quarantined'?'deprecated':item.state==='disabled'?'disabled':'draft'}`}>{isPackPluginId(item.pluginId)?'历史卡片，依赖待核验':STATE_LABEL[item.state]}</i>
      </header>

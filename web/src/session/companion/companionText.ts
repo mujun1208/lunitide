@@ -700,7 +700,6 @@ export function shouldQueueBusyUserTranscript(input: {
   assistantBusy?: boolean
   voicePath?: string
 }): boolean {
-  if (input.voicePath === 'volc') return false
   if (!(input.assistantBusy || input.state === 'speaking' || input.state === 'thinking')) return false
   if (!input.text.trim()) return false
   if (looksLikeOmniPersonaCaption(input.text)) return false

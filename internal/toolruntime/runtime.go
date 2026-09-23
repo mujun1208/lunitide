@@ -109,6 +109,10 @@ type Runtime struct {
 	// drops every confirmation and forces a fresh one.
 	fullDiskMu       sync.Mutex
 	fullDiskSessions map[string]bool
+	// liveMu tracks demo servers started by command.run. They stay up after
+	// the tool returns so a POC does not have to be pasted into an outside shell.
+	liveMu      sync.Mutex
+	liveServers map[string]*exec.Cmd
 	// artifactCAS is the existing workspace CAS used by SnapshotWorkspaceArtifact.
 	// Snapshot writes raw file bytes only; it never pages workspace.read text.
 	artifactCAS interface {
@@ -587,6 +591,22 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if e = os.MkdirAll(root, 0700); e != nil {
 			return Result{}, e
 		}
+		runArgv := append([]string(nil), a.Argv...)
+		runArgv, e = relocateMissingScripts(root, runArgv)
+		if e != nil {
+			return Result{}, commandFailure(e.Error())
+		}
+		runArgv, e = resolveInterpreter(runArgv)
+		if e != nil {
+			return Result{}, commandFailure(e.Error())
+		}
+		if isLocalServerCommand(runArgv) {
+			msg, startErr := r.startLiveServer(ctx, session, root, runArgv)
+			if startErr != nil {
+				return Result{}, commandFailure(startErr.Error())
+			}
+			return result(formatCommandOutput(true, msg)), nil
+		}
 		if dir, ok := extractMkdirPath(a.Argv); ok {
 			dir = expandWindowsEnv(dir)
 			if dir == "" {
@@ -600,7 +620,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			}
 			return result(formatCommandOutput(true, "created directory: "+dir)), nil
 		}
-		argv, cleanup, wrapErr := prepareCommandArgv(a.Argv)
+		argv, cleanup, wrapErr := prepareCommandArgv(runArgv)
 		if wrapErr != nil {
 			return Result{}, commandFailure(wrapErr.Error())
 		}

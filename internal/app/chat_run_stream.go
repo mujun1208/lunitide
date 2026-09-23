@@ -1674,6 +1674,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: delta}})
 			}
 		}
+		if cleaned, ok := e.finishRunnableDemo(ctx, mode, sessionID, &turn, assistantText.String(), send); ok {
+			assistantText.Reset()
+			assistantText.WriteString(cleaned)
+		}
 	}
 
 	cancelling := e.isStreamCancelling(state)

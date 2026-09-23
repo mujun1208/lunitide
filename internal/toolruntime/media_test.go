@@ -29,12 +29,15 @@ func TestGenericForegroundPlaySendsKeyWithoutUIHunt(t *testing.T) {
 	origActivate := activateWindow
 	origSession := mediaSessionAction
 	origPlay := sendForegroundPlay
+	origSleep := mediaSleep
 	t.Cleanup(func() {
 		activateWindow = origActivate
 		mediaSessionAction = origSession
 		sendForegroundPlay = origPlay
+		mediaSleep = origSleep
 	})
 	activateWindow = func(string) error { return nil }
+	mediaSleep = func(time.Duration) {}
 	mediaSessionAction = func(context.Context, []string, string, bool) (winexec.MediaSessionResult, error) {
 		return winexec.MediaSessionResult{}, errors.New("no session")
 	}
@@ -43,11 +46,17 @@ func TestGenericForegroundPlaySendsKeyWithoutUIHunt(t *testing.T) {
 		played = true
 		return nil
 	}
-	invoke := func(context.Context, string, string, json.RawMessage, bool) (Result, error) {
-		t.Fatal("generic play must not hunt the UI")
-		return Result{}, errors.New("unexpected")
+	pressedSpace := false
+	invoke := func(_ context.Context, _ string, tool string, _ json.RawMessage, _ bool) (Result, error) {
+		if tool == ccapp.ToolPress {
+			pressedSpace = true
+		}
+		return Result{Output: `{"count":0,"nodes":[]}`}, nil
 	}
 	res, err := executeMediaPlayForeground(context.Background(), invoke, "s1", "随机播放", "汽水音乐", true, true)
+	if !pressedSpace {
+		t.Fatal("unconfirmed media key must press play inside the app")
+	}
 	if err != nil || !played || !strings.Contains(res.Output, "playback not confirmed") || strings.Contains(res.Output, "started playing") {
 		t.Fatalf("got %+v %v played=%v", res, err, played)
 	}
