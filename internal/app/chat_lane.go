@@ -90,6 +90,12 @@ func classifyChatLane(in LaneInput) ChatLane {
 	if looksLikeNovelTask(goal) {
 		return LaneL3
 	}
+	// A source revision (overwrite index.html / README / v1 产物) is not an
+	// office-template turn. Classifying it as L2-ask drops workspace.write
+	// and command.run, so the model can only paste the next version.
+	if laneLooksLikeFileRevision(goal) {
+		return LaneL3
+	}
 	materials := in.HasTurnMaterials || hasTurnMaterials(goal, false, false)
 	if laneLooksLikeOfficeDeliverable(goal) {
 		if materials {
@@ -104,6 +110,51 @@ func classifyChatLane(in LaneInput) ChatLane {
 		return LaneL1
 	}
 	return LaneL1
+}
+
+// laneLooksLikeFileRevision is a follow-up that changes an existing
+// deliverable (v1 → v2, overwrite index.html). That turn still needs
+// workspace.write and command.run. In-place prose stays on L1.
+func laneLooksLikeFileRevision(goal string) bool {
+	if laneLooksLikeInPlaceProse(goal) {
+		return false
+	}
+	if strings.Contains(goal, "写一篇") || strings.Contains(goal, "写一段") {
+		return false
+	}
+	t := strings.ToLower(goal)
+	verb := false
+	for _, needle := range []string{"修改", "覆盖", "改成", "落盘", "保存为", "第二版", "2.0", "v2", "v1"} {
+		if strings.Contains(t, needle) {
+			verb = true
+			break
+		}
+	}
+	if !verb {
+		return false
+	}
+	for _, needle := range []string{"覆盖", "落盘", "保存为", "第二版", "2.0", "v2", "v1", "产物", "文件", "版本", ".html", ".md", "readme", "源码"} {
+		if strings.Contains(t, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// promoteLaneForSkillTrial keeps a draft-skill follow-up on the full tool
+// surface. The first trial message is capability work; the next sentence
+// ("改成第二版") would otherwise fall into the one-step read-only lane and
+// the model can only paste source.
+func promoteLaneForSkillTrial(lane ChatLane, trial bool) ChatLane {
+	if !trial {
+		return lane
+	}
+	switch lane {
+	case LaneL0, LaneL4, LaneL2, LaneL3:
+		return lane
+	default:
+		return LaneL3
+	}
 }
 
 func laneLooksLikeAgentTurn(goal string) bool {
