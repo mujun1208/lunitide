@@ -49,6 +49,7 @@ type SkillWriter interface {
 	CreateSkill(ctx context.Context, sk skill.Skill) (skill.Skill, error)
 	UpdateSkill(ctx context.Context, id, displayName, description string) error
 	UpdateSkillFields(ctx context.Context, id, displayName, description, entryPoint, manifestJSON, permissionsJSON string, minEngineVersion *string, expectedRev int64) error
+	UpdateSkillSemver(ctx context.Context, id, version string, expectedRev int64) error
 	UpdateSkillStatus(ctx context.Context, id, status string, expectedRev int64) error
 	DeleteSkill(ctx context.Context, id string) error
 }
@@ -603,7 +604,102 @@ func (s *Service) Publish(ctx context.Context, id string) error {
 	if err := s.validateRunnableSkill(*sk); err != nil {
 		return err
 	}
+	// The skill center lists skills.version. Align before the status write so
+	// a taken name+version leaves the row a draft instead of publishing 1.0.0
+	// and then failing.
+	if _, err = s.AlignRegisteredVersion(ctx, id, ""); err != nil {
+		return err
+	}
+	sk, err = s.read.GetSkill(ctx, id)
+	if err != nil {
+		return err
+	}
+	if sk == nil {
+		return ErrSkillNotFound
+	}
 	return s.write.UpdateSkillStatus(ctx, id, string(skill.SkillStatusPublished), sk.Rev)
+}
+
+// AlignRegisteredVersion writes a newer semver onto the same skill row.
+// explicit wins when it is set; otherwise the version declared in the stored
+// manifest is used. An equal or older version leaves the row unchanged so a
+// catalog refresh cannot walk a label backwards. The skill id stays put.
+func (s *Service) AlignRegisteredVersion(ctx context.Context, id, explicit string) (*skill.Skill, error) {
+	if s == nil || s.write == nil || s.read == nil {
+		return nil, errors.New("skill writer unavailable")
+	}
+	sk, err := s.read.GetSkill(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if sk == nil {
+		return nil, ErrSkillNotFound
+	}
+	next := strings.TrimSpace(explicit)
+	if next == "" {
+		next = manifestDeclaredVersion(sk.ManifestJSON)
+	}
+	if next == "" || compareSkillVersions(next, sk.Version) <= 0 {
+		return sk, nil
+	}
+	if len(next) > 32 {
+		return nil, errors.New("skill version too long")
+	}
+	other, err := s.read.GetSkillByNameVersion(ctx, sk.Name, next)
+	if err != nil {
+		return nil, err
+	}
+	if other != nil && other.ID != id {
+		return nil, ErrSkillAlreadyExists
+	}
+	if err := s.write.UpdateSkillSemver(ctx, id, next, sk.Rev); err != nil {
+		return nil, err
+	}
+	updated, err := s.read.GetSkill(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if updated == nil {
+		return nil, ErrSkillNotFound
+	}
+	return updated, nil
+}
+
+func manifestDeclaredVersion(raw string) string {
+	var doc struct {
+		Version string `json:"version"`
+	}
+	if json.Unmarshal([]byte(raw), &doc) != nil {
+		return ""
+	}
+	return strings.TrimSpace(doc.Version)
+}
+
+// WithManifestVersion sets the manifest version field without rewriting the
+// other raw fields. The skill center still reads the version column; callers
+// align that column after storing this manifest.
+func WithManifestVersion(raw, version string) (string, error) {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return raw, nil
+	}
+	if len(version) > 32 {
+		return "", errors.New("skill version too long")
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &doc); err != nil || doc == nil {
+		return "", errors.New("skill manifest must be a JSON object")
+	}
+	encoded, err := json.Marshal(version)
+	if err != nil {
+		return "", err
+	}
+	doc["version"] = encoded
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }
 
 // Deprecate transitions a published skill to deprecated.

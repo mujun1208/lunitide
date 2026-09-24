@@ -309,7 +309,23 @@ func truncatePlanText(s string, n int) string {
 // executePlanStep runs one planned step: the model receives the objective,
 // the plan and the step under execution, and may use the session toolset
 // (bounded to one tool round; approval gating still applies).
+func planStepNeedsContinue(outcome string) bool {
+	o := strings.TrimSpace(outcome)
+	return o == "" || strings.HasPrefix(o, "step failed:") || strings.HasPrefix(o, "step tool round failed:")
+}
+
 func (e *Engine) executePlanStep(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID string, mode executionMode, objective string, step planStep, index, total int, route TaskRoute, allow map[string]bool) string {
+	var last string
+	for attempt := 0; attempt <= maxContinueNudges; attempt++ {
+		last = e.executePlanStepOnce(ctx, a, credential, model, sessionID, mode, objective, step, index, total, route, allow)
+		if !planStepNeedsContinue(last) {
+			return last
+		}
+	}
+	return last
+}
+
+func (e *Engine) executePlanStepOnce(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID string, mode executionMode, objective string, step planStep, index, total int, route TaskRoute, allow map[string]bool) string {
 	ctx = withCallPurpose(ctx, "plan")
 	req := llmadapter.Request{
 		Model: model, MaxTokens: 2048, MaxAttempts: 1,

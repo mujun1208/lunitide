@@ -2,7 +2,7 @@
 // integration state machine + optimistic lock, operation publish/enable
 // (INT-001), mapping publish (MAP-001, allowlist + immutability) and the
 // call-path authorization gate (HLT-001 / CRD-001 / INT-001 ordering).
-package app
+package m6app_test
 
 import (
 	"context"

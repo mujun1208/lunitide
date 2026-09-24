@@ -357,6 +357,30 @@ func TestService_IngestFile_VisionJPEGSucceeded(t *testing.T) {
 	}
 }
 
+func TestPreviewWorkspaceImageAllowsScreenshotAboveVisionCap(t *testing.T) {
+	store := newMockStore()
+	fs := newMockFileStorage()
+	svc := newTestService(store, fs)
+	jpeg := make([]byte, MaxVisionImageBytes+1)
+	jpeg[0], jpeg[1], jpeg[2] = 0xff, 0xd8, 0xff
+	att, err := svc.IngestFile(context.Background(), IngestFileRequest{
+		ProjectID:    mustULID(),
+		OriginalName: "shot.jpg",
+		MIME:         "image/jpeg",
+		Content:      jpeg,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, ok, err := svc.PreviewWorkspaceImage(context.Background(), att.ID)
+	if err != nil || !ok || len(data) != len(jpeg) {
+		t.Fatalf("preview above vision cap = ok=%v err=%v len=%d", ok, err, len(data))
+	}
+	if _, verr := svc.GetVisionImage(context.Background(), att.ID, att.SessionID); !errors.Is(verr, ErrImageIntegrity) {
+		t.Fatalf("model pixels must stay capped, got %v", verr)
+	}
+}
+
 func TestService_IngestFile_InvalidContent(t *testing.T) {
 	store := newMockStore()
 	fs := newMockFileStorage()

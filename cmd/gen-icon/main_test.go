@@ -11,89 +11,42 @@ import (
 	"testing"
 )
 
-func TestRenderMoonMarkHasGapAndCloudLine(t *testing.T) {
+func TestRenderMoonMarkIsOneDisc(t *testing.T) {
 	img := renderMoonMark(256)
 	corner := img.RGBAAt(0, 0)
 	if corner.A != 0 {
 		t.Fatalf("canvas must be transparent, alpha=%d", corner.A)
 	}
-	moon := img.RGBAAt(128, 256*40/100)
+	moon := img.RGBAAt(128, 128)
 	if moon.A < 200 {
 		t.Fatalf("moon missing alpha=%d", moon.A)
 	}
-	gap := img.RGBAAt(128, 256*62/100)
-	if gap.A > 40 {
-		t.Fatalf("gap should be empty, alpha=%d", gap.A)
-	}
-	cloudY := 256 * 78 / 100
-	foundCloud := false
-	for y := 256 * 74 / 100; y <= 256*84/100; y++ {
-		for dx := -50; dx <= 50; dx++ {
-			c := img.RGBAAt(128+dx, y)
-			if c.A > 40 && c.R >= 200 {
-				foundCloud = true
-				break
-			}
-		}
-	}
-	if !foundCloud {
-		t.Fatalf("cloud line missing around y=%d", cloudY)
+	if img.RGBAAt(128, 8).A > 40 || img.RGBAAt(128, 248).A > 40 {
+		t.Fatal("moon disc should not fill the canvas edge")
 	}
 	assertNoBlueCloudOnMoon(t, img)
 }
 
-func TestCloudStaysBelowMoon(t *testing.T) {
+func TestMoonDiscHasNoCloudStroke(t *testing.T) {
 	img := renderMoonMark(256)
-	x := 128
-	sawMoon, sawGap, sawCloud := false, false, false
-	for y := 0; y < 256; y++ {
-		c := img.RGBAAt(x, y)
-		if !sawMoon {
-			if c.A > 200 {
-				sawMoon = true
-			}
-			continue
+	for y := 240; y < 256; y++ {
+		if img.RGBAAt(128, y).A > 40 {
+			t.Fatalf("cloud stroke still present at y=%d", y)
 		}
-		if !sawGap {
-			if c.A <= 40 {
-				sawGap = true
-			}
-			continue
-		}
-		if c.A > 50 && c.R >= 200 {
-			sawCloud = true
-			if y < 256*62/100 {
-				t.Fatalf("cloud too close to moon at y=%d", y)
-			}
-			break
-		}
-	}
-	if !sawMoon || !sawGap || !sawCloud {
-		t.Fatalf("moon=%v gap=%v cloud=%v", sawMoon, sawGap, sawCloud)
 	}
 }
 
-func TestCloudLineVisibleAtDesktopSize(t *testing.T) {
+func TestMoonVisibleAtDesktopSize(t *testing.T) {
 	img := renderMoonMark(32)
-	found := false
-	for y := 32 * 72 / 100; y <= 32*86/100; y++ {
-		for x := 32 * 20 / 100; x <= 32*80/100; x++ {
-			c := img.RGBAAt(x, y)
-			if c.A > 60 && c.R >= 180 {
-				found = true
-				break
-			}
-		}
-	}
-	if !found {
-		t.Fatal("32px desktop frame must keep a visible cloud line")
+	if img.RGBAAt(16, 16).A < 200 {
+		t.Fatal("32px frame must keep a visible moon disc")
 	}
 }
 
 func assertNoBlueCloudOnMoon(t *testing.T, img *image.RGBA) {
 	t.Helper()
 	b := img.Bounds()
-	w, h := b.Dx(), b.Dy()
+	h := b.Dy()
 	moonBottom := b.Min.Y + h*58/100
 	for y := b.Min.Y; y < moonBottom; y++ {
 		for x := b.Min.X; x < b.Max.X; x++ {
@@ -105,21 +58,6 @@ func assertNoBlueCloudOnMoon(t *testing.T, img *image.RGBA) {
 				t.Fatalf("saturated blue cloud covers moon at (%d,%d) rgba=%d,%d,%d,%d", x, y, c.R, c.G, c.B, c.A)
 			}
 		}
-	}
-	x := b.Min.X + w/2
-	y0 := b.Min.Y + h*74/100
-	y1 := b.Min.Y + h*84/100
-	foundPale := false
-	for y := y0; y <= y1; y++ {
-		for dx := -w / 5; dx <= w/5; dx++ {
-			c := img.RGBAAt(x+dx, y)
-			if c.A > 40 && c.R >= 200 && c.G >= 210 {
-				foundPale = true
-			}
-		}
-	}
-	if !foundPale {
-		t.Fatalf("pale cloud line missing around y=%d-%d", y0, y1)
 	}
 }
 
@@ -246,36 +184,15 @@ func TestRepoIconHasTransparentFill(t *testing.T) {
 		t.Fatalf("shipped ICO BITMAPINFOHEADER size %d", got)
 	}
 	x := img.Bounds().Min.X + img.Bounds().Dx()/2
-	yHalo := img.Bounds().Min.Y + img.Bounds().Dy()*8/100
-	halo := img.RGBAAt(x, yHalo)
-	if halo.A > 40 {
-		t.Fatalf("desktop halo at (%d,%d) still visible alpha=%d rgb=%d,%d,%d", x, yHalo, halo.A, halo.R, halo.G, halo.B)
-	}
-	yMoon := img.Bounds().Min.Y + img.Bounds().Dy()*35/100
+	yMoon := img.Bounds().Min.Y + img.Bounds().Dy()/2
 	moon := img.RGBAAt(x, yMoon)
 	if moon.A < 200 {
 		t.Fatalf("moon body vanished at (%d,%d) alpha=%d", x, yMoon, moon.A)
 	}
-	yGap := img.Bounds().Min.Y + img.Bounds().Dy()*62/100
-	gap := img.RGBAAt(x, yGap)
-	if gap.A > 40 {
-		t.Fatalf("moon/cloud gap at (%d,%d) should be open, alpha=%d", x, yGap, gap.A)
-	}
-	yCloud := img.Bounds().Min.Y + img.Bounds().Dy()*78/100
-	foundCloud := false
-	y0 := img.Bounds().Min.Y + img.Bounds().Dy()*74/100
-	y1 := img.Bounds().Min.Y + img.Bounds().Dy()*84/100
-	for y := y0; y <= y1; y++ {
-		for dx := -img.Bounds().Dx() / 5; dx <= img.Bounds().Dx()/5; dx++ {
-			c := img.RGBAAt(x+dx, y)
-			if c.A > 40 && c.R >= 200 {
-				foundCloud = true
-				break
-			}
-		}
-	}
-	if !foundCloud {
-		t.Fatalf("faint cloud line missing around y=%d", yCloud)
+	yEdge := img.Bounds().Min.Y + img.Bounds().Dy()*92/100
+	edge := img.RGBAAt(x, yEdge)
+	if edge.A > 40 {
+		t.Fatalf("moon should be a single disc, edge alpha=%d", edge.A)
 	}
 	assertNoBlueCloudOnMoon(t, img)
 }

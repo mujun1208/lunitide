@@ -84,6 +84,17 @@ func chatModelStreamError(err error) *bridge.StreamError {
 	return out
 }
 
+// chatModelCallRetryable retries a timed-out model call inside the same turn.
+// A refused connection or a half-finished stream already has a terminal
+// outcome, and retrying it repeats the partial text.
+func chatModelCallRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	se := chatModelStreamError(err)
+	return se != nil && se.Code == "UPSTREAM_TIMEOUT"
+}
+
 func chatModelFinishError(reason llmadapter.FinishReason) error {
 	code := ""
 	switch reason {

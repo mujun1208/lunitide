@@ -545,6 +545,35 @@ func (s *Service) ListVisionImagesBySession(ctx context.Context, sessionID strin
 	return result, nil
 }
 
+// ReadImageBytes returns one verified image without the vision-request size cap.
+// Chat still refuses to attach the raw pixels above MaxVisionImageBytes, but
+// local OCR can read a screenshot that is larger than that cap.
+func (s *Service) ReadImageBytes(ctx context.Context, id, sessionID string) ([]byte, error) {
+	att, err := s.GetAttachment(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if att.SessionID != sessionID {
+		return nil, ErrScopeMismatch
+	}
+	if !isVisionMIME(att.MIME) {
+		return nil, ErrUnsupportedMIME
+	}
+	if s.fileStorage == nil || att.FileRef == "" || att.Size <= 0 || att.Size > MaxFileSize {
+		return nil, ErrImageIntegrity
+	}
+	data, err := s.fileStorage.ReadFile(ctx, att.FileRef)
+	if err != nil {
+		return nil, fmt.Errorf("read image attachment: %w", err)
+	}
+	digest := sha256.Sum256(data)
+	expected, decodeErr := hex.DecodeString(att.SHA256)
+	if decodeErr != nil || len(data) != int(att.Size) || subtle.ConstantTimeCompare(digest[:], expected) != 1 || !matchesVisionMIME(att.MIME, data) {
+		return nil, ErrImageIntegrity
+	}
+	return data, nil
+}
+
 // GetVisionImage returns one verified image attachment by ID without
 // enumerating unrelated historical session images.
 func (s *Service) GetVisionImage(ctx context.Context, id, sessionID string) (VisionImage, error) {
@@ -575,6 +604,7 @@ func (s *Service) GetVisionImage(ctx context.Context, id, sessionID string) (Vis
 
 // PreviewWorkspaceImage returns verified image bytes for the workspace pane.
 // Missing or non-image attachments omit bytes without failing the get.
+// The 180 KiB vision cap applies only when pixels are sent to a model.
 func (s *Service) PreviewWorkspaceImage(ctx context.Context, id string) ([]byte, bool, error) {
 	att, err := s.GetAttachment(ctx, id)
 	if err != nil {
@@ -583,7 +613,7 @@ func (s *Service) PreviewWorkspaceImage(ctx context.Context, id string) ([]byte,
 	if !isVisionMIME(att.MIME) {
 		return nil, false, nil
 	}
-	if s.fileStorage == nil || att.FileRef == "" || att.Size <= 0 || att.Size > MaxVisionImageBytes {
+	if s.fileStorage == nil || att.FileRef == "" || att.Size <= 0 || att.Size > MaxFileSize {
 		return nil, false, nil
 	}
 	data, err := s.fileStorage.ReadFile(ctx, att.FileRef)

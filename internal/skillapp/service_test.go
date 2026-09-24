@@ -62,6 +62,9 @@ func (m *mockSkillWriter) UpdateSkillFields(_ context.Context, id, display, desc
 	m.updatedDesc = desc
 	return m.err
 }
+func (m *mockSkillWriter) UpdateSkillSemver(context.Context, string, string, int64) error {
+	return m.err
+}
 func (m *mockSkillWriter) UpdateSkillStatus(_ context.Context, _, status string, _ int64) error {
 	m.updatedStatus = status
 	return m.err

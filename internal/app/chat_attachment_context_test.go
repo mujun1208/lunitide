@@ -1,10 +1,12 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -13,9 +15,11 @@ import (
 	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/contextapp"
+	"github.com/lunitide/lunitide/internal/doctext"
 	"github.com/lunitide/lunitide/internal/domain/attachment"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/llmadapter"
+	"github.com/lunitide/lunitide/internal/ocrapp"
 )
 
 const (
@@ -244,6 +248,41 @@ func TestChatStartUnreadableAttachmentStillRuns(t *testing.T) {
 	}
 	if !strings.Contains(combined.String(), "notes.txt") || !strings.Contains(combined.String(), "没有抽出正文") {
 		t.Fatalf("missing saved-file note: %q", combined.String())
+	}
+}
+
+func TestChatStartOversizedImageUsesLocalOCR(t *testing.T) {
+	data := bytes.Repeat([]byte{0}, attachmentapp.MaxVisionImageBytes+64)
+	copy(data, []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'})
+	digest := sha256.Sum256(data)
+	image := attachment.Attachment{
+		ID: chatAttachmentID, ProjectID: chatAttachmentProjectID, SessionID: chatAttachmentSessionID,
+		FileRef: "shot.png", OriginalName: "shot.png", MIME: "image/png", Size: int64(len(data)),
+		SHA256: hex.EncodeToString(digest[:]), ParseStatus: attachment.StatusFailed,
+	}
+	store := &chatAttachmentStore{byID: map[string]*attachment.Attachment{image.ID: &image}}
+	requests := make(chan llmadapter.Request, 1)
+	e := NewEngineWithContextReader(chatAttachmentProvider{}, nil, nil, nil, chatAttachmentReader{}, nil, "test", streamTestLease{})
+	e.SetAttachmentService(attachmentapp.NewService(store, chatAttachmentFiles{"shot.png": data}))
+	ocr := ocrapp.New(ocrapp.NewFileStore(filepath.Join(t.TempDir(), "ocr-routing.json")))
+	ocr.SetLocalImage(func(context.Context, []byte) (doctext.PDFOCRResult, error) {
+		return doctext.PDFOCRResult{Method: "windows-ocr", Pages: []doctext.OCRPage{{Page: 1, Text: "poc node_modules"}}}, nil
+	})
+	e.SetOCR(ocr)
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
+		return chatAttachmentAdapter{requests: requests}, nil
+	})
+	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","sessionId":"` + chatAttachmentSessionID + `","messages":[{"role":"user","content":"看这张图"}],"contextRefs":[{"type":"attachment","id":"` + image.ID + `"}]}`
+	response := e.HandleStreaming(context.Background(), validRequest("chat.start", payload), func(bridge.Event) error { return nil })
+	if !response.OK {
+		t.Fatalf("oversized image aborted the turn: %#v", response)
+	}
+	var combined strings.Builder
+	for _, message := range capturedChatRequest(t, requests).Messages {
+		combined.WriteString(message.Content)
+	}
+	if !strings.Contains(combined.String(), "poc node_modules") || strings.Contains(combined.String(), "没有读出画面") {
+		t.Fatalf("local OCR text missing: %q", combined.String())
 	}
 }
 

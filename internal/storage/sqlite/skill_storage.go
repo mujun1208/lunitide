@@ -275,6 +275,34 @@ func (s *Store) UpdateSkillFields(ctx context.Context, id, displayName, descript
 	return mapWriteError(err)
 }
 
+// UpdateSkillSemver moves the registered semver forward on the same row.
+// The skill center lists this column. Name+version stays unique.
+func (s *Store) UpdateSkillSemver(ctx context.Context, id, version string, expectedRev int64) error {
+	err := s.execWithAudit(ctx, "skill.updated", id, "engine",
+		map[string]any{"id": id, "version": version},
+		func(tx *sql.Tx) error {
+			res, err := tx.ExecContext(ctx,
+				`UPDATE skills SET version=?, updated_at=?, rev=rev+1 WHERE id=? AND rev=?`,
+				version, formatTime(time.Now().UTC()), id, expectedRev)
+			if err != nil {
+				return err
+			}
+			if n, raErr := res.RowsAffected(); raErr == nil && n == 0 {
+				var exists int
+				qErr := tx.QueryRowContext(ctx, `SELECT 1 FROM skills WHERE id=?`, id).Scan(&exists)
+				if qErr == sql.ErrNoRows {
+					return provider.ErrNotFound
+				}
+				if qErr != nil {
+					return qErr
+				}
+				return skillapp.ErrSkillVersionConflict
+			}
+			return nil
+		})
+	return mapWriteError(err)
+}
+
 // UpdateSkillStatus updates the status of a skill under the same numeric
 // optimistic-concurrency CAS as UpdateSkillFields: it matches
 // WHERE id=? AND rev=? and bumps rev=rev+1. A stale expectedRev (a concurrent
