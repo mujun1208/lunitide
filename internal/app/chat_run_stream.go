@@ -338,7 +338,6 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			lastDesktopVerdict := ""
 			observedThisTurn := false
 			desktopTypeL0Passed := false
-			imagesFallbackUsed := false
 			usedTools := false
 			usedDesktopTools := false
 			autoMediaPlayDone := false
@@ -441,7 +440,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 				}
 				var gatewayErr *llmadapter.Error
-				if streamErr != nil && !imagesFallbackUsed && assistantText.Len() == stepTextStart && thinkingText.Len() == stepThinkingStart && len(req.Images) > 0 && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 {
+				// A provider can reject every fresh screenshot and still accept the
+				// same turn once those pixels are gone. Dropping them only once
+				// per turn leaves the next capture as a hard 400.
+				if streamErr != nil && assistantText.Len() == stepTextStart && thinkingText.Len() == stepThinkingStart && len(req.Images) > 0 && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 {
 					if text, ok := e.maybeDescribeImages(op, provider.Model{ModelID: req.Model}, req.Images, chatRoutingText(lastUserContent(req.Messages))); ok {
 						req.Messages = injectVisionDescription(req.Messages, text)
 					} else if imageUnsupportedReason(gatewayErr.Message) {
@@ -450,7 +452,6 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: "屏幕截图未被模型接受，已去掉图片。请根据上一条工具返回的文字和节点继续完成操作，不要停下来。"})
 					}
 					req.Images = nil
-					imagesFallbackUsed = true
 					continue
 				}
 				if streamErr != nil && !thinkingDisableRetryUsed && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 && thinkingParameterRejected(gatewayErr.Message) {

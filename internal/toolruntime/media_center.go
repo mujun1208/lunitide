@@ -59,31 +59,48 @@ func (r *Runtime) executeMediaCenter(ctx context.Context, args json.RawMessage) 
 			title = centerMediaTitle(rawURL)
 		}
 	} else {
-		query := mediaCenterSearchQuery(title)
-		if searchQueryForbidden(query) {
-			return Result{}, errors.New("媒体中心不能搜索这类内容")
-		}
-		found, err := searchForMediaCenter(r, ctx, query)
-		var picked, pickedTitle, pickedKind string
-		var ok bool
-		if err == nil {
-			picked, pickedTitle, pickedKind, ok = pickArchiveMedia(found.Results)
-		}
-		if !ok {
-			picked, pickedTitle, pickedKind, ok = publicDomainMovieFallback(title)
-		}
-		if !ok {
-			if err != nil {
-				return Result{}, fmt.Errorf("媒体中心没有搜到可播放文件：%w", err)
+		if picked, pickedTitle, pickedKind, ok := resolveOpenMedia(ctx, title); ok {
+			checked, mediaKind, err := validateOpenCatalogURL(picked)
+			if err == nil {
+				rawURL, kind = checked, mediaKind
+				if pickedTitle != "" {
+					title = pickedTitle
+				}
+				if pickedKind == "audio" || pickedKind == "video" {
+					kind = pickedKind
+				}
 			}
-			return Result{}, errors.New("没有找到可在媒体中心直接播放的公版文件。请给出一个 https 直链（mp4、webm 或 mp3），或在媒体中心选择本机文件。")
 		}
-		rawURL, kind = picked, pickedKind
-		if pickedTitle != "" {
-			title = pickedTitle
+		if rawURL == "" && !genericCenterMovie(title) {
+			return Result{}, errors.New("没有找到可在媒体中心直接播放的公版文件（已查 Internet Archive、维基共享资源、NASA）。请给出一个 https 直链（mp4、webm 或 mp3），或在媒体中心选择本机文件。")
 		}
-		if title == "" {
-			title = centerMediaTitle(rawURL)
+		if rawURL == "" {
+			query := mediaCenterSearchQuery(title)
+			if searchQueryForbidden(query) {
+				return Result{}, errors.New("媒体中心不能搜索这类内容")
+			}
+			found, err := searchForMediaCenter(r, ctx, query)
+			var picked, pickedTitle, pickedKind string
+			var ok bool
+			if err == nil {
+				picked, pickedTitle, pickedKind, ok = pickArchiveMedia(found.Results)
+			}
+			if !ok {
+				picked, pickedTitle, pickedKind, ok = publicDomainMovieFallback(title)
+			}
+			if !ok {
+				if err != nil {
+					return Result{}, fmt.Errorf("媒体中心没有搜到可播放文件：%w", err)
+				}
+				return Result{}, errors.New("没有找到可在媒体中心直接播放的公版文件（已查 Internet Archive、维基共享资源、NASA）。请给出一个 https 直链（mp4、webm 或 mp3），或在媒体中心选择本机文件。")
+			}
+			rawURL, kind = picked, pickedKind
+			if pickedTitle != "" {
+				title = pickedTitle
+			}
+			if title == "" {
+				title = centerMediaTitle(rawURL)
+			}
 		}
 	}
 	return result(fmt.Sprintf("已交给媒体中心播放。\nMEDIA_CENTER\nurl: %s\nkind: %s\ntitle: %s\n", rawURL, kind, title)), nil
