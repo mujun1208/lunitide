@@ -11,7 +11,7 @@ description: Play a public-domain movie or song inside Lunitide's own media cent
 
 1. 只调用一次 `media.play`。`target` 必须是 `center`。`query` 写用户说的片名或歌名；用户已经给了 mp4、webm 或 mp3 的 https 直链时，把地址放进 `url`。
 2. 工具返回 `MEDIA_CENTER` 后，用一句话告诉用户已经在媒体中心播放，然后停止。不要再调用 `web.search`、`web.fetch`、`computer.act`、`browser.act` 或 `desktop.open`。
-3. 工具说明没有可直接播放的公版文件时，把这句话告诉用户，并请对方给一个 https 直链，或在媒体中心选择本机文件。然后停止。
+3. 工具说明没有可直接播放的公版文件时，把这句话告诉用户。点名检索只查维基共享资源、NASA 和 Internet Archive 上标明公有领域或知识共享的直链。请对方给一个 https 直链，或在媒体中心选择本机文件。然后停止。
 
 ## 不要做
 

@@ -75,12 +75,80 @@ func TestMediaCenterGenericMovieFallsBackWhenSearchHasNoFile(t *testing.T) {
 	}
 }
 
-func TestMediaCenterNamedTitleDoesNotUseMovieFallback(t *testing.T) {
-	prev := searchForMediaCenter
+func TestMediaCenterNamedTitlePlaysOpenCatalogFile(t *testing.T) {
+	prevResolve := resolveOpenMedia
+	prevSearch := searchForMediaCenter
+	resolveOpenMedia = func(context.Context, string) (string, string, string, bool) {
+		return "https://upload.wikimedia.org/wikipedia/commons/a/a0/Example.webm", "Example", "video", true
+	}
+	searchForMediaCenter = func(*Runtime, context.Context, string) (webSearchResponse, error) {
+		t.Fatal("catalog hit must not fall through to web search")
+		return webSearchResponse{}, nil
+	}
+	t.Cleanup(func() {
+		resolveOpenMedia = prevResolve
+		searchForMediaCenter = prevSearch
+	})
+	out, err := (&Runtime{}).executeMediaCenter(context.Background(), json.RawMessage(`{"target":"center","query":"Nosferatu"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Output, "MEDIA_CENTER") || !strings.Contains(out.Output, "https://upload.wikimedia.org/wikipedia/commons/a/a0/Example.webm") || !strings.Contains(out.Output, "title: Example") {
+		t.Fatal(out.Output)
+	}
+}
+
+func TestMediaCenterRejectsCatalogURLOutsideOpenLibraries(t *testing.T) {
+	prevResolve := resolveOpenMedia
+	prevSearch := searchForMediaCenter
+	resolveOpenMedia = func(context.Context, string) (string, string, string, bool) {
+		return "https://cdn.example/movie.mp4", "Movie", "video", true
+	}
 	searchForMediaCenter = func(*Runtime, context.Context, string) (webSearchResponse, error) {
 		return webSearchResponse{}, nil
 	}
-	t.Cleanup(func() { searchForMediaCenter = prev })
+	t.Cleanup(func() {
+		resolveOpenMedia = prevResolve
+		searchForMediaCenter = prevSearch
+	})
+	if _, err := (&Runtime{}).executeMediaCenter(context.Background(), json.RawMessage(`{"target":"center","query":"Nosferatu"}`)); err == nil {
+		t.Fatal("a catalog URL outside the open libraries must not play")
+	}
+}
+
+func TestMediaCenterNamedTitleIgnoresUnlicensedWebHit(t *testing.T) {
+	prevResolve := resolveOpenMedia
+	prevSearch := searchForMediaCenter
+	resolveOpenMedia = func(context.Context, string) (string, string, string, bool) {
+		return "", "", "", false
+	}
+	searchForMediaCenter = func(*Runtime, context.Context, string) (webSearchResponse, error) {
+		return webSearchResponse{Results: []webfetch.SearchResult{
+			{Title: "Night of the Living Dead", URL: "https://archive.org/download/night_of_the_living_dead/Night.mp4"},
+		}}, nil
+	}
+	t.Cleanup(func() {
+		resolveOpenMedia = prevResolve
+		searchForMediaCenter = prevSearch
+	})
+	if _, err := (&Runtime{}).executeMediaCenter(context.Background(), json.RawMessage(`{"target":"center","query":"夜访吸血鬼"}`)); err == nil {
+		t.Fatal("a named title must not play an unlicensed web-search file")
+	}
+}
+
+func TestMediaCenterNamedTitleDoesNotUseMovieFallback(t *testing.T) {
+	prevResolve := resolveOpenMedia
+	prevSearch := searchForMediaCenter
+	resolveOpenMedia = func(context.Context, string) (string, string, string, bool) {
+		return "", "", "", false
+	}
+	searchForMediaCenter = func(*Runtime, context.Context, string) (webSearchResponse, error) {
+		return webSearchResponse{}, nil
+	}
+	t.Cleanup(func() {
+		resolveOpenMedia = prevResolve
+		searchForMediaCenter = prevSearch
+	})
 	if _, err := (&Runtime{}).executeMediaCenter(context.Background(), json.RawMessage(`{"target":"center","query":"夜访吸血鬼"}`)); err == nil {
 		t.Fatal("a named title with no file must not be replaced by the default movie")
 	}
