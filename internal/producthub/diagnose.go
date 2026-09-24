@@ -79,6 +79,9 @@ func refreshFindings(ed Edition) ([]Finding, ProbeScore, int) {
 		next = append(next, clearFinding(probe))
 	}
 	next = mergeFindingStatus(ed.Findings, next)
+	if ed.LiveProbe.Total > 0 {
+		return next, ed.LiveProbe, liveHealth(ed.LiveProbe)
+	}
 	return next, probe, healthScore(next, probe)
 }
 

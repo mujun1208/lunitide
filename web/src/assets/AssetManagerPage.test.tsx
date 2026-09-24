@@ -1,5 +1,5 @@
 import React from 'react'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BridgeClientError, type TemplateBridge } from '../bridge/client'
 import type { TemplateListResult } from '../generated/bridge'
@@ -10,7 +10,7 @@ const template = (id: string, name: string): TemplateListResult['items'][number]
   id, name, templateCode: id, templateType: 'document', status: 'draft',
   createdAt: '2026-09-06T00:00:00Z', updatedAt: '2026-09-06T00:00:00Z', version: 1,
 })
-const bridge = (list: TemplateBridge['list']): TemplateBridge => ({ list, open: vi.fn(), create: vi.fn(), enable: vi.fn(), void: vi.fn(), restore: vi.fn(), delete: vi.fn(), fileStage: vi.fn() })
+const bridge = (list: TemplateBridge['list']): TemplateBridge => ({ list, open: vi.fn(), create: vi.fn(), officeImport: vi.fn(), enable: vi.fn(), void: vi.fn(), restore: vi.fn(), delete: vi.fn(), fileStage: vi.fn() })
 afterEach(cleanup)
 
 it('does not leak BridgeClientError transport English and keeps protocol codes', async () => {
@@ -119,4 +119,42 @@ it('rejects oversized assets without reading them and permits the next valid upl
   fireEvent.click(screen.getByRole('button', { name: '上传并保存' }))
   await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1))
   expect(await screen.findByText(/模版已上传，编号 saved/)).toBeInTheDocument()
+})
+
+it('offers ppt word and excel uploads without a project document type', async () => {
+  render(<AssetManagerPage templates={bridge(vi.fn().mockResolvedValue({ items: [] }))} />)
+  fireEvent.click(await screen.findByRole('button', { name: /上传资产/ }))
+  const dialog = screen.getByRole('dialog', { name: '上传资产模版' })
+  const type = within(dialog).getByLabelText('3 模版类型 *')
+  expect(within(dialog).getByRole('option', { name: 'PPT模版' })).toBeInTheDocument()
+  expect(within(dialog).getByRole('option', { name: 'Word模版' })).toBeInTheDocument()
+  expect(within(dialog).getByRole('option', { name: 'Excel模版' })).toBeInTheDocument()
+  fireEvent.change(type, { target: { value: 'ppt' } })
+  expect(within(dialog).queryByLabelText('文件类型 *')).toBeNull()
+  expect(within(dialog).getByLabelText('附件 *')).toHaveAttribute('accept', '.pptx')
+  expect(within(dialog).getByText(/办公平台可以把这份模版当作底稿/)).toBeInTheDocument()
+  fireEvent.change(type, { target: { value: 'word' } })
+  expect(within(dialog).getByLabelText('附件 *')).toHaveAttribute('accept', '.docx')
+  fireEvent.change(type, { target: { value: 'excel' } })
+  expect(within(dialog).getByLabelText('附件 *')).toHaveAttribute('accept', '.xlsx')
+})
+
+it('batch imports office files under the analyzed name without the upload form', async () => {
+  const api = bridge(vi.fn().mockResolvedValue({ items: [] }))
+  vi.mocked(api.officeImport).mockResolvedValue({
+    ...template('01ARZ3NDEKTSV4RRFFQ69G5FAT', '季度经营汇报'),
+    templateType: 'ppt',
+    fileName: 'Q1.pptx',
+    description: '按季度汇总经营指标',
+    status: 'draft',
+  })
+  render(<AssetManagerPage templates={api} />)
+  const input = await screen.findByLabelText('批量入库办公模版')
+  fireEvent.change(input, { target: { files: [new File(['pptx'], 'Q1.pptx'), new File(['old'], 'old.ppt')] } })
+  expect(await screen.findByText('季度经营汇报')).toBeInTheDocument()
+  expect(await screen.findByText(/已入库 1 份办公模版，状态为创建/)).toBeInTheDocument()
+  expect(api.officeImport).toHaveBeenCalledWith(expect.objectContaining({ fileName: 'Q1.pptx', contentBase64: expect.any(String) }), expect.anything())
+  expect(api.create).not.toHaveBeenCalled()
+  expect(api.enable).not.toHaveBeenCalled()
+  expect(screen.getByRole('alert')).toHaveTextContent('old.ppt')
 })

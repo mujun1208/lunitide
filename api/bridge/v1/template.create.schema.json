@@ -16,7 +16,10 @@
     "templateType": {
       "enum": [
         "document",
-        "scaffold"
+        "scaffold",
+        "ppt",
+        "word",
+        "excel"
       ]
     },
     "documentType": {
@@ -79,7 +82,10 @@
       "templateType": {
         "enum": [
           "document",
-          "scaffold"
+          "scaffold",
+          "ppt",
+          "word",
+          "excel"
         ]
       },
       "documentType": {

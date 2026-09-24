@@ -4,7 +4,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ActivityBridge, MediaBridge } from '../bridge/client'
 import type { MediaAssetDTO, MediaOperationDTO, MediaSnapshotDTO } from '../generated/bridge'
 import { LanguageProvider } from '../i18n/language'
-import { resetNavStore } from '../app/navStore'
+import { resetNavStore, useNavStore } from '../app/navStore'
+import { MEDIA_CENTER_PLAY_EVENT } from './mediaCenterPlay'
 import { MediaRuntime, useMediaStore } from './MediaRuntime'
 
 afterEach(() => {
@@ -123,4 +124,21 @@ it('preloads the picked file and a Play click sends play, not pause, without tea
   await userEvent.click(screen.getByRole('button', { name: 'probe-play' }))
   await waitFor(() => expect(command).toHaveBeenCalledTimes(2))
   expect(command.mock.calls[1][0].action).toBe('play')
+})
+
+it('leaves the open chat and shows the media center when a film starts', async () => {
+  useNavStore.setState({ page: 'home', target: { personal: true } as never })
+  const openAsset = vi.fn().mockResolvedValue({ playbackUrl, expiresAt: new Date(Date.now() + 60_000).toISOString() })
+  render(
+    <LanguageProvider value="zh-CN">
+      <MediaRuntime media={fakeMedia(vi.fn(), openAsset)} activity={{ list: async () => ({ items: [], nextCursor: null, snapshotAt: '2026-01-01T00:00:00Z', hasMore: false }) } as ActivityBridge}>
+        <Probe />
+      </MediaRuntime>
+    </LanguageProvider>,
+  )
+  window.dispatchEvent(new CustomEvent(MEDIA_CENTER_PLAY_EVENT, {
+    detail: { url: 'https://upload.wikimedia.org/wikipedia/commons/nosferatu.webm', kind: 'video', title: 'Nosferatu (1922)' },
+  }))
+  await waitFor(() => expect(useNavStore.getState().page).toBe('media'))
+  expect(useNavStore.getState().target).toBeUndefined()
 })

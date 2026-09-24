@@ -557,7 +557,7 @@ function AboutPanel(): React.JSX.Element {
       <div className="setting-group-title">{zh ? '关于月汐' : 'About Lunitide'}</div>
       <div className="about-content">
         <div className="about-logo">
-          <img className="about-moon" src="/brand/moon-companion.png" alt="" width={40} height={40} />
+          <span className="real-moon about-moon" aria-hidden="true" />
           <div>
             <h3 style={{ margin: 0, fontFamily: 'var(--serif)', fontSize: '22px' }}>{zh ? '月汐' : 'Lunitide'}</h3>
             <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '13px' }}>{zh ? '这台 Windows 电脑上的本地优先办公助手' : 'A local-first office assistant on this Windows PC'}</p>

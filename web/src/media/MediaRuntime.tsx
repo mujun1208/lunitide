@@ -91,12 +91,15 @@ export function MediaRuntime({
       const detail = (event as CustomEvent<MediaCenterPlay>).detail
       if (!detail?.url) return
       setCenterPlay(detail)
+      wantPlayRef.current = false
+      setWantPlay(false)
+      setTarget(undefined)
       setPage('media')
       playerRef.current?.pauseNow()
     }
     window.addEventListener(MEDIA_CENTER_PLAY_EVENT, onPlay)
     return () => window.removeEventListener(MEDIA_CENTER_PLAY_EVENT, onPlay)
-  }, [setPage])
+  }, [setPage, setTarget])
   useEffect(() => {
     const onElementPlay = (event: Event) => {
       const node = event.target

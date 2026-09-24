@@ -22,6 +22,9 @@ type TemplateType string
 const (
 	TemplateTypeDocument TemplateType = "document"
 	TemplateTypeScaffold TemplateType = "scaffold"
+	TemplateTypePPT      TemplateType = "ppt"
+	TemplateTypeWord     TemplateType = "word"
+	TemplateTypeExcel    TemplateType = "excel"
 )
 
 // DocumentType is one of the 25 controlled deliverable labels from the M7 PRD.
@@ -133,7 +136,12 @@ func ValidStatus(s Status) bool {
 }
 
 func ValidTemplateType(t TemplateType) bool {
-	return t == TemplateTypeDocument || t == TemplateTypeScaffold
+	switch t {
+	case TemplateTypeDocument, TemplateTypeScaffold, TemplateTypePPT, TemplateTypeWord, TemplateTypeExcel:
+		return true
+	default:
+		return false
+	}
 }
 
 // documentTypeKeys are the English keys the workbench UI upserts.
@@ -184,6 +192,16 @@ func CanRestore(cur Status) bool {
 	return cur == StatusVoid
 }
 
+func extAllowed(name string, exts ...string) bool {
+	ext := filepath.Ext(name)
+	for _, item := range exts {
+		if ext == item {
+			return true
+		}
+	}
+	return false
+}
+
 var documentExtensions = map[string]struct{}{
 	".md": {}, ".txt": {}, ".pdf": {}, ".doc": {}, ".docx": {}, ".dot": {},
 	".xls": {}, ".xlsx": {}, ".ppt": {}, ".pptx": {},
@@ -202,6 +220,21 @@ func ValidateTemplateFile(t TemplateType, fileName string) error {
 			return nil
 		}
 		return errors.New("scaffold template must be .zip or .tar.gz")
+	case TemplateTypePPT:
+		if extAllowed(lower, ".pptx") {
+			return nil
+		}
+		return errors.New("ppt template must be .pptx")
+	case TemplateTypeWord:
+		if extAllowed(lower, ".docx") {
+			return nil
+		}
+		return errors.New("word template must be .docx")
+	case TemplateTypeExcel:
+		if extAllowed(lower, ".xlsx") {
+			return nil
+		}
+		return errors.New("excel template must be .xlsx")
 	default:
 		if _, ok := documentExtensions[filepath.Ext(lower)]; ok {
 			return nil

@@ -40,6 +40,17 @@ import { resetOfficePaperScroll, scrollOfficeNodeIntoView } from './officePrevie
 import './officeStudio.css';
 import { useOfficePanelResize } from './useOfficePanelResize';
 import { OfficeReferences } from './OfficeReferences';
+import { getTemplateBridge } from '../bridge/client';
+import { listTemplatePages } from '../assets/templatePages';
+import { fileFromTemplate, goalWithAssetDraft, officeTemplates, type OfficeTemplate } from './officeAssetTemplates';
+
+async function loadEnabledOfficeTemplates(): Promise<OfficeTemplate[]> {
+  const page = await listTemplatePages(getTemplateBridge(), { status: 'enabled' });
+  return officeTemplates(page.items);
+}
+function readOfficeTemplateFile(id: string): Promise<{ fileName?: string; contentBase64?: string }> {
+  return getTemplateBridge().open({ id, purpose: 'office' });
+}
 
 export interface OfficeConversationOptions {
   initialPrompt?: string;
@@ -59,6 +70,8 @@ interface Props {
     signal: AbortSignal,
     revision?: OfficeImportRevision,
   ) => Promise<void>;
+  loadOfficeTemplates?: () => Promise<OfficeTemplate[]>;
+  readOfficeTemplate?: (id: string) => Promise<{ fileName?: string; contentBase64?: string }>;
   onUploadImage?: OfficeImageUploader;
   onOpenExport?: (task: OfficeTask, path: string, reveal: boolean) => Promise<void>;
 }
@@ -86,6 +99,8 @@ export function OfficeStudioPage({
   renderConversation,
   onOpenSession,
   onImportFiles,
+  loadOfficeTemplates = loadEnabledOfficeTemplates,
+  readOfficeTemplate = readOfficeTemplateFile,
   onUploadImage,
   onOpenExport,
 }: Props): React.JSX.Element {
@@ -127,6 +142,10 @@ export function OfficeStudioPage({
   const [stopping, setStopping] = useState(false);
   const [checkStopped, setCheckStopped] = useState(false);
   const [initialFiles, setInitialFiles] = useState<File[]>([]);
+  const [officeAssets, setOfficeAssets] = useState<OfficeTemplate[]>([]);
+  const [assetId, setAssetId] = useState('');
+  const [assetName, setAssetName] = useState('');
+  const assetFileName = useRef('');
   const [renameOpen, setRenameOpen] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const [goalDraft, setGoalDraft] = useState('');
@@ -199,6 +218,20 @@ export function OfficeStudioPage({
   useEffect(() => {
     resetOfficePaperScroll(document.querySelector('.os-paper-scroll'));
   }, [currentPageId, version?.id]);
+  useEffect(() => {
+    if (taskId) return;
+    let cancelled = false;
+    void loadOfficeTemplates()
+      .then((items) => {
+        if (!cancelled) setOfficeAssets(items);
+      })
+      .catch(() => {
+        if (!cancelled) setOfficeAssets([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId, loadOfficeTemplates]);
 
   const applyDetail = useCallback(
     (next: OfficeTaskDetail, selectHead = false) => {
@@ -538,9 +571,35 @@ export function OfficeStudioPage({
       if (current()) { setNativeStopRequested(false); setError(message(cause)); }
     });
   };
+  const chooseOfficeAsset = async (id: string) => {
+    const previous = assetFileName.current;
+    const withoutPrevious = (files: File[]) => (previous ? files.filter((file) => file.name !== previous) : files);
+    if (!id) {
+      setAssetId('');
+      setAssetName('');
+      assetFileName.current = '';
+      setInitialFiles(withoutPrevious);
+      return;
+    }
+    const chosen = officeAssets.find((item) => item.id === id);
+    try {
+      const opened = await readOfficeTemplate(id);
+      if (!opened.fileName || !opened.contentBase64) throw new Error('模版文件没有读到');
+      const file = fileFromTemplate(opened.fileName, opened.contentBase64);
+      const next = [...withoutPrevious(initialFiles), file];
+      validateOfficeFiles(next);
+      assetFileName.current = file.name;
+      setAssetId(id);
+      setAssetName(chosen?.name || opened.fileName);
+      setInitialFiles(next);
+      setError('');
+    } catch (cause) {
+      setError(message(cause));
+    }
+  };
   const create = () =>
     run(async () => {
-      const text = goal.trim();
+      const text = goalWithAssetDraft(goal, assetName);
       if (!text) return;
       let pending = pendingCreate.current;
       if (!pending || pending.goal !== text) {
@@ -573,6 +632,9 @@ export function OfficeStudioPage({
       setTaskId(result.task.id);
       setGoal('');
       setInitialFiles([]);
+      setAssetId('');
+      setAssetName('');
+      assetFileName.current = '';
       setNotice('');
       setTab('conversation');
     }, false);
@@ -964,6 +1026,17 @@ export function OfficeStudioPage({
                 maxLength={2048}
                 rows={3}
               />
+              {onImportFiles && officeAssets.length > 0 && (
+                <label className="os-home-asset">
+                  资产模版
+                  <select aria-label="选择办公资产模版" value={assetId} disabled={busy} onChange={(event) => void chooseOfficeAsset(event.target.value)}>
+                    <option value="">不使用资产模版</option>
+                    {officeAssets.map((item) => (
+                      <option key={item.id} value={item.id}>{item.templateType === 'ppt' ? 'PPT' : item.templateType === 'word' ? 'Word' : 'Excel'} · {item.name}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
               {onImportFiles && (
                 <>
                   <input
@@ -994,7 +1067,15 @@ export function OfficeStudioPage({
                           <button
                             type="button"
                             aria-label={`移除参考文件 ${file.name}`}
-                            onClick={() => setInitialFiles((items) => items.filter((_, itemIndex) => itemIndex !== index))}
+                            onClick={() => {
+                              const removed = initialFiles[index];
+                              if (removed?.name === assetFileName.current) {
+                                setAssetId('');
+                                setAssetName('');
+                                assetFileName.current = '';
+                              }
+                              setInitialFiles((items) => items.filter((_, itemIndex) => itemIndex !== index));
+                            }}
                           >
                             ×
                           </button>

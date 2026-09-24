@@ -9,7 +9,7 @@
   "additionalProperties": false,
   "properties": {
     "status": { "enum": ["draft", "enabled", "disabled", "void"] },
-    "templateType": { "enum": ["document", "scaffold"] },
+    "templateType": { "enum": ["document", "scaffold", "ppt", "word", "excel"] },
     "documentType": { "type": "string", "maxLength": 128 },
     "cursor": { "type": "string", "maxLength": 1024 },
     "query": { "type": "string", "maxLength": 200 }
@@ -30,7 +30,7 @@
             "orgId": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
             "templateCode": { "type": "string", "minLength": 4, "maxLength": 16 },
             "name": { "type": "string" },
-            "templateType": { "enum": ["document", "scaffold"] },
+            "templateType": { "enum": ["document", "scaffold", "ppt", "word", "excel"] },
             "documentType": { "type": "string" },
             "description": { "type": "string" },
             "client": { "type": "string" },

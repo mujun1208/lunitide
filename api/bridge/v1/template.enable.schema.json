@@ -40,8 +40,11 @@
       },
       "templateType": {
         "enum": [
-          "document",
-          "scaffold"
+        "document",
+        "scaffold",
+        "ppt",
+        "word",
+        "excel"
         ]
       },
       "documentType": {

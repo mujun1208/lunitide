@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { getProductHubBridge } from '../bridge/client'
+import type { ProductHubRefreshPayload } from '../generated/bridge'
 import { AnatomyPane } from './AnatomyPane'
 import { ChainFlowView } from './ChainFlowView'
 import { GraphBoard } from './GraphBoard'
@@ -7,6 +8,7 @@ import { ChangelogPanel, FinderBar } from './HubChrome'
 import { PAGE_ATLAS, pagesOfCard, settingLabel } from './hubCatalog'
 import { PageAtlas } from './PageAtlas'
 import { LandscapePane } from './LandscapePane'
+import { compareLandscape, LANDSCAPE_AXES, loadLandscapeNames } from './landscapeModel'
 import {
   assetStats, DOMAIN_META, domainCards, domainKey, findingTone, formatSnapshot,
   healthTone, isFeatureLike, matchesQuery, moduleRows, parseFixSteps, probeLabel,
@@ -281,10 +283,10 @@ function OverviewPane({
   return (
     <div>
       <section className="ph-health">
-        <HealthRing score={score} label={zh ? '健康度' : 'Health'} />
+        <HealthRing score={score} label={zh ? (overview?.liveChecked ? '实测' : '健康度') : (overview?.liveChecked ? 'Probed' : 'Health')} />
         <div>
-          <strong>{zh ? '活源覆盖' : 'Live coverage'} {coverage} · {openWarn} {zh ? '未闭合' : 'open'} · {timeouts} {zh ? '超时' : 'timeout'} · {zh ? '较上次快照 新增' : 'since last snapshot added'} {overview?.added ?? 0} · {zh ? '更新' : 'updated'} {overview?.updated ?? 0} · {zh ? '退役' : 'removed'} {overview?.removed ?? 0}</strong>
-          <p>{zh ? '打开本页会对照当前活源重算覆盖。点「重新检测」才写入新快照，不改业务代码。' : 'Opening this page recounts the live catalog. Re-scan writes a snapshot and does not edit product code.'}</p>
+          <strong>{zh ? (overview?.liveChecked ? '实测' : '活源覆盖') : (overview?.liveChecked ? 'Probed' : 'Live coverage')} {coverage} · {openWarn} {zh ? '未闭合' : 'open'} · {timeouts} {zh ? '超时' : 'timeout'} · {zh ? '较上次快照 新增' : 'since last snapshot added'} {overview?.added ?? 0} · {zh ? '更新' : 'updated'} {overview?.updated ?? 0} · {zh ? '退役' : 'removed'} {overview?.removed ?? 0}</strong>
+          <p>{zh ? '打开本页会对照当前活源。点「重新检测」才跑听写、播放、下载和图片识别，并写出诊断，不改业务代码。' : 'Opening this page recounts the live catalog. Re-scan runs dictation, playback, download, and image recognition, then writes the report. It does not edit product code.'}</p>
         </div>
         <button type="button" className="ph-detail" onClick={onDetail}>{zh ? '详情' : 'Details'}</button>
       </section>
@@ -394,7 +396,7 @@ function DiagnosticsPane({
           <strong>{zh ? '诊断报告' : 'Diagnostics'} {reportId(overview?.generatedAt)}</strong>
           <p>{zh ? '快照' : 'snap'} {formatSnapshot(overview?.generatedAt)} · {versionLabel(overview?.editionId)} · {zh ? '打开即对照活源 · 条目' : 'live recount · items'} {active.length}/{findings.length}</p>
         </div>
-        <HealthRing score={overview?.healthScore ?? 0} label={zh ? '入口覆盖' : 'Coverage'} />
+        <HealthRing score={overview?.healthScore ?? 0} label={zh ? (overview?.liveChecked ? '实测' : '入口覆盖') : (overview?.liveChecked ? 'Probed' : 'Coverage')} />
         <div className="ph-actions">
           <button type="button" onClick={onExport}>{zh ? '导出报告' : 'Export report'}</button>
           <button type="button" className="primary" disabled={busy} onClick={onRefresh}>{zh ? '重新检测' : 'Re-scan'}</button>
@@ -413,8 +415,12 @@ function DiagnosticsPane({
       </div>
       <p className="ph-note">
         {zh
-          ? `这次核对功能入口是否写进说明书（${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'}）。${errors + warns === 0 ? '没有可执行的目录修复。' : `还有 ${errors} 个错误、${warns} 个警告，按下面的方案处理。`} 这一环不是语音、播放、落盘或任务完成的实测分。`
-          : `This pass checks whether entries are in the booklet (${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'}). ${errors + warns === 0 ? 'Nothing here is a catalog fix.' : `${errors} errors and ${warns} warnings have a fix below.`} The ring is not a test of voice, playback, files, or finished tasks.`}
+          ? (overview?.liveChecked
+            ? `实测 ${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'}。听写、播放、下载、图片识别已跑。失败、未测，以及日志里对得上原文的故障列在下面。对照用的是图景页已经选好的产品，不计入这个环。`
+            : `还没做过实测。现在这一环仍是入口覆盖（${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'}）。点「重新检测」会跑听写、播放、下载和图片识别。`)
+          : (overview?.liveChecked
+            ? `Probed ${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'}. Dictation, playback, download, and image recognition ran. Failures and log faults are listed below. Comparison uses products already picked on the landscape page and is not part of this ring.`
+            : `No live probe yet. This ring is still catalog coverage (${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'}). Re-scan runs dictation, playback, download, and image recognition.`)}
       </p>
       <div className="ph-actions">
         <button className="primary" type="button" disabled={busy} onClick={() => onApply()}>{zh ? '执行全部净化' : 'Apply all'}</button>
@@ -644,7 +650,15 @@ export function ProductHubPage({ onUnlocked, language = 'zh-CN' }: { onUnlocked?
     if (!token) return
     setBusy(true)
     setError('')
-    void getProductHubBridge().refresh({ sessionToken: token }).then(result => {
+    const landscape = compareLandscape(loadLandscapeNames()).flatMap(row => LANDSCAPE_AXES.map(axis => ({
+      name: row.name,
+      axis: axis.zh,
+      score: row.cells[axis.id].score,
+      note: row.cells[axis.id].note,
+      source: row.cells[axis.id].source,
+      date: row.cells[axis.id].date,
+    })))
+    void getProductHubBridge().refresh({ sessionToken: token, landscape } as ProductHubRefreshPayload).then(result => {
       setReportHtml(result.reportHtml)
       setReportMarkdown(result.reportMarkdown)
       return load(token)

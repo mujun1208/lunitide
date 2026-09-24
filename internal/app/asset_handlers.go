@@ -406,6 +406,12 @@ func templateFileMessage(err error) string {
 		return "脚手架模板必须是 .zip 或 .tar.gz"
 	case "document template file type not allowed":
 		return "文档模板不支持该文件类型"
+	case "ppt template must be .pptx":
+		return "PPT模版请上传 .pptx"
+	case "word template must be .docx":
+		return "Word模版请上传 .docx"
+	case "excel template must be .xlsx":
+		return "Excel模版请上传 .xlsx"
 	}
 	msg := strings.TrimSpace(err.Error())
 	if peopleUserMessageHasHan(msg) {
