@@ -1,3 +1,4 @@
+import { Brain } from 'lucide-react'
 import React, { useEffect, useId, useRef, useState } from 'react'
 import { useZh } from '../i18n/language'
 import {
@@ -8,17 +9,6 @@ import {
   saveReasoningLevel,
   type ReasoningLevel,
 } from './composerReasoning'
-
-function IntensityIcon(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-      <path fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" d="M2.6 4.2h10.8M2.6 8h10.8M2.6 11.8h10.8" />
-      <circle cx="6" cy="4.2" r="1.15" fill="currentColor" />
-      <circle cx="10.2" cy="8" r="1.15" fill="currentColor" />
-      <circle cx="7.2" cy="11.8" r="1.15" fill="currentColor" />
-    </svg>
-  )
-}
 
 export function ComposerReasoningSlider({
   level,
@@ -62,7 +52,7 @@ export function ComposerReasoningSlider({
         aria-controls={popId}
         onClick={() => setOpen(value => !value)}
       >
-        <IntensityIcon />
+        <Brain size={14} strokeWidth={1.75} aria-hidden="true" />
         <span>{word}</span>
         <i aria-hidden="true">▾</i>
       </button>
@@ -72,16 +62,32 @@ export function ComposerReasoningSlider({
             <b>{zh ? '模型使用强度' : 'Model intensity'}</b>
             <strong>{word}</strong>
           </header>
-          <input
-            type="range"
-            min={0}
-            max={REASONING_LEVELS.length - 1}
-            step={1}
-            value={reasoningLevelIndex(level)}
-            aria-label={zh ? '调整模型使用强度' : 'Adjust model intensity'}
-            aria-valuetext={word}
-            onChange={event => commit(reasoningLevelAt(Number(event.target.value)))}
-          />
+          <div
+            className="composer-reasoning-scale"
+            style={{ ['--reasoning-p' as string]: String(reasoningLevelIndex(level) / (REASONING_LEVELS.length - 1)) }}
+          >
+            <div className="composer-reasoning-rail" aria-hidden="true">
+              <i className="composer-reasoning-fill" />
+              {REASONING_LEVELS.map((item, index) => (
+                <span
+                  key={item}
+                  className={index <= reasoningLevelIndex(level) ? 'is-on' : undefined}
+                  style={{ left: `${(index / (REASONING_LEVELS.length - 1)) * 100}%` }}
+                />
+              ))}
+              <b className="composer-reasoning-thumb" />
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={REASONING_LEVELS.length - 1}
+              step={1}
+              value={reasoningLevelIndex(level)}
+              aria-label={zh ? '调整模型使用强度' : 'Adjust model intensity'}
+              aria-valuetext={word}
+              onChange={event => commit(reasoningLevelAt(Number(event.target.value)))}
+            />
+          </div>
           <footer>
             <span>{zh ? '更快' : 'Faster'}</span>
             <span>{zh ? '更聪明' : 'Smarter'}</span>

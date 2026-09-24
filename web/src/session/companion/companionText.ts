@@ -706,6 +706,9 @@ export function shouldQueueBusyUserTranscript(input: {
   if (looksLikeOmniUnavailable(input.text)) return false
   if (looksLikePlaybackEcho(input.text, input.lastSpoken)) return false
   if (input.lastAssistant && looksLikePlaybackEcho(input.text, input.lastAssistant)) return false
+  // 火山 keeps the microphone open. A real sentence cuts in now; parking it
+  // until the tool loop ends is what left the stage on 对答中 while the user spoke.
+  if (input.voicePath === 'volc') return false
   return looksLikeBargeInSpeech(input.text, input.lastSpoken)
 }
 

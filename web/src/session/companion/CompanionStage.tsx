@@ -25,7 +25,7 @@ import {
   saveCompanionSettings,
   voiceIdForEngineSwitch,
 } from './companionSettings'
-import { alreadySpokenCloseout, cleanForSpeech, cleanUserTranscript, clipAssistantToSpoken, clipCompanionPrompt, clipCompanionSpokenTurn, compactSpeech, companionCancelRemainder, companionCannotExecuteSpeech, companionCaptionFromStream, companionDeafHasVisibleText, companionExecutingSpeech, companionHasFreshAssistantText, companionPadSpeech, companionReplyStallMs, companionShouldHoldBusyTurn, companionSpokenCancel, companionTaskCompleteSpeech, companionToolCloseoutSpeech, companionToolPhaseCaption, COMPANION_CONNECTING_HINT_MS, COMPANION_TOOL_PROGRESS_MS, companionToolProgressSpeech, companionToolsExecuting, FIRST_SPEAK_STALL_MS, handsFreeRetryDelayMs, isCompanionLeadInOnly, looksLikeAsrHallucination, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, shouldQueueBusyUserTranscript, stripTaskDonePhrases, takeSpeakableChunk, type CompanionToolPhase } from './companionText'
+import { alreadySpokenCloseout, cleanForSpeech, cleanUserTranscript, clipAssistantToSpoken, clipCompanionPrompt, clipCompanionSpokenTurn, compactSpeech, companionCancelRemainder, companionCannotExecuteSpeech, companionCaptionFromStream, companionDeafHasVisibleText, companionExecutingSpeech, companionHasFreshAssistantText, companionPadSpeech, companionReplyStallMs, companionShouldHoldBusyTurn, companionSpokenCancel, companionTaskCompleteSpeech, companionToolCloseoutSpeech, companionToolPhaseCaption, COMPANION_CONNECTING_HINT_MS, COMPANION_TOOL_PROGRESS_MS, companionToolProgressSpeech, companionToolsExecuting, FIRST_SPEAK_STALL_MS, handsFreeRetryDelayMs, isCompanionLeadInOnly, looksLikeAsrHallucination, looksLikeBargeInSpeech, looksLikeOmniPersonaCaption, looksLikePlaybackEcho, prepareSpeech, shouldAcceptUserTranscript, shouldKeepHandsFreeLoop, shouldQueueBusyUserTranscript, stripTaskDonePhrases, takeSpeakableChunk, type CompanionToolPhase } from './companionText'
 import { companionAsrPathLabel, companionListenFailover, companionListenKind, companionListenLightLabel, companionVolcDeafGiveUp, withDeadline, type AsrRoute } from './asrPath'
 import { isCompanionInfraBusy } from './companionBusy'
 import { localAsrStatus, LOCAL_ASR_DECISION_MS, readyWithin } from './localAsr'
@@ -1367,7 +1367,14 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
           return
         }
       }
-      if (companionShouldHoldBusyTurn(chatStatusRef.current, cancelKind, userInterruptedRef.current)) {
+      const volcCutIn =
+        settingsRef.current.voicePath === 'volc' &&
+        (stateRef.current === 'thinking' || stateRef.current === 'speaking' || chatStatusRef.current === 'streaming') &&
+        looksLikeBargeInSpeech(text, lastSpokenRef.current)
+      if (volcCutIn) {
+        userInterruptedRef.current = true
+        cancelReply()
+      } else if (companionShouldHoldBusyTurn(chatStatusRef.current, cancelKind, userInterruptedRef.current)) {
         const lastAssistant = [...roundsRef.current].reverse().find(round => round.role === 'assistant')?.text ?? ''
         if (
           looksLikePlaybackEcho(text, lastSpokenRef.current) ||
@@ -1545,6 +1552,10 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       if (looksLikePlaybackEcho(text, lastSpokenRef.current) || looksLikePlaybackEcho(text, assistantTextRef.current)) return
       const state = stateRef.current
       if (state !== 'thinking' && state !== 'speaking') return
+      if (settingsRef.current.voicePath === 'volc') {
+        beginUserTurn(text)
+        return
+      }
       if (
         !companionSpokenCancel(text) &&
         (state === 'thinking' ||
@@ -1569,7 +1580,7 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       setInterimText(text)
       setRounds([{ role: 'user', text }])
     },
-    [applyEvent, cancelReply],
+    [applyEvent, beginUserTurn, cancelReply],
   )
 
   // P3-4 automation→TTS linkage: a run that finishes while the stage

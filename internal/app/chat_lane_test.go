@@ -746,3 +746,50 @@ func TestClassifyChatLaneVideoURLIsL3KeepsUnderstand(t *testing.T) {
 		}
 	}
 }
+
+func TestFinishLeftoverStaysOnTheFullToolSurface(t *testing.T) {
+	for _, goal := range []string{"把拒绝的，前面没做完的做完", "好继续", "继续"} {
+		if got := classifyChatLane(LaneInput{Goal: goal}); got != LaneL4 {
+			t.Fatalf("%q => %s want L4", goal, got)
+		}
+	}
+	if got := classifyChatLane(LaneInput{Goal: "写一篇关于没做完的文章"}); got == LaneL4 {
+		t.Fatal("an essay that mentions unfinished work must stay off the operate lane")
+	}
+	if !looksLikeResume("好继续") {
+		t.Fatal("好继续 must resume the unfinished task")
+	}
+	prior := "试用技能：POC 快速构建，把页面交互验证和 README 做完"
+	if got := resolveLaneGoal("好继续", prior); got != prior {
+		t.Fatalf("resume goal=%q", got)
+	}
+	defs := []llmadapter.ToolDefinition{{Name: "workspace.read"}, {Name: "workspace.write"}, {Name: "command.run"}, {Name: "computer.act"}}
+	contract := buildLaneContract(LaneL4, RouteUnspecified, CouncilOverlay{})
+	if contract.MaxMainToolSteps < 24 || !contract.ContinueNudges {
+		t.Fatalf("contract=%#v", contract)
+	}
+	got := applyLaneTools(defs, contract)
+	if !hasLaneTool(got, "workspace.write") || !hasLaneTool(got, "command.run") || !hasLaneTool(got, "computer.act") {
+		t.Fatalf("full surface missing tools: %#v", got)
+	}
+}
+
+func TestMediaCenterPlayUsesTheFullToolSurface(t *testing.T) {
+	for _, goal := range []string{
+		"帮我找一部好看点的电影在媒体中心比方出来",
+		"在媒体中心播放《大都会》",
+	} {
+		if got := classifyChatLane(LaneInput{Goal: goal}); got != LaneL4 {
+			t.Fatalf("%q => %s want L4", goal, got)
+		}
+	}
+	if got := classifyChatLane(LaneInput{Goal: "写一篇关于媒体中心的文章"}); got == LaneL4 {
+		t.Fatal("an essay about the media center must stay off the operate lane")
+	}
+	contract := buildLaneContract(LaneL4, RouteUnspecified, CouncilOverlay{})
+	defs := []llmadapter.ToolDefinition{{Name: "skill.invoke"}, {Name: "media.play"}, {Name: "workspace.read"}}
+	got := applyLaneTools(defs, contract)
+	if !hasLaneTool(got, "media.play") || contract.MaxMainToolSteps < 24 {
+		t.Fatalf("media.play missing or steps=%d tools=%#v", contract.MaxMainToolSteps, got)
+	}
+}

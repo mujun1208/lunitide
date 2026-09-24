@@ -76,6 +76,17 @@ func classifyChatLane(in LaneInput) ChatLane {
 	if isShortIdleGreeting(goal) {
 		return LaneL0
 	}
+	// Playing in the media center needs media.play on the first step. The
+	// one-step read lane only loads the skill, then tells the user the step
+	// budget ran out.
+	if ownedMediaCenterGoal(goal) && !laneLooksLikeInPlaceProse(goal) {
+		return LaneL4
+	}
+	// "继续" / "把没做完的做完" is the same task, not a new chat sentence.
+	// The one-step read lane makes the model announce the rest and stop.
+	if looksLikeFinishOpenWork(goal) {
+		return LaneL4
+	}
 	if laneLooksLikeAgentTurn(goal) {
 		return LaneL4
 	}
@@ -239,6 +250,24 @@ func laneLooksLikeOfficeDeliverable(goal string) bool {
 	}
 	t := strings.ToLower(goal)
 	return strings.Contains(t, "周报") || strings.Contains(t, "做ppt") || strings.Contains(t, "做一份ppt")
+}
+
+// looksLikeFinishOpenWork is a follow-up that asks to finish work already
+// in progress. In-place prose that merely mentions those words stays L1.
+func looksLikeFinishOpenWork(goal string) bool {
+	if looksLikeResume(goal) {
+		return true
+	}
+	if laneLooksLikeInPlaceProse(goal) {
+		return false
+	}
+	t := revisionInstructionText(goal)
+	for _, needle := range []string{"没做完", "未做完", "还没做完", "剩下的做", "做完剩下", "把拒绝的"} {
+		if strings.Contains(t, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func laneLooksLikeVagueTask(goal string) bool {

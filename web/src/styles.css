@@ -2432,13 +2432,21 @@ html[data-theme="light"] .notes-doc-card,html[data-theme="light"] .meeting-card{
 .composer-reasoning-pop header{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 0 10px}
 .composer-reasoning-pop header b{font-size:12px;font-weight:500;color:#c5c5c5}
 .composer-reasoning-pop header strong{font-size:13px;font-weight:650;color:#fff}
-.composer-reasoning-pop input[type=range]{width:100%;height:18px;margin:0;accent-color:#7aa2ff;cursor:pointer}
+.composer-reasoning-scale{position:relative;height:28px;margin:2px 0 0}
+.composer-reasoning-rail{position:absolute;left:9px;right:9px;top:13px;height:2px;border-radius:99px;background:#3a4150}
+.composer-reasoning-fill{position:absolute;left:0;top:0;bottom:0;width:calc(var(--reasoning-p) * 100%);border-radius:99px;background:#8eb4ff}
+.composer-reasoning-rail span{position:absolute;top:50%;width:7px;height:7px;margin:-3.5px 0 0 -3.5px;border-radius:50%;background:#5c6578}
+.composer-reasoning-rail span.is-on{background:#8eb4ff}
+.composer-reasoning-thumb{position:absolute;z-index:1;top:50%;left:calc(var(--reasoning-p) * 100%);width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+.composer-reasoning-scale input[type=range]{position:absolute;z-index:2;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
 .composer-reasoning-pop footer{display:flex;justify-content:space-between;margin-top:4px;color:#8d8d8d;font-size:11px}
 html[data-theme="light"] .composer-reasoning-trigger{color:#444}
 html[data-theme="light"] .composer-reasoning-trigger span{color:#111}
 html[data-theme="light"] .composer-reasoning-pop{background:#fff;border-color:rgba(0,0,0,.08);box-shadow:0 12px 32px rgba(20,30,40,.16)}
 html[data-theme="light"] .composer-reasoning-pop header b{color:#5c6b80}
 html[data-theme="light"] .composer-reasoning-pop header strong{color:#111}
+html[data-theme="light"] .composer-reasoning-rail{background:#d5dbe3}
+html[data-theme="light"] .composer-reasoning-rail span{background:#c5ced8}
 .composer-reply-chips{display:flex;align-items:center;gap:2px}
 .composer-reply-chips .composer-popover-anchor>button.is-active{color:var(--ink)}
 .composer-chip-group{display:flex;align-items:center;margin-left:4px;padding-left:8px;border-left:1px solid var(--rule)}

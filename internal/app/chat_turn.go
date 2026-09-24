@@ -65,7 +65,12 @@ func looksLikeResume(text string) bool {
 	if t == "" {
 		return false
 	}
-	if t == "继续" || strings.HasPrefix(t, "继续上次") {
+	t = strings.TrimRight(t, "。.!！？? ")
+	switch t {
+	case "继续", "好继续", "继续吧", "继续做", "继续执行", "接着", "接着做", "接着做完":
+		return true
+	}
+	if strings.HasPrefix(t, "继续上次") {
 		return true
 	}
 	if companionRetryActionTurn(t) {

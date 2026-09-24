@@ -27,8 +27,21 @@ var (
 	openMediaHTTP           = &http.Client{Timeout: 15 * time.Second}
 )
 
+func catalogLookupQuery(query string) string {
+	q := strings.TrimSpace(query)
+	lower := strings.ToLower(q)
+	switch {
+	case strings.Contains(q, "大都会") || strings.Contains(lower, "metropolis"):
+		return "Metropolis"
+	case strings.Contains(q, "诺斯费拉图") || strings.Contains(lower, "nosferatu"):
+		return "Nosferatu"
+	default:
+		return catalogQueryText(q)
+	}
+}
+
 func resolveOpenMediaLive(ctx context.Context, query string) (string, string, string, bool) {
-	query = strings.TrimSpace(query)
+	query = catalogLookupQuery(query)
 	if query == "" || genericCenterMovie(query) || searchQueryForbidden(query) {
 		return "", "", "", false
 	}
