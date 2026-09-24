@@ -26,9 +26,11 @@ Set-StrictMode -Version Latest
 function Fail([string]$Message) { Write-Error $Message; exit 1 }
 
 function Invoke-GitText([string[]]$GitArgs) {
-  $text = (& git @GitArgs 2>&1 | Out-String)
-  if ($LASTEXITCODE) { Fail ("git {0} failed: {1}" -f ($GitArgs -join ' '), $text.Trim()) }
-  return $text.Trim()
+  # One string per git line. Out-String wraps at the host width and splits
+  # diff-tree rows, which then fail the row parser.
+  $lines = @(& git @GitArgs 2>&1 | ForEach-Object { "$_" })
+  if ($LASTEXITCODE) { Fail ("git {0} failed: {1}" -f ($GitArgs -join ' '), (($lines -join ' ').Trim())) }
+  return (($lines | Where-Object { $_ -ne '' }) -join "`n")
 }
 
 # Binary-safe read of a git object. A PowerShell pipeline rewrites LF as CRLF,
@@ -76,7 +78,7 @@ if ($remote -ceq $target) { Write-Host 'Remote already matches the local commit;
 $ancestor = & git merge-base --is-ancestor $remote $target
 if ($LASTEXITCODE) { Fail "Remote $remote is not an ancestor of $target; this would diverge. Fetch and rebase first." }
 
-$queue = @(Invoke-GitText @('rev-list', '--reverse', "$remote..$target") -split "`r?`n" | Where-Object { $_ })
+$queue = @((Invoke-GitText @('rev-list', '--reverse', "$remote..$target")) -split "`r?`n" | Where-Object { $_ })
 if (-not $queue.Count) { Fail 'No commits to replay.' }
 Write-Host ("replay : {0} commit(s)" -f $queue.Count)
 
@@ -87,13 +89,13 @@ function Invoke-ReplayCommit([string]$Sha) {
   Write-Host ("=== {0}  {1}" -f $Sha.Substring(0, 8), (Invoke-GitText @('log', '-1', '--format=%s', $Sha)))
 
   $wantTree = Invoke-GitText @('rev-parse', ($Sha + '^{tree}'))
-  $parents = @(Invoke-GitText @('log', '-1', '--format=%P', $Sha) -split '\s+' | Where-Object { $_ })
+  $parents = @((Invoke-GitText @('log', '-1', '--format=%P', $Sha)) -split '\s+' | Where-Object { $_ })
   if ($parents.Count -ne 1) { Fail "Only single-parent commits are supported; $Sha has $($parents.Count)." }
   $parent = $parents[0]
   $baseTree = Invoke-GitText @('rev-parse', ($parent + '^{tree}'))
 
   # :<srcmode> <dstmode> <srcsha> <dstsha> <status>\t<path>
-  $raw = @(Invoke-GitText @('diff-tree', '-r', '--no-commit-id', '--raw', $Sha) -split "`r?`n" | Where-Object { $_ })
+  $raw = @((Invoke-GitText @('diff-tree', '-r', '--no-commit-id', '--raw', $Sha)) -split "`r?`n" | Where-Object { $_ })
   if (-not $raw.Count) { Fail "$Sha changes no files." }
 
   $entries = @()
