@@ -65,6 +65,34 @@ func TestHTMLPreviewHandsTheRendererAWorkingPage(t *testing.T) {
 	}
 }
 
+func TestHTMLPreviewAtAnAbsolutePathStillRuns(t *testing.T) {
+	e := newArtifactEngine(t)
+	ctx := context.Background()
+	dir, err := e.tools.SessionFolder(artifactSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := filepath.Join(dir, "index.html")
+	if err := os.WriteFile(page, []byte(`<html><body><button onclick="save()">保存</button><script>function save(){localStorage.setItem("k","v")}</script></body></html>`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(map[string]string{"sessionId": artifactSession, "path": page})
+	resp := handleWorkspaceArtifactPreview(e, ctx, artifactRequest(string(payload)))
+	if !resp.OK {
+		t.Fatalf("absolute html preview failed: %+v", resp)
+	}
+	raw, _ := json.Marshal(resp.Payload)
+	var out struct {
+		InteractiveURL string `json:"interactiveUrl"`
+	}
+	if json.Unmarshal(raw, &out) != nil || out.InteractiveURL == "" {
+		t.Fatalf("absolute path left the page static: %s", raw)
+	}
+	if _, rel, ok := webviewhost.ParsePreviewRequest(out.InteractiveURL); !ok || rel != "index.html" {
+		t.Fatalf("ticket url=%q", out.InteractiveURL)
+	}
+}
+
 // Resolving a ticket answers with an absolute path on disk. That is the host's
 // business and nothing else's: if the renderer could call it, a generated page
 // that found its way to the bridge could read the path of any file it had a
@@ -135,8 +163,8 @@ func TestPreviewTicketResolvesSiblingsAndRefusesEscapes(t *testing.T) {
 
 	// Its own assets, resolved inside its folder — never at the session root.
 	for asset, want := range map[string]string{
-		"app.js":            "reports/crm/app.js",
-		"assets/style.css":  "reports/crm/assets/style.css",
+		"app.js":              "reports/crm/app.js",
+		"assets/style.css":    "reports/crm/assets/style.css",
 		"data/customers.json": "reports/crm/data/customers.json",
 	} {
 		if _, got, err := store.lookup(token, asset); err != nil || got != want {

@@ -96,6 +96,49 @@ func mediaNameScore(got, want string) int {
 
 var genericMediaRequestRE = regexp.MustCompile(`^(?:请|帮我)?(?:播放|放|来)?(?:随机|随便|任意|推荐|热门)?(?:播放|放|来)?(?:一首|首|一些)?(?:歌|歌曲|音乐|曲子)?$`)
 
+// ComputerPlayQuery is a request to play by operating the computer, not a
+// song title. A short leftover such as 晴天 is kept. An instruction with no
+// title becomes 播放一首歌.
+func ComputerPlayQuery(text string) (string, bool) {
+	q := strings.TrimSpace(text)
+	if q == "" {
+		return "", false
+	}
+	if !strings.Contains(q, "电脑操作") && !strings.Contains(q, "操作方式") {
+		return "", false
+	}
+	if !strings.Contains(q, "播") && !strings.Contains(q, "放") && !strings.Contains(q, "听") {
+		return "", false
+	}
+	if title := bookTitle(q); title != "" {
+		return title, true
+	}
+	rest := q
+	for _, word := range []string{
+		"电脑操作", "操作方式", "换一种", "换一个", "另一种", "那你", "帮我", "请你",
+		"播放", "放歌", "听歌", "歌曲", "一首歌", "一首", "方式", "用", "去", "啊", "吧", "的",
+	} {
+		rest = strings.ReplaceAll(rest, word, "")
+	}
+	rest = strings.TrimSpace(strings.Trim(rest, "，,。！!？?；;：: "))
+	if rest == "" || isGenericMediaQuery(rest) {
+		return "播放一首歌", true
+	}
+	if n := len([]rune(rest)); n >= 2 && n <= 16 {
+		return rest, true
+	}
+	return "播放一首歌", true
+}
+
+func bookTitle(q string) string {
+	i := strings.Index(q, "《")
+	j := strings.Index(q, "》")
+	if i < 0 || j <= i+len("《") {
+		return ""
+	}
+	return strings.TrimSpace(q[i+len("《") : j])
+}
+
 func isGenericMediaQuery(query string) bool {
 	q := strings.TrimSpace(strings.TrimRight(foldMedia(query), "。！!"))
 	if q != "" && genericMediaRequestRE.MatchString(q) {

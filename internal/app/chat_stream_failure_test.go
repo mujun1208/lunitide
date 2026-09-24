@@ -61,3 +61,67 @@ func TestModelTimeoutStaysInsideTheTurn(t *testing.T) {
 		t.Fatal("an authentication failure must not be retried")
 	}
 }
+
+func TestTimeoutAfterWrittenFilesSettlesTheTurn(t *testing.T) {
+	messages := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "构建一个可运行的 CRM 系统 POC"},
+		{Role: llmadapter.RoleTool, ToolCallID: "w1", Content: "wrote index.html"},
+		{Role: llmadapter.RoleTool, ToolCallID: "w2", Content: "wrote README.md"},
+	}
+	speech, settle := timeoutAfterDeliverable(context.DeadlineExceeded, messages)
+	if !settle || !strings.Contains(speech, "index.html") || !strings.Contains(speech, "README.md") || strings.Contains(speech, "无法执行") {
+		t.Fatalf("speech=%q settle=%v", speech, settle)
+	}
+	if _, settle := timeoutAfterDeliverable(context.DeadlineExceeded, nil); settle {
+		t.Fatal("a timeout before any file must keep retrying")
+	}
+	open := append([]llmadapter.Message{}, messages...)
+	open = append(open, llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{
+		Name:      "todo.write",
+		Arguments: []byte(`{"todos":[{"content":"写页面","status":"completed"},{"content":"跑测试","status":"pending"},{"content":"改说明","status":"in_progress"},{"content":"收尾","status":"pending"}]}`),
+	}}})
+	if _, settle := timeoutAfterDeliverable(context.DeadlineExceeded, open); settle {
+		t.Fatal("an open checklist must keep the turn going after files exist")
+	}
+	done := []llmadapter.Message{
+		messages[0], messages[1], messages[2],
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{
+			Name:      "todo.write",
+			Arguments: []byte(`{"todos":[{"content":"写页面","status":"completed"},{"content":"跑测试","status":"completed"}]}`),
+		}}},
+	}
+	if speech, settle := timeoutAfterDeliverable(context.DeadlineExceeded, done); !settle || !strings.Contains(speech, "index.html") {
+		t.Fatalf("a finished checklist may settle, speech=%q settle=%v", speech, settle)
+	}
+}
+
+func TestPlanPauseRoomIsOneTurnNotThreePerStep(t *testing.T) {
+	messages := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "分四步做完"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{
+			Name:      "todo.write",
+			Arguments: []byte(`{"todos":[{"content":"a","status":"completed"},{"content":"b"},{"content":"c","status":"in_progress"},{"content":"d","status":"pending"}]}`),
+		}}},
+	}
+	open, total := planChecklist(messages)
+	if open != 3 || total != 4 {
+		t.Fatalf("open=%d total=%d", open, total)
+	}
+	// A 4-step checklist may pause four times, even after some steps are
+	// already completed. It must not become 3 pauses × 4 steps, and finishing
+	// a step must not shrink the room so the rest of the plan stops early.
+	for nudge := 0; nudge < 4; nudge++ {
+		if !planPauseRoom(nudge, 1, 4) {
+			t.Fatalf("nudge %d should still be inside the same turn", nudge)
+		}
+	}
+	if planPauseRoom(4, 1, 4) || planPauseRoom(0, 0, 4) || planPauseRoom(12, 4, 4) {
+		t.Fatal("the pause room must close at the checklist length")
+	}
+	finished := []llmadapter.Message{messages[0], {Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{
+		Name: "todo.write", Arguments: []byte(`{"todos":[{"content":"a","status":"completed"}]}`),
+	}}}}
+	if openPlanSteps(finished) != 0 {
+		t.Fatal("a completed checklist is not an open plan")
+	}
+}

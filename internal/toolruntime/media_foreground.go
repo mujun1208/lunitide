@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/ccapp"
@@ -369,6 +371,75 @@ func confirmMediaPlayerForeground(app string) error {
 	return nil
 }
 
+var musicPlayMemoryOverride string
+
+func musicPlayMemoryPath() string {
+	if strings.TrimSpace(musicPlayMemoryOverride) != "" {
+		return musicPlayMemoryOverride
+	}
+	if testing.Testing() {
+		return ""
+	}
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "lunitide", "music-play.json")
+}
+
+func rememberedMusicApp() string {
+	path := musicPlayMemoryPath()
+	if path == "" {
+		return ""
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var memo struct {
+		App string `json:"app"`
+	}
+	if json.Unmarshal(raw, &memo) != nil {
+		return ""
+	}
+	return CanonicalMusicApp(memo.App)
+}
+
+// PreferredMusicApp reuses the player that last verified playback when it is
+// still installed. Otherwise it keeps the previous install order.
+func PreferredMusicApp(installed []string) string {
+	if remembered := rememberedMusicApp(); remembered != "" {
+		for _, name := range installed {
+			if name == remembered {
+				return remembered
+			}
+		}
+	}
+	if len(installed) == 0 {
+		return ""
+	}
+	return installed[0]
+}
+
+func rememberVerifiedMusicApp(app string) {
+	canon := CanonicalMusicApp(app)
+	if canon == "" {
+		return
+	}
+	path := musicPlayMemoryPath()
+	if path == "" {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	raw, err := json.Marshal(map[string]string{"app": canon})
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(path, raw, 0o644)
+}
+
 func executeMediaPlayForeground(ctx context.Context, invoke ccInvoker, session, query, appHint string, approved, unconfined bool) (Result, error) {
 	if err := requireDesktopAction(approved); err != nil {
 		return Result{}, err
@@ -377,6 +448,11 @@ func executeMediaPlayForeground(ctx context.Context, invoke ccInvoker, session, 
 		return Result{}, errors.New("请在设置打开电脑控制后再播放")
 	}
 	q := strings.TrimSpace(query)
+	instructionGeneric := false
+	if rewritten, ok := ComputerPlayQuery(q); ok {
+		q = rewritten
+		instructionGeneric = isGenericMediaQuery(q)
+	}
 	if q == "" {
 		return Result{}, errors.New("query required for foreground playback")
 	}
@@ -385,22 +461,40 @@ func executeMediaPlayForeground(ctx context.Context, invoke ccInvoker, session, 
 	}
 	app := strings.TrimSpace(appHint)
 	if app == "" {
-		app = q
+		if preferred := PreferredMusicApp(InstalledMusicApps()); preferred != "" {
+			app = preferred
+		} else {
+			app = q
+		}
 	}
 	opened, err := ensureMusicAppForeground(app)
 	if err != nil {
 		return Result{}, err
 	}
 	if isGenericMediaQuery(q) {
+		if instructionGeneric {
+			nodes, title := snapshotMediaUI(ctx, invoke, session, approved)
+			if playbackLooksActive(nodes, title, app) {
+				label := strings.TrimSpace(app)
+				if label == "" {
+					label = "foreground app"
+				}
+				res := result(appendL0JSON(fmt.Sprintf("verified playing in %s (already playing)", label), "foreground", true, false, "already-playing"))
+				rememberVerifiedMusicApp(app)
+				return withOpenedPlayer(opened, res), nil
+			}
+		}
 		shuffle := strings.Contains(q, "随机") || strings.Contains(strings.ToLower(q), "random") || strings.Contains(strings.ToLower(q), "shuffle")
 		if res, ok := controlMusicSession(ctx, app, "play", shuffle); ok {
 			if strings.Contains(res.Output, "verified playing") {
+				rememberVerifiedMusicApp(app)
 				return res, nil
 			}
 			// The session accepted play. A media key here would toggle it back off.
 			if strings.Contains(res.Output, "media session action=play") {
 				mediaSleep(700 * time.Millisecond)
 				if playing, ok := confirmedMusicPlaying(ctx, app); ok {
+					rememberVerifiedMusicApp(app)
 					return withOpenedPlayer(opened, playing), nil
 				}
 				return genericPlaybackStarted(app, opened, "media session"), nil
@@ -409,9 +503,11 @@ func executeMediaPlayForeground(ctx context.Context, invoke ccInvoker, session, 
 		_ = sendForegroundPlay("play")
 		mediaSleep(700 * time.Millisecond)
 		if playing, ok := confirmedMusicPlaying(ctx, app); ok {
+			rememberVerifiedMusicApp(app)
 			return withOpenedPlayer(opened, playing), nil
 		}
 		if res, ok := trySparseTreePlay(ctx, invoke, session, app, approved); ok {
+			rememberVerifiedMusicApp(app)
 			return withOpenedPlayer(opened, res), nil
 		}
 		return genericPlaybackStarted(app, opened, "media key"), nil
@@ -429,6 +525,9 @@ func executeMediaPlayForeground(ctx context.Context, invoke ccInvoker, session, 
 	res, err := playNamedTrackInForeground(ctx, invoke, session, q, focus, approved)
 	if err != nil {
 		return res, err
+	}
+	if strings.Contains(res.Output, "verified") {
+		rememberVerifiedMusicApp(focus)
 	}
 	if opened != "" && strings.HasPrefix(res.Output, "verified") {
 		res.Output = "opened " + opened + "; " + res.Output

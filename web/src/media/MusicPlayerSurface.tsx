@@ -1,9 +1,9 @@
-import React from 'react'
+import React, { useState } from 'react'
 import type { MediaSnapshotDTO } from '../generated/bridge'
 import { formatClock, mediaTransportPlaying } from './mediaSnapshot'
 import { mediaText, playbackStatusText } from './mediaCopy'
 import { MediaTransportControls } from './MediaTransportControls'
-import { useDirectMedia } from './useDirectMedia'
+import { useDirectMedia, useStageChrome } from './useDirectMedia'
 import { useZh } from '../i18n/language'
 
 export function MusicPlayerSurface({
@@ -20,6 +20,7 @@ export function MusicPlayerSurface({
   onQueue,
   onSeek,
   onVolume,
+  onClose,
 }: {
   snapshot: MediaSnapshotDTO
   title: string
@@ -34,18 +35,26 @@ export function MusicPlayerSurface({
   onQueue: () => void
   onSeek: (positionMs: number) => void
   onVolume: (volume: number) => void
+  onClose?: () => void
 }): React.JSX.Element {
   const zh = useZh()
   const copy = mediaText(zh)
   const live = Boolean(showFile && src)
   const stage = useDirectMedia(live, src, rate)
+  const [hold, setHold] = useState(false)
   const playing = live ? stage.playing : mediaTransportPlaying(false, snapshot)
+  const chrome = useStageChrome(live && playing, hold)
+  const close = onClose ? () => {
+    if (stage.full) void document.exitFullscreen?.()
+    stage.ref.current?.pause()
+    onClose()
+  } : undefined
   const status = live
     ? (!stage.heard ? copy.soundOff : stage.playing ? copy.playing : copy.paused)
     : playbackStatusText(zh, snapshot.phase, snapshot.verificationStatus)
   return (
     <section className="media-music-surface" aria-label={copy.music}>
-      <div ref={stage.boxRef} className={live ? `media-stage is-live${stage.full ? ' is-fullscreen' : ''}` : 'media-stage'}>
+      <div ref={stage.boxRef} className={live ? `media-stage is-live${stage.full ? ' is-fullscreen' : ''}${chrome.shown ? '' : ' is-chrome-hidden'}` : 'media-stage'} onPointerMove={live ? chrome.poke : undefined}>
         <div className="media-content">
           <div className="album-art" aria-hidden="true" />
           <div className="media-copy">
@@ -69,6 +78,8 @@ export function MusicPlayerSurface({
               onSeek={live ? stage.seek : onSeek}
               onVolume={live ? stage.setLevel : onVolume}
               onFullscreen={live ? stage.toggleFull : undefined}
+              onClose={onClose ? close : undefined}
+              onHold={setHold}
               allowSeek={live || (!idle && snapshot.origin === 'owned')}
               allowVolume={live || (!idle && snapshot.origin === 'owned')}
             />

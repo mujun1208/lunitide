@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/llmadapter"
@@ -130,6 +131,71 @@ func chatModelFailureDiagnostic(err error) string {
 		}
 	}
 	return fmt.Sprintf("code=%s stage=%s http_status=%d", chatModelStreamError(err).Code, stage, status)
+}
+
+func timeoutAfterDeliverable(err error, messages []llmadapter.Message) (string, bool) {
+	if !chatModelCallRetryable(err) {
+		return "", false
+	}
+	// Files from an earlier step are not the end of a plan that still has
+	// open checklist items. Keep the model call retry instead of closing.
+	if openPlanSteps(messages) > 0 {
+		return "", false
+	}
+	speech := deliveredFileSpeech(messages)
+	if speech == "" {
+		return "", false
+	}
+	return speech, true
+}
+
+func deliveredFileSpeech(messages []llmadapter.Message) string {
+	start := 0
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == llmadapter.RoleUser {
+			start = i + 1
+			break
+		}
+	}
+	var names []string
+	seen := map[string]bool{}
+	for _, m := range messages[start:] {
+		if m.Role != llmadapter.RoleTool {
+			continue
+		}
+		line := strings.TrimSpace(m.Content)
+		if i := strings.IndexAny(line, "\r\n"); i >= 0 {
+			line = strings.TrimSpace(line[:i])
+		}
+		var name string
+		switch {
+		case strings.HasPrefix(line, "wrote "):
+			name = strings.TrimPrefix(line, "wrote ")
+		case strings.HasPrefix(line, "written "):
+			name = strings.TrimPrefix(line, "written ")
+		case strings.HasPrefix(line, "edited "):
+			name = strings.TrimPrefix(line, "edited ")
+		}
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if i := strings.IndexAny(name, " ("); i > 0 {
+			name = strings.TrimSpace(name[:i])
+		}
+		if j := strings.LastIndexAny(name, `/\`); j >= 0 {
+			name = name[j+1:]
+		}
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	return "已经写好：" + strings.Join(names, "、") + "。后面的总结超时了，文件还在，可以直接打开。"
 }
 
 func chatModelOutcomeNotice(cancelling bool, err error) string {

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { commitRecognitionFinal } from './speech'
 import { pickTranscriptRevision } from './transcriptRevision'
 
 describe('pickTranscriptRevision', () => {
@@ -21,6 +22,12 @@ describe('pickTranscriptRevision', () => {
 
   test('still replaces with a genuinely different shorter sentence', () => {
     expect(pickTranscriptRevision('打开汽水音乐', '暂停')).toBe('暂停')
+  })
+
+  test('keeps a heard sentence when a later final is only its tail', () => {
+    const heard = '我说帮我打开桌面系统架构推荐 md文档'
+    expect(pickTranscriptRevision(heard, 'md文档')).toBe(heard)
+    expect(commitRecognitionFinal('', heard, 'md文档').finals).toBe(heard)
   })
 
   test('keeps later terminal punctuation on the same spoken words', () => {

@@ -424,6 +424,14 @@ func asrFilenameFragment(t string) bool {
 	return true
 }
 
+func systemBrowserFirstResultGoal(goal string) bool {
+	t := strings.TrimSpace(goal)
+	if !strings.Contains(t, "浏览器") {
+		return false
+	}
+	return strings.Contains(t, "第一个") || strings.Contains(t, "第一条")
+}
+
 func websiteFirstResultGoal(goal string) bool {
 	t := strings.TrimSpace(goal)
 	if t == "" {

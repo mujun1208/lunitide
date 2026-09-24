@@ -83,6 +83,45 @@ func pickSendControl(nodes []mediaUINode) *mediaUINode {
 	return best
 }
 
+func pickComposerField(nodes []mediaUINode) *mediaUINode {
+	var best *mediaUINode
+	bestScore := 0
+	for i := range nodes {
+		n := &nodes[i]
+		role := strings.ToLower(strings.TrimSpace(n.Role))
+		name := foldMedia(n.Name)
+		score := 0
+		switch role {
+		case "edit", "textbox", "textarea", "document":
+			score = 40
+		default:
+			if strings.Contains(name, "发消息") || strings.Contains(name, "输入消息") {
+				score = 30
+			}
+		}
+		if score == 0 || isWindowCloseControlName(n.Name) {
+			continue
+		}
+		if strings.Contains(name, "搜索") || strings.Contains(name, "search") {
+			score -= 25
+		}
+		if strings.Contains(name, "发消息") || strings.Contains(name, "输入") {
+			score += 30
+		}
+		if n.Y > 0 {
+			score += n.Y / 80
+		}
+		if score > bestScore {
+			bestScore = score
+			best = n
+		}
+	}
+	if best == nil || strings.TrimSpace(best.Name) == "" {
+		return nil
+	}
+	return best
+}
+
 func pickNamedEdit(nodes []mediaUINode, want string) *mediaUINode {
 	want = strings.TrimSpace(want)
 	if want == "" {
@@ -281,8 +320,18 @@ func executeDesktopType(ctx context.Context, invoke ccInvoker, session string, a
 		if err := verifyDesktopTyped(ctx, invoke, session, approved, text); err != nil {
 			return Result{}, err
 		}
-	} else if err := ccType(ctx, invoke, session, text, approved); err != nil {
-		return Result{}, fmt.Errorf("无法执行：无法输入文字（%v）", err)
+	} else {
+		nodes, _, _ := ccObserveNodes(ctx, invoke, session, approved)
+		if field := pickComposerField(nodes); field != nil {
+			_ = ccClickName(ctx, invoke, session, clipMediaName(field.Name), 1, approved)
+			mediaSleep(80 * time.Millisecond)
+		}
+		if err := ccType(ctx, invoke, session, text, approved); err != nil {
+			if errors.Is(err, ccapp.ErrCcInputFiltered) || strings.Contains(err.Error(), "input rejected") || strings.Contains(err.Error(), "焦点不在输入框") {
+				return Result{}, fmt.Errorf("无法执行：焦点不在输入框。请先点开发消息框，再输入「%s」", text)
+			}
+			return Result{}, fmt.Errorf("无法执行：无法输入文字（%v）", err)
+		}
 	}
 
 	if a.Submit {

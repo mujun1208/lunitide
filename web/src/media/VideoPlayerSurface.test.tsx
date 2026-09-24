@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { MediaSnapshotDTO } from '../generated/bridge'
 import { VideoPlayerSurface } from './VideoPlayerSurface'
@@ -78,9 +78,14 @@ it('pauses the film on screen and sets its volume from the vertical slider', asy
   const video = document.querySelector('video') as HTMLVideoElement
   await waitFor(() => expect(video.muted).toBe(true))
   expect(screen.getByRole('status')).toHaveTextContent('向上拖音量即可出声')
-  const volume = screen.getByLabelText('音量')
+  expect(screen.queryByRole('slider', { name: '音量' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '音量' }))
+  const volume = screen.getByRole('slider', { name: '音量' })
   expect(volume).toHaveAttribute('aria-orientation', 'vertical')
-  fireEvent.change(volume, { target: { value: '70' } })
+  vi.spyOn(volume, 'getBoundingClientRect').mockReturnValue({
+    x: 0, y: 0, top: 0, left: 0, right: 20, bottom: 100, width: 20, height: 100, toJSON() { return {} },
+  })
+  volume.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true, clientY: 30 }))
   expect(video.muted).toBe(false)
   expect(video.volume).toBeCloseTo(0.7)
   expect(onVolume).not.toHaveBeenCalled()
@@ -116,15 +121,44 @@ it('TestVideoCoreControls: exposes play, seek and volume without a second video 
   expect(screen.getByRole('button', { name: '下一首' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '队列' })).toBeInTheDocument()
   const seek = screen.getByLabelText('进度')
-  fireEvent.pointerDown(seek)
-  ;(seek as HTMLInputElement).value = '2000'
-  fireEvent.pointerUp(seek)
-  const volume = screen.getByLabelText('音量')
-  fireEvent.pointerDown(volume)
-  ;(volume as HTMLInputElement).value = '10'
-  fireEvent.pointerUp(volume)
+  fireEvent.change(seek, { target: { value: '2000' } })
+  fireEvent.click(screen.getByRole('button', { name: '音量' }))
+  const volume = screen.getByRole('slider', { name: '音量' })
+  vi.spyOn(volume, 'getBoundingClientRect').mockReturnValue({
+    x: 0, y: 0, top: 0, left: 0, right: 20, bottom: 100, width: 20, height: 100, toJSON() { return {} },
+  })
+  volume.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true, clientY: 90 }))
   expect(onSeek).toHaveBeenCalledWith(2000)
   expect(onVolume).toHaveBeenCalledWith(10)
   fireEvent.click(screen.getByRole('button', { name: '播放' }))
   expect(onPlayPause).toHaveBeenCalledTimes(1)
+})
+
+it('hides the transport while the film plays and shows it again when the pointer moves', async () => {
+  vi.useFakeTimers()
+  const play = vi.fn().mockResolvedValue(undefined)
+  Object.defineProperty(HTMLMediaElement.prototype, 'play', { configurable: true, value: play })
+  render(
+    <VideoPlayerSurface
+      snapshot={snapshot}
+      title="The General (1926)"
+      src="https://upload.wikimedia.org/wikipedia/commons/general.webm"
+      showFile
+      busy={false}
+      onPlayPause={() => {}}
+      onPrevious={() => {}}
+      onNext={() => {}}
+      onQueue={() => {}}
+      onSeek={() => {}}
+      onVolume={() => {}}
+    />,
+  )
+  await act(async () => { await Promise.resolve() })
+  const theatre = document.querySelector('.video-theatre')
+  expect(theatre).not.toHaveClass('is-chrome-hidden')
+  await act(async () => { vi.advanceTimersByTime(3000) })
+  expect(theatre).toHaveClass('is-chrome-hidden')
+  fireEvent.pointerMove(theatre!)
+  expect(theatre).not.toHaveClass('is-chrome-hidden')
+  vi.useRealTimers()
 })

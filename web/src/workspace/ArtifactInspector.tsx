@@ -18,10 +18,13 @@ function fileName(path: string): string {
   return path.split(/[/\\]/).pop() || path
 }
 
-export function ArtifactInspector({ sessionId, path, onClose, expanded = false, onToggleExpand }: {
+const previewCiteOrigin = 'https://preview.lunitide.local'
+
+export function ArtifactInspector({ sessionId, path, onClose, expanded = false, onToggleExpand, onCite }: {
   sessionId: string; path: string; onClose: () => void
   expanded?: boolean
   onToggleExpand?: () => void
+  onCite?: (excerpt: string) => void
 }): React.JSX.Element {
   const [preview, setPreview] = useState<WorkspaceArtifactPreviewResult>()
   const [error, setError] = useState('')
@@ -41,6 +44,18 @@ export function ArtifactInspector({ sessionId, path, onClose, expanded = false, 
     }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [sessionId, path, revision])
+  useEffect(() => {
+    if (!onCite) return
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== previewCiteOrigin) return
+      const data = event.data as { source?: string; type?: string; text?: string } | null
+      if (!data || data.source !== 'lunitide-preview' || data.type !== 'cite' || typeof data.text !== 'string') return
+      const text = data.text.trim()
+      if (text) onCite(text)
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [onCite])
 
   const open = async (reveal: boolean) => {
     if (actionInFlight.current) return

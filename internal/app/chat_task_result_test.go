@@ -103,6 +103,13 @@ func TestOpenedDesktopSearchIsNotSpokenAsFailure(t *testing.T) {
 	if !strings.Contains(got, "桌面浏览器") {
 		t.Fatal(got)
 	}
+	stale := companionFinalResult(messages, "好，我马上处理。无法执行：汽水音乐的播放三步都走完了仍没确认在放歌，且屏幕操作通道这轮被占用。", goal)
+	if strings.Contains(stale, "汽水") || strings.Contains(stale, "放歌") || strings.Contains(stale, "播放控件") {
+		t.Fatalf("previous playback failure leaked into the browser turn: %s", stale)
+	}
+	if !strings.Contains(stale, "桌面浏览器") {
+		t.Fatal(stale)
+	}
 }
 
 func TestDiskEditDoesNotProveEditorUpdated(t *testing.T) {
@@ -383,6 +390,22 @@ func TestGuardWebsiteFirstResultBlocksComputerAct(t *testing.T) {
 	}
 	if guardCurrentTurnTool(goal, "browser.act") != nil {
 		t.Fatal("browser.act blocked for website first result")
+	}
+}
+
+func TestSystemBrowserFirstResultStaysInTheOpenBrowser(t *testing.T) {
+	goal := "打开浏览器的第一个新闻"
+	if err := guardSystemBrowserClick(true, goal, "browser.act"); err == nil {
+		t.Fatal("an already-open system browser must not launch the automation Chrome")
+	}
+	if err := guardSystemBrowserClick(true, goal, "computer.act"); err != nil {
+		t.Fatal(err)
+	}
+	if err := guardSystemBrowserClick(false, goal, "browser.act"); err != nil {
+		t.Fatal("without a system browser, browser.act stays available", err)
+	}
+	if err := guardCurrentTurnTool(goal, "computer.act"); err != nil {
+		t.Fatal("clicking the open browser result must be allowed", err)
 	}
 }
 

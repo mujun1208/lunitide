@@ -90,7 +90,7 @@ func resolveDesktopPlayApp(target, app string) string {
 	if app != "" {
 		return app
 	}
-	return FirstInstalledMusicApp()
+	return PreferredMusicApp(InstalledMusicApps())
 }
 
 func buildMediaSearchURL(target, query string) (string, error) {

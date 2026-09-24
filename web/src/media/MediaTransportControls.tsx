@@ -1,5 +1,12 @@
-import React, { useRef } from 'react'
+import React, { useState } from 'react'
 import { mediaText } from './mediaCopy'
+
+export function levelFromY(clientY: number, node: HTMLElement): number {
+  const rect = node.getBoundingClientRect()
+  if (!Number.isFinite(clientY) || rect.height <= 0) return 0
+  const ratio = 1 - (clientY - rect.top) / rect.height
+  return Math.min(100, Math.max(0, Math.round(ratio * 100)))
+}
 
 export function MediaTransportControls({
   zh,
@@ -19,6 +26,8 @@ export function MediaTransportControls({
   onSeek,
   onVolume,
   onFullscreen,
+  onClose,
+  onHold,
 }: {
   zh: boolean
   busy: boolean
@@ -37,10 +46,20 @@ export function MediaTransportControls({
   onSeek: (positionMs: number) => void
   onVolume: (volume: number) => void
   onFullscreen?: () => void
+  onClose?: () => void
+  onHold?: (held: boolean) => void
 }): React.JSX.Element {
   const copy = mediaText(zh)
-  const seekDrag = useRef(false)
-  const volumeDrag = useRef(false)
+  const [volumeOpen, setVolumeOpen] = useState(false)
+  const toggleVolume = () => {
+    setVolumeOpen(open => {
+      onHold?.(!open)
+      return !open
+    })
+  }
+  const applyLevel = (event: React.PointerEvent<HTMLElement>) => {
+    onVolume(levelFromY(event.clientY, event.currentTarget))
+  }
   return (
     <div className={direct ? 'media-controls is-direct' : 'media-controls'}>
       {direct ? null : <button type="button" disabled={busy} onClick={onPrevious}>{copy.previous}</button>}
@@ -57,45 +76,44 @@ export function MediaTransportControls({
             max={Math.max(durationMs, positionMs, 1)}
             value={positionMs}
             disabled={busy}
-            onPointerDown={() => { seekDrag.current = true }}
-            onPointerUp={event => {
-              if (!seekDrag.current) return
-              seekDrag.current = false
-              onSeek(Number(event.currentTarget.value))
-            }}
-            onKeyUp={event => {
-              if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') return
-              onSeek(Number(event.currentTarget.value))
-            }}
+            onChange={event => onSeek(Number(event.currentTarget.value))}
           />
         </label>
       ) : null}
       {allowVolume ? (
-        <label className="media-volume">
-          <input
-            type="range"
-            aria-label={copy.volume}
-            aria-orientation="vertical"
-            min={0}
-            max={100}
-            value={volume}
-            disabled={busy}
-            onChange={event => onVolume(Number(event.currentTarget.value))}
-            onPointerDown={() => { volumeDrag.current = true }}
-            onPointerUp={event => {
-              if (!volumeDrag.current) return
-              volumeDrag.current = false
-              onVolume(Number(event.currentTarget.value))
-            }}
-            onKeyUp={event => {
-              if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown' && event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') return
-              onVolume(Number(event.currentTarget.value))
-            }}
-          />
-          <span>{copy.volume}</span>
-        </label>
+        <div className="media-volume-wrap">
+          <button type="button" aria-expanded={volumeOpen} aria-label={copy.volume} onClick={toggleVolume}>{copy.volume}</button>
+          {volumeOpen ? (
+            <div
+              className="media-volume-pop"
+              role="slider"
+              aria-label={copy.volume}
+              aria-orientation="vertical"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={volume}
+              tabIndex={0}
+              onPointerDown={event => {
+                event.currentTarget.setPointerCapture?.(event.pointerId)
+                applyLevel(event)
+              }}
+              onPointerMove={event => {
+                const captured = event.currentTarget.hasPointerCapture?.(event.pointerId)
+                if (!captured && event.buttons !== 1) return
+                applyLevel(event)
+              }}
+              onKeyDown={event => {
+                if (event.key === 'ArrowUp' || event.key === 'ArrowRight') onVolume(Math.min(100, volume + 5))
+                if (event.key === 'ArrowDown' || event.key === 'ArrowLeft') onVolume(Math.max(0, volume - 5))
+              }}
+            >
+              <i style={{ height: `${volume}%` }} />
+            </div>
+          ) : null}
+        </div>
       ) : null}
       {onFullscreen ? <button type="button" onClick={onFullscreen}>{fullscreen ? copy.restore : copy.full}</button> : null}
+      {onClose ? <button type="button" onClick={onClose}>{copy.close}</button> : null}
     </div>
   )
 }

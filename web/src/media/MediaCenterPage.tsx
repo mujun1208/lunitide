@@ -48,6 +48,7 @@ export function MediaCenterPage({
   onClear,
   onSeek,
   onVolume,
+  onClose,
 }: {
   snapshot: MediaSnapshotDTO | null
   assets: MediaAssetDTO[]
@@ -69,6 +70,7 @@ export function MediaCenterPage({
   onClear: () => void
   onSeek: (positionMs: number) => void
   onVolume: (volume: number) => void
+  onClose?: () => void
 }): React.JSX.Element {
   const zh = useZh()
   const copy = mediaText(zh)
@@ -81,6 +83,8 @@ export function MediaCenterPage({
   const title = staged ? (stageTitle || copy.untitled) : (current?.title || copy.untitled)
   const surface = view ?? (staged ? (stageKind === 'audio' ? 'music' : 'video') : (current?.kind === 'video' ? 'video' : 'music'))
   const play = idle ? onPick : onPlayPause
+  const closable = Boolean(onClose) && (staged || (!idle && Boolean(live.assetId) && live.phase !== 'idle' && live.phase !== 'stopped'))
+  const close = closable ? onClose : undefined
   return (
     <div className="media-center">
       <header className="media-center-top">
@@ -99,9 +103,9 @@ export function MediaCenterPage({
       </header>
       <div className="media-center-stage">
         {surface === 'video' ? (
-          <VideoPlayerSurface snapshot={live} title={title} src={stageSrc ?? playbackUrl} showFile={staged && stageKind !== 'audio'} rate={stageRate} busy={busy} idle={idle} onPlayPause={play} onPrevious={onPrevious} onNext={onNext} onQueue={() => setQueueOpen(true)} onSeek={onSeek} onVolume={onVolume} />
+          <VideoPlayerSurface snapshot={live} title={title} src={stageSrc ?? playbackUrl} showFile={staged && stageKind !== 'audio'} rate={stageRate} busy={busy} idle={idle} onPlayPause={play} onPrevious={onPrevious} onNext={onNext} onQueue={() => setQueueOpen(true)} onSeek={onSeek} onVolume={onVolume} onClose={close} />
         ) : (
-          <MusicPlayerSurface snapshot={live} title={title} src={stageSrc} showFile={staged && stageKind === 'audio'} rate={stageRate} busy={busy} idle={idle} onPlayPause={play} onPrevious={onPrevious} onNext={onNext} onQueue={() => setQueueOpen(true)} onSeek={onSeek} onVolume={onVolume} />
+          <MusicPlayerSurface snapshot={live} title={title} src={stageSrc} showFile={staged && stageKind === 'audio'} rate={stageRate} busy={busy} idle={idle} onPlayPause={play} onPrevious={onPrevious} onNext={onNext} onQueue={() => setQueueOpen(true)} onSeek={onSeek} onVolume={onVolume} onClose={close} />
         )}
         {notice ? <p className="media-notice" role="alert">{notice}</p> : null}
         {disabledReason ? <p className="media-notice" role="status">{disabledReason}</p> : null}

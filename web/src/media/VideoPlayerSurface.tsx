@@ -1,9 +1,9 @@
-import React from 'react'
+import React, { useState } from 'react'
 import type { MediaSnapshotDTO } from '../generated/bridge'
 import { formatClock, mediaTransportPlaying } from './mediaSnapshot'
 import { mediaText, playbackStatusText } from './mediaCopy'
 import { MediaTransportControls } from './MediaTransportControls'
-import { useDirectMedia } from './useDirectMedia'
+import { useDirectMedia, useStageChrome } from './useDirectMedia'
 import { useZh } from '../i18n/language'
 
 export function VideoPlayerSurface({
@@ -20,6 +20,7 @@ export function VideoPlayerSurface({
   onQueue,
   onSeek,
   onVolume,
+  onClose,
 }: {
   snapshot: MediaSnapshotDTO
   title: string
@@ -34,18 +35,26 @@ export function VideoPlayerSurface({
   onQueue: () => void
   onSeek: (positionMs: number) => void
   onVolume: (volume: number) => void
+  onClose?: () => void
 }): React.JSX.Element {
   const zh = useZh()
   const copy = mediaText(zh)
   const live = Boolean(showFile && src)
   const stage = useDirectMedia(live, src, rate)
+  const [hold, setHold] = useState(false)
   const playing = live ? stage.playing : mediaTransportPlaying(false, snapshot)
+  const chrome = useStageChrome(live && playing, hold)
+  const close = onClose ? () => {
+    if (stage.full) void document.exitFullscreen?.()
+    stage.ref.current?.pause()
+    onClose()
+  } : undefined
   const status = live
     ? (!stage.heard ? copy.soundOff : stage.playing ? copy.playing : copy.paused)
     : playbackStatusText(zh, snapshot.phase, snapshot.verificationStatus)
   return (
     <section className="media-video-surface" aria-label={copy.video}>
-      <div ref={stage.boxRef} className={live ? `video-theatre is-live${stage.full ? ' is-fullscreen' : ''}` : 'video-theatre'}>
+      <div ref={stage.boxRef} className={live ? `video-theatre is-live${stage.full ? ' is-fullscreen' : ''}${chrome.shown ? '' : ' is-chrome-hidden'}` : 'video-theatre'} onPointerMove={live ? chrome.poke : undefined}>
         {live ? <video ref={stage.ref as React.RefObject<HTMLVideoElement>} className="media-theatre-video" src={src ?? undefined} autoPlay playsInline /> : null}
         {live ? null : (
           <button type="button" className="video-play" disabled={busy} onClick={onPlayPause} aria-hidden="true" tabIndex={-1}>
@@ -74,6 +83,8 @@ export function VideoPlayerSurface({
               onSeek={stage.seek}
               onVolume={stage.setLevel}
               onFullscreen={stage.toggleFull}
+              onClose={close}
+              onHold={setHold}
             />
           </div>
         ) : (
@@ -99,6 +110,7 @@ export function VideoPlayerSurface({
           onQueue={onQueue}
           onSeek={onSeek}
           onVolume={onVolume}
+          onClose={onClose}
           allowSeek={!idle && snapshot.origin === 'owned'}
           allowVolume={!idle && snapshot.origin === 'owned'}
         />

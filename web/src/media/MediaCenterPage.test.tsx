@@ -1,10 +1,11 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { MediaAssetDTO, MediaSnapshotDTO } from '../generated/bridge'
 import { MediaCenterPage } from './MediaCenterPage'
 
 beforeEach(() => {
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
 })
 
 afterEach(() => {
@@ -83,4 +84,16 @@ it('shows a public-domain file inside the video theatre', () => {
   expect(screen.getByLabelText('视频')).toBeInTheDocument()
   expect(document.querySelector('video')).toHaveAttribute('src', 'https://archive.org/download/night/Night.mp4')
   expect(screen.getByRole('heading', { name: 'Night of the Living Dead' })).toBeInTheDocument()
+})
+
+it('closes the film or the song from the transport bar', () => {
+  const onClose = vi.fn()
+  const props = { snapshot: null, assets: [], operation: null, playbackUrl: null, notice: '', disabledReason: '', busy: false, onPick: () => {}, onPlayPause: () => {}, onPrevious: () => {}, onNext: () => {}, onJump: () => {}, onRemove: () => {}, onClear: () => {}, onSeek: () => {}, onVolume: () => {}, onClose }
+  const { rerender } = render(<MediaCenterPage {...props} stageSrc="https://archive.org/download/night/Night.mp4" stageTitle="Night of the Living Dead" stageKind="video" />)
+  fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+  rerender(<MediaCenterPage {...props} stageSrc="https://archive.org/download/song/a.mp3" stageTitle="夜曲" stageKind="audio" />)
+  fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+  expect(onClose).toHaveBeenCalledTimes(2)
+  rerender(<MediaCenterPage {...props} stageSrc={null} />)
+  expect(screen.queryByRole('button', { name: '关闭' })).toBeNull()
 })

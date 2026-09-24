@@ -142,6 +142,15 @@ it('shows live pre when the folded thinking row is expanded during stream', () =
   expect(document.querySelector('.thinking-reasoning strong')).toBeNull()
 })
 
+it('paints a long live thinking stream from its latest stretch', () => {
+  const text = `${'旧过程'.repeat(2000)}最新一步`
+  render(<ThinkingPanel text={text} open streaming onToggle={() => {}} />)
+  const live = document.querySelector('.thinking-live-text')?.textContent ?? ''
+  expect(live.endsWith('最新一步')).toBe(true)
+  expect(live.startsWith('…')).toBe(true)
+  expect(live.length).toBeLessThan(text.length)
+})
+
 it('splits persisted thinking from the assistant body', () => {
   expect(splitPersistedThinking('普通回复')).toEqual({ thinking: '', body: '普通回复' })
   expect(splitPersistedThinking('【思考过程】\n先规划。\n\n已写好白羊座。')).toEqual({ thinking: '先规划。', body: '已写好白羊座。' })

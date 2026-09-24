@@ -149,6 +149,53 @@ func TestDesktopTypeNamedEditThenSubmit(t *testing.T) {
 	}
 }
 
+func TestDesktopTypeClicksComposerBeforeBareType(t *testing.T) {
+	mediaSleep = func(time.Duration) {}
+	t.Cleanup(func() { mediaSleep = time.Sleep })
+	var clicked []string
+	typed := ""
+	invoke := func(_ context.Context, _, tool string, args json.RawMessage, _ bool) (Result, error) {
+		switch tool {
+		case ccapp.ToolObserveUI:
+			raw, _ := json.Marshal(map[string]any{"nodes": []mediaUINode{
+				{Role: "edit", Name: "发消息", Y: 640, H: 36},
+				{Role: "button", Name: "发送", Y: 640, H: 36},
+			}})
+			return Result{Output: string(raw)}, nil
+		case ccapp.ToolKeyboardType, ccapp.ToolPaste:
+			var a struct {
+				Text string `json:"text"`
+			}
+			_ = json.Unmarshal(args, &a)
+			typed = a.Text
+			return result("ok"), nil
+		case ccapp.ToolMouseClick:
+			var a struct {
+				Name string `json:"name"`
+			}
+			_ = json.Unmarshal(args, &a)
+			clicked = append(clicked, a.Name)
+			return result("ok"), nil
+		default:
+			return result("ok"), nil
+		}
+	}
+	payload, _ := json.Marshal(map[string]any{"text": "你好", "window": "豆包", "submit": true})
+	res, err := executeDesktopType(context.Background(), invoke, "s1", payload, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if typed != "你好" {
+		t.Fatalf("typed %q", typed)
+	}
+	if len(clicked) < 2 || clicked[0] != "发消息" || clicked[len(clicked)-1] != "发送" {
+		t.Fatalf("clicked %v", clicked)
+	}
+	if !strings.Contains(res.Output, "submitted") {
+		t.Fatalf("output %q", res.Output)
+	}
+}
+
 func TestDesktopTypeRejectsUnverifiedWrite(t *testing.T) {
 	mediaSleep = func(time.Duration) {}
 	t.Cleanup(func() { mediaSleep = time.Sleep })
