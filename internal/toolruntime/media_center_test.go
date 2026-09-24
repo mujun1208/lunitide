@@ -165,3 +165,35 @@ func TestMediaCenterSearchQueryUsesAPublicDomainDefault(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestCasualMovieRequestPlaysAndMetropolisUsesItsCatalogTitle(t *testing.T) {
+	if !genericCenterMovie("帮我找一部好看点的电影在媒体中心比方出来") {
+		t.Fatal("a casual movie request must use the public-domain film")
+	}
+	if got := catalogLookupQuery("在媒体中心播放《大都会》"); got != "Metropolis" {
+		t.Fatalf("lookup=%q", got)
+	}
+	prevResolve := resolveOpenMedia
+	prevSearch := searchForMediaCenter
+	resolveOpenMedia = func(_ context.Context, query string) (string, string, string, bool) {
+		if query != "Metropolis" {
+			return "", "", "", false
+		}
+		return "https://upload.wikimedia.org/wikipedia/commons/a/a0/Metropolis.webm", "Metropolis", "video", true
+	}
+	searchForMediaCenter = func(*Runtime, context.Context, string) (webSearchResponse, error) {
+		return webSearchResponse{}, nil
+	}
+	t.Cleanup(func() {
+		resolveOpenMedia = prevResolve
+		searchForMediaCenter = prevSearch
+	})
+	casual, err := (&Runtime{}).executeMediaCenter(context.Background(), json.RawMessage(`{"target":"center","query":"帮我找一部好看点的电影在媒体中心比方出来"}`))
+	if err != nil || !strings.Contains(casual.Output, "MEDIA_CENTER") || !strings.Contains(casual.Output, publicDomainMovieURL) {
+		t.Fatalf("casual play err=%v out=%s", err, casual.Output)
+	}
+	named, err := (&Runtime{}).executeMediaCenter(context.Background(), json.RawMessage(`{"target":"center","query":"在媒体中心播放《大都会》"}`))
+	if err != nil || !strings.Contains(named.Output, "MEDIA_CENTER") || !strings.Contains(named.Output, "Metropolis.webm") {
+		t.Fatalf("metropolis err=%v out=%s", err, named.Output)
+	}
+}

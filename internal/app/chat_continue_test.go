@@ -760,3 +760,43 @@ func TestOfficeInspectWithoutGenerateContinuesTenPagePPT(t *testing.T) {
 		t.Fatalf("weekly-report inspect-only continue=%q want incomplete", got)
 	}
 }
+
+func TestAnnouncedWriteAfterReadKeepsTheTurnGoing(t *testing.T) {
+	text := "继续收尾。并行执行两件独立任务：① 写入自测脚本（用真实浏览器内核跑交互链验证）；② 技能固化——四条硬性规则写入「POC 快速构建」："
+	got := pickTurnContinueKind(text, text, "ok", []string{"workspace.read", "skill.list"}, true, false, false, false, 0, "把拒绝的，前面没做完的做完", true)
+	if got != "act" {
+		t.Fatalf("announced work continue=%q want act", got)
+	}
+	done := "自测脚本已经写入，技能规则也已经写入「POC 快速构建」。"
+	if got := pickTurnContinueKind(done, done, "ok", []string{"workspace.write"}, true, false, false, false, 0, "把拒绝的，前面没做完的做完", true); got != "" {
+		t.Fatalf("finished write still continued: %q", got)
+	}
+}
+
+func TestStepLimitExcuseKeepsTheTurnGoing(t *testing.T) {
+	text := "这轮还没能播上：工具调用步数达到上限，media.play 没有实际执行。你只需再发一句。"
+	if !turnAdmitsUnfinishedToolBudget(text) {
+		t.Fatal("a step-limit handoff must continue in the same turn")
+	}
+	if !shouldExtendPastPreparatoryStep([]string{"skill.invoke"}, 0, 1, 0) {
+		t.Fatal("loading a skill must not be the last tool step")
+	}
+	if shouldExtendPastPreparatoryStep([]string{"media.play"}, 0, 1, 0) {
+		t.Fatal("a finished play call must not extend the step budget")
+	}
+	if shouldExtendPastPreparatoryStep([]string{"skill.invoke"}, 3, 1, 0) {
+		t.Fatal("preparatory extension stops after three waves")
+	}
+	if !mediaCenterPlayStillPending("在媒体中心播放《大都会》", []string{"skill.invoke"}) {
+		t.Fatal("media center playback is still pending after the skill loads")
+	}
+	if mediaCenterPlayStillPending("在媒体中心播放《大都会》", []string{"media.play"}) {
+		t.Fatal("playback already started")
+	}
+	if announcedWorkStillPending("请问脚本要写到哪个文件？我再写入。", []string{"workspace.read"}) {
+		t.Fatal("a question must wait for the user")
+	}
+	if !shouldContinueTurn("找到 59 个技能目录，请确认是否继续安装。", true, 0, false) {
+		t.Fatal("a continue handoff still finishes the batch")
+	}
+}

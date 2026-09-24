@@ -372,6 +372,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				toolLoopLimit = maxToolLoopSteps
 			}
 			toolBudgetWaves := 0
+			prepExtendWaves := 0
 			lengthContinueWaves := 0
 			for step := 0; step < toolLoopLimit; step++ {
 				turn.liveProtocol = req.Messages
@@ -383,7 +384,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				stepTextStart := assistantText.Len()
 				stepThinkingStart := thinkingText.Len()
-				mediaTurn := playbackOnlyGoal(turn.Goal)
+				mediaTurn := playbackOnlyGoal(turn.Goal) || ownedMediaCenterGoal(turn.Goal)
 				bufferReply := computerTurn || mediaTurn || (state.companion && len(req.Tools) > 0 && !companionLookupCanStream(turn.Goal, req.Messages))
 				var stepReply strings.Builder
 				result, streamErr = generationBudget.stream(op, a, credential, req, func(d llmadapter.Delta) error {
@@ -657,7 +658,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							autoDesktopQuitDone = true
 						}
 					}
-					if len(result.Message.ToolCalls) == 0 && !autoMediaPlayDone && toolDefinitionsHave(req.Tools, "media.play") && !usedAnyTool(turn.LastTools, "media.play") && desktopLadderAllowsDedicated(turn.Goal, req.Messages) && (companionShouldAutoMediaPlay(turn.Goal) || companionRetryActionTurn(spokenGoal)) {
+					if len(result.Message.ToolCalls) == 0 && !autoMediaPlayDone && toolDefinitionsHave(req.Tools, "media.play") && !usedAnyTool(turn.LastTools, "media.play") && desktopLadderAllowsDedicated(turn.Goal, req.Messages) && (mediaCenterPlayStillPending(turn.Goal, turn.LastTools) || companionShouldAutoMediaPlay(turn.Goal) || companionRetryActionTurn(spokenGoal)) {
 						if playArgs, ok := e.companionAutoMediaPlayArgsForTurn(sessionID, turn.Goal, spokenGoal); ok {
 							result.Message.ToolCalls = []llmadapter.ToolCall{{
 								ID:        "auto-" + ulid.Make().String(),
@@ -837,6 +838,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							nudge = desktopLadderNudgeMessage(req.Messages, turn.Goal)
 						case "wait":
 							nudge = llmadapter.Message{Role: llmadapter.RoleSystem, Content: "立刻调用本轮已装备的工具执行。不要再承诺稍等。下一句必须是结果或无法执行。"}
+						case "act":
+							nudge = llmadapter.Message{Role: llmadapter.RoleSystem, Content: "上一段只是计划，文件还没写。立刻调用工具写入，不要再复述同一段计划。写完后再用一句话给出结果。"}
 						}
 						if bufferReply {
 							nudge.Content += "\n前面的回答草稿尚未发送给用户。最终回答必须直接给出实质结果，不能只说上面已经给出或不用重复。"
@@ -929,6 +932,16 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					break
 				}
 				usedTools = true
+				if shouldExtendPastPreparatoryStep(append(append([]string{}, turn.LastTools...), toolCallNames(result.Message.ToolCalls)...), prepExtendWaves, toolLoopLimit, step) {
+					prepExtendWaves++
+					next := step + 1 + toolLoopExtendChunk
+					if next > maxToolLoopStepsHard {
+						next = maxToolLoopStepsHard
+					}
+					if next > toolLoopLimit {
+						toolLoopLimit = next
+					}
+				}
 				// The generation allowance grows with the same evidence: this
 				// turn is spending its budget on tool work, not on talking to
 				// itself, so running out mid-job would abandon real progress.
@@ -1642,6 +1655,14 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				// notice). Run one more pass WITHOUT tools so the model must wrap
 				// up in natural language; fall through to the static notice only
 				// if that pass also yields nothing.
+				if assistantText.Len() == 0 && ownedMediaCenterGoal(turn.Goal) {
+					if text := computerReceiptCloseout(req.Messages, turn.Goal); text != "" {
+						assistantText.WriteString(text)
+						if err := sendDeltaChunks(send, text); err != nil {
+							return err
+						}
+					}
+				}
 				if assistantText.Len() == 0 && len(result.Message.ToolCalls) > 0 && (companionShouldAutoMediaPlay(turn.Goal) || companionRetryActionTurn(spokenGoal)) && !desktopLadderQuiet(req.Messages, turn.Goal) {
 					text := mediaTurnResultSpeech(req.Messages)
 					if desktopLadderSucceeded(req.Messages, turn.Goal) {
@@ -1689,9 +1710,6 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					} else if notice == "" {
 						notice = "这次操作没成功，请再说具体一点让我重试。\n"
 					}
-				}
-				if notice == "" && assistantText.Len() == 0 && len(result.Message.ToolCalls) > 0 {
-					notice = "（系统提示：本轮工具调用步数已达上限，以上工具已执行完毕。请基于执行结果继续提问，或让我总结当前进展。）\n"
 				}
 				if notice != "" {
 					if assistantText.Len() > 0 && !strings.HasPrefix(notice, "\n") {

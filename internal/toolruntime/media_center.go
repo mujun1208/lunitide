@@ -59,7 +59,11 @@ func (r *Runtime) executeMediaCenter(ctx context.Context, args json.RawMessage) 
 			title = centerMediaTitle(rawURL)
 		}
 	} else {
-		if picked, pickedTitle, pickedKind, ok := resolveOpenMedia(ctx, title); ok {
+		lookup := catalogLookupQuery(title)
+		if lookup == "" {
+			lookup = title
+		}
+		if picked, pickedTitle, pickedKind, ok := resolveOpenMedia(ctx, lookup); ok {
 			checked, mediaKind, err := validateOpenCatalogURL(picked)
 			if err == nil {
 				rawURL, kind = checked, mediaKind
@@ -201,8 +205,8 @@ func centerMediaTitle(raw string) string {
 	return base
 }
 
-const publicDomainMovieURL = "https://archive.org/download/night_of_the_living_dead/Night.mp4"
-const publicDomainMovieTitle = "Night of the Living Dead"
+const publicDomainMovieURL = "https://upload.wikimedia.org/wikipedia/commons/transcoded/7/78/Nosferatu_%281922%29.webm/Nosferatu_%281922%29.webm.480p.vp9.webm"
+const publicDomainMovieTitle = "Nosferatu (1922)"
 
 func publicDomainMovieFallback(query string) (rawURL, title, kind string, ok bool) {
 	if !genericCenterMovie(query) {
@@ -221,6 +225,7 @@ func genericCenterMovie(query string) bool {
 		"自带的媒体中心", "自带媒体中心", "媒体中心播放", "媒体中心", "再我的", "从网上", "我看看",
 		"找一个", "找到", "找个", "帮我", "给我", "出来", "可以", "适配", "一下", "播放", "电影", "影片", "视频", "歌曲",
 		"一部", "一首", "一个", "随便", "任意", "网上", "爱情", "浪漫", "romance", "love", "movie", "film",
+		"好看点", "好看", "比方", "比放", "找",
 		"自带的", "自带", "的", "了", "在", "再", "我", "你", "个",
 	} {
 		q = strings.ReplaceAll(q, cut, "")

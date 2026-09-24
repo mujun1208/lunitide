@@ -376,40 +376,45 @@ func runGUILoop(in guiFallbackIn, rt guiLoopRuntime) (toolruntime.Result, json.R
 			}
 			return finish(false, "屏幕执行停止："+reason)
 		}
+		skipped := false
 		if act.MarkID != "" && (rt.HasHit == nil || !rt.HasHit(act.MarkID)) {
 			steps = append(steps, guiLoopStep{Action: act.Action + " " + act.MarkID, Result: "编号不在本帧观察里", OK: false})
 			consecutiveFails++
 			if consecutiveFails >= maxGUILoopConsecutiveFails {
 				return finish(false, "屏幕模型连续选择了不存在的编号。")
 			}
-			continue
+			// The next decision needs a new frame. Continuing here reused the
+			// same node list, so the model clicked numbers that were never on screen.
+			skipped = true
 		}
-		args, err := buildGUILoopArgs(act, nodes == 0, visW, visH)
-		if err != nil {
-			steps = append(steps, guiLoopStep{Action: act.Action, Result: err.Error(), OK: false})
-			consecutiveFails++
-			if consecutiveFails >= maxGUILoopConsecutiveFails {
-				return finish(false, "无法把屏幕读号收成动作。")
+		if !skipped {
+			args, err := buildGUILoopArgs(act, nodes == 0, visW, visH)
+			if err != nil {
+				steps = append(steps, guiLoopStep{Action: act.Action, Result: err.Error(), OK: false})
+				consecutiveFails++
+				if consecutiveFails >= maxGUILoopConsecutiveFails {
+					return finish(false, "无法把屏幕读号收成动作。")
+				}
+			} else {
+				res, execErr := rt.Exec(args, nodes == 0)
+				out := strings.TrimSpace(res.Output)
+				ok := execErr == nil && !strings.Contains(out, "ok:false")
+				if execErr != nil {
+					out = execErr.Error()
+				}
+				steps = append(steps, guiLoopStep{Action: describeGUIAction(act), Args: args, Result: out, OK: ok})
+				if len(res.VisionData) > 0 {
+					lastVision = llmadapter.Image{MIME: res.VisionMIME, Data: res.VisionData}
+				}
+				if !ok {
+					consecutiveFails++
+					if consecutiveFails >= maxGUILoopConsecutiveFails {
+						return finish(false, "屏幕动作连续失败，已停止。")
+					}
+				} else {
+					consecutiveFails = 0
+				}
 			}
-			continue
-		}
-		res, execErr := rt.Exec(args, nodes == 0)
-		out := strings.TrimSpace(res.Output)
-		ok := execErr == nil && !strings.Contains(out, "ok:false")
-		if execErr != nil {
-			out = execErr.Error()
-		}
-		steps = append(steps, guiLoopStep{Action: describeGUIAction(act), Args: args, Result: out, OK: ok})
-		if len(res.VisionData) > 0 {
-			lastVision = llmadapter.Image{MIME: res.VisionMIME, Data: res.VisionData}
-		}
-		if !ok {
-			consecutiveFails++
-			if consecutiveFails >= maxGUILoopConsecutiveFails {
-				return finish(false, "屏幕动作连续失败，已停止。")
-			}
-		} else {
-			consecutiveFails = 0
 		}
 		// Verify: fresh frame before the next decision. A stale frame would
 		// let the model click coordinates from a screen that no longer exists.

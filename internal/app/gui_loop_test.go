@@ -93,6 +93,28 @@ func TestGUILoopClickThenDone(t *testing.T) {
 	}
 }
 
+func TestGUILoopMissingMarkRefreshesTheFrame(t *testing.T) {
+	s := &guiLoopScript{
+		frame:   "f1",
+		nodes:   4,
+		hits:    map[string]bool{"B1": true},
+		replies: []string{`{"action":"click","markId":"Z9"}`, `{"action":"done","reason":"已看清屏幕"}`},
+	}
+	res, _, used := runGUILoop(guiLoopR2(true, false), s.runtime("打开设置"))
+	if !used {
+		t.Fatal("loop must engage")
+	}
+	if s.observes < 1 {
+		t.Fatal("a mark that is not on this frame must refresh the screen before the next step")
+	}
+	if len(s.execArgs) != 0 {
+		t.Fatalf("missing mark was clicked: %s", s.execArgs)
+	}
+	if !strings.HasPrefix(res.Output, "ok:true") {
+		t.Fatalf("output=%q", res.Output)
+	}
+}
+
 func TestGUILoopEmptyTreeUsesPerMilleCoordinates(t *testing.T) {
 	s := &guiLoopScript{
 		frame:   "f9",

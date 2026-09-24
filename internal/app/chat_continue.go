@@ -84,7 +84,8 @@ func turnAdmitsUnfinishedToolBudget(text string) bool {
 		}
 	}
 	for _, marker := range []string{
-		"工具额度", "额度耗尽", "步数已达上限", "步数限制", "工具耗尽", "只完成了",
+		"工具额度", "额度耗尽", "步数已达上限", "步数达到上限", "调用步数", "步数限制", "工具耗尽", "只完成了",
+		"没有实际执行", "再发一句",
 		"未取得可靠", "没做完", "尚未完成", "还没做完", "待验证",
 		"尚未落盘", "未落盘", "没有落盘", "无法落盘", "没能落盘",
 		"尚未写入", "还没写入", "未能写入", "没有写入文件",
@@ -159,7 +160,37 @@ func incompleteContinueNudgeMessage() llmadapter.Message {
 // after a multi-tool / multi-round loop hits its step budget with tool calls
 // still pending and no final text, one more model pass runs WITHOUT tools so
 // the user always gets a spoken/readable wrap-up instead of a silent finish.
-const forceSummaryNudgeText = "本轮工具调用步数已达上限，工具已执行完毕，不能再调用任何工具。请只用自然语言，基于以上工具执行结果，给用户一段简洁的最终总结：说清楚已经完成了什么、得到的关键结果、以及还有哪些没做完或需要用户接下来做的事。不要再请求调用工具，不要只说「稍等」。"
+const forceSummaryNudgeText = "根据已经执行的工具结果，用一两句中文做最终总结。不能再调用任何工具。说出已经完成了什么、还有哪些没做完。不要提到步数、额度或上限，不要让用户再发一句。没做成的事直接说明原因。"
+
+// shouldExtendPastPreparatoryStep keeps a turn alive after a catalog or file
+// read. Stopping there is what made the model tell the user the step limit
+// had been reached.
+func shouldExtendPastPreparatoryStep(lastTools []string, waves, limit, step int) bool {
+	if waves >= 3 || step+1 < limit || limit >= maxToolLoopStepsHard || len(lastTools) == 0 {
+		return false
+	}
+	for _, name := range lastTools {
+		switch name {
+		case "skill.invoke", "skill.try", "skill.list", "skill.catalog.list", "skill.install",
+			"workspace.read", "workspace.list", "workspace.search", "kb.search", "kb.cite", "office.inspect":
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func mediaCenterPlayStillPending(goal string, lastTools []string) bool {
+	return ownedMediaCenterGoal(goal) && !usedAnyTool(lastTools, "media.play")
+}
+
+func toolCallNames(calls []llmadapter.ToolCall) []string {
+	names := make([]string, 0, len(calls))
+	for _, call := range calls {
+		names = append(names, call.Name)
+	}
+	return names
+}
 
 func forceSummaryNudgeMessage() llmadapter.Message {
 	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: forceSummaryNudgeText}
@@ -236,6 +267,48 @@ func officeInspectedWithoutDeliverable(lastTools []string, userGoal string) bool
 	}
 	return officeExplicitCreationRE.MatchString(userGoal) || explicitOfficeOutputTool(userGoal) != "" ||
 		looksLikeReportTask(userGoal) || wantsOfficeGen(userGoal)
+}
+
+// announcedWorkStillPending is the model describing the writes it is about
+// to do after only reading. That sentence used to end the turn, so the user
+// had to type 继续 again and got the same sentence back.
+func announcedWorkStillPending(text string, lastTools []string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	// A real question waits. 「是否继续」 is a handoff, not a question, and
+	// still falls through so the same task keeps going.
+	if (strings.Contains(t, "请问") || strings.Contains(t, "你希望")) && !strings.Contains(t, "是否继续") {
+		return false
+	}
+	for _, done := range []string{"已经写入", "已写入", "已经写好", "写好了", "已完成", "已经完成", "任务已完成"} {
+		if strings.Contains(t, done) {
+			return false
+		}
+	}
+	pending := false
+	for _, needle := range []string{"写入", "落笔", "并行执行", "并行两", "重新拉起", "先更新"} {
+		if strings.Contains(t, needle) {
+			pending = true
+			break
+		}
+	}
+	if !pending {
+		return false
+	}
+	if len(lastTools) == 0 {
+		return true
+	}
+	for _, name := range lastTools {
+		switch name {
+		case "workspace.read", "workspace.list", "workspace.search", "skill.list", "skill.catalog.list",
+			"office.inspect", "kb.search", "kb.cite", "memory.search", "memory.get", "web.search", "web.fetch":
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func shouldContinueIncompleteWork(text, lastToolOut string, lastTools []string, usedTools bool, nudges int) bool {
@@ -555,6 +628,9 @@ func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []st
 	if toolsAttached && !usedTools && nudges < maxContinueNudges &&
 		(looksLikeCompanionWaitPromise(stepText) || looksLikeUnexecutedActPromise(stepText) || (companion && isCompanionLeadInOnly(stepText))) {
 		return "wait"
+	}
+	if toolsAttached && nudges < maxContinueNudges && announcedWorkStillPending(stepText, lastTools) {
+		return "act"
 	}
 	// A buffered final reply is not in assistantAll yet. The current step was
 	// checked above; an earlier spoken lead-in must not restart completed work.
