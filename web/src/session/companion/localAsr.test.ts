@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const bridge = {
   status: vi.fn(),
   install: vi.fn(),
+  select: vi.fn(),
   start: vi.fn(),
   append: vi.fn(),
   finish: vi.fn(),
@@ -35,7 +36,13 @@ vi.mock('./pcmCapture', () => ({
   }),
 }))
 
-const { installLocalAsr, localAsrStatus, startLocalAsr, readyWithin, LOCAL_ASR_DECISION_MS, LOCAL_ASR_MAX_SESSION_SAMPLES } = await import('./localAsr')
+const { installLocalAsr, localAsrStatus, selectLocalAsrRefiner, startLocalAsr, readyWithin, LOCAL_ASR_DECISION_MS, LOCAL_ASR_MAX_SESSION_SAMPLES } = await import('./localAsr')
+
+it('selects the finished-utterance model without changing the caption model', async () => {
+  bridge.select.mockResolvedValue({ modelId: 'streaming-zipformer-zh-14m', ready: true })
+  await selectLocalAsrRefiner('sense-voice-zh-en-ja-ko-yue')
+  expect(bridge.select).toHaveBeenCalledWith({ modelId: 'sense-voice-zh-en-ja-ko-yue', target: 'refiner' })
+})
 
 const frame = (peak = 0.2) => ({ base64: 'AAAA', samples: new Int16Array(1600), peak })
 const settle = () => new Promise(resolve => setTimeout(resolve, 0))

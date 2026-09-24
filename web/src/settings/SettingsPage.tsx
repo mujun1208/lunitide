@@ -557,7 +557,7 @@ function AboutPanel(): React.JSX.Element {
       <div className="setting-group-title">{zh ? '关于月汐' : 'About Lunitide'}</div>
       <div className="about-content">
         <div className="about-logo">
-          <div className="moon-logo" aria-hidden="true" />
+          <img className="about-moon" src="/brand/moon-companion.png" alt="" width={40} height={40} />
           <div>
             <h3 style={{ margin: 0, fontFamily: 'var(--serif)', fontSize: '22px' }}>{zh ? '月汐' : 'Lunitide'}</h3>
             <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '13px' }}>{zh ? '这台 Windows 电脑上的本地优先办公助手' : 'A local-first office assistant on this Windows PC'}</p>
@@ -567,6 +567,7 @@ function AboutPanel(): React.JSX.Element {
           <div><dt>{zh ? '版本' : 'Version'}</dt><dd>{version || '—'}</dd></div>
           <div><dt>{zh ? '作者' : 'Author'}</dt><dd>Yy.MJ</dd></div>
           <div><dt>{zh ? '运行' : 'Runtime'}</dt><dd>{zh ? '关窗口 ≠ 退出助手，助手在托盘运行' : 'Closing the window keeps the tray assistant'}</dd></div>
+          <div><dt>{zh ? '数据' : 'Data'}</dt><dd>{zh ? '会话、记忆和文件留在这台电脑' : 'Sessions, memory, and files stay on this PC'}</dd></div>
         </dl>
         <div className="about-links">
           <span>{zh ? '月汐是这台 Windows 电脑上的本地优先办公助手——对话、工具、记忆、办公、语音、审批，在这一台机器上做完。' : 'Lunitide is a local-first office assistant on this Windows PC: chat, tools, memory, office, voice, and approvals, finished on this machine.'}</span>

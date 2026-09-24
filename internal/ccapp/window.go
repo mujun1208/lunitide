@@ -265,6 +265,103 @@ func MatchWindow(wins []WindowInfo, query string) (WindowInfo, bool) {
 	return best, true
 }
 
+// UniqueWindowForGoal returns the one visible window named by the goal.
+// Zero hits means the goal did not name an open window. More than one hit
+// means the goal named several open windows and nothing should be clicked
+// until the user names one.
+func UniqueWindowForGoal(wins []WindowInfo, goal string) (WindowInfo, []WindowInfo) {
+	goal = strings.ToLower(strings.TrimSpace(goal))
+	var hits []WindowInfo
+	seen := map[string]bool{}
+	for _, w := range wins {
+		if !windowNamedByGoal(w, goal) {
+			continue
+		}
+		key := w.ID
+		if key == "" {
+			key = w.Title + "\n" + w.Process
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		hits = append(hits, w)
+	}
+	if len(hits) == 1 {
+		return hits[0], hits
+	}
+	return WindowInfo{}, hits
+}
+
+func windowNamedByGoal(w WindowInfo, goal string) bool {
+	if goal == "" || ProtectedDesktopProcess(w.Process) || isCompanionWindow(w) {
+		return false
+	}
+	for _, part := range windowTitleParts(w.Title) {
+		if windowPartDenied(part) {
+			continue
+		}
+		if strings.Contains(goal, strings.ToLower(part)) {
+			return true
+		}
+	}
+	stem := processStem(w.Process)
+	if len(stem) >= 4 && !genericProcessStem(stem) && strings.Contains(goal, stem) {
+		return true
+	}
+	return false
+}
+
+func isCompanionWindow(w WindowInfo) bool {
+	title := strings.ToLower(w.Title)
+	stem := processStem(w.Process)
+	return stem == "lunitide" || strings.Contains(title, "lunitide") || strings.Contains(w.Title, "月伴") || strings.Contains(w.Title, "月汐")
+}
+
+func windowTitleParts(title string) []string {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return nil
+	}
+	parts := strings.FieldsFunc(title, func(r rune) bool {
+		return r == '-' || r == '|' || r == '—' || r == '–' || r == '·'
+	})
+	var out []string
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if len([]rune(part)) >= 2 {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func windowPartDenied(part string) bool {
+	switch strings.ToLower(strings.TrimSpace(part)) {
+	case "无标题", "untitled", "新标签页", "new tab", "窗口":
+		return true
+	}
+	return false
+}
+
+func genericProcessStem(stem string) bool {
+	switch stem {
+	case "explorer", "applicationframehost", "searchhost", "textinputhost",
+		"systemsettings", "shellexperiencehost", "runtimebroker":
+		return true
+	}
+	return false
+}
+
+// focusRoleAllowsType reports whether a UI Automation focus role can take text.
+func focusRoleAllowsType(role string) bool {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "edit", "document", "combobox":
+		return true
+	}
+	return false
+}
+
 // MatchWindows returns every visible window that matches the query (for quit).
 func MatchWindows(wins []WindowInfo, query string) []WindowInfo {
 	query = strings.TrimSpace(query)

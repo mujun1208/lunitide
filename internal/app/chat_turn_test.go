@@ -21,6 +21,12 @@ func TestLooksLikeResume(t *testing.T) {
 	if !looksLikeResume(resumeUserPrompt) || !looksLikeResume("继续") || looksLikeResume("帮我安装技能") {
 		t.Fatal("resume detector mismatch")
 	}
+	if !looksLikeResume("好，继续") || !looksLikeResume("嗯，继续。") || !looksLikeResume("继续啊") {
+		t.Fatal("spoken continue must resume the unfinished task")
+	}
+	if looksLikeResume("继续完成输出产物") {
+		t.Fatal("a real follow-up that contains 继续 must stay a new instruction")
+	}
 	if !looksLikeResume("那你倒是试一试啊？") || !looksLikeResume("再试一次") {
 		t.Fatal("retry utterances must resume the previous task")
 	}

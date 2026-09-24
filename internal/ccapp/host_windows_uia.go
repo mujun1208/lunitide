@@ -9,6 +9,7 @@ import (
 	"unsafe"
 
 	"github.com/zzl/go-win32api/v2/win32"
+	"golang.org/x/sys/windows"
 )
 
 // CLSID_CUIAutomation is not exported by go-win32api v2.0.1.
@@ -227,6 +228,42 @@ func uiaActionable(control win32.UIA_CONTROLTYPE_ID) bool {
 		return true
 	}
 	return false
+}
+
+// FocusedRole reads the control that currently has the keyboard caret.
+// known is false when UI Automation cannot answer.
+func (h *windowsHost) FocusedRole() (string, bool) {
+	_, _, _ = procCoInitializeEx.Call(0, uintptr(windows.COINIT_MULTITHREADED))
+	defer procCoUninitialize.Call()
+	var auto *win32.IUIAutomation
+	hr := win32.CoCreateInstance(&clsidCUIAutomation, nil, win32.CLSCTX_INPROC_SERVER,
+		&win32.IID_IUIAutomation, unsafe.Pointer(&auto))
+	if win32.FAILED(hr) || auto == nil {
+		return "", false
+	}
+	defer auto.Release()
+	var el *win32.IUIAutomationElement
+	if hr = auto.GetFocusedElement(&el); win32.FAILED(hr) || el == nil {
+		return "", false
+	}
+	defer el.Release()
+	var control win32.UIA_CONTROLTYPE_ID
+	if hr = el.Get_CurrentControlType(&control); win32.FAILED(hr) {
+		return "", false
+	}
+	switch control {
+	case win32.UIA_EditControlTypeId:
+		return "edit", true
+	case win32.UIA_DocumentControlTypeId:
+		return "document", true
+	case win32.UIA_ComboBoxControlTypeId:
+		return "combobox", true
+	default:
+		if name := uiaRoleName(control); name != "" {
+			return name, true
+		}
+		return "other", true
+	}
 }
 
 func uiaRoleName(control win32.UIA_CONTROLTYPE_ID) string {

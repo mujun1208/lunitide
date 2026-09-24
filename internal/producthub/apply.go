@@ -256,6 +256,9 @@ func mergeFindingStatus(prev, next []Finding) []Finding {
 		prevBy[f.ErrorCode+"|"+f.StableKey] = f
 	}
 	for i, f := range next {
+		if f.ErrorCode == "PH_000" {
+			continue
+		}
 		p, ok := prevBy[f.ErrorCode+"|"+f.StableKey]
 		if !ok {
 			continue

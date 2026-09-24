@@ -218,6 +218,9 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		if err := s.focusIfNamed(a.Window); err != nil {
 			return "", nil, err
 		}
+		if err := s.refuseTypingWithoutFocus(); err != nil {
+			return "", nil, err
+		}
 		if err := s.waitExecution(40 * time.Millisecond); err != nil {
 			return "", nil, err
 		}
@@ -434,6 +437,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		if err != nil {
 			return "", nil, err
 		}
+		s.noteTypingFocus(probeFocus(s.host))
 		if len(nodes) > a.MaxNodes {
 			nodes = nodes[:a.MaxNodes]
 		}
@@ -611,6 +615,9 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		}
 		_ = json.Unmarshal(args, &a)
 		if err := s.focusIfNamed(a.Window); err != nil {
+			return "", nil, err
+		}
+		if err := s.refuseTypingWithoutFocus(); err != nil {
 			return "", nil, err
 		}
 		if strings.TrimSpace(a.Text) != "" {

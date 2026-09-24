@@ -134,6 +134,11 @@ export async function selectLocalAsrModel(modelId: string) {
   return getVoiceBridge().select({ modelId })
 }
 
+/** Points the finished-utterance recognizer at another installed-or-not model. */
+export async function selectLocalAsrRefiner(modelId: string) {
+  return getVoiceBridge().select({ modelId, target: 'refiner' })
+}
+
 /**
  * Opens a recognition session and streams the microphone into it.
  *

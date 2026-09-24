@@ -34,7 +34,7 @@ type Harness struct {
 // Go test binary runtime.
 const (
 	pocMaxProcs  = 4
-	pocMemoryCap = 192 << 20 // 192MiB job commit cap, one child
+	pocMemoryCap = 384 << 20 // 384MiB job commit cap, one child. 192MiB was tight enough that a coverage-instrumented test binary printed a runtime message onto the frame stream.
 	// proctree is the one probe that deliberately fills the job up to the
 	// active-process quota, so the cap has to cover pocMaxProcs copies of
 	// the child rather than one.

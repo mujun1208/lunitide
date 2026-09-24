@@ -66,8 +66,15 @@ func looksLikeResume(text string) bool {
 		return false
 	}
 	t = strings.TrimRight(t, "。.!！？? ")
+	if resumePhrase(t) {
+		return true
+	}
+	return resumePhrase(strings.NewReplacer("，", "", ",", "", "、", "", " ", "", "\t", "").Replace(t))
+}
+
+func resumePhrase(t string) bool {
 	switch t {
-	case "继续", "好继续", "继续吧", "继续做", "继续执行", "接着", "接着做", "接着做完":
+	case "继续", "好继续", "好的继续", "嗯继续", "那继续", "行继续", "继续吧", "继续做", "继续执行", "继续啊", "接着", "接着做", "接着做完":
 		return true
 	}
 	if strings.HasPrefix(t, "继续上次") {

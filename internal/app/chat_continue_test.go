@@ -771,6 +771,11 @@ func TestAnnouncedWriteAfterReadKeepsTheTurnGoing(t *testing.T) {
 	if got := pickTurnContinueKind(done, done, "ok", []string{"workspace.write"}, true, false, false, false, 0, "把拒绝的，前面没做完的做完", true); got != "" {
 		t.Fatalf("finished write still continued: %q", got)
 	}
+	// A checklist is the plan, not the file. Stopping here is what made the
+	// same paragraph come back after every 继续.
+	if got := pickTurnContinueKind(text, text, "ok", []string{"todo.write"}, true, false, false, false, 0, "把拒绝的，前面没做完的做完", true); got != "act" {
+		t.Fatalf("plan-only continue=%q want act", got)
+	}
 }
 
 func TestStepLimitExcuseKeepsTheTurnGoing(t *testing.T) {
@@ -780,6 +785,9 @@ func TestStepLimitExcuseKeepsTheTurnGoing(t *testing.T) {
 	}
 	if !shouldExtendPastPreparatoryStep([]string{"skill.invoke"}, 0, 1, 0) {
 		t.Fatal("loading a skill must not be the last tool step")
+	}
+	if !shouldExtendPastPreparatoryStep([]string{"todo.write"}, 0, 1, 0) {
+		t.Fatal("writing the checklist must not be the last tool step")
 	}
 	if shouldExtendPastPreparatoryStep([]string{"media.play"}, 0, 1, 0) {
 		t.Fatal("a finished play call must not extend the step budget")

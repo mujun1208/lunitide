@@ -759,6 +759,9 @@ func TestFinishLeftoverStaysOnTheFullToolSurface(t *testing.T) {
 	if !looksLikeResume("好继续") {
 		t.Fatal("好继续 must resume the unfinished task")
 	}
+	if got := classifyChatLane(LaneInput{Goal: "好，继续"}); got != LaneL4 {
+		t.Fatalf("spoken continue => %s want L4", got)
+	}
 	prior := "试用技能：POC 快速构建，把页面交互验证和 README 做完"
 	if got := resolveLaneGoal("好继续", prior); got != prior {
 		t.Fatalf("resume goal=%q", got)

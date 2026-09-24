@@ -1272,8 +1272,22 @@ func countVisibleRequestTokens(model string, messages []llmadapter.Message, imag
 	return used + estimateImageTokens(model, images)
 }
 
+func latestUserMessage(messages []llmadapter.Message) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == llmadapter.RoleUser {
+			return messages[i].Content
+		}
+	}
+	return ""
+}
+
 func applyComplexityTierHint(messages []llmadapter.Message, images []llmadapter.Image, info contextapp.ProviderInfo) []llmadapter.Message {
 	if len(messages) == 0 || messages[0].Role != llmadapter.RoleSystem {
+		return messages
+	}
+	// A follow-up that only asks to finish the open task must not be sent
+	// back into plan mode. That loop repeated the same plan and waited.
+	if user := latestUserMessage(messages); looksLikeResume(user) || looksLikeFinishOpenWork(user) {
 		return messages
 	}
 	hint := complexityTierHint(messages)

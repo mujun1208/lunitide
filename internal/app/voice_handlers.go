@@ -14,6 +14,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,6 +27,10 @@ import (
 	"github.com/lunitide/lunitide/internal/voice"
 	"github.com/lunitide/lunitide/internal/voice/volcsauc"
 )
+
+// refinerModelFile remembers which finished-utterance model is in the
+// selectable slot. Missing or unknown contents keep DefaultRefiner.
+const refinerModelFile = "refiner-model.txt"
 
 // VoiceService owns the recognizer and the sessions in flight.
 type VoiceService struct {
@@ -85,7 +91,7 @@ func NewVoiceService(root, modelID string) *VoiceService {
 	if modelID == "" {
 		modelID = voice.DefaultModel
 	}
-	refiner := &voice.Refiner{Root: root}
+	refiner := &voice.Refiner{Root: root, ModelID: loadRefinerModel(root)}
 	return &VoiceService{
 		backend:   &voice.SherpaBackend{Root: root, ModelID: modelID, Refiner: refiner},
 		refiner:   refiner,
@@ -146,6 +152,46 @@ func (s *VoiceService) currentModelID() string {
 	return s.modelID
 }
 
+func loadRefinerModel(root string) string {
+	raw, err := os.ReadFile(filepath.Join(root, refinerModelFile))
+	if err != nil {
+		return ""
+	}
+	id := strings.TrimSpace(string(raw))
+	if !voice.IsRefinerModel(id) {
+		return ""
+	}
+	return id
+}
+
+// selectRefiner points the finished-utterance model at another bundle.
+// The caption model is left alone. The choice is written before the running
+// process is stopped, so a restart keeps it even if shutdown is interrupted.
+func (s *VoiceService) selectRefiner(modelID string) {
+	if s.installer != nil {
+		_ = os.WriteFile(filepath.Join(s.installer.Root, refinerModelFile), []byte(modelID+"\n"), 0o644)
+	}
+	s.mu.Lock()
+	prev := ""
+	if s.refiner != nil {
+		prev = s.refiner.ModelID
+		s.refiner.ModelID = modelID
+	}
+	s.mu.Unlock()
+	if s.refiner != nil && prev != modelID {
+		s.refiner.Shutdown()
+	}
+}
+
+func (s *VoiceService) currentRefinerID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.refiner == nil || !voice.IsRefinerModel(s.refiner.ModelID) {
+		return voice.DefaultRefiner
+	}
+	return s.refiner.ModelID
+}
+
 // warmEngines starts both recognizers' processes in the background, detached
 // from the request that triggered it.
 //
@@ -199,7 +245,7 @@ func (s *VoiceService) bundles() []voice.Bundle {
 	if model, err := voice.LookupBundle(modelID); err == nil {
 		out = append(out, model)
 	}
-	if refiner, err := voice.LookupBundle(voice.DefaultRefiner); err == nil && refiner.ID != modelID {
+	if refiner, err := voice.LookupBundle(s.currentRefinerID()); err == nil && refiner.ID != modelID {
 		out = append(out, refiner)
 	}
 	return out
@@ -212,7 +258,8 @@ func handleVoiceStatus(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if e.voice == nil {
 		return r.Ok(map[string]any{
 			"supported": false, "ready": false, "modelId": "", "modelTitle": "",
-			"downloadBytes": 0, "backend": "",
+			"refinerId": "", "downloadBytes": 0, "backend": "",
+			"models": []map[string]any{}, "refiners": []map[string]any{},
 		})
 	}
 	model, err := voice.LookupBundle(e.voice.currentModelID())
@@ -237,13 +284,32 @@ func handleVoiceStatus(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	// refiner. Naming the streaming model here would tell someone reading
 	// the settings screen that they installed the 24 MB one and leave them
 	// wondering where the other 232 MB went.
+	refinerID := e.voice.currentRefinerID()
 	title := model.Title
-	if refiner, err := voice.LookupBundle(voice.DefaultRefiner); err == nil {
+	if refiner, err := voice.LookupBundle(refinerID); err == nil {
 		title = refiner.Title
 	}
-	models := make([]map[string]any, 0, len(voice.StreamingModels()))
-	for _, bundle := range voice.StreamingModels() {
-		models = append(models, map[string]any{
+	models := voiceChoices(e, voice.StreamingModels())
+	refiners := voiceChoices(e, voice.RefinerModels())
+	return r.Ok(map[string]any{
+		"supported":  true,
+		"ready":      ready,
+		"modelId":    model.ID,
+		"modelTitle": title,
+		"refinerId":  refinerID,
+		"models":     models,
+		"refiners":   refiners,
+		// What a first-time user is about to be asked to download. Reported
+		// even once installed, because the settings screen shows it.
+		"downloadBytes": downloadBytes,
+		"backend":       e.voice.backend.Name(),
+	})
+}
+
+func voiceChoices(e *Engine, bundles []voice.Bundle) []map[string]any {
+	out := make([]map[string]any, 0, len(bundles))
+	for _, bundle := range bundles {
+		out = append(out, map[string]any{
 			"id":    bundle.ID,
 			"title": bundle.Title,
 			// What this choice costs on disk, which is the only reason to
@@ -252,17 +318,7 @@ func handleVoiceStatus(e *Engine, ctx context.Context, r bridge.Request) bridge.
 			"installed": e.voice.installer.Installed(bundle),
 		})
 	}
-	return r.Ok(map[string]any{
-		"supported":  true,
-		"ready":      ready,
-		"modelId":    model.ID,
-		"modelTitle": title,
-		"models":     models,
-		// What a first-time user is about to be asked to download. Reported
-		// even once installed, because the settings screen shows it.
-		"downloadBytes": downloadBytes,
-		"backend":       e.voice.backend.Name(),
-	})
+	return out
 }
 
 // handleVoiceInstall starts a download if none is running and reports where
@@ -305,12 +361,21 @@ func (s *VoiceService) begin(modelID string) {
 	}
 	s.mu.Unlock()
 
-	bundles := []voice.Bundle{voice.Runtime()}
-	if model, err := voice.LookupBundle(modelID); err == nil {
-		bundles = append(bundles, model)
+	if voice.IsRefinerModel(modelID) {
+		s.selectRefiner(modelID)
 	}
-	if refiner, err := voice.LookupBundle(voice.DefaultRefiner); err == nil && refiner.ID != modelID {
-		bundles = append(bundles, refiner)
+	bundles := []voice.Bundle{voice.Runtime()}
+	if voice.IsRefinerModel(modelID) {
+		if model, err := voice.LookupBundle(modelID); err == nil {
+			bundles = append(bundles, model)
+		}
+	} else {
+		if model, err := voice.LookupBundle(modelID); err == nil {
+			bundles = append(bundles, model)
+		}
+		if refiner, err := voice.LookupBundle(s.currentRefinerID()); err == nil && refiner.ID != modelID {
+			bundles = append(bundles, refiner)
+		}
 	}
 	// Installed() re-hashes every file (seconds on multi-GB packs). Do it
 	// before taking the lock so concurrent snapshot() polls (the progress
@@ -573,6 +638,7 @@ func handleVoiceFinish(e *Engine, ctx context.Context, r bridge.Request) bridge.
 func handleVoiceSelect(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		ModelID string `json:"modelId"`
+		Target  string `json:"target"`
 	}
 	if decodePayload(r.Payload, &p) != nil || p.ModelID == "" {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "voice.select 参数无效", false)
@@ -580,12 +646,22 @@ func handleVoiceSelect(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	if e.voice == nil {
 		return r.Fail("VOICE-002", "本地识别不可用", false)
 	}
-	if !voice.IsStreamingModel(p.ModelID) {
-		return r.Fail("VOICE-001", "本地识别模型未知", false)
+	switch p.Target {
+	case "", "caption":
+		if !voice.IsStreamingModel(p.ModelID) {
+			return r.Fail("VOICE-001", "本地识别模型未知", false)
+		}
+		e.voice.selectModel(p.ModelID)
+	case "refiner":
+		if !voice.IsRefinerModel(p.ModelID) {
+			return r.Fail("VOICE-001", "本地识别模型未知", false)
+		}
+		e.voice.selectRefiner(p.ModelID)
+	default:
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "voice.select 参数无效", false)
 	}
-	e.voice.selectModel(p.ModelID)
 	return r.Ok(map[string]any{
-		"modelId": p.ModelID,
+		"modelId": e.voice.currentModelID(),
 		"ready":   e.voice.ready(ctx),
 	})
 }

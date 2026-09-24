@@ -95,11 +95,11 @@ func hasBlocking(in []Finding) bool {
 }
 
 func clearFinding(probe ProbeScore) Finding {
-	return finding("info", "PH_000", "product.lunitide", "本轮未发现阻断问题",
-		fmt.Sprintf("活源覆盖 %d/%d。页面、设置、媒体动作、插件和动词都在当前说明书里。", probe.Passed, probe.Total),
-		"活源与说明书对齐",
-		"无需改代码。活源再变时点「重新检测」写入新快照。",
-		"健康分保持，覆盖分子不掉", "wont_fix")
+	return finding("info", "PH_000", "product.lunitide", "说明书与活源对齐",
+		fmt.Sprintf("活源覆盖 %d/%d。核对的是页面、设置、媒体动作、插件和动词是否都在当前说明书里。", probe.Passed, probe.Total),
+		"没有缺入口、悬空失败分支或孤儿引用",
+		"没有可执行的目录修复。这一分不代表语音听写、媒体播放、文件落盘或任务做完已经测过。",
+		"活源再变时点「重新检测」。健康分是入口覆盖，不是产品满分。", "clear")
 }
 
 func coverage(cards []Card, live []Candidate) (ProbeScore, []Finding) {

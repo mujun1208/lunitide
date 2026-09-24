@@ -172,7 +172,8 @@ func shouldExtendPastPreparatoryStep(lastTools []string, waves, limit, step int)
 	for _, name := range lastTools {
 		switch name {
 		case "skill.invoke", "skill.try", "skill.list", "skill.catalog.list", "skill.install",
-			"workspace.read", "workspace.list", "workspace.search", "kb.search", "kb.cite", "office.inspect":
+			"workspace.read", "workspace.list", "workspace.search", "kb.search", "kb.cite", "office.inspect",
+			"todo.write":
 		default:
 			return false
 		}
@@ -303,7 +304,8 @@ func announcedWorkStillPending(text string, lastTools []string) bool {
 	for _, name := range lastTools {
 		switch name {
 		case "workspace.read", "workspace.list", "workspace.search", "skill.list", "skill.catalog.list",
-			"office.inspect", "kb.search", "kb.cite", "memory.search", "memory.get", "web.search", "web.fetch":
+			"office.inspect", "kb.search", "kb.cite", "memory.search", "memory.get", "web.search", "web.fetch",
+			"todo.write":
 		default:
 			return false
 		}

@@ -358,6 +358,14 @@ func TestComplexityTierHintWiring(t *testing.T) {
 	if !strings.Contains(hint, "moderate") || !strings.Contains(hint, "plan.run") {
 		t.Fatalf("moderate hint = %q", hint)
 	}
+	room := contextapp.ProviderInfo{Model: "glm-4", ContextWindow: 1 << 20, SafetyCeiling: 1 << 20}
+	if got := applyComplexityTierHint(many, nil, room); !strings.Contains(got[0].Content, "plan.run") {
+		t.Fatal("a long task still gets the plan hint")
+	}
+	many = append(many, llmadapter.Message{Role: llmadapter.RoleUser, Content: "好，继续"})
+	if got := applyComplexityTierHint(many, nil, room); strings.Contains(got[0].Content, "plan.run") {
+		t.Fatal("a spoken continue must execute the open task, not open another plan")
+	}
 }
 
 func TestComplexityTierHintDoesNotExceedFinalBudget(t *testing.T) {

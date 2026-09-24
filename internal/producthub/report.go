@@ -58,6 +58,7 @@ func RenderReport(ed Edition) (markdown, pageHTML string) {
 	md.WriteString("## 4. 知识图谱摘要\n\n")
 	fmt.Fprintf(&md, "节点 %d，边 %d。关系：contains / uses / calls / depends。图谱页可点 Feature 打开知识卡。\n\n", len(ed.Graph.Nodes), len(ed.Graph.Edges))
 	md.WriteString("## 5. 自净化诊断\n\n")
+	md.WriteString(diagnosisVerdict(ed))
 	if len(ed.Findings) == 0 {
 		md.WriteString("本轮无发现。\n\n")
 	}
@@ -92,6 +93,43 @@ func RenderReport(ed Edition) (markdown, pageHTML string) {
 	}
 	hs.WriteString("</section></main></body></html>")
 	return md.String(), hs.String()
+}
+
+func diagnosisVerdict(ed Edition) string {
+	var openErr, openWarn int
+	var lines []string
+	for _, f := range ed.Findings {
+		if f.ErrorCode == "PH_000" || isResolvedFinding(f.Status) {
+			continue
+		}
+		switch f.Severity {
+		case "error":
+			openErr++
+		case "warn":
+			openWarn++
+		}
+		if f.Severity == "error" || f.Severity == "warn" {
+			lines = append(lines, fmt.Sprintf("- %s %s：%s 验证：%s", f.ErrorCode, f.Title, f.Fix, f.Verify))
+		}
+	}
+	cover := ""
+	for _, f := range ed.Findings {
+		if f.ErrorCode == "PH_000" {
+			cover = f.Evidence
+		}
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "本轮核对说明书与活源。%s 健康分 %d 是入口覆盖，不是语音听写、媒体播放、文件落盘或任务完成的实测分。\n\n", cover, ed.HealthScore)
+	if openErr+openWarn == 0 {
+		b.WriteString("没有可执行的目录修复项。入口对齐之后，功能是否真能做完，要在对应页面实测。\n\n")
+		return b.String()
+	}
+	fmt.Fprintf(&b, "可执行项：错误 %d，警告 %d。\n\n", openErr, openWarn)
+	for _, line := range lines {
+		b.WriteString(line + "\n")
+	}
+	b.WriteString("\n")
+	return b.String()
 }
 
 func join(in []string) string {

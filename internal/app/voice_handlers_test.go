@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/voice"
 )
@@ -124,11 +126,154 @@ func TestVoiceSelectRefusesAModelThatIsNotACaptionModel(t *testing.T) {
 	e := NewEngine(providerRepositoryStub{}, "test")
 	e.SetVoiceService(NewVoiceService(t.TempDir(), voice.ModelZipformerZh14M))
 
-	for _, id := range []string{"no-such-model", voice.DefaultRefiner, voice.RuntimeSherpa} {
+	for _, id := range []string{"no-such-model", voice.DefaultRefiner, voice.ModelSenseVoice, voice.RuntimeSherpa} {
 		resp := e.Handle(context.Background(), validRequest("voice.select", `{"modelId":"`+id+`"}`))
 		if resp.OK || resp.Error == nil || resp.Error.Code != "VOICE-001" {
 			t.Errorf("voice.select %q = %+v; want VOICE-001", id, resp)
 		}
+	}
+}
+
+func TestVoiceSelectRefinerKeepsTheCaptionModel(t *testing.T) {
+	root := t.TempDir()
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.SetVoiceService(NewVoiceService(root, voice.ModelZipformerZh14M))
+
+	resp := e.Handle(context.Background(), validRequest("voice.select", `{"modelId":"`+voice.ModelSenseVoice+`","target":"refiner"}`))
+	if !resp.OK {
+		t.Fatalf("voice.select refiner = %+v", resp)
+	}
+	status := e.Handle(context.Background(), validRequest("voice.status", `{}`))
+	payload := status.Payload.(map[string]any)
+	if payload["modelId"] != voice.ModelZipformerZh14M {
+		t.Errorf("caption modelId = %v; choosing a refiner must leave it", payload["modelId"])
+	}
+	if payload["refinerId"] != voice.ModelSenseVoice {
+		t.Errorf("refinerId = %v; want SenseVoice", payload["refinerId"])
+	}
+	if payload["modelTitle"] != "SenseVoice 多语听写" {
+		t.Errorf("modelTitle = %v; the title names the refiner whose text is sent", payload["modelTitle"])
+	}
+	for _, model := range payload["models"].([]map[string]any) {
+		if model["id"] == voice.ModelSenseVoice || model["id"] == voice.DefaultRefiner {
+			t.Errorf("caption list includes refiner %v", model["id"])
+		}
+	}
+	refiners, _ := payload["refiners"].([]map[string]any)
+	if len(refiners) != len(voice.RefinerModels()) {
+		t.Fatalf("refiners = %+v; want both finished-utterance models", refiners)
+	}
+
+	again := NewVoiceService(root, "")
+	e.SetVoiceService(again)
+	restored := e.Handle(context.Background(), validRequest("voice.status", `{}`))
+	if got := restored.Payload.(map[string]any)["refinerId"]; got != voice.ModelSenseVoice {
+		t.Errorf("refinerId after restart = %v; the choice must stay on disk", got)
+	}
+}
+
+func TestVoiceStatusNamesTheDefaultRefinerUntilTheUserSwitches(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.SetVoiceService(NewVoiceService(t.TempDir(), ""))
+
+	resp := e.Handle(context.Background(), validRequest("voice.status", `{}`))
+	payload := resp.Payload.(map[string]any)
+	if payload["refinerId"] != voice.DefaultRefiner {
+		t.Errorf("refinerId = %v; a fresh install keeps the current accurate model", payload["refinerId"])
+	}
+	if payload["modelTitle"] != "中文精确识别模型" {
+		t.Errorf("modelTitle = %v", payload["modelTitle"])
+	}
+}
+
+func TestVoiceInstallOfARefinerLeavesTheDefaultPackAlone(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	svc := NewVoiceService(t.TempDir(), voice.ModelZipformerZh14M)
+	var mu sync.Mutex
+	var got []string
+	svc.installBundle = func(_ context.Context, bundle voice.Bundle, _ func(voice.Progress)) error {
+		mu.Lock()
+		got = append(got, bundle.ID)
+		mu.Unlock()
+		return nil
+	}
+	e.SetVoiceService(svc)
+
+	resp := e.Handle(context.Background(), validRequest("voice.install", `{"modelId":"`+voice.ModelSenseVoice+`"}`))
+	if !resp.OK {
+		t.Fatalf("voice.install = %+v", resp)
+	}
+	waitVoiceInstall(t, svc)
+	mu.Lock()
+	defer mu.Unlock()
+	if !containsID(got, voice.RuntimeSherpa) || !containsID(got, voice.ModelSenseVoice) {
+		t.Fatalf("installed %v; want the runtime and SenseVoice", got)
+	}
+	if containsID(got, voice.DefaultRefiner) || containsID(got, voice.ModelZipformerZh14M) {
+		t.Fatalf("installed %v; a refiner install must not pull the caption model or the other refiner", got)
+	}
+	status := e.Handle(context.Background(), validRequest("voice.status", `{}`))
+	payload := status.Payload.(map[string]any)
+	if payload["refinerId"] != voice.ModelSenseVoice {
+		t.Errorf("refinerId = %v; installing SenseVoice must select it", payload["refinerId"])
+	}
+	if payload["modelId"] != voice.ModelZipformerZh14M {
+		t.Errorf("modelId = %v; installing a refiner changed the caption model", payload["modelId"])
+	}
+}
+
+func waitVoiceInstall(t *testing.T, svc *VoiceService) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if state, _ := svc.snapshot()["state"].(string); state == "ready" || state == "failed" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("install did not finish: %+v", svc.snapshot())
+}
+
+func containsID(ids []string, want string) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestVoiceInstallOfTheCaptionPackKeepsTheDefaultRefiner(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	svc := NewVoiceService(t.TempDir(), voice.ModelZipformerZh14M)
+	var mu sync.Mutex
+	var got []string
+	svc.installBundle = func(_ context.Context, bundle voice.Bundle, _ func(voice.Progress)) error {
+		mu.Lock()
+		got = append(got, bundle.ID)
+		mu.Unlock()
+		return nil
+	}
+	e.SetVoiceService(svc)
+
+	resp := e.Handle(context.Background(), validRequest("voice.install", `{}`))
+	if !resp.OK {
+		t.Fatalf("voice.install = %+v", resp)
+	}
+	waitVoiceInstall(t, svc)
+	mu.Lock()
+	defer mu.Unlock()
+	for _, id := range []string{voice.RuntimeSherpa, voice.ModelZipformerZh14M, voice.DefaultRefiner} {
+		if !containsID(got, id) {
+			t.Fatalf("installed %v; the existing pack must still include %s", got, id)
+		}
+	}
+	if containsID(got, voice.ModelSenseVoice) {
+		t.Fatalf("installed %v; the existing download must not pull SenseVoice", got)
+	}
+	status := e.Handle(context.Background(), validRequest("voice.status", `{}`))
+	if got := status.Payload.(map[string]any)["refinerId"]; got != voice.DefaultRefiner {
+		t.Errorf("refinerId = %v; the default download must not switch the refiner", got)
 	}
 }
 

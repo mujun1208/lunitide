@@ -109,6 +109,59 @@ func TestPickUserFacingWindowSkipsCompanion(t *testing.T) {
 	}
 }
 
+func TestUniqueWindowForGoal(t *testing.T) {
+	wins := []WindowInfo{
+		{ID: "0x1", Title: "无标题 - 记事本", Process: "notepad.exe"},
+		{ID: "0x2", Title: "微信", Process: "Weixin.exe"},
+		{ID: "0x3", Title: "月伴", Process: "lunitide.exe"},
+	}
+	one, hits := UniqueWindowForGoal(wins, "在记事本里输入你好")
+	if len(hits) != 1 || one.ID != "0x1" {
+		t.Fatalf("notepad goal = %+v hits=%d", one, len(hits))
+	}
+	_, hits = UniqueWindowForGoal(wins, "在记事本和微信里各发一句")
+	if len(hits) != 2 {
+		t.Fatalf("two named apps = %d hits", len(hits))
+	}
+	_, hits = UniqueWindowForGoal(wins, "点一下")
+	if len(hits) != 0 {
+		t.Fatalf("unnamed goal must not lock a window, hits=%d", len(hits))
+	}
+	byProc, hits := UniqueWindowForGoal(wins, "type into notepad")
+	if len(hits) != 1 || byProc.ID != "0x1" {
+		t.Fatalf("process goal = %+v hits=%d", byProc, len(hits))
+	}
+}
+
+func TestRefuseTypingWithoutFocus(t *testing.T) {
+	s := New(nil)
+	s.noteTypingFocus("button", true)
+	if err := s.refuseTypingWithoutFocus(); err == nil || !strings.Contains(err.Error(), "输入框") {
+		t.Fatalf("button focus = %v", err)
+	}
+	s.noteTypingFocus("edit", true)
+	if err := s.refuseTypingWithoutFocus(); err != nil {
+		t.Fatal(err)
+	}
+	s.noteTypingFocus("", false)
+	if err := s.refuseTypingWithoutFocus(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFocusRoleAllowsType(t *testing.T) {
+	for _, role := range []string{"edit", "document", "combobox"} {
+		if !focusRoleAllowsType(role) {
+			t.Fatalf("%s must accept typing", role)
+		}
+	}
+	for _, role := range []string{"", "button", "pane", "other"} {
+		if focusRoleAllowsType(role) {
+			t.Fatalf("%s must refuse typing", role)
+		}
+	}
+}
+
 func TestClampClipboardCapsRunes(t *testing.T) {
 	long := strings.Repeat("月", CcMaxClipboardRunes+50)
 	got := clampClipboard(long)
