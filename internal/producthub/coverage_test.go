@@ -38,8 +38,13 @@ func TestLiveCoverageIsCompleteAndReadable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(md, "活源覆盖") {
-		t.Fatal("report missing live coverage")
+	if !strings.Contains(md, "活源覆盖") || !strings.Contains(md, "不是语音听写") {
+		t.Fatal("report missing the coverage verdict")
+	}
+	for _, f := range findings {
+		if f.ErrorCode == "PH_000" && f.Status != "clear" {
+			t.Fatalf("aligned catalog must not look like a closed ticket: %#v", f)
+		}
 	}
 	for _, f := range findings {
 		if f.ErrorCode == "PH_019" || f.ErrorCode == "PH_020" {
@@ -124,13 +129,27 @@ func TestWontFixPersistsWithoutConsult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var kept bool
 	for _, item := range findings {
-		if item.ErrorCode == f.ErrorCode && item.StableKey == f.StableKey && item.Status == "wont_fix" {
-			kept = true
+		if item.ErrorCode == "PH_000" && item.Status == "wont_fix" {
+			t.Fatalf("alignment note must not stay a closed ticket: %#v", item)
 		}
 	}
-	if !kept {
-		t.Fatalf("wont_fix dropped: %#v", findings)
+}
+
+func TestUserWontFixStaysOnARealFinding(t *testing.T) {
+	prev := []Finding{
+		{ErrorCode: "PH_020", StableKey: "k", Status: "wont_fix", Plan: "leave"},
+		{ErrorCode: "PH_000", StableKey: "product.lunitide", Status: "wont_fix"},
+	}
+	next := []Finding{
+		{ErrorCode: "PH_020", StableKey: "k", Status: "open"},
+		{ErrorCode: "PH_000", StableKey: "product.lunitide", Status: "clear"},
+	}
+	got := mergeFindingStatus(prev, next)
+	if got[0].Status != "wont_fix" || got[0].Plan != "leave" {
+		t.Fatalf("real finding lost the user decision: %#v", got[0])
+	}
+	if got[1].Status != "clear" {
+		t.Fatalf("alignment note kept a fake wont_fix: %#v", got[1])
 	}
 }

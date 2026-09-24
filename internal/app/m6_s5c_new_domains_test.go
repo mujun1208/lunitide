@@ -575,6 +575,10 @@ func TestComplexityRoutingAndSynthesis(t *testing.T) {
 	}
 }
 
+type s5cFixedClock time.Time
+
+func (c s5cFixedClock) Now() time.Time { return time.Time(c) }
+
 func TestCloudRunnerLeaseAndReconcile(t *testing.T) {
 	_, _, _, _, _, csvc, uow := newS5CServices(t)
 	ctx := context.Background()
@@ -671,7 +675,9 @@ func TestCloudRunnerLeaseAndReconcile(t *testing.T) {
 		t.Fatalf("reconciled receipt must leave the queue: %+v", pending)
 	}
 
-	// a succeeded receipt reconciles clean
+	// Two receipts for one task are different facts. A clock that does not
+	// tick between them collides on (task, runner, received_at).
+	csvc.SetClock(s5cFixedClock(time.Now().Add(time.Second)))
 	ok, err := csvc.RecordReceipt(ctx, active.ID, task1, m6supply.ReceiptSucceeded, strings.Repeat("f", 64), `{"ms":120}`)
 	if err != nil {
 		t.Fatal(err)

@@ -381,8 +381,9 @@ function DiagnosticsPane({
 }): React.JSX.Element {
   const [open, setOpen] = useState<string[] | null>(null)
   const [showFixed, setShowFixed] = useState(false)
-  const active = findings.filter(item => item.status !== 'applied' && item.status !== 'fixed' && item.status !== 'resolved')
-  const resolved = findings.filter(item => item.status === 'applied' || item.status === 'fixed' || item.status === 'resolved')
+  const listed = findings.filter(item => item.error_code !== 'PH_000')
+  const active = listed.filter(item => item.status !== 'applied' && item.status !== 'fixed' && item.status !== 'resolved' && item.status !== 'clear')
+  const resolved = listed.filter(item => item.status === 'applied' || item.status === 'fixed' || item.status === 'resolved')
   const errors = active.filter(item => item.severity === 'error').length
   const warns = active.filter(item => item.severity === 'warn' || item.severity === 'warning').length
   const infos = active.filter(item => item.severity === 'info').length
@@ -393,7 +394,7 @@ function DiagnosticsPane({
           <strong>{zh ? '诊断报告' : 'Diagnostics'} {reportId(overview?.generatedAt)}</strong>
           <p>{zh ? '快照' : 'snap'} {formatSnapshot(overview?.generatedAt)} · {versionLabel(overview?.editionId)} · {zh ? '打开即对照活源 · 条目' : 'live recount · items'} {active.length}/{findings.length}</p>
         </div>
-        <HealthRing score={overview?.healthScore ?? 0} label={zh ? '诊断健康' : 'Diag health'} />
+        <HealthRing score={overview?.healthScore ?? 0} label={zh ? '入口覆盖' : 'Coverage'} />
         <div className="ph-actions">
           <button type="button" onClick={onExport}>{zh ? '导出报告' : 'Export report'}</button>
           <button type="button" className="primary" disabled={busy} onClick={onRefresh}>{zh ? '重新检测' : 'Re-scan'}</button>
@@ -410,6 +411,11 @@ function DiagnosticsPane({
         <span className="ph-dim">{zh ? '新增' : 'added'} {overview?.added ?? 0} · {zh ? '更新' : 'updated'} {overview?.updated ?? 0} · {zh ? '退役' : 'removed'} {overview?.removed ?? 0} · {zh ? '未闭合' : 'open'} {errors + warns}</span>
         <span className="ph-dim">{zh ? '重新检测写入快照 · 执行净化只改目录标签 · 不改业务代码' : 'Re-scan writes a snapshot. Apply only retags the catalog.'}</span>
       </div>
+      <p className="ph-note">
+        {zh
+          ? `这次核对功能入口是否写进说明书（${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'}）。${errors + warns === 0 ? '没有可执行的目录修复。' : `还有 ${errors} 个错误、${warns} 个警告，按下面的方案处理。`} 这一环不是语音、播放、落盘或任务完成的实测分。`
+          : `This pass checks whether entries are in the booklet (${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'}). ${errors + warns === 0 ? 'Nothing here is a catalog fix.' : `${errors} errors and ${warns} warnings have a fix below.`} The ring is not a test of voice, playback, files, or finished tasks.`}
+      </p>
       <div className="ph-actions">
         <button className="primary" type="button" disabled={busy} onClick={() => onApply()}>{zh ? '执行全部净化' : 'Apply all'}</button>
       </div>

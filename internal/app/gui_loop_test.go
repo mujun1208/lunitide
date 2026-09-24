@@ -233,6 +233,79 @@ func TestGUILoopDoneWithoutActionIsHonest(t *testing.T) {
 	}
 }
 
+func TestGUILoopStopsWhenTheGoalNamesTwoWindows(t *testing.T) {
+	s := &guiLoopScript{
+		frame: "f1", nodes: 2, hits: map[string]bool{"B1": true},
+		replies: []string{`{"action":"click","markId":"B1"}`},
+	}
+	rt := s.runtime("在记事本和微信里发一句")
+	rt.Lock = func() (string, error) {
+		return "", errors.New("找到多个窗口：记事本、微信。先指定一个再操作。")
+	}
+	res, _, used := runGUILoop(guiLoopR2(true, false), rt)
+	if !used || !strings.Contains(res.Output, "找到多个窗口") {
+		t.Fatalf("used=%v out=%q", used, res.Output)
+	}
+	if len(s.execArgs) != 0 {
+		t.Fatalf("ambiguous windows must not be clicked: %s", s.execArgs)
+	}
+}
+
+func TestGUILoopDoesNotRepeatAFailedMark(t *testing.T) {
+	s := &guiLoopScript{
+		frame: "f1", nodes: 4, hits: map[string]bool{"B1": true, "B2": true},
+		replies: []string{
+			`{"action":"click","markId":"B1"}`,
+			`{"action":"click","markId":"B1"}`,
+			`{"action":"click","markId":"B2"}`,
+			`{"action":"done","reason":"已打开"}`,
+		},
+		execOut: []toolruntime.Result{{Output: "ok:false\n屏幕未变化"}},
+	}
+	res, _, used := runGUILoop(guiLoopR2(true, false), s.runtime("打开设置"))
+	if !used || !strings.HasPrefix(res.Output, "ok:true") {
+		t.Fatalf("used=%v out=%q", used, res.Output)
+	}
+	if len(s.execArgs) != 2 || strings.Contains(string(s.execArgs[0]), "B2") || !strings.Contains(string(s.execArgs[1]), "B2") {
+		t.Fatalf("failed mark must not be clicked again: %s", s.execArgs)
+	}
+}
+
+func TestGUILoopRefusesTypeUntilFocusIsInAField(t *testing.T) {
+	s := &guiLoopScript{
+		frame: "f1", nodes: 3, hits: map[string]bool{"E1": true},
+		replies: []string{
+			`{"action":"type","text":"你好"}`,
+			`{"action":"click","markId":"E1"}`,
+			`{"action":"type","text":"你好"}`,
+			`{"action":"done","reason":"已输入"}`,
+		},
+	}
+	focused := false
+	rt := s.runtime("在输入框输入你好")
+	rt.FocusEditable = func() (bool, bool) { return true, focused }
+	rt.Exec = func(args json.RawMessage, allowPixels bool) (toolruntime.Result, error) {
+		s.execArgs = append(s.execArgs, args)
+		if strings.Contains(string(args), `"id":"E1"`) {
+			focused = true
+		}
+		return toolruntime.Result{Output: "ok:true"}, nil
+	}
+	res, _, used := runGUILoop(guiLoopR2(true, false), rt)
+	if !used || !strings.HasPrefix(res.Output, "ok:true") {
+		t.Fatalf("used=%v out=%q", used, res.Output)
+	}
+	if len(s.execArgs) != 2 {
+		t.Fatalf("exec=%s", s.execArgs)
+	}
+	if strings.Contains(string(s.execArgs[0]), "你好") {
+		t.Fatal("typed before the field had focus")
+	}
+	if !strings.Contains(string(s.execArgs[1]), "你好") {
+		t.Fatalf("second type=%s", s.execArgs[1])
+	}
+}
+
 func TestParseGUILoopActionGrammar(t *testing.T) {
 	if _, err := parseGUILoopAction(`{"action":"key","keys":["ctrl","s"]}`, false, "f"); err != nil {
 		t.Fatal(err)

@@ -107,6 +107,10 @@ const (
 	// ModelOfflineParaformerZh is the non-streaming recognizer that produces
 	// the text actually sent to the language model.
 	ModelOfflineParaformerZh = "offline-paraformer-zh"
+	// ModelSenseVoice is an optional second refiner. It does not replace
+	// ModelOfflineParaformerZh; the user picks it, and a later model is
+	// another entry in RefinerModels.
+	ModelSenseVoice = "sense-voice-zh-en-ja-ko-yue"
 )
 
 // DefaultModel is the streaming model, and its job is now the caption.
@@ -194,6 +198,8 @@ const (
 	zipformerRevision  = "204ad334e2e683fd295359930cc16fc0432a23ac"
 	offlineRepo        = "sherpa-onnx-paraformer-zh-2023-09-14"
 	offlineRevision    = "def027084691107096b5ebba69785756d63de6c5"
+	senseVoiceRepo     = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
+	senseVoiceRevision = "2365baeacb507f821a0c8120fcee3d484dba7a07"
 )
 
 // The recognizer whose transcript is believed.
@@ -264,6 +270,30 @@ var modelZipformer = Bundle{
 	},
 }
 
+// Optional second refiner. The default local pack still installs Paraformer.
+// This file is the SenseVoice model sherpa-onnx already knows how to run,
+// not the FunASR Python toolkit.
+var modelSenseVoice = Bundle{
+	ID:     ModelSenseVoice,
+	Kind:   BundleModel,
+	Title:  "SenseVoice 多语听写",
+	Detail: "可选。中文、粤语、英、日、韩，说完一句后识别，约 228 MB。不替换当前的中文精确模型。",
+	Downloads: []Download{
+		{
+			Path:   "model.int8.onnx",
+			URLs:   hfBlob(senseVoiceRepo, senseVoiceRevision, "model.int8.onnx"),
+			SHA256: "c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51",
+			Bytes:  239233841,
+		},
+		{
+			Path:   "tokens.txt",
+			URLs:   hfBlob(senseVoiceRepo, senseVoiceRevision, "tokens.txt"),
+			SHA256: "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc",
+			Bytes:  315894,
+		},
+	},
+}
+
 // ModelArchitecture tells the sidecar which recognizer to construct, because
 // the flags differ: a transducer has a joiner and a paraformer does not.
 type ModelArchitecture string
@@ -298,6 +328,8 @@ func Architecture(bundleID string) (ModelArchitecture, error) {
 		return ArchTransducer, nil
 	case ModelOfflineParaformerZh:
 		return ArchOfflineParaformer, nil
+	case ModelSenseVoice:
+		return ArchSenseVoice, nil
 	}
 	return "", fmt.Errorf("%w: %s", ErrUnknownBundle, bundleID)
 }
@@ -305,7 +337,25 @@ func Architecture(bundleID string) (ModelArchitecture, error) {
 // Models lists the installable models in the order a chooser should show
 // them: recommended first.
 func Models() []Bundle {
-	return []Bundle{modelZipformer, modelParaformer, modelOfflineParaformer}
+	return []Bundle{modelZipformer, modelParaformer, modelOfflineParaformer, modelSenseVoice}
+}
+
+// RefinerModels lists the non-streaming recognizers a user can choose for
+// the text that reaches the language model. The first entry is the one
+// already installed with local recognition. Later entries are optional and
+// downloaded only when chosen.
+func RefinerModels() []Bundle {
+	return []Bundle{modelOfflineParaformer, modelSenseVoice}
+}
+
+// IsRefinerModel reports whether a bundle ID names a finished-utterance model.
+func IsRefinerModel(id string) bool {
+	for _, b := range RefinerModels() {
+		if b.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // StreamingModels lists the models a user actually chooses between.

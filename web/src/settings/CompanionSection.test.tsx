@@ -25,6 +25,7 @@ vi.mock('../session/companion/localAsr', () => ({
   localAsrStatus: () => Promise.resolve(undefined),
   installLocalAsr: vi.fn(),
   selectLocalAsrModel: vi.fn(),
+  selectLocalAsrRefiner: vi.fn(),
 }))
 
 import { CompanionSection } from './SettingsPage'

@@ -493,6 +493,12 @@ func (e *Engine) tryGUIFallback(ctx context.Context, mode executionMode, session
 		rt.FrameID = ""
 		rt.Nodes = 0
 	}
+	loop := guiLoopRuntime{guiFallbackRuntime: rt, Exec: act}
+	if e.ccctrl != nil {
+		ctrl := e.ccctrl
+		loop.Lock = func() (string, error) { return ctrl.LockGoalWindow(goal) }
+		loop.FocusEditable = ctrl.TypingFocus
+	}
 	_ = chatModel
-	return runGUILoop(in, guiLoopRuntime{guiFallbackRuntime: rt, Exec: act})
+	return runGUILoop(in, loop)
 }

@@ -62,6 +62,12 @@ type guiLoopRuntime struct {
 	guiFallbackRuntime
 	Exec     func(args json.RawMessage, allowPixels bool) (toolruntime.Result, error)
 	MaxSteps int
+	// Lock focuses the one window the goal names. An error means several
+	// windows matched and the loop must not click.
+	Lock func() (string, error)
+	// FocusEditable reports whether typing is allowed. known=false means the
+	// host could not read focus, and typing stays allowed.
+	FocusEditable func() (known, ok bool)
 }
 
 const guiLoopSystemPrompt = `You operate a Windows desktop by looking at screenshots. Each turn you see the latest screenshot and must reply with exactly one JSON object describing the single next action. No prose.
@@ -79,14 +85,23 @@ Actions:
 {"action":"done","reason":"..."}                        the goal is visibly achieved on this screenshot
 {"action":"fail","reason":"..."}                        cannot continue (login wall, missing app, ambiguous target)
 
-Rules: one action per reply. Prefer a markId over coordinates. Never invent a mark that is not painted. Say done only when the screenshot proves the goal. Say fail instead of guessing when the target is not visible. Do not type passwords or payment details.`
+Rules: one action per reply. Prefer a markId over coordinates. Never invent a mark that is not painted. A markId from an earlier frame is void; do not repeat a mark that just failed. Type only when focus is in a text field; otherwise click that field first. Say done only when the screenshot proves the goal. Say fail instead of guessing when the target is not visible. Do not type passwords or payment details.`
 
-func guiLoopUserPrompt(goal, frameID string, marks bool, history []guiLoopStep) string {
+func guiLoopUserPrompt(goal, frameID, locked, focus string, marks bool, history []guiLoopStep) string {
 	var b strings.Builder
 	b.WriteString("Goal:\n")
 	b.WriteString(strings.TrimSpace(goal))
 	b.WriteString("\n\nCurrent frameId: ")
 	b.WriteString(strings.TrimSpace(frameID))
+	if locked != "" {
+		b.WriteString("\nLocked window: ")
+		b.WriteString(locked)
+		b.WriteString(". Act only inside it.")
+	}
+	if focus != "" {
+		b.WriteString("\n")
+		b.WriteString(focus)
+	}
 	if marks {
 		b.WriteString("\nMarks like B1/E2 are painted on the screenshot; use markId.")
 	} else {
@@ -296,6 +311,22 @@ func runGUILoop(in guiFallbackIn, rt guiLoopRuntime) (toolruntime.Result, json.R
 	}
 	frameID, nodes, visW, visH := strings.TrimSpace(rt.FrameID), rt.Nodes, rt.VisW, rt.VisH
 	images := rt.Images
+	locked := ""
+	if rt.Lock != nil {
+		label, err := rt.Lock()
+		if err != nil {
+			msg := strings.TrimSpace(err.Error())
+			if msg == "" {
+				msg = "目标窗口不唯一，已停止。"
+			}
+			return toolruntime.Result{Output: "ok:false\n" + msg + "\n请根据最新截图判断下一步，或请用户指出要点哪里。"}, nil, true
+		}
+		locked = strings.TrimSpace(label)
+		if locked != "" {
+			// The frame captured before the lock shows the wrong window.
+			frameID = ""
+		}
+	}
 	if frameID == "" || len(images) == 0 {
 		var err error
 		frameID, nodes, visW, visH, images, err = rt.Observe()
@@ -336,12 +367,14 @@ func runGUILoop(in guiFallbackIn, rt guiLoopRuntime) (toolruntime.Result, json.R
 		return res, guiLoopDisplayArgs(steps), true
 	}
 	consecutiveFails := 0
+	voidMark := ""
+	voidRepeats := 0
 	for step := 0; step < maxSteps; step++ {
 		var frameImages []llmadapter.Image
 		if len(images) > 0 {
 			frameImages = images[len(images)-1:]
 		}
-		raw, err := rt.Complete(exec, frameImages, guiLoopSystemPrompt+"\n\n"+guiLoopUserPrompt(rt.Goal, frameID, nodes > 0, steps))
+		raw, err := rt.Complete(exec, frameImages, guiLoopSystemPrompt+"\n\n"+guiLoopUserPrompt(rt.Goal, frameID, locked, guiFocusNote(rt), nodes > 0, steps))
 		if err != nil {
 			if len(steps) == 0 {
 				return guiFallbackFailResult("未能从屏幕读出下一步"), nil, true
@@ -377,7 +410,25 @@ func runGUILoop(in guiFallbackIn, rt guiLoopRuntime) (toolruntime.Result, json.R
 			return finish(false, "屏幕执行停止："+reason)
 		}
 		skipped := false
-		if act.MarkID != "" && (rt.HasHit == nil || !rt.HasHit(act.MarkID)) {
+		if act.MarkID != "" && act.MarkID == voidMark {
+			voidRepeats++
+			steps = append(steps, guiLoopStep{Action: act.Action + " " + act.MarkID, Result: "这个编号刚失败过，已作废，请看新画面再选", OK: false})
+			if voidRepeats >= 2 {
+				return finish(false, "屏幕模型还在点刚才失败的编号。")
+			}
+			skipped = true
+		}
+		if !skipped && (act.Action == "type" || act.Action == "paste") && rt.FocusEditable != nil {
+			if known, ok := rt.FocusEditable(); known && !ok {
+				steps = append(steps, guiLoopStep{Action: describeGUIAction(act), Result: "焦点不在输入框，先点输入框再打字", OK: false})
+				consecutiveFails++
+				if consecutiveFails >= maxGUILoopConsecutiveFails {
+					return finish(false, "焦点不在输入框，已停止打字。")
+				}
+				skipped = true
+			}
+		}
+		if !skipped && act.MarkID != "" && (rt.HasHit == nil || !rt.HasHit(act.MarkID)) {
 			steps = append(steps, guiLoopStep{Action: act.Action + " " + act.MarkID, Result: "编号不在本帧观察里", OK: false})
 			consecutiveFails++
 			if consecutiveFails >= maxGUILoopConsecutiveFails {
@@ -407,12 +458,18 @@ func runGUILoop(in guiFallbackIn, rt guiLoopRuntime) (toolruntime.Result, json.R
 					lastVision = llmadapter.Image{MIME: res.VisionMIME, Data: res.VisionData}
 				}
 				if !ok {
+					if act.MarkID != "" {
+						voidMark = act.MarkID
+						voidRepeats = 0
+					}
 					consecutiveFails++
 					if consecutiveFails >= maxGUILoopConsecutiveFails {
 						return finish(false, "屏幕动作连续失败，已停止。")
 					}
 				} else {
 					consecutiveFails = 0
+					voidMark = ""
+					voidRepeats = 0
 				}
 			}
 		}
@@ -428,6 +485,20 @@ func runGUILoop(in guiFallbackIn, rt guiLoopRuntime) (toolruntime.Result, json.R
 		}
 	}
 	return finish(false, fmt.Sprintf("已用完 %d 步仍未确认完成。", maxSteps))
+}
+
+func guiFocusNote(rt guiLoopRuntime) string {
+	if rt.FocusEditable == nil {
+		return ""
+	}
+	known, ok := rt.FocusEditable()
+	if !known {
+		return ""
+	}
+	if ok {
+		return "Focus is in a text field; you may type."
+	}
+	return "Focus is not in a text field. Click the input before typing."
 }
 
 func describeGUIAction(a guiLoopAction) string {

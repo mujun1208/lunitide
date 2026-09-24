@@ -893,13 +893,8 @@ html[data-theme="light"] .provider-kind-tabs button.on{background:#fff;border-co
   transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
 .about-content{padding:18px 16px}
 .about-logo{display:flex;align-items:center;gap:14px;margin-bottom:20px}
-.about-logo .moon-logo{width:28px;height:28px;border-radius:50%;flex:none;
-  background:radial-gradient(circle at 36% 32%,#fff 0%,#f2f7ff 26%,#c8daf5 64%,#88a9d8 100%);
-  box-shadow:0 0 12px rgba(117,168,237,.42);position:relative;isolation:isolate;overflow:visible}
-.about-logo .moon-logo::before{content:"";position:absolute;inset:-72%;z-index:-1;border-radius:50%;pointer-events:none;
-  background:radial-gradient(circle,transparent 36%,rgba(255,250,246,.48) 41%,rgba(220,238,255,.2) 50%,rgba(150,215,255,.07) 64%,transparent 80%);
-  filter:blur(9px)}
-.about-logo .moon-logo::after{content:"";position:absolute;width:6px;height:6px;left:58%;top:54%;border-radius:50%;background:rgba(110,140,180,.42);box-shadow:-8px -5px 0 -1px rgba(130,160,196,.32)}
+.about-logo .about-moon{width:40px;height:40px;border-radius:50%;flex:none;object-fit:cover;
+  box-shadow:0 0 14px rgba(117,168,237,.5)}
 .about-info{display:grid;grid-template-columns:1fr 1fr;gap:1px;margin:0 0 16px;
   background:var(--rule);border-radius:10px;overflow:hidden}
 .about-info>div{padding:12px 14px;background:#0c0e12}

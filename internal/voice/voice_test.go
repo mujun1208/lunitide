@@ -93,13 +93,16 @@ func TestArchitectureIsDerivedFromTheBundle(t *testing.T) {
 	if got, err := Architecture(ModelZipformerZh14M); err != nil || got != ArchTransducer {
 		t.Errorf("zipformer bundle reported %q (%v)", got, err)
 	}
+	if got, err := Architecture(ModelSenseVoice); err != nil || got != ArchSenseVoice {
+		t.Errorf("sensevoice bundle reported %q (%v)", got, err)
+	}
 	if _, err := Architecture("something-else"); !errors.Is(err, ErrUnknownBundle) {
 		t.Errorf("an unknown bundle should report ErrUnknownBundle, got %v", err)
 	}
 }
 
 func TestLookupBundleCoversTheRuntimeAndEveryModel(t *testing.T) {
-	for _, id := range []string{RuntimeSherpa, ModelParaformerZhEn, ModelZipformerZh14M} {
+	for _, id := range []string{RuntimeSherpa, ModelParaformerZhEn, ModelZipformerZh14M, ModelSenseVoice, ModelOfflineParaformerZh} {
 		b, err := LookupBundle(id)
 		if err != nil || b.ID != id {
 			t.Errorf("LookupBundle(%q) = %q, %v", id, b.ID, err)
@@ -126,6 +129,28 @@ func TestModelsCarryAMainlandMirror(t *testing.T) {
 				t.Errorf("bundle %q file %q has no mainland mirror: %v", b.ID, d.Path, d.URLs)
 			}
 		}
+	}
+}
+
+func TestSenseVoiceIsAnOptionalRefiner(t *testing.T) {
+	if _, err := LookupBundle(ModelSenseVoice); err != nil {
+		t.Fatalf("LookupBundle(SenseVoice) = %v", err)
+	}
+	for _, b := range RequiredBundles() {
+		if b.ID == ModelSenseVoice {
+			t.Fatal("the first-run pack must not download SenseVoice")
+		}
+	}
+	for _, b := range StreamingModels() {
+		if b.ID == ModelSenseVoice || b.ID == DefaultRefiner {
+			t.Fatalf("caption models include %s", b.ID)
+		}
+	}
+	if !IsRefinerModel(ModelSenseVoice) || !IsRefinerModel(DefaultRefiner) {
+		t.Fatal("both finished-utterance models must be selectable refiners")
+	}
+	if IsStreamingModel(ModelSenseVoice) {
+		t.Fatal("SenseVoice is not a caption model")
 	}
 }
 

@@ -173,6 +173,8 @@ type Service struct {
 	lastObserve                          []UINode
 	observedFrameID                      string
 	observedCount                        int
+	focusRole                            string
+	focusKnown                           bool
 	allowGUIPixels                       bool
 	mutateSettle                         time.Duration
 	lastMu                               sync.Mutex
@@ -258,6 +260,99 @@ func (s *Service) VisionSize() (w, h int) {
 	s.capMu.Lock()
 	defer s.capMu.Unlock()
 	return s.capVisW, s.capVisH
+}
+
+// TypingFocus reports whether the last observe saw the caret in a text field.
+// known is false when this host cannot read focus; callers then still allow typing.
+func (s *Service) TypingFocus() (known, ok bool) {
+	if s == nil {
+		return false, false
+	}
+	s.capMu.Lock()
+	defer s.capMu.Unlock()
+	if !s.focusKnown {
+		return false, false
+	}
+	return true, focusRoleAllowsType(s.focusRole)
+}
+
+// refuseTypingWithoutFocus stops text from landing on a button or an empty pane
+// once observe has actually read the caret. Unknown focus still types.
+func (s *Service) refuseTypingWithoutFocus() error {
+	known, ok := s.TypingFocus()
+	if known && !ok {
+		return fmt.Errorf("%w: 焦点不在输入框，先点输入框再打字", ErrCcInputFiltered)
+	}
+	return nil
+}
+
+func (s *Service) noteTypingFocus(role string, known bool) {
+	if s == nil {
+		return
+	}
+	s.capMu.Lock()
+	s.focusRole, s.focusKnown = role, known
+	s.capMu.Unlock()
+}
+
+type focusProbe interface {
+	FocusedRole() (role string, known bool)
+}
+
+func probeFocus(h Host) (string, bool) {
+	if h == nil {
+		return "", false
+	}
+	if p, ok := h.(focusProbe); ok {
+		return p.FocusedRole()
+	}
+	return "", false
+}
+
+// LockGoalWindow focuses the single open window named by the goal.
+// No named window returns an empty title. Several named windows return an error
+// so the caller does not click the foreground by default.
+func (s *Service) LockGoalWindow(goal string) (string, error) {
+	if s == nil || s.host == nil || !s.host.Available() {
+		return "", nil
+	}
+	wins, err := s.host.ListWindows()
+	if err != nil || len(wins) == 0 {
+		return "", nil
+	}
+	one, hits := UniqueWindowForGoal(wins, goal)
+	if len(hits) == 0 {
+		return "", nil
+	}
+	if len(hits) > 1 {
+		names := make([]string, 0, len(hits))
+		for _, w := range hits {
+			name := strings.TrimSpace(w.Title)
+			if name == "" {
+				name = processStem(w.Process)
+			}
+			names = append(names, name)
+		}
+		return "", fmt.Errorf("找到多个窗口：%s。先指定一个再操作。", strings.Join(names, "、"))
+	}
+	query := strings.TrimSpace(one.ID)
+	if query == "" {
+		query = one.Title
+	}
+	info, err := s.controlHost().FocusWindow(query)
+	if err != nil {
+		title := strings.TrimSpace(one.Title)
+		if title == "" {
+			title = "目标窗口"
+		}
+		return "", fmt.Errorf("无法切到%s", title)
+	}
+	s.noteForeground(info.Title, info.Process)
+	title := strings.TrimSpace(info.Title)
+	if title == "" {
+		title = one.Title
+	}
+	return title, nil
 }
 
 // HasObservedID reports whether observe remembered this SoM id.

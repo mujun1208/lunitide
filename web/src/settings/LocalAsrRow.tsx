@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { VoiceInstallResult, VoiceStatusResult } from '../bridge/client'
 import type { CompanionSettings, SpeechRecognizer } from '../session/companion/companionSettings'
-import { installLocalAsr, localAsrStatus, selectLocalAsrModel } from '../session/companion/localAsr'
+import { installLocalAsr, localAsrStatus, selectLocalAsrModel, selectLocalAsrRefiner } from '../session/companion/localAsr'
 
 const POLL_MS = 700
 
@@ -41,13 +41,13 @@ export function LocalAsrRow({ companion, save }: Props): React.JSX.Element | nul
     }
   }, [])
 
-  const pump = useCallback(() => {
-    void installLocalAsr()
+  const pump = useCallback((modelId?: string) => {
+    void installLocalAsr(modelId)
       .then(async result => {
         if (!alive.current) return
         setProgress(result)
         if (result.state === 'downloading') {
-          timer.current = window.setTimeout(pump, POLL_MS)
+          timer.current = window.setTimeout(() => pump(modelId), POLL_MS)
           return
         }
         setBusy(false)
@@ -67,6 +67,24 @@ export function LocalAsrRow({ companion, save }: Props): React.JSX.Element | nul
     setBusy(true)
     setProgress(undefined)
     pump()
+  }, [pump])
+
+  const chooseRefiner = useCallback((modelId: string) => {
+    void selectLocalAsrRefiner(modelId)
+      .then(async () => {
+        const next = await localAsrStatus()
+        if (!alive.current) return
+        if (next) setStatus(next)
+        const chosen = next?.refiners.find(item => item.id === modelId)
+        if (chosen && !chosen.installed) {
+          setBusy(true)
+          setProgress(undefined)
+          pump(modelId)
+        }
+      })
+      .catch(() => {
+        /* The row keeps showing the model the engine reports. */
+      })
   }, [pump])
 
   const chooseModel = useCallback((modelId: string) => {
@@ -137,6 +155,30 @@ export function LocalAsrRow({ companion, save }: Props): React.JSX.Element | nul
           {ready ? '已安装' : downloading ? '下载中…' : failed ? '重试下载' : '下载安装'}
         </button>
       </div>
+      {status.refiners.length > 1 && (
+        <div className="setting-row">
+          <div>
+            <div className="setting-label">听写模型</div>
+            <div className="setting-desc">
+              说完一句后重新识别、真正送进对话的那套。当前这套保持默认。选另一套时单独下载，不影响已经装好的模型。以后换模型也在这里换。
+            </div>
+          </div>
+          <select
+            className="setting-input"
+            aria-label="听写模型"
+            value={status.refinerId}
+            disabled={downloading}
+            onChange={event => chooseRefiner(event.target.value)}
+          >
+            {status.refiners.map(model => (
+              <option key={model.id} value={model.id}>
+                {model.title}（{megabytes(model.sizeBytes)}
+                {model.installed ? ' · 已下载' : ' · 需下载'}）
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       {status.models.length > 1 && (
         <div className="setting-row">
           <div>
