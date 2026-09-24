@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest'
-import { handoffPageMedia, mediaCenterOwnsUrl, pageCanPlay, pageMediaFromElement, parseMediaCenterPlay, releaseMediaCenterPlay } from './mediaCenterPlay'
+import { MEDIA_CENTER_STOP_EVENT, handoffPageMedia, mediaCenterOwnsUrl, noteMediaCenterPlay, pageCanPlay, pageMediaFromElement, parseMediaCenterPlay, releaseMediaCenterPlay } from './mediaCenterPlay'
 
 it('reads the owned-player handoff and ignores ordinary media receipts', () => {
   expect(parseMediaCenterPlay('sent play to the active media app')).toBeNull()
@@ -10,6 +10,14 @@ it('reads the owned-player handoff and ignores ordinary media receipts', () => {
   })
   expect(parseMediaCenterPlay('MEDIA_CENTER\nurl: https://10.0.0.5/a.mp4\nkind: video\n')).toBeNull()
   expect(parseMediaCenterPlay('MEDIA_CENTER\nurl: http://archive.org/download/night/Night.mp4\nkind: video\n')).toBeNull()
+})
+
+it('closes the in-app player when playback is stopped', () => {
+  const stop = vi.fn()
+  window.addEventListener(MEDIA_CENTER_STOP_EVENT, stop)
+  noteMediaCenterPlay('已关闭媒体中心播放。\nMEDIA_CENTER_STOP\n')
+  window.removeEventListener(MEDIA_CENTER_STOP_EVENT, stop)
+  expect(stop).toHaveBeenCalledOnce()
 })
 
 it('accepts page-playable media and refuses private or non-media links', () => {

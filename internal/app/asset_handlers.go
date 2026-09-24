@@ -238,11 +238,11 @@ func handleTemplateCreate(e *Engine, ctx context.Context, r bridge.Request) brid
 			return r.Fail("BRIDGE_SCHEMA_INVALID", "template.create 分片上传未完成或已过期", false)
 		}
 	case strings.TrimSpace(p.ContentBase64) != "":
-		if len(p.ContentBase64) > base64.StdEncoding.EncodedLen(attachmentapp.MaxFileSize) {
-			return r.Fail("TEMPLATE_FILE_TOO_LARGE", "模板附件超过 10 MiB 限制", false)
+		if len(p.ContentBase64) > base64.StdEncoding.EncodedLen(attachmentapp.MaxTemplateFileSize) {
+			return r.Fail("TEMPLATE_FILE_TOO_LARGE", templateFileTooLargeMessage(), false)
 		}
 		content, err = base64.StdEncoding.DecodeString(p.ContentBase64)
-		if err != nil || len(content) == 0 || len(content) > attachmentapp.MaxFileSize {
+		if err != nil || len(content) == 0 || len(content) > attachmentapp.MaxTemplateFileSize {
 			return r.Fail("BRIDGE_SCHEMA_INVALID", "template.create contentBase64 无效", false)
 		}
 	default:

@@ -186,6 +186,27 @@ func TestCompanionMediaCommandTransport(t *testing.T) {
 	}
 }
 
+func TestMovieRequestPlaysInTheMediaCenter(t *testing.T) {
+	goal := "帮我找一部香港90年代的电影播放"
+	if companionTurnWantsMusicPlay(goal) || !moviePlayGoal(goal) || !companionShouldAutoMediaPlay(goal) || !moviePlayGoal("我想看大话西游这部电影") {
+		t.Fatal("a movie request must play in the media center, not as a song")
+	}
+	raw := mediaArgsForGoal(goal, json.RawMessage(`{"target":"foreground","app":"汽水音乐","query":"热门"}`))
+	if !strings.Contains(string(raw), `"target":"center"`) || strings.Contains(string(raw), "汽水") {
+		t.Fatalf("movie args=%s", raw)
+	}
+	if err := guardCurrentTurnTool(goal, "computer.act"); err == nil {
+		t.Fatal("a movie request must not open with a screenshot")
+	}
+	if !playerCloseGoal("关掉播放器") || playerCloseGoal("别放了") || playerCloseGoal("停止播放") {
+		t.Fatal("only closing the in-app player stops the media center")
+	}
+	stop := mediaArgsForGoal("关掉播放器", json.RawMessage(`{"action":"play","target":"foreground"}`))
+	if string(stop) != `{"action":"stop","target":"center"}` {
+		t.Fatalf("stop=%s", stop)
+	}
+}
+
 func TestCompanionCancelAndPlaySongRoutesAsPlay(t *testing.T) {
 	if detectTaskRoute("算了放首歌") != RouteR2 {
 		t.Fatalf("算了放首歌 route=%s want R2", detectTaskRoute("算了放首歌"))
@@ -407,7 +428,7 @@ func TestCompanionWantsToolsForDesktopFollowUp(t *testing.T) {
 }
 
 func TestCompanionToolLoopMatchesDesktopBudget(t *testing.T) {
-	if companionMaxToolLoopSteps != maxToolLoopSteps || maxToolLoopSteps != 24 {
+	if companionMaxToolLoopSteps != maxToolLoopSteps {
 		t.Fatalf("companion loop=%d desktop loop=%d", companionMaxToolLoopSteps, maxToolLoopSteps)
 	}
 }

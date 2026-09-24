@@ -58,6 +58,28 @@ func BrowserNavigationAllowed(raw string) bool {
 	return err == nil
 }
 
+// isolatedBrowserSettingEnabled keeps login usable in the persistent member
+// browser. Host objects and DevTools stay off. Password autosave stays on so
+// a membership login in this profile is still there next time.
+func isolatedBrowserSettingEnabled(name string) bool {
+	switch name {
+	case "script dialogs", "context menus", "accelerator keys", "password autosave", "autofill":
+		return true
+	default:
+		return false
+	}
+}
+
+// isolatedNewWindowURL keeps a login popup inside the same persistent
+// profile. An address this browser would not navigate is dropped.
+func isolatedNewWindowURL(raw string) string {
+	next, err := NormalizeBrowserURL(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	return next
+}
+
 // ValidateIsolatedBrowserProfile prevents the isolated browser from sharing a
 // WebView2 user-data folder with the main renderer host.
 func ValidateIsolatedBrowserProfile(browserProfile, mainProfile string) (string, error) {
@@ -95,7 +117,7 @@ func IsolatedBrowserArguments(raw string) (string, error) {
 	if err != nil || port < 1 || port > 65535 {
 		return "", errors.New("isolated browser proxy port is invalid")
 	}
-	return "--enable-automation --proxy-server=" + raw + " --proxy-bypass-list=<-loopback> --disable-quic --force-webrtc-ip-handling-policy=disable_non_proxied_udp", nil
+	return "--proxy-server=" + raw + " --proxy-bypass-list=<-loopback> --force-webrtc-ip-handling-policy=disable_non_proxied_udp", nil
 }
 
 func browserArgumentsEnforced(actual []string, proxyURL string) bool {

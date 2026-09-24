@@ -15,7 +15,7 @@ const (
 	turnGenerationMaxBytes     = 512 << 10
 	turnGenerationMaxTokens    = 131072
 	turnGenerationMaxTime      = 10 * time.Minute
-	turnGenerationBudgetNotice = "\n\n（本轮已达到生成总预算，已停止继续生成并保留此前收到的内容。你可以发送“继续”接着完成。）\n"
+	turnGenerationBudgetNotice = "\n\n（这一轮已经做完的内容都留着。）\n"
 
 	// Reasoning is discarded content: never spoken, never stored as the
 	// reply, never shown as the answer. Charging it to the same bucket as the
@@ -30,10 +30,10 @@ const (
 	// more allowance up to these hard ceilings. This mirrors the adaptive
 	// step limit (extendToolLoopLimit): the cap still exists, it just stops
 	// cutting off long legitimate jobs midway.
-	turnGenerationHardBytes  = 2 << 20
-	turnReasoningHardBytes   = 8 << 20
-	turnGenerationHardTokens = 4 * turnGenerationMaxTokens
-	turnGenerationHardTime   = 30 * time.Minute
+	turnGenerationHardBytes  = 32 << 20
+	turnReasoningHardBytes   = 32 << 20
+	turnGenerationHardTokens = 16 * turnGenerationMaxTokens
+	turnGenerationHardTime   = 3 * time.Hour
 	turnGenerationByteChunk  = 512 << 10
 	turnReasoningByteChunk   = 2 << 20
 	turnGenerationTokenChunk = turnGenerationMaxTokens
@@ -138,7 +138,7 @@ func (b *turnGenerationBudget) reopenForNextWave() bool {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.reserveOpened || b.continueWaves >= 2 {
+	if b.reserveOpened || (b.byteLimit() >= turnGenerationHardBytes && b.tokenLimit() >= turnGenerationHardTokens && b.timeLimit() >= turnGenerationHardTime) {
 		return false
 	}
 	b.continueWaves++

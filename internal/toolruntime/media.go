@@ -93,6 +93,27 @@ func resolveDesktopPlayApp(target, app string) string {
 	return PreferredMusicApp(InstalledMusicApps())
 }
 
+// memberSongSearchURL is the official 网易云音乐 search page. The member logs in
+// there. 汽水音乐's public site is a download page and has no search player.
+func memberSongSearchURL(query string) string {
+	q := strings.TrimSpace(query)
+	if q == "" || isGenericMediaQuery(q) || queryIsKnownMusicApp(q) {
+		return ""
+	}
+	return "https://music.163.com/#/search/m/?s=" + url.QueryEscape(q)
+}
+
+const memberLoginNote = "如果这个页面还没登录，请在打开的窗口登录一次。登录会留在应用浏览器里，下次打开同一网站不用再登。"
+
+func withMemberSongPage(query string, res Result, err error) (Result, error) {
+	page := memberSongSearchURL(query)
+	if err != nil || page == "" || strings.Contains(res.Output, page) {
+		return res, err
+	}
+	res.Output = "url: " + page + "\n" + memberLoginNote + "\n" + res.Output
+	return res, nil
+}
+
 func buildMediaSearchURL(target, query string) (string, error) {
 	q := strings.TrimSpace(query)
 	if q == "" {
@@ -165,7 +186,8 @@ func executeMediaPlayWithCC(ctx context.Context, invoke ccInvoker, session strin
 			if app == "" {
 				return Result{}, errors.New("没有找到本机桌面播放器，无法搜索播放")
 			}
-			return executeMediaPlayForeground(ctx, invoke, session, q, foregroundAppHint(app, ""), approved, unconfined)
+			res, err := executeMediaPlayForeground(ctx, invoke, session, q, foregroundAppHint(app, ""), approved, unconfined)
+			return withMemberSongPage(q, res, err)
 		}
 		u := strings.TrimSpace(a.URL)
 		if u == "" && q != "" && target == "browser" {
@@ -222,7 +244,8 @@ func executeMediaPlayWithCC(ctx context.Context, invoke ccInvoker, session strin
 			if app == "" {
 				return Result{}, errors.New("没有找到本机桌面播放器，无法搜索播放")
 			}
-			return executeMediaPlayForeground(ctx, invoke, session, q, foregroundAppHint(app, ""), approved, unconfined)
+			res, err := executeMediaPlayForeground(ctx, invoke, session, q, foregroundAppHint(app, ""), approved, unconfined)
+			return withMemberSongPage(q, res, err)
 		}
 		u := strings.TrimSpace(a.URL)
 		if u == "" && q != "" && target == "browser" {

@@ -49,16 +49,17 @@ it('discards a late preview after switching to a different artifact',async()=>{
   expect(screen.getByText('最新文件')).toBeInTheDocument()
 })
 
-it('isolates generated HTML from scripts and network access when there is no preview origin',async()=>{
-  // No interactiveUrl: the snapshot path, which must stay inert.
+it('runs a generated page in the app when there is no preview origin',async()=>{
   vi.mocked(artifactReviewBridge.preview).mockResolvedValue({kind:'html',path:'page.html',content:'<script>fetch("https://external.invalid")</script><h1>页面</h1>',size:20})
   render(<ArtifactInspector sessionId={sessionId} path="page.html" onClose={vi.fn()}/> )
   const frame=await screen.findByTitle('产物预览 page.html')
-  expect(frame).toHaveAttribute('sandbox','')
+  const sandbox=(frame.getAttribute('sandbox')||'').split(' ')
+  expect(sandbox).toContain('allow-scripts')
+  expect(sandbox).not.toContain('allow-same-origin')
   expect(frame).toHaveAttribute('referrerpolicy','no-referrer')
+  expect(frame.getAttribute('srcdoc')).toContain("script-src 'unsafe-inline'")
   expect(frame.getAttribute('srcdoc')).toContain("connect-src 'none'")
-  // And it says so, rather than looking broken.
-  expect(screen.getByRole('status')).toHaveTextContent('静态预览')
+  expect(screen.queryByRole('button',{name:'用本机浏览器打开'})).toBeNull()
 })
 
 it('quotes a selection from the preview page into the chat', async () => {

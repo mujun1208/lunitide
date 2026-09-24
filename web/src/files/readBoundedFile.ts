@@ -14,7 +14,7 @@ export function readBoundedFile(file: File, maxBytes: number, timeoutMessage = '
     const timer = window.setTimeout(() => {
       fail(new Error(timeoutMessage))
       reader?.abort()
-    }, 10_000)
+    }, Math.min(180_000, Math.max(10_000, Math.ceil(file.size / (4 * 1024 * 1024)) * 1000)))
     const finish = (buffer: ArrayBuffer) => {
       if (settled) return
       if (buffer.byteLength > maxBytes) {

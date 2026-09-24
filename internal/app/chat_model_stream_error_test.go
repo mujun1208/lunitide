@@ -89,7 +89,7 @@ func TestChatModelLocalAdapterFailuresAreExplicitAndSanitized(t *testing.T) {
 		retry                 bool
 	}{
 		{"MALFORMED_RESPONSE", "UPSTREAM_MALFORMED_RESPONSE", "模型返回格式不完整，已保留收到的内容，请重试", llmadapter.StageDecode, 200, true},
-		{"REQUEST_TOO_LARGE", "REQUEST_TOO_LARGE", "请求内容过大，请减少附件或上下文后重试", llmadapter.StageDecode, 0, false},
+		{"REQUEST_TOO_LARGE", "REQUEST_TOO_LARGE", "较早的对话已经收起。请再试一次。", llmadapter.StageDecode, 0, false},
 		{"OUTCOME_UNKNOWN", "UPSTREAM_OUTCOME_UNKNOWN", "模型请求结果尚无法确认，请先检查任务状态和已生成文件，避免重复执行", llmadapter.StageConnect, 0, false},
 		{"MODEL_CHANNEL_UNAVAILABLE", "MODEL_CHANNEL_UNAVAILABLE", "当前模型没有可用的供应商通道，请检查模型通道配置或联系供应商", llmadapter.StageHTTP, 503, false},
 	} {

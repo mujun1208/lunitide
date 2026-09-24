@@ -364,6 +364,89 @@ func bindGeomNode(nodes []Node, part string, obj geomObject) string {
 	return ""
 }
 
+// SlideShape is one text box on a slide, in percent of the slide canvas.
+type SlideShape struct {
+	Text string  `json:"text,omitempty"`
+	X    float64 `json:"x"`
+	Y    float64 `json:"y"`
+	W    float64 `json:"w"`
+	H    float64 `json:"h"`
+}
+
+// SlideCanvas is the slide the office preview paints. It is the slide itself,
+// not a document form of extracted paragraphs.
+type SlideCanvas struct {
+	Part   string       `json:"part"`
+	Fill   string       `json:"fill"`
+	Shapes []SlideShape `json:"shapes"`
+}
+
+// SlideCanvases reads each slide's background and text boxes so the preview
+// can place them on a 16:9 stage.
+func SlideCanvases(data []byte) []SlideCanvas {
+	p, err := readPackage(data)
+	if err != nil {
+		return nil
+	}
+	sw, sh, err := deckSize(p.parts)
+	if err != nil || sw <= 0 || sh <= 0 {
+		sw, sh = 12192000, 6858000
+	}
+	names := make([]string, 0)
+	for name := range p.parts {
+		if isSlidePart(name) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	out := make([]SlideCanvas, 0, len(names))
+	for _, name := range names {
+		body := p.parts[name]
+		canvas := SlideCanvas{Part: name, Fill: slideFill(body)}
+		objects, _, scanErr := scanSlideGeometry(name, body)
+		if scanErr == nil {
+			for _, obj := range objects {
+				text := strings.TrimSpace(obj.text)
+				if text == "" || obj.w <= 0 || obj.h <= 0 {
+					continue
+				}
+				canvas.Shapes = append(canvas.Shapes, SlideShape{
+					Text: text,
+					X:    slidePercent(obj.x, sw),
+					Y:    slidePercent(obj.y, sh),
+					W:    slidePercent(obj.w, sw),
+					H:    slidePercent(obj.h, sh),
+				})
+			}
+		}
+		out = append(out, canvas)
+	}
+	return out
+}
+
+func slidePercent(value, total int64) float64 {
+	if total <= 0 {
+		return 0
+	}
+	pct := float64(value) * 100 / float64(total)
+	if pct < 0 {
+		return 0
+	}
+	if pct > 100 {
+		return 100
+	}
+	return pct
+}
+
+var slideFillColor = regexp.MustCompile(`(?i)<p:bg>[\s\S]{0,400}?<a:srgbClr val="([0-9A-Fa-f]{6})"`)
+
+func slideFill(body []byte) string {
+	if m := slideFillColor.FindSubmatch(body); len(m) == 2 {
+		return "#" + strings.ToUpper(string(m[1]))
+	}
+	return "#0B1F3A"
+}
+
 func isSlidePart(name string) bool {
 	return strings.HasPrefix(name, "ppt/slides/slide") && strings.HasSuffix(name, ".xml") && !strings.Contains(name, "/_rels/")
 }

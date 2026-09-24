@@ -69,6 +69,39 @@ func sendAppCommand(cmd int) {
 	_, _, _ = procSendMessageMedia.Call(hwnd, wmAppCommand, hwnd, uintptr(cmd)<<16)
 }
 
+// ClickMusicTransport clicks the bottom-center transport button of the
+// visible player window. 汽水音乐 does not register a system session until that
+// button is pressed, and a media key does not press it.
+func ClickMusicTransport(fragment string) error {
+	frag := strings.ToLower(strings.TrimSpace(fragment))
+	if frag == "" {
+		return fmt.Errorf("music window required")
+	}
+	match := windowMatch{fragment: frag}
+	enumerateWindows(&match)
+	if match.hwnd == 0 {
+		return fmt.Errorf("no visible window matching %q", fragment)
+	}
+	_, _, _ = procShowWindowWin.Call(match.hwnd, swRestore)
+	_, _, _ = procSetForegroundWin.Call(match.hwnd)
+	var r struct{ L, T, R, B int32 }
+	if ok, _, _ := user32Media.NewProc("GetWindowRect").Call(match.hwnd, uintptr(unsafe.Pointer(&r))); ok == 0 {
+		return fmt.Errorf("music window rect unavailable")
+	}
+	w := int(r.R - r.L)
+	h := int(r.B - r.T)
+	if w < 40 || h < 40 {
+		return fmt.Errorf("music window is too small")
+	}
+	x := int(r.L) + w/2
+	y := int(r.T) + h*92/100
+	user32Media.NewProc("SetCursorPos").Call(uintptr(x), uintptr(y))
+	const mouseLeftDown, mouseLeftUp = 0x0002, 0x0004
+	user32Media.NewProc("mouse_event").Call(mouseLeftDown, 0, 0, 0, 0)
+	user32Media.NewProc("mouse_event").Call(mouseLeftUp, 0, 0, 0, 0)
+	return nil
+}
+
 // SendMediaKey dispatches once. Sending both a key and WM_APPCOMMAND can
 // toggle twice or skip two tracks in players that handle both paths.
 func SendMediaKey(action string) error {

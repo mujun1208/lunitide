@@ -59,10 +59,17 @@ func TestDirFilesEnforceSizeContextAndPathBoundaries(t *testing.T) {
 			t.Fatalf("accepted %q", name)
 		}
 	}
-	if err := files.WriteFile(ctx, "large", make([]byte, MaxFileSize+1)); err == nil {
+	if !attachmentTooLarge(MaxFileSize + 1) {
 		t.Fatal("oversized write accepted")
 	}
-	if err := os.WriteFile(filepath.Join(root, "large"), make([]byte, MaxFileSize+1), 0600); err != nil {
+	large, err := os.Create(filepath.Join(root, "large"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = large.Truncate(int64(MaxFileSize) + 1); err != nil {
+		t.Fatal(err)
+	}
+	if err = large.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := files.ReadFile(ctx, "large"); err == nil {

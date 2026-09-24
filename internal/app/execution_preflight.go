@@ -44,8 +44,8 @@ func defaultChatExecutionPolicy() agentrun.ExecutionBudgetPolicy {
 		MaxTotalTokens:   int64ptr(ceiling),
 		MaxOutputTokens:  int64ptr(ceiling),
 		MaxModelAttempts: int64ptr(calls),
-		MaxActiveMillis:  int64ptr(1_800_000),
-		MaxOutputBytes:   int64ptr(2 << 20),
+		MaxActiveMillis:  int64ptr(3 * 60 * 60 * 1000),
+		MaxOutputBytes:   int64ptr(64 << 20),
 	}
 }
 

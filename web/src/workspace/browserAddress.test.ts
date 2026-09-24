@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isBrowserAddress, latestBrowserAddress, parseSearchCards, userWantsBrowserPanel } from './browserAddress'
+import { isBrowserAddress, latestBrowserAddress, memberCatalogPage, parseSearchCards, userWantsBrowserPanel } from './browserAddress'
 
 describe('browserAddress', () => {
   it('syncs the URL bar from results_url even when the preview path is search.html', () => {
@@ -9,6 +9,23 @@ describe('browserAddress', () => {
     expect(latestBrowserAddress([
       { name: 'web.search', status: 'tool_started', summary: '搜索：古天乐' },
       { name: 'web.search', status: 'tool_completed', summary: `query: 古天乐\nresults_url: ${url}`, artifact: { kind: 'html', path: 'search.html', content: '<h1>搜索结果 · 古天乐</h1>' } },
+    ])).toBe(url)
+  })
+
+  it('opens the official film search from a media.play result', () => {
+    const url = 'https://www.iqiyi.com/so/q_%E5%A4%A7%E8%AF%9D%E8%A5%BF%E6%B8%B8'
+    expect(memberCatalogPage(url)).toBe(true)
+    expect(memberCatalogPage('https://so.youku.com/search_video/q_%E5%A4%A7%E8%AF%9D%E8%A5%BF%E6%B8%B8')).toBe(true)
+    expect(memberCatalogPage('https://news.example/jay')).toBe(false)
+    expect(latestBrowserAddress([
+      { name: 'media.play', status: 'tool_completed', summary: `url: ${url}\nurl: https://so.youku.com/search_video/q_%E5%A4%A7%E8%AF%9D%E8%A5%BF%E6%B8%B8\n` },
+    ])).toBe(url)
+  })
+
+  it('opens the official song search from a media.play result', () => {
+    const url = 'https://music.163.com/#/search/m/?s=%E6%99%B4%E5%A4%A9'
+    expect(latestBrowserAddress([
+      { name: 'media.play', status: 'tool_completed', summary: `url: ${url}\nverified playing` },
     ])).toBe(url)
   })
 

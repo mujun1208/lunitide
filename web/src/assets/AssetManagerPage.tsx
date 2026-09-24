@@ -30,7 +30,10 @@ function assetUserError(err: unknown, fallback: string): string {
 const problem = (e: unknown) => e instanceof BridgeClientError ? asUserBridgeError(e, '请求失败') : new BridgeClientError(assetUserError(e, '请求失败'), 'CLIENT_ERROR', false, 'renderer')
 const ordered = (items: TemplateDTO[]) => [...items].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id))
 
-const readFileBytes = (file: File): Promise<Uint8Array> => readBoundedFile(file, 10 * 1024 * 1024).then(buf => new Uint8Array(buf))
+const ASSET_FILE_MAX = 500 * 1024 * 1024
+const OFFICE_TEMPLATE_MAX = 500 * 1024 * 1024
+const assetFileMax = (name: string) => (/\.(pptx|docx|xlsx)$/i.test(name) ? OFFICE_TEMPLATE_MAX : ASSET_FILE_MAX)
+const readFileBytes = (file: File): Promise<Uint8Array> => readBoundedFile(file, assetFileMax(file.name)).then(buf => new Uint8Array(buf))
 
 const detectMime = (fileName: string): string => {
   const lower = fileName.toLowerCase()

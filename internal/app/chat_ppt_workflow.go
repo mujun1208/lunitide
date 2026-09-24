@@ -2,6 +2,7 @@ package app
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/llmadapter"
@@ -40,7 +41,44 @@ const (
 		"用户问进度时继续本流水线，不要重开一稿。\n"
 
 	pptGenBlockedMsg = "ok:false\npptx.gen 被流水线拦住：还没做完素材收集与正文撰写。先 web.search（必要时 web.fetch）至少两轮，写好每页标题+要点，再调用 pptx.gen。空页或只铺深色底的文件会被拒绝。\n"
+
+	pptDirectInstruction = "\n\n[PPT 直接成稿]\n" +
+		"用户已经把页数和事实写在这句话里。不要 web.search，不要 web.fetch，不要九步流水线，不要先勘查目录或问风格。\n" +
+		"模版是可选项：只有资产库里状态为可用、且版式对得上的 PPT 模版，或 pptx.gen catalog 能列出并且版式合适的文件，才用 pages 套用改字。没有合适模版就不要为了找模版再走一轮。\n" +
+		"直接一次 pptx.gen 写完：每页用 cover、section、agenda、content、metrics、comparison、quote、timeline 或 closing。深色底必须浅色字，封面要有主标题和副标题，正文页要有标题和要点。写进工作区后停，报出文件名。\n"
 )
+
+func pptContentInHand(text string) bool {
+	if strings.TrimSpace(text) == "" || lookupActionRe.MatchString(text) {
+		return false
+	}
+	if !looksLikePptTask(text) {
+		return false
+	}
+	if countFactClauses(text) >= 2 {
+		return true
+	}
+	if utf8.RuneCountInString(text) < 24 {
+		return false
+	}
+	for _, mark := range []string{"岁", "担任", "简介", "个人介绍", "自我介绍", "工作经历", "副总"} {
+		if strings.Contains(text, mark) {
+			return true
+		}
+	}
+	return false
+}
+
+func pptGoesStraightToFile(goal string) bool {
+	return lookupOptedOut(goal) || referenceOnlyOfficeTurn(goal) || pptContentInHand(goal)
+}
+
+func pptStraightInstruction(goal string) string {
+	if referenceOnlyOfficeTurn(goal) && !pptContentInHand(goal) {
+		return referenceOfficeInstruction
+	}
+	return pptDirectInstruction
+}
 
 func looksLikePptTask(text string) bool {
 	if capabilityWorkTask(text) || officeMaterialReview(text) {
@@ -115,7 +153,7 @@ func inferPptStage(turn *chatTurnCheckpoint) string {
 	if pptHasGen(turn) {
 		return pptStageGenerate
 	}
-	if lookupOptedOut(turn.Goal) || referenceOnlyOfficeTurn(turn.Goal) {
+	if lookupOptedOut(turn.Goal) || referenceOnlyOfficeTurn(turn.Goal) || pptContentInHand(turn.Goal) {
 		return pptStageWrite
 	}
 	web := pptWebPasses(turn)
@@ -183,7 +221,7 @@ func pptGenBlocked(turn *chatTurnCheckpoint, name string) (bool, string) {
 	if name != "pptx.gen" || turn == nil || !turn.PptActive {
 		return false, ""
 	}
-	if turn.SkipOfficeResearch {
+	if turn.SkipOfficeResearch || pptContentInHand(turn.Goal) {
 		return false, ""
 	}
 	if pptPipelineReady(turn) || turn.PptStage == pptStageGenerate || turn.PptStage == pptStageWrite {
@@ -241,8 +279,10 @@ func startPptWorkflow(req *llmadapter.Request, turn *chatTurnCheckpoint, send fu
 		return
 	}
 	if turn.PptActive {
-		if lookupOptedOut(turn.Goal) || referenceOnlyOfficeTurn(turn.Goal) {
-			req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: referenceOfficeInstruction})
+		if pptGoesStraightToFile(turn.Goal) {
+			turn.SkipOfficeResearch = true
+			turn.PptStage = pptStageWrite
+			req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: pptStraightInstruction(turn.Goal)})
 		} else {
 			injectPptPipelineOnce(req)
 		}
@@ -252,9 +292,10 @@ func startPptWorkflow(req *llmadapter.Request, turn *chatTurnCheckpoint, send fu
 		return
 	}
 	turn.PptActive = true
-	if lookupOptedOut(turn.Goal) || referenceOnlyOfficeTurn(turn.Goal) {
+	if pptGoesStraightToFile(turn.Goal) {
+		turn.SkipOfficeResearch = true
 		turn.PptStage = pptStageWrite
-		req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: referenceOfficeInstruction})
+		req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: pptStraightInstruction(turn.Goal)})
 		return
 	}
 	if turn.PptStage == "" {
@@ -286,8 +327,8 @@ func nudgePptWorkflow(req *llmadapter.Request, turn *chatTurnCheckpoint, send fu
 	_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: pptThinkingBanner(stage)}})
 	if req != nil {
 		nudge := pptStageNudge(stage)
-		if lookupOptedOut(turn.Goal) || referenceOnlyOfficeTurn(turn.Goal) {
-			nudge.Content = referenceOfficeInstruction
+		if pptGoesStraightToFile(turn.Goal) {
+			nudge.Content = pptStraightInstruction(turn.Goal)
 		}
 		req.Messages = append(req.Messages, nudge)
 	}

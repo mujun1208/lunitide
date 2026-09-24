@@ -170,9 +170,43 @@ func (e *Engine) noteCompanionToolSuccess(sessionID, toolName string, args json.
 	}
 }
 
-func companionTurnWantsMusicPlay(text string) bool {
+// moviePlayGoal is a request to play a film. It must not be treated as a song,
+// and it must not go through a screenshot before media.play.
+func moviePlayGoal(text string) bool {
+	if playerCloseGoal(text) {
+		return false
+	}
 	t := strings.TrimSpace(text)
 	if t == "" {
+		return false
+	}
+	if !strings.Contains(t, "电影") && !strings.Contains(t, "影片") {
+		return false
+	}
+	return strings.Contains(t, "播放") || strings.Contains(t, "放一") || strings.Contains(t, "找一") || strings.Contains(t, "找部") || strings.Contains(t, "放部") || strings.Contains(t, "看")
+}
+
+// playerCloseGoal is a request to stop the player that is already open.
+func playerCloseGoal(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	if companionNamedMusicApp(t) != "" {
+		return false
+	}
+	if strings.Contains(t, "电影") || strings.Contains(t, "影片") || strings.Contains(t, "播放器") || strings.Contains(t, "媒体") {
+		return strings.Contains(t, "关闭") || strings.Contains(t, "关掉") || strings.Contains(t, "停止播放") || strings.Contains(t, "别放了")
+	}
+	if strings.Contains(t, "关闭") || strings.Contains(t, "关掉") {
+		return strings.Contains(t, "播放")
+	}
+	return false
+}
+
+func companionTurnWantsMusicPlay(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" || moviePlayGoal(t) {
 		return false
 	}
 	for _, needle := range []string{
@@ -639,6 +673,9 @@ func (e *Engine) resolveMediaPlayArgs(sessionID string, args json.RawMessage) js
 }
 
 func companionShouldAutoMediaPlay(goal string) bool {
+	if moviePlayGoal(goal) || playerCloseGoal(goal) {
+		return true
+	}
 	if mediaGenerationKind(goal) != "" {
 		return false
 	}
@@ -657,8 +694,11 @@ func (e *Engine) companionAutoMediaPlayArgsForTurn(sessionID, goal, spoken strin
 	if hint == "" {
 		hint = goal
 	}
-	if ownedMediaCenterGoal(goal) || ownedMediaCenterGoal(hint) {
+	if moviePlayGoal(goal) || moviePlayGoal(hint) || ownedMediaCenterGoal(goal) || ownedMediaCenterGoal(hint) {
 		return forceMediaCenterArgs(goal, nil), true
+	}
+	if playerCloseGoal(goal) || playerCloseGoal(hint) {
+		return forceMediaCenterStopArgs(), true
 	}
 	mediaAction, mediaResume := companionMediaCommand(hint)
 	if mediaAction == "" {
@@ -745,8 +785,15 @@ func forceMediaCenterArgs(goal string, args json.RawMessage) json.RawMessage {
 	return out
 }
 
+func forceMediaCenterStopArgs() json.RawMessage {
+	return json.RawMessage(`{"action":"stop","target":"center"}`)
+}
+
 func mediaArgsForGoal(goal string, args json.RawMessage) json.RawMessage {
-	if ownedMediaCenterGoal(goal) {
+	if playerCloseGoal(goal) {
+		return forceMediaCenterStopArgs()
+	}
+	if ownedMediaCenterGoal(goal) || moviePlayGoal(goal) {
 		return forceMediaCenterArgs(goal, args)
 	}
 	app := companionNamedMusicApp(goal)

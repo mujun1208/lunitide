@@ -354,8 +354,12 @@ func hardenBrowserSettings(core *wv2.ICoreWebView2) error {
 		{"autofill", settings.SetIsGeneralAutofillEnabled},
 	}
 	for _, operation := range operations {
-		if result := operation.set(win32.FALSE); failed(win32.HRESULT(result)) {
-			return fmt.Errorf("disabling isolated browser %s failed: 0x%x", operation.name, uint32(result))
+		value := int32(win32.FALSE)
+		if isolatedBrowserSettingEnabled(operation.name) {
+			value = win32.TRUE
+		}
+		if result := operation.set(value); failed(win32.HRESULT(result)) {
+			return fmt.Errorf("setting isolated browser %s failed: 0x%x", operation.name, uint32(result))
 		}
 	}
 	return nil
@@ -374,21 +378,27 @@ func (h *BrowserHost) registerEvents() error {
 	}
 	h.newWindowHandler = wv2.NewICoreWebView2NewWindowRequestedEventHandlerByFunc(func(_ *wv2.ICoreWebView2, args *wv2.ICoreWebView2NewWindowRequestedEventArgs) com.Error {
 		args.SetHandled(win32.TRUE)
+		raw, err := argumentString(args.GetUri)
+		if err == nil && h.core != nil {
+			if next := isolatedNewWindowURL(raw); next != "" {
+				_ = h.core.Navigate(next)
+			}
+		}
 		return com.Error(win32.S_OK)
 	}, false)
 	if r := h.core.Add_NewWindowRequested(h.newWindowHandler, &h.newWindowToken); failed(win32.HRESULT(r)) {
 		return fmt.Errorf("isolated NewWindowRequested registration failed: 0x%x", uint32(r))
 	}
 	h.permissionHandler = wv2.NewICoreWebView2PermissionRequestedEventHandlerByFunc(func(_ *wv2.ICoreWebView2, args *wv2.ICoreWebView2PermissionRequestedEventArgs) com.Error {
-		args.SetState(wv2.COREWEBVIEW2_PERMISSION_STATE.COREWEBVIEW2_PERMISSION_STATE_DENY)
+		args.SetState(wv2.COREWEBVIEW2_PERMISSION_STATE.COREWEBVIEW2_PERMISSION_STATE_ALLOW)
 		return com.Error(win32.S_OK)
 	}, false)
 	if r := h.core.Add_PermissionRequested(h.permissionHandler, &h.permissionToken); failed(win32.HRESULT(r)) {
 		return fmt.Errorf("isolated PermissionRequested registration failed: 0x%x", uint32(r))
 	}
 	h.downloadHandler = wv2.NewICoreWebView2DownloadStartingEventHandlerByFunc(func(_ *wv2.ICoreWebView2, args *wv2.ICoreWebView2DownloadStartingEventArgs) com.Error {
-		args.SetCancel(win32.TRUE)
-		args.SetHandled(win32.TRUE)
+		args.SetCancel(win32.FALSE)
+		args.SetHandled(win32.FALSE)
 		return com.Error(win32.S_OK)
 	}, false)
 	if r := h.core4.Add_DownloadStarting(h.downloadHandler, &h.downloadToken); failed(win32.HRESULT(r)) {

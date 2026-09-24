@@ -69,7 +69,7 @@ func handleAttachmentIngest(e *Engine, ctx context.Context, r bridge.Request) br
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "attachment.ingest sessionId 无效", false)
 	}
 	if len(p.ContentBase64) > base64.StdEncoding.EncodedLen(attachmentapp.MaxFileSize) {
-		return r.Fail("ATTACHMENT_FILE_TOO_LARGE", "附件文件超过 10 MiB 限制", false)
+		return r.Fail("ATTACHMENT_FILE_TOO_LARGE", attachmentFileTooLargeMessage(), false)
 	}
 	decodedLen := base64.StdEncoding.DecodedLen(len(p.ContentBase64))
 	if strings.HasSuffix(p.ContentBase64, "==") {
@@ -78,7 +78,7 @@ func handleAttachmentIngest(e *Engine, ctx context.Context, r bridge.Request) br
 		decodedLen--
 	}
 	if decodedLen > attachmentapp.MaxFileSize {
-		return r.Fail("ATTACHMENT_FILE_TOO_LARGE", "附件文件超过 10 MiB 限制", false)
+		return r.Fail("ATTACHMENT_FILE_TOO_LARGE", attachmentFileTooLargeMessage(), false)
 	}
 	content, err := base64.StdEncoding.DecodeString(p.ContentBase64)
 	if err != nil {
@@ -270,7 +270,7 @@ func attachmentFailure(r bridge.Request, err error) bridge.Response {
 	case errors.Is(err, attachmentapp.ErrAttachmentNotFound):
 		return r.Fail("ATTACHMENT_NOT_FOUND", "附件不存在", false)
 	case errors.Is(err, attachmentapp.ErrFileTooLarge):
-		return r.Fail("ATTACHMENT_FILE_TOO_LARGE", "附件文件超过 10 MiB 限制", false)
+		return r.Fail("ATTACHMENT_FILE_TOO_LARGE", attachmentFileTooLargeMessage(), false)
 	case errors.Is(err, attachmentapp.ErrScopeMismatch):
 		return r.Fail("ATTACHMENT_SCOPE_MISMATCH", "附件项目与会话不匹配", false)
 	case errors.Is(err, attachmentapp.ErrUnsupportedMIME):

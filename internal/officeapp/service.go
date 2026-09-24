@@ -354,18 +354,19 @@ func (s *Service) Check(ctx context.Context, taskID, versionID string, render bo
 }
 
 type Preview struct {
-	VersionID      string         `json:"versionId"`
-	Kind           string         `json:"kind"`
-	Content        string         `json:"content"`
-	Notice         string         `json:"notice"`
-	Nodes          []content.Node `json:"nodes"`
-	PreviewBasis   string         `json:"previewBasis"`
-	PDFReady       bool           `json:"pdfReady"`
-	Truncated      bool           `json:"truncated"`
-	Parts          []content.Part `json:"parts"`
-	NodeOffset     int            `json:"nodeOffset"`
-	NextNodeOffset int            `json:"nextNodeOffset"`
-	TotalNodes     int            `json:"totalNodes"`
+	VersionID      string                `json:"versionId"`
+	Kind           string                `json:"kind"`
+	Content        string                `json:"content"`
+	Notice         string                `json:"notice"`
+	Nodes          []content.Node        `json:"nodes"`
+	PreviewBasis   string                `json:"previewBasis"`
+	PDFReady       bool                  `json:"pdfReady"`
+	Truncated      bool                  `json:"truncated"`
+	Parts          []content.Part        `json:"parts"`
+	Slides         []content.SlideCanvas `json:"slides,omitempty"`
+	NodeOffset     int                   `json:"nodeOffset"`
+	NextNodeOffset int                   `json:"nextNodeOffset"`
+	TotalNodes     int                   `json:"totalNodes"`
 }
 
 func (s *Service) Preview(ctx context.Context, taskID, versionID string) (Preview, error) {
@@ -385,6 +386,9 @@ func (s *Service) PreviewPage(ctx context.Context, taskID, versionID string, off
 		return Preview{}, domain.ErrInvalid
 	}
 	p := Preview{VersionID: v.ID, Kind: v.Kind, Content: i.Preview, Nodes: []content.Node{}, Parts: []content.Part{}, PreviewBasis: "structure", Notice: "结构预览不代表真实分页与排版；检查结果仅针对当前版本", NodeOffset: offset, NextNodeOffset: offset, TotalNodes: len(i.Nodes)}
+	if v.Kind == "pptx" {
+		p.Slides = content.SlideCanvases(b)
+	}
 	// Leave room for the envelope and labels under the Host's 256KiB frame.
 	// A node is always returned whole, so its edit target is never abbreviated.
 	if len(p.Content) > 16000 {

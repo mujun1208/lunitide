@@ -314,6 +314,19 @@ func TestGoTestDoesNotWriteOfficeFixturesToRealDesktop(t *testing.T) {
 	}
 }
 
+func TestFillEnabledDeckSkipsATemplateThatCannotBeFilled(t *testing.T) {
+	prev := EnabledDeckTemplate
+	t.Cleanup(func() { EnabledDeckTemplate = prev })
+	EnabledDeckTemplate = func() ([]byte, bool) { return []byte("not-a-deck"), true }
+	if _, err := fillEnabledDeck("穆军", []officetools.SlideSpec{{Title: "穆军", Subtitle: "个人简介"}}); err == nil {
+		t.Fatal("unusable template should fall through")
+	}
+	EnabledDeckTemplate = func() ([]byte, bool) { return nil, false }
+	if _, err := fillEnabledDeck("穆军", []officetools.SlideSpec{{Title: "穆军"}}); err == nil {
+		t.Fatal("missing template should fall through")
+	}
+}
+
 func sameDesktopPath(got, want string) bool {
 	if filepath.Clean(got) == filepath.Clean(want) {
 		return true

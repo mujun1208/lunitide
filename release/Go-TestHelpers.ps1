@@ -6,11 +6,14 @@ function Test-GoRuntimeAbort {
     param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Text)
     if ([string]::IsNullOrEmpty($Text)) { return $false }
     return $Text -match 'fatal error: unexpected signal' -or
+        $Text -match 'fatal error: fault' -or
         $Text -match 'unknown pc 0x' -or
         $Text -match 'tryDeferToSpanScan' -or
         $Text -match 'Exception 0xc0000005' -or
+        $Text -match 'signal 0xc0000005' -or
         $Text -match 'fatal error: index out of range' -or
         $Text -match 'fatal error: found pointer to free object' -or
+        $Text -match 'fatal error: sync: unlock of unlocked mutex' -or
         $Text -match '\.test\.exe: Access is denied'
 }
 
@@ -57,6 +60,12 @@ function Invoke-GoLoggedTest {
 function Assert-GoRuntimeAbortClassifier {
     if (-not (Test-GoRuntimeAbort "fatal error: unexpected signal during runtime execution`nunknown pc 0x1`nException 0xc0000005")) {
         throw 'expected ACCESS_VIOLATION dump to count as a runtime abort'
+    }
+    if (-not (Test-GoRuntimeAbort "unexpected fault address 0x7ff600000000`nfatal error: fault`n[signal 0xc0000005 code=0x8 addr=0x7ff600000000 pc=0x1]")) {
+        throw 'expected Go 1.26 fault dump to count as a runtime abort'
+    }
+    if (-not (Test-GoRuntimeAbort "fatal error: sync: unlock of unlocked mutex")) {
+        throw 'expected unlocked-mutex throw to count as a runtime abort'
     }
     if (-not (Test-GoRuntimeAbort 'fatal error: index out of range in runtime.tryDeferToSpanScan')) {
         throw 'expected Green Tea throw to count as a runtime abort'

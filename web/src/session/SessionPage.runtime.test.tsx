@@ -38,7 +38,7 @@ it('maps stream failure codes to a safe cause without leaking UPSTREAM_FAILED',(
  expect(turnFailureNotice({code:'UPSTREAM_TIMEOUT'})).toContain('请求超时')
  expect(turnFailureNotice({code:'BUDGET_EXHAUSTED'})).toContain('请再试一次')
  expect(turnFailureNotice({code:'BUDGET_EXHAUSTED'})).not.toContain('新开对话')
- expect(turnFailureNotice({code:'CONTEXT_WINDOW_EXCEEDED'})).toContain('上下文窗口')
+ expect(turnFailureNotice({code:'CONTEXT_WINDOW_EXCEEDED'})).toContain('较早的对话已经收起')
  expect(turnFailureNotice({code:'UPSTREAM_UNAVAILABLE'})).toContain('供应商暂时不可用')
  expect(turnFailureNotice({code:'ASSISTANT_RESPONSE_TOO_LARGE'})).toContain('过大')
  for (const code of ['UPSTREAM_FAILED','UPSTREAM_TIMEOUT','ASSISTANT_RESPONSE_TOO_LARGE','REQUEST_TOO_LARGE'] as const) {
@@ -55,21 +55,24 @@ async function open(props:Partial<React.ComponentProps<typeof SessionPage>>={}){
 }
 
 it('encodes the maximum safe attachment payload and rejects larger files',async()=>{
- const begin=vi.fn().mockResolvedValue({uploadId:'01ARZ3NDEKTSV4RRFFQ69G5FAC',chunkSize:128*1024,expiresAt:NOW}),chunk=vi.fn().mockImplementation(async payload=>({nextOffset:payload.offset+atob(payload.contentBase64).length})),commit=vi.fn().mockResolvedValue({attachmentId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',projectId:P,sessionId:S,originalName:'safe.txt',mime:'text/plain',size:ATTACHMENT_FILE_MAX,sha256:'hash',parseStatus:'succeeded',parseErrorCode:'',parsedTextBytes:ATTACHMENT_FILE_MAX,createdAt:NOW}),abort=vi.fn().mockResolvedValue({aborted:true})
+ const uploadBytes=10*1024*1024
+ const begin=vi.fn().mockResolvedValue({uploadId:'01ARZ3NDEKTSV4RRFFQ69G5FAC',chunkSize:128*1024,expiresAt:NOW}),chunk=vi.fn().mockImplementation(async payload=>({nextOffset:payload.offset+atob(payload.contentBase64).length})),commit=vi.fn().mockResolvedValue({attachmentId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',projectId:P,sessionId:S,originalName:'safe.txt',mime:'text/plain',size:uploadBytes,sha256:'hash',parseStatus:'succeeded',parseErrorCode:'',parsedTextBytes:uploadBytes,createdAt:NOW}),abort=vi.fn().mockResolvedValue({aborted:true})
  const attachments={list:vi.fn().mockResolvedValue({items:[]}),ingest:vi.fn(),begin,chunk,commit,abort,get:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge
  const user=await open({attachments})
  await user.click(screen.getByRole('button',{name:'附件'}))
  const input=document.querySelector('input[type="file"]') as HTMLInputElement
- const bytes=new Uint8Array(ATTACHMENT_FILE_MAX);bytes.fill(0x61)
+ expect(ATTACHMENT_FILE_MAX).toBe(500*1024*1024)
+ const bytes=new Uint8Array(uploadBytes);bytes.fill(0x61)
  const file=new File([bytes],'safe.txt',{type:'text/plain'})
  Object.defineProperty(file,'arrayBuffer',{value:async()=>bytes.buffer})
  await fireEvent.change(input,{target:{files:[file]}})
  await waitFor(()=>expect(commit).toHaveBeenCalledOnce(),{timeout:20_000})
- expect(begin).toHaveBeenCalledWith(expect.objectContaining({projectId:P,sessionId:S,originalName:'safe.txt',size:ATTACHMENT_FILE_MAX,sha256:expect.stringMatching(/^[0-9a-f]{64}$/)}))
+ expect(begin).toHaveBeenCalledWith(expect.objectContaining({projectId:P,sessionId:S,originalName:'safe.txt',size:uploadBytes,sha256:expect.stringMatching(/^[0-9a-f]{64}$/)}))
  expect(chunk).toHaveBeenCalledTimes(320)
  expect(chunk.mock.calls[0][0]).toMatchObject({uploadId:'01ARZ3NDEKTSV4RRFFQ69G5FAC',offset:0})
- expect(chunk.mock.calls[319][0]).toMatchObject({offset:ATTACHMENT_FILE_MAX-32*1024})
- const oversized=new File([new Uint8Array(ATTACHMENT_FILE_MAX+1)],'too-large.txt',{type:'text/plain'})
+ expect(chunk.mock.calls[319][0]).toMatchObject({offset:uploadBytes-32*1024})
+ const oversized=new File(['x'],'too-large.txt',{type:'text/plain'})
+ Object.defineProperty(oversized,'size',{value:ATTACHMENT_FILE_MAX+1})
  await fireEvent.change(input,{target:{files:[oversized]}})
  await waitFor(()=>expect(screen.getAllByRole('status').some(node=>/已跳过 1 个/.test(node.textContent??''))).toBe(true))
  expect(screen.getAllByRole('status').some(node => /0 个文件/.test(node.textContent ?? ''))).toBe(true)

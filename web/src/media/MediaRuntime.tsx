@@ -7,7 +7,7 @@ import { MediaMiniPlayer } from './MediaMiniPlayer'
 import { OwnedMediaPlayer, type OwnedMediaPlayerHandle } from './OwnedMediaPlayer'
 import { mediaTransportCommand, miniPlayerPhase, needsPlaybackOpen, shouldDetachPlayback } from './mediaSnapshot'
 import { mediaText } from './mediaCopy'
-import { MEDIA_CENTER_PLAY_EVENT, handoffPageMedia, pageMediaFromElement, releaseMediaCenterPlay, type MediaCenterPlay } from './mediaCenterPlay'
+import { MEDIA_CENTER_PLAY_EVENT, MEDIA_CENTER_STOP_EVENT, handoffPageMedia, pageMediaFromElement, releaseMediaCenterPlay, type MediaCenterPlay } from './mediaCenterPlay'
 import { useZh } from '../i18n/language'
 
 type MediaState = {
@@ -100,8 +100,22 @@ export function MediaRuntime({
       setPage('media')
       playerRef.current?.pauseNow()
     }
+    const onStop = () => {
+      document.querySelectorAll('.media-theatre-video, .media-stage-audio').forEach(node => {
+        if (!(node instanceof HTMLMediaElement)) return
+        node.pause()
+        node.removeAttribute('src')
+        node.load()
+      })
+      releaseMediaCenterPlay()
+      setCenterPlay(null)
+    }
     window.addEventListener(MEDIA_CENTER_PLAY_EVENT, onPlay)
-    return () => window.removeEventListener(MEDIA_CENTER_PLAY_EVENT, onPlay)
+    window.addEventListener(MEDIA_CENTER_STOP_EVENT, onStop)
+    return () => {
+      window.removeEventListener(MEDIA_CENTER_PLAY_EVENT, onPlay)
+      window.removeEventListener(MEDIA_CENTER_STOP_EVENT, onStop)
+    }
   }, [setPage, setTarget])
   useEffect(() => {
     const onElementPlay = (event: Event) => {

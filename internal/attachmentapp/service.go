@@ -24,8 +24,7 @@ import (
 var (
 	// ErrAttachmentNotFound is returned when the attachment does not exist.
 	ErrAttachmentNotFound = errors.New("attachment not found")
-	// ErrFileTooLarge is returned when the ingested file exceeds the maximum
-	// allowed size (10 MiB).
+	// ErrFileTooLarge is returned when the ingested file exceeds MaxFileSize.
 	ErrFileTooLarge = errors.New("attachment file too large")
 	// ErrUnsupportedMIME is returned when the attachment MIME type is not
 	// supported for text extraction.
@@ -41,8 +40,18 @@ var (
 	ErrUploadDigest   = errors.New("attachment upload digest mismatch")
 )
 
-// MaxFileSize is the maximum allowed attachment file size in bytes (10 MiB).
-const MaxFileSize = 10485760
+// MaxFileSize is the per-file cap for a chunked attachment upload (500 MiB).
+// The bridge still moves the bytes in 32 KiB chunks; this is not one body.
+const MaxFileSize = 500 << 20
+
+// MaxTemplateFileSize is the office-template cap. A batch keeps going through
+// every selected deck; one file over this cap does not cancel the rest.
+const MaxTemplateFileSize = 500 << 20
+
+// attachmentTooLarge reports a declared size without allocating the buffer.
+func attachmentTooLarge(n int) bool {
+	return n > MaxFileSize
+}
 
 // MaxParsedTextBytes is the maximum stored parsed text size in bytes (1 MiB).
 const MaxParsedTextBytes = 1048576
@@ -327,7 +336,7 @@ func (s *Service) IngestFile(ctx context.Context, req IngestFileRequest) (attach
 	if req.OriginalName == "" || len(req.OriginalName) > 256 {
 		return attachment.Attachment{}, errors.New("original name must be 1-256 bytes")
 	}
-	if len(req.Content) > MaxFileSize {
+	if attachmentTooLarge(len(req.Content)) {
 		return attachment.Attachment{}, ErrFileTooLarge
 	}
 	mime := attachmentTextMIME(req.OriginalName, req.MIME, req.Content)

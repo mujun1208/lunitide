@@ -498,7 +498,7 @@ func handleOfficeStudio(e *Engine, ctx context.Context, r bridge.Request) bridge
 			}
 			nodes = append(nodes, row)
 		}
-		return r.Ok(map[string]any{"versionId": vid, "kind": preview.Kind, "content": preview.Content, "notice": preview.Notice, "nodes": nodes, "previewBasis": preview.PreviewBasis, "pdfReady": preview.PDFReady, "truncated": preview.Truncated, "parts": preview.Parts, "nodeOffset": preview.NodeOffset, "nextNodeOffset": preview.NextNodeOffset, "totalNodes": preview.TotalNodes})
+		return r.Ok(map[string]any{"versionId": vid, "kind": preview.Kind, "content": preview.Content, "notice": preview.Notice, "nodes": nodes, "previewBasis": preview.PreviewBasis, "pdfReady": preview.PDFReady, "truncated": preview.Truncated, "parts": preview.Parts, "slides": preview.Slides, "nodeOffset": preview.NodeOffset, "nextNodeOffset": preview.NextNodeOffset, "totalNodes": preview.TotalNodes})
 	case "office.artifact.readChunk":
 		b, err := s.ReadPDF(ctx, p.TaskID, vid)
 		if err != nil {

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { artifactReviewBridge, sessionFolderBridge } from '../bridge/client'
 import type { WorkspaceArtifactPreviewResult } from '../generated/bridge'
 import { MarkdownMessage } from '../session/MarkdownMessage'
-import { isolatedHTML } from './isolatedHTML'
+import { isolatedHTML, runnableHTML } from './isolatedHTML'
 import { previewNeedsScripts } from './previewInteractivity'
 import { artifactLooksLikePdfBytes, artifactPreviewIsReady, artifactViewMode } from './artifactPreviewMode'
 import { ChatAudioPlayer } from '../session/ChatAudioPlayer'
@@ -88,7 +88,7 @@ export function ArtifactInspector({ sessionId, path, onClose, expanded = false, 
   </section>
 }
 
-export function ArtifactPreviewContent({ sessionId, preview, onOpenExternally }: { sessionId?: string; preview: WorkspaceArtifactPreviewResult; onOpenExternally?: () => void }): React.JSX.Element | null {
+export function ArtifactPreviewContent({ sessionId, preview }: { sessionId?: string; preview: WorkspaceArtifactPreviewResult; onOpenExternally?: () => void }): React.JSX.Element | null {
   const mode = artifactViewMode(preview.kind, preview.path)
   if (mode === 'image') {
     if (/^data:image\/(png|jpeg|gif);base64,[A-Za-z0-9+/=]+$/.test(preview.content)) {
@@ -119,13 +119,15 @@ export function ArtifactPreviewContent({ sessionId, preview, onOpenExternally }:
         />
       </div>
     }
-    // No ticket (an older engine, or a preview that could not be addressed): fall
-    // back to the inert snapshot and say plainly that it is inert.
+    // No preview ticket: still run the page here. The sandbox is a unique origin,
+    // so scripts and buttons work without the application's storage or the network,
+    // and we do not hand the page to the system browser.
+    if (previewNeedsScripts(preview.content)) {
+      return <div className="artifact-inspector-html">
+        <iframe className="artifact-inspector-frame" title={`产物预览 ${preview.path}`} sandbox="allow-scripts allow-forms allow-modals" referrerPolicy="no-referrer" srcDoc={runnableHTML(preview.content)} />
+      </div>
+    }
     return <div className="artifact-inspector-html">
-      {previewNeedsScripts(preview.content) && <p className="artifact-inspector-static" role="status">
-        <span>静态预览：为安全起见不执行页面脚本，所以菜单、按钮和本地保存的数据都不会响应。</span>
-        {onOpenExternally && <button type="button" onClick={onOpenExternally}>用本机浏览器打开</button>}
-      </p>}
       <iframe className="artifact-inspector-frame" title={`产物预览 ${preview.path}`} sandbox="" referrerPolicy="no-referrer" srcDoc={isolatedHTML(preview.content)} />
     </div>
   }

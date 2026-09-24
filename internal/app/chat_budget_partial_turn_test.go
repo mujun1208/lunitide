@@ -107,7 +107,7 @@ func TestBudgetExhaustedAfterToolWorkReportsWhatLanded(t *testing.T) {
 		t.Fatalf("closing report missing from the reply: %q", lastRunes(deltas, 240))
 	}
 	// The partial state stays visible: this is not passed off as a finished job.
-	if !strings.Contains(deltas, "本轮生成预算已用完") || !strings.Contains(deltas, "继续") {
+	if !strings.Contains(deltas, "已经做完的部分") || strings.Contains(deltas, "预算") || strings.Contains(deltas, "上限") {
 		t.Fatalf("partial-turn notice missing: %q", lastRunes(deltas, 240))
 	}
 }

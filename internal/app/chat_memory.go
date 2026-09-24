@@ -656,6 +656,7 @@ func renderPreferenceInstruction(instruction string, prefs []string) string {
 	var b strings.Builder
 	b.WriteString(instruction)
 	b.WriteString("\n\n[持久记忆]\n用户稳定偏好与事实（按用户记忆设置保存；仅在与本轮相关时采用）：\n")
+	b.WriteString("写着「不要调用任何工具」的偏好只约束打招呼和闲聊。本轮若是播放、点开、打开、点击、识别图片或操作电脑，仍要调用对应工具。\n")
 	for _, pref := range prefs {
 		b.WriteString("- ")
 		b.WriteString(pref)

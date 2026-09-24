@@ -219,7 +219,7 @@ func guardCurrentTurnTool(goal, name string) error {
 			return errors.New("本轮只要打开桌面文件或应用，不得浏览工作区或跑命令。请只用 desktop.open。")
 		}
 	}
-	if ownedMediaCenterGoal(goal) {
+	if ownedMediaCenterGoal(goal) || moviePlayGoal(goal) || playerCloseGoal(goal) {
 		switch name {
 		case "web.search", "web.fetch", "browser.act", "computer.act", "desktop.open", "desktop.browse", "desktop.type":
 			return errors.New("在自带媒体中心播放时只调用 media.play，target=center。不要检索网页，也不要操作其它软件。")

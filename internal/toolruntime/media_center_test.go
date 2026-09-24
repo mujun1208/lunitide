@@ -112,8 +112,8 @@ func TestMediaCenterRejectsCatalogURLOutsideOpenLibraries(t *testing.T) {
 		searchForMediaCenter = prevSearch
 	})
 	out, err := (&Runtime{}).executeMediaCenter(context.Background(), json.RawMessage(`{"target":"center","query":"Nosferatu"}`))
-	if err != nil || strings.Contains(out.Output, "cdn.example") || !strings.Contains(out.Output, publicDomainMovieURL) {
-		t.Fatalf("a catalog URL outside the open libraries must not play; the known film should: err=%v out=%s", err, out.Output)
+	if err != nil || strings.Contains(out.Output, "cdn.example") || strings.Contains(out.Output, publicDomainMovieURL) || !strings.Contains(out.Output, "https://www.iqiyi.com/so/q_Nosferatu") || !strings.Contains(out.Output, "https://so.youku.com/search_video/q_Nosferatu") {
+		t.Fatalf("a catalog URL outside the open libraries must not play; the official pages should: err=%v out=%s", err, out.Output)
 	}
 }
 
@@ -133,8 +133,15 @@ func TestMediaCenterNamedTitleIgnoresUnlicensedWebHit(t *testing.T) {
 		searchForMediaCenter = prevSearch
 	})
 	out, err := (&Runtime{}).executeMediaCenter(context.Background(), json.RawMessage(`{"target":"center","query":"夜访吸血鬼"}`))
-	if err != nil || !strings.Contains(out.Output, "MEDIA_CENTER") || !strings.Contains(out.Output, publicDomainMovieURL) || strings.Contains(out.Output, "night_of_the_living_dead") {
-		t.Fatalf("named title with no catalog file must open the known public-domain film, not a search hit: err=%v out=%s", err, out.Output)
+	if err != nil || strings.Contains(out.Output, "MEDIA_CENTER") || strings.Contains(out.Output, publicDomainMovieURL) || strings.Contains(out.Output, "night_of_the_living_dead") || !strings.Contains(out.Output, "https://www.iqiyi.com/so/q_%E5%A4%9C%E8%AE%BF%E5%90%B8%E8%A1%80%E9%AC%BC") || !strings.Contains(out.Output, "https://so.youku.com/search_video/q_%E5%A4%9C%E8%AE%BF%E5%90%B8%E8%A1%80%E9%AC%BC") {
+		t.Fatalf("named title with no catalog file must open the official pages, not a search hit: err=%v out=%s", err, out.Output)
+	}
+}
+
+func TestMediaCenterStopDoesNotStartAnotherFilm(t *testing.T) {
+	out, err := (&Runtime{}).executeMediaCenter(context.Background(), json.RawMessage(`{"action":"stop","target":"center"}`))
+	if err != nil || !strings.Contains(out.Output, "MEDIA_CENTER_STOP") || strings.Contains(out.Output, "url:") {
+		t.Fatalf("err=%v out=%s", err, out.Output)
 	}
 }
 
@@ -151,9 +158,13 @@ func TestMediaCenterNamedTitleDoesNotUseMovieFallback(t *testing.T) {
 		resolveOpenMedia = prevResolve
 		searchForMediaCenter = prevSearch
 	})
-	out, err := (&Runtime{}).executeMediaCenter(context.Background(), json.RawMessage(`{"target":"center","query":"夜访吸血鬼"}`))
-	if err != nil || !strings.Contains(out.Output, "MEDIA_CENTER") || !strings.Contains(out.Output, publicDomainMovieTitle) {
-		t.Fatalf("named title with no file must still start the media center: err=%v out=%s", err, out.Output)
+	out, err := (&Runtime{}).executeMediaCenter(context.Background(), json.RawMessage(`{"target":"center","query":"我想看夜访吸血鬼这部电影"}`))
+	iqiyi, youku := memberFilmSearchURLs("我想看夜访吸血鬼这部电影")
+	if err != nil || iqiyi == "" || !strings.Contains(out.Output, iqiyi) || !strings.Contains(out.Output, youku) || !strings.Contains(out.Output, memberLoginNote) || strings.Contains(out.Output, publicDomainMovieTitle) {
+		t.Fatalf("named title with no file must open the official pages: err=%v out=%s", err, out.Output)
+	}
+	if genericIQ, _ := memberFilmSearchURLs("帮我找一部好看点的电影在媒体中心比方出来"); genericIQ != "" {
+		t.Fatal(genericIQ)
 	}
 }
 

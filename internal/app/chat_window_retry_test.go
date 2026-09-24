@@ -9,6 +9,14 @@ import (
 	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
+func TestDropWindowRetryImages(t *testing.T) {
+	req := &llmadapter.Request{Images: []llmadapter.Image{{MIME: "image/png", Data: []byte("shot")}}}
+	dropWindowRetryImages(req)
+	if len(req.Images) != 0 {
+		t.Fatal("a screenshot must leave the retry, or the next call overflows again")
+	}
+}
+
 func TestIsWindowOverflowError(t *testing.T) {
 	if !isWindowOverflowError(&llmadapter.Error{Code: "CONTEXT_WINDOW_EXCEEDED"}) {
 		t.Fatal("window code")

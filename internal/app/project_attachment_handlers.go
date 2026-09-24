@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/projectattachment"
 	"github.com/oklog/ulid/v2"
@@ -141,7 +140,7 @@ func handleProjectAttachmentIngest(e *Engine, ctx context.Context, r bridge.Requ
 		p.ContentBase64 == "" {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "projectAttachment.ingest 参数无效", false)
 	}
-	if len(p.ContentBase64) > base64.StdEncoding.EncodedLen(attachmentapp.MaxFileSize) {
+	if len(p.ContentBase64) > base64.StdEncoding.EncodedLen(projectattachment.MaxFileSize) {
 		return r.Fail("PROJECT_ATTACHMENT_FILE_TOO_LARGE", "项目附件超过 10 MiB 限制", false)
 	}
 	decodedLen := base64.StdEncoding.DecodedLen(len(p.ContentBase64))
@@ -150,7 +149,7 @@ func handleProjectAttachmentIngest(e *Engine, ctx context.Context, r bridge.Requ
 	} else if strings.HasSuffix(p.ContentBase64, "=") {
 		decodedLen--
 	}
-	if decodedLen > attachmentapp.MaxFileSize {
+	if decodedLen > projectattachment.MaxFileSize {
 		return r.Fail("PROJECT_ATTACHMENT_FILE_TOO_LARGE", "项目附件超过 10 MiB 限制", false)
 	}
 	content, err := base64.StdEncoding.DecodeString(p.ContentBase64)

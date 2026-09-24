@@ -73,6 +73,29 @@ func TestPptStageNudgeVisibleInThinking(t *testing.T) {
 	}
 }
 
+func TestPptFactsSkipResearchAndGenerateOnce(t *testing.T) {
+	goal := "帮我做一个10页的PPT，个人自我介绍，男40岁，穆军，做IT，担任过副总经理，从业18年航空行业ERP、MRO系统建设，做过SAP和Java，现在转做AI。"
+	if !pptContentInHand(goal) {
+		t.Fatal("a brief that already states the facts must not wait on web research")
+	}
+	if pptContentInHand("做一份介绍 PPT") {
+		t.Fatal("a bare PPT request still uses the pipeline")
+	}
+	req := llmadapter.Request{Model: "m", Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: goal}}}
+	turn := &chatTurnCheckpoint{Goal: goal}
+	startPptWorkflow(&req, turn, func(bridge.Event) error { return nil })
+	if !turn.SkipOfficeResearch || turn.PptStage != pptStageWrite {
+		t.Fatalf("stage=%s skip=%v", turn.PptStage, turn.SkipOfficeResearch)
+	}
+	last := req.Messages[len(req.Messages)-1].Content
+	if strings.Contains(last, "[PPT 九步流水线") || !strings.Contains(last, "不要 web.search") || !strings.Contains(last, "没有合适模版") {
+		t.Fatalf("direct instruction missing: %s", last)
+	}
+	if blocked, _ := pptGenBlocked(turn, "pptx.gen"); blocked {
+		t.Fatal("facts already in the request must not block pptx.gen")
+	}
+}
+
 func TestStartPptWorkflowInjectsPipeline(t *testing.T) {
 	req := llmadapter.Request{Model: "m", Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "做一份介绍 PPT"}}}
 	turn := &chatTurnCheckpoint{Goal: "做一份介绍 PPT"}

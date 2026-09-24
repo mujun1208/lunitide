@@ -512,6 +512,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 					applyWindowRetryMessagesKeep(&req, e.latestCheckpointSummary(op, sessionID), windowRetryKeep(state.windowRetryCount))
 					clipWindowRetryPayloads(&req, state.windowRetryCount)
+					dropWindowRetryImages(&req)
 					discardStepText(&assistantText, stepTextStart)
 					if bufferReply {
 						stepReply.Reset()
@@ -558,7 +559,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						toolLoopLimit = next
 					}
 					req.Messages = append(req.Messages, toolBudgetContinueMessage())
-					_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "生成额度用完，自动开始下一轮，接着把任务做完。\n"}})
+					_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "这一轮已经写完的内容都留着，接着把任务做完。\n"}})
 					streamErr = nil
 					continue
 				}
@@ -707,6 +708,14 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							}}
 							autoDesktopTypeDone = true
 						}
+					}
+					if len(result.Message.ToolCalls) == 0 && !autoDesktopObserveDone && toolDefinitionsHave(req.Tools, "computer.act") && (systemBrowserFirstResultGoal(turn.Goal) || systemBrowserFirstResultGoal(spokenGoal) || openNewsGoal(turn.Goal) || openNewsGoal(spokenGoal)) {
+						result.Message.ToolCalls = []llmadapter.ToolCall{{
+							ID:        "auto-" + ulid.Make().String(),
+							Name:      "computer.act",
+							Arguments: autoDesktopObserveArgs(),
+						}}
+						autoDesktopObserveDone = true
 					}
 					if len(result.Message.ToolCalls) == 0 && !autoDesktopObserveDone && toolDefinitionsHave(req.Tools, "computer.act") && !turnAttemptedAction(req.Messages, "observe") && (looksLikeDesktopObserveTurn(turn.Goal) || desktopLadderWantsNamedObserve(turn.Goal, req.Messages)) {
 						result.Message.ToolCalls = []llmadapter.ToolCall{{
@@ -1017,6 +1026,18 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				// pre-start on bounded goroutines (chat_parallel.go documents
 				// the concurrency safety contract); mutating, cc.* and gated
 				// tools stay inline.
+				for i := range result.Message.ToolCalls {
+					call := &result.Message.ToolCalls[i]
+					if moviePlayGoal(turn.Goal) && call.Name != "media.play" && !autoMediaPlayDone {
+						call.Name = "media.play"
+						call.Arguments = forceMediaCenterArgs(turn.Goal, nil)
+						autoMediaPlayDone = true
+					} else if playerCloseGoal(turn.Goal) && call.Name != "media.play" && !autoMediaPlayDone {
+						call.Name = "media.play"
+						call.Arguments = forceMediaCenterStopArgs()
+						autoMediaPlayDone = true
+					}
+				}
 				parallelFutures := startParallelToolFutures(op, e, mode, sessionID, result.Message.ToolCalls)
 				// Early returns below (duplicate call ID, invalid args, send
 				// failures) must not abandon pre-started spawn goroutines:

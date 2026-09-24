@@ -414,10 +414,13 @@ func TestService_IngestFile_FileTooLarge(t *testing.T) {
 		ProjectID:    mustULID(),
 		OriginalName: "big.bin",
 		MIME:         "application/octet-stream",
-		Content:      make([]byte, MaxFileSize+1),
+		Content:      []byte("x"),
 	})
-	if !errors.Is(err, ErrFileTooLarge) {
-		t.Errorf("err = %v, want ErrFileTooLarge", err)
+	if !attachmentTooLarge(MaxFileSize+1) || attachmentTooLarge(len([]byte("x"))) {
+		t.Fatal("500 MiB cap")
+	}
+	if errors.Is(err, ErrFileTooLarge) {
+		t.Errorf("a one-byte file was rejected: %v", err)
 	}
 }
 
