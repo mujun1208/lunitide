@@ -384,10 +384,28 @@ func handleSkillPublish(e *Engine, ctx context.Context, r bridge.Request) bridge
 	if !skillServiceAvailable(e.skills) {
 		return r.Fail("STORAGE_UNAVAILABLE", "技能数据暂时不可用", true)
 	}
-	if err := e.skills.Publish(ctx, p.ID); err != nil {
-		return skillFailure(r, err)
+	before := ""
+	if sk, gerr := e.skills.Get(ctx, p.ID); gerr == nil && sk != nil {
+		before = sk.Version
 	}
-	return r.Ok(map[string]any{"published": true})
+	if err := e.skills.Publish(ctx, p.ID); err != nil {
+		if !errors.Is(err, skillapp.ErrInvalidTransition) {
+			return skillFailure(r, err)
+		}
+		sk, gerr := e.skills.Get(ctx, p.ID)
+		if gerr != nil || sk == nil || sk.Status != skill.SkillStatusPublished {
+			return skillFailure(r, err)
+		}
+	}
+	aligned, aerr := e.alignInstalledSkillVersion(ctx, p.ID, "")
+	if aerr != nil {
+		return skillFailure(r, aerr)
+	}
+	version := before
+	if aligned != nil && aligned.Version != "" {
+		version = aligned.Version
+	}
+	return r.Ok(map[string]any{"published": true, "version": version})
 }
 
 func handleSkillDeprecate(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {

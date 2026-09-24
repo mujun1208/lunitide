@@ -386,10 +386,15 @@ func (e *Engine) unfinishedTurnInjection(sessionID, userText string) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\n\n[未完成任务] 上次执行因中断未完成。从断点继续做到完成，不要从头再问一遍。")
+	b.WriteString("\n\n[未完成任务] 这是续做，不是新任务。找到上次没做完的原任务，只做还没完成的下一步。已经调用过的工具和已经改过的文件不要重读、不要重写、不要从头摸底。")
 	if strings.TrimSpace(cp.Goal) != "" {
 		b.WriteString("\n原任务：")
 		b.WriteString(strings.TrimSpace(cp.Goal))
+	}
+	if len(cp.LastTools) > 0 {
+		b.WriteString("\n已完成动作：")
+		b.WriteString(strings.Join(cp.LastTools, "、"))
+		b.WriteString("。这些已经做过，跳过。")
 	}
 	if cp.Continuation != nil {
 		decision := modelfit.RecoveryDecision(*cp.Continuation)

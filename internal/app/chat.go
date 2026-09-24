@@ -741,6 +741,10 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 					if name == "" {
 						name = "图片"
 					}
+					if text := e.oversizedImageOCR(ctx, imageRef); text != "" {
+						envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, contextapp.ContextSource{Type: contextapp.SourceAttachmentExcerpt, ID: imageRef.ID, Authority: contextapp.AuthorityEvidence, Content: name + "\n[本机文字识别]\n" + text, Provenance: "attachment:" + imageRef.ID + ":project:" + imageRef.ProjectID})
+						continue
+					}
 					envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, contextapp.ContextSource{Type: contextapp.SourceAttachmentExcerpt, ID: imageRef.ID, Authority: contextapp.AuthorityEvidence, Content: name + "\n已附图片，但没有读出画面。请按文件名说明，不要猜测画面内容。", Provenance: "attachment:" + imageRef.ID + ":project:" + imageRef.ProjectID})
 					continue
 				}

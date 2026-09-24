@@ -111,8 +111,9 @@ func TestMediaCenterRejectsCatalogURLOutsideOpenLibraries(t *testing.T) {
 		resolveOpenMedia = prevResolve
 		searchForMediaCenter = prevSearch
 	})
-	if _, err := (&Runtime{}).executeMediaCenter(context.Background(), json.RawMessage(`{"target":"center","query":"Nosferatu"}`)); err == nil {
-		t.Fatal("a catalog URL outside the open libraries must not play")
+	out, err := (&Runtime{}).executeMediaCenter(context.Background(), json.RawMessage(`{"target":"center","query":"Nosferatu"}`))
+	if err != nil || strings.Contains(out.Output, "cdn.example") || !strings.Contains(out.Output, publicDomainMovieURL) {
+		t.Fatalf("a catalog URL outside the open libraries must not play; the known film should: err=%v out=%s", err, out.Output)
 	}
 }
 
@@ -131,8 +132,9 @@ func TestMediaCenterNamedTitleIgnoresUnlicensedWebHit(t *testing.T) {
 		resolveOpenMedia = prevResolve
 		searchForMediaCenter = prevSearch
 	})
-	if _, err := (&Runtime{}).executeMediaCenter(context.Background(), json.RawMessage(`{"target":"center","query":"夜访吸血鬼"}`)); err == nil {
-		t.Fatal("a named title must not play an unlicensed web-search file")
+	out, err := (&Runtime{}).executeMediaCenter(context.Background(), json.RawMessage(`{"target":"center","query":"夜访吸血鬼"}`))
+	if err != nil || !strings.Contains(out.Output, "MEDIA_CENTER") || !strings.Contains(out.Output, publicDomainMovieURL) || strings.Contains(out.Output, "night_of_the_living_dead") {
+		t.Fatalf("named title with no catalog file must open the known public-domain film, not a search hit: err=%v out=%s", err, out.Output)
 	}
 }
 
@@ -149,8 +151,9 @@ func TestMediaCenterNamedTitleDoesNotUseMovieFallback(t *testing.T) {
 		resolveOpenMedia = prevResolve
 		searchForMediaCenter = prevSearch
 	})
-	if _, err := (&Runtime{}).executeMediaCenter(context.Background(), json.RawMessage(`{"target":"center","query":"夜访吸血鬼"}`)); err == nil {
-		t.Fatal("a named title with no file must not be replaced by the default movie")
+	out, err := (&Runtime{}).executeMediaCenter(context.Background(), json.RawMessage(`{"target":"center","query":"夜访吸血鬼"}`))
+	if err != nil || !strings.Contains(out.Output, "MEDIA_CENTER") || !strings.Contains(out.Output, publicDomainMovieTitle) {
+		t.Fatalf("named title with no file must still start the media center: err=%v out=%s", err, out.Output)
 	}
 }
 

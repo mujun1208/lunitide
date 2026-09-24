@@ -264,8 +264,13 @@ func TestUnfinishedTurnInjectionUsesCheckpoint(t *testing.T) {
 	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	e.saveTurnCheckpoint(session, chatTurnCheckpoint{Status: turnStatusInterrupted, Goal: "把目录里的技能都装上", Injected: []string{"只要 arkcli"}})
 	got := e.unfinishedTurnInjection(session, resumeUserPrompt)
-	if !strings.Contains(got, "把目录里的技能都装上") || !strings.Contains(got, "只要 arkcli") {
+	if !strings.Contains(got, "把目录里的技能都装上") || !strings.Contains(got, "只要 arkcli") || !strings.Contains(got, "不要从头摸底") {
 		t.Fatalf("injection missing checkpoint: %q", got)
+	}
+	e.saveTurnCheckpoint(session, chatTurnCheckpoint{Status: turnStatusInterrupted, Goal: "写自测脚本", LastTools: []string{"workspace.read", "workspace.edit"}})
+	got = e.unfinishedTurnInjection(session, "好，继续")
+	if !strings.Contains(got, "写自测脚本") || !strings.Contains(got, "workspace.read") || !strings.Contains(got, "跳过") {
+		t.Fatalf("resume must keep the unfinished task and finished tools: %q", got)
 	}
 	if e.unfinishedTurnInjection(session, "新开一个话题") != "" {
 		t.Fatal("non-resume turns must not force the old task")

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -72,6 +73,31 @@ func (a *planStepToolAdapter) Stream(context.Context, []byte, llmadapter.Request
 
 func (a *planStepToolAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
 	return llmadapter.Discovery{}, nil
+}
+
+type planStepRetryAdapter struct{ calls int }
+
+func (a *planStepRetryAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	a.calls++
+	if a.calls == 1 {
+		return llmadapter.Response{}, errors.New("timeout")
+	}
+	return llmadapter.Response{Message: llmadapter.Message{Content: "step outcome: wrote the file"}}, nil
+}
+func (a *planStepRetryAdapter) Stream(context.Context, []byte, llmadapter.Request, func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	return llmadapter.Response{}, context.Canceled
+}
+func (a *planStepRetryAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, nil
+}
+
+func TestPlanStepRetriesAFailedRound(t *testing.T) {
+	e := newSubagentChatEngine(t)
+	adapter := &planStepRetryAdapter{}
+	out := e.executePlanStep(context.Background(), adapter, nil, "model-x", subTestSession, executionModeApproval, "write the script", planStep{Action: "write", Detail: "self-test"}, 1, 3, RouteUnspecified, nil)
+	if adapter.calls != 2 || !strings.Contains(out, "wrote the file") {
+		t.Fatalf("calls=%d out=%s", adapter.calls, out)
+	}
 }
 
 func TestPlanStepRecordsReceiptWithoutAutoApprove(t *testing.T) {

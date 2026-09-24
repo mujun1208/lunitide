@@ -332,6 +332,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			var streamErr error
 			toolsFallbackUsed := false
 			thinkingDisableRetryUsed := false
+			modelCallRetries := 0
 			guiLoopRuns := 0
 			emptyObserves := 0
 			desktopVerified := false
@@ -561,6 +562,13 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					streamErr = nil
 					continue
 				}
+				if streamErr != nil && modelCallRetries < maxContinueNudges && chatModelCallRetryable(streamErr) && step+1 < maxToolLoopStepsHard {
+					modelCallRetries++
+					req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: "上一轮模型请求没有完成。从当前进度接着做未完成的步骤，不要从头重来，不要对用户说无法执行。"})
+					_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "模型这一轮没有返回完整结果，自动再试，任务继续。\n"}})
+					streamErr = nil
+					continue
+				}
 				if streamErr != nil {
 					log.Printf("chat stream %s model_call=%d failed: %s received_text_bytes=%d received_thinking_bytes=%d", id, step+1, chatModelFailureDiagnostic(streamErr), assistantText.Len()-stepTextStart+stepReply.Len(), thinkingText.Len()-stepThinkingStart)
 					if bufferReply && stepReply.Len() > 0 {
@@ -569,6 +577,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 					break
 				}
+				modelCallRetries = 0
 				if desktopLadderApplies(turn.Goal) && len(result.Message.ToolCalls) > 0 {
 					result.Message.ToolCalls = desktopLadderKeepCalls(result.Message.ToolCalls, req.Messages, turn.Goal)
 				}

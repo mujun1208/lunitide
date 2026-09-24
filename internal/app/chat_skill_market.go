@@ -213,19 +213,64 @@ func (e *Engine) skillPublishInstalled(ctx context.Context, args json.RawMessage
 		}
 		publishID = existing.ID
 	}
-	if sk, err := e.skills.Get(ctx, publishID); err == nil && sk != nil && sk.Status == skill.SkillStatusPublished {
-		raw, _ := json.Marshal(map[string]string{"skillId": publishID, "status": "published", "notice": "已经是发布状态，可以直接 skill.invoke。"})
-		return toolruntime.Result{Output: string(raw)}, nil
+	before := ""
+	already := false
+	if sk, err := e.skills.Get(ctx, publishID); err == nil && sk != nil {
+		before = sk.Version
+		already = sk.Status == skill.SkillStatusPublished
 	}
-	if err := e.skills.Publish(ctx, publishID); err != nil {
-		if errors.Is(err, skillapp.ErrInvalidTransition) {
-			raw, _ := json.Marshal(map[string]string{"skillId": publishID, "status": "published", "notice": "当前状态不能再次发布。已发布的技能可以直接 skill.invoke。"})
-			return toolruntime.Result{Output: string(raw)}, nil
+	if !already {
+		if err := e.skills.Publish(ctx, publishID); err != nil {
+			if !errors.Is(err, skillapp.ErrInvalidTransition) {
+				return toolruntime.Result{}, err
+			}
+			sk, gerr := e.skills.Get(ctx, publishID)
+			if gerr != nil || sk == nil || sk.Status != skill.SkillStatusPublished {
+				raw, _ := json.Marshal(map[string]string{"skillId": publishID, "status": "published", "notice": "当前状态不能再次发布。已发布的技能可以直接 skill.invoke。"})
+				return toolruntime.Result{Output: string(raw)}, nil
+			}
+			before = sk.Version
+			already = true
 		}
+	}
+	return e.replyPublishedSkillVersion(ctx, publishID, before, already)
+}
+
+// replyPublishedSkillVersion reports the label the skill center lists.
+// A newer manifest version replaces the 1.0.0 label written at create.
+func (e *Engine) replyPublishedSkillVersion(ctx context.Context, id, before string, already bool) (toolruntime.Result, error) {
+	aligned, err := e.alignInstalledSkillVersion(ctx, id, "")
+	if err != nil {
 		return toolruntime.Result{}, err
 	}
-	raw, _ := json.Marshal(map[string]string{"skillId": publishID, "status": "published"})
+	version := before
+	if aligned != nil && aligned.Version != "" {
+		version = aligned.Version
+	}
+	body := map[string]string{"skillId": id, "status": "published", "version": version}
+	switch {
+	case before != "" && version != before:
+		body["notice"] = "注册版本已从 " + before + " 更新为 " + version + "，技能中心显示这一版。"
+	case already:
+		body["notice"] = "已经是发布状态，可以直接 skill.invoke。"
+	}
+	raw, _ := json.Marshal(body)
 	return toolruntime.Result{Output: string(raw)}, nil
+}
+
+type skillVersionAligner interface {
+	AlignRegisteredVersion(context.Context, string, string) (*skill.Skill, error)
+}
+
+func (e *Engine) alignInstalledSkillVersion(ctx context.Context, id, explicit string) (*skill.Skill, error) {
+	if !skillServiceAvailable(e.skills) {
+		return nil, errString("skill service unavailable")
+	}
+	aligner, ok := e.skills.(skillVersionAligner)
+	if !ok {
+		return e.skills.Get(ctx, id)
+	}
+	return aligner.AlignRegisteredVersion(ctx, id, explicit)
 }
 
 func marketJSON(v any) json.RawMessage {

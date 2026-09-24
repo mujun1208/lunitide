@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/lunitide/lunitide/internal/attachmentapp"
+	"github.com/lunitide/lunitide/internal/domain/attachment"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/modelfit"
@@ -41,6 +43,19 @@ func (e *Engine) attachedImageOCRText(ctx context.Context, images []llmadapter.I
 		b.WriteString(text)
 	}
 	return b.String()
+}
+
+// oversizedImageOCR reads a screenshot the vision budget refused and runs the
+// same provider → RapidOCR → Windows OCR stack used for smaller images.
+func (e *Engine) oversizedImageOCR(ctx context.Context, imageRef attachment.Attachment) string {
+	if e == nil || e.ocr == nil || e.attachmentService == nil || imageRef.Size <= attachmentapp.MaxVisionImageBytes {
+		return ""
+	}
+	raw, err := e.attachmentService.ReadImageBytes(ctx, imageRef.ID, imageRef.SessionID)
+	if err != nil || len(raw) == 0 {
+		return ""
+	}
+	return e.attachedImageOCRText(ctx, []llmadapter.Image{{MIME: imageRef.MIME, Data: raw}})
 }
 
 func looksLikeOCRRequest(text string) bool {

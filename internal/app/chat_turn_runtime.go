@@ -218,15 +218,32 @@ func (e *Engine) runSkillManageTool(ctx context.Context, session string, args js
 		if err != nil {
 			return toolruntime.Result{}, err
 		}
+		explicitVersion := strings.TrimSpace(a.Version)
+		if explicitVersion != "" {
+			base := current.ManifestJSON
+			if manifest != nil {
+				base = *manifest
+			}
+			stamped, stampErr := skillapp.WithManifestVersion(base, explicitVersion)
+			if stampErr != nil {
+				return toolruntime.Result{}, stampErr
+			}
+			manifest = &stamped
+		}
 		updated, err := e.skills.UpdateFields(ctx, id, display, desc, entry, manifest, perms, nil, current.Rev)
 		if err != nil {
 			return toolruntime.Result{}, err
+		}
+		if aligned, alignErr := e.alignInstalledSkillVersion(ctx, id, explicitVersion); alignErr != nil {
+			return toolruntime.Result{}, alignErr
+		} else if aligned != nil {
+			updated = aligned
 		}
 		label := updated.DisplayName
 		if label == "" {
 			label = updated.Name
 		}
-		return toolruntime.Result{Output: "技能「" + label + "」已更新（id=" + updated.ID + "，status=" + string(updated.Status) + "）。写盘已执行，发布仍需你在技能中心确认。"}, nil
+		return toolruntime.Result{Output: "技能「" + label + "」已更新（id=" + updated.ID + "，version=" + updated.Version + "，status=" + string(updated.Status) + "）。技能中心显示这个 version。草稿仍需发布后才能 skill.invoke。"}, nil
 	default:
 		return toolruntime.Result{}, errors.New("skill.manage action must be create or patch")
 	}

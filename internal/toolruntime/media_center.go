@@ -76,7 +76,11 @@ func (r *Runtime) executeMediaCenter(ctx context.Context, args json.RawMessage) 
 			}
 		}
 		if rawURL == "" && !genericCenterMovie(title) {
-			return Result{}, errors.New("没有找到可在媒体中心直接播放的公版文件（已查 Internet Archive、维基共享资源、NASA）。请给出一个 https 直链（mp4、webm 或 mp3），或在媒体中心选择本机文件。")
+			if openCatalogWantAudio(title) {
+				return Result{}, errors.New("没有找到可在媒体中心直接播放的公版文件（已查 Internet Archive、维基共享资源、NASA）。请给出一个 https 直链（mp4、webm 或 mp3），或在媒体中心选择本机文件。")
+			}
+			rawURL, kind = publicDomainMovieURL, "video"
+			title = publicDomainMovieTitle
 		}
 		if rawURL == "" {
 			query := mediaCenterSearchQuery(title)

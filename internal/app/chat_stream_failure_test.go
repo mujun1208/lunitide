@@ -49,3 +49,15 @@ func TestChatStreamErrorMapsProviderFailureClasses(t *testing.T) {
 		})
 	}
 }
+
+func TestModelTimeoutStaysInsideTheTurn(t *testing.T) {
+	if !chatModelCallRetryable(context.DeadlineExceeded) {
+		t.Fatal("a model timeout must be retried inside the turn")
+	}
+	if !chatModelCallRetryable(&llmadapter.Error{Code: "TIMEOUT", Stage: llmadapter.StageStream}) {
+		t.Fatal("response-stream timeout must be retried")
+	}
+	if chatModelCallRetryable(&llmadapter.Error{Code: "STREAM_AUTHENTICATION_FAILED", Stage: llmadapter.StageHTTP, HTTPStatus: 401}) {
+		t.Fatal("an authentication failure must not be retried")
+	}
+}

@@ -237,6 +237,24 @@ func (m *memSkillStore) UpdateSkillFields(_ context.Context, id, display, desc, 
 	m.byID[id] = sk
 	return nil
 }
+func (m *memSkillStore) UpdateSkillSemver(_ context.Context, id, version string, expectedRev int64) error {
+	sk, ok := m.byID[id]
+	if !ok {
+		return ErrSkillNotFound
+	}
+	if sk.Rev != expectedRev {
+		return ErrSkillVersionConflict
+	}
+	for _, other := range m.byID {
+		if other.ID != id && other.Name == sk.Name && other.Version == version {
+			return ErrSkillAlreadyExists
+		}
+	}
+	sk.Version = version
+	sk.Rev++
+	m.byID[id] = sk
+	return nil
+}
 func (m *memSkillStore) UpdateSkillStatus(_ context.Context, id, status string, expectedRev int64) error {
 	sk, ok := m.byID[id]
 	if !ok {

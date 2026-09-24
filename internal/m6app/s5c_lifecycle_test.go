@@ -2,7 +2,7 @@
 // aggregation (gap-6), the governed skill import pipeline (gap-7),
 // complexity routing + manifest/bundle/synthesis freezing (gap-8) and the
 // cloud runner registry with fenced leases + receipt reconcile (gap-9).
-package app
+package m6app_test
 
 import (
 	"context"

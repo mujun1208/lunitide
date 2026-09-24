@@ -19,6 +19,8 @@ import (
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
 )
 
+const goodSkillManifest = `{"schema":"lunitide.skill/v1","name":"pdf-tool","version":"1.2.0","publisher":"acme","permissions":{"tools":["fs.read"],"network":["api.example"]},"dependencies":[{"type":"skill","name":"base-io","versionConstraint":"^1.0.0"}]}`
+
 func newS5CRouteEngine(t *testing.T) *Engine {
 	t.Helper()
 	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "s5croute.db"))
