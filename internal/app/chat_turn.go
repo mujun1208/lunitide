@@ -304,6 +304,28 @@ func looksLikeTaskChange(text string) bool {
 	return false
 }
 
+// interruptsRunningTurn is a new action spoken while another turn is still
+// going. It replaces that turn's goal so the new sentence is executed, instead
+// of being folded into the previous reply.
+func interruptsRunningTurn(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" || looksLikeResume(t) || looksLikeStatusFollowUp(t) {
+		return false
+	}
+	if moviePlayGoal(t) || playerCloseGoal(t) || systemBrowserFirstResultGoal(t) || websiteFirstResultGoal(t) {
+		return true
+	}
+	return openNewsGoal(t)
+}
+
+func openNewsGoal(text string) bool {
+	t := strings.TrimSpace(text)
+	if strings.Contains(t, "点开第一条") || strings.Contains(t, "打开第一条") || strings.Contains(t, "点第一条") {
+		return true
+	}
+	return strings.Contains(t, "打开新闻") || strings.Contains(t, "点开新闻")
+}
+
 func followUpIntent(text string) string {
 	switch {
 	case looksLikeStatusFollowUp(text):
@@ -470,19 +492,8 @@ func (e *Engine) pullQueuedSupplements(ctx context.Context, sessionID string, cp
 		return "", nil, err
 	}
 	texts := make([]string, 0, len(items))
-	var b strings.Builder
+	var takeover string
 	statusOnly := true
-	for _, m := range items {
-		if !looksLikeStatusFollowUp(m.Payload) && !looksLikeSteer(m.Payload) && !looksLikeResume(m.Payload) {
-			statusOnly = false
-			break
-		}
-	}
-	if statusOnly {
-		b.WriteString("用户在询问当前任务进度或微调方向。不要中断、不要重开任务。先用一两句话说明此刻进度（已完成步骤/正在做的步骤），若对方改了方案就按新方向调整，然后继续把原任务做完：\n")
-	} else {
-		b.WriteString("用户在任务进行中补充了以下说明，请结合当前正在做的工作一并执行，不要另起炉灶、不要丢弃已完成的步骤：\n")
-	}
 	for _, m := range items {
 		if m.Status == queueinput.StatusWithdrawn {
 			continue
@@ -492,7 +503,31 @@ func (e *Engine) pullQueuedSupplements(ctx context.Context, sessionID string, cp
 			continue
 		}
 		texts = append(texts, text)
-		fmt.Fprintf(&b, "- %s\n", text)
+		if interruptsRunningTurn(text) {
+			takeover = text
+		}
+		if !looksLikeStatusFollowUp(text) && !looksLikeSteer(text) && !looksLikeResume(text) {
+			statusOnly = false
+		}
+	}
+	if len(texts) == 0 {
+		return "", nil, nil
+	}
+	var b strings.Builder
+	if takeover != "" && cp != nil {
+		cp.Goal = takeover
+		b.WriteString("用户发来一条新的操作。立刻停下上一件事，只执行这一条，并调用对应工具。播放电影用 media.play，target=center。点开新闻或第一条结果用 computer.act 点击标题，不要改写成文章。关闭播放器用 media.play，action=stop，target=center。\n")
+		fmt.Fprintf(&b, "- %s\n", takeover)
+	} else if statusOnly {
+		b.WriteString("用户在询问当前任务进度或微调方向。不要中断、不要重开任务。先用一两句话说明此刻进度（已完成步骤/正在做的步骤），若对方改了方案就按新方向调整，然后继续把原任务做完：\n")
+		for _, text := range texts {
+			fmt.Fprintf(&b, "- %s\n", text)
+		}
+	} else {
+		b.WriteString("用户在任务进行中补充了以下说明，请结合当前正在做的工作一并执行，不要另起炉灶、不要丢弃已完成的步骤：\n")
+		for _, text := range texts {
+			fmt.Fprintf(&b, "- %s\n", text)
+		}
 	}
 	if len(texts) == 0 {
 		return "", nil, nil
@@ -534,9 +569,15 @@ func (e *Engine) applyQueuedSupplements(ctx context.Context, sessionID string, r
 		return false, nil
 	}
 	req.Messages = append(req.Messages, queuedSupplementMessage(note))
-	assistantText.WriteString(queueInjectNotice)
-	_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "已收到你的补充，继续当前任务，不另起炉灶。\n"}})
-	_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: queueInjectNotice}})
+	notice := queueInjectNotice
+	thinking := "已收到你的补充，继续当前任务，不另起炉灶。\n"
+	if cp != nil && interruptsRunningTurn(cp.Goal) {
+		notice = "\n\n（改做这一条。）\n\n"
+		thinking = "改做你刚说的这一条。\n"
+	}
+	assistantText.WriteString(notice)
+	_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: thinking}})
+	_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: notice}})
 	return true, nil
 }
 

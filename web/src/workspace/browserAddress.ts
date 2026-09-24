@@ -49,6 +49,13 @@ export function parseSearchCards(html: string): { query: string; hits: SearchHit
   return { query, hits }
 }
 
+/** Official member catalog pages. The app browser opens these; their streams stay on the site. */
+export function memberCatalogPage(url: string): boolean {
+  return url.startsWith('https://music.163.com/')
+    || url.startsWith('https://www.iqiyi.com/so/')
+    || url.startsWith('https://so.youku.com/search_video/')
+}
+
 export function latestBrowserAddress(activities: readonly WorkspaceToolActivityLike[]): string {
   for (const activity of [...activities].reverse()) {
     if (activity.status !== 'tool_completed') continue
@@ -61,7 +68,7 @@ export function latestBrowserAddress(activities: readonly WorkspaceToolActivityL
       const q = /(?:搜索：|query:\s*)(.+)/.exec(summary)?.[1]?.trim()
       if (q) return `https://cn.bing.com/search?q=${encodeURIComponent(q)}`
     }
-    if (activity.name === 'web.fetch' || activity.name.startsWith('browser.')) {
+    if (activity.name === 'web.fetch' || activity.name === 'media.play' || activity.name.startsWith('browser.')) {
       const fromSummary = /^url:\s*(\S+)/m.exec(summary)?.[1]
       if (fromSummary && isBrowserAddress(fromSummary)) return fromSummary
     }

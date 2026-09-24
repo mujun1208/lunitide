@@ -46,6 +46,10 @@ func (r *Runtime) executeMediaCenter(ctx context.Context, args json.RawMessage) 
 	if json.Unmarshal(args, &a) != nil {
 		return Result{}, errors.New("invalid arguments")
 	}
+	switch strings.TrimSpace(a.Action) {
+	case "stop", "close":
+		return result("已关闭媒体中心播放。\nMEDIA_CENTER_STOP\n"), nil
+	}
 	rawURL := strings.TrimSpace(a.URL)
 	title := strings.TrimSpace(a.Query)
 	kind := ""
@@ -78,6 +82,10 @@ func (r *Runtime) executeMediaCenter(ctx context.Context, args json.RawMessage) 
 		if rawURL == "" && !genericCenterMovie(title) {
 			if openCatalogWantAudio(title) {
 				return Result{}, errors.New("没有找到可在媒体中心直接播放的公版文件（已查 Internet Archive、维基共享资源、NASA）。请给出一个 https 直链（mp4、webm 或 mp3），或在媒体中心选择本机文件。")
+			}
+			if iqiyi, youku := memberFilmSearchURLs(title); iqiyi != "" {
+				film := memberFilmTitle(title)
+				return result(fmt.Sprintf("已打开爱奇艺和优酷的官方搜索。会员在官方页面播放《%s》。\nurl: %s\nurl: %s\n%s\n", film, iqiyi, youku, memberLoginNote)), nil
 			}
 			rawURL, kind = publicDomainMovieURL, "video"
 			title = publicDomainMovieTitle
@@ -209,14 +217,54 @@ func centerMediaTitle(raw string) string {
 	return base
 }
 
-const publicDomainMovieURL = "https://upload.wikimedia.org/wikipedia/commons/transcoded/7/78/Nosferatu_%281922%29.webm/Nosferatu_%281922%29.webm.480p.vp9.webm"
-const publicDomainMovieTitle = "Nosferatu (1922)"
+// Night of the Living Dead (1968) is public domain and has a soundtrack.
+// Nosferatu (1922) is a silent print; it stays available when that title is
+// asked for, and is not the stand-in for every other film.
+const publicDomainMovieURL = "https://upload.wikimedia.org/wikipedia/commons/c/c1/Night_of_the_Living_Dead_%281968%29.webm"
+const publicDomainMovieTitle = "Night of the Living Dead (1968)"
 
 func publicDomainMovieFallback(query string) (rawURL, title, kind string, ok bool) {
 	if !genericCenterMovie(query) {
 		return "", "", "", false
 	}
 	return publicDomainMovieURL, publicDomainMovieTitle, "video", true
+}
+
+// memberFilmSearchURLs are the official 爱奇艺 and 优酷 search pages. The member
+// watches there. These sites do not hand out a file the media center can play.
+func memberFilmSearchURLs(query string) (iqiyi, youku string) {
+	title := memberFilmTitle(query)
+	if title == "" {
+		return "", ""
+	}
+	enc := url.PathEscape(title)
+	return "https://www.iqiyi.com/so/q_" + enc, "https://so.youku.com/search_video/q_" + enc
+}
+
+func memberFilmTitle(query string) string {
+	if genericCenterMovie(query) {
+		return ""
+	}
+	q := strings.TrimSpace(query)
+	for _, cut := range []string{
+		"自带的媒体中心", "自带媒体中心", "媒体中心播放", "媒体中心",
+		"我想看", "我要看", "帮我看", "帮我找", "给我找", "想看", "要看", "看看", "观看",
+		"找一部", "找部", "一部", "这部", "这个",
+		"帮我", "给我", "请", "播放", "电影", "影片", "视频", "一下",
+	} {
+		q = strings.ReplaceAll(q, cut, " ")
+	}
+	q = strings.Map(func(r rune) rune {
+		if strings.ContainsRune("《》「」\"'，。！？、,.!?；;：:", r) {
+			return ' '
+		}
+		return r
+	}, q)
+	q = strings.Trim(strings.Join(strings.Fields(q), " "), "的了吗吧啊 ")
+	if q == "" || genericCenterMovie(q) {
+		return ""
+	}
+	return q
 }
 
 func genericCenterMovie(query string) bool {

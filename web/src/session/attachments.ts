@@ -8,10 +8,12 @@ function attachmentUserError(err: unknown, fallback: string): string {
   return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
 }
 
-export const ATTACHMENT_FILE_MAX=10*1024*1024
-export const ATTACHMENT_BATCH_MAX=20
+export const ATTACHMENT_FILE_MAX=500*1024*1024
+export const ATTACHMENT_BATCH_MAX=40
 export const VISION_IMAGE_MAX=4
-export const ATTACHMENT_BATCH_BYTES=20*1024*1024
+export const ATTACHMENT_BATCH_BYTES=ATTACHMENT_FILE_MAX*ATTACHMENT_BATCH_MAX
+const attachmentMiB=(bytes:number)=>Math.round(bytes/1024/1024)
+export const attachmentReadTimeoutMs=(size:number)=>Math.min(180_000,Math.max(12_000,Math.ceil(Math.max(0,size)/(4*1024*1024))*1000))
 export const VISION_IMAGE_BYTES=180*1024
 export const TEXT_EXTENSIONS=['.txt','.md','.json','.csv','.html','.xml','.js','.ts','.py','.go','.java','.c','.cpp','.rs','.yaml','.yml','.sh','.sql','.log'] as const
 export const IMAGE_MIME_BY_EXTENSION:Record<string,string>={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif','.bmp':'image/bmp'}
@@ -26,7 +28,7 @@ export const ATTACHMENT_ACCEPT=[...ALLOWED_EXTENSIONS,'image/png','image/jpeg','
 
 const extension=(name:string)=>{const dot=name.lastIndexOf('.');return dot<0?'':name.slice(dot).toLowerCase()}
 const imageExtensionByMIME=(mime:string)=>mime==='image/png'?'.png':mime==='image/jpeg'?'.jpg':mime==='image/webp'?'.webp':''
-const readFile=(file:File,signal?:AbortSignal)=>attachmentOperation(readBoundedFile(file,ATTACHMENT_FILE_MAX),signal,12_000,'读取文件超时，请重新选择')
+const readFile=(file:File,signal?:AbortSignal)=>attachmentOperation(readBoundedFile(file,ATTACHMENT_FILE_MAX),signal,attachmentReadTimeoutMs(file.size),'读取文件超时，请重新选择')
 export const fileToBase64=async(file:File):Promise<string>=>{const bytes=new Uint8Array(await readFile(file)),chunk=0x8000;let binary='';for(let i=0;i<bytes.length;i+=chunk)binary+=String.fromCharCode(...bytes.subarray(i,i+chunk));return btoa(binary)}
 const bytesToBase64=(bytes:Uint8Array)=>{let binary='';for(let i=0;i<bytes.length;i+=0x8000)binary+=String.fromCharCode(...bytes.subarray(i,i+0x8000));return btoa(binary)}
 const hex=(bytes:ArrayBuffer)=>Array.from(new Uint8Array(bytes),x=>x.toString(16).padStart(2,'0')).join('')
@@ -56,11 +58,11 @@ export async function prepareAttachmentFiles(files:readonly File[],signal?:Abort
   if(signal?.aborted)throw attachmentCancelled()
   const ext=extension(file.name),imageMIME=IMAGE_MIME_BY_EXTENSION[ext]
   if(!ALLOWED_EXTENSIONS.includes(ext)){failed.push(`${file.name}（不支持的类型）`);continue}
-  if(file.size>ATTACHMENT_FILE_MAX){failed.push(`${file.name}（超过 10 MiB）`);continue}
-  if((total+=file.size)>ATTACHMENT_BATCH_BYTES){failed.push(`${file.name}（本批原文件合计超过 20 MiB）`);continue}
+  if(file.size>ATTACHMENT_FILE_MAX){failed.push(`${file.name}（超过 ${attachmentMiB(ATTACHMENT_FILE_MAX)} MiB）`);continue}
+  if((total+=file.size)>ATTACHMENT_BATCH_BYTES){failed.push(`${file.name}（本批原文件合计超过 ${attachmentMiB(ATTACHMENT_BATCH_BYTES)} MiB）`);continue}
   try{prepared.push(imageMIME?await compressVisionImage(file,signal,ext==='.gif'||ext==='.bmp'):withDocumentType(file))}catch(e){if(signal?.aborted)throw e;failed.push(attachmentUserError(e,`${file.name}（图片处理失败）`))}
  }
- if(files.length>ATTACHMENT_BATCH_MAX)failed.push(`超过 20 个的 ${files.length-ATTACHMENT_BATCH_MAX} 个文件`)
+ if(files.length>ATTACHMENT_BATCH_MAX)failed.push(`超过 ${ATTACHMENT_BATCH_MAX} 个的 ${files.length-ATTACHMENT_BATCH_MAX} 个文件`)
  return{files:prepared,failed}
 }
 
@@ -76,10 +78,10 @@ export function clipboardImages(data:DataTransfer):File[]{
 
 export function validateAttachmentBatch(files:readonly File[]):{accepted:File[];skipped:string[]}{
  const selected=files.slice(0,ATTACHMENT_BATCH_MAX),skipped:string[]=[]
- if(files.length>ATTACHMENT_BATCH_MAX)skipped.push(`超过 20 个的 ${files.length-ATTACHMENT_BATCH_MAX} 个文件`)
+ if(files.length>ATTACHMENT_BATCH_MAX)skipped.push(`超过 ${ATTACHMENT_BATCH_MAX} 个的 ${files.length-ATTACHMENT_BATCH_MAX} 个文件`)
  let imageCount=0
- const accepted=selected.filter(file=>{const ext=extension(file.name),imageMIME=IMAGE_MIME_BY_EXTENSION[ext];if(!ALLOWED_EXTENSIONS.includes(ext)){skipped.push(`${file.name}（不支持的类型）`);return false}if(imageMIME&&file.type&&file.type!==imageMIME){skipped.push(`${file.name}（图片类型与扩展名不匹配）`);return false}if(imageMIME&&++imageCount>VISION_IMAGE_MAX){skipped.push(`${file.name}（每次最多 4 张图片）`);return false}if(imageMIME&&file.size>VISION_IMAGE_BYTES){skipped.push(`${file.name}（视觉图片超过 180 KiB）`);return false}if(file.size>ATTACHMENT_FILE_MAX){skipped.push(`${file.name}（超过 10 MiB）`);return false}return true})
- if(accepted.reduce((total,file)=>total+file.size,0)>ATTACHMENT_BATCH_BYTES)throw new BridgeClientError('本批支持文件合计不能超过 20 MiB','ATTACHMENT_BATCH_LIMIT',false,'renderer')
+ const accepted=selected.filter(file=>{const ext=extension(file.name),imageMIME=IMAGE_MIME_BY_EXTENSION[ext];if(!ALLOWED_EXTENSIONS.includes(ext)){skipped.push(`${file.name}（不支持的类型）`);return false}if(imageMIME&&file.type&&file.type!==imageMIME){skipped.push(`${file.name}（图片类型与扩展名不匹配）`);return false}if(imageMIME&&++imageCount>VISION_IMAGE_MAX){skipped.push(`${file.name}（每次最多 4 张图片）`);return false}if(imageMIME&&file.size>VISION_IMAGE_BYTES){skipped.push(`${file.name}（视觉图片超过 180 KiB）`);return false}if(file.size>ATTACHMENT_FILE_MAX){skipped.push(`${file.name}（超过 ${attachmentMiB(ATTACHMENT_FILE_MAX)} MiB）`);return false}return true})
+ if(accepted.reduce((total,file)=>total+file.size,0)>ATTACHMENT_BATCH_BYTES)throw new BridgeClientError(`本批支持文件合计不能超过 ${attachmentMiB(ATTACHMENT_BATCH_BYTES)} MiB`,'ATTACHMENT_BATCH_LIMIT',false,'renderer')
  return{accepted,skipped}
 }
 
@@ -142,7 +144,7 @@ export async function ingestAttachments(attachments:AttachmentBridge,projectId:s
    const bytes=new Uint8Array(await readFile(file,signal))
    if(bytes.length!==file.size)throw new Error('文件大小发生变化，请重新选择')
    if(isImageFile(file))previewUrl=`data:${file.type||IMAGE_MIME_BY_EXTENSION[extension(file.name)]};base64,${bytesToBase64(bytes)}`
-   const sha256=hex(await attachmentOperation(crypto.subtle.digest('SHA-256',bytes),signal,10_000))
+   const sha256=hex(await attachmentOperation(crypto.subtle.digest('SHA-256',bytes),signal,attachmentReadTimeoutMs(bytes.length)))
    let beginAbandoned=false
    const beginning=attachments.begin({projectId,sessionId,originalName:file.name,mime:file.type||IMAGE_MIME_BY_EXTENSION[extension(file.name)]||'text/plain',size:file.size,sha256})
    void beginning.then(result=>{if(beginAbandoned||signal?.aborted)void abortUpload(result.uploadId)},()=>{})

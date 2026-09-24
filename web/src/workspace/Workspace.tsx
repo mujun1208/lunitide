@@ -22,13 +22,24 @@ import { ArtifactPanel, type ArtifactCard } from './ArtifactPanel'
 import { ArtifactPreviewContent } from './ArtifactInspector'
 import { previewKindFromPath } from './artifactPreviewMode'
 import { SafeLinkedText } from './safeLinks'
-import { isBrowserAddress, latestBrowserAddress, parseSearchCards } from './browserAddress'
+import { isBrowserAddress, latestBrowserAddress, memberCatalogPage, parseSearchCards } from './browserAddress'
 import { extractTaskFiles, isChangeTool } from './codePanelUtils'
 import { workspaceDownloadEnabled } from './workspaceDownload'
 
 function workspaceUserError(err: unknown, fallback: string): string {
   const detail = err instanceof Error ? err.message.trim() : ''
   return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
+}
+
+function panelPage(url: string): boolean {
+  return isBrowserAddress(url) && (url.startsWith('https://') || url.startsWith('http://'))
+}
+
+function rememberBrowserURL(current: { urls: string[]; index: number }, url: string) {
+  if (current.urls[current.index] === url) return current
+  const urls = current.urls.slice(0, current.index + 1)
+  urls.push(url)
+  return { urls, index: urls.length - 1 }
 }
 
 export type WorkspaceTab = 'files' | 'code' | 'browser' | 'terminal' | 'plan' | 'changes'
@@ -161,6 +172,8 @@ export function Workspace({
   const [browserURL, setBrowserURL] = useState('https://')
   const [browserStatus, setBrowserStatus] = useState('未打开')
   const [browserBusy, setBrowserBusy] = useState(false)
+  const [frameKey, setFrameKey] = useState(0)
+  const [trail, setTrail] = useState<{ urls: string[]; index: number }>({ urls: [], index: -1 })
   const request = useRef(0)
   const local = useRef<LocalWorkspaceBridge | undefined>(localWorkspace)
   const filesStageRef = useRef<HTMLDivElement>(null)
@@ -186,13 +199,19 @@ export function Workspace({
     if (next) setTab(next)
   }, [targetTab])
 
+  const openedMemberSong = useRef('')
   useEffect(() => {
     const next = latestBrowserAddress(toolActivities)
     if (next) {
       setBrowserURL(next)
-      setBrowserStatus('已打开')
+      setBrowserStatus('已在此页打开')
+      setTrail((current) => rememberBrowserURL(current, next))
+      if (memberCatalogPage(next) && openedMemberSong.current !== next) {
+        openedMemberSong.current = next
+        void browser.open({ url: next }).catch(() => {})
+      }
     }
-  }, [toolActivities])
+  }, [browser, toolActivities])
 
   useEffect(() => {
     let active = true
@@ -263,21 +282,29 @@ export function Workspace({
   const browserHost = (() => { try { return new URL(browserURL).hostname } catch { return '' } })()
   const browserTabLabel = searchCards.query ? `搜索 · ${searchCards.query}` : browserHost || '安全浏览器'
 
-  const openSearchHit = async (url: string) => {
-    setBrowserURL(url)
-    setBrowserStatus('已打开')
-    if (url.startsWith('https://')) {
-      setBrowserBusy(true)
-      try {
-        const result = await browser.open({ url })
-        setBrowserURL(result.url || url)
-        setBrowserStatus('已在独立窗口打开')
-      } catch (e) {
-        setBrowserStatus(workspaceUserError(e, '已更新地址栏'))
-      } finally {
-        setBrowserBusy(false)
-      }
+  const showInPanel = (url: string) => {
+    if (!isBrowserAddress(url) || url.startsWith('file:')) {
+      setBrowserStatus('请输入可打开的 https 地址')
+      return
     }
+    setBrowserURL(url)
+    setBrowserStatus('已在此页打开')
+    setTrail((current) => rememberBrowserURL(current, url))
+    setFrameKey((key) => key + 1)
+  }
+
+  const openSearchHit = (url: string) => {
+    showInPanel(url)
+  }
+
+  const goBrowser = (step: -1 | 1) => {
+    const next = trail.index + step
+    const url = trail.urls[next]
+    if (!url) return
+    setTrail({ ...trail, index: next })
+    setBrowserURL(url)
+    setBrowserStatus('已在此页打开')
+    setFrameKey((key) => key + 1)
   }
 
   const artifactCards: ArtifactCard[] = toolActivities
@@ -563,13 +590,13 @@ export function Workspace({
         <div className="workspace-browser">
           <div className="workspace-browser-chrome">
             <div className="workspace-browser-toolbar">
-              <div className="workspace-browser-nav" aria-hidden="true">
-                <button type="button" tabIndex={-1} disabled>←</button>
-                <button type="button" tabIndex={-1} disabled>→</button>
-                <button type="button" className="artifact-icon-btn" aria-label="刷新地址" disabled={browserBusy || !browserURL.startsWith('https://')} onClick={() => void openBrowser()}>↻</button>
+              <div className="workspace-browser-nav">
+                <button type="button" aria-label="后退" disabled={trail.index <= 0} onClick={() => goBrowser(-1)}>←</button>
+                <button type="button" aria-label="前进" disabled={trail.index < 0 || trail.index >= trail.urls.length - 1} onClick={() => goBrowser(1)}>→</button>
+                <button type="button" className="artifact-icon-btn" aria-label="刷新地址" disabled={!browserURL.startsWith('https://')} onClick={() => setFrameKey((key) => key + 1)}>↻</button>
               </div>
               <label className="workspace-browser-address">
-                <input aria-label="浏览器地址" type="text" inputMode="url" value={browserURL} onChange={e => setBrowserURL(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void openBrowser() }} />
+                <input aria-label="浏览器地址" type="text" inputMode="url" value={browserURL} onChange={e => setBrowserURL(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') showInPanel(browserURL) }} />
               </label>
               <div className="workspace-browser-actions">
                 <button className="artifact-icon-btn" type="button" aria-label="打开独立浏览器" title={browserTabLabel} disabled={browserBusy || !browserURL.startsWith('https://')} onClick={() => void openBrowser()}>↗</button>
@@ -583,12 +610,12 @@ export function Workspace({
               <section className="workspace-search-results" aria-label="搜索结果">
                 <header>
                   <b>{searchCards.query ? `搜索结果 · ${searchCards.query}` : artifact?.path ?? '搜索结果'}</b>
-                  <small>点击结果会更新地址栏</small>
+                  <small>点击结果在此页打开</small>
                 </header>
                 <ol>
                   {searchCards.hits.map(hit => (
                     <li key={hit.url}>
-                      <button type="button" onClick={() => void openSearchHit(hit.url)}>
+                      <button type="button" onClick={() => openSearchHit(hit.url)}>
                         <b>{hit.title}</b>
                         <small>{hit.url}</small>
                         {hit.snippet && <p>{hit.snippet}</p>}
@@ -597,11 +624,21 @@ export function Workspace({
                   ))}
                 </ol>
               </section>
+            ) : null}
+            {panelPage(browserURL) ? (
+              <iframe
+                key={frameKey}
+                className="workspace-browser-frame"
+                title={`应用内页面 ${browserURL}`}
+                src={browserURL}
+                sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads"
+                referrerPolicy="no-referrer"
+              />
             ) : artifact ? (
               <section className="workspace-html-preview">
                 <header>
-                  <b>{isBrowserAddress(browserURL) ? browserURL : artifact.path}</b>
-                  <small>安全摘录预览 · 原文点「独立打开」</small>
+                  <b>{artifact.path}</b>
+                  <small>页面摘录</small>
                 </header>
                 <iframe title={`HTML 预览 ${artifact.path}`} sandbox="" referrerPolicy="no-referrer" srcDoc={isolatedHTML(artifact.content)} />
               </section>
@@ -609,19 +646,13 @@ export function Workspace({
               <div className="workspace-browser-empty">
                 <span aria-hidden="true">⌕</span>
                 <b>正在检索网页…</b>
-                <p>搜索结果会显示在这个安全预览里，不会打开系统浏览器。</p>
-              </div>
-            ) : isBrowserAddress(browserURL) ? (
-              <div className="workspace-browser-empty">
-                <span aria-hidden="true">⧉</span>
-                <b>该网页无法嵌进预览</b>
-                <p>地址栏已同步到 {browserURL}。点「独立打开」在隔离窗口查看原文。</p>
+                <p>搜索结果会显示在这个预览里。</p>
               </div>
             ) : (
               <div className="workspace-browser-empty">
                 <span aria-hidden="true">◫</span>
-                <b>尚无 HTML 预览</b>
-                <p>网页搜索和抓取的结果会安全显示在这里；输入 HTTPS 地址可在独立隔离窗口打开。</p>
+                <b>尚无页面</b>
+                <p>输入 HTTPS 地址后回车，页面就在这里打开。↗ 仍可放到独立窗口。</p>
               </div>
             )}
           </div>

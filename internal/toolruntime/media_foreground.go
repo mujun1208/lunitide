@@ -22,6 +22,7 @@ type ccInvoker func(ctx context.Context, session, tool string, args json.RawMess
 var mediaSleep = time.Sleep
 var activateWindow = winexec.ActivateWindowMatching
 var sendForegroundPlay = winexec.SendMediaKey
+var clickMusicTransport = winexec.ClickMusicTransport
 var openLaunchPath = openWithDefaultApp
 var mediaSessionAction = winexec.MediaSessionAction
 
@@ -500,15 +501,36 @@ func executeMediaPlayForeground(ctx context.Context, invoke ccInvoker, session, 
 				return genericPlaybackStarted(app, opened, "media session"), nil
 			}
 		}
+		clicked := clickMusicTransport(app) == nil
+		var playing Result
+		confirmed := false
+		if clicked {
+			for attempt := 0; attempt < 4 && !confirmed; attempt++ {
+				mediaSleep(500 * time.Millisecond)
+				playing, confirmed = confirmedMusicPlaying(ctx, app)
+			}
+			if confirmed {
+				rememberVerifiedMusicApp(app)
+				return withOpenedPlayer(opened, playing), nil
+			}
+			// The transport click is the one play action. A media key after it
+			// pauses 汽水 when the click already started the track.
+			return genericPlaybackStarted(app, opened, "transport click"), nil
+		}
 		_ = sendForegroundPlay("play")
-		mediaSleep(700 * time.Millisecond)
-		if playing, ok := confirmedMusicPlaying(ctx, app); ok {
+		for attempt := 0; attempt < 3 && !confirmed; attempt++ {
+			mediaSleep(600 * time.Millisecond)
+			playing, confirmed = confirmedMusicPlaying(ctx, app)
+		}
+		if !confirmed {
+			nodes, title := snapshotMediaUI(ctx, invoke, session, approved)
+			if res, ok := confirmGenericPlayback(nodes, title, app, "media key", false); ok {
+				playing, confirmed = res, true
+			}
+		}
+		if confirmed {
 			rememberVerifiedMusicApp(app)
 			return withOpenedPlayer(opened, playing), nil
-		}
-		if res, ok := trySparseTreePlay(ctx, invoke, session, app, approved); ok {
-			rememberVerifiedMusicApp(app)
-			return withOpenedPlayer(opened, res), nil
 		}
 		return genericPlaybackStarted(app, opened, "media key"), nil
 	}

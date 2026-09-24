@@ -23,13 +23,13 @@ func chatModelStreamError(err error) *bridge.StreamError {
 	}
 	switch code {
 	case "RESPONSE_TRUNCATED":
-		set("UPSTREAM_RESPONSE_TRUNCATED", "模型输出达到长度限制，已保留部分内容；任务未完成，本次响应中的工具未执行", false)
+		set("UPSTREAM_RESPONSE_TRUNCATED", "已保留收到的内容，任务未完成，请再试一次。", false)
 	case "RESPONSE_FILTERED":
 		set("UPSTREAM_RESPONSE_FILTERED", "供应商内容过滤中止了模型输出，已保留部分内容；任务未完成，本次响应中的工具未执行", false)
 	case "MALFORMED_RESPONSE":
 		set("UPSTREAM_MALFORMED_RESPONSE", "模型返回格式不完整，已保留收到的内容，请重试", true)
 	case "REQUEST_TOO_LARGE":
-		set("REQUEST_TOO_LARGE", "请求内容过大，请减少附件或上下文后重试", false)
+		set("REQUEST_TOO_LARGE", "较早的对话已经收起。请再试一次。", false)
 	case "CONTEXT_WINDOW_EXCEEDED":
 		set("CONTEXT_WINDOW_EXCEEDED", windowOverflowUserMessage(), false)
 	case "OUTCOME_UNKNOWN":
@@ -55,7 +55,7 @@ func chatModelStreamError(err error) *bridge.StreamError {
 	case "RESPONSE_TOO_LARGE":
 		set("UPSTREAM_RESPONSE_TOO_LARGE", "模型响应超过接收大小限制，已保留收到的内容，请缩短输出后重试", false)
 	case "RESPONSE_BODY_TOO_LARGE":
-		set("UPSTREAM_RESPONSE_BODY_TOO_LARGE", "模型响应流的累计传输数据超过接收限制，已保留收到的内容，任务未完成，请检查响应流大小预算", false)
+		set("UPSTREAM_RESPONSE_BODY_TOO_LARGE", "模型响应流的累计传输数据超过接收限制，已保留收到的内容，任务未完成，请再试一次", false)
 	case "RESPONSE_LINE_TOO_LARGE":
 		set("UPSTREAM_RESPONSE_LINE_TOO_LARGE", "模型响应流的单行数据超过接收限制，已保留收到的内容，任务未完成，请检查响应流格式和单行大小限制", false)
 	case "RESPONSE_EVENT_TOO_LARGE":

@@ -15,15 +15,18 @@ func TestMediaKeyWithoutReadbackIsUncertain(t *testing.T) {
 	origActivate := activateWindow
 	origSession := mediaSessionAction
 	origPlay := sendForegroundPlay
+	origClick := clickMusicTransport
 	origSleep := mediaSleep
 	t.Cleanup(func() {
 		activateWindow = origActivate
 		mediaSessionAction = origSession
 		sendForegroundPlay = origPlay
+		clickMusicTransport = origClick
 		mediaSleep = origSleep
 	})
 	activateWindow = func(string) error { return nil }
 	mediaSleep = func(time.Duration) {}
+	clickMusicTransport = func(string) error { return errors.New("no window") }
 	mediaSessionAction = func(context.Context, []string, string, bool) (winexec.MediaSessionResult, error) {
 		return winexec.MediaSessionResult{}, errors.New("no smtc")
 	}
@@ -60,15 +63,22 @@ func TestMediaKeyConfirmedByLaterSession(t *testing.T) {
 	origActivate := activateWindow
 	origSession := mediaSessionAction
 	origPlay := sendForegroundPlay
+	origClick := clickMusicTransport
 	origSleep := mediaSleep
 	t.Cleanup(func() {
 		activateWindow = origActivate
 		mediaSessionAction = origSession
 		sendForegroundPlay = origPlay
+		clickMusicTransport = origClick
 		mediaSleep = origSleep
 	})
 	activateWindow = func(string) error { return nil }
 	mediaSleep = func(time.Duration) {}
+	clicks := 0
+	clickMusicTransport = func(string) error {
+		clicks++
+		return nil
+	}
 	calls := 0
 	mediaSessionAction = func(context.Context, []string, string, bool) (winexec.MediaSessionResult, error) {
 		calls++
@@ -87,10 +97,10 @@ func TestMediaKeyConfirmedByLaterSession(t *testing.T) {
 		return Result{}, errors.New("unexpected")
 	}
 	res, err := executeMediaPlayForeground(context.Background(), invoke, "s1", "随机播放", "汽水音乐", true, true)
-	if err != nil || !played {
-		t.Fatalf("got %+v %v played=%v", res, err, played)
+	if err != nil || played || clicks != 1 {
+		t.Fatalf("got %+v %v played=%v clicks=%d", res, err, played, clicks)
 	}
 	if !strings.Contains(res.Output, "verified playing") || !strings.Contains(res.Output, `"passed":true`) {
-		t.Fatalf("play key then session must verify: %s", res.Output)
+		t.Fatalf("transport click then session must verify: %s", res.Output)
 	}
 }

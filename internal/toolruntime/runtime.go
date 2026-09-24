@@ -920,7 +920,10 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if e != nil {
 			return Result{}, e
 		}
-		data, e := officetools.GenQuietPptx(a.Title, a.Slides)
+		data, e := fillEnabledDeck(a.Title, a.Slides)
+		if e != nil || len(data) == 0 {
+			data, e = officetools.GenQuietPptx(a.Title, a.Slides)
+		}
 		if e != nil {
 			return Result{}, e
 		}
@@ -1167,6 +1170,29 @@ func searchQueryForbidden(query string) bool {
 		}
 	}
 	return false
+}
+
+// EnabledDeckTemplate returns one enabled asset-library PPTX. Draft templates
+// are not included. A nil hook means no asset library is wired.
+var EnabledDeckTemplate = func() ([]byte, bool) { return nil, false }
+
+func fillEnabledDeck(title string, slides []officetools.SlideSpec) ([]byte, error) {
+	if EnabledDeckTemplate == nil || len(slides) == 0 {
+		return nil, deckfill.ErrNoFillable
+	}
+	raw, ok := EnabledDeckTemplate()
+	if !ok || len(raw) == 0 {
+		return nil, deckfill.ErrNoFillable
+	}
+	outline := make([]deckfill.OutlineSlide, 0, len(slides))
+	for _, slide := range slides {
+		outline = append(outline, deckfill.OutlineSlide{Title: slide.Title, Subtitle: slide.Subtitle, Bullets: slide.Bullets})
+	}
+	out, _, err := deckfill.BuildBytes(raw, deckfill.PlanFromOutline(title, outline))
+	if err != nil || len(out) == 0 {
+		return nil, deckfill.ErrNoFillable
+	}
+	return out, nil
 }
 
 func localizeWorkspaceWriteError(err error) error {

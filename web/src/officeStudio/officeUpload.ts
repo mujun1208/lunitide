@@ -10,7 +10,8 @@ export interface OfficeImportRevision {
   kind: OfficeKind;
 }
 
-const LIMIT = 10 * 1024 * 1024;
+const LIMIT = 500 * 1024 * 1024;
+const OFFICE_BATCH_MAX = 40;
 interface CommittedImport {
   attachmentId: string;
   pending?: Promise<OfficeTaskDetail>;
@@ -32,12 +33,12 @@ const base64 = (bytes: Uint8Array): string => {
 export function validateOfficeFiles(files: File[], revision?: OfficeImportRevision): void {
   if (revision && (files.length !== 1 || files[0].name.split('.').pop()?.toLowerCase() !== revision.kind))
     throw new Error(`修改版必须是一个 ${revision.kind.toUpperCase()} 文件，与原文件格式一致。`);
-  if (files.length > 20 || files.reduce((sum, file) => sum + file.size, 0) > 20 * 1024 * 1024)
-    throw new Error('每次最多导入 20 个文件，合计不能超过 20 MiB。');
+  if (files.length > OFFICE_BATCH_MAX || files.reduce((sum, file) => sum + file.size, 0) > LIMIT * OFFICE_BATCH_MAX)
+    throw new Error(`每次最多导入 ${OFFICE_BATCH_MAX} 个文件，合计不能超过 ${Math.round((LIMIT * OFFICE_BATCH_MAX) / 1024 / 1024)} MiB。`);
   for (const file of files) {
     const extension = file.name.split('.').pop()?.toLowerCase() || '';
     if (!MIME[extension]) throw new Error(`不支持 ${file.name}。请选择 PPTX、DOCX、XLSX 或 PDF 文件。`);
-    if (file.size > LIMIT || !file.size) throw new Error(`${file.name} 必须是非空文件，且不能超过 10 MiB。`);
+    if (file.size > LIMIT || !file.size) throw new Error(`${file.name} 必须是非空文件，且不能超过 500 MiB。`);
   }
 }
 

@@ -38,12 +38,14 @@ func TestInstructionPlaySucceedsWhenPlayerAlreadyShowsPause(t *testing.T) {
 	origSleep := mediaSleep
 	origSession := mediaSessionAction
 	origPlay := sendForegroundPlay
+	origClick := clickMusicTransport
 	t.Cleanup(func() {
 		musicPlayMemoryOverride = origMemory
 		activateWindow = origActivate
 		mediaSleep = origSleep
 		mediaSessionAction = origSession
 		sendForegroundPlay = origPlay
+		clickMusicTransport = origClick
 	})
 	musicPlayMemoryOverride = filepath.Join(dir, "music-play.json")
 	activateWindow = func(string) error { return nil }
@@ -55,6 +57,10 @@ func TestInstructionPlaySucceedsWhenPlayerAlreadyShowsPause(t *testing.T) {
 	keyed := false
 	sendForegroundPlay = func(string) error {
 		keyed = true
+		return nil
+	}
+	clickMusicTransport = func(string) error {
+		t.Fatal("already-playing player must not be clicked")
 		return nil
 	}
 	typed := false

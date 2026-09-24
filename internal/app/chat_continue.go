@@ -11,7 +11,7 @@ import (
 // calls counts as one step. 6 was enough for a single lookup but stopped
 // batch work (install many skills, multi-file edits) mid-task.
 const (
-	maxToolLoopSteps         = 24
+	maxToolLoopSteps         = 240
 	maxContinueNudges        = 3
 	maxDesktopContinueNudges = 5
 	continueNudgeText        = "继续执行用户的指令直到完成。不要停下来询问、不要等待确认、不要只做勘查后结束本轮。立刻继续调用工具。仅在任务已完成，或缺少无法推断的必要信息/权限时，才给出最终说明。"
@@ -23,9 +23,9 @@ const (
 	// calls near the ceiling earns more room, up to this hard cap. A turn
 	// that stalls, loops, or stops calling tools never reaches the extension
 	// and stays at the base limit.
-	maxToolLoopStepsHard = 72
-	toolLoopExtendChunk  = 8
-	maxToolBudgetWaves   = 3
+	maxToolLoopStepsHard = 240
+	toolLoopExtendChunk  = 24
+	maxToolBudgetWaves   = 24
 )
 
 // planChecklist reads the latest todo.write in the current turn.
@@ -216,7 +216,7 @@ func incompleteContinueNudgeMessage() llmadapter.Message {
 // after a multi-tool / multi-round loop hits its step budget with tool calls
 // still pending and no final text, one more model pass runs WITHOUT tools so
 // the user always gets a spoken/readable wrap-up instead of a silent finish.
-const forceSummaryNudgeText = "根据已经执行的工具结果，用一两句中文做最终总结。不能再调用任何工具。说出已经完成了什么、还有哪些没做完。不要提到步数、额度或上限，不要让用户再发一句。没做成的事直接说明原因。"
+const forceSummaryNudgeText = "根据已经执行的工具结果，用一两句中文做最终总结。说出已经完成了什么、还有哪些没做完。不要提到步数、额度、预算或上限，不要让用户再发一句。没做成的事直接说明原因。"
 
 // shouldExtendPastPreparatoryStep keeps a turn alive after a catalog or file
 // read. Stopping there is what made the model tell the user the step limit
@@ -238,7 +238,7 @@ func shouldExtendPastPreparatoryStep(lastTools []string, waves, limit, step int)
 }
 
 func mediaCenterPlayStillPending(goal string, lastTools []string) bool {
-	return ownedMediaCenterGoal(goal) && !usedAnyTool(lastTools, "media.play")
+	return (ownedMediaCenterGoal(goal) || moviePlayGoal(goal)) && !usedAnyTool(lastTools, "media.play")
 }
 
 func toolCallNames(calls []llmadapter.ToolCall) []string {
@@ -256,12 +256,12 @@ func forceSummaryNudgeMessage() llmadapter.Message {
 // budgetSummaryNudgeText closes a turn whose generation allowance ran out
 // mid-job. The tools already ran, so the user is owed a report on the work,
 // not a bare limit message.
-const budgetSummaryNudgeText = "本轮生成预算已用完，不能再调用任何工具，也不要再输出思考过程。请只用自然语言，基于以上已经执行完的工具结果，简短地告诉用户：已经完成了什么、文件或结果在哪里、还剩哪些没做完。不要重复工具原始输出，不要说「稍等」。"
+const budgetSummaryNudgeText = "根据已经执行完的工具结果，用一两句中文说明已经完成了什么、文件或结果在哪里。不要提到步数、额度、预算或上限，不要让用户再发一句。不要重复工具原始输出，不要说「稍等」。"
 
 // budgetPartialTurnNotice marks the reply above as the report of a turn that
 // stopped early. The turn ends normally because the work is real, but the
 // notice keeps the partial state visible instead of passing it off as done.
-const budgetPartialTurnNotice = "\n（本轮生成预算已用完，上面是已完成部分的小结。发送“继续”可以接着做完剩下的。）\n"
+const budgetPartialTurnNotice = "\n（上面是这一轮已经做完的部分。）\n"
 
 func budgetSummaryNudgeMessage() llmadapter.Message {
 	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: budgetSummaryNudgeText}

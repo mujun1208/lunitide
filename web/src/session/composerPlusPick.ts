@@ -38,7 +38,7 @@ function skippedNames(picked: {skipped?: string[]}): string[] {
 }
 
 export async function readPickedFile(bridge: DesktopFilesBridge, item: DesktopPickItem, signal?:AbortSignal): Promise<File> {
-  if (!Number.isSafeInteger(item.size) || item.size < 0 || item.size > ATTACHMENT_FILE_MAX) throw new Error(`${item.fileName}（超过 10 MiB 或文件大小无效）`)
+  if (!Number.isSafeInteger(item.size) || item.size < 0 || item.size > ATTACHMENT_FILE_MAX) throw new Error(`${item.fileName}（超过 ${Math.round(ATTACHMENT_FILE_MAX / 1024 / 1024)} MiB 或文件大小无效）`)
   const parts: Uint8Array[] = []
   let offset = 0
   for (;;) {
@@ -83,10 +83,10 @@ export async function pickComposerFiles(bridge: DesktopFilesBridge | undefined, 
     let total=0
     for (const item of picked.items.slice(0,ATTACHMENT_BATCH_MAX)){
       if(signal?.aborted)return {kind:'canceled'}
-      if(total+item.size>ATTACHMENT_BATCH_BYTES){skipped.push(`${item.fileName}（本批超过 20 MiB）`);continue}
+      if(total+item.size>ATTACHMENT_BATCH_BYTES){skipped.push(`${item.fileName}（本批超过 ${Math.round(ATTACHMENT_BATCH_BYTES / 1024 / 1024)} MiB）`);continue}
       try{files.push(await readPickedFile(bridge,item,signal));total+=item.size}catch(error){if(signal?.aborted)return {kind:'canceled'};skipped.push(`${item.fileName}：${pickUserError(error,'读取失败')}`)}
     }
-    if(picked.items.length>ATTACHMENT_BATCH_MAX)skipped.push(`超过 20 个的 ${picked.items.length-ATTACHMENT_BATCH_MAX} 个文件`)
+    if(picked.items.length>ATTACHMENT_BATCH_MAX)skipped.push(`超过 ${ATTACHMENT_BATCH_MAX} 个的 ${picked.items.length-ATTACHMENT_BATCH_MAX} 个文件`)
     if(!files.length)return {kind:'error',error:new BridgeClientError(skipped.join('；')||'未读取到文件，请重新选择','DESKTOP_FILE_READ_FAILED',true,'renderer')}
     return {kind: 'files', files, skipped}
   } catch (error) {

@@ -13,7 +13,7 @@ import (
 	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
-const maxWindowRetries = 3
+const maxWindowRetries = 8
 
 // providerModelContextWindow reads the configured window for this model.
 // Missing configuration keeps the historical 128000 fallback. The bool is
@@ -149,12 +149,19 @@ func clipWindowRetryPayloads(req *llmadapter.Request, attempt int) {
 	}
 }
 
+func dropWindowRetryImages(req *llmadapter.Request) {
+	if req == nil {
+		return
+	}
+	req.Images = nil
+}
+
 func windowOverflowUserMessage() string {
-	return "上下文已满，请开新话题或先压缩"
+	return "较早的对话已经收起，这一步会接着做。"
 }
 
 func windowRetryThinkingNotice() string {
-	return "上下文已满，已按检查点收面后重试当前步。"
+	return "较早的对话已经收起，正在接着做当前这一步。"
 }
 
 func companionColdMaxMessages(hasCheckpoint bool) int {

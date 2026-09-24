@@ -1,6 +1,7 @@
 export type MediaCenterPlay = { url: string; kind: 'audio' | 'video'; title: string; rate?: number }
 
 export const MEDIA_CENTER_PLAY_EVENT = 'lunitide:media-center-play'
+export const MEDIA_CENTER_STOP_EVENT = 'lunitide:media-center-stop'
 
 const MEDIA_FILE = /\.(mp4|webm|m4v|mp3|m4a|aac|flac|wav|ogg|oga)$/i
 
@@ -74,8 +75,13 @@ export function handoffPageMedia(play: MediaCenterPlay): boolean {
 }
 
 export function noteMediaCenterPlay(summary?: string): void {
+  if (typeof window === 'undefined') return
+  if ((summary ?? '').includes('MEDIA_CENTER_STOP')) {
+    window.dispatchEvent(new Event(MEDIA_CENTER_STOP_EVENT))
+    return
+  }
   const play = parseMediaCenterPlay(summary ?? '')
-  if (!play || typeof window === 'undefined') return
+  if (!play) return
   publish(play)
 }
 

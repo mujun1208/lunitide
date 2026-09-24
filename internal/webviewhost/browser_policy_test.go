@@ -30,6 +30,25 @@ func TestBrowserNavigationPolicy(t *testing.T) {
 	}
 }
 
+func TestIsolatedMemberBrowserKeepsLogin(t *testing.T) {
+	for _, name := range []string{"password autosave", "autofill", "context menus", "accelerator keys", "script dialogs"} {
+		if !isolatedBrowserSettingEnabled(name) {
+			t.Fatalf("%s must stay available for member login", name)
+		}
+	}
+	for _, name := range []string{"web messaging", "DevTools", "host objects"} {
+		if isolatedBrowserSettingEnabled(name) {
+			t.Fatalf("%s must stay off", name)
+		}
+	}
+	if got := isolatedNewWindowURL("https://passport.iqiyi.com/login"); got != "https://passport.iqiyi.com/login" {
+		t.Fatal(got)
+	}
+	if isolatedNewWindowURL("http://passport.iqiyi.com/login") != "" || isolatedNewWindowURL("javascript:alert(1)") != "" {
+		t.Fatal("unsafe login popup was kept")
+	}
+}
+
 func TestIsolatedBrowserProfileMustDifferFromMainProfile(t *testing.T) {
 	root := t.TempDir()
 	main := filepath.Join(root, "WebView2")

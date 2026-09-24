@@ -108,10 +108,10 @@ it('rejects oversized assets without reading them and permits the next valid upl
   fireEvent.change(screen.getByPlaceholderText('描述模版用途和适用范围'), { target: { value: '需求模板' } })
   const large = new File(['x'], '模板.txt')
   const readLarge = vi.fn()
-  Object.defineProperties(large, { size: { value: 11 * 1024 * 1024 }, arrayBuffer: { value: readLarge } })
+  Object.defineProperties(large, { size: { value: 501 * 1024 * 1024 }, arrayBuffer: { value: readLarge } })
   fireEvent.change(screen.getByLabelText('附件 *'), { target: { files: [large] } })
   fireEvent.click(screen.getByRole('button', { name: '上传并保存' }))
-  expect(await screen.findByText('文件超过 10 MiB 限制')).toBeInTheDocument()
+  expect(await screen.findByText('文件超过 500 MiB 限制')).toBeInTheDocument()
   expect(readLarge).not.toHaveBeenCalled()
   expect(api.create).not.toHaveBeenCalled()
   const valid = new File(['ok'], '模板.txt')
@@ -157,4 +157,24 @@ it('batch imports office files under the analyzed name without the upload form',
   expect(api.create).not.toHaveBeenCalled()
   expect(api.enable).not.toHaveBeenCalled()
   expect(screen.getByRole('alert')).toHaveTextContent('old.ppt')
+})
+
+it('accepts a batch of office decks larger than 10 MiB and still rejects a huge one', async () => {
+  const api = bridge(vi.fn().mockResolvedValue({ items: [] }))
+  vi.mocked(api.officeImport).mockResolvedValue({
+    ...template('01ARZ3NDEKTSV4RRFFQ69G5FAT', '财务工作总结'),
+    templateType: 'ppt',
+    fileName: '财务工作总结.pptx',
+    status: 'draft',
+  })
+  render(<AssetManagerPage templates={api} />)
+  const deck = new File(['pptx'], '财务工作总结.pptx')
+  Object.defineProperty(deck, 'size', { value: 12 * 1024 * 1024 })
+  Object.defineProperty(deck, 'arrayBuffer', { value: () => Promise.resolve(new ArrayBuffer(8)) })
+  const huge = new File(['pptx'], '岗位竞聘.pptx')
+  Object.defineProperty(huge, 'size', { value: 501 * 1024 * 1024 })
+  fireEvent.change(await screen.findByLabelText('批量入库办公模版'), { target: { files: [deck, huge] } })
+  expect(await screen.findByText(/已入库 1 份办公模版，状态为创建/)).toBeInTheDocument()
+  expect(api.officeImport).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole('alert')).toHaveTextContent('500 MiB')
 })

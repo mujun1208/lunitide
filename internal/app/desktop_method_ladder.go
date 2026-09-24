@@ -40,7 +40,7 @@ func desktopLadderNudgeMessage(messages []llmadapter.Message, goal string) llmad
 
 func desktopLadderApplies(goal string) bool {
 	goal = strings.TrimSpace(goal)
-	if goal == "" || ownedMediaCenterGoal(goal) || lookupOnlyTurn(goal) || typedFieldOnlyGoal(goal) || companionGoalIsOpenOnly(goal) || quitOnlyGoal(goal) {
+	if goal == "" || ownedMediaCenterGoal(goal) || moviePlayGoal(goal) || playerCloseGoal(goal) || lookupOnlyTurn(goal) || typedFieldOnlyGoal(goal) || companionGoalIsOpenOnly(goal) || quitOnlyGoal(goal) {
 		return false
 	}
 	if officeDeliverableSkipsDesktopLadder(goal) || browserLookupOnlyGoal(goal) {

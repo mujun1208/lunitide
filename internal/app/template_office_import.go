@@ -83,11 +83,11 @@ func officeImportBytes(e *Engine, uploadID, contentBase64 string) ([]byte, error
 	case uploadID != "":
 		return e.consumeTemplateStage(uploadID)
 	case strings.TrimSpace(contentBase64) != "":
-		if len(contentBase64) > base64.StdEncoding.EncodedLen(attachmentapp.MaxFileSize) {
+		if len(contentBase64) > base64.StdEncoding.EncodedLen(attachmentapp.MaxTemplateFileSize) {
 			return nil, errors.New("large")
 		}
 		raw, err := base64.StdEncoding.DecodeString(contentBase64)
-		if err != nil || len(raw) == 0 || len(raw) > attachmentapp.MaxFileSize {
+		if err != nil || len(raw) == 0 || len(raw) > attachmentapp.MaxTemplateFileSize {
 			return nil, errors.New("invalid")
 		}
 		return raw, nil

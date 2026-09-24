@@ -51,6 +51,12 @@ func TestLooksLikeResume(t *testing.T) {
 	if followUpIntent("做好了吗") != "progress" || followUpIntent("封面先做出来") != "supplement" || followUpIntent("别做PPT了") != "task_change" || followUpIntent("再追加一个问题") != "supplement" {
 		t.Fatal("follow-up intent classification mismatch")
 	}
+	if !interruptsRunningTurn("浏览器点开第一条新闻") || !interruptsRunningTurn("帮我找一部香港90年代的电影播放") || !interruptsRunningTurn("关掉播放器") {
+		t.Fatal("a new play, news, or close command must take over the running turn")
+	}
+	if interruptsRunningTurn("封面先做出来") || interruptsRunningTurn("再追加一个问题") {
+		t.Fatal("a design note stays with the current turn")
+	}
 	if looksLikeIndependentRequest("做好了没有") || looksLikeIndependentRequest("改方案用深色封面") {
 		t.Fatal("status and steer must not start a new task")
 	}

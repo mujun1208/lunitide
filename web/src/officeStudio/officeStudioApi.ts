@@ -72,12 +72,25 @@ export type OfficeImageInfo = import('../generated/bridge').OfficeImageInfoDTO
 export type OfficeStorageUsage = import('../generated/bridge').OfficeStorageUsageResult
 export type OfficeStorageSweepReport = import('../generated/bridge').OfficeStorageSweepResult
 export type OfficeImageReplacement = import('../generated/bridge').OfficeArtifactReplaceImagePayload
+export interface OfficeSlideShape {
+  text?: string
+  x: number
+  y: number
+  w: number
+  h: number
+}
+export interface OfficeSlideCanvas {
+  part: string
+  fill: string
+  shapes: OfficeSlideShape[]
+}
 export interface OfficePreview {
   versionId: string; kind: OfficeKind; content: string; notice?: string
   previewBasis: string; nodes: OfficeNode[]
   pdfReady: boolean; truncated: boolean
   nodeOffset?:number; nextNodeOffset?:number; totalNodes?:number
   parts?: Array<{ name: string; sha256: string; size: number }>
+  slides?: OfficeSlideCanvas[]
 }
 export interface OfficeRendererStatus {
   components: Array<{ id: string; label: string; status: 'ready' | 'unavailable' | 'error'; detail: string }>

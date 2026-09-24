@@ -25,19 +25,26 @@ func TestMediaPlayForegroundRequiresCCAndWindow(t *testing.T) {
 	}
 }
 
-func TestGenericForegroundPlaySendsKeyWithoutUIHunt(t *testing.T) {
+func TestGenericForegroundPlayClicksTransportOnce(t *testing.T) {
 	origActivate := activateWindow
 	origSession := mediaSessionAction
 	origPlay := sendForegroundPlay
+	origClick := clickMusicTransport
 	origSleep := mediaSleep
 	t.Cleanup(func() {
 		activateWindow = origActivate
 		mediaSessionAction = origSession
 		sendForegroundPlay = origPlay
+		clickMusicTransport = origClick
 		mediaSleep = origSleep
 	})
 	activateWindow = func(string) error { return nil }
 	mediaSleep = func(time.Duration) {}
+	clicks := 0
+	clickMusicTransport = func(string) error {
+		clicks++
+		return nil
+	}
 	mediaSessionAction = func(context.Context, []string, string, bool) (winexec.MediaSessionResult, error) {
 		return winexec.MediaSessionResult{}, errors.New("no session")
 	}
@@ -54,14 +61,68 @@ func TestGenericForegroundPlaySendsKeyWithoutUIHunt(t *testing.T) {
 		return Result{Output: `{"count":0,"nodes":[]}`}, nil
 	}
 	res, err := executeMediaPlayForeground(context.Background(), invoke, "s1", "随机播放", "汽水音乐", true, true)
-	if !pressedSpace {
-		t.Fatal("unconfirmed media key must press play inside the app")
+	if pressedSpace || played {
+		t.Fatal("transport click must not be followed by Space or a media key")
 	}
-	if err != nil || !played || !strings.Contains(res.Output, "playback not confirmed") || strings.Contains(res.Output, "started playing") {
-		t.Fatalf("got %+v %v played=%v", res, err, played)
+	if err != nil || clicks != 1 || !strings.Contains(res.Output, "transport click") || !strings.Contains(res.Output, "MEDIA_UNVERIFIED") {
+		t.Fatalf("got %+v %v clicks=%d", res, err, clicks)
 	}
-	if strings.Contains(res.Output, `"passed":true`) || !strings.Contains(res.Output, `"uncertain":true`) || !strings.Contains(res.Output, "MEDIA_UNVERIFIED") {
-		t.Fatalf("key-only play must stay unverified: %s", res.Output)
+}
+
+func TestGenericForegroundPlayConfirmsAfterTransportClick(t *testing.T) {
+	origActivate := activateWindow
+	origSession := mediaSessionAction
+	origPlay := sendForegroundPlay
+	origClick := clickMusicTransport
+	origSleep := mediaSleep
+	t.Cleanup(func() {
+		activateWindow = origActivate
+		mediaSessionAction = origSession
+		sendForegroundPlay = origPlay
+		clickMusicTransport = origClick
+		mediaSleep = origSleep
+	})
+	activateWindow = func(string) error { return nil }
+	mediaSleep = func(time.Duration) {}
+	clicks := 0
+	clickMusicTransport = func(app string) error {
+		clicks++
+		if app != "汽水音乐" {
+			t.Fatalf("clicked %q", app)
+		}
+		return nil
+	}
+	mediaSessionAction = func(_ context.Context, _ []string, action string, _ bool) (winexec.MediaSessionResult, error) {
+		if action == "status" {
+			return winexec.MediaSessionResult{Verified: true, Status: "Playing", Title: "深夜港湾", Artist: "符彦崇"}, nil
+		}
+		return winexec.MediaSessionResult{}, errors.New("no session")
+	}
+	sendForegroundPlay = func(string) error {
+		t.Fatal("confirmed click must not send a media key")
+		return nil
+	}
+	invoke := func(context.Context, string, string, json.RawMessage, bool) (Result, error) {
+		t.Fatal("confirmed click must not hunt the UI")
+		return Result{}, errors.New("unexpected")
+	}
+	res, err := executeMediaPlayForeground(context.Background(), invoke, "s1", "播放一首歌", "汽水音乐", true, true)
+	if err != nil || clicks != 1 || !strings.Contains(res.Output, "verified playing") || !strings.Contains(res.Output, `"passed":true`) {
+		t.Fatalf("got %+v %v clicks=%d", res, err, clicks)
+	}
+}
+
+func TestMemberSongSearchOpensTheOfficialNeteasePage(t *testing.T) {
+	page := memberSongSearchURL("晴天")
+	if page != "https://music.163.com/#/search/m/?s=%E6%99%B4%E5%A4%A9" {
+		t.Fatalf("page = %s", page)
+	}
+	if memberSongSearchURL("随机播放") != "" || memberSongSearchURL("播放一首歌") != "" || memberSongSearchURL("汽水音乐") != "" {
+		t.Fatal("generic play and app names must not open a search page")
+	}
+	res, err := withMemberSongPage("晴天", result("verified playing"), nil)
+	if err != nil || !strings.HasPrefix(res.Output, "url: https://music.163.com/#/search/m/?s=%E6%99%B4%E5%A4%A9\n") {
+		t.Fatalf("got %s %v", res.Output, err)
 	}
 }
 
@@ -461,8 +522,11 @@ func TestExecuteMediaPlayJayChouUsesDesktopSearchNotWeb(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", raw, err)
 		}
-		if openedHTTP != "" || strings.Contains(res.Output, "163.com") || strings.Contains(res.Output, "music.163") {
-			t.Fatalf("%s opened web %q output %q", raw, openedHTTP, res.Output)
+		if openedHTTP != "" || strings.Contains(launched, "163.com") {
+			t.Fatalf("%s opened the system browser %q launched %q", raw, openedHTTP, launched)
+		}
+		if !strings.Contains(res.Output, "https://music.163.com/#/search/m/?s=") {
+			t.Fatalf("%s missing official search page: %s", raw, res.Output)
 		}
 		if launched == "" || strings.Contains(launched, "163.com") {
 			t.Fatalf("%s launched %q want desktop cloudmusic, not web", raw, launched)

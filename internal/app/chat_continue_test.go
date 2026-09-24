@@ -671,7 +671,7 @@ func TestForceSummaryNudgeMessageContract(t *testing.T) {
 	if msg.Role != llmadapter.RoleSystem {
 		t.Fatalf("role = %q, want system", msg.Role)
 	}
-	for _, want := range []string{"不能再调用任何工具", "最终总结", "还有哪些没做完"} {
+	for _, want := range []string{"最终总结", "还有哪些没做完", "不要提到步数"} {
 		if !strings.Contains(msg.Content, want) {
 			t.Fatalf("nudge missing %q: %q", want, msg.Content)
 		}

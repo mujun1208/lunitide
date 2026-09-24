@@ -20,6 +20,14 @@ import (
 const templateStageTTL = time.Hour
 const templateStageCapacity = 64
 
+func templateFileTooLargeMessage() string {
+	return fmt.Sprintf("模板附件超过 %d MiB 限制", attachmentapp.MaxTemplateFileSize>>20)
+}
+
+func attachmentFileTooLargeMessage() string {
+	return fmt.Sprintf("附件文件超过 %d MiB 限制", attachmentapp.MaxFileSize>>20)
+}
+
 type templateChunkReceipt struct {
 	digest [32]byte
 	last   bool
@@ -163,8 +171,8 @@ func handleTemplateFileStage(e *Engine, ctx context.Context, r bridge.Request) b
 	if ctx.Err() != nil {
 		return r.Fail("STORAGE_UNAVAILABLE", "模板上传已取消", false)
 	}
-	if up.size+int64(len(raw)) > attachmentapp.MaxFileSize {
-		return r.Fail("TEMPLATE_FILE_TOO_LARGE", "模板附件超过 10 MiB 限制", false)
+	if up.size+int64(len(raw)) > attachmentapp.MaxTemplateFileSize {
+		return r.Fail("TEMPLATE_FILE_TOO_LARGE", templateFileTooLargeMessage(), false)
 	}
 	written, err := up.file.WriteAt(raw, up.size)
 	if err != nil || written != len(raw) {
@@ -217,7 +225,7 @@ func (e *Engine) consumeTemplateStage(uploadID string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(data)) != up.size || len(data) == 0 || len(data) > attachmentapp.MaxFileSize || sha256.Sum256(data) != up.digest {
+	if int64(len(data)) != up.size || len(data) == 0 || len(data) > attachmentapp.MaxTemplateFileSize || sha256.Sum256(data) != up.digest {
 		return nil, errors.New("staged file integrity failed")
 	}
 	up.updated = time.Now()

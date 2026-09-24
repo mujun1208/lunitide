@@ -14,6 +14,20 @@ import (
 // shared the deliverable bucket, one deep-reasoning pass could spend the whole
 // turn before any work happened, which is what users saw as "额度已满" on jobs
 // a non-reasoning model finished fine.
+func TestGenerationBudgetKeepsGoingUntilTheHardCeiling(t *testing.T) {
+	b := turnGenerationBudget{}
+	opened := 0
+	for b.reopenForNextWave() {
+		opened++
+		if opened > 80 {
+			t.Fatal("reopen did not stop at the hard ceiling")
+		}
+	}
+	if opened < 3 || b.byteLimit() < turnGenerationHardBytes || b.tokenLimit() < turnGenerationHardTokens || b.timeLimit() < turnGenerationHardTime {
+		t.Fatalf("opened=%d byte=%d token=%d time=%s", opened, b.byteLimit(), b.tokenLimit(), b.timeLimit())
+	}
+}
+
 func TestThinkingDoesNotSpendTheReplyAllowance(t *testing.T) {
 	b := turnGenerationBudget{}
 	thinker := budgetAdapter{run: func(_ context.Context, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {

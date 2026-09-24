@@ -19,9 +19,9 @@ func TestChatStreamErrorMapsProviderFailureClasses(t *testing.T) {
 		message   string
 		retryable bool
 	}{
-		{"gateway request budget", &llmadapter.Error{Code: "REQUEST_TOO_LARGE", Stage: llmadapter.StageDecode, Message: canary}, "REQUEST_TOO_LARGE", "请求内容过大，请减少附件或上下文后重试", false},
+		{"gateway request budget", &llmadapter.Error{Code: "REQUEST_TOO_LARGE", Stage: llmadapter.StageDecode, Message: canary}, "REQUEST_TOO_LARGE", "较早的对话已经收起。请再试一次。", false},
 		{"http 400", &llmadapter.Error{Code: "HTTP_400", Stage: llmadapter.StageHTTP, HTTPStatus: 400, Message: canary}, "UPSTREAM_BAD_REQUEST", "供应商拒绝了请求，请检查模型、附件和上下文", false},
-		{"http 413", &llmadapter.Error{Code: "HTTP_413", Stage: llmadapter.StageHTTP, HTTPStatus: 413, Message: canary}, "REQUEST_TOO_LARGE", "请求内容过大，请减少附件或上下文后重试", false},
+		{"http 413", &llmadapter.Error{Code: "HTTP_413", Stage: llmadapter.StageHTTP, HTTPStatus: 413, Message: canary}, "REQUEST_TOO_LARGE", "较早的对话已经收起。请再试一次。", false},
 		{"http 401", &llmadapter.Error{Code: "HTTP_401", Stage: llmadapter.StageHTTP, HTTPStatus: 401, Message: canary}, "PROVIDER_AUTHENTICATION_FAILED", "供应商身份验证失败，请检查凭据", false},
 		{"http 403", &llmadapter.Error{Code: "HTTP_403", Stage: llmadapter.StageHTTP, HTTPStatus: 403, Message: canary}, "PROVIDER_ACCESS_DENIED", "供应商拒绝访问，请检查模型权限", false},
 		{"http 429", &llmadapter.Error{Code: "HTTP_429", Stage: llmadapter.StageHTTP, HTTPStatus: 429, Message: canary}, "PROVIDER_RATE_LIMITED", "供应商请求过于频繁，请稍后重试", true},
@@ -34,8 +34,8 @@ func TestChatStreamErrorMapsProviderFailureClasses(t *testing.T) {
 		{"stream unavailable", &llmadapter.Error{Code: "STREAM_UNAVAILABLE", Stage: llmadapter.StageHTTP, Message: canary}, "UPSTREAM_UNAVAILABLE", "供应商服务暂时不可用，请稍后重试", true},
 		{"malformed response", &llmadapter.Error{Code: "MALFORMED_RESPONSE", Stage: llmadapter.StageDecode, Message: canary}, "UPSTREAM_MALFORMED_RESPONSE", "模型返回格式不完整，已保留收到的内容，请重试", true},
 		{"unknown", errors.New(canary), "UPSTREAM_FAILED", "模型请求失败", true},
-		{"execution budget", agentrun.ErrExecutionBudget, "BUDGET_EXHAUSTED", "本轮执行额度已用完，请再试一次。", false},
-		{"context window", agentrun.ErrContextWindow, "CONTEXT_WINDOW_EXCEEDED", "当前请求超出模型上下文窗口，请减少附件或历史后重试。", false},
+		{"execution budget", agentrun.ErrExecutionBudget, "BUDGET_EXHAUSTED", "这一轮先记下已完成的内容，请再试一次。", false},
+		{"context window", agentrun.ErrContextWindow, "CONTEXT_WINDOW_EXCEEDED", "这一轮的内容太长，较早的对话已经收起。请再试一次。", false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

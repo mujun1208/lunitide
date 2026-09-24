@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/lunitide/lunitide/internal/officetools"
 )
 
 func overflowedPicture(t *testing.T) ([]byte, Node) {
@@ -131,6 +133,34 @@ func TestGeometryExplicitEndTagAndExtensionPayloadPreserved(t *testing.T) {
 	}
 	if !bytes.Contains(after, []byte(`></a:off>`)) || bytes.Contains(after, []byte(`</a:off></a:off>`)) {
 		t.Fatal("explicit closing tag broken")
+	}
+}
+
+func TestSlideCanvasesPlaceTheTitleOnTheSlide(t *testing.T) {
+	data, err := officetools.GenPptx("穆军", []officetools.SlideSpec{{
+		Title:    "穆军",
+		Subtitle: "个人简介",
+		Layout:   "title",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	slides := SlideCanvases(data)
+	if len(slides) != 1 || slides[0].Part != "ppt/slides/slide1.xml" {
+		t.Fatalf("slides = %+v", slides)
+	}
+	if slides[0].Fill != "#0B1F3A" {
+		t.Fatalf("fill = %s", slides[0].Fill)
+	}
+	var title SlideShape
+	for _, shape := range slides[0].Shapes {
+		if strings.Contains(shape.Text, "穆军") {
+			title = shape
+			break
+		}
+	}
+	if title.Text == "" || title.W <= 0 || title.H <= 0 {
+		t.Fatalf("title box missing: %+v", slides[0].Shapes)
 	}
 }
 

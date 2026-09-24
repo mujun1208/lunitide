@@ -110,3 +110,40 @@ it('renders only the active PPT slide and does not keep a viewer-side page rail'
   expect(screen.getByText('目录')).toBeTruthy();
   expect(screen.queryByText('封面标题')).toBeNull();
 });
+
+it('paints a PPT page from the slide boxes instead of a form', () => {
+  const ppt: OfficeArtifact = { ...artifact, id: 'ppt', name: '汇报.pptx', kind: 'pptx' };
+  const preview: OfficePreview = {
+    versionId: 'v3',
+    kind: 'pptx',
+    content: '',
+    previewBasis: '结构预览',
+    pdfReady: false,
+    truncated: false,
+    nodes: [
+      { id: 'a', label: 'ppt/slides/slide1.xml · t1', text: '穆军', location: 'ppt/slides/slide1.xml', editable: true },
+    ],
+    slides: [{
+      part: 'ppt/slides/slide1.xml',
+      fill: '#0B1F3A',
+      shapes: [{ text: '穆军', x: 8, y: 30, w: 70, h: 18 }],
+    }],
+  };
+  render(
+    <OfficeArtifactViewer
+      api={api}
+      taskId="task"
+      artifact={ppt}
+      version={version}
+      preview={preview}
+      loading={false}
+      error=""
+      onSelectNode={vi.fn()}
+      onRetry={vi.fn()}
+    />,
+  );
+  const stage = screen.getByRole('article');
+  expect(stage.className).toContain('is-slide-stage');
+  expect(stage).toHaveStyle({ background: '#0B1F3A' });
+  expect(screen.getByRole('button', { name: '穆军' })).toHaveClass('os-slide-shape');
+});

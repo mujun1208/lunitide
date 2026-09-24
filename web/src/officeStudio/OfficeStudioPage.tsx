@@ -1226,7 +1226,7 @@ export function OfficeStudioPage({
                   导入当前文件的修改版
                 </button>
                 <small className="os-muted">{importLimitNotice()}</small>
-                <small className="os-muted">单个文件不超过 10 MiB</small>
+                <small className="os-muted">单个文件不超过 500 MiB</small>
               </>
             )}
             {artifact && preview && previewPages.length > 0 && artifact.kind === 'pptx' && (

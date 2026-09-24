@@ -37,7 +37,7 @@ const workflowDesktopOpenClause = "- 打开桌面文件：必须用 desktop.open
 
 const workflowDesktopTypeClause = "- 在已打开的对话框里填写：有命名输入框时用 desktop.type（after=界面上真实字段名如身份证号码或证件号码，text=要写的内容，需要发送时 submit=true，window=窗口标题）。Word 正文没有命名输入框时改 computer.act：先截图，记下 frameId，再点输入位置后 type，verifyAfter。找不到字段必须对用户说无法执行和原因。写完不要关窗口。\n"
 
-const workflowOwnedMediaClause = "- 自带媒体中心：用户要在产品里的媒体中心播放电影或歌曲时，只调用一次 media.play，target=center，query=片名或歌名。用户给了 mp4/webm/mp3 的 https 直链就放进 url。返回 MEDIA_CENTER 后用一句话说明已经在媒体中心播放返回的 title 并停止。不要 web.search、web.fetch、computer.act，也不要找本机其它播放器。点名的片子没有直链时，工具会改播公版片并仍返回 MEDIA_CENTER，这时说正在播放返回的 title。点名只查维基共享资源、NASA、Internet Archive 的公有领域或知识共享直链。\n"
+const workflowOwnedMediaClause = "- 自带媒体中心：用户要在产品里的媒体中心播放电影或歌曲时，只调用一次 media.play，target=center，query=片名或歌名。用户给了 mp4/webm/mp3 的 https 直链就放进 url。返回 MEDIA_CENTER 后用一句话说明已经在媒体中心播放返回的 title 并停止。不要 web.search、web.fetch、computer.act，也不要找本机其它播放器。点名的片子有公版直链时，返回 MEDIA_CENTER，说正在媒体中心播放返回的 title。没有公版直链时，工具打开爱奇艺和优酷的官方搜索，说正在这两个官方页面用会员播放用户点的片名，不要改说成另一部片子，也不要抓取这两个网站的视频地址。\n"
 
 const workflowMediaClause = "- 播放、暂停、上一曲、下一曲：只打一次 media.play target=foreground（没说歌名或要随机播放时 query=random，不要搜索热门；说了歌手如周杰伦则 query=周杰伦；上一曲/上一首 action=prev，下一曲/下一首 action=next，暂停 action=pause）。用户说用电脑操作去播放、话里没有歌名时，query=random，不要把操作说明当成歌名，也不要把这句话打进播放器。返回 started playing、sent next、sent previous、sent pause、sent stop 或 verified 时，用一句话收尾并停止。不要 computer.act，不要把工具 JSON 说给用户，不要再说没播放成功。只有 ok:false 才允许一次 computer.act observe。禁止点收藏。用户说换播放器时仍先 media.play。禁止默认打开 music.163.com / YouTube。仅当用户明确要网页版时才用 target=browser。\n" +
 	"- 已打开的播放器暂停后再继续：media.play action=play，不要带歌名或应用名当 query。关闭汽水音乐这类已命名软件用 desktop.quit，不要用暂停，不要用 computer.act 去关窗口。\n" +

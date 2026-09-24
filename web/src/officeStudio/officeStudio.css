@@ -964,12 +964,30 @@ html[data-theme='light'] .os-alert {
   color: #5c6b80;
 }
 .is-pptx .os-paper {
+  position: relative;
   aspect-ratio: 16/9;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 12px;
+  gap: 14px;
   overflow: hidden;
+  max-width: 960px;
+  padding: 56px 64px 48px 72px;
+  background: #0b1f3a;
+  color: #f8fafc;
+  border: 0;
+  border-left: 12px solid #0d9488;
+  box-shadow: 0 12px 32px #0006;
+}
+.is-pptx .os-page-heading {
+  position: absolute;
+  left: 72px;
+  bottom: 22px;
+  margin: 0;
+  color: #c9a227;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
 }
 .os-slide-title,
 .os-slide-text,
@@ -982,6 +1000,31 @@ html[data-theme='light'] .os-alert {
   padding: 0;
   color: inherit;
   cursor: pointer;
+}
+.is-pptx .os-paper.is-slide-stage {
+  padding: 0;
+}
+.is-pptx .os-slide-shape {
+  position: absolute;
+  overflow: hidden;
+  margin: 0;
+  border: 0;
+  background: transparent !important;
+  color: #f8fafc;
+  text-align: left;
+  white-space: pre-wrap;
+}
+.is-pptx .os-slide-title {
+  color: #fff;
+  font-size: 40px;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+}
+.is-pptx .os-slide-text,
+.is-pptx .os-slide-block {
+  color: #d6e4f0;
+  font-size: 18px;
 }
 .os-slide-title {
   font-size: 28px;

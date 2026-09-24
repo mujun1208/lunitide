@@ -102,7 +102,7 @@ const (
 	preferenceInjectMaxBytes  = 2048
 	companionMaxTokens        = 2048
 	companionMaxMessages      = 24
-	companionMaxToolLoopSteps = 24
+	companionMaxToolLoopSteps = maxToolLoopSteps
 	// companionMaxHistoryTurns caps how many recent user turns of verbatim
 	// history the instant voice companion projects (UX-06 / ADR-005 §3). The
 	// latest user turn is always retained; older turns beyond this window are
@@ -741,11 +741,24 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 					if name == "" {
 						name = "图片"
 					}
+					if imageRef.Size > attachmentapp.MaxVisionImageBytes && imageRef.Size <= attachmentapp.MaxFileSize && e.attachmentService != nil {
+						if raw, readErr := e.attachmentService.ReadImageBytes(ctx, imageRef.ID, boundSessionID); readErr == nil {
+							if fitted, mime, ok := fitChatVision(raw); ok {
+								total += len(fitted)
+								if total > attachmentapp.MaxVisionBatchBytes {
+									return request.Fail("ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
+								}
+								images = append(images, llmadapter.Image{MIME: mime, Data: fitted})
+								envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, contextapp.ContextSource{Type: contextapp.SourceAttachmentExcerpt, ID: imageRef.ID, Authority: contextapp.AuthorityEvidence, Content: name + "\n画面已附上。直接根据画面回答，不要用命令、PowerShell 或 StorageFile 打开这个文件。", Provenance: "attachment:" + imageRef.ID + ":project:" + imageRef.ProjectID})
+								continue
+							}
+						}
+					}
 					if text := e.oversizedImageOCR(ctx, imageRef); text != "" {
 						envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, contextapp.ContextSource{Type: contextapp.SourceAttachmentExcerpt, ID: imageRef.ID, Authority: contextapp.AuthorityEvidence, Content: name + "\n[本机文字识别]\n" + text, Provenance: "attachment:" + imageRef.ID + ":project:" + imageRef.ProjectID})
 						continue
 					}
-					envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, contextapp.ContextSource{Type: contextapp.SourceAttachmentExcerpt, ID: imageRef.ID, Authority: contextapp.AuthorityEvidence, Content: name + "\n已附图片，但没有读出画面。请按文件名说明，不要猜测画面内容。", Provenance: "attachment:" + imageRef.ID + ":project:" + imageRef.ProjectID})
+					envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, contextapp.ContextSource{Type: contextapp.SourceAttachmentExcerpt, ID: imageRef.ID, Authority: contextapp.AuthorityEvidence, Content: name + "\n已附图片，但没有读出画面。请按文件名说明，不要猜测画面内容，也不要用命令或 StorageFile 打开这个文件。", Provenance: "attachment:" + imageRef.ID + ":project:" + imageRef.ProjectID})
 					continue
 				}
 				total += len(image.Data)
@@ -1913,7 +1926,7 @@ func chatStreamError(err error) *bridge.StreamError {
 		return streamError("SKILL_CONTEXT_BUDGET_EXCEEDED", "当前模型上下文不足以完整加载技能，请开启新对话或选择更大上下文模型。技能正文没有被截断。", false)
 	}
 	if errors.Is(err, errTurnGenerationBudget) {
-		return streamError("TURN_GENERATION_BUDGET_EXCEEDED", "本轮生成已达到总预算，已保留收到的内容。发送“继续”可以接着完成。", false)
+		return streamError("TURN_GENERATION_BUDGET_EXCEEDED", "这一轮先记下已完成的内容，请再试一次。", false)
 	}
 	if errors.Is(err, messageapp.ErrAssistantResponseTooLarge) {
 		return streamError("ASSISTANT_RESPONSE_TOO_LARGE", "assistant 响应超过 16384 code points", false)
@@ -1922,10 +1935,10 @@ func chatStreamError(err error) *bridge.StreamError {
 		return streamError("MESSAGE_STORAGE_QUOTA_REACHED", "消息存储配额已满", false)
 	}
 	if errors.Is(err, agentrun.ErrContextWindow) {
-		return streamError("CONTEXT_WINDOW_EXCEEDED", "当前请求超出模型上下文窗口，请减少附件或历史后重试。", false)
+		return streamError("CONTEXT_WINDOW_EXCEEDED", "这一轮的内容太长，较早的对话已经收起。请再试一次。", false)
 	}
 	if errors.Is(err, agentrun.ErrExecutionBudget) {
-		return streamError("BUDGET_EXHAUSTED", "本轮执行额度已用完，请再试一次。", false)
+		return streamError("BUDGET_EXHAUSTED", "这一轮先记下已完成的内容，请再试一次。", false)
 	}
 	if errors.Is(err, context.DeadlineExceeded) || networkpolicy.ErrorCode(err) == networkpolicy.CodeTimeout {
 		return streamError("UPSTREAM_TIMEOUT", "模型请求超时，请稍后重试", true)
@@ -1938,7 +1951,7 @@ func chatStreamError(err error) *bridge.StreamError {
 	var gatewayErr *llmadapter.Error
 	if errors.As(err, &gatewayErr) {
 		if gatewayErr.Code == "REQUEST_TOO_LARGE" || gatewayErr.HTTPStatus == 413 {
-			return streamError("REQUEST_TOO_LARGE", "请求内容过大，请减少附件或上下文后重试", false)
+			return streamError("REQUEST_TOO_LARGE", "较早的对话已经收起。请再试一次。", false)
 		}
 		if gatewayErr.Code == "TIMEOUT" || gatewayErr.Code == "OUTCOME_UNKNOWN" || gatewayErr.Code == "STREAM_INCOMPLETE" {
 			return streamError("UPSTREAM_TIMEOUT", "模型请求超时，请稍后重试", true)

@@ -27,6 +27,7 @@ try {
     if ($candidate.Length -gt $text.Length) { $text = $candidate; $rotation = $angle }
     $bitmap.Dispose()
     $bitmap = $null
+    if ($text.Length -gt 0) { break }
   }
   if ($text.Length -gt 500000) { throw 'OCR text budget exceeded.' }
   $pages = @(@{ page = 1; text = $text; rotation = $rotation })

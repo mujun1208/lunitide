@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/domain/attachment"
@@ -23,6 +24,8 @@ func (e *Engine) attachedImageOCRText(ctx context.Context, images []llmadapter.I
 	if e.ocr == nil {
 		return ""
 	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
 	var b strings.Builder
 	for i, img := range images {
 		got, err := e.ocr.RecognizeImage(ctx, img.Data)

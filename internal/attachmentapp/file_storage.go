@@ -103,7 +103,7 @@ func (f *dirFileStorage) WriteFile(ctx context.Context, name string, content []b
 	if !safeName(name) {
 		return fmt.Errorf("unsafe attachment filename %q", name)
 	}
-	if len(content) > MaxFileSize {
+	if attachmentTooLarge(len(content)) {
 		return fmt.Errorf("attachment exceeds size limit")
 	}
 	root, err := workspace.NewSecureRoot(f.dir)
@@ -134,6 +134,9 @@ func (f *dirFileStorage) ReadFile(ctx context.Context, name string) ([]byte, err
 		return nil, err
 	}
 	defer file.Close()
+	if info, statErr := file.Stat(); statErr == nil && info.Size() > int64(MaxFileSize) {
+		return nil, fmt.Errorf("attachment exceeds size limit")
+	}
 	data, err := io.ReadAll(io.LimitReader(file, MaxFileSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("read attachment file %s: %w", name, err)
