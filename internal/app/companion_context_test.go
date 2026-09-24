@@ -230,6 +230,12 @@ func TestCompanionExtractMusicQueryExactDesktopJayChouUtterance(t *testing.T) {
 	if got := companionDefaultMusicQuery("随便放一首周杰伦"); got != "周杰伦" {
 		t.Fatalf("named artist with 随便 = %q", got)
 	}
+	if got := companionDefaultMusicQuery("那你换一种用电脑操作的方式去播放啊电脑操作的方式"); got != "random" {
+		t.Fatalf("computer-operation instruction must not become a song title, got %q", got)
+	}
+	if got := companionDefaultMusicQuery("用电脑操作播放晴天"); got != "晴天" {
+		t.Fatalf("instruction that names a track must keep the track, got %q", got)
+	}
 }
 
 func TestCompanionAutoMediaPlayExactDesktopJayChouUtterance(t *testing.T) {
@@ -372,7 +378,7 @@ func TestCompanionSessionInjection(t *testing.T) {
 	if !strings.Contains(got, "不要带 query") {
 		t.Fatalf("injection must tell the model resume play has no query: %q", got)
 	}
-	for _, newTask := range []string{"今天沪深指数怎么样", "打开桌面企业 AI 智能助手文档", "在文档最后输入号码"} {
+	for _, newTask := range []string{"今天沪深指数怎么样", "打开桌面企业 AI 智能助手文档", "在文档最后输入号码", "帮我打开浏览器搜索一下周杰伦的最新新闻"} {
 		if injection := e.companionSessionInjection("s1", newTask); injection != "" {
 			t.Fatalf("old player instructions leaked into %q: %s", newTask, injection)
 		}

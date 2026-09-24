@@ -562,6 +562,17 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					streamErr = nil
 					continue
 				}
+				if speech, settle := timeoutAfterDeliverable(streamErr, req.Messages); settle {
+					if next, delta := appendAssistantNotice(assistantText.String(), speech); delta != "" {
+						assistantText.Reset()
+						assistantText.WriteString(next)
+						if err := sendDeltaChunks(send, delta); err != nil {
+							return err
+						}
+					}
+					streamErr = nil
+					break
+				}
 				if streamErr != nil && modelCallRetries < maxContinueNudges && chatModelCallRetryable(streamErr) && step+1 < maxToolLoopStepsHard {
 					modelCallRetries++
 					req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: "上一轮模型请求没有完成。从当前进度接着做未完成的步骤，不要从头重来，不要对用户说无法执行。"})
@@ -804,6 +815,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							}
 						}
 					}
+					if continueKind == "" && state.lane.Lane != LaneL2 && laneAllowsContinueNudges(state.lane) {
+						if open, total := planChecklist(req.Messages); planPauseRoom(nudges, open, total) {
+							continueKind = "plan"
+						}
+					}
 					if continueKind == "" && !skillDraftOffered {
 						offerAny, offerDesktop := shouldOfferAnySkillDraft(turn.LastTools, guiLoopRuns, lastDesktopVerdict, state.companion)
 						if offerAny {
@@ -849,6 +865,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							nudge = llmadapter.Message{Role: llmadapter.RoleSystem, Content: "立刻调用本轮已装备的工具执行。不要再承诺稍等。下一句必须是结果或无法执行。"}
 						case "act":
 							nudge = llmadapter.Message{Role: llmadapter.RoleSystem, Content: "上一段只是计划，文件还没写。立刻调用工具写入，不要再复述同一段计划。写完后再用一句话给出结果。"}
+						case "plan":
+							nudge = llmadapter.Message{Role: llmadapter.RoleSystem, Content: "清单里还有未完成的步骤。就在这一轮里连续调用工具把剩下的步骤全部做完，做完一步就用 todo.write 更新整份清单，全部完成后再停。不要把每一步拆成单独的续轮。"}
 						}
 						if bufferReply {
 							nudge.Content += "\n前面的回答草稿尚未发送给用户。最终回答必须直接给出实质结果，不能只说上面已经给出或不用重复。"
@@ -1247,6 +1265,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 								}
 								return toolruntime.Result{Output: "window close " + title + "; screen updated"}, nil
 							}
+						}
+						if err := guardSystemBrowserClick(e.desktopBrowserIsOpen(sessionID), turn.Goal, call.Name); err != nil {
+							guardBlockedCalls++
+							return toolruntime.Result{}, err
 						}
 						if err := guardCurrentTurnToolHistory(turn.Goal, call.Name, req.Messages); err != nil {
 							guardBlockedCalls++

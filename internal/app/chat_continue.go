@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/llmadapter"
@@ -26,6 +27,61 @@ const (
 	toolLoopExtendChunk  = 8
 	maxToolBudgetWaves   = 3
 )
+
+// planChecklist reads the latest todo.write in the current turn.
+// open is the items not marked completed (a missing status stays open).
+// total is the checklist length, which is the pause allowance for the turn.
+func planChecklist(messages []llmadapter.Message) (open, total int) {
+	start := 0
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == llmadapter.RoleUser {
+			start = i + 1
+			break
+		}
+	}
+	var raw []byte
+	for _, m := range messages[start:] {
+		if m.Role != llmadapter.RoleAssistant {
+			continue
+		}
+		for _, call := range m.ToolCalls {
+			if call.Name == "todo.write" && len(call.Arguments) > 0 {
+				raw = call.Arguments
+			}
+		}
+	}
+	if len(raw) == 0 {
+		return 0, 0
+	}
+	var body struct {
+		Todos []struct {
+			Status string `json:"status"`
+		} `json:"todos"`
+	}
+	if json.Unmarshal(raw, &body) != nil {
+		return 0, 0
+	}
+	for _, item := range body.Todos {
+		total++
+		if item.Status != "completed" {
+			open++
+		}
+	}
+	return open, total
+}
+
+func openPlanSteps(messages []llmadapter.Message) int {
+	open, _ := planChecklist(messages)
+	return open
+}
+
+// planPauseRoom keeps one turn moving while the checklist is still open.
+// The allowance is the checklist length, not three continuations per step,
+// and it does not shrink when a step is marked completed. Tool calls inside
+// the turn do not spend it. A 4-step plan may pause 4 times, then it stops.
+func planPauseRoom(nudges, open, total int) bool {
+	return open > 0 && total > 0 && nudges < total
+}
 
 // extendToolLoopLimit grows the per-turn step ceiling when the model is still
 // productively calling tools within two steps of the current limit (E4). It
@@ -515,7 +571,7 @@ func companionGoalIsOpenOnly(text string) bool {
 	if !open {
 		return false
 	}
-	if websiteFirstResultGoal(t) {
+	if websiteFirstResultGoal(t) || systemBrowserFirstResultGoal(t) {
 		return false
 	}
 	// "打开网页里的第一个链接" / "点开第一个结果" is NOT "open only" — it

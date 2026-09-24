@@ -61,7 +61,10 @@ it('keeps prior thinking when 「做好了没有」 attaches to the in-flight ta
   expect(start).toHaveBeenCalledOnce()
   expect(cancel).not.toHaveBeenCalled()
   expect(document.querySelector('.thinking-live-text')?.textContent).toContain('先定受众和页序')
-  await act(async () => onEvent({ v: '1.0', kind: 'event', id: '01ARZ3NDEKTSV4RRFFQ69G5FAF', streamId: stream.streamId, sequence: 2, type: 'thinking', thinking: { text: '还在写大纲，没有另起炉灶。' } }))
+  await act(async () => {
+    onEvent({ v: '1.0', kind: 'event', id: '01ARZ3NDEKTSV4RRFFQ69G5FAF', streamId: stream.streamId, sequence: 2, type: 'thinking', thinking: { text: '还在写大纲，没有另起炉灶。' } })
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+  })
   const live = document.querySelector('.thinking-live-text')?.textContent ?? ''
   expect(live).toContain('先定受众和页序')
   expect(live).toContain('没有另起炉灶')

@@ -61,6 +61,18 @@ it('isolates generated HTML from scripts and network access when there is no pre
   expect(screen.getByRole('status')).toHaveTextContent('静态预览')
 })
 
+it('quotes a selection from the preview page into the chat', async () => {
+  const onCite = vi.fn()
+  const interactiveUrl = 'https://preview.lunitide.local/p/PzQ1c2VydGlja2V0MDAwMDAx/index.html'
+  vi.mocked(artifactReviewBridge.preview).mockResolvedValue({ kind: 'html', path: 'index.html', content: '<p>客户列表</p>', size: 8, interactiveUrl })
+  render(<ArtifactInspector sessionId={sessionId} path="index.html" onClose={vi.fn()} onCite={onCite} />)
+  await screen.findByTitle('产物预览 index.html')
+  window.dispatchEvent(new MessageEvent('message', { origin: 'https://preview.lunitide.local', data: { source: 'lunitide-preview', type: 'cite', text: '客户列表' } }))
+  expect(onCite).toHaveBeenCalledWith('客户列表')
+  window.dispatchEvent(new MessageEvent('message', { origin: 'https://evil.example', data: { source: 'lunitide-preview', type: 'cite', text: '不要' } }))
+  expect(onCite).toHaveBeenCalledTimes(1)
+})
+
 it('runs a generated page for real when the engine mints a preview origin',async()=>{
   const interactiveUrl='https://preview.lunitide.local/p/PzQ1c2VydGlja2V0MDAwMDAx/index.html'
   vi.mocked(artifactReviewBridge.preview).mockResolvedValue({kind:'html',path:'index.html',content:'<nav onclick="go()">菜单</nav>',size:20,interactiveUrl})

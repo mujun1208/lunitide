@@ -118,6 +118,19 @@ func (e *Engine) noteCompanionToolSuccess(sessionID, toolName string, args json.
 			DesktopActive: true,
 			LastTool:      toolName,
 		})
+	case "desktop.browse":
+		if companionToolResultFailed(summary) {
+			return
+		}
+		if !strings.Contains(summary, "已向系统默认桌面浏览器") && !strings.Contains(summary, "已打开桌面浏览器") {
+			return
+		}
+		e.saveCompanionContext(sessionID, companionActionContext{
+			ActiveAppName: "桌面浏览器",
+			Kind:          "desktop_browser",
+			DesktopActive: true,
+			LastTool:      toolName,
+		})
 	case "media.play":
 		var a struct {
 			App    string `json:"app"`
@@ -217,6 +230,12 @@ func companionExtractAfterSearch(text string) string {
 func companionExtractMusicQuery(text string) string {
 	if action, resume := companionMediaCommand(text); resume || (action != "" && action != "play") {
 		return ""
+	}
+	if rewritten, ok := toolruntime.ComputerPlayQuery(text); ok {
+		if rewritten == "播放一首歌" {
+			return "random"
+		}
+		return rewritten
 	}
 	t := strings.TrimSpace(text)
 	parts := strings.FieldsFunc(t, func(r rune) bool { return strings.ContainsRune("，,。！!；;\n", r) })
@@ -436,6 +455,24 @@ func companionDesktopFollowUp(text string) bool {
 	return companionWantsTools(t)
 }
 
+func (e *Engine) desktopBrowserIsOpen(sessionID string) bool {
+	if e == nil || sessionID == "" {
+		return false
+	}
+	ctx := e.loadCompanionContext(sessionID)
+	return ctx.Kind == "desktop_browser" || ctx.LastTool == "desktop.browse"
+}
+
+func turnLeavesPriorDesktopApp(text string) bool {
+	if companionTurnWantsMusicPlay(text) || companionPlayFollowUp(text) {
+		return false
+	}
+	if looksLikeCurrentLookupTurn(text) {
+		return true
+	}
+	return strings.Contains(text, "浏览器") || strings.Contains(text, "网页") || strings.Contains(text, "网站")
+}
+
 func (e *Engine) companionSessionInjection(sessionID, turnText string) string {
 	if sessionID == "" || e == nil {
 		return ""
@@ -443,10 +480,13 @@ func (e *Engine) companionSessionInjection(sessionID, turnText string) string {
 	if e.companionFileCorrection(sessionID, turnText) {
 		return "\n[本轮文件名更正] 用户在补充上一轮打开文件的名字，请用本轮给出的名字调用 desktop.open；不要只说稍等。真实路径以工具解析结果为准，不复用旧文件名。\n"
 	}
-	if lookupOnlyTurn(turnText) {
+	ctx := e.loadCompanionContext(sessionID)
+	if (ctx.Kind == "desktop_browser" || ctx.LastTool == "desktop.browse") && (systemBrowserFirstResultGoal(turnText) || websiteFirstResultGoal(turnText)) {
+		return "\n[本轮] 搜索页已在系统默认浏览器。打开第一条结果只用 computer.act 点击结果标题。禁止 browser.act，否则会另开一个显示 about:blank 的受控 Chrome。\n"
+	}
+	if lookupOnlyTurn(turnText) || turnLeavesPriorDesktopApp(turnText) {
 		return ""
 	}
-	ctx := e.loadCompanionContext(sessionID)
 	if named := companionNamedMusicApp(turnText); named != "" && named != toolruntime.CanonicalMusicApp(ctx.ActiveAppName) {
 		return ""
 	}
@@ -568,7 +608,7 @@ func (e *Engine) resolveMediaPlayArgs(sessionID string, args json.RawMessage) js
 	if !useForeground && (target == "" || target == "auto") {
 		if ctx.ActiveAppName != "" && (ctx.Kind == "music_app" || looksLikeMusicAppName(ctx.ActiveAppName)) {
 			useForeground = true
-		} else if installed := toolruntime.FirstInstalledMusicApp(); installed != "" {
+		} else if installed := toolruntime.PreferredMusicApp(toolruntime.InstalledMusicApps()); installed != "" {
 			useForeground = true
 			if strings.TrimSpace(a.App) == "" {
 				a.App = installed
@@ -584,7 +624,7 @@ func (e *Engine) resolveMediaPlayArgs(sessionID string, args json.RawMessage) js
 		app = ctx.ActiveAppName
 	}
 	if app == "" {
-		app = toolruntime.FirstInstalledMusicApp()
+		app = toolruntime.PreferredMusicApp(toolruntime.InstalledMusicApps())
 	}
 	out, err := json.Marshal(map[string]string{
 		"action": action,
@@ -652,7 +692,7 @@ func (e *Engine) companionAutoMediaPlayArgsForTurn(sessionID, goal, spoken strin
 	if app == "" {
 		q := companionDefaultMusicQuery(goal)
 		if q != "" && q != "热门" && q != "random" && utf8.RuneCountInString(q) >= 2 && utf8.RuneCountInString(q) <= 6 {
-			app = toolruntime.FirstInstalledMusicApp()
+			app = toolruntime.PreferredMusicApp(toolruntime.InstalledMusicApps())
 		}
 	}
 	if companionRetryWantsAlternate(hint) {

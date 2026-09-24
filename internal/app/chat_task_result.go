@@ -185,6 +185,18 @@ func directUserWindowClose(goal, name string) bool {
 	return false
 }
 
+// guardSystemBrowserClick refuses browser.act after the page is already in
+// the user's system browser. That tool launches a second Chrome on about:blank.
+func guardSystemBrowserClick(systemBrowserOpen bool, goal, name string) error {
+	if !systemBrowserOpen || name != "browser.act" {
+		return nil
+	}
+	if systemBrowserFirstResultGoal(goal) || websiteFirstResultGoal(goal) {
+		return errors.New("搜索页已在系统浏览器里。请用 computer.act 点击第一条结果的标题，不要另开受控浏览器。")
+	}
+	return nil
+}
+
 func guardCurrentTurnTool(goal, name string) error {
 	if closeCurrentBrowserGoal(goal) && (name == "browser.act" || name == "mcp.search" || name == "mcp.call") {
 		return errors.New("关闭当前浏览器请用 computer.act 关掉已经打开的窗口，不要启动 browser.act 或 MCP。")
@@ -387,6 +399,13 @@ func currentTurnOfficeOrgDenied(messages []llmadapter.Message) bool {
 	return strings.Contains(out, "CROSS_ORG") || strings.Contains(out, "组织和已绑定的组织不一致")
 }
 
+func replyCarriesStalePlayback(reply, goal string) bool {
+	if companionTurnWantsMusicPlay(goal) || strings.Contains(goal, "播放") {
+		return false
+	}
+	return strings.Contains(reply, "汽水") || strings.Contains(reply, "放歌") || strings.Contains(reply, "播放控件") || strings.Contains(reply, "三步都走完")
+}
+
 func browseOpenStopsFurtherDesktop(goal string) bool {
 	if websiteFirstResultGoal(goal) {
 		return false
@@ -522,6 +541,9 @@ func companionFinalResult(messages []llmadapter.Message, reply, goal string) str
 		return "本轮没有取得电脑操作回执，尚未执行完成。"
 	}
 	if currentTurnDesktopBrowserOpened(messages) && browseOpenStopsFurtherDesktop(goal) {
+		if replyCarriesStalePlayback(reply, goal) {
+			return "已经在桌面浏览器打开搜索页。"
+		}
 		if browserLookupOnlyGoal(goal) {
 			if text := strings.TrimSpace(reply); text != "" && !looksLikeCompanionWaitPromise(reply) && !isCompanionLeadInOnly(reply) {
 				return text

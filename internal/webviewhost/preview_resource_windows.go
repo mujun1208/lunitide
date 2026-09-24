@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/zzl/go-webview2/wv2"
@@ -83,6 +84,9 @@ func (h *Host) servePreviewResource(args *wv2.ICoreWebView2WebResourceRequestedE
 		contentType = PreviewContentType(path)
 		if method != "HEAD" {
 			body = data
+			if strings.HasPrefix(contentType, "text/html") {
+				body = injectPreviewCite(body)
+			}
 		}
 	}()
 	deliverMediaResponse(h.dispatchAndWait, func() {

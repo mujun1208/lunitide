@@ -114,3 +114,18 @@ export function useDirectMedia(active: boolean, src: string | null | undefined, 
 
   return { ref, boxRef, playing, positionMs, durationMs, volume, heard, full, setLevel, toggle, seek, toggleFull }
 }
+
+const CHROME_HIDE_MS = 3000
+
+export function useStageChrome(playing: boolean, hold: boolean) {
+  const [shown, setShown] = useState(true)
+  const [epoch, setEpoch] = useState(0)
+  const poke = () => setEpoch(n => n + 1)
+  useEffect(() => {
+    setShown(true)
+    if (!playing || hold) return
+    const id = window.setTimeout(() => setShown(false), CHROME_HIDE_MS)
+    return () => window.clearTimeout(id)
+  }, [playing, hold, epoch])
+  return { shown, poke }
+}

@@ -164,11 +164,43 @@ func handleWorkspaceArtifactPreview(e *Engine, ctx context.Context, r bridge.Req
 	// as a real document. Failure here is not an error for the caller — the
 	// renderer still has the static preview above to fall back on.
 	if kind == "html" && content != "" {
-		if url, mintErr := e.MintPreviewTicket(p.SessionID, filepath.ToSlash(p.Path)); mintErr == nil {
+		if url, mintErr := e.MintPreviewTicket(p.SessionID, previewTicketPath(e, p.SessionID, p.Path)); mintErr == nil {
 			out["interactiveUrl"] = url
 		}
 	}
 	return r.Ok(out)
+}
+
+// previewTicketPath is the workspace-relative name a preview ticket can
+// carry. A relative path is used as-is. An absolute path that already
+// resolved inside the session folder is reduced to that relative name,
+// because the ticket refuses a drive letter and would otherwise leave the
+// page as a static snapshot.
+func previewTicketPath(e *Engine, sessionID, raw string) string {
+	rel := strings.ReplaceAll(strings.TrimSpace(raw), `\`, "/")
+	if _, ok := normalizePreviewRel(rel); ok {
+		return rel
+	}
+	if e == nil || e.tools == nil || sessionID == "" {
+		return rel
+	}
+	target, err := e.tools.ResolveSessionArtifact(sessionID, raw)
+	if err != nil {
+		return rel
+	}
+	dir, err := e.tools.SessionFolder(sessionID)
+	if err != nil {
+		return rel
+	}
+	got, err := filepath.Rel(dir, target)
+	if err != nil {
+		return rel
+	}
+	got = filepath.ToSlash(got)
+	if _, ok := normalizePreviewRel(got); !ok {
+		return rel
+	}
+	return got
 }
 
 // resolveExportDir maps a user-authorized export target to an absolute

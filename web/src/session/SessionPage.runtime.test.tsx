@@ -623,15 +623,15 @@ it('collapses streaming thinking by default, expands on demand and shows a live 
  const user=await open({messages:{list:vi.fn().mockResolvedValue(page()),append:vi.fn().mockResolvedValue({})} as MessageBridge,chat:{start,dispose:vi.fn()},providers})
  await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'分析')
  await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}));await waitFor(()=>expect(start).toHaveBeenCalledOnce())
- await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:1,type:'thinking',thinking:{text:'**内部推理**'}}))
+  await act(async()=>{onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:1,type:'thinking',thinking:{text:'**内部推理**'}});await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()))})
  const details=screen.getByText('任务过程').closest('details')!
  expect(details).not.toHaveAttribute('open')
  expect(screen.getByText('正在思考…')).toBeInTheDocument()
  await user.click(screen.getByText('任务过程'))
  expect(details).toHaveAttribute('open')
  expect(screen.queryByText('内部推理')).toBeNull()
- await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:2,type:'delta',delta:{text:'最终答案'}}))
- expect(screen.getByText('最终答案')).toBeInTheDocument()
+  await act(async()=>{onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',sequence:2,type:'delta',delta:{text:'最终答案'}});await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()))})
+  expect(screen.getByText('最终答案')).toBeInTheDocument()
 })
 
 it('can navigate from the bottom to an earlier round without pending auto-follow undoing it',async()=>{

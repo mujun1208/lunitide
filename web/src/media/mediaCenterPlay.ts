@@ -60,6 +60,13 @@ export function mediaCenterOwnsUrl(url: string): boolean {
   return url !== '' && url === activeBlob
 }
 
+export function releaseMediaCenterPlay(): void {
+  if (!activeBlob) return
+  const url = activeBlob
+  activeBlob = ''
+  URL.revokeObjectURL(url)
+}
+
 export function handoffPageMedia(play: MediaCenterPlay): boolean {
   if (!pageCanPlay(play.url) || typeof window === 'undefined') return false
   publish(play)

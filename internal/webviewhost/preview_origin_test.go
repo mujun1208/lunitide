@@ -1,6 +1,7 @@
 package webviewhost
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -23,15 +24,15 @@ func TestParsePreviewRequestRejectsEverythingButOurOwnShape(t *testing.T) {
 		PreviewOrigin + "/other/" + token + "/index.html",                                 // wrong prefix
 		PreviewOrigin + PreviewPathPrefix + "short/index.html",                            // token too short
 		PreviewOrigin + PreviewPathPrefix + token + "!/index.html",                        // token charset
-		base + "/../../etc/hosts",                                                         // traversal
-		base + "/..%2f..%2fsecrets.env",                                                   // encoded traversal
-		base + "/%2e%2e/%2e%2e/secrets.env",                                               // encoded dot-dot
-		base + "/sub/../../outside.html",                                                  // traversal after descent
-		base + "//etc/hosts",                                                              // empty segment
-		base + "/C:/Windows/win.ini",                                                      // drive-ish absolute
-		base + "/assets\\app.js",                                                          // backslash
-		base + "/" + strings.Repeat("a", previewRelMax+1),                                 // absurd length
-		"https://app.lunitide.local" + PreviewPathPrefix + token + "/index.html",           // app origin
+		base + "/../../etc/hosts",                                                // traversal
+		base + "/..%2f..%2fsecrets.env",                                          // encoded traversal
+		base + "/%2e%2e/%2e%2e/secrets.env",                                      // encoded dot-dot
+		base + "/sub/../../outside.html",                                         // traversal after descent
+		base + "//etc/hosts",                                                     // empty segment
+		base + "/C:/Windows/win.ini",                                             // drive-ish absolute
+		base + "/assets\\app.js",                                                 // backslash
+		base + "/" + strings.Repeat("a", previewRelMax+1),                        // absurd length
+		"https://app.lunitide.local" + PreviewPathPrefix + token + "/index.html", // app origin
 	} {
 		if _, _, ok := ParsePreviewRequest(raw); ok {
 			t.Errorf("accepted %q", raw)
@@ -43,14 +44,14 @@ func TestParsePreviewRequestAcceptsDocumentAndSiblingAssets(t *testing.T) {
 	const token = "PzQ1c2VydGlja2V0MDAwMDAx"
 	base := PreviewOrigin + PreviewPathPrefix + token
 	cases := map[string]string{
-		base + "/":                          "",
-		base:                                "",
-		base + "/index.html":                "index.html",
-		base + "/assets/app.js":             "assets/app.js",
-		base + "/assets/./app.js":           "assets/app.js",
-		base + "/sub/deep/../style.css":     "sub/style.css",
-		base + "/index.html?tab=customers":  "index.html",
-		base + "/?view=dashboard":           "",
+		base + "/":                             "",
+		base:                                   "",
+		base + "/index.html":                   "index.html",
+		base + "/assets/app.js":                "assets/app.js",
+		base + "/assets/./app.js":              "assets/app.js",
+		base + "/sub/deep/../style.css":        "sub/style.css",
+		base + "/index.html?tab=customers":     "index.html",
+		base + "/?view=dashboard":              "",
 		base + "/data/%E5%AE%A2%E6%88%B7.json": "data/客户.json",
 	}
 	for raw, wantRel := range cases {
@@ -166,5 +167,20 @@ func TestPreviewRequestAllowedRequiresTrustedSource(t *testing.T) {
 		if PreviewRequestAllowed(source, uri) {
 			t.Errorf("accepted source %q", source)
 		}
+	}
+}
+
+func TestInjectPreviewCiteOnceBeforeBodyEnd(t *testing.T) {
+	page := []byte("<html><body><button onclick=\"save()\">保存</button></body></html>")
+	out := injectPreviewCite(page)
+	if !bytes.Contains(out, []byte("data-lunitide-cite")) || !bytes.Contains(out, []byte("lunitide-preview")) {
+		t.Fatalf("cite bridge missing: %s", out)
+	}
+	if !bytes.HasSuffix(bytes.ToLower(out), []byte("</body></html>")) {
+		t.Fatalf("script landed after the document: %s", out)
+	}
+	again := injectPreviewCite(out)
+	if bytes.Count(again, []byte("data-lunitide-cite")) != 1 {
+		t.Fatal("cite script was injected twice")
 	}
 }

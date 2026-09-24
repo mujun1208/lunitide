@@ -1,6 +1,7 @@
 package webviewhost
 
 import (
+	"bytes"
 	"net/url"
 	"path"
 	"strings"
@@ -176,6 +177,26 @@ const PreviewContentPolicy = "default-src 'none'; " +
 // an error body can never be mistaken for a licence to do more.
 func PreviewDeniedHeaders() string {
 	return PreviewResponseHeaders("text/plain; charset=utf-8")
+}
+
+const previewCiteScript = `<script data-lunitide-cite>(function(){document.addEventListener('mouseup',function(){var s=window.getSelection&&window.getSelection();var t=s?String(s).replace(/\s+/g,' ').trim():'';if(!t)return;try{parent.postMessage({source:'lunitide-preview',type:'cite',text:t.slice(0,800)},'*')}catch(e){}})})()</script>`
+
+// injectPreviewCite lets a generated page hand the text the reader selected
+// to the chat composer. The page stays on the preview origin; the parent
+// only accepts this message from that origin.
+func injectPreviewCite(body []byte) []byte {
+	if len(body) == 0 || bytes.Contains(body, []byte("data-lunitide-cite")) {
+		return body
+	}
+	script := []byte(previewCiteScript)
+	lower := bytes.ToLower(body)
+	if i := bytes.LastIndex(lower, []byte("</body>")); i >= 0 {
+		out := make([]byte, 0, len(body)+len(script))
+		out = append(out, body[:i]...)
+		out = append(out, script...)
+		return append(out, body[i:]...)
+	}
+	return append(append([]byte{}, body...), script...)
 }
 
 // PreviewContentType maps a file extension to a MIME type. An unknown

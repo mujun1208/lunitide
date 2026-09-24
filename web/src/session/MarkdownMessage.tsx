@@ -6,6 +6,7 @@ import { mermaidFenceStillOpen } from './markdown/tideMermaid'
 import { RichCodeBlock, codeBlockLanguage } from './markdown/RichCodeBlock'
 import { MroCiteList } from './MroCiteList'
 import { parseMroCite } from './mroCite'
+import { streamingThinkingTail } from './livePaint'
 
 const allowedElements = ['p','h1','h2','h3','h4','h5','h6','strong','em','del','ul','ol','li','table','thead','tbody','tr','th','td','blockquote','pre','code','a','br','hr','input']
 const firstCjkPunctuation = /[，。！？、；：]/u
@@ -189,7 +190,8 @@ export function ThinkingPanel({
   onCopy?: (value: string) => void | Promise<void>
 }) {
   if (!text && !children) return null
-  const preview = compressThinking(text)
+  const live = streaming ? streamingThinkingTail(text) : text
+  const preview = compressThinking(live)
   return <details className={`thinking-panel${streaming?' is-streaming':''}`} open={open} onToggle={event => onToggle(event.currentTarget.open)}>
     <summary>
       <span className="thinking-summary-label">任务过程</span>
@@ -200,8 +202,8 @@ export function ThinkingPanel({
       {status && <span className="thinking-summary-status">{status}</span>}
     </summary>
     <div className="thinking-content">
-      {text && open && <div className={`thinking-reasoning${streaming ? ' is-live' : ''}`}>
-        {streaming ? <pre className="thinking-live-text">{text}</pre> : <MarkdownMessage text={text} onCopy={onCopy} />}
+      {live && open && <div className={`thinking-reasoning${streaming ? ' is-live' : ''}`}>
+        {streaming ? <pre className="thinking-live-text">{live}</pre> : <MarkdownMessage text={text} onCopy={onCopy} />}
       </div>}
       {children}
     </div>

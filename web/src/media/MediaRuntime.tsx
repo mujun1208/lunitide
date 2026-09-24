@@ -7,7 +7,7 @@ import { MediaMiniPlayer } from './MediaMiniPlayer'
 import { OwnedMediaPlayer, type OwnedMediaPlayerHandle } from './OwnedMediaPlayer'
 import { mediaTransportCommand, miniPlayerPhase, needsPlaybackOpen, shouldDetachPlayback } from './mediaSnapshot'
 import { mediaText } from './mediaCopy'
-import { MEDIA_CENTER_PLAY_EVENT, handoffPageMedia, pageMediaFromElement, type MediaCenterPlay } from './mediaCenterPlay'
+import { MEDIA_CENTER_PLAY_EVENT, handoffPageMedia, pageMediaFromElement, releaseMediaCenterPlay, type MediaCenterPlay } from './mediaCenterPlay'
 import { useZh } from '../i18n/language'
 
 type MediaState = {
@@ -47,6 +47,7 @@ type MediaStoreValue = MediaState & {
   clear: () => Promise<void>
   seek: (positionMs: number) => Promise<void>
   volume: (volume: number) => Promise<void>
+  dismiss: () => void
 }
 
 const MediaStoreContext = createContext<MediaStoreValue | null>(null)
@@ -73,6 +74,8 @@ export function MediaRuntime({
   const setTarget = useNavStore(s => s.setTarget)
   const [state, setState] = useState<MediaState>(EMPTY)
   const [centerPlay, setCenterPlay] = useState<MediaCenterPlay | null>(null)
+  const centerPlayRef = useRef(centerPlay)
+  centerPlayRef.current = centerPlay
   const [wantPlay, setWantPlay] = useState(false)
   const wantPlayRef = useRef(wantPlay)
   wantPlayRef.current = wantPlay
@@ -308,6 +311,15 @@ export function MediaRuntime({
     }
   }, [copy.disabled, copy.queueFailed, media, refresh])
 
+  const dismiss = useCallback(() => {
+    if (centerPlayRef.current) {
+      releaseMediaCenterPlay()
+      setCenterPlay(null)
+      return
+    }
+    void runCommand('stop', { asStop: true })
+  }, [runCommand])
+
   const value = useMemo<MediaStoreValue>(() => ({
     ...state,
     centerPlay,
@@ -328,7 +340,8 @@ export function MediaRuntime({
       await runCommand('set_volume', { volume })
       playerRef.current?.syncObserved()
     },
-  }), [centerPlay, pick, playPause, queue, runCommand, state, wantPlay])
+    dismiss,
+  }), [centerPlay, dismiss, pick, playPause, queue, runCommand, state, wantPlay])
 
   const phase = miniPlayerPhase(page, state.snapshot, state.stopOperation)
   const current = state.assets.find(item => item.assetId === state.snapshot?.assetId)
@@ -387,6 +400,7 @@ export function useMediaStore(): MediaStoreValue {
     clear: async () => {},
     seek: async () => {},
     volume: async () => {},
+    dismiss: () => {},
   }
   return value
 }
@@ -415,6 +429,7 @@ export function MediaCenterRoute(): React.JSX.Element {
       onClear={() => { void media.clear() }}
       onSeek={positionMs => { void media.seek(positionMs) }}
       onVolume={volume => { void media.volume(volume) }}
+      onClose={() => media.dismiss()}
     />
   )
 }

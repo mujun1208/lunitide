@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest'
-import { handoffPageMedia, pageCanPlay, pageMediaFromElement, parseMediaCenterPlay } from './mediaCenterPlay'
+import { handoffPageMedia, mediaCenterOwnsUrl, pageCanPlay, pageMediaFromElement, parseMediaCenterPlay, releaseMediaCenterPlay } from './mediaCenterPlay'
 
 it('reads the owned-player handoff and ignores ordinary media receipts', () => {
   expect(parseMediaCenterPlay('sent play to the active media app')).toBeNull()
@@ -47,4 +47,14 @@ it('hands a page clip to the media center', () => {
   window.removeEventListener('lunitide:media-center-play', onPlay)
   expect(seen).toEqual([{ url: 'blob:clip', kind: 'audio', title: '朗读', rate: 1.25 }])
   vi.unstubAllGlobals()
+})
+
+it('releases the staged clip when playback is closed', () => {
+  const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+  handoffPageMedia({ url: 'blob:general', kind: 'video', title: 'The General' })
+  expect(mediaCenterOwnsUrl('blob:general')).toBe(true)
+  releaseMediaCenterPlay()
+  expect(revoke).toHaveBeenCalledWith('blob:general')
+  expect(mediaCenterOwnsUrl('blob:general')).toBe(false)
+  revoke.mockRestore()
 })

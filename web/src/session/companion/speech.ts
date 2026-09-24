@@ -507,6 +507,17 @@ export function collapseTandemRepeats(raw: string): string {
  * growing revision of the whole utterance. Concatenating those pieces is
  * what turned one spoken sentence into a meeting paragraph of repeats.
  */
+/** A short final at a new result index must not erase the longer interim. */
+export function commitRecognitionFinal(finals: string, interim: string, piece: string): { finals: string; interim: string } {
+  let next = piece
+  const held = interim.trim()
+  if (held) {
+    if (sameUtteranceSplit(held, piece)) next = absorbRecognitionFinal(held, piece)
+    else next = pickTranscriptRevision(held, piece)
+  }
+  return { finals: absorbRecognitionFinal(finals, next), interim: '' }
+}
+
 export function absorbRecognitionFinal(prior: string, piece: string): string {
   const next = piece.trim()
   if (!next) return prior
@@ -1057,11 +1068,8 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
         for (let i = start; i < event.results.length; i++) {
           let piece = pickRecognitionTranscript(event.results[i])
           if (event.results[i].isFinal) {
-            if (interimResultIndex >= 0 && interimResultIndex !== i && sameUtteranceSplit(interim, piece)) {
-              piece = absorbRecognitionFinal(interim, piece)
-            }
-            if (interimResultIndex === i) piece = pickTranscriptRevision(interim, piece)
-            finals = absorbRecognitionFinal(finals, piece)
+            const committed = commitRecognitionFinal(finals, interim, piece)
+            finals = committed.finals
             interim = ''
             interimResultIndex = -1
             consumedResultCount = i + 1
