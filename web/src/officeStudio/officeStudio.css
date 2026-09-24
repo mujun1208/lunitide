@@ -233,6 +233,19 @@ html[data-theme='light'] .os-alert {
   min-height: 90px;
   max-height: 240px;
 }
+.office-studio .os-home-asset {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.office-studio .os-home-asset select {
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+}
 .os-home-intro .os-home-submit-row {
   display: flex;
   gap: 16px;

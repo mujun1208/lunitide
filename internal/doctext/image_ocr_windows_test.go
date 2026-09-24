@@ -5,8 +5,19 @@ package doctext
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
+
+func TestImageOCRScriptAwaitsOpenReadContentType(t *testing.T) {
+	script := string(imageOCRScript)
+	if !strings.Contains(script, "IRandomAccessStreamWithContentType") {
+		t.Fatal("OpenReadAsync must await IRandomAccessStreamWithContentType")
+	}
+	if strings.Contains(script, "OpenReadAsync()) ([Windows.Storage.Streams.IRandomAccessStream])") {
+		t.Fatal("OpenReadAsync must not await the raw IRandomAccessStream interface")
+	}
+}
 
 func TestExtractImageOCRRejectsInvalidOrCancelledInputBeforeLaunching(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

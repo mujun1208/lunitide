@@ -114,6 +114,7 @@ export type HubOverview = {
   removed?: number
   probePassed?: number
   probeTotal?: number
+  liveChecked?: boolean
   domains?: Array<{ id: string; name: string; modules: number; cards: number }>
   tags?: string[]
   assetCounts?: Record<string, { n: number; delta?: number }>

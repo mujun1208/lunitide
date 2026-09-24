@@ -85,7 +85,16 @@ func (s *Service) Generate(ctx context.Context, trigger string) (Edition, error)
 		Findings:    findings,
 		Graph:       BuildGraph(cards),
 	}
-	ed.HealthScore = healthScore(findings, probe)
+	if trigger == "manual" {
+		tasks, logText, notes := invokeLive(ctx)
+		faults := ClassifyLog(logText)
+		ed.LiveProbe, ed.HealthScore = ScoreLive(tasks, faults)
+		ed.Findings = append(ed.Findings, TaskFindings(tasks)...)
+		ed.Findings = append(ed.Findings, faults...)
+		ed.Findings = append(ed.Findings, LandscapeFindings(notes)...)
+	} else {
+		ed.HealthScore = healthScore(findings, probe)
+	}
 	ed.ReportMarkdown, ed.ReportHTML = RenderReport(ed)
 	ed.Digest = digestEdition(ed)
 	if err := s.persist.ProductHubSaveEdition(ctx, ed); err != nil {
@@ -104,11 +113,12 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 		return Overview{}, err
 	}
 	added, updated, removed := countKinds(Changelog(ed.Features, cards))
+	score, shown, live := displayedScore(ed, findings, probe)
 	return Overview{
 		Product: "Lunitide", EditionID: ed.EditionID, GeneratedAt: ed.GeneratedAt,
-		CardCount: len(cards), HealthScore: healthScore(findings, probe),
+		CardCount: len(cards), HealthScore: score,
 		Added: added, Updated: updated, Removed: removed,
-		ProbePassed: probe.Passed, ProbeTotal: probe.Total,
+		ProbePassed: shown.Passed, ProbeTotal: shown.Total, LiveChecked: live,
 		Domains: domainStats(cards), Tags: collectTagValues(cards),
 	}, nil
 }
@@ -132,6 +142,7 @@ func (s *Service) view(ctx context.Context, ed Edition) ([]Card, []Finding, Prob
 	}
 	findings, probe, cards := diagnoseCatalog(cards, live)
 	findings = mergeFindingStatus(ed.Findings, findings)
+	findings = append(findings, liveFindings(ed.Findings)...)
 	if logs, err := s.persist.ProductHubLoadApplies(ctx); err == nil {
 		findings = attachApplies(findings, logs)
 	}
@@ -203,7 +214,7 @@ func (s *Service) Diagnostics(ctx context.Context) ([]Finding, string, string, e
 	}
 	ed.Features = cards
 	ed.Findings = findings
-	ed.HealthScore = healthScore(findings, probe)
+	ed.HealthScore, _, _ = displayedScore(ed, findings, probe)
 	ed.Graph = BuildGraph(cards)
 	md, pageHTML := RenderReport(ed)
 	return findings, md, pageHTML, nil
@@ -248,7 +259,7 @@ func (s *Service) Export(ctx context.Context, format string) (content, mime stri
 	}
 	ed.Features = cards
 	ed.Findings = findings
-	ed.HealthScore = healthScore(findings, probe)
+	ed.HealthScore, _, _ = displayedScore(ed, findings, probe)
 	md, pageHTML := RenderReport(ed)
 	switch format {
 	case "html":

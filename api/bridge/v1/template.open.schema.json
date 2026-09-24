@@ -8,13 +8,18 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "id": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
+    "id": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "purpose": { "enum": ["view", "office"] }
   },
   "required": ["id"],
   "x-result": {
     "type": "object",
     "additionalProperties": false,
-    "properties": { "opened": { "type": "boolean" } },
+    "properties": {
+      "opened": { "type": "boolean" },
+      "fileName": { "type": "string" },
+      "contentBase64": { "type": "string" }
+    },
     "required": ["opened"]
   },
   "x-examples": {

@@ -27,12 +27,13 @@ func TestRenderMoonMarkIsOneDisc(t *testing.T) {
 	assertNoBlueCloudOnMoon(t, img)
 }
 
-func TestMoonDiscHasNoCloudStroke(t *testing.T) {
+func TestMoonHasCloudStrokeBelowDisc(t *testing.T) {
 	img := renderMoonMark(256)
-	for y := 240; y < 256; y++ {
-		if img.RGBAAt(128, y).A > 40 {
-			t.Fatalf("cloud stroke still present at y=%d", y)
-		}
+	if img.RGBAAt(128, 205).A < 40 {
+		t.Fatal("cloud stroke missing below the moon")
+	}
+	if img.RGBAAt(128, 250).A > 40 {
+		t.Fatal("cloud stroke should stay under the disc")
 	}
 }
 
@@ -189,10 +190,10 @@ func TestRepoIconHasTransparentFill(t *testing.T) {
 	if moon.A < 200 {
 		t.Fatalf("moon body vanished at (%d,%d) alpha=%d", x, yMoon, moon.A)
 	}
-	yEdge := img.Bounds().Min.Y + img.Bounds().Dy()*92/100
-	edge := img.RGBAAt(x, yEdge)
-	if edge.A > 40 {
-		t.Fatalf("moon should be a single disc, edge alpha=%d", edge.A)
+	yCloud := img.Bounds().Min.Y + img.Bounds().Dy()*80/100
+	cloud := img.RGBAAt(x, yCloud)
+	if cloud.A < 40 {
+		t.Fatalf("cloud stroke missing below the moon, alpha=%d", cloud.A)
 	}
 	assertNoBlueCloudOnMoon(t, img)
 }

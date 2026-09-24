@@ -96,3 +96,17 @@ func TestAssetCreationConcurrentSameKeyHasOneIdentity(t *testing.T) {
 		}
 	}
 }
+
+func TestAssetCreationAcceptsOfficeTemplateTypes(t *testing.T) {
+	s, _, _ := phaseTestStore(t, project.TypeImplementation)
+	files := []string{"deck.pptx", "brief.docx", "ledger.xlsx"}
+	for i, typ := range []asset.TemplateType{asset.TemplateTypePPT, asset.TemplateTypeWord, asset.TemplateTypeExcel} {
+		tpl := creationTestTemplate()
+		tpl.TemplateType = typ
+		tpl.DocumentType = ""
+		tpl.FileName = files[i]
+		if _, err := s.CreateAssetTemplateIdempotent(context.Background(), "office-"+string(typ), strings.Repeat("b", 64), tpl); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

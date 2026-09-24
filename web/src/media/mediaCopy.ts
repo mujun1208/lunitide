@@ -24,6 +24,9 @@ export function mediaText(zh: boolean) {
     externalQueue: zh ? '队列由外部应用管理' : 'The queue is managed by an external app',
     seek: zh ? '进度' : 'Seek',
     volume: zh ? '音量' : 'Volume',
+    full: zh ? '全屏' : 'Full screen',
+    restore: zh ? '恢复' : 'Restore',
+    soundOff: zh ? '正在播放，向上拖音量即可出声' : 'Playing. Drag the volume up to hear it.',
     playing: zh ? '正在播放' : 'Playing',
     paused: zh ? '已暂停' : 'Paused',
     dispatched: zh ? '命令已发送，待核验' : 'Command sent, not verified yet',
@@ -34,6 +37,7 @@ export function mediaText(zh: boolean) {
     closeError: zh ? '停止未确认' : 'Stop was not confirmed',
     retryClose: zh ? '重试结束' : 'Retry close',
     operation: zh ? '媒体操作' : 'Media operation',
+    corner: zh ? '记录' : 'Log',
     pending: zh ? '处理中' : 'In progress',
     confirmed: zh ? '已确认' : 'Confirmed',
     unconfirmed: zh ? '未确认' : 'Unconfirmed',
@@ -61,12 +65,9 @@ export function mediaText(zh: boolean) {
 
 export function playbackStatusText(zh: boolean, phase: string, verificationStatus: string): string {
   const copy = mediaText(zh)
-  if (verificationStatus === 'command_dispatched') {
-    return copy.dispatched
-  }
-  if (phase === 'playing' && verificationStatus === 'verified_playing') return copy.playing
-  if (phase === 'paused' && verificationStatus === 'verified_paused') return copy.paused
+  if (phase === 'playing') return copy.playing
+  if (phase === 'paused') return copy.paused
+  if (verificationStatus === 'command_dispatched' || phase === 'stalled') return copy.dispatched
   if (phase === 'idle' || phase === 'stopped') return copy.idle
-  if (phase === 'playing' || phase === 'paused' || phase === 'stalled') return copy.dispatched
   return phase
 }

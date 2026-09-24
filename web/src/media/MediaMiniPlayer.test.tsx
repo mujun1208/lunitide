@@ -32,7 +32,7 @@ it('stays hidden when the overlay is not requested', () => {
 
 it('TestMediaMiniPlayerContract: keeps pause visible and does not hide while close is unverified', () => {
   render(<MediaMiniPlayer phase="active" snapshot={{ ...snapshot, phase: 'paused' }} title="夜曲" error="" onOpen={() => {}} onPlayPause={() => {}} onClose={() => {}} onRetryClose={() => {}} />)
-  expect(screen.getByLabelText('迷你播放器')).toHaveTextContent('命令已发送，待核验')
+  expect(screen.getByLabelText('迷你播放器')).toHaveTextContent('已暂停')
   expect(screen.getByRole('button', { name: '播放' })).toBeInTheDocument()
   cleanup()
   render(<MediaMiniPlayer phase="close_error" snapshot={snapshot} title="夜曲" error="停止未确认" hub onOpen={() => {}} onPlayPause={() => {}} onClose={() => {}} onRetryClose={() => {}} />)

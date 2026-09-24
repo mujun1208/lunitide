@@ -166,20 +166,21 @@ type Collaborator interface {
 }
 
 type Edition struct {
-	EditionID      string    `json:"edition_id"`
-	GeneratedAt    string    `json:"generated_at"`
-	CardCount      int       `json:"card_count"`
-	Added          int       `json:"added"`
-	Updated        int       `json:"updated"`
-	Removed        int       `json:"removed"`
-	HealthScore    int       `json:"health_score"`
-	Features       []Card    `json:"features"`
-	Changes        []Change  `json:"changes"`
-	Findings       []Finding `json:"findings"`
-	ReportMarkdown string    `json:"report_markdown"`
-	ReportHTML     string    `json:"report_html"`
-	Graph          Graph     `json:"graph"`
-	Digest         string    `json:"digest"`
+	EditionID      string     `json:"edition_id"`
+	GeneratedAt    string     `json:"generated_at"`
+	CardCount      int        `json:"card_count"`
+	Added          int        `json:"added"`
+	Updated        int        `json:"updated"`
+	Removed        int        `json:"removed"`
+	HealthScore    int        `json:"health_score"`
+	LiveProbe      ProbeScore `json:"liveProbe,omitempty"`
+	Features       []Card     `json:"features"`
+	Changes        []Change   `json:"changes"`
+	Findings       []Finding  `json:"findings"`
+	ReportMarkdown string     `json:"report_markdown"`
+	ReportHTML     string     `json:"report_html"`
+	Graph          Graph      `json:"graph"`
+	Digest         string     `json:"digest"`
 }
 
 type Graph struct {
@@ -227,6 +228,7 @@ type Overview struct {
 	Removed     int          `json:"removed"`
 	ProbePassed int          `json:"probePassed"`
 	ProbeTotal  int          `json:"probeTotal"`
+	LiveChecked bool         `json:"liveChecked,omitempty"`
 	Domains     []DomainStat `json:"domains"`
 	Tags        []string     `json:"tags"`
 }

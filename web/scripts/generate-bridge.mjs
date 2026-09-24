@@ -639,6 +639,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'template.enable',
   'template.file.stage',
   'template.list',
+  'template.office.import',
   'template.open',
   'template.restore',
   'template.void',

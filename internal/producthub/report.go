@@ -119,7 +119,11 @@ func diagnosisVerdict(ed Edition) string {
 		}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "本轮核对说明书与活源。%s 健康分 %d 是入口覆盖，不是语音听写、媒体播放、文件落盘或任务完成的实测分。\n\n", cover, ed.HealthScore)
+	if ed.LiveProbe.Total > 0 {
+		fmt.Fprintf(&b, "本轮实测 %d/%d，健康分 %d。听写、播放、下载、图片识别已跑；日志里对得上原文的故障记在下面。这一环是实测通过率。对照来自图景页已选产品，不计入这个分数。\n\n", ed.LiveProbe.Passed, ed.LiveProbe.Total, ed.HealthScore)
+	} else {
+		fmt.Fprintf(&b, "本轮核对说明书与活源。%s 健康分 %d 是入口覆盖，不是语音听写、媒体播放、文件落盘或任务完成的实测分。\n\n", cover, ed.HealthScore)
+	}
 	if openErr+openWarn == 0 {
 		b.WriteString("没有可执行的目录修复项。入口对齐之后，功能是否真能做完，要在对应页面实测。\n\n")
 		return b.String()

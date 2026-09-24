@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { asUserBridgeError } from '../bridge/bridgeUserError'
 import { BridgeClientError, createMutationAttempt, templateBridge, type TemplateBridge } from '../bridge/client'
-import type { TemplateCreatePayload, TemplateListResult } from '../generated/bridge'
+import type { TemplateCreatePayload, TemplateListResult, TemplateOfficeImportPayload } from '../generated/bridge'
 import { ConfirmDialog, Dialog } from '../ui/Dialog'
 import { bytesToBase64, stageTemplateFile, TEMPLATE_INLINE_MAX } from './assetStage'
 import { readBoundedFile } from '../files/readBoundedFile'
@@ -18,7 +18,9 @@ const DOCUMENT_TYPES = [
   '上线策略和风险评估报告', '应急预案报告', '上线问题清单',
 ] as const
 
-const TYPE_LABEL: Record<TemplateDTO['templateType'], string> = { document: '文档模版', scaffold: '脚手架模版' }
+const TYPE_LABEL: Record<TemplateDTO['templateType'], string> = {
+  document: '文档模版', scaffold: '脚手架模版', ppt: 'PPT模版', word: 'Word模版', excel: 'Excel模版',
+}
 const STATUS_LABEL: Record<TemplateDTO['status'], string> = { draft: '创建', enabled: '可用', disabled: '停用', void: '作废' }
 
 function assetUserError(err: unknown, fallback: string): string {
@@ -72,6 +74,7 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
   const [form, setForm] = useState<UploadForm>(emptyForm)
   const [formError, setFormError] = useState('')
   const [uploadProgress, setUploadProgress] = useState('')
+  const batchInput = useRef<HTMLInputElement>(null)
   const [confirm, setConfirm] = useState<{ kind: 'delete' | 'void' | 'restore'; item: TemplateDTO }>()
   const mounted = useRef(true)
   const loadToken = useRef(0)
@@ -168,6 +171,47 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
     }
   }
 
+  const importOfficeBatch = async (selected: File[]) => {
+    if (busyRef.current) return
+    const accepted = selected.filter(file => /\.(pptx|docx|xlsx)$/i.test(file.name))
+    const skipped = selected.filter(file => !accepted.includes(file)).map(file => file.name)
+    if (!accepted.length) {
+      setActionError(problem(new Error('请选择 .pptx、.docx 或 .xlsx')))
+      return
+    }
+    busyRef.current = true
+    setBusy(true)
+    setActionError(undefined)
+    let saved = 0
+    const failures = [...skipped.map(name => `${name} 不是 PPT、Word 或 Excel`)]
+    try {
+      for (let index = 0; index < accepted.length; index += 1) {
+        const file = accepted[index]
+        if (mounted.current) setUploadProgress(`正在分析 ${index + 1}/${accepted.length}：${file.name}`)
+        try {
+          const bytes = await readFileBytes(file)
+          const payload: TemplateOfficeImportPayload = { fileName: file.name }
+          if (bytes.length <= TEMPLATE_INLINE_MAX) payload.contentBase64 = bytesToBase64(bytes)
+          else payload.uploadId = await stageTemplateFile(templates, file, bytes)
+          const attempt = createMutationAttempt('template.office.import', payload)
+          const item = await templates.officeImport(attempt.payload, { attempt })
+          saved += 1
+          if (mounted.current) setItems(current => ordered([item, ...current.filter(row => row.id !== item.id)]))
+        } catch (err) {
+          failures.push(`${file.name}：${problem(err).message}`)
+        }
+      }
+      if (mounted.current) {
+        setUploadProgress('')
+        if (saved) setNotice(`已入库 ${saved} 份办公模版，状态为创建`)
+        if (failures.length) setActionError(problem(new Error(failures.join('；'))))
+      }
+    } finally {
+      busyRef.current = false
+      if (mounted.current) setBusy(false)
+    }
+  }
+
   const runAction = async (kind: 'enable' | 'void' | 'delete' | 'restore', item: TemplateDTO) => {
     if (busyRef.current) return
     busyRef.current = true
@@ -225,7 +269,13 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
 
   const acceptUpload = form.templateType === 'scaffold'
     ? '.zip,.tar.gz,application/zip,application/gzip,application/x-gzip'
-    : '.md,.txt,.pdf,.doc,.docx,.dot,.xls,.xlsx,.ppt,.pptx,.html,.htm,.json,.yaml,.yml,.csv,text/*,application/*'
+    : form.templateType === 'ppt'
+      ? '.pptx'
+      : form.templateType === 'word'
+        ? '.docx'
+        : form.templateType === 'excel'
+          ? '.xlsx'
+          : '.md,.txt,.pdf,.doc,.docx,.dot,.xls,.xlsx,.ppt,.pptx,.html,.htm,.json,.yaml,.yml,.csv,text/*,application/*'
 
   return (
     <div className="shell project-page pm-shell">
@@ -241,12 +291,15 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
         <div className="pm-toolbar">
           <h2>模版清单</h2>
           <label className="pm-search"><span aria-hidden="true">⌕</span><input aria-label="搜索模版" placeholder="搜索名称、编号、文件类型或客户…" maxLength={200} value={query} onChange={e => setQuery(e.target.value)} /></label>
-          <label className="pm-filter">类型<select aria-label="筛选模版类型" value={typeFilter} onChange={e => setTypeFilter(e.target.value as typeof typeFilter)}><option value="all">全部</option><option value="document">文档模版</option><option value="scaffold">脚手架模版</option></select></label>
+          <label className="pm-filter">类型<select aria-label="筛选模版类型" value={typeFilter} onChange={e => setTypeFilter(e.target.value as typeof typeFilter)}><option value="all">全部</option><option value="document">文档模版</option><option value="ppt">PPT模版</option><option value="word">Word模版</option><option value="excel">Excel模版</option><option value="scaffold">脚手架模版</option></select></label>
           <label className="pm-filter">状态<select aria-label="筛选模版状态" value={statusFilter} onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}><option value="all">全部</option><option value="draft">创建</option><option value="enabled">可用</option><option value="void">作废</option></select></label>
           <button aria-label="刷新模版" disabled={busy || loading} onClick={() => void load()}>↻</button>
+          <input ref={batchInput} className="sr-only" type="file" multiple accept=".pptx,.docx,.xlsx" aria-label="批量入库办公模版" onChange={e => { const files = Array.from(e.target.files || []); e.target.value = ''; void importOfficeBatch(files) }} />
+          <button disabled={busy || loading} onClick={() => batchInput.current?.click()}>批量入库</button>
           <button className="primary" onClick={() => { setForm(emptyForm()); setFormError(''); setUploadOpen(true) }}>＋ 上传资产</button>
         </div>
-        <p className="gate-note">上传后状态为「创建」；点击「启用」变为「可用」。作废后不可被新引用；仅「创建」态可彻底删除。</p>
+        <p className="gate-note">上传后状态为「创建」；点击「启用」变为「可用」。作废后不可被新引用；仅「创建」态可彻底删除。批量入库一次放入多份 PPT、Word、Excel，名称由当前对话模型生成。</p>
+        {uploadProgress && !uploadOpen && <p role="status">{uploadProgress}</p>}
         {notice && <p className="notice project-notice" role="status">{notice}</p>}
         {actionError && <div className="error" role="alert"><b>{actionError.message}</b><button onClick={() => setActionError(undefined)}>关闭</button></div>}
         {loading && !items.length ? <p role="status">正在载入模版…</p> : loadError && !items.length ? <p className="error" role="alert">{loadError.message}</p> : !filtered.length ? <div className="empty"><b>{items.length ? '没有符合筛选条件的模版' : '还没有模版'}</b><span>点击「上传资产」添加各阶段交付物模版。</span></div> : (
@@ -285,9 +338,12 @@ export function AssetManagerPage({ templates = templateBridge }: { templates?: T
             <div className="form-grid">
               <label>1 模版编号<input value="保存时自动生成 TPLxxxxx" disabled /></label>
               <label>2 模版名称 *<input autoFocus value={form.name} maxLength={200} onChange={e => patch('name', e.target.value)} placeholder="例如：业务需求分析报告模板" /></label>
-              <label>3 模版类型 *<select value={form.templateType} onChange={e => patch('templateType', e.target.value as UploadForm['templateType'])}><option value="document">文档模版</option><option value="scaffold">脚手架模版</option></select></label>
+              <label>3 模版类型 *<select value={form.templateType} onChange={e => patch('templateType', e.target.value as UploadForm['templateType'])}><option value="document">文档模版</option><option value="ppt">PPT模版</option><option value="word">Word模版</option><option value="excel">Excel模版</option><option value="scaffold">脚手架模版</option></select></label>
               {form.templateType === 'document' && (
                 <label>文件类型 *<select value={form.documentType} onChange={e => patch('documentType', e.target.value)}><option value="">请选择</option>{DOCUMENT_TYPES.map(type => <option key={type} value={type}>{type}</option>)}</select></label>
+              )}
+              {(form.templateType === 'ppt' || form.templateType === 'word' || form.templateType === 'excel') && (
+                <p className="gate-note wide">启用后，办公平台可以把这份模版当作底稿。请上传 .pptx、.docx 或 .xlsx。</p>
               )}
               <label className="wide">4 模版描述 *<textarea rows={2} maxLength={2000} value={form.description} onChange={e => patch('description', e.target.value)} placeholder="描述模版用途和适用范围" /></label>
               <label>5 客户<input value={form.client} maxLength={200} onChange={e => patch('client', e.target.value)} placeholder="可选" /></label>

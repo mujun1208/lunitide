@@ -64,6 +64,37 @@ func TestTemplateOpenDeniesOtherScopeAndUnsafeName(t *testing.T) {
 	}
 }
 
+func TestTemplateOpenOfficeReturnsBytesWithoutLaunching(t *testing.T) {
+	e := &Engine{assets: &openTemplateStore{tpl: asset.AssetTemplate{
+		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", FileName: "deck.pptx", FilePath: "stored.pptx",
+		TemplateType: asset.TemplateTypePPT, Status: asset.StatusEnabled,
+	}}, templateFiles: &memTemplateFiles{files: map[string][]byte{"stored.pptx": []byte("pptx-bytes")}}}
+	old := openArtifactTarget
+	t.Cleanup(func() { openArtifactTarget = old })
+	openArtifactTarget = func(string, bool, bool) error { t.Fatal("office read must not launch an app"); return nil }
+	out := handleTemplateOpen(e, context.Background(), validRequest("template.open", `{"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","purpose":"office"}`))
+	if !out.OK {
+		t.Fatalf("open %+v", out)
+	}
+	payload, _ := out.Payload.(map[string]any)
+	if payload["opened"] != false || payload["fileName"] != "deck.pptx" || payload["contentBase64"] != "cHB0eC1ieXRlcw==" {
+		t.Fatalf("payload %#v", payload)
+	}
+}
+
+func TestTemplateOpenOfficeRejectsDraftAndDocumentType(t *testing.T) {
+	for _, tpl := range []asset.AssetTemplate{
+		{FileName: "deck.pptx", FilePath: "stored.pptx", TemplateType: asset.TemplateTypePPT, Status: asset.StatusDraft},
+		{FileName: "note.txt", FilePath: "stored.txt", TemplateType: asset.TemplateTypeDocument, Status: asset.StatusEnabled},
+	} {
+		e := &Engine{assets: &openTemplateStore{tpl: tpl}, templateFiles: &memTemplateFiles{files: map[string][]byte{"stored.pptx": []byte("x"), "stored.txt": []byte("x")}}}
+		out := handleTemplateOpen(e, context.Background(), validRequest("template.open", `{"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","purpose":"office"}`))
+		if out.OK {
+			t.Fatalf("accepted %#v", tpl)
+		}
+	}
+}
+
 func TestTemplateOpenReportsShellFailure(t *testing.T) {
 	old := openArtifactTarget
 	t.Cleanup(func() { openArtifactTarget = old })

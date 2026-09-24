@@ -46,7 +46,7 @@ it('TestR3StateAccessibility: failed and unverified states keep text, status, an
       <SettingsRunStatus items={[]} />
     </>,
   )
-  expect(screen.getByText('命令已发送，待核验')).toBeInTheDocument()
+  expect(screen.getByText('已暂停')).toBeInTheDocument()
   expect(screen.getByLabelText('媒体操作')).toHaveTextContent('未确认')
   expect(screen.getByLabelText('媒体操作')).not.toHaveTextContent('已确认')
   expect(screen.getByRole('button', { name: /运行状态/ })).toBeInTheDocument()

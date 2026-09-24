@@ -83,6 +83,20 @@ export function MediaCenterPage({
   const play = idle ? onPick : onPlayPause
   return (
     <div className="media-center">
+      <header className="media-center-top">
+        <h1>{copy.title}</h1>
+        <nav className="media-center-tabs" aria-label={copy.views}>
+          <button type="button" className={surface === 'music' ? 'is-current' : ''} onClick={() => setView('music')}>{copy.music}</button>
+          <button type="button" className={surface === 'video' ? 'is-current' : ''} onClick={() => setView('video')}>{copy.video}</button>
+        </nav>
+        <button type="button" className="media-pick" disabled={busy} onClick={onPick}>{copy.pick}</button>
+        {operation ? (
+          <details className="media-op-corner">
+            <summary>{copy.corner}</summary>
+            <MediaOperationCard operation={operation} />
+          </details>
+        ) : null}
+      </header>
       <div className="media-center-stage">
         {surface === 'video' ? (
           <VideoPlayerSurface snapshot={live} title={title} src={stageSrc ?? playbackUrl} showFile={staged && stageKind !== 'audio'} rate={stageRate} busy={busy} idle={idle} onPlayPause={play} onPrevious={onPrevious} onNext={onNext} onQueue={() => setQueueOpen(true)} onSeek={onSeek} onVolume={onVolume} />
@@ -93,15 +107,6 @@ export function MediaCenterPage({
         {disabledReason ? <p className="media-notice" role="status">{disabledReason}</p> : null}
         {idle ? <p className="media-empty-hint" aria-label={copy.emptyLabel}>{copy.empty}</p> : null}
       </div>
-      <header className="media-center-top">
-        <h1>{copy.title}</h1>
-        <nav className="media-center-tabs" aria-label={copy.views}>
-          <button type="button" className={surface === 'music' ? 'is-current' : ''} onClick={() => setView('music')}>{copy.music}</button>
-          <button type="button" className={surface === 'video' ? 'is-current' : ''} onClick={() => setView('video')}>{copy.video}</button>
-        </nav>
-        <button type="button" className="media-pick" disabled={busy} onClick={onPick}>{copy.pick}</button>
-      </header>
-      {operation ? <MediaOperationCard operation={operation} /> : null}
       <MediaQueueDrawer open={queueOpen} snapshot={snapshot} assets={assets} onClose={() => setQueueOpen(false)} onJump={onJump} onRemove={onRemove} onClear={onClear} />
     </div>
   )

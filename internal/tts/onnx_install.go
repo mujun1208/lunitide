@@ -29,8 +29,8 @@ const (
 	// Pinned Kokoro multi-lang v1.0 pack: model.onnx, voices.bin (53
 	// speakers), tokens, us-en/zh lexicons, zh rule FSTs and espeak-ng-data.
 	onnxModelURLDefault = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2"
-	onnxModelSHA256     = "c133d26353d776da730870dac7da07dbfc9a5e3bc80cc5e8e83ab6e823be7046"
-	onnxModelBytes      = 349418188
+	onnxModelSHA256     = "c5f7e2d2caf082bc1d20fb70334a61d99d20b484500aad32e7cf84c128ea3298"
+	onnxModelBytes      = 349906910
 )
 
 // envOr returns the trimmed env value when set, else the fallback.

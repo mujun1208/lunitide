@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,11 +11,19 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/asset"
 )
 
+func encodeTemplateBytes(content []byte) string {
+	return base64.StdEncoding.EncodeToString(content)
+}
+
 func handleTemplateOpen(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
-		ID string `json:"id"`
+		ID      string `json:"id"`
+		Purpose string `json:"purpose"`
 	}
 	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ID) {
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "template.open 参数无效", false)
+	}
+	if p.Purpose != "" && p.Purpose != "view" && p.Purpose != "office" {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "template.open 参数无效", false)
 	}
 	if !assetStoreAvailable(e.assets) || e.templateFiles == nil {
@@ -38,6 +47,17 @@ func handleTemplateOpen(e *Engine, ctx context.Context, r bridge.Request) bridge
 	content, err := e.templateFiles.ReadFile(ctx, tpl.FilePath)
 	if err != nil {
 		return r.Fail("TEMPLATE_OPEN_FAILED", "上传的附件不存在或无法读取", false)
+	}
+	if p.Purpose == "office" {
+		if tpl.Status != asset.StatusEnabled {
+			return r.Fail("TEMPLATE_OPEN_FAILED", "只有已启用的办公模版可以引用", false)
+		}
+		switch tpl.TemplateType {
+		case asset.TemplateTypePPT, asset.TemplateTypeWord, asset.TemplateTypeExcel:
+		default:
+			return r.Fail("TEMPLATE_OPEN_FAILED", "办公工作台只引用 PPT、Word、Excel 模版", false)
+		}
+		return r.Ok(map[string]any{"opened": false, "fileName": name, "contentBase64": encodeTemplateBytes(content)})
 	}
 	// The application opens an independent copy, never the managed asset original.
 	dir, err := os.MkdirTemp("", "lunitide-asset-view-")

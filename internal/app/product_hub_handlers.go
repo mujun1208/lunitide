@@ -48,6 +48,7 @@ func handleProductHub(e *Engine, ctx context.Context, r bridge.Request) (resp br
 		}
 		return r.Ok(ov)
 	case "productHub.refresh":
+		ctx = producthub.WithLandscape(ctx, landscapeNotes(r.Payload))
 		ed, err := e.productHub.Generate(ctx, "manual")
 		if err != nil {
 			return failProductHub(r, err)
@@ -138,6 +139,16 @@ func failProductHub(r bridge.Request, err error) bridge.Response {
 	default:
 		return r.Fail("STORAGE_UNAVAILABLE", "产品知识中枢暂不可用", true)
 	}
+}
+
+func landscapeNotes(raw json.RawMessage) []producthub.LandscapeNote {
+	var body struct {
+		Landscape []producthub.LandscapeNote `json:"landscape"`
+	}
+	if json.Unmarshal(raw, &body) != nil {
+		return nil
+	}
+	return body.Landscape
 }
 
 func payloadString(raw json.RawMessage, key string) string {

@@ -782,6 +782,49 @@ describe('Office Studio production state', () => {
     expect(screen.queryByRole('dialog', { name: '新建办公任务' })).not.toBeInTheDocument();
   });
 
+  it('imports an enabled office asset as the draft and names it in the goal', async () => {
+    const api = apiFor(),
+      created = { ...fixture(), artifacts: [] },
+      imported: File[][] = [],
+      importFiles = vi.fn(async (_task: OfficeTaskDetail['task'], files: File[]) => {
+        imported.push(files);
+      }),
+      asset = {
+        id: '01ARZ3NDEKTSV4RRFFQ69G5FAT',
+        templateCode: 'TPL00001',
+        name: '季度汇报',
+        templateType: 'ppt' as const,
+        fileName: '季度汇报.pptx',
+        status: 'enabled' as const,
+        createdAt: '2026-09-24T00:00:00Z',
+        updatedAt: '2026-09-24T00:00:00Z',
+        version: 1,
+      },
+      readOfficeTemplate = vi.fn(async () => ({ fileName: '季度汇报.pptx', contentBase64: btoa('pptx-bytes') }));
+    vi.mocked(api.list).mockResolvedValue({ items: [] });
+    vi.mocked(api.create).mockResolvedValue(created);
+    vi.mocked(api.get).mockResolvedValue(fixture());
+    render(
+      <OfficeStudioPage
+        api={api}
+        renderConversation={(_, options) => <div>对话：{options.initialPrompt}</div>}
+        onOpenSession={vi.fn()}
+        onImportFiles={importFiles}
+        loadOfficeTemplates={async () => [asset]}
+        readOfficeTemplate={readOfficeTemplate}
+      />,
+    );
+    await screen.findByText('还没有办公任务。从上面输入目标即可开始。');
+    fireEvent.change(screen.getByLabelText('选择办公资产模版'), { target: { value: asset.id } });
+    expect(await screen.findByText('季度汇报.pptx')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('想完成什么工作'), { target: { value: '按这份模版做汇报' } });
+    fireEvent.click(screen.getByRole('button', { name: '开始工作 →' }));
+    await screen.findByText(/对话：按这份模版做汇报/);
+    expect(readOfficeTemplate).toHaveBeenCalledWith(asset.id);
+    expect(api.create).toHaveBeenCalledWith(expect.objectContaining({ goal: expect.stringContaining('底稿使用资产模版「季度汇报」') }));
+    expect(imported[0]?.map((file) => file.name)).toEqual(['季度汇报.pptx']);
+  });
+
   it('keeps the same mounted conversation when switching inspector tabs', async () => {
     const mounted = vi.fn(),
       unmounted = vi.fn();

@@ -1,9 +1,16 @@
 import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { MediaAssetDTO, MediaSnapshotDTO } from '../generated/bridge'
 import { MediaCenterPage } from './MediaCenterPage'
 
-afterEach(() => cleanup())
+beforeEach(() => {
+  vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+})
+
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
 const snapshot: MediaSnapshotDTO = {
   mediaSessionId: '01ARZ3NDEKTSV4RRFFQ69G5FAV',

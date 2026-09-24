@@ -6,13 +6,13 @@ package bridge
 // (which nests MCP setup), and provider diagnostics (which may wait for
 // asynchronous video generation) are exceptions.
 const (
-	DefaultMaxDeadlineMS    = 30_000
-	MeetingLiveDeadlineMS   = 120_000
-	MeetingNotesDeadlineMS  = 600_000
-	AppUpdateInstallMS      = 120_000
-	PeopleFileDeadlineMS    = 120_000
-	PeopleCaptureDeadlineMS = 180_000
-	TemplateFileDeadlineMS  = 120_000
+	DefaultMaxDeadlineMS       = 30_000
+	MeetingLiveDeadlineMS      = 120_000
+	MeetingNotesDeadlineMS     = 600_000
+	AppUpdateInstallMS         = 120_000
+	PeopleFileDeadlineMS       = 120_000
+	PeopleCaptureDeadlineMS    = 180_000
+	TemplateFileDeadlineMS     = 120_000
 	ChatStartDeadlineMS        = 120_000
 	McpSetupDeadlineMS         = 80_000
 	PackInstallDeadlineMS      = 180_000
@@ -39,7 +39,7 @@ func MaxDeadlineMS(method string) int {
 		return PeopleFileDeadlineMS
 	case MethodPeopleScreenCapture:
 		return PeopleCaptureDeadlineMS
-	case MethodTemplateCreate, MethodTemplateFileStage:
+	case MethodTemplateCreate, MethodTemplateFileStage, "template.office.import":
 		return TemplateFileDeadlineMS
 	case MethodMcpAdd, MethodMcpToggle, MethodMcpHealth:
 		return McpSetupDeadlineMS
