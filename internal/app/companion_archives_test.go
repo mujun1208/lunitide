@@ -73,8 +73,14 @@ func TestCompanionWeeklyArchiveFailureRetryRecallAndPreserveOriginals(t *testing
 		t.Fatalf("failed draft leaked as memory: %+v %v", got, err)
 	}
 	summarizer.fail = false
-	wire() // A restarted worker must rediscover failed source.
+	wire()
 	if err := e.RunCompanionArchives(ctx, nextWeek); err != nil {
+		t.Fatal(err)
+	}
+	if summarizer.calls != 1 {
+		t.Fatalf("failed week retried inside the pause window: %d", summarizer.calls)
+	}
+	if err := e.RunCompanionArchives(ctx, nextWeek.Add(6*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if summarizer.calls != 2 {
