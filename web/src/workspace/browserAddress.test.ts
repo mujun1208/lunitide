@@ -15,11 +15,17 @@ describe('browserAddress', () => {
   it('opens the official film search from a media.play result', () => {
     const url = 'https://www.iqiyi.com/so/q_%E5%A4%A7%E8%AF%9D%E8%A5%BF%E6%B8%B8'
     expect(memberCatalogPage(url)).toBe(true)
-    expect(memberCatalogPage('https://so.youku.com/search_video/q_%E5%A4%A7%E8%AF%9D%E8%A5%BF%E6%B8%B8')).toBe(true)
+    expect(memberCatalogPage('https://so.youku.com/search_video/q_%E5%A4%A7%E8%AF%9D%E8%A5%BF%E6%B8%B8')).toBe(false)
     expect(memberCatalogPage('https://news.example/jay')).toBe(false)
     expect(latestBrowserAddress([
       { name: 'media.play', status: 'tool_completed', summary: `url: ${url}\nurl: https://so.youku.com/search_video/q_%E5%A4%A7%E8%AF%9D%E8%A5%BF%E6%B8%B8\n` },
     ])).toBe(url)
+  })
+
+  it('keeps a media-center film out of the browser address', () => {
+    expect(latestBrowserAddress([
+      { name: 'media.play', status: 'tool_completed', summary: '已交给媒体中心播放。\nMEDIA_CENTER\nurl: https://upload.wikimedia.org/wikipedia/commons/c/c1/Night_of_the_Living_Dead_%281968%29.webm\nkind: video\n' },
+    ])).toBe('')
   })
 
   it('opens the official song search from a media.play result', () => {

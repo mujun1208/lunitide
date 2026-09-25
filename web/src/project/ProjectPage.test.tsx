@@ -9,7 +9,7 @@ import{normalizeProjectName,ProjectPage,validateProjectForm}from'./ProjectPage'
 afterEach(cleanup)
 const now='2025-01-01T00:00:00Z'
 const created:ProjectDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAV',name:'<img src=x onerror=alert(1)>',projectCode:'ITM00001',type:'implementation',status:'created',description:'demo',client:'Acme',createdAt:now,updatedAt:now,version:1,planStart:'2026-01-01',planEnd:'2026-06-30'}
-const active:ProjectDTO={...created,id:'01ARZ3NDEKTSV4RRFFQ69G5FAB',name:'Active',status:'active',version:2}
+const active:ProjectDTO={...created,id:'01ARZ3NDEKTSV4RRFFQ69G5FAB',name:'Active',status:'active',version:2,rootPath:'D:\\work\\mall'}
 const api=(overrides:Partial<ProjectBridge>={}):ProjectBridge=>({list:vi.fn().mockResolvedValue({items:[]}),create:vi.fn().mockResolvedValue(created),update:vi.fn(),publish:vi.fn().mockImplementation(async payload=>({...created,id:payload.id,status:'chartered' as const,version:2})),close:vi.fn(),reopen:vi.fn(),advanceStatus:vi.fn(),delete:vi.fn().mockResolvedValue({deleted:true,id:created.id}),...overrides})
 const pickRoot=vi.fn(async()=>({canceled:false,path:'D:\\work\\mall'}))
 const fillRequired=async(user:ReturnType<typeof userEvent.setup>,container:HTMLElement,opts?:{skipRoot?:boolean})=>{
@@ -141,8 +141,8 @@ it('gates lifecycle actions: publish confirm flips created to chartered and enab
  await user.click(screen.getByRole('button',{name:'确认发布'}))
  await waitFor(()=>expect(bridge.publish).toHaveBeenCalledOnce())
  expect(vi.mocked(bridge.publish).mock.calls[0][0]).toEqual({id:created.id,version:created.version})
- expect(await screen.findByText('已发布 ITM00001，现在可以进入工作台')).toBeInTheDocument()
- expect(screen.getByRole('button',{name:'进入工作台'})).toBeInTheDocument()
+ expect(await screen.findByText('已发布 ITM00001，请先选择项目目录后再进入工作台')).toBeInTheDocument()
+ expect(screen.queryByRole('button',{name:'进入工作台'})).not.toBeInTheDocument()
 })
 
 it('requires the application danger dialog before deleting a created project',async()=>{

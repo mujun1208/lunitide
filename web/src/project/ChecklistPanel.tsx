@@ -390,7 +390,7 @@ export function ChecklistPanel({
                               <option value="cursor">Cursor</option>
                               <option value="codex">Codex</option>
                             </select>
-                            <button type="button" disabled={busy || project.treeStatus !== 'ready'} title={project.treeStatus !== 'ready' ? '尚未生成项目目录' : undefined} onClick={() => onOpenTask(item.id, item.executor)}>进入开发</button>
+                            <button type="button" disabled={busy || !(project.rootPath ?? '').trim()} title={(project.rootPath ?? '').trim() ? undefined : '请先在项目里选择项目目录'} onClick={() => onOpenTask(item.id, item.executor)}>进入开发</button>
                           </>
                         )}
                         {documentType === 'test_checklist' && item.status === 'test_fail' && item.sourceId && onGoDevItem && (

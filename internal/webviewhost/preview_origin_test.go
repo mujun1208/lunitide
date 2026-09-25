@@ -84,12 +84,15 @@ func TestPreviewResponseHeadersCannotBeWidenedByTheDocument(t *testing.T) {
 			t.Errorf("headers missing %q:\n%s", want, headers)
 		}
 	}
-	// Exfiltration is the risk that matters once scripts run: no network sink of
-	// any kind, and no form post either.
-	for _, want := range []string{"connect-src 'none'", "form-action 'none'", "base-uri 'none'", "frame-src 'none'", "object-src 'none'"} {
+	// The framed page has to load its own files and the https libraries a system
+	// browser would load. Otherwise the header paints and the dashboard stays blank.
+	for _, want := range []string{"connect-src 'self' https:", "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:", "style-src 'self' 'unsafe-inline' https:", "frame-src 'self' https:", "object-src 'none'"} {
 		if !strings.Contains(PreviewContentPolicy, want) {
 			t.Errorf("policy missing %q: %s", want, PreviewContentPolicy)
 		}
+	}
+	if strings.Contains(PreviewContentPolicy, "connect-src 'none'") || strings.Contains(PreviewContentPolicy, "frame-src 'none'") {
+		t.Errorf("policy still blocks the page from behaving like a browser: %s", PreviewContentPolicy)
 	}
 	// And it may only ever be framed by us.
 	if !strings.Contains(PreviewContentPolicy, "frame-ancestors "+TrustedOrigin) {
@@ -196,7 +199,7 @@ func TestPreviewBootRunsBeforeThePageScript(t *testing.T) {
 	if boot < 0 || pageScript < 0 || boot > pageScript {
 		t.Fatalf("boot=%d pageScript=%d", boot, pageScript)
 	}
-	if !bytes.Contains(out, []byte("localStorage")) {
-		t.Fatal("boot script does not guard localStorage")
+	if !bytes.Contains(out, []byte("localStorage")) || !bytes.Contains(out, []byte("__lunitidePatched")) {
+		t.Fatal("boot script does not keep storage from aborting the page")
 	}
 }

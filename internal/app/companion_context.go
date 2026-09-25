@@ -180,6 +180,9 @@ func moviePlayGoal(text string) bool {
 	if t == "" {
 		return false
 	}
+	if strings.Contains(t, "爱奇艺") || strings.Contains(t, "优酷") {
+		return strings.Contains(t, "播放") || strings.Contains(t, "试试") || strings.Contains(t, "看") || strings.Contains(t, "找")
+	}
 	if !strings.Contains(t, "电影") && !strings.Contains(t, "影片") {
 		return false
 	}
@@ -230,6 +233,7 @@ func companionStripMusicFiller(s string) string {
 		"请你帮我", "帮我", "请你", "麻烦",
 		"打开网易云音乐", "打开网易云", "打开汽水音乐", "打开qq音乐", "打开QQ音乐",
 		"网易云音乐", "网易云", "汽水音乐", "qq音乐", "QQ音乐",
+		"爱奇艺", "优酷",
 		"播放一首", "播一首", "放一首", "来一首", "播放", "播歌", "听歌",
 		"的歌曲", "的歌", "这首歌", "歌曲",
 		"桌面的", "桌面",

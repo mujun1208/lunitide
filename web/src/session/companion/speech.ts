@@ -6,7 +6,7 @@
 import { BridgeClientError } from '../../bridge/client'
 import { microphoneConstraints, saveMicrophoneId, selectedMicrophoneId } from '../../settings/microphone'
 import { MOON_RING_BINS } from './MoonSphere'
-import { looksIncompleteUtterance, looksLikeIncompleteDesktopOpen, looksLikePlaybackEcho } from './companionText'
+import { looksIncompleteUtterance, looksLikeIncompleteDesktopOpen, looksLikePlaybackEcho, looksLikeUnfinishedCommand } from './companionText'
 import { sharedTtsAudioContext, unlockTtsAudio } from './ttsPlayer'
 import { pickTranscriptRevision } from './transcriptRevision'
 
@@ -289,6 +289,7 @@ export function shouldForceCommitUtterance(input: {
   incompleteSilenceMs?: number
   text?: string
 }): boolean {
+  if (input.text && looksLikeUnfinishedCommand(input.text)) return false
   if (input.textStableForMs < TURN_END_TEXT_SETTLE_MS) return false
   const quiet = input.incomplete
     ? (input.incompleteSilenceMs ?? TURN_END_INCOMPLETE_SILENCE_MS)

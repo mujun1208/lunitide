@@ -119,6 +119,9 @@ func (e *Engine) archiveCompanionWeek(ctx context.Context, week compactionapp.Co
 		if result.FailureCode != nil && *result.FailureCode != "" {
 			code = " " + *result.FailureCode
 		}
+		if result.Detail != "" {
+			code += "：" + result.Detail
+		}
 		return false, fmt.Errorf("weekly companion archive did not complete: %s%s", result.Status, code)
 	}
 	// A weekly memory is complete when its validated summary is durable. It

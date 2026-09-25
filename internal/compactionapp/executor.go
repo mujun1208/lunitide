@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/domain/compaction"
 	"github.com/lunitide/lunitide/internal/domain/token"
@@ -124,7 +126,9 @@ type ExecuteResult struct {
 	SummaryJSON  string
 	HumanSummary string
 	FailureCode  *string
-	DurationMs   int64
+	// Detail is a short model or validator reason. It is safe to log.
+	Detail     string
+	DurationMs int64
 	// LowWatermarkVerified is true when the post-compaction reusable context
 	// was verified to be below the low watermark (ADR-005 §5). False when
 	// verification was not performed (e.g., context window unknown).
@@ -132,6 +136,19 @@ type ExecuteResult struct {
 	// LowWatermarkUsageFraction is the remaining reusable context as a fraction
 	// of the context window (0.0–1.0). Only meaningful when LowWatermarkVerified is true.
 	LowWatermarkUsageFraction float64
+}
+
+func clipFailureDetail(msg string) string {
+	msg = strings.Join(strings.Fields(msg), " ")
+	const max = 180
+	if len(msg) <= max {
+		return msg
+	}
+	cut := max
+	for cut > 0 && !utf8.RuneStart(msg[cut]) {
+		cut--
+	}
+	return msg[:cut]
 }
 
 func finishFailed(result ExecuteResult, start time.Time, code string) ExecuteResult {
@@ -223,7 +240,9 @@ func (e *Executor) Execute(ctx context.Context, checkpointID string) (ExecuteRes
 			if cleanupErr := e.markFailed(ctx, checkpointID, "SUMMARY_FAILED", summarizeErr); cleanupErr != nil {
 				return result, fmt.Errorf("summary failed (%v); persist failed status: %w", summarizeErr, cleanupErr)
 			}
-			return finishFailed(result, start, "SUMMARY_FAILED"), nil
+			failed := finishFailed(result, start, "SUMMARY_FAILED")
+			failed.Detail = clipFailureDetail(summarizeErr.Error())
+			return failed, nil
 		}
 		if validationErr := ValidateProtectedFacts(summaryJSON, cumulativeFacts); validationErr != nil {
 			if cleanupErr := e.markFailed(ctx, checkpointID, "PROTECTED_FACTS_VIOLATION", validationErr); cleanupErr != nil {

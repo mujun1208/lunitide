@@ -286,7 +286,7 @@ function OverviewPane({
         <HealthRing score={score} label={zh ? (overview?.liveChecked ? '实测' : '健康度') : (overview?.liveChecked ? 'Probed' : 'Health')} />
         <div>
           <strong>{zh ? (overview?.liveChecked ? '实测' : '活源覆盖') : (overview?.liveChecked ? 'Probed' : 'Live coverage')} {coverage} · {openWarn} {zh ? '未闭合' : 'open'} · {timeouts} {zh ? '超时' : 'timeout'} · {zh ? '较上次快照 新增' : 'since last snapshot added'} {overview?.added ?? 0} · {zh ? '更新' : 'updated'} {overview?.updated ?? 0} · {zh ? '退役' : 'removed'} {overview?.removed ?? 0}</strong>
-          <p>{zh ? '打开本页会对照当前活源。点「重新检测」才跑听写、播放、下载和图片识别，并写出诊断，不改业务代码。' : 'Opening this page recounts the live catalog. Re-scan runs dictation, playback, download, and image recognition, then writes the report. It does not edit product code.'}</p>
+          <p>{zh ? '点「重新检测」跑听写、播放、下载、识图和今天的日志。点「执行净化」会再跑失败的那一项：复查通过才记已修复，没通过就保持待处理，方案换成这次的证据。' : 'Re-scan runs dictation, playback, download, image recognition, and today’s log. Purify re-runs a failed check: it is fixed only when that check passes.'}</p>
         </div>
         <button type="button" className="ph-detail" onClick={onDetail}>{zh ? '详情' : 'Details'}</button>
       </section>
@@ -411,7 +411,7 @@ function DiagnosticsPane({
       <div className="ph-loop">
         <span>{zh ? '本轮快照' : 'This snapshot'} {versionLabel(overview?.editionId)}</span>
         <span className="ph-dim">{zh ? '新增' : 'added'} {overview?.added ?? 0} · {zh ? '更新' : 'updated'} {overview?.updated ?? 0} · {zh ? '退役' : 'removed'} {overview?.removed ?? 0} · {zh ? '未闭合' : 'open'} {errors + warns}</span>
-        <span className="ph-dim">{zh ? '重新检测写入快照 · 执行净化只改目录标签 · 不改业务代码' : 'Re-scan writes a snapshot. Apply only retags the catalog.'}</span>
+        <span className="ph-dim">{zh ? '重新检测写入快照 · 执行净化再跑失败项，通过才记已修复' : 'Re-scan writes a snapshot. Purify re-runs a failed check and marks it fixed only when it passes.'}</span>
       </div>
       <p className="ph-note">
         {zh
@@ -481,7 +481,7 @@ function DiagnosticsPane({
       {showFixed ? resolved.map(item => (
         <p key={`${item.error_code}-${item.stable_key}`} className="ph-dim">{item.error_code} · {item.title} · {item.status}</p>
       )) : null}
-      <p className="ph-note">{zh ? '诊断器只读。fix_code 路径不改码。wont_fix 进人工留底。报告导出与页面同源。' : 'Diagnostics are read-only. Apply updates catalog and skill task books only.'}</p>
+      <p className="ph-note">{zh ? '执行净化会再跑失败的那一项。复查通过才记已修复，实测分跟着上升。复查仍失败就留在待处理，方案和证据换成这一次的原文。wont_fix 进人工留底。报告和这一页是同一份。' : 'Purify re-runs a failed check. It is marked fixed only when that check passes, and the measured score moves with it. A failed recheck stays open with the new evidence. The exported report is this page.'}</p>
     </div>
   )
 }

@@ -328,8 +328,8 @@ func handleProjectTaskOpen(e *Engine, ctx context.Context, r bridge.Request) bri
 	if err != nil {
 		return projectFailure(r, err)
 	}
-	if proj.RootPath == "" || proj.TreeStatus != project.TreeReady {
-		return projectFailure(r, projectapp.ErrTreeRequired)
+	if strings.TrimSpace(proj.RootPath) == "" {
+		return projectFailure(r, projectapp.ErrRootRequired)
 	}
 	if proj.DBStatus != project.DBReady {
 		return projectFailure(r, projectapp.ErrDBRequired)

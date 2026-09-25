@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // TaskResult is one real check started by 「重新检测」.
@@ -68,8 +69,12 @@ func TaskFindings(tasks []TaskResult) []Finding {
 		case "untested":
 			sev, status = "warn", "open"
 		}
+		verify := "执行净化会再跑这一项。复查通过才改为 fixed；仍失败则保持 open，方案和证据换成这次的原文。"
+		if status == "pass" {
+			verify = "已经通过。执行净化不会把它改成待修复。"
+		}
 		out = append(out, finding(sev, code, "probe."+task.ID, task.Title, task.Evidence,
-			taskCause(task), taskFix(task), "再点一次「重新检测」，本条证据应变化或消失", status))
+			taskCause(task), taskFix(task), verify, status))
 	}
 	return out
 }
@@ -86,24 +91,53 @@ func taskCause(task TaskResult) string {
 }
 
 func taskFix(task TaskResult) string {
+	if task.Status == "pass" {
+		return "这项已经通过，不用再处理。"
+	}
 	switch task.ID {
 	case "dictate":
-		return "在语音设置确认默认识别模型已安装，再点重新检测。诊断不安装模型，也不改听写代码。"
+		if strings.Contains(task.Evidence, "runtime") {
+			return "证据是精识别运行时没装上，不是流式听写已经坏了。净化会再跑听写。只有识别跑完、证据里不再是 runtime 未安装，本条才改为 fixed。"
+		}
+		return "净化会再跑听写。证据里的失败原因消失并且识别跑完，本条才改为 fixed。仍失败就保持 open，方案换成新的证据。"
 	case "play":
-		return "确认本机音频设备可用。诊断只播放一段短探测音，不改播放器。"
+		return "净化会再播 0.2 秒探测音。证据变成已播放，本条改为 fixed。仍失败就保持 open，方案换成新的报错。"
 	case "download":
-		return "对照证据里的字节数和本机模型目录。诊断只核对长度和已安装文件，不重新下载。"
+		return "净化会再对一次记录字节、服务器字节和本机模型目录。两边一致且目录已核对，本条改为 fixed。这一步不重新下载。"
 	case "ocr":
-		return "探测图能读出文字，说明本机识图可用。对话里的图片先走同一条识图，再把文字交给模型回答。诊断不改识图引擎。"
+		return "净化会再生成探测图并识图。读出 OCR，本条改为 fixed。读不出就保持 open，方案换成这次读到的文字。"
 	default:
-		return "按证据复核。诊断不改产品代码。"
+		return "净化会再跑这一项。通过才改为 fixed。"
 	}
+}
+
+// logClock is the clock for 「今天的日志」. Tests pin it.
+var logClock = time.Now
+
+func logLineCurrent(line string, now time.Time) bool {
+	fields := strings.SplitN(strings.TrimSpace(line), " ", 3)
+	if len(fields) < 2 || strings.Count(fields[0], "/") != 2 || strings.Count(fields[1], ":") != 2 {
+		return true
+	}
+	t, err := time.ParseInLocation("2006/01/02 15:04:05", fields[0]+" "+fields[1], now.Location())
+	if err != nil {
+		return true
+	}
+	return t.Year() == now.Year() && t.YearDay() == now.YearDay()
 }
 
 // ClassifyLog keeps only lines that match a fault class and quotes them.
 func ClassifyLog(text string) []Finding {
 	var out []Finding
-	lines := strings.Split(text, "\n")
+	now := logClock()
+	var lines []string
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !logLineCurrent(line, now) {
+			continue
+		}
+		lines = append(lines, line)
+	}
 	counts := map[string]int{}
 	sample := map[string]string{}
 	for _, line := range lines {
@@ -124,7 +158,7 @@ func ClassifyLog(text string) []Finding {
 			}
 		}
 		out = append(out, finding("error", code, "log."+code, title, evidence, cause, fix,
-			"再点「重新检测」。日志里这句还在，本条就还在。", "open"))
+			"执行净化会再读今天的引擎日志。这句不在了，本条改为 fixed。还在就保持 open，证据换成最新那一行。", "open"))
 	}
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -148,7 +182,10 @@ func ClassifyLog(text string) []Finding {
 			add("PH_L16", "点击被拦住", line, "屏幕点击没有通过输入校验。坐标、按钮或过期画面不能当成已经点开。", "打开第一条网页时直接打开搜索结果里的链接，不再对过期坐标点击。")
 		}
 		if strings.Contains(line, "模型请求结果尚无法确认") || strings.Contains(line, "OUTCOME_UNKNOWN") {
-			add("PH_L17", "模型没有返回", line, "模型连接没有给出可确认的结果，这一轮在动作之前就停了。", "播放指定电影这类本地就能决定的动作，模型失败时仍然执行。")
+			add("PH_L17", "模型没有返回", line, "模型连接没有返回正文。这是连接阶段的失败，不是播放器坏了。", "播放、打开这种本地就能决定的动作，模型失败时仍然执行。只统计今天的日志，昨天的这句不再占着当前故障。")
+		}
+		if strings.Contains(line, "SUMMARY_FAILED") {
+			add("PH_L18", "周摘要失败", line, "周归档的摘要模型调用失败。这是记忆归档，不是播放或听写。", "证据里冒号后是失败码和模型原因。同一周失败会暂停数小时；进程重启后会再试。诊断不改归档代码。")
 		}
 	}
 	bestKey, bestN := "", 0
@@ -164,7 +201,7 @@ func ClassifyLog(text string) []Finding {
 		bestKey, bestN = key, n
 	}
 	if bestKey != "" {
-		add("PH_L12", "反复调用", fmt.Sprintf("%s ×%d", sample[bestKey], bestN), "同一条失败在最近的引擎日志里反复出现。冒号后面的词是状态和原因。", "同一周归档失败后会暂停数小时再试，避免每小时把同一句再写一遍。原因在证据那一行里。")
+		add("PH_L12", "反复调用", fmt.Sprintf("%s ×%d", sample[bestKey], bestN), "同一句失败在今天的引擎日志里出现了多次。冒号后面是状态。", "按证据那一行处理，不要把它当成播放故障。已经过去的日期不再计入。")
 	}
 	return out
 }
@@ -215,6 +252,74 @@ type liveTasksFn func(context.Context) ([]TaskResult, string, []LandscapeNote)
 
 type liveCtxKey struct{}
 type landscapeCtxKey struct{}
+type engineLogCtxKey struct{}
+
+// WithEngineLog replaces the engine log for one purify recheck. Tests use it.
+func WithEngineLog(ctx context.Context, text string) context.Context {
+	return context.WithValue(ctx, engineLogCtxKey{}, text)
+}
+
+func engineLog(ctx context.Context) string {
+	if text, ok := ctx.Value(engineLogCtxKey{}).(string); ok {
+		return text
+	}
+	return readEngineLog()
+}
+
+// recheckLive runs the same check that produced the finding.
+// A pass or a log line that is gone today becomes fixed. A failure stays open
+// and the plan is the new evidence, not a tag that pretends it was handled.
+func recheckLive(ctx context.Context, f Finding) (status string, applied bool, evidence, fix string) {
+	if f.ErrorCode == "PH_L90" || f.ErrorCode == "PH_L91" {
+		return f.Status, false, f.Evidence, "对照来自图景页。净化不改名单，也不把它算进实测分。"
+	}
+	if f.Status == "pass" {
+		return "fixed", true, f.Evidence, "复查时这一项已经是通过。"
+	}
+	if id := strings.TrimPrefix(f.StableKey, "probe."); id != f.StableKey {
+		task := rerunProbe(ctx, id)
+		if task.Status == "pass" {
+			return "fixed", true, task.Evidence, "复查通过。" + task.Evidence
+		}
+		if task.ID == "" {
+			task = TaskResult{ID: id, Status: "untested", Evidence: "复查没有这项"}
+		}
+		return "open", false, task.Evidence, taskFix(task)
+	}
+	if strings.HasPrefix(f.StableKey, "log.") {
+		for _, next := range ClassifyLog(engineLog(ctx)) {
+			if next.ErrorCode == f.ErrorCode {
+				return "open", false, next.Evidence, next.Fix
+			}
+		}
+		return "fixed", true, "今天的日志里已经没有这句", "复查通过。这句不再占当前故障。"
+	}
+	return "open", false, f.Evidence, f.Fix
+}
+
+func rerunProbe(ctx context.Context, id string) TaskResult {
+	if fn, ok := ctx.Value(liveCtxKey{}).(liveTasksFn); ok && fn != nil {
+		tasks, _, _ := fn(ctx)
+		for _, task := range tasks {
+			if task.ID == id {
+				return task
+			}
+		}
+		return TaskResult{}
+	}
+	switch id {
+	case "dictate":
+		return probeDictate(ctx)
+	case "play":
+		return probePlay(ctx)
+	case "download":
+		return probeDownload(ctx)
+	case "ocr":
+		return probeOCR(ctx)
+	default:
+		return TaskResult{}
+	}
+}
 
 // WithLiveTasks replaces the real checks. Tests use it so a manual refresh
 // does not open a microphone, a model, or the network.
@@ -248,7 +353,33 @@ func displayedScore(ed Edition, findings []Finding, catalog ProbeScore) (int, Pr
 	if ed.LiveProbe.Total > 0 {
 		return liveHealth(ed.LiveProbe), ed.LiveProbe, true
 	}
+	if probe, ok := probeFromFindings(findings); ok {
+		return liveHealth(probe), probe, true
+	}
 	return healthScore(findings, catalog), catalog, false
+}
+
+// probeFromFindings rebuilds the measured ring after the snapshot is loaded.
+// The snapshot stores findings, not LiveProbe, so a later export used to
+// print the catalog coverage number next to the real probe rows.
+func probeFromFindings(findings []Finding) (ProbeScore, bool) {
+	passed, total := 0, 0
+	for _, f := range findings {
+		if !strings.HasPrefix(f.ErrorCode, "PH_L") {
+			continue
+		}
+		if f.ErrorCode == "PH_L90" || f.ErrorCode == "PH_L91" {
+			continue
+		}
+		total++
+		if f.Status == "pass" || f.Status == "fixed" {
+			passed++
+		}
+	}
+	if total == 0 {
+		return ProbeScore{}, false
+	}
+	return ProbeScore{Passed: passed, Total: total}, true
 }
 
 func liveFindings(in []Finding) []Finding {

@@ -107,7 +107,7 @@ func TestNamedPlaySkipsARejectedModel(t *testing.T) {
 				}
 				played = string(args)
 				if strings.Contains(goal, "电影") {
-					return toolruntime.Result{Output: "已打开爱奇艺和优酷的官方搜索。\nurl: https://www.iqiyi.com/so/q_%E4%B9%9D%E5%93%81%E8%8A%9D%E9%BA%BB%E5%AE%98\nurl: https://so.youku.com/search_video/q_%E4%B9%9D%E5%93%81%E8%8A%9D%E9%BA%BB%E5%AE%98\n"}, nil
+					return toolruntime.Result{Output: "已打开爱奇艺的官方搜索。\nurl: https://www.iqiyi.com/so/q_%E4%B9%9D%E5%93%81%E8%8A%9D%E9%BA%BB%E5%AE%98\n"}, nil
 				}
 				return toolruntime.Result{Output: "opened https://music.163.com/#/search/m/?s=%E7%94%9F%E6%89%80%E7%88%B1"}, nil
 			}
@@ -132,7 +132,7 @@ func TestNamedPlaySkipsARejectedModel(t *testing.T) {
 				t.Fatalf("speech=%s played=%s", spoken.String(), played)
 			}
 			if strings.Contains(goal, "电影") {
-				if !strings.Contains(spoken.String(), "已打开爱奇艺和优酷的官方搜索") || !strings.Contains(played, "九品芝麻官") && !strings.Contains(played, `\u4e5d\u54c1\u829d\u9ebb\u5b98`) {
+				if !strings.Contains(spoken.String(), "已打开爱奇艺的官方搜索") || strings.Contains(spoken.String(), "网易云") || strings.Contains(spoken.String(), "优酷") || !strings.Contains(played, "九品芝麻官") && !strings.Contains(played, `\u4e5d\u54c1\u829d\u9ebb\u5b98`) {
 					t.Fatalf("speech=%s played=%s", spoken.String(), played)
 				}
 				return

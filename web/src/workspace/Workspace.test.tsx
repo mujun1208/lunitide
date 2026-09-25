@@ -34,7 +34,7 @@ describe('Workspace',()=>{
  it('closes, filters to the current session, selects an attachment, and renders parsed text',async()=>{const onClose=vi.fn(),attachments=bridge(),user=userEvent.setup();render(<Workspace attachments={attachments} projectId={P} sessionId={S} onClose={onClose}/>);expect(await screen.findByText('notes.txt')).toBeInTheDocument();expect(screen.queryByText('hidden.txt')).toBeNull();await waitFor(()=>expect(attachments.get).toHaveBeenCalledWith({attachmentId:A}));expect(screen.getByText(/hello/)).toBeInTheDocument();await user.click(screen.getByRole('button',{name:'关闭工作区'}));expect(onClose).toHaveBeenCalledOnce()})
  it('has independent bounded minus and plus zoom controls',async()=>{const user=userEvent.setup();render(<Workspace attachments={bridge()} projectId={P} sessionId={S} onClose={vi.fn()}/>);await screen.findByText('notes.txt');const minus=screen.getByRole('button',{name:'缩小预览'}),plus=screen.getByRole('button',{name:'放大预览'});for(let i=0;i<10;i++)await user.click(minus);expect(screen.getByLabelText('预览缩放')).toHaveTextContent('50%');expect(minus).toBeDisabled();expect(plus).toBeEnabled();for(let i=0;i<10;i++)await user.click(plus);expect(screen.getByLabelText('预览缩放')).toHaveTextContent('200%');expect(plus).toBeDisabled();expect(minus).toBeEnabled()})
  it('linkifies only HTTPS text and leaves unsafe schemes inert',async()=>{render(<Workspace attachments={bridge()} projectId={P} sessionId={S} onClose={vi.fn()}/>);const link=await screen.findByRole('link',{name:'https://safe.example/path'});expect(link).toHaveAttribute('href','https://safe.example/path');expect(link).toHaveAttribute('rel',expect.stringContaining('noopener'));expect(screen.queryByRole('link',{name:/javascript|http:\/\/plain/})).toBeNull();expect(screen.getByText(/javascript:alert/)).toBeInTheDocument()})
- it('opens and closes only through the isolated browser bridge and reports opening',async()=>{const browser={open:vi.fn().mockResolvedValue({status:'opening',url:'https://example.com/'}),close:vi.fn().mockResolvedValue({status:'closed'})}as BrowserBridge,user=userEvent.setup();render(<Workspace attachments={bridge()} browser={browser} projectId={P} sessionId={S} onClose={vi.fn()}/>);await user.click(screen.getByRole('tab',{name:'浏览器'}));expect(screen.queryByRole('tab',{name:'安全浏览器'})).toBeNull();const input=screen.getByLabelText('浏览器地址');await user.clear(input);await user.type(input,'http://unsafe.example');expect(screen.getByRole('button',{name:'打开独立浏览器'})).toBeDisabled();await user.clear(input);await user.type(input,'https://example.com/');await user.click(screen.getByRole('button',{name:'打开独立浏览器'}));await waitFor(()=>expect(browser.open).toHaveBeenCalledWith({url:'https://example.com/'}));expect(screen.getByLabelText('浏览器状态')).toHaveTextContent('已接受，正在打开');expect(screen.getByTitle('应用内页面 https://example.com/')).toHaveAttribute('src','https://example.com/');await user.click(screen.getByRole('button',{name:'关闭浏览器'}));await waitFor(()=>expect(browser.close).toHaveBeenCalledOnce())})
+ it('opens and closes only through the isolated browser bridge and reports opening',async()=>{const browser={open:vi.fn().mockResolvedValue({status:'opening',url:'https://example.com/'}),close:vi.fn().mockResolvedValue({status:'closed'})}as BrowserBridge,user=userEvent.setup();render(<Workspace attachments={bridge()} browser={browser} projectId={P} sessionId={S} onClose={vi.fn()}/>);await user.click(screen.getByRole('tab',{name:'浏览器'}));expect(screen.queryByRole('tab',{name:'安全浏览器'})).toBeNull();const input=screen.getByLabelText('浏览器地址');await user.clear(input);await user.type(input,'http://unsafe.example');expect(screen.getByRole('button',{name:'打开独立浏览器'})).toBeDisabled();await user.clear(input);await user.type(input,'https://example.com/');await user.click(screen.getByRole('button',{name:'打开独立浏览器'}));await waitFor(()=>expect(browser.open).toHaveBeenCalledWith({url:'https://example.com/'}));expect(screen.getByLabelText('浏览器状态')).toHaveTextContent('已接受，正在打开');expect(screen.queryByTitle('应用内页面 https://example.com/')).toBeNull();expect(screen.getByText('已在浏览器窗口打开')).toBeInTheDocument();await user.click(screen.getByRole('button',{name:'关闭浏览器'}));await waitFor(()=>expect(browser.close).toHaveBeenCalledOnce())})
  it('opens skill creation on the files tab with the installed skill catalog',async()=>{render(<Workspace attachments={bridge()} projectId={P} sessionId={S} targetTab="files" filesFocus="skills" isolateRoot onClose={vi.fn()}/>);expect(screen.getByRole('tab',{name:'文件'})).toHaveAttribute('aria-selected','true');expect(await screen.findByRole('region',{name:'技能包目录'})).toBeInTheDocument()})
  it('lets the skill catalog expand and previews a package file beside the tree',async()=>{
   const skillId='01ARZ3NDEKTSV4RRFFQ69G5FAB'
@@ -90,16 +90,27 @@ it('refreshes attachments when the upload revision changes',async()=>{const atta
  it('shows a fetched-page extract instead of the empty placeholder',()=>{
   render(<Workspace attachments={bridge()} projectId={P} sessionId={S} targetTab="browser" toolActivities={[{callId:'fetch-1',name:'web.fetch',status:'tool_completed',summary:'url: https://tags.sina.com.cn/star_gutianle',artifact:{kind:'html',path:'fetch.html',content:'<h1>古天乐</h1><small>https://tags.sina.com.cn/star_gutianle</small><pre>最新动态</pre>'}}]} onClose={vi.fn()}/>)
   expect(screen.getByLabelText('浏览器地址')).toHaveValue('https://tags.sina.com.cn/star_gutianle')
-  expect(screen.getByTitle('应用内页面 https://tags.sina.com.cn/star_gutianle')).toBeInTheDocument()
+  expect(screen.queryByTitle('应用内页面 https://tags.sina.com.cn/star_gutianle')).toBeNull()
   expect(screen.queryByText('尚无页面')).toBeNull()
  })
- it('loads a bare https address in the panel',()=>{
-  render(<Workspace attachments={bridge()} projectId={P} sessionId={S} targetTab="browser" toolActivities={[{callId:'fetch-1',name:'web.fetch',status:'tool_completed',summary:'url: https://tags.sina.com.cn/star_gutianle'}]} onClose={vi.fn()}/>)
+ it('opens a bare https address in the real browser window',async()=>{
+  const browser={open:vi.fn().mockResolvedValue({status:'opening',url:'https://tags.sina.com.cn/star_gutianle'}),close:vi.fn()} as BrowserBridge
+  render(<Workspace attachments={bridge()} browser={browser} projectId={P} sessionId={S} targetTab="browser" toolActivities={[{callId:'fetch-1',name:'web.fetch',status:'tool_completed',summary:'url: https://tags.sina.com.cn/star_gutianle'}]} onClose={vi.fn()}/>)
   expect(screen.getByLabelText('浏览器地址')).toHaveValue('https://tags.sina.com.cn/star_gutianle')
-  const frame = screen.getByTitle('应用内页面 https://tags.sina.com.cn/star_gutianle')
-  expect(frame).toHaveAttribute('src', 'https://tags.sina.com.cn/star_gutianle')
-  expect(frame).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads')
-  expect(screen.queryByText('尚无页面')).toBeNull()
+  await waitFor(()=>expect(browser.open).toHaveBeenCalledWith({url:'https://tags.sina.com.cn/star_gutianle'}))
+  expect(screen.queryByTitle(/应用内页面/)).toBeNull()
+  expect(screen.getByLabelText('浏览器状态')).toHaveTextContent('已在浏览器窗口打开')
+ })
+ it('does not open youku from a tool result', () => {
+  const browser = { open: vi.fn(), close: vi.fn() } as BrowserBridge
+  render(<Workspace attachments={bridge()} browser={browser} projectId={P} sessionId={S} targetTab="browser" toolActivities={[{ callId: 'yk', name: 'media.play', status: 'tool_completed', summary: 'url: https://so.youku.com/search_video/q_test\n' }]} onClose={vi.fn()} />)
+  expect(browser.open).not.toHaveBeenCalled()
+ })
+ it('plays a media-center film without opening the system browser', () => {
+  const browser = { open: vi.fn(), close: vi.fn() } as BrowserBridge
+  render(<Workspace attachments={bridge()} browser={browser} projectId={P} sessionId={S} targetTab="browser" toolActivities={[{ callId: 'play-center', name: 'media.play', status: 'tool_completed', summary: '已交给媒体中心播放。\nMEDIA_CENTER\nurl: https://upload.wikimedia.org/wikipedia/commons/c/c1/Night_of_the_Living_Dead_%281968%29.webm\nkind: video\n' }]} onClose={vi.fn()} />)
+  expect(browser.open).not.toHaveBeenCalled()
+  expect(screen.queryByText('已在浏览器窗口打开')).toBeNull()
  })
  it('opens the official film page once so the member can log in', async () => {
   const url = 'https://www.iqiyi.com/so/q_%E5%A4%A7%E8%AF%9D%E8%A5%BF%E6%B8%B8'
@@ -112,9 +123,9 @@ it('refreshes attachments when the upload revision changes',async()=>{const atta
   const user=userEvent.setup()
   render(<Workspace attachments={bridge()} browser={browser} projectId={P} sessionId={S} targetTab="browser" toolActivities={[{callId:'search-1',name:'web.search',status:'tool_completed',summary:'query: jay\nresults_url: https://cn.bing.com/search?q=jay',artifact:{kind:'html',path:'search.html',content:'<h1>搜索结果 · jay</h1><ol class="serp"><li class="serp-hit"><a href="https://news.example/jay">1. 周杰伦新闻</a><small>https://news.example/jay</small><p>动态</p></li></ol>'}}]} onClose={vi.fn()}/>)
   await user.click(screen.getByRole('button',{name:/周杰伦新闻/}))
-  expect(browser.open).not.toHaveBeenCalled()
+  await waitFor(()=>expect(browser.open).toHaveBeenCalledWith({url:'https://news.example/jay'}))
   expect(screen.getByLabelText('浏览器地址')).toHaveValue('https://news.example/jay')
-  expect(screen.getByTitle('应用内页面 https://news.example/jay')).toHaveAttribute('src', 'https://news.example/jay')
+  expect(screen.queryByTitle('应用内页面 https://news.example/jay')).toBeNull()
  })
  it('expands and restores the conversation from the workspace chrome',async()=>{
   const onToggleExpand=vi.fn()

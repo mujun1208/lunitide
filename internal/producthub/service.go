@@ -214,7 +214,11 @@ func (s *Service) Diagnostics(ctx context.Context) ([]Finding, string, string, e
 	}
 	ed.Features = cards
 	ed.Findings = findings
-	ed.HealthScore, _, _ = displayedScore(ed, findings, probe)
+	score, shown, live := displayedScore(ed, findings, probe)
+	ed.HealthScore = score
+	if live {
+		ed.LiveProbe = shown
+	}
 	ed.Graph = BuildGraph(cards)
 	md, pageHTML := RenderReport(ed)
 	return findings, md, pageHTML, nil
@@ -259,7 +263,11 @@ func (s *Service) Export(ctx context.Context, format string) (content, mime stri
 	}
 	ed.Features = cards
 	ed.Findings = findings
-	ed.HealthScore, _, _ = displayedScore(ed, findings, probe)
+	score, shown, live := displayedScore(ed, findings, probe)
+	ed.HealthScore = score
+	if live {
+		ed.LiveProbe = shown
+	}
 	md, pageHTML := RenderReport(ed)
 	switch format {
 	case "html":

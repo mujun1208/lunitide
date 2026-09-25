@@ -235,35 +235,26 @@ func publicDomainMovieFallback(query string) (rawURL, title, kind string, ok boo
 }
 
 func officialFilmResult(title string) (Result, bool, error) {
-	iqiyi, youku := memberFilmSearchURLs(title)
+	iqiyi := memberFilmSearchURL(title)
 	if iqiyi == "" {
 		return Result{}, false, nil
 	}
-	if err := openOfficialPages(iqiyi, youku); err != nil {
+	if err := openMediaURL(iqiyi); err != nil {
 		return Result{}, true, err
 	}
 	film := memberFilmTitle(title)
-	return result(fmt.Sprintf("已打开爱奇艺和优酷的官方搜索。会员在官方页面播放《%s》。\nurl: %s\nurl: %s\n%s\n", film, iqiyi, youku, memberLoginNote)), true, nil
+	return result(fmt.Sprintf("已打开爱奇艺的官方搜索。会员在官方页面播放《%s》。\nurl: %s\n%s\n", film, iqiyi, memberLoginNote)), true, nil
 }
 
-func openOfficialPages(pages ...string) error {
-	for _, page := range pages {
-		if err := openMediaURL(page); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// memberFilmSearchURLs are the official 爱奇艺 and 优酷 search pages. The member
-// watches there. These sites do not hand out a file the media center can play.
-func memberFilmSearchURLs(query string) (iqiyi, youku string) {
+// memberFilmSearchURL is the official 爱奇艺 search page. The member watches
+// there. 优酷 is not opened. This site does not hand out a file the media
+// center can play.
+func memberFilmSearchURL(query string) string {
 	title := memberFilmTitle(query)
 	if title == "" {
-		return "", ""
+		return ""
 	}
-	enc := url.PathEscape(title)
-	return "https://www.iqiyi.com/so/q_" + enc, "https://so.youku.com/search_video/q_" + enc
+	return "https://www.iqiyi.com/so/q_" + url.PathEscape(title)
 }
 
 func memberFilmTitle(query string) string {
@@ -302,6 +293,8 @@ func genericCenterMovie(query string) bool {
 		"自带的媒体中心", "自带媒体中心", "媒体中心播放", "媒体中心", "再我的", "从网上", "我看看",
 		"找一个", "找到", "找个", "帮我", "给我", "出来", "可以", "适配", "一下", "播放", "电影", "影片", "视频", "歌曲",
 		"一部", "一首", "一个", "随便", "任意", "网上", "爱情", "浪漫", "romance", "love", "movie", "film",
+		"你试试", "试试", "试一下", "能不能", "能否", "爱奇艺", "优酷",
+		"香港", "1990年代", "90年代", "九十年代", "80年代", "八十年代", "70年代", "七十年代", "1990", "年代",
 		"好看点", "好看", "比方", "比放", "找",
 		"自带的", "自带", "的", "了", "在", "再", "我", "你", "个",
 	} {
