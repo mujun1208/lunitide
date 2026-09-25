@@ -40,15 +40,18 @@ type rpc struct {
 }
 
 type Session struct {
-	cmd    *exec.Cmd
-	in     io.WriteCloser
-	wmu    sync.Mutex
-	mu     sync.Mutex
-	next   int
-	wait   map[string]chan rpc
-	diags  map[string][]Diagnostic
-	seen   map[string]bool
-	closed bool
+	cmd      *exec.Cmd
+	in       io.WriteCloser
+	wmu      sync.Mutex
+	mu       sync.Mutex
+	next     int
+	wait     map[string]chan rpc
+	diags    map[string][]Diagnostic
+	seen     map[string]bool
+	closed   bool
+	rootURI  string
+	rootName string
+	stderr   *tailWriter
 }
 
 func Start(root string) (*Session, error) {
@@ -71,13 +74,15 @@ func Start(root string) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd.Stderr = io.Discard
+	stderr := &tailWriter{max: 4096}
+	cmd.Stderr = stderr
 	if err = cmd.Start(); err != nil {
 		return nil, err
 	}
-	s := &Session{cmd: cmd, in: stdin, wait: map[string]chan rpc{}, diags: map[string][]Diagnostic{}, seen: map[string]bool{}}
+	s := &Session{cmd: cmd, in: stdin, wait: map[string]chan rpc{}, diags: map[string][]Diagnostic{}, seen: map[string]bool{}, stderr: stderr, rootName: filepath.Base(abs)}
 	go s.read(stdout)
 	uri := fileURI(abs)
+	s.rootURI = uri
 	if _, err = s.call("initialize", map[string]any{
 		"processId": os.Getpid(),
 		"rootUri":   uri,
@@ -256,15 +261,25 @@ func (s *Session) callWhenReady(method string, params any, wait time.Duration) (
 			if last != nil {
 				return nil, last
 			}
-			return nil, fmt.Errorf("%s timed out", method)
+			return nil, s.annotate(fmt.Errorf("%s timed out", method))
 		}
 		raw, err := s.call(method, params, remain)
 		if err == nil || !strings.Contains(err.Error(), "no views") {
-			return raw, err
+			return raw, s.annotate(err)
 		}
-		last = err
+		last = s.annotate(err)
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+func (s *Session) annotate(err error) error {
+	if err == nil || s.stderr == nil {
+		return err
+	}
+	if tail := strings.TrimSpace(s.stderr.String()); tail != "" {
+		return fmt.Errorf("%w\n%s", err, tail)
+	}
+	return err
 }
 
 func (s *Session) call(method string, params any, wait time.Duration) (json.RawMessage, error) {
@@ -355,7 +370,8 @@ func (s *Session) read(r io.Reader) {
 
 func (s *Session) replyServer(msg rpc) {
 	var result any
-	if msg.Method == "workspace/configuration" {
+	switch msg.Method {
+	case "workspace/configuration":
 		var params struct {
 			Items []json.RawMessage `json:"items"`
 		}
@@ -365,6 +381,8 @@ func (s *Session) replyServer(msg rpc) {
 			n = 1
 		}
 		result = make([]any, n)
+	case "workspace/workspaceFolders":
+		result = []any{map[string]any{"uri": s.rootURI, "name": s.rootName}}
 	}
 	var id json.RawMessage
 	if len(msg.ID) > 0 {
@@ -466,5 +484,32 @@ func toolEnv() []string {
 		}
 	}
 	out = append(out, "GOTELEMETRY=off")
+	if os.Getenv("GOTOOLCHAIN") == "" {
+		out = append(out, "GOTOOLCHAIN=local")
+	}
 	return out
+}
+
+// tailWriter keeps the last max bytes of gopls stderr so a "no views"
+// failure can show why the module never loaded.
+type tailWriter struct {
+	mu  sync.Mutex
+	buf []byte
+	max int
+}
+
+func (w *tailWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.buf = append(w.buf, p...)
+	if len(w.buf) > w.max {
+		w.buf = append([]byte(nil), w.buf[len(w.buf)-w.max:]...)
+	}
+	return len(p), nil
+}
+
+func (w *tailWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return string(w.buf)
 }
