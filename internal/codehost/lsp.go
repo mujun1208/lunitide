@@ -445,6 +445,11 @@ func fileURI(path string) string {
 	if err != nil {
 		abs = path
 	}
+	// gopls rejects an 8.3 short name when Windows lists a different long
+	// name for that directory (CI temp is C:\Users\RUNNER~1\...).
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
 	abs = filepath.ToSlash(abs)
 	if !strings.HasPrefix(abs, "/") {
 		abs = "/" + abs
