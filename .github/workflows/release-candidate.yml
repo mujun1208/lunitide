@@ -18,6 +18,10 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Install gopls and delve
+        run: |
+          go install golang.org/x/tools/gopls@v0.20.0
+          go install github.com/go-delve/delve/cmd/dlv@v1.25.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .node-version
@@ -69,6 +73,10 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Install gopls and delve
+        run: |
+          go install golang.org/x/tools/gopls@v0.20.0
+          go install github.com/go-delve/delve/cmd/dlv@v1.25.2
       - run: choco install mingw --version=13.2.0 --yes --no-progress
       - name: Select MinGW compiler
         shell: pwsh
