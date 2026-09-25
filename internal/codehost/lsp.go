@@ -119,7 +119,7 @@ func (s *Session) Definition(path string, line, column int) (Location, error) {
 	raw, err := s.callWhenReady("textDocument/definition", map[string]any{
 		"textDocument": map[string]any{"uri": fileURI(path)},
 		"position":     map[string]any{"line": line - 1, "character": column - 1},
-	}, 20*time.Second)
+	}, 2*time.Minute)
 	if err != nil {
 		return Location{}, err
 	}
@@ -169,7 +169,7 @@ func (s *Session) References(path string, line, column int) ([]Location, error) 
 		"textDocument": map[string]any{"uri": fileURI(path)},
 		"position":     map[string]any{"line": line - 1, "character": column - 1},
 		"context":      map[string]any{"includeDeclaration": false},
-	}, 20*time.Second)
+	}, 2*time.Minute)
 	if err != nil {
 		return nil, err
 	}
@@ -268,8 +268,21 @@ func (s *Session) callWhenReady(method string, params any, wait time.Duration) (
 			return raw, s.annotate(err)
 		}
 		last = s.annotate(err)
+		if tail := s.stderr.String(); strings.Contains(tail, "failed to load") || strings.Contains(tail, "Error loading") {
+			return nil, last
+		}
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+func (s *Session) noteServer(params json.RawMessage) {
+	var body struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(params, &body) != nil || body.Message == "" || s.stderr == nil {
+		return
+	}
+	_, _ = s.stderr.Write([]byte(body.Message + "\n"))
 }
 
 func (s *Session) annotate(err error) error {
@@ -349,6 +362,10 @@ func (s *Session) read(r io.Reader) {
 		}
 		if msg.Method == "textDocument/publishDiagnostics" {
 			s.storeDiagnostics(msg.Params)
+			continue
+		}
+		if msg.Method == "window/showMessage" || msg.Method == "window/logMessage" {
+			s.noteServer(msg.Params)
 			continue
 		}
 		if msg.Method != "" && len(msg.ID) > 0 {
