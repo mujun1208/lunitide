@@ -3,36 +3,146 @@ import type { LocalWorkspaceBridge } from '../bridge/client'
 import { LocalExplorer } from './LocalExplorer'
 import type { WorkspaceToolActivity } from './Workspace'
 import { openWorkspaceInEditor } from '../project/projectWorkbenchNav'
+import { CodeWorkbench, type CodeProblem } from './CodeWorkbench'
 import {
+  acceptSourceLine,
   extractTaskFiles,
-  languageFromPath,
+  latestFileDiff,
   statusBadge,
+  suggestSourceLine,
   type TaskFileEntry,
 } from './codePanelUtils'
 
 type OpenFile = { path: string; content: string; size: number }
 
-function CodeEditorView({ file }: { file: OpenFile }): React.JSX.Element {
-  const lines = file.content.split('\n')
-  const lang = languageFromPath(file.path)
+function CodeEditorView({
+  file,
+  projectRoot,
+  sessionId,
+  bridge,
+  diff,
+  onContent,
+}: {
+  file: OpenFile
+  projectRoot?: string
+  sessionId: string
+  bridge?: LocalWorkspaceBridge
+  diff: string
+  onContent: (content: string) => void
+}): React.JSX.Element {
+  const [problems, setProblems] = useState<CodeProblem[]>([])
+  const [suggestion, setSuggestion] = useState('')
+  const [stoppedLine, setStoppedLine] = useState(0)
+  const lineIndex = file.content.split('\n').findIndex((_, index) => suggestSourceLine(file.content, index) !== '')
+  useEffect(() => {
+    setSuggestion(lineIndex >= 0 ? suggestSourceLine(file.content, lineIndex) : '')
+    setProblems([])
+    setStoppedLine(0)
+    if (!bridge?.code || !projectRoot) return
+    let cancel = false
+    void bridge.code({
+      action: 'diagnostics',
+      root: projectRoot,
+      path: file.path,
+      content: file.content,
+      sessionId,
+    }).then((result) => {
+      if (!cancel) setProblems(result.diagnostics ?? [])
+    }).catch(() => {})
+    if (lineIndex >= 0) {
+      void bridge.code({
+        action: 'complete',
+        root: projectRoot,
+        path: file.path,
+        line: lineIndex + 1,
+        content: file.content,
+        sessionId,
+      }).then((result) => {
+        if (!cancel && result.suggestion) setSuggestion(result.suggestion)
+      }).catch(() => {})
+    }
+    return () => { cancel = true }
+  }, [bridge, file.content, file.path, lineIndex, projectRoot, sessionId])
   return (
-    <div className="code-editor">
-      <header className="code-editor-head">
-        <b>{file.path.split(/[/\\]/).pop()}</b>
-        <small>{file.path} · {lang} · UTF-8</small>
-      </header>
-      <div className="code-editor-body">
-        <pre className="code-editor-gutter" aria-hidden="true">
-          {lines.map((_, index) => `${index + 1}\n`).join('')}
-        </pre>
-        <pre className="code-editor-content"><code>{file.content || ' '}</code></pre>
-      </div>
-      <footer className="code-editor-foot" role="status">
-        <span>✓ 0 问题</span>
-        <span>Ln 1, Col 1</span>
-        <span>Agent 变更 · 尚未提交</span>
-      </footer>
-    </div>
+    <CodeWorkbench
+      path={file.path}
+      content={file.content}
+      problems={problems}
+      suggestion={suggestion}
+      stoppedLine={stoppedLine}
+      diff={diff}
+      onAccept={() => {
+        if (!suggestion || lineIndex < 0) return
+        const next = acceptSourceLine(file.content, lineIndex, suggestion)
+        onContent(next)
+        if (bridge?.code && projectRoot) {
+          void bridge.code({
+            action: 'complete',
+            root: projectRoot,
+            path: file.path,
+            line: lineIndex + 1,
+            content: file.content,
+            accept: true,
+            sessionId,
+          })
+        }
+      }}
+      onDefine={() => {
+        if (!bridge?.code || !projectRoot) return
+        const sourceLine = file.content.split('\n')[Math.max(lineIndex, 0)] ?? ''
+        const column = Math.max(sourceLine.search(/\S/) + 1, 1)
+        void bridge.code({
+          action: 'definition',
+          root: projectRoot,
+          path: file.path,
+          line: Math.max(lineIndex + 1, 1),
+          column,
+          content: file.content,
+          sessionId,
+        }).then((result) => {
+          if (result.line) setStoppedLine(result.line)
+        }).catch(() => {})
+      }}
+      onDebug={() => {
+        if (!bridge?.code || !projectRoot) return
+        void bridge.code({
+          action: 'debug',
+          root: projectRoot,
+          path: file.path,
+          line: Math.max(lineIndex + 1, 1),
+          sessionId,
+        }).then((result) => {
+          if (result.stopped) setStoppedLine(result.stopped)
+        }).catch(() => {})
+      }}
+      onAcceptDiff={() => {
+        if (!bridge?.code || !projectRoot) return
+        void bridge.code({ action: 'accept', root: projectRoot, sessionId })
+      }}
+      onRestore={() => {
+        if (!bridge?.code || !projectRoot) return
+        void bridge.code({ action: 'restore', root: projectRoot, sessionId }).then(() => bridge.read(file.path)).then((read) => {
+          onContent(read.content)
+        }).catch(() => {})
+      }}
+      onReferences={() => {
+        if (!bridge?.code || !projectRoot) return
+        const sourceLine = file.content.split('\n')[Math.max(lineIndex, 0)] ?? ''
+        const column = Math.max(sourceLine.search(/\S/) + 1, 1)
+        void bridge.code({
+          action: 'references',
+          root: projectRoot,
+          path: file.path,
+          line: Math.max(lineIndex + 1, 1),
+          column,
+          content: file.content,
+          sessionId,
+        }).then((result) => {
+          const hit = result.references?.find((item) => item.line > 0)
+          if (hit) setStoppedLine(hit.line)
+        }).catch(() => {})
+      }}
+    />
   )
 }
 
@@ -63,6 +173,10 @@ export function CodePanel({
   const dragCleanup = useRef<(() => void) | undefined>(undefined)
   const taskFiles = useMemo(() => extractTaskFiles(toolActivities), [toolActivities])
   useEffect(() => () => dragCleanup.current?.(), [])
+  useEffect(() => {
+    if (!bridge?.code || !projectRoot || !sessionId) return
+    void bridge.code({ action: 'diff', root: projectRoot, sessionId }).catch(() => {})
+  }, [bridge, projectRoot, sessionId])
 
   const openFile = async (entry: TaskFileEntry) => {
     if (!bridge) return
@@ -137,7 +251,16 @@ export function CodePanel({
       {openError && <p className="code-panel-open-error" role="alert">{openError}</p>}
       <div className="code-panel-split" ref={splitRef} style={{'--tree-width': `${treeWidth}px`} as React.CSSProperties}>
         <section className="code-panel-editor" aria-label="代码编辑器">
-          {file ? <CodeEditorView file={file} /> : (
+          {file ? (
+            <CodeEditorView
+              file={file}
+              projectRoot={projectRoot}
+              sessionId={sessionId}
+              bridge={bridge}
+              diff={latestFileDiff(toolActivities.map((item) => item.summary ?? ''))}
+              onContent={(content) => setFile({ ...file, content })}
+            />
+          ) : (
             <div className="code-panel-placeholder">
               <b>代码</b>
               <p>从文件树选择文件即可在此处预览</p>

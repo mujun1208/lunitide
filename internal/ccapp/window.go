@@ -214,7 +214,28 @@ func windowFocusQuery(title, process string) string {
 	return strings.TrimSpace(process)
 }
 
+func expandWindowQuery(query string) []string {
+	switch strings.ToLower(strings.TrimSpace(query)) {
+	case "微信", "wechat", "weixin":
+		return []string{"微信", "wechat", "weixin"}
+	case "豆包", "doubao":
+		return []string{"豆包", "doubao"}
+	default:
+		return []string{query}
+	}
+}
+
 func windowQueryScore(w WindowInfo, query string) int {
+	best := 0
+	for _, q := range expandWindowQuery(query) {
+		if s := windowQueryScoreOne(w, q); s > best {
+			best = s
+		}
+	}
+	return best
+}
+
+func windowQueryScoreOne(w WindowInfo, query string) int {
 	query = strings.ToLower(strings.TrimSpace(query))
 	if query == "" {
 		return 0

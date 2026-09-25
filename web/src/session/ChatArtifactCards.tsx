@@ -16,7 +16,7 @@ export function artifactOpenRelativePath(path: string): string {
 /** User-facing deliverables only — not intermediate web.search/fetch HTML. */
 export function isChatDeliverableArtifact(artifact: Pick<ChatArtifact, 'toolName' | 'kind' | 'path'>): boolean {
   if (artifact.toolName === 'web.search' || artifact.toolName === 'web.fetch') return false
-  if (['pptx.gen', 'docx.gen', 'excel.gen', 'pdf.gen', 'html.gen', 'office.generate'].includes(artifact.toolName)) return true
+  if (['pptx.gen', 'docx.gen', 'excel.gen', 'pdf.gen', 'html.gen', 'office.generate', 'canvas.present'].includes(artifact.toolName)) return true
   const base = artifact.path.split(/[/\\]/).pop()?.toLowerCase() ?? ''
   if (artifact.kind === 'html' && (base === 'search.html' || base === 'fetch.html')) return false
   if (artifact.kind === 'image' || artifact.kind === 'md' || artifact.kind === 'txt' || artifact.kind === 'audio') return true

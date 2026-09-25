@@ -63,6 +63,11 @@ func (r *Runtime) executeMediaCenter(ctx context.Context, args json.RawMessage) 
 			title = centerMediaTitle(rawURL)
 		}
 	} else {
+		if strings.Contains(title, "电影") || strings.Contains(title, "影片") {
+			if res, ok, err := officialFilmResult(title); ok {
+				return res, err
+			}
+		}
 		lookup := catalogLookupQuery(title)
 		if lookup == "" {
 			lookup = title
@@ -83,9 +88,8 @@ func (r *Runtime) executeMediaCenter(ctx context.Context, args json.RawMessage) 
 			if openCatalogWantAudio(title) {
 				return Result{}, errors.New("没有找到可在媒体中心直接播放的公版文件（已查 Internet Archive、维基共享资源、NASA）。请给出一个 https 直链（mp4、webm 或 mp3），或在媒体中心选择本机文件。")
 			}
-			if iqiyi, youku := memberFilmSearchURLs(title); iqiyi != "" {
-				film := memberFilmTitle(title)
-				return result(fmt.Sprintf("已打开爱奇艺和优酷的官方搜索。会员在官方页面播放《%s》。\nurl: %s\nurl: %s\n%s\n", film, iqiyi, youku, memberLoginNote)), nil
+			if res, ok, err := officialFilmResult(title); ok {
+				return res, err
 			}
 			rawURL, kind = publicDomainMovieURL, "video"
 			title = publicDomainMovieTitle
@@ -228,6 +232,27 @@ func publicDomainMovieFallback(query string) (rawURL, title, kind string, ok boo
 		return "", "", "", false
 	}
 	return publicDomainMovieURL, publicDomainMovieTitle, "video", true
+}
+
+func officialFilmResult(title string) (Result, bool, error) {
+	iqiyi, youku := memberFilmSearchURLs(title)
+	if iqiyi == "" {
+		return Result{}, false, nil
+	}
+	if err := openOfficialPages(iqiyi, youku); err != nil {
+		return Result{}, true, err
+	}
+	film := memberFilmTitle(title)
+	return result(fmt.Sprintf("已打开爱奇艺和优酷的官方搜索。会员在官方页面播放《%s》。\nurl: %s\nurl: %s\n%s\n", film, iqiyi, youku, memberLoginNote)), true, nil
+}
+
+func openOfficialPages(pages ...string) error {
+	for _, page := range pages {
+		if err := openMediaURL(page); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // memberFilmSearchURLs are the official 爱奇艺 and 优酷 search pages. The member

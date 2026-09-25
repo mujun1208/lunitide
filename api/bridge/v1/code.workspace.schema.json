@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/code.workspace.schema.json",
+  "title": "code.workspace payload",
+  "x-method": "code.workspace",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": ["diagnostics", "definition", "references", "debug", "complete", "edit", "diff", "restore", "accept"]
+    },
+    "root": { "type": "string", "minLength": 1, "maxLength": 1024 },
+    "path": { "type": "string", "maxLength": 1024 },
+    "line": { "type": "integer", "minimum": 0 },
+    "column": { "type": "integer", "minimum": 0 },
+    "content": { "type": "string", "maxLength": 200000 },
+    "test": { "type": "string", "maxLength": 200 },
+    "accept": { "type": "boolean" },
+    "sessionId": { "type": "string", "maxLength": 64 }
+  },
+  "required": ["action", "root"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": { "type": "boolean" },
+      "path": { "type": "string" },
+      "line": { "type": "integer" },
+      "column": { "type": "integer" },
+      "suggestion": { "type": "string" },
+      "source": { "type": "string" },
+      "stopped": { "type": "integer" },
+      "diff": { "type": "string" },
+      "restored": { "type": "integer" },
+      "accepted": { "type": "integer" },
+      "references": {
+        "type": "array",
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": { "type": "string" },
+            "line": { "type": "integer" }
+          },
+          "required": ["path", "line"]
+        }
+      },
+      "diagnostics": {
+        "type": "array",
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": { "type": "string" },
+            "line": { "type": "integer" },
+            "message": { "type": "string" }
+          },
+          "required": ["line", "message"]
+        }
+      }
+    },
+    "required": ["ok"]
+  },
+  "x-examples": {
+    "positive": [
+      { "action": "diagnostics", "root": "E:/repo", "path": "speak.go" }
+    ],
+    "negative": [
+      { "root": "E:/repo" },
+      { "action": "diagnostics", "root": "E:/repo", "extra": true }
+    ]
+  }
+}

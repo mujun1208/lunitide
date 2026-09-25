@@ -88,7 +88,7 @@ func injectVisionDescription(messages []llmadapter.Message, text string) []llmad
 	if text == "" {
 		return messages
 	}
-	block := "[视觉模型识别]\n" + text
+	block := "[本机文字识别]\n" + text + "\n请直接根据这些文字回答用户的问题。不要执行命令，不要操作电脑，不要再识别图片。"
 	out := append([]llmadapter.Message(nil), messages...)
 	for i := len(out) - 1; i >= 0; i-- {
 		if out[i].Role == llmadapter.RoleUser {
@@ -101,6 +101,34 @@ func injectVisionDescription(messages []llmadapter.Message, text string) []llmad
 		}
 	}
 	return append(out, llmadapter.Message{Role: llmadapter.RoleUser, Content: block})
+}
+
+func wantsComputerAction(text string) bool {
+	t := chatRoutingText(text)
+	for _, word := range []string{"打开", "点开", "点击", "播放", "执行", "运行", "操作电脑", "帮我点"} {
+		if strings.Contains(t, word) {
+			return true
+		}
+	}
+	return false
+}
+
+func dropComputerTools(tools []llmadapter.ToolDefinition) []llmadapter.ToolDefinition {
+	if len(tools) == 0 {
+		return tools
+	}
+	out := make([]llmadapter.ToolDefinition, 0, len(tools))
+	for _, tool := range tools {
+		switch {
+		case tool.Name == "command.run", tool.Name == "system.run", tool.Name == "computer.act", tool.Name == "browser.act":
+			continue
+		case strings.HasPrefix(tool.Name, "cc."), strings.HasPrefix(tool.Name, "desktop."):
+			continue
+		default:
+			out = append(out, tool)
+		}
+	}
+	return out
 }
 
 func lastUserContent(messages []llmadapter.Message) string {
@@ -116,13 +144,11 @@ func (e *Engine) maybeDescribeImages(ctx context.Context, llm provider.Model, im
 	if len(images) == 0 {
 		return "", false
 	}
-	// A vision chat model sees the pixels itself. Every other model uses the
-	// product OCR stack (configured provider, then local windows-ocr / ppocr)
-	// even when the user only asked whether the picture has content.
-	if !llm.SupportsVision {
-		if text := e.attachedImageOCRText(ctx, images); text != "" {
-			return text, true
-		}
+	// Provider OCR, then RapidOCR, then Windows OCR. Recognized characters
+	// replace the pixels. A picture with no text stays on the request when
+	// this model can see images; otherwise a vision model describes it.
+	if text := e.attachedImageOCRText(ctx, images); text != "" {
+		return text, true
 	}
 	if llm.SupportsVision || e.providers == nil {
 		return "", false

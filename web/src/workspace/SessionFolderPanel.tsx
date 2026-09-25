@@ -20,7 +20,7 @@ export function SessionFolderPanel({
   sessionId: string
   bridge?: SessionFolderBridge
   refreshKey?: number
-  onPreview?: (file: { path: string; content: string; size: number }) => void
+  onPreview?: (file: { path: string; content: string; size: number; interactiveUrl?: string }) => void
 }): React.JSX.Element {
   const [rootPath, setRootPath] = useState('')
   const [children, setChildren] = useState<Record<string, Node[]>>({})
@@ -81,7 +81,12 @@ export function SessionFolderPanel({
       if (onPreview) {
         try {
           const preview = await artifactReviewBridge.preview({ sessionId, path: node.path })
-          onPreview({ path: node.path, content: preview.content || preview.notice || '此文件可在工作区预览或本机打开。', size: preview.size })
+          onPreview({
+            path: node.path,
+            content: preview.content || preview.notice || '此文件可在工作区预览或本机打开。',
+            size: preview.size,
+            ...(preview.interactiveUrl ? { interactiveUrl: preview.interactiveUrl } : {}),
+          })
         } catch {
           onPreview({ path: node.path, content: '无法生成预览，可用本机软件打开。', size: 0 })
         }

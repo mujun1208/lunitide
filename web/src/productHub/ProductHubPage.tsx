@@ -669,6 +669,11 @@ export function ProductHubPage({ onUnlocked, language = 'zh-CN' }: { onUnlocked?
     if (!token) return
     setExportOpen(false)
     void getProductHubBridge().exportDoc({ sessionToken: token, format }).then(result => {
+      const saved = (result as { path?: string }).path?.trim()
+      if (saved) {
+        setApplyNote(zh ? `报告已保存到 ${saved}` : `Saved to ${saved}`)
+        return
+      }
       const blob = new Blob([result.content], { type: result.mime })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -676,6 +681,7 @@ export function ProductHubPage({ onUnlocked, language = 'zh-CN' }: { onUnlocked?
       a.download = format === 'html' ? 'lunitide-product-manual.html' : 'lunitide-product-manual.md'
       a.click()
       URL.revokeObjectURL(url)
+      setApplyNote(zh ? '报告已导出' : 'Report exported')
     }).catch(err => setError(hubUserError(err, zh ? '导出失败' : 'Export failed')))
   }
 

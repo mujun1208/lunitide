@@ -87,7 +87,7 @@ func toolProfileAllow(profile toolProfile) map[string]bool {
 	switch profile {
 	case toolProfileMinimal:
 		return map[string]bool{
-			"web.search": true, "web.fetch": true, "weather.get": true,
+			"web.search": true, "web.fetch": true, "weather.get": true, "location.get": true,
 			"memory.search": true, "memory.get": true,
 			"user.ask": true,
 		}
@@ -96,7 +96,7 @@ func toolProfileAllow(profile toolProfile) map[string]bool {
 			"workspace.list": true, "workspace.read": true, "workspace.write": true,
 			"workspace.search": true, "workspace.edit": true,
 			"command.run": true, "run_terminal_cmd": true,
-			"web.search": true, "web.fetch": true, "weather.get": true,
+			"web.search": true, "web.fetch": true, "weather.get": true, "location.get": true,
 			"memory.search": true, "memory.get": true,
 			"skill.invoke": true, "skill.view": true,
 			"skill.catalog.list": true, "skill.list": true, "skill.install": true, "skill.publish": true,

@@ -11,7 +11,7 @@ const officeGenWorkflowClause = "- 文档：必须用 pptx.gen / docx.gen / exce
 
 const workflowResearchClause = "- 调研：专用实时数据优先对应数据工具；普通资料用 web.search（不要 web.fetch Bing/Google 首页）；后台检索供你引用，只有用户明确要看/打开网页时才需要工作区浏览器。完成后只给简短来源列表并结束，不要写任务过程长文。\n"
 
-const workflowCodeClause = "- 改代码：workspace.search 定位 → workspace.read → workspace.edit 精确替换（多处用 edits[]，多文件用 files[]）→ command.run 验证。\n"
+const workflowCodeClause = "- 改代码：只改当前打开的代码目录。workspace.search 定位 → workspace.read → workspace.edit 精确替换（多处用 edits[]，多文件用 files[]）→ command.run 跑 go test。失败时引用结果里的文件名和行号，再改那一处，不要整文件重写。\n"
 
 const workflowReviewClause = "- 审查：读改动与周边代码，按 严重/建议 分级，引用 path:line。\n"
 
@@ -21,7 +21,7 @@ const workflowCrossAppClause = "- 跨应用：网页数据用 browser.act 再 st
 
 const workflowOrchClause = "- 编排：多步任务用 todo.write 拆步并连续做完；定时重复走自动化任务而不是空转等待。复杂请求先拆步再动手，每步可验证。\n"
 
-const workflowGitClause = "- Git：command.run 只用白名单只读 git（status/diff/log）；写操作需用户确认。\n"
+const workflowGitClause = "- Git：差异在编辑器里接受或还原。command.run 只用白名单 git status/diff/log/add/commit/stash，且必须 --no-pager。禁止 push、reset、clean。\n"
 
 const workflowStructuredClause = "- 结构化输出：用户要日程 JSON、表单字段、键值摘要时调用 structured.output（template=event|form|kv）。不要只丢未校验的代码块。\n"
 
@@ -45,7 +45,8 @@ const workflowMediaClause = "- 播放、暂停、上一曲、下一曲：只打�
 
 const workflowIMClause = "- 发飞书/企微/钉钉/微信/QQ：设置 → 消息通道启用后用 im.send。\n"
 
-const workflowComputerClause = "- 看屏幕：电脑控制开启时只用 computer.act。先 action=observe 读名字/id，再 click name= 或 id=；有唯一名字时不要猜像素。短序列用 action=run steps（2–5 步，同一次调用）。截图仅在控件树稀疏/画布时按需使用（target=desktop 才是虚拟桌面全屏）。像素坐标必须用该图像素并回传 frameId（后缀 sN 是 screenIndex：0=虚拟桌面，1…=从左到右的显示器）。显示器重连或 DPI 变化会 COMPUTER_STALE_FRAME，必须重新 observe/截图。不要从月伴截图去点别的软件。底层仍走 cc.observe_ui / cc.screen_capture / cc.mouse_click（模型不要自己调 cc.*）。\n" +
+const workflowComputerClause = "- 能用命令准确完成的操作（查进程、列目录、启动已知程序）用 system.run，argv 是程序和参数。电脑控制或全盘完全访问开启后才跑。禁止 git push、reset、clean。不要先截图猜坐标。\n" +
+	"- 看屏幕：电脑控制开启时只用 computer.act。先 action=observe 读名字/id，再 click name= 或 id=；有唯一名字时不要猜像素。短序列用 action=run steps（2–5 步，同一次调用）。截图仅在控件树稀疏/画布时按需使用（target=desktop 才是虚拟桌面全屏）。像素坐标必须用该图像素并回传 frameId（后缀 sN 是 screenIndex：0=虚拟桌面，1…=从左到右的显示器）。显示器重连或 DPI 变化会 COMPUTER_STALE_FRAME，必须重新 observe/截图。不要从月伴截图去点别的软件。底层仍走 cc.observe_ui / cc.screen_capture / cc.mouse_click（模型不要自己调 cc.*）。\n" +
 	"- 窗口：computer.act action=list 列出，action=focus 激活已运行应用；输入前先 focus。未运行的用 desktop.open。用户没说关闭时不要 close。最小化/还原/移动用 window_action；退出应用用 app_quit（禁止关资源管理器/UAC）。拖拽用 drag。粘贴用 paste；按键用 press；按住用 hold_key，松开用 key_up（8 秒内会自动松开）；Ctrl/Shift 点击用 click 的 modifiers。菜单用 menu；填表用 set_value。UI 动画未结束用 wait until=change。底层仍走 cc.window_list / cc.window_focus / cc.window_action / cc.app_quit / cc.mouse_drag / cc.paste。\n" +
 	"- 对话框确认：先 computer.act action=observe_dialog，若是普通 Yes/OK/确认/是/确定 再用 confirm。禁止确认 UAC、提权。遇到打开/保存文件对话框不要代点，对用户说请你点「保存」「打开」或「取消」。禁止自动接受未知文件。不要靠截图盲点。底层仍走 cc.observe_dialog / cc.confirm_dialog。\n"
 
@@ -117,7 +118,10 @@ func selectWorkflowClauses(text string, lane ChatLane) []string {
 	var out []string
 	needDesktopHand := false
 	if looksLikeWeatherTurn(text) {
-		out = append(out, "- 天气：优先 weather.get 读取结构化免费预报；城市含糊先核实，按返回的当地日期、更新时间和采样范围回答。不要抓网页片段冒充实测温度。\n")
+		out = append(out, "- 天气：优先 weather.get 读取结构化免费预报；城市含糊先核实，按返回的当地日期、更新时间和采样范围回答。不要抓网页片段冒充实测温度。用户说这里、本地或当前位置时先 location.get，把返回的 latitude、longitude、timezone 交给 weather.get，不要猜城市。\n")
+	}
+	if has("报告", "文档", "画布", "对比", "展示") {
+		out = append(out, "- 给用户看的说明、对比、分析用 canvas.present，显示在工作区画布。title 写标题，sections 写 heading 和 body，数字用 bars 的 label、value、max。不要把整页 HTML 塞进 workspace.write。\n")
 	}
 	if has("火车", "高铁", "机票", "航班", "股价", "股票", "行情") {
 		out = append(out, "- 车票/航班/行情：先 mcp.search 找当前已连接的专用接口，再按真实schema调用。缺日期/地点/证券市场先核实；若没有接口，说明尚未接入，立刻结束本轮，不能凭网页摘要或旧记忆报实时余票/报价。禁止 web.search/web.fetch/browser.act 访问 12306。仅当用户明确说打开某网站或允许网上查时才用公开网页，并标明来源与时间。\n")

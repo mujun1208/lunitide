@@ -6,7 +6,7 @@ import "strings"
 // Preserve those bytes for the model, but never let quoted material choose a
 // deterministic product workflow (for example an uploaded report -> docx.gen).
 func chatRoutingText(content string) string {
-	for _, marker := range []string{"\n\n[Untrusted Attachment Data", "\n\n[BEGIN UNTRUSTED ", "\n\n[视觉模型识别]"} {
+	for _, marker := range []string{"\n\n[Untrusted Attachment Data", "\n\n[BEGIN UNTRUSTED ", "\n\n[视觉模型识别]", "\n\n[本机文字识别]"} {
 		if i := strings.Index(content, marker); i >= 0 {
 			content = content[:i]
 		}

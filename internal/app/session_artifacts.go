@@ -76,7 +76,7 @@ func chatDeliverableArtifact(toolName, kind, path string) bool {
 	switch toolName {
 	case "web.search", "web.fetch":
 		return false
-	case "pptx.gen", "docx.gen", "excel.gen", "pdf.gen", "html.gen", "office.generate":
+	case "pptx.gen", "docx.gen", "excel.gen", "pdf.gen", "html.gen", "office.generate", "canvas.present":
 		return true
 	}
 	base := strings.ToLower(filepath.Base(path))

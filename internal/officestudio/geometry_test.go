@@ -164,6 +164,48 @@ func TestSlideCanvasesPlaceTheTitleOnTheSlide(t *testing.T) {
 	}
 }
 
+func TestSlideCanvasesKeepLaterSlidesReadable(t *testing.T) {
+	data, err := officetools.GenPptx("简介", []officetools.SlideSpec{
+		{Title: "穆军", Subtitle: "个人简介", Layout: "title"},
+		{Title: "个人概览", Layout: "section"},
+		{Title: "经历", Bullets: []string{"航空ERP与MRO"}, Layout: "content"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	slides := SlideCanvases(data)
+	if len(slides) != 3 {
+		t.Fatalf("slides = %d", len(slides))
+	}
+	if slides[0].Fill != "#0B1F3A" || slides[2].Fill != "#F4F6F8" {
+		t.Fatalf("fills = %s %s", slides[0].Fill, slides[2].Fill)
+	}
+	var title SlideShape
+	for _, shape := range slides[0].Shapes {
+		if strings.Contains(shape.Text, "穆军") {
+			title = shape
+		}
+	}
+	if title.Color != "FFFFFF" || title.Size < 3 || !title.Bold {
+		t.Fatalf("cover title = %+v", title)
+	}
+	var header, body SlideShape
+	for _, shape := range slides[2].Shapes {
+		if shape.Fill == "0B1F3A" && shape.Text == "" {
+			header = shape
+		}
+		if strings.Contains(shape.Text, "航空ERP与MRO") {
+			body = shape
+		}
+	}
+	if header.W <= 0 || header.H <= 0 {
+		t.Fatalf("content header bar missing: %+v", slides[2].Shapes)
+	}
+	if body.Color != "1F2937" {
+		t.Fatalf("content body = %+v", body)
+	}
+}
+
 func TestGeometryInheritedAndMalformedDimensionsAreNotInvented(t *testing.T) {
 	for _, extent := range []string{`<a:ext cx="broken" cy="200"/>`, `<a:ext cx="0" cy="200"/>`, ``} {
 		body := []byte(`<p:sld xmlns:p="` + presentationNS + `" xmlns:a="` + drawingNS + `"><p:cSld><p:spTree><p:sp><p:spPr><a:xfrm><a:off x="-10" y="0"/>` + extent + `</a:xfrm></p:spPr></p:sp></p:spTree></p:cSld></p:sld>`)

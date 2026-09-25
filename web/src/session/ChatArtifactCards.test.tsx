@@ -48,6 +48,7 @@ it('hides intermediate web search and fetch HTML from deliverable cards', () => 
   expect(isChatDeliverableArtifact({ toolName: 'workspace.write', kind: 'md', path: '周报/周报_2026-W37.md' })).toBe(true)
   expect(isChatDeliverableArtifact({ toolName: 'workspace.edit', kind: 'txt', path: 'notes.txt' })).toBe(true)
   expect(isChatDeliverableArtifact({ toolName: 'audio.generate', kind: 'audio', path: 'song.wav' })).toBe(true)
+  expect(isChatDeliverableArtifact({ toolName: 'canvas.present', kind: 'html', path: 'canvas.html' })).toBe(true)
   expect(artifactOpenRelativePath(String.raw`C:\Users\mujun\Desktop\介绍.pptx`)).toBe('C:/Users/mujun/Desktop/介绍.pptx')
   expect(artifactOpenRelativePath(String.raw`E:\项目\介绍.pptx`)).toBe('E:/项目/介绍.pptx')
   const visible = filterChatDeliverables([

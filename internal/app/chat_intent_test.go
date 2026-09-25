@@ -49,6 +49,20 @@ func TestComposerSendGoalTypesHelloIntoOpenedApp(t *testing.T) {
 	if !looksLikeTypeAfterLabelTurn(goal) {
 		t.Fatal("composer send should use the type path")
 	}
+	doubao := "在这个桌面这个豆包的输入对话框当中输入你好然后发送"
+	text, ok = composerSendGoal(doubao)
+	if !ok || text != "你好" {
+		t.Fatalf("doubao composer text=%q ok=%v", text, ok)
+	}
+	doubaoRaw := composerSendTypeArgs(doubao, nil)
+	doubaoGot := string(doubaoRaw)
+	if !strings.Contains(doubaoGot, `"text":"你好"`) || !strings.Contains(doubaoGot, `"window":"豆包"`) || !strings.Contains(doubaoGot, `"submit":true`) {
+		t.Fatalf("doubao args=%s", doubaoRaw)
+	}
+	merged := composerTypeArgsForCall(doubao, nil, []byte(`{"text":"你好"}`))
+	if !strings.Contains(string(merged), `"window":"豆包"`) || !strings.Contains(string(merged), `"submit":true`) {
+		t.Fatalf("merged=%s", merged)
+	}
 	messages := []llmadapter.Message{
 		{Role: llmadapter.RoleUser, Content: "我说打开我桌面的豆包软件。"},
 		{Role: llmadapter.RoleAssistant, Content: "好，我来打开。已打开目标文件或应用。"},
@@ -66,6 +80,48 @@ func TestComposerSendGoalTypesHelloIntoOpenedApp(t *testing.T) {
 	failed := append(messages, llmadapter.Message{Role: llmadapter.RoleTool, Content: "ok:false\n无法执行"})
 	if composerSendSettled(goal, failed) {
 		t.Fatal("a failed type must not settle")
+	}
+}
+
+func TestWeChatChatGoalNamesContactAndMinutes(t *testing.T) {
+	contact, minutes, ok := parseWeChatChatGoal("和微信的_穆_聊5分钟")
+	if !ok || contact != "_穆_" || minutes != 5 {
+		t.Fatalf("mu contact=%q minutes=%d ok=%v", contact, minutes, ok)
+	}
+	contact, minutes, ok = parseWeChatChatGoal("跟微信里的张三聊天，聊10分钟")
+	if !ok || contact != "张三" || minutes != 10 {
+		t.Fatalf("zhang contact=%q minutes=%d ok=%v", contact, minutes, ok)
+	}
+	contact, minutes, ok = parseWeChatChatGoal("在微信上和李四聊3分钟")
+	if !ok || contact != "李四" || minutes != 3 {
+		t.Fatalf("li contact=%q minutes=%d ok=%v", contact, minutes, ok)
+	}
+	contact, minutes, ok = parseWeChatChatGoal("和微信的文件传输助手聊一会儿")
+	if !ok || contact != "文件传输助手" || minutes != 5 {
+		t.Fatalf("file contact=%q minutes=%d ok=%v", contact, minutes, ok)
+	}
+	if _, _, ok = parseWeChatChatGoal("在这个桌面这个豆包的输入对话框当中输入你好然后发送"); ok {
+		t.Fatal("doubao send is not a wechat chat")
+	}
+	if _, _, ok = parseWeChatChatGoal("不要和微信的张三聊天"); ok {
+		t.Fatal("a refusal must not start a wechat chat")
+	}
+	raw := string(wechatChatTypeArgs("和微信的_穆_聊5分钟"))
+	if !strings.Contains(raw, `"window":"微信"`) || !strings.Contains(raw, `"after":"_穆_"`) || !strings.Contains(raw, `"text":"你好"`) || !strings.Contains(raw, `"submit":true`) {
+		t.Fatalf("wechat args=%s", raw)
+	}
+	if !looksLikeTypeAfterLabelTurn("和微信的_穆_聊5分钟") || !computerExecutionTurn("和微信的_穆_聊5分钟") {
+		t.Fatal("wechat chat must stay on the desktop type path")
+	}
+}
+
+func TestDocumentOpenTypeSaveArgs(t *testing.T) {
+	raw := string(fallbackDesktopTypeArgs("打开桌面上的协议，在证件号码后面写204040，然后保存"))
+	if !strings.Contains(raw, `"after":"证件号码"`) || !strings.Contains(raw, `"text":"204040"`) || !strings.Contains(raw, `"save":true`) || !strings.Contains(raw, `"window":"协议"`) {
+		t.Fatalf("document args=%s", raw)
+	}
+	if strings.Contains(raw, "ctrl") || strings.Contains(string(wechatChatTypeArgs("打开桌面上的协议，在证件号码后面写204040，然后保存")), "微信") {
+		t.Fatal("a document fill must not become a wechat search")
 	}
 }
 

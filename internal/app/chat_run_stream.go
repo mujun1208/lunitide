@@ -168,6 +168,12 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		}
 		if event.Type == bridge.EventToolCompleted && event.Tool != nil {
 			completedToolEvents[event.Tool.CallID] = true
+			if event.Tool.Name == "web.search" {
+				e.rememberSearchHit(sessionID, event.Tool.Summary)
+			}
+			if event.Tool.Name == "web.fetch" && newsOpenGoal(turn.Goal) && !strings.Contains(event.Tool.Summary, "first_hit:") {
+				event.Tool.Summary += "\nfirst_hit: true"
+			}
 		}
 		if event.Type == bridge.EventCompleted || event.Type == bridge.EventFailed || event.Type == bridge.EventCancelled {
 			streamEnded = true
@@ -376,6 +382,90 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			prepExtendWaves := 0
 			lengthContinueWaves := 0
 			for step := 0; step < toolLoopLimit; step++ {
+				if step == 0 && !usedAnyTool(turn.LastTools, "media.play") {
+					if speech, ok := e.openNamedFilmNow(op, mode, sessionID, turn.Goal, send); ok {
+						assistantText.WriteString(speech)
+						if err := sendDeltaChunks(send, speech); err != nil {
+							return err
+						}
+						turn.LastTools = append(turn.LastTools, "media.play")
+						usedTools = true
+						break
+					}
+					if moviePlayGoal(turn.Goal) {
+						speech := "没能打开这部电影的官方搜索。"
+						assistantText.WriteString(speech)
+						if err := sendDeltaChunks(send, speech); err != nil {
+							return err
+						}
+						break
+					}
+					if speech, ok := e.openNamedSongNow(op, mode, sessionID, turn.Goal, send); ok {
+						assistantText.WriteString(speech)
+						if err := sendDeltaChunks(send, speech); err != nil {
+							return err
+						}
+						turn.LastTools = append(turn.LastTools, "media.play")
+						usedTools = true
+						break
+					}
+					if len(directSongPlayArgs(turn.Goal)) > 0 {
+						speech := "没能打开网易云音乐的官方搜索。"
+						assistantText.WriteString(speech)
+						if err := sendDeltaChunks(send, speech); err != nil {
+							return err
+						}
+						break
+					}
+				}
+				if step == 0 && !usedAnyTool(turn.LastTools, "web.fetch") {
+					if speech, ok := e.openFirstNewsNow(sessionID, turn.Goal, req.Messages, send); ok {
+						assistantText.WriteString(speech)
+						if err := sendDeltaChunks(send, speech); err != nil {
+							return err
+						}
+						turn.LastTools = append(turn.LastTools, "web.fetch")
+						usedTools = true
+						break
+					}
+				}
+				if step == 0 && !usedAnyTool(turn.LastTools, "desktop.type") {
+					if speech, ok := e.typeIntoDocumentNow(op, mode, sessionID, turn.Goal, send); ok {
+						assistantText.WriteString(speech)
+						if err := sendDeltaChunks(send, speech); err != nil {
+							return err
+						}
+						turn.LastTools = append(turn.LastTools, "desktop.open", "desktop.type")
+						usedTools = true
+						usedDesktopTools = true
+						break
+					}
+					if speech, ok := e.sendComposerNow(op, mode, sessionID, turn.Goal, send); ok {
+						assistantText.WriteString(speech)
+						if err := sendDeltaChunks(send, speech); err != nil {
+							return err
+						}
+						turn.LastTools = append(turn.LastTools, "desktop.type")
+						usedTools = true
+						usedDesktopTools = true
+						break
+					}
+					if contact, _, ok := parseWeChatChatGoal(turn.Goal); ok {
+						if e.startWeChatChatNow(op, mode, sessionID, turn.Goal, &req, send) {
+							turn.LastTools = append(turn.LastTools, "desktop.type")
+							usedTools = true
+							usedDesktopTools = true
+							autoDesktopTypeDone = true
+						} else {
+							speech := "没能打开和「" + contact + "」的微信会话。"
+							assistantText.WriteString(speech)
+							if err := sendDeltaChunks(send, speech); err != nil {
+								return err
+							}
+							break
+						}
+					}
+				}
 				turn.liveProtocol = req.Messages
 				if err := e.CheckCapability(op, "llm", "session"); err != nil {
 					return err
@@ -709,12 +799,15 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							autoDesktopTypeDone = true
 						}
 					}
-					if len(result.Message.ToolCalls) == 0 && !autoDesktopObserveDone && toolDefinitionsHave(req.Tools, "computer.act") && (systemBrowserFirstResultGoal(turn.Goal) || systemBrowserFirstResultGoal(spokenGoal) || openNewsGoal(turn.Goal) || openNewsGoal(spokenGoal)) {
-						result.Message.ToolCalls = []llmadapter.ToolCall{{
-							ID:        "auto-" + ulid.Make().String(),
-							Name:      "computer.act",
-							Arguments: autoDesktopObserveArgs(),
-						}}
+					if len(result.Message.ToolCalls) == 0 && !autoDesktopObserveDone && (newsOpenGoal(turn.Goal) || newsOpenGoal(spokenGoal)) {
+						if u := e.savedSearchHit(sessionID, req.Messages); u != "" {
+							raw, _ := json.Marshal(map[string]string{"url": u})
+							result.Message.ToolCalls = []llmadapter.ToolCall{{
+								ID:        "auto-" + ulid.Make().String(),
+								Name:      "web.fetch",
+								Arguments: raw,
+							}}
+						}
 						autoDesktopObserveDone = true
 					}
 					if len(result.Message.ToolCalls) == 0 && !autoDesktopObserveDone && toolDefinitionsHave(req.Tools, "computer.act") && !turnAttemptedAction(req.Messages, "observe") && (looksLikeDesktopObserveTurn(turn.Goal) || desktopLadderWantsNamedObserve(turn.Goal, req.Messages)) {
@@ -865,7 +958,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						case "leadin":
 							nudge = llmadapter.Message{Role: llmadapter.RoleSystem, Content: "根据本轮工具证据，用一两句报告结果和未完成部分。命令发送、磁盘写入、窗口更新是不同证据，不能混为一谈。不要只说稍等，也不要重复过程。"}
 						case "desktop":
-							nudge = desktopContinueNudgeMessage()
+							nudge = desktopContinueNudgeForGoal(turn.Goal)
 						case "incomplete":
 							nudge = incompleteContinueNudgeMessage()
 						case "ladder":
@@ -1028,6 +1121,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				// tools stay inline.
 				for i := range result.Message.ToolCalls {
 					call := &result.Message.ToolCalls[i]
+					rewriteNewsOpen(turn.Goal, sessionID, e, req.Messages, call)
+					rewriteNewsOpen(spokenGoal, sessionID, e, req.Messages, call)
 					if moviePlayGoal(turn.Goal) && call.Name != "media.play" && !autoMediaPlayDone {
 						call.Name = "media.play"
 						call.Arguments = forceMediaCenterArgs(turn.Goal, nil)
@@ -1060,6 +1155,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				guardBlockedCalls := 0
 				totalCallsThisStep := len(result.Message.ToolCalls)
 				for _, call := range result.Message.ToolCalls {
+					if composerSendSettled(turn.Goal, req.Messages) {
+						break
+					}
 					if seen[call.ID] {
 						return errors.New("duplicate tool call id")
 					}
@@ -1068,6 +1166,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					call.Arguments = confineSessionArtifactArgs(turn.Goal, call.Name, call.Arguments)
 					if call.Name == "media.play" {
 						call.Arguments = mediaArgsForGoal(turn.Goal, call.Arguments)
+					}
+					if call.Name == "desktop.type" {
+						call.Arguments = composerTypeArgsForCall(turn.Goal, req.Messages, call.Arguments)
 					}
 					prepared, retryHint := prepareToolArguments(call.Name, call.Arguments, toolSchemaByName(req.Tools, call.Name))
 					call.Arguments = prepared
@@ -1446,6 +1547,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						summary = toolErr.Error()
 						if !strings.HasPrefix(summary, "ok:false") {
 							summary = "ok:false\n" + summary
+						}
+						if (call.Name == "command.run" || call.Name == "run_terminal_cmd") && strings.Contains(summary, ".go:") {
+							e.rememberCodeDiagnostic(sessionID, summary)
 						}
 						if !strings.Contains(summary, "retry:") {
 							turn.ToolFailed = true
@@ -1863,7 +1967,25 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: delta}})
 			}
 		} else if outcome := chatModelOutcomeNotice(e.isStreamCancelling(state), err); outcome != "" {
+			if moviePlayGoal(turn.Goal) && !usedAnyTool(turn.LastTools, "media.play") {
+				if speech, ok := e.openNamedFilmNow(ctx, mode, sessionID, turn.Goal, send); ok {
+					outcome = speech
+					err = nil
+					turn.LastTools = append(turn.LastTools, "media.play")
+				}
+			}
+			if len(directSongPlayArgs(turn.Goal)) > 0 && !usedAnyTool(turn.LastTools, "media.play") {
+				if speech, ok := e.openNamedSongNow(ctx, mode, sessionID, turn.Goal, send); ok {
+					outcome = speech
+					err = nil
+					turn.LastTools = append(turn.LastTools, "media.play")
+				}
+			}
 			if speech := companionSucceededBeforeModelError(state.companion, turn.Goal, turn.LastTools, req.Messages); speech != "" {
+				outcome = speech
+				err = nil
+			}
+			if speech := wechatChatProgressSpeech(turn.Goal, turn.LastTools, req.Messages); speech != "" {
 				outcome = speech
 				err = nil
 			}

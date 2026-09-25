@@ -56,31 +56,66 @@ func observeUIAutomation(hwnd uintptr, maxNodes int) ([]UINode, error) {
 	if hr = arr.Get_Length(&n); win32.FAILED(hr) || n <= 0 {
 		return nil, nil
 	}
-	if n > 400 {
-		n = 400
+	limit := n
+	if limit > 400 {
+		limit = 400
 	}
 	out := make([]UINode, 0, maxNodes)
-	for i := int32(0); i < n && len(out) < maxNodes; i++ {
+	seenComposer := false
+	for i := int32(0); i < limit && len(out) < maxNodes; i++ {
 		var el *win32.IUIAutomationElement
 		if hr = arr.GetElement(i, &el); win32.FAILED(hr) || el == nil {
 			continue
 		}
 		if node, ok := uiaReadNode(el); ok {
 			out = append(out, node)
+			if strings.Contains(node.Name, "发消息") || strings.Contains(node.Name, "输入消息") {
+				seenComposer = true
+			}
 		}
 		el.Release()
+	}
+	if !seenComposer && n > limit {
+		if n > 2500 {
+			n = 2500
+		}
+		for i := limit; i < n && len(out) < maxNodes; i++ {
+			var el *win32.IUIAutomationElement
+			if hr = arr.GetElement(i, &el); win32.FAILED(hr) || el == nil {
+				continue
+			}
+			if node, ok := uiaReadNode(el); ok && (strings.Contains(node.Name, "发消息") || strings.Contains(node.Name, "输入消息") || strings.Contains(node.Name, "输入框")) {
+				out = append(out, node)
+				el.Release()
+				break
+			}
+			el.Release()
+		}
 	}
 	return out, nil
 }
 
+func composerPlaceholder(control win32.UIA_CONTROLTYPE_ID, name string) bool {
+	if control != win32.UIA_TextControlTypeId {
+		return false
+	}
+	name = strings.TrimSpace(name)
+	return strings.Contains(name, "发消息") || strings.Contains(name, "输入消息") || strings.Contains(name, "输入框")
+}
+
 func uiaReadNode(el *win32.IUIAutomationElement) (UINode, bool) {
 	var control win32.UIA_CONTROLTYPE_ID
-	if hr := el.Get_CurrentControlType(&control); win32.FAILED(hr) || !uiaActionable(control) {
+	if hr := el.Get_CurrentControlType(&control); win32.FAILED(hr) {
+		return UINode{}, false
+	}
+	name := strings.TrimSpace(uiaName(el))
+	placeholder := composerPlaceholder(control, name)
+	if !uiaActionable(control) && !placeholder {
 		return UINode{}, false
 	}
 	var isControl win32.BOOL = 1
 	_ = el.Get_CurrentIsControlElement(&isControl)
-	if isControl == 0 {
+	if isControl == 0 && !placeholder {
 		return UINode{}, false
 	}
 	var off win32.BOOL
@@ -97,7 +132,6 @@ func uiaReadNode(el *win32.IUIAutomationElement) (UINode, bool) {
 	if w <= 1 || h <= 1 {
 		return UINode{}, false
 	}
-	name := strings.TrimSpace(uiaName(el))
 	if name == "" {
 		name = strings.TrimSpace(uiaAutomationID(el))
 	}
@@ -274,6 +308,8 @@ func uiaRoleName(control win32.UIA_CONTROLTYPE_ID) string {
 		return "link"
 	case win32.UIA_EditControlTypeId:
 		return "edit"
+	case win32.UIA_TextControlTypeId:
+		return "text"
 	case win32.UIA_CheckBoxControlTypeId:
 		return "checkbox"
 	case win32.UIA_RadioButtonControlTypeId:

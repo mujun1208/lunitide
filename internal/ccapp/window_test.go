@@ -25,6 +25,21 @@ func TestMatchWindowPrefersExactTitle(t *testing.T) {
 	}
 }
 
+func TestMatchWindowWeChatByProcessWhenTitleIsTheContact(t *testing.T) {
+	wins := []WindowInfo{
+		{ID: "0x1", Title: "_穆_", Process: "Weixin.exe"},
+		{ID: "0x2", Title: "问候 - 豆包", Process: "Doubao.exe"},
+	}
+	got, ok := MatchWindow(wins, "微信")
+	if !ok || got.Process != "Weixin.exe" {
+		t.Fatalf("wechat %+v ok=%v", got, ok)
+	}
+	got, ok = MatchWindow(wins, "豆包")
+	if !ok || got.Process != "Doubao.exe" {
+		t.Fatalf("doubao %+v ok=%v", got, ok)
+	}
+}
+
 func TestMatchWindowsCollectsProcessHits(t *testing.T) {
 	wins := []WindowInfo{
 		{Title: "A", Process: "app.exe"},

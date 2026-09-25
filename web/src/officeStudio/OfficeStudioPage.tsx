@@ -11,6 +11,7 @@ import { officeRead } from './officeRead';
 import { officeStudioUserError } from './officeUserError';
 import { useLanguage } from '../i18n/language';
 import { OfficeArtifactViewer } from './OfficeArtifactViewer';
+import { OfficeSlideStage } from './slideStage';
 import { OfficeMetricPanel } from './OfficeMetricPanel';
 import { OfficeBundleDialog } from './OfficeBundleDialog';
 import { OfficeDiffDialog } from './OfficeDiffDialog';
@@ -1237,6 +1238,8 @@ export function OfficeStudioPage({
                 <nav className="os-page-rail" aria-label="幻灯片页">
                 {previewPages.map((page, index) => {
                   const thumb = officePreviewThumb(page);
+                  const canvas = preview.slides?.find((slide) => slide.part === (page.location || page.nodes.find((node) => node.location)?.location));
+                  const painted = (canvas?.shapes ?? []).some((shape) => (shape.text || '').trim() || (shape.fill || '').trim());
                   return (
                   <button
                     key={page.id}
@@ -1249,12 +1252,17 @@ export function OfficeStudioPage({
                       if (node) locate(node);
                     }}
                   >
-                    <span className="os-page-thumb" aria-hidden="true">
-                      <b>{thumb.title}</b>
-                      <small>{thumb.excerpt}</small>
+                    <span className={`os-page-thumb${painted ? ' is-canvas' : ''}`} style={painted && canvas?.fill ? { background: canvas.fill } : undefined} aria-hidden="true">
+                      {painted && canvas ? (
+                        <OfficeSlideStage fill={canvas.fill} shapes={canvas.shapes} />
+                      ) : (
+                        <>
+                          <b>{thumb.title}</b>
+                          <small>{thumb.excerpt}</small>
+                        </>
+                      )}
                     </span>
-                    <span>{String(index + 1).padStart(2, '0')}</span>
-                    <b>{thumb.title}</b>
+                    <span className="os-page-caption">{String(index + 1).padStart(2, '0')} {thumb.title}</span>
                   </button>
                   );
                 })}

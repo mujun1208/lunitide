@@ -470,6 +470,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 	if !p.Companion && hasSession {
 		instruction += e.unfinishedTurnInjection(boundSessionID, intent.Text)
+		instruction += e.codeDiagnosticInjection(boundSessionID)
 		instruction += closedLoopTurnInjection(turnText)
 	}
 	if p.OfficeTaskID != "" {
@@ -977,13 +978,16 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 	e.streams[streamID] = state
 	e.streamsMu.Unlock()
-	if text, ok := e.maybeDescribeImages(ctx, modelByID(item, p.ModelID), images, lastUserContent(messages)); ok {
+	imageQuestion := lastUserContent(messages)
+	hadImages := len(images) > 0
+	if text, ok := e.maybeDescribeImages(ctx, modelByID(item, p.ModelID), images, imageQuestion); ok {
 		messages = injectVisionDescription(messages, text)
 		images = nil
 	} else if len(images) > 0 && !modelByID(item, p.ModelID).SupportsVision {
 		images = nil
 		messages = injectVisionDescription(messages, "已附图片，但 OCR 和视觉模型都没有读出内容。请确认本机 OCR 可用，或在设置里启用视觉模型后再上传。")
 	}
+	imageAnswerOnly := hadImages && !wantsComputerAction(imageQuestion)
 	req := llmadapter.Request{Model: p.ModelID, Messages: messages, Images: images, MaxTokens: chatMaxTokens, MaxAttempts: 1, DisableReasoning: p.Companion || isShortIdleGreeting(intent.Text)}
 	if p.Companion {
 		req.MaxTokens = companionMaxTokens
@@ -1002,12 +1006,15 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			req.Tools = applyTaskRoute(req.Tools, route, allow)
 			state.taskRoute = route
 			state.taskAllow = allow
-			if route == RouteR2 && !desktopInstructionAdded {
+			if route == RouteR2 && !desktopInstructionAdded && !imageAnswerOnly {
 				// Late (flash) desktop route: the system prompt was built
 				// before we knew. Add the execution contract now so the
 				// model observes → acts → verifies instead of narrating.
 				req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: strings.TrimSpace(desktopExecutionInstruction())})
 			}
+		}
+		if imageAnswerOnly {
+			req.Tools = dropComputerTools(req.Tools)
 		}
 	}
 	if chatLanesEnabled() && !p.Companion {

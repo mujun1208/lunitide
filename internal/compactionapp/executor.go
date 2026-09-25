@@ -134,6 +134,13 @@ type ExecuteResult struct {
 	LowWatermarkUsageFraction float64
 }
 
+func finishFailed(result ExecuteResult, start time.Time, code string) ExecuteResult {
+	result.Status = compaction.StatusFailed
+	result.FailureCode = &code
+	result.DurationMs = time.Since(start).Milliseconds()
+	return result
+}
+
 // Execute processes a pending checkpoint: transitions to running, generates summary, transitions to succeeded/failed.
 func (e *Executor) Execute(ctx context.Context, checkpointID string) (ExecuteResult, error) {
 	start := time.Now()
@@ -185,9 +192,7 @@ func (e *Executor) Execute(ctx context.Context, checkpointID string) (ExecuteRes
 			if cleanupErr := e.markFailed(ctx, checkpointID, "SOURCE_READ_FAILED", readErr); cleanupErr != nil {
 				return result, fmt.Errorf("source read failed (%v); persist failed status: %w", readErr, cleanupErr)
 			}
-			result.Status = compaction.StatusFailed
-			result.DurationMs = time.Since(start).Milliseconds()
-			return result, nil
+			return finishFailed(result, start, "SOURCE_READ_FAILED"), nil
 		}
 		if len(messages) == 0 || messages[0].Sequence != batchStart || messages[len(messages)-1].Sequence != batchEnd || len(messages) != int(batchEnd-batchStart+1) {
 			failureCode := "SOURCE_RANGE_INCOMPLETE"
@@ -197,18 +202,14 @@ func (e *Executor) Execute(ctx context.Context, checkpointID string) (ExecuteRes
 			if cleanupErr := e.markFailed(ctx, checkpointID, failureCode, ErrNoMessagesToSummarize); cleanupErr != nil {
 				return result, fmt.Errorf("incomplete source range %d-%d; persist failed status: %w", batchStart, batchEnd, cleanupErr)
 			}
-			result.Status = compaction.StatusFailed
-			result.DurationMs = time.Since(start).Milliseconds()
-			return result, nil
+			return finishFailed(result, start, failureCode), nil
 		}
 		for i, message := range messages {
 			if message.Sequence != batchStart+int64(i) {
 				if cleanupErr := e.markFailed(ctx, checkpointID, "SOURCE_RANGE_INCOMPLETE", nil); cleanupErr != nil {
 					return result, fmt.Errorf("non-contiguous source range; persist failed status: %w", cleanupErr)
 				}
-				result.Status = compaction.StatusFailed
-				result.DurationMs = time.Since(start).Milliseconds()
-				return result, nil
+				return finishFailed(result, start, "SOURCE_RANGE_INCOMPLETE"), nil
 			}
 		}
 
@@ -222,17 +223,13 @@ func (e *Executor) Execute(ctx context.Context, checkpointID string) (ExecuteRes
 			if cleanupErr := e.markFailed(ctx, checkpointID, "SUMMARY_FAILED", summarizeErr); cleanupErr != nil {
 				return result, fmt.Errorf("summary failed (%v); persist failed status: %w", summarizeErr, cleanupErr)
 			}
-			result.Status = compaction.StatusFailed
-			result.DurationMs = time.Since(start).Milliseconds()
-			return result, nil
+			return finishFailed(result, start, "SUMMARY_FAILED"), nil
 		}
 		if validationErr := ValidateProtectedFacts(summaryJSON, cumulativeFacts); validationErr != nil {
 			if cleanupErr := e.markFailed(ctx, checkpointID, "PROTECTED_FACTS_VIOLATION", validationErr); cleanupErr != nil {
 				return result, fmt.Errorf("protected facts validation failed (%v); persist failed status: %w", validationErr, cleanupErr)
 			}
-			result.Status = compaction.StatusFailed
-			result.DurationMs = time.Since(start).Milliseconds()
-			return result, nil
+			return finishFailed(result, start, "PROTECTED_FACTS_VIOLATION"), nil
 		}
 		priorSummary = summaryJSON
 		batchStart = batchEnd + 1

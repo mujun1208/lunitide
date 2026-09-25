@@ -559,6 +559,13 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	// M10 wave-4: the cc.* agent tools execute through the ccapp
 	// service (three-layer interception, risk gate, audit ledger).
 	tools.SetCcExecutor(ccSvc.ExecuteTool)
+	tools.SetSystemReady(func() bool {
+		cfg, err := ccSvc.GetConfig(context.Background())
+		if err != nil {
+			return false
+		}
+		return cfg.Enabled && !cfg.EmergencyStopped
+	})
 	tools.SetIMSend(func(ctx context.Context, kind, to, text string) (desktopApp, output string, err error) {
 		k, err := imapp.ParseKind(kind)
 		if err != nil {

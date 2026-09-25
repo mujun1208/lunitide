@@ -131,6 +131,7 @@ assert(JSON.stringify(enabled) === JSON.stringify([
   'chat.tool.approve',
   'chat.turn.get',
   'chat.usage.get',
+  'code.workspace',
   'collabGate.confirm',
   'collabGate.evaluate',
   'collabGate.status',

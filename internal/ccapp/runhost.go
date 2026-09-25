@@ -142,6 +142,8 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			if clickErr != nil {
 				return "", nil, clickErr
 			}
+			s.noteTypingFocus(probeFocus(s.host))
+			s.noteClickTarget(hit, 0, 0, false)
 			return s.verifyAfter(fmt.Sprintf("clicked %q: %s x%d", hit, a.Button, a.Clicks))
 		}
 		if err := s.refuseSelfWindowPixels(); err != nil {
@@ -182,6 +184,8 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			if err := s.verifyPixelClick(s.toScreen(*a.X, *a.Y)); err != nil {
 				return "", nil, err
 			}
+			s.noteTypingFocus(probeFocus(s.host))
+			s.noteClickTarget("", *a.X, *a.Y, true)
 		}
 		return s.verifyAfter(fmt.Sprintf("clicked %s mouse %d time(s)", a.Button, a.Clicks))
 	case ToolMouseDrag:
@@ -218,7 +222,8 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		if err := s.focusIfNamed(a.Window); err != nil {
 			return "", nil, err
 		}
-		if err := s.refuseTypingWithoutFocus(); err != nil {
+		s.noteTypingFocus(probeFocus(s.host))
+		if err := s.refuseTypingWithoutFocus(); err != nil && !s.typingArmed() {
 			return "", nil, err
 		}
 		if err := s.waitExecution(40 * time.Millisecond); err != nil {
@@ -228,6 +233,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			raw, _ := json.Marshal(map[string]any{"text": a.Text, "window": a.Window})
 			return s.runHost(ToolPaste, raw, nil)
 		}
+		s.clearComposerArmed()
 		if err := s.controlHost().KeyboardType(a.Text); err != nil {
 			return "", nil, err
 		}
@@ -245,6 +251,9 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		}
 		if err := s.controlHost().KeyboardShortcut(shortcut); err != nil {
 			return "", nil, err
+		}
+		if len(shortcut) == 2 && strings.EqualFold(shortcut[0], "ctrl") && strings.EqualFold(shortcut[1], "f") {
+			s.setComposerArmed(true)
 		}
 		return s.verifyAfter("pressed " + strings.Join(shortcut, "+"))
 	case ToolScreenCapture:
@@ -617,9 +626,11 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 		if err := s.focusIfNamed(a.Window); err != nil {
 			return "", nil, err
 		}
-		if err := s.refuseTypingWithoutFocus(); err != nil {
+		s.noteTypingFocus(probeFocus(s.host))
+		if err := s.refuseTypingWithoutFocus(); err != nil && !s.typingArmed() {
 			return "", nil, err
 		}
+		s.clearComposerArmed()
 		if strings.TrimSpace(a.Text) != "" {
 			if err := s.controlHost().ClipboardSet(a.Text); err != nil {
 				return "", nil, err

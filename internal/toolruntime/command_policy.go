@@ -29,6 +29,27 @@ const (
 	toolProgressMaxChunks = 40
 )
 
+// devCommandRules are build and test commands for a bound project root or a
+// full-access workspace. They are not part of the global allowlist: a session
+// sandbox with neither root stays denied. go test -exec is rejected separately.
+func devCommandRules() []commandRule {
+	return []commandRule{
+		{prefix: []string{"go", "test"}, maxArgs: 8, deadline: commandDeadlineMax},
+		{prefix: []string{"go", "fmt"}, maxArgs: 4, deadline: time.Minute},
+		{prefix: []string{"npm", "test"}, maxArgs: 4, deadline: commandDeadlineMax},
+	}
+}
+
+func devCommandBlocked(argv []string) bool {
+	for _, a := range argv {
+		low := strings.ToLower(a)
+		if low == "-exec" || strings.HasPrefix(low, "-exec=") || low == "-toolexec" || strings.HasPrefix(low, "-toolexec=") {
+			return true
+		}
+	}
+	return false
+}
+
 // builtinCommandRules is the fixed observation + reversible-write set. git
 // runs only through --no-pager explicit flags (pagers/filters disabled both
 // via the flag and the sanitized environment set in runCommand).

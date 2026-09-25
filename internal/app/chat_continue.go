@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/llmadapter"
@@ -555,11 +556,54 @@ func shouldContinueDesktopTurn(text string, nudges int) bool {
 	return shouldContinueDesktopTurnGoal(text, "", nudges)
 }
 
+func desktopContinueCap(userGoal string) int {
+	if _, minutes, ok := parseWeChatChatGoal(userGoal); ok {
+		if minutes > 15 {
+			return 15
+		}
+		if minutes > maxDesktopContinueNudges {
+			return minutes
+		}
+	}
+	return maxDesktopContinueNudges
+}
+
 func shouldContinueDesktopTurnGoal(text, userGoal string, nudges int) bool {
-	if nudges >= maxDesktopContinueNudges {
+	if nudges >= desktopContinueCap(userGoal) {
 		return false
 	}
+	if _, _, ok := parseWeChatChatGoal(userGoal); ok {
+		return true
+	}
 	return !desktopTurnSettled(text, userGoal)
+}
+
+func desktopContinueNudgeForGoal(goal string) llmadapter.Message {
+	if contact, minutes, ok := parseWeChatChatGoal(goal); ok {
+		return llmadapter.Message{Role: llmadapter.RoleSystem, Content: fmt.Sprintf("还在和微信的%s聊天，这一轮大约%d分钟。根据工具结果 visible 里对方已经显示的话，立刻用 desktop.type（window=微信，after=%s，submit=true）再发一条。同名的人保持搜索后的第一个，不要改找另一个。时长未到不要停。", contact, minutes, contact)}
+	}
+	return desktopContinueNudgeMessage()
+}
+
+func wechatChatProgressSpeech(goal string, tools []string, messages []llmadapter.Message) string {
+	if _, _, ok := parseWeChatChatGoal(goal); !ok || !usedAnyTool(tools, "desktop.type") {
+		return ""
+	}
+	out := strings.TrimSpace(lastToolOutput(messages))
+	if out == "" || companionToolResultFailed(out) || !strings.Contains(out, "opened chat") {
+		return ""
+	}
+	visible := ""
+	if i := strings.Index(out, "visible:\n"); i >= 0 {
+		visible = strings.TrimSpace(out[i+len("visible:\n"):])
+		if j := strings.Index(visible, "\n对方"); j >= 0 {
+			visible = strings.TrimSpace(visible[:j])
+		}
+	}
+	if visible == "" {
+		return "已经在微信里发出第一条。屏幕上还没读到对方的新回复。"
+	}
+	return "已经在微信里发出第一条。屏幕上能看到：" + visible
 }
 
 func companionGoalIsOpenOnly(text string) bool {

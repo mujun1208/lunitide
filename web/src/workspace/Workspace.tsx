@@ -21,6 +21,9 @@ import { SessionFolderPanel } from './SessionFolderPanel'
 import { ArtifactPanel, type ArtifactCard } from './ArtifactPanel'
 import { ArtifactPreviewContent } from './ArtifactInspector'
 import { previewKindFromPath } from './artifactPreviewMode'
+import { isolatedHTML, runnableHTML } from './isolatedHTML'
+import { previewNeedsScripts } from './previewInteractivity'
+import { artifactReviewBridge } from '../bridge/client'
 import { SafeLinkedText } from './safeLinks'
 import { isBrowserAddress, latestBrowserAddress, memberCatalogPage, parseSearchCards } from './browserAddress'
 import { extractTaskFiles, isChangeTool } from './codePanelUtils'
@@ -42,7 +45,7 @@ function rememberBrowserURL(current: { urls: string[]; index: number }, url: str
   return { urls, index: urls.length - 1 }
 }
 
-export type WorkspaceTab = 'files' | 'code' | 'browser' | 'terminal' | 'plan' | 'changes'
+export type WorkspaceTab = 'files' | 'code' | 'browser' | 'terminal' | 'plan' | 'changes' | 'canvas'
 /** @deprecated legacy tab ids mapped in normalizeWorkspaceTab */
 export type LegacyWorkspaceTab = WorkspaceTab | 'preview' | 'develop'
 
@@ -62,6 +65,7 @@ export function normalizeWorkspaceTab(tab?: LegacyWorkspaceTab): WorkspaceTab | 
 }
 
 export const workspaceTabForTool = (name: string): WorkspaceTab | undefined => {
+  if (name === 'canvas.present') return 'canvas'
   if (name === 'command.run' || name.startsWith('terminal.') || name.startsWith('cmd.') || name.startsWith('cli.')) {
     return 'terminal'
   }
@@ -78,6 +82,7 @@ export const workspaceTabForTool = (name: string): WorkspaceTab | undefined => {
 }
 
 export const autoRevealWorkspaceTab = (name: string, userWantsBrowser = false): WorkspaceTab | undefined => {
+  if (name === 'canvas.present') return 'canvas'
   const tab = workspaceTabForTool(name)
   if (!tab || tab === 'terminal' || tab === 'files' || tab === 'code') return undefined
   if (tab === 'browser') {
@@ -87,12 +92,15 @@ export const autoRevealWorkspaceTab = (name: string, userWantsBrowser = false): 
   return tab
 }
 
-export const autoRevealWorkspaceForHtmlTool = (name: string, userWantsBrowser = false): WorkspaceTab | undefined =>
-  name === 'browser.open' || userWantsBrowser ? 'browser' : undefined
+export const autoRevealWorkspaceForHtmlTool = (name: string, userWantsBrowser = false): WorkspaceTab | undefined => {
+  if (name === 'canvas.present') return 'canvas'
+  return name === 'browser.open' || userWantsBrowser ? 'browser' : undefined
+}
 
 const TABS: Array<{ id: WorkspaceTab; label: string }> = [
   { id: 'files', label: '文件' },
   { id: 'code', label: '代码' },
+  { id: 'canvas', label: '画布' },
   { id: 'terminal', label: '终端' },
   { id: 'browser', label: '浏览器' },
   { id: 'changes', label: '变更' },
@@ -107,7 +115,26 @@ const fmtSize = (n: number) =>
   n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`
 
 export { isolatedHTML } from './isolatedHTML'
-import { isolatedHTML } from './isolatedHTML'
+
+function LiveHTMLFrame({ sessionId, path, content }: { sessionId: string; path: string; content: string }) {
+  const [src, setSrc] = useState('')
+  const runnable = previewNeedsScripts(content)
+  useEffect(() => {
+    if (!runnable) return
+    let alive = true
+    void artifactReviewBridge.preview({ sessionId, path }).then(result => {
+      if (alive && result.interactiveUrl) setSrc(result.interactiveUrl)
+    }).catch(() => {})
+    return () => { alive = false }
+  }, [sessionId, path, content, runnable])
+  if (src) {
+    return <iframe title={`HTML 预览 ${path}`} src={src} sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-downloads allow-popups" referrerPolicy="no-referrer" />
+  }
+  if (runnable) {
+    return <iframe title={`HTML 预览 ${path}`} sandbox="allow-scripts allow-forms allow-modals" referrerPolicy="no-referrer" srcDoc={runnableHTML(content)} />
+  }
+  return <iframe title={`HTML 预览 ${path}`} sandbox="" referrerPolicy="no-referrer" srcDoc={isolatedHTML(content)} />
+}
 
 export function Workspace({
   attachments,
@@ -165,7 +192,7 @@ export function Workspace({
   const [items, setItems] = useState<AttachmentListResult['items']>([])
   const [selectedId, setSelectedId] = useState('')
   const [detail, setDetail] = useState<AttachmentGetResult>()
-  const [localDetail, setLocalDetail] = useState<{ path: string; content: string; size: number }>()
+  const [localDetail, setLocalDetail] = useState<{ path: string; content: string; size: number; interactiveUrl?: string }>()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [zoom, setZoom] = useState(100)
@@ -200,6 +227,7 @@ export function Workspace({
   }, [targetTab])
 
   const openedMemberSong = useRef('')
+  const openedFirstHit = useRef('')
   useEffect(() => {
     const next = latestBrowserAddress(toolActivities)
     if (next) {
@@ -210,6 +238,15 @@ export function Workspace({
         openedMemberSong.current = next
         void browser.open({ url: next }).catch(() => {})
       }
+    }
+    const first = [...toolActivities].reverse().find(item => item.status === 'tool_completed' && /first_hit:\s*true/.test(item.summary ?? ''))
+    const firstURL = first ? /^url:\s*(\S+)/m.exec(first.summary ?? '')?.[1] : ''
+    if (firstURL && openedFirstHit.current !== firstURL) {
+      openedFirstHit.current = firstURL
+      setBrowserURL(firstURL)
+      setBrowserStatus('已打开第一条')
+      setTrail((current) => rememberBrowserURL(current, firstURL))
+      void browser.open({ url: firstURL }).catch(() => {})
     }
   }, [browser, toolActivities])
 
@@ -274,7 +311,18 @@ export function Workspace({
     }
   }
 
-  const artifact = [...toolActivities].reverse().find(a => a.status === 'tool_completed' && a.artifact?.kind === 'html')?.artifact
+  const artifact = [...toolActivities].reverse().find(a => a.status === 'tool_completed' && a.artifact?.kind === 'html' && a.name !== 'canvas.present')?.artifact
+  const canvasPage = [...toolActivities].reverse().find(a => a.name === 'canvas.present' && a.status === 'tool_completed' && a.artifact?.content)?.artifact?.content
+  const [savedCanvas, setSavedCanvas] = useState('')
+  useEffect(() => {
+    if (tab !== 'canvas' || canvasPage) return
+    let alive = true
+    void artifactReviewBridge.preview({ sessionId, path: 'canvas.html' }).then(result => {
+      if (alive && result.content?.includes('class="canvas"')) setSavedCanvas(result.content)
+    }).catch(() => {})
+    return () => { alive = false }
+  }, [tab, sessionId, canvasPage, refreshRevision])
+  const canvasDocument = canvasPage || savedCanvas
   const searchBusy = toolActivities.some(a =>
     (a.name === 'web.search' || a.name === 'web.fetch') && (a.status === 'tool_started' || a.status === 'tool_output'),
   )
@@ -504,7 +552,7 @@ export function Workspace({
             {error && <p role="alert">{error}</p>}
             {localDetail ? (
               <div className="workspace-inline-preview" style={{ fontSize: `${zoom}%` }}>
-                <ArtifactPreviewContent sessionId={sessionId} preview={{ kind: previewKindFromPath(localDetail.path), path: localDetail.path, content: localDetail.content, size: localDetail.size }} />
+                <ArtifactPreviewContent sessionId={sessionId} preview={{ kind: previewKindFromPath(localDetail.path), path: localDetail.path, content: localDetail.content, size: localDetail.size, interactiveUrl: localDetail.interactiveUrl }} />
               </div>
             ) : detail ? (
               <article className="workspace-document" style={{ fontSize: `${zoom}%` }}>
@@ -586,6 +634,22 @@ export function Workspace({
 
       {tab === 'changes' && <ChangesPanel toolActivities={toolActivities.filter(a => isChangeTool(a.name))} />}
 
+      {tab === 'canvas' && (
+        <div className="workspace-browser">
+          <div className="workspace-browser-viewport">
+            {canvasDocument ? (
+              <iframe className="workspace-browser-frame" title="画布" sandbox="" referrerPolicy="no-referrer" srcDoc={canvasDocument} />
+            ) : (
+              <div className="workspace-browser-empty">
+                <span aria-hidden="true">▣</span>
+                <b>还没有画布</b>
+                <p>报告、对比和说明会显示在这里。</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {tab === 'browser' && (
         <div className="workspace-browser">
           <div className="workspace-browser-chrome">
@@ -640,7 +704,7 @@ export function Workspace({
                   <b>{artifact.path}</b>
                   <small>页面摘录</small>
                 </header>
-                <iframe title={`HTML 预览 ${artifact.path}`} sandbox="" referrerPolicy="no-referrer" srcDoc={isolatedHTML(artifact.content)} />
+                <LiveHTMLFrame sessionId={sessionId} path={artifact.path} content={artifact.content ?? ''} />
               </section>
             ) : searchBusy ? (
               <div className="workspace-browser-empty">

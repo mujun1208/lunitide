@@ -183,4 +183,20 @@ func TestInjectPreviewCiteOnceBeforeBodyEnd(t *testing.T) {
 	if bytes.Count(again, []byte("data-lunitide-cite")) != 1 {
 		t.Fatal("cite script was injected twice")
 	}
+	if bytes.Count(again, []byte("data-lunitide-boot")) != 1 {
+		t.Fatal("storage boot script was injected twice")
+	}
+}
+
+func TestPreviewBootRunsBeforeThePageScript(t *testing.T) {
+	page := []byte("<html><head><title>NexaCRM</title></head><body><nav id=\"nav\"></nav><script>load();render();</script></body></html>")
+	out := injectPreviewCite(page)
+	boot := bytes.Index(out, []byte("data-lunitide-boot"))
+	pageScript := bytes.Index(out, []byte("load();render();"))
+	if boot < 0 || pageScript < 0 || boot > pageScript {
+		t.Fatalf("boot=%d pageScript=%d", boot, pageScript)
+	}
+	if !bytes.Contains(out, []byte("localStorage")) {
+		t.Fatal("boot script does not guard localStorage")
+	}
 }

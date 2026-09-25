@@ -28,18 +28,20 @@ type GeometryReport struct {
 }
 
 type geomObject struct {
-	part, kind, unsupported, name, text string
-	hasText                             bool
-	x, y, w, h                          int64
-	offStart, offEnd                    int
+	part, kind, unsupported, name, text, fill, color string
+	hasText, bold                                    bool
+	size                                             int
+	x, y, w, h                                       int64
+	offStart, offEnd                                 int
 }
 
 type geomFrame struct {
-	local, space, unsupported, name, text string
-	object, hasText                       bool
-	x, y, w, h                            int64
-	offStart, offEnd                      int
-	hasOff, hasExt                        bool
+	local, space, unsupported, name, text, fill, color string
+	object, hasText, bold, noFill                      bool
+	size                                               int
+	x, y, w, h                                         int64
+	offStart, offEnd                                   int
+	hasOff, hasExt                                     bool
 }
 
 func geometryCheck(issues []Issue) Check {
@@ -364,13 +366,19 @@ func bindGeomNode(nodes []Node, part string, obj geomObject) string {
 	return ""
 }
 
-// SlideShape is one text box on a slide, in percent of the slide canvas.
+// SlideShape is one box on a slide, in percent of the slide canvas.
+// Color and Fill are RRGGBB without a hash. Size is the font size as a
+// percentage of the slide width, so a thumbnail and the stage share it.
 type SlideShape struct {
-	Text string  `json:"text,omitempty"`
-	X    float64 `json:"x"`
-	Y    float64 `json:"y"`
-	W    float64 `json:"w"`
-	H    float64 `json:"h"`
+	Text  string  `json:"text,omitempty"`
+	Fill  string  `json:"fill,omitempty"`
+	Color string  `json:"color,omitempty"`
+	Size  float64 `json:"size,omitempty"`
+	Bold  bool    `json:"bold,omitempty"`
+	X     float64 `json:"x"`
+	Y     float64 `json:"y"`
+	W     float64 `json:"w"`
+	H     float64 `json:"h"`
 }
 
 // SlideCanvas is the slide the office preview paints. It is the slide itself,
@@ -407,21 +415,34 @@ func SlideCanvases(data []byte) []SlideCanvas {
 		if scanErr == nil {
 			for _, obj := range objects {
 				text := strings.TrimSpace(obj.text)
-				if text == "" || obj.w <= 0 || obj.h <= 0 {
+				fill := strings.ToUpper(strings.TrimSpace(obj.fill))
+				color := strings.ToUpper(strings.TrimSpace(obj.color))
+				if (text == "" && fill == "") || obj.w <= 0 || obj.h <= 0 {
 					continue
 				}
 				canvas.Shapes = append(canvas.Shapes, SlideShape{
-					Text: text,
-					X:    slidePercent(obj.x, sw),
-					Y:    slidePercent(obj.y, sh),
-					W:    slidePercent(obj.w, sw),
-					H:    slidePercent(obj.h, sh),
+					Text:  text,
+					Fill:  fill,
+					Color: color,
+					Size:  slideFontCQW(obj.size, sw),
+					Bold:  obj.bold,
+					X:     slidePercent(obj.x, sw),
+					Y:     slidePercent(obj.y, sh),
+					W:     slidePercent(obj.w, sw),
+					H:     slidePercent(obj.h, sh),
 				})
 			}
 		}
 		out = append(out, canvas)
 	}
 	return out
+}
+
+func slideFontCQW(sz int, slideWidth int64) float64 {
+	if sz <= 0 || slideWidth <= 0 {
+		return 0
+	}
+	return float64(sz) * 12700 / float64(slideWidth)
 }
 
 func slidePercent(value, total int64) float64 {
@@ -489,6 +510,30 @@ func scanSlideGeometry(part string, body []byte) ([]geomObject, []Issue, error) 
 				if t.Name.Local == "txBody" {
 					obj.hasText = true
 				}
+				if t.Name.Local == "rPr" && stackHas(stack, "txBody") {
+					if obj.size == 0 {
+						if sz, err := strconv.Atoi(xmlAttr(t, "sz")); err == nil && sz > 0 {
+							obj.size = sz
+						}
+					}
+					if xmlAttr(t, "b") == "1" && !obj.bold {
+						obj.bold = true
+					}
+				}
+				if t.Name.Local == "noFill" && stackParent(stack) == "spPr" {
+					obj.fill = ""
+					obj.noFill = true
+				}
+				if t.Name.Local == "srgbClr" {
+					val := strings.ToUpper(xmlAttr(t, "val"))
+					if len(val) == 6 {
+						if stackHas(stack, "rPr") && obj.color == "" {
+							obj.color = val
+						} else if stackHas(stack, "spPr") && !stackHas(stack, "txBody") && !obj.noFill && obj.fill == "" {
+							obj.fill = val
+						}
+					}
+				}
 			}
 			if obj := currentGeom(stack); obj != nil && geomTransformChild(stack, obj, t) {
 				switch t.Name.Local {
@@ -523,7 +568,7 @@ func scanSlideGeometry(part string, body []byte) ([]geomObject, []Issue, error) 
 			}
 			stack = append(stack, f)
 		case xml.CharData:
-			if obj := currentGeom(stack); obj != nil && obj.hasText && len(obj.text) < 200 {
+			if obj := currentGeom(stack); obj != nil && obj.hasText && len(obj.text) < 4000 {
 				obj.text += string(t)
 			}
 		case xml.EndElement:
@@ -541,10 +586,26 @@ func scanSlideGeometry(part string, body []byte) ([]geomObject, []Issue, error) 
 			if f.unsupported == "" && (!f.hasOff || !f.hasExt) {
 				f.unsupported = "inherited or incomplete transform"
 			}
-			objects = append(objects, geomObject{part: part, kind: f.local, unsupported: f.unsupported, name: f.name, text: f.text, hasText: f.hasText, x: f.x, y: f.y, w: f.w, h: f.h, offStart: f.offStart, offEnd: f.offEnd})
+			objects = append(objects, geomObject{part: part, kind: f.local, unsupported: f.unsupported, name: f.name, text: f.text, fill: f.fill, color: f.color, hasText: f.hasText, bold: f.bold, size: f.size, x: f.x, y: f.y, w: f.w, h: f.h, offStart: f.offStart, offEnd: f.offEnd})
 		}
 	}
 	return objects, issues, nil
+}
+
+func stackParent(stack []*geomFrame) string {
+	if len(stack) == 0 {
+		return ""
+	}
+	return stack[len(stack)-1].local
+}
+
+func stackHas(stack []*geomFrame, local string) bool {
+	for _, frame := range stack {
+		if frame.local == local {
+			return true
+		}
+	}
+	return false
 }
 
 func currentGeom(stack []*geomFrame) *geomFrame {

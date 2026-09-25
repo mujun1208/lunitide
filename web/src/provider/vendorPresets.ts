@@ -222,6 +222,17 @@ export const VENDOR_PRESETS: readonly VendorPreset[] = [
     urlHint: 'vllm serve ByteDance-Seed/UI-TARS-1.5-7B --port 8000 后填 /v1；Key 任意非空。约需 16GB 显存。',
   },
   {
+    id: 'local-ollama',
+    label: '本机 Ollama',
+    name: '本机 Ollama',
+    protocol: 'openai_compatible',
+    baseUrl: 'http://127.0.0.1:11434/v1',
+    modelId: '',
+    displayName: '',
+    tabs: TEXT_TABS,
+    urlHint: '本机已安装并启动 Ollama 后使用。模型 ID 填 ollama list 里的名字。Key 填 ollama。只连 127.0.0.1，不连 ollama.com，本机模型不另收费。',
+  },
+  {
     id: 'local-ollama-gui',
     label: '本机 Ollama',
     name: '本机 Qwen-VL (Ollama)',

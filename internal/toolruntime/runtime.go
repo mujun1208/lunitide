@@ -19,7 +19,6 @@ import (
 
 	"github.com/lunitide/lunitide/internal/canonpath"
 	"github.com/lunitide/lunitide/internal/ccapp"
-	"github.com/lunitide/lunitide/internal/commandworker"
 	"github.com/lunitide/lunitide/internal/connectorapp"
 	"github.com/lunitide/lunitide/internal/deckfill"
 	"github.com/lunitide/lunitide/internal/htmlapp"
@@ -75,10 +74,17 @@ type Runtime struct {
 	// (SetCommandPolicyJSON swaps both; Execute copies under RLock).
 	rulesMu      sync.RWMutex
 	commandRules []commandRule
+	devCPMu      sync.Mutex
+	devCP        map[string]map[string]devCPFile
+	codeRootMu   sync.Mutex
+	codeRoots    map[string]string
 	// fullDisk is the user opt-in "full-disk full-access" switch persisted in
 	// command-policy.json. When true, full-access mode accepts absolute paths
 	// on any drive for file tools and runs commands without the allowlist.
-	fullDisk      bool
+	fullDisk bool
+	// systemReady is true when computer control is armed. system.run also
+	// runs when full-disk is on. nil means system.run stays closed.
+	systemReady   func() bool
 	userRulesPath string
 	policyMu      sync.Mutex
 	policyApplied map[string]string
@@ -188,6 +194,30 @@ func (r *Runtime) SetWeatherFetcher(f func(context.Context, string, string) (net
 
 // SetCcExecutor installs the computer-control executor backing the cc.*
 // agent tools (ccapp.Service.ExecuteTool).
+// SetSystemReady reports whether computer control is armed. system.run
+// uses that, or the full-disk switch, and never the command allowlist.
+func (r *Runtime) SetSystemReady(f func() bool) {
+	if r == nil {
+		return
+	}
+	r.rulesMu.Lock()
+	r.systemReady = f
+	r.rulesMu.Unlock()
+}
+
+func (r *Runtime) systemAccessOn() bool {
+	if r == nil {
+		return false
+	}
+	if r.FullDiskEnabled() {
+		return true
+	}
+	r.rulesMu.RLock()
+	ready := r.systemReady
+	r.rulesMu.RUnlock()
+	return ready != nil && ready()
+}
+
 func (r *Runtime) SetCcExecutor(f func(ctx context.Context, session, tool string, args json.RawMessage, approved bool) (ccapp.Outcome, error)) {
 	r.ccExec = f
 }
@@ -336,8 +366,8 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 	if hooks.grantApproval && !approved && name != userAskTool {
 		approved = true
 	}
-	mutating := name == "workspace.write" || name == "workspace.edit" || name == "command.run" || name == "desktop.open" || name == "desktop.quit" || name == "desktop.browse" || name == "desktop.type" || name == "media.play" || name == "im.send" || officeGenTools[name] || ccToolChangesMachine(name, args)
-	if mutating && !approved && (hooks.forceApproval || mode == Approval || (name == "command.run" && mode == AutoEdit)) {
+	mutating := name == "workspace.write" || name == "workspace.edit" || name == "workspace.restore" || name == "workspace.accept" || name == "command.run" || name == "system.run" || name == "desktop.open" || name == "desktop.quit" || name == "desktop.browse" || name == "desktop.type" || name == "media.play" || name == "im.send" || officeGenTools[name] || ccToolChangesMachine(name, args)
+	if mutating && !approved && (hooks.forceApproval || mode == Approval || ((name == "command.run" || name == "system.run") && mode == AutoEdit)) {
 		// Remembered exact approvals (P1-5) satisfy the gate without a new
 		// round-trip; unmatched or argument-variant calls still gate.
 		if canonical, ce := canonicalArgs(args); ce == nil {
@@ -423,6 +453,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if e != nil {
 			return Result{}, localizeWorkspaceWriteError(e)
 		}
+		r.rememberDevCheckpoint(session, map[string]devCPFile{p: devFilePreimage(a.Path, p)})
 		tmp, e := os.CreateTemp(filepath.Dir(p), ".write-*")
 		if e != nil {
 			return Result{}, e
@@ -514,21 +545,46 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			pending = append(pending, pendingEdit{rel: f.Path, abs: p, updated: updated, count: count})
 			total += count
 		}
+		cp := make(map[string]devCPFile, len(pending))
+		for _, item := range pending {
+			cp[item.abs] = devFilePreimage(item.rel, item.abs)
+		}
+		r.rememberDevCheckpoint(session, cp)
 		for _, item := range pending {
 			if we := writeFileReplace(item.abs, item.updated); we != nil {
 				return Result{}, we
 			}
 		}
-		if len(pending) == 1 {
-			edited := result(fmt.Sprintf("edited %s (%d replacement(s))", pending[0].rel, pending[0].count))
-			edited.Artifact = writeArtifactForPath(pending[0].rel, "")
-			return edited, nil
-		}
-		names := make([]string, 0, len(pending))
+		parts := make([]editDiff, 0, len(pending))
 		for _, item := range pending {
-			names = append(names, item.rel)
+			old := ""
+			if pre := cp[item.abs]; !pre.missing {
+				old = string(pre.body)
+			}
+			parts = append(parts, editDiff{rel: item.rel, old: old, updated: item.updated, count: item.count})
 		}
-		return result(fmt.Sprintf("edited %d files (%d replacement(s)): %s", len(pending), total, strings.Join(names, ", "))), nil
+		text := formatPendingEdit(total, parts)
+		edited := result(text)
+		if len(pending) == 1 {
+			edited.Artifact = writeArtifactForPath(pending[0].rel, "")
+		}
+		return edited, nil
+	case "workspace.restore":
+		var ignored struct{}
+		if len(strings.TrimSpace(string(args))) > 0 && strict(args, &ignored) != nil {
+			return Result{}, errors.New("invalid arguments")
+		}
+		n, e := r.restoreDevCheckpoint(session)
+		if e != nil {
+			return Result{}, e
+		}
+		return result(fmt.Sprintf("restored %d file(s)", n)), nil
+	case "workspace.accept":
+		var ignoredAccept struct{}
+		if len(strings.TrimSpace(string(args))) > 0 && strict(args, &ignoredAccept) != nil {
+			return Result{}, errors.New("invalid arguments")
+		}
+		return result(fmt.Sprintf("accepted %d file(s)", r.acceptDevCheckpoint(session))), nil
 	case "todo.write":
 		var a struct {
 			Todos []struct {
@@ -575,6 +631,9 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			r.rulesMu.RLock()
 			rules := r.commandRules
 			r.rulesMu.RUnlock()
+			if _, bound := r.boundDevRoot(mode, session); bound && !devCommandBlocked(a.Argv) {
+				rules = append(append([]commandRule{}, rules...), devCommandRules()...)
+			}
 			rule, ok := matchCommandRule(rules, a.Argv)
 			if !ok {
 				if mode == FullAccess && !r.FullDiskEnabled() {
@@ -584,76 +643,50 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 			}
 			deadline = rule.deadline
 		}
-		root, e := r.effectiveRoot(mode, session)
+		return r.runWorkspaceCommand(ctx, mode, session, a.Argv, deadline, progress)
+	case "system.run":
+		if !r.systemAccessOn() {
+			return Result{}, errors.New("系统命令需要先在设置里打开电脑控制，或打开全盘完全访问")
+		}
+		var a struct {
+			Argv []string `json:"argv"`
+		}
+		if strict(args, &a) != nil || len(a.Argv) == 0 || len(a.Argv) > commandMaxArgv {
+			return Result{}, errors.New("invalid arguments")
+		}
+		if reason := systemRunRefusal(a.Argv); reason != "" {
+			return Result{}, commandFailure("refused (" + reason + ")")
+		}
+		if mode != FullAccess && !(approved && (mode == Approval || mode == AutoEdit)) {
+			return Result{}, errors.New("command denied")
+		}
+		return r.runWorkspaceCommand(ctx, mode, session, a.Argv, commandDeadlineMax, progress)
+	case "location.get":
+		var empty struct{}
+		if strict(args, &empty) != nil {
+			return Result{}, errors.New("invalid arguments")
+		}
+		fix, e := ReadLocation(ctx)
 		if e != nil {
 			return Result{}, e
 		}
-		if e = os.MkdirAll(root, 0700); e != nil {
+		encoded, e := json.Marshal(fix)
+		if e != nil {
 			return Result{}, e
 		}
-		runArgv := append([]string(nil), a.Argv...)
-		runArgv, e = relocateMissingScripts(root, runArgv)
+		return result(string(encoded)), nil
+	case "canvas.present":
+		page, e := renderCanvas(args)
 		if e != nil {
-			return Result{}, commandFailure(e.Error())
+			return Result{}, e
 		}
-		runArgv, e = resolveInterpreter(runArgv)
+		written, e := r.writeGenerated(mode, session, "canvas.html", []byte(page), -1, unconfined)
 		if e != nil {
-			return Result{}, commandFailure(e.Error())
+			return Result{}, e
 		}
-		if isLocalServerCommand(runArgv) {
-			msg, startErr := r.startLiveServer(ctx, session, root, runArgv)
-			if startErr != nil {
-				return Result{}, commandFailure(startErr.Error())
-			}
-			return result(formatCommandOutput(true, msg)), nil
-		}
-		if dir, ok := extractMkdirPath(a.Argv); ok {
-			dir = expandWindowsEnv(dir)
-			if dir == "" {
-				return Result{}, commandFailure("empty directory path")
-			}
-			if !filepath.IsAbs(dir) {
-				dir = filepath.Join(root, dir)
-			}
-			if e = os.MkdirAll(dir, 0755); e != nil {
-				return Result{}, commandFailure(e.Error())
-			}
-			return result(formatCommandOutput(true, "created directory: "+dir)), nil
-		}
-		argv, cleanup, wrapErr := prepareCommandArgv(runArgv)
-		if wrapErr != nil {
-			return Result{}, commandFailure(wrapErr.Error())
-		}
-		defer cleanup()
-		exe, resolveErr := exec.LookPath(argv[0])
-		if resolveErr != nil {
-			return Result{}, commandFailure(resolveErr.Error())
-		}
-		exe, resolveErr = filepath.Abs(exe)
-		if resolveErr != nil {
-			return Result{}, commandFailure(resolveErr.Error())
-		}
-		output := &commandOutput{progress: progress}
-		defer output.closeProgress()
-		outcome, runErr := commandworker.Run(ctx, commandworker.Spec{
-			Exe: exe, Args: argv[1:], Dir: root, Timeout: deadline, MaxOutputBytes: commandworker.OutputHardCap, MaxArgBytes: 16 << 10,
-			Env: commandEnv(os.Environ(), "GIT_PAGER=cat", "PAGER=cat", "TERM=dumb", "GIT_OPTIONAL_LOCKS=0", "PYTHONIOENCODING=utf-8", "PYTHONUTF8=1"),
-		}, nil, func(b []byte) { _, _ = output.Write(b) })
-		text := output.text()
-		if outcome.Truncated {
-			text += "\n[worker output delivery limit reached]"
-		}
-		if runErr != nil || outcome.TimedOut || outcome.ExitCode != 0 {
-			if runErr != nil {
-				text += "\n" + runErr.Error()
-			} else if outcome.TimedOut {
-				text += "\ncommand deadline exceeded; process tree stopped"
-			} else if strings.TrimSpace(text) == "" {
-				text = fmt.Sprintf("exit status %d", outcome.ExitCode)
-			}
-			return Result{}, commandFailure(strings.TrimSpace(text))
-		}
-		return result(formatCommandOutput(true, text)), nil
+		written.Artifact = &Artifact{Kind: "html", Path: "canvas.html", Content: page}
+		written.Output = "canvas ready\n" + written.Output
+		return written, nil
 	case "weather.get":
 		var request weather.Request
 		if strict(args, &request) != nil {

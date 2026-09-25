@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -59,6 +60,57 @@ func normalizeTypeAfterLabel(after string) string {
 	return strings.TrimSpace(after)
 }
 
+var wechatChatRes = []*regexp.Regexp{
+	regexp.MustCompile(`(?:和|跟|给)微信(?:里|上|中)?的?(.{1,40}?)(?:聊天|对话|聊)\s*(?:[，,]\s*)?(?:聊)?(\d{1,3})\s*分钟`),
+	regexp.MustCompile(`(?:在)?微信(?:里|上|中)?(?:和|跟|给)(.{1,40}?)(?:聊天|对话|聊)\s*(?:[，,]\s*)?(?:聊)?(\d{1,3})\s*分钟`),
+	regexp.MustCompile(`(?:和|跟|给)微信(?:里|上|中)?的?(.{1,40}?)聊(?:一会儿|一会)`),
+	regexp.MustCompile(`(?:在)?微信(?:里|上|中)?(?:和|跟|给)(.{1,40}?)聊(?:一会儿|一会)`),
+}
+
+func parseWeChatChatGoal(goal string) (contact string, minutes int, ok bool) {
+	goal = strings.TrimSpace(goal)
+	if goal == "" || strings.Contains(goal, "不要") || strings.Contains(goal, "别和") || strings.Contains(goal, "别跟") {
+		return "", 0, false
+	}
+	for i, re := range wechatChatRes {
+		m := re.FindStringSubmatch(goal)
+		if len(m) < 2 {
+			continue
+		}
+		contact = strings.Trim(strings.TrimSpace(m[1]), "的 里")
+		minutes = 5
+		if i < 2 {
+			if len(m) < 3 {
+				continue
+			}
+			n, err := strconv.Atoi(m[2])
+			if err != nil || n < 1 || n > 120 {
+				continue
+			}
+			minutes = n
+		}
+		if contact == "" || strings.Contains(contact, "输入") || strings.Contains(contact, "分钟") || strings.Contains(contact, "保存") {
+			continue
+		}
+		return contact, minutes, true
+	}
+	return "", 0, false
+}
+
+func wechatChatTypeArgs(goal string) json.RawMessage {
+	contact, _, ok := parseWeChatChatGoal(goal)
+	if !ok {
+		return nil
+	}
+	raw, err := json.Marshal(map[string]any{
+		"text": "你好", "window": "微信", "after": contact, "submit": true,
+	})
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
 func parseDesktopTypeArgsFromGoal(goal string) (after, text string, ok bool) {
 	m := typeAfterWriteRe.FindStringSubmatch(strings.TrimSpace(goal))
 	if len(m) < 3 {
@@ -66,6 +118,12 @@ func parseDesktopTypeArgsFromGoal(goal string) (after, text string, ok bool) {
 	}
 	after = normalizeTypeAfterLabel(m[1])
 	text = strings.TrimSpace(m[2])
+	for _, cut := range []string{"，然后", "，并", "，再", "，保存", "然后保存", "并保存"} {
+		if i := strings.Index(text, cut); i >= 0 {
+			text = strings.TrimSpace(text[:i])
+			break
+		}
+	}
 	if after == "" || text == "" {
 		return "", "", false
 	}
@@ -157,7 +215,38 @@ func openedAppName(text string) string {
 	return t
 }
 
+func composerNamedApp(goal string) string {
+	for _, box := range []string{"输入对话框", "输入框", "对话框", "聊天框"} {
+		i := strings.Index(goal, box)
+		if i <= 0 {
+			continue
+		}
+		head := strings.TrimSpace(goal[:i])
+		for _, suffix := range []string{"当中", "里面", "里", "内", "中", "输入", "的"} {
+			head = strings.TrimSpace(strings.TrimSuffix(head, suffix))
+		}
+		for _, prefix := range []string{"请你在", "请在", "帮我在", "在这个桌面这个", "在这个桌面上这个", "在桌面这个", "在这个桌面", "在桌面", "在这个", "这个", "在"} {
+			if strings.HasPrefix(head, prefix) {
+				head = strings.TrimSpace(strings.TrimPrefix(head, prefix))
+			}
+		}
+		head = strings.Trim(head, "的 ")
+		switch head {
+		case "", "软件", "应用", "程序", "输入", "桌面":
+			continue
+		}
+		if strings.Contains(head, "输入") || strings.Contains(head, " ") {
+			continue
+		}
+		return head
+	}
+	return ""
+}
+
 func composerSendWindow(goal string, messages []llmadapter.Message) string {
+	if name := composerNamedApp(goal); name != "" {
+		return name
+	}
 	if name := openedAppName(goal); name != "" {
 		return name
 	}
@@ -188,6 +277,37 @@ func composerSendTypeArgs(goal string, messages []llmadapter.Message) json.RawMe
 	return raw
 }
 
+func composerTypeArgsForCall(goal string, messages []llmadapter.Message, args json.RawMessage) json.RawMessage {
+	want := composerSendTypeArgs(goal, messages)
+	if len(want) == 0 {
+		return args
+	}
+	base := map[string]any{}
+	if len(args) > 0 && json.Unmarshal(args, &base) != nil {
+		return args
+	}
+	extra := map[string]any{}
+	if json.Unmarshal(want, &extra) != nil {
+		return args
+	}
+	if text, _ := base["text"].(string); strings.TrimSpace(text) == "" {
+		base["text"] = extra["text"]
+	}
+	if window, _ := base["window"].(string); strings.TrimSpace(window) == "" {
+		if w, _ := extra["window"].(string); w != "" {
+			base["window"] = w
+		}
+	}
+	if _, ok := base["submit"]; !ok {
+		base["submit"] = true
+	}
+	out, err := json.Marshal(base)
+	if err != nil {
+		return args
+	}
+	return out
+}
+
 func composerSendSettled(goal string, messages []llmadapter.Message) bool {
 	if _, ok := composerSendGoal(goal); !ok {
 		return false
@@ -201,14 +321,30 @@ func composerSendSettled(goal string, messages []llmadapter.Message) bool {
 }
 
 func fallbackDesktopTypeArgs(goal string) json.RawMessage {
+	if raw := wechatChatTypeArgs(goal); len(raw) > 0 {
+		return raw
+	}
 	after, text, ok := parseDesktopTypeArgsFromGoal(goal)
 	if !ok {
 		return nil
 	}
-	window := ""
-	raw, _ := json.Marshal(map[string]any{
-		"text": text, "after": after, "window": window,
-	})
+	fields := map[string]any{"text": text, "after": after, "window": ""}
+	if strings.Contains(goal, "保存") {
+		fields["save"] = true
+		if name, ok := desktopOpenTargetFromGoal(goal); ok {
+			if i := strings.IndexAny(name, "，,"); i > 0 {
+				name = strings.TrimSpace(name[:i])
+			}
+			if i := strings.Index(name, "在"); i > 0 {
+				name = strings.TrimSpace(name[:i])
+			}
+			fields["window"] = name
+		}
+	}
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		return nil
+	}
 	return raw
 }
 
@@ -236,6 +372,9 @@ func looksLikeTypeAfterLabelTurn(text string) bool {
 	t := strings.TrimSpace(text)
 	if t == "" {
 		return false
+	}
+	if _, _, ok := parseWeChatChatGoal(t); ok {
+		return true
 	}
 	if _, ok := composerSendGoal(t); ok {
 		return true

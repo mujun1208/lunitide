@@ -453,6 +453,9 @@ func applyLaneOverrides(lane ChatLane, in LaneInput, route TaskRoute, overlay Co
 	if route == RouteR2 || route == RouteR3 {
 		lane = LaneL4
 	}
+	if strings.Contains(goal, "画布") && lane != LaneL0 && lane != LaneL4 {
+		lane = LaneL3
+	}
 	if lookupOptedOut(goal) && lane == LaneL3 {
 		if laneLooksLikeOfficeDeliverable(goal) || looksLikeNovelTask(goal) {
 			if materials {
@@ -600,7 +603,7 @@ func applyLaneTools(defs []llmadapter.ToolDefinition, c LaneContract) []llmadapt
 				keep[d.Name] = true
 			}
 			if c.AllowWebSearch && (d.Name == "web.search" || d.Name == "web.fetch" ||
-				d.Name == "weather.get" || d.Name == "video.understand" ||
+				d.Name == "weather.get" || d.Name == "location.get" || d.Name == "video.understand" ||
 				d.Name == "memory.search" || d.Name == "memory.get") {
 				keep[d.Name] = true
 			}
@@ -655,7 +658,7 @@ func checkpointWasDeliverable(cp chatTurnCheckpoint) bool {
 	for _, name := range cp.LastTools {
 		switch name {
 		case "workspace.write", "workspace.edit", "command.run", "run_terminal_cmd",
-			"html.gen", "docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "office.generate",
+			"html.gen", "docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "office.generate", "canvas.present",
 			"skill.invoke", "skill.try":
 			return true
 		}
@@ -683,8 +686,8 @@ func restoreFileLandingTools(filtered, catalog []llmadapter.ToolDefinition, goal
 	want := map[string]bool{}
 	if write {
 		for _, name := range []string{
-			"workspace.write", "workspace.edit",
-			"html.gen", "docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "office.generate",
+			"workspace.write", "workspace.edit", "workspace.restore", "workspace.accept",
+			"html.gen", "docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "office.generate", "canvas.present",
 		} {
 			want[name] = true
 		}
@@ -692,7 +695,10 @@ func restoreFileLandingTools(filtered, catalog []llmadapter.ToolDefinition, goal
 	if run {
 		want["workspace.write"] = true
 		want["workspace.edit"] = true
+		want["workspace.restore"] = true
+		want["workspace.accept"] = true
 		want["command.run"] = true
+		want["system.run"] = true
 		want["html.gen"] = true
 	}
 	have := map[string]bool{}

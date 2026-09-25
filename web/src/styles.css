@@ -413,6 +413,10 @@ html[data-theme="dark"] .workspace{background:#0c0e12}
 .code-editor-gutter{text-align:right;color:#56657a;border-right:1px solid var(--rule);user-select:none}
 .code-editor-content{color:#dbe6f5}
 .code-editor-foot{display:flex;gap:12px;padding:6px 10px;border-top:1px solid var(--rule);color:var(--muted);font:10px var(--mono)}
+.code-monaco{height:280px;min-height:180px}
+.code-problems{margin:0;padding:6px 10px 8px;list-style:none;border-top:1px solid var(--rule);font:12px var(--mono)}
+.code-problems button{background:none;border:0;color:inherit;cursor:pointer;text-align:left}
+.code-diff{margin:0;padding:8px 10px;overflow:auto;max-height:160px;font:11px var(--mono);white-space:pre}
 .changes-panel-head small{display:block;color:var(--muted);font-size:10px}
 .changes-panel{padding:0 12px 12px;overflow:auto}
 .changes-files li,.changes-log li{display:grid;gap:2px;padding:6px 0;border-bottom:1px solid var(--rule);font-size:11px}

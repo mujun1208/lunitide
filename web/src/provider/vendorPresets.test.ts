@@ -113,6 +113,19 @@ describe('vendor presets', () => {
     expect(local?.baseUrl).toBe('http://127.0.0.1:1234/v1')
   })
 
+  it('offers local Ollama on the chat tab at the loopback OpenAI endpoint', () => {
+    const preset = VENDOR_PRESETS.find((item) => item.id === 'local-ollama')
+    if (!preset) throw new Error('local ollama preset')
+    expect(presetsForTab('llm').map((item) => item.id)).toContain('local-ollama')
+    const next = applyVendorPreset(blank(), preset, 'llm')
+    expect(next).toMatchObject({
+      name: '本机 Ollama',
+      protocol: 'openai_compatible',
+      baseUrl: 'http://127.0.0.1:11434/v1',
+    })
+    expect(next.baseUrl).not.toContain('ollama.com')
+  })
+
   it('drops media kinds when switching a draft to Responses API', () => {
     const models = modelsForProtocol(
       'openai_responses',

@@ -67,6 +67,14 @@ describe('Workspace',()=>{
 })
 
 it('refreshes attachments when the upload revision changes',async()=>{const attachments=bridge(),view=render(<Workspace attachments={attachments} projectId={P} sessionId={S} refreshRevision={0} onClose={vi.fn()}/>);await waitFor(()=>expect(attachments.list).toHaveBeenCalledOnce());view.rerender(<Workspace attachments={attachments} projectId={P} sessionId={S} refreshRevision={1} onClose={vi.fn()}/>);await waitFor(()=>expect(attachments.list).toHaveBeenCalledTimes(2))})
+ it('opens a canvas document in the workspace canvas tab',()=>{
+  render(<Workspace attachments={bridge()} projectId={P} sessionId={S} targetTab="canvas" toolActivities={[{callId:'canvas-1',name:'canvas.present',status:'tool_completed',summary:'canvas ready',artifact:{kind:'html',path:'canvas.html',content:'<!doctype html><h1>能力对照</h1>'}}]} onClose={vi.fn()}/>)
+  expect(screen.getByRole('tab',{name:'画布'})).toHaveAttribute('aria-selected','true')
+  expect(screen.getByTitle('画布')).toHaveAttribute('srcdoc',expect.stringContaining('能力对照'))
+  expect(workspaceTabForTool('canvas.present')).toBe('canvas')
+  expect(autoRevealWorkspaceTab('canvas.present')).toBe('canvas')
+  expect(autoRevealWorkspaceForHtmlTool('canvas.present')).toBe('canvas')
+ })
  it('shows search progress in the browser tab before HTML results arrive',()=>{
   render(<Workspace attachments={bridge()} projectId={P} sessionId={S} targetTab="browser" toolActivities={[{callId:'search-1',name:'web.search',status:'tool_started',summary:'搜索：周杰伦'}]} onClose={vi.fn()}/>)
   expect(screen.getByText('正在检索网页…')).toBeInTheDocument()
@@ -166,4 +174,37 @@ it('refreshes attachments when the upload revision changes',async()=>{const atta
   expect(screen.getByRole('region',{name:'本地工作区目录'})).toBeInTheDocument()
   expect(screen.queryByText('会话目录载入失败')).toBeNull()
  })
+it('opens a session HTML file on the preview origin so its buttons can run', async () => {
+  const { artifactReviewBridge, sessionFolderBridge } = await import('../bridge/client')
+  const interactiveUrl = 'https://preview.lunitide.local/p/ticket0000000000000001/index.html'
+  const get = vi.spyOn(sessionFolderBridge, 'get').mockResolvedValue({ path: 'E:/sessions/demo' })
+  const list = vi.spyOn(sessionFolderBridge, 'list').mockResolvedValue({ items: [{ name: 'index.html', path: 'poc/it-crm/index.html', directory: false }] })
+  const preview = vi.spyOn(artifactReviewBridge, 'preview').mockResolvedValue({
+    kind: 'html', path: 'poc/it-crm/index.html',
+    content: '<nav id="nav"></nav><button data-action="opp:new">新建商机</button><script>void 0</script>',
+    size: 90, interactiveUrl,
+  })
+  const user = userEvent.setup()
+  render(<Workspace attachments={bridge()} projectId={P} sessionId={S} onClose={vi.fn()} />)
+  await user.click(await screen.findByRole('treeitem', { name: /index.html/ }))
+  const frame = await screen.findByTitle('产物预览 poc/it-crm/index.html')
+  expect(frame).toHaveAttribute('src', interactiveUrl)
+  expect(frame.getAttribute('sandbox')).toContain('allow-scripts')
+  expect(frame.getAttribute('sandbox')).toContain('allow-same-origin')
+  expect(frame).not.toHaveAttribute('srcdoc')
+  get.mockRestore(); list.mockRestore(); preview.mockRestore()
+})
+it('runs scripts in a generated page instead of a dead snapshot',()=>{
+  render(<Workspace attachments={bridge()} projectId={P} sessionId={S} targetTab="browser" toolActivities={[{callId:'html-1',name:'html.gen',status:'tool_completed',summary:'wrote index.html',artifact:{kind:'html',path:'index.html',content:'<button onclick="openMenu()">菜单</button><script>function openMenu(){}</script>'}}]} onClose={vi.fn()}/>)
+  const frame=screen.getByTitle('HTML 预览 index.html')
+  expect(frame.getAttribute('sandbox')).toContain('allow-scripts')
+  expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin')
+  expect(frame.getAttribute('srcdoc')).toContain('openMenu')
+ })
+it('opens the first news link in the isolated browser',async()=>{
+  const browser={open:vi.fn().mockResolvedValue({status:'opening',url:'https://news.example/first'}),close:vi.fn()} as BrowserBridge
+  render(<Workspace attachments={bridge()} browser={browser} projectId={P} sessionId={S} targetTab="browser" toolActivities={[{callId:'news-1',name:'web.fetch',status:'tool_completed',summary:'url: https://news.example/first\nfirst_hit: true\n已打开第一条。'}]} onClose={vi.fn()}/>)
+  await waitFor(()=>expect(browser.open).toHaveBeenCalledWith({url:'https://news.example/first'}))
+  expect(screen.getByLabelText('浏览器地址')).toHaveValue('https://news.example/first')
+})
 })

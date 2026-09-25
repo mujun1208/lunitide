@@ -81,7 +81,7 @@ func taskCause(task TaskResult) string {
 	case "untested":
 		return "这一项没有跑起来，不能算通过"
 	default:
-		return "这一项已经在本机跑完"
+		return "探测通过。这不是一条待修缺陷。"
 	}
 }
 
@@ -94,7 +94,7 @@ func taskFix(task TaskResult) string {
 	case "download":
 		return "对照证据里的字节数和本机模型目录。诊断只核对长度和已安装文件，不重新下载。"
 	case "ocr":
-		return "确认 Windows 图片识别语言可用。诊断只跑一张探测图，不改对话代码。"
+		return "探测图能读出文字，说明本机识图可用。对话里的图片先走同一条识图，再把文字交给模型回答。诊断不改识图引擎。"
 	default:
 		return "按证据复核。诊断不改产品代码。"
 	}
@@ -144,6 +144,12 @@ func ClassifyLog(text string) []Finding {
 		if strings.Contains(line, "无法执行") {
 			add("PH_L15", "流程不通", line, "这一步停在无法执行，后面的链路没有走完。", "按这句里的步骤看是入口缺失还是上一步没有结果。")
 		}
+		if strings.Contains(line, "input rejected by filter") {
+			add("PH_L16", "点击被拦住", line, "屏幕点击没有通过输入校验。坐标、按钮或过期画面不能当成已经点开。", "打开第一条网页时直接打开搜索结果里的链接，不再对过期坐标点击。")
+		}
+		if strings.Contains(line, "模型请求结果尚无法确认") || strings.Contains(line, "OUTCOME_UNKNOWN") {
+			add("PH_L17", "模型没有返回", line, "模型连接没有给出可确认的结果，这一轮在动作之前就停了。", "播放指定电影这类本地就能决定的动作，模型失败时仍然执行。")
+		}
 	}
 	bestKey, bestN := "", 0
 	for _, line := range lines {
@@ -158,7 +164,7 @@ func ClassifyLog(text string) []Finding {
 		bestKey, bestN = key, n
 	}
 	if bestKey != "" {
-		add("PH_L12", "反复调用", fmt.Sprintf("%s ×%d", sample[bestKey], bestN), "同一条失败在最近的引擎日志里反复出现。", "先停掉会触发它的那一轮，再看是重试没有上限还是同一请求被重复发出。")
+		add("PH_L12", "反复调用", fmt.Sprintf("%s ×%d", sample[bestKey], bestN), "同一条失败在最近的引擎日志里反复出现。冒号后面的词是状态和原因。", "同一周归档失败后会暂停数小时再试，避免每小时把同一句再写一遍。原因在证据那一行里。")
 	}
 	return out
 }

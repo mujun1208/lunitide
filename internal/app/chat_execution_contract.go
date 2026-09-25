@@ -10,6 +10,9 @@ import (
 
 // Input modality changes presentation and consent, not desktop execution rules.
 func computerExecutionTurn(goal string) bool {
+	if _, _, ok := parseWeChatChatGoal(goal); ok {
+		return true
+	}
 	if detectTaskRoute(goal) == RouteR2 {
 		return true
 	}

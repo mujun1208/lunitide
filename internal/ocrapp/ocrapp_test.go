@@ -272,6 +272,62 @@ func localImageOK(text string) LocalImageFunc {
 	}
 }
 
+func TestRecognizeImageUsesProviderThenLocalModelThenWindowsOCR(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "rapidocr-json")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "RapidOCR-json.exe"), []byte("MZ"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(NewFileStore(filepath.Join(t.TempDir(), "ocr-routing.json")))
+	svc.SetInstallRoot(filepath.Dir(root))
+	cur, err := svc.Routing()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.SetRouting(Routing{ProviderID: "01ARZ3NDEKTSV4RRFFQ69G5FAA", ModelID: "ocr-v1", PreferProvider: true}, cur.Revision); err != nil {
+		t.Fatal(err)
+	}
+	png := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}
+	var steps []string
+	svc.SetProvider(func(context.Context, []byte, string) (string, error) {
+		steps = append(steps, "provider")
+		return "没有可见文字", nil
+	})
+	svc.SetPackImage(func(context.Context, string, []byte) (doctext.PDFOCRResult, error) {
+		steps = append(steps, "ppocr")
+		return doctext.PDFOCRResult{Method: "ppocr", Pages: []doctext.OCRPage{{Page: 1}}}, nil
+	})
+	svc.SetLocalImage(func(context.Context, []byte) (doctext.PDFOCRResult, error) {
+		steps = append(steps, "windows")
+		return doctext.PDFOCRResult{Method: "windows-ocr", Pages: []doctext.OCRPage{{Page: 1, Text: "九品芝麻官"}}}, nil
+	})
+	got, err := svc.RecognizeImage(context.Background(), png)
+	if err != nil || got.Text != "九品芝麻官" || got.Method != "windows-ocr" || strings.Join(steps, ",") != "provider,ppocr,windows" {
+		t.Fatalf("order %+v steps=%v err=%v", got, steps, err)
+	}
+
+	steps = nil
+	svc.SetProvider(func(context.Context, []byte, string) (string, error) {
+		steps = append(steps, "provider")
+		return "测试汉字", nil
+	})
+	got, err = svc.RecognizeImage(context.Background(), png)
+	if err != nil || got.Source != SourceProvider || got.Text != "测试汉字" || strings.Join(steps, ",") != "provider" {
+		t.Fatalf("provider text must stop the chain: %+v steps=%v err=%v", got, steps, err)
+	}
+
+	body := strings.Repeat("正文。", 30) + "这里没有文字是句子的一部分。"
+	svc.SetProvider(func(context.Context, []byte, string) (string, error) {
+		return body, nil
+	})
+	got, err = svc.RecognizeImage(context.Background(), png)
+	if err != nil || got.Text != body {
+		t.Fatalf("a long transcript must stay: %+v err=%v", got, err)
+	}
+}
+
 func TestRecognizeImageFallsBackToLocalWhenProviderFails(t *testing.T) {
 	svc := New(NewFileStore(filepath.Join(t.TempDir(), "ocr-routing.json")))
 	cur, _ := svc.Routing()

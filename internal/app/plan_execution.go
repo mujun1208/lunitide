@@ -171,7 +171,7 @@ const planExecutionPrompt = `你正在执行一个项目计划任务。仅使用
 实际完成任务并将非空产物写入工作区。每个工具结果包含 receiptId；完成时调用 plan.finish，给出准确摘要、产物相对路径、能够证明工作的成功 receiptId。测试任务必须包含实际成功 command.run 回执，并生成测试报告。不能把工具失败、文字计划或未经验证的主张当成已完成。若无法完成，直接说明失败原因。`
 
 func planExecutionTools() []llmadapter.ToolDefinition {
-	allow := map[string]bool{"workspace.list": true, "workspace.read": true, "workspace.search": true, "workspace.write": true, "workspace.edit": true, "command.run": true}
+	allow := map[string]bool{"workspace.list": true, "workspace.read": true, "workspace.search": true, "workspace.write": true, "workspace.edit": true, "workspace.restore": true, "workspace.accept": true, "command.run": true, "canvas.present": true, "system.run": true, "location.get": true}
 	defs := filterToolDefs(engineToolDefinitions(), allow)
 	return append(defs, llmadapter.ToolDefinition{Name: "plan.finish", Description: "Submit completed work for independent artifact and receipt validation. Must refer to actual nonempty files and successful receiptIds returned by tools.", Schema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"summary":{"type":"string","minLength":1,"maxLength":16000},"artifacts":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"string","minLength":1,"maxLength":512}},"receiptIds":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"string"}}},"required":["summary","artifacts","receiptIds"]}`)})
 }
