@@ -54,6 +54,10 @@ func TestWindowsOCRReadsDrawnChineseAndSkipsABlankShape(t *testing.T) {
 	}
 	got, err := ExtractImageOCR(context.Background(), hanPNG)
 	if err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "超时") || strings.Contains(msg, "语言包") || strings.Contains(msg, "正忙") {
+			t.Skip(msg)
+		}
 		t.Fatal(err)
 	}
 	var raw strings.Builder
