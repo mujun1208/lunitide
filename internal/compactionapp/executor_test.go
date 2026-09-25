@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/domain/compaction"
 	"github.com/lunitide/lunitide/internal/domain/token"
@@ -399,6 +401,17 @@ func TestExecute_SummarizerFails(t *testing.T) {
 	}
 	if store.updates[1].failureCode == nil || *store.updates[1].failureCode != "SUMMARY_FAILED" {
 		t.Fatalf("expected failure code SUMMARY_FAILED")
+	}
+	if result.Detail != "LLM unavailable" {
+		t.Fatalf("detail %q", result.Detail)
+	}
+}
+
+func TestClipFailureDetailKeepsWholeRunes(t *testing.T) {
+	msg := strings.Repeat("失败原因", 80)
+	got := clipFailureDetail(msg)
+	if len(got) > 180 || !utf8.ValidString(got) || got == "" {
+		t.Fatalf("clipped %q len %d", got, len(got))
 	}
 }
 

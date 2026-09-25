@@ -402,6 +402,9 @@ func TestCompanionToolLeadIn(t *testing.T) {
 	if got := companionToolLeadIn("video.understand"); got != "好，我先看下这个链接。" {
 		t.Fatalf("got %q", got)
 	}
+	if got := companionToolResultSpeech("media.play", "opened C:\\Users\\mujun\\AppData\\Local\\Programs\\Soda Music\\SodaMusicLauncher.exe"); got != "完成。" {
+		t.Fatalf("play path speech %q", got)
+	}
 	if got := companionToolResultSpeech("desktop.type", `typed "204040" after "证件号码"`); got != "已经写入了 204040。" {
 		t.Fatalf("result %q", got)
 	}

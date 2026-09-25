@@ -29,9 +29,8 @@ func (h *Host) handlePreviewResourceRequested(args *wv2.ICoreWebView2WebResource
 		h.completePreviewResponse(args, nil, http.StatusForbidden, "", nil)
 		return
 	}
-	// A preview is a page being read. Writes have nowhere to go (form-action and
-	// connect-src are 'none'), so anything but a read is a request we did not
-	// design for and will not guess at.
+	// A preview is a page being read. This host only serves the files the ticket
+	// names, so anything but a read is a request we did not design for.
 	if method != "" && method != "GET" && method != "HEAD" {
 		h.completePreviewResponse(args, nil, http.StatusMethodNotAllowed, "", nil)
 		return

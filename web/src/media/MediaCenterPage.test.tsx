@@ -80,10 +80,11 @@ it('splits music and video surfaces without a second media element', () => {
 })
 
 it('shows a public-domain file inside the video theatre', () => {
-  render(<MediaCenterPage snapshot={null} assets={[]} operation={null} playbackUrl={null} stageSrc="https://archive.org/download/night/Night.mp4" stageTitle="Night of the Living Dead" stageKind="video" notice="" disabledReason="" busy={false} onPick={() => {}} onPlayPause={() => {}} onPrevious={() => {}} onNext={() => {}} onJump={() => {}} onRemove={() => {}} onClear={() => {}} onSeek={() => {}} onVolume={() => {}} />)
+  const src = 'https://upload.wikimedia.org/wikipedia/commons/c/c1/Night_of_the_Living_Dead_%281968%29.webm'
+  render(<MediaCenterPage snapshot={null} assets={[]} operation={null} playbackUrl={null} stageSrc={src} stageTitle="Night of the Living Dead (1968)" stageKind="video" notice="" disabledReason="" busy={false} onPick={() => {}} onPlayPause={() => {}} onPrevious={() => {}} onNext={() => {}} onJump={() => {}} onRemove={() => {}} onClear={() => {}} onSeek={() => {}} onVolume={() => {}} />)
   expect(screen.getByLabelText('视频')).toBeInTheDocument()
-  expect(document.querySelector('video')).toHaveAttribute('src', 'https://archive.org/download/night/Night.mp4')
-  expect(screen.getByRole('heading', { name: 'Night of the Living Dead' })).toBeInTheDocument()
+  expect(document.querySelector('video')).toHaveAttribute('src', src)
+  expect(screen.getByRole('heading', { name: 'Night of the Living Dead (1968)' })).toBeInTheDocument()
 })
 
 it('closes the film or the song from the transport bar', () => {

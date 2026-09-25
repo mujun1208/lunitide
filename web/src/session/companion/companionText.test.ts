@@ -208,6 +208,9 @@ describe('looksIncompleteUtterance', () => {
   test('flags mid-command tails and short fragments', () => {
     expect(looksIncompleteUtterance('帮我在桌面儿')).toBe(true)
     expect(looksIncompleteUtterance('帮我打开桌面。')).toBe(false)
+    expect(looksIncompleteUtterance('帮我打开。')).toBe(true)
+    expect(looksIncompleteUtterance('上第一个新闻。')).toBe(true)
+    expect(looksIncompleteUtterance('帮我打开网站上的第一个新闻。')).toBe(false)
     expect(looksIncompleteUtterance('好的')).toBe(false)
     expect(looksIncompleteUtterance('帮我打开桌面')).toBe(false)
     expect(looksIncompleteUtterance('你好月汐')).toBe(false)
@@ -494,6 +497,12 @@ describe('companionCaptionFromStream', () => {
     expect(companionCaptionFromStream(repeated)).toBe('好，我马上帮你查一下天气。今天南山27度。')
     expect(companionCaptionFromStream('我就帮你查一下今天的天气哈！好，我帮你查一下。好，我帮你查一下。告诉我城市。'))
       .toBe('我就帮你查一下今天的天气哈！告诉我城市。')
+  })
+
+  test('a player path is 完成 and a raw failure is 失败 plus the reason', () => {
+    expect(companionCaptionFromStream('opened C:\\Users\\mujun\\AppData\\Local\\Programs\\Soda Music\\SodaMusicLauncher.exe')).toBe('完成。')
+    expect(companionCaptionFromStream('ok:false 播放设备拒绝')).toBe('失败。播放设备拒绝')
+    expect(companionCaptionFromStream('已经打开汽水音乐。')).toBe('已经打开汽水音乐。')
   })
 
   test('drops the backend 系统提示 degradation notice so it is never spoken', () => {

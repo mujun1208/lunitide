@@ -25,7 +25,7 @@ import { isolatedHTML, runnableHTML } from './isolatedHTML'
 import { previewNeedsScripts } from './previewInteractivity'
 import { artifactReviewBridge } from '../bridge/client'
 import { SafeLinkedText } from './safeLinks'
-import { isBrowserAddress, latestBrowserAddress, memberCatalogPage, parseSearchCards } from './browserAddress'
+import { isBrowserAddress, latestBrowserAddress, parseSearchCards } from './browserAddress'
 import { extractTaskFiles, isChangeTool } from './codePanelUtils'
 import { workspaceDownloadEnabled } from './workspaceDownload'
 
@@ -116,9 +116,30 @@ const fmtSize = (n: number) =>
 
 export { isolatedHTML } from './isolatedHTML'
 
+const previewCiteOrigin = 'https://preview.lunitide.local'
+
+function usePreviewCite(frame: React.RefObject<HTMLIFrameElement | null>) {
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== previewCiteOrigin) return
+      const node = frame.current?.contentWindow
+      if (!node || event.source !== node) return
+      const data = event.data as { source?: string; type?: string; text?: string } | null
+      if (!data || data.source !== 'lunitide-preview' || data.type !== 'cite' || typeof data.text !== 'string') return
+      const text = data.text.trim()
+      if (!text) return
+      window.dispatchEvent(new CustomEvent('lunitide:preview-cite', { detail: { text } }))
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [frame])
+}
+
 function LiveHTMLFrame({ sessionId, path, content }: { sessionId: string; path: string; content: string }) {
   const [src, setSrc] = useState('')
+  const frame = useRef<HTMLIFrameElement>(null)
   const runnable = previewNeedsScripts(content)
+  usePreviewCite(frame)
   useEffect(() => {
     if (!runnable) return
     let alive = true
@@ -128,7 +149,7 @@ function LiveHTMLFrame({ sessionId, path, content }: { sessionId: string; path: 
     return () => { alive = false }
   }, [sessionId, path, content, runnable])
   if (src) {
-    return <iframe title={`HTML 预览 ${path}`} src={src} sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-downloads allow-popups" referrerPolicy="no-referrer" />
+    return <iframe ref={frame} title={`HTML 预览 ${path}`} src={src} sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-downloads allow-popups" referrerPolicy="no-referrer" />
   }
   if (runnable) {
     return <iframe title={`HTML 预览 ${path}`} sandbox="allow-scripts allow-forms allow-modals" referrerPolicy="no-referrer" srcDoc={runnableHTML(content)} />
@@ -199,7 +220,6 @@ export function Workspace({
   const [browserURL, setBrowserURL] = useState('https://')
   const [browserStatus, setBrowserStatus] = useState('未打开')
   const [browserBusy, setBrowserBusy] = useState(false)
-  const [frameKey, setFrameKey] = useState(0)
   const [trail, setTrail] = useState<{ urls: string[]; index: number }>({ urls: [], index: -1 })
   const request = useRef(0)
   const local = useRef<LocalWorkspaceBridge | undefined>(localWorkspace)
@@ -230,11 +250,11 @@ export function Workspace({
   const openedFirstHit = useRef('')
   useEffect(() => {
     const next = latestBrowserAddress(toolActivities)
-    if (next) {
+    if (next && !/youku\.com/i.test(next)) {
       setBrowserURL(next)
-      setBrowserStatus('已在此页打开')
+      setBrowserStatus('已在浏览器窗口打开')
       setTrail((current) => rememberBrowserURL(current, next))
-      if (memberCatalogPage(next) && openedMemberSong.current !== next) {
+      if (next.startsWith('https://') && openedMemberSong.current !== next) {
         openedMemberSong.current = next
         void browser.open({ url: next }).catch(() => {})
       }
@@ -336,9 +356,9 @@ export function Workspace({
       return
     }
     setBrowserURL(url)
-    setBrowserStatus('已在此页打开')
+    setBrowserStatus('已在浏览器窗口打开')
     setTrail((current) => rememberBrowserURL(current, url))
-    setFrameKey((key) => key + 1)
+    if (url.startsWith('https://')) void browser.open({ url }).catch(() => {})
   }
 
   const openSearchHit = (url: string) => {
@@ -351,8 +371,8 @@ export function Workspace({
     if (!url) return
     setTrail({ ...trail, index: next })
     setBrowserURL(url)
-    setBrowserStatus('已在此页打开')
-    setFrameKey((key) => key + 1)
+    setBrowserStatus('已在浏览器窗口打开')
+    if (url.startsWith('https://')) void browser.open({ url }).catch(() => {})
   }
 
   const artifactCards: ArtifactCard[] = toolActivities
@@ -657,7 +677,7 @@ export function Workspace({
               <div className="workspace-browser-nav">
                 <button type="button" aria-label="后退" disabled={trail.index <= 0} onClick={() => goBrowser(-1)}>←</button>
                 <button type="button" aria-label="前进" disabled={trail.index < 0 || trail.index >= trail.urls.length - 1} onClick={() => goBrowser(1)}>→</button>
-                <button type="button" className="artifact-icon-btn" aria-label="刷新地址" disabled={!browserURL.startsWith('https://')} onClick={() => setFrameKey((key) => key + 1)}>↻</button>
+                <button type="button" className="artifact-icon-btn" aria-label="刷新地址" disabled={!browserURL.startsWith('https://')} onClick={() => { if (browserURL.startsWith('https://')) void browser.open({ url: browserURL }).catch(() => {}) }}>↻</button>
               </div>
               <label className="workspace-browser-address">
                 <input aria-label="浏览器地址" type="text" inputMode="url" value={browserURL} onChange={e => setBrowserURL(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') showInPanel(browserURL) }} />
@@ -690,14 +710,11 @@ export function Workspace({
               </section>
             ) : null}
             {panelPage(browserURL) ? (
-              <iframe
-                key={frameKey}
-                className="workspace-browser-frame"
-                title={`应用内页面 ${browserURL}`}
-                src={browserURL}
-                sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads"
-                referrerPolicy="no-referrer"
-              />
+              <div className="workspace-browser-empty">
+                <span aria-hidden="true">◫</span>
+                <b>已在浏览器窗口打开</b>
+                <p>这个地址用和系统浏览器相同的窗口打开。嵌在这一页里时，网站会拒绝显示。</p>
+              </div>
             ) : artifact ? (
               <section className="workspace-html-preview">
                 <header>

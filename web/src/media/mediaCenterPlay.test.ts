@@ -10,6 +10,11 @@ it('reads the owned-player handoff and ignores ordinary media receipts', () => {
   })
   expect(parseMediaCenterPlay('MEDIA_CENTER\nurl: https://10.0.0.5/a.mp4\nkind: video\n')).toBeNull()
   expect(parseMediaCenterPlay('MEDIA_CENTER\nurl: http://archive.org/download/night/Night.mp4\nkind: video\n')).toBeNull()
+  expect(parseMediaCenterPlay('已交给媒体中心播放。\nMEDIA_CENTER\nurl: https://upload.wikimedia.org/wikipedia/commons/c/c1/Night_of_the_Living_Dead_%281968%29.webm\nkind: video\ntitle: Night of the Living Dead (1968)\n')).toEqual({
+    url: 'https://upload.wikimedia.org/wikipedia/commons/c/c1/Night_of_the_Living_Dead_%281968%29.webm',
+    kind: 'video',
+    title: 'Night of the Living Dead (1968)',
+  })
 })
 
 it('closes the in-app player when playback is stopped', () => {

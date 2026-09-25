@@ -702,6 +702,9 @@ func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []st
 	if computerTask && companionGoalIsOpenOnly(userGoal) && desktopOpenSucceeded(toolOut, lastTools) && !strings.Contains(stepText+assistantAll+toolOut, "无法执行") {
 		return ""
 	}
+	if actionAlreadyDone(userGoal, stepText+"\n"+assistantAll, toolOut, lastTools) {
+		return ""
+	}
 	if computerTask && desktopLadderShouldContinue(userGoal, toolOut, lastTools, nudges) {
 		return "ladder"
 	}
@@ -737,6 +740,26 @@ func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []st
 	// A buffered final reply is not in assistantAll yet. The current step was
 	// checked above; an earlier spoken lead-in must not restart completed work.
 	return ""
+}
+
+// actionAlreadyDone is a finished search or a finished “open the first
+// result”. Another desktop click after that is a new task, not this one.
+func actionAlreadyDone(goal, spoken, toolOut string, lastTools []string) bool {
+	if companionToolResultFailed(toolOut) {
+		return false
+	}
+	blob := spoken + "\n" + toolOut
+	openedFirst := strings.Contains(blob, "first_hit") || strings.Contains(blob, "已打开第一条") || strings.Contains(blob, "已经打开第一条")
+	if newsOpenGoal(goal) && openedFirst {
+		return true
+	}
+	if !usedAnyTool(lastTools, "web.search") || strings.TrimSpace(toolOut) == "" {
+		return false
+	}
+	if newsOpenGoal(goal) {
+		return false
+	}
+	return looksLikeCurrentLookupTurn(goal) || strings.Contains(toolOut, "results_url")
 }
 
 func companionCloseResultSettled(text, goal, toolOut string) bool {

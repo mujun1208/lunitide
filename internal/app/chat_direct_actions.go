@@ -154,7 +154,7 @@ func (e *Engine) openNamedFilmNow(ctx context.Context, mode executionMode, sessi
 		return "", false
 	}
 	if strings.Contains(summary, "iqiyi.com") {
-		return "已打开爱奇艺和优酷的官方搜索，登录后即可播放。", true
+		return "已打开爱奇艺的官方搜索，登录后即可播放。", true
 	}
 	return "已交给媒体中心播放。", true
 }

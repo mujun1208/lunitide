@@ -136,14 +136,11 @@ func cleanPreviewRel(raw string) (string, bool) {
 // preview byte. CSP composes by intersection, so a generated document cannot
 // loosen any of this by writing its own <meta> policy:
 //
-//   - scripts and inline styles are allowed, which is the point: menus work,
-//     layout is faithful, localStorage works (a real origin, unlike a sandboxed
-//     opaque one where storage access throws).
-//   - connect-src 'none' and form-action 'none' mean no fetch, XHR, WebSocket,
-//     EventSource, beacon or form post. The page cannot send anything anywhere,
-//     so executing it cannot leak the data it was built from.
-//   - frame-ancestors pins it inside our application document, and frame-src
-//     'none' stops it framing anything else.
+//   - scripts, styles, images, fonts and same-origin fetches are allowed, which
+//     is the point: the framed page loads the same files and https libraries it
+//     loads when opened in the system browser, so menus, data and layout match.
+//   - frame-ancestors pins it inside our application document. The page cannot
+//     navigate the application away; the iframe sandbox blocks that.
 func PreviewResponseHeaders(contentType string) string {
 	if contentType == "" {
 		contentType = "application/octet-stream"
@@ -160,16 +157,16 @@ func PreviewResponseHeaders(contentType string) string {
 
 // PreviewContentPolicy is exported so the renderer contract test can assert the
 // shell's frame-src and this policy stay compatible.
-const PreviewContentPolicy = "default-src 'none'; " +
-	"script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
-	"style-src 'self' 'unsafe-inline'; " +
-	"img-src 'self' data: blob:; " +
-	"font-src 'self' data:; " +
-	"media-src 'self' data: blob:; " +
-	"connect-src 'none'; " +
-	"form-action 'none'; " +
-	"base-uri 'none'; " +
-	"frame-src 'none'; " +
+const PreviewContentPolicy = "default-src 'self'; " +
+	"script-src 'self' 'unsafe-inline' 'unsafe-eval' https: http://127.0.0.1:* http://localhost:*; " +
+	"style-src 'self' 'unsafe-inline' https:; " +
+	"img-src 'self' data: blob: https:; " +
+	"font-src 'self' data: https:; " +
+	"media-src 'self' data: blob: https:; " +
+	"connect-src 'self' https: http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; " +
+	"form-action 'self' https: http://127.0.0.1:* http://localhost:*; " +
+	"base-uri 'self'; " +
+	"frame-src 'self' https:; " +
 	"object-src 'none'; " +
 	"frame-ancestors " + TrustedOrigin
 
@@ -179,7 +176,7 @@ func PreviewDeniedHeaders() string {
 	return PreviewResponseHeaders("text/plain; charset=utf-8")
 }
 
-const previewBootScript = `<script data-lunitide-boot>(function(){var mem={};var api={getItem:function(k){return Object.prototype.hasOwnProperty.call(mem,k)?mem[k]:null},setItem:function(k,v){mem[String(k)]=String(v)},removeItem:function(k){delete mem[k]},clear:function(){mem={}},key:function(i){return Object.keys(mem)[i]||null},get length(){return Object.keys(mem).length}};function broken(){try{var s=window.localStorage;var k='__lunitide_probe__';s.setItem(k,'1');s.removeItem(k);return false}catch(e){return true}}if(!broken())return;try{Object.defineProperty(window,'localStorage',{configurable:true,get:function(){return api}})}catch(e){}try{Object.defineProperty(window,'sessionStorage',{configurable:true,get:function(){return api}})}catch(e){}})()</script>`
+const previewBootScript = `<script data-lunitide-boot>(function(){var mem={};function remember(k,v){mem[String(k)]=String(v)}function recall(k){return Object.prototype.hasOwnProperty.call(mem,k)?mem[k]:null}function forget(k){delete mem[k]}function wipe(){mem={}}try{var proto=window.Storage&&Storage.prototype;if(proto&&!proto.__lunitidePatched){var set=proto.setItem,get=proto.getItem,rem=proto.removeItem,clr=proto.clear;proto.setItem=function(k,v){remember(k,v);try{return set.call(this,k,String(v))}catch(e){}};proto.getItem=function(k){try{var v=get.call(this,k);if(v!=null)return v}catch(e){}return recall(k)};proto.removeItem=function(k){forget(k);try{return rem.call(this,k)}catch(e){}};proto.clear=function(){wipe();try{return clr.call(this)}catch(e){}};proto.__lunitidePatched=1}}catch(e){}var api={getItem:function(k){return recall(k)},setItem:function(k,v){remember(k,v)},removeItem:forget,clear:wipe,key:function(i){return Object.keys(mem)[i]||null},get length(){return Object.keys(mem).length}};function broken(){try{var s=window.localStorage;var k='__lunitide_probe__';s.setItem(k,'1');s.removeItem(k);return false}catch(e){return true}}if(!broken())return;try{Object.defineProperty(window,'localStorage',{configurable:true,get:function(){return api}})}catch(e){}try{Object.defineProperty(window,'sessionStorage',{configurable:true,get:function(){return api}})}catch(e){}})()</script>`
 
 const previewCiteScript = `<script data-lunitide-cite>(function(){document.addEventListener('mouseup',function(){var s=window.getSelection&&window.getSelection();var t=s?String(s).replace(/\s+/g,' ').trim():'';if(!t)return;try{parent.postMessage({source:'lunitide-preview',type:'cite',text:t.slice(0,800)},'*')}catch(e){}})})()</script>`
 

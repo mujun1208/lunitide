@@ -112,31 +112,40 @@ func (s *Service) applyFinding(ctx context.Context, ed *Edition, f Finding, advi
 	// Every branch below sets both, so there is no default to fall back on.
 	var status string
 	applied := false
-	switch f.ErrorCode {
-	case "PH_014":
-		methods := defaultMethods(emptyText(card.ChainClass, "crud-bridge"))
-		_ = s.persist.ProductHubSaveEnrichment(ctx, Enrichment{
-			StableKey: f.StableKey,
-			Summary:   "自净化补入口方法",
-			Methods:   methods,
-			Tags:      []string{"status:已补入口"},
-		})
-		_ = s.persist.ProductHubSaveTag(ctx, NodeTag{StableKey: f.StableKey, Vocab: "status", Value: "已补入口", AssignedBy: "manual"})
-		for i := range ed.Features {
-			if ed.Features[i].StableKey == f.StableKey {
-				ed.Features[i].Methods = methods
-				ed.Features[i].Tags = appendUnique(ed.Features[i].Tags, "status:已补入口")
+	var liveEvidence, liveFix string
+	if strings.HasPrefix(f.ErrorCode, "PH_L") {
+		var evidence, fix string
+		status, applied, evidence, fix = recheckLive(ctx, f)
+		plan = fix
+		liveEvidence, liveFix = evidence, fix
+		advice = ConsultResult{}
+	} else {
+		switch f.ErrorCode {
+		case "PH_014":
+			methods := defaultMethods(emptyText(card.ChainClass, "crud-bridge"))
+			_ = s.persist.ProductHubSaveEnrichment(ctx, Enrichment{
+				StableKey: f.StableKey,
+				Summary:   "自净化补入口方法",
+				Methods:   methods,
+				Tags:      []string{"status:已补入口"},
+			})
+			_ = s.persist.ProductHubSaveTag(ctx, NodeTag{StableKey: f.StableKey, Vocab: "status", Value: "已补入口", AssignedBy: "manual"})
+			for i := range ed.Features {
+				if ed.Features[i].StableKey == f.StableKey {
+					ed.Features[i].Methods = methods
+					ed.Features[i].Tags = appendUnique(ed.Features[i].Tags, "status:已补入口")
+				}
 			}
+			status, applied = "applied", true
+		case "PH_016":
+			_ = s.persist.ProductHubSaveTag(ctx, NodeTag{StableKey: f.StableKey, Vocab: "status", Value: "弃用", AssignedBy: "manual"})
+			status, applied = "applied", true
+		case "PH_000":
+			status, applied = "applied", true
+		default:
+			_ = s.persist.ProductHubSaveTag(ctx, NodeTag{StableKey: f.StableKey, Vocab: "status", Value: "待修复", AssignedBy: "manual"})
+			status = "planned"
 		}
-		status, applied = "applied", true
-	case "PH_016":
-		_ = s.persist.ProductHubSaveTag(ctx, NodeTag{StableKey: f.StableKey, Vocab: "status", Value: "弃用", AssignedBy: "manual"})
-		status, applied = "applied", true
-	case "PH_000":
-		status, applied = "applied", true
-	default:
-		_ = s.persist.ProductHubSaveTag(ctx, NodeTag{StableKey: f.StableKey, Vocab: "status", Value: "待修复", AssignedBy: "manual"})
-		status = "planned"
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	rec := ApplyLog{
@@ -151,12 +160,26 @@ func (s *Service) applyFinding(ctx context.Context, ed *Edition, f Finding, advi
 		if ed.Findings[i].ErrorCode == f.ErrorCode && ed.Findings[i].StableKey == f.StableKey {
 			ed.Findings[i].Status = status
 			ed.Findings[i].Plan = plan
+			if liveEvidence != "" {
+				ed.Findings[i].Evidence = liveEvidence
+			}
+			if liveFix != "" {
+				ed.Findings[i].Fix = liveFix
+			}
+			if status == "fixed" {
+				ed.Findings[i].Severity = "info"
+			}
 			ed.Findings[i].AppliedAt = now
-			ed.Findings[i].SkillID = advice.SkillID
-			ed.Findings[i].SkillName = advice.SkillName
-			ed.Findings[i].SkillOutput = advice.Output
+			if !strings.HasPrefix(f.ErrorCode, "PH_L") {
+				ed.Findings[i].SkillID = advice.SkillID
+				ed.Findings[i].SkillName = advice.SkillName
+				ed.Findings[i].SkillOutput = advice.Output
+			}
 			ed.Findings[i].ApplyPrompt = applyPrompt(ed.Findings[i])
 		}
+	}
+	if probe, ok := probeFromFindings(ed.Findings); ok {
+		ed.LiveProbe = probe
 	}
 	findings, _, score := refreshFindings(*ed)
 	ed.Findings = findings
@@ -259,6 +282,10 @@ func mergeFindingStatus(prev, next []Finding) []Finding {
 		if f.ErrorCode == "PH_000" {
 			continue
 		}
+		// A new live result wins. An older「待修复」tag must not hide a probe that just failed again.
+		if strings.HasPrefix(f.ErrorCode, "PH_L") && (f.Status == "open" || f.Status == "pass") {
+			continue
+		}
 		p, ok := prevBy[f.ErrorCode+"|"+f.StableKey]
 		if !ok {
 			continue
@@ -286,6 +313,10 @@ func attachApplies(findings []Finding, logs []ApplyLog) []Finding {
 			continue
 		}
 		if f.Status == "open" || f.Status == "" {
+			// A fresh live failure stays open. An older fixed or planned log must not paint over it.
+			if strings.HasPrefix(f.ErrorCode, "PH_L") && rec.Status != "open" && rec.Status != "wont_fix" {
+				continue
+			}
 			findings[i].Status = rec.Status
 		}
 		if findings[i].Plan == "" {

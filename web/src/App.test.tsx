@@ -22,7 +22,7 @@ import { OFFICE_ARTIFACT_FOCUS_KEY, OFFICE_LAST_TASK_KEY, OFFICE_STUDIO_OPEN_EVE
 afterEach(()=>{cleanup();localStorage.removeItem('lunitide:office-menu');resetLiveChatForTests();mockPeopleThreadList.mockResolvedValue({items:[]});mockDesktopPick.mockReset();mockDesktopPick.mockResolvedValue({canceled:true,items:[]});localStorage.removeItem('lunitide:language');localStorage.removeItem('lunitide:language-default-en');localStorage.removeItem('lunitide:sidebar-chats-open');localStorage.removeItem('lunitide:sidebar-projects-open')})
 const now='2026-01-01T00:00:00Z'
 const personal:ProjectDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAV',name:PERSONAL_CHAT_PROJECT,projectCode:'ITM00000',type:'implementation',status:'active',createdAt:now,updatedAt:now,version:1}
-const project:ProjectDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAA',name:'Moon',projectCode:'ITM00001',type:'implementation',status:'active',createdAt:now,updatedAt:now,version:1}
+const project:ProjectDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAA',name:'Moon',projectCode:'ITM00001',type:'implementation',status:'active',createdAt:now,updatedAt:now,version:1,rootPath:'D:\\work\\moon'}
 const messages:MessageBridge={list:vi.fn().mockResolvedValue({items:[],hasMore:false,nextCursor:null,snapshotSequence:0}),append:vi.fn()}
 const chat:ChatBridge={start:vi.fn(),approve:vi.fn(),dispose:vi.fn()}
 const providers:ProviderBridge={list:vi.fn().mockResolvedValue({items:[]}),get:vi.fn(),create:vi.fn(),update:vi.fn(),delete:vi.fn(),revealCredential:vi.fn(),submitCredential:vi.fn(),syncModels:vi.fn(),test:vi.fn(),backupAdd:vi.fn(),backupRemove:vi.fn()}as ProviderBridge

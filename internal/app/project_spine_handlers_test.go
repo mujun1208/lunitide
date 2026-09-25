@@ -50,8 +50,8 @@ func TestProjectTaskOpenRequiresReadyTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp := handleProjectSpine(e, ctx, validRequest("project.task.open", `{"projectId":"`+created.ID+`","itemId":"F001"}`))
-	if resp.OK || resp.Error.Code != "PROJECT_TREE_REQUIRED" {
-		t.Fatalf("%#v", resp)
+	if resp.OK || resp.Error.Code != "PROJECT_DB_REQUIRED" {
+		t.Fatalf("a selected root is the project directory; tree generation is not another gate: %#v", resp)
 	}
 }
 

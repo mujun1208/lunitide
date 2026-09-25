@@ -345,9 +345,19 @@ export function looksLikeIncompleteDesktopOpen(text: string): boolean {
   return false
 }
 
+/** A cut-off command. A period from the recognizer does not make it a turn. */
+export function looksLikeUnfinishedCommand(text: string): boolean {
+  const bare = text.trim().replace(/[。？！?!…]+$/u, '')
+  if (!bare) return false
+  if (INCOMPLETE_BARE_COMMAND.test(bare)) return true
+  if (/^上第/.test(bare) && !/(?:打开|点开|看看|搜索|搜)/.test(bare)) return true
+  return false
+}
+
 export function looksIncompleteUtterance(text: string): boolean {
   const trimmed = text.trim()
   if (!trimmed) return false
+  if (looksLikeUnfinishedCommand(trimmed)) return true
   if (/[。？！?!…]$/.test(trimmed)) return false
   if (COMPLETE_SHORT_UTTERANCE.test(trimmed)) return false
   const compact = trimmed.replace(/\s+/g, '')
@@ -563,9 +573,23 @@ export function stripCompanionSystemNotice(text: string): string {
   return text.replace(/（系统提示：[\s\S]*?）\s*/g, '').trim()
 }
 
+/**
+ * A tool receipt is not an answer. Launching a player (`opened C:\...`) is 完成.
+ * A raw `ok:false` line is 失败 plus the reason. Ordinary sentences stay.
+ */
+export function companionOutcomeSpeech(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  if (/^opened\s+\S/i.test(flat)) return '完成。'
+  if (/^ok\s*:\s*false\b/i.test(flat)) {
+    const reason = flat.replace(/^ok\s*:\s*false\s*/i, '').trim()
+    return reason ? `失败。${reason}` : '失败。'
+  }
+  return text
+}
+
 /** Live chat caption: strip machine phrases and drop nudge-loop replays. */
 export function companionCaptionFromStream(assistantText: string): string {
-  return collapseAdjacentRepeatedClauses(collapseRepeatedCaptionBlocks(stripCompanionSystemNotice(stripTaskDonePhrases(assistantText))))
+  return companionOutcomeSpeech(collapseAdjacentRepeatedClauses(collapseRepeatedCaptionBlocks(stripCompanionSystemNotice(stripTaskDonePhrases(assistantText)))))
 }
 
 function clauseKey(text: string): string {
@@ -688,6 +712,7 @@ export function shouldAcceptUserTranscript(input: {
   if (looksLikePlaybackEcho(input.text, input.lastSpoken)) return false
   if (input.lastAssistant && looksLikePlaybackEcho(input.text, input.lastAssistant)) return false
   if (input.echoGuardActive && compactSpeech(input.text).length < 6 && looksIncompleteUtterance(input.text)) return false
+  if (looksLikeUnfinishedCommand(input.text)) return false
   return true
 }
 

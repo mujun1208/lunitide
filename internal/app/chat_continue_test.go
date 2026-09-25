@@ -182,6 +182,12 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	if got := pickTurnContinueKind("已经打开了。", "已经打开了。", "opened C:\\\\x\\\\汽水音乐.lnk", []string{"desktop.open"}, true, true, true, true, 0, "打开汽水", true); got != "" {
 		t.Fatalf("open-only must not return desktop, got %q", got)
 	}
+	if got := pickTurnContinueKind("已经打开第一条。", "已经打开第一条。", "url: https://news.example/first\nfirst_hit: true\n已打开第一条。", []string{"web.fetch"}, true, true, true, true, 0, "帮我打开网站上的第一个新闻", true); got != "" {
+		t.Fatalf("opened first news must stop, got %q", got)
+	}
+	if got := pickTurnContinueKind("周杰伦有这些新闻。", "周杰伦有这些新闻。", "results_url: https://cn.bing.com/search?q=jay", []string{"web.search"}, true, false, true, true, 0, "打开网站搜索周杰伦最新新闻", true); got != "" {
+		t.Fatalf("search result must stop, got %q", got)
+	}
 	if drop := dropCompanionFailedTail([]llmadapter.Message{{Role: llmadapter.RoleUser, Content: "打开汽水"}, {Role: llmadapter.RoleAssistant, Content: "无法执行。窗口没到前台"}}); len(drop) != 1 || drop[0].Role != llmadapter.RoleUser {
 		t.Fatal("fresh visit must drop last 无法执行 assistant")
 	}

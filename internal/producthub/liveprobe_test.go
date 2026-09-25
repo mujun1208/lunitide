@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLiveScoreCountsUntestedAndLogFaults(t *testing.T) {
@@ -126,6 +127,166 @@ func TestManualRefreshKeepsTheLiveScore(t *testing.T) {
 	}
 	if !play || !crash || !pending || !strings.Contains(md, "实测") {
 		t.Fatalf("play=%v crash=%v pending=%v md has 实测=%v", play, crash, pending, strings.Contains(md, "实测"))
+	}
+}
+
+func TestPassedProbeIsNotAWorkItem(t *testing.T) {
+	found := TaskFindings([]TaskResult{{ID: "play", Title: "播放", Status: "pass", Evidence: "已播放 0.2 秒探测音"}})
+	if len(found) != 1 || found[0].Fix != "这项已经通过，不用再处理。" || found[0].Status != "pass" {
+		t.Fatalf("%#v", found)
+	}
+	miss := TaskFindings([]TaskResult{{ID: "dictate", Title: "听写", Status: "untested", Evidence: "voice model not installed: runtime"}})
+	if !strings.Contains(miss[0].Fix, "精识别运行时") {
+		t.Fatalf("%#v", miss[0].Fix)
+	}
+}
+
+func TestClassifyLogDropsYesterdayAndKeepsTodaysSummaryFailure(t *testing.T) {
+	logClock = func() time.Time { return time.Date(2026, 9, 25, 16, 30, 0, 0, time.Local) }
+	t.Cleanup(func() { logClock = time.Now })
+	got := ClassifyLog(strings.Join([]string{
+		"2026/09/24 16:30:00 chat stream x failed: code=UPSTREAM_OUTCOME_UNKNOWN stage=connect",
+		"2026/09/25 07:51:29 companion weekly archive: weekly companion archive did not complete: failed SUMMARY_FAILED",
+	}, "\n"))
+	for _, f := range got {
+		if f.ErrorCode == "PH_L17" {
+			t.Fatalf("yesterday's model miss stayed: %#v", f)
+		}
+	}
+	var summary bool
+	for _, f := range got {
+		if f.ErrorCode == "PH_L18" && strings.Contains(f.Evidence, "SUMMARY_FAILED") {
+			summary = true
+		}
+	}
+	if !summary {
+		t.Fatalf("today's summary failure missing: %#v", got)
+	}
+}
+
+func TestLoadedFindingsKeepTheMeasuredScore(t *testing.T) {
+	findings := []Finding{
+		{ErrorCode: "PH_L01", Status: "open"},
+		{ErrorCode: "PH_L02", Status: "pass"},
+		{ErrorCode: "PH_L03", Status: "pass"},
+		{ErrorCode: "PH_L04", Status: "pass"},
+		{ErrorCode: "PH_L17", Status: "open"},
+		{ErrorCode: "PH_L90", Status: "note"},
+	}
+	score, probe, live := displayedScore(Edition{}, findings, ProbeScore{Passed: 138, Total: 170})
+	if !live || probe.Passed != 3 || probe.Total != 5 || score != 60 {
+		t.Fatalf("score %d probe %+v live %v", score, probe, live)
+	}
+}
+
+func TestPurifyMarksAProbeFixedOnlyAfterItPasses(t *testing.T) {
+	s := New(&MemoryPersist{})
+	fail := WithLiveTasks(context.Background(), func(context.Context) ([]TaskResult, string, []LandscapeNote) {
+		return []TaskResult{{ID: "play", Title: "播放", Status: "fail", Evidence: "播放设备拒绝"}}, "", nil
+	})
+	if _, err := s.Generate(fail, "manual"); err != nil {
+		t.Fatal(err)
+	}
+	pass := WithLiveTasks(context.Background(), func(context.Context) ([]TaskResult, string, []LandscapeNote) {
+		return []TaskResult{{ID: "play", Title: "播放", Status: "pass", Evidence: "已播放 0.2 秒探测音"}}, "", nil
+	})
+	res, err := s.Apply(pass, "PH_L02", "probe.play")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Applied || res.Status != "fixed" || !strings.Contains(res.Plan, "已播放 0.2 秒探测音") || res.SkillOutput != "" {
+		t.Fatalf("%#v", res)
+	}
+	ed, err := s.Latest(context.Background())
+	if err != nil || ed == nil || ed.HealthScore != 100 {
+		t.Fatalf("score after a passing recheck: err=%v ed=%+v", err, ed)
+	}
+}
+
+func TestPurifyKeepsAProbeOpenWhenItStillFails(t *testing.T) {
+	s := New(&MemoryPersist{})
+	ctx := WithLiveTasks(context.Background(), func(context.Context) ([]TaskResult, string, []LandscapeNote) {
+		return []TaskResult{{ID: "play", Title: "播放", Status: "fail", Evidence: "播放设备拒绝"}}, "", nil
+	})
+	if _, err := s.Generate(ctx, "manual"); err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.Apply(ctx, "PH_L02", "probe.play")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Applied || res.Status != "open" || !strings.Contains(res.Plan, "探测音") {
+		t.Fatalf("%#v", res)
+	}
+	ed, err := s.Latest(context.Background())
+	if err != nil || ed == nil || ed.HealthScore != 0 {
+		t.Fatalf("a failed recheck must stay at 0: err=%v score=%v", err, ed)
+	}
+	for _, f := range ed.Findings {
+		if f.ErrorCode == "PH_L02" && (f.Status != "open" || !strings.Contains(f.Evidence, "播放设备拒绝")) {
+			t.Fatalf("finding %#v", f)
+		}
+	}
+}
+
+func TestPurifyClearsALogLineOnlyWhenItIsGoneToday(t *testing.T) {
+	logClock = func() time.Time { return time.Date(2026, 9, 25, 16, 30, 0, 0, time.Local) }
+	t.Cleanup(func() { logClock = time.Now })
+	line := "2026/09/25 07:51:29 companion weekly archive: weekly companion archive did not complete: failed SUMMARY_FAILED"
+	s := New(&MemoryPersist{})
+	ctx := WithLiveTasks(context.Background(), func(context.Context) ([]TaskResult, string, []LandscapeNote) {
+		return []TaskResult{{ID: "ocr", Title: "图片识别", Status: "pass", Evidence: "读出 OCR"}}, line, nil
+	})
+	if _, err := s.Generate(ctx, "manual"); err != nil {
+		t.Fatal(err)
+	}
+	still, err := s.Apply(WithEngineLog(context.Background(), line), "PH_L18", "log.PH_L18")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if still.Applied || still.Status != "open" || !strings.Contains(still.Plan, "失败码") {
+		t.Fatalf("still present %#v", still)
+	}
+	held, err := s.Latest(context.Background())
+	if err != nil || held == nil {
+		t.Fatal(err)
+	}
+	var kept bool
+	for _, f := range held.Findings {
+		if f.ErrorCode == "PH_L18" && strings.Contains(f.Evidence, "SUMMARY_FAILED") {
+			kept = true
+		}
+	}
+	if !kept {
+		t.Fatalf("evidence lost: %#v", held.Findings)
+	}
+	gone, err := s.Apply(WithEngineLog(context.Background(), "2026/09/25 08:00:00 chat.start ok"), "PH_L18", "log.PH_L18")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gone.Applied || gone.Status != "fixed" || !strings.Contains(gone.Plan, "不再占当前故障") {
+		t.Fatalf("gone %#v", gone)
+	}
+}
+
+func TestPurifyDoesNotScoreLandscapeNotes(t *testing.T) {
+	s := New(&MemoryPersist{})
+	ctx := WithLiveTasks(context.Background(), func(context.Context) ([]TaskResult, string, []LandscapeNote) {
+		return []TaskResult{{ID: "ocr", Title: "图片识别", Status: "pass", Evidence: "读出 OCR"}}, "", nil
+	})
+	ed, err := s.Generate(ctx, "manual")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ed.HealthScore != 100 {
+		t.Fatalf("landscape must stay out of the score: %d", ed.HealthScore)
+	}
+	res, err := s.Apply(ctx, "PH_L90", "landscape.none")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Applied || res.Status == "fixed" || !strings.Contains(res.Plan, "图景页") {
+		t.Fatalf("%#v", res)
 	}
 }
 

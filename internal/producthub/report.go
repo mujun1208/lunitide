@@ -66,7 +66,7 @@ func RenderReport(ed Edition) (markdown, pageHTML string) {
 		fmt.Fprintf(&md, "### [%s] %s · %s\n\n", f.Severity, f.ErrorCode, f.Title)
 		fmt.Fprintf(&md, "- 对象：`%s`  · 状态：%s\n- 证据：%s\n- 根因：%s\n- 改进方案：%s\n- 验证：%s\n\n", f.StableKey, f.Status, f.Evidence, f.RootCause, f.Fix, f.Verify)
 	}
-	md.WriteString("诊断可在中枢内点「执行净化」：本地修复标签/入口方法，并把任务书交给内部技能或模型。不自动改写 Go/TS；已处理条目下次生成保持 applied。\n\n")
+	md.WriteString("执行净化会再跑失败的那一项。复查通过才改为 fixed，实测分跟着上升。复查仍失败就保持 open，方案和证据换成这一次的原文。目录里缺的入口方法仍由净化直接补上。\n\n")
 	md.WriteString("## 6. 竞品与前沿\n\n")
 	md.WriteString("图景页两张槽位：竞品对照（必须带来源与日期）与 SMTC/owned runtime 播放核验前沿观察。不计入健康度。\n\n")
 	md.WriteString("## 7. 总结\n\n")

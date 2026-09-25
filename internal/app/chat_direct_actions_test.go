@@ -43,6 +43,12 @@ func TestNamedSongOpensNeteaseBeforeTheModel(t *testing.T) {
 	if directSongPlayArgs("播放一部周星驰的电影，九品芝麻官") != nil {
 		t.Fatal("a named film must stay on the film path")
 	}
+	if directSongPlayArgs("你试试爱奇艺能不能播放") != nil || !moviePlayGoal("你试试爱奇艺能不能播放") {
+		t.Fatal("an iQiyi playback retry must stay on the film path")
+	}
+	if !moviePlayGoal("帮我找一部香港90年代的电影播放") {
+		t.Fatal("a film request must stay on the film path")
+	}
 	if directSongPlayArgs("帮我播放一首歌") != nil && strings.Contains(string(directSongPlayArgs("帮我播放一首歌")), "生所爱") {
 		t.Fatal("generic play must not reuse a previous title")
 	}

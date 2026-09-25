@@ -153,7 +153,7 @@ it('creates a phase session when none exist for the active stage', async () => {
   expect(await screen.findByTestId('workbench-chat')).toHaveTextContent(`home:${created.id}:${created.title}:1:nested`)
 })
 
-it('offers to materialize the tree when a root exists but dirs are missing', async () => {
+it('uses the selected directory for every phase without asking to generate another', async () => {
   render(
     <ProjectWorkbenchShell
       project={{ ...project, rootPath: 'D:\\work\\mall', treeStatus: 'none' }}
@@ -166,11 +166,14 @@ it('offers to materialize the tree when a root exists but dirs are missing', asy
       onBack={vi.fn()}
     />,
   )
-  expect(await screen.findByText('尚未生成项目目录')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '仅补生成目录' })).toBeInTheDocument()
+  expect(await screen.findByText('需求架构规范')).toBeInTheDocument()
+  expect(screen.queryByText('尚未生成项目目录')).toBeNull()
+  expect(screen.queryByRole('button', { name: '仅补生成目录' })).toBeNull()
+  expect(screen.queryByText('补选项目根')).toBeNull()
+  expect(screen.queryByText(/D:\\work\\mall/)).toBeNull()
 })
 
-it('asks history projects to pick a root before claiming the tree is ready', async () => {
+it('does not ask for a directory inside the workbench', async () => {
   render(
     <ProjectWorkbenchShell
       project={project}
@@ -183,7 +186,9 @@ it('asks history projects to pick a root before claiming the tree is ready', asy
       onBack={vi.fn()}
     />,
   )
-  expect(await screen.findByText('补选项目根')).toBeInTheDocument()
+  expect(await screen.findByText('需求架构规范')).toBeInTheDocument()
+  expect(screen.queryByText('补选项目根')).toBeNull()
+  expect(screen.queryByRole('button', { name: '选择根目录' })).toBeNull()
 })
 
 it('shows factory rule and database ready chips', async () => {

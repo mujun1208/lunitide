@@ -25,7 +25,7 @@ const project = {
 
 const encode = (obj: unknown) => btoa(unescape(encodeURIComponent(JSON.stringify(obj))))
 
-it('shows 进入开发 and disables it until the tree is ready', async () => {
+it('shows 进入开发 once the project directory is selected', async () => {
   const onOpenTask = vi.fn()
   const deliverables = {
     list: vi.fn().mockResolvedValue({
@@ -39,7 +39,7 @@ it('shows 进入开发 and disables it until the tree is ready', async () => {
   } as unknown as ProjectAttachmentBridge
   const { rerender } = render(
     <ChecklistPanel
-      project={{ ...project, treeStatus: 'none' }}
+      project={{ ...project, rootPath: '', treeStatus: 'none' }}
       phase={5}
       documentType="dev_checklist"
       title="开发检查清单"
@@ -53,7 +53,7 @@ it('shows 进入开发 and disables it until the tree is ready', async () => {
   expect(blocked).toBeDisabled()
   rerender(
     <ChecklistPanel
-      project={project}
+      project={{ ...project, rootPath: 'D:\\work\\mall', treeStatus: 'none' }}
       phase={5}
       documentType="dev_checklist"
       title="开发检查清单"

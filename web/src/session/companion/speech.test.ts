@@ -556,6 +556,28 @@ describe('when the user has finished speaking', () => {
     })).toBe(false)
   })
 
+  test('does not commit a cut-off command when silence arrives before the text has sat still', () => {
+    expect(shouldForceCommitUtterance({
+      speechActive: false,
+      silentForMs: TURN_END_INCOMPLETE_SILENCE_MS,
+      textStableForMs: TURN_END_TEXT_SETTLE_MS,
+      incomplete: true,
+      text: '帮我打开。',
+    })).toBe(false)
+  })
+
+  test('does not hard-commit a cut-off open command', () => {
+    for (const text of ['帮我打开', '帮我打开。', '上第一个新闻。']) {
+      expect(shouldForceCommitUtterance({
+        speechActive: false,
+        silentForMs: TURN_END_INCOMPLETE_SILENCE_MS,
+        textStableForMs: INCOMPLETE_HARD_MS,
+        incomplete: true,
+        text,
+      })).toBe(false)
+    }
+  })
+
   test('does not hard-commit an incomplete desktop-open filename on INCOMPLETE_HARD_MS alone', () => {
     const text = '打开桌面上的日常操作功能'
     expect(looksIncompleteUtterance(text)).toBe(true)
