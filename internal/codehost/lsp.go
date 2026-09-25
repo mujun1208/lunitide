@@ -111,7 +111,7 @@ func (s *Session) Open(path, text string) error {
 }
 
 func (s *Session) Definition(path string, line, column int) (Location, error) {
-	raw, err := s.call("textDocument/definition", map[string]any{
+	raw, err := s.callWhenReady("textDocument/definition", map[string]any{
 		"textDocument": map[string]any{"uri": fileURI(path)},
 		"position":     map[string]any{"line": line - 1, "character": column - 1},
 	}, 20*time.Second)
@@ -160,7 +160,7 @@ func (s *Session) Definition(path string, line, column int) (Location, error) {
 }
 
 func (s *Session) References(path string, line, column int) ([]Location, error) {
-	raw, err := s.call("textDocument/references", map[string]any{
+	raw, err := s.callWhenReady("textDocument/references", map[string]any{
 		"textDocument": map[string]any{"uri": fileURI(path)},
 		"position":     map[string]any{"line": line - 1, "character": column - 1},
 		"context":      map[string]any{"includeDeclaration": false},
@@ -242,6 +242,28 @@ func (s *Session) Close() {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		_ = s.cmd.Process.Kill()
+	}
+}
+
+// callWhenReady retries while gopls is still loading the module. A cold
+// process answers "no views" until that load finishes.
+func (s *Session) callWhenReady(method string, params any, wait time.Duration) (json.RawMessage, error) {
+	deadline := time.Now().Add(wait)
+	var last error
+	for {
+		remain := time.Until(deadline)
+		if remain <= 0 {
+			if last != nil {
+				return nil, last
+			}
+			return nil, fmt.Errorf("%s timed out", method)
+		}
+		raw, err := s.call(method, params, remain)
+		if err == nil || !strings.Contains(err.Error(), "no views") {
+			return raw, err
+		}
+		last = err
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
@@ -332,9 +354,17 @@ func (s *Session) read(r io.Reader) {
 }
 
 func (s *Session) replyServer(msg rpc) {
-	result := []any{}
-	if msg.Method != "workspace/configuration" {
-		result = nil
+	var result any
+	if msg.Method == "workspace/configuration" {
+		var params struct {
+			Items []json.RawMessage `json:"items"`
+		}
+		_ = json.Unmarshal(msg.Params, &params)
+		n := len(params.Items)
+		if n == 0 {
+			n = 1
+		}
+		result = make([]any, n)
 	}
 	var id json.RawMessage
 	if len(msg.ID) > 0 {
