@@ -235,6 +235,20 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	if got := pickTurnContinueKind("Word 里已经写上号码了。", "Word 里已经写上号码了。", `typed "204040"`, []string{"desktop.type"}, true, true, true, true, 0, "", true); got != "" {
 		t.Fatalf("settled desktop result must stop, got %q", got)
 	}
+	wechatOut := "opened chat \"_穆_\" and sent \"你好\"\nvisible:\n怎么这么晚还不睡"
+	wechatGoal := "和微信的_穆_聊5分钟"
+	if got := pickTurnContinueKind("已经发给他了。", "已经发给他了。", wechatOut, []string{"desktop.type"}, true, true, true, false, 0, wechatGoal, true); got != "desktop" {
+		t.Fatalf("wechat chat must keep going after the first send, got %q", got)
+	}
+	if got := pickTurnContinueKind("已经发给他了。", "已经发给他了。", wechatOut, []string{"desktop.type"}, true, true, true, false, 5, wechatGoal, true); got != "" {
+		t.Fatalf("wechat chat must stop at the minute cap, got %q", got)
+	}
+	if got := pickTurnContinueKind("已经发给他了。", "已经发给他了。", wechatOut, []string{"desktop.type"}, true, true, true, false, 6, "跟微信里的张三聊天，聊10分钟", true); got != "desktop" {
+		t.Fatalf("a 10 minute wechat chat must still continue at nudge 6, got %q", got)
+	}
+	if speech := wechatChatProgressSpeech(wechatGoal, []string{"desktop.type"}, []llmadapter.Message{{Role: llmadapter.RoleTool, Content: wechatOut}}); !strings.Contains(speech, "怎么这么晚还不睡") || strings.Contains(speech, "供应商拒绝了请求") {
+		t.Fatalf("wechat progress speech=%q", speech)
+	}
 	long := "合肥今天的天气我手头没有实时数据，没法给你准确温度。你要是不急，我可以帮你查一下，稍等。"
 	if got := pickTurnContinueKind("", long, "", nil, false, false, true, true, 0, "今天合肥的天气怎么样", true); got != "wait" {
 		t.Fatalf("long wait promise must continue, got %q", got)

@@ -146,4 +146,46 @@ it('paints a PPT page from the slide boxes instead of a form', () => {
   expect(stage.className).toContain('is-slide-stage');
   expect(stage).toHaveStyle({ background: '#0B1F3A' });
   expect(screen.getByRole('button', { name: '穆军' })).toHaveClass('os-slide-shape');
+  expect(screen.getByRole('button', { name: '穆军' })).toHaveStyle({ color: '#F8FAFC' });
+});
+
+it('paints a light content slide with its own ink and the header bar', () => {
+  const ppt: OfficeArtifact = { ...artifact, id: 'ppt', name: '汇报.pptx', kind: 'pptx' };
+  const preview: OfficePreview = {
+    versionId: 'v4',
+    kind: 'pptx',
+    content: '',
+    previewBasis: '结构预览',
+    pdfReady: false,
+    truncated: false,
+    nodes: [
+      { id: 't', label: 'ppt/slides/slide3.xml · t1', text: '经历', location: 'ppt/slides/slide3.xml', editable: true },
+      { id: 'b', label: 'ppt/slides/slide3.xml · t2', text: '航空ERP与MRO', location: 'ppt/slides/slide3.xml', editable: true },
+    ],
+    slides: [{
+      part: 'ppt/slides/slide3.xml',
+      fill: '#F4F6F8',
+      shapes: [
+        { fill: '0B1F3A', x: 0, y: 0, w: 100, h: 16 },
+        { text: '经历', color: 'FFFFFF', size: 2.4, bold: true, x: 6, y: 4, w: 80, h: 10 },
+        { text: '航空ERP与MRO', color: '1F2937', size: 1.8, x: 6, y: 24, w: 84, h: 40 },
+      ],
+    }],
+  };
+  render(
+    <OfficeArtifactViewer
+      api={api}
+      taskId="task"
+      artifact={ppt}
+      version={version}
+      preview={preview}
+      loading={false}
+      error=""
+      onSelectNode={vi.fn()}
+      onRetry={vi.fn()}
+    />,
+  );
+  const body = screen.getByRole('button', { name: '航空ERP与MRO' });
+  expect(body).toHaveStyle({ color: '#1F2937' });
+  expect(screen.getByRole('article').querySelector('.os-slide-fill')).toHaveStyle({ background: '#0B1F3A' });
 });

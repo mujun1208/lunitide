@@ -39,7 +39,12 @@ func (r *Runtime) executeIMSend(ctx context.Context, session string, args json.R
 	}
 	desktopApp, output, err := r.imSend(ctx, a.Channel, strings.TrimSpace(a.To), text)
 	if err != nil {
-		return Result{}, err
+		if app := desktopIMApp(a.Channel); app != "" && strings.TrimSpace(a.To) != "" && strings.Contains(err.Error(), "消息通道") {
+			desktopApp = app
+			output = "desktop:" + app
+		} else {
+			return Result{}, err
+		}
 	}
 	if desktopApp == "" {
 		return result(imSendOutput(output, a.Attachment)), nil
@@ -71,6 +76,17 @@ func (r *Runtime) executeIMSend(ctx context.Context, session string, args json.R
 		return Result{}, fmt.Errorf("无法执行：已打开客户端但没打进会话：%v", typeErr)
 	}
 	return result(imSendOutput(fmt.Sprintf("opened %s; %s", desktopApp, typed.Output), a.Attachment)), nil
+}
+
+func desktopIMApp(channel string) string {
+	switch strings.ToLower(strings.TrimSpace(channel)) {
+	case "wechat":
+		return "微信"
+	case "qq":
+		return "QQ"
+	default:
+		return ""
+	}
 }
 
 func imSendOutput(output, attachment string) string {

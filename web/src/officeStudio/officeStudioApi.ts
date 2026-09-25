@@ -74,6 +74,10 @@ export type OfficeStorageSweepReport = import('../generated/bridge').OfficeStora
 export type OfficeImageReplacement = import('../generated/bridge').OfficeArtifactReplaceImagePayload
 export interface OfficeSlideShape {
   text?: string
+  fill?: string
+  color?: string
+  size?: number
+  bold?: boolean
   x: number
   y: number
   w: number

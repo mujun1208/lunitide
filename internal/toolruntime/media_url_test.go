@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -56,6 +57,26 @@ func TestExecuteMediaPlayKeepsRealSearchURLIntact(t *testing.T) {
 	}
 	if opened != want {
 		t.Fatalf("opener saw %q; want the url unchanged: %q", opened, want)
+	}
+}
+
+func TestNamedSongSearchOpensNetease(t *testing.T) {
+	opened := ""
+	openMediaURL = func(u string) error {
+		opened = u
+		return nil
+	}
+	t.Cleanup(func() { openMediaURL = openHTTPURL })
+	const want = "https://music.163.com/#/search/m/?s=%E7%94%9F%E6%89%80%E7%88%B1"
+	out, err := executeMediaPlay(json.RawMessage(`{"action":"open","query":"生所爱","url":"`+want+`"}`), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened != want {
+		t.Fatalf("opener saw %q", opened)
+	}
+	if !strings.Contains(out.Output, "music.163.com") || strings.Contains(out.Output, "Night of the Living Dead") || strings.Contains(out.Output, "供应商拒绝了请求") {
+		t.Fatal(out.Output)
 	}
 }
 

@@ -4,6 +4,7 @@ import { officeQualityLabel } from './officePresentation';
 import { conceptPreviewLabel } from './officeQualityUi';
 import { OfficePDFViewer } from './OfficePDFViewer';
 import { officeNodeHeading, officePreviewPages, type OfficePreviewPage } from './officePreviewPages';
+import { OfficeSlideStage, slidePaintColor } from './slideStage';
 
 function slideCanvas(preview: OfficePreview | undefined, page: OfficePreviewPage) {
   const part = page.location || page.nodes.find((node) => node.location)?.location;
@@ -12,7 +13,18 @@ function slideCanvas(preview: OfficePreview | undefined, page: OfficePreviewPage
 }
 
 function slideShapes(preview: OfficePreview | undefined, page: OfficePreviewPage): OfficeSlideShape[] {
-  return (slideCanvas(preview, page)?.shapes ?? []).filter((shape) => (shape.text || '').trim());
+  return (slideCanvas(preview, page)?.shapes ?? []).filter((shape) => (shape.text || '').trim() || (shape.fill || '').trim());
+}
+
+function nodeForShape(page: OfficePreviewPage, shape: OfficeSlideShape) {
+  const text = (shape.text || '').trim();
+  if (!text) return page.nodes[0];
+  return (
+    page.nodes.find((node) => {
+      const nodeText = (node.text || '').trim();
+      return nodeText !== '' && (text.includes(nodeText) || nodeText.includes(text));
+    }) ?? page.nodes[0]
+  );
 }
 
 function slideFill(preview: OfficePreview | undefined, page: OfficePreviewPage): string {
@@ -133,25 +145,19 @@ export function OfficeArtifactViewer({
                     className={`os-paper ${slideShapes(preview, page).length > 0 ? 'is-slide-stage' : ''} ${page.nodes.some((node) => node.id === selectedNodeId) ? 'is-selected' : ''}`}
                     key={page.id}
                     id={`office-page-${page.id}`}
-                    style={slideFill(preview, page) ? { background: slideFill(preview, page) } : undefined}
+                    style={slideFill(preview, page) ? { background: slideFill(preview, page), color: slidePaintColor(slideFill(preview, page)) } : undefined}
                   >
                     <h3 className="os-page-heading">{page.label}</h3>
-                    {artifact.kind === 'pptx' && slideShapes(preview, page).length > 0
-                      ? slideShapes(preview, page).map((shape, index) => (
-                          <button
-                            key={`${page.id}-shape-${index}`}
-                            type="button"
-                            className={index === 0 ? 'os-slide-shape os-slide-title' : 'os-slide-shape os-slide-text'}
-                            style={{ left: `${shape.x}%`, top: `${shape.y}%`, width: `${shape.w}%`, height: `${shape.h}%` }}
-                            onClick={() => {
-                              const node = page.nodes[index] ?? page.nodes[0]
-                              if (node) onSelectNode(node)
-                            }}
-                          >
-                            {shape.text}
-                          </button>
-                        ))
-                      : artifact.kind === 'pptx'
+                    {artifact.kind === 'pptx' && slideShapes(preview, page).length > 0 ? (
+                      <OfficeSlideStage
+                        fill={slideFill(preview, page)}
+                        shapes={slideShapes(preview, page)}
+                        onSelectText={(shape) => {
+                          const node = nodeForShape(page, shape)
+                          if (node) onSelectNode(node)
+                        }}
+                      />
+                    ) : artifact.kind === 'pptx'
                       ? page.nodes.filter((node) => (node.text || '').trim() && node.text !== '此处没有可提取的文字。').map((node, index) => (
                           <div key={node.id} id={`office-node-${node.id}`}>
                             {node.valueType === 'image' && node.image ? (

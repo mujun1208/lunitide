@@ -10,7 +10,7 @@ import (
 // workspace, so they ride the workspace.write approval class.
 var officeGenTools = map[string]bool{
 	"office.generate": true, "office.patch": true, "office.range.patch": true, "office.image.replace": true, "office.chart.patch": true, "office.cache.refresh": true, "office.deliver": true,
-	"excel.gen": true, "docx.gen": true, "pptx.gen": true, "pdf.gen": true, "html.gen": true,
+	"excel.gen": true, "docx.gen": true, "pptx.gen": true, "pdf.gen": true, "html.gen": true, "canvas.present": true,
 }
 
 // ccToolChangesMachine folds computer control into the mutating gate. The

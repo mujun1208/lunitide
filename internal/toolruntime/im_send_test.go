@@ -76,6 +76,39 @@ func TestExecuteIMSendFailsWhenChannelRecipePaused(t *testing.T) {
 	}
 }
 
+func TestExecuteIMSendWeChatWhenChannelOffStillTypes(t *testing.T) {
+	origPick, origOpen, origType := imPickLaunch, imOpenApp, imTypeIntoChat
+	t.Cleanup(func() {
+		imPickLaunch, imOpenApp, imTypeIntoChat = origPick, origOpen, origType
+	})
+	var typed json.RawMessage
+	imPickLaunch = func(string) (string, []string, error) { return `C:\WeChat.exe`, nil, nil }
+	imOpenApp = func(string) error { return nil }
+	imTypeIntoChat = func(_ context.Context, _ ccInvoker, _ string, args json.RawMessage, _, _ bool) (Result, error) {
+		typed = append(json.RawMessage(nil), args...)
+		return Result{Output: `opened chat "张三" and sent "hi"`}, nil
+	}
+	r := &Runtime{}
+	r.SetIMSend(func(_ context.Context, kind, _, _ string) (string, string, error) {
+		if kind == "feishu" {
+			return "", "", errors.New("imapp: channel is off: 请先在设置 → 消息通道启用飞书")
+		}
+		return "", "", errors.New("imapp: channel is off: 请先在设置 → 消息通道启用微信")
+	})
+	feishu, _ := json.Marshal(map[string]any{"channel": "feishu", "text": "hi"})
+	if _, err := r.executeIMSend(context.Background(), "s1", feishu, true, true); err == nil || !strings.Contains(err.Error(), "消息通道") {
+		t.Fatalf("feishu off must still fail: %v", err)
+	}
+	desk, _ := json.Marshal(map[string]any{"channel": "wechat", "text": "hi", "to": "张三"})
+	got, err := r.executeIMSend(context.Background(), "s1", desk, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(typed), `"window":"微信"`) || !strings.Contains(string(typed), `"after":"张三"`) || !strings.Contains(got.Output, "opened chat") {
+		t.Fatalf("typed %s output %s", typed, got.Output)
+	}
+}
+
 func TestExecuteIMSendDesktopTypeFailureIsError(t *testing.T) {
 	origPick, origOpen, origType := imPickLaunch, imOpenApp, imTypeIntoChat
 	t.Cleanup(func() {

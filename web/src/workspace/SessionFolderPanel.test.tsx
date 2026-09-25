@@ -52,3 +52,19 @@ it('lists directories and files, then previews a file in the workspace instead o
   await waitFor(() => expect(onPreview).toHaveBeenCalledWith({ path: '周报/周报_2026-W37.md', content: '# 本周进展', size: 12 }))
   expect(sessionFolderBridge.open).not.toHaveBeenCalled()
 })
+
+it('keeps the interactive preview address so an HTML page can run', async () => {
+  const { sessionFolderBridge } = await import('../bridge/client')
+  vi.mocked(sessionFolderBridge.get).mockResolvedValue({ path: 'E:/sessions/demo' })
+  vi.mocked(sessionFolderBridge.list).mockResolvedValue({
+    items: [{ name: 'index.html', path: 'poc/it-crm/index.html', directory: false }],
+  })
+  const interactiveUrl = 'https://preview.lunitide.local/p/ticket0000000000000001/index.html'
+  vi.mocked(artifactReviewBridge.preview).mockResolvedValue({
+    kind: 'html', path: 'poc/it-crm/index.html', content: '<nav id="nav"></nav><script>document.querySelector("#nav").textContent="仪表盘"</script>', size: 80, interactiveUrl,
+  })
+  const onPreview = vi.fn()
+  render(<SessionFolderPanel sessionId="01ARZ3NDEKTSV4RRFFQ69G5FAV" onPreview={onPreview} />)
+  fireEvent.click(await screen.findByRole('treeitem', { name: /index.html/ }))
+  await waitFor(() => expect(onPreview).toHaveBeenCalledWith(expect.objectContaining({ path: 'poc/it-crm/index.html', interactiveUrl })))
+})

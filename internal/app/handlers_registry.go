@@ -149,6 +149,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodBrPermissionPolicy:                 handleBrPermissionPolicy,
 	bridge.MethodCcGetConfig:                        handleCcGetConfig,
 	bridge.MethodCcUpdateConfig:                     handleCcUpdateConfig,
+	bridge.Method("code.workspace"):                 handleCodeWorkspace,
 	bridge.MethodCcGetAuditLog:                      handleCcGetAuditLog,
 	bridge.MethodCcEmergencyStop:                    handleCcEmergencyStop,
 	bridge.MethodImChannelsGet:                      handleImChannelsGet,

@@ -77,6 +77,8 @@ type executionTestHost struct {
 	focusProcess string
 	windowList   func() ([]WindowInfo, error)
 	holdKey      func(string, bool) error
+	focusRole    string
+	focusKnown   bool
 }
 
 func (h *executionTestHost) Available() bool {
@@ -115,6 +117,9 @@ func (h *executionTestHost) KeyboardShortcut([]string) error {
 		h.write()
 	}
 	return nil
+}
+func (h *executionTestHost) FocusedRole() (string, bool) {
+	return h.focusRole, h.focusKnown
 }
 func (h *executionTestHost) ScreenCapture() ([]byte, error) {
 	return nil, errors.New("fake skips verification capture")
@@ -305,6 +310,34 @@ func TestExecutionRechecksForegroundAfterFocus(t *testing.T) {
 		t.Fatalf("writes=%d err=%v", h.writes.Load(), err)
 	}
 }
+func TestPasteRefreshesFocusBeforeRefusing(t *testing.T) {
+	s, _, h := executionTestService(t)
+	h.focusRole = "button"
+	h.focusKnown = true
+	_, err := s.ExecuteTool(context.Background(), "test", ToolPaste, []byte(`{"text":"你好"}`), true)
+	if !errors.Is(err, ErrCcInputFiltered) || h.writes.Load() != 0 {
+		t.Fatalf("button focus must refuse: writes=%d err=%v", h.writes.Load(), err)
+	}
+	h.focusRole = "edit"
+	_, err = s.ExecuteTool(context.Background(), "test", ToolPaste, []byte(`{"text":"你好"}`), true)
+	if errors.Is(err, ErrCcInputFiltered) || h.writes.Load() == 0 {
+		t.Fatalf("edit focus must paste: writes=%d err=%v", h.writes.Load(), err)
+	}
+	h.focusRole = "button"
+	s.rememberHits([]UINode{{ID: "E1", Role: "group", Name: "发消息", X: 400, Y: 640, W: 480, H: 36}})
+	s.noteClickTarget("发送", 0, 0, false)
+	_, err = s.ExecuteTool(context.Background(), "test", ToolPaste, []byte(`{"text":"你好"}`), true)
+	if !errors.Is(err, ErrCcInputFiltered) {
+		t.Fatalf("a send-button click must not arm typing: %v", err)
+	}
+	before := h.writes.Load()
+	s.noteClickTarget("发消息", 0, 0, false)
+	_, err = s.ExecuteTool(context.Background(), "test", ToolPaste, []byte(`{"text":"你好"}`), true)
+	if errors.Is(err, ErrCcInputFiltered) || h.writes.Load() <= before {
+		t.Fatalf("clicked composer must paste: writes=%d err=%v", h.writes.Load(), err)
+	}
+}
+
 func TestExecutionRejectsUnknownTargetProcess(t *testing.T) {
 	s, _, h := executionTestService(t)
 	h.windowList = func() ([]WindowInfo, error) { return nil, errors.New("access denied") }

@@ -164,6 +164,7 @@ type Engine struct {
 	adapterCacheMu     sync.Mutex
 	adapterCache       map[string]llmadapter.Adapter
 	browserLastURL     sync.Map
+	searchFirstHit     sync.Map
 	browserEndpoint    atomic.Value
 	lastBrowserSnap    atomic.Value
 	meetingNotesModel  atomic.Value
@@ -190,6 +191,9 @@ type Engine struct {
 	conversations      *conversationsapp.Store
 	terminals          *terminalruntime.Runtime
 	terminalsMu        sync.Mutex
+	codeNotes          *codeDiagnosticState
+	codeHostMu         sync.Mutex
+	codeHost           *codeHostRuntime
 	terminalOwners     map[string]*terminalOwner
 	coordinator        *agentorchestration.Coordinator
 	agentRuns          *agentrunapp.Service

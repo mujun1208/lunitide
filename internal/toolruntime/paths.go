@@ -61,6 +61,9 @@ func (r *Runtime) sessionArtifactFile(session, relPath string) (string, error) {
 // Full-access rides the user-selected workspace root when one resolves;
 // everything else (and any resolver failure) keeps the per-session sandbox.
 func (r *Runtime) effectiveRoot(mode Mode, session string) (string, error) {
+	if root, ok := r.sessionCodeRoot(session); ok {
+		return root, nil
+	}
 	if r.projectRoot != nil {
 		if root, err := r.projectRoot(session); err == nil && root != "" {
 			if pinned, ok := pinExistingDir(root); ok {
@@ -106,6 +109,14 @@ func (r *Runtime) FullAccessRootHint() (string, bool) {
 	}
 	return pinExistingDir(root)
 }
+func pathInside(root, target string) bool {
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
 func (r *Runtime) sessionPath(session string) (string, error) {
 	if len(session) != 26 || strings.ContainsAny(session, "/\\") {
 		return "", errors.New("invalid session")
@@ -137,6 +148,9 @@ func (r *Runtime) path(mode Mode, session, rel string, write, unconfined bool) (
 			return "", errors.New("invalid path")
 		}
 		if write {
+			if root, ok := r.sessionCodeRoot(session); ok && !pathInside(root, clean) {
+				return "", errors.New("只能改当前打开的代码目录")
+			}
 			if err := os.MkdirAll(filepath.Dir(clean), 0700); err != nil {
 				return "", err
 			}

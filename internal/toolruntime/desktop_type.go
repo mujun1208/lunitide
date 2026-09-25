@@ -10,7 +10,15 @@ import (
 	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/ccapp"
+	"github.com/lunitide/lunitide/internal/doctext"
 )
+
+func typingFocusMissed(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, ccapp.ErrCcInputFiltered) || strings.Contains(err.Error(), "input rejected") || strings.Contains(err.Error(), "焦点不在输入框")
+}
 
 func isSendControlName(name string) bool {
 	if isWindowCloseControlName(name) {
@@ -246,12 +254,139 @@ func verifyDesktopTyped(ctx context.Context, invoke ccInvoker, session string, a
 	return fmt.Errorf("无法执行：写完后界面上看不到「%s」，不能确认已写入", text)
 }
 
+func chatSearchWindow(window string) bool {
+	switch strings.ToLower(strings.TrimSpace(window)) {
+	case "微信", "wechat", "weixin":
+		return true
+	}
+	return false
+}
+
+// sendChatBySearch follows the desktop WeChat sequence: Ctrl+F, paste the
+// contact name, Enter to open that chat, paste the message, Enter to send.
+// The following observe text is returned so the next step can read what is
+// already on screen.
+func sendChatBySearch(ctx context.Context, invoke ccInvoker, session, window, contact, text string, submit, approved bool) (Result, error) {
+	if err := ccShortcut(ctx, invoke, session, approved, "ctrl", "f"); err != nil {
+		return Result{}, fmt.Errorf("无法执行：没能打开%s的搜索", window)
+	}
+	mediaSleep(200 * time.Millisecond)
+	if err := ccType(ctx, invoke, session, contact, approved); err != nil {
+		return Result{}, fmt.Errorf("无法执行：没能搜索「%s」", contact)
+	}
+	mediaSleep(350 * time.Millisecond)
+	if err := ccPress(ctx, invoke, session, "enter", approved); err != nil {
+		return Result{}, fmt.Errorf("无法执行：没能打开和「%s」的会话", contact)
+	}
+	mediaSleep(450 * time.Millisecond)
+	if err := ccType(ctx, invoke, session, text, approved); err != nil {
+		return Result{}, fmt.Errorf("无法执行：没能在和「%s」的会话里输入", contact)
+	}
+	if submit {
+		mediaSleep(150 * time.Millisecond)
+		if err := ccPress(ctx, invoke, session, "enter", approved); err != nil {
+			return Result{}, fmt.Errorf("无法执行：字已写入，没能发送")
+		}
+	}
+	mediaSleep(250 * time.Millisecond)
+	nodes, _, _ := ccObserveNodes(ctx, invoke, session, approved)
+	seen := visibleChatLines(nodes, 12)
+	shot, shotMIME, shotData := chatWindowShot(ctx, invoke, session, window, approved)
+	if shot != "" && !strings.Contains(seen, shot) {
+		if seen != "" {
+			seen += "\n"
+		}
+		seen += shot
+	}
+	how := fmt.Sprintf("opened chat %q and typed %q", contact, text)
+	if submit {
+		how = fmt.Sprintf("opened chat %q and sent %q", contact, text)
+	}
+	if seen != "" {
+		how += "\nvisible:\n" + seen
+	}
+	how += "\n对方已经显示在屏幕上的内容在 visible 里。根据这些内容继续回复，直到这一轮聊天结束。同名联系人用搜索后的第一个。"
+	out := result(appendL0JSON(how, "chat", true, false, contact))
+	out.VisionMIME = shotMIME
+	out.VisionData = shotData
+	return out, nil
+}
+
+var readChatImage = func(ctx context.Context, png []byte) (string, error) {
+	got, err := doctext.ExtractImageOCR(ctx, png)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	for _, page := range got.Pages {
+		line := strings.TrimSpace(page.Text)
+		if line == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(line)
+	}
+	return b.String(), nil
+}
+
+func chatWindowShot(ctx context.Context, invoke ccInvoker, session, window string, approved bool) (string, string, []byte) {
+	res, err := ccCall(ctx, invoke, session, ccapp.ToolScreenCapture, map[string]any{"target": "window", "title": window}, approved)
+	if err != nil || len(res.VisionData) == 0 {
+		return "", "", nil
+	}
+	text, err := readChatImage(ctx, res.VisionData)
+	if err != nil {
+		text = ""
+	}
+	mime := res.VisionMIME
+	if mime == "" {
+		mime = "image/png"
+	}
+	return strings.TrimSpace(text), mime, res.VisionData
+}
+
+func composerSendsOnEnter(window string) bool {
+	switch strings.ToLower(strings.TrimSpace(window)) {
+	case "豆包", "doubao":
+		return true
+	}
+	return false
+}
+
+func visibleChatLines(nodes []mediaUINode, limit int) string {
+	if limit < 1 {
+		limit = 1
+	}
+	var lines []string
+	seen := map[string]bool{}
+	for _, n := range nodes {
+		for _, raw := range []string{n.Value, n.Name} {
+			line := strings.TrimSpace(raw)
+			if line == "" || seen[line] || utf8.RuneCountInString(line) < 2 {
+				continue
+			}
+			if isWindowCloseControlName(line) {
+				continue
+			}
+			seen[line] = true
+			lines = append(lines, line)
+			if len(lines) >= limit {
+				return strings.Join(lines, "\n")
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 func executeDesktopType(ctx context.Context, invoke ccInvoker, session string, args json.RawMessage, approved, unconfined bool) (Result, error) {
 	var a struct {
 		Text   string `json:"text"`
 		Window string `json:"window"`
 		After  string `json:"after"`
 		Submit bool   `json:"submit"`
+		Save   bool   `json:"save"`
 	}
 	if strict(args, &a) != nil {
 		return Result{}, errors.New("无法执行：参数无效")
@@ -276,6 +411,10 @@ func executeDesktopType(ctx context.Context, invoke ccInvoker, session string, a
 			return Result{}, fmt.Errorf("无法执行：没能聚焦窗口「%s」", window)
 		}
 		mediaSleep(280 * time.Millisecond)
+	}
+
+	if after != "" && chatSearchWindow(window) {
+		return sendChatBySearch(ctx, invoke, session, window, after, text, a.Submit, approved)
 	}
 
 	if after != "" {
@@ -322,19 +461,49 @@ func executeDesktopType(ctx context.Context, invoke ccInvoker, session string, a
 		}
 	} else {
 		nodes, _, _ := ccObserveNodes(ctx, invoke, session, approved)
-		if field := pickComposerField(nodes); field != nil {
+		field := pickComposerField(nodes)
+		if field != nil {
 			_ = ccClickName(ctx, invoke, session, clipMediaName(field.Name), 1, approved)
-			mediaSleep(80 * time.Millisecond)
+			mediaSleep(120 * time.Millisecond)
 		}
 		if err := ccType(ctx, invoke, session, text, approved); err != nil {
-			if errors.Is(err, ccapp.ErrCcInputFiltered) || strings.Contains(err.Error(), "input rejected") || strings.Contains(err.Error(), "焦点不在输入框") {
-				return Result{}, fmt.Errorf("无法执行：焦点不在输入框。请先点开发消息框，再输入「%s」", text)
+			if field != nil && typingFocusMissed(err) {
+				x := field.X + field.W/2
+				y := field.Y + field.H/2
+				if x < 1 {
+					x = field.X + 8
+				}
+				if y < 1 {
+					y = field.Y + 8
+				}
+				if ccClickXY(ctx, invoke, session, x, y, 1, approved) == nil {
+					mediaSleep(120 * time.Millisecond)
+					err = ccType(ctx, invoke, session, text, approved)
+				}
 			}
-			return Result{}, fmt.Errorf("无法执行：无法输入文字（%v）", err)
+			if err != nil {
+				if typingFocusMissed(err) {
+					return Result{}, fmt.Errorf("无法执行：焦点不在输入框。请先点开输入框，再输入「%s」", text)
+				}
+				return Result{}, fmt.Errorf("无法执行：无法输入文字（%v）", err)
+			}
 		}
 	}
 
-	if a.Submit {
+	saved := false
+	if a.Save && !chatSearchWindow(window) {
+		if err := ccShortcut(ctx, invoke, session, approved, "ctrl", "s"); err != nil {
+			return Result{}, fmt.Errorf("无法执行：字已写入，没能保存")
+		}
+		saved = true
+	}
+
+	if a.Submit && composerSendsOnEnter(window) {
+		mediaSleep(120 * time.Millisecond)
+		if err := ccPress(ctx, invoke, session, "enter", approved); err != nil {
+			return Result{}, fmt.Errorf("无法执行：已输入但没能发送（%v）", err)
+		}
+	} else if a.Submit {
 		mediaSleep(120 * time.Millisecond)
 		nodes, _, _ := ccObserveNodes(ctx, invoke, session, approved)
 		if send := pickSendControl(nodes); send != nil {
@@ -354,6 +523,9 @@ func executeDesktopType(ctx context.Context, invoke ccInvoker, session string, a
 	}
 	if a.Submit {
 		how += " and submitted"
+	}
+	if saved {
+		how += " and saved"
 	}
 	if window != "" {
 		how += " in " + window

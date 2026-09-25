@@ -89,6 +89,125 @@ func TestMusicTurnDoesNotStreamUnverifiedPlaybackClaims(t *testing.T) {
 	}
 }
 
+func TestNamedPlaySkipsARejectedModel(t *testing.T) {
+	for _, goal := range []string{"帮我播放一首生所爱", "播放一部周星驰的电影，九品芝麻官"} {
+		t.Run(goal, func(t *testing.T) {
+			e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+			runtime, err := toolruntime.New(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { runtime.Close() })
+			e.SetToolRuntime(runtime)
+			modelCalls := 0
+			var played string
+			e.toolExecHook = func(_ context.Context, _ executionMode, _, name string, args json.RawMessage) (toolruntime.Result, error) {
+				if name != "media.play" {
+					t.Fatalf("tool %s", name)
+				}
+				played = string(args)
+				if strings.Contains(goal, "电影") {
+					return toolruntime.Result{Output: "已打开爱奇艺和优酷的官方搜索。\nurl: https://www.iqiyi.com/so/q_%E4%B9%9D%E5%93%81%E8%8A%9D%E9%BA%BB%E5%AE%98\nurl: https://so.youku.com/search_video/q_%E4%B9%9D%E5%93%81%E8%8A%9D%E9%BA%BB%E5%AE%98\n"}, nil
+				}
+				return toolruntime.Result{Output: "opened https://music.163.com/#/search/m/?s=%E7%94%9F%E6%89%80%E7%88%B1"}, nil
+			}
+			adapter := &routedExecutionAdapter{stream: func(llmadapter.Request) (llmadapter.Response, error) {
+				modelCalls++
+				return llmadapter.Response{}, &llmadapter.Error{Code: "HTTP_400", Stage: llmadapter.StageHTTP, HTTPStatus: 400, Message: "rejected"}
+			}}
+			frames := runRoutedExecution(t, e, goal, adapter)
+			var spoken strings.Builder
+			for _, frame := range frames {
+				if frame.Delta != nil {
+					spoken.WriteString(frame.Delta.Text)
+				}
+				if frame.Error != nil && strings.Contains(frame.Error.Message, "供应商拒绝了请求") {
+					t.Fatalf("provider rejection reached the user: %+v", frame.Error)
+				}
+			}
+			if modelCalls != 0 {
+				t.Fatalf("model calls=%d speech=%s", modelCalls, spoken.String())
+			}
+			if strings.Contains(spoken.String(), "供应商拒绝了请求") || strings.Contains(played, "Night of the Living Dead") {
+				t.Fatalf("speech=%s played=%s", spoken.String(), played)
+			}
+			if strings.Contains(goal, "电影") {
+				if !strings.Contains(spoken.String(), "已打开爱奇艺和优酷的官方搜索") || !strings.Contains(played, "九品芝麻官") && !strings.Contains(played, `\u4e5d\u54c1\u829d\u9ebb\u5b98`) {
+					t.Fatalf("speech=%s played=%s", spoken.String(), played)
+				}
+				return
+			}
+			if !strings.Contains(spoken.String(), namedSongSpeech) || !strings.Contains(played, "music.163.com") || !strings.Contains(played, "%E7%94%9F%E6%89%80%E7%88%B1") {
+				t.Fatalf("speech=%s played=%s", spoken.String(), played)
+			}
+		})
+	}
+}
+
+func TestChatBoxDesktopActionsDoNotWaitOnARejectedModel(t *testing.T) {
+	cases := []struct {
+		goal   string
+		speech string
+		want   string
+	}{
+		{"在这个桌面这个豆包的输入对话框当中输入你好然后发送", "已在豆包的输入框写好并发送。", `"window":"豆包"`},
+		{"打开桌面上的协议，在证件号码后面写204040，然后保存", documentSavedSpeech, `"save":true`},
+		{"和微信的_穆_聊5分钟", "怎么这么晚还不睡", `"after":"_穆_"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.goal, func(t *testing.T) {
+			e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+			runtime, err := toolruntime.New(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { runtime.Close() })
+			e.SetToolRuntime(runtime)
+			var called []string
+			e.toolExecHook = func(_ context.Context, _ executionMode, _, name string, args json.RawMessage) (toolruntime.Result, error) {
+				called = append(called, name+":"+string(args))
+				switch name {
+				case "desktop.open":
+					return toolruntime.Result{Output: "opened 协议"}, nil
+				case "desktop.type":
+					if strings.Contains(tc.goal, "微信") {
+						return toolruntime.Result{Output: "opened chat \"_穆_\" and sent \"你好\"\nvisible:\n怎么这么晚还不睡"}, nil
+					}
+					if strings.Contains(tc.goal, "豆包") {
+						return toolruntime.Result{Output: `typed "你好" and submitted in 豆包`}, nil
+					}
+					return toolruntime.Result{Output: `typed "204040" after "证件号码" and saved`}, nil
+				default:
+					t.Fatalf("tool %s", name)
+					return toolruntime.Result{}, nil
+				}
+			}
+			modelCalls := 0
+			adapter := &routedExecutionAdapter{stream: func(llmadapter.Request) (llmadapter.Response, error) {
+				modelCalls++
+				return llmadapter.Response{}, &llmadapter.Error{Code: "HTTP_400", Stage: llmadapter.StageHTTP, HTTPStatus: 400, Message: "rejected"}
+			}}
+			frames := runRoutedExecution(t, e, tc.goal, adapter)
+			var spoken strings.Builder
+			for _, frame := range frames {
+				if frame.Delta != nil {
+					spoken.WriteString(frame.Delta.Text)
+				}
+				if frame.Error != nil && strings.Contains(frame.Error.Message, "供应商拒绝了请求") {
+					t.Fatalf("provider rejection reached the user: %+v", frame.Error)
+				}
+			}
+			joined := strings.Join(called, "\n")
+			if !strings.Contains(spoken.String(), tc.speech) || !strings.Contains(joined, tc.want) || strings.Contains(spoken.String(), "供应商拒绝了请求") {
+				t.Fatalf("speech=%s called=%s model=%d", spoken.String(), joined, modelCalls)
+			}
+			if !strings.Contains(tc.goal, "微信") && modelCalls != 0 {
+				t.Fatalf("model calls=%d speech=%s", modelCalls, spoken.String())
+			}
+		})
+	}
+}
+
 func TestTypedVideoRequestExecutesPublicReaderAndReturnsActualEvidence(t *testing.T) {
 	for _, tc := range []struct {
 		name, source, evidence string

@@ -10,9 +10,11 @@ import (
 	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/contextapp"
+	"github.com/lunitide/lunitide/internal/doctext"
 	"github.com/lunitide/lunitide/internal/domain/attachment"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/llmadapter"
+	"github.com/lunitide/lunitide/internal/ocrapp"
 )
 
 const visionCatalogProviderID = "01ARZ3NDEKTSV4RRFFQ69G5FBA"
@@ -107,7 +109,7 @@ func TestChatStartVisionFallbackWhenLLMLacksVision(t *testing.T) {
 	for _, message := range req.Messages {
 		combined.WriteString(message.Content)
 	}
-	if !strings.Contains(combined.String(), "OCR LINE from catalog") || !strings.Contains(combined.String(), "[视觉模型识别]") {
+	if !strings.Contains(combined.String(), "OCR LINE from catalog") || !strings.Contains(combined.String(), "[本机文字识别]") {
 		t.Fatalf("vision description missing: %q", combined.String())
 	}
 }
@@ -178,6 +180,102 @@ func TestThinkingParameterRejected(t *testing.T) {
 	}
 	if thinkingParameterRejected("missing tool_call_id") {
 		t.Fatal("tool errors are not thinking rejections")
+	}
+}
+
+func TestChatStartPictureWithoutTextReachesTheModelAsADescription(t *testing.T) {
+	data := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1}
+	digest := sha256.Sum256(data)
+	image := attachment.Attachment{
+		ID: chatAttachmentID, ProjectID: chatAttachmentProjectID, SessionID: chatAttachmentSessionID,
+		FileRef: "selected-image", OriginalName: "cat.png", MIME: "image/png", Size: int64(len(data)),
+		SHA256: hex.EncodeToString(digest[:]), ParseStatus: attachment.StatusFailed,
+	}
+	store := &chatAttachmentStore{byID: map[string]*attachment.Attachment{image.ID: &image}}
+	requests := make(chan llmadapter.Request, 1)
+	e := NewEngineWithContextReader(visionCatalogProvider{supportsVision: false}, nil, nil, nil, chatAttachmentReader{}, nil, "test", streamTestLease{})
+	e.SetAttachmentService(attachmentapp.NewService(store, chatAttachmentFiles{image.FileRef: data}))
+	ocr := ocrapp.New(ocrapp.NewFileStore(t.TempDir() + "/ocr-routing.json"))
+	ocr.SetLocalImage(func(context.Context, []byte) (doctext.PDFOCRResult, error) {
+		return doctext.PDFOCRResult{Method: "windows-ocr", Pages: []doctext.OCRPage{{Page: 1, Text: ""}}}, nil
+	})
+	e.SetOCR(ocr)
+	e.SetAdapterFactoryForTest(func(_ context.Context, p provider.Provider) (llmadapter.Adapter, error) {
+		if p.ID == visionCatalogProviderID {
+			return sceneVisionAdapter{}, nil
+		}
+		return visionFallbackAdapter{id: p.ID, requests: requests}, nil
+	})
+	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","sessionId":"` + chatAttachmentSessionID + `","messages":[{"role":"user","content":"这张图是什么"}],"contextRefs":[{"type":"attachment","id":"` + image.ID + `"}]}`
+	response := e.HandleStreaming(context.Background(), validRequest("chat.start", payload), func(bridge.Event) error { return nil })
+	if !response.OK {
+		t.Fatalf("chat.start failed: %#v", response)
+	}
+	req := capturedChatRequest(t, requests)
+	if len(req.Images) != 0 {
+		t.Fatal("a picture without text must be described in words for a model that cannot see pixels")
+	}
+	var combined strings.Builder
+	for _, message := range req.Messages {
+		combined.WriteString(message.Content)
+	}
+	if !strings.Contains(combined.String(), "一只橙色的猫") {
+		t.Fatal(combined.String())
+	}
+}
+
+type sceneVisionAdapter struct{}
+
+func (sceneVisionAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "一只橙色的猫"}, FinishReason: "stop"}, nil
+}
+func (sceneVisionAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, nil
+}
+func (sceneVisionAdapter) Stream(context.Context, []byte, llmadapter.Request, func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	return llmadapter.Response{}, nil
+}
+
+func TestChatStartLocalOCRAnswersBeforeVisionPixels(t *testing.T) {
+	data := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1}
+	digest := sha256.Sum256(data)
+	image := attachment.Attachment{
+		ID: chatAttachmentID, ProjectID: chatAttachmentProjectID, SessionID: chatAttachmentSessionID,
+		FileRef: "selected-image", OriginalName: "shot.png", MIME: "image/png", Size: int64(len(data)),
+		SHA256: hex.EncodeToString(digest[:]), ParseStatus: attachment.StatusFailed,
+	}
+	store := &chatAttachmentStore{byID: map[string]*attachment.Attachment{image.ID: &image}}
+	requests := make(chan llmadapter.Request, 1)
+	e := NewEngineWithContextReader(visionCatalogProvider{supportsVision: true}, nil, nil, nil, chatAttachmentReader{}, nil, "test", streamTestLease{})
+	e.SetAttachmentService(attachmentapp.NewService(store, chatAttachmentFiles{image.FileRef: data}))
+	ocr := ocrapp.New(ocrapp.NewFileStore(t.TempDir() + "/ocr-routing.json"))
+	ocr.SetLocalImage(func(context.Context, []byte) (doctext.PDFOCRResult, error) {
+		return doctext.PDFOCRResult{Method: "windows-ocr", Pages: []doctext.OCRPage{{Page: 1, Text: "九品芝麻官 周星驰"}}}, nil
+	})
+	e.SetOCR(ocr)
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
+		return visionFallbackAdapter{requests: requests}, nil
+	})
+	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","sessionId":"` + chatAttachmentSessionID + `","messages":[{"role":"user","content":"能不能看到我截图的文档都是什么内容"}],"contextRefs":[{"type":"attachment","id":"` + image.ID + `"}]}`
+	response := e.HandleStreaming(context.Background(), validRequest("chat.start", payload), func(bridge.Event) error { return nil })
+	if !response.OK {
+		t.Fatalf("image question aborted: %#v", response)
+	}
+	req := <-requests
+	if len(req.Images) != 0 {
+		t.Fatal("local OCR should replace pixels")
+	}
+	var combined strings.Builder
+	for _, message := range req.Messages {
+		combined.WriteString(message.Content)
+	}
+	if !strings.Contains(combined.String(), "九品芝麻官") || !strings.Contains(combined.String(), "[本机文字识别]") {
+		t.Fatal(combined.String())
+	}
+	for _, tool := range req.Tools {
+		if tool.Name == "command.run" || tool.Name == "system.run" || tool.Name == "computer.act" {
+			t.Fatal(tool.Name)
+		}
 	}
 }
 

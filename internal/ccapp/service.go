@@ -175,6 +175,7 @@ type Service struct {
 	observedCount                        int
 	focusRole                            string
 	focusKnown                           bool
+	composerArmed                        bool
 	allowGUIPixels                       bool
 	mutateSettle                         time.Duration
 	lastMu                               sync.Mutex
@@ -293,6 +294,74 @@ func (s *Service) noteTypingFocus(role string, known bool) {
 	s.capMu.Lock()
 	s.focusRole, s.focusKnown = role, known
 	s.capMu.Unlock()
+}
+
+func composerNode(n UINode) bool {
+	if focusRoleAllowsType(n.Role) {
+		return true
+	}
+	name := strings.ToLower(strings.TrimSpace(n.Name))
+	return strings.Contains(name, "发消息") || strings.Contains(name, "输入消息") || strings.Contains(name, "输入框")
+}
+
+func pointInNode(x, y int, n UINode) bool {
+	if n.W <= 0 || n.H <= 0 {
+		return false
+	}
+	return x >= n.X && y >= n.Y && x < n.X+n.W && y < n.Y+n.H
+}
+
+func (s *Service) setComposerArmed(armed bool) {
+	if s == nil {
+		return
+	}
+	s.capMu.Lock()
+	s.composerArmed = armed
+	s.capMu.Unlock()
+}
+
+func (s *Service) typingArmed() bool {
+	if s == nil {
+		return false
+	}
+	s.capMu.Lock()
+	defer s.capMu.Unlock()
+	return s.composerArmed
+}
+
+func (s *Service) clearComposerArmed() {
+	s.setComposerArmed(false)
+}
+
+// noteClickTarget arms one following type when the click landed on a text
+// field. A button click clears that arm so text cannot follow an arbitrary click.
+func (s *Service) noteClickTarget(name string, x, y int, hasPoint bool) {
+	if s == nil {
+		return
+	}
+	s.capMu.Lock()
+	nodes := append([]UINode(nil), s.lastObserve...)
+	s.capMu.Unlock()
+	name = strings.TrimSpace(name)
+	if name != "" {
+		for _, n := range nodes {
+			if strings.EqualFold(strings.TrimSpace(n.Name), name) {
+				s.setComposerArmed(composerNode(n))
+				return
+			}
+		}
+		s.setComposerArmed(composerNode(UINode{Name: name}))
+		return
+	}
+	if hasPoint {
+		for _, n := range nodes {
+			if pointInNode(x, y, n) && composerNode(n) {
+				s.setComposerArmed(true)
+				return
+			}
+		}
+	}
+	s.setComposerArmed(false)
 }
 
 type focusProbe interface {

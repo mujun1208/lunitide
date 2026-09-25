@@ -473,12 +473,32 @@ func firstLocalImageText(got doctext.PDFOCRResult) string {
 	return b.String()
 }
 
+func ocrReportsNoText(text string) bool {
+	raw := strings.TrimSpace(text)
+	if raw == "" {
+		return true
+	}
+	if len([]rune(raw)) > 80 {
+		return false
+	}
+	t := strings.ToLower(raw)
+	for _, phrase := range []string{
+		"no text", "no visible text", "there is no text", "without text", "not contain text",
+		"没有文字", "没有可见文字", "无可见文字", "未识别到文字", "看不到文字", "没有字", "无文字",
+	} {
+		if strings.Contains(t, phrase) || strings.Contains(raw, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) RecognizeImage(ctx context.Context, raw []byte) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
 	text, err := s.tryProvider(ctx, raw, "image-ocr")
-	if err == nil {
+	if err == nil && !ocrReportsNoText(text) {
 		return Result{Text: text, Method: "provider-ocr", Source: SourceProvider, Complete: true, Uncertain: true}, nil
 	}
 	if ctx.Err() != nil {
@@ -509,7 +529,11 @@ func (s *Service) RecognizeImage(ctx context.Context, raw []byte) (Result, error
 	if pages == 0 {
 		pages = 1
 	}
-	return Result{Text: b.String(), Method: method, Source: SourceLocal, Pages: pages, Complete: true, Uncertain: true}, nil
+	text = b.String()
+	if ocrReportsNoText(text) {
+		text = ""
+	}
+	return Result{Text: text, Method: method, Source: SourceLocal, Pages: pages, Complete: true, Uncertain: true}, nil
 }
 
 func (s *Service) ReadDocument(ctx context.Context, name string, raw []byte, media string) (text, kind, method string, pages int, err error) {

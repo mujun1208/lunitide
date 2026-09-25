@@ -17,8 +17,9 @@ import (
 )
 
 type companionArchiveState struct {
-	store compactionapp.CompanionArchiveStore
-	mu    sync.Mutex
+	store     compactionapp.CompanionArchiveStore
+	mu        sync.Mutex
+	skipUntil sync.Map
 }
 
 func (e *Engine) SetCompanionArchiveStore(store compactionapp.CompanionArchiveStore) {
@@ -75,6 +76,15 @@ func (e *Engine) RunCompanionArchives(ctx context.Context, now time.Time) error 
 		}
 		progress := false
 		for _, week := range weeks {
+			key := week.SessionID + "|" + week.Start.UTC().Format(time.RFC3339)
+			// A failed week stays quiet for six hours in this process so the
+			// hourly sweep does not rewrite the same error. A new process
+			// retries immediately because skipUntil is not durable.
+			if until, ok := a.skipUntil.Load(key); ok {
+				if t, _ := until.(time.Time); now.Before(t) {
+					continue
+				}
+			}
 			raw, _ := json.Marshal(map[string]string{"sessionId": week.SessionID})
 			release, scopeErr := e.authorizeDataRequest(ctx, "session.get", raw)
 			if scopeErr != nil {
@@ -83,6 +93,7 @@ func (e *Engine) RunCompanionArchives(ctx context.Context, now time.Time) error 
 			completed, runErr := e.archiveCompanionWeek(ctx, week, providerID, modelID)
 			release()
 			if runErr != nil {
+				a.skipUntil.Store(key, now.Add(6*time.Hour))
 				return runErr
 			}
 			progress = progress || completed
@@ -104,7 +115,11 @@ func (e *Engine) archiveCompanionWeek(ctx context.Context, week compactionapp.Co
 		return false, err
 	}
 	if result.Status != compaction.StatusSucceeded {
-		return false, fmt.Errorf("weekly companion archive did not complete: %s", result.Status)
+		code := ""
+		if result.FailureCode != nil && *result.FailureCode != "" {
+			code = " " + *result.FailureCode
+		}
+		return false, fmt.Errorf("weekly companion archive did not complete: %s%s", result.Status, code)
 	}
 	// A weekly memory is complete when its validated summary is durable. It
 	// is retrieved on demand, never installed as the active conversation context.

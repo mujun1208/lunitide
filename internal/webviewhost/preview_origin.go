@@ -179,12 +179,15 @@ func PreviewDeniedHeaders() string {
 	return PreviewResponseHeaders("text/plain; charset=utf-8")
 }
 
+const previewBootScript = `<script data-lunitide-boot>(function(){var mem={};var api={getItem:function(k){return Object.prototype.hasOwnProperty.call(mem,k)?mem[k]:null},setItem:function(k,v){mem[String(k)]=String(v)},removeItem:function(k){delete mem[k]},clear:function(){mem={}},key:function(i){return Object.keys(mem)[i]||null},get length(){return Object.keys(mem).length}};function broken(){try{var s=window.localStorage;var k='__lunitide_probe__';s.setItem(k,'1');s.removeItem(k);return false}catch(e){return true}}if(!broken())return;try{Object.defineProperty(window,'localStorage',{configurable:true,get:function(){return api}})}catch(e){}try{Object.defineProperty(window,'sessionStorage',{configurable:true,get:function(){return api}})}catch(e){}})()</script>`
+
 const previewCiteScript = `<script data-lunitide-cite>(function(){document.addEventListener('mouseup',function(){var s=window.getSelection&&window.getSelection();var t=s?String(s).replace(/\s+/g,' ').trim():'';if(!t)return;try{parent.postMessage({source:'lunitide-preview',type:'cite',text:t.slice(0,800)},'*')}catch(e){}})})()</script>`
 
 // injectPreviewCite lets a generated page hand the text the reader selected
 // to the chat composer. The page stays on the preview origin; the parent
 // only accepts this message from that origin.
 func injectPreviewCite(body []byte) []byte {
+	body = injectPreviewBoot(body)
 	if len(body) == 0 || bytes.Contains(body, []byte("data-lunitide-cite")) {
 		return body
 	}
@@ -197,6 +200,25 @@ func injectPreviewCite(body []byte) []byte {
 		return append(out, body[i:]...)
 	}
 	return append(append([]byte{}, body...), script...)
+}
+
+// injectPreviewBoot runs before the page's own scripts. A framed preview can
+// throw on localStorage; if that throw escapes, the page never paints its
+// menus or answers a click.
+func injectPreviewBoot(body []byte) []byte {
+	if len(body) == 0 || bytes.Contains(body, []byte("data-lunitide-boot")) {
+		return body
+	}
+	script := []byte(previewBootScript)
+	lower := bytes.ToLower(body)
+	if i := bytes.Index(lower, []byte("<head>")); i >= 0 {
+		j := i + len("<head>")
+		out := make([]byte, 0, len(body)+len(script))
+		out = append(out, body[:j]...)
+		out = append(out, script...)
+		return append(out, body[j:]...)
+	}
+	return append(script, body...)
 }
 
 // PreviewContentType maps a file extension to a MIME type. An unknown

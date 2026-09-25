@@ -114,7 +114,7 @@ export function ArtifactPreviewContent({ sessionId, preview }: { sessionId?: str
           className="artifact-inspector-frame"
           title={`产物预览 ${preview.path}`}
           src={preview.interactiveUrl}
-          sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-downloads allow-popups"
           referrerPolicy="no-referrer"
         />
       </div>

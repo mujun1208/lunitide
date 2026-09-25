@@ -58,3 +58,61 @@ export function statusBadge(status: CodeFileStatus): string {
   if (status === 'deleted') return 'D'
   return 'M'
 }
+
+export function codeStatusLabel(problemCount: number | null): string {
+  if (problemCount == null) return '未检查'
+  if (problemCount === 0) return '✓ 0 问题'
+  return `${problemCount} 问题`
+}
+
+function sourceIdents(content: string): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  const re = /[A-Za-z_][A-Za-z0-9_]*/g
+  for (const match of content.matchAll(re)) {
+    const name = match[0]
+    if (!seen.has(name)) {
+      seen.add(name)
+      out.push(name)
+    }
+  }
+  return out
+}
+
+export function suggestSourceLine(content: string, lineIndex: number): string {
+  const lines = content.split('\n')
+  if (lineIndex < 0 || lineIndex >= lines.length) return ''
+  const line = lines[lineIndex]
+  const match = /([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(line)
+  if (!match) return ''
+  const token = match[1]
+  if (token.length < 2) return ''
+  const without = lines.slice()
+  const start = match.index ?? line.length - token.length
+  without[lineIndex] = line.slice(0, start) + line.slice(start + token.length)
+  const idents = sourceIdents(without.join('\n'))
+  if (idents.includes(token)) return ''
+  let hit = ''
+  for (const name of idents) {
+    if (!name.startsWith(token)) continue
+    if (hit && hit !== name) return ''
+    hit = name
+  }
+  if (!hit) return ''
+  return line.slice(0, start) + hit + line.slice(start + token.length)
+}
+
+export function latestFileDiff(summaries: string[]): string {
+  for (let i = summaries.length - 1; i >= 0; i -= 1) {
+    const text = summaries[i] ?? ''
+    if (text.includes('\n--- ') && text.includes('\n+++ ')) return text
+  }
+  return ''
+}
+
+export function acceptSourceLine(content: string, lineIndex: number, line: string): string {
+  const lines = content.split('\n')
+  if (lineIndex < 0 || lineIndex >= lines.length) return content
+  lines[lineIndex] = line
+  return lines.join('\n')
+}

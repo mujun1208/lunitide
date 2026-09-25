@@ -43,7 +43,7 @@ func TestApplyToolProfileKeepsDefaultAndFilters(t *testing.T) {
 		t.Fatalf("default must keep current tools: %d vs %d", len(got), len(all))
 	}
 	minimal := applyToolProfile(all, toolProfileMinimal)
-	wantMinimal := map[string]bool{"web.search": true, "web.fetch": true, "weather.get": true, "memory.search": true, "memory.get": true, "user.ask": true}
+	wantMinimal := map[string]bool{"web.search": true, "web.fetch": true, "weather.get": true, "location.get": true, "memory.search": true, "memory.get": true, "user.ask": true}
 	for _, d := range minimal {
 		if !wantMinimal[d.Name] {
 			t.Fatalf("minimal exposed unexpected or duplicate tool %s", d.Name)

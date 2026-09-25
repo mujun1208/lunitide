@@ -5,6 +5,21 @@ import (
 	"testing"
 )
 
+func TestCanvasAndHereWeatherAreNamedInTheWorkflow(t *testing.T) {
+	canvas := strings.Join(selectWorkflowClauses("写一份对比报告", ""), "\n")
+	if !strings.Contains(canvas, "canvas.present") {
+		t.Fatal(canvas)
+	}
+	weather := strings.Join(selectWorkflowClauses("这里的天气", ""), "\n")
+	if !strings.Contains(weather, "location.get") || !strings.Contains(weather, "weather.get") {
+		t.Fatal(weather)
+	}
+	computer := strings.Join(selectWorkflowClauses("帮我点这个按钮", ""), "\n")
+	if !strings.Contains(computer, "system.run") {
+		t.Fatal(computer)
+	}
+}
+
 func TestProjectPhaseWorkflowInjectionDev(t *testing.T) {
 	hint := projectPhaseWorkflowInjection(5, "开发")
 	if hint == "" {

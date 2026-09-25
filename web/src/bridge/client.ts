@@ -213,7 +213,9 @@ export class BridgeClientError extends Error {
     }
   }
 }
-export interface LocalWorkspaceBridge{root():Promise<WorkspaceRootGetResult>;select():Promise<WorkspaceRootSelectResult>;clear():Promise<WorkspaceRootClearResult>;list(path?:string):Promise<WorkspaceListResult>;read(path:string):Promise<WorkspaceReadResult>;open(payload?:WorkspaceOpenPayload):Promise<WorkspaceOpenResult>}
+export interface CodeWorkspaceCall{action:'diagnostics'|'definition'|'references'|'debug'|'complete'|'edit'|'diff'|'restore'|'accept';root:string;path?:string;line?:number;column?:number;content?:string;test?:string;accept?:boolean;sessionId?:string}
+export interface CodeWorkspaceResult{ok:boolean;path?:string;line?:number;column?:number;suggestion?:string;source?:string;stopped?:number;diff?:string;restored?:number;accepted?:number;references?:{path:string;line:number}[];diagnostics?:{path?:string;line:number;message:string}[]}
+export interface LocalWorkspaceBridge{root():Promise<WorkspaceRootGetResult>;select():Promise<WorkspaceRootSelectResult>;clear():Promise<WorkspaceRootClearResult>;list(path?:string):Promise<WorkspaceListResult>;read(path:string):Promise<WorkspaceReadResult>;open(payload?:WorkspaceOpenPayload):Promise<WorkspaceOpenResult>;code?:(payload:CodeWorkspaceCall)=>Promise<CodeWorkspaceResult>}
 export interface WebViewTransport {
   postMessage(value: unknown): void
   addEventListener(type: 'message', listener: (event: MessageEvent<BridgeResponse>) => void): void
@@ -1714,7 +1716,7 @@ export function createTerminalBridge(transport:WebViewTransport,deadlineMs=8000)
 let terminalSingleton:TerminalBridge|undefined
 export function getTerminalBridge(){return terminalSingleton??=createTerminalBridge(webview())}
 
-export function createLocalWorkspaceBridge(transport:WebViewTransport=webview()):LocalWorkspaceBridge{const core=createSimpleBridge(transport,{},8_000);return{root:()=>core.request('workspace.root.get',{}),select:()=>core.request('workspace.root.select',{}),clear:()=>core.request('workspace.root.clear',{}),list:(path='')=>core.request('workspace.list',path?{path}:{}),read:path=>core.request('workspace.read',{path}),open:payload=>core.request('workspace.open',payload??{})}}
+export function createLocalWorkspaceBridge(transport:WebViewTransport=webview()):LocalWorkspaceBridge{const core=createSimpleBridge(transport,{},8_000);return{root:()=>core.request('workspace.root.get',{}),select:()=>core.request('workspace.root.select',{}),clear:()=>core.request('workspace.root.clear',{}),list:(path='')=>core.request('workspace.list',path?{path}:{}),read:path=>core.request('workspace.read',{path}),open:payload=>core.request('workspace.open',payload??{}),code:payload=>core.request('code.workspace',payload)}}
 
 // M9.5 Moon Companion TTS bridge — engine-routed synthesis (tts.voices /
 // tts.synthesize / tts.cancel / tts.refAudios). Voices and synthesis take

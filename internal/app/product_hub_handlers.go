@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/producthub"
@@ -108,11 +111,16 @@ func handleProductHub(e *Engine, ctx context.Context, r bridge.Request) (resp br
 		}
 		return r.Ok(map[string]any{"ok": true})
 	case "productHub.export":
-		content, mime, err := e.productHub.Export(ctx, payloadString(r.Payload, "format"))
+		format := payloadString(r.Payload, "format")
+		content, mime, err := e.productHub.Export(ctx, format)
 		if err != nil {
 			return failProductHub(r, err)
 		}
-		return r.Ok(map[string]any{"content": content, "mime": mime})
+		out := map[string]any{"content": content, "mime": mime}
+		if path, saveErr := saveProductHubExport(format, content); saveErr == nil {
+			out["path"] = path
+		}
+		return r.Ok(out)
 	case "productHub.apply":
 		res, err := e.productHub.Apply(ctx, payloadString(r.Payload, "errorCode"), payloadString(r.Payload, "stableKey"))
 		if err != nil {
@@ -161,4 +169,24 @@ func payloadString(raw json.RawMessage, key string) string {
 	}
 	v, _ := m[key].(string)
 	return strings.TrimSpace(v)
+}
+
+func saveProductHubExport(format, content string) (string, error) {
+	dir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	desktop := filepath.Join(dir, "Desktop")
+	if info, statErr := os.Stat(desktop); statErr != nil || !info.IsDir() {
+		desktop = dir
+	}
+	name := "lunitide-诊断报告-" + time.Now().Format("20060102-1504") + ".md"
+	if format == "html" {
+		name = "lunitide-产品手册-" + time.Now().Format("20060102-1504") + ".html"
+	}
+	path := filepath.Join(desktop, name)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
 }
