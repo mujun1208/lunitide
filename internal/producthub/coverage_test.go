@@ -13,8 +13,17 @@ func TestLiveCoverageIsCompleteAndReadable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ed.HealthScore != 100 {
-		t.Fatalf("health %d findings %#v", ed.HealthScore, ed.Findings)
+	if ed.CatalogProbe.Total < 40 || ed.CatalogProbe.Passed != ed.CatalogProbe.Total {
+		t.Fatalf("coverage %+v findings %#v", ed.CatalogProbe, ed.Findings)
+	}
+	var invoke bool
+	for _, f := range ed.Findings {
+		if f.ErrorCode == "PH_021" && f.StableKey == "feature.assets.mcp.invoke" && f.Status == "open" {
+			invoke = true
+		}
+	}
+	if !invoke {
+		t.Fatal("calling an MCP tool with no bridge method was not reported")
 	}
 	ov, err := s.Overview(ctx)
 	if err != nil {

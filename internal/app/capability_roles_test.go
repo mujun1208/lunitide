@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -298,5 +299,43 @@ func TestPreferBoundCatalogFiltersRole(t *testing.T) {
 	empty.SetCapabilityRoleStore(&memoryRoleStore{})
 	if got := empty.preferBoundCatalog(context.Background(), "gui", provider.CatalogForKind(items, provider.KindGUI)); len(got) != 1 {
 		t.Fatalf("empty gui role must keep catalog, got %d", len(got))
+	}
+}
+
+type visionFallthroughAdapter struct{}
+
+func (visionFallthroughAdapter) Complete(_ context.Context, _ []byte, req llmadapter.Request) (llmadapter.Response, error) {
+	if req.Model == "ocr-only" {
+		return llmadapter.Response{}, fmt.Errorf("empty vision description")
+	}
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "这是 Hello Kitty"}, FinishReason: "stop"}, nil
+}
+func (visionFallthroughAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, nil
+}
+func (visionFallthroughAdapter) Stream(context.Context, []byte, llmadapter.Request, func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	return llmadapter.Response{}, nil
+}
+
+func TestEmptyBoundVisionFallsThroughToASceneModel(t *testing.T) {
+	p := provider.Provider{
+		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Name: "Vision", Protocol: provider.ProtocolOpenAICompatible,
+		BaseURL: "https://vision.example", CredentialRef: "vision-ref",
+		CredentialState: provider.CredentialConfigured, Status: provider.StatusEnabled,
+		Models: []provider.Model{
+			{ModelID: "ocr-only", Kind: provider.KindVision, KindDefault: true, SupportsVision: true},
+			{ModelID: "scene", Kind: provider.KindVision, SupportsVision: true},
+		},
+	}
+	e := NewEngineWithGateway(videoTestProviders{items: []provider.Provider{p}}, "test", streamTestLease{})
+	e.SetCapabilityRoleStore(&memoryRoleStore{rows: []sqlite.CapabilityRoleBinding{
+		{Role: "vision", ProviderID: p.ID, ModelID: "ocr-only"},
+	}})
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
+		return visionFallthroughAdapter{}, nil
+	})
+	text, ok := e.maybeDescribeImages(context.Background(), provider.Model{ModelID: "chat", SupportsVision: false}, []llmadapter.Image{{MIME: "image/png", Data: []byte{0x89, 'P', 'N', 'G'}}}, "这个图片显示的是什么")
+	if !ok || !strings.Contains(text, "Hello Kitty") {
+		t.Fatalf("a picture with no text must reach the next vision model: %q ok=%v", text, ok)
 	}
 }

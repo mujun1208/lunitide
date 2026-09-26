@@ -66,9 +66,11 @@ func probePlay(ctx context.Context) TaskResult {
 func probeDownload(ctx context.Context) TaskResult {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
+	started := time.Now()
+	elapsed := func() time.Duration { return time.Since(started).Round(time.Millisecond) }
 	model := tts.OnnxModelBundle()
 	if len(model.Downloads) == 0 || len(model.Downloads[0].URLs) == 0 {
-		return TaskResult{ID: "download", Title: "下载", Status: "untested", Evidence: "没有 Kokoro 模型地址"}
+		return TaskResult{ID: "download", Title: "下载", Status: "untested", Evidence: fmt.Sprintf("耗时 %s。没有 Kokoro 模型地址", elapsed())}
 	}
 	pin := model.Downloads[0].Bytes
 	root := tts.RefEngineDataRoot()
@@ -82,12 +84,12 @@ func probeDownload(ctx context.Context) TaskResult {
 			state = "本机模型未装好"
 			status = "fail"
 		}
-		return TaskResult{ID: "download", Title: "下载", Status: status, Evidence: state + "。这次没有在时限内拿到服务器文件长度：" + err.Error()}
+		return TaskResult{ID: "download", Title: "下载", Status: status, Evidence: fmt.Sprintf("耗时 %s。%s。这次没有在时限内拿到服务器文件长度：%v", elapsed(), state, err)}
 	}
 	if offered <= 0 {
-		return TaskResult{ID: "download", Title: "下载", Status: "untested", Evidence: "服务器没有给出文件长度"}
+		return TaskResult{ID: "download", Title: "下载", Status: "untested", Evidence: fmt.Sprintf("耗时 %s。服务器没有给出文件长度", elapsed())}
 	}
-	evidence := fmt.Sprintf("记录 %d 字节，服务器 %d 字节，本机模型目录 %s", pin, offered, map[bool]string{true: "已核对", false: "未装好"}[local])
+	evidence := fmt.Sprintf("耗时 %s。记录 %d 字节，服务器 %d 字节，本机模型目录 %s", elapsed(), pin, offered, map[bool]string{true: "已核对", false: "未装好"}[local])
 	if offered != pin || !local {
 		return TaskResult{ID: "download", Title: "下载", Status: "fail", Evidence: evidence}
 	}

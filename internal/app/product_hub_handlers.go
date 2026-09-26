@@ -93,6 +93,8 @@ func handleProductHub(e *Engine, ctx context.Context, r bridge.Request) (resp br
 		}
 		return r.Ok(map[string]any{"changes": ch})
 	case "productHub.diagnostics":
+		ctx = producthub.WithFreshCheck(ctx)
+		ctx = producthub.WithLandscape(ctx, landscapeNotes(r.Payload))
 		findings, md, html, err := e.productHub.Diagnostics(ctx)
 		if err != nil {
 			return failProductHub(r, err)

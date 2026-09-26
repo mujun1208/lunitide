@@ -106,8 +106,8 @@ func TestDocxStageNudgeVisibleInThinking(t *testing.T) {
 }
 
 func TestStartDocxWorkflowInjectsReportPipeline(t *testing.T) {
-	req := llmadapter.Request{Model: "m", Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "写一份调研报告"}}}
-	turn := &chatTurnCheckpoint{Goal: "写一份调研报告"}
+	req := llmadapter.Request{Model: "m", Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "写一份调研报告 Word"}}}
+	turn := &chatTurnCheckpoint{Goal: "写一份调研报告 Word"}
 	var banners []string
 	startDocxWorkflow(&req, turn, func(event bridge.Event) error {
 		if event.Thinking != nil {

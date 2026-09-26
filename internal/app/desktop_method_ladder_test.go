@@ -147,8 +147,8 @@ func TestDesktopLadderCloseoutWaitsForNextMethod(t *testing.T) {
 	if got := computerReceiptCloseout(messages, goal); got != "已发送播放操作，但还没有确认音乐开始播放。" {
 		t.Fatalf("unconfirmed media key must not claim playback: %q", got)
 	}
-	if desktopLadderShouldContinue(goal, messages[2].Content, []string{"media.play"}, 0) {
-		t.Fatal("delivered media key must not climb to computer.act")
+	if !desktopLadderShouldContinue(goal, messages[2].Content, []string{"media.play"}, 0) {
+		t.Fatal("unconfirmed media key must climb until playback is verified")
 	}
 }
 

@@ -18,6 +18,16 @@ func TestCanvasAndHereWeatherAreNamedInTheWorkflow(t *testing.T) {
 	if !strings.Contains(computer, "system.run") {
 		t.Fatal(computer)
 	}
+	for _, goal := range []string{"写方案", "写文档", "写PRD"} {
+		got := strings.Join(selectWorkflowClauses(goal, ""), "\n")
+		if !strings.Contains(got, "canvas.present") {
+			t.Fatalf("%s did not ask for the canvas: %s", goal, got)
+		}
+	}
+	word := strings.Join(selectWorkflowClauses("写一份PRD Word", ""), "\n")
+	if strings.Contains(word, "canvas.present") {
+		t.Fatalf("a named Word document must stay off the canvas: %s", word)
+	}
 }
 
 func TestProjectPhaseWorkflowInjectionDev(t *testing.T) {

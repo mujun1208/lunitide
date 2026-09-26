@@ -326,6 +326,53 @@ func TestRecognizeImageUsesProviderThenLocalModelThenWindowsOCR(t *testing.T) {
 	if err != nil || got.Text != body {
 		t.Fatalf("a long transcript must stay: %+v err=%v", got, err)
 	}
+
+	steps = nil
+	svc.SetProvider(func(context.Context, []byte, string) (string, error) {
+		steps = append(steps, "provider")
+		return "一只戴红蝴蝶结的白猫，画面没有文字", nil
+	})
+	svc.SetLocalImage(func(context.Context, []byte) (doctext.PDFOCRResult, error) {
+		steps = append(steps, "windows")
+		return doctext.PDFOCRResult{Method: "windows-ocr", Pages: []doctext.OCRPage{{Page: 1, Text: "不该用到"}}}, nil
+	})
+	got, err = svc.RecognizeImage(context.Background(), png)
+	if err != nil || got.Text != "一只戴红蝴蝶结的白猫，画面没有文字" || strings.Join(steps, ",") != "provider" {
+		t.Fatalf("a picture with no text must stop at the OCR model: %+v steps=%v err=%v", got, steps, err)
+	}
+}
+
+func TestRecognizeImageKeepsEveryPictureKindFromTheOCRModel(t *testing.T) {
+	png := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}
+	for _, text := range []string{
+		"发票 88",
+		"一只戴红蝴蝶结的白猫，画面没有文字",
+		"一张蓝色圆形图标",
+		"一位穿白衬衫的人",
+		"软件设置窗口截图",
+		"一只趴着的狗",
+	} {
+		t.Run(text, func(t *testing.T) {
+			svc := New(NewFileStore(filepath.Join(t.TempDir(), "ocr-routing.json")))
+			cur, err := svc.Routing()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = svc.SetRouting(Routing{ProviderID: "01ARZ3NDEKTSV4RRFFQ69G5FAA", ModelID: "ocr-v1", PreferProvider: true}, cur.Revision); err != nil {
+				t.Fatal(err)
+			}
+			local := 0
+			svc.SetProvider(func(context.Context, []byte, string) (string, error) { return text, nil })
+			svc.SetLocalImage(func(context.Context, []byte) (doctext.PDFOCRResult, error) {
+				local++
+				return doctext.PDFOCRResult{Method: "windows-ocr", Pages: []doctext.OCRPage{{Page: 1, Text: "不该用到"}}}, nil
+			})
+			got, err := svc.RecognizeImage(context.Background(), png)
+			if err != nil || got.Source != SourceProvider || got.Text != text || local != 0 {
+				t.Fatalf("every picture kind must stop at the OCR model: %+v local=%d err=%v", got, local, err)
+			}
+		})
+	}
 }
 
 func TestRecognizeImageFallsBackToLocalWhenProviderFails(t *testing.T) {

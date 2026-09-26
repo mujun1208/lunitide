@@ -453,7 +453,7 @@ func applyLaneOverrides(lane ChatLane, in LaneInput, route TaskRoute, overlay Co
 	if route == RouteR2 || route == RouteR3 {
 		lane = LaneL4
 	}
-	if strings.Contains(goal, "画布") && lane != LaneL0 && lane != LaneL4 {
+	if (strings.Contains(goal, "画布") || wantsDefaultCanvas(goal)) && lane != LaneL0 && lane != LaneL4 {
 		lane = LaneL3
 	}
 	if lookupOptedOut(goal) && lane == LaneL3 {
@@ -705,11 +705,28 @@ func restoreFileLandingTools(filtered, catalog []llmadapter.ToolDefinition, goal
 	for _, d := range filtered {
 		have[d.Name] = true
 	}
+	if wantsDefaultCanvas(goal) {
+		for _, name := range []string{"html.gen", "docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "office.generate"} {
+			delete(want, name)
+		}
+		want["canvas.present"] = true
+	}
 	for _, d := range catalog {
 		if want[d.Name] && !have[d.Name] {
 			filtered = append(filtered, d)
 			have[d.Name] = true
 		}
+	}
+	if wantsDefaultCanvas(goal) {
+		drop := map[string]bool{"html.gen": true, "docx.gen": true, "pptx.gen": true, "excel.gen": true, "pdf.gen": true, "office.generate": true}
+		kept := make([]llmadapter.ToolDefinition, 0, len(filtered))
+		for _, d := range filtered {
+			if drop[d.Name] {
+				continue
+			}
+			kept = append(kept, d)
+		}
+		filtered = kept
 	}
 	return filtered
 }

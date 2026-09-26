@@ -113,6 +113,47 @@ func TestOCRProviderCallIgnoresStoredNeverRoutingWhenVisionBound(t *testing.T) {
 	}
 }
 
+func TestOCRProviderCallAsksForThePictureWhenThereIsNoText(t *testing.T) {
+	p := videoTestProvider()
+	p.Models = []provider.Model{{ModelID: "ocr-v1", Kind: provider.KindVision, KindDefault: true, SupportsVision: true}}
+	e := NewEngineWithGateway(videoTestProviders{items: []provider.Provider{p}}, "test", streamTestLease{})
+	var prompt string
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
+		return promptCaptureAdapter{prompt: &prompt, content: "一只戴红蝴蝶结的白猫"}, nil
+	})
+	svc := ocrapp.New(ocrapp.NewFileStore(filepath.Join(t.TempDir(), "ocr-routing.json")))
+	e.SetOCR(svc)
+	cur, _ := svc.Routing()
+	if _, err := svc.SetRouting(ocrapp.Routing{ProviderID: p.ID, ModelID: "ocr-v1", PreferProvider: true}, cur.Revision); err != nil {
+		t.Fatal(err)
+	}
+	png := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}
+	if _, err := e.ocrProviderCall(context.Background(), png, "image-ocr"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(prompt, "Do not describe") || !strings.Contains(prompt, "这张图是什么") {
+		t.Fatal(prompt)
+	}
+}
+
+type promptCaptureAdapter struct {
+	prompt  *string
+	content string
+}
+
+func (a promptCaptureAdapter) Complete(_ context.Context, _ []byte, req llmadapter.Request) (llmadapter.Response, error) {
+	if a.prompt != nil && len(req.Messages) > 0 {
+		*a.prompt = req.Messages[0].Content
+	}
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: a.content}}, nil
+}
+func (promptCaptureAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, nil
+}
+func (promptCaptureAdapter) Stream(context.Context, []byte, llmadapter.Request, func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	return llmadapter.Response{}, nil
+}
+
 func TestOCRProviderCallUnboundUsesChinese(t *testing.T) {
 	e := NewEngineWithGateway(videoTestProviders{items: []provider.Provider{videoTestProvider()}}, "test", streamTestLease{})
 	svc := ocrapp.New(ocrapp.NewFileStore(filepath.Join(t.TempDir(), "ocr-routing.json")))

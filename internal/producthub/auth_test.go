@@ -117,6 +117,44 @@ func (stubCollab) Consult(context.Context, string) (ConsultResult, error) {
 	return ConsultResult{SkillID: "skill-debug", SkillName: "debugger", Output: "已绑定 debugger"}, nil
 }
 
+func TestApplyLogStatusFitsTheTable(t *testing.T) {
+	cases := map[string]string{
+		"planned": "planned", "applied": "applied", "failed": "failed", "wont_fix": "wont_fix",
+		"fixed": "applied", "pass": "applied", "clear": "applied",
+		"open": "failed", "fail": "failed", "regressed": "failed",
+		"note": "planned",
+	}
+	for in, want := range cases {
+		if got := applyLogStatus(in); got != want {
+			t.Fatalf("%s -> %s, want %s", in, got, want)
+		}
+	}
+}
+
+func TestApplyLogRoundTripKeepsOpenAndResolvedDistinct(t *testing.T) {
+	open := attachApplies(
+		[]Finding{{ErrorCode: "PH_099", StableKey: "k", Status: "open"}},
+		[]ApplyLog{{ErrorCode: "PH_099", StableKey: "k", Status: applyLogStatus("open")}},
+	)
+	if open[0].Status != "open" {
+		t.Fatalf("open finding read back as %s", open[0].Status)
+	}
+	fresh := mergeFindingStatus(
+		[]Finding{{ErrorCode: "PH_021", StableKey: "wire", Status: "fixed"}},
+		[]Finding{{ErrorCode: "PH_021", StableKey: "wire", Status: "open"}},
+	)
+	if fresh[0].Status != "open" {
+		t.Fatalf("a new wiring failure was hidden as %s", fresh[0].Status)
+	}
+	kept := attachApplies(
+		[]Finding{{ErrorCode: "PH_021", StableKey: "wire", Status: "open"}},
+		[]ApplyLog{{ErrorCode: "PH_021", StableKey: "wire", Status: applyLogStatus("fixed")}},
+	)
+	if kept[0].Status != "open" {
+		t.Fatalf("an older applied log painted over a fresh failure: %s", kept[0].Status)
+	}
+}
+
 func TestApplyAndTagPersist(t *testing.T) {
 	s := New(&MemoryPersist{})
 	s.SetCollaborator(stubCollab{})
@@ -128,11 +166,25 @@ func TestApplyAndTagPersist(t *testing.T) {
 	if len(ed.Findings) == 0 {
 		t.Fatal("generate must produce findings")
 	}
-	res, err := s.Apply(ctx, ed.Findings[0].ErrorCode, ed.Findings[0].StableKey)
+	var target Finding
+	for _, f := range ed.Findings {
+		if f.ErrorCode == "PH_021" || f.ErrorCode == "PH_022" || strings.HasPrefix(f.ErrorCode, "PH_L") {
+			continue
+		}
+		target = f
+		break
+	}
+	if target.ErrorCode == "" {
+		target = ed.Findings[0]
+	}
+	res, err := s.Apply(ctx, target.ErrorCode, target.StableKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.OK || res.SkillName != "debugger" || res.Plan == "" {
+	if !res.OK || res.Plan == "" {
+		t.Fatalf("apply %#v", res)
+	}
+	if target.ErrorCode != "PH_021" && target.ErrorCode != "PH_022" && res.SkillName != "debugger" {
 		t.Fatalf("apply %#v", res)
 	}
 	if err := s.TagSet(ctx, "feature.dialog.music.play", "alias", "放歌"); err != nil {

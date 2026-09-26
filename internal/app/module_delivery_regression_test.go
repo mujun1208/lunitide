@@ -74,9 +74,16 @@ func TestModuleDocumentDeliveryAcrossSharedEntryContexts(t *testing.T) {
 					ctx = withOfficeTask(ctx, "01ARZ3NDEKTSV4RRFFQ69G5FAA")
 				}
 				var events []bridge.Event
-				e.runStream(ctx, "01ARZ3NDEKTSV4RRFFQ69G5FAV", &streamState{cancel: cancel, state: streamRunning, companion: entry == "voice"}, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://example.test", CredentialRef: "fixture"}, llmadapter.Request{Model: "model", Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: f.goal + "。按已提供内容生成，不联网，不打开应用。"}}, Tools: engineToolDefinitions()}, func(event bridge.Event) error { events = append(events, event); return nil }, sid, executionModeFullAccess)
-				if len(events) == 0 || events[len(events)-1].Type != bridge.EventCompleted || a.calls != 2 {
-					t.Fatalf("completion=%+v calls=%d", events, a.calls)
+				var spoken strings.Builder
+				e.runStream(ctx, "01ARZ3NDEKTSV4RRFFQ69G5FAV", &streamState{cancel: cancel, state: streamRunning, companion: entry == "voice"}, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://example.test", CredentialRef: "fixture"}, llmadapter.Request{Model: "model", Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: f.goal + "。按已提供内容生成，不联网，不打开应用。"}}, Tools: engineToolDefinitions()}, func(event bridge.Event) error {
+					events = append(events, event)
+					if event.Delta != nil {
+						spoken.WriteString(event.Delta.Text)
+					}
+					return nil
+				}, sid, executionModeFullAccess)
+				if len(events) == 0 || events[len(events)-1].Type != bridge.EventCompleted || a.calls != 1 || !strings.Contains(spoken.String(), "文件已经生成。") {
+					t.Fatalf("completion events=%d calls=%d spoken=%q", len(events), a.calls, spoken.String())
 				}
 				terminal := events[len(events)-1].Completed
 				if terminal == nil || terminal.MessageID == "" || terminal.PersistFailed {

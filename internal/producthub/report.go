@@ -8,6 +8,7 @@ import (
 )
 
 func RenderReport(ed Edition) (markdown, pageHTML string) {
+	ed.Features = clarifyTemplateChains(ed.Features)
 	var md strings.Builder
 	var hs strings.Builder
 	stamp := ed.GeneratedAt
@@ -15,8 +16,9 @@ func RenderReport(ed Edition) (markdown, pageHTML string) {
 		stamp = time.Now().Format(time.RFC3339)
 	}
 	fmt.Fprintf(&md, "# Lunitide 产品说明书（第 %s 版）\n\n", ed.EditionID)
-	fmt.Fprintf(&md, "生成时间：%s  \n功能卡：%d  · 新增 %d · 更新 %d · 退役 %d  · 健康分 %d\n\n", stamp, ed.CardCount, ed.Added, ed.Updated, ed.Removed, ed.HealthScore)
-	md.WriteString("本文由产品知识中枢对照**初版种子**与**当前活源**实时生成。新产品动词（放歌、开文件、新 Page、新设置）下次生成会自动出现，不必手改总表。\n\n")
+	features, landscape := splitCardCounts(ed.Features)
+	fmt.Fprintf(&md, "生成时间：%s  \n功能卡：%d  · 图景卡 %d  · 合计 %d  · 新增 %d · 更新 %d · 退役 %d  · 健康分 %d\n\n", stamp, features, landscape, features+landscape, ed.Added, ed.Updated, ed.Removed, ed.HealthScore)
+	md.WriteString("功能全景、知识图谱、解剖视图共用同一次组装。产品版本没变时，进入后直接读已存的这一版。版本变了，或库里还没有这一版，才按当前产品重组一次并写入。点「重新检测」会重跑听写、播放、下载、图片识别，以及临时库里的带点入口读回，并记下新快照。点「执行净化」会再跑失败的那一项：复查通过才改为已修复，仍失败就保持待处理，方案换成这次的证据。对得上处理函数的链路步骤改写成这次从源码读到的调用。对不上的手写步骤不留在报告里，记为未按真实调用写清。插件名单和对话动词写在引擎里。\n\n")
 	md.WriteString("## 1. 产品总述\n\n")
 	md.WriteString("Lunitide 是本机优先的智能工作台：月伴语音与打字对话、办公与媒体、技能/专家/MCP/插件、会议与机务、电脑控制与浏览器，以及底座治理。每个原子功能一张知识卡，含简介、描述、属性、方法、调用链路（成功/失败/重试/降级）和脚手架底座。\n\n")
 	md.WriteString("## 2. 本体与体系\n\n")
@@ -59,10 +61,17 @@ func RenderReport(ed Edition) (markdown, pageHTML string) {
 	fmt.Fprintf(&md, "节点 %d，边 %d。关系：contains / uses / calls / depends。图谱页可点 Feature 打开知识卡。\n\n", len(ed.Graph.Nodes), len(ed.Graph.Edges))
 	md.WriteString("## 5. 自净化诊断\n\n")
 	md.WriteString(diagnosisVerdict(ed))
+	inv := diagnosticInventory(ed)
+	md.WriteString(inv)
+	md.WriteString("### 优化方案\n\n")
+	md.WriteString(diagnosticGapPlans(ed))
 	if len(ed.Findings) == 0 {
 		md.WriteString("本轮无发现。\n\n")
 	}
 	for _, f := range ed.Findings {
+		if f.ErrorCode == "PH_L99" {
+			continue
+		}
 		fmt.Fprintf(&md, "### [%s] %s · %s\n\n", f.Severity, f.ErrorCode, f.Title)
 		fmt.Fprintf(&md, "- 对象：`%s`  · 状态：%s\n- 证据：%s\n- 根因：%s\n- 改进方案：%s\n- 验证：%s\n\n", f.StableKey, f.Status, f.Evidence, f.RootCause, f.Fix, f.Verify)
 	}
@@ -70,12 +79,12 @@ func RenderReport(ed Edition) (markdown, pageHTML string) {
 	md.WriteString("## 6. 竞品与前沿\n\n")
 	md.WriteString("图景页两张槽位：竞品对照（必须带来源与日期）与 SMTC/owned runtime 播放核验前沿观察。不计入健康度。\n\n")
 	md.WriteString("## 7. 总结\n\n")
-	fmt.Fprintf(&md, "本版覆盖 %d 张功能卡。以后加放歌/开文件/新设置，只要活源出现，再点生成即可并入，不必重写初版总表。\n", ed.CardCount)
+	fmt.Fprintf(&md, "本版功能卡 %d 张，图景卡 %d 张。三页的张数以这次打开时的重算为准，不以桌面上旧导出为准。\n", features, landscape)
 
 	hs.WriteString(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Lunitide 产品说明书</title>`)
 	hs.WriteString(`<style>body{margin:0;background:#0a0a0a;color:#f4f4f4;font:15px/1.55 system-ui,sans-serif}main{max-width:920px;margin:0 auto;padding:32px 24px}h1,h2,h3{font-weight:600}h1{font-size:28px}a{color:#fff}section{border:1px solid #2a2a2a;background:#141414;padding:16px 18px;margin:14px 0}code{color:#ccc}.meta{color:#9a9a9a}</style></head><body><main>`)
-	fmt.Fprintf(&hs, "<h1>Lunitide 产品说明书</h1><p class=\"meta\">%s · %d 张卡 · 健康分 %d</p>", html.EscapeString(stamp), ed.CardCount, ed.HealthScore)
-	hs.WriteString("<section><h2>总述</h2><p>本机优先的智能工作台。每个原子功能一张知识卡：简介、描述、属性、方法、链路与脚手架。本文由模块内「生成最新说明书」对照初版种子与活源实时生成。</p></section>")
+	fmt.Fprintf(&hs, "<h1>Lunitide 产品说明书</h1><p class=\"meta\">%s · 功能卡 %d · 图景卡 %d · 健康分 %d</p>", html.EscapeString(stamp), features, landscape, ed.HealthScore)
+	hs.WriteString("<section><h2>总述</h2><p>本机优先的智能工作台。每个原子功能一张知识卡：简介、描述、属性、方法、链路与脚手架。三页共用同一次组装。版本没变时读已存的这一版。版本变了才重组。对得上处理函数的链路步骤改写成源码里的调用。对不上的手写步骤不留在报告里。执行净化会再跑失败项，复查通过才改为已修复。</p></section>")
 	for _, c := range ed.Features {
 		fmt.Fprintf(&hs, "<section id=\"%s\"><h3>%s <code>%s</code></h3>", html.EscapeString(c.StableKey), html.EscapeString(c.Name), html.EscapeString(c.StableKey))
 		fmt.Fprintf(&hs, "<p><b>A</b> %s</p><p><b>B</b> %s</p>", html.EscapeString(c.Summary), html.EscapeString(c.Description))
@@ -87,8 +96,13 @@ func RenderReport(ed Edition) (markdown, pageHTML string) {
 		}
 		hs.WriteString("</ol></section>")
 	}
-	hs.WriteString("<section><h2>诊断</h2>")
+	hs.WriteString("<section><h2>诊断</h2><pre>")
+	hs.WriteString(html.EscapeString(inv))
+	hs.WriteString("</pre>")
 	for _, f := range ed.Findings {
+		if f.ErrorCode == "PH_L99" {
+			continue
+		}
 		fmt.Fprintf(&hs, "<p><b>%s</b> %s：%s<br>方案：%s</p>", html.EscapeString(f.ErrorCode), html.EscapeString(f.Title), html.EscapeString(f.Evidence), html.EscapeString(f.Fix))
 	}
 	hs.WriteString("</section></main></body></html>")
@@ -120,8 +134,11 @@ func diagnosisVerdict(ed Edition) string {
 	}
 	var b strings.Builder
 	if ed.LiveProbe.Total > 0 {
-		fmt.Fprintf(&b, "本轮实测 %d/%d，健康分 %d。听写、播放、下载、图片识别已跑；日志里对得上原文的故障记在下面。这一环是实测通过率。对照来自图景页已选产品，不计入这个分数。\n\n", ed.LiveProbe.Passed, ed.LiveProbe.Total, ed.HealthScore)
+		fmt.Fprintf(&b, "本轮读回 %d/%d，健康分 %d。这个分数含临时库读回，不是本机键鼠、麦克风、真实供应商或真实进程的实测。听写、播放、下载、图片识别若在这一轮重跑，以当次结果为准。日志里对得上原文的故障记在下面。对照来自图景页已选产品，不计入这个分数。\n\n", ed.LiveProbe.Passed, ed.LiveProbe.Total, ed.HealthScore)
 	} else {
+		if cover == "" && ed.CatalogProbe.Total > 0 {
+			cover = fmt.Sprintf("活源覆盖 %d/%d。", ed.CatalogProbe.Passed, ed.CatalogProbe.Total)
+		}
 		fmt.Fprintf(&b, "本轮核对说明书与活源。%s 健康分 %d 是入口覆盖，不是语音听写、媒体播放、文件落盘或任务完成的实测分。\n\n", cover, ed.HealthScore)
 	}
 	if openErr+openWarn == 0 {
@@ -134,6 +151,17 @@ func diagnosisVerdict(ed Edition) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func splitCardCounts(cards []Card) (features, landscape int) {
+	for _, c := range cards {
+		if strings.HasPrefix(c.StableKey, "landscape.") {
+			landscape++
+			continue
+		}
+		features++
+	}
+	return features, landscape
 }
 
 func join(in []string) string {

@@ -16,6 +16,7 @@ func TestProductHubPersistApplyAndReload(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := producthub.New(store)
+	svc.SetProductVersion("9.1.0")
 	ed, err := svc.Generate(ctx, "boot")
 	if err != nil {
 		t.Fatal(err)
@@ -43,6 +44,7 @@ func TestProductHubPersistApplyAndReload(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = reopened.Close() })
 	svc2 := producthub.New(reopened)
+	svc2.SetProductVersion("9.1.0")
 	card, ok, err := svc2.FeatureCard(ctx, "feature.dialog.music.play")
 	if err != nil || !ok {
 		t.Fatalf("reload card ok=%v err=%v", ok, err)
@@ -61,7 +63,11 @@ func TestProductHubPersistApplyAndReload(t *testing.T) {
 		t.Fatalf("apply log missing err=%v n=%d", err, len(logs))
 	}
 	ov, err := svc2.Overview(ctx)
-	if err != nil || ov.CardCount < 40 {
+	if err != nil || ov.CardCount < 40 || ov.EditionID != ed.EditionID {
 		t.Fatalf("overview %#v err=%v", ov, err)
+	}
+	latest, err := svc2.Latest(ctx)
+	if err != nil || latest == nil || latest.ProductVersion != "9.1.0" || latest.EditionID != ed.EditionID || len(latest.Graph.Nodes) == 0 || latest.CatalogProbe.Total == 0 {
+		t.Fatalf("stored version missing: %+v %v", latest, err)
 	}
 }

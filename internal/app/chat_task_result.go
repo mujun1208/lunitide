@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/lunitide/lunitide/internal/llmadapter"
 )
@@ -373,6 +374,20 @@ func currentTurnDedicatedOpenFailed(messages []llmadapter.Message) bool {
 	return false
 }
 
+// currentTurnOpenUnproved is an open that came back without a passed check.
+// The next ladder step is still allowed, so the window can actually be opened.
+func currentTurnOpenUnproved(messages []llmadapter.Message) bool {
+	out := lastNamedToolOutput(messages, "desktop.open")
+	if out == "" || companionToolResultFailed(out) || !strings.Contains(out, "opened ") {
+		return false
+	}
+	proof, ok := extractL0(out)
+	if !ok || proof.Kind == "unverified" {
+		return true
+	}
+	return !proof.Passed || proof.Uncertain
+}
+
 func currentTurnMediaKeyDelivered(messages []llmadapter.Message) bool {
 	start := 0
 	for i := len(messages) - 1; i >= 0; i-- {
@@ -392,6 +407,35 @@ func currentTurnMediaKeyDelivered(messages []llmadapter.Message) bool {
 func currentTurnDesktopBrowserOpened(messages []llmadapter.Message) bool {
 	out := strings.TrimSpace(lastNamedToolOutput(messages, "desktop.browse"))
 	return strings.HasPrefix(out, "已向系统默认桌面浏览器发送打开请求") || strings.HasPrefix(out, "已打开桌面浏览器：")
+}
+
+// browserWindowConfirmed is the receipt after the desktop window was actually seen.
+// A sent open request is not that receipt.
+func browserWindowConfirmed(messages []llmadapter.Message) bool {
+	out := strings.TrimSpace(lastNamedToolOutput(messages, "desktop.browse"))
+	if companionToolResultFailed(out) {
+		return false
+	}
+	return strings.HasPrefix(out, "已打开桌面浏览器：")
+}
+
+func currentTurnUnconfirmedPlay(messages []llmadapter.Message) bool {
+	start := 0
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == llmadapter.RoleUser {
+			start = i + 1
+			break
+		}
+	}
+	for _, m := range messages[start:] {
+		if m.Role != llmadapter.RoleTool {
+			continue
+		}
+		if strings.Contains(m.Content, "MEDIA_UNVERIFIED") || strings.Contains(m.Content, "playback not confirmed") {
+			return true
+		}
+	}
+	return false
 }
 
 func currentTurnOfficeOrgDenied(messages []llmadapter.Message) bool {
@@ -425,7 +469,7 @@ func browseAlreadyOpenReceipt(goal, name string, messages []llmadapter.Message) 
 	if name != "computer.act" && name != "browser.act" && !strings.HasPrefix(name, "cc.") {
 		return "", false
 	}
-	if !currentTurnDesktopBrowserOpened(messages) || !browseOpenStopsFurtherDesktop(goal) {
+	if !browserWindowConfirmed(messages) || !browseOpenStopsFurtherDesktop(goal) {
 		return "", false
 	}
 	return "桌面浏览器已经打开搜索页。用已有检索结果直接回答，不要再点页面。", true
@@ -435,14 +479,24 @@ func guardCurrentTurnToolHistory(goal, name string, messages []llmadapter.Messag
 	if strings.Contains(lastNamedToolOutput(messages, "media.play"), "MEDIA_CENTER") {
 		return errors.New("媒体中心已经开始播放，不要再调用工具。")
 	}
+	if _, ok := settledWorkSpeech(goal, messages); ok {
+		return errors.New("这一步已经做完。直接告诉用户结果，不要再调用工具。")
+	}
 	if name == "office.generate" && currentTurnOfficeOrgDenied(messages) {
 		return errors.New("这一轮已经因为组织不一致没有写入，不要再调用 office.generate。")
 	}
 	if _, settled := browseAlreadyOpenReceipt(goal, name, messages); settled {
 		return errors.New("系统浏览器已经打开。用已有检索结果直接回答，不要再点页面，也不要再启动自动化浏览器。")
 	}
+	if lookupFollowUpBlocked(goal, name, messages) {
+		return errors.New("这一步的查询结果已经返回。直接回答，不要再搜索或点页面。")
+	}
 	if (name == "computer.act" || strings.HasPrefix(name, "cc.")) && currentTurnMediaKeyDelivered(messages) {
-		return errors.New("播放已经送到播放器，不要再点屏幕。")
+		if currentTurnUnconfirmedPlay(messages) && !observeShowsPlayback(lastNamedToolOutput(messages, "computer.act")) {
+			// The play key was sent and the window has not shown playback yet.
+		} else {
+			return errors.New("播放已经送到播放器，不要再点屏幕。")
+		}
 	}
 	if (name == "computer.act" || strings.HasPrefix(name, "cc.")) && currentTurnCompanionWindowBlocked(messages) {
 		return errors.New("前台是月伴，请先说出要操作的软件。")
@@ -460,7 +514,7 @@ func guardCurrentTurnToolHistory(goal, name string, messages []llmadapter.Messag
 		// Same reasoning for an open-only turn: the dedicated tool has had
 		// its go and failed, so let the ladder reach for the screen instead
 		// of reporting a second refusal the user can do nothing about.
-		if openOnlyFallbackTools(name) && (companionGoalIsOpenOnly(goal) || companionDesktopFilenameFragment(goal)) && currentTurnDedicatedOpenFailed(messages) {
+		if openOnlyFallbackTools(name) && (companionGoalIsOpenOnly(goal) || companionDesktopFilenameFragment(goal)) && (currentTurnDedicatedOpenFailed(messages) || currentTurnOpenUnproved(messages)) {
 			return nil
 		}
 		return err
@@ -481,6 +535,251 @@ func companionLookupCanStream(goal string, messages []llmadapter.Message) bool {
 		return false
 	}
 	return currentLookupEvidence(messages)
+}
+
+// settledLookupSpeech is the spoken end of a lookup once the evidence is in.
+// Another search or a click after that is a new task.
+func settledLookupSpeech(goal string, messages []llmadapter.Message) (string, bool) {
+	if newsOpenGoal(goal) {
+		for _, receipt := range currentTurnReceipts(messages) {
+			if strings.Contains(receipt.Output, "first_hit") || strings.Contains(receipt.Output, "已打开第一条") || strings.Contains(receipt.Output, "已经打开第一条") {
+				return "已经打开第一条。", true
+			}
+		}
+		return "", false
+	}
+	if lookupHasMoreWork(goal) || (!looksLikeCurrentLookupTurn(goal) && !browserLookupOnlyGoal(goal)) {
+		return "", false
+	}
+	if !currentLookupEvidence(messages) {
+		return "", false
+	}
+	if browserLookupOnlyGoal(goal) {
+		browse := lastNamedToolOutput(messages, "desktop.browse")
+		if companionToolResultFailed(browse) || !browserWindowConfirmed(messages) {
+			return "", false
+		}
+	}
+	speech := lookupDoneSpeech(lastNamedToolOutput(messages, "web.search"))
+	if speech == "查询完成，结果已经返回。" && !lookupBodyProved(messages) {
+		return "", false
+	}
+	return speech, true
+}
+
+func lookupBodyProved(messages []llmadapter.Message) bool {
+	weather := lastNamedToolOutput(messages, "weather.get")
+	if strings.Contains(weather, "sampleMinC") || strings.Contains(weather, "sampleMaxC") {
+		return !companionToolResultFailed(weather)
+	}
+	fetched := strings.TrimSpace(lastNamedToolOutput(messages, "web.fetch"))
+	return len(fetched) > 40 && !companionToolResultFailed(fetched)
+}
+
+// settledWorkSpeech is the end of a single task once its own receipt is in.
+// A later tool call is a new task. The turn says this sentence and stops.
+// A timed WeChat chat and any goal that still has a later action stay open.
+func settledWorkSpeech(goal string, messages []llmadapter.Message) (string, bool) {
+	if _, _, wechat := parseWeChatChatGoal(goal); wechat {
+		return "", false
+	}
+	if speech, ok := settledLookupSpeech(goal, messages); ok {
+		return speech, true
+	}
+	if speech := mediaTransportSpeech(goal, messages); speech != "" {
+		return speech, true
+	}
+	if moviePlayGoal(goal) || ownedMediaCenterGoal(goal) || playbackOnlyGoal(goal) {
+		out := lastNamedToolOutput(messages, "media.play")
+		if out != "" && !companionToolResultFailed(out) && !strings.Contains(out, "ok:false") && !strings.Contains(out, "MEDIA_CENTER_STOP") {
+			if strings.Contains(out, "MEDIA_CENTER") {
+				return mediaCenterReadySpeech(out), true
+			}
+			if observeShowsPlayback(lastNamedToolOutput(messages, "computer.act")) {
+				return "已经在播了。", true
+			}
+			if !unverifiedMediaPlay("media.play", out, "") {
+				speech := companionToolResultSpeech("media.play", out)
+				proved := speech != "" && !strings.HasPrefix(speech, "已发送") && !strings.Contains(speech, "还没有确认") && speech != "完成。"
+				if proved && mediaControlReceiptSpeech(out) != "" {
+					proof, ok := extractL0(out)
+					proved = ok && proof.Kind == "media-session" && proof.Passed && !proof.Uncertain
+				}
+				if proved {
+					return speech, true
+				}
+			}
+		}
+	}
+	if companionGoalIsOpenOnly(goal) {
+		if text := computerReceiptCloseout(messages, goal); strings.Contains(text, "已打开目标") || strings.Contains(text, "已在系统浏览器打开") {
+			return text, true
+		}
+	}
+	if quitOnlyGoal(goal) {
+		if text := computerReceiptCloseout(messages, goal); text != "" && !strings.Contains(text, "未确认") {
+			return text, true
+		}
+	}
+	if typedFieldOnlyGoal(goal) {
+		if text := computerReceiptCloseout(messages, goal); strings.Contains(text, "已在目标输入框写入并核对") {
+			return text, true
+		}
+	}
+	if composerSendSettled(goal, messages) || sendOnlySettled(goal, messages) {
+		return "已经发出去了。", true
+	}
+	if closeCurrentBrowserGoal(goal) || closeOpenDocumentGoal(goal) {
+		if speech, ok := confirmedCloseSpeech(messages); ok {
+			return speech, true
+		}
+	}
+	if speech, ok := generatedDeliverableSpeech(goal, messages); ok {
+		return speech, true
+	}
+	out := lastToolOutput(messages)
+	if !containsAnyFold(goal, strings.ToLower(goal), []string{"然后", "之后", "接着", "试用", "发布"}) && skillAuthoringSettled(toolNamesThisTurn(messages), out) && strings.Contains(out, "skillId=") {
+		return "技能已经保存。", true
+	}
+	return "", false
+}
+
+func generatedDeliverableSpeech(goal string, messages []llmadapter.Message) (string, bool) {
+	if containsAnyFold(goal, strings.ToLower(goal), []string{"然后", "之后", "接着", "发给", "发送", "回读", "核对", "试用", "发布"}) {
+		return "", false
+	}
+	if out := lastNamedToolOutput(messages, "canvas.present"); out != "" && !companionToolResultFailed(out) && !strings.Contains(out, "ok:false") && strings.Contains(out, "generated ") && !strings.Contains(out, "(0 bytes)") && !strings.Contains(out, "(0 byte)") {
+		return "已经放到画布上。", true
+	}
+	for _, name := range []string{"pdf.gen", "docx.gen", "pptx.gen", "excel.gen", "html.gen", "office.generate"} {
+		out := lastNamedToolOutput(messages, name)
+		if out == "" || companionToolResultFailed(out) || strings.Contains(out, "ok:false") {
+			continue
+		}
+		if !strings.Contains(out, "generated ") {
+			continue
+		}
+		if strings.Contains(out, "(0 bytes)") || strings.Contains(out, "(0 byte)") {
+			continue
+		}
+		return "文件已经生成。", true
+	}
+	return "", false
+}
+
+func confirmedCloseSpeech(messages []llmadapter.Message) (string, bool) {
+	out := ""
+	for _, name := range []string{"computer.act", "desktop.quit", "browser.act"} {
+		if v := lastNamedToolOutput(messages, name); v != "" {
+			out = v
+		}
+	}
+	if out == "" || companionToolResultFailed(out) {
+		return "", false
+	}
+	lower := strings.ToLower(out)
+	if strings.Contains(lower, "unverified") || strings.Contains(lower, "screen unchanged") {
+		return "", false
+	}
+	if strings.Contains(lower, "closed") || strings.Contains(out, "已关闭") || strings.Contains(out, "已彻底退出") || strings.Contains(lower, "window close") {
+		return "已经关掉了。", true
+	}
+	return "", false
+}
+
+func mediaTransportSpeech(goal string, messages []llmadapter.Message) string {
+	if containsAnyFold(goal, strings.ToLower(goal), []string{"然后", "之后", "接着"}) {
+		return ""
+	}
+	if !containsAnyFold(goal, strings.ToLower(goal), []string{"下一", "上一", "暂停", "停止播放"}) {
+		return ""
+	}
+	out := lastNamedToolOutput(messages, "media.play")
+	proof, ok := extractL0(out)
+	if !ok || proof.Kind != "media-session" || !proof.Passed || proof.Uncertain {
+		return ""
+	}
+	speech := mediaControlReceiptSpeech(out)
+	if speech == "" || strings.HasPrefix(speech, "已发送") {
+		return ""
+	}
+	return speech
+}
+
+func sendOnlySettled(goal string, messages []llmadapter.Message) bool {
+	if !strings.Contains(goal, "发") {
+		return false
+	}
+	if containsAnyFold(goal, strings.ToLower(goal), []string{"然后", "之后", "接着", "查询", "搜索", "打开", "播放", "写入", "保存", "下载", "分钟"}) {
+		return false
+	}
+	out := lastNamedToolOutput(messages, "im.send")
+	return strings.Contains(out, "sent via") && !companionToolResultFailed(out) && !strings.Contains(out, "pending_external")
+}
+
+func toolNamesThisTurn(messages []llmadapter.Message) []string {
+	var names []string
+	for _, m := range messages {
+		if m.Role == llmadapter.RoleUser {
+			names = nil
+		}
+		for _, call := range m.ToolCalls {
+			names = append(names, call.Name)
+		}
+	}
+	return names
+}
+
+func lookupHasMoreWork(goal string) bool {
+	for _, action := range []string{"写入", "保存", "生成", "制作", "编辑", "发送", "发给", "填写", "下载", "登录", "然后", "之后", "接着"} {
+		if strings.Contains(goal, action) {
+			return true
+		}
+	}
+	return false
+}
+
+func lookupFollowUpBlocked(goal, name string, messages []llmadapter.Message) bool {
+	if newsOpenGoal(goal) || lookupHasMoreWork(goal) {
+		return false
+	}
+	if _, ok := settledLookupSpeech(goal, messages); !ok {
+		return false
+	}
+	switch name {
+	case "web.search", "web.fetch", "computer.act", "browser.act":
+		return true
+	case "desktop.browse":
+		return currentTurnDesktopBrowserOpened(messages)
+	default:
+		return false
+	}
+}
+
+func lookupDoneSpeech(search string) string {
+	var titles []string
+	for _, line := range strings.Split(search, "\n") {
+		line = strings.TrimSpace(line)
+		if len(line) < 4 || line[0] < '1' || line[0] > '9' || !strings.Contains(line, ". ") {
+			continue
+		}
+		title := strings.TrimSpace(line[strings.Index(line, ". ")+2:])
+		if title == "" {
+			continue
+		}
+		titles = append(titles, title)
+		if len(titles) == 3 {
+			break
+		}
+	}
+	if len(titles) == 0 {
+		return "查询完成，结果已经返回。"
+	}
+	joined := strings.Join(titles, "；")
+	if utf8.RuneCountInString(joined) > 80 {
+		joined = string([]rune(joined)[:80])
+	}
+	return "查询完成。" + joined
 }
 
 func currentLookupEvidence(messages []llmadapter.Message) bool {
@@ -522,7 +821,7 @@ func companionBrowserLookupSettled(goal, reply string, messages []llmadapter.Mes
 		return false
 	}
 	browse := lastNamedToolOutput(messages, "desktop.browse")
-	if !strings.HasPrefix(browse, "已向系统默认桌面浏览器发送打开请求") || !currentLookupEvidence(messages) {
+	if !strings.HasPrefix(browse, "已打开桌面浏览器：") || !currentLookupEvidence(messages) {
 		return false
 	}
 	// A browser/news task ends with the retrieved content, not a "written"
@@ -540,7 +839,10 @@ func companionFinalResult(messages []llmadapter.Message, reply, goal string) str
 	if computerExecutionTurn(goal) && len(currentTurnReceipts(messages)) == 0 {
 		return "本轮没有取得电脑操作回执，尚未执行完成。"
 	}
-	if currentTurnDesktopBrowserOpened(messages) && browseOpenStopsFurtherDesktop(goal) {
+	if currentTurnDesktopBrowserOpened(messages) && !browserWindowConfirmed(messages) && browseOpenStopsFurtherDesktop(goal) && !lookupHasMoreWork(goal) {
+		return "已向默认浏览器发送打开请求，尚未核对页面。"
+	}
+	if browserWindowConfirmed(messages) && browseOpenStopsFurtherDesktop(goal) {
 		if replyCarriesStalePlayback(reply, goal) {
 			return "已经在桌面浏览器打开搜索页。"
 		}

@@ -3,8 +3,6 @@ package producthub
 import (
 	"fmt"
 	"strings"
-
-	"github.com/lunitide/lunitide/internal/producthub/generated"
 )
 
 func Diagnose(cards []Card, live []Candidate) []Finding {
@@ -53,6 +51,7 @@ func diagnoseCatalog(cards []Card, live []Candidate) ([]Finding, ProbeScore, []C
 				"确认退役后在图上保持弃用标记；不要手删种子讲解", "总览里该卡带 status:弃用", "open"))
 		}
 	}
+	out = append(out, auditWiring(cards)...)
 	probe, gaps := coverage(cards, live)
 	out = append(out, gaps...)
 	if len(out) == 0 {
@@ -111,7 +110,7 @@ func coverage(cards []Card, live []Candidate) (ProbeScore, []Finding) {
 		index[c.StableKey] = i
 	}
 	pages := map[string]struct{}{}
-	for _, p := range generated.Pages {
+	for _, p := range catalogPages() {
 		pages[p.ID] = struct{}{}
 	}
 	var gaps []Finding

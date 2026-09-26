@@ -14,7 +14,7 @@ func TestVoiceAndTypedCompoundTaskTools(t *testing.T) {
 		needed []string
 	}{
 		{"查询合肥天气并发给微信里的小王", []string{"weather.get", "web.search", "im.send", "desktop.open", "computer.act"}},
-		{"查一下股价写一份报告", []string{"web.search", "workspace.write", "docx.gen"}},
+		{"查一下股价写一份报告", []string{"web.search", "workspace.write", "canvas.present"}},
 		{"打开记事本然后运行测试命令", []string{"desktop.open", "command.run", "workspace.read"}},
 		{"给小王发送消息", []string{"im.send"}},
 	} {

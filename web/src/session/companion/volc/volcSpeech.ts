@@ -39,7 +39,7 @@ const FULL_SCALE_PEAK = 0.35
  * treated as barge-in. Covers the pad syllable coming back through the mic
  * without waiting the full echo-guard used when unmuting after she stops.
  */
-export const BARGE_IN_ARM_MS = 160
+export const BARGE_IN_ARM_MS = 0
 
 const silentBars = () => Array.from({ length: MOON_RING_BINS }, () => 0)
 
@@ -235,8 +235,18 @@ export async function startVolcCompanionSpeech(
           return
         }
         if (playback) considerBargeIn(next)
-        // The stage releases playback synchronously, but must not submit this
-        // partial hypothesis as a complete user request.
+        const heard = next.trim()
+        if (heard && !looksLikePlaybackEcho(heard, options.spokenText?.() ?? '')) {
+          const absorbed = pickTranscriptRevision(text, heard)
+          if (absorbed !== text.trim()) {
+            text = absorbed
+            lastTextAt = now
+            if (!textSince) textSince = now
+            options.onInterim?.(text)
+          }
+        }
+        // Playback is still hers until the stage stops it. The words stay
+        // in the buffer so the sentence can finish after she goes quiet.
         if (playback || commitPaused) return
       }
       const trimmed = next.trim()
@@ -314,7 +324,10 @@ export async function startVolcCompanionSpeech(
       // Preserve immediate post-interruption audio. guardUntil delays commit;
       // the existing transcript echo filter rejects the assistant's tail.
       asr?.setMuted(active && !listenThrough)
-      resetUtterance()
+      const kept = text.trim()
+      if (active || !kept || looksLikePlaybackEcho(kept, options.spokenText?.() ?? '')) {
+        resetUtterance()
+      }
     },
     forceCommit: (fallback?: string) => {
       if (playback || commitPaused) return false

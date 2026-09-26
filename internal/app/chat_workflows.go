@@ -37,7 +37,7 @@ const workflowDesktopOpenClause = "- 打开桌面文件：必须用 desktop.open
 
 const workflowDesktopTypeClause = "- 在已打开的对话框里填写：有命名输入框时用 desktop.type（after=界面上真实字段名如身份证号码或证件号码，text=要写的内容，需要发送时 submit=true，window=窗口标题）。Word 正文没有命名输入框时改 computer.act：先截图，记下 frameId，再点输入位置后 type，verifyAfter。找不到字段必须对用户说无法执行和原因。写完不要关窗口。\n"
 
-const workflowOwnedMediaClause = "- 自带媒体中心：用户要在产品里的媒体中心播放电影或歌曲时，只调用一次 media.play，target=center，query=片名或歌名。用户给了 mp4/webm/mp3 的 https 直链就放进 url。返回 MEDIA_CENTER 后用一句话说明已经在媒体中心播放返回的 title 并停止。不要 web.search、web.fetch、computer.act，也不要找本机其它播放器。点名的片子有公版直链时，返回 MEDIA_CENTER，说正在媒体中心播放返回的 title。没有公版直链时，工具只打开爱奇艺的官方搜索，说正在爱奇艺官方页面用会员播放用户点的片名。不要打开优酷，不要打开网易云，不要改说成另一部片子，也不要抓取网站的视频地址。\n"
+const workflowOwnedMediaClause = "- 自带媒体中心：用户要在产品里的媒体中心播放电影或歌曲时，只调用一次 media.play，target=center，query=片名或歌名。用户给了 mp4/webm/m3u8/mp3 的 https 直链就放进 url。返回 MEDIA_CENTER 后用一句话说明已经在媒体中心播放返回的 title（有 site 时说明来自哪个网站）并停止。不要 web.search、web.fetch、computer.act，也不要找本机其它播放器。电影只在媒体中心播放。点名要看的片子只找这一部。公版库里没有时，工具会自动从对接的免费网站（电影：南瓜影视；音乐：酷我音乐）提取真实播放直链继续在媒体中心播放；工具报没有就是没有，照实说明并停止，不要打开网页，不要换一部播放。不要打开爱奇艺、优酷、网易云这些会员网页，也不要自己抓取网站的视频地址。\n"
 
 const workflowMediaClause = "- 播放、暂停、上一曲、下一曲：只打一次 media.play target=foreground（没说歌名或要随机播放时 query=random，不要搜索热门；说了歌手如周杰伦则 query=周杰伦；上一曲/上一首 action=prev，下一曲/下一首 action=next，暂停 action=pause）。用户说用电脑操作去播放、话里没有歌名时，query=random，不要把操作说明当成歌名，也不要把这句话打进播放器。返回 started playing、sent next、sent previous、sent pause、sent stop 或 verified 时，用一句话收尾并停止。不要 computer.act，不要把工具 JSON 说给用户，不要再说没播放成功。只有 ok:false 才允许一次 computer.act observe。禁止点收藏。用户说换播放器时仍先 media.play。禁止默认打开 music.163.com / YouTube。仅当用户明确要网页版时才用 target=browser。\n" +
 	"- 已打开的播放器暂停后再继续：media.play action=play，不要带歌名或应用名当 query。关闭汽水音乐这类已命名软件用 desktop.quit，不要用暂停，不要用 computer.act 去关窗口。\n" +
@@ -120,8 +120,8 @@ func selectWorkflowClauses(text string, lane ChatLane) []string {
 	if looksLikeWeatherTurn(text) {
 		out = append(out, "- 天气：优先 weather.get 读取结构化免费预报；城市含糊先核实，按返回的当地日期、更新时间和采样范围回答。不要抓网页片段冒充实测温度。用户说这里、本地或当前位置时先 location.get，把返回的 latitude、longitude、timezone 交给 weather.get，不要猜城市。\n")
 	}
-	if has("报告", "文档", "画布", "对比", "展示") {
-		out = append(out, "- 给用户看的说明、对比、分析用 canvas.present，显示在工作区画布。title 写标题，sections 写 heading 和 body，数字用 bars 的 label、value、max。不要把整页 HTML 塞进 workspace.write。\n")
+	if wantsDefaultCanvas(text) {
+		out = append(out, "- 没有指定 Word、PPT、TXT 或其他文档类型时，用 canvas.present 把方案、文档或 PRD 展示在工作区的画布里。title 写标题，sections 写 heading 和 body，数字用 bars 的 label、value、max。不要改去生成 Word、PPT 或文本文件，也不要把整页 HTML 塞进 workspace.write。\n")
 	}
 	if has("火车", "高铁", "机票", "航班", "股价", "股票", "行情") {
 		out = append(out, "- 车票/航班/行情：先 mcp.search 找当前已连接的专用接口，再按真实schema调用。缺日期/地点/证券市场先核实；若没有接口，说明尚未接入，立刻结束本轮，不能凭网页摘要或旧记忆报实时余票/报价。禁止 web.search/web.fetch/browser.act 访问 12306。仅当用户明确说打开某网站或允许网上查时才用公开网页，并标明来源与时间。\n")

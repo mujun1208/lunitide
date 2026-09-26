@@ -91,7 +91,7 @@ func TestSpecialistChatStartPinsComposeSkills(t *testing.T) {
 		tools  []string
 	}{
 		{"PPT专家", "请做一份介绍", []string{"tpl-slide-builder", "tpl-web-researcher", "tpl-mermaid-diagrams"}, []string{"web.search", "pptx.gen", "skill.invoke"}},
-		{"报告编写专家", "写一份调研报告", []string{"tpl-web-researcher", "tpl-docx-writer", "tpl-anti-ai-prose"}, []string{"web.search", "docx.gen", "skill.invoke"}},
+		{"报告编写专家", "写一份调研报告", []string{"tpl-web-researcher", "tpl-docx-writer", "tpl-anti-ai-prose"}, []string{"web.search", "canvas.present", "skill.invoke"}},
 		{"小说编写专家", "写一章开篇", []string{"tpl-docx-writer", "tpl-anti-ai-prose", "tpl-fiction-continuity"}, []string{"docx.gen", "skill.invoke"}},
 		{"Excel表格制作专家", "做半年财报表", []string{"tpl-excel-analyst", "tpl-csv-workbook"}, []string{"excel.gen", "excel.parse"}},
 		{"UI专家", "画一个设置页", []string{"frontend-design", "ui-components", "design-system"}, []string{"workspace.write", "skill.invoke"}},

@@ -930,14 +930,14 @@ func (s *Store) rotateMediaQueueLocked(ctx context.Context, sessionID, currentAs
 		delta = -1
 	}
 	nextIdx := (cur + delta + len(items)) % len(items)
-	for i, item := range items {
-		state := "queued"
-		if i == nextIdx {
-			state = "current"
-		}
-		if _, err := s.db.ExecContext(ctx, `UPDATE media_queue_items SET state=? WHERE item_id=?`, state, item.ItemID); err != nil {
+	for _, item := range items {
+		if _, err := s.db.ExecContext(ctx, `UPDATE media_queue_items SET state='queued' WHERE item_id=?`, item.ItemID); err != nil {
 			return "", err
 		}
 	}
-	return items[nextIdx].AssetID, nil
+	chosen := items[nextIdx]
+	if _, err := s.db.ExecContext(ctx, `UPDATE media_queue_items SET state='current' WHERE item_id=?`, chosen.ItemID); err != nil {
+		return "", err
+	}
+	return chosen.AssetID, nil
 }

@@ -16,6 +16,23 @@ import (
 
 const reliableBingPage = `<li class="b_algo"><h2><a href="https://go.dev/">Go</a></h2><p>The Go language.</p></li>`
 
+func TestFirstOrganicOnPageReadsTheOpenedSearchPage(t *testing.T) {
+	r, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.SetWebFetcher(func(_ context.Context, rawURL string) (networkpolicy.FetchResult, error) {
+		if !strings.Contains(rawURL, "https://www.bing.com/search?q=news") {
+			t.Fatal(rawURL)
+		}
+		return networkpolicy.FetchResult{Status: 200, Body: []byte(`<li class="b_algo"><h2><a href="https://news.example/on-page">第一条</a></h2><p>新闻</p></li>`)}, nil
+	})
+	got, err := r.FirstOrganicOnPage(context.Background(), "https://www.bing.com/search?q=news")
+	if err != nil || got != "https://news.example/on-page" {
+		t.Fatal(got, err)
+	}
+}
+
 func TestSearchHTTPFailureCannotMasqueradeAsResults(t *testing.T) {
 	r, err := New(t.TempDir())
 	if err != nil {

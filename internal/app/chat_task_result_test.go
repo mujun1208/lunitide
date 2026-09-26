@@ -68,7 +68,11 @@ func TestCompanionForegroundStopsAnotherComputerAct(t *testing.T) {
 }
 
 func TestOpenedDesktopBrowserStopsLaterBrowserTools(t *testing.T) {
-	messages := receiptMessages("desktop.browse", `{"query":"古天乐 最新新闻"}`, "已向系统默认桌面浏览器发送打开请求：https://www.bing.com/search?q=news")
+	unverified := receiptMessages("desktop.browse", `{"query":"古天乐 最新新闻"}`, "已向系统默认桌面浏览器发送打开请求：https://www.bing.com/search?q=news")
+	if err := guardCurrentTurnToolHistory("打开网页搜索古天乐最新新闻", "computer.act", unverified); err != nil {
+		t.Fatal("an unverified browser handoff must still allow the window to be confirmed", err)
+	}
+	messages := receiptMessages("desktop.browse", `{"query":"古天乐 最新新闻"}`, "已打开桌面浏览器：https://www.bing.com/search?q=news")
 	goal := "打开网页搜索古天乐最新新闻"
 	for _, name := range []string{"computer.act", "browser.act"} {
 		if _, ok := browseAlreadyOpenReceipt(goal, name, messages); !ok {
@@ -279,8 +283,8 @@ func TestPlaybackTransportBlocksScreenClick(t *testing.T) {
 		{Role: llmadapter.RoleUser, Content: goal},
 		{Role: llmadapter.RoleTool, Content: "started playing in 汽水音乐 (media key)\n" + `{"l0":{"kind":"foreground","passed":false,"uncertain":true,"detail":"MEDIA_UNVERIFIED"}}`},
 	}
-	if err := guardCurrentTurnToolHistory(goal, "computer.act", delivered); err == nil {
-		t.Fatal("screen click allowed after the play command was delivered")
+	if err := guardCurrentTurnToolHistory(goal, "computer.act", delivered); err != nil {
+		t.Fatal("an unconfirmed play must still allow the screen check", err)
 	}
 	if err := guardCurrentTurnToolHistory("下一曲", "computer.act", []llmadapter.Message{
 		{Role: llmadapter.RoleUser, Content: "下一曲"},
@@ -479,5 +483,276 @@ func TestVoiceTaskWaitIsNotSpokenAsFinalResult(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestLookupStopsAfterTheBrowserSearchReturns(t *testing.T) {
+	goal := "打开浏览器，查询古天乐的最新新闻"
+	messages := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: goal},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "browse", Name: "desktop.browse", Arguments: json.RawMessage(`{"query":"古天乐 最新新闻"}`)}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "browse", Content: "已向系统默认桌面浏览器发送打开请求：https://www.bing.com/search?q=news"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "search", Name: "web.search", Arguments: json.RawMessage(`{"query":"古天乐 最新新闻"}`)}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "search", Content: "query: 古天乐 最新新闻\nresults_url: https://cn.bing.com/search?q=news\n\n1. 古天乐新片定档\n   https://news.example/koo\n"},
+	}
+	if _, ok := settledLookupSpeech(goal, messages); ok {
+		t.Fatal("an unverified browser handoff is not a finished lookup")
+	}
+	if err := guardCurrentTurnToolHistory(goal, "computer.act", messages); err != nil {
+		t.Fatal("the window still has to be confirmed", err)
+	}
+	confirmed := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: goal},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "browse", Name: "desktop.browse"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "browse", Content: "已打开桌面浏览器：https://www.bing.com/search?q=news"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "search", Name: "web.search"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "search", Content: "1. 古天乐新片定档\n"},
+	}
+	if speech, ok := settledLookupSpeech(goal, confirmed); !ok || !strings.Contains(speech, "查询完成") || !strings.Contains(speech, "古天乐新片定档") {
+		t.Fatalf("confirmed browser speech=%q ok=%v", speech, ok)
+	}
+	if err := guardCurrentTurnToolHistory(goal, "web.search", confirmed); err == nil {
+		t.Fatal("a second search must not run after the window and the titles are both back")
+	}
+	if err := guardCurrentTurnToolHistory(goal, "computer.act", confirmed); err == nil {
+		t.Fatal("a click must not run after the window and the titles are both back")
+	}
+	empty := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "查询古天乐的最新新闻"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "search", Name: "web.search"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "search", Content: "ok"},
+	}
+	if err := guardCurrentTurnToolHistory("查询古天乐的最新新闻", "web.search", empty); err != nil {
+		t.Fatal("an empty search must still allow another search until there is a result")
+	}
+	if _, ok := settledWorkSpeech("查询古天乐的最新新闻然后打开第一条", messages); ok {
+		t.Fatal("search plus open-the-first-link is not finished at the search")
+	}
+	opened := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "打开第一个新闻链接"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "fetch", Name: "web.fetch", Arguments: json.RawMessage(`{"url":"https://news.example/koo"}`)}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "fetch", Content: "url: https://news.example/koo\nfirst_hit: true\n已打开第一条。"},
+	}
+	got, ok := settledLookupSpeech("打开第一个新闻链接", opened)
+	if !ok || got != "已经打开第一条。" {
+		t.Fatalf("speech=%q ok=%v", got, ok)
+	}
+	unconfirmedOpen := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "打开记事本"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "open", Name: "desktop.open", Arguments: json.RawMessage(`{"target":"notepad"}`)}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "open", Content: "opened notepad"},
+	}
+	if _, ok := settledWorkSpeech("打开记事本", unconfirmedOpen); ok {
+		t.Fatal("an unconfirmed open is not success; the turn must keep going until the window is verified")
+	}
+	if err := guardCurrentTurnToolHistory("打开记事本", "computer.act", unconfirmedOpen); err != nil {
+		t.Fatal("an unconfirmed open must still allow the next step that can finish it")
+	}
+	launched := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "打开记事本"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "open", Name: "desktop.open", Arguments: json.RawMessage(`{"name":"记事本"}`)}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "open", Content: "opened notepad\n" + `{"l0":{"kind":"unverified","passed":true,"uncertain":false}}`},
+	}
+	if _, ok := settledWorkSpeech("打开记事本", launched); ok {
+		t.Fatal("a launch without a confirmed window is not finished")
+	}
+	if err := guardCurrentTurnToolHistory("打开记事本", "computer.act", launched); err != nil {
+		t.Fatal("an unconfirmed window must still allow the step that can confirm it")
+	}
+	confirmedOpen := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "打开记事本"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "open", Name: "desktop.open", Arguments: json.RawMessage(`{"name":"记事本"}`)}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "open", Content: "opened notepad\n" + `{"l0":{"kind":"foreground","passed":true,"uncertain":false}}`},
+	}
+	got, ok = settledWorkSpeech("打开记事本", confirmedOpen)
+	if !ok || !strings.Contains(got, "已打开目标") {
+		t.Fatalf("confirmed open speech=%q ok=%v", got, ok)
+	}
+	if err := guardCurrentTurnToolHistory("打开记事本", "computer.act", confirmedOpen); err == nil {
+		t.Fatal("a verified open must stop")
+	}
+	if _, ok := settledWorkSpeech("打开记事本然后写入你好", []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "打开记事本然后写入你好"},
+		{Role: llmadapter.RoleTool, ToolCallID: "open", Content: "opened notepad"},
+	}); ok {
+		t.Fatal("open plus type is not finished at the open step")
+	}
+	play := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "播放电影"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "play", Name: "media.play"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "play", Content: "已交给媒体中心播放。\nMEDIA_CENTER\nkind: video\ntitle: Night of the Living Dead (1968)\n"},
+	}
+	got, ok = settledWorkSpeech("播放电影", play)
+	if !ok || !strings.Contains(got, "已交给媒体中心播放") || !strings.Contains(got, "Night of the Living Dead (1968)") {
+		t.Fatalf("play speech=%q ok=%v", got, ok)
+	}
+	if err := guardCurrentTurnToolHistory("播放电影", "web.search", play); err == nil {
+		t.Fatal("playback must not continue into search")
+	}
+	quit := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "彻底退出微信"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "quit", Name: "desktop.quit", Arguments: json.RawMessage(`{"name":"微信","force":true}`)}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "quit", Content: "已彻底退出微信，已确认目标进程不再运行\n" + `{"l0":{"kind":"process","passed":true,"uncertain":false}}`},
+	}
+	got, ok = settledWorkSpeech("彻底退出微信", quit)
+	if !ok || !strings.Contains(got, "已彻底退出微信") {
+		t.Fatalf("quit speech=%q ok=%v", got, ok)
+	}
+	if err := guardCurrentTurnToolHistory("彻底退出微信", "computer.act", quit); err == nil {
+		t.Fatal("quit must not continue into a click")
+	}
+	typed := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "在记事本的号码字段输入123"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "type", Name: "desktop.type", Arguments: json.RawMessage(`{"text":"123","after":"号码"}`)}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "type", Content: "typed \"123\"\n" + `{"l0":{"kind":"field","passed":true,"uncertain":false}}`},
+	}
+	got, ok = settledWorkSpeech("在记事本的号码字段输入123", typed)
+	if !ok || !strings.Contains(got, "已在目标输入框写入并核对") {
+		t.Fatalf("type speech=%q ok=%v", got, ok)
+	}
+	if _, still := settledWorkSpeech("在记事本输入123", []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "在记事本输入123"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "act", Name: "computer.act", Arguments: json.RawMessage(`{"action":"type","text":"123"}`)}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "act", Content: "typed 3 character(s); screen updated 100x100"},
+	}); still {
+		t.Fatal("an unverified type is not finished")
+	}
+	next := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "切换下一首歌曲"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "next", Name: "media.play"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "next", Content: "verified next in player\n" + `{"l0":{"kind":"media-session","passed":true,"uncertain":false}}`},
+	}
+	got, ok = settledWorkSpeech("切换下一首歌曲", next)
+	if !ok || !strings.Contains(got, "已切换到下一首") {
+		t.Fatalf("next speech=%q ok=%v", got, ok)
+	}
+	sent := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "给小王发一条消息"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "im", Name: "im.send"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "im", Content: "sent via 飞书 webhook"},
+	}
+	got, ok = settledWorkSpeech("给小王发一条消息", sent)
+	if !ok || got != "已经发出去了。" {
+		t.Fatalf("send speech=%q ok=%v", got, ok)
+	}
+	if _, still := settledWorkSpeech("跟微信里的张三聊天，聊10分钟", []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "跟微信里的张三聊天，聊10分钟"},
+		{Role: llmadapter.RoleTool, ToolCallID: "type", Content: "typed \"你好\" submitted"},
+	}); still {
+		t.Fatal("a timed chat is not finished after the first send")
+	}
+	pdf := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "生成 PDF"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "pdf", Name: "pdf.gen"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "pdf", Content: "generated report.pdf (1000 bytes)"},
+	}
+	got, ok = settledWorkSpeech("生成 PDF", pdf)
+	if !ok || got != "文件已经生成。" {
+		t.Fatalf("file speech=%q ok=%v", got, ok)
+	}
+	if err := guardCurrentTurnToolHistory("生成 PDF", "web.search", pdf); err == nil {
+		t.Fatal("a finished file must not start another step")
+	}
+	if _, ok := settledWorkSpeech("生成文档并最后回读核对", pdf); ok {
+		t.Fatal("a requested read-back is not finished at generation")
+	}
+	canvas := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "帮我写一份调研报告"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "canvas", Name: "canvas.present"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "canvas", Content: "canvas ready\ngenerated canvas.html (1200 bytes)"},
+	}
+	got, ok = settledWorkSpeech("帮我写一份调研报告", canvas)
+	if !ok || got != "已经放到画布上。" {
+		t.Fatalf("canvas speech=%q ok=%v", got, ok)
+	}
+	if _, still := settledWorkSpeech("做个PPT然后发给我", []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "做个PPT然后发给我"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "ppt", Name: "pptx.gen"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "ppt", Content: "generated deck.pptx (1000 bytes)"},
+	}); still {
+		t.Fatal("generate-then-send is not finished at the file")
+	}
+	saved := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "修改周报技能"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "skill", Name: "skill.manage"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "skill", Content: "ok:true skillId=01ARZ3NDEKTSV4RRFFQ69G5FAV"},
+	}
+	got, ok = settledWorkSpeech("修改周报技能", saved)
+	if !ok || got != "技能已经保存。" {
+		t.Fatalf("skill speech=%q ok=%v", got, ok)
+	}
+	if err := guardCurrentTurnToolHistory("修改周报技能", "skill.view", saved); err == nil {
+		t.Fatal("a saved skill must not keep reading")
+	}
+	if _, ok := settledWorkSpeech("修改周报技能", []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "修改周报技能"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "skill", Name: "skill.manage"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "skill", Content: "ok:true"},
+	}); ok {
+		t.Fatal("a skill save without an id is not success")
+	}
+	confirmedBrowse := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "打开默认浏览器"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "browse", Name: "desktop.browse"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "browse", Content: "已打开桌面浏览器：https://www.bing.com"},
+	}
+	got, ok = settledWorkSpeech("打开默认浏览器", confirmedBrowse)
+	if !ok || !strings.Contains(got, "已在系统浏览器打开") {
+		t.Fatalf("browser open speech=%q ok=%v", got, ok)
+	}
+	if err := guardCurrentTurnToolHistory("打开默认浏览器", "computer.act", confirmedBrowse); err == nil {
+		t.Fatal("a confirmed browser open must not keep clicking")
+	}
+	if _, ok := settledWorkSpeech("生成 PDF", []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "生成 PDF"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "pdf", Name: "pdf.gen"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "pdf", Content: "generated report.pdf (0 bytes)"},
+	}); ok {
+		t.Fatal("an empty file is not a finished document")
+	}
+	unconfirmedPlay := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "播放一首歌"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "play", Name: "media.play"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "play", Content: "started playing in 汽水音乐\nMEDIA_UNVERIFIED\nplayback not confirmed"},
+	}
+	if _, ok := settledWorkSpeech("播放一首歌", unconfirmedPlay); ok {
+		t.Fatal("an unconfirmed play must keep going until playback is verified")
+	}
+	heard := append(unconfirmedPlay,
+		llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "see", Name: "computer.act", Arguments: json.RawMessage(`{"action":"observe"}`)}}},
+		llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: "see", Content: `{"count":2,"frameId":"frm_1","nodes":[{"name":"暂停"}]}`},
+	)
+	if speech, ok := settledWorkSpeech("播放一首歌", heard); !ok || speech != "已经在播了。" {
+		t.Fatalf("visible playback must finish the turn: %q %v", speech, ok)
+	}
+	if _, ok := settledWorkSpeech("暂停播放", []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "暂停播放"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "pause", Name: "media.play"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "pause", Content: "sent pause/play toggle"},
+	}); ok {
+		t.Fatal("sending a pause key is not a confirmed pause")
+	}
+	if _, ok := settledWorkSpeech("关掉这个文档", []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "关掉这个文档"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "click", Name: "computer.act"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "click", Content: "clicked close; screen updated"},
+	}); ok {
+		t.Fatal("a click is not a closed document")
+	}
+	closed := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "关掉这个文档"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "close", Name: "computer.act"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "close", Content: "window close 文档; screen updated"},
+	}
+	got, ok = settledWorkSpeech("关掉这个文档", closed)
+	if !ok || got != "已经关掉了。" {
+		t.Fatalf("close speech=%q ok=%v", got, ok)
+	}
+	if _, ok := settledWorkSpeech("查询古天乐的最新新闻", []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "查询古天乐的最新新闻"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "search", Name: "web.search"}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "search", Content: "ok"},
+	}); ok {
+		t.Fatal("a search with no results is not a finished lookup")
 	}
 }

@@ -204,6 +204,40 @@ describe('startVolcCompanionSpeech', () => {
     handle.stop()
   })
 
+  it('stops on the first non-echo words without waiting out an arm delay', async () => {
+    const onBargeIn = vi.fn()
+    const stage = harness()
+    const handle = await startVolcCompanionSpeech(
+      { ...stage.options, bargeIn: () => true, onBargeIn },
+      PROVIDER,
+    )
+    handle.setAssistantPlayback(true)
+    onTranscript('打开第一个链接', false, true)
+    expect(onBargeIn).toHaveBeenCalledWith('打开第一个链接')
+    handle.stop()
+  })
+
+  it('keeps the interruption and submits the finished sentence once playback has stopped', async () => {
+    const onBargeIn = vi.fn()
+    const stage = harness()
+    const handle = await startVolcCompanionSpeech(
+      { ...stage.options, bargeIn: () => true, onBargeIn },
+      PROVIDER,
+    )
+    handle.setAssistantPlayback(true)
+    onTranscript('打开第一个', false, true)
+    expect(onBargeIn).toHaveBeenCalledWith('打开第一个')
+    expect(stage.onInterim).toHaveBeenLastCalledWith('打开第一个')
+    expect(stage.onFinal).not.toHaveBeenCalled()
+    handle.setAssistantPlayback(false, 80)
+    onTranscript('打开第一个链接', true, true)
+    expect(stage.onInterim).toHaveBeenLastCalledWith('打开第一个链接')
+    asr.commit.mockResolvedValue('打开第一个链接')
+    await vi.advanceTimersByTimeAsync(TURN_END_SILENCE_MS + 100)
+    expect(stage.onFinal).toHaveBeenCalledExactlyOnceWith('打开第一个链接')
+    handle.stop()
+  })
+
   it('takes already isolated turns from the ASR cursor without clipping shared words again', async () => {
     const stage = harness()
     asr.commit

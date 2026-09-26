@@ -24,6 +24,13 @@ type loopbackSource interface {
 
 var openLoopback = openPlatformLoopback
 
+// RefusePlatformLoopbackForTest keeps meeting start from opening the system audio device.
+func RefusePlatformLoopbackForTest() func() {
+	prev := openLoopback
+	openLoopback = func() (loopbackSource, error) { return nil, errLoopbackUnavailable }
+	return func() { openLoopback = prev }
+}
+
 type loopbackSession struct {
 	meetingID string
 	src       loopbackSource

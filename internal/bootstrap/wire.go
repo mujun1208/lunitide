@@ -546,7 +546,13 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	}
 	engine.SetOCR(ocrSvc)
 	engine.SetSQLStore(store)
-	engine.SetProductHub(producthub.New(store))
+	hub := producthub.New(store)
+	hub.SetProductVersion(buildinfo.Version)
+	engine.SetProductHub(hub)
+	app.RegisterCatalogProbes()
+	if root := producthub.FindProductRoot(); root != "" {
+		producthub.UseProductRoot(root)
+	}
 	engine.SetMedia(mediaapp.New(store))
 	if runtimeRoot, err := dataRoot.PrepareSubdirectory("runtime"); err != nil {
 		log.Printf("uv runtime directory unavailable; in-product uv install stays off: %v", err)

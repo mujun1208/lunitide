@@ -150,6 +150,9 @@ func (r desktopLadderReceipt) succeeded(goal string) bool {
 		return false
 	}
 	if r.Name == "media.play" {
+		if strings.Contains(r.Output, "MEDIA_UNVERIFIED") || strings.Contains(r.Output, "playback not confirmed") {
+			return false
+		}
 		if mediaKeyDelivered(r.Output) {
 			return true
 		}
@@ -271,6 +274,9 @@ func desktopLadderDedicatedUnresolved(goal, toolOut string, lastTools []string) 
 	if playbackOnlyGoal(goal) || companionTurnWantsMusicPlay(goal) {
 		if !usedAnyTool(lastTools, "media.play") {
 			return false
+		}
+		if strings.Contains(toolOut, "MEDIA_UNVERIFIED") || strings.Contains(toolOut, "playback not confirmed") {
+			return true
 		}
 		if mediaKeyDelivered(toolOut) {
 			return false

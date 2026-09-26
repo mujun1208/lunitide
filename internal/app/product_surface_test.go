@@ -15,6 +15,9 @@ func TestProductSurfaceKeepsSystemLocationAndCanvas(t *testing.T) {
 		{goal: "帮我点这个按钮", want: "system.run", cc: true},
 		{goal: "写一份对比报告", want: "canvas.present", cc: false},
 		{goal: "用画布展示这个对比", want: "canvas.present", cc: false},
+		{goal: "写方案", want: "canvas.present", cc: false},
+		{goal: "写文档", want: "canvas.present", cc: false},
+		{goal: "写PRD", want: "canvas.present", cc: false},
 	}
 	for _, tc := range cases {
 		names := productToolNames(tc.goal, tc.cc)

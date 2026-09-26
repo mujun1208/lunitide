@@ -200,7 +200,7 @@ func (s *Service) PickFile(folder bool) (PickResult, error) {
 	if err := s.readyUnlocked(); err != nil {
 		return PickResult{}, err
 	}
-	path, err := pickLocalPath(folder)
+	path, err := pickPath(folder)
 	if err != nil {
 		return PickResult{}, err
 	}
@@ -245,6 +245,14 @@ func (s *Service) OpenFile(destPath string, names ...string) (string, error) {
 		return "", ErrOpenFailed
 	}
 	return abs, nil
+}
+
+var pickPath = pickLocalPath
+
+func ReplacePickPathForTest(fn func(bool) (string, error)) func() {
+	prev := pickPath
+	pickPath = fn
+	return func() { pickPath = prev }
 }
 
 func ReplaceOpenPathForTest(fn func(string) error) func() {

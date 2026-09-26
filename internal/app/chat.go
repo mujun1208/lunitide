@@ -983,11 +983,15 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	if text, ok := e.maybeDescribeImages(ctx, modelByID(item, p.ModelID), images, imageQuestion); ok {
 		messages = injectVisionDescription(messages, text)
 		images = nil
-	} else if len(images) > 0 && !modelByID(item, p.ModelID).SupportsVision {
+	} else if len(images) > 0 && (e.ocr != nil || !modelByID(item, p.ModelID).SupportsVision) {
 		images = nil
-		messages = injectVisionDescription(messages, "已附图片，但 OCR 和视觉模型都没有读出内容。请确认本机 OCR 可用，或在设置里启用视觉模型后再上传。")
+		line := "已附图片，但 OCR 和视觉模型都没有读出内容。请确认本机 OCR 可用，或在设置里启用视觉模型后再上传。"
+		if e.ocr != nil {
+			line = "图片已识别，没有读出可用内容。"
+		}
+		messages = injectVisionDescription(messages, line)
 	}
-	imageAnswerOnly := hadImages && !wantsComputerAction(imageQuestion)
+	imageAnswerOnly := hadImages && !imageHasFollowUpWork(imageQuestion)
 	req := llmadapter.Request{Model: p.ModelID, Messages: messages, Images: images, MaxTokens: chatMaxTokens, MaxAttempts: 1, DisableReasoning: p.Companion || isShortIdleGreeting(intent.Text)}
 	if p.Companion {
 		req.MaxTokens = companionMaxTokens

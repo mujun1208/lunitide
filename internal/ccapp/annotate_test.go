@@ -48,3 +48,20 @@ func TestAnnotateCaptureDrawsBadge(t *testing.T) {
 		t.Fatalf("expected magenta badge pixel, got %d,%d,%d", r>>8, g>>8, b>>8)
 	}
 }
+
+func TestFirstResultLinkSkipsBrowserChrome(t *testing.T) {
+	name, ok := FirstResultLinkName([]UINode{
+		{Role: "link", Name: "图片"},
+		{Role: "link", Name: "视频"},
+		{Role: "link", Name: "新闻"},
+		{Role: "button", Name: "古天乐最新动态"},
+		{Role: "link", Name: "古天乐最新动态"},
+		{Role: "link", Name: "第二条新闻"},
+	})
+	if !ok || name != "古天乐最新动态" {
+		t.Fatalf("name=%q ok=%v", name, ok)
+	}
+	if _, ok := FirstResultLinkName([]UINode{{Role: "link", Name: "图片"}}); ok {
+		t.Fatal("chrome tabs are not the first result")
+	}
+}

@@ -165,6 +165,7 @@ type Engine struct {
 	adapterCache       map[string]llmadapter.Adapter
 	browserLastURL     sync.Map
 	searchFirstHit     sync.Map
+	searchLastQuery    sync.Map
 	browserEndpoint    atomic.Value
 	lastBrowserSnap    atomic.Value
 	meetingNotesModel  atomic.Value

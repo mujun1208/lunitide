@@ -33,8 +33,11 @@ func TestCompanionTaskWorkflowInjectionPpt(t *testing.T) {
 }
 
 func TestCompanionTaskWorkflowInjectionReportAndExcel(t *testing.T) {
-	if got := companionTaskWorkflowInjection("帮我写一份调研报告"); !strings.Contains(got, "docx.gen") {
-		t.Fatalf("report lite must name docx.gen: %q", got)
+	if got := companionTaskWorkflowInjection("帮我写一份调研报告"); got != "" {
+		t.Fatalf("an untyped report stays on the canvas, not the office pipeline: %q", got)
+	}
+	if got := companionTaskWorkflowInjection("帮我写一份调研报告 Word"); !strings.Contains(got, "docx.gen") {
+		t.Fatalf("a named Word report must name docx.gen: %q", got)
 	}
 	if got := companionTaskWorkflowInjection("做一个半年财报表格"); !strings.Contains(got, "excel.gen") {
 		t.Fatalf("excel lite must name excel.gen: %q", got)

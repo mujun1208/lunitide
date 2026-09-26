@@ -559,44 +559,28 @@ export function neighborIds(edges: HubEdge[], id: string): Set<string> {
   return next
 }
 
-export const EXPERT_SECTIONS = [
-  { key: 'persona', zh: '人格', en: 'PERSONA' },
-  { key: 'knowledge', zh: '知识', en: 'KNOWLEDGE' },
-  { key: 'skills', zh: '技能', en: 'SKILLS' },
-  { key: 'style', zh: '风格', en: 'STYLE' },
-  { key: 'constraints', zh: '约束', en: 'CONSTRAINTS' },
-  { key: 'memory', zh: '记忆', en: 'MEMORY' },
-] as const
+export type ExpertSection = { key: string; zh: string; en: string; text: string }
 
-export function expertHandbook(node: HubNode): Record<(typeof EXPERT_SECTIONS)[number]['key'], string> {
-  if (node.stable_key.includes('companion') || node.name.includes('月伴')) {
-    return {
-      persona: '严谨机务工程师，安全第一',
-      knowledge: 'AMM / TSM / IPC / SRM / SB 手册体系',
-      skills: '手册检索 · 故障隔离 · 工卡解读',
-      style: '结构化输出，引用章节号',
-      constraints: '只依据现行有效手册版本',
-      memory: '相位挂接 · 版本链 v1–v3',
-    }
+export function expertSections(node: HubNode): ExpertSection[] {
+  const candidates: ExpertSection[] = [
+    { key: 'summary', zh: '简介', en: 'SUMMARY', text: node.summary?.trim() || '' },
+    { key: 'description', zh: '功能描述', en: 'DESCRIPTION', text: node.description?.trim() || '' },
+    { key: 'principle', zh: '原理', en: 'PRINCIPLE', text: node.principle?.trim() || '' },
+    { key: 'logic', zh: '逻辑', en: 'LOGIC', text: node.logic?.trim() || '' },
+    { key: 'tech', zh: '技术', en: 'TECH', text: node.tech?.trim() || '' },
+    { key: 'analysis', zh: '总结分析', en: 'ANALYSIS', text: node.analysis?.trim() || '' },
+  ]
+  const seen = new Set<string>()
+  const out: ExpertSection[] = []
+  for (const section of candidates) {
+    if (!section.text || seen.has(section.text)) continue
+    seen.add(section.text)
+    out.push(section)
   }
-  if (node.stable_key.includes('office') || node.name.includes('办公')) {
-    return {
-      persona: '冷静的办公协作者，先确认文件与权限',
-      knowledge: '工作台任务、产物导出、会议纪要',
-      skills: '打开文件 · 创建任务 · 导出产物',
-      style: '先给路径和结果，再补操作细节',
-      constraints: '不覆盖用户未确认的本地文件',
-      memory: node.version || '办公会话版本链',
-    }
+  if (out.length === 0 && node.name.trim()) {
+    out.push({ key: 'summary', zh: '简介', en: 'SUMMARY', text: node.name })
   }
-  return {
-    persona: node.summary || `${node.name} 专家角色`,
-    knowledge: '领域知识与活源目录',
-    skills: '技能检索 · 卡解读',
-    style: '结构化输出',
-    constraints: '只依据有效手册版本',
-    memory: node.version || '版本链待挂接',
-  }
+  return out
 }
 
 export type PluginRow = { id: string; name: string; provides: string; version: string; state: string }
@@ -606,35 +590,23 @@ export function pluginRows(nodes: HubNode[]): PluginRow[] {
     id: node.id,
     name: node.name,
     provides: node.provides || node.summary || node.stable_key,
-    version: node.version || 'v1.0',
-    state: node.state || 'ready',
+    version: node.version || '—',
+    state: node.state || '—',
   }))
 }
 
-export const SETTING_GROUPS: Array<{ id: string; zh: string; n: number; domain?: string; types?: string[] }> = [
-  { id: 'general', zh: '通用', n: 3, types: ['Product'] },
-  { id: 'appearance', zh: '外观', n: 1, types: ['Product'] },
-  { id: 'voice', zh: '语音', n: 2, domain: 'dialog', types: ['Capability'] },
-  { id: 'models', zh: '模型供应', n: 4, domain: 'foundation', types: ['Capability'] },
-  { id: 'routing', zh: '能力路由', n: 2, domain: 'foundation', types: ['Capability'] },
-  { id: 'mcp', zh: 'MCP 连接', n: 2, types: ['Mcp', 'McpTool'] },
-  { id: 'skills', zh: '技能管理', n: 1, types: ['Skill'] },
-  { id: 'plugins', zh: '插件', n: 1, types: ['Plugin'] },
-  { id: 'memory', zh: '记忆', n: 2, domain: 'assets' },
-  { id: 'auto', zh: '自动化', n: 1, domain: 'office' },
-  { id: 'browser', zh: '浏览器', n: 1, domain: 'execution' },
-  { id: 'computer', zh: '电脑控制', n: 1, domain: 'execution', types: ['Capability'] },
-  { id: 'channels', zh: '消息通道', n: 1, domain: 'execution' },
-  { id: 'agents', zh: '子智能体', n: 1, domain: 'execution' },
-  { id: 'gate', zh: '协作门禁', n: 1, domain: 'foundation' },
-  { id: 'diag', zh: '诊断', n: 1, domain: 'foundation' },
-  { id: 'update', zh: '更新', n: 1, domain: 'foundation' },
-  { id: 'token', zh: 'Token 效率', n: 2, domain: 'foundation' },
-]
+export type SettingRow = { id: string; name: string; stableKey: string }
+
+export function settingRows(nodes: HubNode[]): SettingRow[] {
+  return nodes
+    .filter(node => node.type === 'Feature' && node.stable_key.startsWith('feature.foundation.settings.'))
+    .map(node => ({ id: node.id, name: node.name, stableKey: node.stable_key }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh'))
+}
 
 export function settingCoverage(nodes: HubNode[]): { covered: number; total: number } {
-  const n = Math.max(SETTING_GROUPS.length, nodes.filter(node => node.type === 'Module' || node.type === 'Capability').length)
-  return { covered: SETTING_GROUPS.length, total: n }
+  const n = settingRows(nodes).length
+  return { covered: n, total: n }
 }
 
 const FIX_ACTION = /^(edit_manifest|rebuild|check_service|check_[a-z_]+)/

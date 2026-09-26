@@ -57,13 +57,17 @@ func TestWeatherStructuredToolActualChatRoundTrip(t *testing.T) {
 		return llmadapter.Response{}, errors.New("no weather result")
 	}}
 	frames := runRoutedExecution(t, e, "合肥今天天气怎么样", a)
+	var spoken strings.Builder
 	for _, frame := range frames {
 		if frame.Type == bridge.EventApprovalRequired {
 			t.Fatal("read-only weather needs write approval")
 		}
+		if frame.Delta != nil {
+			spoken.WriteString(frame.Delta.Text)
+		}
 	}
-	if modelCalls != 2 || requests != 1 {
-		t.Fatalf("model=%d requests=%d", modelCalls, requests)
+	if modelCalls != 1 || requests != 1 || !strings.Contains(spoken.String(), "查询完成") {
+		t.Fatalf("model=%d requests=%d spoken=%q", modelCalls, requests, spoken.String())
 	}
 }
 

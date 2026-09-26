@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/buildinfo"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -15,6 +17,8 @@ type Service struct {
 	persist Persist
 	gate    *gate
 	collab  Collaborator
+	version string
+	openMu  sync.Mutex
 }
 
 func New(persist Persist) *Service {
@@ -33,8 +37,79 @@ func (s *Service) Status(ctx context.Context, token string) map[string]any {
 	}
 }
 
+func (s *Service) SetProductVersion(version string) {
+	if s != nil {
+		s.version = strings.TrimSpace(version)
+	}
+}
+
+func (s *Service) productVersion() string {
+	if s != nil && strings.TrimSpace(s.version) != "" {
+		return strings.TrimSpace(s.version)
+	}
+	return strings.TrimSpace(buildinfo.Version)
+}
+
 func (s *Service) Latest(ctx context.Context) (*Edition, error) {
 	return s.persist.ProductHubLoadLatest(ctx)
+}
+
+// open is the login read. A stored assembly for this product version is shown
+// as-is. A missing store or a different version queries the current product,
+// reassembles every card and the graph, and saves that version.
+func (s *Service) open(ctx context.Context) (Edition, error) {
+	s.openMu.Lock()
+	defer s.openMu.Unlock()
+	ed, err := s.persist.ProductHubLoadLatest(ctx)
+	if err != nil {
+		return Edition{}, err
+	}
+	ver := s.productVersion()
+	if ed != nil && ed.ProductVersion == ver && ver != "" && len(ed.Features) > 0 && len(ed.Graph.Nodes) > 0 && storedAssemblyComplete(ed) {
+		return *ed, nil
+	}
+	return s.Generate(ctx, "version")
+}
+
+func storedAssemblyComplete(ed *Edition) bool {
+	if !pluginRosterComplete(ed) {
+		return false
+	}
+	for _, node := range ed.Graph.Nodes {
+		if node.Type != "Expert" {
+			continue
+		}
+		if strings.TrimSpace(node.Principle) == "" || strings.TrimSpace(node.Logic) == "" || strings.TrimSpace(node.Analysis) == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func pluginRosterComplete(ed *Edition) bool {
+	if ed == nil {
+		return false
+	}
+	want := 0
+	for _, card := range ed.Features {
+		if _, ok := pluginRosterID(card.StableKey); ok {
+			want++
+		}
+	}
+	if want == 0 {
+		return false
+	}
+	got := 0
+	for _, node := range ed.Graph.Nodes {
+		if node.Type != "Plugin" {
+			continue
+		}
+		if node.StableKey == "plugin.plugins" {
+			return false
+		}
+		got++
+	}
+	return got == want
 }
 
 func (s *Service) Generate(ctx context.Context, trigger string) (Edition, error) {
@@ -74,28 +149,38 @@ func (s *Service) Generate(ctx context.Context, trigger string) (Edition, error)
 	}
 	added, updated, removed := countKinds(ch)
 	ed := Edition{
-		EditionID:   ulid.Make().String(),
-		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-		CardCount:   len(cards),
-		Added:       added,
-		Updated:     updated,
-		Removed:     removed,
-		Features:    cards,
-		Changes:     ch,
-		Findings:    findings,
-		Graph:       BuildGraph(cards),
+		EditionID:    ulid.Make().String(),
+		GeneratedAt:  time.Now().UTC().Format(time.RFC3339),
+		CardCount:    len(cards),
+		Added:        added,
+		Updated:      updated,
+		Removed:      removed,
+		Features:     cards,
+		Changes:      ch,
+		Findings:     findings,
+		Graph:        BuildGraph(cards),
+		CatalogProbe: probe,
 	}
-	if trigger == "manual" {
+	if trigger == "manual" || trigger == "check" {
 		tasks, logText, notes := invokeLive(ctx)
-		faults := ClassifyLog(logText)
+		since := time.Time{}
+		if prev != nil {
+			since = readWatermark(prev.Findings)
+		}
+		faults := ClassifyLogSince(logText, since)
 		ed.LiveProbe, ed.HealthScore = ScoreLive(tasks, faults)
 		ed.Findings = append(ed.Findings, TaskFindings(tasks)...)
 		ed.Findings = append(ed.Findings, faults...)
 		ed.Findings = append(ed.Findings, LandscapeFindings(notes)...)
+		ed.Findings = append(ed.Findings, watermarkFinding(logClock()))
+	} else if prev != nil {
+		ed.Findings = append(ed.Findings, liveFindings(prev.Findings)...)
+		ed.HealthScore = healthScore(ed.Findings, probe)
 	} else {
 		ed.HealthScore = healthScore(findings, probe)
 	}
 	ed.ReportMarkdown, ed.ReportHTML = RenderReport(ed)
+	ed.ProductVersion = s.productVersion()
 	ed.Digest = digestEdition(ed)
 	if err := s.persist.ProductHubSaveEdition(ctx, ed); err != nil {
 		return Edition{}, err
@@ -104,61 +189,26 @@ func (s *Service) Generate(ctx context.Context, trigger string) (Edition, error)
 }
 
 func (s *Service) Overview(ctx context.Context) (Overview, error) {
-	ed, err := s.requireEdition(ctx)
+	ed, err := s.open(ctx)
 	if err != nil {
 		return Overview{}, err
 	}
-	cards, findings, probe, err := s.view(ctx, ed)
-	if err != nil {
-		return Overview{}, err
-	}
-	added, updated, removed := countKinds(Changelog(ed.Features, cards))
-	score, shown, live := displayedScore(ed, findings, probe)
+	score, shown, live := displayedScore(ed, ed.Findings, ed.CatalogProbe)
 	return Overview{
 		Product: "Lunitide", EditionID: ed.EditionID, GeneratedAt: ed.GeneratedAt,
-		CardCount: len(cards), HealthScore: score,
-		Added: added, Updated: updated, Removed: removed,
+		CardCount: len(ed.Features), HealthScore: score,
+		Added: ed.Added, Updated: ed.Updated, Removed: ed.Removed,
 		ProbePassed: shown.Passed, ProbeTotal: shown.Total, LiveChecked: live,
-		Domains: domainStats(cards), Tags: collectTagValues(cards),
+		Domains: domainStats(ed.Features), Tags: collectTagValues(ed.Features),
 	}, nil
 }
 
-// view rebuilds the booklet from the current live catalog without writing an edition
-// and without calling a skill or model.
-func (s *Service) view(ctx context.Context, ed Edition) ([]Card, []Finding, ProbeScore, error) {
-	live := LiveCatalog()
-	cards := Merge(Seed(), live, ed.Features)
-	for i := range cards {
-		cards[i] = enrichCard(cards[i])
-		if len(cards[i].Methods) == 0 {
-			cards[i].Methods = defaultMethods(emptyText(cards[i].ChainClass, "crud-bridge"))
-		}
-	}
-	if ens, err := s.persist.ProductHubLoadEnrichments(ctx); err == nil {
-		cards = applyEnrichments(cards, ens)
-	}
-	if manual, err := s.persist.ProductHubLoadTags(ctx); err == nil {
-		cards = applyTags(cards, manual)
-	}
-	findings, probe, cards := diagnoseCatalog(cards, live)
-	findings = mergeFindingStatus(ed.Findings, findings)
-	findings = append(findings, liveFindings(ed.Findings)...)
-	if logs, err := s.persist.ProductHubLoadApplies(ctx); err == nil {
-		findings = attachApplies(findings, logs)
-	}
-	return cards, findings, probe, nil
-}
-
 func (s *Service) FeatureCard(ctx context.Context, key string) (Card, bool, error) {
-	ed, err := s.requireEdition(ctx)
+	ed, err := s.open(ctx)
 	if err != nil {
 		return Card{}, false, err
 	}
-	cards, _, _, err := s.view(ctx, ed)
-	if err != nil {
-		return Card{}, false, err
-	}
-	for _, c := range cards {
+	for _, c := range ed.Features {
 		if c.StableKey == key {
 			return c, true, nil
 		}
@@ -167,15 +217,11 @@ func (s *Service) FeatureCard(ctx context.Context, key string) (Card, bool, erro
 }
 
 func (s *Service) Graph(ctx context.Context) (Graph, error) {
-	ed, err := s.requireEdition(ctx)
+	ed, err := s.open(ctx)
 	if err != nil {
 		return Graph{}, err
 	}
-	cards, _, _, err := s.view(ctx, ed)
-	if err != nil {
-		return Graph{}, err
-	}
-	return BuildGraph(cards), nil
+	return ed.Graph, nil
 }
 
 func (s *Service) Node(ctx context.Context, id string) (GraphNode, bool, error) {
@@ -192,40 +238,30 @@ func (s *Service) Node(ctx context.Context, id string) (GraphNode, bool, error) 
 }
 
 func (s *Service) Changelog(ctx context.Context) ([]Change, error) {
-	ed, err := s.requireEdition(ctx)
+	ed, err := s.open(ctx)
 	if err != nil {
 		return nil, err
 	}
-	cards, _, _, err := s.view(ctx, ed)
-	if err != nil {
-		return nil, err
-	}
-	return Changelog(ed.Features, cards), nil
+	return ed.Changes, nil
 }
 
 func (s *Service) Diagnostics(ctx context.Context) ([]Finding, string, string, error) {
-	ed, err := s.requireEdition(ctx)
+	if freshCheck(ctx) {
+		ed, err := s.Generate(ctx, "check")
+		if err != nil {
+			return nil, "", "", err
+		}
+		return visibleFindings(ed.Findings), ed.ReportMarkdown, ed.ReportHTML, nil
+	}
+	ed, err := s.open(ctx)
 	if err != nil {
 		return nil, "", "", err
 	}
-	cards, findings, probe, err := s.view(ctx, ed)
-	if err != nil {
-		return nil, "", "", err
-	}
-	ed.Features = cards
-	ed.Findings = findings
-	score, shown, live := displayedScore(ed, findings, probe)
-	ed.HealthScore = score
-	if live {
-		ed.LiveProbe = shown
-	}
-	ed.Graph = BuildGraph(cards)
-	md, pageHTML := RenderReport(ed)
-	return findings, md, pageHTML, nil
+	return visibleFindings(ed.Findings), ed.ReportMarkdown, ed.ReportHTML, nil
 }
 
 func (s *Service) Tags(ctx context.Context) ([]string, error) {
-	ed, err := s.requireEdition(ctx)
+	ed, err := s.open(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -253,42 +289,20 @@ func (s *Service) TagSet(ctx context.Context, key, vocab, value string) error {
 }
 
 func (s *Service) Export(ctx context.Context, format string) (content, mime string, err error) {
-	ed, err := s.requireEdition(ctx)
+	ed, err := s.open(ctx)
 	if err != nil {
 		return "", "", err
 	}
-	cards, findings, probe, err := s.view(ctx, ed)
-	if err != nil {
-		return "", "", err
-	}
-	ed.Features = cards
-	ed.Findings = findings
-	score, shown, live := displayedScore(ed, findings, probe)
-	ed.HealthScore = score
-	if live {
-		ed.LiveProbe = shown
-	}
-	md, pageHTML := RenderReport(ed)
 	switch format {
 	case "html":
-		return pageHTML, "text/html", nil
+		return ed.ReportHTML, "text/html", nil
 	case "poster":
 		return "", "", ErrNotImplemented
 	default:
-		return md, "text/markdown", nil
+		return ed.ReportMarkdown, "text/markdown", nil
 	}
 }
 
-func (s *Service) requireEdition(ctx context.Context) (Edition, error) {
-	ed, err := s.persist.ProductHubLoadLatest(ctx)
-	if err != nil {
-		return Edition{}, err
-	}
-	if ed == nil {
-		return s.Generate(ctx, "boot")
-	}
-	return *ed, nil
-}
 
 func digestEdition(ed Edition) string {
 	copy := ed

@@ -88,7 +88,7 @@ func injectVisionDescription(messages []llmadapter.Message, text string) []llmad
 	if text == "" {
 		return messages
 	}
-	block := "[本机文字识别]\n" + text + "\n请直接根据这些文字回答用户的问题。不要执行命令，不要操作电脑，不要再识别图片。"
+	block := "[本机文字识别]\n" + text + "\n请根据这些识别结果继续。用户在问图片是什么时直接回答。后面还有工作时用这份结果接着做，不要再识别图片。"
 	out := append([]llmadapter.Message(nil), messages...)
 	for i := len(out) - 1; i >= 0; i-- {
 		if out[i].Role == llmadapter.RoleUser {
@@ -101,6 +101,19 @@ func injectVisionDescription(messages []llmadapter.Message, text string) []llmad
 		}
 	}
 	return append(out, llmadapter.Message{Role: llmadapter.RoleUser, Content: block})
+}
+
+func imageHasFollowUpWork(text string) bool {
+	t := chatRoutingText(text)
+	if wantsComputerAction(t) {
+		return true
+	}
+	for _, word := range []string{"然后", "之后", "接着", "生成", "发给", "保存", "整理", "根据", "参考"} {
+		if strings.Contains(t, word) {
+			return true
+		}
+	}
+	return false
 }
 
 func wantsComputerAction(text string) bool {
@@ -144,20 +157,41 @@ func (e *Engine) maybeDescribeImages(ctx context.Context, llm provider.Model, im
 	if len(images) == 0 {
 		return "", false
 	}
-	// Provider OCR, then RapidOCR, then Windows OCR. Recognized characters
-	// replace the pixels. A picture with no text stays on the request when
-	// this model can see images; otherwise a vision model describes it.
+	// OCR model, then the local OCR model, then Windows OCR. The first usable
+	// result is handed to this chat turn. A second vision model is not started
+	// after that ladder. Pixels stay only when no OCR service ran and this
+	// chat model can see images itself.
 	if text := e.attachedImageOCRText(ctx, images); text != "" {
 		return text, true
 	}
+	if e != nil && e.ocr != nil {
+		return "", false
+	}
 	if llm.SupportsVision || e.providers == nil {
+		return "", false
+	}
+	if e.providers == nil {
 		return "", false
 	}
 	items, err := e.providers.List(ctx, provider.Filter{})
 	if err != nil {
 		return "", false
 	}
-	catalog := e.preferBoundCatalog(ctx, "vision", provider.VisionDescribeCatalog(items, llm.ModelID))
+	full := provider.VisionDescribeCatalog(items, llm.ModelID)
+	catalog := e.preferBoundCatalog(ctx, "vision", full)
+	if len(catalog) == 0 {
+		catalog = full
+	} else {
+		seen := map[string]bool{}
+		for _, entry := range catalog {
+			seen[entry.Provider.ID+"\x00"+entry.Model.ModelID] = true
+		}
+		for _, entry := range full {
+			if !seen[entry.Provider.ID+"\x00"+entry.Model.ModelID] {
+				catalog = append(catalog, entry)
+			}
+		}
+	}
 	if len(catalog) == 0 {
 		return "", false
 	}

@@ -3,11 +3,14 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/ccapp"
 	"github.com/lunitide/lunitide/internal/llmadapter"
+	"github.com/lunitide/lunitide/internal/toolruntime"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -86,7 +89,7 @@ func rewriteNewsOpen(goal, session string, e *Engine, messages []llmadapter.Mess
 	if err != nil {
 		return
 	}
-	call.Name = "web.fetch"
+	call.Name = "desktop.browse"
 	call.Arguments = raw
 }
 
@@ -105,18 +108,17 @@ func (e *Engine) finishDirectTool(send func(bridge.Event) error, name string, ar
 const namedSongSpeech = "已打开网易云音乐的官方搜索，登录后即可播放。"
 
 func directSongPlayArgs(goal string) json.RawMessage {
-	if moviePlayGoal(goal) || !companionTurnWantsMusicPlay(goal) {
+	if moviePlayGoal(goal) || ownedMediaCenterGoal(goal) || !companionTurnWantsMusicPlay(goal) {
 		return nil
 	}
 	q := strings.TrimSpace(companionDefaultMusicQuery(goal))
 	if q == "" || q == "random" || q == "热门" {
 		return nil
 	}
-	page := "https://music.163.com/#/search/m/?s=" + url.QueryEscape(q)
 	raw, err := json.Marshal(map[string]string{
-		"action": "open",
-		"query":  q,
-		"url":    page,
+		"action": "play",
+		"target": "center",
+		"query":  strings.TrimSpace(goal),
 	})
 	if err != nil {
 		return nil
@@ -130,49 +132,319 @@ func (e *Engine) openNamedSongNow(ctx context.Context, mode executionMode, sessi
 		return "", false
 	}
 	out, err := e.executeUserTool(ctx, mode, sessionID, "media.play", args)
+	if err != nil {
+		msg := strings.TrimSpace(err.Error())
+		if msg == "" {
+			msg = "找不到这首歌，没有这首歌。"
+		}
+		return msg, true
+	}
 	summary := strings.TrimSpace(out.Output)
-	if err != nil || !strings.Contains(summary, "music.163.com") {
+	if !strings.Contains(summary, "MEDIA_CENTER") || strings.Contains(summary, "MEDIA_CENTER_STOP") {
 		return "", false
 	}
 	if _, err := e.finishDirectTool(send, "media.play", args, summary); err != nil {
 		return "", false
 	}
-	return namedSongSpeech, true
+	return mediaCenterReadySpeech(summary), true
 }
 
 func (e *Engine) openNamedFilmNow(ctx context.Context, mode executionMode, sessionID, goal string, send func(bridge.Event) error) (string, bool) {
-	if e == nil || e.tools == nil || !moviePlayGoal(goal) {
+	if e == nil || e.tools == nil || (!moviePlayGoal(goal) && !ownedMediaCenterGoal(goal)) {
 		return "", false
 	}
 	args := forceMediaCenterArgs(goal, nil)
 	out, err := e.executeUserTool(ctx, mode, sessionID, "media.play", args)
+	if err != nil {
+		msg := strings.TrimSpace(err.Error())
+		if msg == "" {
+			msg = "媒体中心没有这部片子，不会改放别的电影。"
+		}
+		return msg, true
+	}
 	summary := strings.TrimSpace(out.Output)
-	if err != nil || summary == "" || (!strings.Contains(summary, "iqiyi.com") && !strings.Contains(summary, "MEDIA_CENTER")) {
+	if !strings.Contains(summary, "MEDIA_CENTER") || strings.Contains(summary, "MEDIA_CENTER_STOP") {
 		return "", false
 	}
 	if _, err := e.finishDirectTool(send, "media.play", args, summary); err != nil {
 		return "", false
 	}
-	if strings.Contains(summary, "iqiyi.com") {
-		return "已打开爱奇艺的官方搜索，登录后即可播放。", true
-	}
-	return "已交给媒体中心播放。", true
+	return mediaCenterReadySpeech(summary), true
 }
 
-func (e *Engine) openFirstNewsNow(sessionID, goal string, messages []llmadapter.Message, send func(bridge.Event) error) (string, bool) {
-	if !newsOpenGoal(goal) {
+func mediaCenterReadySpeech(summary string) string {
+	title := ""
+	site := ""
+	for _, line := range strings.Split(summary, "\n") {
+		if rest, ok := strings.CutPrefix(line, "title: "); ok {
+			title = strings.TrimSpace(rest)
+		}
+		if rest, ok := strings.CutPrefix(line, "site: "); ok {
+			site = strings.TrimSpace(rest)
+		}
+	}
+	if title == "" {
+		if site == "" {
+			return "已交给媒体中心播放。"
+		}
+		return "已从" + site + "找到，在媒体中心开始播放。"
+	}
+	if site != "" {
+		return "已从" + site + "找到《" + title + "》，在媒体中心开始播放。"
+	}
+	return "已交给媒体中心播放《" + title + "》。"
+}
+
+func httpURLs(text string) []string {
+	var out []string
+	for i := 0; i < len(text); {
+		rest := text[i:]
+		https := strings.Index(rest, "https://")
+		http := strings.Index(rest, "http://")
+		if https < 0 && http < 0 {
+			break
+		}
+		at := https
+		if at < 0 || (http >= 0 && http < at) {
+			at = http
+		}
+		chunk := rest[at:]
+		end := len(chunk)
+		for j, r := range chunk {
+			if r <= ' ' || strings.ContainsRune("。，、；;\"'<>）)]}", r) {
+				end = j
+				break
+			}
+		}
+		if end > 0 {
+			out = append(out, chunk[:end])
+		}
+		next := at + end
+		if next <= 0 {
+			next = 1
+		}
+		i += next
+	}
+	return out
+}
+
+func queryFromSearchURL(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	for _, key := range []string{"q", "wd", "query", "p"} {
+		if q := strings.TrimSpace(u.Query().Get(key)); q != "" {
+			return q
+		}
+	}
+	return ""
+}
+
+func searchQueryFromText(text string) string {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if q, ok := strings.CutPrefix(line, "query: "); ok && strings.TrimSpace(q) != "" {
+			return strings.TrimSpace(q)
+		}
+	}
+	for _, raw := range httpURLs(text) {
+		if !searchPageURL(raw) {
+			continue
+		}
+		if q := queryFromSearchURL(raw); q != "" {
+			return q
+		}
+	}
+	return ""
+}
+
+// firstOpenTarget is the link to open, or the query whose first result to open.
+// The newest search wins: a later browser search page beats an older result URL.
+func firstOpenTarget(messages []llmadapter.Message) (openURL, searchQuery string) {
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg := messages[i]
+		if u := firstSearchHitURL(msg.Content); u != "" {
+			return u, ""
+		}
+		if q := searchQueryFromText(msg.Content); q != "" {
+			return "", q
+		}
+		if msg.Role != llmadapter.RoleAssistant {
+			continue
+		}
+		for j := len(msg.ToolCalls) - 1; j >= 0; j-- {
+			call := msg.ToolCalls[j]
+			if call.Name != "desktop.browse" && call.Name != "web.search" {
+				continue
+			}
+			var a struct {
+				Query string `json:"query"`
+				URL   string `json:"url"`
+			}
+			if json.Unmarshal(call.Arguments, &a) != nil {
+				continue
+			}
+			if q := strings.TrimSpace(a.Query); q != "" {
+				return "", q
+			}
+			if q := queryFromSearchURL(a.URL); q != "" {
+				return "", q
+			}
+		}
+	}
+	return "", ""
+}
+
+func openedSearchPage(messages []llmadapter.Message) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		for _, raw := range httpURLs(messages[i].Content) {
+			if searchPageURL(raw) {
+				return raw
+			}
+		}
+	}
+	return ""
+}
+
+func looksLikeBrowserWindow(w ccapp.WindowInfo) bool {
+	p := strings.ToLower(w.Process)
+	return strings.Contains(p, "msedge") || strings.Contains(p, "chrome") || strings.Contains(p, "firefox")
+}
+
+func browserResultWindow(wins []ccapp.WindowInfo) (ccapp.WindowInfo, bool) {
+	var found ccapp.WindowInfo
+	var ok bool
+	for _, w := range wins {
+		if !looksLikeBrowserWindow(w) {
+			continue
+		}
+		if w.Foreground {
+			return w, true
+		}
+		if !ok {
+			found = w
+			ok = true
+		}
+	}
+	return found, ok
+}
+
+type resultClicker interface {
+	Available() bool
+	ListWindows() ([]ccapp.WindowInfo, error)
+	FocusWindow(query string) (ccapp.WindowInfo, error)
+	ObserveUI(maxNodes int) ([]ccapp.UINode, error)
+	InvokeUI(target string) error
+}
+
+var resultClickHost = func() resultClicker { return ccapp.PlatformHost() }
+
+func clickFirstResult(host resultClicker) (string, error) {
+	if host == nil || !host.Available() {
+		return "", errors.New("desktop control unavailable")
+	}
+	wins, err := host.ListWindows()
+	if err != nil {
+		return "", err
+	}
+	win, ok := browserResultWindow(wins)
+	if !ok || strings.TrimSpace(win.Title) == "" {
+		return "", errors.New("browser window not open")
+	}
+	if _, err = host.FocusWindow(win.Title); err != nil {
+		return "", err
+	}
+	nodes, err := host.ObserveUI(120)
+	if err != nil {
+		return "", err
+	}
+	name, ok := ccapp.FirstResultLinkName(nodes)
+	if !ok {
+		return "", errors.New("no result link")
+	}
+	if err = host.InvokeUI(name); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+var clickFirstBrowserResult = func(_ *Engine, _ context.Context, _ executionMode, _ string) (string, error) {
+	return clickFirstResult(resultClickHost())
+}
+
+func (e *Engine) savedSearchQuery(session string) string {
+	if e == nil || session == "" {
+		return ""
+	}
+	v, ok := e.searchLastQuery.Load(session)
+	if !ok {
+		return ""
+	}
+	s, _ := v.(string)
+	return strings.TrimSpace(s)
+}
+
+func (e *Engine) rememberSearchQuery(session, query string) {
+	if e == nil || session == "" {
+		return
+	}
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return
+	}
+	if prev, ok := e.searchLastQuery.Load(session); ok {
+		if s, _ := prev.(string); s != "" && s != query {
+			e.searchFirstHit.Delete(session)
+		}
+	}
+	e.searchLastQuery.Store(session, query)
+}
+
+var executeDirectTool = func(e *Engine, ctx context.Context, mode executionMode, session, name string, args json.RawMessage) (toolruntime.Result, error) {
+	return e.executeUserTool(ctx, mode, session, name, args)
+}
+
+func (e *Engine) openFirstNewsNow(ctx context.Context, mode executionMode, sessionID, goal string, messages []llmadapter.Message, send func(bridge.Event) error) (string, bool) {
+	if e == nil || e.tools == nil || !newsOpenGoal(goal) {
 		return "", false
 	}
-	u := e.savedSearchHit(sessionID, messages)
-	if u == "" {
+	openURL, query := firstOpenTarget(messages)
+	if openURL == "" && query == "" {
+		query = e.savedSearchQuery(sessionID)
+	}
+	if openURL == "" && query == "" {
+		openURL = e.savedSearchHit(sessionID, nil)
+	}
+	if openURL == "" && (openedSearchPage(messages) != "" || e.desktopBrowserIsOpen(sessionID)) {
+		name, err := clickFirstBrowserResult(e, ctx, mode, sessionID)
+		name = strings.TrimSpace(name)
+		if err == nil && name != "" {
+			args, mErr := json.Marshal(map[string]string{"action": "click", "name": name})
+			if mErr != nil {
+				return "", false
+			}
+			summary := "已点击第一条：" + name + "\nfirst_hit: true\n已打开第一条。"
+			if _, err = e.finishDirectTool(send, "computer.act", args, summary); err != nil {
+				return "", false
+			}
+			return "已经打开第一条。", true
+		}
+	}
+	if openURL == "" || searchPageURL(openURL) {
 		return "", false
 	}
-	args, err := json.Marshal(map[string]string{"url": u})
+	args, err := json.Marshal(map[string]string{"url": openURL})
 	if err != nil {
 		return "", false
 	}
-	summary := "url: " + u + "\nfirst_hit: true\n已打开第一条。"
-	if _, err := e.finishDirectTool(send, "web.fetch", args, summary); err != nil {
+	out, err := executeDirectTool(e, ctx, mode, sessionID, "desktop.browse", args)
+	summary := strings.TrimSpace(out.Output)
+	if err != nil || (!strings.HasPrefix(summary, "已打开桌面浏览器：") && !strings.HasPrefix(summary, "已向系统默认桌面浏览器发送打开请求")) {
+		return "", false
+	}
+	summary += "\nfirst_hit: true\n已打开第一条。"
+	if _, err = e.finishDirectTool(send, "desktop.browse", args, summary); err != nil {
 		return "", false
 	}
 	return "已经打开第一条。", true

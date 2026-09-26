@@ -277,6 +277,22 @@ func lastToolOutput(messages []llmadapter.Message) string {
 	return ""
 }
 
+func lastNamedToolArguments(messages []llmadapter.Message, name string) json.RawMessage {
+	for i := len(messages) - 1; i >= 0; i-- {
+		m := messages[i]
+		if m.Role == llmadapter.RoleUser {
+			break
+		}
+		for j := len(m.ToolCalls) - 1; j >= 0; j-- {
+			call := m.ToolCalls[j]
+			if call.Name == name && len(call.Arguments) > 0 {
+				return call.Arguments
+			}
+		}
+	}
+	return nil
+}
+
 func lastNamedToolOutput(messages []llmadapter.Message, name string) string {
 	results := map[string]string{}
 	for i := len(messages) - 1; i >= 0; i-- {

@@ -290,6 +290,119 @@ func TestPurifyDoesNotScoreLandscapeNotes(t *testing.T) {
 	}
 }
 
+func TestFreshCheckRebuildsTheWholeReportFromTheCurrentProduct(t *testing.T) {
+	ctx := context.Background()
+	mem := &MemoryPersist{}
+	if err := mem.ProductHubSaveEdition(ctx, Edition{
+		EditionID:      "old",
+		GeneratedAt:    "2026-09-21T00:00:00Z",
+		ProductVersion: "9.1.0",
+		Features: []Card{{
+			StableKey: "feature.assets.plugin.llm",
+			Name:      "过期卡",
+			Domain:    "assets",
+			Module:    "plugins",
+			Summary:   "旧的",
+			Methods:   []Method{{Type: "menu", Entry: "plugins"}},
+			Chain:     Chain{Steps: []Step{{Index: 1, Name: "旧", Detail: "旧", Description: "旧"}}},
+		}},
+		Graph: Graph{Nodes: []GraphNode{{
+			ID: "plugin.llm", StableKey: "plugin.llm", Type: "Plugin", Name: "过期卡",
+		}}},
+		Findings: []Finding{{
+			Severity: "error", ErrorCode: "PH_L02", StableKey: "probe.play", Title: "播放", Status: "open",
+			Evidence: "播放设备拒绝",
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(mem)
+	svc.SetProductVersion("9.1.0")
+	check := WithFreshCheck(WithLandscape(WithLiveTasks(ctx, func(context.Context) ([]TaskResult, string, []LandscapeNote) {
+		return []TaskResult{{ID: "play", Title: "播放", Status: "pass", Evidence: "已播放 0.2 秒探测音"}}, "", nil
+	}), []LandscapeNote{{
+		Name: "Cursor", Axis: "技能 / MCP", Score: "strong", Note: "规则和技能是公开主路径。", Source: "公开说明", Date: "2026-09-21",
+	}}))
+	_, md, _, err := svc.Diagnostics(check)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(md, "过期卡") {
+		t.Fatal("recheck kept the stale card")
+	}
+	if !strings.Contains(md, "feature.dialog.page.home") {
+		t.Fatal("recheck did not rebuild the current catalog")
+	}
+	for _, heading := range []string{
+		"### 功能", "### 链路", "### 工具", "### 技能", "### MCP", "### 插件",
+		"### 资产", "### 项目", "### 开发能力", "### 任务处理", "### 脚手架", "### 架构",
+		"### 实测", "### 日志与故障", "### 竞品对照", "### 优化方案",
+	} {
+		if !strings.Contains(md, heading) {
+			t.Fatalf("report missing %s", heading)
+		}
+	}
+	if strings.Contains(md, "播放设备拒绝") {
+		t.Fatal("a probe that now passes is still in the report")
+	}
+	if !strings.Contains(md, "Cursor") || !strings.Contains(md, "2026-09-21") || !strings.Contains(md, "规则和技能是公开主路径") {
+		t.Fatal("recheck dropped the landscape notes already saved for this run")
+	}
+}
+
+func TestEnteringDiagnosticsDropsAFixedFaultAndKeepsARealOne(t *testing.T) {
+	logClock = func() time.Time { return time.Date(2026, 9, 26, 10, 0, 0, 0, time.Local) }
+	t.Cleanup(func() { logClock = time.Now })
+	s := New(&MemoryPersist{})
+	first := WithFreshCheck(WithLiveTasks(context.Background(), func(context.Context) ([]TaskResult, string, []LandscapeNote) {
+		return []TaskResult{{ID: "play", Title: "播放", Status: "fail", Evidence: "播放设备拒绝"}},
+			"2026/09/26 09:00:00 panic: runtime error: nil pointer\n", nil
+	}))
+	findings, _, _, err := s.Diagnostics(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasFinding(findings, "PH_L02", "播放设备拒绝") || !hasFinding(findings, "PH_L11", "panic:") {
+		t.Fatalf("first visit missed a real fault: %#v", findings)
+	}
+	logClock = func() time.Time { return time.Date(2026, 9, 26, 11, 0, 0, 0, time.Local) }
+	second := WithFreshCheck(WithLiveTasks(context.Background(), func(context.Context) ([]TaskResult, string, []LandscapeNote) {
+		return []TaskResult{
+				{ID: "play", Title: "播放", Status: "pass", Evidence: "已播放 0.2 秒探测音"},
+				{ID: "ocr", Title: "图片识别", Status: "fail", Evidence: "读出 \"\""},
+			}, strings.Join([]string{
+				"2026/09/26 09:00:00 panic: runtime error: nil pointer",
+				"2026/09/26 10:30:00 chat preturn path=wait waited=context deadline exceeded",
+			}, "\n"), nil
+	}))
+	var md string
+	findings, md, _, err = s.Diagnostics(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasFinding(findings, "PH_L02", "播放设备拒绝") {
+		t.Fatal("a play failure that now passes is still open")
+	}
+	if hasFinding(findings, "PH_L11", "panic:") {
+		t.Fatal("a panic from before the last check is still listed after it stopped")
+	}
+	if !hasFinding(findings, "PH_L04", "读出") || !hasFinding(findings, "PH_L13", "deadline exceeded") {
+		t.Fatalf("a new failure was missed: %#v", findings)
+	}
+	if strings.Contains(md, "水位") || strings.Contains(md, "PH_L99") {
+		t.Fatal("internal watermark leaked into the report")
+	}
+}
+
+func hasFinding(findings []Finding, code, needle string) bool {
+	for _, f := range findings {
+		if f.ErrorCode == code && strings.Contains(f.Evidence, needle) && isOpenFinding(f.Status) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestDefaultLiveRunOnce(t *testing.T) {
 	if os.Getenv("LUNITIDE_LIVE_PROBE") == "" {
 		t.Skip()

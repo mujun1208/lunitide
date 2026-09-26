@@ -543,10 +543,17 @@ export function overlayTranscript(finals: string, interim: string): string {
   return `${f}${i}`
 }
 
+/** A one- or two-character packet is a cut, except a real short order. */
+function isCutRecognitionFragment(text: string): boolean {
+  const compact = text.replace(/[\s。！？!?，,、；;：:]+/gu, '')
+  const n = [...compact].length
+  return n > 0 && n <= 2 && compact !== '暂停' && compact !== '停下' && compact !== '取消'
+}
+
 /**
  * Pick a recognition alternative. Windows often ranks a short fragment
- * higher-confidence than the longer prefix-extending hypothesis; prefer
- * the longer one when it extends the other.
+ * higher-confidence than the longer hypothesis; prefer the longer sentence
+ * when the other result is only one or two characters.
  */
 export function pickRecognitionTranscript(result: { length: number; [index: number]: { transcript: string; confidence?: number } | undefined }): string {
   const n = result.length ?? 1
@@ -567,6 +574,13 @@ export function pickRecognitionTranscript(result: { length: number; [index: numb
       if (alt.transcript.length > best.transcript.length) best = alt
       continue
     }
+    const bestCut = isCutRecognitionFragment(best.transcript)
+    const altCut = isCutRecognitionFragment(alt.transcript)
+    if (bestCut && !altCut && [...alt.transcript.trim()].length >= 4) {
+      best = alt
+      continue
+    }
+    if (altCut && !bestCut && [...best.transcript.trim()].length >= 4) continue
     if (alt.confidence > best.confidence) best = alt
   }
   return best.transcript
@@ -1075,7 +1089,7 @@ export function startCompanionSpeech(options: CompanionSpeechOptions): Promise<C
             interimResultIndex = -1
             consumedResultCount = i + 1
           } else {
-            interim = piece
+            interim = pickTranscriptRevision(interim, piece)
             interimResultIndex = i
           }
         }

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { graphFitScale, graphLayout, moduleRows, parseFixSteps, searchHubNodes, wrapLabel } from './hubModel'
+import { expertSections, graphFitScale, graphLayout, moduleRows, parseFixSteps, pluginRows, searchHubNodes, settingCoverage, settingRows, wrapLabel } from './hubModel'
 import type { HubEdge, HubNode } from './productHubTypes'
 
 it('ranks searchable hub nodes by name before stable key', () => {
@@ -82,4 +82,49 @@ it('parses circled diagnostic fix steps without leftover markers', () => {
     { action: 'rebuild', target: '快照重建', detail: '快照重建' },
     { action: 'check_service', target: 'computer-ops-v2', detail: '' },
   ])
+})
+
+it('lists every plugin and keeps a stored version instead of inventing one', () => {
+  const rows = pluginRows([
+    { id: 'plugin.llm', stable_key: 'plugin.llm', type: 'Plugin', name: '插件：LLM', summary: '在插件页启用或使用「LLM」。' },
+    { id: 'plugin.git', stable_key: 'plugin.git', type: 'Plugin', name: '插件：Git', summary: '在插件页启用或使用「Git」。' },
+    { id: 'plugin.ocr', stable_key: 'plugin.ocr-router', type: 'Plugin', name: 'ocr.router', provides: 'OCR 模型路由', version: 'v1.0', state: 'degraded' },
+  ])
+  expect(rows.map(row => row.name)).toEqual(['插件：LLM', '插件：Git', 'ocr.router'])
+  expect(rows[0].provides).toBe('在插件页启用或使用「LLM」。')
+  expect(rows[0].version).toBe('—')
+  expect(rows[0].state).toBe('—')
+  expect(rows[2].version).toBe('v1.0')
+  expect(rows[2].state).toBe('degraded')
+})
+
+it('reads anatomy settings from the stored setting cards', () => {
+  const nodes: HubNode[] = [
+    { id: 'feature.foundation.settings.canvas', stable_key: 'feature.foundation.settings.canvas', type: 'Feature', name: '画布设置' },
+    { id: 'feature.foundation.settings.general', stable_key: 'feature.foundation.settings.general', type: 'Feature', name: '常规设置' },
+    { id: 'feature.dialog.page.home', stable_key: 'feature.dialog.page.home', type: 'Feature', name: '首页' },
+  ]
+  expect(settingRows(nodes).map(row => row.name)).toEqual(['常规设置', '画布设置'])
+  expect(settingCoverage(nodes)).toEqual({ covered: 2, total: 2 })
+})
+
+it('uses the stored expert summary once', () => {
+  const sections = expertSections({ id: 'e', stable_key: 'expert.feature.assets.expert.try', type: 'Expert', name: '试用专家', summary: '打开专家试用会话。' })
+  expect(sections.map(section => section.text)).toEqual(['打开专家试用会话。'])
+  const companion = expertSections({ id: 'c', stable_key: 'expert.companion', type: 'Expert', name: '月伴', summary: '唤醒后用语音连续对话' })
+  expect(companion.map(section => section.text).join('')).not.toContain('AMM')
+})
+
+it('keeps each stored expert section distinct', () => {
+  const sections = expertSections({
+    id: 'e', stable_key: 'expert.try', type: 'Expert', name: '试用专家',
+    summary: '试用专家。',
+    description: '打开专家试用会话。',
+    principle: '链路族 asset-invoke。',
+    logic: '1.选择专家',
+    tech: '工具 session.experts.set',
+    analysis: '来源 verbs。',
+  })
+  expect(sections.map(section => section.zh)).toEqual(['简介', '功能描述', '原理', '逻辑', '技术', '总结分析'])
+  expect(new Set(sections.map(section => section.text)).size).toBe(sections.length)
 })

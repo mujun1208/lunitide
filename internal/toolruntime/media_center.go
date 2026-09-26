@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"path"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/webfetch"
 )
@@ -24,6 +27,222 @@ var searchForMediaCenter = func(r *Runtime, ctx context.Context, query string) (
 }
 
 var archiveMediaURL = regexp.MustCompile(`(?i)https://(?:[a-z0-9-]+\.)*archive\.org/download/[^\s"'<>]+?\.(?:mp4|webm|m4v|mp3|m4a|aac|flac|wav|ogg|oga)`)
+
+// —— 媒体中心对接的免费站点 ——
+// 公版直链找不到时，从对接站点提取真实播放直链，媒体中心直接播放：
+// 音乐走酷我音乐（mp3 直链），电影走南瓜影视（m3u8 直链）。
+// 提取器做成包级变量，测试可以替换。
+var resolveKuwoSong = resolveKuwoSongLive
+var resolveNanguaMovie = resolveNanguaMovieLive
+
+var (
+	mediaSiteHTTP = &http.Client{Timeout: 12 * time.Second}
+	mediaSiteUA   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+
+	kuwoRidPattern    = regexp.MustCompile(`MUSICRID'\s*:\s*'MUSIC_(\d+)'`)
+	kuwoSongPattern   = regexp.MustCompile(`SONGNAME'\s*:\s*'([^']*)'`)
+	kuwoArtistPattern = regexp.MustCompile(`ARTIST'\s*:\s*'([^']*)'`)
+)
+
+// mediaSiteGet 拉取对接站点的接口响应（带浏览器 UA；南瓜影视对普通爬虫返回 403）。
+func mediaSiteGet(ctx context.Context, rawURL, referer string, limit int64) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", mediaSiteUA)
+	if referer != "" {
+		req.Header.Set("Referer", referer)
+	}
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	resp, err := mediaSiteHTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New("site request failed")
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, limit))
+}
+
+func mediaSiteText(value string) string {
+	replacer := strings.NewReplacer("&nbsp;", " ", "&quot;", `"`, "&#39;", "'", "&amp;", "&")
+	return strings.TrimSpace(replacer.Replace(value))
+}
+
+// resolveKuwoSongLive 用酷我音乐的免费接口找到歌曲的 mp3 直链。
+func resolveKuwoSongLive(ctx context.Context, query string) (string, string, bool) {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return "", "", false
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	searchURL := "http://search.kuwo.cn/r.s?all=" + url.QueryEscape(q) + "&ft=music&client=kt&pn=0&rn=5&rformat=json&encoding=utf8"
+	body, err := mediaSiteGet(ctx, searchURL, "https://www.kuwo.cn/", 1<<20)
+	if err != nil {
+		return "", "", false
+	}
+	text := string(body)
+	rids := kuwoRidPattern.FindAllStringSubmatch(text, -1)
+	names := kuwoSongPattern.FindAllStringSubmatch(text, -1)
+	artists := kuwoArtistPattern.FindAllStringSubmatch(text, -1)
+	for i, rid := range rids {
+		if i >= 3 {
+			break
+		}
+		title := ""
+		if i < len(names) {
+			title = mediaSiteText(names[i][1])
+		}
+		if i < len(artists) {
+			artist := mediaSiteText(artists[i][1])
+			if artist != "" && !strings.Contains(title, artist) {
+				title = title + " - " + artist
+			}
+		}
+		if title == "" {
+			title = q
+		}
+		playURL := "http://antiserver.kuwo.cn/anti.s?type=convert_url3&rid=MUSIC_" + rid[1] + "&format=mp3&response=url"
+		body, err := mediaSiteGet(ctx, playURL, "https://www.kuwo.cn/", 1<<16)
+		if err != nil {
+			continue
+		}
+		var play struct {
+			Code int    `json:"code"`
+			URL  string `json:"url"`
+		}
+		if json.Unmarshal(body, &play) != nil || play.Code != 200 || !strings.HasPrefix(play.URL, "http") {
+			continue
+		}
+		checked, _, err := validateCenterMediaURL(play.URL, false)
+		if err != nil {
+			continue
+		}
+		return checked, title, true
+	}
+	return "", "", false
+}
+
+// resolveNanguaMovieLive 用南瓜影视的接口找到影片的 m3u8 直链。
+func resolveNanguaMovieLive(ctx context.Context, query string) (string, string, bool) {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return "", "", false
+	}
+	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+	searchURL := "https://nangua1.tv/api/search?q=" + url.QueryEscape(q) + "&page=1&size=8"
+	body, err := mediaSiteGet(ctx, searchURL, "https://nangua1.tv/search", 2<<20)
+	if err != nil {
+		return "", "", false
+	}
+	var hits struct {
+		Code int `json:"code"`
+		Data struct {
+			List []struct {
+				ID    int    `json:"id"`
+				Title string `json:"title"`
+			} `json:"list"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(body, &hits) != nil || hits.Code != 0 {
+		return "", "", false
+	}
+	for _, hit := range hits.Data.List {
+		if hit.ID == 0 {
+			continue
+		}
+		rawURL, title, ok := nanguaEpisodeURL(ctx, hit.ID)
+		if !ok {
+			continue
+		}
+		if name := strings.TrimSpace(hit.Title); name != "" {
+			title = name
+		}
+		return rawURL, title, true
+	}
+	return "", "", false
+}
+
+// nanguaEpisodeURL 取影片详情里的第一个可用 m3u8 源（西瓜、天堂、非凡等多源逐个探测）。
+func nanguaEpisodeURL(ctx context.Context, videoID int) (string, string, bool) {
+	detailURL := fmt.Sprintf("https://nangua1.tv/api/video/%d", videoID)
+	body, err := mediaSiteGet(ctx, detailURL, "https://nangua1.tv/", 4<<20)
+	if err != nil {
+		return "", "", false
+	}
+	var detail struct {
+		Code int `json:"code"`
+		Data struct {
+			Title   string `json:"title"`
+			Sources []struct {
+				Episodes []struct {
+					URL string `json:"url"`
+				} `json:"episodes"`
+			} `json:"sources"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(body, &detail) != nil || detail.Code != 0 {
+		return "", "", false
+	}
+	title := strings.TrimSpace(detail.Data.Title)
+	for _, source := range detail.Data.Sources {
+		for _, episode := range source.Episodes {
+			checked, _, err := validateCenterMediaURL(episode.URL, false)
+			if err != nil {
+				continue
+			}
+			if nanguaStreamAlive(ctx, checked) {
+				return checked, title, true
+			}
+		}
+	}
+	return "", "", false
+}
+
+// nanguaStreamAlive 探测 m3u8 主清单是否可达：影视站的源经常失效，
+// 选一个能连上的再交给媒体中心播放。
+func nanguaStreamAlive(ctx context.Context, rawURL string) bool {
+	probeCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("User-Agent", mediaSiteUA)
+	resp, err := mediaSiteHTTP.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	return resp.StatusCode == http.StatusOK
+}
+
+// mediaCenterSiteFallback 公版直链找不到时，从对接的免费网站提取真实播放直链，
+// 媒体中心直接播放；对接网站也没有时才报没有。
+func mediaCenterSiteFallback(ctx context.Context, name, want string) (Result, error) {
+	if want == "audio" {
+		if rawURL, title, ok := resolveKuwoSong(ctx, name); ok {
+			return mediaCenterSiteResult(rawURL, "audio", title, "酷我音乐"), nil
+		}
+		return Result{}, fmt.Errorf("酷我音乐上没有《%s》这首歌", name)
+	}
+	if rawURL, title, ok := resolveNanguaMovie(ctx, name); ok {
+		return mediaCenterSiteResult(rawURL, "video", title, "南瓜影视"), nil
+	}
+	return Result{}, fmt.Errorf("南瓜影视上没有《%s》这部片子", name)
+}
+
+func mediaCenterSiteResult(rawURL, kind, title, site string) Result {
+	if strings.TrimSpace(title) == "" {
+		title = site
+	}
+	return result(fmt.Sprintf("已交给媒体中心播放。\nMEDIA_CENTER\nurl: %s\nkind: %s\ntitle: %s\nsite: %s\n", rawURL, kind, title, site))
+}
 
 func mediaCenterRequested(args json.RawMessage) bool {
 	var a struct {
@@ -63,39 +282,30 @@ func (r *Runtime) executeMediaCenter(ctx context.Context, args json.RawMessage) 
 			title = centerMediaTitle(rawURL)
 		}
 	} else {
-		if strings.Contains(title, "电影") || strings.Contains(title, "影片") {
-			if res, ok, err := officialFilmResult(title); ok {
-				return res, err
-			}
-		}
 		lookup := catalogLookupQuery(title)
 		if lookup == "" {
 			lookup = title
 		}
-		if picked, pickedTitle, pickedKind, ok := resolveOpenMedia(ctx, lookup); ok {
-			checked, mediaKind, err := validateOpenCatalogURL(picked)
-			if err == nil {
-				rawURL, kind = checked, mediaKind
-				if pickedTitle != "" {
-					title = pickedTitle
+		if !centerWantAudio(title) && (openCatalogCandidate(lookup) || openCatalogWantAudio(title)) {
+			if picked, pickedTitle, pickedKind, ok := resolveOpenMedia(ctx, lookup); ok {
+				checked, mediaKind, err := validateOpenCatalogURL(picked)
+				if err == nil {
+					rawURL, kind = checked, mediaKind
+					if pickedTitle != "" {
+						title = pickedTitle
+					}
+					if pickedKind == "audio" || pickedKind == "video" {
+						kind = pickedKind
+					}
 				}
-				if pickedKind == "audio" || pickedKind == "video" {
-					kind = pickedKind
-				}
 			}
-		}
-		if rawURL == "" && !genericCenterMovie(title) {
-			if openCatalogWantAudio(title) {
-				return Result{}, errors.New("没有找到可在媒体中心直接播放的公版文件（已查 Internet Archive、维基共享资源、NASA）。请给出一个 https 直链（mp4、webm 或 mp3），或在媒体中心选择本机文件。")
-			}
-			if res, ok, err := officialFilmResult(title); ok {
-				return res, err
-			}
-			rawURL, kind = publicDomainMovieURL, "video"
-			title = publicDomainMovieTitle
 		}
 		if rawURL == "" {
-			query := mediaCenterSearchQuery(title)
+			name := filmLookupName(title)
+			if name == "" {
+				return Result{}, errors.New("没有说出是哪一部片子，找不到")
+			}
+			query := "site:archive.org/download " + name
 			if searchQueryForbidden(query) {
 				return Result{}, errors.New("媒体中心不能搜索这类内容")
 			}
@@ -103,23 +313,15 @@ func (r *Runtime) executeMediaCenter(ctx context.Context, args json.RawMessage) 
 			var picked, pickedTitle, pickedKind string
 			var ok bool
 			if err == nil {
-				picked, pickedTitle, pickedKind, ok = pickArchiveMedia(found.Results)
+				picked, pickedTitle, pickedKind, ok = pickMatchingArchiveMedia(found.Results, name, centerMediaWant(title))
 			}
 			if !ok {
-				picked, pickedTitle, pickedKind, ok = publicDomainMovieFallback(title)
-			}
-			if !ok {
-				if err != nil {
-					return Result{}, fmt.Errorf("媒体中心没有搜到可播放文件：%w", err)
-				}
-				return Result{}, errors.New("没有找到可在媒体中心直接播放的公版文件（已查 Internet Archive、维基共享资源、NASA）。请给出一个 https 直链（mp4、webm 或 mp3），或在媒体中心选择本机文件。")
+				// 公版直链找不到：从对接的免费网站提取真实播放直链。
+				return mediaCenterSiteFallback(ctx, name, centerMediaWant(title))
 			}
 			rawURL, kind = picked, pickedKind
 			if pickedTitle != "" {
 				title = pickedTitle
-			}
-			if title == "" {
-				title = centerMediaTitle(rawURL)
 			}
 		}
 	}
@@ -128,7 +330,7 @@ func (r *Runtime) executeMediaCenter(ctx context.Context, args json.RawMessage) 
 
 func mediaCenterSearchQuery(query string) string {
 	q := strings.TrimSpace(query)
-	for _, cut := range []string{"自带的媒体中心", "自带媒体中心", "媒体中心播放", "媒体中心", "自带的", "自带", "从网上", "帮我", "找一个", "找个", "播放", "电影", "歌曲", "一部", "一首", "再我的", "给我", "一下"} {
+	for _, cut := range []string{"自带的媒体中心", "自带媒体中心", "媒体中心播放", "媒体中心", "自带的", "自带", "从网上", "帮我", "找一个", "找个", "播放", "电影", "影片", "歌曲", "一部", "一首", "再我的", "给我", "一下", "我想看", "这部", "周星驰的"} {
 		q = strings.ReplaceAll(q, cut, " ")
 	}
 	q = strings.Map(func(r rune) rune {
@@ -146,7 +348,7 @@ func mediaCenterSearchQuery(query string) string {
 	}
 	q = strings.Join(kept, " ")
 	if q == "" {
-		return `site:archive.org/download "Night of the Living Dead"`
+		return ""
 	}
 	if len(q) > 180 {
 		q = q[:180]
@@ -154,11 +356,38 @@ func mediaCenterSearchQuery(query string) string {
 	return "site:archive.org/download " + q
 }
 
-func pickArchiveMedia(results []webfetch.SearchResult) (rawURL, title, kind string, ok bool) {
+func filmLookupName(query string) string {
+	q := mediaCenterSearchQuery(query)
+	return strings.TrimSpace(strings.TrimPrefix(q, "site:archive.org/download "))
+}
+
+func centerWantAudio(query string) bool {
+	if strings.Contains(query, "电影") || strings.Contains(query, "影片") {
+		return false
+	}
+	return strings.Contains(query, "歌") || strings.Contains(query, "一首") || strings.Contains(query, "音乐")
+}
+
+func centerMediaWant(query string) string {
+	if centerWantAudio(query) {
+		return "audio"
+	}
+	return "video"
+}
+
+func pickMatchingArchiveMedia(results []webfetch.SearchResult, name, want string) (rawURL, title, kind string, ok bool) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		return "", "", "", false
+	}
 	for _, hit := range results {
+		blob := strings.ToLower(hit.Title + " " + hit.URL + " " + hit.Snippet)
+		if !strings.Contains(blob, name) {
+			continue
+		}
 		for _, candidate := range []string{hit.URL, firstArchiveMediaURL(hit.Snippet), firstArchiveMediaURL(hit.Title)} {
 			checked, mediaKind, err := validateCenterMediaURL(candidate, true)
-			if err != nil {
+			if err != nil || mediaKind != want {
 				continue
 			}
 			return checked, strings.TrimSpace(hit.Title), mediaKind, true
@@ -188,7 +417,7 @@ func validateCenterMediaURL(raw string, fromSearch bool) (string, string, error)
 	}
 	kind := centerMediaKind(parsed.Path)
 	if kind == "" {
-		return "", "", errors.New("媒体中心只播放 mp4、webm、m4v、mp3 这类可直接打开的文件")
+		return "", "", errors.New("媒体中心只播放 mp4、webm、m3u8、mp3 这类可直接播放的文件")
 	}
 	host := strings.ToLower(parsed.Hostname())
 	archive := host == "archive.org" || strings.HasSuffix(host, ".archive.org")
@@ -200,7 +429,7 @@ func validateCenterMediaURL(raw string, fromSearch bool) (string, string, error)
 
 func centerMediaKind(urlPath string) string {
 	switch strings.ToLower(path.Ext(urlPath)) {
-	case ".mp4", ".webm", ".m4v":
+	case ".mp4", ".webm", ".m4v", ".m3u8":
 		return "video"
 	case ".mp3", ".m4a", ".aac", ".flac", ".wav", ".ogg", ".oga":
 		return "audio"
@@ -221,66 +450,17 @@ func centerMediaTitle(raw string) string {
 	return base
 }
 
-// Night of the Living Dead (1968) is public domain and has a soundtrack.
-// Nosferatu (1922) is a silent print; it stays available when that title is
-// asked for, and is not the stand-in for every other film.
+// publicDomainMovieURL is the public-domain print tests use to prove a request
+// without a title is not replaced with another film.
 const publicDomainMovieURL = "https://upload.wikimedia.org/wikipedia/commons/c/c1/Night_of_the_Living_Dead_%281968%29.webm"
-const publicDomainMovieTitle = "Night of the Living Dead (1968)"
 
-func publicDomainMovieFallback(query string) (rawURL, title, kind string, ok bool) {
-	if !genericCenterMovie(query) {
-		return "", "", "", false
+func openCatalogCandidate(lookup string) bool {
+	switch strings.TrimSpace(lookup) {
+	case "Metropolis", "Nosferatu":
+		return true
+	default:
+		return false
 	}
-	return publicDomainMovieURL, publicDomainMovieTitle, "video", true
-}
-
-func officialFilmResult(title string) (Result, bool, error) {
-	iqiyi := memberFilmSearchURL(title)
-	if iqiyi == "" {
-		return Result{}, false, nil
-	}
-	if err := openMediaURL(iqiyi); err != nil {
-		return Result{}, true, err
-	}
-	film := memberFilmTitle(title)
-	return result(fmt.Sprintf("已打开爱奇艺的官方搜索。会员在官方页面播放《%s》。\nurl: %s\n%s\n", film, iqiyi, memberLoginNote)), true, nil
-}
-
-// memberFilmSearchURL is the official 爱奇艺 search page. The member watches
-// there. 优酷 is not opened. This site does not hand out a file the media
-// center can play.
-func memberFilmSearchURL(query string) string {
-	title := memberFilmTitle(query)
-	if title == "" {
-		return ""
-	}
-	return "https://www.iqiyi.com/so/q_" + url.PathEscape(title)
-}
-
-func memberFilmTitle(query string) string {
-	if genericCenterMovie(query) {
-		return ""
-	}
-	q := strings.TrimSpace(query)
-	for _, cut := range []string{
-		"自带的媒体中心", "自带媒体中心", "媒体中心播放", "媒体中心",
-		"我想看", "我要看", "帮我看", "帮我找", "给我找", "想看", "要看", "看看", "观看",
-		"找一部", "找部", "一部", "这部", "这个",
-		"帮我", "给我", "请", "播放", "电影", "影片", "视频", "一下",
-	} {
-		q = strings.ReplaceAll(q, cut, " ")
-	}
-	q = strings.Map(func(r rune) rune {
-		if strings.ContainsRune("《》「」\"'，。！？、,.!?；;：:", r) {
-			return ' '
-		}
-		return r
-	}, q)
-	q = strings.Trim(strings.Join(strings.Fields(q), " "), "的了吗吧啊 ")
-	if q == "" || genericCenterMovie(q) {
-		return ""
-	}
-	return q
 }
 
 func genericCenterMovie(query string) bool {
