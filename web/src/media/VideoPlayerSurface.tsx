@@ -4,6 +4,7 @@ import { formatClock, mediaTransportPlaying } from './mediaSnapshot'
 import { mediaText, playbackStatusText } from './mediaCopy'
 import { MediaTransportControls } from './MediaTransportControls'
 import { useDirectMedia, useStageChrome } from './useDirectMedia'
+import { isHlsSource } from './mediaCenterPlay'
 import { useZh } from '../i18n/language'
 
 export function VideoPlayerSurface({
@@ -55,7 +56,8 @@ export function VideoPlayerSurface({
   return (
     <section className="media-video-surface" aria-label={copy.video}>
       <div ref={stage.boxRef} className={live ? `video-theatre is-live${stage.full ? ' is-fullscreen' : ''}${chrome.shown ? '' : ' is-chrome-hidden'}` : 'video-theatre'} onPointerMove={live ? chrome.poke : undefined}>
-        {live ? <video ref={stage.ref as React.RefObject<HTMLVideoElement>} className="media-theatre-video" src={src ?? undefined} autoPlay playsInline /> : null}
+        {/* m3u8 由 useDirectMedia 交给 hls.js 接管，src 属性必须留空避免原生加载冲突 */}
+        {live ? <video ref={stage.ref as React.RefObject<HTMLVideoElement>} className="media-theatre-video" src={isHlsSource(src ?? '') ? undefined : (src ?? undefined)} autoPlay playsInline /> : null}
         {live ? null : (
           <button type="button" className="video-play" disabled={busy} onClick={onPlayPause} aria-hidden="true" tabIndex={-1}>
             {playing ? '❚❚' : '▶'}

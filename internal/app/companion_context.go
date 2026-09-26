@@ -180,13 +180,69 @@ func moviePlayGoal(text string) bool {
 	if t == "" {
 		return false
 	}
-	if strings.Contains(t, "爱奇艺") || strings.Contains(t, "优酷") {
-		return strings.Contains(t, "播放") || strings.Contains(t, "试试") || strings.Contains(t, "看") || strings.Contains(t, "找")
-	}
-	if !strings.Contains(t, "电影") && !strings.Contains(t, "影片") {
+	if filmSongIntent(t) && !strings.Contains(t, "不要歌") && !strings.Contains(t, "不是歌") && !strings.Contains(t, "电影") && !strings.Contains(t, "影片") {
 		return false
 	}
-	return strings.Contains(t, "播放") || strings.Contains(t, "放一") || strings.Contains(t, "找一") || strings.Contains(t, "找部") || strings.Contains(t, "放部") || strings.Contains(t, "看")
+	play := strings.Contains(t, "播放") || strings.Contains(t, "放一") || strings.Contains(t, "找一") || strings.Contains(t, "找部") || strings.Contains(t, "放部") || strings.Contains(t, "看") || strings.Contains(t, "比方") || strings.Contains(t, "比放")
+	if strings.Contains(t, "爱奇艺") || strings.Contains(t, "优酷") {
+		return play || strings.Contains(t, "试试") || strings.Contains(t, "找")
+	}
+	if strings.Contains(t, "电影") || strings.Contains(t, "影片") {
+		return play
+	}
+	if !play {
+		return false
+	}
+	for _, title := range []string{"武状元苏乞儿", "九品芝麻官", "夜访吸血鬼"} {
+		if strings.Contains(t, title) {
+			return true
+		}
+	}
+	return false
+}
+
+// carryFilmGoal keeps a movie on the media-center path when the next sentence
+// only says to play, or names the film without saying 电影 again.
+func carryFilmGoal(prev, current string) string {
+	cur := strings.TrimSpace(current)
+	if cur == "" || moviePlayGoal(cur) || ownedMediaCenterGoal(cur) || filmSongIntent(cur) {
+		return cur
+	}
+	if !moviePlayGoal(prev) && !ownedMediaCenterGoal(prev) {
+		return cur
+	}
+	if strings.Contains(cur, "登录") {
+		return strings.TrimSpace(prev)
+	}
+	if !strings.Contains(cur, "播放") && !strings.Contains(cur, "放") {
+		return cur
+	}
+	title := filmCarryTitle(cur)
+	if title == "" {
+		return strings.TrimSpace(prev)
+	}
+	return "播放电影 " + title
+}
+
+func filmSongIntent(text string) bool {
+	for _, needle := range []string{"歌", "音乐", "网易云", "汽水", "一首", "qq音乐", "QQ音乐"} {
+		if strings.Contains(text, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func filmCarryTitle(text string) string {
+	q := companionStripMusicFiller(text)
+	for _, cut := range []string{"已经登录了", "登录了", "登录", "媒体中心", "电影", "影片", "吧"} {
+		q = strings.ReplaceAll(q, cut, "")
+	}
+	q = strings.Trim(strings.TrimSpace(q), "，,。！!？?的 ")
+	if utf8.RuneCountInString(q) < 2 {
+		return ""
+	}
+	return q
 }
 
 // playerCloseGoal is a request to stop the player that is already open.

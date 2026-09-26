@@ -210,7 +210,10 @@ describe('looksIncompleteUtterance', () => {
     expect(looksIncompleteUtterance('帮我打开桌面。')).toBe(false)
     expect(looksIncompleteUtterance('帮我打开。')).toBe(true)
     expect(looksIncompleteUtterance('上第一个新闻。')).toBe(true)
-    expect(looksIncompleteUtterance('帮我打开网站上的第一个新闻。')).toBe(false)
+    expect(looksIncompleteUtterance('打开第一个新闻链接')).toBe(false)
+    expect(looksIncompleteUtterance('打开第一条新闻')).toBe(false)
+    expect(looksIncompleteUtterance('打开第一条')).toBe(true)
+    expect(looksIncompleteUtterance('打开第一个')).toBe(true)
     expect(looksIncompleteUtterance('好的')).toBe(false)
     expect(looksIncompleteUtterance('帮我打开桌面')).toBe(false)
     expect(looksIncompleteUtterance('你好月汐')).toBe(false)
@@ -547,6 +550,9 @@ describe('shouldAcceptUserTranscript', () => {
     expect(looksLikeOmniPersonaCaption('月汐 / 人生：优质台湾腔')).toBe(true)
     expect(shouldAcceptUserTranscript({ ...base, text: '人生：优质台湾腔' })).toBe(false)
     expect(shouldAcceptUserTranscript({ ...base, text: '下一句' })).toBe(true)
+    expect(shouldAcceptUserTranscript({ ...base, text: '我' })).toBe(true)
+    expect(shouldAcceptUserTranscript({ ...base, text: '第' })).toBe(true)
+    expect(shouldAcceptUserTranscript({ ...base, text: '打开第一个新闻链接' })).toBe(true)
   })
 
   test('rejects sherpa decoder hallucination', () => {

@@ -169,7 +169,7 @@ describe('project workbench native-frame stability', () => {
     expect(css).toMatch(/html\[data-theme="light"\] \.media-center/)
     expect(css).toMatch(/html\[data-theme="light"\] \.media-center,html\[data-theme="light"\] \.media-music-surface/)
     expect(indexHtml).toMatch(/media-src 'self' blob: https:\/\/media\.lunitide\.local https:/)
-    expect(indexHtml).toMatch(/connect-src 'self' ws:\/\/127\.0\.0\.1:\*/)
+    expect(indexHtml).toMatch(/connect-src 'self' https: ws:\/\/127\.0\.0\.1:\*/)
     expect(indexHtml).not.toMatch(/connect-src[^"]*https:\/\/media\.lunitide\.local/)
   })
 })

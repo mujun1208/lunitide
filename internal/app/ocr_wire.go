@@ -93,7 +93,7 @@ func (e *Engine) ocrProviderCall(ctx context.Context, raw []byte, hint string) (
 	case bytes.HasPrefix(raw, []byte("RIFF")) && bytes.Contains(raw[:16], []byte("WEBP")):
 		mime = "image/webp"
 	}
-	prompt := "Transcribe all visible text. Do not describe the scene. If no text is visible, say so."
+	prompt := "图里有文字就逐字抄下来。没有文字时用一两句说明这张图是什么，不要只说没有文字。"
 	if strings.TrimSpace(hint) != "" {
 		prompt += "\n" + hint
 	}

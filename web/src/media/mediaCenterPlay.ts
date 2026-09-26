@@ -1,9 +1,15 @@
-export type MediaCenterPlay = { url: string; kind: 'audio' | 'video'; title: string; rate?: number }
+export type MediaCenterPlay = { url: string; kind: 'audio' | 'video'; title: string; rate?: number; site?: string }
 
 export const MEDIA_CENTER_PLAY_EVENT = 'lunitide:media-center-play'
 export const MEDIA_CENTER_STOP_EVENT = 'lunitide:media-center-stop'
 
-const MEDIA_FILE = /\.(mp4|webm|m4v|mp3|m4a|aac|flac|wav|ogg|oga)$/i
+// 直链媒体文件（含影视站通用的 m3u8 流）。
+const MEDIA_FILE = /\.(mp4|webm|m4v|m3u8|mp3|m4a|aac|flac|wav|ogg|oga)$/i
+
+// m3u8 是 HLS 流：video 元素不能直接播，由 useDirectMedia 接 hls.js 播。
+export function isHlsSource(src: string | null | undefined): boolean {
+  return Boolean(src) && /\.m3u8(\?|$)/i.test(src as string)
+}
 
 let activeBlob = ''
 
@@ -42,10 +48,11 @@ export function parseMediaCenterPlay(summary: string): MediaCenterPlay | null {
   if (!url || !pageCanPlay(url)) return null
   const kindLine = summary.match(/^kind:\s*(audio|video)\b/m)?.[1]
   const title = summary.match(/^title:\s*(.+)$/m)?.[1]?.trim() || '媒体中心'
+  const site = summary.match(/^site:\s*(.+)$/m)?.[1]?.trim() || undefined
   const kind = kindLine === 'audio' || kindLine === 'video'
     ? kindLine
     : /\.(mp3|wav|flac|m4a|aac|ogg|oga)$/i.test(url) ? 'audio' : 'video'
-  return { url, kind, title }
+  return site ? { url, kind, title, site } : { url, kind, title }
 }
 
 function publish(play: MediaCenterPlay): void {

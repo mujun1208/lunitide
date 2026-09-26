@@ -34,6 +34,7 @@ import{latestTodoSummary,parseTaskSteps,TaskStepsFromSummary}from'./TaskSteps'
 import{sessionWorkspaceBound}from'../workspace/workspaceSession'
 import{llmReadyProviders,pickCompanionFlashModel,pickDefaultLLM,modelSupportsFunctionCalling}from'../provider/modelKind'
 import{userWantsBrowserPanel}from'../workspace/browserAddress'
+import{composerWithPreviewQuote}from'./previewQuote'
 import{buildSubagentChatPolicy,loadSubagentSettings}from'../settings/subagentSettings'
 import{chatStartReplyFields}from'../settings/replySettings'
 import{chatStartToolProfile}from'../settings/toolProfile'
@@ -396,7 +397,7 @@ const cancelStream=async(turnId?:string,spokenText?:string)=>{if(cancelInFlightR
  const showActionNotice=(value:string,undoId='')=>{setActionNotice(value);setMemoryUndoId(undoId);if(noticeTimer.current!==undefined)window.clearTimeout(noticeTimer.current);noticeTimer.current=window.setTimeout(()=>{setActionNotice('');setMemoryUndoId('')},undoId?8000:1800)}
  useEffect(()=>{const brief=(currentTaskBrief??'').trim();if(!brief||readOnly)return;setText(brief);showActionNotice('已填入当前任务说明书，确认后发送')},[currentTaskBrief,readOnly])
  useEffect(()=>{const onPrefill=(event:Event)=>{const next=String((event as CustomEvent<{text?:string}>).detail?.text??'').trim();if(!next||readOnly)return;setText(next);showActionNotice('已填入专家讨论提示，确认后发送')};window.addEventListener('lunitide:composer-prefill',onPrefill);return()=>window.removeEventListener('lunitide:composer-prefill',onPrefill)},[readOnly])
- useEffect(()=>{const onCite=(event:Event)=>{const quote=String((event as CustomEvent<{text?:string}>).detail?.text??'').trim();if(!quote||readOnly)return;const block=quote.split('\n').map(line=>`> ${line}`).join('\n');setText(prev=>prev.trim()?`${prev.replace(/\s+$/,'')}\n\n${block}\n`:`${block}\n`);showActionNotice('已放入输入框，发送前可以改')};window.addEventListener('lunitide:preview-cite',onCite);return()=>window.removeEventListener('lunitide:preview-cite',onCite)},[readOnly])
+ useEffect(()=>{const onCite=(event:Event)=>{const quote=String((event as CustomEvent<{text?:string}>).detail?.text??'').trim();if(!quote||readOnly)return;setText(prev=>composerWithPreviewQuote(prev,quote));showActionNotice('已放入输入框，发送前可以改')};window.addEventListener('lunitide:preview-cite',onCite);return()=>window.removeEventListener('lunitide:preview-cite',onCite)},[readOnly])
  const decidePref=async(action:'confirm'|'later')=>{if(!pendingPref)return;if(action==='later'||(pendingPref.kind??'memory')==='memory'){prefDismissedRef.current=pendingPref.candidateId;setPendingPref(undefined);return}prefDismissedRef.current=pendingPref.candidateId;setPendingPref(undefined);showActionNotice(pendingPref.kind==='mro-defect'?'已记下本机缺陷草稿':'已确认使用未受控手册')}
  const copyText=async(value:string)=>{try{await navigator.clipboard.writeText(value);showActionNotice('复制成功')}catch{setError(new BridgeClientError('复制失败，请检查剪贴板权限','CLIPBOARD_WRITE_FAILED',true,'renderer'))}}
  const sendFeedback=async(message:MessageDTO,kind:'accept'|'reject')=>{try{await feedback.record({action:kind,targetType:'message',targetId:message.id});showActionNotice(kind==='accept'?'已记录：这条回答有帮助':'已记录：这条回答不满意')}catch(e){setError(problem(e))}}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -114,13 +115,21 @@ func taskFix(task TaskResult) string {
 // logClock is the clock for 「今天的日志」. Tests pin it.
 var logClock = time.Now
 
-func logLineCurrent(line string, now time.Time) bool {
+func logLineTime(line string, loc *time.Location) (time.Time, bool) {
 	fields := strings.SplitN(strings.TrimSpace(line), " ", 3)
 	if len(fields) < 2 || strings.Count(fields[0], "/") != 2 || strings.Count(fields[1], ":") != 2 {
-		return true
+		return time.Time{}, false
 	}
-	t, err := time.ParseInLocation("2006/01/02 15:04:05", fields[0]+" "+fields[1], now.Location())
+	t, err := time.ParseInLocation("2006/01/02 15:04:05", fields[0]+" "+fields[1], loc)
 	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
+func logLineCurrent(line string, now time.Time) bool {
+	t, ok := logLineTime(line, now.Location())
+	if !ok {
 		return true
 	}
 	return t.Year() == now.Year() && t.YearDay() == now.YearDay()
@@ -128,6 +137,14 @@ func logLineCurrent(line string, now time.Time) bool {
 
 // ClassifyLog keeps only lines that match a fault class and quotes them.
 func ClassifyLog(text string) []Finding {
+	return ClassifyLogSince(text, time.Time{})
+}
+
+// ClassifyLogSince is ClassifyLog for lines strictly after since.
+// A zero since keeps today's lines, including ones without a timestamp.
+// A later check drops lines from before that time so a fault that has
+// stopped does not stay listed.
+func ClassifyLogSince(text string, since time.Time) []Finding {
 	var out []Finding
 	now := logClock()
 	var lines []string
@@ -135,6 +152,12 @@ func ClassifyLog(text string) []Finding {
 		line = strings.TrimSpace(line)
 		if line == "" || !logLineCurrent(line, now) {
 			continue
+		}
+		if !since.IsZero() {
+			at, ok := logLineTime(line, now.Location())
+			if !ok || !at.After(since) {
+				continue
+			}
 		}
 		lines = append(lines, line)
 	}
@@ -254,6 +277,19 @@ type liveCtxKey struct{}
 type landscapeCtxKey struct{}
 type engineLogCtxKey struct{}
 
+type freshCheckCtxKey struct{}
+
+// WithFreshCheck makes Diagnostics run the live checks again and replace the
+// previous probe and log rows with this run.
+func WithFreshCheck(ctx context.Context) context.Context {
+	return context.WithValue(ctx, freshCheckCtxKey{}, true)
+}
+
+func freshCheck(ctx context.Context) bool {
+	on, _ := ctx.Value(freshCheckCtxKey{}).(bool)
+	return on
+}
+
 // WithEngineLog replaces the engine log for one purify recheck. Tests use it.
 func WithEngineLog(ctx context.Context, text string) context.Context {
 	return context.WithValue(ctx, engineLogCtxKey{}, text)
@@ -333,12 +369,42 @@ func WithLandscape(ctx context.Context, notes []LandscapeNote) context.Context {
 }
 
 func invokeLive(ctx context.Context) ([]TaskResult, string, []LandscapeNote) {
+	notes, _ := ctx.Value(landscapeCtxKey{}).([]LandscapeNote)
 	if fn, ok := ctx.Value(liveCtxKey{}).(liveTasksFn); ok && fn != nil {
-		return fn(ctx)
+		tasks, logText, fnNotes := fn(ctx)
+		if len(fnNotes) > 0 {
+			notes = fnNotes
+		}
+		return tasks, logText, notes
 	}
 	tasks, logText := DefaultLiveRun(ctx)
-	notes, _ := ctx.Value(landscapeCtxKey{}).([]LandscapeNote)
+	if extra := catalogRuns(ctx); len(extra) > 0 {
+		tasks = append(tasks, extra...)
+	}
 	return tasks, logText, notes
+}
+
+var (
+	catalogMu  sync.Mutex
+	catalogRun func(context.Context) []TaskResult
+)
+
+// SetCatalogRuns attaches the sandbox task runs used by 「重新检测」.
+// A nil hook leaves the four probes as the only live runs.
+func SetCatalogRuns(fn func(context.Context) []TaskResult) {
+	catalogMu.Lock()
+	catalogRun = fn
+	catalogMu.Unlock()
+}
+
+func catalogRuns(ctx context.Context) []TaskResult {
+	catalogMu.Lock()
+	fn := catalogRun
+	catalogMu.Unlock()
+	if fn == nil {
+		return nil
+	}
+	return fn(ctx)
 }
 
 func liveHealth(probe ProbeScore) int {
@@ -368,7 +434,7 @@ func probeFromFindings(findings []Finding) (ProbeScore, bool) {
 		if !strings.HasPrefix(f.ErrorCode, "PH_L") {
 			continue
 		}
-		if f.ErrorCode == "PH_L90" || f.ErrorCode == "PH_L91" {
+		if f.ErrorCode == "PH_L90" || f.ErrorCode == "PH_L91" || f.ErrorCode == "PH_L99" {
 			continue
 		}
 		total++
@@ -385,9 +451,37 @@ func probeFromFindings(findings []Finding) (ProbeScore, bool) {
 func liveFindings(in []Finding) []Finding {
 	var out []Finding
 	for _, f := range in {
-		if strings.HasPrefix(f.ErrorCode, "PH_L") {
+		if strings.HasPrefix(f.ErrorCode, "PH_L") && f.ErrorCode != "PH_L99" {
 			out = append(out, f)
 		}
+	}
+	return out
+}
+
+func watermarkFinding(at time.Time) Finding {
+	return finding("info", "PH_L99", "meta.live-watermark", "日志水位", at.Format(time.RFC3339Nano), "", "", "", "note")
+}
+
+func readWatermark(findings []Finding) time.Time {
+	for _, f := range findings {
+		if f.ErrorCode != "PH_L99" {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(f.Evidence))
+		if err == nil {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
+func visibleFindings(in []Finding) []Finding {
+	out := make([]Finding, 0, len(in))
+	for _, f := range in {
+		if f.ErrorCode == "PH_L99" {
+			continue
+		}
+		out = append(out, f)
 	}
 	return out
 }

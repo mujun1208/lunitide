@@ -176,3 +176,41 @@ func (r *Runtime) searchWeb(ctx context.Context, query string, max int) (webSear
 	}
 	return boundedWebSearchResponse(nil, "none", webfetch.BingCNSearchURL(query), r.now()), nil
 }
+
+func searchPageLink(raw string) bool {
+	u := strings.ToLower(raw)
+	for _, host := range []string{"bing.com/search", "google.com/search", "baidu.com/s", "sogou.com/web"} {
+		if strings.Contains(u, host) {
+			return true
+		}
+	}
+	return false
+}
+
+// FirstOrganicOnPage reads the search page that is already open and returns its first result link.
+func (r *Runtime) FirstOrganicOnPage(ctx context.Context, pageURL string) (string, error) {
+	pageURL = strings.TrimSpace(pageURL)
+	if r == nil || r.fetchWeb == nil || pageURL == "" {
+		return "", fmt.Errorf("web tools unavailable")
+	}
+	page, err := r.fetchWeb(ctx, pageURL)
+	if err != nil {
+		return "", err
+	}
+	if page.Status >= 400 {
+		return "", fmt.Errorf("HTTP %d", page.Status)
+	}
+	body := string(page.Body)
+	hits := webfetch.ParseBingResults(body, 5)
+	if len(hits) == 0 {
+		hits = webfetch.ParseSearchResults(body, 5)
+	}
+	for _, hit := range hits {
+		u := strings.TrimSpace(hit.URL)
+		if u == "" || searchPageLink(u) {
+			continue
+		}
+		return u, nil
+	}
+	return "", fmt.Errorf("no result link")
+}

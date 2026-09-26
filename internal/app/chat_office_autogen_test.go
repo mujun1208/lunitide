@@ -123,6 +123,13 @@ func TestTrialWeeklyReportStillMapsToDocxAndIsNotBlocked(t *testing.T) {
 	}
 }
 
+func TestUntypedReportDoesNotAutoGenerateWord(t *testing.T) {
+	turn := &chatTurnCheckpoint{Goal: "帮我写一份调研报告"}
+	if officeGenToolForTurn(turn) != "" || shouldAutoOfficeGen(turn, errors.New("模型结果不完整")) {
+		t.Fatalf("untyped report must stay on the canvas, tool=%s", officeGenToolForTurn(turn))
+	}
+}
+
 func TestShouldAutoOfficeGenOnIncompleteNovel(t *testing.T) {
 	turn := &chatTurnCheckpoint{Goal: "写一份12星座爱情小说Word到桌面", DocxActive: true, DocxKind: docxKindNovel}
 	if !shouldAutoOfficeGen(turn, errors.New("incomplete")) {
@@ -315,10 +322,14 @@ func TestOfficeFallbackFullAccessDoesNotAskAgain(t *testing.T) {
 }
 
 func TestPoliteDocumentRequestsRemainCreationTasks(t *testing.T) {
-	for _, goal := range []string{"你可以帮我做一份产品介绍 PPT 吗", "你可以帮我写调研报告吗", "介绍自己并做成 PPT", "[引用专家 PPT专家|01ARZ3NDEKTSV4RRFFQ69G5FAV] 请做一份介绍"} {
+	for _, goal := range []string{"你可以帮我做一份产品介绍 PPT 吗", "介绍自己并做成 PPT", "[引用专家 PPT专家|01ARZ3NDEKTSV4RRFFQ69G5FAV] 请做一份介绍"} {
 		if officeExpertIntroduction(goal) || officeGenToolForGoal(goal) == "" {
 			t.Fatalf("creation suppressed: %q", goal)
 		}
+	}
+	report := "你可以帮我写调研报告吗"
+	if officeExpertIntroduction(report) || !wantsDefaultCanvas(report) {
+		t.Fatalf("an untyped report question stays on the canvas: %q", report)
 	}
 }
 

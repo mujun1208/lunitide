@@ -320,7 +320,7 @@ func interruptsRunningTurn(text string) bool {
 
 func openNewsGoal(text string) bool {
 	t := strings.TrimSpace(text)
-	if strings.Contains(t, "点开第一条") || strings.Contains(t, "打开第一条") || strings.Contains(t, "点第一条") {
+	if (strings.Contains(t, "第一个") || strings.Contains(t, "第一条")) && (strings.Contains(t, "新闻") || strings.Contains(t, "链接")) {
 		return true
 	}
 	return strings.Contains(t, "打开新闻") || strings.Contains(t, "点开新闻")

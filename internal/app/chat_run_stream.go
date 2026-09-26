@@ -168,6 +168,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 		}
 		if event.Type == bridge.EventToolCompleted && event.Tool != nil {
 			completedToolEvents[event.Tool.CallID] = true
+			if event.Tool.Name == "web.search" || event.Tool.Name == "desktop.browse" {
+				e.rememberSearchQuery(sessionID, searchQueryFromText(event.Tool.Summary))
+			}
 			if event.Tool.Name == "web.search" {
 				e.rememberSearchHit(sessionID, event.Tool.Summary)
 			}
@@ -355,13 +358,18 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			autoMediaGenerationDone := false
 			autoDesktopOpenDone := false
 			autoDesktopObserveDone := false
+			autoBrowserConfirmDone := false
 			nudges := 0
 			skillDraftOffered := false
 			leadInInjected := false
 			spokenGoal := turn.Goal
-			if prev := e.loadTurnCheckpoint(sessionID); looksLikeResume(turn.Goal) && strings.TrimSpace(prev.Goal) != "" {
-				turn.Goal = prev.Goal
-				turn.Injected = append(turn.Injected, prev.Injected...)
+			if prev := e.loadTurnCheckpoint(sessionID); strings.TrimSpace(prev.Goal) != "" {
+				if looksLikeResume(turn.Goal) {
+					turn.Goal = prev.Goal
+					turn.Injected = append(turn.Injected, prev.Injected...)
+				} else if next := carryFilmGoal(prev.Goal, turn.Goal); next != turn.Goal {
+					turn.Goal = next
+				}
 			}
 			turn.liveProtocol = req.Messages
 			if err := e.saveTurnCheckpoint(sessionID, turn); err != nil {
@@ -392,8 +400,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						usedTools = true
 						break
 					}
-					if moviePlayGoal(turn.Goal) {
-						speech := "没能打开这部电影的官方搜索。"
+					if moviePlayGoal(turn.Goal) || ownedMediaCenterGoal(turn.Goal) {
+						speech := "没能在媒体中心开始播放。"
 						assistantText.WriteString(speech)
 						if err := sendDeltaChunks(send, speech); err != nil {
 							return err
@@ -410,7 +418,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						break
 					}
 					if len(directSongPlayArgs(turn.Goal)) > 0 {
-						speech := "没能打开网易云音乐的官方搜索。"
+						speech := "找不到这首歌，没有这首歌。"
 						assistantText.WriteString(speech)
 						if err := sendDeltaChunks(send, speech); err != nil {
 							return err
@@ -419,7 +427,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					}
 				}
 				if step == 0 && !usedAnyTool(turn.LastTools, "web.fetch") {
-					if speech, ok := e.openFirstNewsNow(sessionID, turn.Goal, req.Messages, send); ok {
+					if speech, ok := e.openFirstNewsNow(op, mode, sessionID, turn.Goal, req.Messages, send); ok {
 						assistantText.WriteString(speech)
 						if err := sendDeltaChunks(send, speech); err != nil {
 							return err
@@ -706,6 +714,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						return nil
 					}
 				}
+				turnAlreadySettled := false
+				if _, settled := settledWorkSpeech(turn.Goal, req.Messages); settled {
+					turnAlreadySettled = true
+				}
 				if len(result.Message.ToolCalls) == 0 {
 					if state.companion && companionNeedsSpokenInput(result.Message.Content) {
 						waitingForSpokenInput = true
@@ -715,7 +727,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						}
 						return nil
 					}
-					if !autoLookupDone && !turnAttemptedAction(req.Messages, "lookup") && looksLikeCurrentLookupTurn(turn.Goal) {
+					if !turnAlreadySettled && !autoLookupDone && !turnAttemptedAction(req.Messages, "lookup") && looksLikeCurrentLookupTurn(turn.Goal) {
 						if inventoryLookupBlocksPublicWeb(turn.Goal) && toolDefinitionsHave(req.Tools, "mcp.search") {
 							if searchArgs := fallbackMcpSearchArgs(turn.Goal); len(searchArgs) > 0 {
 								result.Message.ToolCalls = []llmadapter.ToolCall{{
@@ -736,7 +748,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							}
 						}
 					}
-					if len(result.Message.ToolCalls) == 0 && !autoMediaGenerationDone {
+					if !turnAlreadySettled && len(result.Message.ToolCalls) == 0 && !autoMediaGenerationDone {
 						if name := mediaGenerationKind(turn.Goal); name != "" {
 							if toolDefinitionsHave(req.Tools, name) && !usedAnyTool(turn.LastTools, name) {
 								mediaArgs := fallbackMediaGenerationArgs(turn.Goal)
@@ -751,7 +763,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							}
 						}
 					}
-					if len(result.Message.ToolCalls) == 0 && state.companion && !autoUserWindowCloseDone && e.ccctrl != nil && (closeCurrentBrowserGoal(turn.Goal) || closeOpenDocumentGoal(turn.Goal)) {
+					if !turnAlreadySettled && len(result.Message.ToolCalls) == 0 && state.companion && !autoUserWindowCloseDone && e.ccctrl != nil && (closeCurrentBrowserGoal(turn.Goal) || closeOpenDocumentGoal(turn.Goal)) {
 						result.Message.ToolCalls = []llmadapter.ToolCall{{
 							ID:        "auto-" + ulid.Make().String(),
 							Name:      "computer.act",
@@ -759,7 +771,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						}}
 						autoUserWindowCloseDone = true
 					}
-					if len(result.Message.ToolCalls) == 0 && !autoDesktopQuitDone && toolDefinitionsHave(req.Tools, "desktop.quit") && !usedAnyTool(turn.LastTools, "desktop.quit") && quitOnlyGoal(turn.Goal) {
+					if !turnAlreadySettled && len(result.Message.ToolCalls) == 0 && !autoDesktopQuitDone && toolDefinitionsHave(req.Tools, "desktop.quit") && !usedAnyTool(turn.LastTools, "desktop.quit") && quitOnlyGoal(turn.Goal) {
 						if quitArgs := fallbackDesktopQuitArgs(turn.Goal); len(quitArgs) > 0 {
 							result.Message.ToolCalls = []llmadapter.ToolCall{{
 								ID:        "auto-" + ulid.Make().String(),
@@ -769,7 +781,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							autoDesktopQuitDone = true
 						}
 					}
-					if len(result.Message.ToolCalls) == 0 && !autoMediaPlayDone && toolDefinitionsHave(req.Tools, "media.play") && !usedAnyTool(turn.LastTools, "media.play") && desktopLadderAllowsDedicated(turn.Goal, req.Messages) && (mediaCenterPlayStillPending(turn.Goal, turn.LastTools) || companionShouldAutoMediaPlay(turn.Goal) || companionRetryActionTurn(spokenGoal)) {
+					if !turnAlreadySettled && len(result.Message.ToolCalls) == 0 && !autoMediaPlayDone && toolDefinitionsHave(req.Tools, "media.play") && !usedAnyTool(turn.LastTools, "media.play") && desktopLadderAllowsDedicated(turn.Goal, req.Messages) && (mediaCenterPlayStillPending(turn.Goal, turn.LastTools) || companionShouldAutoMediaPlay(turn.Goal) || companionRetryActionTurn(spokenGoal)) {
 						if playArgs, ok := e.companionAutoMediaPlayArgsForTurn(sessionID, turn.Goal, spokenGoal); ok {
 							result.Message.ToolCalls = []llmadapter.ToolCall{{
 								ID:        "auto-" + ulid.Make().String(),
@@ -779,7 +791,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							autoMediaPlayDone = true
 						}
 					}
-					if len(result.Message.ToolCalls) == 0 && !autoDesktopOpenDone && toolDefinitionsHave(req.Tools, "desktop.open") && !turnAttemptedAction(req.Messages, "open") && desktopLadderAllowsDedicated(turn.Goal, req.Messages) && !(usedAnyTool(turn.LastTools, "media.play") && (playbackOnlyGoal(turn.Goal) || companionTurnWantsMusicPlay(turn.Goal))) {
+					if !turnAlreadySettled && len(result.Message.ToolCalls) == 0 && !autoDesktopOpenDone && toolDefinitionsHave(req.Tools, "desktop.open") && !turnAttemptedAction(req.Messages, "open") && desktopLadderAllowsDedicated(turn.Goal, req.Messages) && !(usedAnyTool(turn.LastTools, "media.play") && (playbackOnlyGoal(turn.Goal) || companionTurnWantsMusicPlay(turn.Goal))) {
 						if openArgs := fallbackDesktopOpenArgs(turn.Goal); len(openArgs) > 0 {
 							result.Message.ToolCalls = []llmadapter.ToolCall{{
 								ID:        "auto-" + ulid.Make().String(),
@@ -789,7 +801,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							autoDesktopOpenDone = true
 						}
 					}
-					if len(result.Message.ToolCalls) == 0 && !autoDesktopTypeDone && toolDefinitionsHave(req.Tools, "desktop.type") && !turnAttemptedAction(req.Messages, "type") && looksLikeTypeAfterLabelTurn(turn.Goal) {
+					if !turnAlreadySettled && len(result.Message.ToolCalls) == 0 && !autoDesktopTypeDone && toolDefinitionsHave(req.Tools, "desktop.type") && !turnAttemptedAction(req.Messages, "type") && looksLikeTypeAfterLabelTurn(turn.Goal) {
 						if typeArgs, ok := e.companionAutoDesktopTypeArgs(sessionID, turn.Goal, req.Messages); ok {
 							result.Message.ToolCalls = []llmadapter.ToolCall{{
 								ID:        "auto-" + ulid.Make().String(),
@@ -799,18 +811,33 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							autoDesktopTypeDone = true
 						}
 					}
-					if len(result.Message.ToolCalls) == 0 && !autoDesktopObserveDone && (newsOpenGoal(turn.Goal) || newsOpenGoal(spokenGoal)) {
+					if !turnAlreadySettled && len(result.Message.ToolCalls) == 0 && !autoDesktopObserveDone && (newsOpenGoal(turn.Goal) || newsOpenGoal(spokenGoal)) {
 						if u := e.savedSearchHit(sessionID, req.Messages); u != "" {
 							raw, _ := json.Marshal(map[string]string{"url": u})
 							result.Message.ToolCalls = []llmadapter.ToolCall{{
 								ID:        "auto-" + ulid.Make().String(),
-								Name:      "web.fetch",
+								Name:      "desktop.browse",
 								Arguments: raw,
 							}}
 						}
 						autoDesktopObserveDone = true
 					}
-					if len(result.Message.ToolCalls) == 0 && !autoDesktopObserveDone && toolDefinitionsHave(req.Tools, "computer.act") && !turnAttemptedAction(req.Messages, "observe") && (looksLikeDesktopObserveTurn(turn.Goal) || desktopLadderWantsNamedObserve(turn.Goal, req.Messages)) {
+					if !turnAlreadySettled && len(result.Message.ToolCalls) == 0 && !autoBrowserConfirmDone && browserLookupOnlyGoal(turn.Goal) && !lookupHasMoreWork(turn.Goal) && toolDefinitionsHave(req.Tools, "desktop.browse") {
+						browseOut := strings.TrimSpace(lastNamedToolOutput(req.Messages, "desktop.browse"))
+						if strings.HasPrefix(browseOut, "已向系统默认桌面浏览器发送打开请求") {
+							args := lastNamedToolArguments(req.Messages, "desktop.browse")
+							if len(args) == 0 {
+								args = []byte(`{}`)
+							}
+							result.Message.ToolCalls = []llmadapter.ToolCall{{
+								ID:        "auto-" + ulid.Make().String(),
+								Name:      "desktop.browse",
+								Arguments: args,
+							}}
+							autoBrowserConfirmDone = true
+						}
+					}
+					if !turnAlreadySettled && len(result.Message.ToolCalls) == 0 && !autoDesktopObserveDone && toolDefinitionsHave(req.Tools, "computer.act") && !turnAttemptedAction(req.Messages, "observe") && (looksLikeDesktopObserveTurn(turn.Goal) || desktopLadderWantsNamedObserve(turn.Goal, req.Messages)) {
 						result.Message.ToolCalls = []llmadapter.ToolCall{{
 							ID:        "auto-" + ulid.Make().String(),
 							Name:      "computer.act",
@@ -819,7 +846,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						autoDesktopObserveDone = true
 					}
 				}
-				if len(result.Message.ToolCalls) == 0 && state != nil && shouldWidenAndRetry(widenInput{
+				if !turnAlreadySettled && len(result.Message.ToolCalls) == 0 && state != nil && shouldWidenAndRetry(widenInput{
 					AlreadyWidened:      state.widened,
 					Goal:                turn.Goal,
 					TaskRoute:           state.taskRoute,
@@ -854,6 +881,16 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				if len(result.Message.ToolCalls) == 0 {
 					toolOut := lastToolOutput(req.Messages)
 					continueKind := pickTurnContinueKind(stepText, assistantText.String(), toolOut, turn.LastTools, usedTools, usedDesktopTools, state.companion, req.DisableReasoning, nudges, turn.Goal, len(req.Tools) > 0)
+					settledSpeech, settledNow := settledWorkSpeech(turn.Goal, req.Messages)
+					if settledNow {
+						continueKind = ""
+						if settledSpeech != "" && !strings.Contains(assistantText.String(), settledSpeech) {
+							assistantText.WriteString(settledSpeech)
+							if err := sendDeltaChunks(send, settledSpeech); err != nil {
+								return err
+							}
+						}
+					}
 					if !laneAllowsContinueNudges(state.lane) && !((continueKind == "desktop" || continueKind == "ladder") && laneAllowsDesktopContinue(state.lane)) {
 						continueKind = ""
 					}
@@ -876,7 +913,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					// turn closes, audit the final screenshot against the goal.
 					// Text heuristics above only judge the model's words; this
 					// judges the screen. One audit per turn.
-					if continueKind == "" && !mediaCenterSkipsDesktopVerifier(turn.Goal, req.Messages) && desktopVerifierApplies(turn.LastTools, state.companion, desktopVerified, usedDesktopTools) && laneAllowsDesktopContinue(state.lane) {
+					if continueKind == "" && !settledNow && !mediaCenterSkipsDesktopVerifier(turn.Goal, req.Messages) && desktopVerifierApplies(turn.LastTools, state.companion, desktopVerified, usedDesktopTools) && laneAllowsDesktopContinue(state.lane) {
 						desktopVerified = true
 						if verdict, frames, ok := e.verifyDesktopOutcome(op, mode, sessionID, turn.Goal, stepText, state.companion); ok {
 							_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: desktopVerdictThinking(verdict)}})
@@ -1155,6 +1192,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				guardBlockedCalls := 0
 				totalCallsThisStep := len(result.Message.ToolCalls)
 				for _, call := range result.Message.ToolCalls {
+					if _, settled := settledWorkSpeech(turn.Goal, req.Messages); settled {
+						break
+					}
 					if composerSendSettled(turn.Goal, req.Messages) {
 						break
 					}
@@ -1645,36 +1685,16 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				// Only settle when the tool's own output shows real
 				// success — a failed media.play must keep trying the
 				// desktop method ladder.
-				if state.companion || computerExecutionTurn(turn.Goal) {
-					if playbackOnlyGoal(turn.Goal) && usedAnyTool(turn.LastTools, "media.play") {
-						playOut := lastNamedToolOutput(req.Messages, "media.play")
-						if playOut != "" && !companionToolResultFailed(playOut) && !strings.Contains(playOut, "ok:false") {
-							break
+				// A proved success ends the turn for every entry, including a typed
+				// request. Another model step after that receipt is an extra step.
+				if speech, settled := settledWorkSpeech(turn.Goal, req.Messages); settled {
+					if speech != "" && !strings.Contains(assistantText.String(), speech) {
+						assistantText.WriteString(speech)
+						if err := sendDeltaChunks(send, speech); err != nil {
+							return err
 						}
 					}
-					if companionGoalIsOpenOnly(turn.Goal) && desktopOpenSucceeded(lastToolOutput(req.Messages), turn.LastTools) {
-						break
-					}
-					if composerSendSettled(turn.Goal, req.Messages) {
-						speech := "已经发出去了。"
-						if !strings.Contains(assistantText.String(), speech) {
-							assistantText.WriteString(speech)
-							if err := sendDeltaChunks(send, speech); err != nil {
-								return err
-							}
-						}
-						break
-					}
-					if (closeCurrentBrowserGoal(turn.Goal) || closeOpenDocumentGoal(turn.Goal)) && companionSucceededBeforeModelError(true, turn.Goal, turn.LastTools, req.Messages) != "" {
-						speech := "已经关掉了。"
-						if !strings.Contains(assistantText.String(), speech) {
-							assistantText.WriteString(speech)
-							if err := sendDeltaChunks(send, speech); err != nil {
-								return err
-							}
-						}
-						break
-					}
+					break
 				}
 				guiTrigger := lastGUIFail || emptyObserves >= 2 || desktopLadderWantsGUIAfterObserve(turn.Goal, req.Messages, emptyObserves)
 				if guiTrigger && guiLoopRuns < maxGUILoopRunsPerTurn && !parkedFilePicker && !parkedUAC && parkedBrowserWall == "" {

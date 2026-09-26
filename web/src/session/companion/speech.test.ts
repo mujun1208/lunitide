@@ -362,6 +362,19 @@ describe('pickRecognitionTranscript', () => {
       length: 2,
     })).toBe('文档联系电话')
   })
+
+  test('a one- or two-character fragment does not replace the first-news sentence', () => {
+    expect(pickRecognitionTranscript({
+      0: { transcript: '我', confidence: 0.95 },
+      1: { transcript: '打开第一个新闻链接', confidence: 0.4 },
+      length: 2,
+    })).toBe('打开第一个新闻链接')
+    expect(pickRecognitionTranscript({
+      0: { transcript: '一个', confidence: 0.9 },
+      1: { transcript: '打开第一个新闻链接', confidence: 0.3 },
+      length: 2,
+    })).toBe('打开第一个新闻链接')
+  })
 })
 
 describe('replacing a recognizer that is hearing speech but returning nothing', () => {
@@ -564,6 +577,32 @@ describe('when the user has finished speaking', () => {
       incomplete: true,
       text: '帮我打开。',
     })).toBe(false)
+  })
+
+  test('does not hard-commit a cut news ordinal', () => {
+    for (const text of ['打开第一条', '打开第一个', '点开第一条', '打开第一条。']) {
+      expect(shouldForceCommitUtterance({
+        speechActive: false,
+        silentForMs: 10_000,
+        textStableForMs: INCOMPLETE_HARD_MS + 500,
+        incomplete: true,
+        text,
+      })).toBe(false)
+    }
+    expect(shouldForceCommitUtterance({
+      speechActive: false,
+      silentForMs: 10_000,
+      textStableForMs: INCOMPLETE_HARD_MS + 500,
+      incomplete: false,
+      text: '打开第一条新闻',
+    })).toBe(true)
+    expect(shouldForceCommitUtterance({
+      speechActive: false,
+      silentForMs: 10_000,
+      textStableForMs: INCOMPLETE_HARD_MS + 500,
+      incomplete: false,
+      text: '打开第一个链接',
+    })).toBe(true)
   })
 
   test('does not hard-commit a cut-off open command', () => {

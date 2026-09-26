@@ -128,8 +128,8 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	if shouldContinueIncompleteWork("好，我来播放。", delivered, []string{"media.play"}, true, 0) {
 		t.Fatal("delivered media key must not continue into another tool")
 	}
-	if got := pickTurnContinueKind("好，我来播放。", "好，我来播放。", delivered, []string{"media.play"}, true, true, true, false, 0, "播放一首歌", true); got != "" {
-		t.Fatalf("delivered media key settled, got %q", got)
+	if got := pickTurnContinueKind("好，我来播放。", "好，我来播放。", delivered, []string{"media.play"}, true, true, true, false, 0, "播放一首歌", true); got != "ladder" {
+		t.Fatalf("unconfirmed media key must keep going until playback is verified, got %q", got)
 	}
 	if !shouldContinueIncompleteWork("好，我来播放。", "media.play started player", []string{"media.play"}, true, 0) {
 		t.Fatal("unverified media.play must continue")

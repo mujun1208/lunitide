@@ -201,6 +201,9 @@ func computerReceiptCloseout(messages []llmadapter.Message, goal string) string 
 	}
 	if playbackOnlyGoal(goal) && lastNamedToolOutput(messages, "media.play") != "" {
 		out := lastNamedToolOutput(messages, "media.play")
+		if observeShowsPlayback(lastNamedToolOutput(messages, "computer.act")) {
+			return "已经在播了。"
+		}
 		if mediaKeyDelivered(out) {
 			if speech := mediaKeyDeliveredSpeech(out); speech != "" {
 				return speech
@@ -281,7 +284,10 @@ func computerReceiptCloseout(messages []llmadapter.Message, goal string) string 
 				return companionToolResultSpeech(name, out)
 			}
 			if name == "desktop.browse" {
-				return "已在系统浏览器打开。"
+				if strings.HasPrefix(strings.TrimSpace(out), "已打开桌面浏览器：") {
+					return "已在系统浏览器打开。"
+				}
+				return "已向默认浏览器发送打开请求，尚未核对页面。"
 			}
 			return "已发送打开操作，但未确认目标窗口。"
 		}

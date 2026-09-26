@@ -16,7 +16,7 @@ func (s *Service) SetCollaborator(c Collaborator) {
 }
 
 func (s *Service) Apply(ctx context.Context, errorCode, stableKey string) (ApplyResult, error) {
-	ed, err := s.requireEdition(ctx)
+	ed, err := s.open(ctx)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -119,6 +119,19 @@ func (s *Service) applyFinding(ctx context.Context, ed *Edition, f Finding, advi
 		plan = fix
 		liveEvidence, liveFix = evidence, fix
 		advice = ConsultResult{}
+	} else if f.ErrorCode == "PH_021" || f.ErrorCode == "PH_022" {
+		advice = ConsultResult{}
+		status, applied = "fixed", true
+		liveEvidence, liveFix = "这次核对已经接通", "复查通过。这条入口已经对上。"
+		plan = liveFix
+		for _, next := range auditWiring([]Card{card}) {
+			if next.ErrorCode == f.ErrorCode && next.StableKey == f.StableKey {
+				status, applied = "open", false
+				liveEvidence, liveFix = next.Evidence, next.Fix
+				plan = next.Fix
+				break
+			}
+		}
 	} else {
 		switch f.ErrorCode {
 		case "PH_014":
@@ -151,7 +164,7 @@ func (s *Service) applyFinding(ctx context.Context, ed *Edition, f Finding, advi
 	rec := ApplyLog{
 		ID: ulid.Make().String(), ErrorCode: f.ErrorCode, StableKey: f.StableKey,
 		Plan: plan, SkillID: advice.SkillID, SkillName: advice.SkillName, SkillOutput: advice.Output,
-		Status: status, CreatedAt: now,
+		Status: applyLogStatus(status), CreatedAt: now,
 	}
 	if err := s.persist.ProductHubSaveApply(ctx, rec); err != nil {
 		return ApplyResult{}, err
@@ -193,6 +206,29 @@ func (s *Service) applyFinding(ctx context.Context, ed *Edition, f Finding, advi
 		SkillID: advice.SkillID, SkillName: advice.SkillName, SkillOutput: advice.Output,
 		ErrorCode: f.ErrorCode, StableKey: f.StableKey,
 	}, nil
+}
+
+func findingStatusFromApplyLog(status string) string {
+	if status == "failed" {
+		return "open"
+	}
+	return status
+}
+
+// applyLogStatus is the vocabulary product_apply_log can store.
+// Finding status stays fixed/open so a passed recheck and a still-open one
+// remain distinct in the report.
+func applyLogStatus(status string) string {
+	switch status {
+	case "planned", "applied", "failed", "wont_fix":
+		return status
+	case "fixed", "pass", "clear":
+		return "applied"
+	case "open", "fail", "regressed":
+		return "failed"
+	default:
+		return "planned"
+	}
 }
 
 func (s *Service) consult(ctx context.Context, prompt string) ConsultResult {
@@ -283,7 +319,7 @@ func mergeFindingStatus(prev, next []Finding) []Finding {
 			continue
 		}
 		// A new live result wins. An older「待修复」tag must not hide a probe that just failed again.
-		if strings.HasPrefix(f.ErrorCode, "PH_L") && (f.Status == "open" || f.Status == "pass") {
+		if (strings.HasPrefix(f.ErrorCode, "PH_L") || f.ErrorCode == "PH_021" || f.ErrorCode == "PH_022") && (f.Status == "open" || f.Status == "pass") {
 			continue
 		}
 		p, ok := prevBy[f.ErrorCode+"|"+f.StableKey]
@@ -314,10 +350,12 @@ func attachApplies(findings []Finding, logs []ApplyLog) []Finding {
 		}
 		if f.Status == "open" || f.Status == "" {
 			// A fresh live failure stays open. An older fixed or planned log must not paint over it.
-			if strings.HasPrefix(f.ErrorCode, "PH_L") && rec.Status != "open" && rec.Status != "wont_fix" {
+			// The log stores failed for an open finding; that is not a fresh pass.
+			fresh := strings.HasPrefix(f.ErrorCode, "PH_L") || f.ErrorCode == "PH_021" || f.ErrorCode == "PH_022"
+			if fresh && rec.Status != "open" && rec.Status != "wont_fix" {
 				continue
 			}
-			findings[i].Status = rec.Status
+			findings[i].Status = findingStatusFromApplyLog(rec.Status)
 		}
 		if findings[i].Plan == "" {
 			findings[i].Plan = rec.Plan

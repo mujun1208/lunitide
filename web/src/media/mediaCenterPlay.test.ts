@@ -15,6 +15,18 @@ it('reads the owned-player handoff and ignores ordinary media receipts', () => {
     kind: 'video',
     title: 'Night of the Living Dead (1968)',
   })
+  expect(parseMediaCenterPlay('已交给媒体中心播放。\nMEDIA_CENTER\nurl: https://kw-lv.kuwo.cn/resource/30106/trackmedia/song.mp3\nkind: audio\ntitle: 一路上有你 - 张学友\nsite: 酷我音乐\n')).toEqual({
+    url: 'https://kw-lv.kuwo.cn/resource/30106/trackmedia/song.mp3',
+    kind: 'audio',
+    title: '一路上有你 - 张学友',
+    site: '酷我音乐',
+  })
+  expect(parseMediaCenterPlay('已交给媒体中心播放。\nMEDIA_CENTER\nurl: https://vip.dytt-film.com/20250121/1309_test/index.m3u8\nkind: video\ntitle: 流浪地球\nsite: 南瓜影视\n')).toEqual({
+    url: 'https://vip.dytt-film.com/20250121/1309_test/index.m3u8',
+    kind: 'video',
+    title: '流浪地球',
+    site: '南瓜影视',
+  })
 })
 
 it('closes the in-app player when playback is stopped', () => {
@@ -29,6 +41,7 @@ it('accepts page-playable media and refuses private or non-media links', () => {
   expect(pageCanPlay('blob:https://app.local/clip')).toBe(true)
   expect(pageCanPlay('https://media.lunitide.local/v1/assets/ticket')).toBe(true)
   expect(pageCanPlay('https://archive.org/download/night/Night.mp4')).toBe(true)
+  expect(pageCanPlay('https://vip.dytt-film.com/20250121/1309_test/index.m3u8')).toBe(true)
   expect(pageCanPlay('https://archive.org/details/night')).toBe(false)
   expect(pageCanPlay('https://192.168.1.8/song.mp3')).toBe(false)
   expect(pageCanPlay('file:///C:/song.mp3')).toBe(false)

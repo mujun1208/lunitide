@@ -426,3 +426,27 @@ func SplitMenuPath(path string) []string {
 	}
 	return out
 }
+
+func browserChromeLink(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "图片", "视频", "地图", "资讯", "新闻", "搜索", "设置", "登录", "必应", "bing", "下一页", "上一页", "更多", "全部", "翻译", "学术", "词典", "网页", "国内版", "国际版", "microsoft":
+		return true
+	}
+	return false
+}
+
+// FirstResultLinkName is the first result link on an open search page.
+// Browser tabs such as 图片 and 新闻 are not that result.
+func FirstResultLinkName(nodes []UINode) (string, bool) {
+	for _, n := range nodes {
+		if n.Role != "link" {
+			continue
+		}
+		name := strings.TrimSpace(n.Name)
+		if name == "" || browserChromeLink(name) {
+			continue
+		}
+		return name, true
+	}
+	return "", false
+}

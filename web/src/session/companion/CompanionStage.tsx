@@ -1553,7 +1553,13 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       const state = stateRef.current
       if (state !== 'thinking' && state !== 'speaking') return
       if (settingsRef.current.voicePath === 'volc') {
-        beginUserTurn(text)
+        userInterruptedRef.current = true
+        cancelReply()
+        if (stateRef.current === 'idle') applyEvent({ type: 'MIC_ACTIVATE' })
+        cancelCaptionFade()
+        setEngineHint('')
+        setInterimText(text)
+        setRounds([{ role: 'user', text }])
         return
       }
       if (
@@ -1573,14 +1579,12 @@ export function CompanionStage({ sessionId, chatStatus, assistantText, activityS
       pendingSendRef.current = null
       cancelReply()
       if (stateRef.current === 'idle') applyEvent({ type: 'MIC_ACTIVATE' })
-      // Barge-in is an onset, not an endpoint. Keep capturing the rest of the
-      // sentence; only onFinal may send it to the conversation engine.
       cancelCaptionFade()
       setEngineHint('')
       setInterimText(text)
       setRounds([{ role: 'user', text }])
     },
-    [applyEvent, beginUserTurn, cancelReply],
+    [applyEvent, cancelReply],
   )
 
   // P3-4 automation→TTS linkage: a run that finishes while the stage

@@ -345,11 +345,16 @@ export function looksLikeIncompleteDesktopOpen(text: string): boolean {
   return false
 }
 
+/** 「打开第一条」has not named the page yet. */
+const INCOMPLETE_NEWS_OPEN =
+  /^(?:帮我|请你|请|给我)?(?:打开|点开|看看|点)第(?:一个|一条|一)$/u
+
 /** A cut-off command. A period from the recognizer does not make it a turn. */
 export function looksLikeUnfinishedCommand(text: string): boolean {
   const bare = text.trim().replace(/[。？！?!…]+$/u, '')
   if (!bare) return false
   if (INCOMPLETE_BARE_COMMAND.test(bare)) return true
+  if (INCOMPLETE_NEWS_OPEN.test(bare.replace(/\s+/g, ''))) return true
   if (/^上第/.test(bare) && !/(?:打开|点开|看看|搜索|搜)/.test(bare)) return true
   return false
 }
@@ -373,6 +378,7 @@ export function looksIncompleteUtterance(text: string): boolean {
   if (INCOMPLETE_BARE_COMMAND.test(compact)) return true
   if (INCOMPLETE_APP_PREFIX.test(compact)) return true
   if (INCOMPLETE_TRUNCATED_OPEN.test(compact)) return true
+  if (INCOMPLETE_NEWS_OPEN.test(compact)) return true
   if (INCOMPLETE_STARTERS.test(trimmed)) return true
   if (INCOMPLETE_ENDINGS.test(trimmed) && Array.from(trimmed).length <= 6) return true
   if (INCOMPLETE_OPENERS.test(trimmed) && Array.from(trimmed).length <= 6) return true

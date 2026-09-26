@@ -35,11 +35,12 @@ func (s *Store) ProductHubLoadLatest(ctx context.Context) (*producthub.Edition, 
 	if s == nil || s.db == nil {
 		return nil, nil
 	}
-	var snapshotID, digest, features, graph, findings, changes, md, html, generated string
-	var cards, health int
-	err := s.db.QueryRowContext(ctx, `SELECT snapshot_id,digest,features_json,graph_json,findings_json,changes_json,report_markdown,report_html,card_count,health_score,generated_at
+	var snapshotID, digest, features, graph, findings, changes, md, html, generated, productVersion string
+	var cards, health, catalogPassed, catalogTotal, added, updated, removed int
+	err := s.db.QueryRowContext(ctx, `SELECT snapshot_id,digest,features_json,graph_json,findings_json,changes_json,report_markdown,report_html,card_count,health_score,generated_at,product_version,catalog_passed,catalog_total,added_count,updated_count,removed_count
 FROM product_snapshots WHERE state='verified' ORDER BY generated_at DESC LIMIT 1`).Scan(
-		&snapshotID, &digest, &features, &graph, &findings, &changes, &md, &html, &cards, &health, &generated)
+		&snapshotID, &digest, &features, &graph, &findings, &changes, &md, &html, &cards, &health, &generated,
+		&productVersion, &catalogPassed, &catalogTotal, &added, &updated, &removed)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -49,6 +50,8 @@ FROM product_snapshots WHERE state='verified' ORDER BY generated_at DESC LIMIT 1
 	ed := producthub.Edition{
 		EditionID: snapshotID, Digest: digest, ReportMarkdown: md, ReportHTML: html,
 		CardCount: cards, HealthScore: health, GeneratedAt: generated,
+		ProductVersion: productVersion, Added: added, Updated: updated, Removed: removed,
+		CatalogProbe: producthub.ProbeScore{Passed: catalogPassed, Total: catalogTotal},
 	}
 	_ = json.Unmarshal([]byte(features), &ed.Features)
 	_ = json.Unmarshal([]byte(graph), &ed.Graph)
@@ -67,15 +70,18 @@ func (s *Store) ProductHubSaveEdition(ctx context.Context, ed producthub.Edition
 	changes, _ := json.Marshal(ed.Changes)
 	_, _ = s.db.ExecContext(ctx, `UPDATE product_snapshots SET state='retired' WHERE state='verified' AND snapshot_id<>?`, ed.EditionID)
 	_, err := s.db.ExecContext(ctx, `INSERT INTO product_snapshots(
-snapshot_id,state,trigger,digest,features_json,graph_json,findings_json,changes_json,report_markdown,report_html,card_count,health_score,generated_at)
-VALUES(?,'verified','manual',?,?,?,?,?,?,?,?,?,?)
+snapshot_id,state,trigger,digest,features_json,graph_json,findings_json,changes_json,report_markdown,report_html,card_count,health_score,generated_at,product_version,catalog_passed,catalog_total,added_count,updated_count,removed_count)
+VALUES(?,'verified','manual',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(snapshot_id) DO UPDATE SET
 state='verified', digest=excluded.digest, features_json=excluded.features_json, graph_json=excluded.graph_json,
 findings_json=excluded.findings_json, changes_json=excluded.changes_json, report_markdown=excluded.report_markdown,
 report_html=excluded.report_html, card_count=excluded.card_count, health_score=excluded.health_score,
-generated_at=excluded.generated_at`,
+generated_at=excluded.generated_at, product_version=excluded.product_version,
+catalog_passed=excluded.catalog_passed, catalog_total=excluded.catalog_total,
+added_count=excluded.added_count, updated_count=excluded.updated_count, removed_count=excluded.removed_count`,
 		ed.EditionID, ed.Digest, string(feat), string(graph), string(findings), string(changes),
-		ed.ReportMarkdown, ed.ReportHTML, ed.CardCount, ed.HealthScore, ed.GeneratedAt)
+		ed.ReportMarkdown, ed.ReportHTML, ed.CardCount, ed.HealthScore, ed.GeneratedAt,
+		ed.ProductVersion, ed.CatalogProbe.Passed, ed.CatalogProbe.Total, ed.Added, ed.Updated, ed.Removed)
 	return err
 }
 

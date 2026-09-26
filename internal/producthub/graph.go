@@ -68,8 +68,8 @@ func BuildGraph(cards []Card) Graph {
 			link(c.StableKey, skill, "uses")
 		}
 		if strings.Contains(c.StableKey, ".skill") {
-			sk := "skill." + c.Module
-			add(GraphNode{ID: sk, StableKey: sk, Type: "Skill", Name: c.Name, Domain: "assets"})
+			sk := "skill." + c.StableKey
+			add(GraphNode{ID: sk, StableKey: sk, Type: "Skill", Name: c.Name, Domain: "assets", Summary: c.Summary})
 			link(c.StableKey, sk, "uses")
 		}
 		for _, mcp := range c.Attributes.MCPs {
@@ -77,8 +77,8 @@ func BuildGraph(cards []Card) Graph {
 			link(c.StableKey, mcp, "calls")
 		}
 		if strings.Contains(c.StableKey, ".mcp") {
-			mk := "mcp." + c.Module
-			add(GraphNode{ID: mk, StableKey: mk, Type: "Mcp", Name: c.Name, Domain: "assets"})
+			mk := "mcp." + c.StableKey
+			add(GraphNode{ID: mk, StableKey: mk, Type: "Mcp", Name: c.Name, Domain: "assets", Summary: c.Summary})
 			link(c.StableKey, mk, "calls")
 		}
 		for _, br := range c.Scaffold.Bridge {
@@ -86,14 +86,14 @@ func BuildGraph(cards []Card) Graph {
 			add(GraphNode{ID: bk, StableKey: bk, Type: "Capability", Name: br, Domain: domain})
 			link(c.StableKey, bk, "calls")
 		}
-		if strings.HasPrefix(c.StableKey, "feature.assets.plugin.") || strings.Contains(c.StableKey, ".plugin.") {
-			pk := "plugin." + c.Module
-			add(GraphNode{ID: pk, StableKey: pk, Type: "Plugin", Name: c.Name, Domain: "assets"})
+		if id, ok := pluginRosterID(c.StableKey); ok {
+			pk := "plugin." + id
+			add(GraphNode{ID: pk, StableKey: pk, Type: "Plugin", Name: c.Name, Domain: "assets", Summary: c.Summary})
 			link(c.StableKey, pk, "uses")
 		}
 		if strings.Contains(c.StableKey, ".expert") {
-			ek := "expert." + c.Module
-			add(GraphNode{ID: ek, StableKey: ek, Type: "Expert", Name: c.Name, Domain: "assets"})
+			ek := "expert." + c.StableKey
+			add(withCardDetail(GraphNode{ID: ek, StableKey: ek, Type: "Expert", Name: c.Name, Domain: "assets"}, c))
 			link(c.StableKey, ek, "uses")
 		}
 		if strings.Contains(c.StableKey, ".mcp") {
@@ -103,8 +103,8 @@ func BuildGraph(cards []Card) Graph {
 				link(c.StableKey, tk, "calls")
 			}
 			if len(c.Attributes.MCPs) == 0 {
-				tk := "mcptool." + c.Module
-				add(GraphNode{ID: tk, StableKey: tk, Type: "McpTool", Name: c.Name + " 工具", Domain: "assets"})
+				tk := "mcptool." + c.StableKey
+				add(GraphNode{ID: tk, StableKey: tk, Type: "McpTool", Name: c.Name + " 工具", Domain: "assets", Summary: c.Summary})
 				link(c.StableKey, tk, "calls")
 			}
 		}
@@ -118,6 +118,28 @@ func BuildGraph(cards []Card) Graph {
 		out.Nodes = append(out.Nodes, n)
 	}
 	return out
+}
+
+func withCardDetail(n GraphNode, c Card) GraphNode {
+	n.Summary = c.Summary
+	n.Description = c.Description
+	n.Principle = c.Principle
+	n.Logic = c.Logic
+	n.Tech = c.Tech
+	n.Analysis = c.Analysis
+	return n
+}
+
+func pluginRosterID(key string) (string, bool) {
+	const prefix = "feature.assets.plugin."
+	if !strings.HasPrefix(key, prefix) {
+		return "", false
+	}
+	id := strings.TrimPrefix(key, prefix)
+	if id == "" || id == "enable" || strings.Contains(id, ".") {
+		return "", false
+	}
+	return id, true
 }
 
 func featureType(c Card) string {

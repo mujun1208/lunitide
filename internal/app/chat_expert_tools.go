@@ -16,7 +16,7 @@ func specialistRuntimeInstruction() string {
 		"- 技能：匹配目录立刻 skill.invoke，不要等用户再说“用技能”。\n" +
 		"- 检索：事实、素材、行情、出处先 web.search，必要时 web.fetch 或 browser.act，禁止编造。\n" +
 		"- 画图：结构/流程/架构用 markdown mermaid（节点双引号，换行 <br/>）。\n" +
-		"- 成文：office.generate 或 docx.gen / excel.gen / pptx.gen / html.gen / workspace.write，写入当前对话文件夹；只有用户明确说放到桌面才设 desktop=true。\n" +
+		"- 成文：没有点名 Word、PPT、Excel 或桌面文件时，报告和方案用 canvas.present。点名了再用 office.generate 或 docx.gen / excel.gen / pptx.gen / html.gen / workspace.write，写入当前对话文件夹；只有用户明确说放到桌面才设 desktop=true。\n" +
 		"- 派出子智能体时给全部只读能力（fs + web + browser + evidence），并按岗位必备工具放开成文写入；禁止 computer.act / 桌面控制。\n" +
 		"不要倾倒 200 页全书或 200 条空用例。PPT 仍走产品九步流水线，禁止空页。报告走调研与章节流水线，小说走大纲与分章正文流水线，禁止跳步 docx.gen 交空稿或只有提纲的 Word。\n"
 }
@@ -32,7 +32,7 @@ var specialistToolAllow = map[string]bool{
 	"todo.write": true, "user.ask": true, "command.run": true,
 	"web.fetch": true, "web.search": true, "weather.get": true, "browser.act": true,
 	"excel.gen": true, "excel.parse": true, "docx.gen": true, "pptx.gen": true,
-	"pdf.gen": true, "html.gen": true,
+	"pdf.gen": true, "html.gen": true, "canvas.present": true,
 	"skill.invoke":       true,
 	"skill.view":         true,
 	"skill.create":       true,
@@ -65,14 +65,19 @@ func specialistToolNames(defs []llmadapter.ToolDefinition) []string {
 }
 
 func hasSpecialistOfficeAndWeb(defs []llmadapter.ToolDefinition) bool {
-	need := []string{"web.search", "web.fetch", "excel.gen", "docx.gen", "pptx.gen", "html.gen", "skill.invoke"}
+	need := []string{"web.search", "web.fetch", "skill.invoke"}
 	have := toolNameSet(defs)
 	for _, name := range need {
 		if !have[name] {
 			return false
 		}
 	}
-	return true
+	for _, name := range []string{"excel.gen", "docx.gen", "pptx.gen", "html.gen", "canvas.present"} {
+		if have[name] {
+			return true
+		}
+	}
+	return false
 }
 
 func councilChairMustUseTools(instruction string) bool {

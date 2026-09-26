@@ -481,16 +481,22 @@ func ocrReportsNoText(text string) bool {
 	if len([]rune(raw)) > 80 {
 		return false
 	}
-	t := strings.ToLower(raw)
+	left := strings.ToLower(raw)
+	hit := false
 	for _, phrase := range []string{
-		"no text", "no visible text", "there is no text", "without text", "not contain text",
-		"没有文字", "没有可见文字", "无可见文字", "未识别到文字", "看不到文字", "没有字", "无文字",
+		"there is no text", "no visible text", "not contain text", "without text", "no text",
+		"没有可见文字", "未识别到文字", "看不到文字", "无可见文字", "没有文字", "没有字", "无文字",
 	} {
-		if strings.Contains(t, phrase) || strings.Contains(raw, phrase) {
-			return true
+		if strings.Contains(left, phrase) {
+			hit = true
+			left = strings.ReplaceAll(left, phrase, "")
 		}
 	}
-	return false
+	if !hit {
+		return false
+	}
+	left = strings.Trim(left, " \t\r\n，。！？、；：,.!?;\"'")
+	return len([]rune(left)) < 4
 }
 
 func (s *Service) RecognizeImage(ctx context.Context, raw []byte) (Result, error) {

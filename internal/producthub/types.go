@@ -174,12 +174,14 @@ type Edition struct {
 	Removed        int        `json:"removed"`
 	HealthScore    int        `json:"health_score"`
 	LiveProbe      ProbeScore `json:"liveProbe,omitempty"`
+	CatalogProbe   ProbeScore `json:"catalogProbe,omitempty"`
 	Features       []Card     `json:"features"`
 	Changes        []Change   `json:"changes"`
 	Findings       []Finding  `json:"findings"`
 	ReportMarkdown string     `json:"report_markdown"`
 	ReportHTML     string     `json:"report_html"`
 	Graph          Graph      `json:"graph"`
+	ProductVersion string     `json:"product_version,omitempty"`
 	Digest         string     `json:"digest"`
 }
 
@@ -189,12 +191,17 @@ type Graph struct {
 }
 
 type GraphNode struct {
-	ID        string `json:"id"`
-	StableKey string `json:"stable_key"`
-	Type      string `json:"type"`
-	Name      string `json:"name"`
-	Domain    string `json:"domain,omitempty"`
-	Summary   string `json:"summary,omitempty"`
+	ID          string `json:"id"`
+	StableKey   string `json:"stable_key"`
+	Type        string `json:"type"`
+	Name        string `json:"name"`
+	Domain      string `json:"domain,omitempty"`
+	Summary     string `json:"summary,omitempty"`
+	Description string `json:"description,omitempty"`
+	Principle   string `json:"principle,omitempty"`
+	Logic       string `json:"logic,omitempty"`
+	Tech        string `json:"tech,omitempty"`
+	Analysis    string `json:"analysis,omitempty"`
 }
 
 type GraphEdge struct {

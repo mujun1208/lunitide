@@ -66,6 +66,11 @@ export type HubNode = {
   state?: string
   provides?: string
   summary?: string
+  description?: string
+  principle?: string
+  logic?: string
+  tech?: string
+  analysis?: string
 }
 
 export type HubEdge = {

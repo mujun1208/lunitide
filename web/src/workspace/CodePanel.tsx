@@ -22,6 +22,8 @@ function CodeEditorView({
   bridge,
   diff,
   onContent,
+  onOpenFile,
+  landedLine = 0,
 }: {
   file: OpenFile
   projectRoot?: string
@@ -29,17 +31,22 @@ function CodeEditorView({
   bridge?: LocalWorkspaceBridge
   diff: string
   onContent: (content: string) => void
+  onOpenFile: (next: OpenFile, line?: number) => void
+  landedLine?: number
 }): React.JSX.Element {
-  const [problems, setProblems] = useState<CodeProblem[]>([])
+  const [problems, setProblems] = useState<CodeProblem[] | null>(null)
   const [suggestion, setSuggestion] = useState('')
+  const [cursorLine, setCursorLine] = useState(0)
   const [stoppedLine, setStoppedLine] = useState(0)
+  const completeSeq = useRef(0)
   const lineIndex = file.content.split('\n').findIndex((_, index) => suggestSourceLine(file.content, index) !== '')
   useEffect(() => {
     setSuggestion(lineIndex >= 0 ? suggestSourceLine(file.content, lineIndex) : '')
-    setProblems([])
-    setStoppedLine(0)
+    setProblems(null)
+    setStoppedLine(landedLine)
     if (!bridge?.code || !projectRoot) return
     let cancel = false
+    const seq = ++completeSeq.current
     void bridge.code({
       action: 'diagnostics',
       root: projectRoot,
@@ -58,11 +65,11 @@ function CodeEditorView({
         content: file.content,
         sessionId,
       }).then((result) => {
-        if (!cancel && result.suggestion) setSuggestion(result.suggestion)
+        if (!cancel && seq === completeSeq.current && result.suggestion) setSuggestion(result.suggestion)
       }).catch(() => {})
     }
     return () => { cancel = true }
-  }, [bridge, file.content, file.path, lineIndex, projectRoot, sessionId])
+  }, [bridge, file.content, file.path, landedLine, lineIndex, projectRoot, sessionId])
   return (
     <CodeWorkbench
       path={file.path}
@@ -71,16 +78,33 @@ function CodeEditorView({
       suggestion={suggestion}
       stoppedLine={stoppedLine}
       diff={diff}
+      onCursor={(line) => {
+        setCursorLine(line)
+        if (!bridge?.code || !projectRoot) return
+        const seq = ++completeSeq.current
+        void bridge.code({
+          action: 'complete',
+          root: projectRoot,
+          path: file.path,
+          line,
+          content: file.content,
+          sessionId,
+        }).then((result) => {
+          if (seq !== completeSeq.current) return
+          setSuggestion(result.suggestion ?? '')
+        }).catch(() => {})
+      }}
       onAccept={() => {
-        if (!suggestion || lineIndex < 0) return
-        const next = acceptSourceLine(file.content, lineIndex, suggestion)
+        const index = (cursorLine > 0 ? cursorLine : lineIndex + 1) - 1
+        if (!suggestion || index < 0) return
+        const next = acceptSourceLine(file.content, index, suggestion)
         onContent(next)
         if (bridge?.code && projectRoot) {
           void bridge.code({
             action: 'complete',
             root: projectRoot,
             path: file.path,
-            line: lineIndex + 1,
+            line: index + 1,
             content: file.content,
             accept: true,
             sessionId,
@@ -89,17 +113,23 @@ function CodeEditorView({
       }}
       onDefine={() => {
         if (!bridge?.code || !projectRoot) return
-        const sourceLine = file.content.split('\n')[Math.max(lineIndex, 0)] ?? ''
+        const sourceLine = file.content.split('\n')[Math.max(cursorLine > 0 ? cursorLine - 1 : lineIndex, 0)] ?? ''
         const column = Math.max(sourceLine.search(/\S/) + 1, 1)
         void bridge.code({
           action: 'definition',
           root: projectRoot,
           path: file.path,
-          line: Math.max(lineIndex + 1, 1),
+          line: cursorLine > 0 ? cursorLine : Math.max(lineIndex + 1, 1),
           column,
           content: file.content,
           sessionId,
-        }).then((result) => {
+        }).then(async (result) => {
+          const nextPath = result.path?.replace(/\\/g, '/') ?? ''
+          if (nextPath && nextPath !== file.path.replace(/\\/g, '/')) {
+            const next = await bridge.read(result.path ?? nextPath)
+            onOpenFile(next, result.line)
+            return
+          }
           if (result.line) setStoppedLine(result.line)
         }).catch(() => {})
       }}
@@ -109,7 +139,7 @@ function CodeEditorView({
           action: 'debug',
           root: projectRoot,
           path: file.path,
-          line: Math.max(lineIndex + 1, 1),
+          line: cursorLine > 0 ? cursorLine : Math.max(lineIndex + 1, 1),
           sessionId,
         }).then((result) => {
           if (result.stopped) setStoppedLine(result.stopped)
@@ -127,19 +157,26 @@ function CodeEditorView({
       }}
       onReferences={() => {
         if (!bridge?.code || !projectRoot) return
-        const sourceLine = file.content.split('\n')[Math.max(lineIndex, 0)] ?? ''
+        const sourceLine = file.content.split('\n')[Math.max(cursorLine > 0 ? cursorLine - 1 : lineIndex, 0)] ?? ''
         const column = Math.max(sourceLine.search(/\S/) + 1, 1)
         void bridge.code({
           action: 'references',
           root: projectRoot,
           path: file.path,
-          line: Math.max(lineIndex + 1, 1),
+          line: cursorLine > 0 ? cursorLine : Math.max(lineIndex + 1, 1),
           column,
           content: file.content,
           sessionId,
-        }).then((result) => {
+        }).then(async (result) => {
           const hit = result.references?.find((item) => item.line > 0)
-          if (hit) setStoppedLine(hit.line)
+          if (!hit) return
+          const nextPath = hit.path?.replace(/\\/g, '/') ?? ''
+          if (nextPath && nextPath !== file.path.replace(/\\/g, '/')) {
+            const next = await bridge.read(hit.path ?? nextPath)
+            onOpenFile(next, hit.line)
+            return
+          }
+          setStoppedLine(hit.line)
         }).catch(() => {})
       }}
     />
@@ -166,6 +203,8 @@ export function CodePanel({
   refreshKey?: number
 }): React.JSX.Element {
   const [file, setFile] = useState<OpenFile | undefined>()
+  const [landedLine, setLandedLine] = useState(0)
+  const [folderDiff, setFolderDiff] = useState('')
   const [openError, setOpenError] = useState('')
   const [treeOpen, setTreeOpen] = useState(true)
   const [treeWidth, setTreeWidth] = useState(260)
@@ -175,23 +214,30 @@ export function CodePanel({
   useEffect(() => () => dragCleanup.current?.(), [])
   useEffect(() => {
     if (!bridge?.code || !projectRoot || !sessionId) return
-    void bridge.code({ action: 'diff', root: projectRoot, sessionId }).catch(() => {})
+    void bridge.code({ action: 'diff', root: projectRoot, sessionId }).then((result) => {
+      if (result.diff) setFolderDiff(result.diff)
+    }).catch(() => {})
   }, [bridge, projectRoot, sessionId])
 
   const openFile = async (entry: TaskFileEntry) => {
     if (!bridge) return
     try {
       const read = await bridge.read(entry.path)
+      setLandedLine(0)
       setFile(read)
       onOpenPath?.(entry.path)
     } catch {
+      setLandedLine(0)
       setFile({ path: entry.path, content: entry.summary ?? `# ${entry.path}\n\n（无法读取文件内容，仅显示工具摘要）`, size: 0 })
     }
   }
 
   useEffect(() => {
     if (!targetPath || !bridge) return
-    void bridge.read(targetPath).then(setFile).catch(() => {})
+    void bridge.read(targetPath).then((next) => {
+      setLandedLine(0)
+      setFile(next)
+    }).catch(() => {})
   }, [bridge, targetPath])
 
   useEffect(() => {
@@ -257,8 +303,14 @@ export function CodePanel({
               projectRoot={projectRoot}
               sessionId={sessionId}
               bridge={bridge}
-              diff={latestFileDiff(toolActivities.map((item) => item.summary ?? ''))}
+              diff={folderDiff || latestFileDiff(toolActivities.map((item) => item.summary ?? ''))}
+              landedLine={landedLine}
               onContent={(content) => setFile({ ...file, content })}
+              onOpenFile={(next, line) => {
+                setLandedLine(line ?? 0)
+                setFile(next)
+                onOpenPath?.(next.path)
+              }}
             />
           ) : (
             <div className="code-panel-placeholder">
@@ -298,6 +350,7 @@ export function CodePanel({
                   targetPath={targetPath ?? file?.path}
                   refreshKey={refreshKey}
                   onPreview={next => {
+                  setLandedLine(0)
                   setFile(next)
                   onOpenPath?.(next.path)
                   }}

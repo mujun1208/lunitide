@@ -212,7 +212,7 @@ func officeGenerateTargetsCode(args json.RawMessage) bool {
 }
 
 func officeGenToolForGoal(goal string) string {
-	if refusesOfficeGen(goal) || spokenResultReportOnly(goal) {
+	if wantsDefaultCanvas(goal) || refusesOfficeGen(goal) || spokenResultReportOnly(goal) {
 		return ""
 	}
 	if looksLikeSkillAuthoringTask(goal) || looksLikeExpertAuthoringTask(goal) || officeMaterialReview(goal) || officeHowToQuestion(goal) {
@@ -272,7 +272,7 @@ func officeGenToolForGoal(goal string) string {
 }
 
 func officeGenToolForTurn(turn *chatTurnCheckpoint) string {
-	if turn == nil || officeMaterialReview(turn.Goal) {
+	if turn == nil || officeMaterialReview(turn.Goal) || wantsDefaultCanvas(turn.Goal) {
 		return ""
 	}
 	if runnableSystemRequest(turn.Goal) {

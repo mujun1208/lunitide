@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { isHlsSource } from './mediaCenterPlay'
 
 // The element on screen is the player. Volume, pause, and seek stay on it.
 export function useDirectMedia(active: boolean, src: string | null | undefined, rate?: number) {
@@ -48,17 +49,56 @@ export function useDirectMedia(active: boolean, src: string | null | undefined, 
       playingRef.current = true
       setPlaying(true)
     }
-    try {
-      const pending = node.play()
-      void Promise.resolve(pending).then(started).catch(() => {
-        node.muted = true
+    const autoPlay = () => {
+      try {
+        const pending = node.play()
+        void Promise.resolve(pending).then(started).catch(() => {
+          node.muted = true
+          setHeard(false)
+          void Promise.resolve(node.play()).then(started).catch(() => {})
+        })
+      } catch {
         setHeard(false)
-        void Promise.resolve(node.play()).then(started).catch(() => {})
-      })
-    } catch {
-      setHeard(false)
+      }
+    }
+    // m3u8（HLS 流，影视站的标准片源格式）不能直接塞给 video 元素，
+    // 用 hls.js 转成 MSE 再播；其余直链保持原生播放。
+    let hls: { destroy: () => void } | null = null
+    let cancelled = false
+    if (isHlsSource(src)) {
+      node.removeAttribute('src')
+      void import('hls.js').then(({ default: Hls }) => {
+        if (cancelled) return
+        if (Hls.isSupported()) {
+          // 页面 CSP 的 script-src 只有 'self'，blob worker 会被拦住，所以在主线程解流。
+          const instance = new Hls({ enableWorker: false })
+          if (cancelled) {
+            instance.destroy()
+            return
+          }
+          hls = instance
+          instance.on(Hls.Events.MANIFEST_PARSED, autoPlay)
+          instance.on(Hls.Events.ERROR, (_event, data) => {
+            if (data.fatal) {
+              instance.destroy()
+              if (hls === instance) hls = null
+              playingRef.current = false
+              setPlaying(false)
+            }
+          })
+          instance.loadSource(src)
+          instance.attachMedia(node)
+        } else if (node.canPlayType('application/vnd.apple.mpegurl')) {
+          node.src = src
+          autoPlay()
+        }
+      }).catch(() => {})
+    } else {
+      autoPlay()
     }
     return () => {
+      cancelled = true
+      if (hls) hls.destroy()
       node.removeEventListener('playing', onPlaying)
       node.removeEventListener('pause', onPause)
       node.removeEventListener('timeupdate', mark)

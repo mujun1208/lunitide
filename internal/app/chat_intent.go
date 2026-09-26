@@ -784,7 +784,52 @@ func runnableSystemRequest(text string) bool {
 	return strings.Contains(t, "页面") && (strings.Contains(t, "操作") || strings.Contains(t, "演示"))
 }
 
+func namedDocumentType(text string) bool {
+	t := strings.ToLower(text)
+	for _, n := range []string{
+		"word", "docx", "ppt", "pptx", "幻灯", "excel", "xlsx", "表格",
+		"pdf", "txt", ".txt", "文本文件", "markdown", ".md", "html",
+	} {
+		if strings.Contains(t, n) {
+			return true
+		}
+	}
+	return false
+}
+
+// wantsDefaultCanvas is the document surface for a plan, PRD, comparison,
+// or a report that did not name Word, the desktop, or a web source.
+// Those three stay on the office pipeline.
+func wantsDefaultCanvas(text string) bool {
+	if namedDocumentType(text) {
+		return false
+	}
+	t := strings.ToLower(text)
+	if strings.Contains(t, "桌面") || strings.Contains(t, "desktop") {
+		return false
+	}
+	if strings.Contains(t, "网上") || strings.Contains(t, "联网") || strings.Contains(t, "公开资料") {
+		return false
+	}
+	if strings.Contains(t, "画布") || strings.Contains(t, "对比") || strings.Contains(t, "展示") {
+		return true
+	}
+	writing := strings.Contains(t, "写") || strings.Contains(t, "做一份") || strings.Contains(t, "做个") || strings.Contains(t, "起草") || strings.Contains(t, "拟定")
+	if !writing {
+		return false
+	}
+	for _, n := range []string{"方案", "文档", "prd", "报告", "说明"} {
+		if strings.Contains(t, n) {
+			return true
+		}
+	}
+	return false
+}
+
 func wantsOfficeGen(text string) bool {
+	if wantsDefaultCanvas(text) {
+		return false
+	}
 	if refusesOfficeGen(text) || spokenResultReportOnly(text) {
 		return false
 	}

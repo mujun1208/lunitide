@@ -1,7 +1,5 @@
 package producthub
 
-import "github.com/lunitide/lunitide/internal/producthub/generated"
-
 // LiveCatalog is the product scanning itself. First edition lives in Seed().
 // Each Generate() re-reads this list so a new page / setting / media action /
 // plugin appears without rewriting the seed booklet.
@@ -23,8 +21,8 @@ func LiveCatalog() []Candidate {
 // would eventually disagree with the frontend and produce cards the hub can
 // never match back to a page.
 func pageCandidates() []Candidate {
-	out := make([]Candidate, 0, len(generated.Pages))
-	for _, p := range generated.Pages {
+	out := make([]Candidate, 0, len(catalogPages()))
+	for _, p := range catalogPages() {
 		out = append(out, Candidate{
 			StableKey:   "feature." + p.Domain + ".page." + p.ID,
 			Name:        "进入" + p.Name,
@@ -43,7 +41,7 @@ func pageCandidates() []Candidate {
 
 func settingsCandidates() []Candidate {
 	var out []Candidate
-	for _, it := range generated.Settings {
+	for _, it := range catalogSettings() {
 		out = append(out, Candidate{
 			StableKey:   "feature.foundation.settings." + it.ID,
 			Name:        it.Name + "设置",
@@ -61,7 +59,7 @@ func settingsCandidates() []Candidate {
 }
 
 func mediaActionCandidates() []Candidate {
-	actions := generated.MediaActions
+	actions := catalogMedia()
 	names := map[string]string{
 		"play": "播放", "pause": "暂停", "toggle": "播放暂停切换", "stop": "停止",
 		"previous": "上一首", "next": "下一首", "seek": "跳转进度", "set_volume": "音量",
@@ -70,14 +68,18 @@ func mediaActionCandidates() []Candidate {
 	}
 	var out []Candidate
 	for _, a := range actions {
+		label := names[a]
+		if label == "" {
+			label = a
+		}
 		out = append(out, Candidate{
 			StableKey:   "feature.office.media." + a,
-			Name:        "媒体中心" + names[a],
+			Name:        "媒体中心" + label,
 			NameEN:      "Media " + a,
 			Domain:      "office",
 			Module:      "media",
-			Summary:     "在媒体中心对当前播放会话执行「" + names[a] + "」，调用 media." + a + "。",
-			Description: "媒体中心或对话里对正在播放的会话执行「" + names[a] + "」。成功以播放核验为准，不把按键已发出当成已经播了。",
+			Summary:     "在媒体中心对当前播放会话执行「" + label + "」，调用 media." + a + "。",
+			Description: "媒体中心或对话里对正在播放的会话执行「" + label + "」。成功以播放核验为准，不把按键已发出当成已经播了。",
 			Source:      "media-actions",
 			ChainClass:  "media-transport",
 			Scaffold:    Scaffold{Pages: []string{"media"}, Bridge: []string{"media." + a}, Runtime: []string{"smtc", "owned_runtime"}},

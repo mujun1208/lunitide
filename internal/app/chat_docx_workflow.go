@@ -187,6 +187,9 @@ func novelTaskFromRequest(req llmadapter.Request, goal string) bool {
 }
 
 func docxKindFromRequest(req llmadapter.Request, goal string) string {
+	if wantsDefaultCanvas(goal) {
+		return ""
+	}
 	if target := officeGenToolForGoal(goal); target != "" && target != "docx.gen" {
 		return ""
 	}

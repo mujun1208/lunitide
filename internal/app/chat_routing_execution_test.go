@@ -107,9 +107,9 @@ func TestNamedPlaySkipsARejectedModel(t *testing.T) {
 				}
 				played = string(args)
 				if strings.Contains(goal, "电影") {
-					return toolruntime.Result{Output: "已打开爱奇艺的官方搜索。\nurl: https://www.iqiyi.com/so/q_%E4%B9%9D%E5%93%81%E8%8A%9D%E9%BA%BB%E5%AE%98\n"}, nil
+					return toolruntime.Result{}, errors.New("找不到《九品芝麻官》，没有这部片子")
 				}
-				return toolruntime.Result{Output: "opened https://music.163.com/#/search/m/?s=%E7%94%9F%E6%89%80%E7%88%B1"}, nil
+				return toolruntime.Result{Output: "已交给媒体中心播放。\nMEDIA_CENTER\nurl: https://archive.org/download/example/shengsuoai.mp3\nkind: audio\ntitle: 生所爱\n"}, nil
 			}
 			adapter := &routedExecutionAdapter{stream: func(llmadapter.Request) (llmadapter.Response, error) {
 				modelCalls++
@@ -132,12 +132,12 @@ func TestNamedPlaySkipsARejectedModel(t *testing.T) {
 				t.Fatalf("speech=%s played=%s", spoken.String(), played)
 			}
 			if strings.Contains(goal, "电影") {
-				if !strings.Contains(spoken.String(), "已打开爱奇艺的官方搜索") || strings.Contains(spoken.String(), "网易云") || strings.Contains(spoken.String(), "优酷") || !strings.Contains(played, "九品芝麻官") && !strings.Contains(played, `\u4e5d\u54c1\u829d\u9ebb\u5b98`) {
+				if !strings.Contains(spoken.String(), "找不到") || !strings.Contains(spoken.String(), "没有这部片子") || strings.Contains(spoken.String(), "Night of the Living Dead") || strings.Contains(spoken.String(), "爱奇艺") || strings.Contains(spoken.String(), "网易云") || strings.Contains(spoken.String(), "优酷") || !strings.Contains(played, "九品芝麻官") && !strings.Contains(played, `\u4e5d\u54c1\u829d\u9ebb\u5b98`) || !strings.Contains(played, `"target":"center"`) {
 					t.Fatalf("speech=%s played=%s", spoken.String(), played)
 				}
 				return
 			}
-			if !strings.Contains(spoken.String(), namedSongSpeech) || !strings.Contains(played, "music.163.com") || !strings.Contains(played, "%E7%94%9F%E6%89%80%E7%88%B1") {
+			if !strings.Contains(spoken.String(), "已交给媒体中心播放") || !strings.Contains(spoken.String(), "生所爱") || strings.Contains(spoken.String(), "music.163.com") || !strings.Contains(played, `"target":"center"`) || !strings.Contains(played, "生所爱") {
 				t.Fatalf("speech=%s played=%s", spoken.String(), played)
 			}
 		})

@@ -22,6 +22,18 @@ var (
 	loginProbe        = defaultLoginProbe
 )
 
+// SilenceExternalProbesForTest stops detect from launching Codex, Cursor, or Kimi.
+func SilenceExternalProbesForTest() func() {
+	prevCodex := probeCodexAppServer
+	prevLogin := loginProbe
+	probeCodexAppServer = func(LookPath) bool { return false }
+	loginProbe = func(string, string) string { return "" }
+	return func() {
+		probeCodexAppServer = prevCodex
+		loginProbe = prevLogin
+	}
+}
+
 func lookWithCommonPaths(name string) (string, error) {
 	if path, err := exec.LookPath(name); err == nil && strings.TrimSpace(path) != "" {
 		return preferRunnableCLI(path), nil

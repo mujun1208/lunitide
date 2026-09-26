@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { getProductHubBridge } from '../bridge/client'
-import type { ProductHubRefreshPayload } from '../generated/bridge'
+import type { ProductHubDiagnosticsPayload, ProductHubRefreshPayload } from '../generated/bridge'
 import { AnatomyPane } from './AnatomyPane'
 import { ChainFlowView } from './ChainFlowView'
 import { GraphBoard } from './GraphBoard'
@@ -18,6 +18,17 @@ import {
   hubUserError, isHubCard, readHubToken, writeHubToken,
   type HubCard, type HubChange, type HubEdge, type HubFinding, type HubNode, type HubOverview, type HubTab,
 } from './productHubTypes'
+
+function savedLandscape() {
+  return compareLandscape(loadLandscapeNames()).flatMap(row => LANDSCAPE_AXES.map(axis => ({
+    name: row.name,
+    axis: axis.zh,
+    score: row.cells[axis.id].score,
+    note: row.cells[axis.id].note,
+    source: row.cells[axis.id].source,
+    date: row.cells[axis.id].date,
+  })))
+}
 import './productHub.css'
 
 const TABS: Array<{ id: HubTab; zh: string; en: string }> = [
@@ -286,7 +297,7 @@ function OverviewPane({
         <HealthRing score={score} label={zh ? (overview?.liveChecked ? '实测' : '健康度') : (overview?.liveChecked ? 'Probed' : 'Health')} />
         <div>
           <strong>{zh ? (overview?.liveChecked ? '实测' : '活源覆盖') : (overview?.liveChecked ? 'Probed' : 'Live coverage')} {coverage} · {openWarn} {zh ? '未闭合' : 'open'} · {timeouts} {zh ? '超时' : 'timeout'} · {zh ? '较上次快照 新增' : 'since last snapshot added'} {overview?.added ?? 0} · {zh ? '更新' : 'updated'} {overview?.updated ?? 0} · {zh ? '退役' : 'removed'} {overview?.removed ?? 0}</strong>
-          <p>{zh ? '点「重新检测」跑听写、播放、下载、识图和今天的日志。点「执行净化」会再跑失败的那一项：复查通过才记已修复，没通过就保持待处理，方案换成这次的证据。' : 'Re-scan runs dictation, playback, download, image recognition, and today’s log. Purify re-runs a failed check: it is fixed only when that check passes.'}</p>
+          <p>{zh ? '打开这一页会按当前产品重出整份分析。带点入口会追到处理函数，并把该分支里的后续调用从源码抽出来。创建办公任务会在临时库里真的创建再读回，读回标题一致才写已跑完，失败就写任务完成不了；用户自己的库不写。没有跑过的任务写尚未跑完，不记成通过。听写、播放、下载、识图按预算对耗时。图景页已保存的对照写进升级对照，升级只写这一轮测出的缺口。点「重新检测」再出一份。点「执行净化」会再对一次点中的那一项，通过才记已修复。' : 'Opening this page rebuilds the analysis. Dotted entries are traced into handler source. Creating an office task runs in a throwaway database and is marked finished only when the title reads back. Tasks that were not run stay unfinished. Probe durations are compared with their budgets. Saved landscape notes are quoted, and an upgrade is written only for a gap this run measured. Re-scan writes another copy. Purify re-checks one item and marks it fixed only when it passes.'}</p>
         </div>
         <button type="button" className="ph-detail" onClick={onDetail}>{zh ? '详情' : 'Details'}</button>
       </section>
@@ -539,12 +550,11 @@ export function ProductHubPage({ onUnlocked, language = 'zh-CN' }: { onUnlocked?
   const load = (sessionToken: string) => {
     const api = getProductHubBridge()
     setLoading(true)
-    return Promise.all([
+    return api.diagnostics({ sessionToken, landscape: savedLandscape() } as ProductHubDiagnosticsPayload).then(diag => Promise.all([
       api.overview({ sessionToken }),
       api.graph({ sessionToken }),
-      api.diagnostics({ sessionToken }),
       api.changelog({ sessionToken }),
-    ]).then(([ov, graph, diag, log]) => {
+    ]).then(([ov, graph, log]) => {
       setOverview({ ...ov, domains: (ov.domains ?? []) as HubOverview['domains'] })
       setNodes((graph.nodes ?? []) as HubNode[])
       setEdges((graph.edges ?? []) as HubEdge[])
@@ -552,7 +562,7 @@ export function ProductHubPage({ onUnlocked, language = 'zh-CN' }: { onUnlocked?
       setReportHtml(diag.reportHtml)
       setReportMarkdown(diag.reportMarkdown)
       setChanges((log.changes ?? []) as HubChange[])
-    }).finally(() => setLoading(false))
+    })).finally(() => setLoading(false))
   }
 
   useEffect(() => {
@@ -650,14 +660,7 @@ export function ProductHubPage({ onUnlocked, language = 'zh-CN' }: { onUnlocked?
     if (!token) return
     setBusy(true)
     setError('')
-    const landscape = compareLandscape(loadLandscapeNames()).flatMap(row => LANDSCAPE_AXES.map(axis => ({
-      name: row.name,
-      axis: axis.zh,
-      score: row.cells[axis.id].score,
-      note: row.cells[axis.id].note,
-      source: row.cells[axis.id].source,
-      date: row.cells[axis.id].date,
-    })))
+    const landscape = savedLandscape()
     void getProductHubBridge().refresh({ sessionToken: token, landscape } as ProductHubRefreshPayload).then(result => {
       setReportHtml(result.reportHtml)
       setReportMarkdown(result.reportMarkdown)
