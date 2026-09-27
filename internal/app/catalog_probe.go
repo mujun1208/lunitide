@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lunitide/lunitide/internal/agentrunapp"
@@ -46,7 +47,17 @@ func RegisterCatalogProbes() {
 	producthub.SetCatalogRuns(runCatalogProbes)
 }
 
+// catalogProbeMu keeps two fresh checks from swapping the same file opener.
+// The second check would otherwise read back an empty path and report 读回产物不一致.
+var catalogProbeMu sync.Mutex
+
 func runCatalogProbes(ctx context.Context) []producthub.TaskResult {
+	catalogProbeMu.Lock()
+	defer catalogProbeMu.Unlock()
+	catalogProbeSuppressShell.Store(true)
+	people.SuppressShell(true)
+	defer people.SuppressShell(false)
+	defer catalogProbeSuppressShell.Store(false)
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	env, err := openProbeEnv(ctx)
@@ -174,6 +185,22 @@ func runCatalogProbes(ctx context.Context) []producthub.TaskResult {
 	out = replaceProbe(out, env.completeAgentHubFileOpen(ctx))
 	out = replaceProbe(out, env.completeComputerControl(ctx))
 	out = replaceProbe(out, env.completeProviderTest(ctx))
+	// These catalog bridges are real methods. An empty payload stops at schema
+	// or "not available" and does not start a microphone, command, or send.
+	for _, item := range []struct{ method, title string }{
+		{"voice.start", "月伴语音对话"},
+		{"voice.append", "月伴语音追加"},
+		{"voice.finish", "月伴语音结束"},
+		{"session.create", "新建对话"},
+		{"command.start", "执行白名单命令"},
+		{"expert.try", "试用专家"},
+		{"mcp.invoke", "调用 MCP 工具"},
+		{"im.send", "发到消息通道"},
+		{"context.compact.preview", "Token 精简预览"},
+		{"context.compact.commit", "Token 精简提交"},
+	} {
+		out = append(out, env.call(ctx, item.method, item.title, map[string]any{}))
+	}
 	return out
 }
 
@@ -701,8 +728,39 @@ func (env *probeEnv) completeAutomationJobSet(ctx context.Context, sessionID str
 		return result
 	}
 	env.jobID = body.ID
-	result.Status = "pass"
-	result.Evidence = "已跑完：读回自动化任务「" + body.Name + "」"
+	listed := env.engine.Handle(ctx, probeRequest("automation.job.list", "probe-automation-list", probeJSON(map[string]any{})))
+	if !listed.OK {
+		result.Status = "fail"
+		result.Evidence = "保存之后没有读回任务列表：" + probeCode(listed)
+		return result
+	}
+	var jobs struct {
+		Jobs []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"jobs"`
+	}
+	encoded, _ = json.Marshal(listed.Payload)
+	if json.Unmarshal(encoded, &jobs) != nil {
+		result.Status = "fail"
+		result.Evidence = "任务列表读不回来"
+		return result
+	}
+	for _, job := range jobs.Jobs {
+		if job.ID != body.ID {
+			continue
+		}
+		if job.Name == "" {
+			result.Status = "fail"
+			result.Evidence = "读回的任务名称是空的"
+			return result
+		}
+		result.Status = "pass"
+		result.Evidence = "已跑完：读回自动化任务「" + job.Name + "」"
+		return result
+	}
+	result.Status = "fail"
+	result.Evidence = "任务列表里没有刚保存的编号"
 	return result
 }
 

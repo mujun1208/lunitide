@@ -212,10 +212,21 @@ func (t *Trigger) CheckAndTrigger(ctx context.Context, sessionID, provider, mode
 	// Calculate effective budget using the high watermark.
 	effectiveBudget := int64(float64(contextWindow) * t.config.HighWatermark)
 
-	// Get current token usage.
+	// Get current token usage. A succeeded summary already replaced the older
+	// messages, so the next check counts only the tokens still after that summary.
 	usage, err := t.tokenRepo.SumTokenLedgerBySession(ctx, sessionID, provider, model, tokenizerRevision)
 	if err != nil {
 		return result, fmt.Errorf("sum token ledger: %w", err)
+	}
+	latest, err := t.checkpointStore.GetLatestCheckpoint(ctx, sessionID)
+	if err != nil {
+		return result, fmt.Errorf("get latest checkpoint: %w", err)
+	}
+	if latest != nil && latest.Status == compaction.StatusSucceeded && latest.SourceEndSeq > 0 {
+		usage, err = t.tokensAfterSeq(ctx, sessionID, provider, model, tokenizerRevision, latest.SourceEndSeq)
+		if err != nil {
+			return result, err
+		}
 	}
 	result.CurrentUsage = usage
 	if effectiveBudget > 0 {
@@ -237,10 +248,6 @@ func (t *Trigger) CheckAndTrigger(ctx context.Context, sessionID, provider, mode
 	}
 
 	// Check if a compaction is already in progress.
-	latest, err := t.checkpointStore.GetLatestCheckpoint(ctx, sessionID)
-	if err != nil {
-		return result, fmt.Errorf("get latest checkpoint: %w", err)
-	}
 	if latest != nil && (latest.Status == compaction.StatusPending || latest.Status == compaction.StatusRunning) {
 		result.Reason = fmt.Sprintf("compaction already in progress (checkpoint %s, status %s)", latest.ID, latest.Status)
 		return result, nil
@@ -349,6 +356,29 @@ func (t *Trigger) CheckAndTrigger(ctx context.Context, sessionID, provider, mode
 	result.Reason = fmt.Sprintf("compaction triggered: checkpoint %s, compacting messages %d-%d (%d messages), usage %.1f%%",
 		created.ID, sourceStart.Sequence, sourceEnd.Sequence, compactCount, result.UsageFraction*100)
 	return result, nil
+}
+
+// tokensAfterSeq is the context still in the window after a summary.
+// Older ledger rows stay in the session total and must not start another summary.
+func (t *Trigger) tokensAfterSeq(ctx context.Context, sessionID, provider, model, tokenizerRevision string, afterSeq int64) (int64, error) {
+	var total int64
+	err := scanMessagePages(ctx, t.messageReader, sessionID, "backward", func(msg MessageInfo) error {
+		if msg.Sequence <= afterSeq {
+			return errStopMessageScan
+		}
+		entry, err := t.tokenRepo.GetTokenLedger(ctx, msg.ID, provider, model, tokenizerRevision)
+		if err != nil {
+			return fmt.Errorf("get token ledger for message %s: %w", msg.ID, err)
+		}
+		if entry != nil {
+			total += entry.TokenCount
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("sum tokens after summary: %w", err)
+	}
+	return total, nil
 }
 
 // ResetCooldown clears the cooldown for a session, allowing immediate re-trigger.

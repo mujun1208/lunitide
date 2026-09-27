@@ -157,20 +157,20 @@ func (e *Engine) maybeDescribeImages(ctx context.Context, llm provider.Model, im
 	if len(images) == 0 {
 		return "", false
 	}
-	// OCR model, then the local OCR model, then Windows OCR. The first usable
-	// result is handed to this chat turn. A second vision model is not started
-	// after that ladder. Pixels stay only when no OCR service ran and this
-	// chat model can see images itself.
+	// Configured OCR model, then the local OCR model, then Windows OCR. The
+	// first usable result is handed to this chat turn. A picture with no
+	// characters still has to be described: after an empty ladder, the vision
+	// catalog says what the picture is and that text is what the chat model
+	// answers from. Pixels stay only when no OCR service ran and this chat
+	// model can see images itself.
 	if text := e.attachedImageOCRText(ctx, images); text != "" {
 		return text, true
 	}
-	if e != nil && e.ocr != nil {
+	ocrRanEmpty := e != nil && e.ocr != nil
+	if !ocrRanEmpty && (llm.SupportsVision || e == nil || e.providers == nil) {
 		return "", false
 	}
-	if llm.SupportsVision || e.providers == nil {
-		return "", false
-	}
-	if e.providers == nil {
+	if e == nil || e.providers == nil {
 		return "", false
 	}
 	items, err := e.providers.List(ctx, provider.Filter{})

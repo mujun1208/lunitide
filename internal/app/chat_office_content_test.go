@@ -121,3 +121,22 @@ func TestOfficeFallbackExcelRetainsEveryTableInSourceOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestReportFallbackWritesAFlatEssay(t *testing.T) {
+	text := strings.Repeat("时间与空间可以交错，人可以穿过它们。", 30)
+	args := fallbackOfficeGenArgs("docx.gen", "写一篇分析论文", text)
+	var spec struct {
+		Title  string                  `json:"title"`
+		Kind   string                  `json:"kind"`
+		Blocks []officetools.DocxBlock `json:"blocks"`
+	}
+	if err := json.Unmarshal(args, &spec); err != nil {
+		t.Fatal(err)
+	}
+	if spec.Kind != "report" {
+		t.Fatalf("kind = %s", spec.Kind)
+	}
+	if _, err := officetools.GenDocxDoc(officetools.DocxDoc{Title: spec.Title, Kind: spec.Kind, Blocks: spec.Blocks}); err != nil {
+		t.Fatalf("flat essay was not a writable report: %v", err)
+	}
+}

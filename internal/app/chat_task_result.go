@@ -42,7 +42,7 @@ func appendTypedStableBlocks(instruction, workflow, repo string) string {
 // typedAssistInstruction is typed chat only. Voice uses the companion
 // persona, which asks one spoken question and never opens this card.
 func typedAssistInstruction() string {
-	return "\n[打字协助] 这是打字对话。复杂或多步、会改文件、或交付有多种做法时：先 todo.write 写出完整步骤（通常 3–7 步，同时只有一步 in_progress），做完一步就重写整份清单。一句话能做完的不要硬拆。只有用户必须拍板且选项会改变交付时才 user.ask：每题恰好一项 recommended=true（你会选的），detail 写一句结果；其余选项完整且互斥。用户提交前不要做受该选择影响的步骤。没有分叉就自己决定，并在正文里用一两句说明选择和原因。不要弹确认卡，不要问上下文已有答案的问题。"
+	return "\n[打字协助] 这是打字对话。一件事直接做完，不要先写清单。同一句话里有多件不同的事，或要改代码、页面、文件且不止一个动作，才 todo.write（通常 3–7 步，同时一步 in_progress）。每做完一步立刻再 todo.write，把该步标成 completed，界面会划掉。只有方向不确定、方案有分歧、或选项会改变交付时才 user.ask：每题恰好一项 recommended=true（你会选的），detail 写一句结果；其余选项完整且互斥。用户提交前不要做受该选择影响的步骤。没有分叉就自己决定，并在正文里用一两句说明选择和原因。不要弹确认卡，不要问上下文已有答案的问题。任务做完之后追加「### 下一步建议」恰好两项。还没做完不要写建议，继续把活做完。"
 }
 
 func typedDefaultStablePrefix() string {
@@ -61,8 +61,11 @@ func currentTurnInstruction(goal string, now time.Time) string {
 	if looksLikeExpertAuthoringTask(goal) || looksLikeSkillAuthoringTask(goal) {
 		return base
 	}
+	if directTaskTurn(goal) {
+		base += "不要先写清单。\n"
+	}
 	return base +
-		"操作和文件交付的结果默认只用一到三句：实际结果、文件名或关键数据、必要的未完成原因。不要重复过程、展开核对表或默认追加下一步建议。用户明确要求详细说明时才展开；用户要求的报告正文、代码或文件内容仍须完整。\n"
+		"操作和文件交付的结果默认只用一到三句：实际结果、文件名或关键数据、必要的未完成原因。还没做完就继续调用工具，不要以「请重试」或「再说具体一点」结束。任务做完后追加「### 下一步建议」恰好两项，每项是用户可以直接发送的下一步。不要重复过程。用户明确要求详细说明时才展开；用户要求的报告正文、代码或文件内容仍须完整。\n"
 }
 
 func lookupOnlyTurn(goal string) bool {

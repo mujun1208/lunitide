@@ -88,9 +88,23 @@ func looksLikeReportTask(text string) bool {
 	}
 	for _, k := range []string{
 		"报告", "周报", "年报", "调研报告", "测试报告", "可行性报告", "总结报告",
-		"写一份报告", "报告编写",
+		"写一份报告", "报告编写", "论文", "论证",
 	} {
 		if strings.Contains(t, k) {
+			return true
+		}
+	}
+	return false
+}
+
+// paperNotStory keeps a long analysis paper on the report path. 「长篇」
+// alone is a novel, but 「长篇分析论文」 is not.
+func paperNotStory(text string) bool {
+	if strings.Contains(text, "小说") {
+		return false
+	}
+	for _, k := range []string{"论文", "论证", "报告", "周报"} {
+		if strings.Contains(text, k) {
 			return true
 		}
 	}
@@ -102,7 +116,7 @@ func looksLikeNovelTask(text string) bool {
 		return false
 	}
 	t := strings.ToLower(strings.TrimSpace(text))
-	if t == "" || officeExpertIntroduction(text) || looksLikeStatusFollowUp(t) || looksLikeResume(t) || looksLikePptTask(text) {
+	if t == "" || officeExpertIntroduction(text) || looksLikeStatusFollowUp(t) || looksLikeResume(t) || looksLikePptTask(text) || paperNotStory(t) {
 		return false
 	}
 	for _, k := range []string{"小说", "短篇", "长篇", "连载", "写个故事", "虚构", "小说编写", "起承转合", "星座", "爱情小说"} {
@@ -453,6 +467,14 @@ func enrichDocxGenArgs(e *Engine, goal string, args json.RawMessage) json.RawMes
 		return args
 	}
 	kind, _ := m["kind"].(string)
+	if paperNotStory(goal) && strings.ToLower(strings.TrimSpace(kind)) != docxKindReport {
+		m["kind"] = docxKindReport
+		raw, err := json.Marshal(m)
+		if err != nil {
+			return args
+		}
+		return raw
+	}
 	if strings.ToLower(strings.TrimSpace(kind)) != docxKindNovel {
 		return args
 	}
@@ -466,6 +488,76 @@ func enrichDocxGenArgs(e *Engine, goal string, args json.RawMessage) json.RawMes
 		return args
 	}
 	return raw
+}
+
+const directDocumentInstruction = "这一轮直接写成文件。把完整正文写出来，并调用 docx.gen 或 pptx.gen。分析论文和报告用 kind=report，至少两个 heading，正文用 paragraph。不要只思考，不要再做调研，不要停在提纲。成功后只说文件名。"
+
+const directCanvasInstruction = "这一轮只调用一次 canvas.present，把正文写完。title 写标题，sections 最多 12 段，每段 heading 和 body 写完整。不要只思考，不要先做清单，不要调用 todo.write、web.search 或其它工具，不要改去生成 Word 或 PPT。成功后只说已经放在画布上。"
+
+const directCanvasContinueText = "思考可以停了。不要从头再想。现在把正文写进 canvas.present，title 和 sections 写完整。不要只思考，不要对用户说无法执行。"
+
+// prepareDirectDocument starts a new paper, report, or deck on a short think
+// and tells the model to write the file in this turn. A resumed turn keeps
+// its own continuation and is left alone.
+func prepareDirectDocument(req *llmadapter.Request, turn *chatTurnCheckpoint, send func(bridge.Event) error) {
+	if req == nil || turn == nil || looksLikeResume(lastUserChatText(req.Messages)) {
+		return
+	}
+	docx := turn.DocxActive && !turn.DocxGenerated && turn.DocxNudges == 0 && turn.DocxStage == docxStageAudience
+	ppt := turn.PptActive && !turn.PptGenerated && turn.PptNudges == 0 && (turn.PptStage == pptStageClarify || turn.PptStage == pptStageWrite)
+	if !docx && !ppt {
+		return
+	}
+	if docx {
+		turn.DocxStage = docxStageGenerate
+	}
+	if ppt {
+		turn.PptStage = pptStageGenerate
+	}
+	replaced := false
+	for i := range req.Messages {
+		content := req.Messages[i].Content
+		next := content
+		for _, block := range []string{reportPipelineInstruction, novelPipelineInstruction, pptPipelineInstruction} {
+			if strings.Contains(next, block) {
+				next = strings.ReplaceAll(next, block, "")
+				replaced = true
+			}
+		}
+		if next == content {
+			continue
+		}
+		if strings.TrimSpace(next) == "" {
+			next = directDocumentInstruction
+		} else if !strings.Contains(next, "不要只思考") {
+			next += "\n" + directDocumentInstruction
+		}
+		req.Messages[i].Content = next
+	}
+	if !replaced {
+		req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: directDocumentInstruction})
+	}
+	if send != nil {
+		_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "直接写文档并生成文件。\n"}})
+	}
+}
+
+// prepareDirectCanvas tells an untyped report or paper to land on the canvas
+// in this turn. A long think with no canvas call is what the clock used to cut.
+func prepareDirectCanvas(req *llmadapter.Request, goal string) {
+	if req == nil || !wantsDefaultCanvas(goal) || looksLikeResume(goal) {
+		return
+	}
+	for _, m := range req.Messages {
+		if m.Role == llmadapter.RoleSystem && strings.Contains(m.Content, "不要只思考") {
+			return
+		}
+	}
+	req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: directCanvasInstruction})
+}
+
+func directCanvasContinueMessage() llmadapter.Message {
+	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: directCanvasContinueText}
 }
 
 func startDocxWorkflow(req *llmadapter.Request, turn *chatTurnCheckpoint, send func(bridge.Event) error) {

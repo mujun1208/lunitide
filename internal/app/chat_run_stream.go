@@ -114,6 +114,9 @@ func (e *Engine) reconcileTurnCheckpointOnStart(sessionID string, turn *chatTurn
 			turn.DocxChars = prev.DocxChars
 			turn.SkipOfficeResearch = prev.SkipOfficeResearch
 			turn.Injected = append([]string{}, prev.Injected...)
+			if strings.TrimSpace(prev.PersistDraft) != "" {
+				turn.PersistDraft = prev.PersistDraft
+			}
 			if prev.Continuation != nil {
 				cloned := *prev.Continuation
 				if len(cloned.OperationRefs) > 0 {
@@ -127,6 +130,7 @@ func (e *Engine) reconcileTurnCheckpointOnStart(sessionID string, turn *chatTurn
 }
 
 func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p provider.Provider, req llmadapter.Request, emit EventEmitter, sessionID string, modes ...executionMode) {
+	req.Messages = slimOpenPageMessages(req.Messages)
 	const maxThinkingChunkBytes = 16 * 1024
 	const maxThinkingTotalBytes = 256 * 1024
 	var seq uint64
@@ -317,6 +321,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 			}
 			op = withContinuityScope(op, continuityScope{Owner: ownerScope(sessionID), Task: sessionID, Turn: id, Purpose: purpose, SkipExecutionBudget: state.companion})
+			if page := openPageFileFromMessages(req.Messages); page != "" {
+				op = toolruntime.WithOpenPageFile(op, page)
+			}
 			// A panic anywhere in the streaming/tool loop must degrade to a
 			// failed stream, never take down the Engine process (which would
 			// sever the event pipe for every active session).
@@ -332,6 +339,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			e.applyExpertCouncil(op, turnBudgetAdapter{Adapter: a, budget: &generationBudget}, credential, req.Model, state.council, &req, state.companion, send)
 			state.council = nil
 			startOfficeWorkflowsIfNeeded(&req, &turn, send, state.lane, officeTaskContextID(op), turn.CapabilityWork)
+			prepareDirectDocument(&req, &turn, send)
+			prepareDirectCanvas(&req, turn.Goal)
+			prepareInterruptedOfficeResume(&req, &turn)
 			logInjectedGuidance(sessionID, state.companion, req)
 			emitInjectedGuidance(send, req, state.lane.Lane)
 			seen := map[string]bool{}
@@ -367,6 +377,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				if looksLikeResume(turn.Goal) {
 					turn.Goal = prev.Goal
 					turn.Injected = append(turn.Injected, prev.Injected...)
+					if strings.TrimSpace(prev.PersistDraft) != "" && strings.TrimSpace(turn.PersistDraft) == "" {
+						turn.PersistDraft = prev.PersistDraft
+					}
 				} else if next := carryFilmGoal(prev.Goal, turn.Goal); next != turn.Goal {
 					turn.Goal = next
 				}
@@ -386,9 +399,15 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			if turn.CapabilityWork && !state.companion && !inventoryLookupBlocksPublicWeb(turn.Goal) && toolLoopLimit < maxToolLoopSteps {
 				toolLoopLimit = maxToolLoopSteps
 			}
+			grantTurnClock(&generationBudget)
 			toolBudgetWaves := 0
+			writingClockWaves := 0
 			prepExtendWaves := 0
 			lengthContinueWaves := 0
+			wireLimitWaves := 0
+			officeGenRetries := 0
+			documentFileWaves := 0
+			openPageEditNudges := 0
 			for step := 0; step < toolLoopLimit; step++ {
 				if step == 0 && !usedAnyTool(turn.LastTools, "media.play") {
 					if speech, ok := e.openNamedFilmNow(op, mode, sessionID, turn.Goal, send); ok {
@@ -486,6 +505,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				mediaTurn := playbackOnlyGoal(turn.Goal) || ownedMediaCenterGoal(turn.Goal)
 				bufferReply := computerTurn || mediaTurn || (state.companion && len(req.Tools) > 0 && !companionLookupCanStream(turn.Goal, req.Messages))
 				var stepReply strings.Builder
+				window, _ := providerModelContextWindow(p, req.Model)
+				fitModelRequest(&req, window)
 				result, streamErr = generationBudget.stream(op, a, credential, req, func(d llmadapter.Delta) error {
 					if err := e.CheckCapability(op, "llm", "session"); err != nil {
 						return err
@@ -598,19 +619,36 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					toolsFallbackUsed = true
 					continue
 				}
+				supplierContinue := supplierRejectShouldContinue(streamErr) && !unattended(op) && !skillTrialsActive(op, sessionID)
+				recoverRequest := isWindowOverflowError(streamErr) || supplierContinue
 				windowRetryLimit := 1
 				if isContextOverflowError(streamErr) {
 					windowRetryLimit = maxWindowRetries
 				}
-				if streamErr != nil && state != nil && isWindowOverflowError(streamErr) && state.windowRetryCount < windowRetryLimit {
+				if supplierContinue {
+					windowRetryLimit = supplierCompactWaves
+				}
+				if streamErr != nil && supplierContinue && taskAlreadyLanded(req.Messages, turn.LastTools) && openPlanSteps(req.Messages) == 0 {
+					streamErr = nil
+					break
+				}
+				if streamErr != nil && state != nil && recoverRequest && state.windowRetryCount < windowRetryLimit {
 					state.windowRetryCount++
 					e.flushMemoryBeforeCompaction(op, sessionID, turn.Goal, assistantText.String())
 					if e.compactionTrigger != nil && e.compactionExecutor != nil {
 						e.compactSession(op, sessionID, p, req.Model, token.CanonicalTokenizerRevision)
 					}
+					req.Messages = slimOpenPageMessages(req.Messages)
 					applyWindowRetryMessagesKeep(&req, e.latestCheckpointSummary(op, sessionID), windowRetryKeep(state.windowRetryCount))
 					clipWindowRetryPayloads(&req, state.windowRetryCount)
+					stubExecutedToolArgs(&req)
 					dropWindowRetryImages(&req)
+					if !messagesHaveCard(req.Messages) {
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: taskHandoffCard(req.Messages)})
+					}
+					if openPageChangePending(req.Messages, turn.LastTools) {
+						req.Messages = append(req.Messages, openPageEditNudgeMessage())
+					}
 					discardStepText(&assistantText, stepTextStart)
 					if bufferReply {
 						stepReply.Reset()
@@ -648,7 +686,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					streamErr = nil
 					continue
 				}
-				if streamErr != nil && errors.Is(streamErr, errTurnGenerationBudget) && usedTools && step+1 < maxToolLoopStepsHard && generationBudget.reopenForNextWave() {
+				canvasCut := wantsDefaultCanvas(turn.Goal) && !usedTools
+				if streamErr != nil && errors.Is(streamErr, errTurnGenerationBudget) && (usedTools || (canvasCut && writingClockWaves < 2)) && step+1 < maxToolLoopStepsHard && generationBudget.reopenForNextWave() {
+					if canvasCut {
+						writingClockWaves++
+					}
 					next := step + 1 + toolLoopExtendChunk
 					if next > maxToolLoopStepsHard {
 						next = maxToolLoopStepsHard
@@ -656,7 +698,12 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if next > toolLoopLimit {
 						toolLoopLimit = next
 					}
-					req.Messages = append(req.Messages, toolBudgetContinueMessage())
+					appendKeptWriting(&req, &turn, thinkingText.String(), stepThinkingStart)
+					if wantsDefaultCanvas(turn.Goal) {
+						req.Messages = append(req.Messages, directCanvasContinueMessage())
+					} else {
+						req.Messages = append(req.Messages, toolBudgetContinueMessage())
+					}
 					_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "这一轮已经写完的内容都留着，接着把任务做完。\n"}})
 					streamErr = nil
 					continue
@@ -672,12 +719,58 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					streamErr = nil
 					break
 				}
+				if streamErr != nil && isResponseWireLimitError(streamErr) && wireLimitWaves < maxWireLimitWaves && step+1 < maxToolLoopStepsHard {
+					wireLimitWaves++
+					partial := assistantText.String()
+					if stepTextStart > 0 && stepTextStart <= len(partial) {
+						partial = partial[stepTextStart:]
+					}
+					if bufferReply && stepReply.Len() > 0 {
+						partial = stepReply.String()
+						assistantText.WriteString(partial)
+						if err := sendDeltaChunks(send, stepReply.String()); err != nil {
+							return err
+						}
+					}
+					if strings.TrimSpace(partial) != "" {
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleAssistant, Content: partial})
+					}
+					req.Messages = append(req.Messages, wireLimitContinueMessage())
+					_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "这一段太大，已接上，继续做下一步。\n"}})
+					streamErr = nil
+					continue
+				}
+				if streamErr != nil && isResponseWireLimitError(streamErr) && strings.TrimSpace(assistantText.String()) != "" {
+					if bufferReply && stepReply.Len() > 0 {
+						assistantText.WriteString(stepReply.String())
+						if err := sendDeltaChunks(send, stepReply.String()); err != nil {
+							return err
+						}
+					}
+					streamErr = nil
+					break
+				}
 				if streamErr != nil && modelCallRetries < maxContinueNudges && chatModelCallRetryable(streamErr) && step+1 < maxToolLoopStepsHard {
 					modelCallRetries++
+					foldOldModelMessages(&req, modelRequestKeep)
+					appendKeptWriting(&req, &turn, thinkingText.String(), stepThinkingStart)
+					if wantsDefaultCanvas(turn.Goal) {
+						req.Messages = append(req.Messages, directCanvasContinueMessage())
+					}
 					req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: "上一轮模型请求没有完成。从当前进度接着做未完成的步骤，不要从头重来，不要对用户说无法执行。"})
 					_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "模型这一轮没有返回完整结果，自动再试，任务继续。\n"}})
 					streamErr = nil
 					continue
+				}
+				if streamErr != nil && strings.TrimSpace(assistantText.String()) != "" && chatModelCallRetryable(streamErr) && !isReplyTruncatedError(streamErr) {
+					if bufferReply && stepReply.Len() > 0 {
+						assistantText.WriteString(stepReply.String())
+						if err := sendDeltaChunks(send, stepReply.String()); err != nil {
+							return err
+						}
+					}
+					streamErr = nil
+					break
 				}
 				if streamErr != nil {
 					log.Printf("chat stream %s model_call=%d failed: %s received_text_bytes=%d received_thinking_bytes=%d", id, step+1, chatModelFailureDiagnostic(streamErr), assistantText.Len()-stepTextStart+stepReply.Len(), thinkingText.Len()-stepThinkingStart)
@@ -880,6 +973,42 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				noteDocxChars(&turn, stepText)
 				if len(result.Message.ToolCalls) == 0 {
 					toolOut := lastToolOutput(req.Messages)
+					if officeGenRetries < maxOfficeGenRetries && !turn.DocxGenerated && !turn.PptGenerated && officeGenFailed(stepText+"\n"+toolOut) {
+						officeGenRetries++
+						pinOfficeFileFinish(&turn)
+						msg := result.Message
+						if strings.TrimSpace(msg.Content) == "" && stepText != "" {
+							msg.Role = llmadapter.RoleAssistant
+							msg.Content = stepText
+						}
+						if msg.Role != "" {
+							req.Messages = append(req.Messages, msg)
+						}
+						req.Messages = append(req.Messages, officeGenRetryMessage())
+						_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "文件没生成成功。不从头再来，按失败原因改一处并重新生成。\n"}})
+						if err := e.saveTurnCheckpointAfterModel(sessionID, &turn, result, thinkingText.String(), req.DisableReasoning, req.Messages); err != nil {
+							return err
+						}
+						continue
+					}
+					pageNudgeLimit := 2
+					if modelAskedTheUserToRetry(stepText) || modelAskedTheUserToRetry(result.Message.Content) {
+						pageNudgeLimit = maxOpenPageEditNudges
+					}
+					if openPageEditNudges < pageNudgeLimit && openPageChangePending(req.Messages, turn.LastTools) {
+						openPageEditNudges++
+						msg := result.Message
+						if strings.TrimSpace(msg.Content) == "" && stepText != "" {
+							msg.Role = llmadapter.RoleAssistant
+							msg.Content = stepText
+						}
+						if msg.Role != "" {
+							req.Messages = append(req.Messages, msg)
+						}
+						req.Messages = append(req.Messages, openPageEditNudgeMessage())
+						_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "只改正在看的文件，不复述页面。\n"}})
+						continue
+					}
 					continueKind := pickTurnContinueKind(stepText, assistantText.String(), toolOut, turn.LastTools, usedTools, usedDesktopTools, state.companion, req.DisableReasoning, nudges, turn.Goal, len(req.Tools) > 0)
 					settledSpeech, settledNow := settledWorkSpeech(turn.Goal, req.Messages)
 					if settledNow {
@@ -1060,7 +1189,22 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: queueInjectNotice}})
 						continue
 					}
-					if shouldStartOfficeResearch(state.lane, officeTaskContextID(op), turn.CapabilityWork) {
+					if documentFileWaves < 1 && documentStillNeedsFile(&turn, stepText, len(result.Message.ToolCalls)) {
+						documentFileWaves++
+						if turn.DocxActive {
+							turn.DocxStage = docxStageGenerate
+						}
+						if turn.PptActive {
+							turn.PptStage = pptStageGenerate
+						}
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: directDocumentInstruction})
+						_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "上一轮没有写出文件。这一轮直接写成文件。\n"}})
+						if err := e.saveTurnCheckpointAfterModel(sessionID, &turn, result, thinkingText.String(), req.DisableReasoning, req.Messages); err != nil {
+							return err
+						}
+						continue
+					}
+					if shouldStartOfficeResearch(state.lane, officeTaskContextID(op), turn.CapabilityWork) && !officeNudgeRepeats(&turn, stepText, len(result.Message.ToolCalls)) {
 						if nudgePptWorkflow(&req, &turn, send) {
 							if err := e.saveTurnCheckpointAfterModel(sessionID, &turn, result, thinkingText.String(), req.DisableReasoning, req.Messages); err != nil {
 								return err
@@ -1107,6 +1251,14 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if next > toolLoopLimit {
 						toolLoopLimit = next
 					}
+				}
+				pageTools := append(append([]string{}, turn.LastTools...), toolCallNames(result.Message.ToolCalls)...)
+				if openPageEditNudges < maxOpenPageEditNudges && openPageChangePending(req.Messages, pageTools) && step+1 >= toolLoopLimit && toolLoopLimit < maxToolLoopStepsHard {
+					openPageEditNudges++
+					if step+2 > toolLoopLimit {
+						toolLoopLimit = step + 2
+					}
+					req.Messages = append(req.Messages, openPageEditNudgeMessage())
 				}
 				// The generation allowance grows with the same evidence: this
 				// turn is spending its budget on tool work, not on talking to
@@ -1825,6 +1977,14 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			// Surface a Chinese notice in both the live stream and the
 			// persisted assistant text (same pattern as the 400 fallback).
 			if streamErr == nil {
+				if strings.TrimSpace(assistantText.String()) == "" || modelAskedTheUserToRetry(assistantText.String()) {
+					if speech := silentTurnReceipt(req.Messages, turn.LastTools, turn.ToolFailed); speech != "" && !strings.Contains(assistantText.String(), strings.TrimSpace(speech)) {
+						assistantText.WriteString(speech)
+						if err := sendDeltaChunks(send, speech); err != nil {
+							return err
+						}
+					}
+				}
 				// UX-05 #3: forced end-of-turn summary. A multi-tool / multi-round
 				// loop that exhausts its step budget with tool calls still pending
 				// and no final text used to finish silently (or with a canned
@@ -1881,7 +2041,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				notice := createTurnClosingNotice(turn.LastTools, assistantText.String())
 				if turn.ToolFailed && (assistantText.Len() == 0 || isCompanionLeadInOnly(assistantText.String())) {
-					if failNotice := createTurnFailureNotice(turn.LastTools, assistantText.String()); failNotice != "" {
+					if openPageChangePending(req.Messages, turn.LastTools) {
+						notice = "还没改成正在看的页面。\n"
+					} else if failNotice := createTurnFailureNotice(turn.LastTools, assistantText.String()); failNotice != "" {
 						notice = failNotice
 					} else if notice == "" {
 						notice = "这次操作没成功，请再说具体一点让我重试。\n"
@@ -2110,6 +2272,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	default:
 		if len(turn.LastTools) > 0 || err != nil {
 			turn.Status = turnStatusInterrupted
+		}
+		if turn.Status == turnStatusInterrupted && strings.TrimSpace(assistantText.String()) == "" {
+			rememberKeptWriting(&turn, thinkingText.String())
 		}
 	}
 	turn.liveProtocol = req.Messages

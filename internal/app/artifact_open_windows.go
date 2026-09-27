@@ -10,7 +10,7 @@ import (
 
 var artifactShellExecute = syscall.NewLazyDLL("shell32.dll").NewProc("ShellExecuteW")
 
-func openLocalArtifactPath(path string) error {
+func openArtifactShellImpl(path string) error {
 	operation, err := syscall.UTF16PtrFromString("open")
 	if err != nil {
 		return err

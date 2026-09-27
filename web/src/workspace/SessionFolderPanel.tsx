@@ -20,7 +20,7 @@ export function SessionFolderPanel({
   sessionId: string
   bridge?: SessionFolderBridge
   refreshKey?: number
-  onPreview?: (file: { path: string; content: string; size: number; interactiveUrl?: string }) => void
+  onPreview?: (file: { path: string; content: string; size: number; absolutePath?: string; interactiveUrl?: string }) => void
 }): React.JSX.Element {
   const [rootPath, setRootPath] = useState('')
   const [children, setChildren] = useState<Record<string, Node[]>>({})
@@ -85,6 +85,7 @@ export function SessionFolderPanel({
             path: node.path,
             content: preview.content || preview.notice || '此文件可在工作区预览或本机打开。',
             size: preview.size,
+            ...(preview.absolutePath ? { absolutePath: preview.absolutePath } : {}),
             ...(preview.interactiveUrl ? { interactiveUrl: preview.interactiveUrl } : {}),
           })
         } catch {

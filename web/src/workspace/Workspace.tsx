@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   browserBridge,
   createLocalWorkspaceBridge,
@@ -21,9 +21,12 @@ import { SessionFolderPanel } from './SessionFolderPanel'
 import { ArtifactPanel, type ArtifactCard } from './ArtifactPanel'
 import { ArtifactPreviewContent } from './ArtifactInspector'
 import { previewKindFromPath } from './artifactPreviewMode'
-import { isolatedHTML, runnableHTML } from './isolatedHTML'
+import { isolatedHTML } from './isolatedHTML'
 import { previewNeedsScripts } from './previewInteractivity'
 import { artifactReviewBridge } from '../bridge/client'
+import { bindPreviewFrame, filePageURL, previewShouldReload } from './browserPage'
+import { BrowserPane } from './paneSlot'
+import { browserTabLabel, closeBrowserTab, createBrowserTab, followBrowserTab, moveBrowserTab, navigateBrowserTab, placeBrowserAddress, retitleBrowserTab, type BrowserTab } from './browserTabs'
 import { SafeLinkedText } from './safeLinks'
 import { isBrowserAddress, latestBrowserAddress, memberCatalogPage, parseSearchCards } from './browserAddress'
 import { extractTaskFiles, isChangeTool } from './codePanelUtils'
@@ -36,13 +39,6 @@ function workspaceUserError(err: unknown, fallback: string): string {
 
 function panelPage(url: string): boolean {
   return isBrowserAddress(url) && (url.startsWith('https://') || url.startsWith('http://'))
-}
-
-function rememberBrowserURL(current: { urls: string[]; index: number }, url: string) {
-  if (current.urls[current.index] === url) return current
-  const urls = current.urls.slice(0, current.index + 1)
-  urls.push(url)
-  return { urls, index: urls.length - 1 }
 }
 
 export type WorkspaceTab = 'files' | 'code' | 'browser' | 'terminal' | 'plan' | 'changes' | 'canvas'
@@ -116,59 +112,29 @@ const fmtSize = (n: number) =>
 
 export { isolatedHTML } from './isolatedHTML'
 
-const previewCiteOrigin = 'https://preview.lunitide.local'
-
-function usePreviewCite(frame: React.RefObject<HTMLIFrameElement | null>) {
-  useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
-      const node = frame.current?.contentWindow
-      if (!node || event.source !== node) return
-      if (event.origin !== previewCiteOrigin && event.origin !== 'null' && event.origin !== '') return
-      const data = event.data as { source?: string; type?: string; text?: string } | null
-      if (!data || data.source !== 'lunitide-preview' || data.type !== 'cite' || typeof data.text !== 'string') return
-      const text = data.text.trim()
-      if (!text) return
-      window.dispatchEvent(new CustomEvent('lunitide:preview-cite', { detail: { text } }))
-    }
-    window.addEventListener('message', onMessage)
-    return () => window.removeEventListener('message', onMessage)
-  }, [frame])
-}
-
-function BrowserPage({ url, frameKey }: { url: string; frameKey: number }) {
-  const frame = useRef<HTMLIFrameElement>(null)
-  usePreviewCite(frame)
-  return (
-    <iframe
-      ref={frame}
-      key={frameKey}
-      className="workspace-browser-frame"
-      title={`页面 ${url}`}
-      src={url}
-      style={{ height: '100%', width: '100%' }}
-      sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-downloads allow-popups allow-popups-to-escape-sandbox"
-    />
-  )
-}
-
 function LiveHTMLFrame({ sessionId, path, content, className }: { sessionId: string; path: string; content: string; className?: string }) {
   const [src, setSrc] = useState('')
+  const [fileURL, setFileURL] = useState('')
   const frame = useRef<HTMLIFrameElement>(null)
-  const runnable = previewNeedsScripts(content)
-  usePreviewCite(frame)
+  const runnable = previewNeedsScripts(content) || /\.html?$/i.test(path)
+  useEffect(() => bindPreviewFrame(() => frame.current), [])
   useEffect(() => {
     if (!runnable) return
     let alive = true
     void artifactReviewBridge.preview({ sessionId, path }).then(result => {
-      if (alive && result.interactiveUrl) setSrc(result.interactiveUrl)
+      if (!alive) return
+      const file = filePageURL(result.absolutePath)
+      if (file) setFileURL(file)
+      else if (result.interactiveUrl) setSrc(result.interactiveUrl)
     }).catch(() => {})
     return () => { alive = false }
   }, [sessionId, path, content, runnable])
+  if (fileURL) return <BrowserPane url={fileURL} frameKey={1} />
   if (src) {
     return <iframe ref={frame} className={className} title={`HTML 预览 ${path}`} src={src} style={{ height: '100%', width: '100%' }} sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-downloads allow-popups" referrerPolicy="no-referrer" />
   }
   if (runnable) {
-    return <iframe ref={frame} className={className} title={`HTML 预览 ${path}`} style={{ height: '100%', width: '100%' }} sandbox="allow-scripts allow-forms allow-modals" referrerPolicy="no-referrer" srcDoc={runnableHTML(content)} />
+    return <p className="workspace-browser-empty" role="status">正在打开页面</p>
   }
   return <iframe ref={frame} className={className} title={`HTML 预览 ${path}`} style={{ height: '100%', width: '100%' }} sandbox="" referrerPolicy="no-referrer" srcDoc={isolatedHTML(content)} />
 }
@@ -229,15 +195,16 @@ export function Workspace({
   const [items, setItems] = useState<AttachmentListResult['items']>([])
   const [selectedId, setSelectedId] = useState('')
   const [detail, setDetail] = useState<AttachmentGetResult>()
-  const [localDetail, setLocalDetail] = useState<{ path: string; content: string; size: number; interactiveUrl?: string }>()
+  const [localDetail, setLocalDetail] = useState<{ path: string; content: string; size: number; absolutePath?: string; interactiveUrl?: string }>()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [zoom, setZoom] = useState(100)
-  const [browserURL, setBrowserURL] = useState('https://')
+  const [browserStrip, setBrowserStrip] = useState<{ tabs: BrowserTab[]; activeId: string }>(() => ({ tabs: [createBrowserTab('tab-1')], activeId: 'tab-1' }))
+  const [addressDraft, setAddressDraft] = useState<string | null>(null)
   const [browserStatus, setBrowserStatus] = useState('未打开')
   const [browserBusy, setBrowserBusy] = useState(false)
-  const [trail, setTrail] = useState<{ urls: string[]; index: number }>({ urls: [], index: -1 })
   const [frameKey, setFrameKey] = useState(0)
+  const tabSeq = useRef(1)
   const request = useRef(0)
   const local = useRef<LocalWorkspaceBridge | undefined>(localWorkspace)
   const filesStageRef = useRef<HTMLDivElement>(null)
@@ -265,12 +232,12 @@ export function Workspace({
 
   const openedMemberSong = useRef('')
   const openedFirstHit = useRef('')
+  const nextTabId = () => `tab-${++tabSeq.current}`
   useEffect(() => {
     const next = latestBrowserAddress(toolActivities)
     if (next && !/youku\.com/i.test(next)) {
-      setBrowserURL(next)
+      setBrowserStrip(current => placeBrowserAddress(current.tabs, current.activeId, next, nextTabId()))
       setBrowserStatus('已打开')
-      setTrail((current) => rememberBrowserURL(current, next))
       if (memberCatalogPage(next) && openedMemberSong.current !== next) {
         openedMemberSong.current = next
         void browser.open({ url: next }).catch(() => {})
@@ -280,12 +247,30 @@ export function Workspace({
     const firstURL = first ? /^url:\s*(\S+)/m.exec(first.summary ?? '')?.[1] : ''
     if (firstURL && openedFirstHit.current !== firstURL) {
       openedFirstHit.current = firstURL
-      setBrowserURL(firstURL)
+      setBrowserStrip(current => placeBrowserAddress(current.tabs, current.activeId, firstURL, nextTabId()))
       setBrowserStatus('已打开第一条')
-      setTrail((current) => rememberBrowserURL(current, firstURL))
       void browser.open({ url: firstURL }).catch(() => {})
     }
   }, [browser, toolActivities])
+  const reloadedEdit = useRef('')
+  useEffect(() => {
+    const hit = [...toolActivities].reverse().find(item => previewShouldReload(item.name, item.status, item.summary))
+    if (!hit || hit.callId === reloadedEdit.current) return
+    reloadedEdit.current = hit.callId
+    window.dispatchEvent(new CustomEvent('lunitide:preview-reload'))
+  }, [toolActivities])
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const url = String((event as CustomEvent<{ url?: string }>).detail?.url ?? '')
+      if (!isBrowserAddress(url) || url.startsWith('file:')) return
+      setTab('browser')
+      setAddressDraft(null)
+      setBrowserStatus('已打开')
+      setBrowserStrip(current => placeBrowserAddress(current.tabs, current.activeId, url, nextTabId()))
+    }
+    window.addEventListener('lunitide:browser-open', onOpen)
+    return () => window.removeEventListener('lunitide:browser-open', onOpen)
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -320,14 +305,20 @@ export function Workspace({
   useEffect(() => () => filesDragCleanup.current?.(), [])
 
   const openBrowser = async () => {
-    if (!isBrowserAddress(browserURL) || browserURL.startsWith('file:')) {
+    const current = browserStrip.tabs.find(item => item.id === browserStrip.activeId)
+    const url = addressDraft ?? current?.url ?? ''
+    if (!isBrowserAddress(url) || url.startsWith('file:')) {
       setBrowserStatus('请输入可打开的 https 地址')
       return
     }
     setBrowserBusy(true)
     try {
-      const result = await browser.open({ url: browserURL })
-      setBrowserURL(result.url)
+      const result = await browser.open({ url })
+      setAddressDraft(null)
+      setBrowserStrip(strip => ({
+        ...strip,
+        tabs: strip.tabs.map(item => item.id === strip.activeId ? navigateBrowserTab(item, result.url) : item),
+      }))
       setBrowserStatus('已接受，正在打开独立浏览器窗口')
     } catch (e) {
       setBrowserStatus(workspaceUserError(e, '打开失败'))
@@ -360,37 +351,71 @@ export function Workspace({
     return () => { alive = false }
   }, [tab, sessionId, canvasPage, refreshRevision])
   const canvasDocument = canvasPage || savedCanvas
+  const activeBrowser = browserStrip.tabs.find(item => item.id === browserStrip.activeId) ?? browserStrip.tabs[0]
+  const browserURL = activeBrowser?.url ?? 'https://'
+  const addressValue = addressDraft ?? browserURL
+  const trailIndex = activeBrowser?.index ?? -1
+  const trailLength = activeBrowser?.trail.length ?? 0
   const searchBusy = toolActivities.some(a =>
     (a.name === 'web.search' || a.name === 'web.fetch') && (a.status === 'tool_started' || a.status === 'tool_output'),
   )
   const searchCards = artifact ? parseSearchCards(artifact.content ?? '') : { query: '', hits: [] as Array<{ title: string; url: string; snippet?: string }> }
-  const browserHost = (() => { try { return new URL(browserURL).hostname } catch { return '' } })()
-  const pageTabName = browserHost || '新标签页'
   const onSearchResults = searchCards.hits.length > 0 && !searchCards.hits.some(hit => hit.url === browserURL)
 
-  const showInPanel = (url: string) => {
+  const commitBrowserURL = (url: string) => {
     if (!isBrowserAddress(url) || url.startsWith('file:')) {
       setBrowserStatus('请输入可打开的 https 地址')
       return
     }
-    setBrowserURL(url)
+    setAddressDraft(null)
     setBrowserStatus('已打开')
-    setTrail((current) => rememberBrowserURL(current, url))
-    setFrameKey((key) => key + 1)
+    setFrameKey(key => key + 1)
+    setBrowserStrip(current => ({
+      ...current,
+      tabs: current.tabs.map(item => item.id === current.activeId ? navigateBrowserTab(item, url) : item),
+    }))
   }
-
+  const followPaneNavigation = useCallback((url: string) => {
+    if (!isBrowserAddress(url) || !url.startsWith('https://')) return
+    setBrowserStatus('已打开')
+    setBrowserStrip(current => ({
+      ...current,
+      tabs: current.tabs.map(item => item.id === current.activeId ? followBrowserTab(item, url) : item),
+    }))
+  }, [])
   const openSearchHit = (url: string) => {
-    showInPanel(url)
+    commitBrowserURL(url)
   }
-
   const goBrowser = (step: -1 | 1) => {
-    const next = trail.index + step
-    const url = trail.urls[next]
-    if (!url) return
-    setTrail({ ...trail, index: next })
-    setBrowserURL(url)
+    setBrowserStrip(current => ({
+      ...current,
+      tabs: current.tabs.map(item => item.id === current.activeId ? moveBrowserTab(item, step) : item),
+    }))
     setBrowserStatus('已打开')
-    setFrameKey((key) => key + 1)
+    setFrameKey(key => key + 1)
+  }
+  const selectBrowserTab = (id: string) => {
+    setAddressDraft(null)
+    setBrowserStrip(current => current.activeId === id ? current : { ...current, activeId: id })
+  }
+  const addBrowserTab = () => {
+    setAddressDraft(null)
+    setBrowserStrip(current => {
+      const opened = createBrowserTab(nextTabId())
+      return { tabs: [...current.tabs, opened], activeId: opened.id }
+    })
+  }
+  const closeBrowserPage = (id: string) => {
+    setAddressDraft(null)
+    setBrowserStrip(current => closeBrowserTab(current.tabs, current.activeId, id, nextTabId()))
+  }
+  const nameBrowserTab = (title: string) => {
+    const clean = title.trim()
+    if (!clean) return
+    setBrowserStrip(current => ({
+      ...current,
+      tabs: current.tabs.map(item => item.id === current.activeId ? retitleBrowserTab(item, clean) : item),
+    }))
   }
 
   const artifactCards: ArtifactCard[] = toolActivities
@@ -431,6 +456,12 @@ export function Workspace({
         onPreview={file => {
           setLocalDetail(file)
           setDetail(undefined)
+          if (!(/\.html?$/i.test(file.path) || previewNeedsScripts(file.content))) return
+          void artifactReviewBridge.preview({ sessionId, path: file.path }).then(result => {
+            setLocalDetail(current => current?.path === file.path
+              ? { path: file.path, content: result.content || file.content, size: result.size || file.size, absolutePath: result.absolutePath, interactiveUrl: result.interactiveUrl }
+              : current)
+          }).catch(() => {})
         }}
       />
     )
@@ -590,7 +621,7 @@ export function Workspace({
             {error && <p role="alert">{error}</p>}
             {localDetail ? (
               <div className="workspace-inline-preview" style={{ fontSize: `${zoom}%` }}>
-                <ArtifactPreviewContent sessionId={sessionId} preview={{ kind: previewKindFromPath(localDetail.path), path: localDetail.path, content: localDetail.content, size: localDetail.size, interactiveUrl: localDetail.interactiveUrl }} />
+                <ArtifactPreviewContent sessionId={sessionId} preview={{ kind: previewKindFromPath(localDetail.path), path: localDetail.path, content: localDetail.content, size: localDetail.size, absolutePath: localDetail.absolutePath, interactiveUrl: localDetail.interactiveUrl }} />
               </div>
             ) : detail ? (
               <article className="workspace-document" style={{ fontSize: `${zoom}%` }}>
@@ -691,20 +722,28 @@ export function Workspace({
       {tab === 'browser' && (
         <div className="workspace-browser">
           <div className="workspace-browser-chrome">
-            <div className="workspace-browser-tabs">
-              <div className="workspace-browser-tab" role="tab" aria-selected="true">{pageTabName}</div>
+            <div className="workspace-browser-tabs" role="tablist" aria-label="浏览器分页">
+              {browserStrip.tabs.map(item => {
+                const label = browserTabLabel(item)
+                const selected = item.id === browserStrip.activeId
+                return <div key={item.id} className="workspace-browser-tab" role="tab" aria-selected={selected} aria-label={label}>
+                  <button type="button" className="workspace-browser-tab-label" onClick={() => selectBrowserTab(item.id)}>{label}</button>
+                  <button type="button" className="workspace-browser-tab-close" aria-label={`关闭 ${label}`} onClick={() => closeBrowserPage(item.id)}>×</button>
+                </div>
+              })}
+              <button type="button" className="workspace-browser-tab-add" aria-label="新建标签" onClick={addBrowserTab}>+</button>
             </div>
             <div className="workspace-browser-toolbar">
               <div className="workspace-browser-nav">
-                <button type="button" aria-label="后退" disabled={trail.index <= 0} onClick={() => goBrowser(-1)}>←</button>
-                <button type="button" aria-label="前进" disabled={trail.index < 0 || trail.index >= trail.urls.length - 1} onClick={() => goBrowser(1)}>→</button>
+                <button type="button" aria-label="后退" disabled={trailIndex <= 0} onClick={() => goBrowser(-1)}>←</button>
+                <button type="button" aria-label="前进" disabled={trailIndex < 0 || trailIndex >= trailLength - 1} onClick={() => goBrowser(1)}>→</button>
                 <button type="button" className="artifact-icon-btn" aria-label="刷新地址" disabled={!panelPage(browserURL) && !artifact} onClick={() => setFrameKey((key) => key + 1)}>↻</button>
               </div>
               <label className="workspace-browser-address">
-                <input aria-label="浏览器地址" type="text" inputMode="url" value={browserURL} onChange={e => setBrowserURL(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') showInPanel(browserURL) }} />
+                <input aria-label="浏览器地址" type="text" inputMode="url" value={addressValue} onChange={e => setAddressDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') commitBrowserURL(e.currentTarget.value) }} />
               </label>
               <div className="workspace-browser-actions">
-                <button className="artifact-icon-btn" type="button" aria-label="打开独立浏览器" title="在独立窗口打开" disabled={browserBusy || !browserURL.startsWith('https://')} onClick={() => void openBrowser()}>↗</button>
+                <button className="artifact-icon-btn" type="button" aria-label="打开独立浏览器" title="在独立窗口打开" disabled={browserBusy || !(addressDraft ?? browserURL).startsWith('https://')} onClick={() => void openBrowser()}>↗</button>
                 <button className="artifact-icon-btn" type="button" aria-label="关闭浏览器" title="关闭独立浏览器" disabled={browserBusy} onClick={() => void closeBrowser()}>×</button>
               </div>
             </div>
@@ -731,7 +770,7 @@ export function Workspace({
               </section>
             ) : null}
             {panelPage(browserURL) ? (
-              <BrowserPage frameKey={frameKey} url={browserURL} />
+              <BrowserPane frameKey={frameKey} url={browserURL} onNavigate={followPaneNavigation} onTitle={nameBrowserTab} />
             ) : !onSearchResults && artifact ? (
               <LiveHTMLFrame key={frameKey} className="workspace-browser-frame" sessionId={sessionId} path={artifact.path} content={artifact.content ?? ''} />
             ) : searchBusy ? (

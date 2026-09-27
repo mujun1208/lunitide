@@ -393,8 +393,14 @@ func (e *Engine) withProviderLeaseRef(ctx context.Context, p provider.Provider, 
 	}
 	opCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
+	// Chat's credential handshake stays on this short lease. The model call
+	// itself keeps the turn context, so a long task is not cut at ten minutes.
+	work := opCtx
+	if operation == secretlease.OperationChat {
+		work = ctx
+	}
 	return e.leases.WithLease(opCtx, secretlease.Request{ProviderID: p.ID, CredentialRef: ref, Origin: origin, Protocol: string(p.Protocol), Operation: operation, Deadline: deadline}, func(secret []byte) error {
-		return fn(opCtx, secret)
+		return fn(work, secret)
 	})
 }
 

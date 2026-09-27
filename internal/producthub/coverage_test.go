@@ -16,14 +16,10 @@ func TestLiveCoverageIsCompleteAndReadable(t *testing.T) {
 	if ed.CatalogProbe.Total < 40 || ed.CatalogProbe.Passed != ed.CatalogProbe.Total {
 		t.Fatalf("coverage %+v findings %#v", ed.CatalogProbe, ed.Findings)
 	}
-	var invoke bool
 	for _, f := range ed.Findings {
-		if f.ErrorCode == "PH_021" && f.StableKey == "feature.assets.mcp.invoke" && f.Status == "open" {
-			invoke = true
+		if f.ErrorCode == "PH_021" && f.StableKey == "feature.assets.mcp.invoke" && isOpenFinding(f.Status) {
+			t.Fatal("mcp.invoke is a real bridge and must not be reported as missing")
 		}
-	}
-	if !invoke {
-		t.Fatal("calling an MCP tool with no bridge method was not reported")
 	}
 	ov, err := s.Overview(ctx)
 	if err != nil {

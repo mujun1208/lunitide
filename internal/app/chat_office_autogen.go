@@ -375,6 +375,9 @@ func fallbackOfficeGenArgs(name, goal, assistant string) json.RawMessage {
 			kind = docxKindReport
 		}
 		blocks := officeDocxBlocks(title, assistant)
+		if kind == docxKindReport {
+			blocks = ensureReportHeadings(blocks)
+		}
 		if len(blocks) == 0 {
 			return nil
 		}
@@ -495,6 +498,9 @@ func (e *Engine) tryFinishOfficeGen(ctx context.Context, mode executionMode, ses
 		args = enrichDocxGenArgs(e, turn.Goal, args)
 	}
 	if len(args) == 0 {
+		if streamErr == nil {
+			return false, ""
+		}
 		return false, officeGenFailNotice(errOfficeGenEmpty)
 	}
 	callID := "auto-" + ulid.Make().String()

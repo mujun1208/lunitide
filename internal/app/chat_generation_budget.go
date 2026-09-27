@@ -89,6 +89,17 @@ func (b *turnGenerationBudget) tokenLimit() int {
 	return b.tokenCap
 }
 
+// grantTurnClock is the clock for every task. Ten minutes was ending long
+// work before it landed. The hard ceiling stays as the stop for a runaway.
+func grantTurnClock(b *turnGenerationBudget) {
+	if b == nil {
+		return
+	}
+	if b.timeCap < turnGenerationHardTime {
+		b.timeCap = turnGenerationHardTime
+	}
+}
+
 func (b *turnGenerationBudget) timeLimit() time.Duration {
 	if b.timeCap == 0 {
 		return turnGenerationMaxTime

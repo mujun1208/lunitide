@@ -131,3 +131,18 @@ func TestMcpSetupDeadlineOutlastsColdStartupWithoutExtendingCalls(t *testing.T) 
 		}
 	}
 }
+
+func TestProductHubFreshCheckOutlivesTheProbeBudget(t *testing.T) {
+	const budget = (25 + 8 + 20 + 18 + 90) * 1000
+	for _, method := range []string{"productHub.diagnostics", "productHub.refresh", "productHub.apply"} {
+		if MaxDeadlineMS(method) < budget {
+			t.Fatalf("%s cap %d is under the fresh-check budget %d", method, MaxDeadlineMS(method), budget)
+		}
+		if got := InnerDeadlineMS(method, ProductHubCheckDeadlineMS); got < budget {
+			t.Fatalf("%s inner deadline %d", method, got)
+		}
+	}
+	if MaxDeadlineMS("productHub.overview") != DefaultMaxDeadlineMS {
+		t.Fatalf("overview cap = %d", MaxDeadlineMS("productHub.overview"))
+	}
+}

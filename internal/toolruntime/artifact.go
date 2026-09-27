@@ -89,6 +89,19 @@ func (r *Runtime) ResolveSessionArtifact(sessionID, relPath string) (string, err
 		return "", err
 	}
 	roots := []string{dir}
+	// The file tree reads the project the user opened. A preview ticket has to
+	// resolve that same file, or the page is shown as a snapshot whose script
+	// never runs.
+	if root, ok := r.sessionCodeRoot(sessionID); ok {
+		roots = append(roots, root)
+	}
+	if r.projectRoot != nil {
+		if root, rootErr := r.projectRoot(sessionID); rootErr == nil && root != "" {
+			if pinned, ok := pinExistingDir(root); ok {
+				roots = append(roots, pinned)
+			}
+		}
+	}
 	if r.fullAccessRoot != nil {
 		if root, err := r.fullAccessRoot(); err == nil && root != "" {
 			roots = append(roots, root)

@@ -202,4 +202,7 @@ func TestPreviewBootRunsBeforeThePageScript(t *testing.T) {
 	if !bytes.Contains(out, []byte("localStorage")) || !bytes.Contains(out, []byte("__lunitidePatched")) {
 		t.Fatal("boot script does not keep storage from aborting the page")
 	}
+	if !bytes.Contains(out, []byte("lunitide-host")) || !bytes.Contains(out, []byte("type==='read'")) || !bytes.Contains(out, []byte("type==='click'")) {
+		t.Fatal("the page cannot hand its text to chat or follow a click from chat")
+	}
 }

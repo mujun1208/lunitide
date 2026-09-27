@@ -556,6 +556,7 @@ export const TEMPLATE_FILE_DEADLINE_MS = 120_000
 export const MCP_SETUP_DEADLINE_MS = 80_000
 export const PACK_INSTALL_DEADLINE_MS = 180_000
 export const OCR_ROUTING_REPAIR_DEADLINE_MS = 180_000
+export const PRODUCT_HUB_CHECK_DEADLINE_MS = 180_000
 export function capBridgeDeadlineMs(method: string, deadlineMs: number): number {
   let cap = BRIDGE_DEADLINE_CAP_MS
   if (method === 'ocr.routing.get') cap = OCR_ROUTING_REPAIR_DEADLINE_MS
@@ -571,6 +572,7 @@ export function capBridgeDeadlineMs(method: string, deadlineMs: number): number 
   else if (method === 'agentHub.dir.pick' || method === 'agentHub.inbox' || method === 'agentHub.install' || method === 'project.root.pick') cap = AGENT_HUB_DIR_PICK_MS
   else if (method === 'agentHub.thread.create' || method === 'agentHub.thread.prompt' || method === 'agentHub.thread.respond' || method === 'agentHub.thread.cancel') cap = AGENT_HUB_PROMPT_MS
   else if (method === 'chat.start') cap = 120_000
+  else if (method === 'productHub.diagnostics' || method === 'productHub.refresh' || method === 'productHub.apply') cap = PRODUCT_HUB_CHECK_DEADLINE_MS
   const n = Number(deadlineMs)
   if (!Number.isFinite(n)) return Math.min(cap, BRIDGE_DEADLINE_CAP_MS)
   return Math.min(cap, Math.max(1, Math.trunc(n)))
@@ -1333,13 +1335,13 @@ export function createProductHubBridge(transport: WebViewTransport = webview(), 
     changePassword: p => core.request('productHub.auth.changePassword', p),
     status: p => core.request('productHub.status', p),
     overview: p => core.request('productHub.overview', p),
-    refresh: p => core.request('productHub.refresh', p, 90_000),
+    refresh: p => core.request('productHub.refresh', p, PRODUCT_HUB_CHECK_DEADLINE_MS),
     featureCard: p => core.request('productHub.featureCard', p),
     graph: p => core.request('productHub.graph', p),
     node: p => core.request('productHub.node', p),
     changelog: p => core.request('productHub.changelog', p),
-    diagnostics: p => core.request('productHub.diagnostics', p),
-    apply: p => core.request('productHub.apply', p, 30_000),
+    diagnostics: p => core.request('productHub.diagnostics', p, PRODUCT_HUB_CHECK_DEADLINE_MS),
+    apply: p => core.request('productHub.apply', p, PRODUCT_HUB_CHECK_DEADLINE_MS),
     tags: p => core.request('productHub.tags', p),
     tagSet: p => core.request('productHub.tagSet', p),
     exportDoc: p => core.request('productHub.export', p),

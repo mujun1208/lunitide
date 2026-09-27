@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { bindPreviewFrame, filePageURL } from './browserPage'
+import { BrowserPane } from './paneSlot'
 import { artifactReviewBridge, sessionFolderBridge } from '../bridge/client'
 import type { WorkspaceArtifactPreviewResult } from '../generated/bridge'
 import { MarkdownMessage } from '../session/MarkdownMessage'
-import { isolatedHTML, runnableHTML } from './isolatedHTML'
+import { isolatedHTML } from './isolatedHTML'
 import { previewNeedsScripts } from './previewInteractivity'
 import { artifactLooksLikePdfBytes, artifactPreviewIsReady, artifactViewMode } from './artifactPreviewMode'
 import { ChatAudioPlayer } from '../session/ChatAudioPlayer'
@@ -88,6 +90,21 @@ export function ArtifactInspector({ sessionId, path, onClose, expanded = false, 
   </section>
 }
 
+function PreviewDocument({ path, src }: { path: string; src: string }) {
+  const frame = useRef<HTMLIFrameElement>(null)
+  useEffect(() => bindPreviewFrame(() => frame.current), [src])
+  return <div className="artifact-inspector-html">
+    <iframe
+      ref={frame}
+      className="artifact-inspector-frame"
+      title={`产物预览 ${path}`}
+      src={src}
+      sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-downloads allow-popups"
+      referrerPolicy="no-referrer"
+    />
+  </div>
+}
+
 export function ArtifactPreviewContent({ sessionId, preview }: { sessionId?: string; preview: WorkspaceArtifactPreviewResult; onOpenExternally?: () => void }): React.JSX.Element | null {
   const mode = artifactViewMode(preview.kind, preview.path)
   if (mode === 'image') {
@@ -108,24 +125,17 @@ export function ArtifactPreviewContent({ sessionId, preview }: { sessionId?: str
     // this application's data, or the bridge. allow-same-origin here means "keep
     // your own origin" (which is not ours), so storage works; without
     // allow-top-navigation the page still cannot navigate the app away.
-    if (preview.interactiveUrl) {
-      return <div className="artifact-inspector-html">
-        <iframe
-          className="artifact-inspector-frame"
-          title={`产物预览 ${preview.path}`}
-          src={preview.interactiveUrl}
-          sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-downloads allow-popups"
-          referrerPolicy="no-referrer"
-        />
-      </div>
+    const pageFile = filePageURL(preview.absolutePath)
+    if (pageFile && (previewNeedsScripts(preview.content) || /\.html?$/i.test(preview.path))) {
+      return <div className="artifact-inspector-html"><BrowserPane url={pageFile} frameKey={1} /></div>
     }
-    // No preview ticket: still run the page here. The sandbox is a unique origin,
-    // so scripts and buttons work without the application's storage or the network,
-    // and we do not hand the page to the system browser.
+    if (preview.interactiveUrl) {
+      return <PreviewDocument path={preview.path} src={preview.interactiveUrl} />
+    }
+    // Srcdoc inherits this app's script-src 'self', so an inlined page paints
+    // its shell and then never runs. Wait for the preview origin instead.
     if (previewNeedsScripts(preview.content)) {
-      return <div className="artifact-inspector-html">
-        <iframe className="artifact-inspector-frame" title={`产物预览 ${preview.path}`} sandbox="allow-scripts allow-forms allow-modals" referrerPolicy="no-referrer" srcDoc={runnableHTML(preview.content)} />
-      </div>
+      return <p className="workspace-browser-empty" role="status">正在打开页面</p>
     }
     return <div className="artifact-inspector-html">
       <iframe className="artifact-inspector-frame" title={`产物预览 ${preview.path}`} sandbox="" referrerPolicy="no-referrer" srcDoc={isolatedHTML(preview.content)} />

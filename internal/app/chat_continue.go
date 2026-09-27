@@ -158,10 +158,178 @@ const toolBudgetContinueText = "上一轮工具步数用完了，任务还没完
 
 const maxLengthContinueWaves = 2
 
+const maxWireLimitWaves = 3
+
 const lengthContinueText = "上一轮输出被长度截断，不完整的工具调用已经丢弃，文件还没落盘。这是自动衔接的下一轮：用一次完整的工具调用把剩余内容写入当前对话文件夹。文件大就拆成几次写入。不要重复长说明，不要停在截断处。"
+
+const wireLimitContinueText = "上一轮在交出结果前被切断。已经完成的步骤保留。这是同一条任务的下一步：不要从头重写，不要长篇复述。直接调用工具完成下一个具体动作，把内容写入当前对话文件夹或当前页面；内容大就分段写。计划清单仍然有效。只有需要用户做选择时才调用 user.ask 并停下。不要对用户说超出限制、无法执行或请再试一次。"
+
+// answerAlreadyDelivered is a visible result. Another model call would
+// rewrite it. A short promise such as 「我准备写入」 is not a result.
+func answerAlreadyDelivered(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" || looksLikeCompanionWaitPromise(t) || looksLikeUnexecutedActPromise(t) {
+		return false
+	}
+	if officeGenFailed(t) {
+		return false
+	}
+	for _, done := range []string{"已经写入", "已写入", "已经写好", "写好了", "已完成", "已经完成", "任务已完成", "已加上", "已添加", "论文正文"} {
+		if strings.Contains(t, done) {
+			return true
+		}
+	}
+	return len([]rune(t)) >= 120
+}
+
+const maxOfficeGenRetries = 2
+
+const officeGenRetryText = "文件还没有生成成功，停在生成这一步。不要从头定框架，不要再做联网调研，不要把已经写过的正文再想一遍。按上一次失败原因只改生成参数后立刻再调用同一个生成工具：分析论文用 kind=report，每一章用 heading；小说仍用 kind=novel 和各章一级标题。文件落到当前对话文件夹。成功后只说文件名。不要对用户说请再试一次、无法执行，也不要让用户点继续。"
+
+func officeGenFailed(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	for _, mark := range []string{
+		"生成失败：",
+		"生成失败:",
+		"缺少章节标题",
+		"缺少标题样式",
+		"正文为空或太短",
+		"小说正文太短",
+		"没有可写入的内容",
+		"novel needs chapter Heading 1",
+		"report needs section headings",
+		"document needs Heading",
+		"document body is trivial",
+	} {
+		if strings.Contains(t, mark) {
+			return true
+		}
+	}
+	return false
+}
+
+func officeGenRetryMessage() llmadapter.Message {
+	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: officeGenRetryText}
+}
+
+// unfinishedTurnText is the assistant and tool text of the turn being
+// resumed, not older failures still sitting in the same session.
+func unfinishedTurnText(messages []llmadapter.Message) string {
+	end := len(messages)
+	seenResume := false
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != llmadapter.RoleUser {
+			continue
+		}
+		if !seenResume {
+			seenResume = true
+			end = i
+			continue
+		}
+		var b strings.Builder
+		for _, m := range messages[i+1 : end] {
+			if m.Role == llmadapter.RoleAssistant || m.Role == llmadapter.RoleTool {
+				b.WriteString(m.Content)
+				b.WriteByte('\n')
+			}
+		}
+		return b.String()
+	}
+	return ""
+}
+
+func officeReadyToGenerate(turn *chatTurnCheckpoint) bool {
+	if turn == nil {
+		return false
+	}
+	switch turn.DocxStage {
+	case docxStageWrite, docxStageRevise, docxStageGenerate:
+		return true
+	}
+	switch turn.PptStage {
+	case pptStageWrite, pptStageCraft, pptStageGenerate:
+		return true
+	}
+	return turn.DocxNudges >= 3 || turn.PptNudges >= 3
+}
+
+func pinOfficeFileFinish(turn *chatTurnCheckpoint) {
+	if turn == nil {
+		return
+	}
+	if turn.DocxActive || looksLikeReportTask(turn.Goal) || looksLikeNovelTask(turn.Goal) {
+		turn.DocxActive = true
+		turn.DocxStage = docxStageGenerate
+		turn.DocxNudges = maxDocxNudges
+		if looksLikeReportTask(turn.Goal) && !looksLikeNovelTask(turn.Goal) {
+			turn.DocxKind = docxKindReport
+		}
+	}
+	if turn.PptActive {
+		turn.PptStage = pptStageGenerate
+		turn.PptNudges = maxPptNudges
+	}
+}
+
+// prepareInterruptedOfficeResume keeps a clicked 继续 on the unfinished
+// file. A fresh user message is left alone, including its reasoning level.
+func prepareInterruptedOfficeResume(req *llmadapter.Request, turn *chatTurnCheckpoint) {
+	if req == nil || !looksLikeResume(lastUserChatText(req.Messages)) {
+		return
+	}
+	failed := officeGenFailed(unfinishedTurnText(req.Messages))
+	unfinished := turn != nil && ((turn.DocxActive && !turn.DocxGenerated) || (turn.PptActive && !turn.PptGenerated))
+	if !failed && !unfinished {
+		return
+	}
+	if failed || officeReadyToGenerate(turn) {
+		pinOfficeFileFinish(turn)
+		req.Messages = append(req.Messages, officeGenRetryMessage())
+		return
+	}
+	req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: "上次的任务中途停住。接着停住的那一步做下去。不要从头定框架，不要把已经写过的内容再想一遍。"})
+}
+
+// officeNudgeRepeats reports that another docx/ppt stage call would
+// re-think work that already has an answer or already failed to advance.
+func officeNudgeRepeats(turn *chatTurnCheckpoint, stepText string, toolCalls int) bool {
+	if turn == nil || toolCalls > 0 || (!turn.DocxActive && !turn.PptActive) {
+		return false
+	}
+	if turn.DocxStage == docxStageGenerate || turn.PptStage == pptStageGenerate {
+		return true
+	}
+	if officeGenFailed(stepText) || answerAlreadyDelivered(stepText) {
+		return true
+	}
+	return turn.DocxNudges > 0 || turn.PptNudges > 0
+}
+
+// documentStillNeedsFile is an empty document turn: the model only thought
+// and did not write the file. One follow-up writes it. A visible answer is
+// left for the end-of-turn file step.
+func documentStillNeedsFile(turn *chatTurnCheckpoint, stepText string, toolCalls int) bool {
+	if turn == nil || toolCalls > 0 || turn.DocxGenerated || turn.PptGenerated {
+		return false
+	}
+	if !turn.DocxActive && !turn.PptActive {
+		return false
+	}
+	if usedAnyTool(turn.LastTools, "docx.gen", "pptx.gen", "excel.gen", "pdf.gen") {
+		return false
+	}
+	return strings.TrimSpace(stepText) == ""
+}
 
 func lengthContinueMessage() llmadapter.Message {
 	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: lengthContinueText}
+}
+
+func wireLimitContinueMessage() llmadapter.Message {
+	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: wireLimitContinueText}
 }
 
 func toolBudgetContinueMessage() llmadapter.Message {
@@ -356,10 +524,8 @@ func announcedWorkStillPending(text string, lastTools []string) bool {
 	if (strings.Contains(t, "请问") || strings.Contains(t, "你希望")) && !strings.Contains(t, "是否继续") {
 		return false
 	}
-	for _, done := range []string{"已经写入", "已写入", "已经写好", "写好了", "已完成", "已经完成", "任务已完成"} {
-		if strings.Contains(t, done) {
-			return false
-		}
+	if answerAlreadyDelivered(t) || officeGenFailed(t) {
+		return false
 	}
 	pending := false
 	for _, needle := range []string{"写入", "落笔", "并行执行", "并行两", "重新拉起", "先更新"} {
@@ -702,6 +868,9 @@ func pickTurnContinueKind(stepText, assistantAll, toolOut string, lastTools []st
 	computerTask := companion || computerExecutionTurn(userGoal)
 	if strings.TrimSpace(stepText) == "" {
 		stepText = assistantAll
+	}
+	if officeGenFailed(stepText) || officeGenFailed(toolOut) {
+		return ""
 	}
 	if capabilityDeniedOutput(toolOut) {
 		return ""

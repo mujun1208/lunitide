@@ -38,7 +38,21 @@ func (e *Engine) ocrVisionBinding(ctx context.Context) (providerID, modelID stri
 	}
 	pid, mid := e.resolveRole(ctx, "vision")
 	pid, mid = strings.TrimSpace(pid), strings.TrimSpace(mid)
-	return pid, mid, pid != "" && mid != ""
+	if pid != "" && mid != "" {
+		return pid, mid, true
+	}
+	if e.providers == nil {
+		return "", "", false
+	}
+	items, err := e.providers.List(ctx, provider.Filter{})
+	if err != nil {
+		return "", "", false
+	}
+	catalog := provider.CatalogForKind(items, provider.KindVision)
+	if len(catalog) == 0 {
+		return "", "", false
+	}
+	return catalog[0].Provider.ID, catalog[0].Model.ModelID, true
 }
 
 func (e *Engine) ocrCloudBinding(ctx context.Context) (providerID, modelID string, ok bool) {

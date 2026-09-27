@@ -68,6 +68,11 @@ func dedicatedExecutionTaskID(scope continuityScope) (string, bool) {
 	if scope.Purpose == "diagnostic" {
 		return "diagnostic", true
 	}
+	// Picture recognition runs before the chat turn has a session ledger.
+	// OCR and vision must still be admitted, the same way a diagnostic call is.
+	if scope.Purpose == "ocr" || scope.Purpose == "vision" {
+		return scope.Purpose, true
+	}
 	return "", false
 }
 
@@ -180,7 +185,9 @@ func normalizeReasoningLevel(raw string) string {
 }
 
 // applyUserReasoningLevel is the typed-chat intensity slider. It runs after
-// the lane's DisableReasoning default so 极高 still sends reasoning_effort=max.
+// the lane's DisableReasoning default so the selected level is what goes out:
+// low stays low, high stays high, max stays max. A later call in the same
+// turn must not clear ReasoningLevel.
 func applyUserReasoningLevel(eff *modelfit.EffectiveParameters, model string, profile modelfit.ModelProfile, level string) {
 	switch level {
 	case "low":

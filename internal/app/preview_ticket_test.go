@@ -65,6 +65,94 @@ func TestHTMLPreviewHandsTheRendererAWorkingPage(t *testing.T) {
 	}
 }
 
+func TestProjectHTMLPreviewRunsOutsideTheSessionSandbox(t *testing.T) {
+	e := newArtifactEngine(t)
+	ctx := context.Background()
+	project := t.TempDir()
+	pageDir := filepath.Join(project, "poc", "it-crm")
+	if err := os.MkdirAll(pageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`<!DOCTYPE html><html><head></head><body><nav id="nav"></nav><script>document.querySelector("#nav").textContent="仪表盘"</script></body></html>`)
+	if err := os.WriteFile(filepath.Join(pageDir, "index.html"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.tools.SetProjectRootResolver(func(string) (string, error) { return project, nil })
+	resp := handleWorkspaceArtifactPreview(e, ctx, artifactRequest(`{"sessionId":"`+artifactSession+`","path":"poc/it-crm/index.html"}`))
+	if !resp.OK {
+		t.Fatalf("project html preview failed: %+v", resp)
+	}
+	raw, _ := json.Marshal(resp.Payload)
+	var out struct {
+		InteractiveURL string `json:"interactiveUrl"`
+		Content        string `json:"content"`
+	}
+	if json.Unmarshal(raw, &out) != nil || out.InteractiveURL == "" || !strings.Contains(out.Content, "<script>") {
+		t.Fatalf("project page was not handed to the preview origin: %s", raw)
+	}
+	token, rel, ok := webviewhost.ParsePreviewRequest(out.InteractiveURL)
+	if !ok || rel != "index.html" {
+		t.Fatalf("ticket url=%q", out.InteractiveURL)
+	}
+	doc, _, err := e.ResolvePreviewTicket(ctx, token, rel)
+	if err != nil || doc != filepath.Join(pageDir, "index.html") {
+		t.Fatalf("preview resolved to %q (%v), want the project file", doc, err)
+	}
+}
+
+func TestAbsoluteProjectHTMLPreviewStillRuns(t *testing.T) {
+	e := newArtifactEngine(t)
+	ctx := context.Background()
+	project := t.TempDir()
+	pageDir := filepath.Join(project, "poc", "it-crm")
+	if err := os.MkdirAll(pageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	page := filepath.Join(pageDir, "index.html")
+	if err := os.WriteFile(page, []byte(`<!DOCTYPE html><html><body><nav id="nav"></nav><script src="app.js"></script></body></html>`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pageDir, "app.js"), []byte("document.querySelector('#nav').textContent='仪表盘'"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.tools.SetProjectRootResolver(func(string) (string, error) { return project, nil })
+	payload, err := json.Marshal(map[string]string{"sessionId": artifactSession, "path": page})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := handleWorkspaceArtifactPreview(e, ctx, artifactRequest(string(payload)))
+	if !resp.OK {
+		t.Fatalf("absolute project html preview failed: %+v", resp)
+	}
+	raw, _ := json.Marshal(resp.Payload)
+	var out struct {
+		InteractiveURL string `json:"interactiveUrl"`
+		Content        string `json:"content"`
+	}
+	if json.Unmarshal(raw, &out) != nil || out.InteractiveURL == "" || !strings.Contains(out.Content, "<script") {
+		t.Fatalf("absolute project page was left waiting: %s", raw)
+	}
+	token, rel, ok := webviewhost.ParsePreviewRequest(out.InteractiveURL)
+	if !ok || rel != "index.html" {
+		t.Fatalf("ticket url=%q", out.InteractiveURL)
+	}
+	doc, _, err := e.ResolvePreviewTicket(ctx, token, rel)
+	if err != nil || doc != page {
+		t.Fatalf("preview resolved to %q (%v), want %s", doc, err, page)
+	}
+	script, _, err := e.ResolvePreviewTicket(ctx, token, "app.js")
+	if err != nil || script != filepath.Join(pageDir, "app.js") {
+		t.Fatalf("page script resolved to %q (%v)", script, err)
+	}
+}
+
+func TestPreviewTicketRefusesAnAbsoluteClimb(t *testing.T) {
+	store := newPreviewTicketStore()
+	if _, err := store.mint(artifactSession, `C:/proj/../secret/index.html`); err == nil {
+		t.Fatal("absolute ticket climbed out of its folder")
+	}
+}
+
 func TestHTMLPreviewAtAnAbsolutePathStillRuns(t *testing.T) {
 	e := newArtifactEngine(t)
 	ctx := context.Background()
@@ -243,10 +331,13 @@ func TestPreviewTicketStoreStaysBounded(t *testing.T) {
 
 func TestPreviewTicketRefusesUnusableDocumentPaths(t *testing.T) {
 	store := newPreviewTicketStore()
-	for _, rel := range []string{"", ".", "..", "../x.html", "/abs.html", "C:/x.html"} {
+	for _, rel := range []string{"", ".", "..", "../x.html", "/abs.html", `C:/proj/../x.html`} {
 		if _, err := store.mint("01ARZ3NDEKTSV4RRFFQ69G5FAV", rel); err == nil {
 			t.Errorf("minted a ticket for %q", rel)
 		}
+	}
+	if _, err := store.mint("01ARZ3NDEKTSV4RRFFQ69G5FAV", `C:/x.html`); err != nil {
+		t.Fatal("a clean absolute path has to be nameable; resolution still has to authorize it")
 	}
 	if _, err := store.mint("", "index.html"); err == nil {
 		t.Error("minted a ticket with no session")

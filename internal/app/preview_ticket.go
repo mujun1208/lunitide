@@ -55,7 +55,7 @@ func newPreviewTicketStore() *previewTicketStore {
 // never reused for the same document: a new one means a stale renderer cannot
 // keep a folder reachable by holding on to an old URL.
 func (s *previewTicketStore) mint(sessionID, relPath string) (string, error) {
-	rel, ok := normalizePreviewRel(relPath)
+	rel, ok := normalizePreviewDocument(relPath)
 	if !ok || sessionID == "" {
 		return "", errors.New("preview: unusable artifact path")
 	}
@@ -122,6 +122,38 @@ func (s *previewTicketStore) evictLocked() {
 		}
 		delete(s.tickets, oldest)
 	}
+}
+
+// normalizePreviewDocument accepts the relative name a session file already
+// uses, and also an absolute path ResolveSessionArtifact has already allowed.
+// A drive letter used to stop the ticket, and the page then sat on “正在打开页面”
+// with its script never started. Traversal is still refused.
+func normalizePreviewDocument(raw string) (string, bool) {
+	rel := strings.ReplaceAll(strings.TrimSpace(raw), `\`, "/")
+	if rel == "" || strings.Contains(rel, "\x00") || pathHasDotDot(rel) {
+		return "", false
+	}
+	if len(rel) >= 3 && rel[1] == ':' && rel[2] == '/' && isPreviewDrive(rel[0]) {
+		rest := path.Clean(rel[2:])
+		if rest == "/" || !strings.HasPrefix(rest, "/") || pathHasDotDot(rest) || path.Base(rest) == "." {
+			return "", false
+		}
+		return strings.ToUpper(rel[:1]) + ":" + rest, true
+	}
+	return normalizePreviewRel(rel)
+}
+
+func isPreviewDrive(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+}
+
+func pathHasDotDot(rel string) bool {
+	for _, segment := range strings.Split(rel, "/") {
+		if segment == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizePreviewRel is the engine's own view of a safe workspace-relative
@@ -212,9 +244,9 @@ func (e *Engine) MintPreviewTicket(sessionID, relPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	name, ok := normalizePreviewRel(relPath)
-	if !ok {
+	name := path.Base(strings.ReplaceAll(strings.TrimSpace(relPath), `\`, "/"))
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) {
 		return "", errors.New("preview: unusable artifact path")
 	}
-	return previewOriginPrefix + token + "/" + path.Base(name), nil
+	return previewOriginPrefix + token + "/" + name, nil
 }

@@ -954,7 +954,7 @@ it('does not auto-open the workspace for an HTML artifact; expand then shows the
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'tool_completed',tool:{callId:'call-html',name:'workspace.write',argsDigest:'a'.repeat(64),summary:'wrote index.html',artifact:{kind:'html',path:'index.html',content:'<h1>网页</h1>'}}}))
  expect(await screen.findByLabelText('统一工作区')).toBeInTheDocument()
  expect(screen.getByRole('tab',{name:'浏览器'})).toHaveAttribute('aria-selected','true')
- expect(screen.getByTitle('HTML 预览 index.html')).toHaveAttribute('sandbox','')
+ expect(screen.getByText('正在打开页面')).toBeInTheDocument()
 })
 
 it('does not auto-open the browser workspace for background web.search',async()=>{
@@ -1013,7 +1013,7 @@ it('expands an HTML artifact over the conversation and restores it without remou
   await user.click(screen.getByRole('button',{name:'放大预览'}))
   expect(layout.className).toContain('workspace-is-expanded')
   expect(screen.getByLabelText('产物详情')).toBeInTheDocument()
-  expect(screen.getByTitle('产物预览 index.html')).toBeInTheDocument()
+  expect(screen.getByTitle('页面 file:///E:/%E4%BC%9A%E8%AF%9D/index.html')).toHaveAttribute('data-lunitide-pane','browser')
   expect(screen.getByRole('button',{name:'恢复对话'})).toBeInTheDocument()
   expect(document.querySelector('.message-panel')?.getAttribute('aria-hidden')).toBe('true')
   expect(document.querySelector('.message-panel')?.hasAttribute('inert')).toBe(true)
@@ -1022,6 +1022,42 @@ it('expands an HTML artifact over the conversation and restores it without remou
   expect(layout.className).not.toContain('workspace-is-expanded')
   expect(screen.getByLabelText('产物详情')).toBeInTheDocument()
  }finally{preview.mockRestore()}
+})
+
+it('hides the conversation when the side panel is dragged to the window edge',async()=>{
+ const previousWidth=window.innerWidth
+ Object.defineProperty(window,'innerWidth',{configurable:true,writable:true,value:1600})
+ localStorage.removeItem('lunitide:workspace-width')
+ let onEvent!:(event:StreamEvent)=>void
+ const stream:ChatStream={streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn().mockResolvedValue(true),dispose:vi.fn()}
+ const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return stream})
+ const preview=vi.spyOn(artifactReviewBridge,'preview').mockResolvedValue({kind:'html',path:'index.html',size:32,content:'<h1>周报</h1>',absolutePath:'E:/会话/index.html'})
+ const user=await open({personal:true,initialSession:session,providers,chat:{start,dispose:vi.fn()},attachments:{list:vi.fn().mockResolvedValue({items:[]}),get:vi.fn(),ingest:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge})
+ try{
+  await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'生成网页')
+  await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+  await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'tool_completed',tool:{callId:'html-1',name:'html.gen',argsDigest:'a'.repeat(64),summary:'wrote index.html',artifact:{kind:'html',path:'index.html',content:'<h1>周报</h1>'}}}))
+  await user.click(screen.getByRole('listitem',{name:/index\.html/}))
+  expect(await screen.findByLabelText('产物详情')).toBeInTheDocument()
+  const layout=document.querySelector('.workspace-layout')!
+  expect(layout.className).toContain('workspace-is-open')
+  expect(layout.className).not.toContain('workspace-is-expanded')
+  const handle=document.querySelector('.workspace-resizer')!
+  const pointer=(target:EventTarget,type:string,clientX:number)=>{act(()=>{const event=new Event(type,{bubbles:true});Object.defineProperties(event,{clientX:{value:clientX},button:{value:0},pointerId:{value:1}});target.dispatchEvent(event)})}
+  pointer(handle,'pointerdown',900)
+  pointer(window,'pointermove',100)
+  expect(layout.className).toContain('workspace-is-expanded')
+  expect(document.querySelector('.message-panel')?.getAttribute('aria-hidden')).toBe('true')
+  pointer(window,'pointerup',100)
+  await user.click(screen.getByRole('button',{name:'恢复对话'}))
+  expect(layout.className).not.toContain('workspace-is-expanded')
+  expect(Number(localStorage.getItem('lunitide:workspace-width'))).toBeLessThan(1280)
+ }finally{
+  preview.mockRestore()
+  Object.defineProperty(window,'innerWidth',{configurable:true,writable:true,value:previousWidth})
+  localStorage.removeItem('lunitide:workspace-width')
+ }
 })
 
 

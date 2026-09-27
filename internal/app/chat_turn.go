@@ -86,6 +86,16 @@ func resumePhrase(t string) bool {
 	return strings.Contains(t, "未完成的工作")
 }
 
+// liveTaskSkipsSessionSummary keeps an unfinished turn off the session
+// summarizer. That model call rewrites history before the task card exists.
+// A new topic still summarizes, so the next task inherits a short memory.
+func liveTaskSkipsSessionSummary(userText string, prev chatTurnCheckpoint) bool {
+	if prev.Status != turnStatusInterrupted && prev.Status != turnStatusRunning {
+		return false
+	}
+	return looksLikeResume(userText) || looksLikeStatusFollowUp(userText)
+}
+
 func (e *Engine) turnCheckpointPath(sessionID string) string {
 	if e == nil || e.tools == nil || sessionID == "" {
 		return ""
@@ -396,6 +406,69 @@ func handleChatTurnGet(e *Engine, ctx context.Context, request bridge.Request) b
 	})
 }
 
+func thinkingSince(full string, start int) string {
+	if start < 0 || start > len(full) {
+		return ""
+	}
+	return strings.TrimSpace(full[start:])
+}
+
+// keptWritingExcerpt keeps the opening outline and the latest prose. A long
+// think's middle is scratch; the resume only needs the written ends.
+func keptWritingExcerpt(thinking string) string {
+	thinking = strings.TrimSpace(thinking)
+	if thinking == "" {
+		return ""
+	}
+	const head, tail = 800, 6000
+	runes := []rune(thinking)
+	if len(runes) <= head+tail {
+		return thinking
+	}
+	return string(runes[:head]) + "\n…\n" + string(runes[len(runes)-tail:])
+}
+
+func rememberKeptWriting(turn *chatTurnCheckpoint, fresh string) {
+	fresh = strings.TrimSpace(fresh)
+	if turn == nil || fresh == "" {
+		return
+	}
+	prev := strings.TrimSpace(turn.PersistDraft)
+	if prev == "" {
+		turn.PersistDraft = keptWritingExcerpt(fresh)
+		return
+	}
+	if strings.Contains(prev, fresh) || strings.Contains(fresh, prev) {
+		if len([]rune(fresh)) > len([]rune(prev)) {
+			turn.PersistDraft = keptWritingExcerpt(fresh)
+		}
+		return
+	}
+	turn.PersistDraft = keptWritingExcerpt(prev + "\n" + fresh)
+}
+
+func appendKeptWriting(req *llmadapter.Request, turn *chatTurnCheckpoint, thinking string, start int) {
+	excerpt := keptWritingExcerpt(thinkingSince(thinking, start))
+	if excerpt == "" || req == nil {
+		return
+	}
+	mark := excerpt
+	if runes := []rune(mark); len(runes) > 40 {
+		mark = string(runes[:40])
+	}
+	for i := len(req.Messages) - 1; i >= 0 && i >= len(req.Messages)-6; i-- {
+		if strings.Contains(req.Messages[i].Content, mark) {
+			rememberKeptWriting(turn, excerpt)
+			return
+		}
+	}
+	req.Messages = append(req.Messages, llmadapter.Message{
+		Role:    llmadapter.RoleSystem,
+		Content: "已写内容如下。不要重写这些段落，从断点接着写完。\n" + excerpt,
+	})
+	rememberKeptWriting(turn, excerpt)
+}
+
 func (e *Engine) unfinishedTurnInjection(sessionID, userText string) string {
 	if sessionID == "" {
 		return ""
@@ -412,6 +485,10 @@ func (e *Engine) unfinishedTurnInjection(sessionID, userText string) string {
 	if strings.TrimSpace(cp.Goal) != "" {
 		b.WriteString("\n原任务：")
 		b.WriteString(strings.TrimSpace(cp.Goal))
+	}
+	if draft := strings.TrimSpace(cp.PersistDraft); draft != "" {
+		b.WriteString("\n已写内容（不要重写这些段落，从断点接着写完）：\n")
+		b.WriteString(draft)
 	}
 	if len(cp.LastTools) > 0 {
 		b.WriteString("\n已完成动作：")

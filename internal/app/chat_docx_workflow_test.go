@@ -22,6 +22,10 @@ func TestLooksLikeReportAndNovelTasks(t *testing.T) {
 	if looksLikeReportTask("做一份介绍 PPT") || looksLikeNovelTask("打开桌面协议") {
 		t.Fatal("PPT and unrelated tasks must not start the docx pipeline")
 	}
+	paper := "帮我写一个时间空间论证，人可以穿越时空的，长篇分析论文"
+	if looksLikeNovelTask(paper) || !looksLikeReportTask(paper) {
+		t.Fatal("a long analysis paper is a report, not a novel")
+	}
 	if looksLikeReportTask("根据本工作目录材料写一份周报 Markdown，不要生成 Office 文档。") || wantsOfficeGen("根据本工作目录材料写一份周报 Markdown，不要生成 Office 文档。") || officeGenToolForGoal("根据本工作目录材料写一份周报 Markdown，不要生成 Office 文档。") != "" {
 		t.Fatal("explicit Markdown weekly must not start the Office pipeline")
 	}
@@ -181,5 +185,9 @@ func TestEnrichDocxGenArgsFillsNovelAuthor(t *testing.T) {
 	report := enrichDocxGenArgs(nil, "", json.RawMessage(`{"path":"a.docx","title":"t","kind":"report","blocks":[]}`))
 	if strings.Contains(string(report), `"author"`) {
 		t.Fatalf("report must not get author injection: %s", report)
+	}
+	paper := enrichDocxGenArgs(nil, "帮我写一个时间空间论证，人可以穿越时空的，长篇分析论文", json.RawMessage(`{"path":"a.docx","title":"t","kind":"novel","blocks":[]}`))
+	if !strings.Contains(string(paper), `"kind":"report"`) || strings.Contains(string(paper), `"kind":"novel"`) {
+		t.Fatalf("a paper must not be generated as a novel: %s", paper)
 	}
 }

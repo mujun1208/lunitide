@@ -20,6 +20,9 @@ const (
 	AgentHubPickDeadlineMS     = 600_000
 	AgentHubPromptDeadlineMS   = 180_000
 	OcrRoutingRepairDeadlineMS = 180_000
+	// Fresh check runs dictation, playback, download, OCR, then the catalog
+	// probes. Those budgets add up past the ordinary 30s ceiling.
+	ProductHubCheckDeadlineMS = 180_000
 )
 
 // MaxDeadlineMS is the largest deadlineMs the Host/Engine accept for method.
@@ -57,6 +60,8 @@ func MaxDeadlineMS(method string) int {
 		return PeopleFileDeadlineMS
 	case MethodOcrRoutingGet:
 		return OcrRoutingRepairDeadlineMS
+	case MethodProductHubDiagnostics, MethodProductHubRefresh, MethodProductHubApply:
+		return ProductHubCheckDeadlineMS
 	default:
 		return DefaultMaxDeadlineMS
 	}

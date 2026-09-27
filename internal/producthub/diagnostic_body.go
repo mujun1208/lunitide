@@ -48,6 +48,9 @@ func diagnosticGapPlans(ed Edition) string {
 	for _, name := range emptyChainNames(features) {
 		fmt.Fprintf(&b, "- %s：步骤还不清楚。按该功能的真实调用补上步骤。净化不会编造步骤，也不会改产品代码。\n", name)
 	}
+	if unread := unreadSourceNames(features); len(unread) > 0 {
+		fmt.Fprintf(&b, "- 源码：这次运行的程序旁边没有产品源码，%d 张链路没有按源码重写。这不是这些功能没对上处理函数。\n", len(unread))
+	}
 	for _, name := range unwrittenChainNames(features) {
 		fmt.Fprintf(&b, "- %s：步骤未按真实调用写清。这次没有对上处理函数，手写步骤不作为链路。诊断不会编造步骤。\n", name)
 	}
@@ -164,7 +167,8 @@ func isTaskCard(c Card) bool {
 
 func pluginFeatureNames(cards []Card) []string {
 	return namesWhere(cards, func(c Card) bool {
-		return strings.Contains(c.StableKey, ".plugin.") || strings.Contains(c.StableKey, "plugin.")
+		_, ok := pluginRosterID(c.StableKey)
+		return ok
 	})
 }
 
@@ -294,12 +298,32 @@ const unwrittenStepName = "未按真实调用写清"
 
 func clarifyTemplateChains(cards []Card) []Card {
 	hops, ready := traceCalls(cards)
+	return applyCallChains(cards, hops, ready)
+}
+
+const unreadSourceStepName = "未读到源码"
+
+func applyCallChains(cards []Card, hops map[string]callHop, ready bool) []Card {
 	out := make([]Card, len(cards))
 	copy(out, cards)
 	for i := range out {
-		traced := hopsForCard(out[i], hops, ready)
+		if strings.HasPrefix(out[i].StableKey, "landscape.") {
+			continue
+		}
+		if !ready {
+			if len(out[i].Chain.Steps) == 0 {
+				continue
+			}
+			out[i].Chain = unreadSourceChain()
+			continue
+		}
+		traced := hopsForCard(out[i], hops, true)
 		if len(traced) > 0 {
 			out[i].Chain = chainFromHops(traced)
+			continue
+		}
+		if chain, ok := entryChain(out[i]); ok {
+			out[i].Chain = chain
 			continue
 		}
 		if len(out[i].Chain.Steps) == 0 {
@@ -308,6 +332,24 @@ func clarifyTemplateChains(cards []Card) []Card {
 		out[i].Chain = unwrittenChain(out[i])
 	}
 	return out
+}
+
+func unreadSourceChain() Chain {
+	return closedChain([]Step{{
+		Index: 1, Name: unreadSourceStepName, Detail: "源码",
+		Description: "这次运行的程序旁边没有产品源码，这条链路没有按源码重写。这不是功能没写。",
+	}}, 1,
+		"没有读到源码",
+		"没有重写链路",
+		"下次在源码旁边重新检查",
+		"不把没读到源码写成没有处理函数",
+	)
+}
+
+func unreadSourceNames(cards []Card) []string {
+	return namesWhere(cards, func(c Card) bool {
+		return len(c.Chain.Steps) > 0 && c.Chain.Steps[0].Name == unreadSourceStepName
+	})
 }
 
 func hopsForCard(c Card, hops map[string]callHop, ready bool) []callHop {
@@ -354,6 +396,37 @@ func chainFromHops(hops []callHop) Chain {
 		"下次重新检查再读源码",
 		"对不上处理函数的卡片仍标步骤未写清",
 	)
+}
+
+func entryChain(c Card) (Chain, bool) {
+	if len(claimedBridges(c)) > 0 {
+		return Chain{}, false
+	}
+	if c.ChainClass == "page-enter" || strings.Contains(c.StableKey, ".page.") {
+		return closedChain([]Step{{
+			Index: 1, Name: "进入页面", Detail: "导航",
+			Description: "这一卡只说明从导航进入该页，没有带点调用。不记成没有处理函数。",
+		}}, 1, "页面能打开", "入口被隐藏或首屏失败", "再从导航进入", "停在当前页"), true
+	}
+	if c.ChainClass == "settings-toggle" || c.Module == "settings" {
+		return closedChain([]Step{{
+			Index: 1, Name: "设置项", Detail: "设置",
+			Description: "这一卡只改这项设置，没有带点调用。不记成没有处理函数。",
+		}}, 1, "设置已保存", "设置没有写上", "再打开这项设置", "保持原来的值"), true
+	}
+	if id, ok := pluginRosterID(c.StableKey); ok {
+		return closedChain([]Step{{
+			Index: 1, Name: "运行名单", Detail: id,
+			Description: "这个插件在运行名单里，没有单独的带点桥方法。不记成没有处理函数。",
+		}}, 1, "插件已在运行名单", "运行名单里没有这个插件", "再对运行名单", "不把插件卡写成没有处理函数"), true
+	}
+	if strings.HasSuffix(c.StableKey, ".barge-in") {
+		return closedChain([]Step{{
+			Index: 1, Name: "语音会话", Detail: "插话",
+			Description: "插话发生在已经开始的语音会话里，没有单独的带点桥方法。不记成没有处理函数。",
+		}}, 1, "插话打断当前播报", "没有正在进行的语音会话", "先开始语音会话", "不把插话写成没有处理函数"), true
+	}
+	return Chain{}, false
 }
 
 func unwrittenChain(c Card) Chain {
@@ -414,7 +487,7 @@ func callSection(cards []Card, hops map[string]callHop, ready bool) string {
 	var b strings.Builder
 	b.WriteString("### 真实调用\n\n")
 	if !ready {
-		b.WriteString("本机没有读到处理函数注册表。这一轮只核对了桥方法名单。\n\n")
+		b.WriteString("这次运行的程序旁边没有产品源码，没有重写链路。这不是功能没对上处理函数。这一轮只核对了桥方法名单。\n\n")
 		return b.String()
 	}
 	var lines []string
@@ -428,8 +501,21 @@ func callSection(cards []Card, hops map[string]callHop, ready bool) string {
 		return b.String()
 	}
 	b.WriteString(strings.Join(lines, "\n"))
-	b.WriteString("\n后续调用写在上面，定义以这次读到的源码为准。\n\n")
+	if compiledTrace(hops) {
+		b.WriteString("\n后续调用写在上面。这版程序编译时从源码写入的调用。\n\n")
+	} else {
+		b.WriteString("\n后续调用写在上面，定义以这次读到的源码为准。\n\n")
+	}
 	return b.String()
+}
+
+func compiledTrace(hops map[string]callHop) bool {
+	for _, hop := range hops {
+		if hop.FromBuild {
+			return true
+		}
+	}
+	return false
 }
 
 func hopText(hop callHop) string {
@@ -489,6 +575,10 @@ func probeBudgetLines(findings []Finding) string {
 		}
 		if d > spec.budget {
 			lines = append(lines, fmt.Sprintf("%s耗时 %s，超过探测预算 %s", spec.title, d, spec.budget))
+			continue
+		}
+		if d >= spec.budget && (strings.Contains(hit.Evidence, "deadline exceeded") || strings.Contains(hit.Evidence, "没有在时限内")) {
+			lines = append(lines, fmt.Sprintf("%s耗时 %s，用满探测预算 %s，没有在时限内完成", spec.title, d, spec.budget))
 			continue
 		}
 		lines = append(lines, fmt.Sprintf("%s耗时 %s，在探测预算 %s 内", spec.title, d, spec.budget))
@@ -604,7 +694,11 @@ func taskLines(cards []Card, wiring, findings []Finding, hops map[string]callHop
 			parts = append(parts, "入口未接通，任务走不通，任务完成不了")
 		}
 		if len(parts) == 0 && len(c.Methods) > 0 {
-			parts = append(parts, "菜单入口已写上，没有带点调用")
+			if _, roster := pluginRosterID(c.StableKey); roster {
+				parts = append(parts, "这个插件在运行名单里，没有带点调用")
+			} else {
+				parts = append(parts, "菜单入口已写上，没有带点调用")
+			}
 		}
 		if len(parts) == 0 {
 			parts = append(parts, "没有入口，任务走不通，任务完成不了")
@@ -617,6 +711,14 @@ func taskLines(cards []Card, wiring, findings []Finding, hops map[string]callHop
 		}
 		switch f.ErrorCode {
 		case "PH_L01", "PH_L02", "PH_L03", "PH_L04":
+			if f.ErrorCode == "PH_L01" && dictationRuntimeMissing(f.Evidence) {
+				lines = append(lines, f.Title+"：精识别运行时没装上，不是流式听写已经坏了")
+				continue
+			}
+			if f.ErrorCode == "PH_L03" && localModelLengthTimeout(f.Evidence) {
+				lines = append(lines, f.Title+"：本机模型目录已核对，这次没在时限内拿到服务器文件长度，不是下载已经坏了")
+				continue
+			}
 			lines = append(lines, f.Title+"：实测没有完成，任务完成不了")
 		}
 	}
@@ -624,6 +726,14 @@ func taskLines(cards []Card, wiring, findings []Finding, hops map[string]callHop
 		return "本版没有单独的任务卡。"
 	}
 	return strings.Join(lines, "。") + "。"
+}
+
+func dictationRuntimeMissing(evidence string) bool {
+	return strings.Contains(evidence, "not installed") || strings.Contains(evidence, "没装")
+}
+
+func localModelLengthTimeout(evidence string) bool {
+	return strings.Contains(evidence, "本机模型目录已核对") && strings.Contains(evidence, "没有在时限内拿到服务器文件长度")
 }
 
 func runFinding(c Card, method string, findings []Finding) (Finding, bool) {

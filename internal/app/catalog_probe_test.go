@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/producthub"
@@ -159,7 +160,17 @@ func TestCatalogProbeRound28SessionExpertsSetCompletes(t *testing.T) {
 }
 
 func TestCatalogProbeRound29AutomationJobSetCompletes(t *testing.T) {
-	assertProbeFinished(t, runCatalogProbes(context.Background()), "已跑完", "automation.job.set")
+	got := runCatalogProbes(context.Background())
+	for _, item := range got {
+		if item.ID != "automation.job.set" {
+			continue
+		}
+		if item.Status != "pass" || !strings.Contains(item.Evidence, "诊断探测任务") || strings.Contains(item.Evidence, "「」") {
+			t.Fatalf("%+v", item)
+		}
+		return
+	}
+	t.Fatal("automation.job.set missing")
 }
 
 func TestCatalogProbeRound30AutomationJobTriggerCompletes(t *testing.T) {
@@ -403,6 +414,18 @@ func probeEvidenceKind(evidence, status string) string {
 	}
 }
 
+func TestCatalogProbeDoesNotOpenTheSystemEditor(t *testing.T) {
+	entered := 0
+	prev := openArtifactShell
+	openArtifactShell = func(string) error { entered++; return nil }
+	t.Cleanup(func() { openArtifactShell = prev })
+	catalogProbeSuppressShell.Store(true)
+	t.Cleanup(func() { catalogProbeSuppressShell.Store(false) })
+	if err := openLocalArtifactPath("probe-artifact.txt"); err != nil || entered != 0 {
+		t.Fatalf("err=%v entered=%d", err, entered)
+	}
+}
+
 func TestCatalogProbeEvidenceNamesItsLimit(t *testing.T) {
 	got := runCatalogProbes(context.Background())
 	byID := map[string]producthub.TaskResult{}
@@ -425,6 +448,28 @@ func TestCatalogProbeEvidenceNamesItsLimit(t *testing.T) {
 		if !strings.HasPrefix(ev, "已跑完") || !strings.Contains(ev, "读回") || !strings.Contains(ev, needle) {
 			t.Fatalf("%s: %+v", id, byID[id])
 		}
+	}
+}
+
+func TestOverlappingCatalogProbesKeepTheFileReadback(t *testing.T) {
+	var wg sync.WaitGroup
+	errc := make(chan string, 2)
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			got := runCatalogProbes(context.Background())
+			for _, item := range got {
+				if item.ID == "agentHub.file.open" && !strings.Contains(item.Evidence, "没有用系统打开") {
+					errc <- item.Evidence
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(errc)
+	for ev := range errc {
+		t.Fatalf("overlapping checks lost the file readback: %s", ev)
 	}
 }
 

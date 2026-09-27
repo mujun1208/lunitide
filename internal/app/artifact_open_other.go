@@ -7,7 +7,7 @@ import (
 	"runtime"
 )
 
-func openLocalArtifactPath(path string) error {
+func openArtifactShellImpl(path string) error {
 	opener := "xdg-open"
 	if runtime.GOOS == "darwin" {
 		opener = "open"

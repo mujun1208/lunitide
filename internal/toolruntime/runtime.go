@@ -366,6 +366,9 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 	if hooks.grantApproval && !approved && name != userAskTool {
 		approved = true
 	}
+	if !approved && toolEditsOpenPage(ctx, name, args) {
+		approved = true
+	}
 	mutating := name == "workspace.write" || name == "workspace.edit" || name == "workspace.restore" || name == "workspace.accept" || name == "command.run" || name == "system.run" || name == "desktop.open" || name == "desktop.quit" || name == "desktop.browse" || name == "desktop.type" || name == "media.play" || name == "im.send" || officeGenTools[name] || ccToolChangesMachine(name, args)
 	if mutating && !approved && (hooks.forceApproval || mode == Approval || ((name == "command.run" || name == "system.run") && mode == AutoEdit)) {
 		// Remembered exact approvals (P1-5) satisfy the gate without a new
@@ -449,7 +452,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if strict(args, &a) != nil || a.Path == "" || len(a.Content) > maxFile {
 			return Result{}, errors.New("invalid arguments")
 		}
-		p, e := r.path(mode, session, a.Path, true, unconfined)
+		p, e := r.resolveWorkspacePath(ctx, mode, session, a.Path, true, unconfined)
 		if e != nil {
 			return Result{}, localizeWorkspaceWriteError(e)
 		}
@@ -518,7 +521,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		pending := make([]pendingEdit, 0, len(files))
 		total := 0
 		for _, f := range files {
-			p, pe := r.path(mode, session, f.Path, false, unconfined)
+			p, pe := r.resolveWorkspacePath(ctx, mode, session, f.Path, true, unconfined)
 			if pe != nil {
 				if os.IsNotExist(pe) {
 					return Result{}, errors.New("文件不存在或超过大小上限")

@@ -82,6 +82,37 @@ func officeDocxBlocks(title, text string) []officetools.DocxBlock {
 	return blocks
 }
 
+// ensureReportHeadings gives a flat essay the second section heading a
+// report file requires. Existing headings are kept as written.
+func ensureReportHeadings(blocks []officetools.DocxBlock) []officetools.DocxBlock {
+	if len(blocks) == 0 {
+		return blocks
+	}
+	n := 0
+	for _, b := range blocks {
+		if b.Type == "heading" || b.Type == "heading2" {
+			n++
+		}
+	}
+	if n >= 2 {
+		return blocks
+	}
+	insert := officetools.DocxBlock{Type: "heading2", Text: "正文"}
+	if n == 0 {
+		return append([]officetools.DocxBlock{{Type: "heading", Text: "正文"}, insert}, blocks...)
+	}
+	out := make([]officetools.DocxBlock, 0, len(blocks)+1)
+	placed := false
+	for _, b := range blocks {
+		out = append(out, b)
+		if !placed && (b.Type == "heading" || b.Type == "heading2") {
+			out = append(out, insert)
+			placed = true
+		}
+	}
+	return out
+}
+
 func officeContentSlides(goal, text string) []map[string]any {
 	if !officeContentUsable(text) {
 		return nil

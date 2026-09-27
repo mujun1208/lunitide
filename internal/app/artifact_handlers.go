@@ -171,11 +171,12 @@ func handleWorkspaceArtifactPreview(e *Engine, ctx context.Context, r bridge.Req
 	return r.Ok(out)
 }
 
-// previewTicketPath is the workspace-relative name a preview ticket can
-// carry. A relative path is used as-is. An absolute path that already
-// resolved inside the session folder is reduced to that relative name,
-// because the ticket refuses a drive letter and would otherwise leave the
-// page as a static snapshot.
+// previewTicketPath is the name a preview ticket can carry. A relative path
+// is used as-is. An absolute path inside the session folder is reduced to
+// that relative name. A file outside the session — a project page the user
+// opened by its full path — keeps the absolute path the resolver already
+// allowed, so the ticket can hand it back to the same check. Leaving the
+// drive letter unresolved is what stranded the page on “正在打开页面”.
 func previewTicketPath(e *Engine, sessionID, raw string) string {
 	rel := strings.ReplaceAll(strings.TrimSpace(raw), `\`, "/")
 	if _, ok := normalizePreviewRel(rel); ok {
@@ -188,19 +189,19 @@ func previewTicketPath(e *Engine, sessionID, raw string) string {
 	if err != nil {
 		return rel
 	}
-	dir, err := e.tools.SessionFolder(sessionID)
-	if err != nil {
-		return rel
+	if dir, dirErr := e.tools.SessionFolder(sessionID); dirErr == nil {
+		if got, relErr := filepath.Rel(dir, target); relErr == nil {
+			got = filepath.ToSlash(got)
+			if _, ok := normalizePreviewRel(got); ok {
+				return got
+			}
+		}
 	}
-	got, err := filepath.Rel(dir, target)
-	if err != nil {
-		return rel
+	abs := filepath.ToSlash(target)
+	if _, ok := normalizePreviewDocument(abs); ok {
+		return abs
 	}
-	got = filepath.ToSlash(got)
-	if _, ok := normalizePreviewRel(got); !ok {
-		return rel
-	}
-	return got
+	return rel
 }
 
 // resolveExportDir maps a user-authorized export target to an absolute

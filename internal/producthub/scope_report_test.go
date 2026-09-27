@@ -42,8 +42,11 @@ func TestReportCoversTheRemainingScope(t *testing.T) {
 	}
 	unclear := md[strings.Index(md, "步骤未按真实调用写清"):]
 	unclear = unclear[:strings.Index(unclear, "### 工具")]
-	if !strings.Contains(unclear, "首页") {
-		t.Fatal("template chain was treated as a clear step")
+	if strings.Contains(unclear, "首页") {
+		t.Fatal("a page entry was called an unwritten handler")
+	}
+	if !strings.Contains(md, "这一卡只说明从导航进入该页") {
+		t.Fatal("page entry was not written")
 	}
 	if strings.Contains(unclear, "创建办公任务") {
 		t.Fatal("a hand-written chain was called a template")

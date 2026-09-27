@@ -63,6 +63,14 @@ func TestRunawayThinkingStillHitsItsOwnCeiling(t *testing.T) {
 
 // Executing real tools is the evidence that the turn is doing work rather than
 // talking to itself, so the allowance that is about to run out grows.
+func TestEveryTurnClockReachesTheHardCeiling(t *testing.T) {
+	b := turnGenerationBudget{}
+	grantTurnClock(&b)
+	if got := b.timeLimit(); got < turnGenerationHardTime {
+		t.Fatalf("a task clock stops at %s", got)
+	}
+}
+
 func TestToolProgressGrowsOnlyTheAllowanceThatIsRunningOut(t *testing.T) {
 	b := turnGenerationBudget{bytes: turnGenerationMaxBytes - 1024, elapsed: time.Minute}
 	b.noteToolProgress()

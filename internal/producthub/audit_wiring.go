@@ -69,7 +69,7 @@ func entryWired(name string, methods map[string]struct{}) bool {
 	switch name {
 	case "media.play", "desktop.open", "desktop.type", "desktop.quit", "desktop.browse",
 		"command.run", "system.run", "location.get", "canvas.present", "web.search", "web.fetch",
-		"computer.act", "todo.write", "im.send":
+		"computer.act", "computer.control", "todo.write", "im.send":
 		return true
 	}
 	action, ok := strings.CutPrefix(name, "media.")
@@ -87,11 +87,13 @@ func entryWired(name string, methods map[string]struct{}) bool {
 
 func claimedBridges(c Card) []string {
 	var out []string
+	seen := map[string]bool{}
 	for _, name := range append(append([]string{}, c.Scaffold.Bridge...), c.Attributes.Tools...) {
 		name = strings.TrimSpace(name)
-		if strings.Count(name, ".") < 1 || strings.HasPrefix(name, "capability.") {
+		if seen[name] || strings.Count(name, ".") < 1 || strings.HasPrefix(name, "capability.") {
 			continue
 		}
+		seen[name] = true
 		out = append(out, name)
 	}
 	return out

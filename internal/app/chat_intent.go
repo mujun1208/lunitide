@@ -797,9 +797,10 @@ func namedDocumentType(text string) bool {
 	return false
 }
 
-// wantsDefaultCanvas is the document surface for a plan, PRD, comparison,
-// or a report that did not name Word, the desktop, or a web source.
-// Those three stay on the office pipeline.
+// wantsDefaultCanvas is the document surface when the user did not name
+// Word, PPT, TXT, or another file type. A plan, PRD, report, or paper
+// stays on the canvas. Naming a file type, the desktop, or a web source
+// keeps the office pipeline.
 func wantsDefaultCanvas(text string) bool {
 	if namedDocumentType(text) {
 		return false
@@ -818,7 +819,7 @@ func wantsDefaultCanvas(text string) bool {
 	if !writing {
 		return false
 	}
-	for _, n := range []string{"方案", "文档", "prd", "报告", "说明"} {
+	for _, n := range []string{"方案", "文档", "prd", "报告", "说明", "论文", "论证", "分析"} {
 		if strings.Contains(t, n) {
 			return true
 		}

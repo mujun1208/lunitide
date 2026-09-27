@@ -63,6 +63,8 @@ it('keeps the hub behind an unlock form and does not list it as a public page', 
   expect(screen.getByText(/本页功能/)).toBeInTheDocument()
   expect(screen.getByText(/播放、队列、打开音视频/)).toBeInTheDocument()
   expect(screen.getByText(/活源覆盖 2\/2/)).toBeInTheDocument()
+  expect(screen.getByText(/版本和已存的一致时，进入后直接显示这一版/)).toBeInTheDocument()
+  expect(screen.queryByText(/重出整份分析/)).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: /诊断报告/ }))
   expect(await screen.findByRole('button', { name: '执行全部净化' })).toBeInTheDocument()
   expect(screen.getByText(/新增 1/)).toBeInTheDocument()

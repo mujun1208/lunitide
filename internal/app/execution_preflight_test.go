@@ -391,20 +391,20 @@ func TestMeetingNotesAndExpertTrialAdmitCallWithoutSessionULID(t *testing.T) {
 		}
 	}
 
-	before := sends
-	beforeAdmit := counted.n
-	_, err = a.Complete(withCallPurpose(context.Background(), "expert"), []byte("k"), req)
-	if errors.Is(err, errExecutionUnbound) {
-		t.Fatal("expert trial must AdmitCall without a sessions ULID, got errExecutionUnbound")
-	}
-	if err != nil {
-		t.Fatalf("expert trial: %v", err)
-	}
-	if counted.n != beforeAdmit+1 {
-		t.Fatalf("expert trial: T06 AdmitCall reservation count=%d want %d", counted.n, beforeAdmit+1)
-	}
-	if sends != before+1 {
-		t.Fatalf("expert trial must AdmitCall then HTTP, sends=%d", sends)
+	var before, beforeAdmit int
+	for _, purpose := range []string{"expert", "ocr", "vision"} {
+		before := sends
+		beforeAdmit := counted.n
+		_, err = a.Complete(withCallPurpose(context.Background(), purpose), []byte("k"), req)
+		if errors.Is(err, errExecutionUnbound) {
+			t.Fatalf("%s picture read must AdmitCall without a sessions ULID, got errExecutionUnbound", purpose)
+		}
+		if err != nil {
+			t.Fatalf("%s: %v", purpose, err)
+		}
+		if counted.n != beforeAdmit+1 || sends != before+1 {
+			t.Fatalf("%s admit=%d sends=%d", purpose, counted.n, sends)
+		}
 	}
 
 	before = sends
@@ -490,6 +490,33 @@ func TestUserReasoningLevelOverridesLaneDisable(t *testing.T) {
 	}
 	if !strings.Contains(string(body), `"reasoning_effort":"max"`) || strings.Contains(string(body), `"reasoning_effort":"low"`) {
 		t.Fatalf("typed intensity must win over the lane low default: %s", body)
+	}
+}
+
+func TestSelectedReasoningLevelStaysMax(t *testing.T) {
+	var body []byte
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			return nil, err
+		}
+		body = raw
+		return okChatResponse(), nil
+	})
+	a := preflightAdapter(t, transport, &memCalls{}, &recordingBudget{})
+	ctx := withContinuityScope(context.Background(), continuityScope{Owner: "diagnostic", Task: ulid.Make().String(), Purpose: "chat"})
+	req := llmadapter.Request{
+		Model:            "glm-5.3",
+		Mode:             "standard",
+		DisableReasoning: true,
+		ReasoningLevel:   "max",
+		Messages:         []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "加上客户管理"}},
+	}
+	if _, err := a.Complete(ctx, []byte("k"), req); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"reasoning_effort":"max"`) || strings.Contains(string(body), `"reasoning_effort":"low"`) {
+		t.Fatalf("selected 极高 must stay on the wire: %s", body)
 	}
 	if !strings.Contains(string(body), `"type":"enabled"`) {
 		t.Fatalf("glm intensity must keep thinking enabled: %s", body)

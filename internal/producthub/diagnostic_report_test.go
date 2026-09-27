@@ -61,7 +61,12 @@ func TestCatalogTemplateChainsAreWrittenWhenTheHandlerExists(t *testing.T) {
 			}
 		}
 		if len(handlers) == 0 {
-			if len(c.Chain.Steps) > 0 && c.Chain.Steps[0].Name != unwrittenStepName {
+			if len(c.Chain.Steps) == 0 {
+				continue
+			}
+			switch c.Chain.Steps[0].Name {
+			case unwrittenStepName, "进入页面", "设置项", "运行名单", "语音会话", "选定对照维", "观察前沿":
+			default:
 				left = append(left, c.Name)
 			}
 			continue
@@ -154,8 +159,14 @@ func TestDiagnosticReportChecksTheProductAndGivesEvidencePlans(t *testing.T) {
 	}
 	link := md[strings.Index(md, "### 链路"):]
 	link = link[:strings.Index(link, "### 工具")]
-	if !strings.Contains(link, "插件：LLM") || !strings.Contains(link, "打开项目") {
+	if strings.Contains(link, "插件：LLM") {
+		t.Fatal("a plugin on the roster was called a missing handler")
+	}
+	if !strings.Contains(link, "打开项目") {
 		t.Fatal("hand-written steps without a handler were treated as clear")
+	}
+	if !strings.Contains(md, "这个插件在运行名单里") {
+		t.Fatal("plugin card was not written from the roster")
 	}
 }
 
@@ -240,6 +251,16 @@ func TestLocalCallsAreNotReportedAsMissing(t *testing.T) {
 	lines := taskLines(cards, nil, nil, hops, ready)
 	if strings.Contains(lines, "任务完成不了") || strings.Contains(lines, "任务走不通") {
 		t.Fatal(lines)
+	}
+	roster := taskLines([]Card{
+		{Name: "插件：定时任务", StableKey: "feature.assets.plugin.cron", Methods: []Method{{Type: "menu"}}},
+		{Name: "进入自动化", StableKey: "feature.office.page.automation", Module: "automation", Methods: []Method{{Type: "menu"}}},
+	}, nil, nil, map[string]callHop{}, true)
+	if !strings.Contains(roster, "插件：定时任务：这个插件在运行名单里") || strings.Contains(roster, "插件：定时任务：菜单入口") {
+		t.Fatal(roster)
+	}
+	if !strings.Contains(roster, "进入自动化：菜单入口已写上") {
+		t.Fatal(roster)
 	}
 	all := Merge(Seed(), LiveCatalog(), nil)
 	catalogHops, _ := traceCalls(all)

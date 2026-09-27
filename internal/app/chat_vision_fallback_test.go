@@ -218,15 +218,182 @@ func TestChatStartPictureWithoutTextReachesTheModelAsADescription(t *testing.T) 
 		t.Fatalf("chat.start failed: %#v", response)
 	}
 	req := capturedChatRequest(t, requests)
-	if visionCalls != 0 || len(req.Images) != 0 {
+	if visionCalls != 1 || len(req.Images) != 0 {
 		t.Fatalf("vision=%d images=%d", visionCalls, len(req.Images))
 	}
 	var combined strings.Builder
 	for _, message := range req.Messages {
 		combined.WriteString(message.Content)
 	}
-	if !strings.Contains(combined.String(), "没有读出可用内容") || strings.Contains(combined.String(), "一只橙色的猫") {
+	if !strings.Contains(combined.String(), "一只橙色的猫") || strings.Contains(combined.String(), "没有读出可用内容") {
 		t.Fatal(combined.String())
+	}
+}
+
+func TestChatStartEmptyOCRKeepsPixelsWhenTheChatModelCanSee(t *testing.T) {
+	data := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1}
+	digest := sha256.Sum256(data)
+	image := attachment.Attachment{
+		ID: chatAttachmentID, ProjectID: chatAttachmentProjectID, SessionID: chatAttachmentSessionID,
+		FileRef: "selected-image", OriginalName: "cat.png", MIME: "image/png", Size: int64(len(data)),
+		SHA256: hex.EncodeToString(digest[:]), ParseStatus: attachment.StatusFailed,
+	}
+	store := &chatAttachmentStore{byID: map[string]*attachment.Attachment{image.ID: &image}}
+	requests := make(chan llmadapter.Request, 1)
+	e := NewEngineWithContextReader(visionCatalogProvider{supportsVision: true}, nil, nil, nil, chatAttachmentReader{}, nil, "test", streamTestLease{})
+	e.SetAttachmentService(attachmentapp.NewService(store, chatAttachmentFiles{image.FileRef: data}))
+	ocr := ocrapp.New(ocrapp.NewFileStore(t.TempDir() + "/ocr-routing.json"))
+	ocr.SetLocalImage(func(context.Context, []byte) (doctext.PDFOCRResult, error) {
+		return doctext.PDFOCRResult{Method: "windows-ocr", Pages: []doctext.OCRPage{{Page: 1, Text: ""}}}, nil
+	})
+	e.SetOCR(ocr)
+	e.SetAdapterFactoryForTest(func(_ context.Context, p provider.Provider) (llmadapter.Adapter, error) {
+		if p.ID == visionCatalogProviderID {
+			return failingVisionAdapter{}, nil
+		}
+		return visionFallbackAdapter{id: p.ID, requests: requests}, nil
+	})
+	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","sessionId":"` + chatAttachmentSessionID + `","messages":[{"role":"user","content":"这个图片显示的是什么"}],"contextRefs":[{"type":"attachment","id":"` + image.ID + `"}]}`
+	response := e.HandleStreaming(context.Background(), validRequest("chat.start", payload), func(bridge.Event) error { return nil })
+	if !response.OK {
+		t.Fatalf("chat.start failed: %#v", response)
+	}
+	req := capturedChatRequest(t, requests)
+	if len(req.Images) != 1 {
+		t.Fatalf("vision chat model must still see the picture: %d", len(req.Images))
+	}
+	var combined strings.Builder
+	for _, message := range req.Messages {
+		combined.WriteString(message.Content)
+	}
+	if strings.Contains(combined.String(), "没有读出可用内容") {
+		t.Fatal(combined.String())
+	}
+}
+
+func TestChatStartNoTextFromProviderStillDescribesThePicture(t *testing.T) {
+	data := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1}
+	digest := sha256.Sum256(data)
+	image := attachment.Attachment{
+		ID: chatAttachmentID, ProjectID: chatAttachmentProjectID, SessionID: chatAttachmentSessionID,
+		FileRef: "selected-image", OriginalName: "kitty.png", MIME: "image/png", Size: int64(len(data)),
+		SHA256: hex.EncodeToString(digest[:]), ParseStatus: attachment.StatusFailed,
+	}
+	store := &chatAttachmentStore{byID: map[string]*attachment.Attachment{image.ID: &image}}
+	requests := make(chan llmadapter.Request, 1)
+	visionCalls := 0
+	e := NewEngineWithContextReader(visionCatalogProvider{supportsVision: false}, nil, nil, nil, chatAttachmentReader{}, nil, "test", streamTestLease{})
+	e.SetAttachmentService(attachmentapp.NewService(store, chatAttachmentFiles{image.FileRef: data}))
+	ocr := ocrapp.New(ocrapp.NewFileStore(t.TempDir() + "/ocr-routing.json"))
+	localCalls := 0
+	ocr.SetLocalImage(func(context.Context, []byte) (doctext.PDFOCRResult, error) {
+		localCalls++
+		return doctext.PDFOCRResult{Method: "windows-ocr", Pages: []doctext.OCRPage{{Page: 1, Text: ""}}}, nil
+	})
+	e.SetOCR(ocr)
+	ocr.SetCloudBinding(func(context.Context) (string, string, bool) {
+		return "01ARZ3NDEKTSV4RRFFQ69G5FAA", "ocr-v1", true
+	})
+	ocr.SetProvider(func(context.Context, []byte, string) (string, error) {
+		return "没有可见文字", nil
+	})
+	e.SetAdapterFactoryForTest(func(_ context.Context, p provider.Provider) (llmadapter.Adapter, error) {
+		if p.ID == visionCatalogProviderID {
+			visionCalls++
+			return sceneVisionAdapter{}, nil
+		}
+		return visionFallbackAdapter{id: p.ID, requests: requests}, nil
+	})
+	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","sessionId":"` + chatAttachmentSessionID + `","messages":[{"role":"user","content":"这个图片显示的是什么"}],"contextRefs":[{"type":"attachment","id":"` + image.ID + `"}]}`
+	response := e.HandleStreaming(context.Background(), validRequest("chat.start", payload), func(bridge.Event) error { return nil })
+	if !response.OK {
+		t.Fatalf("chat.start failed: %#v", response)
+	}
+	req := capturedChatRequest(t, requests)
+	if localCalls != 1 || visionCalls != 1 || len(req.Images) != 0 {
+		t.Fatalf("local=%d vision=%d images=%d", localCalls, visionCalls, len(req.Images))
+	}
+	var combined strings.Builder
+	for _, message := range req.Messages {
+		combined.WriteString(message.Content)
+	}
+	if !strings.Contains(combined.String(), "一只橙色的猫") || strings.Contains(combined.String(), "没有读出可用内容") {
+		t.Fatal(combined.String())
+	}
+}
+
+func TestChatStartConfiguredVisionModelBeatsLocalGarbage(t *testing.T) {
+	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1}
+	webp := append([]byte("RIFF"), 0, 0, 0, 0, 'W', 'E', 'B', 'P', 1)
+	cases := []struct {
+		name, mime, file, question, seen string
+		data                             []byte
+		keepTool                         bool
+	}{
+		{"没字", "image/webp", "rabbit.webp", "这个图片是什么", "一只白兔", webp, false},
+		{"打开文件", "image/png", "file.png", "帮我打开桌面的这个文件", "已删除的应用.html", png, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			digest := sha256.Sum256(tc.data)
+			image := attachment.Attachment{
+				ID: chatAttachmentID, ProjectID: chatAttachmentProjectID, SessionID: chatAttachmentSessionID,
+				FileRef: "selected-image", OriginalName: tc.file, MIME: tc.mime, Size: int64(len(tc.data)),
+				SHA256: hex.EncodeToString(digest[:]), ParseStatus: attachment.StatusFailed,
+			}
+			store := &chatAttachmentStore{byID: map[string]*attachment.Attachment{image.ID: &image}}
+			requests := make(chan llmadapter.Request, 1)
+			localCalls := 0
+			e := NewEngineWithContextReader(visionCatalogProvider{supportsVision: false}, nil, nil, nil, chatAttachmentReader{}, nil, "test", streamTestLease{})
+			e.SetAttachmentService(attachmentapp.NewService(store, chatAttachmentFiles{image.FileRef: tc.data}))
+			runtime, err := toolruntime.New(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { runtime.Close() })
+			e.SetToolRuntime(runtime)
+			ocr := ocrapp.New(ocrapp.NewFileStore(t.TempDir() + "/ocr-routing.json"))
+			ocr.SetLocalImage(func(context.Context, []byte) (doctext.PDFOCRResult, error) {
+				localCalls++
+				return doctext.PDFOCRResult{Method: "windows-ocr", Pages: []doctext.OCRPage{{Page: 1, Text: "wy画"}}}, nil
+			})
+			e.SetOCR(ocr)
+			providerCalls := 0
+			ocr.SetProvider(func(context.Context, []byte, string) (string, error) {
+				providerCalls++
+				return tc.seen, nil
+			})
+			e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
+				return visionFallbackAdapter{requests: requests}, nil
+			})
+			payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","sessionId":"` + chatAttachmentSessionID + `","messages":[{"role":"user","content":"` + tc.question + `"}],"contextRefs":[{"type":"attachment","id":"` + image.ID + `"}]}`
+			response := e.HandleStreaming(context.Background(), validRequest("chat.start", payload), func(bridge.Event) error { return nil })
+			if !response.OK {
+				t.Fatalf("chat.start failed: %#v", response)
+			}
+			req := capturedChatRequest(t, requests)
+			if providerCalls != 1 || localCalls != 0 || len(req.Images) != 0 {
+				t.Fatalf("provider=%d local=%d images=%d", providerCalls, localCalls, len(req.Images))
+			}
+			var combined strings.Builder
+			for _, message := range req.Messages {
+				combined.WriteString(message.Content)
+			}
+			if !strings.Contains(combined.String(), tc.seen) || strings.Contains(combined.String(), "wy画") || strings.Contains(combined.String(), "没有读出") {
+				t.Fatal(combined.String())
+			}
+			if tc.keepTool {
+				kept := false
+				for _, tool := range req.Tools {
+					if tool.Name == "desktop.open" || tool.Name == "computer.act" {
+						kept = true
+					}
+				}
+				if !kept {
+					t.Fatal("follow-up lost the open tool")
+				}
+			}
+		})
 	}
 }
 
@@ -485,7 +652,7 @@ func TestChatStartLocalOCRAnswersBeforeVisionPixels(t *testing.T) {
 	}
 	store := &chatAttachmentStore{byID: map[string]*attachment.Attachment{image.ID: &image}}
 	requests := make(chan llmadapter.Request, 1)
-	e := NewEngineWithContextReader(visionCatalogProvider{supportsVision: true}, nil, nil, nil, chatAttachmentReader{}, nil, "test", streamTestLease{})
+	e := NewEngineWithContextReader(chatAttachmentProvider{}, nil, nil, nil, chatAttachmentReader{}, nil, "test", streamTestLease{})
 	e.SetAttachmentService(attachmentapp.NewService(store, chatAttachmentFiles{image.FileRef: data}))
 	ocr := ocrapp.New(ocrapp.NewFileStore(t.TempDir() + "/ocr-routing.json"))
 	ocr.SetLocalImage(func(context.Context, []byte) (doctext.PDFOCRResult, error) {
@@ -524,7 +691,7 @@ func TestChatStartAnyPictureGoesToTheOCRModel(t *testing.T) {
 	webp := append([]byte("RIFF"), 0, 0, 0, 0, 'W', 'E', 'B', 'P', 1)
 	cases := []struct {
 		name, mime, file, question, seen string
-		data                              []byte
+		data                             []byte
 	}{
 		{"带字", "image/png", "invoice.png", "看看这张", "发票 88", png},
 		{"不带字", "image/jpeg", "plain.jpg", "这是啥", "一张没有文字的白纸", jpeg},

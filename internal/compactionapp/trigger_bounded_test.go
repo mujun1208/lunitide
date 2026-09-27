@@ -3,6 +3,7 @@ package compactionapp
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -97,14 +98,16 @@ func TestTriggerCooldownRegression(t *testing.T) {
 		t.Fatalf("expected first trigger to fire: %s", r1.Reason)
 	}
 	// Mark succeeded so "compaction in progress" is not the blocking reason.
-	checkpointStore.checkpoints[r1.CheckpointID].Status = compaction.StatusSucceeded
+	cp := checkpointStore.checkpoints[r1.CheckpointID]
+	cp.Status = compaction.StatusSucceeded
+	growTokensAfter(tokenRepo, messages, cp.SourceEndSeq, 4000)
 
 	r2, err := trigger.CheckAndTrigger(context.Background(), "s1", "p1", "m1", "v1", 100000)
 	if err != nil {
 		t.Fatalf("second trigger: %v", err)
 	}
-	if r2.Triggered {
-		t.Fatal("expected second immediate trigger to be blocked by cooldown")
+	if r2.Triggered || !strings.Contains(r2.Reason, "cooldown") {
+		t.Fatalf("expected cooldown to block the fat tail, got triggered=%v reason=%s", r2.Triggered, r2.Reason)
 	}
 }
 

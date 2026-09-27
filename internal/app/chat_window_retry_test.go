@@ -130,6 +130,102 @@ func TestProviderModelContextWindow(t *testing.T) {
 	}
 }
 
+func TestFoldKeepsOpenPageAndWrittenTextOnTheCard(t *testing.T) {
+	path := `E:\Lunitide-Project\poc\it-crm\index.html`
+	msgs := []llmadapter.Message{{
+		Role:    llmadapter.RoleAssistant,
+		Content: "已写内容如下\n水象段落尾标",
+	}}
+	for i := 0; i < 12; i++ {
+		msgs = append(msgs, llmadapter.Message{Role: llmadapter.RoleAssistant, Content: strings.Repeat("很长的旧正文", 800)})
+	}
+	msgs = append(msgs, llmadapter.Message{Role: llmadapter.RoleUser, Content: "帮我新增一个商机\n\n" + openPageFileMark + path + "\n" + openPageFileInstruction})
+	card := taskHandoffCard(msgs)
+	if !strings.Contains(card, path) || !strings.Contains(card, "水象段落尾标") || !strings.Contains(card, "任务卡") {
+		t.Fatalf("task card dropped the page or the writing: %s", card)
+	}
+}
+
+func TestOpenPageReadKeepsTheTailWhenTheFileIsLong(t *testing.T) {
+	path := `E:\Lunitide-Project\poc\it-crm\index.html`
+	user := "帮我新增一个商机\n\n" + openPageFileMark + path + "\n" + openPageFileInstruction
+	body := "头标记\n" + strings.Repeat("行", 5000) + "\n尾标记商机"
+	req := &llmadapter.Request{Messages: []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: user},
+		{Role: llmadapter.RoleTool, Content: body},
+	}}
+	fitModelRequest(req, 128000)
+	got := ""
+	for _, m := range req.Messages {
+		if m.Role == llmadapter.RoleTool {
+			got = m.Content
+		}
+	}
+	if !strings.Contains(got, "头标记") || !strings.Contains(got, "尾标记商机") {
+		t.Fatalf("the page being edited lost an end: %s", got)
+	}
+}
+
+func TestOlderOpenPageReadKeepsTheTailAfterAFailedEdit(t *testing.T) {
+	path := `E:\Lunitide-Project\poc\it-crm\index.html`
+	user := "帮我新增一个商机\n\n" + openPageFileMark + path + "\n" + openPageFileInstruction
+	body := "头标记\n" + strings.Repeat("行", 5000) + "\n尾标记商机"
+	req := &llmadapter.Request{Messages: []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: user},
+		{Role: llmadapter.RoleTool, Content: body},
+		{Role: llmadapter.RoleTool, Content: "ok:false\nworkspace.edit failed"},
+	}}
+	fitModelRequest(req, 128000)
+	got := req.Messages[1].Content
+	if !strings.Contains(got, "头标记") || !strings.Contains(got, "尾标记商机") {
+		t.Fatalf("the earlier page read lost an end: %s", got)
+	}
+}
+
+func TestUnderBudgetKeepsTheThread(t *testing.T) {
+	req := &llmadapter.Request{Messages: []llmadapter.Message{
+		{Role: llmadapter.RoleAssistant, Content: "旧自测记录-早"},
+		{Role: llmadapter.RoleAssistant, Content: "第二段还在"},
+		{Role: llmadapter.RoleUser, Content: "把这份周报写完"},
+	}}
+	for i := 0; i < 14; i++ {
+		req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "近期一句"})
+	}
+	fitModelRequest(req, 128000)
+	joined := ""
+	for _, m := range req.Messages {
+		joined += m.Content
+	}
+	if !strings.Contains(joined, "旧自测记录-早") || !strings.Contains(joined, "把这份周报写完") {
+		t.Fatalf("short thread was folded before the window: %s", joined)
+	}
+}
+
+func TestOverBudgetFoldsToATaskCard(t *testing.T) {
+	msgs := []llmadapter.Message{{Role: llmadapter.RoleAssistant, Content: "旧自测记录-早 " + strings.Repeat("页", 4000)}}
+	msgs = append(msgs, llmadapter.Message{
+		Role: llmadapter.RoleAssistant,
+		ToolCalls: []llmadapter.ToolCall{{
+			Name:      "todo.write",
+			Arguments: []byte(`{"todos":[{"content":"写入东航商机","status":"in_progress"}]}`),
+		}},
+	})
+	msgs = append(msgs, llmadapter.Message{Role: llmadapter.RoleTool, Content: "edited index.html (1 replacement)"})
+	for i := 0; i < 10; i++ {
+		msgs = append(msgs, llmadapter.Message{Role: llmadapter.RoleAssistant, Content: strings.Repeat("很长的旧正文", 800)})
+	}
+	msgs = append(msgs, llmadapter.Message{Role: llmadapter.RoleUser, Content: "把这份周报写完"})
+	req := &llmadapter.Request{Messages: msgs}
+	fitModelRequest(req, 1000)
+	joined := ""
+	for _, m := range req.Messages {
+		joined += m.Content + "\n"
+	}
+	if strings.Contains(joined, "旧自测记录-早") || !strings.Contains(joined, "任务卡") || !strings.Contains(joined, "把这份周报写完") || !strings.Contains(joined, "写入东航商机") || !strings.Contains(joined, "index.html") {
+		t.Fatalf("over-budget fold lost the task card: %s", joined)
+	}
+}
+
 func TestCompanionColdMaxMessages(t *testing.T) {
 	if companionColdMaxMessages(true) != companionMaxMessages {
 		t.Fatal("checkpoint should keep the voice window")

@@ -213,6 +213,124 @@ func TestTrigger_BelowHighWatermark(t *testing.T) {
 	}
 }
 
+func TestSummarizedTailBelowWatermarkDoesNotTrigger(t *testing.T) {
+	tokenRepo := newFakeTokenRepo()
+	tokenRepo.usageBySession["s1"] = 2_000_000
+	messages := makeMessages(40)
+	for i := range messages {
+		count := int64(5000)
+		if messages[i].Sequence > 30 {
+			count = 100
+		}
+		tokenRepo.entries[messages[i].ID] = &token.LedgerEntry{MessageID: messages[i].ID, TokenCount: count}
+	}
+	checkpointStore := newFakeCheckpointStore()
+	checkpointStore.checkpoints["cp-old"] = &compaction.Checkpoint{
+		ID: "cp-old", SessionID: "s1", Status: compaction.StatusSucceeded,
+		Version: 1, SourceStartSeq: 1, SourceEndSeq: 30,
+	}
+	checkpointStore.bySession["s1"] = []*compaction.Checkpoint{checkpointStore.checkpoints["cp-old"]}
+	trigger := NewTrigger(DefaultWatermarkConfig(), tokenRepo, checkpointStore, &fakeMessageReader{messages: messages})
+
+	result, err := trigger.CheckAndTrigger(context.Background(), "s1", "p1", "m1", "v1", 100000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Triggered {
+		t.Fatalf("a finished summary ran again: %s", result.Reason)
+	}
+	if result.CurrentUsage != 1000 {
+		t.Fatalf("usage = %d, want the tokens after the summary", result.CurrentUsage)
+	}
+}
+
+func TestSummarizedTailAboveWatermarkTriggersAgain(t *testing.T) {
+	tokenRepo := newFakeTokenRepo()
+	tokenRepo.usageBySession["s1"] = 2_000_000
+	messages := makeMessages(20)
+	for i := range messages {
+		count := int64(100)
+		if messages[i].Sequence > 10 {
+			count = 10000
+		}
+		tokenRepo.entries[messages[i].ID] = &token.LedgerEntry{MessageID: messages[i].ID, TokenCount: count}
+	}
+	checkpointStore := newFakeCheckpointStore()
+	checkpointStore.checkpoints["cp-old"] = &compaction.Checkpoint{
+		ID: "cp-old", SessionID: "s1", Status: compaction.StatusSucceeded,
+		Version: 2, SourceStartSeq: 1, SourceEndSeq: 10,
+		SourceDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
+	checkpointStore.bySession["s1"] = []*compaction.Checkpoint{checkpointStore.checkpoints["cp-old"]}
+	trigger := NewTrigger(DefaultWatermarkConfig(), tokenRepo, checkpointStore, &fakeMessageReader{messages: messages})
+
+	result, err := trigger.CheckAndTrigger(context.Background(), "s1", "p1", "m1", "v1", 100000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Triggered {
+		t.Fatalf("a fat tail after the summary did not compact: %s", result.Reason)
+	}
+	if result.CurrentUsage != 100000 {
+		t.Fatalf("usage = %d, want the tokens after the summary", result.CurrentUsage)
+	}
+}
+
+func TestSummarizedTailCountsPastOnePage(t *testing.T) {
+	tokenRepo := newFakeTokenRepo()
+	tokenRepo.usageBySession["s1"] = 2_000_000
+	messages := makeMessages(400)
+	for i := range messages {
+		count := int64(5000)
+		if messages[i].Sequence > 100 {
+			count = 100
+		}
+		tokenRepo.entries[messages[i].ID] = &token.LedgerEntry{MessageID: messages[i].ID, TokenCount: count}
+	}
+	checkpointStore := newFakeCheckpointStore()
+	checkpointStore.checkpoints["cp-old"] = &compaction.Checkpoint{
+		ID: "cp-old", SessionID: "s1", Status: compaction.StatusSucceeded,
+		Version: 1, SourceStartSeq: 1, SourceEndSeq: 100,
+	}
+	checkpointStore.bySession["s1"] = []*compaction.Checkpoint{checkpointStore.checkpoints["cp-old"]}
+	trigger := NewTrigger(DefaultWatermarkConfig(), tokenRepo, checkpointStore, &fakeMessageReader{messages: messages})
+
+	result, err := trigger.CheckAndTrigger(context.Background(), "s1", "p1", "m1", "v1", 100000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Triggered {
+		t.Fatalf("a long summarized history ran again: %s", result.Reason)
+	}
+	if result.CurrentUsage != 30000 {
+		t.Fatalf("usage = %d, want every message after the summary", result.CurrentUsage)
+	}
+}
+
+func TestFailedSummaryStillCountsTheWholeSession(t *testing.T) {
+	tokenRepo := newFakeTokenRepo()
+	tokenRepo.usageBySession["s1"] = 100000
+	messages := makeMessages(50)
+	for i := range messages {
+		tokenRepo.entries[messages[i].ID] = &token.LedgerEntry{MessageID: messages[i].ID, TokenCount: 2000}
+	}
+	checkpointStore := newFakeCheckpointStore()
+	checkpointStore.checkpoints["cp-old"] = &compaction.Checkpoint{
+		ID: "cp-old", SessionID: "s1", Status: compaction.StatusFailed,
+		Version: 1, SourceStartSeq: 1, SourceEndSeq: 40,
+	}
+	checkpointStore.bySession["s1"] = []*compaction.Checkpoint{checkpointStore.checkpoints["cp-old"]}
+	trigger := NewTrigger(DefaultWatermarkConfig(), tokenRepo, checkpointStore, &fakeMessageReader{messages: messages})
+
+	result, err := trigger.CheckAndTrigger(context.Background(), "s1", "p1", "m1", "v1", 100000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Triggered {
+		t.Fatalf("a failed summary hid the full session: %s", result.Reason)
+	}
+}
+
 func TestTrigger_AboveHighWatermark(t *testing.T) {
 	tokenRepo := newFakeTokenRepo()
 	// 100,000 tokens > 100,000 * 0.80 = 80,000
@@ -369,6 +487,9 @@ func TestTrigger_ResetCooldown(t *testing.T) {
 	// Mark the checkpoint as succeeded to simulate compaction completion.
 	cp := checkpointStore.checkpoints[result.CheckpointID]
 	cp.Status = compaction.StatusSucceeded
+	// The summary left a short tail. New work has to push that tail over the
+	// watermark before another summary is allowed.
+	growTokensAfter(tokenRepo, messages, cp.SourceEndSeq, 4000)
 
 	// Reset cooldown.
 	trigger.ResetCooldown("s1")
@@ -488,6 +609,17 @@ func makeMessages(n int) []MessageInfo {
 		}
 	}
 	return msgs
+}
+
+func growTokensAfter(repo *fakeTokenRepo, messages []MessageInfo, afterSeq, tokens int64) {
+	for _, msg := range messages {
+		if msg.Sequence <= afterSeq {
+			continue
+		}
+		if entry := repo.entries[msg.ID]; entry != nil {
+			entry.TokenCount = tokens
+		}
+	}
 }
 
 // makeForwardMessages generates n messages in forward order (oldest first).

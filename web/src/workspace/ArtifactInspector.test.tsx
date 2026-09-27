@@ -49,16 +49,23 @@ it('discards a late preview after switching to a different artifact',async()=>{
   expect(screen.getByText('最新文件')).toBeInTheDocument()
 })
 
-it('runs a generated page in the app when there is no preview origin',async()=>{
+it('opens a scripted page from its file when the preview origin is missing', async () => {
+  vi.mocked(artifactReviewBridge.preview).mockResolvedValue({
+    kind: 'html', path: 'index.html', content: '<script>load()</script><h1>页面</h1>', size: 20,
+    absolutePath: 'E:/Lunitide-Project/poc/it-crm/index.html',
+  })
+  render(<ArtifactInspector sessionId={sessionId} path="index.html" onClose={vi.fn()} />)
+  const slot = await screen.findByTitle('页面 file:///E:/Lunitide-Project/poc/it-crm/index.html')
+  expect(slot).toHaveAttribute('data-lunitide-pane', 'browser')
+  expect(screen.queryByText('正在打开页面')).toBeNull()
+  expect(document.querySelector('iframe[srcdoc]')).toBeNull()
+})
+
+it('does not inline a scripted page when the preview origin is missing',async()=>{
   vi.mocked(artifactReviewBridge.preview).mockResolvedValue({kind:'html',path:'page.html',content:'<script>fetch("https://external.invalid")</script><h1>页面</h1>',size:20})
   render(<ArtifactInspector sessionId={sessionId} path="page.html" onClose={vi.fn()}/> )
-  const frame=await screen.findByTitle('产物预览 page.html')
-  const sandbox=(frame.getAttribute('sandbox')||'').split(' ')
-  expect(sandbox).toContain('allow-scripts')
-  expect(sandbox).not.toContain('allow-same-origin')
-  expect(frame).toHaveAttribute('referrerpolicy','no-referrer')
-  expect(frame.getAttribute('srcdoc')).toContain("script-src 'unsafe-inline'")
-  expect(frame.getAttribute('srcdoc')).toContain("connect-src 'none'")
+  expect(await screen.findByText('正在打开页面')).toBeInTheDocument()
+  expect(document.querySelector('iframe[srcdoc]')).toBeNull()
   expect(screen.queryByRole('button',{name:'用本机浏览器打开'})).toBeNull()
 })
 

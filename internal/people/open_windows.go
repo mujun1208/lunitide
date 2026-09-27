@@ -15,6 +15,9 @@ var (
 )
 
 func openLocalPath(path string) error {
+	if suppressShell.Load() {
+		return nil
+	}
 	operation, err := syscall.UTF16PtrFromString("open")
 	if err != nil {
 		return err

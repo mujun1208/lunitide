@@ -18,10 +18,24 @@ import (
 	"github.com/lunitide/lunitide/internal/voice"
 )
 
+// testLiveRun replaces dictation, playback, download, and image recognition
+// inside one test, so an entry check cannot reach the network.
+var testLiveRun func(context.Context) ([]TaskResult, string)
+
+// SetTestLiveRun installs that replacement and returns the restore function.
+func SetTestLiveRun(fn func(context.Context) ([]TaskResult, string)) func() {
+	prev := testLiveRun
+	testLiveRun = fn
+	return func() { testLiveRun = prev }
+}
+
 // DefaultLiveRun is what 「重新检测」 executes: dictation, playback, the Kokoro
 // size check, image OCR, and the newest engine log. It does not install
 // anything and does not edit product code.
 func DefaultLiveRun(ctx context.Context) ([]TaskResult, string) {
+	if testLiveRun != nil {
+		return testLiveRun(ctx)
+	}
 	return []TaskResult{
 		probeDictate(ctx),
 		probePlay(ctx),

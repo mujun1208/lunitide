@@ -292,6 +292,57 @@ func TestUnfinishedTurnInjectionUsesCheckpoint(t *testing.T) {
 	}
 }
 
+func TestResumeKeepsWritingThatLivedOnlyInThinking(t *testing.T) {
+	tools, err := toolruntime.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tools.Close()
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	e.SetToolRuntime(tools)
+	session := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	const written = "Section 7 水象：巨蟹和双鱼已经写到这里。"
+	if err := e.saveTurnCheckpoint(session, chatTurnCheckpoint{
+		Status:       turnStatusInterrupted,
+		Goal:         "帮我写一个关于12星座爱情匹配的长篇分析报告论文",
+		PersistDraft: written,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := e.unfinishedTurnInjection(session, resumeUserPrompt)
+	if !strings.Contains(got, written) || !strings.Contains(got, "不要重写") || !strings.Contains(got, "12星座") {
+		t.Fatalf("continue dropped the writing already on the page: %q", got)
+	}
+	turn := chatTurnCheckpoint{Goal: resumeUserPrompt, Status: turnStatusRunning}
+	if err := e.reconcileTurnCheckpointOnStart(session, &turn); err != nil {
+		t.Fatal(err)
+	}
+	if turn.PersistDraft != written || !strings.Contains(turn.Goal, "12星座") {
+		t.Fatalf("resume checkpoint lost the partial: goal=%q draft=%q", turn.Goal, turn.PersistDraft)
+	}
+}
+
+func TestLiveTaskSkipsTheSessionSummary(t *testing.T) {
+	prev := chatTurnCheckpoint{Status: turnStatusInterrupted, Goal: "新增一个商机"}
+	if !liveTaskSkipsSessionSummary(resumeUserPrompt, prev) {
+		t.Fatal("continue ran a session summary over the unfinished task")
+	}
+	if !liveTaskSkipsSessionSummary("做好了吗", prev) {
+		t.Fatal("a progress question summarized the unfinished task")
+	}
+	running := chatTurnCheckpoint{Status: turnStatusRunning, Goal: "新增一个商机"}
+	if !liveTaskSkipsSessionSummary("继续", running) {
+		t.Fatal("a running turn was summarized")
+	}
+	if liveTaskSkipsSessionSummary("帮我写一个关于12星座的长篇分析报告论文", prev) {
+		t.Fatal("a new topic skipped the session summary")
+	}
+	done := chatTurnCheckpoint{Status: turnStatusCompleted, Goal: "新增一个商机"}
+	if liveTaskSkipsSessionSummary(resumeUserPrompt, done) {
+		t.Fatal("a finished turn skipped the session summary")
+	}
+}
+
 func TestCancelStreamByCheckpointStreamID(t *testing.T) {
 	tools, err := toolruntime.Open(t.TempDir())
 	if err != nil {

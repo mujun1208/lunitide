@@ -128,7 +128,7 @@ func TestAutomationRunKeepsSchedulerBudgetBeyondStartupDeadline(t *testing.T) {
 	if out.Err != nil || observed <= time.Duration(bridge.ChatStartDeadlineMS)*time.Millisecond {
 		t.Fatalf("whole run was cut down to startup budget: remaining=%v outcome=%+v", observed, out)
 	}
-	if observed > turnGenerationMaxTime || out.SessionID != job.SessionID || out.Summary != "已完成新闻简报" {
+	if observed <= turnGenerationMaxTime || observed > turnGenerationHardTime || out.SessionID != job.SessionID || out.Summary != "已完成新闻简报" {
 		t.Fatalf("generation budget or execution receipt lost: remaining=%v outcome=%+v", observed, out)
 	}
 }

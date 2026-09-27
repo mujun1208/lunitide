@@ -85,6 +85,9 @@ func taskCause(task TaskResult) string {
 	case "fail":
 		return "这一次真实跑动没有完成"
 	case "untested":
+		if localModelLengthTimeout(task.Evidence) {
+			return "本机模型目录已核对。服务器文件长度这次没有在时限内拿到，不能据此说下载已经坏了。"
+		}
 		return "这一项没有跑起来，不能算通过"
 	default:
 		return "探测通过。这不是一条待修缺陷。"

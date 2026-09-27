@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -11,6 +12,8 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/skill"
 	"github.com/lunitide/lunitide/internal/llmadapter"
+	"github.com/lunitide/lunitide/internal/secretlease"
+	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
 func TestExtendToolLoopLimit(t *testing.T) {
@@ -394,7 +397,7 @@ func (a *continueAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Req
 	}
 }
 
-func runContinueStream(t *testing.T, adapter *continueAdapter, req llmadapter.Request) []string {
+func runContinueStream(t *testing.T, adapter llmadapter.Adapter, req llmadapter.Request) []string {
 	t.Helper()
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
 	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
@@ -826,5 +829,1052 @@ func TestStepLimitExcuseKeepsTheTurnGoing(t *testing.T) {
 	}
 	if !shouldContinueTurn("找到 59 个技能目录，请确认是否继续安装。", true, 0, false) {
 		t.Fatal("a continue handoff still finishes the batch")
+	}
+}
+
+type wireLimitAdapter struct {
+	calls     int
+	keptLevel bool
+}
+
+func (a *wireLimitAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
+}
+func (a *wireLimitAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
+}
+func (a *wireLimitAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	a.calls++
+	if a.calls == 1 {
+		_ = emit(llmadapter.Delta{Reasoning: "先把整篇论证在脑子里写完"})
+		return llmadapter.Response{}, &llmadapter.Error{Code: "RESPONSE_BODY_TOO_LARGE", Stage: llmadapter.StageStream}
+	}
+	a.keptLevel = req.ReasoningLevel == "max" && !req.DisableReasoning
+	text := "论文正文：时间与空间可以交错，人可以穿过它们。"
+	if err := emit(llmadapter.Delta{Text: text}); err != nil {
+		return llmadapter.Response{}, err
+	}
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
+}
+
+func TestRunStreamWritesTheAnswerAfterTheResponseIsCut(t *testing.T) {
+	adapter := &wireLimitAdapter{}
+	deltas := runContinueStream(t, adapter, llmadapter.Request{
+		Model:          "m",
+		ReasoningLevel: "max",
+		Messages:       []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "帮我写一个时间空间论证，人可以穿越时空的，长篇分析论文"}},
+	})
+	joined := strings.Join(deltas, "")
+	if adapter.calls < 2 || adapter.calls > 12 || !adapter.keptLevel {
+		t.Fatalf("calls=%d keptLevel=%v, want the cut to continue at the selected level", adapter.calls, adapter.keptLevel)
+	}
+	if !strings.Contains(joined, "论文正文") || strings.Contains(joined, "无法执行") {
+		t.Fatalf("paper missing or replaced by the failure notice: %q", joined)
+	}
+}
+
+type wireLimitToolAdapter struct {
+	calls    int
+	keptTool bool
+}
+
+func (a *wireLimitToolAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
+}
+func (a *wireLimitToolAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
+}
+func (a *wireLimitToolAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	a.calls++
+	if a.calls == 1 {
+		_ = emit(llmadapter.Delta{Reasoning: "先把整份改动在脑子里重写一遍"})
+		return llmadapter.Response{}, &llmadapter.Error{Code: "RESPONSE_BODY_TOO_LARGE", Stage: llmadapter.StageStream}
+	}
+	hasWrite, hasTodo, hasAsk := false, false, false
+	for _, tool := range req.Tools {
+		switch tool.Name {
+		case "workspace.write":
+			hasWrite = true
+		case "todo.write":
+			hasTodo = true
+		case "user.ask":
+			hasAsk = true
+		}
+	}
+	a.keptTool = hasWrite && hasTodo && hasAsk && req.ReasoningLevel == "max" && !req.DisableReasoning
+	text := "已加上客户管理，并写入一条商机。"
+	if err := emit(llmadapter.Delta{Text: text}); err != nil {
+		return llmadapter.Response{}, err
+	}
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
+}
+
+func TestRunStreamKeepsWorkingAfterAnyTaskIsCut(t *testing.T) {
+	adapter := &wireLimitToolAdapter{}
+	deltas := runContinueStream(t, adapter, llmadapter.Request{
+		Model:          "m",
+		ReasoningLevel: "max",
+		Tools:          []llmadapter.ToolDefinition{{Name: "workspace.write"}, {Name: "todo.write"}, {Name: "user.ask"}},
+		Messages:       []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "在现有页面上加上客户管理，并添加一条商机数据"}},
+	})
+	joined := strings.Join(deltas, "")
+	if adapter.calls < 2 || !adapter.keptTool {
+		t.Fatalf("calls=%d keptTool=%v, want the task to continue with its tools", adapter.calls, adapter.keptTool)
+	}
+	if !strings.Contains(joined, "已加上客户管理") || strings.Contains(joined, "无法执行") {
+		t.Fatalf("result missing or replaced by the failure notice: %q", joined)
+	}
+	if strings.Count(joined, "已加上客户管理") != 1 {
+		t.Fatalf("landed result was written again: %q", joined)
+	}
+}
+
+func TestLandedAnswerIsNotPendingWork(t *testing.T) {
+	if announcedWorkStillPending("已加上客户管理，并写入一条商机。", nil) {
+		t.Fatal("a finished edit must not be scheduled again")
+	}
+	if announcedWorkStillPending("论文正文：时间与空间可以交错，人可以穿过它们。这一段论证已经写好，可以直接交给读者。", nil) {
+		t.Fatal("a finished essay must not be scheduled again")
+	}
+	if !announcedWorkStillPending("我准备把脚本写入文件。", nil) {
+		t.Fatal("a promise that has not landed must still continue")
+	}
+}
+
+func TestAnyChatAnswersOnceAfterTheResponseIsCut(t *testing.T) {
+	adapter := &wireLimitToolAdapter{}
+	deltas := runContinueStream(t, adapter, llmadapter.Request{
+		Model:    "m",
+		Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "帮我把这三件事排个顺序：买菜、回邮件、给妈妈打电话"}},
+	})
+	joined := strings.Join(deltas, "")
+	if adapter.calls != 2 {
+		t.Fatalf("calls=%d, an ordinary question must finish on the next sample", adapter.calls)
+	}
+	if strings.Count(joined, "已加上客户管理") != 1 || strings.Contains(joined, "无法执行") {
+		t.Fatalf("ordinary answer repeated or failed: %q", joined)
+	}
+}
+
+type repeatPaperAdapter struct {
+	calls int
+}
+
+func (a *repeatPaperAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
+}
+func (a *repeatPaperAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
+}
+func (a *repeatPaperAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	a.calls++
+	if a.calls == 1 {
+		_ = emit(llmadapter.Delta{Reasoning: "先把整篇论证在脑子里写完"})
+		return llmadapter.Response{}, &llmadapter.Error{Code: "RESPONSE_BODY_TOO_LARGE", Stage: llmadapter.StageStream}
+	}
+	text := "论文正文：时间与空间可以交错，人可以穿过它们。这一段论证已经写好，可以直接交给读者。"
+	if err := emit(llmadapter.Delta{Text: text}); err != nil {
+		return llmadapter.Response{}, err
+	}
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
+}
+
+const longGenFailure = "我按论文流水线写完了正文。生成失败：小说缺少章节标题，请按章使用一级标题。请检查文档结构后再生成。这一步没有把文件落到工作区，任务停在这里。正文已经在对话里，缺的只是按一级标题重新生成那一个文件。不要再从受众和调研重新写一遍。请不要让用户再点一次继续。文件仍未生成。"
+
+func TestGenerationFailureIsNotAFinishedAnswer(t *testing.T) {
+	if answerAlreadyDelivered(longGenFailure) {
+		t.Fatal("a generation failure narration is not a finished answer")
+	}
+}
+
+func TestRunStreamRetriesAFailedDocumentWithoutRestarting(t *testing.T) {
+	adapter := &genFailAdapter{}
+	deltas := runContinueStream(t, adapter, llmadapter.Request{
+		Model:          "m",
+		ReasoningLevel: "max",
+		Messages: []llmadapter.Message{{
+			Role:    llmadapter.RoleUser,
+			Content: "帮我写一个时间空间论证，人可以穿越时空的，长篇分析论文",
+		}},
+	})
+	joined := strings.Join(deltas, "")
+	if adapter.calls < 2 || adapter.calls > 4 {
+		t.Fatalf("calls=%d, want the failed generate to continue once in the same turn", adapter.calls)
+	}
+	if adapter.quietOnRetry || adapter.level != "max" || !adapter.sawStay {
+		t.Fatalf("retry quiet=%v level=%q stay=%v, the selected level or the same essay was dropped", adapter.quietOnRetry, adapter.level, adapter.sawStay)
+	}
+	if !strings.Contains(joined, "已生成文档") || strings.Contains(joined, "无法执行") {
+		t.Fatalf("file was not finished in the same turn: %q", joined)
+	}
+}
+
+func TestResumeAfterGenerationFailureDoesNotStartOver(t *testing.T) {
+	adapter := &resumeFileAdapter{}
+	failure := "生成失败：小说缺少章节标题，请按章使用一级标题。正文已经写好，文件没有落到工作区。"
+	deltas := runContinueStream(t, adapter, llmadapter.Request{
+		Model:          "m",
+		ReasoningLevel: "max",
+		Messages: []llmadapter.Message{
+			{Role: llmadapter.RoleUser, Content: "帮我写一个时间空间论证，人可以穿越时空的，长篇分析论文"},
+			{Role: llmadapter.RoleAssistant, Content: failure},
+			{Role: llmadapter.RoleUser, Content: "继续上次未完成的工作。结合任务清单、已完成步骤和我补充过的说明，接着做到完成。"},
+		},
+	})
+	joined := strings.Join(deltas, "")
+	if adapter.calls != 1 || adapter.quiet || adapter.level != "max" || !adapter.sawStay {
+		t.Fatalf("calls=%d quiet=%v level=%q stay=%v, resume started the paper over or dropped the level", adapter.calls, adapter.quiet, adapter.level, adapter.sawStay)
+	}
+	if !strings.Contains(joined, "已生成文档") || strings.Contains(joined, failure) {
+		t.Fatalf("resume did not finish the file: %q", joined)
+	}
+}
+
+type genFailAdapter struct {
+	calls        int
+	quietOnRetry bool
+	level        string
+	sawStay      bool
+}
+
+func (a *genFailAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
+}
+func (a *genFailAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
+}
+func (a *genFailAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	a.calls++
+	if a.calls == 1 {
+		text := longGenFailure
+		if err := emit(llmadapter.Delta{Text: text}); err != nil {
+			return llmadapter.Response{}, err
+		}
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
+	}
+	a.quietOnRetry = req.DisableReasoning
+	a.level = req.ReasoningLevel
+	for _, m := range req.Messages {
+		if m.Role == llmadapter.RoleSystem && strings.Contains(m.Content, "不要从头") {
+			a.sawStay = true
+		}
+	}
+	text := "已生成文档，并写到工作区。"
+	if err := emit(llmadapter.Delta{Text: text}); err != nil {
+		return llmadapter.Response{}, err
+	}
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
+}
+
+type resumeFileAdapter struct {
+	calls   int
+	quiet   bool
+	level   string
+	sawStay bool
+}
+
+func (a *resumeFileAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
+}
+func (a *resumeFileAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
+}
+func (a *resumeFileAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	a.calls++
+	a.quiet = req.DisableReasoning
+	a.level = req.ReasoningLevel
+	for _, m := range req.Messages {
+		if m.Role == llmadapter.RoleSystem && strings.Contains(m.Content, "不要从头") {
+			a.sawStay = true
+		}
+	}
+	text := "已生成文档，并写到工作区。"
+	if err := emit(llmadapter.Delta{Text: text}); err != nil {
+		return llmadapter.Response{}, err
+	}
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
+}
+
+func TestRunStreamDoesNotRepeatALandedAnswer(t *testing.T) {
+	adapter := &repeatPaperAdapter{}
+	deltas := runContinueStream(t, adapter, llmadapter.Request{
+		Model:    "m",
+		Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "帮我写一个时间空间论证，人可以穿越时空的，长篇分析论文"}},
+	})
+	joined := strings.Join(deltas, "")
+	if adapter.calls > 3 {
+		t.Fatalf("calls=%d, the same answer was sent back to the model", adapter.calls)
+	}
+	if strings.Count(joined, "论文正文") != 1 || strings.Contains(joined, "无法执行") {
+		t.Fatalf("answer repeated or replaced: calls=%d text=%q", adapter.calls, joined)
+	}
+}
+
+type paperEmptyAdapter struct {
+	calls       int
+	firstQuiet  bool
+	firstLevel  string
+	secondQuiet bool
+	secondLevel string
+	toldToWrite bool
+}
+
+func (a *paperEmptyAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
+}
+func (a *paperEmptyAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
+}
+func (a *paperEmptyAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	a.calls++
+	told := false
+	for _, m := range req.Messages {
+		if m.Role == llmadapter.RoleSystem && strings.Contains(m.Content, "这一轮直接写成文件") {
+			told = true
+		}
+	}
+	if a.calls == 1 {
+		a.firstQuiet = req.DisableReasoning
+		a.firstLevel = req.ReasoningLevel
+		a.toldToWrite = told
+		_ = emit(llmadapter.Delta{Reasoning: "先把整篇论文在脑子里写完，先不落文件"})
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant}}, nil
+	}
+	a.secondQuiet = req.DisableReasoning
+	a.secondLevel = req.ReasoningLevel
+	if told {
+		a.toldToWrite = true
+	}
+	text := "已生成文档，并写到工作区。"
+	if err := emit(llmadapter.Delta{Text: text}); err != nil {
+		return llmadapter.Response{}, err
+	}
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
+}
+
+func TestRunStreamWritesAPaperWithoutALongThink(t *testing.T) {
+	adapter := &paperEmptyAdapter{}
+	deltas := runContinueStream(t, adapter, llmadapter.Request{
+		Model:          "glm-5.3",
+		ReasoningLevel: "max",
+		Messages:       []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "帮我写一个时间空间论证，人可以穿越时空的，长篇分析论文，写成 Word"}},
+	})
+	joined := strings.Join(deltas, "")
+	if adapter.calls != 2 || adapter.firstQuiet || adapter.firstLevel != "max" || adapter.secondQuiet || adapter.secondLevel != "max" || !adapter.toldToWrite {
+		t.Fatalf("calls=%d firstQuiet=%v firstLevel=%q secondQuiet=%v secondLevel=%q told=%v", adapter.calls, adapter.firstQuiet, adapter.firstLevel, adapter.secondQuiet, adapter.secondLevel, adapter.toldToWrite)
+	}
+	if !strings.Contains(joined, "已生成文档") || strings.Contains(joined, "无法执行") {
+		t.Fatalf("paper did not finish in the same turn: %q", joined)
+	}
+}
+
+func openPageEditRequest() llmadapter.Request {
+	path := `E:\Lunitide-Project\poc\it-crm\index.html`
+	body := "加上客户管理，再加一条商机\n\n[正在看的页面文件]\n" + path + "\n" + openPageFileInstruction + "\n\n[浏览器页面]\n" + strings.Repeat("商机赢单率", 80)
+	return llmadapter.Request{
+		Model:          "m",
+		ReasoningLevel: "max",
+		Tools:          []llmadapter.ToolDefinition{{Name: "workspace.edit"}},
+		Messages:       []llmadapter.Message{{Role: llmadapter.RoleUser, Content: body}},
+	}
+}
+
+func TestOpenPageEditDropsThePageDumpAfterProviderRejects(t *testing.T) {
+	adapter := &pageRejectAdapter{}
+	deltas := runContinueStream(t, adapter, openPageEditRequest())
+	joined := strings.Join(deltas, "")
+	if adapter.calls < 2 || adapter.calls > 4 {
+		t.Fatalf("calls=%d, the rejected edit did not continue", adapter.calls)
+	}
+	if adapter.quiet || adapter.level != "max" || !adapter.keptTools || adapter.stillDump {
+		t.Fatalf("quiet=%v level=%q tools=%v dump=%v", adapter.quiet, adapter.level, adapter.keptTools, adapter.stillDump)
+	}
+	if strings.Contains(joined, "无法执行") || !strings.Contains(joined, "已加上客户管理") {
+		t.Fatalf("edit did not finish: %q", joined)
+	}
+}
+
+func TestOpenPageEditDoesNotStopAtALongNarration(t *testing.T) {
+	adapter := &pageNarrationAdapter{}
+	deltas := runContinueStream(t, adapter, openPageEditRequest())
+	joined := strings.Join(deltas, "")
+	if adapter.calls < 2 || adapter.calls > 4 || !adapter.sawEdit {
+		t.Fatalf("calls=%d sawEdit=%v, the narration ended the edit", adapter.calls, adapter.sawEdit)
+	}
+	if strings.Contains(joined, "无法执行") || !strings.Contains(joined, "已加上客户管理") {
+		t.Fatalf("edit did not finish: %q", joined)
+	}
+}
+
+type landedPageRejectAdapter struct {
+	calls    int
+	quiet    bool
+	level    string
+	argRunes int
+}
+
+func (a *landedPageRejectAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
+}
+func (a *landedPageRejectAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
+}
+func (a *landedPageRejectAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	a.calls++
+	if a.calls == 1 {
+		text := "已写入东航商机。"
+		if err := emit(llmadapter.Delta{Text: text}); err != nil {
+			return llmadapter.Response{}, err
+		}
+		args := `{"path":"index.html","oldText":"` + strings.Repeat("商机", 2000) + `","newText":"东航"}`
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text, ToolCalls: []llmadapter.ToolCall{{
+			ID: "edit-landed-1", Name: "workspace.edit", Arguments: []byte(args),
+		}}}}, nil
+	}
+	a.quiet = req.DisableReasoning
+	a.level = req.ReasoningLevel
+	for _, m := range req.Messages {
+		for _, call := range m.ToolCalls {
+			if call.Name == "workspace.edit" && len(call.Arguments) > a.argRunes {
+				a.argRunes = len(call.Arguments)
+			}
+		}
+	}
+	return llmadapter.Response{}, &llmadapter.Error{Code: "STREAM_BAD_REQUEST", Stage: llmadapter.StageStream, Message: "upstream reported a stream error"}
+}
+
+type silentPageEditAdapter struct{ calls int }
+
+func (a *silentPageEditAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
+}
+func (a *silentPageEditAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
+}
+func (a *silentPageEditAdapter) Stream(context.Context, []byte, llmadapter.Request, func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	a.calls++
+	if a.calls == 1 {
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{
+			ID: "edit-silent-1", Name: "workspace.edit", Arguments: []byte(`{"path":"index.html","oldText":"a","newText":"b"}`),
+		}}}}, nil
+	}
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant}}, nil
+}
+
+func TestLandedPageEditSpeaksWhenTheModelSaysNothing(t *testing.T) {
+	adapter := &silentPageEditAdapter{}
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
+	e.toolExecHook = func(context.Context, executionMode, string, string, json.RawMessage) (toolruntime.Result, error) {
+		return toolruntime.Result{Output: "edited index.html (1 replacement(s))"}, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	state := &streamState{cancel: cancel, state: streamRunning}
+	id := "stream-silent-page"
+	e.streams[id] = state
+	events := make(chan bridge.Event, 32)
+	done := make(chan struct{})
+	var deltas []string
+	go func() {
+		for ev := range events {
+			if ev.Type == bridge.EventDelta && ev.Delta != nil {
+				deltas = append(deltas, ev.Delta.Text)
+			}
+			if ev.Type == bridge.EventCompleted || ev.Type == bridge.EventFailed {
+				close(done)
+				return
+			}
+		}
+	}()
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, openPageEditRequest(), func(event bridge.Event) error { events <- event; return nil }, "")
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for terminal event")
+	}
+	joined := strings.Join(deltas, "")
+	if !strings.Contains(joined, "已经写进正在看的页面") {
+		t.Fatalf("a landed edit stayed silent: %q", joined)
+	}
+	if strings.Contains(joined, "无法执行") || strings.Contains(joined, "商机赢单率") {
+		t.Fatalf("silent edit leaked a failure or the page dump: %q", joined)
+	}
+}
+
+func TestZodiacReportLandsInOneCall(t *testing.T) {
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
+		return &canvasOnceAdapter{}, nil
+	})
+	e.toolExecHook = func(context.Context, executionMode, string, string, json.RawMessage) (toolruntime.Result, error) {
+		return toolruntime.Result{Output: "generated canvas.html (12000 bytes)"}, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	state := &streamState{cancel: cancel, state: streamRunning}
+	id := "stream-zodiac-once"
+	e.streams[id] = state
+	events := make(chan bridge.Event, 32)
+	done := make(chan struct{})
+	var deltas []string
+	go func() {
+		for ev := range events {
+			if ev.Type == bridge.EventDelta && ev.Delta != nil {
+				deltas = append(deltas, ev.Delta.Text)
+			}
+			if ev.Type == bridge.EventCompleted || ev.Type == bridge.EventFailed {
+				close(done)
+				return
+			}
+		}
+	}()
+	goal := "帮我写一个关于，12星座，不同星座和不同星座的爱情，哪里匹配，哪里合适，哪里不匹配，不合适，相互之间在一起能得多少分的，长篇分析报告论文。"
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, llmadapter.Request{
+		Model:          "glm-5.3",
+		ReasoningLevel: "max",
+		Tools:          []llmadapter.ToolDefinition{{Name: "canvas.present"}, {Name: "user.ask"}},
+		Messages:       []llmadapter.Message{{Role: llmadapter.RoleUser, Content: goal}},
+	}, func(event bridge.Event) error { events <- event; return nil }, "")
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for terminal event")
+	}
+	joined := strings.Join(deltas, "")
+	if !strings.Contains(joined, "已经放到画布上") {
+		t.Fatalf("one canvas write did not report: %q", joined)
+	}
+}
+
+type canvasOnceAdapter struct{ calls int }
+
+func (a *canvasOnceAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
+}
+func (a *canvasOnceAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
+}
+func (a *canvasOnceAdapter) Stream(context.Context, []byte, llmadapter.Request, func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	a.calls++
+	if a.calls > 1 {
+		return llmadapter.Response{}, errors.New("second model call")
+	}
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{
+		ID: "canvas-once-1", Name: "canvas.present", Arguments: []byte(`{"title":"星座","sections":[{"heading":"白羊","body":"匹配说明"}]}`),
+	}}}}, nil
+}
+
+func TestLandedPageEditSurvivesSupplierRejection(t *testing.T) {
+	adapter := &landedPageRejectAdapter{}
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
+	e.toolExecHook = func(context.Context, executionMode, string, string, json.RawMessage) (toolruntime.Result, error) {
+		return toolruntime.Result{Output: "edited index.html (1 replacement(s))"}, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	state := &streamState{cancel: cancel, state: streamRunning}
+	id := "stream-landed-page"
+	e.streams[id] = state
+	events := make(chan bridge.Event, 32)
+	done := make(chan struct{})
+	var deltas []string
+	go func() {
+		for ev := range events {
+			if ev.Type == bridge.EventDelta && ev.Delta != nil {
+				deltas = append(deltas, ev.Delta.Text)
+			}
+			if ev.Type == bridge.EventCompleted || ev.Type == bridge.EventFailed {
+				close(done)
+				return
+			}
+		}
+	}()
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, openPageEditRequest(), func(event bridge.Event) error { events <- event; return nil }, "")
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for terminal event")
+	}
+	joined := strings.Join(deltas, "")
+	if adapter.calls != 2 || adapter.quiet || adapter.level != "max" || adapter.argRunes > 800 {
+		t.Fatalf("calls=%d quiet=%v level=%q argRunes=%d", adapter.calls, adapter.quiet, adapter.level, adapter.argRunes)
+	}
+	if strings.Contains(joined, "无法执行") || !strings.Contains(joined, "已写入东航商机") {
+		t.Fatalf("landed edit was reported as a failure: %q", joined)
+	}
+}
+
+type pageRejectAdapter struct {
+	calls     int
+	quiet     bool
+	level     string
+	keptTools bool
+	stillDump bool
+}
+
+func (a *pageRejectAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
+}
+func (a *pageRejectAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
+}
+func (a *pageRejectAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	a.calls++
+	if a.calls == 1 {
+		return llmadapter.Response{}, &llmadapter.Error{Code: "STREAM_BAD_REQUEST", Stage: llmadapter.StageStream, Message: "upstream reported a stream error"}
+	}
+	if a.calls == 2 {
+		a.quiet = req.DisableReasoning
+		a.level = req.ReasoningLevel
+		a.keptTools = len(req.Tools) > 0
+		for _, m := range req.Messages {
+			if strings.Contains(m.Content, "[浏览器页面]") {
+				a.stillDump = true
+			}
+		}
+	}
+	text := "已加上客户管理。"
+	if err := emit(llmadapter.Delta{Text: text}); err != nil {
+		return llmadapter.Response{}, err
+	}
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
+}
+
+type pageNarrationAdapter struct {
+	calls   int
+	sawEdit bool
+}
+
+func (a *pageNarrationAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
+}
+func (a *pageNarrationAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
+}
+func (a *pageNarrationAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	a.calls++
+	if a.calls == 1 {
+		text := "我先看完整个页面，再规划客户模块的位置、字段和交互。这一段只是说明，文件还没有改。页面上已有的商机清单保持不动，等下一步再写入客户管理。"
+		if err := emit(llmadapter.Delta{Text: text}); err != nil {
+			return llmadapter.Response{}, err
+		}
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
+	}
+	for _, m := range req.Messages {
+		if m.Role == llmadapter.RoleSystem && strings.Contains(m.Content, "只改正在看的这个文件") {
+			a.sawEdit = true
+		}
+	}
+	text := "已加上客户管理。"
+	if err := emit(llmadapter.Delta{Text: text}); err != nil {
+		return llmadapter.Response{}, err
+	}
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
+}
+
+type anyTaskRejectAdapter struct {
+	calls    int
+	quiet    bool
+	level    string
+	keptPlan bool
+	keptAsk  bool
+}
+
+func (a *anyTaskRejectAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
+}
+func (a *anyTaskRejectAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
+}
+func (a *anyTaskRejectAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	a.calls++
+	if a.calls == 1 {
+		return llmadapter.Response{}, &llmadapter.Error{Code: "STREAM_BAD_REQUEST", Stage: llmadapter.StageStream, Message: "upstream reported a stream error"}
+	}
+	a.quiet = req.DisableReasoning
+	a.level = req.ReasoningLevel
+	hasTodo, hasAsk := false, false
+	for _, tool := range req.Tools {
+		switch tool.Name {
+		case "todo.write":
+			hasTodo = true
+		case "user.ask":
+			hasAsk = true
+		}
+	}
+	a.keptPlan = hasTodo
+	a.keptAsk = hasAsk
+	text := "计划还在，继续做完。"
+	if err := emit(llmadapter.Delta{Text: text}); err != nil {
+		return llmadapter.Response{}, err
+	}
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
+}
+
+func TestAnyTaskContinuesAfterSupplierRejection(t *testing.T) {
+	adapter := &anyTaskRejectAdapter{}
+	deltas := runContinueStream(t, adapter, llmadapter.Request{
+		Model:          "glm-5.3",
+		ReasoningLevel: "max",
+		Tools:          []llmadapter.ToolDefinition{{Name: "todo.write"}, {Name: "user.ask"}, {Name: "workspace.write"}},
+		Messages:       []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "把这份周报拆成步骤并写完"}},
+	})
+	joined := strings.Join(deltas, "")
+	if adapter.calls < 2 || adapter.calls > 4 || adapter.quiet || adapter.level != "max" || !adapter.keptPlan || !adapter.keptAsk {
+		t.Fatalf("calls=%d quiet=%v level=%q plan=%v ask=%v", adapter.calls, adapter.quiet, adapter.level, adapter.keptPlan, adapter.keptAsk)
+	}
+	if strings.Contains(joined, "无法执行") || strings.Contains(joined, "纯对话模式") || !strings.Contains(joined, "计划还在") {
+		t.Fatalf("task broke after the supplier rejection: %q", joined)
+	}
+}
+
+type compactRejectAdapter struct {
+	calls      int
+	quiet      bool
+	level      string
+	keptPlan   bool
+	keptAsk    bool
+	droppedOld bool
+	keptGoal   bool
+}
+
+func (a *compactRejectAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
+}
+func (a *compactRejectAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
+}
+func (a *compactRejectAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	a.calls++
+	if a.calls == 1 {
+		_ = emit(llmadapter.Delta{Text: "先看到旧的自测记录"})
+		return llmadapter.Response{}, &llmadapter.Error{Code: "HTTP_400", Stage: llmadapter.StageHTTP, HTTPStatus: 400, Message: "rejected"}
+	}
+	a.quiet = req.DisableReasoning
+	a.level = req.ReasoningLevel
+	a.droppedOld = true
+	for _, m := range req.Messages {
+		if strings.Contains(m.Content, "旧自测记录-早") {
+			a.droppedOld = false
+		}
+		if strings.Contains(m.Content, "把这份周报写完") {
+			a.keptGoal = true
+		}
+	}
+	for _, tool := range req.Tools {
+		switch tool.Name {
+		case "todo.write":
+			a.keptPlan = true
+		case "user.ask":
+			a.keptAsk = true
+		}
+	}
+	text := "周报已经写完。"
+	if err := emit(llmadapter.Delta{Text: text}); err != nil {
+		return llmadapter.Response{}, err
+	}
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
+}
+
+type canvasWriteAdapter struct {
+	calls   int
+	level   string
+	quiet   bool
+	told    bool
+	sawStay bool
+}
+
+func (a *canvasWriteAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
+}
+func (a *canvasWriteAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
+}
+func (a *canvasWriteAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	a.calls++
+	a.quiet = req.DisableReasoning
+	a.level = req.ReasoningLevel
+	for _, m := range req.Messages {
+		if strings.Contains(m.Content, "canvas.present") && strings.Contains(m.Content, "不要只思考") {
+			a.told = true
+		}
+		if strings.Contains(m.Content, "不要从头再想") {
+			a.sawStay = true
+		}
+	}
+	if a.calls == 1 {
+		return llmadapter.Response{}, errTurnGenerationBudget
+	}
+	text := "星座报告已经写在画布上。"
+	if err := emit(llmadapter.Delta{Text: text}); err != nil {
+		return llmadapter.Response{}, err
+	}
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
+}
+
+type resumeThinkAdapter struct {
+	calls   int
+	sawBody bool
+	level   string
+	quiet   bool
+}
+
+func (a *resumeThinkAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
+}
+func (a *resumeThinkAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
+}
+func (a *resumeThinkAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	a.calls++
+	a.quiet = req.DisableReasoning
+	a.level = req.ReasoningLevel
+	for _, m := range req.Messages {
+		if strings.Contains(m.Content, "Section 7 水象：巨蟹和双鱼") && strings.Contains(m.Content, "不要重写") {
+			a.sawBody = true
+		}
+	}
+	if a.calls == 1 {
+		if err := emit(llmadapter.Delta{Reasoning: "Section 7 水象：巨蟹和双鱼已经写到这里。"}); err != nil {
+			return llmadapter.Response{}, err
+		}
+		return llmadapter.Response{}, &llmadapter.Error{Code: "TIMEOUT", Stage: llmadapter.StageHTTP, Message: "timeout"}
+	}
+	text := "已经接到上文，放上画布。"
+	if err := emit(llmadapter.Delta{Text: text}); err != nil {
+		return llmadapter.Response{}, err
+	}
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
+}
+
+func TestCutThinkContinuesFromTheWrittenText(t *testing.T) {
+	adapter := &resumeThinkAdapter{}
+	deltas := runContinueStream(t, adapter, llmadapter.Request{
+		Model:          "glm-5.3",
+		ReasoningLevel: "max",
+		Tools:          []llmadapter.ToolDefinition{{Name: "canvas.present"}, {Name: "user.ask"}},
+		Messages:       []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "帮我写一个关于12星座爱情匹配的长篇分析报告论文"}},
+	})
+	joined := strings.Join(deltas, "")
+	if adapter.calls < 2 || adapter.quiet || adapter.level != "max" || !adapter.sawBody {
+		t.Fatalf("calls=%d quiet=%v level=%q sawBody=%v", adapter.calls, adapter.quiet, adapter.level, adapter.sawBody)
+	}
+	if strings.Contains(joined, "无法执行") || !strings.Contains(joined, "已经接到上文") {
+		t.Fatalf("cut think restarted instead of continuing: %q", joined)
+	}
+}
+
+type pageGiveUpAdapter struct {
+	calls  int
+	edited bool
+}
+
+func (a *pageGiveUpAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
+}
+func (a *pageGiveUpAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
+}
+func (a *pageGiveUpAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	a.calls++
+	if a.edited {
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant}}, nil
+	}
+	for _, m := range req.Messages {
+		if m.Role == llmadapter.RoleSystem && strings.Contains(m.Content, "不要对用户说没成功") {
+			a.edited = true
+			return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{
+				ID: "edit-after-giveup", Name: "workspace.edit", Arguments: []byte(`{"path":"index.html","oldText":"a","newText":"b"}`),
+			}}}}, nil
+		}
+	}
+	if a.calls == 1 {
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{
+			ID: "read-1", Name: "workspace.read", Arguments: []byte(`{"path":"index.html"}`),
+		}}}}, nil
+	}
+	text := "这次操作没成功，请再说具体一点让我重试。"
+	if err := emit(llmadapter.Delta{Text: text}); err != nil {
+		return llmadapter.Response{}, err
+	}
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
+}
+
+func TestPageEditDoesNotStopWhenTheModelGivesUp(t *testing.T) {
+	adapter := &pageGiveUpAdapter{}
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
+	e.toolExecHook = func(_ context.Context, _ executionMode, _ string, name string, _ json.RawMessage) (toolruntime.Result, error) {
+		if name == "workspace.edit" {
+			return toolruntime.Result{Output: "edited index.html (1 replacement(s))"}, nil
+		}
+		return toolruntime.Result{Output: "read index.html"}, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	state := &streamState{cancel: cancel, state: streamRunning}
+	id := "stream-page-giveup"
+	e.streams[id] = state
+	events := make(chan bridge.Event, 64)
+	done := make(chan struct{})
+	var deltas []string
+	go func() {
+		for ev := range events {
+			if ev.Type == bridge.EventDelta && ev.Delta != nil {
+				deltas = append(deltas, ev.Delta.Text)
+			}
+			if ev.Type == bridge.EventCompleted || ev.Type == bridge.EventFailed {
+				close(done)
+				return
+			}
+		}
+	}()
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, openPageEditRequest(), func(event bridge.Event) error { events <- event; return nil }, "")
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for terminal event")
+	}
+	joined := strings.Join(deltas, "")
+	if !adapter.edited || !strings.Contains(joined, "已经写进正在看的页面") {
+		t.Fatalf("give-up ended the page edit: edited=%v text=%q", adapter.edited, joined)
+	}
+}
+
+func TestPaperContinuesAfterTheTimeCut(t *testing.T) {
+	adapter := &canvasWriteAdapter{}
+	deltas := runContinueStream(t, adapter, llmadapter.Request{
+		Model:          "glm-5.3",
+		ReasoningLevel: "max",
+		Tools:          []llmadapter.ToolDefinition{{Name: "canvas.present"}, {Name: "todo.write"}},
+		Messages:       []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "帮我写一个关于12星座爱情匹配的长篇分析报告论文"}},
+	})
+	joined := strings.Join(deltas, "")
+	if adapter.calls < 2 || adapter.quiet || adapter.level != "max" || !adapter.told || !adapter.sawStay {
+		t.Fatalf("calls=%d quiet=%v level=%q told=%v stay=%v", adapter.calls, adapter.quiet, adapter.level, adapter.told, adapter.sawStay)
+	}
+	if strings.Contains(joined, "无法执行") || !strings.Contains(joined, "星座报告已经写在画布上") {
+		t.Fatalf("time cut ended the paper: %q", joined)
+	}
+}
+
+func TestDeepThinkQuietWaitMatchesTheTurnBudget(t *testing.T) {
+	e := NewEngineWithGateway(nil, "test", nil)
+	if e.network.ResponseHeaderTimeout < turnGenerationHardTime || e.network.IdleReadTimeout < turnGenerationHardTime {
+		t.Fatalf("header=%s idle=%s, a long task is cut before the hard clock %s", e.network.ResponseHeaderTimeout, e.network.IdleReadTimeout, turnGenerationHardTime)
+	}
+}
+
+func TestChatWorkOutlivesTheTenMinuteLease(t *testing.T) {
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	parent, cancel := context.WithTimeout(context.Background(), turnGenerationHardTime)
+	defer cancel()
+	err := e.withProviderLease(parent, provider.Provider{
+		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible,
+		BaseURL: "https://api.example.com", CredentialRef: "credential-ref",
+	}, secretlease.OperationChat, func(ctx context.Context, _ []byte) error {
+		deadline, ok := ctx.Deadline()
+		left := time.Duration(0)
+		if ok {
+			left = time.Until(deadline)
+		}
+		if !ok || left < 2*time.Hour {
+			t.Fatalf("the turn is still cut at %s", left.Round(time.Second))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+type timeoutFoldAdapter struct {
+	calls    int
+	quiet    bool
+	level    string
+	dropped  bool
+	keptGoal bool
+}
+
+func (a *timeoutFoldAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
+}
+func (a *timeoutFoldAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
+}
+func (a *timeoutFoldAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	a.calls++
+	a.quiet = req.DisableReasoning
+	a.level = req.ReasoningLevel
+	a.dropped = true
+	for _, m := range req.Messages {
+		if strings.Contains(m.Content, "旧自测记录-早") {
+			a.dropped = false
+		}
+		if strings.Contains(m.Content, "长篇分析报告") {
+			a.keptGoal = true
+		}
+	}
+	if !a.dropped {
+		return llmadapter.Response{}, &llmadapter.Error{Code: "TIMEOUT", Stage: llmadapter.StageHTTP, Message: "quiet"}
+	}
+	text := "星座报告已经写在画布上。"
+	if err := emit(llmadapter.Delta{Text: text}); err != nil {
+		return llmadapter.Response{}, err
+	}
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: text}}, nil
+}
+
+func TestTimeoutFoldsTheThreadAndFinishes(t *testing.T) {
+	messages := make([]llmadapter.Message, 0, 17)
+	for i := 0; i < 16; i++ {
+		content := "近期记录"
+		if i < 8 {
+			content = "旧自测记录-早 selftest.mjs"
+		}
+		messages = append(messages, llmadapter.Message{Role: llmadapter.RoleAssistant, Content: content})
+	}
+	messages = append(messages, llmadapter.Message{Role: llmadapter.RoleUser, Content: "帮我写一个长篇分析报告"})
+	adapter := &timeoutFoldAdapter{}
+	deltas := runContinueStream(t, adapter, llmadapter.Request{
+		Model:          "glm-5.3",
+		ReasoningLevel: "max",
+		Tools:          []llmadapter.ToolDefinition{{Name: "todo.write"}, {Name: "user.ask"}, {Name: "canvas.present"}},
+		Messages:       messages,
+	})
+	joined := strings.Join(deltas, "")
+	if adapter.calls < 2 || adapter.quiet || adapter.level != "max" || !adapter.dropped || !adapter.keptGoal {
+		t.Fatalf("calls=%d quiet=%v level=%q dropped=%v goal=%v", adapter.calls, adapter.quiet, adapter.level, adapter.dropped, adapter.keptGoal)
+	}
+	if strings.Contains(joined, "无法执行") || !strings.Contains(joined, "星座报告已经写在画布上") {
+		t.Fatalf("timeout ended the task: %q", joined)
+	}
+}
+
+func TestSupplierRejectionCompactsEveryTaskAndFinishes(t *testing.T) {
+	messages := make([]llmadapter.Message, 0, 17)
+	for i := 0; i < 16; i++ {
+		content := "近期记录"
+		if i < 8 {
+			content = "旧自测记录-早 selftest.mjs"
+		}
+		messages = append(messages, llmadapter.Message{Role: llmadapter.RoleAssistant, Content: content})
+	}
+	messages = append(messages, llmadapter.Message{Role: llmadapter.RoleUser, Content: "把这份周报写完并落到文件"})
+	adapter := &compactRejectAdapter{}
+	deltas := runContinueStream(t, adapter, llmadapter.Request{
+		Model:          "glm-5.3",
+		ReasoningLevel: "max",
+		Tools:          []llmadapter.ToolDefinition{{Name: "todo.write"}, {Name: "user.ask"}, {Name: "workspace.write"}},
+		Messages:       messages,
+	})
+	joined := strings.Join(deltas, "")
+	if adapter.calls < 2 || adapter.quiet || adapter.level != "max" || !adapter.keptPlan || !adapter.keptAsk || !adapter.droppedOld || !adapter.keptGoal {
+		t.Fatalf("calls=%d quiet=%v level=%q plan=%v ask=%v dropped=%v goal=%v", adapter.calls, adapter.quiet, adapter.level, adapter.keptPlan, adapter.keptAsk, adapter.droppedOld, adapter.keptGoal)
+	}
+	if strings.Contains(joined, "无法执行") || strings.Contains(joined, "纯对话模式") || !strings.Contains(joined, "周报已经写完") {
+		t.Fatalf("task did not finish after the supplier rejection: %q", joined)
 	}
 }

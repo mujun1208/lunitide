@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -169,6 +170,32 @@ type Host struct {
 	// the file system.
 	PreviewTicketResolve func(ctx context.Context, token, rel string) (path string, size int64, err error)
 	previewInflight      chan struct{}
+
+	paneHost           win32.HWND
+	paneController     *wv2.ICoreWebView2Controller
+	paneCore           *wv2.ICoreWebView2
+	paneBootHandler    *wv2.ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler
+	paneCreateHandler  *wv2.ICoreWebView2CreateCoreWebView2ControllerCompletedHandler
+	paneNavHandler     *wv2.ICoreWebView2NavigationStartingEventHandler
+	paneDoneHandler    *wv2.ICoreWebView2NavigationCompletedEventHandler
+	paneWindowHandler  *wv2.ICoreWebView2NewWindowRequestedEventHandler
+	paneMessageHandler *wv2.ICoreWebView2WebMessageReceivedEventHandler
+	paneReadHandler    *wv2.ICoreWebView2ExecuteScriptCompletedHandler
+	paneCiteHandler    *wv2.ICoreWebView2ExecuteScriptCompletedHandler
+	paneTitleHandler   *wv2.ICoreWebView2ExecuteScriptCompletedHandler
+	paneNavToken       wv2.EventRegistrationToken
+	paneDoneToken      wv2.EventRegistrationToken
+	paneWindowToken    wv2.EventRegistrationToken
+	paneMessageToken   wv2.EventRegistrationToken
+	paneCreating       bool
+	paneWanted         bool
+	paneScriptReply    bool
+	paneNextURL        string
+	paneShownURL       string
+	paneDocumentURL    string
+	paneShownKey       int
+	paneKey            int
+	paneBounds         wv2.TagRECT
 }
 
 // windowPos matches Win32 WINDOWPOS on pointer-sized HWND platforms.
@@ -719,6 +746,12 @@ func (h *Host) receive(args *wv2.ICoreWebView2WebMessageReceivedEventArgs, top b
 	if err1 != nil || err2 != nil {
 		return
 	}
+	if top && strings.HasPrefix(source, TrustedOrigin) {
+		if cmd, ok := ParsePaneMessage(message); ok {
+			h.syncPane(cmd)
+			return
+		}
+	}
 	h.mu.Lock()
 	generation := h.generation
 	h.mu.Unlock()
@@ -906,12 +939,18 @@ func (h *Host) notifyParentIfMoved(posFlags uint32) {
 	h.lastNotifyX, h.lastNotifyY = wnd.Left, wnd.Top
 	h.hasNotifyPos = true
 	h.controller.NotifyParentWindowPositionChanged()
+	if h.paneController != nil {
+		h.paneController.NotifyParentWindowPositionChanged()
+	}
 }
 
 func (h *Host) hideWebView() {
 	h.surfaceHidden = true
 	if h.controller != nil {
 		h.controller.SetIsVisible(win32.FALSE)
+	}
+	if h.paneWanted {
+		h.hidePaneHost()
 	}
 }
 
@@ -931,6 +970,9 @@ func (h *Host) fitWebView() {
 	h.hasBounds = true
 	h.lastBoundsAt = time.Now()
 	h.fitting = false
+	if h.paneWanted {
+		h.placePane()
+	}
 }
 
 func (h *Host) wakeWebView(fromOcclusion bool) {
@@ -945,6 +987,9 @@ func (h *Host) wakeWebView(fromOcclusion bool) {
 		if fromOcclusion {
 			h.notifyParentIfMoved(0)
 		}
+	}
+	if h.paneWanted {
+		h.placePane()
 	}
 	h.kickRendererSurface(fromOcclusion)
 }

@@ -37,7 +37,7 @@ func (r *Runtime) readWorkspace(ctx context.Context, mode Mode, session string, 
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
-	path, err := r.path(mode, session, args.Path, false, unconfined)
+	path, err := r.resolveWorkspacePath(ctx, mode, session, args.Path, false, unconfined)
 	if err != nil {
 		return Result{}, err
 	}

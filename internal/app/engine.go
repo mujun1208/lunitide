@@ -1180,7 +1180,10 @@ func (e *Engine) ListReadableAttachmentsBySession(ctx context.Context, sessionID
 // broker into provider diagnostics. Public requests never carry either.
 func NewEngineWithGateway(providers ProviderService, version string, leases LeaseClient) *Engine {
 	return &Engine{providers: providers, version: version, leases: leases, streamEngine: streamEngine{streams: make(map[string]*streamState), maxStreams: 32}, adapterCache: make(map[string]llmadapter.Adapter),
-		network: networkpolicy.Options{ConnectTimeout: 10 * time.Second, ResponseHeaderTimeout: 60 * time.Second, DisableOverallTimeout: true, IdleReadTimeout: 90 * time.Second, MaxResponseBytes: 1 << 20},
+		// Header and idle waits match the long task clock. A quiet reasoning
+		// pass is not cut at ten minutes. Three hours with no new bytes is
+		// the stop for a connection that never returns.
+		network: networkpolicy.Options{ConnectTimeout: 10 * time.Second, ResponseHeaderTimeout: turnGenerationHardTime, DisableOverallTimeout: true, IdleReadTimeout: turnGenerationHardTime, MaxResponseBytes: 1 << 20},
 		gateway: llmadapter.Options{MaxModels: 50, MaxAttempts: 1, MaxRequestBytes: 5 << 20, DisableTokenEfficiency: !config.TokenEfficiencyEnabled()}}
 }
 

@@ -11,12 +11,13 @@ import (
 )
 
 type callHop struct {
-	Method   string
-	Handler  string
-	Branch   bool
-	Dispatch bool
-	Steps    []string
-	Missing  []string
+	Method    string
+	Handler   string
+	Branch    bool
+	Dispatch  bool
+	FromBuild bool
+	Steps     []string
+	Missing   []string
 }
 
 type callIndex struct {
@@ -26,6 +27,7 @@ type callIndex struct {
 	bodies     map[string]string
 	sources    map[string]string
 	funcs      map[string]bool
+	frozen     map[string]callHop
 	ready      bool
 }
 
@@ -56,7 +58,10 @@ var (
 )
 
 func traceCalls(cards []Card) (map[string]callHop, bool) {
-	idx := loadCallIndex()
+	return traceWithIndex(cards, loadCallIndex())
+}
+
+func traceWithIndex(cards []Card, idx callIndex) (map[string]callHop, bool) {
 	if !idx.ready {
 		return nil, false
 	}
@@ -73,6 +78,15 @@ func traceCalls(cards []Card) (map[string]callHop, bool) {
 }
 
 func (idx callIndex) lookup(method string) callHop {
+	if idx.frozen != nil {
+		hop, ok := idx.frozen[method]
+		if !ok {
+			return callHop{Method: method, FromBuild: true}
+		}
+		hop.Method = method
+		hop.FromBuild = true
+		return hop
+	}
 	if fn, ok := idx.handlers[method]; ok {
 		return idx.hop(method, fn, idx.bodies[fn])
 	}
@@ -164,7 +178,7 @@ func branchBody(fileText, method string) string {
 func loadCallIndex() callIndex {
 	root := FindProductRoot()
 	if root == "" {
-		return callIndex{}
+		return indexFromCompiledHops()
 	}
 	stamp := newestGo(filepath.Join(root, "internal"))
 	callMu.Lock()
@@ -341,6 +355,14 @@ func functionBody(fileText, fn string) string {
 		next = 1 + loc[0]
 	}
 	return rest[:next]
+}
+
+func indexFromCompiledHops() callIndex {
+	hops := compiledHops()
+	if len(hops) == 0 {
+		return callIndex{}
+	}
+	return callIndex{ready: true, frozen: hops}
 }
 
 func newestGo(root string) time.Time {

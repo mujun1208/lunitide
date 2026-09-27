@@ -681,7 +681,7 @@ func restoreFileLandingTools(filtered, catalog []llmadapter.ToolDefinition, goal
 		write, run = fileLandingNeed(goal, prior)
 	}
 	if !write && !run {
-		return filtered
+		return narrowToolsToThisTask(filtered, catalog, goal, prior, lane)
 	}
 	want := map[string]bool{}
 	if write {
@@ -728,7 +728,296 @@ func restoreFileLandingTools(filtered, catalog []llmadapter.ToolDefinition, goal
 		}
 		filtered = kept
 	}
-	return filtered
+	if wantsDefaultCanvas(goal) && lane != LaneL2 && lane != LaneL2Ask && !strings.Contains(goal, "[引用专家") {
+		return canvasWriteTools(filtered, catalog)
+	}
+	return narrowToolsToThisTask(filtered, catalog, goal, prior, lane)
+}
+
+// narrowToolsToThisTask drops the catalog a wide lane just put back.
+// One job keeps the tools that job uses. A list of eight or fewer that
+// did not match a job stays as the caller built it.
+func narrowToolsToThisTask(filtered, catalog []llmadapter.ToolDefinition, goal string, prior bool, lane ChatLane) []llmadapter.ToolDefinition {
+	if lane == LaneL0 || lane == "" {
+		return filtered
+	}
+	keep := toolsForThisTask(goal, lane)
+	if keep == nil {
+		if len(filtered) <= 8 {
+			return filtered
+		}
+		keep = wideFallbackKeep(goal, prior, lane)
+	}
+	return pickTaskTools(filtered, catalog, keep)
+}
+
+func toolsForThisTask(goal string, lane ChatLane) map[string]bool {
+	g := chatRoutingText(goal)
+	if g == "" || isShortIdleGreeting(g) {
+		return nil
+	}
+	if strings.Contains(goal, "[引用专家") || strings.Contains(g, "[引用专家") {
+		keep := make(map[string]bool, len(specialistToolAllow))
+		for name := range specialistToolAllow {
+			keep[name] = true
+		}
+		return keep
+	}
+	if strings.Contains(goal, openPageFileMark) || strings.Contains(g, openPageFileMark) {
+		return openPageTools(goal)
+	}
+	if _, _, ok := videounderstand.DetectShareURL(g); ok && !explicitBrowserIntent(g, strings.ToLower(g)) {
+		return map[string]bool{"video.understand": true, "web.fetch": true, "user.ask": true}
+	}
+	keep := map[string]bool{}
+	matched := false
+	add := func(names ...string) {
+		matched = true
+		for _, name := range names {
+			keep[name] = true
+		}
+	}
+	if looksLikeSkillAuthoringTask(g) || looksLikeExpertAuthoringTask(g) || capabilityWorkTask(g) || strings.Contains(g, "[引用技能") {
+		add("skill.create", "skill.invoke", "skill.try", "skill.view", "skill.manage", "workspace.read", "workspace.write", "workspace.edit", "user.ask")
+		if taskHasSeveralSteps(g) {
+			add("todo.write")
+		}
+		return keep
+	}
+	if kind := mediaGenerationKind(g); kind != "" {
+		add(kind, "user.ask")
+		return keep
+	}
+	if centerPlaybackGoal(g) {
+		add("media.play", "user.ask")
+		return keep
+	}
+	if looksLikeWeatherTurn(g) && !wantsOfficeGen(g) && !wantsDefaultCanvas(g) {
+		add("location.get", "weather.get", "user.ask")
+		return keep
+	}
+	if desktopActGoal(g) && !wantsOfficeGen(g) && !wantsDefaultCanvas(g) {
+		add("desktop.open", "desktop.type", "desktop.quit", "desktop.browse", "system.run", "computer.act", "user.ask")
+		if containsAnyFold(g, strings.ToLower(g), []string{"播放", "听歌", "放歌", "放一首", "随机播放", "来一首"}) {
+			add("media.play")
+		}
+		return keep
+	}
+	if detectTaskRoute(g) == RouteR3 && !wantsOfficeGen(g) {
+		add("browser.act", "web.fetch", "user.ask")
+		if taskHasSeveralSteps(g) {
+			add("todo.write")
+		}
+		return keep
+	}
+	office := wantsOfficeGen(g) || laneLooksLikeOfficeDeliverable(g) || looksLikeGeneratedDocument(g) || ((lane == LaneL2 || lane == LaneL2Ask) && wantsDefaultCanvas(g))
+	if office {
+		addOfficeFamily(keep, g, lane)
+		matched = true
+	}
+	lookup := (looksLikeCurrentLookupTurn(g) || inventoryLookupGoal(g)) && !office
+	if lookup {
+		add("web.search", "web.fetch", "user.ask")
+		if taskHasSeveralSteps(g) {
+			add("todo.write")
+		}
+	}
+	if codeWorkGoal(g) && !office {
+		add("workspace.read", "workspace.edit", "workspace.write", "workspace.search", "command.run", "user.ask")
+		if taskHasSeveralSteps(g) {
+			add("todo.write")
+		}
+	}
+	if !matched && laneLooksLikeInPlaceProse(g) {
+		add("user.ask")
+	}
+	if mentionsSend(g) {
+		keep["im.send"] = true
+		matched = true
+	}
+	if !matched {
+		return nil
+	}
+	keep["user.ask"] = true
+	return keep
+}
+
+func addOfficeFamily(keep map[string]bool, goal string, lane ChatLane) {
+	for _, name := range []string{
+		"user.ask", "workspace.read", "workspace.write", "workspace.edit",
+		"office.generate", "office.inspect", "office.patch", "office.deliver",
+	} {
+		keep[name] = true
+	}
+	if lane == LaneL2 || lane == LaneL2Ask {
+		keep["skill.invoke"] = true
+		keep["skill.try"] = true
+	}
+	if tool := officeGenToolForGoal(goal); tool != "" {
+		keep[tool] = true
+	} else {
+		keep["docx.gen"] = true
+	}
+	if laneLooksLikeResearch(goal) || strings.Contains(goal, "网上") || strings.Contains(goal, "新闻") || strings.Contains(goal, "公开资料") || laneWantsForcedSearch(goal) {
+		keep["web.search"] = true
+		keep["web.fetch"] = true
+	}
+	if taskHasSeveralSteps(goal) {
+		keep["todo.write"] = true
+	}
+}
+
+func openPageTools(goal string) map[string]bool {
+	keep := map[string]bool{"user.ask": true, "workspace.read": true}
+	lower := strings.ToLower(goal)
+	if userAskedToChangeOpenPage(goal) || containsAnyFold(goal, lower, []string{"改成", "换成", "修复", "调整"}) {
+		keep["workspace.edit"] = true
+		keep["workspace.write"] = true
+	}
+	if taskHasSeveralSteps(goal) {
+		keep["todo.write"] = true
+		keep["command.run"] = true
+	}
+	return keep
+}
+
+func wideFallbackKeep(goal string, prior bool, lane ChatLane) map[string]bool {
+	keep := map[string]bool{"user.ask": true}
+	if laneLooksLikeInPlaceProse(goal) || lane == LaneL1 {
+		return keep
+	}
+	write, run := fileLandingNeed(goal, prior)
+	if write || lane == LaneL2 || lane == LaneL2Ask || lane == LaneL3 {
+		keep["workspace.read"] = true
+		keep["workspace.write"] = true
+		keep["workspace.edit"] = true
+	}
+	if run {
+		keep["command.run"] = true
+		keep["html.gen"] = true
+	}
+	if lane == LaneL4 {
+		keep["command.run"] = true
+		keep["system.run"] = true
+	}
+	if taskHasSeveralSteps(goal) {
+		keep["todo.write"] = true
+	}
+	return keep
+}
+
+func looksLikeGeneratedDocument(goal string) bool {
+	if wantsDefaultCanvas(goal) {
+		return false
+	}
+	g := chatRoutingText(goal)
+	if !strings.Contains(g, "文档") && !strings.Contains(g, "文稿") {
+		return false
+	}
+	return strings.Contains(g, "生成") || strings.Contains(g, "写") || strings.Contains(g, "做")
+}
+
+func centerPlaybackGoal(goal string) bool {
+	g := chatRoutingText(goal)
+	lower := strings.ToLower(g)
+	if containsAnyFold(g, lower, []string{"网易云", "汽水", "notepad", "记事本"}) {
+		return false
+	}
+	if containsAnyFold(g, lower, []string{"暂停", "下一首", "上一首"}) && !ownedMediaCenterGoal(g) {
+		return false
+	}
+	if ownedMediaCenterGoal(g) {
+		return true
+	}
+	return containsAnyFold(g, lower, []string{"播放", "放首歌", "放一首", "来一首", "听歌", "我想听", "我要看", "随便放", "播个", "放歌", "播歌"})
+}
+
+func desktopActGoal(goal string) bool {
+	if looksLikeWeatherTurn(goal) {
+		return false
+	}
+	g := chatRoutingText(goal)
+	lower := strings.ToLower(g)
+	if containsAnyFold(g, lower, desktopActHints) || containsAnyFold(g, lower, namedLocalAppHints) {
+		return true
+	}
+	if strings.Contains(g, "打开") && strings.Contains(g, "桌面") && (strings.Contains(g, "文件") || strings.Contains(g, "文档")) && !strings.Contains(g, "浏览器") {
+		return true
+	}
+	if containsAnyFold(g, lower, []string{"暂停", "下一首", "上一首", "网易云", "汽水"}) {
+		return true
+	}
+	return wantsAgentHostAct(g)
+}
+
+func codeWorkGoal(goal string) bool {
+	if strings.Contains(goal, openPageFileMark) {
+		return false
+	}
+	g := chatRoutingText(goal)
+	if officeCodingVerificationTurn(g) {
+		return true
+	}
+	return containsAnyFold(g, strings.ToLower(g), []string{"bug", "编译", "代码", "函数", "脚本", "修复", "修一下", "command.run"})
+}
+
+func mentionsSend(goal string) bool {
+	g := chatRoutingText(goal)
+	return containsAnyFold(g, strings.ToLower(g), []string{"发送", "发给", "发消息", "转发"})
+}
+
+func taskHasSeveralSteps(goal string) bool {
+	g := chatRoutingText(goal)
+	return containsAnyFold(g, strings.ToLower(g), []string{"然后", "并且", "同时", "接着", "另外", "之后再", "再把", "第一步"})
+}
+
+func directTaskTurn(goal string) bool {
+	g := chatRoutingText(goal)
+	if g == "" || isShortIdleGreeting(g) || taskHasSeveralSteps(g) || laneLooksLikeVagueTask(g) {
+		return false
+	}
+	if strings.Contains(g, "周报") && !hasTurnMaterials(g, false, false) {
+		return false
+	}
+	return true
+}
+
+func pickTaskTools(filtered, catalog []llmadapter.ToolDefinition, keep map[string]bool) []llmadapter.ToolDefinition {
+	out := make([]llmadapter.ToolDefinition, 0, len(keep))
+	seen := map[string]bool{}
+	take := func(d llmadapter.ToolDefinition) {
+		if d.Name == "" || seen[d.Name] {
+			return
+		}
+		if keep[d.Name] || strings.HasPrefix(d.Name, mcpToolPrefix) || d.Name == "mcp.search" || d.Name == "mcp.call" {
+			seen[d.Name] = true
+			out = append(out, d)
+		}
+	}
+	for _, d := range filtered {
+		take(d)
+	}
+	for _, d := range catalog {
+		take(d)
+	}
+	return out
+}
+
+// canvasWriteTools is one write. A report that also carries search, desktop
+// and file tools makes a max-reasoning model plan and call them before the
+// article exists.
+func canvasWriteTools(filtered, catalog []llmadapter.ToolDefinition) []llmadapter.ToolDefinition {
+	keep := map[string]bool{"canvas.present": true, "user.ask": true}
+	out := make([]llmadapter.ToolDefinition, 0, 2)
+	seen := map[string]bool{}
+	for _, d := range append(append([]llmadapter.ToolDefinition{}, filtered...), catalog...) {
+		if !keep[d.Name] || seen[d.Name] {
+			continue
+		}
+		seen[d.Name] = true
+		out = append(out, d)
+	}
+	return out
 }
 
 func fileLandingNeed(goal string, prior bool) (write bool, run bool) {
