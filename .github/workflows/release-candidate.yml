@@ -26,12 +26,23 @@ jobs:
       - name: Reject MiniCPM-o / Comni in Setup layout
         shell: pwsh
         run: ./release/Test-OmniExcluded.ps1
-        # Same budget as the Quality workflow: the per-package default of ten
-        # minutes is under what a hosted runner needs for the packages that
-        # replay migrations, and a release must not fail for being slow.
-      - run: go test -timeout 20m ./...
-      - run: go vet ./...
-      - run: go build ./...
+      - name: Test Go with coverage floor
+        shell: pwsh
+        # Align Release candidate quality with the PR Quality ratchet so a
+        # tagged build cannot skip the coverage floor that blocks merges.
+        run: ./release/Check-Coverage.ps1 -Floor 49 -Timeout 25m
+      - name: Vet Go
+        run: go vet ./...
+      - name: Build Go without CGO
+        run: go build ./...
+      - name: Lint Go
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
+          golangci-lint run ./...
+      - name: Scan Go for known vulnerabilities
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          govulncheck ./...
       - run: npm --prefix web run typecheck
       - run: npm --prefix web test -- --run
       - run: npm --prefix web run build

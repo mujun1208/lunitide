@@ -79,6 +79,8 @@ func main() {
 	if *pipe == "" {
 		log.Fatal("pipe is required")
 	}
+	// ReadLaunchBootstrap also returns a broker pipe name. Production uses
+	// in-process secretlease, so the name is discarded (protocol residue).
 	bootstrapSecret, _, err := ipc.ReadLaunchBootstrap(os.Stdin)
 	if err != nil {
 		log.Fatal(err)

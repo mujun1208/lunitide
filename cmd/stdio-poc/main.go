@@ -1,7 +1,8 @@
 // Command stdio-poc runs the M6 slice-5A stdio strong-isolation POC and
 // writes the evidence bundle (bundle.json + stdio-5a.md) for independent
-// security review. The POC verdict alone changes nothing in production:
-// M6-MCP-004 keeps the stdio transport disabled.
+// security review. Production stdio MCP is enabled via the mcp6 registry
+// (allowlisted launcher + metacharacter-free args); this POC is evidence
+// only and does not gate admission.
 //
 // Usage:
 //
