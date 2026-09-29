@@ -88,5 +88,30 @@ it.each([{ button: '选技能', trigger: '/' }, { button: '选专家', trigger: 
   fireEvent.click(screen.getByRole('button', { name: '添加上下文' }));
   fireEvent.click(screen.getByRole('button', { name: new RegExp(button) }));
   await waitFor(() => expect(onSelect).toHaveBeenCalledOnce());
-  expect(onSelect.mock.calls[0][0]).toMatchObject({ project, session, prompt: draft, noAutoSend: true, composerTrigger: trigger });
+	expect(onSelect.mock.calls[0][0]).toMatchObject({ project, session, prompt: draft, noAutoSend: true, composerTrigger: trigger });
+});
+
+it('shows the same working composer controls as a conversation', async () => {
+  localStorage.setItem('lunitide:reasoning-level', 'max');
+  const onManageModels = vi.fn();
+  render(<LaunchHome projects={{ list: vi.fn(async () => ({ items: [project] })), create: vi.fn(async () => project) } as unknown as ProjectBridge} providers={{ list: vi.fn(async () => ({ items: [provider] })) } as unknown as ProviderBridge} sessions={{ create: vi.fn(async () => session), list: vi.fn() } as unknown as SessionBridge} attachments={{} as AttachmentBridge} onCreated={vi.fn()} onDraft={vi.fn()} onSelect={vi.fn()} onOpenProjects={vi.fn()} onManageModels={onManageModels} onCompanion={vi.fn()} companionNotice="" language="zh-CN"/>);
+  expect(await screen.findByRole('button', { name: '模型使用强度' })).toHaveTextContent('极高');
+  expect(screen.getByRole('button', { name: '说话风格' })).toHaveTextContent('默认');
+  expect(screen.getByRole('button', { name: '结构化输出' })).toHaveTextContent('关闭');
+  fireEvent.click(screen.getByRole('button', { name: '管理模型' }));
+  expect(onManageModels).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole('button', { name: '模型使用强度' }));
+  fireEvent.change(screen.getByRole('slider', { name: '调整模型使用强度' }), { target: { value: '0' } });
+  expect(localStorage.getItem('lunitide:reasoning-level')).toBe('low');
+  expect(screen.getByRole('button', { name: '模型使用强度' })).toHaveTextContent('低');
+});
+
+it('shows a picked local file as extension and size without reading it', async () => {
+  vi.mocked(pickComposerFiles).mockResolvedValue({ kind: 'paths', items: [{ path: 'C:/crm.docx', fileName: '支点互动CRM系统需求说明.docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', size: 69222 }], skipped: [] });
+  home();
+  fireEvent.click(screen.getByRole('button', { name: '添加上下文' }));
+  fireEvent.click(screen.getByRole('button', { name: /附件 \/ 文件/ }));
+  expect(await screen.findByText('DOCX · 67.6 KB')).toBeInTheDocument();
+  expect(screen.queryByText(/读取中|%/)).toBeNull();
+  expect(document.querySelector('progress')).toBeNull();
 });

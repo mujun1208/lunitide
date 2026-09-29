@@ -10,6 +10,8 @@ package attachmentapp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -164,6 +166,56 @@ func (f *dirFileStorage) DeleteFile(ctx context.Context, name string) error {
 		return fmt.Errorf("delete attachment file %s: %w", name, err)
 	}
 	return nil
+}
+
+// CopyFrom streams src into name without holding the whole file in memory.
+// max is the stored-byte ceiling. The returned digest covers every stored byte.
+func (f *dirFileStorage) CopyFrom(ctx context.Context, name string, src io.Reader, max int64) (int64, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return 0, "", err
+	}
+	if !safeName(name) {
+		return 0, "", fmt.Errorf("unsafe attachment filename %q", name)
+	}
+	if max < 1 || max > MaxFileSize {
+		max = MaxFileSize
+	}
+	root, err := workspace.NewSecureRoot(f.dir)
+	if err != nil {
+		return 0, "", err
+	}
+	full, err := root.Resolve(name)
+	if err != nil {
+		return 0, "", err
+	}
+	if err = os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		return 0, "", err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(full), ".lunitide-att-*")
+	if err != nil {
+		return 0, "", err
+	}
+	tmpName := tmp.Name()
+	digest := sha256.New()
+	n, copyErr := io.Copy(tmp, io.TeeReader(io.LimitReader(src, max+1), digest))
+	closeErr := tmp.Close()
+	if copyErr != nil || closeErr != nil || n > max {
+		_ = os.Remove(tmpName)
+		if n > max {
+			return 0, "", ErrFileTooLarge
+		}
+		if copyErr != nil {
+			return 0, "", copyErr
+		}
+		return 0, "", closeErr
+	}
+	if err = os.Rename(tmpName, full); err != nil {
+		_ = os.Remove(tmpName)
+		return 0, "", err
+	}
+	return n, hex.EncodeToString(digest.Sum(nil)), nil
 }
 
 // safeName returns true when name is a single ordinary filename with no

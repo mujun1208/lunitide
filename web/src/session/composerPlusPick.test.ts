@@ -39,17 +39,18 @@ test('folder pick with zero whitelist files is DESKTOP_FOLDER_EMPTY', async () =
   }
 })
 
-test('folder pick keeps accepted files and names skipped exe', async () => {
+test('folder pick keeps the host path and names skipped exe without reading bytes', async () => {
   const bridge: DesktopFilesBridge = {
     pick: vi.fn().mockResolvedValue({canceled: false, items: [{path: 'C:/notes.txt', fileName: 'notes.txt', mime: 'text/plain', size: 2}], skipped: ['setup.exe']}),
-    readChunk: vi.fn().mockResolvedValue({contentBase64: btoa('hi'), nextOffset: 2, eof: true}),
+    readChunk: vi.fn(),
   }
   const result = await pickComposerFiles(bridge, true)
-  expect(result.kind).toBe('files')
-  if (result.kind === 'files') {
-    expect(result.files[0].name).toBe('notes.txt')
+  expect(result.kind).toBe('paths')
+  if (result.kind === 'paths') {
+    expect(result.items[0]).toMatchObject({path: 'C:/notes.txt', fileName: 'notes.txt', size: 2})
     expect(result.skipped).toEqual(['setup.exe'])
   }
+  expect(bridge.readChunk).not.toHaveBeenCalled()
 })
 
 test('unavailable host falls back to the hidden input', async () => {
@@ -60,17 +61,17 @@ test('unavailable host falls back to the hidden input', async () => {
   await expect(pickComposerFiles(bridge, false)).resolves.toEqual({kind: 'fallback'})
 })
 
-test('reads allowlisted chunks into a File', async () => {
+test('returns a picked path without pulling the file through the bridge', async () => {
   const bridge: DesktopFilesBridge = {
     pick: vi.fn().mockResolvedValue({canceled: false, items: [{path: 'C:/a.txt', fileName: 'a.txt', mime: 'text/plain', size: 5}]}),
-    readChunk: vi.fn().mockResolvedValue({contentBase64: btoa('hello'), nextOffset: 5, eof: true}),
+    readChunk: vi.fn(),
   }
   const result = await pickComposerFiles(bridge, false)
-  expect(result.kind).toBe('files')
-  if (result.kind === 'files') {
-    expect(result.files[0].name).toBe('a.txt')
-    expect(result.files[0].size).toBe(5)
+  expect(result.kind).toBe('paths')
+  if (result.kind === 'paths') {
+    expect(result.items[0]).toMatchObject({path: 'C:/a.txt', fileName: 'a.txt', size: 5})
   }
+  expect(bridge.readChunk).not.toHaveBeenCalled()
 })
 
 test.each([
@@ -88,14 +89,10 @@ test('cancels a native read that never replies',async()=>{
  const reading=readPickedFile(bridge,{path:'C:/a',fileName:'a.txt',size:3,mime:'text/plain'},controller.signal)
  controller.abort();await expect(reading).rejects.toThrow('取消')
 })
-test('does not leak raw English native file read failures',async()=>{
- const bridge={pick:vi.fn().mockResolvedValue({items:[{path:'bad',fileName:'bad.txt',size:3,mime:'text/plain'},{path:'good',fileName:'good.txt',size:2,mime:'text/plain'}]}),readChunk:vi.fn().mockRejectedValueOnce(new Error('Failed to fetch')).mockResolvedValue({contentBase64:btoa('ok'),nextOffset:2,eof:true})} as unknown as DesktopFilesBridge
+test('returns every picked path and does not read them in the composer',async()=>{
+ const bridge={pick:vi.fn().mockResolvedValue({items:[{path:'bad',fileName:'bad.txt',size:3,mime:'text/plain'},{path:'good',fileName:'good.txt',size:2,mime:'text/plain'}]}),readChunk:vi.fn()} as unknown as DesktopFilesBridge
  const result=await pickComposerFiles(bridge,true)
- expect(result.kind).toBe('files');if(result.kind==='files'){expect(result.skipped[0]).toBe('bad.txt：读取失败');expect(result.skipped.join('')).not.toContain('Failed to fetch')}
-})
-
-test('keeps readable folder files after one native file fails',async()=>{
- const bridge={pick:vi.fn().mockResolvedValue({items:[{path:'bad',fileName:'bad.txt',size:3,mime:'text/plain'},{path:'good',fileName:'good.txt',size:2,mime:'text/plain'}]}),readChunk:vi.fn().mockRejectedValueOnce(new Error('文件已删除')).mockResolvedValue({contentBase64:btoa('ok'),nextOffset:2,eof:true})} as unknown as DesktopFilesBridge
- const result=await pickComposerFiles(bridge,true)
- expect(result.kind).toBe('files');if(result.kind==='files'){expect(result.files[0].name).toBe('good.txt');expect(result.skipped[0]).toContain('文件已删除')}
+ expect(result.kind).toBe('paths')
+ if(result.kind==='paths') expect(result.items.map(item=>item.fileName)).toEqual(['bad.txt','good.txt'])
+ expect(bridge.readChunk).not.toHaveBeenCalled()
 })

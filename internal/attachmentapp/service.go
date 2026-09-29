@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,6 +44,10 @@ var (
 // MaxFileSize is the per-file cap for a chunked attachment upload (500 MiB).
 // The bridge still moves the bytes in 32 KiB chunks; this is not one body.
 const MaxFileSize = 500 << 20
+
+// importExtractMax is how much of a local import is turned into conversation
+// text. The stored file keeps the full bytes up to MaxFileSize.
+var importExtractMax = doctext.MaxInputBytes
 
 // MaxTemplateFileSize is the office-template cap. A batch keeps going through
 // every selected deck; one file over this cap does not cancel the rest.
@@ -418,6 +423,175 @@ func (s *Service) IngestFile(ctx context.Context, req IngestFileRequest) (attach
 	att.ParsedText = parsedText
 	att.ParsedTextBytes = parsedTextBytes
 	return att, nil
+}
+
+// ImportPath reads a regular file the desktop host already allowlisted and
+// stores it through the same ingest path as an upload. Size is checked before
+// the bytes are read.
+func (s *Service) ImportPath(ctx context.Context, projectID, sessionID, path, originalName, mime string) (attachment.Attachment, error) {
+	if strings.TrimSpace(path) == "" || strings.ContainsRune(path, 0) {
+		return attachment.Attachment{}, errors.New("path is required")
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return attachment.Attachment{}, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return attachment.Attachment{}, errors.New("not a regular file")
+	}
+	if info.Size() < 0 || info.Size() > MaxFileSize {
+		return attachment.Attachment{}, ErrFileTooLarge
+	}
+	name := filepath.Base(strings.TrimSpace(originalName))
+	if name == "" || name == "." || name == string(filepath.Separator) {
+		name = filepath.Base(path)
+	}
+	if info.Size() > int64(importExtractMax) {
+		return s.importOversizedPath(ctx, projectID, sessionID, path, name, mime, info.Size())
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return attachment.Attachment{}, err
+	}
+	if int64(len(content)) != info.Size() {
+		return attachment.Attachment{}, errors.New("file changed while reading")
+	}
+	return s.IngestFile(ctx, IngestFileRequest{ProjectID: projectID, SessionID: sessionID, OriginalName: name, MIME: mime, Content: content})
+}
+
+type streamingStore interface {
+	CopyFrom(ctx context.Context, name string, src io.Reader, max int64) (int64, string, error)
+}
+
+// importOversizedPath stores the whole file and puts only a bounded excerpt
+// into the conversation. Office and PDF files are not parsed from a prefix,
+// because a truncated zip or PDF is not a document.
+func (s *Service) importOversizedPath(ctx context.Context, projectID, sessionID, path, name, mime string, size int64) (attachment.Attachment, error) {
+	if projectID == "" {
+		return attachment.Attachment{}, errors.New("project ID is required")
+	}
+	if name == "" || len(name) > 256 {
+		return attachment.Attachment{}, errors.New("original name must be 1-256 bytes")
+	}
+	if len(mime) > 128 {
+		return attachment.Attachment{}, errors.New("mime too long")
+	}
+	src, err := os.Open(path)
+	if err != nil {
+		return attachment.Attachment{}, err
+	}
+	defer src.Close()
+	copier, ok := s.fileStorage.(streamingStore)
+	if s.fileStorage == nil || !ok {
+		content, readErr := io.ReadAll(io.LimitReader(src, MaxFileSize+1))
+		if readErr != nil {
+			return attachment.Attachment{}, readErr
+		}
+		if int64(len(content)) != size || int64(len(content)) > MaxFileSize {
+			return attachment.Attachment{}, errors.New("file changed while reading")
+		}
+		return s.IngestFile(ctx, IngestFileRequest{ProjectID: projectID, SessionID: sessionID, OriginalName: name, MIME: mime, Content: content})
+	}
+	id := s.idFactory()
+	n, sum, err := copier.CopyFrom(ctx, id, src, MaxFileSize)
+	if err != nil {
+		return attachment.Attachment{}, err
+	}
+	if n != size {
+		_ = s.fileStorage.DeleteFile(ctx, id)
+		return attachment.Attachment{}, errors.New("file changed while reading")
+	}
+	if _, err = src.Seek(0, io.SeekStart); err != nil {
+		_ = s.fileStorage.DeleteFile(ctx, id)
+		return attachment.Attachment{}, err
+	}
+	prefix, err := readExtractPrefix(src)
+	if err != nil {
+		_ = s.fileStorage.DeleteFile(ctx, id)
+		return attachment.Attachment{}, err
+	}
+	storedMIME := strings.TrimSpace(mime)
+	if storedMIME == "" {
+		storedMIME = "application/octet-stream"
+	}
+	excerpt := oversizedExcerpt(name, storedMIME, prefix)
+	if len(excerpt) > MaxParsedTextBytes {
+		excerpt = truncateUTF8(excerpt, MaxParsedTextBytes)
+	}
+	now := s.now()
+	att := attachment.Attachment{
+		ID:           id,
+		ProjectID:    projectID,
+		SessionID:    sessionID,
+		FileRef:      id,
+		OriginalName: name,
+		MIME:         storedMIME,
+		Size:         n,
+		SHA256:       sum,
+		ParseStatus:  attachment.StatusPending,
+		CreatedAt:    now,
+	}
+	if err = att.Validate(); err != nil {
+		_ = s.fileStorage.DeleteFile(ctx, id)
+		return attachment.Attachment{}, fmt.Errorf("validate attachment: %w", err)
+	}
+	if err = s.store.CreateAttachment(ctx, att); err != nil {
+		_ = s.fileStorage.DeleteFile(ctx, id)
+		return attachment.Attachment{}, fmt.Errorf("create attachment record: %w", err)
+	}
+	if err = s.store.UpdateParseResult(ctx, id, attachment.StatusSucceeded, "", excerpt, int64(len(excerpt))); err != nil {
+		return att, fmt.Errorf("update parse result: %w", err)
+	}
+	att.ParseStatus = attachment.StatusSucceeded
+	att.ParsedText = excerpt
+	att.ParsedTextBytes = int64(len(excerpt))
+	return att, nil
+}
+
+func readExtractPrefix(src io.Reader) ([]byte, error) {
+	if importExtractMax < 1 {
+		return nil, nil
+	}
+	buf := make([]byte, importExtractMax)
+	n, err := io.ReadFull(src, buf)
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		err = nil
+	}
+	if n < 0 {
+		n = 0
+	}
+	if n > len(buf) {
+		n = len(buf)
+	}
+	return buf[:n], err
+}
+
+func oversizedExcerpt(name, mime string, prefix []byte) string {
+	const kept = "文件已完整保存。正文超过抽取上限，没有整份放进对话。"
+	if oversizedDocument(name, mime) {
+		return kept
+	}
+	prefix = validUTF8Prefix(prefix)
+	if len(prefix) == 0 || bytes.IndexByte(prefix, 0) >= 0 {
+		return kept
+	}
+	return string(prefix) + "\n\n文件已完整保存。对话里只有开头这一段。"
+}
+
+func oversizedDocument(name, mime string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".docx", ".doc", ".rtf", ".odt", ".pptx", ".ppt", ".xlsx", ".xls", ".pdf", ".wps", ".et", ".dps", ".zip":
+		return true
+	}
+	mime = strings.ToLower(strings.TrimSpace(mime))
+	return mime == "application/pdf" || mime == "application/zip" || strings.HasPrefix(mime, "application/vnd.")
+}
+
+func validUTF8Prefix(b []byte) []byte {
+	for len(b) > 0 && !utf8.Valid(b) {
+		b = b[:len(b)-1]
+	}
+	return b
 }
 
 // GetAttachment returns an attachment by ID for inspection.

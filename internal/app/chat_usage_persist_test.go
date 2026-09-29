@@ -36,7 +36,7 @@ func TestEstimateToolSchemaTokensCountsDefinitions(t *testing.T) {
 func TestChatStartBudgetIncludesAppendedToolSchemas(t *testing.T) {
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
 	mode := executionModeApproval
-	engineOnly := e.engineToolDefinitionsFor(mode)
+	engineOnly := omitAdvertisedTool(e.engineToolDefinitionsFor(mode), "run_terminal_cmd")
 	full := e.chatTurnToolDefinitions(chatTurnToolBuild{Mode: mode, Profile: toolProfileDefault})
 	engineN := estimateToolSchemaTokens("glm-4", engineOnly)
 	fullN := estimateToolSchemaTokens("glm-4", full)

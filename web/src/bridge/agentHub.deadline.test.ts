@@ -49,6 +49,11 @@ it('lets media.asset.pick wait for the native file dialog', () => {
   expect(capBridgeDeadlineMs('system.health', 120_000)).toBe(30_000)
 })
 
+it('lets a local attachment import use the file deadline', () => {
+  expect(capBridgeDeadlineMs('attachment.importLocal', 120_000)).toBe(120_000)
+  expect(capBridgeDeadlineMs('attachment.upload.chunk', 120_000)).toBe(30_000)
+})
+
 it('lets chat.start use the same 120s cap as the engine', () => {
   expect(capBridgeDeadlineMs('chat.start', 120_000)).toBe(120_000)
 })

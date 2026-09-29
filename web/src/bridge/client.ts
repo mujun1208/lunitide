@@ -562,7 +562,7 @@ export function capBridgeDeadlineMs(method: string, deadlineMs: number): number 
   if (method === 'ocr.routing.get') cap = OCR_ROUTING_REPAIR_DEADLINE_MS
   else if (method === 'meetings.summarize' || method === 'meetings.catchup') cap = MEETING_SUMMARIZE_DEADLINE_MS
   else if (method === 'meetings.append' || method === 'meetings.audio.append' || method === 'meetings.stop' || method === 'meetings.heartbeat' || method === 'meetings.get' || method === 'meetings.export') cap = MEETING_APPEND_DEADLINE_MS
-  else if (method === 'people.file.stage' || method === 'people.file.pick' || method === 'people.thread.send' || method === 'people.screen.capture' || method === 'desktop.files.pick' || method === 'media.asset.pick') cap = method === 'people.screen.capture' ? PEOPLE_CAPTURE_DEADLINE_MS : PEOPLE_FILE_DEADLINE_MS
+  else if (method === 'people.file.stage' || method === 'people.file.pick' || method === 'people.thread.send' || method === 'people.screen.capture' || method === 'desktop.files.pick' || method === 'media.asset.pick' || method === 'attachment.importLocal') cap = method === 'people.screen.capture' ? PEOPLE_CAPTURE_DEADLINE_MS : PEOPLE_FILE_DEADLINE_MS
   else if (method === 'template.file.stage' || method === 'template.create' || method === 'template.office.import') cap = TEMPLATE_FILE_DEADLINE_MS
   else if (method === 'appUpdate.install') cap = 120_000
   else if (method === 'office.artifact.validate' || method === 'office.artifact.refresh') cap = 120_000
@@ -1512,6 +1512,7 @@ export interface AttachmentBridge {
   list(payload: AttachmentListPayload): Promise<AttachmentListResult>
   delete(payload: AttachmentDeletePayload, options?: MutationOptions<AttachmentDeletePayload>): Promise<AttachmentDeleteResult>
   begin(payload:AttachmentUploadBeginPayload):Promise<AttachmentUploadBeginResult>; chunk(payload:AttachmentUploadChunkPayload):Promise<AttachmentUploadChunkResult>; commit(payload:AttachmentUploadCommitPayload):Promise<AttachmentUploadCommitResult>; abort(payload:AttachmentUploadAbortPayload):Promise<AttachmentUploadAbortResult>
+  importLocal(payload:{projectId:string;sessionId?:string;paths:string[]}):Promise<{items:AttachmentIngestResult[];failed:Array<{name:string;error:string;path?:string}>}>
 }
 export function createAttachmentBridge(transport: WebViewTransport, defaultDeadlineMs = 8_000): AttachmentBridge {
   const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
@@ -1521,6 +1522,7 @@ export function createAttachmentBridge(transport: WebViewTransport, defaultDeadl
     list: p => core.request('attachment.list', p),
     delete: (p, o) => core.request('attachment.delete', p, defaultDeadlineMs, o?.attempt),
     begin:p=>core.request('attachment.upload.begin',p,30_000),chunk:p=>core.request('attachment.upload.chunk',p,30_000),commit:p=>core.request('attachment.upload.commit',p,30_000),abort:p=>core.request('attachment.upload.abort',p),
+    importLocal:p=>core.request('attachment.importLocal',p,120_000),
   }
 }
 let attachmentSingleton: AttachmentBridge | undefined
@@ -1531,6 +1533,7 @@ export const attachmentBridge: AttachmentBridge = {
   list: p => getAttachmentBridge().list(p),
   delete: (p, o) => getAttachmentBridge().delete(p, o),
   begin:p=>getAttachmentBridge().begin(p),chunk:p=>getAttachmentBridge().chunk(p),commit:p=>getAttachmentBridge().commit(p),abort:p=>getAttachmentBridge().abort(p),
+  importLocal:p=>getAttachmentBridge().importLocal(p),
 }
 
 export type DesktopFilesBridge = {

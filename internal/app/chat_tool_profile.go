@@ -13,6 +13,7 @@ const (
 	toolProfileMinimal   toolProfile = "minimal"
 	toolProfileCoding    toolProfile = "coding"
 	toolProfileColleague toolProfile = "colleague"
+	toolProfileRead      toolProfile = "read"
 )
 
 func parseToolProfile(raw string) toolProfile {
@@ -111,6 +112,13 @@ func toolProfileAllow(profile toolProfile) map[string]bool {
 		allow["memory.search"] = true
 		allow["memory.get"] = true
 		return allow
+	case toolProfileRead:
+		return map[string]bool{
+			"workspace.list": true, "workspace.read": true, "workspace.search": true,
+			"web.search": true, "web.fetch": true,
+			"memory.search": true, "memory.get": true,
+			"user.ask": true,
+		}
 	default:
 		return nil
 	}
@@ -158,15 +166,33 @@ type chatTurnToolBuild struct {
 	ProjectPhase   int
 }
 
-func resolveChatToolProfile(companion bool, trialSkillIDs []string, explicit, intentText string) toolProfile {
+func attachmentNeedsFullTools(text string) bool {
+	lower := strings.ToLower(text)
+	for _, hint := range []string{
+		"运行", "测试", "代码", "编译", "调试", "命令", "终端", "点击", "截图",
+		"安装", "部署", "播放", "桌面", "表格", "报告", "生成", "打开", "执行",
+		"ppt", "excel", "word", "git", "npm", "build", "debug", "click",
+		"deploy", "terminal", "command", "refactor",
+	} {
+		if strings.Contains(text, hint) || strings.Contains(lower, hint) {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveChatToolProfile(companion bool, trialSkillIDs []string, explicit, intentText string, hasAttachment bool) toolProfile {
 	profile := parseToolProfile(explicit)
 	if len(trialSkillIDs) > 0 {
 		return toolProfileDefault
 	}
-	if profile == toolProfileDefault && !companion {
-		return autoToolProfile(intentText)
+	if profile != toolProfileDefault || companion {
+		return profile
 	}
-	return profile
+	if hasAttachment && !attachmentNeedsFullTools(intentText) {
+		return toolProfileRead
+	}
+	return autoToolProfile(intentText)
 }
 
 func (e *Engine) chatTurnToolDefinitions(b chatTurnToolBuild) []llmadapter.ToolDefinition {
@@ -190,7 +216,18 @@ func (e *Engine) chatTurnToolDefinitions(b chatTurnToolBuild) []llmadapter.ToolD
 	if b.Companion {
 		tools = filterCompanionDefaultTools(tools)
 	}
-	return collapseOversizedMcpTools(filterDeliverableDraft(tools, b.ProjectPhase, b.Companion))
+	return omitAdvertisedTool(collapseOversizedMcpTools(filterDeliverableDraft(tools, b.ProjectPhase, b.Companion)), "run_terminal_cmd")
+}
+
+func omitAdvertisedTool(defs []llmadapter.ToolDefinition, name string) []llmadapter.ToolDefinition {
+	out := make([]llmadapter.ToolDefinition, 0, len(defs))
+	for _, d := range defs {
+		if d.Name == name {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out
 }
 
 func filterDeliverableDraft(tools []llmadapter.ToolDefinition, phase int, companion bool) []llmadapter.ToolDefinition {

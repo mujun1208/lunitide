@@ -157,6 +157,8 @@ type Engine struct {
 	handoffService     *handoffapp.Service
 	attachmentService  *attachmentapp.Service
 	version            string
+	sameStreamApproval bool
+	approvalWaits      sync.Map
 	leases             LeaseClient
 	network            networkpolicy.Options
 	gateway            llmadapter.Options
@@ -425,7 +427,7 @@ type providerDTO struct {
 }
 
 func NewEngine(providers ProviderService, version string) *Engine {
-	return &Engine{providers: providers, version: version, streamEngine: streamEngine{streams: make(map[string]*streamState), maxStreams: 32}, adapterCache: make(map[string]llmadapter.Adapter),
+	return &Engine{providers: providers, version: version, sameStreamApproval: true, streamEngine: streamEngine{streams: make(map[string]*streamState), maxStreams: 32}, adapterCache: make(map[string]llmadapter.Adapter),
 		previewTickets: newPreviewTicketStore(),
 		gateway:        llmadapter.Options{DisableTokenEfficiency: !config.TokenEfficiencyEnabled()}}
 }
@@ -1080,6 +1082,12 @@ func (e *Engine) IngestAttachment(ctx context.Context, req attachmentapp.IngestF
 	}
 	return e.attachmentService.IngestFile(ctx, req)
 }
+func (e *Engine) ImportAttachmentPath(ctx context.Context, projectID, sessionID, path, originalName, mime string) (attachment.Attachment, error) {
+	if e.attachmentService == nil {
+		return attachment.Attachment{}, errors.New("attachment service not configured")
+	}
+	return e.attachmentService.ImportPath(ctx, projectID, sessionID, path, originalName, mime)
+}
 func (e *Engine) BeginAttachmentUpload(ctx context.Context, req attachmentapp.BeginUploadRequest) (string, time.Time, error) {
 	if e.attachmentService == nil {
 		return "", time.Time{}, errors.New("attachment service not configured")
@@ -1179,7 +1187,7 @@ func (e *Engine) ListReadableAttachmentsBySession(ctx context.Context, sessionID
 // NewEngineWithGateway wires the existing policy connector and one-shot secret
 // broker into provider diagnostics. Public requests never carry either.
 func NewEngineWithGateway(providers ProviderService, version string, leases LeaseClient) *Engine {
-	return &Engine{providers: providers, version: version, leases: leases, streamEngine: streamEngine{streams: make(map[string]*streamState), maxStreams: 32}, adapterCache: make(map[string]llmadapter.Adapter),
+	return &Engine{providers: providers, version: version, leases: leases, sameStreamApproval: true, streamEngine: streamEngine{streams: make(map[string]*streamState), maxStreams: 32}, adapterCache: make(map[string]llmadapter.Adapter),
 		// Header and idle waits match the long task clock. A quiet reasoning
 		// pass is not cut at ten minutes. Three hours with no new bytes is
 		// the stop for a connection that never returns.

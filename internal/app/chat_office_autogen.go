@@ -521,12 +521,26 @@ func (e *Engine) tryFinishOfficeGen(ctx context.Context, mode executionMode, ses
 				e.persistApprovedToolResult(ctx, sessionID, callID, digest, r)
 			}
 		} else {
+			var waitCh chan approvalResume
+			if e.sameStreamApproval {
+				waitCh = e.registerApprovalWait(sessionID, callID)
+			}
 			if send != nil {
 				if sendErr := send(bridge.Event{Type: bridge.EventApprovalRequired, Tool: &bridge.ToolEvent{CallID: callID, Name: name, ArgsDigest: digest, Summary: approvalRequiredSummary(name, args)}}); sendErr != nil {
+					if waitCh != nil {
+						e.approvalWaits.Delete(approvalWaitKey(sessionID, callID))
+					}
 					return false, officeGenFailNotice(sendErr)
 				}
 			}
-			return false, "请确认文件生成操作，确认后继续。"
+			if waitCh == nil {
+				return false, "请确认文件生成操作，确认后继续。"
+			}
+			resume, waitErr := e.receiveApprovalResume(ctx, waitCh, sessionID, callID)
+			if waitErr != nil {
+				return false, officeGenFailNotice(waitErr)
+			}
+			r, err = approvalResumeResult(resume)
 		}
 	}
 	summary := r.Output

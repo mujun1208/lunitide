@@ -87,6 +87,12 @@ func TestMaxDeadlineMSAllowsCursorPromptAndMediaPick(t *testing.T) {
 	if MaxDeadlineMS("media.asset.pick") != PeopleFileDeadlineMS {
 		t.Fatalf("media pick cap = %d", MaxDeadlineMS("media.asset.pick"))
 	}
+	if MaxDeadlineMS("attachment.importLocal") != PeopleFileDeadlineMS {
+		t.Fatalf("attachment import cap = %d", MaxDeadlineMS("attachment.importLocal"))
+	}
+	if MaxDeadlineMS("internal.attachment.importPath") != PeopleFileDeadlineMS {
+		t.Fatalf("internal import cap = %d", MaxDeadlineMS("internal.attachment.importPath"))
+	}
 	if MaxDeadlineMS("ocr.routing.get") != OcrRoutingRepairDeadlineMS {
 		t.Fatalf("ocr routing cap = %d", MaxDeadlineMS("ocr.routing.get"))
 	}

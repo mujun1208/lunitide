@@ -70,8 +70,8 @@ describe('conversation stream scroll pin', () => {
     expect(scrollTo).not.toHaveBeenCalled()
   })
 
-  it('does not treat thinking-only growth as a pin trigger in SessionPage', () => {
-    const src = readFileSync(resolve(process.cwd(), 'src/session/SessionPage.tsx'), 'utf8')
+  it('does not treat thinking-only growth as a pin trigger in the message panel', () => {
+    const src = readFileSync(resolve(process.cwd(), 'src/session/SessionMessagePanel.tsx'), 'utf8')
     expect(src).toMatch(/\[loading,items\.length,assistantText,toolActivities,usage,chatStatus,autoFollow\]/)
     expect(src).not.toMatch(/thinkingOpen,toolActivities/)
     expect(src).toMatch(/querySelector\('\.message-list'\)/)

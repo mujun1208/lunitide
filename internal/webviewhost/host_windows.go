@@ -161,6 +161,7 @@ type Host struct {
 	lastNotifyY     int32
 	hasNotifyPos    bool
 
+	OnFilesDropped     func(paths []string)
 	MediaTicketResolve func(ctx context.Context, token string) (path, contentType string, err error)
 	OnMediaSnapshot    func(ctx context.Context, sessionID string)
 	mediaInflight      chan struct{}
@@ -384,6 +385,7 @@ func (h *Host) Run(ctx context.Context) error {
 		win32.SendMessageW(h.hwnd, win32.WM_SETICON, win32.WPARAM(win32.ICON_SMALL), win32.LPARAM(wc.HIconSm))
 	}
 	hosts.Store(h.hwnd, h)
+	h.enableFileDrop()
 	if h.startHidden {
 		win32.ShowWindow(h.hwnd, win32.SW_HIDE)
 	} else {
@@ -547,6 +549,7 @@ func (h *Host) controllerCreated(code com.Error, controller *wv2.ICoreWebView2Co
 		return com.Error(win32.E_FAIL)
 	}
 	h.grantTrustedMicrophone()
+	h.enableFileDrop()
 	h.resize()
 	h.initialPending = true
 	if result := h.core.Navigate(TrustedOrigin + "/index.html"); failed(win32.HRESULT(result)) {
@@ -788,6 +791,23 @@ func queryUnknown(source *win32.IUnknown, iid *syscall.GUID, out unsafe.Pointer)
 		return fmt.Errorf("QueryInterface failed: 0x%x", uint32(hr))
 	}
 	return nil
+}
+
+func (h *Host) PostHostJSON(raw string) {
+	if h == nil || raw == "" {
+		return
+	}
+	h.dispatch(func() {
+		h.mu.Lock()
+		core, closed := h.core, h.closed
+		h.mu.Unlock()
+		if closed || core == nil {
+			return
+		}
+		if result := core.PostWebMessageAsJson(raw); failed(win32.HRESULT(result)) {
+			logHostDiagnostic("WebView2 host message failed: 0x%x", uint32(result))
+		}
+	})
 }
 
 func (h *Host) dispatch(fn func()) bool {
@@ -1365,6 +1385,11 @@ func windowProc(hwnd win32.HWND, message uint32, wParam win32.WPARAM, lParam win
 			if h != nil {
 				h.wakeWebView(true)
 			}
+		}
+		return 0
+	case wmDropFiles:
+		if h != nil {
+			deliverDroppedFiles(uintptr(wParam))
 		}
 		return 0
 	case win32.WM_DESTROY:

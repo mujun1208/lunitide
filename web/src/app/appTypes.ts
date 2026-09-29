@@ -7,7 +7,7 @@ export type Page='home'|'projects'|'providers'|'settings'|'skill'|'expert'|'mcp'
 export function isHubOwnedPage(page: Page): boolean {
   return page==='agentHub'||page==='projects'||page==='skill'||page==='expert'||page==='mcp'||page==='plugins'||page==='assets'
 }
-export type ChatTarget={returnPage?:'automation';project:ProjectDTO;session:SessionDTO;prompt?:string;noAutoSend?:boolean;providerId?:string;modelId?:string;executionMode?:ExecutionMode;composerTrigger?:'@'|'/'|'expert';initialUploadFiles?:File[];workspaceTab?:'files';workspacePath?:string;workspaceFocus?:FilesFocus;initialReferencedSkills?:SkillDTO[];companion?:boolean;personal:true}
+export type ChatTarget={returnPage?:'automation';project:ProjectDTO;session:SessionDTO;prompt?:string;noAutoSend?:boolean;providerId?:string;modelId?:string;executionMode?:ExecutionMode;composerTrigger?:'@'|'/'|'expert';initialUploadFiles?:File[];initialLocalItems?:readonly {path:string;fileName:string;mime:string;size:number}[];workspaceTab?:'files';workspacePath?:string;workspaceFocus?:FilesFocus;initialReferencedSkills?:SkillDTO[];companion?:boolean;personal:true}
 export type ProjectTarget={returnPage?:'automation';project:ProjectDTO;session?:SessionDTO;prompt?:string;providerId?:string;modelId?:string;personal?:false}
 export type LaunchTarget=ChatTarget|ProjectTarget
 export type Theme='dark'|'light'

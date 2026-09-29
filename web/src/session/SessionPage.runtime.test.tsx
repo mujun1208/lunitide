@@ -282,17 +282,15 @@ it('opens the host file dialog for 附件 / 文件 and stays silent on cancel',a
 
 it('names skipped exe from a host folder pick and does not call it a dialog failure',async()=>{
  const pick=vi.fn().mockResolvedValue({canceled:false,items:[{path:'C:/notes.txt',fileName:'notes.txt',mime:'text/plain',size:2}],skipped:['setup.exe']})
- const begin=vi.fn().mockResolvedValue({uploadId:'01ARZ3NDEKTSV4RRFFQ69G5FAC',chunkSize:128*1024,expiresAt:NOW})
- const chunk=vi.fn().mockResolvedValue({nextOffset:2})
- const commit=vi.fn().mockResolvedValue({attachmentId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',projectId:P,sessionId:S,originalName:'notes.txt',mime:'text/plain',size:2,sha256:'hash',parseStatus:'succeeded',parseErrorCode:'',parsedTextBytes:2,createdAt:NOW})
- const attachments={list:vi.fn().mockResolvedValue({items:[]}),ingest:vi.fn(),begin,chunk,commit,abort:vi.fn(),get:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge
- const user=await open({personal:true,providers,initialSession:session,attachments,desktopFiles:{pick,readChunk:vi.fn().mockResolvedValue({contentBase64:btoa('hi'),nextOffset:2,eof:true})}})
+ const attachments={list:vi.fn().mockResolvedValue({items:[]}),importLocal:vi.fn().mockResolvedValue({items:[{attachmentId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',projectId:P,sessionId:S,originalName:'notes.txt',mime:'text/plain',size:2,sha256:'hash',parseStatus:'succeeded',parseErrorCode:'',parsedTextBytes:2,createdAt:NOW}],failed:[]}),begin:vi.fn(),chunk:vi.fn(),commit:vi.fn(),abort:vi.fn(),get:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge
+ const user=await open({personal:true,providers,initialSession:session,attachments,desktopFiles:{pick,readChunk:vi.fn()}})
  await user.click(screen.getByRole('button',{name:'添加上下文'}))
  await user.click(screen.getByRole('button',{name:/上传文件夹/}))
  await waitFor(()=>expect(pick).toHaveBeenCalledWith({folder:true,multiple:false}))
  expect(await screen.findByText(/setup\.exe/)).toBeInTheDocument()
  expect(screen.queryByText(/系统没打开文件框/)).toBeNull()
- await waitFor(()=>expect(commit).toHaveBeenCalled())
+ await waitFor(()=>expect(attachments.importLocal).toHaveBeenCalled())
+ expect(attachments.begin).not.toHaveBeenCalled()
 })
 
 it('says the folder is empty instead of blaming the file dialog',async()=>{
@@ -549,7 +547,7 @@ it('uploads multiple dropped files and a pasted screenshot from the composer',as
  let upload=0;const begin=vi.fn().mockImplementation(async()=>({uploadId:`01ARZ3NDEKTSV4RRFFQ69G5F${String.fromCharCode(65+(upload++))}`,chunkSize:128*1024,expiresAt:NOW})),chunk=vi.fn().mockImplementation(async payload=>({nextOffset:payload.offset+atob(payload.contentBase64).length})),commit=vi.fn().mockImplementation(async()=>({attachmentId:`attachment-${upload}`})),attachments={list:vi.fn().mockResolvedValue({items:[]}),ingest:vi.fn(),begin,chunk,commit,abort:vi.fn().mockResolvedValue({aborted:true}),get:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge
  await open({personal:true,providers,initialSession:session,attachments})
  const make=(name:string,type:string)=>{const bytes=new Uint8Array([1,2,3]),file=new File([bytes],name,{type});Object.defineProperty(file,'arrayBuffer',{value:async()=>bytes.buffer});return file},composer=document.querySelector('.message-input') as HTMLElement,dataTransfer={types:['Files'],files:[make('a.txt','text/plain'),make('b.md','text/markdown')],dropEffect:'none'}
- fireEvent.dragEnter(composer,{dataTransfer});expect(composer).toHaveClass('is-dragging');fireEvent.drop(composer,{dataTransfer});await waitFor(()=>expect(commit).toHaveBeenCalledTimes(2));expect(composer).not.toHaveClass('is-dragging');expect(screen.getByText(/a\.txt/).closest('.attachment-card')).toHaveTextContent('等待随下一条消息发送');expect(screen.getByRole('button',{name:'移除附件 a.txt'})).toBeInTheDocument()
+ fireEvent.dragEnter(composer,{dataTransfer});expect(composer).toHaveClass('is-dragging');fireEvent.drop(composer,{dataTransfer});await waitFor(()=>expect(commit).toHaveBeenCalledTimes(2));expect(composer).not.toHaveClass('is-dragging');expect(screen.getByText(/a\.txt/).closest('.attachment-card')).toHaveTextContent('TXT · 3 B');expect(screen.getByRole('button',{name:'移除附件 a.txt'})).toBeInTheDocument()
  const image=make('image.png','image/png'),clipboardData={items:[{kind:'file',type:'image/png',getAsFile:()=>image}],files:[image]}
  fireEvent.paste(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),{clipboardData});await waitFor(()=>expect(commit).toHaveBeenCalledTimes(3));expect(begin.mock.calls[2][0].originalName).toMatch(/^clipboard-.*\.png$/)
  const picker=document.querySelector('.message-actions input[type="file"]:not([webkitdirectory])') as HTMLInputElement;expect(picker.multiple).toBe(true);expect(picker.accept).toBe('')
@@ -620,7 +618,7 @@ it('sends a completed word file and the prompt when the chat does not auto-send'
  const prompt='仔细阅读上传附件，根据需求说明，创建一个CRM的POC系统。'
  const skills=[{id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',name:'poc-fast-build',displayName:'POC 快速构建',description:'',version:'1.0.0',rev:1,status:'published' as const,permissions:['read_write'] as const,entryPoint:'builtin://poc',manifestJson:'{}',category:'development' as const,categorySource:'keyword' as const,createdAt:NOW,updatedAt:NOW},{id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',name:'poc-blueprint',displayName:'POC 交互蓝图内核自测',description:'',version:'1.0.0',rev:1,status:'published' as const,permissions:['read_write'] as const,entryPoint:'builtin://poc2',manifestJson:'{}',category:'development' as const,categorySource:'keyword' as const,createdAt:NOW,updatedAt:NOW}] as SkillDTO[]
  const user=await open({personal:true,initialSession:session,initialPrompt:prompt,initialNoAutoSend:true,initialUploadFiles:[file],initialReferencedSkills:skills,attachments,providers,chat:{start,dispose:vi.fn()},messages:{list:vi.fn().mockResolvedValue(page()),append} as MessageBridge})
- await screen.findByText('等待随下一条消息发送',{exact:false})
+ await screen.findByText('DOCX · 4 B',{exact:false})
  expect(start).not.toHaveBeenCalled()
  await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
  await waitFor(()=>expect(append).toHaveBeenCalledOnce())
@@ -1402,13 +1400,39 @@ it('keeps this round’s message references selectable while attachment discover
  expect(list).toHaveBeenCalledWith({projectId:P,sessionId:S,limit:200})
 })
 it('cancels a stuck host folder read and keeps the composer usable',async()=>{
- const desktopFiles={pick:vi.fn().mockResolvedValue({canceled:false,items:[{path:'C:/a.txt',fileName:'a.txt',mime:'text/plain',size:3}]}),readChunk:vi.fn().mockReturnValue(new Promise(()=>{}))}
- const user=await open({personal:true,providers,initialSession:session,desktopFiles})
+ const importLocal=vi.fn().mockReturnValue(new Promise(()=>{}))
+ const desktopFiles={pick:vi.fn().mockResolvedValue({canceled:false,items:[{path:'C:/a.txt',fileName:'a.txt',mime:'text/plain',size:3}]}),readChunk:vi.fn()}
+ const attachments={list:vi.fn().mockResolvedValue({items:[]}),importLocal,begin:vi.fn(),chunk:vi.fn(),commit:vi.fn()} as unknown as AttachmentBridge
+ const user=await open({personal:true,providers,initialSession:session,attachments,desktopFiles})
  await user.click(screen.getByRole('button',{name:'添加上下文'}));await user.click(screen.getByRole('button',{name:/上传文件夹/}))
- await waitFor(()=>expect(desktopFiles.readChunk).toHaveBeenCalledOnce())
- await user.click(screen.getByRole('button',{name:'取消上传'}))
- await waitFor(()=>expect(screen.queryByRole('button',{name:'取消上传'})).toBeNull())
+ await screen.findByText('TXT · 3 B')
+ expect(desktopFiles.readChunk).not.toHaveBeenCalled()
+ expect(importLocal).toHaveBeenCalledOnce()
+ expect(screen.queryByText(/读取中/)).toBeNull()
+ expect(screen.queryByRole('progressbar')).toBeNull()
+ expect(screen.queryByRole('button',{name:'取消上传'})).toBeNull()
  const input=screen.getByLabelText('向月汐提问，或描述你想完成的任务…');await user.type(input,'继续正常对话');expect(input).toHaveValue('继续正常对话')
+})
+
+it('attaches a picked document by path and sends its id with the prompt',async()=>{
+ const id='01ARZ3NDEKTSV4RRFFQ69G5FAD'
+ const importLocal=vi.fn().mockResolvedValue({items:[{attachmentId:id,projectId:P,sessionId:S,originalName:'支点互动CRM系统需求说明.docx',mime:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',size:69222,sha256:'a'.repeat(64),parseStatus:'succeeded',parseErrorCode:'',parsedTextBytes:20,createdAt:NOW}],failed:[]})
+ const desktopFiles={pick:vi.fn().mockResolvedValue({canceled:false,items:[{path:'C:/crm.docx',fileName:'支点互动CRM系统需求说明.docx',mime:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',size:69222}]}),readChunk:vi.fn()}
+ const attachments={list:vi.fn().mockResolvedValue({items:[]}),importLocal,begin:vi.fn(),chunk:vi.fn(),commit:vi.fn(),abort:vi.fn(),get:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge
+ const start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()}),append=vi.fn().mockResolvedValue({})
+ const user=await open({personal:true,providers,initialSession:session,attachments,desktopFiles,chat:{start,dispose:vi.fn()},messages:{list:vi.fn().mockResolvedValue(page()),append} as MessageBridge})
+ await user.click(screen.getByRole('button',{name:'添加上下文'}));await user.click(screen.getByRole('button',{name:/附件 \/ 文件/}))
+ expect(await screen.findByText('DOCX · 67.6 KB')).toBeInTheDocument()
+ expect(screen.queryByText(/读取中/)).toBeNull()
+ expect(screen.queryByRole('progressbar')).toBeNull()
+ expect(desktopFiles.readChunk).not.toHaveBeenCalled()
+ expect(attachments.begin).not.toHaveBeenCalled()
+ await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'参考附件做一版')
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ expect(start.mock.calls[0][0]).toMatchObject({contextRefs:[{type:'attachment',id}]})
+ expect(append.mock.calls[0][0].text).toContain(`[attachment:${id}|支点互动CRM系统需求说明.docx]`)
+ expect(append.mock.calls[0][0].text).toContain('参考附件做一版')
 })
 
 it.each(['button','enter'])('sends a completed attachment with no typed body via %s and retains its context reference',async(method)=>{
@@ -1439,7 +1463,7 @@ it.each(['button','enter'])('queues a follow-up via %s with the uploaded attachm
   const user=await open({personal:true,providers,initialSession:session,attachments,chat:{start,dispose:vi.fn()},messages:{list:vi.fn().mockResolvedValue(page()),append} as MessageBridge})
   const input=screen.getByLabelText('向月汐提问，或描述你想完成的任务…');await user.type(input,'分析报告');await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}));await waitFor(()=>expect(start).toHaveBeenCalledOnce())
   fireEvent.change(document.querySelector('.message-actions input[type="file"]:not([webkitdirectory])')!,{target:{files:[file]}})
-  await screen.findByText('等待随下一条消息发送',{exact:false})
+  await screen.findByText('TXT · 3 B',{exact:false})
   await user.type(input,'补充，请结合附件继续')
   const send=screen.getByRole('button',{name:/补充|追加|发送/});await waitFor(()=>expect(send).toBeEnabled());if(method==='button')await user.click(send);else fireEvent.keyDown(input,{key:'Enter'})
   await waitFor(()=>expect(queued).toHaveBeenCalledOnce())

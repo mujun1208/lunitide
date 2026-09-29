@@ -7,7 +7,9 @@ import (
 	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/m8app"
@@ -271,27 +273,55 @@ func TestOfficeReferenceReadDoesNotRestoreResearchGate(t *testing.T) {
 func TestOfficeFallbackApprovalIsActionableAndHasArtifact(t *testing.T) {
 	e := newArtifactEngine(t)
 	turn := chatTurnCheckpoint{Goal: "做一份介绍PPT", PptActive: true, PptStage: pptStageGenerate, StreamID: "test"}
+	var mu sync.Mutex
 	var events []bridge.Event
-	finished, notice := e.tryFinishOfficeGen(context.Background(), executionModeApproval, artifactSession, &turn, officeFallbackProse, nil, func(event bridge.Event) error { events = append(events, event); return nil })
-	if finished || strings.Contains(notice, "生成失败") {
-		t.Fatalf("finished=%v notice=%s", finished, notice)
-	}
+	done := make(chan struct{})
+	var finished bool
+	var notice string
+	go func() {
+		finished, notice = e.tryFinishOfficeGen(context.Background(), executionModeApproval, artifactSession, &turn, officeFallbackProse, nil, func(event bridge.Event) error {
+			mu.Lock()
+			events = append(events, event)
+			mu.Unlock()
+			return nil
+		})
+		close(done)
+	}()
+	deadline := time.Now().Add(2 * time.Second)
 	var pending *bridge.ToolEvent
-	for _, event := range events {
-		if event.Tool != nil && len(event.Tool.ArgsDigest) != 64 {
-			t.Fatalf("unusable tool digest: %+v", event.Tool)
+	for pending == nil && time.Now().Before(deadline) {
+		mu.Lock()
+		copied := append([]bridge.Event(nil), events...)
+		mu.Unlock()
+		for _, event := range copied {
+			if event.Tool != nil && len(event.Tool.ArgsDigest) != 64 {
+				t.Fatalf("unusable tool digest: %+v", event.Tool)
+			}
+			if event.Type == bridge.EventApprovalRequired {
+				pending = event.Tool
+			}
 		}
-		if event.Type == bridge.EventApprovalRequired {
-			pending = event.Tool
+		if pending == nil {
+			time.Sleep(10 * time.Millisecond)
 		}
 	}
 	if pending == nil {
-		t.Fatalf("no approval: events=%+v notice=%s", events, notice)
+		t.Fatalf("no approval: events=%+v", events)
 	}
-	// A real one-time decision creates the file; repeated decisions replay it.
 	result, err := e.tools.DecideScoped(context.Background(), artifactSession, pending.CallID, pending.ArgsDigest, true, toolruntime.ApprovalScopeOnce)
 	if err != nil || result.Artifact == nil {
 		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if !e.deliverApprovalWait(artifactSession, pending.CallID, true, result, nil) {
+		t.Fatal("approval had no waiting stream")
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("office generation did not resume on the same call")
+	}
+	if !finished || strings.Contains(notice, "生成失败") {
+		t.Fatalf("finished=%v notice=%s", finished, notice)
 	}
 	var args map[string]any
 	_ = json.Unmarshal(fallbackOfficeGenArgs("pptx.gen", "做一份介绍PPT", officeFallbackProse), &args)

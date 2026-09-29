@@ -88,9 +88,9 @@ export function validateAttachmentBatch(files:readonly File[]):{accepted:File[];
  return{accepted,skipped}
 }
 
-export type AttachmentProgress={key:string;status:'queued'|'reading'|'uploading'|'processing'|'complete'|'failed'|'cancelled';percent:number;name:string;size:number;attachmentId?:string;error?:string;previewUrl?:string;file?:File}
+export type AttachmentProgress={key:string;status:'queued'|'reading'|'uploading'|'processing'|'attached'|'complete'|'failed'|'cancelled';percent:number;name:string;size:number;attachmentId?:string;error?:string;previewUrl?:string;file?:File;path?:string}
 export type AttachmentProgressHandler=(progress:AttachmentProgress)=>void
-export type AttachmentBatchResult={uploaded:number;skipped:string[];attachmentIds:string[];items:AttachmentIngestResult[];failed:Array<{name:string;error:string;file:File}>}
+export type AttachmentBatchResult={uploaded:number;skipped:string[];attachmentIds:string[];items:AttachmentIngestResult[];failed:Array<{name:string;error:string;file?:File;path?:string}>}
 export type AttachmentPreview={url:string;name:string;mime:string}
 
 const PREVIEW_PREFIX='lunitide:att-preview:'
@@ -179,4 +179,24 @@ export async function ingestAttachments(attachments:AttachmentBridge,projectId:s
   }
  }
  return{uploaded:items.length,skipped,attachmentIds:items.map(item=>item.attachmentId),items,failed}
+}
+
+export async function importLocalAttachments(attachments:AttachmentBridge,projectId:string,sessionId:string,picked:readonly {path:string;fileName:string;mime:string;size:number}[],onProgress?:AttachmentProgressHandler,signal?:AbortSignal):Promise<AttachmentBatchResult>{
+ const accepted=picked.slice(0,ATTACHMENT_BATCH_MAX),skipped:string[]=[]
+ if(picked.length>ATTACHMENT_BATCH_MAX)skipped.push(`超过 ${ATTACHMENT_BATCH_MAX} 个的 ${picked.length-ATTACHMENT_BATCH_MAX} 个文件`)
+ const emit=(item:{path:string;fileName:string;size:number},status:AttachmentProgress['status'],extra:Partial<AttachmentProgress>={})=>onProgress?.({key:item.path,status,percent:100,name:item.fileName,size:item.size,path:item.path,...extra})
+ accepted.forEach(item=>emit(item,'attached'))
+ const failAll=(message:string,status:AttachmentProgress['status'])=>{accepted.forEach(item=>emit(item,status,{error:message}));return{uploaded:0,skipped,attachmentIds:[],items:[],failed:accepted.map(item=>({name:item.fileName,error:message,path:item.path}))}}
+ if(signal?.aborted)return failAll('附件操作已取消','cancelled')
+ try{
+  const result=await attachmentOperation(attachments.importLocal({projectId,...(sessionId?{sessionId}:{}),paths:accepted.map(item=>item.path)}),signal,120_000)
+  const used=new Set<number>()
+  const claim=(path?:string,name?:string)=>{let index=accepted.findIndex((item,i)=>!used.has(i)&&!!path&&item.path===path);if(index<0)index=accepted.findIndex((item,i)=>!used.has(i)&&!!name&&item.fileName===name);if(index<0)index=accepted.findIndex((_,i)=>!used.has(i));if(index>=0)used.add(index);return index}
+  const stored=result.items??[]
+  for(const item of stored){const index=claim(undefined,item.originalName),source=index>=0?accepted[index]:undefined;onProgress?.({key:source?.path??item.attachmentId,status:'complete',percent:100,name:item.originalName||source?.fileName||'附件',size:item.size||source?.size||0,path:source?.path,attachmentId:item.attachmentId})}
+  const failed:AttachmentBatchResult['failed']=[]
+  for(const fail of result.failed??[]){const message=/[\u4e00-\u9fff]/.test(fail.error||'')?fail.error:'附件暂时无法读取',index=claim(fail.path,fail.name),source=index>=0?accepted[index]:undefined,path=fail.path||source?.path;failed.push({name:fail.name||source?.fileName||'附件',error:message,path});onProgress?.({key:source?.path??path??fail.name,status:'failed',percent:100,name:fail.name||source?.fileName||'附件',size:source?.size||0,path,error:message})}
+  accepted.forEach((item,index)=>{if(used.has(index))return;failed.push({name:item.fileName,error:'附件暂时无法读取',path:item.path});emit(item,'failed',{error:'附件暂时无法读取'})})
+  return{uploaded:stored.length,skipped,attachmentIds:stored.map(item=>item.attachmentId).filter(Boolean),items:stored,failed}
+ }catch(error){return failAll(signal?.aborted?'附件操作已取消':attachmentUserError(error,'附件暂时无法读取'),signal?.aborted?'cancelled':'failed')}
 }

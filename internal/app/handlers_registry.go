@@ -654,6 +654,7 @@ var internalRuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.Method("internal.credential-cleanup.complete"):          handleCredentialCleanupComplete,
 	bridge.Method("internal.credential-cleanup.retry"):             handleCredentialCleanupRetry,
 	bridge.Method("internal.provider.credential-binding.resolve"):  handleCredentialBindingResolve,
+	bridge.Method("internal.attachment.importPath"):                handleInternalAttachmentImportPath,
 	bridge.Method("internal.media.asset.register"):                 handleInternalMediaAssetRegister,
 	bridge.Method("internal.media.asset.resolve"):                  handleInternalMediaAssetResolve,
 	bridge.Method("internal.preview.asset.resolve"):                handleInternalPreviewAssetResolve,

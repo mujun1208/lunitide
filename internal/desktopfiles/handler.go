@@ -170,6 +170,46 @@ func (h *Handler) readChunk(r bridge.Request) bridge.Response {
 	})
 }
 
+// GrantPaths records files the desktop host itself observed, such as an OS
+// file drop. A path supplied only by the page is not granted.
+func (h *Handler) GrantPaths(paths []string) []Item {
+	if h == nil || len(paths) == 0 {
+		return nil
+	}
+	if len(paths) > maxItems {
+		paths = paths[:maxItems]
+	}
+	accepted := make([]Item, 0, len(paths))
+	for _, path := range paths {
+		item, err := itemFromPath(path)
+		if err != nil {
+			continue
+		}
+		accepted = append(accepted, item)
+	}
+	if len(accepted) == 0 {
+		return nil
+	}
+	now := h.now()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.allow == nil {
+		h.allow = map[string]time.Time{}
+	}
+	for _, item := range accepted {
+		h.allow[item.Path] = now.Add(allowTTL)
+	}
+	return accepted
+}
+
+func (h *Handler) Allowed(path string) bool {
+	abs, err := normalizeRegularFile(path)
+	if err != nil {
+		return false
+	}
+	return h.allowed(abs)
+}
+
 func (h *Handler) allowed(path string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()

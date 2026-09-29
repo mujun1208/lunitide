@@ -110,6 +110,27 @@ func handleAttachmentIngest(e *Engine, ctx context.Context, r bridge.Request) br
 	})
 }
 
+func handleInternalAttachmentImportPath(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		ProjectID    string `json:"projectId"`
+		SessionID    string `json:"sessionId"`
+		Path         string `json:"path"`
+		OriginalName string `json:"originalName"`
+		MIME         string `json:"mime"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ProjectID) || strings.TrimSpace(p.Path) == "" || strings.ContainsRune(p.Path, 0) {
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "附件路径无效", false)
+	}
+	if p.SessionID != "" && !validCanonicalULID(p.SessionID) {
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "附件 sessionId 无效", false)
+	}
+	att, err := e.ImportAttachmentPath(ctx, p.ProjectID, p.SessionID, p.Path, p.OriginalName, p.MIME)
+	if err != nil {
+		return attachmentFailure(r, err)
+	}
+	return attachmentResult(r, att)
+}
+
 func attachmentResult(r bridge.Request, a attachment.Attachment) bridge.Response {
 	d := newAttachmentDTO(a)
 	return r.Ok(map[string]any{"attachmentId": d.AttachmentID, "projectId": d.ProjectID, "sessionId": d.SessionID, "originalName": d.OriginalName, "mime": d.MIME, "size": d.Size, "sha256": d.SHA256, "parseStatus": d.ParseStatus, "parseErrorCode": d.ParseErrorCode, "parsedTextBytes": d.ParsedTextBytes, "createdAt": d.CreatedAt})

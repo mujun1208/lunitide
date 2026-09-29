@@ -2,11 +2,6 @@ import {BridgeClientError} from '../bridge/client'
 import {attachmentOperation,attachmentCancelled} from './attachmentOperation'
 import {ATTACHMENT_FILE_MAX,ATTACHMENT_BATCH_MAX,ATTACHMENT_BATCH_BYTES} from './attachments'
 
-function pickUserError(err: unknown, fallback: string): string {
-  const detail = err instanceof Error ? err.message.trim() : ''
-  return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
-}
-
 export type DesktopPickItem = {path: string; fileName: string; mime: string; size: number}
 
 export type DesktopFilesBridge = {
@@ -17,7 +12,7 @@ export type DesktopFilesBridge = {
 export type ComposerPickResult =
   | {kind: 'fallback'}
   | {kind: 'canceled'}
-  | {kind: 'files'; files: File[]; skipped: string[]}
+  | {kind: 'paths'; items: DesktopPickItem[]; skipped: string[]}
   | {kind: 'error'; error: BridgeClientError}
 
 const CHUNK = 160 * 1024
@@ -79,16 +74,17 @@ export async function pickComposerFiles(bridge: DesktopFilesBridge | undefined, 
       }
       return {kind: 'error', error: new BridgeClientError('系统没打开文件框，请再试一次。', 'DESKTOP_PICK_FAILED', true, 'renderer')}
     }
-    const files: File[] = []
+    const items: DesktopPickItem[] = []
     let total=0
     for (const item of picked.items.slice(0,ATTACHMENT_BATCH_MAX)){
       if(signal?.aborted)return {kind:'canceled'}
+      if(!Number.isSafeInteger(item.size)||item.size<0||item.size>ATTACHMENT_FILE_MAX){skipped.push(`${item.fileName}（超过 ${Math.round(ATTACHMENT_FILE_MAX / 1024 / 1024)} MiB 或文件大小无效）`);continue}
       if(total+item.size>ATTACHMENT_BATCH_BYTES){skipped.push(`${item.fileName}（本批超过 ${Math.round(ATTACHMENT_BATCH_BYTES / 1024 / 1024)} MiB）`);continue}
-      try{files.push(await readPickedFile(bridge,item,signal));total+=item.size}catch(error){if(signal?.aborted)return {kind:'canceled'};skipped.push(`${item.fileName}：${pickUserError(error,'读取失败')}`)}
+      items.push(item);total+=item.size
     }
     if(picked.items.length>ATTACHMENT_BATCH_MAX)skipped.push(`超过 ${ATTACHMENT_BATCH_MAX} 个的 ${picked.items.length-ATTACHMENT_BATCH_MAX} 个文件`)
-    if(!files.length)return {kind:'error',error:new BridgeClientError(skipped.join('；')||'未读取到文件，请重新选择','DESKTOP_FILE_READ_FAILED',true,'renderer')}
-    return {kind: 'files', files, skipped}
+    if(!items.length)return {kind:'error',error:new BridgeClientError(skipped.join('；')||'未读取到文件，请重新选择','DESKTOP_FILE_READ_FAILED',true,'renderer')}
+    return {kind: 'paths', items, skipped}
   } catch (error) {
     if(signal?.aborted)return {kind:'canceled'}
     if (unavailable(error)) return {kind: 'fallback'}

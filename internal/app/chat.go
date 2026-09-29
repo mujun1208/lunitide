@@ -507,7 +507,14 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}
 
 	equip := e.turnEquipmentFor(ctx, boundSessionID, intent.Text, intent.Companion)
-	turnProfile := resolveChatToolProfile(p.Companion, p.TrialSkillIDs, p.ToolProfile, intent.Text)
+	hasAttachment := false
+	for _, ref := range p.ContextRefs {
+		if strings.TrimSpace(ref.Type) == "attachment" && strings.TrimSpace(ref.ID) != "" {
+			hasAttachment = true
+			break
+		}
+	}
+	turnProfile := resolveChatToolProfile(p.Companion, p.TrialSkillIDs, p.ToolProfile, intent.Text, hasAttachment)
 	var fullTools, turnTools []llmadapter.ToolDefinition
 	if e.tools != nil {
 		fullTools = e.chatTurnToolDefinitions(chatTurnToolBuild{
@@ -576,11 +583,11 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		} else if !p.Companion && e.compactionTrigger != nil && e.compactionExecutor != nil {
 			e.flushMemoryBeforeCompaction(ctx, boundSessionID, turnText, "")
 			compactionResult := e.TriggerPreTurnCompaction(ctx, boundSessionID, item.ID, p.ModelID, tokenizerRevision, providerInfo.ContextWindow)
+			if preturnHardStop(compactionResult.Err) {
+				return request.Fail("REQUEST_CANCELLED", "请求已取消", false)
+			}
 			if compactionResult.Err != nil {
-				if errors.Is(compactionResult.Err, context.Canceled) || errors.Is(compactionResult.Err, context.DeadlineExceeded) {
-					return request.Fail("REQUEST_CANCELLED", "请求已取消", false)
-				}
-				return internalBridgeFailure(request, "COMPACTION_TRIGGER_FAILED", "上下文压缩检查失败", true, compactionResult.Err)
+				log.Printf("chat preturn compaction skipped: %v", compactionResult.Err)
 			}
 		}
 
@@ -619,8 +626,12 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			} else {
 				priorSummary, summaryErr = e.summaryReader.GetLatestCompactionSummary(ctx, boundSessionID)
 			}
+			if preturnHardStop(summaryErr) {
+				return request.Fail("REQUEST_CANCELLED", "请求已取消", false)
+			}
 			if summaryErr != nil {
-				return internalBridgeFailure(request, "CONTEXT_SUMMARY_READ_FAILED", "上下文摘要暂时不可用", true, summaryErr)
+				log.Printf("chat preturn summary skipped: %v", summaryErr)
+				priorSummary = ""
 			}
 			if priorSummary != "" {
 				envelope.AcceptedCheckpoint = &contextapp.ContextSource{
@@ -648,8 +659,12 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		// fail-closed: their stale summary is never injected.
 		if !p.Companion {
 			capsuleContexts, capsuleErr := e.ListImportedHandoffCapsuleContexts(ctx, boundSessionID)
+			if preturnHardStop(capsuleErr) {
+				return request.Fail("REQUEST_CANCELLED", "请求已取消", false)
+			}
 			if capsuleErr != nil {
-				return internalBridgeFailure(request, "HANDOFF_CONTEXT_READ_FAILED", "交接上下文暂时不可用", true, capsuleErr)
+				log.Printf("chat preturn handoff skipped: %v", capsuleErr)
+				capsuleContexts = nil
 			}
 			for _, cc := range capsuleContexts {
 				if cc.Checkpoint == nil {
@@ -1507,6 +1522,7 @@ func handleChatToolApprove(e *Engine, ctx context.Context, request bridge.Reques
 		r, err = e.tools.ReplayDecision(ctx, p.SessionID, p.CallID, p.ArgsDigest, p.Approved)
 	}
 	if err != nil {
+		e.deliverApprovalWait(p.SessionID, p.CallID, p.Approved, r, err)
 		switch {
 		case errors.Is(err, toolruntime.ErrPendingConsumed):
 			return request.Fail("TOOL_APPROVAL_CONSUMED", "此确认不存在、已过期或已选择其他决定，请刷新任务状态", false)
@@ -1523,6 +1539,7 @@ func handleChatToolApprove(e *Engine, ctx context.Context, request bridge.Reques
 	if p.Approved {
 		e.persistApprovedToolResult(ctx, p.SessionID, p.CallID, p.ArgsDigest, r)
 	}
+	e.deliverApprovalWait(p.SessionID, p.CallID, p.Approved, r, nil)
 	status := "rejected"
 	if p.Approved {
 		status = "executed"

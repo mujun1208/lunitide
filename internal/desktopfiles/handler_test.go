@@ -281,3 +281,42 @@ func TestPickFormsCancelDoesNotCallNative(t *testing.T) {
 		t.Fatalf("cancel must not fall back: %#v usedNative=%v", r, usedNative)
 	}
 }
+
+func TestAllowedOnlyAfterPick(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(path, []byte("hi"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := New()
+	h.Pick = func(bool, bool) ([]Item, []string, error) {
+		return []Item{{Path: path, FileName: "notes.txt", MIME: "text/plain", Size: 2}}, nil, nil
+	}
+	if got := h.HandleHost(context.Background(), testReq("desktop.files.pick", `{"multiple":true}`)); !got.OK {
+		t.Fatal(got.Error)
+	}
+	if !h.Allowed(path) {
+		t.Fatal("picked path must be readable")
+	}
+	if h.Allowed(filepath.Join(t.TempDir(), "other.txt")) {
+		t.Fatal("unpicked path must be refused")
+	}
+}
+
+func TestGrantPathsAllowsOnlyHostSeenFiles(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := New()
+	items := h.GrantPaths([]string{path, filepath.Join(dir, "missing.txt")})
+	if len(items) != 1 || items[0].FileName != "note.txt" {
+		t.Fatalf("granted = %+v", items)
+	}
+	if !h.Allowed(items[0].Path) {
+		t.Fatal("host-seen file must be readable")
+	}
+	if h.Allowed(filepath.Join(dir, "missing.txt")) {
+		t.Fatal("a path the host did not see must be refused")
+	}
+}

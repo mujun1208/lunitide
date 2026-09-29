@@ -1,0 +1,2252 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/domain/message"
+	"github.com/lunitide/lunitide/internal/domain/provider"
+	"github.com/lunitide/lunitide/internal/domain/token"
+	"github.com/lunitide/lunitide/internal/llmadapter"
+	"github.com/lunitide/lunitide/internal/messageapp"
+	"github.com/lunitide/lunitide/internal/modelfit"
+	"github.com/lunitide/lunitide/internal/secretlease"
+	"github.com/lunitide/lunitide/internal/toolruntime"
+	"github.com/oklog/ulid/v2"
+	"log"
+	"runtime/debug"
+	"strings"
+	"sync"
+	"time"
+)
+
+func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p provider.Provider, req llmadapter.Request, emit EventEmitter, sessionID string, modes ...executionMode) {
+	req.Messages = slimOpenPageMessages(req.Messages)
+	const maxThinkingChunkBytes = 16 * 1024
+	const maxThinkingTotalBytes = 256 * 1024
+	var seq uint64
+	var sendMu sync.Mutex
+	var processTrace messageProcess
+	completedToolEvents := make(map[string]bool)
+	streamEnded := false
+	waitingForApproval := false
+	waitingForSpokenInput := false
+	var assistantText strings.Builder
+	var thinkingText strings.Builder
+	var pendingThinking string
+	var pendingThinkingSince time.Time
+	var lastLiveDraftAt time.Time
+	var streamResult llmadapter.Response
+	var generationBudget turnGenerationBudget
+	var turnArtifacts []SessionArtifact
+	turn := chatTurnCheckpoint{Status: turnStatusRunning, StreamID: id, Goal: carryMediaCenterGoal(req.Messages)}
+	computerTurn := computerExecutionTurn(turn.Goal)
+	checkpointErr := e.reconcileTurnCheckpointOnStart(sessionID, &turn)
+	seedContinuationFromScope(ctx, &turn)
+	pinContinuationIdentity(&turn, continuationIdentity{
+		ProviderDeploymentRef: strings.TrimSpace(p.ID),
+		ModelRequested:        strings.TrimSpace(req.Model),
+		OwnerScope:            ownerScope(sessionID),
+		TaskRef:               sessionID,
+		CodecVersion:          modelfit.CodecForModel(req.Model, string(p.Protocol)),
+	})
+	turn.CapabilityWork = capabilityWorkRequest(req) || capabilityWorkTask(turn.Goal) || skillTrialsActive(ctx, sessionID)
+	mode := executionModeApproval
+	if len(modes) > 0 {
+		mode = modes[0]
+	}
+	rawSend := func(event bridge.Event) error {
+		sendMu.Lock()
+		defer sendMu.Unlock()
+		if event.Type == bridge.EventToolOutput && (streamEnded || (event.Tool != nil && completedToolEvents[event.Tool.CallID])) {
+			return nil
+		}
+		if event.Type == bridge.EventToolCompleted && event.Tool != nil {
+			completedToolEvents[event.Tool.CallID] = true
+			if event.Tool.Name == "web.search" || event.Tool.Name == "desktop.browse" {
+				e.rememberSearchQuery(sessionID, searchQueryFromText(event.Tool.Summary))
+			}
+			if event.Tool.Name == "web.search" {
+				e.rememberSearchHit(sessionID, event.Tool.Summary)
+			}
+			if event.Tool.Name == "web.fetch" && newsOpenGoal(turn.Goal) && !strings.Contains(event.Tool.Summary, "first_hit:") {
+				event.Tool.Summary += "\nfirst_hit: true"
+			}
+		}
+		if event.Type == bridge.EventCompleted || event.Type == bridge.EventFailed || event.Type == bridge.EventCancelled {
+			streamEnded = true
+		}
+		processTrace.capture(event)
+		seq++
+		event.Version = bridge.Version
+		event.Kind = "event"
+		event.ID = ulid.Make().String()
+		event.StreamID = id
+		event.Sequence = seq
+		return emit(event)
+	}
+	flushThinking := func(force bool) error {
+		for pendingThinking != "" && (force || len(pendingThinking) >= thinkingFlushBytes) {
+			chunk := truncateUTF8Bytes(pendingThinking, maxThinkingChunkBytes)
+			// rawSend assigns the sequence and records the process even if
+			// the renderer transport fails. Consume once; a later flush must
+			// not record/re-emit the same reasoning again.
+			pendingThinking = pendingThinking[len(chunk):]
+			pendingThinkingSince = time.Now()
+			if pendingThinking == "" {
+				pendingThinkingSince = time.Time{}
+			}
+			if err := rawSend(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: chunk}}); err != nil {
+				return err
+			}
+			if !force && len(pendingThinking) < thinkingFlushBytes {
+				break
+			}
+		}
+		if pendingThinking == "" {
+			pendingThinkingSince = time.Time{}
+		}
+		return nil
+	}
+	send := func(event bridge.Event) error {
+		if event.Type == bridge.EventApprovalRequired {
+			waitingForApproval = true
+		}
+		// Keep flushing and event emission on the stream callback goroutine: emit
+		// may be synchronous, and this preserves thinking-before-answer ordering.
+		if event.Type != bridge.EventThinking {
+			if err := flushThinking(true); err != nil && event.Type == bridge.EventApprovalRequired {
+				return err
+			}
+		}
+		sanitizeOutgoingEvent(&event)
+		if err := rawSend(event); err != nil {
+			if event.Type == bridge.EventApprovalRequired {
+				return err
+			}
+			// UI/network drop must not abort the tool loop: persist the
+			// turn and keep executing until the task finishes.
+			log.Printf("chat stream %s dropped event %s: %v", id, event.Type, err)
+		}
+		return nil
+	}
+	// Goroutine-wide panic guard: runStream runs detached (go e.runStream), so
+	// an unrecovered panic would kill the Engine process and sever the event
+	// pipe for every session. Degrade to a failed terminal event instead; the
+	// sequence counter lives in this closure so the terminal stays contiguous.
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("chat stream %s panicked: %v\n%s", id, rec, debug.Stack())
+			state.cancel()
+			_ = send(bridge.Event{Type: bridge.EventFailed, Error: &bridge.StreamError{Code: "ENGINE_STREAM_PANIC", Message: "内部处理错误，请重试", Retryable: true}})
+			e.finishTerminal(id, state)
+		}
+	}()
+	if checkpointErr != nil {
+		state.cancel()
+		_ = send(bridge.Event{Type: bridge.EventFailed, Error: &bridge.StreamError{Code: "STORAGE_UNAVAILABLE", Message: "会话恢复记录暂时不可用，请重试", Retryable: true}})
+		e.finishTerminal(id, state)
+		return
+	}
+	scoped, releaseCapability, capabilityErr := e.AcquireCapability(ctx, "llm", "session")
+	if capabilityErr != nil {
+		state.cancel()
+		_ = send(bridge.Event{Type: bridge.EventFailed, Error: &bridge.StreamError{Code: "FORBIDDEN", Message: "对话所需能力已禁用", Retryable: false}})
+		e.finishTerminal(id, state)
+		return
+	}
+	defer releaseCapability()
+	ctx = scoped
+	if state.equipEvent != nil {
+		_ = send(bridge.Event{Type: bridge.EventEquip, Equip: state.equipEvent})
+	}
+	if lead := strings.TrimSpace(state.inviteLead); lead != "" && !strings.HasPrefix(strings.TrimLeft(assistantText.String(), " \n"), lead) {
+		notice := lead + "。\n"
+		assistantText.WriteString(notice)
+		_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: notice}})
+	}
+	var err error
+	usedLocalBrain := false
+	if !state.companion && state.brain != "" && state.brain != BrainLunitide {
+		if text, note, ok := e.trySessionLocalBrain(ctx, sessionID, turn.Goal, state); ok && ctx.Err() == nil {
+			usedLocalBrain = true
+			if len(text) > turnGenerationMaxBytes {
+				text = truncateUTF8Bytes(text, turnGenerationMaxBytes)
+				err = errTurnGenerationBudget
+			}
+			assistantText.WriteString(text)
+			err = errors.Join(err, e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt))
+			_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: text}})
+		} else if note != "" {
+			assistantText.WriteString(note)
+			err = e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt)
+			_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: note}})
+			if len(req.Messages) > 0 && req.Messages[0].Role == llmadapter.RoleSystem {
+				req.Messages[0].Content = localBrainFallbackLockHint(note) + req.Messages[0].Content
+			}
+		}
+	}
+	if !usedLocalBrain && err == nil {
+		rot := &leaseRotateState{}
+		deltaSent := false
+		origSend := send
+		send = func(ev bridge.Event) error {
+			if ev.Type == bridge.EventDelta {
+				deltaSent = true
+			}
+			return origSend(ev)
+		}
+		emitted := func() bool {
+			return deltaSent || assistantText.Len() > 0 || thinkingText.Len() > 0
+		}
+		err = e.withRotatingProviderLease(ctx, p, secretlease.OperationChat, rot, emitted, func(op context.Context, credential []byte) (cbErr error) {
+			op = withLeaseRotate(op, p, rot, emitted)
+			purpose := continuityScopeFrom(op).Purpose
+			if state.companion {
+				purpose = "companion"
+			} else if purpose == "" {
+				if officeTaskContextID(op) != "" {
+					purpose = "office"
+				} else {
+					purpose = "chat"
+				}
+			}
+			op = withContinuityScope(op, continuityScope{Owner: ownerScope(sessionID), Task: sessionID, Turn: id, Purpose: purpose, SkipExecutionBudget: state.companion})
+			if page := openPageFileFromMessages(req.Messages); page != "" {
+				op = toolruntime.WithOpenPageFile(op, page)
+			}
+			// A panic anywhere in the streaming/tool loop must degrade to a
+			// failed stream, never take down the Engine process (which would
+			// sever the event pipe for every active session).
+			defer func() {
+				if rec := recover(); rec != nil {
+					cbErr = fmt.Errorf("chat stream panicked: %v", rec)
+				}
+			}()
+			a, adapterErr := e.adapter(op, p)
+			if adapterErr != nil {
+				return adapterErr
+			}
+			e.applyExpertCouncil(op, turnBudgetAdapter{Adapter: a, budget: &generationBudget}, credential, req.Model, state.council, &req, state.companion, send)
+			state.council = nil
+			startOfficeWorkflowsIfNeeded(&req, &turn, send, state.lane, officeTaskContextID(op), turn.CapabilityWork)
+			prepareDirectDocument(&req, &turn, send)
+			prepareDirectCanvas(&req, turn.Goal)
+			prepareInterruptedOfficeResume(&req, &turn)
+			logInjectedGuidance(sessionID, state.companion, req)
+			emitInjectedGuidance(send, req, state.lane.Lane)
+			seen := map[string]bool{}
+			completedDigests := map[string]string{}
+			failedDesktopAttempts := map[string]int{}
+			var result llmadapter.Response
+			var streamErr error
+			toolsFallbackUsed := false
+			thinkingDisableRetryUsed := false
+			modelCallRetries := 0
+			guiLoopRuns := 0
+			emptyObserves := 0
+			desktopVerified := false
+			lastDesktopVerdict := ""
+			observedThisTurn := false
+			desktopTypeL0Passed := false
+			usedTools := false
+			usedDesktopTools := false
+			autoMediaPlayDone := false
+			autoDesktopQuitDone := false
+			autoUserWindowCloseDone := false
+			autoDesktopTypeDone := false
+			autoLookupDone := false
+			autoMediaGenerationDone := false
+			autoDesktopOpenDone := false
+			autoDesktopObserveDone := false
+			autoBrowserConfirmDone := false
+			nudges := 0
+			skillDraftOffered := false
+			leadInInjected := false
+			spokenGoal := turn.Goal
+			if prev := e.loadTurnCheckpoint(sessionID); strings.TrimSpace(prev.Goal) != "" {
+				if looksLikeResume(turn.Goal) {
+					turn.Goal = prev.Goal
+					turn.Injected = append(turn.Injected, prev.Injected...)
+					if strings.TrimSpace(prev.PersistDraft) != "" && strings.TrimSpace(turn.PersistDraft) == "" {
+						turn.PersistDraft = prev.PersistDraft
+					}
+				} else if next := carryFilmGoal(prev.Goal, turn.Goal); next != turn.Goal {
+					turn.Goal = next
+				}
+			}
+			turn.liveProtocol = req.Messages
+			if err := e.saveTurnCheckpoint(sessionID, turn); err != nil {
+				return err
+			}
+			toolLoopLimit := maxToolLoopSteps
+			if state.companion && !companionDesktopToolLoop(e, sessionID, turn.Goal) {
+				toolLoopLimit = companionMaxToolLoopSteps
+			}
+			if inventoryLookupBlocksPublicWeb(turn.Goal) {
+				toolLoopLimit = 2
+			}
+			toolLoopLimit = capToolLoopLimit(toolLoopLimit, state.lane)
+			if turn.CapabilityWork && !state.companion && !inventoryLookupBlocksPublicWeb(turn.Goal) && toolLoopLimit < maxToolLoopSteps {
+				toolLoopLimit = maxToolLoopSteps
+			}
+			grantTurnClock(&generationBudget)
+			toolBudgetWaves := 0
+			writingClockWaves := 0
+			prepExtendWaves := 0
+			lengthContinueWaves := 0
+			wireLimitWaves := 0
+			officeGenRetries := 0
+			documentFileWaves := 0
+			openPageEditNudges := 0
+			for step := 0; step < toolLoopLimit; step++ {
+				if step == 0 && !usedAnyTool(turn.LastTools, "media.play") {
+					if speech, ok := e.openNamedFilmNow(op, mode, sessionID, turn.Goal, send); ok {
+						assistantText.WriteString(speech)
+						if err := sendDeltaChunks(send, speech); err != nil {
+							return err
+						}
+						turn.LastTools = append(turn.LastTools, "media.play")
+						usedTools = true
+						break
+					}
+					if moviePlayGoal(turn.Goal) || ownedMediaCenterGoal(turn.Goal) {
+						speech := "没能在媒体中心开始播放。"
+						assistantText.WriteString(speech)
+						if err := sendDeltaChunks(send, speech); err != nil {
+							return err
+						}
+						break
+					}
+					if speech, ok := e.openNamedSongNow(op, mode, sessionID, turn.Goal, send); ok {
+						assistantText.WriteString(speech)
+						if err := sendDeltaChunks(send, speech); err != nil {
+							return err
+						}
+						turn.LastTools = append(turn.LastTools, "media.play")
+						usedTools = true
+						break
+					}
+					if len(directSongPlayArgs(turn.Goal)) > 0 {
+						speech := "找不到这首歌，没有这首歌。"
+						assistantText.WriteString(speech)
+						if err := sendDeltaChunks(send, speech); err != nil {
+							return err
+						}
+						break
+					}
+				}
+				if step == 0 && !usedAnyTool(turn.LastTools, "web.fetch") {
+					if speech, ok := e.openFirstNewsNow(op, mode, sessionID, turn.Goal, req.Messages, send); ok {
+						assistantText.WriteString(speech)
+						if err := sendDeltaChunks(send, speech); err != nil {
+							return err
+						}
+						turn.LastTools = append(turn.LastTools, "web.fetch")
+						usedTools = true
+						break
+					}
+				}
+				if step == 0 && !usedAnyTool(turn.LastTools, "desktop.type") {
+					if speech, ok := e.typeIntoDocumentNow(op, mode, sessionID, turn.Goal, send); ok {
+						assistantText.WriteString(speech)
+						if err := sendDeltaChunks(send, speech); err != nil {
+							return err
+						}
+						turn.LastTools = append(turn.LastTools, "desktop.open", "desktop.type")
+						usedTools = true
+						usedDesktopTools = true
+						break
+					}
+					if speech, ok := e.sendComposerNow(op, mode, sessionID, turn.Goal, send); ok {
+						assistantText.WriteString(speech)
+						if err := sendDeltaChunks(send, speech); err != nil {
+							return err
+						}
+						turn.LastTools = append(turn.LastTools, "desktop.type")
+						usedTools = true
+						usedDesktopTools = true
+						break
+					}
+					if contact, _, ok := parseWeChatChatGoal(turn.Goal); ok {
+						if e.startWeChatChatNow(op, mode, sessionID, turn.Goal, &req, send) {
+							turn.LastTools = append(turn.LastTools, "desktop.type")
+							usedTools = true
+							usedDesktopTools = true
+							autoDesktopTypeDone = true
+						} else {
+							speech := "没能打开和「" + contact + "」的微信会话。"
+							assistantText.WriteString(speech)
+							if err := sendDeltaChunks(send, speech); err != nil {
+								return err
+							}
+							break
+						}
+					}
+				}
+				turn.liveProtocol = req.Messages
+				if err := e.CheckCapability(op, "llm", "session"); err != nil {
+					return err
+				}
+				if _, err := e.applyQueuedSupplements(op, sessionID, &req, &turn, send, &assistantText); err != nil {
+					return err
+				}
+				stepTextStart := assistantText.Len()
+				stepThinkingStart := thinkingText.Len()
+				mediaTurn := playbackOnlyGoal(turn.Goal) || ownedMediaCenterGoal(turn.Goal)
+				bufferReply := computerTurn || mediaTurn || (state.companion && len(req.Tools) > 0 && !companionLookupCanStream(turn.Goal, req.Messages))
+				var stepReply strings.Builder
+				window, _ := providerModelContextWindow(p, req.Model)
+				fitModelRequest(&req, window)
+				result, streamErr = generationBudget.stream(op, a, credential, req, func(d llmadapter.Delta) error {
+					if err := e.CheckCapability(op, "llm", "session"); err != nil {
+						return err
+					}
+					if d.Reasoning != "" {
+						if thinkingText.Len() < maxThinkingTotalBytes && !req.DisableReasoning {
+							reasoning := truncateUTF8Bytes(d.Reasoning, maxThinkingTotalBytes-thinkingText.Len())
+							thinkingText.WriteString(reasoning)
+							if pendingThinking == "" && reasoning != "" {
+								pendingThinkingSince = time.Now()
+							}
+							pendingThinking += reasoning
+							force := !pendingThinkingSince.IsZero() && time.Since(pendingThinkingSince) >= thinkingFlushInterval
+							if err := flushThinking(force); err != nil {
+								return err
+							}
+						}
+						// Companion voice mode: reasoning_content is discarded — never
+						// spoken aloud and never shown as thinking in the UI.
+					}
+					if d.Text != "" {
+						// Playback acknowledgements must follow tool evidence, never
+						// a model's speculative success text streamed before the action.
+						if bufferReply {
+							stepReply.WriteString(d.Text)
+							return nil
+						}
+						assistantText.WriteString(d.Text)
+						if err := e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt); err != nil {
+							return err
+						}
+						if err := sendDeltaChunks(send, d.Text); err != nil {
+							return err
+						}
+					}
+					return nil
+				})
+				if bufferReply && stepReply.Len() > 0 {
+					result.Message.Content = stepReply.String()
+				}
+				if len(result.Message.ToolCalls) > 0 {
+					if err := e.CheckCapability(op, "agent-loop"); err != nil {
+						return err
+					}
+				}
+				if !bufferReply && streamErr == nil && state.companion && req.DisableReasoning && assistantText.Len() == 0 && len(result.Message.ToolCalls) == 0 {
+					if fallback := companionSpeakFallback(result); fallback != "" {
+						assistantText.WriteString(fallback)
+						if err := sendDeltaChunks(send, fallback); err != nil {
+							return err
+						}
+					}
+				}
+				var gatewayErr *llmadapter.Error
+				// A provider can reject every fresh screenshot and still accept the
+				// same turn once those pixels are gone. Dropping them only once
+				// per turn leaves the next capture as a hard 400.
+				if streamErr != nil && assistantText.Len() == stepTextStart && thinkingText.Len() == stepThinkingStart && len(req.Images) > 0 && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 {
+					if text, ok := e.maybeDescribeImages(op, provider.Model{ModelID: req.Model}, req.Images, chatRoutingText(lastUserContent(req.Messages))); ok {
+						req.Messages = injectVisionDescription(req.Messages, text)
+					} else if imageUnsupportedReason(gatewayErr.Message) {
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: "当前模型拒绝图片，配置的 OCR/视觉模型也未能完成识别。画面未被读取，不得猜测图片或视频帧内容。请简洁说明识别失败。"})
+					} else {
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: "屏幕截图未被模型接受，已去掉图片。请根据上一条工具返回的文字和节点继续完成操作，不要停下来。"})
+					}
+					req.Images = nil
+					continue
+				}
+				if streamErr != nil && !thinkingDisableRetryUsed && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 && thinkingParameterRejected(gatewayErr.Message) {
+					req.DisableReasoning = false
+					if req.Effective != nil {
+						eff := *req.Effective
+						eff.ThinkingType = "enabled"
+						eff.Effort = "low"
+						req.Effective = &eff
+					}
+					thinkingDisableRetryUsed = true
+					continue
+				}
+				if streamErr != nil && !toolsFallbackUsed && !unattended(op) && !skillTrialsActive(op, sessionID) && assistantText.Len() == 0 && thinkingText.Len() == 0 && len(req.Tools) > 0 && errors.As(streamErr, &gatewayErr) && gatewayErr.HTTPStatus == 400 && gatewayErr.Stage != llmadapter.StageStream && !thinkingParameterRejected(gatewayErr.Message) {
+					// Some compatible text models reject function definitions. Retry once
+					// as plain chat while preserving messages and attachment context. The
+					// degradation is surfaced explicitly instead of silently dropping
+					// tools: the notice enters both the live stream and the persisted
+					// assistant text so the history keeps the record. The adapter has
+					// already retried once with sanitized schemas; whatever reason the
+					// upstream still reports is appended so the user can act on it.
+					reason := gatewayErr.Message
+					if i := strings.Index(reason, ": "); i >= 0 {
+						reason = reason[i+2:]
+					}
+					if runes := []rune(strings.TrimSpace(reason)); len(runes) > 0 {
+						if len(runes) > 160 {
+							runes = runes[:160]
+						}
+						reason = string(runes)
+					} else {
+						reason = ""
+					}
+					why := ""
+					if reason != "" {
+						why = "，原因：" + reason
+					}
+					notice := "（系统提示：当前模型拒绝了工具定义" + why + "，本轮已自动切换为纯对话模式：文件读写、命令执行、联网获取与 MCP 工具不可用。如需完整能力，请切换到支持函数调用的模型或检查该服务商的工具参数要求。）\n\n"
+					assistantText.WriteString(notice)
+					if err := send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: notice}}); err != nil {
+						return err
+					}
+					req.Tools = nil
+					toolsFallbackUsed = true
+					continue
+				}
+				supplierContinue := supplierRejectShouldContinue(streamErr) && !unattended(op) && !skillTrialsActive(op, sessionID)
+				recoverRequest := isWindowOverflowError(streamErr) || supplierContinue
+				windowRetryLimit := 1
+				if isContextOverflowError(streamErr) {
+					windowRetryLimit = maxWindowRetries
+				}
+				if supplierContinue {
+					windowRetryLimit = supplierCompactWaves
+				}
+				if streamErr != nil && supplierContinue && taskAlreadyLanded(req.Messages, turn.LastTools) && openPlanSteps(req.Messages) == 0 {
+					streamErr = nil
+					break
+				}
+				if streamErr != nil && state != nil && recoverRequest && state.windowRetryCount < windowRetryLimit {
+					state.windowRetryCount++
+					e.flushMemoryBeforeCompaction(op, sessionID, turn.Goal, assistantText.String())
+					if e.compactionTrigger != nil && e.compactionExecutor != nil {
+						e.compactSession(op, sessionID, p, req.Model, token.CanonicalTokenizerRevision)
+					}
+					req.Messages = slimOpenPageMessages(req.Messages)
+					applyWindowRetryMessagesKeep(&req, e.latestCheckpointSummary(op, sessionID), windowRetryKeep(state.windowRetryCount))
+					clipWindowRetryPayloads(&req, state.windowRetryCount)
+					stubExecutedToolArgs(&req)
+					dropWindowRetryImages(&req)
+					if !messagesHaveCard(req.Messages) {
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: taskHandoffCard(req.Messages)})
+					}
+					if openPageChangePending(req.Messages, turn.LastTools) {
+						req.Messages = append(req.Messages, openPageEditNudgeMessage())
+					}
+					discardStepText(&assistantText, stepTextStart)
+					if bufferReply {
+						stepReply.Reset()
+					}
+					if step+1 >= toolLoopLimit && toolLoopLimit < maxToolLoopStepsHard {
+						toolLoopLimit = step + 2
+					}
+					_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: windowRetryThinkingNotice()}})
+					streamErr = nil
+					continue
+				}
+				if streamErr != nil && isReplyTruncatedError(streamErr) && lengthContinueWaves < maxLengthContinueWaves && step+1 < maxToolLoopStepsHard {
+					lengthContinueWaves++
+					partial := ""
+					if bufferReply && stepReply.Len() > 0 {
+						partial = stepReply.String()
+						assistantText.WriteString(partial)
+						if err := sendDeltaChunks(send, partial); err != nil {
+							return err
+						}
+					} else {
+						partial = assistantText.String()
+						if stepTextStart > 0 && stepTextStart <= len(partial) {
+							partial = partial[stepTextStart:]
+						}
+					}
+					if strings.TrimSpace(partial) != "" {
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleAssistant, Content: partial})
+					}
+					req.Messages = append(req.Messages, lengthContinueMessage())
+					if step+1 >= toolLoopLimit && toolLoopLimit < maxToolLoopStepsHard {
+						toolLoopLimit = step + 2
+					}
+					_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "输出被长度截断，不完整的工具没有执行。自动接着写，把文件落到当前对话文件夹。\n"}})
+					streamErr = nil
+					continue
+				}
+				canvasCut := wantsDefaultCanvas(turn.Goal) && !usedTools
+				if streamErr != nil && errors.Is(streamErr, errTurnGenerationBudget) && (usedTools || (canvasCut && writingClockWaves < 2)) && step+1 < maxToolLoopStepsHard && generationBudget.reopenForNextWave() {
+					if canvasCut {
+						writingClockWaves++
+					}
+					next := step + 1 + toolLoopExtendChunk
+					if next > maxToolLoopStepsHard {
+						next = maxToolLoopStepsHard
+					}
+					if next > toolLoopLimit {
+						toolLoopLimit = next
+					}
+					appendKeptWriting(&req, &turn, thinkingText.String(), stepThinkingStart)
+					if wantsDefaultCanvas(turn.Goal) {
+						req.Messages = append(req.Messages, directCanvasContinueMessage())
+					} else {
+						req.Messages = append(req.Messages, toolBudgetContinueMessage())
+					}
+					_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "这一轮已经写完的内容都留着，接着把任务做完。\n"}})
+					streamErr = nil
+					continue
+				}
+				if speech, settle := timeoutAfterDeliverable(streamErr, req.Messages); settle {
+					if next, delta := appendAssistantNotice(assistantText.String(), speech); delta != "" {
+						assistantText.Reset()
+						assistantText.WriteString(next)
+						if err := sendDeltaChunks(send, delta); err != nil {
+							return err
+						}
+					}
+					streamErr = nil
+					break
+				}
+				if streamErr != nil && isResponseWireLimitError(streamErr) && wireLimitWaves < maxWireLimitWaves && step+1 < maxToolLoopStepsHard {
+					wireLimitWaves++
+					partial := assistantText.String()
+					if stepTextStart > 0 && stepTextStart <= len(partial) {
+						partial = partial[stepTextStart:]
+					}
+					if bufferReply && stepReply.Len() > 0 {
+						partial = stepReply.String()
+						assistantText.WriteString(partial)
+						if err := sendDeltaChunks(send, stepReply.String()); err != nil {
+							return err
+						}
+					}
+					if strings.TrimSpace(partial) != "" {
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleAssistant, Content: partial})
+					}
+					req.Messages = append(req.Messages, wireLimitContinueMessage())
+					_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "这一段太大，已接上，继续做下一步。\n"}})
+					streamErr = nil
+					continue
+				}
+				if streamErr != nil && isResponseWireLimitError(streamErr) && strings.TrimSpace(assistantText.String()) != "" {
+					if bufferReply && stepReply.Len() > 0 {
+						assistantText.WriteString(stepReply.String())
+						if err := sendDeltaChunks(send, stepReply.String()); err != nil {
+							return err
+						}
+					}
+					streamErr = nil
+					break
+				}
+				if streamErr != nil && modelCallRetries < maxContinueNudges && chatModelCallRetryable(streamErr) && step+1 < maxToolLoopStepsHard {
+					modelCallRetries++
+					foldOldModelMessages(&req, modelRequestKeep)
+					appendKeptWriting(&req, &turn, thinkingText.String(), stepThinkingStart)
+					if wantsDefaultCanvas(turn.Goal) {
+						req.Messages = append(req.Messages, directCanvasContinueMessage())
+					}
+					req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: "上一轮模型请求没有完成。从当前进度接着做未完成的步骤，不要从头重来，不要对用户说无法执行。"})
+					_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "模型这一轮没有返回完整结果，自动再试，任务继续。\n"}})
+					streamErr = nil
+					continue
+				}
+				if streamErr != nil && strings.TrimSpace(assistantText.String()) != "" && chatModelCallRetryable(streamErr) && !isReplyTruncatedError(streamErr) {
+					if bufferReply && stepReply.Len() > 0 {
+						assistantText.WriteString(stepReply.String())
+						if err := sendDeltaChunks(send, stepReply.String()); err != nil {
+							return err
+						}
+					}
+					streamErr = nil
+					break
+				}
+				if streamErr != nil {
+					log.Printf("chat stream %s model_call=%d failed: %s received_text_bytes=%d received_thinking_bytes=%d", id, step+1, chatModelFailureDiagnostic(streamErr), assistantText.Len()-stepTextStart+stepReply.Len(), thinkingText.Len()-stepThinkingStart)
+					if bufferReply && stepReply.Len() > 0 {
+						assistantText.WriteString(stepReply.String())
+						_ = sendDeltaChunks(send, stepReply.String())
+					}
+					break
+				}
+				modelCallRetries = 0
+				if desktopLadderApplies(turn.Goal) && len(result.Message.ToolCalls) > 0 {
+					result.Message.ToolCalls = desktopLadderKeepCalls(result.Message.ToolCalls, req.Messages, turn.Goal)
+				}
+				if desktopLadderQuiet(req.Messages, turn.Goal) && desktopLadderLooksLikeFailureTalk(result.Message.Content) {
+					result.Message.Content = ""
+					if bufferReply {
+						stepReply.Reset()
+					}
+				}
+				if state.companion {
+					for _, call := range result.Message.ToolCalls {
+						if call.Name != "user.ask" {
+							continue
+						}
+						// A spoken question ends this turn normally. Do not open an
+						// invisible approval or execute sibling tools before the answer.
+						waitingForSpokenInput = true
+						question := companionSpokenQuestion(call.Arguments)
+						if next, delta := appendAssistantNotice(assistantText.String(), question); delta != "" {
+							assistantText.Reset()
+							assistantText.WriteString(next)
+							return sendDeltaChunks(send, delta)
+						}
+						return nil
+					}
+				}
+				turnAlreadySettled := false
+				if _, settled := settledWorkSpeech(turn.Goal, req.Messages); settled {
+					turnAlreadySettled = true
+				}
+				if len(result.Message.ToolCalls) == 0 {
+					if state.companion && companionNeedsSpokenInput(result.Message.Content) {
+						waitingForSpokenInput = true
+						if bufferReply {
+							assistantText.WriteString(result.Message.Content)
+							return sendDeltaChunks(send, result.Message.Content)
+						}
+						return nil
+					}
+					if !turnAlreadySettled && !autoLookupDone && !turnAttemptedAction(req.Messages, "lookup") && looksLikeCurrentLookupTurn(turn.Goal) {
+						if inventoryLookupBlocksPublicWeb(turn.Goal) && toolDefinitionsHave(req.Tools, "mcp.search") {
+							if searchArgs := fallbackMcpSearchArgs(turn.Goal); len(searchArgs) > 0 {
+								result.Message.ToolCalls = []llmadapter.ToolCall{{
+									ID:        "auto-" + ulid.Make().String(),
+									Name:      "mcp.search",
+									Arguments: searchArgs,
+								}}
+								autoLookupDone = true
+							}
+						} else if laneAllowsWebSearch(state.lane) && toolDefinitionsHave(req.Tools, "web.search") {
+							if searchArgs := fallbackWebSearchArgs(turn.Goal); len(searchArgs) > 0 {
+								result.Message.ToolCalls = []llmadapter.ToolCall{{
+									ID:        "auto-" + ulid.Make().String(),
+									Name:      "web.search",
+									Arguments: searchArgs,
+								}}
+								autoLookupDone = true
+							}
+						}
+					}
+					if !turnAlreadySettled && len(result.Message.ToolCalls) == 0 && !autoMediaGenerationDone {
+						if name := mediaGenerationKind(turn.Goal); name != "" {
+							if toolDefinitionsHave(req.Tools, name) && !usedAnyTool(turn.LastTools, name) {
+								mediaArgs := fallbackMediaGenerationArgs(turn.Goal)
+								if len(mediaArgs) > 0 {
+									result.Message.ToolCalls = []llmadapter.ToolCall{{
+										ID:        "auto-" + ulid.Make().String(),
+										Name:      name,
+										Arguments: mediaArgs,
+									}}
+									autoMediaGenerationDone = true
+								}
+							}
+						}
+					}
+					if !turnAlreadySettled && len(result.Message.ToolCalls) == 0 && state.companion && !autoUserWindowCloseDone && e.ccctrl != nil && (closeCurrentBrowserGoal(turn.Goal) || closeOpenDocumentGoal(turn.Goal)) {
+						result.Message.ToolCalls = []llmadapter.ToolCall{{
+							ID:        "auto-" + ulid.Make().String(),
+							Name:      "computer.act",
+							Arguments: []byte(`{"action":"observe"}`),
+						}}
+						autoUserWindowCloseDone = true
+					}
+					if !turnAlreadySettled && len(result.Message.ToolCalls) == 0 && !autoDesktopQuitDone && toolDefinitionsHave(req.Tools, "desktop.quit") && !usedAnyTool(turn.LastTools, "desktop.quit") && quitOnlyGoal(turn.Goal) {
+						if quitArgs := fallbackDesktopQuitArgs(turn.Goal); len(quitArgs) > 0 {
+							result.Message.ToolCalls = []llmadapter.ToolCall{{
+								ID:        "auto-" + ulid.Make().String(),
+								Name:      "desktop.quit",
+								Arguments: quitArgs,
+							}}
+							autoDesktopQuitDone = true
+						}
+					}
+					if !turnAlreadySettled && len(result.Message.ToolCalls) == 0 && !autoMediaPlayDone && toolDefinitionsHave(req.Tools, "media.play") && !usedAnyTool(turn.LastTools, "media.play") && desktopLadderAllowsDedicated(turn.Goal, req.Messages) && (mediaCenterPlayStillPending(turn.Goal, turn.LastTools) || companionShouldAutoMediaPlay(turn.Goal) || companionRetryActionTurn(spokenGoal)) {
+						if playArgs, ok := e.companionAutoMediaPlayArgsForTurn(sessionID, turn.Goal, spokenGoal); ok {
+							result.Message.ToolCalls = []llmadapter.ToolCall{{
+								ID:        "auto-" + ulid.Make().String(),
+								Name:      "media.play",
+								Arguments: playArgs,
+							}}
+							autoMediaPlayDone = true
+						}
+					}
+					if !turnAlreadySettled && len(result.Message.ToolCalls) == 0 && !autoDesktopOpenDone && toolDefinitionsHave(req.Tools, "desktop.open") && !turnAttemptedAction(req.Messages, "open") && desktopLadderAllowsDedicated(turn.Goal, req.Messages) && !(usedAnyTool(turn.LastTools, "media.play") && (playbackOnlyGoal(turn.Goal) || companionTurnWantsMusicPlay(turn.Goal))) {
+						if openArgs := fallbackDesktopOpenArgs(turn.Goal); len(openArgs) > 0 {
+							result.Message.ToolCalls = []llmadapter.ToolCall{{
+								ID:        "auto-" + ulid.Make().String(),
+								Name:      "desktop.open",
+								Arguments: openArgs,
+							}}
+							autoDesktopOpenDone = true
+						}
+					}
+					if !turnAlreadySettled && len(result.Message.ToolCalls) == 0 && !autoDesktopTypeDone && toolDefinitionsHave(req.Tools, "desktop.type") && !turnAttemptedAction(req.Messages, "type") && looksLikeTypeAfterLabelTurn(turn.Goal) {
+						if typeArgs, ok := e.companionAutoDesktopTypeArgs(sessionID, turn.Goal, req.Messages); ok {
+							result.Message.ToolCalls = []llmadapter.ToolCall{{
+								ID:        "auto-" + ulid.Make().String(),
+								Name:      "desktop.type",
+								Arguments: typeArgs,
+							}}
+							autoDesktopTypeDone = true
+						}
+					}
+					if !turnAlreadySettled && len(result.Message.ToolCalls) == 0 && !autoDesktopObserveDone && (newsOpenGoal(turn.Goal) || newsOpenGoal(spokenGoal)) {
+						if u := e.savedSearchHit(sessionID, req.Messages); u != "" {
+							raw, _ := json.Marshal(map[string]string{"url": u})
+							result.Message.ToolCalls = []llmadapter.ToolCall{{
+								ID:        "auto-" + ulid.Make().String(),
+								Name:      "desktop.browse",
+								Arguments: raw,
+							}}
+						}
+						autoDesktopObserveDone = true
+					}
+					if !turnAlreadySettled && len(result.Message.ToolCalls) == 0 && !autoBrowserConfirmDone && browserLookupOnlyGoal(turn.Goal) && !lookupHasMoreWork(turn.Goal) && toolDefinitionsHave(req.Tools, "desktop.browse") {
+						browseOut := strings.TrimSpace(lastNamedToolOutput(req.Messages, "desktop.browse"))
+						if strings.HasPrefix(browseOut, "已向系统默认桌面浏览器发送打开请求") {
+							args := lastNamedToolArguments(req.Messages, "desktop.browse")
+							if len(args) == 0 {
+								args = []byte(`{}`)
+							}
+							result.Message.ToolCalls = []llmadapter.ToolCall{{
+								ID:        "auto-" + ulid.Make().String(),
+								Name:      "desktop.browse",
+								Arguments: args,
+							}}
+							autoBrowserConfirmDone = true
+						}
+					}
+					if !turnAlreadySettled && len(result.Message.ToolCalls) == 0 && !autoDesktopObserveDone && toolDefinitionsHave(req.Tools, "computer.act") && !turnAttemptedAction(req.Messages, "observe") && (looksLikeDesktopObserveTurn(turn.Goal) || desktopLadderWantsNamedObserve(turn.Goal, req.Messages)) {
+						result.Message.ToolCalls = []llmadapter.ToolCall{{
+							ID:        "auto-" + ulid.Make().String(),
+							Name:      "computer.act",
+							Arguments: autoDesktopObserveArgs(),
+						}}
+						autoDesktopObserveDone = true
+					}
+				}
+				if !turnAlreadySettled && len(result.Message.ToolCalls) == 0 && state != nil && shouldWidenAndRetry(widenInput{
+					AlreadyWidened:      state.widened,
+					Goal:                turn.Goal,
+					TaskRoute:           state.taskRoute,
+					AssistantText:       strings.TrimSpace(result.Message.Content + " " + assistantText.String()),
+					SuccessfulTools:     map[bool]int{true: 1}[usedTools],
+					PrevWasToolGoal:     state.prevWasToolGoal,
+					PrevSuccessfulTools: state.prevSuccessfulTools,
+				}) && len(state.fullTools) > 0 {
+					req.Tools = applyWidenedTools(state.fullTools)
+					state.widened = true
+					state.taskRoute = RouteUnspecified
+					discardStepText(&assistantText, stepTextStart)
+					if bufferReply {
+						stepReply.Reset()
+					}
+					_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "改用完整工具面再试一次"}})
+					continue
+				}
+				if mediaTurn && len(result.Message.ToolCalls) == 0 {
+					if text := computerReceiptCloseout(req.Messages, turn.Goal); text != "" {
+						result.Message.Content = text
+					}
+				}
+				stepText := ""
+				if assistantText.Len() > stepTextStart {
+					stepText = assistantText.String()[stepTextStart:]
+				}
+				if bufferReply {
+					stepText = result.Message.Content
+				}
+				noteDocxChars(&turn, stepText)
+				if len(result.Message.ToolCalls) == 0 {
+					toolOut := lastToolOutput(req.Messages)
+					if officeGenRetries < maxOfficeGenRetries && !turn.DocxGenerated && !turn.PptGenerated && officeGenFailed(stepText+"\n"+toolOut) {
+						officeGenRetries++
+						pinOfficeFileFinish(&turn)
+						msg := result.Message
+						if strings.TrimSpace(msg.Content) == "" && stepText != "" {
+							msg.Role = llmadapter.RoleAssistant
+							msg.Content = stepText
+						}
+						if msg.Role != "" {
+							req.Messages = append(req.Messages, msg)
+						}
+						req.Messages = append(req.Messages, officeGenRetryMessage())
+						_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "文件没生成成功。不从头再来，按失败原因改一处并重新生成。\n"}})
+						if err := e.saveTurnCheckpointAfterModel(sessionID, &turn, result, thinkingText.String(), req.DisableReasoning, req.Messages); err != nil {
+							return err
+						}
+						continue
+					}
+					pageNudgeLimit := 2
+					if modelAskedTheUserToRetry(stepText) || modelAskedTheUserToRetry(result.Message.Content) {
+						pageNudgeLimit = maxOpenPageEditNudges
+					}
+					if openPageEditNudges < pageNudgeLimit && openPageChangePending(req.Messages, turn.LastTools) {
+						openPageEditNudges++
+						msg := result.Message
+						if strings.TrimSpace(msg.Content) == "" && stepText != "" {
+							msg.Role = llmadapter.RoleAssistant
+							msg.Content = stepText
+						}
+						if msg.Role != "" {
+							req.Messages = append(req.Messages, msg)
+						}
+						req.Messages = append(req.Messages, openPageEditNudgeMessage())
+						_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "只改正在看的文件，不复述页面。\n"}})
+						continue
+					}
+					continueKind := pickTurnContinueKind(stepText, assistantText.String(), toolOut, turn.LastTools, usedTools, usedDesktopTools, state.companion, req.DisableReasoning, nudges, turn.Goal, len(req.Tools) > 0)
+					settledSpeech, settledNow := settledWorkSpeech(turn.Goal, req.Messages)
+					if settledNow {
+						continueKind = ""
+						if settledSpeech != "" && !strings.Contains(assistantText.String(), settledSpeech) {
+							assistantText.WriteString(settledSpeech)
+							if err := sendDeltaChunks(send, settledSpeech); err != nil {
+								return err
+							}
+						}
+					}
+					if !laneAllowsContinueNudges(state.lane) && !((continueKind == "desktop" || continueKind == "ladder") && laneAllowsDesktopContinue(state.lane)) {
+						continueKind = ""
+					}
+					if continueKind == "ladder" && !toolDefinitionsHave(req.Tools, "computer.act") {
+						continueKind = ""
+						text := "电脑控制未启用。第一次控桌面请到设置里打开。"
+						result.Message.Content = text
+						stepText = text
+					}
+					if state.lane.Lane == LaneL2 && continueKind != "" && continueKind != "incomplete" {
+						continueKind = ""
+					}
+					if (continueKind == "desktop" || continueKind == "ladder") && companionBrowserLookupSettled(turn.Goal, stepText, req.Messages) {
+						continueKind = ""
+					}
+					if (state.companion || computerTurn) && continueKind == "desktop" && computerReceiptCloseout(req.Messages, turn.Goal) != "" {
+						continueKind = ""
+					}
+					// P0-4 task-level verifier: before a screen-manipulating
+					// turn closes, audit the final screenshot against the goal.
+					// Text heuristics above only judge the model's words; this
+					// judges the screen. One audit per turn.
+					if continueKind == "" && !settledNow && !mediaCenterSkipsDesktopVerifier(turn.Goal, req.Messages) && desktopVerifierApplies(turn.LastTools, state.companion, desktopVerified, usedDesktopTools) && laneAllowsDesktopContinue(state.lane) {
+						desktopVerified = true
+						if verdict, frames, ok := e.verifyDesktopOutcome(op, mode, sessionID, turn.Goal, stepText, state.companion); ok {
+							_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: desktopVerdictThinking(verdict)}})
+							for _, img := range frames {
+								req.Images = appendCaptureVision(req.Images, img.MIME, img.Data)
+							}
+							switch verdict.Verdict {
+							case verdictNotDone:
+								lastDesktopVerdict = verdictNotDone
+								if nudges < maxDesktopContinueNudges {
+									nudges++
+									msg := result.Message
+									if strings.TrimSpace(msg.Content) == "" {
+										msg.Role = llmadapter.RoleAssistant
+										msg.Content = stepText
+									}
+									req.Messages = append(req.Messages, msg, desktopVerdictNudge(verdict.Reason))
+									continue
+								}
+								line := "\n\n屏幕核验：未完成"
+								if verdict.Reason != "" {
+									line += " — " + verdict.Reason
+								}
+								assistantText.WriteString(line)
+								if err := sendDeltaChunks(send, line); err != nil {
+									return err
+								}
+							case verdictDone, verdictBlocked:
+								lastDesktopVerdict = verdict.Verdict
+								if line := desktopVerdictEvidenceLine(verdict); line != "" {
+									assistantText.WriteString(line)
+									if err := sendDeltaChunks(send, line); err != nil {
+										return err
+									}
+								}
+							case verdictUnclear:
+								lastDesktopVerdict = verdictUnclear
+							}
+						}
+					}
+					if continueKind == "" && state.lane.Lane != LaneL2 && laneAllowsContinueNudges(state.lane) {
+						if open, total := planChecklist(req.Messages); planPauseRoom(nudges, open, total) {
+							continueKind = "plan"
+						}
+					}
+					if continueKind == "" && !skillDraftOffered {
+						offerAny, offerDesktop := shouldOfferAnySkillDraft(turn.LastTools, guiLoopRuns, lastDesktopVerdict, state.companion)
+						if offerAny {
+							skillDraftOffered = true
+							msg := result.Message
+							if strings.TrimSpace(msg.Content) == "" {
+								msg.Role = llmadapter.RoleAssistant
+								msg.Content = stepText
+							}
+							if msg.Role != "" {
+								req.Messages = append(req.Messages, msg)
+							}
+							offer := skillDraftOfferMessage()
+							if offerDesktop {
+								offer = desktopSkillDraftOfferMessage(turn.Goal, currentTurnReceipts(req.Messages))
+							}
+							req.Messages = append(req.Messages, offer)
+							continue
+						}
+					}
+					if continueKind != "" {
+						if desktopLadderQuiet(req.Messages, turn.Goal) && desktopLadderLooksLikeFailureTalk(stepText) {
+							result.Message.Content = ""
+							stepText = ""
+						}
+						nudges++
+						msg := result.Message
+						if strings.TrimSpace(msg.Content) == "" {
+							msg.Role = llmadapter.RoleAssistant
+							msg.Content = stepText
+						}
+						nudge := continueNudgeMessage()
+						switch continueKind {
+						case "leadin":
+							nudge = llmadapter.Message{Role: llmadapter.RoleSystem, Content: "根据本轮工具证据，用一两句报告结果和未完成部分。命令发送、磁盘写入、窗口更新是不同证据，不能混为一谈。不要只说稍等，也不要重复过程。"}
+						case "desktop":
+							nudge = desktopContinueNudgeForGoal(turn.Goal)
+						case "incomplete":
+							nudge = incompleteContinueNudgeMessage()
+						case "ladder":
+							nudge = desktopLadderNudgeMessage(req.Messages, turn.Goal)
+						case "wait":
+							nudge = llmadapter.Message{Role: llmadapter.RoleSystem, Content: "立刻调用本轮已装备的工具执行。不要再承诺稍等。下一句必须是结果或无法执行。"}
+						case "act":
+							nudge = llmadapter.Message{Role: llmadapter.RoleSystem, Content: "上一段只是计划，文件还没写。立刻调用工具写入，不要再复述同一段计划。写完后再用一句话给出结果。"}
+						case "plan":
+							nudge = llmadapter.Message{Role: llmadapter.RoleSystem, Content: "清单里还有未完成的步骤。就在这一轮里连续调用工具把剩下的步骤全部做完，做完一步就用 todo.write 更新整份清单，全部完成后再停。不要把每一步拆成单独的续轮。"}
+						}
+						if bufferReply {
+							nudge.Content += "\n前面的回答草稿尚未发送给用户。最终回答必须直接给出实质结果，不能只说上面已经给出或不用重复。"
+						}
+						req.Messages = append(req.Messages, msg, nudge)
+						continue
+					}
+					if bufferReply {
+						stepText = companionFinalResult(req.Messages, stepText, turn.Goal)
+						if looksLikeCompanionWaitPromise(stepText) || isCompanionLeadInOnly(stepText) {
+							stepText = "这轮任务未完成，没有取得可验证的结果。"
+						}
+						result.Message.Content = stepText
+						assistantText.WriteString(stepText)
+						if err := sendDeltaChunks(send, stepText); err != nil {
+							return err
+						}
+					}
+					if continueKind == "" && state.companion && !usedTools &&
+						(looksLikeCompanionWaitPromise(assistantText.String()) || isCompanionLeadInOnly(assistantText.String())) &&
+						(len(req.Tools) > 0 || companionShouldAutoMediaPlay(turn.Goal) || companionRetryActionTurn(spokenGoal) || companionWantsDesktopControl(spokenGoal)) {
+						close := companionStuckLeadInSpeech(turn.Goal, spokenGoal)
+						assistantText.WriteString(close)
+						if err := sendDeltaChunks(send, close); err != nil {
+							return err
+						}
+						break
+					}
+					if continueKind == "" && state.companion && usedTools && isCompanionLeadInOnly(assistantText.String()) {
+						close := companionToolResultSpeech(lastToolName(turn.LastTools), lastToolOutput(req.Messages))
+						assistantText.WriteString(close)
+						if err := sendDeltaChunks(send, close); err != nil {
+							return err
+						}
+					}
+					note, _, queueErr := e.pullQueuedSupplements(op, sessionID, &turn)
+					if queueErr != nil {
+						return queueErr
+					}
+					if note != "" {
+						msg := result.Message
+						if strings.TrimSpace(msg.Content) == "" && stepText != "" {
+							msg.Role = llmadapter.RoleAssistant
+							msg.Content = stepText
+						}
+						if msg.Role != "" {
+							req.Messages = append(req.Messages, msg)
+						}
+						req.Messages = append(req.Messages, queuedSupplementMessage(note))
+						assistantText.WriteString(queueInjectNotice)
+						_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "已收到你的补充，继续当前任务，不另起炉灶。\n"}})
+						_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: queueInjectNotice}})
+						continue
+					}
+					if documentFileWaves < 1 && documentStillNeedsFile(&turn, stepText, len(result.Message.ToolCalls)) {
+						documentFileWaves++
+						if turn.DocxActive {
+							turn.DocxStage = docxStageGenerate
+						}
+						if turn.PptActive {
+							turn.PptStage = pptStageGenerate
+						}
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: directDocumentInstruction})
+						_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "上一轮没有写出文件。这一轮直接写成文件。\n"}})
+						if err := e.saveTurnCheckpointAfterModel(sessionID, &turn, result, thinkingText.String(), req.DisableReasoning, req.Messages); err != nil {
+							return err
+						}
+						continue
+					}
+					if shouldStartOfficeResearch(state.lane, officeTaskContextID(op), turn.CapabilityWork) && !officeNudgeRepeats(&turn, stepText, len(result.Message.ToolCalls)) {
+						if nudgePptWorkflow(&req, &turn, send) {
+							if err := e.saveTurnCheckpointAfterModel(sessionID, &turn, result, thinkingText.String(), req.DisableReasoning, req.Messages); err != nil {
+								return err
+							}
+							continue
+						}
+						if nudgeDocxWorkflow(&req, &turn, send) {
+							if err := e.saveTurnCheckpointAfterModel(sessionID, &turn, result, thinkingText.String(), req.DisableReasoning, req.Messages); err != nil {
+								return err
+							}
+							continue
+						}
+					}
+					if usedTools && toolBudgetWaves < maxToolBudgetWaves && turnAdmitsUnfinishedToolBudget(assistantText.String()) && step+1 < maxToolLoopStepsHard {
+						toolBudgetWaves++
+						msg := result.Message
+						if strings.TrimSpace(msg.Content) == "" && stepText != "" {
+							msg.Role = llmadapter.RoleAssistant
+							msg.Content = stepText
+						}
+						if msg.Role != "" {
+							req.Messages = append(req.Messages, msg)
+						}
+						req.Messages = append(req.Messages, toolBudgetContinueMessage())
+						next := step + 1 + toolLoopExtendChunk
+						if next > maxToolLoopStepsHard {
+							next = maxToolLoopStepsHard
+						}
+						if next > toolLoopLimit {
+							toolLoopLimit = next
+						}
+						_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "工具步数用完，自动开始下一轮，接着把任务做完。\n"}})
+						continue
+					}
+					break
+				}
+				usedTools = true
+				if shouldExtendPastPreparatoryStep(append(append([]string{}, turn.LastTools...), toolCallNames(result.Message.ToolCalls)...), prepExtendWaves, toolLoopLimit, step) {
+					prepExtendWaves++
+					next := step + 1 + toolLoopExtendChunk
+					if next > maxToolLoopStepsHard {
+						next = maxToolLoopStepsHard
+					}
+					if next > toolLoopLimit {
+						toolLoopLimit = next
+					}
+				}
+				pageTools := append(append([]string{}, turn.LastTools...), toolCallNames(result.Message.ToolCalls)...)
+				if openPageEditNudges < maxOpenPageEditNudges && openPageChangePending(req.Messages, pageTools) && step+1 >= toolLoopLimit && toolLoopLimit < maxToolLoopStepsHard {
+					openPageEditNudges++
+					if step+2 > toolLoopLimit {
+						toolLoopLimit = step + 2
+					}
+					req.Messages = append(req.Messages, openPageEditNudgeMessage())
+				}
+				// The generation allowance grows with the same evidence: this
+				// turn is spending its budget on tool work, not on talking to
+				// itself, so running out mid-job would abandon real progress.
+				generationBudget.noteToolProgress()
+				for _, call := range result.Message.ToolCalls {
+					if isDesktopControlTool(call.Name) {
+						usedDesktopTools = true
+						if !inventoryLookupBlocksPublicWeb(turn.Goal) && toolLoopLimit < maxToolLoopSteps && laneAllowsDesktopContinue(state.lane) {
+							toolLoopLimit = maxToolLoopSteps
+						}
+						break
+					}
+				}
+				if turnMayEarnMoreSteps(state.companion, usedDesktopTools, turn.Goal, state.lane) || (turn.CapabilityWork && !state.companion && !inventoryLookupBlocksPublicWeb(turn.Goal)) {
+					toolLoopLimit = extendToolLoopLimit(toolLoopLimit, step)
+				}
+				if state.companion && shouldInjectCompanionToolLeadIn(assistantText.String(), leadInInjected) && len(result.Message.ToolCalls) > 0 && len(turn.LastTools) == 0 {
+					lead := companionToolLeadIn(result.Message.ToolCalls[0].Name)
+					assistantText.WriteString(lead)
+					leadInInjected = true
+					if err := sendDeltaChunks(send, lead); err != nil {
+						return err
+					}
+				}
+				req.Messages = append(req.Messages, result.Message)
+				if err := validateToolCallIDs(result.Message.ToolCalls); err != nil {
+					return err
+				}
+				// Parallel subagents: same-turn subagent.spawn calls are
+				// pre-started (bounded) so independent research subagents
+				// overlap; each result is consumed in original call order
+				// below, keeping the event stream deterministic.
+				// Progress may arrive from several agents while the first result is
+				// still pending. Only rawSend is goroutine-safe; send also owns
+				// the main model's pending thinking buffer.
+				subagentDigests := make(map[string]string)
+				for _, call := range result.Message.ToolCalls {
+					if call.Name == "subagent.spawn" {
+						subagentDigests[call.ID] = argsDigestOrFallback(call.Name, call.Arguments)
+					}
+				}
+				subagentFutures := startSubagentFutures(op, e, a, credential, req.Model, sessionID, result.Message.ToolCalls, state.subagentPolicy, func(callID string, progress subagentProgress) {
+					_ = rawSend(bridge.Event{Type: bridge.EventToolOutput, Tool: &bridge.ToolEvent{CallID: callID, Name: "subagent.spawn", ArgsDigest: subagentDigests[callID], Summary: progress.JSONSummary()}})
+				})
+				// P0-1 parallel tools: same-turn MCP and read-only engine calls
+				// pre-start on bounded goroutines (chat_parallel.go documents
+				// the concurrency safety contract); mutating, cc.* and gated
+				// tools stay inline.
+				for i := range result.Message.ToolCalls {
+					call := &result.Message.ToolCalls[i]
+					rewriteNewsOpen(turn.Goal, sessionID, e, req.Messages, call)
+					rewriteNewsOpen(spokenGoal, sessionID, e, req.Messages, call)
+					if moviePlayGoal(turn.Goal) && call.Name != "media.play" && !autoMediaPlayDone {
+						call.Name = "media.play"
+						call.Arguments = forceMediaCenterArgs(turn.Goal, nil)
+						autoMediaPlayDone = true
+					} else if playerCloseGoal(turn.Goal) && call.Name != "media.play" && !autoMediaPlayDone {
+						call.Name = "media.play"
+						call.Arguments = forceMediaCenterStopArgs()
+						autoMediaPlayDone = true
+					}
+				}
+				parallelFutures := startParallelToolFutures(op, e, mode, sessionID, result.Message.ToolCalls)
+				// Early returns below (duplicate call ID, invalid args, send
+				// failures) must not abandon pre-started spawn goroutines:
+				// drain unconsumed futures when the callback exits. The
+				// lease context cancellation bounds the wait.
+				defer func() {
+					for _, ch := range subagentFutures {
+						select {
+						case <-ch:
+						case <-op.Done():
+							return
+						}
+					}
+					drainParallelToolFutures(op, parallelFutures)
+				}()
+				parkedFilePicker := false
+				parkedUAC := false
+				parkedBrowserWall := ""
+				lastGUIFail := false
+				guardBlockedCalls := 0
+				totalCallsThisStep := len(result.Message.ToolCalls)
+				for _, call := range result.Message.ToolCalls {
+					if _, settled := settledWorkSpeech(turn.Goal, req.Messages); settled {
+						break
+					}
+					if composerSendSettled(turn.Goal, req.Messages) {
+						break
+					}
+					if seen[call.ID] {
+						return errors.New("duplicate tool call id")
+					}
+					seen[call.ID] = true
+					call.Arguments = officeBoundToolArgs(op, call.Name, call.Arguments)
+					call.Arguments = confineSessionArtifactArgs(turn.Goal, call.Name, call.Arguments)
+					if call.Name == "media.play" {
+						call.Arguments = mediaArgsForGoal(turn.Goal, call.Arguments)
+					}
+					if call.Name == "desktop.type" {
+						call.Arguments = composerTypeArgsForCall(turn.Goal, req.Messages, call.Arguments)
+					}
+					prepared, retryHint := prepareToolArguments(call.Name, call.Arguments, toolSchemaByName(req.Tools, call.Name))
+					call.Arguments = prepared
+					digest := argsDigestOrFallback(call.Name, prepared)
+					if retryHint != "" {
+						if future, ok := parallelFutures[call.ID]; ok {
+							select {
+							case <-future:
+							case <-op.Done():
+							}
+							delete(parallelFutures, call.ID)
+						}
+						if future, ok := subagentFutures[call.ID]; ok {
+							select {
+							case <-future:
+							case <-op.Done():
+							}
+							delete(subagentFutures, call.ID)
+						}
+						if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: clipToolSummary(toolStartedSummary(call.Name, call.Arguments))}}); err != nil {
+							return err
+						}
+						summary := clipToolSummary(retryHint)
+						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
+							return err
+						}
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
+						continue
+					}
+					skipSummary, skip := duplicateToolSkipSummary(digest, completedDigests)
+					if skip && (isSkillInvocationTool(call.Name) || isDesktopControlTool(call.Name)) {
+						skipSummary = completedDigests[digest]
+					}
+					if !skip && call.Name == "desktop.browse" {
+						skipSummary = reuseBrowserSearchEntry(turn.Goal, call.Arguments, req.Messages)
+						skip = skipSummary != ""
+					}
+					if skip && !liveDesktopObservation(call.Name, call.Arguments) {
+						if future, ok := parallelFutures[call.ID]; ok {
+							select {
+							case <-future:
+							case <-op.Done():
+							}
+							delete(parallelFutures, call.ID)
+						}
+						if future, ok := subagentFutures[call.ID]; ok {
+							select {
+							case <-future:
+							case <-op.Done():
+							}
+							delete(subagentFutures, call.ID)
+						}
+						if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: clipToolSummary(toolStartedSummary(call.Name, call.Arguments))}}); err != nil {
+							return err
+						}
+						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: skipSummary}}); err != nil {
+							return err
+						}
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: skipSummary})
+						continue
+					}
+					if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: clipToolSummary(toolStartedSummary(call.Name, call.Arguments))}}); err != nil {
+						return err
+					}
+					log.Printf("chat stream %s tool start name=%s", id, call.Name)
+					// The branches below dispatch without going through the tool
+					// runtime, so toolruntime's approval gate never sees them.
+					if reason, deny := ungatedEngineToolDenied(mode, state.companion, call.Name, call.Arguments); deny {
+						summary := clipToolSummary(reason)
+						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
+							return err
+						}
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
+						continue
+					}
+					if call.Name == "mcp.presets" || call.Name == "mcp.install" || call.Name == "plugin.search" || call.Name == "plugin.install" {
+						summary, invokeErr := e.invokeSettingsPlaneTool(op, call.Name, call.Arguments)
+						if invokeErr != nil {
+							summary = invokeErr.Error()
+						}
+						summary = clipToolSummary(summary)
+						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
+							return err
+						}
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
+						continue
+					}
+					if call.Name == "mcp.search" {
+						if reason, deny := e.denyRestrictedMCP(call.Name, call.Arguments, state.mcpRestrict, state.mcpAllowed); deny {
+							summary := clipToolSummary(reason)
+							if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
+								return err
+							}
+							req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
+							continue
+						}
+						summary, invokeErr := e.searchMcpToolsFiltered(call.Arguments, state.mcpAllowed, state.mcpRestrict)
+						if invokeErr != nil {
+							summary = invokeErr.Error()
+						}
+						summary = clipToolSummary(summary)
+						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
+							return err
+						}
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
+						continue
+					}
+					if call.Name == "mcp.call" {
+						if reason, deny := e.denyRestrictedMCP(call.Name, call.Arguments, state.mcpRestrict, state.mcpAllowed); deny {
+							summary := clipToolSummary(reason)
+							if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
+								return err
+							}
+							req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
+							continue
+						}
+						summary, invokeErr := e.callMcpToolByNameGuarded(op, sessionID, call.Arguments, state.mcpAllowed, state.mcpRestrict)
+						if invokeErr != nil {
+							summary = invokeErr.Error()
+						}
+						summary = clipToolSummary(summary)
+						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
+							return err
+						}
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
+						continue
+					}
+					if endpointID, mcpTool, isMcp := parseMcpToolName(call.Name); isMcp {
+						if reason, deny := e.denyRestrictedMCP(call.Name, call.Arguments, state.mcpRestrict, state.mcpAllowed); deny {
+							summary := clipToolSummary(reason)
+							if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
+								return err
+							}
+							req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
+							continue
+						}
+						var summary string
+						var invokeErr error
+						if future, ok := parallelFutures[call.ID]; ok {
+							// Pre-started on a background goroutine; waiting here in
+							// original call order keeps the event stream identical
+							// to serial execution. Deleting the map entry keeps the
+							// end-of-turn drain from re-receiving the emptied
+							// channel (same contract as the subagent futures).
+							res := <-future
+							delete(parallelFutures, call.ID)
+							summary, invokeErr = res.summary, res.err
+						} else {
+							summary, invokeErr = e.invokeMcpTool(op, sessionID, endpointID, mcpTool, call.Arguments)
+						}
+						if invokeErr != nil {
+							summary = invokeErr.Error()
+						}
+						summary = clipToolSummary(summary)
+						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
+							return err
+						}
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
+						continue
+					}
+					if subagentToolNames[call.Name] {
+						var summary string
+						var invokeErr error
+						if future, ok := subagentFutures[call.ID]; ok {
+							res := <-future
+							summary, invokeErr = res.summary, res.err
+							delete(subagentFutures, call.ID)
+						} else {
+							summary, invokeErr = e.invokeSubagentTool(op, a, credential, req.Model, sessionID, call.Name, call.Arguments, state.subagentPolicy)
+						}
+						if invokeErr != nil {
+							summary = invokeErr.Error()
+						}
+						displaySummary := subagentDisplaySummary(call.Name, summary)
+						summary = clipToolSummary(summary)
+						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: displaySummary}}); err != nil {
+							return err
+						}
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
+						continue
+					}
+					if planToolNames[call.Name] {
+						summary, invokeErr := e.invokePlanRunToolRouted(op, a, credential, req.Model, sessionID, mode, call.Arguments, state.taskRoute, state.taskAllow)
+						if invokeErr != nil {
+							summary = invokeErr.Error()
+						}
+						summary = clipToolSummary(summary)
+						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
+							return err
+						}
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
+						continue
+					}
+					r, toolErr := func() (toolruntime.Result, error) {
+						op := toolruntime.WithExecutionKey(op, sessionID, call.ID)
+						if desktopMutationRetryBlocked(failedDesktopAttempts, call.Name, call.Arguments) {
+							return toolruntime.Result{}, errors.New("无法执行：相同目标和参数已失败，未重复操作。请重新核对目标或改用已验证的路径。")
+						}
+						if settled, ok := browseAlreadyOpenReceipt(turn.Goal, call.Name, req.Messages); ok {
+							return toolruntime.Result{Output: settled}, nil
+						}
+						if _, ok := composerSendGoal(turn.Goal); ok && !autoDesktopTypeDone && (call.Name == "computer.act" || strings.HasPrefix(call.Name, "cc.")) {
+							if raw := composerSendTypeArgs(turn.Goal, req.Messages); len(raw) > 0 {
+								res, typeErr := e.executeUserToolWithCompanion(op, mode, sessionID, "desktop.type", raw, nil, state.companion)
+								if typeErr == nil && !companionToolResultFailed(res.Output) {
+									autoDesktopTypeDone = true
+									return res, nil
+								}
+							}
+						}
+						if directUserWindowClose(turn.Goal, call.Name) && e.ccctrl != nil {
+							if info, cerr := e.ccctrl.CloseUserFacingWindow(closeCurrentBrowserGoal(turn.Goal)); cerr == nil {
+								title := strings.TrimSpace(info.Title)
+								if title == "" {
+									title = "窗口"
+								}
+								return toolruntime.Result{Output: "window close " + title + "; screen updated"}, nil
+							}
+						}
+						if err := guardSystemBrowserClick(e.desktopBrowserIsOpen(sessionID), turn.Goal, call.Name); err != nil {
+							guardBlockedCalls++
+							return toolruntime.Result{}, err
+						}
+						if err := guardCurrentTurnToolHistory(turn.Goal, call.Name, req.Messages); err != nil {
+							guardBlockedCalls++
+							return toolruntime.Result{}, err
+						}
+						if future, ok := parallelFutures[call.ID]; ok {
+							// Pre-started read-only call: consume the background
+							// result and drop the map entry (the end-of-turn drain
+							// must not re-receive the emptied channel).
+							// ErrApprovalRequired cannot occur on the parallel
+							// allowlist, so no approval path is bypassed.
+							res := <-future
+							delete(parallelFutures, call.ID)
+							return res.result, res.err
+						}
+						if call.Name == toolStructuredOutput {
+							return emitStructuredOutput(call.Arguments)
+						}
+						if call.Name == "memory.search" {
+							return e.invokeMemorySearch(op, call.Arguments)
+						}
+						if call.Name == "memory.get" {
+							return e.invokeMemoryGet(op, call.Arguments)
+						}
+						if call.Name == "browser.act" {
+							return e.invokeBrowserAct(op, mode, sessionID, call.Arguments)
+						}
+						if call.Name == "image.generate" || call.Name == "video.generate" {
+							return e.invokeMediaGenerate(op, sessionID, call.Name, call.Arguments)
+						}
+						if call.Name == "audio.generate" {
+							return e.invokeAudioGenerate(op, sessionID, call.Arguments)
+						}
+						// Model-initiated skill invocation rides the governed
+						// skillapp pipeline (never the raw toolruntime switch).
+						if call.Name == "skill.invoke" {
+							return e.invokeSkillTool(op, mode, sessionID, call.Arguments)
+						}
+						if call.Name == "skill.try" {
+							return e.invokeSkillTrialTool(op, mode, sessionID, call.Arguments)
+						}
+						if call.Name == "skill.view" {
+							return e.invokeSkillViewTool(op, call.Arguments)
+						}
+						// Model-initiated expert creation routes through the
+						// M8 expert service (never the raw toolruntime switch).
+						if call.Name == "skill.create" {
+							return e.invokeSkillCreateTool(withSkillCreationSession(op, sessionID), sessionID, call.Arguments)
+						}
+						if call.Name == "skill.manage" {
+							return e.invokeSkillManageTool(withSkillCreationSession(op, sessionID), sessionID, call.Arguments)
+						}
+						if call.Name == "expert.create" {
+							return e.invokeExpertCreateTool(op, sessionID, call.Arguments)
+						}
+						if call.Name == "plugin.create" {
+							return e.invokePluginCreateTool(op, sessionID, call.Arguments)
+						}
+						// P1-2: long-running commands stream bounded output chunks
+						// between started and completed. The runtime serializes
+						// progress callbacks, so the non-concurrent send closure
+						// stays safe.
+						if blocked, msg := pptGenBlocked(&turn, call.Name); blocked {
+							return blockedPptGenResult(msg), nil
+						}
+						if blocked, msg := docxGenBlocked(&turn, call.Name); blocked {
+							return blockedDocxGenResult(msg), nil
+						}
+						if officeToolMisroutedToCode(call.Name, turn.Goal, req.Messages, call.Arguments) {
+							return toolruntime.Result{Output: "ok:false\n这不是办公文件。用户要的是把源码写到指定路径并运行。立刻用 workspace.write 落盘，再用 command.run 运行，把真实输出贴回。不要再调用 office.generate，不要说没有终端或没有写盘通道，不要让用户自己复制源码。若写入或命令被拒绝，把拒绝原因原样告诉用户。"}, nil
+						}
+						if officeManagedBypass(call.Name, officeTaskContextID(op), &turn, call.Arguments) && !turn.CapabilityWork && !runnableSystemRequest(turn.Goal) {
+							return toolruntime.Result{Output: "ok:false\n生成文件写入当前对话文件夹。立刻调用 office.generate 或对应 *.gen，不要 command.run 或 workspace.write，不要设 desktop=true，除非用户明确说放到桌面。"}, nil
+						}
+						if call.Name == "command.run" || call.Name == "run_terminal_cmd" {
+							progress := func(chunk string) {
+								if chunk == "" {
+									return
+								}
+								// Progress may arrive asynchronously while the tool drains
+								// output. Only the stream loop owns pending thinking state.
+								event := bridge.Event{Type: bridge.EventToolOutput, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: chunk}}
+								sanitizeOutgoingEvent(&event)
+								_ = rawSend(event)
+							}
+							return e.executeUserToolWithCompanion(op, mode, sessionID, call.Name, call.Arguments, progress, state.companion)
+						}
+						return e.executeUserToolWithCompanion(op, mode, sessionID, call.Name, call.Arguments, nil, state.companion)
+					}()
+					if errors.Is(toolErr, toolruntime.ErrApprovalRequired) {
+						switch decideApprovalOutcome((state.companion && companionToolPreapproved(call.Name, e.fullDiskChat(mode), e.companionCcEnabled(op))) || conversationGrantsTool(mode, call.Name), unattended(op)) {
+						case approvalPreapproved:
+							if _, prepareErr := e.tools.Prepare(op, id, sessionID, call.ID, call.Name, call.Arguments, toolruntime.Mode(mode), 10*time.Minute); prepareErr != nil {
+								return prepareErr
+							}
+							var decideErr error
+							r, decideErr = e.tools.DecideScoped(op, sessionID, call.ID, digest, true, toolruntime.ApprovalScopeOnce)
+							if decideErr != nil {
+								toolErr = decideErr
+							} else {
+								e.persistApprovedToolResult(op, sessionID, call.ID, digest, r)
+								toolErr = nil
+							}
+						case approvalDenyUnattended:
+							// Headless turn: refuse in place and let the loop
+							// continue, instead of emitting an approval that the
+							// noop emitter drops and no one can ever grant.
+							r = toolruntime.Result{}
+							toolErr = errors.New(unattendedApprovalDenial(call.Name))
+						default:
+							// user.ask ends this stream: the typed answer is a new user message.
+							// Every other tool stays on this stream so the result is not run twice.
+							resumeSameStream := call.Name != "user.ask" && e.sameStreamApproval
+							var waitCh chan approvalResume
+							if resumeSameStream {
+								waitCh = e.registerApprovalWait(sessionID, call.ID)
+							}
+							dropWait := func() {
+								if waitCh != nil {
+									e.approvalWaits.Delete(approvalWaitKey(sessionID, call.ID))
+								}
+							}
+							if _, prepareErr := e.tools.Prepare(op, id, sessionID, call.ID, call.Name, call.Arguments, toolruntime.Mode(mode), 10*time.Minute); prepareErr != nil {
+								dropWait()
+								return prepareErr
+							}
+							if sendErr := send(bridge.Event{Type: bridge.EventApprovalRequired, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: approvalRequiredSummary(call.Name, call.Arguments)}}); sendErr != nil {
+								dropWait()
+								return sendErr
+							}
+							if waitCh == nil {
+								return nil
+							}
+							resume, waitErr := e.receiveApprovalResume(op, waitCh, sessionID, call.ID)
+							if waitErr != nil {
+								return waitErr
+							}
+							r, toolErr = approvalResumeResult(resume)
+							waitingForApproval = false
+						}
+					}
+					fullSkillOutput := ""
+					if toolErr == nil && isDesktopControlTool(call.Name) && companionToolResultFailed(r.Output) {
+						toolErr = errors.New(r.Output)
+					}
+					if desktopMutation(call.Name, call.Arguments) {
+						key := desktopAttemptKey(call.Name, call.Arguments)
+						proof, hasProof := extractL0(r.Output)
+						if toolErr != nil || companionToolResultFailed(r.Output) || (hasProof && (!proof.Passed || proof.Uncertain)) {
+							summary := r.Output
+							if toolErr != nil {
+								summary = toolErr.Error()
+							}
+							recordDesktopMutationFailure(failedDesktopAttempts, call.Name, call.Arguments, summary)
+						} else {
+							delete(failedDesktopAttempts, key)
+						}
+					}
+					if toolErr == nil && isSkillInvocationTool(call.Name) {
+						if fitErr := skillInvocationFitsContext(p, req, r.Output); fitErr != nil {
+							toolErr = fitErr
+						} else {
+							fullSkillOutput = r.Output
+						}
+					}
+					if toolErr == nil && call.Name == "skill.view" {
+						assembled := e.assembleSkillViewForModel(op, call.Arguments, r.Output)
+						if fitErr := skillInvocationFitsContext(p, req, assembled); fitErr != nil {
+							toolErr = fitErr
+						} else {
+							fullSkillOutput = assembled
+						}
+					}
+					summary := r.Output
+					if toolErr != nil {
+						summary = toolErr.Error()
+						if !strings.HasPrefix(summary, "ok:false") {
+							summary = "ok:false\n" + summary
+						}
+						if (call.Name == "command.run" || call.Name == "run_terminal_cmd") && strings.Contains(summary, ".go:") {
+							e.rememberCodeDiagnostic(sessionID, summary)
+						}
+						if !strings.Contains(summary, "retry:") {
+							turn.ToolFailed = true
+						}
+					}
+					summary = clipExecutionToolSummary(call.Name, summary)
+					modelSummary := summary
+					if fullSkillOutput != "" {
+						modelSummary = fullSkillOutput
+						summary = skillInvocationDisplay(fullSkillOutput)
+					}
+					if toolErr == nil {
+						completedDigests[digest] = summary
+						if fullSkillOutput != "" {
+							completedDigests[digest] = skillInvocationReplay(fullSkillOutput, call.ID, call.Name)
+						}
+						if call.Name == "pptx.gen" && !strings.Contains(summary, "被流水线拦住") {
+							turn.PptGenerated = true
+						}
+						if call.Name == "docx.gen" && !strings.Contains(summary, "被流水线拦住") {
+							turn.DocxGenerated = true
+						}
+						if !companionToolResultFailed(summary) {
+							// Count successful executions, not unique tool names or
+							// the accumulated attempt list replayed at every step.
+							notePptTools(&turn, []string{call.Name})
+							noteDocxTools(&turn, []string{call.Name})
+						}
+						if state.companion {
+							e.noteCompanionToolSuccess(sessionID, call.Name, call.Arguments, summary)
+						}
+					}
+					toolEvent := &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}
+					if toolErr == nil && r.Artifact != nil {
+						if k := r.Artifact.Kind; k == "html" && len([]byte(r.Artifact.Content)) <= 180<<10 {
+							toolEvent.Artifact = &bridge.ArtifactEvent{Kind: k, Path: r.Artifact.Path, Content: r.Artifact.Content}
+						} else if artifactKindValid(k) {
+							toolEvent.Artifact = &bridge.ArtifactEvent{Kind: k, Path: r.Artifact.Path, Content: ""}
+						}
+						if toolEvent.Artifact != nil && chatDeliverableArtifact(call.Name, toolEvent.Artifact.Kind, toolEvent.Artifact.Path) {
+							turnArtifacts = append(turnArtifacts, sessionArtifactFromTool(call.ID, call.Name, toolEvent.Artifact.Kind, toolEvent.Artifact.Path, officeTaskContextID(ctx)))
+						}
+					}
+					if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: toolEvent}); err != nil {
+						return err
+					}
+					req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: modelSummary})
+					if errors.Is(toolErr, errSkillContextBudget) {
+						return toolErr
+					}
+					if len(r.VisionData) > 0 {
+						req.Images = appendCaptureVision(req.Images, r.VisionMIME, r.VisionData)
+					}
+					if toolErr == nil && computerActIsObserve(call.Name, call.Arguments) {
+						observedThisTurn = true
+						// Two empty accessibility trees in a row mean the app
+						// (Electron/Chromium/game canvas) will never expose
+						// marks; the visual loop is the only way forward.
+						if observeReturnedEmptyTree(summary) {
+							emptyObserves++
+						} else {
+							emptyObserves = 0
+						}
+					}
+					if looksLikeFilePickerToolResult(summary) {
+						parkedFilePicker = true
+					}
+					if looksLikeUACToolResult(summary) {
+						parkedUAC = true
+					}
+					if reason := browserWallReason(summary); reason != "" {
+						parkedBrowserWall = reason
+					}
+					if desktopTypePassedL0(call.Name, summary) {
+						desktopTypeL0Passed = true
+					}
+					lastGUIFail = noteDesktopGUIFail(call.Name, summary, toolErr, lastGUIFail)
+				}
+				state.usedScreenTools = usedDesktopTools
+				// When every tool call in this model response was blocked
+				// by the turn guard (e.g. "本轮只要打开桌面文件…"), the
+				// model is stuck: another iteration would replay the same
+				// refusal. Leave the tool loop and let the turn produce a
+				// final spoken reply instead of draining the step budget.
+				if guardBlockedCalls > 0 && guardBlockedCalls >= totalCallsThisStep {
+					break
+				}
+				// Early settle: when the primary goal tool already
+				// succeeded (e.g. media.play for a playback goal, or
+				// desktop.open for an open-only goal) stop the turn
+				// immediately rather than letting the model attempt
+				// further screen interactions that waste budget.
+				// Only settle when the tool's own output shows real
+				// success — a failed media.play must keep trying the
+				// desktop method ladder.
+				// A proved success ends the turn for every entry, including a typed
+				// request. Another model step after that receipt is an extra step.
+				if speech, settled := settledWorkSpeech(turn.Goal, req.Messages); settled {
+					if speech != "" && !strings.Contains(assistantText.String(), speech) {
+						assistantText.WriteString(speech)
+						if err := sendDeltaChunks(send, speech); err != nil {
+							return err
+						}
+					}
+					break
+				}
+				guiTrigger := lastGUIFail || emptyObserves >= 2 || desktopLadderWantsGUIAfterObserve(turn.Goal, req.Messages, emptyObserves)
+				if guiTrigger && guiLoopRuns < maxGUILoopRunsPerTurn && !parkedFilePicker && !parkedUAC && parkedBrowserWall == "" {
+					if fb, fbArgs, used := e.tryGUIFallback(op, mode, sessionID, turn.Goal, req.Model, state, req.Images, false, desktopTypeL0Passed, observedThisTurn); used {
+						guiLoopRuns++
+						emptyObserves = 0
+						if err := writeGUIFallbackResult(send, &req, completedDigests, &turn, &usedTools, &usedDesktopTools, fb, fbArgs); err != nil {
+							return err
+						}
+					}
+				}
+				if parkedFilePicker {
+					if err := e.parkFilePickerAsk(op, id, sessionID, mode, send); err != nil {
+						return err
+					}
+					return nil
+				}
+				if parkedUAC {
+					if err := e.parkUACAsk(op, id, sessionID, mode, send); err != nil {
+						return err
+					}
+					return nil
+				}
+				if parkedBrowserWall != "" {
+					if err := e.parkBrowserWallAsk(op, id, sessionID, mode, parkedBrowserWall, send); err != nil {
+						return err
+					}
+					return nil
+				}
+				if companionShouldAutoMediaPlay(turn.Goal) || companionRetryActionTurn(spokenGoal) {
+					hasMediaPlay := autoMediaPlayDone || usedAnyTool(turn.LastTools, "media.play")
+					for _, call := range result.Message.ToolCalls {
+						if call.Name == "media.play" {
+							hasMediaPlay = true
+							break
+						}
+					}
+					if !hasMediaPlay && desktopLadderAllowsDedicated(turn.Goal, req.Messages) {
+						if playArgs, ok := e.companionAutoMediaPlayArgsForTurn(sessionID, turn.Goal, spokenGoal); ok {
+							autoMediaPlayDone = true
+							callID := "auto-" + ulid.Make().String()
+							name := "media.play"
+							digest := toolruntime.Digest(name, playArgs)
+							if digest != "" {
+								if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: callID, Name: name, ArgsDigest: digest, Summary: clipToolSummary(toolStartedSummary(name, playArgs))}}); err != nil {
+									return err
+								}
+								r, toolErr := e.executeUserToolWithCompanion(op, mode, sessionID, name, playArgs, nil, state.companion)
+								summary := r.Output
+								if toolErr != nil {
+									summary = toolErr.Error()
+									if !strings.HasPrefix(summary, "ok:false") {
+										summary = "ok:false\n" + summary
+									}
+									turn.ToolFailed = true
+								} else {
+									completedDigests[digest] = summary
+								}
+								summary = clipToolSummary(summary)
+								if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: callID, Name: name, ArgsDigest: digest, Summary: summary}}); err != nil {
+									return err
+								}
+								req.Messages = append(req.Messages,
+									llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: callID, Name: name, Arguments: playArgs}}},
+									llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: callID, Content: summary},
+								)
+								turn.LastTools = append(turn.LastTools, name)
+							}
+						}
+					}
+				}
+				if state.companion && looksLikeTypeAfterLabelTurn(turn.Goal) {
+					hasDesktopType := autoDesktopTypeDone
+					for _, call := range result.Message.ToolCalls {
+						if call.Name == "desktop.type" {
+							hasDesktopType = true
+							break
+						}
+					}
+					if !hasDesktopType && desktopLadderAllowsDedicated(turn.Goal, req.Messages) && !turnAttemptedAction(req.Messages, "type") {
+						if typeArgs, ok := e.companionAutoDesktopTypeArgs(sessionID, turn.Goal, req.Messages); ok {
+							autoDesktopTypeDone = true
+							callID := "auto-" + ulid.Make().String()
+							name := "desktop.type"
+							digest := toolruntime.Digest(name, typeArgs)
+							if digest != "" {
+								if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: callID, Name: name, ArgsDigest: digest, Summary: clipToolSummary(toolStartedSummary(name, typeArgs))}}); err != nil {
+									return err
+								}
+								r, toolErr := e.executeUserToolWithCompanion(op, mode, sessionID, name, typeArgs, nil, state.companion)
+								summary := r.Output
+								if toolErr != nil {
+									summary = toolErr.Error()
+									if !strings.HasPrefix(summary, "ok:false") {
+										summary = "ok:false\n" + summary
+									}
+									turn.ToolFailed = true
+								} else {
+									completedDigests[digest] = summary
+								}
+								summary = clipToolSummary(summary)
+								if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: callID, Name: name, ArgsDigest: digest, Summary: summary}}); err != nil {
+									return err
+								}
+								req.Messages = append(req.Messages,
+									llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: callID, Name: name, Arguments: typeArgs}}},
+									llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: callID, Content: summary},
+								)
+								turn.LastTools = append(turn.LastTools, name)
+							}
+						}
+					}
+				}
+				for _, call := range result.Message.ToolCalls {
+					turn.LastTools = append(turn.LastTools, call.Name)
+				}
+				if draft := strings.TrimSpace(assistantText.String()); draft != "" {
+					turn.PersistDraft = draft
+				}
+				if err := e.saveTurnCheckpointAfterModel(sessionID, &turn, result, thinkingText.String(), req.DisableReasoning, req.Messages); err != nil {
+					return err
+				}
+			}
+			streamResult = result
+			// Step-budget exhaustion: when the last step still produced tool
+			// calls the loop ends after executing them, and without a final
+			// text the user would see a completed stream with no answer.
+			// Surface a Chinese notice in both the live stream and the
+			// persisted assistant text (same pattern as the 400 fallback).
+			if streamErr == nil {
+				if strings.TrimSpace(assistantText.String()) == "" || modelAskedTheUserToRetry(assistantText.String()) {
+					if speech := silentTurnReceipt(req.Messages, turn.LastTools, turn.ToolFailed); speech != "" && !strings.Contains(assistantText.String(), strings.TrimSpace(speech)) {
+						assistantText.WriteString(speech)
+						if err := sendDeltaChunks(send, speech); err != nil {
+							return err
+						}
+					}
+				}
+				// UX-05 #3: forced end-of-turn summary. A multi-tool / multi-round
+				// loop that exhausts its step budget with tool calls still pending
+				// and no final text used to finish silently (or with a canned
+				// notice). Run one more pass WITHOUT tools so the model must wrap
+				// up in natural language; fall through to the static notice only
+				// if that pass also yields nothing.
+				if assistantText.Len() == 0 && ownedMediaCenterGoal(turn.Goal) {
+					if text := computerReceiptCloseout(req.Messages, turn.Goal); text != "" {
+						assistantText.WriteString(text)
+						if err := sendDeltaChunks(send, text); err != nil {
+							return err
+						}
+					}
+				}
+				if assistantText.Len() == 0 && len(result.Message.ToolCalls) > 0 && (companionShouldAutoMediaPlay(turn.Goal) || companionRetryActionTurn(spokenGoal)) && !desktopLadderQuiet(req.Messages, turn.Goal) {
+					text := mediaTurnResultSpeech(req.Messages)
+					if desktopLadderSucceeded(req.Messages, turn.Goal) {
+						text = desktopLadderSuccessSpeech(turn.Goal)
+					}
+					assistantText.WriteString(text)
+					if err := sendDeltaChunks(send, text); err != nil {
+						return err
+					}
+				}
+				if assistantText.Len() == 0 && len(result.Message.ToolCalls) > 0 {
+					sumReq := req
+					sumReq.Tools = nil
+					sumReq.Messages = append(append([]llmadapter.Message{}, req.Messages...), result.Message, forceSummaryNudgeMessage())
+					sumRes, sumErr := generationBudget.stream(op, a, credential, sumReq, func(d llmadapter.Delta) error {
+						if d.Text != "" {
+							assistantText.WriteString(d.Text)
+							if err := e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt); err != nil {
+								return err
+							}
+							if err := sendDeltaChunks(send, d.Text); err != nil {
+								return err
+							}
+						}
+						return nil
+					})
+					if errors.Is(sumErr, errTurnGenerationBudget) || chatModelCompletionFailed(sumErr) {
+						streamErr = sumErr
+					}
+					if sumErr == nil {
+						if assistantText.Len() == 0 && state.companion && req.DisableReasoning {
+							if fallback := companionSpeakFallback(sumRes); fallback != "" {
+								assistantText.WriteString(fallback)
+								if err := sendDeltaChunks(send, fallback); err != nil {
+									return err
+								}
+							}
+						}
+					}
+				}
+				notice := createTurnClosingNotice(turn.LastTools, assistantText.String())
+				if turn.ToolFailed && (assistantText.Len() == 0 || isCompanionLeadInOnly(assistantText.String())) {
+					if openPageChangePending(req.Messages, turn.LastTools) {
+						notice = "还没改成正在看的页面。\n"
+					} else if failNotice := createTurnFailureNotice(turn.LastTools, assistantText.String()); failNotice != "" {
+						notice = failNotice
+					} else if notice == "" {
+						notice = "这次操作没成功，请再说具体一点让我重试。\n"
+					}
+				}
+				if notice != "" {
+					if assistantText.Len() > 0 && !strings.HasPrefix(notice, "\n") {
+						notice = "\n" + notice
+					}
+					assistantText.WriteString(notice)
+					if sendErr := send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: notice}}); sendErr != nil {
+						return sendErr
+					}
+				}
+			}
+			// Running out of allowance part-way through real work used to end
+			// the turn as a bare failure: the tools had already run, the files
+			// were already written, and the user was told only that a limit was
+			// hit. Spend the closing reserve on one no-tools summary so the
+			// answer reports what landed and what is left, then let the turn end
+			// normally — the budget notice still says the allowance ran out, so
+			// nothing is passed off as a complete job.
+			if errors.Is(streamErr, errTurnGenerationBudget) && usedTools && generationBudget.openClosingReserve() {
+				sumReq := req
+				sumReq.Tools = nil
+				sumReq.Messages = append(append([]llmadapter.Message{}, req.Messages...), budgetSummaryNudgeMessage())
+				before := assistantText.Len()
+				_, sumErr := generationBudget.stream(op, a, credential, sumReq, func(d llmadapter.Delta) error {
+					if d.Text == "" {
+						return nil
+					}
+					assistantText.WriteString(d.Text)
+					if err := e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt); err != nil {
+						return err
+					}
+					return sendDeltaChunks(send, d.Text)
+				})
+				if sumErr == nil && assistantText.Len() > before {
+					streamErr = nil
+					notice := budgetPartialTurnNotice
+					if !strings.HasSuffix(assistantText.String(), "\n") {
+						notice = "\n" + notice
+					}
+					assistantText.WriteString(notice)
+					if sendErr := sendDeltaChunks(send, notice); sendErr != nil {
+						return sendErr
+					}
+				}
+			}
+			return streamErr
+		})
+	}
+	// Publish one aggregate for the complete turn, including council passes,
+	// tool continuations and forced summaries. The budget counts each model
+	// call once regardless of repeated provider usage frames.
+	if u := generationBudget.usageSnapshot(); u.TotalTokens > 0 || u.CacheUsageReported {
+		usage := &bridge.UsageEvent{InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, TotalTokens: u.TotalTokens, CachedInputTokens: u.CachedInputTokens, CacheWriteInputTokens: u.CacheWriteInputTokens, CacheUsageReported: u.CacheUsageReported}
+		if sendErr := send(bridge.Event{Type: bridge.EventUsage, Usage: usage}); sendErr != nil {
+			err = errors.Join(err, sendErr)
+		}
+	}
+	// Successful upstream completion must claim finalization before any durable
+	// side effect. This is the linearization point against stream.cancel.
+	// Notices appended below are not model reply text; thinking is stored only
+	// when the turn failed with an empty model reply.
+	if errors.Is(err, errTurnGenerationBudget) {
+		assistantText.WriteString(turnGenerationBudgetNotice)
+		_ = sendDeltaChunks(send, turnGenerationBudgetNotice)
+	}
+	modelReply := strings.TrimSpace(assistantText.String())
+	var messageID string
+	finalizationClaimed := false
+	if err == nil {
+		finalizationClaimed = e.claimStreamFinalization(state)
+	}
+	if !waitingForApproval && !waitingForSpokenInput && !e.isStreamCancelling(state) {
+		finished, notice := false, ""
+		if !chatModelCompletionFailed(err) {
+			finished, notice = e.tryFinishOfficeGen(ctx, mode, sessionID, &turn, assistantText.String(), err, func(event bridge.Event) error {
+				if event.Tool != nil && event.Tool.Artifact != nil && event.Type == bridge.EventToolCompleted {
+					a := event.Tool.Artifact
+					turnArtifacts = append(turnArtifacts, sessionArtifactFromTool(event.Tool.CallID, event.Tool.Name, a.Kind, a.Path, officeTaskContextID(ctx)))
+				}
+				return send(event)
+			}, state.companion)
+			if e.sameStreamApproval {
+				waitingForApproval = false
+			}
+		}
+		if finished || notice != "" {
+			if !finished && err != nil && notice == officeGenFailNotice(errOfficeGenEmpty) {
+				// Missing model output after a stream failure is not missing user input.
+				notice = chatModelOutcomeNotice(false, err)
+			}
+			if finished {
+				err = nil
+				// A normal model completion already owns finalization. Claim only
+				// when the fallback recovered an earlier upstream failure.
+				if !finalizationClaimed {
+					finalizationClaimed = e.claimStreamFinalization(state)
+				}
+			}
+			if next, delta := appendAssistantNotice(assistantText.String(), notice); delta != "" {
+				assistantText.Reset()
+				assistantText.WriteString(next)
+				_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: delta}})
+			}
+		} else if outcome := chatModelOutcomeNotice(e.isStreamCancelling(state), err); outcome != "" {
+			if moviePlayGoal(turn.Goal) && !usedAnyTool(turn.LastTools, "media.play") {
+				if speech, ok := e.openNamedFilmNow(ctx, mode, sessionID, turn.Goal, send); ok {
+					outcome = speech
+					err = nil
+					turn.LastTools = append(turn.LastTools, "media.play")
+				}
+			}
+			if len(directSongPlayArgs(turn.Goal)) > 0 && !usedAnyTool(turn.LastTools, "media.play") {
+				if speech, ok := e.openNamedSongNow(ctx, mode, sessionID, turn.Goal, send); ok {
+					outcome = speech
+					err = nil
+					turn.LastTools = append(turn.LastTools, "media.play")
+				}
+			}
+			if speech := companionSucceededBeforeModelError(state.companion, turn.Goal, turn.LastTools, req.Messages); speech != "" {
+				outcome = speech
+				err = nil
+			}
+			if speech := wechatChatProgressSpeech(turn.Goal, turn.LastTools, req.Messages); speech != "" {
+				outcome = speech
+				err = nil
+			}
+			if next, delta := appendAssistantNotice(assistantText.String(), outcome); delta != "" {
+				assistantText.Reset()
+				assistantText.WriteString(next)
+				_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: delta}})
+			}
+		}
+		if cleaned, ok := e.finishRunnableDemo(ctx, mode, sessionID, &turn, assistantText.String(), send); ok {
+			assistantText.Reset()
+			assistantText.WriteString(cleaned)
+		}
+	}
+
+	cancelling := e.isStreamCancelling(state)
+	upstreamErr := err
+	attachObtainedProtocol(&turn, obtainedProtocolReasoning(streamResult, thinkingText.String(), req.DisableReasoning))
+	var persistErr error
+	if sessionID != "" && e.messages != nil {
+		// Reasoning is available through message.process, never model history.
+		text := assistantTurnPersistText(assistantText.String(), "", false)
+		if state != nil {
+			text = pinCouncilInviteLead(text, state.inviteLead)
+		}
+		if text == "" && turn.ToolFailed && len(turn.LastTools) > 0 {
+			if failNotice := createTurnFailureNotice(turn.LastTools, ""); failNotice != "" {
+				text = failNotice
+				assistantText.WriteString(failNotice)
+				_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: failNotice}})
+			}
+		}
+		persist := strings.TrimSpace(text) != "" && shouldPersistAssistantTurn(upstreamErr, finalizationClaimed, cancelling)
+		if persist && !finalizationClaimed {
+			finalizationClaimed = e.claimStreamFinalization(state)
+			persist = finalizationClaimed
+		}
+		if persist && cancelling && state != nil && state.companion {
+			text = clipCancelledCompanionPersistToSpoken(text, state.spokenPersist)
+			if strings.TrimSpace(text) == "" {
+				persist = false
+			}
+		}
+		if cancelling && !persist {
+			// Cancellation deliberately won before finalization (or no spoken
+			// companion text remains). Do not let the live recovery draft undo
+			// that decision on the next start. Failed writes still retain drafts.
+			turn.PersistDraft = ""
+			turn.PersistUsage = messageapp.AssistantUsage{}
+			turn.PersistFailed = false
+		}
+		if persist {
+			if next, delta := applyMROAnswerGate(text, state); next != text {
+				text = next
+				if delta != "" {
+					assistantText.WriteString(delta)
+					_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: delta}})
+				}
+			}
+			usageSrc := generationBudget.usageSnapshot()
+			if usageSrc.TotalTokens == 0 && !usageSrc.CacheUsageReported {
+				usageSrc = streamResult.Usage
+			}
+			usage := persistUsageFromStream(string(p.Protocol), req.Model, usageSrc)
+			turn.PersistDraft, turn.PersistUsage = text, usage
+			turn.liveProtocol = req.Messages
+			journalErr := e.saveTurnCheckpoint(sessionID, turn)
+			var msg message.Message
+			appendErr := journalErr
+			if appendErr == nil {
+				msg, appendErr = e.appendAssistantTurn(ctx, id, "engine", sessionID, text, usage)
+			}
+			if appendErr != nil {
+				persistErr = appendErr
+				turn.PersistDraft = text
+				turn.PersistFailed = true
+			} else {
+				messageID = msg.ID
+				turn.PersistDraft = ""
+				turn.PersistFailed = false
+				for i := range turnArtifacts {
+					turnArtifacts[i].OfficeTaskID = officeTaskContextID(ctx)
+				}
+				e.appendMessageArtifacts(sessionID, messageID, turnArtifacts)
+				e.pushInboundReply(sessionID, text)
+			}
+		}
+	}
+	termErr := upstreamErr
+	if persistErr != nil && !persistFailureOnly(upstreamErr, persistErr, modelReply) {
+		termErr = persistErr
+		err = persistErr
+	} else if persistErr == nil && upstreamErr != nil {
+		err = upstreamErr
+	}
+	terminal := bridge.Event{Type: e.selectTerminal(id, state, termErr)}
+	turn.Status = settleTurnStatus(turn.Status, terminal.Type, waitingForApproval, len(turn.LastTools) > 0, err)
+	if !waitingForApproval && turn.Status == turnStatusInterrupted && strings.TrimSpace(assistantText.String()) == "" {
+		rememberKeptWriting(&turn, thinkingText.String())
+	}
+	turn.liveProtocol = req.Messages
+	if journalErr := e.saveTurnCheckpoint(sessionID, turn); journalErr != nil {
+		persistErr = errors.Join(persistErr, journalErr)
+	}
+	if terminal.Type == bridge.EventCompleted {
+		completed := &bridge.CompletedEvent{MessageID: messageID}
+		if state != nil {
+			completed.MemorySummary = state.memorySummary
+		}
+		if persistFailureOnly(upstreamErr, persistErr, modelReply) {
+			completed.PersistFailed = true
+			completed.MessageID = ""
+		}
+		if completed.MessageID != "" || completed.PersistFailed || completed.MemorySummary != "" {
+			terminal.Completed = completed
+		}
+	}
+	if terminal.Type == bridge.EventFailed {
+		terminal.Error = chatModelStreamError(err)
+	}
+	if e.queue != nil && e.queue.Deliveries() != nil && (len(turn.QueueDeliveries) > 0 || ctx.Value(queueDeliveryStartKey{}) != nil) {
+		receiptCtx, receiptCancel := turnJournalContext()
+		receiptErr := e.queue.Deliveries().FinishQueueDeliveries(receiptCtx, sessionID, id, terminal.Type == bridge.EventCompleted && persistErr == nil)
+		receiptCancel()
+		if receiptErr != nil {
+			terminal = bridge.Event{Type: bridge.EventFailed, Error: chatStreamError(receiptErr)}
+		}
+	}
+	if messageID != "" {
+		// Flush any final thinking and freeze a detached metadata snapshot before
+		// the terminal receipt; this is never appended to the model's history.
+		_ = flushThinking(true)
+		sendMu.Lock()
+		snapshot := processTrace
+		snapshot.Tools = append([]messageProcessTool(nil), processTrace.Tools...)
+		sendMu.Unlock()
+		e.saveMessageProcess(sessionID, messageID, snapshot)
+	}
+	// Reserve before EventCompleted so tests waiting on the terminal cannot
+	// close TempDir/SQLite before this deferred write is counted. Windows
+	// then fails with "The directory is not empty".
+	willArchive := len(turnArtifacts) > 0 && messageID != "" && persistErr == nil
+	if willArchive {
+		e.officeArchive.Add(1)
+	}
+	if send(terminal) != nil {
+		state.cancel()
+	}
+	e.finishTerminal(id, state)
+	if willArchive {
+		e.startOfficeArchive(ctx, sessionID)
+	}
+	if terminal.Type == bridge.EventCompleted && messageID != "" && persistErr == nil {
+		e.enqueueChatMemory(sessionID, turn.Goal, assistantText.String(), messageID, state != nil && state.companion)
+	}
+	if state != nil && state.companion && e.compactionTrigger != nil && e.compactionExecutor != nil {
+		go func() {
+			bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+			defer cancel()
+			e.flushMemoryBeforeCompaction(bg, sessionID, turn.Goal, assistantText.String())
+			e.compactSession(bg, sessionID, p, req.Model, token.CanonicalTokenizerRevision)
+		}()
+	}
+}

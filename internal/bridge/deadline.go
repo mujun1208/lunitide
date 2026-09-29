@@ -56,7 +56,7 @@ func MaxDeadlineMS(method string) int {
 		return AgentHubPickDeadlineMS
 	case MethodAgentHubThreadCreate, MethodAgentHubThreadPrompt, MethodAgentHubThreadRespond, MethodAgentHubThreadCancel:
 		return AgentHubPromptDeadlineMS
-	case MethodMediaAssetPick:
+	case MethodMediaAssetPick, "attachment.importLocal", "internal.attachment.importPath":
 		return PeopleFileDeadlineMS
 	case MethodOcrRoutingGet:
 		return OcrRoutingRepairDeadlineMS

@@ -65,6 +65,7 @@
         "archive.unpack",
         "attachment.delete",
         "attachment.get",
+        "attachment.importLocal",
         "attachment.ingest",
         "attachment.list",
         "attachment.upload.abort",

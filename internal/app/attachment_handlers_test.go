@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -104,5 +107,49 @@ func TestAttachmentGetReturnsVisionJPEGHead(t *testing.T) {
 	data, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil || len(data) < 3 || data[0] != 0xff || data[1] != 0xd8 || data[2] != 0xff {
 		t.Fatalf("contentBase64 jpeg head missing: err=%v len=%d", err, len(data))
+	}
+}
+
+func TestInternalImportPathCopiesLocalText(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "需求.txt")
+	if err := os.WriteFile(path, []byte("客户与商机"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.SetAttachmentService(attachmentapp.NewService(&getJPEGStore{}, attachmentapp.NewDirFileStorage(t.TempDir())))
+	body, err := json.Marshal(map[string]string{
+		"projectId":    "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+		"sessionId":    "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+		"path":         path,
+		"originalName": "需求.txt",
+		"mime":         "text/plain",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := e.Handle(context.Background(), validRequest("internal.attachment.importPath", string(body)))
+	if !resp.OK {
+		t.Fatalf("import = %#v", resp.Error)
+	}
+	raw, err := json.Marshal(resp.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var imported map[string]any
+	if err := json.Unmarshal(raw, &imported); err != nil {
+		t.Fatal(err)
+	}
+	id, _ := imported["attachmentId"].(string)
+	got := e.Handle(context.Background(), validRequest("attachment.get", `{"attachmentId":"`+id+`"}`))
+	if !got.OK {
+		t.Fatalf("get = %#v", got.Error)
+	}
+	view, err := json.Marshal(got.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(view), "客户与商机") {
+		t.Fatalf("parsed text missing: %s", view)
 	}
 }

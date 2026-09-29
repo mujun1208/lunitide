@@ -115,3 +115,71 @@ func TestChatTurnHidesDeliverableDraftOutsideProjectPhase(t *testing.T) {
 		}
 	}
 }
+
+func TestAttachmentReadKeepsANarrowToolSurface(t *testing.T) {
+	if got := resolveChatToolProfile(false, nil, "", "解读这份需求说明", true); got != toolProfileRead {
+		t.Fatalf("attachment reading profile = %q", got)
+	}
+	if got := resolveChatToolProfile(false, nil, "", "根据附件运行测试", true); got != toolProfileDefault {
+		t.Fatalf("attachment plus run profile = %q", got)
+	}
+	if got := resolveChatToolProfile(false, nil, "", "根据附件生成周报", true); got != toolProfileDefault {
+		t.Fatalf("attachment plus generate profile = %q", got)
+	}
+	if got := resolveChatToolProfile(false, nil, "", "打开记事本", true); got != toolProfileDefault {
+		t.Fatalf("attachment plus open profile = %q", got)
+	}
+	if got := resolveChatToolProfile(false, nil, "", "解读这份需求说明", false); got != toolProfileDefault {
+		t.Fatalf("long text without an attachment = %q", got)
+	}
+	if got := resolveChatToolProfile(false, nil, "coding", "解读这份需求说明", true); got != toolProfileCoding {
+		t.Fatalf("explicit coding profile = %q", got)
+	}
+	if got := resolveChatToolProfile(true, nil, "", "解读这份需求说明", true); got != toolProfileDefault {
+		t.Fatalf("companion profile = %q", got)
+	}
+	seen := map[string]bool{}
+	for _, d := range applyToolProfile(engineToolDefinitions(), toolProfileRead) {
+		seen[d.Name] = true
+	}
+	if !seen["workspace.read"] || !seen["web.search"] || !seen["user.ask"] || seen["command.run"] || seen["run_terminal_cmd"] || seen["excel.gen"] || seen["desktop.quit"] {
+		t.Fatalf("read surface = %v", seen)
+	}
+}
+
+func TestAdvertisedToolsHideTheAliasShell(t *testing.T) {
+	e := &Engine{}
+	foundRun := false
+	for _, d := range e.chatTurnToolDefinitions(chatTurnToolBuild{Profile: toolProfileDefault}) {
+		if d.Name == "command.run" {
+			foundRun = true
+		}
+		if d.Name == "run_terminal_cmd" {
+			t.Fatal("alias shell was advertised")
+		}
+	}
+	if !foundRun {
+		t.Fatal("default profile lost command.run")
+	}
+	found := false
+	for _, d := range e.chatTurnToolDefinitions(chatTurnToolBuild{Profile: toolProfileCoding}) {
+		if d.Name == "command.run" {
+			found = true
+		}
+		if d.Name == "run_terminal_cmd" {
+			t.Fatal("coding profile advertised the alias shell")
+		}
+	}
+	if !found {
+		t.Fatal("coding profile lost command.run")
+	}
+	kept := false
+	for _, d := range engineToolDefinitions() {
+		if d.Name == "run_terminal_cmd" {
+			kept = true
+		}
+	}
+	if !kept {
+		t.Fatal("executor catalog lost the alias shell")
+	}
+}

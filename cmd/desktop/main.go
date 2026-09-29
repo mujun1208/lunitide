@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/attachmenthost"
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/browserapp"
 	"github.com/lunitide/lunitide/internal/buildinfo"
@@ -336,6 +337,7 @@ func run() error {
 	workspaceHandler := workspaceapp.New(workspaceConfig)
 	conversationsHandler := conversationsapp.NewHostHandler()
 	desktopFilesHandler := desktopfiles.New()
+	attachmentImportHandler := &attachmenthost.Handler{Allow: desktopFilesHandler.Allowed, Engine: client}
 	mediaPlayer := &mediahost.Player{Engine: client, WindowInstanceID: "desktop-main"}
 	mediaPickHandler := &mediahost.Handler{Pick: desktopFilesHandler.Pick, PickMedia: desktopfiles.PickMedia, Engine: client, Player: mediaPlayer}
 	gateway, err := hostbridge.New(webviewhost.TrustedOrigin, client, map[bridge.Method]hostbridge.Handler{
@@ -355,6 +357,7 @@ func run() error {
 		bridge.MethodConversationsRootSelect:     conversationsHandler,
 		bridge.MethodDesktopFilesPick:            desktopFilesHandler,
 		bridge.MethodDesktopFilesReadChunk:       desktopFilesHandler,
+		bridge.Method("attachment.importLocal"):  attachmentImportHandler,
 		bridge.Method("media.asset.pick"):        mediaPickHandler,
 		bridge.Method("media.element.report"):    mediaPickHandler,
 		bridge.MethodWorkspaceRootSelect:         workspaceHandler,
@@ -375,6 +378,21 @@ func run() error {
 	host, err := webviewhost.New(gateway, rendererDir, webViewDataRoot.Path())
 	if err != nil {
 		return err
+	}
+	host.OnFilesDropped = func(paths []string) {
+		items := desktopFilesHandler.GrantPaths(paths)
+		if len(items) == 0 {
+			return
+		}
+		posted := make([]map[string]any, 0, len(items))
+		for _, item := range items {
+			posted = append(posted, map[string]any{"path": item.Path, "fileName": item.FileName, "mime": item.MIME, "size": item.Size})
+		}
+		raw, marshalErr := json.Marshal(map[string]any{"source": "lunitide-host", "type": "filesDropped", "items": posted})
+		if marshalErr != nil {
+			return
+		}
+		host.PostHostJSON(string(raw))
 	}
 	host.SetStartHidden(*startHidden)
 	host.MediaTicketResolve = func(ctx context.Context, token string) (string, string, error) {
