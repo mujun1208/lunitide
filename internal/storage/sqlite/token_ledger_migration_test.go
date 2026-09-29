@@ -423,6 +423,7 @@ DROP TABLE IF EXISTS product_graph_edges;
 DROP TABLE IF EXISTS product_graph_nodes;
 DROP TABLE IF EXISTS product_snapshots;
 DROP TABLE IF EXISTS product_hub_auth;
+DROP TABLE IF EXISTS product_landscape_drafts;
 DELETE FROM schema_migrations WHERE version >= '0027_token_ledger_remove_legacy_unique.sql';
 INSERT INTO projects(id,name,project_code,created_at,updated_at) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA0','project','ITM00001','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');
 INSERT INTO sessions(id,project_id,title,created_at,updated_at) VALUES('01ARZ3NDEKTSV4RRFFQ69G5FA1','01ARZ3NDEKTSV4RRFFQ69G5FA0','session','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');

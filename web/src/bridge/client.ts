@@ -112,6 +112,10 @@ import {
   type ProductHubExportPayload, type ProductHubExportResult,
   type ProductHubFeatureCardPayload, type ProductHubFeatureCardResult,
   type ProductHubGraphPayload, type ProductHubGraphResult,
+  type ProductHubLandscapeCollectPayload, type ProductHubLandscapeCollectResult,
+  type ProductHubLandscapeConfirmPayload, type ProductHubLandscapeConfirmResult,
+  type ProductHubLandscapeDiscardPayload, type ProductHubLandscapeDiscardResult,
+  type ProductHubLandscapeDraftsPayload, type ProductHubLandscapeDraftsResult,
   type ProductHubNodePayload, type ProductHubNodeResult,
   type ProductHubOverviewPayload, type ProductHubOverviewResult,
   type ProductHubRefreshPayload, type ProductHubRefreshResult,
@@ -152,6 +156,7 @@ import {
   type TemplateRestorePayload, type TemplateRestoreResult,
   type TemplateDeletePayload, type TemplateDeleteResult,
   type AttachmentDeletePayload, type AttachmentDeleteResult,
+  type AttachmentOpenPayload, type AttachmentOpenResult,
   type AttachmentUploadBeginPayload,type AttachmentUploadBeginResult,type AttachmentUploadChunkPayload,type AttachmentUploadChunkResult,type AttachmentUploadCommitPayload,type AttachmentUploadCommitResult,type AttachmentUploadAbortPayload,type AttachmentUploadAbortResult,
   type TerminalStartPayload,type TerminalStartResult,type TerminalInputResult,type TerminalResizeResult,type TerminalCloseResult,
   type ProjectDeletePayload, type ProjectDeleteResult,
@@ -376,7 +381,7 @@ export const sessionBridge:SessionBridge={list:p=>getSessionBridge().list(p),cre
 const textValid=(v:unknown)=>typeof v==='string'&&v.length>0&&!v.includes('\0')&&Array.from(v).length<=2048&&new TextEncoder().encode(v).length<=8192
 const dtoTextValid=(v:unknown)=>typeof v==='string'&&v.length>=1&&v.length<=65536
 const messageArtifactPathValid=(path:unknown)=>typeof path==='string'&&path.length>0&&path.length<=512&&!path.startsWith('/')&&!path.includes('\\')&&!path.split('/').includes('..')
-const messageArtifactKindValid=(kind:unknown)=>kind==='html'||kind==='xlsx'||kind==='docx'||kind==='pptx'||kind==='pdf'||kind==='image'||kind==='md'||kind==='txt'||kind==='audio'
+const messageArtifactKindValid=(kind:unknown)=>kind==='html'||kind==='xlsx'||kind==='docx'||kind==='pptx'||kind==='pdf'||kind==='image'||kind==='md'||kind==='txt'||kind==='code'||kind==='audio'
 const isMessageArtifact=(v:unknown)=>isObj(v)&&exact(v,['kind','path','callId','toolName'])&&typeof v.callId==='string'&&v.callId.length>0&&v.callId.length<=128&&typeof v.toolName==='string'&&v.toolName.length>0&&messageArtifactPathValid(v.path)&&messageArtifactKindValid(v.kind)
 const isMessage=(v:unknown,sessionId:string)=>{
  if(!isObj(v)||!exact(v,['id','sessionId','role','status','sequence','text','createdAt'],['artifacts','hasProcess'])||!isULID(v.id)||v.sessionId!==sessionId||(v.role!=='user'&&v.role!=='assistant'&&v.role!=='tool')||v.status!=='completed'||!Number.isSafeInteger(v.sequence)||Number(v.sequence)<=0||!dtoTextValid(v.text)||!isTime(v.createdAt))return false
@@ -1327,6 +1332,10 @@ export interface ProductHubBridge {
   tags(payload: ProductHubTagsPayload): Promise<ProductHubTagsResult>
   tagSet(payload: ProductHubTagSetPayload): Promise<ProductHubTagSetResult>
   exportDoc(payload: ProductHubExportPayload): Promise<ProductHubExportResult>
+  landscapeCollect(payload: ProductHubLandscapeCollectPayload): Promise<ProductHubLandscapeCollectResult>
+  landscapeDrafts(payload: ProductHubLandscapeDraftsPayload): Promise<ProductHubLandscapeDraftsResult>
+  landscapeConfirm(payload: ProductHubLandscapeConfirmPayload): Promise<ProductHubLandscapeConfirmResult>
+  landscapeDiscard(payload: ProductHubLandscapeDiscardPayload): Promise<ProductHubLandscapeDiscardResult>
 }
 export function createProductHubBridge(transport: WebViewTransport = webview(), defaultDeadlineMs = 12_000): ProductHubBridge {
   const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
@@ -1346,6 +1355,10 @@ export function createProductHubBridge(transport: WebViewTransport = webview(), 
     tags: p => core.request('productHub.tags', p),
     tagSet: p => core.request('productHub.tagSet', p),
     exportDoc: p => core.request('productHub.export', p),
+    landscapeCollect: p => core.request('productHub.landscape.collect', p, PRODUCT_HUB_CHECK_DEADLINE_MS),
+    landscapeDrafts: p => core.request('productHub.landscape.drafts', p),
+    landscapeConfirm: p => core.request('productHub.landscape.confirm', p),
+    landscapeDiscard: p => core.request('productHub.landscape.discard', p),
   }
 }
 let productHubSingleton: ProductHubBridge | undefined
@@ -1367,6 +1380,10 @@ export const productHubBridge: ProductHubBridge = {
   tags: p => getProductHubBridge().tags(p),
   tagSet: p => getProductHubBridge().tagSet(p),
   exportDoc: p => getProductHubBridge().exportDoc(p),
+  landscapeCollect: p => getProductHubBridge().landscapeCollect(p),
+  landscapeDrafts: p => getProductHubBridge().landscapeDrafts(p),
+  landscapeConfirm: p => getProductHubBridge().landscapeConfirm(p),
+  landscapeDiscard: p => getProductHubBridge().landscapeDiscard(p),
 }
 
 export interface SkillBridge {
@@ -1399,7 +1416,7 @@ let skillSingleton: SkillBridge | undefined
 export function getSkillBridge(): SkillBridge { return skillSingleton ??= createSkillBridge(webview()) }
 export const skillBridge: SkillBridge = { uploadBegin:p=>getSkillBridge().uploadBegin!(p), uploadChunk:p=>getSkillBridge().uploadChunk!(p), uploadCommit:p=>getSkillBridge().uploadCommit!(p), uploadAbort:p=>getSkillBridge().uploadAbort!(p), packageList:p=>getSkillBridge().packageList!(p), packageRead:p=>getSkillBridge().packageRead!(p), get: p => getSkillBridge().get(p), list: p => getSkillBridge().list(p), create: (p, o) => getSkillBridge().create(p, o), update: (p, o) => getSkillBridge().update(p, o), delete: (p, o) => getSkillBridge().delete(p, o), match: p => getSkillBridge().match(p), publish: p => getSkillBridge().publish(p), deprecate: p => getSkillBridge().deprecate(p), disable: p => getSkillBridge().disable(p),invoke:p=>getSkillBridge().invoke!(p),execute:p=>getSkillBridge().execute!(p),catalogList:p=>getSkillBridge().catalogList!(p),install:p=>getSkillBridge().install!(p),categorySet:p=>getSkillBridge().categorySet!(p) }
 
-export type StreamArtifact={kind:'html'|'xlsx'|'docx'|'pptx'|'pdf'|'image'|'md'|'txt'|'audio';path:string;content:string}
+export type StreamArtifact={kind:'html'|'xlsx'|'docx'|'pptx'|'pdf'|'image'|'md'|'txt'|'code'|'audio';path:string;content:string}
 export type StreamEvent =
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'delta';delta:{text:string}}
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'thinking';thinking:{text:string}}
@@ -1514,6 +1531,7 @@ export interface AttachmentBridge {
   delete(payload: AttachmentDeletePayload, options?: MutationOptions<AttachmentDeletePayload>): Promise<AttachmentDeleteResult>
   begin(payload:AttachmentUploadBeginPayload):Promise<AttachmentUploadBeginResult>; chunk(payload:AttachmentUploadChunkPayload):Promise<AttachmentUploadChunkResult>; commit(payload:AttachmentUploadCommitPayload):Promise<AttachmentUploadCommitResult>; abort(payload:AttachmentUploadAbortPayload):Promise<AttachmentUploadAbortResult>
   importLocal(payload:{projectId:string;sessionId?:string;paths:string[]}):Promise<{items:AttachmentIngestResult[];failed:Array<{name:string;error:string;path?:string}>}>
+  open(payload:AttachmentOpenPayload):Promise<AttachmentOpenResult>
 }
 export function createAttachmentBridge(transport: WebViewTransport, defaultDeadlineMs = 8_000): AttachmentBridge {
   const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
@@ -1524,6 +1542,7 @@ export function createAttachmentBridge(transport: WebViewTransport, defaultDeadl
     delete: (p, o) => core.request('attachment.delete', p, defaultDeadlineMs, o?.attempt),
     begin:p=>core.request('attachment.upload.begin',p,30_000),chunk:p=>core.request('attachment.upload.chunk',p,30_000),commit:p=>core.request('attachment.upload.commit',p,30_000),abort:p=>core.request('attachment.upload.abort',p),
     importLocal:p=>core.request('attachment.importLocal',p,120_000),
+    open: p => core.request('attachment.open', p, 15_000),
   }
 }
 let attachmentSingleton: AttachmentBridge | undefined
@@ -1535,6 +1554,7 @@ export const attachmentBridge: AttachmentBridge = {
   delete: (p, o) => getAttachmentBridge().delete(p, o),
   begin:p=>getAttachmentBridge().begin(p),chunk:p=>getAttachmentBridge().chunk(p),commit:p=>getAttachmentBridge().commit(p),abort:p=>getAttachmentBridge().abort(p),
   importLocal:p=>getAttachmentBridge().importLocal(p),
+  open: p => getAttachmentBridge().open(p),
 }
 
 export type DesktopFilesBridge = {

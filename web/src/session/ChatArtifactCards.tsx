@@ -21,7 +21,8 @@ export function isChatDeliverableArtifact(artifact: Pick<ChatArtifact, 'toolName
   if (artifact.kind === 'html' && (base === 'search.html' || base === 'fetch.html')) return false
   if (artifact.kind === 'image' || artifact.kind === 'md' || artifact.kind === 'txt' || artifact.kind === 'audio') return true
   if (OFFICE_KIND.has(artifact.kind) || OFFICE_EXT.test(base)) return true
-  if (artifact.kind === 'html' && (artifact.toolName === 'workspace.write' || artifact.toolName === 'workspace.edit')) return true
+  // A POC's supporting code files are deliverables in their own right.
+  if ((artifact.kind === 'html' || artifact.kind === 'code') && (artifact.toolName === 'workspace.write' || artifact.toolName === 'workspace.edit')) return true
   return false
 }
 
@@ -34,8 +35,8 @@ function artifactCardUserError(err: unknown, fallback: string): string {
   return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
 }
 
-const KIND_LABEL: Record<string, string> = { html: 'HTML', xlsx: 'Excel', docx: 'Word', pptx: 'PPT', pdf: 'PDF', image: '截图', md: 'Markdown', txt: '文本', audio: '朗读' }
-const KIND_ICON: Record<string, string> = { html: '◧', xlsx: '▤', docx: '▤', pptx: '◫', pdf: '▦', image: '▣', md: '▤', txt: '▤', audio: '♪' }
+const KIND_LABEL: Record<string, string> = { html: 'HTML', xlsx: 'Excel', docx: 'Word', pptx: 'PPT', pdf: 'PDF', image: '截图', md: 'Markdown', txt: '文本', code: '代码', audio: '朗读' }
+const KIND_ICON: Record<string, string> = { html: '◧', xlsx: '▤', docx: '▤', pptx: '◫', pdf: '▦', image: '▣', md: '▤', txt: '▤', code: '▤', audio: '♪' }
 
 export function ChatArtifactCards({
   sessionId,

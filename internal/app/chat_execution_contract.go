@@ -32,6 +32,24 @@ func computerExecutionTurn(goal string) bool {
 	})
 }
 
+// finalBufferedReply decides what a buffered turn finally shows. Both
+// modalities keep buffering while tools run (speculative success text must
+// wait for tool receipts) and both get the receipt-based evidence folding.
+// The differences are companion-only behaviors: the no-receipt canned
+// collapse and the wait-promise/lead-in replacement. A keyword-routed typed
+// question therefore streams its answer verbatim once tools settle, instead
+// of being swallowed by a canned failure line.
+func finalBufferedReply(companion bool, messages []llmadapter.Message, reply, goal string) string {
+	out := foldFinalResult(companion, messages, reply, goal)
+	if !companion {
+		return out
+	}
+	if looksLikeCompanionWaitPromise(out) || isCompanionLeadInOnly(out) {
+		return "这轮任务未完成，没有取得可验证的结果。"
+	}
+	return out
+}
+
 func desktopExecutionInstruction() string {
 	return "\n[电脑执行约定：语音与文字共用]\n" +
 		"先按目标选专用工具：桌面浏览器/搜索页用 desktop.browse，文件/应用用 desktop.open，播放/切歌用 media.play，命名字段输入用 desktop.type，彻底退出用 desktop.quit。系统设置页和系统文件夹（蓝牙/Wi-Fi/显示/声音/壁纸/默认应用/Windows 更新/回收站/下载文件夹/控制面板等）直接 desktop.open 该页名称一步到页，不要先开设置再逐级点击。网页内操作用 browser.act，通用桌面操作才用 computer.act；长文本或中文输入交给工具自动走剪贴板粘贴，不要逐字敲。电脑任务只走 1-2-3，每步一次、成功即停：①专用工具/技能/MCP；失败立刻②observe 后按名字点一次；再失败立刻③屏幕读号。不要退回上一步。未走完三步不要对用户报失败。不要用 computer.act 重复已经成功的 desktop.open。用户要在桌面/本机创建、删除、改名、移动、复制文件夹或文件，或解压/下载到桌面时，立刻 command.run mkdir/删除等到真实 Desktop 或用户指定路径（Windows 建目录用 New-Item -ItemType Directory），不要只说 I'll create / 我来创建就结束，也不要用 workspace 代替桌面。\n" +

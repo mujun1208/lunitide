@@ -77,6 +77,11 @@ Push-Location $root
 try {
   $env:CGO_ENABLED='0'; $env:GOOS='windows'; $env:GOARCH='amd64'
   $ld="-s -w -X github.com/lunitide/lunitide/internal/buildinfo.Version=$version"
+  # Optional self-purification lock: bake the machine-local product source
+  # root into the binaries so the released copy can find its source tree on
+  # the publisher machine. Set LUNITIDE_SOURCE_ROOT before building; the
+  # script and the repository never contain a path themselves.
+  if ($env:LUNITIDE_SOURCE_ROOT) { $ld += " -X github.com/lunitide/lunitide/internal/producthub.lockedSourceRoot=$($env:LUNITIDE_SOURCE_ROOT.Trim())" }
   $desktopLd="-H=windowsgui $ld"
   & go build -trimpath -buildvcs=false -ldflags $desktopLd -o (Join-Path $stage 'Lunitide.exe') ./cmd/desktop
   if ($LASTEXITCODE) { throw 'desktop build failed' }

@@ -1,18 +1,19 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
+import { getProductHubBridge } from '../bridge/client'
 import { isLandscape } from './hubModel'
 import {
-  compareLandscape, LANDSCAPE_AXES, LANDSCAPE_SUGGESTIONS, landscapeScoreLabel,
-  loadLandscapeNames, parseCompetitorInput, saveLandscapeNames,
-  type LandscapeAxisId, type LandscapeRow,
+  compareLandscape, LANDSCAPE_AXES, LANDSCAPE_SUGGESTIONS, landscapeAxisLabel, landscapeScoreLabel,
+  loadLandscapeNames, parseCompetitorInput, saveLandscapeNames, type LandscapeAxisId, type LandscapeDraft, type LandscapeRow,
 } from './landscapeModel'
 import type { HubNode } from './productHubTypes'
 
 export function LandscapePane({
-  nodes, zh, onOpen,
+  nodes, zh, onOpen, token,
 }: {
   nodes: HubNode[]
   zh: boolean
   onOpen: (key: string) => void
+  token: string
 }): React.JSX.Element {
   const slots = nodes.filter(isLandscape)
   const [draft, setDraft] = useState('')
@@ -20,6 +21,9 @@ export function LandscapePane({
   const [rows, setRows] = useState<LandscapeRow[] | null>(null)
   const [axis, setAxis] = useState<LandscapeAxisId>('local')
   const [picked, setPicked] = useState('lunitide')
+  const [collecting, setCollecting] = useState(false)
+  const [collectNote, setCollectNote] = useState('')
+  const [collected, setCollected] = useState<LandscapeDraft[]>([])
 
   const axisMeta = LANDSCAPE_AXES.find(item => item.id === axis) ?? LANDSCAPE_AXES[0]
   const pickedRow = rows?.find(row => row.id === picked) ?? rows?.[0]
@@ -28,6 +32,18 @@ export function LandscapePane({
     const keys = new Set<string>(axisMeta.related)
     return nodes.filter(node => keys.has(node.id) || keys.has(node.stable_key))
   }, [axisMeta.related, nodes])
+
+  const loadDrafts = () => {
+    if (!token) return
+    getProductHubBridge().landscapeDrafts({ sessionToken: token }).then(result => {
+      setCollected(((result.drafts ?? []) as unknown[]).filter((item): item is LandscapeDraft => {
+        const d = item as Partial<LandscapeDraft>
+        return !!d && typeof d.id === 'string' && typeof d.quote === 'string' && (d.status === 'draft' || d.status === 'confirmed')
+      }))
+    }).catch(() => { /* locked or offline: the list simply stays empty */ })
+  }
+
+  useEffect(loadDrafts, [token])
 
   const addNames = (next: string[]) => {
     setNames(curr => {
@@ -50,6 +66,31 @@ export function LandscapePane({
     const compared = compareLandscape(all)
     setRows(compared)
     setPicked(compared[1]?.id ?? compared[0].id)
+  }
+
+  const runCollect = () => {
+    if (!token || collecting) return
+    setCollecting(true)
+    setCollectNote(zh ? '采集中：只读抓取登记过的公开页，摘录必须与原文一致。' : 'Collecting: read-only fetch of registered public pages; quotes must match the source.')
+    getProductHubBridge().landscapeCollect({ sessionToken: token, names }).then(result => {
+      const skipped = (result.skipped ?? []) as string[]
+      const parts = [
+        `${zh ? '这一轮通过校验入库草稿' : 'drafts stored this round'}: ${result.collected}`,
+        ...skipped,
+      ]
+      setCollectNote(parts.join('；'))
+      loadDrafts()
+    }).catch(error => {
+      setCollectNote(`${zh ? '采集失败' : 'collection failed'}: ${(error as { message?: string })?.message ?? ''}`)
+    }).finally(() => setCollecting(false))
+  }
+
+  const confirmDraft = (id: string) => {
+    getProductHubBridge().landscapeConfirm({ sessionToken: token, id }).then(loadDrafts).catch(() => { /* surfaced by the next list refresh */ })
+  }
+
+  const discardDraft = (id: string) => {
+    getProductHubBridge().landscapeDiscard({ sessionToken: token, id }).then(loadDrafts).catch(() => { /* surfaced by the next list refresh */ })
   }
 
   return (
@@ -76,7 +117,11 @@ export function LandscapePane({
         />
         <button type="submit">{zh ? '加入名单' : 'Add'}</button>
         <button type="button" className="primary" onClick={() => runCompare()}>{zh ? '执行对照' : 'Compare'}</button>
+        <button type="button" disabled={collecting || !names.length} onClick={runCollect}>
+          {collecting ? (zh ? '采集中…' : 'Collecting…') : (zh ? '采集' : 'Collect')}
+        </button>
       </form>
+      {collectNote ? <p className="ph-dim">{collectNote}</p> : null}
       <div className="ph-chips ph-land-suggest">
         {LANDSCAPE_SUGGESTIONS.map(name => (
           <button
@@ -162,6 +207,35 @@ export function LandscapePane({
           </aside>
         </div>
       ) : null}
+
+      <div className="ph-section-head">
+        <span>{zh ? '采集草稿与已确认摘录' : 'Collected drafts and confirmed quotes'}</span>
+        <span>{collected.length}</span>
+      </div>
+      <p className="ph-dim">
+        {zh
+          ? '「采集」只读抓取登记过的公开页；摘录必须与原文逐字一致才入库。草稿经人工确认后才会写进诊断报告的竞品对照，全程不改健康分。'
+          : 'Collect fetches registered public pages read-only; only verbatim quotes are stored. A draft enters the report after human confirmation; the score never changes.'}
+      </p>
+      <div className="ph-list">
+        {collected.length === 0 ? <p className="ph-dim">{zh ? '还没有采集条目。点「采集」按已保存名单抓一轮。' : 'Nothing collected yet. Press Collect for the saved list.'}</p> : collected.map(item => (
+          <div key={item.id} className="ph-feature-row">
+            <span>
+              {item.status === 'confirmed' ? (zh ? '已确认' : 'confirmed') : (zh ? '待确认草稿' : 'draft')}
+              {' · '}{item.name} · {landscapeAxisLabel(item.axis, zh)} · {item.date}
+            </span>
+            <span>{item.quote}</span>
+            <span className="ph-dim">{item.url}</span>
+            <span>
+              {item.status === 'confirmed'
+                ? null
+                : <button type="button" className="primary" onClick={() => confirmDraft(item.id)}>{zh ? '确认' : 'Confirm'}</button>}
+              {' '}
+              <button type="button" onClick={() => discardDraft(item.id)}>{zh ? '丢弃' : 'Discard'}</button>
+            </span>
+          </div>
+        ))}
+      </div>
 
       <div className="ph-section-head">
         <span>{zh ? '已入库图景槽位' : 'Stored landscape slots'}</span>

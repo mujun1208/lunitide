@@ -243,6 +243,80 @@ func TestClassifyTaskRouteDoesNotEnableCC(t *testing.T) {
 	}
 }
 
+// A typed complaint like "为什么不直接做，还要复制粘贴？" routes to R2 via the
+// "粘贴" keyword, and the user is demanding the assistant deliver the files
+// itself on that very turn. The route must therefore keep the workspace tools:
+// without them the model can only apologize again, which is exactly the
+// "让他直接输出产物就无法执行" failure. Plain desktop-act goals must not grow
+// workspace tools.
+func TestR2DirectDeliveryKeepsWorkspaceTools(t *testing.T) {
+	t.Parallel()
+	for _, goal := range []string{
+		"为什么不直接做，还要复制粘贴？",
+		"不要让我复制粘贴，把 POC 直接做出来给我",
+		"别再复制粘贴了，直接写出来交付产物",
+	} {
+		route, allow := classifyTaskRoute(goal, false, true)
+		if route != RouteR2 {
+			t.Fatalf("goal %q should stay R2, got %q", goal, route)
+		}
+		for _, name := range []string{"workspace.write", "workspace.read", "workspace.list", "workspace.edit"} {
+			if !allow[name] {
+				t.Fatalf("direct-delivery goal %q lost %s", goal, name)
+			}
+		}
+		if !allow["desktop.open"] {
+			t.Fatalf("direct-delivery goal %q lost desktop.open", goal)
+		}
+	}
+	route, allow := classifyTaskRoute("点击确定按钮", false, true)
+	if route != RouteR2 {
+		t.Fatalf("plain desktop act should stay R2, got %q", route)
+	}
+	if allow["workspace.write"] {
+		t.Fatal("plain desktop act must not grow workspace tools")
+	}
+}
+
+// Compound goals that route through a lookup (R1) or browser (R3) lane still
+// ask for a file on disk ("写个脚本"、"整理成笔记"). The lane keep must not
+// strip the workspace tools, or the model can only answer in chat and the
+// deliverable never lands. Goals without a file demand keep the lean lane.
+func TestFileOutputDemandKeepsWorkspaceToolsAcrossLanes(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		goal  string
+		route TaskRoute
+	}{
+		{"查一下今天的新闻，然后写个分析脚本", RouteR1},
+		{"打开这个网站，把内容整理成笔记文件", RouteR3},
+		{"帮我点击确定按钮", RouteR2},
+	} {
+		route, allow := classifyTaskRoute(tc.goal, false, true)
+		if route != tc.route {
+			t.Fatalf("goal %q route=%q want %q", tc.goal, route, tc.route)
+		}
+		wantWorkspace := tc.goal != "帮我点击确定按钮"
+		if wantWorkspace {
+			for _, name := range []string{"workspace.write", "workspace.read", "workspace.list", "workspace.edit"} {
+				if !allow[name] {
+					t.Fatalf("file-output goal %q lost %s", tc.goal, name)
+				}
+			}
+		} else if allow["workspace.write"] {
+			t.Fatalf("plain desktop act %q grew workspace tools", tc.goal)
+		}
+	}
+	// Refusing the office format must not refuse file delivery itself.
+	route, allow := classifyTaskRoute("打开电脑上的记事本，不要生成 Word，直接写 markdown 文件给我", false, true)
+	if route != RouteR2 {
+		t.Fatalf("goal route=%q want R2", route)
+	}
+	if !allow["workspace.write"] {
+		t.Fatal("office refusal stripped direct file delivery")
+	}
+}
+
 func TestApplyTaskRoute(t *testing.T) {
 	t.Parallel()
 	all := append(engineToolDefinitions(),

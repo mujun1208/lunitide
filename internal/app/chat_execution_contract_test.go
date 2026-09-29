@@ -306,3 +306,59 @@ func TestDesktopCapabilityDeniedIsNotRetried(t *testing.T) {
 		t.Fatal("two identical failures must stop repeating")
 	}
 }
+
+// A typed question that merely mentions a desktop keyword ("粘贴") is routed
+// to R2 and buffered, but the buffer must only hold speculative text until
+// tool receipts land: the model's answer itself is shown verbatim. The
+// voice-companion closeout folding and the wait-promise replacement must
+// never swallow a substantive typed answer behind a canned failure line.
+func TestTypedTurnsNeverBufferOrReplaceReplies(t *testing.T) {
+	goal := "为什么不直接做，还要复制粘贴？"
+	if detectTaskRoute(goal) != RouteR2 {
+		t.Fatalf("probe goal must stay R2 (keyword route is intentional), got %q", detectTaskRoute(goal))
+	}
+	if !computerExecutionTurn(goal) {
+		t.Fatal("probe goal must remain a computer execution turn for this regression probe")
+	}
+	answer := "上一轮没有写文件的工具。我现在直接把它做出来：我来执行 POC 构建，把 HTML 落到产物目录。"
+	if got := finalBufferedReply(false, nil, answer, goal); got != answer {
+		t.Fatalf("typed buffered reply must stream verbatim, got %q", got)
+	}
+	empty := ""
+	if got := finalBufferedReply(false, nil, empty, goal); got != empty {
+		t.Fatalf("typed empty reply must stay empty, got %q", got)
+	}
+	// Voice keeps folding: a computer turn without receipts collapses to the
+	// canned receipt closeout instead of the model's text.
+	if got := finalBufferedReply(true, nil, "好，我来执行", goal); got != "本轮没有取得电脑操作回执，尚未执行完成。" {
+		t.Fatalf("voice computer turn without receipts must collapse, got %q", got)
+	}
+	if got := finalBufferedReply(true, nil, answer, goal); got != "本轮没有取得电脑操作回执，尚未执行完成。" {
+		t.Fatalf("voice computer turn without receipts must collapse regardless of answer, got %q", got)
+	}
+}
+
+// A direct-delivery turn that DID write the files must show its confirmation.
+// The "disk write does not sync an editor window" caveat exists for goals that
+// type into an app; when the user explicitly demanded the files themselves
+// ("直接输出产物"), the write is the requested action and the caveat is noise
+// that swallows the real result. Both modalities must keep the reply.
+func TestDirectFileDeliveryReplySurvivesAfterDiskWrite(t *testing.T) {
+	goal := "不要发HTML代码让我复制粘贴，直接输出POC产物文件"
+	messages := receiptMessages("workspace.write", `{"path":"poc/index.html","content":"<h1>ok</h1>"}`, "wrote poc/index.html")
+	if !companionWantsDesktopControl(goal) {
+		t.Fatal("probe goal must still look like a desktop-control goal for this regression probe")
+	}
+	answer := "POC 已直接生成：poc/index.html、poc/app.js、poc/style.css，点击卡片即可查看。"
+	if got := finalBufferedReply(false, messages, answer, goal); got != answer {
+		t.Fatalf("typed direct-delivery reply was replaced, got %q", got)
+	}
+	if got := finalBufferedReply(true, messages, answer, goal); got != answer {
+		t.Fatalf("voice direct-delivery reply was replaced, got %q", got)
+	}
+	// The caveat keeps guarding goals that really type into an editor window.
+	editor := receiptMessages("workspace.edit", `{"path":"notes.txt"}`, "edited notes.txt (1 replacement(s))")
+	if got := finalBufferedReply(false, editor, "已经在记事本写好并确认了。", "打开记事本，在最后输入号码"); got != "已写入磁盘文件，但未确认当前编辑窗口已同步。" {
+		t.Fatalf("editor-sync caveat must stay for typing goals, got %q", got)
+	}
+}

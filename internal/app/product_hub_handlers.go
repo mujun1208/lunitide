@@ -128,6 +128,29 @@ func handleProductHub(e *Engine, ctx context.Context, r bridge.Request) (resp br
 			return failProductHub(r, err)
 		}
 		return r.Ok(res)
+	case "productHub.landscape.collect":
+		result, err := e.productHub.CollectLandscape(ctx, payloadStrings(r.Payload, "names"))
+		if err != nil {
+			return failProductHub(r, err)
+		}
+		return r.Ok(result)
+	case "productHub.landscape.drafts":
+		drafts, err := e.productHub.LandscapeDrafts(ctx)
+		if err != nil {
+			return failProductHub(r, err)
+		}
+		return r.Ok(map[string]any{"drafts": drafts})
+	case "productHub.landscape.confirm":
+		draft, err := e.productHub.ConfirmLandscapeDraft(ctx, payloadString(r.Payload, "id"))
+		if err != nil {
+			return failProductHub(r, err)
+		}
+		return r.Ok(map[string]any{"draft": draft})
+	case "productHub.landscape.discard":
+		if err := e.productHub.DiscardLandscapeDraft(ctx, payloadString(r.Payload, "id")); err != nil {
+			return failProductHub(r, err)
+		}
+		return r.Ok(map[string]any{"ok": true})
 	default:
 		return r.Fail("BAD_REQUEST", "未知 productHub 方法", false)
 	}
@@ -145,6 +168,8 @@ func failProductHub(r bridge.Request, err error) bridge.Response {
 		return r.Fail("PH_006", "该导出格式尚未实现", false)
 	case errors.Is(err, producthub.ErrNotFound):
 		return r.Fail("PH_018", "没有这条诊断或功能卡", false)
+	case errors.Is(err, producthub.ErrNoSource):
+		return r.Fail("PH_023", "本机没有产品源码，不能自净化修复升级，请联系管理员", false)
 	default:
 		return r.Fail("STORAGE_UNAVAILABLE", "产品知识中枢暂不可用", true)
 	}
@@ -170,6 +195,31 @@ func payloadString(raw json.RawMessage, key string) string {
 	}
 	v, _ := m[key].(string)
 	return strings.TrimSpace(v)
+}
+
+func payloadStrings(raw json.RawMessage, key string) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(raw, &m) != nil {
+		return nil
+	}
+	item, ok := m[key]
+	if !ok {
+		return nil
+	}
+	var list []string
+	if json.Unmarshal(item, &list) != nil {
+		return nil
+	}
+	out := make([]string, 0, len(list))
+	for _, v := range list {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func saveProductHubExport(format, content string) (string, error) {

@@ -309,8 +309,8 @@ func engineLog(ctx context.Context) string {
 // A pass or a log line that is gone today becomes fixed. A failure stays open
 // and the plan is the new evidence, not a tag that pretends it was handled.
 func recheckLive(ctx context.Context, f Finding) (status string, applied bool, evidence, fix string) {
-	if f.ErrorCode == "PH_L90" || f.ErrorCode == "PH_L91" {
-		return f.Status, false, f.Evidence, "对照来自图景页。净化不改名单，也不把它算进实测分。"
+	if f.ErrorCode == "PH_L90" || f.ErrorCode == "PH_L91" || f.ErrorCode == "PH_L92" {
+		return f.Status, false, f.Evidence, "对照与升级对照来自图景页的已确认结论。净化不重跑它们，也不把它们算进实测分。"
 	}
 	if f.Status == "pass" {
 		return "fixed", true, f.Evidence, "复查时这一项已经是通过。"
@@ -437,7 +437,7 @@ func probeFromFindings(findings []Finding) (ProbeScore, bool) {
 		if !strings.HasPrefix(f.ErrorCode, "PH_L") {
 			continue
 		}
-		if f.ErrorCode == "PH_L90" || f.ErrorCode == "PH_L91" || f.ErrorCode == "PH_L99" {
+		if f.ErrorCode == "PH_L90" || f.ErrorCode == "PH_L91" || f.ErrorCode == "PH_L92" || f.ErrorCode == "PH_L99" {
 			continue
 		}
 		total++

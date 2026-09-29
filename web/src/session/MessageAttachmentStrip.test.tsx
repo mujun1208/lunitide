@@ -59,3 +59,37 @@ it('opens a text file and permits retry after a preview failure',async()=>{
  fireEvent.click(screen.getByRole('button',{name:'重试'}))
  expect(await screen.findByText('# 原文件内容')).toBeInTheDocument()
 })
+
+it('opens a docx with the original program instead of the inline viewer',async()=>{
+ const open=vi.fn().mockResolvedValue({opened:'C:\\Temp\\lunitide-attachment-open\\'+ID+'\\需求.docx'}),get=vi.fn(),attachments={open,get} as unknown as AttachmentBridge
+ render(<MessageAttachmentStrip mentions={[{id:ID,label:'需求.docx'}]} attachments={attachments}/>)
+ fireEvent.click(screen.getByRole('button',{name:'查看附件 需求.docx'}))
+ await waitFor(()=>expect(open).toHaveBeenCalledWith({attachmentId:ID}))
+ expect(screen.queryByRole('dialog')).toBeNull()
+ expect(get).not.toHaveBeenCalled()
+})
+
+it('falls back to the inline viewer when the original program cannot open',async()=>{
+ const open=vi.fn().mockRejectedValue(new Error('无法打开文件')),get=vi.fn().mockResolvedValue({attachmentId:ID,originalName:'需求.docx',mime:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',parsedText:'提取出的正文'}),attachments={open,get} as unknown as AttachmentBridge
+ render(<MessageAttachmentStrip mentions={[{id:ID,label:'需求.docx'}]} attachments={attachments}/>)
+ fireEvent.click(screen.getByRole('button',{name:'查看附件 需求.docx'}))
+ expect(await screen.findByRole('dialog')).toHaveAccessibleName('查看附件 需求.docx')
+ await waitFor(()=>expect(open).toHaveBeenCalled())
+ expect(await screen.findByText('提取出的正文')).toBeInTheDocument()
+})
+
+it('offers opening the original program from the viewer header for documents only',async()=>{
+ const open=vi.fn().mockRejectedValueOnce(new Error('无法打开文件')).mockResolvedValue({opened:'x'}),get=vi.fn().mockResolvedValue({attachmentId:ID,originalName:'需求.docx',mime:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',parsedText:'提取出的正文'}),attachments={open,get} as unknown as AttachmentBridge
+ render(<MessageAttachmentStrip mentions={[{id:ID,label:'需求.docx'}]} attachments={attachments}/>)
+ fireEvent.click(screen.getByRole('button',{name:'查看附件 需求.docx'}))
+ expect(await screen.findByRole('dialog')).toHaveAccessibleName('查看附件 需求.docx')
+ fireEvent.click(screen.getByRole('button',{name:'原程序打开'}))
+ await waitFor(()=>expect(open).toHaveBeenCalledTimes(2))
+ const getMd=vi.fn().mockResolvedValue({attachmentId:OTHER,originalName:'notes.md',mime:'text/plain',parsedText:'# 原文件内容'}),attachmentsMd={get:getMd} as unknown as AttachmentBridge
+ fireEvent.click(screen.getByRole('button',{name:'关闭附件预览'}))
+ cleanup()
+ render(<MessageAttachmentStrip mentions={[{id:OTHER,label:'notes.md'}]} attachments={attachmentsMd}/>)
+ fireEvent.click(screen.getByRole('button',{name:'查看附件 notes.md'}))
+ expect(await screen.findByRole('dialog')).toHaveAccessibleName('查看附件 notes.md')
+ expect(screen.queryByRole('button',{name:'原程序打开'})).toBeNull()
+})

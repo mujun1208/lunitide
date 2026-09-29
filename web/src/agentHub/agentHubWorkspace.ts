@@ -28,6 +28,9 @@ export const HUB_ATTACHMENTS = {
   importLocal: async () => {
     throw new Error('没有附件')
   },
+  open: async () => {
+    throw new Error('没有附件')
+  },
 } as AttachmentBridge
 
 export function createAgentHubLocalWorkspace(opts: {

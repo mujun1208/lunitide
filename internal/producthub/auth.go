@@ -25,6 +25,9 @@ var (
 	ErrRateLimited    = errors.New("PH_005")
 	ErrNotImplemented = errors.New("PH_006")
 	ErrNotFound       = errors.New("PH_018")
+	// ErrNoSource marks a guest copy: no usable product source tree on this
+	// machine, so self-purification is refused.
+	ErrNoSource = errors.New("PH_023")
 )
 
 type gate struct {

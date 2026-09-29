@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -151,5 +152,85 @@ func TestInternalImportPathCopiesLocalText(t *testing.T) {
 	}
 	if !strings.Contains(string(view), "客户与商机") {
 		t.Fatalf("parsed text missing: %s", view)
+	}
+}
+
+// attachment.open must open the stored bytes as the ORIGINAL file type: the
+// materialized copy keeps the original name (and its .docx extension) so the
+// OS shell resolves Word instead of showing the parsed markdown text.
+func TestAttachmentOpenMaterializesOriginalType(t *testing.T) {
+	store := &getJPEGStore{}
+	e := NewEngine(providerRepositoryStub{}, "test")
+	e.SetAttachmentService(attachmentapp.NewService(store, attachmentapp.NewDirFileStorage(t.TempDir())))
+	docx := make([]byte, 256)
+	copy(docx, []byte{0x50, 0x4b, 0x03, 0x04}) // ZIP magic like a real .docx
+	for i := 4; i < len(docx); i++ {
+		docx[i] = byte(i)
+	}
+	att, err := e.IngestAttachment(context.Background(), attachmentapp.IngestFileRequest{
+		ProjectID:    "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+		OriginalName: "支点互动CRM系统需求说明书_V0.3.docx",
+		MIME:         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		Content:      docx,
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+
+	var openedTarget string
+	var openedFile, openedReveal bool
+	origOpen := openArtifactTarget
+	openArtifactTarget = func(target string, file, reveal bool) error {
+		openedTarget, openedFile, openedReveal = target, file, reveal
+		return nil
+	}
+	t.Cleanup(func() { openArtifactTarget = origOpen })
+
+	resp := e.Handle(context.Background(), validRequest("attachment.open", `{"attachmentId":"`+att.ID+`"}`))
+	if !resp.OK {
+		t.Fatalf("attachment.open = %#v", resp.Error)
+	}
+	if !openedFile || openedReveal {
+		t.Fatalf("open flags file=%v reveal=%v", openedFile, openedReveal)
+	}
+	if !strings.HasSuffix(openedTarget, "支点互动CRM系统需求说明书_V0.3.docx") {
+		t.Fatalf("materialized name must keep the original .docx name: %s", openedTarget)
+	}
+	if !strings.Contains(filepath.ToSlash(openedTarget), "/"+att.ID+"/") {
+		t.Fatalf("cache copy must live under the attachment id dir: %s", openedTarget)
+	}
+	got, err := os.ReadFile(openedTarget)
+	if err != nil {
+		t.Fatalf("read materialized copy: %v", err)
+	}
+	if !bytes.Equal(got, docx) {
+		t.Fatalf("materialized copy differs: len=%d vs %d", len(got), len(docx))
+	}
+
+	// reveal=true selects the file in the folder instead of launching it.
+	resp = e.Handle(context.Background(), validRequest("attachment.open", `{"attachmentId":"`+att.ID+`","reveal":true}`))
+	if !resp.OK {
+		t.Fatalf("attachment.open reveal = %#v", resp.Error)
+	}
+	if !openedReveal {
+		t.Fatal("reveal flag must reach openArtifactTarget")
+	}
+
+	// Extra properties must fail schema validation.
+	resp = e.Handle(context.Background(), validRequest("attachment.open", `{"attachmentId":"`+att.ID+`","x":1}`))
+	if resp.OK {
+		t.Fatal("extra properties must fail schema validation")
+	}
+}
+
+func TestAttachmentOpenRejectsInvalidRequests(t *testing.T) {
+	e := NewEngine(providerRepositoryStub{}, "test")
+	resp := e.Handle(context.Background(), validRequest("attachment.open", `{}`))
+	if resp.OK {
+		t.Fatal("missing attachmentId must fail")
+	}
+	resp = e.Handle(context.Background(), validRequest("attachment.open", `{"attachmentId":"not-a-ulid"}`))
+	if resp.OK {
+		t.Fatal("invalid attachmentId must fail")
 	}
 }

@@ -16,6 +16,9 @@ func RenderReport(ed Edition) (markdown, pageHTML string) {
 		stamp = time.Now().Format(time.RFC3339)
 	}
 	fmt.Fprintf(&md, "# Lunitide 产品说明书（第 %s 版）\n\n", ed.EditionID)
+	if IsGuestMode() {
+		md.WriteString("只读模式：本机没有产品源码，不能自净化修复升级，请联系管理员。\n\n")
+	}
 	features, landscape := splitCardCounts(ed.Features)
 	fmt.Fprintf(&md, "生成时间：%s  \n功能卡：%d  · 图景卡 %d  · 合计 %d  · 新增 %d · 更新 %d · 退役 %d  · 健康分 %d\n\n", stamp, features, landscape, features+landscape, ed.Added, ed.Updated, ed.Removed, ed.HealthScore)
 	md.WriteString("功能全景、知识图谱、解剖视图共用同一次组装。产品版本没变时，进入后直接读已存的这一版。版本变了，或库里还没有这一版，才按当前产品重组一次并写入。点「重新检测」会重跑听写、播放、下载、图片识别，以及临时库里的带点入口读回，并记下新快照。点「执行净化」会再跑失败的那一项：复查通过才改为已修复，仍失败就保持待处理，方案换成这次的证据。对得上处理函数的链路步骤改写成这次从源码读到的调用。对不上的手写步骤不留在报告里，记为未按真实调用写清。插件名单和对话动词写在引擎里。\n\n")
@@ -65,6 +68,7 @@ func RenderReport(ed Edition) (markdown, pageHTML string) {
 	md.WriteString(inv)
 	md.WriteString("### 优化方案\n\n")
 	md.WriteString(diagnosticGapPlans(ed))
+	md.WriteString(releaseTaskBook(ed))
 	if len(ed.Findings) == 0 {
 		md.WriteString("本轮无发现。\n\n")
 	}
@@ -84,6 +88,9 @@ func RenderReport(ed Edition) (markdown, pageHTML string) {
 	hs.WriteString(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Lunitide 产品说明书</title>`)
 	hs.WriteString(`<style>body{margin:0;background:#0a0a0a;color:#f4f4f4;font:15px/1.55 system-ui,sans-serif}main{max-width:920px;margin:0 auto;padding:32px 24px}h1,h2,h3{font-weight:600}h1{font-size:28px}a{color:#fff}section{border:1px solid #2a2a2a;background:#141414;padding:16px 18px;margin:14px 0}code{color:#ccc}.meta{color:#9a9a9a}</style></head><body><main>`)
 	fmt.Fprintf(&hs, "<h1>Lunitide 产品说明书</h1><p class=\"meta\">%s · 功能卡 %d · 图景卡 %d · 健康分 %d</p>", html.EscapeString(stamp), features, landscape, ed.HealthScore)
+	if IsGuestMode() {
+		hs.WriteString("<p><b>只读模式</b>：本机没有产品源码，不能自净化修复升级，请联系管理员。</p>")
+	}
 	hs.WriteString("<section><h2>总述</h2><p>本机优先的智能工作台。每个原子功能一张知识卡：简介、描述、属性、方法、链路与脚手架。三页共用同一次组装。版本没变时读已存的这一版。版本变了才重组。对得上处理函数的链路步骤改写成源码里的调用。对不上的手写步骤不留在报告里。执行净化会再跑失败项，复查通过才改为已修复。</p></section>")
 	for _, c := range ed.Features {
 		fmt.Fprintf(&hs, "<section id=\"%s\"><h3>%s <code>%s</code></h3>", html.EscapeString(c.StableKey), html.EscapeString(c.Name), html.EscapeString(c.StableKey))

@@ -220,7 +220,7 @@ func renderTraced(cards []Card, hops map[string]callHop, ready bool) string {
 
 func sameHop(a, b callHop) bool {
 	a.FromBuild, b.FromBuild = false, false
-	if a.Method != b.Method || a.Handler != b.Handler || a.Branch != b.Branch || a.Dispatch != b.Dispatch {
+	if a.Method != b.Method || a.Handler != b.Handler || a.Branch != b.Branch || a.Dispatch != b.Dispatch || a.Source != b.Source {
 		return false
 	}
 	return slices.Equal(a.Steps, b.Steps) && slices.Equal(a.Missing, b.Missing)
@@ -263,6 +263,9 @@ func TestWriteCompiledCallIndex(t *testing.T) {
 		}
 		if hop.Dispatch {
 			b.WriteString(", Dispatch: true")
+		}
+		if hop.Source != "" {
+			fmt.Fprintf(&b, ", Source: %q", hop.Source)
 		}
 		writeNames(&b, "Steps", hop.Steps)
 		writeNames(&b, "Missing", hop.Missing)
@@ -319,5 +322,57 @@ func TestCompiledHopsMatchTheSource(t *testing.T) {
 	}
 	if len(seen) < 40 {
 		t.Fatalf("only %d methods", len(seen))
+	}
+}
+
+func TestOptimizationPlansAreFivePartAndEnvironmentAware(t *testing.T) {
+	ed := Edition{
+		Features: []Card{
+			{Name: "空白卡", StableKey: "feature.x.blank"},
+			{Name: "无门卡", StableKey: "feature.y.nomethod", Chain: Chain{Steps: []Step{{Index: 1, Name: "已写"}}}},
+		},
+		Findings: []Finding{
+			{Severity: "warn", ErrorCode: "PH_L01", StableKey: "probe.dictate", Title: "听写", Status: "open",
+				Evidence: "听写模型未就绪：voice model not installed"},
+			{Severity: "error", ErrorCode: "PH_L03", StableKey: "probe.download", Title: "下载", Status: "open", Fix: "重试下载"},
+			{Severity: "warn", ErrorCode: "PH_L02", StableKey: "probe.play", Title: "播放", Status: "open"},
+			{Severity: "info", ErrorCode: "PH_000", StableKey: "product.lunitide", Title: "对齐", Status: "clear"},
+		},
+	}
+	md, _ := RenderReport(ed)
+	plans := between(md, "### 优化方案", "### 发布任务书")
+	for _, want := range []string{
+		"【问题】", "定位：", "根因：", "修复动作：", "验收：",
+		"链路步骤还不清楚", "没有入口方法",
+		"环境未就绪：听写", "本机补齐精识别运行时", "这一条不改产品代码",
+	} {
+		if !strings.Contains(plans, want) {
+			t.Fatalf("plans missing %s:\n%s", want, plans)
+		}
+	}
+	up := between(md, "### 升级对照", "### 任务完成")
+	if !strings.Contains(up, "先修这次的下载（PH_L03）：重试下载") || !strings.Contains(up, "先修这次的播放（PH_L02）") {
+		t.Fatalf("severity-ordered repair list wrong:\n%s", up)
+	}
+	if strings.Index(up, "先修这次的下载") > strings.Index(up, "先修这次的播放") {
+		t.Fatalf("an error was not ordered before a warning:\n%s", up)
+	}
+	book := between(md, "### 发布任务书", "### [")
+	for _, want := range []string{
+		"0. 现状勘察", "3. 全量本地闸门", "6. 签名构建", "10. 清理",
+		"LUNITIDE_SOURCE_ROOT", "本轮还没有复查通过的修复",
+	} {
+		if !strings.Contains(book, want) {
+			t.Fatalf("task book missing %s:\n%s", want, book)
+		}
+	}
+	if strings.Contains(book, `E:\`) || strings.Contains(book, "lockedSourceRoot") {
+		t.Fatal("task book leaked a machine path")
+	}
+	ed.Findings = append(ed.Findings, Finding{Severity: "info", ErrorCode: "PH_L02", StableKey: "probe.play2", Title: "播放2", Status: "fixed"})
+	md2, _ := RenderReport(ed)
+	book2 := between(md2, "### 发布任务书", "### [")
+	if !strings.Contains(book2, "可随版发布 1 条") || !strings.Contains(book2, "PH_L02 播放2") {
+		t.Fatalf("fixed items missing from the task book:\n%s", book2)
 	}
 }

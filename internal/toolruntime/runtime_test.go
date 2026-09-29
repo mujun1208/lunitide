@@ -241,8 +241,8 @@ func TestWorkspaceWriteReturnsPreviewMetadataOnlyForHTML(t *testing.T) {
 		t.Fatalf("markdown result = %+v, err=%v", report, err)
 	}
 	scratch, err := r.Execute(context.Background(), AutoEdit, session, "workspace.write", json.RawMessage(`{"path":"scratch.go","content":"package main"}`), false)
-	if err != nil || scratch.Artifact != nil {
-		t.Fatalf("code scratch must not become a card: %+v, err=%v", scratch, err)
+	if err != nil || scratch.Artifact == nil || scratch.Artifact.Kind != "code" || scratch.Artifact.Path != "scratch.go" || scratch.Artifact.Content != "" {
+		t.Fatalf("code result = %+v, err=%v", scratch, err)
 	}
 }
 

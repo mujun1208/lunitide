@@ -12,6 +12,7 @@ const refresh = vi.fn()
 const changelog = vi.fn()
 const apply = vi.fn()
 const tagSet = vi.fn()
+const landscapeDrafts = vi.fn()
 
 vi.mock('../bridge/client', () => ({
   getProductHubBridge: () => ({
@@ -24,6 +25,7 @@ vi.mock('../bridge/client', () => ({
     changelog,
     apply,
     tagSet,
+    landscapeDrafts,
     featureCard: vi.fn(),
     changePassword: vi.fn(),
     exportDoc: vi.fn(),
@@ -43,6 +45,7 @@ it('keeps the hub behind an unlock form and does not list it as a public page', 
   expect(screen.getByLabelText('用户名')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '刷新' })).toBeNull()
   unlock.mockResolvedValue({ sessionToken: 'tok', username: 'mujun', unlocked: true })
+  landscapeDrafts.mockResolvedValue({ drafts: [] })
   overview.mockResolvedValue({ product: 'Lunitide', editionId: 'e1', generatedAt: '', cardCount: 2, healthScore: 90, added: 1, updated: 0, removed: 0, probePassed: 2, probeTotal: 2, domains: [], tags: [] })
   graph.mockResolvedValue({ nodes: [{ id: 'f1', stable_key: 'feature.dialog.music.play', type: 'Feature', name: '放歌', domain: 'dialog' }], edges: [] })
   diagnostics.mockResolvedValue({ findings: [{ severity: 'info', error_code: 'PH_000', stable_key: 'product.lunitide', title: '本轮未发现阻断问题', evidence: '', root_cause: '', fix: '', verify: '', status: 'wont_fix' }], reportMarkdown: '# 册', reportHtml: '<h1>册</h1>' })

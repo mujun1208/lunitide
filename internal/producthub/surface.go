@@ -22,6 +22,19 @@ type productSurface struct {
 var (
 	surfaceMu     sync.Mutex
 	activeSurface productSurface
+
+	// lockedSourceRoot pins the product source directory into the binary at
+	// build time. The release script injects it with
+	//
+	//	-ldflags "-X github.com/lunitide/lunitide/internal/producthub.lockedSourceRoot=<dir>"
+	//
+	// reading LUNITIDE_SOURCE_ROOT from the environment, so no machine path
+	// is ever committed to the repository. An empty value keeps probing.
+	lockedSourceRoot string
+
+	// sourceRootProbe is the one availability decision the hub consults.
+	// It is a variable only so tests can force guest mode.
+	sourceRootProbe = FindProductRoot
 )
 
 // UseProductRoot points later 功能全景 / 知识图谱 / 解剖视图 queries at the
@@ -45,10 +58,15 @@ func resetProductSurface() {
 	surfaceMu.Unlock()
 }
 
-// FindProductRoot walks from the working directory and the executable toward
-// the filesystem root, looking for the product's page union. An installed
-// copy that does not ship those files keeps the compiled catalog.
+// FindProductRoot returns the build-time locked source directory when one
+// was injected and is still present on this machine. Otherwise it walks
+// from the working directory and the executable toward the filesystem
+// root, looking for the product's page union. An installed copy that does
+// not ship those files keeps the compiled catalog.
 func FindProductRoot() string {
+	if root := strings.TrimSpace(lockedSourceRoot); root != "" && productFilesPresent(root) {
+		return root
+	}
 	var starts []string
 	if wd, err := os.Getwd(); err == nil {
 		starts = append(starts, wd)
@@ -59,7 +77,7 @@ func FindProductRoot() string {
 	for _, start := range starts {
 		dir := start
 		for i := 0; i < 8; i++ {
-			if fileExists(filepath.Join(dir, "web", "src", "app", "appTypes.ts")) {
+			if productFilesPresent(dir) {
 				return dir
 			}
 			parent := filepath.Dir(dir)
@@ -70,6 +88,19 @@ func FindProductRoot() string {
 		}
 	}
 	return ""
+}
+
+// IsGuestMode reports whether this machine has no usable product source
+// tree: neither the build-time locked directory nor a probed checkout.
+// Guests still read reports rendered from the frozen catalog and still
+// receive app updates, but self-purification is refused. No path is ever
+// included in guest-facing output.
+func IsGuestMode() bool {
+	return sourceRootProbe() == ""
+}
+
+func productFilesPresent(root string) bool {
+	return fileExists(filepath.Join(root, "web", "src", "app", "appTypes.ts"))
 }
 
 func catalogPages() []generated.Page {

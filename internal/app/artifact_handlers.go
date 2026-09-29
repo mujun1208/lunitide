@@ -18,12 +18,13 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/imagepreview"
 	"github.com/lunitide/lunitide/internal/officetools"
+	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
 // artifactKindValid accepts the kinds the chat pipeline can emit as cards.
 func artifactKindValid(kind string) bool {
 	switch kind {
-	case "html", "xlsx", "docx", "pptx", "pdf", "image", "md", "txt", "audio", "wav", "mp3":
+	case "html", "xlsx", "docx", "pptx", "pdf", "image", "md", "txt", "code", "audio", "wav", "mp3":
 		return true
 	}
 	return false
@@ -108,7 +109,9 @@ func handleWorkspaceArtifactPreview(e *Engine, ctx context.Context, r bridge.Req
 	case "wav", "mp3":
 		kind = "audio"
 	case "html", "xlsx", "docx", "pptx", "pdf":
-	case "txt", "md", "json", "csv", "ts", "tsx", "js", "jsx", "go", "py", "yaml", "yml", "css", "sql", "xml", "log":
+	case "txt", "md", "json", "csv", "ts", "tsx", "js", "jsx", "go", "py", "yaml", "yml", "css", "sql", "xml", "log",
+		"mjs", "cjs", "scss", "less", "java", "cs", "cpp", "c", "h", "hpp", "rs", "rb", "php",
+		"sh", "bat", "ps1", "toml", "ini", "conf", "svg":
 		kind = "text"
 	default:
 		kind = "file"
@@ -250,8 +253,9 @@ func handleWorkspaceArtifactExport(e *Engine, _ context.Context, r bridge.Reques
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "workspace.artifact.export 参数无效", false)
 	}
 	p.Path = filepath.ToSlash(filepath.Clean(strings.ReplaceAll(p.Path, "\\", "/")))
-	kind := strings.TrimPrefix(strings.ToLower(filepath.Ext(p.Path)), ".")
-	if !artifactKindValid(kind) {
+	// Share the card mapping: whatever surfaced in chat as a deliverable must
+	// also export — a requested script exports as smoothly as a docx.
+	if kind := toolruntime.ArtifactKindForPath(p.Path); kind == "" {
 		return r.Fail("BRIDGE_SCHEMA_INVALID", "产物格式不支持导出", false)
 	}
 	dir, err := resolveExportDir(p.Target)

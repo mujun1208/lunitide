@@ -237,6 +237,128 @@ func TestArtifactExportRoundTripAndGuards(t *testing.T) {
 	}
 }
 
+// A code deliverable must export as smoothly as a document: the card and the
+// export share one extension-to-kind mapping.
+func TestArtifactExportAcceptsCodeDeliverables(t *testing.T) {
+	e := newArtifactEngine(t)
+	ctx := context.Background()
+	if _, err := e.tools.Execute(ctx, toolruntime.FullAccess, artifactSession, "workspace.write", json.RawMessage(`{"path":"poc/app.js","content":"console.log(1)"}`), false); err != nil {
+		t.Fatal(err)
+	}
+	target := t.TempDir()
+	payload := `{"sessionId":"` + artifactSession + `","path":"poc/app.js","target":` + strconv.Quote(filepath.ToSlash(target)) + `}`
+	resp := handleWorkspaceArtifactExport(e, ctx, artifactRequest(payload))
+	if !resp.OK {
+		t.Fatalf("code export failed: %+v", resp)
+	}
+	written, err := os.ReadFile(filepath.Join(target, "app.js"))
+	if err != nil || string(written) != "console.log(1)" {
+		t.Fatalf("exported code mismatch: %v %q", err, written)
+	}
+	unsupported := handleWorkspaceArtifactExport(e, ctx, artifactRequest(`{"sessionId":"`+artifactSession+`","path":"poc/app.js","target":"rel/ative"}`))
+	if unsupported.OK || unsupported.Error == nil || unsupported.Error.Code != "ARTIFACT_EXPORT_TARGET_INVALID" {
+		t.Fatalf("guard check wrong: %+v", unsupported)
+	}
+}
+
+// TestArtifactDeliveryChainEndToEnd walks one user file request through every
+// gate the deliverable must pass: goal text → lane routing keeps the workspace
+// tools in the shrunk tool face → the write lands on disk → card metadata,
+// event gate and chat gate all accept code → the model's confirmation survives
+// the disk-write fold → clicking the card previews bounded text → reviewing
+// (accept) persists → exporting round-trips the exact bytes to the user's disk.
+func TestArtifactDeliveryChainEndToEnd(t *testing.T) {
+	// Gate A: a compound R1 goal ("look up news, then write a script") must
+	// keep the workspace tools through the lane shrink.
+	goal := "查一下今天的新闻，然后写个分析脚本"
+	route, allow := classifyTaskRoute(goal, false, true)
+	if route != RouteR1 {
+		t.Fatalf("route=%q want R1", route)
+	}
+	if !allow["workspace.write"] {
+		t.Fatal("file-output goal lost workspace.write in the lane allow-set")
+	}
+	face := applyTaskRoute(engineToolDefinitions(), route, allow)
+	onFace := map[string]bool{}
+	for _, d := range face {
+		onFace[d.Name] = true
+	}
+	if !onFace["workspace.write"] {
+		t.Fatal("shrunk tool face dropped workspace.write")
+	}
+
+	// The write itself: the script the model emits for that goal.
+	e := newArtifactEngine(t)
+	ctx := context.Background()
+	const script = "print('news analysis')"
+	res, err := e.tools.Execute(ctx, toolruntime.FullAccess, artifactSession, "workspace.write", json.RawMessage(`{"path":"poc/analyze.py","content":"print('news analysis')"}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Gate C: card metadata for the code file plus the shared export mapping.
+	if res.Artifact == nil || res.Artifact.Kind != "code" || res.Artifact.Path != "poc/analyze.py" {
+		t.Fatalf("code artifact metadata wrong: %+v", res.Artifact)
+	}
+	if kind := toolruntime.ArtifactKindForPath("poc/analyze.py"); kind != "code" {
+		t.Fatalf("shared export mapping wrong: %q", kind)
+	}
+	// Event gate and chat card gate.
+	if !artifactKindValid("code") {
+		t.Fatal("event gate rejects code")
+	}
+	if !chatDeliverableArtifact("workspace.write", "code", "poc/analyze.py") {
+		t.Fatal("chat card gate rejects code from workspace.write")
+	}
+	if chatDeliverableArtifact("desktop.type", "code", "x.js") {
+		t.Fatal("chat card gate must reject code from unrelated tools")
+	}
+
+	// Gate B: the direct-delivery confirmation survives the disk-write fold.
+	messages := receiptMessages("workspace.write", `{"path":"poc/analyze.py","content":"print('news analysis')"}`, "wrote poc/analyze.py")
+	answer := "分析脚本已直接生成：poc/analyze.py，点击卡片即可查看。"
+	if got := finalBufferedReply(false, messages, answer, goal); got != answer {
+		t.Fatalf("typed direct-delivery reply replaced: %q", got)
+	}
+	if got := finalBufferedReply(true, messages, answer, goal); got != answer {
+		t.Fatalf("voice direct-delivery reply replaced: %q", got)
+	}
+
+	// Click: the preview returns bounded text for the code file.
+	preview := handleWorkspaceArtifactPreview(e, ctx, artifactRequest(`{"sessionId":"`+artifactSession+`","path":"poc/analyze.py"}`))
+	if !preview.OK {
+		t.Fatalf("preview failed: %+v", preview)
+	}
+	raw, _ := json.Marshal(preview.Payload)
+	var previewPayload struct {
+		Kind    string `json:"kind"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(raw, &previewPayload); err != nil {
+		t.Fatal(err)
+	}
+	if previewPayload.Kind != "text" || !strings.Contains(previewPayload.Content, script) {
+		t.Fatalf("code preview wrong: %+v", previewPayload)
+	}
+
+	// Gate F: accepting the code card persists in the review log.
+	reviewResp := handleWorkspaceArtifactReviewAppend(e, ctx, artifactRequest(`{"sessionId":"`+artifactSession+`","callId":"call-1","toolName":"workspace.write","kind":"code","path":"poc/analyze.py","action":"accept"}`))
+	if !reviewResp.OK {
+		t.Fatalf("code review rejected: %+v", reviewResp)
+	}
+
+	// Landing on the user's disk: export round-trips the exact bytes.
+	target := t.TempDir()
+	payload := `{"sessionId":"` + artifactSession + `","path":"poc/analyze.py","target":` + strconv.Quote(filepath.ToSlash(target)) + `}`
+	resp := handleWorkspaceArtifactExport(e, ctx, artifactRequest(payload))
+	if !resp.OK {
+		t.Fatalf("code export failed: %+v", resp)
+	}
+	written, err := os.ReadFile(filepath.Join(target, "analyze.py"))
+	if err != nil || string(written) != script {
+		t.Fatalf("exported bytes mismatch: %v %q", err, written)
+	}
+}
+
 func TestArtifactReviewStoreRoundTripPersistence(t *testing.T) {
 	root := t.TempDir()
 	s1, err := artifactreview.NewStore(root)

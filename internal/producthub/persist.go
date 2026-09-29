@@ -16,6 +16,9 @@ type Persist interface {
 	ProductHubSaveEnrichment(ctx context.Context, en Enrichment) error
 	ProductHubLoadApplies(ctx context.Context) ([]ApplyLog, error)
 	ProductHubSaveApply(ctx context.Context, rec ApplyLog) error
+	ProductHubLoadLandscapeDrafts(ctx context.Context) ([]LandscapeDraft, error)
+	ProductHubSaveLandscapeDraft(ctx context.Context, d LandscapeDraft) error
+	ProductHubDeleteLandscapeDraft(ctx context.Context, id string) error
 }
 
 type MemoryPersist struct {
@@ -25,6 +28,7 @@ type MemoryPersist struct {
 	tags         []NodeTag
 	enrichments  []Enrichment
 	applies      []ApplyLog
+	drafts       []LandscapeDraft
 }
 
 func (m *MemoryPersist) ProductHubLoadAuth(context.Context) (string, error) {
@@ -108,5 +112,39 @@ func (m *MemoryPersist) ProductHubSaveApply(_ context.Context, rec ApplyLog) err
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.applies = append(m.applies, rec)
+	return nil
+}
+
+func (m *MemoryPersist) ProductHubLoadLandscapeDrafts(context.Context) ([]LandscapeDraft, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]LandscapeDraft, len(m.drafts))
+	copy(out, m.drafts)
+	return out, nil
+}
+
+func (m *MemoryPersist) ProductHubSaveLandscapeDraft(_ context.Context, d LandscapeDraft) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, existing := range m.drafts {
+		if existing.ID == d.ID {
+			m.drafts[i] = d
+			return nil
+		}
+	}
+	m.drafts = append(m.drafts, d)
+	return nil
+}
+
+func (m *MemoryPersist) ProductHubDeleteLandscapeDraft(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	kept := m.drafts[:0]
+	for _, d := range m.drafts {
+		if d.ID != id {
+			kept = append(kept, d)
+		}
+	}
+	m.drafts = kept
 	return nil
 }

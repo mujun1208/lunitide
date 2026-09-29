@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>媒体播放预览</title>
+  <link rel="stylesheet" href="../src/styles.css" />
+  <style>
+    html,body{height:100%;margin:0;background:#0c0e12}
+    body{min-height:100vh}
+  </style>
+</head>
+<body>
+  <div class="media-center">
+    <header class="media-center-top">
+      <h1>媒体中心</h1>
+      <nav class="media-center-tabs" aria-label="媒体视图">
+        <button type="button">音乐</button>
+        <button type="button" class="is-current">视频</button>
+      </nav>
+      <button type="button" class="media-pick">选择本地媒体</button>
+    </header>
+    <div class="media-center-stage">
+      <section class="media-video-surface" aria-label="视频">
+        <div class="video-theatre is-live" id="stage">
+          <video id="film" class="media-theatre-video" autoplay playsinline></video>
+          <div class="media-stage-chrome">
+            <div class="video-heading">
+              <h2>Nosferatu (1922)</h2>
+              <p role="status" id="status">正在播放</p>
+            </div>
+            <div class="media-controls is-direct">
+              <button type="button" class="media-play" id="play">暂停</button>
+              <label class="media-slider">进度
+                <input id="seek" type="range" aria-label="进度" min="0" max="100" value="20" />
+              </label>
+              <label class="media-volume">
+                <input id="vol" type="range" aria-label="音量" aria-orientation="vertical" min="0" max="100" value="80" />
+                <span>音量</span>
+              </label>
+              <button type="button" id="full">全屏</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+  <script>
+    const video = document.getElementById('film')
+    const status = document.getElementById('status')
+    const play = document.getElementById('play')
+    const vol = document.getElementById('vol')
+    const stage = document.getElementById('stage')
+    const canvas = document.createElement('canvas')
+    canvas.width = 960
+    canvas.height = 540
+    const ctx = canvas.getContext('2d')
+    let frame = 0
+    setInterval(() => {
+      frame += 1
+      ctx.fillStyle = '#071018'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.fillStyle = '#d7fff2'
+      ctx.font = '64px serif'
+      ctx.fillText('Nosferatu', 80, 250 + Math.sin(frame / 12) * 8)
+    }, 40)
+    const stream = canvas.captureStream(25)
+    const audio = new AudioContext()
+    const osc = audio.createOscillator()
+    const gain = audio.createGain()
+    const dest = audio.createMediaStreamDestination()
+    osc.frequency.value = 220
+    gain.gain.value = 0.15
+    osc.connect(gain).connect(dest)
+    osc.start()
+    dest.stream.getAudioTracks().forEach(track => stream.addTrack(track))
+    video.srcObject = stream
+    video.volume = 0.8
+    video.muted = false
+    const paint = () => {
+      status.textContent = video.paused ? '已暂停' : (video.muted || video.volume === 0 ? '正在播放，向上拖音量即可出声' : '正在播放')
+      play.textContent = video.paused ? '播放' : '暂停'
+    }
+    play.addEventListener('click', async () => {
+      if (audio.state === 'suspended') await audio.resume()
+      if (video.paused) {
+        video.muted = Number(vol.value) <= 0
+        await video.play()
+      } else {
+        video.pause()
+      }
+      paint()
+    })
+    vol.addEventListener('input', () => {
+      const level = Number(vol.value)
+      video.volume = level / 100
+      video.muted = level <= 0
+      paint()
+    })
+    document.getElementById('full').addEventListener('click', () => {
+      if (document.fullscreenElement === stage) document.exitFullscreen()
+      else stage.requestFullscreen()
+    })
+    video.addEventListener('play', paint)
+    video.addEventListener('pause', paint)
+    video.play().catch(() => { video.muted = true; video.play().then(paint).catch(() => {}) })
+  </script>
+</body>
+</html>

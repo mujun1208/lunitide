@@ -196,3 +196,20 @@ export function landscapeScoreLabel(score: LandscapeScore, zh: boolean): string 
   if (score === 'weak') return zh ? '弱' : 'Weak'
   return zh ? '待核验' : 'Unverified'
 }
+
+// A collected quote waiting for human confirmation. A draft never enters the
+// report; only a confirmed entry is quoted in 竞品对照 with its URL and date.
+export type LandscapeDraft = {
+  id: string
+  name: string
+  axis: LandscapeAxisId
+  quote: string
+  url: string
+  date: string
+  status: 'draft' | 'confirmed'
+}
+
+export function landscapeAxisLabel(axis: string, zh: boolean): string {
+  const hit = LANDSCAPE_AXES.find(item => item.id === axis)
+  return zh ? (hit?.zh ?? axis) : (hit?.en ?? axis)
+}

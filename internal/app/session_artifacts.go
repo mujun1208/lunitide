@@ -93,6 +93,11 @@ func chatDeliverableArtifact(toolName, kind, path string) bool {
 	if kind == "html" && (toolName == "workspace.write" || toolName == "workspace.edit") {
 		return true
 	}
+	// Code files written by the model (a POC's app.js, a requested script)
+	// are deliverables; the kind never comes from other tools.
+	if kind == "code" && (toolName == "workspace.write" || toolName == "workspace.edit") {
+		return true
+	}
 	return false
 }
 

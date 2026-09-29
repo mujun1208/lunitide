@@ -518,6 +518,7 @@ func (e *Engine) SetProductHub(s *producthub.Service) {
 		e.productHub = s
 		if s != nil {
 			s.SetCollaborator(e)
+			s.SetResearcher(e)
 		}
 	}
 }
@@ -1133,6 +1134,15 @@ func (e *Engine) GetAttachment(ctx context.Context, id string) (*attachment.Atta
 		return nil, errors.New("attachment service not configured")
 	}
 	return e.attachmentService.GetAttachment(ctx, id)
+}
+
+// ReadAttachmentFile returns one attachment's SHA256-verified raw content so
+// the renderer can open it as the original file type.
+func (e *Engine) ReadAttachmentFile(ctx context.Context, id string) ([]byte, error) {
+	if e.attachmentService == nil {
+		return nil, errors.New("attachment service not configured")
+	}
+	return e.attachmentService.ReadAttachmentBytes(ctx, id)
 }
 
 func (e *Engine) PreviewAttachmentImage(ctx context.Context, id string) ([]byte, bool, error) {

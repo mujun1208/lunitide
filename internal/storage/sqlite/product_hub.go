@@ -187,3 +187,45 @@ VALUES(?,?,?,?,?,?,?,?,?)`,
 		rec.ID, rec.ErrorCode, rec.StableKey, rec.Plan, rec.SkillID, rec.SkillName, rec.SkillOutput, rec.Status, rec.CreatedAt)
 	return err
 }
+
+func (s *Store) ProductHubLoadLandscapeDrafts(ctx context.Context) ([]producthub.LandscapeDraft, error) {
+	if s == nil || s.db == nil {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT draft_id,name,axis,quote,url,date,status,created_at
+FROM product_landscape_drafts ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []producthub.LandscapeDraft
+	for rows.Next() {
+		var d producthub.LandscapeDraft
+		var created string
+		if err := rows.Scan(&d.ID, &d.Name, &d.Axis, &d.Quote, &d.URL, &d.Date, &d.Status, &created); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) ProductHubSaveLandscapeDraft(ctx context.Context, d producthub.LandscapeDraft) error {
+	if s == nil || s.db == nil {
+		return sql.ErrConnDone
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO product_landscape_drafts(draft_id,name,axis,quote,url,date,status,created_at)
+VALUES(?,?,?,?,?,?,?,?)
+ON CONFLICT(draft_id) DO UPDATE SET name=excluded.name, axis=excluded.axis, quote=excluded.quote,
+url=excluded.url, date=excluded.date, status=excluded.status`,
+		d.ID, d.Name, d.Axis, d.Quote, d.URL, d.Date, d.Status, time.Now().UTC().Format(time.RFC3339))
+	return err
+}
+
+func (s *Store) ProductHubDeleteLandscapeDraft(ctx context.Context, id string) error {
+	if s == nil || s.db == nil {
+		return sql.ErrConnDone
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM product_landscape_drafts WHERE draft_id=?`, id)
+	return err
+}

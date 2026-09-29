@@ -37,7 +37,7 @@ func TestTemplateChainIsWrittenFromTheHandler(t *testing.T) {
 		Scaffold:   Scaffold{Bridge: []string{"office.task.create"}},
 	}}}
 	md, _ := RenderReport(ed)
-	if !strings.Contains(md, "1. handleOfficeStudio — office.task.create。这次从源码读到的处理函数。") {
+	if !strings.Contains(md, "1. handleOfficeStudio — office.task.create。这次从源码读到的处理函数，源码位置 internal/app/office_studio.go。") {
 		t.Fatal("template steps were not replaced by the traced handler")
 	}
 	unclear := between(md, "步骤未按真实调用写清", "\n")
@@ -80,7 +80,7 @@ func TestCatalogTemplateChainsAreWrittenWhenTheHandlerExists(t *testing.T) {
 				left = append(left, c.Name+" 缺 "+handler)
 			}
 		}
-		if c.Chain.Steps[0].Description != "这次从源码读到的处理函数。" && c.Chain.Steps[0].Description != "按工具名分派，不把函数内部分支串成一条链路。" {
+		if c.Chain.Steps[0].Description != "按工具名分派，不把函数内部分支串成一条链路。" && !strings.HasPrefix(c.Chain.Steps[0].Description, "这次从源码读到的处理函数") {
 			left = append(left, c.Name+" 第一步不是源码调用")
 		}
 	}
@@ -344,7 +344,7 @@ func TestHandWrittenChainIsRewrittenOrMarkedUnwritten(t *testing.T) {
 		Scaffold:   Scaffold{Bridge: []string{"office.task.create"}},
 	}}}
 	md, _ := RenderReport(traced)
-	if !strings.Contains(md, "1. handleOfficeStudio — office.task.create。这次从源码读到的处理函数。") {
+	if !strings.Contains(md, "1. handleOfficeStudio — office.task.create。这次从源码读到的处理函数，源码位置 internal/app/office_studio.go。") {
 		t.Fatal("hand-written steps with a handler were left in place")
 	}
 	if strings.Contains(md, "自写") || strings.Contains(md, "不是模板") {

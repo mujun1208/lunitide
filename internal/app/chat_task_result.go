@@ -836,10 +836,21 @@ func companionBrowserLookupSettled(goal, reply string, messages []llmadapter.Mes
 // Only inspect receipts from this turn. A disk edit does not synchronize an
 // editor's unsaved buffer; observing a window is not typing into that window.
 func companionFinalResult(messages []llmadapter.Message, reply, goal string) string {
+	return foldFinalResult(true, messages, reply, goal)
+}
+
+// foldFinalResult is the shared receipt-based closeout for buffered turns.
+// Evidence folding (unverified input fields, disk writes without window sync,
+// typed-field goals without a type receipt) applies to every modality: typed
+// turns must not show speculative success either. Only the no-receipt canned
+// collapse is voice-companion only, because a typed question that merely
+// mentions a desktop keyword ("粘贴") is still a question that deserves its
+// answer streamed verbatim.
+func foldFinalResult(companion bool, messages []llmadapter.Message, reply, goal string) string {
 	if closeout := computerReceiptCloseout(messages, goal); closeout != "" {
 		return closeout
 	}
-	if computerExecutionTurn(goal) && len(currentTurnReceipts(messages)) == 0 {
+	if companion && computerExecutionTurn(goal) && len(currentTurnReceipts(messages)) == 0 {
 		return "本轮没有取得电脑操作回执，尚未执行完成。"
 	}
 	if currentTurnDesktopBrowserOpened(messages) && !browserWindowConfirmed(messages) && browseOpenStopsFurtherDesktop(goal) && !lookupHasMoreWork(goal) {
@@ -899,7 +910,10 @@ func companionFinalResult(messages []llmadapter.Message, reply, goal string) str
 			}
 		}
 	}
-	if wroteDisk && !typedWindow && (companionWantsDesktopControl(goal) || looksLikeDesktopObserveTurn(goal)) {
+	// The disk-write caveat guards goals that type into an app window. When
+	// the user demanded the files themselves ("直接输出产物"), the write IS the
+	// requested action and the caveat would swallow the real confirmation.
+	if wroteDisk && !typedWindow && !fileOutputDemand(goal) && (companionWantsDesktopControl(goal) || looksLikeDesktopObserveTurn(goal)) {
 		return "已写入磁盘文件，但未确认当前编辑窗口已同步。"
 	}
 	if typedFieldOnlyGoal(goal) && !turnAttemptedAction(messages, "type") {

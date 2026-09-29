@@ -23,7 +23,7 @@
     "required": ["path", "configured", "migratedSessions"]
   },
   "x-examples": {
-    "positive": [{ "path": "<repo>-conversations" }],
+    "positive": [{ "path": "D:\\conversations" }],
     "negative": [{ "path": "" }]
   }
 }

@@ -348,6 +348,22 @@ export function createProductHubPreviewBridge(): ProductHubBridge {
       requireAuth(sessionToken)
       return { ok: true }
     },
+    landscapeCollect: async ({ sessionToken }) => {
+      requireAuth(sessionToken)
+      return { collected: 0, skipped: ['预览模式没有采集通道：预览不抓网页、不编造摘录。'], drafts: [] }
+    },
+    landscapeDrafts: async ({ sessionToken }) => {
+      requireAuth(sessionToken)
+      return { drafts: [] }
+    },
+    landscapeConfirm: async ({ sessionToken }) => {
+      requireAuth(sessionToken)
+      throw new Error('预览模式没有采集草稿')
+    },
+    landscapeDiscard: async ({ sessionToken }) => {
+      requireAuth(sessionToken)
+      return { ok: true }
+    },
     exportDoc: async ({ sessionToken, format }) => {
       requireAuth(sessionToken)
       return format === 'html'

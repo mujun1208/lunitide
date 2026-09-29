@@ -117,7 +117,7 @@ it('shortens work dirs in the task list', async () => {
       taskId: '01ARZ3NDEKTSV4RRFFQ69G5FAE',
       agent: 'codex',
       prompt: '写周报 Markdown',
-      workDir: '<repo>',
+      workDir: 'D:/work/lunitide',
       sandbox: 'workspace-write',
       status: 'success',
       tokensUsed: 0,
@@ -128,7 +128,7 @@ it('shortens work dirs in the task list', async () => {
   })
   renderLegacy()
   openTaskCenter()
-  expect(await screen.findByText('codex · <work>/lunitide')).toBeInTheDocument()
+  expect(await screen.findByText('codex · work/lunitide')).toBeInTheDocument()
 })
 
 it('renders a conversational Home with the selected agent name', async () => {

@@ -37,7 +37,7 @@
               "type": "string"
             },
             "kind": {
-              "enum": ["html", "xlsx", "docx", "pptx", "pdf", "image", "md", "txt", "audio"]
+              "enum": ["html", "xlsx", "docx", "pptx", "pdf", "image", "md", "txt", "code", "audio"]
             },
             "path": {
               "type": "string"

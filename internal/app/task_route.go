@@ -53,6 +53,24 @@ var (
 		"打开word", "打开 word", "在word", "在 word", "用word", "用 word",
 		"电脑操作", "用电脑写", "用电脑打开",
 	}
+	// deliverDirectHints: the user demands the assistant hand over the files
+	// itself instead of pasting snippets. Even when such a sentence routes to
+	// R2 through a desktop keyword ("粘贴"), the turn must keep the workspace
+	// tools or the model can only apologize instead of writing the artifact.
+	deliverDirectHints = []string{
+		"直接做", "直接写", "直接输出", "直接生成", "直接交付", "直接给",
+		"写出来", "做出来", "产物", "复制粘贴",
+		"不用复制", "不要复制", "别复制",
+	}
+	// fileOutputVerbs × fileOutputNouns: a compound goal that asks for a file
+	// on disk ("查新闻然后写个脚本") may route through a lean lane (R1 lookup,
+	// R3 browser, R2 desktop). The lane keep must not strip the workspace
+	// tools, or the deliverable can never land on disk.
+	fileOutputVerbs = []string{"写", "生成", "做", "保存", "输出", "导出", "整理成"}
+	fileOutputNouns = []string{
+		"文件", "文档", "报告", "表格", "页面", "网页", "网站", "脚本", "代码",
+		"笔记", "周报", "原型", "系统", "ppt", "word", "excel", "html", "demo", "poc",
+	}
 	browserAppHints = []string{"chrome", "edge", "firefox", "浏览器"}
 )
 
@@ -80,6 +98,15 @@ func classifyTaskRoute(goal string, companion, ccEnabled bool) (TaskRoute, map[s
 	if !refusesOfficeGen(goal) && (containsAnyFold(goal, lower, genHints) || wantsOfficeGen(goal) || mediaGenerationKind(goal) != "") {
 		merge(routeAllow(RouteR4, ccEnabled))
 	}
+	if fileOutputDemand(goal) {
+		allow["workspace.list"] = true
+		allow["workspace.read"] = true
+		allow["workspace.search"] = true
+		allow["workspace.write"] = true
+		allow["workspace.edit"] = true
+		allow["workspace.restore"] = true
+		allow["workspace.accept"] = true
+	}
 	if containsAnyFold(goal, lower, []string{"发送", "发给", "发消息", "告诉", "回复", "转发", "send", "message"}) {
 		allow["im.send"] = true
 		if containsAnyFold(goal, lower, namedLocalAppHints) {
@@ -90,6 +117,18 @@ func classifyTaskRoute(goal string, companion, ccEnabled bool) (TaskRoute, map[s
 		merge(toolProfileAllow(toolProfileCoding))
 	}
 	return route, allow
+}
+
+// fileOutputDemand reports whether the goal asks for a file on disk. Direct
+// demands ("直接输出产物") always qualify; otherwise an output verb must pair
+// with a file-ish noun. Refusing the office format ("不要生成 Word") refuses a
+// docx pipeline, not file delivery, so it does not gate this check.
+func fileOutputDemand(goal string) bool {
+	lower := strings.ToLower(goal)
+	if containsAnyFold(goal, lower, deliverDirectHints) {
+		return true
+	}
+	return containsAnyFold(goal, lower, fileOutputVerbs) && containsAnyFold(goal, lower, fileOutputNouns)
 }
 
 func detectTaskRoute(goal string) TaskRoute {

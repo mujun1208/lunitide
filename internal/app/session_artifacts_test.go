@@ -45,6 +45,16 @@ func TestChatDeliverableArtifact(t *testing.T) {
 	if !chatDeliverableArtifact("audio.generate", "audio", "song.wav") {
 		t.Fatal("generated speech must be a chat deliverable")
 	}
+	// A POC's supporting code files are deliverables in their own right.
+	if !chatDeliverableArtifact("workspace.write", "code", "poc/app.js") {
+		t.Fatal("written code files must be chat deliverables")
+	}
+	if !chatDeliverableArtifact("workspace.edit", "code", "poc/style.css") {
+		t.Fatal("edited code files must be chat deliverables")
+	}
+	if !chatDeliverableArtifact("workspace.write", "image", "assets/hero.jpg") {
+		t.Fatal("written jpg images must be chat deliverables")
+	}
 }
 
 func TestLoadSessionArtifactsDoesNotCreateAnEmptyFolder(t *testing.T) {

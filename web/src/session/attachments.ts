@@ -97,6 +97,10 @@ const PREVIEW_PREFIX='lunitide:att-preview:'
 const previewMemory=new Map<string,AttachmentPreview>()
 export const isImageAttachmentName=(name:string)=>!!IMAGE_MIME_BY_EXTENSION[extension(name)]
 export const isImageFile=(file:File)=>file.type.startsWith('image/')||isImageAttachmentName(file.name)
+const INLINE_TEXT_EXTENSIONS=new Set(['.txt','.md','.markdown','.log','.csv','.json'])
+// Documents (docx/xlsx/pptx/pdf/…) open with the system default program for
+// their ORIGINAL type; only plain-text files keep the inline text preview.
+export const opensExternallyAttachmentName=(name:string)=>!isImageAttachmentName(name)&&!INLINE_TEXT_EXTENSIONS.has(extension(name))
 const previewKey=(id:string)=>PREVIEW_PREFIX+id
 function readStoredPreview(id:string):AttachmentPreview|undefined{
  try{const raw=sessionStorage.getItem(previewKey(id))??localStorage.getItem(previewKey(id));if(!raw)return;const parsed=JSON.parse(raw) as{data?:string;name?:string;mime?:string};if(!parsed.data||!/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/.test(parsed.data))return;return{url:parsed.data,name:parsed.name||'图片',mime:parsed.mime||'image/png'}}catch{return}

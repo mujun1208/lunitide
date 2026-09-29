@@ -53,7 +53,7 @@ it('dedupes timeline events by seq while keeping order', () => {
 })
 
 it('shortens work dirs and formats elapsed time', () => {
-  expect(shortWorkDir('<repo>')).toBe('<work>/lunitide')
+  expect(shortWorkDir('D:/work/lunitide')).toBe('work/lunitide')
   expect(taskElapsed({ startedAt: '2026-09-12T00:00:00Z', finishedAt: '2026-09-12T00:01:05Z' }, Date.parse('2026-09-12T00:02:00Z'))).toBe('1m 5s')
 })
 

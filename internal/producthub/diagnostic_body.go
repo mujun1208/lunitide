@@ -38,33 +38,237 @@ func diagnosticInventory(ed Edition) string {
 	writeNamed(&b, "实测", probeLine(ed), nonemptyOrNil(openProbeNames(ed.Findings)))
 	writeNamed(&b, "日志与故障", logLine(ed.Findings), nonemptyOrNil(logNames(ed.Findings)))
 	writeNamed(&b, "竞品对照", landscapeLine(ed.Findings), nonemptyOrNil(landscapeNames(ed.Findings)))
+	writeNamed(&b, "升级对照", upgradeLine(ed.Findings), nonemptyOrNil(upgradeNames(ed.Findings)))
 	b.WriteString(scopeSections(ed, features, started))
 	return b.String()
 }
 
-func diagnosticGapPlans(ed Edition) string {
-	features := productFeatures(ed.Features)
+// gapPlan is one five-part optimization recommendation: problem, location,
+// root cause, action, acceptance. Every part comes from this run's cards,
+// findings, or call hops; a part with no source stays unsaid rather than
+// being invented.
+type gapPlan struct {
+	Problem string
+	Locate  string
+	Root    string
+	Action  string
+	Accept  string
+}
+
+func (p gapPlan) String() string {
 	var b strings.Builder
-	for _, name := range emptyChainNames(features) {
-		fmt.Fprintf(&b, "- %s：步骤还不清楚。按该功能的真实调用补上步骤。净化不会编造步骤，也不会改产品代码。\n", name)
+	fmt.Fprintf(&b, "- 【问题】%s。", p.Problem)
+	if p.Locate != "" {
+		fmt.Fprintf(&b, "定位：%s。", p.Locate)
 	}
-	if unread := unreadSourceNames(features); len(unread) > 0 {
-		fmt.Fprintf(&b, "- 源码：这次运行的程序旁边没有产品源码，%d 张链路没有按源码重写。这不是这些功能没对上处理函数。\n", len(unread))
+	if p.Root != "" {
+		fmt.Fprintf(&b, "根因：%s。", p.Root)
 	}
-	for _, name := range unwrittenChainNames(features) {
-		fmt.Fprintf(&b, "- %s：步骤未按真实调用写清。这次没有对上处理函数，手写步骤不作为链路。诊断不会编造步骤。\n", name)
+	if p.Action != "" {
+		fmt.Fprintf(&b, "修复动作：%s。", p.Action)
 	}
-	for _, link := range uniqueSorted(brokenLinks(ed.Graph)) {
-		fmt.Fprintf(&b, "- %s：链路没有接上。图谱边的一端不在节点里。修复时补上缺失节点或删掉这条边。净化不会猜一条新链路。\n", link)
-	}
-	for _, name := range missingMethodNames(features) {
-		fmt.Fprintf(&b, "- %s：没有入口方法。目录里已有默认入口的，执行净化可以直接补上。没有默认入口的保持待处理。\n", name)
-	}
-	if b.Len() == 0 {
-		return ""
+	if p.Accept != "" {
+		fmt.Fprintf(&b, "验收：%s。", p.Accept)
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// envFindingCodes are findings whose fix sits on the machine or the store,
+// not in the product code: install a runtime, unlock the hub, or supply the
+// missing card.
+var envFindingCodes = map[string]string{
+	"PH_L01": "本机补齐精识别运行时后重测；这一条不改产品代码",
+	"PH_012": "先解锁产品知识中枢，再重跑诊断",
+	"PH_018": "按活源补齐或退役这张功能卡，再重跑诊断",
+}
+
+func diagnosticGapPlans(ed Edition) string {
+	features := productFeatures(ed.Features)
+	hops, ready := traceCalls(features)
+	var plans []gapPlan
+	for _, c := range features {
+		if len(c.Chain.Steps) == 0 {
+			p := gapPlan{
+				Problem: "链路步骤还不清楚",
+				Locate:  gapLocate(c, hops, ready),
+				Root:    "这张卡还没有落成链路步骤",
+				Action:  "按该功能的真实调用补上步骤。净化不会编造步骤，也不会改产品代码",
+				Accept:  "重写后步骤全部来自这次源码读到的调用，占位步骤不再出现",
+			}
+			if f, ok := openFindingFor(ed.Findings, c.StableKey); ok {
+				p.Root = firstNonEmpty(f.RootCause, f.Evidence, p.Root)
+				p.Accept = firstNonEmpty(f.Verify, p.Accept)
+			}
+			plans = append(plans, p)
+			continue
+		}
+		if c.Chain.Steps[0].Name == unwrittenStepName {
+			detail := "无处理函数"
+			if methods := claimedBridges(c); len(methods) > 0 {
+				detail = methods[0]
+			}
+			p := gapPlan{
+				Problem: "步骤未按真实调用写清",
+				Locate:  gapLocate(c, hops, ready) + "，入口 " + detail,
+				Root:    "这次没有对上处理函数，手写步骤不作为链路",
+				Action:  "对上处理函数之后按源码里的调用重写；诊断不会编造步骤",
+				Accept:  "下次重新检查读到源码后，这张卡的步骤不再是未写清占位",
+			}
+			if f, ok := openFindingFor(ed.Findings, c.StableKey); ok {
+				p.Root = firstNonEmpty(f.RootCause, p.Root)
+				p.Accept = firstNonEmpty(f.Verify, p.Accept)
+			}
+			plans = append(plans, p)
+		}
+	}
+	if unread := unreadSourceNames(features); len(unread) > 0 {
+		plans = append(plans, gapPlan{
+			Problem: fmt.Sprintf("这次运行的程序旁边没有产品源码，%d 张链路没有按源码重写", len(unread)),
+			Locate:  fmt.Sprintf("%d 张链路", len(unread)),
+			Root:    "安装副本没带源码，链路保持编译时写入的调用。这不是这些功能没对上处理函数",
+			Action:  "在带源码的机器上重新生成这一版；发布构建可把源码根目录注入程序",
+			Accept:  "源码读到后链路按真实调用重写，源码占位步骤清零",
+		})
+	}
+	for _, link := range uniqueSorted(brokenLinks(ed.Graph)) {
+		plans = append(plans, gapPlan{
+			Problem: "链路没有接上",
+			Locate:  link,
+			Root:    "图谱边的一端不在节点里",
+			Action:  "补上缺失节点或删掉这条边。净化不会猜一条新链路",
+			Accept:  "图谱每条边的两端都在节点里",
+		})
+	}
+	for _, c := range features {
+		if len(c.Methods) > 0 {
+			continue
+		}
+		p := gapPlan{
+			Problem: "没有入口方法",
+			Locate:  gapLocate(c, hops, ready),
+			Root:    "目录里这张卡没有写入口",
+			Action:  "目录里已有默认入口的，执行净化直接补上；没有默认入口的保持待处理",
+			Accept:  "入口方法补上后，PH_021 复核这条入口接通",
+		}
+		if f, ok := openFindingFor(ed.Findings, c.StableKey); ok {
+			p.Root = firstNonEmpty(f.RootCause, p.Root)
+			p.Action = firstNonEmpty(f.Fix, p.Action)
+			p.Accept = firstNonEmpty(f.Verify, p.Accept)
+		}
+		plans = append(plans, p)
+	}
+	plans = append(plans, envGapPlans(ed.Findings)...)
+	if len(plans) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, p := range plans {
+		b.WriteString(p.String())
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func envGapPlans(findings []Finding) []gapPlan {
+	var plans []gapPlan
+	for _, f := range findings {
+		advice, env := envFindingCodes[f.ErrorCode]
+		if !env || !isOpenFinding(f.Status) {
+			continue
+		}
+		plans = append(plans, gapPlan{
+			Problem: "环境未就绪：" + f.Title,
+			Locate:  f.StableKey,
+			Root:    firstNonEmpty(f.RootCause, f.Evidence, "未记录"),
+			Action:  advice,
+			Accept:  "按建议处理本机环境后重跑这一项，探测转为 pass 才算收口",
+		})
+	}
+	return plans
+}
+
+// releaseTaskBook renders the shipping task book that carries a purified
+// edition into a released update. Stage names follow the fixed ship
+// pipeline; scripts are named by repository-relative path only and no
+// machine path is ever written into the report.
+func releaseTaskBook(ed Edition) string {
+	var fixed []string
+	applied, planned := 0, 0
+	for _, f := range ed.Findings {
+		switch f.Status {
+		case "fixed":
+			fixed = append(fixed, f.ErrorCode+" "+f.Title)
+		case "applied":
+			applied++
+		case "planned":
+			planned++
+		}
+	}
+	var b strings.Builder
+	b.WriteString("### 发布任务书\n\n")
+	if len(fixed) == 0 {
+		b.WriteString("本轮还没有复查通过的修复。先执行净化：复查通过才记 fixed，这里才会列出随版发布的收口清单。\n\n")
+	} else {
+		fixed = uniqueSorted(fixed)
+		fmt.Fprintf(&b, "本轮已复查通过、可随版发布 %d 条：%s。\n\n", len(fixed), strings.Join(fixed, "；"))
+	}
+	if applied > 0 || planned > 0 {
+		fmt.Fprintf(&b, "另有已执行待复查 %d 条、已立方案待修复 %d 条，不进本次发版口径。\n\n", applied, planned)
+	}
+	b.WriteString("发版按固定流程顺序执行，不通过就停在当阶段修，不跳阶段：\n")
+	b.WriteString("0. 现状勘察（只读）：git 状态与 diff、VERSION、远端 release、并发写入判断。\n")
+	b.WriteString("1. 复盘复核未提交改动：逐文件读全文 diff、同类扫描、生成物一致性核对。\n")
+	b.WriteString("2. 修正：按复盘结论改，改完立刻跑对应窄闸门；生成物只重生成不手改。\n")
+	b.WriteString("3. 全量本地闸门：桥契约、编目、typecheck、前端测试与构建、go vet、go build、覆盖率、golangci-lint、govulncheck、npm audit、排除集测试、生成物零漂移，全绿才继续。\n")
+	b.WriteString("4. 版本与发布说明：VERSION 是唯一真源，tag = v<VERSION>；发布说明写给用户，写清不改什么。\n")
+	b.WriteString("5. 提交 + 打 tag：按明确文件清单暂存，禁止整目录暂存；tag 指向提交里的 VERSION 与 tag 名一致。\n")
+	b.WriteString("6. 签名构建：release/Build-Release.ps1 -RequireSignature；构建前设 LUNITIDE_SOURCE_ROOT 指向本机源码根，把自净化源码锁定注入程序；产出安装包、latest.json、SHA256SUMS.txt 三资产。\n")
+	b.WriteString("7. 发布为 Latest：用本机签名产物创建 release，三资产齐备并标 Latest。\n")
+	b.WriteString("8. 推送：推分支与 tag；直连不可达时走 Git Data API 重放脚本，逐步校验 SHA。\n")
+	b.WriteString("9. 验证 Latest：tagName、isLatest、三资产、latest.json 的版本号与安装包哈希全部核对一致。\n")
+	b.WriteString("10. 清理：远端只保留最新 3 个 release（删除前列清单确认）；删本地产物与工作树；绝不删 git tag。\n")
+	b.WriteString("应用内更新读 latest.json 自动升级。装好新版后重跑诊断，复查通过才记 fixed，闭环到这里完成。\n\n")
+	return b.String()
+}
+
+func openFindingFor(findings []Finding, key string) (Finding, bool) {
+	for _, f := range findings {
+		if f.StableKey == key && isOpenFinding(f.Status) {
+			return f, true
+		}
+	}
+	return Finding{}, false
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// gapLocate names the card and, when this run traced real calls, the source
+// file or handler behind its first bridge method.
+func gapLocate(c Card, hops map[string]callHop, ready bool) string {
+	loc := fmt.Sprintf("%s（%s）", cardLabel(c), c.StableKey)
+	if !ready {
+		return loc
+	}
+	methods := claimedBridges(c)
+	if len(methods) == 0 {
+		return loc
+	}
+	hop := hops[methods[0]]
+	if hop.Source != "" {
+		return loc + "，源码 " + hop.Source
+	}
+	if hop.Handler != "" {
+		return loc + "，处理函数 " + hop.Handler
+	}
+	return loc
 }
 
 func productFeatures(cards []Card) []Card {
@@ -371,10 +575,13 @@ func hopsForCard(c Card, hops map[string]callHop, ready bool) []callHop {
 
 func chainFromHops(hops []callHop) Chain {
 	var steps []Step
+	var validates, failures, undefined []string
 	for _, hop := range hops {
 		desc := "这次从源码读到的处理函数。"
 		if hop.Dispatch {
 			desc = "按工具名分派，不把函数内部分支串成一条链路。"
+		} else if hop.Source != "" {
+			desc = "这次从源码读到的处理函数，源码位置 " + hop.Source + "。"
 		}
 		steps = append(steps, Step{
 			Index: len(steps) + 1, Name: hop.Handler, Detail: hop.Method,
@@ -384,18 +591,61 @@ func chainFromHops(hops []callHop) Chain {
 			continue
 		}
 		for _, name := range hop.Steps {
+			d := "这次从源码读到的后续调用。"
+			switch callRole(name) {
+			case roleValidate:
+				d = "校验调用，参数不合法走失败分支。"
+				validates = append(validates, name)
+			case roleFailure:
+				d = "失败路径，判定错误并返回给调用方。"
+				failures = append(failures, name)
+			case roleResource:
+				d = "资源调用，控制这次调用的时限和释放。"
+			case roleSuccess:
+				d = "成功返回，把结果返回给调用方。"
+			}
 			steps = append(steps, Step{
 				Index: len(steps) + 1, Name: name, Detail: hop.Method,
-				Description: "这次从源码读到的后续调用。",
+				Description: d,
 			})
 		}
+		undefined = append(undefined, hop.Missing...)
 	}
-	return closedChain(steps, len(steps),
-		"步骤只写这次从源码读到的调用",
-		"没读到的调用不写进步骤",
+	success, failure := chainBranchText(validates, failures, undefined)
+	return closedChain(steps, len(steps), success, failure,
 		"下次重新检查再读源码",
 		"对不上处理函数的卡片仍标步骤未写清",
 	)
+}
+
+// chainBranchText 用这次读到的校验、失败路径和没有定义的调用写成功与失败分支，
+// 不写与这条链路无关的样板句子。
+func chainBranchText(validates, failures, undefined []string) (success, failure string) {
+	success = "校验和业务调用走完，正常返回。"
+	if len(validates) > 0 {
+		success = "校验（" + strings.Join(dedupNames(validates), "、") + "）通过后走完业务调用，正常返回。"
+	}
+	failure = "这次读到的源码里没有写单独的失败分支。"
+	if len(failures) > 0 {
+		failure = "失败路径（" + strings.Join(dedupNames(failures), "、") + "）把错误返回给调用方。"
+	}
+	if len(undefined) > 0 {
+		failure += "没有定义的调用：" + strings.Join(dedupNames(undefined), "、") + "，这条链路走不通。"
+	}
+	return success, failure
+}
+
+func dedupNames(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
 }
 
 func entryChain(c Card) (Chain, bool) {
@@ -529,7 +779,11 @@ func hopText(hop callHop) string {
 	if hop.Branch {
 		branch = "方法分支在"
 	}
-	text := hop.Method + " → " + hop.Handler + "，" + branch
+	text := hop.Method + " → " + hop.Handler
+	if hop.Source != "" {
+		text += "（" + hop.Source + "）"
+	}
+	text += "，" + branch
 	if len(hop.Steps) > 0 {
 		text += "；后续调用：" + strings.Join(hop.Steps, "、")
 	}
@@ -590,10 +844,12 @@ var probeDuration = regexp.MustCompile(`耗时 (\d+(?:\.\d+)?(?:ns|us|µs|ms|s|m
 
 func upgradeText(ed Edition, features []Card, hops map[string]callHop, ready bool, wired, bridgeN, templates int) string {
 	var gaps []string
-	for _, f := range ed.Findings {
-		if f.ErrorCode == "PH_L02" && isOpenFinding(f.Status) {
-			gaps = append(gaps, "先修这次的播放")
+	for _, f := range liveRepairGaps(ed.Findings) {
+		gap := fmt.Sprintf("先修这次的%s（%s）", f.Title, f.ErrorCode)
+		if fix := strings.TrimSpace(f.Fix); fix != "" {
+			gap += "：" + fix
 		}
+		gaps = append(gaps, gap)
 	}
 	if ready {
 		seen := map[string]bool{}
@@ -616,6 +872,29 @@ func upgradeText(ed Edition, features []Card, hops map[string]callHop, ready boo
 	}
 	b.WriteString("升级：" + strings.Join(gaps, "；") + "。已保存的对照只作背景，不编对手分数。\n\n")
 	return b.String()
+}
+
+// liveRepairGaps lists this run's failed live probes as the ordered
+// fix-first list for the upgrade section: errors before warnings, then by
+// error code. Landscape notes and the watermark never qualify.
+func liveRepairGaps(findings []Finding) []Finding {
+	var out []Finding
+	for _, f := range findings {
+		if !isOpenFinding(f.Status) || f.ErrorCode == "PH_L99" || !strings.HasPrefix(f.ErrorCode, "PH_L") {
+			continue
+		}
+		if f.Severity != "error" && f.Severity != "warn" {
+			continue
+		}
+		out = append(out, f)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Severity != out[j].Severity {
+			return out[i].Severity == "error"
+		}
+		return out[i].ErrorCode < out[j].ErrorCode
+	})
+	return out
 }
 
 func countMatch(a, b int) string {
@@ -877,6 +1156,23 @@ func landscapeNames(findings []Finding) []string {
 	var out []string
 	for _, f := range findings {
 		if f.ErrorCode == "PH_L90" || f.ErrorCode == "PH_L91" {
+			out = append(out, f.Title+"："+f.Evidence)
+		}
+	}
+	return out
+}
+
+func upgradeLine(findings []Finding) string {
+	if len(upgradeNames(findings)) == 0 {
+		return "这一版没有生成升级对照。生成诊断报告时才合并竞品确认摘录与本产品缺口。"
+	}
+	return "竞品确认摘录 × 本产品缺口。摘录必须人工确认过才引用；两侧都不另编。"
+}
+
+func upgradeNames(findings []Finding) []string {
+	var out []string
+	for _, f := range findings {
+		if f.ErrorCode == "PH_L92" {
 			out = append(out, f.Title+"："+f.Evidence)
 		}
 	}

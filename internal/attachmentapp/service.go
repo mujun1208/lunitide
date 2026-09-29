@@ -609,6 +609,29 @@ func (s *Service) GetAttachment(ctx context.Context, id string) (*attachment.Att
 	return att, nil
 }
 
+// ReadAttachmentBytes returns one verified attachment's raw content for
+// "open as the original type": the stored bytes must still match the recorded
+// size and SHA256 so a tampered or truncated FileRef never reaches the shell.
+func (s *Service) ReadAttachmentBytes(ctx context.Context, id string) ([]byte, error) {
+	att, err := s.GetAttachment(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if s.fileStorage == nil || att.FileRef == "" || att.Size <= 0 || att.Size > MaxFileSize {
+		return nil, ErrImageIntegrity
+	}
+	data, err := s.fileStorage.ReadFile(ctx, att.FileRef)
+	if err != nil {
+		return nil, fmt.Errorf("read attachment file: %w", err)
+	}
+	digest := sha256.Sum256(data)
+	expected, decodeErr := hex.DecodeString(att.SHA256)
+	if decodeErr != nil || len(data) != int(att.Size) || subtle.ConstantTimeCompare(digest[:], expected) != 1 {
+		return nil, ErrImageIntegrity
+	}
+	return data, nil
+}
+
 // ListByProject returns attachments for a project ordered by creation time
 // descending. Soft-deleted attachments are excluded.
 func (s *Service) ListByProject(ctx context.Context, projectID string, limit int) ([]attachment.Attachment, error) {

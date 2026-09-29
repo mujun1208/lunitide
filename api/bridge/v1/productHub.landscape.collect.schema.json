@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/productHub.landscape.collect.schema.json",
+  "title": "productHub.landscape.collect payload",
+  "x-method": "productHub.landscape.collect",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionToken": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "names": { "type": "array", "minItems": 0, "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 64 } }
+  },
+  "required": ["sessionToken"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "collected": { "type": "integer" },
+      "skipped": { "type": "array", "items": { "type": "string" } },
+      "drafts": { "type": "array" }
+    },
+    "required": ["collected", "skipped", "drafts"]
+  },
+  "x-examples": {
+    "positive": [{ "sessionToken": "ab", "names": ["Cursor"] }],
+    "negative": [{ "unexpected": true }]
+  }
+}

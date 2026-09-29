@@ -13,6 +13,8 @@ dist/
 /release/matrix-evidence-*.json
 /release/Lunitide-Setup-*.exe
 /release/Lunitide-Setup-*.exe.blockmap
+# Machine-local Windows Sandbox config; contains this machine's host paths.
+/release/Lunitide-Matrix.wsb
 .release-cache/
 # Build tools fetched on demand (nuget.exe for NuGet signature verification).
 .tools/

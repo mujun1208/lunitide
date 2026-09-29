@@ -799,7 +799,7 @@ export function ProductHubPage({ onUnlocked, language = 'zh-CN' }: { onUnlocked?
               onExport={() => exportDoc('report')}
             />
           ) : null}
-          {tab === 'landscape' ? <LandscapePane nodes={nodes} zh={zh} onOpen={openCard} /> : null}
+          {tab === 'landscape' ? <LandscapePane nodes={nodes} zh={zh} onOpen={openCard} token={token} /> : null}
         </div>
       )}
 

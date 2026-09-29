@@ -7,7 +7,7 @@ description: Lunitide 仓库从「复盘未提交改动」一路到「GitHub Lat
 
 一条固定路径，十个阶段，顺序不能换。每个阶段有明确的通过条件；不通过就停在该阶段修，不要跳到下一阶段。
 
-仓库：`<repo>`（Windows / PowerShell）。远端：`mujun1208/lunitide`。
+仓库：Lunitide 主仓（Windows / PowerShell）。远端：`mujun1208/lunitide`。本机绝对路径**不写入本文件**：下文命令里的 `<repo>` 一律指主仓根目录，执行时替换为本机实际路径。
 
 **先读这一段再动手**：本仓库经常有**另一个会话并发在改文件**。签名构建同时要求「树干净」和「构建期间源文件不变」，所以只要检测到并发活动，阶段 6 必须走隔离工作树，否则会反复失败。详见 [references/troubleshooting.md](references/troubleshooting.md)。
 
@@ -147,10 +147,13 @@ git tag v0.5.6 HEAD
 
 所以：
 
+**自净化源码锁定**：发布构建前设置 `$env:LUNITIDE_SOURCE_ROOT`（指向**主仓**源码根目录），`Build-Release.ps1` 会把它注入进二进制的源码锁定变量，装到别的机器上就是访客只读模式（报告可看、自动更新可用、自净化拒绝）。不设置则连你自己机器上也探测不到源码。工作树会被阶段 10 清理，所以**永远注入主仓路径，不注入工作树路径**。
+
 **情形 A — 树干净、无并发**，就地构建：
 
 ```powershell
 cd <repo>
+$env:LUNITIDE_SOURCE_ROOT = '<repo>'   # 自净化源码锁定（主仓）
 ./release/Build-Release.ps1 -RequireSignature 2>&1 | Tee-Object .tmp-relbuild.log | Select-Object -Last 22
 "RELEASE_BUILD=$LASTEXITCODE"
 ```
@@ -174,6 +177,7 @@ cd $wt
 $env:PATH = "$($st.DirectoryName);$env:PATH"
 "signtool: $((Get-Command signtool.exe).Source)"
 "dirty=$(@(git status --porcelain).Count)  commit=$(git rev-parse --short HEAD)  VERSION=$((Get-Content VERSION -Raw).Trim())"
+$env:LUNITIDE_SOURCE_ROOT = '<repo>'   # 自净化源码锁定：主仓，不是工作树（工作树会被阶段 10 清理）
 
 ./release/Build-Release.ps1 -RequireSignature 2>&1 | Tee-Object "E:\lunitide-rel-build.log" | Select-Object -Last 22
 "RELEASE_BUILD=$LASTEXITCODE"

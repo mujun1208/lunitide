@@ -75,6 +75,26 @@ it('shows markdown skill files as chat cards without opening Office Studio', () 
   expect(screen.queryByRole('button', { name: '在办公工作台查看' })).toBeNull()
 })
 
+it('shows a POC supporting code and image files as clickable deliverable cards', () => {
+  expect(isChatDeliverableArtifact({ toolName: 'workspace.write', kind: 'code', path: 'poc/app.js' })).toBe(true)
+  expect(isChatDeliverableArtifact({ toolName: 'workspace.edit', kind: 'code', path: 'poc/style.css' })).toBe(true)
+  expect(isChatDeliverableArtifact({ toolName: 'workspace.write', kind: 'image', path: 'assets/hero.jpg' })).toBe(true)
+  expect(isChatDeliverableArtifact({ toolName: 'desktop.type', kind: 'code', path: 'x.js' })).toBe(false)
+  const onInspect = vi.fn()
+  render(<ChatArtifactCards sessionId="01ARZ3NDEKTSV4RRFFQ69G5FAV" artifacts={[
+    { kind: 'code', path: 'poc/app.js', content: '', callId: 'w1', toolName: 'workspace.write' },
+    { kind: 'code', path: 'poc/style.css', content: '', callId: 'w2', toolName: 'workspace.write' },
+  ]} onInspect={onInspect} />)
+  expect(screen.getByText('2个文件已更改')).toBeInTheDocument()
+  expect(screen.getByText('app.js')).toBeInTheDocument()
+  expect(screen.getAllByText('style.css').length).toBeGreaterThan(0)
+  const cards = screen.getAllByRole('listitem')
+  expect(cards).toHaveLength(2)
+  for (const card of cards) expect(card).toHaveTextContent('代码 · 点击查看')
+  fireEvent.click(screen.getByText('app.js'))
+  expect(onInspect).toHaveBeenCalledWith(expect.objectContaining({ path: 'poc/app.js' }))
+})
+
 it('opens the inspector with the exact historical artifact path', () => {
   const onInspect = vi.fn()
   const artifact = {kind:'docx' as const,path:String.raw`E:\项目\报告.docx`,content:'',callId:'persisted-1',toolName:'docx.gen'}

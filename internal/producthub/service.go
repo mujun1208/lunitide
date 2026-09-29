@@ -14,11 +14,12 @@ import (
 )
 
 type Service struct {
-	persist Persist
-	gate    *gate
-	collab  Collaborator
-	version string
-	openMu  sync.Mutex
+	persist   Persist
+	gate      *gate
+	collab    Collaborator
+	researcher LandscapeResearcher
+	version   string
+	openMu    sync.Mutex
 }
 
 func New(persist Persist) *Service {
@@ -163,6 +164,7 @@ func (s *Service) Generate(ctx context.Context, trigger string) (Edition, error)
 	}
 	if trigger == "manual" || trigger == "check" {
 		tasks, logText, notes := invokeLive(ctx)
+		notes = s.mergeConfirmedLandscape(ctx, notes)
 		since := time.Time{}
 		if prev != nil {
 			since = readWatermark(prev.Findings)
@@ -172,6 +174,7 @@ func (s *Service) Generate(ctx context.Context, trigger string) (Edition, error)
 		ed.Findings = append(ed.Findings, TaskFindings(tasks)...)
 		ed.Findings = append(ed.Findings, faults...)
 		ed.Findings = append(ed.Findings, LandscapeFindings(notes)...)
+		ed.Findings = append(ed.Findings, UpgradeFindings(s.confirmedLandscape(ctx), ed)...)
 		ed.Findings = append(ed.Findings, watermarkFinding(logClock()))
 	} else if prev != nil {
 		ed.Findings = append(ed.Findings, liveFindings(prev.Findings)...)

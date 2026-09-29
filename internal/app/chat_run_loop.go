@@ -1036,10 +1036,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						continue
 					}
 					if bufferReply {
-						stepText = companionFinalResult(req.Messages, stepText, turn.Goal)
-						if looksLikeCompanionWaitPromise(stepText) || isCompanionLeadInOnly(stepText) {
-							stepText = "这轮任务未完成，没有取得可验证的结果。"
-						}
+						stepText = finalBufferedReply(state.companion, req.Messages, stepText, turn.Goal)
 						result.Message.Content = stepText
 						assistantText.WriteString(stepText)
 						if err := sendDeltaChunks(send, stepText); err != nil {

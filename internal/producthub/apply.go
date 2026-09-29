@@ -16,6 +16,11 @@ func (s *Service) SetCollaborator(c Collaborator) {
 }
 
 func (s *Service) Apply(ctx context.Context, errorCode, stableKey string) (ApplyResult, error) {
+	// Guest copies have no live source tree, so every purification branch —
+	// including wont_fix bookkeeping — is refused up front.
+	if IsGuestMode() {
+		return ApplyResult{}, ErrNoSource
+	}
 	ed, err := s.open(ctx)
 	if err != nil {
 		return ApplyResult{}, err

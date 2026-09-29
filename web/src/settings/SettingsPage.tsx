@@ -416,7 +416,7 @@ function ConversationsStorageSection(): React.JSX.Element {
             <input
               aria-label="对话数据存储路径"
               value={path}
-              placeholder="选择或输入目录，例如 <work>"
+              placeholder="选择或输入目录，例如 D:\\projects"
               onChange={e => setPath(e.target.value)}
             />
           </label>

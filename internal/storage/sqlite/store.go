@@ -434,6 +434,7 @@ var manifest = []struct{ name, checksum string }{
 	{"0170_asset_office_templates.sql", "f26f379c741988640f06a4413fbd56ab5e4fdd16b0f39342ffcc20e700cbb4b7"},
 	{"0171_product_snapshot_version.sql", "77643c65110430c00c01ef239f644aba75c817ae3616daeb71f8403f274a55f2"},
 	{"0172_attachment_file_cap.sql", "2f8b632283fa84e9159c974733a7fdf8646cdd62af21885d3d8c9d9594d1b78c"},
+        {"0173_landscape_drafts.sql", "d2d96029f3732c941f40b1fcf75727df9951305d62176ad5baa0821cf082237e"},
 }
 
 const releasedV1ManifestTypo = "ede2beec8f6d9f70edd2490688a5fd8b4e6631ddd2321f689b42abb12883d02d"

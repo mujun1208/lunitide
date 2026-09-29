@@ -1,6 +1,7 @@
 import re
+from pathlib import Path
 
-p = r'<repo>\web\src\session\SessionPage.tsx'
+p = Path(__file__).resolve().parents[1] / 'web' / 'src' / 'session' / 'SessionPage.tsx'
 t = open(p, encoding='utf-8').read()
 line = t.split('\n')[29] if len(t.split('\n')) > 29 else ''
 # 直接打印 useState 链式声明行片段

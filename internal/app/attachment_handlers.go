@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -234,6 +236,84 @@ func handleAttachmentGet(e *Engine, ctx context.Context, r bridge.Request) bridg
 		body["contentBase64"] = base64.StdEncoding.EncodeToString(data)
 	}
 	return r.Ok(body)
+}
+
+// handleAttachmentOpen opens one attachment as its ORIGINAL file type: the
+// SHA256-verified stored bytes are copied to a shell-openable cache file that
+// keeps the original name (and therefore its extension), then opened with the
+// system default program. reveal=true selects the file in the folder instead
+// of launching it.
+func handleAttachmentOpen(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
+	var p struct {
+		AttachmentID string `json:"attachmentId"`
+		Reveal       bool   `json:"reveal"`
+	}
+	if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.AttachmentID) {
+		return r.Fail("BRIDGE_SCHEMA_INVALID", "attachment.open 参数无效", false)
+	}
+	att, err := e.GetAttachment(ctx, p.AttachmentID)
+	if err != nil {
+		return attachmentFailure(r, err)
+	}
+	data, err := e.ReadAttachmentFile(ctx, p.AttachmentID)
+	if err != nil {
+		return r.Fail("ATTACHMENT_FILE_READ_FAILED", "附件文件暂时无法读取", false)
+	}
+	target, err := materializeAttachmentOpenCopy(p.AttachmentID, att.OriginalName, data)
+	if err != nil {
+		return r.Fail("ATTACHMENT_OPEN_FAILED", "无法准备打开附件", false)
+	}
+	if err := openArtifactTarget(target, true, p.Reveal); err != nil {
+		return r.Fail("ATTACHMENT_OPEN_FAILED", "无法打开文件", false)
+	}
+	return r.Ok(map[string]any{"opened": target})
+}
+
+// materializeAttachmentOpenCopy writes the attachment bytes to
+// <cache>/<attachmentId>/<sanitized original name>. The original name keeps
+// its extension so the OS shell resolves the default program by file type.
+func materializeAttachmentOpenCopy(attachmentID, originalName string, data []byte) (string, error) {
+	name := sanitizeAttachmentOpenName(originalName, attachmentID)
+	dir := filepath.Join(os.TempDir(), "lunitide-attachment-open", attachmentID)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	target := filepath.Join(dir, name)
+	if err := os.WriteFile(target, data, 0o600); err != nil {
+		return "", err
+	}
+	return target, nil
+}
+
+// sanitizeAttachmentOpenName reduces an attachment's original name to a
+// single safe filename: path separators, drive letters, and Windows-forbidden
+// characters are replaced, trailing dots/spaces are trimmed, and reserved
+// device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9) are prefixed away.
+func sanitizeAttachmentOpenName(originalName, attachmentID string) string {
+	var b strings.Builder
+	for _, r := range strings.TrimSpace(originalName) {
+		switch r {
+		case '/', '\\', ':', '*', '?', '"', '<', '>', '|', 0:
+			b.WriteRune('_')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	name := strings.TrimRight(strings.TrimSpace(b.String()), ". ")
+	if name == "" || name == "." || name == ".." {
+		name = "attachment-" + attachmentID
+	}
+	reserved := map[string]bool{"CON": true, "PRN": true, "AUX": true, "NUL": true,
+		"COM1": true, "COM2": true, "COM3": true, "COM4": true, "COM5": true, "COM6": true, "COM7": true, "COM8": true, "COM9": true,
+		"LPT1": true, "LPT2": true, "LPT3": true, "LPT4": true, "LPT5": true, "LPT6": true, "LPT7": true, "LPT8": true, "LPT9": true}
+	stem := name
+	if idx := strings.IndexByte(stem, '.'); idx >= 0 {
+		stem = stem[:idx]
+	}
+	if reserved[strings.ToUpper(stem)] {
+		name = "lunitide-" + name
+	}
+	return name
 }
 
 // handleAttachmentList returns attachments for a project, ordered by creation

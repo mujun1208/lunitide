@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestWriteArtifactForPathSurfacesDocumentsNotScratchCode(t *testing.T) {
+func TestWriteArtifactForPathSurfacesEveryUserFacingFile(t *testing.T) {
 	md := writeArtifactForPath("周报/周报_2026-W37.md", "# 周报")
 	if md == nil || md.Kind != "md" || md.Path != "周报/周报_2026-W37.md" || md.Content != "" {
 		t.Fatalf("markdown = %+v", md)
@@ -15,11 +15,27 @@ func TestWriteArtifactForPathSurfacesDocumentsNotScratchCode(t *testing.T) {
 	if html == nil || html.Kind != "html" || html.Content != "<h1>ok</h1>" {
 		t.Fatalf("html = %+v", html)
 	}
-	if got := writeArtifactForPath("scratch.go", "package main"); got != nil {
-		t.Fatalf("code scratch = %+v", got)
+	// A POC is more than its entry page: the supporting code files the model
+	// writes are user deliverables too, so they must surface as cards.
+	for path, want := range map[string]string{
+		"poc/app.js":        "code",
+		"poc/style.css":     "code",
+		"tools/analyze.py":  "code",
+		"db/schema.sql":     "code",
+		"poc/config.json":   "code",
+		"assets/hero.jpg":   "image",
+		"assets/anim.gif":   "image",
+		"assets/photo.jpeg": "image",
+	} {
+		if got := writeArtifactForPath(path, "x"); got == nil || got.Kind != want || got.Content != "" {
+			t.Fatalf("%s = %+v, want kind %q", path, got, want)
+		}
 	}
 	if got := writeArtifactForPath(".message-artifacts.json", "{}"); got != nil {
 		t.Fatalf("hidden file = %+v", got)
+	}
+	if got := writeArtifactForPath("binary.zip", "x"); got != nil {
+		t.Fatalf("non-previewable binary = %+v", got)
 	}
 }
 

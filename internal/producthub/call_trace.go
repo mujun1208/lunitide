@@ -16,19 +16,22 @@ type callHop struct {
 	Branch    bool
 	Dispatch  bool
 	FromBuild bool
+	Source    string
 	Steps     []string
 	Missing   []string
 }
 
 type callIndex struct {
-	handlers   map[string]string
-	runtime    map[string]bool
-	runtimeSrc string
-	bodies     map[string]string
-	sources    map[string]string
-	funcs      map[string]bool
-	frozen     map[string]callHop
-	ready      bool
+	handlers    map[string]string
+	runtime     map[string]bool
+	runtimeSrc  string
+	bodies      map[string]string
+	files       map[string]string
+	sources     map[string]string
+	sourceFiles map[string]string
+	funcs       map[string]bool
+	frozen      map[string]callHop
+	ready       bool
 }
 
 type callHit struct {
@@ -91,8 +94,8 @@ func (idx callIndex) lookup(method string) callHop {
 		return idx.hop(method, fn, idx.bodies[fn])
 	}
 	if idx.runtime[method] {
-		hop := callHop{Method: method, Handler: "toolruntime", Branch: true}
-		hop.Steps, hop.Missing = idx.callsIn(branchBody(idx.runtimeSrc, method))
+		hop := callHop{Method: method, Handler: "toolruntime", Branch: true, Source: "internal/toolruntime/runtime.go"}
+		hop.Steps, hop.Missing = idx.callsIn(branchBody(idx.runtimeSrc, method), "")
 		return hop
 	}
 	if fn := aliasHandler(method); fn != "" {
@@ -105,34 +108,42 @@ func (idx callIndex) hop(method, fn, fileText string) callHop {
 	if method == "computer.control" {
 		return callHop{Method: method, Handler: "ExecuteTool", Dispatch: true}
 	}
+	source := idx.files[fn]
 	if src := idx.sources[method]; src != "" {
 		fileText = src
+		source = idx.sourceFiles[method]
 	}
-	hop := callHop{Method: method, Handler: fn, Branch: strings.Contains(fileText, `"`+method+`"`)}
+	hop := callHop{Method: method, Handler: fn, Branch: strings.Contains(fileText, `"`+method+`"`), Source: source}
 	body := functionBody(fileText, fn)
+	self := fn
 	if hop.Branch {
 		if sliced := branchBody(fileText, method); sliced != "" {
 			body = sliced
+			self = ""
 		}
 	}
-	body = idx.followSingleCall(body)
-	hop.Steps, hop.Missing = idx.callsIn(body)
+	body, self, prefix := idx.expandSingleCall(body, self)
+	hop.Steps, hop.Missing = idx.callsIn(body, self)
+	hop.Steps = append(prefix, hop.Steps...)
 	return hop
 }
 
-func (idx callIndex) followSingleCall(body string) string {
-	steps, _ := idx.callsIn(body)
+// expandSingleCall 在函数体里恰好读到一次后续调用时，内联被调函数一层。
+// 被调函数名保留为一步，内层的后续调用接在后面，链路不断层。
+func (idx callIndex) expandSingleCall(body, self string) (string, string, []string) {
+	steps, _ := idx.callsIn(body, self)
 	if len(steps) != 1 {
-		return body
+		return body, self, nil
 	}
-	inner := functionBody(idx.bodies[steps[0]], steps[0])
+	callee := steps[0]
+	inner := functionBody(idx.bodies[callee], callee)
 	if inner == "" || inner == body {
-		return body
+		return body, self, nil
 	}
-	return inner
+	return inner, callee, []string{callee}
 }
 
-func (idx callIndex) callsIn(body string) (steps, missing []string) {
+func (idx callIndex) callsIn(body, self string) (steps, missing []string) {
 	var hits []callHit
 	for _, loc := range selectorCall.FindAllStringSubmatchIndex(body, -1) {
 		hits = append(hits, callHit{pos: loc[0], name: body[loc[2]:loc[3]]})
@@ -144,7 +155,7 @@ func (idx callIndex) callsIn(body string) (steps, missing []string) {
 	seen := map[string]bool{}
 	locals := assignedNames(body)
 	for _, hit := range hits {
-		if hit.name == "" || seen[hit.name] || skipCall(hit.name) {
+		if hit.name == "" || hit.name == self || seen[hit.name] || skipCall(hit.name) {
 			continue
 		}
 		seen[hit.name] = true
@@ -199,13 +210,15 @@ func buildCallIndex(root string) callIndex {
 		return callIndex{}
 	}
 	idx := callIndex{
-		handlers:   map[string]string{},
-		runtime:    map[string]bool{},
-		runtimeSrc: runtime,
-		bodies:     map[string]string{},
-		sources:    map[string]string{},
-		funcs:      map[string]bool{},
-		ready:      true,
+		handlers:    map[string]string{},
+		runtime:     map[string]bool{},
+		runtimeSrc:  runtime,
+		bodies:      map[string]string{},
+		files:       map[string]string{},
+		sources:     map[string]string{},
+		sourceFiles: map[string]string{},
+		funcs:       map[string]bool{},
+		ready:       true,
 	}
 	need := map[string]bool{}
 	consts := map[string]string{}
@@ -253,10 +266,16 @@ func buildCallIndex(root string) callIndex {
 			return nil
 		}
 		body := readText(path)
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			rel = path
+		}
+		rel = filepath.ToSlash(rel)
 		for _, hit := range funcDef.FindAllStringSubmatch(body, -1) {
 			idx.funcs[hit[1]] = true
 			if idx.bodies[hit[1]] == "" {
 				idx.bodies[hit[1]] = body
+				idx.files[hit[1]] = rel
 			}
 		}
 		for _, hit := range varBind.FindAllStringSubmatch(body, -1) {
@@ -278,6 +297,7 @@ func buildCallIndex(root string) callIndex {
 			add(method, fn)
 			if fn != "" {
 				idx.sources[method] = body
+				idx.sourceFiles[method] = rel
 			}
 		}
 		for fn := range need {
@@ -383,6 +403,8 @@ func newestGo(root string) time.Time {
 	return newest
 }
 
+// skipCall 只跳过内建、类型和关键字。真实调用不按名字长短切割：
+// Ok、Is 这类短名是真实的成功返回与错误判定，长度规则会把它们切掉。
 func skipCall(name string) bool {
 	switch name {
 	case "append", "cap", "close", "complex", "copy", "delete", "imag", "len", "make", "new", "panic", "print", "println", "real", "recover", "min", "max", "clear",
@@ -390,6 +412,47 @@ func skipCall(name string) bool {
 		"if", "for", "switch", "return", "func", "map", "chan", "var", "type", "struct", "interface", "select", "defer", "go", "range", "else", "case", "default", "break", "continue":
 		return true
 	default:
-		return len(name) < 4
+		return false
 	}
+}
+
+const (
+	roleBusiness = "business"
+	roleValidate = "validate"
+	roleFailure  = "failure"
+	roleResource = "resource"
+	roleSuccess  = "success"
+)
+
+// callRole 按代码库的命名约定给一次调用分角色：校验、失败路径、资源、
+// 成功返回，其余按业务调用对待。角色只来自这次读到的名字，不猜。
+func callRole(name string) string {
+	switch {
+	case name == "Ok":
+		return roleSuccess
+	case name == "Fail" || name == "fail" || name == "Is" || name == "As" || name == "Unwrap" ||
+		strings.HasSuffix(name, "Failure") || strings.HasPrefix(name, "fail"):
+		return roleFailure
+	case name == "cancel" || name == "Close" || name == "Lock" || name == "Unlock" ||
+		name == "RLock" || name == "RUnlock" || name == "WithTimeout" || name == "WithCancel" ||
+		name == "WithDeadline" || name == "Shutdown" || name == "Release":
+		return roleResource
+	case isValidationName(name):
+		return roleValidate
+	default:
+		return roleBusiness
+	}
+}
+
+func isValidationName(name string) bool {
+	switch name {
+	case "TrimSpace", "Unmarshal":
+		return true
+	}
+	for _, prefix := range []string{"valid", "require", "normalize", "parse", "ensure", "check", "decode", "sanitize", "clamp", "verify"} {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
 }

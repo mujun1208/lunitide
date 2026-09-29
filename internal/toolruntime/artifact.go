@@ -30,13 +30,44 @@ func writeArtifactForPath(relPath, content string) *Artifact {
 		return &Artifact{Kind: "txt", Path: path}
 	case ".docx", ".pptx", ".xlsx", ".pdf":
 		return &Artifact{Kind: strings.TrimPrefix(strings.ToLower(filepath.Ext(base)), "."), Path: path}
-	case ".png":
+	case ".png", ".jpg", ".jpeg", ".gif":
 		return &Artifact{Kind: "image", Path: path}
 	case ".wav", ".mp3":
 		return &Artifact{Kind: "audio", Path: path}
 	default:
+		// A POC is more than its entry page: the code and data files the
+		// model writes alongside index.html are deliverables too. They
+		// preview as bounded text and open in the artifact inspector.
+		if codeArtifactKind(base) {
+			return &Artifact{Kind: "code", Path: path}
+		}
 		return nil
 	}
+}
+
+// ArtifactKindForPath reports the chat-card kind for a user-facing file, or ""
+// when the extension is not a deliverable format. The card filter and the
+// export gate share this mapping so what surfaces in chat can also be
+// exported to the user's disk.
+func ArtifactKindForPath(relPath string) string {
+	if a := writeArtifactForPath(relPath, ""); a != nil {
+		return a.Kind
+	}
+	return ""
+}
+
+// codeArtifactKind matches the text-previewable code, markup and data
+// extensions the workspace preview already knows how to render.
+func codeArtifactKind(base string) bool {
+	switch strings.ToLower(filepath.Ext(base)) {
+	case ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx",
+		".css", ".scss", ".less",
+		".py", ".go", ".java", ".cs", ".cpp", ".c", ".h", ".hpp", ".rs", ".rb", ".php",
+		".sh", ".bat", ".ps1", ".sql",
+		".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".conf", ".log", ".svg":
+		return true
+	}
+	return false
 }
 
 // htmlArtifactPath is the renderer-safe preview name. Host sanitizer
