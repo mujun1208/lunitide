@@ -119,8 +119,15 @@ func (r *Runtime) ResolveSessionArtifact(sessionID, relPath string) (string, err
 	for _, root := range roots {
 		relative := clean
 		if absolute {
-			relative, err = filepath.Rel(root, filepath.FromSlash(clean))
-			if err != nil {
+			// The root was pinned to the kernel's spelling. An absolute request
+			// can still be the 8.3 alias of that same file (hosted Windows
+			// temp dirs). filepath.Rel treats those as different trees.
+			absPath := filepath.FromSlash(clean)
+			if !canonpath.Contained(root, absPath) {
+				continue
+			}
+			relative, err = filepath.Rel(canonpath.Resolve(root), canonpath.Resolve(absPath))
+			if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
 				continue
 			}
 		}

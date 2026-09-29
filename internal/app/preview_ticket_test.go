@@ -95,7 +95,7 @@ func TestProjectHTMLPreviewRunsOutsideTheSessionSandbox(t *testing.T) {
 		t.Fatalf("ticket url=%q", out.InteractiveURL)
 	}
 	doc, _, err := e.ResolvePreviewTicket(ctx, token, rel)
-	if err != nil || doc != filepath.Join(pageDir, "index.html") {
+	if err != nil || !sameExistingPath(t, doc, filepath.Join(pageDir, "index.html")) {
 		t.Fatalf("preview resolved to %q (%v), want the project file", doc, err)
 	}
 }
@@ -137,11 +137,11 @@ func TestAbsoluteProjectHTMLPreviewStillRuns(t *testing.T) {
 		t.Fatalf("ticket url=%q", out.InteractiveURL)
 	}
 	doc, _, err := e.ResolvePreviewTicket(ctx, token, rel)
-	if err != nil || doc != page {
+	if err != nil || !sameExistingPath(t, doc, page) {
 		t.Fatalf("preview resolved to %q (%v), want %s", doc, err, page)
 	}
 	script, _, err := e.ResolvePreviewTicket(ctx, token, "app.js")
-	if err != nil || script != filepath.Join(pageDir, "app.js") {
+	if err != nil || !sameExistingPath(t, script, filepath.Join(pageDir, "app.js")) {
 		t.Fatalf("page script resolved to %q (%v)", script, err)
 	}
 }

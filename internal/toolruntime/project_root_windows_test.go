@@ -50,6 +50,46 @@ func TestWorkspaceWriteAcceptsShortNameProjectRoot(t *testing.T) {
 	}
 }
 
+func TestResolveSessionArtifactAcceptsShortAbsolutePath(t *testing.T) {
+	sandbox := t.TempDir()
+	long := filepath.Join(t.TempDir(), "a-directory-name-well-past-eight-characters")
+	pageDir := filepath.Join(long, "poc", "it-crm")
+	if err := os.MkdirAll(pageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	page := filepath.Join(pageDir, "index.html")
+	if err := os.WriteFile(page, []byte("ok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	shortRoot, err := shortPath(long)
+	if err != nil {
+		t.Skipf("8.3 short names are disabled on this volume: %v", err)
+	}
+	if strings.EqualFold(shortRoot, long) {
+		t.Skip("volume produced no distinct short name")
+	}
+	shortPage, err := shortPath(page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt, err := New(sandbox)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt.SetProjectRootResolver(func(string) (string, error) { return shortRoot, nil })
+	got, err := rt.ResolveSessionArtifact("01ARZ3NDEKTSV4RRFFQ69G5FAV", shortPage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := canonpath.Canonical(page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.EqualFold(got, want) {
+		t.Fatalf("resolved %q, want %q", got, want)
+	}
+}
+
 func shortPath(p string) (string, error) {
 	ptr, err := windows.UTF16PtrFromString(p)
 	if err != nil {
