@@ -1473,3 +1473,55 @@ it.each(['button','enter'])('queues a follow-up via %s with the uploaded attachm
   expect(start).toHaveBeenCalledOnce()
  }finally{queued.mockRestore()}
 })
+
+it.each(['/','@'] as const)('keeps the prompt typed on home when the home menu opens the %s picker',async(trigger)=>{
+ await open({personal:true,providers,initialSession:session,initialPrompt:'仔细阅读上传附件，创建一个CRM的POC系统。',initialNoAutoSend:true,initialComposerTrigger:trigger})
+ expect(screen.getByLabelText('向月汐提问，或描述你想完成的任务…')).toHaveValue(`仔细阅读上传附件，创建一个CRM的POC系统。 ${trigger}`)
+})
+
+it('attaches both the dropped files and the picked paths carried over from home',async()=>{
+ const data=new Uint8Array([1,2,3]),file=new File([data],'dropped.txt',{type:'text/plain'});Object.defineProperty(file,'arrayBuffer',{value:async()=>data.buffer})
+ const importLocal=vi.fn().mockResolvedValue({items:[{attachmentId:'01ARZ3NDEKTSV4RRFFQ69G5FAE',projectId:P,sessionId:S,originalName:'picked.docx',mime:'application/octet-stream',size:9,sha256:'a'.repeat(64),parseStatus:'succeeded',parseErrorCode:'',parsedTextBytes:9,createdAt:NOW}],failed:[]})
+ const attachments={list:vi.fn().mockResolvedValue({items:[]}),importLocal,begin:vi.fn().mockResolvedValue({uploadId:'upload',chunkSize:3}),chunk:vi.fn().mockResolvedValue({nextOffset:3}),commit:vi.fn().mockResolvedValue({attachmentId:'01ARZ3NDEKTSV4RRFFQ69G5FAD'}),abort:vi.fn(),get:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge
+ await open({personal:true,providers,initialSession:session,attachments,initialUploadFiles:[file],initialLocalItems:[{path:'C:/picked.docx',fileName:'picked.docx',mime:'application/octet-stream',size:9}],initialNoAutoSend:true})
+ await waitFor(()=>expect(attachments.commit).toHaveBeenCalledOnce())
+ await waitFor(()=>expect(importLocal).toHaveBeenCalledWith({projectId:P,sessionId:S,paths:['C:/picked.docx']}))
+})
+
+it('shows an attached file as ready at once and lets the prompt go out while it is still saving',async()=>{
+ const id='01ARZ3NDEKTSV4RRFFQ69G5FAD',data=new Uint8Array([1,2,3]),file=new File([data],'需求.txt',{type:'text/plain'});Object.defineProperty(file,'arrayBuffer',{value:async()=>data.buffer})
+ let finishCommit:(value:unknown)=>void=()=>{}
+ const commit=vi.fn().mockReturnValue(new Promise(resolve=>{finishCommit=resolve}))
+ const attachments={list:vi.fn().mockResolvedValue({items:[]}),begin:vi.fn().mockResolvedValue({uploadId:'upload',chunkSize:3}),chunk:vi.fn().mockResolvedValue({nextOffset:3}),commit,abort:vi.fn(),get:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge
+ const start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()}),append=vi.fn().mockResolvedValue({})
+ const user=await open({personal:true,providers,initialSession:session,attachments,chat:{start,dispose:vi.fn()},messages:{list:vi.fn().mockResolvedValue(page()),append} as MessageBridge})
+ fireEvent.change(document.querySelector('.message-actions input[type="file"]:not([webkitdirectory])')!,{target:{files:[file]}})
+ await waitFor(()=>expect(commit).toHaveBeenCalledOnce())
+ expect(screen.getByText('TXT · 3 B')).toBeInTheDocument()
+ expect(screen.queryByText(/正在读取或上传附件/)).toBeNull()
+ expect(screen.queryByRole('button',{name:'取消上传'})).toBeNull()
+ await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'结合附件回答')
+ const send=screen.getByRole('button',{name:'↑ 发送并对话'})
+ expect(send).toBeEnabled()
+ await user.click(send)
+ expect(start).not.toHaveBeenCalled()
+ finishCommit({attachmentId:id,projectId:P,sessionId:S,originalName:'需求.txt',mime:'text/plain',size:3,sha256:'a'.repeat(64),parseStatus:'succeeded',parseErrorCode:'',parsedTextBytes:3,createdAt:NOW})
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ expect(start.mock.calls[0][0]).toMatchObject({contextRefs:[{type:'attachment',id}]})
+ expect(append.mock.calls[0][0].text).toContain('结合附件回答')
+})
+
+it('imports a dropped desktop file by its real path instead of copying it through the page',async()=>{
+ const listeners=new Set<(event:MessageEvent)=>void>()
+ const view={postMessage:vi.fn(),postMessageWithAdditionalObjects:vi.fn((message:{token:string},objects:File[])=>queueMicrotask(()=>listeners.forEach(listener=>listener({data:{source:'lunitide-host',type:'filesResolved',token:message.token,items:objects.map(file=>({path:`C:/Users/me/Desktop/${file.name}`,fileName:file.name,mime:'application/octet-stream',size:file.size}))}} as MessageEvent)))),addEventListener:(_:string,listener:(event:MessageEvent)=>void)=>listeners.add(listener),removeEventListener:(_:string,listener:(event:MessageEvent)=>void)=>listeners.delete(listener)}
+ Object.defineProperty(window,'chrome',{value:{webview:view},configurable:true})
+ try{
+  const importLocal=vi.fn().mockResolvedValue({items:[{attachmentId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',projectId:P,sessionId:S,originalName:'需求.docx',mime:'application/octet-stream',size:5,sha256:'a'.repeat(64),parseStatus:'succeeded',parseErrorCode:'',parsedTextBytes:5,createdAt:NOW}],failed:[]})
+  const attachments={list:vi.fn().mockResolvedValue({items:[]}),importLocal,begin:vi.fn(),chunk:vi.fn(),commit:vi.fn(),abort:vi.fn(),get:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge
+  await open({personal:true,providers,initialSession:session,attachments})
+  const composer=document.querySelector('.message-input') as HTMLElement,dataTransfer={types:['Files'],files:[new File(['12345'],'需求.docx')],dropEffect:'none'}
+  fireEvent.drop(composer,{dataTransfer})
+  await waitFor(()=>expect(importLocal).toHaveBeenCalledWith({projectId:P,sessionId:S,paths:['C:/Users/me/Desktop/需求.docx']}))
+  expect(attachments.begin).not.toHaveBeenCalled()
+ }finally{Reflect.deleteProperty(window,'chrome')}
+})

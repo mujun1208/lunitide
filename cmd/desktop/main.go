@@ -379,16 +379,27 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	host.OnFilesDropped = func(paths []string) {
+	grantedFiles := func(paths []string) []map[string]any {
 		items := desktopFilesHandler.GrantPaths(paths)
-		if len(items) == 0 {
-			return
-		}
 		posted := make([]map[string]any, 0, len(items))
 		for _, item := range items {
 			posted = append(posted, map[string]any{"path": item.Path, "fileName": item.FileName, "mime": item.MIME, "size": item.Size})
 		}
+		return posted
+	}
+	host.OnFilesDropped = func(paths []string) {
+		posted := grantedFiles(paths)
+		if len(posted) == 0 {
+			return
+		}
 		raw, marshalErr := json.Marshal(map[string]any{"source": "lunitide-host", "type": "filesDropped", "items": posted})
+		if marshalErr != nil {
+			return
+		}
+		host.PostHostJSON(string(raw))
+	}
+	host.OnFilesResolved = func(token string, paths []string) {
+		raw, marshalErr := json.Marshal(map[string]any{"source": "lunitide-host", "type": "filesResolved", "token": token, "items": grantedFiles(paths)})
 		if marshalErr != nil {
 			return
 		}

@@ -115,3 +115,42 @@ it('shows a picked local file as extension and size without reading it', async (
   expect(screen.queryByText(/读取中|%/)).toBeNull();
   expect(document.querySelector('progress')).toBeNull();
 });
+
+function hostResolvingWebView() {
+  const listeners = new Set<(event: MessageEvent) => void>();
+  const view = {
+    postMessage: vi.fn(),
+    postMessageWithAdditionalObjects: vi.fn((message: { token: string }, objects: File[]) => queueMicrotask(() => listeners.forEach(listener => listener({ data: { source: 'lunitide-host', type: 'filesResolved', token: message.token, items: objects.map(file => ({ path: `C:/Users/me/Desktop/${file.name}`, fileName: file.name, mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', size: file.size })) } } as MessageEvent)))),
+    addEventListener: (_: string, listener: (event: MessageEvent) => void) => listeners.add(listener),
+    removeEventListener: (_: string, listener: (event: MessageEvent) => void) => listeners.delete(listener),
+  };
+  Object.defineProperty(window, 'chrome', { value: { webview: view }, configurable: true });
+}
+
+it('takes a dropped desktop file by its real path and carries it into the conversation', async () => {
+  hostResolvingWebView();
+  try {
+    const onSelect = vi.fn();
+    localStorage.setItem(PERSONAL_CHAT_PROJECT_ID_KEY, project.id);
+    render(<LaunchHome projects={{ list: vi.fn(async () => ({ items: [project] })), create: vi.fn(async () => project) } as unknown as ProjectBridge} providers={{ list: vi.fn(async () => ({ items: [] })) } as unknown as ProviderBridge} sessions={{ create: vi.fn(async () => session) } as unknown as SessionBridge} attachments={{} as AttachmentBridge} onCreated={vi.fn()} onDraft={vi.fn()} onSelect={onSelect} onOpenProjects={vi.fn()} onManageModels={vi.fn()} onCompanion={vi.fn()} companionNotice="" language="zh-CN"/>);
+    fireEvent.drop(document.querySelector('form')!, { dataTransfer: { types: ['Files'], files: [new File(['12345'], 'CRM需求.docx')] } });
+    expect(await screen.findByText('DOCX · 5 B')).toBeInTheDocument();
+    expect(prepareAttachmentFiles).not.toHaveBeenCalled();
+    expect(screen.queryByText(/正在处理附件/)).toBeNull();
+    fireEvent.change(screen.getByLabelText('输入消息'), { target: { value: '结合附件做方案' } });
+    fireEvent.click(screen.getByRole('button', { name: '添加上下文' }));
+    fireEvent.click(screen.getByRole('button', { name: /选技能/ }));
+    await waitFor(() => expect(onSelect).toHaveBeenCalledOnce());
+    expect(onSelect.mock.calls[0][0]).toMatchObject({ prompt: '结合附件做方案', composerTrigger: '/', initialUploadFiles: [], initialLocalItems: [{ path: 'C:/Users/me/Desktop/CRM需求.docx', fileName: 'CRM需求.docx' }] });
+  } finally { Reflect.deleteProperty(window, 'chrome'); }
+});
+
+it('takes files chosen in the file dialog by their real paths', async () => {
+  hostResolvingWebView();
+  try {
+    home();
+    fireEvent.change(document.querySelector('input[type="file"]:not([webkitdirectory])')!, { target: { files: [new File(['123'], '报价单.docx')] } });
+    expect(await screen.findByText('DOCX · 3 B')).toBeInTheDocument();
+    expect(prepareAttachmentFiles).not.toHaveBeenCalled();
+  } finally { Reflect.deleteProperty(window, 'chrome'); }
+});

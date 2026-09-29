@@ -1,7 +1,6 @@
 .attachment-cards .attachment-card.has-thumb{width:120px;min-width:120px}
 .attachment-cards .attachment-card-thumb{height:60px;object-fit:contain;background:var(--bg2)}
 .attachment-cards .attachment-card{position:relative}
-.attachment-transfer-status{display:flex;align-items:center;gap:12px;padding:6px 12px;font-size:12px}
 .message-att-strip .message-attachment-button{display:block;padding:0;border:0;background:transparent;cursor:pointer;color:inherit;max-width:100%}
 .message-att-strip .message-attachment-button img{display:block;max-width:min(180px,100%);max-height:120px;object-fit:contain;border-radius:8px}
 .attachment-viewer-backdrop{position:fixed;inset:0;background:rgb(0 0 0 / .55);z-index:1200;display:flex;align-items:center;justify-content:center;padding:24px;overflow:auto;overflow-anchor:none;overscroll-behavior:contain}

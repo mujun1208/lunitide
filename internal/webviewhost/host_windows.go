@@ -162,6 +162,7 @@ type Host struct {
 	hasNotifyPos    bool
 
 	OnFilesDropped     func(paths []string)
+	OnFilesResolved    func(token string, paths []string)
 	MediaTicketResolve func(ctx context.Context, token string) (path, contentType string, err error)
 	OnMediaSnapshot    func(ctx context.Context, sessionID string)
 	mediaInflight      chan struct{}
@@ -752,6 +753,13 @@ func (h *Host) receive(args *wv2.ICoreWebView2WebMessageReceivedEventArgs, top b
 	if top && strings.HasPrefix(source, TrustedOrigin) {
 		if cmd, ok := ParsePaneMessage(message); ok {
 			h.syncPane(cmd)
+			return
+		}
+		if token, ok := ParseFileResolveMessage(message); ok {
+			if resolved := h.OnFilesResolved; resolved != nil {
+				paths := webMessageFilePaths(args)
+				go resolved(token, paths)
+			}
 			return
 		}
 	}

@@ -218,6 +218,7 @@ export interface CodeWorkspaceResult{ok:boolean;path?:string;line?:number;column
 export interface LocalWorkspaceBridge{root():Promise<WorkspaceRootGetResult>;select():Promise<WorkspaceRootSelectResult>;clear():Promise<WorkspaceRootClearResult>;list(path?:string):Promise<WorkspaceListResult>;read(path:string):Promise<WorkspaceReadResult>;open(payload?:WorkspaceOpenPayload):Promise<WorkspaceOpenResult>;code?:(payload:CodeWorkspaceCall)=>Promise<CodeWorkspaceResult>}
 export interface WebViewTransport {
   postMessage(value: unknown): void
+  postMessageWithAdditionalObjects?(value: unknown, objects: ArrayLike<unknown>): void
   addEventListener(type: 'message', listener: (event: MessageEvent<BridgeResponse>) => void): void
   removeEventListener(type: 'message', listener: (event: MessageEvent<BridgeResponse>) => void): void
 }
