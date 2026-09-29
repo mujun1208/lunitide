@@ -53,7 +53,11 @@ function Merge-CoverProfiles {
     if (-not $mode) {
         throw ("no coverage mode line in: {0}" -f ($Paths -join ', '))
     }
-    @(, $mode) + $body | Set-Content -LiteralPath $Destination
+    # PS 5.1's utf8 writes a BOM that go tool cover rejects ("bad mode line"),
+    # and shell-wide $PSDefaultParameterValues can silently switch Set-Content
+    # to utf8. Write UTF-8 without a BOM explicitly so no shell default leaks in.
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllLines($Destination, [string[]](@($mode) + $body), $utf8NoBom)
 }
 
 if ($SelfTest) {
@@ -70,6 +74,10 @@ if ($SelfTest) {
         $got = Get-Content -LiteralPath $merged
         if ($got[0] -cne 'mode: set') { throw 'merged profile lost its mode line' }
         if (@($got | Where-Object { $_ -like '*.go:*' }).Count -ne 2) { throw 'merged profile dropped package lines' }
+        $mergedBytes = [System.IO.File]::ReadAllBytes($merged)
+        if ($mergedBytes.Length -ge 3 -and $mergedBytes[0] -eq 0xEF -and $mergedBytes[1] -eq 0xBB -and $mergedBytes[2] -eq 0xBF) {
+            throw 'merged profile starts with a UTF-8 BOM; go tool cover would reject it'
+        }
     } finally {
         Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue
     }

@@ -124,6 +124,18 @@ func TestProjectPhaseWorkflowInjectionOpsDev(t *testing.T) {
 	}
 }
 
+func TestProjectPhaseWorkflowInjectionTestPhase(t *testing.T) {
+	hint := projectPhaseWorkflowInjection(6, "测试")
+	if hint == "" {
+		t.Fatal("expected test-phase hint")
+	}
+	for _, needle := range []string{"test-writer", "code-reviewer", "pm-phase-6", "agentic-test", "computer.act", "集成测试报告", "structured.output"} {
+		if !strings.Contains(hint, needle) {
+			t.Fatalf("test-phase hint missing %s: %s", needle, hint)
+		}
+	}
+}
+
 func TestProjectPhaseWorkflowInjectionAsksDecisions(t *testing.T) {
 	hint := projectPhaseWorkflowInjection(1, "需求架构规范")
 	if !strings.Contains(hint, "user.ask") || !strings.Contains(hint, "能自行决定的不要弹卡") {

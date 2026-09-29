@@ -24,8 +24,9 @@ import (
 // pick the next action from the latest screenshot.
 
 // maxGUILoopSteps bounds one loop. Each step costs one observe + one model
-// call; eight covers "open menu → pick item → confirm → verify" with slack.
-const maxGUILoopSteps = 8
+// call; ten covers "open menu → pick item → confirm → verify" with slack and
+// is the hard cap the agentic-test plan commits to.
+const maxGUILoopSteps = 10
 
 // maxGUILoopRunsPerTurn lets the loop re-enter once more if the main model
 // makes progress and then gets stuck again in the same turn.
@@ -47,6 +48,9 @@ type guiLoopAction struct {
 	Ms      int      `json:"ms"`
 	Reason  string   `json:"reason"`
 	FrameID string   `json:"frameId"`
+	// Native carries the parsed gui-plus tool call when the model answered
+	// the Alibaba protocol; buildGUILoopArgs then maps it onto computer.act.
+	Native *ccapp.GuiNativeAction
 }
 
 type guiLoopStep struct {
@@ -68,6 +72,12 @@ type guiLoopRuntime struct {
 	// FocusEditable reports whether typing is allowed. known=false means the
 	// host could not read focus, and typing stays allowed.
 	FocusEditable func() (known, ok bool)
+	// Verify is the independent assertion run before the loop accepts a done
+	// claim: a different model (the vision catalog, not the gui model that
+	// claims success) looks at the final screenshot and answers for the goal.
+	// An error means verification is unavailable; the done then stands as
+	// before instead of stranding the loop.
+	Verify func(goal string, images []llmadapter.Image) (ok bool, reason string, err error)
 }
 
 const guiLoopSystemPrompt = `You operate a Windows desktop by looking at screenshots. Each turn you see the latest screenshot and must reply with exactly one JSON object describing the single next action. No prose.
@@ -195,7 +205,10 @@ func parseGUILoopAction(raw string, emptyTree bool, wantFrame string) (guiLoopAc
 	return guiLoopAction{}, fmt.Errorf("unknown action %q", a.Action)
 }
 
-func buildGUILoopArgs(a guiLoopAction, emptyTree bool, visW, visH int) (json.RawMessage, error) {
+func buildGUILoopArgs(a guiLoopAction, emptyTree bool, visW, visH int, cursor *ccapp.GuiNativePoint) (json.RawMessage, error) {
+	if a.Native != nil {
+		return ccapp.MapGuiNativeAction(*a.Native, visW, visH, cursor)
+	}
 	switch a.Action {
 	case "click", "double_click", "right_click", "left_click", "dblclick", "rightclick":
 		action := a.Action
@@ -340,11 +353,21 @@ func runGUILoop(in guiFallbackIn, rt guiLoopRuntime) (toolruntime.Result, json.R
 	if exec == guiExecNone {
 		return toolruntime.Result{}, nil, false
 	}
+	// A bound GUI-kind model speaks the native gui-plus protocol (Alibaba
+	// Computer System Prompt + <tool_call> replies); everything else keeps
+	// the internal JSON grammar.
+	native := exec == guiExecGUI
 	var steps []guiLoopStep
 	var lastVision llmadapter.Image
 	if len(images) > 0 {
 		lastVision = images[len(images)-1]
 	}
+	// Native drag needs the last known cursor position as its start point.
+	var cursor *ccapp.GuiNativePoint
+	// Loop Breaker: the same action on the same target three times in a row
+	// means the model is stuck; stop instead of burning the budget.
+	lastSig, repeats := "", 0
+	verifyFails := 0
 	finish := func(ok bool, headline string) (toolruntime.Result, json.RawMessage, bool) {
 		var b strings.Builder
 		if ok {
@@ -374,14 +397,18 @@ func runGUILoop(in guiFallbackIn, rt guiLoopRuntime) (toolruntime.Result, json.R
 		if len(images) > 0 {
 			frameImages = images[len(images)-1:]
 		}
-		raw, err := rt.Complete(exec, frameImages, guiLoopSystemPrompt+"\n\n"+guiLoopUserPrompt(rt.Goal, frameID, locked, guiFocusNote(rt), nodes > 0, steps))
+		prompt := guiLoopSystemPrompt + "\n\n" + guiLoopUserPrompt(rt.Goal, frameID, locked, guiFocusNote(rt), nodes > 0, steps)
+		if native {
+			prompt = guiNativeSystemPrompt + "\n\n" + guiNativeUserPrompt(rt.Goal, locked, steps)
+		}
+		raw, err := rt.Complete(exec, frameImages, prompt)
 		if err != nil {
 			if len(steps) == 0 {
 				return guiFallbackFailResult("未能从屏幕读出下一步"), nil, true
 			}
 			return finish(false, "屏幕模型无响应，已停止。")
 		}
-		act, err := parseGUILoopAction(raw, nodes == 0, frameID)
+		act, err := parseGUILoopStep(raw, nodes == 0, frameID, native)
 		if err != nil {
 			steps = append(steps, guiLoopStep{Action: "invalid", Result: "模型回复不是合法动作: " + clipGUIResult(raw, 80), OK: false})
 			consecutiveFails++
@@ -392,6 +419,39 @@ func runGUILoop(in guiFallbackIn, rt guiLoopRuntime) (toolruntime.Result, json.R
 		}
 		switch act.Action {
 		case "done":
+			// Independent assertion: a different model checks the final
+			// screenshot before the loop may claim success. Two failures in
+			// a row stop the loop honestly instead of self-certifying.
+			if rt.Verify != nil && len(frameImages) > 0 {
+				vOK, vReason, vErr := rt.Verify(rt.Goal, frameImages)
+				if vErr == nil && !vOK {
+					verifyFails++
+					note := "独立核验未通过"
+					if vReason != "" {
+						note += "：" + vReason
+					}
+					steps = append(steps, guiLoopStep{Action: "verify", Result: note, OK: false})
+					if verifyFails >= 2 {
+						return finish(false, "屏幕显示与目标仍有差距（独立核验连续未通过）。")
+					}
+					continue
+				}
+				if vErr == nil && vOK {
+					reason := strings.TrimSpace(act.Reason)
+					if reason == "" {
+						reason = "屏幕显示目标已达成"
+					}
+					if vReason != "" {
+						reason += "（已独立核验：" + vReason + "）"
+					} else {
+						reason += "（已独立核验）"
+					}
+					if len(steps) == 0 {
+						return finish(true, "未执行新动作；屏幕已显示目标状态："+reason)
+					}
+					return finish(true, "屏幕执行完成："+reason)
+				}
+			}
 			reason := strings.TrimSpace(act.Reason)
 			if reason == "" {
 				reason = "屏幕显示目标已达成"
@@ -408,6 +468,17 @@ func runGUILoop(in guiFallbackIn, rt guiLoopRuntime) (toolruntime.Result, json.R
 				reason = "屏幕上找不到可继续的目标"
 			}
 			return finish(false, "屏幕执行停止："+reason)
+		}
+		// Loop Breaker: three identical actions in a row mean the model is
+		// stuck re-trying one dead target.
+		sig := guiLoopStepSignature(act)
+		if sig == lastSig {
+			repeats++
+		} else {
+			lastSig, repeats = sig, 1
+		}
+		if repeats >= 3 {
+			return finish(false, "屏幕模型连续重复同一动作，已停止。")
 		}
 		skipped := false
 		if act.MarkID != "" && act.MarkID == voidMark {
@@ -439,7 +510,7 @@ func runGUILoop(in guiFallbackIn, rt guiLoopRuntime) (toolruntime.Result, json.R
 			skipped = true
 		}
 		if !skipped {
-			args, err := buildGUILoopArgs(act, nodes == 0, visW, visH)
+			args, err := buildGUILoopArgs(act, nodes == 0, visW, visH, cursor)
 			if err != nil {
 				steps = append(steps, guiLoopStep{Action: act.Action, Result: err.Error(), OK: false})
 				consecutiveFails++
@@ -456,6 +527,9 @@ func runGUILoop(in guiFallbackIn, rt guiLoopRuntime) (toolruntime.Result, json.R
 				steps = append(steps, guiLoopStep{Action: describeGUIAction(act), Args: args, Result: out, OK: ok})
 				if len(res.VisionData) > 0 {
 					lastVision = llmadapter.Image{MIME: res.VisionMIME, Data: res.VisionData}
+				}
+				if ok && act.Native != nil {
+					cursor = nativeCursorAfter(*act.Native, args)
 				}
 				if !ok {
 					if act.MarkID != "" {
@@ -524,6 +598,68 @@ func describeGUIAction(a guiLoopAction) string {
 	return a.Action
 }
 
+// guiLoopStepSignature is the Loop Breaker identity: the same action on the
+// same target three turns in a row means the model is stuck re-trying one
+// dead spot. Marks, pixel coordinates, typed text and key chords each count
+// as the target; scroll notches and wait lengths are part of it too.
+func guiLoopStepSignature(a guiLoopAction) string {
+	var b strings.Builder
+	b.WriteString(strings.ToLower(strings.TrimSpace(a.Action)))
+	if a.MarkID != "" {
+		b.WriteString(" id=")
+		b.WriteString(a.MarkID)
+	} else if a.X != nil && a.Y != nil {
+		fmt.Fprintf(&b, " xy=%.0f,%.0f", *a.X, *a.Y)
+	}
+	if t := strings.TrimSpace(a.Text); t != "" {
+		b.WriteString(" text=")
+		b.WriteString(clipGUIResult(t, 24))
+	}
+	if len(a.Keys) > 0 {
+		b.WriteString(" keys=")
+		b.WriteString(strings.Join(a.Keys, "+"))
+	} else if k := strings.TrimSpace(a.Key); k != "" {
+		b.WriteString(" key=")
+		b.WriteString(k)
+	}
+	if a.Scroll != 0 {
+		fmt.Fprintf(&b, " scroll=%d", a.Scroll)
+	}
+	if a.Ms != 0 {
+		fmt.Fprintf(&b, " ms=%d", a.Ms)
+	}
+	return b.String()
+}
+
+// nativeCursorAfter reports where the physical cursor sits after a native
+// action ran, in frame pixels taken from the executed computer.act payload.
+// mouse_move and the clicks park on their point; a drag ends on x2,y2.
+// Everything else (key/type/scroll/wait) leaves the cursor where it was;
+// returning nil keeps the previous tracked position.
+func nativeCursorAfter(na ccapp.GuiNativeAction, args json.RawMessage) *ccapp.GuiNativePoint {
+	switch na.Action {
+	case "mouse_move", "left_click", "right_click", "middle_click", "double_click", "triple_click":
+		var m struct {
+			X int `json:"x"`
+			Y int `json:"y"`
+		}
+		if json.Unmarshal(args, &m) != nil {
+			return nil
+		}
+		return &ccapp.GuiNativePoint{X: m.X, Y: m.Y}
+	case "left_click_drag":
+		var m struct {
+			X2 int `json:"x2"`
+			Y2 int `json:"y2"`
+		}
+		if json.Unmarshal(args, &m) != nil {
+			return nil
+		}
+		return &ccapp.GuiNativePoint{X: m.X2, Y: m.Y2}
+	}
+	return nil
+}
+
 // guiLoopCatalogFlags reports which executors exist. Unlike the single-shot
 // flags, the vision catalog here includes the active chat model when it can
 // see images, so a user with only one multimodal model still gets a loop.
@@ -547,7 +683,13 @@ func (e *Engine) completeGUIStep(ctx context.Context, exec guiExecutor, images [
 	if i := strings.Index(prompt, "\n\nGoal:\n"); i > 0 {
 		system, user = prompt[:i], prompt[i+2:]
 	}
-	return e.completeVisionJSON(ctx, exec, images, system, user, 160)
+	// The native protocol's reply carries an Action line plus the full
+	// <tool_call> JSON envelope; 160 tokens truncates that mid-object.
+	maxTokens := 160
+	if strings.Contains(system, "computer_use") {
+		maxTokens = 320
+	}
+	return e.completeVisionJSON(ctx, exec, images, system, user, maxTokens)
 }
 
 // completeVisionJSON asks the GUI catalog (then vision, which includes the

@@ -386,7 +386,8 @@ func projectPhaseWorkflowInjectionMode(phase int, label string, decisionCards bo
 			phaseDecisionCardLine(decisionCards, "先把范围和取舍想清楚并给出你的判断。只有想完后仍存在用户必须拍板、且不同选择会改变交付的分叉时，才调用 user.ask（每题 2–5 个选项，界面有「其他」）。能自行决定的不要弹卡。\n")
 	case "测试":
 		return "\n\n[项目阶段 · " + label + "]\n" +
-			"测试阶段优先 skill.invoke：test-writer、code-reviewer、pm-phase-6（或 pm-phase-5 运维型项目）。\n"
+			"测试阶段优先 skill.invoke：test-writer、code-reviewer、pm-phase-6（或 pm-phase-5 运维型项目）。\n" +
+			"做集成测试时优先 skill.invoke：agentic-test —— 用 computer.act 在真实桌面上 see→act→verify 逐场景执行并截图留证，最后用 structured.output 生成「集成测试报告」交付物（汇总+逐场景明细+证据截图），保存到右侧「交付物」面板。\n"
 	default:
 		return "\n\n[项目阶段 · " + label + "]\n" +
 			"按阶段交付物推进；匹配场景时用 skill.invoke 调用已发布技能，不要只口头描述流程。\n" +

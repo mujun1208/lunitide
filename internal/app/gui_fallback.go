@@ -499,6 +499,32 @@ func (e *Engine) tryGUIFallback(ctx context.Context, mode executionMode, session
 		loop.Lock = func() (string, error) { return ctrl.LockGoalWindow(goal) }
 		loop.FocusEditable = ctrl.TypingFocus
 	}
+	// Independent assertion (G3): when the gui model drives the loop, a
+	// vision model — never the gui catalog that just claimed success — audits
+	// the final frame before done is accepted. A verifier outage degrades to
+	// the pre-verification behavior instead of stranding the loop.
+	if gui {
+		loop.Verify = func(goal string, images []llmadapter.Image) (bool, string, error) {
+			raw, err := e.completeVisionJSON(ctx, guiExecVision, images, desktopVerifierSystem, desktopVerifierUserPrompt(goal, "GUI 循环报告完成"), 120)
+			if err != nil {
+				return false, "", err
+			}
+			v, ok := parseDesktopVerdict(raw)
+			if !ok {
+				return false, "", fmt.Errorf("verdict unparseable")
+			}
+			switch v.Verdict {
+			case verdictDone:
+				return true, v.Reason, nil
+			case verdictUnclear:
+				// The frame cannot disprove the claim; the done stands.
+				return true, "", nil
+			case verdictBlocked:
+				return false, "屏幕被对话框或登录页挡住：" + v.Reason, nil
+			}
+			return false, v.Reason, nil
+		}
+	}
 	_ = chatModel
 	return runGUILoop(in, loop)
 }

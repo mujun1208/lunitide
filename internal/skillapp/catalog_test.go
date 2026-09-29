@@ -64,6 +64,37 @@ func TestMROCatalogSkillsPresent(t *testing.T) {
 	}
 }
 
+func TestAgenticTestCatalogSkill(t *testing.T) {
+	var tpl *CatalogTemplate
+	for i := range Catalog() {
+		if Catalog()[i].ID == "agentic-test" {
+			tpl = &Catalog()[i]
+			break
+		}
+	}
+	if tpl == nil {
+		t.Fatal("catalog missing agentic-test")
+	}
+	if tpl.EntryPoint != "builtin://agentic-test" || tpl.Name != "tpl-agentic-test" {
+		t.Fatalf("identity = %q %q", tpl.Name, tpl.EntryPoint)
+	}
+	shell := false
+	for _, p := range tpl.Permissions {
+		if p == skill.PermissionShell {
+			shell = true
+		}
+	}
+	if !shell {
+		t.Fatalf("agentic-test drives the desktop, needs shell-class permission: %v", tpl.Permissions)
+	}
+	prompt, _ := tpl.Manifest["prompt"].(string)
+	for _, needle := range []string{"computer.act", "observe", "structured.output", "集成测试报告", "阻塞"} {
+		if !strings.Contains(prompt, needle) {
+			t.Fatalf("agentic-test prompt must mention %s: %s", needle, prompt)
+		}
+	}
+}
+
 func TestOfficeCatalogPromptsPreferOfficeGenerate(t *testing.T) {
 	want := map[string][]string{
 		"weekly-report":   {"office.generate", "docx.gen", "excel.gen"},

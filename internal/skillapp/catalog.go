@@ -576,6 +576,17 @@ var catalogTemplates = []CatalogTemplate{
 		},
 	},
 	{
+		ID: "agentic-test", Name: "tpl-agentic-test", DisplayName: "桌面集成测试",
+		Description: "按集成测试场景清单在真实桌面上 see→act→verify：computer.act 驱动界面、截图留证、structured.output 出集成测试报告。",
+		Category:    "研发效能", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionShell},
+		Featured: true, Source: "月汐",
+		EntryPoint: "builtin://agentic-test",
+		Manifest: map[string]any{
+			"triggers": []string{"集成测试", "agentic-test", "跑集成测试", "桌面测试"},
+			"prompt":   "你是集成测试助手（agentic-test）。先向用户要集成测试场景清单（没有就用 structured.output 起草一版再确认）。然后逐场景在真实桌面上执行：computer.act observe 截图看清现状 → click/type/key/scroll 驱动界面 → 每步后重新 observe 验证，直到该场景判定通过或失败；关键节点截图会自动进入产物面板，作为证据引用。断言屏幕上可见的业务结果（文本出现、状态切换、列表计数、窗口内容），不要只断言命令返回成功。每个场景记录：编号、前置、步骤、预期、实际、结论（通过/失败/阻塞）、证据截图。遇到登录墙、UAC 或系统对话框时标记「阻塞」并跳到下一场景，不要反复重试同一阻塞，也不要代替用户输入密码。全部场景跑完后用 structured.output 生成「集成测试报告」交付物：汇总（通过/失败/阻塞计数与结论）+ 逐场景明细表 + 遗留风险；报告中引用产物面板里的截图文件名。只报告事实，禁止把未跑的场景标成通过。",
+		},
+	},
+	{
 		ID: "find-bug", Name: "tpl-find-bug", DisplayName: "找缺陷",
 		Description: "对账 API/UI/DB，断言业务规则而不是按钮；默认只测不修。",
 		Category:    "研发效能", Version: "1.0.0", Permissions: []skill.PermissionLevel{skill.PermissionReadOnly},

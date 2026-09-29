@@ -20,6 +20,8 @@ type guiLoopScript struct {
 	frame    string
 	nodes    int
 	hits     map[string]bool
+	prompts  []string
+	execs    []guiExecutor
 }
 
 func (s *guiLoopScript) runtime(goal string) guiLoopRuntime {
@@ -37,6 +39,8 @@ func (s *guiLoopScript) runtime(goal string) guiLoopRuntime {
 				return s.frame, s.nodes, 1000, 500, img, nil
 			},
 			Complete: func(exec guiExecutor, images []llmadapter.Image, prompt string) (string, error) {
+				s.prompts = append(s.prompts, prompt)
+				s.execs = append(s.execs, exec)
 				if s.replyIdx >= len(s.replies) {
 					return "", errors.New("script exhausted")
 				}
@@ -317,7 +321,7 @@ func TestParseGUILoopActionGrammar(t *testing.T) {
 	if _, err := parseGUILoopAction(`{"action":"type","text":""}`, false, "f"); err == nil {
 		t.Fatal("empty type must fail")
 	}
-	raw, err := buildGUILoopArgs(guiLoopAction{Action: "type", Text: "你好世界"}, false, 1000, 500)
+	raw, err := buildGUILoopArgs(guiLoopAction{Action: "type", Text: "你好世界"}, false, 1000, 500, nil)
 	if err != nil || !strings.Contains(string(raw), `"action":"paste"`) {
 		t.Fatalf("CJK type must emit paste: %s %v", raw, err)
 	}
