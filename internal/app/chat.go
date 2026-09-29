@@ -19,7 +19,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/message"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/token"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/messageapp"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
@@ -100,6 +100,11 @@ const (
 	companionMaxTokens        = 2048
 	companionMaxMessages      = 24
 	companionMaxToolLoopSteps = 24
+	// companionMaxHistoryTurns caps how many recent user turns of verbatim
+	// history the instant voice companion projects (UX-06 / ADR-005 §3). The
+	// latest user turn is always retained; older turns beyond this window are
+	// excluded so the model does not proactively reference stale context.
+	companionMaxHistoryTurns = 3
 	// chatMaxTokens leaves headroom after long reasoning so a short tool
 	// call still fits. Dumping a full HTML game under 4096 truncated the
 	// tool JSON and surfaced “出错了，无法完成。” Office generators
@@ -128,7 +133,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		ProviderID    string            `json:"providerId"`
 		ModelID       string            `json:"modelId"`
 		SessionID     string            `json:"sessionId"`
-		Messages      []gateway.Message `json:"messages"`
+		Messages      []llmadapter.Message `json:"messages"`
 		ExecutionMode executionMode     `json:"executionMode"`
 		ContextRefs   []struct {
 			Type string `json:"type"`
@@ -167,7 +172,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		_, _ = e.retrySessionPersistDraft(ctx, boundSessionID)
 	}
 	for _, ref := range p.ContextRefs {
-		if !validCanonicalULID(ref.ID) || (ref.Type != "attachment" && ref.Type != "skillResult") {
+		if !validCanonicalULID(ref.ID) || (ref.Type != "attachment" && ref.Type != "skillResult" && ref.Type != "message") {
 			return request.Fail("BRIDGE_SCHEMA_INVALID", "chat.start contextRefs 无效", false)
 		}
 	}
@@ -343,7 +348,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		instruction += composeHint
 	}
 	if councilCfg == nil {
-		if persona := e.expertPersonaInjection(ctx, boundSessionID, p.Messages, intent.Text); persona != "" {
+		if persona := e.expertPersonaInjection(ctx, boundSessionID, p.Messages, intent.Text, expertInjectionTokenBudget(item, p.ModelID)); persona != "" {
 			instruction += persona
 		}
 	}
@@ -351,7 +356,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		instruction += e.unfinishedTurnInjection(boundSessionID, intent.Text)
 		instruction += closedLoopTurnInjection(turnText)
 	}
-	trustedMessages := append([]gateway.Message{{Role: gateway.RoleSystem, Content: instruction}}, p.Messages...)
+	trustedMessages := append([]llmadapter.Message{{Role: llmadapter.RoleSystem, Content: instruction}}, p.Messages...)
 
 	if getErr != nil {
 		return providerFailure(request, getErr)
@@ -378,8 +383,8 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		}
 	}
 
-	var messages []gateway.Message
-	var images []gateway.Image
+	var messages []llmadapter.Message
+	var images []llmadapter.Image
 	if hasSession && e.messageReader != nil {
 		// Durable session path: assemble context from session history.
 		// Dynamic context window: read from provider model config, fallback to 128000.
@@ -397,7 +402,10 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		// current user/tool turn as well as authoritative system instructions.
 		var explicitTokens int64
 		for _, m := range trustedMessages {
-			explicitTokens += token.EstimateTokens(m.Content)
+			// Q-05: reserve system/turn tokens using the model's exact tokenizer
+			// when the model is known (p.ModelID available here); falls back to
+			// the canonical estimator internally for unknown models.
+			explicitTokens += token.CountTokensForModel(p.ModelID, m.Content)
 		}
 		providerInfo := contextapp.ProviderInfo{
 			Provider:          string(item.Protocol),
@@ -437,6 +445,13 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		}
 		if p.Companion {
 			envelope.MaxMessages = companionMaxMessages
+			// UX-06: instant voice mode keeps a shallow history window so the
+			// model does not proactively reference conversation beyond the
+			// recent turns. Typing chat stays "deep" (no turn cap).
+			envelope.ContextMode = contextapp.ContextModeInstant
+			envelope.MaxHistoryTurns = companionMaxHistoryTurns
+		} else {
+			envelope.ContextMode = contextapp.ContextModeDeep
 		}
 
 		// Priority 3: Latest accepted compaction checkpoint summary. Stores
@@ -533,6 +548,52 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, contextapp.ContextSource{Type: contextapp.SourceAttachmentExcerpt, ID: candidate.ID, Authority: contextapp.AuthorityEvidence, Content: candidate.OriginalName + "\n" + candidate.ParsedText, Provenance: "attachment:" + candidate.ID + ":project:" + candidate.ProjectID})
 		}
 
+		// Q-11: explicit @message references inject a specific prior message from
+		// this session as quoted evidence. Messages are untrusted user data and
+		// must never become system instructions; assembly appends them as quoted
+		// context to the latest user turn (same authority as attachments).
+		messageRefs := make(map[string]struct{})
+		var orderedMessageRefs []string
+		for _, ref := range p.ContextRefs {
+			if ref.Type == "message" {
+				if _, duplicate := messageRefs[ref.ID]; !duplicate {
+					messageRefs[ref.ID] = struct{}{}
+					orderedMessageRefs = append(orderedMessageRefs, ref.ID)
+				}
+			}
+		}
+		if len(orderedMessageRefs) > 0 {
+			if e.messageReader == nil {
+				return request.Fail("CONTEXT_REF_NOT_FOUND", "显式上下文引用不存在或已删除", false)
+			}
+			history, listErr := e.messageReader.ListMessages(ctx, boundSessionID, "backward", 200)
+			if listErr != nil {
+				return internalBridgeFailure(request, "MESSAGE_CONTEXT_READ_FAILED", "消息上下文暂时不可用", true, listErr)
+			}
+			byID := make(map[string]contextapp.Message, len(history))
+			for _, m := range history {
+				byID[m.ID] = m
+			}
+			for _, refID := range orderedMessageRefs {
+				m, ok := byID[refID]
+				if !ok {
+					return request.Fail("CONTEXT_REF_NOT_FOUND", "显式上下文引用不存在或已删除", false)
+				}
+				content := strings.TrimSpace(m.Content)
+				if content == "" {
+					return request.Fail("CONTEXT_REF_NOT_READABLE", "引用的消息内容为空", false)
+				}
+				roleLabel := "消息"
+				switch m.Role {
+				case "user":
+					roleLabel = "用户消息"
+				case "assistant":
+					roleLabel = "助手消息"
+				}
+				envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, contextapp.ContextSource{Type: contextapp.SourceAttachmentExcerpt, ID: m.ID, Authority: contextapp.AuthorityEvidence, Content: roleLabel + "\n" + content, Provenance: "message:" + m.ID + ":session:" + boundSessionID})
+			}
+		}
+
 		applyChatMemoryPack(&envelope, memPack)
 
 		// Assemble the context envelope with full priority ordering and
@@ -540,6 +601,34 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		// before chat.start, but the assembly fallback remains for empty sessions.
 		result, assembleErr := contextapp.AssembleEnvelope(ctx, e.messageReader, boundSessionID, envelope)
 		assembled := assembleErr == nil
+		// UX-04 graceful degradation: a non-companion turn whose authoritative
+		// instructions are so large that no message budget remains
+		// (ErrEnvelopeBudgetTooSmall) used to dead-end at CONTEXT_ASSEMBLY_FAILED.
+		// Retry once with a minimal system instruction (execution-mode line only,
+		// dropping expert persona / skill catalog / workflow injections), which
+		// frees the budget while keeping durable history. UX-03 already caps
+		// expert injection, so this only fires for other oversized instructions.
+		if assembleErr != nil && !p.Companion && errors.Is(assembleErr, contextapp.ErrEnvelopeBudgetTooSmall) {
+			minimalInstruction := executionModeInstruction(mode)
+			minimalTrusted := append([]llmadapter.Message{{Role: llmadapter.RoleSystem, Content: minimalInstruction}}, p.Messages...)
+			var minimalSystemTokens int64
+			for _, m := range minimalTrusted {
+				// Q-05: exact count when the model is known (p.ModelID here).
+				minimalSystemTokens += token.CountTokensForModel(p.ModelID, m.Content)
+			}
+			degradedInfo := providerInfo
+			degradedInfo.SystemTokens = minimalSystemTokens
+			degradedEnvelope := envelope
+			degradedEnvelope.Provider = degradedInfo
+			if retryResult, retryErr := contextapp.AssembleEnvelope(ctx, e.messageReader, boundSessionID, degradedEnvelope); retryErr == nil {
+				log.Printf("chat.start degraded to minimal system instruction after budget-too-small: %v", assembleErr)
+				result = retryResult
+				providerInfo = degradedInfo
+				trustedMessages = minimalTrusted
+				assembleErr = nil
+				assembled = true
+			}
+		}
 		if assembleErr != nil {
 			if !useExplicitChatFallback(p.Companion, trustedMessages, assembleErr) {
 				return internalBridgeFailure(request, "CONTEXT_ASSEMBLY_FAILED", "上下文装配暂时不可用", true, assembleErr)
@@ -566,7 +655,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			// scoring labels the tier; moderate+ conversations get an explicit
 			// nudge toward the planned path (plan.run) in the system message.
 			if !p.Companion {
-				if tierHint := complexityTierHint(messages); tierHint != "" && len(messages) > 0 && messages[0].Role == gateway.RoleSystem {
+				if tierHint := complexityTierHint(messages); tierHint != "" && len(messages) > 0 && messages[0].Role == llmadapter.RoleSystem {
 					messages[0].Content += tierHint
 				}
 			}
@@ -588,7 +677,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 					if total > attachmentapp.MaxVisionBatchBytes {
 						return request.Fail("ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
 					}
-					images = append(images, gateway.Image{MIME: image.MIME, Data: image.Data})
+					images = append(images, llmadapter.Image{MIME: image.MIME, Data: image.Data})
 				}
 			}
 		}
@@ -629,7 +718,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		images = nil
 		messages = injectVisionDescription(messages, "已附图片，但视觉模型未能识别。请在设置中确认已启用视觉模型后重试。")
 	}
-	req := gateway.Request{Model: p.ModelID, Messages: messages, Images: images, MaxTokens: chatMaxTokens, MaxAttempts: 1, DisableReasoning: p.Companion || isShortIdleGreeting(intent.Text)}
+	req := llmadapter.Request{Model: p.ModelID, Messages: messages, Images: images, MaxTokens: chatMaxTokens, MaxAttempts: 1, DisableReasoning: p.Companion || isShortIdleGreeting(intent.Text)}
 	if p.Companion {
 		req.MaxTokens = companionMaxTokens
 	}
@@ -661,22 +750,32 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		if p.Companion {
 			req.Tools = filterCompanionDefaultTools(req.Tools)
 		}
+		if profile == toolProfileDefault || profile == toolProfileMinimal {
+			route, allow := classifyTaskRoute(intent.Text, p.Companion, e.computerControlEnabled())
+			if route == RouteUnspecified {
+				if flashRoute, flashAllow, used := e.tryFlashClassify(ctx, intent.Text); used {
+					route, allow = flashRoute, flashAllow
+				}
+			}
+			req.Tools = applyTaskRoute(req.Tools, route, allow)
+			state.taskRoute = route
+		}
 	}
 	go e.runStream(streamCtx, streamID, state, item, req, emit, boundSessionID, mode)
 	return request.Ok(map[string]any{"streamId": streamID})
 }
 
-// gatewayRole converts a contextapp role string to a gateway.Role.
-func gatewayRole(role string) gateway.Role {
+// gatewayRole converts a contextapp role string to a llmadapter.Role.
+func gatewayRole(role string) llmadapter.Role {
 	switch role {
 	case "system":
-		return gateway.RoleSystem
+		return llmadapter.RoleSystem
 	case "assistant":
-		return gateway.RoleAssistant
+		return llmadapter.RoleAssistant
 	case "tool":
-		return gateway.RoleTool
+		return llmadapter.RoleTool
 	default:
-		return gateway.RoleUser
+		return llmadapter.RoleUser
 	}
 }
 
@@ -703,9 +802,9 @@ func foldHistoricalToolResult(text string) string {
 
 var errCombinedContextOverBudget = errors.New("combined provider context exceeds effective input budget")
 
-func lastUserChatText(messages []gateway.Message) string {
+func lastUserChatText(messages []llmadapter.Message) string {
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == gateway.RoleUser {
+		if messages[i].Role == llmadapter.RoleUser {
 			if text := strings.TrimSpace(messages[i].Content); text != "" {
 				return text
 			}
@@ -719,7 +818,7 @@ func lastUserChatText(messages []gateway.Message) string {
 // recoverable for any caller that already sent that turn. Companion also
 // falls back on budget/sequence failures so a voice round never dead-ends
 // behind CONTEXT_ASSEMBLY_FAILED.
-func useExplicitChatFallback(companion bool, trusted []gateway.Message, err error) bool {
+func useExplicitChatFallback(companion bool, trusted []llmadapter.Message, err error) bool {
 	if err == nil || lastUserChatText(trusted) == "" {
 		return false
 	}
@@ -771,13 +870,13 @@ func (e *Engine) priorTurnTexts(ctx context.Context, sessionID, turnText string)
 	return out
 }
 
-func validChatMessages(model string, messages []gateway.Message) bool {
+func validChatMessages(model string, messages []llmadapter.Message) bool {
 	totalBytes := len(model)
 	for _, m := range messages {
 		totalBytes += len(m.Content)
 		// Public chat.start input is renderer-controlled; system and tool roles
 		// remain available only to trusted engine-owned assembly mechanisms.
-		if (m.Role != gateway.RoleUser && m.Role != gateway.RoleAssistant) || strings.TrimSpace(m.Content) == "" || len(m.Content) > 16*1024 || totalBytes > 48*1024 {
+		if (m.Role != llmadapter.RoleUser && m.Role != llmadapter.RoleAssistant) || strings.TrimSpace(m.Content) == "" || len(m.Content) > 16*1024 || totalBytes > 48*1024 {
 			return false
 		}
 	}
@@ -813,17 +912,17 @@ func executionModeInstruction(mode executionMode) string {
 	}
 }
 
-func combineDurableProviderMessages(history []contextapp.Message, explicit []gateway.Message, info contextapp.ProviderInfo) ([]gateway.Message, error) {
-	combined := make([]gateway.Message, 0, len(history)+len(explicit))
+func combineDurableProviderMessages(history []contextapp.Message, explicit []llmadapter.Message, info contextapp.ProviderInfo) ([]llmadapter.Message, error) {
+	combined := make([]llmadapter.Message, 0, len(history)+len(explicit))
 	for _, m := range explicit {
-		if m.Role == gateway.RoleSystem {
+		if m.Role == llmadapter.RoleSystem {
 			combined = append(combined, m)
 		}
 	}
 	for _, m := range history {
 		role := gatewayRole(m.Role)
 		content := m.Content
-		if role == gateway.RoleTool {
+		if role == llmadapter.RoleTool {
 			// The message store keeps only role+text — no tool_call_id and no
 			// assistant tool_calls linkage. Replaying a persisted role:"tool"
 			// message as-is produces an orphan tool message (empty tool_call_id,
@@ -834,13 +933,13 @@ func combineDurableProviderMessages(history []contextapp.Message, explicit []gat
 			// Fold historical tool results into a plain user-role context note so
 			// the linkage-free record still informs the model without ever
 			// emitting an invalid tool message.
-			role = gateway.RoleUser
+			role = llmadapter.RoleUser
 			content = foldHistoricalToolResult(m.Content)
 		}
-		combined = append(combined, gateway.Message{Role: role, Content: content})
+		combined = append(combined, llmadapter.Message{Role: role, Content: content})
 	}
 	for _, m := range explicit {
-		if m.Role != gateway.RoleSystem {
+		if m.Role != llmadapter.RoleSystem {
 			combined = append(combined, m)
 		}
 	}
@@ -848,7 +947,10 @@ func combineDurableProviderMessages(history []contextapp.Message, explicit []gat
 	// Enforce the final provider budget only from exact visible contents.
 	var used int64
 	for _, m := range combined {
-		used += token.EstimateTokens(m.Content)
+		// Q-05: the final provider budget check uses the model's exact tokenizer
+		// when known (info.Model); this keeps the enforcement guard consistent
+		// with the exact reservation done at assembly time.
+		used += token.CountTokensForModel(info.Model, m.Content)
 	}
 	providerSequence := make([]contextapp.Message, len(combined))
 	for i, m := range combined {
@@ -1048,7 +1150,7 @@ func (e *Engine) sessionSelectsExperts(ctx context.Context, sessionID, turnText 
 	return len(selectedTurnExpertIDs(mounted, e.priorTurnTexts(ctx, sessionID, turnText)...)) > 0
 }
 
-func (e *Engine) expertPersonaInjection(ctx context.Context, sessionID string, _ []gateway.Message, turnText string) string {
+func (e *Engine) expertPersonaInjection(ctx context.Context, sessionID string, _ []llmadapter.Message, turnText string, tokenBudget int64) string {
 	if e.m8expert == nil {
 		return ""
 	}
@@ -1083,6 +1185,29 @@ func (e *Engine) expertPersonaInjection(ctx context.Context, sessionID string, _
 	}
 	if len(experts) == 0 {
 		return ""
+	}
+	// Budget guard (UX-03): the six-section bodies are only rune-clipped per
+	// expert, so N mounted experts can stack into thousands of tokens and drive
+	// EffectiveInputBudget below zero -> CONTEXT_ASSEMBLY_FAILED. Cap the total
+	// injected persona tokens; when over budget, degrade to a compact
+	// name+core-capability line per expert instead of full job descriptions.
+	if tokenBudget > 0 {
+		perExpert := tokenBudget / int64(len(experts))
+		if perExpert < expertPersonaMinPerExpertTokens {
+			perExpert = expertPersonaMinPerExpertTokens
+		}
+		var total int64
+		for i := range experts {
+			experts[i].body = clipExpertBodyToTokens(experts[i].body, perExpert)
+			total += token.EstimateTokens(experts[i].body)
+		}
+		if total > tokenBudget {
+			// Still over budget after per-expert clipping: drop bodies entirely
+			// and keep only a one-line core-capability summary per expert.
+			for i := range experts {
+				experts[i].body = clipExpertBodyToTokens(experts[i].body, expertPersonaMinPerExpertTokens)
+			}
+		}
 	}
 	var b strings.Builder
 	if len(experts) == 1 {
@@ -1125,6 +1250,54 @@ func clipExpertBody(body []byte) string {
 		return s
 	}
 	return string(r[:expertSectionMaxRunes]) + "\n…（岗位说明书已截断）"
+}
+
+// expertInjectionTokenBudget computes the token ceiling for expert persona
+// injection (UX-03): at most expertInjectionCeilingRatio of the model context
+// window, so mounted experts cannot exhaust EffectiveInputBudget and trip
+// CONTEXT_ASSEMBLY_FAILED. Returns 0 (no cap) when the window is unknown.
+func expertInjectionTokenBudget(item provider.Provider, modelID string) int64 {
+	var window int64
+	for _, m := range item.Models {
+		if m.ModelID == modelID && m.ContextWindow > 0 {
+			window = m.ContextWindow
+			break
+		}
+	}
+	if window <= 0 {
+		window = defaultExpertBudgetContextWindow
+	}
+	budget := int64(float64(window) * expertInjectionCeilingRatio)
+	if budget < expertPersonaMinPerExpertTokens {
+		budget = expertPersonaMinPerExpertTokens
+	}
+	return budget
+}
+
+// clipExpertBodyToTokens shrinks a persona body until its estimated token cost
+// fits maxTokens, trimming from the end (least-critical detail first).
+func clipExpertBodyToTokens(body string, maxTokens int64) string {
+	if maxTokens <= 0 {
+		return body
+	}
+	if token.EstimateTokens(body) <= maxTokens {
+		return body
+	}
+	r := []rune(body)
+	// Binary-search the largest rune prefix that fits the token budget.
+	lo, hi := 0, len(r)
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if token.EstimateTokens(string(r[:mid])) <= maxTokens {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	if lo <= 0 {
+		return "…（岗位说明书因上下文预算已省略）"
+	}
+	return strings.TrimSpace(string(r[:lo])) + "\n…（岗位说明书已按上下文预算精简）"
 }
 
 func sendDeltaChunks(send func(bridge.Event) error, text string) error {
@@ -1178,7 +1351,7 @@ func toolStartedSummary(name string, args json.RawMessage) string {
 		if json.Unmarshal(args, &a) == nil && strings.TrimSpace(a.Query) != "" {
 			return "搜索：" + strings.TrimSpace(a.Query)
 		}
-	case "web.fetch":
+	case "web.fetch", "video.understand":
 		var a struct {
 			URL string `json:"url"`
 		}
@@ -1259,7 +1432,7 @@ func chatStreamError(err error) *bridge.StreamError {
 		return streamError("UPSTREAM_TIMEOUT", "模型请求超时，请稍后重试", true)
 	}
 
-	var gatewayErr *gateway.Error
+	var gatewayErr *llmadapter.Error
 	if errors.As(err, &gatewayErr) {
 		if gatewayErr.Code == "REQUEST_TOO_LARGE" || gatewayErr.HTTPStatus == 413 {
 			return streamError("REQUEST_TOO_LARGE", "请求内容过大，请减少附件或上下文后重试", false)

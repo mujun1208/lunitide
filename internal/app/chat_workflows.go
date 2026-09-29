@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 const officeGenWorkflowClause = "- 文档：必须用 pptx.gen / docx.gen / excel.gen / pdf.gen 写入工作区并汇报路径。用户要放到桌面时加 desktop=true（path 用文件名即可，例如 半年财报.xlsx），禁止填 C:\\\\Users\\\\...\\\\Desktop 绝对路径，禁止 PowerPoint/Excel/Word COM、Python 拼 OOXML、command.run 复制到桌面。" + officeGenInternalHint + "做 PPT 禁止 ZipFile 改 XML。PPT 必须走九步流水线（思考→定义结构→写内容→web.search 收集素材→再思考→再收集素材→思考创作→写完整页→最后 pptx.gen），禁止跳步生成空页或只有深色底没有文字的文件；pptx.gen 会拒绝空标题/不可读页。报告必须走流水线（思考受众→目录→两轮 web.search/fetch→再思考→完整章节→最后 docx.gen）；小说必须走流水线（类型人设→大纲起承转合→人物世界观→必要时检索→分章正文→修订文风→最后 docx.gen）。禁止跳步生成空稿、无标题样式或只有提纲的 Word；docx.gen 会拒绝空文档和单样式正文。表格用月度汇总，不要一次塞几百行。\n"
@@ -157,8 +157,8 @@ func selectWorkflowClauses(text string) []string {
 	return out
 }
 
-func skillDraftOfferMessage() gateway.Message {
-	return gateway.Message{Role: gateway.RoleSystem, Content: "这次多步操作已经跑通。如果值得下次复用，可以调用 skill.create 写成草稿；不会自动上架，用户仍要在技能中心安装。不必每次都创建。"}
+func skillDraftOfferMessage() llmadapter.Message {
+	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: "这次多步操作已经跑通。如果值得下次复用，可以调用 skill.create 写成草稿；不会自动上架，用户仍要在技能中心安装。不必每次都创建。"}
 }
 
 func shouldOfferSkillDraft(tools []string) bool {

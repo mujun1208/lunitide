@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 type toolProfile string
@@ -39,6 +39,7 @@ var autoProfileTaskHints = []string{
 	"file", "code", "run", "open", "click", "search", "fix", "build", "test",
 	"error", "install", "deploy", "http", ".go", ".ts", ".py", ".md", "git",
 	"todo", "refactor", "debug", "terminal", "command",
+	"b23.tv", "v.douyin.com", "youtu.be", "bilibili.com", "v.qq.com",
 }
 
 // autoProfileChatHints are positive signals that a short turn is pure
@@ -111,7 +112,7 @@ func toolProfileAllow(profile toolProfile) map[string]bool {
 	}
 }
 
-func applyToolProfile(defs []gateway.ToolDefinition, profile toolProfile) []gateway.ToolDefinition {
+func applyToolProfile(defs []llmadapter.ToolDefinition, profile toolProfile) []llmadapter.ToolDefinition {
 	allow := toolProfileAllow(profile)
 	if allow == nil {
 		return defs
@@ -135,8 +136,8 @@ func companionDefaultDeniedTool(name string) bool {
 	}
 }
 
-func filterCompanionDefaultTools(defs []gateway.ToolDefinition) []gateway.ToolDefinition {
-	out := make([]gateway.ToolDefinition, 0, len(defs))
+func filterCompanionDefaultTools(defs []llmadapter.ToolDefinition) []llmadapter.ToolDefinition {
+	out := make([]llmadapter.ToolDefinition, 0, len(defs))
 	for _, d := range defs {
 		if companionDefaultDeniedTool(d.Name) {
 			continue

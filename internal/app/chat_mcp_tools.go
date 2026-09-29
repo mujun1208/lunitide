@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 	"strings"
 	"time"
@@ -51,7 +51,7 @@ func parseMcpToolName(name string) (endpointID, tool string, ok bool) {
 // state and breaker per call regardless of which schema was advertised.
 const mcpDirectToolCap = 12
 
-func (e *Engine) mcpToolDefinitions() []gateway.ToolDefinition {
+func (e *Engine) mcpToolDefinitions() []llmadapter.ToolDefinition {
 	if e.mcp6Registry == nil {
 		return nil
 	}
@@ -62,7 +62,7 @@ func (e *Engine) mcpToolDefinitions() []gateway.ToolDefinition {
 	if len(snapshot) > mcpDirectToolCap {
 		return mcpGatewayToolDefinitions(len(snapshot))
 	}
-	defs := make([]gateway.ToolDefinition, 0, len(snapshot))
+	defs := make([]llmadapter.ToolDefinition, 0, len(snapshot))
 	for _, t := range snapshot {
 		name, ok := mcpToolName(t.EndpointID, t.Tool)
 		if !ok {
@@ -76,13 +76,13 @@ func (e *Engine) mcpToolDefinitions() []gateway.ToolDefinition {
 		if len(t.Schema) > 0 && json.Valid(t.Schema) && t.Schema[0] == '{' {
 			schema = t.Schema
 		}
-		defs = append(defs, gateway.ToolDefinition{Name: name, Description: description, Schema: schema})
+		defs = append(defs, llmadapter.ToolDefinition{Name: name, Description: description, Schema: schema})
 	}
 	return defs
 }
 
-func mcpGatewayToolDefinitions(n int) []gateway.ToolDefinition {
-	return []gateway.ToolDefinition{
+func mcpGatewayToolDefinitions(n int) []llmadapter.ToolDefinition {
+	return []llmadapter.ToolDefinition{
 		{Name: "mcp.search", Description: fmt.Sprintf("Search the %d connected MCP tools by name or description; then call mcp.call with the returned name", n), Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":200}},"required":["query"],"additionalProperties":false}`)},
 		{Name: "mcp.call", Description: "Invoke one MCP tool previously returned by mcp.search (name is mcp_<endpoint>_<tool>)", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":64},"arguments":{"type":"object"}},"required":["name"],"additionalProperties":false}`)},
 	}
@@ -121,9 +121,19 @@ func (e *Engine) invokeBrowserAct(ctx context.Context, mode executionMode, sessi
 	if json.Unmarshal(raw, &a) != nil || strings.TrimSpace(a.Op) == "" {
 		return toolruntime.Result{}, errors.New("browser.act needs op")
 	}
+	if err := rejectBrowserHumanWall(a.URL, ""); err != nil {
+		return toolruntime.Result{}, err
+	}
 	switch a.Op {
 	case "click", "type", "snapshot", "scroll", "back", "hover", "select", "press", "tabs", "wait", "dialog":
-		return e.invokeBrowserActViaPlaywright(ctx, a)
+		out, err := e.invokeBrowserActViaPlaywright(ctx, a)
+		if err != nil && browserActLooksStale(err, out.Output) {
+			return toolruntime.Result{}, err
+		}
+		if err != nil {
+			return out, err
+		}
+		return finishBrowserAct(a.URL, out.Output, out)
 	case "navigate":
 		u := strings.TrimSpace(a.URL)
 		if u == "" {
@@ -133,15 +143,16 @@ func (e *Engine) invokeBrowserAct(ctx context.Context, mode executionMode, sessi
 			return toolruntime.Result{}, err
 		} else if out.Output != "" {
 			e.browserLastURL.Store(session, u)
-			return out, nil
+			return finishBrowserAct(u, out.Output, out)
 		}
 		args, _ := json.Marshal(map[string]string{"url": u})
 		out, err := e.executeUserTool(ctx, mode, session, "web.fetch", args)
-		if err == nil {
-			e.browserLastURL.Store(session, u)
-			out = markBrowserNavigateFetch(out)
+		if err != nil {
+			return out, err
 		}
-		return out, err
+		e.browserLastURL.Store(session, u)
+		out = markBrowserNavigateFetch(out)
+		return finishBrowserAct(u, out.Output, out)
 	case "read":
 		u := strings.TrimSpace(a.URL)
 		if u == "" {

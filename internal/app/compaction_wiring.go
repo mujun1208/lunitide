@@ -5,7 +5,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/compactionapp"
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/handoffapp"
 )
 
@@ -35,7 +35,7 @@ type compactionAdapterFactory struct {
 	e *Engine
 }
 
-func (f *compactionAdapterFactory) Adapter(ctx context.Context, p provider.Provider) (gateway.Adapter, error) {
+func (f *compactionAdapterFactory) Adapter(ctx context.Context, p provider.Provider) (llmadapter.Adapter, error) {
 	return f.e.adapter(ctx, p)
 }
 

@@ -15,7 +15,7 @@ import (
 	"github.com/lunitide/lunitide/internal/contextapp"
 	"github.com/lunitide/lunitide/internal/domain/attachment"
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 const (
@@ -101,7 +101,7 @@ func (s *chatAttachmentStore) calls() int {
 }
 func (s *chatAttachmentStore) gets() int { s.mu.Lock(); defer s.mu.Unlock(); return s.getCalls }
 
-type chatAttachmentAdapter struct{ requests chan gateway.Request }
+type chatAttachmentAdapter struct{ requests chan llmadapter.Request }
 
 type chatAttachmentFiles map[string][]byte
 
@@ -115,15 +115,15 @@ func (f chatAttachmentFiles) ReadFile(_ context.Context, name string) ([]byte, e
 }
 func (f chatAttachmentFiles) DeleteFile(context.Context, string) error { return nil }
 
-func (a chatAttachmentAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (a chatAttachmentAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (a chatAttachmentAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (a chatAttachmentAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (a chatAttachmentAdapter) Stream(_ context.Context, _ []byte, req gateway.Request, _ func(gateway.Delta) error) (gateway.Response, error) {
+func (a chatAttachmentAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Request, _ func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	a.requests <- req
-	return gateway.Response{}, errors.New("stop after capture")
+	return llmadapter.Response{}, errors.New("stop after capture")
 }
 
 func readableChatAttachment(sessionID string) attachment.Attachment {
@@ -134,16 +134,16 @@ func readableChatAttachment(sessionID string) attachment.Attachment {
 	}
 }
 
-func startAttachmentChat(t *testing.T, store *chatAttachmentStore, contextRefs string) (bridge.Response, <-chan gateway.Request) {
+func startAttachmentChat(t *testing.T, store *chatAttachmentStore, contextRefs string) (bridge.Response, <-chan llmadapter.Request) {
 	return startAttachmentChatWithFiles(t, store, nil, contextRefs)
 }
 
-func startAttachmentChatWithFiles(t *testing.T, store *chatAttachmentStore, files chatAttachmentFiles, contextRefs string) (bridge.Response, <-chan gateway.Request) {
+func startAttachmentChatWithFiles(t *testing.T, store *chatAttachmentStore, files chatAttachmentFiles, contextRefs string) (bridge.Response, <-chan llmadapter.Request) {
 	t.Helper()
-	requests := make(chan gateway.Request, 1)
+	requests := make(chan llmadapter.Request, 1)
 	e := NewEngineWithContextReader(chatAttachmentProvider{}, nil, nil, nil, chatAttachmentReader{}, nil, "test", streamTestLease{})
 	e.SetAttachmentService(attachmentapp.NewService(store, files))
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return chatAttachmentAdapter{requests: requests}, nil
 	})
 	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","sessionId":"` + chatAttachmentSessionID + `","messages":[{"role":"user","content":"current question"}]` + contextRefs + `}`
@@ -151,14 +151,14 @@ func startAttachmentChatWithFiles(t *testing.T, store *chatAttachmentStore, file
 	return response, requests
 }
 
-func capturedChatRequest(t *testing.T, requests <-chan gateway.Request) gateway.Request {
+func capturedChatRequest(t *testing.T, requests <-chan llmadapter.Request) llmadapter.Request {
 	t.Helper()
 	select {
 	case req := <-requests:
 		return req
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for captured gateway request")
-		return gateway.Request{}
+		return llmadapter.Request{}
 	}
 }
 

@@ -208,6 +208,19 @@ const (
 	expertSectionMaxRunes = 2500
 )
 
+// UX-03 expert persona injection budget guard.
+const (
+	// expertInjectionCeilingRatio caps total expert persona injection at this
+	// fraction of the model context window.
+	expertInjectionCeilingRatio = 0.30
+	// expertPersonaMinPerExpertTokens is the floor kept per expert (name +
+	// core capability line) even under tight budgets.
+	expertPersonaMinPerExpertTokens = 200
+	// defaultExpertBudgetContextWindow is the fallback window when the model
+	// does not advertise one.
+	defaultExpertBudgetContextWindow = 128000
+)
+
 func skipExpertCouncil(text string) bool {
 	t := strings.TrimSpace(text)
 	if t == "" {

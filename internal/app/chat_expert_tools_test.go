@@ -9,7 +9,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/skill"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
@@ -134,7 +134,7 @@ func TestSpecialistChatStartPinsComposeSkills(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.expert, func(t *testing.T) {
-			requests := make(chan gateway.Request, 1)
+			requests := make(chan llmadapter.Request, 1)
 			e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
 			tools, err := toolruntime.New(t.TempDir())
 			if err != nil {
@@ -143,7 +143,7 @@ func TestSpecialistChatStartPinsComposeSkills(t *testing.T) {
 			t.Cleanup(func() { tools.Close() })
 			e.SetToolRuntime(tools)
 			e.skills = &skillCatalogStub{items: published}
-			e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+			e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 				return chatAttachmentAdapter{requests: requests}, nil
 			})
 			turn := `[引用专家 ` + tc.expert + `|` + chatAttachmentProviderID + `] ` + tc.turn
@@ -178,7 +178,7 @@ func TestSpecialistChatStartPinsComposeSkills(t *testing.T) {
 }
 
 func TestSpecialistChatStartIncludesOfficeWebAndSkills(t *testing.T) {
-	requests := make(chan gateway.Request, 1)
+	requests := make(chan llmadapter.Request, 1)
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
 	tools, err := toolruntime.New(t.TempDir())
 	if err != nil {
@@ -187,7 +187,7 @@ func TestSpecialistChatStartIncludesOfficeWebAndSkills(t *testing.T) {
 	t.Cleanup(func() { tools.Close() })
 	e.SetToolRuntime(tools)
 	e.skills = &skillCatalogStub{items: []skill.Skill{catalogTestSkill("demo", "unused", `{}`)}}
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return chatAttachmentAdapter{requests: requests}, nil
 	})
 	turn := `[引用专家 PPT专家|` + chatAttachmentProviderID + `] 请做一份介绍`
@@ -239,20 +239,20 @@ func TestDeliberateExpertOffersSpecialistTools(t *testing.T) {
 }
 
 type deliberateToolsAdapter struct {
-	tools            []gateway.ToolDefinition
+	tools            []llmadapter.ToolDefinition
 	disableReasoning bool
 }
 
-func (a *deliberateToolsAdapter) Complete(_ context.Context, _ []byte, req gateway.Request) (gateway.Response, error) {
+func (a *deliberateToolsAdapter) Complete(_ context.Context, _ []byte, req llmadapter.Request) (llmadapter.Response, error) {
 	a.tools = req.Tools
 	a.disableReasoning = req.DisableReasoning
-	return gateway.Response{Message: gateway.Message{Content: "独立意见"}}, nil
+	return llmadapter.Response{Message: llmadapter.Message{Content: "独立意见"}}, nil
 }
-func (a *deliberateToolsAdapter) Stream(context.Context, []byte, gateway.Request, func(gateway.Delta) error) (gateway.Response, error) {
-	return gateway.Response{}, nil
+func (a *deliberateToolsAdapter) Stream(context.Context, []byte, llmadapter.Request, func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	return llmadapter.Response{}, nil
 }
-func (a *deliberateToolsAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, nil
+func (a *deliberateToolsAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, nil
 }
 
 func TestCouncilChairInstructsTools(t *testing.T) {
@@ -266,7 +266,7 @@ func TestCouncilChairInstructsTools(t *testing.T) {
 }
 
 func TestSpecialistToolAllowlist(t *testing.T) {
-	defs := specialistToolDefinitions(append(engineToolDefinitions(), gateway.ToolDefinition{Name: "skill.invoke"}))
+	defs := specialistToolDefinitions(append(engineToolDefinitions(), llmadapter.ToolDefinition{Name: "skill.invoke"}))
 	if !hasSpecialistOfficeAndWeb(defs) {
 		t.Fatalf("allowlist missing office+web: %#v", specialistToolNames(defs))
 	}

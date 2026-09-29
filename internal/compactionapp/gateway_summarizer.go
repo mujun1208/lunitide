@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/jsonutil"
 	"github.com/lunitide/lunitide/internal/secretlease"
 )
@@ -63,11 +63,11 @@ type LeaseAcquirer interface {
 
 // AdapterFactory creates a gateway adapter for the given provider.
 type AdapterFactory interface {
-	Adapter(ctx context.Context, p provider.Provider) (gateway.Adapter, error)
+	Adapter(ctx context.Context, p provider.Provider) (llmadapter.Adapter, error)
 }
 
 // GatewaySummarizer implements the Summarizer interface by calling an LLM
-// via the gateway. It is used by the compaction executor to generate
+// via the llmadapter. It is used by the compaction executor to generate
 // structured summaries of conversation segments.
 type GatewaySummarizer struct {
 	providers ProviderLookup
@@ -110,7 +110,7 @@ func NewGatewaySummarizer(providers ProviderLookup, leases LeaseAcquirer, adapte
 // SetTimeout allows overriding the default summarization timeout.
 func (s *GatewaySummarizer) SetTimeout(d time.Duration) { s.timeout = d }
 
-// Summarize implements the Summarizer interface by calling the LLM via gateway.Complete.
+// Summarize implements the Summarizer interface by calling the LLM via llmadapter.Complete.
 // It converts SummaryMessages to gateway messages, calls the LLM, and returns
 // the raw response as both summaryJSON and humanSummary.
 // If priorSummary is non-empty, it is included in the prompt so the LLM can
@@ -177,7 +177,7 @@ func (s *GatewaySummarizer) Summarize(ctx context.Context, sessionID, providerID
 			return fmt.Errorf("create adapter: %w", adapterErr)
 		}
 
-		resp, completeErr := adapter.Complete(summCtx, secret, gateway.Request{
+		resp, completeErr := adapter.Complete(summCtx, secret, llmadapter.Request{
 			Model:       model,
 			Messages:    gwMessages,
 			MaxTokens:   s.config.MaxTokens,
@@ -214,7 +214,7 @@ func (s *GatewaySummarizer) Summarize(ctx context.Context, sessionID, providerID
 	return summaryJSON, humanSummary, nil
 }
 
-func buildSummarizerMessages(systemPrompt, sessionID string, sourceStartSeq, sourceEndSeq int64, messages []SummaryMessage, priorSummary string) ([]gateway.Message, error) {
+func buildSummarizerMessages(systemPrompt, sessionID string, sourceStartSeq, sourceEndSeq int64, messages []SummaryMessage, priorSummary string) ([]llmadapter.Message, error) {
 	// Engine-owned instructions retain system authority. Every model/user-made
 	// source is encoded as canonical JSON in a single user-role data message so
 	// fake delimiters and role labels cannot alter prompt structure.
@@ -231,7 +231,7 @@ func buildSummarizerMessages(systemPrompt, sessionID string, sourceStartSeq, sou
 	if err != nil {
 		return nil, fmt.Errorf("encode summarizer input: %w", err)
 	}
-	return []gateway.Message{{Role: gateway.RoleSystem, Content: systemPrompt}, {Role: gateway.RoleUser, Content: string(inputJSON)}}, nil
+	return []llmadapter.Message{{Role: llmadapter.RoleSystem, Content: systemPrompt}, {Role: llmadapter.RoleUser, Content: string(inputJSON)}}, nil
 }
 
 func decodeStructuredSummary(content string) (structuredSummary, error) {

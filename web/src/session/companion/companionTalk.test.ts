@@ -4,6 +4,7 @@ import type { ProviderDTO } from '../../generated/bridge'
 import {
   companionCascadeSpeechBlocked,
   isCompanionIdleChat,
+  MAX_QUEUED_FRAMES,
   newTalkRetryState,
   noteTalkFailure,
   shouldOfferCompanionTalk,
@@ -42,6 +43,7 @@ const realtime: ProviderDTO = {
   baseUrl: 'https://example.com',
   status: 'enabled',
   credentialState: 'configured',
+  credentialBackupCount: 0,
   createdAt: '',
   updatedAt: '',
   version: 1,
@@ -250,5 +252,133 @@ describe('startCompanionTalk', () => {
     const handle = await vi.advanceTimersByTimeAsync(120).then(() => pending)
     expect(handle).toBeUndefined()
     vi.useRealTimers()
+  })
+})
+
+describe('startCompanionTalk send backpressure', () => {
+  type FrameCb = (frame: { base64: string; samples: Int16Array; peak: number }) => void
+  const frame = (base64: string) => ({ base64, samples: new Int16Array(1600), peak: 0 })
+
+  const baseCallbacks = () => ({
+    sessionId,
+    onAudio: () => {},
+    onUserTranscript: () => {},
+    onAssistantTranscript: () => {},
+    onBarge: () => {},
+    onToolHandoff: () => {},
+    onError: () => {},
+    onEnded: () => {},
+  })
+
+  test('caps the queue at MAX_QUEUED_FRAMES, drops the oldest, and warns', async () => {
+    let emit!: FrameCb
+    const appended: string[] = []
+    let releaseFirst!: () => void
+    const firstAppend = new Promise<void>(resolve => {
+      releaseFirst = resolve
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const handle = await startCompanionTalk(baseCallbacks(), {
+      listProviders: async () => ({ items: [realtime] }),
+      capture: async opts => {
+        emit = opts.onFrame
+        return {
+          stop: async () => {},
+          setMuted: () => {},
+          contextSampleRate: () => 16000,
+          flush: () => {},
+          attachExtraStream: () => {},
+        }
+      },
+      talk: {
+        start: async () => ({
+          talkId: 'talk-1',
+          streamId: sessionId,
+          sessionId,
+          done: Promise.resolve(),
+          // First append never resolves until released: this pins one frame in
+          // flight so every later frame stacks up in the bounded send queue.
+          append: async (pcm: string) => {
+            appended.push(pcm)
+            await firstAppend
+            return true
+          },
+          cancel: async () => {},
+        }),
+      },
+    })
+    expect(handle).toBeDefined()
+
+    // 200 frames captured while the single in-flight append is stalled.
+    const total = 200
+    for (let i = 0; i < total; i += 1) emit(frame(`f${i}`))
+    await Promise.resolve()
+
+    // Exactly one frame reached append (in flight); the queue holds at most 64.
+    expect(appended).toEqual(['f0'])
+    // The overflow warning fired at least once and reports a running total.
+    expect(warn).toHaveBeenCalled()
+    expect(warn.mock.calls.at(-1)?.[0]).toMatch(/^\[talk\] send queue overflow, dropped \d+ frames$/)
+
+    // Release the stall and let the queue drain; the newest frames survive,
+    // the oldest (beyond f0 + the 64 kept) were dropped.
+    releaseFirst()
+    for (let guard = 0; guard < total + 10; guard += 1) await Promise.resolve()
+
+    // f0 was sent first; the tail kept is the most recent MAX_QUEUED_FRAMES.
+    expect(appended[0]).toBe('f0')
+    expect(appended.at(-1)).toBe(`f${total - 1}`)
+    // Total appended = 1 (in flight) + the last MAX_QUEUED_FRAMES retained.
+    expect(appended.length).toBe(1 + MAX_QUEUED_FRAMES)
+    // The gap proves drop-oldest: f1..f(total-64-1) were discarded.
+    expect(appended).not.toContain('f1')
+
+    warn.mockRestore()
+    await handle?.stop()
+  })
+
+  test('sends frame by frame with no drops when appends keep up', async () => {
+    let emit!: FrameCb
+    const appended: string[] = []
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const handle = await startCompanionTalk(baseCallbacks(), {
+      listProviders: async () => ({ items: [realtime] }),
+      capture: async opts => {
+        emit = opts.onFrame
+        return {
+          stop: async () => {},
+          setMuted: () => {},
+          contextSampleRate: () => 16000,
+          flush: () => {},
+          attachExtraStream: () => {},
+        }
+      },
+      talk: {
+        start: async () => ({
+          talkId: 'talk-1',
+          streamId: sessionId,
+          sessionId,
+          done: Promise.resolve(),
+          append: async (pcm: string) => {
+            appended.push(pcm)
+            return true
+          },
+          cancel: async () => {},
+        }),
+      },
+    })
+    expect(handle).toBeDefined()
+
+    for (let i = 0; i < 10; i += 1) {
+      emit(frame(`f${i}`))
+      // Let the in-flight append settle before the next frame arrives.
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+
+    expect(appended).toEqual(Array.from({ length: 10 }, (_, i) => `f${i}`))
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+    await handle?.stop()
   })
 })

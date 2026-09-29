@@ -14,7 +14,7 @@ import (
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/mcp6"
 )
 
@@ -44,24 +44,24 @@ type parallelMcpAdapter struct {
 	turn         int
 }
 
-func (a *parallelMcpAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (a *parallelMcpAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (a *parallelMcpAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (a *parallelMcpAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (a *parallelMcpAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+func (a *parallelMcpAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	if a.turn == 0 {
 		a.turn++
-		return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{
 			{ID: "call-1", Name: a.toolA, Arguments: []byte(`{"n":1}`)},
 			{ID: "call-2", Name: a.toolB, Arguments: []byte(`{"n":2}`)},
 		}}}, nil
 	}
-	if err := emit(gateway.Delta{Text: "parallel done"}); err != nil {
-		return gateway.Response{}, err
+	if err := emit(llmadapter.Delta{Text: "parallel done"}); err != nil {
+		return llmadapter.Response{}, err
 	}
-	return gateway.Response{Usage: gateway.Usage{OutputTokens: 2, TotalTokens: 2}}, nil
+	return llmadapter.Response{Usage: llmadapter.Usage{OutputTokens: 2, TotalTokens: 2}}, nil
 }
 
 func TestParallelMcpCallsAreSerialized(t *testing.T) {
@@ -108,7 +108,7 @@ func TestParallelMcpCallsAreSerialized(t *testing.T) {
 		toolA: "mcp_" + endpoint.ID + "_lookup_slow",
 		toolB: "mcp_" + endpoint.ID + "_lookup_fast",
 	}
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) { return adapter, nil })
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	state := &streamState{cancel: cancel, state: streamRunning}
@@ -124,7 +124,7 @@ func TestParallelMcpCallsAreSerialized(t *testing.T) {
 			}
 		}
 	}()
-	req := gateway.Request{Model: "m", Tools: e.mcpToolDefinitions()}
+	req := llmadapter.Request{Model: "m", Tools: e.mcpToolDefinitions()}
 	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, req, func(event bridge.Event) error { events <- event; return nil }, "")
 	select {
 	case <-done:
@@ -143,28 +143,28 @@ func TestParallelMcpCallsAreSerialized(t *testing.T) {
 // must run inline (never pre-started) so the approval gate fires.
 type writeGateAdapter struct{ turn int }
 
-func (a *writeGateAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (a *writeGateAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (a *writeGateAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (a *writeGateAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (a *writeGateAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+func (a *writeGateAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	if a.turn == 0 {
 		a.turn++
-		return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{
 			{ID: "call-1", Name: "workspace.write", Arguments: []byte(`{"path":"out.txt","content":"x"}`)},
 		}}}, nil
 	}
-	return gateway.Response{}, nil
+	return llmadapter.Response{}, nil
 }
 
 func TestWriteToolsNeverEnterFuturePool(t *testing.T) {
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) { return &writeGateAdapter{}, nil })
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return &writeGateAdapter{}, nil })
 	// Direct eligibility proof: mutating tools are excluded from the
 	// future map, so the approval gate below stays inline and reachable.
-	futures := startParallelToolFutures(context.Background(), e, executionModeApproval, "sess", []gateway.ToolCall{
+	futures := startParallelToolFutures(context.Background(), e, executionModeApproval, "sess", []llmadapter.ToolCall{
 		{ID: "call-1", Name: "workspace.write", Arguments: []byte(`{"path":"out.txt","content":"x"}`)},
 		{ID: "call-2", Name: "workspace.read", Arguments: []byte(`{"path":"in.txt"}`)},
 	})

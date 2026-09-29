@@ -61,7 +61,7 @@ func TestDesktopTypeFindAfterThenTypeAndSubmit(t *testing.T) {
 				{Role: "button", Name: "发送", Y: 500, H: 28},
 			}})
 			return Result{Output: string(raw)}, nil
-		case ccapp.ToolKeyboardType:
+		case ccapp.ToolKeyboardType, ccapp.ToolPaste:
 			var a struct {
 				Text string `json:"text"`
 			}
@@ -109,7 +109,7 @@ func TestDesktopTypeNamedEditThenSubmit(t *testing.T) {
 				{Role: "button", Name: "发送", Y: 500, H: 28},
 			}})
 			return Result{Output: string(raw)}, nil
-		case ccapp.ToolKeyboardType:
+		case ccapp.ToolKeyboardType, ccapp.ToolPaste:
 			var a struct {
 				Text string `json:"text"`
 			}
@@ -138,6 +138,9 @@ func TestDesktopTypeNamedEditThenSubmit(t *testing.T) {
 	if !strings.Contains(res.Output, `typed "330102199001011234" after "证件号码"`) || !strings.Contains(res.Output, "submitted") {
 		t.Fatalf("output %q", res.Output)
 	}
+	if !strings.Contains(res.Output, `"l0"`) || !strings.Contains(res.Output, `"kind":"field"`) {
+		t.Fatalf("desktop.type success must attach field l0: %q", res.Output)
+	}
 	if len(typed) == 0 || typed[len(typed)-1] != "330102199001011234" {
 		t.Fatalf("typed %v", typed)
 	}
@@ -158,7 +161,7 @@ func TestDesktopTypeRejectsUnverifiedWrite(t *testing.T) {
 				{Role: "edit", Name: "证件号码", Y: 80, H: 24},
 			}})
 			return Result{Output: string(raw)}, nil
-		case ccapp.ToolKeyboardType:
+		case ccapp.ToolKeyboardType, ccapp.ToolPaste:
 			var a struct {
 				Text string `json:"text"`
 			}
@@ -208,7 +211,7 @@ func TestDesktopTypeFindAfterIDCardNumber(t *testing.T) {
 			return result("focused"), nil
 		case ccapp.ToolObserveUI:
 			return Result{Output: `{"nodes":[]}`}, nil
-		case ccapp.ToolKeyboardType:
+		case ccapp.ToolKeyboardType, ccapp.ToolPaste:
 			var a struct {
 				Text string `json:"text"`
 			}

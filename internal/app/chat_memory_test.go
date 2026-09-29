@@ -13,7 +13,7 @@ import (
 	"github.com/lunitide/lunitide/internal/domain/memory"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/session"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/identity"
 	"github.com/lunitide/lunitide/internal/m8app"
 	"github.com/lunitide/lunitide/internal/memoryapp"
@@ -367,18 +367,18 @@ func TestWriteSessionLastMemoryCrossesCompanionAndPeople(t *testing.T) {
 
 type sessionLastCompleteAdapter struct{}
 
-func (sessionLastCompleteAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, nil
+func (sessionLastCompleteAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, nil
 }
-func (sessionLastCompleteAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, nil
+func (sessionLastCompleteAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, nil
 }
-func (sessionLastCompleteAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+func (sessionLastCompleteAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	text := "好，以后回答默认用中文，封面改深色。"
-	if err := emit(gateway.Delta{Text: text}); err != nil {
-		return gateway.Response{}, err
+	if err := emit(llmadapter.Delta{Text: text}); err != nil {
+		return llmadapter.Response{}, err
 	}
-	return gateway.Response{Message: gateway.Message{Content: text}}, nil
+	return llmadapter.Response{Message: llmadapter.Message{Content: text}}, nil
 }
 
 func TestChatStartWritesSessionLastBeforeCompleted(t *testing.T) {
@@ -388,7 +388,7 @@ func TestChatStartWritesSessionLastBeforeCompleted(t *testing.T) {
 	e.sessions = sessionGetStub{projectID: chatAttachmentProjectID}
 	e.memories = store
 	e.messages = spy
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return sessionLastCompleteAdapter{}, nil
 	})
 	events := make(chan bridge.Event, 16)
@@ -684,10 +684,10 @@ func TestChatStartInjectsConfirmedPrefsNotPending(t *testing.T) {
 	_ = prop
 	confirmPref(t, mem, "回答默认使用中文")
 
-	requests := make(chan gateway.Request, 1)
+	requests := make(chan llmadapter.Request, 1)
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
 	e.SetM8MemoryServices(mem)
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return chatAttachmentAdapter{requests: requests}, nil
 	})
 	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","messages":[{"role":"user","content":"这段代码怎么写注释"}]}`

@@ -1,5 +1,5 @@
 import{describe,expect,it}from'vitest'
-import{attachmentToken,composeChatPrompt,embedPendingAttachments,expertRefPrefix,parseAttachmentMentions,parseComposer,skillRefPrefix,splitLeadingRefs,splitSkillRefs,userBubbleParts}from'./composerParser'
+import{attachmentToken,composeChatPrompt,embedPendingAttachments,expertRefPrefix,messageToken,parseAttachmentMentions,parseComposer,skillRefPrefix,splitLeadingRefs,splitSkillRefs,userBubbleParts}from'./composerParser'
 const A='01ARZ3NDEKTSV4RRFFQ69G5FAV',S='01ARZ3NDEKTSV4RRFFQ69G5FAA'
 describe('composer parser',()=>{
  it('round trips stable ids',()=>expect(parseComposer(`${attachmentToken(A,'a.md')} explain`)).toEqual({text:'explain',contextRefs:[{type:'attachment',id:A}]}))
@@ -12,6 +12,9 @@ describe('composer parser',()=>{
  it('strips attachment tokens from the visible bubble text',()=>{
   expect(userBubbleParts(`${attachmentToken(A,'shot.png')} 看看这个图片`)).toEqual({skills:[],experts:[],mentions:[{id:A,label:'shot.png'}],text:'看看这个图片'})
  })
+ it('round trips message refs',()=>expect(parseComposer(`${messageToken(A,'我：上一句')} 继续`)).toEqual({text:'继续',contextRefs:[{type:'message',id:A}]}))
+ it('mixes attachment and message refs',()=>expect(parseComposer(`${attachmentToken(A,'a.md')} ${messageToken(S,'月汐：结论')} 看`)).toEqual({text:'看',contextRefs:[{type:'attachment',id:A},{type:'message',id:S}]}))
+ it('strips message tokens from the visible bubble text',()=>expect(userBubbleParts(`${messageToken(A,'我：问题')} 看看`).text).toBe('看看'))
 })
 describe('skill reference prefix',()=>{
   it('builds a prefix from referenced skills',()=>expect(skillRefPrefix([{displayName:'摘要',id:S}])).toBe(`[引用技能 摘要|${S}]\n`))

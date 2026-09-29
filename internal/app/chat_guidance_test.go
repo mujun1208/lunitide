@@ -4,13 +4,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 func TestInjectedGuidanceLabels(t *testing.T) {
-	req := gateway.Request{Messages: []gateway.Message{
-		{Role: gateway.RoleSystem, Content: "[身份记忆] 你叫月汐。\n\n[内置工作流] 开箱即用\n[仓库约定] AGENTS.md：Keep tests.\n[可用技能目录]\n- search"},
-		{Role: gateway.RoleUser, Content: "打开网易云"},
+	req := llmadapter.Request{Messages: []llmadapter.Message{
+		{Role: llmadapter.RoleSystem, Content: "[身份记忆] 你叫月汐。\n\n[内置工作流] 开箱即用\n[仓库约定] AGENTS.md：Keep tests.\n[可用技能目录]\n- search"},
+		{Role: llmadapter.RoleUser, Content: "打开网易云"},
 	}}
 	got := injectedGuidanceLabels(req)
 	joined := strings.Join(got, ",")
@@ -26,8 +26,8 @@ func TestInjectedGuidanceLabels(t *testing.T) {
 }
 
 func TestInjectedGuidanceLabelsEmpty(t *testing.T) {
-	req := gateway.Request{Messages: []gateway.Message{
-		{Role: gateway.RoleUser, Content: "hi"},
+	req := llmadapter.Request{Messages: []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "hi"},
 	}}
 	if labels := injectedGuidanceLabels(req); len(labels) != 0 {
 		t.Fatalf("labels = %v", labels)

@@ -12,6 +12,19 @@ import (
 	"github.com/lunitide/lunitide/internal/winexec"
 )
 
+func TestMediaPlayForegroundRequiresCCAndWindow(t *testing.T) {
+	_, err := executeMediaPlayForeground(context.Background(), nil, "s1", "晴天", "汽水", true, true)
+	if err == nil || !strings.Contains(err.Error(), "请在设置打开电脑控制后再播放") {
+		t.Fatalf("D-B1b: %v", err)
+	}
+	origFG := readForegroundFn
+	readForegroundFn = func() (string, string, error) { return "Lunitide", "lunitide.exe", nil }
+	t.Cleanup(func() { readForegroundFn = origFG })
+	if err := confirmMediaPlayerForeground("汽水"); err == nil || !strings.Contains(err.Error(), "播放器窗口不在前台") {
+		t.Fatalf("D-B1: %v", err)
+	}
+}
+
 func TestQueryIsKnownMusicAppResumesPlay(t *testing.T) {
 	if !queryIsKnownMusicApp("汽水音乐") || !queryIsKnownMusicApp("汽水") || !queryIsKnownMusicApp("网易云") {
 		t.Fatal("player names must resume with the media key")
@@ -217,7 +230,7 @@ func TestPlayArtistSearchClicksAResult(t *testing.T) {
 			_ = json.Unmarshal(args, &a)
 			clicked = a.Name
 			return result("clicked"), nil
-		case ccapp.ToolSetValue, ccapp.ToolPress, ccapp.ToolKeyboardType, ccapp.ToolKeyboardShortcut:
+		case ccapp.ToolSetValue, ccapp.ToolPress, ccapp.ToolKeyboardType, ccapp.ToolKeyboardShortcut, ccapp.ToolPaste:
 			searched = true
 			return result("ok"), nil
 		case ccapp.ToolObserveUI:
@@ -325,6 +338,9 @@ func TestExecuteMediaPlayJayChouUsesDesktopSearchNotWeb(t *testing.T) {
 
 	activateWindow = func(string) error { return errors.New("not running") }
 	t.Cleanup(func() { activateWindow = winexec.ActivateWindowMatching })
+	origFG := readForegroundFn
+	readForegroundFn = func() (string, string, error) { return "网易云音乐", "cloudmusic.exe", nil }
+	t.Cleanup(func() { readForegroundFn = origFG })
 
 	exe := `C:\fake\Netease\CloudMusic\cloudmusic.exe`
 	origLookup := lookupKnownAppExecutables
@@ -361,7 +377,7 @@ func TestExecuteMediaPlayJayChouUsesDesktopSearchNotWeb(t *testing.T) {
 			typed = a.Value
 			searched = true
 			return result("ok"), nil
-		case ccapp.ToolPress, ccapp.ToolKeyboardType, ccapp.ToolKeyboardShortcut:
+		case ccapp.ToolPress, ccapp.ToolKeyboardType, ccapp.ToolKeyboardShortcut, ccapp.ToolPaste:
 			searched = true
 			return result("ok"), nil
 		case ccapp.ToolObserveUI:
@@ -431,7 +447,7 @@ func TestFillSearchFieldTypesAfterSetValueNoOp(t *testing.T) {
 		switch tool {
 		case ccapp.ToolSetValue:
 			return result("ok"), nil
-		case ccapp.ToolKeyboardType:
+		case ccapp.ToolKeyboardType, ccapp.ToolPaste:
 			var a struct {
 				Text string `json:"text"`
 			}

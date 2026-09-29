@@ -9,6 +9,7 @@ import (
 	"io"
 	"sync"
 
+	"github.com/lunitide/lunitide/internal/browser"
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/webviewhost"
 )
@@ -84,6 +85,13 @@ func (m *Manager) Open(ctx context.Context, rawURL string) (string, error) {
 	// Validate before taking down a working host.
 	url, err := webviewhost.NormalizeBrowserURL(rawURL)
 	if err != nil {
+		return "", err
+	}
+	// S-06: NormalizeBrowserURL enforces HTTPS/host/port shape but does not
+	// classify IP ranges. Run the SSRF policy gate so loopback, RFC1918,
+	// link-local (incl. cloud metadata 169.254.169.254) and other reserved
+	// literals are refused before we spawn a browser host that would fetch them.
+	if err = browser.CheckURL(url); err != nil {
 		return "", err
 	}
 	m.mu.Lock()

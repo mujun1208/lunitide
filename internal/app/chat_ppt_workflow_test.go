@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/bridge"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 func TestLooksLikePptTask(t *testing.T) {
@@ -43,7 +43,7 @@ func TestPptGenBlockedUntilResearch(t *testing.T) {
 
 func TestPptStageNudgeVisibleInThinking(t *testing.T) {
 	turn := &chatTurnCheckpoint{PptActive: true}
-	req := gateway.Request{Model: "m"}
+	req := llmadapter.Request{Model: "m"}
 	var thinking []string
 	if !shouldContinuePptTurn(turn, false) {
 		t.Fatal("active PPT turn must keep going until pptx.gen")
@@ -60,7 +60,7 @@ func TestPptStageNudgeVisibleInThinking(t *testing.T) {
 	if !strings.Contains(strings.Join(thinking, ""), "PPT 流程") {
 		t.Fatalf("stage must be visible in 思考: %v", thinking)
 	}
-	if len(req.Messages) == 0 || req.Messages[0].Role != gateway.RoleSystem {
+	if len(req.Messages) == 0 || req.Messages[0].Role != llmadapter.RoleSystem {
 		t.Fatal("stage nudge must be a system message")
 	}
 	turn.PptGenerated = true
@@ -70,7 +70,7 @@ func TestPptStageNudgeVisibleInThinking(t *testing.T) {
 }
 
 func TestStartPptWorkflowInjectsPipeline(t *testing.T) {
-	req := gateway.Request{Model: "m", Messages: []gateway.Message{{Role: gateway.RoleUser, Content: "做一份介绍 PPT"}}}
+	req := llmadapter.Request{Model: "m", Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "做一份介绍 PPT"}}}
 	turn := &chatTurnCheckpoint{Goal: "做一份介绍 PPT"}
 	var banners []string
 	startPptWorkflow(&req, turn, func(event bridge.Event) error {

@@ -7,13 +7,13 @@ import (
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/bridge"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
-func injectedGuidanceDigest(req gateway.Request) (systemBytes int, sha8 string, toolCount int) {
+func injectedGuidanceDigest(req llmadapter.Request) (systemBytes int, sha8 string, toolCount int) {
 	h := sha256.New()
 	for _, m := range req.Messages {
-		if m.Role != gateway.RoleSystem {
+		if m.Role != llmadapter.RoleSystem {
 			continue
 		}
 		systemBytes += len(m.Content)
@@ -24,12 +24,12 @@ func injectedGuidanceDigest(req gateway.Request) (systemBytes int, sha8 string, 
 	return systemBytes, hex.EncodeToString(sum[:8]), len(req.Tools)
 }
 
-func logInjectedGuidance(sessionID string, companion bool, req gateway.Request) {
+func logInjectedGuidance(sessionID string, companion bool, req llmadapter.Request) {
 	n, digest, tools := injectedGuidanceDigest(req)
 	log.Printf("chat.guidance session=%s companion=%v system_bytes=%d sha256_8=%s tools=%d", sessionID, companion, n, digest, tools)
 }
 
-func injectedGuidanceLabels(req gateway.Request) []string {
+func injectedGuidanceLabels(req llmadapter.Request) []string {
 	var labels []string
 	add := func(label string) {
 		for _, existing := range labels {
@@ -43,7 +43,7 @@ func injectedGuidanceLabels(req gateway.Request) []string {
 		labels = append(labels, label)
 	}
 	for _, m := range req.Messages {
-		if m.Role != gateway.RoleSystem {
+		if m.Role != llmadapter.RoleSystem {
 			continue
 		}
 		c := m.Content
@@ -63,7 +63,7 @@ func injectedGuidanceLabels(req gateway.Request) []string {
 	return labels
 }
 
-func emitInjectedGuidance(send func(bridge.Event) error, req gateway.Request) {
+func emitInjectedGuidance(send func(bridge.Event) error, req llmadapter.Request) {
 	labels := injectedGuidanceLabels(req)
 	if len(labels) == 0 || send == nil {
 		return

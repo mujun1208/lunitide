@@ -1,11 +1,11 @@
 import type { ModelDTO, ProviderDTO } from '../generated/bridge'
 import { VOLC_ASR_RESOURCE_ID, VOLC_DEFAULT_VOICE_ID, VOLC_TTS_RESOURCE_ID, isVolcSpeakerId, isVolcTtsResourceId, nextUnusedVolcSpeaker } from '../session/companion/volcVoices'
 
-export type ModelKind = 'llm' | 'vision' | 'image' | 'video' | 'voice'
-export type PersistKind = 'llm' | 'vision' | 'image' | 'video' | 'asr' | 'tts'
+export type ModelKind = 'llm' | 'vision' | 'image' | 'video' | 'voice' | 'embedding' | 'gui'
+export type PersistKind = 'llm' | 'vision' | 'image' | 'video' | 'asr' | 'tts' | 'embedding' | 'gui'
 export type VoiceRole = 'asr' | 'tts'
 
-export const MODEL_KINDS: readonly ModelKind[] = ['llm', 'vision', 'image', 'video', 'voice']
+export const MODEL_KINDS: readonly ModelKind[] = ['llm', 'vision', 'image', 'video', 'voice', 'embedding', 'gui']
 export const VOICE_ROLES: readonly VoiceRole[] = ['asr', 'tts']
 
 export const MODEL_KIND_LABELS: Record<ModelKind, string> = {
@@ -14,6 +14,8 @@ export const MODEL_KIND_LABELS: Record<ModelKind, string> = {
   image: '生图模型',
   video: '生视频模型',
   voice: '语音模型',
+  embedding: '向量模型',
+  gui: 'GUI 模型',
 }
 
 export const VOICE_ROLE_LABELS: Record<VoiceRole, string> = {
@@ -26,7 +28,7 @@ export function persistKind(model: Pick<ModelDTO, 'kind'> | { kind?: string }): 
   const raw = typeof model.kind === 'string' ? model.kind : ''
   if (raw === 'tts') return 'tts'
   if (raw === 'asr' || raw === 'voice') return 'asr'
-  if (raw === 'vision' || raw === 'image' || raw === 'video') return raw
+  if (raw === 'vision' || raw === 'image' || raw === 'video' || raw === 'embedding' || raw === 'gui') return raw
   return 'llm'
 }
 
@@ -128,6 +130,21 @@ export function isCompanionFlashModelId(modelId: string): boolean {
 export function isTalkRealtimeModelId(modelId: string, displayName = ''): boolean {
   const blob = `${modelId} ${displayName}`.trim()
   return blob !== '' && COMPANION_REALTIME_RE.test(blob)
+}
+
+/**
+ * UX-04 主动门控：推断模型是否支持 OpenAI 风格的 function/tool calling。
+ * 采用保守的「拒绝名单」——默认视为支持，仅对已知只出思维链、会 400 拒绝 tools 的
+ * 推理模型（deepseek-reasoner / deepseek-r1 等）返回 false。返回 false 时，发送端应
+ * 跳过工具定义注入，改由纯文本前缀描述可用技能（见 composeChatPrompt）。
+ */
+const NO_FUNCTION_CALLING_RE = /deepseek[-_\s]?r(?:easoner|1)\b/i
+
+export function modelSupportsFunctionCalling(model?: { modelId?: string; displayName?: string } | null): boolean {
+  const id = model?.modelId?.trim()
+  if (!id) return true
+  const blob = `${id} ${model?.displayName ?? ''}`
+  return !NO_FUNCTION_CALLING_RE.test(blob)
 }
 
 /** First listed openai_compatible realtime/live model. Does not invent ids. */

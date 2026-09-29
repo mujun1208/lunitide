@@ -63,6 +63,10 @@ type Skill struct {
 	MinEngineVersion *string        `json:"minEngineVersion,omitempty"`
 	CreatedAt       time.Time       `json:"createdAt"`
 	UpdatedAt       time.Time       `json:"updatedAt"`
+	// Rev is a monotonically increasing optimistic-concurrency counter,
+	// incremented on every field/status update. Callers read it and pass it
+	// back to drive a compare-and-set that rejects lost updates.
+	Rev             int64           `json:"rev"`
 }
 
 // Validate checks invariants for a skill.

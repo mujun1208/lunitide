@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/domain/m7flow"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/m7app"
 	storage "github.com/lunitide/lunitide/internal/storage/sqlite"
 	"github.com/lunitide/lunitide/internal/toolruntime"
@@ -22,35 +22,35 @@ import (
 type subagentFakeAdapter struct {
 	calls     int
 	seenTools []string
-	seenMsgs  []gateway.Message
+	seenMsgs  []llmadapter.Message
 }
 
-func (a *subagentFakeAdapter) Complete(_ context.Context, _ []byte, req gateway.Request) (gateway.Response, error) {
+func (a *subagentFakeAdapter) Complete(_ context.Context, _ []byte, req llmadapter.Request) (llmadapter.Response, error) {
 	a.calls++
 	if a.calls == 1 {
 		for _, t := range req.Tools {
 			a.seenTools = append(a.seenTools, t.Name)
 		}
 		a.seenMsgs = req.Messages
-		return gateway.Response{
-			Message: gateway.Message{ToolCalls: []gateway.ToolCall{{
+		return llmadapter.Response{
+			Message: llmadapter.Message{ToolCalls: []llmadapter.ToolCall{{
 				ID: "sub-1", Name: "workspace.list", Arguments: json.RawMessage(`{"path":"."}`),
 			}}},
-			Usage: gateway.Usage{TotalTokens: 10},
+			Usage: llmadapter.Usage{TotalTokens: 10},
 		}, nil
 	}
-	return gateway.Response{
-		Message: gateway.Message{Content: "research report: surveyed the workspace"},
-		Usage:   gateway.Usage{TotalTokens: 5},
+	return llmadapter.Response{
+		Message: llmadapter.Message{Content: "research report: surveyed the workspace"},
+		Usage:   llmadapter.Usage{TotalTokens: 5},
 	}, nil
 }
 
-func (a *subagentFakeAdapter) Stream(context.Context, []byte, gateway.Request, func(gateway.Delta) error) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (a *subagentFakeAdapter) Stream(context.Context, []byte, llmadapter.Request, func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
 
-func (a *subagentFakeAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (a *subagentFakeAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
 
 func newSubagentChatEngine(t *testing.T) *Engine {
@@ -134,7 +134,7 @@ func TestSubagentSpawnRunsReadOnlySessionAndReportsOnce(t *testing.T) {
 		t.Fatal("sub-session received no tools")
 	}
 	// System prompt pins read-only semantics and the purpose is the user turn.
-	if len(adapter.seenMsgs) < 2 || adapter.seenMsgs[0].Role != gateway.RoleSystem || !strings.Contains(adapter.seenMsgs[0].Content, "read-only") {
+	if len(adapter.seenMsgs) < 2 || adapter.seenMsgs[0].Role != llmadapter.RoleSystem || !strings.Contains(adapter.seenMsgs[0].Content, "read-only") {
 		t.Fatalf("sub-session messages = %+v", adapter.seenMsgs)
 	}
 	// The run is durable and terminal: join re-reads the same single report.
@@ -202,7 +202,7 @@ type parallelFakeAdapter struct {
 	release chan struct{}
 }
 
-func (a *parallelFakeAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
+func (a *parallelFakeAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
 	cur := atomic.AddInt64(&a.active, 1)
 	for {
 		peak := atomic.LoadInt64(&a.peak)
@@ -219,24 +219,24 @@ func (a *parallelFakeAdapter) Complete(context.Context, []byte, gateway.Request)
 		time.Sleep(120 * time.Millisecond)
 	}
 	atomic.AddInt64(&a.active, -1)
-	return gateway.Response{
-		Message: gateway.Message{Content: "parallel report"},
-		Usage:   gateway.Usage{TotalTokens: 5},
+	return llmadapter.Response{
+		Message: llmadapter.Message{Content: "parallel report"},
+		Usage:   llmadapter.Usage{TotalTokens: 5},
 	}, nil
 }
 
-func (a *parallelFakeAdapter) Stream(context.Context, []byte, gateway.Request, func(gateway.Delta) error) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (a *parallelFakeAdapter) Stream(context.Context, []byte, llmadapter.Request, func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
 
-func (a *parallelFakeAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (a *parallelFakeAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
 
 func TestParallelSubagentSpawnsOverlapInOneTurn(t *testing.T) {
 	e := newSubagentChatEngine(t)
 	adapter := &parallelFakeAdapter{entered: make(chan struct{}, 2), release: make(chan struct{})}
-	calls := []gateway.ToolCall{
+	calls := []llmadapter.ToolCall{
 		{ID: "s1", Name: "subagent.spawn", Arguments: json.RawMessage(`{"purpose":"task one"}`)},
 		{ID: "s2", Name: "subagent.spawn", Arguments: json.RawMessage(`{"purpose":"task two"}`)},
 		{ID: "j1", Name: "subagent.join", Arguments: json.RawMessage(`{"subagentId":"01ARZ3NDEKTSV4RRFFQ69G5FAVX"}`)},
@@ -277,9 +277,9 @@ func TestParallelSubagentSpawnsOverlapInOneTurn(t *testing.T) {
 func TestParallelSubagentFuturesBoundedAtThree(t *testing.T) {
 	e := newSubagentChatEngine(t)
 	adapter := &parallelFakeAdapter{}
-	calls := make([]gateway.ToolCall, 5)
+	calls := make([]llmadapter.ToolCall, 5)
 	for i := range calls {
-		calls[i] = gateway.ToolCall{ID: "p" + string(rune('0'+i)), Name: "subagent.spawn", Arguments: json.RawMessage(`{"purpose":"p"}`)}
+		calls[i] = llmadapter.ToolCall{ID: "p" + string(rune('0'+i)), Name: "subagent.spawn", Arguments: json.RawMessage(`{"purpose":"p"}`)}
 	}
 	futures := startSubagentFutures(context.Background(), e, adapter, nil, "m", subTestSession, calls, subTestPolicy())
 	if len(futures) != maxParallelSubagentSpawns {
@@ -301,7 +301,7 @@ func TestSubagentToolCallsKeepCallOrder(t *testing.T) {
 		t.Fatal("explore profile missing")
 	}
 	allowed := map[string]bool{"workspace.list": true, "workspace.read": true}
-	calls := []gateway.ToolCall{
+	calls := []llmadapter.ToolCall{
 		{ID: "a", Name: "workspace.list", Arguments: json.RawMessage(`{"path":"."}`)},
 		{ID: "b", Name: "workspace.write", Arguments: json.RawMessage(`{"path":"x","content":"y"}`)},
 		{ID: "c", Name: "workspace.list", Arguments: json.RawMessage(`{"path":"."}`)},
@@ -315,7 +315,7 @@ func TestSubagentToolCallsKeepCallOrder(t *testing.T) {
 		if m.ToolCallID != calls[i].ID {
 			t.Fatalf("message %d carries id %q, want %q", i, m.ToolCallID, calls[i].ID)
 		}
-		if m.Role != gateway.RoleTool {
+		if m.Role != llmadapter.RoleTool {
 			t.Fatalf("message %d role = %q", i, m.Role)
 		}
 	}
@@ -334,29 +334,29 @@ type neverFinishesAdapter struct {
 	toollessReq bool
 }
 
-func (a *neverFinishesAdapter) Complete(_ context.Context, _ []byte, req gateway.Request) (gateway.Response, error) {
+func (a *neverFinishesAdapter) Complete(_ context.Context, _ []byte, req llmadapter.Request) (llmadapter.Response, error) {
 	a.calls++
 	if len(req.Tools) == 0 {
 		a.toollessReq = true
-		return gateway.Response{
-			Message: gateway.Message{Content: "partial findings: read 3 files, the config still needs checking"},
-			Usage:   gateway.Usage{TotalTokens: 7},
+		return llmadapter.Response{
+			Message: llmadapter.Message{Content: "partial findings: read 3 files, the config still needs checking"},
+			Usage:   llmadapter.Usage{TotalTokens: 7},
 		}, nil
 	}
-	return gateway.Response{
-		Message: gateway.Message{ToolCalls: []gateway.ToolCall{{
+	return llmadapter.Response{
+		Message: llmadapter.Message{ToolCalls: []llmadapter.ToolCall{{
 			ID: "loop", Name: "workspace.list", Arguments: json.RawMessage(`{"path":"."}`),
 		}}},
-		Usage: gateway.Usage{TotalTokens: 3},
+		Usage: llmadapter.Usage{TotalTokens: 3},
 	}, nil
 }
 
-func (a *neverFinishesAdapter) Stream(context.Context, []byte, gateway.Request, func(gateway.Delta) error) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (a *neverFinishesAdapter) Stream(context.Context, []byte, llmadapter.Request, func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
 
-func (a *neverFinishesAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (a *neverFinishesAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
 
 // Hitting the step ceiling used to throw away every tool result the subagent

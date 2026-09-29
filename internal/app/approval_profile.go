@@ -125,14 +125,11 @@ func companionFullDiskWrite(name string) bool {
 	}
 }
 
-// ccStandingApprovedTool lists the launch-shaped desktop tools that a standing
-// computer-control enable pre-authorizes for 月伴: opening a named app or file
-// and starting playback. They cannot click arbitrary pixels or type into a
-// window, so treating the operator's CC enable as the approval removes the
-// voice-mode 思考中 stall without widening the truly sensitive surface.
+// ccStandingApprovedTool lists the desktop tools that a standing computer-control
+// enable pre-authorizes for 月伴: open, play, type, and click. Raw cc.* stays gated.
 func ccStandingApprovedTool(name string) bool {
 	switch strings.TrimSpace(name) {
-	case "desktop.open", "media.play":
+	case "desktop.open", "media.play", "desktop.type", "computer.act":
 		return true
 	default:
 		return false

@@ -55,6 +55,8 @@ type KBTx interface {
 	ListKBDocumentsByCollection(collectionID string) ([]m8core.KBDocument, error)
 	PutKBChunks([]m8core.KBChunk) error
 	GetKBChunk(chunkID string) (m8core.KBChunk, error)
+	UpdateKBChunkEmbedding(chunkID string, blob []byte) error
+	ListKBChunkEmbeddings(scopeID string) ([]KBChunkEmbedding, error)
 	SearchKBChunkFTS(scopeID, query string, limit int) ([]KBSearchHit, error)
 	CountKBStats(collectionID string) (docs, ready, chunks int, err error)
 	GetGrowthPath(expertID string) (GrowthPath, bool, error)
@@ -89,6 +91,16 @@ type KBService struct {
 	subject   string
 	indexer   KBIndexer
 	projector KBChunkProjector
+	embedder  DenseEmbedFunc
+}
+
+// DenseEmbedFunc embeds texts outside any SQLite transaction.
+type DenseEmbedFunc func(ctx context.Context, texts []string) ([][]float32, error)
+
+// KBChunkEmbedding is one ready chunk plus its optional dense blob.
+type KBChunkEmbedding struct {
+	Chunk    m8core.KBChunk
+	Document m8core.KBDocument
 }
 
 // NewKBService wires the slice-2 service.
@@ -104,6 +116,14 @@ func (s *KBService) SetIndexer(f KBIndexer) { s.indexer = f }
 
 // SetChunkProjector enables the body-carrying projection path.
 func (s *KBService) SetChunkProjector(f KBChunkProjector) { s.projector = f }
+
+// SetDenseEmbedder wires optional /embeddings. Nil keeps FTS-only search
+// and leaves kb_chunks.embedding NULL after ingest.
+func (s *KBService) SetDenseEmbedder(f DenseEmbedFunc) {
+	if s != nil {
+		s.embedder = f
+	}
+}
 
 // KBUpsertInput is the kb.upsertDocument command.
 type KBUpsertInput struct {
@@ -173,6 +193,7 @@ func (s *KBService) UpsertDocument(ctx context.Context, in KBUpsertInput) (KBUps
 	}
 	now := s.clock.Now().UTC().Format(time.RFC3339)
 	var out KBUpsertResult
+	var pendingEmbed []m8core.KBChunk
 	err := s.uow.TransactKB(ctx, func(tx KBTx) error {
 		latest, has, err := tx.GetKBLatestDocument(in.DocumentID)
 		if err != nil {
@@ -228,6 +249,7 @@ func (s *KBService) UpsertDocument(ctx context.Context, in KBUpsertInput) (KBUps
 					ierr = err
 				} else {
 					preview = previewBodies(proj.Chunks)
+					pendingEmbed = append([]m8core.KBChunk(nil), proj.Chunks...)
 				}
 			}
 		} else {
@@ -279,6 +301,7 @@ func (s *KBService) UpsertDocument(ctx context.Context, in KBUpsertInput) (KBUps
 	if err != nil {
 		return out, err
 	}
+	s.embedChunksAfterCommit(ctx, pendingEmbed)
 	return out, nil
 }
 

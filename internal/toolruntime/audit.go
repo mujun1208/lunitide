@@ -31,9 +31,13 @@ func (r *Runtime) ensureAudit() error {
 		hook_id TEXT NOT NULL, event TEXT NOT NULL, decision TEXT NOT NULL DEFAULT '',
 		args_digest TEXT NOT NULL DEFAULT '', result_digest TEXT NOT NULL DEFAULT '',
 		created_at TEXT NOT NULL);
+	CREATE TABLE IF NOT EXISTS full_disk_confirmations(
+		id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, action TEXT NOT NULL,
+		created_at TEXT NOT NULL);
 	CREATE INDEX IF NOT EXISTS ix_chat_tool_calls_status ON chat_tool_calls(status, expires_at);
 	CREATE INDEX IF NOT EXISTS ix_tool_approval_rules_match ON chat_tool_approval_rules(tool_name, args_digest, scope);
-	CREATE INDEX IF NOT EXISTS ix_chat_tool_hook_events_session ON chat_tool_hook_events(session_id, id);`); err != nil {
+	CREATE INDEX IF NOT EXISTS ix_chat_tool_hook_events_session ON chat_tool_hook_events(session_id, id);
+	CREATE INDEX IF NOT EXISTS ix_full_disk_confirmations_session ON full_disk_confirmations(session_id, id);`); err != nil {
 		db.Close()
 		return err
 	}

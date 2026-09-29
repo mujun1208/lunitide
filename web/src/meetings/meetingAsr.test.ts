@@ -32,7 +32,8 @@ vi.mock('./meetingCapture', async importOriginal => {
 })
 
 import { MEETING_TURN_END_SILENCE_MS, TURN_END_SILENCE_MS, turnEndWindows } from '../session/companion/speech'
-import { captureStateNotice, audioSourceLabel, decodeMeetingPcmBase64, MEETING_CATCHUP_HINT, meetingAsrRuntimeLine, meetingSystemAudioMissing, mixMeetingPcmS16le, noteLoopbackEnergy, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, shouldFallbackLiveCaption, startMeetingSpeech } from './meetingAsr'
+import { captureStateNotice, audioSourceLabel, decodeMeetingPcmBase64, MEETING_CATCHUP_HINT, MEETING_VOLC_END_WINDOW_MS, meetingAsrRuntimeLine, meetingSystemAudioMissing, mixMeetingPcmS16le, noteLoopbackEnergy, planHasLiveSystemAudio, prepareMeetingCapture, recoverMeetingSystemAudio, shouldFallbackLiveCaption, startMeetingSpeech } from './meetingAsr'
+import { MEETING_MERGE_GAP_MS } from './meetingText'
 import { NO_SYSTEM_AUDIO_NOTICE } from './meetingCapture'
 
 const extra = { getAudioTracks: () => [{ kind: 'audio', readyState: 'live' }], getTracks: () => [] } as unknown as MediaStream
@@ -58,6 +59,18 @@ describe('startMeetingSpeech', () => {
     await startMeetingSpeech({ onFinal: vi.fn(), onError: vi.fn(), listen: 'volc', volcProviderId: 'p1' })
     expect(asr.volc).toHaveBeenCalledOnce()
     expect(asr.web).not.toHaveBeenCalled()
+    expect(asr.volc.mock.calls[0][0].endWindowMs).toBe(MEETING_VOLC_END_WINDOW_MS)
+    expect(MEETING_VOLC_END_WINDOW_MS).toBe(400)
+    expect(MEETING_MERGE_GAP_MS).toBe(400)
+  })
+
+  test('volc live captions isolate the current clause from a full dump', async () => {
+    const onInterim = vi.fn()
+    await startMeetingSpeech({ onFinal: vi.fn(), onInterim, onError: vi.fn(), listen: 'volc', volcProviderId: 'p1' })
+    const opts = asr.volc.mock.calls[0][0]
+    opts.onFinal('今天合肥天气怎么样')
+    opts.onInterim('今天合肥天气怎么样。算了放首歌')
+    expect(onInterim).toHaveBeenLastCalledWith('算了放首歌')
   })
 
   test('omitted listen uses system Web Speech even when sherpa is ready', async () => {
@@ -91,6 +104,7 @@ describe('startMeetingSpeech', () => {
     expect(asr.web).not.toHaveBeenCalled()
     expect(asr.local.mock.calls[0][0].holdUtterance).toBe(true)
     expect(MEETING_CATCHUP_HINT).toMatch(/补转写只用本机/)
+    expect(MEETING_CATCHUP_HINT).toMatch(/系统声会在停止后补/)
   })
 
   test('cleans fillers and domain terms on committed meeting lines', async () => {

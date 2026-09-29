@@ -12,28 +12,34 @@ import (
 	"github.com/lunitide/lunitide/internal/contextapp"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/skill"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 
 func TestCompanionSpeakFallbackUsesGenericVoiceLine(t *testing.T) {
-	out := companionSpeakFallback(gateway.Response{
-		Message:   gateway.Message{Content: ""},
+	out := companionSpeakFallback(llmadapter.Response{
+		Message:   llmadapter.Message{Content: ""},
 		Reasoning: "嗯，你好呀！我在呢。后面还有很长的内心独白…",
 	})
 	if out != "我在呢，稍等我一下。" {
 		t.Fatalf("got %q", out)
 	}
-	if companionSpeakFallback(gateway.Response{Message: gateway.Message{Content: "直接回答。"}}) != "直接回答。" {
+	if companionSpeakFallback(llmadapter.Response{Message: llmadapter.Message{Content: "直接回答。"}}) != "直接回答。" {
 		t.Fatal("content should win")
 	}
 }
 
 func TestCompanionFastPathCapsTokensAndKeepsVoice(t *testing.T) {
-	requests := make(chan gateway.Request, 1)
+	requests := make(chan llmadapter.Request, 1)
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	tools, err := toolruntime.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { tools.Close() })
+	e.SetToolRuntime(tools)
 	e.skills = &skillCatalogStub{items: []skill.Skill{catalogTestSkill("demo", "unused catalog", `{}`)}}
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return chatAttachmentAdapter{requests: requests}, nil
 	})
 	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","companion":true,"messages":[{"role":"user","content":"今晚天气"}]}`
@@ -48,7 +54,7 @@ func TestCompanionFastPathCapsTokensAndKeepsVoice(t *testing.T) {
 	if !req.DisableReasoning {
 		t.Fatal("companion must disable reasoning for first-token latency")
 	}
-	if len(req.Messages) == 0 || req.Messages[0].Role != gateway.RoleSystem {
+	if len(req.Messages) == 0 || req.Messages[0].Role != llmadapter.RoleSystem {
 		t.Fatalf("messages = %#v", req.Messages)
 	}
 	system := req.Messages[0].Content
@@ -64,19 +70,22 @@ func TestCompanionFastPathCapsTokensAndKeepsVoice(t *testing.T) {
 	if !strings.Contains(system, "不要原样复读") {
 		t.Fatalf("companion must not echo the user verbatim: %q", system)
 	}
-	if strings.Contains(system, "不要 web.fetch") {
-		t.Fatalf("idle weather talk must not ship the tools weather clause: %q", system)
+	if !strings.Contains(system, "不要只说等一下就停") {
+		t.Fatalf("companion tools instruction missing: %q", system)
 	}
-	if strings.Contains(system, "可用技能目录") {
-		t.Fatalf("idle companion injected skill catalog: %q", system)
+	foundSearch := false
+	for _, def := range req.Tools {
+		if def.Name == "web.search" {
+			foundSearch = true
+		}
 	}
-	if len(req.Tools) != 0 {
-		t.Fatalf("idle companion attached tools: %#v", req.Tools)
+	if !foundSearch {
+		t.Fatalf("R1 weather must attach web.search: %#v", req.Tools)
 	}
 }
 
 func TestCompanionAttachesFullToolset(t *testing.T) {
-	requests := make(chan gateway.Request, 1)
+	requests := make(chan llmadapter.Request, 1)
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
 	tools, err := toolruntime.New(t.TempDir())
 	if err != nil {
@@ -85,7 +94,7 @@ func TestCompanionAttachesFullToolset(t *testing.T) {
 	t.Cleanup(func() { tools.Close() })
 	e.SetToolRuntime(tools)
 	e.skills = &skillCatalogStub{items: []skill.Skill{catalogTestSkill("demo", "unused", `{}`)}}
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return chatAttachmentAdapter{requests: requests}, nil
 	})
 	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","companion":true,"executionMode":"full-access","messages":[{"role":"user","content":"打开网页"}]}`
@@ -94,8 +103,8 @@ func TestCompanionAttachesFullToolset(t *testing.T) {
 		t.Fatalf("companion chat.start failed: %#v", response)
 	}
 	req := capturedChatRequest(t, requests)
-	want := map[string]bool{"web.search": false, "web.fetch": false, "workspace.write": false, "desktop.open": false, "media.play": false, "browser.act": false, "skill.invoke": false}
-	forbidden := map[string]bool{"command.run": true, "im.send": true}
+	want := map[string]bool{"web.fetch": false, "browser.act": false, "user.ask": false}
+	forbidden := map[string]bool{"command.run": true, "im.send": true, "desktop.open": true, "media.play": true, "computer.act": true}
 	for _, def := range req.Tools {
 		if _, ok := want[def.Name]; ok {
 			want[def.Name] = true
@@ -130,10 +139,10 @@ func (r errCompanionReader) SumTokens(context.Context, string, string, string, s
 }
 
 func TestCompanionEmptySessionFallsBackToSpokenTurn(t *testing.T) {
-	requests := make(chan gateway.Request, 1)
+	requests := make(chan llmadapter.Request, 1)
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
 	e.messageReader = emptyCompanionReader{}
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return chatAttachmentAdapter{requests: requests}, nil
 	})
 	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","sessionId":"` + chatAttachmentSessionID + `","companion":true,"messages":[{"role":"user","content":"今晚月色如何"}]}`
@@ -144,7 +153,7 @@ func TestCompanionEmptySessionFallsBackToSpokenTurn(t *testing.T) {
 	req := capturedChatRequest(t, requests)
 	var foundSpoken bool
 	for _, m := range req.Messages {
-		if m.Role == gateway.RoleUser && strings.Contains(m.Content, "今晚月色如何") {
+		if m.Role == llmadapter.RoleUser && strings.Contains(m.Content, "今晚月色如何") {
 			foundSpoken = true
 		}
 	}
@@ -154,10 +163,10 @@ func TestCompanionEmptySessionFallsBackToSpokenTurn(t *testing.T) {
 }
 
 func TestCompanionAssemblyReadErrorFallsBackToSpokenTurn(t *testing.T) {
-	requests := make(chan gateway.Request, 1)
+	requests := make(chan llmadapter.Request, 1)
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
 	e.messageReader = errCompanionReader{err: errors.New("sqlite busy")}
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return chatAttachmentAdapter{requests: requests}, nil
 	})
 	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","sessionId":"` + chatAttachmentSessionID + `","companion":true,"messages":[{"role":"user","content":"你好"}]}`
@@ -182,7 +191,7 @@ func TestChatStartEmptyHistoryWithoutMessagesStillFailsAssembly(t *testing.T) {
 }
 
 func TestUseExplicitChatFallback(t *testing.T) {
-	trusted := []gateway.Message{{Role: gateway.RoleUser, Content: "hi"}}
+	trusted := []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "hi"}}
 	if !useExplicitChatFallback(true, trusted, contextapp.ErrNoMessages) {
 		t.Fatal("companion empty history must fall back")
 	}
@@ -210,8 +219,14 @@ func TestCompanionWantsTools(t *testing.T) {
 	if companionWantsTools("查一下天气") == false {
 		t.Fatal("weather lookup must request tools")
 	}
-	if companionWantsTools("今晚天气") {
-		t.Fatal("bare weather chat must stay idle")
+	if !companionWantsTools("今晚天气") {
+		t.Fatal("今晚天气 is R1 and must attach tools")
+	}
+	if !companionWantsTools("今天合肥的天气怎么样") {
+		t.Fatal("info question must attach tools")
+	}
+	if companionWantsTools("今晚月色如何") || companionWantsTools("你好") || companionWantsTools("我随便说说") {
+		t.Fatal("idle / R0 must stay tool-less")
 	}
 	if !companionWantsTools("帮我做手册解析") {
 		t.Fatal("skill-shaped 帮我做 must request tools")
@@ -243,13 +258,13 @@ func TestCompanionOpeningAck(t *testing.T) {
 }
 
 func TestCompanionChatStartDropsFailedAssistantBeforeNewUser(t *testing.T) {
-	requests := make(chan gateway.Request, 1)
+	requests := make(chan llmadapter.Request, 1)
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
 	e.messageReader = priorUserReader{msgs: []contextapp.Message{
 		{ID: "u1", Role: "user", Content: "打开汽水", Sequence: 1, TokenCount: 4},
 		{ID: "a1", Role: "assistant", Content: "无法执行。窗口没到前台", Sequence: 2, TokenCount: 8},
 	}}
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return chatAttachmentAdapter{requests: requests}, nil
 	})
 	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","sessionId":"` + chatAttachmentSessionID + `","companion":true,"messages":[{"role":"user","content":"再打开一次汽水"}]}`
@@ -259,7 +274,7 @@ func TestCompanionChatStartDropsFailedAssistantBeforeNewUser(t *testing.T) {
 	}
 	req := capturedChatRequest(t, requests)
 	for _, m := range req.Messages {
-		if m.Role != gateway.RoleSystem && strings.Contains(m.Content, "无法执行") {
+		if m.Role != llmadapter.RoleSystem && strings.Contains(m.Content, "无法执行") {
 			t.Fatalf("C7-6 assembled request must drop failed assistant: %#v", req.Messages)
 		}
 	}
@@ -272,9 +287,9 @@ func TestCompanionChatStartDoesNotEmitOpeningAckDelta(t *testing.T) {
 	var mu sync.Mutex
 	var texts []string
 	done := make(chan struct{})
-	requests := make(chan gateway.Request, 1)
+	requests := make(chan llmadapter.Request, 1)
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return chatAttachmentAdapter{requests: requests}, nil
 	})
 	payload := `{"providerId":"` + chatAttachmentProviderID + `","modelId":"model","companion":true,"messages":[{"role":"user","content":"今晚月色如何"}]}`
@@ -345,6 +360,18 @@ func TestCompanionRedundantWebSkip(t *testing.T) {
 	if _, skip := companionRedundantWebSkip(false, []string{"web.search"}, "web.fetch", "今天天气怎么样", false); skip {
 		t.Fatal("typed chat must not skip fetch")
 	}
+	if _, skip := companionRedundantWebSkip(true, []string{"web.search"}, "video.understand", "https://www.bilibili.com/video/BV1xx", true); skip {
+		t.Fatal("video.understand is not a redundant web skip")
+	}
+	if msg, skip := companionRedundantMediaSkip(true, []string{"media.play"}, "media.play"); !skip || !strings.Contains(msg, "不要再 media.play") {
+		t.Fatalf("second media.play must skip: %q %v", msg, skip)
+	}
+	if _, skip := companionRedundantMediaSkip(true, nil, "media.play"); skip {
+		t.Fatal("first media.play must run")
+	}
+	if _, skip := companionRedundantMediaSkip(false, []string{"media.play"}, "media.play"); skip {
+		t.Fatal("typed chat must not skip media.play")
+	}
 }
 
 func TestCompanionToolLeadIn(t *testing.T) {
@@ -355,6 +382,9 @@ func TestCompanionToolLeadIn(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 	if got := companionToolLeadIn("desktop.type"); got != "好，我来输入。" {
+		t.Fatalf("got %q", got)
+	}
+	if got := companionToolLeadIn("video.understand"); got != "好，我先看下这个链接。" {
 		t.Fatalf("got %q", got)
 	}
 	if got := companionToolResultSpeech("desktop.type", `typed "204040" after "证件号码"`); got != "已经写入了 204040。" {
@@ -393,6 +423,12 @@ func TestCompanionToolLeadIn(t *testing.T) {
 	if got := companionToolResultSpeech("filesystem.write", ""); got != "还在处理。" {
 		t.Fatalf("empty unknown tool must not claim done: %q", got)
 	}
+	if got := companionToolResultSpeech("web.search", "ok:false"); !strings.Contains(got, "无法执行") {
+		t.Fatalf("failed search must say 无法执行, got %q", got)
+	}
+	if got := companionToolResultSpeech("web.fetch", "ok:false\ntimeout"); !strings.Contains(got, "无法执行") {
+		t.Fatalf("failed fetch must say 无法执行, got %q", got)
+	}
 }
 
 func TestAdapterCacheReusesProductionConnector(t *testing.T) {
@@ -401,7 +437,7 @@ func TestAdapterCacheReusesProductionConnector(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sentinel := chatAttachmentAdapter{requests: make(chan gateway.Request, 1)}
+	sentinel := chatAttachmentAdapter{requests: make(chan llmadapter.Request, 1)}
 	key := p.ID + "\x00" + p.BaseURL + "\x00" + string(p.Protocol)
 	e.adapterCache[key] = sentinel
 	got, err := e.adapter(context.Background(), p)

@@ -356,10 +356,17 @@ export function Workspace({
                 <dl>
                   <dt>类型</dt><dd>{detail.mime}</dd>
                   <dt>大小</dt><dd>{fmtSize(detail.size)}</dd>
-                  <dt>解析状态</dt><dd>{detail.parseStatus}</dd>
+                  <dt>解析状态</dt><dd>{detail.mime.startsWith('image/') ? '图片 · 可供视觉分析' : detail.parseStatus}</dd>
                 </dl>
                 {detail.mime.startsWith('image/') ? (
-                  <p>此附件是图片。当前版本可将它交给视觉模型分析，但工作区尚未取得原图字节，暂不能在这里显示。</p>
+                  detail.contentBase64 ? (
+                    <>
+                      <p>图片 · 可供视觉分析</p>
+                      <img alt={detail.originalName} src={`data:${detail.mime};base64,${detail.contentBase64}`} style={{maxWidth:'100%',borderRadius:8}} />
+                    </>
+                  ) : (
+                    <p>图片已记录，但预览字节不可用（ATTACHMENT_IMAGE_BYTES_MISSING）。</p>
+                  )
                 ) : detail.parsedText !== undefined ? (
                   <pre><SafeLinkedText text={detail.parsedText} /></pre>
                 ) : (

@@ -401,6 +401,42 @@ export function companionExecutingSpeech(activity?: string): string {
   return cleaned ? `${cleaned}。` : '正在执行。'
 }
 
+// UX-05: a long-running tool loop must never sit silent. When a tool has been
+// executing past this threshold with no result yet, the stage pushes a mid-run
+// "still working" line so the user hears progress instead of a dead channel.
+export const COMPANION_TOOL_PROGRESS_MS = 30_000
+
+/**
+ * Mid-run progress line for a tool that has not returned yet (UX-05 #3).
+ * Keeps the current activity name when known so the caption stays specific,
+ * otherwise falls back to a generic "still working" reassurance. Returns ''
+ * when the activity says the tool already failed (nothing to reassure about).
+ */
+export function companionToolProgressSpeech(activity?: string): string {
+  if (/无法执行/.test(activity ?? '')) return ''
+  const cleaned = (activity ?? '').replace(/中[….…]+$/u, '').trim()
+  return cleaned ? `${cleaned}还在继续，请稍候。` : '任务仍在执行中，请稍候。'
+}
+
+// UX-05 #2: explicit subtitle state machine for a tool turn. The caption below
+// the glass bar moves 执行中 → 执行完成 / 执行失败 so a multi-tool / multi-round
+// loop always resolves to a terminal state instead of freezing on 执行中.
+export type CompanionToolPhase = 'running' | 'succeeded' | 'failed'
+
+/**
+ * Render the subtitle status line for a tool phase (UX-05 #2). `detail` is the
+ * current activity/result text; it is appended when present so the line stays
+ * specific (e.g. "执行完成 · 已保存文件"). Pure and deterministic for tests.
+ */
+export function companionToolPhaseCaption(phase: CompanionToolPhase, detail?: string): string {
+  const label = phase === 'running' ? '执行中…' : phase === 'succeeded' ? '执行完成' : '执行失败'
+  const text = stripTaskDonePhrases(detail ?? '')
+    .replace(/中[….…]+$/u, '')
+    .trim()
+  if (phase === 'running') return label
+  return text ? `${label} · ${text}` : label
+}
+
 /** Last user + last assistant only. The glass bar is this visit's current turn. */
 export function seedCompanionCaptionRounds(items: ReadonlyArray<{ role: string; text: string }>): Array<{ role: 'user' | 'assistant'; text: string }> {
   let user = ''
@@ -565,7 +601,9 @@ export function shouldQueueBusyUserTranscript(input: {
   lastSpoken: string
   lastAssistant: string
   assistantBusy?: boolean
+  voicePath?: string
 }): boolean {
+  if (input.voicePath === 'volc') return false
   if (!(input.assistantBusy || input.state === 'speaking' || input.state === 'thinking')) return false
   if (!input.text.trim()) return false
   if (looksLikeOmniPersonaCaption(input.text)) return false
@@ -573,6 +611,38 @@ export function shouldQueueBusyUserTranscript(input: {
   if (looksLikePlaybackEcho(input.text, input.lastSpoken)) return false
   if (input.lastAssistant && looksLikePlaybackEcho(input.text, input.lastAssistant)) return false
   return looksLikeBargeInSpeech(input.text, input.lastSpoken)
+}
+
+const COMPANION_SPOKEN_MAX_SENTENCES = 2
+const COMPANION_SPOKEN_MAX_CHARS = 80
+
+/** Cap one companion turn to two sentences or 80 chars, whichever comes first. */
+export function clipCompanionSpokenTurn(text: string, already = ''): { spoken: string; overflow: boolean } {
+  const raw = text.trim()
+  if (!raw) return { spoken: '', overflow: false }
+  const prior = already.trim()
+  const priorChars = Array.from(prior).length
+  const priorSentences = prior ? prior.split(/(?<=[。？！!?])/u).filter(part => part.trim()).length : 0
+  const parts = raw.split(/(?<=[。？！!?])/u).filter(part => part.trim())
+  const out: string[] = []
+  let chars = priorChars
+  let sentences = priorSentences
+  for (const part of parts) {
+    if (sentences >= COMPANION_SPOKEN_MAX_SENTENCES || chars >= COMPANION_SPOKEN_MAX_CHARS) {
+      return { spoken: out.join('').trim(), overflow: true }
+    }
+    const runes = Array.from(part)
+    const room = COMPANION_SPOKEN_MAX_CHARS - chars
+    if (runes.length > room) {
+      out.push(runes.slice(0, room).join(''))
+      return { spoken: out.join('').trim(), overflow: true }
+    }
+    out.push(part)
+    chars += runes.length
+    sentences += 1
+  }
+  const spoken = out.join('').trim()
+  return { spoken, overflow: sentences > COMPANION_SPOKEN_MAX_SENTENCES || chars > COMPANION_SPOKEN_MAX_CHARS }
 }
 
 /** Settings/clone labels must never become a dialogue round. */

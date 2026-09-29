@@ -8,12 +8,12 @@ import { defaultMeetingSettings, saveMeetingSettings } from '../meetings/meeting
 const now = '2026-08-27T03:00:00.000Z'
 const voiceProvider: ProviderDTO = {
   id: '01ARZ3NDEKTSV4RRFFQ69G5FAW', name: 'Volc', protocol: 'volc_speech', baseUrl: 'https://openspeech.bytedance.com',
-  status: 'enabled', credentialState: 'configured', createdAt: now, updatedAt: now, version: 1,
+  status: 'enabled', credentialState: 'configured', credentialBackupCount: 0, createdAt: now, updatedAt: now, version: 1,
   models: [{ modelId: 'seed-asr', displayName: '听写', isDefault: true, kind: 'asr', kindDefault: true }],
 }
 const llmOnly: ProviderDTO = {
   id: '01ARZ3NDEKTSV4RRFFQ69G5FAX', name: 'Chat', protocol: 'openai_compatible', baseUrl: 'https://example.com',
-  status: 'enabled', credentialState: 'configured', createdAt: now, updatedAt: now, version: 1,
+  status: 'enabled', credentialState: 'configured', credentialBackupCount: 0, createdAt: now, updatedAt: now, version: 1,
   models: [{ modelId: 'qwen', displayName: 'Qwen', isDefault: true, kind: 'llm', kindDefault: true }],
 }
 

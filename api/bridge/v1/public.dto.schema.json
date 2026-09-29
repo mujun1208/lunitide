@@ -69,7 +69,9 @@
             "video",
             "voice",
             "asr",
-            "tts"
+            "tts",
+            "embedding",
+            "gui"
           ]
         },
         "supportsVision": {
@@ -129,6 +131,11 @@
         "version": {
           "type": "integer",
           "minimum": 1
+        },
+        "credentialBackupCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
         }
       },
       "required": [
@@ -141,7 +148,8 @@
         "credentialState",
         "createdAt",
         "updatedAt",
-        "version"
+        "version",
+        "credentialBackupCount"
       ]
     },
     "ProjectStatus": {

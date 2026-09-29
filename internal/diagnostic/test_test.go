@@ -5,20 +5,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 type maliciousAdapter struct{ calls int }
 
-func (a *maliciousAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
+func (a *maliciousAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
 	a.calls++
-	return gateway.Response{}, &gateway.Error{Code: "HTTP_401", Stage: gateway.StageHTTP, HTTPStatus: 401, Message: "CANARY-secret malicious adapter message"}
+	return llmadapter.Response{}, &llmadapter.Error{Code: "HTTP_401", Stage: llmadapter.StageHTTP, HTTPStatus: 401, Message: "CANARY-secret malicious adapter message"}
 }
-func (*maliciousAdapter) Stream(context.Context, []byte, gateway.Request, func(gateway.Delta) error) (gateway.Response, error) {
-	return gateway.Response{}, nil
+func (*maliciousAdapter) Stream(context.Context, []byte, llmadapter.Request, func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	return llmadapter.Response{}, nil
 }
-func (*maliciousAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, nil
+func (*maliciousAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, nil
 }
 
 func TestDiagnosticAllowlistAndSingleAttempt(t *testing.T) {

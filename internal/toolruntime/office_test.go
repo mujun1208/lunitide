@@ -122,6 +122,9 @@ func TestOfficeGenDesktopArtifactPath(t *testing.T) {
 	}
 	defer r.Close()
 	enableFullDisk(t, r)
+	if err := r.ConfirmFullDiskSession(context.Background(), officeSession); err != nil {
+		t.Fatal(err)
+	}
 	desktop, err := userDesktopDir()
 	if err != nil {
 		t.Skip("desktop folder not found:", err)

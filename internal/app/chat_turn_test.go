@@ -11,7 +11,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/queueinput"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/queueapp"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
@@ -97,13 +97,13 @@ type queueInjectAdapter struct {
 	sawIndependent bool
 }
 
-func (a *queueInjectAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (a *queueInjectAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (a *queueInjectAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (a *queueInjectAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (a *queueInjectAdapter) Stream(_ context.Context, _ []byte, req gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+func (a *queueInjectAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	a.calls++
 	for _, m := range req.Messages {
 		if strings.Contains(m.Content, "任务进行中补充") && strings.Contains(m.Content, "只要 arkcli") {
@@ -115,14 +115,14 @@ func (a *queueInjectAdapter) Stream(_ context.Context, _ []byte, req gateway.Req
 	}
 	if a.calls == 1 {
 		a.store.push("只要 arkcli 相关的技能")
-		return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{
 			{ID: "call-search", Name: "mcp.search", Arguments: []byte(`{"query":"skills"}`)},
 		}}}, nil
 	}
-	if err := emit(gateway.Delta{Text: "已结合补充说明继续安装。"}); err != nil {
-		return gateway.Response{}, err
+	if err := emit(llmadapter.Delta{Text: "已结合补充说明继续安装。"}); err != nil {
+		return llmadapter.Response{}, err
 	}
-	return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, Content: "已结合补充说明继续安装。"}}, nil
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "已结合补充说明继续安装。"}}, nil
 }
 
 func TestRunStreamInjectsQueuedSupplementsMidTurn(t *testing.T) {
@@ -130,13 +130,13 @@ func TestRunStreamInjectsQueuedSupplementsMidTurn(t *testing.T) {
 	adapter := &queueInjectAdapter{store: store}
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
 	e.SetQueueService(queueapp.New(store))
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) { return adapter, nil })
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	state := &streamState{cancel: cancel, state: streamRunning}
 	id := "stream-queue-inject"
 	e.streams[id] = state
-	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, gateway.Request{Model: "m"}, func(bridge.Event) error { return nil }, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, llmadapter.Request{Model: "m"}, func(bridge.Event) error { return nil }, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
 	if adapter.calls < 2 {
 		t.Fatalf("calls = %d, want at least 2", adapter.calls)
 	}
@@ -150,7 +150,7 @@ func TestRunStreamInjectsStatusFollowUp(t *testing.T) {
 	adapter := &dropUIAdapter{}
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
 	e.SetQueueService(queueapp.New(store))
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) { return adapter, nil })
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	state := &streamState{cancel: cancel, state: streamRunning}
@@ -158,7 +158,7 @@ func TestRunStreamInjectsStatusFollowUp(t *testing.T) {
 	e.streams[id] = state
 	store.push("做好了没有")
 	var sawMerge, sawThinking bool
-	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, gateway.Request{Model: "m"}, func(event bridge.Event) error {
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, llmadapter.Request{Model: "m"}, func(event bridge.Event) error {
 		if event.Delta != nil && strings.Contains(event.Delta.Text, "已并入你刚才补充的说明") {
 			sawMerge = true
 		}
@@ -181,7 +181,7 @@ func TestRunStreamDoesNotMergeIndependentQueuedRequest(t *testing.T) {
 	adapter := &dropUIAdapter{}
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
 	e.SetQueueService(queueapp.New(store))
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) { return adapter, nil })
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	state := &streamState{cancel: cancel, state: streamRunning}
@@ -189,7 +189,7 @@ func TestRunStreamDoesNotMergeIndependentQueuedRequest(t *testing.T) {
 	e.streams[id] = state
 	store.push("帮我打开桌面协议的文件我要查看")
 	var sawMerge bool
-	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, gateway.Request{Model: "m"}, func(event bridge.Event) error {
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, llmadapter.Request{Model: "m"}, func(event bridge.Event) error {
 		if event.Delta != nil && strings.Contains(event.Delta.Text, "已并入你刚才补充的说明") {
 			sawMerge = true
 		}
@@ -206,33 +206,33 @@ func TestRunStreamDoesNotMergeIndependentQueuedRequest(t *testing.T) {
 
 type dropUIAdapter struct{ calls int }
 
-func (a *dropUIAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (a *dropUIAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (a *dropUIAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (a *dropUIAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (a *dropUIAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
+func (a *dropUIAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
 	a.calls++
 	if a.calls == 1 {
-		return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, ToolCalls: []gateway.ToolCall{
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{
 			{ID: "call-search", Name: "mcp.search", Arguments: []byte(`{"query":"skills"}`)},
 		}}}, nil
 	}
-	_ = emit(gateway.Delta{Text: "工具已跑完。"})
-	return gateway.Response{Message: gateway.Message{Role: gateway.RoleAssistant, Content: "工具已跑完。"}}, nil
+	_ = emit(llmadapter.Delta{Text: "工具已跑完。"})
+	return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "工具已跑完。"}}, nil
 }
 
 func TestRunStreamKeepsWorkingWhenUIDisconnects(t *testing.T) {
 	adapter := &dropUIAdapter{}
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) { return adapter, nil })
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	state := &streamState{cancel: cancel, state: streamRunning}
 	id := "stream-ui-drop"
 	e.streams[id] = state
-	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, gateway.Request{Model: "m"}, func(bridge.Event) error {
+	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, llmadapter.Request{Model: "m"}, func(bridge.Event) error {
 		return errors.New("ui gone")
 	}, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
 	if adapter.calls < 2 {

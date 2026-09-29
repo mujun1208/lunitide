@@ -9,7 +9,7 @@ import (
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/message"
 	"github.com/lunitide/lunitide/internal/domain/provider"
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/messageapp"
 )
 
@@ -30,20 +30,20 @@ func (s *appendAssistantSpy) List(context.Context, messageapp.PageRequest) (mess
 
 type partialThenFailAdapter struct{}
 
-func (partialThenFailAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (partialThenFailAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (partialThenFailAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (partialThenFailAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (partialThenFailAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
-	if err := emit(gateway.Delta{Text: "已写好白羊座段落。"}); err != nil {
-		return gateway.Response{}, err
+func (partialThenFailAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	if err := emit(llmadapter.Delta{Text: "已写好白羊座段落。"}); err != nil {
+		return llmadapter.Response{}, err
 	}
-	if err := emit(gateway.Delta{Reasoning: "先规划十二星座结构。"}); err != nil {
-		return gateway.Response{}, err
+	if err := emit(llmadapter.Delta{Reasoning: "先规划十二星座结构。"}); err != nil {
+		return llmadapter.Response{}, err
 	}
-	return gateway.Response{}, errors.New("upstream failed")
+	return llmadapter.Response{}, errors.New("upstream failed")
 }
 
 func TestAssistantTurnPersistText(t *testing.T) {
@@ -108,7 +108,7 @@ func TestRunStreamFailurePersistsPartialAssistantText(t *testing.T) {
 	spy := &appendAssistantSpy{}
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
 	e.messages = spy
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return partialThenFailAdapter{}, nil
 	})
 	_, cancel := context.WithCancel(context.Background())
@@ -117,7 +117,7 @@ func TestRunStreamFailurePersistsPartialAssistantText(t *testing.T) {
 	go e.runStream(context.Background(), "stream", state, provider.Provider{
 		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible,
 		BaseURL: "https://api.example.com", CredentialRef: "credential-ref",
-	}, gateway.Request{Model: "model"}, func(event bridge.Event) error { events <- event; return nil }, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	}, llmadapter.Request{Model: "model"}, func(event bridge.Event) error { events <- event; return nil }, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
 
 	terminal := terminalEvent(t, events)
 	if terminal.Type != bridge.EventFailed {
@@ -140,24 +140,24 @@ func TestRunStreamFailurePersistsPartialAssistantText(t *testing.T) {
 
 type thinkingOnlyThenFailAdapter struct{}
 
-func (thinkingOnlyThenFailAdapter) Complete(context.Context, []byte, gateway.Request) (gateway.Response, error) {
-	return gateway.Response{}, errors.New("not used")
+func (thinkingOnlyThenFailAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
+	return llmadapter.Response{}, errors.New("not used")
 }
-func (thinkingOnlyThenFailAdapter) Discover(context.Context, []byte) (gateway.Discovery, error) {
-	return gateway.Discovery{}, errors.New("not used")
+func (thinkingOnlyThenFailAdapter) Discover(context.Context, []byte) (llmadapter.Discovery, error) {
+	return llmadapter.Discovery{}, errors.New("not used")
 }
-func (thinkingOnlyThenFailAdapter) Stream(_ context.Context, _ []byte, _ gateway.Request, emit func(gateway.Delta) error) (gateway.Response, error) {
-	if err := emit(gateway.Delta{Reasoning: "先规划十二星座结构。"}); err != nil {
-		return gateway.Response{}, err
+func (thinkingOnlyThenFailAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	if err := emit(llmadapter.Delta{Reasoning: "先规划十二星座结构。"}); err != nil {
+		return llmadapter.Response{}, err
 	}
-	return gateway.Response{}, errors.New("upstream failed")
+	return llmadapter.Response{}, errors.New("upstream failed")
 }
 
 func TestRunStreamFailurePersistsThinkingWhenAssistantEmpty(t *testing.T) {
 	spy := &appendAssistantSpy{}
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
 	e.messages = spy
-	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (gateway.Adapter, error) {
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
 		return thinkingOnlyThenFailAdapter{}, nil
 	})
 	_, cancel := context.WithCancel(context.Background())
@@ -166,7 +166,7 @@ func TestRunStreamFailurePersistsThinkingWhenAssistantEmpty(t *testing.T) {
 	go e.runStream(context.Background(), "stream", state, provider.Provider{
 		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible,
 		BaseURL: "https://api.example.com", CredentialRef: "credential-ref",
-	}, gateway.Request{Model: "model"}, func(event bridge.Event) error { events <- event; return nil }, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	}, llmadapter.Request{Model: "model"}, func(event bridge.Event) error { events <- event; return nil }, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
 
 	terminal := terminalEvent(t, events)
 	if terminal.Type != bridge.EventFailed {

@@ -58,7 +58,7 @@
       "items": {
         "type": "object", "additionalProperties": false,
         "properties": {
-          "type": { "enum": ["attachment", "skillResult"] },
+          "type": { "enum": ["attachment", "skillResult", "message"] },
           "id": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" }
         },
         "required": ["type", "id"]

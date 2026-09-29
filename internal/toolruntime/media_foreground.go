@@ -50,7 +50,11 @@ func ccShortcut(ctx context.Context, invoke ccInvoker, session string, approved 
 }
 
 func ccType(ctx context.Context, invoke ccInvoker, session, text string, approved bool) error {
-	_, err := ccCall(ctx, invoke, session, ccapp.ToolKeyboardType, ccFocusArgs(map[string]any{"text": text}), approved)
+	tool := ccapp.ToolKeyboardType
+	if ccapp.PreferPasteText(text) {
+		tool = ccapp.ToolPaste
+	}
+	_, err := ccCall(ctx, invoke, session, tool, ccFocusArgs(map[string]any{"text": text}), approved)
 	return err
 }
 
@@ -341,12 +345,23 @@ func ensureMusicAppForeground(app string) (string, error) {
 	return path, nil
 }
 
+func confirmMediaPlayerForeground(app string) error {
+	title, process, err := readForegroundFn()
+	if err != nil {
+		return errors.New("无法执行：播放器窗口不在前台")
+	}
+	if !openedWindowConfirmed(title, process, launchVerifyQueries(app)) {
+		return fmt.Errorf("无法执行：播放器窗口不在前台（当前是 %s）", strings.TrimSpace(title))
+	}
+	return nil
+}
+
 func executeMediaPlayForeground(ctx context.Context, invoke ccInvoker, session, query, appHint string, approved, unconfined bool) (Result, error) {
 	if err := requireDesktopAction(approved); err != nil {
 		return Result{}, err
 	}
 	if invoke == nil {
-		return Result{}, errors.New("media.play foreground requires computer control (cc.*)")
+		return Result{}, errors.New("请在设置打开电脑控制后再播放")
 	}
 	q := strings.TrimSpace(query)
 	if q == "" {
@@ -367,6 +382,9 @@ func executeMediaPlayForeground(ctx context.Context, invoke ccInvoker, session, 
 	if known, ok := matchKnownLaunchApp(app); ok {
 		focus = known.Canonical
 	}
+	if err := confirmMediaPlayerForeground(focus); err != nil {
+		return Result{}, err
+	}
 	_, _ = ccCall(ctx, invoke, session, ccapp.ToolWindowFocus, map[string]any{"title": focus}, approved)
 	mediaSleep(450 * time.Millisecond)
 	// OpenClaw computer-use: focus → accessibility (MSAA/UIA) → app
@@ -378,7 +396,21 @@ func executeMediaPlayForeground(ctx context.Context, invoke ccInvoker, session, 
 	if opened != "" && strings.HasPrefix(res.Output, "verified") {
 		res.Output = "opened " + opened + "; " + res.Output
 	}
-	return res, nil
+	return attachMediaL0(res), nil
+}
+
+func attachMediaL0(res Result) Result {
+	uncertain := strings.Contains(res.Output, "started playing") || strings.Contains(res.Output, "accessibility empty")
+	passed := strings.Contains(res.Output, "verified")
+	if passed {
+		uncertain = false
+	} else if !uncertain {
+		uncertain = true
+	} else {
+		passed = false
+	}
+	res.Output = appendL0JSON(res.Output, "foreground", passed, uncertain, "media.play")
+	return res
 }
 
 func playNamedTrackInForeground(ctx context.Context, invoke ccInvoker, session, query, app string, approved bool) (Result, error) {

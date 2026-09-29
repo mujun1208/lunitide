@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lunitide/lunitide/internal/gateway"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
 func TestAutoToolProfile(t *testing.T) {
@@ -68,7 +68,7 @@ func TestApplyToolProfileKeepsDefaultAndFilters(t *testing.T) {
 }
 
 func TestFilterCompanionDefaultToolsOmitsShellAndIM(t *testing.T) {
-	all := append(engineToolDefinitions(), gateway.ToolDefinition{Name: "computer.act"}, gateway.ToolDefinition{Name: "cc.mouse_click"})
+	all := append(engineToolDefinitions(), llmadapter.ToolDefinition{Name: "computer.act"}, llmadapter.ToolDefinition{Name: "cc.mouse_click"})
 	got := filterCompanionDefaultTools(all)
 	seen := map[string]bool{}
 	for _, d := range got {

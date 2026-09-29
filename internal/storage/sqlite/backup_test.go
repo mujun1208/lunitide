@@ -30,8 +30,10 @@ func TestBackupOnlineWALAndRestoreRoundTrip(t *testing.T) {
 	if err = s.CreateBackup(ctx, backup); err != nil {
 		t.Fatal(err)
 	}
-	if elapsed := time.Since(started); elapsed > 10*time.Second {
-		t.Fatalf("128KiB online backup took %s (recording ceiling 10s)", elapsed)
+	// Hosted -race has measured ~14s for this 128KiB copy; keep a hang ceiling,
+	// not a workstation-only speed gate.
+	if elapsed := time.Since(started); elapsed > 45*time.Second {
+		t.Fatalf("128KiB online backup took %s (recording ceiling 45s)", elapsed)
 	}
 
 	// Mutate live after backup, then restore. The snapshot must retain exactly

@@ -16,6 +16,18 @@ export const TALK_FALLBACK_BANNER = '通话核未就绪，这轮用语模型'
 export const TALK_MAX_FAILURES = 3
 export const TALK_RETRY_COOLDOWN_MS = 20_000
 
+// Talk frame uplink used to be `void stream.append(frame.base64)` with no
+// queue: every 100ms frame fired an append and the promise was dropped on the
+// floor. When the realtime WebSocket stalls those appends pile up unbounded,
+// and by the time the link recovers we are speaking seconds of stale audio.
+// A bounded send queue keeps the latest ~6.4s (64 frames @ 10 frames/s) and
+// drops the oldest beyond that, so a recovered link resumes near-live instead
+// of replaying a backlog. Normal (unbacklogged) capture still sends frame by
+// frame, one in flight at a time — behaviour identical to before.
+export const MAX_QUEUED_FRAMES = 64
+/** Throttle: warn once per this many accumulated dropped frames. */
+const DROP_LOG_EVERY = 16
+
 export type TalkRetryState = { failures: number; lastFailAt: number }
 
 export function newTalkRetryState(): TalkRetryState {
@@ -114,9 +126,28 @@ export async function startCompanionTalk(
   let stream: TalkStreamHandle | undefined
   let capture: PcmCaptureHandle | undefined
   let stopped = false
+  // Bounded uplink queue: base64 frames awaiting append, one in flight.
+  const sendQueue: string[] = []
+  let sendInFlight = false
+  let droppedFrames = 0
+  let droppedSinceLog = 0
+  const pumpSend = () => {
+    if (stopped || sendInFlight || !stream) return
+    const pcm = sendQueue.shift()
+    if (pcm === undefined) return
+    sendInFlight = true
+    stream
+      .append(pcm)
+      .catch(() => undefined)
+      .finally(() => {
+        sendInFlight = false
+        pumpSend()
+      })
+  }
   const stop = async () => {
     if (stopped) return
     stopped = true
+    sendQueue.length = 0
     markFirst(false)
     await capture?.stop().catch(() => undefined)
     capture = undefined
@@ -169,7 +200,17 @@ export async function startCompanionTalk(
     capture = await (deps.capture ?? startPcmCapture)({
       onFrame: frame => {
         if (stopped || !stream) return
-        void stream.append(frame.base64)
+        sendQueue.push(frame.base64)
+        while (sendQueue.length > MAX_QUEUED_FRAMES) {
+          sendQueue.shift()
+          droppedFrames += 1
+          droppedSinceLog += 1
+        }
+        if (droppedSinceLog >= DROP_LOG_EVERY) {
+          console.warn(`[talk] send queue overflow, dropped ${droppedFrames} frames`)
+          droppedSinceLog = 0
+        }
+        pumpSend()
       },
       onError: error => {
         if (!stopped) callbacks.onError(error)
