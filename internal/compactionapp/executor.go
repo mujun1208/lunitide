@@ -109,8 +109,11 @@ func NewExecutor(store ExecutorStore, sourceReader SourceReader, summarizer Summ
 		store:        store,
 		sourceReader: sourceReader,
 		summarizer:   summarizer,
-		maxMessages:  500,
-		timeout:      60 * time.Second,
+		maxMessages: 500,
+		// Weekly archives with rolling summaries can generate several thousand
+		// output tokens (observed 43s for 2048); 60s cut off long summaries.
+		// 3 minutes still fits the hourly sweep's 10-minute budget per run.
+		timeout: 3 * time.Minute,
 	}
 }
 

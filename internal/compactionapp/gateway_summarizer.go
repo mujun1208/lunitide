@@ -27,8 +27,13 @@ type GatewaySummarizerConfig struct {
 // DefaultGatewaySummarizerConfig returns sensible defaults for summarization.
 func DefaultGatewaySummarizerConfig(model string) GatewaySummarizerConfig {
 	return GatewaySummarizerConfig{
-		Model:     model,
-		MaxTokens: 2048,
+		Model: model,
+		// Rolling weekly summaries (prior summary + a week of messages) can
+		// exceed 2048 output tokens, which truncates the structured JSON
+		// mid-string and fails the archive with SUMMARY_FAILED. 8192 stays
+		// within the output cap of mainstream OpenAI-compatible models
+		// (DeepSeek, GLM, GPT) while leaving 4x headroom.
+		MaxTokens: 8192,
 		SystemPrompt: `You are a conversation summarizer. Summarize the following conversation segment.
 If a PRIOR SUMMARY is provided, incorporate it into a new rolling summary that preserves
 all critical facts from both the prior summary and the new messages.
@@ -103,7 +108,9 @@ func NewGatewaySummarizer(providers ProviderLookup, leases LeaseAcquirer, adapte
 		leases:    leases,
 		adapters:  adapters,
 		config:    config,
-		timeout:   90 * time.Second,
+		// Aligned with the executor's per-batch timeout: long rolling weekly
+		// summaries legitimately take longer than 90 seconds to generate.
+		timeout: 3 * time.Minute,
 	}
 }
 
@@ -185,6 +192,13 @@ func (s *GatewaySummarizer) Summarize(ctx context.Context, sessionID, providerID
 		})
 		if completeErr != nil {
 			return fmt.Errorf("llm complete: %w", completeErr)
+		}
+
+		// A length finish means the output was cut at the token cap; the JSON
+		// below would be unclosed and the archive would fail with an opaque
+		// "invalid structured JSON". Surface the real cause instead.
+		if resp.FinishReason == llmadapter.FinishReasonLength {
+			return fmt.Errorf("summary truncated at output token limit (finish=length, cap=%d)", s.config.MaxTokens)
 		}
 
 		content := resp.Message.Content
