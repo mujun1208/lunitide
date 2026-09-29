@@ -19,8 +19,8 @@ const (
 	allowTTL          = 10 * time.Minute
 	maxItems          = 20
 	maxSkipped        = 20
-	maxChunk          = 32768
-	maxPickFileSize   = 100 * 1024 * 1024
+	maxChunk          = 160 * 1024
+	maxPickFileSize   = 500 << 20
 	codeDenied        = "ATTACHMENT_PATH_DENIED"
 	codeUnavailable   = "DESKTOP_PICK_UNAVAILABLE"
 	codeFailed        = "DESKTOP_PICK_FAILED"
@@ -255,7 +255,7 @@ func skipFolderName(name string) bool {
 	}
 }
 
-// listFolder imports allowlisted files in this folder and up to three levels
+// listFolder imports regular files in this folder and up to three levels
 // of subfolders. A folder that only contains more folders used to return
 // nothing, which the composer showed as DESKTOP_FOLDER_EMPTY.
 func listFolder(dir string) ([]Item, []string, error) {
@@ -296,13 +296,6 @@ func walkFolder(dir string, depth int, items *[]Item, skipped *[]string) error {
 			continue
 		}
 		if !entry.Type().IsRegular() {
-			continue
-		}
-		ext := strings.ToLower(filepath.Ext(name))
-		if _, ok := folderExt[ext]; !ok {
-			if len(*skipped) < maxSkipped {
-				*skipped = append(*skipped, name)
-			}
 			continue
 		}
 		item, err := itemFromPath(filepath.Join(dir, name))

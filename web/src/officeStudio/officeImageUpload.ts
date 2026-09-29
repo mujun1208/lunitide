@@ -43,7 +43,7 @@ export async function uploadOfficeImage(bridge: AttachmentBridge, projectId: str
       const started = await attachmentOperation(beginning, signal);
       uploadId = started.uploadId;
       if (!Number.isSafeInteger(started.chunkSize) || started.chunkSize <= 0) throw new Error('图片上传分片规格无效。');
-      const chunkSize = Math.min(started.chunkSize, 32768);
+      const chunkSize = Math.min(started.chunkSize, 160 * 1024);
       for (let offset = 0; offset < bytes.length; offset += chunkSize) {
         if (signal.aborted) throw new DOMException('图片上传已取消', 'AbortError');
         const chunk = bytes.subarray(offset, offset + chunkSize);

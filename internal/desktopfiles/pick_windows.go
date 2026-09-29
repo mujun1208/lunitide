@@ -72,7 +72,7 @@ const openFileScript = `
 Add-Type -AssemblyName System.Windows.Forms
 $d = New-Object System.Windows.Forms.OpenFileDialog
 $d.Title = '选择要附加的文件'
-$d.Filter = '支持的文件|*.txt;*.md;*.json;*.csv;*.html;*.xml;*.js;*.ts;*.py;*.go;*.java;*.c;*.cpp;*.rs;*.yaml;*.yml;*.sh;*.sql;*.png;*.jpg;*.jpeg;*.webp|所有文件|*.*'
+$d.Filter = '所有文件|*.*'
 $d.CheckFileExists = $true
 $d.Multiselect = $false
 if ($d.ShowDialog() -eq 'OK') {
@@ -85,7 +85,7 @@ const openFilesScript = `
 Add-Type -AssemblyName System.Windows.Forms
 $d = New-Object System.Windows.Forms.OpenFileDialog
 $d.Title = '选择要附加的文件'
-$d.Filter = '支持的文件|*.txt;*.md;*.json;*.csv;*.html;*.xml;*.js;*.ts;*.py;*.go;*.java;*.c;*.cpp;*.rs;*.yaml;*.yml;*.sh;*.sql;*.png;*.jpg;*.jpeg;*.webp|所有文件|*.*'
+$d.Filter = '所有文件|*.*'
 $d.CheckFileExists = $true
 $d.Multiselect = $true
 if ($d.ShowDialog() -eq 'OK') {

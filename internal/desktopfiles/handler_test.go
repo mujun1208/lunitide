@@ -127,11 +127,8 @@ func TestPickFolderWithOnlyExeIsNotDialogFailure(t *testing.T) {
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Canceled || len(out.Items) != 0 {
+	if out.Canceled || len(out.Items) != 1 || len(out.Skipped) != 0 {
 		t.Fatalf("payload = %s", raw)
-	}
-	if len(out.Skipped) != 1 || out.Skipped[0] != "setup.exe" {
-		t.Fatalf("skipped = %#v", out.Skipped)
 	}
 }
 
@@ -165,17 +162,18 @@ func TestPickFolderNamesSkippedExeAlongsideTxt(t *testing.T) {
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Canceled || len(out.Items) != 1 || out.Items[0].FileName != "notes.txt" {
-		t.Fatalf("items = %s", raw)
+	names := map[string]bool{}
+	for _, item := range out.Items {
+		names[item.FileName] = true
 	}
-	if len(out.Skipped) != 1 || out.Skipped[0] != "setup.exe" {
-		t.Fatalf("skipped = %#v", out.Skipped)
+	if out.Canceled || !names["notes.txt"] || !names["setup.exe"] || len(out.Skipped) != 0 {
+		t.Fatalf("items = %s", raw)
 	}
 }
 
 func TestPickFolderKeepsDocumentsAndImages(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"需求.md", "需求.pdf", "表.xlsx", "图.gif", "setup.exe"} {
+	for _, name := range []string{"需求.md", "需求.pdf", "表.xlsx", "图.gif", "说明.doc", "setup.exe"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -188,12 +186,12 @@ func TestPickFolderKeepsDocumentsAndImages(t *testing.T) {
 	for _, item := range items {
 		got[item.FileName] = true
 	}
-	for _, name := range []string{"需求.md", "需求.pdf", "表.xlsx", "图.gif"} {
+	for _, name := range []string{"需求.md", "需求.pdf", "表.xlsx", "图.gif", "说明.doc", "setup.exe"} {
 		if !got[name] {
 			t.Fatalf("missing %s in %#v", name, items)
 		}
 	}
-	if len(skipped) != 1 || skipped[0] != "setup.exe" {
+	if len(skipped) != 0 {
 		t.Fatalf("skipped = %#v", skipped)
 	}
 }

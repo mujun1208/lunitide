@@ -110,7 +110,7 @@ export async function uploadOfficeFiles(
         }
         uploadId = started.uploadId;
         if (!Number.isSafeInteger(started.chunkSize) || started.chunkSize <= 0) throw new Error('上传分块大小无效。');
-        const chunkSize = Math.min(started.chunkSize, 32 * 1024);
+        const chunkSize = Math.min(started.chunkSize, 160 * 1024);
         let offset = 0;
         while (offset < bytes.length) {
           const chunk = bytes.subarray(offset, offset + chunkSize);

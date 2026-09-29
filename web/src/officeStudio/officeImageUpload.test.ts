@@ -15,7 +15,7 @@ it('uploads original image bytes with a complete SHA and binds them to the speci
   const result = await uploadOfficeImage(bridge, 'project-a', 'session-a', file(), vi.fn(), new AbortController().signal);
   expect(result).toMatchObject({ attachmentId: 'image-1', name: '原图.png', mime: 'image/png', size: 65545, sha256: expect.stringMatching(/^[0-9a-f]{64}$/) });
   expect(bridge.begin).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'project-a', sessionId: 'session-a', size: 65545, sha256: result.sha256 }));
-  expect(vi.mocked(bridge.chunk).mock.calls.map(([p]) => p.offset)).toEqual([0, 32768, 65536]);
+  expect(vi.mocked(bridge.chunk).mock.calls.map(([p]) => p.offset)).toEqual([0, 65536]);
   const received = vi.mocked(bridge.chunk).mock.calls.flatMap(([p]) => Array.from(atob(p.contentBase64), c => c.charCodeAt(0)));
   expect(received).toHaveLength(65545); expect(received[32768]).toBe(255);
   expect(bridge.commit).toHaveBeenCalledWith({ uploadId: 'upload-1', projectId: 'project-a', sessionId: 'session-a' });

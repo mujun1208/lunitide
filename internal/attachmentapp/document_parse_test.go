@@ -37,6 +37,33 @@ func TestOfficeDocumentsBecomeReadableChatMaterials(t *testing.T) {
 	}
 }
 
+func TestLegacyWordDocumentsBecomeReadableChatMaterials(t *testing.T) {
+	s := NewService(newMockStore(), NewDirFileStorage(t.TempDir()))
+	rtf, err := s.IngestFile(context.Background(), IngestFileRequest{ProjectID: mustULID(), SessionID: mustULID(), OriginalName: "需求.rtf", MIME: "application/octet-stream", Content: []byte("{\\rtf1\\ansi 客户关系 CRM\\par }")})
+	if err != nil || rtf.ParseStatus != attachment.StatusSucceeded || !strings.Contains(rtf.ParsedText, "客户关系") {
+		t.Fatalf("rtf: %+v %v", rtf, err)
+	}
+	body := "客户关系管理系统需求说明"
+	chars := []rune(body)
+	raw := make([]byte, len(chars)*2)
+	for i, r := range chars {
+		raw[i*2] = byte(r)
+		raw[i*2+1] = byte(r >> 8)
+	}
+	doc, err := s.IngestFile(context.Background(), IngestFileRequest{ProjectID: mustULID(), SessionID: mustULID(), OriginalName: "需求.doc", MIME: "application/msword", Content: raw})
+	if err != nil || doc.ParseStatus != attachment.StatusSucceeded || !strings.Contains(doc.ParsedText, body) {
+		t.Fatalf("doc: %+v %v", doc, err)
+	}
+	xls, err := s.IngestFile(context.Background(), IngestFileRequest{ProjectID: mustULID(), SessionID: mustULID(), OriginalName: "表.xls", MIME: "application/vnd.ms-excel", Content: raw})
+	if err != nil || xls.ParseStatus != attachment.StatusSucceeded || !strings.Contains(xls.ParsedText, body) {
+		t.Fatalf("xls: %+v %v", xls, err)
+	}
+	wps, err := s.IngestFile(context.Background(), IngestFileRequest{ProjectID: mustULID(), SessionID: mustULID(), OriginalName: "需求.wps", MIME: "application/octet-stream", Content: []byte(body)})
+	if err != nil || wps.ParseStatus != attachment.StatusSucceeded || !strings.Contains(wps.ParsedText, body) {
+		t.Fatalf("wps: %+v %v", wps, err)
+	}
+}
+
 func TestBrokenPDFRetainsBytesWithoutReadableGarbage(t *testing.T) {
 	s := NewService(newMockStore(), NewDirFileStorage(t.TempDir()))
 	a, err := s.IngestFile(context.Background(), IngestFileRequest{ProjectID: mustULID(), SessionID: mustULID(), OriginalName: "broken.pdf", MIME: "application/pdf", Content: []byte("%PDF-1.4")})

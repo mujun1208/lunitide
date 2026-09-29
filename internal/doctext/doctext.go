@@ -80,6 +80,12 @@ func Extract(path string, raw []byte, declaredMedia string) (Result, error) {
 		return extracted(xlsxText, raw, "xlsx")
 	case "pdf":
 		return extracted(pdfText, raw, "pdf")
+	case "rtf":
+		return extracted(rtfText, raw, "rtf")
+	case "odt":
+		return extracted(odtText, raw, "odt")
+	case "doc":
+		return extracted(docText, raw, "doc")
 	default:
 		return Result{}, ErrUnsupportedFormat
 	}
@@ -118,17 +124,59 @@ func classify(path, declaredMedia string, raw []byte) string {
 		return "plain"
 	case ".docx":
 		return "docx"
+	case ".doc":
+		return "doc"
+	case ".rtf":
+		return "rtf"
+	case ".odt":
+		return "odt"
 	case ".pptx":
 		return "pptx"
 	case ".xlsx":
 		return "xlsx"
 	case ".pdf":
 		return "pdf"
+	case ".ppt":
+		if bytes.HasPrefix(raw, []byte("PK")) {
+			return "pptx"
+		}
+		return "doc"
+	case ".xls":
+		if bytes.HasPrefix(raw, []byte("PK")) {
+			return "xlsx"
+		}
+		return "doc"
+	case ".wps":
+		if bytes.HasPrefix(raw, []byte("PK")) {
+			return "docx"
+		}
+		if utf8.Valid(raw) && !bytes.ContainsRune(raw, 0) {
+			return "plain"
+		}
+		return "doc"
+	case ".et":
+		if bytes.HasPrefix(raw, []byte("PK")) {
+			return "xlsx"
+		}
+		return "doc"
+	case ".dps":
+		if bytes.HasPrefix(raw, []byte("PK")) {
+			return "pptx"
+		}
+		return "doc"
 	}
 	m := strings.ToLower(strings.TrimSpace(declaredMedia))
 	switch {
 	case strings.Contains(m, "wordprocessingml"):
 		return "docx"
+	case m == "application/rtf" || m == "text/rtf":
+		return "rtf"
+	case strings.Contains(m, "opendocument.text"):
+		return "odt"
+	case m == "application/msword":
+		return "doc"
+	case strings.Contains(m, "ms-powerpoint"), strings.Contains(m, "ms-excel"):
+		return "doc"
 	case strings.Contains(m, "presentationml"):
 		return "pptx"
 	case strings.Contains(m, "spreadsheetml"):
@@ -178,6 +226,7 @@ var (
 	reWordText  = regexp.MustCompile(`<w:t(?:\s[^>]*)?>(.*?)</w:t>`)
 	reWordPara  = regexp.MustCompile(`</w:p>`)
 	reSlideText = regexp.MustCompile(`<a:t(?:\s[^>]*)?>(.*?)</a:t>`)
+	reODTText   = regexp.MustCompile(`<text:(?:p|h|span)[^>]*>([^<]*)`)
 )
 
 func docxText(raw []byte) (string, error) {
@@ -340,6 +389,162 @@ func slideNum(name string) int {
 	base = strings.TrimPrefix(base, "slide")
 	n, _ := strconv.Atoi(base)
 	return n
+}
+
+func rtfText(raw []byte) (string, error) {
+	s := strings.TrimSpace(string(raw))
+	if !strings.HasPrefix(s, "{\\rtf") {
+		return "", ErrUnsupportedFormat
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		c := s[i]
+		if c == '{' || c == '}' {
+			i++
+			continue
+		}
+		if c != '\\' {
+			if c != '\r' && c != '\n' {
+				b.WriteByte(c)
+			}
+			i++
+			if b.Len() >= maxBuildBytes {
+				return "", ErrBudgetExceeded
+			}
+			continue
+		}
+		i++
+		if i >= len(s) {
+			break
+		}
+		switch s[i] {
+		case '\\', '{', '}':
+			b.WriteByte(s[i])
+			i++
+		case '\'':
+			if i+2 >= len(s) {
+				return "", ErrUnsupportedFormat
+			}
+			n, err := strconv.ParseUint(s[i+1:i+3], 16, 8)
+			if err != nil {
+				return "", ErrUnsupportedFormat
+			}
+			if n >= 0x20 || n == '\t' {
+				b.WriteByte(byte(n))
+			}
+			i += 3
+		case 'u':
+			i++
+			sign := 1
+			if i < len(s) && s[i] == '-' {
+				sign = -1
+				i++
+			}
+			start := i
+			for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+				i++
+			}
+			if start == i {
+				continue
+			}
+			n, err := strconv.Atoi(s[start:i])
+			if err != nil {
+				return "", ErrUnsupportedFormat
+			}
+			n *= sign
+			if n < 0 {
+				n += 65536
+			}
+			if n > 0 && n <= 0x10FFFF {
+				b.WriteRune(rune(n))
+			}
+			if i < len(s) && (s[i] == '?' || s[i] == ' ') {
+				i++
+			}
+		default:
+			if s[i] == '\n' || s[i] == '\r' {
+				i++
+				continue
+			}
+			start := i
+			for i < len(s) && ((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z')) {
+				i++
+			}
+			word := s[start:i]
+			for i < len(s) && (s[i] == '-' || (s[i] >= '0' && s[i] <= '9')) {
+				i++
+			}
+			if i < len(s) && s[i] == ' ' {
+				i++
+			}
+			if word == "par" || word == "line" {
+				b.WriteByte('\n')
+			}
+		}
+	}
+	return b.String(), nil
+}
+
+func odtText(raw []byte) (string, error) {
+	body, err := zipPart(raw, "content.xml", 16<<20)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	for _, para := range strings.Split(body, "</text:p>") {
+		var line strings.Builder
+		for _, m := range reODTText.FindAllStringSubmatch(para, -1) {
+			line.WriteString(html.UnescapeString(m[1]))
+		}
+		text := strings.TrimSpace(line.String())
+		if text == "" {
+			continue
+		}
+		b.WriteString(text)
+		b.WriteByte('\n')
+		if b.Len() >= maxBuildBytes {
+			return "", ErrBudgetExceeded
+		}
+	}
+	return b.String(), nil
+}
+
+func docText(raw []byte) (string, error) {
+	var b strings.Builder
+	var run []rune
+	flush := func() {
+		if len(run) < 6 {
+			run = run[:0]
+			return
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		for _, r := range run {
+			b.WriteRune(r)
+		}
+		run = run[:0]
+	}
+	for i := 0; i+1 < len(raw); i += 2 {
+		u := rune(raw[i]) | rune(raw[i+1])<<8
+		if u == '\r' || u == '\n' || u == 0x07 || u == 0x0b {
+			flush()
+			continue
+		}
+		if u == '\t' || u == ' ' || (u >= 0x21 && u < 0xD800) || (u >= 0xE000 && u <= 0xFFFD) {
+			run = append(run, u)
+			if len(run) > 4000 {
+				flush()
+			}
+			continue
+		}
+		flush()
+		if b.Len() >= maxBuildBytes {
+			return "", ErrBudgetExceeded
+		}
+	}
+	flush()
+	return b.String(), nil
 }
 
 func validateArchive(raw []byte) error {

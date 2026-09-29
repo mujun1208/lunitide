@@ -722,7 +722,14 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		// is reserved before AssembleEnvelope / combine.
 		if len(imageRefs) > 0 {
 			if len(imageRefs) > attachmentapp.MaxVisionImages {
-				return request.Fail("ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
+				for _, extra := range imageRefs[attachmentapp.MaxVisionImages:] {
+					name := strings.TrimSpace(extra.OriginalName)
+					if name == "" {
+						name = "图片"
+					}
+					envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, contextapp.ContextSource{Type: contextapp.SourceAttachmentExcerpt, ID: extra.ID, Authority: contextapp.AuthorityEvidence, Content: name + "\n这份图片已保存。这一轮画面名额已满，请按文件名和用户要求处理。", Provenance: "attachment:" + extra.ID + ":project:" + extra.ProjectID})
+				}
+				imageRefs = imageRefs[:attachmentapp.MaxVisionImages]
 			}
 			total := 0
 			for _, imageRef := range imageRefs {
@@ -734,12 +741,6 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 					if errors.Is(visionErr, attachmentapp.ErrScopeMismatch) {
 						return request.Fail("CONTEXT_REF_SCOPE_MISMATCH", "显式上下文引用不属于当前会话", false)
 					}
-					if errors.Is(visionErr, attachmentapp.ErrImageBudget) {
-						return request.Fail("ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
-					}
-					if errors.Is(visionErr, attachmentapp.ErrUnsupportedMIME) {
-						return request.Fail("ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
-					}
 					name := strings.TrimSpace(imageRef.OriginalName)
 					if name == "" {
 						name = "图片"
@@ -747,10 +748,11 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 					if imageRef.Size > attachmentapp.MaxVisionImageBytes && imageRef.Size <= attachmentapp.MaxFileSize && e.attachmentService != nil {
 						if raw, readErr := e.attachmentService.ReadImageBytes(ctx, imageRef.ID, boundSessionID); readErr == nil {
 							if fitted, mime, ok := fitChatVision(raw); ok {
-								total += len(fitted)
-								if total > attachmentapp.MaxVisionBatchBytes {
-									return request.Fail("ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
+								if total+len(fitted) > attachmentapp.MaxVisionBatchBytes {
+									envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, contextapp.ContextSource{Type: contextapp.SourceAttachmentExcerpt, ID: imageRef.ID, Authority: contextapp.AuthorityEvidence, Content: name + "\n已附图片，但这一轮画面太大，没有放入像素。请按文件名和用户要求处理。", Provenance: "attachment:" + imageRef.ID + ":project:" + imageRef.ProjectID})
+									continue
 								}
+								total += len(fitted)
 								images = append(images, llmadapter.Image{MIME: mime, Data: fitted})
 								envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, contextapp.ContextSource{Type: contextapp.SourceAttachmentExcerpt, ID: imageRef.ID, Authority: contextapp.AuthorityEvidence, Content: name + "\n画面已附上。直接根据画面回答，不要用命令、PowerShell 或 StorageFile 打开这个文件。", Provenance: "attachment:" + imageRef.ID + ":project:" + imageRef.ProjectID})
 								continue
@@ -764,10 +766,15 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 					envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, contextapp.ContextSource{Type: contextapp.SourceAttachmentExcerpt, ID: imageRef.ID, Authority: contextapp.AuthorityEvidence, Content: name + "\n已附图片，但没有读出画面。请按文件名说明，不要猜测画面内容，也不要用命令或 StorageFile 打开这个文件。", Provenance: "attachment:" + imageRef.ID + ":project:" + imageRef.ProjectID})
 					continue
 				}
-				total += len(image.Data)
-				if total > attachmentapp.MaxVisionBatchBytes {
-					return request.Fail("ATTACHMENT_IMAGE_READ_FAILED", "图片附件读取或校验失败", false)
+				if total+len(image.Data) > attachmentapp.MaxVisionBatchBytes {
+					name := strings.TrimSpace(imageRef.OriginalName)
+					if name == "" {
+						name = "图片"
+					}
+					envelope.AttachmentExcerpts = append(envelope.AttachmentExcerpts, contextapp.ContextSource{Type: contextapp.SourceAttachmentExcerpt, ID: imageRef.ID, Authority: contextapp.AuthorityEvidence, Content: name + "\n已附图片，但这一轮画面太大，没有放入像素。请按文件名和用户要求处理。", Provenance: "attachment:" + imageRef.ID + ":project:" + imageRef.ProjectID})
+					continue
 				}
+				total += len(image.Data)
 				images = append(images, llmadapter.Image{MIME: image.MIME, Data: image.Data})
 			}
 			providerInfo = reserveImageBudget(providerInfo, p.ModelID, images)

@@ -30,6 +30,11 @@ const (
 	StatusFailed    ParseStatus = "failed"
 )
 
+// MaxStoredBytes is the largest file a conversation can keep. It matches the
+// chunked upload cap. The extracted text has its own smaller cap, so the
+// whole file is saved and the turn reads what fits with the user's prompt.
+const MaxStoredBytes int64 = 500 << 20
+
 // Attachment is a user-supplied file with parsed text used as prior context.
 type Attachment struct {
 	ID              string
@@ -68,7 +73,7 @@ func (a Attachment) Validate() error {
 	if a.MIME == "" || len(a.MIME) > 128 {
 		return errors.New("attachment mime must be 1-128 bytes")
 	}
-	if a.Size < 0 || a.Size > 10485760 {
+	if a.Size < 0 || a.Size > MaxStoredBytes {
 		return errors.New("attachment size out of range")
 	}
 	if len(a.SHA256) != 64 || !isHex(a.SHA256) {

@@ -19,12 +19,17 @@ export const TEXT_EXTENSIONS=['.txt','.md','.json','.csv','.html','.xml','.js','
 export const IMAGE_MIME_BY_EXTENSION:Record<string,string>={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif','.bmp':'image/bmp'}
 export const DOCUMENT_MIME_BY_EXTENSION:Record<string,string>={
  '.pdf':'application/pdf',
+ '.doc':'application/msword',
  '.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+ '.rtf':'application/rtf',
+ '.odt':'application/vnd.oasis.opendocument.text',
+ '.xls':'application/vnd.ms-excel',
  '.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+ '.ppt':'application/vnd.ms-powerpoint',
  '.pptx':'application/vnd.openxmlformats-officedocument.presentationml.presentation',
 }
 export const ALLOWED_EXTENSIONS=[...TEXT_EXTENSIONS,...Object.keys(IMAGE_MIME_BY_EXTENSION),...Object.keys(DOCUMENT_MIME_BY_EXTENSION)]
-export const ATTACHMENT_ACCEPT=[...ALLOWED_EXTENSIONS,'image/png','image/jpeg','image/webp','image/gif','image/bmp',...Object.values(DOCUMENT_MIME_BY_EXTENSION)].join(',')
+export const ATTACHMENT_ACCEPT=''
 
 const extension=(name:string)=>{const dot=name.lastIndexOf('.');return dot<0?'':name.slice(dot).toLowerCase()}
 const imageExtensionByMIME=(mime:string)=>mime==='image/png'?'.png':mime==='image/jpeg'?'.jpg':mime==='image/webp'?'.webp':''
@@ -57,10 +62,9 @@ export async function prepareAttachmentFiles(files:readonly File[],signal?:Abort
  for(const file of files.slice(0,ATTACHMENT_BATCH_MAX)){
   if(signal?.aborted)throw attachmentCancelled()
   const ext=extension(file.name),imageMIME=IMAGE_MIME_BY_EXTENSION[ext]
-  if(!ALLOWED_EXTENSIONS.includes(ext)){failed.push(`${file.name}（不支持的类型）`);continue}
   if(file.size>ATTACHMENT_FILE_MAX){failed.push(`${file.name}（超过 ${attachmentMiB(ATTACHMENT_FILE_MAX)} MiB）`);continue}
   if((total+=file.size)>ATTACHMENT_BATCH_BYTES){failed.push(`${file.name}（本批原文件合计超过 ${attachmentMiB(ATTACHMENT_BATCH_BYTES)} MiB）`);continue}
-  try{prepared.push(imageMIME?await compressVisionImage(file,signal,ext==='.gif'||ext==='.bmp'):withDocumentType(file))}catch(e){if(signal?.aborted)throw e;failed.push(attachmentUserError(e,`${file.name}（图片处理失败）`))}
+  try{prepared.push(imageMIME?await compressVisionImage(file,signal,ext==='.gif'||ext==='.bmp'):withDocumentType(file))}catch(e){if(signal?.aborted)throw e;prepared.push(file)}
  }
  if(files.length>ATTACHMENT_BATCH_MAX)failed.push(`超过 ${ATTACHMENT_BATCH_MAX} 个的 ${files.length-ATTACHMENT_BATCH_MAX} 个文件`)
  return{files:prepared,failed}
@@ -79,8 +83,7 @@ export function clipboardImages(data:DataTransfer):File[]{
 export function validateAttachmentBatch(files:readonly File[]):{accepted:File[];skipped:string[]}{
  const selected=files.slice(0,ATTACHMENT_BATCH_MAX),skipped:string[]=[]
  if(files.length>ATTACHMENT_BATCH_MAX)skipped.push(`超过 ${ATTACHMENT_BATCH_MAX} 个的 ${files.length-ATTACHMENT_BATCH_MAX} 个文件`)
- let imageCount=0
- const accepted=selected.filter(file=>{const ext=extension(file.name),imageMIME=IMAGE_MIME_BY_EXTENSION[ext];if(!ALLOWED_EXTENSIONS.includes(ext)){skipped.push(`${file.name}（不支持的类型）`);return false}if(imageMIME&&file.type&&file.type!==imageMIME){skipped.push(`${file.name}（图片类型与扩展名不匹配）`);return false}if(imageMIME&&++imageCount>VISION_IMAGE_MAX){skipped.push(`${file.name}（每次最多 4 张图片）`);return false}if(imageMIME&&file.size>VISION_IMAGE_BYTES){skipped.push(`${file.name}（视觉图片超过 180 KiB）`);return false}if(file.size>ATTACHMENT_FILE_MAX){skipped.push(`${file.name}（超过 ${attachmentMiB(ATTACHMENT_FILE_MAX)} MiB）`);return false}return true})
+ const accepted=selected.filter(file=>{if(file.size>ATTACHMENT_FILE_MAX){skipped.push(`${file.name}（超过 ${attachmentMiB(ATTACHMENT_FILE_MAX)} MiB）`);return false}return true})
  if(accepted.reduce((total,file)=>total+file.size,0)>ATTACHMENT_BATCH_BYTES)throw new BridgeClientError(`本批支持文件合计不能超过 ${attachmentMiB(ATTACHMENT_BATCH_BYTES)} MiB`,'ATTACHMENT_BATCH_LIMIT',false,'renderer')
  return{accepted,skipped}
 }
@@ -143,7 +146,7 @@ export async function ingestAttachments(attachments:AttachmentBridge,projectId:s
    percent=1;emit('reading')
    const bytes=new Uint8Array(await readFile(file,signal))
    if(bytes.length!==file.size)throw new Error('文件大小发生变化，请重新选择')
-   if(isImageFile(file))previewUrl=`data:${file.type||IMAGE_MIME_BY_EXTENSION[extension(file.name)]};base64,${bytesToBase64(bytes)}`
+   if(isImageFile(file)&&bytes.length<=VISION_IMAGE_BYTES)previewUrl=`data:${file.type||IMAGE_MIME_BY_EXTENSION[extension(file.name)]};base64,${bytesToBase64(bytes)}`
    const sha256=hex(await attachmentOperation(crypto.subtle.digest('SHA-256',bytes),signal,attachmentReadTimeoutMs(bytes.length)))
    let beginAbandoned=false
    const beginning=attachments.begin({projectId,sessionId,originalName:file.name,mime:file.type||IMAGE_MIME_BY_EXTENSION[extension(file.name)]||'text/plain',size:file.size,sha256})
@@ -152,8 +155,8 @@ export async function ingestAttachments(attachments:AttachmentBridge,projectId:s
    try{begin=await attachmentOperation(beginning,signal)}catch(error){beginAbandoned=true;throw error}
    uploadId=begin.uploadId
    if(!Number.isSafeInteger(begin.chunkSize)||begin.chunkSize<=0)throw new Error('上传分块大小无效')
-   // The bridge envelope has a byte limit; do not trust a larger server hint.
-   const chunkSize=Math.min(begin.chunkSize,32*1024)
+   // Stay under the 256 KiB bridge message. Fewer round trips keep the upload moving.
+   const chunkSize=Math.min(begin.chunkSize,160*1024)
    let offset=0
    while(offset<bytes.length){
     if(signal?.aborted)throw attachmentCancelled()

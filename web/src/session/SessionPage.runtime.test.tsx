@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { artifactReviewBridge, BridgeClientError, runQueueBridge, type AttachmentBridge, type ChatBridge, type ChatStream, type ContextBridge, type MessageBridge, type ProviderBridge, type SessionBridge, type SkillBridge, type StreamEvent } from '../bridge/client'
-import type { MessageDTO, ProjectDTO, ProviderDTO, SessionDTO } from '../generated/bridge'
+import type { MessageDTO, ProjectDTO, ProviderDTO, SessionDTO, SkillDTO } from '../generated/bridge'
 import { ATTACHMENT_FILE_MAX, SessionPage, persistedExecutionMode, generalDefaultExecutionMode, TURN_RESUME_PROMPT, turnFailureNotice } from './SessionPage'
 import { rememberAttachmentPreview } from './attachments'
 import { resetLiveChatForTests } from './liveChat'
@@ -68,9 +68,9 @@ it('encodes the maximum safe attachment payload and rejects larger files',async(
  await fireEvent.change(input,{target:{files:[file]}})
  await waitFor(()=>expect(commit).toHaveBeenCalledOnce(),{timeout:20_000})
  expect(begin).toHaveBeenCalledWith(expect.objectContaining({projectId:P,sessionId:S,originalName:'safe.txt',size:uploadBytes,sha256:expect.stringMatching(/^[0-9a-f]{64}$/)}))
- expect(chunk).toHaveBeenCalledTimes(320)
+ expect(chunk).toHaveBeenCalledTimes(80)
  expect(chunk.mock.calls[0][0]).toMatchObject({uploadId:'01ARZ3NDEKTSV4RRFFQ69G5FAC',offset:0})
- expect(chunk.mock.calls[319][0]).toMatchObject({offset:uploadBytes-32*1024})
+ expect(chunk.mock.calls[79][0]).toMatchObject({offset:uploadBytes-128*1024})
  const oversized=new File(['x'],'too-large.txt',{type:'text/plain'})
  Object.defineProperty(oversized,'size',{value:ATTACHMENT_FILE_MAX+1})
  await fireEvent.change(input,{target:{files:[oversized]}})
@@ -552,7 +552,7 @@ it('uploads multiple dropped files and a pasted screenshot from the composer',as
  fireEvent.dragEnter(composer,{dataTransfer});expect(composer).toHaveClass('is-dragging');fireEvent.drop(composer,{dataTransfer});await waitFor(()=>expect(commit).toHaveBeenCalledTimes(2));expect(composer).not.toHaveClass('is-dragging');expect(screen.getByText(/a\.txt/).closest('.attachment-card')).toHaveTextContent('等待随下一条消息发送');expect(screen.getByRole('button',{name:'移除附件 a.txt'})).toBeInTheDocument()
  const image=make('image.png','image/png'),clipboardData={items:[{kind:'file',type:'image/png',getAsFile:()=>image}],files:[image]}
  fireEvent.paste(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),{clipboardData});await waitFor(()=>expect(commit).toHaveBeenCalledTimes(3));expect(begin.mock.calls[2][0].originalName).toMatch(/^clipboard-.*\.png$/)
- const picker=document.querySelector('.message-actions input[type="file"]:not([webkitdirectory])') as HTMLInputElement;expect(picker.multiple).toBe(true);expect(picker.accept).toContain('image/png')
+ const picker=document.querySelector('.message-actions input[type="file"]:not([webkitdirectory])') as HTMLInputElement;expect(picker.multiple).toBe(true);expect(picker.accept).toBe('')
 })
 
 it('shows the uploaded image in the user bubble instead of a raw attachment token',async()=>{
@@ -590,6 +590,44 @@ it('waits for initial attachments, then includes their ids in the first chat con
  await open({personal:true,initialSession:session,initialPrompt:'首条问题',initialUploadFiles:[file],attachments,providers,chat:{start,dispose:vi.fn()},messages:{list:vi.fn().mockResolvedValue(page()),append} as MessageBridge})
  await waitFor(()=>expect(chunk).toHaveBeenCalledOnce());expect(start).not.toHaveBeenCalled();finish({nextOffset:3})
  await waitFor(()=>expect(start).toHaveBeenCalledOnce());expect(start.mock.calls[0][0]).toMatchObject({contextRefs:[{type:'attachment',id:'attachment-initial'}]});expect(append.mock.calls[0][0].text).toContain('[attachment:attachment-initial|initial.txt]')
+})
+
+it('sends a document outside the old allow-list with the prompt',async()=>{
+ const id='01ARZ3NDEKTSV4RRFFQ69G5FAE'
+ const bytes=new Uint8Array([1,2,3,4])
+ const file=new File([bytes],'需求.wps',{type:'application/octet-stream'})
+ Object.defineProperty(file,'arrayBuffer',{value:async()=>bytes.buffer})
+ const attachments={list:vi.fn().mockResolvedValue({items:[]}),begin:vi.fn().mockResolvedValue({uploadId:'01ARZ3NDEKTSV4RRFFQ69G5FAC',chunkSize:32*1024,expiresAt:NOW}),chunk:vi.fn().mockResolvedValue({nextOffset:bytes.length}),commit:vi.fn().mockResolvedValue({attachmentId:id}),abort:vi.fn(),get:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge
+ const start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()}),append=vi.fn().mockResolvedValue({})
+ const user=await open({personal:true,providers,initialSession:session,attachments,chat:{start,dispose:vi.fn()},messages:{list:vi.fn().mockResolvedValue(page()),append} as MessageBridge})
+ const picker=document.querySelector('.message-actions input[type="file"]:not([webkitdirectory])') as HTMLInputElement
+ await fireEvent.change(picker,{target:{files:[file]}})
+ await waitFor(()=>expect(attachments.commit).toHaveBeenCalledOnce())
+ await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'按附件做一版')
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(append).toHaveBeenCalledOnce())
+ expect(append.mock.calls[0][0].text).toContain(`[attachment:${id}|需求.wps]`)
+ expect(start.mock.calls[0][0]).toMatchObject({contextRefs:[{type:'attachment',id}]})
+})
+
+it('sends a completed word file and the prompt when the chat does not auto-send',async()=>{
+ const id='01ARZ3NDEKTSV4RRFFQ69G5FAD'
+ const bytes=new Uint8Array([80,75,3,4])
+ const file=new File([bytes],'支点互动CRM基础需求.docx',{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'})
+ Object.defineProperty(file,'arrayBuffer',{value:async()=>bytes.buffer})
+ const attachments={list:vi.fn().mockResolvedValue({items:[]}),begin:vi.fn().mockResolvedValue({uploadId:'01ARZ3NDEKTSV4RRFFQ69G5FAC',chunkSize:32*1024,expiresAt:NOW}),chunk:vi.fn().mockResolvedValue({nextOffset:bytes.length}),commit:vi.fn().mockResolvedValue({attachmentId:id}),abort:vi.fn(),get:vi.fn(),delete:vi.fn()} as unknown as AttachmentBridge
+ const start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()}),append=vi.fn().mockResolvedValue({})
+ const prompt='仔细阅读上传附件，根据需求说明，创建一个CRM的POC系统。'
+ const skills=[{id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',name:'poc-fast-build',displayName:'POC 快速构建',description:'',version:'1.0.0',rev:1,status:'published' as const,permissions:['read_write'] as const,entryPoint:'builtin://poc',manifestJson:'{}',category:'development' as const,categorySource:'keyword' as const,createdAt:NOW,updatedAt:NOW},{id:'01ARZ3NDEKTSV4RRFFQ69G5FAF',name:'poc-blueprint',displayName:'POC 交互蓝图内核自测',description:'',version:'1.0.0',rev:1,status:'published' as const,permissions:['read_write'] as const,entryPoint:'builtin://poc2',manifestJson:'{}',category:'development' as const,categorySource:'keyword' as const,createdAt:NOW,updatedAt:NOW}] as SkillDTO[]
+ const user=await open({personal:true,initialSession:session,initialPrompt:prompt,initialNoAutoSend:true,initialUploadFiles:[file],initialReferencedSkills:skills,attachments,providers,chat:{start,dispose:vi.fn()},messages:{list:vi.fn().mockResolvedValue(page()),append} as MessageBridge})
+ await screen.findByText('等待随下一条消息发送',{exact:false})
+ expect(start).not.toHaveBeenCalled()
+ await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
+ await waitFor(()=>expect(append).toHaveBeenCalledOnce())
+ expect(append.mock.calls[0][0].text).toContain(`[attachment:${id}|支点互动CRM基础需求.docx]`)
+ expect(append.mock.calls[0][0].text).toContain(prompt)
+ expect(append.mock.calls[0][0].text).toContain('[引用技能 POC 快速构建|')
+ expect(start.mock.calls[0][0]).toMatchObject({contextRefs:[{type:'attachment',id}]})
 })
 
 it('keeps the initial prompt and does not auto-send when an initial attachment fails',async()=>{

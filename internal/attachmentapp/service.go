@@ -63,7 +63,7 @@ const MaxVisionBatchBytes = 3670016
 // Keep the complete JSON/Base64 Bridge envelope comfortably below every
 // transport boundary (WebView2 -> Host -> Engine), rather than merely below
 // the Host's absolute 256 KiB ceiling.
-const MaxUploadChunkBytes = 32 * 1024
+const MaxUploadChunkBytes = 160 * 1024
 const UploadTTL = 15 * time.Minute
 
 type uploadState struct {

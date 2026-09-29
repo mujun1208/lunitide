@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -299,6 +300,36 @@ func TestChatStartUnreadImageStillRuns(t *testing.T) {
 	}
 	if !strings.Contains(combined.String(), "shot.png") || !strings.Contains(combined.String(), "没有读出画面") {
 		t.Fatalf("missing image note: %q", combined.String())
+	}
+}
+
+func TestChatStartFifthImageStillRuns(t *testing.T) {
+	byID := map[string]*attachment.Attachment{}
+	refs := `,"contextRefs":[`
+	for i := 0; i < 5; i++ {
+		id := fmt.Sprintf("01ARZ3NDEKTSV4RRFFQ69G5FA%d", i)
+		name := "shot.png"
+		if i == 4 {
+			name = "第五张.png"
+		}
+		item := attachment.Attachment{ID: id, ProjectID: chatAttachmentProjectID, SessionID: chatAttachmentSessionID, FileRef: "missing-image", OriginalName: name, MIME: "image/png", ParseStatus: attachment.StatusFailed}
+		byID[id] = &item
+		if i > 0 {
+			refs += ","
+		}
+		refs += `{"type":"attachment","id":"` + id + `"}`
+	}
+	refs += `]`
+	response, requests := startAttachmentChat(t, &chatAttachmentStore{byID: byID}, refs)
+	if !response.OK {
+		t.Fatalf("fifth image aborted the turn: %#v", response)
+	}
+	var combined strings.Builder
+	for _, message := range capturedChatRequest(t, requests).Messages {
+		combined.WriteString(message.Content)
+	}
+	if !strings.Contains(combined.String(), "第五张.png") || !strings.Contains(combined.String(), "画面名额已满") {
+		t.Fatalf("extra image note: %q", combined.String())
 	}
 }
 

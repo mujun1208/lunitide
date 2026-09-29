@@ -20,7 +20,7 @@ export type ComposerPickResult =
   | {kind: 'files'; files: File[]; skipped: string[]}
   | {kind: 'error'; error: BridgeClientError}
 
-const CHUNK = 32768
+const CHUNK = 160 * 1024
 
 function unavailable(error: unknown): boolean {
   return error instanceof BridgeClientError && (error.code === 'DESKTOP_PICK_UNAVAILABLE' || error.code === 'BRIDGE_UNAVAILABLE' || error.code === 'METHOD_NOT_FOUND')
@@ -75,7 +75,7 @@ export async function pickComposerFiles(bridge: DesktopFilesBridge | undefined, 
     if (!picked.items?.length) {
       if (folder) {
         const extra = skipped.length ? ` ${skipped.join('、')}` : ''
-        return {kind: 'error', error: new BridgeClientError(`这个文件夹里没有可导入的文件。支持 txt、md、csv、pdf、图片、docx、xlsx、pptx，子文件夹里的这些文件也会带上。${extra}`.trim(), 'DESKTOP_FOLDER_EMPTY', false, 'renderer')}
+        return {kind: 'error', error: new BridgeClientError(`这个文件夹里没有可导入的文件。子文件夹里的文件也会带上。${extra}`.trim(), 'DESKTOP_FOLDER_EMPTY', false, 'renderer')}
       }
       return {kind: 'error', error: new BridgeClientError('系统没打开文件框，请再试一次。', 'DESKTOP_PICK_FAILED', true, 'renderer')}
     }

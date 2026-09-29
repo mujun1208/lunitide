@@ -1,6 +1,8 @@
 package doctext_test
 
 import (
+	"archive/zip"
+	"bytes"
 	"errors"
 	"strings"
 	"testing"
@@ -144,6 +146,59 @@ func TestExtractRejectsBinary(t *testing.T) {
 	_, err := doctext.Extract("/abs/logo.bin", []byte("\x00\x01\x02 binary \x00 payload"), "")
 	if !errors.Is(err, doctext.ErrUnsupportedFormat) {
 		t.Fatalf("err = %v want ErrUnsupportedFormat", err)
+	}
+}
+
+func TestExtractRTFODTAndLegacyDoc(t *testing.T) {
+	rtf, err := doctext.Extract("/abs/需求.rtf", []byte("{\\rtf1\\ansi 客户关系 CRM\\par }"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rtf.Kind != "rtf" || !strings.Contains(rtf.Text, "客户关系") || !strings.Contains(rtf.Text, "CRM") {
+		t.Fatalf("rtf = %+v", rtf)
+	}
+	var odt bytes.Buffer
+	zw := zip.NewWriter(&odt)
+	part, err := zw.Create("content.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = part.Write([]byte(`<office:text><text:p>客户关系 CRM</text:p></office:text>`)); err != nil {
+		t.Fatal(err)
+	}
+	if err = zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := doctext.Extract("/abs/需求.odt", odt.Bytes(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Kind != "odt" || !strings.Contains(got.Text, "客户关系") {
+		t.Fatalf("odt = %+v", got)
+	}
+	body := "客户关系管理系统需求说明"
+	chars := []rune(body)
+	raw := make([]byte, len(chars)*2)
+	for i, r := range chars {
+		raw[i*2] = byte(r)
+		raw[i*2+1] = byte(r >> 8)
+	}
+	doc, err := doctext.Extract("/abs/需求.doc", raw, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Kind != "doc" || !strings.Contains(doc.Text, body) {
+		t.Fatalf("doc = %+v", doc)
+	}
+	for _, name := range []string{"/abs/表.xls", "/abs/页.ppt"} {
+		got, err := doctext.Extract(name, raw, "")
+		if err != nil || !strings.Contains(got.Text, body) {
+			t.Fatalf("%s = %+v %v", name, got, err)
+		}
+	}
+	wps, err := doctext.Extract("/abs/需求.wps", []byte(body), "application/octet-stream")
+	if err != nil || wps.Kind != "plain" || !strings.Contains(wps.Text, body) {
+		t.Fatalf("wps = %+v %v", wps, err)
 	}
 }
 

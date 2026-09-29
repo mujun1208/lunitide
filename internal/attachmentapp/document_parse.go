@@ -17,7 +17,7 @@ import (
 func (s *Service) parseDocument(ctx context.Context, name, mime string, data []byte) (string, error) {
 	mime = attachmentTextMIME(name, mime, data)
 	ext := strings.ToLower(filepath.Ext(name))
-	document := ext == ".docx" || ext == ".pptx" || ext == ".xlsx" || ext == ".pdf"
+	document := ext == ".docx" || ext == ".doc" || ext == ".rtf" || ext == ".odt" || ext == ".pptx" || ext == ".ppt" || ext == ".xlsx" || ext == ".xls" || ext == ".pdf" || ext == ".wps" || ext == ".et" || ext == ".dps"
 	if !document {
 		document = mime == "application/pdf" || strings.HasPrefix(mime, "application/vnd.openxmlformats-officedocument.")
 	}

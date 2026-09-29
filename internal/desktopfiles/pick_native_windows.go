@@ -112,7 +112,7 @@ func itemsFromPaths(paths []string) ([]Item, []string, error) {
 }
 
 func openFileDialog(multiple bool) ([]string, error) {
-	return openFileDialogFilter(multiple, "支持的文件\x00*.txt;*.md;*.json;*.csv;*.html;*.xml;*.js;*.ts;*.py;*.go;*.java;*.c;*.cpp;*.rs;*.yaml;*.yml;*.sh;*.sql;*.png;*.jpg;*.jpeg;*.webp\x00所有文件\x00*.*\x00", "选择要附加的文件")
+	return openFileDialogFilter(multiple, "所有文件\x00*.*\x00", "选择要附加的文件")
 }
 
 func dialogOwnerHWND() syscall.Handle {
