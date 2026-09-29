@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"github.com/lunitide/lunitide/internal/buildinfo"
+	"github.com/lunitide/lunitide/internal/egressproxy"
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 	"github.com/lunitide/lunitide/internal/weather"
 )
@@ -18,6 +19,7 @@ func weatherFetchOptions(rawURL, lastModified string) (networkpolicy.FetchOption
 	return networkpolicy.FetchOptions{
 		UserAgent:       "Lunitide/" + buildinfo.Version + " (weather; contact: 114921798@qq.com)",
 		IfModifiedSince: lastModified,
+		Proxy:           egressproxy.Resolver(),
 	}, nil
 }
 

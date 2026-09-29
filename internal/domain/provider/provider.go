@@ -38,6 +38,10 @@ const (
 	ProtocolOpenAICompatible Protocol = "openai_compatible"
 	ProtocolAnthropic        Protocol = "anthropic"
 	ProtocolVolcSpeech       Protocol = "volc_speech"
+	// ProtocolOpenAIResponses is the OpenAI Responses API (POST /responses):
+	// OpenAI, Volcengine Ark (standard and Agent Plan) and Bailian
+	// compatible-mode. Text and vision chat only; no embeddings or media.
+	ProtocolOpenAIResponses Protocol = "openai_responses"
 )
 
 // VolcSpeechOrigin is the only stored 基础 URL for Agent Plan speech.
@@ -46,7 +50,20 @@ const VolcSpeechOrigin = "https://openspeech.bytedance.com"
 
 // ValidProtocol is the stored-provider enum, including speech-only Volc.
 func ValidProtocol(p Protocol) bool {
-	return p == ProtocolOpenAICompatible || p == ProtocolAnthropic || p == ProtocolVolcSpeech
+	return p == ProtocolOpenAICompatible || p == ProtocolAnthropic || p == ProtocolVolcSpeech || p == ProtocolOpenAIResponses
+}
+
+// IsChatProtocol reports whether the protocol speaks a text/vision chat wire
+// (chat completions, Responses, Messages) rather than a speech-only service.
+func IsChatProtocol(p Protocol) bool {
+	return p == ProtocolOpenAICompatible || p == ProtocolAnthropic || p == ProtocolOpenAIResponses
+}
+
+// ResponsesKindAllowed reports whether a model kind can be served over the
+// Responses API. Embeddings, media generation and speech have no /responses
+// route and must stay on openai_compatible or volc_speech providers.
+func ResponsesKindAllowed(k Kind) bool {
+	return k == KindLLM || k == KindVision || k == KindGUI
 }
 
 type CredentialState string
@@ -82,20 +99,20 @@ type Model struct {
 }
 
 type Provider struct {
-	ID              string          `json:"id"`
-	LegacyID        string          `json:"legacyId,omitempty"`
-	Name            string          `json:"name"`
-	Protocol        Protocol        `json:"protocol"`
-	BaseURL         string          `json:"baseUrl"`
-	Models          []Model         `json:"models"`
+	ID                    string          `json:"id"`
+	LegacyID              string          `json:"legacyId,omitempty"`
+	Name                  string          `json:"name"`
+	Protocol              Protocol        `json:"protocol"`
+	BaseURL               string          `json:"baseUrl"`
+	Models                []Model         `json:"models"`
 	CredentialState       CredentialState `json:"credentialState"`
 	CredentialRef         string          `json:"-"`
 	CredentialRefBackups  []string        `json:"-"`
 	CredentialBackupCount int             `json:"credentialBackupCount,omitempty"`
 	Status                Status          `json:"status"`
-	CreatedAt       time.Time       `json:"createdAt"`
-	UpdatedAt       time.Time       `json:"updatedAt"`
-	Version         int64           `json:"version"`
+	CreatedAt             time.Time       `json:"createdAt"`
+	UpdatedAt             time.Time       `json:"updatedAt"`
+	Version               int64           `json:"version"`
 }
 
 type Filter struct {
@@ -319,6 +336,13 @@ func (p Provider) Validate() error {
 		for _, model := range p.Models {
 			if !IsSpeechKind(model.EffectiveKind()) {
 				return errors.New("volc speech providers may only contain asr or tts models")
+			}
+		}
+	}
+	if p.Protocol == ProtocolOpenAIResponses {
+		for _, model := range p.Models {
+			if !ResponsesKindAllowed(model.EffectiveKind()) {
+				return errors.New("responses api providers may only contain llm, vision or gui models")
 			}
 		}
 	}

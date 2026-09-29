@@ -247,6 +247,7 @@ it('collapses brief controls once a deliverable exists and lists PPT pages under
     />,
   );
   expect((await screen.findAllByText('封面标题')).length).toBeGreaterThan(0);
+  expect(screen.getByRole('heading', { name: '幻灯片' })).toBeInTheDocument();
   expect(screen.queryByRole('navigation', { name: '内容目录' })).toBeNull();
   const files = screen.getByRole('complementary', { name: '任务与文件' });
   expect(within(files).getByRole('button', { name: '导入当前文件的修改版' })).toBeInTheDocument();
@@ -327,6 +328,33 @@ it('does not keep the previous version nodes after a preview fetch fails', async
   fireEvent.click(screen.getByRole('button', { name: 'v1' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('预览失败');
   expect(screen.queryByText('正文 v2')).toBeNull();
+});
+
+it('does not treat a reference Word file as 143 PPT pages', async () => {
+  const detail = fixture();
+  detail.artifacts[0].role = 'reference';
+  const api = apiFor(detail);
+  vi.mocked(api.preview).mockResolvedValue({
+    versionId: 'v2',
+    kind: 'docx',
+    content: '',
+    previewBasis: '结构预览',
+    pdfReady: false,
+    truncated: false,
+    totalNodes: 143,
+    nextNodeOffset: 143,
+    nodes: [
+      { id: 't1', label: 'word/document.xml · text1', text: '标题', location: 'word/document.xml · text:1', editable: true },
+      { id: 't2', label: 'word/document.xml · text2', text: '段落', location: 'word/document.xml · text:2', editable: true },
+    ],
+  });
+  localStorage.setItem('lunitide:office-studio:last-task', taskId);
+  render(<OfficeStudioPage initialTaskId={taskId} api={api} renderConversation={() => <div>原会话输入框</div>} onOpenSession={vi.fn()} />);
+  expect(await screen.findByText('标题')).toBeInTheDocument();
+  expect(screen.queryByRole('navigation', { name: '幻灯片页' })).toBeNull();
+  expect(screen.queryByRole('navigation', { name: '内容目录' })).toBeNull();
+  expect(screen.queryByRole('heading', { name: '幻灯片' })).toBeNull();
+  expect(screen.queryByLabelText('结构内容翻页')).toBeNull();
 });
 
 it('keeps an uploaded source labeled as reference while still previewing it in the studio', async () => {

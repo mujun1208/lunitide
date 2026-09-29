@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/jsonutil"
+	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 )
 

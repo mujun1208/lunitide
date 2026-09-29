@@ -15,6 +15,8 @@ func TestDetectShareURL(t *testing.T) {
 		{id: "douyin-short", goal: "https://v.douyin.com/ieFxxxx/", platform: PlatformDouyin, wantOK: true},
 		{id: "youtu-bare", goal: "youtu.be/dQw4w9WgXcQ", platform: PlatformYouTube, wantOK: true},
 		{id: "tencent", goal: "总结 https://v.qq.com/x/cover/mzc00200abc/n0044xyz.html", platform: PlatformTencent, wantOK: true},
+		{id: "weixin-sph", goal: "https://weixin.qq.com/sph/A1b2C3 帮我解读总结", platform: PlatformWeixin, wantOK: true},
+		{id: "weixin-channels", goal: "https://channels.weixin.qq.com/platform/live/abc", platform: PlatformWeixin, wantOK: true},
 		{id: "example", goal: "https://example.com/watch?v=1", wantOK: false},
 		{id: "news-qq", goal: "https://news.qq.com/rain/a/20260101A00", wantOK: false},
 	}

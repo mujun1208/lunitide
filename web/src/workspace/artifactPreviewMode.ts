@@ -1,4 +1,4 @@
-export type ArtifactViewMode = 'html' | 'image' | 'sheet' | 'markdown' | 'code' | 'paper' | 'pdf' | 'text'
+export type ArtifactViewMode = 'html' | 'image' | 'sheet' | 'markdown' | 'code' | 'paper' | 'pdf' | 'text' | 'audio'
 
 const CODE_EXT = /\.(json|ts|tsx|js|jsx|go|py|css|sql|xml|yml|yaml|csv|log)$/i
 
@@ -7,6 +7,7 @@ export function artifactViewMode(kind: string, path: string): ArtifactViewMode {
   if (kind === 'image') return 'image'
   if (kind === 'xlsx') return 'sheet'
   if (kind === 'pdf') return 'pdf'
+  if (kind === 'audio' || /\.(wav|mp3)$/i.test(path)) return 'audio'
   if (kind === 'docx' || kind === 'pptx') return 'paper'
   const base = path.split(/[/\\]/).pop()?.toLowerCase() ?? ''
   if (base.endsWith('.md')) return 'markdown'
@@ -20,12 +21,13 @@ export function artifactLooksLikePdfBytes(content: string): boolean {
   return /^[A-Za-z0-9+/]+=*$/.test(trimmed) && trimmed.startsWith('JVBERi')
 }
 
-export function previewKindFromPath(path: string): 'html' | 'xlsx' | 'docx' | 'pptx' | 'image' | 'pdf' | 'text' | 'file' {
+export function previewKindFromPath(path: string): 'html' | 'xlsx' | 'docx' | 'pptx' | 'image' | 'pdf' | 'audio' | 'text' | 'file' {
   const ext = path.split(/[/\\]/).pop()?.split('.').pop()?.toLowerCase() ?? ''
   if (ext === 'html') return 'html'
   if (ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'gif') return 'image'
   if (ext === 'xlsx') return 'xlsx'
   if (ext === 'pdf') return 'pdf'
+  if (ext === 'wav' || ext === 'mp3') return 'audio'
   if (ext === 'docx') return 'docx'
   if (ext === 'pptx') return 'pptx'
   return 'text'
@@ -35,5 +37,6 @@ export function artifactPreviewIsReady(kind: string, path: string, content: stri
   const mode = artifactViewMode(kind, path)
   if (mode === 'pdf') return artifactLooksLikePdfBytes(content)
   if (mode === 'image') return /^data:image\/(png|jpeg|gif);base64,[A-Za-z0-9+/=]+$/.test(content)
+  if (mode === 'audio') return content.trim().length >= 16 && !content.includes(' ') && !content.includes('\n')
   return content.length > 0
 }

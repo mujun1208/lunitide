@@ -37,6 +37,7 @@ type Service struct {
 	Pick       func() (string, error)
 	PickFiles  func() ([]string, error)
 	PickFolder func() (string, error)
+	Run        CommandRunner
 
 	mu       sync.Mutex
 	cancels  map[string]context.CancelFunc
@@ -113,6 +114,10 @@ func (s *Service) recoverLiveThreads() {
 
 func (s *Service) Detect() []AgentStatus {
 	return DetectAll(s.Look, s.Version)
+}
+
+func (s *Service) Install(ctx context.Context, name string, confirmed bool) (InstallResult, error) {
+	return InstallAndConnect(ctx, name, confirmed, s.Look, s.Version, s.Run)
 }
 
 func (s *Service) statusOf(name string) AgentStatus {

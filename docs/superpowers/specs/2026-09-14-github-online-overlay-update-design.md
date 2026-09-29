@@ -12,21 +12,19 @@
 
 1. `appUpdate.check`：本机更新目录已有更新的 Setup 时仍用本机。否则 HTTPS GET  
    `https://github.com/mujun1208/lunitide/releases/latest/download/latest.json`  
-   （可用 `LUNITIDE_UPDATE_FEED_URL` 覆盖，仅测试/镜像）。解析后若版本高于当前，返回该 version/digest，**此时不下 Setup**。
-2. 点「立即升级」：`Download` 若本机已有匹配摘要的 Setup 则只校验；否则按版本拉  
+   （可用 `LUNITIDE_UPDATE_FEED_URL` 覆盖）。解析后若版本高于当前，返回 version/digest，此时不下 Setup。
+2. 点「立即升级」：本机已有匹配摘要则只校验；否则拉  
    `https://github.com/mujun1208/lunitide/releases/download/v{version}/Lunitide-Setup-{version}-x64.exe`  
-   流式写入更新目录，校验 SHA-256，再写 `latest.json`，再 `/S`。
-3. 本机坏 `latest.json` 仍失败。远程失败且没有本机包：当作没有更新（顶栏不出现）。远程失败但本机有包：只用本机。
-4. 检查与安装之间 `latest.json` 变了导致摘要不一致：安装失败，不装错包。
-5. 安装包 URL **不**从 JSON 新字段读取（保持 `DisallowUnknownFields`）。只认固定 GitHub 路径，或测试用 feed URL 同目录下的文件名。
-6. 只允许 `github.com` 与 `*.githubusercontent.com`（GitHub 资源重定向）。测试服务器走 `AllowHTTP` + localhost。
-7. 回滚仍是空操作。不做后台预下载、静默不点安装、差分包、CDN 镜像。
-8. **第一次**仍须手动装上带本逻辑的版本；之后才能在线点升级。
+   流式写入更新目录，校验 SHA-256，写 `latest.json`，再 `/S`。
+3. 本机坏 `latest.json` 失败。远程失败且没有本机包：当作没有更新（顶栏不出现）。
+4. 安装包 URL 不从 JSON 新字段读取。只认固定 GitHub 路径，或测试用 feed 同目录文件名。
+5. 只允许 `github.com` 与 `*.githubusercontent.com`。回滚仍是空操作。
+6. 第一次仍须手动装上带本逻辑的版本。
 
 ## 发布
 
-`Build-Release.ps1` 打完包后，若本机 `gh` 已登录，把 Setup 和 `latest.json` 挂到 `v{VERSION}` Release。发布失败不让签名包构建失败，只报告。标签格式 `v0.4.83`。
+`Build-Release.ps1 -Publish` 才上传 GitHub Release，且必须签名。CI `publish-update-feed` 在打 `v{VERSION}` tag 后单独打包并标 Latest。不要覆盖已发布 digest；升版本号再发。
 
 ## 不做
 
-WinSparkle、GitHub API 猜资产、强制更新、改 Banner 布局（文案可改为「正在下载并安装」）、远程回滚、声称已在已装旧版上点通过。
+WinSparkle、GitHub API 猜资产、强制更新、远程回滚、声称已在已装旧版上点通过。

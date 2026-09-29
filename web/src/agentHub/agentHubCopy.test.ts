@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { ACCESS_MODES, composeHubPrompt, FREE_TEMPLATES, hubSceneToThreadScene, mergeEvents, parentWorkspacePath, pptDeckMissing, sceneBlurb, scenePrefix, shortWorkDir, statusLabel, taskElapsed, threadPptMissing, threadTitleFromPrompt, visibleHubArtifacts } from './agentHubCopy'
+import { ACCESS_MODES, agentDisplayName, agentInstall, composeHubPrompt, displayUserFacingMessage, FREE_TEMPLATES, HUB_AGENT_IDS, hubReadyState, hubSceneToThreadScene, hubTemplatesForScene, latestThreadForHarness, mergeEvents, parentWorkspacePath, pptDeckMissing, sceneBlurb, scenePrefix, shortWorkDir, stateLabel, statusLabel, taskElapsed, threadPptMissing, threadTitleFromPrompt, usableLatestThreadForHarness, visibleHubArtifacts, visibleWorkspaceEntry } from './agentHubCopy'
 
 it('clips a create title to the first 200-rune line', () => {
   expect(threadTitleFromPrompt('第一行\n第二行')).toBe('第一行')
@@ -9,6 +9,14 @@ it('clips a create title to the first 200-rune line', () => {
 it('keeps the weekly-report Markdown template and never offers generating a weekly Office file', () => {
   expect(FREE_TEMPLATES.map(item => item.zh)).toContain('写周报 Markdown')
   expect(FREE_TEMPLATES.map(item => item.zh).join(' ')).not.toContain('生成周报')
+})
+
+it('keeps Markdown templates off PPT and code scenes', () => {
+  expect(hubTemplatesForScene('docs').map(item => item.zh)).toContain('写周报 Markdown')
+  expect(hubTemplatesForScene('free').map(item => item.zh)).toContain('写周报 Markdown')
+  expect(hubTemplatesForScene('ppt')).toEqual([])
+  expect(hubTemplatesForScene('write')).toEqual([])
+  expect(hubTemplatesForScene('fix')).toEqual([])
 })
 
 it('prefixes shortcuts but leaves free prompts clean until inbox files exist', () => {
@@ -59,8 +67,8 @@ it('maps the write home scene to write_project and keeps the other thread scenes
 
 it('keeps the spec §8 permission labels', () => {
   expect(ACCESS_MODES.map(item => [item.id, item.zh])).toEqual([
-    ['approval', '手动'],
-    ['auto-edit', '自动'],
+    ['approval', '手动审批'],
+    ['auto-edit', '自动审批'],
     ['full-access', '完全访问'],
   ])
 })
@@ -76,6 +84,77 @@ it('says a thread PPT scene finished without a produced deck', () => {
   expect(threadPptMissing('ppt', [{ name: 'demo.pptx', path: 'demo.pptx', source: 'scan' }])).toBe(false)
   expect(threadPptMissing('ppt', [{ name: 'demo.pptx', path: 'demo.pptx', source: 'export' }])).toBe(false)
   expect(threadPptMissing('free', [])).toBe(false)
+})
+
+it('names the three rail agents and their local install commands, without sending the user to a docs page', () => {
+  expect([...HUB_AGENT_IDS]).toEqual(['codex', 'cursor', 'kimi'])
+  expect(agentDisplayName('codex')).toBe('Codex')
+  expect(agentDisplayName('cursor')).toBe('Cursor')
+  expect(agentDisplayName('kimi')).toBe('Kimi')
+  expect(agentInstall('codex').command).toContain('@openai/codex')
+  expect(agentInstall('cursor').command).toContain('cursor-agent')
+  expect(agentInstall('kimi').command).toContain('kimi')
+  expect(agentInstall('codex').opensPage).toBe(false)
+  expect(agentInstall('cursor').opensPage).toBe(false)
+})
+
+it('shows only the user sentence from a wrapped scene prompt and hides notices', () => {
+  expect(displayUserFacingMessage('你好', 'user')).toBe('你好')
+  expect(displayUserFacingMessage('【场景：写新项目】\n项目根：E:/repo\n\n用户任务：\n帮我建目录', 'user')).toBe('帮我建目录')
+  expect(displayUserFacingMessage('应用重启后未能继续', 'notice')).toBeNull()
+  expect(displayUserFacingMessage('在此仓库根内检索和修改。', 'system')).toBeNull()
+  expect(displayUserFacingMessage('Reading prompt from stdin...', 'assistant')).toBeNull()
+})
+
+it('hides junk workspace names that are not useful files', () => {
+  expect(visibleWorkspaceEntry('src')).toBe(true)
+  expect(visibleWorkspaceEntry('loopback.txt')).toBe(true)
+  expect(visibleWorkspaceEntry('$null')).toBe(false)
+  expect(visibleWorkspaceEntry('.git')).toBe(false)
+  expect(visibleWorkspaceEntry('node_modules')).toBe(false)
+  expect(visibleWorkspaceEntry('a700ef41599b8c25bd9bde3d')).toBe(false)
+})
+
+it('opens the newest thread for that harness, using pin only as a tie-break', () => {
+  const items = [
+    { harnessId: 'cursor', threadId: 'old', updatedAt: '2026-09-13T00:00:00Z', pinned: false },
+    { harnessId: 'cursor', threadId: 'fresh', updatedAt: '2026-09-14T00:00:00Z', pinned: false },
+    { harnessId: 'cursor', threadId: 'pin', updatedAt: '2026-09-12T00:00:00Z', pinned: true },
+    { harnessId: 'codex', threadId: 'other', updatedAt: '2026-09-15T00:00:00Z', pinned: true },
+  ]
+  expect(latestThreadForHarness(items, 'cursor')?.threadId).toBe('fresh')
+  expect(latestThreadForHarness([
+    { harnessId: 'cursor', threadId: 'a', updatedAt: '2026-09-14T00:00:00Z', pinned: false },
+    { harnessId: 'cursor', threadId: 'b', updatedAt: '2026-09-14T00:00:00Z', pinned: true },
+  ], 'cursor')?.threadId).toBe('b')
+  expect(latestThreadForHarness(items, 'kimi')).toBeUndefined()
+})
+
+it('skips faulted latest threads when choosing a usable conversation', () => {
+  expect(usableLatestThreadForHarness([
+    { harnessId: 'kimi', threadId: 'dead', updatedAt: '2026-09-15T00:00:00Z', status: 'faulted' },
+    { harnessId: 'kimi', threadId: 'ok', updatedAt: '2026-09-14T00:00:00Z', status: 'idle' },
+  ], 'kimi')?.threadId).toBe('ok')
+  expect(usableLatestThreadForHarness([
+    { harnessId: 'kimi', threadId: 'dead', updatedAt: '2026-09-15T00:00:00Z', status: 'faulted' },
+  ], 'kimi')).toBeUndefined()
+  expect(usableLatestThreadForHarness([
+    { harnessId: 'kimi', threadId: 'late', updatedAt: '2026-09-15T00:00:00Z', status: 'timeout' },
+  ], 'kimi')).toBeUndefined()
+})
+
+it('maps CLI probe state to install, connect, or ready', () => {
+  expect(hubReadyState('available')).toBe('ready')
+  expect(hubReadyState('not_installed')).toBe('missing')
+  expect(hubReadyState('not_logged_in')).toBe('unsigned')
+  expect(hubReadyState('unknown')).toBe('unknown')
+  expect(hubReadyState(undefined)).toBe('unknown')
+})
+
+it('labels connect state the way the rail lamp reads', () => {
+  expect(stateLabel('available', true)).toBe('已连接')
+  expect(stateLabel('not_logged_in', true)).toBe('未连接')
+  expect(stateLabel('not_installed', true)).toBe('未安装')
 })
 
 it('labels thread statuses and keeps task labels', () => {

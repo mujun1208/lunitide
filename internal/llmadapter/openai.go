@@ -126,7 +126,7 @@ func buildOpenAIRequest(in Request, wn *wireNames, stream bool, rawImageURL bool
 	if in.Effective != nil {
 		applyEffectiveParameters(&p, *in.Effective)
 	}
-	if in.DisableReasoning {
+	if in.DisableReasoning && (in.Effective == nil || !strings.EqualFold(in.Effective.ThinkingType, "enabled")) {
 		disabled := false
 		p.EnableThinking = &disabled
 		p.Thinking = &openAIThinking{Type: "disabled"}

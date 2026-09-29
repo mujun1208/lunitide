@@ -202,6 +202,7 @@ func TestCodexThreadFallsBackToExecWhenAppServerFails(t *testing.T) {
 	if err = adapter.Prompt(thread.ID, "user as-is"); err != nil {
 		t.Fatal(err)
 	}
+	waitCodexThreadStatus(t, store, thread.ID, "success")
 	if !strings.Contains(strings.Join(got.Args, " "), "exec") {
 		t.Fatalf("fallback argv = %v", got.Args)
 	}
@@ -242,6 +243,7 @@ func TestCodexThreadExecFallbackUsesFullAccessSandbox(t *testing.T) {
 	if err := adapter.Prompt(thread.ID, "run"); err != nil {
 		t.Fatal(err)
 	}
+	waitCodexThreadStatus(t, store, thread.ID, "success")
 	if !hasPair(got.Args, "--sandbox", "danger-full-access") {
 		t.Fatalf("exec sandbox = %v, want danger-full-access", got.Args)
 	}
@@ -408,6 +410,7 @@ func TestCodexThreadSkipsAppServerWhenProbeFails(t *testing.T) {
 	if err := adapter.Prompt(thread.ID, "run"); err != nil {
 		t.Fatal(err)
 	}
+	waitCodexThreadStatus(t, store, thread.ID, "success")
 	if !strings.Contains(strings.Join(got.Args, " "), "exec") {
 		t.Fatalf("argv = %v", got.Args)
 	}
@@ -464,13 +467,16 @@ func TestCodexAppServerResumesNativeSession(t *testing.T) {
 	if err := store.Insert(thread); err != nil {
 		t.Fatal(err)
 	}
+	var mu sync.Mutex
 	var methods []string
 	adapter := NewCodexThread(store)
 	adapter.look = func(string) (string, error) { return filepath.Join(thread.WorkspaceRoot, "codex.exe"), nil }
 	adapter.startPersistent = func(context.Context, ProcSpec) (*PersistentProc, error) {
 		return fakeCodexPeer(t, func(msg map[string]any, write func(any)) {
 			if method, _ := msg["method"].(string); method != "" {
+				mu.Lock()
 				methods = append(methods, method)
+				mu.Unlock()
 			}
 			switch msg["method"] {
 			case "initialize":
@@ -489,9 +495,12 @@ func TestCodexAppServerResumesNativeSession(t *testing.T) {
 	if err := adapter.Prompt(thread.ID, "continue"); err != nil {
 		t.Fatal(err)
 	}
+	mu.Lock()
 	joined := strings.Join(methods, " ")
+	snapshot := append([]string(nil), methods...)
+	mu.Unlock()
 	if !strings.Contains(joined, "thread/resume") || strings.Contains(joined, "thread/start") {
-		t.Fatalf("methods = %v, want resume not start", methods)
+		t.Fatalf("methods = %v, want resume not start", snapshot)
 	}
 }
 
@@ -503,13 +512,16 @@ func TestCodexAppServerResumeFallsBackToStart(t *testing.T) {
 	if err := store.Insert(thread); err != nil {
 		t.Fatal(err)
 	}
+	var mu sync.Mutex
 	var methods []string
 	adapter := NewCodexThread(store)
 	adapter.look = func(string) (string, error) { return filepath.Join(thread.WorkspaceRoot, "codex.exe"), nil }
 	adapter.startPersistent = func(context.Context, ProcSpec) (*PersistentProc, error) {
 		return fakeCodexPeer(t, func(msg map[string]any, write func(any)) {
 			if method, _ := msg["method"].(string); method != "" {
+				mu.Lock()
 				methods = append(methods, method)
+				mu.Unlock()
 			}
 			switch msg["method"] {
 			case "initialize":
@@ -528,9 +540,12 @@ func TestCodexAppServerResumeFallsBackToStart(t *testing.T) {
 	if err != nil || got.NativeSessionID != "thr_new" {
 		t.Fatalf("native = %#v %v, want thr_new", got, err)
 	}
+	mu.Lock()
 	joined := strings.Join(methods, " ")
+	snapshot := append([]string(nil), methods...)
+	mu.Unlock()
 	if !strings.Contains(joined, "thread/resume") || !strings.Contains(joined, "thread/start") {
-		t.Fatalf("methods = %v, want resume then start", methods)
+		t.Fatalf("methods = %v, want resume then start", snapshot)
 	}
 }
 

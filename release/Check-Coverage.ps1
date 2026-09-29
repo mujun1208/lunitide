@@ -13,25 +13,158 @@
     The floor is deliberately below the live number rather than equal to it —
     the denominator (total statements) grows with every feature, so a healthy
     change can dip the ratio a few tenths without removing a single test.
+
+    internal/app is covered in its own process with -parallel 1. Go 1.26.6 on
+    Windows hosted runners has aborted that package under coverage with
+    ACCESS_VIOLATION at PC=0x1 while encoding/json populated its sync.Map
+    encoder cache (HashTrieMap.Load / golang/go#81189; Quality 34894852667).
+    Serializing that package's tests, then retrying once on a runtime abort,
+    avoids treating a toolchain crash as a product failure. The rest of the
+    tree gets the same one abort retry. Assertion failures are not retried.
 #>
 [CmdletBinding()]
 param(
     # PRD engineering acceptance preserves the audited 51% baseline.
     [ValidateRange(51,100)][double]$Floor = 51.0,
-    [string]$Timeout = '25m'
+    [string]$Timeout = '25m',
+    [switch]$SelfTest
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Go-TestHelpers.ps1')
+
+function Merge-CoverProfiles {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Paths,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+    $mode = $null
+    $body = New-Object System.Collections.Generic.List[string]
+    foreach ($path in $Paths) {
+        if (-not (Test-Path -LiteralPath $path)) { continue }
+        foreach ($line in Get-Content -LiteralPath $path) {
+            if ($line -like 'mode:*') {
+                if (-not $mode) { $mode = $line }
+                continue
+            }
+            if ($line.Trim().Length -gt 0) { [void]$body.Add($line) }
+        }
+    }
+    if (-not $mode) {
+        throw ("no coverage mode line in: {0}" -f ($Paths -join ', '))
+    }
+    @(, $mode) + $body | Set-Content -LiteralPath $Destination
+}
+
+if ($SelfTest) {
+    Assert-GoRuntimeAbortClassifier
+    $scratch = Join-Path ([IO.Path]::GetTempPath()) ('lunitide-cover-selftest-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $scratch | Out-Null
+    try {
+        $first = Join-Path $scratch 'a.out'
+        $second = Join-Path $scratch 'b.out'
+        $merged = Join-Path $scratch 'm.out'
+        Set-Content -LiteralPath $first "mode: set`ngithub.com/lunitide/lunitide/pkg/a.go:1.1,2.2 1"
+        Set-Content -LiteralPath $second "mode: set`ngithub.com/lunitide/lunitide/pkg/b.go:1.1,2.2 1"
+        Merge-CoverProfiles -Paths @($first, $second) -Destination $merged
+        $got = Get-Content -LiteralPath $merged
+        if ($got[0] -cne 'mode: set') { throw 'merged profile lost its mode line' }
+        if (@($got | Where-Object { $_ -like '*.go:*' }).Count -ne 2) { throw 'merged profile dropped package lines' }
+    } finally {
+        Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    Write-Host 'Check-Coverage self-test passed.'
+    exit 0
+}
 
 # go on Windows mis-parses a relative -coverprofile argument ending in .out as
 # a package path ("no required module provides package .out"), so hand it an
 # absolute path.
 $profilePath = Join-Path (Get-Location) 'coverage.out'
-if (Test-Path $profilePath) { Remove-Item $profilePath }
+$appProfilePath = Join-Path (Get-Location) 'coverage-app.out'
+$restProfilePath = Join-Path (Get-Location) 'coverage-rest.out'
+$stdioProfilePath = Join-Path (Get-Location) 'coverage-stdioworker.out'
+foreach ($path in @($profilePath, $appProfilePath, $restProfilePath, $stdioProfilePath)) {
+    if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path }
+}
 
-go test -timeout $Timeout "-coverprofile=$profilePath" ./...
-if ($LASTEXITCODE -ne 0) { throw "go test failed (exit $LASTEXITCODE)" }
-if (-not (Test-Path $profilePath)) { throw "coverage profile was not written to $profilePath" }
+$appImport = 'github.com/lunitide/lunitide/internal/app'
+$stdioImport = 'github.com/lunitide/lunitide/internal/stdioworker'
+$listed = @(go list ./...)
+if ($LASTEXITCODE -ne 0) { throw "go list failed (exit $LASTEXITCODE)" }
+
+$appListed = @($listed | Where-Object { $_ -eq $appImport })
+$stdioListed = @($listed | Where-Object { $_ -eq $stdioImport })
+$restListed = @($listed | Where-Object { $_ -ne $appImport -and $_ -ne $stdioImport })
+$profiles = New-Object System.Collections.Generic.List[string]
+
+if ($appListed.Count -gt 0) {
+    # Isolated so a HashTrieMap abort (Quality 34894852667) can retry without
+    # re-running meetings (~9m) and the rest of the tree.
+    Invoke-GoLoggedTest -Attempts 2 -GoArgs @(
+        'test',
+        '-timeout', $Timeout,
+        '-parallel', '1',
+        "-coverprofile=$appProfilePath",
+        './internal/app'
+    )
+    $profiles.Add($appProfilePath)
+}
+
+if ($restListed.Count -gt 0) {
+    # Same abort retry as internal/app: a HashTrieMap / ACCESS_VIOLATION dump
+    # in the rest tree is a toolchain crash, not an assertion. Quality
+    # 34933672941 failed coverage on push while 34933676317 (same SHA) passed.
+    Invoke-GoLoggedTest -Attempts 2 -GoArgs (@(
+        'test',
+        '-timeout', $Timeout,
+        "-coverprofile=$restProfilePath"
+    ) + $restListed)
+    $profiles.Add($restProfilePath)
+}
+
+if ($stdioListed.Count -gt 0) {
+    # Isolated compile-then-run: `go test` execs the binary the instant the
+    # compiler closes it, and Windows (Defender) then returns Access is denied.
+    # Building with -c, waiting, then running the same file avoids that race
+    # without re-running the rest of the tree.
+    $stdioExe = Join-Path (Get-Location) 'stdioworker.test.exe'
+    $stdioOk = $false
+    $stdioAttempt = 0
+    $nativePref = $null
+    if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+        $nativePref = $PSNativeCommandUseErrorActionPreference
+        $PSNativeCommandUseErrorActionPreference = $false
+    }
+    try {
+        while ($stdioAttempt -lt 3 -and -not $stdioOk) {
+            $stdioAttempt++
+            Write-Host ("go test -c ./internal/stdioworker (attempt {0}/3)" -f $stdioAttempt)
+            if (Test-Path -LiteralPath $stdioExe) { Remove-Item -LiteralPath $stdioExe -Force }
+            & go test -c -cover -o $stdioExe ./internal/stdioworker
+            if ($LASTEXITCODE -ne 0) {
+                Start-Sleep -Seconds 3
+                continue
+            }
+            Start-Sleep -Seconds 2
+            & $stdioExe "-test.coverprofile=$stdioProfilePath" "-test.timeout=$Timeout" "-test.count=1"
+            if ($LASTEXITCODE -eq 0) {
+                $stdioOk = $true
+                break
+            }
+            Start-Sleep -Seconds 3
+        }
+    } finally {
+        if ($null -ne $nativePref) { $PSNativeCommandUseErrorActionPreference = $nativePref }
+        if (Test-Path -LiteralPath $stdioExe) { Remove-Item -LiteralPath $stdioExe -Force -ErrorAction SilentlyContinue }
+    }
+    if (-not $stdioOk) { throw 'go test failed (exit 1) for ./internal/stdioworker' }
+    $profiles.Add($stdioProfilePath)
+}
+
+if ($profiles.Count -eq 0) { throw 'go list returned no packages to cover' }
+Merge-CoverProfiles -Paths @($profiles) -Destination $profilePath
+if (-not (Test-Path -LiteralPath $profilePath)) { throw "coverage profile was not written to $profilePath" }
 
 $totalLine = (go tool cover "-func=$profilePath" | Select-Object -Last 1)
 if ($totalLine -notmatch '([0-9]+(?:\.[0-9]+)?)%') {

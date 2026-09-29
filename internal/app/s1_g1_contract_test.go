@@ -391,4 +391,3 @@ func testS1G1UsageUnknownNoInventedSavings(t *testing.T) {
 		t.Fatalf("empty ledger must not invent token counts: %+v", out)
 	}
 }
-

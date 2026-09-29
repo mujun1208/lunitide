@@ -327,6 +327,7 @@ type Engine struct {
 	// P2-2: append-only artifact acceptance log (comment → revise → accept).
 	artifactReviews    *artifactreview.Store
 	officeStudio       *officeapp.Service
+	officeArchive      sync.WaitGroup
 	agentHub           *agenthub.Service
 	officeTexts        officeTextCache
 	sessionArtifactsMu sync.Mutex
@@ -351,27 +352,28 @@ type terminalOwner struct {
 }
 
 type streamState struct {
-	equipEvent     *bridge.EquipEvent
-	sessionID      string
-	cancel         context.CancelFunc
-	state          streamLifecycle
-	companion      bool
-	spokenPersist  string
-	tts            bool
-	talk           bool
-	subagentPolicy subagentChatPolicy
-	council        *expertCouncilConfig
-	mcpRestrict    bool
-	mcpAllowed     []string
-	brain          string
-	memorySummary  string
-	kbCites        []CitationBlock
-	kbDiscarded    int
-	mroTurn        bool
-	taskRoute      TaskRoute
-	taskAllow      map[string]bool
-	lane           LaneContract
-	inviteLead     string
+	equipEvent      *bridge.EquipEvent
+	sessionID       string
+	cancel          context.CancelFunc
+	state           streamLifecycle
+	companion       bool
+	spokenPersist   string
+	tts             bool
+	talk            bool
+	subagentPolicy  subagentChatPolicy
+	council         *expertCouncilConfig
+	mcpRestrict     bool
+	mcpAllowed      []string
+	brain           string
+	memorySummary   string
+	kbCites         []CitationBlock
+	kbDiscarded     int
+	mroTurn         bool
+	taskRoute       TaskRoute
+	taskAllow       map[string]bool
+	lane            LaneContract
+	inviteLead      string
+	usedScreenTools bool
 }
 
 type streamLifecycle uint8

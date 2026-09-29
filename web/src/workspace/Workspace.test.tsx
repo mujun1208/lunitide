@@ -91,18 +91,52 @@ it('refreshes attachments when the upload revision changes',async()=>{const atta
   expect(screen.getByRole('button',{name:'恢复对话'})).toBeInTheDocument()
  })
  it('offers a small download for the selected file',async()=>{
-  render(<Workspace attachments={bridge()} projectId={P} sessionId={S} onClose={vi.fn()}/>)
+  const attachments=bridge()
+  render(<Workspace attachments={attachments} projectId={P} sessionId={S} onClose={vi.fn()}/>)
   expect(await screen.findByText('notes.txt')).toBeInTheDocument()
+  await waitFor(()=>expect(attachments.get).toHaveBeenCalled())
   expect(screen.getByRole('button',{name:'下载文件'})).toBeEnabled()
+ })
+ it('does not download extracted text under an office filename',async()=>{
+  const attachments=bridge()
+  attachments.list=vi.fn().mockResolvedValue({items:[{...item(),originalName:'notes.docx',mime:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',size:2048}]})
+  attachments.get=vi.fn().mockResolvedValue({...item(),originalName:'notes.docx',mime:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',size:2048,parsedText:'extracted paragraphs'})
+  render(<Workspace attachments={attachments} projectId={P} sessionId={S} onClose={vi.fn()}/>)
+  expect(await screen.findByText('notes.docx')).toBeInTheDocument()
+  await waitFor(()=>expect(attachments.get).toHaveBeenCalled())
+  expect(screen.getByRole('button',{name:'下载文件'})).toBeDisabled()
  })
  it('lets the code tree collapse from a small chrome button',async()=>{
   const user=userEvent.setup()
   render(<Workspace attachments={bridge()} projectId={P} sessionId={S} targetTab="code" onClose={vi.fn()}/>)
   const hide=screen.getByRole('button',{name:'折叠文件树'})
-  expect(screen.getByLabelText('任务相关文件')).toBeInTheDocument()
+  expect(screen.getByLabelText('文件树')).toBeInTheDocument()
   await user.click(hide)
-  expect(screen.queryByLabelText('任务相关文件')).toBeNull()
+  expect(screen.queryByLabelText('文件树')).toBeNull()
   await user.click(screen.getByRole('button',{name:'显示文件树'}))
-  expect(screen.getByLabelText('任务相关文件')).toBeInTheDocument()
+  expect(screen.getByLabelText('文件树')).toBeInTheDocument()
+ })
+ it('keeps a clean file preview and a resizable directory tree on the right',async()=>{
+  render(<Workspace attachments={bridge()} projectId={P} sessionId={S} onClose={vi.fn()}/>)
+  expect(await screen.findByText('notes.txt')).toBeInTheDocument()
+  expect(screen.getByLabelText('文件树')).toBeInTheDocument()
+  expect(screen.getByRole('separator',{name:'调整文件树宽度'})).toBeInTheDocument()
+  expect(screen.queryByText('当前会话没有附件。')).toBeNull()
+  const stage=document.querySelector('.workspace-files-stage') as HTMLElement
+  expect(stage.style.getPropertyValue('--tree-width')||getComputedStyle(stage).getPropertyValue('--tree-width')).toBeTruthy()
+ })
+ it('can show only the local project tree without a session folder',async()=>{
+  const localWorkspace={
+    root:vi.fn().mockResolvedValue({name:'mall',path:'D:/mall',bound:true}),
+    select:vi.fn(),
+    clear:vi.fn(),
+    open:vi.fn(),
+    list:vi.fn().mockResolvedValue({items:[{name:'src',path:'src',directory:true}],truncated:false}),
+    read:vi.fn(),
+  }
+  render(<Workspace attachments={bridge()} projectId={P} sessionId={S} filesFocus="local" projectRoot="D:/mall" localWorkspace={localWorkspace} onClose={vi.fn()}/>)
+  expect(await screen.findByRole('treeitem',{name:/src/})).toBeInTheDocument()
+  expect(screen.getByRole('region',{name:'本地工作区目录'})).toBeInTheDocument()
+  expect(screen.queryByText('会话目录载入失败')).toBeNull()
  })
 })

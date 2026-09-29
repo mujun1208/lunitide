@@ -952,6 +952,33 @@ html[data-theme='light'] .os-alert {
 }
 .is-pptx .os-paper {
   aspect-ratio: 16/9;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+  overflow: hidden;
+}
+.os-slide-title,
+.os-slide-text,
+.os-slide-block {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: none !important;
+  text-align: left;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+}
+.os-slide-title {
+  font-size: 28px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+.os-slide-text,
+.os-slide-block {
+  font-size: 16px;
+  line-height: 1.55;
 }
 .is-docx .os-paper {
   min-height: 250px;

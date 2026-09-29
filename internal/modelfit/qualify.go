@@ -1,9 +1,9 @@
 package modelfit
 
 const (
-	QualifyUntested     = "untested"
-	QualifyFixturePass  = "fixture_pass"
-	QualifyBlocked      = "blocked"
+	QualifyUntested    = "untested"
+	QualifyFixturePass = "fixture_pass"
+	QualifyBlocked     = "blocked"
 )
 
 type Qualification struct {

@@ -458,7 +458,63 @@ func TestMeteredDisableReasoningSurvivesEffectiveCompile(t *testing.T) {
 	if _, err := a.Complete(ctx, []byte("k"), req); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), `"type":"disabled"`) || !strings.Contains(string(body), `"enable_thinking":false`) {
-		t.Fatalf("metered DisableReasoning lost after Effective compile: %s", body)
+	if strings.Contains(string(body), `"type":"disabled"`) || strings.Contains(string(body), `"enable_thinking":false`) {
+		t.Fatalf("glm-5.3 must not send thinking.disabled: %s", body)
+	}
+	if !strings.Contains(string(body), `"type":"enabled"`) || !strings.Contains(string(body), `"reasoning_effort":"low"`) {
+		t.Fatalf("glm-5.3 DisableReasoning must map to enabled+low: %s", body)
+	}
+}
+
+func TestProviderDiagnosticOnSharedSqliteStoreReachesUpstream(t *testing.T) {
+	store, err := storage.OpenTemplated(context.Background(), filepath.Join(t.TempDir(), "diag-shared.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	e := NewEngineWithGateway(nil, "test", streamTestLease{})
+	e.SetCallAttemptStore(store)
+	AttachProductionExecutionBudget(e, store.AgentRuntimeRepository())
+
+	var sends int
+	inner := llmadapter.NewOpenAI(roundTripConnector{rt: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		sends++
+		return okChatResponse(), nil
+	})}, llmadapter.Options{MaxAttempts: 1})
+	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) {
+		return inner, nil
+	})
+	a, err := e.adapter(context.Background(), provider.Provider{
+		ID:       ulid.Make().String(),
+		Protocol: provider.ProtocolOpenAICompatible,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	meter, ok := a.(meteredAdapter)
+	if !ok || meter.budget == nil {
+		t.Fatal("production Engine construction left budget nil on the metered adapter")
+	}
+
+	req := llmadapter.Request{
+		Model:       "deepseek-flash",
+		Messages:    []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "ping"}},
+		MaxTokens:   1,
+		MaxAttempts: 1,
+	}
+	err = meter.TestConnection(withCallPurpose(context.Background(), "diagnostic"), []byte("k"), req)
+	if err != nil {
+		t.Fatalf("provider.test must reach upstream after T06 admit: %v", err)
+	}
+	if sends != 1 {
+		t.Fatalf("T06 stub + meter write blocked HTTP: sends=%d", sends)
+	}
+	listed, err := store.ListCallAttempts(context.Background(), "diagnostic", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].Model != "deepseek-flash" {
+		t.Fatalf("diagnostic attempt must keep the requested model, got %+v", listed)
 	}
 }

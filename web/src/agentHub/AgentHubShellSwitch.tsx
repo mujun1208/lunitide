@@ -29,8 +29,10 @@ export function AgentHubShellSwitch({
           <span aria-hidden="true">◧</span>
         </button>
       ) : null}
-      <button type="button" aria-pressed={mode === 'lunitide'} onClick={onLunitide}>Work</button>
-      <button type="button" aria-pressed={mode === 'agentHub'} onClick={onAgents}>AgentHub</button>
+      <div className="shell-mode-pills">
+        <button type="button" aria-pressed={mode === 'lunitide'} onClick={onLunitide}>Work</button>
+        <button type="button" aria-pressed={mode === 'agentHub'} onClick={onAgents}>AgentHub</button>
+      </div>
     </div>
   )
 }

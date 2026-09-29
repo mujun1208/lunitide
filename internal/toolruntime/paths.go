@@ -26,19 +26,35 @@ func (r *Runtime) SessionFolder(session string) (string, error) { return r.sessi
 func (r *Runtime) effectiveRoot(mode Mode, session string) (string, error) {
 	if r.projectRoot != nil {
 		if root, err := r.projectRoot(session); err == nil && root != "" {
-			if info, statErr := os.Lstat(root); statErr == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
-				return root, nil
+			if pinned, ok := pinExistingDir(root); ok {
+				return pinned, nil
 			}
 		}
 	}
 	if mode == FullAccess && r.fullAccessRoot != nil {
 		if root, err := r.fullAccessRoot(); err == nil && root != "" {
-			if info, statErr := os.Lstat(root); statErr == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
-				return root, nil
+			if pinned, ok := pinExistingDir(root); ok {
+				return pinned, nil
 			}
 		}
 	}
 	return r.sessionPath(session)
+}
+
+// pinExistingDir accepts a real directory (not a symlink) and returns the
+// operating system's own spelling of it. A project root from t.TempDir on
+// hosted Windows is often the 8.3 alias; containment compares a resolved
+// child against this value and must not mix the two spellings.
+func pinExistingDir(root string) (string, bool) {
+	info, err := os.Lstat(root)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", false
+	}
+	real, err := canonpath.Canonical(root)
+	if err != nil {
+		return "", false
+	}
+	return real, true
 }
 
 // FullAccessRootHint answers the currently resolvable user workspace root.
@@ -51,10 +67,7 @@ func (r *Runtime) FullAccessRootHint() (string, bool) {
 	if err != nil || root == "" {
 		return "", false
 	}
-	if info, statErr := os.Lstat(root); statErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return "", false
-	}
-	return root, true
+	return pinExistingDir(root)
 }
 func (r *Runtime) sessionPath(session string) (string, error) {
 	if len(session) != 26 || strings.ContainsAny(session, "/\\") {
@@ -110,6 +123,12 @@ func (r *Runtime) path(mode Mode, session, rel string, write, unconfined bool) (
 		return "", statErr
 	} else if !info.IsDir() {
 		return "", errors.New("session workspace is not a directory")
+	}
+	// effectiveRoot already pins project/full-access roots, but the session
+	// sandbox path is joined from the caller's spelling. Canonicalize before
+	// Rel so an 8.3 root is not compared to a long-form child.
+	if realRoot, canonErr := canonpath.Canonical(root); canonErr == nil {
+		root = realRoot
 	}
 	p := filepath.Join(root, clean)
 	// The session root itself (path ".") is a valid read target: resolve

@@ -63,6 +63,8 @@ func ToolPluginIDs(name string, args json.RawMessage) []string {
 		return []string{"web-search"}
 	case name == "web.fetch", name == "video.understand", name == "weather.get":
 		return []string{"web-fetch"}
+	case name == "audio.generate":
+		return []string{"tts"}
 	case strings.HasPrefix(name, "browser."):
 		return []string{"browser"}
 	case strings.HasPrefix(name, "memory."):

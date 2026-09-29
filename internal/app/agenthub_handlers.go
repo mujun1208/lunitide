@@ -23,6 +23,19 @@ func handleAgentHub(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 			return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.detect 参数无效", false)
 		}
 		return r.Ok(map[string]any{"agents": e.agentHub.Detect()})
+	case "agentHub.install":
+		var p struct {
+			Name      string `json:"name"`
+			Confirmed bool   `json:"confirmed"`
+		}
+		if decodePayload(r.Payload, &p) != nil || (p.Name != "codex" && p.Name != "cursor" && p.Name != "kimi") {
+			return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.install 参数无效", false)
+		}
+		result, err := e.agentHub.Install(context.WithoutCancel(ctx), p.Name, p.Confirmed)
+		if err != nil {
+			return agentHubFailure(r, err)
+		}
+		return r.Ok(result)
 	case "agentHub.dir.pick":
 		var p struct{}
 		if decodePayload(r.Payload, &p) != nil {
@@ -174,14 +187,18 @@ func handleAgentHub(e *Engine, ctx context.Context, r bridge.Request) bridge.Res
 		return r.Ok(map[string]any{"items": items})
 	case "agentHub.thread.update":
 		var p struct {
-			ThreadID string `json:"threadId"`
-			Title    string `json:"title"`
-			Pinned   *bool  `json:"pinned"`
+			ThreadID      string `json:"threadId"`
+			Title         string `json:"title"`
+			Pinned        *bool  `json:"pinned"`
+			WorkspaceRoot string `json:"workspaceRoot"`
+			AccessMode    string `json:"accessMode"`
+			ExportDir     string `json:"exportDir"`
+			Scene         string `json:"scene"`
 		}
 		if decodePayload(r.Payload, &p) != nil || !validCanonicalULID(p.ThreadID) {
 			return r.Fail("BRIDGE_SCHEMA_INVALID", "agentHub.thread.update 参数无效", false)
 		}
-		detail, err := e.agentHub.UpdateThread(p.ThreadID, p.Title, p.Pinned)
+		detail, err := e.agentHub.UpdateThread(p.ThreadID, p.Title, p.Pinned, p.WorkspaceRoot, p.AccessMode, p.ExportDir, p.Scene)
 		if err != nil {
 			return agentHubFailure(r, err)
 		}
@@ -380,10 +397,63 @@ func agentHubFailure(r bridge.Request, err error) bridge.Response {
 	case errors.Is(err, agenthub.ErrThreadBusy):
 		return r.Fail("AGENT_HUB_FAILED", "当前对话正在等待回答", false)
 	default:
-		msg := err.Error()
-		if !strings.Contains(msg, "工作目录不受支持") && !strings.Contains(msg, "路径不受支持") && !strings.ContainsAny(msg, "任务目录参数工作") {
-			msg = "AgentHub 操作失败"
-		}
-		return r.Fail("AGENT_HUB_FAILED", msg, false)
+		return r.Fail("AGENT_HUB_FAILED", agentHubUserMessage(err), false)
 	}
+}
+
+func agentHubUserMessage(err error) string {
+	if err == nil {
+		return "AgentHub 操作失败"
+	}
+	msg := strings.TrimSpace(err.Error())
+	if msg == "" {
+		return "AgentHub 操作失败"
+	}
+	if strings.Contains(msg, "无法解析为 node") {
+		return "已安装 CLI，但还不能启动对话。需要本机 Node.js，或把 CLI 配成可直接运行的程序。"
+	}
+	if strings.Contains(msg, "会话未打开") {
+		return "会话还没打开，请再发一次。"
+	}
+	if containsHan(msg) {
+		return msg
+	}
+	mapped := mapAgentHubEnglish(msg)
+	if mapped != "" {
+		return mapped
+	}
+	return "对话没发出去：" + clipAgentHubDetail(msg)
+}
+
+func mapAgentHubEnglish(msg string) string {
+	lower := strings.ToLower(msg)
+	switch {
+	case strings.Contains(lower, "enoent"), strings.Contains(lower, "not found"), strings.Contains(msg, "未找到"):
+		return "对话没发出去：本机没找到对应的 Agent 程序。"
+	case strings.Contains(lower, "eacces"), strings.Contains(lower, "permission denied"):
+		return "对话没发出去：没有权限启动 Agent 程序。"
+	case strings.Contains(lower, "timed out"), strings.Contains(lower, "timeout"), strings.Contains(lower, "deadline"):
+		return "对话没发出去：Agent 启动或握手超时，请再试一次。"
+	case strings.Contains(lower, "spawn"), strings.Contains(lower, "exec format"):
+		return "对话没发出去：Agent 程序无法启动。"
+	}
+	return ""
+}
+
+func clipAgentHubDetail(msg string) string {
+	msg = strings.TrimSpace(msg)
+	runes := []rune(msg)
+	if len(runes) > 160 {
+		return string(runes[:160]) + "…"
+	}
+	return msg
+}
+
+func containsHan(s string) bool {
+	for _, r := range s {
+		if r >= 0x4e00 && r <= 0x9fff {
+			return true
+		}
+	}
+	return false
 }

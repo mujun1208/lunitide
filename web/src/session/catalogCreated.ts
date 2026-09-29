@@ -9,6 +9,22 @@ export function parseCreatedArtifactId(summary: string): string | undefined {
   return expert?.[1]
 }
 
+export function isSkillCreatorRef(skill?: { id?: string; name?: string; displayName?: string }): boolean {
+  if (!skill) return false
+  const id = (skill.id ?? '').trim()
+  const label = `${skill.name ?? ''} ${skill.displayName ?? ''}`.toLowerCase()
+  return id === 'skill-creator' || label.includes('skill-creator') || label.includes('技能创建器') || label.includes('技能创建助手')
+}
+
+export function initialSkillPackageId(
+  focus?: string,
+  refs?: Array<{ id: string; name?: string; displayName?: string }>,
+): string {
+  if (focus !== 'skills' || !refs?.[0]) return ''
+  if (isSkillCreatorRef(refs[0])) return ''
+  return refs[0].id
+}
+
 export function excerptFromMessages(items: Array<{ role: string; content?: string; text?: string }>, limit = 1800): string {
   const lines: string[] = []
   for (const item of items) {

@@ -216,6 +216,32 @@ func TestAssistantPausedMidTask(t *testing.T) {
 	if got := pickTurnContinueKind("", "稍等。", "", nil, false, false, true, true, 0, "你好", false); got != "" {
 		t.Fatal("idle wait without tools must not loop")
 	}
+	folder := "帮我在桌面创建一个文件夹，名字叫可可"
+	if got := pickTurnContinueKind("I'll create that folder on your desktop.", "I'll create that folder on your desktop.", "", nil, false, false, false, true, 0, folder, true); got != "wait" {
+		t.Fatalf("english mkdir lead-in with tools attached must continue, got %q", got)
+	}
+	if got := pickTurnContinueKind("好，我来创建。", "好，我来创建。", "", nil, false, false, false, true, 0, folder, true); got != "wait" {
+		t.Fatalf("chinese mkdir lead-in with tools attached must continue, got %q", got)
+	}
+	del := "帮我删掉桌面上的可可"
+	if got := pickTurnContinueKind("I'll delete that folder on your desktop.", "I'll delete that folder on your desktop.", "", nil, false, false, false, true, 0, del, true); got != "wait" {
+		t.Fatalf("english delete lead-in must continue, got %q", got)
+	}
+	if got := pickTurnContinueKind("好，我来删除。", "好，我来删除。", "", nil, false, false, false, true, 0, del, true); got != "wait" {
+		t.Fatalf("chinese delete lead-in must continue, got %q", got)
+	}
+	if got := pickTurnContinueKind("I'll copy that file to your desktop.", "I'll copy that file to your desktop.", "", nil, false, false, false, true, 0, "帮我把这个文件复制到桌面", true); got != "wait" {
+		t.Fatalf("english copy lead-in must continue, got %q", got)
+	}
+	if got := pickTurnContinueKind("I'll rename that folder.", "I'll rename that folder.", "", nil, false, false, false, true, 0, "帮我把桌面上的可可改名叫可可2", true); got != "wait" {
+		t.Fatalf("english rename lead-in must continue, got %q", got)
+	}
+	if !companionWantsDesktopControl(del) || !companionWantsTools(del) {
+		t.Fatal("desktop delete must attach tools and desktop control")
+	}
+	if !computerExecutionTurn(del) {
+		t.Fatal("desktop delete must use the computer execution contract")
+	}
 	if got := pickTurnContinueKind("", "手头没有那本书。", "", nil, false, false, true, true, 0, "今晚月色如何", true); got != "" {
 		t.Fatal("book-missing chat must not wait")
 	}
@@ -686,5 +712,21 @@ func TestSkillCreateToolCreatesDraft(t *testing.T) {
 	}
 	if len(summaries) != 1 || !strings.Contains(summaries[0], "已创建") {
 		t.Fatalf("summaries = %#v", summaries)
+	}
+}
+
+func TestOfficeInspectWithoutGenerateContinuesTenPagePPT(t *testing.T) {
+	goal := "帮我参考附件，自己思考做一个10页的PPT"
+	if got := pickTurnContinueKind("已读取附件。", "已读取附件。", `{"view":"text"}`, []string{"office.inspect"}, true, false, false, true, 0, goal, true); got != "incomplete" {
+		t.Fatalf("inspect-only PPT goal continue=%q want incomplete", got)
+	}
+	if got := pickTurnContinueKind("PPT 已生成。", "PPT 已生成。", "ok:true", []string{"office.inspect", "office.generate"}, true, false, false, true, 0, goal, true); got != "" {
+		t.Fatalf("generate receipt still continued: %q", got)
+	}
+	if got := pickTurnContinueKind("附件主要是问卷。", "附件主要是问卷。", `{"view":"text"}`, []string{"office.inspect"}, true, false, false, true, 0, "帮我看看这个附件写了什么", true); got != "" {
+		t.Fatalf("review-only inspect continued: %q", got)
+	}
+	if got := pickTurnContinueKind("已读完材料。", "已读完材料。", `{"view":"text"}`, []string{"office.inspect"}, true, false, false, true, 0, "写周报", true); got != "incomplete" {
+		t.Fatalf("weekly-report inspect-only continue=%q want incomplete", got)
 	}
 }

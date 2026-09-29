@@ -53,6 +53,18 @@ func TestHostToolFallbackIntentCoversVoiceAndTypedTasks(t *testing.T) {
 	if mediaGenerationKind("帮我生成一张月球图片") != "image.generate" || mediaGenerationKind("生成一个短视频") != "video.generate" {
 		t.Fatal("media generation intent missing")
 	}
+	if mediaGenerationKind("帮我生成一首可以听的歌") != "audio.generate" || mediaGenerationKind("朗读这段：春风又绿江南岸") != "audio.generate" {
+		t.Fatal("speech generation intent missing")
+	}
+	if mediaGenerationKind("放首歌") != "" || mediaGenerationKind("帮我创建一个技能，可以生成歌曲") != "" {
+		t.Fatal("play-existing and skill-authoring must not start speech generation")
+	}
+	if len(fallbackMediaGenerationArgs("帮我生成一首可以听的歌")) != 0 {
+		t.Fatal("song without lyrics must not auto-speak the request")
+	}
+	if got := string(fallbackMediaGenerationArgs("朗读这段：春风又绿江南岸")); !strings.Contains(got, "春风又绿江南岸") {
+		t.Fatalf("read-aloud should inject speech text: %s", got)
+	}
 	if mediaGenerationKind("我配置不了生成图片的模型") != "" {
 		t.Fatal("configuration question must not start paid generation")
 	}

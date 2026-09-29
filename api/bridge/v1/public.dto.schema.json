@@ -21,7 +21,8 @@
       "enum": [
         "openai_compatible",
         "anthropic",
-        "volc_speech"
+        "volc_speech",
+        "openai_responses"
       ]
     },
     "ProviderStatus": {
@@ -435,7 +436,8 @@
             "pdf",
             "image",
             "md",
-            "txt"
+            "txt",
+            "audio"
           ]
         },
         "path": {

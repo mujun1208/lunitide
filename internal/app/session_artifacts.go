@@ -83,7 +83,7 @@ func chatDeliverableArtifact(toolName, kind, path string) bool {
 	if kind == "html" && (base == "search.html" || base == "fetch.html") {
 		return false
 	}
-	if kind == "image" || kind == "md" || kind == "txt" {
+	if kind == "image" || kind == "md" || kind == "txt" || kind == "audio" {
 		return true
 	}
 	switch kind {

@@ -1,4 +1,6 @@
-package voice
+//go:build windows
+
+package egressproxy
 
 import (
 	"net/http"

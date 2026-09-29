@@ -142,35 +142,36 @@ func TestClassifyTaskRoute(t *testing.T) {
 			forbid: []string{},
 		},
 		{
-			id:     "weekly-in-word",
-			goal:   "打开Word写周报",
-			cc:     true,
-			route:  RouteR2,
-			must:   []string{"computer.act", "desktop.open", "docx.gen", "office.generate", "workspace.read"},
+			id:    "weekly-in-word",
+			goal:  "打开Word写周报",
+			cc:    true,
+			route: RouteR2,
+			must:  []string{"computer.act", "desktop.open", "docx.gen", "office.generate"},
 		},
 		{
 			id:    "weekly-plain",
 			goal:  "写周报",
 			route: RouteR4,
-			must:  []string{"office.generate", "office.inspect", "docx.gen", "workspace.read", "user.ask"},
+			must:  []string{"office.generate", "docx.gen", "workspace.write", "user.ask"},
 		},
 		{
 			id:    "generate-word-spaced",
-			goal:  "生成 Word 文档",
+			goal:  "生成 Word",
 			route: RouteR4,
-			must:  []string{"office.generate", "docx.gen", "workspace.read"},
+			must:  []string{"office.generate", "docx.gen"},
+		},
+		{
+			id:     "news-word-do-not-open",
+			goal:   "搜一下新闻生成 Word，不打开文件",
+			cc:     true,
+			route:  RouteR1,
+			must:   []string{"office.generate", "docx.gen", "workspace.read", "web.search"},
+			forbid: []string{"desktop.open", "computer.act", "browser.act"},
 		},
 		{
 			id:       "weekly-markdown-refuse-office",
 			goal:     "根据本工作目录材料写一份周报 Markdown，不要生成 Office 文档。",
 			nilAllow: true,
-		},
-		{
-			id:     "news-word-do-not-open",
-			goal:   "根据新闻生成 Word 文档，不打开文件",
-			route:  RouteR1,
-			must:   []string{"office.generate", "docx.gen", "workspace.read", "web.search"},
-			forbid: []string{"desktop.open", "computer.act", "browser.act"},
 		},
 	}
 	for _, tc := range cases {
@@ -317,6 +318,22 @@ func TestAssembleRoutedToolsCompanionWeather(t *testing.T) {
 	}
 }
 
+func TestApplyTaskRouteKeepsSkillTry(t *testing.T) {
+	t.Parallel()
+	all := append(engineToolDefinitions(), llmadapter.ToolDefinition{Name: "skill.try"})
+	route, allow := classifyTaskRoute("北京明天天气", false, false)
+	got := applyTaskRoute(all, route, allow)
+	seen := false
+	for _, d := range got {
+		if d.Name == "skill.try" {
+			seen = true
+		}
+	}
+	if !seen {
+		t.Fatal("applyTaskRoute must keep skill.try")
+	}
+}
+
 func keysOf(m map[string]bool) []string {
 	out := make([]string, 0, len(m))
 	for k, v := range m {
@@ -372,7 +389,7 @@ func TestGenerateWordNewsPipelineKeepsReadAndOfficeGenerate(t *testing.T) {
 	}
 }
 
-func TestApplyTaskRouteKeepsSkillTry(t *testing.T) {
+func TestApplyTaskRouteKeepsSkillTryOnWeeklyR4(t *testing.T) {
 	t.Parallel()
 	route, allow := classifyTaskRoute("写周报", false, false)
 	got := applyTaskRoute(officeStudioToolDefs(), route, allow)

@@ -62,7 +62,7 @@ func TestParseBodyIndexerOfficeWithoutParseFnUsesChinese(t *testing.T) {
 	}
 	doc := m8core.KBDocument{
 		DocumentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Version: 1,
-		MediaType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		MediaType:  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 		ContentRef: path, SHA256: m8app.SourceDigest([]byte("PK")), SourceLocator: path,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	}

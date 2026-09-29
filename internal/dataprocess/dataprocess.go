@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/xuri/excelize/v2"
+	"github.com/lunitide/lunitide/internal/xlsxrows"
 )
 
 type Table struct {
@@ -147,16 +147,11 @@ func stringifyJSON(v any) string {
 }
 
 func ImportXLSX(raw []byte) (Table, error) {
-	f, err := excelize.OpenReader(bytes.NewReader(raw))
-	if err != nil {
+	grids, err := xlsxrows.Grids(raw)
+	if err != nil || len(grids) == 0 || len(grids[0].Rows) == 0 {
 		return Table{}, err
 	}
-	defer func() { _ = f.Close() }()
-	name := f.GetSheetName(0)
-	rows, err := f.GetRows(name)
-	if err != nil || len(rows) == 0 {
-		return Table{}, err
-	}
+	rows := grids[0].Rows
 	return Table{Headers: rows[0], Rows: rows[1:]}, nil
 }
 

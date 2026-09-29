@@ -29,3 +29,11 @@ it('localizes leftover English pack errors on the installed card',()=>{
  const rows=packLedgerRecords([{...committed,state:'failed',error:'probe failed'}])
  expect(rows[0].failed).toBe('能力包组件探测失败')
 })
+it('research and report packs use builtin search/fetch gates without MCP',()=>{
+ const research=CAPABILITY_PACKS.find(item=>item.id==='pack-research')
+ const report=CAPABILITY_PACKS.find(item=>item.id==='pack-report')
+ expect(research?.mcpPresetIds).toEqual([])
+ expect(report?.mcpPresetIds).toEqual([])
+ expect(research?.toolGates).toEqual(['web-search','web-fetch'])
+ expect(report?.toolGates).toEqual(['web-search','web-fetch'])
+})

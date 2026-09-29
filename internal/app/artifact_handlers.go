@@ -23,7 +23,7 @@ import (
 // artifactKindValid accepts the kinds the chat pipeline can emit as cards.
 func artifactKindValid(kind string) bool {
 	switch kind {
-	case "html", "xlsx", "docx", "pptx", "pdf", "image", "md", "txt":
+	case "html", "xlsx", "docx", "pptx", "pdf", "image", "md", "txt", "audio", "wav", "mp3":
 		return true
 	}
 	return false
@@ -105,6 +105,8 @@ func handleWorkspaceArtifactPreview(e *Engine, ctx context.Context, r bridge.Req
 	switch kind {
 	case "png", "jpg", "jpeg", "gif":
 		kind = "image"
+	case "wav", "mp3":
+		kind = "audio"
 	case "html", "xlsx", "docx", "pptx", "pdf":
 	case "txt", "md", "json", "csv", "ts", "tsx", "js", "jsx", "go", "py", "yaml", "yml", "css", "sql", "xml", "log":
 		kind = "text"
@@ -137,13 +139,19 @@ func handleWorkspaceArtifactPreview(e *Engine, ctx context.Context, r bridge.Req
 			} else {
 				content = base64.StdEncoding.EncodeToString(data)
 			}
+		case "audio":
+			if len(data) == 0 {
+				notice = "请用本机软件打开查看完整内容"
+			} else {
+				content = base64.StdEncoding.EncodeToString(data)
+			}
 		}
 		if err != nil {
 			notice = "无法生成预览，可用本机软件打开原文件"
 			content = ""
 		}
 	}
-	if kind != "image" && kind != "pdf" && len(content) > 256<<10 {
+	if kind != "image" && kind != "pdf" && kind != "audio" && len(content) > 256<<10 {
 		runes := []rune(content)
 		keep := len(runes) * (256 << 10) / len(content)
 		content = string(runes[:keep]) + "…"

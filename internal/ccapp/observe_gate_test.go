@@ -5,7 +5,23 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestMutateSettleWaitAdaptiveBudget(t *testing.T) {
+	s := New(nil)
+	if s.mutateSettleWait() != 1200*time.Millisecond {
+		t.Fatalf("default settle budget: %s", s.mutateSettleWait())
+	}
+	s.SetMutateSettleForTest(time.Millisecond)
+	if s.mutateSettleWait() != time.Millisecond {
+		t.Fatalf("test override: %s", s.mutateSettleWait())
+	}
+	s.SetMutateSettleForTest(-1)
+	if s.mutateSettleWait() != 0 {
+		t.Fatalf("disabled settle must be 0, got %s", s.mutateSettleWait())
+	}
+}
 
 func TestPreferPasteText(t *testing.T) {
 	t.Parallel()
@@ -185,12 +201,22 @@ func TestDragByIDRequiresObserve(t *testing.T) {
 
 type scrollObserveHost struct {
 	nativeStubHost
-	png []byte
+	png      []byte
+	scrolled bool
 }
 
-func (h *scrollObserveHost) ScreenCapture() ([]byte, error) { return h.png, nil }
+// ScreenCapture repaints once the list has scrolled, like a real window;
+// verifyAfter compares raw frames, so a static screen would (correctly)
+// fail the scroll's verification.
+func (h *scrollObserveHost) ScreenCapture() ([]byte, error) {
+	if h.scrolled {
+		return tintPNG(h.png, 7), nil
+	}
+	return h.png, nil
+}
 
 func (h *scrollObserveHost) MouseScroll(n int) error {
+	h.scrolled = true
 	h.nodes = []UINode{{Role: "button", Name: "提交", X: 200, Y: 80, W: 40, H: 20}}
 	return nil
 }

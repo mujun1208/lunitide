@@ -8,15 +8,16 @@ import (
 )
 
 const (
-	detachedProcess       = 0x00000008
-	createNewProcessGroup = 0x00000200
+	createNoWindow         = 0x08000000
+	createNewProcessGroup  = 0x00000200
+	createBreakawayFromJob = 0x01000000
 )
 
 func startDetached(cmd *exec.Cmd) error {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
+	cmd.SysProcAttr.CreationFlags |= createNoWindow | createNewProcessGroup | createBreakawayFromJob
 	cmd.SysProcAttr.HideWindow = true
-	cmd.SysProcAttr.CreationFlags |= detachedProcess | createNewProcessGroup
 	return cmd.Start()
 }

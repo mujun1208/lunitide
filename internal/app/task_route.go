@@ -33,6 +33,7 @@ var (
 	siteHints = []string{
 		"http://", "https://", "网站", "网页",
 		"12306", "知乎", "淘宝", "taobao", "bilibili", "B站", "youtube", "抖音",
+		"weixin.qq.com", "微信视频号", "视频号",
 	}
 	siteActHints = []string{"登录", "登陆", "点"}
 	genHints     = []string{
@@ -41,6 +42,7 @@ var (
 		"生成 Word", "生成Word", "生成word",
 	}
 	openHints       = []string{"打开", "启动", "把开"}
+	openNegations   = []string{"不打开", "别打开", "不要打开", "无需打开", "不用打开", "不必打开", "不需要打开", "请勿打开", "don't open", "do not open", "dont open", "without opening"}
 	playHints       = []string{"播放", "暂停", "下一首", "上一首", "放首歌", "放歌", "播歌", "听歌", "来一首", "放一首"}
 	desktopActHints = []string{
 		"点击", "点一下", "点开", "点进", "第一条", "帮我点", "点按钮", "截图", "输入", "打字", "填写", "填表",
@@ -177,6 +179,7 @@ func routeAllow(route TaskRoute, ccEnabled bool) map[string]bool {
 			"office.image.replace": true, "office.chart.patch": true, "office.cache.refresh": true, "office.deliver": true,
 			"user.ask": true,
 		}
+		mergeAllow(allow, officeStudioAllow())
 		if ccEnabled {
 			allow["computer.act"] = true
 		}
@@ -186,17 +189,19 @@ func routeAllow(route TaskRoute, ccEnabled bool) map[string]bool {
 			"browser.act": true, "web.fetch": true, "user.ask": true,
 		}
 	case RouteR4:
-		return map[string]bool{
+		allow := map[string]bool{
 			"excel.gen": true, "excel.parse": true, "docx.gen": true,
 			"pptx.gen": true, "pdf.gen": true, "html.gen": true,
 			"office.generate": true, "office.inspect": true, "office.patch": true, "office.range.patch": true,
 			"office.image.replace": true, "office.chart.patch": true, "office.cache.refresh": true, "office.deliver": true,
 			"workspace.list": true, "workspace.read": true, "workspace.write": true,
 			"workspace.search": true, "workspace.edit": true,
-			"image.generate": true, "video.generate": true,
+			"image.generate": true, "video.generate": true, "audio.generate": true,
 			"web.search": true, "web.fetch": true, "weather.get": true,
 			"user.ask": true,
 		}
+		mergeAllow(allow, officeStudioAllow())
+		return allow
 	default:
 		return nil
 	}
@@ -256,9 +261,23 @@ func explicitBrowserIntent(orig, lower string) bool {
 	return containsAnyFold(orig, lower, []string{"登录", "登陆"})
 }
 
-var openNegations = []string{
-	"不打开", "不要打开", "别打开", "请勿打开", "不用打开", "无需打开", "不必打开", "不需要打开",
-	"don't open", "do not open", "dont open", "without opening",
+func officeStudioAllow() map[string]bool {
+	return map[string]bool{
+		"office.generate":      true,
+		"office.inspect":       true,
+		"office.patch":         true,
+		"office.range.patch":   true,
+		"office.image.replace": true,
+		"office.chart.patch":   true,
+		"office.cache.refresh": true,
+		"office.deliver":       true,
+	}
+}
+
+func mergeAllow(dst, extra map[string]bool) {
+	for name, enabled := range extra {
+		dst[name] = enabled
+	}
 }
 
 var officeGenNegations = []string{

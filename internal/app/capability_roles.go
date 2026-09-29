@@ -218,28 +218,59 @@ func (e *Engine) preferBoundCatalog(ctx context.Context, role string, catalog []
 	return out
 }
 
-func classifyTaskRouteWithFlash(goal, raw string) (TaskRoute, map[string]bool) {
+// classifyTaskRouteWithFlashCC parses the flash classifier reply. The model
+// only picks the route; the allow map always comes from routeAllow so a
+// model that answers {"allow":{}} cannot strip the turn down to user.ask.
+func classifyTaskRouteWithFlashCC(goal, raw string, ccEnabled bool) (TaskRoute, map[string]bool) {
 	_ = goal
 	trimmed := strings.TrimSpace(raw)
 	if i := strings.IndexByte(trimmed, '{'); i >= 0 {
 		trimmed = trimmed[i:]
 	}
+	if j := strings.LastIndexByte(trimmed, '}'); j >= 0 {
+		trimmed = trimmed[:j+1]
+	}
 	var parsed struct {
-		Route string          `json:"route"`
-		Allow map[string]bool `json:"allow"`
+		Route string `json:"route"`
 	}
 	if json.Unmarshal([]byte(trimmed), &parsed) != nil {
 		return RouteUnspecified, nil
 	}
-	switch TaskRoute(parsed.Route) {
+	route := TaskRoute(strings.ToUpper(strings.TrimSpace(parsed.Route)))
+	switch route {
 	case RouteR0, RouteR1, RouteR2, RouteR3, RouteR4:
-		return TaskRoute(parsed.Route), parsed.Allow
+		return route, routeAllow(route, ccEnabled)
 	default:
 		return RouteUnspecified, nil
 	}
 }
 
+// flashRouteSystemPrompt tells the classifier what each route means. The
+// old prompt only listed the labels, which no model can apply correctly.
+func flashRouteSystemPrompt(apps string, ccEnabled bool) string {
+	var b strings.Builder
+	b.WriteString("You route one user request for a Windows desktop assistant. Reply with exactly one JSON object {\"route\":\"R0|R1|R2|R3|R4|NONE\"} and nothing else.\n")
+	b.WriteString("R0 = greeting / small talk / no tool needed.\n")
+	b.WriteString("R1 = look something up (weather, price, news, a URL or video to summarize) and answer in chat.\n")
+	b.WriteString("R2 = act on THIS PC's desktop: open, switch, close or quit an app; click, type, send a message, search, log in, save, screenshot inside a desktop app; play or pause music; work inside Word/WPS/Excel that is open.\n")
+	b.WriteString("R3 = act inside a web page in a browser: open a site, log in, click, fill, read a page.\n")
+	b.WriteString("R4 = produce a deliverable (report, PPT, Word, Excel, PDF, image, video, code file) without touching other apps.\n")
+	b.WriteString("NONE = none of the above / unsure.\n")
+	b.WriteString("Questions ABOUT an app (how to, what is, when) are R1 or NONE, never R2. Editing text the user pasted is NONE.\n")
+	if !ccEnabled {
+		b.WriteString("Desktop control is currently OFF; still answer R2 when the user clearly wants a desktop action.\n")
+	}
+	if apps != "" {
+		b.WriteString("Apps installed or open on this PC: " + apps + ".\n")
+	}
+	return b.String()
+}
+
 func (e *Engine) tryFlashClassify(ctx context.Context, goal string) (TaskRoute, map[string]bool, bool) {
+	return e.tryFlashClassifyWith(ctx, goal, nil, e.computerControlEnabled())
+}
+
+func (e *Engine) tryFlashClassifyWith(ctx context.Context, goal string, apps []string, ccEnabled bool) (TaskRoute, map[string]bool, bool) {
 	providerID, modelID := e.resolveRole(ctx, "flash")
 	if strings.TrimSpace(modelID) == "" {
 		return RouteUnspecified, nil, false
@@ -275,9 +306,9 @@ func (e *Engine) tryFlashClassify(ctx context.Context, goal string) (TaskRoute, 
 			return adapterErr
 		}
 		resp, completeErr := a.Complete(withCallPurpose(op, "route"), secret, llmadapter.Request{
-			Model: modelID, MaxTokens: 128, MaxAttempts: 1,
+			Model: modelID, MaxTokens: 64, MaxAttempts: 1, DisableReasoning: true,
 			Messages: []llmadapter.Message{
-				{Role: llmadapter.RoleSystem, Content: `Classify the user goal into one JSON object {"route":"R0|R1|R2|R3|R4","allow":{}}. No prose.`},
+				{Role: llmadapter.RoleSystem, Content: flashRouteSystemPrompt(flashRouteVocabulary(apps, 40), ccEnabled)},
 				{Role: llmadapter.RoleUser, Content: goal},
 			},
 		})
@@ -290,7 +321,7 @@ func (e *Engine) tryFlashClassify(ctx context.Context, goal string) (TaskRoute, 
 	if leaseErr != nil {
 		return RouteUnspecified, nil, false
 	}
-	route, allow := classifyTaskRouteWithFlash(goal, raw)
+	route, allow := classifyTaskRouteWithFlashCC(goal, raw, ccEnabled)
 	return route, allow, true
 }
 

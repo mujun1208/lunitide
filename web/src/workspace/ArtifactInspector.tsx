@@ -4,6 +4,7 @@ import type { WorkspaceArtifactPreviewResult } from '../generated/bridge'
 import { MarkdownMessage } from '../session/MarkdownMessage'
 import { isolatedHTML } from './isolatedHTML'
 import { artifactLooksLikePdfBytes, artifactPreviewIsReady, artifactViewMode } from './artifactPreviewMode'
+import { ChatAudioPlayer } from '../session/ChatAudioPlayer'
 import { languageFromPath } from './codePanelUtils'
 import './artifactInspector.css'
 
@@ -67,11 +68,11 @@ export function ArtifactInspector({ sessionId, path, onClose, expanded = false, 
     {error && <p role="alert">{error}</p>}
     {loading && <p role="status">正在读取文件…</p>}
     {preview?.notice && !previewReady && <p className="artifact-inspector-notice" role="status">{preview.notice}</p>}
-    {preview && <ArtifactPreviewContent preview={preview} />}
+    {preview && <ArtifactPreviewContent sessionId={sessionId} preview={preview} />}
   </section>
 }
 
-export function ArtifactPreviewContent({ preview }: { preview: WorkspaceArtifactPreviewResult }): React.JSX.Element | null {
+export function ArtifactPreviewContent({ sessionId, preview }: { sessionId?: string; preview: WorkspaceArtifactPreviewResult }): React.JSX.Element | null {
   const mode = artifactViewMode(preview.kind, preview.path)
   if (mode === 'image') {
     if (/^data:image\/(png|jpeg|gif);base64,[A-Za-z0-9+/=]+$/.test(preview.content)) {
@@ -107,6 +108,20 @@ export function ArtifactPreviewContent({ preview }: { preview: WorkspaceArtifact
       return <ArtifactPdfFrame path={preview.path} content={preview.content} />
     }
     return preview.content ? <pre className="artifact-inspector-text">{preview.content}</pre> : null
+  }
+  if (mode === 'audio') {
+    const playable = artifactPreviewIsReady('audio', preview.path, preview.content)
+    if (playable) {
+      return <div className="artifact-inspector-audio">
+        <ChatAudioPlayer sessionId={sessionId ?? ''} path={preview.path} content={preview.content} autoPlay={false} />
+      </div>
+    }
+    if (sessionId) {
+      return <div className="artifact-inspector-audio">
+        <ChatAudioPlayer sessionId={sessionId} path={preview.path} autoPlay={false} />
+      </div>
+    }
+    return <p role="status">请用本机软件打开查看完整内容</p>
   }
   if (!preview.content) return null
   if (mode === 'markdown') {

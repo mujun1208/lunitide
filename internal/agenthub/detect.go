@@ -14,14 +14,19 @@ import (
 var (
 	defaultLookPath     LookPath = lookWithCommonPaths
 	versionProbeTimeout          = 8 * time.Second
+	// extraPathLook / vendorInstallLook are the Windows registry PATH and
+	// Uninstall-location fallbacks. Tests replace them so a developer
+	// machine that already has cursor-agent cannot leak into fixtures.
+	extraPathLook     = extraPathDirs
+	vendorInstallLook = vendorInstallDirs
 )
 
 func lookWithCommonPaths(name string) (string, error) {
 	if path, err := exec.LookPath(name); err == nil && strings.TrimSpace(path) != "" {
 		return preferRunnableCLI(path), nil
 	}
-	dirs := append(extraPathDirs(), commonBinDirs()...)
-	dirs = append(dirs, vendorInstallDirs()...)
+	dirs := append(extraPathLook(), commonBinDirs()...)
+	dirs = append(dirs, vendorInstallLook()...)
 	switch name {
 	case "cursor-agent":
 		dirs = append(dirs, dirsNearLauncher("cursor")...)
@@ -103,10 +108,10 @@ func commonBinDirs() []string {
 	roaming := os.Getenv("APPDATA")
 	var dirs []string
 	if home != "" {
-		dirs = append(dirs, filepath.Join(home, ".local", "bin"), filepath.Join(home, ".cargo", "bin"), filepath.Join(home, "bin"), filepath.Join(home, ".kimi-code", "bin"), filepath.Join(home, ".kimi-code", "node_modules", ".bin"), filepath.Join(home, ".npm-global"), filepath.Join(home, ".npm-global", "bin"))
+		dirs = append(dirs, filepath.Join(home, ".local", "bin"), filepath.Join(home, ".cargo", "bin"), filepath.Join(home, "bin"), filepath.Join(home, ".cursor", "bin"), filepath.Join(home, ".kimi-code", "bin"), filepath.Join(home, ".kimi-code", "node_modules", ".bin"), filepath.Join(home, ".npm-global"), filepath.Join(home, ".npm-global", "bin"))
 	}
 	if local != "" {
-		dirs = append(dirs, filepath.Join(local, "cursor-agent"), filepath.Join(local, "npm"), filepath.Join(local, "Programs"), filepath.Join(local, "Programs", "cursor"), filepath.Join(local, "Programs", "Cursor"), filepath.Join(local, "Microsoft", "WinGet", "Links"))
+		dirs = append(dirs, filepath.Join(local, "cursor-agent"), filepath.Join(local, "cursor-agent", "bin"), filepath.Join(local, "npm"), filepath.Join(local, "Programs"), filepath.Join(local, "Programs", "cursor"), filepath.Join(local, "Programs", "cursor", "resources", "app", "bin"), filepath.Join(local, "Programs", "Cursor"), filepath.Join(local, "Programs", "Cursor", "resources", "app", "bin"), filepath.Join(local, "Microsoft", "WinGet", "Links"))
 	}
 	if roaming != "" {
 		dirs = append(dirs, filepath.Join(roaming, "npm"))
@@ -162,6 +167,12 @@ func detectOne(name string, look LookPath, version VersionRunner) AgentStatus {
 		if name == "codex" {
 			applyCodexDetect(&st, look)
 		}
+		if name == "cursor" {
+			applyCursorDetect(&st, look, exe)
+		}
+		if name == "kimi" {
+			applyKimiDetect(&st, look, exe)
+		}
 		return st
 	}
 	st.Version = firstLine(text)
@@ -180,7 +191,33 @@ func detectOne(name string, look LookPath, version VersionRunner) AgentStatus {
 	if name == "codex" {
 		applyCodexDetect(&st, look)
 	}
+	if name == "cursor" {
+		applyCursorDetect(&st, look, exe)
+	}
+	if name == "kimi" {
+		applyKimiDetect(&st, look, exe)
+	}
 	return st
+}
+
+func applyCursorDetect(st *AgentStatus, look LookPath, exe string) {
+	if _, err := os.Stat(exe); err != nil {
+		return
+	}
+	if _, _, err := resolveCursorACP(look); err != nil {
+		st.State = "unknown"
+		st.Hint = "已安装 Cursor CLI，但还不能聊天。需要本机 Node.js，或把 cursor-agent 配成可直接运行的程序。"
+	}
+}
+
+func applyKimiDetect(st *AgentStatus, look LookPath, exe string) {
+	if _, err := os.Stat(exe); err != nil {
+		return
+	}
+	if _, _, err := resolveKimiACP(look); err != nil {
+		st.State = "unknown"
+		st.Hint = "已安装 Kimi CLI，但还不能聊天。需要本机 Node.js，或把 kimi 配成可直接运行的程序。"
+	}
 }
 
 func applyCodexDetect(st *AgentStatus, look LookPath) {

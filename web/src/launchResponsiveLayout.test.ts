@@ -14,7 +14,7 @@ describe('launch responsive layout',()=>{
   expect(css).toMatch(/\.atmosphere-aurora\{position:absolute;inset:0/)
   expect(css).toMatch(/\.launch-content:has\(\.launch-main\),\.launch-shell:has\(\.launch-main\)\{background:transparent\}/)
   expect(css).toMatch(/html\[data-theme="light"\] \.launch-content:has\(\.launch-main\)\{background:transparent\}/)
-  expect(css).toMatch(/html\[data-theme="light"\] \.atmosphere\[data-aurora="webgl"\] \.sky\{background:#f7f8fc\}/)
+  expect(css).toMatch(/html\[data-theme="light"\] \.atmosphere\[data-aurora="webgl"\] \.sky\{background:#fff\}/)
  })
  it('keeps both meeting columns on the light pane background',()=>{
   expect(css).toMatch(/html\[data-theme="light"\] \.meeting-shell,html\[data-theme="light"\] \.meeting-list,html\[data-theme="light"\] \.meeting-main\{background:var\(--bg2\)\}/)

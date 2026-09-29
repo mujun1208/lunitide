@@ -2,10 +2,12 @@ package networkpolicy
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -313,3 +315,49 @@ func TestCopyWritesBodyAndTruncatesAtCap(t *testing.T) {
 		t.Fatalf("full written=%d truncated=%v len=%d", written, result.Truncated, full.Len())
 	}
 }
+
+func TestFetchUsesHTTPProxyInsteadOfPinnedDestinationDial(t *testing.T) {
+	t.Parallel()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("via-proxy"))
+	}))
+	defer origin.Close()
+
+	var proxyHits atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxyHits.Add(1)
+		resp, err := http.Get(origin.URL + "/")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+	}))
+	defer proxy.Close()
+
+	proxyURL, err := url.Parse(proxy.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := resolverFunc(func(context.Context, string, string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("93.184.216.34")}, nil
+	})
+	target := "http://example.test:" + serverPort(t, origin) + "/update.json"
+	result, err := Fetch(context.Background(), target, FetchOptions{
+		Policy:   fetchPolicy,
+		Resolver: r,
+		Proxy:    http.ProxyURL(proxyURL),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proxyHits.Load() != 1 {
+		t.Fatalf("proxy hits=%d; want 1", proxyHits.Load())
+	}
+	if string(result.Body) != "via-proxy" {
+		t.Fatalf("body=%q", result.Body)
+	}
+}
+

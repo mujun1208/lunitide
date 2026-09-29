@@ -40,6 +40,7 @@ func TestTextAndVoiceRetainAllRequestedGenerationModelsAndFormats(t *testing.T) 
 			{"查新闻，生成 PPT", "pptx.gen"},
 			{"查新闻，生成一个短视频", "video.generate"},
 			{"查新闻，生成一张图片", "image.generate"},
+			{"查新闻，生成一首可以听的歌", "audio.generate"},
 		} {
 			defs := assembleRoutedTools(engineToolDefinitions(), tc.goal, companion, true)
 			for _, needed := range []string{tc.tool, "web.search"} {
@@ -50,7 +51,7 @@ func TestTextAndVoiceRetainAllRequestedGenerationModelsAndFormats(t *testing.T) 
 		}
 	}
 	defs := specialistToolDefinitions(engineToolDefinitions())
-	for _, name := range []string{"image.generate", "video.generate", "pdf.gen"} {
+	for _, name := range []string{"image.generate", "video.generate", "audio.generate", "pdf.gen"} {
 		if !toolDefinitionsHave(defs, name) {
 			t.Errorf("specialist missing %s", name)
 		}
@@ -73,6 +74,9 @@ func TestMediaGenerationHonorsNegationAndExplicitModelRequests(t *testing.T) {
 		{"调用生图模型生成一张图片", "image.generate"},
 		{"Generate an image of a red square", "image.generate"},
 		{"create a short video", "video.generate"},
+		{"generate a song", "audio.generate"},
+		{"帮我生成一首可以听的歌", "audio.generate"},
+		{"放首歌", ""},
 	} {
 		if got := mediaGenerationKind(tc.goal); got != tc.tool {
 			t.Errorf("%s -> %s, want %s", tc.goal, got, tc.tool)

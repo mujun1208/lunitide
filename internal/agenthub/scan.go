@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/lunitide/lunitide/internal/canonpath"
 )
 
 const inboxDirName = ".agenthub-inbox"
@@ -25,6 +27,22 @@ func skipScanDir(name string) bool {
 		}
 	}
 	return false
+}
+
+func skipWorkspaceName(name string) bool {
+	if skipScanDir(name) || name == "$null" || strings.HasPrefix(name, "$") {
+		return true
+	}
+	if len(name) < 24 {
+		return false
+	}
+	for _, r := range name {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func ScanWorkDir(workDir string, eventPaths []string, startedAt time.Time) []Artifact {
@@ -62,7 +80,7 @@ func ScanWorkDir(workDir string, eventPaths []string, startedAt time.Time) []Art
 			}
 			return nil
 		}
-		if d.Name() == promptFileName {
+		if d.Name() == promptFileName || skipWorkspaceName(d.Name()) {
 			return nil
 		}
 		info, infoErr := d.Info()
@@ -180,35 +198,5 @@ func fileArtifact(path string) Artifact {
 }
 
 func insideDir(root, path string) bool {
-	root = filepath.Clean(root)
-	path = filepath.Clean(path)
-	rel, err := filepath.Rel(root, path)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return false
-	}
-	cursor := root
-	for _, part := range strings.Split(rel, string(filepath.Separator)) {
-		if part == "." || part == "" {
-			continue
-		}
-		cursor = filepath.Join(cursor, part)
-		step, stepErr := filepath.Rel(root, resolvedLocation(cursor))
-		if stepErr != nil || step == ".." || strings.HasPrefix(step, ".."+string(filepath.Separator)) {
-			return false
-		}
-	}
-	return true
-}
-
-func resolvedLocation(path string) string {
-	if target, err := os.Readlink(path); err == nil && strings.TrimSpace(target) != "" {
-		if !filepath.IsAbs(target) {
-			target = filepath.Join(filepath.Dir(path), target)
-		}
-		return filepath.Clean(target)
-	}
-	if eval, err := filepath.EvalSymlinks(path); err == nil {
-		return eval
-	}
-	return filepath.Clean(path)
+	return canonpath.Contained(root, path)
 }

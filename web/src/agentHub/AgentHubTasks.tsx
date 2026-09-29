@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react'
 import { useZh } from '../i18n/language'
 import { agentHubApi, type AgentHubCounts, type AgentHubTask } from './agentHubApi'
-import { agentMark, newIdempotencyKey, shortWorkDir, statusLabel } from './agentHubCopy'
+import { AgentHubMark } from './AgentHubMark'
+import { newIdempotencyKey, shortWorkDir, statusLabel } from './agentHubCopy'
 
 export function AgentHubTasks({
   items,
@@ -64,7 +65,7 @@ export function AgentHubTasks({
       {filtered.map(item => (
         <div key={item.taskId} className="agent-hub-row">
           <button type="button" onClick={() => onOpened(item.taskId)} style={{ all: 'unset', cursor: 'pointer', flex: 1, display: 'flex', gap: 14, alignItems: 'center' }}>
-            <span className="agent-hub-logo">{agentMark(item.agent)}</span>
+            <span className="agent-hub-logo"><AgentHubMark name={item.agent} /></span>
             <span><b>{item.prompt}</b><small>{item.agent} · {shortWorkDir(item.workDir)}</small></span>
             <em className={`agent-hub-status ${item.status}`}>{statusLabel(item.status, zh)}</em>
           </button>

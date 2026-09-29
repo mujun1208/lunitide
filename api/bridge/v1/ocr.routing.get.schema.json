@@ -17,7 +17,8 @@
       },
       "modelId": { "type": "string", "minLength": 1, "maxLength": 200 },
       "preferProvider": { "type": "boolean" },
-      "localEngine": { "enum": ["windows-ocr", "ppocr"] },
+      "localEngine": { "enum": ["auto", "windows-ocr", "ppocr"] },
+      "downloadBytes": { "type": "integer", "minimum": 0 },
       "packRoot": { "type": "string", "minLength": 1, "maxLength": 512 },
       "pack": {
         "type": "object",
@@ -48,7 +49,7 @@
         "properties": {
           "pdf": { "type": "boolean" },
           "image": { "type": "boolean" },
-          "backend": { "enum": ["windows-ocr", "unavailable"] }
+          "backend": { "enum": ["windows-ocr", "ppocr", "unavailable"] }
         },
         "required": ["pdf", "image", "backend"]
       }

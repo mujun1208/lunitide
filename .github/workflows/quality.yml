@@ -6,9 +6,18 @@ permissions:
 jobs:
   windows-quality:
     name: Windows quality and schema drift
+    if: github.ref_type != 'tag'
     runs-on: windows-latest
     env:
       CGO_ENABLED: "0"
+      # Go 1.26.6 Green Tea GC aborted coverage with
+      # fatal error: index out of range in tryDeferToSpanScan
+      # (Quality 34881416247). Opt out is the 1.26 escape hatch.
+      # A later PR Quality run (34894852667) still aborted internal/app
+      # with ACCESS_VIOLATION at PC=0x1 inside HashTrieMap.Load while
+      # encoding/json filled its sync.Map cache (golang/go#81189). That
+      # path is handled in Check-Coverage.ps1 (serialize + one retry).
+      GOEXPERIMENT: nogreenteagc
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -30,14 +39,16 @@ jobs:
         run: ./release/Test-OmniExcluded.ps1
       - name: Test Go with coverage floor
         shell: pwsh
-        # One instrumented run both exercises the suite and enforces the
-        # coverage ratchet (see release/Check-Coverage.ps1). The 25m budget is
-        # generous because the per-package default is 10 minutes and
-        # internal/storage/sqlite alone runs a couple of minutes on a developer
-        # machine — most of its tests open a fresh database and replay every
-        # migration — and a hosted runner is several times slower. An explicit
-        # budget keeps a slow runner from being reported as a hang.
-        run: ./release/Check-Coverage.ps1 -Floor 51 -Timeout 25m
+        # Check-Coverage.ps1 exercises the suite and enforces the coverage
+        # ratchet. internal/app is isolated (parallel 1, one runtime-abort
+        # retry) so a Go 1.26.6 HashTrieMap crash does not fail the gate.
+        # The 35m budget is generous because the per-package default is 10
+        # minutes and internal/storage/sqlite alone runs a couple of minutes
+        # on a developer machine — most of its tests open a fresh database
+        # and replay every migration — and a hosted runner is several times
+        # slower. An explicit budget keeps a slow runner from being reported
+        # as a hang.
+        run: ./release/Check-Coverage.ps1 -Floor 51 -Timeout 35m
       - name: Vet Go
         run: go vet ./...
       - name: Build Go without CGO
@@ -74,9 +85,15 @@ jobs:
 
   windows-cgo-race:
     name: Windows CGO race detector
+    if: github.ref_type != 'tag'
     runs-on: windows-latest
     env:
       CGO_ENABLED: "1"
+      GOEXPERIMENT: nogreenteagc
+      # Push race 34907144926 aborted in runtime.adjustdefers during
+      # shrinkstack (golang/go#77955). Disabling stack shrink avoids that
+      # copystack path; Check-Race.ps1 still retries a leftover abort.
+      GODEBUG: gcshrinkstackoff=1
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -117,4 +134,8 @@ jobs:
         # linker, and lunitide.syso's .rsrc IMAGE_REL_AMD64_ADDR32 relocations
         # overflow in the race-inflated PE ("relocation truncated to fit").
         # Non-race Quality still builds and tests ./cmd/desktop.
-        run: go test -race -count=1 -p=4 -timeout 120m ./...
+        #
+        # Check-Race.ps1 isolates internal/app (parallel 1) and retries both
+        # that process and the rest tree once on a runtime abort. 80b9d913
+        # race jobs died in Go 1.26.6 GC/stack, not DATA RACE.
+        run: ./release/Check-Race.ps1 -Timeout 120m -AppTimeout 60m

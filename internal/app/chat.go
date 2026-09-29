@@ -294,10 +294,17 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		OfficeTaskID:     p.OfficeTaskID,
 	}
 	startLane := classifyChatLane(laneIn)
+	// Live app vocabulary (launch table + Start Menu + open windows) so a
+	// desktop task naming an app the static tables never heard of still
+	// gets the desktop contract instead of the one-step prose lane.
+	routingApps := e.routingAppVocabulary(ctx)
+	earlyAppRoute := detectAppActRoute(laneIn.Goal, routingApps)
 
 	instruction := executionModeInstruction(mode)
-	if computerExecutionTurn(turnText) {
+	desktopInstructionAdded := false
+	if computerExecutionTurn(turnText) || earlyAppRoute == RouteR2 {
 		instruction += desktopExecutionInstruction()
+		desktopInstructionAdded = true
 	}
 	// Moon Companion: Doubao-style voice. First audible sentence must
 	// land in TTS immediately (period-terminated, 8–20 chars). Later
@@ -648,7 +655,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		}
 
 		if p.OfficeTaskID != "" {
-			sources, err := e.officeChatEvidence(ctx, p.OfficeTaskID)
+			sources, err := e.officeChatEvidence(ctx, boundSessionID, p.OfficeTaskID)
 			if err != nil {
 				return internalBridgeFailure(request, "OFFICE_CONTEXT_READ_FAILED", "办公任务参考材料暂时无法读取", true, err)
 			}
@@ -869,15 +876,22 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	if e.tools != nil && wantsTools {
 		req.Tools = turnTools
 		if len(p.TrialSkillIDs) == 0 && (turnProfile == toolProfileDefault || turnProfile == toolProfileMinimal) {
-			route, allow := classifyTaskRoute(laneIn.Goal, p.Companion, e.computerControlEnabled())
+			ccOn := e.computerControlEnabled()
+			route, allow := classifyTaskRouteApps(laneIn.Goal, p.Companion, ccOn, routingApps)
 			if route == RouteUnspecified {
-				if flashRoute, flashAllow, used := e.tryFlashClassify(ctx, laneIn.Goal); used {
+				if flashRoute, flashAllow, used := e.tryFlashClassifyWith(ctx, laneIn.Goal, routingApps, ccOn); used {
 					route, allow = flashRoute, flashAllow
 				}
 			}
 			req.Tools = applyTaskRoute(req.Tools, route, allow)
 			state.taskRoute = route
 			state.taskAllow = allow
+			if route == RouteR2 && !desktopInstructionAdded {
+				// Late (flash) desktop route: the system prompt was built
+				// before we knew. Add the execution contract now so the
+				// model observes → acts → verifies instead of narrating.
+				req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: strings.TrimSpace(desktopExecutionInstruction())})
+			}
 		}
 	}
 	if chatLanesEnabled() && !p.Companion {
@@ -896,6 +910,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			if contract.MaxMainToolSteps < 8 {
 				contract.MaxMainToolSteps = 8
 			}
+		}
+		if capabilityWorkTask(laneIn.Goal) && contract.MaxMainToolSteps < 8 {
+			contract.MaxMainToolSteps = 8
 		}
 		if len(p.TrialSkillIDs) > 0 && contract.MaxMainToolSteps < 8 {
 			contract.MaxMainToolSteps = 8

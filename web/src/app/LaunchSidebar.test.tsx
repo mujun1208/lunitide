@@ -57,26 +57,17 @@ it('starts the sidebar at 新对话 and has no product wordmark', () => {
   expect(screen.getByRole('button', { name: '办公' })).not.toBeNull()
 })
 
-it('shows Agent Hub by default and hides it when the office menu switch is off', () => {
-  render(<LaunchSidebar {...sidebarProps()} />)
-  expect(screen.getByRole('button', { name: 'AgentHub' })).toBeInTheDocument()
-  cleanup()
-  localStorage.setItem('lunitide:office-menu', JSON.stringify({ agentHub: false }))
+it('never lists AgentHub under Office, even when leftover office-menu storage still has it', () => {
   render(<LaunchSidebar {...sidebarProps()} />)
   expect(screen.queryByRole('button', { name: 'AgentHub' })).toBeNull()
   cleanup()
   localStorage.setItem('lunitide:office-menu', JSON.stringify({ agentHub: true }))
   const setPage = vi.fn()
   render(<LaunchSidebar {...sidebarProps({ setPage, page: 'agentHub' })} />)
-  const button = screen.getByRole('button', { name: 'AgentHub' })
-  expect(button.className).toMatch(/active/)
+  expect(screen.queryByRole('button', { name: 'AgentHub' })).toBeNull()
   expect(screen.getByRole('button', { name: '设置' }).className).not.toMatch(/active/)
-  expect(screen.queryByRole('button', { name: /新对话/ })).toBeNull()
+  expect(screen.getByRole('button', { name: /新对话/ })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '历史任务' })).toBeNull()
-  cleanup()
-  render(<LaunchSidebar {...sidebarProps({ setPage })} />)
-  screen.getByRole('button', { name: 'AgentHub' }).click()
-  expect(setPage).toHaveBeenCalledWith('agentHub')
 })
 
 it('does not show raw English conversation list failures', async () => {

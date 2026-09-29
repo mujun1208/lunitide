@@ -183,18 +183,16 @@ it('offers personal composer context actions',async()=>{
  await user.click(screen.getByRole('button',{name:/@ 上下文/}));expect(screen.getByLabelText('向月汐提问，或描述你想完成的任务…')).toHaveValue('@')
 })
 
-it('keeps execution mode and inserts lane override phrases beside a read-only lane word',async()=>{
+it('keeps execution mode and a read-only lane word without phrase shortcuts',async()=>{
  let onEvent!:(event:StreamEvent)=>void
  const stream:ChatStream={streamId:'01ARZ3NDEKTSV4RRFFQ69G5FAD',cancel:vi.fn().mockResolvedValue(true),dispose:vi.fn()}
  const start=vi.fn().mockImplementation(async(_payload,onStreamEvent)=>{onEvent=onStreamEvent;return stream})
  const user=await open({personal:true,providers,initialSession:session,chat:{start,approve:vi.fn(),dispose:vi.fn()}})
  await user.click(screen.getByRole('button',{name:'执行模式'}))
  expect(screen.getByRole('button',{name:/自动审批/})).toBeInTheDocument()
- await user.click(screen.getByRole('button',{name:'执行模式'}))
- await user.click(screen.getByRole('button',{name:'深度思考'}))
- expect(screen.getByLabelText('向月汐提问，或描述你想完成的任务…')).toHaveValue('深度思考')
- await user.click(screen.getByRole('button',{name:'先搜索'}))
- expect(screen.getByLabelText('向月汐提问，或描述你想完成的任务…')).toHaveValue('深度思考 先搜索')
+ expect(screen.queryByRole('button',{name:'深度思考'})).toBeNull()
+ expect(screen.queryByRole('button',{name:'先搜索'})).toBeNull()
+ await user.type(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'),'继续')
  await user.click(screen.getByRole('button',{name:'↑ 发送并对话'}))
  await waitFor(()=>expect(start).toHaveBeenCalledOnce())
  await act(async()=>onEvent({v:'1.0',kind:'event',id:'01ARZ3NDEKTSV4RRFFQ69G5FAE',streamId:stream.streamId,sequence:1,type:'guidance',guidance:{labels:['档位:先问缺什么','工作流'],digest:'abcd1234abcd1234'}}))
@@ -982,6 +980,9 @@ it('expands an HTML artifact over the conversation and restores it without remou
   expect(layout.className).not.toContain('workspace-is-expanded')
   await user.click(screen.getByRole('button',{name:'放大预览'}))
   expect(layout.className).toContain('workspace-is-expanded')
+  expect(screen.getByLabelText('产物详情')).toBeInTheDocument()
+  expect(screen.getByTitle('产物预览 index.html')).toBeInTheDocument()
+  expect(screen.getByRole('button',{name:'恢复对话'})).toBeInTheDocument()
   expect(document.querySelector('.message-panel')?.getAttribute('aria-hidden')).toBe('true')
   expect(document.querySelector('.message-panel')?.hasAttribute('inert')).toBe(true)
   expect(document.querySelector('.message-panel')?.getAttribute('aria-label')).toMatch(/消息$/)
@@ -1065,6 +1066,18 @@ it('opens project workbench chat with the home composer instead of the session l
  expect(document.querySelector('.personal-chat-page')).not.toBeNull()
  expect(screen.getByLabelText('向月汐提问，或描述你想完成的任务…')).toBeInTheDocument()
  expect(screen.getByRole('button',{name:'执行模式'})).toBeInTheDocument()
+ const box=document.querySelector('.personal-chat-page .message-input') as HTMLElement
+ const start=document.querySelector('.composer-toolbar-start') as HTMLElement
+ const primary=document.querySelector('.composer-primary-actions') as HTMLElement
+ const mic=screen.getByRole('button',{name:'语音输入'})
+ const save=screen.getByRole('button',{name:'仅保存'})
+ expect(box).toContainElement(start)
+ expect(box).toContainElement(primary)
+ expect(start).toContainElement(screen.getByRole('button',{name:'执行模式'}))
+ expect(primary).toContainElement(mic)
+ expect(box).toContainElement(save)
+ expect(start).not.toContainElement(mic)
+ expect(start).not.toContainElement(save)
 })
 
 it('does not auto-open the terminal workspace for project home-chat command activity',async()=>{

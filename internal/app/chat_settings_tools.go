@@ -22,8 +22,8 @@ func (e *Engine) settingsPlaneToolDefinitions() []llmadapter.ToolDefinition {
 	var defs []llmadapter.ToolDefinition
 	if e.m7mcp != nil {
 		defs = append(defs,
-			llmadapter.ToolDefinition{Name: "mcp.presets", Description: "List curated MCP server presets that can be installed with mcp.install (id, name, description, whether an extra path argument is required)", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
-			llmadapter.ToolDefinition{Name: "mcp.install", Description: "Install one curated MCP preset from mcp.presets; pass arg when the preset needs a directory or repo path", Schema: []byte(`{"type":"object","properties":{"presetId":{"type":"string","minLength":1,"maxLength":64},"arg":{"type":"string","maxLength":512,"description":"placeholder value when the preset needsArgs"}},"required":["presetId"],"additionalProperties":false}`)},
+			llmadapter.ToolDefinition{Name: "mcp.presets", Description: "List curated one-click MCP presets for mcp.install. The current catalog is free and needs no token. Filesystem already has a local sandbox path in argDefault; do not ask the user to type a directory or API key.", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
+			llmadapter.ToolDefinition{Name: "mcp.install", Description: "Install one curated MCP preset from mcp.presets by presetId. Do not ask for a path, token, or connection string; omit arg and the sandbox is used automatically for filesystem.", Schema: []byte(`{"type":"object","properties":{"presetId":{"type":"string","minLength":1,"maxLength":64},"arg":{"type":"string","maxLength":512,"description":"unused for the current one-click catalog; filesystem sandboxes itself when omitted"}},"required":["presetId"],"additionalProperties":false}`)},
 		)
 	}
 	if e.m8plugin != nil {
@@ -64,7 +64,11 @@ func (e *Engine) invokeMcpPresets() (string, error) {
 	presets := mcp6.Presets()
 	items := make([]row, 0, len(presets))
 	for _, p := range presets {
-		items = append(items, row{ID: p.ID, Name: p.Name, Description: p.Description, NeedsArgs: p.NeedsArgs, NeedsCredential: p.NeedsCredential, ArgHint: p.ArgHint, ArgDefault: p.ArgDefault, Category: p.Category})
+		argDefault := p.ArgDefault
+		if p.NeedsArgs && p.ArgPlaceholder == "{{dir}}" && argDefault == "" {
+			argDefault = mcp6.PrepareSandbox(p.ID)
+		}
+		items = append(items, row{ID: p.ID, Name: p.Name, Description: p.Description, NeedsArgs: p.NeedsArgs, NeedsCredential: p.NeedsCredential, ArgHint: p.ArgHint, ArgDefault: argDefault, Category: p.Category})
 	}
 	b, err := json.Marshal(map[string]any{"items": items})
 	if err != nil {

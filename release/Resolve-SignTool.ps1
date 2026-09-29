@@ -1,7 +1,8 @@
 # Locates the Windows SDK signtool.exe: PATH first, then the newest versioned
-# Windows Kits x64 installation. Used by every release gate script so signed
-# builds/verifications work on machines where the SDK bin directory is not on
-# PATH (a default SDK install never adds it).
+# Windows Kits x64 installation, then the NuGet SDK BuildTools copy cached
+# under .release-cache (this machine has no Windows Kits install). Used by
+# every release gate script so signed builds/verifications work when the SDK
+# bin directory is not on PATH (a default SDK install never adds it).
 function Resolve-SignTool {
   $signtool=Get-Command signtool.exe -ErrorAction SilentlyContinue
   if($signtool){return $signtool.Source}
@@ -10,6 +11,13 @@ function Resolve-SignTool {
     Sort-Object { [version]$_.Name } -Descending |
     ForEach-Object { Join-Path $_.FullName 'x64\signtool.exe' } |
     Where-Object { Test-Path $_ -PathType Leaf } | Select-Object -First 1
+  if(-not $candidate){
+    $cacheRoot=Join-Path $PSScriptRoot '..\.release-cache\sdk-buildtools'
+    $candidate=Get-ChildItem -LiteralPath $cacheRoot -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+      Where-Object { $_.DirectoryName -match '\\x64$' } |
+      Sort-Object FullName -Descending |
+      Select-Object -First 1 -ExpandProperty FullName
+  }
   if(-not $candidate){throw 'signtool.exe not found; install the Windows 10/11 SDK signing tools'}
   return $candidate
 }
