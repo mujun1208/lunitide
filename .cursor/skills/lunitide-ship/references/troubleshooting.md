@@ -89,7 +89,16 @@ Test-NetConnection -ComputerName github.com -Port 443 -WarningAction SilentlyCon
   Select-Object RemoteAddress, TcpTestSucceeded
 ```
 
-**修法**：通了就正常 `git push`。仍不通就走本技能目录下的 Git Data API 重放脚本（先 `-WhatIf` 干跑）：
+**修法**：通了就正常 `git push`。仍不通先查**用户级代理**——浏览器能开 github.com 而 git 不能，说明浏览器走了本机代理而 git 不认 IE 设置：
+
+```powershell
+Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' |
+  Select-Object ProxyEnable, ProxyServer
+# ProxyEnable=1 时把 ProxyServer（形如 127.0.0.1:15715）挂给 git：
+$env:HTTPS_PROXY = "http://<ProxyServer>"; $env:HTTP_PROXY = $env:HTTPS_PROXY
+```
+
+代理通了就一切照常（push、fetch、force push 全恢复）。注意 `gh auth refresh` 的设备流回调端点在 `github.com` 上，被封锁时即使浏览器完成了授权，token 也换不回来。代理也没有时才走本技能目录下的 Git Data API 重放脚本（先 `-WhatIf` 干跑）：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File `
@@ -159,6 +168,46 @@ gh release list --limit 100 --json tagName | ConvertFrom-Json | ForEach-Object {
 ```
 
 单个对象的 `--json`（如 `gh release view`）不受影响。
+
+---
+
+## 12. coverage 合并 profile 带 BOM，`go tool cover` 拒读
+
+**症状**：`Check-Coverage.ps1` 里 Go 测试全过，最后 `go tool cover -func` 报 profile 首行不是 `mode: set`。
+
+**原因**：TRAE shell 预设 `$PSDefaultParameterValues['Set-Content:Encoding']='utf8'`，PowerShell 5.1 的 utf8 必带 BOM → 合并后的 coverage.out 首行变 `EF BB BF mode: set`。三个源 profile（Go 工具链写的）都是干净的，纯粹是脚本写出环节被 shell 默认值污染。
+
+**修法**（已落地）：脚本用 `[IO.File]::WriteAllLines` + `UTF8Encoding($false)` 显式无 BOM 写入，self-test 断言首三字节不是 `EF BB BF`。教训：脚本里任何 `Set-Content`/`Out-File` 都不要依赖 shell 默认编码。
+
+---
+
+## 13. sqlite 测试偶发 `fatal error: fault`（Xmalloc）
+
+**症状**：`internal/storage/sqlite` 全包测试随机崩，panic 栈落在 `modernc.org/libc.Xmalloc` → `_renameParseSql` → `_renameTableFunc`，即 migration 的 `ALTER TABLE RENAME` 解析路径。同机 4 跑 2 过 2 崩。
+
+**原因**：modernc.org/sqlite v1.46.1 + libc v1.67.6 在 Go 1.26.6 Windows 下的内存违例，三方库问题，`GOEXPERIMENT=nogreenteagc` 已设仍偶发。非本仓代码引入。
+
+**修法**：重跑（大概率过）。Check-Coverage.ps1 已带 fault 自动重试。失败输出必须存文件全文再分析——`Select-Object -Last N` 会截掉 panic 头导致漏判。
+
+---
+
+## 14. filter-repo `--replace-text` 不清洗二进制
+
+**症状**：历史改写后全库扫描，旧版 `release/bin/*.exe` 仍含本机工作区路径（形如 `E:/<work>/<repo>` 的 Go 构建源码路径），blob SHA 改写前后完全相同。
+
+**原因**：git-filter-repo 对前 8KB 含零字节的 blob（二进制）跳过 replace-text（源码明确注释）。Go 构建的 exe 内嵌源码路径，文本规则够不着。
+
+**修法**：含泄漏的二进制走 `--path <目录> --invert-paths` 从全历史删除。验证必须扫**全对象库**而不是只看 tip：`git cat-file --batch-all-objects --batch` 流式扫描，且 ASCII + UTF-16LE/BE 双编码都查。改写前先 `git clone --mirror` 留回滚备份，改写后 `diff --stat` 新旧 tip 确认只有预期变化。
+
+---
+
+## 15. signtool 报的哈希和 SHA256SUMS 不一致（虚惊）
+
+**症状**：构建日志里 `Hash of file (sha256)` 与 `SHA256SUMS.txt`/`latest.json` 里的 sha256 不同，疑似发布事故。
+
+**原因**：signtool verify 报的是**签名作用域摘要**（不含证书表），`Get-FileHash` 是全文件字节。Authenticode 签名过的 exe 两个值必然不同。
+
+**修法**：无需处理。校验和一律以 `Get-FileHash` 口径为准；要确证发布资产，从 GitHub 下载回来重算哈希对账。
 
 ---
 
