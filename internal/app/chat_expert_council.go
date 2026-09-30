@@ -514,11 +514,11 @@ func injectCouncilChairBrief(req *llmadapter.Request, brief string, companion bo
 		return
 	}
 	chair := councilChairInstructionForLane(brief, companion, lane)
-	if len(req.Messages) == 0 || req.Messages[0].Role != llmadapter.RoleSystem {
-		req.Messages = append([]llmadapter.Message{{Role: llmadapter.RoleSystem, Content: chair}}, req.Messages...)
-		return
-	}
-	req.Messages[0].Content += chair
+	// The chair brief names this turn's experts, so it changes every turn.
+	// Appending it to the head system message would break the provider prefix
+	// cache for the whole history; it rides as a trailing system message like
+	// every other per-turn injection.
+	req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: chair})
 }
 
 func (e *Engine) runExpertCouncil(ctx context.Context, a llmadapter.Adapter, credential []byte, model string, cfg expertCouncilConfig, send func(bridge.Event) error) (string, error) {

@@ -183,9 +183,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			assistantText.WriteString(note)
 			err = e.noteLiveTurnDraft(sessionID, &turn, assistantText.String(), &lastLiveDraftAt)
 			_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: note}})
-			if len(req.Messages) > 0 && req.Messages[0].Role == llmadapter.RoleSystem {
-				req.Messages[0].Content = localBrainFallbackLockHint(note) + req.Messages[0].Content
-			}
+			// Per-turn note: appended as a trailing system message so the head
+			// system stays byte-stable for provider prefix caches.
+			req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: localBrainFallbackLockHint(note)})
 		}
 	}
 	if !usedLocalBrain && err == nil {

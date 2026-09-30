@@ -221,6 +221,16 @@ gh release list --limit 100 --json tagName | ConvertFrom-Json | ForEach-Object {
 
 ---
 
+## 17. 改了 bridge 处理器调用链后覆盖率必红（compiled hops 过期）
+
+**症状**：`Check-Coverage.ps1` 的 rest 批次报 `--- FAIL: TestCompiledHopsMatchTheSource`（internal/producthub），diff 显示 compiled 表里某方法（如 chat.start）的 Steps 与 live 源码解析出的调用链不一致。
+
+**原因**：`internal/producthub/call_index_compiled.go` 是从产品源码固化生成的调用链表（诊断报告用），任何改动 `internal/app` 处理器函数体内调用序列的提交都会让它过期。verify:bridge / verify:catalog 不覆盖这个生成物——阶段 1 只查前端两个生成物会漏。
+
+**修法**：`$env:LUNITIDE_WRITE_CALLS='1'; go test ./internal/producthub/ -run TestWriteCompiledCallIndex -count=1` 重新生成，确认 diff 只动预期方法的行，`go test ./internal/producthub/` 转绿后重跑覆盖率闸门。凡是改了 handleXxx 函数体的提交，阶段 1 就该带上这一步。
+
+---
+
 ## 清理时的两个红线
 
 1. **删 release 不删 tag。** 发布说明明确不得扰动早期 tag 的 digest。`gh release delete <tag> --yes` 只删 release 和资产。

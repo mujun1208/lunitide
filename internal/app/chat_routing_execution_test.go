@@ -244,7 +244,7 @@ func TestTypedVideoRequestExecutesPublicReaderAndReturnsActualEvidence(t *testin
 			adapter := &routedExecutionAdapter{stream: func(req llmadapter.Request) (llmadapter.Response, error) {
 				modelCalls++
 				if modelCalls == 1 {
-					if !routedRequestHasTool(req, "video.understand") || !strings.Contains(req.Messages[0].Content, "[本轮视频链接]") {
+					if !routedRequestHasTool(req, "video.understand") || !strings.Contains(chatSystemView(req), "[本轮视频链接]") {
 						return llmadapter.Response{}, errors.New("video route or task instruction missing")
 					}
 					if routedRequestHasTool(req, "browser.act") || routedRequestHasTool(req, "media.play") {
@@ -304,7 +304,7 @@ func TestTypedAutomaticExpertEquipmentInvokesMatchingSkill(t *testing.T) {
 				return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "技能已完成表格检查，已识别重复字段。"}}, nil
 			}
 		}
-		instruction := req.Messages[0].Content
+		instruction := chatSystemView(req)
 		if !strings.Contains(instruction, "Excel表格制作专家") || !strings.Contains(instruction, "skillId="+skillID) || !routedRequestHasTool(req, "skill.invoke") {
 			return llmadapter.Response{}, errors.New("automatic expert/skill routing missing")
 		}
@@ -384,7 +384,7 @@ func TestTypedWeeklyReportAskOmitsSearchTools(t *testing.T) {
 	}
 	sys := ""
 	if len(captured.Messages) > 0 {
-		sys = captured.Messages[0].Content
+		sys = chatSystemView(captured)
 	}
 	if !strings.Contains(sys, "问缺什么") && !strings.Contains(sys, "问完即停") {
 		t.Fatalf("missing L2-ask clause:\n%s", sys)

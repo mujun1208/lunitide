@@ -51,7 +51,7 @@ func TestTypedDirectVideoActuallyDecodesAndSuppliesAudioAndVisionToModel(t *test
 			adapter := &routedExecutionAdapter{stream: func(req llmadapter.Request) (llmadapter.Response, error) {
 				calls++
 				if calls == 1 {
-					if !routedRequestHasTool(req, "video.understand") || !strings.Contains(req.Messages[0].Content, "[本轮视频链接]") {
+					if !routedRequestHasTool(req, "video.understand") || !strings.Contains(chatSystemView(req), "[本轮视频链接]") {
 						return llmadapter.Response{}, errors.New("direct video route missing")
 					}
 					return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "我先读取这个视频。", ToolCalls: []llmadapter.ToolCall{{ID: "direct-video", Name: "video.understand", Arguments: json.RawMessage(`{"url":"https://public.example/short.mp4"}`)}}}}, nil

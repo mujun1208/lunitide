@@ -88,7 +88,7 @@ func capturedSkillChatSystem(t *testing.T, requests <-chan llmadapter.Request) s
 	if len(req.Messages) == 0 || req.Messages[0].Role != llmadapter.RoleSystem {
 		t.Fatalf("first message is not system: %#v", req.Messages)
 	}
-	return req.Messages[0].Content
+	return chatSystemView(req)
 }
 
 func TestChatStartInjectsSkillCatalog(t *testing.T) {
@@ -271,8 +271,8 @@ func TestCompanionInjectsCatalogWhenQueryHitsSkill(t *testing.T) {
 		t.Fatalf("companion chat.start failed: %#v", response)
 	}
 	req := capturedChatRequest(t, requests)
-	if len(req.Messages) == 0 || !strings.Contains(req.Messages[0].Content, "[可用技能目录]") || !strings.Contains(req.Messages[0].Content, "manual-parser") {
-		t.Fatalf("companion skill hit must inject catalog: %#v", req.Messages)
+	if sys := chatSystemView(req); !strings.Contains(sys, "[可用技能目录]") || !strings.Contains(sys, "manual-parser") {
+		t.Fatalf("companion skill hit must inject catalog: %q", sys)
 	}
 	found := false
 	for _, def := range req.Tools {

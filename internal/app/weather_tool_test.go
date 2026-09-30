@@ -37,7 +37,7 @@ func TestWeatherStructuredToolActualChatRoundTrip(t *testing.T) {
 	a := &routedExecutionAdapter{stream: func(req llmadapter.Request) (llmadapter.Response, error) {
 		modelCalls++
 		if modelCalls == 1 {
-			if !routedRequestHasTool(req, "weather.get") || !strings.Contains(req.Messages[0].Content, "weather.get") {
+			if !routedRequestHasTool(req, "weather.get") || !strings.Contains(chatSystemView(req), "weather.get") {
 				return llmadapter.Response{}, errors.New("weather route missing")
 			}
 			return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "weather-test", Name: "weather.get", Arguments: json.RawMessage(`{"place":"合肥","country":"CN","days":1}`)}}}}, nil

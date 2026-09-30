@@ -57,7 +57,7 @@ func TestCompanionFastPathCapsTokensAndKeepsVoice(t *testing.T) {
 	if len(req.Messages) == 0 || req.Messages[0].Role != llmadapter.RoleSystem {
 		t.Fatalf("messages = %#v", req.Messages)
 	}
-	system := req.Messages[0].Content
+	system := chatSystemView(req)
 	if strings.Contains(system, "内置工作流") {
 		t.Fatalf("companion injected bundled workflows: %q", system)
 	}

@@ -159,7 +159,7 @@ func TestSpecialistChatStartPinsComposeSkills(t *testing.T) {
 			}
 			sys := ""
 			if len(req.Messages) > 0 {
-				sys = req.Messages[0].Content
+				sys = chatSystemView(req)
 			}
 			if !strings.Contains(sys, "[专家装备]") || !strings.Contains(sys, tc.expert) || strings.Contains(sys, "已自动挂载") {
 				t.Fatalf("compose hint missing for %s:\n%s", tc.expert, sys)
@@ -203,7 +203,7 @@ func TestSpecialistChatStartIncludesOfficeWebAndSkills(t *testing.T) {
 	}
 	sys := ""
 	if len(req.Messages) > 0 {
-		sys = req.Messages[0].Content
+		sys = chatSystemView(req)
 	}
 	for _, needle := range []string{"对话专家能力", "skill.invoke", "web.search", "mermaid", "pptx.gen", "desktop=true", "docx.gen", "报告"} {
 		if !strings.Contains(sys, needle) {

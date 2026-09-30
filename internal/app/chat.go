@@ -306,9 +306,15 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	earlyAppRoute := detectAppActRoute(laneIn.Goal, routingApps)
 
 	instruction := executionModeInstruction(mode)
+	// Per-turn guidance (timestamps, lane-trimmed workflows, catalog, persona)
+	// is collected separately and lands as a trailing system message after the
+	// user turn. Keeping the head system message byte-stable across turns lets
+	// provider prefix caches reuse the whole history instead of re-prefilling
+	// it every turn.
+	turnInstruction := ""
 	desktopInstructionAdded := false
 	if computerExecutionTurn(turnText) || earlyAppRoute == RouteR2 {
-		instruction += desktopExecutionInstruction()
+		turnInstruction += desktopExecutionInstruction()
 		desktopInstructionAdded = true
 	}
 	// Moon Companion: Doubao-style voice. First audible sentence must
@@ -321,9 +327,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		instruction += chatSuggestionsInstruction
 	}
 	instruction += replyStyleInstruction(p.ReplyStyle, p.Companion)
-	instruction += skillAuthoringInstruction(turnText)
+	turnInstruction += skillAuthoringInstruction(turnText)
 	instruction += trialInstruction
-	instruction += structuredTemplateInstruction(inferStructuredTemplate(turnText, p.StructuredTemplate))
+	turnInstruction += structuredTemplateInstruction(inferStructuredTemplate(turnText, p.StructuredTemplate))
 	// Full-access workspace hint: tell the model where file tools actually
 	// operate (user-selected workspace root, or the sandbox when none resolves)
 	// so path answers match reality instead of a stale sandbox assumption.
@@ -357,14 +363,25 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		instruction += subagentProfileCatalogInjection(subagentPolicy)
 	}
 	if !p.Companion {
-		instruction += videoTaskInstruction(intent.Text)
-		instruction = appendTypedStableBlocks(instruction, bundledWorkflowInjectionForLane(laneIn.Goal, startLane), e.workspaceRepoGuidance())
+		turnInstruction += videoTaskInstruction(intent.Text)
+		// Typed-turn identity and repo guidance are session-stable and stay in
+		// the head; the lane-trimmed workflow block changes with every turn
+		// text, so it moves to the trailing injection.
+		instruction += identityAndFewShotInstruction()
+		if repo := e.workspaceRepoGuidance(); repo != "" {
+			instruction += repo
+		}
+		instruction += chatRichMarkdownInstruction()
+		instruction += typedAssistInstruction()
+		if workflow := bundledWorkflowInjectionForLane(laneIn.Goal, startLane); workflow != "" {
+			turnInstruction += workflow + identityAnchorReminder()
+		}
 		instruction += e.projectFactoryGuidance(ctx, p.ProjectID, p.ProjectPhase)
 	}
 	if hint := projectPhaseWorkflowInjectionMode(p.ProjectPhase, p.ProjectPhaseLabel, !p.Companion); hint != "" {
 		instruction += hint
 	}
-	instruction = appendCurrentTurnBoundary(instruction, turnText, time.Now())
+	turnInstruction += currentTurnInstruction(turnText, time.Now())
 
 	// Overlap provider lookup with preference/skill injection (Cursor-style)
 	// TTFT). The skill catalog is metadata-only (name + triggers + one-line
@@ -416,18 +433,18 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	}()
 	prep.Wait()
 	if intent.Companion {
-		instruction += e.companionSessionInjection(boundSessionID, intent.Text)
+		turnInstruction += e.companionSessionInjection(boundSessionID, intent.Text)
 		wantsTools = e.companionWantsToolsForTurn(boundSessionID, intent.Text)
 		if wantsTools {
-			instruction += companionPersonaToolsInstruction()
-			instruction += companionTaskWorkflowInjection(intent.Text)
+			turnInstruction += companionPersonaToolsInstruction()
+			turnInstruction += companionTaskWorkflowInjection(intent.Text)
 		} else {
 			catalog = ""
 		}
 	}
-	instruction = renderPreferenceInstruction(instruction, memPack.Prefs)
+	turnInstruction = renderPreferenceInstruction(turnInstruction, memPack.Prefs)
 	if catalog != "" {
-		instruction += "\n\n" + catalog
+		turnInstruction += "\n\n" + catalog
 	}
 	councilCfg := e.buildExpertCouncilConfig(ctx, expertCouncilInputs{
 		SessionID:    boundSessionID,
@@ -443,7 +460,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		roster := e.collectCouncilExpertIDs(ctx, expertCouncilInputs{SessionID: boundSessionID, TurnText: laneIn.Goal, ExplicitMsgs: p.Messages})
 		if councilInviteNeeded(laneIn.Goal, roster) {
 			inviteLead = councilInviteSpeech()
-			instruction += "\n" + inviteLead + "。本轮不要装成已经评过。\n"
+			turnInstruction += "\n" + inviteLead + "。本轮不要装成已经评过。\n"
 		}
 	}
 	if councilCfg != nil {
@@ -455,28 +472,34 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 	// its tools under the same authority the operator granted here.
 	subagentPolicy.ParentMode = mode
 	if expertWork {
-		instruction += specialistRuntimeInstruction()
+		turnInstruction += specialistRuntimeInstruction()
 		names := e.composeExpertNames(ctx, boundSessionID, intent.Text)
 		_, writeTools, _, _ := m8app.ComposeForExpertNames(names)
 		subagentPolicy.ExpertWriteTools = writeTools
 	}
 	if composeHint != "" {
-		instruction += composeHint
+		turnInstruction += composeHint
 	}
 	if councilCfg == nil {
 		if persona := e.expertPersonaInjection(ctx, boundSessionID, p.Messages, intent.Text, expertInjectionTokenBudget(item, p.ModelID)); persona != "" {
-			instruction += persona
+			turnInstruction += persona
 		}
 	}
 	if !p.Companion && hasSession {
-		instruction += e.unfinishedTurnInjection(boundSessionID, intent.Text)
-		instruction += e.codeDiagnosticInjection(boundSessionID)
-		instruction += closedLoopTurnInjection(turnText)
+		turnInstruction += e.unfinishedTurnInjection(boundSessionID, intent.Text)
+		turnInstruction += e.codeDiagnosticInjection(boundSessionID)
+		turnInstruction += closedLoopTurnInjection(turnText)
 	}
 	if p.OfficeTaskID != "" {
 		instruction += officeChatInstruction
 	}
 	trustedMessages := append([]llmadapter.Message{{Role: llmadapter.RoleSystem, Content: instruction}}, p.Messages...)
+	if strings.TrimSpace(turnInstruction) != "" {
+		// Trailing system injection: same pattern the tool loop already uses
+		// for mid-run nudges, so providers accept it and the leading prefix
+		// (head system + durable history) stays byte-stable for prefix caches.
+		trustedMessages = append(trustedMessages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: turnInstruction})
+	}
 	if mode == executionModeFullAccess {
 		trustedMessages = appendLocalFileReads(trustedMessages)
 	}
@@ -1078,6 +1101,12 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			if level != "low" && !isShortIdleGreeting(intent.Text) {
 				req.DisableReasoning = false
 			}
+		} else if councilCfg == nil && !laneWantsDeepThink(laneIn.Goal) && !laneWantsForcedSearch(laneIn.Goal) && looksLikeNovelTask(laneIn.Goal) {
+			// Long-form creative prose (novel/story) gains nothing from deep
+			// reasoning and pays minutes of thinking before the first visible
+			// word. When the user did not pick a level or ask to think hard,
+			// stream the prose directly. User opt-ins above keep reasoning on.
+			req.DisableReasoning = true
 		}
 	}
 	if len(p.TrialSkillIDs) > 0 {

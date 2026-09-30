@@ -12,17 +12,6 @@ import (
 	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
-func appendCurrentTurnBoundary(instruction, goal string, now time.Time) string {
-	return instruction + currentTurnInstruction(goal, now)
-}
-
-func stableInstructionPrefix(instruction string) string {
-	if i := strings.Index(instruction, "\n[当前任务边界]"); i >= 0 {
-		return instruction[:i]
-	}
-	return instruction
-}
-
 // appendTypedStableBlocks appends the TE-06 identity / optional workflow /
 // markdown bytes used by typed turns before [当前任务边界].
 func appendTypedStableBlocks(instruction, workflow, repo string) string {
