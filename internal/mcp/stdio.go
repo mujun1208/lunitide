@@ -124,6 +124,15 @@ func stdioResolveCommand(command string, args []string) (string, []string, error
 // first download. HOME/USERPROFILE are required so npx can find .npmrc
 // (registry mirrors) and uvx can find its config — without them packages
 // are fetched from the default registries which may be slow or blocked.
+// On Windows the machine-wide program locations and system resolution vars
+// (PROGRAMFILES, PROGRAMFILES(X86), PROGRAMW6432, PROGRAMDATA, SYSTEMDRIVE,
+// COMSPEC, PATHEXT, HOMEDRIVE) are forwarded too: browser drivers such as
+// playwright-core resolve system Chromium channels (e.g. msedge installed
+// under C:\Program Files (x86)) purely from these env vars — without them
+// every prefix probe fails and the channel reports "not found". WOW64 child
+// processes also need PROGRAMW6432 to find 64-bit program dirs. The set
+// mirrors the Codex CLI Windows core env allowlist; these are system
+// locations, not secrets, and match the toolruntime command env allowlist.
 func stdioLaunchEnv(extraEnv []string) []string {
 	env := []string{
 		"STDIOMCP_SESSION=1",
@@ -152,7 +161,7 @@ func stdioLaunchEnv(extraEnv []string) []string {
 		if root := os.Getenv("SystemRoot"); root != "" {
 			env = append(env, "SystemRoot="+root)
 		}
-		for _, key := range []string{"USERPROFILE", "APPDATA", "LOCALAPPDATA"} {
+		for _, key := range []string{"USERPROFILE", "APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432", "PROGRAMDATA", "SYSTEMDRIVE", "COMSPEC", "PATHEXT", "HOMEDRIVE"} {
 			if v := os.Getenv(key); v != "" {
 				env = append(env, key+"="+v)
 			}

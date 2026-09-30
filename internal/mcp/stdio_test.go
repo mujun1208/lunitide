@@ -237,6 +237,41 @@ func TestStdioLaunchEnvForwardsProxyAndCache(t *testing.T) {
 	}
 }
 
+func TestStdioLaunchEnvForwardsWindowsBrowserLocations(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows browser channel resolution")
+	}
+	t.Setenv("ProgramFiles", `C:\Program Files`)
+	t.Setenv("ProgramFiles(x86)", `C:\Program Files (x86)`)
+	t.Setenv("ProgramW6432", `C:\Program Files`)
+	t.Setenv("ProgramData", `C:\ProgramData`)
+	t.Setenv("SystemDrive", `C:`)
+	t.Setenv("ComSpec", `C:\WINDOWS\system32\cmd.exe`)
+	t.Setenv("PATHEXT", `.COM;.EXE;.BAT;.CMD`)
+	t.Setenv("HOMEDRIVE", `C:`)
+	joined := strings.Join(stdioLaunchEnv(nil), "\n")
+	// playwright-core resolves system Chromium channels (msedge) by probing
+	// exactly these prefixes; dropping any of them makes the channel report
+	// "not found" even though Edge is installed machine-wide. The remaining
+	// vars mirror the Codex CLI Windows core env allowlist: WOW64 children
+	// need PROGRAMW6432, and COMSPEC/PATHEXT drive command and suffix
+	// resolution in child tooling.
+	for _, want := range []string{
+		"PROGRAMFILES=C:\\Program Files",
+		"PROGRAMFILES(X86)=C:\\Program Files (x86)",
+		"PROGRAMW6432=C:\\Program Files",
+		"PROGRAMDATA=C:\\ProgramData",
+		"SYSTEMDRIVE=C:",
+		"COMSPEC=C:\\WINDOWS\\system32\\cmd.exe",
+		"PATHEXT=.COM;.EXE;.BAT;.CMD",
+		"HOMEDRIVE=C:",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing browser location %q in: %s", want, joined)
+		}
+	}
+}
+
 func TestStdioSessionInstallerStderrDoesNotCorruptProtocol(t *testing.T) {
 	s := dialFake(t, "stderr")
 	tools, err := s.ListTools(context.Background())

@@ -211,6 +211,16 @@ gh release list --limit 100 --json tagName | ConvertFrom-Json | ForEach-Object {
 
 ---
 
+## 16. npm audit 在 npmmirror 镜像源下必红
+
+**症状**：`npm --prefix web audit --audit-level=moderate` 退出 1，报 `404 Not Found - POST https://registry.npmmirror.com/-/npm/v1/security/advisories/bulk - [NOT_IMPLEMENTED]`；换官方源后可能报真实漏洞（如 fast-uri 3.0.0–3.1.7 的 GHSA-hrr3-gc8f-f4qj，moderate）。
+
+**原因**：npmmirror 只做包镜像，不实现 npm 的 security/advisories 端点，audit 请求直接 404——这既可能是"跑不了"，也可能掩盖当天新发布的通告。本机默认 registry 配的是 npmmirror。
+
+**修法**：加 `--registry=https://registry.npmjs.org` 重跑（本机代理已开，可达）。若报真实漏洞：`npm --prefix web audit fix --registry=https://registry.npmjs.org`（锁文件最小升级，确认只动 package-lock.json 预期行数），然后重跑 typecheck / test / build / 生成物漂移四项闸门。不要为过闸门调 `--audit-level`。
+
+---
+
 ## 清理时的两个红线
 
 1. **删 release 不删 tag。** 发布说明明确不得扰动早期 tag 的 digest。`gh release delete <tag> --yes` 只删 release 和资产。
