@@ -102,8 +102,35 @@ func TestNovelTurnKeepsReasoningWhenUserOptsIn(t *testing.T) {
 	if deep.DisableReasoning {
 		t.Fatalf("explicit 深度思考 must keep reasoning enabled")
 	}
+}
+
+// The composer's level picker is never empty (defaults to high), so a
+// non-empty reasoningLevel must not kill the prose fast path — otherwise the
+// fast path is dead in every real turn.
+func TestNovelTurnStreamsDirectlyDespiteDefaultLevel(t *testing.T) {
 	leveled := startPrefixStabilityChat(t, `{"providerId":"`+chatAttachmentProviderID+`","modelId":"model","executionMode":"approval","reasoningLevel":"high","messages":[{"role":"user","content":"写一篇12星座爱情长篇小说"}]}`)
-	if leveled.DisableReasoning {
-		t.Fatalf("explicit reasoningLevel must win over the novel fast path")
+	if !leveled.DisableReasoning {
+		t.Fatalf("default reasoning level must not kill the prose fast path")
+	}
+	if leveled.ReasoningLevel != "" {
+		t.Fatalf("prose fast path should clear the reasoning level")
+	}
+}
+
+// 长篇 reports and analytical papers are continuous prose too: the zodiac
+// case (长篇分析报告论文) must stream directly instead of thinking for
+// minutes before the first visible word.
+func TestLongFormReportStreamsDirectly(t *testing.T) {
+	req := startPrefixStabilityChat(t, prefixStabilityPayload("帮我写一个关于12星座不同星座之间的爱情匹配分析，长篇分析报告论文"))
+	if !req.DisableReasoning {
+		t.Fatalf("long-form report prose should stream directly")
+	}
+	if req.ReasoningLevel != "" {
+		t.Fatalf("prose fast path should clear the reasoning level")
+	}
+	// Ordinary work reports are not long-form prose and keep reasoning.
+	work := startPrefixStabilityChat(t, prefixStabilityPayload("帮我写一份本周测试报告"))
+	if work.DisableReasoning {
+		t.Fatalf("ordinary work reports must keep the lane default")
 	}
 }

@@ -127,6 +127,22 @@ func looksLikeNovelTask(text string) bool {
 	return false
 }
 
+// longFormProseTask reports turns whose deliverable is long-form continuous
+// prose: novels, stories, and 长篇 reports or analytical papers. Deep
+// reasoning burns minutes of thinking before the first visible word and buys
+// nothing for continuous prose, so the chat loop streams these directly.
+// Council turns and forced-search lanes keep their reasoning; ordinary work
+// reports (周报/测试报告) are not long-form and stay untouched.
+func longFormProseTask(text string) bool {
+	if looksLikeNovelTask(text) {
+		return true
+	}
+	if !looksLikeReportTask(text) {
+		return false
+	}
+	return strings.Contains(text, "长篇") || strings.Contains(text, "论文")
+}
+
 // Only this turn's selected identity counts. Memory, prior user turns and
 // assistant answers can mention other specialists without mounting them.
 func expertMountedIn(req llmadapter.Request, needles ...string) bool {

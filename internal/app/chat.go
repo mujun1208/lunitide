@@ -1096,17 +1096,20 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		state.lane = contract
 	}
 	if !p.Companion {
-		if level := normalizeReasoningLevel(p.ReasoningLevel); level != "" {
+		// Long-form prose (novel/story/长篇 report) streams directly. The
+		// composer's level picker is never empty — it defaults to high — so a
+		// non-empty ReasoningLevel cannot be read as an explicit opt-in; only
+		// the 深度思考 phrasing and council/forced-search lanes keep thinking.
+		proseFast := councilCfg == nil && !laneWantsDeepThink(laneIn.Goal) && !laneWantsForcedSearch(laneIn.Goal) && longFormProseTask(laneIn.Goal)
+		if proseFast {
+			req.DisableReasoning = true
+			req.ReasoningLevel = ""
+		}
+		if level := normalizeReasoningLevel(p.ReasoningLevel); level != "" && !proseFast {
 			req.ReasoningLevel = level
 			if level != "low" && !isShortIdleGreeting(intent.Text) {
 				req.DisableReasoning = false
 			}
-		} else if councilCfg == nil && !laneWantsDeepThink(laneIn.Goal) && !laneWantsForcedSearch(laneIn.Goal) && looksLikeNovelTask(laneIn.Goal) {
-			// Long-form creative prose (novel/story) gains nothing from deep
-			// reasoning and pays minutes of thinking before the first visible
-			// word. When the user did not pick a level or ask to think hard,
-			// stream the prose directly. User opt-ins above keep reasoning on.
-			req.DisableReasoning = true
 		}
 	}
 	if len(p.TrialSkillIDs) > 0 {
