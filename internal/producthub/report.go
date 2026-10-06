@@ -17,7 +17,7 @@ func RenderReport(ed Edition) (markdown, pageHTML string) {
 	}
 	fmt.Fprintf(&md, "# Lunitide 产品说明书（第 %s 版）\n\n", ed.EditionID)
 	if IsGuestMode() {
-		md.WriteString("只读模式：本机没有产品源码，不能自净化修复升级，请联系管理员。\n\n")
+		md.WriteString("只读模式：程序没有定位到产品源码根，不能自净化修复升级。设置环境变量 LUNITIDE_SOURCE_ROOT 指向本机产品源码目录后重启，或在数据目录写入 product-source-root.json（内容 {\"root\":\"源码目录\"}），即可开启自净化。\n\n")
 	}
 	features, landscape := splitCardCounts(ed.Features)
 	fmt.Fprintf(&md, "生成时间：%s  \n功能卡：%d  · 图景卡 %d  · 合计 %d  · 新增 %d · 更新 %d · 退役 %d  · 健康分 %d\n\n", stamp, features, landscape, features+landscape, ed.Added, ed.Updated, ed.Removed, ed.HealthScore)
@@ -29,6 +29,9 @@ func RenderReport(ed Edition) (markdown, pageHTML string) {
 	md.WriteString("| 域 | 模块数 | 功能卡 |\n|---|---:|---:|\n")
 	for _, d := range domainStats(ed.Features) {
 		fmt.Fprintf(&md, "| %s | %d | %d |\n", d.Name, d.Modules, d.Cards)
+	}
+	if line := BridgeMethodLine(); line != "" {
+		md.WriteString("\n" + line + "\n")
 	}
 	md.WriteString("\n## 3. 功能知识库（逐张拆解）\n\n")
 	for _, c := range ed.Features {
@@ -89,9 +92,13 @@ func RenderReport(ed Edition) (markdown, pageHTML string) {
 	hs.WriteString(`<style>body{margin:0;background:#0a0a0a;color:#f4f4f4;font:15px/1.55 system-ui,sans-serif}main{max-width:920px;margin:0 auto;padding:32px 24px}h1,h2,h3{font-weight:600}h1{font-size:28px}a{color:#fff}section{border:1px solid #2a2a2a;background:#141414;padding:16px 18px;margin:14px 0}code{color:#ccc}.meta{color:#9a9a9a}</style></head><body><main>`)
 	fmt.Fprintf(&hs, "<h1>Lunitide 产品说明书</h1><p class=\"meta\">%s · 功能卡 %d · 图景卡 %d · 健康分 %d</p>", html.EscapeString(stamp), features, landscape, ed.HealthScore)
 	if IsGuestMode() {
-		hs.WriteString("<p><b>只读模式</b>：本机没有产品源码，不能自净化修复升级，请联系管理员。</p>")
+		hs.WriteString("<p><b>只读模式</b>：程序没有定位到产品源码根，不能自净化修复升级。设置环境变量 LUNITIDE_SOURCE_ROOT 指向本机产品源码目录后重启，或在数据目录写入 product-source-root.json（内容 {\"root\":\"源码目录\"}），即可开启自净化。</p>")
 	}
-	hs.WriteString("<section><h2>总述</h2><p>本机优先的智能工作台。每个原子功能一张知识卡：简介、描述、属性、方法、链路与脚手架。三页共用同一次组装。版本没变时读已存的这一版。版本变了才重组。对得上处理函数的链路步骤改写成源码里的调用。对不上的手写步骤不留在报告里。执行净化会再跑失败项，复查通过才改为已修复。</p></section>")
+	verbLine := ""
+	if line := BridgeMethodLine(); line != "" {
+		verbLine = "<p>" + html.EscapeString(line) + "</p>"
+	}
+	hs.WriteString("<section><h2>总述</h2><p>本机优先的智能工作台。每个原子功能一张知识卡：简介、描述、属性、方法、链路与脚手架。三页共用同一次组装。版本没变时读已存的这一版。版本变了才重组。对得上处理函数的链路步骤改写成源码里的调用。对不上的手写步骤不留在报告里。执行净化会再跑失败项，复查通过才改为已修复。</p>" + verbLine + "</section>")
 	for _, c := range ed.Features {
 		fmt.Fprintf(&hs, "<section id=\"%s\"><h3>%s <code>%s</code></h3>", html.EscapeString(c.StableKey), html.EscapeString(c.Name), html.EscapeString(c.StableKey))
 		fmt.Fprintf(&hs, "<p><b>A</b> %s</p><p><b>B</b> %s</p>", html.EscapeString(c.Summary), html.EscapeString(c.Description))
@@ -141,7 +148,11 @@ func diagnosisVerdict(ed Edition) string {
 	}
 	var b strings.Builder
 	if ed.LiveProbe.Total > 0 {
-		fmt.Fprintf(&b, "本轮读回 %d/%d，健康分 %d。这个分数含临时库读回，不是本机键鼠、麦克风、真实供应商或真实进程的实测。听写、播放、下载、图片识别若在这一轮重跑，以当次结果为准。日志里对得上原文的故障记在下面。对照来自图景页已选产品，不计入这个分数。\n\n", ed.LiveProbe.Passed, ed.LiveProbe.Total, ed.HealthScore)
+		extra := ""
+		if reached, skipped := probeStateCounts(ed.Findings); reached > 0 || skipped > 0 {
+			extra = fmt.Sprintf("另有入口已跑到 %d 项、不代跑 %d 项；这两类入口活着或需人工核验，不计入读回，也不算失败。", reached, skipped)
+		}
+		fmt.Fprintf(&b, "本轮读回 %d/%d，健康分 %d。%s这个分数含临时库读回，不是本机键鼠、麦克风、真实供应商或真实进程的实测。听写、播放、下载、图片识别若在这一轮重跑，以当次结果为准。日志里对得上原文的故障记在下面。对照来自图景页已选产品，不计入这个分数。\n\n", ed.LiveProbe.Passed, ed.LiveProbe.Total, ed.HealthScore, extra)
 	} else {
 		if cover == "" && ed.CatalogProbe.Total > 0 {
 			cover = fmt.Sprintf("活源覆盖 %d/%d。", ed.CatalogProbe.Passed, ed.CatalogProbe.Total)

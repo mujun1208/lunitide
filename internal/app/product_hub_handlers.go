@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/producthub"
 )
 
@@ -28,6 +29,9 @@ func handleProductHub(e *Engine, ctx context.Context, r bridge.Request) (resp br
 		if !e.productHub.Check(token) {
 			return r.Fail("PH_012", "未解锁，无法使用产品知识中枢", false)
 		}
+		// 解锁后的每次中枢调用前镜像供应商/模型配置（与 Bridge 注入同模式）：
+		// 诊断按当前快照审计模型融合，模型升级或换默认模型后下次调用即重算。
+		syncModelSlots(e, ctx)
 	}
 	switch method {
 	case "productHub.auth.status":
@@ -154,6 +158,39 @@ func handleProductHub(e *Engine, ctx context.Context, r bridge.Request) (resp br
 	default:
 		return r.Fail("BAD_REQUEST", "未知 productHub 方法", false)
 	}
+}
+
+// syncModelSlots mirrors the engine's provider configuration into the product
+// hub. The hub audits model fusion from this snapshot without importing the
+// provider domain or the engine.
+func syncModelSlots(e *Engine, ctx context.Context) {
+	if e == nil || e.providers == nil {
+		return
+	}
+	providers, err := e.providers.List(ctx, provider.Filter{})
+	if err != nil {
+		return
+	}
+	var slots []producthub.ModelSlot
+	for _, p := range providers {
+		for _, m := range p.Models {
+			slots = append(slots, producthub.ModelSlot{
+				ProviderID:      p.ID,
+				ProviderName:    p.Name,
+				Protocol:        string(p.Protocol),
+				ModelID:         m.ModelID,
+				DisplayName:     m.DisplayName,
+				Kind:            string(m.EffectiveKind()),
+				IsDefault:       m.IsDefault,
+				KindDefault:     m.KindDefault,
+				ContextWindow:   m.ContextWindow,
+				SupportsVision:  m.SupportsVision,
+				Status:          string(p.Status),
+				CredentialState: string(p.CredentialState),
+			})
+		}
+	}
+	producthub.SetModelSlots(slots)
 }
 
 func failProductHub(r bridge.Request, err error) bridge.Response {

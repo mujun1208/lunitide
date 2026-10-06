@@ -34,6 +34,10 @@ func diagnosticInventory(ed Edition) string {
 	writeNamed(&b, "任务处理", "名称或键里带任务，或属于办公与自动化。", namesWhere(features, isTaskCard))
 	writeNamed(&b, "脚手架", fmt.Sprintf("写了页面、Bridge、设置或运行时的有 %d 张。脚手架还是空的：%s。", scaffoldFilled(features), orNone(emptyScaffoldNames(features))), nil)
 	writeNamed(&b, "架构", architectureLine(ed, features), nil)
+	// 模型融合行只在注入了供应商/模型配置时出现：未注入环境与旧报告保持零漂移。
+	if audit := AuditModelFusion(); len(audit.Slots) > 0 {
+		writeNamed(&b, "模型融合", modelFusionLine(audit), modelFusionNames(audit))
+	}
 	b.WriteString(wiringSection(features))
 	writeNamed(&b, "实测", probeLine(ed), nonemptyOrNil(openProbeNames(ed.Findings)))
 	writeNamed(&b, "日志与故障", logLine(ed.Findings), nonemptyOrNil(logNames(ed.Findings)))
@@ -159,6 +163,7 @@ func diagnosticGapPlans(ed Edition) string {
 		plans = append(plans, p)
 	}
 	plans = append(plans, envGapPlans(ed.Findings)...)
+	plans = append(plans, modelGapPlans(ed.Findings)...)
 	if len(plans) == 0 {
 		return ""
 	}
@@ -184,6 +189,54 @@ func envGapPlans(findings []Finding) []gapPlan {
 			Action:  advice,
 			Accept:  "按建议处理本机环境后重跑这一项，探测转为 pass 才算收口",
 		})
+	}
+	return plans
+}
+
+// modelGapPlans turns open model-fusion findings into five-part upgrade
+// plans. PH_M02 is the model-upgrade follow path: the analysis goes through
+// 执行净化 (the internal model gets the registry profile and the affected
+// feature slots), the switch itself stays a confirmed user action.
+func modelGapPlans(findings []Finding) []gapPlan {
+	var plans []gapPlan
+	for _, f := range findings {
+		if !isOpenFinding(f.Status) {
+			continue
+		}
+		switch f.ErrorCode {
+		case "PH_M01":
+			plans = append(plans, gapPlan{
+				Problem: "模型槽位未配齐：" + f.Title,
+				Locate:  f.StableKey,
+				Root:    firstNonEmpty(f.RootCause, f.Evidence, "未记录"),
+				Action:  firstNonEmpty(f.Fix, "在模型供应商页配置该槽位模型"),
+				Accept:  "重新检测后该槽位有可用模型，本条消失",
+			})
+		case "PH_M02":
+			plans = append(plans, gapPlan{
+				Problem: "模型有新一代：" + f.Title,
+				Locate:  f.StableKey,
+				Root:    "产品档案库登记了演进路径，供应商配置仍停在上一代",
+				Action:  "点「执行净化」：内部模型按档案与受影响槽位深度分析新旧能力差异并产出切换方案；确认方案后在供应商页把默认模型换成新一代，再点「重新检测」",
+				Accept:  "换新一代并重新检测后本条消失，供应商连通测试通过",
+			})
+		case "PH_M03":
+			plans = append(plans, gapPlan{
+				Problem: "模型上下文窗口未登记",
+				Locate:  f.StableKey,
+				Root:    "供应商配置里该模型的 contextWindow 为空",
+				Action:  firstNonEmpty(f.Fix, "按厂商文档补上上下文窗口"),
+				Accept:  "补上窗口值并重新检测后本条消失",
+			})
+		case "PH_M04":
+			plans = append(plans, gapPlan{
+				Problem: "模型供应商不可用",
+				Locate:  f.StableKey,
+				Root:    firstNonEmpty(f.RootCause, f.Evidence, "未记录"),
+				Action:  firstNonEmpty(f.Fix, "启用供应商并配置凭据"),
+				Accept:  "供应商可用后重新检测，本条消失",
+			})
+		}
 	}
 	return plans
 }
@@ -1102,7 +1155,30 @@ func probeLine(ed Edition) string {
 	if ed.LiveProbe.Total == 0 {
 		return "本轮没有重跑听写、播放、下载和图片识别。当前分数是入口覆盖，不是这四项的实测。点重新检测才会留下实测。"
 	}
-	return fmt.Sprintf("本轮读回 %d/%d。这个数字含临时库读回，不是本机键鼠、麦克风、真实供应商或真实进程的实测。听写、播放、下载、图片识别以这次重跑为准。未通过的列在下面。", ed.LiveProbe.Passed, ed.LiveProbe.Total)
+	extra := ""
+	if reached, skipped := probeStateCounts(ed.Findings); reached > 0 || skipped > 0 {
+		extra = fmt.Sprintf("另有入口已跑到 %d 项（处理函数返回了，入口活着，但功能没有完整跑完，不计入读回）、不代跑 %d 项（会开窗、占麦克风、安装、联网或执行命令，诊断不代执行，要到对应页面人工核验）。", reached, skipped)
+	}
+	return fmt.Sprintf("本轮读回 %d/%d。%s这个数字含临时库读回，不是本机键鼠、麦克风、真实供应商或真实进程的实测。听写、播放、下载、图片识别以这次重跑为准。未通过的列在下面。", ed.LiveProbe.Passed, ed.LiveProbe.Total, extra)
+}
+
+// probeStateCounts tallies the two in-between probe rows: reached (the handler
+// returned but the function did not complete) and skipped (the probe would open
+// a window, take the microphone, install, go online, or run a command). They
+// occupy the measured total but never count as a read-back pass.
+func probeStateCounts(findings []Finding) (reached, skipped int) {
+	for _, f := range findings {
+		if !strings.HasPrefix(f.StableKey, "probe.") {
+			continue
+		}
+		switch f.Status {
+		case "reached":
+			reached++
+		case "skipped":
+			skipped++
+		}
+	}
+	return reached, skipped
 }
 
 func openProbeNames(findings []Finding) []string {

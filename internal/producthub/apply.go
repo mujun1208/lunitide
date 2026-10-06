@@ -160,6 +160,10 @@ func (s *Service) applyFinding(ctx context.Context, ed *Edition, f Finding, advi
 			status, applied = "applied", true
 		case "PH_000":
 			status, applied = "applied", true
+		case "PH_M01", "PH_M02", "PH_M03", "PH_M04":
+			// 模型融合发现不指向功能卡：不写卡片标签。深度分析保留在 planned；
+			// 用户换模型后重新检测，refreshFindings 按新配置重算，本条自然消失。
+			status = "planned"
 		default:
 			_ = s.persist.ProductHubSaveTag(ctx, NodeTag{StableKey: f.StableKey, Vocab: "status", Value: "待修复", AssignedBy: "manual"})
 			status = "planned"
@@ -221,11 +225,12 @@ func findingStatusFromApplyLog(status string) string {
 }
 
 // applyLogStatus is the vocabulary product_apply_log can store.
-// Finding status stays fixed/open so a passed recheck and a still-open one
-// remain distinct in the report.
+// Finding status stays fixed/open (and reached/skipped for probes that only
+// reached the handler or are deliberately not run) so a passed recheck, a
+// still-open one, and a deliberately-unrun one remain distinct in the report.
 func applyLogStatus(status string) string {
 	switch status {
-	case "planned", "applied", "failed", "wont_fix":
+	case "planned", "applied", "failed", "wont_fix", "reached", "skipped":
 		return status
 	case "fixed", "pass", "clear":
 		return "applied"
@@ -267,6 +272,10 @@ func localPlan(f Finding, card Card) string {
 		b.WriteString("中枢动作：无需改代码。\n")
 	case "PH_019", "PH_020":
 		b.WriteString("中枢动作：只提示重新检测。不生成新卡，不改 Go/TS，不循环调用生成。\n")
+	case "PH_M01", "PH_M03", "PH_M04":
+		b.WriteString("中枢动作：登记模型配置缺口与补齐建议；模型配置由用户在供应商页确认修改，中枢不代改供应商设置。\n")
+	case "PH_M02":
+		b.WriteString("中枢动作：按产品档案生成新旧能力差异、受影响功能与切换步骤的深度分析，交内部模型复核；换默认模型是确认后的用户动作，中枢不代改配置。\n")
 	default:
 		b.WriteString("中枢动作：打 status:待修复，把任务书交给内部技能/模型，不自动改 Go/TS。\n")
 	}
@@ -323,8 +332,10 @@ func mergeFindingStatus(prev, next []Finding) []Finding {
 		if f.ErrorCode == "PH_000" {
 			continue
 		}
-		// A new live result wins. An older「待修复」tag must not hide a probe that just failed again.
-		if (strings.HasPrefix(f.ErrorCode, "PH_L") || f.ErrorCode == "PH_021" || f.ErrorCode == "PH_022") && (f.Status == "open" || f.Status == "pass") {
+		// A new live result wins. An older「待修复」tag must not hide a probe that just failed again,
+		// nor paint over a probe that only reached the handler or is deliberately not run.
+		if (strings.HasPrefix(f.ErrorCode, "PH_L") || f.ErrorCode == "PH_021" || f.ErrorCode == "PH_022") &&
+			(f.Status == "open" || f.Status == "pass" || f.Status == "reached" || f.Status == "skipped") {
 			continue
 		}
 		p, ok := prevBy[f.ErrorCode+"|"+f.StableKey]

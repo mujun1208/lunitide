@@ -400,6 +400,10 @@ function DiagnosticsPane({
   const errors = active.filter(item => item.severity === 'error').length
   const warns = active.filter(item => item.severity === 'warn' || item.severity === 'warning').length
   const infos = active.filter(item => item.severity === 'info').length
+  const tierNote = [
+    overview?.probeReached ? (zh ? `入口已跑到 ${overview.probeReached} 项（入口活着，功能未跑完，不计入通过）` : `${overview.probeReached} reached (entry alive, function incomplete)`) : '',
+    overview?.probeSkipped ? (zh ? `不代跑 ${overview.probeSkipped} 项（会开窗、占麦克风、安装或联网，需到对应页面人工核验）` : `${overview.probeSkipped} not run for you (opens windows, mic, install, or network — verify on the page)`) : '',
+  ].filter(Boolean).join(zh ? '；' : '; ')
   return (
     <div>
       <section className="ph-health">
@@ -427,10 +431,10 @@ function DiagnosticsPane({
       <p className="ph-note">
         {zh
           ? (overview?.liveChecked
-            ? `实测 ${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'}。听写、播放、下载、图片识别已跑。失败、未测，以及日志里对得上原文的故障列在下面。对照用的是图景页已经选好的产品，不计入这个环。`
+            ? `实测 ${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'}，已跑完并有读回才计通过。${tierNote ? `另有${tierNote}。` : ''}失败、未测，以及日志里对得上原文的故障列在下面。对照用的是图景页已经选好的产品，不计入这个环。`
             : `还没做过实测。现在这一环仍是入口覆盖（${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'}）。点「重新检测」会跑听写、播放、下载和图片识别。`)
           : (overview?.liveChecked
-            ? `Probed ${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'}. Dictation, playback, download, and image recognition ran. Failures and log faults are listed below. Comparison uses products already picked on the landscape page and is not part of this ring.`
+            ? `Probed ${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'} — only checks that ran to a read-back count as passed.${tierNote ? ` Also ${tierNote}.` : ''} Failures and log faults are listed below. Comparison uses products already picked on the landscape page and is not part of this ring.`
             : `No live probe yet. This ring is still catalog coverage (${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'}). Re-scan runs dictation, playback, download, and image recognition.`)}
       </p>
       <div className="ph-actions">

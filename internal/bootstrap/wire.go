@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -550,6 +551,20 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	hub.SetProductVersion(buildinfo.Version)
 	engine.SetProductHub(hub)
 	app.RegisterCatalogProbes()
+	// A user-configured source root (data/product-source-root.json, format
+	// {"root":"<dir>"}) lets an installed copy find the source tree for
+	// self-purification without re-building. Priority: locked root, this
+	// config, the LUNITIDE_SOURCE_ROOT environment variable, then probing.
+	if cfgPath, err := dataRoot.FilePath("product-source-root.json"); err == nil {
+		if raw, readErr := os.ReadFile(cfgPath); readErr == nil {
+			var cfg struct {
+				Root string `json:"root"`
+			}
+			if json.Unmarshal(raw, &cfg) == nil && strings.TrimSpace(cfg.Root) != "" {
+				producthub.SetConfiguredSourceRoot(cfg.Root)
+			}
+		}
+	}
 	if root := producthub.FindProductRoot(); root != "" {
 		producthub.UseProductRoot(root)
 	}

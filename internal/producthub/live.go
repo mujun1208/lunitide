@@ -2,16 +2,13 @@ package producthub
 
 // LiveCatalog is the product scanning itself. First edition lives in Seed().
 // Each Generate() re-reads this list so a new page / setting / media action /
-// plugin appears without rewriting the seed booklet.
+// plugin appears without rewriting the seed booklet. The registered runtime
+// verb table is appended last: every user-facing engine verb that no curated
+// candidate claims becomes an auto template card, so the catalog covers the
+// whole dispatch surface, not only the hand-written verbs.
 func LiveCatalog() []Candidate {
-	var out []Candidate
-	out = append(out, pageCandidates()...)
-	out = append(out, settingsCandidates()...)
-	out = append(out, mediaActionCandidates()...)
-	out = append(out, pluginCandidates()...)
-	out = append(out, verbCandidates()...)
-	out = append(out, extraVerbCandidates()...)
-	return out
+	out := handWrittenCandidates()
+	return append(out, bridgeMethodCandidates(coveredBridgeMethods(out))...)
 }
 
 // pageCandidates turns every reachable frontend page into one card. The names

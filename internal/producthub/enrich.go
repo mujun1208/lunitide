@@ -55,6 +55,10 @@ func emptyText(v, fallback string) string {
 }
 
 func applyPrompt(f Finding) string {
+	// PH_M 系列走模型融合专用任务书：升级发现交给内部模型做深度分析。
+	if strings.HasPrefix(f.ErrorCode, "PH_M") {
+		return modelFusionPrompt(f)
+	}
 	return strings.Join([]string{
 		"【Lunitide 自我净化任务】",
 		fmt.Sprintf("编号 %s  对象 %s  严重度 %s  状态 %s", f.ErrorCode, f.StableKey, f.Severity, f.Status),

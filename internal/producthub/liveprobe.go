@@ -10,7 +10,13 @@ import (
 )
 
 // TaskResult is one real check started by 「重新检测」.
-// Status is pass, fail, or untested. Untested stays in the total and is not a pass.
+// Status is pass, fail, untested, reached, or skipped.
+// pass means the check ran to a read-back. fail and untested stay in the
+// total and are not a pass. reached means the handler returned — a rejection
+// code is the evidence — so the entry is alive but the function did not
+// complete; it is not counted as a pass. skipped means the probe would open
+// a window, use the microphone, install, go online, or run a command, so the
+// diagnosis deliberately does not run it on this machine.
 type TaskResult struct {
 	ID       string
 	Title    string
@@ -69,10 +75,19 @@ func TaskFindings(tasks []TaskResult) []Finding {
 			sev, status = "error", "open"
 		case "untested":
 			sev, status = "warn", "open"
+		case "reached":
+			sev, status = "info", "reached"
+		case "skipped":
+			sev, status = "info", "skipped"
 		}
 		verify := "执行净化会再跑这一项。复查通过才改为 fixed；仍失败则保持 open，方案和证据换成这次的原文。"
-		if status == "pass" {
+		switch status {
+		case "pass":
 			verify = "已经通过。执行净化不会把它改成待修复。"
+		case "reached":
+			verify = "入口已到达不算跑完。执行净化会再跑这一项；有读回才计通过，仍只到达就保持入口已跑到。"
+		case "skipped":
+			verify = "这一项不代跑。要到对应页面人工操作核验；需要留底时用 wont_fix 人工标记。"
 		}
 		out = append(out, finding(sev, code, "probe."+task.ID, task.Title, task.Evidence,
 			taskCause(task), taskFix(task), verify, status))
@@ -89,6 +104,10 @@ func taskCause(task TaskResult) string {
 			return "本机模型目录已核对。服务器文件长度这次没有在时限内拿到，不能据此说下载已经坏了。"
 		}
 		return "这一项没有跑起来，不能算通过"
+	case "reached":
+		return "处理函数已返回，拒绝原因就是证据。入口活着，但功能没有完整跑完，不能算通过。"
+	case "skipped":
+		return "这一项会打开窗口、占用麦克风、安装、联网或执行命令，诊断不代执行。"
 	default:
 		return "探测通过。这不是一条待修缺陷。"
 	}
@@ -97,6 +116,12 @@ func taskCause(task TaskResult) string {
 func taskFix(task TaskResult) string {
 	if task.Status == "pass" {
 		return "这项已经通过，不用再处理。"
+	}
+	if task.Status == "reached" {
+		return "净化会再跑这一项，配足有效载荷后有读回才计通过。仍停在入口返回就保持入口已跑到，不当成已修复。"
+	}
+	if task.Status == "skipped" {
+		return "保持不代跑。到对应页面人工操作核验。"
 	}
 	switch task.ID {
 	case "dictate":
@@ -316,12 +341,18 @@ func recheckLive(ctx context.Context, f Finding) (status string, applied bool, e
 		return "fixed", true, f.Evidence, "复查时这一项已经是通过。"
 	}
 	if id := strings.TrimPrefix(f.StableKey, "probe."); id != f.StableKey {
+		if f.Status == "skipped" {
+			return "skipped", false, f.Evidence, "这一项不代跑。净化不执行会打开窗口、占用麦克风、安装、联网或执行命令的动作。"
+		}
 		task := rerunProbe(ctx, id)
 		if task.Status == "pass" {
 			return "fixed", true, task.Evidence, "复查通过。" + task.Evidence
 		}
 		if task.ID == "" {
 			task = TaskResult{ID: id, Status: "untested", Evidence: "复查没有这项"}
+		}
+		if f.Status == "reached" && task.Status == "reached" {
+			return "reached", false, task.Evidence, "复查仍停在入口返回，没有跑完读回。保持入口已跑到，不当成已修复。"
 		}
 		return "open", false, task.Evidence, taskFix(task)
 	}

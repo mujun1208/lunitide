@@ -42,9 +42,70 @@ import (
 )
 
 // RegisterCatalogProbes makes 「重新检测」 run the catalog probe rounds against a
-// throwaway database. The user's own database is not written.
+// throwaway database. The user's own database is not written. It also hands the
+// full runtime verb table (public dispatch plus internal coordination) to the
+// hub, so the live catalog and the probe sweep cover the whole surface.
 func RegisterCatalogProbes() {
+	methods := make([]string, 0, len(RuntimeHandlers)+len(internalRuntimeHandlers))
+	for method := range RuntimeHandlers {
+		methods = append(methods, string(method))
+	}
+	for method := range internalRuntimeHandlers {
+		methods = append(methods, string(method))
+	}
+	producthub.SetBridgeMethods(methods)
 	producthub.SetCatalogRuns(runCatalogProbes)
+}
+
+// sweepSkipProbes are verbs the sweep must not run even with an empty payload:
+// they install or uninstall software, open a window / picker / browser /
+// terminal / folder, take the microphone, clear or write state the user owns,
+// or touch credentials. Everything else gets one empty-payload call — a schema
+// rejection is honest 入口已跑到 evidence; a real read-back is a pass.
+var sweepSkipProbes = map[string]string{
+	"appUpdate.install":                "不代跑：会下载并安装新版本",
+	"agentHub.dir.pick":                "不代跑：会打开目录选择框",
+	"agentHub.install":                 "不代跑：会安装 Agent Hub 组件",
+	"attachment.importLocal":           "不代跑：会导入本机文件",
+	"attachment.open":                  "不代跑：会打开附件",
+	"br.data.clear":                    "不代跑：会清空浏览器数据",
+	"browser.open":                     "不代跑：会打开浏览器",
+	"cc.updateConfig":                  "不代跑：会改电脑控制配置",
+	"datasource.write.commit":          "不代跑：会提交数据源写入",
+	"desktop.files.pick":               "不代跑：会打开文件选择框",
+	"expert.install":                   "不代跑：会安装专家",
+	"identity.password.set":            "不代跑：会改登录口令",
+	"mcp.credential.set":               "不代跑：会写 MCP 凭据",
+	"mcp.uv.install":                   "不代跑：会安装 uv 运行时",
+	"ocr.install":                      "不代跑：会下载安装识别引擎",
+	"ocr.pack.install":                 "不代跑：会安装识别包",
+	"ocr.pack.uninstall":               "不代跑：会卸载识别包",
+	"office.artifact.open":             "不代跑：会用系统程序打开产物",
+	"office.storage.sweep":             "不代跑：会清理存储",
+	"omni.install":                     "不代跑：会安装伴跑组件",
+	"omni.start":                       "不代跑：会占用麦克风",
+	"plan.run.spawn":                   "不代跑：会拉起计划执行",
+	"plan.run.start":                   "不代跑：会启动计划执行",
+	"plugin.install":                   "不代跑：会安装插件",
+	"plugin.pack.install":              "不代跑：会安装插件包",
+	"plugin.pack.uninstall":            "不代跑：会卸载插件包",
+	"plugin.uninstall":                 "不代跑：会卸载插件",
+	"project.root.pick":                "不代跑：会打开目录选择框",
+	"project.test.run":                 "不代跑：会跑项目测试",
+	"provider.credential.backup.add":   "不代跑：会写供应商凭据",
+	"provider.credential.backup.remove": "不代跑：会删供应商凭据",
+	"session.folder.open":              "不代跑：会打开本地目录",
+	"skill.execute":                    "不代跑：会执行技能",
+	"skill.install":                    "不代跑：会安装技能",
+	"talk.start":                       "不代跑：会占用麦克风",
+	"template.office.import":           "不代跑：会导入 Office 模板",
+	"template.open":                    "不代跑：会打开模板",
+	"terminal.start":                   "不代跑：会启动终端",
+	"tts.installOnnxEngine":            "不代跑：会安装语音引擎",
+	"tts.installRefEngine":             "不代跑：会安装语音引擎",
+	"voice.install":                    "不代跑：会安装语音组件",
+	"workspace.open":                   "不代跑：会打开工作区目录",
+	"workspace.root.clear":             "不代跑：会清空工作区根目录",
 }
 
 // catalogProbeMu keeps two fresh checks from swapping the same file opener.
@@ -201,6 +262,34 @@ func runCatalogProbes(ctx context.Context) []producthub.TaskResult {
 	} {
 		out = append(out, env.call(ctx, item.method, item.title, map[string]any{}))
 	}
+	// Verb sweep: every registered user-facing runtime verb no curated round
+	// already probed gets one empty-payload call. A schema rejection is honest
+	// 入口已跑到 evidence; a real read-back is a pass. Verbs that would install,
+	// open a window, take the microphone, or write credentials stay 不代跑.
+	out = append(out, env.sweepBridgeMethods(ctx, out)...)
+	return out
+}
+
+// sweepBridgeMethods covers the registered verb table that the curated rounds
+// do not reach. Engine plumbing (no card) is not probed; it is counted on the
+// report's runtime-verb stats line instead.
+func (env *probeEnv) sweepBridgeMethods(ctx context.Context, already []producthub.TaskResult) []producthub.TaskResult {
+	done := make(map[string]bool, len(already))
+	for _, item := range already {
+		done[item.ID] = true
+	}
+	var out []producthub.TaskResult
+	for _, method := range producthub.RegisteredBridgeMethods() {
+		if done[method] || !producthub.BridgeMethodIsUserFacing(method) {
+			continue
+		}
+		done[method] = true
+		if reason, dangerous := sweepSkipProbes[method]; dangerous {
+			out = append(out, producthub.TaskResult{ID: method, Title: method, Status: "skipped", Evidence: reason})
+			continue
+		}
+		out = append(out, env.call(ctx, method, method, map[string]any{}))
+	}
 	return out
 }
 
@@ -237,7 +326,7 @@ func skipDangerousProbes(items ...struct{ method, title string }) []producthub.T
 			reason = "不代跑：会打开窗口、占用麦克风、安装、联网或执行命令"
 		}
 		out = append(out, producthub.TaskResult{
-			ID: item.method, Title: item.title, Status: "pass", Evidence: reason,
+			ID: item.method, Title: item.title, Status: "skipped", Evidence: reason,
 		})
 	}
 	return out
@@ -451,7 +540,7 @@ func (env *probeEnv) call(ctx context.Context, method, title string, payload any
 		result.Evidence = "没有正常返回：" + code
 		return result
 	}
-	result.Status = "pass"
+	result.Status = "reached"
 	result.Evidence = "入口已跑到：" + code
 	return result
 }
@@ -481,7 +570,7 @@ func (env *probeEnv) completeProviderCreate(ctx context.Context) producthub.Task
 	response := env.engine.Handle(ctx, req)
 	result := producthub.TaskResult{ID: "provider.create", Title: "添加模型供应商"}
 	if !response.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(response)
 		return result
 	}
@@ -525,7 +614,7 @@ func (env *probeEnv) completeSessionUpdate(ctx context.Context, sessionID string
 	payload := map[string]any{"id": sess.ID, "title": "诊断改名", "pinned": false, "version": sess.Version}
 	response := env.engine.Handle(ctx, probeRequest("session.update", "probe-session-update", probeJSON(payload)))
 	if !response.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(response)
 		return result
 	}
@@ -549,7 +638,7 @@ func (env *probeEnv) completeMessageSearch(ctx context.Context, sessionID string
 		"query": "诊断探测", "sessionId": sessionID,
 	})))
 	if !response.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(response)
 		return result
 	}
@@ -562,7 +651,7 @@ func (env *probeEnv) completeOCRRoutingGet(ctx context.Context) producthub.TaskR
 	result := producthub.TaskResult{ID: "ocr.routing.get", Title: "OCR 识别截图"}
 	response := env.engine.Handle(ctx, probeRequest("ocr.routing.get", "probe-ocr-routing", probeJSON(map[string]any{"scopeKind": "user"})))
 	if !response.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(response)
 		return result
 	}
@@ -583,7 +672,7 @@ func (env *probeEnv) completeMemoryCreate(ctx context.Context, sessionID string)
 	}
 	response := env.engine.Handle(ctx, probeRequest("memory.create", "probe-memory-create", probeJSON(payload)))
 	if !response.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(response)
 		return result
 	}
@@ -628,7 +717,7 @@ func (env *probeEnv) completeMemorySearch(ctx context.Context, sessionID string)
 		"projectId": sess.ProjectID, "query": "诊断探测",
 	})))
 	if !response.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(response)
 		return result
 	}
@@ -651,7 +740,7 @@ func (env *probeEnv) completeSessionDelete(ctx context.Context, keepSessionID st
 	}
 	response := env.engine.Handle(ctx, probeRequest("session.delete", "probe-session-delete", probeJSON(map[string]any{"id": created.ID})))
 	if !response.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(response)
 		return result
 	}
@@ -675,7 +764,7 @@ func (env *probeEnv) completeSessionExpertsSet(ctx context.Context, sessionID st
 		"sessionId": sessionID, "expertIds": []string{expertID},
 	})))
 	if !response.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(response)
 		return result
 	}
@@ -713,7 +802,7 @@ func (env *probeEnv) completeAutomationJobSet(ctx context.Context, sessionID str
 	}
 	response := env.engine.Handle(ctx, probeRequest("automation.job.set", "probe-automation-set", probeJSON(payload)))
 	if !response.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(response)
 		return result
 	}
@@ -771,7 +860,7 @@ func (env *probeEnv) completeAutomationJobTrigger(ctx context.Context) producthu
 	}
 	response := env.engine.Handle(ctx, probeRequest("automation.job.trigger", "probe-automation-trigger", probeJSON(map[string]any{"id": env.jobID})))
 	if !response.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(response)
 		return result
 	}
@@ -782,7 +871,7 @@ func (env *probeEnv) completeAutomationJobTrigger(ctx context.Context) producthu
 
 func (env *probeEnv) aliasMedia(_ context.Context, method, title string) []producthub.TaskResult {
 	return []producthub.TaskResult{{
-		ID: method, Title: title, Status: "pass",
+		ID: method, Title: title, Status: "reached",
 		Evidence: "入口已跑到：BRIDGE_METHOD_NOT_ALLOWED 别名非 bridge 白名单（真实入口 media.session.command）",
 	}}
 }
@@ -813,7 +902,7 @@ func (env *probeEnv) completeOfficeArtifactExport(ctx context.Context, taskID, s
 	}
 	imported := env.engine.Handle(ctx, probeRequest("office.artifact.import", "probe-office-import", probeJSON(map[string]any{"taskId": taskID, "attachmentId": att.ID})))
 	if !imported.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(imported)
 		return result
 	}
@@ -827,7 +916,7 @@ func (env *probeEnv) completeOfficeArtifactExport(ctx context.Context, taskID, s
 		"taskId": taskID, "versionId": versions[0].ID, "draft": true,
 	})))
 	if !exported.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(exported)
 		return result
 	}
@@ -878,7 +967,7 @@ func (env *probeEnv) completeMeetingsSummarySource(ctx context.Context) producth
 		"meetingId": meetingID, "sourceDigest": digest, "offset": 0,
 	})))
 	if !response.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(response)
 		return result
 	}
@@ -924,7 +1013,7 @@ func (env *probeEnv) completeMROManualRegister(ctx context.Context) producthub.T
 	}
 	response := env.engine.Handle(ctx, probeRequest("mro.manual.register", "probe-mro-register", probeJSON(payload)))
 	if !response.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(response)
 		return result
 	}
@@ -951,7 +1040,7 @@ func (env *probeEnv) completeMediaAssetOpen(ctx context.Context) producthub.Task
 		result.Evidence = "媒体服务仍不可用：" + code
 		return result
 	}
-	result.Status = "pass"
+	result.Status = "reached"
 	result.Evidence = "入口已跑到：" + code
 	return result
 }
@@ -992,7 +1081,7 @@ func (env *probeEnv) completeMROPlanPublish(ctx context.Context) producthub.Task
 		Documents: []mroapp.ManualDocInput{{DocumentID: docID, PartNo: 1}},
 	})
 	if err != nil {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + err.Error()
 		return result
 	}
@@ -1026,7 +1115,7 @@ func (env *probeEnv) completeMROPlanPublish(ctx context.Context) producthub.Task
 		"packageId": pkg.ID,
 	})))
 	if !response.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(response)
 		return result
 	}
@@ -1062,7 +1151,7 @@ func (env *probeEnv) completeMROPlanPublish(ctx context.Context) producthub.Task
 func (env *probeEnv) completeAgentRun(ctx context.Context, sessionID string) producthub.TaskResult {
 	result := producthub.TaskResult{ID: "agent.run.start", Title: "拉起子智能体"}
 	if sessionID == "" || env.agentRuns == nil {
-		return producthub.TaskResult{ID: result.ID, Title: result.Title, Status: "pass", Evidence: "不代跑：会拉起子智能体"}
+		return producthub.TaskResult{ID: result.ID, Title: result.Title, Status: "skipped", Evidence: "不代跑：会拉起子智能体"}
 	}
 	response := env.engine.Handle(ctx, probeRequest("agent.run.start", "probe-agent-run", probeJSON(map[string]any{
 		"sessionId": sessionID,
@@ -1073,7 +1162,7 @@ func (env *probeEnv) completeAgentRun(ctx context.Context, sessionID string) pro
 		},
 	})))
 	if !response.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(response)
 		return result
 	}
@@ -1113,7 +1202,7 @@ func (env *probeEnv) completeAgentRun(ctx context.Context, sessionID string) pro
 func (env *probeEnv) completeAppUpdate(ctx context.Context) producthub.TaskResult {
 	result := producthub.TaskResult{ID: "appUpdate.check", Title: "检查更新"}
 	if env.updates == nil {
-		return producthub.TaskResult{ID: result.ID, Title: result.Title, Status: "pass", Evidence: "不代跑：会联网检查更新"}
+		return producthub.TaskResult{ID: result.ID, Title: result.Title, Status: "skipped", Evidence: "不代跑：会联网检查更新"}
 	}
 	body := []byte("诊断探测更新包")
 	sum := sha256.Sum256(body)
@@ -1133,7 +1222,7 @@ func (env *probeEnv) completeAppUpdate(ctx context.Context) producthub.TaskResul
 		"channel": "stable", "currentVersion": "1.0.0",
 	})))
 	if !response.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(response)
 		return result
 	}
@@ -1180,7 +1269,7 @@ func (env *probeEnv) completePluginToggle(ctx context.Context) producthub.TaskRe
 		"installId": installID, "enabled": false, "actor": "catalog-probe",
 	})))
 	if !off.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(off)
 		return result
 	}
@@ -1188,7 +1277,7 @@ func (env *probeEnv) completePluginToggle(ctx context.Context) producthub.TaskRe
 		"installId": installID, "enabled": true, "actor": "catalog-probe",
 	})))
 	if !on.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(on)
 		return result
 	}
@@ -1247,7 +1336,7 @@ func (env *probeEnv) completeMCPSecurityReview(ctx context.Context) producthub.T
 		"endpointId": ep.EndpointID, "expectedVersion": ep.Security.Version, "action": "inspect",
 	})))
 	if !response.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(response)
 		return result
 	}
@@ -1308,7 +1397,7 @@ func (env *probeEnv) completeSkillInvoke(ctx context.Context, sessionID string) 
 		"skillId": created.ID, "sessionId": sessionID, "input": "诊断探测",
 	})))
 	if !response.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(response)
 		return result
 	}

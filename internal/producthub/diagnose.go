@@ -67,14 +67,17 @@ func refreshFindings(ed Edition) ([]Finding, ProbeScore, int) {
 	var kept []Finding
 	for _, f := range ed.Findings {
 		switch f.ErrorCode {
-		case "PH_019", "PH_020", "PH_000":
+		case "PH_019", "PH_020", "PH_000", "PH_M01", "PH_M02", "PH_M03", "PH_M04":
+			// PH_M 随注入的模型配置重算：换了模型或供应商配置变化后旧发现不再保留。
 			continue
 		default:
 			kept = append(kept, f)
 		}
 	}
 	next := append(kept, gaps...)
-	if len(gaps) == 0 && !hasBlocking(kept) {
+	fusion := fusionFindings(AuditModelFusion())
+	next = append(next, fusion...)
+	if len(gaps) == 0 && !hasBlocking(kept) && !hasBlocking(fusion) {
 		next = append(next, clearFinding(probe))
 	}
 	next = mergeFindingStatus(ed.Findings, next)
@@ -215,6 +218,9 @@ func domainStats(cards []Card) []DomainStat {
 		by[id] = &acc{name: name, modules: map[string]struct{}{}}
 	}
 	for _, c := range cards {
+		if strings.HasPrefix(c.StableKey, "landscape.") {
+			continue // 图景卡不计入域表：域表、报告头部与架构行同口径，只数功能卡
+		}
 		a := by[c.Domain]
 		if a == nil {
 			continue

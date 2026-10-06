@@ -28,7 +28,7 @@ func (env *probeEnv) completeDesktopRead(ctx context.Context) producthub.TaskRes
 	}
 	picked := host.HandleHost(ctx, probeRequest("desktop.files.pick", "probe-desktop-pick", probeJSON(map[string]any{"folder": false})))
 	if !picked.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(picked)
 		return result
 	}
@@ -36,7 +36,7 @@ func (env *probeEnv) completeDesktopRead(ctx context.Context) producthub.TaskRes
 		"path": path, "offset": 0, "limit": len(body),
 	})))
 	if !read.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(read)
 		return result
 	}
@@ -70,7 +70,7 @@ func (env *probeEnv) completeMediaCatalog(ctx context.Context) []producthub.Task
 		"media.asset.open": "打开媒体资产",
 	}
 	reached := func(id, code string) producthub.TaskResult {
-		return producthub.TaskResult{ID: id, Title: titles[id], Status: "pass", Evidence: "入口已跑到：" + code}
+		return producthub.TaskResult{ID: id, Title: titles[id], Status: "reached", Evidence: "入口已跑到：" + code}
 	}
 	done := func(id, evidence string) producthub.TaskResult {
 		return producthub.TaskResult{ID: id, Title: titles[id], Status: "pass", Evidence: evidence}
@@ -83,9 +83,7 @@ func (env *probeEnv) completeMediaCatalog(ctx context.Context) []producthub.Task
 	failAll := func(code string) []producthub.TaskResult {
 		out := make([]producthub.TaskResult, 0, len(ids))
 		for _, id := range ids {
-			item := reached(id, code)
-			item.Status = "fail"
-			out = append(out, item)
+			out = append(out, producthub.TaskResult{ID: id, Title: titles[id], Status: "fail", Evidence: "任务完成不了：准备媒体探测环境失败，" + code})
 		}
 		return out
 	}

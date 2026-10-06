@@ -32,6 +32,12 @@ var (
 	// is ever committed to the repository. An empty value keeps probing.
 	lockedSourceRoot string
 
+	// configuredSourceRoot is a user-configured product source root recorded
+	// at runtime (bootstrap reads data/product-source-root.json). It wins over
+	// environment probing and the LUNITIDE_SOURCE_ROOT environment variable,
+	// but loses to the build-time locked root.
+	configuredSourceRoot string
+
 	// sourceRootProbe is the one availability decision the hub consults.
 	// It is a variable only so tests can force guest mode.
 	sourceRootProbe = FindProductRoot
@@ -58,13 +64,39 @@ func resetProductSurface() {
 	surfaceMu.Unlock()
 }
 
-// FindProductRoot returns the build-time locked source directory when one
-// was injected and is still present on this machine. Otherwise it walks
-// from the working directory and the executable toward the filesystem
-// root, looking for the product's page union. An installed copy that does
-// not ship those files keeps the compiled catalog.
+// SetConfiguredSourceRoot records a user-configured product source root, read
+// by bootstrap from data/product-source-root.json. The root must still hold
+// the product files; otherwise the value is refused so a stale config file
+// cannot force guest copies onto a wrong directory. It wins over environment
+// probing but loses to the build-time locked root.
+func SetConfiguredSourceRoot(root string) bool {
+	root = strings.TrimSpace(root)
+	if root == "" || !productFilesPresent(root) {
+		return false
+	}
+	surfaceMu.Lock()
+	configuredSourceRoot = root
+	surfaceMu.Unlock()
+	return UseProductRoot(root)
+}
+
+// FindProductRoot returns the product source directory in priority order:
+// the build-time locked root, the user-configured root, the
+// LUNITIDE_SOURCE_ROOT environment variable, then a probe from the working
+// directory and the executable toward the filesystem root looking for the
+// product's page union. An installed copy that does not ship those files
+// keeps the compiled catalog.
 func FindProductRoot() string {
 	if root := strings.TrimSpace(lockedSourceRoot); root != "" && productFilesPresent(root) {
+		return root
+	}
+	surfaceMu.Lock()
+	configured := strings.TrimSpace(configuredSourceRoot)
+	surfaceMu.Unlock()
+	if configured != "" && productFilesPresent(configured) {
+		return configured
+	}
+	if root := strings.TrimSpace(os.Getenv("LUNITIDE_SOURCE_ROOT")); root != "" && productFilesPresent(root) {
 		return root
 	}
 	var starts []string

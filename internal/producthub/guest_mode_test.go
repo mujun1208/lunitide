@@ -29,11 +29,43 @@ func TestGuestApplyIsRefused(t *testing.T) {
 func TestGuestReportCarriesReadOnlyNote(t *testing.T) {
 	forceGuestMode(t)
 	md, pageHTML := RenderReport(Edition{EditionID: "guest"})
-	if !strings.Contains(md, "只读模式：本机没有产品源码，不能自净化修复升级，请联系管理员") {
+	if !strings.Contains(md, "只读模式：程序没有定位到产品源码根，不能自净化修复升级") || !strings.Contains(md, "LUNITIDE_SOURCE_ROOT") {
 		t.Fatalf("markdown guest note missing:\n%s", md)
 	}
-	if !strings.Contains(pageHTML, "只读模式") || !strings.Contains(pageHTML, "请联系管理员") {
+	if !strings.Contains(pageHTML, "只读模式") || !strings.Contains(pageHTML, "LUNITIDE_SOURCE_ROOT") {
 		t.Fatalf("html guest note missing:\n%s", pageHTML)
+	}
+}
+
+func TestConfiguredSourceRootWinsOverProbing(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "app")
+	writeProductFixture(t, root)
+	other := filepath.Join(t.TempDir(), "app")
+	writeProductFixture(t, other)
+	old := configuredSourceRoot
+	configuredSourceRoot = other
+	t.Cleanup(func() {
+		configuredSourceRoot = old
+		resetProductSurface()
+	})
+	if !SetConfiguredSourceRoot(root) {
+		t.Fatal("a valid configured root was refused")
+	}
+	if got := FindProductRoot(); got != root {
+		t.Fatalf("configured root %q not used, got %q", root, got)
+	}
+	if IsGuestMode() {
+		t.Fatal("a valid configured root was still counted as guest")
+	}
+}
+
+func TestConfiguredSourceRootRefusesADirectoryWithoutProductFiles(t *testing.T) {
+	nowhere := filepath.Join(t.TempDir(), "nowhere")
+	if SetConfiguredSourceRoot(nowhere) {
+		t.Fatal("a directory without product files was accepted")
+	}
+	if got := FindProductRoot(); got == nowhere {
+		t.Fatal("a refused root still won the lookup")
 	}
 }
 

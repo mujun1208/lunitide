@@ -142,6 +142,8 @@ func (s *Service) Generate(ctx context.Context, trigger string) (Edition, error)
 	cards = applyTags(cards, manual)
 	ch := Changelog(previous, cards)
 	findings, probe, cards := diagnoseCatalog(cards, live)
+	// 模型融合审计：注入了供应商/模型配置时追加 PH_M 发现（槽位、升级、窗口、可用性）。
+	findings = append(findings, fusionFindings(AuditModelFusion())...)
 	if prev != nil {
 		findings = mergeFindingStatus(prev.Findings, findings)
 	}
@@ -197,11 +199,13 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 		return Overview{}, err
 	}
 	score, shown, live := displayedScore(ed, ed.Findings, ed.CatalogProbe)
+	reached, skipped := probeStateCounts(ed.Findings)
 	return Overview{
 		Product: "Lunitide", EditionID: ed.EditionID, GeneratedAt: ed.GeneratedAt,
 		CardCount: len(ed.Features), HealthScore: score,
 		Added: ed.Added, Updated: ed.Updated, Removed: ed.Removed,
 		ProbePassed: shown.Passed, ProbeTotal: shown.Total, LiveChecked: live,
+		ProbeReached: reached, ProbeSkipped: skipped,
 		Domains: domainStats(ed.Features), Tags: collectTagValues(ed.Features),
 	}, nil
 }

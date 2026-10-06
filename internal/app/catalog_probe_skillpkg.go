@@ -40,7 +40,7 @@ func (env *probeEnv) completeSkillPackage(ctx context.Context) producthub.TaskRe
 		"name": "catalog-probe-pack.skill", "size": len(zipped), "sha256": hex.EncodeToString(sum[:]),
 	})))
 	if !begun.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(begun)
 		return result
 	}
@@ -57,7 +57,7 @@ func (env *probeEnv) completeSkillPackage(ctx context.Context) producthub.TaskRe
 		"uploadId": beginBody.UploadID, "offset": 0, "dataBase64": base64.StdEncoding.EncodeToString(zipped),
 	})))
 	if !chunk.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(chunk)
 		return result
 	}
@@ -65,7 +65,7 @@ func (env *probeEnv) completeSkillPackage(ctx context.Context) producthub.TaskRe
 		"uploadId": beginBody.UploadID,
 	})))
 	if !committed.OK {
-		result.Status = "pass"
+		result.Status = "reached"
 		result.Evidence = "入口已跑到：" + probeCode(committed)
 		return result
 	}

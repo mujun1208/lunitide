@@ -235,7 +235,11 @@ type Overview struct {
 	Removed     int          `json:"removed"`
 	ProbePassed int          `json:"probePassed"`
 	ProbeTotal  int          `json:"probeTotal"`
-	LiveChecked bool         `json:"liveChecked,omitempty"`
-	Domains     []DomainStat `json:"domains"`
-	Tags        []string     `json:"tags"`
+	// ProbeReached 入口已跑到：处理函数返回但功能未完整跑完，占实测分母不计分子。
+	ProbeReached int `json:"probeReached,omitempty"`
+	// ProbeSkipped 不代跑：会开窗、占麦克风、安装、联网或执行命令，需人工核验。
+	ProbeSkipped int          `json:"probeSkipped,omitempty"`
+	LiveChecked  bool         `json:"liveChecked,omitempty"`
+	Domains      []DomainStat `json:"domains"`
+	Tags         []string     `json:"tags"`
 }

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -19,9 +20,19 @@ func TestCatalogProbeFiveRounds(t *testing.T) {
 		t.Fatalf("round create: %+v", byID["office.task.create"])
 	}
 	for _, id := range []string{"system.health", "office.task.list", "office.task.get", "automation.job.set"} {
-		ev := byID[id].Evidence
-		if byID[id].Status != "pass" || (!strings.Contains(ev, "已跑完") && !strings.HasPrefix(ev, "入口已跑到")) {
-			t.Fatalf("round 2-4 %s: %+v", id, byID[id])
+		item := byID[id]
+		kind := probeEvidenceKind(item.Evidence, item.Status)
+		if kind == "已跑完" && item.Status != "pass" {
+			t.Fatalf("round 2-4 %s: kind 已跑完 but status %q: %+v", id, item.Status, item)
+		}
+		if kind == "入口已跑到" && item.Status != "reached" {
+			t.Fatalf("round 2-4 %s: kind 入口已跑到 but status %q: %+v", id, item.Status, item)
+		}
+		if kind == "不代跑" && item.Status != "skipped" {
+			t.Fatalf("round 2-4 %s: kind 不代跑 but status %q: %+v", id, item.Status, item)
+		}
+		if kind == "尚未跑完" || kind == "失败" {
+			t.Fatalf("round 2-4 %s: %+v", id, item)
 		}
 	}
 	for _, id := range []string{"br.navigate", "people.file.open", "people.thread.send", "people.file.pick", "meetings.start", "agentHub.task.start", "agentHub.file.open", "computer.control", "provider.test"} {
@@ -383,6 +394,24 @@ func assertProbeFinished(t *testing.T, got []producthub.TaskResult, wantPrefix s
 		if kind == "尚未跑完" {
 			t.Fatalf("%s still unfinished: %+v", id, item)
 		}
+		switch kind {
+		case "已跑完":
+			if item.Status != "pass" {
+				t.Fatalf("%s kind 已跑完 but status %q: %+v", id, item.Status, item)
+			}
+		case "入口已跑到":
+			if item.Status != "reached" {
+				t.Fatalf("%s kind 入口已跑到 but status %q: %+v", id, item.Status, item)
+			}
+		case "不代跑":
+			if item.Status != "skipped" {
+				t.Fatalf("%s kind 不代跑 but status %q: %+v", id, item.Status, item)
+			}
+		case "失败":
+			if item.Status != "fail" {
+				t.Fatalf("%s kind 失败 but status %q: %+v", id, item.Status, item)
+			}
+		}
 		if wantPrefix != "" && !strings.HasPrefix(item.Evidence, wantPrefix) && !strings.Contains(item.Evidence, wantPrefix) {
 			// allow 已跑完 when empty wantPrefix; when wantPrefix set, require it or sibling finished kinds for flexible rounds
 			if wantPrefix == "入口已跑到" && (strings.HasPrefix(item.Evidence, "已跑完") || strings.HasPrefix(item.Evidence, "不代跑")) {
@@ -489,4 +518,89 @@ func liveCatalogBridgeIDs() []string {
 		}
 	}
 	return out
+}
+
+// TestCatalogProbeSweepCoversRegisteredVerbs proves the verb sweep covers the
+// full runtime dispatch table once it is registered: every user-facing verb is
+// probed by a curated round or the sweep, the evidence kind matches the status
+// tier, engine plumbing gets no probe, and no ID appears twice.
+func TestCatalogProbeSweepCoversRegisteredVerbs(t *testing.T) {
+	methods := make([]string, 0, len(RuntimeHandlers)+len(internalRuntimeHandlers))
+	for method := range RuntimeHandlers {
+		methods = append(methods, string(method))
+	}
+	for method := range internalRuntimeHandlers {
+		methods = append(methods, string(method))
+	}
+	producthub.SetBridgeMethods(methods)
+	defer producthub.SetBridgeMethods(nil)
+
+	got := runCatalogProbes(context.Background())
+	byID := map[string]producthub.TaskResult{}
+	for _, item := range got {
+		if _, dup := byID[item.ID]; dup {
+			t.Fatalf("重复的探测 ID：%s", item.ID)
+		}
+		byID[item.ID] = item
+	}
+	var problems []string
+	counts := map[string]int{}
+	for _, id := range liveCatalogBridgeIDs() {
+		item, ok := byID[id]
+		if !ok {
+			problems = append(problems, id+" (missing)")
+			counts["尚未跑完"]++
+			continue
+		}
+		kind := probeEvidenceKind(item.Evidence, item.Status)
+		counts[kind]++
+		switch kind {
+		case "已跑完":
+			if item.Status != "pass" {
+				problems = append(problems, fmt.Sprintf("%s kind=已跑完 status=%s", id, item.Status))
+			}
+		case "入口已跑到":
+			if item.Status != "reached" {
+				problems = append(problems, fmt.Sprintf("%s kind=入口已跑到 status=%s", id, item.Status))
+			}
+		case "不代跑":
+			if item.Status != "skipped" {
+				problems = append(problems, fmt.Sprintf("%s kind=不代跑 status=%s", id, item.Status))
+			}
+		default:
+			problems = append(problems, fmt.Sprintf("%s kind=%s status=%s evidence=%s", id, kind, item.Status, item.Evidence))
+		}
+	}
+	t.Logf("sweep counts 已跑完=%d 入口已跑到=%d 不代跑=%d 失败=%d 尚未跑完=%d total=%d",
+		counts["已跑完"], counts["入口已跑到"], counts["不代跑"], counts["失败"], counts["尚未跑完"], len(byID))
+	if len(problems) > 0 {
+		t.Fatalf("动词表覆盖未收口 %d 项：%v", len(problems), problems)
+	}
+	checked := 0
+	for method, reason := range sweepSkipProbes {
+		item, ok := byID[method]
+		if !ok {
+			continue // 该动词不在当前运行时注册表里，无卡也无探测
+		}
+		checked++
+		if item.Status != "skipped" || item.Evidence != reason {
+			t.Fatalf("危险动词 %s 应为不代跑（%s），实际：%+v", method, reason, item)
+		}
+	}
+	if checked == 0 {
+		t.Fatalf("危险动词清单里没有任何动词被注册，抽查失效")
+	}
+	for method := range RuntimeHandlers {
+		m := string(method)
+		if strings.HasPrefix(m, "internal.") || strings.HasPrefix(m, "fs.") {
+			if _, ok := byID[m]; ok {
+				t.Fatalf("引擎管道动词 %s 不应出现在探测结果里", m)
+			}
+		}
+	}
+	for method := range internalRuntimeHandlers {
+		if _, ok := byID[string(method)]; ok {
+			t.Fatalf("运行时内部动词 %s 不应出现在探测结果里", method)
+		}
+	}
 }

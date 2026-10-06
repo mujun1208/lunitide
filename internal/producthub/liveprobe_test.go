@@ -35,6 +35,52 @@ func TestLiveScoreCountsUntestedAndLogFaults(t *testing.T) {
 	}
 }
 
+func TestReachedAndSkippedStayOutOfThePassCount(t *testing.T) {
+	tasks := []TaskResult{
+		{ID: "play", Title: "播放", Status: "pass", Evidence: "已跑完：读回 0.2 秒探测音"},
+		{ID: "media.play", Title: "放歌", Status: "reached", Evidence: "入口已跑到：BRIDGE_METHOD_NOT_ALLOWED"},
+		{ID: "br.navigate", Title: "打开网页", Status: "skipped", Evidence: "不代跑：会打开浏览器窗口"},
+	}
+	probe, score := ScoreLive(tasks, nil)
+	if probe.Passed != 1 || probe.Total != 3 || score != 33 {
+		t.Fatalf("probe %+v score %d", probe, score)
+	}
+	found := TaskFindings(tasks)
+	byStatus := map[string]Finding{}
+	for _, f := range found {
+		byStatus[f.Status] = f
+	}
+	if f := byStatus["reached"]; f.StableKey != "probe.media.play" || f.Severity != "info" {
+		t.Fatalf("reached finding %#v", f)
+	}
+	if f := byStatus["skipped"]; f.StableKey != "probe.br.navigate" || f.Severity != "info" {
+		t.Fatalf("skipped finding %#v", f)
+	}
+	for _, status := range []string{"reached", "skipped"} {
+		if isOpenFinding(status) {
+			t.Fatalf("%s must not be an open work item", status)
+		}
+		if isResolvedFinding(status) {
+			t.Fatalf("%s must not count as resolved", status)
+		}
+	}
+	reached, skipped := probeStateCounts(found)
+	if reached != 1 || skipped != 1 {
+		t.Fatalf("probeStateCounts reached=%d skipped=%d", reached, skipped)
+	}
+	line := probeLine(Edition{LiveProbe: probe, Findings: found})
+	if !strings.Contains(line, "入口已跑到 1 项") || !strings.Contains(line, "不代跑 1 项") || !strings.Contains(line, "本轮读回 1/3") {
+		t.Fatalf("probeLine %q", line)
+	}
+	plain := probeLine(Edition{LiveProbe: ProbeScore{Passed: 2, Total: 2}, Findings: TaskFindings([]TaskResult{
+		{ID: "play", Title: "播放", Status: "pass", Evidence: "已跑完"},
+		{ID: "ocr", Title: "图片识别", Status: "pass", Evidence: "已跑完"},
+	})})
+	if strings.Contains(plain, "入口已跑到") || strings.Contains(plain, "不代跑") {
+		t.Fatalf("a clean run must not mention the in-between states: %q", plain)
+	}
+}
+
 func TestClassifyLogQuotesRealFaultsOnly(t *testing.T) {
 	logText := strings.Join([]string{
 		"chat.start assembling explicit turn after durable assembly failed: timeout once",

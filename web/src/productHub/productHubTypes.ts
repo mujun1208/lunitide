@@ -119,6 +119,10 @@ export type HubOverview = {
   removed?: number
   probePassed?: number
   probeTotal?: number
+  // 入口已跑到：处理函数返回但功能未完整跑完，占实测分母不计分子
+  probeReached?: number
+  // 不代跑：会开窗、占麦克风、安装、联网或执行命令，需到对应页面人工核验
+  probeSkipped?: number
   liveChecked?: boolean
   domains?: Array<{ id: string; name: string; modules: number; cards: number }>
   tags?: string[]

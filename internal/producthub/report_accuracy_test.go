@@ -376,3 +376,39 @@ func TestOptimizationPlansAreFivePartAndEnvironmentAware(t *testing.T) {
 		t.Fatalf("fixed items missing from the task book:\n%s", book2)
 	}
 }
+
+// TestDomainTableCountsOnlyFeatureCards keeps the card-count statements in one
+// report on the same basis: the header (功能卡+图景卡 split), the section-2
+// domain table, and the diagnostic architecture line all count feature cards
+// only, so landscape cards never inflate the foundation row.
+func TestDomainTableCountsOnlyFeatureCards(t *testing.T) {
+	s := New(&MemoryPersist{})
+	ed, err := s.Generate(context.Background(), "boot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	features, landscape := splitCardCounts(ed.Features)
+	if landscape == 0 {
+		t.Fatal("本版应含图景卡，否则排除口径没有被考验")
+	}
+	tableCards := 0
+	for _, d := range domainStats(ed.Features) {
+		tableCards += d.Cards
+	}
+	if tableCards != features {
+		t.Fatalf("域表合计 %d 应等于功能卡 %d（图景卡 %d 不进域表）", tableCards, features, landscape)
+	}
+	arch := map[string]int{}
+	for _, c := range productFeatures(ed.Features) {
+		arch[c.Domain]++
+	}
+	for _, d := range domainStats(ed.Features) {
+		if arch[d.ID] != d.Cards {
+			t.Fatalf("域 %s 两处计数不一致：域表 %d，架构行 %d", d.ID, d.Cards, arch[d.ID])
+		}
+	}
+	md, _ := RenderReport(ed)
+	if !strings.Contains(md, fmt.Sprintf("功能卡：%d", features)) {
+		t.Fatalf("报告头部应写功能卡 %d", features)
+	}
+}
