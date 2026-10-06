@@ -1760,10 +1760,21 @@ func TestPaperContinuesAfterTheTimeCut(t *testing.T) {
 	}
 }
 
-func TestDeepThinkQuietWaitMatchesTheTurnBudget(t *testing.T) {
+// The stream watchdogs must be tight enough to catch a dead connection
+// within minutes (production: stuck Ark Plan streams sit silent 6-12
+// minutes) yet loose enough that a healthy thinking pause between deltas
+// never trips them. Four idle minutes and a one-minute header wait sit
+// in that band.
+func TestStreamWatchdogsCatchDeadStreamsFast(t *testing.T) {
 	e := NewEngineWithGateway(nil, "test", nil)
-	if e.network.ResponseHeaderTimeout < turnGenerationHardTime || e.network.IdleReadTimeout < turnGenerationHardTime {
-		t.Fatalf("header=%s idle=%s, a long task is cut before the hard clock %s", e.network.ResponseHeaderTimeout, e.network.IdleReadTimeout, turnGenerationHardTime)
+	if e.network.IdleReadTimeout < 4*time.Minute || e.network.IdleReadTimeout > 5*time.Minute {
+		t.Fatalf("idle=%s, want 4-5 minutes so a dead stream is retried while a quiet reasoning pause never trips", e.network.IdleReadTimeout)
+	}
+	if e.network.ResponseHeaderTimeout < 30*time.Second || e.network.ResponseHeaderTimeout > 90*time.Second {
+		t.Fatalf("header=%s, want 30-90 seconds so a request that never reached a model fails fast", e.network.ResponseHeaderTimeout)
+	}
+	if !e.network.DisableOverallTimeout {
+		t.Fatal("overall timeout must stay off: the turn budget, not the socket, owns the long-task clock")
 	}
 }
 

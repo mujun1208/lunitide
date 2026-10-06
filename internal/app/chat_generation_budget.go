@@ -39,6 +39,17 @@ const (
 	turnGenerationTokenChunk = turnGenerationMaxTokens
 	turnGenerationTimeChunk  = 10 * time.Minute
 
+	// Stream watchdogs. A healthy SSE stream always produces bytes within
+	// minutes: reasoning deltas stream while thinking, content deltas stream
+	// while writing. Production evidence (model_call_attempts, 2026-10-06/07):
+	// a stuck Ark Plan stream waits 6-12 minutes with zero bytes before the
+	// gateway gives up, and the old 3-hour idle read waited for all of it.
+	// Four idle minutes means the connection is dead, not thinking; the
+	// watchdog turns it into a retryable TIMEOUT. Sixty seconds without even
+	// response headers means the request never reached a model.
+	turnStreamIdleTimeout   = 4 * time.Minute
+	turnStreamHeaderTimeout = 60 * time.Second
+
 	// Closing reserve: once the allowance is spent, the turn still owes the
 	// user an answer about the work it already did. The reserve funds exactly
 	// that one no-tools summary pass, so exhaustion ends in a report instead

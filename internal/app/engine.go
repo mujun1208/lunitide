@@ -1198,10 +1198,15 @@ func (e *Engine) ListReadableAttachmentsBySession(ctx context.Context, sessionID
 // broker into provider diagnostics. Public requests never carry either.
 func NewEngineWithGateway(providers ProviderService, version string, leases LeaseClient) *Engine {
 	return &Engine{providers: providers, version: version, leases: leases, sameStreamApproval: true, streamEngine: streamEngine{streams: make(map[string]*streamState), maxStreams: 32}, adapterCache: make(map[string]llmadapter.Adapter),
-		// Header and idle waits match the long task clock. A quiet reasoning
-		// pass is not cut at ten minutes. Three hours with no new bytes is
-		// the stop for a connection that never returns.
-		network: networkpolicy.Options{ConnectTimeout: 10 * time.Second, ResponseHeaderTimeout: turnGenerationHardTime, DisableOverallTimeout: true, IdleReadTimeout: turnGenerationHardTime, MaxResponseBytes: 1 << 20},
+		// Stream watchdogs replace the old three-hour waits. A healthy SSE
+		// stream always produces bytes within minutes (reasoning deltas while
+		// thinking, content deltas while writing); production evidence shows
+		// a stuck Ark Plan stream sits silent for 6-12 minutes before the
+		// gateway cuts it, and the 3-hour idle read waited for all of it.
+		// Four idle minutes = dead connection, retried as TIMEOUT; sixty
+		// seconds without response headers = the request never reached a
+		// model. The turn budget, not this socket, owns the long-task clock.
+		network: networkpolicy.Options{ConnectTimeout: 10 * time.Second, ResponseHeaderTimeout: turnStreamHeaderTimeout, DisableOverallTimeout: true, IdleReadTimeout: turnStreamIdleTimeout, MaxResponseBytes: 1 << 20},
 		gateway: llmadapter.Options{MaxModels: 50, MaxAttempts: 1, MaxRequestBytes: 5 << 20, DisableTokenEfficiency: !config.TokenEfficiencyEnabled()}}
 }
 
