@@ -27,8 +27,8 @@ func TestLiveCatalogCoversGeneratedPages(t *testing.T) {
 	if len(generated.Pages) != 17 {
 		t.Fatalf("expected 17 frontend pages, got %d", len(generated.Pages))
 	}
-	if len(generated.Settings) != 18 {
-		t.Fatalf("expected 18 settings, got %d", len(generated.Settings))
+	if len(generated.Settings) != 19 {
+		t.Fatalf("expected 19 settings, got %d", len(generated.Settings))
 	}
 }
 

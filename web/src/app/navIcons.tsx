@@ -50,6 +50,12 @@ const MARKS: Record<string, React.ReactNode> = {
     </>
   ),
   productHub: <path fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" d="M8 2.2 13 5v6L8 13.8 3 11V5Z" />,
+  phone: (
+    <>
+      <rect x="4.6" y="1.8" width="6.8" height="12.4" rx="1.6" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      <path fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" d="M7 3.4h2" />
+    </>
+  ),
   projects: (
     <>
       <path fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" d="M2.2 5.2h11.6v7.2H2.2Z" />

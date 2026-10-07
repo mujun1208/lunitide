@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/remote.devices.revoke.schema.json",
+  "title": "remote.devices.revoke payload",
+  "x-method": "remote.devices.revoke",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "deviceId": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "deviceId"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "revoked": {
+        "const": true
+      }
+    },
+    "required": [
+      "revoked"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "deviceId": "01J8EXAMPLEDEVICEID0000000"
+      }
+    ],
+    "negative": [
+      {},
+      {
+        "deviceId": ""
+      }
+    ]
+  }
+}

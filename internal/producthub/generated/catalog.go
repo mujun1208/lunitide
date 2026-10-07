@@ -42,6 +42,7 @@ var Settings = []Setting{
 	{ID: "general", Name: "常规", NameEN: "General"},
 	{ID: "appearance", Name: "外观", NameEN: "Appearance"},
 	{ID: "office-menu", Name: "办公菜单", NameEN: "Office menu"},
+	{ID: "mobile-companion", Name: "移动伴侣", NameEN: "Mobile companion"},
 	{ID: "profile", Name: "个人资料", NameEN: "Profile"},
 	{ID: "providers", Name: "模型与供应商", NameEN: "Models & providers"},
 	{ID: "routing", Name: "路由管理", NameEN: "Routing"},

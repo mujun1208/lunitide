@@ -63,6 +63,7 @@ import (
 	"github.com/lunitide/lunitide/internal/org"
 	"github.com/lunitide/lunitide/internal/people"
 	"github.com/lunitide/lunitide/internal/producthub"
+	"github.com/lunitide/lunitide/internal/remotegateway"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/queueapp"
 	"github.com/lunitide/lunitide/internal/scheduler"
@@ -184,6 +185,7 @@ type Engine struct {
 	ocr                *ocrapp.Service
 	media              *mediaapp.Service
 	productHub         *producthub.Service
+	remoteGateway      *remotegateway.Service
 	sqlStore           *sqlite.Store
 	mcpUv              *mcp.UvInstaller
 	fileOps            *fileops.Service
@@ -520,6 +522,14 @@ func (e *Engine) SetProductHub(s *producthub.Service) {
 			s.SetCollaborator(e)
 			s.SetResearcher(e)
 		}
+	}
+}
+
+// SetRemoteGateway 挂载手机伴侣远程网关（bridge 方法 remote.*/power.keepAwake
+// 的后端）。nil 时这些方法返回 REMOTE_UNAVAILABLE。
+func (e *Engine) SetRemoteGateway(s *remotegateway.Service) {
+	if e != nil {
+		e.remoteGateway = s
 	}
 }
 

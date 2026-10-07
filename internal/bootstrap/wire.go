@@ -52,6 +52,7 @@ import (
 	"github.com/lunitide/lunitide/internal/people"
 	"github.com/lunitide/lunitide/internal/planningapp"
 	"github.com/lunitide/lunitide/internal/producthub"
+	"github.com/lunitide/lunitide/internal/remotegateway"
 	"github.com/lunitide/lunitide/internal/projectapp"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/queueapp"
@@ -550,6 +551,17 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	hub := producthub.New(store)
 	hub.SetProductVersion(buildinfo.Version)
 	engine.SetProductHub(hub)
+	// 手机伴侣远程网关：engine 自身就是 bridge handler，网关在引擎进程内
+	// 承载 HTTPS+WSS。开启失败只记日志，绝不阻塞引擎就绪；上次会话开着
+	// 远程访问则自动恢复监听。
+	remoteGW, remoteErr := remotegateway.New(ctx, dataRoot, engine, buildinfo.Version)
+	if remoteErr != nil {
+		log.Printf("remotegateway: init failed: %v", remoteErr)
+	} else {
+		engine.SetRemoteGateway(remoteGW)
+		remoteGW.StartIfEnabled(ctx)
+		closers = append(closers, remoteGW.Close)
+	}
 	app.RegisterCatalogProbes()
 	// A user-configured source root (data/product-source-root.json, format
 	// {"root":"<dir>"}) lets an installed copy find the source tree for

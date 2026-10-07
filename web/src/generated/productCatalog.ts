@@ -26,6 +26,7 @@ export const CATALOG_SETTINGS = [
   { id: 'general', label: '常规', labelEn: 'General' },
   { id: 'appearance', label: '外观', labelEn: 'Appearance' },
   { id: 'office-menu', label: '办公菜单', labelEn: 'Office menu' },
+  { id: 'mobile-companion', label: '移动伴侣', labelEn: 'Mobile companion' },
   { id: 'profile', label: '个人资料', labelEn: 'Profile' },
   { id: 'providers', label: '模型与供应商', labelEn: 'Models & providers' },
   { id: 'routing', label: '路由管理', labelEn: 'Routing' },

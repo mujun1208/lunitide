@@ -2,6 +2,7 @@ export type SettingsCategory =
   | 'general'
   | 'appearance'
   | 'office-menu'
+  | 'mobile-companion'
   | 'profile'
   | 'providers'
   | 'routing'
@@ -26,6 +27,7 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
   { id: 'general', icon: '◌', label: '常规', labelEn: 'General', keywords: '启动 语言 时区 对话 Enter 标题 工作模式 完全访问 人设 说话风格 助手 客服 老师 NPC 结构化 表单 事件 startup language' },
   { id: 'appearance', icon: '◐', label: '外观', labelEn: 'Appearance', keywords: '主题 星光 月光 密度 动效 动画 theme' },
   { id: 'office-menu', icon: '▤', label: '办公菜单', labelEn: 'Office menu', keywords: '办公 同事聊天 机务工作台 办公工作台 会议记录 媒体中心 自动化 显示 隐藏 导航 office menu navigation media automation' },
+  { id: 'mobile-companion', icon: '▯', label: '移动伴侣', labelEn: 'Mobile companion', keywords: '手机 移动伴侣 配对 二维码 扫码 远程 PWA 设备 吊销 防休眠 手机端 手机版 mobile companion pairing remote pwa device' },
   { id: 'profile', icon: '☺', label: '个人资料', labelEn: 'Profile', keywords: '昵称 头像 状态 部门 职位 组织 局域网 发现 配对 密码 名片 nickname' },
   { id: 'providers', icon: '◈', label: '模型与供应商', labelEn: 'Models & providers', keywords: '模型 API Key 供应商 BYOK endpoint 视觉 生图 生视频 LLM models providers' },
   { id: 'routing', icon: '⇄', label: '路由管理', labelEn: 'Routing', keywords: '能力路由 judge 向量 GUI vision routing' },
@@ -44,7 +46,7 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
 ]
 
 export const SETTINGS_NAV_GROUPS: { label: string; labelEn: string; ids: SettingsCategory[] }[] = [
-  { label: '界面', labelEn: 'Interface', ids: ['general', 'appearance', 'office-menu', 'profile'] },
+  { label: '界面', labelEn: 'Interface', ids: ['general', 'appearance', 'office-menu', 'mobile-companion', 'profile'] },
   { label: '智能', labelEn: 'Intelligence', ids: ['providers', 'routing', 'voice', 'meetings', 'personal'] },
   { label: '能力', labelEn: 'Capabilities', ids: ['security', 'datasources', 'browser', 'computer', 'channels', 'subagents', 'collab'] },
   { label: '系统', labelEn: 'System', ids: ['diagnostics', 'about'] },

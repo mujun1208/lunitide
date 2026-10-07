@@ -9,6 +9,7 @@ import{VoicePersonaGrid}from'./VoicePersonaGrid'
 import{filterSettingsNav,SETTINGS_NAV_GROUPS,SETTINGS_CATEGORIES,type SettingsCategory,type SettingsIntelligenceView}from'./settingsNav'
 import{MeetingNotesPanel}from'./MeetingNotesPanel'
 import { OfficeMenuPanel } from './OfficeMenuPanel'
+import { RemoteCompanionPanel } from './RemoteCompanionPanel'
 import { SettingsRunStatus } from './SettingsRunStatus'
 import{REPLY_STYLE_OPTIONS,STRUCTURED_TEMPLATE_OPTIONS}from'./replySettings'
 import{applyLocalEngine,applyVoicePath,defaultCompanionSettings,formatInterruptHotkey,interruptHotkeyFromEvent,loadCompanionSettings,saveCompanionSettings,type CompanionSettings,type InterruptHotkey}from'../session/companion/companionSettings'
@@ -183,6 +184,7 @@ export function SettingsPage({ onNavigateExpert: _onNavigateExpert, onNavigateMc
           {category === 'general' && <GeneralPanel settings={general} onChange={updateGeneral} />}
           {category === 'appearance' && <AppearancePanel settings={appearance} onChange={updateAppearance} />}
           {category === 'office-menu' && <OfficeMenuPanel onSaved={() => setSaved(true)} />}
+          {category === 'mobile-companion' && <RemoteCompanionPanel />}
           {category === 'profile' && <ProfilePanel />}
           {category === 'providers' && (providers ? <ProviderApp bridge={providers} embedded onPreferLLM={onPreferLLM} /> : <p className="setting-desc">供应商列表需要 Host 桥接。</p>)}
           {category === 'routing' && (providers ? <CapabilityRouting providers={providers} roles={roles} /> : <p className="setting-desc">路由管理需要 Host 桥接。</p>)}

@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/remote.devices.list.schema.json",
+  "title": "remote.devices.list payload",
+  "x-method": "remote.devices.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "devices": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "deviceId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "name": {
+              "type": "string"
+            },
+            "platform": {
+              "type": "string"
+            },
+            "scopes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "grantedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "expiresAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "lastSeenAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "lastIp": {
+              "type": "string"
+            },
+            "revokedAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "deviceId",
+            "name",
+            "platform",
+            "scopes",
+            "grantedAt",
+            "expiresAt"
+          ]
+        }
+      }
+    },
+    "required": [
+      "devices"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {}
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

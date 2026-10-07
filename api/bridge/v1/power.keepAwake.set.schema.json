@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/power.keepAwake.set.schema.json",
+  "title": "power.keepAwake.set payload",
+  "x-method": "power.keepAwake.set",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "enabled"
+  ],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "enabled"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {
+        "enabled": true
+      }
+    ],
+    "negative": [
+      {},
+      {
+        "enabled": "yes"
+      }
+    ]
+  }
+}

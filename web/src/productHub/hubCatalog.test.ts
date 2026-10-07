@@ -46,7 +46,7 @@ it('groups features and changelog by the real frontend page', () => {
   expect(pagesOfCard({ stable_key: 'feature.dialog.music.play', scaffold: { pages: ['media'] } })).toEqual(['media', 'home'])
   expect(settingLabel('office-menu')).toBe('办公菜单')
   expect(dossiers.every(item => item.spec.analysis.length > 20 && item.features.length > 0)).toBe(true)
-  expect(dossiers.find(item => item.spec.id === 'settings')?.settings).toHaveLength(18)
+  expect(dossiers.find(item => item.spec.id === 'settings')?.settings).toHaveLength(19)
   const withFindings = pageDossiers(nodes, changes, [
     { severity: 'warn', error_code: 'PH-003', stable_key: 'capability.tts.voice', title: 'TTS', evidence: '', root_cause: '', fix: '', verify: '', status: 'open' },
     { severity: 'error', error_code: 'PH-004', stable_key: 'feature.dialog.music.play', title: '放歌', evidence: '', root_cause: '', fix: '', verify: '', status: 'open' },

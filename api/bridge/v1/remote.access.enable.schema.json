@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/remote.access.enable.schema.json",
+  "title": "remote.access.enable payload",
+  "x-method": "remote.access.enable",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "const": true
+      }
+    },
+    "required": [
+      "enabled"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {}
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}

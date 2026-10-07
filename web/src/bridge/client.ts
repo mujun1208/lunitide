@@ -89,10 +89,12 @@ import {
   type BrPermissionRequestPayload, type BrPermissionRequestResult,
   type BrPermissionDecidePayload, type BrPermissionDecideResult,
   type BrPermissionPolicyPayload, type BrPermissionPolicyResult,
-  type CcGetConfigPayload, type CcGetConfigResult,
-  type CcUpdateConfigPayload, type CcUpdateConfigResult,
-  type CcGetAuditLogPayload, type CcGetAuditLogResult,
-  type CcEmergencyStopPayload, type CcEmergencyStopResult,
+  type CcGetConfigPayload, type CcGetConfigResult, type CcUpdateConfigPayload, type CcUpdateConfigResult,
+  type CcGetAuditLogPayload, type CcGetAuditLogResult, type CcEmergencyStopPayload, type CcEmergencyStopResult,
+  type RemoteAccessStatusResult, type RemoteAccessEnableResult, type RemoteAccessDisableResult,
+  type RemotePairCodeResult, type RemoteDevicesListResult, type RemoteDevicesRevokePayload, type RemoteDevicesRevokeResult,
+  type RemoteSessionsListResult,
+  type PowerKeepAwakeSetPayload, type PowerKeepAwakeSetResult,
   type ImChannelsGetPayload, type ImChannelsGetResult,
   type ImChannelsSetPayload, type ImChannelsSetResult,
   type ImInboundDeliverPayload, type ImInboundDeliverResult,
@@ -322,12 +324,24 @@ export function createProviderBridge(transport: WebViewTransport, defaultDeadlin
 // host object appears, so a late WebView2 does not strand the singletons.
 const earlyListeners:Array<(event:MessageEvent<BridgeResponse>)=>void>=[]
 let boundHost:WebViewTransport|undefined
+// 远程传输 override：移动伴侣 PWA 激活后，全部单例 bridge 从 WebView2
+// 切到 WSS 网关（桌面端永不设置，行为不变）。
+let transportOverride:WebViewTransport|undefined
 function host():WebViewTransport|undefined{
+ if(transportOverride)return transportOverride
  const v=window.chrome?.webview
  if(!v)return undefined
- if(boundHost!==v){boundHost=v;for(const listener of earlyListeners)v.addEventListener('message',listener)}
+ if(boundHost!==v){boundHost=v;for(const listener of earlyListeners)v.addEventListener('message',listener);earlyListeners.length=0}
  return v
 }
+// setTransportOverride 安装/移除远程传输。安装时重放早期注册的 listener，
+// 避免 PWA 冷启动先构建单例、后建立连接的时序竞态。
+export function setTransportOverride(t:WebViewTransport|undefined):void{
+ transportOverride=t
+ if(t){for(const listener of earlyListeners)t.addEventListener('message',listener);earlyListeners.length=0}
+}
+// resolveHostTransport 公开传输解析（App 入口构建 chat bridge 用）。
+export function resolveHostTransport():WebViewTransport|undefined{return host()}
 const lazyTransport:WebViewTransport={
  postMessage(value){const v=host();if(!v)throw new BridgeClientError('WebView2 Bridge 当前不可用','BRIDGE_UNAVAILABLE',true,'renderer');v.postMessage(value)},
  addEventListener(type,listener){const v=host();if(v)v.addEventListener(type,listener);else earlyListeners.push(listener)},
@@ -1281,6 +1295,43 @@ export const ccBridge: CcBridge = {
   updateConfig: p => getCcBridge().updateConfig(p),
   getAuditLog: p => getCcBridge().getAuditLog(p),
   emergencyStop: p => getCcBridge().emergencyStop(p),
+}
+
+// 移动伴侣：桌面设置页消费（远程开关、配对码、设备管理、防休眠）。
+export interface RemoteCompanionBridge {
+  accessStatus(): Promise<RemoteAccessStatusResult>
+  accessEnable(): Promise<RemoteAccessEnableResult>
+  accessDisable(): Promise<RemoteAccessDisableResult>
+  pairCode(): Promise<RemotePairCodeResult>
+  devicesList(): Promise<RemoteDevicesListResult>
+  devicesRevoke(payload: RemoteDevicesRevokePayload): Promise<RemoteDevicesRevokeResult>
+  sessionsList(): Promise<RemoteSessionsListResult>
+  keepAwakeSet(payload: PowerKeepAwakeSetPayload): Promise<PowerKeepAwakeSetResult>
+}
+export function createRemoteCompanionBridge(transport: WebViewTransport, defaultDeadlineMs = 10_000): RemoteCompanionBridge {
+  const core = createSimpleBridge(transport, {}, defaultDeadlineMs)
+  return {
+    accessStatus: () => core.request('remote.access.status', {}),
+    accessEnable: () => core.request('remote.access.enable', {}),
+    accessDisable: () => core.request('remote.access.disable', {}),
+    pairCode: () => core.request('remote.pair.code', {}),
+    devicesList: () => core.request('remote.devices.list', {}),
+    devicesRevoke: p => core.request('remote.devices.revoke', p),
+    sessionsList: () => core.request('remote.sessions.list', {}),
+    keepAwakeSet: p => core.request('power.keepAwake.set', p),
+  }
+}
+let remoteCompanionSingleton: RemoteCompanionBridge | undefined
+export function getRemoteCompanionBridge(): RemoteCompanionBridge { return remoteCompanionSingleton ??= createRemoteCompanionBridge(webview()) }
+export const remoteCompanionBridge: RemoteCompanionBridge = {
+  accessStatus: () => getRemoteCompanionBridge().accessStatus(),
+  accessEnable: () => getRemoteCompanionBridge().accessEnable(),
+  accessDisable: () => getRemoteCompanionBridge().accessDisable(),
+  pairCode: () => getRemoteCompanionBridge().pairCode(),
+  devicesList: () => getRemoteCompanionBridge().devicesList(),
+  devicesRevoke: p => getRemoteCompanionBridge().devicesRevoke(p),
+  sessionsList: () => getRemoteCompanionBridge().sessionsList(),
+  keepAwakeSet: p => getRemoteCompanionBridge().keepAwakeSet(p),
 }
 
 export interface ImBridge {

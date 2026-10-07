@@ -25,7 +25,7 @@ function officePage(page: Page): boolean {
 }
 
 export function LaunchSidebar({
-  open, page, setPage: navigate, projects, sessions, messages, onSelect, onNew, theme, language, refreshKey, localChats, deletedChatIds, draftSessionIds, visibleDraftId, onToggleTheme, onToggleLanguage, collapsed, onUpdated, onDeleted, onOpenPeople, mroEnabled, topSlot, replaceMainNav,
+  open, page, setPage: navigate, projects, sessions, messages, onSelect, onNew, theme, language, refreshKey, localChats, deletedChatIds, draftSessionIds, visibleDraftId, onToggleTheme, onToggleLanguage, collapsed, onUpdated, onDeleted, onOpenPeople, mroEnabled, topSlot, replaceMainNav, onOpenMobileCompanion,
 }: {
   open: boolean
   page: Page
@@ -51,6 +51,7 @@ export function LaunchSidebar({
   mroEnabled?: boolean
   topSlot?: React.ReactNode
   replaceMainNav?: React.ReactNode
+  onOpenMobileCompanion?: () => void
 }): React.JSX.Element {
   const setPage = (next: Page) => { if (next === 'office') openOfficeHome(); navigate(next) }
   const [recent, setRecent] = useState<Array<ChatTarget & { pending?: boolean }>>([])
@@ -237,6 +238,7 @@ export function LaunchSidebar({
           {officeMenu.mro && mroEnabled ? <button className={page === 'mro' ? 'active' : ''} onClick={() => setPage('mro')} aria-label={zh ? '机务工作台' : 'MRO workbench'}><NavIcon name="mro" /><span>{zh ? '机务工作台' : 'MRO workbench'}</span></button> : null}
           {officeMenu.meetings ? <button className={page === 'meetings' ? 'active' : ''} onClick={() => setPage('meetings')} aria-label={zh ? '会议记录' : 'Meeting notes'}><NavIcon name="meetings" /><span>{zh ? '会议记录' : 'Meeting notes'}</span></button> : null}
           {officeMenu.productHub ? <button className={page === 'productHub' ? 'active' : ''} onClick={() => setPage('productHub')} aria-label={zh ? '产品总览' : 'Product Hub'}><NavIcon name="productHub" /><span>{zh ? '产品总览' : 'Product Hub'}</span></button> : null}
+          {onOpenMobileCompanion ? <button onClick={onOpenMobileCompanion} aria-label={zh ? '移动伴侣' : 'Mobile companion'}><NavIcon name="phone" /><span>{zh ? '移动伴侣' : 'Mobile'}</span></button> : null}
         </div>
       ) : null}
     </section>

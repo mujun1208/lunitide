@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/remote.sessions.list.schema.json",
+  "title": "remote.sessions.list payload",
+  "x-method": "remote.sessions.list",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "sessions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "deviceId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "deviceName": {
+              "type": "string"
+            },
+            "ip": {
+              "type": "string"
+            },
+            "since": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "deviceId",
+            "deviceName",
+            "since"
+          ]
+        }
+      },
+      "audit": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "deviceId": {
+              "type": "string"
+            },
+            "at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "method": {
+              "type": "string"
+            },
+            "detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "deviceId",
+            "at",
+            "kind"
+          ]
+        }
+      }
+    },
+    "required": [
+      "sessions",
+      "audit"
+    ]
+  },
+  "x-examples": {
+    "positive": [
+      {}
+    ],
+    "negative": [
+      {
+        "unexpected": true
+      }
+    ]
+  }
+}
