@@ -6,12 +6,16 @@ import (
 	"testing"
 )
 
-// fusionFixture mirrors a real user setup: GLM (5.3 默认 + 4.5V 视觉)、
-// DeepSeek（4 Pro 默认、无窗口登记）、一家停用的语音供应商。
+// fusionFixture mirrors a real user setup: GLM（5.3 默认主力 + 5 新一代已配置
+// + 4.5V 视觉）、DeepSeek（4 Pro 默认主力、5 Pro 新一代已配置、无窗口登记）、
+// 一家停用的语音供应商。新一代进入供应商配置是 PH_M02 升级分析的触发前提。
 func fusionFixture() {
 	SetModelSlots([]ModelSlot{
 		{ProviderID: "glm", ProviderName: "智谱 GLM", Protocol: "openai_compatible",
 			ModelID: "glm-5.3", DisplayName: "GLM-5.3", Kind: "llm", IsDefault: true, KindDefault: true,
+			ContextWindow: 131072, Status: "enabled", CredentialState: "configured"},
+		{ProviderID: "glm", ProviderName: "智谱 GLM", Protocol: "openai_compatible",
+			ModelID: "glm-5", DisplayName: "GLM-5", Kind: "llm",
 			ContextWindow: 131072, Status: "enabled", CredentialState: "configured"},
 		{ProviderID: "glm", ProviderName: "智谱 GLM", Protocol: "openai_compatible",
 			ModelID: "glm-4.5v", DisplayName: "GLM-4.5V", Kind: "vision", KindDefault: true,
@@ -19,6 +23,9 @@ func fusionFixture() {
 		{ProviderID: "deepseek", ProviderName: "DeepSeek", Protocol: "openai_compatible",
 			ModelID: "deepseek-4-pro", DisplayName: "DeepSeek 4 Pro", Kind: "llm", IsDefault: true, KindDefault: true,
 			Status: "enabled", CredentialState: "configured"},
+		{ProviderID: "deepseek", ProviderName: "DeepSeek", Protocol: "openai_compatible",
+			ModelID: "deepseek-5-pro", DisplayName: "DeepSeek 5 Pro", Kind: "llm",
+			ContextWindow: 131072, Status: "enabled", CredentialState: "configured"},
 		{ProviderID: "volc", ProviderName: "火山语音", Protocol: "volc_speech",
 			ModelID: "volc-asr", DisplayName: "语音识别", Kind: "asr", KindDefault: true,
 			Status: "disabled", CredentialState: "missing"},
@@ -36,6 +43,7 @@ func fusionFinding(in []Finding, code, key string) *Finding {
 
 func TestAuditModelFusionDetectsUpgrades(t *testing.T) {
 	defer SetModelSlots(nil)
+	// fixture 已配置新一代（glm-5、deepseek-5-pro）：新一代进入配置才检出升级。
 	fusionFixture()
 	a := AuditModelFusion()
 	if a.Providers != 3 || a.Usable != 2 {
@@ -74,6 +82,29 @@ func TestAuditModelFusionDetectsUpgrades(t *testing.T) {
 	}
 }
 
+func TestAuditModelFusionNoUpgradeUntilNextGenerationConfigured(t *testing.T) {
+	defer SetModelSlots(nil)
+	// 用户只配置了上一代主力（GLM-5.3、DeepSeek 4 Pro），新一代没有进入
+	// 供应商配置：没有新旧可对比，不报任何升级分析与 PH_M02 发现。
+	SetModelSlots([]ModelSlot{
+		{ProviderID: "glm", ProviderName: "智谱 GLM", Protocol: "openai_compatible",
+			ModelID: "glm-5.3", DisplayName: "GLM-5.3", Kind: "llm", IsDefault: true, KindDefault: true,
+			ContextWindow: 131072, Status: "enabled", CredentialState: "configured"},
+		{ProviderID: "deepseek", ProviderName: "DeepSeek", Protocol: "openai_compatible",
+			ModelID: "deepseek-4-pro", DisplayName: "DeepSeek 4 Pro", Kind: "llm", IsDefault: true, KindDefault: true,
+			Status: "enabled", CredentialState: "configured"},
+	})
+	a := AuditModelFusion()
+	if len(a.Upgrades) != 0 {
+		t.Fatalf("新一代未配置不应报升级分析: %+v", a.Upgrades)
+	}
+	for _, f := range fusionFindings(a) {
+		if f.ErrorCode == "PH_M02" {
+			t.Fatalf("新一代未配置不应有 PH_M02 发现: %+v", f)
+		}
+	}
+}
+
 func TestAuditModelFusionListingNextGenerationIsNotAdopting(t *testing.T) {
 	defer SetModelSlots(nil)
 	// model.sync 把新一代拉进清单，但默认主力仍是上一代：升级发现必须保留。
@@ -99,7 +130,7 @@ func TestFusionFindingsFourClasses(t *testing.T) {
 	for _, f := range fs {
 		counts[f.ErrorCode]++
 	}
-	// 缺槽位 6（gui/image/video/embedding/asr/tts），升级 2，窗口 1（deepseek-4-pro），供应商 1（volc）
+	// 缺槽位 6（gui/image/video/embedding/asr/tts），升级 2（新一代已配置），窗口 1（deepseek-4-pro），供应商 1（volc）
 	if counts["PH_M01"] != 6 || counts["PH_M02"] != 2 || counts["PH_M03"] != 1 || counts["PH_M04"] != 1 {
 		t.Fatalf("发现计数 got %+v", counts)
 	}

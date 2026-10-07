@@ -196,12 +196,19 @@ func AuditModelFusion() FusionAudit {
 		row.Covered = row.Count > 0
 		a.KindCoverage = append(a.KindCoverage, row)
 	}
-	// Upgrades: the ACTIVE model of a kind slot — the kind-default, falling
-	// back to the provider default — on a usable provider still has a
-	// registered successor. Merely listing the new generation (model.sync
-	// discovery) is not adopting it: the finding clears only after the switch.
+	// Upgrades are configuration-driven: the ACTIVE model of a kind slot —
+	// the kind-default, falling back to the provider default — on a usable
+	// provider has a registered successor AND that successor already appears
+	// in the provider's configured model list (added by the user or pulled in
+	// by model.sync). Without the new generation actually configured there is
+	// nothing to compare and no upgrade finding fires. Merely listing the new
+	// generation is not adopting it: the finding clears only after the switch.
 	for pid, group := range byProvider {
 		activeByKind := map[string]string{}
+		configured := make(map[string]bool, len(group))
+		for _, s := range group {
+			configured[s.ModelID] = true
+		}
 		for _, s := range group {
 			if slotUsable(s) && s.KindDefault {
 				activeByKind[s.Kind] = s.ModelID
@@ -222,6 +229,10 @@ func AuditModelFusion() FusionAudit {
 			}
 			profile, known := FindModelProfile(currentID)
 			if !known || profile.Successor == "" {
+				continue
+			}
+			// 新一代没有进入供应商配置：无从分析新旧差异，不报升级。
+			if !configured[profile.Successor] {
 				continue
 			}
 			next, nextKnown := FindModelProfile(profile.Successor)
@@ -281,10 +292,11 @@ func fusionFindings(a FusionAudit) []Finding {
 			"在模型供应商页为 "+row.Kind+" 槽位配置模型；配好后点「重新检测」。",
 			"重新检测后该槽位有可用模型，本条消失", "open"))
 	}
-	// PH_M02: a configured model has a declared next generation.
+	// PH_M02: the next generation is configured while the active model is
+	// still the previous one — only then is there something to analyze.
 	for _, u := range a.Upgrades {
-		evidence := fmt.Sprintf("供应商「%s」配置的 %s 在产品内置档案里的后继是 %s。涉及槽位：%s。",
-			u.ProviderName, u.CurrentID, u.NextID, strings.Join(u.Kinds, "、"))
+		evidence := fmt.Sprintf("供应商「%s」已配置新一代 %s，当前主力仍是 %s。涉及槽位：%s。",
+			u.ProviderName, u.NextID, u.CurrentID, strings.Join(u.Kinds, "、"))
 		if u.CurrentNote != "" {
 			evidence += u.CurrentNote
 		}
@@ -294,7 +306,7 @@ func fusionFindings(a FusionAudit) []Finding {
 		out = append(out, finding("info", "PH_M02", "model.upgrade."+dashedKey(u.ProviderID)+"."+dashedKey(u.CurrentID),
 			"模型有新一代："+u.CurrentID+" → "+u.NextID,
 			evidence,
-			"产品档案库已登记该模型的演进路径；供应商配置仍停在上一代",
+			"新一代模型已进入供应商配置，但默认主力仍是上一代",
 			"执行净化生成本次升级的同步方案（交给内部模型深度分析新旧能力差异、受影响功能与切换步骤）；确认后在供应商页把默认模型换成 "+u.NextID+"，再点「重新检测」。",
 			"换成 "+u.NextID+" 并重新检测后本条消失；供应商连通测试通过", "open"))
 	}
@@ -393,7 +405,7 @@ func modelFusionLine(a FusionAudit) string {
 		}
 		line += "可升级：" + strings.Join(ups, "；") + "。"
 	} else {
-		line += "已配置模型没有登记在档的新一代。"
+		line += "配置中没有出现新一代模型，暂无可分析的升级。"
 	}
 	return line
 }
