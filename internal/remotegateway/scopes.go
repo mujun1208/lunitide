@@ -38,7 +38,11 @@ func methodScope(method string) string {
 		strings.HasPrefix(method, "talk."),
 		strings.HasPrefix(method, "tts."),
 		method == "system.health",
-		method == "system.diagnostics":
+		method == "system.diagnostics",
+		// 模型列表只读：手机端选模型发起对话的前提；凭据与增删改
+		// （provider.create/update/delete、credential.*）仍属 settings。
+		method == "provider.list",
+		method == "provider.get":
 		return scopeChat
 	case strings.HasPrefix(method, "fs."),
 		strings.HasPrefix(method, "workspace"),

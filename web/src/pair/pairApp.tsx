@@ -6,7 +6,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { saveRemoteCredentials } from '../bridge/wsTransport'
 
-export interface PairHash { code: string; fingerprint: string }
+export interface PairHash { code: string; fingerprint: string; lang?: 'zh-CN' | 'en' }
 
 export function parsePairHash(hash: string): PairHash | undefined {
   const raw = hash.startsWith('#') ? hash.slice(1) : hash
@@ -14,7 +14,23 @@ export function parsePairHash(hash: string): PairHash | undefined {
   const params = new URLSearchParams(raw)
   const code = (params.get('c') ?? '').trim()
   if (!/^\d{8}$/.test(code)) return undefined
-  return { code, fingerprint: (params.get('fp') ?? '').trim() }
+  const lang = (params.get('lang') ?? '').trim()
+  return { code, fingerprint: (params.get('fp') ?? '').trim(), lang: lang === 'zh-CN' || lang === 'en' ? lang : undefined }
+}
+
+// 把桌面语言写入本机 localStorage：lunitide:language 是全局语言键，
+// lunitide:language-default-en 标记「首次默认英文」流程已走过（见
+// i18n/language.tsx），不写它的话下次启动仍会被强制回英文。
+export function applyPairLanguage(lang: 'zh-CN' | 'en' | undefined, storage: Storage | null = safeStorage()): void {
+  if (!lang || !storage) return
+  try {
+    storage.setItem('lunitide:language', lang)
+    storage.setItem('lunitide:language-default-en', '1')
+  } catch { /* storage-denied：语言保持默认 */ }
+}
+
+function safeStorage(): Storage | null {
+  try { return localStorage } catch { return null }
 }
 
 export function detectDeviceName(userAgent: string): string {
@@ -30,6 +46,20 @@ export function detectPlatform(userAgent: string): string {
   if (/iPhone|iPad|iPod/i.test(userAgent)) return 'ios-pwa'
   if (/Android/i.test(userAgent)) return 'android-pwa'
   return 'mobile-web'
+}
+
+export type InstallGuidance =
+  | { kind: 'prompt' } // 浏览器原生安装按钮可用（beforeinstallprompt 已触发）
+  | { kind: 'ios-home-screen' } // iOS Safari：分享 → 添加到主屏幕
+  | { kind: 'shortcut'; reason: 'self-signed' | 'unknown' } // 只能添加快捷方式
+
+// 安装引导分派：Android Chrome 对自签证书（内网直连）不提供 WebAPK
+// 安装也不触发 beforeinstallprompt——这是平台安全模型，不是产品缺陷。
+// 此时退化为「添加到主屏幕」快捷方式，功能完整。
+export function installGuidance(platform: string, promptAvailable: boolean): InstallGuidance {
+  if (promptAvailable) return { kind: 'prompt' }
+  if (platform === 'ios-pwa') return { kind: 'ios-home-screen' }
+  return { kind: 'shortcut', reason: platform === 'android-pwa' ? 'self-signed' : 'unknown' }
 }
 
 export interface PairSuccess { deviceToken: string; expiresAt: string }
@@ -60,6 +90,9 @@ export async function pairWithGateway(input: { code: string; deviceName: string;
   return { ok: false, error: `配对失败（${response.status}），请重试。` }
 }
 
+// beforeinstallprompt 事件的鸭子类型：只用到 prompt()。
+interface InstallPromptEvent extends Event { prompt(): Promise<void> }
+
 export function PairApp() {
   const fromHash = useMemo(() => parsePairHash(location.hash), [])
   const [code, setCode] = useState(fromHash?.code ?? '')
@@ -67,11 +100,26 @@ export function PairApp() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
+  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null)
 
   useEffect(() => {
+    // 桌面语言随二维码带来，立即写入本机（用户扫完码语言即就位，
+    // 无需等待点「完成配对」）。
+    applyPairLanguage(fromHash?.lang)
     // 清掉地址栏中的配对码（一次性敏感值，避免刷新/分享泄露）。
     if (fromHash) history.replaceState(null, '', '/pair')
   }, [fromHash])
+
+  useEffect(() => {
+    // 可安装（可信证书环境）时浏览器会触发该事件；自签证书下 Android
+    // Chrome 不触发，引导自动退化为快捷方式（见 installGuidance）。
+    const handler = (event: Event) => {
+      event.preventDefault()
+      setInstallPrompt(event as InstallPromptEvent)
+    }
+    window.addEventListener('beforeinstallprompt', handler)
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
 
   const submit = async () => {
     const normalized = code.trim()
@@ -88,13 +136,37 @@ export function PairApp() {
   }
 
   if (done) {
+    const guidance = installGuidance(detectPlatform(navigator.userAgent), installPrompt !== null)
     return (
       <div className="pair-card">
         <img className="pair-logo" src="/brand/icon-192.png" alt="Lunitide" />
         <h1>配对成功</h1>
-        <p className="pair-sub">这台设备已关联你的电脑。建议现在「添加到主屏幕」：<br />浏览器菜单 → 添加到主屏幕，即可像 App 一样打开。</p>
+        <p className="pair-sub">这台设备已关联你的电脑。</p>
+        {guidance.kind === 'prompt' && installPrompt && (
+          <>
+            <button
+              className="pair-btn"
+              onClick={() => { void installPrompt.prompt(); setInstallPrompt(null) }}
+            >
+              安装到手机主屏幕
+            </button>
+            <p className="pair-hint">安装后像 App 一样全屏打开，无需浏览器地址栏。</p>
+          </>
+        )}
+        {guidance.kind === 'ios-home-screen' && (
+          <p className="pair-sub">
+            建议添加到主屏幕：Safari 底部分享按钮 →「添加到主屏幕」，<br />即可像 App 一样打开完整界面。
+          </p>
+        )}
+        {guidance.kind === 'shortcut' && (
+          <p className="pair-sub">
+            建议添加到主屏幕：浏览器菜单 →「添加到主屏幕」。
+            {guidance.reason === 'self-signed' && (
+              <><br />内网直连使用自签证书，Chrome 对此不提供应用安装；<br />快捷方式打开后全部功能完整可用。</>
+            )}
+          </p>
+        )}
         <a className="pair-open" href="/">进入 Lunitide</a>
-        <p className="pair-hint">添加到主屏幕后，图标将直接打开完整界面。</p>
       </div>
     )
   }

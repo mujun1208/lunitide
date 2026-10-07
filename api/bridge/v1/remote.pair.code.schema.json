@@ -7,7 +7,13 @@
   "x-enabled": true,
   "type": "object",
   "additionalProperties": false,
-  "properties": {},
+  "properties": {
+    "lang": {
+      "type": "string",
+      "enum": ["zh-CN", "en"],
+      "description": "桌面端当前界面语言。携带时配对二维码 URL 附加 lang 片段，配对页据此把语言写入手机 localStorage，手机首次打开即与桌面同语言。"
+    }
+  },
   "x-result": {
     "type": "object",
     "additionalProperties": false,
@@ -54,12 +60,14 @@
   },
   "x-examples": {
     "positive": [
-      {}
+      {},
+      { "lang": "zh-CN" }
     ],
     "negative": [
       {
         "unexpected": true
-      }
+      },
+      { "lang": "fr" }
     ]
   }
 }

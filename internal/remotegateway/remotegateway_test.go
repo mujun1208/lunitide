@@ -168,7 +168,11 @@ func TestMethodScopeClassification(t *testing.T) {
 		"settings.get":          scopeSettings,
 		"remote.access.status":  scopeSettings,
 		"power.keepAwake.set":   scopeSettings,
-		"provider.list":         scopeSettings,
+		// 模型列表只读放行（手机端选模型的前提）；管理面仍拒绝。
+		"provider.list":         scopeChat,
+		"provider.get":          scopeChat,
+		"provider.create":       scopeSettings,
+		"provider.credential.submit": scopeSettings,
 		"mcp.invoke":            scopeTools,
 		"skill.package.list":    scopeTools,
 		"plugin.pack.install":   scopeTools,
@@ -232,7 +236,7 @@ func TestServicePairFlowAndLockout(t *testing.T) {
 	defer svc.Close()
 	svc.port = 0
 	// 未开启时配对码签发必须拒绝。
-	if _, err := svc.IssuePairCode(ctx); err == nil {
+	if _, err := svc.IssuePairCode(ctx, ""); err == nil {
 		t.Fatal("pair code issued while disabled")
 	}
 	if err := svc.Enable(ctx); err != nil {
@@ -245,12 +249,15 @@ func TestServicePairFlowAndLockout(t *testing.T) {
 	if !status.Enabled || status.CertFingerprint == "" {
 		t.Fatalf("status after enable: %+v", status)
 	}
-	info, err := svc.IssuePairCode(ctx)
+	info, err := svc.IssuePairCode(ctx, "zh-CN")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(info.URL, "https://") || !strings.Contains(info.URL, info.Code) || !strings.Contains(info.URL, info.Fingerprint) {
 		t.Fatalf("pair url malformed: %s", info.URL)
+	}
+	if !strings.Contains(info.URL, "&lang=zh-CN") {
+		t.Fatalf("pair url missing desktop language: %s", info.URL)
 	}
 	if len(info.QRPngBase64) < 64 {
 		t.Fatal("qr png missing")
@@ -338,7 +345,7 @@ func TestBridgeWSSSession(t *testing.T) {
 	if addr == "" {
 		t.Fatal("no listener")
 	}
-	info, err := svc.IssuePairCode(ctx)
+	info, err := svc.IssuePairCode(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,7 +455,7 @@ func TestRemoteSessionsAndRevokeDisconnect(t *testing.T) {
 		t.Fatal(err)
 	}
 	addr := svc.listenerAddr()
-	info, err := svc.IssuePairCode(ctx)
+	info, err := svc.IssuePairCode(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}

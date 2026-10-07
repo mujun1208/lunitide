@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/lunitide/lunitide/internal/bridge"
@@ -48,10 +49,24 @@ func handleRemotePairCode(e *Engine, ctx context.Context, request bridge.Request
 	if e.remoteGateway == nil {
 		return request.Fail("REMOTE_UNAVAILABLE", "远程访问组件未就绪", false)
 	}
-	if !emptyObject(request.Payload) {
-		return request.Fail("BRIDGE_SCHEMA_INVALID", "remote.pair.code 参数无效", false)
+	var payload struct {
+		Lang string `json:"lang"`
 	}
-	info, err := e.remoteGateway.IssuePairCode(ctx)
+	if len(request.Payload) > 0 {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(request.Payload, &fields) != nil || len(fields) > 1 {
+			return request.Fail("BRIDGE_SCHEMA_INVALID", "remote.pair.code 参数无效", false)
+		}
+		if len(fields) == 1 {
+			if _, hasLang := fields["lang"]; !hasLang {
+				return request.Fail("BRIDGE_SCHEMA_INVALID", "remote.pair.code 参数无效", false)
+			}
+			if json.Unmarshal(request.Payload, &payload) != nil || (payload.Lang != "" && payload.Lang != "zh-CN" && payload.Lang != "en") {
+				return request.Fail("BRIDGE_SCHEMA_INVALID", "remote.pair.code 参数无效", false)
+			}
+		}
+	}
+	info, err := e.remoteGateway.IssuePairCode(ctx, payload.Lang)
 	if err != nil {
 		if errors.Is(err, remotegateway.ErrDisabled) {
 			return request.Fail("REMOTE_DISABLED", "请先开启远程访问", false)

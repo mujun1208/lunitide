@@ -300,8 +300,9 @@ type PairCodeInfo struct {
 }
 
 // IssuePairCode 签发一次性配对码并生成二维码内容。仅在远程访问开启时
-// 可用；二维码 URL 携带首选地址 + 码 + 证书指纹（16 位短指纹）。
-func (s *Service) IssuePairCode(ctx context.Context) (PairCodeInfo, error) {
+// 可用；二维码 URL 携带首选地址 + 码 + 证书指纹（16 位短指纹）+ 桌面当前
+// 语言（lang=zh-CN/en，配对页据此把语言写入手机 localStorage）。
+func (s *Service) IssuePairCode(ctx context.Context, lang string) (PairCodeInfo, error) {
 	s.mu.Lock()
 	enabled := s.enabled && s.server != nil
 	fp := s.certFP
@@ -324,6 +325,9 @@ func (s *Service) IssuePairCode(ctx context.Context) (PairCodeInfo, error) {
 		host = addresses[0]
 	}
 	url := fmt.Sprintf("https://%s/pair#c=%s&fp=%s", joinHostPort(host), code, fmtFingerprint(fp))
+	if lang == "zh-CN" || lang == "en" {
+		url += "&lang=" + lang
+	}
 	png, err := qrcode.Encode(url, qrcode.Medium, 512)
 	if err != nil {
 		return PairCodeInfo{}, err

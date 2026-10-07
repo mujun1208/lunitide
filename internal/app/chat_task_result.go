@@ -552,20 +552,22 @@ func settledLookupSpeech(goal string, messages []llmadapter.Message) (string, bo
 			return "", false
 		}
 	}
+	// 天气轮永不提前收尾：weather.get 的输出是给模型的原料，模型必须
+	// 基于它生成完整回答。通用收尾话术只认 web.search 标题，天气轮会
+	// 退化成「查询完成，结果已经返回。」空话术，early-settle 随即终止
+	// 本轮，预报内容永远到不了用户（生产事故 2026-10-07：合肥预报被吞）。
+	if lastNamedToolOutput(messages, "weather.get") != "" {
+		return "", false
+	}
 	speech := lookupDoneSpeech(lastNamedToolOutput(messages, "web.search"))
-	if speech == "查询完成，结果已经返回。" && !lookupBodyProved(messages) {
+	// 空话术说明没有可念的搜索标题：要么搜索无结果，要么内容在
+	// web.fetch 的页面正文里等着模型消化。一律不收尾，让模型把实际
+	// 内容说给用户（web.fetch 页面问答与天气预报同构：证据是原料，
+	// 不是给用户的答案）。
+	if speech == "查询完成，结果已经返回。" {
 		return "", false
 	}
 	return speech, true
-}
-
-func lookupBodyProved(messages []llmadapter.Message) bool {
-	weather := lastNamedToolOutput(messages, "weather.get")
-	if strings.Contains(weather, "sampleMinC") || strings.Contains(weather, "sampleMaxC") {
-		return !companionToolResultFailed(weather)
-	}
-	fetched := strings.TrimSpace(lastNamedToolOutput(messages, "web.fetch"))
-	return len(fetched) > 40 && !companionToolResultFailed(fetched)
 }
 
 // settledWorkSpeech is the end of a single task once its own receipt is in.

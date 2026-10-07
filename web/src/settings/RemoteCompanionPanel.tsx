@@ -22,6 +22,12 @@ function rcUserError(err: unknown, fallback: string): string {
   return /[\u4e00-\u9fff]/.test(detail) ? detail : fallback
 }
 
+// 桌面当前界面语言：配对二维码 URL 携带，配对页据此把语言写入手机，
+// 手机首次打开即与桌面同语言（见 pairApp.tsx）。
+function desktopLang(): 'zh-CN' | 'en' {
+  try { return localStorage.getItem('lunitide:language') === 'en' ? 'en' : 'zh-CN' } catch { return 'zh-CN' }
+}
+
 function formatTime(value: string | undefined): string {
   if (!value) return '—'
   const date = new Date(value)
@@ -72,7 +78,7 @@ export function RemoteCompanionPanel({ bridge = remoteCompanionBridge }: { bridg
       errors.push('在线会话与审计暂时无法读取')
     }
     if (withPairCode && statusResult.status === 'fulfilled' && statusResult.value.enabled) {
-      const code = await bridge.pairCode().catch(() => null)
+      const code = await bridge.pairCode({ lang: desktopLang() }).catch(() => null)
       if (generation !== refreshGeneration.current) return
       if (code) setPairInfo(code)
       else errors.push('配对码生成失败，请重试')
@@ -111,7 +117,7 @@ export function RemoteCompanionPanel({ bridge = remoteCompanionBridge }: { bridg
   const regenerateCode = async () => {
     setBusy(true); setError('')
     try {
-      setPairInfo(await bridge.pairCode())
+      setPairInfo(await bridge.pairCode({ lang: desktopLang() }))
     } catch (err) {
       setError(rcUserError(err, '配对码生成失败，请重试'))
     }

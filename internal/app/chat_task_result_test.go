@@ -733,3 +733,39 @@ func TestLookupStopsAfterTheBrowserSearchReturns(t *testing.T) {
 		t.Fatal("a search with no results is not a finished lookup")
 	}
 }
+
+func TestWeatherLookupNeverSettlesEarly(t *testing.T) {
+	// 天气轮禁止提前收尾：weather.get 的输出是给模型的原料。若允许
+	// settle，通用话术取不到 web.search 标题会退化成「查询完成，结果
+	// 已经返回。」，early-settle 随即终止本轮，预报永远到不了用户
+	// （生产事故 2026-10-07：合肥预报被空话术吞掉）。
+	messages := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "明天合肥的天气怎么样"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "weather", Name: "weather.get", Arguments: json.RawMessage(`{"place":"合肥","days":2}`)}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "weather", Content: `{"kind":"weather_forecast","location":{"name":"Hefei"},"days":[{"date":"2026-10-08","sampleMinC":15,"sampleMaxC":23,"conditions":["rain"]}]}`},
+	}
+	if _, ok := settledLookupSpeech("明天合肥的天气怎么样", messages); ok {
+		t.Fatal("a weather turn must keep going so the model can speak the forecast")
+	}
+	if _, ok := settledWorkSpeech("明天合肥的天气怎么样", messages); ok {
+		t.Fatal("early settle must not swallow the forecast")
+	}
+	if lookupFollowUpBlocked("明天合肥的天气怎么样", "web.search", messages) {
+		t.Fatal("the model may still widen the search after a weather receipt")
+	}
+	// 同构场景：web.fetch 拿到的页面正文也是给模型的原料。空话术
+	// settle 会把页面内容吞掉（旧逻辑 lookupBodyProved 见到 >40 字符
+	// 就放行空话术收尾，与天气事故同一根因）。goal 含「新闻」以进入
+	// 查询轮路径（looksLikeCurrentLookupTurn 的关键词表）。
+	fetched := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "帮我看看这个网页里的最新新闻"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "fetch", Name: "web.fetch", Arguments: json.RawMessage(`{"url":"https://example.com/article"}`)}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "fetch", Content: "title: 示例文章\nurl: https://example.com/article\n\n这是一篇很长的文章正文，包含大量需要模型消化后转述给用户的内容，远超四十个字符。"},
+	}
+	if _, ok := settledLookupSpeech("帮我看看这个网页里的最新新闻", fetched); ok {
+		t.Fatal("a fetched page must be spoken by the model, not swallowed by an empty settle")
+	}
+	if _, ok := settledWorkSpeech("帮我看看这个网页里的最新新闻", fetched); ok {
+		t.Fatal("early settle must not swallow the fetched page")
+	}
+}

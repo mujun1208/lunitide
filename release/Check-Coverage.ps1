@@ -92,18 +92,21 @@ $profilePath = Join-Path (Get-Location) 'coverage.out'
 $appProfilePath = Join-Path (Get-Location) 'coverage-app.out'
 $restProfilePath = Join-Path (Get-Location) 'coverage-rest.out'
 $stdioProfilePath = Join-Path (Get-Location) 'coverage-stdioworker.out'
-foreach ($path in @($profilePath, $appProfilePath, $restProfilePath, $stdioProfilePath)) {
+$sqliteProfilePath = Join-Path (Get-Location) 'coverage-sqlite.out'
+foreach ($path in @($profilePath, $appProfilePath, $restProfilePath, $stdioProfilePath, $sqliteProfilePath)) {
     if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path }
 }
 
 $appImport = 'github.com/lunitide/lunitide/internal/app'
 $stdioImport = 'github.com/lunitide/lunitide/internal/stdioworker'
+$sqliteImport = 'github.com/lunitide/lunitide/internal/storage/sqlite'
 $listed = @(go list ./...)
 if ($LASTEXITCODE -ne 0) { throw "go list failed (exit $LASTEXITCODE)" }
 
 $appListed = @($listed | Where-Object { $_ -eq $appImport })
 $stdioListed = @($listed | Where-Object { $_ -eq $stdioImport })
-$restListed = @($listed | Where-Object { $_ -ne $appImport -and $_ -ne $stdioImport })
+$sqliteListed = @($listed | Where-Object { $_ -eq $sqliteImport })
+$restListed = @($listed | Where-Object { $_ -ne $appImport -and $_ -ne $stdioImport -and $_ -ne $sqliteImport })
 $profiles = New-Object System.Collections.Generic.List[string]
 
 if ($appListed.Count -gt 0) {
@@ -117,6 +120,22 @@ if ($appListed.Count -gt 0) {
         './internal/app'
     )
     $profiles.Add($appProfilePath)
+}
+
+if ($sqliteListed.Count -gt 0) {
+    # Isolated with -parallel 1 like internal/app: modernc.org/libc's Xmalloc
+    # faulted under Go 1.26.6 on Windows once that package's t.Parallel tests
+    # run concurrently under coverage (2026-10-07, three consecutive crashes
+    # at Xmalloc.deferwrap1 with the abort-retry exhausted). Serializing the
+    # package's tests reproduces cleanly; assertion failures still fail.
+    Invoke-GoLoggedTest -Attempts 2 -GoArgs @(
+        'test',
+        '-timeout', $Timeout,
+        '-parallel', '1',
+        "-coverprofile=$sqliteProfilePath",
+        './internal/storage/sqlite'
+    )
+    $profiles.Add($sqliteProfilePath)
 }
 
 if ($restListed.Count -gt 0) {

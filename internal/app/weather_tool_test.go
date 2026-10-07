@@ -66,7 +66,9 @@ func TestWeatherStructuredToolActualChatRoundTrip(t *testing.T) {
 			spoken.WriteString(frame.Delta.Text)
 		}
 	}
-	if modelCalls != 1 || requests != 1 || !strings.Contains(spoken.String(), "查询完成") {
+	// 天气轮禁止快捷收尾（生产事故 2026-10-07：合肥预报被固定话术吞掉）：
+	// 模型必须拿到结构化证据后生成完整回答，用户看到的是天气本身。
+	if modelCalls != 2 || requests != 1 || !strings.Contains(spoken.String(), "合肥当前预报采样为23摄氏度") {
 		t.Fatalf("model=%d requests=%d spoken=%q", modelCalls, requests, spoken.String())
 	}
 }

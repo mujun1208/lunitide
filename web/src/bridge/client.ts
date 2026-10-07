@@ -92,7 +92,7 @@ import {
   type CcGetConfigPayload, type CcGetConfigResult, type CcUpdateConfigPayload, type CcUpdateConfigResult,
   type CcGetAuditLogPayload, type CcGetAuditLogResult, type CcEmergencyStopPayload, type CcEmergencyStopResult,
   type RemoteAccessStatusResult, type RemoteAccessEnableResult, type RemoteAccessDisableResult,
-  type RemotePairCodeResult, type RemoteDevicesListResult, type RemoteDevicesRevokePayload, type RemoteDevicesRevokeResult,
+  type RemotePairCodePayload, type RemotePairCodeResult, type RemoteDevicesListResult, type RemoteDevicesRevokePayload, type RemoteDevicesRevokeResult,
   type RemoteSessionsListResult,
   type PowerKeepAwakeSetPayload, type PowerKeepAwakeSetResult,
   type ImChannelsGetPayload, type ImChannelsGetResult,
@@ -1302,7 +1302,7 @@ export interface RemoteCompanionBridge {
   accessStatus(): Promise<RemoteAccessStatusResult>
   accessEnable(): Promise<RemoteAccessEnableResult>
   accessDisable(): Promise<RemoteAccessDisableResult>
-  pairCode(): Promise<RemotePairCodeResult>
+  pairCode(payload?: RemotePairCodePayload): Promise<RemotePairCodeResult>
   devicesList(): Promise<RemoteDevicesListResult>
   devicesRevoke(payload: RemoteDevicesRevokePayload): Promise<RemoteDevicesRevokeResult>
   sessionsList(): Promise<RemoteSessionsListResult>
@@ -1314,7 +1314,7 @@ export function createRemoteCompanionBridge(transport: WebViewTransport, default
     accessStatus: () => core.request('remote.access.status', {}),
     accessEnable: () => core.request('remote.access.enable', {}),
     accessDisable: () => core.request('remote.access.disable', {}),
-    pairCode: () => core.request('remote.pair.code', {}),
+    pairCode: (p: RemotePairCodePayload = {}) => core.request('remote.pair.code', p),
     devicesList: () => core.request('remote.devices.list', {}),
     devicesRevoke: p => core.request('remote.devices.revoke', p),
     sessionsList: () => core.request('remote.sessions.list', {}),
@@ -1327,7 +1327,7 @@ export const remoteCompanionBridge: RemoteCompanionBridge = {
   accessStatus: () => getRemoteCompanionBridge().accessStatus(),
   accessEnable: () => getRemoteCompanionBridge().accessEnable(),
   accessDisable: () => getRemoteCompanionBridge().accessDisable(),
-  pairCode: () => getRemoteCompanionBridge().pairCode(),
+  pairCode: (p?: RemotePairCodePayload) => getRemoteCompanionBridge().pairCode(p),
   devicesList: () => getRemoteCompanionBridge().devicesList(),
   devicesRevoke: p => getRemoteCompanionBridge().devicesRevoke(p),
   sessionsList: () => getRemoteCompanionBridge().sessionsList(),

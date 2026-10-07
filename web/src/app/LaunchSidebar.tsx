@@ -238,7 +238,6 @@ export function LaunchSidebar({
           {officeMenu.mro && mroEnabled ? <button className={page === 'mro' ? 'active' : ''} onClick={() => setPage('mro')} aria-label={zh ? '机务工作台' : 'MRO workbench'}><NavIcon name="mro" /><span>{zh ? '机务工作台' : 'MRO workbench'}</span></button> : null}
           {officeMenu.meetings ? <button className={page === 'meetings' ? 'active' : ''} onClick={() => setPage('meetings')} aria-label={zh ? '会议记录' : 'Meeting notes'}><NavIcon name="meetings" /><span>{zh ? '会议记录' : 'Meeting notes'}</span></button> : null}
           {officeMenu.productHub ? <button className={page === 'productHub' ? 'active' : ''} onClick={() => setPage('productHub')} aria-label={zh ? '产品总览' : 'Product Hub'}><NavIcon name="productHub" /><span>{zh ? '产品总览' : 'Product Hub'}</span></button> : null}
-          {onOpenMobileCompanion ? <button onClick={onOpenMobileCompanion} aria-label={zh ? '移动伴侣' : 'Mobile companion'}><NavIcon name="phone" /><span>{zh ? '移动伴侣' : 'Mobile'}</span></button> : null}
         </div>
       ) : null}
     </section>
@@ -302,6 +301,9 @@ export function LaunchSidebar({
         <button className={page === 'settings' || page === 'providers' ? 'active' : ''} onClick={() => setPage('settings')} aria-label={zh ? '设置' : 'Settings'}><NavIcon name="settings" /><span>{zh ? '设置' : 'Settings'}</span></button>
         <div className="account-controls">
           <button className="account-placeholder" onClick={() => onOpenPeople('me')} aria-label={zh ? '打开我的资料' : 'Open my profile'}><span className="account-avatar">{identity?.avatar ? <img src={identity.avatar} alt="" /> : initials(identity?.nickname || '月')}</span><b>{identity?.nickname || (zh ? '我' : 'Me')}</b></button>
+          {onOpenMobileCompanion ? (
+            <button className="account-companion" onClick={onOpenMobileCompanion} aria-label={zh ? '移动伴侣设置（扫码配对）' : 'Mobile companion settings (pairing)'} title={zh ? '移动伴侣：扫码配对手机' : 'Mobile companion: pair your phone'}><NavIcon name="phone" /></button>
+          ) : null}
           <button onClick={onToggleTheme} aria-label={theme === 'dark' ? (zh ? '切换到白天模式' : 'Switch to light mode') : (zh ? '切换到黑夜模式' : 'Switch to dark mode')} title={theme === 'dark' ? (zh ? '白天模式' : 'Light mode') : (zh ? '黑夜模式' : 'Dark mode')}>{theme === 'dark' ? '☀' : '☾'}</button>
           <button onClick={onToggleLanguage} aria-label={zh ? '切换到英文' : 'Switch to Chinese'}>{zh ? '中/EN' : 'EN/中'}</button>
         </div>

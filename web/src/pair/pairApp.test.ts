@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clearRemoteCredentials, loadRemoteCredentials } from '../bridge/wsTransport'
-import { detectDeviceName, detectPlatform, pairWithGateway, parsePairHash } from './pairApp'
+import { applyPairLanguage, detectDeviceName, detectPlatform, installGuidance, pairWithGateway, parsePairHash } from './pairApp'
 
 const jsonResponse = (status: number, body: unknown) => {
   const text = typeof body === 'string' ? body : JSON.stringify(body)
@@ -21,6 +21,30 @@ describe('parsePairHash', () => {
   it('keeps a valid code even without a fingerprint', () => {
     expect(parsePairHash('#c=87654321')).toEqual({ code: '87654321', fingerprint: '' })
   })
+  it('carries the desktop language when the QR hash includes it', () => {
+    expect(parsePairHash('#c=12345678&fp=abcd1234abcd1234&lang=zh-CN')).toEqual({ code: '12345678', fingerprint: 'abcd1234abcd1234', lang: 'zh-CN' })
+    expect(parsePairHash('#c=12345678&lang=en')?.lang).toBe('en')
+    expect(parsePairHash('#c=12345678&lang=fr')?.lang).toBeUndefined()
+  })
+})
+
+describe('applyPairLanguage', () => {
+  beforeEach(() => localStorage.clear())
+  afterEach(() => localStorage.clear())
+
+  it('writes the language and marks the first-run default as consumed', () => {
+    applyPairLanguage('zh-CN')
+    expect(localStorage.getItem('lunitide:language')).toBe('zh-CN')
+    expect(localStorage.getItem('lunitide:language-default-en')).toBe('1')
+  })
+
+  it('skips writing for an unknown language or unavailable storage', () => {
+    applyPairLanguage(undefined)
+    expect(localStorage.getItem('lunitide:language')).toBeNull()
+    const store = { setItem: vi.fn() } as unknown as Storage
+    applyPairLanguage('en', store)
+    expect(store.setItem).toHaveBeenCalledWith('lunitide:language', 'en')
+  })
 })
 
 describe('device detection', () => {
@@ -32,6 +56,21 @@ describe('device detection', () => {
     expect(detectPlatform('iPhone')).toBe('ios-pwa')
     expect(detectPlatform('Android')).toBe('android-pwa')
     expect(detectPlatform('Firefox')).toBe('mobile-web')
+  })
+})
+
+describe('installGuidance', () => {
+  it('prefers the native install prompt whenever the browser offers it', () => {
+    expect(installGuidance('android-pwa', true)).toEqual({ kind: 'prompt' })
+    expect(installGuidance('ios-pwa', true)).toEqual({ kind: 'prompt' })
+  })
+  it('sends iOS to the Safari share-sheet path when no prompt event fired', () => {
+    expect(installGuidance('ios-pwa', false)).toEqual({ kind: 'ios-home-screen' })
+  })
+  it('explains the self-signed shortcut limitation on Android Chrome', () => {
+    // 内网自签证书：Android Chrome 不触发 beforeinstallprompt，只能快捷方式。
+    expect(installGuidance('android-pwa', false)).toEqual({ kind: 'shortcut', reason: 'self-signed' })
+    expect(installGuidance('mobile-web', false)).toEqual({ kind: 'shortcut', reason: 'unknown' })
   })
 })
 
