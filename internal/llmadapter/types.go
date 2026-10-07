@@ -70,9 +70,9 @@ type Request struct {
 	// Empty keeps the lane default. It is not a provider field by itself.
 	ReasoningLevel string
 	Mode           string
-	StrictTools      bool
-	Target           modelfit.TargetIdentity
-	Effective        *modelfit.EffectiveParameters
+	StrictTools    bool
+	Target         modelfit.TargetIdentity
+	Effective      *modelfit.EffectiveParameters
 	// Efficiency is an observation-only snapshot of request preparation.
 	// Adapters must not serialize it to providers.
 	Efficiency EfficiencySnapshot
@@ -179,6 +179,12 @@ type Options struct {
 	MaxAttempts            int
 	RetryBase              time.Duration
 	IdempotencyHeader      string
+	// StreamContentIdle bounds the gap between content deltas (reasoning,
+	// text, or tool fragments) on a live stream. A stalled upstream may keep
+	// sending keepalives or empty frames that reset both the byte-level and
+	// event-level clocks; only real content resets this one. Zero uses the
+	// default.
+	StreamContentIdle time.Duration
 }
 
 func defaults(o Options) Options {
@@ -193,6 +199,9 @@ func defaults(o Options) Options {
 	}
 	if o.RetryBase <= 0 {
 		o.RetryBase = 100 * time.Millisecond
+	}
+	if o.StreamContentIdle <= 0 {
+		o.StreamContentIdle = 4 * time.Minute
 	}
 	return o
 }

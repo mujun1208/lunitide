@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // OpenAIResponses speaks the OpenAI Responses API (POST {base}/responses).
@@ -391,7 +392,15 @@ func (a *OpenAIResponses) readStream(body io.ReadCloser, emit func(Delta) error,
 	order := []int{}
 	var final *responsesObject
 	completed := false
+	// Content clock: keepalives and empty frames reset the byte and event
+	// clocks, so a stalled stream that keeps trickling frames needs this
+	// third clock that only content deltas reset.
+	contentIdle := a.o.StreamContentIdle
+	lastContent := time.Now()
 	for {
+		if time.Since(lastContent) > contentIdle {
+			return out, safeError("TIMEOUT", StageStream, 0, "upstream stalled: no content deltas within the idle window")
+		}
 		event, eof, err := a.c.ReadSSE(body)
 		if err != nil {
 			return out, classifyStreamError(err)
@@ -420,6 +429,9 @@ func (a *OpenAIResponses) readStream(body io.ReadCloser, emit func(Delta) error,
 		switch ev.Type {
 		case "response.output_text.delta":
 			out.Message.Content += ev.Delta
+			if ev.Delta != "" {
+				lastContent = time.Now()
+			}
 			if emit != nil && ev.Delta != "" {
 				if e := emit(Delta{Text: ev.Delta}); e != nil {
 					return out, e
@@ -427,6 +439,9 @@ func (a *OpenAIResponses) readStream(body io.ReadCloser, emit func(Delta) error,
 			}
 		case "response.reasoning_summary_text.delta", "response.reasoning_text.delta", "response.reasoning.delta":
 			out.Reasoning += ev.Delta
+			if ev.Delta != "" {
+				lastContent = time.Now()
+			}
 			if emit != nil && ev.Delta != "" && !muteReasoning {
 				if e := emit(Delta{Reasoning: ev.Delta}); e != nil {
 					return out, e
@@ -436,6 +451,7 @@ func (a *OpenAIResponses) readStream(body io.ReadCloser, emit func(Delta) error,
 			if ev.Item == nil || ev.Item.Type != "function_call" || ev.OutputIndex == nil {
 				continue
 			}
+			lastContent = time.Now()
 			p := calls[*ev.OutputIndex]
 			if p == nil {
 				p = &partial{}
@@ -455,6 +471,7 @@ func (a *OpenAIResponses) readStream(body io.ReadCloser, emit func(Delta) error,
 			if ev.OutputIndex == nil {
 				continue
 			}
+			lastContent = time.Now()
 			p := calls[*ev.OutputIndex]
 			if p == nil {
 				p = &partial{}

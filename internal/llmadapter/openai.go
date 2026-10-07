@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/modelfit"
 )
@@ -321,7 +322,15 @@ func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error, wn *wire
 	type partial struct{ id, name, args string }
 	calls := map[int]*partial{}
 	completed := false
+	// Content clock: keepalives and empty frames reset the byte and event
+	// clocks, so a stalled stream that keeps trickling frames needs this
+	// third clock that only content deltas reset.
+	contentIdle := a.o.StreamContentIdle
+	lastContent := time.Now()
 	for {
+		if time.Since(lastContent) > contentIdle {
+			return out, safeError("TIMEOUT", StageStream, 0, "upstream stalled: no content deltas within the idle window")
+		}
 		event, eof, err := a.c.ReadSSE(body)
 		if err != nil {
 			return out, classifyStreamError(err)
@@ -354,6 +363,9 @@ func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error, wn *wire
 			out.recordFinishReason(chunk.Choices[0].FinishReason)
 			reasoning := chunk.Choices[0].Delta.ReasoningContent
 			out.Reasoning += reasoning
+			if reasoning != "" {
+				lastContent = time.Now()
+			}
 			if emit != nil && reasoning != "" {
 				if e := emit(Delta{Reasoning: reasoning}); e != nil {
 					return out, e
@@ -361,12 +373,16 @@ func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error, wn *wire
 			}
 			text := chunk.Choices[0].Delta.Content
 			out.Message.Content += text
+			if text != "" {
+				lastContent = time.Now()
+			}
 			if emit != nil && text != "" {
 				if e := emit(Delta{Text: text}); e != nil {
 					return out, e
 				}
 			}
 			for _, tc := range chunk.Choices[0].Delta.ToolCalls {
+				lastContent = time.Now()
 				p := calls[tc.Index]
 				if p == nil {
 					p = &partial{}

@@ -25,10 +25,15 @@ type Options struct {
 	OverallTimeout        time.Duration
 	DisableOverallTimeout bool
 	IdleReadTimeout       time.Duration
-	MaxResponseBytes      int64
-	MaxSSELineBytes       int
-	MaxSSEEventBytes      int
-	TLSConfig             *tls.Config
+	// EventIdleTimeout bounds the gap between meaningful SSE events.
+	// IdleReadTimeout only sees raw bytes, so a stalled upstream whose
+	// gateway keeps sending comment keepalives never trips it; the event
+	// clock cuts those streams too. Zero disables the event clock.
+	EventIdleTimeout time.Duration
+	MaxResponseBytes int64
+	MaxSSELineBytes  int
+	MaxSSEEventBytes int
+	TLSConfig        *tls.Config
 }
 
 type Connector struct {
@@ -41,6 +46,7 @@ type Connector struct {
 	maxBody   int64
 	maxLine   int
 	maxEvent  int
+	eventIdle time.Duration
 	basePath  string
 }
 
@@ -101,7 +107,7 @@ func New(ctx context.Context, rawBase, apiPath string, o Options) (*Connector, e
 		IdleConnTimeout:       90 * time.Second,
 		ForceAttemptHTTP2:     true,
 	}
-	c := &Connector{BaseURL: u.String(), scheme: scheme, host: host, port: port, authority: authority, maxBody: o.MaxResponseBytes, maxLine: o.MaxSSELineBytes, maxEvent: o.MaxSSEEventBytes, basePath: u.EscapedPath()}
+	c := &Connector{BaseURL: u.String(), scheme: scheme, host: host, port: port, authority: authority, maxBody: o.MaxResponseBytes, maxLine: o.MaxSSELineBytes, maxEvent: o.MaxSSEEventBytes, eventIdle: o.EventIdleTimeout, basePath: u.EscapedPath()}
 	c.Client = &http.Client{Transport: tr, Timeout: o.OverallTimeout, CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 		return &Error{Code: CodeRedirectBlocked, Op: "redirect"}
 	}}
@@ -301,11 +307,19 @@ func classifyError(op string, err error) error {
 }
 
 // ReadSSE skips empty/comment keepalives; eof distinguishes clean completion.
+// The event clock (eventIdle) starts on entry - the caller just received the
+// previous meaningful event - so a stream that keeps trickling keepalive bytes
+// without ever producing another event fails with CodeTimeout instead of
+// resetting the byte-level read deadline forever.
 func (c *Connector) ReadSSE(r io.Reader) ([]byte, bool, error) {
 	var event []byte
 	line := make([]byte, 0, min(c.maxLine, 4096))
 	one := []byte{0}
+	started := time.Now()
 	for {
+		if c.eventIdle > 0 && time.Since(started) > c.eventIdle {
+			return nil, false, &Error{Code: CodeTimeout, Op: "read SSE keepalive"}
+		}
 		n, err := r.Read(one)
 		if n > 0 {
 			if one[0] == '\n' {

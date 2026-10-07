@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 const anthropicVersion = "2023-06-01"
@@ -292,7 +293,15 @@ func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error, wn *w
 	partials := map[int]*partialCall{}
 	var usage anthropicUsage
 	completed := false
+	// Content clock: ping events and empty frames reset the byte and event
+	// clocks, so a stalled stream that keeps trickling frames needs this
+	// third clock that only content deltas reset.
+	contentIdle := a.o.StreamContentIdle
+	lastContent := time.Now()
 	for {
+		if time.Since(lastContent) > contentIdle {
+			return out, safeError("TIMEOUT", StageStream, 0, "upstream stalled: no content deltas within the idle window")
+		}
 		ev, eof, e := a.c.ReadSSE(body)
 		if e != nil {
 			return out, classifyStreamError(e)
@@ -314,6 +323,9 @@ func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error, wn *w
 		}
 		if typ == "content_block_delta" && x.Delta.Type == "text_delta" {
 			out.Message.Content += x.Delta.Text
+			if x.Delta.Text != "" {
+				lastContent = time.Now()
+			}
 			if emit != nil {
 				if e := emit(Delta{Text: x.Delta.Text}); e != nil {
 					return out, e
@@ -322,6 +334,7 @@ func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error, wn *w
 		}
 		if typ == "content_block_delta" && x.Delta.Type == "thinking_delta" && x.Delta.Thinking != "" {
 			out.Reasoning += x.Delta.Thinking
+			lastContent = time.Now()
 			if emit != nil {
 				if e := emit(Delta{Reasoning: x.Delta.Thinking}); e != nil {
 					return out, e
@@ -342,6 +355,9 @@ func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error, wn *w
 			p := partials[x.Index]
 			if p == nil {
 				return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "tool fragment omitted start")
+			}
+			if x.Delta.PartialJSON != "" {
+				lastContent = time.Now()
 			}
 			p.args.WriteString(x.Delta.PartialJSON)
 		}

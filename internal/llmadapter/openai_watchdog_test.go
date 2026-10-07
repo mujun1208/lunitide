@@ -23,14 +23,20 @@ import (
 )
 
 // Real-chain watchdog tests. The engine pins every model call behind the
-// networkpolicy transport with an idle-read watchdog (engine.go: 4-minute
-// idle, 60-second response header). These tests drive the production
-// NewOpenAI.Stream path against a real local SSE server over both
-// HTTP/2+TLS and plain HTTP/1.1, with the same watchdog mechanics scaled
-// down to hundreds of milliseconds. The Ark Plan endpoint negotiates
-// HTTP/2, so the h2 cases exercise the production wire protocol; the
-// classification a stuck stream receives decides whether the chat run
-// loop retries it (chatModelCallRetryable accepts only TIMEOUT).
+// networkpolicy transport with a three-layer stream watchdog (engine.go:
+// 4-minute clocks, 60-second response header): L1 byte-level
+// IdleReadTimeout catches pure silence; L2 the event clock catches
+// gateways that keep sending ": keepalive" comments forever - bytes flow,
+// so L1 never fires, but no meaningful SSE event ever arrives; L3 the
+// content clock catches empty data frames and ping events - events
+// arrive, so L2 never fires, but no reasoning/text/tool delta ever lands.
+// These tests drive the production NewOpenAI/NewAnthropic/NewOpenAIResponses
+// Stream path against a real local SSE server over both HTTP/2+TLS and plain
+// HTTP/1.1, with the same watchdog mechanics scaled down to hundreds of
+// milliseconds. The Ark Plan endpoint negotiates HTTP/2, so the h2 cases
+// exercise the production wire protocol; the classification a stuck stream
+// receives decides whether the chat run loop retries it
+// (chatModelCallRetryable accepts only TIMEOUT).
 
 const (
 	watchdogIdle   = 500 * time.Millisecond
@@ -83,11 +89,22 @@ func h2WatchdogServer(t *testing.T, handler http.HandlerFunc) (*httptest.Server,
 
 func watchdogConnector(t *testing.T, baseURL string, roots *x509.CertPool) Connector {
 	t.Helper()
+	return watchdogConnectorCfg(t, baseURL, roots, watchdogIdle, 0)
+}
+
+// watchdogConnectorCfg lets a test separate the clocks so the one that
+// fired is identifiable from the elapsed time: idle is the byte-level
+// IdleReadTimeout (L1), eventIdle the keepalive/event clock (L2), and the
+// content clock (L3) rides on the adapter Options instead. Zero disables
+// a clock; a large value isolates it from the one under test.
+func watchdogConnectorCfg(t *testing.T, baseURL string, roots *x509.CertPool, idle, eventIdle time.Duration) Connector {
+	t.Helper()
 	o := networkpolicy.Options{
 		ConnectTimeout:        2 * time.Second,
 		ResponseHeaderTimeout: watchdogHeader,
 		DisableOverallTimeout: true,
-		IdleReadTimeout:       watchdogIdle,
+		IdleReadTimeout:       idle,
+		EventIdleTimeout:      eventIdle,
 		MaxResponseBytes:      1 << 20,
 		Policy:                networkpolicy.Policy{AllowLocalhost: true, AllowHTTP: true},
 	}
@@ -133,7 +150,14 @@ func sseFrames(content string, frameGap time.Duration, hang bool) http.HandlerFu
 
 func streamViaWatchdog(t *testing.T, c Connector, ctx context.Context) (Response, []Delta, time.Duration, error) {
 	t.Helper()
-	a := NewOpenAI(c, Options{})
+	return streamViaWatchdogOpts(t, c, ctx, Options{})
+}
+
+// streamViaWatchdogOpts passes adapter Options through, which is how a
+// test arms the content clock (Options.StreamContentIdle).
+func streamViaWatchdogOpts(t *testing.T, c Connector, ctx context.Context, o Options) (Response, []Delta, time.Duration, error) {
+	t.Helper()
+	a := NewOpenAI(c, o)
 	var deltas []Delta
 	start := time.Now()
 	resp, err := a.Stream(ctx, nil, watchdogRequest(), func(d Delta) error {
@@ -320,5 +344,195 @@ func TestWatchdogIdleHangAnthropicProtocolIsRetryableTimeout(t *testing.T) {
 	}
 	if resp.Message.Content != "anthropic挂死" {
 		t.Fatalf("partial content must survive: %q", resp.Message.Content)
+	}
+}
+
+// L2: the gateway keeps sending ": keepalive" comment bytes while the
+// model is stuck - bytes flow, so the byte-level clock never fires. This
+// is the 325s hang shape observed in production. The event clock must cut
+// it as a retryable stream-stage TIMEOUT.
+func TestWatchdogKeepaliveOnlyHangIsRetryableTimeout(t *testing.T) {
+	srv, pool := h2WatchdogServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		fmt.Fprintf(w, "data: %s\n\n", `{"id":"1","choices":[{"delta":{"content":"心跳挂死前的部分内容"}}]}`)
+		flusher.Flush()
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(30 * time.Millisecond):
+				fmt.Fprint(w, ": keepalive\n\n")
+				flusher.Flush()
+			}
+		}
+	})
+	// idle=4s isolates the byte clock; only the 600ms event clock can fire.
+	c := watchdogConnectorCfg(t, srv.URL, pool, 4*time.Second, 600*time.Millisecond)
+	resp, _, elapsed, err := streamViaWatchdog(t, c, context.Background())
+	if err == nil {
+		t.Fatal("a keepalive-only hang must fail")
+	}
+	code, stage := gatewayErrorCode(t, err)
+	if code != "TIMEOUT" || stage != StageStream {
+		t.Fatalf("code=%q stage=%q: keepalive hangs must surface as a stream-stage TIMEOUT so the run loop retries them", code, stage)
+	}
+	if elapsed < 600*time.Millisecond || elapsed > 8*time.Second {
+		t.Fatalf("event clock fired at %s, want ~600ms", elapsed)
+	}
+	if resp.Message.Content != "心跳挂死前的部分内容" {
+		t.Fatalf("partial content must survive the event-clock cut: %q", resp.Message.Content)
+	}
+}
+
+// L3: empty data frames are meaningful events - the event clock returns
+// each one - but no reasoning/text/tool delta ever lands. Only the
+// content clock, reset by real deltas alone, can cut this shape.
+func TestWatchdogEmptyDataFramesAreCutByContentClock(t *testing.T) {
+	srv, pool := h2WatchdogServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		fmt.Fprintf(w, "data: %s\n\n", `{"id":"1","choices":[{"delta":{"content":"空帧前的部分内容"}}]}`)
+		flusher.Flush()
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(30 * time.Millisecond):
+				fmt.Fprint(w, "data: {\"id\":\"1\",\"choices\":[{\"delta\":{}}]}\n\n")
+				flusher.Flush()
+			}
+		}
+	})
+	// idle=4s and eventIdle=0 disable L1/L2; the 500ms content clock is
+	// the only one that can fire, so a cut proves L3 specifically.
+	c := watchdogConnectorCfg(t, srv.URL, pool, 4*time.Second, 0)
+	resp, _, elapsed, err := streamViaWatchdogOpts(t, c, context.Background(), Options{StreamContentIdle: 500 * time.Millisecond})
+	if err == nil {
+		t.Fatal("an empty-frame hang must fail")
+	}
+	code, stage := gatewayErrorCode(t, err)
+	if code != "TIMEOUT" || stage != StageStream {
+		t.Fatalf("code=%q stage=%q: empty-frame hangs must surface as a stream-stage TIMEOUT so the run loop retries them", code, stage)
+	}
+	if elapsed < 500*time.Millisecond || elapsed > 8*time.Second {
+		t.Fatalf("content clock fired at %s, want ~500ms", elapsed)
+	}
+	if resp.Message.Content != "空帧前的部分内容" {
+		t.Fatalf("partial content must survive the content-clock cut: %q", resp.Message.Content)
+	}
+}
+
+// No false positives: keepalives between real deltas are normal gateway
+// behavior. With all three clocks armed, a stream that keeps producing
+// content must complete untouched.
+func TestWatchdogKeepaliveWithContentStillCompletes(t *testing.T) {
+	srv, pool := h2WatchdogServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		for _, text := range []string{"第", "二", "段"} {
+			fmt.Fprintf(w, "data: %s\n\n", `{"id":"1","choices":[{"delta":{"content":"`+text+`"}}]}`)
+			flusher.Flush()
+			for i := 0; i < 3; i++ {
+				time.Sleep(40 * time.Millisecond)
+				fmt.Fprint(w, ": keepalive\n\n")
+				flusher.Flush()
+			}
+		}
+		fmt.Fprintf(w, "data: %s\n\n", `{"id":"1","choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}`)
+		flusher.Flush()
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	})
+	// All three clocks at 500ms; the ~120ms content gaps stay under each.
+	c := watchdogConnectorCfg(t, srv.URL, pool, watchdogIdle, watchdogIdle)
+	resp, _, _, err := streamViaWatchdogOpts(t, c, context.Background(), Options{StreamContentIdle: watchdogIdle})
+	if err != nil {
+		t.Fatalf("a keepalive-beat stream with live content was cut: %v", err)
+	}
+	if resp.Message.Content != "第二段" {
+		t.Fatalf("content=%q", resp.Message.Content)
+	}
+}
+
+// L3 on the anthropic adapter: "event: ping" frames carry a data line, so
+// they count as meaningful events and the event clock never fires. The
+// content clock must cut the stuck stream.
+func TestWatchdogAnthropicPingHangIsRetryableTimeout(t *testing.T) {
+	srv, pool := h2WatchdogServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		fmt.Fprint(w, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{}}\n\n")
+		fmt.Fprint(w, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"ping挂死前的部分内容\"}}\n\n")
+		flusher.Flush()
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(30 * time.Millisecond):
+				fmt.Fprint(w, "event: ping\ndata: {\"type\":\"ping\"}\n\n")
+				flusher.Flush()
+			}
+		}
+	})
+	// L1/L2 disabled; only the 500ms content clock can fire.
+	c := watchdogConnectorCfg(t, srv.URL, pool, 4*time.Second, 0)
+	a := NewAnthropic(c, Options{StreamContentIdle: 500 * time.Millisecond})
+	start := time.Now()
+	resp, err := a.Stream(context.Background(), nil, Request{Model: "claude", MaxTokens: 64, Messages: []Message{{Role: RoleUser, Content: "写一段"}}}, func(Delta) error { return nil })
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("a ping-only hang must fail")
+	}
+	code, stage := gatewayErrorCode(t, err)
+	if code != "TIMEOUT" || stage != StageStream {
+		t.Fatalf("code=%q stage=%q: anthropic ping hangs must surface as a stream-stage TIMEOUT so the run loop retries them", code, stage)
+	}
+	if elapsed < 500*time.Millisecond || elapsed > 8*time.Second {
+		t.Fatalf("content clock fired at %s, want ~500ms", elapsed)
+	}
+	if resp.Message.Content != "ping挂死前的部分内容" {
+		t.Fatalf("partial content must survive the content-clock cut: %q", resp.Message.Content)
+	}
+}
+
+// L3 on the Responses adapter - the wire Ark Agent Plan speaks: events like
+// response.in_progress carry a data line, so they count as meaningful events
+// and the event clock never fires, but no text/reasoning/tool delta ever
+// lands. The content clock must cut the stuck stream.
+func TestWatchdogResponsesInProgressHangIsRetryableTimeout(t *testing.T) {
+	srv, pool := h2WatchdogServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		fmt.Fprint(w, "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"进度挂死前的部分内容\"}\n\n")
+		flusher.Flush()
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(30 * time.Millisecond):
+				fmt.Fprint(w, "event: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"response\":{}}\n\n")
+				flusher.Flush()
+			}
+		}
+	})
+	// L1/L2 disabled; only the 500ms content clock can fire.
+	c := watchdogConnectorCfg(t, srv.URL, pool, 4*time.Second, 0)
+	a := NewOpenAIResponses(c, Options{StreamContentIdle: 500 * time.Millisecond})
+	start := time.Now()
+	resp, err := a.Stream(context.Background(), nil, watchdogRequest(), func(Delta) error { return nil })
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("an in-progress-only hang must fail")
+	}
+	code, stage := gatewayErrorCode(t, err)
+	if code != "TIMEOUT" || stage != StageStream {
+		t.Fatalf("code=%q stage=%q: responses in-progress hangs must surface as a stream-stage TIMEOUT so the run loop retries them", code, stage)
+	}
+	if elapsed < 500*time.Millisecond || elapsed > 8*time.Second {
+		t.Fatalf("content clock fired at %s, want ~500ms", elapsed)
+	}
+	if resp.Message.Content != "进度挂死前的部分内容" {
+		t.Fatalf("partial content must survive the content-clock cut: %q", resp.Message.Content)
 	}
 }

@@ -1205,8 +1205,11 @@ func NewEngineWithGateway(providers ProviderService, version string, leases Leas
 		// gateway cuts it, and the 3-hour idle read waited for all of it.
 		// Four idle minutes = dead connection, retried as TIMEOUT; sixty
 		// seconds without response headers = the request never reached a
-		// model. The turn budget, not this socket, owns the long-task clock.
-		network: networkpolicy.Options{ConnectTimeout: 10 * time.Second, ResponseHeaderTimeout: turnStreamHeaderTimeout, DisableOverallTimeout: true, IdleReadTimeout: turnStreamIdleTimeout, MaxResponseBytes: 1 << 20},
+		// model. The event clock covers keepalive-only stalls that keep the
+		// byte clock alive, and the adapter's content clock covers empty
+		// frames that keep both alive. The turn budget, not this socket,
+		// owns the long-task clock.
+		network: networkpolicy.Options{ConnectTimeout: 10 * time.Second, ResponseHeaderTimeout: turnStreamHeaderTimeout, DisableOverallTimeout: true, IdleReadTimeout: turnStreamIdleTimeout, EventIdleTimeout: turnStreamIdleTimeout, MaxResponseBytes: 1 << 20},
 		gateway: llmadapter.Options{MaxModels: 50, MaxAttempts: 1, MaxRequestBytes: 5 << 20, DisableTokenEfficiency: !config.TokenEfficiencyEnabled()}}
 }
 
