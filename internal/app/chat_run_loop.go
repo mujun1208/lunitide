@@ -42,6 +42,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	var generationBudget turnGenerationBudget
 	var turnArtifacts []SessionArtifact
 	turn := chatTurnCheckpoint{Status: turnStatusRunning, StreamID: id, Goal: carryMediaCenterGoal(req.Messages)}
+	// The turn footer (elapsed + tokens) is measured from checkpoint start,
+	// covering every model call, tool loop and continuation wave alike.
+	turnStartedAt := time.Now()
 	computerTurn := computerExecutionTurn(turn.Goal)
 	checkpointErr := e.reconcileTurnCheckpointOnStart(sessionID, &turn)
 	seedContinuationFromScope(ctx, &turn)
@@ -2012,7 +2015,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	// tool continuations and forced summaries. The budget counts each model
 	// call once regardless of repeated provider usage frames.
 	if u := generationBudget.usageSnapshot(); u.TotalTokens > 0 || u.CacheUsageReported {
-		usage := &bridge.UsageEvent{InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, TotalTokens: u.TotalTokens, CachedInputTokens: u.CachedInputTokens, CacheWriteInputTokens: u.CacheWriteInputTokens, CacheUsageReported: u.CacheUsageReported}
+		usage := &bridge.UsageEvent{InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, TotalTokens: u.TotalTokens, CachedInputTokens: u.CachedInputTokens, CacheWriteInputTokens: u.CacheWriteInputTokens, CacheUsageReported: u.CacheUsageReported, DurationMs: time.Since(turnStartedAt).Milliseconds()}
 		if sendErr := send(bridge.Event{Type: bridge.EventUsage, Usage: usage}); sendErr != nil {
 			err = errors.Join(err, sendErr)
 		}
@@ -2167,6 +2170,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					turnArtifacts[i].OfficeTaskID = officeTaskContextID(ctx)
 				}
 				e.appendMessageArtifacts(sessionID, messageID, turnArtifacts)
+				// Persist the same turn footer the live usage event carried
+				// so history pages keep showing elapsed + tokens after the
+				// live reply is retired into the message list.
+				e.saveMessageTurnStats(sessionID, messageID, messageTurnStatsFromUsage(messageID, time.Since(turnStartedAt).Milliseconds(), usageSrc, req.Model))
 				e.pushInboundReply(sessionID, text)
 			}
 		}

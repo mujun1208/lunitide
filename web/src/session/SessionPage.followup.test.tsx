@@ -170,3 +170,56 @@ it('pivots to a new task: cancels in-flight work, refreshes history, starts a ne
   expect(live).toContain('正在查天气')
   expect(live).not.toContain('先定受众和页序')
 })
+
+it('starts a fresh turn after a user.ask decision even when the parked turn lost its terminal event', async () => {
+  let onEvent!: (event: StreamEvent) => void
+  const firstStream: ChatStream = { streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', cancel: vi.fn().mockResolvedValue(true), dispose: vi.fn() }
+  const nextStream: ChatStream = { streamId: '01ARZ3NDEKTSV4RRFFQ69G5FB2', cancel: vi.fn().mockResolvedValue(true), dispose: vi.fn() }
+  const start = vi.fn().mockImplementation(async (_payload, onStreamEvent) => {
+    onEvent = onStreamEvent
+    return start.mock.calls.length > 1 ? nextStream : firstStream
+  })
+  const approve = vi.fn().mockResolvedValue({ status: 'tool_completed', summary: '已按选择继续' })
+  const chat: ChatBridge = { start, approve, dispose: vi.fn() }
+  const append = vi.fn().mockResolvedValue({})
+  const user = userEvent.setup()
+  await openSession(chat, { list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append } as MessageBridge)
+  fireEvent.change(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'), { target: { value: '帮我写一篇论文' } })
+  await user.click(screen.getByRole('button', { name: '↑ 发送并对话' }))
+  await waitFor(() => expect(start).toHaveBeenCalledOnce())
+  // The stream parks on a user.ask decision card and its terminal event is lost
+  // (dropped while the window was hidden): the registry entry becomes a zombie.
+  await act(async () => onEvent({ v: '1.0', kind: 'event', id: '01ARZ3NDEKTSV4RRFFQ69G5FAE', streamId: firstStream.streamId, sequence: 1, type: 'approval_required', tool: { callId: '01ARZ3NDEKTSV4RRFFQ69G5FC1', name: 'user.ask', argsDigest: 'a'.repeat(64), summary: '{"title":"论文风格与侧重","reason":"decision","questions":[{"id":"style","prompt":"论文风格与侧重","options":[{"id":"academic","label":"学术严谨"},{"id":"practical","label":"落地实用","recommended":true}]}]}' } }))
+  await user.click(await screen.findByRole('radio', { name: /落地实用/ }))
+  await user.click(screen.getByRole('button', { name: '提交决策' }))
+  await waitFor(() => expect(approve).toHaveBeenCalledOnce())
+  // The decision must continue as a fresh turn instead of dead-locking in the
+  // durable input queue waiting for a terminal event that will never arrive.
+  await waitFor(() => expect(start).toHaveBeenCalledTimes(2))
+  expect(runQueueBridge.input).not.toHaveBeenCalled()
+  expect(append).toHaveBeenLastCalledWith(expect.objectContaining({ text: expect.stringContaining('【决策提交】论文风格与侧重') }), expect.anything())
+  expect(start.mock.calls[1][0]).toMatchObject({ sessionId: S })
+})
+
+it('restores the elapsed timer when the panel remounts onto a live turn', async () => {
+  let onEvent!: (event: StreamEvent) => void
+  const stream: ChatStream = { streamId: '01ARZ3NDEKTSV4RRFFQ69G5FAD', cancel: vi.fn().mockResolvedValue(true), dispose: vi.fn() }
+  const start = vi.fn().mockImplementation(async (_payload, onStreamEvent) => {
+    onEvent = onStreamEvent
+    return stream
+  })
+  const chat: ChatBridge = { start, approve: vi.fn(), dispose: vi.fn() }
+  const messages = { list: vi.fn().mockResolvedValue({ items: [], hasMore: false, nextCursor: null, snapshotSequence: 0 }), append: vi.fn().mockResolvedValue({}) } as MessageBridge
+  const user = userEvent.setup()
+  await openSession(chat, messages)
+  fireEvent.change(screen.getByLabelText('向月汐提问，或描述你想完成的任务…'), { target: { value: '请 PPT专家做一份介绍' } })
+  await user.click(screen.getByRole('button', { name: '↑ 发送并对话' }))
+  await waitFor(() => expect(start).toHaveBeenCalledOnce())
+  await act(async () => onEvent({ v: '1.0', kind: 'event', id: '01ARZ3NDEKTSV4RRFFQ69G5FAE', streamId: stream.streamId, sequence: 1, type: 'thinking', thinking: { text: '先定受众和页序，再动手做幻灯片。' } }))
+  expect(document.querySelector('.thinking-summary-chip')?.textContent ?? '').toMatch(/^耗时 /)
+  // Switch away and back: the panel fully remounts onto the still-live
+  // registry entry and must restore the turn's elapsed timer.
+  cleanup()
+  await openSession(chat, messages)
+  await waitFor(() => expect(document.querySelector('.thinking-summary-chip')?.textContent ?? '').toMatch(/^耗时 /))
+})

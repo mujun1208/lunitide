@@ -90,6 +90,7 @@ func handleMessageList(e *Engine, ctx context.Context, r bridge.Request) bridge.
 	}
 	payload := enrichMessageListPage(page, e.loadSessionArtifactsByMessage(p.SessionID))
 	e.enrichMessageProcessPage(p.SessionID, payload)
+	e.enrichMessageTurnStatsPage(p.SessionID, payload)
 	return r.Ok(payload)
 }
 func handleMessageRewind(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {

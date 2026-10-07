@@ -369,6 +369,56 @@
         "version"
       ]
     },
+    "MessageTurnStatsDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "durationMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "inputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "outputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "totalTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cachedInputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cacheWriteInputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cacheUsageReported": {
+          "type": "boolean"
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "durationMs",
+        "inputTokens",
+        "outputTokens",
+        "totalTokens"
+      ]
+    },
     "MessageDTO": {
       "type": "object",
       "additionalProperties": false,
@@ -411,6 +461,9 @@
         },
         "hasProcess": {
           "type": "boolean"
+        },
+        "turnStats": {
+          "$ref": "#/$defs/MessageTurnStatsDTO"
         }
       },
       "required": [

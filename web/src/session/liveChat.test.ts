@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { applyLiveChatEvent, cancelLiveChatTurn, listActiveSessionIds, listActiveTurns, resetLiveChatForTests, startLiveChat, subscribeLiveChat, subscribeLiveChatRegistry } from './liveChat'
+import { applyLiveChatEvent, cancelLiveChatTurn, listActiveSessionIds, listActiveTurns, resetLiveChatForTests, resolveLiveApproval, retireLiveChatTurn, startLiveChat, startLiveChatWatchdog, subscribeLiveChat, subscribeLiveChatRegistry } from './liveChat'
 
 afterEach(resetLiveChatForTests)
 
@@ -69,4 +69,81 @@ it('records the auto-equip signal on the live turn state', () => {
   applyLiveChatEvent(entry, { v: '1.0', kind: 'event', id: 'e3', streamId: 's-eq', sequence: 1, type: 'equip', equip: { experts: ['PPT专家'], skills: ['slide-builder'], missingMcp: ['playwright'] } })
   expect(entry.state.equip).toEqual({ experts: ['PPT专家'], skills: ['slide-builder'], missingMcp: ['playwright'] })
   applyLiveChatEvent(entry, { v: '1.0', kind: 'event', id: 'e4', streamId: 's-eq', sequence: 2, type: 'completed' })
+})
+
+it('records when the turn started so a remount can restore the elapsed timer', () => {
+  const before = Date.now()
+  const entry = startLiveChat('session-start', 'turn-1')
+  expect(entry.state.startedAtMs).toBeGreaterThanOrEqual(before)
+  expect(entry.state.startedAtMs).toBeLessThanOrEqual(Date.now())
+  expect(entry.lastEventAt).toBe(entry.state.startedAtMs)
+})
+
+it('retires a zombie turn silently without notifying listeners', () => {
+  const activity = vi.fn()
+  const entry = startLiveChat('session-retire', 'turn-1', activity)
+  const seen: string[] = []
+  subscribeLiveChat('session-retire', event => { seen.push(event.type) }, 'turn-1')
+  retireLiveChatTurn(entry)
+  expect(entry.terminal).toBe(true)
+  expect(listActiveTurns('session-retire')).toHaveLength(0)
+  expect(seen).toEqual([])
+  expect(activity).toHaveBeenCalledWith(false)
+})
+
+it('watchdog retires a silent zombie turn with a synthetic cancelled event', async () => {
+  vi.useFakeTimers()
+  const entry = startLiveChat('session-watchdog', 'turn-1')
+  const seen: string[] = []
+  subscribeLiveChat('session-watchdog', event => { seen.push(event.type) }, 'turn-1')
+  entry.lastEventAt = Date.now() - 301_000
+  startLiveChatWatchdog({ intervalMs: 1_000, silenceMs: 300_000 })
+  await vi.advanceTimersByTimeAsync(1_000)
+  expect(entry.terminal).toBe(true)
+  expect(entry.state.chatStatus).toBe('cancelled')
+  expect(seen).toContain('cancelled')
+  expect(listActiveTurns('session-watchdog')).toHaveLength(0)
+  vi.useRealTimers()
+})
+
+it('watchdog spares turns awaiting approval or running a tool', async () => {
+  vi.useFakeTimers()
+  const digest = 'a'.repeat(64)
+  const pending = startLiveChat('session-watchdog-spare', 'turn-1')
+  applyLiveChatEvent(pending, { v: '1.0', kind: 'event', id: 'wd-1', streamId: 's-wd', sequence: 1, type: 'approval_required', tool: { callId: 'c1', name: 'shell.exec', argsDigest: digest } })
+  const running = startLiveChat('session-watchdog-spare', 'turn-2')
+  applyLiveChatEvent(running, { v: '1.0', kind: 'event', id: 'wd-2', streamId: 's-wd', sequence: 1, type: 'tool_started', tool: { callId: 'c2', name: 'web.search', argsDigest: digest } })
+  pending.lastEventAt = Date.now() - 301_000
+  running.lastEventAt = Date.now() - 301_000
+  startLiveChatWatchdog({ intervalMs: 1_000, silenceMs: 300_000 })
+  await vi.advanceTimersByTimeAsync(2_000)
+  expect(pending.terminal).toBe(false)
+  expect(running.terminal).toBe(false)
+  vi.useRealTimers()
+})
+
+it('watchdog leaves recently active turns alone and stays idempotent', async () => {
+  vi.useFakeTimers()
+  const entry = startLiveChat('session-watchdog-fresh', 'turn-1')
+  startLiveChatWatchdog({ intervalMs: 1_000, silenceMs: 300_000 })
+  startLiveChatWatchdog()
+  await vi.advanceTimersByTimeAsync(5_000)
+  expect(entry.terminal).toBe(false)
+  vi.useRealTimers()
+})
+
+it('clears the approval exemption once a decision is consumed', async () => {
+  vi.useFakeTimers()
+  const digest = 'a'.repeat(64)
+  const entry = startLiveChat('session-resolve', 'turn-1')
+  applyLiveChatEvent(entry, { v: '1.0', kind: 'event', id: 'rs-1', streamId: 's-rs', sequence: 1, type: 'approval_required', tool: { callId: 'c1', name: 'shell.exec', argsDigest: digest } })
+  entry.lastEventAt = Date.now() - 301_000
+  startLiveChatWatchdog({ intervalMs: 500, silenceMs: 300_000 })
+  await vi.advanceTimersByTimeAsync(500)
+  expect(entry.terminal).toBe(false)
+  resolveLiveApproval('session-resolve', 'c1', 'tool_completed')
+  await vi.advanceTimersByTimeAsync(500)
+  expect(entry.terminal).toBe(true)
+  expect(entry.state.chatStatus).toBe('cancelled')
+  vi.useRealTimers()
 })

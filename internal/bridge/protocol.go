@@ -140,12 +140,16 @@ type ThinkingEvent struct {
 	Text string `json:"text"`
 }
 type UsageEvent struct {
-	InputTokens           int  `json:"inputTokens"`
-	OutputTokens          int  `json:"outputTokens"`
-	TotalTokens           int  `json:"totalTokens"`
-	CachedInputTokens     int  `json:"cachedInputTokens,omitempty"`
-	CacheWriteInputTokens int  `json:"cacheWriteInputTokens,omitempty"`
-	CacheUsageReported    bool `json:"cacheUsageReported,omitempty"`
+	InputTokens           int   `json:"inputTokens"`
+	OutputTokens          int   `json:"outputTokens"`
+	TotalTokens           int   `json:"totalTokens"`
+	CachedInputTokens     int   `json:"cachedInputTokens,omitempty"`
+	CacheWriteInputTokens int   `json:"cacheWriteInputTokens,omitempty"`
+	CacheUsageReported    bool  `json:"cacheUsageReported,omitempty"`
+	// DurationMs is the wall-clock length of the whole turn (model calls,
+	// tool loops, continuations), published with the aggregate usage so the
+	// client can render the turn footer without its own clock.
+	DurationMs int64 `json:"durationMs,omitempty"`
 }
 type CompletedEvent struct {
 	MessageID     string `json:"messageId,omitempty"`

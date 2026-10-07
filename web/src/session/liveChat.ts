@@ -34,6 +34,7 @@ export interface LiveChatState {
   assistantText: string
   thinkingText: string
   toolActivities: LiveToolActivity[]
+  startedAtMs: number
   usage?: Extract<StreamEvent, {type: 'usage'}>['usage']
   error?: { message: string; code: string; retryable: boolean }
   guidance?: { labels: string[]; digest: string }
@@ -47,6 +48,7 @@ export interface LiveChatEntry {
   stream?: ChatStream
   state: LiveChatState
   terminal: boolean
+  lastEventAt: number
   activity?: (active: boolean) => void
   listeners: Set<(event: StreamEvent) => void>
 }
@@ -103,11 +105,13 @@ export function startLiveChat(sessionId: string, turnId = '_current', activity?:
   const key = liveTurnKey(sessionId, turnId)
   const previous = entries.get(key)
   if (previous && !previous.terminal) void previous.stream?.cancel().catch(() => {})
+  const now = Date.now()
   const entry: LiveChatEntry = {
     sessionId,
     turnId,
-    state: { chatStatus: 'streaming', assistantText: '', thinkingText: '', toolActivities: [] },
+    state: { chatStatus: 'streaming', assistantText: '', thinkingText: '', toolActivities: [], startedAtMs: now },
     terminal: false,
+    lastEventAt: now,
     activity,
     listeners: new Set(),
   }
@@ -164,6 +168,7 @@ export function subscribeLiveChat(sessionId: string, listener: (event: StreamEve
  *  the App activity spinner through the captured callback. */
 export function applyLiveChatEvent(entry: LiveChatEntry, event: StreamEvent): void {
   if (entry.terminal) return
+  entry.lastEventAt = Date.now()
   try {
     const state = entry.state
     switch (event.type) {
@@ -236,11 +241,71 @@ export function failLiveChat(entry: LiveChatEntry): void {
   if (!listActiveTurns(entry.sessionId).length) entry.activity?.(false)
 }
 
+/** Retire an entry without emitting any terminal stream event. For turns
+ *  whose server side will never emit another event (a user.ask approval
+ *  consumes the parked stream inside chat.tool.approve), a lost terminal
+ *  event would leave a zombie entry that keeps swallowing follow-up sends
+ *  into the durable input queue — retire silently instead. */
+export function retireLiveChatTurn(entry: LiveChatEntry): void {
+  if (entry.terminal) return
+  entry.terminal = true
+  entries.delete(liveTurnKey(entry.sessionId, entry.turnId))
+  notifyLiveChatRegistry()
+  if (!listActiveTurns(entry.sessionId).length) {
+    try { entry.activity?.(false) } catch { /* spinner must not kill the host */ }
+  }
+}
+
+/** Mark an approval_required activity as resolved in the registry. The
+ *  watchdog exempts turns with a pending decision; once chat.approve has
+ *  consumed that decision the exemption must lapse or a turn whose resumed
+ *  events were all dropped would never be retired. */
+export function resolveLiveApproval(sessionId: string, callId: string, status: string): void {
+  for (const entry of listActiveTurns(sessionId)) {
+    if (!entry.state.toolActivities.some(t => t.callId === callId && t.status === 'approval_required')) continue
+    entry.state.toolActivities = entry.state.toolActivities.map(t => t.callId === callId ? { ...t, status } : t)
+  }
+}
+
+const LIVE_WATCHDOG_INTERVAL_MS = 30_000
+const LIVE_WATCHDOG_SILENCE_MS = 300_000
+let watchdogTimer: ReturnType<typeof setInterval> | undefined
+
+/** A turn waiting for a user decision or with a running tool can stay
+ *  quiet for a long time by design; only truly silent turns are zombies. */
+function staleLiveTurnSilent(entry: LiveChatEntry, now: number, silenceMs: number): boolean {
+  if (now - entry.lastEventAt < silenceMs) return false
+  return !entry.state.toolActivities.some(t => t.status === 'approval_required' || t.status === 'tool_started')
+}
+
+/** Background sweep for zombie turns: a terminal event dropped while the
+ *  WebView was hidden (server-side emit failures are logged and dropped)
+ *  leaves an entry that never settles, which blocks the durable input
+ *  queue forever. The watchdog retires such entries with a synthetic
+ *  cancelled event so history settles, the queue flushes and the resume
+ *  banner appears. Idempotent: panels may call it on every mount. */
+export function startLiveChatWatchdog(options: { intervalMs?: number; silenceMs?: number } = {}): void {
+  if (watchdogTimer !== undefined) return
+  const intervalMs = options.intervalMs ?? LIVE_WATCHDOG_INTERVAL_MS
+  const silenceMs = options.silenceMs ?? LIVE_WATCHDOG_SILENCE_MS
+  watchdogTimer = setInterval(() => {
+    if (watchdogTimer === undefined) return
+    const now = Date.now()
+    for (const entry of [...entries.values()]) {
+      if (!entry.terminal && staleLiveTurnSilent(entry, now, silenceMs)) retireAsCancelled(entry)
+    }
+  }, intervalMs)
+}
+
 /** Test-only: drop every registry entry. Production never calls this —
  * entries retire through terminal stream events — but vitest suites
  * reuse one session id across cases, and a case whose mock stream never
  * emits a terminal event must not poison the next mount. */
 export function resetLiveChatForTests(): void {
+  if (watchdogTimer !== undefined) {
+    clearInterval(watchdogTimer)
+    watchdogTimer = undefined
+  }
   for (const entry of entries.values()) {
     entry.terminal = true
     if (!listActiveTurns(entry.sessionId).length) entry.activity?.(false)

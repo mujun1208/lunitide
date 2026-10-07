@@ -127,7 +127,9 @@ func TestChatToolLoopEmitsOneAggregateUsageAfterBothModelCalls(t *testing.T) {
 		return nil
 	}, chatAttachmentSessionID, executionModeFullAccess)
 	want := bridge.UsageEvent{InputTokens: 30, OutputTokens: 4, TotalTokens: 34, CachedInputTokens: 15, CacheUsageReported: true}
-	if calls != 2 || !toolSeen || len(usages) != 1 || usages[0] != want || terminal.Type != bridge.EventCompleted {
+	got := usages[0]
+	got.DurationMs = 0 // wall-clock length varies per run; only assert it was published
+	if calls != 2 || !toolSeen || len(usages) != 1 || usages[0].DurationMs < 0 || got != want || terminal.Type != bridge.EventCompleted {
 		t.Fatalf("tool loop usage: calls=%d tool=%t usages=%+v terminal=%+v", calls, toolSeen, usages, terminal)
 	}
 }

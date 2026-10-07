@@ -1420,7 +1420,7 @@ export type StreamArtifact={kind:'html'|'xlsx'|'docx'|'pptx'|'pdf'|'image'|'md'|
 export type StreamEvent =
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'delta';delta:{text:string}}
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'thinking';thinking:{text:string}}
- | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'usage';usage:{inputTokens:number;outputTokens:number;totalTokens:number;cachedInputTokens?:number;cacheWriteInputTokens?:number;cacheUsageReported?:boolean}}
+ | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'usage';usage:{inputTokens:number;outputTokens:number;totalTokens:number;cachedInputTokens?:number;cacheWriteInputTokens?:number;cacheUsageReported?:boolean;durationMs?:number}}
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'tool_started';tool:{callId:string;name:string;argsDigest:string;summary?:string}}
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'tool_completed';tool:{callId:string;name:string;argsDigest:string;summary?:string;artifact?:StreamArtifact}}
  | {v:typeof BRIDGE_VERSION;kind:'event';id:string;streamId:string;sequence:number;type:'approval_required';tool:{callId:string;name:string;argsDigest:string;summary?:string}}
