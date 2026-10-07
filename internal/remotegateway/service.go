@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -52,6 +53,10 @@ type Service struct {
 	server    *http.Server
 	listener  net.Listener
 	certFP    string
+
+	// rendererDirOverride 覆盖渲染目录（同包测试注入；空则按可执行
+	// 文件位置解析 web/dist）。
+	rendererDirOverride string
 
 	keepAwakeChan chan bool
 	keepAwakeOnce sync.Once
@@ -608,12 +613,19 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 // /pair 落到配对落地页 pair.html，其余路由回 index.html；带哈希的
 // assets 静态资源允许长缓存。
 func (s *Service) handleStatic(w http.ResponseWriter, r *http.Request) {
-	dir := rendererDir()
+	dir := s.rendererDirOverride
+	if dir == "" {
+		dir = rendererDir()
+	}
 	if dir == "" {
 		http.NotFound(w, r)
 		return
 	}
-	clean := filepath.Clean("/" + r.URL.Path)
+	// path.Clean 是 URL 路径语义（永远 '/' 分隔）；此处若用
+	// filepath.Clean，Windows 会把 "/pair" 清洗成 "\pair"，导致下面的
+	// == "/pair" 与 HasPrefix("/assets/") 判断在 Windows 上永假——
+	// v0.16.0/0.16.1 的配对页回退因此全部落到 index.html。
+	clean := path.Clean("/" + r.URL.Path)
 	full := filepath.Join(dir, filepath.FromSlash(clean))
 	if st, err := os.Stat(full); err == nil && !st.IsDir() {
 		if strings.HasPrefix(clean, "/assets/") {

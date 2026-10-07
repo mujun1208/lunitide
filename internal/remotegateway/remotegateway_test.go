@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -579,4 +580,68 @@ func portOf(addr string) string {
 		return "47651"
 	}
 	return port
+}
+
+// TestHandleStaticPairFallback 在 Windows 上复现 v0.16.0/0.16.1 的配对页
+// 回退 bug：handleStatic 曾用 filepath.Clean 清洗 URL 路径，Windows 下
+// "/pair" 变成 "\pair"，== "/pair" 永假，配对页全部落到 index.html
+// （手机扫码因此看不到配对界面）。该断言在 Windows 本机必须通过。
+func TestHandleStaticPairFallback(t *testing.T) {
+	ctx := context.Background()
+	svc, err := New(ctx, newTestRoot(t), &fakeHandler{}, "0.0.0-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer svc.Close()
+
+	// 最小 dist：两页内容可区分，用于断言回退目标。
+	dist := t.TempDir()
+	indexHTML := `<!doctype html><html lang="en"><title>app-index</title></html>`
+	pairHTML := `<!doctype html><html lang="zh-CN"><title>pair-page</title></html>`
+	if err := os.WriteFile(filepath.Join(dist, "index.html"), []byte(indexHTML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dist, "pair.html"), []byte(pairHTML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc.rendererDirOverride = dist
+
+	get := func(target string) *httptest.ResponseRecorder {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		svc.handleStatic(rec, httptest.NewRequest(http.MethodGet, target, nil))
+		return rec
+	}
+
+	// /pair（含尾斜杠变体）必须回退到配对页。
+	for _, target := range []string{"/pair", "/pair/"} {
+		if body := get(target).Body.String(); !strings.Contains(body, "pair-page") {
+			t.Fatalf("GET %s fell back to index.html, want pair.html (Windows path-clean regression)", target)
+		}
+	}
+	// 其余 SPA 路由回 index.html，且带 no-cache。
+	for _, target := range []string{"/", "/anything"} {
+		rec := get(target)
+		if body := rec.Body.String(); !strings.Contains(body, "app-index") {
+			t.Fatalf("GET %s returned pair/other page, want index.html", target)
+		}
+		if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
+			t.Fatalf("GET %s cache-control = %q, want no-cache", target, got)
+		}
+	}
+	// /assets/ 长缓存头在 Windows 上同样曾被 filepath.Clean 破坏。
+	assetsDir := filepath.Join(dist, "assets")
+	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(assetsDir, "main-abc123.js"), []byte("// js"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := get("/assets/main-abc123.js").Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
+		t.Fatalf("assets cache-control = %q, want immutable long cache", got)
+	}
+	// 直达 pair.html 文件本身也必须正常。
+	if body := get("/pair.html").Body.String(); !strings.Contains(body, "pair-page") {
+		t.Fatal("GET /pair.html did not serve pair.html")
+	}
 }
