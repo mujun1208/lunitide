@@ -66,6 +66,25 @@ it.each(['assistant', 'tool'] as const)('message bridge accepts persisted %s his
   await expect(promise).resolves.toMatchObject({ items: [{ role }] })
 })
 
+it('message bridge accepts persisted per-turn stats on assistant history rows', async () => {
+  const turnStats = { durationMs: 12873, inputTokens: 1520, outputTokens: 96, totalTokens: 1616, cachedInputTokens: 640, cacheUsageReported: true, model: 'doubao-seed-1-6' }
+  const h = controlled(), promise = h.bridge.list({ sessionId: SESSION, direction: 'backward' })
+  h.reply(h.sent[0], page([dto({ role: 'assistant', turnStats })]))
+  await expect(promise).resolves.toMatchObject({ items: [{ role: 'assistant', turnStats }] })
+})
+
+it.each([
+  ['negative duration', { turnStats: { durationMs: -1, inputTokens: 10, outputTokens: 2, totalTokens: 12 } }],
+  ['fractional duration', { turnStats: { durationMs: 1.5, inputTokens: 10, outputTokens: 2, totalTokens: 12 } }],
+  ['string token count', { turnStats: { durationMs: 5, inputTokens: '10', outputTokens: 2, totalTokens: 12 } }],
+  ['missing required token total', { turnStats: { durationMs: 5, inputTokens: 10, outputTokens: 2 } }],
+  ['unknown extra field', { turnStats: { durationMs: 5, inputTokens: 10, outputTokens: 2, totalTokens: 12, extra: true } }]
+])('message bridge rejects malformed turnStats: %s', async (_name, mutation) => {
+  const h = controlled(), promise = h.bridge.list({ sessionId: SESSION, direction: 'backward' })
+  h.reply(h.sent[0], page([dto({ role: 'assistant', ...(mutation as any) })]))
+  await expect(promise).rejects.toMatchObject({ code: 'INVALID_BRIDGE_RESULT' })
+})
+
 it('message bridge accepts model output above the user input limit', async () => {
   const h = controlled(), text = 'a'.repeat(4096), promise = h.bridge.list({ sessionId: SESSION, direction: 'backward' })
   h.reply(h.sent[0], page([dto({ role: 'assistant', text })]))

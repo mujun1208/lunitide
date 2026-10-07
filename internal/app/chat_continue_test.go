@@ -833,8 +833,9 @@ func TestStepLimitExcuseKeepsTheTurnGoing(t *testing.T) {
 }
 
 type wireLimitAdapter struct {
-	calls     int
-	keptLevel bool
+	calls       int
+	secondLevel string
+	secondThink bool
 }
 
 func (a *wireLimitAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
@@ -849,7 +850,13 @@ func (a *wireLimitAdapter) Stream(_ context.Context, _ []byte, req llmadapter.Re
 		_ = emit(llmadapter.Delta{Reasoning: "先把整篇论证在脑子里写完"})
 		return llmadapter.Response{}, &llmadapter.Error{Code: "RESPONSE_BODY_TOO_LARGE", Stage: llmadapter.StageStream}
 	}
-	a.keptLevel = req.ReasoningLevel == "max" && !req.DisableReasoning
+	if a.calls == 2 {
+		// Continuation waves re-think from scratch; production traces
+		// (2026-10-06/07) show multi-minute thinking before a cut, so the
+		// re-dispatch demotes effort to low instead of keeping "max".
+		a.secondLevel = req.ReasoningLevel
+		a.secondThink = !req.DisableReasoning
+	}
 	text := "论文正文：时间与空间可以交错，人可以穿过它们。"
 	if err := emit(llmadapter.Delta{Text: text}); err != nil {
 		return llmadapter.Response{}, err
@@ -865,8 +872,8 @@ func TestRunStreamWritesTheAnswerAfterTheResponseIsCut(t *testing.T) {
 		Messages:       []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "帮我写一个时间空间论证，人可以穿越时空的，长篇分析论文"}},
 	})
 	joined := strings.Join(deltas, "")
-	if adapter.calls < 2 || adapter.calls > 12 || !adapter.keptLevel {
-		t.Fatalf("calls=%d keptLevel=%v, want the cut to continue at the selected level", adapter.calls, adapter.keptLevel)
+	if adapter.calls < 2 || adapter.calls > 12 || adapter.secondLevel != "low" || !adapter.secondThink {
+		t.Fatalf("calls=%d secondLevel=%q secondThink=%v, want the cut wave to continue at demoted (low, enabled) effort", adapter.calls, adapter.secondLevel, adapter.secondThink)
 	}
 	if !strings.Contains(joined, "论文正文") || strings.Contains(joined, "无法执行") {
 		t.Fatalf("paper missing or replaced by the failure notice: %q", joined)
@@ -874,8 +881,10 @@ func TestRunStreamWritesTheAnswerAfterTheResponseIsCut(t *testing.T) {
 }
 
 type wireLimitToolAdapter struct {
-	calls    int
-	keptTool bool
+	calls       int
+	keptTools   bool
+	secondLevel string
+	secondThink bool
 }
 
 func (a *wireLimitToolAdapter) Complete(context.Context, []byte, llmadapter.Request) (llmadapter.Response, error) {
@@ -901,7 +910,14 @@ func (a *wireLimitToolAdapter) Stream(_ context.Context, _ []byte, req llmadapte
 			hasAsk = true
 		}
 	}
-	a.keptTool = hasWrite && hasTodo && hasAsk && req.ReasoningLevel == "max" && !req.DisableReasoning
+	if a.calls == 2 {
+		a.keptTools = hasWrite && hasTodo && hasAsk
+		// Same demote contract as wireLimitAdapter: the re-dispatched wave
+		// keeps every tool but drops to low effort so it starts writing
+		// instead of re-thinking for minutes.
+		a.secondLevel = req.ReasoningLevel
+		a.secondThink = !req.DisableReasoning
+	}
 	text := "已加上客户管理，并写入一条商机。"
 	if err := emit(llmadapter.Delta{Text: text}); err != nil {
 		return llmadapter.Response{}, err
@@ -918,8 +934,8 @@ func TestRunStreamKeepsWorkingAfterAnyTaskIsCut(t *testing.T) {
 		Messages:       []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "在现有页面上加上客户管理，并添加一条商机数据"}},
 	})
 	joined := strings.Join(deltas, "")
-	if adapter.calls < 2 || !adapter.keptTool {
-		t.Fatalf("calls=%d keptTool=%v, want the task to continue with its tools", adapter.calls, adapter.keptTool)
+	if adapter.calls < 2 || !adapter.keptTools || adapter.secondLevel != "low" || !adapter.secondThink {
+		t.Fatalf("calls=%d keptTools=%v secondLevel=%q secondThink=%v, want the task to continue with its tools at demoted (low, enabled) effort", adapter.calls, adapter.keptTools, adapter.secondLevel, adapter.secondThink)
 	}
 	if !strings.Contains(joined, "已加上客户管理") || strings.Contains(joined, "无法执行") {
 		t.Fatalf("result missing or replaced by the failure notice: %q", joined)

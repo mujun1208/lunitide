@@ -87,6 +87,15 @@ func slimOpenPageMessages(messages []llmadapter.Message) []llmadapter.Message {
 	return out
 }
 
+// The canned end-of-turn notices. Constants (not inline literals) so the
+// producer and the classifier below can never drift apart again: a visual
+// mismatch between two copies of the same sentence once made the classifier
+// read the notice as factual speech.
+const (
+	cannedNoAnswerReceipt   = "这一轮没有回答。\n"
+	cannedIncompleteReceipt = "这一轮没有完成。\n"
+)
+
 // silentTurnReceipt is the one sentence a finished turn still owes when the
 // model returned no words. A landed page edit says so. An edit that never
 // landed says so. A blank bubble is not a result.
@@ -101,15 +110,25 @@ func silentTurnReceipt(messages []llmadapter.Message, tools []string, toolFailed
 		if notice := createTurnFailureNotice(tools, ""); notice != "" {
 			return notice
 		}
-		return "这一轮没有完成。\n"
+		return cannedIncompleteReceipt
 	}
 	if taskAlreadyLanded(messages, tools) {
 		return "已经做完。\n"
 	}
 	if len(tools) > 0 {
-		return "这一轮没有回答。\n"
+		return cannedNoAnswerReceipt
 	}
 	return ""
+}
+
+// blankTurnFallbackReceipt reports whether the receipt is the canned
+// no-answer notice rather than a factual statement about landed or failed
+// work. The canned notice is the last resort: the forced end-of-turn
+// summary pass may still return real words, so the caller defers it
+// instead of letting it preempt that pass.
+func blankTurnFallbackReceipt(speech string) bool {
+	trimmed := strings.TrimSpace(speech)
+	return trimmed == strings.TrimSpace(cannedNoAnswerReceipt) || trimmed == strings.TrimSpace(cannedIncompleteReceipt)
 }
 
 func openPageChangePending(messages []llmadapter.Message, lastTools []string) bool {

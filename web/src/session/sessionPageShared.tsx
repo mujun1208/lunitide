@@ -140,6 +140,14 @@ export const writeActiveTurn = (id: string, patch: Partial<ActiveTurn>) => {
   try { localStorage.setItem(turnStorageKey(id), JSON.stringify({ ...prev, ...patch })) } catch { /* quota / private mode */ }
 }
 export const clearActiveTurn = (id: string) => localStorage.removeItem(turnStorageKey(id))
+// Auto-resume budget (2026-10-07): an interrupted task re-sends the resume
+// prompt by itself, but at most maxTurnAutoResumes consecutive times per
+// active-turn record. A manual user send resets resumeCount to 0 and a
+// completed turn clears the record, so the budget only bounds fully
+// automatic retry chains.
+export const maxTurnAutoResumes = 3
+export const turnAutoResumesLeft = (id: string) => (readActiveTurn(id)?.resumeCount ?? 0) < maxTurnAutoResumes
+export const countTurnAutoResume = (id: string) => writeActiveTurn(id, { resumeCount: (readActiveTurn(id)?.resumeCount ?? 0) + 1 })
 export type SpeechRecognitionEventLike={results:ArrayLike<{0:{transcript:string};isFinal:boolean}>}
 export type SpeechRecognitionLike={lang:string;continuous:boolean;interimResults:boolean;onresult:((event:SpeechRecognitionEventLike)=>void)|null;onerror:((event?:{error?:string})=>void)|null;onend:(()=>void)|null;start:()=>void;stop:()=>void}
 export const speechRecognitionConstructor=()=>((window as typeof window&{SpeechRecognition?:new()=>SpeechRecognitionLike;webkitSpeechRecognition?:new()=>SpeechRecognitionLike}).SpeechRecognition??(window as typeof window&{webkitSpeechRecognition?:new()=>SpeechRecognitionLike}).webkitSpeechRecognition)

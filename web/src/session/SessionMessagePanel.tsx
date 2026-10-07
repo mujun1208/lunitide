@@ -113,6 +113,8 @@ import {
   turnStorageKey,
   ActiveTurn,
   readActiveTurn,
+  turnAutoResumesLeft,
+  countTurnAutoResume,
   writeActiveTurn,
   clearActiveTurn,
   SpeechRecognitionEventLike,
@@ -182,11 +184,17 @@ export function MessagePanel({session,bridge,sessions,onClose,onBindLeave,onEmpt
  const liveCcTool=[...toolActivities].reverse().find(t=>t.name.startsWith('cc.'))
  const ccState=useCcStatus(session.id,liveCcTool?.name,liveCcTool?.status)
  const sessionEngagedRef=useRef(false)
+ const autoResumeBusyRef=useRef(false)
  const markSessionEngaged=()=>{if(sessionEngagedRef.current)return;sessionEngagedRef.current=true;onSessionEngaged?.()}
  const renamePlaceholderTitle=async(firstText:string)=>{if(!sessions||!isRenameableChatTitle(sessionTitle))return;const title=titleFromFirstTurn(firstText);if(!title)return;try{const payload={id:session.id,title,pinned:session.pinned,version:session.version};const next=await sessions.update(payload,{attempt:createMutationAttempt('session.update',payload)});setSessionTitle(next.title)}catch{/* keep placeholder until the next persist */}}
  const requestLeave=async()=>{if(!items.length&&!chatActiveRef.current&&!busyRef.current&&!sessionEngagedRef.current&&(!text.trim()||text===initialPrompt)&&referencedSkills.map(item=>item.id).join('|')===(initialReferencedSkills??[]).map(item=>item.id).join('|')&&!pendingAttachmentIds.length&&!uploadingRef.current){await onEmpty();return}onClose()}
- const applyTurnBanners=async()=>{const live=Boolean(liveChatEntry(session.id));const stored=readPersistFailed(session.id);const localTurn=readActiveTurn(session.id);let server:{status?:string;persistFailed?:boolean;persistDraft?:string}|undefined;try{if(chat?.inspectTurn)server=await chat.inspectTurn({sessionId:session.id})}catch{/* keep local hint */}if(!mounted.current)return;const next=bannersFromTurnState({live,storedPersist:stored,localTurn,server});if(next.persistDraft&&!companionOpen){setAssistantText(prev=>prev||next.persistDraft||'');setChatStatus(prev=>prev==='streaming'?prev:'done')}if(next.persistFailed&&!companionOpen){setPersistFailed(true);if(server)writePersistFailed(session.id,next.persistDraft)}else{setPersistFailed(false);if(server)clearPersistFailed(session.id)}setResumeBanner(companionOpen?false:next.resume)}
- useEffect(()=>{sessionEngagedRef.current=false;mountsTouched.current=false;setSessionTitle(session.title);setMemorySummary('');setPendingPref(undefined);prefDismissedRef.current='';void applyTurnBanners()},[session.id])
+ // Auto-resume (2026-10-07): when the authoritative server checkpoint says the turn was interrupted, the panel re-sends the resume prompt itself instead of waiting for a manual 继续上次 click — tasks must run to completion. Guarded: companion mode and 'running' turns stay manual (another window may still be streaming), user-cancelled turns never resume, and the auto-send chain is budget-capped by the active-turn record.
+ const applyTurnBanners=async()=>{const live=Boolean(liveChatEntry(session.id));const stored=readPersistFailed(session.id);const localTurn=readActiveTurn(session.id);let server:{status?:string;persistFailed?:boolean;persistDraft?:string}|undefined;try{if(chat?.inspectTurn)server=await chat.inspectTurn({sessionId:session.id})}catch{/* keep local hint */}if(!mounted.current)return;const next=bannersFromTurnState({live,storedPersist:stored,localTurn,server});if(next.persistDraft&&!companionOpen){setAssistantText(prev=>prev||next.persistDraft||'');setChatStatus(prev=>prev==='streaming'?prev:'done')}if(next.persistFailed&&!companionOpen){setPersistFailed(true);if(server)writePersistFailed(session.id,next.persistDraft)}else{setPersistFailed(false);if(server)clearPersistFailed(session.id)}const wantResume=!companionOpen&&next.resume;const serverInterrupted=server?.status==='interrupted'&&!server.persistFailed;if(wantResume&&serverInterrupted&&turnAutoResumesLeft(session.id)&&chat&&providersLoadedRef.current&&!readOnly&&!autoResumeBusyRef.current){autoResumeBusyRef.current=true;countTurnAutoResume(session.id);setResumeBanner(false);void sendAndChat({preventDefault:()=>{}} as React.FormEvent,[],TURN_RESUME_PROMPT)}else{setResumeBanner(wantResume)}}
+ useEffect(()=>{sessionEngagedRef.current=false;autoResumeBusyRef.current=false;mountsTouched.current=false;setSessionTitle(session.title);setMemorySummary('');setPendingPref(undefined);prefDismissedRef.current='';void applyTurnBanners()},[session.id])
+ // A failed stream re-runs the banner check: when the server confirms the turn is still interrupted, the auto-resume above fires again (budget-capped), so an interrupted task keeps going without a manual click. Any non-streaming status releases the single-flight guard.
+ useEffect(()=>{if(chatStatus==='streaming')return;autoResumeBusyRef.current=false;if(chatStatus==='failed')void applyTurnBanners()},[chatStatus])
+ // Providers load asynchronously; the mount-time banner check can run before they are ready. Re-check once they land so the auto-resume is not silently skipped.
+ useEffect(()=>{if(!providersLoaded)return;void applyTurnBanners()},[providersLoaded])
  const[pendingPref,setPendingPref]=useState<PendingMemoryItem|undefined>()
  const[prefBusy,setPrefBusy]=useState(false)
  const[saveMemoryBusy,setSaveMemoryBusy]=useState(false)

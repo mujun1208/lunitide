@@ -113,7 +113,14 @@ const (
 	// tool JSON and surfaced “出错了，无法完成。” Office generators
 	// (excel.gen with a 半年财报) need more than 16k so the tool JSON
 	// can finish instead of dying at ~30s with a generic turn failure.
-	chatMaxTokens = 32768
+	// 2026-10-06/07 production evidence raised this from 32768: a 40K-token
+	// long-form report hit the per-call cap exactly (wave 1 = 15m33s,
+	// 32768 tokens) and every continuation wave then re-thought from
+	// scratch because reasoning is not replayed. Ark guidance for agent
+	// scenarios is to request max_tokens >= 128000 explicitly; profile
+	// caps still clamp the wire value via Effective.MaxTokens, and
+	// execution_preflight keeps its own window ceiling as the backstop.
+	chatMaxTokens = 131072
 )
 
 func reservedOutputForTurn(companion bool) int64 {
@@ -121,6 +128,43 @@ func reservedOutputForTurn(companion bool) int64 {
 		return int64(companionMaxTokens)
 	}
 	return int64(chatMaxTokens)
+}
+
+// clampReservedOutput keeps the output reserve from crowding out the input
+// budget: a 131072-token reserve against the 128000-token fallback window made
+// context assembly fail with a negative budget (CONTEXT_ASSEMBLY_FAILED,
+// coverage run 2026-10-07). Half the window still buys a full-length report
+// in one call while the other half stays for the folded request. Companion
+// reserves (2048) are far below any real window and pass through unchanged.
+func clampReservedOutput(window, reserve int64) int64 {
+	if window < 1 || reserve < 1 {
+		return reserve
+	}
+	if half := window / 2; reserve > half {
+		return half
+	}
+	return reserve
+}
+
+// minTurnReservedOutput is the floor the assembly shrink loop concedes to: a
+// legal long input must reach the provider whole, so after attachments have
+// yielded, the output reserve halves toward this floor before the turn is
+// rejected. Below it the model could not answer at length at all.
+const minTurnReservedOutput int64 = 2048
+
+// shrinkReservedOutput halves the reserve toward minTurnReservedOutput. The
+// 2026-10-07 coverage run showed a 27500-character legal description (≈55k
+// tokens) plus the clamped 64000 reserve still exceeding the 120000 fallback
+// ceiling, failing assembly. Yielding the reserve keeps the long-input
+// contract (TestChatLongInputFullDescriptionReachesProvider).
+func shrinkReservedOutput(reserve int64) int64 {
+	if reserve <= minTurnReservedOutput {
+		return minTurnReservedOutput
+	}
+	if half := reserve / 2; half > minTurnReservedOutput {
+		return half
+	}
+	return minTurnReservedOutput
 }
 
 func preturnContextWaitKind(companion bool) string {
@@ -575,7 +619,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			Model:             p.ModelID,
 			ContextWindow:     contextWindow,
 			SafetyCeiling:     safetyCeiling,
-			ReservedOutput:    reservedOutputForTurn(p.Companion),
+			ReservedOutput:    clampReservedOutput(contextWindow, reservedOutputForTurn(p.Companion)),
 			SystemTokens:      explicitTokens,
 			SafetyMargin:      1024,
 			TokenizerRevision: tokenizerRevision,
@@ -891,7 +935,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		usedExplicitReader := e.messageReader == nil
 		usedCheckpoint := envelope.AcceptedCheckpoint != nil
 		fitted := false
-		for attempt := 0; attempt < 8; attempt++ {
+		// Attachment halves (≤4) plus output-reserve concessions (≤6, 64000→
+		// 2048 on the fallback window) must both fit before the fallback path.
+		for attempt := 0; attempt < 16; attempt++ {
 			if len(rawExcerpts) > 0 {
 				envelope.AttachmentExcerpts, _ = contextapp.FitAttachmentExcerpts(p.ModelID, rawExcerpts, allowance)
 			}
@@ -905,6 +951,15 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 						rawExcerpts = nil
 						envelope.AttachmentExcerpts = nil
 					}
+					continue
+				}
+				if errors.Is(assembleErr, contextapp.ErrEnvelopeBudgetTooSmall) && envelope.Provider.ReservedOutput > minTurnReservedOutput {
+					// A legal long input must reach the provider whole. After
+					// attachments yield, the output reserve concedes too
+					// (halving toward the floor) before the turn is rejected.
+					envelope.Provider.ReservedOutput = shrinkReservedOutput(envelope.Provider.ReservedOutput)
+					providerInfo.ReservedOutput = envelope.Provider.ReservedOutput
+					log.Printf("chat.start shrank output reserve to %d tokens to fit the folded turn", envelope.Provider.ReservedOutput)
 					continue
 				}
 				if !useExplicitChatFallback(p.Companion, trustedMessages, assembleErr) {

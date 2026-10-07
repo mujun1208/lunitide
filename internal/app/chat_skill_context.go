@@ -27,6 +27,7 @@ func skillInvocationFitsContext(p provider.Provider, req llmadapter.Request, out
 	if reserved <= 0 {
 		reserved = chatMaxTokens
 	}
+	reserved = clampReservedOutput(window, reserved)
 	used := token.CountTokensForModel(req.Model, output) + 1024
 	for _, m := range req.Messages {
 		used += token.CountTokensForModel(req.Model, m.Content) + 8

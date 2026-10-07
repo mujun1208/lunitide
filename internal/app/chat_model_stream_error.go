@@ -38,6 +38,8 @@ func chatModelStreamError(err error) *bridge.StreamError {
 		set("MODEL_CHANNEL_UNAVAILABLE", "当前模型没有可用的供应商通道，请检查模型通道配置或联系供应商", false)
 	case "STREAM_INCOMPLETE":
 		set("UPSTREAM_STREAM_INCOMPLETE", "模型响应在结束标记前中断，已保留收到的内容，任务未完成，请重试", true)
+	case "REASONING_STALL":
+		set("UPSTREAM_THINKING_STALL", "模型长时间思考未产出内容，已降低思考档位自动重试", true)
 	case "UPSTREAM_STREAM_FAILED":
 		set("UPSTREAM_STREAM_FAILED", "供应商在响应过程中报告错误，已保留收到的内容，任务未完成，请重试", true)
 	case "STREAM_BAD_REQUEST":
@@ -85,15 +87,68 @@ func chatModelStreamError(err error) *bridge.StreamError {
 	return out
 }
 
-// chatModelCallRetryable retries a timed-out model call inside the same turn.
-// A refused connection or a half-finished stream already has a terminal
-// outcome, and retrying it repeats the partial text.
+// chatModelCallRetryable reports the error classes the run loop may
+// re-dispatch inside the same turn. A refused connection or a
+// half-finished stream already has a terminal outcome, and retrying it
+// repeats the partial text. User stop and upstream cancellation both
+// arrive as context.Canceled (classifyStreamError maps them to the same
+// CANCELLED code), so cancellation retryability is decided by the run
+// loop, which can see the stream-cancel state and whether the step
+// already delivered text (chatModelRetryLossless).
 func chatModelCallRetryable(err error) bool {
 	if err == nil {
 		return false
 	}
 	se := chatModelStreamError(err)
-	return se != nil && se.Code == "UPSTREAM_TIMEOUT"
+	if se == nil {
+		return false
+	}
+	return se.Code == "UPSTREAM_TIMEOUT" || se.Code == "UPSTREAM_THINKING_STALL"
+}
+
+// chatModelRetryLossless extends chatModelCallRetryable for the run
+// loop's nudge branch: an upstream cancellation is only re-dispatched
+// when the failed step delivered zero text, so the retry can never
+// duplicate already-streamed output. Thinking stalls are lossless by
+// construction (the adapter clock only fires before the first
+// deliverable delta); timeouts keep their historical retry shape.
+func chatModelRetryLossless(err error, stepEmpty bool) bool {
+	if err == nil {
+		return false
+	}
+	se := chatModelStreamError(err)
+	if se == nil {
+		return false
+	}
+	if se.Code == "UPSTREAM_CANCELLED" {
+		return stepEmpty
+	}
+	return chatModelCallRetryable(err)
+}
+
+// demoteReasoningEffort drops the request to the lowest thinking effort
+// before an automatic retry. Production traces (model_call_attempts,
+// 2026-10-06/07) show continuation waves spending 2-12 minutes thinking
+// before a cut, and GLM-5.3 cannot disable thinking outright (lowest
+// supported effort is low). PrepareChat recompiles Effective from the
+// profile on every call and ignores an already-set req.Effective, so the
+// durable channel is req.ReasoningLevel: compileFinalInput ->
+// normalizeReasoningLevel -> applyUserReasoningLevel keeps Effort=low on
+// the wire (glm-5.3 maps to enabled+low; models that support disabled
+// map to disabled+low). The in-place Effective tweak only shapes the
+// current attempt when the caller reuses the request without
+// re-preparation.
+func demoteReasoningEffort(req *llmadapter.Request) {
+	if req == nil || req.DisableReasoning {
+		return
+	}
+	req.ReasoningLevel = "low"
+	if req.Effective != nil && !strings.EqualFold(strings.TrimSpace(req.Effective.ThinkingType), "disabled") {
+		eff := *req.Effective
+		eff.ThinkingType = "enabled"
+		eff.Effort = "low"
+		req.Effective = &eff
+	}
 }
 
 func chatModelFinishError(reason llmadapter.FinishReason) error {

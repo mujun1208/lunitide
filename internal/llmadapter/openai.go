@@ -327,7 +327,21 @@ func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error, wn *wire
 	// third clock that only content deltas reset.
 	contentIdle := a.o.StreamContentIdle
 	lastContent := time.Now()
+	// Deliverable clock: production traces (model_call_attempts,
+	// 2026-10-06/07) show continuation waves streaming nothing but
+	// reasoning and keepalives for 10+ minutes while every reasoning delta
+	// resets the content clock above. This clock bounds the wait for the
+	// first deliverable delta (text or tool fragment); reasoning never
+	// retires it, and the first text/tool delta retires it for the rest of
+	// the stream, so a cut only ever happens with zero deliverable bytes
+	// and the same-turn retry loses nothing.
+	deliverableIdle := a.o.DeliverableIdle
+	deliverableSeen := false
+	streamStart := time.Now()
 	for {
+		if !deliverableSeen && time.Since(streamStart) > deliverableIdle {
+			return out, safeError("REASONING_STALL", StageStream, 0, "upstream produced no deliverable content within the stall window")
+		}
 		if time.Since(lastContent) > contentIdle {
 			return out, safeError("TIMEOUT", StageStream, 0, "upstream stalled: no content deltas within the idle window")
 		}
@@ -375,6 +389,7 @@ func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error, wn *wire
 			out.Message.Content += text
 			if text != "" {
 				lastContent = time.Now()
+				deliverableSeen = true
 			}
 			if emit != nil && text != "" {
 				if e := emit(Delta{Text: text}); e != nil {
@@ -383,6 +398,7 @@ func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error, wn *wire
 			}
 			for _, tc := range chunk.Choices[0].Delta.ToolCalls {
 				lastContent = time.Now()
+				deliverableSeen = true
 				p := calls[tc.Index]
 				if p == nil {
 					p = &partial{}

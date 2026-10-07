@@ -574,16 +574,40 @@ func (a meteredAdapter) observe(ctx context.Context, req llmadapter.Request, str
 		}
 	}
 	acc := modelfit.UsageAccumulator{}
+	// Attempt telemetry (2026-10-06/07 postmortem): reasoning-heavy waves
+	// with late or missing first text are invisible in usage counters
+	// alone, which is how 10-minute zero-deliverable thinks went unnoticed.
+	var textBytes, reasoningBytes int64
+	firstTextMs := int64(-1)
+	callStart := time.Now()
 	wrap := emit
 	if emit != nil {
 		wrap = func(d llmadapter.Delta) error {
 			if d.Usage != nil {
 				acc.ObserveSnapshot(usageNumbers(*d.Usage))
 			}
+			if d.Text != "" {
+				if firstTextMs < 0 {
+					firstTextMs = time.Since(callStart).Milliseconds()
+				}
+				textBytes += int64(len(d.Text))
+			}
+			if d.Reasoning != "" {
+				reasoningBytes += int64(len(d.Reasoning))
+			}
 			return emit(d)
 		}
 	}
 	resp, err := run(req, wrap)
+	if emit == nil {
+		// Non-streaming calls never cross the wrapper; recover the counters
+		// from the final response so the attempt log stays comparable.
+		if resp.Message.Content != "" {
+			firstTextMs = time.Since(callStart).Milliseconds()
+			textBytes = int64(len(resp.Message.Content))
+		}
+		reasoningBytes = int64(len(resp.Reasoning))
+	}
 	n := usageNumbers(resp.Usage)
 	if acc.Updates > 0 && n.InputTokens == 0 && n.OutputTokens == 0 && n.TotalTokens == 0 {
 		n = acc.Latest
@@ -616,6 +640,11 @@ func (a meteredAdapter) observe(ctx context.Context, req llmadapter.Request, str
 			log.Printf("model call receipt not recorded: %v", finErr)
 		}
 	}
+	// first_text_ms=-1 means no deliverable delta ever arrived on this
+	// attempt; combined with reasoning_bytes it distinguishes a thinking
+	// stall (large reasoning, no text) from a dead stream (neither).
+	log.Printf("model call attempt owner=%s purpose=%s model=%s status=%s thinking=%s effort=%s first_text_ms=%d text_bytes=%d reasoning_bytes=%d output_tokens=%d",
+		rec.OwnerScope, rec.Purpose, req.Model, string(attempt.Status), prepared.Effective.ThinkingType, prepared.Effective.Effort, firstTextMs, textBytes, reasoningBytes, attempt.Usage.OutputTokens)
 	if a.budget != nil && permit.ReservationID != "" {
 		sum := sha256.Sum256([]byte(permit.ReservationID + "|" + rec.CallID + "|" + rec.AttemptID + "|" + string(status)))
 		settleCtx, settleCancel := context.WithTimeout(context.Background(), 3*time.Second)

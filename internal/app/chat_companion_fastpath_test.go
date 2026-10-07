@@ -199,6 +199,44 @@ func TestReservedOutputForTurnCompanionVsTyped(t *testing.T) {
 	}
 }
 
+func TestClampReservedOutput(t *testing.T) {
+	if got := clampReservedOutput(128000, int64(chatMaxTokens)); got != 64000 {
+		t.Fatalf("128k fallback window must halve the typed reserve: %d", got)
+	}
+	if got := clampReservedOutput(262144, int64(chatMaxTokens)); got != int64(chatMaxTokens) {
+		t.Fatalf("wide window keeps the full typed reserve: %d", got)
+	}
+	if got := clampReservedOutput(0, int64(chatMaxTokens)); got != int64(chatMaxTokens) {
+		t.Fatalf("unknown window keeps the reserve: %d", got)
+	}
+	if got := clampReservedOutput(128000, int64(companionMaxTokens)); got != int64(companionMaxTokens) {
+		t.Fatalf("companion reserve passes through: %d", got)
+	}
+}
+
+func TestShrinkReservedOutput(t *testing.T) {
+	forward := []int64{}
+	for reserve := int64(64000); reserve > minTurnReservedOutput; {
+		reserve = shrinkReservedOutput(reserve)
+		forward = append(forward, reserve)
+	}
+	want := []int64{32000, 16000, 8000, 4000, minTurnReservedOutput}
+	if len(forward) != len(want) {
+		t.Fatalf("shrink path=%v want %v", forward, want)
+	}
+	for i := range want {
+		if forward[i] != want[i] {
+			t.Fatalf("shrink path=%v want %v", forward, want)
+		}
+	}
+	if got := shrinkReservedOutput(minTurnReservedOutput); got != minTurnReservedOutput {
+		t.Fatalf("floor reserve must stay: %d", got)
+	}
+	if got := shrinkReservedOutput(3000); got != minTurnReservedOutput {
+		t.Fatalf("below-floor halves clamp up to the floor: %d", got)
+	}
+}
+
 func TestCompanionReservedOutputFitsHistoryThatTypedReserveRejects(t *testing.T) {
 	history := []contextapp.Message{{Role: "user", Content: strings.Repeat("历史回合。", 80)}}
 	explicit := []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "继续"}}

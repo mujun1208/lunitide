@@ -13,8 +13,8 @@ async function usageHarness(){
  return {seen,emit:(sequence:number,type:string,body:unknown)=>listener(new MessageEvent('message',{data:{v:'1.0',kind:'event',id,streamId:id,sequence,type,...(body as object)}}))}
 }
 
-it('accepts legacy usage and optional reported zero, known cache and partial cache without dropping completion',async()=>{
- for(const extras of [{},{cachedInputTokens:40,cacheWriteInputTokens:5,cacheUsageReported:true},{cachedInputTokens:0,cacheWriteInputTokens:0,cacheUsageReported:true},{cachedInputTokens:20,cacheUsageReported:false}]){
+it('accepts legacy usage and optional reported zero, known cache, partial cache, and turn duration without dropping completion',async()=>{
+ for(const extras of [{},{durationMs:4500},{cachedInputTokens:40,cacheWriteInputTokens:5,cacheUsageReported:true,durationMs:12000},{cachedInputTokens:0,cacheWriteInputTokens:0,cacheUsageReported:true,durationMs:0},{cachedInputTokens:20,cacheUsageReported:false,durationMs:1}]){
   const h=await usageHarness(),usage={inputTokens:50,outputTokens:4,totalTokens:54,...extras}
   h.emit(1,'usage',{usage});h.emit(2,'completed',{})
   expect(h.seen.map(event=>event.type)).toEqual(['usage','completed'])
@@ -22,8 +22,8 @@ it('accepts legacy usage and optional reported zero, known cache and partial cac
  }
 })
 
-it('rejects fabricated cache counters and invalid cache metadata types',async()=>{
- for(const extras of [{cachedInputTokens:-1},{cacheWriteInputTokens:1.5},{cachedInputTokens:'4'},{cacheUsageReported:'yes'},{cachedInputTokens:51},{cachedInputTokens:40,cacheWriteInputTokens:11}]){
+it('rejects fabricated cache counters, invalid cache metadata types, and malformed turn durations',async()=>{
+ for(const extras of [{cachedInputTokens:-1},{cacheWriteInputTokens:1.5},{cachedInputTokens:'4'},{cacheUsageReported:'yes'},{cachedInputTokens:51},{cachedInputTokens:40,cacheWriteInputTokens:11},{durationMs:-1},{durationMs:1.5},{durationMs:'4'}]){
   const h=await usageHarness()
   h.emit(1,'usage',{usage:{inputTokens:50,outputTokens:4,totalTokens:54,...extras}})
   expect(h.seen).toHaveLength(1)

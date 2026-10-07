@@ -383,9 +383,17 @@ const dtoTextValid=(v:unknown)=>typeof v==='string'&&v.length>=1&&v.length<=6553
 const messageArtifactPathValid=(path:unknown)=>typeof path==='string'&&path.length>0&&path.length<=512&&!path.startsWith('/')&&!path.includes('\\')&&!path.split('/').includes('..')
 const messageArtifactKindValid=(kind:unknown)=>kind==='html'||kind==='xlsx'||kind==='docx'||kind==='pptx'||kind==='pdf'||kind==='image'||kind==='md'||kind==='txt'||kind==='code'||kind==='audio'
 const isMessageArtifact=(v:unknown)=>isObj(v)&&exact(v,['kind','path','callId','toolName'])&&typeof v.callId==='string'&&v.callId.length>0&&v.callId.length<=128&&typeof v.toolName==='string'&&v.toolName.length>0&&messageArtifactPathValid(v.path)&&messageArtifactKindValid(v.kind)
+// turnStats mirrors generated MessageTurnStatsDTO: the engine enriches
+// assistant rows on message.list with the persisted per-turn footer
+// (duration + tokens), so the runtime guard must admit the same fields
+// the generated contract declares — the 0.15.0 release shipped the DTO
+// and renderer but omitted this field set, rejecting every history page
+// that contained an assistant reply.
+const isMessageTurnStats=(v:unknown)=>isObj(v)&&exact(v,['durationMs','inputTokens','outputTokens','totalTokens'],['cachedInputTokens','cacheWriteInputTokens','cacheUsageReported','model'])&&nonnegativeInt(v.durationMs)&&nonnegativeInt(v.inputTokens)&&nonnegativeInt(v.outputTokens)&&nonnegativeInt(v.totalTokens)&&(!('cachedInputTokens'in v)||nonnegativeInt(v.cachedInputTokens))&&(!('cacheWriteInputTokens'in v)||nonnegativeInt(v.cacheWriteInputTokens))&&(!('cacheUsageReported'in v)||typeof v.cacheUsageReported==='boolean')&&(!('model'in v)||typeof v.model==='string')
 const isMessage=(v:unknown,sessionId:string)=>{
- if(!isObj(v)||!exact(v,['id','sessionId','role','status','sequence','text','createdAt'],['artifacts','hasProcess'])||!isULID(v.id)||v.sessionId!==sessionId||(v.role!=='user'&&v.role!=='assistant'&&v.role!=='tool')||v.status!=='completed'||!Number.isSafeInteger(v.sequence)||Number(v.sequence)<=0||!dtoTextValid(v.text)||!isTime(v.createdAt))return false
+ if(!isObj(v)||!exact(v,['id','sessionId','role','status','sequence','text','createdAt'],['artifacts','hasProcess','turnStats'])||!isULID(v.id)||v.sessionId!==sessionId||(v.role!=='user'&&v.role!=='assistant'&&v.role!=='tool')||v.status!=='completed'||!Number.isSafeInteger(v.sequence)||Number(v.sequence)<=0||!dtoTextValid(v.text)||!isTime(v.createdAt))return false
  if('hasProcess'in v&&typeof v.hasProcess!=='boolean')return false
+ if('turnStats'in v&&!isMessageTurnStats(v.turnStats))return false
  if('artifacts'in v){
   if(!Array.isArray(v.artifacts))return false
   v.artifacts=v.artifacts.filter(isMessageArtifact)
@@ -1455,7 +1463,12 @@ const isStreamEvent=(v:unknown):v is StreamEvent=>{
  switch(v.type){
   case'delta':return exact(v,[...base,'delta'])&&isObj(v.delta)&&exact(v.delta,['text'])&&typeof v.delta.text==='string'&&v.delta.text.length>0
   case'thinking':return exact(v,[...base,'thinking'])&&isObj(v.thinking)&&exact(v.thinking,['text'])&&typeof v.thinking.text==='string'&&v.thinking.text.length>0&&new TextEncoder().encode(v.thinking.text).length<=16384
-  case'usage':return exact(v,[...base,'usage'])&&isObj(v.usage)&&exact(v.usage,['inputTokens','outputTokens','totalTokens'],['cachedInputTokens','cacheWriteInputTokens','cacheUsageReported'])&&nonnegativeInt(v.usage.inputTokens)&&nonnegativeInt(v.usage.outputTokens)&&nonnegativeInt(v.usage.totalTokens)&&(!('cachedInputTokens'in v.usage)||nonnegativeInt(v.usage.cachedInputTokens))&&(!('cacheWriteInputTokens'in v.usage)||nonnegativeInt(v.usage.cacheWriteInputTokens))&&Number(v.usage.cachedInputTokens??0)+Number(v.usage.cacheWriteInputTokens??0)<=Number(v.usage.inputTokens)&&(!('cacheUsageReported'in v.usage)||typeof v.usage.cacheUsageReported==='boolean')
+  // usage carries durationMs (the wall-clock turn length, protocol.go
+  // UsageEvent) whenever the turn took measurable time, so the optional field
+  // set must admit it: the 0.15.0 release shipped the engine field and the
+  // footer renderer but omitted it here, rejecting the usage event of every
+  // real turn and surfacing a synthetic failed stream.
+  case'usage':return exact(v,[...base,'usage'])&&isObj(v.usage)&&exact(v.usage,['inputTokens','outputTokens','totalTokens'],['cachedInputTokens','cacheWriteInputTokens','cacheUsageReported','durationMs'])&&nonnegativeInt(v.usage.inputTokens)&&nonnegativeInt(v.usage.outputTokens)&&nonnegativeInt(v.usage.totalTokens)&&(!('cachedInputTokens'in v.usage)||nonnegativeInt(v.usage.cachedInputTokens))&&(!('cacheWriteInputTokens'in v.usage)||nonnegativeInt(v.usage.cacheWriteInputTokens))&&Number(v.usage.cachedInputTokens??0)+Number(v.usage.cacheWriteInputTokens??0)<=Number(v.usage.inputTokens)&&(!('cacheUsageReported'in v.usage)||typeof v.usage.cacheUsageReported==='boolean')&&(!('durationMs'in v.usage)||nonnegativeInt(v.usage.durationMs))
   case'tool_started':case'approval_required':case'tool_output':return exact(v,[...base,'tool'])&&isObj(v.tool)&&exact(v.tool,['callId','name','argsDigest'],['summary'])&&typeof v.tool.callId==='string'&&v.tool.callId.length>0&&typeof v.tool.name==='string'&&v.tool.name.length>0&&typeof v.tool.argsDigest==='string'&&/^[0-9a-f]{64}$/.test(v.tool.argsDigest)&&(!('summary'in v.tool)||typeof v.tool.summary==='string')
   case'tool_completed':return exact(v,[...base,'tool'])&&isObj(v.tool)&&exact(v.tool,['callId','name','argsDigest'],['summary','artifact'])&&typeof v.tool.callId==='string'&&v.tool.callId.length>0&&typeof v.tool.name==='string'&&v.tool.name.length>0&&typeof v.tool.argsDigest==='string'&&/^[0-9a-f]{64}$/.test(v.tool.argsDigest)&&(!('summary'in v.tool)||typeof v.tool.summary==='string')&&(!('artifact'in v.tool)||isStreamArtifact(v.tool.artifact))
   case'completed':{const body=v.completed;return exact(v,'completed'in v?[...base,'completed']:base)&&(!('completed'in v)||isObj(body)&&exact(body,[],['messageId','persistFailed','memorySummary','taskOutcome'])&&(('messageId'in body)||('persistFailed'in body)||('memorySummary'in body)||('taskOutcome'in body))&&(!('messageId'in body)||body.messageId===''||isULID(body.messageId))&&(!('persistFailed'in body)||typeof body.persistFailed==='boolean')&&(!('memorySummary'in body)||typeof body.memorySummary==='string')&&(!('taskOutcome'in body)||isObj(body.taskOutcome)&&typeof body.taskOutcome.taskId==='string'&&Number.isInteger(body.taskOutcome.goalRevision)&&Number.isInteger(body.taskOutcome.version)))}

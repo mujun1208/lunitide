@@ -124,6 +124,34 @@ it('keeps the composer untouched when nothing is queued at flush time', async ()
   expect(send).not.toHaveBeenCalled()
 })
 
+it('refreshes the strip after a zero-count flush so engine-injected rows disappear', async () => {
+  const bridge = queue()
+  vi.mocked(bridge.list).mockResolvedValueOnce({ items: [item(1, 'already injected')] })
+  vi.mocked(bridge.consume).mockResolvedValue({ count: 0, items: [] })
+  vi.mocked(bridge.list).mockResolvedValue({ items: [] })
+  const { result } = renderHook(() => useInputQueue('01ARZ3NDEKTSV4RRFFQ69G5FAV'))
+  await waitFor(() => expect(result.current.items).toHaveLength(1))
+  const send = vi.fn()
+  await act(async () => { await result.current.flushAfterStream(send) })
+  expect(send).not.toHaveBeenCalled()
+  await waitFor(() => expect(result.current.items).toHaveLength(0))
+})
+
+it('clears the queued notice once the engine settles every queued row', async () => {
+  const bridge = queue()
+  vi.mocked(bridge.input).mockResolvedValue({ queuedId: MESSAGE_ID, seq: 1, status: 'queued', mark: 'turn_boundary' })
+  // mount sees an empty queue, the enqueue refresh sees the freshly queued row
+  // (notice must survive), and the next refresh sees the engine-injected emptiness.
+  vi.mocked(bridge.list).mockResolvedValueOnce({ items: [] }).mockResolvedValueOnce({ items: [item(1, 'folding input')] }).mockResolvedValue({ items: [] })
+  const { result } = renderHook(() => useInputQueue('01ARZ3NDEKTSV4RRFFQ69G5FAV'))
+  await act(async () => { await result.current.enqueue('folding input') })
+  expect(result.current.notice).toBe(FOLLOW_UP_QUEUE_NOTICE)
+  expect(result.current.items).toHaveLength(1)
+  await act(async () => { await result.current.refresh() })
+  expect(result.current.notice).toBe('')
+  expect(result.current.items).toHaveLength(0)
+})
+
 it('renders the strip with pending items, withdrawal, and failure notices', async () => {
   const onWithdraw = vi.fn(), user = userEvent.setup()
   const { rerender } = render(<QueueStrip items={[item(3, '等待注入的补充')]} notice="" onWithdraw={onWithdraw} />)

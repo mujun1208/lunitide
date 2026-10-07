@@ -356,15 +356,39 @@ it('does not show 继续上次 just because the last durable message is the user
  expect(start).not.toHaveBeenCalled()
 })
 
-it('shows 继续上次 after remount when the server turn is interrupted',async()=>{
+it('auto-sends TURN_RESUME_PROMPT after remount when the server turn is interrupted',async()=>{
  const userMessage:MessageDTO={id:'01ARZ3NDEKTSV4RRFFQ69G5FAC',sessionId:S,role:'user',status:'completed',sequence:1,text:'帮我写个文件',createdAt:NOW}
- const start=vi.fn()
+ const start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()})
+ const append=vi.fn().mockResolvedValue({})
  const inspectTurn=vi.fn().mockResolvedValue({status:'interrupted',persistFailed:false,persistDraft:''})
- render(<SessionPage project={project} bridge={sessionBridge} onBack={vi.fn()} personal initialSession={session} providers={providers} messages={{list:vi.fn().mockResolvedValue(page([userMessage])),append:vi.fn()} as MessageBridge} chat={{start,approve:vi.fn(),inspectTurn,dispose:vi.fn()}}/>)
+ render(<SessionPage project={project} bridge={sessionBridge} onBack={vi.fn()} personal initialSession={session} providers={providers} messages={{list:vi.fn().mockResolvedValue(page([userMessage])),append} as MessageBridge} chat={{start,approve:vi.fn(),inspectTurn,dispose:vi.fn()}}/>)
+ expect(await screen.findByText('帮我写个文件')).toBeInTheDocument()
+ await waitFor(()=>expect(start).toHaveBeenCalledOnce())
+ expect(JSON.stringify(append.mock.calls)).toContain(TURN_RESUME_PROMPT)
+ expect(screen.queryByRole('button',{name:'继续上次'})).toBeNull()
+ expect(screen.queryByRole('button',{name:'只重试写入'})).toBeNull()
+ expect(inspectTurn).toHaveBeenCalledWith({sessionId:S})
+})
+
+it('keeps the manual 继续上次 banner after the auto-resume budget is spent',async()=>{
+ localStorage.setItem(`lunitide:active-turn:${S}`,JSON.stringify({status:'interrupted',resumeCount:3}))
+ const inspectTurn=vi.fn().mockResolvedValue({status:'interrupted',persistFailed:false,persistDraft:''})
+ const start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()})
+ render(<SessionPage project={project} bridge={sessionBridge} onBack={vi.fn()} personal initialSession={session} providers={providers} messages={{list:vi.fn().mockResolvedValue(page()),append:vi.fn().mockResolvedValue({})} as MessageBridge} chat={{start,approve:vi.fn(),inspectTurn,dispose:vi.fn()}}/>)
  expect(await screen.findByRole('button',{name:'继续上次'})).toBeInTheDocument()
  expect(screen.queryByRole('button',{name:'只重试写入'})).toBeNull()
  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,80))})
  expect(start).not.toHaveBeenCalled()
+ expect(inspectTurn).toHaveBeenCalledWith({sessionId:S})
+})
+
+it('does not auto-resume a cancelled server turn',async()=>{
+ const inspectTurn=vi.fn().mockResolvedValue({status:'cancelled',persistFailed:false,persistDraft:''})
+ const start=vi.fn().mockResolvedValue({cancel:vi.fn(),dispose:vi.fn()})
+ render(<SessionPage project={project} bridge={sessionBridge} onBack={vi.fn()} personal initialSession={session} providers={providers} messages={{list:vi.fn().mockResolvedValue(page()),append:vi.fn().mockResolvedValue({})} as MessageBridge} chat={{start,approve:vi.fn(),inspectTurn,dispose:vi.fn()}}/>)
+ await act(async()=>{await new Promise(resolve=>setTimeout(resolve,120))})
+ expect(start).not.toHaveBeenCalled()
+ expect(screen.queryByRole('button',{name:'继续上次'})).toBeNull()
  expect(inspectTurn).toHaveBeenCalledWith({sessionId:S})
 })
 

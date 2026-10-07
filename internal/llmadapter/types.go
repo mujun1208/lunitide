@@ -185,6 +185,15 @@ type Options struct {
 	// event-level clocks; only real content resets this one. Zero uses the
 	// default.
 	StreamContentIdle time.Duration
+	// DeliverableIdle bounds the wait for the first deliverable delta (text
+	// or tool fragments) of a stream. Production evidence (model_call_attempts,
+	// 2026-10-06/07): a continuation wave can think for 10+ minutes before
+	// the first content byte while every keepalive and reasoning delta keeps
+	// the three stall clocks alive. Reasoning never resets this clock; once
+	// the first text or tool delta lands the clock retires for the rest of
+	// the stream, so a cut only ever happens with zero deliverable bytes and
+	// a retry loses nothing. Zero uses the default.
+	DeliverableIdle time.Duration
 }
 
 func defaults(o Options) Options {
@@ -202,6 +211,9 @@ func defaults(o Options) Options {
 	}
 	if o.StreamContentIdle <= 0 {
 		o.StreamContentIdle = 4 * time.Minute
+	}
+	if o.DeliverableIdle <= 0 {
+		o.DeliverableIdle = 4 * time.Minute
 	}
 	return o
 }

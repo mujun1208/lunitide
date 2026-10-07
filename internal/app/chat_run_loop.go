@@ -248,6 +248,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			toolsFallbackUsed := false
 			thinkingDisableRetryUsed := false
 			modelCallRetries := 0
+			upstreamCancelStreak := 0
 			guiLoopRuns := 0
 			emptyObserves := 0
 			desktopVerified := false
@@ -558,6 +559,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				if streamErr != nil && isReplyTruncatedError(streamErr) && lengthContinueWaves < maxLengthContinueWaves && step+1 < maxToolLoopStepsHard {
 					lengthContinueWaves++
+					// Continuation waves re-think from scratch (reasoning is
+					// not replayed), which is where multi-minute stalls and
+					// 0-byte upstream cancels concentrated in production.
+					// Demote effort so the wave starts writing sooner.
+					demoteReasoningEffort(&req)
 					partial := ""
 					if bufferReply && stepReply.Len() > 0 {
 						partial = stepReply.String()
@@ -617,6 +623,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				if streamErr != nil && isResponseWireLimitError(streamErr) && wireLimitWaves < maxWireLimitWaves && step+1 < maxToolLoopStepsHard {
 					wireLimitWaves++
+					// Same rationale as lengthContinue: the re-dispatched wave
+					// pays full thinking again unless effort is demoted.
+					demoteReasoningEffort(&req)
 					partial := assistantText.String()
 					if stepTextStart > 0 && stepTextStart <= len(partial) {
 						partial = partial[stepTextStart:]
@@ -646,8 +655,25 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					streamErr = nil
 					break
 				}
-				if streamErr != nil && modelCallRetries < maxContinueNudges && chatModelCallRetryable(streamErr) && step+1 < maxToolLoopStepsHard {
+				if streamErr != nil && modelCallRetries < maxContinueNudges && chatModelRetryLossless(streamErr, assistantText.Len() == stepTextStart && stepReply.Len() == 0) && !e.isStreamCancelling(state) && step+1 < maxToolLoopStepsHard {
 					modelCallRetries++
+					// Effort demotion before the re-dispatch: a thinking stall
+					// or a repeated 0-byte upstream cancel means this model's
+					// thinking budget is the bottleneck (production traces
+					// 2026-10-06/07: 2-12 minute thinks, then a cut with zero
+					// deliverable bytes). Retrying at the same effort repeats
+					// the same stall; demote so the wave starts writing sooner.
+					if se := chatModelStreamError(streamErr); se != nil {
+						switch se.Code {
+						case "UPSTREAM_THINKING_STALL":
+							demoteReasoningEffort(&req)
+						case "UPSTREAM_CANCELLED":
+							upstreamCancelStreak++
+							if upstreamCancelStreak >= 2 {
+								demoteReasoningEffort(&req)
+							}
+						}
+					}
 					foldOldModelMessages(&req, modelRequestKeep)
 					appendKeptWriting(&req, &turn, thinkingText.String(), stepThinkingStart)
 					if wantsDefaultCanvas(turn.Goal) {
@@ -677,6 +703,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					break
 				}
 				modelCallRetries = 0
+				upstreamCancelStreak = 0
 				if desktopLadderApplies(turn.Goal) && len(result.Message.ToolCalls) > 0 {
 					result.Message.ToolCalls = desktopLadderKeepCalls(result.Message.ToolCalls, req.Messages, turn.Goal)
 				}
@@ -1892,11 +1919,20 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			// Surface a Chinese notice in both the live stream and the
 			// persisted assistant text (same pattern as the 400 fallback).
 			if streamErr == nil {
+				deferredReceipt := ""
 				if strings.TrimSpace(assistantText.String()) == "" || modelAskedTheUserToRetry(assistantText.String()) {
 					if speech := silentTurnReceipt(req.Messages, turn.LastTools, turn.ToolFailed); speech != "" && !strings.Contains(assistantText.String(), strings.TrimSpace(speech)) {
-						assistantText.WriteString(speech)
-						if err := sendDeltaChunks(send, speech); err != nil {
-							return err
+						if blankTurnFallbackReceipt(speech) && strings.TrimSpace(assistantText.String()) == "" {
+							// Hold the canned no-answer notice: the forced summary
+							// pass below may still return real words, and the notice
+							// must not preempt it. It is written back only when
+							// nothing else lands this turn.
+							deferredReceipt = speech
+						} else {
+							assistantText.WriteString(speech)
+							if err := sendDeltaChunks(send, speech); err != nil {
+								return err
+							}
 						}
 					}
 				}
@@ -1927,7 +1963,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				if assistantText.Len() == 0 && len(result.Message.ToolCalls) > 0 {
 					sumReq := req
 					sumReq.Tools = nil
-					sumReq.Messages = append(append([]llmadapter.Message{}, req.Messages...), result.Message, forceSummaryNudgeMessage())
+					// req.Messages already ends with the final assistant
+					// tool-call message (appended before dispatch), so the
+					// closing pass only adds the nudge; repeating
+					// result.Message would duplicate the assistant turn.
+					sumReq.Messages = append(append([]llmadapter.Message{}, req.Messages...), forceSummaryNudgeMessage())
 					sumRes, sumErr := generationBudget.stream(op, a, credential, sumReq, func(d llmadapter.Delta) error {
 						if d.Text != "" {
 							assistantText.WriteString(d.Text)
@@ -1952,6 +1992,14 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 								}
 							}
 						}
+					}
+				}
+				if deferredReceipt != "" && strings.TrimSpace(assistantText.String()) == "" {
+					// The forced summary pass stayed silent too; the canned
+					// notice is the only thing left to tell the user.
+					assistantText.WriteString(deferredReceipt)
+					if err := sendDeltaChunks(send, deferredReceipt); err != nil {
+						return err
 					}
 				}
 				notice := createTurnClosingNotice(turn.LastTools, assistantText.String())

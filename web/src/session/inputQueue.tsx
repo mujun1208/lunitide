@@ -76,7 +76,10 @@ export function useInputQueue(sessionId: string, streaming = false, officeTaskId
         setLoadedScope(`${id}\0${task ?? ''}`)
         setItems(prev => sameQueueJson(prev, r.items) ? prev : r.items)
         setDelivery(prev => sameQueueJson(prev, r.delivery) ? prev : r.delivery)
-        setNotice(previous => previous === QUEUE_READ_FAILED ? '' : previous)
+        // Once the engine settles every queued row (injected or withdrawn),
+        // the "queued" notice is stale — the follow-up has already been folded
+        // into the turn, so drop it alongside the read-failure notice.
+        setNotice(previous => previous === QUEUE_READ_FAILED || (r.items.length === 0 && previous === FOLLOW_UP_QUEUE_NOTICE) ? '' : previous)
       }
     } catch { if (current()) setNotice(QUEUE_READ_FAILED) }
   }, [])
@@ -154,7 +157,10 @@ export function useInputQueue(sessionId: string, streaming = false, officeTaskId
       assertQueueScope(task, r.items, r.delivery)
       setLoadedScope(`${id}\0${task ?? ''}`)
       setDelivery(r.delivery)
-      if (!r.count) return
+      // Even with nothing pending to deliver, the engine may have just
+      // injected queued rows at a turn boundary (consume returns count=0);
+      // refresh anyway so the strip drops rows the engine already settled.
+      if (!r.count) { await refresh(); return }
       if (r.delivery?.state === 'confirmed') { setNotice('已记录你的核对结果'); await refresh(); return }
       if (!r.delivery || r.delivery.state !== 'prepared') {
         setNotice(r.delivery?.state === 'started' ? '补充输入已启动，请等待结果；不会重复发送' : '补充输入的执行结果待核对，请查看对话后决定是否继续')
