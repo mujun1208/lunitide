@@ -52,6 +52,10 @@ android {
 }
 
 dependencies {
-    // 唯一的三方依赖：扫码配对（内置相机扫码 Activity + ZXing 解码）。
+    // 扫码配对：内置相机扫码 Activity + ZXing 解码（壳唯一的三方依赖组）。
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    // zxing 4.3.0 的 POM 只声明 zxing core；androidx.core 在库里是 compileOnly，
+    // 必须显式引入——否则 CaptureManager 打开相机时报
+    // NoClassDefFoundError: androidx.core.content.ContextCompat（0.17.1 扫码闪退根因）。
+    implementation("androidx.core:core:1.2.0")
 }
