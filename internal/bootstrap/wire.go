@@ -553,11 +553,15 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	engine.SetProductHub(hub)
 	// 手机伴侣远程网关：engine 自身就是 bridge handler，网关在引擎进程内
 	// 承载 HTTPS+WSS。开启失败只记日志，绝不阻塞引擎就绪；上次会话开着
-	// 远程访问则自动恢复监听。
+	// 远程访问则自动恢复监听。媒体服务先行创建：手机端没有 WebView2 的
+	// media.lunitide.local 虚拟主机，网关要代理 /media/assets/<ticket>。
+	mediaSvc := mediaapp.New(store)
+	engine.SetMedia(mediaSvc)
 	remoteGW, remoteErr := remotegateway.New(ctx, dataRoot, engine, buildinfo.Version)
 	if remoteErr != nil {
 		log.Printf("remotegateway: init failed: %v", remoteErr)
 	} else {
+		remoteGW.SetMediaService(mediaSvc)
 		engine.SetRemoteGateway(remoteGW)
 		remoteGW.StartIfEnabled(ctx)
 		closers = append(closers, remoteGW.Close)
@@ -580,7 +584,6 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	if root := producthub.FindProductRoot(); root != "" {
 		producthub.UseProductRoot(root)
 	}
-	engine.SetMedia(mediaapp.New(store))
 	if runtimeRoot, err := dataRoot.PrepareSubdirectory("runtime"); err != nil {
 		log.Printf("uv runtime directory unavailable; in-product uv install stays off: %v", err)
 	} else {

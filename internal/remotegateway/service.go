@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,7 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 
 	"github.com/lunitide/lunitide/internal/ipc"
+	"github.com/lunitide/lunitide/internal/mediaapp"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -57,6 +59,12 @@ type Service struct {
 	// rendererDirOverride 覆盖渲染目录（同包测试注入；空则按可执行
 	// 文件位置解析 web/dist）。
 	rendererDirOverride string
+
+	// media 是媒体票据代理（/media/assets/<token>）。手机端没有 WebView2
+	// 的 media.lunitide.local 虚拟主机，前端把 playbackUrl 重写到网关同源
+	// 路径后由此服务资产。ticket 本身即 bearer 凭证（随机 + TTL + 硬上限），
+	// 与桌面 WebView2 拦截层的口径一致。
+	media *mediaapp.Service
 
 	keepAwakeChan chan bool
 	keepAwakeOnce sync.Once
@@ -220,6 +228,7 @@ func (s *Service) startLockedServer(ctx context.Context, allowElevate bool) erro
 	mux.HandleFunc("/api/pair", s.handlePair)
 	mux.HandleFunc("/bridge", s.serveBridgeWS)
 	mux.HandleFunc("/app/", s.handleApk)
+	mux.HandleFunc("/media/assets/", s.handleMediaAsset)
 	mux.HandleFunc("/", s.handleStatic)
 	server := &http.Server{
 		Handler:           mux,
@@ -654,6 +663,67 @@ func (s *Service) handleStatic(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-cache")
 	http.ServeFile(w, r, page)
+}
+
+// SetMediaService 注入媒体票据代理依赖（wire 在引擎组装时调用）。
+func (s *Service) SetMediaService(svc *mediaapp.Service) {
+	s.mu.Lock()
+	s.media = svc
+	s.mu.Unlock()
+}
+
+// handleMediaAsset 服务 /media/assets/<ticket>：手机端的媒体资产代理。
+// <img>/<video> 无法携带 Authorization 头，安全模型与桌面 WebView2 拦截层
+// 一致——ticket 即 bearer 凭证（随机 token + 空闲 TTL + 硬上限 + 文件身份
+// 复核），网关不额外校验设备令牌。owner 传空跳过属主比对。
+func (s *Service) handleMediaAsset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.mu.Lock()
+	media := s.media
+	s.mu.Unlock()
+	if media == nil {
+		http.Error(w, "media proxy unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	token := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/media/assets/")
+	if token == "" || strings.ContainsAny(token, "/\\") || len(token) < 16 || len(token) > 64 {
+		http.NotFound(w, r)
+		return
+	}
+	for _, c := range token {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '_':
+		default:
+			http.NotFound(w, r)
+			return
+		}
+	}
+	result, err := media.ServeTicketRange(token, "", r.Header.Get("Range"), "")
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	ctype := result.ContentType
+	if ctype == "" {
+		ctype = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Content-Length", strconv.FormatInt(result.ContentLength, 10))
+	if result.AcceptRanges != "" {
+		w.Header().Set("Accept-Ranges", result.AcceptRanges)
+	}
+	if result.ContentRange != "" {
+		w.Header().Set("Content-Range", result.ContentRange)
+	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(result.Status)
+	if r.Method != http.MethodHead && len(result.Body) > 0 {
+		_, _ = w.Write(result.Body)
+	}
 }
 
 // handleApk 服务 Android 壳安装包（安装目录 app/lunitide.apk）。无需

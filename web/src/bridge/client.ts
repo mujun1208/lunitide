@@ -758,6 +758,24 @@ export interface MediaBridge {
 const isMediaSnapshotEvent=(v:unknown):v is {v:string;kind:'event';id:string;streamId:string;sequence:number;type:'media_snapshot';media:{kind:'invalidate';mediaSessionId:string;revision:number}}=>{
   return isObj(v)&&v.v===BRIDGE_VERSION&&v.kind==='event'&&isULID(v.id)&&isULID(v.streamId)&&Number.isInteger(v.sequence)&&Number(v.sequence)>=1&&v.type==='media_snapshot'&&isObj(v.media)&&exact(v.media,['kind','mediaSessionId','revision'])&&v.media.kind==='invalidate'&&isULID(v.media.mediaSessionId)&&Number.isInteger(v.media.revision)&&Number(v.media.revision)>=1
 }
+// 手机端远程会话没有 WebView2 的 media.lunitide.local 虚拟主机，媒体
+// playbackUrl 在远程 bridge 会话下重写为网关同源代理路径 /media/assets/
+// <ticket>（网关侧同一 ticket 校验与 Range 语义）。桌面本地会话原样返回。
+const MEDIA_VIRTUAL_ORIGIN = 'https://media.lunitide.local/v1/assets/'
+function rewriteRemotePlaybackUrl(url: string): string {
+  if (!url.startsWith(MEDIA_VIRTUAL_ORIGIN)) return url
+  try {
+    const raw = localStorage.getItem('lunitide:remote-bridge')
+    if (!raw) return url
+    const value = JSON.parse(raw) as { wsUrl?: unknown }
+    if (typeof value.wsUrl !== 'string' || !value.wsUrl) return url
+    const parsed = new URL(value.wsUrl)
+    const scheme = parsed.protocol === 'wss:' ? 'https' : parsed.protocol === 'ws:' ? 'http' : ''
+    if (!scheme || !parsed.host) return url
+    return `${scheme}://${parsed.host}/media/assets/${url.slice(MEDIA_VIRTUAL_ORIGIN.length)}`
+  } catch { return url }
+}
+
 export function createMediaBridge(transport: WebViewTransport = webview(), deadlineMs = 8_000): MediaBridge {
   const core = createSimpleBridge(transport, {}, deadlineMs)
   return {
@@ -787,7 +805,10 @@ export function createMediaBridge(transport: WebViewTransport = webview(), deadl
       }
     },
     listAssets: p => core.request('media.asset.list' as BridgeMethod, p),
-    openAsset: p => core.request('media.asset.open' as BridgeMethod, p),
+    openAsset: async p => {
+      const result = await core.request<import('../generated/bridge').MediaAssetOpenResult>('media.asset.open' as BridgeMethod, p)
+      return { ...result, playbackUrl: rewriteRemotePlaybackUrl(result.playbackUrl) }
+    },
     pick: p => core.request('media.asset.pick' as BridgeMethod, p, PEOPLE_FILE_DEADLINE_MS),
     reportElement: p => core.request('media.element.report' as BridgeMethod, p),
     queueCommand: (p, o) => core.request('media.queue.command' as BridgeMethod, p, deadlineMs, o?.attempt ?? createMutationAttempt('media.queue.command', p)),
