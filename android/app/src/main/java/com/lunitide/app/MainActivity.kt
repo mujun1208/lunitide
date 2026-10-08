@@ -22,7 +22,15 @@ import com.google.zxing.integration.android.IntentIntegrator
 import com.google.zxing.integration.android.IntentResult
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URL
 import java.security.MessageDigest
+import java.security.SecureRandom
+import javax.net.ssl.HostnameVerifier
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLSocketFactory
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 /**
  * Lunitide 移动伴侣壳：单 Activity WebView 容器。
@@ -44,6 +52,7 @@ class MainActivity : Activity() {
         private const val KEY_FP = "fp"
         private const val KEY_CANDIDATES = "candidates"
         private const val LOAD_TIMEOUT_MS = 8000L
+        private const val PROBE_TIMEOUT_MS = 3500L
         private const val EXIT_WINDOW_MS = 1500L
     }
 
@@ -53,6 +62,19 @@ class MainActivity : Activity() {
     private var pendingTimeout: Runnable? = null
     private var candidates: List<String> = emptyList()
     private var candidateIdx = 0
+    /** 候选可达性并行探测：origin -> 可达；缺键 = 探测仍在途（仅主线程读写）。 */
+    private val probeResults = mutableMapOf<String, Boolean>()
+    private var probeGen = 0
+    private var lastProbedOrigin: String? = null
+    /** 探测专用信任所有证书的 TLS 工厂：探测只测链路通不通，真实性仍由 WebView 指纹校验把关。 */
+    private val trustAllFactory: SSLSocketFactory by lazy {
+        val tm = arrayOf<TrustManager>(object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
+            override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
+            override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
+        })
+        SSLContext.getInstance("TLS").apply { init(null, tm, SecureRandom()) }.socketFactory
+    }
     private var lastUrl: String? = null
     private var backPressedAt = 0L
     /** 浏览器配对后经 lunitide://open 传入的设备令牌：首次加载网关页时注入 localStorage。 */
@@ -155,6 +177,7 @@ class MainActivity : Activity() {
         }
         candidates = list
         candidateIdx = 0
+        lastProbedOrigin = null
     }
 
     /** 裸地址（网关 hostAddresses 格式：IPv4 或 IPv6，不带 scheme/端口）→ origin。 */
@@ -273,16 +296,66 @@ class MainActivity : Activity() {
         pendingTimeout = null
     }
 
-    /** 当前 origin 连不上：按候选顺序轮换（蜂窝下 IPv4 → 公网 IPv6 直连）。 */
+    /** 当前 origin 连不上：优先切到已探明可达的候选，其次按原顺序轮换；全灭进错误页。 */
     private fun failover() {
-        if (candidateIdx + 1 < candidates.size) {
-            candidateIdx++
-            val nextOrigin = candidates[candidateIdx]
-            val target = lastUrl?.replace(Regex("^https://[^/]+"), nextOrigin)
-                ?: "$nextOrigin/"
-            loadWithFailover(target)
+        val rest = (candidateIdx + 1) until candidates.size
+        val next = rest.firstOrNull { probeResults[candidates[it]] == true }
+            ?: rest.firstOrNull { !probeResults.containsKey(candidates[it]) }
+        if (next != null) {
+            loadCandidate(next)
         } else {
             runOnUiThread { renderConnectError() }
+        }
+    }
+
+    private fun originOfUrl(url: String?): String? =
+        url?.let { Regex("^https://[^/]+").find(it)?.value }
+
+    private fun loadCandidate(idx: Int) {
+        candidateIdx = idx
+        val origin = candidates[idx]
+        val target = lastUrl?.replace(Regex("^https://[^/]+"), origin) ?: "$origin/"
+        loadWithFailover(target)
+    }
+
+    /** 主页面开始加载时，对其余候选并行做可达性探测（蜂窝下不被失效地址串行拖慢 8s/个）。
+     *  探测只测链路通不通：信任所有证书，真实性仍由 WebView 的指纹校验把关。 */
+    private fun startProbes(loadedUrl: String) {
+        val loaded = originOfUrl(loadedUrl) ?: return
+        if (loaded == lastProbedOrigin) return
+        lastProbedOrigin = loaded
+        probeGen++
+        val gen = probeGen
+        probeResults.clear()
+        candidates.forEach { origin ->
+            if (origin == loaded) return@forEach
+            Thread {
+                val ok = runCatching {
+                    val conn = URL("$origin/").openConnection() as HttpsURLConnection
+                    conn.connectTimeout = PROBE_TIMEOUT_MS.toInt()
+                    conn.readTimeout = PROBE_TIMEOUT_MS.toInt()
+                    conn.instanceFollowRedirects = false
+                    conn.sslSocketFactory = trustAllFactory
+                    conn.hostnameVerifier = HostnameVerifier { _, _ -> true }
+                    conn.connect()
+                    conn.responseCode >= 0
+                }.getOrDefault(false)
+                if (gen == probeGen && !isDestroyed) {
+                    runOnUiThread {
+                        if (gen != probeGen) return@runOnUiThread
+                        probeResults[origin] = ok
+                        // 当前页仍卡着（8s 未到）而某候选已探明可达：立刻切换，不等超时。
+                        if (ok && pendingTimeout != null) {
+                            val idx = candidates.indexOf(origin)
+                            if (idx > candidateIdx) {
+                                probeGen++
+                                cancelTimeout()
+                                loadCandidate(idx)
+                            }
+                        }
+                    }
+                }
+            }.start()
         }
     }
 
@@ -313,7 +386,10 @@ class MainActivity : Activity() {
         }
 
         override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
-            if (url.startsWith("https://")) scheduleTimeout()
+            if (url.startsWith("https://")) {
+                scheduleTimeout()
+                startProbes(url)
+            }
         }
 
         override fun onPageFinished(view: WebView, url: String) {
