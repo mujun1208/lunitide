@@ -25,7 +25,12 @@ const (
 	wsDrainTimeout     = 5 * time.Second
 	preResponseLimit   = 64
 	remoteRateWindow   = time.Minute
-	remoteRateMaxCalls = 30
+	// remoteRateMaxCalls 是每连接每分钟的请求上限。手机实测（0.16.2）证明
+	// 30/min 会误伤正常使用：一次冷启动（providers/sessions/experts 等并发
+	// 预取）就 15-25 个请求，进入会话再发一轮对话即触顶，用户被
+	// REMOTE_RATE_LIMITED 拒绝。120/min 保持「持续 >2 req/s 才拦截」的防
+	// 滥用语义，同时给正常交互留 2.5 倍余量。
+	remoteRateMaxCalls = 120
 )
 
 var wsUpgrader = websocket.Upgrader{

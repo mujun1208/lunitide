@@ -329,6 +329,98 @@ func pinnedDialer(t *testing.T, expectFP string) *websocket.Dialer {
 	}
 }
 
+// TestWSSRateLimitPinsRealisticBudget 复现 0.16.2 手机实测的限流误伤：
+// 旧值 30 req/min 在「冷启动并发预取 + 一轮对话」的正常负载下即触顶，
+// 用户连发一条消息都被 REMOTE_RATE_LIMITED 拒绝。断言两件事：
+// 1) 正常负载（50 个请求，模拟冷启动 25 + 一轮对话 15 + 轮询余量）全部通过；
+// 2) 超过 remoteRateMaxCalls 后仍被拦截（防滥用语义不放松）。
+func TestWSSRateLimitPinsRealisticBudget(t *testing.T) {
+	ctx := context.Background()
+	root := newTestRoot(t)
+	svc, err := New(ctx, root, &fakeHandler{}, "0.0.0-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer svc.Close()
+	svc.port = 0
+	if err := svc.Enable(ctx); err != nil {
+		t.Fatal(err)
+	}
+	addr := svc.listenerAddr()
+	info, err := svc.IssuePairCode(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.HandlePair(ctx, info.Code, "测试手机", "android-pwa", "192.0.2.40")
+	if err != nil {
+		t.Fatal(err)
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wsURL := fmt.Sprintf("wss://%s/bridge", net.JoinHostPort(host, portOf(addr)))
+	conn, _, err := pinnedDialer(t, fullFP(t, root)).Dial(wsURL, http.Header{"Authorization": []string{"Bearer " + result.DeviceToken}})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	roundTrip := func(i int) (bool, string) {
+		request := newRequest(t, "system.health", map[string]any{})
+		raw, _ := json.Marshal(request)
+		if err := conn.WriteMessage(websocket.TextMessage, raw); err != nil {
+			t.Fatalf("write #%d: %v", i, err)
+		}
+		var response bridge.Response
+		if err := conn.ReadJSON(&response); err != nil {
+			t.Fatalf("read #%d: %v", i, err)
+		}
+		code := ""
+		if response.Error != nil {
+			code = response.Error.Code
+		}
+		return response.OK && code == "", code
+	}
+	// 正常负载：50 连发必须零拒绝（0.16.2 及之前在 ~30 处即失败）。
+	for i := 0; i < 50; i++ {
+		if ok, code := roundTrip(i); !ok {
+			t.Fatalf("normal-use request #%d rejected (code=%q) — budget must cover cold start + one chat round", i, code)
+		}
+	}
+	// 滥用拦截：继续灌到超过 remoteRateMaxCalls，第 121 个请求必须被拒。
+	limited := false
+	for i := 50; i < remoteRateMaxCalls+5; i++ {
+		ok, code := roundTrip(i)
+		if !ok {
+			if code != "REMOTE_RATE_LIMITED" {
+				t.Fatalf("request #%d failed with unexpected code %q", i, code)
+			}
+			limited = true
+			break
+		}
+	}
+	if !limited {
+		t.Fatalf("sent %d requests without hitting the limiter — abuse protection is gone", remoteRateMaxCalls+5)
+	}
+}
+
+// TestRateLimiterWindowIsSliding 钉住滑动窗口语义：过期时间戳逐出后额度恢复。
+func TestRateLimiterWindowIsSliding(t *testing.T) {
+	l := newRateLimiter(2, 10*time.Millisecond)
+	first, second := l.allow(), l.allow()
+	if !first || !second {
+		t.Fatal("first two calls must pass")
+	}
+	if l.allow() {
+		t.Fatal("third call within window must be rejected")
+	}
+	time.Sleep(12 * time.Millisecond)
+	if !l.allow() {
+		t.Fatal("quota must recover after the window slides")
+	}
+}
+
 func TestBridgeWSSSession(t *testing.T) {
 	ctx := context.Background()
 	handler := &fakeHandler{}

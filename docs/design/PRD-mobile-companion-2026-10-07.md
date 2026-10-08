@@ -132,7 +132,7 @@
 
 - 帧上限 4MB（复用 `ipc.MaxFrameSize`）；超限即断连并记审计
 - **并发闸门复用**：远程请求与本地请求共享同一 slot 池（DefaultGeneralSlots/ControlSlots），手机不会挤爆电脑端
-- 每设备限速：突发 30 req/min，超出返回 `REMOTE_RATE_LIMITED`（retryable）
+- 每连接限速：120 req/min 滑动窗口，超出返回 `REMOTE_RATE_LIMITED`（retryable）。初版 30 req/min 被手机实测证伪——一次冷启动的并发预取（providers/sessions/experts 等）就 15-25 个请求，进会话发一轮对话即触顶；120/min 维持「持续 >2 req/s 才拦截」的防滥用语义（2026-10-08 修订）
 
 ### 4.3 新增 bridge 方法（engine 侧）
 
