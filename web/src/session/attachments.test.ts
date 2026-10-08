@@ -75,11 +75,12 @@ it('uploads a 198 KiB text attachment in transport-safe chunks before committing
  expect(result.failed).toHaveLength(0);expect(chunk).toHaveBeenCalledTimes(7);expect(chunk.mock.calls.map(call=>call[0].offset)).toEqual([0,32768,65536,98304,131072,163840,196608]);expect(Math.max(...chunk.mock.calls.map(call=>call[0].contentBase64.length))).toBeLessThanOrEqual(43692);expect(commit).toHaveBeenCalledOnce()
 })
 
-it('uses a larger server chunk so a 198 KiB file uploads in two round trips',async()=>{
+it('caps a larger server chunk at the bridge-safe size so every frame stays under 64 KiB',async()=>{
  const data=new Uint8Array(198*1024).fill(65),file=new File([data],'large.txt',{type:'text/plain'});Object.defineProperty(file,'arrayBuffer',{value:async()=>data.buffer})
  const chunk=vi.fn().mockImplementation(async payload=>({uploadId:payload.uploadId,nextOffset:payload.offset+atob(payload.contentBase64).length})),commit=vi.fn().mockResolvedValue({attachmentId:'01ARZ3NDEKTSV4RRFFQ69G5FAC'}),attachments={begin:vi.fn().mockResolvedValue({uploadId:'01ARZ3NDEKTSV4RRFFQ69G5FAB',chunkSize:160*1024,expiresAt:new Date().toISOString()}),chunk,commit,abort:vi.fn()} as unknown as AttachmentBridge
  const result=await ingestAttachments(attachments,'01ARZ3NDEKTSV4RRFFQ69G5FAV','01ARZ3NDEKTSV4RRFFQ69G5FAA',[file])
- expect(result.failed).toHaveLength(0);expect(chunk).toHaveBeenCalledTimes(2);expect(chunk.mock.calls.map(call=>call[0].offset)).toEqual([0,163840]);expect(Math.max(...chunk.mock.calls.map(call=>call[0].contentBase64.length))).toBeLessThanOrEqual(218456);expect(commit).toHaveBeenCalledOnce()
+ // 服务端广播 160 KiB，但 WebView2 桥要求每帧 < 64 KiB，客户端一律按 40 KiB 二进制切片。
+ expect(result.failed).toHaveLength(0);expect(chunk).toHaveBeenCalledTimes(5);expect(chunk.mock.calls.map(call=>call[0].offset)).toEqual([0,40960,81920,122880,163840]);expect(Math.max(...chunk.mock.calls.map(call=>call[0].contentBase64.length))).toBeLessThanOrEqual(54620);expect(commit).toHaveBeenCalledOnce()
 })
 
 

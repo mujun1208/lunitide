@@ -153,7 +153,7 @@ func handleAttachmentUploadBegin(e *Engine, ctx context.Context, r bridge.Reques
 	if err != nil {
 		return attachmentFailure(r, err)
 	}
-	return r.Ok(map[string]any{"uploadId": id, "chunkSize": attachmentapp.MaxUploadChunkBytes, "expiresAt": expires})
+	return r.Ok(map[string]any{"uploadId": id, "chunkSize": attachmentapp.RecommendedUploadChunkBytes, "expiresAt": expires})
 }
 func handleAttachmentUploadChunk(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {

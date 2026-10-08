@@ -2,6 +2,7 @@ import type { SkillBridge } from '../bridge/client'
 import type { SkillDTO } from '../generated/bridge'
 import { readBoundedFile } from '../files/readBoundedFile'
 import { attachmentOperation } from '../session/attachmentOperation'
+import { BRIDGE_SAFE_CHUNK_BYTES } from '../session/attachments'
 
 export const SKILL_PACKAGE_LIMIT = 8 * 1024 * 1024
 type Progress = { stage: 'reading' | 'uploading' | 'committing'; percent: number }
@@ -34,11 +35,14 @@ export async function uploadSkillPackage(bridge: SkillBridge, file: File, onProg
       void beginning.then(result => { if (abandoned || signal?.aborted) void bridge.uploadAbort!({ uploadId: result.uploadId }).catch(() => {}) }, () => {})
       const started = await attachmentOperation(beginning, signal, 30_000, '技能包上传准备超时，请重试。')
       uploadId = started.uploadId
-      if (started.chunkSize !== 65536) throw new Error('技能包分片规格不兼容，请更新核心后重试。')
+      if (!Number.isSafeInteger(started.chunkSize) || started.chunkSize <= 0) throw new Error('技能包分片规格不兼容，请更新核心后重试。')
+      // WebView2 页面→宿主 postMessage 对超过 65536 字节的消息静默丢弃：无论核心
+      // 广播多大，每块都按 40 KiB 二进制切片，保证 base64 + 信封稳定低于 64 KiB。
+      const step = Math.min(started.chunkSize, BRIDGE_SAFE_CHUNK_BYTES)
       const bytes = new Uint8Array(buffer)
-      for (let offset = 0; offset < bytes.length; offset += started.chunkSize) {
+      for (let offset = 0; offset < bytes.length; offset += step) {
         if (signal?.aborted) throw new DOMException('技能包上传已取消', 'AbortError')
-        const chunk = bytes.subarray(offset, Math.min(offset + started.chunkSize, bytes.length))
+        const chunk = bytes.subarray(offset, Math.min(offset + step, bytes.length))
         const receipt = await attachmentOperation(bridge.uploadChunk({ uploadId, offset, dataBase64: encode(chunk) }), signal, 30_000, '技能包上传超时，请重试。')
         if (receipt.received !== offset + chunk.length) throw new Error('技能包上传进度不一致，尚未导入，请重试。')
         onProgress?.({ stage: 'uploading', percent: Math.round(receipt.received / bytes.length * 100) })

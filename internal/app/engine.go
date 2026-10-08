@@ -63,9 +63,9 @@ import (
 	"github.com/lunitide/lunitide/internal/org"
 	"github.com/lunitide/lunitide/internal/people"
 	"github.com/lunitide/lunitide/internal/producthub"
-	"github.com/lunitide/lunitide/internal/remotegateway"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/queueapp"
+	"github.com/lunitide/lunitide/internal/remotegateway"
 	"github.com/lunitide/lunitide/internal/scheduler"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/secretlease"
@@ -749,6 +749,34 @@ func (e *Engine) RecoverCompaction(ctx context.Context) ([]compactionapp.Recover
 	return e.compactionExecutor.RecoverOrphanedCheckpoints(ctx)
 }
 
+// providerModelWindowFor resolves a (provider, model) reference pair to the
+// configured context window. providerRef may be a provider ID, a legacy ID,
+// or a historical protocol string; an ambiguous or unresolved pair yields 0.
+func providerModelWindowFor(providers []provider.Provider, providerRef, modelID string) int64 {
+	if providerRef == "" || modelID == "" {
+		return 0
+	}
+	var candidates []provider.Provider
+	for _, p := range providers {
+		if p.ID == providerRef || (p.LegacyID != "" && p.LegacyID == providerRef) {
+			candidates = []provider.Provider{p}
+			break
+		}
+		if string(p.Protocol) == providerRef {
+			candidates = append(candidates, p)
+		}
+	}
+	if len(candidates) != 1 {
+		return 0
+	}
+	for _, m := range candidates[0].Models {
+		if m.ModelID == modelID && m.ContextWindow > 0 {
+			return m.ContextWindow
+		}
+	}
+	return 0
+}
+
 // ContextStatusResult describes the current context state for a session.
 type ContextStatusResult struct {
 	CanonicalLogicalTokens     int64   `json:"canonicalLogicalTokens"`
@@ -801,24 +829,25 @@ func (e *Engine) ContextStatus(ctx context.Context, sessionID string) (ContextSt
 		result.CanonicalLogicalTokens = usage
 	}
 
-	// Context window comes from the latest checkpoint's provider/model.
-	if latest != nil {
-		// Look up context window from provider model config.
-		if e.providers != nil {
-			providers, err := e.providers.List(ctx, provider.Filter{})
-			if err == nil {
-				for _, p := range providers {
-					if string(p.Protocol) == latest.Provider {
-						for _, m := range p.Models {
-							if m.ModelID == latest.Model && m.ContextWindow > 0 {
-								result.ModelContextWindow = m.ContextWindow
-								break
-							}
-						}
-						break
-					}
+	// Context window comes from the latest checkpoint's provider/model, falling
+	// back to the last chat turn's pair — a fresh session has no compaction
+	// checkpoint yet, but the usage chip still needs a real window. Provider
+	// identity may be a provider ID, a legacy ID, or a historical protocol
+	// string, mirroring deriveCompactionContext's resolution order.
+	if e.providers != nil {
+		providers, err := e.providers.List(ctx, provider.Filter{})
+		if err == nil {
+			providerRef, modelRef := "", ""
+			if latest != nil {
+				providerRef, modelRef = latest.Provider, latest.Model
+			}
+			window := providerModelWindowFor(providers, providerRef, modelRef)
+			if window == 0 {
+				if cp := e.loadTurnCheckpoint(sessionID); cp.Provider != "" && cp.Model != "" {
+					window = providerModelWindowFor(providers, cp.Provider, cp.Model)
 				}
 			}
+			result.ModelContextWindow = window
 		}
 	}
 

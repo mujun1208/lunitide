@@ -18,7 +18,9 @@ it('uploads exact ZIP binary and hashes complete bytes without parsing JSON', as
   const api = fixture(), result = await uploadSkillPackage(api, new File([bytes], '技能.zip'))
   expect(result).toBe(skill)
   expect(api.uploadBegin).toHaveBeenCalledWith({ name: '技能.zip', size: bytes.length, sha256: expect.stringMatching(/^[0-9a-f]{64}$/) })
-  expect(vi.mocked(api.uploadChunk!).mock.calls.map(([p]) => p.offset)).toEqual([0, 65536, 131072])
+  // 服务端广播 64 KiB 分片，客户端仍按桥安全上限 40 KiB 切块，保证整帧 < 64 KiB。
+  expect(vi.mocked(api.uploadChunk!).mock.calls.map(([p]) => p.offset)).toEqual([0, 40960, 81920, 122880])
+  expect(Math.max(...vi.mocked(api.uploadChunk!).mock.calls.map(([p]) => p.dataBase64.length))).toBeLessThanOrEqual(54620)
   const combined = vi.mocked(api.uploadChunk!).mock.calls.flatMap(([p]) => Array.from(atob(p.dataBase64), char => char.charCodeAt(0)))
   expect(new Uint8Array(combined)).toEqual(bytes)
   expect(api.uploadAbort).not.toHaveBeenCalled()

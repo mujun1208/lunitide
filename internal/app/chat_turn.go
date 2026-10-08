@@ -8,10 +8,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
+	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/bridge"
+	"github.com/lunitide/lunitide/internal/domain/provider"
 	"github.com/lunitide/lunitide/internal/domain/queueinput"
 	"github.com/lunitide/lunitide/internal/llmadapter"
 	"github.com/lunitide/lunitide/internal/messageapp"
@@ -31,6 +34,8 @@ const (
 
 type chatTurnCheckpoint struct {
 	Status             string                         `json:"status"`
+	Provider           string                         `json:"provider,omitempty"`
+	Model              string                         `json:"model,omitempty"`
 	Goal               string                         `json:"goal"`
 	StreamID           string                         `json:"streamId"`
 	Injected           []string                       `json:"injected,omitempty"`
@@ -634,17 +639,18 @@ func (e *Engine) pullQueuedSupplements(ctx context.Context, sessionID string, cp
 	return b.String(), texts, nil
 }
 
-func (e *Engine) applyQueuedSupplements(ctx context.Context, sessionID string, req *llmadapter.Request, cp *chatTurnCheckpoint, send func(bridge.Event) error, assistantText *strings.Builder) (bool, error) {
+func (e *Engine) applyQueuedSupplements(ctx context.Context, sessionID string, req *llmadapter.Request, cp *chatTurnCheckpoint, send func(bridge.Event) error, assistantText *strings.Builder, p provider.Provider) (bool, error) {
 	if cp == nil {
 		return false, nil
 	}
-	note, _, err := e.pullQueuedSupplements(ctx, sessionID, cp)
+	note, texts, err := e.pullQueuedSupplements(ctx, sessionID, cp)
 	if err != nil {
 		return false, err
 	}
 	if note == "" {
 		return false, nil
 	}
+	note += e.queuedAttachmentContext(ctx, sessionID, texts, req, p)
 	req.Messages = append(req.Messages, queuedSupplementMessage(note))
 	notice := queueInjectNotice
 	thinking := "已收到你的补充，继续当前任务，不另起炉灶。\n"
@@ -660,4 +666,92 @@ func (e *Engine) applyQueuedSupplements(ctx context.Context, sessionID string, r
 
 func queuedSupplementMessage(note string) llmadapter.Message {
 	return llmadapter.Message{Role: llmadapter.RoleUser, Content: note}
+}
+
+// queuedAttachmentToken matches the renderer's composer token format
+// [attachment:ULID|label]. IDs are canonical ULIDs (Crockford base32).
+var queuedAttachmentToken = regexp.MustCompile(`\[attachment:([0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26})\|[^\]\r\n]*\]`)
+
+func queuedAttachmentTokenIDs(texts []string) []string {
+	var ids []string
+	for _, t := range texts {
+		for _, m := range queuedAttachmentToken.FindAllStringSubmatch(t, -1) {
+			if validCanonicalULID(m[1]) {
+				ids = append(ids, m[1])
+			}
+		}
+	}
+	return ids
+}
+
+// queuedAttachmentContext expands [attachment:ID|label] tokens inside queued
+// supplements into real evidence, mirroring chat.start's explicit contextRefs
+// handling. Images follow the exact same ladder as chat.start: the OCR chain
+// (provider-configured OCR model → local OCR model → Windows OCR) runs first
+// and its text replaces the pixels; raw pixels are only attached when the
+// current chat model itself supports vision, so a text-only model never
+// receives an image request it would reject with a hard 400.
+func (e *Engine) queuedAttachmentContext(ctx context.Context, sessionID string, texts []string, req *llmadapter.Request, p provider.Provider) string {
+	if e == nil || e.attachmentService == nil || req == nil {
+		return ""
+	}
+	seen := map[string]bool{}
+	var b strings.Builder
+	var names []string
+	var pending []llmadapter.Image
+	for _, id := range queuedAttachmentTokenIDs(texts) {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		candidate, err := e.GetAttachment(ctx, id)
+		if err != nil || candidate.SessionID != sessionID {
+			continue
+		}
+		name := strings.TrimSpace(candidate.OriginalName)
+		if name == "" {
+			name = "附件"
+		}
+		if strings.HasPrefix(candidate.MIME, "image/") {
+			if len(pending) < attachmentapp.MaxVisionImages {
+				if image, visionErr := e.GetVisionImage(ctx, id, sessionID); visionErr == nil && len(image.Data) > 0 {
+					pending = append(pending, llmadapter.Image{MIME: image.MIME, Data: image.Data})
+					names = append(names, name)
+					continue
+				}
+			}
+			if parsed := strings.TrimSpace(candidate.ParsedText); parsed != "" {
+				fmt.Fprintf(&b, "\n- %s：\n%s", name, parsed)
+				continue
+			}
+			fmt.Fprintf(&b, "\n- %s：已保存，但没有读出画面，请按文件名说明。", name)
+			continue
+		}
+		content := strings.TrimSpace(candidate.ParsedText)
+		if content == "" {
+			fmt.Fprintf(&b, "\n- %s：已保存，但没有抽出正文。", name)
+			continue
+		}
+		fmt.Fprintf(&b, "\n- %s：\n%s", name, content)
+	}
+	if len(pending) == 0 {
+		return b.String()
+	}
+	joined := strings.Join(names, "、")
+	// Same ladder and ordering as chat.start: maybeDescribeImages tries the
+	// OCR chain first (provider OCR → local OCR → Windows OCR) and only falls
+	// back to a vision-catalog description; when it returns text the pixels
+	// never reach the chat model.
+	llm := modelByID(p, req.Model)
+	if text, ok := e.maybeDescribeImages(ctx, llm, pending, strings.Join(texts, "\n")); ok {
+		fmt.Fprintf(&b, "\n- %s：\n[本机文字识别]\n%s\n请根据这些识别结果回答，不要再用命令或 StorageFile 打开这个文件。", joined, text)
+		return b.String()
+	}
+	if llm.SupportsVision {
+		req.Images = append(req.Images, pending...)
+		fmt.Fprintf(&b, "\n- %s：画面已附上。直接根据画面回答，不要用命令或 StorageFile 打开这个文件。", joined)
+		return b.String()
+	}
+	fmt.Fprintf(&b, "\n- %s：已附图片，但 OCR 和视觉模型都没有读出内容。请确认本机 OCR 可用，或在设置里启用视觉模型后再上传。", joined)
+	return b.String()
 }

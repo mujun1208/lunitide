@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"path/filepath"
 
+	"github.com/lunitide/lunitide/internal/attachmentapp"
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/skill"
 )
@@ -37,7 +38,11 @@ func handleSkillPackageUpload(e *Engine, ctx context.Context, r bridge.Request) 
 		if err != nil {
 			return skillFailure(r, err)
 		}
-		return r.Ok(map[string]any{"uploadId": id, "chunkSize": 65536})
+		// Advertise the transport-safe chunk (see attachmentapp.RecommendedUploadChunkBytes):
+		// WebView2 runtimes from 154.0.4258 drop page->host postMessage frames over
+		// 65536 bytes, and the base64 encoding of 65536 bytes alone is 87 KiB. The
+		// 87384 ceiling below still accepts legacy 64 KiB-binary chunks from older clients.
+		return r.Ok(map[string]any{"uploadId": id, "chunkSize": attachmentapp.RecommendedUploadChunkBytes})
 	case "skill.package.upload.chunk":
 		var p struct {
 			UploadID string `json:"uploadId"`

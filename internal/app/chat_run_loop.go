@@ -41,7 +41,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 	var streamResult llmadapter.Response
 	var generationBudget turnGenerationBudget
 	var turnArtifacts []SessionArtifact
-	turn := chatTurnCheckpoint{Status: turnStatusRunning, StreamID: id, Goal: carryMediaCenterGoal(req.Messages)}
+	turn := chatTurnCheckpoint{Status: turnStatusRunning, StreamID: id, Goal: carryMediaCenterGoal(req.Messages), Provider: p.ID, Model: strings.TrimSpace(req.Model)}
 	// The turn footer (elapsed + tokens) is measured from checkpoint start,
 	// covering every model call, tool loop and continuation wave alike.
 	turnStartedAt := time.Now()
@@ -394,7 +394,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				if err := e.CheckCapability(op, "llm", "session"); err != nil {
 					return err
 				}
-				if _, err := e.applyQueuedSupplements(op, sessionID, &req, &turn, send, &assistantText); err != nil {
+				if _, err := e.applyQueuedSupplements(op, sessionID, &req, &turn, send, &assistantText, p); err != nil {
 					return err
 				}
 				stepTextStart := assistantText.Len()
@@ -1090,7 +1090,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							return err
 						}
 					}
-					note, _, queueErr := e.pullQueuedSupplements(op, sessionID, &turn)
+					note, queuedTexts, queueErr := e.pullQueuedSupplements(op, sessionID, &turn)
 					if queueErr != nil {
 						return queueErr
 					}
@@ -1103,7 +1103,14 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						if msg.Role != "" {
 							req.Messages = append(req.Messages, msg)
 						}
+						note += e.queuedAttachmentContext(op, sessionID, queuedTexts, &req, p)
 						req.Messages = append(req.Messages, queuedSupplementMessage(note))
+						// 排队补充是用户真实输入，消费后必须还有一轮模型调用去处理它。
+						// 普通聊天 lane 的 toolLoopLimit 可能为 1（无工具单轮），此时 continue
+						// 会直接退出循环，补充只留下一句"已并入"通知——延长预算确保被真正回答。
+						if step+2 > toolLoopLimit && toolLoopLimit < maxToolLoopStepsHard {
+							toolLoopLimit = min(step+2, maxToolLoopStepsHard)
+						}
 						assistantText.WriteString(queueInjectNotice)
 						_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "已收到你的补充，继续当前任务，不另起炉灶。\n"}})
 						_ = send(bridge.Event{Type: bridge.EventDelta, Delta: &bridge.DeltaEvent{Text: queueInjectNotice}})

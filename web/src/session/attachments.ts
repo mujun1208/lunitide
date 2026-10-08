@@ -9,6 +9,10 @@ function attachmentUserError(err: unknown, fallback: string): string {
 }
 
 export const ATTACHMENT_FILE_MAX=500*1024*1024
+// WebView2 页面→宿主 postMessage 的安全分块上限（二进制字节）。运行时对超过
+// 65536 字节的整条消息静默丢弃，因此 base64(40 KiB) + JSON 信封 ≈ 55 KiB 是
+// 桌面桥与远程 WS 桥都能稳定通过的最大值。见 ingestAttachments 内注释。
+export const BRIDGE_SAFE_CHUNK_BYTES=40*1024
 export const ATTACHMENT_BATCH_MAX=40
 export const VISION_IMAGE_MAX=4
 export const ATTACHMENT_BATCH_BYTES=ATTACHMENT_FILE_MAX*ATTACHMENT_BATCH_MAX
@@ -159,8 +163,9 @@ export async function ingestAttachments(attachments:AttachmentBridge,projectId:s
    try{begin=await attachmentOperation(beginning,signal)}catch(error){beginAbandoned=true;throw error}
    uploadId=begin.uploadId
    if(!Number.isSafeInteger(begin.chunkSize)||begin.chunkSize<=0)throw new Error('上传分块大小无效')
-   // Stay under the 256 KiB bridge message. Fewer round trips keep the upload moving.
-   const chunkSize=Math.min(begin.chunkSize,160*1024)
+   // WebView2 运行时（154.0.4258 起）对页面→宿主 postMessage 超过 65536 字节的消息
+   // 静默丢弃：每块 40 KiB 二进制 → ~54 KiB base64 + JSON 信封，稳定低于 64 KiB。
+   const chunkSize=Math.min(begin.chunkSize,BRIDGE_SAFE_CHUNK_BYTES)
    let offset=0
    while(offset<bytes.length){
     if(signal?.aborted)throw attachmentCancelled()

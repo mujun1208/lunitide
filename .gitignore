@@ -41,6 +41,7 @@ coverage/
 coverage.out
 coverage-app.out
 coverage-rest.out
+coverage-sqlite.out
 coverage-stdioworker.out
 *.test.exe
 .coverage

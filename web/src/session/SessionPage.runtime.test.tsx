@@ -68,9 +68,9 @@ it('encodes the maximum safe attachment payload and rejects larger files',async(
  await fireEvent.change(input,{target:{files:[file]}})
  await waitFor(()=>expect(commit).toHaveBeenCalledOnce(),{timeout:20_000})
  expect(begin).toHaveBeenCalledWith(expect.objectContaining({projectId:P,sessionId:S,originalName:'safe.txt',size:uploadBytes,sha256:expect.stringMatching(/^[0-9a-f]{64}$/)}))
- expect(chunk).toHaveBeenCalledTimes(80)
+ expect(chunk).toHaveBeenCalledTimes(256)
  expect(chunk.mock.calls[0][0]).toMatchObject({uploadId:'01ARZ3NDEKTSV4RRFFQ69G5FAC',offset:0})
- expect(chunk.mock.calls[79][0]).toMatchObject({offset:uploadBytes-128*1024})
+ expect(chunk.mock.calls[255][0]).toMatchObject({offset:uploadBytes-40*1024})
  const oversized=new File(['x'],'too-large.txt',{type:'text/plain'})
  Object.defineProperty(oversized,'size',{value:ATTACHMENT_FILE_MAX+1})
  await fireEvent.change(input,{target:{files:[oversized]}})
@@ -1261,7 +1261,7 @@ it('prefixes only selected PM chips on rethink and never the conversation catalo
  expect(sent).not.toContain('报告编写专家')
 })
 
-it('keeps send and voice inside the composer and hides idle 0% context text',async()=>{
+it('keeps send and voice inside the composer and always shows the idle 0% context chip',async()=>{
  const status=vi.fn().mockResolvedValue({canonicalLogicalTokens:0,canonicalTokenizerId:'lunitide-canonical-v1',canonicalTokenizerRevision:'v1.0.0',modelContextWindow:100000,activeCheckpointVersion:0,budgetUsage:0,isCompacting:false})
  const context={status,compactPreview:vi.fn(),compactCommit:vi.fn(),compactCancel:vi.fn(),handoffCreate:vi.fn(),handoffImport:vi.fn(),handoffInspect:vi.fn(),handoffList:vi.fn(),handoffListImports:vi.fn(),handoffRevoke:vi.fn()} as unknown as ContextBridge
  await open({personal:true,providers,initialSession:session,context,chat:{start:vi.fn(),approve:vi.fn(),dispose:vi.fn()}})
@@ -1271,8 +1271,9 @@ it('keeps send and voice inside the composer and hides idle 0% context text',asy
  expect(box).toContainElement(mic)
  expect(box).toContainElement(send)
  expect(box).toContainElement(document.querySelector('.composer-primary-actions') as HTMLElement)
- expect(screen.queryByLabelText('上下文用量 0%')).toBeNull()
- expect(document.querySelector('.composer-primary-actions')?.textContent).not.toMatch(/0%/)
+ // 对标 Trae：低用量常显百分比（非高危态只读，不可点击压缩）。
+ expect(screen.getByLabelText('上下文已用 0%')).toBeDisabled()
+ expect(document.querySelector('.composer-primary-actions')?.textContent).toMatch(/0%/)
  const hint=document.querySelector('.msg-hint')
  expect(hint?.textContent).not.toContain('字符')
  expect(hint?.textContent).not.toContain('字节')

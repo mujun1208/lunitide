@@ -69,6 +69,14 @@ const MaxVisionBatchBytes = 3670016
 // transport boundary (WebView2 -> Host -> Engine), rather than merely below
 // the Host's absolute 256 KiB ceiling.
 const MaxUploadChunkBytes = 160 * 1024
+
+// RecommendedUploadChunkBytes is the chunk size advertised to clients in the
+// upload.begin response. WebView2 runtimes from 154.0.4258 silently drop
+// page->host postMessage frames larger than 65536 bytes, so the recommended
+// chunk keeps base64(40 KiB) + JSON envelope at ~55 KiB — safely under that
+// boundary while still fitting every other transport. MaxUploadChunkBytes
+// stays higher so older clients remain valid during upgrades.
+const RecommendedUploadChunkBytes = 40 * 1024
 const UploadTTL = 15 * time.Minute
 
 type uploadState struct {

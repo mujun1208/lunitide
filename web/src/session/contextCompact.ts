@@ -4,9 +4,12 @@ export function contextNeedsCompact(usage: number | undefined): boolean {
   return typeof usage === 'number' && Number.isFinite(usage) && usage >= COMPACT_USAGE_THRESHOLD
 }
 
+export function contextUsagePercent(usage: number): number {
+  return Math.min(100, Math.max(0, Math.round(usage * 100)))
+}
+
 export function compactUsageLabel(usage: number, zh: boolean): string {
-  const pct = Math.min(100, Math.max(0, Math.round(usage * 100)))
-  return zh ? `压缩 ${pct}%` : `Compact ${pct}%`
+  return zh ? `压缩 ${contextUsagePercent(usage)}%` : `Compact ${contextUsagePercent(usage)}%`
 }
 
 export function compactPreviewDescription(humanSummary?: string, summaryPreview?: string): string {
