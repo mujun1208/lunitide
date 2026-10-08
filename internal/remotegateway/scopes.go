@@ -120,8 +120,10 @@ func hashToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// hostAddresses 枚举本机可被手机直连的候选地址：非环回 IPv4 优先，
-// 其次全局 IPv6（蜂窝直连主路径）。返回顺序即二维码候选顺序。
+// hostAddresses 枚举本机可被手机直连的候选地址：尾网（Tailscale 等）地址
+// 置顶——它在任何网络下都能直达本机，作为二维码首选地址后手机流量扫码
+// 也能直接加载配对页；其次非环回 IPv4，最后全局 IPv6（蜂窝直连备选）。
+// 返回顺序即二维码候选顺序。
 func hostAddresses() []string {
 	addresses := []string{}
 	ifaces, err := net.Interfaces()
@@ -129,6 +131,7 @@ func hostAddresses() []string {
 		return addresses
 	}
 	v6 := []string{}
+	tailnet := ""
 	for _, iface := range ifaces {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 			continue
@@ -147,11 +150,22 @@ func hostAddresses() []string {
 				continue
 			}
 			if ip4 := ip.To4(); ip4 != nil {
+				// 100.64.0.0/10（CGNAT）是 Tailscale/ZeroTier 等尾网的地址段：
+				// 不受局域网/光猫防火墙限制，任意网络可直达。取第一个置顶。
+				if ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
+					if tailnet == "" {
+						tailnet = ip4.String()
+					}
+					continue
+				}
 				addresses = append(addresses, ip4.String())
 			} else if ip.IsGlobalUnicast() {
 				v6 = append(v6, ip.String())
 			}
 		}
+	}
+	if tailnet != "" {
+		addresses = append([]string{tailnet}, addresses...)
 	}
 	return append(addresses, v6...)
 }
