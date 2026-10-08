@@ -73,10 +73,10 @@ func TestSkillListShedsManifestNotRowsWhenOversized(t *testing.T) {
 	e.SetPersistDir(t.TempDir())
 
 	// Each manifest is individually capped at 64 KiB, so an oversized library is
-	// reached by row count, not by one giant row: ~70 near-cap manifests is past
-	// the frame budget.
+	// reached by row count, not by one giant row. The row count scales with the
+	// frame budget so the trimming path stays exercised as the limit moves.
 	bulk := strings.Repeat("a", 60_000)
-	const total = 70
+	total := skillListPayloadBudget/(60_000+512) + 8
 	for i := 0; i < total; i++ {
 		if _, err := store.CreateSkill(ctx, skill.Skill{
 			Name:         fmt.Sprintf("heavy-%02d", i),

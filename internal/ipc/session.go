@@ -202,6 +202,12 @@ func serveSession(ctx context.Context, conn net.Conn, expectedPID int, authentic
 		}
 		writeMu.Lock()
 		defer writeMu.Unlock()
+		if len(raw) > MaxFrameSize {
+			// Nothing has been written yet: the connection is still healthy.
+			// Report the rejection so the caller can fail this one call with a
+			// structured error instead of killing the session for everyone.
+			return oversizeFrameError{size: len(raw)}
+		}
 		// Each frame gets its full write budget, including one queued near the
 		// previous frame's deadline. A stale deadline can cut a frame in half.
 		if err := conn.SetWriteDeadline(time.Now().Add(sessionWriteTimeout)); err != nil {
@@ -279,6 +285,17 @@ func serveSession(ctx context.Context, conn net.Conn, expectedPID int, authentic
 				return write(event)
 			}
 			var response bridge.Response
+			// oversizeResponse replaces a response whose marshaled frame exceeds
+			// MaxFrameSize. Nothing was written for it, so the session stays up:
+			// only this call fails, with a structured error the UI can show.
+			oversizeResponse := func(err error) (bridge.Response, bool) {
+				var ofe oversizeFrameError
+				if !errors.As(err, &ofe) {
+					return bridge.Response{}, false
+				}
+				return bridge.Failure(request.ID, request.TraceID, "RESPONSE_TOO_LARGE",
+					fmt.Sprintf("这项响应有 %d 字节，超过单帧上限 %d 字节；本次调用没有完成，连接保持可用，其他功能不受影响。", ofe.size, MaxFrameSize), true), true
+			}
 			if streaming, ok := handler.(StreamingHandler); ok {
 				func() {
 					defer func() {
@@ -307,9 +324,18 @@ func serveSession(ctx context.Context, conn net.Conn, expectedPID int, authentic
 				return
 			}
 			if err := write(response); err != nil {
-				eventMu.Unlock()
-				_ = conn.Close()
-				return
+				if fallback, ok := oversizeResponse(err); ok {
+					response = fallback
+					if err := write(response); err != nil {
+						eventMu.Unlock()
+						_ = conn.Close()
+						return
+					}
+				} else {
+					eventMu.Unlock()
+					_ = conn.Close()
+					return
+				}
 			}
 			responseWritten = true
 			for _, event := range preResponseEvents {

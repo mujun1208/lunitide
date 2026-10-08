@@ -7,7 +7,13 @@ import (
 	"io"
 )
 
-const MaxFrameSize = 4 << 20
+// MaxFrameSize bounds one request/response frame on the trusted local pipe.
+// The product hub report (findings + full manual markdown + full manual HTML)
+// measures ~4.3 MiB at 625 cards, so the old 4 MiB cap rejected the diagnostics
+// response. 16 MiB leaves growth room; an oversize frame is still rejected, and
+// the session layer degrades that one call to a structured failure instead of
+// tearing the connection down.
+const MaxFrameSize = 16 << 20
 
 func WriteFrame(w io.Writer, payload []byte) error {
 	if len(payload) == 0 || len(payload) > MaxFrameSize {
@@ -55,4 +61,13 @@ func ReadFrameLimit(r io.Reader, limit uint32) ([]byte, error) {
 		return nil, err
 	}
 	return payload, nil
+}
+
+// oversizeFrameError marks a frame rejected for size before a single byte was
+// written. The transport is still healthy, so the session downgrades that one
+// call to a structured failure instead of closing the connection.
+type oversizeFrameError struct{ size int }
+
+func (e oversizeFrameError) Error() string {
+	return fmt.Sprintf("frame payload %d bytes exceeds the %d byte limit", e.size, MaxFrameSize)
 }

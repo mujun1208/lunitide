@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,6 +75,65 @@ func TestReadFrameLimitUsesHandshakeLimit(t *testing.T) {
 	if _, err := ReadFrameLimit(&buffer, 4096); err == nil {
 		t.Fatal("expected handshake frame limit rejection")
 	}
+}
+
+type oversizeAwareHandler struct{}
+
+func (oversizeAwareHandler) Handle(_ context.Context, request bridge.Request) bridge.Response {
+	if request.Method == "test.oversize" {
+		return bridge.Success(request.ID, map[string]string{"blob": strings.Repeat("x", MaxFrameSize+1)})
+	}
+	return bridge.Success(request.ID, map[string]string{"ok": "yes"})
+}
+
+func TestOversizeResponseFailsOneCallWithoutKillingSession(t *testing.T) {
+	server, client := net.Pipe()
+	secret := bytes.Repeat([]byte{7}, sessionSecretSize)
+	auth := NewSessionAuthenticator(append([]byte(nil), secret...))
+	done := make(chan error, 1)
+	go func() {
+		done <- serveSession(context.Background(), server, 42, auth, oversizeAwareHandler{}, nil,
+			func(net.Conn) (uint32, error) { return 42, nil }, WriteFrame)
+	}()
+	hello, _ := json.Marshal(Handshake{RPCMajor: RPCMajor, RPCMinor: RPCMinor, ClientPID: 42, SessionNonce: hex.EncodeToString(secret)})
+	if err := WriteFrame(client, hello); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadFrameLimit(client, 4096); err != nil {
+		t.Fatal(err)
+	}
+	send := func(method string) {
+		t.Helper()
+		req, _ := json.Marshal(bridge.Request{Version: bridge.Version, Kind: "request", ID: ulid.Make().String(), TraceID: ulid.Make().String(), Method: method, SentAt: time.Now(), Payload: json.RawMessage(`{}`), DeadlineMS: 3000})
+		if err := WriteFrame(client, req); err != nil {
+			t.Fatal(err)
+		}
+	}
+	readResponse := func() bridge.Response {
+		t.Helper()
+		frame, err := ReadFrame(client)
+		if err != nil {
+			t.Fatalf("connection died instead of returning a structured failure: %v", err)
+		}
+		var resp bridge.Response
+		if err := decodeStrict(frame, &resp); err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+	send("test.oversize")
+	resp := readResponse()
+	if resp.OK || resp.Error == nil || resp.Error.Code != "RESPONSE_TOO_LARGE" {
+		t.Fatalf("expected RESPONSE_TOO_LARGE failure, got ok=%v error=%+v", resp.OK, resp.Error)
+	}
+	// The session must still serve the next request on the same connection.
+	send("test.normal")
+	resp = readResponse()
+	if !resp.OK {
+		t.Fatalf("session did not survive an oversize response: %+v", resp.Error)
+	}
+	_ = client.Close()
+	<-done
 }
 
 func TestDisconnectCancelsStreamingHandlerBeforeWait(t *testing.T) {
