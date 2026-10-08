@@ -205,6 +205,35 @@ class MainActivity : Activity() {
         web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
     }
 
+    /** 所有候选地址都连不上：渲染原生错误页（重扫码/重试出口），
+     *  不再停留在 WebView 系统错误页或白屏上。 */
+    private fun renderConnectError() {
+        val tried = candidates.size.coerceAtLeast(1)
+        val html = """
+            <!doctype html><html><head><meta charset="utf-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1">
+            <style>
+              body{font-family:system-ui,sans-serif;background:#10141c;color:#e8ecf4;
+                   display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
+              .card{max-width:320px;padding:32px 24px;text-align:center;line-height:1.7}
+              h1{font-size:20px;margin:0 0 12px}
+              p{font-size:14px;color:#9aa7bd;margin:0 0 8px}
+              .btn{display:block;margin:10px auto;padding:12px 0;width:220px;font-size:16px;
+                   color:#10141c;background:#7aa2ff;border:none;border-radius:8px}
+              .btn.ghost{background:transparent;color:#7aa2ff;border:1px solid #7aa2ff}
+            </style></head><body><div class="card">
+              <h1>连不上电脑</h1>
+              <p>已尝试全部 $tried 个已知地址，均无法到达。</p>
+              <p>· 确认电脑端「设置 → 远程访问」已开启<br>
+                 · 手机与电脑连同一 Wi-Fi 后重试<br>
+                 · 电脑网络支持公网 IPv6 时，手机流量也可直连</p>
+              <button class="btn" onclick="location.href='lunitide-shell://scan'">重新扫码配对</button>
+              <button class="btn ghost" onclick="location.href='lunitide-shell://retry'">重试连接</button>
+              </div></body></html>
+        """.trimIndent()
+        web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+    }
+
     /** APP 内扫码配对：扫码结果即配对 URL，复用 https 深链接分支在壳内完成配对。 */
     private fun startScan() {
         IntentIntegrator(this)
@@ -253,13 +282,7 @@ class MainActivity : Activity() {
                 ?: "$nextOrigin/"
             loadWithFailover(target)
         } else {
-            runOnUiThread {
-                Toast.makeText(
-                    this,
-                    "暂时连不上电脑：请确认电脑端远程访问已开启；若电脑网络变化，请重新扫码配对",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
+            runOnUiThread { renderConnectError() }
         }
     }
 
@@ -278,8 +301,11 @@ class MainActivity : Activity() {
                 }
                 "lunitide" -> true // 壳内不需要唤起自己
                 "lunitide-shell" -> {
-                    // 欢迎页「扫码配对」按钮：进入原生扫码页。
-                    if (uri.host == "scan") startScan()
+                    // 欢迎页/连接错误页按钮：scan 进原生扫码页；retry 从头轮换候选重连。
+                    when (uri.host) {
+                        "scan" -> startScan()
+                        "retry" -> loadSavedOrEmpty()
+                    }
                     true
                 }
                 else -> false
